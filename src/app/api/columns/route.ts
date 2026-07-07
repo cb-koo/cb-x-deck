@@ -12,6 +12,9 @@ export async function POST(req: Request) {
   if (!body?.kind || !body?.title || !body?.config) {
     return NextResponse.json({ error: 'kind, title, config 필수' }, { status: 400 });
   }
+  if (body.kind !== 'search' && body.kind !== 'watchlist') {
+    return NextResponse.json({ error: 'kind은 search 또는 watchlist이어야 함' }, { status: 400 });
+  }
   const config = { ...body.config };
   if (body.kind === 'watchlist') {
     try {

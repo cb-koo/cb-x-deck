@@ -9,11 +9,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const patch = await req.json();
   const sql = getSql();
 
+  // Always load column first to ensure it exists
+  const existing = await getColumn(sql, id);
+  if (!existing) return NextResponse.json({ error: `column not found: ${id}` }, { status: 404 });
+
   // plan gap: PATCH must not blindly persist a new watchlist handle without
   // re-resolving userId (same rule POST enforces on create).
   if (patch?.config) {
-    const existing = await getColumn(sql, id);
-    if (!existing) return NextResponse.json({ error: `column not found: ${id}` }, { status: 404 });
     if (existing.kind === 'watchlist') {
       const oldHandle = (existing.config as WatchlistConfig).handle;
       const newHandle = String((patch.config as WatchlistConfig).handle ?? '').replace(/^@/, '');

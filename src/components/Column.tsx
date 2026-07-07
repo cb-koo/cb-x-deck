@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ColumnRow, SearchConfig, SortKey, StoredTweet, ViewMode } from '@/lib/types';
 import { TweetCard } from './TweetCard';
 import { CooccurrencePanel } from './CooccurrencePanel';
@@ -16,8 +16,9 @@ function lastRefreshedLabel(iso: string | null): string {
 
 const SORT_LABEL: Record<SortKey, string> = { views: '조회수', date: '날짜', bookmarks: '북마크', retweets: 'RT' };
 
-export function Column({ column, onEdit, onDelete, onPickTag }: {
+export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   column: ColumnRow;
+  autoRefresh?: boolean;   // 생성 직후 1회 자동 조회 (page.tsx가 방금 만든 컬럼에만 지정)
   onEdit: () => void;
   onDelete: () => void;
   onPickTag: (tag: string) => void;
@@ -64,6 +65,16 @@ export function Column({ column, onEdit, onDelete, onPickTag }: {
   }, [column.id]);
 
   useEffect(() => { load(sort); }, [load, sort]);
+
+  // 생성 직후 1회 자동 조회 — 미조회(lastRefreshedAt=null) 상태일 때만, 재실행 방지 가드
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRefresh && !autoRan.current && !column.lastRefreshedAt) {
+      autoRan.current = true;
+      refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefresh]);
 
   const visible = mode === 'new' ? tweets.filter((t) => !t.seenAt) : tweets;
 

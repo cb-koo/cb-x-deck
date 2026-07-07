@@ -14,6 +14,9 @@ export default function DeckPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // 방금 생성된 컬럼 id — 해당 컬럼은 마운트 시 1회 자동 조회 (사용자 조작=생성에 딸린 단발 호출, 폴링 아님)
+  const [autoRefreshId, setAutoRefreshId] = useState<string | null>(null);
+
   async function submit(v: { kind: ColumnKind; title: string; config: SearchConfig | WatchlistConfig }) {
     const isEdit = modal?.mode === 'edit' && modal.column;
     const r = await fetch(isEdit ? `/api/columns/${modal.column!.id}` : '/api/columns', {
@@ -22,6 +25,10 @@ export default function DeckPage() {
       body: JSON.stringify(isEdit ? { title: v.title, config: v.config } : v),
     });
     if (!r.ok) throw new Error((await r.json().catch(() => ({})) as { error?: string }).error ?? `오류 ${r.status}`);
+    if (!isEdit) {
+      const created = (await r.json()) as ColumnRow;
+      setAutoRefreshId(created.id);
+    }
     await load();
   }
 
@@ -47,6 +54,7 @@ export default function DeckPage() {
         )}
         {columns.map((c) => (
           <Column key={c.id} column={c}
+                  autoRefresh={c.id === autoRefreshId}
                   onEdit={() => setModal({ mode: 'edit', column: c })}
                   onDelete={() => remove(c)}
                   onPickTag={(tag) => setModal({ mode: 'create', presetKeyword: tag })} />

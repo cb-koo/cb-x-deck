@@ -6,7 +6,7 @@ export function MediaGrid({ media }: { media: DeckMedia[] }) {
   const gridClass =
     imgs.length === 1 ? 'grid-cols-1' : 'grid-cols-2';
   return (
-    <div className={`mt-2 grid ${gridClass} gap-0.5 overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-700`}>
+    <div className={`mt-3 grid ${gridClass} gap-0.5 overflow-hidden rounded-2xl border border-[#cfd9de]`}>
       {imgs.map((m, i) => (
         <div key={i} className={imgs.length === 3 && i === 0 ? 'row-span-2' : ''}>
           {/* eslint-disable-next-line @next/next/no-img-element */}

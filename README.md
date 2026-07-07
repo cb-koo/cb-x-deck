@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# cb-x-deck
 
-## Getting Started
+TweetDeck식 X(트위터) 벤치마크 리서치 도구. X 콘텐츠 기획(글감·포맷 발굴) 탐색 단계 지원용.
 
-First, run the development server:
+## 실행
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev   # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`.env` 필요 키: `PGHOST/PGPORT/PGUSER/PGDATABASE/PGPASSWORD`(Supabase Session pooler),
+`GETXAPI_KEY`, `ANTHROPIC_API_KEY`. (SUPABASE_* 키는 v2 배포용 예비)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 명령
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| 명령 | 설명 |
+|---|---|
+| `npm run dev` | 로컬 실행 |
+| `npm test` | 단위+DB 통합 테스트 (실 Supabase, test- 접두 데이터 자가 정리) |
+| `npm run migrate` | `migrations/*.sql` 적용 |
+| `npm run smoke:getxapi` | GetXAPI 실호출 계약 검증 + fixtures 재채집 (~$0.003) |
+| `npm run smoke:suggest` | Claude 연관 키워드 실호출 확인 |
 
-## Learn More
+## 비용 특성
 
-To learn more about Next.js, take a look at the following resources:
+- 자동 폴링 없음 — 새로고침 버튼을 누를 때만 GetXAPI 호출 ($0.001/페이지 × maxPages, 기본 3)
+- 검색 레이트 리밋: 단시간 ~7콜 — 여러 컬럼 연속 새로고침 시 간격 두기 (429는 자동 재시도)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 구조
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `src/lib/` — 로직 전부 (getxapi 클라이언트, 매퍼, 쿼리빌더, 스토어, refresh 파이프라인)
+- `src/app/api/` — 얇은 프록시 라우트 (키는 서버에만)
+- `src/components/` — X UI 재현 TweetCard, 덱 컬럼, 보관함 카드
+- 스키마: deck_column / tweet(아카이브, first_seen·last_fetched·seen_at) / column_tweet / candidate / tag
+- 설계 spec: `docs/superpowers/specs/2026-07-07-cb-x-deck-v1-design.md`

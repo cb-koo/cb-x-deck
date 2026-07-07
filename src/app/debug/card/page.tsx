@@ -1,0 +1,24 @@
+import { readFileSync } from 'node:fs';
+import { mapRawTweet } from '@/lib/mappers';
+import type { StoredTweet } from '@/lib/types';
+import { TweetCard } from '@/components/TweetCard';
+
+export default function DebugCardPage() {
+  const fixture = JSON.parse(readFileSync('fixtures/search-response.json', 'utf8'));
+  const tweets: StoredTweet[] = fixture.tweets
+    .map(mapRawTweet)
+    .filter(Boolean)
+    .slice(0, 10)
+    .map((t: NonNullable<ReturnType<typeof mapRawTweet>>, i: number) => ({
+      ...t,
+      firstSeenAt: new Date().toISOString(),
+      lastFetchedAt: new Date().toISOString(),
+      seenAt: i % 3 === 0 ? new Date().toISOString() : null,
+      isCandidate: i % 4 === 0,
+    }));
+  return (
+    <main className="mx-auto max-w-[420px] border-x border-gray-200 dark:border-gray-800">
+      {tweets.map((t) => <TweetCard key={t.tweetId} tweet={t} />)}
+    </main>
+  );
+}

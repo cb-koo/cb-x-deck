@@ -73,3 +73,27 @@ export async function translateKeyword(
   if (!j || typeof j.ja !== 'string' || j.ja.length === 0) return null;
   return { ja: j.ja, ko: typeof j.ko === 'string' && j.ko ? j.ko : keyword };
 }
+
+const TAGS_PROMPT = (tags: string[]) => `일본 뷰티/미용의료 X 해시태그들을 한국어로 번역하세요. 한국 뷰티 업계 통용 표현으로, 짧게.
+태그: ${JSON.stringify(tags)}
+JSON만 출력 (태그를 키로, 한국어 번역을 값으로): {"태그": "번역", ...}`;
+
+export async function translateTags(
+  tags: string[],
+  client?: AnthropicLike,
+): Promise<Record<string, string>> {
+  if (tags.length === 0) return {};
+  const c = client ?? (new Anthropic() as unknown as AnthropicLike);
+  const res = await c.messages.create({
+    model: MODEL(),
+    max_tokens: 600,
+    messages: [{ role: 'user', content: TAGS_PROMPT(tags) }],
+  });
+  const j = extractJson(res);
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(j as Record<string, unknown>)) {
+    if (typeof v === 'string' && v) out[k] = v;
+  }
+  return out;
+}

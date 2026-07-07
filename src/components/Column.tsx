@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ColumnRow, SearchConfig, SortKey, StoredTweet, ViewMode } from '@/lib/types';
 import { TweetCard } from './TweetCard';
 import { CooccurrencePanel } from './CooccurrencePanel';
+import { RefreshIcon, SettingsIcon, TrashIcon } from './XIcons';
 
 function lastRefreshedLabel(iso: string | null): string {
   if (!iso) return '미조회';
@@ -96,6 +97,7 @@ export function Column({ column, onEdit, onDelete, onPickTag }: {
   }
 
   const btn = 'rounded px-1.5 py-0.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-800';
+  const iconBtn = 'rounded-full p-1.5 text-[#536471] transition-colors hover:bg-[#1d9bf0]/10 hover:text-[#1d9bf0] disabled:opacity-60';
   const keywords = column.kind === 'search' ? ((column.config as SearchConfig).keywords ?? []) : [];
 
   return (
@@ -103,10 +105,12 @@ export function Column({ column, onEdit, onDelete, onPickTag }: {
       <header className="border-b border-gray-200 px-3 py-2 dark:border-gray-800">
         <div className="flex items-center gap-1">
           <h2 className="truncate font-bold">{column.kind === 'watchlist' ? '👤 ' : '🔍 '}{column.title}</h2>
-          <span className="ml-auto text-[11px] text-gray-400">{lastRefreshedLabel(lastRefreshed)}</span>
-          <button onClick={refresh} disabled={busy} className={btn} title="새로고침">{busy ? '⏳' : '🔄'}</button>
-          <button onClick={onEdit} className={btn} title="설정">⚙️</button>
-          <button onClick={onDelete} className={btn} title="삭제">🗑</button>
+          <span className="ml-auto text-[11px] text-gray-400">{busy ? '새로고침 중…' : lastRefreshedLabel(lastRefreshed)}</span>
+          <button onClick={refresh} disabled={busy} className={`${iconBtn} ${busy ? 'text-[#1d9bf0]' : ''}`} title="새로고침">
+            <RefreshIcon className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
+          </button>
+          <button onClick={onEdit} className={iconBtn} title="설정"><SettingsIcon className="h-4 w-4" /></button>
+          <button onClick={onDelete} className={iconBtn} title="컬럼 삭제"><TrashIcon className="h-4 w-4" /></button>
         </div>
         <div className="mt-1 flex items-center gap-1 text-xs">
           {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
@@ -121,6 +125,12 @@ export function Column({ column, onEdit, onDelete, onPickTag }: {
         </div>
         {err && <p className="mt-1 text-xs text-red-500">{err} <button onClick={refresh} className="underline">재시도</button></p>}
       </header>
+      {/* 새로고침 진행 표시 — 완료 전까지 상단 인디케이터 */}
+      {busy && (
+        <div className="h-0.5 overflow-hidden bg-[#1d9bf0]/20">
+          <div className="h-full w-1/3 animate-[deck-indeterminate_1.2s_ease-in-out_infinite] bg-[#1d9bf0]" />
+        </div>
+      )}
       {column.kind === 'search' && (
         <CooccurrencePanel tweets={tweets} excludeKeywords={keywords} onPick={onPickTag} />
       )}

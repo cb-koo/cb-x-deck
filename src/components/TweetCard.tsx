@@ -55,19 +55,19 @@ export function TweetCard({ tweet: t, onSave, onUnsave, onMarkSeen }: TweetCardP
           )}
           {/* 엔게이지먼트 바 — 실제 X 순서: Reply · Repost · Like · View · Bookmark */}
           <div className="mt-3 flex max-w-[425px] items-center justify-between">
-            <span className={`${metricBase} hover:text-[#1d9bf0]`}>
+            <span title="답글 (Reply)" className={`${metricBase} hover:text-[#1d9bf0]`}>
               <ReplyIcon /> {formatCount(t.metrics.replies)}
             </span>
-            <span className={`${metricBase} hover:text-[#00ba7c]`}>
+            <span title="리포스트 (Repost)" className={`${metricBase} hover:text-[#00ba7c]`}>
               <RepostIcon /> {formatCount(t.metrics.retweets)}
             </span>
-            <span className={`${metricBase} hover:text-[#f91880]`}>
+            <span title="좋아요 (Like)" className={`${metricBase} hover:text-[#f91880]`}>
               <LikeIcon /> {formatCount(t.metrics.likes)}
             </span>
-            <span className={`${metricBase} hover:text-[#1d9bf0]`}>
+            <span title="조회수 (View)" className={`${metricBase} hover:text-[#1d9bf0]`}>
               <ViewIcon /> {formatCount(t.metrics.views)}
             </span>
-            <span className={`${metricBase} hover:text-[#1d9bf0]`}>
+            <span title="북마크 (Bookmark)" className={`${metricBase} hover:text-[#1d9bf0]`}>
               <BookmarkIcon /> {formatCount(t.metrics.bookmarks)}
             </span>
           </div>

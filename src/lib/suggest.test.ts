@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { suggestKeywords, translateKeyword } from './suggest.ts';
+import { suggestKeywords, translateKeyword, translateTags } from './suggest.ts';
 
 function fakeClient(text: string) {
   return { messages: { create: async () => ({ content: [{ type: 'text', text }] }) } };
@@ -36,4 +36,19 @@ test('translateKeyword: 맥락 번역 파싱', async () => {
 test('translateKeyword: 파싱 불가면 null', async () => {
   assert.equal(await translateKeyword('모공', fakeClient('번역 못함')), null);
   assert.equal(await translateKeyword('모공', fakeClient('{"ko":"모공만 있음"}')), null);
+});
+
+test('translateTags: 태그 배열 → ko 매핑', async () => {
+  const out = await translateTags(['スキンケア', 'レチノール'], fakeClient('{"スキンケア":"스킨케어","レチノール":"레티놀"}'));
+  assert.deepEqual(out, { 'スキンケア': '스킨케어', 'レチノール': '레티놀' });
+});
+
+test('translateTags: 파싱 불가/빈 입력이면 빈 객체', async () => {
+  assert.deepEqual(await translateTags(['a'], fakeClient('불가')), {});
+  assert.deepEqual(await translateTags([], fakeClient('{}')), {});
+});
+
+test('translateTags: 문자열 아닌 값은 걸러냄', async () => {
+  const out = await translateTags(['a', 'b'], fakeClient('{"a":"에이","b":123}'));
+  assert.deepEqual(out, { a: '에이' });
 });

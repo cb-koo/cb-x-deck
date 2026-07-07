@@ -1,9 +1,11 @@
+// X(트위터)식 숫자 축약: 1만 미만 콤마, 1만~ K, 100만~ M. 값이 100 이상이면 소수점 생략.
 export function formatCount(n: number | null): string {
   if (n === null || n === undefined) return '–';
   if (n < 10000) return n.toLocaleString('en-US');
-  const man = n / 10000;
-  const s = man >= 100 ? Math.round(man).toLocaleString('en-US') : (Math.round(man * 10) / 10).toString();
-  return `${s}万`;
+  const unit = n >= 1000000 ? 'M' : 'K';
+  const v = n / (unit === 'M' ? 1000000 : 1000);
+  const s = v >= 100 ? Math.floor(v).toLocaleString('en-US') : (Math.floor(v * 10) / 10).toString().replace(/\.0$/, '');
+  return `${s}${unit}`;
 }
 
 export function formatDate(iso: string | null): string {

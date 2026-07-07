@@ -12,6 +12,7 @@ export interface SearchConfig {
   minViews?: number | null;    // 클라이언트 재필터
   maxPages?: number | null;    // 기본 3
   sort?: SortKey;              // 기본 'views'
+  width?: number | null;       // 컬럼 표시 폭(px), 드래그 리사이즈로 저장. 기본 400
 }
 
 export interface WatchlistConfig {
@@ -19,6 +20,7 @@ export interface WatchlistConfig {
   userId: string;              // 컬럼 생성 시 getUserInfo로 해석해 저장
   maxPages?: number | null;
   sort?: SortKey;
+  width?: number | null;
 }
 
 export interface ColumnRow {

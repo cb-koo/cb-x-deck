@@ -29,6 +29,33 @@ export function Column({ column, onEdit, onDelete, onPickTag }: {
   const [lastRefreshed, setLastRefreshed] = useState(column.lastRefreshedAt);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [width, setWidth] = useState<number>(column.config.width ?? 400);
+
+  // 우측 가장자리 드래그로 폭 조절, 놓으면 config.width로 저장
+  function startResize(e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = width;
+    let w = startW;
+    const move = (ev: MouseEvent) => {
+      w = Math.min(720, Math.max(280, startW + ev.clientX - startX));
+      setWidth(w);
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      document.body.style.cursor = '';
+      if (w !== startW) {
+        fetch(`/api/columns/${column.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config: { ...column.config, width: w } }),
+        });
+      }
+    };
+    document.body.style.cursor = 'col-resize';
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  }
 
   const load = useCallback(async (s: SortKey) => {
     const r = await fetch(`/api/columns/${column.id}/tweets?sort=${s}&mode=all`);
@@ -72,7 +99,7 @@ export function Column({ column, onEdit, onDelete, onPickTag }: {
   const keywords = column.kind === 'search' ? ((column.config as SearchConfig).keywords ?? []) : [];
 
   return (
-    <section className="flex h-full w-[400px] shrink-0 flex-col border-r border-gray-200 dark:border-gray-800">
+    <section style={{ width }} className="relative flex h-full shrink-0 flex-col border-r border-gray-200 dark:border-gray-800">
       <header className="border-b border-gray-200 px-3 py-2 dark:border-gray-800">
         <div className="flex items-center gap-1">
           <h2 className="truncate font-bold">{column.kind === 'watchlist' ? '👤 ' : '🔍 '}{column.title}</h2>
@@ -104,6 +131,8 @@ export function Column({ column, onEdit, onDelete, onPickTag }: {
               <TweetCard key={t.tweetId} tweet={t} onSave={save} onUnsave={unsave} onMarkSeen={markSeen} />
             ))}
       </div>
+      <div onMouseDown={startResize} title="드래그로 폭 조절"
+           className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-[#1d9bf0]/40 active:bg-[#1d9bf0]/60" />
     </section>
   );
 }

@@ -81,12 +81,12 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
           kind, title: title || kws.map(chipLabel).join('·'),
           config: { keywords: kws.map((k) => k.ja), minFaves: minFaves || null, minViews: minViews || null,
                     sinceDate: sinceDate || null, untilDate: untilDate || null, lang: lang || null,
-                    imagesOnly, maxPages: maxPages || 3, sort: init.sort ?? 'views' },
+                    imagesOnly, maxPages: maxPages || 3, sort: init.sort ?? 'views', width: init.width ?? null },
         });
       } else {
         if (!handle.trim()) { setErr('계정 핸들을 입력하세요'); return; }
         await onSubmit({ kind, title: title || `@${handle.replace(/^@/, '')}`,
-          config: { handle: handle.replace(/^@/, ''), userId: init.userId ?? '', maxPages: maxPages || 3, sort: init.sort ?? 'views' } });
+          config: { handle: handle.replace(/^@/, ''), userId: init.userId ?? '', maxPages: maxPages || 3, sort: init.sort ?? 'views', width: init.width ?? null } });
       }
       onClose();
     } catch (e) { setErr((e as Error).message); }

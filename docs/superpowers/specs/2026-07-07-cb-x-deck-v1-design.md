@@ -30,6 +30,7 @@ X 콘텐츠 생산 프로세스의 병목인 **기획(글감·포맷 발굴)의 
 ### 4-1. 검색 컬럼 (search)
 - `advanced_search_tweets` + 페이지네이션
 - 사용자 설정 필터: 키워드(복수, OR 조합) / min_faves 하한 / 기간(since–until) / 언어(기본 ja) / 이미지만(filter:images) / **조회수 하한(API 미지원 → 수신 후 클라이언트 재필터)**
+- **페이지 수 상한(max_pages)**: 새로고침 1회당 가져올 페이지 수, 컬럼 설정값(기본 3) — 비용 통제 장치
 - 기본값 = 2026-07-06 스윕 확정치(min_faves 200–500 하한, lang:ja, filter:images)
 
 ### 4-2. 워치리스트 컬럼 (watchlist)
@@ -55,7 +56,7 @@ Bookmarks 컬럼(`list_bookmarks`, 수집 인박스) / Likes 컬럼(`get_user_li
 
 | 테이블 | 필드 요지 |
 |---|---|
-| `column` | id, kind(`search`\|`watchlist`), title, position, config jsonb(검색: keywords[]·min_faves·since·until·lang·images_only·min_views / 워치: handle), **last_refreshed_at** |
+| `column` | id, kind(`search`\|`watchlist`), title, position, config jsonb(검색: keywords[]·min_faves·since·until·lang·images_only·min_views·max_pages / 워치: handle / 공통: sort), **last_refreshed_at** |
 | `tweet` | tweet_id PK, 본문, 작성자(handle·표시명·아바타 URL·**팔로워수**), 미디어 jsonb(이미지 URL들), 인용트윗 jsonb, 지표 jsonb(views·likes·rt·quotes·bookmarks·replies), tweet_created_at, **first_seen_at(최초 조회)**, **last_fetched_at(마지막 지표 갱신)**, **seen_at(사용자 열람 시각, null=미열람)** |
 | `column_tweet` | column_id + tweet_id (어느 컬럼에서 잡혔는지, 컬럼 간 중복 식별) |
 | `candidate` | id, tweet_id FK, memo, saved_at, source_column_id (페이로드는 tweet 참조, 중복 저장 없음) |
@@ -68,7 +69,8 @@ Bookmarks 컬럼(`list_bookmarks`, 수집 인박스) / Likes 컬럼(`get_user_li
 
 ### 7-1. 덱 보드 (메인)
 - 가로 스크롤 컬럼 배치 (TweetDeck식)
-- 컬럼 헤더: 제목 · **새로고침 버튼 · 마지막 새로고침 시각** · 설정 · 보기 모드 토글
+- 컬럼 헤더: 제목 · **새로고침 버튼 · 마지막 새로고침 시각** · 설정 · 보기 모드 토글 · **정렬 토글**
+- **정렬: 기본 = 조회수순.** 옵션 = 조회수 / 날짜(트윗 작성 시각) / 북마크(저장) / RT 순 — 벤치마크 발굴 도구이므로 지표 정렬이 기본
 - **보기 모드: "새 트윗만"(기본, seen_at null만) / "전체"**. 열람한 카드는 흐리게(dim) 처리. seen 처리 = **명시적 조작만**: 카드의 "읽음" 버튼 + 컬럼 헤더의 "모두 읽음" 버튼 (스크롤 노출 자동 처리는 오판 위험이 있어 v1 제외)
 - 카드 하단에 **최초 조회 날짜 · 마지막 업데이트 날짜** 표시 — 목적: 컬럼의 최종 조회/업데이트 시점을 확인하고 추가 조회/업데이트 여부를 사용자가 판단하도록 보조 (컬럼 헤더의 마지막 새로고침 시각과 동일 목적의 카드 레벨 표시)
 
@@ -97,12 +99,13 @@ X 공식 embed 위젯은 덱 구조(컬럼당 수십 카드)에 과중 → **직
 
 ## 10. 비용
 
-수동 갱신만이므로: 새로고침 1회 = 페이지 수 × $0.001 (통상 1–5페이지). 자동 호출 없음. LLM 제안은 Haiku급으로 회당 무시 가능 수준.
+수동 갱신만이므로: 새로고침 1회 = 페이지 수 × $0.001 (max_pages 설정값, 기본 3). 자동 호출 없음. LLM 제안은 Haiku급으로 회당 무시 가능 수준.
 
 ## 11. 테스트
 
 - 로직(검색 쿼리 빌더 · 조회수 재필터 · GetXAPI 응답 매퍼 · 해시태그 공출현 집계 · upsert 시 first_seen/seen_at 보존)은 단위 테스트
 - GetXAPI는 **실호출 스모크 스크립트 1개** (cb-sponsorship-tracker 검증 원칙: 모킹 테스트만으로 닫지 않는다)
+- 스모크 필수 확인 항목: **advanced_search 응답에 인용 트윗 원문이 완전한 형태로 포함되는지** (미검증 가정 — tweet_detail에서만 검증됨. 불완전하면 인용 카드는 축약 표시로 대체) · 조회수·북마크수 필드 존재 · 이미지 URL 배열
 - UI는 수동 확인 (개인 도구 v1)
 
 ## 12. 시작 전 준비물 (사용자 몫)
@@ -112,4 +115,4 @@ X 공식 embed 위젯은 덱 구조(컬럼당 수십 카드)에 과중 → **직
 
 ## 13. v1 범위 밖 (백로그)
 
-Bookmarks/Likes/List 컬럼 · 자동 폴링 · 명사 공출현(kuromoji) · 급상승/재발견 추적 · 팀 배포/로그인(v2) · 저장 트윗 지표 일괄 재추적
+Bookmarks/Likes/List 컬럼 · 자동 폴링 · 명사 공출현(kuromoji) · 급상승/재발견 추적 · 팀 배포/로그인(v2) · 저장 트윗 지표 일괄 재추적 · **보관함 내보내기(마크다운 리포트 등 — 기존 산출물 워크플로우 대체분)**

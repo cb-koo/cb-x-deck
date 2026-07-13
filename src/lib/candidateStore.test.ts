@@ -62,8 +62,8 @@ test('멤버별 저장·중복 허용·필터·태그·워크스페이스 격리
     // 자기 것만 해제 — B의 저장은 남음
     await removeCandidate(sql, { tweetId: P + 'a', workspaceId: ws1.id, memberId: mA.id });
     const remain = await listCandidates(sql, ws1.id);
-    assert.deepEqual(remain.map((c) => c.member.name).sort(), [P + 'A', P + 'B'].sort() && remain.length === 2 ? remain.map((c) => c.member.name).sort() : remain.map((c) => c.member.name).sort());
-    assert.equal(remain.length, 2); // b(A) + a(B)
+    assert.deepEqual(remain.map((c) => c.member.name).sort(), [P + 'A', P + 'B'].sort()); // b(A) + a(B)
+    assert.equal(remain.length, 2);
   } finally {
     await deleteWorkspace(sql, ws1.id);
     await deleteWorkspace(sql, ws2.id);

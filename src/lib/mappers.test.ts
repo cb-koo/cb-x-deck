@@ -26,11 +26,28 @@ test('레거시 createdAt("Mon Jul 06 23:29:44 +0000 2026") → ISO 변환', () 
 });
 
 test('quoted_tweet 축약형 매핑 + user 필드 방어', () => {
+  // 검색 응답 실제 키는 name/screen_name — 과거 userName 키도 폴백으로 수용
   const t = mapRawTweet({
+    id: '1', text: 'x', author: { userName: 'u' },
+    quoted_tweet: { id: '2', text: 'inner', user: { name: '이름', screen_name: 'handle1' } },
+  });
+  assert.deepEqual(t!.quoted, { id: '2', text: 'inner', userName: '이름', screenName: 'handle1' });
+  const legacy = mapRawTweet({
     id: '1', text: 'x', author: { userName: 'u' },
     quoted_tweet: { id: '2', text: 'inner', user: { userName: 'qq' } },
   });
-  assert.deepEqual(t!.quoted, { id: '2', text: 'inner', userName: 'qq' });
+  assert.deepEqual(legacy!.quoted, { id: '2', text: 'inner', userName: 'qq', screenName: null });
+});
+
+test('실 픽스처 quoted: 이름·핸들이 채워진다 (userName null 전량 버그 재발 방지)', () => {
+  const withQuoted = fixture.tweets.filter((r: Record<string, unknown>) => r.quoted_tweet);
+  assert.ok(withQuoted.length > 0);
+  for (const raw of withQuoted) {
+    const t = mapRawTweet(raw);
+    if (!t?.quoted) continue;
+    assert.ok(t.quoted.userName, `quoted.userName 비어 있음: ${JSON.stringify(t.quoted)}`);
+    assert.ok(t.quoted.screenName, `quoted.screenName 비어 있음`);
+  }
 });
 
 test('리트윗(retweeted_tweet 있음)은 null', () => {

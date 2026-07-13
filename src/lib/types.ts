@@ -37,7 +37,12 @@ export interface ColumnRow {
 }
 
 export interface DeckMedia { type: string; url: string; videoUrl: string | null }
-export interface DeckQuoted { id: string; text: string; userName: string | null }
+export interface DeckQuoted {
+  id: string;
+  text: string;
+  userName: string | null;    // 표시 이름 (검색 응답 user.name)
+  screenName: string | null;  // @핸들 (검색 응답 user.screen_name)
+}
 export interface DeckMetrics {
   views: number | null; likes: number | null; retweets: number | null;
   replies: number | null; quotes: number | null; bookmarks: number | null;

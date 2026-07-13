@@ -28,14 +28,14 @@ const TRANSLATE_PROMPT = (keyword: string) => `당신은 일본 뷰티/미용의
 (예: "모공" → "毛穴", "피부결" → "肌のキメ"가 아니라 실제 검색어인 "キメ")
 JSON만 출력: {"ja": "일본어 검색어", "ko": "${keyword}"}`;
 
-function extractJson(res: { content: Array<{ type: string; text?: string }> }): unknown | null {
+export function extractJson(res: { content: Array<{ type: string; text?: string }> }): unknown | null {
   const text = res.content.find((b) => b.type === 'text')?.text ?? '';
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) return null;
   try { return JSON.parse(m[0]); } catch { return null; }
 }
 
-function pairs(v: unknown): KwPair[] {
+export function pairs(v: unknown): KwPair[] {
   if (!Array.isArray(v)) return [];
   return v
     .filter((x): x is { ja: string; ko?: unknown } =>

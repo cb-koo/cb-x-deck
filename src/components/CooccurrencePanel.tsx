@@ -45,13 +45,13 @@ export function CooccurrencePanel({ tweets, excludeKeywords, onPick }: {
 
   if (tags.length === 0) return null;
   return (
-    <div className="border-b border-gray-200 px-3 py-2 dark:border-gray-800">
-      <p className="mb-1 text-xs text-gray-500">함께 나온 해시태그 (클릭 → 새 컬럼)</p>
+    <div className="border-b border-x-border px-3 py-2">
+      <p className="mb-1 text-xs text-x-secondary">함께 나온 해시태그 (클릭 → 새 컬럼)</p>
       <div className="flex flex-wrap gap-1">
         {tags.map(({ tag, count }) => (
           <button key={tag} onClick={() => onPick(tag)}
-                  className="rounded-full border border-gray-300 px-2 py-0.5 text-xs hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-800">
-            #{tag}{ko[tag] ? ` (${ko[tag]})` : ''} <span className="text-gray-400">{count}</span>
+                  className="rounded-full border border-x-border-strong px-2 py-0.5 text-xs hover:bg-x-hover">
+            #{tag}{ko[tag] ? ` (${ko[tag]})` : ''} <span className="text-x-muted">{count}</span>
           </button>
         ))}
       </div>

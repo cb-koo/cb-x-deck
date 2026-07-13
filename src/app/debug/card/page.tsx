@@ -17,7 +17,7 @@ export default function DebugCardPage() {
       savedBy: i % 4 === 0 ? [{ id: 'debug', name: '디버그', color: '#1d9bf0' }] : [],
     }));
   return (
-    <main className="mx-auto max-w-[420px] border-x border-gray-200 dark:border-gray-800">
+    <main className="mx-auto max-w-[420px] border-x border-x-border">
       {tweets.map((t) => <TweetCard key={t.tweetId} tweet={t} />)}
     </main>
   );

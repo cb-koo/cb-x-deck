@@ -128,17 +128,17 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
     await load(sort);
   }
 
-  const btn = 'rounded px-1.5 py-0.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-800';
-  const iconBtn = 'rounded-full p-1.5 text-[#536471] transition-colors hover:bg-[#1d9bf0]/10 hover:text-[#1d9bf0] disabled:opacity-60';
+  const btn = 'rounded px-1.5 py-0.5 text-xs hover:bg-x-hover';
+  const iconBtn = 'rounded-full p-1.5 text-x-secondary transition-colors hover:bg-x-blue/10 hover:text-x-blue disabled:opacity-60';
   const keywords = column.kind === 'search' ? ((column.config as SearchConfig).keywords ?? []) : [];
 
   return (
-    <section style={{ width }} className="relative flex h-full shrink-0 flex-col border-r border-gray-200 dark:border-gray-800">
-      <header className="border-b border-gray-200 px-3 py-2 dark:border-gray-800">
+    <section style={{ width }} className="relative flex h-full shrink-0 flex-col border-r border-x-border">
+      <header className="border-b border-x-border px-3 py-2">
         <div className="flex items-center gap-1">
           <h2 className="truncate font-bold">{column.kind === 'watchlist' ? '👤 ' : '🔍 '}{column.title}</h2>
-          <span className="ml-auto text-[11px] text-gray-400">{busy ? '새로고침 중…' : lastRefreshedLabel(lastRefreshed)}</span>
-          <button onClick={refresh} disabled={busy} className={`${iconBtn} ${busy ? 'text-[#1d9bf0]' : ''}`} title="새로고침">
+          <span className="ml-auto text-[11px] text-x-muted">{busy ? '새로고침 중…' : lastRefreshedLabel(lastRefreshed)}</span>
+          <button onClick={refresh} disabled={busy} className={`${iconBtn} ${busy ? 'text-x-blue' : ''}`} title="새로고침">
             <RefreshIcon className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
           </button>
           <button onClick={onEdit} className={iconBtn} title="설정"><SettingsIcon className="h-4 w-4" /></button>
@@ -147,7 +147,10 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
         <div className="mt-1 flex items-center gap-1 text-xs">
           {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
             <button key={k} onClick={() => setSort(k)}
-                    className={`${btn} ${sort === k ? 'font-bold underline' : 'text-gray-500'}`}>{SORT_LABEL[k]}</button>
+                    className={`relative rounded px-2 py-1 text-[13px] hover:bg-x-hover ${sort === k ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
+              {SORT_LABEL[k]}
+              {sort === k && <span className="absolute inset-x-2 bottom-0 h-1 rounded-full bg-x-blue" />}
+            </button>
           ))}
           <span className="ml-auto" />
           <button onClick={() => setMode(mode === 'new' ? 'all' : 'new')} className={btn}
@@ -159,8 +162,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
       </header>
       {/* 새로고침 진행 표시 — 완료 전까지 상단 인디케이터 */}
       {busy && (
-        <div className="h-0.5 overflow-hidden bg-[#1d9bf0]/20">
-          <div className="h-full w-1/3 animate-[deck-indeterminate_1.2s_ease-in-out_infinite] bg-[#1d9bf0]" />
+        <div className="h-0.5 overflow-hidden bg-x-blue/20">
+          <div className="h-full w-1/3 animate-[deck-indeterminate_1.2s_ease-in-out_infinite] bg-x-blue" />
         </div>
       )}
       {column.kind === 'search' && (
@@ -168,20 +171,20 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
       )}
       <div className="flex-1 overflow-y-auto">
         {visible.length === 0
-          ? <p className="p-4 text-center text-sm text-gray-400">{mode === 'new' ? '신규 유입 없음 — 그 자체가 시그널입니다' : '트윗 없음'}</p>
+          ? <p className="p-4 text-center text-sm text-x-muted">{mode === 'new' ? '신규 유입 없음 — 그 자체가 시그널입니다' : '트윗 없음'}</p>
           : visible.map((t) => (
               <TweetCard key={t.tweetId} tweet={t} meId={member?.id ?? null}
                          onSave={save} onUnsave={unsave} />
             ))}
         {hasMore && (
           <button onClick={loadMore} disabled={loadingMore}
-                  className="w-full border-t border-gray-100 py-3 text-center text-sm text-[#1d9bf0] hover:bg-gray-50 disabled:opacity-50 dark:border-gray-800 dark:hover:bg-gray-900">
+                  className="w-full border-t border-x-border py-3 text-center text-sm text-x-blue hover:bg-x-hover disabled:opacity-50">
             {loadingMore ? '불러오는 중…' : `더 불러오기 (${tweets.length}개 이후)`}
           </button>
         )}
       </div>
       <div onMouseDown={startResize} title="드래그로 폭 조절"
-           className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-[#1d9bf0]/40 active:bg-[#1d9bf0]/60" />
+           className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-x-blue/40 active:bg-x-blue/60" />
     </section>
   );
 }

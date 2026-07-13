@@ -67,6 +67,19 @@ export class GetxapiClient {
     };
   }
 
+  // 인용 트윗 보강용 상세 조회 — 404/400(삭제·비공개)은 재시도 없이 null
+  async getTweetDetail(tweetId: string): Promise<RawTweet | null> {
+    const qs = new URLSearchParams({ id: tweetId });
+    try {
+      const raw = await this.get<{ data?: RawTweet }>(`/twitter/tweet/detail?${qs}`);
+      return raw.data ?? null;
+    } catch (e) {
+      if (e instanceof GetxapiAuthError) throw e;
+      if (/^(400|404) from /.test((e as Error).message)) return null;
+      throw e;
+    }
+  }
+
   private backoffMs(attempt: number): number {
     return Math.min(1000 * 2 ** (attempt - 1), 60000);
   }

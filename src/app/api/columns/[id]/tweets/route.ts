@@ -9,6 +9,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
   const sp = new URL(req.url).searchParams;
   const sort = (SORTS.includes(sp.get('sort') as SortKey) ? sp.get('sort') : 'views') as SortKey;
-  const memberId = sp.get('memberId');
-  return NextResponse.json(await getColumnTweets(getSql(), id, { sort, memberId }));
+  return NextResponse.json(await getColumnTweets(getSql(), id, { sort }));
 }

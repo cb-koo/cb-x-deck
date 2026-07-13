@@ -16,7 +16,6 @@ function timeAgo(iso: string | null): string {
 export interface TweetCardProps {
   tweet: StoredTweet;
   meId?: string | null;
-  observe?: (el: HTMLElement | null) => void;
   onSave?: (tweetId: string) => void;
   onUnsave?: (tweetId: string) => void;
 }
@@ -25,13 +24,11 @@ export interface TweetCardProps {
 // hover: Reply·View·Bookmark #1d9bf0, Repost #00ba7c, Like #f91880
 const metricBase = 'group flex items-center gap-1 text-[13px] text-[#536471] transition-colors';
 
-export function TweetCard({ tweet: t, meId, observe, onSave, onUnsave }: TweetCardProps) {
+export function TweetCard({ tweet: t, meId, onSave, onUnsave }: TweetCardProps) {
   const savedByMe = !!meId && t.savedBy.some((m) => m.id === meId);
   return (
     <article
-      ref={t.seenByMe ? undefined : observe}
-      data-tweet-id={t.tweetId}
-      className={`border-b border-[#eff3f4] bg-white px-4 py-3 text-[15px] leading-5 text-[#0f1419] transition-opacity [font-family:-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,Helvetica,Arial,sans-serif] ${t.seenByMe ? 'opacity-55 hover:opacity-100' : ''}`}
+      className="border-b border-[#eff3f4] bg-white px-4 py-3 text-[15px] leading-5 text-[#0f1419] [font-family:-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,Helvetica,Arial,sans-serif]"
     >
       <div className="flex gap-3">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -40,6 +37,10 @@ export function TweetCard({ tweet: t, meId, observe, onSave, onUnsave }: TweetCa
           : <div className="h-10 w-10 shrink-0 rounded-full bg-[#cfd9de]" />}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-1">
+            {t.isNew && (
+              <span className="rounded bg-[#1d9bf0] px-1 text-[10px] font-bold leading-4 text-white"
+                    title="직전 새로고침 이후 새로 들어온 트윗">NEW</span>
+            )}
             <span className="truncate text-[15px] font-bold text-[#0f1419]">{t.authorName ?? t.authorHandle}</span>
             <span className="truncate text-[15px] text-[#536471]">@{t.authorHandle}</span>
             <span className="text-[15px] text-[#536471]">· {timeAgo(t.tweetCreatedAt)}</span>

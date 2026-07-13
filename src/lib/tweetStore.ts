@@ -43,7 +43,7 @@ type TweetRow = {
   author_followers: string | number | null; text: string; media: StoredTweet['media'];
   quoted: StoredTweet['quoted']; metrics: StoredTweet['metrics']; tweet_url: string | null;
   tweet_created_at: Date | null; first_seen_at: Date; last_fetched_at: Date;
-  seen_by_me: boolean; saved_by: StoredTweet['savedBy'];
+  is_new: boolean; saved_by: StoredTweet['savedBy'];
 };
 
 function toStored(r: TweetRow): StoredTweet {
@@ -54,37 +54,30 @@ function toStored(r: TweetRow): StoredTweet {
     text: r.text, media: r.media ?? [], quoted: r.quoted, metrics: r.metrics,
     tweetUrl: r.tweet_url, tweetCreatedAt: r.tweet_created_at?.toISOString() ?? null,
     firstSeenAt: r.first_seen_at.toISOString(), lastFetchedAt: r.last_fetched_at.toISOString(),
-    seenByMe: r.seen_by_me, savedBy: r.saved_by ?? [],
+    isNew: r.is_new, savedBy: r.saved_by ?? [],
   };
 }
 
 export async function getColumnTweets(
-  sql: postgres.Sql, columnId: string, opts: { sort: SortKey; memberId: string | null },
+  sql: postgres.Sql, columnId: string, opts: { sort: SortKey },
 ): Promise<StoredTweet[]> {
   const [col] = await sql<Array<{ workspace_id: string }>>`select workspace_id from deck_column where id = ${columnId}`;
   if (!col) return [];
   const rows = await sql.unsafe<TweetRow[]>(
+    // is_new: 직전 새로고침(prev_refreshed_at) 이후 이 컬럼에 처음 들어온 트윗.
+    // prev가 null(첫 새로고침 이전/직후)이면 전부 false — 전부 신규일 땐 배지가 정보가 아니므로.
     `select t.*,
-            exists(select 1 from tweet_seen ts where ts.tweet_id = t.tweet_id and ts.member_id = $2::uuid) as seen_by_me,
+            coalesce(ct.first_appeared_at > dc.prev_refreshed_at, false) as is_new,
             coalesce((select json_agg(json_build_object('id', m.id, 'name', m.name, 'color', m.color) order by m.name)
                         from candidate c join member m on m.id = c.member_id
-                       where c.tweet_id = t.tweet_id and c.workspace_id = $3), '[]'::json) as saved_by
+                       where c.tweet_id = t.tweet_id and c.workspace_id = $2), '[]'::json) as saved_by
        from column_tweet ct
+       join deck_column dc on dc.id = ct.column_id
        join tweet t on t.tweet_id = ct.tweet_id
       where ct.column_id = $1
       order by ${ORDER[opts.sort] ?? ORDER.views}
       limit 200`,
-    [columnId, opts.memberId, col.workspace_id],
+    [columnId, col.workspace_id],
   );
   return rows.map(toStored);
-}
-
-export async function markSeenBatch(sql: postgres.Sql, memberId: string, tweetIds: string[]): Promise<number> {
-  if (tweetIds.length === 0) return 0;
-  const rows = await sql`
-    insert into tweet_seen (tweet_id, member_id)
-    select t.tweet_id, ${memberId} from tweet t where t.tweet_id = any(${tweetIds})
-    on conflict do nothing
-    returning tweet_id`;
-  return rows.length;
 }

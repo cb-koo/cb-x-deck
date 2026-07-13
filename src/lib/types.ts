@@ -60,7 +60,7 @@ export interface DeckTweet {
 export interface StoredTweet extends DeckTweet {
   firstSeenAt: string;   // ISO
   lastFetchedAt: string; // ISO
-  seenByMe: boolean;     // 조회한 멤버 기준 (멤버 미선택 시 false)
+  isNew: boolean;        // 직전 새로고침 이후 이 컬럼에 새로 들어온 트윗 (첫 새로고침 땐 전부 false)
   savedBy: Member[];     // 이 워크스페이스에서 이 트윗을 저장한 멤버들
 }
 

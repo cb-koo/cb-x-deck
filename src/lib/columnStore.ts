@@ -51,5 +51,6 @@ export async function deleteColumn(sql: postgres.Sql, id: string): Promise<void>
 }
 
 export async function touchRefreshed(sql: postgres.Sql, id: string): Promise<void> {
-  await sql`update deck_column set last_refreshed_at = now() where id = ${id}`;
+  // 직전 새로고침 시각을 prev로 밀어두면 NEW 판정(first_appeared_at > prev)이 서버 데이터만으로 성립
+  await sql`update deck_column set prev_refreshed_at = last_refreshed_at, last_refreshed_at = now() where id = ${id}`;
 }

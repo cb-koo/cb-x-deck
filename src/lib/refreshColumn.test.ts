@@ -40,7 +40,7 @@ test('search 컬럼: 쿼리 조립 → maxPages 페이지네이션 → 재필터
     assert.match(queries[0][0], /min_faves:300/);
     assert.equal(queries[1][1], 'CUR');                    // cursor 전달
     assert.deepEqual(r, { fetched: 3, inserted: 1, updated: 0 }); // 재필터로 1000만 통과
-    const stored = await getColumnTweets(sql, col.id, { sort: 'views', memberId: null });
+    const stored = await getColumnTweets(sql, col.id, { sort: 'views' });
     assert.deepEqual(stored.map((t) => t.tweetId), [P + 'a']);
     const c2 = await getColumn(sql, col.id);
     assert.ok(c2!.lastRefreshedAt);

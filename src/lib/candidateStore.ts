@@ -47,7 +47,7 @@ async function loadCandidates(
       tweetCreatedAt: (r.tweet_created_at as Date | null)?.toISOString() ?? null,
       firstSeenAt: (r.first_seen_at as Date).toISOString(),
       lastFetchedAt: (r.last_fetched_at as Date).toISOString(),
-      seenByMe: false,
+      isNew: false,
       savedBy: [{ id: r.member_id as string, name: r.member_name as string, color: r.member_color as string }],
     },
   }));

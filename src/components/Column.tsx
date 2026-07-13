@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ColumnRow, SearchConfig, SortKey, StoredTweet, ViewMode } from '@/lib/types';
 import { useMember } from '@/lib/memberContext';
-import { useSeenTracker } from '@/lib/useSeenTracker';
 import { TweetCard } from './TweetCard';
 import { CooccurrencePanel } from './CooccurrencePanel';
 import { RefreshIcon, SettingsIcon, TrashIcon } from './XIcons';
@@ -26,11 +25,9 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   onPickTag: (tag: string) => void;
 }) {
   // 기본 뷰는 mode='all'(전체) — 서버는 항상 전체 tweets를 반환하고, 'new'는 클라이언트에서
-  // !seenByMe로 거를 뿐이다. 공출현(CooccurrencePanel) 집계는 항상 전체 tweets 기준으로 돌아가며
-  // mode/visible의 영향을 받지 않는다 — "새 트윗만"으로 읽음 처리할수록 담론 신호가 사라지는 것을
-  // 막기 위함(목적=담론 자동 부상).
+  // isNew(직전 새로고침 이후 새로 들어온 트윗)로 거를 뿐이다. 공출현(CooccurrencePanel) 집계는
+  // 항상 전체 tweets 기준이며 mode/visible의 영향을 받지 않는다(목적=담론 자동 부상).
   const { member } = useMember();
-  const { observe } = useSeenTracker(member?.id ?? null);
   const [tweets, setTweets] = useState<StoredTweet[]>([]);
   const [sort, setSort] = useState<SortKey>(column.config.sort ?? 'views');
   const [mode, setMode] = useState<ViewMode>('all');
@@ -66,7 +63,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   }
 
   const load = useCallback(async (s: SortKey) => {
-    const r = await fetch(`/api/columns/${column.id}/tweets?sort=${s}${member ? `&memberId=${member.id}` : ''}`);
+    const r = await fetch(`/api/columns/${column.id}/tweets?sort=${s}`);
     if (r.ok) setTweets(await r.json());
   }, [column.id, member]);
 
@@ -82,7 +79,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh]);
 
-  const visible = mode === 'new' ? tweets.filter((t) => !t.seenByMe) : tweets;
+  const visible = mode === 'new' ? tweets.filter((t) => t.isNew) : tweets;
 
   async function refresh() {
     setBusy(true); setErr('');
@@ -132,8 +129,9 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
                     className={`${btn} ${sort === k ? 'font-bold underline' : 'text-gray-500'}`}>{SORT_LABEL[k]}</button>
           ))}
           <span className="ml-auto" />
-          <button onClick={() => setMode(mode === 'new' ? 'all' : 'new')} className={btn}>
-            {mode === 'new' ? '새 트윗만' : '전체'}
+          <button onClick={() => setMode(mode === 'new' ? 'all' : 'new')} className={btn}
+                  title="NEW = 직전 새로고침 이후 새로 들어온 트윗">
+            {mode === 'new' ? 'NEW만' : '전체'}
           </button>
         </div>
         {err && <p className="mt-1 text-xs text-red-500">{err} <button onClick={refresh} className="underline">재시도</button></p>}
@@ -149,9 +147,9 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
       )}
       <div className="flex-1 overflow-y-auto">
         {visible.length === 0
-          ? <p className="p-4 text-center text-sm text-gray-400">{mode === 'new' ? '새 트윗 없음 — 🔄 새로고침' : '트윗 없음'}</p>
+          ? <p className="p-4 text-center text-sm text-gray-400">{mode === 'new' ? '신규 유입 없음 — 그 자체가 시그널입니다' : '트윗 없음'}</p>
           : visible.map((t) => (
-              <TweetCard key={t.tweetId} tweet={t} meId={member?.id ?? null} observe={observe}
+              <TweetCard key={t.tweetId} tweet={t} meId={member?.id ?? null}
                          onSave={save} onUnsave={unsave} />
             ))}
       </div>

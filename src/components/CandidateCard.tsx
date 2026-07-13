@@ -31,7 +31,7 @@ export function CandidateCard({ c, onChanged }: { c: CandidateRow; onChanged: ()
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-800">
-      <TweetCard tweet={{ ...c.tweet, seenByMe: false }} meId={c.member.id} onUnsave={unsave} />
+      <TweetCard tweet={{ ...c.tweet, isNew: false }} meId={c.member.id} onUnsave={unsave} />
       <div className="border-t border-gray-100 p-2 dark:border-gray-800">
         <textarea value={memo} onChange={(e) => setMemo(e.target.value)} onBlur={saveMemo}
                   placeholder="메모 (예: 반복 재현 포맷, 레티날 담론)"

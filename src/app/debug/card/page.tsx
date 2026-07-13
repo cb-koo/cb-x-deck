@@ -13,7 +13,7 @@ export default function DebugCardPage() {
       ...t,
       firstSeenAt: new Date().toISOString(),
       lastFetchedAt: new Date().toISOString(),
-      seenByMe: i % 3 === 0,
+      isNew: i % 3 === 0,
       savedBy: i % 4 === 0 ? [{ id: 'debug', name: '디버그', color: '#1d9bf0' }] : [],
     }));
   return (

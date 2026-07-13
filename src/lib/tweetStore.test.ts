@@ -103,3 +103,29 @@ test('정렬: date는 tweet_created_at desc', async () => {
     await deleteWorkspace(sql, ws.id);
   }
 });
+
+test('quoted 캐시가 있으면 quoted.enriched로 실려 온다', async () => {
+  const { upsertQuoted } = await import('./quotedStore.ts');
+  const ws = await createWorkspace(sql, P + 'ws-q');
+  const col = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'col-q', config: { keywords: ['x'] } });
+  try {
+    const base = tw('q1', 10);
+    base.quoted = { id: P + 'inner', text: 'inner text', userName: '이름', screenName: 'handle9' };
+    await upsertTweets(sql, [base]);
+    await linkColumnTweets(sql, col.id, [base.tweetId]);
+
+    // 캐시 없음 → enriched 없음(null/undefined)
+    const before = await getColumnTweets(sql, col.id, { sort: 'views' });
+    assert.ok(!before[0].quoted!.enriched);
+
+    // 캐시 저장 → enriched 실림
+    await upsertQuoted(sql, P + 'inner', { ...tw('inner', 5), tweetId: P + 'inner' });
+    const after = await getColumnTweets(sql, col.id, { sort: 'views' });
+    assert.equal(after[0].quoted!.enriched!.text, 'hello inner');
+    assert.equal(after[0].quoted!.userName, '이름');
+  } finally {
+    await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
+    await sql`delete from quoted_tweet where id like ${P + '%'}`;
+  }
+});

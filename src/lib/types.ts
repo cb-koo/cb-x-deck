@@ -67,6 +67,8 @@ export interface StoredTweet extends DeckTweet {
   lastFetchedAt: string; // ISO
   isNew: boolean;        // 직전 새로고침 이후 이 컬럼에 새로 들어온 트윗 (첫 새로고침 땐 전부 false)
   savedBy: Member[];     // 이 워크스페이스에서 이 트윗을 저장한 멤버들
+  // 인용 트윗 보강: quoted_tweet 캐시(tweet/detail) 히트 시 전체 데이터가 실림
+  quoted: (DeckQuoted & { enriched?: DeckTweet | null }) | null;
 }
 
 export interface CandidateRow {

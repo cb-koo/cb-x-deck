@@ -20,6 +20,15 @@ export async function upsertQuoted(sql: postgres.Sql, id: string, tweet: DeckTwe
     on conflict (id) do update set status = excluded.status, data = excluded.data, fetched_at = now()`;
 }
 
+// 칼럼에 연결된 트윗들의 인용 ID 목록 (refresh 후처리용)
+export async function getColumnQuotedIds(sql: postgres.Sql, columnId: string): Promise<string[]> {
+  const rows = await sql<{ id: string }[]>`
+    select distinct t.quoted->>'id' as id
+      from column_tweet ct join tweet t on t.tweet_id = ct.tweet_id
+     where ct.column_id = ${columnId} and t.quoted is not null`;
+  return rows.map((r) => r.id);
+}
+
 export async function getQuotedMap(sql: postgres.Sql, ids: string[]): Promise<Record<string, DeckTweet>> {
   const uniq = [...new Set(ids)];
   if (uniq.length === 0) return {};

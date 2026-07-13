@@ -17,17 +17,16 @@ export interface TweetCardProps {
   tweet: StoredTweet;
   onSave?: (tweetId: string) => void;
   onUnsave?: (tweetId: string) => void;
-  onMarkSeen?: (tweetId: string) => void;
 }
 
 // X 라이트 모드 팔레트: 본문 #0f1419 / 보조 #536471 / 경계 #eff3f4
 // hover: Reply·View·Bookmark #1d9bf0, Repost #00ba7c, Like #f91880
 const metricBase = 'group flex items-center gap-1 text-[13px] text-[#536471] transition-colors';
 
-export function TweetCard({ tweet: t, onSave, onUnsave, onMarkSeen }: TweetCardProps) {
+export function TweetCard({ tweet: t, onSave, onUnsave }: TweetCardProps) {
   return (
     <article
-      className={`border-b border-[#eff3f4] bg-white px-4 py-3 text-[15px] leading-5 text-[#0f1419] transition-colors hover:bg-[rgba(0,0,0,0.03)] [font-family:-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,Helvetica,Arial,sans-serif] ${t.seenAt ? 'opacity-55' : ''}`}
+      className={`border-b border-[#eff3f4] bg-white px-4 py-3 text-[15px] leading-5 text-[#0f1419] transition-colors hover:bg-[rgba(0,0,0,0.03)] [font-family:-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,Helvetica,Arial,sans-serif] ${t.seenByMe ? 'opacity-55' : ''}`}
     >
       <div className="flex gap-3">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -75,10 +74,7 @@ export function TweetCard({ tweet: t, onSave, onUnsave, onMarkSeen }: TweetCardP
             <span>수집 {formatDate(t.firstSeenAt)} · 갱신 {formatDate(t.lastFetchedAt)}</span>
             <span className="ml-auto flex gap-1">
               {t.tweetUrl && <a href={t.tweetUrl} target="_blank" className="rounded px-1.5 py-0.5 hover:bg-[#eff3f4]">원문↗</a>}
-              {!t.seenAt && onMarkSeen && (
-                <button onClick={() => onMarkSeen(t.tweetId)} className="rounded px-1.5 py-0.5 hover:bg-[#eff3f4]">✓ 읽음</button>
-              )}
-              {t.isCandidate
+              {t.savedBy.length > 0
                 ? <button onClick={() => onUnsave?.(t.tweetId)} className="rounded px-1.5 py-0.5 text-amber-500 hover:bg-[#eff3f4]">★ 저장됨</button>
                 : <button onClick={() => onSave?.(t.tweetId)} className="rounded px-1.5 py-0.5 hover:bg-[#eff3f4]">☆ 저장</button>}
             </span>

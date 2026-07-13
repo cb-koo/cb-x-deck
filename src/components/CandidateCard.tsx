@@ -16,9 +16,9 @@ export function CandidateCard({ group, meId, onChanged }: { group: CandidateGrou
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800">
+    <div className="overflow-hidden rounded-xl border border-x-border">
       <TweetCard tweet={{ ...group.tweet, isNew: false }} meId={meId} onUnsave={unsave} />
-      <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+      <div className="divide-y divide-x-border border-t border-x-border">
         {group.entries.map((e) =>
           e.member.id === meId
             ? <MyComment key={e.id} entry={e} onChanged={onChanged} onUnsave={unsave} />
@@ -31,7 +31,7 @@ export function CandidateCard({ group, meId, onChanged }: { group: CandidateGrou
 
 function CommentByline({ entry: e }: { entry: CandidateRow }) {
   return (
-    <p className="flex items-center gap-1 text-[11px] text-gray-400">
+    <p className="flex items-center gap-1 text-[11px] text-x-muted">
       <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-bold text-white"
             style={{ backgroundColor: e.member.color }}>{e.member.name.slice(0, 1)}</span>
       {e.member.name} · {new Date(e.savedAt).toLocaleDateString('ko-KR')}
@@ -65,15 +65,15 @@ function MyComment({ entry: e, onChanged, onUnsave }: { entry: CandidateRow; onC
     <div className="p-2">
       <div className="flex items-center justify-between">
         <CommentByline entry={e} />
-        <button onClick={onUnsave} className="text-[11px] text-gray-400 hover:text-red-500">제거</button>
+        <button onClick={onUnsave} className="text-[11px] text-x-muted hover:text-red-500">제거</button>
       </div>
       <textarea value={memo} onChange={(ev) => setMemo(ev.target.value)} onBlur={saveMemo}
                 placeholder="메모 (예: 반복 재현 포맷, 레티날 담론)"
-                className="mt-1 w-full resize-none rounded border border-gray-200 bg-transparent p-1 text-sm dark:border-gray-700" rows={2} />
+                className="mt-1 w-full resize-none rounded-md border border-x-border-strong bg-transparent p-1 text-sm outline-none focus:border-x-blue" rows={2} />
       <div className="mt-1 flex flex-wrap items-center gap-1">
         {e.tags.map((t) => (
           <button key={t.id} onClick={() => removeTag(t.id)}
-                  className="rounded-full bg-gray-100 px-2 py-0.5 text-xs hover:line-through dark:bg-gray-800">#{t.name} ✕</button>
+                  className="rounded-full bg-x-border px-2 py-0.5 text-xs hover:line-through">#{t.name} ✕</button>
         ))}
         <input value={tagInput} onChange={(ev) => setTagInput(ev.target.value)}
                onKeyDown={(ev) => { if (ev.key === 'Enter' && !ev.nativeEvent.isComposing) addTag(); }}
@@ -91,7 +91,7 @@ function TheirComment({ entry: e }: { entry: CandidateRow }) {
       {e.tags.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
           {e.tags.map((t) => (
-            <span key={t.id} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-800">#{t.name}</span>
+            <span key={t.id} className="rounded-full bg-x-border px-2 py-0.5 text-xs text-x-secondary">#{t.name}</span>
           ))}
         </div>
       )}
@@ -126,9 +126,9 @@ function AddComment({ tweetId, workspaceId, meId, onChanged }: { tweetId: string
       <input value={text} onChange={(ev) => setText(ev.target.value)}
              onKeyDown={(ev) => { if (ev.key === 'Enter' && !ev.nativeEvent.isComposing) submit(); }}
              placeholder="코멘트 달기 (저장으로 계산됨)"
-             className="w-full rounded border border-gray-200 bg-transparent p-1 text-sm dark:border-gray-700" />
+             className="w-full rounded-md border border-x-border-strong bg-transparent p-1 text-sm outline-none focus:border-x-blue" />
       <button onClick={submit} disabled={busy || !text.trim()}
-              className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-40 dark:hover:bg-gray-800">등록</button>
+              className="shrink-0 rounded px-2 py-1 text-xs text-x-secondary hover:bg-x-hover disabled:opacity-40">등록</button>
     </div>
   );
 }

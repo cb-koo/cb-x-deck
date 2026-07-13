@@ -10,5 +10,5 @@ export default function RootRedirect() {
       if (ws[0]) router.replace(`/w/${ws[0].id}`);
     });
   }, [router]);
-  return <p className="p-8 text-sm text-gray-400">워크스페이스로 이동 중…</p>;
+  return <p className="p-8 text-sm text-x-muted">워크스페이스로 이동 중…</p>;
 }

@@ -2,6 +2,7 @@
 import type { StoredTweet } from '@/lib/types';
 import { formatCount, formatDate } from '@/lib/format';
 import { MediaGrid } from './MediaGrid';
+import { QuotedCard } from './QuotedCard';
 import { TweetText } from './TweetText';
 import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from './XIcons';
 
@@ -58,12 +59,7 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave }: TweetCardProps) 
           </div>
           <TweetText text={t.text} className="mt-0.5" />
           <MediaGrid media={t.media} />
-          {t.quoted && (
-            <div className="mt-3 rounded-2xl border border-x-border-strong px-3 py-2 text-[15px]">
-              {t.quoted.userName && <span className="font-bold text-x-text">@{t.quoted.userName} </span>}
-              <TweetText text={t.quoted.text} className="inline text-x-text" />
-            </div>
-          )}
+          {t.quoted && <QuotedCard quoted={t.quoted} />}
           {/* 엔게이지먼트 바 — 실제 X 순서: Reply · Repost · Like · View · Bookmark */}
           <div className="mt-3 flex max-w-[425px] items-center justify-between">
             <span title="답글 (Reply)" className={`${metricBase} hover:text-x-blue`}>

@@ -4,6 +4,7 @@ import { getSql } from './db.ts';
 import { refreshColumn } from './refreshColumn.ts';
 import { createColumn, deleteColumn, getColumn } from './columnStore.ts';
 import { getColumnTweets } from './tweetStore.ts';
+import { createWorkspace, deleteWorkspace } from './workspaceStore.ts';
 import type { RawTweet, SearchPage } from './getxapi.ts';
 
 const sql = getSql();
@@ -20,8 +21,9 @@ after(async () => {
 });
 
 test('search 컬럼: 쿼리 조립 → maxPages 페이지네이션 → 재필터 → 저장 → last_refreshed', async () => {
+  const ws = await createWorkspace(sql, P + 'ws');
   const col = await createColumn(sql, {
-    kind: 'search', title: P + 'c',
+    workspaceId: ws.id, kind: 'search', title: P + 'c',
     config: { keywords: ['毛穴'], minFaves: 300, minViews: 500, maxPages: 2 },
   });
   const queries: Array<[string, string | undefined]> = [];
@@ -38,18 +40,20 @@ test('search 컬럼: 쿼리 조립 → maxPages 페이지네이션 → 재필터
     assert.match(queries[0][0], /min_faves:300/);
     assert.equal(queries[1][1], 'CUR');                    // cursor 전달
     assert.deepEqual(r, { fetched: 3, inserted: 1, updated: 0 }); // 재필터로 1000만 통과
-    const stored = await getColumnTweets(sql, col.id, { sort: 'views', mode: 'all' });
+    const stored = await getColumnTweets(sql, col.id, { sort: 'views', memberId: null });
     assert.deepEqual(stored.map((t) => t.tweetId), [P + 'a']);
     const c2 = await getColumn(sql, col.id);
     assert.ok(c2!.lastRefreshedAt);
   } finally {
     await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
   }
 });
 
 test('watchlist 컬럼: userId로 getUserTweets, 재필터 없음', async () => {
+  const ws = await createWorkspace(sql, P + 'ws2');
   const col = await createColumn(sql, {
-    kind: 'watchlist', title: P + 'w', config: { handle: 'u', userId: 'UID9', maxPages: 1 },
+    workspaceId: ws.id, kind: 'watchlist', title: P + 'w', config: { handle: 'u', userId: 'UID9', maxPages: 1 },
   });
   const calls: string[] = [];
   const fake = {
@@ -62,5 +66,6 @@ test('watchlist 컬럼: userId로 getUserTweets, 재필터 없음', async () => 
     assert.equal(r.inserted, 1); // views 10이어도 저장(재필터는 search 전용)
   } finally {
     await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
   }
 });

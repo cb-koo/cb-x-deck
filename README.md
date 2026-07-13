@@ -56,5 +56,5 @@ DB 스키마 초기화 (`migrations/*.sql`). 로컬 개발·배포 전 최초 1�
 - `src/lib/` — 로직 전부 (getxapi 클라이언트, 매퍼, 쿼리빌더, 스토어, refresh 파이프라인)
 - `src/app/api/` — 얇은 프록시 라우트 (키는 서버에만)
 - `src/components/` — X UI 재현 TweetCard, 덱 컬럼, 보관함 카드
-- 스키마: deck_column / tweet(아카이브, first_seen·last_fetched·seen_at) / column_tweet / candidate / tag
+- 스키마: workspace(클라이언트) / member(팀원) / deck_column / tweet(아카이브, first_seen·last_fetched) / tweet_seen(멤버별 봤음) / column_tweet / candidate(멤버별 저장) / tag
 - 설계 spec: `docs/superpowers/specs/2026-07-07-cb-x-deck-v1-design.md`

@@ -7,8 +7,6 @@ export function useSeenTracker(memberId: string | null): { observe: (el: HTMLEle
   const queue = useRef<Set<string>>(new Set());
   const timers = useRef<Map<Element, ReturnType<typeof setTimeout>>>(new Map());
   const observerRef = useRef<IntersectionObserver | null>(null);
-  const memberRef = useRef(memberId);
-  memberRef.current = memberId;
 
   useEffect(() => {
     if (!memberId) return; // 멤버 미선택 시 추적 없음
@@ -35,14 +33,16 @@ export function useSeenTracker(memberId: string | null): { observe: (el: HTMLEle
     observerRef.current = observer;
 
     const flush = () => {
-      if (queue.current.size === 0 || !memberRef.current) return;
+      if (queue.current.size === 0) return;
       const tweetIds = [...queue.current];
       queue.current.clear();
       fetch('/api/tweets/seen', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memberId: memberRef.current, tweetIds }),
+        body: JSON.stringify({ memberId, tweetIds }),
         keepalive: true, // 페이지 이탈 직전 전송도 최대한 보장
-      }).catch(() => { tweetIds.forEach((i) => queue.current.add(i)); }); // 실패 시 재큐
+      }).then((r) => {
+        if (!r.ok) tweetIds.forEach((i) => queue.current.add(i)); // HTTP 실패 시 재큐
+      }).catch(() => { tweetIds.forEach((i) => queue.current.add(i)); }); // 네트워크 실패 시 재큐
     };
     const interval = setInterval(flush, 3000);
     window.addEventListener('beforeunload', flush);

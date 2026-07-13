@@ -2,6 +2,7 @@
 import type { StoredTweet } from '@/lib/types';
 import { formatCount, formatDate } from '@/lib/format';
 import { MediaGrid } from './MediaGrid';
+import { TweetText } from './TweetText';
 import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from './XIcons';
 
 function timeAgo(iso: string | null): string {
@@ -20,63 +21,68 @@ export interface TweetCardProps {
   onUnsave?: (tweetId: string) => void;
 }
 
-// X 라이트 모드 팔레트: 본문 #0f1419 / 보조 #536471 / 경계 #eff3f4
-// hover: Reply·View·Bookmark #1d9bf0, Repost #00ba7c, Like #f91880
-const metricBase = 'group flex items-center gap-1 text-[13px] text-[#536471] transition-colors';
+// hover: Reply·View·Bookmark 파랑, Repost 초록, Like 핑크 (실제 X 동작)
+const metricBase = 'group flex items-center gap-1 text-[13px] text-x-secondary transition-colors';
 
 export function TweetCard({ tweet: t, meId, onSave, onUnsave }: TweetCardProps) {
   const savedByMe = !!meId && t.savedBy.some((m) => m.id === meId);
+  const profileUrl = `https://x.com/${t.authorHandle}`;
   return (
-    <article
-      className="border-b border-[#eff3f4] bg-white px-4 py-3 text-[15px] leading-5 text-[#0f1419] [font-family:-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,Helvetica,Arial,sans-serif]"
-    >
+    <article className="border-b border-x-border bg-white px-4 py-3 text-[15px] leading-5 text-x-text transition-colors hover:bg-x-hover">
       <div className="flex gap-3">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {t.authorAvatarUrl
-          ? <img src={t.authorAvatarUrl} alt="" className="h-10 w-10 shrink-0 rounded-full" />
-          : <div className="h-10 w-10 shrink-0 rounded-full bg-[#cfd9de]" />}
+        <a href={profileUrl} target="_blank" rel="noopener" className="shrink-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {t.authorAvatarUrl
+            ? <img src={t.authorAvatarUrl} alt="" className="h-10 w-10 rounded-full" />
+            : <div className="h-10 w-10 rounded-full bg-x-border-strong" />}
+        </a>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-1">
             {t.isNew && (
-              <span className="rounded bg-[#1d9bf0] px-1 text-[10px] font-bold leading-4 text-white"
+              <span className="rounded bg-x-blue px-1 text-[10px] font-bold leading-4 text-white"
                     title="직전 새로고침 이후 새로 들어온 트윗">NEW</span>
             )}
-            <span className="truncate text-[15px] font-bold text-[#0f1419]">{t.authorName ?? t.authorHandle}</span>
-            <span className="truncate text-[15px] text-[#536471]">@{t.authorHandle}</span>
-            <span className="text-[15px] text-[#536471]">· {timeAgo(t.tweetCreatedAt)}</span>
+            <a href={profileUrl} target="_blank" rel="noopener" className="flex min-w-0 items-baseline gap-x-1">
+              <span className="truncate text-[15px] font-bold text-x-text hover:underline">{t.authorName ?? t.authorHandle}</span>
+              <span className="truncate text-[15px] text-x-secondary">@{t.authorHandle}</span>
+            </a>
+            {t.tweetUrl
+              ? <a href={t.tweetUrl} target="_blank" rel="noopener"
+                   className="text-[15px] text-x-secondary hover:underline">· {timeAgo(t.tweetCreatedAt)}</a>
+              : <span className="text-[15px] text-x-secondary">· {timeAgo(t.tweetCreatedAt)}</span>}
             {t.authorFollowers !== null && (
-              <span className="ml-auto rounded bg-[#eff3f4] px-1 text-xs text-[#536471]">
+              <span className="ml-auto rounded bg-x-border px-1 text-xs text-x-secondary">
                 팔로워 {formatCount(t.authorFollowers)}
               </span>
             )}
           </div>
-          <p className="mt-0.5 whitespace-pre-wrap break-words">{t.text}</p>
+          <TweetText text={t.text} className="mt-0.5" />
           <MediaGrid media={t.media} />
           {t.quoted && (
-            <div className="mt-3 rounded-2xl border border-[#cfd9de] px-3 py-2 text-[15px]">
-              {t.quoted.userName && <span className="font-bold text-[#0f1419]">@{t.quoted.userName} </span>}
-              <span className="whitespace-pre-wrap text-[#0f1419]">{t.quoted.text}</span>
+            <div className="mt-3 rounded-2xl border border-x-border-strong px-3 py-2 text-[15px]">
+              {t.quoted.userName && <span className="font-bold text-x-text">@{t.quoted.userName} </span>}
+              <TweetText text={t.quoted.text} className="inline text-x-text" />
             </div>
           )}
           {/* 엔게이지먼트 바 — 실제 X 순서: Reply · Repost · Like · View · Bookmark */}
           <div className="mt-3 flex max-w-[425px] items-center justify-between">
-            <span title="답글 (Reply)" className={`${metricBase} hover:text-[#1d9bf0]`}>
+            <span title="답글 (Reply)" className={`${metricBase} hover:text-x-blue`}>
               <ReplyIcon /> {formatCount(t.metrics.replies)}
             </span>
-            <span title="리포스트 (Repost)" className={`${metricBase} hover:text-[#00ba7c]`}>
+            <span title="리포스트 (Repost)" className={`${metricBase} hover:text-x-green`}>
               <RepostIcon /> {formatCount(t.metrics.retweets)}
             </span>
-            <span title="좋아요 (Like)" className={`${metricBase} hover:text-[#f91880]`}>
+            <span title="좋아요 (Like)" className={`${metricBase} hover:text-x-pink`}>
               <LikeIcon /> {formatCount(t.metrics.likes)}
             </span>
-            <span title="조회수 (View)" className={`${metricBase} hover:text-[#1d9bf0]`}>
+            <span title="조회수 (View)" className={`${metricBase} hover:text-x-blue`}>
               <ViewIcon /> {formatCount(t.metrics.views)}
             </span>
-            <span title="북마크 (Bookmark)" className={`${metricBase} hover:text-[#1d9bf0]`}>
+            <span title="북마크 (Bookmark)" className={`${metricBase} hover:text-x-blue`}>
               <BookmarkIcon /> {formatCount(t.metrics.bookmarks)}
             </span>
           </div>
-          <div className="mt-2 flex items-center gap-2 text-xs text-[#8b98a5]">
+          <div className="mt-2 flex items-center gap-2 text-xs text-x-muted">
             <span>수집 {formatDate(t.firstSeenAt)} · 갱신 {formatDate(t.lastFetchedAt)}</span>
             <span className="flex items-center gap-0.5">
               {t.savedBy.map((m) => (
@@ -88,10 +94,9 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave }: TweetCardProps) 
               ))}
             </span>
             <span className="ml-auto flex gap-1">
-              {t.tweetUrl && <a href={t.tweetUrl} target="_blank" className="rounded px-1.5 py-0.5 hover:bg-[#eff3f4]">원문↗</a>}
               {savedByMe
-                ? <button onClick={() => onUnsave?.(t.tweetId)} className="rounded px-1.5 py-0.5 text-amber-500 hover:bg-[#eff3f4]">★ 저장됨</button>
-                : <button onClick={() => onSave?.(t.tweetId)} className="rounded px-1.5 py-0.5 hover:bg-[#eff3f4]">☆ 저장</button>}
+                ? <button onClick={() => onUnsave?.(t.tweetId)} className="rounded px-1.5 py-0.5 text-amber-500 hover:bg-x-border">★ 저장됨</button>
+                : <button onClick={() => onSave?.(t.tweetId)} className="rounded px-1.5 py-0.5 hover:bg-x-border">☆ 저장</button>}
             </span>
           </div>
         </div>

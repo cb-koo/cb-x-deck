@@ -3,8 +3,10 @@ import { getSql } from '@/lib/db';
 import { createColumn, listColumns } from '@/lib/columnStore';
 import { makeClient } from '@/lib/getxapi';
 
-export async function GET() {
-  return NextResponse.json(await listColumns(getSql()));
+export async function GET(req: Request) {
+  const workspaceId = new URL(req.url).searchParams.get('workspaceId');
+  if (!workspaceId) return NextResponse.json({ error: 'workspaceId 필수' }, { status: 400 });
+  return NextResponse.json(await listColumns(getSql(), workspaceId));
 }
 
 export async function POST(req: Request) {
@@ -15,6 +17,8 @@ export async function POST(req: Request) {
   if (body.kind !== 'search' && body.kind !== 'watchlist') {
     return NextResponse.json({ error: 'kind은 search 또는 watchlist이어야 함' }, { status: 400 });
   }
+  const { workspaceId } = body;
+  if (typeof workspaceId !== 'string' || !workspaceId) return NextResponse.json({ error: 'workspaceId 필수' }, { status: 400 });
   const config = { ...body.config };
   if (body.kind === 'watchlist') {
     try {
@@ -26,6 +30,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `계정 확인 실패: ${(e as Error).message}` }, { status: 502 });
     }
   }
-  const col = await createColumn(getSql(), { kind: body.kind, title: body.title, config, position: body.position });
+  const col = await createColumn(getSql(), { workspaceId, kind: body.kind, title: body.title, config, position: body.position });
   return NextResponse.json(col, { status: 201 });
 }

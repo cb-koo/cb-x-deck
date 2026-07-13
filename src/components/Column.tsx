@@ -1,6 +1,8 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ColumnRow, SearchConfig, SortKey, StoredTweet, ViewMode } from '@/lib/types';
+import { useMember } from '@/lib/memberContext';
+import { useSeenTracker } from '@/lib/useSeenTracker';
 import { TweetCard } from './TweetCard';
 import { CooccurrencePanel } from './CooccurrencePanel';
 import { RefreshIcon, SettingsIcon, TrashIcon } from './XIcons';
@@ -23,11 +25,15 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   onDelete: () => void;
   onPickTag: (tag: string) => void;
 }) {
-  // 항상 전체(mode=all)를 받아 화면 표시만 mode로 거른다.
-  // 이유: 공출현 집계가 "새 트윗만"에 묶이면 읽음 처리할수록 담론 신호가 사라짐 — 목적(담론 자동 부상)과 상충.
+  // 기본 뷰는 mode='all'(전체) — 서버는 항상 전체 tweets를 반환하고, 'new'는 클라이언트에서
+  // !seenByMe로 거를 뿐이다. 공출현(CooccurrencePanel) 집계는 항상 전체 tweets 기준으로 돌아가며
+  // mode/visible의 영향을 받지 않는다 — "새 트윗만"으로 읽음 처리할수록 담론 신호가 사라지는 것을
+  // 막기 위함(목적=담론 자동 부상).
+  const { member } = useMember();
+  const { observe } = useSeenTracker(member?.id ?? null);
   const [tweets, setTweets] = useState<StoredTweet[]>([]);
   const [sort, setSort] = useState<SortKey>(column.config.sort ?? 'views');
-  const [mode, setMode] = useState<ViewMode>('new');
+  const [mode, setMode] = useState<ViewMode>('all');
   const [lastRefreshed, setLastRefreshed] = useState(column.lastRefreshedAt);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -60,9 +66,9 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   }
 
   const load = useCallback(async (s: SortKey) => {
-    const r = await fetch(`/api/columns/${column.id}/tweets?sort=${s}&mode=all`);
+    const r = await fetch(`/api/columns/${column.id}/tweets?sort=${s}${member ? `&memberId=${member.id}` : ''}`);
     if (r.ok) setTweets(await r.json());
-  }, [column.id]);
+  }, [column.id, member]);
 
   useEffect(() => { load(sort); }, [load, sort]);
 
@@ -76,7 +82,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh]);
 
-  const visible = mode === 'new' ? tweets.filter((t) => !t.seenAt) : tweets;
+  const visible = mode === 'new' ? tweets.filter((t) => !t.seenByMe) : tweets;
 
   async function refresh() {
     setBusy(true); setErr('');
@@ -90,20 +96,17 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
     setBusy(false);
   }
 
-  async function readAll() {
-    await fetch(`/api/columns/${column.id}/read-all`, { method: 'POST' });
-    await load(sort);
-  }
-  async function markSeen(tweetId: string) {
-    await fetch(`/api/tweets/${tweetId}/seen`, { method: 'POST' });
-    await load(sort);
-  }
   async function save(tweetId: string) {
-    await fetch('/api/candidates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tweetId, sourceColumnId: column.id }) });
+    if (!member) { setErr('사이드바에서 멤버를 선택하세요'); return; }
+    await fetch('/api/candidates', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tweetId, sourceColumnId: column.id, workspaceId: column.workspaceId, memberId: member.id }),
+    });
     await load(sort);
   }
   async function unsave(tweetId: string) {
-    await fetch(`/api/candidates?tweetId=${tweetId}`, { method: 'DELETE' });
+    if (!member) { setErr('사이드바에서 멤버를 선택하세요'); return; }
+    await fetch(`/api/candidates?tweetId=${tweetId}&workspaceId=${column.workspaceId}&memberId=${member.id}`, { method: 'DELETE' });
     await load(sort);
   }
 
@@ -132,7 +135,6 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
           <button onClick={() => setMode(mode === 'new' ? 'all' : 'new')} className={btn}>
             {mode === 'new' ? '새 트윗만' : '전체'}
           </button>
-          <button onClick={readAll} className={btn}>모두 읽음</button>
         </div>
         {err && <p className="mt-1 text-xs text-red-500">{err} <button onClick={refresh} className="underline">재시도</button></p>}
       </header>
@@ -149,7 +151,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
         {visible.length === 0
           ? <p className="p-4 text-center text-sm text-gray-400">{mode === 'new' ? '새 트윗 없음 — 🔄 새로고침' : '트윗 없음'}</p>
           : visible.map((t) => (
-              <TweetCard key={t.tweetId} tweet={t} onSave={save} onUnsave={unsave} onMarkSeen={markSeen} />
+              <TweetCard key={t.tweetId} tweet={t} meId={member?.id ?? null} observe={observe}
+                         onSave={save} onUnsave={unsave} />
             ))}
       </div>
       <div onMouseDown={startResize} title="드래그로 폭 조절"

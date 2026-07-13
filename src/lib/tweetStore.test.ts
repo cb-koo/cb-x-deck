@@ -1,8 +1,9 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { upsertTweets, linkColumnTweets, getColumnTweets, markSeen, markAllSeen } from './tweetStore.ts';
+import { upsertTweets, linkColumnTweets, getColumnTweets, markSeenBatch } from './tweetStore.ts';
 import { createColumn, deleteColumn } from './columnStore.ts';
+import { createWorkspace, deleteWorkspace, createMember } from './workspaceStore.ts';
 import type { DeckTweet } from './types.ts';
 
 const sql = getSql();
@@ -19,48 +20,62 @@ function tw(id: string, views: number): DeckTweet {
 
 after(async () => {
   await sql`delete from tweet where tweet_id like ${P + '%'}`;
+  await sql`delete from workspace where name like ${P + '%'}`;
+  await sql`delete from member where name like ${P + '%'}`;
   await sql.end();
 });
 
-test('upsert → 재upsert: first_seen/seen 보존, 지표·last_fetched 갱신', async () => {
-  const col = await createColumn(sql, { kind: 'search', title: P + 'col', config: { keywords: ['x'] } });
+test('upsert 재조회 보존 + 멤버별 seenByMe 독립 + savedBy 집계', async () => {
+  const ws = await createWorkspace(sql, P + 'ws');
+  const mA = await createMember(sql, P + 'A', '#111111');
+  const mB = await createMember(sql, P + 'B', '#222222');
+  const col = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'col', config: { keywords: ['x'] } });
   try {
     const r1 = await upsertTweets(sql, [tw('a', 100), tw('b', 200)]);
     assert.deepEqual(r1, { inserted: 2, updated: 0 });
     await linkColumnTweets(sql, col.id, [P + 'a', P + 'b']);
-    await markSeen(sql, P + 'a');
-    const [{ first_seen_at: fs1 }] = await sql`select first_seen_at from tweet where tweet_id = ${P + 'a'}`;
 
+    // A만 a를 봤음 처리
+    assert.equal(await markSeenBatch(sql, mA.id, [P + 'a']), 1);
+    assert.equal(await markSeenBatch(sql, mA.id, [P + 'a']), 0); // 중복 무시
+
+    const [{ first_seen_at: fs1 }] = await sql`select first_seen_at from tweet where tweet_id = ${P + 'a'}`;
     const r2 = await upsertTweets(sql, [tw('a', 999)]);
     assert.deepEqual(r2, { inserted: 0, updated: 1 });
-    const [row] = await sql`select first_seen_at, seen_at, metrics from tweet where tweet_id = ${P + 'a'}`;
-    assert.equal(String(row.first_seen_at), String(fs1)); // 보존
-    assert.ok(row.seen_at);                                // 보존
-    assert.equal(row.metrics.views, 999);                  // 갱신
+    const [row] = await sql`select first_seen_at, metrics from tweet where tweet_id = ${P + 'a'}`;
+    assert.equal(String(row.first_seen_at), String(fs1)); // first_seen 보존
+    assert.equal(row.metrics.views, 999);                  // 지표 갱신
 
-    const all = await getColumnTweets(sql, col.id, { sort: 'views', mode: 'all' });
-    assert.deepEqual(all.map((t) => t.tweetId), [P + 'a', P + 'b']); // views 999 > 200
-    assert.equal(all[0].seenAt !== null, true);
-    const unseen = await getColumnTweets(sql, col.id, { sort: 'views', mode: 'new' });
-    assert.deepEqual(unseen.map((t) => t.tweetId), [P + 'b']);
+    const forA = await getColumnTweets(sql, col.id, { sort: 'views', memberId: mA.id });
+    assert.deepEqual(forA.map((t) => [t.tweetId, t.seenByMe]), [[P + 'a', true], [P + 'b', false]]);
+    const forB = await getColumnTweets(sql, col.id, { sort: 'views', memberId: mB.id });
+    assert.deepEqual(forB.map((t) => t.seenByMe), [false, false]); // B에겐 둘 다 새 트윗
+    const anon = await getColumnTweets(sql, col.id, { sort: 'views', memberId: null });
+    assert.deepEqual(anon.map((t) => t.seenByMe), [false, false]); // 멤버 미선택
 
-    const n = await markAllSeen(sql, col.id);
-    assert.equal(n, 1); // b만 미열람이었음
+    // savedBy: A·B가 같은 트윗을 각자 저장 → 두 명 집계
+    await sql`insert into candidate (tweet_id, workspace_id, member_id) values (${P + 'a'}, ${ws.id}, ${mA.id})`;
+    await sql`insert into candidate (tweet_id, workspace_id, member_id) values (${P + 'a'}, ${ws.id}, ${mB.id})`;
+    const withSaved = await getColumnTweets(sql, col.id, { sort: 'views', memberId: mA.id });
+    assert.deepEqual(withSaved[0].savedBy.map((m) => m.name).sort(), [P + 'A', P + 'B']);
   } finally {
     await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
   }
 });
 
 test('정렬: date는 tweet_created_at desc', async () => {
-  const col = await createColumn(sql, { kind: 'search', title: P + 'col2', config: { keywords: ['x'] } });
+  const ws = await createWorkspace(sql, P + 'ws2');
+  const col = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'col2', config: { keywords: ['x'] } });
   try {
     const older = { ...tw('c', 5), tweetCreatedAt: new Date('2026-06-01T00:00:00Z').toISOString() };
     const newer = { ...tw('d', 1), tweetCreatedAt: new Date('2026-07-05T00:00:00Z').toISOString() };
     await upsertTweets(sql, [older, newer]);
     await linkColumnTweets(sql, col.id, [P + 'c', P + 'd']);
-    const byDate = await getColumnTweets(sql, col.id, { sort: 'date', mode: 'all' });
+    const byDate = await getColumnTweets(sql, col.id, { sort: 'date', memberId: null });
     assert.deepEqual(byDate.map((t) => t.tweetId), [P + 'd', P + 'c']);
   } finally {
     await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
   }
 });

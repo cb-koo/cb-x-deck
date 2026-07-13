@@ -25,13 +25,13 @@ export function CandidateCard({ c, onChanged }: { c: CandidateRow; onChanged: ()
   }
   async function unsave() {
     if (!confirm('보관함에서 제거할까요? (메모·태그도 삭제됩니다)')) return;
-    await fetch(`/api/candidates?tweetId=${c.tweet.tweetId}`, { method: 'DELETE' });
+    await fetch(`/api/candidates?tweetId=${c.tweet.tweetId}&workspaceId=${c.workspaceId}&memberId=${c.member.id}`, { method: 'DELETE' });
     onChanged();
   }
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-800">
-      <TweetCard tweet={{ ...c.tweet, seenAt: null }} onUnsave={unsave} />
+      <TweetCard tweet={{ ...c.tweet, seenByMe: false }} meId={c.member.id} onUnsave={unsave} />
       <div className="border-t border-gray-100 p-2 dark:border-gray-800">
         <textarea value={memo} onChange={(e) => setMemo(e.target.value)} onBlur={saveMemo}
                   placeholder="메모 (예: 반복 재현 포맷, 레티날 담론)"
@@ -45,7 +45,11 @@ export function CandidateCard({ c, onChanged }: { c: CandidateRow; onChanged: ()
                  onKeyDown={(e) => { if (e.key === 'Enter') addTag(); }}
                  placeholder="+태그" className="w-20 bg-transparent text-xs outline-none" />
         </div>
-        <p className="mt-1 text-[11px] text-gray-400">저장 {new Date(c.savedAt).toLocaleDateString('ko-KR')}</p>
+        <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-400">
+          <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-bold text-white"
+                style={{ backgroundColor: c.member.color }}>{c.member.name.slice(0, 1)}</span>
+          {c.member.name} · 저장 {new Date(c.savedAt).toLocaleDateString('ko-KR')}
+        </p>
       </div>
     </div>
   );

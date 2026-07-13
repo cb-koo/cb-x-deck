@@ -2,6 +2,9 @@ export type SortKey = 'views' | 'date' | 'bookmarks' | 'retweets';
 export type ColumnKind = 'search' | 'watchlist';
 export type ViewMode = 'new' | 'all';
 
+export interface Workspace { id: string; name: string; position: number }
+export interface Member { id: string; name: string; color: string }
+
 export interface SearchConfig {
   keywords: string[];          // OR 조합
   minFaves?: number | null;
@@ -25,6 +28,7 @@ export interface WatchlistConfig {
 
 export interface ColumnRow {
   id: string;
+  workspaceId: string;
   kind: ColumnKind;
   title: string;
   position: number;
@@ -56,8 +60,8 @@ export interface DeckTweet {
 export interface StoredTweet extends DeckTweet {
   firstSeenAt: string;   // ISO
   lastFetchedAt: string; // ISO
-  seenAt: string | null;
-  isCandidate: boolean;
+  seenByMe: boolean;     // 조회한 멤버 기준 (멤버 미선택 시 false)
+  savedBy: Member[];     // 이 워크스페이스에서 이 트윗을 저장한 멤버들
 }
 
 export interface CandidateRow {
@@ -67,4 +71,6 @@ export interface CandidateRow {
   savedAt: string;
   sourceColumnId: string | null;
   tags: Array<{ id: string; name: string }>;
+  member: Member;
+  workspaceId: string;
 }

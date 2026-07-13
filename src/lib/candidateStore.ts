@@ -100,7 +100,7 @@ export async function listAllTags(
   sql: postgres.Sql, workspaceId: string,
 ): Promise<Array<{ id: string; name: string; count: number }>> {
   const rows = await sql<Array<{ id: string; name: string; count: string }>>`
-    select tg.id, tg.name, count(c.id)::text as count
+    select tg.id, tg.name, count(distinct c.tweet_id)::text as count
       from tag tg
       left join candidate_tag ctg on ctg.tag_id = tg.id
       left join candidate c on c.id = ctg.candidate_id and c.workspace_id = ${workspaceId}

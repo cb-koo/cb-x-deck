@@ -1,56 +1,134 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CandidateRow } from '@/lib/types';
+import type { CandidateGroup } from '@/lib/candidateGroups';
 import { TweetCard } from './TweetCard';
 
-export function CandidateCard({ c, onChanged }: { c: CandidateRow; onChanged: () => void }) {
-  const [memo, setMemo] = useState(c.memo);
-  const [tagInput, setTagInput] = useState('');
+// 콘텐츠당 카드 1장 + 멤버별 코멘트(=candidate.memo). 내 행만 편집 가능.
+export function CandidateCard({ group, meId, onChanged }: { group: CandidateGroup; meId: string | null; onChanged: () => void }) {
+  const mine = group.entries.find((e) => e.member.id === meId) ?? null;
 
-  async function saveMemo() {
-    if (memo === c.memo) return;
-    await fetch(`/api/candidates/${c.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memo }) });
-    onChanged();
-  }
-  async function addTag() {
-    const name = tagInput.trim();
-    if (!name) return;
-    await fetch(`/api/candidates/${c.id}/tags`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-    setTagInput('');
-    onChanged();
-  }
-  async function removeTag(tagId: string) {
-    await fetch(`/api/candidates/${c.id}/tags/${tagId}`, { method: 'DELETE' });
-    onChanged();
-  }
   async function unsave() {
-    if (!confirm('보관함에서 제거할까요? (메모·태그도 삭제됩니다)')) return;
-    await fetch(`/api/candidates?tweetId=${c.tweet.tweetId}&workspaceId=${c.workspaceId}&memberId=${c.member.id}`, { method: 'DELETE' });
+    if (!mine) return;
+    if (!confirm('내 코멘트를 제거할까요? (내 메모·태그만 삭제, 다른 멤버 코멘트는 유지)')) return;
+    await fetch(`/api/candidates?tweetId=${group.tweet.tweetId}&workspaceId=${mine.workspaceId}&memberId=${mine.member.id}`, { method: 'DELETE' });
     onChanged();
   }
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-800">
-      <TweetCard tweet={{ ...c.tweet, isNew: false }} meId={c.member.id} onUnsave={unsave} />
-      <div className="border-t border-gray-100 p-2 dark:border-gray-800">
-        <textarea value={memo} onChange={(e) => setMemo(e.target.value)} onBlur={saveMemo}
-                  placeholder="메모 (예: 반복 재현 포맷, 레티날 담론)"
-                  className="w-full resize-none rounded border border-gray-200 bg-transparent p-1 text-sm dark:border-gray-700" rows={2} />
-        <div className="mt-1 flex flex-wrap items-center gap-1">
-          {c.tags.map((t) => (
-            <button key={t.id} onClick={() => removeTag(t.id)}
-                    className="rounded-full bg-gray-100 px-2 py-0.5 text-xs hover:line-through dark:bg-gray-800">#{t.name} ✕</button>
-          ))}
-          <input value={tagInput} onChange={(e) => setTagInput(e.target.value)}
-                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addTag(); }}
-                 placeholder="+태그" className="w-20 bg-transparent text-xs outline-none" />
-        </div>
-        <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-400">
-          <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-bold text-white"
-                style={{ backgroundColor: c.member.color }}>{c.member.name.slice(0, 1)}</span>
-          {c.member.name} · 저장 {new Date(c.savedAt).toLocaleDateString('ko-KR')}
-        </p>
+      <TweetCard tweet={{ ...group.tweet, isNew: false }} meId={meId} onUnsave={unsave} />
+      <div className="divide-y divide-gray-100 border-t border-gray-100 dark:divide-gray-800 dark:border-gray-800">
+        {group.entries.map((e) =>
+          e.member.id === meId
+            ? <MyComment key={e.id} entry={e} onChanged={onChanged} onUnsave={unsave} />
+            : <TheirComment key={e.id} entry={e} />)}
+        {!mine && meId && <AddComment tweetId={group.tweet.tweetId} workspaceId={group.entries[0].workspaceId} meId={meId} onChanged={onChanged} />}
       </div>
+    </div>
+  );
+}
+
+function CommentByline({ entry: e }: { entry: CandidateRow }) {
+  return (
+    <p className="flex items-center gap-1 text-[11px] text-gray-400">
+      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-bold text-white"
+            style={{ backgroundColor: e.member.color }}>{e.member.name.slice(0, 1)}</span>
+      {e.member.name} · {new Date(e.savedAt).toLocaleDateString('ko-KR')}
+    </p>
+  );
+}
+
+function MyComment({ entry: e, onChanged, onUnsave }: { entry: CandidateRow; onChanged: () => void; onUnsave: () => void }) {
+  const [memo, setMemo] = useState(e.memo);
+  const [tagInput, setTagInput] = useState('');
+  useEffect(() => { setMemo(e.memo); }, [e.memo]);
+
+  async function saveMemo() {
+    if (memo === e.memo) return;
+    await fetch(`/api/candidates/${e.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memo }) });
+    onChanged();
+  }
+  async function addTag() {
+    const name = tagInput.trim();
+    if (!name) return;
+    await fetch(`/api/candidates/${e.id}/tags`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    setTagInput('');
+    onChanged();
+  }
+  async function removeTag(tagId: string) {
+    await fetch(`/api/candidates/${e.id}/tags/${tagId}`, { method: 'DELETE' });
+    onChanged();
+  }
+
+  return (
+    <div className="p-2">
+      <div className="flex items-center justify-between">
+        <CommentByline entry={e} />
+        <button onClick={onUnsave} className="text-[11px] text-gray-400 hover:text-red-500">제거</button>
+      </div>
+      <textarea value={memo} onChange={(ev) => setMemo(ev.target.value)} onBlur={saveMemo}
+                placeholder="메모 (예: 반복 재현 포맷, 레티날 담론)"
+                className="mt-1 w-full resize-none rounded border border-gray-200 bg-transparent p-1 text-sm dark:border-gray-700" rows={2} />
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        {e.tags.map((t) => (
+          <button key={t.id} onClick={() => removeTag(t.id)}
+                  className="rounded-full bg-gray-100 px-2 py-0.5 text-xs hover:line-through dark:bg-gray-800">#{t.name} ✕</button>
+        ))}
+        <input value={tagInput} onChange={(ev) => setTagInput(ev.target.value)}
+               onKeyDown={(ev) => { if (ev.key === 'Enter' && !ev.nativeEvent.isComposing) addTag(); }}
+               placeholder="+태그" className="w-20 bg-transparent text-xs outline-none" />
+      </div>
+    </div>
+  );
+}
+
+function TheirComment({ entry: e }: { entry: CandidateRow }) {
+  return (
+    <div className="p-2">
+      <CommentByline entry={e} />
+      {e.memo && <p className="mt-1 whitespace-pre-wrap text-sm">{e.memo}</p>}
+      {e.tags.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {e.tags.map((t) => (
+            <span key={t.id} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-800">#{t.name}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 미저장 멤버의 코멘트 달기 = 내 저장 행 생성 + 메모 (코멘트를 달면 내 저장으로 계산됨)
+function AddComment({ tweetId, workspaceId, meId, onChanged }: { tweetId: string; workspaceId: string; meId: string; onChanged: () => void }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    const memo = text.trim();
+    if (!memo || busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch('/api/candidates', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tweetId, workspaceId, memberId: meId }),
+      });
+      if (!res.ok) return;
+      const created = await res.json();
+      await fetch(`/api/candidates/${created.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memo }) });
+      setText('');
+      onChanged();
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="flex items-center gap-1 p-2">
+      <input value={text} onChange={(ev) => setText(ev.target.value)}
+             onKeyDown={(ev) => { if (ev.key === 'Enter' && !ev.nativeEvent.isComposing) submit(); }}
+             placeholder="코멘트 달기 (저장으로 계산됨)"
+             className="w-full rounded border border-gray-200 bg-transparent p-1 text-sm dark:border-gray-700" />
+      <button onClick={submit} disabled={busy || !text.trim()}
+              className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-40 dark:hover:bg-gray-800">등록</button>
     </div>
   );
 }

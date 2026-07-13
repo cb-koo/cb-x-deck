@@ -57,6 +57,10 @@ test('멤버별 저장·중복 허용·필터·태그·워크스페이스 격리
     assert.equal(withTag[0].memo, '포맷 참고');
     const tags = await listAllTags(sql, ws1.id);
     assert.ok(tags.some((t) => t.name === P + 'tag' && t.count === 1));
+    // 같은 콘텐츠에 B도 같은 태그 → 카운트는 콘텐츠 수 기준이라 여전히 1
+    const tagB = await addTag(sql, cB.id, P + 'tag');
+    assert.ok((await listAllTags(sql, ws1.id)).some((t) => t.name === P + 'tag' && t.count === 1));
+    await removeTag(sql, cB.id, tagB.id);
     await removeTag(sql, cA.id, tag.id);
 
     // 자기 것만 해제 — B의 저장은 남음

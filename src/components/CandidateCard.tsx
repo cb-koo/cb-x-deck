@@ -42,7 +42,7 @@ export function CandidateCard({ c, onChanged }: { c: CandidateRow; onChanged: ()
                     className="rounded-full bg-gray-100 px-2 py-0.5 text-xs hover:line-through dark:bg-gray-800">#{t.name} ✕</button>
           ))}
           <input value={tagInput} onChange={(e) => setTagInput(e.target.value)}
-                 onKeyDown={(e) => { if (e.key === 'Enter') addTag(); }}
+                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addTag(); }}
                  placeholder="+태그" className="w-20 bg-transparent text-xs outline-none" />
         </div>
         <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-400">

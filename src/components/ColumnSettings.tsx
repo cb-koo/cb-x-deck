@@ -124,7 +124,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
               <input className={input} value={kwInput} placeholder="키워드 입력 후 Enter (한국어 OK)"
                      disabled={translating}
                      onChange={(e) => setKwInput(e.target.value)}
-                     onKeyDown={(e) => { if (e.key === 'Enter') addKwInput(); }} />
+                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addKwInput(); }} />
               <button onClick={suggest} disabled={busy || translating} className={chip}>{busy ? '…' : '연관 제안'}</button>
             </div>
             {translating && <p className="mb-2 text-[11px] text-gray-400">일본어로 번역 중…</p>}

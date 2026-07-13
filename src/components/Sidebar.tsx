@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import type { Workspace } from '@/lib/types';
 import { useMember } from '@/lib/memberContext';
@@ -15,6 +15,7 @@ export function Sidebar({ wsId }: { wsId: string }) {
   const [newMember, setNewMember] = useState('');
   const [addingWs, setAddingWs] = useState(false);
   const [addingMember, setAddingMember] = useState(false);
+  const creating = useRef(false);
 
   useEffect(() => {
     fetch('/api/workspaces').then((r) => r.json()).then(setWorkspaces);
@@ -22,27 +23,33 @@ export function Sidebar({ wsId }: { wsId: string }) {
 
   async function createWs() {
     const name = newWs.trim();
-    if (!name) return;
-    const r = await fetch('/api/workspaces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-    if (r.ok) {
-      const w = (await r.json()) as Workspace;
-      setWorkspaces([...workspaces, w]);
-      setNewWs(''); setAddingWs(false);
-      router.push(`/w/${w.id}`);
-    }
+    if (!name || creating.current) return;
+    creating.current = true; // 한글 IME Enter 이중 발화·더블클릭으로 인한 중복 생성 방지
+    try {
+      const r = await fetch('/api/workspaces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      if (r.ok) {
+        const w = (await r.json()) as Workspace;
+        setWorkspaces([...workspaces, w]);
+        setNewWs(''); setAddingWs(false);
+        router.push(`/w/${w.id}`);
+      }
+    } finally { creating.current = false; }
   }
 
   async function createNewMember() {
     const name = newMember.trim();
-    if (!name) return;
-    const color = MEMBER_COLORS[members.length % MEMBER_COLORS.length];
-    const r = await fetch('/api/members', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color }) });
-    if (r.ok) {
-      const m = await r.json();
-      await reloadMembers();
-      selectMember(m.id);
-      setNewMember(''); setAddingMember(false);
-    }
+    if (!name || creating.current) return;
+    creating.current = true;
+    try {
+      const color = MEMBER_COLORS[members.length % MEMBER_COLORS.length];
+      const r = await fetch('/api/members', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color }) });
+      if (r.ok) {
+        const m = await r.json();
+        await reloadMembers();
+        selectMember(m.id);
+        setNewMember(''); setAddingMember(false);
+      }
+    } finally { creating.current = false; }
   }
 
   const nav = [
@@ -61,7 +68,7 @@ export function Sidebar({ wsId }: { wsId: string }) {
       </select>
       {addingWs ? (
         <div className="mb-2 flex gap-1">
-          <input value={newWs} onChange={(e) => setNewWs(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createWs(); }}
+          <input value={newWs} onChange={(e) => setNewWs(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) createWs(); }}
                  placeholder="클라이언트명" autoFocus className="w-full rounded border border-gray-300 bg-transparent px-2 py-1 text-xs dark:border-gray-600" />
           <button onClick={createWs} className="text-xs">✓</button>
         </div>
@@ -88,7 +95,7 @@ export function Sidebar({ wsId }: { wsId: string }) {
         </select>
         {addingMember ? (
           <div className="flex gap-1">
-            <input value={newMember} onChange={(e) => setNewMember(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createNewMember(); }}
+            <input value={newMember} onChange={(e) => setNewMember(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) createNewMember(); }}
                    placeholder="이름" autoFocus className="w-full rounded border border-gray-300 bg-transparent px-2 py-1 text-xs dark:border-gray-600" />
             <button onClick={createNewMember} className="text-xs">✓</button>
           </div>

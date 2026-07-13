@@ -58,11 +58,14 @@ function toStored(r: TweetRow): StoredTweet {
   };
 }
 
+export const PAGE_SIZE = 200;
+
 export async function getColumnTweets(
-  sql: postgres.Sql, columnId: string, opts: { sort: SortKey },
+  sql: postgres.Sql, columnId: string, opts: { sort: SortKey; offset?: number },
 ): Promise<StoredTweet[]> {
   const [col] = await sql<Array<{ workspace_id: string }>>`select workspace_id from deck_column where id = ${columnId}`;
   if (!col) return [];
+  const offset = Math.max(0, Math.floor(opts.offset ?? 0));
   const rows = await sql.unsafe<TweetRow[]>(
     // is_new: 직전 새로고침(prev_refreshed_at) 이후 이 컬럼에 처음 들어온 트윗.
     // prev가 null(첫 새로고침 이전/직후)이면 전부 false — 전부 신규일 땐 배지가 정보가 아니므로.
@@ -75,9 +78,9 @@ export async function getColumnTweets(
        join deck_column dc on dc.id = ct.column_id
        join tweet t on t.tweet_id = ct.tweet_id
       where ct.column_id = $1
-      order by ${ORDER[opts.sort] ?? ORDER.views}
-      limit 200`,
-    [columnId, col.workspace_id],
+      order by ${ORDER[opts.sort] ?? ORDER.views}, t.tweet_id
+      limit ${PAGE_SIZE} offset $3`,
+    [columnId, col.workspace_id, offset],
   );
   return rows.map(toStored);
 }

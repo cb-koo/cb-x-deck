@@ -62,10 +62,31 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
     document.addEventListener('mouseup', up);
   }
 
+  const PAGE = 200;
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const load = useCallback(async (s: SortKey) => {
     const r = await fetch(`/api/columns/${column.id}/tweets?sort=${s}`);
-    if (r.ok) setTweets(await r.json());
-  }, [column.id, member]);
+    if (r.ok) {
+      const page = (await r.json()) as StoredTweet[];
+      setTweets(page);
+      setHasMore(page.length === PAGE); // 꽉 찬 페이지면 뒤에 더 있을 가능성
+    }
+  }, [column.id]);
+
+  // 다음 페이지를 이어붙임 (정렬·새로고침 시 load()가 첫 페이지로 리셋)
+  async function loadMore() {
+    setLoadingMore(true);
+    try {
+      const r = await fetch(`/api/columns/${column.id}/tweets?sort=${sort}&offset=${tweets.length}`);
+      if (r.ok) {
+        const page = (await r.json()) as StoredTweet[];
+        setTweets((prev) => [...prev, ...page]);
+        setHasMore(page.length === PAGE);
+      }
+    } finally { setLoadingMore(false); }
+  }
 
   useEffect(() => { load(sort); }, [load, sort]);
 
@@ -152,6 +173,12 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
               <TweetCard key={t.tweetId} tweet={t} meId={member?.id ?? null}
                          onSave={save} onUnsave={unsave} />
             ))}
+        {hasMore && (
+          <button onClick={loadMore} disabled={loadingMore}
+                  className="w-full border-t border-gray-100 py-3 text-center text-sm text-[#1d9bf0] hover:bg-gray-50 disabled:opacity-50 dark:border-gray-800 dark:hover:bg-gray-900">
+            {loadingMore ? '불러오는 중…' : `더 불러오기 (${tweets.length}개 이후)`}
+          </button>
+        )}
       </div>
       <div onMouseDown={startResize} title="드래그로 폭 조절"
            className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-[#1d9bf0]/40 active:bg-[#1d9bf0]/60" />

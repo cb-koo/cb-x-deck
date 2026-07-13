@@ -72,6 +72,22 @@ test('upsert 재조회 보존 + NEW 배지 판정 + savedBy 집계', async () =>
   }
 });
 
+test('offset 페이지네이션: 앞 페이지를 건너뛰고 이어짐', async () => {
+  const ws = await createWorkspace(sql, P + 'ws3');
+  const col = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'col3', config: { keywords: ['x'] } });
+  try {
+    await upsertTweets(sql, [tw('p1', 300), tw('p2', 200), tw('p3', 100)]);
+    await linkColumnTweets(sql, col.id, [P + 'p1', P + 'p2', P + 'p3']);
+    const all = await getColumnTweets(sql, col.id, { sort: 'views' });
+    assert.deepEqual(all.map((t) => t.tweetId), [P + 'p1', P + 'p2', P + 'p3']);
+    const skipped = await getColumnTweets(sql, col.id, { sort: 'views', offset: 1 });
+    assert.deepEqual(skipped.map((t) => t.tweetId), [P + 'p2', P + 'p3']); // 1개 건너뛰고 이어짐(중복·누락 없음)
+  } finally {
+    await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
+  }
+});
+
 test('정렬: date는 tweet_created_at desc', async () => {
   const ws = await createWorkspace(sql, P + 'ws2');
   const col = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'col2', config: { keywords: ['x'] } });

@@ -16,6 +16,9 @@ export function Sidebar({ wsId }: { wsId: string }) {
   const [addingWs, setAddingWs] = useState(false);
   const [addingMember, setAddingMember] = useState(false);
   const creating = useRef(false);
+  // 삭제 확인 상태: null=평상시, {colCount}=확인 대기
+  const [confirmDelete, setConfirmDelete] = useState<{ colCount: number } | null>(null);
+  const [wsErr, setWsErr] = useState('');
 
   useEffect(() => {
     fetch('/api/workspaces').then((r) => r.json()).then(setWorkspaces);
@@ -52,6 +55,29 @@ export function Sidebar({ wsId }: { wsId: string }) {
     } finally { creating.current = false; }
   }
 
+  // 삭제 1단계: 삭제될 컬럼 수를 조회해 확인 UI 표시
+  async function askDeleteWs() {
+    setWsErr('');
+    if (workspaces.length <= 1) { setWsErr('마지막 워크스페이스는 삭제할 수 없습니다'); return; }
+    const r = await fetch(`/api/columns?workspaceId=${wsId}`);
+    const colCount = r.ok ? ((await r.json()) as unknown[]).length : 0;
+    setConfirmDelete({ colCount });
+  }
+
+  // 삭제 2단계: 확정 → 삭제 후 첫 워크스페이스로 이동
+  async function confirmDeleteWs() {
+    const r = await fetch(`/api/workspaces/${wsId}`, { method: 'DELETE' });
+    if (!r.ok) {
+      setWsErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`);
+      setConfirmDelete(null);
+      return;
+    }
+    const remaining = workspaces.filter((w) => w.id !== wsId);
+    setWorkspaces(remaining);
+    setConfirmDelete(null);
+    if (remaining[0]) router.push(`/w/${remaining[0].id}`);
+  }
+
   const nav = [
     { href: `/w/${wsId}/research`, label: '🔍 리서치' },
     { href: `/w/${wsId}`, label: '📊 덱' },
@@ -73,8 +99,23 @@ export function Sidebar({ wsId }: { wsId: string }) {
           <button onClick={createWs} className="text-xs">✓</button>
         </div>
       ) : (
-        <button onClick={() => setAddingWs(true)} className="mb-2 px-1 text-left text-xs text-gray-400 hover:text-gray-600">+ 워크스페이스 추가</button>
+        <div className="mb-2 flex items-center justify-between">
+          <button onClick={() => setAddingWs(true)} className="px-1 text-left text-xs text-gray-400 hover:text-gray-600">+ 워크스페이스 추가</button>
+          <button onClick={askDeleteWs} className="px-1 text-xs text-gray-400 hover:text-red-500" title="현재 워크스페이스 삭제">삭제</button>
+        </div>
       )}
+      {confirmDelete && (
+        <div className="mb-2 rounded border border-red-300 bg-red-50 p-2 text-[11px] dark:border-red-800 dark:bg-red-950">
+          <p className="mb-1 text-red-600 dark:text-red-400">
+            현재 워크스페이스와 컬럼 {confirmDelete.colCount}개·저장 후보가 함께 삭제됩니다. 되돌릴 수 없습니다.
+          </p>
+          <div className="flex gap-1">
+            <button onClick={confirmDeleteWs} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">삭제 확정</button>
+            <button onClick={() => setConfirmDelete(null)} className="rounded border border-gray-300 px-2 py-0.5 dark:border-gray-600">취소</button>
+          </div>
+        </div>
+      )}
+      {wsErr && <p className="mb-2 px-1 text-[11px] text-red-500">{wsErr}</p>}
 
       <nav className="mt-2 flex-1">
         {nav.map((n) => (

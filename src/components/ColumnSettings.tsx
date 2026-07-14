@@ -36,6 +36,8 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
   const [busy, setBusy] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [err, setErr] = useState('');
+  const [probe, setProbe] = useState<{ suggested: number; sampleSize: number; likeRange: [number, number]; density: string } | null>(null);
+  const [probing, setProbing] = useState(false);
 
   const addChip = (c: KwChip) => {
     const t = c.ja.trim();
@@ -68,6 +70,22 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
     const r = await fetch('/api/suggest-keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: base }) });
     setSug(r.ok ? await r.json() : { variants: [], adjacent: [] });
     setBusy(false);
+  }
+
+  // 밀도 확인: 현재 키워드로 최근 7일 표본을 1콜 조회해 적절한 min_faves를 제안
+  async function checkDensity() {
+    const kws = keywords.map((k) => k.ja);
+    if (kwInput.trim() && !hasHangul(kwInput)) kws.push(kwInput.trim());
+    if (kws.length === 0) { setErr('키워드를 먼저 입력하세요'); return; }
+    setProbing(true); setErr('');
+    try {
+      const r = await fetch('/api/research/density', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keywords: kws, lang: lang || 'ja' }),
+      });
+      if (!r.ok) { setErr('밀도 확인 실패 — 수동 입력하세요'); return; }
+      setProbe(await r.json());
+    } finally { setProbing(false); }
   }
 
   async function submit() {
@@ -169,6 +187,14 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                   <input type="date" className={input} value={sinceDate ?? ''} onChange={(e) => setSinceDate(e.target.value)} /></div>
                 <div><label className={label}>until (이 날짜까지)</label>
                   <input type="date" className={input} value={untilDate ?? ''} onChange={(e) => setUntilDate(e.target.value)} /></div>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-x-secondary">
+                <button type="button" onClick={checkDensity} disabled={probing} className={`${chip} disabled:opacity-50`}>{probing ? '…' : '밀도 확인'}</button>
+                {probe && (
+                  <span>최근 7일 좋아요 {probe.likeRange[0]}~{probe.likeRange[1]} · 제안 min_faves:{probe.suggested}
+                    <button type="button" onClick={() => setMinFaves(probe.suggested)} className="ml-1 text-x-blue hover:underline">적용</button>
+                  </span>
+                )}
               </div>
               <label className="mt-3 flex items-center gap-2 text-[14px] text-x-secondary">
                 <input type="checkbox" checked={imagesOnly} onChange={(e) => setImagesOnly(e.target.checked)} /> 이미지 있는 트윗만

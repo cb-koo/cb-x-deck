@@ -44,6 +44,7 @@ type TweetRow = {
   quoted: StoredTweet['quoted']; metrics: StoredTweet['metrics']; tweet_url: string | null;
   tweet_created_at: Date | null; first_seen_at: Date; last_fetched_at: Date;
   is_new: boolean; saved_by: StoredTweet['savedBy'];
+  quoted_enriched: DeckTweet | null;
 };
 
 function toStored(r: TweetRow): StoredTweet {
@@ -51,7 +52,9 @@ function toStored(r: TweetRow): StoredTweet {
     tweetId: r.tweet_id, authorHandle: r.author_handle, authorName: r.author_name,
     authorAvatarUrl: r.author_avatar_url,
     authorFollowers: r.author_followers === null ? null : Number(r.author_followers),
-    text: r.text, media: r.media ?? [], quoted: r.quoted, metrics: r.metrics,
+    text: r.text, media: r.media ?? [],
+    quoted: r.quoted ? { ...r.quoted, enriched: r.quoted_enriched ?? null } : null,
+    metrics: r.metrics,
     tweetUrl: r.tweet_url, tweetCreatedAt: r.tweet_created_at?.toISOString() ?? null,
     firstSeenAt: r.first_seen_at.toISOString(), lastFetchedAt: r.last_fetched_at.toISOString(),
     isNew: r.is_new, savedBy: r.saved_by ?? [],
@@ -70,6 +73,7 @@ export async function getColumnTweets(
     // is_new: 직전 새로고침(prev_refreshed_at) 이후 이 컬럼에 처음 들어온 트윗.
     // prev가 null(첫 새로고침 이전/직후)이면 전부 false — 전부 신규일 땐 배지가 정보가 아니므로.
     `select t.*,
+            qt.data as quoted_enriched,
             coalesce(ct.first_appeared_at > dc.prev_refreshed_at, false) as is_new,
             coalesce((select json_agg(json_build_object('id', m.id, 'name', m.name, 'color', m.color) order by m.name)
                         from candidate c join member m on m.id = c.member_id
@@ -77,6 +81,7 @@ export async function getColumnTweets(
        from column_tweet ct
        join deck_column dc on dc.id = ct.column_id
        join tweet t on t.tweet_id = ct.tweet_id
+       left join quoted_tweet qt on qt.id = t.quoted->>'id' and qt.status = 'ok'
       where ct.column_id = $1
       order by ${ORDER[opts.sort] ?? ORDER.views}, t.tweet_id
       limit ${PAGE_SIZE} offset $3`,

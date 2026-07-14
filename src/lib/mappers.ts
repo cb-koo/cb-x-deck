@@ -30,7 +30,12 @@ export function mapRawTweet(raw: RawTweet): DeckTweet | null {
   const q = raw.quoted_tweet as Record<string, unknown> | undefined | null;
   if (q && str(q.id)) {
     const qUser = q.user as Record<string, unknown> | undefined;
-    quoted = { id: str(q.id)!, text: str(q.text) ?? '', userName: str(qUser?.userName) };
+    // 검색 응답 실키는 name/screen_name (userName은 과거 데이터·타 엔드포인트 폴백)
+    quoted = {
+      id: str(q.id)!, text: str(q.text) ?? '',
+      userName: str(qUser?.name) ?? str(qUser?.userName),
+      screenName: str(qUser?.screen_name),
+    };
   }
 
   return {

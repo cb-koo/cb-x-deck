@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import type { CandidateRow } from './types.ts';
+import type { CandidateRow, DeckQuoted, DeckTweet } from './types.ts';
 
 async function loadCandidates(
   sql: postgres.Sql,
@@ -16,16 +16,17 @@ async function loadCandidates(
   const rows = await sql.unsafe<Array<Record<string, unknown>>>(
     `select c.id, c.memo, c.saved_at, c.source_column_id, c.workspace_id,
             m.id as member_id, m.name as member_name, m.color as member_color,
-            t.*,
+            t.*, qt.data as quoted_enriched,
             coalesce(json_agg(json_build_object('id', tg.id, 'name', tg.name) order by tg.name)
                      filter (where tg.id is not null), '[]') as tags
        from candidate c
        join member m on m.id = c.member_id
        join tweet t on t.tweet_id = c.tweet_id
+       left join quoted_tweet qt on qt.id = t.quoted->>'id' and qt.status = 'ok'
        left join candidate_tag ctg on ctg.candidate_id = c.id
        left join tag tg on tg.id = ctg.tag_id
       ${conds.length ? 'where ' + conds.join(' and ') : ''}
-      group by c.id, m.id, t.tweet_id
+      group by c.id, m.id, t.tweet_id, qt.data
       order by c.saved_at desc`,
     params,
   );
@@ -42,7 +43,10 @@ async function loadCandidates(
       authorName: r.author_name as string | null, authorAvatarUrl: r.author_avatar_url as string | null,
       authorFollowers: r.author_followers === null ? null : Number(r.author_followers),
       text: r.text as string, media: (r.media ?? []) as CandidateRow['tweet']['media'],
-      quoted: r.quoted as CandidateRow['tweet']['quoted'], metrics: r.metrics as CandidateRow['tweet']['metrics'],
+      quoted: r.quoted
+        ? { ...(r.quoted as DeckQuoted), enriched: (r.quoted_enriched ?? null) as DeckTweet | null }
+        : null,
+      metrics: r.metrics as CandidateRow['tweet']['metrics'],
       tweetUrl: r.tweet_url as string | null,
       tweetCreatedAt: (r.tweet_created_at as Date | null)?.toISOString() ?? null,
       firstSeenAt: (r.first_seen_at as Date).toISOString(),

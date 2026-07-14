@@ -53,3 +53,26 @@ test('getUserInfo: data 언래핑', async () => {
   assert.equal(u.id, '99');
   assert.equal(u.followers, 5);
 });
+
+test('getTweetDetail: 200이면 data 반환, id 파라미터 사용', async () => {
+  const { fn, calls } = fakeFetch([{ status: 200, body: { status: 'ok', data: { id: '7', text: 'q' } } }]);
+  const c = new GetxapiClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {} });
+  const raw = await c.getTweetDetail('7');
+  assert.equal((raw as { id: string }).id, '7');
+  assert.match(calls[0], /\/twitter\/tweet\/detail\?id=7/);
+});
+
+test('getTweetDetail: 404/400은 재시도 없이 null (삭제·비공개 인용)', async () => {
+  for (const status of [404, 400]) {
+    const { fn, calls } = fakeFetch([{ status, body: { error: 'nope' } }]);
+    const c = new GetxapiClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {} });
+    assert.equal(await c.getTweetDetail('8'), null);
+    assert.equal(calls.length, 1);
+  }
+});
+
+test('getTweetDetail: data 없는 200(응답 이상)도 null', async () => {
+  const { fn } = fakeFetch([{ status: 200, body: { status: 'ok' } }]);
+  const c = new GetxapiClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {} });
+  assert.equal(await c.getTweetDetail('9'), null);
+});

@@ -23,6 +23,8 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
   const [kwInput, setKwInput] = useState('');
   const [handle, setHandle] = useState(init.handle ?? '');
   const [minFaves, setMinFaves] = useState(init.minFaves ?? 300);
+  const [minRetweets, setMinRetweets] = useState(init.minRetweets ?? null);
+  const [minReplies, setMinReplies] = useState(init.minReplies ?? null);
   const [minViews, setMinViews] = useState(init.minViews ?? null);
   const [sinceDate, setSinceDate] = useState(init.sinceDate ?? '');
   const [untilDate, setUntilDate] = useState(init.untilDate ?? '');
@@ -79,7 +81,8 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
         if (kws.length === 0) { setErr('키워드를 입력하세요'); return; }
         await onSubmit({
           kind, title: title || kws.map(chipLabel).join('·'),
-          config: { keywords: kws.map((k) => k.ja), minFaves: minFaves || null, minViews: minViews || null,
+          config: { keywords: kws.map((k) => k.ja), minFaves: minFaves || null,
+                    minRetweets: minRetweets || null, minReplies: minReplies || null, minViews: minViews || null,
                     sinceDate: sinceDate || null, untilDate: untilDate || null, lang: lang || null,
                     imagesOnly, maxPages: maxPages || 3, sort: init.sort ?? 'views', width: init.width ?? null },
         });
@@ -158,6 +161,10 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                   <input type="number" className={input} value={minFaves ?? ''} onChange={(e) => setMinFaves(e.target.value ? +e.target.value : 0)} /></div>
                 <div><label className={label}>최소 조회수 (재필터)</label>
                   <input type="number" className={input} value={minViews ?? ''} onChange={(e) => setMinViews(e.target.value ? +e.target.value : null)} /></div>
+                <div><label className={label}>최소 RT</label>
+                  <input type="number" className={input} value={minRetweets ?? ''} onChange={(e) => setMinRetweets(e.target.value ? +e.target.value : null)} /></div>
+                <div><label className={label}>최소 답글</label>
+                  <input type="number" className={input} value={minReplies ?? ''} onChange={(e) => setMinReplies(e.target.value ? +e.target.value : null)} /></div>
                 <div><label className={label}>since (이 날짜부터)</label>
                   <input type="date" className={input} value={sinceDate ?? ''} onChange={(e) => setSinceDate(e.target.value)} /></div>
                 <div><label className={label}>until (이 날짜까지)</label>

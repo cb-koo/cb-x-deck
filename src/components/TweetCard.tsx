@@ -21,12 +21,15 @@ export interface TweetCardProps {
   meId?: string | null;
   onSave?: (tweetId: string) => void;
   onUnsave?: (tweetId: string) => void;
+  onDismiss?: (tweetId: string) => void;
+  onUndismiss?: (tweetId: string) => void;
+  dismissedView?: boolean;
 }
 
 // hover: Reply·View·Bookmark 파랑, Repost 초록, Like 핑크 (실제 X 동작)
 const metricBase = 'group flex items-center gap-1 text-[13px] text-x-secondary transition-colors';
 
-export function TweetCard({ tweet: t, meId, onSave, onUnsave }: TweetCardProps) {
+export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndismiss, dismissedView }: TweetCardProps) {
   const savedByMe = !!meId && t.savedBy.some((m) => m.id === meId);
   const profileUrl = `https://x.com/${t.authorHandle}`;
   const yakkiho = flagYakkiho(t.text);
@@ -99,6 +102,9 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave }: TweetCardProps) 
               {savedByMe
                 ? <button onClick={() => onUnsave?.(t.tweetId)} className="rounded px-1.5 py-0.5 text-amber-500 hover:bg-x-border">★ 저장됨</button>
                 : <button onClick={() => onSave?.(t.tweetId)} className="rounded px-1.5 py-0.5 hover:bg-x-border">☆ 저장</button>}
+              {dismissedView
+                ? <button onClick={() => onUndismiss?.(t.tweetId)} className="rounded px-1.5 py-0.5 hover:bg-x-border">되돌리기</button>
+                : onDismiss && <button onClick={() => onDismiss(t.tweetId)} title="벤치마크 무관 — 숨김" className="rounded px-1.5 py-0.5 text-x-muted hover:bg-x-border">✕ 버림</button>}
             </span>
           </div>
         </div>

@@ -31,6 +31,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   const [tweets, setTweets] = useState<StoredTweet[]>([]);
   const [sort, setSort] = useState<SortKey>(column.config.sort ?? 'views');
   const [mode, setMode] = useState<ViewMode>('all');
+  const [showDismissed, setShowDismissed] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(column.lastRefreshedAt);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -67,19 +68,19 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   const [loadingMore, setLoadingMore] = useState(false);
 
   const load = useCallback(async (s: SortKey) => {
-    const r = await fetch(`/api/columns/${column.id}/tweets?sort=${s}`);
+    const r = await fetch(`/api/columns/${column.id}/tweets?sort=${s}${showDismissed ? '&dismissed=only' : ''}`);
     if (r.ok) {
       const page = (await r.json()) as StoredTweet[];
       setTweets(page);
       setHasMore(page.length === PAGE); // 꽉 찬 페이지면 뒤에 더 있을 가능성
     }
-  }, [column.id]);
+  }, [column.id, showDismissed]);
 
   // 다음 페이지를 이어붙임 (정렬·새로고침 시 load()가 첫 페이지로 리셋)
   async function loadMore() {
     setLoadingMore(true);
     try {
-      const r = await fetch(`/api/columns/${column.id}/tweets?sort=${sort}&offset=${tweets.length}`);
+      const r = await fetch(`/api/columns/${column.id}/tweets?sort=${sort}&offset=${tweets.length}${showDismissed ? '&dismissed=only' : ''}`);
       if (r.ok) {
         const page = (await r.json()) as StoredTweet[];
         setTweets((prev) => [...prev, ...page]);
@@ -128,6 +129,18 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
     await load(sort);
   }
 
+  async function dismissTweet(tweetId: string) {
+    await fetch('/api/dismissed', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tweetId, workspaceId: column.workspaceId, memberId: member?.id ?? null }),
+    });
+    await load(sort);
+  }
+  async function undismissTweet(tweetId: string) {
+    await fetch(`/api/dismissed?tweetId=${tweetId}&workspaceId=${column.workspaceId}`, { method: 'DELETE' });
+    await load(sort);
+  }
+
   const btn = 'rounded px-1.5 py-0.5 text-xs hover:bg-x-hover';
   const iconBtn = 'rounded-full p-1.5 text-x-secondary transition-colors hover:bg-x-blue/10 hover:text-x-blue disabled:opacity-60';
   const keywords = column.kind === 'search' ? ((column.config as SearchConfig).keywords ?? []) : [];
@@ -157,6 +170,9 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
                   title="NEW = 직전 새로고침 이후 새로 들어온 트윗">
             {mode === 'new' ? 'NEW만' : '전체'}
           </button>
+          <button onClick={() => setShowDismissed((v) => !v)} className={`${btn} ${showDismissed ? 'font-bold text-x-text' : ''}`} title="버림 보기">
+            {showDismissed ? '버림✓' : '버림'}
+          </button>
         </div>
         {err && <p className="mt-1 text-xs text-red-500">{err} <button onClick={refresh} className="underline">재시도</button></p>}
       </header>
@@ -174,7 +190,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
           ? <p className="p-4 text-center text-sm text-x-muted">{mode === 'new' ? '신규 유입 없음 — 그 자체가 시그널입니다' : '트윗 없음'}</p>
           : visible.map((t) => (
               <TweetCard key={t.tweetId} tweet={t} meId={member?.id ?? null}
-                         onSave={save} onUnsave={unsave} />
+                         onSave={save} onUnsave={unsave}
+                         onDismiss={dismissTweet} onUndismiss={undismissTweet} dismissedView={showDismissed} />
             ))}
         {hasMore && (
           <button onClick={loadMore} disabled={loadingMore}

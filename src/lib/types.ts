@@ -8,6 +8,8 @@ export interface Member { id: string; name: string; color: string }
 export interface SearchConfig {
   keywords: string[];          // OR 조합
   minFaves?: number | null;
+  minRetweets?: number | null;
+  minReplies?: number | null;
   sinceDate?: string | null;   // 'YYYY-MM-DD'
   untilDate?: string | null;
   lang?: string | null;        // 기본 'ja'

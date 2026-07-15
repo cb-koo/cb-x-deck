@@ -64,7 +64,7 @@ function toStored(r: TweetRow): StoredTweet {
 export const PAGE_SIZE = 200;
 
 export async function getColumnTweets(
-  sql: postgres.Sql, columnId: string, opts: { sort: SortKey; offset?: number },
+  sql: postgres.Sql, columnId: string, opts: { sort: SortKey; offset?: number; dismissed?: 'exclude' | 'only' },
 ): Promise<StoredTweet[]> {
   const [col] = await sql<Array<{ workspace_id: string }>>`select workspace_id from deck_column where id = ${columnId}`;
   if (!col) return [];
@@ -83,6 +83,9 @@ export async function getColumnTweets(
        join tweet t on t.tweet_id = ct.tweet_id
        left join quoted_tweet qt on qt.id = t.quoted->>'id' and qt.status = 'ok'
       where ct.column_id = $1
+        and ${opts.dismissed === 'only'
+              ? `exists (select 1 from dismissed_tweet d where d.workspace_id = $2 and d.tweet_id = t.tweet_id)`
+              : `not exists (select 1 from dismissed_tweet d where d.workspace_id = $2 and d.tweet_id = t.tweet_id)`}
       order by ${ORDER[opts.sort] ?? ORDER.views}, t.tweet_id
       limit ${PAGE_SIZE} offset $3`,
     [columnId, col.workspace_id, offset],

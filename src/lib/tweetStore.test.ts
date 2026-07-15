@@ -129,3 +129,22 @@ test('quoted 캐시가 있으면 quoted.enriched로 실려 온다', async () => 
     await sql`delete from quoted_tweet where id like ${P + '%'}`;
   }
 });
+
+test('버림 트윗은 기본 조회에서 제외, dismissed=only면 그것만', async () => {
+  const { dismiss } = await import('./dismissStore.ts');
+  const ws = await createWorkspace(sql, P + 'ws-dm');
+  const col = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'c', config: { keywords: ['x'] } });
+  try {
+    await upsertTweets(sql, [tw('d1', 10), tw('d2', 20)]);
+    await linkColumnTweets(sql, col.id, [P + 'd1', P + 'd2']);
+    await dismiss(sql, { workspaceId: ws.id, tweetId: P + 'd1' });
+    const shown = await getColumnTweets(sql, col.id, { sort: 'views' });
+    assert.deepEqual(shown.map((t) => t.tweetId), [P + 'd2']);
+    const only = await getColumnTweets(sql, col.id, { sort: 'views', dismissed: 'only' });
+    assert.deepEqual(only.map((t) => t.tweetId), [P + 'd1']);
+  } finally {
+    await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
+    await sql`delete from dismissed_tweet where workspace_id = ${ws.id}`;
+  }
+});

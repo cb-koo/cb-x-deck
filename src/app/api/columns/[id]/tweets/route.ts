@@ -10,5 +10,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const sp = new URL(req.url).searchParams;
   const sort = (SORTS.includes(sp.get('sort') as SortKey) ? sp.get('sort') : 'views') as SortKey;
   const offset = Math.max(0, parseInt(sp.get('offset') ?? '0', 10) || 0);
-  return NextResponse.json(await getColumnTweets(getSql(), id, { sort, offset }));
+  const dismissed = sp.get('dismissed') === 'only' ? 'only' : 'exclude';
+  return NextResponse.json(await getColumnTweets(getSql(), id, { sort, offset, dismissed }));
 }

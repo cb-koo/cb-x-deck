@@ -23,6 +23,8 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
   const [kwInput, setKwInput] = useState('');
   const [handle, setHandle] = useState(init.handle ?? '');
   const [minFaves, setMinFaves] = useState(init.minFaves ?? 300);
+  const [minRetweets, setMinRetweets] = useState(init.minRetweets ?? null);
+  const [minReplies, setMinReplies] = useState(init.minReplies ?? null);
   const [minViews, setMinViews] = useState(init.minViews ?? null);
   const [sinceDate, setSinceDate] = useState(init.sinceDate ?? '');
   const [untilDate, setUntilDate] = useState(init.untilDate ?? '');
@@ -34,6 +36,8 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
   const [busy, setBusy] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [err, setErr] = useState('');
+  const [probe, setProbe] = useState<{ suggested: number; sampleSize: number; likeRange: [number, number]; density: string } | null>(null);
+  const [probing, setProbing] = useState(false);
 
   const addChip = (c: KwChip) => {
     const t = c.ja.trim();
@@ -68,6 +72,22 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
     setBusy(false);
   }
 
+  // 밀도 확인: 현재 키워드로 최근 7일 표본을 1콜 조회해 적절한 min_faves를 제안
+  async function checkDensity() {
+    const kws = keywords.map((k) => k.ja);
+    if (kwInput.trim() && !hasHangul(kwInput)) kws.push(kwInput.trim());
+    if (kws.length === 0) { setErr('키워드를 먼저 입력하세요'); return; }
+    setProbing(true); setErr('');
+    try {
+      const r = await fetch('/api/research/density', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keywords: kws, lang: lang || 'ja' }),
+      });
+      if (!r.ok) { setErr('밀도 확인 실패 — 수동 입력하세요'); return; }
+      setProbe(await r.json());
+    } finally { setProbing(false); }
+  }
+
   async function submit() {
     setErr('');
     try {
@@ -79,7 +99,8 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
         if (kws.length === 0) { setErr('키워드를 입력하세요'); return; }
         await onSubmit({
           kind, title: title || kws.map(chipLabel).join('·'),
-          config: { keywords: kws.map((k) => k.ja), minFaves: minFaves || null, minViews: minViews || null,
+          config: { keywords: kws.map((k) => k.ja), minFaves: minFaves || null,
+                    minRetweets: minRetweets || null, minReplies: minReplies || null, minViews: minViews || null,
                     sinceDate: sinceDate || null, untilDate: untilDate || null, lang: lang || null,
                     imagesOnly, maxPages: maxPages || 3, sort: init.sort ?? 'views', width: init.width ?? null },
         });
@@ -153,11 +174,31 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
 
             <div className={section}>
               <p className={sectionTitle}>필터</p>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                <div><label className={label}>최소 좋아요</label>
-                  <input type="number" className={input} value={minFaves ?? ''} onChange={(e) => setMinFaves(e.target.value ? +e.target.value : 0)} /></div>
+
+              {/* 최소 좋아요 = 벤치마크 주축 → 추천 버튼을 바로 옆에 붙여 연관성 명확히 */}
+              <label className={label}>최소 좋아요</label>
+              <div className="flex items-center gap-2">
+                <input type="number" className={input} value={minFaves ?? ''} onChange={(e) => setMinFaves(e.target.value ? +e.target.value : 0)} />
+                <button type="button" onClick={checkDensity} disabled={probing} className={`${chip} shrink-0 disabled:opacity-50`}>{probing ? '조회 중…' : '적정 기준 추천받기'}</button>
+              </div>
+              <p className="mt-1 text-[12px] text-x-muted">반응 좋은 트윗만 보려면 기준을 정하세요. 키워드마다 적정값이 달라, 최근 7일을 조회해 추천해 드려요.</p>
+              {probe && (
+                <p className="mt-1 text-[13px] text-x-secondary">
+                  {probe.density === 'high' ? '반응이 활발한 편' : probe.density === 'moderate' ? '반응이 보통인 편' : '반응이 드문 편'}이에요
+                  (최근 7일 좋아요 {probe.likeRange[0]}~{probe.likeRange[1]}). <b className="text-x-text">최소 좋아요 {probe.suggested}</b> 추천
+                  <button type="button" onClick={() => setMinFaves(probe.suggested)}
+                          className="ml-1.5 rounded-full bg-x-blue px-2.5 py-0.5 text-[12px] font-bold text-white hover:bg-x-blue-hover">적용</button>
+                </p>
+              )}
+
+              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
+                <div><label className={label}>최소 RT</label>
+                  <input type="number" className={input} value={minRetweets ?? ''} onChange={(e) => setMinRetweets(e.target.value ? +e.target.value : null)} /></div>
+                <div><label className={label}>최소 답글</label>
+                  <input type="number" className={input} value={minReplies ?? ''} onChange={(e) => setMinReplies(e.target.value ? +e.target.value : null)} /></div>
                 <div><label className={label}>최소 조회수 (재필터)</label>
                   <input type="number" className={input} value={minViews ?? ''} onChange={(e) => setMinViews(e.target.value ? +e.target.value : null)} /></div>
+                <div />
                 <div><label className={label}>since (이 날짜부터)</label>
                   <input type="date" className={input} value={sinceDate ?? ''} onChange={(e) => setSinceDate(e.target.value)} /></div>
                 <div><label className={label}>until (이 날짜까지)</label>

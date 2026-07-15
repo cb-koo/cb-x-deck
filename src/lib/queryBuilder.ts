@@ -6,6 +6,8 @@ export function buildSearchQuery(c: SearchConfig): string {
   const parts = [kw];
   if (c.imagesOnly !== false) parts.push('filter:images');
   if (c.minFaves) parts.push(`min_faves:${c.minFaves}`);
+  if (c.minRetweets) parts.push(`min_retweets:${c.minRetweets}`);
+  if (c.minReplies) parts.push(`min_replies:${c.minReplies}`);
   if (c.lang) parts.push(`lang:${c.lang}`);
   if (c.sinceDate) parts.push(`since:${c.sinceDate}`);
   if (c.untilDate) parts.push(`until:${c.untilDate}`);

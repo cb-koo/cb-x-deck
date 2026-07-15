@@ -55,3 +55,16 @@ export function mapRawTweet(raw: RawTweet): DeckTweet | null {
     tweetCreatedAt: toIso(raw.createdAt),
   };
 }
+
+export interface ExpansionUser {
+  handle: string;
+  name: string | null;
+  avatarUrl: string | null;
+  followers: number | null;
+}
+
+export function mapRawUser(raw: Record<string, unknown>): ExpansionUser | null {
+  const handle = str(raw.userName) ?? str(raw.screen_name);
+  if (!handle) return null;
+  return { handle, name: str(raw.name), avatarUrl: str(raw.profilePicture), followers: num(raw.followers) };
+}

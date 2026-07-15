@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { mapRawTweet } from './mappers.ts';
+import { mapRawTweet, mapRawUser } from './mappers.ts';
 
 const fixture = JSON.parse(readFileSync('fixtures/search-response.json', 'utf8'));
 
@@ -56,4 +56,12 @@ test('리트윗(retweeted_tweet 있음)은 null', () => {
 
 test('author 없으면 null', () => {
   assert.equal(mapRawTweet({ id: '1', text: 'x' }), null);
+});
+
+test('mapRawUser: 핸들 필수, screen_name 폴백, 필드 매핑', () => {
+  assert.deepEqual(mapRawUser({ userName: 'u', name: 'N', profilePicture: 'p', followers: 5 }),
+    { handle: 'u', name: 'N', avatarUrl: 'p', followers: 5 });
+  assert.deepEqual(mapRawUser({ screen_name: 's' }),
+    { handle: 's', name: null, avatarUrl: null, followers: null });
+  assert.equal(mapRawUser({ name: '핸들없음' }), null);
 });

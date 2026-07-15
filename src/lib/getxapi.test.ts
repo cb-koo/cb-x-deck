@@ -76,3 +76,32 @@ test('getTweetDetail: data 없는 200(응답 이상)도 null', async () => {
   const c = new GetxapiClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {} });
   assert.equal(await c.getTweetDetail('9'), null);
 });
+
+function fakeFetchJson(payload: unknown, urls: string[]): typeof fetch {
+  return (async (url: RequestInfo | URL) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify(payload), { status: 200 });
+  }) as typeof fetch;
+}
+
+test('getTweetReplies/Thread: 경로·tweetId·cursor + tweets/replies/data 키 정규화', async () => {
+  const urls: string[] = [];
+  const c1 = new GetxapiClient({ apiKey: 'k', fetchImpl: fakeFetchJson({ tweets: [{ id: '1' }], has_more: true, next_cursor: 'N' }, urls), sleep: async () => {} });
+  const p1 = await c1.getTweetReplies('T1', 'CUR');
+  assert.match(urls[0], /\/twitter\/tweet\/replies\?/);
+  assert.match(urls[0], /id=T1/); // 실계약: tweetId가 아니라 id (400 Missing required query param: id 로 확인)
+  assert.match(urls[0], /cursor=CUR/);
+  assert.deepEqual(p1, { tweets: [{ id: '1' }], has_more: true, next_cursor: 'N' });
+
+  const c2 = new GetxapiClient({ apiKey: 'k', fetchImpl: fakeFetchJson({ replies: [{ id: '2' }] }, []), sleep: async () => {} });
+  const p2 = await c2.getTweetThread('T2');
+  assert.deepEqual(p2, { tweets: [{ id: '2' }], has_more: false, next_cursor: null });
+});
+
+test('getTweetRetweeters: users/retweeters/data 키 정규화', async () => {
+  const urls: string[] = [];
+  const c = new GetxapiClient({ apiKey: 'k', fetchImpl: fakeFetchJson({ retweeters: [{ userName: 'u1' }], has_more: false, next_cursor: '' }, urls), sleep: async () => {} });
+  const p = await c.getTweetRetweeters('T3');
+  assert.match(urls[0], /\/twitter\/tweet\/retweeters\?/);
+  assert.deepEqual(p, { users: [{ userName: 'u1' }], has_more: false, next_cursor: null }); // 빈 문자열 커서 → null
+});

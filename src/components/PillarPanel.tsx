@@ -103,7 +103,7 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
                 {busy === 'analyze' ? '분류 중…' : `새 트윗 ${data!.unassignedCount}건 분류`}
               </button>
             )}
-            {a.sampleSize < 50 && (
+            {(stats.classifiedCount + stats.unclassifiedCount) < 50 && (
               <button onClick={backfill} disabled={busy !== ''} className={smallBtn}
                       title="표본이 적으면 판정이 흔들려요 — 과거 트윗을 더 수집합니다 (약 $0.01)">
                 {busy === 'backfill' ? '수집 중…' : '표본이 적어요 — 과거 트윗 더 가져오기'}

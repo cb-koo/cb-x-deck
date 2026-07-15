@@ -45,7 +45,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!analysis) return NextResponse.json({ error: '먼저 전체 분석을 실행하세요' }, { status: 400 });
     const unassigned = await listAnalysisTweets(sql, id, { onlyUnassigned: true, limit: MAX_ANALYSIS_TWEETS });
     if (unassigned.length > 0) {
-      const asg = await classifyTweets(analysis.topics, unassigned.map((t) => ({ tweetId: t.tweetId, text: t.text })));
+      let asg;
+      try {
+        asg = await classifyTweets(analysis.topics, unassigned.map((t) => ({ tweetId: t.tweetId, text: t.text })));
+      } catch {
+        // LLM 예외(타임아웃·429·API 키 부재 등) — 미분류로 남아 무해, addAssignments 미호출
+        return NextResponse.json({ error: '분석 실패 — 다시 시도해주세요' }, { status: 502 });
+      }
       await addAssignments(sql, id, asg);
     }
     return NextResponse.json(await payload(sql, id));
@@ -55,8 +61,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (tweets.length === 0) {
     return NextResponse.json({ error: '분석할 트윗이 없어요 — 먼저 새로고침하세요' }, { status: 400 });
   }
-  const derived = await deriveTopics(tweets.map((t) => ({ tweetId: t.tweetId, text: t.text })));
-  // 실패 시 기존 스냅샷을 덮지 않는다 — saveAnalysis 자체를 호출하지 않음
+  let derived;
+  try {
+    derived = await deriveTopics(tweets.map((t) => ({ tweetId: t.tweetId, text: t.text })));
+  } catch {
+    // LLM 예외(타임아웃·429·API 키 부재 등) — saveAnalysis 미호출로 기존 스냅샷 보존
+    return NextResponse.json({ error: '분석 실패 — 다시 시도해주세요' }, { status: 502 });
+  }
+  // 파싱 실패 시에도 기존 스냅샷을 덮지 않는다 — saveAnalysis 자체를 호출하지 않음
   if (!derived) return NextResponse.json({ error: '분석 실패 — 다시 시도해주세요' }, { status: 502 });
   await saveAnalysis(sql, {
     columnId: id, topics: derived.topics, sampleSize: tweets.length,

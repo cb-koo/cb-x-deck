@@ -69,3 +69,22 @@ test('watchlist 컬럼: userId로 getUserTweets, 재필터 없음', async () => 
     await deleteWorkspace(sql, ws.id);
   }
 });
+
+test('maxPagesOverride가 config.maxPages보다 우선(과거 백필용)', async () => {
+  const ws = await createWorkspace(sql, P + 'ws3');
+  const col = await createColumn(sql, {
+    workspaceId: ws.id, kind: 'watchlist', title: P + 'w3', config: { handle: 'u', userId: 'UID3', maxPages: 1 },
+  });
+  let calls = 0;
+  const fake = {
+    searchTweets: async () => page([], null),
+    getUserTweets: async () => { calls++; return page([raw('o' + calls, 10)], calls < 5 ? 'C' + calls : null); },
+  };
+  try {
+    await refreshColumn(sql, fake, col.id, { maxPagesOverride: 3 });
+    assert.equal(calls, 3); // config는 1이지만 override 3 적용
+  } finally {
+    await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
+  }
+});

@@ -12,11 +12,12 @@ export async function refreshColumn(
   sql: postgres.Sql,
   client: Pick<GetxapiClient, 'searchTweets' | 'getUserTweets'>,
   columnId: string,
+  opts?: { maxPagesOverride?: number },
 ): Promise<{ fetched: number; inserted: number; updated: number }> {
   const col = await getColumn(sql, columnId);
   if (!col) throw new Error(`column not found: ${columnId}`);
 
-  const maxPages = (col.config.maxPages ?? DEFAULT_MAX_PAGES) as number;
+  const maxPages = opts?.maxPagesOverride ?? ((col.config.maxPages ?? DEFAULT_MAX_PAGES) as number);
   const raws: RawTweet[] = [];
   let cursor: string | undefined;
 

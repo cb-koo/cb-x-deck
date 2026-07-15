@@ -6,16 +6,21 @@ import { refreshColumn } from '@/lib/refreshColumn';
 import { getColumnQuotedIds } from '@/lib/quotedStore';
 import { enrichQuoted } from '@/lib/quotedEnrich';
 
-export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const sql = getSql();
 
   const existing = await getColumn(sql, id);
   if (!existing) return NextResponse.json({ error: `column not found: ${id}` }, { status: 404 });
 
+  // 과거 백필용: body {maxPages}로 이번 1회만 더 깊이 페이지네이션 (1~10 클램프)
+  const body = (await req.json().catch(() => ({}))) as { maxPages?: unknown };
+  const mp = Number(body.maxPages);
+  const maxPagesOverride = Number.isFinite(mp) && mp >= 1 ? Math.min(10, Math.floor(mp)) : undefined;
+
   try {
     const client = makeClient();
-    const result = await refreshColumn(sql, client, id);
+    const result = await refreshColumn(sql, client, id, { maxPagesOverride });
     // 인용 트윗 보강(베스트 에포트) — 실패해도 refresh 자체는 성공으로 응답
     try {
       await enrichQuoted(sql, client, await getColumnQuotedIds(sql, id));

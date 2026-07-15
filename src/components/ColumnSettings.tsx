@@ -188,13 +188,18 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                 <div><label className={label}>until (이 날짜까지)</label>
                   <input type="date" className={input} value={untilDate ?? ''} onChange={(e) => setUntilDate(e.target.value)} /></div>
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-x-secondary">
-                <button type="button" onClick={checkDensity} disabled={probing} className={`${chip} disabled:opacity-50`}>{probing ? '…' : '밀도 확인'}</button>
-                {probe && (
-                  <span>최근 7일 좋아요 {probe.likeRange[0]}~{probe.likeRange[1]} · 제안 min_faves:{probe.suggested}
-                    <button type="button" onClick={() => setMinFaves(probe.suggested)} className="ml-1 text-x-blue hover:underline">적용</button>
-                  </span>
-                )}
+              <div className="mt-2">
+                <p className="text-[12px] text-x-muted">반응 좋은 트윗만 보려면 최소 좋아요 기준을 정하세요. 키워드마다 적정값이 달라, 최근 7일을 조회해 추천해 드려요.</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-x-secondary">
+                  <button type="button" onClick={checkDensity} disabled={probing} className={`${chip} disabled:opacity-50`}>{probing ? '조회 중…' : '적정 기준 추천받기'}</button>
+                  {probe && (
+                    <span>
+                      {probe.density === 'high' ? '반응이 활발한 편' : probe.density === 'moderate' ? '반응이 보통인 편' : '반응이 드문 편'}이에요
+                      (최근 7일 좋아요 {probe.likeRange[0]}~{probe.likeRange[1]}). <b className="text-x-text">min_faves {probe.suggested}</b> 추천
+                      <button type="button" onClick={() => setMinFaves(probe.suggested)} className="ml-1 text-x-blue hover:underline">적용</button>
+                    </span>
+                  )}
+                </div>
               </div>
               <label className="mt-3 flex items-center gap-2 text-[14px] text-x-secondary">
                 <input type="checkbox" checked={imagesOnly} onChange={(e) => setImagesOnly(e.target.checked)} /> 이미지 있는 트윗만

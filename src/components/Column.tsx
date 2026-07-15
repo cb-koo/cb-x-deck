@@ -41,6 +41,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   const [showPillar, setShowPillar] = useState(false);
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
   const [pillarMap, setPillarMap] = useState<Record<string, string>>({});
+  // 안정 참조 — 인라인 화살표를 넘기면 렌더마다 새 참조 → PillarPanel의 load useEffect 재발화 → 무한 GET 루프
+  const handlePillarData = useCallback((p: PillarPayload) => setPillarMap(p.tweetTopics), []);
 
   // 우측 가장자리 드래그로 폭 조절, 놓으면 config.width로 저장
   function startResize(e: React.MouseEvent) {
@@ -201,7 +203,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
       {column.kind === 'watchlist' && showPillar && (
         <PillarPanel columnId={column.id}
                      topicFilter={topicFilter} onTopicFilter={setTopicFilter}
-                     onData={(p: PillarPayload) => setPillarMap(p.tweetTopics)}
+                     onData={handlePillarData}
                      onAfterBackfill={() => load(sort)}
                      onClose={() => { setShowPillar(false); setTopicFilter(null); }} />
       )}

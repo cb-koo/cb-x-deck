@@ -195,7 +195,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                   {probe && (
                     <span>
                       {probe.density === 'high' ? '반응이 활발한 편' : probe.density === 'moderate' ? '반응이 보통인 편' : '반응이 드문 편'}이에요
-                      (최근 7일 좋아요 {probe.likeRange[0]}~{probe.likeRange[1]}). <b className="text-x-text">min_faves {probe.suggested}</b> 추천
+                      (최근 7일 좋아요 {probe.likeRange[0]}~{probe.likeRange[1]}). <b className="text-x-text">최소 좋아요 {probe.suggested}</b> 추천
                       <button type="button" onClick={() => setMinFaves(probe.suggested)} className="ml-1 text-x-blue hover:underline">적용</button>
                     </span>
                   )}

@@ -5,6 +5,7 @@ import { flagYakkiho } from '@/lib/complianceFlags';
 import { MediaGrid } from './MediaGrid';
 import { QuotedCard } from './QuotedCard';
 import { TweetText } from './TweetText';
+import { TweetExpansion } from './TweetExpansion';
 import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from './XIcons';
 
 function timeAgo(iso: string | null): string {
@@ -107,6 +108,7 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndis
                 : onDismiss && <button onClick={() => onDismiss(t.tweetId)} title="벤치마크 무관 — 숨김" className="rounded px-1.5 py-0.5 text-x-muted hover:bg-x-border">✕ 버림</button>}
             </span>
           </div>
+          <TweetExpansion tweetId={t.tweetId} />
         </div>
       </div>
     </article>

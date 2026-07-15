@@ -16,6 +16,12 @@ export interface UserInfo {
   profilePicture: string | null;
 }
 
+export interface UsersPage {
+  has_more: boolean;
+  next_cursor: string | null;
+  users: Record<string, unknown>[];
+}
+
 export class GetxapiAuthError extends Error {
   constructor(message: string) {
     super(message);
@@ -78,6 +84,36 @@ export class GetxapiClient {
       if (/^(400|404) from /.test((e as Error).message)) return null;
       throw e;
     }
+  }
+
+  // 확장 탐색 — 응답 배열 키가 엔드포인트마다 다를 수 있어 관대하게 정규화(실계약은 smoke-expansion.ts로 확인)
+  private static pageMeta(raw: Record<string, unknown>): { has_more: boolean; next_cursor: string | null } {
+    return {
+      has_more: raw.has_more === true,
+      next_cursor: typeof raw.next_cursor === 'string' && raw.next_cursor ? raw.next_cursor : null,
+    };
+  }
+
+  // 실계약 확인(smoke-expansion.ts): 쿼리 파라미터는 tweetId가 아니라 id (getTweetDetail과 동일 관례)
+  async getTweetReplies(tweetId: string, cursor?: string): Promise<SearchPage> {
+    const qs = new URLSearchParams({ id: tweetId, ...(cursor ? { cursor } : {}) });
+    const raw = await this.get<Record<string, unknown>>(`/twitter/tweet/replies?${qs}`);
+    const arr = [raw.tweets, raw.replies, raw.data].find(Array.isArray) as RawTweet[] | undefined;
+    return { tweets: arr ?? [], ...GetxapiClient.pageMeta(raw) };
+  }
+
+  async getTweetThread(tweetId: string, cursor?: string): Promise<SearchPage> {
+    const qs = new URLSearchParams({ id: tweetId, ...(cursor ? { cursor } : {}) });
+    const raw = await this.get<Record<string, unknown>>(`/twitter/tweet/thread?${qs}`);
+    const arr = [raw.tweets, raw.replies, raw.data].find(Array.isArray) as RawTweet[] | undefined;
+    return { tweets: arr ?? [], ...GetxapiClient.pageMeta(raw) };
+  }
+
+  async getTweetRetweeters(tweetId: string, cursor?: string): Promise<UsersPage> {
+    const qs = new URLSearchParams({ id: tweetId, ...(cursor ? { cursor } : {}) });
+    const raw = await this.get<Record<string, unknown>>(`/twitter/tweet/retweeters?${qs}`);
+    const arr = [raw.users, raw.retweeters, raw.data].find(Array.isArray) as Record<string, unknown>[] | undefined;
+    return { users: arr ?? [], ...GetxapiClient.pageMeta(raw) };
   }
 
   private backoffMs(attempt: number): number {

@@ -109,7 +109,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   }, [autoRefresh]);
 
   const modeFiltered = mode === 'new' ? tweets.filter((t) => t.isNew) : tweets;
-  const visible = topicFilter ? modeFiltered.filter((t) => pillarMap[t.tweetId] === topicFilter) : modeFiltered;
+  // 버림 보기 중엔 주제 맵에 버림 트윗이 없어 필터를 걸면 항상 빈 목록이 된다 — 이때는 필터 미적용
+  const visible = topicFilter && !showDismissed ? modeFiltered.filter((t) => pillarMap[t.tweetId] === topicFilter) : modeFiltered;
 
   async function refresh() {
     setBusy(true); setErr('');
@@ -185,7 +186,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
                   title="NEW = 직전 새로고침 이후 새로 들어온 트윗">
             {mode === 'new' ? 'NEW만' : '전체'}
           </button>
-          <button onClick={() => setShowDismissed((v) => !v)} className={`${btn} ${showDismissed ? 'font-bold text-x-text' : ''}`} title="버림 보기">
+          <button onClick={() => { setShowDismissed((v) => !v); setTopicFilter(null); }} className={`${btn} ${showDismissed ? 'font-bold text-x-text' : ''}`} title="버림 보기">
             {showDismissed ? '버림✓' : '버림'}
           </button>
         </div>

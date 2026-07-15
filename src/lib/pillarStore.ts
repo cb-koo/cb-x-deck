@@ -45,6 +45,19 @@ export async function addAssignments(sql: postgres.Sql, columnId: string, assign
   }
 }
 
+// 레이스로 현재 스냅샷(topics)에 없는 topic_id가 tweet_topic에 남으면 그 트윗은 통계상
+// '분류됨'으로 잡히지만 어떤 주제 행에도 나오지 않고 증분 대상에도 안 잡혀 실종된다.
+// 증분 분류 직전에 호출해 stale 행을 지우면 해당 트윗이 미분류로 복귀해 재분류된다.
+export async function pruneStaleAssignments(
+  sql: postgres.Sql, columnId: string, validTopicIds: string[],
+): Promise<number> {
+  const rows = await sql`
+    delete from tweet_topic
+     where column_id = ${columnId} and topic_id != all(${validTopicIds})
+     returning tweet_id`;
+  return rows.length;
+}
+
 export async function getAnalysis(sql: postgres.Sql, columnId: string): Promise<PillarAnalysisRow | null> {
   const rows = await sql<Array<{ topics: PillarTopic[]; sample_size: number; model: string | null; analyzed_at: Date }>>`
     select topics, sample_size, model, analyzed_at from pillar_analysis where column_id = ${columnId}`;

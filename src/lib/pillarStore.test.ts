@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { saveAnalysis, addAssignments, getAnalysis, listAnalysisTweets } from './pillarStore.ts';
+import { saveAnalysis, addAssignments, getAnalysis, listAnalysisTweets, pruneStaleAssignments } from './pillarStore.ts';
 import { createColumn, deleteColumn } from './columnStore.ts';
 import { createWorkspace, deleteWorkspace } from './workspaceStore.ts';
 import { upsertTweets, linkColumnTweets } from './tweetStore.ts';
@@ -107,6 +107,33 @@ test('addAssignments 멱등 + 버림 트윗은 분석 목록에서 제외', asyn
     const rows = await listAnalysisTweets(sql, col.id);
     assert.deepEqual(rows.map((r) => r.tweetId), [P + 'f']); // g는 버림으로 제외
     assert.equal(rows[0].topicId, 't1');
+  } finally {
+    await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
+  }
+});
+
+test('pruneStaleAssignments: 스냅샷에 없는 topic_id 배정 삭제 → 미분류로 복귀', async () => {
+  const ws = await createWorkspace(sql, P + 'ws4');
+  const col = await createColumn(sql, {
+    workspaceId: ws.id, kind: 'watchlist', title: P + 'w4', config: { handle: 'h', userId: 'U4' },
+  });
+  try {
+    await upsertTweets(sql, [tw('h', 1), tw('i', 2)]);
+    await linkColumnTweets(sql, col.id, [P + 'h', P + 'i']);
+    await saveAnalysis(sql, { columnId: col.id, topics: [{ id: 't1', label: 'ㅌ' }], sampleSize: 2, model: null, assignments: [] });
+    await addAssignments(sql, col.id, [{ tweetId: P + 'h', topicId: 't1' }]);
+    // 레이스 재현: 현재 스냅샷(t1)에 없는 topic_id로 직접 삽입
+    await sql`insert into tweet_topic (column_id, tweet_id, topic_id) values (${col.id}, ${P + 'i'}, 'stale-topic')`;
+
+    const before = await listAnalysisTweets(sql, col.id, { onlyUnassigned: true });
+    assert.deepEqual(before.map((r) => r.tweetId), []); // stale 배정 때문에 '분류됨'으로 잡혀 실종 상태
+
+    const deleted = await pruneStaleAssignments(sql, col.id, ['t1']);
+    assert.equal(deleted, 1);
+
+    const after = await listAnalysisTweets(sql, col.id, { onlyUnassigned: true });
+    assert.deepEqual(after.map((r) => r.tweetId), [P + 'i']); // 미분류로 복귀 → 재분류 대상
   } finally {
     await deleteColumn(sql, col.id);
     await deleteWorkspace(sql, ws.id);

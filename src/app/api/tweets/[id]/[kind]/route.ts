@@ -14,13 +14,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string; kin
     if (kind === 'retweeters') {
       const page = await client.getTweetRetweeters(id, cursor);
       return NextResponse.json({
-        users: page.users.map(mapRawUser).filter((u) => u !== null),
+        users: page.users.map(mapRawUser).filter((u): u is NonNullable<typeof u> => u !== null),
         nextCursor: page.has_more ? page.next_cursor : null,
       });
     }
     const page = kind === 'replies' ? await client.getTweetReplies(id, cursor) : await client.getTweetThread(id, cursor);
     return NextResponse.json({
-      tweets: page.tweets.map(mapRawTweet).filter((t) => t !== null),
+      tweets: page.tweets.map(mapRawTweet).filter((t): t is NonNullable<typeof t> => t !== null),
       nextCursor: page.has_more ? page.next_cursor : null,
     });
   } catch (e) {

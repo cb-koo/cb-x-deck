@@ -20,7 +20,7 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
   onClose: () => void;
 }) {
   const [data, setData] = useState<PillarPayload | null>(null);
-  const [busy, setBusy] = useState<'' | 'analyze' | 'backfill'>('');
+  const [busy, setBusy] = useState<'' | 'full' | 'incremental' | 'backfill'>('');
   const [err, setErr] = useState('');
 
   const apply = useCallback((p: PillarPayload) => { setData(p); onData(p); }, [onData]);
@@ -32,7 +32,7 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
   useEffect(() => { load(); }, [load]);
 
   async function run(mode: 'full' | 'incremental') {
-    setBusy('analyze'); setErr('');
+    setBusy(mode); setErr('');
     const r = await fetch(`/api/columns/${columnId}/pillar`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }),
     });
@@ -73,7 +73,7 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
         <div className="mt-1">
           <p className="text-xs text-x-secondary">이 계정의 트윗을 주제별로 묶어 게시량 대비 반응(좋아요 중앙값)을 비교해요. (약 $0.05 이하)</p>
           <button onClick={() => run('full')} disabled={busy !== ''} className={`mt-1 ${primaryBtn}`}>
-            {busy === 'analyze' ? '분석 중…' : '분석 시작'}
+            {busy === 'full' ? '분석 중…' : '분석 시작'}
           </button>
         </div>
       )}
@@ -99,8 +99,8 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
           <div className="mt-1 flex flex-wrap gap-1">
             {(data?.unassignedCount ?? 0) > 0 && (
               <button onClick={() => run('incremental')} disabled={busy !== ''} className={primaryBtn}
-                      title="분석 이후 들어온 트윗을 기존 주제에 배정해요">
-                {busy === 'analyze' ? '분류 중…' : `새 트윗 ${data!.unassignedCount}건 분류`}
+                      title="아직 주제가 없는 트윗을 기존 주제에 배정해요">
+                {busy === 'incremental' ? '분류 중…' : `미분류 ${data!.unassignedCount}건 분류`}
               </button>
             )}
             {(stats.classifiedCount + stats.unclassifiedCount) < 50 && (
@@ -111,7 +111,7 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
             )}
             <button onClick={() => run('full')} disabled={busy !== ''} className={smallBtn}
                     title="주제 목록을 처음부터 다시 만들어요 · 전체 재분석 (약 $0.05 이하)">
-              주제 다시 도출
+              {busy === 'full' ? '분석 중…' : '주제 다시 도출'}
             </button>
           </div>
         </>

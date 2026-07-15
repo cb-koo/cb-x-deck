@@ -6,7 +6,7 @@ export interface AnthropicLike {
 
 export interface KwPair { ja: string; ko: string }
 
-const MODEL = () => process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001';
+export const MODEL = () => process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001';
 
 const PROMPT = (keyword: string) => `당신은 일본 뷰티/미용의료 X(트위터) 검색 전문가입니다.
 검색 키워드: "${keyword}" (한국어일 수도, 일본어일 수도 있음)

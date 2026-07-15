@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { DeckTweet } from '@/lib/types';
 import type { ExpansionUser } from '@/lib/mappers';
 import { formatCount } from '@/lib/format';
@@ -16,27 +16,45 @@ export function TweetExpansion({ tweetId }: { tweetId: string }) {
   const [cursor, setCursor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  // 세대 카운터 — toggle()로 kind 전환 시 증가. 응답 도착 시 세대가 달라졌으면(=다른 kind로
+  // 이미 전환된 뒤 도착한 stale 응답) 화면에 반영하지 않고 버린다.
+  const genRef = useRef(0);
 
   async function fetchPage(k: Kind, cur: string | null, replace: boolean) {
+    const gen = genRef.current;
     setBusy(true); setErr('');
     try {
       const r = await fetch(`/api/tweets/${tweetId}/${k}${cur ? `?cursor=${encodeURIComponent(cur)}` : ''}`);
+      if (gen !== genRef.current) return; // stale — 다른 kind로 전환됨
       if (!r.ok) {
         setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? '불러오기 실패 — 다시 시도');
         return;
       }
       const j = (await r.json()) as { tweets?: DeckTweet[]; users?: ExpansionUser[]; nextCursor: string | null };
-      if (k === 'retweeters') setUsers((prev) => (replace ? j.users ?? [] : [...prev, ...(j.users ?? [])]));
-      else setTweets((prev) => (replace ? j.tweets ?? [] : [...prev, ...(j.tweets ?? [])]));
+      if (gen !== genRef.current) return; // stale — json 파싱 대기 중 전환됨
+      if (k === 'retweeters') {
+        setUsers((prev) => {
+          if (replace) return j.users ?? [];
+          const seen = new Set(prev.map((u) => u.handle));
+          return [...prev, ...(j.users ?? []).filter((u) => !seen.has(u.handle))];
+        });
+      } else {
+        setTweets((prev) => {
+          if (replace) return j.tweets ?? [];
+          const seen = new Set(prev.map((t) => t.tweetId));
+          return [...prev, ...(j.tweets ?? []).filter((t) => !seen.has(t.tweetId))];
+        });
+      }
       setCursor(j.nextCursor ?? null);
     } catch {
-      setErr('불러오기 실패 — 다시 시도');
+      if (gen === genRef.current) setErr('불러오기 실패 — 다시 시도');
     } finally {
-      setBusy(false);
+      if (gen === genRef.current) setBusy(false);
     }
   }
 
   function toggle(k: Kind) {
+    genRef.current += 1;
     if (kind === k) { setKind(null); return; }
     setKind(k); setTweets([]); setUsers([]); setCursor(null); setErr('');
     fetchPage(k, null, true);
@@ -71,7 +89,7 @@ export function TweetExpansion({ tweetId }: { tweetId: string }) {
           ))}
           {kind === 'retweeters' && users.map((u) => (
             <div key={u.handle} className="flex items-baseline gap-1 border-b border-x-border py-1 last:border-b-0">
-              <a href={`https://x.com/${u.handle}`} target="_blank" rel="noopener" className="font-bold hover:underline">
+              <a href={`https://x.com/${u.handle}`} target="_blank" rel="noopener noreferrer" className="font-bold hover:underline">
                 {u.name ?? u.handle}
               </a>
               <span className="text-x-secondary">@{u.handle}</span>

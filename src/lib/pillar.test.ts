@@ -46,3 +46,10 @@ test('classifyTweets: 기존 주제에 배정, 새 주제 무시, 실패 시 빈
   assert.deepEqual(ok, [{ tweetId: 'Y', topicId: 't1' }]);
   assert.deepEqual(await classifyTweets(topics, [tw('X')], fakeClient('모르겠어요')), []);
 });
+
+test('deriveTopics: 같은 id의 중복 주제는 첫 번째만 유지, 배정은 정상 동작', async () => {
+  const out = await deriveTopics([tw('A'), tw('B')], fakeClient(
+    '{"topics":[{"id":"t1","label":"성분"},{"id":"t1","label":"성분(중복)"}],"assignments":{"t1":[1,2]}}'));
+  assert.deepEqual(out!.topics, [{ id: 't1', label: '성분' }]);
+  assert.deepEqual(out!.assignments, [{ tweetId: 'A', topicId: 't1' }, { tweetId: 'B', topicId: 't1' }]);
+});

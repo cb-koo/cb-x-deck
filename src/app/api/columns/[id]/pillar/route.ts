@@ -3,7 +3,7 @@ import { getSql } from '@/lib/db';
 import { getColumn } from '@/lib/columnStore';
 import { deriveTopics, classifyTweets, MAX_ANALYSIS_TWEETS } from '@/lib/pillar';
 import { computePillarStats, type PillarPayload } from '@/lib/pillarStats';
-import { getAnalysis, saveAnalysis, addAssignments, listAnalysisTweets } from '@/lib/pillarStore';
+import { getAnalysis, saveAnalysis, addAssignments, listAnalysisTweets, pruneStaleAssignments } from '@/lib/pillarStore';
 import type postgres from 'postgres';
 
 async function payload(sql: postgres.Sql, columnId: string): Promise<PillarPayload> {
@@ -14,7 +14,10 @@ async function payload(sql: postgres.Sql, columnId: string): Promise<PillarPaylo
     tweets.map((t) => ({ tweetId: t.tweetId, likes: t.likes, isQuote: t.isQuote, topicId: t.topicId })),
     analysis.topics,
   );
-  const classified = tweets.filter((t) => t.topicId !== null);
+  // 방어: prune 이전 시점에도 stale topic_id(현재 스냅샷에 없는 주제) 배정은 실종시키지 않고
+  // 미분류로 취급 — 어떤 주제 행에도 안 잡히는데 '분류됨'으로 세어져 사라지는 상황을 막는다
+  const validTopicIds = new Set(analysis.topics.map((t) => t.id));
+  const classified = tweets.filter((t) => t.topicId !== null && validTopicIds.has(t.topicId));
   const dates = classified.map((t) => t.createdAt).filter((d): d is string => d !== null).sort();
   return {
     analysis: { topics: analysis.topics, sampleSize: analysis.sampleSize, analyzedAt: analysis.analyzedAt },
@@ -43,6 +46,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (mode === 'incremental') {
     const analysis = await getAnalysis(sql, id);
     if (!analysis) return NextResponse.json({ error: '먼저 전체 분석을 실행하세요' }, { status: 400 });
+    // 레이스로 남은 stale topic_id 배정을 미분류로 되돌린 뒤 대상 목록을 뽑는다 — 안 그러면
+    // 스냅샷에 없는 주제로 배정된 트윗이 '분류됨'으로 잡혀 증분 대상에서 영구 누락된다
+    await pruneStaleAssignments(sql, id, analysis.topics.map((t) => t.id));
     const unassigned = await listAnalysisTweets(sql, id, { onlyUnassigned: true, limit: MAX_ANALYSIS_TWEETS });
     if (unassigned.length > 0) {
       let asg;

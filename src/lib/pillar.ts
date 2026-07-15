@@ -1,12 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { extractJson, type AnthropicLike } from './suggest.ts';
+import { extractJson, MODEL, type AnthropicLike } from './suggest.ts';
 import type { Assignment, PillarTopic } from './pillarTypes.ts';
 
 export interface PillarInputTweet { tweetId: string; text: string }
 
 export const MAX_ANALYSIS_TWEETS = 500;
-
-const MODEL = () => process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001';
 
 function tweetLines(tweets: PillarInputTweet[]): string {
   return tweets.map((t, i) => `${i + 1}. ${t.text.replace(/\s+/g, ' ').slice(0, 200)}`).join('\n');
@@ -55,13 +53,19 @@ function parseAssignments(v: unknown, topics: PillarTopic[], tweets: PillarInput
 
 function parseTopics(v: unknown): PillarTopic[] {
   if (!Array.isArray(v)) return [];
-  return v
-    .filter((x): x is { id: string; label: string } =>
-      typeof x === 'object' && x !== null
-      && typeof (x as Record<string, unknown>).id === 'string'
-      && typeof (x as Record<string, unknown>).label === 'string')
-    .map((x) => ({ id: x.id, label: x.label }))
-    .slice(0, 10);
+  const seen = new Set<string>();
+  const out: PillarTopic[] = [];
+  for (const x of v) {
+    if (typeof x !== 'object' || x === null) continue;
+    const id = (x as Record<string, unknown>).id;
+    const label = (x as Record<string, unknown>).label;
+    if (typeof id !== 'string' || typeof label !== 'string') continue;
+    if (seen.has(id)) continue; // 중복 id — 첫 번째만 유지
+    seen.add(id);
+    out.push({ id, label });
+    if (out.length >= 10) break;
+  }
+  return out;
 }
 
 // 전체 분석: 주제 도출 + 배정을 한 호출로. 실패 시 null — 호출측은 기존 스냅샷을 덮지 않는다

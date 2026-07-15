@@ -4,6 +4,8 @@ import type { ColumnRow, SearchConfig, SortKey, StoredTweet, ViewMode } from '@/
 import { useMember } from '@/lib/memberContext';
 import { TweetCard } from './TweetCard';
 import { CooccurrencePanel } from './CooccurrencePanel';
+import { PillarPanel } from './PillarPanel';
+import type { PillarPayload } from '@/lib/pillarStats';
 import { RefreshIcon, SettingsIcon, TrashIcon } from './XIcons';
 
 function lastRefreshedLabel(iso: string | null): string {
@@ -36,6 +38,9 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [width, setWidth] = useState<number>(column.config.width ?? 400);
+  const [showPillar, setShowPillar] = useState(false);
+  const [topicFilter, setTopicFilter] = useState<string | null>(null);
+  const [pillarMap, setPillarMap] = useState<Record<string, string>>({});
 
   // 우측 가장자리 드래그로 폭 조절, 놓으면 config.width로 저장
   function startResize(e: React.MouseEvent) {
@@ -101,7 +106,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh]);
 
-  const visible = mode === 'new' ? tweets.filter((t) => t.isNew) : tweets;
+  const modeFiltered = mode === 'new' ? tweets.filter((t) => t.isNew) : tweets;
+  const visible = topicFilter ? modeFiltered.filter((t) => pillarMap[t.tweetId] === topicFilter) : modeFiltered;
 
   async function refresh() {
     setBusy(true); setErr('');
@@ -165,6 +171,13 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
               {sort === k && <span className="absolute inset-x-2 bottom-0 h-1 rounded-full bg-x-blue" />}
             </button>
           ))}
+          {column.kind === 'watchlist' && (
+            <button onClick={() => { setShowPillar((v) => !v); if (showPillar) setTopicFilter(null); }}
+                    className={`${btn} ${showPillar ? 'font-bold text-x-text' : ''}`}
+                    title="이 계정의 트윗을 주제별로 묶어 반응을 비교해요 · 약 $0.05 이하">
+              주제 분석{showPillar ? '✓' : ''}
+            </button>
+          )}
           <span className="ml-auto" />
           <button onClick={() => setMode(mode === 'new' ? 'all' : 'new')} className={btn}
                   title="NEW = 직전 새로고침 이후 새로 들어온 트윗">
@@ -185,9 +198,19 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
       {column.kind === 'search' && (
         <CooccurrencePanel tweets={tweets} excludeKeywords={keywords} onPick={onPickTag} />
       )}
+      {column.kind === 'watchlist' && showPillar && (
+        <PillarPanel columnId={column.id}
+                     topicFilter={topicFilter} onTopicFilter={setTopicFilter}
+                     onData={(p: PillarPayload) => setPillarMap(p.tweetTopics)}
+                     onAfterBackfill={() => load(sort)}
+                     onClose={() => { setShowPillar(false); setTopicFilter(null); }} />
+      )}
       <div className="flex-1 overflow-y-auto">
         {visible.length === 0
-          ? <p className="p-4 text-center text-sm text-x-muted">{mode === 'new' ? '신규 유입 없음 — 그 자체가 시그널입니다' : '트윗 없음'}</p>
+          ? <p className="p-4 text-center text-sm text-x-muted">
+              {topicFilter ? '이 주제의 트윗이 현재 목록에 없어요 (주제를 다시 눌러 해제)'
+                : mode === 'new' ? '신규 유입 없음 — 그 자체가 시그널입니다' : '트윗 없음'}
+            </p>
           : visible.map((t) => (
               <TweetCard key={t.tweetId} tweet={t} meId={member?.id ?? null}
                          onSave={save} onUnsave={unsave}

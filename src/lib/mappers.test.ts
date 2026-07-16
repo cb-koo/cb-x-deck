@@ -59,9 +59,21 @@ test('author 없으면 null', () => {
 });
 
 test('mapRawUser: 핸들 필수, screen_name 폴백, 필드 매핑', () => {
-  assert.deepEqual(mapRawUser({ userName: 'u', name: 'N', profilePicture: 'p', followers: 5 }),
-    { handle: 'u', name: 'N', avatarUrl: 'p', followers: 5 });
+  assert.deepEqual(
+    mapRawUser({
+      userName: 'u', name: 'N', profilePicture: 'p', followers: 5, following: 3,
+      description: '자기소개', isBlueVerified: false, isVerified: false,
+    }),
+    { handle: 'u', name: 'N', avatarUrl: 'p', followers: 5, following: 3, bio: '자기소개', verified: false },
+  );
   assert.deepEqual(mapRawUser({ screen_name: 's' }),
-    { handle: 's', name: null, avatarUrl: null, followers: null });
+    { handle: 's', name: null, avatarUrl: null, followers: null, following: null, bio: null, verified: false });
   assert.equal(mapRawUser({ name: '핸들없음' }), null);
+});
+
+test('mapRawUser: bio 빈 문자열은 null, isBlueVerified/isVerified 각각 true면 verified true', () => {
+  assert.equal(mapRawUser({ userName: 'u', description: '' })!.bio, null);
+  assert.equal(mapRawUser({ userName: 'u', isBlueVerified: true })!.verified, true);
+  assert.equal(mapRawUser({ userName: 'u', isVerified: true })!.verified, true);
+  assert.equal(mapRawUser({ userName: 'u', isBlueVerified: false, isVerified: false })!.verified, false);
 });

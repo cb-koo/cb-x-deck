@@ -7,6 +7,11 @@ import { formatCount } from '@/lib/format';
 type Kind = 'replies' | 'thread' | 'retweeters';
 const LABEL: Record<Kind, string> = { replies: '답글', thread: '스레드', retweeters: '리포스터' };
 const EMPTY: Record<Kind, string> = { replies: '답글 없음', thread: '스레드 없음', retweeters: '리포스터 없음' };
+const TITLE: Record<Kind, string> = {
+  replies: '이 트윗에 달린 답글을 불러와요 · 1회 $0.001',
+  thread: '이어지는 타래를 불러와요 · 1회 $0.001',
+  retweeters: '리포스트한 계정 목록을 불러와요 · 1회 $0.001',
+};
 
 // 확장 탐색 — 클릭 시에만 호출(opt-in), 결과는 컴포넌트 상태로만 유지(DB 저장 없음)
 export function TweetExpansion({ tweetId }: { tweetId: string }) {
@@ -66,7 +71,7 @@ export function TweetExpansion({ tweetId }: { tweetId: string }) {
     <div className="mt-1">
       <div className="flex gap-1 text-xs text-x-secondary">
         {(Object.keys(LABEL) as Kind[]).map((k) => (
-          <button key={k} onClick={() => toggle(k)} title="X에서 불러와요 · 1회 $0.001"
+          <button key={k} onClick={() => toggle(k)} title={TITLE[k]}
                   className={`rounded px-1.5 py-0.5 hover:bg-x-border ${kind === k ? 'font-bold text-x-text' : ''}`}>
             {LABEL[k]}{kind === k ? ' ✕' : ''}
           </button>
@@ -87,15 +92,36 @@ export function TweetExpansion({ tweetId }: { tweetId: string }) {
               <p className="whitespace-pre-wrap break-words">{t.text}</p>
             </div>
           ))}
-          {kind === 'retweeters' && users.map((u) => (
-            <div key={u.handle} className="flex items-baseline gap-1 border-b border-x-border py-1 last:border-b-0">
-              <a href={`https://x.com/${u.handle}`} target="_blank" rel="noopener noreferrer" className="font-bold hover:underline">
-                {u.name ?? u.handle}
-              </a>
-              <span className="text-x-secondary">@{u.handle}</span>
-              {u.followers !== null && <span className="ml-auto text-xs text-x-muted">팔로워 {formatCount(u.followers)}</span>}
-            </div>
-          ))}
+          {kind === 'retweeters' && users.length > 0 && (
+            <p className="mb-1 text-xs text-x-muted">
+              {users.length}명 불러옴 · 팔로워 1만+ {users.filter((u) => (u.followers ?? 0) >= 10000).length}명
+              {cursor ? ' · 더 있음' : ''}
+            </p>
+          )}
+          {kind === 'retweeters' && [...users]
+            .sort((a, b) => (b.followers ?? 0) - (a.followers ?? 0))
+            .map((u) => (
+              <div key={u.handle} className="border-b border-x-border py-1 last:border-b-0">
+                <div className="flex items-center gap-1.5">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {u.avatarUrl
+                    ? <img src={u.avatarUrl} alt="" className="h-5 w-5 shrink-0 rounded-full" />
+                    : <div className="h-5 w-5 shrink-0 rounded-full bg-x-border-strong" />}
+                  <a href={`https://x.com/${u.handle}`} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate font-bold hover:underline">
+                    {u.name ?? u.handle}
+                  </a>
+                  {u.verified && <span className="shrink-0 text-x-blue" title="인증 계정">✓</span>}
+                  <span className="shrink-0 text-x-secondary">@{u.handle}</span>
+                  <span className="ml-auto shrink-0 text-xs text-x-muted">
+                    {[
+                      u.followers !== null ? `팔로워 ${formatCount(u.followers)}` : null,
+                      u.following !== null ? `팔로잉 ${formatCount(u.following)}` : null,
+                    ].filter(Boolean).join(' · ')}
+                  </span>
+                </div>
+                {u.bio && <p className="truncate text-x-muted">{u.bio}</p>}
+              </div>
+            ))}
           {!busy && !err && empty && <p className="text-xs text-x-muted">{EMPTY[kind]}</p>}
           {cursor && (
             <button onClick={() => fetchPage(kind, cursor, false)} disabled={busy}

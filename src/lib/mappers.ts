@@ -61,10 +61,21 @@ export interface ExpansionUser {
   name: string | null;
   avatarUrl: string | null;
   followers: number | null;
+  following: number | null;
+  bio: string | null;
+  verified: boolean;
 }
 
 export function mapRawUser(raw: Record<string, unknown>): ExpansionUser | null {
   const handle = str(raw.userName) ?? str(raw.screen_name);
   if (!handle) return null;
-  return { handle, name: str(raw.name), avatarUrl: str(raw.profilePicture), followers: num(raw.followers) };
+  return {
+    handle,
+    name: str(raw.name),
+    avatarUrl: str(raw.profilePicture),
+    followers: num(raw.followers),
+    following: num(raw.following),
+    bio: str(raw.description),
+    verified: raw.isBlueVerified === true || raw.isVerified === true,
+  };
 }

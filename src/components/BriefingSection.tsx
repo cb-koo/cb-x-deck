@@ -79,6 +79,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
       const r = await fetch(`/api/columns/${columnId}/trend`);
       if (!r.ok || stale) return;
       const t = (await r.json()) as TrendPayload;
+      if (stale) return;
       setSample(t.weekly.slice(-weeks).reduce((s, w) => s + w.count, 0));
     })();
     return () => { stale = true; };
@@ -96,11 +97,15 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   }
 
   async function open(id: string) {
+    setErr('');
     const r = await fetch(`/api/briefings/${id}`);
     if (r.ok) setCurrent((await r.json()) as BriefingRow);
+    else setErr(`브리핑을 불러오지 못했어요 (오류 ${r.status})`);
   }
   async function remove(id: string) {
-    await fetch(`/api/briefings/${id}`, { method: 'DELETE' });
+    setErr('');
+    const r = await fetch(`/api/briefings/${id}`, { method: 'DELETE' });
+    if (!r.ok) { setErr(`삭제하지 못했어요 (오류 ${r.status})`); return; }
     if (current?.id === id) setCurrent(null);
     await loadList();
   }

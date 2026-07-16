@@ -13,14 +13,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const existing = await getColumn(sql, id);
   if (!existing) return NextResponse.json({ error: `column not found: ${id}` }, { status: 404 });
 
-  // 과거 백필용: body {maxPages}로 이번 1회만 더 깊이 페이지네이션 (1~10 클램프)
-  const body = (await req.json().catch(() => ({}))) as { maxPages?: unknown };
+  // 과거 백필용: {maxPages} = 깊은 페이지네이션(계정), {sinceDate, untilDate} = 기간 지정 재검색(검색 컬럼)
+  const body = (await req.json().catch(() => ({}))) as { maxPages?: unknown; sinceDate?: unknown; untilDate?: unknown };
   const mp = Number(body.maxPages);
-  const maxPagesOverride = Number.isFinite(mp) && mp >= 1 ? Math.min(10, Math.floor(mp)) : undefined;
+  let maxPagesOverride = Number.isFinite(mp) && mp >= 1 ? Math.min(10, Math.floor(mp)) : undefined;
+  const DATE = /^\d{4}-\d{2}-\d{2}$/;
+  const searchOverride = existing.kind === 'search'
+    && typeof body.sinceDate === 'string' && DATE.test(body.sinceDate)
+    && typeof body.untilDate === 'string' && DATE.test(body.untilDate)
+    ? { sinceDate: body.sinceDate, untilDate: body.untilDate } : undefined;
+  if (searchOverride) maxPagesOverride = maxPagesOverride ?? 10; // 기간 백필은 기본으로 깊게
 
   try {
     const client = makeClient();
-    const result = await refreshColumn(sql, client, id, { maxPagesOverride });
+    const result = await refreshColumn(sql, client, id, { maxPagesOverride, searchOverride });
     // 인용 트윗 보강(베스트 에포트) — 실패해도 refresh 자체는 성공으로 응답
     try {
       await enrichQuoted(sql, client, await getColumnQuotedIds(sql, id));

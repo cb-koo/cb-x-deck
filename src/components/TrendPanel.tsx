@@ -32,15 +32,20 @@ export function TrendPanel({ columnId, kind, onAfterBackfill, onClose }: {
   async function backfill() {
     if (!data) return;
     setBusy(true); setErr('');
-    const body = kind === 'watchlist'
-      ? { maxPages: 10 }
-      : { sinceDate: data.weekly[0].weekStart, untilDate: new Date().toISOString().slice(0, 10) };
-    const r = await fetch(`/api/columns/${columnId}/refresh`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    if (r.ok) { onAfterBackfill(); await load(); }
-    else setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`);
-    setBusy(false);
+    try {
+      const body = kind === 'watchlist'
+        ? { maxPages: 10 }
+        : { sinceDate: data.weekly[0].weekStart, untilDate: new Date().toISOString().slice(0, 10) };
+      const r = await fetch(`/api/columns/${columnId}/refresh`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (r.ok) { onAfterBackfill(); await load(); }
+      else setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`);
+    } catch {
+      setErr('네트워크 오류 — 다시 시도해주세요');
+    } finally {
+      setBusy(false);
+    }
   }
 
   const maxCount = data ? Math.max(1, ...data.weekly.map((b) => b.count)) : 1;

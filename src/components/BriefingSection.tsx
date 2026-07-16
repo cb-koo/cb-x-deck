@@ -87,27 +87,36 @@ export function BriefingSection({ wsId }: { wsId: string }) {
 
   async function generate() {
     setBusy(true); setErr('');
-    const r = await fetch('/api/briefings', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ columnId, weeks, memberId: member?.id ?? null }),
-    });
-    if (r.ok) { setCurrent((await r.json()) as BriefingRow); await loadList(); }
-    else setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`);
-    setBusy(false);
+    try {
+      const r = await fetch('/api/briefings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ columnId, weeks, memberId: member?.id ?? null }),
+      });
+      if (r.ok) { setCurrent((await r.json()) as BriefingRow); await loadList(); }
+      else setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`);
+    } catch {
+      setErr('네트워크 오류 — 다시 시도해주세요');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function open(id: string) {
     setErr('');
-    const r = await fetch(`/api/briefings/${id}`);
-    if (r.ok) setCurrent((await r.json()) as BriefingRow);
-    else setErr(`브리핑을 불러오지 못했어요 (오류 ${r.status})`);
+    try {
+      const r = await fetch(`/api/briefings/${id}`);
+      if (r.ok) setCurrent((await r.json()) as BriefingRow);
+      else setErr(`브리핑을 불러오지 못했어요 (오류 ${r.status})`);
+    } catch { setErr('네트워크 오류 — 다시 시도해주세요'); }
   }
   async function remove(id: string) {
     setErr('');
-    const r = await fetch(`/api/briefings/${id}`, { method: 'DELETE' });
-    if (!r.ok) { setErr(`삭제하지 못했어요 (오류 ${r.status})`); return; }
-    if (current?.id === id) setCurrent(null);
-    await loadList();
+    try {
+      const r = await fetch(`/api/briefings/${id}`, { method: 'DELETE' });
+      if (!r.ok) { setErr(`삭제하지 못했어요 (오류 ${r.status})`); return; }
+      if (current?.id === id) setCurrent(null);
+      await loadList();
+    } catch { setErr('네트워크 오류 — 다시 시도해주세요'); }
   }
 
   return (

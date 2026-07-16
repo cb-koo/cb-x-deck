@@ -1,0 +1,13 @@
+export interface BriefingCitation {
+  n: number; tweetId: string; text: string;
+  likes: number | null; url: string | null;
+  flags: string[]; // 薬機法 주의 패턴(complianceFlags) — 경고 배지용, 필터링 없음
+}
+export interface BriefingStatsWeek { weekStart: string; count: number; medianLikes: number }
+export interface BriefingStats { periodFrom: string; periodTo: string; totalCount: number; weekly: BriefingStatsWeek[] }
+export interface BriefingContent {
+  tldr: string[];                 // 3줄 요약
+  body: string;                   // 마크다운 본문(트윗 인용은 [T숫자] 토큰)
+  citations: BriefingCitation[];  // 토큰 → 실트윗 복원 정보
+  stats: BriefingStats;           // 코드 계산 수치(LLM 미경유)
+}

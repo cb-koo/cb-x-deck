@@ -6,10 +6,14 @@ import type { TrendPayload } from '@/lib/trend';
 import type { BriefingListRow, BriefingRow } from '@/lib/briefingStore';
 import type { BriefingContent } from '@/lib/briefingTypes';
 import { formatCount } from '@/lib/format';
+import { median } from '@/lib/trend';
 import { CitedTweetCard } from './CitedTweetCard';
 
 const WEEK_OPTIONS = [2, 4, 8] as const;
-const MIN_SAMPLE = 10;
+// 패턴 분석이 성립하는 최소 표본 — 반응 상위(~20%)에서 같은 특징이 3번 이상 반복되려면 이 정도는 필요
+const REFERENCE_MIN = 30;
+// 주당 이 밑이면 좋아요 중앙값이 트윗 1건에 좌우돼 널뛰기(스파이크 실측) — 추이 패널 sparse 기준과 동일
+const WEEKLY_MIN = 5;
 
 function fmtDay(s: string): string {
   const d = new Date(s + 'T00:00:00Z');
@@ -70,7 +74,9 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   const [columns, setColumns] = useState<ColumnRow[]>([]);
   const [columnId, setColumnId] = useState('');
   const [weeks, setWeeks] = useState<(typeof WEEK_OPTIONS)[number]>(4);
-  const [sample, setSample] = useState<number | null>(null);
+  const [preview, setPreview] = useState<{ total: number; emptyWeeks: number; since: string } | null>(null);
+  const [previewKey, setPreviewKey] = useState(0); // 백필 후 재조회 트리거
+  const [backfilling, setBackfilling] = useState(false);
   const [list, setList] = useState<BriefingListRow[]>([]);
   const [current, setCurrent] = useState<BriefingRow | null>(null);
   const [busy, setBusy] = useState(false);
@@ -89,20 +95,44 @@ export function BriefingSection({ wsId }: { wsId: string }) {
     loadList();
   }, [wsId, loadList]);
 
-  // 표본 미리 확인 — 기존 추이 API 재사용(주별 건수 합산, 추가 비용 없음)
+  // 표본 미리 확인 — 기존 추이 API 재사용(주별 건수 합산 + 빈 주 감지, 추가 비용 없음)
   useEffect(() => {
-    setSample(null);
+    setPreview(null);
     if (!columnId) return;
     let stale = false;
     (async () => {
-      const r = await fetch(`/api/columns/${columnId}/trend`);
-      if (!r.ok || stale) return;
-      const t = (await r.json()) as TrendPayload;
-      if (stale) return;
-      setSample(t.weekly.slice(-weeks).reduce((s, w) => s + w.count, 0));
+      try {
+        const r = await fetch(`/api/columns/${columnId}/trend`);
+        if (!r.ok || stale) return;
+        const t = (await r.json()) as TrendPayload;
+        if (stale) return;
+        const sliced = t.weekly.slice(-weeks);
+        setPreview({
+          total: sliced.reduce((s, w) => s + w.count, 0),
+          emptyWeeks: sliced.filter((w) => w.count === 0).length,
+          since: sliced[0]?.weekStart ?? '',
+        });
+      } catch { /* 미리보기는 조용히 생략 — 생성 시 서버가 재검증 */ }
     })();
     return () => { stale = true; };
-  }, [columnId, weeks]);
+  }, [columnId, weeks, previewKey]);
+
+  // 기간 중 빈 주 채우기 — 추이 패널 백필과 동일 메커니즘(계정=깊은 페이지네이션 / 검색=기간 지정 재검색)
+  async function backfillGaps() {
+    if (!preview) return;
+    setBackfilling(true); setErr('');
+    try {
+      const kind = columns.find((c) => c.id === columnId)?.kind;
+      const body = kind === 'watchlist'
+        ? { maxPages: 10 }
+        : { sinceDate: preview.since, untilDate: new Date().toISOString().slice(0, 10) };
+      const r = await fetch(`/api/columns/${columnId}/refresh`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (r.ok) setPreviewKey((k) => k + 1);
+      else setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`);
+    } catch { setErr('네트워크 오류 — 다시 시도해주세요'); } finally { setBackfilling(false); }
+  }
 
   async function generate() {
     setBusy(true); setErr('');
@@ -152,17 +182,28 @@ export function BriefingSection({ wsId }: { wsId: string }) {
                 className="rounded border border-gray-300 bg-transparent px-2 py-1 dark:border-gray-700">
           {WEEK_OPTIONS.map((w) => <option key={w} value={w}>최근 {w}주</option>)}
         </select>
-        <button onClick={generate} disabled={busy || !columnId || sample === 0}
+        <button onClick={generate} disabled={busy || backfilling || !columnId || preview?.total === 0}
                 className="rounded bg-blue-600 px-3 py-1 text-white disabled:opacity-40"
                 title="이 기간의 트윗을 AI가 읽고 보고서를 만들어요 (약 $0.1 이하)">
           {busy ? '생성 중…' : '브리핑 생성 (약 $0.1 이하)'}
         </button>
-        {sample !== null && (
-          <span className={`text-xs ${sample < MIN_SAMPLE ? 'text-amber-600' : 'text-gray-400'}`}>
-            이 기간 표본 {sample}건{sample === 0 ? ' — 생성할 수 없어요' : sample < MIN_SAMPLE ? ' — 적어서 브리핑이 빈약할 수 있어요' : ''}
+        {preview !== null && (
+          <span className={`text-xs ${preview.total < REFERENCE_MIN ? 'text-amber-600' : 'text-x-muted'}`}>
+            이 기간 표본 {preview.total}건{preview.total === 0 ? ' — 생성할 수 없어요'
+              : preview.total < REFERENCE_MIN ? ' — 패턴 분석보다는 참고용이에요' : ''}
           </span>
         )}
       </div>
+      {preview !== null && preview.total > 0 && preview.emptyWeeks > 0 && (
+        <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-amber-600">
+          기간 {weeks}주 중 {preview.emptyWeeks}개 주가 비어 있어요 — 과거 트윗을 채우고 생성하면 더 정확해요.
+          <button onClick={backfillGaps} disabled={backfilling || busy}
+                  className="rounded border border-x-border-strong px-2 py-0.5 text-x-text hover:bg-x-hover disabled:opacity-50"
+                  title="이 기간의 과거 트윗을 더 수집해요 (약 $0.01)">
+            {backfilling ? '수집 중…' : '빈 주 채우기 (약 $0.01)'}
+          </button>
+        </p>
+      )}
       {err && <p className="mt-1 text-sm text-red-500">{err}</p>}
 
       {current && (
@@ -201,6 +242,15 @@ export function BriefingSection({ wsId }: { wsId: string }) {
                   );
                 })}
               </ul>
+              {(() => {
+                // 기간 내 전체 주 기준(빈 주 포함) — 빈 주가 절반이면 그 자체가 표본 문제이므로 제외하지 않는다
+                const sparse = median(current.content.stats.weekly.map((w) => w.count)) < WEEKLY_MIN;
+                return sparse && (
+                  <p className="mt-1.5 text-amber-600">
+                    주별 표본이 적어요(주당 {WEEKLY_MIN}건 미만) — 아래 &lsquo;변화&rsquo; 내용은 참고만 하세요.
+                  </p>
+                );
+              })()}
             </div>
 
             <ul className="mt-3 list-disc space-y-1 pl-5 text-[15px] font-bold leading-6">

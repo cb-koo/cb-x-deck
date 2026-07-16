@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { upsertTweets, linkColumnTweets, getColumnTweets } from './tweetStore.ts';
+import { upsertTweets, linkColumnTweets, getColumnTweets, getTweetsByIds } from './tweetStore.ts';
 import { createColumn, deleteColumn, touchRefreshed, getColumn } from './columnStore.ts';
 import { createWorkspace, deleteWorkspace, createMember } from './workspaceStore.ts';
 import type { DeckTweet } from './types.ts';
@@ -147,4 +147,16 @@ test('버림 트윗은 기본 조회에서 제외, dismissed=only면 그것만',
     await deleteWorkspace(sql, ws.id);
     await sql`delete from dismissed_tweet where workspace_id = ${ws.id}`;
   }
+});
+
+test('getTweetsByIds: 존재하는 트윗만 DeckTweet로 반환, 빈 입력은 즉시 빈 배열', async () => {
+  await upsertTweets(sql, [tw('g1', 10), tw('g2', 20)]);
+  const rows = await getTweetsByIds(sql, [P + 'g1', P + 'g2', P + 'ghost']);
+  assert.deepEqual(rows.map((t) => t.tweetId).sort(), [P + 'g1', P + 'g2']);
+  const g1 = rows.find((t) => t.tweetId === P + 'g1')!;
+  assert.equal(g1.authorHandle, 'tester');
+  assert.equal(g1.authorFollowers, 10);
+  assert.equal(g1.metrics.likes, 1);
+  assert.equal(g1.tweetCreatedAt, '2026-07-01T00:00:00.000Z');
+  assert.deepEqual(await getTweetsByIds(sql, []), []);
 });

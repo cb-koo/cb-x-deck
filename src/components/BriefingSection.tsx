@@ -6,6 +6,7 @@ import type { TrendPayload } from '@/lib/trend';
 import type { BriefingListRow, BriefingRow } from '@/lib/briefingStore';
 import type { BriefingContent } from '@/lib/briefingTypes';
 import { formatCount } from '@/lib/format';
+import { CitedTweetCard } from './CitedTweetCard';
 
 const WEEK_OPTIONS = [2, 4, 8] as const;
 const MIN_SAMPLE = 10;
@@ -15,35 +16,45 @@ function fmtDay(s: string): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
 }
 
-// 본문의 [T번호] 토큰을 실트윗 인용 카드로 복원해 렌더 — 모든 인용이 클릭해서 확인 가능한 실제 트윗
+// 본문의 [T번호] 토큰을 각주 칩 [n]으로 렌더 — 문장 흐름을 끊지 않고, 클릭하면 아래 근거 트윗 카드로 스크롤
+function inline(line: string, nums: Set<number>, keyPrefix: string) {
+  return line.split(/(\[T\d+\])/g).map((p, j) => {
+    const m = p.match(/^\[T(\d+)\]$/);
+    if (!m) return p ? <span key={`${keyPrefix}-${j}`}>{p}</span> : null;
+    const n = Number(m[1]);
+    if (!nums.has(n)) return null;
+    return (
+      <button key={`${keyPrefix}-${j}`} title="아래 근거 트윗으로 이동"
+              onClick={() => document.getElementById(`cite-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+              className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-x-blue/10 px-1 align-text-top text-[11px] font-bold leading-none text-x-blue hover:bg-x-blue/25">
+        {n}
+      </button>
+    );
+  });
+}
+
 function Body({ content }: { content: BriefingContent }) {
-  const byN = new Map(content.citations.map((c) => [c.n, c]));
-  return (
-    <div className="space-y-2 text-sm">
-      {content.body.split('\n').map((line, i) => {
-        if (line.startsWith('## ')) return <h3 key={i} className="mt-3 font-bold">{line.slice(3)}</h3>;
-        if (!line.trim()) return null;
-        const parts = line.split(/(\[T\d+\])/g);
-        return (
-          <p key={i}>
-            {parts.map((p, j) => {
-              const m = p.match(/^\[T(\d+)\]$/);
-              const c = m ? byN.get(Number(m[1])) : undefined;
-              if (!c) return <span key={j}>{p}</span>;
-              return (
-                <span key={j} className="mx-0.5 inline-block max-w-full rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 align-middle text-xs dark:border-gray-700 dark:bg-gray-900">
-                  {c.flags.length > 0 && <span className="mr-1" title={`표현 주의(薬機法 참고): ${c.flags.join(', ')}`}>⚠️</span>}
-                  <span className="line-clamp-1">{c.text}</span>
-                  <span className="text-gray-400"> ♥{formatCount(c.likes)} </span>
-                  {c.url && <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">원문</a>}
-                </span>
-              );
-            })}
-          </p>
-        );
-      })}
-    </div>
-  );
+  const nums = new Set(content.citations.map((c) => c.n));
+  const out: React.ReactNode[] = [];
+  let bullets: string[] = [];
+  const flush = (key: number) => {
+    if (bullets.length === 0) return;
+    out.push(
+      <ul key={`ul-${key}`} className="list-disc space-y-1 pl-5">
+        {bullets.map((b, i) => <li key={i}>{inline(b, nums, `li-${key}-${i}`)}</li>)}
+      </ul>,
+    );
+    bullets = [];
+  };
+  const lines = content.body.split('\n');
+  lines.forEach((line, i) => {
+    if (line.startsWith('- ')) { bullets.push(line.slice(2)); return; }
+    flush(i);
+    if (line.startsWith('## ')) out.push(<h3 key={i} className="mt-4 font-bold">{line.slice(3)}</h3>);
+    else if (line.trim()) out.push(<p key={i}>{inline(line, nums, `p-${i}`)}</p>);
+  });
+  flush(lines.length);
+  return <div className="space-y-2 text-[15px] leading-6 text-x-text">{out}</div>;
 }
 
 export function BriefingSection({ wsId }: { wsId: string }) {
@@ -147,30 +158,42 @@ export function BriefingSection({ wsId }: { wsId: string }) {
       {err && <p className="mt-1 text-sm text-red-500">{err}</p>}
 
       {current && (
-        <div className="mt-3 rounded-xl border border-gray-200 p-3 dark:border-gray-800">
-          <div className="flex items-baseline gap-2">
+        /* 트윗 본문 폭(~600px)에 맞춘 읽기 컬럼 — 화면 전체로 퍼지지 않게 */
+        <div className="mt-3 max-w-[640px] rounded-xl border border-x-border bg-white text-x-text">
+          <div className="flex items-baseline gap-2 border-b border-x-border px-4 py-2">
             <p className="font-bold">{current.columnTitle}</p>
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-x-muted">
               {fmtDay(current.periodFrom)}~{fmtDay(current.periodTo)} · 표본 {current.sampleSize}건 · {fmtDay(current.createdAt.slice(0, 10))} 생성
               {current.member && <span className="ml-1 rounded px-1" style={{ backgroundColor: current.member.color + '33' }}>{current.member.name}</span>}
             </span>
-            <button onClick={() => setCurrent(null)} className="ml-auto rounded px-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900">✕</button>
+            <button onClick={() => setCurrent(null)} className="ml-auto rounded px-1 text-x-secondary hover:bg-x-border">✕</button>
           </div>
 
-          {/* 수치 블록 — AI를 거치지 않은 코드 계산값 */}
-          <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
-            {current.content.stats.weekly.map((w) => (
-              <span key={w.weekStart} className="rounded bg-gray-50 px-1.5 py-0.5 dark:bg-gray-900"
-                    title="그 주 트윗의 보통 반응 수준(좋아요 중앙값)">
-                {fmtDay(w.weekStart)}주 {w.count}건 ♥{formatCount(w.medianLikes)}
-              </span>
-            ))}
+          <div className="px-4 py-3">
+            {/* 수치 블록 — AI를 거치지 않은 코드 계산값 */}
+            <div className="flex flex-wrap gap-2 text-xs text-x-secondary">
+              {current.content.stats.weekly.map((w) => (
+                <span key={w.weekStart} className="rounded bg-x-border/60 px-1.5 py-0.5"
+                      title="그 주 트윗의 보통 반응 수준(좋아요 중앙값)">
+                  {fmtDay(w.weekStart)}주 {w.count}건 ♥{formatCount(w.medianLikes)}
+                </span>
+              ))}
+            </div>
+
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-[15px] font-bold leading-6">
+              {current.content.tldr.map((l, i) => <li key={i}>{l}</li>)}
+            </ul>
+            <Body content={current.content} />
           </div>
 
-          <ul className="mt-2 list-disc pl-5 text-sm font-bold">
-            {current.content.tldr.map((l, i) => <li key={i}>{l}</li>)}
-          </ul>
-          <Body content={current.content} />
+          {current.content.citations.length > 0 && (
+            <div className="mt-1">
+              <p className="border-y border-x-border bg-x-border/30 px-4 py-1.5 text-xs font-bold text-x-secondary">
+                근거 트윗 {current.content.citations.length}건 — 본문의 파란 번호를 누르면 여기로 이동해요
+              </p>
+              {current.content.citations.map((c) => <CitedTweetCard key={c.n} c={c} />)}
+            </div>
+          )}
         </div>
       )}
 

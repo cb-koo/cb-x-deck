@@ -61,6 +61,27 @@ function toStored(r: TweetRow): StoredTweet {
   };
 }
 
+// 브리핑 인용 등 ID 집합으로 원본 트윗 스냅샷을 뽑을 때 사용 — 컬럼·워크스페이스 무관 순수 조회
+export async function getTweetsByIds(sql: postgres.Sql, tweetIds: string[]): Promise<DeckTweet[]> {
+  if (tweetIds.length === 0) return [];
+  const rows = await sql<Array<{
+    tweet_id: string; author_handle: string; author_name: string | null; author_avatar_url: string | null;
+    author_followers: string | number | null; text: string; media: DeckTweet['media'];
+    quoted: DeckTweet['quoted']; metrics: DeckTweet['metrics']; tweet_url: string | null;
+    tweet_created_at: Date | null;
+  }>>`
+    select tweet_id, author_handle, author_name, author_avatar_url, author_followers,
+           text, media, quoted, metrics, tweet_url, tweet_created_at
+      from tweet where tweet_id = any(${tweetIds})`;
+  return rows.map((r) => ({
+    tweetId: r.tweet_id, authorHandle: r.author_handle, authorName: r.author_name,
+    authorAvatarUrl: r.author_avatar_url,
+    authorFollowers: r.author_followers === null ? null : Number(r.author_followers),
+    text: r.text, media: r.media ?? [], quoted: r.quoted, metrics: r.metrics,
+    tweetUrl: r.tweet_url, tweetCreatedAt: r.tweet_created_at?.toISOString() ?? null,
+  }));
+}
+
 export const PAGE_SIZE = 200;
 
 export async function getColumnTweets(

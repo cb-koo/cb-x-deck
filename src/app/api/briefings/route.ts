@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { getColumn } from '@/lib/columnStore';
 import { listAnalysisTweets } from '@/lib/pillarStore';
+import { getTweetsByIds } from '@/lib/tweetStore';
 import {
   BRIEFING_WEEKS, briefingPeriod, filterPeriod, computeBriefingStats,
   selectBriefingTweets, generateBriefing, type BriefingTweet,
@@ -46,6 +47,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: '생성 실패 — 다시 시도해주세요' }, { status: 502 });
   }
   if (!content) return NextResponse.json({ error: '생성 실패 — 다시 시도해주세요' }, { status: 502 });
+
+  // 인용을 실트윗 스냅샷으로 하이드레이트 — 근거 트윗 카드(작성자·아바타·지표·미디어) 렌더링용, 저장 시점에 박제
+  const cited = await getTweetsByIds(sql, content.citations.map((c) => c.tweetId));
+  const byId = new Map(cited.map((t) => [t.tweetId, t]));
+  content = { ...content, citations: content.citations.map((c) => ({ ...c, tweet: byId.get(c.tweetId) })) };
 
   const id = await saveBriefing(sql, {
     workspaceId: col.workspaceId, columnId: col.id,

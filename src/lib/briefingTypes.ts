@@ -1,7 +1,10 @@
+import type { DeckTweet } from './types.ts';
+
 export interface BriefingCitation {
   n: number; tweetId: string; text: string;
   likes: number | null; url: string | null;
   flags: string[]; // 薬機法 주의 패턴(complianceFlags) — 경고 배지용, 필터링 없음
+  tweet?: DeckTweet; // 저장 직전 라우트가 채우는 실트윗 스냅샷 — 근거 트윗 카드 렌더링용(작성자·아바타·지표·미디어)
 }
 export interface BriefingStatsWeek { weekStart: string; count: number; medianLikes: number }
 export interface BriefingStats { periodFrom: string; periodTo: string; totalCount: number; weekly: BriefingStatsWeek[] }

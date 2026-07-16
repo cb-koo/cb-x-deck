@@ -98,3 +98,21 @@ test('FORBIDDEN_PHRASES에 핵심 금지어 포함(회귀 고정)', () => {
     assert.ok(FORBIDDEN_PHRASES.includes(p), p);
   }
 });
+
+test('generateBriefing: tldr 3줄 미만 → null', async () => {
+  const tweets = [tw('2026-06-15', 500)];
+  const stats = computeBriefingStats(tweets, NOW, 4);
+  assert.equal(await generateBriefing({ columnTitle: 'c', tweets, stats },
+    fakeLLM({ ...GOOD, tldr: ['한 줄뿐'] })), null);
+});
+
+test('generateBriefing: 변형 토큰([t1]·[T 1])은 표준형으로 정규화, 무효 변형은 제거', async () => {
+  const tweets = [tw('2026-06-15', 500, 'tid-1')];
+  const stats = computeBriefingStats(tweets, NOW, 4);
+  const c = await generateBriefing({ columnTitle: 'c', tweets, stats },
+    fakeLLM({ ...GOOD, hits: '이 트윗 [t1] 그리고 [T 1] 또 [t 99]' }));
+  assert.ok(!c!.body.includes('[t1]') && !c!.body.includes('[T 1]'));
+  assert.ok(c!.body.includes('[T1]'));
+  assert.ok(!c!.body.includes('99'));
+  assert.deepEqual(c!.citations.map((x) => x.n), [1]);
+});

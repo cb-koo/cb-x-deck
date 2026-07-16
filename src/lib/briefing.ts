@@ -121,7 +121,7 @@ export async function generateBriefing(
   if (!j) return null;
 
   const tldr = Array.isArray(j.tldr) ? j.tldr.filter((x): x is string => typeof x === 'string').slice(0, 3) : [];
-  if (tldr.length === 0) return null;
+  if (tldr.length !== 3) return null;
   for (const [key] of SECTIONS) if (typeof j[key] !== 'string' || !(j[key] as string).trim()) return null;
 
   // 본문 조립은 코드가 — 섹션 제목·순서 고정(회차 간 비교 가능)
@@ -129,9 +129,9 @@ export async function generateBriefing(
 
   // 인용 검증: 존재하는 번호만 살리고(실트윗 복원), 유령 번호는 본문에서 제거
   const valid = new Set<number>();
-  body = body.replace(/\[T(\d+)\]/g, (tok, d: string) => {
+  body = body.replace(/\[\s*[Tt]\s*(\d+)\s*\]/g, (_tok, d: string) => {
     const n = Number(d);
-    if (n >= 1 && n <= numbered.length) { valid.add(n); return tok; }
+    if (n >= 1 && n <= numbered.length) { valid.add(n); return `[T${n}]`; }
     return '';
   });
   const citations: BriefingCitation[] = [...valid].sort((a, b) => a - b).map((n) => {

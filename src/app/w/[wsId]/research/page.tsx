@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { KwPair } from '@/lib/suggest';
 import type { ExaResult } from '@/lib/exa';
 import { formatDate } from '@/lib/format';
+import { BriefingSection } from '@/components/BriefingSection';
 
 interface Extraction { keywords: KwPair[]; hooks: KwPair[] }
 const chipKey = (k: KwPair) => k.ja;
@@ -143,6 +144,7 @@ export default function ResearchPage() {
           <p className="text-sm text-gray-400">주제를 검색하면 일본어 웹 기사에서 덱 검색용 키워드·훅을 발굴합니다</p>
         )}
       </main>
+      <BriefingSection wsId={wsId} />
 
       {(selected.length > 0 || createdColumn) && (
         <div className="fixed inset-x-0 bottom-0 border-t border-gray-200 bg-white/95 px-4 py-2 backdrop-blur dark:border-gray-800 dark:bg-gray-950/95">

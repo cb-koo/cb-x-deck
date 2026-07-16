@@ -5,6 +5,7 @@ import { useMember } from '@/lib/memberContext';
 import { TweetCard } from './TweetCard';
 import { CooccurrencePanel } from './CooccurrencePanel';
 import { PillarPanel } from './PillarPanel';
+import { TrendPanel } from './TrendPanel';
 import type { PillarPayload } from '@/lib/pillarStats';
 import { RefreshIcon, SettingsIcon, TrashIcon } from './XIcons';
 
@@ -39,6 +40,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   const [err, setErr] = useState('');
   const [width, setWidth] = useState<number>(column.config.width ?? 400);
   const [showPillar, setShowPillar] = useState(false);
+  const [showTrend, setShowTrend] = useState(false);
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
   const [pillarMap, setPillarMap] = useState<Record<string, string>>({});
   // 안정 참조 — 인라인 화살표를 넘기면 렌더마다 새 참조 → PillarPanel의 load useEffect 재발화 → 무한 GET 루프
@@ -174,6 +176,11 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
               {sort === k && <span className="absolute inset-x-2 bottom-0 h-1 rounded-full bg-x-blue" />}
             </button>
           ))}
+          <button onClick={() => setShowTrend((v) => !v)}
+                  className={`${btn} ${showTrend ? 'font-bold text-x-text' : ''}`}
+                  title="이 컬럼에 쌓인 트윗으로 주간 추이를 보여줘요 · 추가 비용 없음">
+            추이{showTrend ? '✓' : ''}
+          </button>
           {column.kind === 'watchlist' && (
             <button onClick={() => { setShowPillar((v) => !v); if (showPillar) setTopicFilter(null); }}
                     className={`${btn} ${showPillar ? 'font-bold text-x-text' : ''}`}
@@ -197,6 +204,11 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
         <div className="h-0.5 overflow-hidden bg-x-blue/20">
           <div className="h-full w-1/3 animate-[deck-indeterminate_1.2s_ease-in-out_infinite] bg-x-blue" />
         </div>
+      )}
+      {showTrend && (
+        <TrendPanel columnId={column.id} kind={column.kind}
+                    onAfterBackfill={() => load(sort)}
+                    onClose={() => setShowTrend(false)} />
       )}
       {column.kind === 'search' && (
         <CooccurrencePanel tweets={tweets} excludeKeywords={keywords} onPick={onPickTag} />

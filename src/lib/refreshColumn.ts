@@ -12,7 +12,7 @@ export async function refreshColumn(
   sql: postgres.Sql,
   client: Pick<GetxapiClient, 'searchTweets' | 'getUserTweets'>,
   columnId: string,
-  opts?: { maxPagesOverride?: number },
+  opts?: { maxPagesOverride?: number; searchOverride?: { sinceDate: string; untilDate: string } },
 ): Promise<{ fetched: number; inserted: number; updated: number }> {
   const col = await getColumn(sql, columnId);
   if (!col) throw new Error(`column not found: ${columnId}`);
@@ -23,7 +23,8 @@ export async function refreshColumn(
 
   for (let p = 0; p < maxPages; p++) {
     const page = col.kind === 'search'
-      ? await client.searchTweets(buildSearchQuery(col.config as SearchConfig), cursor)
+      ? await client.searchTweets(
+          buildSearchQuery({ ...(col.config as SearchConfig), ...opts?.searchOverride }), cursor)
       : await client.getUserTweets((col.config as WatchlistConfig).userId, cursor);
     raws.push(...page.tweets);
     if (!page.has_more || !page.next_cursor) break;

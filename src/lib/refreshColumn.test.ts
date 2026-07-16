@@ -88,3 +88,26 @@ test('maxPagesOverride가 config.maxPages보다 우선(과거 백필용)', async
     await deleteWorkspace(sql, ws.id);
   }
 });
+
+test('search 백필: searchOverride가 이번 호출 쿼리에만 since/until을 병합, config는 불변', async () => {
+  const ws = await createWorkspace(sql, P + 'ws4');
+  const col = await createColumn(sql, {
+    workspaceId: ws.id, kind: 'search', title: P + 'bf',
+    config: { keywords: ['毛穴'], minFaves: 300, maxPages: 1 },
+  });
+  const queries: string[] = [];
+  const fake = {
+    searchTweets: async (q: string) => { queries.push(q); return page([raw('x', 1000)], null); },
+    getUserTweets: async () => page([], null),
+  };
+  try {
+    await refreshColumn(sql, fake, col.id, { searchOverride: { sinceDate: '2026-05-18', untilDate: '2026-07-16' } });
+    assert.match(queries[0], /since:2026-05-18/);
+    assert.match(queries[0], /until:2026-07-16/);
+    const c2 = await getColumn(sql, col.id);
+    assert.equal((c2!.config as { sinceDate?: string | null }).sinceDate ?? null, null); // 저장 안 됨
+  } finally {
+    await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
+  }
+});

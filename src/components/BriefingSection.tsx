@@ -16,6 +16,14 @@ function fmtDay(s: string): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
 }
 
+// 주 시작일 → '6/15~21' (월이 바뀌면 '6/29~7/5')
+function fmtWeekRange(weekStart: string): string {
+  const s = new Date(weekStart + 'T00:00:00Z');
+  const e = new Date(s.getTime() + 6 * 86_400_000);
+  const end = s.getUTCMonth() === e.getUTCMonth() ? `${e.getUTCDate()}` : `${e.getUTCMonth() + 1}/${e.getUTCDate()}`;
+  return `${s.getUTCMonth() + 1}/${s.getUTCDate()}~${end}`;
+}
+
 // 본문의 [T번호] 토큰을 각주 칩 [n]으로 렌더 — 문장 흐름을 끊지 않고, 클릭하면 아래 근거 트윗 카드로 스크롤
 function inline(line: string, nums: Set<number>, keyPrefix: string) {
   return line.split(/(\[T\d+\])/g).map((p, j) => {
@@ -170,14 +178,29 @@ export function BriefingSection({ wsId }: { wsId: string }) {
           </div>
 
           <div className="px-4 py-3">
-            {/* 수치 블록 — AI를 거치지 않은 코드 계산값 */}
-            <div className="flex flex-wrap gap-2 text-xs text-x-secondary">
-              {current.content.stats.weekly.map((w) => (
-                <span key={w.weekStart} className="rounded bg-x-border/60 px-1.5 py-0.5"
-                      title="그 주 트윗의 보통 반응 수준(좋아요 중앙값)">
-                  {fmtDay(w.weekStart)}주 {w.count}건 ♥{formatCount(w.medianLikes)}
-                </span>
-              ))}
+            {/* 수치 블록 — AI를 거치지 않은 코드 계산값. 주차는 기간 내 순서(1주차~)로, 단위는 이름으로 표기 */}
+            <div className="rounded-lg bg-x-border/30 px-3 py-2 text-xs text-x-secondary">
+              <p className="font-bold text-x-muted">주별 흐름 <span className="font-normal">— 올라온 글 수(막대)와 보통 반응(♥ = 좋아요 중앙값, 화살표는 전주 대비)</span></p>
+              <ul className="mt-1.5 space-y-1">
+                {current.content.stats.weekly.map((w, i, arr) => {
+                  const max = Math.max(1, ...arr.map((x) => x.count));
+                  const prev = i > 0 ? arr[i - 1].medianLikes : null;
+                  const dir = prev === null || prev === 0 ? null
+                    : w.medianLikes > prev * 1.1 ? 'up' : w.medianLikes < prev * 0.9 ? 'down' : 'flat';
+                  return (
+                    <li key={w.weekStart} className="flex items-center gap-2">
+                      <span className="w-28 shrink-0">{i + 1}주차 <span className="text-x-muted">({fmtWeekRange(w.weekStart)})</span></span>
+                      <span className="h-2 rounded-sm bg-x-blue/60"
+                            style={{ width: `${Math.round((w.count / max) * 120)}px`, minWidth: w.count > 0 ? 4 : 0 }} />
+                      <span className="shrink-0">글 {w.count}</span>
+                      <span className="ml-auto shrink-0" title="그 주 트윗의 보통 반응 수준(좋아요 중앙값)">♥ {formatCount(w.medianLikes)}</span>
+                      <span className={`w-4 shrink-0 text-center ${dir === 'up' ? 'text-red-500' : dir === 'down' ? 'text-blue-500' : 'text-x-muted'}`}>
+                        {dir === 'up' ? '▲' : dir === 'down' ? '▼' : dir === 'flat' ? '─' : ''}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
 
             <ul className="mt-3 list-disc space-y-1 pl-5 text-[15px] font-bold leading-6">

@@ -92,6 +92,9 @@ export function TrendPanel({ columnId, kind, onAfterBackfill, onClose }: {
           {data.sufficiency === 'sparse' && (
             <p className="mt-1 text-xs text-x-muted">표본이 적어 추이가 흔들릴 수 있어요 — 참고용으로만 보세요.</p>
           )}
+          {data.capped && (
+            <p className="mt-1 text-xs text-amber-600">수집량이 조회 상한(2,000건)에 닿았어요 — 오래된 주는 실제보다 적게 보일 수 있어요.</p>
+          )}
 
           {kind === 'watchlist' && (
             data.topicTrends === null

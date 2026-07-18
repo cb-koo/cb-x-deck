@@ -20,6 +20,12 @@ function fmtDay(s: string): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
 }
 
+// ISO 타임스탬프 → JST 달력 기준 'M/D' (UTC로 자르면 오전 생성분이 하루 밀려 보임)
+function fmtDayJst(iso: string): string {
+  const d = new Date(Date.parse(iso) + 9 * 3_600_000);
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+}
+
 // 주 시작일 → '6/15~21' (월이 바뀌면 '6/29~7/5')
 function fmtWeekRange(weekStart: string): string {
   const s = new Date(weekStart + 'T00:00:00Z');
@@ -74,7 +80,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   const [columns, setColumns] = useState<ColumnRow[]>([]);
   const [columnId, setColumnId] = useState('');
   const [weeks, setWeeks] = useState<(typeof WEEK_OPTIONS)[number]>(4);
-  const [preview, setPreview] = useState<{ total: number; emptyWeeks: number; since: string } | null>(null);
+  const [preview, setPreview] = useState<{ total: number; emptyWeeks: number; since: string; capped: boolean } | null>(null);
   const [previewKey, setPreviewKey] = useState(0); // 백필 후 재조회 트리거
   const [backfilling, setBackfilling] = useState(false);
   const [list, setList] = useState<BriefingListRow[]>([]);
@@ -111,6 +117,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
           total: sliced.reduce((s, w) => s + w.count, 0),
           emptyWeeks: sliced.filter((w) => w.count === 0).length,
           since: sliced[0]?.weekStart ?? '',
+          capped: t.capped ?? false,
         });
       } catch { /* 미리보기는 조용히 생략 — 생성 시 서버가 재검증 */ }
     })();
@@ -159,6 +166,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
     } catch { setErr('네트워크 오류 — 다시 시도해주세요'); }
   }
   async function remove(id: string) {
+    if (!window.confirm('이 브리핑을 삭제할까요? 되돌릴 수 없어요.')) return;
     setErr('');
     try {
       const r = await fetch(`/api/briefings/${id}`, { method: 'DELETE' });
@@ -169,17 +177,17 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   }
 
   return (
-    <section className="border-t border-gray-200 px-4 py-4 dark:border-gray-800">
-      <h2 className="font-bold">📋 기간 종합 브리핑 <span className="text-sm font-normal text-gray-400">컬럼 하나를 골라 최근 몇 주간 무슨 일이 있었는지 보고서로 정리해요</span></h2>
+    <section className="border-t border-x-border px-4 py-4">
+      <h2 className="font-bold">📋 기간 종합 브리핑 <span className="text-sm font-normal text-x-muted">컬럼 하나를 골라 최근 몇 주간 무슨 일이 있었는지 보고서로 정리해요</span></h2>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
         <select value={columnId} onChange={(e) => setColumnId(e.target.value)}
-                className="rounded border border-gray-300 bg-transparent px-2 py-1 dark:border-gray-700">
+                className="rounded border border-x-border-strong bg-transparent px-2 py-1">
           <option value="">컬럼 선택…</option>
           {columns.map((c) => <option key={c.id} value={c.id}>{c.kind === 'watchlist' ? '👤 ' : '🔍 '}{c.title}</option>)}
         </select>
         <select value={weeks} onChange={(e) => setWeeks(Number(e.target.value) as typeof weeks)}
-                className="rounded border border-gray-300 bg-transparent px-2 py-1 dark:border-gray-700">
+                className="rounded border border-x-border-strong bg-transparent px-2 py-1">
           {WEEK_OPTIONS.map((w) => <option key={w} value={w}>최근 {w}주</option>)}
         </select>
         <button onClick={generate} disabled={busy || backfilling || !columnId || preview?.total === 0}
@@ -194,6 +202,9 @@ export function BriefingSection({ wsId }: { wsId: string }) {
           </span>
         )}
       </div>
+      {preview?.capped && (
+        <p className="mt-1 text-xs text-amber-600">이 컬럼은 수집량이 조회 상한(2,000건)에 닿았어요 — 오래된 주는 실제보다 적게 잡힐 수 있어요.</p>
+      )}
       {preview !== null && preview.total > 0 && preview.emptyWeeks > 0 && (
         <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-amber-600">
           기간 {weeks}주 중 {preview.emptyWeeks}개 주가 비어 있어요 — 과거 트윗을 채우고 생성하면 더 정확해요.
@@ -212,7 +223,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
           <div className="flex items-baseline gap-2 border-b border-x-border px-4 py-2">
             <p className="font-bold">{current.columnTitle}</p>
             <span className="text-xs text-x-muted">
-              {fmtDay(current.periodFrom)}~{fmtDay(current.periodTo)} · 표본 {current.sampleSize}건 · {fmtDay(current.createdAt.slice(0, 10))} 생성
+              {fmtDay(current.periodFrom)}~{fmtDay(current.periodTo)} · 표본 {current.sampleSize}건 · {fmtDayJst(current.createdAt)} 생성
               {current.member && <span className="ml-1 rounded px-1" style={{ backgroundColor: current.member.color + '33' }}>{current.member.name}</span>}
             </span>
             <button onClick={() => setCurrent(null)} className="ml-auto rounded px-1 text-x-secondary hover:bg-x-border">✕</button>
@@ -254,7 +265,9 @@ export function BriefingSection({ wsId }: { wsId: string }) {
             </div>
 
             <ul className="mt-3 list-disc space-y-1 pl-5 text-[15px] font-bold leading-6">
-              {current.content.tldr.map((l, i) => <li key={i}>{l}</li>)}
+              {current.content.tldr.map((l, i) => (
+                <li key={i}>{inline(l, new Set(current.content.citations.map((c) => c.n)), `tldr-${i}`)}</li>
+              ))}
             </ul>
             <Body content={current.content} />
           </div>
@@ -272,18 +285,18 @@ export function BriefingSection({ wsId }: { wsId: string }) {
 
       {list.length > 0 && (
         <div className="mt-3">
-          <p className="text-xs text-gray-400">지난 브리핑</p>
+          <p className="text-xs text-x-muted">지난 브리핑</p>
           <ul className="mt-1 space-y-0.5 text-sm">
             {list.map((b) => (
               <li key={b.id} className="flex items-center gap-2">
                 <button onClick={() => open(b.id)} className="truncate text-left hover:underline">
                   📄 {b.columnTitle} · {fmtDay(b.periodFrom)}~{fmtDay(b.periodTo)}
                 </button>
-                <span className="shrink-0 text-xs text-gray-400">
-                  {fmtDay(b.createdAt.slice(0, 10))} 생성
+                <span className="shrink-0 text-xs text-x-muted">
+                  {fmtDayJst(b.createdAt)} 생성
                   {b.member && <span className="ml-1 rounded px-1" style={{ backgroundColor: b.member.color + '33' }}>{b.member.name}</span>}
                 </span>
-                <button onClick={() => remove(b.id)} className="shrink-0 rounded px-1 text-xs text-gray-400 hover:text-red-500" title="이 브리핑 삭제">삭제</button>
+                <button onClick={() => remove(b.id)} className="shrink-0 rounded px-1 text-xs text-x-muted hover:text-red-500" title="이 브리핑 삭제">삭제</button>
               </li>
             ))}
           </ul>

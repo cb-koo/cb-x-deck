@@ -3,6 +3,7 @@ import type { BriefingCitation } from '@/lib/briefingTypes';
 import { formatCount } from '@/lib/format';
 import { TweetText } from './TweetText';
 import { MediaGrid } from './MediaGrid';
+import { QuotedCard } from './QuotedCard';
 import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from './XIcons';
 
 function fmtDate(iso: string | null): string {
@@ -55,6 +56,7 @@ export function CitedTweetCard({ c }: { c: BriefingCitation }) {
           </div>
           <TweetText text={t.text} className="mt-0.5" />
           <MediaGrid media={t.media} />
+          {t.quoted && <QuotedCard quoted={t.quoted} />}
           <div className="mt-3 flex max-w-[425px] items-center justify-between">
             <span title="답글 (Reply)" className={metricBase}><ReplyIcon /> {formatCount(t.metrics.replies)}</span>
             <span title="리포스트 (Repost)" className={metricBase}><RepostIcon /> {formatCount(t.metrics.retweets)}</span>

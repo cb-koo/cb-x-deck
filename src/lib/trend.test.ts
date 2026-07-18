@@ -101,3 +101,10 @@ test('computeTopicTrend: 격주 비교·빈 주제 생략·정렬', () => {
   assert.equal(b.judgment, '유지');
   assert.equal(rows.find((r) => r.topicId === 'c'), undefined);           // 표본 0 주제 생략
 });
+
+test('비정상 createdAt 문자열은 크래시 없이 조용히 제외', () => {
+  assert.equal(weekStartJst('garbage-date'), '');
+  const r = computeWeeklyTrend([{ tweetId: 'x', likes: 5, createdAt: 'not-a-date', topicId: null }], NOW);
+  assert.equal(r.dataWeeks, 0);
+  assert.equal(r.partialWeek, null);
+});

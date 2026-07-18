@@ -75,6 +75,23 @@ export function selectBriefingTweets(tweets: BriefingTweet[], cap = BRIEFING_TWE
   return out;
 }
 
+// 전주 대비 증감을 코드가 계산해 완성 문구로 — LLM은 이 문구만 인용, 직접 계산 금지(숫자 환각 차단)
+function deltaText(cur: number, prev: number): string {
+  if (prev === 0) return cur > 0 ? '(전주 0에서 증가)' : '';
+  const p = Math.round(((cur - prev) / prev) * 100);
+  return `(전주 대비 ${p >= 0 ? '+' : ''}${p}%)`;
+}
+
+export function statsNarrative(stats: BriefingStats): string[] {
+  return stats.weekly.map((w, i) => {
+    const d = new Date(w.weekStart + 'T00:00:00Z');
+    const label = `${i + 1}주차(${d.getUTCMonth() + 1}/${d.getUTCDate()}~)`;
+    if (i === 0) return `${label}: 글 ${w.count}건, 좋아요 중앙값 ${w.medianLikes} (기준 주)`;
+    const prev = stats.weekly[i - 1];
+    return `${label}: 글 ${w.count}건${deltaText(w.count, prev.count)}, 좋아요 중앙값 ${w.medianLikes}${deltaText(w.medianLikes, prev.medianLikes)}`;
+  });
+}
+
 const SECTIONS = [
   ['topics', '핵심 화두'], ['hits', '반응이 좋았던 것'], ['changes', '변화'], ['implications', '기획 시사점'],
 ] as const;
@@ -83,8 +100,8 @@ const PROMPT = (columnTitle: string, stats: BriefingStats, tweetLines: string[])
   `당신은 일본 뷰티/미용의료 X(트위터)를 관찰해 한국 콘텐츠 기획팀에 보고하는 리서처입니다.
 관찰 대상 컬럼: "${columnTitle}" · 기간: ${stats.periodFrom} ~ ${stats.periodTo} · 표본 ${stats.totalCount}건
 
-[주별 수치 — 코드가 계산한 확정값입니다. 숫자는 반드시 아래 값만 인용하고, 직접 세거나 계산하지 마세요]
-${stats.weekly.map((w) => `${w.weekStart} 주: ${w.count}건, 좋아요 중앙값 ${w.medianLikes}`).join('\n')}
+[주별 수치와 증감 — 코드가 계산한 확정값입니다. 숫자와 증감률(%)은 반드시 아래 문구의 값만 그대로 인용하고, 직접 세거나 계산하지 마세요]
+${statsNarrative(stats).join('\n')}
 
 [트윗 목록 — 트윗을 인용할 땐 반드시 [T번호] 표기만 사용하세요. 본문을 옮겨 적지 마세요]
 ${tweetLines.join('\n')}
@@ -110,7 +127,15 @@ export async function generateBriefing(
 ): Promise<BriefingContent | null> {
   const c = client ?? (new Anthropic() as unknown as AnthropicLike);
   const numbered = input.tweets.map((t, i) => ({ n: i + 1, t }));
-  const lines = numbered.map(({ n, t }) => `[T${n}] (♥${t.likes ?? 0}) ${t.text.replace(/\s+/g, ' ').slice(0, 200)}`);
+  // 주차 표기 — LLM이 "후반부에 떴다" 같은 변화 서술을 특정 트윗으로 근거 댈 수 있게
+  const weekIdxOf = (t: BriefingTweet): string => {
+    if (!t.createdAt) return '';
+    const w = weekStartJst(t.createdAt);
+    if (!w) return '';
+    const idx = Math.floor((Date.parse(w + 'T00:00:00Z') - Date.parse(input.stats.periodFrom + 'T00:00:00Z')) / (7 * 86_400_000)) + 1;
+    return idx >= 1 ? `${idx}주차 · ` : '';
+  };
+  const lines = numbered.map(({ n, t }) => `[T${n}] (${weekIdxOf(t)}♥${t.likes ?? 0}) ${t.text.replace(/\s+/g, ' ').slice(0, 200)}`);
 
   const res = await c.messages.create({
     model: MODEL(),
@@ -127,21 +152,27 @@ export async function generateBriefing(
   // 본문 조립은 코드가 — 섹션 제목·순서 고정(회차 간 비교 가능)
   let body = SECTIONS.map(([key, title]) => `## ${title}\n${(j[key] as string).trim()}`).join('\n\n');
 
-  // 인용 검증: 존재하는 번호만 살리고(실트윗 복원), 유령 번호는 본문에서 제거
+  // 인용 검증: [T1, T7] 같은 묶음은 개별 토큰으로 분해 → 존재하는 번호만 표준형 [Tn]으로 살리고 유령 번호는 제거.
+  // 본문과 3줄 요약(tldr) 모두 같은 규칙 적용 — 독자가 보는 모든 대괄호가 실트윗으로 복원 가능해야 한다.
   const valid = new Set<number>();
-  body = body.replace(/\[\s*[Tt]\s*(\d+)\s*\]/g, (_tok, d: string) => {
-    const n = Number(d);
-    if (n >= 1 && n <= numbered.length) { valid.add(n); return `[T${n}]`; }
-    return '';
-  });
+  const validateTokens = (s: string) => s
+    .replace(/\[\s*[Tt]\s*\d+(?:\s*,\s*[Tt]?\s*\d+)+\s*\]/g,
+      (m) => (m.match(/\d+/g) ?? []).map((d) => `[T${d}]`).join(''))
+    .replace(/\[\s*[Tt]\s*(\d+)\s*\]/g, (_tok, d: string) => {
+      const n = Number(d);
+      if (n >= 1 && n <= numbered.length) { valid.add(n); return `[T${n}]`; }
+      return '';
+    });
+  body = validateTokens(body);
+  const tldrOut = tldr.map(validateTokens);
   const citations: BriefingCitation[] = [...valid].sort((a, b) => a - b).map((n) => {
     const t = numbered[n - 1].t;
     return { n, tweetId: t.tweetId, text: t.text, likes: t.likes, url: t.tweetUrl, flags: flagYakkiho(t.text) };
   });
 
   // 문체 검증 — 금지 표현이 있으면 통째 실패(반쪽 문서를 저장하지 않는다)
-  const all = tldr.join(' ') + ' ' + body;
+  const all = tldrOut.join(' ') + ' ' + body;
   if (FORBIDDEN_PHRASES.some((p) => all.includes(p))) return null;
 
-  return { tldr, body, citations, stats: input.stats };
+  return { tldr: tldrOut, body, citations, stats: input.stats };
 }

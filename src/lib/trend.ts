@@ -18,15 +18,18 @@ export interface TrendPayload {
   sufficiency: Sufficiency;
   dataWeeks: number;               // weekly 중 트윗이 있는 주 수
   topicTrends: TopicTrendRow[] | null; // 계정 컬럼 + 주제 분석 존재 시(라우트가 채움)
+  capped?: boolean; // 조회 상한(2000건) 도달 — 오래된 주가 실제보다 적게 보일 수 있음(라우트가 채움)
 }
 
 const JST_MS = 9 * 3_600_000;
 const DAY_MS = 86_400_000;
 export const TREND_WINDOW_WEEKS = 8;
 
-// ISO 시각 → 그 시각이 속한 주의 월요일(JST 달력) 'YYYY-MM-DD'
+// ISO 시각 → 그 시각이 속한 주의 월요일(JST 달력) 'YYYY-MM-DD'. 파싱 불가 문자열은 ''(호출부가 제외).
 export function weekStartJst(iso: string): string {
-  const d = new Date(Date.parse(iso) + JST_MS); // UTC 게터가 JST 벽시계가 되도록 시프트
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return ''; // 비정상 문자열 — RangeError 크래시 대신 조용히 제외
+  const d = new Date(ms + JST_MS); // UTC 게터가 JST 벽시계가 되도록 시프트
   const dow = (d.getUTCDay() + 6) % 7;          // 월=0 … 일=6
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - dow)).toISOString().slice(0, 10);
 }
@@ -51,6 +54,7 @@ function groupByWeek(tweets: TrendTweet[]): Map<string, TrendTweet[]> {
   for (const t of tweets) {
     if (!t.createdAt) continue;
     const w = weekStartJst(t.createdAt);
+    if (!w) continue;
     if (!m.has(w)) m.set(w, []);
     m.get(w)!.push(t);
   }

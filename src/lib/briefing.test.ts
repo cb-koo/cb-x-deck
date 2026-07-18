@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   briefingPeriod, filterPeriod, computeBriefingStats, selectBriefingTweets,
-  generateBriefing, FORBIDDEN_PHRASES, type BriefingTweet,
+  generateBriefing, statsNarrative, FORBIDDEN_PHRASES, type BriefingTweet,
 } from './briefing.ts';
 import type { AnthropicLike } from './suggest.ts';
 
@@ -115,4 +115,60 @@ test('generateBriefing: 변형 토큰([t1]·[T 1])은 표준형으로 정규화,
   assert.ok(c!.body.includes('[T1]'));
   assert.ok(!c!.body.includes('99'));
   assert.deepEqual(c!.citations.map((x) => x.n), [1]);
+});
+
+test('statsNarrative: 전주 대비 증감을 코드가 계산해 완성 문구로 — 첫 주 기준·0건 방어', () => {
+  const stats = {
+    periodFrom: '2026-06-15', periodTo: '2026-07-12', totalCount: 150,
+    weekly: [
+      { weekStart: '2026-06-15', count: 42, medianLikes: 553 },
+      { weekStart: '2026-06-22', count: 61, medianLikes: 701 },
+      { weekStart: '2026-06-29', count: 0, medianLikes: 0 },
+      { weekStart: '2026-07-06', count: 47, medianLikes: 645 },
+    ],
+  };
+  const lines = statsNarrative(stats);
+  assert.equal(lines.length, 4);
+  assert.match(lines[0], /1주차/);
+  assert.match(lines[0], /글 42건/);
+  assert.ok(!lines[0].includes('%'));                         // 첫 주는 기준 주 — 증감 없음
+  assert.match(lines[1], /글 61건\(전주 대비 \+45%\)/);       // (61-42)/42 = +45.2 → +45%
+  assert.match(lines[1], /중앙값 701\(전주 대비 \+27%\)/);    // (701-553)/553 = +26.8 → +27%
+  assert.match(lines[2], /글 0건\(전주 대비 -100%\)/);
+  assert.match(lines[3], /글 47건\(전주 0에서 증가\)/);       // 0 나누기 방어 — 퍼센트 대신 서술
+});
+
+test('generateBriefing: 프롬프트에 증감 문구 주입 + 트윗 라인 주차 표기', async () => {
+  const tweets = [tw('2026-06-15', 500, 'tid-1'), tw('2026-06-22', 10, 'tid-2')];
+  const stats = computeBriefingStats(tweets, NOW, 4);
+  let prompt = '';
+  const spy: AnthropicLike = {
+    messages: { create: async (p) => { prompt = JSON.stringify(p); return fakeLLM(GOOD).messages.create(p); } },
+  };
+  await generateBriefing({ columnTitle: 'c', tweets, stats }, spy);
+  assert.ok(prompt.includes('전주 대비'));                     // 증감은 코드 계산 문구로 주입
+  assert.ok(prompt.includes('직접 세거나 계산하지 마세요'));
+  assert.ok(/\[T1\] \(1주차/.test(prompt.replace(/\\u([0-9a-f]{4})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))) || prompt.includes('(1주차'));
+  assert.ok(prompt.includes('(2주차'));                        // 두 번째 트윗은 2주차
+});
+
+test('generateBriefing: [T1, T7] 묶음 인용 분해 — 유효만 개별 토큰으로', async () => {
+  const tweets = [tw('2026-06-15', 500, 'tid-1'), tw('2026-06-15', 300, 'tid-2')];
+  const stats = computeBriefingStats(tweets, NOW, 4);
+  const c = await generateBriefing({ columnTitle: 'c', tweets, stats },
+    fakeLLM({ ...GOOD, hits: '둘 다 좋았다 [T1, T2] 그리고 [T2 , t1] 유령 섞임 [T1, T9]' }));
+  assert.ok(c!.body.includes('[T1][T2]'));
+  assert.ok(!c!.body.includes(','.concat(' T')) && !/\[T\d+,\s/.test(c!.body)); // 묶음 잔존 없음
+  assert.ok(!c!.body.includes('9'));
+  assert.deepEqual(c!.citations.map((x) => x.n), [1, 2]);
+});
+
+test('generateBriefing: tldr 인용도 검증·정규화(유령 제거·표준형)', async () => {
+  const tweets = [tw('2026-06-15', 500, 'tid-1')];
+  const stats = computeBriefingStats(tweets, NOW, 4);
+  const c = await generateBriefing({ columnTitle: 'c', tweets, stats },
+    fakeLLM({ ...GOOD, tldr: ['요약 [t1] 한 줄', '유령 [T9] 포함 줄', '세 번째 줄'] }));
+  assert.ok(c!.tldr[0].includes('[T1]'));
+  assert.ok(!c!.tldr[1].includes('[T9]') && !c!.tldr[1].includes('9'));
+  assert.ok(c!.citations.some((x) => x.n === 1));
 });

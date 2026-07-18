@@ -19,6 +19,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     const analysis = await getAnalysis(sql, id);
     if (analysis) topicTrends = computeTopicTrend(tweets, analysis.topics, now);
   }
-  const payload: TrendPayload = { ...base, topicTrends };
+  // 상한 도달 = 오래된 주가 잘렸을 수 있음(최신순 로드) — 가짜 ▲ 방지용으로 화면에 안내
+  const payload: TrendPayload = { ...base, topicTrends, capped: tweets.length >= 2000 };
   return NextResponse.json(payload);
 }

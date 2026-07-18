@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMember } from '@/lib/memberContext';
 import type { ColumnRow } from '@/lib/types';
 import type { TrendPayload } from '@/lib/trend';
@@ -44,7 +44,8 @@ function inline(line: string, byN: Map<number, BriefingCitation>, keyPrefix: str
     if (!c) return null;
     return (
       <span key={`${keyPrefix}-${j}`} className="group relative inline-block">
-        <button onClick={() => document.getElementById(`cite-${c.n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+        <button data-cite={c.n}
+                onClick={() => document.getElementById(`cite-${c.n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
                 className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-x-blue/10 px-1 align-text-top text-[11px] font-bold leading-none text-x-blue hover:bg-x-blue/25">
           {c.n}
         </button>
@@ -87,6 +88,29 @@ function Body({ content }: { content: BriefingContent }) {
   return <div className="space-y-2 text-[15px] leading-6 text-x-text">{out}</div>;
 }
 
+// 사이드노트(여백 주석) — 본문 옆 여백에 인용 트윗 미니 카드를 문단 높이에 맞춰 표시(Tufte 스타일).
+// 배치는 부모의 positionSidenotes()가 앵커 위치 기준 + 겹침 방지 스태킹으로 계산한다.
+function Sidenote({ c, onRelayout }: { c: BriefingCitation; onRelayout: () => void }) {
+  const thumb = c.tweet?.media?.[0]?.url ?? null;
+  return (
+    <div data-note={c.n}
+         onClick={() => document.getElementById(`cite-${c.n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+         className="absolute left-0 w-full cursor-pointer rounded-lg border border-x-border bg-white p-2 text-xs leading-4 text-x-text shadow-sm transition-[top] hover:border-x-border-strong"
+         title="누르면 아래 원문 카드로 이동">
+      <p className="truncate">
+        <span className="font-bold text-x-blue">{c.n}</span>
+        {c.tweet && <span className="ml-1 font-bold">{c.tweet.authorName ?? c.tweet.authorHandle}</span>}
+        <span className="ml-auto float-right text-x-secondary">♥ {formatCount(c.likes)}</span>
+      </p>
+      <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap">{c.text}</p>
+      {thumb && (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img src={thumb} alt="" onLoad={onRelayout} className="mt-1 h-20 w-full rounded object-cover" />
+      )}
+    </div>
+  );
+}
+
 export function BriefingSection({ wsId }: { wsId: string }) {
   const { member } = useMember();
   const [columns, setColumns] = useState<ColumnRow[]>([]);
@@ -99,6 +123,36 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   const [current, setCurrent] = useState<BriefingRow | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+
+  // 사이드노트 배치: 인용 칩의 첫 등장 위치에 정렬하되, 겹치면 아래로 밀어 쌓는다.
+  // 이미지 로드·리사이즈·문서 전환 시 재계산.
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const laneRef = useRef<HTMLDivElement | null>(null);
+  const positionSidenotes = useCallback(() => {
+    const card = cardRef.current, lane = laneRef.current;
+    if (!card || !lane) return;
+    const laneTop = lane.getBoundingClientRect().top;
+    const anchors = new Map<number, number>();
+    card.querySelectorAll<HTMLElement>('[data-cite]').forEach((el) => {
+      const n = Number(el.dataset.cite);
+      if (!anchors.has(n)) anchors.set(n, el.getBoundingClientRect().top - laneTop);
+    });
+    const notes = [...lane.children]
+      .map((el) => ({ el: el as HTMLElement, want: anchors.get(Number((el as HTMLElement).dataset.note)) ?? 0 }))
+      .sort((a, b) => a.want - b.want);
+    let bottom = 0;
+    for (const { el, want } of notes) {
+      const top = Math.max(want, bottom);
+      el.style.top = `${top}px`;
+      bottom = top + el.offsetHeight + 8;
+    }
+  }, []);
+  useEffect(() => {
+    positionSidenotes();
+    const t = setTimeout(positionSidenotes, 400); // 폰트·이미지 로드 후 보정
+    window.addEventListener('resize', positionSidenotes);
+    return () => { clearTimeout(t); window.removeEventListener('resize', positionSidenotes); };
+  }, [current, positionSidenotes]);
 
   const loadList = useCallback(async () => {
     const r = await fetch(`/api/briefings?workspaceId=${wsId}`);
@@ -230,8 +284,10 @@ export function BriefingSection({ wsId }: { wsId: string }) {
       {err && <p className="mt-1 text-sm text-red-500">{err}</p>}
 
       {current && (
-        /* 트윗 본문 폭(~600px)에 맞춘 읽기 컬럼 — 화면 전체로 퍼지지 않게 */
-        <div className="mt-3 max-w-[640px] rounded-xl border border-x-border bg-white text-x-text">
+        /* 트윗 본문 폭(~600px)에 맞춘 읽기 컬럼 — 화면 전체로 퍼지지 않게.
+           넓은 화면(xl↑)에선 오른쪽 여백에 사이드노트(인용 미니 카드)가 문단 옆에 붙는다 */
+        <div className="relative mt-3 max-w-[640px]">
+        <div ref={cardRef} className="rounded-xl border border-x-border bg-white text-x-text">
           <div className="flex items-baseline gap-2 border-b border-x-border px-4 py-2">
             <p className="font-bold">{current.columnTitle}</p>
             <span className="text-xs text-x-muted">
@@ -297,6 +353,13 @@ export function BriefingSection({ wsId }: { wsId: string }) {
               {current.content.citations.map((c) => <CitedTweetCard key={c.n} c={c} />)}
             </div>
           )}
+        </div>
+        {/* 사이드노트 레인 — 카드 오른쪽 여백(넓은 화면 전용). 좁으면 숨기고 호버 미리보기가 대신한다 */}
+        <div ref={laneRef} className="absolute bottom-0 left-full top-0 ml-4 hidden w-60 xl:block">
+          {current.content.citations.map((c) => (
+            <Sidenote key={c.n} c={c} onRelayout={positionSidenotes} />
+          ))}
+        </div>
         </div>
       )}
 

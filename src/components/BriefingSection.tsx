@@ -4,7 +4,7 @@ import { useMember } from '@/lib/memberContext';
 import type { ColumnRow } from '@/lib/types';
 import type { TrendPayload } from '@/lib/trend';
 import type { BriefingListRow, BriefingRow } from '@/lib/briefingStore';
-import type { BriefingContent } from '@/lib/briefingTypes';
+import type { BriefingCitation, BriefingContent } from '@/lib/briefingTypes';
 import { formatCount } from '@/lib/format';
 import { median } from '@/lib/trend';
 import { CitedTweetCard } from './CitedTweetCard';
@@ -34,32 +34,44 @@ function fmtWeekRange(weekStart: string): string {
   return `${s.getUTCMonth() + 1}/${s.getUTCDate()}~${end}`;
 }
 
-// 본문의 [T번호] 토큰을 각주 칩 [n]으로 렌더 — 문장 흐름을 끊지 않고, 클릭하면 아래 근거 트윗 카드로 스크롤
-function inline(line: string, nums: Set<number>, keyPrefix: string) {
+// 본문의 [T번호] 토큰을 각주 칩 [n]으로 렌더 — 마우스를 올리면 트윗 미리보기(내려가지 않고 확인),
+// 클릭하면 아래 근거 트윗 카드로 스크롤
+function inline(line: string, byN: Map<number, BriefingCitation>, keyPrefix: string) {
   return line.split(/(\[T\d+\])/g).map((p, j) => {
     const m = p.match(/^\[T(\d+)\]$/);
     if (!m) return p ? <span key={`${keyPrefix}-${j}`}>{p}</span> : null;
-    const n = Number(m[1]);
-    if (!nums.has(n)) return null;
+    const c = byN.get(Number(m[1]));
+    if (!c) return null;
     return (
-      <button key={`${keyPrefix}-${j}`} title="아래 근거 트윗으로 이동"
-              onClick={() => document.getElementById(`cite-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
-              className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-x-blue/10 px-1 align-text-top text-[11px] font-bold leading-none text-x-blue hover:bg-x-blue/25">
-        {n}
-      </button>
+      <span key={`${keyPrefix}-${j}`} className="group relative inline-block">
+        <button onClick={() => document.getElementById(`cite-${c.n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-x-blue/10 px-1 align-text-top text-[11px] font-bold leading-none text-x-blue hover:bg-x-blue/25">
+          {c.n}
+        </button>
+        <span className="pointer-events-none invisible absolute bottom-full left-1/2 z-20 mb-1 w-72 -translate-x-1/2 rounded-lg border border-x-border bg-white p-2 text-left text-xs font-normal leading-4 text-x-text shadow-lg group-hover:visible">
+          {c.tweet && (
+            <span className="block">
+              <span className="font-bold">{c.tweet.authorName ?? c.tweet.authorHandle}</span>
+              <span className="text-x-secondary"> @{c.tweet.authorHandle}</span>
+            </span>
+          )}
+          <span className="mt-0.5 line-clamp-3 block whitespace-pre-wrap">{c.text}</span>
+          <span className="mt-0.5 block text-x-secondary">♥ {formatCount(c.likes)} · 누르면 아래 원문 카드로 이동</span>
+        </span>
+      </span>
     );
   });
 }
 
 function Body({ content }: { content: BriefingContent }) {
-  const nums = new Set(content.citations.map((c) => c.n));
+  const byN = new Map(content.citations.map((c) => [c.n, c] as const));
   const out: React.ReactNode[] = [];
   let bullets: string[] = [];
   const flush = (key: number) => {
     if (bullets.length === 0) return;
     out.push(
       <ul key={`ul-${key}`} className="list-disc space-y-1 pl-5">
-        {bullets.map((b, i) => <li key={i}>{inline(b, nums, `li-${key}-${i}`)}</li>)}
+        {bullets.map((b, i) => <li key={i}>{inline(b, byN, `li-${key}-${i}`)}</li>)}
       </ul>,
     );
     bullets = [];
@@ -69,7 +81,7 @@ function Body({ content }: { content: BriefingContent }) {
     if (line.startsWith('- ')) { bullets.push(line.slice(2)); return; }
     flush(i);
     if (line.startsWith('## ')) out.push(<h3 key={i} className="mt-4 font-bold">{line.slice(3)}</h3>);
-    else if (line.trim()) out.push(<p key={i}>{inline(line, nums, `p-${i}`)}</p>);
+    else if (line.trim()) out.push(<p key={i}>{inline(line, byN, `p-${i}`)}</p>);
   });
   flush(lines.length);
   return <div className="space-y-2 text-[15px] leading-6 text-x-text">{out}</div>;
@@ -266,12 +278,12 @@ export function BriefingSection({ wsId }: { wsId: string }) {
 
             {current.content.headline && (
               <p className="mt-3 text-[17px] font-bold leading-6">
-                {inline(current.content.headline, new Set(current.content.citations.map((c) => c.n)), 'headline')}
+                {inline(current.content.headline, new Map(current.content.citations.map((c) => [c.n, c] as const)), 'headline')}
               </p>
             )}
             <ul className="mt-3 list-disc space-y-1 pl-5 text-[15px] font-bold leading-6">
               {current.content.tldr.map((l, i) => (
-                <li key={i}>{inline(l, new Set(current.content.citations.map((c) => c.n)), `tldr-${i}`)}</li>
+                <li key={i}>{inline(l, new Map(current.content.citations.map((c) => [c.n, c] as const)), `tldr-${i}`)}</li>
               ))}
             </ul>
             <Body content={current.content} />

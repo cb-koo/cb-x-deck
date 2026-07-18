@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useMember } from '@/lib/memberContext';
 import type { ColumnRow } from '@/lib/types';
 import type { TrendPayload } from '@/lib/trend';
@@ -7,7 +7,6 @@ import type { BriefingListRow, BriefingRow } from '@/lib/briefingStore';
 import type { BriefingCitation, BriefingContent } from '@/lib/briefingTypes';
 import { formatCount } from '@/lib/format';
 import { median } from '@/lib/trend';
-import { CitedTweetCard } from './CitedTweetCard';
 
 const WEEK_OPTIONS = [2, 4, 8] as const;
 // 패턴 분석이 성립하는 최소 표본 — 반응 상위(~20%)에서 같은 특징이 3번 이상 반복되려면 이 정도는 필요
@@ -34,8 +33,7 @@ function fmtWeekRange(weekStart: string): string {
   return `${s.getUTCMonth() + 1}/${s.getUTCDate()}~${end}`;
 }
 
-// 본문의 [T번호] 토큰을 각주 칩 [n]으로 렌더 — 마우스를 올리면 트윗 미리보기(내려가지 않고 확인),
-// 클릭하면 아래 근거 트윗 카드로 스크롤
+// 본문의 [T번호] 토큰을 각주 칩 [n]으로 렌더 — 마우스를 올리면 트윗 미리보기, 클릭하면 임베드 카드로 스크롤
 function inline(line: string, byN: Map<number, BriefingCitation>, keyPrefix: string) {
   return line.split(/(\[T\d+\])/g).map((p, j) => {
     const m = p.match(/^\[T(\d+)\]$/);
@@ -44,8 +42,7 @@ function inline(line: string, byN: Map<number, BriefingCitation>, keyPrefix: str
     if (!c) return null;
     return (
       <span key={`${keyPrefix}-${j}`} className="group relative inline-block">
-        <button data-cite={c.n}
-                onClick={() => document.getElementById(`cite-${c.n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+        <button onClick={() => document.getElementById(`cite-${c.n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
                 className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-x-blue/10 px-1 align-text-top text-[11px] font-bold leading-none text-x-blue hover:bg-x-blue/25">
           {c.n}
         </button>
@@ -57,92 +54,105 @@ function inline(line: string, byN: Map<number, BriefingCitation>, keyPrefix: str
             </span>
           )}
           <span className="mt-0.5 line-clamp-3 block whitespace-pre-wrap">{c.text}</span>
-          <span className="mt-0.5 block text-x-secondary">♥ {formatCount(c.likes)} · 누르면 아래 원문 카드로 이동</span>
+          <span className="mt-0.5 block text-x-secondary">♥ {formatCount(c.likes)} · 누르면 트윗 카드로 이동</span>
         </span>
       </span>
     );
   });
 }
 
-function Body({ content }: { content: BriefingContent }) {
-  const byN = new Map(content.citations.map((c) => [c.n, c] as const));
-  const out: React.ReactNode[] = [];
-  let bullets: string[] = [];
-  const flush = (key: number) => {
-    if (bullets.length === 0) return;
-    out.push(
-      <ul key={`ul-${key}`} className="list-disc space-y-1 pl-5">
-        {bullets.map((b, i) => <li key={i}>{inline(b, byN, `li-${key}-${i}`)}</li>)}
-      </ul>,
-    );
-    bullets = [];
-  };
-  const lines = content.body.split('\n');
-  lines.forEach((line, i) => {
-    if (line.startsWith('- ')) { bullets.push(line.slice(2)); return; }
-    flush(i);
-    if (line.startsWith('## ')) out.push(<h3 key={i} className="mt-4 font-bold">{line.slice(3)}</h3>);
-    else if (line.trim()) out.push(<p key={i}>{inline(line, byN, `p-${i}`)}</p>);
-  });
-  flush(lines.length);
-  return <div className="space-y-2 text-[15px] leading-6 text-x-text">{out}</div>;
-}
-
-// 사이드노트(여백 주석) — 본문 옆 여백에 인용 트윗 미니 카드를 문단 높이에 맞춰 표시(Tufte 스타일).
-// 같은 문단에 인용이 여러 개면 하나의 그룹 카드로 묶어 한 줄 행으로 압축(밀집 구간이 아래로 길게 흘러내리지 않게).
-// 배치는 부모의 positionSidenotes()가 앵커 위치 기준 + 겹침 방지 스태킹으로 계산한다.
-const scrollToCite = (n: number) =>
-  document.getElementById(`cite-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-function Sidenote({ c, onRelayout }: { c: BriefingCitation; onRelayout: () => void }) {
-  const thumb = c.tweet?.media?.[0]?.url ?? null;
+// 문단 사이 임베드 카드 — 주장(문단) 바로 아래에 근거 트윗이 보이는 뉴스 기사식 배치.
+// wide = 문단에 인용이 1개일 때의 큰 카드 / 아니면 가로 스트립용 컴팩트 카드.
+function EmbedCard({ c, wide }: { c: BriefingCitation; wide: boolean }) {
+  const t = c.tweet;
+  const thumb = t?.media?.[0]?.url ?? null;
   return (
-    <div data-note={c.n} onClick={() => scrollToCite(c.n)}
-         className="absolute left-0 w-full cursor-pointer rounded-lg border border-x-border bg-white p-2 text-xs leading-4 text-x-text shadow-sm transition-[top] hover:border-x-border-strong"
-         title="누르면 아래 원문 카드로 이동">
-      <p className="truncate">
-        <span className="font-bold text-x-blue">{c.n}</span>
-        {c.tweet && <span className="ml-1 font-bold">{c.tweet.authorName ?? c.tweet.authorHandle}</span>}
-        <span className="ml-auto float-right text-x-secondary">♥ {formatCount(c.likes)}</span>
+    <div id={`cite-${c.n}`}
+         className={`${wide ? 'w-full' : 'w-64 shrink-0 snap-start'} rounded-lg border border-x-border bg-x-border/20 p-2.5 text-xs leading-4 text-x-text`}>
+      <p className="flex items-baseline gap-1">
+        <span className="shrink-0 font-bold text-x-blue">{c.n}</span>
+        {c.flags.length > 0 && (
+          <span title={`薬機法 리스크 용어: ${c.flags.join(', ')} (표식일 뿐, 차단 아님)`}
+                className="shrink-0 rounded bg-amber-100 px-1 text-[10px] font-bold leading-4 text-amber-700">⚠️</span>
+        )}
+        {t ? (
+          <>
+            <span className="truncate font-bold">{t.authorName ?? t.authorHandle}</span>
+            <span className="truncate text-x-secondary">@{t.authorHandle}</span>
+          </>
+        ) : <span className="text-x-secondary">원문 스냅샷 없음</span>}
+        <span className="ml-auto shrink-0 text-x-secondary">♥ {formatCount(c.likes)}</span>
       </p>
-      <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap">{c.text}</p>
+      <p className={`mt-1 whitespace-pre-wrap ${wide ? 'line-clamp-4' : 'line-clamp-3'}`}>{c.text}</p>
       {thumb && (
         /* eslint-disable-next-line @next/next/no-img-element */
-        <img src={thumb} alt="" onLoad={onRelayout} className="mt-1 h-20 w-full rounded object-cover" />
+        <img src={thumb} alt="" className={`mt-1.5 w-full rounded object-cover ${wide ? 'h-44' : 'h-24'}`} />
+      )}
+      {c.url && (
+        <p className="mt-1">
+          <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-x-blue hover:underline">원문 ↗</a>
+        </p>
       )}
     </div>
   );
 }
 
-function SidenoteGroup({ ns, byN, onRelayout }: {
-  ns: number[]; byN: Map<number, BriefingCitation>; onRelayout: () => void;
-}) {
-  const cs = ns.map((n) => byN.get(n)).filter((c): c is BriefingCitation => !!c);
+// 인용 1개면 넓은 카드 하나, 2개 이상이면 문서 길이가 늘지 않게 가로 스크롤 스트립
+function EmbedStrip({ cs }: { cs: BriefingCitation[] }) {
   if (cs.length === 0) return null;
-  if (cs.length === 1) return <Sidenote c={cs[0]} onRelayout={onRelayout} />;
+  if (cs.length === 1) return <div className="my-2"><EmbedCard c={cs[0]} wide /></div>;
   return (
-    <div data-note={cs[0].n}
-         className="absolute left-0 w-full rounded-lg border border-x-border bg-white p-1 text-xs leading-4 text-x-text shadow-sm transition-[top]">
-      {cs.map((c) => {
-        const thumb = c.tweet?.media?.[0]?.url ?? null;
-        return (
-          <div key={c.n} onClick={() => scrollToCite(c.n)} title="누르면 아래 원문 카드로 이동"
-               className="flex cursor-pointer items-center gap-1.5 rounded p-1 hover:bg-x-hover">
-            <span className="w-5 shrink-0 text-right font-bold text-x-blue">{c.n}</span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate">
-                <span className="font-bold">{c.tweet?.authorName ?? c.tweet?.authorHandle ?? ''}</span>
-                <span className="ml-1 text-x-secondary">♥ {formatCount(c.likes)}</span>
-              </span>
-              <span className="block truncate text-x-secondary">{c.text.replace(/\s+/g, ' ')}</span>
-            </span>
-            {thumb && (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img src={thumb} alt="" onLoad={onRelayout} className="h-9 w-9 shrink-0 rounded object-cover" />
-            )}
-          </div>
-        );
-      })}
+    <div className="my-2 flex snap-x gap-2 overflow-x-auto pb-1">
+      {cs.map((c) => <EmbedCard key={c.n} c={c} wide={false} />)}
+    </div>
+  );
+}
+
+function Body({ content }: { content: BriefingContent }) {
+  const byN = new Map(content.citations.map((c) => [c.n, c] as const));
+  // 각 인용은 처음 언급된 블록(문단/목록) 바로 아래에 한 번만 임베드
+  const embedded = new Set<number>();
+  const citationsOf = (texts: string[]): BriefingCitation[] => {
+    const out: BriefingCitation[] = [];
+    for (const t of texts) {
+      for (const m of t.matchAll(/\[T(\d+)\]/g)) {
+        const c = byN.get(Number(m[1]));
+        if (c && !embedded.has(c.n)) { embedded.add(c.n); out.push(c); }
+      }
+    }
+    return out;
+  };
+
+  const out: React.ReactNode[] = [];
+  let bullets: string[] = [];
+  const flush = (key: number) => {
+    if (bullets.length === 0) return;
+    const lines = bullets;
+    bullets = [];
+    out.push(
+      <ul key={`ul-${key}`} className="list-disc space-y-1 pl-5">
+        {lines.map((b, i) => <li key={i}>{inline(b, byN, `li-${key}-${i}`)}</li>)}
+      </ul>,
+    );
+    out.push(<EmbedStrip key={`em-ul-${key}`} cs={citationsOf(lines)} />);
+  };
+  const rawLines = content.body.split('\n');
+  rawLines.forEach((line, i) => {
+    if (line.startsWith('- ')) { bullets.push(line.slice(2)); return; }
+    flush(i);
+    if (line.startsWith('## ')) out.push(<h3 key={i} className="mt-4 font-bold">{line.slice(3)}</h3>);
+    else if (line.trim()) {
+      out.push(<p key={i}>{inline(line, byN, `p-${i}`)}</p>);
+      out.push(<EmbedStrip key={`em-${i}`} cs={citationsOf([line])} />);
+    }
+  });
+  flush(rawLines.length);
+  // 헤드라인·3줄 요약에서만 인용된 트윗이 남으면 맨 아래에 한 번 보여준다(칩 클릭이 갈 곳을 보장)
+  const leftover = content.citations.filter((c) => !embedded.has(c.n));
+  return (
+    <div className="space-y-2 text-[15px] leading-6 text-x-text">
+      {out}
+      {leftover.length > 0 && <EmbedStrip cs={leftover} />}
     </div>
   );
 }
@@ -159,54 +169,6 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   const [current, setCurrent] = useState<BriefingRow | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-
-  // 사이드노트 배치: 인용 칩의 첫 등장 위치에 정렬하되, 겹치면 아래로 밀어 쌓는다.
-  // 이미지 로드·리사이즈·문서 전환 시 재계산.
-  // 같은 문단(p/li)에 앵커가 있는 인용을 그룹으로 묶는다 — 문서가 바뀌면 재계산
-  const [noteGroups, setNoteGroups] = useState<number[][]>([]);
-  const cardRef = useRef<HTMLDivElement | null>(null);
-  const laneRef = useRef<HTMLDivElement | null>(null);
-  const positionSidenotes = useCallback(() => {
-    const card = cardRef.current, lane = laneRef.current;
-    if (!card || !lane) return;
-    const laneTop = lane.getBoundingClientRect().top;
-    const anchors = new Map<number, number>();
-    card.querySelectorAll<HTMLElement>('[data-cite]').forEach((el) => {
-      const n = Number(el.dataset.cite);
-      if (!anchors.has(n)) anchors.set(n, el.getBoundingClientRect().top - laneTop);
-    });
-    const notes = [...lane.children]
-      .map((el) => ({ el: el as HTMLElement, want: anchors.get(Number((el as HTMLElement).dataset.note)) ?? 0 }))
-      .sort((a, b) => a.want - b.want);
-    let bottom = 0;
-    for (const { el, want } of notes) {
-      const top = Math.max(want, bottom);
-      el.style.top = `${top}px`;
-      bottom = top + el.offsetHeight + 8;
-    }
-  }, []);
-  useEffect(() => {
-    const card = cardRef.current;
-    if (!card || !current) { setNoteGroups([]); return; }
-    const seen = new Set<number>();
-    const byBlock = new Map<Element, number[]>();
-    const order: Element[] = [];
-    card.querySelectorAll<HTMLElement>('[data-cite]').forEach((el) => {
-      const n = Number(el.dataset.cite);
-      if (seen.has(n)) return;
-      seen.add(n);
-      const block = el.closest('p, li') ?? el;
-      if (!byBlock.has(block)) { byBlock.set(block, []); order.push(block); }
-      byBlock.get(block)!.push(n);
-    });
-    setNoteGroups(order.map((b) => byBlock.get(b)!));
-  }, [current]);
-  useEffect(() => {
-    positionSidenotes();
-    const t = setTimeout(positionSidenotes, 400); // 폰트·이미지 로드 후 보정
-    window.addEventListener('resize', positionSidenotes);
-    return () => { clearTimeout(t); window.removeEventListener('resize', positionSidenotes); };
-  }, [current, noteGroups, positionSidenotes]);
 
   const loadList = useCallback(async () => {
     const r = await fetch(`/api/briefings?workspaceId=${wsId}`);
@@ -338,10 +300,8 @@ export function BriefingSection({ wsId }: { wsId: string }) {
       {err && <p className="mt-1 text-sm text-red-500">{err}</p>}
 
       {current && (
-        /* 트윗 본문 폭(~600px)에 맞춘 읽기 컬럼 — 화면 전체로 퍼지지 않게.
-           넓은 화면(xl↑)에선 오른쪽 여백에 사이드노트(인용 미니 카드)가 문단 옆에 붙는다 */
-        <div className="relative mt-3 max-w-[640px]">
-        <div ref={cardRef} className="rounded-xl border border-x-border bg-white text-x-text">
+        /* 트윗 본문 폭(~600px)에 맞춘 읽기 컬럼 — 근거 트윗은 문단 사이에 임베드(뉴스 기사식) */
+        <div className="mt-3 max-w-[640px] rounded-xl border border-x-border bg-white text-x-text">
           <div className="flex items-baseline gap-2 border-b border-x-border px-4 py-2">
             <p className="font-bold">{current.columnTitle}</p>
             <span className="text-xs text-x-muted">
@@ -398,25 +358,6 @@ export function BriefingSection({ wsId }: { wsId: string }) {
             </ul>
             <Body content={current.content} />
           </div>
-
-          {current.content.citations.length > 0 && (
-            <div className="mt-1">
-              <p className="border-y border-x-border bg-x-border/30 px-4 py-1.5 text-xs font-bold text-x-secondary">
-                근거 트윗 {current.content.citations.length}건 — 본문의 파란 번호를 누르면 여기로 이동해요
-              </p>
-              {current.content.citations.map((c) => <CitedTweetCard key={c.n} c={c} />)}
-            </div>
-          )}
-        </div>
-        {/* 사이드노트 레인 — 카드 오른쪽 여백(넓은 화면 전용). 좁으면 숨기고 호버 미리보기가 대신한다 */}
-        <div ref={laneRef} className="absolute bottom-0 left-full top-0 ml-4 hidden w-60 xl:block">
-          {(() => {
-            const byN = new Map(current.content.citations.map((c) => [c.n, c] as const));
-            return noteGroups.map((g) => (
-              <SidenoteGroup key={g[0]} ns={g} byN={byN} onRelayout={positionSidenotes} />
-            ));
-          })()}
-        </div>
         </div>
       )}
 

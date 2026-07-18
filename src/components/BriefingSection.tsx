@@ -89,12 +89,15 @@ function Body({ content }: { content: BriefingContent }) {
 }
 
 // 사이드노트(여백 주석) — 본문 옆 여백에 인용 트윗 미니 카드를 문단 높이에 맞춰 표시(Tufte 스타일).
+// 같은 문단에 인용이 여러 개면 하나의 그룹 카드로 묶어 한 줄 행으로 압축(밀집 구간이 아래로 길게 흘러내리지 않게).
 // 배치는 부모의 positionSidenotes()가 앵커 위치 기준 + 겹침 방지 스태킹으로 계산한다.
+const scrollToCite = (n: number) =>
+  document.getElementById(`cite-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
 function Sidenote({ c, onRelayout }: { c: BriefingCitation; onRelayout: () => void }) {
   const thumb = c.tweet?.media?.[0]?.url ?? null;
   return (
-    <div data-note={c.n}
-         onClick={() => document.getElementById(`cite-${c.n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+    <div data-note={c.n} onClick={() => scrollToCite(c.n)}
          className="absolute left-0 w-full cursor-pointer rounded-lg border border-x-border bg-white p-2 text-xs leading-4 text-x-text shadow-sm transition-[top] hover:border-x-border-strong"
          title="누르면 아래 원문 카드로 이동">
       <p className="truncate">
@@ -107,6 +110,39 @@ function Sidenote({ c, onRelayout }: { c: BriefingCitation; onRelayout: () => vo
         /* eslint-disable-next-line @next/next/no-img-element */
         <img src={thumb} alt="" onLoad={onRelayout} className="mt-1 h-20 w-full rounded object-cover" />
       )}
+    </div>
+  );
+}
+
+function SidenoteGroup({ ns, byN, onRelayout }: {
+  ns: number[]; byN: Map<number, BriefingCitation>; onRelayout: () => void;
+}) {
+  const cs = ns.map((n) => byN.get(n)).filter((c): c is BriefingCitation => !!c);
+  if (cs.length === 0) return null;
+  if (cs.length === 1) return <Sidenote c={cs[0]} onRelayout={onRelayout} />;
+  return (
+    <div data-note={cs[0].n}
+         className="absolute left-0 w-full rounded-lg border border-x-border bg-white p-1 text-xs leading-4 text-x-text shadow-sm transition-[top]">
+      {cs.map((c) => {
+        const thumb = c.tweet?.media?.[0]?.url ?? null;
+        return (
+          <div key={c.n} onClick={() => scrollToCite(c.n)} title="누르면 아래 원문 카드로 이동"
+               className="flex cursor-pointer items-center gap-1.5 rounded p-1 hover:bg-x-hover">
+            <span className="w-5 shrink-0 text-right font-bold text-x-blue">{c.n}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">
+                <span className="font-bold">{c.tweet?.authorName ?? c.tweet?.authorHandle ?? ''}</span>
+                <span className="ml-1 text-x-secondary">♥ {formatCount(c.likes)}</span>
+              </span>
+              <span className="block truncate text-x-secondary">{c.text.replace(/\s+/g, ' ')}</span>
+            </span>
+            {thumb && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={thumb} alt="" onLoad={onRelayout} className="h-9 w-9 shrink-0 rounded object-cover" />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -126,6 +162,8 @@ export function BriefingSection({ wsId }: { wsId: string }) {
 
   // 사이드노트 배치: 인용 칩의 첫 등장 위치에 정렬하되, 겹치면 아래로 밀어 쌓는다.
   // 이미지 로드·리사이즈·문서 전환 시 재계산.
+  // 같은 문단(p/li)에 앵커가 있는 인용을 그룹으로 묶는다 — 문서가 바뀌면 재계산
+  const [noteGroups, setNoteGroups] = useState<number[][]>([]);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const laneRef = useRef<HTMLDivElement | null>(null);
   const positionSidenotes = useCallback(() => {
@@ -148,11 +186,27 @@ export function BriefingSection({ wsId }: { wsId: string }) {
     }
   }, []);
   useEffect(() => {
+    const card = cardRef.current;
+    if (!card || !current) { setNoteGroups([]); return; }
+    const seen = new Set<number>();
+    const byBlock = new Map<Element, number[]>();
+    const order: Element[] = [];
+    card.querySelectorAll<HTMLElement>('[data-cite]').forEach((el) => {
+      const n = Number(el.dataset.cite);
+      if (seen.has(n)) return;
+      seen.add(n);
+      const block = el.closest('p, li') ?? el;
+      if (!byBlock.has(block)) { byBlock.set(block, []); order.push(block); }
+      byBlock.get(block)!.push(n);
+    });
+    setNoteGroups(order.map((b) => byBlock.get(b)!));
+  }, [current]);
+  useEffect(() => {
     positionSidenotes();
     const t = setTimeout(positionSidenotes, 400); // 폰트·이미지 로드 후 보정
     window.addEventListener('resize', positionSidenotes);
     return () => { clearTimeout(t); window.removeEventListener('resize', positionSidenotes); };
-  }, [current, positionSidenotes]);
+  }, [current, noteGroups, positionSidenotes]);
 
   const loadList = useCallback(async () => {
     const r = await fetch(`/api/briefings?workspaceId=${wsId}`);
@@ -356,9 +410,12 @@ export function BriefingSection({ wsId }: { wsId: string }) {
         </div>
         {/* 사이드노트 레인 — 카드 오른쪽 여백(넓은 화면 전용). 좁으면 숨기고 호버 미리보기가 대신한다 */}
         <div ref={laneRef} className="absolute bottom-0 left-full top-0 ml-4 hidden w-60 xl:block">
-          {current.content.citations.map((c) => (
-            <Sidenote key={c.n} c={c} onRelayout={positionSidenotes} />
-          ))}
+          {(() => {
+            const byN = new Map(current.content.citations.map((c) => [c.n, c] as const));
+            return noteGroups.map((g) => (
+              <SidenoteGroup key={g[0]} ns={g} byN={byN} onRelayout={positionSidenotes} />
+            ));
+          })()}
         </div>
         </div>
       )}

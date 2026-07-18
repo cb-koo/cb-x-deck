@@ -63,11 +63,11 @@ function inline(line: string, byN: Map<number, BriefingCitation>, keyPrefix: str
 
 // 문단 사이 임베드 카드 — 주장(문단) 바로 아래에 근거 트윗이 보이는 뉴스 기사식 배치.
 // wide = 문단에 인용이 1개일 때의 큰 카드 / 아니면 가로 스트립용 컴팩트 카드.
-function EmbedCard({ c, wide }: { c: BriefingCitation; wide: boolean }) {
+function EmbedCard({ c, wide, anchor = true }: { c: BriefingCitation; wide: boolean; anchor?: boolean }) {
   const t = c.tweet;
   const thumb = t?.media?.[0]?.url ?? null;
   return (
-    <div id={`cite-${c.n}`}
+    <div id={anchor ? `cite-${c.n}` : undefined}
          className={`${wide ? 'w-full' : 'w-64 shrink-0 snap-start'} rounded-lg border border-x-border bg-x-border/20 p-2.5 text-xs leading-4 text-x-text`}>
       <p className="flex items-baseline gap-1">
         <span className="shrink-0 font-bold text-x-blue">{c.n}</span>
@@ -98,12 +98,13 @@ function EmbedCard({ c, wide }: { c: BriefingCitation; wide: boolean }) {
 }
 
 // 인용 1개면 넓은 카드 하나, 2개 이상이면 문서 길이가 늘지 않게 가로 스크롤 스트립
-function EmbedStrip({ cs }: { cs: BriefingCitation[] }) {
+function EmbedStrip({ cs, anchorOf }: { cs: BriefingCitation[]; anchorOf?: (n: number) => boolean }) {
   if (cs.length === 0) return null;
-  if (cs.length === 1) return <div className="my-2"><EmbedCard c={cs[0]} wide /></div>;
+  const a = (n: number) => (anchorOf ? anchorOf(n) : true);
+  if (cs.length === 1) return <div className="my-2"><EmbedCard c={cs[0]} wide anchor={a(cs[0].n)} /></div>;
   return (
     <div className="my-2 flex snap-x gap-2 overflow-x-auto pb-1">
-      {cs.map((c) => <EmbedCard key={c.n} c={c} wide={false} />)}
+      {cs.map((c) => <EmbedCard key={c.n} c={c} wide={false} anchor={a(c.n)} />)}
     </div>
   );
 }
@@ -164,7 +165,9 @@ const STAGE_BADGE: Record<TrendStage, { label: string; cls: string }> = {
   cooling: { label: '❄️ 식는 중', cls: 'bg-blue-50 text-blue-600' },
 };
 
-function TrendCard({ t, byN, idx }: { t: TrendModule; byN: Map<number, BriefingCitation>; idx: number }) {
+function TrendCard({ t, byN, idx, anchors }: {
+  t: TrendModule; byN: Map<number, BriefingCitation>; idx: number; anchors: Set<number>;
+}) {
   const badge = STAGE_BADGE[t.stage];
   const cs = t.tweets.map((n) => byN.get(n)).filter((c): c is BriefingCitation => !!c);
   return (
@@ -175,7 +178,7 @@ function TrendCard({ t, byN, idx }: { t: TrendModule; byN: Map<number, BriefingC
       </p>
       <p className="mt-0.5 text-[13px] text-x-secondary">{inline(t.definition, byN, `def-${idx}`)}</p>
       <p className="mt-1.5">{inline(t.body, byN, `tb-${idx}`)}</p>
-      <EmbedStrip cs={cs} />
+      <EmbedStrip cs={cs} anchorOf={(n) => anchors.has(n)} />
       <p className="mt-1.5 rounded-lg bg-x-blue/5 px-2.5 py-1.5 text-[13px]">
         <span className="font-bold text-x-blue">→ 해볼 것</span> {inline(t.action, byN, `act-${idx}`)}
       </p>
@@ -185,9 +188,16 @@ function TrendCard({ t, byN, idx }: { t: TrendModule; byN: Map<number, BriefingC
 
 function TrendModules({ content }: { content: BriefingContent }) {
   const byN = new Map(content.citations.map((c) => [c.n, c] as const));
+  // 같은 트윗이 여러 모듈의 대표일 수 있음 — 첫 등장 모듈만 cite-{n} 앵커를 가져 id 중복·스크롤 모호성 방지
+  const seen = new Set<number>();
+  const anchorsPerModule = content.trends!.map((t) => {
+    const mine = new Set<number>();
+    for (const n of t.tweets) if (!seen.has(n)) { seen.add(n); mine.add(n); }
+    return mine;
+  });
   return (
     <div className="mt-3 space-y-3 text-[15px] leading-6 text-x-text">
-      {content.trends!.map((t, i) => <TrendCard key={i} t={t} byN={byN} idx={i} />)}
+      {content.trends!.map((t, i) => <TrendCard key={i} t={t} byN={byN} idx={i} anchors={anchorsPerModule[i]} />)}
       {content.watchlist && (
         <p className="rounded-lg bg-x-border/30 px-3 py-2 text-[13px] text-x-secondary">
           <span className="font-bold">👀 다음 주 지켜볼 것</span> — {inline(content.watchlist, byN, 'watch')}

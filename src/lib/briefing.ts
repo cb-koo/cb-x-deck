@@ -144,6 +144,7 @@ ${tweetLines.join('\n')}
    - 수치·인용으로 근거가 닿지 않는 해석은 "~일 수 있어요"처럼 추측임을 표시
    - 근거를 댈 수 없는 인과 단정(예: 사람들의 심리가 변했다)은 쓰지 마세요
    - 인용은 번호만 나열하지 말고, 그 글이 어떤 글인지 짧은 묘사를 앞에 붙이세요
+     (예: "성분 농도를 표로 비교한 글 [T58]" ○ / "[T2][T7][T38]이 반응이 좋았다" ✕)
 4. 용어는 생활어로. 성분·시술·전문어는 첫 등장에 괄호로 한 줄 설명 (예: "아제라인산(여드름 피부용 성분)"). "인게이지먼트" 같은 업계어 금지
 5. "~양상을 보인다", "~시사한다", "~라고 할 수 있습니다" 같은 보고서 말투 금지 — 옆자리 동료에게 말하듯 쓰세요
 6. 짧은 완결 문장. 컬럼 주제와 무관한 잡담성 트윗은 무시합니다
@@ -196,7 +197,7 @@ export async function generateBriefing(
   // 개별 모듈 불량은 버리고, 살아남은 모듈이 2개 미만이면 문서 자체를 실패 처리(반쪽 리포트 방지).
   const rawTrends = Array.isArray(j.trends) ? j.trends : [];
   const trends: TrendModule[] = [];
-  for (const raw of rawTrends.slice(0, 6)) {
+  for (const raw of rawTrends.slice(0, 5)) {
     if (typeof raw !== 'object' || raw === null) continue;
     const r = raw as Record<string, unknown>;
     if (typeof r.name !== 'string' || !r.name.trim()) continue;

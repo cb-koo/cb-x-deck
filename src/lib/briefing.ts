@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { extractJson, MODEL, type AnthropicLike } from './suggest.ts';
 import { weekStartJst, addWeeks, median } from './trend.ts';
 import { flagYakkiho } from './complianceFlags.ts';
-import type { BriefingContent, BriefingCitation, BriefingStats } from './briefingTypes.ts';
+import type { BriefingContent, BriefingCitation, BriefingStats, TrendModule, TrendStage } from './briefingTypes.ts';
 
 export interface BriefingTweet {
   tweetId: string; text: string; likes: number | null;
@@ -105,9 +105,7 @@ export function statsNarrative(stats: BriefingStats): string[] {
   });
 }
 
-const SECTIONS = [
-  ['topics', '핵심 화두'], ['hits', '반응이 좋았던 것'], ['changes', '변화'], ['implications', '기획 시사점'],
-] as const;
+const STAGES: TrendStage[] = ['rising', 'steady', 'cooling'];
 
 const PROMPT = (columnTitle: string, stats: BriefingStats, tweetLines: string[], comparison: string | null) =>
   `당신은 일본 뷰티/미용의료 X(트위터)를 관찰해 한국 콘텐츠 기획팀에 보고하는 리서처입니다.
@@ -122,27 +120,34 @@ ${comparison ? comparison + '\n' : ''}${statsNarrative(stats).join('\n')}
 [트윗 목록 — 트윗을 인용할 땐 반드시 [T번호] 표기만 사용하세요. 본문을 옮겨 적지 마세요]
 ${tweetLines.join('\n')}
 
-다음 구조의 보고서를 한국어 JSON으로 작성하세요:
+보고서는 "트렌드 모듈"의 묶음입니다. 이 기간의 흐름을 가장 잘 설명하는 트렌드 3~5개를 골라,
+각 트렌드를 하나의 완결된 모듈로 쓰세요. 주제 트렌드(무슨 소재가 뜨나)뿐 아니라
+형식 트렌드(어떤 글 형태가 통하나)도 트렌드입니다.
+
+한국어 JSON으로 작성:
 - headline: 이번 기간을 한 문장으로. 독자가 이것 하나만 기억해도 되는 큰 메시지
 - tldr: 3줄 요약 (배열 3개, 각각 완결된 한 문장)
-- topics: 핵심 화두 — 이 기간에 무슨 이야기가 돌았나
-- hits: 반응이 좋았던 것 — 어떤 글이 통했고, 왜 통한 것으로 보이는지. 근거 트윗 [T번호] 인용 필수
-- changes: 변화 — 흐름이 어디로 가고 있나. 위 수치 문구를 근거로
-- implications: 기획 시사점 — 우리 계정의 콘텐츠 기획에 참고할 점. '- '로 시작하는 한 줄 항목 3~5개(줄바꿈으로 구분)
+- trends: 트렌드 모듈 3~5개 배열. 각 모듈:
+  - name: 짧고 기억되는 트렌드 이름 (예: "성분 조합 콘텐츠")
+  - stage: "rising"(뜨는 중) | "steady"(유지) | "cooling"(식는 중) — body에 수치 근거를 반드시 포함
+  - definition: 이 트렌드가 뭔지 한 문장
+  - body: 무슨 일이 벌어지고 있고 왜 통하는지 2~4문장. 패턴 주장엔 [T번호] 인용
+  - action: 우리 계정이 해볼 것 1개, 실행 가능한 수준으로 구체적으로 (예: "성분 2개 조합 비교표 포맷 1건 테스트")
+  - tweets: 이 트렌드를 가장 잘 보여주는 대표 트윗 번호 1~3개 (숫자 배열, 예: [12, 38])
+- watchlist: 다음 주 지켜볼 것 1~2문장 (아직 모듈로 만들기엔 이르지만 조짐이 보이는 것)
 
-서술 원칙 (모든 섹션 공통):
+서술 원칙 (모든 필드 공통):
 1. 결론 먼저, 숫자는 근거로 뒤에. "글이 44건으로 줄었다"가 아니라 "관심이 식은 게 아니라 글만 줄었어요 — 글은 줄었는데(44건) 반응은 올랐거든요" 순서로.
-2. 문단마다 '무슨 일이 → 왜 중요한지 → 그래서'를 완성하세요. 관찰만 하고 끝나는 문장을 남기지 마세요.
+2. 모듈마다 '무슨 일이 → 왜 중요한지 → 그래서'가 완성되어야 합니다. 관찰만 하고 끝나는 문장을 남기지 마세요.
 3. 근거 수준을 지키세요:
    - 패턴 주장("이런 글이 통했다")은 반드시 [T번호] 인용과 함께
    - 수치·인용으로 근거가 닿지 않는 해석은 "~일 수 있어요"처럼 추측임을 표시
    - 근거를 댈 수 없는 인과 단정(예: 사람들의 심리가 변했다)은 쓰지 마세요
    - 인용은 번호만 나열하지 말고, 그 글이 어떤 글인지 짧은 묘사를 앞에 붙이세요
-     (예: "성분 농도를 표로 비교한 글 [T58]" ○ / "[T2][T7][T38]이 반응이 좋았다" ✕ — 번호만으로는 독자가 내용을 알 수 없습니다)
 4. 용어는 생활어로. 성분·시술·전문어는 첫 등장에 괄호로 한 줄 설명 (예: "아제라인산(여드름 피부용 성분)"). "인게이지먼트" 같은 업계어 금지
 5. "~양상을 보인다", "~시사한다", "~라고 할 수 있습니다" 같은 보고서 말투 금지 — 옆자리 동료에게 말하듯 쓰세요
-6. 짧은 완결 문장. 한 문단에는 하나의 이야기만. 컬럼 주제와 무관한 잡담성 트윗은 무시합니다
-JSON만 출력: {"headline": "...", "tldr": ["...","...","..."], "topics": "...", "hits": "...", "changes": "...", "implications": "..."}`;
+6. 짧은 완결 문장. 컬럼 주제와 무관한 잡담성 트윗은 무시합니다
+JSON만 출력: {"headline": "...", "tldr": ["...","...","..."], "trends": [{"name": "...", "stage": "rising", "definition": "...", "body": "...", "action": "...", "tweets": [1]}], "watchlist": "..."}`;
 
 export async function generateBriefing(
   input: { columnTitle: string; tweets: BriefingTweet[]; stats: BriefingStats; comparison?: string | null },
@@ -162,7 +167,7 @@ export async function generateBriefing(
 
   const res = await c.messages.create({
     model: MODEL(),
-    max_tokens: 3000,
+    max_tokens: 4500, // 트렌드 모듈 3~5개 JSON — 3000이면 잘려서 파싱 실패
     messages: [{ role: 'user', content: PROMPT(input.columnTitle, input.stats, lines, input.comparison ?? null) }],
   });
   const j = extractJson(res) as Record<string, unknown> | null;
@@ -170,13 +175,9 @@ export async function generateBriefing(
 
   const tldr = Array.isArray(j.tldr) ? j.tldr.filter((x): x is string => typeof x === 'string').slice(0, 3) : [];
   if (tldr.length !== 3) return null;
-  for (const [key] of SECTIONS) if (typeof j[key] !== 'string' || !(j[key] as string).trim()) return null;
-
-  // 본문 조립은 코드가 — 섹션 제목·순서 고정(회차 간 비교 가능)
-  let body = SECTIONS.map(([key, title]) => `## ${title}\n${(j[key] as string).trim()}`).join('\n\n');
 
   // 인용 검증: [T1, T7] 같은 묶음은 개별 토큰으로 분해 → 존재하는 번호만 표준형 [Tn]으로 살리고 유령 번호는 제거.
-  // 본문과 3줄 요약(tldr) 모두 같은 규칙 적용 — 독자가 보는 모든 대괄호가 실트윗으로 복원 가능해야 한다.
+  // 독자가 보는 모든 대괄호가 실트윗으로 복원 가능해야 한다(모든 텍스트 필드 공통).
   const valid = new Set<number>();
   const validateTokens = (s: string) => s
     .replace(/\[\s*[Tt]\s*\d+(?:\s*,\s*[Tt]?\s*\d+)+\s*\]/g,
@@ -186,18 +187,50 @@ export async function generateBriefing(
       if (n >= 1 && n <= numbered.length) { valid.add(n); return `[T${n}]`; }
       return '';
     });
-  body = validateTokens(body);
+
   const tldrOut = tldr.map(validateTokens);
   const headline = typeof j.headline === 'string' && j.headline.trim() ? validateTokens(j.headline.trim()) : '';
   if (!headline) return null; // 헤드라인(한 문장 큰 메시지)은 필수 — 형식 불량은 저장하지 않는다
+
+  // 트렌드 모듈 검증 — 필드가 온전하고 대표 트윗이 실존하는 모듈만 살린다.
+  // 개별 모듈 불량은 버리고, 살아남은 모듈이 2개 미만이면 문서 자체를 실패 처리(반쪽 리포트 방지).
+  const rawTrends = Array.isArray(j.trends) ? j.trends : [];
+  const trends: TrendModule[] = [];
+  for (const raw of rawTrends.slice(0, 6)) {
+    if (typeof raw !== 'object' || raw === null) continue;
+    const r = raw as Record<string, unknown>;
+    if (typeof r.name !== 'string' || !r.name.trim()) continue;
+    if (typeof r.definition !== 'string' || !r.definition.trim()) continue;
+    if (typeof r.body !== 'string' || !r.body.trim()) continue;
+    if (typeof r.action !== 'string' || !r.action.trim()) continue;
+    if (!STAGES.includes(r.stage as TrendStage)) continue;
+    const tweets = (Array.isArray(r.tweets) ? r.tweets : [])
+      .map(Number)
+      .filter((n) => Number.isInteger(n) && n >= 1 && n <= numbered.length);
+    const uniq = [...new Set(tweets)].slice(0, 3);
+    if (uniq.length === 0) continue; // 대표 트윗 없는 트렌드는 근거 없는 주장 — 버림
+    uniq.forEach((n) => valid.add(n));
+    trends.push({
+      name: validateTokens(r.name.trim()),
+      stage: r.stage as TrendStage,
+      definition: validateTokens(r.definition.trim()),
+      body: validateTokens(r.body.trim()),
+      action: validateTokens(r.action.trim()),
+      tweets: uniq,
+    });
+  }
+  if (trends.length < 2) return null;
+
+  const watchlist = typeof j.watchlist === 'string' && j.watchlist.trim() ? validateTokens(j.watchlist.trim()) : undefined;
+
   const citations: BriefingCitation[] = [...valid].sort((a, b) => a - b).map((n) => {
     const t = numbered[n - 1].t;
     return { n, tweetId: t.tweetId, text: t.text, likes: t.likes, url: t.tweetUrl, flags: flagYakkiho(t.text) };
   });
 
   // 문체 검증 — 금지 표현이 있으면 통째 실패(반쪽 문서를 저장하지 않는다)
-  const all = headline + ' ' + tldrOut.join(' ') + ' ' + body;
+  const all = [headline, ...tldrOut, ...trends.flatMap((t) => [t.name, t.definition, t.body, t.action]), watchlist ?? ''].join(' ');
   if (FORBIDDEN_PHRASES.some((p) => all.includes(p))) return null;
 
-  return { headline, tldr: tldrOut, body, citations, stats: input.stats };
+  return { headline, tldr: tldrOut, trends, watchlist, body: '', citations, stats: input.stats };
 }

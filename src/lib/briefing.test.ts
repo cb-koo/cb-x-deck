@@ -19,10 +19,13 @@ const fakeLLM = (payload: unknown): AnthropicLike => ({
 const GOOD = {
   headline: '여드름 흉터 이야기의 무게가 제품에서 시술로 옮겨가는 중',
   tldr: ['니키비 화제가 늘었다', '흉터 케어 반응이 좋다', '홈케어 제품 언급 증가'],
-  topics: '이번 기간엔 니키비 흉터 이야기가 많았다.',
-  hits: '흉터 회복 후기 [T1] 반응이 가장 좋았다.',
-  changes: '후반부에 게시량이 늘었다.',
-  implications: '흉터 회복 과정 콘텐츠를 검토하자.',
+  trends: [
+    { name: '경험담 콘텐츠', stage: 'rising', definition: '직접 써본 변화를 보여주는 글',
+      body: '흉터 회복 후기 [T1] 반응이 가장 좋았다.', action: '전후 비교 포맷 1건 테스트', tweets: [1] },
+    { name: '성분 나열 글', stage: 'cooling', definition: '성분만 나열하는 글',
+      body: '반응이 내려가는 중이다.', action: '나열형 기획은 보류', tweets: [1] },
+  ],
+  watchlist: '이소트레티노인 후기 증가 조짐',
 };
 
 test('briefingPeriod: 완성 주 기준 소급 — 집계 중 주 제외', () => {
@@ -67,8 +70,11 @@ test('generateBriefing: 수치 주입·[T] 복원·본문 조립', async () => {
   assert.ok(prompt.includes('좋아요 중앙값'));            // 코드 계산 수치가 프롬프트에 주입됨
   assert.ok(prompt.includes('[T1]'));                     // 번호 매핑 주입
   assert.deepEqual(c!.tldr, GOOD.tldr);
-  assert.ok(c!.body.includes('## 핵심 화두'));            // 고정 섹션 제목으로 코드가 조립
-  assert.ok(c!.body.includes('## 기획 시사점'));
+  assert.equal(c!.trends!.length, 2);                     // 트렌드 모듈 검증 통과
+  assert.equal(c!.trends![0].stage, 'rising');
+  assert.deepEqual(c!.trends![0].tweets, [1]);
+  assert.equal(c!.watchlist, GOOD.watchlist);
+  assert.equal(c!.body, '');                               // v3는 모듈이 본문 — body 비움
   assert.deepEqual(c!.citations.map((x) => x.tweetId), ['tid-1']); // [T1]만 인용됨
   assert.ok(Array.isArray(c!.citations[0].flags));
   assert.deepEqual(c!.stats, stats);
@@ -78,8 +84,8 @@ test('generateBriefing: 없는 번호 인용은 본문에서 제거·인용 목�
   const tweets = [tw('2026-06-15', 500, 'tid-1')];
   const stats = computeBriefingStats(tweets, NOW, 4);
   const c = await generateBriefing({ columnTitle: 'c', tweets, stats },
-    fakeLLM({ ...GOOD, hits: '유령 트윗 [T99] 이 좋았다 [T1]' }));
-  assert.ok(!c!.body.includes('[T99]'));
+    fakeLLM({ ...GOOD, trends: [{ ...GOOD.trends[0], body: '유령 트윗 [T99] 이 좋았다 [T1]' }, GOOD.trends[1]] }));
+  assert.ok(!c!.trends![0].body.includes('[T99]'));
   assert.deepEqual(c!.citations.map((x) => x.n), [1]);
 });
 
@@ -87,9 +93,9 @@ test('generateBriefing: 금지 표현·형식 불량 → null(저장 금지 신�
   const tweets = [tw('2026-06-15', 500)];
   const stats = computeBriefingStats(tweets, NOW, 4);
   assert.equal(await generateBriefing({ columnTitle: 'c', tweets, stats },
-    fakeLLM({ ...GOOD, topics: '인게이지먼트가 높다고 할 수 있습니다.' })), null); // 금지 표현
+    fakeLLM({ ...GOOD, trends: [{ ...GOOD.trends[0], body: '인게이지먼트가 높다고 할 수 있습니다.' }, GOOD.trends[1]] })), null); // 금지 표현
   assert.equal(await generateBriefing({ columnTitle: 'c', tweets, stats },
-    fakeLLM({ tldr: '배열 아님', topics: 1 })), null);                            // 형식 불량
+    fakeLLM({ tldr: '배열 아님' })), null);                                       // 형식 불량
   const noJson: AnthropicLike = { messages: { create: async () => ({ content: [{ type: 'text', text: '죄송합니다' }] }) } };
   assert.equal(await generateBriefing({ columnTitle: 'c', tweets, stats }, noJson), null);
 });
@@ -111,10 +117,11 @@ test('generateBriefing: 변형 토큰([t1]·[T 1])은 표준형으로 정규화,
   const tweets = [tw('2026-06-15', 500, 'tid-1')];
   const stats = computeBriefingStats(tweets, NOW, 4);
   const c = await generateBriefing({ columnTitle: 'c', tweets, stats },
-    fakeLLM({ ...GOOD, hits: '이 트윗 [t1] 그리고 [T 1] 또 [t 99]' }));
-  assert.ok(!c!.body.includes('[t1]') && !c!.body.includes('[T 1]'));
-  assert.ok(c!.body.includes('[T1]'));
-  assert.ok(!c!.body.includes('99'));
+    fakeLLM({ ...GOOD, trends: [{ ...GOOD.trends[0], body: '이 트윗 [t1] 그리고 [T 1] 또 [t 99]' }, GOOD.trends[1]] }));
+  const b = c!.trends![0].body;
+  assert.ok(!b.includes('[t1]') && !b.includes('[T 1]'));
+  assert.ok(b.includes('[T1]'));
+  assert.ok(!b.includes('99'));
   assert.deepEqual(c!.citations.map((x) => x.n), [1]);
 });
 
@@ -157,10 +164,11 @@ test('generateBriefing: [T1, T7] 묶음 인용 분해 — 유효만 개별 토�
   const tweets = [tw('2026-06-15', 500, 'tid-1'), tw('2026-06-15', 300, 'tid-2')];
   const stats = computeBriefingStats(tweets, NOW, 4);
   const c = await generateBriefing({ columnTitle: 'c', tweets, stats },
-    fakeLLM({ ...GOOD, hits: '둘 다 좋았다 [T1, T2] 그리고 [T2 , t1] 유령 섞임 [T1, T9]' }));
-  assert.ok(c!.body.includes('[T1][T2]'));
-  assert.ok(!c!.body.includes(','.concat(' T')) && !/\[T\d+,\s/.test(c!.body)); // 묶음 잔존 없음
-  assert.ok(!c!.body.includes('9'));
+    fakeLLM({ ...GOOD, trends: [{ ...GOOD.trends[0], body: '둘 다 좋았다 [T1, T2] 그리고 [T2 , t1] 유령 섞임 [T1, T9]' }, GOOD.trends[1]] }));
+  const b = c!.trends![0].body;
+  assert.ok(b.includes('[T1][T2]'));
+  assert.ok(!/\[T\d+,\s/.test(b));                       // 묶음 잔존 없음
+  assert.ok(!b.includes('9'));
   assert.deepEqual(c!.citations.map((x) => x.n), [1, 2]);
 });
 
@@ -204,4 +212,25 @@ test('generateBriefing: 헤드라인 필수·검증 + 기간 비교 프롬프트
   const ghostHead = await generateBriefing({ columnTitle: 'c', tweets, stats },
     fakeLLM({ ...GOOD, headline: '한 줄 [T9] 요약' }));
   assert.ok(!ghostHead!.headline!.includes('9'));
+});
+
+test('generateBriefing: 트렌드 모듈 검증 — 불량 모듈 버림, 2개 미만이면 전체 실패', async () => {
+  const tweets = [tw('2026-06-15', 500, 'tid-1'), tw('2026-06-22', 10, 'tid-2')];
+  const stats = computeBriefingStats(tweets, NOW, 4);
+  // 잘못된 stage·유령 트윗만 있는 모듈은 버려지고, 유효 2개가 남으면 성공
+  const c = await generateBriefing({ columnTitle: 'c', tweets, stats }, fakeLLM({
+    ...GOOD,
+    trends: [
+      GOOD.trends[0],
+      { ...GOOD.trends[1], tweets: [2, 2, 99] },                 // 중복·유령 정리 → [2]
+      { ...GOOD.trends[0], stage: 'exploding' },                 // 불량 stage → 버림
+      { ...GOOD.trends[0], tweets: [99] },                       // 대표 트윗 전멸 → 버림
+    ],
+  }));
+  assert.equal(c!.trends!.length, 2);
+  assert.deepEqual(c!.trends![1].tweets, [2]);
+  assert.deepEqual(c!.citations.map((x) => x.n), [1, 2]);        // 대표 트윗도 인용 목록에 포함
+  // 유효 모듈이 1개뿐이면 반쪽 리포트 — 전체 실패
+  assert.equal(await generateBriefing({ columnTitle: 'c', tweets, stats },
+    fakeLLM({ ...GOOD, trends: [GOOD.trends[0]] })), null);
 });

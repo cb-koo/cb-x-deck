@@ -4,7 +4,7 @@ import { useMember } from '@/lib/memberContext';
 import type { ColumnRow } from '@/lib/types';
 import type { TrendPayload } from '@/lib/trend';
 import type { BriefingListRow, BriefingRow } from '@/lib/briefingStore';
-import type { BriefingCitation, BriefingContent } from '@/lib/briefingTypes';
+import type { BriefingCitation, BriefingContent, TrendModule, TrendStage } from '@/lib/briefingTypes';
 import { formatCount } from '@/lib/format';
 import { median } from '@/lib/trend';
 
@@ -153,6 +153,46 @@ function Body({ content }: { content: BriefingContent }) {
     <div className="space-y-2 text-[15px] leading-6 text-x-text">
       {out}
       {leftover.length > 0 && <EmbedStrip cs={leftover} />}
+    </div>
+  );
+}
+
+// 트렌드 모듈 뷰(v3) — 리포트의 단위 = 트렌드 카드. 이름·단계·정의·서술·대표 트윗·해볼 것이 한 덩어리로 완결
+const STAGE_BADGE: Record<TrendStage, { label: string; cls: string }> = {
+  rising: { label: '🔥 뜨는 중', cls: 'bg-red-50 text-red-600' },
+  steady: { label: '➖ 유지', cls: 'bg-x-border/60 text-x-secondary' },
+  cooling: { label: '❄️ 식는 중', cls: 'bg-blue-50 text-blue-600' },
+};
+
+function TrendCard({ t, byN, idx }: { t: TrendModule; byN: Map<number, BriefingCitation>; idx: number }) {
+  const badge = STAGE_BADGE[t.stage];
+  const cs = t.tweets.map((n) => byN.get(n)).filter((c): c is BriefingCitation => !!c);
+  return (
+    <div className="rounded-xl border border-x-border p-3">
+      <p className="flex flex-wrap items-baseline gap-1.5">
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold ${badge.cls}`}>{badge.label}</span>
+        <span className="text-[16px] font-bold">{t.name}</span>
+      </p>
+      <p className="mt-0.5 text-[13px] text-x-secondary">{inline(t.definition, byN, `def-${idx}`)}</p>
+      <p className="mt-1.5">{inline(t.body, byN, `tb-${idx}`)}</p>
+      <EmbedStrip cs={cs} />
+      <p className="mt-1.5 rounded-lg bg-x-blue/5 px-2.5 py-1.5 text-[13px]">
+        <span className="font-bold text-x-blue">→ 해볼 것</span> {inline(t.action, byN, `act-${idx}`)}
+      </p>
+    </div>
+  );
+}
+
+function TrendModules({ content }: { content: BriefingContent }) {
+  const byN = new Map(content.citations.map((c) => [c.n, c] as const));
+  return (
+    <div className="mt-3 space-y-3 text-[15px] leading-6 text-x-text">
+      {content.trends!.map((t, i) => <TrendCard key={i} t={t} byN={byN} idx={i} />)}
+      {content.watchlist && (
+        <p className="rounded-lg bg-x-border/30 px-3 py-2 text-[13px] text-x-secondary">
+          <span className="font-bold">👀 다음 주 지켜볼 것</span> — {inline(content.watchlist, byN, 'watch')}
+        </p>
+      )}
     </div>
   );
 }
@@ -356,7 +396,9 @@ export function BriefingSection({ wsId }: { wsId: string }) {
                 <li key={i}>{inline(l, new Map(current.content.citations.map((c) => [c.n, c] as const)), `tldr-${i}`)}</li>
               ))}
             </ul>
-            <Body content={current.content} />
+            {current.content.trends?.length
+              ? <TrendModules content={current.content} />
+              : <Body content={current.content} />}
           </div>
         </div>
       )}

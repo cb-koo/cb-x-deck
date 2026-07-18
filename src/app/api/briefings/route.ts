@@ -5,7 +5,7 @@ import { listAnalysisTweets } from '@/lib/pillarStore';
 import { getTweetsByIds } from '@/lib/tweetStore';
 import {
   BRIEFING_WEEKS, briefingPeriod, filterPeriod, computeBriefingStats,
-  selectBriefingTweets, generateBriefing, type BriefingTweet,
+  selectBriefingTweets, generateBriefing, periodComparison, type BriefingTweet,
 } from '@/lib/briefing';
 import { saveBriefing, listBriefings, getBriefing } from '@/lib/briefingStore';
 import { MODEL } from '@/lib/suggest';
@@ -42,7 +42,10 @@ export async function POST(req: Request) {
   const stats = computeBriefingStats(all, now, weeks);
   let content;
   try {
-    content = await generateBriefing({ columnTitle: col.title, tweets: selectBriefingTweets(inPeriod), stats });
+    content = await generateBriefing({
+      columnTitle: col.title, tweets: selectBriefingTweets(inPeriod), stats,
+      comparison: periodComparison(all, now, weeks), // 직전 동일 기간 대비 기준선(코드 계산)
+    });
   } catch {
     return NextResponse.json({ error: '생성 실패 — 다시 시도해주세요' }, { status: 502 });
   }

@@ -264,6 +264,11 @@ export function BriefingSection({ wsId }: { wsId: string }) {
               })()}
             </div>
 
+            {current.content.headline && (
+              <p className="mt-3 text-[17px] font-bold leading-6">
+                {inline(current.content.headline, new Set(current.content.citations.map((c) => c.n)), 'headline')}
+              </p>
+            )}
             <ul className="mt-3 list-disc space-y-1 pl-5 text-[15px] font-bold leading-6">
               {current.content.tldr.map((l, i) => (
                 <li key={i}>{inline(l, new Set(current.content.citations.map((c) => c.n)), `tldr-${i}`)}</li>

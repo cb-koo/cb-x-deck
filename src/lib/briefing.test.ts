@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   briefingPeriod, filterPeriod, computeBriefingStats, selectBriefingTweets,
-  generateBriefing, statsNarrative, FORBIDDEN_PHRASES, type BriefingTweet,
+  generateBriefing, statsNarrative, periodComparison, FORBIDDEN_PHRASES, type BriefingTweet,
 } from './briefing.ts';
 import type { AnthropicLike } from './suggest.ts';
 
@@ -17,6 +17,7 @@ const fakeLLM = (payload: unknown): AnthropicLike => ({
   messages: { create: async () => ({ content: [{ type: 'text', text: JSON.stringify(payload) }] }) },
 });
 const GOOD = {
+  headline: '여드름 흉터 이야기의 무게가 제품에서 시술로 옮겨가는 중',
   tldr: ['니키비 화제가 늘었다', '흉터 케어 반응이 좋다', '홈케어 제품 언급 증가'],
   topics: '이번 기간엔 니키비 흉터 이야기가 많았다.',
   hits: '흉터 회복 후기 [T1] 반응이 가장 좋았다.',
@@ -171,4 +172,36 @@ test('generateBriefing: tldr 인용도 검증·정규화(유령 제거·표준�
   assert.ok(c!.tldr[0].includes('[T1]'));
   assert.ok(!c!.tldr[1].includes('[T9]') && !c!.tldr[1].includes('9'));
   assert.ok(c!.citations.some((x) => x.n === 1));
+});
+
+test('periodComparison: 직전 동일 기간 대비 문구 — 코드 계산, 직전 표본 0이면 null', () => {
+  const tweets = [
+    tw('2026-06-15', 100), tw('2026-06-22', 300),  // 이번 4주: 글 2건, 중앙값 200
+    tw('2026-05-18', 100), tw('2026-05-25', 100),  // 직전 4주: 글 2건, 중앙값 100
+  ];
+  const line = periodComparison(tweets, NOW, 4);
+  assert.ok(line!.includes('글 2건'));
+  assert.match(line!, /직전 4주 대비 \+0%/);      // 글 수 동일
+  assert.match(line!, /직전 4주 대비 \+100%/);    // 중앙값 100→200
+  assert.equal(periodComparison([tw('2026-06-15', 10)], NOW, 4), null);
+});
+
+test('generateBriefing: 헤드라인 필수·검증 + 기간 비교 프롬프트 주입', async () => {
+  const tweets = [tw('2026-06-15', 500, 'tid-1')];
+  const stats = computeBriefingStats(tweets, NOW, 4);
+  let prompt = '';
+  const spy: AnthropicLike = {
+    messages: { create: async (p) => { prompt = JSON.stringify(p); return fakeLLM(GOOD).messages.create(p); } },
+  };
+  const c = await generateBriefing(
+    { columnTitle: 'c', tweets, stats, comparison: '기간 전체: 글 2건(직전 4주 대비 +0%)' }, spy);
+  assert.ok(prompt.includes('직전 4주 대비'));                 // 비교 기준선 주입
+  assert.equal(c!.headline, GOOD.headline);
+  const noHeadline = { ...GOOD } as Record<string, unknown>;
+  delete noHeadline.headline;
+  assert.equal(await generateBriefing({ columnTitle: 'c', tweets, stats }, fakeLLM(noHeadline)), null);
+  // 헤드라인의 유령 인용도 제거
+  const ghostHead = await generateBriefing({ columnTitle: 'c', tweets, stats },
+    fakeLLM({ ...GOOD, headline: '한 줄 [T9] 요약' }));
+  assert.ok(!ghostHead!.headline!.includes('9'));
 });

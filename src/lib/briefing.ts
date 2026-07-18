@@ -12,7 +12,7 @@ export interface BriefingTweet {
 export const BRIEFING_WEEKS = [2, 4, 8] as const;
 export const BRIEFING_TWEET_CAP = 300;
 // AI 상투 표현·업계 압축어 — 출력에 있으면 검증 실패(회귀 테스트로 고정)
-export const FORBIDDEN_PHRASES = ['라고 할 수 있습니다', '주목할 만한', '인게이지먼트', '괄목할', '눈여겨볼 만'];
+export const FORBIDDEN_PHRASES = ['라고 할 수 있습니다', '주목할 만한', '인게이지먼트', '괄목할', '눈여겨볼 만', '양상을 보인다', '양상을 보이며', '시사한다'];
 
 const DAY_MS = 86_400_000;
 
@@ -75,11 +75,24 @@ export function selectBriefingTweets(tweets: BriefingTweet[], cap = BRIEFING_TWE
   return out;
 }
 
-// 전주 대비 증감을 코드가 계산해 완성 문구로 — LLM은 이 문구만 인용, 직접 계산 금지(숫자 환각 차단)
-function deltaText(cur: number, prev: number): string {
-  if (prev === 0) return cur > 0 ? '(전주 0에서 증가)' : '';
+// 증감을 코드가 계산해 완성 문구로 — LLM은 이 문구만 인용, 직접 계산 금지(숫자 환각 차단)
+function deltaText(cur: number, prev: number, vs = '전주'): string {
+  if (prev === 0) return cur > 0 ? `(${vs} 0에서 증가)` : '';
   const p = Math.round(((cur - prev) / prev) * 100);
-  return `(전주 대비 ${p >= 0 ? '+' : ''}${p}%)`;
+  return `(${vs} 대비 ${p >= 0 ? '+' : ''}${p}%)`;
+}
+
+// 기간 전체를 직전 동일 길이 기간과 비교 — "812"가 아니라 "직전보다 1.3배"가 정보가 되도록(비교 기준선).
+// 직전 기간 표본이 없으면 null(비교 불가를 억지로 만들지 않는다).
+export function periodComparison(tweets: BriefingTweet[], nowIso: string, weeks: number): string | null {
+  const { from, toExclusive } = briefingPeriod(nowIso, weeks);
+  const prevFrom = addWeeks(from, -weeks);
+  const cur = filterPeriod(tweets, from, toExclusive);
+  const prev = filterPeriod(tweets, prevFrom, from);
+  if (prev.length === 0) return null;
+  const med = (arr: BriefingTweet[]) => median(arr.map((t) => t.likes ?? 0));
+  const vs = `직전 ${weeks}주`;
+  return `기간 전체: 글 ${cur.length}건${deltaText(cur.length, prev.length, vs)}, 좋아요 중앙값 ${med(cur)}${deltaText(med(cur), med(prev), vs)}`;
 }
 
 export function statsNarrative(stats: BriefingStats): string[] {
@@ -96,33 +109,41 @@ const SECTIONS = [
   ['topics', '핵심 화두'], ['hits', '반응이 좋았던 것'], ['changes', '변화'], ['implications', '기획 시사점'],
 ] as const;
 
-const PROMPT = (columnTitle: string, stats: BriefingStats, tweetLines: string[]) =>
+const PROMPT = (columnTitle: string, stats: BriefingStats, tweetLines: string[], comparison: string | null) =>
   `당신은 일본 뷰티/미용의료 X(트위터)를 관찰해 한국 콘텐츠 기획팀에 보고하는 리서처입니다.
+독자에는 이 분야를 잘 모르는 팀원도 있습니다. 이 보고서의 목적은 분석을 보여주는 것이 아니라,
+읽는 사람이 ①지금 무슨 상황인지 파악하고 ②왜 중요한지 납득하고 ③다음에 뭘 해볼지 아이디어를 얻는 것입니다.
+
 관찰 대상 컬럼: "${columnTitle}" · 기간: ${stats.periodFrom} ~ ${stats.periodTo} · 표본 ${stats.totalCount}건
 
-[주별 수치와 증감 — 코드가 계산한 확정값입니다. 숫자와 증감률(%)은 반드시 아래 문구의 값만 그대로 인용하고, 직접 세거나 계산하지 마세요]
-${statsNarrative(stats).join('\n')}
+[수치 — 코드가 계산한 확정값입니다. 숫자와 증감률(%)은 반드시 아래 문구의 값만 그대로 인용하고, 직접 세거나 계산하지 마세요]
+${comparison ? comparison + '\n' : ''}${statsNarrative(stats).join('\n')}
 
 [트윗 목록 — 트윗을 인용할 땐 반드시 [T번호] 표기만 사용하세요. 본문을 옮겨 적지 마세요]
 ${tweetLines.join('\n')}
 
 다음 구조의 보고서를 한국어 JSON으로 작성하세요:
+- headline: 이번 기간을 한 문장으로. 독자가 이것 하나만 기억해도 되는 큰 메시지
 - tldr: 3줄 요약 (배열 3개, 각각 완결된 한 문장)
 - topics: 핵심 화두 — 이 기간에 무슨 이야기가 돌았나
-- hits: 반응이 좋았던 것 — 어떤 내용·형식이 반응을 얻었나. 근거 트윗을 [T번호]로 인용
-- changes: 변화 — 기간 전반부와 후반부 사이에 뜨거나 식은 것. 위 주별 수치를 근거로
+- hits: 반응이 좋았던 것 — 어떤 글이 통했고, 왜 통한 것으로 보이는지. 근거 트윗 [T번호] 인용 필수
+- changes: 변화 — 흐름이 어디로 가고 있나. 위 수치 문구를 근거로
 - implications: 기획 시사점 — 우리 계정의 콘텐츠 기획에 참고할 점. '- '로 시작하는 한 줄 항목 3~5개(줄바꿈으로 구분)
 
-문체 규칙 (엄수):
-- 처음 읽는 팀원이 배경 설명 없이 이해할 수 있게 씁니다
-- 전문용어·업계 압축어 금지. 부득이하면 바로 옆에 풀어 씁니다 (예: "인게이지먼트" 대신 "반응(좋아요·리트윗)")
-- "~라고 할 수 있습니다", "주목할 만한" 같은 상투 표현과 과장 수식어 금지
-- 짧은 완결 문장으로, 한 문단에는 하나의 이야기만
-- 컬럼 주제와 무관한 잡담성 트윗은 무시합니다
-JSON만 출력: {"tldr": ["...","...","..."], "topics": "...", "hits": "...", "changes": "...", "implications": "..."}`;
+서술 원칙 (모든 섹션 공통):
+1. 결론 먼저, 숫자는 근거로 뒤에. "글이 44건으로 줄었다"가 아니라 "관심이 식은 게 아니라 글만 줄었어요 — 글은 줄었는데(44건) 반응은 올랐거든요" 순서로.
+2. 문단마다 '무슨 일이 → 왜 중요한지 → 그래서'를 완성하세요. 관찰만 하고 끝나는 문장을 남기지 마세요.
+3. 근거 수준을 지키세요:
+   - 패턴 주장("이런 글이 통했다")은 반드시 [T번호] 인용과 함께
+   - 수치·인용으로 근거가 닿지 않는 해석은 "~일 수 있어요"처럼 추측임을 표시
+   - 근거를 댈 수 없는 인과 단정(예: 사람들의 심리가 변했다)은 쓰지 마세요
+4. 용어는 생활어로. 성분·시술·전문어는 첫 등장에 괄호로 한 줄 설명 (예: "아제라인산(여드름 피부용 성분)"). "인게이지먼트" 같은 업계어 금지
+5. "~양상을 보인다", "~시사한다", "~라고 할 수 있습니다" 같은 보고서 말투 금지 — 옆자리 동료에게 말하듯 쓰세요
+6. 짧은 완결 문장. 한 문단에는 하나의 이야기만. 컬럼 주제와 무관한 잡담성 트윗은 무시합니다
+JSON만 출력: {"headline": "...", "tldr": ["...","...","..."], "topics": "...", "hits": "...", "changes": "...", "implications": "..."}`;
 
 export async function generateBriefing(
-  input: { columnTitle: string; tweets: BriefingTweet[]; stats: BriefingStats },
+  input: { columnTitle: string; tweets: BriefingTweet[]; stats: BriefingStats; comparison?: string | null },
   client?: AnthropicLike,
 ): Promise<BriefingContent | null> {
   const c = client ?? (new Anthropic() as unknown as AnthropicLike);
@@ -140,7 +161,7 @@ export async function generateBriefing(
   const res = await c.messages.create({
     model: MODEL(),
     max_tokens: 3000,
-    messages: [{ role: 'user', content: PROMPT(input.columnTitle, input.stats, lines) }],
+    messages: [{ role: 'user', content: PROMPT(input.columnTitle, input.stats, lines, input.comparison ?? null) }],
   });
   const j = extractJson(res) as Record<string, unknown> | null;
   if (!j) return null;
@@ -165,14 +186,16 @@ export async function generateBriefing(
     });
   body = validateTokens(body);
   const tldrOut = tldr.map(validateTokens);
+  const headline = typeof j.headline === 'string' && j.headline.trim() ? validateTokens(j.headline.trim()) : '';
+  if (!headline) return null; // 헤드라인(한 문장 큰 메시지)은 필수 — 형식 불량은 저장하지 않는다
   const citations: BriefingCitation[] = [...valid].sort((a, b) => a - b).map((n) => {
     const t = numbered[n - 1].t;
     return { n, tweetId: t.tweetId, text: t.text, likes: t.likes, url: t.tweetUrl, flags: flagYakkiho(t.text) };
   });
 
   // 문체 검증 — 금지 표현이 있으면 통째 실패(반쪽 문서를 저장하지 않는다)
-  const all = tldrOut.join(' ') + ' ' + body;
+  const all = headline + ' ' + tldrOut.join(' ') + ' ' + body;
   if (FORBIDDEN_PHRASES.some((p) => all.includes(p))) return null;
 
-  return { tldr: tldrOut, body, citations, stats: input.stats };
+  return { headline, tldr: tldrOut, body, citations, stats: input.stats };
 }

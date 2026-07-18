@@ -159,4 +159,9 @@ test('getTweetsByIds: 존재하는 트윗만 DeckTweet로 반환, 빈 입력은 
   assert.equal(g1.metrics.likes, 1);
   assert.equal(g1.tweetCreatedAt, '2026-07-01T00:00:00.000Z');
   assert.deepEqual(await getTweetsByIds(sql, []), []);
+  // 인용 트윗: 캐시 없으면 enriched null로 보존(조인이 행을 깨뜨리지 않음)
+  await upsertTweets(sql, [{ ...tw('g3', 30), quoted: { id: 'q-g3', text: 'qt', userName: null, screenName: null } }]);
+  const g3 = (await getTweetsByIds(sql, [P + 'g3']))[0] as { quoted: { id: string; enriched?: unknown } | null };
+  assert.equal(g3.quoted!.id, 'q-g3');
+  assert.equal(g3.quoted!.enriched, null);
 });

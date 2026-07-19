@@ -39,7 +39,8 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndis
   return (
     <article className="border-b border-x-border bg-white text-content text-x-text">
       {/* 흰 영역 = X 원본 + 계정 컨텍스트 (spec §7) */}
-      <div className="flex gap-3 px-4 pb-2 pt-3 transition-colors hover:bg-x-hover">
+      {/* 카드 hover 하이라이트 없음 — X에선 카드 전체 클릭(상세 이동) 신호지만 덱 카드는 전체 클릭 동작이 없어 거짓 어포던스 (2026-07-19 사용자 결정) */}
+      <div className="flex gap-3 px-4 pb-2 pt-3">
         {/* 아이브로(팔로워 캡션)가 있을 때만 pt-4 — 아바타를 이름 줄에 맞춤 */}
         <a href={profileUrl} target="_blank" rel="noopener" className={`shrink-0 self-start${hasEyebrow ? ' pt-4' : ''}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}

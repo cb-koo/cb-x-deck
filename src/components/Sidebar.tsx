@@ -81,6 +81,7 @@ export function Sidebar({ wsId }: { wsId: string }) {
   const nav = [
     { href: `/w/${wsId}/research`, label: '🔍 리서치' },
     { href: `/w/${wsId}`, label: '📊 덱' },
+    { href: `/w/${wsId}/briefing`, label: '📋 브리핑' },
     { href: `/w/${wsId}/library`, label: '📁 보관함' },
   ];
   const item = 'block rounded-full px-3 py-2 text-sm hover:bg-x-hover';

@@ -453,7 +453,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   }
 
   return (
-    <section className="border-t border-x-border px-4 py-4">
+    <section className="px-4 py-4">
       <h2 className="font-bold">📋 기간 종합 브리핑 <span className="text-sm font-normal text-x-muted">컬럼 하나를 골라 최근 몇 주간 무슨 일이 있었는지 보고서로 정리해요</span></h2>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">

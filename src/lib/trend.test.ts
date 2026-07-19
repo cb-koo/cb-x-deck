@@ -48,16 +48,17 @@ test('computeWeeklyTrend: 8슬롯 달력 고정·0건 주 채움·집계 중 분
   assert.deepEqual(r.partialWeek, { weekStart: '2026-07-13', count: 1, medianLikes: 999 });
 });
 
-test('computeWeeklyTrend: 판정 — up/down/flat 경계값(+50%/−33%)', () => {
-  // 직전 3주(기준): 매주 6건·♥100 / 최근 완성 주를 바꿔가며 판정 확인
+test('computeWeeklyTrend: 판정 — 기준 명시 + up/down/flat 경계값(+50%/−33%)', () => {
+  // 직전 3주(기준): 매주 6건·좋아요 100 / 최근 완성 주를 바꿔가며 판정 확인
   const base = ['2026-06-15', '2026-06-22', '2026-06-29']
     .flatMap((w) => [100, 100, 100, 100, 100, 100].map((l) => tw(w, l)));
   const up = computeWeeklyTrend([...base, ...Array.from({ length: 9 }, (_, i) => tw('2026-07-06', 150 + i))], NOW);
-  assert.equal(up.judgment, '게시량은 늘어나는 중 · 반응은 뜨거워지는 중이에요'); // 9/6=1.5, 중앙값≥150
+  assert.equal(up.judgment, '직전 3주 평균과 비교해 게시량은 늘어나는 중 · 반응은 뜨거워지는 중이에요'); // 9/6=1.5
+  assert.equal(up.judgmentBasis, '직전 3주 평균 글 6건·좋아요 중앙값 100 → 최근 완성 주 글 9건·중앙값 154');
   const down = computeWeeklyTrend([...base, tw('2026-07-06', 60), tw('2026-07-06', 60), tw('2026-07-06', 60), tw('2026-07-06', 60)], NOW);
-  assert.equal(down.judgment, '게시량은 줄어드는 중 · 반응은 줄어드는 중이에요'); // 4/6≤0.67, 60/100≤0.67
+  assert.equal(down.judgment, '직전 3주 평균과 비교해 게시량은 줄어드는 중 · 반응은 줄어드는 중이에요');
   const flat = computeWeeklyTrend([...base, ...[100, 100, 100, 100, 100, 100].map((l) => tw('2026-07-06', l))], NOW);
-  assert.equal(flat.judgment, '게시량은 유지 · 반응은 비슷해요');
+  assert.equal(flat.judgment, '직전 3주 평균과 비교해 게시량은 유지 · 반응은 비슷해요');
 });
 
 test('computeWeeklyTrend: 표본 부족 2단계', () => {
@@ -109,11 +110,13 @@ test('비정상 createdAt 문자열은 크래시 없이 조용히 제외', () =>
   assert.equal(r.partialWeek, null);
 });
 
-test('weeklyJudgment: 기간 주 배열 직접 판정 — 기준 주 부족 시 null', () => {
+test('weeklyJudgment: 판정문 + 근거 분리 — 기준 주 부족 시 null, 기준 주 2개면 "직전 2주"', () => {
   const wk = (weekStart: string, count: number, medianLikes: number) => ({ weekStart, count, medianLikes });
-  assert.equal(
-    weeklyJudgment([wk('a', 6, 100), wk('b', 6, 100), wk('c', 6, 100), wk('d', 9, 160)]),
-    '게시량은 늘어나는 중 · 반응은 뜨거워지는 중이에요');
+  const j = weeklyJudgment([wk('a', 6, 100), wk('b', 6, 100), wk('c', 6, 100), wk('d', 9, 160)]);
+  assert.equal(j!.text, '직전 3주 평균과 비교해 게시량은 늘어나는 중 · 반응은 뜨거워지는 중이에요');
+  assert.equal(j!.basis, '직전 3주 평균 글 6건·좋아요 중앙값 100 → 최근 완성 주 글 9건·중앙값 160');
+  const j2 = weeklyJudgment([wk('a', 0, 0), wk('b', 6, 100), wk('c', 8, 120), wk('d', 7, 110)]);
+  assert.equal(j2!.text.startsWith('직전 2주 평균과 비교해'), true);  // 트윗 있는 주만 기준
   assert.equal(weeklyJudgment([wk('a', 6, 100)]), null);              // 1주뿐
   assert.equal(weeklyJudgment([wk('a', 0, 0), wk('b', 6, 100)]), null); // 기준 주 부족
 });

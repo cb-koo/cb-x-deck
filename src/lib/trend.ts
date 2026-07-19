@@ -14,7 +14,8 @@ export interface TopicTrendRow {
 export interface TrendPayload {
   weekly: WeekBucket[];            // 완성 주 8슬롯(달력 고정, 0건 주 포함), 오래된→최신
   partialWeek: WeekBucket | null;  // 현재(집계 중) 주 — 판정·비교 제외
-  judgment: string | null;         // sufficiency='ok'이고 기준 주 2개 이상일 때만
+  judgment: string | null;         // sufficiency='ok'이고 기준 주 2개 이상일 때만 — 비교 기준을 문장에 명시
+  judgmentBasis?: string;          // 판정의 근거 수치 한 줄(분석과 근거 분리 — 판정문은 깨끗하게, 수치는 여기로)
   sufficiency: Sufficiency;
   dataWeeks: number;               // weekly 중 트윗이 있는 주 수
   topicTrends: TopicTrendRow[] | null; // 계정 컬럼 + 주제 분석 존재 시(라우트가 채움)
@@ -90,21 +91,28 @@ export function computeWeeklyTrend(tweets: TrendTweet[], nowIso: string): Omit<T
   const sufficiency: Sufficiency =
     dataWeeks < 3 ? 'insufficient' : median(withData.map((b) => b.count)) < 5 ? 'sparse' : 'ok';
 
-  const judgment = sufficiency === 'ok' ? weeklyJudgment(weekly) : null;
-  return { weekly, partialWeek, judgment, sufficiency, dataWeeks };
+  const j = sufficiency === 'ok' ? weeklyJudgment(weekly) : null;
+  return { weekly, partialWeek, judgment: j?.text ?? null, judgmentBasis: j?.basis, sufficiency, dataWeeks };
 }
 
 // 완성 주 배열(오래된→최신)에서 판정 한 줄 — 최근 1주 vs 직전 최대 3주(트윗 있는 주만, 최소 2개) 평균.
 // 파생값(원칙 4) — 추이 패널과 브리핑 수치 블록이 같은 규칙을 공유한다.
-export function weeklyJudgment(weekly: WeekBucket[]): string | null {
+export function weeklyJudgment(weekly: WeekBucket[]): { text: string; basis: string } | null {
   if (weekly.length < 2) return null;
   const recent = weekly[weekly.length - 1];
   const baseWeeks = weekly.slice(-4, -1).filter((b) => b.count > 0);
   if (baseWeeks.length < 2) return null;
   const avg = (f: (b: WeekBucket) => number) => baseWeeks.reduce((s, b) => s + f(b), 0) / baseWeeks.length;
-  const postDir = direction(recent.count, avg((b) => b.count));
-  const likeDir = direction(recent.medianLikes, avg((b) => b.medianLikes));
-  return `게시량은 ${POST_LABEL[postDir]} · 반응은 ${LIKE_LABEL[likeDir]}`;
+  const avgCount = avg((b) => b.count);
+  const avgLikes = avg((b) => b.medianLikes);
+  const postDir = direction(recent.count, avgCount);
+  const likeDir = direction(recent.medianLikes, avgLikes);
+  const vs = `직전 ${baseWeeks.length}주 평균`;
+  return {
+    // 판정문: 비교 기준을 문장에 명시하되 수치는 넣지 않는다(가독성) — 수치는 basis로 분리
+    text: `${vs}과 비교해 게시량은 ${POST_LABEL[postDir]} · 반응은 ${LIKE_LABEL[likeDir]}`,
+    basis: `${vs} 글 ${Math.round(avgCount)}건·좋아요 중앙값 ${Math.round(avgLikes)} → 최근 완성 주 글 ${recent.count}건·중앙값 ${recent.medianLikes}`,
+  };
 }
 
 // 주제별 격주 비교: 최근 격주(현재 주 -2 ~ -1) vs 직전 격주(-4 ~ -3). 집계 중 주 제외, 남는 주 버림.

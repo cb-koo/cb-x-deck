@@ -476,7 +476,12 @@ export function BriefingSection({ wsId }: { wsId: string }) {
               </ul>
               {(() => {
                 const j = weeklyJudgment(current.content.stats.weekly);
-                return j && <p className="mt-1.5 font-bold text-x-text">💬 {j}</p>;
+                return j && (
+                  <div className="mt-1.5">
+                    <p className="font-bold text-x-text">💬 {j.text}</p>
+                    <p className="mt-0.5 text-[11px] text-x-muted">근거: {j.basis}</p>
+                  </div>
+                );
               })()}
               {(() => {
                 // 기간 내 전체 주 기준(빈 주 포함) — 빈 주가 절반이면 그 자체가 표본 문제이므로 제외하지 않는다

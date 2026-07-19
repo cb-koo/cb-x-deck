@@ -88,7 +88,12 @@ export function TrendPanel({ columnId, kind, onAfterBackfill, onClose }: {
               </li>
             )}
           </ul>
-          {data.judgment && <p className="mt-1 text-xs font-bold">💬 {data.judgment}</p>}
+          {data.judgment && (
+            <div className="mt-1">
+              <p className="text-xs font-bold">💬 {data.judgment}</p>
+              {data.judgmentBasis && <p className="text-[11px] text-x-muted">근거: {data.judgmentBasis}</p>}
+            </div>
+          )}
           {data.sufficiency === 'sparse' && (
             <p className="mt-1 text-xs text-x-muted">표본이 적어 추이가 흔들릴 수 있어요 — 참고용으로만 보세요.</p>
           )}

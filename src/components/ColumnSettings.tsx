@@ -132,7 +132,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
             {(['search', 'watchlist'] as const).map((k) => (
               <button key={k} onClick={() => setKind(k)}
                       className={kind === k
-                        ? 'rounded-full bg-x-text px-4 py-1.5 text-ui font-bold text-white'
+                        ? 'rounded-full bg-x-text px-4 py-1.5 text-ui font-medium text-white'
                         : `${chip} px-4 py-1.5 text-x-secondary`}>
                 {k === 'search' ? '검색' : '워치리스트'}
               </button>
@@ -187,7 +187,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                   {probe.density === 'high' ? '반응이 활발한 편' : probe.density === 'moderate' ? '반응이 보통인 편' : '반응이 드문 편'}이에요
                   (최근 7일 좋아요 {probe.likeRange[0]}~{probe.likeRange[1]}). <b className="text-x-text">최소 좋아요 {probe.suggested}</b> 추천
                   <button type="button" onClick={() => setMinFaves(probe.suggested)}
-                          className="ml-1.5 rounded-full bg-x-blue px-2.5 py-0.5 text-caption font-bold text-white hover:bg-x-blue-hover">적용</button>
+                          className="ml-1.5 rounded-full bg-x-blue px-2.5 py-0.5 text-caption font-medium text-white hover:bg-x-blue-hover">적용</button>
                 </p>
               )}
 

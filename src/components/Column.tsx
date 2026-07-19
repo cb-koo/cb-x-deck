@@ -58,7 +58,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   function pickView(v: 'all' | 'new' | 'dismissed') {
     setShowDismissed(v === 'dismissed');
     setMode(v === 'new' ? 'new' : 'all');
-    if (v === 'dismissed') setTopicFilter(null);
+    // 버림 진입·이탈 양쪽에서 주제 필터 해제 — 구 토글과 동일 동작 (이탈 시 잔존 필터로 목록이 갑자기 줄어드는 혼동 방지)
+    if (v === 'dismissed' || showDismissed) setTopicFilter(null);
     viewRef.current?.removeAttribute('open');
   }
 
@@ -185,7 +186,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
           <Button variant="icon" onClick={onEdit} title="설정"><SettingsIcon className="h-4 w-4" /></Button>
           <Button variant="icon" onClick={onDelete} title="컬럼 삭제"><TrashIcon className="h-4 w-4" /></Button>
         </div>
-        <div className="mt-0.5 flex items-center gap-0.5 pb-1">
+        <div className="mt-0.5 flex flex-wrap items-center gap-0.5 pb-1">
           {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
             <button key={k} onClick={() => setSort(k)}
                     className={`relative rounded px-2 py-1.5 text-ui hover:bg-x-text/5 ${sort === k ? 'font-medium text-x-text' : 'text-x-secondary'}`}>

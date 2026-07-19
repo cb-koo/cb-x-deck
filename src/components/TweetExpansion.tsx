@@ -150,7 +150,7 @@ export function TweetExpansion({ tweetId, toolbarRight }: { tweetId: string; too
 
   return (
     <div>
-      <div className="flex items-center gap-0.5">
+      <div className="flex flex-wrap items-center gap-0.5">
         {(Object.keys(LABEL) as Kind[]).map((k) => (
           <button key={k} onClick={() => toggle(k)} title={TITLE[k]}
                   className={`flex items-center gap-0.5 rounded-full px-2.5 py-1 text-ui hover:bg-x-text/5 ${kind === k ? 'bg-white font-medium text-x-text shadow-[inset_0_0_0_1px_var(--color-x-border-strong)]' : 'text-x-secondary'}`}>

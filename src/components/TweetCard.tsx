@@ -62,7 +62,7 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndis
                     className="rounded bg-amber-100 px-1 text-[10px] font-bold leading-4 text-amber-700">⚠️ 薬機法</span>
             )}
             <a href={profileUrl} target="_blank" rel="noopener" className="flex min-w-0 items-baseline gap-x-1">
-              <span className="truncate font-bold">{t.authorName ?? t.authorHandle}</span>
+              <span className="truncate font-bold hover:underline">{t.authorName ?? t.authorHandle}</span>
               <span className="truncate text-x-secondary">@{t.authorHandle}</span>
             </a>
             {t.tweetUrl

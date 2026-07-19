@@ -6,6 +6,7 @@ import { MediaGrid } from './MediaGrid';
 import { QuotedCard } from './QuotedCard';
 import { TweetText } from './TweetText';
 import { TweetExpansion } from './TweetExpansion';
+import { Button } from './ui';
 import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from './XIcons';
 
 function timeAgo(iso: string | null): string {
@@ -28,22 +29,29 @@ export interface TweetCardProps {
 }
 
 // hover: Reply·View·Bookmark 파랑, Repost 초록, Like 핑크 (실제 X 동작)
-const metricBase = 'group flex items-center gap-1 text-[13px] text-x-secondary transition-colors';
+const metricBase = 'group flex items-center gap-1 text-ui text-x-secondary transition-colors';
 
 export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndismiss, dismissedView }: TweetCardProps) {
   const savedByMe = !!meId && t.savedBy.some((m) => m.id === meId);
   const profileUrl = `https://x.com/${t.authorHandle}`;
   const yakkiho = flagYakkiho(t.text);
+  const hasEyebrow = t.authorFollowers !== null;
   return (
-    <article className="border-b border-x-border bg-white px-4 py-3 text-[15px] leading-5 text-x-text transition-colors hover:bg-x-hover">
-      <div className="flex gap-3">
-        <a href={profileUrl} target="_blank" rel="noopener" className="shrink-0">
+    <article className="border-b border-x-border bg-white text-content text-x-text">
+      {/* 흰 영역 = X 원본 + 계정 컨텍스트 (spec §7) */}
+      <div className="flex gap-3 px-4 pb-2 pt-3 transition-colors hover:bg-x-hover">
+        {/* 아이브로(팔로워 캡션)가 있을 때만 pt-4 — 아바타를 이름 줄에 맞춤 */}
+        <a href={profileUrl} target="_blank" rel="noopener" className={`shrink-0 self-start${hasEyebrow ? ' pt-4' : ''}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {t.authorAvatarUrl
             ? <img src={t.authorAvatarUrl} alt="" className="h-10 w-10 rounded-full" />
             : <div className="h-10 w-10 rounded-full bg-x-border-strong" />}
         </a>
         <div className="min-w-0 flex-1">
+          {/* 아이브로 — 계정 규모 → 누구 → 내용 순서 (박스 배지 폐지) */}
+          {hasEyebrow && (
+            <p className="text-caption text-x-muted">팔로워 {formatCount(t.authorFollowers!)}</p>
+          )}
           <div className="flex flex-wrap items-baseline gap-x-1">
             {t.isNew && (
               <span className="rounded bg-x-blue px-1 text-[10px] font-bold leading-4 text-white"
@@ -54,18 +62,13 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndis
                     className="rounded bg-amber-100 px-1 text-[10px] font-bold leading-4 text-amber-700">⚠️ 薬機法</span>
             )}
             <a href={profileUrl} target="_blank" rel="noopener" className="flex min-w-0 items-baseline gap-x-1">
-              <span className="truncate text-[15px] font-bold text-x-text hover:underline">{t.authorName ?? t.authorHandle}</span>
-              <span className="truncate text-[15px] text-x-secondary">@{t.authorHandle}</span>
+              <span className="truncate font-bold">{t.authorName ?? t.authorHandle}</span>
+              <span className="truncate text-x-secondary">@{t.authorHandle}</span>
             </a>
             {t.tweetUrl
               ? <a href={t.tweetUrl} target="_blank" rel="noopener"
-                   className="text-[15px] text-x-secondary hover:underline">· {timeAgo(t.tweetCreatedAt)}</a>
-              : <span className="text-[15px] text-x-secondary">· {timeAgo(t.tweetCreatedAt)}</span>}
-            {t.authorFollowers !== null && (
-              <span className="ml-auto rounded bg-x-border px-1 text-xs text-x-secondary">
-                팔로워 {formatCount(t.authorFollowers)}
-              </span>
-            )}
+                   className="text-x-secondary hover:underline">· {timeAgo(t.tweetCreatedAt)}</a>
+              : <span className="text-x-secondary">· {timeAgo(t.tweetCreatedAt)}</span>}
           </div>
           <TweetText text={t.text} className="mt-0.5" />
           <MediaGrid media={t.media} />
@@ -88,10 +91,14 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndis
               <BookmarkIcon /> {formatCount(t.metrics.bookmarks)}
             </span>
           </div>
-          <div className="mt-2 flex items-center gap-2 text-xs text-x-muted">
-            <span>수집 {formatDate(t.firstSeenAt)} · 갱신 {formatDate(t.lastFetchedAt)}</span>
-            <span className="flex items-center gap-0.5">
-              {t.savedBy.map((m) => (
+        </div>
+      </div>
+      {/* 덱 풋터 존 — 회색 = 덱 기능층: 액션 줄(탐색|판단) + 시스템 메타 (spec §7) */}
+      <div className="border-t border-x-border bg-x-surface px-2 pb-1 pt-1">
+        <TweetExpansion tweetId={t.tweetId} toolbarRight={
+          <span className="ml-auto flex shrink-0 items-center gap-0.5">
+            <span className="flex items-center gap-0.5 pr-1">
+              {t.savedBy.filter((m) => m.id !== meId).map((m) => (
                 <span key={m.id} title={`${m.name} 저장`}
                       className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white"
                       style={{ backgroundColor: m.color }}>
@@ -99,17 +106,17 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndis
                 </span>
               ))}
             </span>
-            <span className="ml-auto flex gap-1">
-              {savedByMe
-                ? <button onClick={() => onUnsave?.(t.tweetId)} className="rounded px-1.5 py-0.5 text-amber-500 hover:bg-x-border">★ 저장됨</button>
-                : <button onClick={() => onSave?.(t.tweetId)} className="rounded px-1.5 py-0.5 hover:bg-x-border">☆ 저장</button>}
-              {dismissedView
-                ? <button onClick={() => onUndismiss?.(t.tweetId)} className="rounded px-1.5 py-0.5 hover:bg-x-border">되돌리기</button>
-                : onDismiss && <button onClick={() => onDismiss(t.tweetId)} title="벤치마크 무관 — 숨김" className="rounded px-1.5 py-0.5 text-x-muted hover:bg-x-border">✕ 버림</button>}
-            </span>
-          </div>
-          <TweetExpansion tweetId={t.tweetId} />
-        </div>
+            {savedByMe
+              ? <Button variant="ghost" onClick={() => onUnsave?.(t.tweetId)} className="font-medium text-amber-500">★ 저장됨</Button>
+              : <Button variant="ghost" onClick={() => onSave?.(t.tweetId)}>☆ 저장</Button>}
+            {dismissedView
+              ? <Button variant="ghost" onClick={() => onUndismiss?.(t.tweetId)}>되돌리기</Button>
+              : onDismiss && <Button variant="ghost" onClick={() => onDismiss(t.tweetId)} title="벤치마크 무관 — 숨김" className="text-x-muted">✕ 버림</Button>}
+          </span>
+        } />
+        <p className="px-1 text-right text-caption text-x-muted">
+          수집 {formatDate(t.firstSeenAt)} · 갱신 {formatDate(t.lastFetchedAt)}
+        </p>
       </div>
     </article>
   );

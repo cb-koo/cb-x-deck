@@ -1,10 +1,12 @@
 'use client';
 import { useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useParams } from 'next/navigation';
 import type { DeckTweet } from '@/lib/types';
 import type { ExpansionUser } from '@/lib/mappers';
 import { formatCount } from '@/lib/format';
 import { useMember } from '@/lib/memberContext';
+import { ChevronDownIcon } from './XIcons';
 
 type Kind = 'replies' | 'thread' | 'retweeters';
 const LABEL: Record<Kind, string> = { replies: '답글', thread: '스레드', retweeters: '리포스터' };
@@ -18,7 +20,7 @@ const CANDIDATE_MIN_FOLLOWERS = 5000; // 시딩 후보 기준선(마이크로 �
 
 // 확장 탐색 — 클릭 시에만 호출(opt-in), 결과는 컴포넌트 상태로만 유지(DB 저장 없음)
 // 단, 리포스터의 "섭외 후보" 저장은 예외적으로 별도 API(/api/scouts)로 영속화된다.
-export function TweetExpansion({ tweetId }: { tweetId: string }) {
+export function TweetExpansion({ tweetId, toolbarRight }: { tweetId: string; toolbarRight?: ReactNode }) {
   const params = useParams<{ wsId?: string }>();
   const wsId = params?.wsId;
   const { member } = useMember();
@@ -120,12 +122,12 @@ export function TweetExpansion({ tweetId }: { tweetId: string }) {
           {u.avatarUrl
             ? <img src={u.avatarUrl} alt="" className="h-5 w-5 shrink-0 rounded-full" />
             : <div className="h-5 w-5 shrink-0 rounded-full bg-x-border-strong" />}
-          <a href={`https://x.com/${u.handle}`} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate font-bold hover:underline">
+          <a href={`https://x.com/${u.handle}`} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate font-medium hover:underline">
             {u.name ?? u.handle}
           </a>
           {u.verified && <span className="shrink-0 text-x-blue" title="인증 계정">✓</span>}
           <span className="shrink-0 text-x-secondary">@{u.handle}</span>
-          <span className="ml-auto shrink-0 text-xs text-x-muted">
+          <span className="ml-auto shrink-0 text-caption text-x-muted">
             {[
               u.followers !== null ? `팔로워 ${formatCount(u.followers)}` : null,
               u.following !== null ? `팔로잉 ${formatCount(u.following)}` : null,
@@ -135,7 +137,7 @@ export function TweetExpansion({ tweetId }: { tweetId: string }) {
             <button
               onClick={() => toggleScout(u)}
               title={saved ? undefined : '보관함의 섭외 후보 목록에 저장해요'}
-              className={`shrink-0 rounded px-1.5 py-0.5 text-xs hover:bg-x-hover ${saved ? 'text-x-blue' : 'text-x-secondary'}`}
+              className={`shrink-0 rounded px-1.5 py-0.5 text-caption hover:bg-x-hover ${saved ? 'text-x-blue' : 'text-x-secondary'}`}
             >
               {saved ? '★ 저장됨' : '☆ 섭외 후보'}
             </button>
@@ -147,23 +149,24 @@ export function TweetExpansion({ tweetId }: { tweetId: string }) {
   }
 
   return (
-    <div className="mt-1">
-      <div className="flex gap-1 text-xs text-x-secondary">
+    <div>
+      <div className="flex items-center gap-0.5">
         {(Object.keys(LABEL) as Kind[]).map((k) => (
           <button key={k} onClick={() => toggle(k)} title={TITLE[k]}
-                  className={`rounded px-1.5 py-0.5 hover:bg-x-border ${kind === k ? 'font-bold text-x-text' : ''}`}>
-            {LABEL[k]}{kind === k ? ' ✕' : ''}
+                  className={`flex items-center gap-0.5 rounded-full px-2.5 py-1 text-ui hover:bg-x-text/5 ${kind === k ? 'bg-white font-medium text-x-text shadow-[inset_0_0_0_1px_var(--color-x-border-strong)]' : 'text-x-secondary'}`}>
+            {LABEL[k]}{kind === k ? ' ✕' : <ChevronDownIcon className="h-3 w-3 opacity-60" />}
           </button>
         ))}
+        {toolbarRight}
       </div>
       {kind && (
-        <div className="mt-1 rounded border border-x-border bg-x-hover/40 p-2 text-[13px]">
+        <div className="mt-1 rounded-lg border border-x-border bg-white p-2 text-ui">
           {err && (
-            <p className="text-xs text-red-500">
+            <p className="text-caption text-red-500">
               {err} <button onClick={() => fetchPage(kind, cursor, empty)} className="underline">다시 시도</button>
             </p>
           )}
-          {busy && empty && <p className="text-xs text-x-muted">불러오는 중…</p>}
+          {busy && empty && <p className="text-caption text-x-muted">불러오는 중…</p>}
           {kind !== 'retweeters' && tweets.map((t) => (
             <div key={t.tweetId} className="border-b border-x-border py-1 last:border-b-0">
               <span className="font-bold">{t.authorName ?? t.authorHandle}</span>
@@ -173,7 +176,7 @@ export function TweetExpansion({ tweetId }: { tweetId: string }) {
           ))}
           {kind === 'retweeters' && users.length > 0 && (
             candidates.length > 0 ? (
-              <p className="mb-1 font-bold text-x-text">
+              <p className="mb-1 font-medium text-x-text">
                 ✦ 시딩 후보 {candidates.length}명 (팔로워 5천 이상){cursor ? ' · 더 불러오면 늘 수 있어요' : ''}
               </p>
             ) : (
@@ -184,19 +187,19 @@ export function TweetExpansion({ tweetId }: { tweetId: string }) {
           )}
           {/* 멤버 미선택 안내는 행마다 반복하지 않고 한 줄만 (행에서는 저장 버튼 비노출) */}
           {kind === 'retweeters' && users.length > 0 && wsId && !member && (
-            <p className="mb-1 text-xs text-x-muted">후보를 저장하려면 사이드바에서 멤버를 선택하세요</p>
+            <p className="mb-1 text-caption text-x-muted">후보를 저장하려면 사이드바에서 멤버를 선택하세요</p>
           )}
           {kind === 'retweeters' && candidates.map((u) => <UserRow key={u.handle} u={u} />)}
           {kind === 'retweeters' && rest.length > 0 && (
-            <button onClick={() => setRestOpen((v) => !v)} className="mt-1 w-full rounded py-1 text-center text-xs text-x-blue hover:bg-x-hover">
+            <button onClick={() => setRestOpen((v) => !v)} className="mt-1 w-full rounded py-1 text-center text-caption text-x-blue hover:bg-x-hover">
               {restOpen ? `접기 (${rest.length}명)` : `${rest.length}명 더 보기(팔로워 5천 미만)`}
             </button>
           )}
           {kind === 'retweeters' && restOpen && rest.map((u) => <UserRow key={u.handle} u={u} />)}
-          {!busy && !err && empty && <p className="text-xs text-x-muted">{EMPTY[kind]}</p>}
+          {!busy && !err && empty && <p className="text-caption text-x-muted">{EMPTY[kind]}</p>}
           {cursor && (
             <button onClick={() => fetchPage(kind, cursor, false)} disabled={busy}
-                    className="mt-1 w-full rounded py-1 text-center text-xs text-x-blue hover:bg-x-hover disabled:opacity-50">
+                    className="mt-1 w-full rounded py-1 text-center text-caption text-x-blue hover:bg-x-hover disabled:opacity-50">
               {busy ? '불러오는 중…' : '더 보기'}
             </button>
           )}

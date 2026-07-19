@@ -7,7 +7,8 @@ import { CooccurrencePanel } from './CooccurrencePanel';
 import { PillarPanel } from './PillarPanel';
 import { TrendPanel } from './TrendPanel';
 import type { PillarPayload } from '@/lib/pillarStats';
-import { RefreshIcon, SettingsIcon, TrashIcon } from './XIcons';
+import { ChevronDownIcon, RefreshIcon, SearchIcon, SettingsIcon, TrashIcon, UserIcon } from './XIcons';
+import { Button } from './ui';
 
 function lastRefreshedLabel(iso: string | null): string {
   if (!iso) return '미조회';
@@ -43,8 +44,23 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   const [showTrend, setShowTrend] = useState(false);
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
   const [pillarMap, setPillarMap] = useState<Record<string, string>>({});
+  const [topicLabels, setTopicLabels] = useState<Record<string, string>>({});
   // 안정 참조 — 인라인 화살표를 넘기면 렌더마다 새 참조 → PillarPanel의 load useEffect 재발화 → 무한 GET 루프
-  const handlePillarData = useCallback((p: PillarPayload) => setPillarMap(p.tweetTopics), []);
+  const handlePillarData = useCallback((p: PillarPayload) => {
+    setPillarMap(p.tweetTopics);
+    setTopicLabels(Object.fromEntries((p.stats?.rows ?? []).map((r) => [r.topicId, r.label])));
+  }, []);
+
+  // 보기 상태 = 기존 mode/showDismissed의 파생 단일 뷰 (실사용상 상호배타 — spec §3)
+  const viewRef = useRef<HTMLDetailsElement>(null);
+  const view: 'all' | 'new' | 'dismissed' = showDismissed ? 'dismissed' : mode === 'new' ? 'new' : 'all';
+  const VIEW_LABEL = { all: '전체', new: 'NEW만', dismissed: '버림' } as const;
+  function pickView(v: 'all' | 'new' | 'dismissed') {
+    setShowDismissed(v === 'dismissed');
+    setMode(v === 'new' ? 'new' : 'all');
+    if (v === 'dismissed') setTopicFilter(null);
+    viewRef.current?.removeAttribute('open');
+  }
 
   // 우측 가장자리 드래그로 폭 조절, 놓으면 config.width로 저장
   function startResize(e: React.MouseEvent) {
@@ -152,52 +168,62 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
     await load(sort);
   }
 
-  const btn = 'rounded px-1.5 py-0.5 text-xs hover:bg-x-hover';
-  const iconBtn = 'rounded-full p-1.5 text-x-secondary transition-colors hover:bg-x-blue/10 hover:text-x-blue disabled:opacity-60';
   const keywords = column.kind === 'search' ? ((column.config as SearchConfig).keywords ?? []) : [];
 
   return (
     <section style={{ width }} className="relative flex h-full shrink-0 flex-col border-r border-x-border">
-      <header className="border-b border-x-border px-3 py-2">
-        <div className="flex items-center gap-1">
-          <h2 className="truncate font-bold">{column.kind === 'watchlist' ? '👤 ' : '🔍 '}{column.title}</h2>
-          <span className="ml-auto text-[11px] text-x-muted">{busy ? '새로고침 중…' : lastRefreshedLabel(lastRefreshed)}</span>
-          <button onClick={refresh} disabled={busy} className={`${iconBtn} ${busy ? 'text-x-blue' : ''}`} title="새로고침">
+      <header className="border-b border-x-border bg-x-surface px-3 pt-2">
+        <div className="flex items-center gap-1.5">
+          {column.kind === 'watchlist'
+            ? <UserIcon className="h-4 w-4 shrink-0 text-x-secondary" />
+            : <SearchIcon className="h-4 w-4 shrink-0 text-x-secondary" />}
+          <h2 className="truncate text-content font-bold">{column.title}</h2>
+          <span className="ml-auto shrink-0 text-caption text-x-muted">{busy ? '새로고침 중…' : lastRefreshedLabel(lastRefreshed)}</span>
+          <Button variant="icon" onClick={refresh} disabled={busy} title="새로고침" className={busy ? 'text-x-blue' : ''}>
             <RefreshIcon className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
-          </button>
-          <button onClick={onEdit} className={iconBtn} title="설정"><SettingsIcon className="h-4 w-4" /></button>
-          <button onClick={onDelete} className={iconBtn} title="컬럼 삭제"><TrashIcon className="h-4 w-4" /></button>
+          </Button>
+          <Button variant="icon" onClick={onEdit} title="설정"><SettingsIcon className="h-4 w-4" /></Button>
+          <Button variant="icon" onClick={onDelete} title="컬럼 삭제"><TrashIcon className="h-4 w-4" /></Button>
         </div>
-        <div className="mt-1 flex items-center gap-1 text-xs">
+        <div className="mt-0.5 flex items-center gap-0.5 pb-1">
           {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
             <button key={k} onClick={() => setSort(k)}
-                    className={`relative rounded px-2 py-1 text-[13px] hover:bg-x-hover ${sort === k ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
+                    className={`relative rounded px-2 py-1.5 text-ui hover:bg-x-text/5 ${sort === k ? 'font-medium text-x-text' : 'text-x-secondary'}`}>
               {SORT_LABEL[k]}
-              {sort === k && <span className="absolute inset-x-2 bottom-0 h-1 rounded-full bg-x-blue" />}
+              {sort === k && <span className="absolute inset-x-2 bottom-0 h-[3px] rounded-full bg-x-blue" />}
             </button>
           ))}
-          <button onClick={() => setShowTrend((v) => !v)}
-                  className={`${btn} ${showTrend ? 'font-bold text-x-text' : ''}`}
+          <span className="w-1.5 shrink-0" />
+          <Button variant="ghost" onClick={() => setShowTrend((v) => !v)}
+                  className={showTrend ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
                   title="이 컬럼에 쌓인 트윗으로 주간 추이를 보여줘요 · 추가 비용 없음">
-            추이{showTrend ? '✓' : ''}
-          </button>
+            추이{showTrend ? ' ✓' : ''}
+          </Button>
           {column.kind === 'watchlist' && (
-            <button onClick={() => { setShowPillar((v) => !v); if (showPillar) setTopicFilter(null); }}
-                    className={`${btn} ${showPillar ? 'font-bold text-x-text' : ''}`}
+            <Button variant="ghost" onClick={() => { setShowPillar((v) => !v); if (showPillar) setTopicFilter(null); }}
+                    className={showPillar ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
                     title="이 계정의 트윗을 주제별로 묶어 반응을 비교해요 · 약 $0.05 이하">
-              주제 분석{showPillar ? '✓' : ''}
-            </button>
+              주제 분석{showPillar ? ' ✓' : ''}
+            </Button>
           )}
-          <span className="ml-auto" />
-          <button onClick={() => setMode(mode === 'new' ? 'all' : 'new')} className={btn}
-                  title="NEW = 직전 새로고침 이후 새로 들어온 트윗">
-            {mode === 'new' ? 'NEW만' : '전체'}
-          </button>
-          <button onClick={() => { setShowDismissed((v) => !v); setTopicFilter(null); }} className={`${btn} ${showDismissed ? 'font-bold text-x-text' : ''}`} title="버림 보기">
-            {showDismissed ? '버림✓' : '버림'}
-          </button>
+          <details ref={viewRef} className="relative ml-auto shrink-0">
+            <summary className="flex cursor-pointer list-none items-center gap-1 rounded-full px-2.5 py-1 text-ui text-x-secondary hover:bg-x-text/5 [&::-webkit-details-marker]:hidden">
+              보기: {VIEW_LABEL[view]} <ChevronDownIcon className="h-3 w-3" />
+            </summary>
+            <div className="absolute right-0 z-20 mt-1 w-40 rounded-xl border border-x-border bg-white py-1 shadow-lg">
+              {(['all', 'new', 'dismissed'] as const).map((v) => (
+                <button key={v} onClick={() => pickView(v)}
+                        className={`block w-full px-3 py-1.5 text-left text-ui hover:bg-x-hover ${view === v ? 'font-medium' : ''}`}>
+                  {VIEW_LABEL[v]}
+                  <span className="ml-1 text-caption text-x-muted">
+                    {v === 'new' ? '직전 새로고침 이후' : v === 'dismissed' ? '숨긴 트윗' : ''}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </details>
         </div>
-        {err && <p className="mt-1 text-xs text-red-500">{err} <button onClick={refresh} className="underline">재시도</button></p>}
+        {err && <p className="pb-1 text-caption text-red-500">{err} <button onClick={refresh} className="underline">재시도</button></p>}
       </header>
       {/* 새로고침 진행 표시 — 완료 전까지 상단 인디케이터 */}
       {busy && (
@@ -220,9 +246,32 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
                      onAfterBackfill={() => load(sort)}
                      onClose={() => { setShowPillar(false); setTopicFilter(null); }} />
       )}
+      {((topicFilter && !showDismissed) || mode === 'new' || showDismissed) && (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-x-border bg-white px-3 py-1.5">
+          {topicFilter && !showDismissed && (
+            <button onClick={() => setTopicFilter(null)} title="필터 해제"
+                    className="flex items-center gap-1 rounded-full bg-x-blue/10 px-2.5 py-0.5 text-ui font-medium text-x-blue-hover hover:bg-x-blue/20">
+              주제: {topicLabels[topicFilter] ?? '선택 주제'} <span aria-hidden>✕</span>
+            </button>
+          )}
+          {mode === 'new' && (
+            <button onClick={() => pickView('all')} title="필터 해제"
+                    className="flex items-center gap-1 rounded-full bg-x-blue/10 px-2.5 py-0.5 text-ui font-medium text-x-blue-hover hover:bg-x-blue/20">
+              NEW만 <span aria-hidden>✕</span>
+            </button>
+          )}
+          {showDismissed && (
+            <button onClick={() => pickView('all')} title="보기 해제"
+                    className="flex items-center gap-1 rounded-full bg-x-blue/10 px-2.5 py-0.5 text-ui font-medium text-x-blue-hover hover:bg-x-blue/20">
+              버림 보기 <span aria-hidden>✕</span>
+            </button>
+          )}
+          <span className="text-caption text-x-muted">{visible.length}건 표시 중</span>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto">
         {visible.length === 0
-          ? <p className="p-4 text-center text-sm text-x-muted">
+          ? <p className="p-4 text-center text-ui text-x-muted">
               {topicFilter ? '이 주제의 트윗이 현재 목록에 없어요 (주제를 다시 눌러 해제)'
                 : mode === 'new' ? '신규 유입 없음 — 그 자체가 시그널입니다' : '트윗 없음'}
             </p>
@@ -233,7 +282,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
             ))}
         {hasMore && (
           <button onClick={loadMore} disabled={loadingMore}
-                  className="w-full border-t border-x-border py-3 text-center text-sm text-x-blue hover:bg-x-hover disabled:opacity-50">
+                  className="w-full border-t border-x-border py-3 text-center text-ui text-x-blue hover:bg-x-hover disabled:opacity-50">
             {loadingMore ? '불러오는 중…' : `더 불러오기 (${tweets.length}개 이후)`}
           </button>
         )}

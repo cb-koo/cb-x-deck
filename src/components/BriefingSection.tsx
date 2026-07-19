@@ -96,10 +96,8 @@ function EmbedCard({ c, wide, anchor = true, onToggle, expanded = false }: {
         /* eslint-disable-next-line @next/next/no-img-element */
         <img src={thumb} alt="" className={`mt-1.5 w-full rounded object-cover ${wide ? 'h-44' : 'h-24'}`} />
       )}
-      {c.url && (
-        <p className="mt-1">
-          <a href={c.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-x-blue hover:underline">원문 ↗</a>
-        </p>
+      {onToggle && (
+        <p className="mt-1.5 text-[11px] font-bold text-x-blue">{expanded ? '접기 ⌃' : '원본 보기 ⌄'}</p>
       )}
     </div>
   );

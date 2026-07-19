@@ -46,11 +46,16 @@ function inline(line: string, byN: Map<number, BriefingCitation>, keyPrefix: str
     if (!m) return p ? <span key={`${keyPrefix}-${j}`}>{p}</span> : null;
     const c = byN.get(Number(m[1]));
     if (!c) return null;
+    const avatar = c.tweet?.authorAvatarUrl ?? null;
     return (
       <span key={`${keyPrefix}-${j}`} className="group relative inline-block">
         <button onClick={() => document.getElementById(`cite-${c.n}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
-                className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-x-blue/10 px-1 align-text-top text-[11px] font-bold leading-none text-x-blue hover:bg-x-blue/25">
-          {c.n}
+                className="mx-0.5 inline-flex h-[18px] items-center gap-0.5 rounded-full bg-x-blue/10 py-px pl-px pr-1 align-text-top hover:bg-x-blue/25">
+          {avatar
+            /* eslint-disable-next-line @next/next/no-img-element */
+            ? <img src={avatar} alt="" className="h-4 w-4 rounded-full" />
+            : null}
+          <span className="text-[10px] font-bold leading-none text-x-blue">{c.n}</span>
         </button>
         <span className="pointer-events-none invisible absolute bottom-full left-1/2 z-20 mb-1 w-72 -translate-x-1/2 rounded-lg border border-x-border bg-white p-2 text-left text-xs font-normal leading-4 text-x-text shadow-lg group-hover:visible">
           {c.tweet && (
@@ -87,6 +92,10 @@ function EmbedCard({ c, wide, anchor = true, onToggle, expanded = false }: {
         )}
         {t ? (
           <>
+            {t.authorAvatarUrl && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={t.authorAvatarUrl} alt="" className="h-4 w-4 shrink-0 self-center rounded-full" />
+            )}
             <span className="truncate font-bold">{t.authorName ?? t.authorHandle}</span>
             <span className="truncate text-x-secondary">@{t.authorHandle}</span>
           </>

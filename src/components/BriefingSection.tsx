@@ -6,6 +6,10 @@ import type { TrendPayload } from '@/lib/trend';
 import type { BriefingListRow, BriefingRow } from '@/lib/briefingStore';
 import type { BriefingCitation, BriefingContent, TrendModule, TrendStage } from '@/lib/briefingTypes';
 import { formatCount } from '@/lib/format';
+import { TweetText } from './TweetText';
+import { MediaGrid } from './MediaGrid';
+import { QuotedCard } from './QuotedCard';
+import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from './XIcons';
 import { median } from '@/lib/trend';
 
 const WEEK_OPTIONS = [2, 4, 8] as const;
@@ -63,12 +67,16 @@ function inline(line: string, byN: Map<number, BriefingCitation>, keyPrefix: str
 
 // 문단 사이 임베드 카드 — 주장(문단) 바로 아래에 근거 트윗이 보이는 뉴스 기사식 배치.
 // wide = 문단에 인용이 1개일 때의 큰 카드 / 아니면 가로 스트립용 컴팩트 카드.
-function EmbedCard({ c, wide, anchor = true }: { c: BriefingCitation; wide: boolean; anchor?: boolean }) {
+function EmbedCard({ c, wide, anchor = true, onToggle, expanded = false }: {
+  c: BriefingCitation; wide: boolean; anchor?: boolean; onToggle?: () => void; expanded?: boolean;
+}) {
   const t = c.tweet;
   const thumb = t?.media?.[0]?.url ?? null;
   return (
     <div id={anchor ? `cite-${c.n}` : undefined}
-         className={`${wide ? 'w-full' : 'w-64 shrink-0 snap-start'} rounded-lg border border-x-border bg-x-border/20 p-2.5 text-xs leading-4 text-x-text`}>
+         onClick={onToggle}
+         title={onToggle ? (expanded ? '누르면 접혀요' : '누르면 원본 크기로 펼쳐요') : undefined}
+         className={`${wide ? 'w-full' : 'w-64 shrink-0 snap-start'} rounded-lg border ${expanded ? 'border-x-blue/60' : 'border-x-border'} bg-x-border/20 p-2.5 text-xs leading-4 text-x-text ${onToggle ? 'cursor-pointer hover:border-x-border-strong' : ''}`}>
       <p className="flex items-baseline gap-1">
         <span className="shrink-0 font-bold text-x-blue">{c.n}</span>
         {c.flags.length > 0 && (
@@ -90,21 +98,93 @@ function EmbedCard({ c, wide, anchor = true }: { c: BriefingCitation; wide: bool
       )}
       {c.url && (
         <p className="mt-1">
-          <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-x-blue hover:underline">원문 ↗</a>
+          <a href={c.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-x-blue hover:underline">원문 ↗</a>
         </p>
       )}
     </div>
   );
 }
 
-// 인용 1개면 넓은 카드 하나, 2개 이상이면 문서 길이가 늘지 않게 가로 스크롤 스트립
+// 카드 클릭 시 원본 포맷 — 전문·미디어 그리드·인용RT·지표 바까지(답글 스레드는 제외). 다시 클릭하면 접힘.
+function FullTweetCard({ c, onCollapse }: { c: BriefingCitation; onCollapse: () => void }) {
+  const t = c.tweet;
+  const profileUrl = t ? `https://x.com/${t.authorHandle}` : null;
+  const metricBase = 'flex items-center gap-1 text-[13px] text-x-secondary';
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+  return (
+    <div onClick={onCollapse} title="누르면 접혀요"
+         className="my-2 w-full cursor-pointer rounded-lg border border-x-blue/60 bg-white p-3 text-[15px] leading-5 text-x-text">
+      <div className="flex gap-2.5">
+        <span className="w-5 shrink-0 pt-2 text-right text-[13px] font-bold text-x-blue">{c.n}</span>
+        {t && (
+          <a href={profileUrl!} target="_blank" rel="noopener" onClick={stop} className="shrink-0">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {t.authorAvatarUrl
+              ? <img src={t.authorAvatarUrl} alt="" className="h-10 w-10 rounded-full" />
+              : <div className="h-10 w-10 rounded-full bg-x-border-strong" />}
+          </a>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-1">
+            {c.flags.length > 0 && (
+              <span title={`薬機法 리스크 용어: ${c.flags.join(', ')} (표식일 뿐, 차단 아님)`}
+                    className="rounded bg-amber-100 px-1 text-[10px] font-bold leading-4 text-amber-700">⚠️ 薬機法</span>
+            )}
+            {t ? (
+              <>
+                <span className="truncate font-bold">{t.authorName ?? t.authorHandle}</span>
+                <span className="truncate text-x-secondary">@{t.authorHandle}</span>
+              </>
+            ) : <span className="text-x-secondary">원문 스냅샷 없음</span>}
+            {c.url && (
+              <a href={c.url} target="_blank" rel="noopener noreferrer" onClick={stop}
+                 className="ml-auto shrink-0 text-[13px] text-x-blue hover:underline">원문 ↗</a>
+            )}
+          </div>
+          <TweetText text={c.text} className="mt-0.5" />
+          {t && <MediaGrid media={t.media} />}
+          {t?.quoted && <QuotedCard quoted={t.quoted} />}
+          {t && (
+            <div className="mt-3 flex max-w-[425px] items-center justify-between">
+              <span title="답글 (Reply)" className={metricBase}><ReplyIcon /> {formatCount(t.metrics.replies)}</span>
+              <span title="리포스트 (Repost)" className={metricBase}><RepostIcon /> {formatCount(t.metrics.retweets)}</span>
+              <span title="좋아요 (Like)" className={metricBase}><LikeIcon /> {formatCount(t.metrics.likes)}</span>
+              <span title="조회수 (View)" className={metricBase}><ViewIcon /> {formatCount(t.metrics.views)}</span>
+              <span title="북마크 (Bookmark)" className={metricBase}><BookmarkIcon /> {formatCount(t.metrics.bookmarks)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 인용 1개면 넓은 카드 하나, 2개 이상이면 문서 길이가 늘지 않게 가로 스크롤 스트립.
+// 어떤 카드든 클릭하면 원본 포맷으로 펼쳐짐(단독=그 자리 교체, 스트립=바로 아래 전개, 한 번에 하나).
 function EmbedStrip({ cs, anchorOf }: { cs: BriefingCitation[]; anchorOf?: (n: number) => boolean }) {
+  const [expandedN, setExpandedN] = useState<number | null>(null);
   if (cs.length === 0) return null;
   const a = (n: number) => (anchorOf ? anchorOf(n) : true);
-  if (cs.length === 1) return <div className="my-2"><EmbedCard c={cs[0]} wide anchor={a(cs[0].n)} /></div>;
+  const toggle = (n: number) => setExpandedN((cur) => (cur === n ? null : n));
+  if (cs.length === 1) {
+    return (
+      <div className="my-2">
+        {expandedN === cs[0].n
+          ? <div id={a(cs[0].n) ? `cite-${cs[0].n}` : undefined}><FullTweetCard c={cs[0]} onCollapse={() => toggle(cs[0].n)} /></div>
+          : <EmbedCard c={cs[0]} wide anchor={a(cs[0].n)} onToggle={() => toggle(cs[0].n)} />}
+      </div>
+    );
+  }
+  const expanded = cs.find((c) => c.n === expandedN) ?? null;
   return (
-    <div className="my-2 flex snap-x gap-2 overflow-x-auto pb-1">
-      {cs.map((c) => <EmbedCard key={c.n} c={c} wide={false} anchor={a(c.n)} />)}
+    <div className="my-2">
+      <div className="flex snap-x gap-2 overflow-x-auto pb-1">
+        {cs.map((c) => (
+          <EmbedCard key={c.n} c={c} wide={false} anchor={a(c.n)}
+                     expanded={c.n === expandedN} onToggle={() => toggle(c.n)} />
+        ))}
+      </div>
+      {expanded && <FullTweetCard c={expanded} onCollapse={() => toggle(expanded.n)} />}
     </div>
   );
 }

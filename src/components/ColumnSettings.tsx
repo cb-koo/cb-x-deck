@@ -113,11 +113,11 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
     } catch (e) { setErr((e as Error).message); }
   }
 
-  const input = 'w-full rounded-md border border-x-border-strong bg-transparent px-3 py-2.5 text-[15px] outline-none focus:border-x-blue focus:ring-1 focus:ring-x-blue';
-  const label = 'mb-1 block text-[13px] font-medium text-x-secondary';
-  const chip = 'rounded-full border border-x-border-strong px-3 py-1 text-[13px] hover:bg-x-hover';
+  const input = 'w-full rounded-md border border-x-border-strong bg-transparent px-3 py-2.5 text-content outline-none focus:border-x-blue focus:ring-1 focus:ring-x-blue';
+  const label = 'mb-1 block text-ui font-medium text-x-secondary';
+  const chip = 'rounded-full border border-x-border-strong px-3 py-1 text-ui hover:bg-x-hover';
   const section = 'mt-5 border-t border-x-border pt-4';
-  const sectionTitle = 'mb-3 text-[13px] font-bold text-x-text';
+  const sectionTitle = 'mb-3 text-ui font-medium text-x-text';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -132,7 +132,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
             {(['search', 'watchlist'] as const).map((k) => (
               <button key={k} onClick={() => setKind(k)}
                       className={kind === k
-                        ? 'rounded-full bg-x-text px-4 py-1.5 text-[13px] font-bold text-white'
+                        ? 'rounded-full bg-x-text px-4 py-1.5 text-ui font-bold text-white'
                         : `${chip} px-4 py-1.5 text-x-secondary`}>
                 {k === 'search' ? '검색' : '워치리스트'}
               </button>
@@ -153,7 +153,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                   {busy ? '…' : '연관 제안'}
                 </button>
               </div>
-              {translating && <p className="mt-1 text-[13px] text-x-muted">일본어로 번역 중…</p>}
+              {translating && <p className="mt-1 text-ui text-x-muted">일본어로 번역 중…</p>}
               {keywords.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {keywords.map((k) => (
@@ -164,9 +164,9 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
               )}
               {sug && (sug.variants.length + sug.adjacent.length > 0) && (
                 <div className="mt-3 rounded-xl border border-dashed border-x-border-strong p-3">
-                  <p className="mb-1.5 text-[13px] text-x-secondary">표기 변형</p>
+                  <p className="mb-1.5 text-ui text-x-secondary">표기 변형</p>
                   <div className="mb-2 flex flex-wrap gap-1.5">{sug.variants.map((k) => <button key={k.ja} className={chip} onClick={() => addChip({ ja: k.ja, ko: k.ko || null })}>+ {k.ja}{k.ko ? ` (${k.ko})` : ''}</button>)}</div>
-                  <p className="mb-1.5 text-[13px] text-x-secondary">인접 개념</p>
+                  <p className="mb-1.5 text-ui text-x-secondary">인접 개념</p>
                   <div className="flex flex-wrap gap-1.5">{sug.adjacent.map((k) => <button key={k.ja} className={chip} onClick={() => addChip({ ja: k.ja, ko: k.ko || null })}>+ {k.ja}{k.ko ? ` (${k.ko})` : ''}</button>)}</div>
                 </div>
               )}
@@ -181,13 +181,13 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                 <input type="number" className={input} value={minFaves ?? ''} onChange={(e) => setMinFaves(e.target.value ? +e.target.value : 0)} />
                 <button type="button" onClick={checkDensity} disabled={probing} className={`${chip} shrink-0 disabled:opacity-50`}>{probing ? '조회 중…' : '적정 기준 추천받기'}</button>
               </div>
-              <p className="mt-1 text-[12px] text-x-muted">반응 좋은 트윗만 보려면 기준을 정하세요. 키워드마다 적정값이 달라, 최근 7일을 조회해 추천해 드려요.</p>
+              <p className="mt-1 text-caption text-x-muted">반응 좋은 트윗만 보려면 기준을 정하세요. 키워드마다 적정값이 달라, 최근 7일을 조회해 추천해 드려요.</p>
               {probe && (
-                <p className="mt-1 text-[13px] text-x-secondary">
+                <p className="mt-1 text-ui text-x-secondary">
                   {probe.density === 'high' ? '반응이 활발한 편' : probe.density === 'moderate' ? '반응이 보통인 편' : '반응이 드문 편'}이에요
                   (최근 7일 좋아요 {probe.likeRange[0]}~{probe.likeRange[1]}). <b className="text-x-text">최소 좋아요 {probe.suggested}</b> 추천
                   <button type="button" onClick={() => setMinFaves(probe.suggested)}
-                          className="ml-1.5 rounded-full bg-x-blue px-2.5 py-0.5 text-[12px] font-bold text-white hover:bg-x-blue-hover">적용</button>
+                          className="ml-1.5 rounded-full bg-x-blue px-2.5 py-0.5 text-caption font-bold text-white hover:bg-x-blue-hover">적용</button>
                 </p>
               )}
 
@@ -204,7 +204,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                 <div><label className={label}>until (이 날짜까지)</label>
                   <input type="date" className={input} value={untilDate ?? ''} onChange={(e) => setUntilDate(e.target.value)} /></div>
               </div>
-              <label className="mt-3 flex items-center gap-2 text-[14px] text-x-secondary">
+              <label className="mt-3 flex items-center gap-2 text-ui text-x-secondary">
                 <input type="checkbox" checked={imagesOnly} onChange={(e) => setImagesOnly(e.target.checked)} /> 이미지 있는 트윗만
               </label>
             </div>
@@ -230,10 +230,10 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
           </div>
         </div>
 
-        {err && <p className="mt-3 text-[13px] text-x-pink">{err}</p>}
+        {err && <p className="mt-3 text-ui text-x-pink">{err}</p>}
         <div className="mt-6 flex justify-end gap-2">
           <button onClick={onClose} className={`${chip} px-4 py-1.5 text-x-secondary`}>취소</button>
-          <button onClick={submit} className="rounded-full bg-x-text px-5 py-1.5 text-[13px] font-bold text-white hover:opacity-90">
+          <button onClick={submit} className="rounded-full bg-x-text px-5 py-1.5 text-ui font-bold text-white hover:opacity-90">
             {initial ? '저장' : '만들기'}
           </button>
         </div>

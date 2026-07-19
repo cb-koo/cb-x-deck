@@ -37,15 +37,15 @@ export default function DeckPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 border-b border-x-border px-4 py-2">
+      <div className="flex items-center gap-3 border-b border-x-border bg-x-surface px-4 py-2">
         <button onClick={() => setModal({ mode: 'create' })}
-                className="rounded-full bg-x-text px-4 py-1.5 text-sm font-bold text-white hover:opacity-90">
+                className="rounded-full bg-x-text px-4 py-1.5 text-ui font-bold text-white hover:opacity-90">
           + 컬럼
         </button>
       </div>
       <main className="flex flex-1 overflow-x-auto">
         {columns.length === 0 && (
-          <p className="m-auto text-sm text-x-muted">컬럼이 없습니다 — “+ 컬럼”으로 검색/워치리스트 컬럼을 만드세요</p>
+          <p className="m-auto text-ui text-x-muted">컬럼이 없습니다 — “+ 컬럼”으로 검색/워치리스트 컬럼을 만드세요</p>
         )}
         {columns.map((c) => (
           <Column key={c.id} column={c}

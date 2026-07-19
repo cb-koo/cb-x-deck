@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import type { Workspace } from '@/lib/types';
 import { useMember } from '@/lib/memberContext';
+import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon } from './XIcons';
 
 const MEMBER_COLORS = ['#1d9bf0', '#00ba7c', '#f91880', '#7856ff', '#ff7a00', '#ffd400'];
 
@@ -79,34 +80,33 @@ export function Sidebar({ wsId }: { wsId: string }) {
   }
 
   const nav = [
-    { href: `/w/${wsId}/research`, label: '🔍 리서치' },
-    { href: `/w/${wsId}`, label: '📊 덱' },
-    { href: `/w/${wsId}/briefing`, label: '📋 브리핑' },
-    { href: `/w/${wsId}/library`, label: '📁 보관함' },
+    { href: `/w/${wsId}/research`, label: '리서치', Ic: SearchIcon },
+    { href: `/w/${wsId}`, label: '덱', Ic: ColumnsIcon },
+    { href: `/w/${wsId}/briefing`, label: '브리핑', Ic: DocIcon },
+    { href: `/w/${wsId}/library`, label: '보관함', Ic: FolderIcon },
   ];
-  const item = 'block rounded-full px-3 py-2 text-sm hover:bg-x-hover';
 
   return (
-    <aside className="flex h-screen w-52 shrink-0 flex-col border-r border-x-border p-3">
-      <p className="mb-1 px-1 text-[11px] text-x-muted">워크스페이스 (클라이언트)</p>
+    <aside className="flex h-screen w-52 shrink-0 flex-col border-r border-x-border bg-x-surface p-3">
+      <p className="mb-1 px-1 text-caption text-x-muted">워크스페이스 (클라이언트)</p>
       <select value={wsId} onChange={(e) => router.push(`/w/${e.target.value}`)}
-              className="mb-1 w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-x-blue">
+              className="mb-1 w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue">
         {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
       </select>
       {addingWs ? (
         <div className="mb-2 flex gap-1">
           <input value={newWs} onChange={(e) => setNewWs(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) createWs(); }}
-                 placeholder="클라이언트명" autoFocus className="w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-x-blue" />
-          <button onClick={createWs} className="text-xs">✓</button>
+                 placeholder="클라이언트명" autoFocus className="w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue" />
+          <button onClick={createWs} className="text-ui">✓</button>
         </div>
       ) : (
         <div className="mb-2 flex items-center justify-between">
-          <button onClick={() => setAddingWs(true)} className="px-1 text-left text-xs text-x-muted hover:text-x-secondary">+ 워크스페이스 추가</button>
-          <button onClick={askDeleteWs} className="px-1 text-xs text-x-muted hover:text-red-500" title="현재 워크스페이스 삭제">삭제</button>
+          <button onClick={() => setAddingWs(true)} className="px-1 text-left text-ui text-x-muted hover:text-x-secondary">+ 워크스페이스 추가</button>
+          <button onClick={askDeleteWs} className="px-1 text-ui text-x-muted hover:text-red-500" title="현재 워크스페이스 삭제">삭제</button>
         </div>
       )}
       {confirmDelete && (
-        <div className="mb-2 rounded border border-red-300 bg-red-50 p-2 text-[11px]">
+        <div className="mb-2 rounded border border-red-300 bg-red-50 p-2 text-caption">
           <p className="mb-1 text-red-600">
             현재 워크스페이스와 컬럼 {confirmDelete.colCount}개·저장 후보가 함께 삭제됩니다. 되돌릴 수 없습니다.
           </p>
@@ -116,33 +116,33 @@ export function Sidebar({ wsId }: { wsId: string }) {
           </div>
         </div>
       )}
-      {wsErr && <p className="mb-2 px-1 text-[11px] text-red-500">{wsErr}</p>}
+      {wsErr && <p className="mb-2 px-1 text-caption text-red-500">{wsErr}</p>}
 
       <nav className="mt-2 flex-1">
         {nav.map((n) => (
           <a key={n.href} href={n.href}
-             className={`${item} ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
-            {n.label}
+             className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
+            <n.Ic className="h-[18px] w-[18px]" />{n.label}
           </a>
         ))}
       </nav>
 
       <div className="border-t border-x-border pt-2">
-        <p className="mb-1 px-1 text-[11px] text-x-muted">멤버 (내가 누구인지)</p>
-        {!member && <p className="mb-1 px-1 text-[11px] text-amber-600">멤버를 선택해야 저장·봤음이 기록됩니다</p>}
+        <p className="mb-1 px-1 text-caption text-x-muted">멤버 (내가 누구인지)</p>
+        {!member && <p className="mb-1 px-1 text-caption text-amber-600">멤버를 선택해야 저장·봤음이 기록됩니다</p>}
         <select value={member?.id ?? ''} onChange={(e) => e.target.value && selectMember(e.target.value)}
-                className="mb-1 w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-x-blue">
+                className="mb-1 w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue">
           <option value="">— 선택 —</option>
           {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>
         {addingMember ? (
           <div className="flex gap-1">
             <input value={newMember} onChange={(e) => setNewMember(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) createNewMember(); }}
-                   placeholder="이름" autoFocus className="w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-xs outline-none focus:border-x-blue" />
-            <button onClick={createNewMember} className="text-xs">✓</button>
+                   placeholder="이름" autoFocus className="w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue" />
+            <button onClick={createNewMember} className="text-ui">✓</button>
           </div>
         ) : (
-          <button onClick={() => setAddingMember(true)} className="px-1 text-left text-xs text-x-muted hover:text-x-secondary">+ 멤버 추가</button>
+          <button onClick={() => setAddingMember(true)} className="px-1 text-left text-ui text-x-muted hover:text-x-secondary">+ 멤버 추가</button>
         )}
       </div>
     </aside>

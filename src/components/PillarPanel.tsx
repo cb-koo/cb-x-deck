@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { PillarPayload } from '@/lib/pillarStats';
 import { formatCount } from '@/lib/format';
+import { Button, PanelShell } from './ui';
 
 function fmtDay(iso: string): string {
   const d = new Date(iso);
@@ -54,70 +55,62 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
 
   const a = data?.analysis ?? null;
   const stats = data?.stats ?? null;
-  const smallBtn = 'rounded border border-x-border-strong px-2 py-1 text-xs hover:bg-x-hover disabled:opacity-50';
-  const primaryBtn = 'rounded bg-x-blue px-2 py-1 text-xs font-bold text-white hover:bg-x-blue/90 disabled:opacity-50';
 
   return (
-    <div className="border-b border-x-border px-3 py-2 text-[13px]">
-      <div className="flex items-baseline gap-2">
-        <p className="font-bold">주제 분석</p>
-        {a && (
-          <span className="text-xs text-x-muted">
-            표본 {a.sampleSize}건{fmtPeriod(data?.samplePeriod ?? null)} · 투고 {stats?.postCount ?? 0} · 인용RT {stats?.quoteCount ?? 0} · 분석 {fmtDay(a.analyzedAt)}
-          </span>
-        )}
-        <button onClick={onClose} className="ml-auto rounded px-1 text-x-secondary hover:bg-x-border">✕</button>
-      </div>
-
+    <PanelShell title="주제 분석" onClose={onClose}
+                sub={a ? `표본 ${a.sampleSize}건${fmtPeriod(data?.samplePeriod ?? null)} · 투고 ${stats?.postCount ?? 0} · 인용RT ${stats?.quoteCount ?? 0} · 분석 ${fmtDay(a.analyzedAt)}` : undefined}>
       {data && !a && (
         <div className="mt-1">
-          <p className="text-xs text-x-secondary">이 계정의 트윗을 주제별로 묶어 게시량 대비 반응(좋아요 중앙값)을 비교해요. (약 $0.05 이하)</p>
-          <button onClick={() => run('full')} disabled={busy !== ''} className={`mt-1 ${primaryBtn}`}>
+          <p className="text-ui text-x-secondary">이 계정의 트윗을 주제별로 묶어 게시량 대비 반응(좋아요 중앙값)을 비교해요. (약 $0.05 이하)</p>
+          <Button variant="primary" onClick={() => run('full')} disabled={busy !== ''} className="mt-1.5">
             {busy === 'full' ? '분석 중…' : '분석 시작'}
-          </button>
+          </Button>
         </div>
       )}
 
       {a && stats && (
         <>
-          <p className="mt-1 text-xs text-x-muted">주제를 누르면 아래에 그 트윗만 표시돼요</p>
-          <ul className="mt-1">
+          <p className="mt-1 text-caption text-x-muted">주제를 누르면 아래 목록이 그 트윗만 보여요 · ♥ = 좋아요 중앙값</p>
+          <ul className="mt-1 tabular-nums">
             {stats.rows.map((r) => (
               <li key={r.topicId}>
                 <button onClick={() => onTopicFilter(topicFilter === r.topicId ? null : r.topicId)}
-                        className={`w-full rounded px-1 py-0.5 text-left hover:bg-x-hover ${topicFilter === r.topicId ? 'bg-x-blue/10' : ''}`}>
-                  <span className="font-bold">{r.verdict === 'opportunity' ? '⭐ ' : ''}{r.label}</span>
-                  <span className="float-right text-x-secondary">{r.count}건({r.sharePct}%) · ♥{formatCount(r.medianLikes)}</span>
-                  <span className="block text-xs text-x-muted">{r.judgment}{r.quoteCount > 0 ? ` · 인용RT ${r.quoteCount}건 포함` : ''}</span>
+                        className={`grid w-full grid-cols-[1fr_auto_64px] items-baseline gap-x-2 rounded px-1.5 py-1 text-left hover:bg-x-text/5 ${topicFilter === r.topicId ? 'bg-x-blue/10 shadow-[inset_2px_0_0_var(--color-x-blue)]' : ''}`}>
+                  <span className={`truncate text-ui ${r.verdict === 'opportunity' ? 'font-medium' : ''}`}>
+                    {r.verdict === 'opportunity' ? '⭐ ' : ''}{r.label}
+                  </span>
+                  <span className="text-right text-ui text-x-secondary">{r.count}건 · {r.sharePct}%</span>
+                  <span className="text-right text-ui text-x-secondary">♥ {formatCount(r.medianLikes)}</span>
+                  <span className="col-span-3 text-caption text-x-muted">{r.judgment}{r.quoteCount > 0 ? ` · 인용RT ${r.quoteCount}건 포함` : ''}</span>
                 </button>
               </li>
             ))}
             {stats.unclassifiedCount > 0 && (
-              <li className="px-1 py-0.5 text-xs text-x-muted">미분류 {stats.unclassifiedCount}건</li>
+              <li className="px-1.5 py-0.5 text-caption text-x-muted">미분류 {stats.unclassifiedCount}건</li>
             )}
           </ul>
-          <div className="mt-1 flex flex-wrap gap-1">
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
             {(data?.unassignedCount ?? 0) > 0 && (
-              <button onClick={() => run('incremental')} disabled={busy !== ''} className={primaryBtn}
+              <Button variant="primary" onClick={() => run('incremental')} disabled={busy !== ''}
                       title="아직 주제가 없는 트윗을 기존 주제에 배정해요">
                 {busy === 'incremental' ? '분류 중…' : `미분류 ${data!.unassignedCount}건 분류`}
-              </button>
+              </Button>
             )}
             {(stats.classifiedCount + stats.unclassifiedCount) < 50 && (
-              <button onClick={backfill} disabled={busy !== ''} className={smallBtn}
+              <Button variant="subtle" onClick={backfill} disabled={busy !== ''}
                       title="표본이 적으면 판정이 흔들려요 — 과거 트윗을 더 수집합니다 (약 $0.01)">
                 {busy === 'backfill' ? '수집 중…' : '표본이 적어요 — 과거 트윗 더 가져오기'}
-              </button>
+              </Button>
             )}
-            <button onClick={() => run('full')} disabled={busy !== ''} className={smallBtn}
+            <Button variant="subtle" onClick={() => run('full')} disabled={busy !== ''}
                     title="주제 목록을 처음부터 다시 만들어요 · 전체 재분석 (약 $0.05 이하)">
               {busy === 'full' ? '분석 중…' : '주제 다시 도출'}
-            </button>
+            </Button>
           </div>
         </>
       )}
 
-      {err && <p className="mt-1 text-xs text-red-500">{err}</p>}
-    </div>
+      {err && <p className="mt-1 text-caption text-red-500">{err}</p>}
+    </PanelShell>
   );
 }

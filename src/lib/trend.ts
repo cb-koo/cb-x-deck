@@ -90,19 +90,21 @@ export function computeWeeklyTrend(tweets: TrendTweet[], nowIso: string): Omit<T
   const sufficiency: Sufficiency =
     dataWeeks < 3 ? 'insufficient' : median(withData.map((b) => b.count)) < 5 ? 'sparse' : 'ok';
 
-  // 판정: 최근 완성 1주 vs 직전 완성 주 최대 3개(트윗 있는 주만, 최소 2개) 평균 — 파생값(원칙 4)
-  let judgment: string | null = null;
-  if (sufficiency === 'ok') {
-    const recent = weekly[weekly.length - 1];
-    const baseWeeks = weekly.slice(-4, -1).filter((b) => b.count > 0);
-    if (baseWeeks.length >= 2) {
-      const avg = (f: (b: WeekBucket) => number) => baseWeeks.reduce((s, b) => s + f(b), 0) / baseWeeks.length;
-      const postDir = direction(recent.count, avg((b) => b.count));
-      const likeDir = direction(recent.medianLikes, avg((b) => b.medianLikes));
-      judgment = `게시량은 ${POST_LABEL[postDir]} · 반응은 ${LIKE_LABEL[likeDir]}`;
-    }
-  }
+  const judgment = sufficiency === 'ok' ? weeklyJudgment(weekly) : null;
   return { weekly, partialWeek, judgment, sufficiency, dataWeeks };
+}
+
+// 완성 주 배열(오래된→최신)에서 판정 한 줄 — 최근 1주 vs 직전 최대 3주(트윗 있는 주만, 최소 2개) 평균.
+// 파생값(원칙 4) — 추이 패널과 브리핑 수치 블록이 같은 규칙을 공유한다.
+export function weeklyJudgment(weekly: WeekBucket[]): string | null {
+  if (weekly.length < 2) return null;
+  const recent = weekly[weekly.length - 1];
+  const baseWeeks = weekly.slice(-4, -1).filter((b) => b.count > 0);
+  if (baseWeeks.length < 2) return null;
+  const avg = (f: (b: WeekBucket) => number) => baseWeeks.reduce((s, b) => s + f(b), 0) / baseWeeks.length;
+  const postDir = direction(recent.count, avg((b) => b.count));
+  const likeDir = direction(recent.medianLikes, avg((b) => b.medianLikes));
+  return `게시량은 ${POST_LABEL[postDir]} · 반응은 ${LIKE_LABEL[likeDir]}`;
 }
 
 // 주제별 격주 비교: 최근 격주(현재 주 -2 ~ -1) vs 직전 격주(-4 ~ -3). 집계 중 주 제외, 남는 주 버림.

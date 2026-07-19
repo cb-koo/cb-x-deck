@@ -148,6 +148,8 @@ ${tweetLines.join('\n')}
 4. 용어는 생활어로. 성분·시술·전문어는 첫 등장에 괄호로 한 줄 설명 (예: "아제라인산(여드름 피부용 성분)"). "인게이지먼트" 같은 업계어 금지
 5. "~양상을 보인다", "~시사한다", "~라고 할 수 있습니다" 같은 보고서 말투 금지 — 옆자리 동료에게 말하듯 쓰세요
 6. 짧은 완결 문장. 컬럼 주제와 무관한 잡담성 트윗은 무시합니다
+7. 강조는 아껴서: 문장에서 꼭 주목할 키워드·수치 1~2개만 **별표 두 개**로 감싸 굵게 표시하세요. 문장 전체나 항목 전체를 굵게 만들지 마세요
+8. 좋아요 수는 "좋아요 1,089" 형태로 쓰세요. ♥ 같은 기호를 본문에 쓰지 마세요 — 처음 보는 사람은 무슨 뜻인지 모릅니다
 JSON만 출력: {"headline": "...", "tldr": ["...","...","..."], "trends": [{"name": "...", "stage": "rising", "definition": "...", "body": "...", "action": "...", "tweets": [1]}], "watchlist": "..."}`;
 
 export async function generateBriefing(
@@ -164,7 +166,7 @@ export async function generateBriefing(
     const idx = Math.floor((Date.parse(w + 'T00:00:00Z') - Date.parse(input.stats.periodFrom + 'T00:00:00Z')) / (7 * 86_400_000)) + 1;
     return idx >= 1 ? `${idx}주차 · ` : '';
   };
-  const lines = numbered.map(({ n, t }) => `[T${n}] (${weekIdxOf(t)}♥${t.likes ?? 0}) ${t.text.replace(/\s+/g, ' ').slice(0, 200)}`);
+  const lines = numbered.map(({ n, t }) => `[T${n}] (${weekIdxOf(t)}좋아요 ${t.likes ?? 0}) ${t.text.replace(/\s+/g, ' ').slice(0, 200)}`);
 
   const res = await c.messages.create({
     model: MODEL(),

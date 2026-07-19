@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   weekStartJst, addWeeks, median,
-  computeWeeklyTrend, computeTopicTrend, type TrendTweet,
+  computeWeeklyTrend, computeTopicTrend, weeklyJudgment, type TrendTweet,
 } from './trend.ts';
 
 // 고정 현재 시각: 2026-07-16T00:00:00Z = JST 7/16(목) 09:00 → 현재 주 = 2026-07-13(월)
@@ -107,4 +107,13 @@ test('비정상 createdAt 문자열은 크래시 없이 조용히 제외', () =>
   const r = computeWeeklyTrend([{ tweetId: 'x', likes: 5, createdAt: 'not-a-date', topicId: null }], NOW);
   assert.equal(r.dataWeeks, 0);
   assert.equal(r.partialWeek, null);
+});
+
+test('weeklyJudgment: 기간 주 배열 직접 판정 — 기준 주 부족 시 null', () => {
+  const wk = (weekStart: string, count: number, medianLikes: number) => ({ weekStart, count, medianLikes });
+  assert.equal(
+    weeklyJudgment([wk('a', 6, 100), wk('b', 6, 100), wk('c', 6, 100), wk('d', 9, 160)]),
+    '게시량은 늘어나는 중 · 반응은 뜨거워지는 중이에요');
+  assert.equal(weeklyJudgment([wk('a', 6, 100)]), null);              // 1주뿐
+  assert.equal(weeklyJudgment([wk('a', 0, 0), wk('b', 6, 100)]), null); // 기준 주 부족
 });

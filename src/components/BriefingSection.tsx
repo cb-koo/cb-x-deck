@@ -10,7 +10,7 @@ import { TweetText } from './TweetText';
 import { MediaGrid } from './MediaGrid';
 import { QuotedCard } from './QuotedCard';
 import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from './XIcons';
-import { median } from '@/lib/trend';
+import { median, weeklyJudgment } from '@/lib/trend';
 
 const WEEK_OPTIONS = [2, 4, 8] as const;
 // 패턴 분석이 성립하는 최소 표본 — 반응 상위(~20%)에서 같은 특징이 3번 이상 반복되려면 이 정도는 필요
@@ -39,7 +39,9 @@ function fmtWeekRange(weekStart: string): string {
 
 // 본문의 [T번호] 토큰을 각주 칩 [n]으로 렌더 — 마우스를 올리면 트윗 미리보기, 클릭하면 임베드 카드로 스크롤
 function inline(line: string, byN: Map<number, BriefingCitation>, keyPrefix: string) {
-  return line.split(/(\[T\d+\])/g).map((p, j) => {
+  return line.split(/(\[T\d+\]|\*\*[^*]+\*\*)/g).map((p, j) => {
+    const b = p.match(/^\*\*([^*]+)\*\*$/);
+    if (b) return <strong key={`${keyPrefix}-${j}`}>{b[1]}</strong>; // LLM이 표시한 핵심 키워드만 굵게(강조 위계)
     const m = p.match(/^\[T(\d+)\]$/);
     if (!m) return p ? <span key={`${keyPrefix}-${j}`}>{p}</span> : null;
     const c = byN.get(Number(m[1]));
@@ -464,6 +466,10 @@ export function BriefingSection({ wsId }: { wsId: string }) {
                 })}
               </ul>
               {(() => {
+                const j = weeklyJudgment(current.content.stats.weekly);
+                return j && <p className="mt-1.5 font-bold text-x-text">💬 {j}</p>;
+              })()}
+              {(() => {
                 // 기간 내 전체 주 기준(빈 주 포함) — 빈 주가 절반이면 그 자체가 표본 문제이므로 제외하지 않는다
                 const sparse = median(current.content.stats.weekly.map((w) => w.count)) < WEEKLY_MIN;
                 return sparse && (
@@ -479,7 +485,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
                 {inline(current.content.headline, new Map(current.content.citations.map((c) => [c.n, c] as const)), 'headline')}
               </p>
             )}
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-[15px] font-bold leading-6">
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-[15px] leading-6">
               {current.content.tldr.map((l, i) => (
                 <li key={i}>{inline(l, new Map(current.content.citations.map((c) => [c.n, c] as const)), `tldr-${i}`)}</li>
               ))}

@@ -234,3 +234,15 @@ test('generateBriefing: 트렌드 모듈 검증 — 불량 모듈 버림, 2개 �
   assert.equal(await generateBriefing({ columnTitle: 'c', tweets, stats },
     fakeLLM({ ...GOOD, trends: [GOOD.trends[0]] })), null);
 });
+
+test('generateBriefing: 트윗 라인은 ♥ 대신 "좋아요 N" 표기(본문 표기 오염 방지)', async () => {
+  const tweets = [tw('2026-06-15', 500, 'tid-1')];
+  const stats = computeBriefingStats(tweets, NOW, 4);
+  let prompt = '';
+  const spy: AnthropicLike = {
+    messages: { create: async (p) => { prompt = JSON.stringify(p); return fakeLLM(GOOD).messages.create(p); } },
+  };
+  await generateBriefing({ columnTitle: 'c', tweets, stats }, spy);
+  assert.ok(prompt.includes('좋아요 500'));
+  assert.ok(!prompt.includes('♥500'));
+});

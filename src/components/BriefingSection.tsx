@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useMember } from '@/lib/memberContext';
 import type { ColumnRow } from '@/lib/types';
 import type { TrendPayload } from '@/lib/trend';
@@ -37,6 +37,9 @@ function fmtWeekRange(weekStart: string): string {
   return `${s.getUTCMonth() + 1}/${s.getUTCDate()}~${end}`;
 }
 
+// 브리핑 인용 트윗 → 보관함 저장 (덱 카드와 같은 ☆/★ 의미: 별 = 내가 저장한 트윗)
+const SaveCtx = createContext<{ savedIds: Set<string>; toggleSave: (tweetId: string) => void } | null>(null);
+
 // 본문의 [T번호] 토큰을 각주 칩 [n]으로 렌더 — 마우스를 올리면 트윗 미리보기, 클릭하면 임베드 카드로 스크롤
 function inline(line: string, byN: Map<number, BriefingCitation>, keyPrefix: string) {
   return line.split(/(\[T\d+\]|\*\*[^*]+\*\*)/g).map((p, j) => {
@@ -72,6 +75,19 @@ function inline(line: string, byN: Map<number, BriefingCitation>, keyPrefix: str
   });
 }
 
+function SaveStar({ tweetId, withLabel = false }: { tweetId: string; withLabel?: boolean }) {
+  const save = useContext(SaveCtx);
+  if (!save) return null;
+  const saved = save.savedIds.has(tweetId);
+  return (
+    <button onClick={(e) => { e.stopPropagation(); save.toggleSave(tweetId); }}
+            title={saved ? '보관함에서 제거' : '보관함에 저장 — 기획 참고용'}
+            className={`shrink-0 rounded px-1 hover:bg-x-border ${saved ? 'text-amber-500' : 'text-x-secondary'}`}>
+      {saved ? '★' : '☆'}{withLabel ? (saved ? ' 저장됨' : ' 저장') : ''}
+    </button>
+  );
+}
+
 // 문단 사이 임베드 카드 — 주장(문단) 바로 아래에 근거 트윗이 보이는 뉴스 기사식 배치.
 // wide = 문단에 인용이 1개일 때의 큰 카드 / 아니면 가로 스트립용 컴팩트 카드.
 function EmbedCard({ c, wide, anchor = true, onToggle, expanded = false }: {
@@ -101,6 +117,7 @@ function EmbedCard({ c, wide, anchor = true, onToggle, expanded = false }: {
           </>
         ) : <span className="text-x-secondary">원문 스냅샷 없음</span>}
         <span className="ml-auto shrink-0 text-x-secondary">♥ {formatCount(c.likes)}</span>
+        <SaveStar tweetId={c.tweetId} />
       </p>
       <p className={`mt-1 whitespace-pre-wrap ${wide ? 'line-clamp-4' : 'line-clamp-3'}`}>{c.text}</p>
       {thumb && (
@@ -162,6 +179,7 @@ function FullTweetCard({ c, onCollapse }: { c: BriefingCitation; onCollapse: () 
               <span title="북마크 (Bookmark)" className={metricBase}><BookmarkIcon /> {formatCount(t.metrics.bookmarks)}</span>
             </div>
           )}
+          <div className="mt-2 text-right text-xs"><SaveStar tweetId={c.tweetId} withLabel /></div>
         </div>
       </div>
     </div>
@@ -308,6 +326,43 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   const [current, setCurrent] = useState<BriefingRow | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+
+  // 내가 저장한 트윗 목록 — 브리핑 인용 카드의 ☆/★ 초기 상태 (덱과 같은 의미: 별 = 내 저장)
+  useEffect(() => {
+    setSavedIds(new Set());
+    if (!current || !member) return;
+    let stale = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/candidates?workspaceId=${wsId}&memberId=${member.id}`);
+        if (!r.ok || stale) return;
+        const rows = (await r.json()) as Array<{ tweet: { tweetId: string } }>;
+        if (stale) return;
+        setSavedIds(new Set(rows.map((x) => x.tweet.tweetId)));
+      } catch { /* 초기 상태 조회 실패는 조용히 — 저장 시도 시 에러로 드러남 */ }
+    })();
+    return () => { stale = true; };
+  }, [current, wsId, member]);
+
+  const toggleSave = useCallback(async (tweetId: string) => {
+    if (!member) { setErr('저장하려면 사이드바에서 멤버를 먼저 선택하세요'); return; }
+    setErr('');
+    try {
+      if (savedIds.has(tweetId)) {
+        const r = await fetch(`/api/candidates?tweetId=${tweetId}&workspaceId=${wsId}&memberId=${member.id}`, { method: 'DELETE' });
+        if (r.ok) setSavedIds((prev) => { const n = new Set(prev); n.delete(tweetId); return n; });
+        else setErr(`보관함에서 제거하지 못했어요 (오류 ${r.status})`);
+      } else {
+        const r = await fetch('/api/candidates', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tweetId, sourceColumnId: current?.columnId ?? null, workspaceId: wsId, memberId: member.id }),
+        });
+        if (r.ok) setSavedIds((prev) => new Set(prev).add(tweetId));
+        else setErr(`보관함에 저장하지 못했어요 (오류 ${r.status})`);
+      }
+    } catch { setErr('네트워크 오류 — 다시 시도해주세요'); }
+  }, [member, savedIds, wsId, current]);
 
   const loadList = useCallback(async () => {
     const r = await fetch(`/api/briefings?workspaceId=${wsId}`);
@@ -440,6 +495,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
 
       {current && (
         /* 트윗 본문 폭(~600px)에 맞춘 읽기 컬럼 — 근거 트윗은 문단 사이에 임베드(뉴스 기사식) */
+        <SaveCtx.Provider value={{ savedIds, toggleSave }}>
         <div className="mt-3 max-w-[640px] rounded-xl border border-x-border bg-white text-x-text">
           <div className="flex items-baseline gap-2 border-b border-x-border px-4 py-2">
             <p className="font-bold">{current.columnTitle}</p>
@@ -509,6 +565,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
               : <Body content={current.content} />}
           </div>
         </div>
+        </SaveCtx.Provider>
       )}
 
       {list.length > 0 && (

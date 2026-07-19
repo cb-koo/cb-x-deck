@@ -39,3 +39,28 @@ export const SettingsIcon = ({ className }: { className?: string }) => (
 export const TrashIcon = ({ className }: { className?: string }) => (
   <Icon className={className} d="M16 6V4.5C16 3.12 14.88 2 13.5 2h-3C9.11 2 8 3.12 8 4.5V6H3v2h1.06l.81 11.21C4.98 20.78 6.28 22 7.86 22h8.27c1.58 0 2.88-1.22 3-2.79L19.93 8H21V6h-5zm-6-1.5c0-.28.22-.5.5-.5h3c.27 0 .5.22.5.5V6h-4V4.5zm7.13 14.57c-.04.52-.47.93-1 .93H7.86c-.53 0-.96-.41-1-.93L6.07 8h11.85l-.79 11.07zM9 17v-6h2v6H9zm4 0v-6h2v6h-2z" />
 );
+
+// 도구 영역 아이콘 — 이모지(🔍👤📊📋📁·⌄) 대체 (spec §5)
+export const SearchIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M10.25 3.75c-3.59 0-6.5 2.91-6.5 6.5s2.91 6.5 6.5 6.5c1.795 0 3.419-.726 4.596-1.904 1.178-1.177 1.904-2.801 1.904-4.596 0-3.59-2.91-6.5-6.5-6.5zm-8.5 6.5c0-4.694 3.806-8.5 8.5-8.5s8.5 3.806 8.5 8.5c0 1.986-.682 3.815-1.824 5.262l4.781 4.781-1.414 1.414-4.781-4.781c-1.447 1.142-3.276 1.824-5.262 1.824-4.694 0-8.5-3.806-8.5-8.5z" />
+);
+
+export const UserIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M5.651 19h12.698c-.337-1.8-1.023-3.21-1.945-4.19C15.318 13.65 13.838 13 12 13s-3.317.65-4.404 1.81c-.922.98-1.608 2.39-1.945 4.19zm.486-5.56C7.627 11.85 9.648 11 12 11s4.373.85 5.863 2.44c1.477 1.58 2.366 3.8 2.632 6.46l.11 1.1H3.395l.11-1.1c.266-2.66 1.155-4.88 2.632-6.46zM12 4c-1.105 0-2 .9-2 2s.895 2 2 2 2-.9 2-2-.895-2-2-2zM8 6c0-2.21 1.791-4 4-4s4 1.79 4 4-1.791 4-4 4-4-1.79-4-4z" />
+);
+
+export const ColumnsIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M3 4.5C3 3.67 3.67 3 4.5 3h3C8.33 3 9 3.67 9 4.5v15c0 .83-.67 1.5-1.5 1.5h-3C3.67 21 3 20.33 3 19.5v-15zM5 5v14h2V5H5zm5-.5c0-.83.67-1.5 1.5-1.5h3c.83 0 1.5.67 1.5 1.5v15c0 .83-.67 1.5-1.5 1.5h-3c-.83 0-1.5-.67-1.5-1.5v-15zM12 5v14h2V5h-2zm5-.5c0-.83.67-1.5 1.5-1.5h3c.83 0 1.5.67 1.5 1.5v15c0 .83-.67 1.5-1.5 1.5h-3c-.83 0-1.5-.67-1.5-1.5v-15zM19 5v14h2V5h-2z" />
+);
+
+export const DocIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M6 2h8.586L20 7.414V20c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2zm0 2v16h12V9h-5V4H6zm9 .414V7h2.586L15 4.414zM8 12h8v2H8v-2zm0 4h8v2H8v-2z" />
+);
+
+export const FolderIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M4 5c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2h-8.586l-1.707-1.707A1 1 0 0 0 9 5H4zm0 2h4.586l1.707 1.707c.187.187.442.293.707.293H20v8H4V7z" />
+);
+
+export const ChevronDownIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M12 15.41l-6.7-6.7 1.4-1.42 5.3 5.3 5.3-5.3 1.4 1.41L12 15.41z" />
+);

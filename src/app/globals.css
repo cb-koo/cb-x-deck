@@ -12,6 +12,17 @@
   --color-x-green: #00ba7c;
   --color-x-pink: #f91880;
   --color-x-hover: #f7f9f9;
+
+  /* 표면 2층 — 회색 = 덱 도구층(헤더·패널·사이드바·카드 풋터), 흰색 = X 콘텐츠 (spec §2) */
+  --color-x-surface: #f7f9f9;
+
+  /* 타이포 역할 토큰 — 덱의 모든 텍스트는 이 3단계 + 20px(모달 제목)만 사용 (spec §1) */
+  --text-content: 15px;
+  --text-content--line-height: 1.35;
+  --text-ui: 13px;
+  --text-ui--line-height: 1.4;
+  --text-caption: 11px;
+  --text-caption--line-height: 1.3;
 }
 
 body {

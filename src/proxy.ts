@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { isAllowedEmail } from '@/lib/auth';
+import { isAllowedUser } from '@/lib/auth';
 
 const PUBLIC_PREFIXES = ['/login', '/auth', '/denied'];
 
@@ -61,7 +61,7 @@ export async function proxy(request: NextRequest) {
     return isPublic ? response : withCookies(NextResponse.redirect(new URL('/login', request.url)));
   }
 
-  if (!isAllowedEmail(user.email)) {
+  if (!isAllowedUser(user)) {
     return pathname === '/denied'
       ? response
       : withCookies(NextResponse.redirect(new URL('/denied', request.url)));

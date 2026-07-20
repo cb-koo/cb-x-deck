@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
-import { isAllowedEmail } from '@/lib/auth';
+import { isAllowedUser } from '@/lib/auth';
 
 export async function requireAllowedUser(): Promise<
   { user: User; response: null } | { user: null; response: NextResponse }
@@ -10,7 +10,7 @@ export async function requireAllowedUser(): Promise<
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user || !isAllowedEmail(user.email)) {
+  if (!user || !isAllowedUser(user)) {
     return {
       user: null,
       response: NextResponse.json({ error: '로그인이 필요합니다' }, { status: 401 }),

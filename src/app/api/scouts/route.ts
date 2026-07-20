@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { saveScout, removeScout, listScouts } from '@/lib/scoutStore';
 
-import { requireAllowedUser } from '@/lib/authGuard';
+import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 export async function GET(req: Request) {
   const gate = await requireAllowedUser();
   if (gate.response) return gate.response;
@@ -14,10 +14,11 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const gate = await requireAllowedUser();
+  const gate = await requireMember();
   if (gate.response) return gate.response;
-  const { workspaceId, handle, name, avatarUrl, bio, followers, verified, sourceTweetId, memberId } =
+  const { workspaceId, handle, name, avatarUrl, bio, followers, verified, sourceTweetId } =
     await req.json().catch(() => ({}));
+  const memberId = gate.member.id; // 클라이언트 body.memberId 무시(위조 차단)
   if (!workspaceId || !handle) return NextResponse.json({ error: 'workspaceId·handle 필수' }, { status: 400 });
   await saveScout(getSql(), {
     workspaceId, handle, name, avatarUrl, bio, followers, verified, sourceTweetId, memberId,

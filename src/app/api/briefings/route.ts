@@ -10,7 +10,7 @@ import {
 import { saveBriefing, listBriefings, getBriefing } from '@/lib/briefingStore';
 import { MODEL } from '@/lib/suggest';
 
-import { requireAllowedUser } from '@/lib/authGuard';
+import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 export async function GET(req: Request) {
   const gate = await requireAllowedUser();
   if (gate.response) return gate.response;
@@ -20,10 +20,10 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const gate = await requireAllowedUser();
+  const gate = await requireMember();
   if (gate.response) return gate.response;
   const sql = getSql();
-  const body = (await req.json().catch(() => ({}))) as { columnId?: string; weeks?: number; memberId?: string | null };
+  const body = (await req.json().catch(() => ({}))) as { columnId?: string; weeks?: number };
   const weeks = body.weeks as (typeof BRIEFING_WEEKS)[number];
   if (!body.columnId || !BRIEFING_WEEKS.includes(weeks)) {
     return NextResponse.json({ error: 'columnId와 weeks(2·4·8)가 필요해요' }, { status: 400 });
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
   const id = await saveBriefing(sql, {
     workspaceId: col.workspaceId, columnId: col.id,
     periodFrom: stats.periodFrom, periodTo: stats.periodTo,
-    sampleSize: stats.totalCount, content, model: MODEL(), memberId: body.memberId ?? null,
+    sampleSize: stats.totalCount, content, model: MODEL(), memberId: gate.member.id, // 클라이언트 body.memberId 무시(위조 차단)
   });
   return NextResponse.json(await getBriefing(sql, id));
 }

@@ -1,3 +1,5 @@
+import { recordUsageSafe } from './usageStore.ts';
+
 const DEFAULT_BASE = 'https://api.getxapi.com';
 
 export type RawTweet = Record<string, unknown>;
@@ -35,6 +37,7 @@ export interface GetxapiClientOptions {
   maxRetries?: number;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
+  onUsage?: (ev: { operation: string; ok: boolean; status: number }) => void;
 }
 
 export class GetxapiClient {
@@ -84,6 +87,18 @@ export class GetxapiClient {
       if (/^(400|404) from /.test((e as Error).message)) return null;
       throw e;
     }
+  }
+
+  private static opFromPath(path: string): string {
+    const p = path.split('?')[0];
+    if (p.endsWith('/advanced_search')) return 'getxapi.search';
+    if (p.endsWith('/user/tweets')) return 'getxapi.userTweets';
+    if (p.endsWith('/user/info')) return 'getxapi.userInfo';
+    if (p.endsWith('/tweet/detail')) return 'getxapi.tweetDetail';
+    if (p.endsWith('/tweet/replies')) return 'getxapi.replies';
+    if (p.endsWith('/tweet/thread')) return 'getxapi.thread';
+    if (p.endsWith('/tweet/retweeters')) return 'getxapi.retweeters';
+    return 'getxapi.other';
   }
 
   // 확장 탐색 — 응답 배열 키가 엔드포인트마다 다를 수 있어 관대하게 정규화(실계약은 smoke-expansion.ts로 확인)
@@ -149,6 +164,7 @@ export class GetxapiClient {
         const txt = await res.text().catch(() => '');
         throw new Error(`${res.status} from ${path}: ${txt}`);
       }
+      this.opts.onUsage?.({ operation: GetxapiClient.opFromPath(path), ok: true, status: res.status });
       return (await res.json()) as T;
     }
   }
@@ -157,5 +173,8 @@ export class GetxapiClient {
 export function makeClient(): GetxapiClient {
   const apiKey = process.env.GETXAPI_KEY;
   if (!apiKey) throw new Error('GETXAPI_KEY not set');
-  return new GetxapiClient({ apiKey });
+  return new GetxapiClient({
+    apiKey,
+    onUsage: (ev) => recordUsageSafe({ api: 'getxapi', operation: ev.operation, ok: ev.ok, httpStatus: ev.status, units: 1 }),
+  });
 }

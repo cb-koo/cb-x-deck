@@ -1,5 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { extractJson, MODEL, type AnthropicLike } from './suggest.ts';
+import { callLLM } from './llm.ts';
 import { weekStartJst, addWeeks, median } from './trend.ts';
 import { flagYakkiho } from './complianceFlags.ts';
 import type { BriefingContent, BriefingCitation, BriefingStats, TrendModule, TrendStage } from './briefingTypes.ts';
@@ -156,7 +156,6 @@ export async function generateBriefing(
   input: { columnTitle: string; tweets: BriefingTweet[]; stats: BriefingStats; comparison?: string | null },
   client?: AnthropicLike,
 ): Promise<BriefingContent | null> {
-  const c = client ?? (new Anthropic() as unknown as AnthropicLike);
   const numbered = input.tweets.map((t, i) => ({ n: i + 1, t }));
   // 주차 표기 — LLM이 "후반부에 떴다" 같은 변화 서술을 특정 트윗으로 근거 댈 수 있게
   const weekIdxOf = (t: BriefingTweet): string => {
@@ -168,11 +167,9 @@ export async function generateBriefing(
   };
   const lines = numbered.map(({ n, t }) => `[T${n}] (${weekIdxOf(t)}좋아요 ${t.likes ?? 0}) ${t.text.replace(/\s+/g, ' ').slice(0, 200)}`);
 
-  const res = await c.messages.create({
-    model: MODEL(),
-    max_tokens: 4500, // 트렌드 모듈 3~5개 JSON — 3000이면 잘려서 파싱 실패
-    messages: [{ role: 'user', content: PROMPT(input.columnTitle, input.stats, lines, input.comparison ?? null) }],
-  });
+  const res = await callLLM('anthropic.briefing',
+    // 4500: 트렌드 모듈 3~5개 JSON — 3000이면 잘려서 파싱 실패
+    { model: MODEL(), max_tokens: 4500, messages: [{ role: 'user', content: PROMPT(input.columnTitle, input.stats, lines, input.comparison ?? null) }] }, client);
   const j = extractJson(res) as Record<string, unknown> | null;
   if (!j) return null;
 

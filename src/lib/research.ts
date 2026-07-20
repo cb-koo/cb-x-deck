@@ -1,7 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { extractJson, pairs, type AnthropicLike, type KwPair } from './suggest.ts';
-
-const MODEL = () => process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001';
+import { extractJson, pairs, MODEL } from './suggest.ts';
+import { callLLM, type AnthropicLike } from './llm.ts';
+import type { KwPair } from './suggest.ts';
 
 // 발전 경로: 구조화 리서치 리포트는 이 프롬프트 모듈에 "다중 검색 종합" 프롬프트를 추가하는 식으로 확장
 const EXTRACT_PROMPT = (title: string, text: string) => `당신은 일본 뷰티/미용의료 X(트위터) 콘텐츠 기획 리서처입니다.
@@ -26,11 +25,8 @@ export async function extractKeywords(
   article: { title: string; text: string },
   client?: AnthropicLike,
 ): Promise<ExtractedKeywords> {
-  const c = client ?? new Anthropic();
-  const res = await c.messages.create({
-    model: MODEL(), max_tokens: 1000,
-    messages: [{ role: 'user', content: EXTRACT_PROMPT(article.title, article.text) }],
-  });
+  const res = await callLLM('anthropic.research',
+    { model: MODEL(), max_tokens: 1000, messages: [{ role: 'user', content: EXTRACT_PROMPT(article.title, article.text) }] }, client);
   const json = extractJson(res);
   if (!json || typeof json !== 'object') return { keywords: [], hooks: [] };
   const o = json as Record<string, unknown>;

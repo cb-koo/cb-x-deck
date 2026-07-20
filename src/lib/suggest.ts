@@ -1,8 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
-
-export interface AnthropicLike {
-  messages: { create(p: object): Promise<{ content: Array<{ type: string; text?: string }> }> };
-}
+import { callLLM, type AnthropicLike } from './llm.ts';
+export type { AnthropicLike };
 
 export interface KwPair { ja: string; ko: string }
 
@@ -48,12 +45,8 @@ export async function suggestKeywords(
   keyword: string,
   client?: AnthropicLike,
 ): Promise<{ variants: KwPair[]; adjacent: KwPair[] }> {
-  const c = client ?? (new Anthropic() as unknown as AnthropicLike);
-  const res = await c.messages.create({
-    model: MODEL(),
-    max_tokens: 800,
-    messages: [{ role: 'user', content: PROMPT(keyword) }],
-  });
+  const res = await callLLM('anthropic.suggest',
+    { model: MODEL(), max_tokens: 800, messages: [{ role: 'user', content: PROMPT(keyword) }] }, client);
   const j = extractJson(res) as { variants?: unknown; adjacent?: unknown } | null;
   if (!j) return { variants: [], adjacent: [] };
   return { variants: pairs(j.variants), adjacent: pairs(j.adjacent) };
@@ -63,12 +56,8 @@ export async function translateKeyword(
   keyword: string,
   client?: AnthropicLike,
 ): Promise<KwPair | null> {
-  const c = client ?? (new Anthropic() as unknown as AnthropicLike);
-  const res = await c.messages.create({
-    model: MODEL(),
-    max_tokens: 200,
-    messages: [{ role: 'user', content: TRANSLATE_PROMPT(keyword) }],
-  });
+  const res = await callLLM('anthropic.translateKeyword',
+    { model: MODEL(), max_tokens: 200, messages: [{ role: 'user', content: TRANSLATE_PROMPT(keyword) }] }, client);
   const j = extractJson(res) as { ja?: unknown; ko?: unknown } | null;
   if (!j || typeof j.ja !== 'string' || j.ja.length === 0) return null;
   return { ja: j.ja, ko: typeof j.ko === 'string' && j.ko ? j.ko : keyword };
@@ -83,12 +72,8 @@ export async function translateTags(
   client?: AnthropicLike,
 ): Promise<Record<string, string>> {
   if (tags.length === 0) return {};
-  const c = client ?? (new Anthropic() as unknown as AnthropicLike);
-  const res = await c.messages.create({
-    model: MODEL(),
-    max_tokens: 600,
-    messages: [{ role: 'user', content: TAGS_PROMPT(tags) }],
-  });
+  const res = await callLLM('anthropic.translateTags',
+    { model: MODEL(), max_tokens: 600, messages: [{ role: 'user', content: TAGS_PROMPT(tags) }] }, client);
   const j = extractJson(res);
   if (!j || typeof j !== 'object' || Array.isArray(j)) return {};
   const out: Record<string, string> = {};

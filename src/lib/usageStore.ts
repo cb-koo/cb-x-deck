@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import { getSql } from './db.ts';
+import { getUsageSql } from './db.ts';
 import { rowCostUsd } from './usagePricing.ts';
 import { featureLabel, apiLabel } from './usageFeatures.ts';
 
@@ -26,11 +26,13 @@ export interface AggRow {
 let warnedRecordFailure = false;
 
 // 기록은 실제 API 동작을 막지 않는다: await 하지 않고, 실패는 삼키며, PGHOST 없으면 no-op.
+// 부하 시 즉시(재배포 없이) 끌 수 있는 킬스위치: USAGE_RECORDING=off.
 export function recordUsageSafe(ev: UsageEvent): void {
   if (!process.env.PGHOST) return;
+  if (process.env.USAGE_RECORDING === 'off') return;
   void (async () => {
     try {
-      const sql = getSql();
+      const sql = getUsageSql();
       await sql`
         insert into api_usage (api, operation, ok, http_status, model, input_tokens, output_tokens, units)
         values (${ev.api}, ${ev.operation}, ${ev.ok ?? true}, ${ev.httpStatus ?? null}, ${ev.model ?? null},

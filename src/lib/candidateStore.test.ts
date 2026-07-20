@@ -49,19 +49,34 @@ test('멤버별 저장·중복 허용·필터·태그·워크스페이스 격리
     assert.equal((await listCandidates(sql, ws1.id, { memberId: mB.id })).length, 1);
     assert.equal((await listCandidates(sql, ws2.id)).length, 0);
 
-    // 메모·태그
-    await setMemo(sql, cA.id, '포맷 참고');
-    const tag = await addTag(sql, cA.id, P + 'tag');
+    // 메모·태그 (모두 소유 멤버 id로 스코프)
+    await setMemo(sql, cA.id, '포맷 참고', mA.id);
+    const tag = await addTag(sql, cA.id, P + 'tag', mA.id);
+    assert.ok(tag);
     const withTag = await listCandidates(sql, ws1.id, { tag: P + 'tag' });
     assert.equal(withTag.length, 1);
     assert.equal(withTag[0].memo, '포맷 참고');
     const tags = await listAllTags(sql, ws1.id);
     assert.ok(tags.some((t) => t.name === P + 'tag' && t.count === 1));
     // 같은 콘텐츠에 B도 같은 태그 → 카운트는 콘텐츠 수 기준이라 여전히 1
-    const tagB = await addTag(sql, cB.id, P + 'tag');
+    const tagB = await addTag(sql, cB.id, P + 'tag', mB.id);
+    assert.ok(tagB);
     assert.ok((await listAllTags(sql, ws1.id)).some((t) => t.name === P + 'tag' && t.count === 1));
-    await removeTag(sql, cB.id, tagB.id);
-    await removeTag(sql, cA.id, tag.id);
+
+    // 소유권 강제: 다른 멤버(mB)가 A의 후보(cA)를 건드리면 무효(false/null), 상태는 변경되지 않음
+    const memoOk = await setMemo(sql, cA.id, '남의 메모 침해 시도', mB.id);
+    assert.equal(memoOk, false);
+    const afterBadMemo = (await listCandidates(sql, ws1.id, { memberId: mA.id })).find((c) => c.id === cA.id);
+    assert.equal(afterBadMemo?.memo, '포맷 참고');
+    const badTag = await addTag(sql, cA.id, P + 'tag-intrusion', mB.id);
+    assert.equal(badTag, null);
+    const badRemove = await removeTag(sql, cA.id, tag.id, mB.id);
+    assert.equal(badRemove, false);
+    const stillTagged = await listCandidates(sql, ws1.id, { tag: P + 'tag' });
+    assert.ok(stillTagged.some((c) => c.id === cA.id));
+
+    await removeTag(sql, cB.id, tagB.id, mB.id);
+    await removeTag(sql, cA.id, tag.id, mA.id);
 
     // 자기 것만 해제 — B의 저장은 남음
     await removeCandidate(sql, { tweetId: P + 'a', workspaceId: ws1.id, memberId: mA.id });

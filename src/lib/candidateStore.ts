@@ -76,11 +76,16 @@ export async function removeCandidate(
   await sql`delete from candidate where tweet_id = ${input.tweetId} and workspace_id = ${input.workspaceId} and member_id = ${input.memberId}`;
 }
 
-export async function setMemo(sql: postgres.Sql, candidateId: string, memo: string): Promise<void> {
-  await sql`update candidate set memo = ${memo} where id = ${candidateId}`;
+export async function setMemo(sql: postgres.Sql, candidateId: string, memo: string, memberId: string): Promise<boolean> {
+  const result = await sql`update candidate set memo = ${memo} where id = ${candidateId} and member_id = ${memberId}`;
+  return result.count > 0;
 }
 
-export async function addTag(sql: postgres.Sql, candidateId: string, name: string): Promise<{ id: string; name: string }> {
+export async function addTag(
+  sql: postgres.Sql, candidateId: string, name: string, memberId: string,
+): Promise<{ id: string; name: string } | null> {
+  const owned = await sql`select 1 from candidate where id = ${candidateId} and member_id = ${memberId}`;
+  if (owned.count === 0) return null;
   const trimmed = name.trim();
   const [tag] = await sql<Array<{ id: string; name: string }>>`
     insert into tag (name) values (${trimmed})
@@ -90,8 +95,12 @@ export async function addTag(sql: postgres.Sql, candidateId: string, name: strin
   return tag;
 }
 
-export async function removeTag(sql: postgres.Sql, candidateId: string, tagId: string): Promise<void> {
-  await sql`delete from candidate_tag where candidate_id = ${candidateId} and tag_id = ${tagId}`;
+export async function removeTag(sql: postgres.Sql, candidateId: string, tagId: string, memberId: string): Promise<boolean> {
+  const result = await sql`
+    delete from candidate_tag
+     where candidate_id = ${candidateId} and tag_id = ${tagId}
+       and exists (select 1 from candidate where id = ${candidateId} and member_id = ${memberId})`;
+  return result.count > 0;
 }
 
 export async function listCandidates(

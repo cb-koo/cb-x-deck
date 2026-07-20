@@ -105,3 +105,21 @@ test('getTweetRetweeters: users/retweeters/data 키 정규화', async () => {
   assert.match(urls[0], /\/twitter\/tweet\/retweeters\?/);
   assert.deepEqual(p, { users: [{ userName: 'u1' }], has_more: false, next_cursor: null }); // 빈 문자열 커서 → null
 });
+
+test('onUsage: 성공 호출마다 operation과 함께 콜백', async () => {
+  const { fn } = fakeFetch([{ status: 200, body: { has_more: false, next_cursor: null, tweets: [] } }]);
+  const events: Array<{ operation: string; ok: boolean; status: number }> = [];
+  const c = new GetxapiClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {}, onUsage: (e) => events.push(e) });
+  await c.searchTweets('a');
+  assert.equal(events.length, 1);
+  assert.equal(events[0].operation, 'getxapi.search');
+  assert.equal(events[0].ok, true);
+});
+
+test('onUsage: userInfo operation 파생', async () => {
+  const { fn } = fakeFetch([{ status: 200, body: { data: { id: '1', userName: 'x' } } }]);
+  const events: Array<{ operation: string }> = [];
+  const c = new GetxapiClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {}, onUsage: (e) => events.push(e) });
+  await c.getUserInfo('x');
+  assert.equal(events[0].operation, 'getxapi.userInfo');
+});

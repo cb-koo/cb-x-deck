@@ -67,3 +67,12 @@ test('재시도 소진 시 에러', async () => {
   const c = new ExaClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {}, maxRetries: 2 });
   await assert.rejects(() => c.search('a'), /500.*after 2 retries/);
 });
+
+test('onUsage: search 성공 시 exa.search 콜백', async () => {
+  const fn = (async () => new Response(JSON.stringify({ results: [] }), { status: 200 })) as typeof fetch;
+  const events: Array<{ operation: string; ok: boolean; status: number }> = [];
+  const c = new ExaClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {}, onUsage: (e) => events.push(e) });
+  await c.search('hello');
+  assert.equal(events.length, 1);
+  assert.equal(events[0].operation, 'exa.search');
+});

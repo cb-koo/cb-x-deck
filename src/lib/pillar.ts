@@ -1,5 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { extractJson, MODEL, type AnthropicLike } from './suggest.ts';
+import { callLLM } from './llm.ts';
 import type { Assignment, PillarTopic } from './pillarTypes.ts';
 
 export interface PillarInputTweet { tweetId: string; text: string }
@@ -74,12 +74,8 @@ export async function deriveTopics(
   client?: AnthropicLike,
 ): Promise<{ topics: PillarTopic[]; assignments: Assignment[] } | null> {
   const tweets = tweetsIn.slice(0, MAX_ANALYSIS_TWEETS);
-  const c = client ?? (new Anthropic() as unknown as AnthropicLike);
-  const res = await c.messages.create({
-    model: MODEL(),
-    max_tokens: 4000,
-    messages: [{ role: 'user', content: DERIVE_PROMPT(tweetLines(tweets), tweets.length) }],
-  });
+  const res = await callLLM('anthropic.pillar',
+    { model: MODEL(), max_tokens: 4000, messages: [{ role: 'user', content: DERIVE_PROMPT(tweetLines(tweets), tweets.length) }] }, client);
   const j = extractJson(res) as { topics?: unknown; assignments?: unknown } | null;
   if (!j) return null;
   const topics = parseTopics(j.topics);
@@ -95,12 +91,8 @@ export async function classifyTweets(
 ): Promise<Assignment[]> {
   const tweets = tweetsIn.slice(0, MAX_ANALYSIS_TWEETS);
   if (topics.length === 0 || tweets.length === 0) return [];
-  const c = client ?? (new Anthropic() as unknown as AnthropicLike);
-  const res = await c.messages.create({
-    model: MODEL(),
-    max_tokens: 2000,
-    messages: [{ role: 'user', content: CLASSIFY_PROMPT(topics, tweetLines(tweets)) }],
-  });
+  const res = await callLLM('anthropic.pillar',
+    { model: MODEL(), max_tokens: 2000, messages: [{ role: 'user', content: CLASSIFY_PROMPT(topics, tweetLines(tweets)) }] }, client);
   const j = extractJson(res) as { assignments?: unknown } | null;
   if (!j) return [];
   return parseAssignments(j.assignments, topics, tweets);

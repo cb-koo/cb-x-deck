@@ -127,6 +127,13 @@ export function Sidebar({ wsId }: { wsId: string }) {
         ))}
       </nav>
 
+      <div className="mb-2 border-t border-x-border pt-2">
+        <a href="/usage"
+           className={`flex items-center gap-2.5 rounded-full px-3 py-1.5 text-caption hover:bg-x-text/5 ${pathname === '/usage' ? 'text-x-text' : 'text-x-muted'}`}>
+          API 사용량
+        </a>
+      </div>
+
       <div className="border-t border-x-border pt-2">
         <p className="mb-1 px-1 text-caption text-x-muted">멤버 (내가 누구인지)</p>
         {!member && <p className="mb-1 px-1 text-caption text-amber-600">멤버를 선택해야 저장·봤음이 기록됩니다</p>}

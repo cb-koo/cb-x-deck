@@ -347,7 +347,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   }, [current, wsId, member]);
 
   const toggleSave = useCallback(async (tweetId: string) => {
-    if (!member) { setErr('저장하려면 사이드바에서 멤버를 먼저 선택하세요'); return; }
+    if (!member) { setErr('내 정보를 불러오는 중입니다…'); return; }
     setErr('');
     try {
       if (savedIds.has(tweetId)) {

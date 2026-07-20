@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 import { makeClient, GetxapiAuthError } from '@/lib/getxapi';
 import { suggestMinFaves } from '@/lib/densityProbe';
 
+import { requireAllowedUser } from '@/lib/authGuard';
 export async function POST(req: Request) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const { keywords, lang } = await req.json().catch(() => ({}));
   const kws: string[] = Array.isArray(keywords) ? keywords.map((k) => String(k).trim()).filter(Boolean) : [];
   if (kws.length === 0) return NextResponse.json({ error: '키워드가 필요합니다' }, { status: 400 });

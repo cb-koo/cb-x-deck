@@ -10,13 +10,18 @@ import {
 import { saveBriefing, listBriefings, getBriefing } from '@/lib/briefingStore';
 import { MODEL } from '@/lib/suggest';
 
+import { requireAllowedUser } from '@/lib/authGuard';
 export async function GET(req: Request) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const workspaceId = new URL(req.url).searchParams.get('workspaceId');
   if (!workspaceId) return NextResponse.json({ error: 'workspaceId 필수' }, { status: 400 });
   return NextResponse.json(await listBriefings(getSql(), workspaceId));
 }
 
 export async function POST(req: Request) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const sql = getSql();
   const body = (await req.json().catch(() => ({}))) as { columnId?: string; weeks?: number; memberId?: string | null };
   const weeks = body.weeks as (typeof BRIEFING_WEEKS)[number];

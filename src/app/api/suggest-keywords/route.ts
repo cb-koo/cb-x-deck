@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { suggestKeywords } from '@/lib/suggest';
 
+import { requireAllowedUser } from '@/lib/authGuard';
 export async function POST(req: Request) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const { keyword } = await req.json();
   if (!keyword?.trim()) return NextResponse.json({ error: 'keyword 필수' }, { status: 400 });
   try {

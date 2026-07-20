@@ -4,7 +4,10 @@ import { deleteColumn, getColumn, updateColumn } from '@/lib/columnStore';
 import { makeClient } from '@/lib/getxapi';
 import type { WatchlistConfig } from '@/lib/types';
 
+import { requireAllowedUser } from '@/lib/authGuard';
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const { id } = await ctx.params;
   const patch = await req.json();
   const sql = getSql();
@@ -36,6 +39,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const { id } = await ctx.params;
   await deleteColumn(getSql(), id);
   return NextResponse.json({ ok: true });

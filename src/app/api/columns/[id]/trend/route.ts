@@ -4,7 +4,10 @@ import { getColumn } from '@/lib/columnStore';
 import { getAnalysis, listAnalysisTweets } from '@/lib/pillarStore';
 import { computeWeeklyTrend, computeTopicTrend, type TrendPayload, type TopicTrendRow } from '@/lib/trend';
 
+import { requireAllowedUser } from '@/lib/authGuard';
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const { id } = await ctx.params;
   const sql = getSql();
   const col = await getColumn(sql, id);

@@ -6,7 +6,10 @@ import { refreshColumn } from '@/lib/refreshColumn';
 import { getColumnQuotedIds } from '@/lib/quotedStore';
 import { enrichQuoted } from '@/lib/quotedEnrich';
 
+import { requireAllowedUser } from '@/lib/authGuard';
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const { id } = await ctx.params;
   const sql = getSql();
 

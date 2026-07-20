@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { deleteWorkspace, listWorkspaces } from '@/lib/workspaceStore';
 
+import { requireAllowedUser } from '@/lib/authGuard';
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const { id } = await params;
   const sql = getSql();
   const all = await listWorkspaces(sql);

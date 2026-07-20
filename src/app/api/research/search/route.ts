@@ -2,9 +2,12 @@ import { NextResponse } from 'next/server';
 import { makeExaClient } from '@/lib/exa';
 import { translateKeyword } from '@/lib/suggest';
 
+import { requireAllowedUser } from '@/lib/authGuard';
 const hasHangul = (s: string) => /[가-힣]/.test(s);
 
 export async function POST(req: Request) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const { query } = await req.json().catch(() => ({}));
   if (typeof query !== 'string' || !query.trim()) {
     return NextResponse.json({ error: 'query 필수' }, { status: 400 });

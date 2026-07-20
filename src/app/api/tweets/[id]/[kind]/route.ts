@@ -2,9 +2,12 @@ import { NextResponse } from 'next/server';
 import { makeClient, GetxapiAuthError } from '@/lib/getxapi';
 import { mapRawTweet, mapRawUser } from '@/lib/mappers';
 
+import { requireAllowedUser } from '@/lib/authGuard';
 const KINDS = new Set(['replies', 'thread', 'retweeters']);
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string; kind: string }> }) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const { id, kind } = await ctx.params;
   if (!KINDS.has(kind)) return NextResponse.json({ error: `unknown kind: ${kind}` }, { status: 404 });
   const cursor = new URL(req.url).searchParams.get('cursor') ?? undefined;

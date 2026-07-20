@@ -6,6 +6,7 @@ import { computePillarStats, type PillarPayload } from '@/lib/pillarStats';
 import { getAnalysis, saveAnalysis, addAssignments, listAnalysisTweets, pruneStaleAssignments } from '@/lib/pillarStore';
 import type postgres from 'postgres';
 
+import { requireAllowedUser } from '@/lib/authGuard';
 async function payload(sql: postgres.Sql, columnId: string): Promise<PillarPayload> {
   const analysis = await getAnalysis(sql, columnId);
   if (!analysis) return { analysis: null, stats: null, tweetTopics: {}, unassignedCount: 0, samplePeriod: null };
@@ -29,11 +30,15 @@ async function payload(sql: postgres.Sql, columnId: string): Promise<PillarPaylo
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const { id } = await ctx.params;
   return NextResponse.json(await payload(getSql(), id));
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const { id } = await ctx.params;
   const sql = getSql();
   const col = await getColumn(sql, id);

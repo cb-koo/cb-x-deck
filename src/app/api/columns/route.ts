@@ -3,13 +3,18 @@ import { getSql } from '@/lib/db';
 import { createColumn, listColumns } from '@/lib/columnStore';
 import { makeClient } from '@/lib/getxapi';
 
+import { requireAllowedUser } from '@/lib/authGuard';
 export async function GET(req: Request) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const workspaceId = new URL(req.url).searchParams.get('workspaceId');
   if (!workspaceId) return NextResponse.json({ error: 'workspaceId 필수' }, { status: 400 });
   return NextResponse.json(await listColumns(getSql(), workspaceId));
 }
 
 export async function POST(req: Request) {
+  const gate = await requireAllowedUser();
+  if (gate.response) return gate.response;
   const body = await req.json();
   if (!body?.kind || !body?.title || !body?.config) {
     return NextResponse.json({ error: 'kind, title, config 필수' }, { status: 400 });

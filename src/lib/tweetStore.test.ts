@@ -204,3 +204,8 @@ test('getColumnTweets: dir asc/desc 정렬 반전', async () => {
     await deleteWorkspace(sql, ws.id);
   }
 });
+
+test('getColumnTweets: uuid 형식이 아닌 컬럼 id는 예외 없이 [] 반환 (getColumnTweetCount와 대칭)', async () => {
+  const rows = await getColumnTweets(sql, 'no-such-column-id', { sort: 'views' });
+  assert.deepEqual(rows, []);
+});

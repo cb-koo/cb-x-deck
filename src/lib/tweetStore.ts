@@ -38,6 +38,11 @@ const ORDER_EXPR: Record<SortKey, string> = {
   retweets: `(t.metrics->>'retweets')::bigint`,
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuidLike(id: string): boolean {
+  return UUID_RE.test(id);
+}
+
 type TweetRow = {
   tweet_id: string; author_handle: string; author_name: string | null; author_avatar_url: string | null;
   author_followers: string | number | null; text: string; media: StoredTweet['media'];
@@ -94,6 +99,9 @@ export async function getColumnTweets(
   sql: postgres.Sql, columnId: string,
   opts: { sort: SortKey; offset?: number; dismissed?: 'exclude' | 'only'; dir?: SortDir },
 ): Promise<StoredTweet[]> {
+  // columnId가 uuid 형식이 아니면 조회 없이 즉시 [] 반환 — deck_column.id는 uuid 컬럼이라
+  // 형식이 안 맞는 문자열을 그대로 넘기면 postgres가 "없음"이 아니라 캐스팅 오류(22P02)를 던진다.
+  if (!isUuidLike(columnId)) return [];
   const [col] = await sql<Array<{ workspace_id: string }>>`select workspace_id from deck_column where id = ${columnId}`;
   if (!col) return [];
   const offset = Math.max(0, Math.floor(opts.offset ?? 0));
@@ -123,14 +131,12 @@ export async function getColumnTweets(
   return rows.map(toStored);
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export async function getColumnTweetCount(
   sql: postgres.Sql, columnId: string, opts: { dismissed?: 'exclude' | 'only' } = {},
 ): Promise<number> {
   // columnId가 uuid 형식이 아니면 조회 없이 즉시 0 반환 — deck_column.id는 uuid 컬럼이라
   // 형식이 안 맞는 문자열을 그대로 넘기면 postgres가 "없음"이 아니라 캐스팅 오류(22P02)를 던진다.
-  if (!UUID_RE.test(columnId)) return 0;
+  if (!isUuidLike(columnId)) return 0;
   const [col] = await sql<Array<{ workspace_id: string }>>`select workspace_id from deck_column where id = ${columnId}`;
   if (!col) return 0;
   const [row] = await sql.unsafe<Array<{ n: string }>>(

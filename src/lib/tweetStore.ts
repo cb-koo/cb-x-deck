@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import type { DeckTweet, SortKey, StoredTweet } from './types.ts';
+import type { DeckTweet, SortDir, SortKey, StoredTweet } from './types.ts';
 
 export async function upsertTweets(sql: postgres.Sql, tweets: DeckTweet[]): Promise<{ inserted: number; updated: number }> {
   let inserted = 0, updated = 0;
@@ -31,12 +31,17 @@ export async function linkColumnTweets(sql: postgres.Sql, columnId: string, twee
   }
 }
 
-const ORDER: Record<SortKey, string> = {
-  views: `(t.metrics->>'views')::bigint desc nulls last`,
-  date: `t.tweet_created_at desc nulls last`,
-  bookmarks: `(t.metrics->>'bookmarks')::bigint desc nulls last`,
-  retweets: `(t.metrics->>'retweets')::bigint desc nulls last`,
+const ORDER_EXPR: Record<SortKey, string> = {
+  views: `(t.metrics->>'views')::bigint`,
+  date: `t.tweet_created_at`,
+  bookmarks: `(t.metrics->>'bookmarks')::bigint`,
+  retweets: `(t.metrics->>'retweets')::bigint`,
 };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuidLike(id: string): boolean {
+  return UUID_RE.test(id);
+}
 
 type TweetRow = {
   tweet_id: string; author_handle: string; author_name: string | null; author_avatar_url: string | null;
@@ -91,11 +96,17 @@ export async function getTweetsByIds(sql: postgres.Sql, tweetIds: string[]): Pro
 export const PAGE_SIZE = 200;
 
 export async function getColumnTweets(
-  sql: postgres.Sql, columnId: string, opts: { sort: SortKey; offset?: number; dismissed?: 'exclude' | 'only' },
+  sql: postgres.Sql, columnId: string,
+  opts: { sort: SortKey; offset?: number; dismissed?: 'exclude' | 'only'; dir?: SortDir },
 ): Promise<StoredTweet[]> {
+  // columnId가 uuid 형식이 아니면 조회 없이 즉시 [] 반환 — deck_column.id는 uuid 컬럼이라
+  // 형식이 안 맞는 문자열을 그대로 넘기면 postgres가 "없음"이 아니라 캐스팅 오류(22P02)를 던진다.
+  if (!isUuidLike(columnId)) return [];
   const [col] = await sql<Array<{ workspace_id: string }>>`select workspace_id from deck_column where id = ${columnId}`;
   if (!col) return [];
   const offset = Math.max(0, Math.floor(opts.offset ?? 0));
+  const orderExpr = ORDER_EXPR[opts.sort] ?? ORDER_EXPR.views;
+  const orderDir = opts.dir === 'asc' ? 'asc nulls first' : 'desc nulls last';
   const rows = await sql.unsafe<TweetRow[]>(
     // is_new: 직전 새로고침(prev_refreshed_at) 이후 이 컬럼에 처음 들어온 트윗.
     // prev가 null(첫 새로고침 이전/직후)이면 전부 false — 전부 신규일 땐 배지가 정보가 아니므로.
@@ -113,9 +124,30 @@ export async function getColumnTweets(
         and ${opts.dismissed === 'only'
               ? `exists (select 1 from dismissed_tweet d where d.workspace_id = $2 and d.tweet_id = t.tweet_id)`
               : `not exists (select 1 from dismissed_tweet d where d.workspace_id = $2 and d.tweet_id = t.tweet_id)`}
-      order by ${ORDER[opts.sort] ?? ORDER.views}, t.tweet_id
+      order by ${orderExpr} ${orderDir}, t.tweet_id
       limit ${PAGE_SIZE} offset $3`,
     [columnId, col.workspace_id, offset],
   );
   return rows.map(toStored);
+}
+
+export async function getColumnTweetCount(
+  sql: postgres.Sql, columnId: string, opts: { dismissed?: 'exclude' | 'only' } = {},
+): Promise<number> {
+  // columnId가 uuid 형식이 아니면 조회 없이 즉시 0 반환 — deck_column.id는 uuid 컬럼이라
+  // 형식이 안 맞는 문자열을 그대로 넘기면 postgres가 "없음"이 아니라 캐스팅 오류(22P02)를 던진다.
+  if (!isUuidLike(columnId)) return 0;
+  const [col] = await sql<Array<{ workspace_id: string }>>`select workspace_id from deck_column where id = ${columnId}`;
+  if (!col) return 0;
+  const [row] = await sql.unsafe<Array<{ n: string }>>(
+    `select count(*)::text as n
+       from column_tweet ct
+       join tweet t on t.tweet_id = ct.tweet_id
+      where ct.column_id = $1
+        and ${opts.dismissed === 'only'
+              ? `exists (select 1 from dismissed_tweet d where d.workspace_id = $2 and d.tweet_id = t.tweet_id)`
+              : `not exists (select 1 from dismissed_tweet d where d.workspace_id = $2 and d.tweet_id = t.tweet_id)`}`,
+    [columnId, col.workspace_id],
+  );
+  return Number(row?.n ?? 0);
 }

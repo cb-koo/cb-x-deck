@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
-import { getColumnTweets } from '@/lib/tweetStore';
+import { getColumnTweets, getColumnTweetCount } from '@/lib/tweetStore';
 import type { SortKey } from '@/lib/types';
 
 import { requireAllowedUser } from '@/lib/authGuard';
@@ -14,5 +14,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const sort = (SORTS.includes(sp.get('sort') as SortKey) ? sp.get('sort') : 'views') as SortKey;
   const offset = Math.max(0, parseInt(sp.get('offset') ?? '0', 10) || 0);
   const dismissed = sp.get('dismissed') === 'only' ? 'only' : 'exclude';
-  return NextResponse.json(await getColumnTweets(getSql(), id, { sort, offset, dismissed }));
+  const dir = sp.get('dir') === 'asc' ? 'asc' : 'desc';
+  const sql = getSql();
+  const [tweets, total] = await Promise.all([
+    getColumnTweets(sql, id, { sort, offset, dismissed, dir }),
+    getColumnTweetCount(sql, id, { dismissed }),
+  ]);
+  return NextResponse.json({ tweets, total });
 }

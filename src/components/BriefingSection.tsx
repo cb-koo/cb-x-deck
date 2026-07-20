@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useMember } from '@/lib/memberContext';
 import type { ColumnRow } from '@/lib/types';
@@ -335,7 +336,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
     let stale = false;
     (async () => {
       try {
-        const r = await fetch(`/api/candidates?workspaceId=${wsId}&memberId=${member.id}`);
+        const r = await apiFetch(`/api/candidates?workspaceId=${wsId}&memberId=${member.id}`);
         if (!r.ok || stale) return;
         const rows = (await r.json()) as Array<{ tweet: { tweetId: string } }>;
         if (stale) return;
@@ -350,11 +351,11 @@ export function BriefingSection({ wsId }: { wsId: string }) {
     setErr('');
     try {
       if (savedIds.has(tweetId)) {
-        const r = await fetch(`/api/candidates?tweetId=${tweetId}&workspaceId=${wsId}&memberId=${member.id}`, { method: 'DELETE' });
+        const r = await apiFetch(`/api/candidates?tweetId=${tweetId}&workspaceId=${wsId}&memberId=${member.id}`, { method: 'DELETE' });
         if (r.ok) setSavedIds((prev) => { const n = new Set(prev); n.delete(tweetId); return n; });
         else setErr(`보관함에서 제거하지 못했어요 (오류 ${r.status})`);
       } else {
-        const r = await fetch('/api/candidates', {
+        const r = await apiFetch('/api/candidates', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tweetId, sourceColumnId: current?.columnId ?? null, workspaceId: wsId, memberId: member.id }),
         });
@@ -365,13 +366,13 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   }, [member, savedIds, wsId, current]);
 
   const loadList = useCallback(async () => {
-    const r = await fetch(`/api/briefings?workspaceId=${wsId}`);
+    const r = await apiFetch(`/api/briefings?workspaceId=${wsId}`);
     if (r.ok) setList((await r.json()) as BriefingListRow[]);
   }, [wsId]);
 
   useEffect(() => {
     (async () => {
-      const r = await fetch(`/api/columns?workspaceId=${wsId}`);
+      const r = await apiFetch(`/api/columns?workspaceId=${wsId}`);
       if (r.ok) setColumns((await r.json()) as ColumnRow[]);
     })();
     loadList();
@@ -384,7 +385,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
     let stale = false;
     (async () => {
       try {
-        const r = await fetch(`/api/columns/${columnId}/trend`);
+        const r = await apiFetch(`/api/columns/${columnId}/trend`);
         if (!r.ok || stale) return;
         const t = (await r.json()) as TrendPayload;
         if (stale) return;
@@ -409,7 +410,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
       const body = kind === 'watchlist'
         ? { maxPages: 10 }
         : { sinceDate: preview.since, untilDate: new Date().toISOString().slice(0, 10) };
-      const r = await fetch(`/api/columns/${columnId}/refresh`, {
+      const r = await apiFetch(`/api/columns/${columnId}/refresh`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       if (r.ok) setPreviewKey((k) => k + 1);
@@ -420,7 +421,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   async function generate() {
     setBusy(true); setErr('');
     try {
-      const r = await fetch('/api/briefings', {
+      const r = await apiFetch('/api/briefings', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ columnId, weeks, memberId: member?.id ?? null }),
       });
@@ -436,7 +437,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   async function open(id: string) {
     setErr('');
     try {
-      const r = await fetch(`/api/briefings/${id}`);
+      const r = await apiFetch(`/api/briefings/${id}`);
       if (r.ok) setCurrent((await r.json()) as BriefingRow);
       else setErr(`브리핑을 불러오지 못했어요 (오류 ${r.status})`);
     } catch { setErr('네트워크 오류 — 다시 시도해주세요'); }
@@ -445,7 +446,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
     if (!window.confirm('이 브리핑을 삭제할까요? 되돌릴 수 없어요.')) return;
     setErr('');
     try {
-      const r = await fetch(`/api/briefings/${id}`, { method: 'DELETE' });
+      const r = await apiFetch(`/api/briefings/${id}`, { method: 'DELETE' });
       if (!r.ok) { setErr(`삭제하지 못했어요 (오류 ${r.status})`); return; }
       if (current?.id === id) setCurrent(null);
       await loadList();

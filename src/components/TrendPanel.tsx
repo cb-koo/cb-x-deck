@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import type { ColumnKind } from '@/lib/types';
 import type { TrendPayload } from '@/lib/trend';
@@ -23,7 +24,7 @@ export function TrendPanel({ columnId, kind, onAfterBackfill, onClose }: {
   const [err, setErr] = useState('');
 
   const load = useCallback(async () => {
-    const r = await fetch(`/api/columns/${columnId}/trend`);
+    const r = await apiFetch(`/api/columns/${columnId}/trend`);
     if (r.ok) setData((await r.json()) as TrendPayload);
     else setErr(`오류 ${r.status}`);
   }, [columnId]);
@@ -37,7 +38,7 @@ export function TrendPanel({ columnId, kind, onAfterBackfill, onClose }: {
       const body = kind === 'watchlist'
         ? { maxPages: 10 }
         : { sinceDate: data.weekly[0].weekStart, untilDate: new Date().toISOString().slice(0, 10) };
-      const r = await fetch(`/api/columns/${columnId}/refresh`, {
+      const r = await apiFetch(`/api/columns/${columnId}/refresh`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       if (r.ok) { onAfterBackfill(); await load(); }

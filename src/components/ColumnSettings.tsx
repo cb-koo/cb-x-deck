@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { useState } from 'react';
 import type { ColumnKind, ColumnRow, SearchConfig, WatchlistConfig } from '@/lib/types';
 import type { KwPair } from '@/lib/suggest';
@@ -53,7 +54,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
     setErr('');
     setTranslating(true);
     try {
-      const r = await fetch('/api/translate-keyword', {
+      const r = await apiFetch('/api/translate-keyword', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: t }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `번역 오류 ${r.status}`);
@@ -67,7 +68,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
     const base = kwInput.trim() || keywords[keywords.length - 1]?.ja;
     if (!base) return;
     setBusy(true);
-    const r = await fetch('/api/suggest-keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: base }) });
+    const r = await apiFetch('/api/suggest-keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: base }) });
     setSug(r.ok ? await r.json() : { variants: [], adjacent: [] });
     setBusy(false);
   }
@@ -79,7 +80,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
     if (kws.length === 0) { setErr('키워드를 먼저 입력하세요'); return; }
     setProbing(true); setErr('');
     try {
-      const r = await fetch('/api/research/density', {
+      const r = await apiFetch('/api/research/density', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keywords: kws, lang: lang || 'ja' }),
       });

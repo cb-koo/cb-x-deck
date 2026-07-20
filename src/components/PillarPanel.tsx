@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useState } from 'react';
 import type { PillarPayload } from '@/lib/pillarStats';
 import { formatCount } from '@/lib/format';
@@ -27,14 +28,14 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
   const apply = useCallback((p: PillarPayload) => { setData(p); onData(p); }, [onData]);
 
   const load = useCallback(async () => {
-    const r = await fetch(`/api/columns/${columnId}/pillar`);
+    const r = await apiFetch(`/api/columns/${columnId}/pillar`);
     if (r.ok) apply((await r.json()) as PillarPayload);
   }, [columnId, apply]);
   useEffect(() => { load(); }, [load]);
 
   async function run(mode: 'full' | 'incremental') {
     setBusy(mode); setErr('');
-    const r = await fetch(`/api/columns/${columnId}/pillar`, {
+    const r = await apiFetch(`/api/columns/${columnId}/pillar`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }),
     });
     if (r.ok) apply((await r.json()) as PillarPayload);
@@ -45,7 +46,7 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
   // 표본 부족 시 과거 백필(새로고침 10페이지) — 수집만 하고, 분류는 사용자가 버튼으로(비용 opt-in)
   async function backfill() {
     setBusy('backfill'); setErr('');
-    const r = await fetch(`/api/columns/${columnId}/refresh`, {
+    const r = await apiFetch(`/api/columns/${columnId}/refresh`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maxPages: 10 }),
     });
     if (r.ok) { onAfterBackfill(); await load(); }

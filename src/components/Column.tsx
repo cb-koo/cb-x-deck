@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ColumnRow, SearchConfig, SortKey, StoredTweet, ViewMode } from '@/lib/types';
 import { useMember } from '@/lib/memberContext';
@@ -78,7 +79,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
       document.removeEventListener('mouseup', up);
       document.body.style.cursor = '';
       if (w !== startW) {
-        fetch(`/api/columns/${column.id}`, {
+        apiFetch(`/api/columns/${column.id}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ config: { ...column.config, width: w } }),
         });
@@ -94,7 +95,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   const [loadingMore, setLoadingMore] = useState(false);
 
   const load = useCallback(async (s: SortKey) => {
-    const r = await fetch(`/api/columns/${column.id}/tweets?sort=${s}${showDismissed ? '&dismissed=only' : ''}`);
+    const r = await apiFetch(`/api/columns/${column.id}/tweets?sort=${s}${showDismissed ? '&dismissed=only' : ''}`);
     if (r.ok) {
       const page = (await r.json()) as StoredTweet[];
       setTweets(page);
@@ -106,7 +107,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   async function loadMore() {
     setLoadingMore(true);
     try {
-      const r = await fetch(`/api/columns/${column.id}/tweets?sort=${sort}&offset=${tweets.length}${showDismissed ? '&dismissed=only' : ''}`);
+      const r = await apiFetch(`/api/columns/${column.id}/tweets?sort=${sort}&offset=${tweets.length}${showDismissed ? '&dismissed=only' : ''}`);
       if (r.ok) {
         const page = (await r.json()) as StoredTweet[];
         setTweets((prev) => [...prev, ...page]);
@@ -133,7 +134,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
 
   async function refresh() {
     setBusy(true); setErr('');
-    const r = await fetch(`/api/columns/${column.id}/refresh`, { method: 'POST' });
+    const r = await apiFetch(`/api/columns/${column.id}/refresh`, { method: 'POST' });
     if (r.ok) {
       setLastRefreshed(new Date().toISOString());
       await load(sort);
@@ -145,7 +146,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
 
   async function save(tweetId: string) {
     if (!member) { setErr('사이드바에서 멤버를 선택하세요'); return; }
-    await fetch('/api/candidates', {
+    await apiFetch('/api/candidates', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tweetId, sourceColumnId: column.id, workspaceId: column.workspaceId, memberId: member.id }),
     });
@@ -153,19 +154,19 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   }
   async function unsave(tweetId: string) {
     if (!member) { setErr('사이드바에서 멤버를 선택하세요'); return; }
-    await fetch(`/api/candidates?tweetId=${tweetId}&workspaceId=${column.workspaceId}&memberId=${member.id}`, { method: 'DELETE' });
+    await apiFetch(`/api/candidates?tweetId=${tweetId}&workspaceId=${column.workspaceId}&memberId=${member.id}`, { method: 'DELETE' });
     await load(sort);
   }
 
   async function dismissTweet(tweetId: string) {
-    await fetch('/api/dismissed', {
+    await apiFetch('/api/dismissed', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tweetId, workspaceId: column.workspaceId, memberId: member?.id ?? null }),
     });
     await load(sort);
   }
   async function undismissTweet(tweetId: string) {
-    await fetch(`/api/dismissed?tweetId=${tweetId}&workspaceId=${column.workspaceId}`, { method: 'DELETE' });
+    await apiFetch(`/api/dismissed?tweetId=${tweetId}&workspaceId=${column.workspaceId}`, { method: 'DELETE' });
     await load(sort);
   }
 

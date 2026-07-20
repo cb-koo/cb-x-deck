@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { useEffect, useState } from 'react';
 import type { CandidateRow } from '@/lib/types';
 import type { CandidateGroup } from '@/lib/candidateGroups';
@@ -11,7 +12,7 @@ export function CandidateCard({ group, meId, onChanged }: { group: CandidateGrou
   async function unsave() {
     if (!mine) return;
     if (!confirm('내 코멘트를 제거할까요? (내 메모·태그만 삭제, 다른 멤버 코멘트는 유지)')) return;
-    await fetch(`/api/candidates?tweetId=${group.tweet.tweetId}&workspaceId=${mine.workspaceId}&memberId=${mine.member.id}`, { method: 'DELETE' });
+    await apiFetch(`/api/candidates?tweetId=${group.tweet.tweetId}&workspaceId=${mine.workspaceId}&memberId=${mine.member.id}`, { method: 'DELETE' });
     onChanged();
   }
 
@@ -46,18 +47,18 @@ function MyComment({ entry: e, onChanged, onUnsave }: { entry: CandidateRow; onC
 
   async function saveMemo() {
     if (memo === e.memo) return;
-    await fetch(`/api/candidates/${e.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memo }) });
+    await apiFetch(`/api/candidates/${e.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memo }) });
     onChanged();
   }
   async function addTag() {
     const name = tagInput.trim();
     if (!name) return;
-    await fetch(`/api/candidates/${e.id}/tags`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    await apiFetch(`/api/candidates/${e.id}/tags`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
     setTagInput('');
     onChanged();
   }
   async function removeTag(tagId: string) {
-    await fetch(`/api/candidates/${e.id}/tags/${tagId}`, { method: 'DELETE' });
+    await apiFetch(`/api/candidates/${e.id}/tags/${tagId}`, { method: 'DELETE' });
     onChanged();
   }
 
@@ -109,13 +110,13 @@ function AddComment({ tweetId, workspaceId, meId, onChanged }: { tweetId: string
     if (!memo || busy) return;
     setBusy(true);
     try {
-      const res = await fetch('/api/candidates', {
+      const res = await apiFetch('/api/candidates', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tweetId, workspaceId, memberId: meId }),
       });
       if (!res.ok) return;
       const created = await res.json();
-      await fetch(`/api/candidates/${created.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memo }) });
+      await apiFetch(`/api/candidates/${created.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memo }) });
       setText('');
       onChanged();
     } finally { setBusy(false); }

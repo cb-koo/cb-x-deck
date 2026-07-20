@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
@@ -29,7 +30,7 @@ export default function ResearchPage() {
     setError(null);
     setCreatedColumn(null);
     try {
-      const res = await fetch('/api/research/search', {
+      const res = await apiFetch('/api/research/search', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q }),
       });
       const body = await res.json();
@@ -43,7 +44,7 @@ export default function ResearchPage() {
 
   async function extract(r: ExaResult) {
     setExtractions((m) => ({ ...m, [r.url]: 'loading' }));
-    const res = await fetch('/api/research/extract', {
+    const res = await apiFetch('/api/research/extract', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: r.title ?? '', text: r.text }),
     });
@@ -66,7 +67,7 @@ export default function ResearchPage() {
     setError(null);
     try {
       const title = selected.map(chipLabel).join('·');
-      const res = await fetch('/api/columns', {
+      const res = await apiFetch('/api/columns', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspaceId: wsId, kind: 'search', title,

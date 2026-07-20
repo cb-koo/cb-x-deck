@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import type { Workspace } from '@/lib/types';
@@ -22,7 +23,7 @@ export function Sidebar({ wsId }: { wsId: string }) {
   const [wsErr, setWsErr] = useState('');
 
   useEffect(() => {
-    fetch('/api/workspaces').then((r) => r.json()).then(setWorkspaces);
+    apiFetch('/api/workspaces').then((r) => r.json()).then(setWorkspaces);
   }, []);
 
   async function createWs() {
@@ -30,7 +31,7 @@ export function Sidebar({ wsId }: { wsId: string }) {
     if (!name || creating.current) return;
     creating.current = true; // 한글 IME Enter 이중 발화·더블클릭으로 인한 중복 생성 방지
     try {
-      const r = await fetch('/api/workspaces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      const r = await apiFetch('/api/workspaces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
       if (r.ok) {
         const w = (await r.json()) as Workspace;
         setWorkspaces([...workspaces, w]);
@@ -46,7 +47,7 @@ export function Sidebar({ wsId }: { wsId: string }) {
     creating.current = true;
     try {
       const color = MEMBER_COLORS[members.length % MEMBER_COLORS.length];
-      const r = await fetch('/api/members', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color }) });
+      const r = await apiFetch('/api/members', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color }) });
       if (r.ok) {
         const m = await r.json();
         await reloadMembers();
@@ -60,14 +61,14 @@ export function Sidebar({ wsId }: { wsId: string }) {
   async function askDeleteWs() {
     setWsErr('');
     if (workspaces.length <= 1) { setWsErr('마지막 워크스페이스는 삭제할 수 없습니다'); return; }
-    const r = await fetch(`/api/columns?workspaceId=${wsId}`);
+    const r = await apiFetch(`/api/columns?workspaceId=${wsId}`);
     const colCount = r.ok ? ((await r.json()) as unknown[]).length : 0;
     setConfirmDelete({ colCount });
   }
 
   // 삭제 2단계: 확정 → 삭제 후 첫 워크스페이스로 이동
   async function confirmDeleteWs() {
-    const r = await fetch(`/api/workspaces/${wsId}`, { method: 'DELETE' });
+    const r = await apiFetch(`/api/workspaces/${wsId}`, { method: 'DELETE' });
     if (!r.ok) {
       setWsErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`);
       setConfirmDelete(null);

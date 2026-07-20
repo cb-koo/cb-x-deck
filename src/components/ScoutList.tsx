@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useState } from 'react';
 import { formatCount } from '@/lib/format';
 import type { Member } from '@/lib/types';
@@ -22,14 +23,14 @@ export function ScoutList({ wsId }: { wsId: string }) {
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
-    const r = await fetch(`/api/scouts?workspaceId=${encodeURIComponent(wsId)}`);
+    const r = await apiFetch(`/api/scouts?workspaceId=${encodeURIComponent(wsId)}`);
     if (r.ok) setScouts(((await r.json()) as { scouts: ScoutRow[] }).scouts);
     setLoaded(true);
   }, [wsId]);
   useEffect(() => { load(); }, [load]);
 
   async function remove(handle: string) {
-    await fetch(`/api/scouts?workspaceId=${encodeURIComponent(wsId)}&handle=${encodeURIComponent(handle)}`, { method: 'DELETE' });
+    await apiFetch(`/api/scouts?workspaceId=${encodeURIComponent(wsId)}&handle=${encodeURIComponent(handle)}`, { method: 'DELETE' });
     load();
   }
 

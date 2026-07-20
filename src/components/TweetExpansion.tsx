@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useParams } from 'next/navigation';
@@ -40,7 +41,7 @@ export function TweetExpansion({ tweetId, toolbarRight }: { tweetId: string; too
     const gen = genRef.current;
     setBusy(true); setErr('');
     try {
-      const r = await fetch(`/api/tweets/${tweetId}/${k}${cur ? `?cursor=${encodeURIComponent(cur)}` : ''}`);
+      const r = await apiFetch(`/api/tweets/${tweetId}/${k}${cur ? `?cursor=${encodeURIComponent(cur)}` : ''}`);
       if (gen !== genRef.current) return; // stale — 다른 kind로 전환됨
       if (!r.ok) {
         setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? '불러오기 실패 — 다시 시도');
@@ -56,7 +57,7 @@ export function TweetExpansion({ tweetId, toolbarRight }: { tweetId: string; too
         });
         if (replace && wsId) {
           // 저장된 섭외 후보 표시용 — 실패해도 목록 표시 자체는 그대로 유지
-          fetch(`/api/scouts?workspaceId=${encodeURIComponent(wsId)}`)
+          apiFetch(`/api/scouts?workspaceId=${encodeURIComponent(wsId)}`)
             .then((rr) => (rr.ok ? rr.json() : null))
             .then((jj: { scouts?: Array<{ handle: string }> } | null) => {
               if (gen !== genRef.current || !jj?.scouts) return;
@@ -91,10 +92,10 @@ export function TweetExpansion({ tweetId, toolbarRight }: { tweetId: string; too
     const saved = savedHandles.has(u.handle);
     try {
       if (saved) {
-        const r = await fetch(`/api/scouts?workspaceId=${encodeURIComponent(wsId)}&handle=${encodeURIComponent(u.handle)}`, { method: 'DELETE' });
+        const r = await apiFetch(`/api/scouts?workspaceId=${encodeURIComponent(wsId)}&handle=${encodeURIComponent(u.handle)}`, { method: 'DELETE' });
         if (r.ok) setSavedHandles((prev) => { const next = new Set(prev); next.delete(u.handle); return next; });
       } else {
-        const r = await fetch('/api/scouts', {
+        const r = await apiFetch('/api/scouts', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             workspaceId: wsId, handle: u.handle, name: u.name, avatarUrl: u.avatarUrl, bio: u.bio,

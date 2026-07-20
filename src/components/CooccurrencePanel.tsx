@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { useEffect, useMemo, useState } from 'react';
 import type { StoredTweet } from '@/lib/types';
 import { hashtagCooccurrence } from '@/lib/cooccurrence';
@@ -30,7 +31,7 @@ export function CooccurrencePanel({ tweets, excludeKeywords, onPick }: {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch('/api/translate-tags', {
+        const r = await apiFetch('/api/translate-tags', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: missing }),
         });
         if (!r.ok) { if (!cancelled) setKo(cache); return; }

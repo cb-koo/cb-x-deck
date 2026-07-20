@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import type { CandidateRow } from '@/lib/types';
@@ -22,8 +23,8 @@ export default function LibraryPage() {
   // 전량 fetch 후 클라이언트에서 그룹 단위 필터 — 서버 필터를 쓰면 같은 트윗의 타인 코멘트 행이 잘려나감
   const load = useCallback(async () => {
     const [cr, tr] = await Promise.all([
-      fetch(`/api/candidates?workspaceId=${wsId}`),
-      fetch(`/api/tags?workspaceId=${wsId}`),
+      apiFetch(`/api/candidates?workspaceId=${wsId}`),
+      apiFetch(`/api/tags?workspaceId=${wsId}`),
     ]);
     if (cr.ok) setCandidates(await cr.json());
     if (tr.ok) setTags(await tr.json());

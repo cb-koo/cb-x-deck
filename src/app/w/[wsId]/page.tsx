@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import type { ColumnKind, ColumnRow, SearchConfig, WatchlistConfig } from '@/lib/types';
@@ -12,14 +13,14 @@ export default function DeckPage() {
   const [autoRefreshId, setAutoRefreshId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const r = await fetch(`/api/columns?workspaceId=${wsId}`);
+    const r = await apiFetch(`/api/columns?workspaceId=${wsId}`);
     if (r.ok) setColumns(await r.json());
   }, [wsId]);
   useEffect(() => { load(); }, [load]);
 
   async function submit(v: { kind: ColumnKind; title: string; config: SearchConfig | WatchlistConfig }) {
     const isEdit = modal?.mode === 'edit' && modal.column;
-    const r = await fetch(isEdit ? `/api/columns/${modal.column!.id}` : '/api/columns', {
+    const r = await apiFetch(isEdit ? `/api/columns/${modal.column!.id}` : '/api/columns', {
       method: isEdit ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(isEdit ? { title: v.title, config: v.config } : { ...v, workspaceId: wsId }),
@@ -31,7 +32,7 @@ export default function DeckPage() {
 
   async function remove(col: ColumnRow) {
     if (!confirm(`컬럼 "${col.title}" 삭제? (보관함의 후보는 유지됩니다)`)) return;
-    await fetch(`/api/columns/${col.id}`, { method: 'DELETE' });
+    await apiFetch(`/api/columns/${col.id}`, { method: 'DELETE' });
     await load();
   }
 

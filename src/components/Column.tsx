@@ -145,7 +145,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   }
 
   async function save(tweetId: string) {
-    if (!member) { setErr('사이드바에서 멤버를 선택하세요'); return; }
+    if (!member) { setErr('내 정보를 불러오는 중입니다. 잠시 후 다시 시도하세요'); return; }
     await apiFetch('/api/candidates', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tweetId, sourceColumnId: column.id, workspaceId: column.workspaceId, memberId: member.id }),
@@ -153,7 +153,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
     await load(sort);
   }
   async function unsave(tweetId: string) {
-    if (!member) { setErr('사이드바에서 멤버를 선택하세요'); return; }
+    if (!member) { setErr('내 정보를 불러오는 중입니다. 잠시 후 다시 시도하세요'); return; }
     await apiFetch(`/api/candidates?tweetId=${tweetId}&workspaceId=${column.workspaceId}&memberId=${member.id}`, { method: 'DELETE' });
     await load(sort);
   }

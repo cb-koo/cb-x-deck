@@ -1,37 +1,31 @@
 'use client';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { apiFetch } from './apiFetch';
 import type { Member } from './types';
 
 interface MemberCtx {
-  member: Member | null;
-  members: Member[];
-  selectMember: (id: string) => void;
+  member: Member | null;   // 로그인 본인
+  members: Member[];       // 필터용 전체 목록
   reloadMembers: () => Promise<void>;
 }
 
-const Ctx = createContext<MemberCtx>({ member: null, members: [], selectMember: () => {}, reloadMembers: async () => {} });
+const Ctx = createContext<MemberCtx>({ member: null, members: [], reloadMembers: async () => {} });
 
 export function MemberProvider({ children }: { children: React.ReactNode }) {
   const [members, setMembers] = useState<Member[]>([]);
-  const [memberId, setMemberId] = useState<string | null>(null);
+  const [member, setMember] = useState<Member | null>(null);
 
   const reloadMembers = useCallback(async () => {
-    const r = await fetch('/api/members');
+    const r = await apiFetch('/api/members');
     if (r.ok) setMembers(await r.json());
   }, []);
 
   useEffect(() => {
     reloadMembers();
-    setMemberId(localStorage.getItem('cbxdeck-member'));
+    apiFetch('/api/me').then((r) => r.ok ? r.json() : null).then((m) => m && setMember(m)).catch(() => {});
   }, [reloadMembers]);
 
-  const selectMember = (id: string) => {
-    localStorage.setItem('cbxdeck-member', id);
-    setMemberId(id);
-  };
-
-  const member = members.find((m) => m.id === memberId) ?? null;
-  return <Ctx.Provider value={{ member, members, selectMember, reloadMembers }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ member, members, reloadMembers }}>{children}</Ctx.Provider>;
 }
 
 export const useMember = () => useContext(Ctx);

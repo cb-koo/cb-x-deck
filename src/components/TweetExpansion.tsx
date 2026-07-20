@@ -186,9 +186,9 @@ export function TweetExpansion({ tweetId, toolbarRight }: { tweetId: string; too
               </p>
             )
           )}
-          {/* 멤버 미선택 안내는 행마다 반복하지 않고 한 줄만 (행에서는 저장 버튼 비노출) */}
+          {/* 내 정보 로딩 중 안내는 행마다 반복하지 않고 한 줄만 (행에서는 저장 버튼 비노출) */}
           {kind === 'retweeters' && users.length > 0 && wsId && !member && (
-            <p className="mb-1 text-caption text-x-muted">후보를 저장하려면 사이드바에서 멤버를 선택하세요</p>
+            <p className="mb-1 text-caption text-x-muted">내 정보를 불러오는 중입니다…</p>
           )}
           {kind === 'retweeters' && candidates.map((u) => <UserRow key={u.handle} u={u} />)}
           {kind === 'retweeters' && rest.length > 0 && (

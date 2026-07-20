@@ -6,17 +6,13 @@ import type { Workspace } from '@/lib/types';
 import { useMember } from '@/lib/memberContext';
 import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon } from './XIcons';
 
-const MEMBER_COLORS = ['#1d9bf0', '#00ba7c', '#f91880', '#7856ff', '#ff7a00', '#ffd400'];
-
 export function Sidebar({ wsId }: { wsId: string }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { member, members, selectMember, reloadMembers } = useMember();
+  const { member } = useMember();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [newWs, setNewWs] = useState('');
-  const [newMember, setNewMember] = useState('');
   const [addingWs, setAddingWs] = useState(false);
-  const [addingMember, setAddingMember] = useState(false);
   const creating = useRef(false);
   // 삭제 확인 상태: null=평상시, {colCount}=확인 대기
   const [confirmDelete, setConfirmDelete] = useState<{ colCount: number } | null>(null);
@@ -37,22 +33,6 @@ export function Sidebar({ wsId }: { wsId: string }) {
         setWorkspaces([...workspaces, w]);
         setNewWs(''); setAddingWs(false);
         router.push(`/w/${w.id}`);
-      }
-    } finally { creating.current = false; }
-  }
-
-  async function createNewMember() {
-    const name = newMember.trim();
-    if (!name || creating.current) return;
-    creating.current = true;
-    try {
-      const color = MEMBER_COLORS[members.length % MEMBER_COLORS.length];
-      const r = await apiFetch('/api/members', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color }) });
-      if (r.ok) {
-        const m = await r.json();
-        await reloadMembers();
-        selectMember(m.id);
-        setNewMember(''); setAddingMember(false);
       }
     } finally { creating.current = false; }
   }
@@ -129,21 +109,14 @@ export function Sidebar({ wsId }: { wsId: string }) {
       </nav>
 
       <div className="border-t border-x-border pt-2">
-        <p className="mb-1 px-1 text-caption text-x-muted">멤버 (내가 누구인지)</p>
-        {!member && <p className="mb-1 px-1 text-caption text-amber-600">멤버를 선택해야 저장·봤음이 기록됩니다</p>}
-        <select value={member?.id ?? ''} onChange={(e) => e.target.value && selectMember(e.target.value)}
-                className="mb-1 w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue">
-          <option value="">— 선택 —</option>
-          {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
-        {addingMember ? (
-          <div className="flex gap-1">
-            <input value={newMember} onChange={(e) => setNewMember(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) createNewMember(); }}
-                   placeholder="이름" autoFocus className="w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue" />
-            <button onClick={createNewMember} className="text-ui">✓</button>
+        <p className="mb-1 px-1 text-caption text-x-muted">나</p>
+        {member ? (
+          <div className="flex items-center gap-2 px-1 py-1 text-sm">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: member.color }} />
+            <span>{member.name}</span>
           </div>
         ) : (
-          <button onClick={() => setAddingMember(true)} className="px-1 text-left text-ui text-x-muted hover:text-x-secondary">+ 멤버 추가</button>
+          <p className="px-1 text-caption text-x-muted">불러오는 중…</p>
         )}
       </div>
     </aside>

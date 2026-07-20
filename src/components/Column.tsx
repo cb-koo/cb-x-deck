@@ -191,7 +191,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
           <h2 className="truncate text-content font-bold">{column.title}</h2>
           {total > 0 && (
             <span className="shrink-0 rounded-full bg-x-text/5 px-1.5 py-0.5 text-caption text-x-muted"
-                  title="이 컬럼에 조회된 전체 트윗 수">{total.toLocaleString()}</span>
+                  title={showDismissed ? '버린 트윗 수' : '이 컬럼에 조회된 전체 트윗 수'}>{total.toLocaleString()}</span>
           )}
           <span className="ml-auto shrink-0 text-caption text-x-muted">{busy ? '새로고침 중…' : lastRefreshedLabel(lastRefreshed)}</span>
           <Button variant="icon" onClick={refresh} disabled={busy} title="새로고침" className={busy ? 'text-x-blue' : ''}>

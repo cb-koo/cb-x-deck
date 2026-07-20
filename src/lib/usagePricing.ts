@@ -3,8 +3,12 @@
 // - getxapi: getxapi.com/pricing — 표준 read 콜 $0.001/콜 (앱은 프리미엄 미사용)
 // - Exa: exa.ai/pricing — 검색 $0.007/콜($7/1k). 본문(contents)은 상위 10개까지 무료이고
 //   앱은 numResults:8이라 본문비 없음. numResults를 11+로 올리면 본문비 $1/1k 추가됨.
-export const GETXAPI_PER_CALL = Number(process.env.PRICE_GETXAPI_PER_CALL ?? 0.001);
-export const EXA_PER_SEARCH = Number(process.env.PRICE_EXA_PER_SEARCH ?? 0.007);
+function envNum(name: string, fallback: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) ? v : fallback;
+}
+export const GETXAPI_PER_CALL = envNum('PRICE_GETXAPI_PER_CALL', 0.001);
+export const EXA_PER_SEARCH = envNum('PRICE_EXA_PER_SEARCH', 0.007);
 
 export const ANTHROPIC_PRICES: Record<string, { in: number; out: number }> = {
   'claude-haiku-4-5': { in: 1, out: 5 },

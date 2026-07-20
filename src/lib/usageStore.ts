@@ -23,6 +23,8 @@ export interface AggRow {
   outputTokens: number;
 }
 
+let warnedRecordFailure = false;
+
 // 기록은 실제 API 동작을 막지 않는다: await 하지 않고, 실패는 삼키며, PGHOST 없으면 no-op.
 export function recordUsageSafe(ev: UsageEvent): void {
   if (!process.env.PGHOST) return;
@@ -33,8 +35,11 @@ export function recordUsageSafe(ev: UsageEvent): void {
         insert into api_usage (api, operation, ok, http_status, model, input_tokens, output_tokens, units)
         values (${ev.api}, ${ev.operation}, ${ev.ok ?? true}, ${ev.httpStatus ?? null}, ${ev.model ?? null},
                 ${ev.inputTokens ?? null}, ${ev.outputTokens ?? null}, ${ev.units ?? 1})`;
-    } catch {
-      // 기록 실패는 무해 — 사용량 통계는 부가 기능이며 본 기능을 막지 않는다
+    } catch (e) {
+      if (!warnedRecordFailure) {
+        warnedRecordFailure = true;
+        console.warn('[api_usage] 사용량 기록 실패(이후 동일 오류는 생략) — 마이그레이션 009 미적용 여부 확인:', (e as Error).message);
+      }
     }
   })();
 }
@@ -43,8 +48,8 @@ export async function rawAggregate(sql: postgres.Sql, from: Date, to: Date): Pro
   const rows = await sql<Array<{ api: string; operation: string; model: string | null; calls: number; input_tokens: number; output_tokens: number }>>`
     select api, operation, model,
            count(*)::int as calls,
-           coalesce(sum(input_tokens), 0)::int as input_tokens,
-           coalesce(sum(output_tokens), 0)::int as output_tokens
+           coalesce(sum(input_tokens), 0)::float8 as input_tokens,
+           coalesce(sum(output_tokens), 0)::float8 as output_tokens
       from api_usage
      where ok = true and created_at >= ${from} and created_at < ${to}
      group by api, operation, model`;
@@ -59,8 +64,8 @@ export async function dailyAggregate(sql: postgres.Sql, from: Date, to: Date): P
     select to_char(date_trunc('day', created_at at time zone 'Asia/Tokyo'), 'YYYY-MM-DD') as day,
            api, model,
            count(*)::int as calls,
-           coalesce(sum(input_tokens), 0)::int as input_tokens,
-           coalesce(sum(output_tokens), 0)::int as output_tokens
+           coalesce(sum(input_tokens), 0)::float8 as input_tokens,
+           coalesce(sum(output_tokens), 0)::float8 as output_tokens
       from api_usage
      where ok = true and created_at >= ${from} and created_at < ${to}
      group by day, api, model

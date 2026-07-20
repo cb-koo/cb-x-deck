@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { upsertTweets, linkColumnTweets, getColumnTweets, getTweetsByIds } from './tweetStore.ts';
+import { upsertTweets, linkColumnTweets, getColumnTweets, getColumnTweetCount, getTweetsByIds } from './tweetStore.ts';
 import { createColumn, deleteColumn, touchRefreshed, getColumn } from './columnStore.ts';
 import { createWorkspace, deleteWorkspace, createMember } from './workspaceStore.ts';
 import type { DeckTweet } from './types.ts';
@@ -164,4 +164,43 @@ test('getTweetsByIds: 존재하는 트윗만 DeckTweet로 반환, 빈 입력은 
   const g3 = (await getTweetsByIds(sql, [P + 'g3']))[0] as { quoted: { id: string; enriched?: unknown } | null };
   assert.equal(g3.quoted!.id, 'q-g3');
   assert.equal(g3.quoted!.enriched, null);
+});
+
+test('getColumnTweetCount: 전체·dismissed·없는 컬럼', async () => {
+  const { dismiss } = await import('./dismissStore.ts');
+  const ws = await createWorkspace(sql, P + 'ws-cnt');
+  const m = await createMember(sql, P + 'M-cnt', '#111111');
+  const col = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'col-cnt', config: { keywords: ['k'] } });
+  try {
+    await upsertTweets(sql, [tw('cnt-a', 30), tw('cnt-b', 10), tw('cnt-c', 20)]);
+    await linkColumnTweets(sql, col.id, [P + 'cnt-a', P + 'cnt-b', P + 'cnt-c']);
+
+    assert.equal(await getColumnTweetCount(sql, col.id), 3);
+    assert.equal(await getColumnTweetCount(sql, 'no-such-column-id'), 0);
+
+    await dismiss(sql, { workspaceId: ws.id, tweetId: P + 'cnt-a', memberId: m.id });
+    assert.equal(await getColumnTweetCount(sql, col.id), 2);                       // exclude 기본
+    assert.equal(await getColumnTweetCount(sql, col.id, { dismissed: 'only' }), 1);
+  } finally {
+    await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
+  }
+});
+
+test('getColumnTweets: dir asc/desc 정렬 반전', async () => {
+  const ws = await createWorkspace(sql, P + 'ws-dir');
+  const col = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'col-dir', config: { keywords: ['k'] } });
+  try {
+    await upsertTweets(sql, [tw('dir-1', 30), tw('dir-2', 10), tw('dir-3', 20)]);
+    await linkColumnTweets(sql, col.id, [P + 'dir-1', P + 'dir-2', P + 'dir-3']);
+
+    const desc = await getColumnTweets(sql, col.id, { sort: 'views' });            // dir 기본 desc
+    assert.deepEqual(desc.map((t) => t.metrics.views), [30, 20, 10]);
+
+    const asc = await getColumnTweets(sql, col.id, { sort: 'views', dir: 'asc' });
+    assert.deepEqual(asc.map((t) => t.metrics.views), [10, 20, 30]);
+  } finally {
+    await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
+  }
 });

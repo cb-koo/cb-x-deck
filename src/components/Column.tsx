@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ColumnRow, SearchConfig, SortKey, StoredTweet, ViewMode } from '@/lib/types';
+import type { ColumnRow, SearchConfig, SortDir, SortKey, StoredTweet, ViewMode } from '@/lib/types';
 import { useMember } from '@/lib/memberContext';
 import { TweetCard } from './TweetCard';
 import { CooccurrencePanel } from './CooccurrencePanel';
@@ -22,6 +22,11 @@ function lastRefreshedLabel(iso: string | null): string {
 
 const SORT_LABEL: Record<SortKey, string> = { views: '조회수', date: '날짜', bookmarks: '북마크', retweets: 'RT' };
 
+function dirLabel(sort: SortKey, dir: SortDir): string {
+  if (sort === 'date') return dir === 'desc' ? '최신 순 (내림차순)' : '오래된 순 (오름차순)';
+  return dir === 'desc' ? '높은 순 (내림차순)' : '낮은 순 (오름차순)';
+}
+
 export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   column: ColumnRow;
   autoRefresh?: boolean;   // 생성 직후 1회 자동 조회 (page.tsx가 방금 만든 컬럼에만 지정)
@@ -35,6 +40,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   const { member } = useMember();
   const [tweets, setTweets] = useState<StoredTweet[]>([]);
   const [sort, setSort] = useState<SortKey>(column.config.sort ?? 'views');
+  const [dir, setDir] = useState<SortDir>(column.config.dir ?? 'desc');
+  const [total, setTotal] = useState(0);
   const [mode, setMode] = useState<ViewMode>('all');
   const [showDismissed, setShowDismissed] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(column.lastRefreshedAt);
@@ -95,23 +102,25 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   const [loadingMore, setLoadingMore] = useState(false);
 
   const load = useCallback(async (s: SortKey) => {
-    const r = await apiFetch(`/api/columns/${column.id}/tweets?sort=${s}${showDismissed ? '&dismissed=only' : ''}`);
+    const r = await apiFetch(`/api/columns/${column.id}/tweets?sort=${s}&dir=${dir}${showDismissed ? '&dismissed=only' : ''}`);
     if (r.ok) {
-      const page = (await r.json()) as StoredTweet[];
-      setTweets(page);
-      setHasMore(page.length === PAGE); // 꽉 찬 페이지면 뒤에 더 있을 가능성
+      const res = (await r.json()) as { tweets: StoredTweet[]; total: number };
+      setTweets(res.tweets);
+      setTotal(res.total);
+      setHasMore(res.tweets.length === PAGE); // 꽉 찬 페이지면 뒤에 더 있을 가능성
     }
-  }, [column.id, showDismissed]);
+  }, [column.id, showDismissed, dir]);
 
   // 다음 페이지를 이어붙임 (정렬·새로고침 시 load()가 첫 페이지로 리셋)
   async function loadMore() {
     setLoadingMore(true);
     try {
-      const r = await apiFetch(`/api/columns/${column.id}/tweets?sort=${sort}&offset=${tweets.length}${showDismissed ? '&dismissed=only' : ''}`);
+      const r = await apiFetch(`/api/columns/${column.id}/tweets?sort=${sort}&dir=${dir}&offset=${tweets.length}${showDismissed ? '&dismissed=only' : ''}`);
       if (r.ok) {
-        const page = (await r.json()) as StoredTweet[];
-        setTweets((prev) => [...prev, ...page]);
-        setHasMore(page.length === PAGE);
+        const res = (await r.json()) as { tweets: StoredTweet[]; total: number };
+        setTweets((prev) => [...prev, ...res.tweets]);
+        setTotal(res.total);
+        setHasMore(res.tweets.length === PAGE);
       }
     } finally { setLoadingMore(false); }
   }
@@ -180,6 +189,10 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
             ? <UserIcon className="h-4 w-4 shrink-0 text-x-secondary" />
             : <SearchIcon className="h-4 w-4 shrink-0 text-x-secondary" />}
           <h2 className="truncate text-content font-bold">{column.title}</h2>
+          {total > 0 && (
+            <span className="shrink-0 rounded-full bg-x-text/5 px-1.5 py-0.5 text-caption text-x-muted"
+                  title="이 컬럼에 조회된 전체 트윗 수">{total.toLocaleString()}</span>
+          )}
           <span className="ml-auto shrink-0 text-caption text-x-muted">{busy ? '새로고침 중…' : lastRefreshedLabel(lastRefreshed)}</span>
           <Button variant="icon" onClick={refresh} disabled={busy} title="새로고침" className={busy ? 'text-x-blue' : ''}>
             <RefreshIcon className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
@@ -195,6 +208,13 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
               {sort === k && <span className="absolute inset-x-2 bottom-0 h-[3px] rounded-full bg-x-blue" />}
             </button>
           ))}
+          <button
+            onClick={() => setDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
+            className="rounded px-2 py-1.5 text-ui text-x-secondary hover:bg-x-text/5"
+            aria-label={dirLabel(sort, dir)}
+            title={dirLabel(sort, dir)}>
+            {dir === 'desc' ? '↓' : '↑'}
+          </button>
           <span className="w-1.5 shrink-0" />
           <Button variant="ghost" onClick={() => setShowTrend((v) => !v)}
                   className={showTrend ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}

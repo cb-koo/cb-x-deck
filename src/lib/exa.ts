@@ -1,3 +1,5 @@
+import { recordUsageSafe } from './usageStore.ts';
+
 const DEFAULT_BASE = 'https://api.exa.ai';
 
 // exa는 x.com을 색인하지 않음(403 명시 거부) — 웹 기사 발굴 전용, 트윗 검색은 getxapi 담당
@@ -21,6 +23,7 @@ export interface ExaClientOptions {
   maxRetries?: number;
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
+  onUsage?: (ev: { operation: string; ok: boolean; status: number }) => void;
 }
 
 export interface ExaSearchOptions {
@@ -89,6 +92,7 @@ export class ExaClient {
         const txt = await res.text().catch(() => '');
         throw new Error(`${res.status} from ${path}: ${txt}`);
       }
+      this.opts.onUsage?.({ operation: 'exa.search', ok: true, status: res.status });
       return (await res.json()) as T;
     }
   }
@@ -97,5 +101,8 @@ export class ExaClient {
 export function makeExaClient(): ExaClient {
   const apiKey = process.env.EXA_API_KEY;
   if (!apiKey) throw new Error('EXA_API_KEY not set');
-  return new ExaClient({ apiKey });
+  return new ExaClient({
+    apiKey,
+    onUsage: (ev) => recordUsageSafe({ api: 'exa', operation: ev.operation, ok: ev.ok, httpStatus: ev.status, units: 1 }),
+  });
 }

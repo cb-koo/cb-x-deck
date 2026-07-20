@@ -4,8 +4,20 @@ import { isAllowedEmail } from '@/lib/auth';
 
 const PUBLIC_PREFIXES = ['/login', '/auth', '/denied'];
 
+// 경계-안전 접두사 매칭: '/login' 은 '/login', '/login/x' 에는 매치하되 '/loginXYZ' 에는 매치하지 않는다.
+const matchesPrefix = (pathname: string, prefix: string) =>
+  pathname === prefix || pathname.startsWith(`${prefix}/`);
+
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
+
+  // 리다이렉트 응답에도 setAll 로 갱신된(회전된) 인증 쿠키를 그대로 실어 보낸다.
+  // 그렇지 않으면 새로 만든 NextResponse.redirect(...) 는 response 의 쿠키를 갖지 않아
+  // Supabase refresh-token 회전 시 간헐적 강제 로그아웃이 발생한다.
+  const withCookies = <T extends NextResponse>(target: T): T => {
+    response.cookies.getAll().forEach((cookie) => target.cookies.set(cookie));
+    return target;
+  };
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,27 +38,38 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] = null;
+  try {
+    const {
+      data: { user: fetchedUser },
+    } = await supabase.auth.getUser();
+    user = fetchedUser;
+  } catch (error) {
+    // Supabase 장애/네트워크 오류 시 fail-closed: 인증되지 않은 것으로 간주하고
+    // 아래의 no-user 로직(보호 경로는 /login 리다이렉트, 공개 경로는 통과)을 그대로 태운다.
+    console.error('[proxy] supabase.auth.getUser() failed', error);
+    user = null;
+  }
 
   const { pathname } = request.nextUrl;
-  const isPublic = PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
+  const isPublic = PUBLIC_PREFIXES.some((p) => matchesPrefix(pathname, p));
 
   // API는 리다이렉트하지 않는다 — 세션만 갱신하고 통과. 인가는 각 라우트의 가드가 JSON 401로 처리.
-  if (pathname.startsWith('/api')) return response;
+  if (matchesPrefix(pathname, '/api')) return response;
 
   if (!user) {
-    return isPublic ? response : NextResponse.redirect(new URL('/login', request.url));
+    return isPublic ? response : withCookies(NextResponse.redirect(new URL('/login', request.url)));
   }
 
   if (!isAllowedEmail(user.email)) {
-    return pathname === '/denied' ? response : NextResponse.redirect(new URL('/denied', request.url));
+    return pathname === '/denied'
+      ? response
+      : withCookies(NextResponse.redirect(new URL('/denied', request.url)));
   }
 
   // 허용 사용자가 로그인/거부 화면에 있으면 홈으로
   if (pathname === '/login' || pathname === '/denied') {
-    return NextResponse.redirect(new URL('/', request.url));
+    return withCookies(NextResponse.redirect(new URL('/', request.url)));
   }
 
   return response;

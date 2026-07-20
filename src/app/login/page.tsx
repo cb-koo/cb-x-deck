@@ -1,8 +1,13 @@
 'use client';
 
+import { Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
-export default function LoginPage() {
+function LoginContent() {
+  const searchParams = useSearchParams();
+  const hasError = searchParams.get('error') !== null;
+
   const signIn = async () => {
     const supabase = createClient();
     await supabase.auth.signInWithOAuth({
@@ -20,6 +25,11 @@ export default function LoginPage() {
         <h1 className="text-lg font-semibold">cb-x-deck</h1>
         <p className="mt-1 text-sm text-x-muted">회사 구글 계정으로 로그인하세요</p>
       </div>
+      {hasError && (
+        <p className="text-sm text-red-600" role="alert">
+          로그인에 실패했어요. 다시 시도해 주세요.
+        </p>
+      )}
       <button
         onClick={signIn}
         className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-black/5"
@@ -27,5 +37,13 @@ export default function LoginPage() {
         구글로 로그인
       </button>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginContent />
+    </Suspense>
   );
 }

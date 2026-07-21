@@ -16,8 +16,11 @@ function connectOpts(overrides: postgres.Options<Record<string, never>>): postgr
 }
 
 // 앱 실제 쿼리(라우트·페이지 렌더)용 공용 풀.
+// 트랜잭션 모드 풀러(PGPORT=6543) 전제 — 커넥션은 쿼리 후 즉시 반납되어 멀티플렉싱된다.
+// idle_timeout: 유휴 커넥션을 반납해, 웜 서버리스 인스턴스가 커넥션을 무한정 붙잡아
+// 풀러 클라이언트 한도를 소진하는 것을 방지한다(2026-07-21 세션모드 풀 고갈 원인).
 export function getSql(): postgres.Sql {
-  if (!g.__sql) g.__sql = postgres(connectOpts({ max: 5 }));
+  if (!g.__sql) g.__sql = postgres(connectOpts({ max: 5, idle_timeout: 20 }));
   return g.__sql;
 }
 

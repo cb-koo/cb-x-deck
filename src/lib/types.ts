@@ -1,7 +1,6 @@
 export type SortKey = 'views' | 'date' | 'bookmarks' | 'retweets';
 export type SortDir = 'asc' | 'desc';
 export type ColumnKind = 'search' | 'watchlist';
-export type ViewMode = 'new' | 'all';
 
 export interface Workspace { id: string; name: string; position: number }
 export interface Member { id: string; name: string; color: string }

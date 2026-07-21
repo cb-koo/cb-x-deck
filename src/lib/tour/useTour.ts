@@ -27,6 +27,9 @@ export function useTour() {
     stepsRef.current = steps;
     const d = driver({
       showProgress: true,
+      // 앵커 요소가 없는 스텝은 건너뛴다(중앙에 덩그러니 뜨지 않게).
+      // 예: 첫 사용자 브리핑 투어의 '지난 브리핑'(이력 0건이라 미렌더), 새로고침 전 컬럼의 저장 버튼.
+      skipMissingElement: true,
       nextBtnText: '다음',
       prevBtnText: '이전',
       doneBtnText: '완료',

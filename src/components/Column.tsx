@@ -216,8 +216,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
               </button>
             );
           })}
-          <span className="ml-1 shrink-0 text-caption text-x-muted">· 기준 다시 누르면 순서 반전</span>
-          <span className="w-1.5 shrink-0" />
+          <span className="mx-1.5 h-4 w-px shrink-0 bg-x-border-strong" aria-hidden />
+          <span className="mr-0.5 shrink-0 text-caption text-x-muted">분석</span>
           <Button variant="ghost" onClick={() => setShowTrend((v) => !v)}
                   className={showTrend ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
                   title="이 컬럼에 쌓인 트윗으로 주간 추이를 보여줘요 · 추가 비용 없음">

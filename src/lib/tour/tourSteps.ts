@@ -89,7 +89,7 @@ export const BRIEFING_STEPS: TourStep[] = [
     id: 'bf-generate',
     element: '[data-tour="bf-generate"]',
     title: '보고서 생성',
-    description: '<b>브리핑 생성</b>을 누르면 보고서가 만들어져요. 누를 때만, 아주 소액(약 $0.1 이하)이에요.',
+    description: '<b>브리핑 생성</b>을 누르면 보고서가 만들어져요. 누를 때만, 아주 소액(약 $0.1 이하)이고 팀 공용이라 부담 없이 눌러도 돼요.',
     side: 'bottom',
     align: 'start',
   },

@@ -22,7 +22,7 @@ export function CooccurrencePanel({ tweets, excludeKeywords, onPick }: {
   );
   const [ko, setKo] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState(false);
-  const COLLAPSED = 6; // 접었을 때 노출할 태그 수 (≈2줄)
+  const COLLAPSED = 3; // 접었을 때 노출할 태그 수 (≈1줄)
 
   // 새 태그만 골라 1회 배치 번역, localStorage에 영구 캐시 (재호출 없음)
   useEffect(() => {

@@ -22,9 +22,16 @@ function lastRefreshedLabel(iso: string | null): string {
 
 const SORT_LABEL: Record<SortKey, string> = { views: '조회수', date: '날짜', bookmarks: '북마크', retweets: 'RT' };
 
+// 방향 칩에 보이는 짧은 라벨 (기준에 따라 문구 분기)
+function dirText(sort: SortKey, dir: SortDir): string {
+  if (sort === 'date') return dir === 'desc' ? '최신순' : '오래된순';
+  return dir === 'desc' ? '높은 순' : '낮은 순';
+}
+// 호버/스크린리더용 전체 설명 — 현재 순서 + 누르면 어떻게 되는지
 function dirLabel(sort: SortKey, dir: SortDir): string {
-  if (sort === 'date') return dir === 'desc' ? '최신 순 (내림차순)' : '오래된 순 (오름차순)';
-  return dir === 'desc' ? '높은 순 (내림차순)' : '낮은 순 (오름차순)';
+  const cur = dirText(sort, dir);
+  const opp = dirText(sort, dir === 'desc' ? 'asc' : 'desc');
+  return `정렬 순서: ${cur} — 누르면 ${opp}으로`;
 }
 
 export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
@@ -197,6 +204,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
           <Button variant="icon" onClick={onDelete} title="컬럼 삭제"><TrashIcon className="h-4 w-4" /></Button>
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-0.5 pb-1">
+          <span className="mr-0.5 shrink-0 text-caption text-x-muted">정렬</span>
           {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
             <button key={k} onClick={() => setSort(k)}
                     className={`relative rounded px-2 py-1.5 text-ui hover:bg-x-text/5 ${sort === k ? 'font-medium text-x-text' : 'text-x-secondary'}`}>
@@ -206,10 +214,10 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
           ))}
           <button
             onClick={() => setDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
-            className="rounded px-2 py-1.5 text-ui text-x-secondary hover:bg-x-text/5"
+            className="ml-1 flex shrink-0 items-center gap-0.5 rounded-full border border-x-border-strong bg-white px-2 py-0.5 text-ui text-x-secondary hover:bg-x-hover"
             aria-label={dirLabel(sort, dir)}
             title={dirLabel(sort, dir)}>
-            {dir === 'desc' ? '↓' : '↑'}
+            {dirText(sort, dir)} <span aria-hidden>{dir === 'desc' ? '↓' : '↑'}</span>
           </button>
           <span className="w-1.5 shrink-0" />
           <Button variant="ghost" onClick={() => setShowTrend((v) => !v)}

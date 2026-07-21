@@ -37,3 +37,28 @@ body {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(300%); }
 }
+
+/* driver.js 팝오버를 앱 톤에 맞춤 (라운드·파랑 버튼) */
+.driver-popover {
+  border-radius: 12px;
+  font-family: inherit;
+}
+.driver-popover-title { font-size: 15px; font-weight: 700; }
+.driver-popover-description { font-size: 13px; line-height: 1.5; }
+.driver-popover-next-btn,
+.driver-popover-done-btn {
+  background: #1d9bf0; /* x-blue */
+  color: #fff;
+  text-shadow: none;
+  border: none;
+  border-radius: 9999px;
+  padding: 4px 14px;
+  font-size: 13px;
+}
+.driver-popover-next-btn:hover,
+.driver-popover-done-btn:hover { opacity: 0.9; background: #1d9bf0; }
+.driver-popover-prev-btn {
+  border-radius: 9999px;
+  font-size: 13px;
+  text-shadow: none;
+}

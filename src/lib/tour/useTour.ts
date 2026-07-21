@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { driver, type Driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import type { TourStep } from './tourSteps';
@@ -43,6 +43,10 @@ export function useTour() {
     setActiveTour(tourId);
     d.drive();
   }, []);
+
+  // 투어 활성 중 호스트 컴포넌트가 언마운트되면(예: 투어 도중 사이드바 링크로 이동)
+  // driver.js가 document.body에 붙인 오버레이가 남아 클릭을 막을 수 있어 정리한다.
+  useEffect(() => () => { driverRef.current?.destroy(); }, []);
 
   // 현재 활성 스텝 id가 fromId일 때만 다음으로 진행 — 행동 유도형 자동 전진
   const advance = useCallback((fromId: string) => {

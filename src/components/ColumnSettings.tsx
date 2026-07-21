@@ -135,7 +135,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                       className={kind === k
                         ? 'rounded-full bg-x-text px-4 py-1.5 text-ui font-medium text-white'
                         : `${chip} px-4 py-1.5 text-x-secondary`}>
-                {k === 'search' ? '검색' : '워치리스트'}
+                {k === 'search' ? '키워드' : '인플루언서'}
               </button>
             ))}
           </div>

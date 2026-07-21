@@ -46,7 +46,7 @@ export default function DeckPage() {
       </div>
       <main className="flex flex-1 overflow-x-auto">
         {columns.length === 0 && (
-          <p className="m-auto text-ui text-x-muted">컬럼이 없습니다 — “+ 컬럼”으로 검색/워치리스트 컬럼을 만드세요</p>
+          <p className="m-auto text-ui text-x-muted">컬럼이 없습니다 — “+ 컬럼”으로 키워드/인플루언서 컬럼을 만드세요</p>
         )}
         {columns.map((c) => (
           <Column key={c.id} column={c}

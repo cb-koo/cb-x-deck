@@ -1,6 +1,6 @@
 const FEATURE: Record<string, string> = {
   'getxapi.search': '트윗 검색',
-  'getxapi.userTweets': '워치리스트 갱신',
+  'getxapi.userTweets': '인플루언서 갱신',
   'getxapi.userInfo': '계정 조회',
   'getxapi.tweetDetail': '인용 트윗 보강',
   'getxapi.replies': '트윗 확장 탐색',

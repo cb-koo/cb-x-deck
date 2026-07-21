@@ -12,6 +12,9 @@ import { MediaGrid } from './MediaGrid';
 import { QuotedCard } from './QuotedCard';
 import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from './XIcons';
 import { median, weeklyJudgment } from '@/lib/trend';
+import { useTour } from '@/lib/tour/useTour';
+import { BRIEFING_STEPS } from '@/lib/tour/tourSteps';
+import { HelpButton } from '@/components/HelpButton';
 
 const WEEK_OPTIONS = [2, 4, 8] as const;
 // 패턴 분석이 성립하는 최소 표본 — 반응 상위(~20%)에서 같은 특징이 3번 이상 반복되려면 이 정도는 필요
@@ -317,6 +320,7 @@ function TrendModules({ content }: { content: BriefingContent }) {
 
 export function BriefingSection({ wsId }: { wsId: string }) {
   const { member } = useMember();
+  const { start } = useTour();
   const [columns, setColumns] = useState<ColumnRow[]>([]);
   const [columnId, setColumnId] = useState('');
   const [weeks, setWeeks] = useState<(typeof WEEK_OPTIONS)[number]>(4);
@@ -455,19 +459,22 @@ export function BriefingSection({ wsId }: { wsId: string }) {
 
   return (
     <section className="px-4 py-4">
-      <h2 className="font-bold">📋 기간 종합 브리핑 <span className="text-sm font-normal text-x-muted">컬럼 하나를 골라 최근 몇 주간 무슨 일이 있었는지 보고서로 정리해요</span></h2>
+      <div className="flex items-center gap-2">
+        <h2 className="font-bold">📋 기간 종합 브리핑 <span className="text-sm font-normal text-x-muted">컬럼 하나를 골라 최근 몇 주간 무슨 일이 있었는지 보고서로 정리해요</span></h2>
+        <HelpButton onClick={() => start('briefing', BRIEFING_STEPS)} />
+      </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-        <select value={columnId} onChange={(e) => setColumnId(e.target.value)}
+        <select data-tour="bf-column" value={columnId} onChange={(e) => setColumnId(e.target.value)}
                 className="rounded border border-x-border-strong bg-transparent px-2 py-1">
           <option value="">컬럼 선택…</option>
           {columns.map((c) => <option key={c.id} value={c.id}>{c.kind === 'watchlist' ? '👤 ' : '🔍 '}{c.title}</option>)}
         </select>
-        <select value={weeks} onChange={(e) => setWeeks(Number(e.target.value) as typeof weeks)}
+        <select data-tour="bf-period" value={weeks} onChange={(e) => setWeeks(Number(e.target.value) as typeof weeks)}
                 className="rounded border border-x-border-strong bg-transparent px-2 py-1">
           {WEEK_OPTIONS.map((w) => <option key={w} value={w}>최근 {w}주</option>)}
         </select>
-        <button onClick={generate} disabled={busy || backfilling || !columnId || preview?.total === 0}
+        <button data-tour="bf-generate" onClick={generate} disabled={busy || backfilling || !columnId || preview?.total === 0}
                 className="rounded bg-blue-600 px-3 py-1 text-white disabled:opacity-40"
                 title="이 기간의 트윗을 AI가 읽고 보고서를 만들어요 (약 $0.1 이하)">
           {busy ? '생성 중…' : '브리핑 생성 (약 $0.1 이하)'}
@@ -570,7 +577,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
       )}
 
       {list.length > 0 && (
-        <div className="mt-3">
+        <div data-tour="bf-history" className="mt-3">
           <p className="text-xs text-x-muted">지난 브리핑</p>
           <ul className="mt-1 space-y-0.5 text-sm">
             {list.map((b) => (

@@ -17,20 +17,25 @@ export default function DeckPage() {
   const [autoRefreshId, setAutoRefreshId] = useState<string | null>(null);
   const { start, advance, activeTour } = useTour();
   const prevColCount = useRef(0);
+  const [loadedOnce, setLoadedOnce] = useState(false);
+  const didAutoStart = useRef(false);
 
   const load = useCallback(async () => {
     const r = await apiFetch(`/api/columns?workspaceId=${wsId}`);
     if (r.ok) setColumns(await r.json());
+    setLoadedOnce(true);
   }, [wsId]);
   useEffect(() => { load(); }, [load]);
 
-  // 덱 첫 방문 시 1회 자동 투어 (렌더 안정화 후). 첫 사용자는 컬럼 0개라 생성 유도 갈래로 진입.
+  // 덱 첫 방문 시 1회 자동 투어. 최초 로드가 끝난 뒤 실행해야 실제 컬럼 수로 갈래(생성 유도 vs 사용법)를 고른다.
+  // (로드 전엔 columns가 항상 []이라 '컬럼 없음' 갈래로 오판됨 — 기존 컬럼이 있는 사용자 배포 시 문제)
   useEffect(() => {
-    if (hasSeenTour('deck')) return;
+    if (!loadedOnce || didAutoStart.current || hasSeenTour('deck')) return;
+    didAutoStart.current = true;
     const t = setTimeout(() => start('deck', deckSteps(columns.length > 0)), 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadedOnce]);
 
   // 행동 유도형 자동 전진: 모달이 열리면 add-column→create-modal
   useEffect(() => {

@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ColumnRow, SearchConfig, SortDir, SortKey, StoredTweet, ViewMode } from '@/lib/types';
+import type { ColumnRow, SearchConfig, SortDir, SortKey, StoredTweet } from '@/lib/types';
 import { useMember } from '@/lib/memberContext';
 import { TweetCard } from './TweetCard';
 import { CooccurrencePanel } from './CooccurrencePanel';
@@ -34,15 +34,13 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
   onDelete: () => void;
   onPickTag: (tag: string) => void;
 }) {
-  // 기본 뷰는 mode='all'(전체) — 서버는 항상 전체 tweets를 반환하고, 'new'는 클라이언트에서
-  // isNew(직전 새로고침 이후 새로 들어온 트윗)로 거를 뿐이다. 공출현(CooccurrencePanel) 집계는
-  // 항상 전체 tweets 기준이며 mode/visible의 영향을 받지 않는다(목적=담론 자동 부상).
+  // 서버는 항상 전체 tweets를 반환한다. 보기(view)는 전체/버림 두 가지뿐이며 dismissed 여부로만 갈린다.
+  // 공출현(CooccurrencePanel) 집계는 항상 전체 tweets 기준이라 view/visible의 영향을 받지 않는다(목적=담론 자동 부상).
   const { member } = useMember();
   const [tweets, setTweets] = useState<StoredTweet[]>([]);
   const [sort, setSort] = useState<SortKey>(column.config.sort ?? 'views');
   const [dir, setDir] = useState<SortDir>(column.config.dir ?? 'desc');
   const [total, setTotal] = useState(0);
-  const [mode, setMode] = useState<ViewMode>('all');
   const [showDismissed, setShowDismissed] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(column.lastRefreshedAt);
   const [busy, setBusy] = useState(false);
@@ -59,14 +57,13 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
     setTopicLabels(Object.fromEntries((p.stats?.rows ?? []).map((r) => [r.topicId, r.label])));
   }, []);
 
-  // 보기 상태 = 기존 mode/showDismissed의 파생 단일 뷰 (실사용상 상호배타 — spec §3)
+  // 보기 상태 = showDismissed 파생 (전체/버림)
   const viewRef = useRef<HTMLDetailsElement>(null);
-  const view: 'all' | 'new' | 'dismissed' = showDismissed ? 'dismissed' : mode === 'new' ? 'new' : 'all';
-  const VIEW_LABEL = { all: '전체', new: 'NEW만', dismissed: '버림' } as const;
-  function pickView(v: 'all' | 'new' | 'dismissed') {
+  const view: 'all' | 'dismissed' = showDismissed ? 'dismissed' : 'all';
+  const VIEW_LABEL = { all: '전체', dismissed: '버림' } as const;
+  function pickView(v: 'all' | 'dismissed') {
     setShowDismissed(v === 'dismissed');
-    setMode(v === 'new' ? 'new' : 'all');
-    // 버림 진입·이탈 양쪽에서 주제 필터 해제 — 구 토글과 동일 동작 (이탈 시 잔존 필터로 목록이 갑자기 줄어드는 혼동 방지)
+    // 버림 진입·이탈 양쪽에서 주제 필터 해제 (이탈 시 잔존 필터로 목록이 갑자기 줄어드는 혼동 방지)
     if (v === 'dismissed' || showDismissed) setTopicFilter(null);
     viewRef.current?.removeAttribute('open');
   }
@@ -137,9 +134,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh]);
 
-  const modeFiltered = mode === 'new' ? tweets.filter((t) => t.isNew) : tweets;
   // 버림 보기 중엔 주제 맵에 버림 트윗이 없어 필터를 걸면 항상 빈 목록이 된다 — 이때는 필터 미적용
-  const visible = topicFilter && !showDismissed ? modeFiltered.filter((t) => pillarMap[t.tweetId] === topicFilter) : modeFiltered;
+  const visible = topicFilter && !showDismissed ? tweets.filter((t) => pillarMap[t.tweetId] === topicFilter) : tweets;
 
   async function refresh() {
     setBusy(true); setErr('');
@@ -233,12 +229,12 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
               보기: {VIEW_LABEL[view]} <ChevronDownIcon className="h-3 w-3" />
             </summary>
             <div className="absolute right-0 z-20 mt-1 w-40 rounded-xl border border-x-border bg-white py-1 shadow-lg">
-              {(['all', 'new', 'dismissed'] as const).map((v) => (
+              {(['all', 'dismissed'] as const).map((v) => (
                 <button key={v} onClick={() => pickView(v)}
                         className={`block w-full px-3 py-1.5 text-left text-ui hover:bg-x-hover ${view === v ? 'font-medium' : ''}`}>
                   {VIEW_LABEL[v]}
                   <span className="ml-1 text-caption text-x-muted">
-                    {v === 'new' ? '직전 새로고침 이후' : v === 'dismissed' ? '숨긴 트윗' : ''}
+                    {v === 'dismissed' ? '숨긴 트윗' : ''}
                   </span>
                 </button>
               ))}
@@ -268,18 +264,12 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
                      onAfterBackfill={() => load(sort)}
                      onClose={() => { setShowPillar(false); setTopicFilter(null); }} />
       )}
-      {((topicFilter && !showDismissed) || mode === 'new' || showDismissed) && (
+      {((topicFilter && !showDismissed) || showDismissed) && (
         <div className="flex flex-wrap items-center gap-1.5 border-b border-x-border bg-white px-3 py-1.5">
           {topicFilter && !showDismissed && (
             <button onClick={() => setTopicFilter(null)} title="필터 해제"
                     className="flex items-center gap-1 rounded-full bg-x-blue/10 px-2.5 py-0.5 text-ui font-medium text-x-blue-hover hover:bg-x-blue/20">
               주제: {topicLabels[topicFilter] ?? '선택 주제'} <span aria-hidden>✕</span>
-            </button>
-          )}
-          {mode === 'new' && (
-            <button onClick={() => pickView('all')} title="필터 해제"
-                    className="flex items-center gap-1 rounded-full bg-x-blue/10 px-2.5 py-0.5 text-ui font-medium text-x-blue-hover hover:bg-x-blue/20">
-              NEW만 <span aria-hidden>✕</span>
             </button>
           )}
           {showDismissed && (
@@ -294,8 +284,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
       <div className="flex-1 overflow-y-auto">
         {visible.length === 0
           ? <p className="p-4 text-center text-ui text-x-muted">
-              {topicFilter ? '이 주제의 트윗이 현재 목록에 없어요 (주제를 다시 눌러 해제)'
-                : mode === 'new' ? '신규 유입 없음 — 그 자체가 시그널입니다' : '트윗 없음'}
+              {topicFilter ? '이 주제의 트윗이 현재 목록에 없어요 (주제를 다시 눌러 해제)' : '트윗 없음'}
             </p>
           : visible.map((t) => (
               <TweetCard key={t.tweetId} tweet={t} meId={member?.id ?? null}

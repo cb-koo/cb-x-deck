@@ -22,16 +22,14 @@ function lastRefreshedLabel(iso: string | null): string {
 
 const SORT_LABEL: Record<SortKey, string> = { views: '조회수', date: '날짜', bookmarks: '북마크', retweets: 'RT' };
 
-// 방향 칩에 보이는 짧은 라벨 (기준에 따라 문구 분기)
+// 활성 기준 버튼에 방향을 말로 붙임 (기준에 따라 문구 분기)
 function dirText(sort: SortKey, dir: SortDir): string {
   if (sort === 'date') return dir === 'desc' ? '최신순' : '오래된순';
-  return dir === 'desc' ? '높은 순' : '낮은 순';
+  return dir === 'desc' ? '많은순' : '적은순';
 }
-// 호버/스크린리더용 전체 설명 — 현재 순서 + 누르면 어떻게 되는지
+// 활성 기준 버튼 호버/스크린리더용 — 현재 정렬 상태 + 다시 누르면 뒤집힌다는 안내
 function dirLabel(sort: SortKey, dir: SortDir): string {
-  const cur = dirText(sort, dir);
-  const opp = dirText(sort, dir === 'desc' ? 'asc' : 'desc');
-  return `정렬 순서: ${cur} — 누르면 ${opp}으로`;
+  return `${SORT_LABEL[sort]} ${dirText(sort, dir)} — 다시 누르면 정렬 순서가 바뀝니다`;
 }
 
 export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
@@ -205,20 +203,20 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-0.5 pb-1">
           <span className="mr-0.5 shrink-0 text-caption text-x-muted">정렬</span>
-          {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
-            <button key={k} onClick={() => setSort(k)}
-                    className={`relative rounded px-2 py-1.5 text-ui hover:bg-x-text/5 ${sort === k ? 'font-medium text-x-text' : 'text-x-secondary'}`}>
-              {SORT_LABEL[k]}
-              {sort === k && <span className="absolute inset-x-2 bottom-0 h-[3px] rounded-full bg-x-blue" />}
-            </button>
-          ))}
-          <button
-            onClick={() => setDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
-            className="ml-1 flex shrink-0 items-center gap-0.5 rounded-full border border-x-border-strong bg-white px-2 py-0.5 text-ui text-x-secondary hover:bg-x-hover"
-            aria-label={dirLabel(sort, dir)}
-            title={dirLabel(sort, dir)}>
-            {dirText(sort, dir)} <span aria-hidden>{dir === 'desc' ? '↓' : '↑'}</span>
-          </button>
+          {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => {
+            const active = sort === k;
+            return (
+              <button key={k}
+                      onClick={() => (active ? setDir((d) => (d === 'desc' ? 'asc' : 'desc')) : setSort(k))}
+                      aria-label={active ? dirLabel(k, dir) : `${SORT_LABEL[k]} 기준으로 정렬`}
+                      title={active ? dirLabel(k, dir) : `${SORT_LABEL[k]} 기준으로 정렬`}
+                      className={`relative rounded px-2 py-1.5 text-ui hover:bg-x-text/5 ${active ? 'font-medium text-x-text' : 'text-x-secondary'}`}>
+                {SORT_LABEL[k]}{active && <> {dirText(k, dir)} <span aria-hidden>{dir === 'desc' ? '↓' : '↑'}</span></>}
+                {active && <span className="absolute inset-x-2 bottom-0 h-[3px] rounded-full bg-x-blue" />}
+              </button>
+            );
+          })}
+          <span className="ml-1 shrink-0 text-caption text-x-muted">· 기준 다시 누르면 순서 반전</span>
           <span className="w-1.5 shrink-0" />
           <Button variant="ghost" onClick={() => setShowTrend((v) => !v)}
                   className={showTrend ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}

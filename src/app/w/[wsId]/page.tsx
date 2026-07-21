@@ -32,7 +32,7 @@ export default function DeckPage() {
   useEffect(() => {
     if (!loadedOnce || didAutoStart.current || hasSeenTour('deck')) return;
     didAutoStart.current = true;
-    const t = setTimeout(() => start('deck', deckSteps(columns.length > 0)), 600);
+    const t = setTimeout(() => start('deck', deckSteps()), 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedOnce]);
@@ -74,7 +74,7 @@ export default function DeckPage() {
                 className="rounded-full bg-x-text px-4 py-1.5 text-ui font-bold text-white hover:opacity-90">
           + 컬럼
         </button>
-        <HelpButton onClick={() => start('deck', deckSteps(columns.length > 0))} />
+        <HelpButton onClick={() => start('deck', deckSteps())} />
       </div>
       <main className="flex flex-1 overflow-x-auto">
         {columns.length === 0 && (

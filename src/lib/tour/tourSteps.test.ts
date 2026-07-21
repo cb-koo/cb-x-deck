@@ -4,9 +4,12 @@ import { deckSteps, BRIEFING_STEPS, type TourStep } from './tourSteps.ts';
 
 const ALLOWED_SELECTORS = new Set([
   '[data-tour="add-column"]', '[data-tour="column-modal"]',
-  '[data-tour="col-refresh"]', '[data-tour="col-save"]',
+  '[data-tour="col-refresh"]', '[data-tour="col-sort"]',
+  '[data-tour="col-view"]', '[data-tour="col-save"]',
+  '[data-tour="sidebar"]',
   '[data-tour="bf-column"]', '[data-tour="bf-period"]',
-  '[data-tour="bf-generate"]', '[data-tour="bf-history"]',
+  '[data-tour="bf-generate"]', '[data-tour="bf-result"]',
+  '[data-tour="bf-history"]',
 ]);
 
 function assertWellFormed(steps: TourStep[]) {
@@ -21,31 +24,39 @@ function assertWellFormed(steps: TourStep[]) {
   }
 }
 
-test('덱: 컬럼 없으면 6단계(생성 유도 포함), 있으면 3단계', () => {
-  assert.equal(deckSteps(false).length, 6);
-  assert.equal(deckSteps(true).length, 3);
+test('덱: 항상 컬럼 생성부터 시작하는 9단계 단일 시나리오', () => {
+  assert.equal(deckSteps().length, 9);
 });
 
-test('덱 스텝 무결성 (양 갈래)', () => {
-  assertWellFormed(deckSteps(false));
-  assertWellFormed(deckSteps(true));
+test('덱 스텝 무결성', () => {
+  assertWellFormed(deckSteps());
 });
 
-test('덱 생성 유도 갈래는 행동감지용 id를 포함', () => {
-  const ids = deckSteps(false).map((s) => s.id);
+test('덱: 생성 유도 + 정렬/보기 + 사이드바 스텝을 포함', () => {
+  const ids = deckSteps().map((s) => s.id);
+  // 행동감지 자동전진용
   assert.ok(ids.includes('add-column'));
   assert.ok(ids.includes('create-modal'));
+  // 이번 개편으로 추가된 커버리지
+  assert.ok(ids.includes('col-sort'));
+  assert.ok(ids.includes('col-view'));
+  assert.ok(ids.includes('deck-sidebar'));
 });
 
 test('덱 마지막은 항상 마무리(요소 없는 중앙 스텝)', () => {
-  for (const steps of [deckSteps(false), deckSteps(true)]) {
-    const last = steps[steps.length - 1];
-    assert.equal(last.element, undefined);
-  }
+  const last = deckSteps()[deckSteps().length - 1];
+  assert.equal(last.element, undefined);
 });
 
-test('브리핑: 5단계 무결성, 자동시작 안내 문구 포함', () => {
-  assert.equal(BRIEFING_STEPS.length, 5);
+test('브리핑: 결과·마무리 포함 7단계, 무결성', () => {
+  assert.equal(BRIEFING_STEPS.length, 7);
   assertWellFormed(BRIEFING_STEPS);
   assert.ok(BRIEFING_STEPS[0].description.includes('쌓인'));
+  const ids = BRIEFING_STEPS.map((s) => s.id);
+  assert.ok(ids.includes('bf-result'));
+});
+
+test('브리핑 마지막은 요소 없는 중앙 스텝', () => {
+  const last = BRIEFING_STEPS[BRIEFING_STEPS.length - 1];
+  assert.equal(last.element, undefined);
 });

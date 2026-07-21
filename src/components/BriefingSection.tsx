@@ -504,7 +504,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
       {current && (
         /* 트윗 본문 폭(~600px)에 맞춘 읽기 컬럼 — 근거 트윗은 문단 사이에 임베드(뉴스 기사식) */
         <SaveCtx.Provider value={{ savedIds, toggleSave }}>
-        <div className="mt-3 max-w-[640px] rounded-xl border border-x-border bg-white text-x-text">
+        <div data-tour="bf-result" className="mt-3 max-w-[640px] rounded-xl border border-x-border bg-white text-x-text">
           <div className="flex items-baseline gap-2 border-b border-x-border px-4 py-2">
             <p className="font-bold">{current.columnTitle}</p>
             <span className="text-xs text-x-muted">

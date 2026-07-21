@@ -2,19 +2,20 @@
 // 비용 액션은 '팀 공용·누를 때만·아주 소액')을 따른다.
 export interface TourStep {
   id: string;
-  element?: string; // CSS 셀렉터. 없으면 화면 중앙 표시.
+  element?: string; // CSS 셀렉터. 없으면 화면 중앙 표시. 요소가 없으면 자동 건너뜀(skipMissingElement).
   title: string;
   description: string;
   side?: 'top' | 'bottom' | 'left' | 'right';
   align?: 'start' | 'center' | 'end';
 }
 
-// 첫 컬럼을 직접 만들게 유도하는 도입부 (컬럼 0개일 때만)
-const DECK_INTRO_STEPS: TourStep[] = [
+// 덱 투어 — 항상 '컬럼 생성부터' 시작하는 하나의 시나리오.
+// 컬럼이 이미 있는 사용자가 생성 단계를 넘겨도(모달을 열지 않으면) 해당 스텝은 요소가 없어 자동 건너뛰어진다.
+const DECK_STEPS: TourStep[] = [
   {
     id: 'deck-intro',
     title: '덱에 오신 걸 환영해요',
-    description: '여기 <b>덱</b>은 관심 주제·계정의 X 글을 컬럼으로 모아 한눈에 보는 곳이에요. 첫 컬럼을 직접 만들어볼까요?',
+    description: '여기 <b>덱</b>은 관심 주제·계정의 X 글을 컬럼으로 모아 한눈에 보는 곳이에요. 컬럼을 만들며 하나씩 익혀볼게요.',
   },
   {
     id: 'add-column',
@@ -32,15 +33,27 @@ const DECK_INTRO_STEPS: TourStep[] = [
     side: 'left',
     align: 'start',
   },
-];
-
-// 만들어진 컬럼 위에서 핵심 사용법 설명
-const DECK_COLUMN_STEPS: TourStep[] = [
   {
     id: 'col-refresh',
     element: '[data-tour="col-refresh"]',
     title: '새로고침으로 최신 글 가져오기',
     description: '컬럼은 <b>새로고침을 눌러야</b> 최신 글을 가져와요. 팀 공용이고 누를 때만, 아주 소액이라 부담 없이 눌러도 돼요. 새로 올라온 글엔 파란 <b>NEW</b> 배지가 붙어요.',
+    side: 'bottom',
+    align: 'end',
+  },
+  {
+    id: 'col-sort',
+    element: '[data-tour="col-sort"]',
+    title: '정렬 바꾸기',
+    description: '<b>날짜·좋아요</b> 등 기준으로 글 순서를 바꿔요. 한 번 더 누르면 오름/내림이 뒤집혀요.',
+    side: 'bottom',
+    align: 'start',
+  },
+  {
+    id: 'col-view',
+    element: '[data-tour="col-view"]',
+    title: '다른 목록 보기',
+    description: "<b>'보기'</b>로 벤치마크와 무관해 <b>버린 트윗</b> 같은 다른 목록도 볼 수 있어요.",
     side: 'bottom',
     align: 'end',
   },
@@ -53,14 +66,22 @@ const DECK_COLUMN_STEPS: TourStep[] = [
     align: 'start',
   },
   {
+    id: 'deck-sidebar',
+    element: '[data-tour="sidebar"]',
+    title: '영역·워크스페이스 오가기',
+    description: '왼쪽에서 <b>리서치·덱·브리핑·보관함</b>을 오가고, 맨 위에서 <b>워크스페이스</b>(클라이언트별 작업 공간)를 바꿔요.',
+    side: 'right',
+    align: 'start',
+  },
+  {
     id: 'deck-outro',
     title: '준비 끝!',
     description: '오른쪽 위 <b>?</b> 로 언제든 이 안내를 다시 볼 수 있어요. 글이 며칠 쌓이면 <b>브리핑</b>에서 흐름을 보고서로 받아보세요.',
   },
 ];
 
-export function deckSteps(hasColumns: boolean): TourStep[] {
-  return hasColumns ? DECK_COLUMN_STEPS : [...DECK_INTRO_STEPS, ...DECK_COLUMN_STEPS];
+export function deckSteps(): TourStep[] {
+  return DECK_STEPS;
 }
 
 export const BRIEFING_STEPS: TourStep[] = [
@@ -81,7 +102,7 @@ export const BRIEFING_STEPS: TourStep[] = [
     id: 'bf-period',
     element: '[data-tour="bf-period"]',
     title: '기간 정하기',
-    description: '<b>몇 주간</b>을 볼지 정해요. 빈 주가 있으면 채우기 안내가 떠요.',
+    description: '<b>몇 주간</b>을 볼지 정해요. 중간에 글이 없는 주가 있으면 <b>빈 주 채우기</b> 안내가 떠서 과거 글을 더 모아 정확도를 높일 수 있어요.',
     side: 'bottom',
     align: 'start',
   },
@@ -89,8 +110,16 @@ export const BRIEFING_STEPS: TourStep[] = [
     id: 'bf-generate',
     element: '[data-tour="bf-generate"]',
     title: '보고서 생성',
-    description: '<b>브리핑 생성</b>을 누르면 보고서가 만들어져요. 누를 때만, 아주 소액(약 $0.1 이하)이고 팀 공용이라 부담 없이 눌러도 돼요.',
+    description: '<b>브리핑 생성</b>을 누르면 보고서가 만들어져요. 누를 때만, 아주 소액(약 $0.1 이하)이고 팀 공용이라 부담 없이 눌러도 돼요. 표본이 적으면 <b>참고용</b> 표시가 함께 떠요.',
     side: 'bottom',
+    align: 'start',
+  },
+  {
+    id: 'bf-result',
+    element: '[data-tour="bf-result"]',
+    title: '보고서 읽기',
+    description: '완성된 보고서는 여기 열려요. 문단 사이에 <b>근거가 된 실제 트윗</b>이 함께 실려 있어 바로 확인할 수 있어요.',
+    side: 'top',
     align: 'start',
   },
   {
@@ -100,5 +129,10 @@ export const BRIEFING_STEPS: TourStep[] = [
     description: '만든 보고서는 여기 <b>지난 브리핑</b>에 쌓여 언제든 다시 봐요.',
     side: 'top',
     align: 'start',
+  },
+  {
+    id: 'bf-outro',
+    title: '브리핑 끝!',
+    description: '이 <b>?</b> 로 언제든 다시 볼 수 있어요. 먼저 덱에서 컬럼에 글을 며칠 쌓은 뒤 브리핑을 만들면 가장 잘 나와요.',
   },
 ];

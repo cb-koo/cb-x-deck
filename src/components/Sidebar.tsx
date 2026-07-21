@@ -68,7 +68,7 @@ export function Sidebar({ wsId }: { wsId: string }) {
   ];
 
   return (
-    <aside className="flex h-screen w-52 shrink-0 flex-col border-r border-x-border bg-x-surface p-3">
+    <aside data-tour="sidebar" className="flex h-screen w-52 shrink-0 flex-col border-r border-x-border bg-x-surface p-3">
       <p className="mb-1 px-1 text-caption text-x-muted">워크스페이스 (클라이언트)</p>
       <select value={wsId} onChange={(e) => router.push(`/w/${e.target.value}`)}
               className="mb-1 w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue">

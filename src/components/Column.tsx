@@ -204,7 +204,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
           <Button variant="icon" onClick={onEdit} title="설정"><SettingsIcon className="h-4 w-4" /></Button>
           <Button variant="icon" onClick={onDelete} title="컬럼 삭제"><TrashIcon className="h-4 w-4" /></Button>
         </div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-0.5 pb-1">
+        <div data-tour={tourAnchor ? 'col-sort' : undefined} className="mt-0.5 flex flex-wrap items-center gap-0.5 pb-1">
           <span className="mr-0.5 shrink-0 text-caption text-x-muted">정렬</span>
           {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => {
             const active = sort === k;
@@ -233,7 +233,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
               주제 분석{showPillar ? ' ✓' : ''}
             </Button>
           )}
-          <details ref={viewRef} className="relative ml-auto shrink-0">
+          <details ref={viewRef} data-tour={tourAnchor ? 'col-view' : undefined} className="relative ml-auto shrink-0">
             <summary className="flex cursor-pointer list-none items-center gap-1 rounded-full px-2.5 py-1 text-ui text-x-secondary hover:bg-x-text/5 [&::-webkit-details-marker]:hidden">
               보기: {VIEW_LABEL[view]} <ChevronDownIcon className="h-3 w-3" />
             </summary>

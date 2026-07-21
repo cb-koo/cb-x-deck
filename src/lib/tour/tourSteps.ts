@@ -75,8 +75,11 @@ const DECK_STEPS: TourStep[] = [
   },
   {
     id: 'deck-outro',
+    element: '[data-tour="help-button"]',
     title: '준비 끝!',
-    description: '오른쪽 위 <b>?</b> 로 언제든 이 안내를 다시 볼 수 있어요. 글이 며칠 쌓이면 <b>브리핑</b>에서 흐름을 보고서로 받아보세요.',
+    description: '바로 여기 <b>?</b> 를 누르면 언제든 이 안내를 다시 볼 수 있어요. 글이 며칠 쌓이면 <b>브리핑</b>에서 흐름을 보고서로 받아보세요.',
+    side: 'bottom',
+    align: 'end',
   },
 ];
 
@@ -132,7 +135,10 @@ export const BRIEFING_STEPS: TourStep[] = [
   },
   {
     id: 'bf-outro',
+    element: '[data-tour="help-button"]',
     title: '브리핑 끝!',
-    description: '이 <b>?</b> 로 언제든 다시 볼 수 있어요. 먼저 덱에서 컬럼에 글을 며칠 쌓은 뒤 브리핑을 만들면 가장 잘 나와요.',
+    description: '바로 여기 <b>?</b> 를 누르면 언제든 다시 볼 수 있어요. 먼저 덱에서 컬럼에 글을 며칠 쌓은 뒤 브리핑을 만들면 가장 잘 나와요.',
+    side: 'bottom',
+    align: 'end',
   },
 ];

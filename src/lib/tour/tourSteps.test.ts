@@ -6,7 +6,7 @@ const ALLOWED_SELECTORS = new Set([
   '[data-tour="add-column"]', '[data-tour="column-modal"]',
   '[data-tour="col-refresh"]', '[data-tour="col-sort"]',
   '[data-tour="col-view"]', '[data-tour="col-save"]',
-  '[data-tour="sidebar"]',
+  '[data-tour="sidebar"]', '[data-tour="help-button"]',
   '[data-tour="bf-column"]', '[data-tour="bf-period"]',
   '[data-tour="bf-generate"]', '[data-tour="bf-result"]',
   '[data-tour="bf-history"]',
@@ -43,9 +43,9 @@ test('덱: 생성 유도 + 정렬/보기 + 사이드바 스텝을 포함', () =>
   assert.ok(ids.includes('deck-sidebar'));
 });
 
-test('덱 마지막은 항상 마무리(요소 없는 중앙 스텝)', () => {
+test('덱 마무리 스텝은 ? 버튼을 하이라이트(재실행 위치를 눈으로 보여줌)', () => {
   const last = deckSteps()[deckSteps().length - 1];
-  assert.equal(last.element, undefined);
+  assert.equal(last.element, '[data-tour="help-button"]');
 });
 
 test('브리핑: 결과·마무리 포함 7단계, 무결성', () => {
@@ -56,7 +56,7 @@ test('브리핑: 결과·마무리 포함 7단계, 무결성', () => {
   assert.ok(ids.includes('bf-result'));
 });
 
-test('브리핑 마지막은 요소 없는 중앙 스텝', () => {
+test('브리핑 마무리 스텝도 ? 버튼을 하이라이트', () => {
   const last = BRIEFING_STEPS[BRIEFING_STEPS.length - 1];
-  assert.equal(last.element, undefined);
+  assert.equal(last.element, '[data-tour="help-button"]');
 });

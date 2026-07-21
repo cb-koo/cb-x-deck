@@ -61,10 +61,10 @@ export function Sidebar({ wsId }: { wsId: string }) {
   }
 
   const nav = [
-    { href: `/w/${wsId}/research`, label: '리서치', Ic: SearchIcon },
-    { href: `/w/${wsId}`, label: '덱', Ic: ColumnsIcon },
-    { href: `/w/${wsId}/briefing`, label: '브리핑', Ic: DocIcon },
-    { href: `/w/${wsId}/library`, label: '보관함', Ic: FolderIcon },
+    { href: `/w/${wsId}/research`, label: '리서치', Ic: SearchIcon, tour: undefined as string | undefined },
+    { href: `/w/${wsId}`, label: '덱', Ic: ColumnsIcon, tour: 'nav-deck' },
+    { href: `/w/${wsId}/briefing`, label: '브리핑', Ic: DocIcon, tour: 'nav-briefing' },
+    { href: `/w/${wsId}/library`, label: '보관함', Ic: FolderIcon, tour: undefined },
   ];
 
   return (
@@ -101,7 +101,7 @@ export function Sidebar({ wsId }: { wsId: string }) {
 
       <nav className="mt-2 flex-1">
         {nav.map((n) => (
-          <a key={n.href} href={n.href}
+          <a key={n.href} href={n.href} data-tour={n.tour}
              className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
             <n.Ic className="h-[18px] w-[18px]" />{n.label}
           </a>

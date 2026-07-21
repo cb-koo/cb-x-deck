@@ -32,12 +32,13 @@ function dirLabel(sort: SortKey, dir: SortDir): string {
   return `${SORT_LABEL[sort]} ${dirText(sort, dir)} — 다시 누르면 정렬 순서가 바뀝니다`;
 }
 
-export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
+export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourAnchor }: {
   column: ColumnRow;
   autoRefresh?: boolean;   // 생성 직후 1회 자동 조회 (page.tsx가 방금 만든 컬럼에만 지정)
   onEdit: () => void;
   onDelete: () => void;
   onPickTag: (tag: string) => void;
+  tourAnchor?: boolean;
 }) {
   // 서버는 항상 전체 tweets를 반환한다. 보기(view)는 전체/버림 두 가지뿐이며 dismissed 여부로만 갈린다.
   // 공출현(CooccurrencePanel) 집계는 항상 전체 tweets 기준이라 view/visible의 영향을 받지 않는다(목적=담론 자동 부상).
@@ -195,7 +196,9 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
                   title={showDismissed ? '버린 트윗 수' : '이 컬럼에 조회된 전체 트윗 수'}>{total.toLocaleString()}</span>
           )}
           <span className="ml-auto shrink-0 text-caption text-x-muted">{busy ? '새로고침 중…' : lastRefreshedLabel(lastRefreshed)}</span>
-          <Button variant="icon" onClick={refresh} disabled={busy} title="새로고침" className={busy ? 'text-x-blue' : ''}>
+          <Button variant="icon" onClick={refresh} disabled={busy} title="새로고침"
+                  data-tour={tourAnchor ? 'col-refresh' : undefined}
+                  className={busy ? 'text-x-blue' : ''}>
             <RefreshIcon className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
           </Button>
           <Button variant="icon" onClick={onEdit} title="설정"><SettingsIcon className="h-4 w-4" /></Button>
@@ -292,8 +295,9 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag }: {
           ? <p className="p-4 text-center text-ui text-x-muted">
               {topicFilter ? '이 주제의 트윗이 현재 목록에 없어요 (주제를 다시 눌러 해제)' : '트윗 없음'}
             </p>
-          : visible.map((t) => (
+          : visible.map((t, i) => (
               <TweetCard key={t.tweetId} tweet={t} meId={member?.id ?? null}
+                         tourAnchor={tourAnchor && i === 0}
                          onSave={save} onUnsave={unsave}
                          onDismiss={dismissTweet} onUndismiss={undismissTweet} dismissedView={showDismissed} />
             ))}

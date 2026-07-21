@@ -122,7 +122,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="max-h-[90vh] w-[600px] max-w-[90vw] overflow-y-auto rounded-2xl bg-white p-6" onClick={(e) => e.stopPropagation()}>
+      <div data-tour="column-modal" className="max-h-[90vh] w-[600px] max-w-[90vw] overflow-y-auto rounded-2xl bg-white p-6" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-[20px] font-bold text-x-text">{initial ? '칼럼 설정' : '새 칼럼'}</h2>
           <button onClick={onClose} className="rounded-full p-2 text-x-secondary hover:bg-x-hover" title="닫기">✕</button>

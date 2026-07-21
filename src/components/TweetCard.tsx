@@ -26,12 +26,13 @@ export interface TweetCardProps {
   onDismiss?: (tweetId: string) => void;
   onUndismiss?: (tweetId: string) => void;
   dismissedView?: boolean;
+  tourAnchor?: boolean;
 }
 
 // hover: Reply·View·Bookmark 파랑, Repost 초록, Like 핑크 (실제 X 동작)
 const metricBase = 'group flex items-center gap-1 text-ui text-x-secondary transition-colors';
 
-export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndismiss, dismissedView }: TweetCardProps) {
+export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndismiss, dismissedView, tourAnchor }: TweetCardProps) {
   const savedByMe = !!meId && t.savedBy.some((m) => m.id === meId);
   const profileUrl = `https://x.com/${t.authorHandle}`;
   const yakkiho = flagYakkiho(t.text);
@@ -108,8 +109,8 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndis
               ))}
             </span>
             {savedByMe
-              ? <Button variant="ghost" onClick={() => onUnsave?.(t.tweetId)} className="font-medium text-amber-500">★ 저장됨</Button>
-              : <Button variant="ghost" onClick={() => onSave?.(t.tweetId)}>☆ 저장</Button>}
+              ? <Button variant="ghost" onClick={() => onUnsave?.(t.tweetId)} data-tour={tourAnchor ? 'col-save' : undefined} className="font-medium text-amber-500">★ 저장됨</Button>
+              : <Button variant="ghost" onClick={() => onSave?.(t.tweetId)} data-tour={tourAnchor ? 'col-save' : undefined}>☆ 저장</Button>}
             {dismissedView
               ? <Button variant="ghost" onClick={() => onUndismiss?.(t.tweetId)}>되돌리기</Button>
               : onDismiss && <Button variant="ghost" onClick={() => onDismiss(t.tweetId)} title="벤치마크 무관 — 숨김" className="text-x-muted">✕ 버림</Button>}

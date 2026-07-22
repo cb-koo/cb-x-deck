@@ -171,10 +171,10 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
     const alreadyShown = tweets.some((t) => translations[t.tweetId]); // 캐시로 이미 보여줄 게 있나
     setShowTranslations(true); // 표시 모드 먼저 켬 — 청크가 도착하는 대로 그 카드가 바로 뜬다
     try {
-      // 미번역분을 10건씩 순차 요청 → 각 응답 즉시 setTranslations로 위에서부터 순차 노출
-      // (한 번에 전부 기다렸다 한꺼번에 뜨던 방식 → 번역되는 대로 점진 표시)
+      // 미번역분을 5건씩 순차 요청 → 각 응답 즉시 setTranslations로 위에서부터 순차 노출.
+      // 5건: 작은 컬럼도 여러 청크로 나뉘어 점진 표시가 보이고, 긴 트윗에서 출력 잘림(청크 유실)도 방지.
       const need = tweets.filter((t) => !translations[t.tweetId]).map((t) => t.tweetId);
-      const size = 10;
+      const size = 5;
       let anyOk = false;
       for (let i = 0; i < need.length; i += size) {
         if (await translateIds(need.slice(i, i + size))) anyOk = true;

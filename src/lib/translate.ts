@@ -6,8 +6,9 @@ import type { TweetTranslation } from './types.ts';
 // v2: 줄바꿈 보존(공백 뭉개기 제거·블록 포맷·개행 유지 규칙) — 기존 캐시 재번역 유도.
 export const PROMPT_VERSION = 2;
 
-// 한 번의 LLM 호출에 묶는 트윗 수. 200건 컬럼도 이 단위로 쪼개 병렬 호출(동시성 상한 CONCURRENCY).
-const CHUNK = 20;
+// 한 번의 LLM 호출에 묶는 트윗 수. 작게 잡는다 — 청크가 크면 긴 트윗(B/A·인용 등 500자+)에서
+// 출력이 max_tokens를 넘겨 JSON이 잘리고, extractJson 실패로 청크 전체가 유실된다(502의 원인).
+const CHUNK = 5;
 const CONCURRENCY = 5;
 
 export interface TranslateInput {
@@ -55,9 +56,9 @@ JSON만 출력: {"1":{"body":"...","quoted":null},"2":{"body":"...","quoted":"..
 async function translateChunk(chunk: TranslateInput[], client?: AnthropicLike): Promise<Array<[string, TweetTranslation]>> {
   let res;
   try {
-    // 청크 크기에 비례한 상한(트윗당 ~500토큰 + 여유, 최대 8000). 단건은 작게 잡아 불필요한
-    // 상한 낭비를 막고, 큰 청크는 JSON이 잘려 통째 유실되지 않게 헤드룸을 준다.
-    const maxTokens = Math.min(8000, 1000 + chunk.length * 500);
+    // 트윗당 ~1500토큰 배정(긴 B/A·인용 트윗의 한국어 번역+JSON 구조 여유), 상한 8000.
+    // 출력이 상한에 닿으면 JSON이 잘려 청크가 통째 유실되므로 넉넉히 준다. CHUNK=5 → 최대 7500.
+    const maxTokens = Math.min(8000, chunk.length * 1500);
     res = await callLLM('anthropic.translate',
       { model: MODEL(), max_tokens: maxTokens, messages: [{ role: 'user', content: buildPrompt(chunk) }] }, client);
   } catch (e) {

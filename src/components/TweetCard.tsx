@@ -1,5 +1,6 @@
 'use client';
-import type { StoredTweet } from '@/lib/types';
+import { useState } from 'react';
+import type { StoredTweet, TweetTranslation } from '@/lib/types';
 import { formatCount, formatDate } from '@/lib/format';
 import { flagYakkiho } from '@/lib/complianceFlags';
 import { MediaGrid } from './MediaGrid';
@@ -27,12 +28,19 @@ export interface TweetCardProps {
   onUndismiss?: (tweetId: string) => void;
   dismissedView?: boolean;
   tourAnchor?: boolean;
+  translation?: TweetTranslation | null;
+  showTranslation?: boolean;              // 컬럼 기본 표시 상태
+  onTranslate?: (tweetId: string) => void;
+  translating?: boolean;                  // 이 카드 번역 진행 중
 }
 
 // hover: Reply·View·Bookmark 파랑, Repost 초록, Like 핑크 (실제 X 동작)
 const metricBase = 'group flex items-center gap-1 text-ui text-x-secondary transition-colors';
 
-export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndismiss, dismissedView, tourAnchor }: TweetCardProps) {
+export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndismiss, dismissedView, tourAnchor,
+                            translation, showTranslation, onTranslate, translating }: TweetCardProps) {
+  const [showOverride, setShowOverride] = useState<boolean | null>(null);
+  const showTr = showOverride ?? showTranslation ?? false;
   const savedByMe = !!meId && t.savedBy.some((m) => m.id === meId);
   const profileUrl = `https://x.com/${t.authorHandle}`;
   const yakkiho = flagYakkiho(t.text);
@@ -73,8 +81,28 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndis
               : <span className="text-x-secondary">· {timeAgo(t.tweetCreatedAt)}</span>}
           </div>
           <TweetText text={t.text} className="mt-0.5" />
+          {translation ? (
+            showTr ? (
+              <div className="mt-1 rounded-lg border border-x-border bg-x-blue/[0.03] px-2.5 py-2">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-x-blue" title="자동 기계번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>
+                  <button onClick={() => setShowOverride(false)} className="text-caption text-x-muted hover:underline">원문만 보기</button>
+                </div>
+                <TweetText text={translation.content} />
+              </div>
+            ) : (
+              <button onClick={() => setShowOverride(true)} className="mt-1 text-caption text-x-blue hover:underline">🌐 번역 보기</button>
+            )
+          ) : (
+            onTranslate && (
+              <button onClick={() => onTranslate(t.tweetId)} disabled={translating}
+                      title="이 카드를 한국어로" className="mt-1 text-caption text-x-blue hover:underline disabled:opacity-50">
+                {translating ? '번역 중…' : '🌐 번역'}
+              </button>
+            )
+          )}
           <MediaGrid media={t.media} />
-          {t.quoted && <QuotedCard quoted={t.quoted} />}
+          {t.quoted && <QuotedCard quoted={t.quoted} translation={showTr ? (translation?.quotedContent ?? null) : null} />}
           {/* 엔게이지먼트 바 — 실제 X 순서: Reply · Repost · Like · View · Bookmark */}
           <div className="mt-3 flex max-w-[425px] items-center justify-between">
             <span title="답글 (Reply)" className={`${metricBase} hover:text-x-blue`}>

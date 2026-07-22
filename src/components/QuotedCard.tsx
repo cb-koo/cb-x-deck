@@ -11,7 +11,7 @@ function shortDate(iso: string | null): string {
 
 // 실제 X 인용 카드 레이아웃: 아바타+이름+@핸들+날짜 헤더 → 본문 → 미디어.
 // 박스 전체 클릭 = 인용 원문 (중첩 <a> 회피를 위해 div onClick — 내부 링크는 TweetText가 전파 차단)
-export function QuotedCard({ quoted }: { quoted: DeckQuoted & { enriched?: DeckTweet | null } }) {
+export function QuotedCard({ quoted, translation }: { quoted: DeckQuoted & { enriched?: DeckTweet | null }; translation?: string | null }) {
   const e = quoted.enriched ?? null;
   const handle = e?.authorHandle ?? quoted.screenName;
   const name = e?.authorName ?? quoted.userName;
@@ -36,6 +36,12 @@ export function QuotedCard({ quoted }: { quoted: DeckQuoted & { enriched?: DeckT
           </span>
         </div>
         <TweetText text={e?.text ?? quoted.text} className="mt-1 text-x-text" />
+        {translation && (
+          <div className="mt-1 border-t border-x-border pt-1">
+            <span className="text-[10px] font-bold text-x-blue">🌐 번역</span>
+            <TweetText text={translation} className="text-x-text" />
+          </div>
+        )}
       </div>
       {e && e.media.length > 0 && (
         <div className="px-3 pb-3 [&>div]:mt-0">

@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ColumnRow, SearchConfig, SortDir, SortKey, StoredTweet } from '@/lib/types';
+import type { ColumnRow, SearchConfig, SortDir, SortKey, StoredTweet, TweetTranslation } from '@/lib/types';
 import { useMember } from '@/lib/memberContext';
 import { TweetCard } from './TweetCard';
 import { CooccurrencePanel } from './CooccurrencePanel';
@@ -51,6 +51,10 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
   const [lastRefreshed, setLastRefreshed] = useState(column.lastRefreshedAt);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [translations, setTranslations] = useState<Record<string, TweetTranslation>>({});
+  const [showTranslations, setShowTranslations] = useState(false);
+  const [translatingAll, setTranslatingAll] = useState(false);
+  const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
   const [width, setWidth] = useState<number>(column.config.width ?? 400);
   const [showPillar, setShowPillar] = useState(false);
   const [showTrend, setShowTrend] = useState(false);
@@ -143,6 +147,31 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
   // 버림 보기 중엔 주제 맵에 버림 트윗이 없어 필터를 걸면 항상 빈 목록이 된다 — 이때는 필터 미적용
   const visible = topicFilter && !showDismissed ? tweets.filter((t) => pillarMap[t.tweetId] === topicFilter) : tweets;
 
+  async function translateIds(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const r = await apiFetch('/api/tweets/translate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tweetIds: ids }),
+    });
+    if (!r.ok) { setErr((await r.json().catch(() => ({})) as { error?: string }).error ?? '번역에 실패했어요'); return; }
+    const res = (await r.json()) as { translations: Record<string, TweetTranslation> };
+    setTranslations((prev) => ({ ...prev, ...res.translations }));
+  }
+
+  async function translateAll() {
+    if (showTranslations) { setShowTranslations(false); return; } // 토글 오프(캐시는 유지)
+    setTranslatingAll(true); setErr('');
+    await translateIds(tweets.filter((t) => !translations[t.tweetId]).map((t) => t.tweetId));
+    setShowTranslations(true);
+    setTranslatingAll(false);
+  }
+
+  async function translateOne(tweetId: string) {
+    setTranslatingIds((s) => new Set(s).add(tweetId));
+    try { await translateIds([tweetId]); }
+    finally { setTranslatingIds((s) => { const n = new Set(s); n.delete(tweetId); return n; }); }
+  }
+
   async function refresh() {
     setBusy(true); setErr('');
     const r = await apiFetch(`/api/columns/${column.id}/refresh`, { method: 'POST' });
@@ -226,6 +255,11 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
                   title="이 컬럼에 쌓인 트윗으로 주간 추이를 보여줘요 · 추가 비용 없음">
             추이{showTrend ? ' ✓' : ''}
           </Button>
+          <Button variant="ghost" onClick={translateAll} disabled={translatingAll}
+                  className={showTranslations ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
+                  title="이 컬럼에 불러온 트윗을 한국어로 — 몇 초 걸릴 수 있어요 (한 번 번역하면 저장돼요)">
+            {translatingAll ? '번역 중…' : showTranslations ? '번역 숨기기' : '🌐 전체 번역'}
+          </Button>
           {column.kind === 'watchlist' && (
             <Button variant="ghost" onClick={() => { setShowPillar((v) => !v); if (showPillar) setTopicFilter(null); }}
                     className={showPillar ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
@@ -299,7 +333,11 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
               <TweetCard key={t.tweetId} tweet={t} meId={member?.id ?? null}
                          tourAnchor={tourAnchor && i === 0}
                          onSave={save} onUnsave={unsave}
-                         onDismiss={dismissTweet} onUndismiss={undismissTweet} dismissedView={showDismissed} />
+                         onDismiss={dismissTweet} onUndismiss={undismissTweet} dismissedView={showDismissed}
+                         translation={translations[t.tweetId] ?? null}
+                         showTranslation={showTranslations}
+                         onTranslate={translateOne}
+                         translating={translatingIds.has(t.tweetId)} />
             ))}
         {hasMore && (
           <button onClick={loadMore} disabled={loadingMore}

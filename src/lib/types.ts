@@ -85,3 +85,9 @@ export interface CandidateRow {
   member: Member;
   workspaceId: string;
 }
+
+// 트윗 본문(+인용) 한국어 번역 결과. 클라이언트/서버 공유.
+export interface TweetTranslation {
+  content: string;              // 본문 번역
+  quotedContent: string | null; // 인용 트윗 본문 번역(없으면 null)
+}

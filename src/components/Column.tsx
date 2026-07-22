@@ -55,6 +55,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
   const [showTranslations, setShowTranslations] = useState(false);
   const [translatingAll, setTranslatingAll] = useState(false);
   const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
+  const [translateErr, setTranslateErr] = useState(''); // 번역 전용 오류(새로고침 err와 분리 — 재시도 동작이 다름)
   const [width, setWidth] = useState<number>(column.config.width ?? 400);
   const [showPillar, setShowPillar] = useState(false);
   const [showTrend, setShowTrend] = useState(false);
@@ -147,23 +148,32 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
   // 버림 보기 중엔 주제 맵에 버림 트윗이 없어 필터를 걸면 항상 빈 목록이 된다 — 이때는 필터 미적용
   const visible = topicFilter && !showDismissed ? tweets.filter((t) => pillarMap[t.tweetId] === topicFilter) : tweets;
 
-  async function translateIds(ids: string[]): Promise<void> {
-    if (ids.length === 0) return;
+  // 성공 시 true. 실패는 translateErr에 담아 반환(호출자가 표시 전환을 성공에 게이팅)
+  async function translateIds(ids: string[]): Promise<boolean> {
+    if (ids.length === 0) return true;
     const r = await apiFetch('/api/tweets/translate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tweetIds: ids }),
     });
-    if (!r.ok) { setErr((await r.json().catch(() => ({})) as { error?: string }).error ?? '번역에 실패했어요'); return; }
+    if (!r.ok) {
+      setTranslateErr((await r.json().catch(() => ({})) as { error?: string }).error ?? '번역에 실패했어요');
+      return false;
+    }
     const res = (await r.json()) as { translations: Record<string, TweetTranslation> };
     setTranslations((prev) => ({ ...prev, ...res.translations }));
+    setTranslateErr('');
+    return true;
   }
 
   async function translateAll() {
     if (showTranslations) { setShowTranslations(false); return; } // 토글 오프(캐시는 유지)
-    setTranslatingAll(true); setErr('');
-    await translateIds(tweets.filter((t) => !translations[t.tweetId]).map((t) => t.tweetId));
-    setShowTranslations(true);
-    setTranslatingAll(false);
+    setTranslatingAll(true); setTranslateErr('');
+    try {
+      const ok = await translateIds(tweets.filter((t) => !translations[t.tweetId]).map((t) => t.tweetId));
+      if (ok) setShowTranslations(true); // 성공 시에만 표시 전환 — 실패 시 '번역 숨기기'로 오인 방지
+    } finally {
+      setTranslatingAll(false); // 네트워크 예외에도 '번역 중…' 고착 방지
+    }
   }
 
   async function translateOne(tweetId: string) {
@@ -285,6 +295,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
           </details>
         </div>
         {err && <p className="pb-1 text-caption text-red-500">{err} <button onClick={refresh} className="underline">재시도</button></p>}
+        {translateErr && <p className="pb-1 text-caption text-red-500">{translateErr} <button onClick={translateAll} className="underline">재시도</button></p>}
       </header>
       {/* 새로고침 진행 표시 — 완료 전까지 상단 인디케이터 */}
       {busy && (

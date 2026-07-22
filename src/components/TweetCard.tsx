@@ -95,7 +95,7 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndis
             )
           ) : (
             onTranslate && (
-              <button onClick={() => onTranslate(t.tweetId)} disabled={translating}
+              <button onClick={() => { onTranslate(t.tweetId); setShowOverride(true); }} disabled={translating}
                       title="이 카드를 한국어로" className="mt-1 text-caption text-x-blue hover:underline disabled:opacity-50">
                 {translating ? '번역 중…' : '🌐 번역'}
               </button>

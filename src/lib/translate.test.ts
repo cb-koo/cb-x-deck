@@ -64,3 +64,17 @@ test('프롬프트에 보존 규칙과 용어집이 들어있다(회귀 방지)'
   assert.match(prompt, /해시태그/);   // #해시태그 보존 규칙
   assert.match(prompt, /毛穴/);       // 용어집 항목
 });
+
+test('청크 호출이 실패해도 throw하지 않고 성공분만 반환', async () => {
+  // 모든 청크가 실패(레이트리밋 등)해도 배치 전체가 예외를 던지지 않고 빈 결과로 완료
+  const throwing = { messages: { create: async () => { throw new Error('rate limit'); } } };
+  const out = await translateTweets([{ tweetId: 'a', text: 'x' }, { tweetId: 'b', text: 'y' }], throwing, 1);
+  assert.equal(out.size, 0);
+});
+
+test('번역 결과 앞뒤 공백 제거', async () => {
+  const { client } = fakeClient('{"1":{"body":"  모공  ","quoted":"  인용  "}}');
+  const out = await translateTweets([{ tweetId: 'a', text: 'x', quotedText: 'q' }], client);
+  assert.equal(out.get('a')?.content, '모공');
+  assert.equal(out.get('a')?.quotedContent, '인용');
+});

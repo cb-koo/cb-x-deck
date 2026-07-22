@@ -47,8 +47,18 @@ JSON만 출력: {"1":{"body":"...","quoted":null},"2":{"body":"...","quoted":"..
 }
 
 async function translateChunk(chunk: TranslateInput[], client?: AnthropicLike): Promise<Array<[string, TweetTranslation]>> {
-  const res = await callLLM('anthropic.translate',
-    { model: MODEL(), max_tokens: 4000, messages: [{ role: 'user', content: buildPrompt(chunk) }] }, client);
+  let res;
+  try {
+    // max_tokens 8000: 청크(최대 CHUNK건) 한국어 번역 JSON이 잘리지 않게 넉넉히 —
+    // 잘리면 extractJson 실패로 이 청크 전체가 유실되므로 헤드룸을 크게 둔다.
+    res = await callLLM('anthropic.translate',
+      { model: MODEL(), max_tokens: 8000, messages: [{ role: 'user', content: buildPrompt(chunk) }] }, client);
+  } catch (e) {
+    // 청크 단위 실패(레이트리밋·네트워크·5xx)가 배치 전체를 죽이지 않게 —
+    // 이 청크만 비우고 나머지 청크의 성공분은 살린다(부분 성공 유지).
+    console.error('[translate] 청크 호출 실패', { size: chunk.length, err: e instanceof Error ? e.message : String(e) });
+    return [];
+  }
   const j = extractJson(res) as Record<string, unknown> | null;
   if (!j) return [];
   const entries: Array<[string, TweetTranslation]> = [];
@@ -57,7 +67,8 @@ async function translateChunk(chunk: TranslateInput[], client?: AnthropicLike): 
     if (!item || typeof item !== 'object') return;
     const { body, quoted } = item as { body?: unknown; quoted?: unknown };
     if (typeof body !== 'string' || !body.trim()) return; // body 없으면 건너뜀(부분 성공)
-    entries.push([t.tweetId, { content: body, quotedContent: typeof quoted === 'string' && quoted ? quoted : null }]);
+    const q = typeof quoted === 'string' ? quoted.trim() : '';
+    entries.push([t.tweetId, { content: body.trim(), quotedContent: q ? q : null }]);
   });
   return entries;
 }

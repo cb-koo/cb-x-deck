@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
-import { getTweetsByIds } from '@/lib/tweetStore';
+import { getTweetsByIds, PAGE_SIZE } from '@/lib/tweetStore';
 import { translateTweets, PROMPT_VERSION, type TranslateInput } from '@/lib/translate';
 import { getTranslations, upsertTranslations, hashSource } from '@/lib/translationStore';
 import { MODEL } from '@/lib/suggest';
 import type { TweetTranslation } from '@/lib/types';
 import { requireAllowedUser } from '@/lib/authGuard';
 
-const MAX_IDS = 200; // 컬럼 한 페이지(PAGE_SIZE)와 동일 — 남용 방지 상한
+const MAX_IDS = PAGE_SIZE; // 컬럼 한 페이지와 동일 — 남용 방지 상한
 
 export async function POST(req: Request) {
   const gate = await requireAllowedUser();
@@ -44,6 +44,13 @@ export async function POST(req: Request) {
     } catch (e) {
       console.error('[translate] 번역 중 오류', { count: inputs.length, err: e instanceof Error ? e.message : String(e) });
       return NextResponse.json({ error: '번역 중 오류가 났어요 — 잠시 후 다시 시도해주세요' }, { status: 502 });
+    }
+    // 청크 실패는 배치를 죽이지 않고 삼켜지므로(부분 성공 설계), 전면 실패(요청분이 하나도
+    // 번역되지 않음 — API 키 무효·지속 레이트리밋 등)는 여기서 502로 표면화한다. 부분 실패는
+    // 성공분만 반환하고 미번역 카드는 번역 버튼이 남아 재시도 가능(정상 감쇠).
+    if (fresh.size === 0) {
+      console.error('[translate] 전면 실패 — 요청분 전부 미번역', { count: inputs.length });
+      return NextResponse.json({ error: '번역에 실패했어요 — 잠시 후 다시 시도해주세요' }, { status: 502 });
     }
     // 3) 캐시 저장(성공분만)
     const model = MODEL();

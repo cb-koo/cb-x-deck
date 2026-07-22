@@ -20,7 +20,7 @@ test('번호 키 JSON을 tweetId로 매핑', async () => {
   const { client } = fakeClient('{"1":{"body":"모공 케어","quoted":null},"2":{"body":"레티놀","quoted":"인용 번역"}}');
   const out = await translateTweets(
     [{ tweetId: 'a', text: '毛穴ケア' }, { tweetId: 'b', text: 'レチノール', quotedText: '引用' }],
-    client,
+    client, 10, // 한 호출에 담아 위치키(1,2) 매핑을 검증
   );
   assert.equal(out.get('a')?.content, '모공 케어');
   assert.equal(out.get('a')?.quotedContent, null);
@@ -32,7 +32,7 @@ test('body 없는/문자열 아닌 항목은 건너뜀(부분 성공)', async ()
   const { client } = fakeClient('{"1":{"body":"정상","quoted":null},"2":{"quoted":"본문없음"},"3":"문자열"}');
   const out = await translateTweets(
     [{ tweetId: 'a', text: 'x' }, { tweetId: 'b', text: 'y' }, { tweetId: 'c', text: 'z' }],
-    client,
+    client, 10, // 한 호출에 담아 위치키 매핑·건너뜀을 검증
   );
   assert.equal(out.get('a')?.content, '정상');
   assert.equal(out.has('b'), false);

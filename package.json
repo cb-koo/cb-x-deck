@@ -12,6 +12,7 @@
     "smoke:getxapi": "node --import tsx --env-file-if-exists=.env scripts/smoke-getxapi.ts",
     "smoke:suggest": "node --import tsx --env-file-if-exists=.env scripts/smoke-suggest.ts",
     "smoke:exa": "node --import tsx --env-file-if-exists=.env scripts/smoke-exa.ts",
+    "smoke:translate": "node --import tsx --env-file-if-exists=.env scripts/smoke-translate.ts",
     "backfill:quoted": "node --import tsx --env-file-if-exists=.env scripts/backfill-quoted.ts"
   },
   "dependencies": {

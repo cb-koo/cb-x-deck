@@ -72,6 +72,13 @@ test('청크 호출이 실패해도 throw하지 않고 성공분만 반환', asy
   assert.equal(out.size, 0);
 });
 
+test('원문 줄바꿈이 프롬프트에 보존되고, 번역 줄바꿈도 유지', async () => {
+  const { client, calls } = fakeClient('{"1":{"body":"첫줄\\n둘째줄","quoted":null}}');
+  const out = await translateTweets([{ tweetId: 'a', text: '一行目\n二行目' }], client);
+  assert.match(calls[0], /一行目\n二行目/);          // 프롬프트가 원문 줄바꿈을 스페이스로 안 뭉갬
+  assert.equal(out.get('a')?.content, '첫줄\n둘째줄'); // 번역 줄바꿈 유지
+});
+
 test('번역 결과 앞뒤 공백 제거', async () => {
   const { client } = fakeClient('{"1":{"body":"  모공  ","quoted":"  인용  "}}');
   const out = await translateTweets([{ tweetId: 'a', text: 'x', quotedText: 'q' }], client);

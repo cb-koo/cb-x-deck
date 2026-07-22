@@ -3,7 +3,8 @@ import { extractJson, MODEL } from './suggest.ts';
 import type { TweetTranslation } from './types.ts';
 
 // 프롬프트/용어집을 바꿀 때마다 +1 — 캐시(prompt_version)가 자동으로 무효화된다.
-export const PROMPT_VERSION = 1;
+// v2: 줄바꿈 보존(공백 뭉개기 제거·블록 포맷·개행 유지 규칙) — 기존 캐시 재번역 유도.
+export const PROMPT_VERSION = 2;
 
 // 한 번의 LLM 호출에 묶는 트윗 수. 200건 컬럼도 이 단위로 쪼개 병렬 호출(동시성 상한 CONCURRENCY).
 const CHUNK = 20;
@@ -25,34 +26,40 @@ const GLOSSARY = [
 ];
 
 function buildPrompt(chunk: TranslateInput[]): string {
-  const lines = chunk.map((t, i) => {
-    const body = `[${i + 1}] (본문) ${t.text.replace(/\s+/g, ' ')}`;
-    return t.quotedText ? `${body}\n    (인용) ${t.quotedText.replace(/\s+/g, ' ')}` : body;
+  // 원문 줄바꿈을 보존해야 하므로 공백을 뭉개지 않는다. 다중 행이어도 파싱이 안전하도록
+  // 각 트윗을 "### 트윗 N" 블록으로 구분한다(예전엔 한 줄로 눌러 줄바꿈이 소실됐음).
+  const blocks = chunk.map((t, i) => {
+    let b = `### 트윗 ${i + 1}\n[본문]\n${t.text}`;
+    if (t.quotedText) b += `\n[인용]\n${t.quotedText}`;
+    return b;
   });
   return `당신은 일본 뷰티/미용의료 X(트위터)를 한국 콘텐츠 기획팀에 전달하는 번역가입니다.
 아래 일본어 트윗들을 자연스러운 한국어로 번역하세요.
 
 규칙:
 - @멘션, #해시태그, URL, 숫자, 이모지는 원문 그대로 보존(번역·삭제 금지)
+- **원문의 줄바꿈(개행) 구조를 그대로 유지**하세요. 원문이 여러 줄이면 번역도 같은 줄 구성으로.
 - 직역 금지 — 한국 뷰티 업계에서 통용되는 표현으로. 트윗 특유의 구어 톤 유지
 - 아래 용어집을 우선 적용:
 ${GLOSSARY.map((g) => `  ${g}`).join('\n')}
 
-[트윗 목록]
-${lines.join('\n')}
+[트윗 목록 — 각 트윗은 "### 트윗 N" 블록, 그 안에 [본문]과 (있으면) [인용]]
+${blocks.join('\n\n')}
 
-각 트윗을 번호(위 [n])를 키로 하는 JSON으로 출력하세요. 인용(본문 아래 '(인용)')이 있으면 quoted도
+각 트윗을 번호(### 트윗 N의 N)를 키로 하는 JSON으로 출력하세요. [인용]이 있으면 quoted도
 번역하고, 없으면 quoted는 null. 본문 번역은 body에 넣습니다.
+문자열 안의 줄바꿈은 \\n으로 이스케이프하세요.
 JSON만 출력: {"1":{"body":"...","quoted":null},"2":{"body":"...","quoted":"..."}}`;
 }
 
 async function translateChunk(chunk: TranslateInput[], client?: AnthropicLike): Promise<Array<[string, TweetTranslation]>> {
   let res;
   try {
-    // max_tokens 8000: 청크(최대 CHUNK건) 한국어 번역 JSON이 잘리지 않게 넉넉히 —
-    // 잘리면 extractJson 실패로 이 청크 전체가 유실되므로 헤드룸을 크게 둔다.
+    // 청크 크기에 비례한 상한(트윗당 ~500토큰 + 여유, 최대 8000). 단건은 작게 잡아 불필요한
+    // 상한 낭비를 막고, 큰 청크는 JSON이 잘려 통째 유실되지 않게 헤드룸을 준다.
+    const maxTokens = Math.min(8000, 1000 + chunk.length * 500);
     res = await callLLM('anthropic.translate',
-      { model: MODEL(), max_tokens: 8000, messages: [{ role: 'user', content: buildPrompt(chunk) }] }, client);
+      { model: MODEL(), max_tokens: maxTokens, messages: [{ role: 'user', content: buildPrompt(chunk) }] }, client);
   } catch (e) {
     // 청크 단위 실패(레이트리밋·네트워크·5xx)가 배치 전체를 죽이지 않게 —
     // 이 청크만 비우고 나머지 청크의 성공분은 살린다(부분 성공 유지).

@@ -168,9 +168,19 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
   async function translateAll() {
     if (showTranslations) { setShowTranslations(false); return; } // 토글 오프(캐시는 유지)
     setTranslatingAll(true); setTranslateErr('');
+    const alreadyShown = tweets.some((t) => translations[t.tweetId]); // 캐시로 이미 보여줄 게 있나
+    setShowTranslations(true); // 표시 모드 먼저 켬 — 청크가 도착하는 대로 그 카드가 바로 뜬다
     try {
-      const ok = await translateIds(tweets.filter((t) => !translations[t.tweetId]).map((t) => t.tweetId));
-      if (ok) setShowTranslations(true); // 성공 시에만 표시 전환 — 실패 시 '번역 숨기기'로 오인 방지
+      // 미번역분을 10건씩 순차 요청 → 각 응답 즉시 setTranslations로 위에서부터 순차 노출
+      // (한 번에 전부 기다렸다 한꺼번에 뜨던 방식 → 번역되는 대로 점진 표시)
+      const need = tweets.filter((t) => !translations[t.tweetId]).map((t) => t.tweetId);
+      const size = 10;
+      let anyOk = false;
+      for (let i = 0; i < need.length; i += size) {
+        if (await translateIds(need.slice(i, i + size))) anyOk = true;
+      }
+      // 보여줄 게 전무(캐시도 없고 전부 실패)면 표시 모드 원복 — '번역 숨기기' 오인 방지
+      if (need.length > 0 && !anyOk && !alreadyShown) setShowTranslations(false);
     } finally {
       setTranslatingAll(false); // 네트워크 예외에도 '번역 중…' 고착 방지
     }

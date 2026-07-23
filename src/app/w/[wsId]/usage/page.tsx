@@ -21,7 +21,13 @@ function range(period: Period): { from: Date; to: Date } {
 
 const PERIOD_LABEL: Record<Period, string> = { '7d': '최근 7일', '30d': '최근 30일', month: '이번 달' };
 
-export default async function UsagePage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
+export default async function UsagePage({
+  params, searchParams,
+}: {
+  params: Promise<{ wsId: string }>;
+  searchParams: Promise<{ period?: string }>;
+}) {
+  const { wsId } = await params;
   const sp = await searchParams;
   const period: Period = sp.period === '7d' || sp.period === 'month' ? sp.period : '30d';
   const { from, to } = range(period);
@@ -45,7 +51,7 @@ export default async function UsagePage({ searchParams }: { searchParams: Promis
         </p>
         <nav className="mt-3 flex gap-2">
           {(['7d', '30d', 'month'] as Period[]).map((p) => (
-            <a key={p} href={`/usage?period=${p}`}
+            <a key={p} href={`/w/${wsId}/usage?period=${p}`}
                className={`rounded-full border px-3 py-1 text-ui ${p === period ? 'border-x-blue text-x-blue' : 'border-x-border-strong text-x-secondary'}`}>
               {PERIOD_LABEL[p]}
             </a>

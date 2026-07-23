@@ -109,8 +109,8 @@ export function Sidebar({ wsId }: { wsId: string }) {
       </nav>
 
       <div className="mb-2 border-t border-x-border pt-2">
-        <a href="/usage"
-           className={`flex items-center gap-2.5 rounded-full px-3 py-1.5 text-caption hover:bg-x-text/5 ${pathname === '/usage' ? 'text-x-text' : 'text-x-muted'}`}>
+        <a href={`/w/${wsId}/usage`}
+           className={`flex items-center gap-2.5 rounded-full px-3 py-1.5 text-caption hover:bg-x-text/5 ${pathname === `/w/${wsId}/usage` ? 'text-x-text' : 'text-x-muted'}`}>
           API 사용량
         </a>
       </div>

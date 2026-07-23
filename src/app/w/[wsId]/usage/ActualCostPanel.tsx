@@ -12,8 +12,9 @@ function matchNote(actual: number, estimate: number): string {
 
 export function ActualCostPanel({ actuals, estimateByApi }: { actuals: ProviderActual[]; estimateByApi: Record<string, number> }) {
   return (
-    <section className="mb-8">
-      <h2 className="mb-2 text-ui font-bold text-x-text">실제 청구 대조</h2>
+    <section>
+      <h2 className="mb-1 text-base font-bold text-x-text">실제 청구 대조</h2>
+      <p className="mb-4 text-caption text-x-muted">우리 추정과 제공사 실제 청구를 대조합니다.</p>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         {actuals.map((a) => {
           const est = estimateByApi[a.api] ?? 0;

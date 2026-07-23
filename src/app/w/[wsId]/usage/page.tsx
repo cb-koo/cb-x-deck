@@ -55,7 +55,7 @@ export default async function UsagePage({
 
   return (
     <div className="h-screen overflow-y-auto p-8">
-      <header className="mb-6 flex items-start justify-between gap-4">
+      <header className="mb-8 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-bold text-x-text">API 사용량·비용</h1>
           <p className="mt-1 text-caption text-x-muted">추정치(기록 × 기준 단가)와 제공사 실제 청구를 함께 보여줍니다. 실제와 다를 수 있어요.</p>
@@ -70,16 +70,19 @@ export default async function UsagePage({
         </nav>
       </header>
 
-      <UsageHeadline total={total} prevTotal={prevTotal} periodLabel={PERIOD_LABEL[period]} />
-      <ActualCostPanel actuals={actuals} estimateByApi={estimateByApi} />
-      <FeatureBreakdown features={byFeature} />
+      <div className="space-y-10">
+        <UsageHeadline total={total} prevTotal={prevTotal} periodLabel={PERIOD_LABEL[period]} />
+        <ActualCostPanel actuals={actuals} estimateByApi={estimateByApi} />
+        <FeatureBreakdown features={byFeature} />
 
-      <section className="mb-8">
-        <h2 className="mb-2 text-ui font-bold text-x-text">일별 추이</h2>
-        <UsageBar data={byDay} />
-      </section>
+        <section className="rounded-lg border border-x-border bg-x-surface p-5">
+          <h2 className="mb-1 text-base font-bold text-x-text">일별 추이</h2>
+          <p className="mb-4 text-caption text-x-muted">막대에 마우스를 올리면 날짜·비용을 볼 수 있어요. 가장 큰 날은 진하게 표시됩니다.</p>
+          <UsageBar data={byDay} />
+        </section>
 
-      <UsageDetailTables byApi={byApi} byFeature={byFeature} />
+        <UsageDetailTables byApi={byApi} />
+      </div>
     </div>
   );
 }

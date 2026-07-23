@@ -3,23 +3,30 @@ import {
   rawAggregate, dailyAggregate,
   summarizeByApi, summarizeByFeature, summarizeByDay, totalCostUsd,
 } from '@/lib/usageStore';
-import { formatMoney } from '@/lib/usagePricing';
+import { getProviderActuals } from '@/lib/actualCost';
+import { UsageHeadline } from './UsageHeadline';
+import { ActualCostPanel } from './ActualCostPanel';
+import { FeatureBreakdown } from './FeatureBreakdown';
+import { UsageDetailTables } from './UsageDetailTables';
 import { UsageBar } from './UsageBar';
 
 export const dynamic = 'force-dynamic';
 
 type Period = '7d' | '30d' | 'month';
+const PERIOD_LABEL: Record<Period, string> = { '7d': '최근 7일', '30d': '최근 30일', month: '이번 달' };
 
-function range(period: Period): { from: Date; to: Date } {
+// 현재 기간 + 동일 길이 직전 기간(추세 비교용)
+function ranges(period: Period): { from: Date; to: Date; prevFrom: Date; prevTo: Date } {
   const to = new Date();
   const from = new Date(to);
   if (period === '7d') from.setDate(from.getDate() - 7);
   else if (period === 'month') { from.setDate(1); from.setHours(0, 0, 0, 0); }
   else from.setDate(from.getDate() - 30);
-  return { from, to };
+  const spanMs = to.getTime() - from.getTime();
+  const prevTo = new Date(from.getTime());
+  const prevFrom = new Date(from.getTime() - spanMs);
+  return { from, to, prevFrom, prevTo };
 }
-
-const PERIOD_LABEL: Record<Period, string> = { '7d': '최근 7일', '30d': '최근 30일', month: '이번 달' };
 
 export default async function UsagePage({
   params, searchParams,
@@ -30,26 +37,30 @@ export default async function UsagePage({
   const { wsId } = await params;
   const sp = await searchParams;
   const period: Period = sp.period === '7d' || sp.period === 'month' ? sp.period : '30d';
-  const { from, to } = range(period);
+  const { from, to, prevFrom, prevTo } = ranges(period);
 
   const sql = getSql();
   const rows = await rawAggregate(sql, from, to);
+  const prevRows = await rawAggregate(sql, prevFrom, prevTo);
   const daily = await dailyAggregate(sql, from, to);
 
   const byApi = summarizeByApi(rows);
   const byFeature = summarizeByFeature(rows);
   const byDay = summarizeByDay(daily);
   const total = totalCostUsd(rows);
-  const featTotal = byFeature.reduce((s, f) => s + f.costUsd, 0);
+  const prevTotal = totalCostUsd(prevRows);
+  const estimateByApi: Record<string, number> = Object.fromEntries(byApi.map((a) => [a.api, a.costUsd]));
+
+  const actuals = await getProviderActuals(from, to);
 
   return (
     <div className="h-screen overflow-y-auto p-8">
-      <header className="mb-6">
-        <h1 className="text-lg font-bold text-x-text">API 사용량·비용</h1>
-        <p className="mt-1 text-caption text-x-muted">
-          외부 API 호출 기록을 집계한 <b>추정치</b>입니다. 기준 단가(2026-07-20 확인)로 환산했으며 실제 청구와 다를 수 있습니다.
-        </p>
-        <nav className="mt-3 flex gap-2">
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-lg font-bold text-x-text">API 사용량·비용</h1>
+          <p className="mt-1 text-caption text-x-muted">추정치(기록 × 기준 단가)와 제공사 실제 청구를 함께 보여줍니다. 실제와 다를 수 있어요.</p>
+        </div>
+        <nav className="flex shrink-0 gap-2">
           {(['7d', '30d', 'month'] as Period[]).map((p) => (
             <a key={p} href={`/w/${wsId}/usage?period=${p}`}
                className={`rounded-full border px-3 py-1 text-ui ${p === period ? 'border-x-blue text-x-blue' : 'border-x-border-strong text-x-secondary'}`}>
@@ -59,81 +70,16 @@ export default async function UsagePage({
         </nav>
       </header>
 
-      {/* 요약 카드 */}
-      <section className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div className="rounded-lg border border-x-border bg-x-surface p-4">
-          <p className="text-caption text-x-muted">{PERIOD_LABEL[period]} 총 추정비용</p>
-          <p className="mt-1 text-lg font-bold tabular-nums text-x-text">{formatMoney(total)}</p>
-        </div>
-        {byApi.map((a) => (
-          <div key={a.api} className="rounded-lg border border-x-border bg-x-surface p-4">
-            <p className="text-caption text-x-muted">{a.label}</p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-x-text">{formatMoney(a.costUsd)}</p>
-            <p className="text-caption text-x-muted">{a.calls.toLocaleString()}회 호출</p>
-          </div>
-        ))}
-      </section>
+      <UsageHeadline total={total} prevTotal={prevTotal} periodLabel={PERIOD_LABEL[period]} />
+      <ActualCostPanel actuals={actuals} estimateByApi={estimateByApi} />
+      <FeatureBreakdown features={byFeature} />
 
-      {/* 일별 추이 */}
       <section className="mb-8">
         <h2 className="mb-2 text-ui font-bold text-x-text">일별 추이</h2>
         <UsageBar data={byDay} />
       </section>
 
-      {/* 기능별 표 */}
-      <section className="mb-8">
-        <h2 className="mb-2 text-ui font-bold text-x-text">기능별</h2>
-        <table className="w-full text-ui">
-          <thead>
-            <tr className="border-b border-x-border text-left text-caption text-x-muted">
-              <th className="py-1 font-normal">기능</th>
-              <th className="py-1 text-right font-normal">호출수</th>
-              <th className="py-1 text-right font-normal">추정비용</th>
-              <th className="py-1 text-right font-normal">비중</th>
-            </tr>
-          </thead>
-          <tbody>
-            {byFeature.map((f) => (
-              <tr key={f.feature} className="border-b border-x-border">
-                <td className="py-1.5 text-x-text">{f.feature}</td>
-                <td className="py-1.5 text-right tabular-nums text-x-secondary">{f.calls.toLocaleString()}</td>
-                <td className="py-1.5 text-right tabular-nums text-x-text">{formatMoney(f.costUsd)}</td>
-                <td className="py-1.5 text-right tabular-nums text-x-muted">{featTotal ? Math.round((f.costUsd / featTotal) * 100) : 0}%</td>
-              </tr>
-            ))}
-            {byFeature.length === 0 && (
-              <tr><td colSpan={4} className="py-6 text-center text-x-muted">이 기간에 기록된 호출이 없습니다.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </section>
-
-      {/* API별 표 */}
-      <section>
-        <h2 className="mb-2 text-ui font-bold text-x-text">API별</h2>
-        <table className="w-full text-ui">
-          <thead>
-            <tr className="border-b border-x-border text-left text-caption text-x-muted">
-              <th className="py-1 font-normal">API</th>
-              <th className="py-1 text-right font-normal">호출수</th>
-              <th className="py-1 text-right font-normal">토큰(입력/출력)</th>
-              <th className="py-1 text-right font-normal">추정비용</th>
-            </tr>
-          </thead>
-          <tbody>
-            {byApi.map((a) => (
-              <tr key={a.api} className="border-b border-x-border">
-                <td className="py-1.5 text-x-text">{a.label}</td>
-                <td className="py-1.5 text-right tabular-nums text-x-secondary">{a.calls.toLocaleString()}</td>
-                <td className="py-1.5 text-right tabular-nums text-x-muted">
-                  {a.api === 'anthropic' ? `${a.inputTokens.toLocaleString()} / ${a.outputTokens.toLocaleString()}` : '—'}
-                </td>
-                <td className="py-1.5 text-right tabular-nums text-x-text">{formatMoney(a.costUsd)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      <UsageDetailTables byApi={byApi} byFeature={byFeature} />
     </div>
   );
 }

@@ -38,7 +38,7 @@ export function QuotedCard({ quoted, translation }: { quoted: DeckQuoted & { enr
         <TweetText text={e?.text ?? quoted.text} className="mt-1 text-x-text" />
         {translation && (
           <div className="mt-1 border-t border-x-border pt-1">
-            <span className="text-[10px] font-bold text-x-blue" title="자동 기계번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>
+            <span className="text-[10px] font-bold text-x-blue" title="AI 자동 번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>
             <TweetText text={translation} className="text-x-text" />
           </div>
         )}

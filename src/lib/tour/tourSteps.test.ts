@@ -5,7 +5,7 @@ import { deckSteps, BRIEFING_STEPS, type TourStep } from './tourSteps.ts';
 const ALLOWED_SELECTORS = new Set([
   '[data-tour="add-column"]', '[data-tour="column-modal"]',
   '[data-tour="col-refresh"]', '[data-tour="col-sort"]',
-  '[data-tour="col-view"]', '[data-tour="col-save"]',
+  '[data-tour="col-view"]', '[data-tour="col-translate"]', '[data-tour="col-save"]',
   '[data-tour="sidebar"]', '[data-tour="help-button"]',
   '[data-tour="bf-column"]', '[data-tour="bf-period"]',
   '[data-tour="bf-generate"]', '[data-tour="bf-result"]',
@@ -24,8 +24,8 @@ function assertWellFormed(steps: TourStep[]) {
   }
 }
 
-test('덱: 항상 컬럼 생성부터 시작하는 9단계 단일 시나리오', () => {
-  assert.equal(deckSteps().length, 9);
+test('덱: 항상 컬럼 생성부터 시작하는 10단계 단일 시나리오', () => {
+  assert.equal(deckSteps().length, 10);
 });
 
 test('덱 스텝 무결성', () => {
@@ -40,6 +40,7 @@ test('덱: 생성 유도 + 정렬/보기 + 사이드바 스텝을 포함', () =>
   // 이번 개편으로 추가된 커버리지
   assert.ok(ids.includes('col-sort'));
   assert.ok(ids.includes('col-view'));
+  assert.ok(ids.includes('col-translate'));
   assert.ok(ids.includes('deck-sidebar'));
 });
 

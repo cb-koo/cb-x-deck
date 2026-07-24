@@ -13,9 +13,11 @@ export function CandidateCard({ group, meId, onChanged, translation, showTransla
   onTranslate?: (tweetId: string) => void; translating?: boolean;
 }) {
   const mine = group.entries.find((e) => e.member.id === meId) ?? null;
+  // 저장만 하고 코멘트를 안 단 경우가 흔함(저장=메모 없는 후보행 생성) → 메모·태그가 있을 때만 "함께 삭제" 경고
+  const hasMyNote = !!mine && (!!mine.memo?.trim() || mine.tags.length > 0);
   const [confirming, setConfirming] = useState(false);
 
-  // 제거 요청 → 인라인 확인 박스 노출(앱 전역 삭제 확인 패턴과 통일, 네이티브 confirm 제거)
+  // 저장 취소 요청 → 인라인 확인 박스 노출(앱 전역 삭제 확인 패턴과 통일, 네이티브 confirm 제거)
   const requestUnsave = () => { if (mine) setConfirming(true); };
   async function doUnsave() {
     if (!mine) return;
@@ -30,10 +32,14 @@ export function CandidateCard({ group, meId, onChanged, translation, showTransla
                  onTranslate={onTranslate} translating={translating} />
       {confirming && (
         <div className="border-t border-red-300 bg-red-50 p-2 text-caption">
-          <p className="mb-1 text-red-600">내 코멘트를 제거할까요? (내 메모·태그만 삭제, 다른 멤버 코멘트는 유지)</p>
+          <p className="mb-1 text-red-600">
+            {hasMyNote
+              ? '저장을 취소할까요? 내 메모·태그도 함께 삭제돼요. (다른 멤버 코멘트는 유지)'
+              : '이 트윗의 저장을 취소할까요? (다른 멤버 코멘트는 유지)'}
+          </p>
           <div className="flex gap-1">
-            <button onClick={doUnsave} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">삭제</button>
-            <button onClick={() => setConfirming(false)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
+            <button onClick={doUnsave} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">저장 취소</button>
+            <button onClick={() => setConfirming(false)} className="rounded border border-x-border-strong px-2 py-0.5">그대로 두기</button>
           </div>
         </div>
       )}

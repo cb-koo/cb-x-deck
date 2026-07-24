@@ -91,7 +91,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keywords: kws, lang: lang || 'ja' }),
       });
-      if (!r.ok) { setErr('밀도 확인 실패 — 수동 입력하세요'); return; }
+      if (!r.ok) { setErr('추천을 받지 못했어요 — 최소 좋아요를 직접 입력해 주세요'); return; }
       setProbe(await r.json());
     } finally { setProbing(false); }
   }
@@ -129,10 +129,11 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div data-tour="column-modal" className="max-h-[90vh] w-[600px] max-w-[90vw] overflow-y-auto rounded-2xl bg-white p-6" onClick={(e) => e.stopPropagation()}>
+      <div data-tour="column-modal" role="dialog" aria-modal="true" aria-labelledby="col-settings-title"
+           className="max-h-[90vh] w-[600px] max-w-[90vw] overflow-y-auto rounded-2xl bg-white p-6" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-[20px] font-bold text-x-text">{initial ? '칼럼 설정' : '새 칼럼'}</h2>
-          <button onClick={onClose} className="rounded-full p-2 text-x-secondary hover:bg-x-hover" title="닫기">✕</button>
+          <h2 id="col-settings-title" className="text-[20px] font-bold text-x-text">{initial ? '컬럼 설정' : '새 컬럼'}</h2>
+          <button onClick={onClose} aria-label="닫기" className="rounded-full p-2 text-x-secondary hover:bg-x-hover" title="닫기">✕</button>
         </div>
 
         {!initial && (
@@ -204,8 +205,9 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                   <input type="number" className={input} value={minRetweets ?? ''} onChange={(e) => setMinRetweets(e.target.value ? +e.target.value : null)} /></div>
                 <div><label className={label}>최소 답글</label>
                   <input type="number" className={input} value={minReplies ?? ''} onChange={(e) => setMinReplies(e.target.value ? +e.target.value : null)} /></div>
-                <div><label className={label}>최소 조회수 (재필터)</label>
-                  <input type="number" className={input} value={minViews ?? ''} onChange={(e) => setMinViews(e.target.value ? +e.target.value : null)} /></div>
+                <div><label className={label}>최소 조회수</label>
+                  <input type="number" className={input} value={minViews ?? ''} onChange={(e) => setMinViews(e.target.value ? +e.target.value : null)} />
+                  <p className="mt-1 text-caption text-x-muted">이미 가져온 트윗에서 다시 걸러요 (수집량엔 영향 없음)</p></div>
                 <div />
                 <div><label className={label}>since (이 날짜부터)</label>
                   <input type="date" className={input} value={sinceDate ?? ''} onChange={(e) => setSinceDate(e.target.value)} /></div>
@@ -221,6 +223,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
           <div>
             <label className={label}>계정 핸들</label>
             <input className={input} value={handle} placeholder="@hadakan__" autoFocus onChange={(e) => setHandle(e.target.value)} />
+            <p className="mt-1 text-caption text-x-muted">이 계정이 새로 올리는 트윗을 자동으로 모아 보여줘요.</p>
           </div>
         )}
 
@@ -229,11 +232,18 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
             {kind === 'search' && (
               <div><label className={label}>언어</label>
-                <input className={input} value={lang ?? ''} onChange={(e) => setLang(e.target.value)} /></div>
+                <select className={input} value={lang ?? ''} onChange={(e) => setLang(e.target.value)}>
+                  <option value="ja">일본어</option>
+                  <option value="ko">한국어</option>
+                  <option value="en">영어</option>
+                  <option value="">전체 (제한 없음)</option>
+                  {lang && !['ja', 'ko', 'en'].includes(lang) && <option value={lang}>{lang}</option>}
+                </select></div>
             )}
             <div><label className={label}>페이지 상한</label>
-              <input type="number" className={input} value={maxPages ?? 3} onChange={(e) => setMaxPages(+e.target.value || 3)} /></div>
-            <div className="col-span-2"><label className={label}>칼럼 이름 (비우면 자동)</label>
+              <input type="number" className={input} value={maxPages ?? 3} onChange={(e) => setMaxPages(+e.target.value || 3)} />
+              <p className="mt-1 text-caption text-x-muted">한 번에 가져올 페이지 수예요. 많을수록 트윗을 더 모으지만 시간·비용이 늘어요.</p></div>
+            <div className="col-span-2"><label className={label}>컬럼 이름 (비우면 자동)</label>
               <input className={input} value={title} onChange={(e) => setTitle(e.target.value)} /></div>
           </div>
         </div>

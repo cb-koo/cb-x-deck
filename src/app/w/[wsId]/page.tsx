@@ -60,8 +60,8 @@ export default function DeckPage() {
     await load();
   }
 
+  // 삭제 확인은 Column 헤더의 인라인 확인 바가 담당(Sidebar 워크스페이스 삭제와 동일 패턴). 여기선 확정된 삭제만 수행.
   async function remove(col: ColumnRow) {
-    if (!confirm(`컬럼 "${col.title}" 삭제? (보관함의 후보는 유지됩니다)`)) return;
     await apiFetch(`/api/columns/${col.id}`, { method: 'DELETE' });
     await load();
   }

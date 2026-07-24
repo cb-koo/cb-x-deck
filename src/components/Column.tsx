@@ -51,6 +51,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
   const [lastRefreshed, setLastRefreshed] = useState(column.lastRefreshedAt);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [confirmingDelete, setConfirmingDelete] = useState(false); // 컬럼 삭제 인라인 확인 (Sidebar 워크스페이스 삭제와 동일 패턴 — window.confirm 대체)
   const [translations, setTranslations] = useState<Record<string, TweetTranslation>>({});
   const [showTranslations, setShowTranslations] = useState(false);
   const [translatingAll, setTranslatingAll] = useState(false);
@@ -199,7 +200,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
       setLastRefreshed(new Date().toISOString());
       await load(sort);
     } else {
-      setErr((await r.json().catch(() => ({})) as { error?: string }).error ?? `오류 ${r.status}`);
+      setErr((await r.json().catch(() => ({})) as { error?: string }).error ?? `최신 트윗을 불러오지 못했어요. 잠시 후 다시 시도해 주세요 (코드 ${r.status})`);
     }
     setBusy(false);
   }
@@ -251,8 +252,9 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
             <RefreshIcon className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
           </Button>
           <Button variant="icon" onClick={onEdit} title="설정"><SettingsIcon className="h-4 w-4" /></Button>
-          <Button variant="icon" onClick={onDelete} title="컬럼 삭제"><TrashIcon className="h-4 w-4" /></Button>
+          <Button variant="icon" onClick={() => setConfirmingDelete(true)} title="컬럼 삭제"><TrashIcon className="h-4 w-4" /></Button>
         </div>
+        {/* 1행 — 목록 제어: 정렬 + 보기 (지금 보는 목록을 바꾸는 컨트롤) */}
         <div data-tour={tourAnchor ? 'col-sort' : undefined} className="mt-0.5 flex flex-wrap items-center gap-0.5 pb-1">
           <span className="mr-0.5 shrink-0 text-caption text-x-muted">정렬</span>
           {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => {
@@ -268,25 +270,6 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
               </button>
             );
           })}
-          <span className="mx-1.5 h-4 w-px shrink-0 bg-x-border-strong" aria-hidden />
-          <span className="mr-0.5 shrink-0 text-caption text-x-muted">분석</span>
-          <Button variant="ghost" onClick={() => setShowTrend((v) => !v)}
-                  className={showTrend ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
-                  title="이 컬럼에 쌓인 트윗으로 주간 추이를 보여줘요 · 추가 비용 없음">
-            추이{showTrend ? ' ✓' : ''}
-          </Button>
-          <Button variant="ghost" onClick={translateAll} disabled={translatingAll}
-                  className={showTranslations ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
-                  title="이 컬럼에 불러온 트윗을 한국어로 — 몇 초 걸릴 수 있어요 (한 번 번역하면 저장돼요)">
-            {translatingAll ? '번역 중…' : showTranslations ? '번역 숨기기' : '🌐 전체 번역'}
-          </Button>
-          {column.kind === 'watchlist' && (
-            <Button variant="ghost" onClick={() => { setShowPillar((v) => !v); if (showPillar) setTopicFilter(null); }}
-                    className={showPillar ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
-                    title="이 계정의 트윗을 주제별로 묶어 반응을 비교해요 · 약 $0.05 이하">
-              주제 분석{showPillar ? ' ✓' : ''}
-            </Button>
-          )}
           <details ref={viewRef} data-tour={tourAnchor ? 'col-view' : undefined} className="relative ml-auto shrink-0">
             <summary className="flex cursor-pointer list-none items-center gap-1 rounded-full px-2.5 py-1 text-ui text-x-secondary hover:bg-x-text/5 [&::-webkit-details-marker]:hidden">
               보기: {VIEW_LABEL[view]} <ChevronDownIcon className="h-3 w-3" />
@@ -304,6 +287,36 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
             </div>
           </details>
         </div>
+        {/* 2행 — 분석 액션: 결과를 새로 만드는 컨트롤. 유료 액션은 비용을 버튼에 상시 표시(AGENTS.md 원칙6·비개발자 안심) */}
+        <div className="flex flex-wrap items-center gap-0.5 border-t border-x-border pb-1 pt-1">
+          <span className="mr-0.5 shrink-0 text-caption text-x-muted">분석</span>
+          <Button variant="ghost" onClick={() => setShowTrend((v) => !v)}
+                  className={showTrend ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
+                  title="이 컬럼에 쌓인 트윗으로 주간 추이를 보여줘요 · 추가 비용 없음">
+            주간 추이{showTrend ? ' ✓' : ''}
+          </Button>
+          <Button variant="ghost" onClick={translateAll} disabled={translatingAll}
+                  className={showTranslations ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
+                  title="이 컬럼에 불러온 트윗을 한국어로 — 몇 초 걸릴 수 있어요 (한 번 번역하면 저장돼요)">
+            {translatingAll ? '번역 중…' : showTranslations ? '번역 숨기기' : '전체 번역'}
+          </Button>
+          {column.kind === 'watchlist' && (
+            <Button variant="ghost" onClick={() => { setShowPillar((v) => !v); if (showPillar) setTopicFilter(null); }}
+                    className={showPillar ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
+                    title="이 계정의 트윗을 주제별로 묶어 반응을 비교해요 · 약 $0.05 이하">
+              주제별로 묶기 <span className="text-caption text-x-muted">~$0.05</span>{showPillar ? ' ✓' : ''}
+            </Button>
+          )}
+        </div>
+        {confirmingDelete && (
+          <div className="mb-1 rounded border border-red-300 bg-red-50 p-2 text-caption">
+            <p className="mb-1 text-red-600">컬럼 “{column.title}”을 삭제할까요? 보관함에 저장한 후보는 그대로 유지돼요.</p>
+            <div className="flex gap-1">
+              <button onClick={onDelete} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">삭제</button>
+              <button onClick={() => setConfirmingDelete(false)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
+            </div>
+          </div>
+        )}
         {err && <p className="pb-1 text-caption text-red-500">{err} <button onClick={refresh} className="underline">재시도</button></p>}
         {translateErr && <p className="pb-1 text-caption text-red-500">{translateErr} <button onClick={translateAll} className="underline">재시도</button></p>}
       </header>
@@ -347,9 +360,29 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
       )}
       <div className="flex-1 overflow-y-auto">
         {visible.length === 0
-          ? <p className="p-4 text-center text-ui text-x-muted">
-              {topicFilter ? '이 주제의 트윗이 현재 목록에 없어요 (주제를 다시 눌러 해제)' : '트윗 없음'}
-            </p>
+          ? (
+            <div className="p-6 text-center">
+              {topicFilter && !showDismissed ? (
+                <p className="text-ui text-x-muted">이 주제의 트윗이 현재 목록에 없어요 (주제를 다시 눌러 해제)</p>
+              ) : showDismissed ? (
+                <p className="text-ui text-x-muted">숨긴 트윗이 없어요</p>
+              ) : !lastRefreshed ? (
+                <>
+                  <p className="text-ui text-x-secondary">아직 불러온 트윗이 없어요</p>
+                  <p className="mt-1 text-caption text-x-muted">새로고침하면 이 컬럼의 최신 트윗을 가져와요</p>
+                  <Button variant="primary" onClick={refresh} disabled={busy} className="mt-3">
+                    {busy ? '불러오는 중…' : '지금 새로고침'}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <p className="text-ui text-x-secondary">조건에 맞는 트윗이 없어요</p>
+                  <p className="mt-1 text-caption text-x-muted">설정에서 키워드나 기간을 넓혀 보세요</p>
+                  <Button variant="subtle" onClick={onEdit} className="mt-3">컬럼 설정 열기</Button>
+                </>
+              )}
+            </div>
+          )
           : visible.map((t, i) => (
               <TweetCard key={t.tweetId} tweet={t} meId={member?.id ?? null}
                          tourAnchor={tourAnchor && i === 0}

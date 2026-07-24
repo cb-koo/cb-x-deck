@@ -43,7 +43,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const sql = getSql();
   const col = await getColumn(sql, id);
   if (!col) return NextResponse.json({ error: `column not found: ${id}` }, { status: 404 });
-  if (col.kind !== 'watchlist') return NextResponse.json({ error: '주제 분석은 계정 컬럼 전용입니다' }, { status: 400 });
+  if (col.kind !== 'watchlist') return NextResponse.json({ error: '‘주제별로 묶기’는 계정 컬럼 전용입니다' }, { status: 400 });
 
   const body = (await req.json().catch(() => ({}))) as { mode?: string };
   const mode = body.mode === 'incremental' ? 'incremental' : 'full';

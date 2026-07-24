@@ -12,7 +12,7 @@ const FEATURE: Record<string, string> = {
   'anthropic.translateKeyword': '번역',
   'anthropic.translateTags': '번역',
   'anthropic.briefing': '브리핑 생성',
-  'anthropic.pillar': '주제 분석',
+  'anthropic.pillar': '주제별로 묶기',
   'anthropic.research': '리서치 요약',
 };
 

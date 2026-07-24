@@ -58,7 +58,7 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
   const stats = data?.stats ?? null;
 
   return (
-    <PanelShell title="주제 분석" onClose={onClose}
+    <PanelShell title="주제별로 묶기" onClose={onClose}
                 sub={a ? `표본 ${a.sampleSize}건${fmtPeriod(data?.samplePeriod ?? null)} · 투고 ${stats?.postCount ?? 0} · 인용RT ${stats?.quoteCount ?? 0} · 분석 ${fmtDay(a.analyzedAt)}` : undefined}>
       {data && !a && (
         <div className="mt-1">
@@ -82,6 +82,10 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
                   </span>
                   <span className="text-right text-ui text-x-secondary">{r.count}건 · {r.sharePct}%</span>
                   <span className="text-right text-ui text-x-secondary">♥ {formatCount(r.medianLikes)}</span>
+                  {/* 게시량 비중(share%)을 길이로 인코딩 — 어느 주제를 많이/적게 올리는지 한눈에(E: 위치·길이 > 숫자) */}
+                  <span className="col-span-3 mt-0.5" aria-hidden>
+                    <span className="block h-1 rounded-sm bg-x-blue/40" style={{ width: `${Math.max(2, r.sharePct)}%` }} />
+                  </span>
                   <span className="col-span-3 text-caption text-x-muted">{r.judgment}{r.quoteCount > 0 ? ` · 인용RT ${r.quoteCount}건 포함` : ''}</span>
                 </button>
               </li>

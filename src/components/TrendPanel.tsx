@@ -26,7 +26,7 @@ export function TrendPanel({ columnId, kind, onAfterBackfill, onClose }: {
   const load = useCallback(async () => {
     const r = await apiFetch(`/api/columns/${columnId}/trend`);
     if (r.ok) setData((await r.json()) as TrendPayload);
-    else setErr(`오류 ${r.status}`);
+    else setErr(`주간 추이를 불러오지 못했어요. 잠시 후 다시 시도해 주세요 (코드 ${r.status})`);
   }, [columnId]);
   useEffect(() => { load(); }, [load]);
 
@@ -100,7 +100,7 @@ export function TrendPanel({ columnId, kind, onAfterBackfill, onClose }: {
 
           {kind === 'watchlist' && (
             data.topicTrends === null
-              ? <p className="mt-2 text-caption text-x-muted">주제 분석을 먼저 실행하면 주제별 추이도 보여요.</p>
+              ? <p className="mt-2 text-caption text-x-muted">‘주제별로 묶기’를 먼저 실행하면 주제별 추이도 보여요.</p>
               : data.topicTrends.length > 0 && (
                 <div className="mt-2">
                   <p className="text-caption text-x-muted">주제별 추이 (2주 단위 비교 — 주제는 표본이 적어 2주씩 묶어요)</p>

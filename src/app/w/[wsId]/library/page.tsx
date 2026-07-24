@@ -6,6 +6,8 @@ import type { CandidateRow } from '@/lib/types';
 import { groupCandidates, filterGroups } from '@/lib/candidateGroups';
 import { CandidateCard } from '@/components/CandidateCard';
 import { ScoutList } from '@/components/ScoutList';
+import { useTranslations } from '@/components/useTranslations';
+import { Button } from '@/components/ui';
 import { useMember } from '@/lib/memberContext';
 
 type View = 'tweets' | 'scouts';
@@ -19,6 +21,8 @@ export default function LibraryPage() {
   const [tags, setTags] = useState<Array<{ id: string; name: string; count: number }>>([]);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [activeMember, setActiveMember] = useState<string | null>(null); // null = 전체
+  const { translations, showTranslations, translatingAll, translatingIds, translateErr,
+          loadCached, translateAll, translateOne } = useTranslations();
 
   // 전량 fetch 후 클라이언트에서 그룹 단위 필터 — 서버 필터를 쓰면 같은 트윗의 타인 코멘트 행이 잘려나감
   const load = useCallback(async () => {
@@ -35,6 +39,10 @@ export default function LibraryPage() {
     () => filterGroups(groupCandidates(candidates), { memberId: activeMember, tag: activeTag }),
     [candidates, activeMember, activeTag],
   );
+
+  // 진입/갱신 시 덱에서 번역해둔 트윗을 캐시에서 조용히 불러온다(과금 없음). 미번역분은 카드 버튼으로 opt-in.
+  const savedIds = useMemo(() => [...new Set(candidates.map((c) => c.tweet.tweetId))], [candidates]);
+  useEffect(() => { if (savedIds.length > 0) loadCached(savedIds); }, [savedIds, loadCached]);
 
   const chip = 'rounded-full border px-2 py-0.5 text-xs hover:bg-x-hover';
   const on = 'border-x-text font-bold text-x-text';
@@ -65,10 +73,26 @@ export default function LibraryPage() {
                 #{t.name} {t.count}
               </button>
             ))}
+            <Button variant="ghost" onClick={() => translateAll(groups.map((g) => g.tweet.tweetId))} disabled={translatingAll}
+                    className={`ml-auto ${showTranslations ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}`}
+                    title="지금 보이는 트윗을 한국어로 — 덱에서 이미 번역한 건 무료로 바로 표시돼요 (새로 번역하면 저장돼 재사용돼요)">
+              {translatingAll ? '번역 중…' : showTranslations ? '번역 숨기기' : '전체 번역'}
+            </Button>
           </div>
+          {translateErr && (
+            <p className="border-b border-x-border px-4 py-1 text-caption text-red-500">
+              {translateErr} <button onClick={() => translateAll(groups.map((g) => g.tweet.tweetId))} className="underline">재시도</button>
+            </p>
+          )}
           <main className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
             {groups.length === 0 && <p className="text-sm text-x-muted">저장된 후보가 없습니다 — 덱에서 ☆저장을 누르세요</p>}
-            {groups.map((g) => <CandidateCard key={g.tweet.tweetId} group={g} meId={meId} onChanged={load} />)}
+            {groups.map((g) => (
+              <CandidateCard key={g.tweet.tweetId} group={g} meId={meId} onChanged={load}
+                             translation={translations[g.tweet.tweetId] ?? null}
+                             showTranslation={showTranslations}
+                             onTranslate={translateOne}
+                             translating={translatingIds.has(g.tweet.tweetId)} />
+            ))}
           </main>
         </>
       )}

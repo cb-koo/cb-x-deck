@@ -1,12 +1,17 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
 import { useEffect, useState } from 'react';
-import type { CandidateRow } from '@/lib/types';
+import type { CandidateRow, TweetTranslation } from '@/lib/types';
 import type { CandidateGroup } from '@/lib/candidateGroups';
 import { TweetCard } from './TweetCard';
 
 // 콘텐츠당 카드 1장 + 멤버별 코멘트(=candidate.memo). 내 행만 편집 가능.
-export function CandidateCard({ group, meId, onChanged }: { group: CandidateGroup; meId: string | null; onChanged: () => void }) {
+// 번역 prop은 페이지가 공유 훅(useTranslations)에서 내려주는 것을 TweetCard로 그대로 전달.
+export function CandidateCard({ group, meId, onChanged, translation, showTranslation, onTranslate, translating }: {
+  group: CandidateGroup; meId: string | null; onChanged: () => void;
+  translation?: TweetTranslation | null; showTranslation?: boolean;
+  onTranslate?: (tweetId: string) => void; translating?: boolean;
+}) {
   const mine = group.entries.find((e) => e.member.id === meId) ?? null;
 
   async function unsave() {
@@ -18,7 +23,9 @@ export function CandidateCard({ group, meId, onChanged }: { group: CandidateGrou
 
   return (
     <div className="overflow-hidden rounded-xl border border-x-border">
-      <TweetCard tweet={{ ...group.tweet, isNew: false }} meId={meId} onUnsave={unsave} />
+      <TweetCard tweet={{ ...group.tweet, isNew: false }} meId={meId} onUnsave={unsave}
+                 translation={translation} showTranslation={showTranslation}
+                 onTranslate={onTranslate} translating={translating} />
       <div className="divide-y divide-x-border border-t border-x-border">
         {group.entries.map((e) =>
           e.member.id === meId

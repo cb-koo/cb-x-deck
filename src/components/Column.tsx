@@ -1,9 +1,10 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ColumnRow, SearchConfig, SortDir, SortKey, StoredTweet, TweetTranslation } from '@/lib/types';
+import type { ColumnRow, SearchConfig, SortDir, SortKey, StoredTweet } from '@/lib/types';
 import { useMember } from '@/lib/memberContext';
 import { TweetCard } from './TweetCard';
+import { useTranslations } from './useTranslations';
 import { CooccurrencePanel } from './CooccurrencePanel';
 import { PillarPanel } from './PillarPanel';
 import { TrendPanel } from './TrendPanel';
@@ -52,11 +53,9 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false); // 컬럼 삭제 인라인 확인 (Sidebar 워크스페이스 삭제와 동일 패턴 — window.confirm 대체)
-  const [translations, setTranslations] = useState<Record<string, TweetTranslation>>({});
-  const [showTranslations, setShowTranslations] = useState(false);
-  const [translatingAll, setTranslatingAll] = useState(false);
-  const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
-  const [translateErr, setTranslateErr] = useState(''); // 번역 전용 오류(새로고침 err와 분리 — 재시도 동작이 다름)
+  // 번역 상태·동작은 보관함과 공유하는 훅으로 통일(캐시는 tweet_id 단위 전역)
+  const { translations, showTranslations, translatingAll, translatingIds, translateErr,
+          translateAll, translateOne } = useTranslations();
   const [width, setWidth] = useState<number>(column.config.width ?? 400);
   const [showPillar, setShowPillar] = useState(false);
   const [showTrend, setShowTrend] = useState(false);
@@ -148,50 +147,6 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
 
   // 버림 보기 중엔 주제 맵에 버림 트윗이 없어 필터를 걸면 항상 빈 목록이 된다 — 이때는 필터 미적용
   const visible = topicFilter && !showDismissed ? tweets.filter((t) => pillarMap[t.tweetId] === topicFilter) : tweets;
-
-  // 성공 시 true. 실패는 translateErr에 담아 반환(호출자가 표시 전환을 성공에 게이팅)
-  async function translateIds(ids: string[]): Promise<boolean> {
-    if (ids.length === 0) return true;
-    const r = await apiFetch('/api/tweets/translate', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tweetIds: ids }),
-    });
-    if (!r.ok) {
-      setTranslateErr((await r.json().catch(() => ({})) as { error?: string }).error ?? '번역에 실패했어요');
-      return false;
-    }
-    const res = (await r.json()) as { translations: Record<string, TweetTranslation> };
-    setTranslations((prev) => ({ ...prev, ...res.translations }));
-    setTranslateErr('');
-    return true;
-  }
-
-  async function translateAll() {
-    if (showTranslations) { setShowTranslations(false); return; } // 토글 오프(캐시는 유지)
-    setTranslatingAll(true); setTranslateErr('');
-    const alreadyShown = tweets.some((t) => translations[t.tweetId]); // 캐시로 이미 보여줄 게 있나
-    setShowTranslations(true); // 표시 모드 먼저 켬 — 청크가 도착하는 대로 그 카드가 바로 뜬다
-    try {
-      // 미번역분을 5건씩 순차 요청 → 각 응답 즉시 setTranslations로 위에서부터 순차 노출.
-      // 5건: 작은 컬럼도 여러 청크로 나뉘어 점진 표시가 보이고, 긴 트윗에서 출력 잘림(청크 유실)도 방지.
-      const need = tweets.filter((t) => !translations[t.tweetId]).map((t) => t.tweetId);
-      const size = 5;
-      let anyOk = false;
-      for (let i = 0; i < need.length; i += size) {
-        if (await translateIds(need.slice(i, i + size))) anyOk = true;
-      }
-      // 보여줄 게 전무(캐시도 없고 전부 실패)면 표시 모드 원복 — '번역 숨기기' 오인 방지
-      if (need.length > 0 && !anyOk && !alreadyShown) setShowTranslations(false);
-    } finally {
-      setTranslatingAll(false); // 네트워크 예외에도 '번역 중…' 고착 방지
-    }
-  }
-
-  async function translateOne(tweetId: string) {
-    setTranslatingIds((s) => new Set(s).add(tweetId));
-    try { await translateIds([tweetId]); }
-    finally { setTranslatingIds((s) => { const n = new Set(s); n.delete(tweetId); return n; }); }
-  }
 
   async function refresh() {
     setBusy(true); setErr('');
@@ -295,7 +250,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
                   title="이 컬럼에 쌓인 트윗으로 주간 추이를 보여줘요 · 추가 비용 없음">
             주간 추이{showTrend ? ' ✓' : ''}
           </Button>
-          <Button variant="ghost" onClick={translateAll} disabled={translatingAll}
+          <Button variant="ghost" onClick={() => translateAll(tweets.map((t) => t.tweetId))} disabled={translatingAll}
                   className={showTranslations ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
                   title="이 컬럼에 불러온 트윗을 한국어로 — 몇 초 걸릴 수 있어요 (한 번 번역하면 저장돼요)">
             {translatingAll ? '번역 중…' : showTranslations ? '번역 숨기기' : '전체 번역'}
@@ -318,7 +273,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
           </div>
         )}
         {err && <p className="pb-1 text-caption text-red-500">{err} <button onClick={refresh} className="underline">재시도</button></p>}
-        {translateErr && <p className="pb-1 text-caption text-red-500">{translateErr} <button onClick={translateAll} className="underline">재시도</button></p>}
+        {translateErr && <p className="pb-1 text-caption text-red-500">{translateErr} <button onClick={() => translateAll(tweets.map((t) => t.tweetId))} className="underline">재시도</button></p>}
       </header>
       {/* 새로고침 진행 표시 — 완료 전까지 상단 인디케이터 */}
       {busy && (

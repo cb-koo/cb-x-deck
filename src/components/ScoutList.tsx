@@ -21,11 +21,19 @@ interface ScoutRow {
 export function ScoutList({ wsId }: { wsId: string }) {
   const [scouts, setScouts] = useState<ScoutRow[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
 
   const load = useCallback(async () => {
-    const r = await apiFetch(`/api/scouts?workspaceId=${encodeURIComponent(wsId)}`);
-    if (r.ok) setScouts(((await r.json()) as { scouts: ScoutRow[] }).scouts);
-    setLoaded(true);
+    setError(false);
+    try {
+      const r = await apiFetch(`/api/scouts?workspaceId=${encodeURIComponent(wsId)}`);
+      if (!r.ok) { setError(true); return; }
+      setScouts(((await r.json()) as { scouts: ScoutRow[] }).scouts);
+    } catch {
+      setError(true);
+    } finally {
+      setLoaded(true);
+    }
   }, [wsId]);
   useEffect(() => { load(); }, [load]);
 
@@ -34,14 +42,16 @@ export function ScoutList({ wsId }: { wsId: string }) {
     load();
   }
 
-  if (loaded && scouts.length === 0) {
-    return <p className="p-4 text-sm text-x-muted">아직 없어요 — 트윗 카드의 리포스터 목록에서 ☆ 섭외 후보를 누르면 여기에 모입니다</p>;
+  if (!loaded) return <p className="p-4 text-ui text-x-muted">불러오는 중…</p>;
+  if (error) return <p className="p-4 text-ui text-red-500">섭외 후보를 불러오지 못했어요. <button onClick={load} className="underline">재시도</button></p>;
+  if (scouts.length === 0) {
+    return <p className="p-4 text-ui text-x-muted">아직 없어요 — 트윗 카드의 리포스터 목록에서 ☆ 섭외 후보를 누르면 여기에 모입니다</p>;
   }
 
   return (
     <div className="divide-y divide-x-border">
       {scouts.map((s) => (
-        <div key={s.handle} className="flex items-center gap-2 px-4 py-2 text-sm">
+        <div key={s.handle} className="flex items-center gap-2 px-4 py-2 text-ui">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {s.avatarUrl
             ? <img src={s.avatarUrl} alt="" className="h-6 w-6 shrink-0 rounded-full" />
@@ -51,12 +61,12 @@ export function ScoutList({ wsId }: { wsId: string }) {
           </a>
           {s.verified && <span className="shrink-0 text-x-blue-text" title="인증 계정">✓</span>}
           <span className="shrink-0 text-x-secondary">@{s.handle}</span>
-          <span className="shrink-0 text-xs text-x-muted">
+          <span className="shrink-0 text-caption text-x-muted">
             {s.followers !== null ? `팔로워 ${formatCount(s.followers)}` : '팔로워 없음'}
           </span>
-          {s.bio && <span className="min-w-0 flex-1 truncate text-xs text-x-muted">{s.bio}</span>}
+          {s.bio && <span className="min-w-0 flex-1 truncate text-caption text-x-muted">{s.bio}</span>}
           {s.sourceTweetUrl && (
-            <a href={s.sourceTweetUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 text-xs text-x-blue-text hover:underline">
+            <a href={s.sourceTweetUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 text-caption text-x-blue-text hover:underline">
               출처 트윗 ↗
             </a>
           )}
@@ -66,7 +76,7 @@ export function ScoutList({ wsId }: { wsId: string }) {
               {s.member.name.slice(0, 1)}
             </span>
           )}
-          <button onClick={() => remove(s.handle)} className="ml-auto shrink-0 text-xs text-x-muted hover:text-red-500">
+          <button onClick={() => remove(s.handle)} className="ml-auto shrink-0 text-caption text-x-muted hover:text-red-500">
             ✕ 제거
           </button>
         </div>

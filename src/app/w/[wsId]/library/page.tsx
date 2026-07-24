@@ -21,17 +21,27 @@ export default function LibraryPage() {
   const [tags, setTags] = useState<Array<{ id: string; name: string; count: number }>>([]);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [activeMember, setActiveMember] = useState<string | null>(null); // null = 전체
+  const [loaded, setLoaded] = useState(false); // 첫 로드 완료 여부 — 로딩 중엔 빈 상태를 보이지 않게
+  const [error, setError] = useState(false);
   const { translations, showTranslations, translatingAll, translatingIds, translateErr,
           loadCached, translateAll, translateOne } = useTranslations();
 
   // 전량 fetch 후 클라이언트에서 그룹 단위 필터 — 서버 필터를 쓰면 같은 트윗의 타인 코멘트 행이 잘려나감
   const load = useCallback(async () => {
-    const [cr, tr] = await Promise.all([
-      apiFetch(`/api/candidates?workspaceId=${wsId}`),
-      apiFetch(`/api/tags?workspaceId=${wsId}`),
-    ]);
-    if (cr.ok) setCandidates(await cr.json());
-    if (tr.ok) setTags(await tr.json());
+    setError(false);
+    try {
+      const [cr, tr] = await Promise.all([
+        apiFetch(`/api/candidates?workspaceId=${wsId}`),
+        apiFetch(`/api/tags?workspaceId=${wsId}`),
+      ]);
+      if (!cr.ok) { setError(true); return; }
+      setCandidates(await cr.json());
+      if (tr.ok) setTags(await tr.json());
+    } catch {
+      setError(true);
+    } finally {
+      setLoaded(true);
+    }
   }, [wsId]);
   useEffect(() => { load(); }, [load]);
 
@@ -44,32 +54,32 @@ export default function LibraryPage() {
   const savedIds = useMemo(() => [...new Set(candidates.map((c) => c.tweet.tweetId))], [candidates]);
   useEffect(() => { if (savedIds.length > 0) loadCached(savedIds); }, [savedIds, loadCached]);
 
-  const chip = 'rounded-full border px-2 py-0.5 text-xs hover:bg-x-hover';
+  const chip = 'rounded-full border px-2 py-0.5 text-ui hover:bg-x-hover';
   const on = 'border-x-text font-bold text-x-text';
   const off = 'border-x-border-strong text-x-secondary';
   return (
     <div className="h-full overflow-y-auto">
       <div className="flex items-center justify-between border-b border-x-border px-4 py-2">
-        <h1 className="font-bold">📁 보관함 <span className="text-sm font-normal text-x-muted">{view === 'tweets' ? `${groups.length}건` : ''}</span></h1>
+        <h1 className="font-bold">📁 보관함 <span className="text-ui font-normal text-x-muted">{view === 'tweets' && loaded && !error ? `${groups.length}건` : ''}</span></h1>
         <div className="flex gap-1">
-          <button onClick={() => setView('tweets')} className={`${chip} ${view === 'tweets' ? on : off}`}>트윗</button>
-          <button onClick={() => setView('scouts')} className={`${chip} ${view === 'scouts' ? on : off}`}>섭외 후보</button>
+          <button onClick={() => setView('tweets')} aria-pressed={view === 'tweets'} className={`${chip} ${view === 'tweets' ? on : off}`}>트윗</button>
+          <button onClick={() => setView('scouts')} aria-pressed={view === 'scouts'} className={`${chip} ${view === 'scouts' ? on : off}`}>섭외 후보</button>
         </div>
       </div>
       {view === 'tweets' && (
         <>
           <div className="flex flex-wrap items-center gap-1 border-b border-x-border px-4 py-2">
-            <span className="mr-1 text-[11px] text-x-muted">멤버</span>
-            <button onClick={() => setActiveMember(null)} className={`${chip} ${activeMember === null ? on : off}`}>전체</button>
+            <span className="mr-1 text-caption text-x-muted">멤버</span>
+            <button onClick={() => setActiveMember(null)} aria-pressed={activeMember === null} className={`${chip} ${activeMember === null ? on : off}`}>전체</button>
             {members.map((m) => (
-              <button key={m.id} onClick={() => setActiveMember(m.id)} className={`${chip} ${activeMember === m.id ? on : off}`}>
+              <button key={m.id} onClick={() => setActiveMember(m.id)} aria-pressed={activeMember === m.id} className={`${chip} ${activeMember === m.id ? on : off}`}>
                 <span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: m.color }} />{m.name}
               </button>
             ))}
-            <span className="ml-3 mr-1 text-[11px] text-x-muted">태그</span>
-            <button onClick={() => setActiveTag(null)} className={`${chip} ${activeTag === null ? on : off}`}>전체</button>
+            <span className="ml-3 mr-1 text-caption text-x-muted">태그</span>
+            <button onClick={() => setActiveTag(null)} aria-pressed={activeTag === null} className={`${chip} ${activeTag === null ? on : off}`}>전체</button>
             {tags.filter((t) => t.count > 0).map((t) => (
-              <button key={t.id} onClick={() => setActiveTag(t.name)} className={`${chip} ${activeTag === t.name ? on : off}`}>
+              <button key={t.id} onClick={() => setActiveTag(t.name)} aria-pressed={activeTag === t.name} className={`${chip} ${activeTag === t.name ? on : off}`}>
                 #{t.name} {t.count}
               </button>
             ))}
@@ -84,16 +94,28 @@ export default function LibraryPage() {
               {translateErr} <button onClick={() => translateAll(groups.map((g) => g.tweet.tweetId))} className="underline">재시도</button>
             </p>
           )}
-          <main className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
-            {groups.length === 0 && <p className="text-sm text-x-muted">저장된 후보가 없습니다 — 덱에서 ☆저장을 누르세요</p>}
-            {groups.map((g) => (
-              <CandidateCard key={g.tweet.tweetId} group={g} meId={meId} onChanged={load}
-                             translation={translations[g.tweet.tweetId] ?? null}
-                             showTranslation={showTranslations}
-                             onTranslate={translateOne}
-                             translating={translatingIds.has(g.tweet.tweetId)} />
-            ))}
-          </main>
+          {!loaded ? (
+            <p className="p-4 text-ui text-x-muted">불러오는 중…</p>
+          ) : error ? (
+            <p className="p-4 text-ui text-red-500">보관함을 불러오지 못했어요. <button onClick={load} className="underline">재시도</button></p>
+          ) : candidates.length === 0 ? (
+            <p className="p-4 text-ui text-x-muted">아직 저장한 트윗이 없어요 — 덱에서 트윗의 ☆를 누르면 여기에 모입니다</p>
+          ) : groups.length === 0 ? (
+            <p className="p-4 text-ui text-x-muted">
+              조건에 맞는 저장물이 없어요 — 필터를 바꾸거나{' '}
+              <button onClick={() => { setActiveMember(null); setActiveTag(null); }} className="underline">필터 초기화</button>
+            </p>
+          ) : (
+            <main className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+              {groups.map((g) => (
+                <CandidateCard key={g.tweet.tweetId} group={g} meId={meId} onChanged={load}
+                               translation={translations[g.tweet.tweetId] ?? null}
+                               showTranslation={showTranslations}
+                               onTranslate={translateOne}
+                               translating={translatingIds.has(g.tweet.tweetId)} />
+              ))}
+            </main>
+          )}
         </>
       )}
       {view === 'scouts' && <ScoutList wsId={wsId} />}

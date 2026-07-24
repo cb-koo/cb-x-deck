@@ -126,7 +126,7 @@ export function TweetExpansion({ tweetId, toolbarRight }: { tweetId: string; too
           <a href={`https://x.com/${u.handle}`} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate font-medium hover:underline">
             {u.name ?? u.handle}
           </a>
-          {u.verified && <span className="shrink-0 text-x-blue" title="인증 계정">✓</span>}
+          {u.verified && <span className="shrink-0 text-x-blue-text" title="인증 계정">✓</span>}
           <span className="shrink-0 text-x-secondary">@{u.handle}</span>
           <span className="ml-auto shrink-0 text-caption text-x-muted">
             {[
@@ -138,7 +138,7 @@ export function TweetExpansion({ tweetId, toolbarRight }: { tweetId: string; too
             <button
               onClick={() => toggleScout(u)}
               title={saved ? undefined : '보관함의 섭외 후보 목록에 저장해요'}
-              className={`shrink-0 rounded px-1.5 py-0.5 text-caption hover:bg-x-hover ${saved ? 'text-x-blue' : 'text-x-secondary'}`}
+              className={`shrink-0 rounded px-1.5 py-0.5 text-caption hover:bg-x-hover ${saved ? 'text-x-blue-text' : 'text-x-secondary'}`}
             >
               {saved ? '★ 저장됨' : '☆ 섭외 후보'}
             </button>
@@ -192,7 +192,7 @@ export function TweetExpansion({ tweetId, toolbarRight }: { tweetId: string; too
           )}
           {kind === 'retweeters' && candidates.map((u) => <UserRow key={u.handle} u={u} />)}
           {kind === 'retweeters' && rest.length > 0 && (
-            <button onClick={() => setRestOpen((v) => !v)} className="mt-1 w-full rounded py-1 text-center text-caption text-x-blue hover:bg-x-hover">
+            <button onClick={() => setRestOpen((v) => !v)} className="mt-1 w-full rounded py-1 text-center text-caption text-x-blue-text hover:bg-x-hover">
               {restOpen ? `접기 (${rest.length}명)` : `${rest.length}명 더 보기(팔로워 5천 미만)`}
             </button>
           )}
@@ -200,7 +200,7 @@ export function TweetExpansion({ tweetId, toolbarRight }: { tweetId: string; too
           {!busy && !err && empty && <p className="text-caption text-x-muted">{EMPTY[kind]}</p>}
           {cursor && (
             <button onClick={() => fetchPage(kind, cursor, false)} disabled={busy}
-                    className="mt-1 w-full rounded py-1 text-center text-caption text-x-blue hover:bg-x-hover disabled:opacity-50">
+                    className="mt-1 w-full rounded py-1 text-center text-caption text-x-blue-text hover:bg-x-hover disabled:opacity-50">
               {busy ? '불러오는 중…' : '더 보기'}
             </button>
           )}

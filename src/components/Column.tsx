@@ -246,13 +246,13 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
                   title={showDismissed ? '버린 트윗 수' : '이 컬럼에 조회된 전체 트윗 수'}>{total.toLocaleString()}</span>
           )}
           <span className="ml-auto shrink-0 text-caption text-x-muted">{busy ? '새로고침 중…' : lastRefreshedLabel(lastRefreshed)}</span>
-          <Button variant="icon" onClick={refresh} disabled={busy} title="새로고침"
+          <Button variant="icon" onClick={refresh} disabled={busy} title="새로고침" aria-label="새로고침"
                   data-tour={tourAnchor ? 'col-refresh' : undefined}
-                  className={busy ? 'text-x-blue' : ''}>
+                  className={busy ? 'text-x-blue-text' : ''}>
             <RefreshIcon className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
           </Button>
-          <Button variant="icon" onClick={onEdit} title="설정"><SettingsIcon className="h-4 w-4" /></Button>
-          <Button variant="icon" onClick={() => setConfirmingDelete(true)} title="컬럼 삭제"><TrashIcon className="h-4 w-4" /></Button>
+          <Button variant="icon" onClick={onEdit} title="컬럼 설정" aria-label="컬럼 설정"><SettingsIcon className="h-4 w-4" /></Button>
+          <Button variant="icon" onClick={() => setConfirmingDelete(true)} title="컬럼 삭제" aria-label="컬럼 삭제"><TrashIcon className="h-4 w-4" /></Button>
         </div>
         {/* 1행 — 목록 제어: 정렬 + 보기 (지금 보는 목록을 바꾸는 컨트롤) */}
         <div data-tour={tourAnchor ? 'col-sort' : undefined} className="mt-0.5 flex flex-wrap items-center gap-0.5 pb-1">
@@ -395,7 +395,7 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
             ))}
         {hasMore && (
           <button onClick={loadMore} disabled={loadingMore}
-                  className="w-full border-t border-x-border py-3 text-center text-ui text-x-blue hover:bg-x-hover disabled:opacity-50">
+                  className="w-full border-t border-x-border py-3 text-center text-ui text-x-blue-text hover:bg-x-hover disabled:opacity-50">
             {loadingMore ? '불러오는 중…' : `더 불러오기 (${tweets.length}개 이후)`}
           </button>
         )}

@@ -63,7 +63,7 @@ export default async function UsagePage({
         <nav className="flex shrink-0 gap-2">
           {(['7d', '30d', 'month'] as Period[]).map((p) => (
             <a key={p} href={`/w/${wsId}/usage?period=${p}`}
-               className={`rounded-full border px-3 py-1 text-ui ${p === period ? 'border-x-blue text-x-blue' : 'border-x-border-strong text-x-secondary'}`}>
+               className={`rounded-full border px-3 py-1 text-ui ${p === period ? 'border-x-blue text-x-blue-text' : 'border-x-border-strong text-x-secondary'}`}>
               {PERIOD_LABEL[p]}
             </a>
           ))}

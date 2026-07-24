@@ -49,14 +49,14 @@ export function ScoutList({ wsId }: { wsId: string }) {
           <a href={`https://x.com/${s.handle}`} target="_blank" rel="noopener noreferrer" className="shrink-0 font-bold hover:underline">
             {s.name ?? s.handle}
           </a>
-          {s.verified && <span className="shrink-0 text-x-blue" title="인증 계정">✓</span>}
+          {s.verified && <span className="shrink-0 text-x-blue-text" title="인증 계정">✓</span>}
           <span className="shrink-0 text-x-secondary">@{s.handle}</span>
           <span className="shrink-0 text-xs text-x-muted">
             {s.followers !== null ? `팔로워 ${formatCount(s.followers)}` : '팔로워 없음'}
           </span>
           {s.bio && <span className="min-w-0 flex-1 truncate text-xs text-x-muted">{s.bio}</span>}
           {s.sourceTweetUrl && (
-            <a href={s.sourceTweetUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 text-xs text-x-blue hover:underline">
+            <a href={s.sourceTweetUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 text-xs text-x-blue-text hover:underline">
               출처 트윗 ↗
             </a>
           )}

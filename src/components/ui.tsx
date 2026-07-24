@@ -7,7 +7,7 @@ const VARIANT = {
   primary: 'bg-x-blue px-3 py-1 font-medium text-white hover:bg-x-blue-hover',
   subtle: 'border border-x-border-strong bg-white px-3 py-1 hover:bg-x-hover',
   ghost: 'px-2.5 py-1 text-x-secondary hover:bg-x-text/5',
-  icon: 'p-1.5 text-x-secondary hover:bg-x-blue/10 hover:text-x-blue',
+  icon: 'p-1.5 text-x-secondary hover:bg-x-blue/10 hover:text-x-blue-text',
 } as const;
 
 export type ButtonVariant = keyof typeof VARIANT;

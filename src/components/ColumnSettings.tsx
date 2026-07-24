@@ -1,6 +1,6 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ColumnKind, ColumnRow, SearchConfig, WatchlistConfig } from '@/lib/types';
 import type { KwPair } from '@/lib/suggest';
 
@@ -39,6 +39,13 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
   const [err, setErr] = useState('');
   const [probe, setProbe] = useState<{ suggested: number; sampleSize: number; likeRange: [number, number]; density: string } | null>(null);
   const [probing, setProbing] = useState(false);
+
+  // Esc로 모달 닫기 — 키보드 사용자 편의(닫기 버튼은 이미 있으나 관습상 Esc 기대). IME 조합 중 Esc는 무시.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const addChip = (c: KwChip) => {
     const t = c.ja.trim();

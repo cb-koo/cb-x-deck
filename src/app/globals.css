@@ -4,11 +4,12 @@
 @theme {
   --color-x-text: #0f1419;
   --color-x-secondary: #536471;
-  --color-x-muted: #8b98a5;
+  --color-x-muted: #6c7781; /* WCAG AA(4.57:1 on white) — 기존 #8b98a5는 2.94:1로 본문 대비 미달이라 캡션 가독성 위해 최소 darken */
   --color-x-border: #eff3f4;
   --color-x-border-strong: #cfd9de;
   --color-x-blue: #1d9bf0;
   --color-x-blue-hover: #1a8cd8;
+  --color-x-blue-text: #1573ad; /* 텍스트/링크용 진한 파랑 — 밝은 x-blue(#1d9bf0)는 텍스트로 3.0:1 미달. 이건 5.14:1(white)로 AA 통과. 버튼·배경 강조는 x-blue 유지 */
   --color-x-green: #00ba7c;
   --color-x-pink: #f91880;
   --color-x-hover: #f7f9f9;

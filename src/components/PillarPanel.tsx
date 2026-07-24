@@ -1,6 +1,6 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import type { PillarPayload } from '@/lib/pillarStats';
 import { formatCount } from '@/lib/format';
 import { Button, PanelShell } from './ui';
@@ -57,6 +57,15 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
   const a = data?.analysis ?? null;
   const stats = data?.stats ?? null;
 
+  // 주제를 판정 문구별로 묶어 소제목 아래 배치 — rows는 verdict 순 정렬돼 있어 같은 판정이 연속 그룹이 된다.
+  // 'low'의 두 문구('많이 올리지만 반응 낮음'/'반응 낮음')는 문구 단위 그룹이라 자연히 나뉜다.
+  const pillarGroups: { judgment: string; verdict: string; rows: NonNullable<typeof stats>['rows'] }[] = [];
+  for (const r of stats?.rows ?? []) {
+    const g = pillarGroups[pillarGroups.length - 1];
+    if (!g || g.judgment !== r.judgment) pillarGroups.push({ judgment: r.judgment, verdict: r.verdict, rows: [r] });
+    else g.rows.push(r);
+  }
+
   return (
     <PanelShell title="주제별로 묶기" onClose={onClose}
                 sub={a ? `표본 ${a.sampleSize}건${fmtPeriod(data?.samplePeriod ?? null)} · 투고 ${stats?.postCount ?? 0} · 인용RT ${stats?.quoteCount ?? 0} · 분석 ${fmtDay(a.analyzedAt)}` : undefined}>
@@ -73,25 +82,32 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
         <>
           <p className="mt-1 text-caption text-x-muted">주제를 누르면 아래 목록이 그 트윗만 보여요 · ♥ = 좋아요 중앙값</p>
           <ul className="mt-1 tabular-nums">
-            {stats.rows.map((r) => (
-              <li key={r.topicId}>
-                <button onClick={() => onTopicFilter(topicFilter === r.topicId ? null : r.topicId)}
-                        className={`grid w-full grid-cols-[1fr_auto_64px] items-baseline gap-x-2 rounded px-1.5 py-1 text-left hover:bg-x-text/5 ${topicFilter === r.topicId ? 'bg-x-blue/10 shadow-[inset_2px_0_0_var(--color-x-blue)]' : ''}`}>
-                  <span className={`truncate text-ui ${r.verdict === 'opportunity' ? 'font-medium' : ''}`}>
-                    {r.verdict === 'opportunity' ? '⭐ ' : ''}{r.label}
-                  </span>
-                  <span className="text-right text-ui text-x-secondary">{r.count}건 · {r.sharePct}%</span>
-                  <span className="text-right text-ui text-x-secondary">♥ {formatCount(r.medianLikes)}</span>
-                  {/* 게시량 비중(share%)을 길이로 인코딩 — 어느 주제를 많이/적게 올리는지 한눈에(E: 위치·길이 > 숫자) */}
-                  <span className="col-span-3 mt-0.5" aria-hidden>
-                    <span className="block h-1 rounded-sm bg-x-blue/40" style={{ width: `${Math.max(2, r.sharePct)}%` }} />
-                  </span>
-                  <span className="col-span-3 text-caption text-x-muted">{r.judgment}{r.quoteCount > 0 ? ` · 인용RT ${r.quoteCount}건 포함` : ''}</span>
-                </button>
-              </li>
+            {pillarGroups.map((g, gi) => (
+              <Fragment key={`g-${gi}`}>
+                {/* 판정 = 분류. 소제목으로 올리고 그 아래에 주제를 묶어 구조를 드러낸다 */}
+                <li className={`flex items-center gap-1 px-1.5 pb-0.5 text-caption font-medium text-x-secondary ${gi === 0 ? 'pt-1' : 'pt-2.5'}`}>
+                  {g.verdict === 'opportunity' && <span aria-hidden>⭐</span>}
+                  <span>{g.judgment}</span>
+                </li>
+                {g.rows.map((r) => (
+                  <li key={r.topicId}>
+                    <button onClick={() => onTopicFilter(topicFilter === r.topicId ? null : r.topicId)}
+                            className={`grid w-full grid-cols-[1fr_auto_64px] items-baseline gap-x-2 rounded px-1.5 py-1 text-left hover:bg-x-text/5 ${topicFilter === r.topicId ? 'bg-x-blue/10 shadow-[inset_2px_0_0_var(--color-x-blue)]' : ''}`}>
+                      <span className="truncate text-ui">{r.label}</span>
+                      <span className="text-right text-ui text-x-secondary">{r.count}건 · {r.sharePct}%</span>
+                      <span className="text-right text-ui text-x-secondary">♥ {formatCount(r.medianLikes)}</span>
+                      {/* 게시량 비중(share%)을 길이로 인코딩 — 어느 주제를 많이/적게 올리는지 한눈에(E: 위치·길이 > 숫자) */}
+                      <span className="col-span-3 mt-0.5" aria-hidden>
+                        <span className="block h-1 rounded-sm bg-x-blue/40" style={{ width: `${Math.max(2, r.sharePct)}%` }} />
+                      </span>
+                      {r.quoteCount > 0 && <span className="col-span-3 text-caption text-x-muted">인용RT {r.quoteCount}건 포함</span>}
+                    </button>
+                  </li>
+                ))}
+              </Fragment>
             ))}
             {stats.unclassifiedCount > 0 && (
-              <li className="px-1.5 py-0.5 text-caption text-x-muted">미분류 {stats.unclassifiedCount}건</li>
+              <li className="px-1.5 pt-2.5 text-caption text-x-muted">미분류 {stats.unclassifiedCount}건</li>
             )}
           </ul>
           <div className="mt-1.5 flex flex-wrap gap-1.5">

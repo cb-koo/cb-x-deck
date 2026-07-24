@@ -62,7 +62,7 @@ function inline(line: string, byN: Map<number, BriefingCitation>, keyPrefix: str
             /* eslint-disable-next-line @next/next/no-img-element */
             ? <img src={avatar} alt="" className="h-4 w-4 rounded-full" />
             : null}
-          <span className="text-[10px] font-bold leading-none text-x-blue">{c.n}</span>
+          <span className="text-[10px] font-bold leading-none text-x-blue-text">{c.n}</span>
         </button>
         <span className="pointer-events-none invisible absolute bottom-full left-1/2 z-20 mb-1 w-72 -translate-x-1/2 rounded-lg border border-x-border bg-white p-2 text-left text-xs font-normal leading-4 text-x-text shadow-lg group-hover:visible">
           {c.tweet && (
@@ -105,7 +105,7 @@ function EmbedCard({ c, wide, anchor = true, onToggle, expanded = false }: {
          title={onToggle ? (expanded ? '누르면 접혀요' : '누르면 원본 크기로 펼쳐요') : undefined}
          className={`${wide ? 'w-full' : 'w-64 shrink-0 snap-start'} rounded-lg border ${expanded ? 'border-x-blue/60' : 'border-x-border'} bg-x-border/20 p-2.5 text-xs leading-4 text-x-text ${onToggle ? 'cursor-pointer hover:border-x-border-strong' : ''}`}>
       <p className="flex items-baseline gap-1">
-        <span className="shrink-0 font-bold text-x-blue">{c.n}</span>
+        <span className="shrink-0 font-bold text-x-blue-text">{c.n}</span>
         {c.flags.length > 0 && (
           <span title={`薬機法 리스크 용어: ${c.flags.join(', ')} (표식일 뿐, 차단 아님)`}
                 className="shrink-0 rounded bg-amber-100 px-1 text-[10px] font-bold leading-4 text-amber-700">⚠️</span>
@@ -129,7 +129,7 @@ function EmbedCard({ c, wide, anchor = true, onToggle, expanded = false }: {
         <img src={thumb} alt="" className={`mt-1.5 w-full rounded object-cover ${wide ? 'h-44' : 'h-24'}`} />
       )}
       {onToggle && (
-        <p className="mt-1.5 text-[11px] font-bold text-x-blue">{expanded ? '접기 ⌃' : '원본 보기 ⌄'}</p>
+        <p className="mt-1.5 text-[11px] font-bold text-x-blue-text">{expanded ? '접기 ⌃' : '원본 보기 ⌄'}</p>
       )}
     </div>
   );
@@ -145,7 +145,7 @@ function FullTweetCard({ c, onCollapse }: { c: BriefingCitation; onCollapse: () 
     <div onClick={onCollapse} title="누르면 접혀요"
          className="my-2 w-full cursor-pointer rounded-lg border border-x-blue/60 bg-white p-3 text-[15px] leading-5 text-x-text">
       <div className="flex gap-2.5">
-        <span className="w-5 shrink-0 pt-2 text-right text-[13px] font-bold text-x-blue">{c.n}</span>
+        <span className="w-5 shrink-0 pt-2 text-right text-[13px] font-bold text-x-blue-text">{c.n}</span>
         {t && (
           <a href={profileUrl!} target="_blank" rel="noopener" onClick={stop} className="shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -168,7 +168,7 @@ function FullTweetCard({ c, onCollapse }: { c: BriefingCitation; onCollapse: () 
             ) : <span className="text-x-secondary">원문 스냅샷 없음</span>}
             {c.url && (
               <a href={c.url} target="_blank" rel="noopener noreferrer" onClick={stop}
-                 className="ml-auto shrink-0 text-[13px] text-x-blue hover:underline">원문 ↗</a>
+                 className="ml-auto shrink-0 text-[13px] text-x-blue-text hover:underline">원문 ↗</a>
             )}
           </div>
           <TweetText text={c.text} className="mt-0.5" />
@@ -291,7 +291,7 @@ function TrendCard({ t, byN, idx, anchors }: {
       <p className="mt-1.5">{inline(t.body, byN, `tb-${idx}`)}</p>
       <EmbedStrip cs={cs} anchorOf={(n) => anchors.has(n)} />
       <p className="mt-1.5 rounded-lg bg-x-blue/5 px-2.5 py-1.5 text-[13px]">
-        <span className="font-bold text-x-blue">→ 해볼 것</span> {inline(t.action, byN, `act-${idx}`)}
+        <span className="font-bold text-x-blue-text">→ 해볼 것</span> {inline(t.action, byN, `act-${idx}`)}
       </p>
     </div>
   );

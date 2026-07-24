@@ -62,7 +62,7 @@ export function CooccurrencePanel({ tweets, excludeKeywords, onPick }: {
       </div>
       {hiddenCount > 0 && (
         <button onClick={() => setExpanded((v) => !v)}
-                className="mt-1 rounded py-0.5 text-caption text-x-blue hover:underline">
+                className="mt-1 rounded py-0.5 text-caption text-x-blue-text hover:underline">
           {expanded ? '접기' : `더보기 (+${hiddenCount})`}
         </button>
       )}

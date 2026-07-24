@@ -11,7 +11,7 @@ export function TweetText({ text, className = '' }: { text: string; className?: 
           : tok.type === 'mention' ? `https://x.com/${tok.handle}`
           : `https://x.com/search?q=${encodeURIComponent(`#${tok.tag}`)}`;
         return (
-          <a key={i} href={href} target="_blank" rel="noopener" className="text-x-blue hover:underline"
+          <a key={i} href={href} target="_blank" rel="noopener" className="text-x-blue-text hover:underline"
              onClick={(e) => e.stopPropagation()}>
             {tok.value}
           </a>

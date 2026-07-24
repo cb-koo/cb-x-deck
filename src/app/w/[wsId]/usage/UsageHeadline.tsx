@@ -13,7 +13,7 @@ export function UsageHeadline({ total, prevTotal, periodLabel }: { total: number
   return (
     <section className="rounded-lg border border-x-border bg-x-surface p-6">
       <p className="text-caption text-x-muted">{periodLabel} 총 추정비용</p>
-      <p className="mt-1 text-3xl font-bold tabular-nums text-x-text">{formatMoney(total)}</p>
+      <p className="mt-1 text-4xl font-bold tabular-nums text-x-text">{formatMoney(total)}</p>
       <p className={`mt-1 text-ui ${color}`}>
         {t.pct !== null && <span className="tabular-nums">{arrow} {Math.abs(t.pct)}% </span>}
         <span className="text-x-secondary">{changeText}</span>

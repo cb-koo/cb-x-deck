@@ -32,6 +32,21 @@ body {
     Helvetica, Arial, sans-serif;
 }
 
+/* 키보드 포커스 표시 — 전역 (WCAG 2.4.7 Focus Visible).
+   :focus-visible라 마우스 클릭엔 안 뜨고 키보드 탐색(Tab)에서만 보인다 → 마우스 사용자 화면·미감은 그대로.
+   Tailwind의 outline-none 유틸리티는 @layer utilities에 있어, 레이어 밖인 이 규칙이 항상 이겨
+   Button·입력창을 개별 수정하지 않아도 네이티브 인터랙티브 요소 전부를 한 번에 커버한다. */
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-x-blue);
+  outline-offset: 2px;
+}
+
 /* 컬럼 새로고침 진행 바 */
 @keyframes deck-indeterminate {
   0% { transform: translateX(-100%); }

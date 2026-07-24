@@ -332,6 +332,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null); // 브리핑 삭제 인라인 확인 (덱·Sidebar와 동일 패턴 — window.confirm 대체)
 
   // 내가 저장한 트윗 목록 — 브리핑 인용 카드의 ☆/★ 초기 상태 (덱과 같은 의미: 별 = 내 저장)
   useEffect(() => {
@@ -446,15 +447,24 @@ export function BriefingSection({ wsId }: { wsId: string }) {
       else setErr(`브리핑을 불러오지 못했어요 (오류 ${r.status})`);
     } catch { setErr('네트워크 오류 — 다시 시도해주세요'); }
   }
+  // 삭제 확인은 지난 브리핑 리스트의 인라인 확인이 담당(덱·Sidebar와 동일 패턴). 여기선 확정된 삭제만 수행.
   async function remove(id: string) {
-    if (!window.confirm('이 브리핑을 삭제할까요? 되돌릴 수 없어요.')) return;
-    setErr('');
+    setErr(''); setConfirmingDeleteId(null);
     try {
       const r = await apiFetch(`/api/briefings/${id}`, { method: 'DELETE' });
       if (!r.ok) { setErr(`삭제하지 못했어요 (오류 ${r.status})`); return; }
       if (current?.id === id) setCurrent(null);
       await loadList();
     } catch { setErr('네트워크 오류 — 다시 시도해주세요'); }
+  }
+
+  // 지난 브리핑을 컬럼별로 묶어 스캔성 확보(같은 컬럼 반복 정리). 컬럼 첫 등장 순서를 유지.
+  const columnKind = new Map(columns.map((c) => [c.id, c.kind] as const));
+  const briefingGroups: { columnId: string; columnTitle: string; watchlist: boolean; rows: BriefingListRow[] }[] = [];
+  for (const b of list) {
+    let g = briefingGroups.find((x) => x.columnId === b.columnId);
+    if (!g) { g = { columnId: b.columnId, columnTitle: b.columnTitle, watchlist: columnKind.get(b.columnId) === 'watchlist', rows: [] }; briefingGroups.push(g); }
+    g.rows.push(b);
   }
 
   return (
@@ -576,23 +586,52 @@ export function BriefingSection({ wsId }: { wsId: string }) {
         </SaveCtx.Provider>
       )}
 
-      {list.length > 0 && (
-        <div data-tour="bf-history" className="mt-3">
+      {list.length === 0 && !current && (
+        <div className="mt-6 rounded-xl border border-dashed border-x-border-strong px-4 py-6 text-center">
+          <p className="text-sm text-x-secondary">아직 만든 브리핑이 없어요</p>
+          <p className="mt-1 text-xs text-x-muted">위에서 컬럼과 기간을 고르고 “브리핑 생성”을 누르면 최근 몇 주간의 흐름을 보고서로 정리해요</p>
+        </div>
+      )}
+
+      {briefingGroups.length > 0 && (
+        <div data-tour="bf-history" className="mt-3 max-w-3xl">
           <p className="text-xs text-x-muted">지난 브리핑</p>
-          <ul className="mt-1 space-y-0.5 text-sm">
-            {list.map((b) => (
-              <li key={b.id} className="flex items-center gap-2">
-                <button onClick={() => open(b.id)} className="truncate text-left hover:underline">
-                  📄 {b.columnTitle} · {fmtDay(b.periodFrom)}~{fmtDay(b.periodTo)}
-                </button>
-                <span className="shrink-0 text-xs text-x-muted">
-                  {fmtDayJst(b.createdAt)} 생성
-                  {b.member && <span className="ml-1 rounded px-1" style={{ backgroundColor: b.member.color + '33' }}>{b.member.name}</span>}
-                </span>
-                <button onClick={() => remove(b.id)} className="shrink-0 rounded px-1 text-xs text-x-muted hover:text-red-500" title="이 브리핑 삭제">삭제</button>
-              </li>
+          <div className="mt-1 space-y-3">
+            {briefingGroups.map((g) => (
+              <div key={g.columnId}>
+                <p className="flex items-center gap-1 text-sm font-bold text-x-text">
+                  <span aria-hidden>{g.watchlist ? '👤' : '🔍'}</span>
+                  <span className="truncate">{g.columnTitle}</span>
+                  <span className="shrink-0 text-xs font-normal text-x-muted">· {g.rows.length}개</span>
+                </p>
+                <ul className="mt-1 space-y-0.5 border-l border-x-border pl-3 text-sm">
+                  {g.rows.map((b) => (
+                    <li key={b.id} className="flex items-center gap-2">
+                      <span className="shrink-0 text-x-secondary">{fmtDay(b.periodFrom)}~{fmtDay(b.periodTo)}</span>
+                      <span className="shrink-0 text-xs text-x-muted">
+                        {fmtDayJst(b.createdAt)} 생성
+                        {b.member && <span className="ml-1 rounded px-1" style={{ backgroundColor: b.member.color + '33' }}>{b.member.name}</span>}
+                      </span>
+                      {confirmingDeleteId === b.id ? (
+                        <span className="ml-auto flex shrink-0 items-center gap-1 text-xs">
+                          <span className="text-red-600">삭제할까요?</span>
+                          <button onClick={() => remove(b.id)} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">삭제</button>
+                          <button onClick={() => setConfirmingDeleteId(null)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
+                        </span>
+                      ) : (
+                        <>
+                          <button onClick={() => open(b.id)}
+                                  className="ml-auto shrink-0 rounded-full border border-x-border-strong px-2.5 py-0.5 text-xs hover:bg-x-hover">열기</button>
+                          <button onClick={() => setConfirmingDeleteId(b.id)}
+                                  className="shrink-0 rounded px-1 text-xs text-x-muted hover:text-red-500" title="이 브리핑 삭제">삭제</button>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       )}
     </section>

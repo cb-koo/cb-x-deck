@@ -1,6 +1,28 @@
 import type postgres from 'postgres';
 import type { CandidateRow, DeckQuoted, DeckTweet } from './types.ts';
 
+type TweetShape = CandidateRow['tweet'];
+type Member = { id: string; name: string; color: string };
+
+function mapTweetRow(r: Record<string, unknown>, savedBy: Member[]): TweetShape {
+  return {
+    tweetId: r.tweet_id as string, authorHandle: r.author_handle as string,
+    authorName: r.author_name as string | null, authorAvatarUrl: r.author_avatar_url as string | null,
+    authorFollowers: r.author_followers === null ? null : Number(r.author_followers),
+    text: r.text as string, media: (r.media ?? []) as TweetShape['media'],
+    quoted: r.quoted
+      ? { ...(r.quoted as DeckQuoted), enriched: (r.quoted_enriched ?? null) as DeckTweet | null }
+      : null,
+    metrics: r.metrics as TweetShape['metrics'],
+    tweetUrl: r.tweet_url as string | null,
+    tweetCreatedAt: (r.tweet_created_at as Date | null)?.toISOString() ?? null,
+    firstSeenAt: (r.first_seen_at as Date).toISOString(),
+    lastFetchedAt: (r.last_fetched_at as Date).toISOString(),
+    isNew: false,
+    savedBy,
+  };
+}
+
 async function loadCandidates(
   sql: postgres.Sql,
   where: { id?: string; workspaceId?: string; tag?: string; memberId?: string },
@@ -38,22 +60,7 @@ async function loadCandidates(
     workspaceId: r.workspace_id as string,
     member: { id: r.member_id as string, name: r.member_name as string, color: r.member_color as string },
     tags: r.tags as CandidateRow['tags'],
-    tweet: {
-      tweetId: r.tweet_id as string, authorHandle: r.author_handle as string,
-      authorName: r.author_name as string | null, authorAvatarUrl: r.author_avatar_url as string | null,
-      authorFollowers: r.author_followers === null ? null : Number(r.author_followers),
-      text: r.text as string, media: (r.media ?? []) as CandidateRow['tweet']['media'],
-      quoted: r.quoted
-        ? { ...(r.quoted as DeckQuoted), enriched: (r.quoted_enriched ?? null) as DeckTweet | null }
-        : null,
-      metrics: r.metrics as CandidateRow['tweet']['metrics'],
-      tweetUrl: r.tweet_url as string | null,
-      tweetCreatedAt: (r.tweet_created_at as Date | null)?.toISOString() ?? null,
-      firstSeenAt: (r.first_seen_at as Date).toISOString(),
-      lastFetchedAt: (r.last_fetched_at as Date).toISOString(),
-      isNew: false,
-      savedBy: [{ id: r.member_id as string, name: r.member_name as string, color: r.member_color as string }],
-    },
+    tweet: mapTweetRow(r, [{ id: r.member_id as string, name: r.member_name as string, color: r.member_color as string }]),
   }));
 }
 
@@ -119,4 +126,64 @@ export async function listAllTags(
       left join candidate c on c.id = ctg.candidate_id and c.workspace_id = ${workspaceId}
      group by tg.id order by tg.name`;
   return rows.map((r) => ({ id: r.id, name: r.name, count: Number(r.count) }));
+}
+
+export async function ensureLibraryItem(
+  sql: postgres.Sql, input: { workspaceId: string; tweetId: string; addedBy: string },
+): Promise<void> {
+  await sql`
+    insert into library_item (workspace_id, tweet_id, added_by)
+    values (${input.workspaceId}, ${input.tweetId}, ${input.addedBy})
+    on conflict (workspace_id, tweet_id) do nothing`;
+}
+
+export async function removeLibraryTweet(
+  sql: postgres.Sql, input: { workspaceId: string; tweetId: string },
+): Promise<void> {
+  // candidate는 tweet FK on delete cascade가 아니라 명시 삭제(다른 워크스페이스 candidate 보호 위해 ws 스코프)
+  await sql`delete from candidate where workspace_id = ${input.workspaceId} and tweet_id = ${input.tweetId}`;
+  await sql`delete from library_item where workspace_id = ${input.workspaceId} and tweet_id = ${input.tweetId}`;
+}
+
+export interface LibraryEntry {
+  tweet: CandidateRow['tweet'];
+  addedBy: { id: string; name: string; color: string } | null;
+  addedAt: string;
+  candidates: CandidateRow[];
+}
+
+export async function listLibraryTweets(sql: postgres.Sql, workspaceId: string): Promise<LibraryEntry[]> {
+  // 1) library_item + 트윗 스냅샷 + 담은 사람 (저장자 0명 항목 포함)
+  const rows = await sql.unsafe<Array<Record<string, unknown>>>(
+    `select li.added_at, t.*, qt.data as quoted_enriched,
+            ab.id as added_by_id, ab.name as added_by_name, ab.color as added_by_color
+       from library_item li
+       join tweet t on t.tweet_id = li.tweet_id
+       left join quoted_tweet qt on qt.id = t.quoted->>'id' and qt.status = 'ok'
+       left join member ab on ab.id = li.added_by
+      where li.workspace_id = $1
+      order by li.added_at desc`,
+    [workspaceId],
+  );
+  // 2) 이 워크스페이스의 모든 candidate를 트윗별로 그룹
+  const cands = await listCandidates(sql, workspaceId);
+  const byTweet = new Map<string, CandidateRow[]>();
+  for (const c of cands) {
+    const list = byTweet.get(c.tweet.tweetId);
+    if (list) list.push(c); else byTweet.set(c.tweet.tweetId, [c]);
+  }
+  // 3) 병합: 트윗 savedBy = 그 트윗 candidate들의 멤버 합집합
+  return rows.map((r) => {
+    const tweetId = r.tweet_id as string;
+    const candidates = byTweet.get(tweetId) ?? [];
+    const savedBy = candidates.map((c) => c.member);
+    return {
+      tweet: mapTweetRow(r, savedBy),
+      addedBy: r.added_by_id
+        ? { id: r.added_by_id as string, name: r.added_by_name as string, color: r.added_by_color as string }
+        : null,
+      addedAt: (r.added_at as Date).toISOString(),
+      candidates,
+    };
+  });
 }

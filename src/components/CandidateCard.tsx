@@ -73,7 +73,7 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
       </div>
 
       <div className="flex items-center justify-between border-t border-x-border px-2 py-1 text-caption text-x-muted">
-        <span>{entry.candidates.length === 0 ? `${entry.addedBy?.name ?? '팀'}이 담음 · 저장한 사람 없음` : ''}</span>
+        <span>{entry.candidates.length === 0 ? `담은 사람: ${entry.addedBy?.name ?? '팀'} · 저장한 사람 없음` : ''}</span>
         <button onClick={() => setRemovingTeam(true)} className="hover:text-red-500">팀 보관함에서 빼기</button>
       </div>
     </div>

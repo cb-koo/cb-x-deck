@@ -24,7 +24,8 @@ export default function LibraryPage() {
   const [activeMember, setActiveMember] = useState<string | null>(null); // null = 전체
   const [loaded, setLoaded] = useState(false); // 첫 로드 완료 여부 — 로딩 중엔 빈 상태를 보이지 않게
   const [error, setError] = useState(false);
-  const [pendingRemove, setPendingRemove] = useState<string | null>(null); // 빼는 중인 tweetId
+  const [pendingRemove, setPendingRemove] = useState<string | null>(null); // 리스트에서 숨김(커밋 완료까지)
+  const [undoTweet, setUndoTweet] = useState<string | null>(null); // 실행취소 토스트 노출(커밋 시작 전까지)
   const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { translations, showTranslations, translatingAll, translatingIds, translateErr,
           loadCached, translateAll, translateOne } = useTranslations();
@@ -48,22 +49,30 @@ export default function LibraryPage() {
   }, [wsId]);
   useEffect(() => { load(); }, [load]);
 
-  // 팀에서 빼기: 즉시 서버 삭제하지 않고 낙관적으로 숨긴 뒤 ~5초 실행취소 토스트. 타임아웃/이탈 시 커밋.
+  // 팀에서 빼기: 즉시 서버 삭제하지 않고 낙관적으로 숨긴 뒤 ~5초 실행취소 토스트.
+  // pendingRemove=리스트 숨김(커밋 완료까지), undoTweet=토스트/실행취소(커밋 시작 전까지).
+  // 토스트는 DELETE 시작 순간 내림 — 삭제가 이미 나간 뒤 실행취소를 눌러 데이터가 소실되는 레이스 방지.
   const commitRemove = useCallback(async (tweetId: string) => {
     await apiFetch(`/api/library?workspaceId=${wsId}&tweetId=${tweetId}`, { method: 'DELETE' });
+    await load();
     setPendingRemove((cur) => (cur === tweetId ? null : cur));
-    load();
   }, [wsId, load]);
 
   const requestRemoveTeam = useCallback((tweetId: string) => {
-    if (removeTimer.current) clearTimeout(removeTimer.current); // 대기 중 다른 요청 → 앞의 것 즉시 커밋
-    setPendingRemove((prev) => { if (prev && prev !== tweetId) void commitRemove(prev); return tweetId; });
-    removeTimer.current = setTimeout(() => { void commitRemove(tweetId); }, 5000);
-  }, [commitRemove]);
+    if (removeTimer.current) clearTimeout(removeTimer.current);
+    if (undoTweet && undoTweet !== tweetId) void commitRemove(undoTweet); // 대기 중 다른 건 즉시 커밋
+    setPendingRemove(tweetId);
+    setUndoTweet(tweetId);
+    removeTimer.current = setTimeout(() => {
+      setUndoTweet((cur) => (cur === tweetId ? null : cur)); // 실행취소 불가 시점 → 토스트 내림
+      void commitRemove(tweetId);
+    }, 5000);
+  }, [commitRemove, undoTweet]);
 
   const undoRemove = useCallback(() => {
     if (removeTimer.current) clearTimeout(removeTimer.current);
-    setPendingRemove(null); // 아무것도 삭제 안 함(지연 커밋이라 데이터 온전)
+    setUndoTweet(null);
+    setPendingRemove(null); // 카드 복원, 아무것도 삭제 안 함
   }, []);
 
   // 대기 중 tweetId를 ref로 추적(언마운트 시 최신값 참조용) — pendingRemove를 deps로 쓰면
@@ -150,7 +159,7 @@ export default function LibraryPage() {
         </>
       )}
       {view === 'scouts' && <ScoutList wsId={wsId} />}
-      {pendingRemove && (
+      {undoTweet && (
         <Toast message="팀 보관함에서 뺐어요" actionLabel="실행취소" onAction={undoRemove} />
       )}
     </div>

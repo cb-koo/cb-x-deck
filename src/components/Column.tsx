@@ -160,15 +160,32 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
     setBusy(false);
   }
 
+  // 저장으로 생성된 내 candidate.id를 tweetId별로 보관 — 저장 직후 인라인 메모(PATCH) 배선용.
+  // load() 재조회의 StoredTweet엔 내 candidate.id가 없어 응답에서 잡아 둔다.
+  const savedIdRef = useRef<Record<string, string>>({});
   async function save(tweetId: string) {
     if (!member) { setErr('내 정보를 불러오는 중입니다. 잠시 후 다시 시도하세요'); return; }
-    await apiFetch('/api/candidates', {
+    const r = await apiFetch('/api/candidates', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tweetId, sourceColumnId: column.id, workspaceId: column.workspaceId, memberId: member.id }),
     });
+    if (r.ok) {
+      const created = await r.json().catch(() => null) as { id?: string } | null;
+      if (created?.id) savedIdRef.current[tweetId] = created.id;
+    }
     await load(sort);
   }
+  // 저장 시점 인라인 메모 = 방금 만든 candidate 행에 memo PATCH (캡처는 여기, 정리·수정은 보관함)
+  async function saveMemo(tweetId: string, memo: string): Promise<boolean> {
+    const id = savedIdRef.current[tweetId];
+    if (!id) return false;   // POST 응답 아직 (희귀) → 호출부가 입력 보존 후 재시도
+    const r = await apiFetch(`/api/candidates/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memo }),
+    });
+    return r.ok;
+  }
   async function unsave(tweetId: string) {
+    delete savedIdRef.current[tweetId];
     if (!member) { setErr('내 정보를 불러오는 중입니다. 잠시 후 다시 시도하세요'); return; }
     await apiFetch(`/api/candidates?tweetId=${tweetId}&workspaceId=${column.workspaceId}&memberId=${member.id}`, { method: 'DELETE' });
     await load(sort);
@@ -341,7 +358,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
           : visible.map((t, i) => (
               <TweetCard key={t.tweetId} tweet={t} meId={member?.id ?? null}
                          tourAnchor={tourAnchor && i === 0}
-                         onSave={save} onUnsave={unsave}
+                         onSave={save} onUnsave={unsave} onSaveMemo={saveMemo}
+                         libraryHref={`/w/${column.workspaceId}/library`}
                          onDismiss={dismissTweet} onUndismiss={undismissTweet} dismissedView={showDismissed}
                          translation={translations[t.tweetId] ?? null}
                          showTranslation={showTranslations}

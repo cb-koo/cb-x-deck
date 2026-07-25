@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { groupCandidates, filterGroups } from './candidateGroups.ts';
+import { groupCandidates, filterGroups, filterLibrary } from './candidateGroups.ts';
 import type { CandidateRow, StoredTweet, Member } from './types.ts';
 
 const M1: Member = { id: 'm1', name: '박구건', color: '#f00' };
@@ -71,4 +71,27 @@ test('filterGroups: 태그 필터는 그룹 내 누구든 매칭, 멤버 필터�
 test('filterGroups: 필터 없으면 원본 그대로', () => {
   const groups = groupCandidates([row({ id: 'c1', tweetId: 'tw1', member: M1, savedAt: '2026-07-10T00:00:00.000Z' })]);
   assert.equal(filterGroups(groups, {}), groups);
+});
+
+const entry = (tweetId: string, members: Array<{ id: string; tags?: string[] }>) => ({
+  tweet: { tweetId } as never,
+  addedBy: null, addedAt: '2026-07-25T00:00:00.000Z',
+  candidates: members.map((m, i) => ({
+    id: tweetId + i, memo: '', savedAt: '2026-07-25T00:00:00.000Z', sourceColumnId: null, workspaceId: 'w',
+    member: { id: m.id, name: m.id, color: '#000' },
+    tags: (m.tags ?? []).map((n) => ({ id: n, name: n })),
+    tweet: { tweetId } as never,
+  })),
+});
+
+test('filterLibrary: 멤버/태그 필터, 저장자 0명은 필터 시 제외', () => {
+  const entries = [
+    entry('t1', [{ id: 'A', tags: ['red'] }, { id: 'B' }]),
+    entry('t2', [{ id: 'B' }]),
+    entry('t0', []), // 저장자 0명
+  ] as never[];
+  assert.equal(filterLibrary(entries, {}).length, 3);                    // 무필터: 전부(0명 포함)
+  assert.equal(filterLibrary(entries, { memberId: 'A' }).length, 1);     // A 참여: t1만
+  assert.equal(filterLibrary(entries, { tag: 'red' }).length, 1);        // red 태그: t1만
+  assert.equal(filterLibrary(entries, { memberId: 'B' }).map((e) => e.tweet.tweetId).sort().join(','), 't1,t2');
 });

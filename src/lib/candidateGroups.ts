@@ -1,4 +1,5 @@
 import type { CandidateRow, StoredTweet } from './types.ts';
+import type { LibraryEntry } from './candidateStore.ts';
 
 // 보관함 공유 코멘트 뷰: 콘텐츠(tweet)당 카드 1장, 멤버별 candidate 행이 코멘트가 된다.
 // 그룹핑·필터는 클라이언트 순수 함수 — 스키마·API 무변경 (spec: 2026-07-13-library-shared-comments-design.md)
@@ -36,4 +37,14 @@ export function filterGroups(
   return groups.filter((g) =>
     (!where.memberId || g.entries.some((e) => e.member.id === where.memberId)) &&
     (!where.tag || g.entries.some((e) => e.tags.some((t) => t.name === where.tag))));
+}
+
+export function filterLibrary(
+  entries: LibraryEntry[],
+  where: { memberId?: string | null; tag?: string | null },
+): LibraryEntry[] {
+  if (!where.memberId && !where.tag) return entries;
+  return entries.filter((e) =>
+    (!where.memberId || e.candidates.some((c) => c.member.id === where.memberId)) &&
+    (!where.tag || e.candidates.some((c) => c.tags.some((t) => t.name === where.tag))));
 }

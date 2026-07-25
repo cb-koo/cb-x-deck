@@ -25,10 +25,18 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
     await apiFetch(`/api/candidates?tweetId=${entry.tweet.tweetId}&workspaceId=${mine.workspaceId}`, { method: 'DELETE' });
     onChanged();
   }
+  // 미저장 상태(팀원만 저장·저장자 0명 카드 포함)에서 ☆ 저장 = 내 참여 추가(코멘트 없이 북마크)
+  async function doSave() {
+    await apiFetch('/api/candidates', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tweetId: entry.tweet.tweetId, workspaceId: entry.candidates[0]?.workspaceId ?? wsId }),
+    });
+    onChanged();
+  }
 
   return (
     <div className="overflow-hidden rounded-xl border border-x-border">
-      <TweetCard tweet={{ ...entry.tweet, isNew: false }} meId={meId} onUnsave={requestUnsave}
+      <TweetCard tweet={{ ...entry.tweet, isNew: false }} meId={meId} onSave={() => doSave()} onUnsave={requestUnsave}
                  translation={translation} showTranslation={showTranslation}
                  onTranslate={onTranslate} translating={translating} />
 

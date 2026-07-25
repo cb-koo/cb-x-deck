@@ -136,9 +136,9 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onDismiss, onUndis
                 </span>
               ))}
             </span>
-            {savedByMe
+            {(onSave || onUnsave) && (savedByMe
               ? <Button variant="ghost" onClick={() => onUnsave?.(t.tweetId)} data-tour={tourAnchor ? 'col-save' : undefined} className="font-medium text-amber-500">★ 저장됨</Button>
-              : <Button variant="ghost" onClick={() => onSave?.(t.tweetId)} data-tour={tourAnchor ? 'col-save' : undefined}>☆ 저장</Button>}
+              : <Button variant="ghost" onClick={() => onSave?.(t.tweetId)} data-tour={tourAnchor ? 'col-save' : undefined}>☆ 저장</Button>)}
             {dismissedView
               ? <Button variant="ghost" onClick={() => onUndismiss?.(t.tweetId)}>되돌리기</Button>
               : onDismiss && <Button variant="ghost" onClick={() => onDismiss(t.tweetId)} title="벤치마크 무관 — 숨김" className="text-x-muted">✕ 버림</Button>}

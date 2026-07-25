@@ -25,39 +25,20 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
     await apiFetch(`/api/candidates?tweetId=${entry.tweet.tweetId}&workspaceId=${mine.workspaceId}`, { method: 'DELETE' });
     onChanged();
   }
-  // 미저장 상태(팀원만 저장·저장자 0명 카드 포함)에서 ☆ 저장 = 내 참여 추가(코멘트 없이 북마크)
-  async function doSave() {
-    await apiFetch('/api/candidates', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tweetId: entry.tweet.tweetId, workspaceId: entry.candidates[0]?.workspaceId ?? wsId }),
-    });
-    onChanged();
-  }
-
   return (
     <div className="overflow-hidden rounded-xl border border-x-border">
-      <TweetCard tweet={{ ...entry.tweet, isNew: false }} meId={meId} onSave={() => doSave()} onUnsave={requestUnsave}
+      {/* 보관함 카드엔 ★저장 토글을 두지 않는다 — 별은 덱(피드에서 담는 입구)의 개념.
+          내 참여 취소는 코멘트의 '제거', 합류는 '코멘트 달기', 트윗 제거는 '팀 보관함에서 빼기'로 일원화. */}
+      <TweetCard tweet={{ ...entry.tweet, isNew: false }} meId={meId}
                  translation={translation} showTranslation={showTranslation}
                  onTranslate={onTranslate} translating={translating} />
 
       {confirming && (
         <div className="border-t border-red-300 bg-red-50 p-2 text-caption">
-          <p className="mb-1 text-red-600">저장을 취소할까요? 내 메모·태그도 함께 삭제돼요. (다른 멤버 코멘트는 유지)</p>
+          <p className="mb-1 text-red-600">내 코멘트를 삭제할까요? 메모·태그가 사라져요. (트윗은 팀 보관함에 남아요)</p>
           <div className="flex gap-1">
-            <button onClick={() => { setConfirming(false); doUnsave(); }} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">저장 취소</button>
+            <button onClick={() => { setConfirming(false); doUnsave(); }} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">코멘트 삭제</button>
             <button onClick={() => setConfirming(false)} className="rounded border border-x-border-strong px-2 py-0.5">그대로 두기</button>
-          </div>
-        </div>
-      )}
-
-      {removingTeam && (
-        <div className="border-t border-red-300 bg-red-50 p-2 text-caption">
-          <p className="mb-1 text-red-600">
-            이 트윗을 팀 보관함에서 뺄까요?{entry.candidates.length > 0 ? ` 팀원 ${entry.candidates.length}명의 코멘트도 함께 삭제됩니다.` : ''} (실행취소 가능)
-          </p>
-          <div className="flex gap-1">
-            <button onClick={() => { setRemovingTeam(false); onRemoveTeam(entry.tweet.tweetId); }} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">팀에서 빼기</button>
-            <button onClick={() => setRemovingTeam(false)} className="rounded border border-x-border-strong px-2 py-0.5">그대로 두기</button>
           </div>
         </div>
       )}
@@ -72,9 +53,20 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
         )}
       </div>
 
+      {removingTeam && (
+        <div className="border-t border-red-300 bg-red-50 p-2 text-caption">
+          <p className="mb-1 text-red-600">
+            이 트윗을 팀 보관함에서 뺄까요?{entry.candidates.length > 0 ? ` 팀원 ${entry.candidates.length}명의 코멘트도 함께 삭제됩니다.` : ''} (실행취소 가능)
+          </p>
+          <div className="flex gap-1">
+            <button onClick={() => { setRemovingTeam(false); onRemoveTeam(entry.tweet.tweetId); }} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">팀에서 빼기</button>
+            <button onClick={() => setRemovingTeam(false)} className="rounded border border-x-border-strong px-2 py-0.5">그대로 두기</button>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between border-t border-x-border px-2 py-1 text-caption text-x-muted">
         <span>{entry.candidates.length === 0 ? `담은 사람: ${entry.addedBy?.name ?? '팀'} · 저장한 사람 없음` : ''}</span>
-        <button onClick={() => setRemovingTeam(true)} className="hover:text-red-500">팀 보관함에서 빼기</button>
+        <button onClick={() => setRemovingTeam(true)} className={`hover:text-red-500 ${removingTeam ? 'font-medium text-red-500' : ''}`}>팀 보관함에서 빼기</button>
       </div>
     </div>
   );

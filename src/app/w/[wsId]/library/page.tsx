@@ -1,6 +1,6 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import type { LibraryEntry } from '@/lib/candidateStore';
 import { filterLibrary } from '@/lib/candidateGroups';
@@ -9,6 +9,7 @@ import { ScoutList } from '@/components/ScoutList';
 import { useTranslations } from '@/components/useTranslations';
 import { Button } from '@/components/ui';
 import { useMember } from '@/lib/memberContext';
+import { Toast } from '@/components/Toast';
 
 type View = 'tweets' | 'scouts';
 
@@ -23,6 +24,8 @@ export default function LibraryPage() {
   const [activeMember, setActiveMember] = useState<string | null>(null); // null = 전체
   const [loaded, setLoaded] = useState(false); // 첫 로드 완료 여부 — 로딩 중엔 빈 상태를 보이지 않게
   const [error, setError] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<string | null>(null); // 빼는 중인 tweetId
+  const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { translations, showTranslations, translatingAll, translatingIds, translateErr,
           loadCached, translateAll, translateOne } = useTranslations();
 
@@ -45,9 +48,32 @@ export default function LibraryPage() {
   }, [wsId]);
   useEffect(() => { load(); }, [load]);
 
+  // 팀에서 빼기: 즉시 서버 삭제하지 않고 낙관적으로 숨긴 뒤 ~5초 실행취소 토스트. 타임아웃/이탈 시 커밋.
+  const commitRemove = useCallback(async (tweetId: string) => {
+    await apiFetch(`/api/library?workspaceId=${wsId}&tweetId=${tweetId}`, { method: 'DELETE' });
+    setPendingRemove((cur) => (cur === tweetId ? null : cur));
+    load();
+  }, [wsId, load]);
+
+  const requestRemoveTeam = useCallback((tweetId: string) => {
+    if (removeTimer.current) clearTimeout(removeTimer.current); // 대기 중 다른 요청 → 앞의 것 즉시 커밋
+    setPendingRemove((prev) => { if (prev && prev !== tweetId) void commitRemove(prev); return tweetId; });
+    removeTimer.current = setTimeout(() => { void commitRemove(tweetId); }, 5000);
+  }, [commitRemove]);
+
+  const undoRemove = useCallback(() => {
+    if (removeTimer.current) clearTimeout(removeTimer.current);
+    setPendingRemove(null); // 아무것도 삭제 안 함(지연 커밋이라 데이터 온전)
+  }, []);
+
+  // 페이지 이탈/언마운트 시 대기 중 삭제 커밋
+  useEffect(() => () => {
+    if (removeTimer.current) { clearTimeout(removeTimer.current); if (pendingRemove) void commitRemove(pendingRemove); }
+  }, [pendingRemove, commitRemove]);
+
   const groups = useMemo(
-    () => filterLibrary(entries, { memberId: activeMember, tag: activeTag }),
-    [entries, activeMember, activeTag],
+    () => filterLibrary(entries, { memberId: activeMember, tag: activeTag }).filter((e) => e.tweet.tweetId !== pendingRemove),
+    [entries, activeMember, activeTag, pendingRemove],
   );
 
   // 진입/갱신 시 덱에서 번역해둔 트윗을 캐시에서 조용히 불러온다(과금 없음). 미번역분은 카드 버튼으로 opt-in.
@@ -109,10 +135,7 @@ export default function LibraryPage() {
             <main className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
               {groups.map((g) => (
                 <CandidateCard key={g.tweet.tweetId} entry={g} meId={meId} wsId={wsId} onChanged={load}
-                               onRemoveTeam={async (tweetId) => {
-                                 await apiFetch(`/api/library?workspaceId=${wsId}&tweetId=${tweetId}`, { method: 'DELETE' });
-                                 load();
-                               }}
+                               onRemoveTeam={requestRemoveTeam}
                                translation={translations[g.tweet.tweetId] ?? null}
                                showTranslation={showTranslations}
                                onTranslate={translateOne}
@@ -123,6 +146,9 @@ export default function LibraryPage() {
         </>
       )}
       {view === 'scouts' && <ScoutList wsId={wsId} />}
+      {pendingRemove && (
+        <Toast message="팀 보관함에서 뺐어요" actionLabel="실행취소" onAction={undoRemove} />
+      )}
     </div>
   );
 }

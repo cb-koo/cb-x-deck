@@ -1,54 +1,72 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
 import { useEffect, useState } from 'react';
-import type { CandidateRow, TweetTranslation } from '@/lib/types';
-import type { CandidateGroup } from '@/lib/candidateGroups';
+import type { CandidateRow } from '@/lib/types';
+import type { LibraryEntry } from '@/lib/candidateStore';
 import { TweetCard } from './TweetCard';
 
 // 콘텐츠당 카드 1장 + 멤버별 코멘트(=candidate.memo). 내 행만 편집 가능.
 // 번역 prop은 페이지가 공유 훅(useTranslations)에서 내려주는 것을 TweetCard로 그대로 전달.
-export function CandidateCard({ group, meId, onChanged, translation, showTranslation, onTranslate, translating }: {
-  group: CandidateGroup; meId: string | null; onChanged: () => void;
-  translation?: TweetTranslation | null; showTranslation?: boolean;
+export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, translation, showTranslation, onTranslate, translating }: {
+  entry: LibraryEntry; meId: string | null; wsId: string; onChanged: () => void; onRemoveTeam: (tweetId: string) => void;
+  translation?: import('@/lib/types').TweetTranslation | null; showTranslation?: boolean;
   onTranslate?: (tweetId: string) => void; translating?: boolean;
 }) {
-  const mine = group.entries.find((e) => e.member.id === meId) ?? null;
+  const mine = entry.candidates.find((e) => e.member.id === meId) ?? null;
   // 저장만 하고 코멘트를 안 단 경우가 흔함(저장=메모 없는 후보행 생성) → 메모·태그가 있을 때만 "함께 삭제" 경고
   const hasMyNote = !!mine && (!!mine.memo?.trim() || mine.tags.length > 0);
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState(false);         // 저장 취소 확인(메모 있을 때만)
+  const [removingTeam, setRemovingTeam] = useState(false);      // 팀에서 빼기 확인
 
-  // 저장 취소 요청 → 인라인 확인 박스 노출(앱 전역 삭제 확인 패턴과 통일, 네이티브 confirm 제거)
-  const requestUnsave = () => { if (mine) setConfirming(true); };
+  // 저장 취소 요청 → 메모·태그가 있을 때만 인라인 확인, 없으면 즉시 취소(마찰 최소화)
+  const requestUnsave = () => { if (mine) { hasMyNote ? setConfirming(true) : doUnsave(); } };
   async function doUnsave() {
     if (!mine) return;
-    await apiFetch(`/api/candidates?tweetId=${group.tweet.tweetId}&workspaceId=${mine.workspaceId}&memberId=${mine.member.id}`, { method: 'DELETE' });
+    await apiFetch(`/api/candidates?tweetId=${entry.tweet.tweetId}&workspaceId=${mine.workspaceId}`, { method: 'DELETE' });
     onChanged();
   }
 
   return (
     <div className="overflow-hidden rounded-xl border border-x-border">
-      <TweetCard tweet={{ ...group.tweet, isNew: false }} meId={meId} onUnsave={requestUnsave}
+      <TweetCard tweet={{ ...entry.tweet, isNew: false }} meId={meId} onUnsave={requestUnsave}
                  translation={translation} showTranslation={showTranslation}
                  onTranslate={onTranslate} translating={translating} />
+
       {confirming && (
         <div className="border-t border-red-300 bg-red-50 p-2 text-caption">
-          <p className="mb-1 text-red-600">
-            {hasMyNote
-              ? '저장을 취소할까요? 내 메모·태그도 함께 삭제돼요. (다른 멤버 코멘트는 유지)'
-              : '이 트윗의 저장을 취소할까요? (다른 멤버 코멘트는 유지)'}
-          </p>
+          <p className="mb-1 text-red-600">저장을 취소할까요? 내 메모·태그도 함께 삭제돼요. (다른 멤버 코멘트는 유지)</p>
           <div className="flex gap-1">
-            <button onClick={doUnsave} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">저장 취소</button>
+            <button onClick={() => { setConfirming(false); doUnsave(); }} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">저장 취소</button>
             <button onClick={() => setConfirming(false)} className="rounded border border-x-border-strong px-2 py-0.5">그대로 두기</button>
           </div>
         </div>
       )}
+
+      {removingTeam && (
+        <div className="border-t border-red-300 bg-red-50 p-2 text-caption">
+          <p className="mb-1 text-red-600">
+            이 트윗을 팀 보관함에서 뺄까요?{entry.candidates.length > 0 ? ` 팀원 ${entry.candidates.length}명의 코멘트도 함께 삭제됩니다.` : ''} (실행취소 가능)
+          </p>
+          <div className="flex gap-1">
+            <button onClick={() => { setRemovingTeam(false); onRemoveTeam(entry.tweet.tweetId); }} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">팀에서 빼기</button>
+            <button onClick={() => setRemovingTeam(false)} className="rounded border border-x-border-strong px-2 py-0.5">그대로 두기</button>
+          </div>
+        </div>
+      )}
+
       <div className="divide-y divide-x-border border-t border-x-border">
-        {group.entries.map((e) =>
+        {entry.candidates.map((e) =>
           e.member.id === meId
             ? <MyComment key={e.id} entry={e} onChanged={onChanged} onUnsave={requestUnsave} />
             : <TheirComment key={e.id} entry={e} />)}
-        {!mine && meId && <AddComment tweetId={group.tweet.tweetId} workspaceId={group.entries[0].workspaceId} meId={meId} onChanged={onChanged} />}
+        {!mine && meId && (
+          <AddComment tweetId={entry.tweet.tweetId} workspaceId={entry.candidates[0]?.workspaceId ?? wsId} meId={meId} onChanged={onChanged} />
+        )}
+      </div>
+
+      <div className="flex items-center justify-between border-t border-x-border px-2 py-1 text-caption text-x-muted">
+        <span>{entry.candidates.length === 0 ? `${entry.addedBy?.name ?? '팀'}이 담음 · 저장한 사람 없음` : ''}</span>
+        <button onClick={() => setRemovingTeam(true)} className="hover:text-red-500">팀 보관함에서 빼기</button>
       </div>
     </div>
   );

@@ -2,8 +2,8 @@
 import { apiFetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import type { CandidateRow } from '@/lib/types';
-import { groupCandidates, filterGroups } from '@/lib/candidateGroups';
+import type { LibraryEntry } from '@/lib/candidateStore';
+import { filterLibrary } from '@/lib/candidateGroups';
 import { CandidateCard } from '@/components/CandidateCard';
 import { ScoutList } from '@/components/ScoutList';
 import { useTranslations } from '@/components/useTranslations';
@@ -17,7 +17,7 @@ export default function LibraryPage() {
   const { members, member } = useMember();
   const meId = member?.id ?? null;
   const [view, setView] = useState<View>('tweets');
-  const [candidates, setCandidates] = useState<CandidateRow[]>([]);
+  const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [tags, setTags] = useState<Array<{ id: string; name: string; count: number }>>([]);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [activeMember, setActiveMember] = useState<string | null>(null); // null = 전체
@@ -30,12 +30,12 @@ export default function LibraryPage() {
   const load = useCallback(async () => {
     setError(false);
     try {
-      const [cr, tr] = await Promise.all([
-        apiFetch(`/api/candidates?workspaceId=${wsId}`),
+      const [lr, tr] = await Promise.all([
+        apiFetch(`/api/library?workspaceId=${wsId}`),
         apiFetch(`/api/tags?workspaceId=${wsId}`),
       ]);
-      if (!cr.ok) { setError(true); return; }
-      setCandidates(await cr.json());
+      if (!lr.ok) { setError(true); return; }
+      setEntries(await lr.json());
       if (tr.ok) setTags(await tr.json());
     } catch {
       setError(true);
@@ -46,12 +46,12 @@ export default function LibraryPage() {
   useEffect(() => { load(); }, [load]);
 
   const groups = useMemo(
-    () => filterGroups(groupCandidates(candidates), { memberId: activeMember, tag: activeTag }),
-    [candidates, activeMember, activeTag],
+    () => filterLibrary(entries, { memberId: activeMember, tag: activeTag }),
+    [entries, activeMember, activeTag],
   );
 
   // 진입/갱신 시 덱에서 번역해둔 트윗을 캐시에서 조용히 불러온다(과금 없음). 미번역분은 카드 버튼으로 opt-in.
-  const savedIds = useMemo(() => [...new Set(candidates.map((c) => c.tweet.tweetId))], [candidates]);
+  const savedIds = useMemo(() => entries.map((e) => e.tweet.tweetId), [entries]);
   useEffect(() => { if (savedIds.length > 0) loadCached(savedIds); }, [savedIds, loadCached]);
 
   const chip = 'rounded-full border px-2 py-0.5 text-ui hover:bg-x-hover';
@@ -98,7 +98,7 @@ export default function LibraryPage() {
             <p className="p-4 text-ui text-x-muted">불러오는 중…</p>
           ) : error ? (
             <p className="p-4 text-ui text-red-500">보관함을 불러오지 못했어요. <button onClick={load} className="underline">재시도</button></p>
-          ) : candidates.length === 0 ? (
+          ) : entries.length === 0 ? (
             <p className="p-4 text-ui text-x-muted">아직 저장한 트윗이 없어요 — 덱에서 트윗의 ☆를 누르면 여기에 모입니다</p>
           ) : groups.length === 0 ? (
             <p className="p-4 text-ui text-x-muted">
@@ -108,7 +108,11 @@ export default function LibraryPage() {
           ) : (
             <main className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
               {groups.map((g) => (
-                <CandidateCard key={g.tweet.tweetId} group={g} meId={meId} onChanged={load}
+                <CandidateCard key={g.tweet.tweetId} entry={g} meId={meId} wsId={wsId} onChanged={load}
+                               onRemoveTeam={async (tweetId) => {
+                                 await apiFetch(`/api/library?workspaceId=${wsId}&tweetId=${tweetId}`, { method: 'DELETE' });
+                                 load();
+                               }}
                                translation={translations[g.tweet.tweetId] ?? null}
                                showTranslation={showTranslations}
                                onTranslate={translateOne}

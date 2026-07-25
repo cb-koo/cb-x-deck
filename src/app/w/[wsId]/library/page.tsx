@@ -66,10 +66,14 @@ export default function LibraryPage() {
     setPendingRemove(null); // 아무것도 삭제 안 함(지연 커밋이라 데이터 온전)
   }, []);
 
-  // 페이지 이탈/언마운트 시 대기 중 삭제 커밋
+  // 대기 중 tweetId를 ref로 추적(언마운트 시 최신값 참조용) — pendingRemove를 deps로 쓰면
+  // undo/타임아웃마다 cleanup이 돌아 삭제가 잘못 커밋되므로, deps는 wsId만 두고 실제 이탈 시에만 커밋.
+  const pendingRef = useRef<string | null>(null);
+  useEffect(() => { pendingRef.current = pendingRemove; }, [pendingRemove]);
   useEffect(() => () => {
-    if (removeTimer.current) { clearTimeout(removeTimer.current); if (pendingRemove) void commitRemove(pendingRemove); }
-  }, [pendingRemove, commitRemove]);
+    if (removeTimer.current) clearTimeout(removeTimer.current);
+    if (pendingRef.current) void apiFetch(`/api/library?workspaceId=${wsId}&tweetId=${pendingRef.current}`, { method: 'DELETE' });
+  }, [wsId]);
 
   const groups = useMemo(
     () => filterLibrary(entries, { memberId: activeMember, tag: activeTag }).filter((e) => e.tweet.tweetId !== pendingRemove),

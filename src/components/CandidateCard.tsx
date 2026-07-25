@@ -19,7 +19,7 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
   const [removingTeam, setRemovingTeam] = useState(false);      // 팀에서 빼기 확인
 
   // 저장 취소 요청 → 메모·태그가 있을 때만 인라인 확인, 없으면 즉시 취소(마찰 최소화)
-  const requestUnsave = () => { if (mine) { hasMyNote ? setConfirming(true) : doUnsave(); } };
+  const requestUnsave = () => { if (mine) { if (hasMyNote) setConfirming(true); else doUnsave(); } };
   async function doUnsave() {
     if (!mine) return;
     await apiFetch(`/api/candidates?tweetId=${entry.tweet.tweetId}&workspaceId=${mine.workspaceId}`, { method: 'DELETE' });

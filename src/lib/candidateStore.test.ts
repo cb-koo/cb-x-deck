@@ -98,7 +98,7 @@ test('library_item: 소속 분리 · 저장취소 후 잔존 · 팀에서 빼기
     await upsertTweets(sql, [tw('x'), tw('y')]);
 
     // 저장 = candidate + library_item
-    const cA = await saveCandidate(sql, { tweetId: P + 'x', workspaceId: ws.id, memberId: mA.id });
+    await saveCandidate(sql, { tweetId: P + 'x', workspaceId: ws.id, memberId: mA.id });
     await ensureLibraryItem(sql, { workspaceId: ws.id, tweetId: P + 'x', addedBy: mA.id });
     await saveCandidate(sql, { tweetId: P + 'x', workspaceId: ws.id, memberId: mB.id });
     await ensureLibraryItem(sql, { workspaceId: ws.id, tweetId: P + 'x', addedBy: mB.id }); // idempotent

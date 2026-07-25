@@ -1,6 +1,6 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { CandidateRow } from '@/lib/types';
 import type { LibraryEntry } from '@/lib/candidateStore';
 import { TweetCard } from './TweetCard';
@@ -13,12 +13,12 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
   onTranslate?: (tweetId: string) => void; translating?: boolean;
 }) {
   const mine = entry.candidates.find((e) => e.member.id === meId) ?? null;
-  // 저장만 하고 코멘트를 안 단 경우가 흔함(저장=메모 없는 후보행 생성) → 메모·태그가 있을 때만 "함께 삭제" 경고
-  const hasMyNote = !!mine && (!!mine.memo?.trim() || mine.tags.length > 0);
+  // 저장만 하고 코멘트를 안 단 경우가 흔함(저장=메모 없는 후보행 생성) → 메모가 있을 때만 "함께 삭제" 경고
+  const hasMyNote = !!mine && !!mine.memo?.trim();
   const [confirming, setConfirming] = useState(false);         // 저장 취소 확인(메모 있을 때만)
   const [removingTeam, setRemovingTeam] = useState(false);      // 팀에서 빼기 확인
 
-  // 저장 취소 요청 → 메모·태그가 있을 때만 인라인 확인, 없으면 즉시 취소(마찰 최소화)
+  // 저장 취소 요청 → 메모가 있을 때만 인라인 확인, 없으면 즉시 취소(마찰 최소화)
   const requestUnsave = () => { if (mine) { if (hasMyNote) setConfirming(true); else doUnsave(); } };
   async function doUnsave() {
     if (!mine) return;
@@ -35,7 +35,7 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
 
       {confirming && (
         <div className="border-t border-red-300 bg-red-50 p-2 text-caption">
-          <p className="mb-1 text-red-600">내 코멘트를 삭제할까요? 메모·태그가 사라져요. (트윗은 팀 보관함에 남아요)</p>
+          <p className="mb-1 text-red-600">내 코멘트를 삭제할까요? 메모가 사라져요. (트윗은 팀 보관함에 남아요)</p>
           <div className="flex gap-1">
             <button onClick={() => { setConfirming(false); doUnsave(); }} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">코멘트 삭제</button>
             <button onClick={() => setConfirming(false)} className="rounded border border-x-border-strong px-2 py-0.5">그대로 두기</button>
@@ -82,46 +82,57 @@ function CommentByline({ entry: e }: { entry: CandidateRow }) {
   );
 }
 
+// 평소엔 읽기 전용(확정본 보호), [수정] 눌러야 편집 모드 → [저장]/[취소]로 커밋·잠금.
+// 항상 열린 textarea가 실수 편집을 부르던 문제 해소 + 저장 상태를 명시화 (checklist §F·G·K).
 function MyComment({ entry: e, onChanged, onUnsave }: { entry: CandidateRow; onChanged: () => void; onUnsave: () => void }) {
-  const [memo, setMemo] = useState(e.memo);
-  const [tagInput, setTagInput] = useState('');
-  useEffect(() => { setMemo(e.memo); }, [e.memo]);
+  const [editing, setEditing] = useState(false);
+  const [memo, setMemo] = useState(e.memo);   // 편집 모드 전용 초안값 — 읽기 표시는 e.memo를 직접 씀
+  const [saving, setSaving] = useState(false);
+  function beginEdit() { setMemo(e.memo); setEditing(true); }   // 진입 시 최신 값 seed (effect 불필요)
 
-  async function saveMemo() {
-    if (memo === e.memo) return;
-    await apiFetch(`/api/candidates/${e.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memo }) });
-    onChanged();
+  async function save() {
+    setSaving(true);
+    try {
+      if (memo !== e.memo) {
+        await apiFetch(`/api/candidates/${e.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memo }) });
+      }
+      setEditing(false);
+      onChanged();
+    } finally { setSaving(false); }
   }
-  async function addTag() {
-    const name = tagInput.trim();
-    if (!name) return;
-    await apiFetch(`/api/candidates/${e.id}/tags`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-    setTagInput('');
-    onChanged();
-  }
-  async function removeTag(tagId: string) {
-    await apiFetch(`/api/candidates/${e.id}/tags/${tagId}`, { method: 'DELETE' });
-    onChanged();
-  }
+  function cancel() { setMemo(e.memo); setEditing(false); }   // 편집 취소 = 원래 값 복원
 
   return (
     <div className="p-2">
       <div className="flex items-center justify-between">
         <CommentByline entry={e} />
-        <button onClick={onUnsave} className="text-caption text-x-muted hover:text-red-500">제거</button>
+        {editing ? (
+          <div className="flex items-center gap-1">
+            <button onClick={save} disabled={saving}
+                    className="rounded px-2 py-1 text-caption font-medium text-x-blue-text hover:bg-x-hover disabled:opacity-40">{saving ? '저장 중…' : '저장'}</button>
+            <button onClick={cancel} className="rounded px-2 py-1 text-caption text-x-muted hover:bg-x-hover">취소</button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            <button onClick={beginEdit} className="rounded px-2 py-1 text-caption text-x-blue-text hover:bg-x-hover hover:underline">수정</button>
+            <button onClick={onUnsave} className="rounded px-2 py-1 text-caption text-x-muted hover:text-red-500">제거</button>
+          </div>
+        )}
       </div>
-      <textarea value={memo} onChange={(ev) => setMemo(ev.target.value)} onBlur={saveMemo}
-                placeholder="메모 (예: 반복 재현 포맷, 레티날 담론)"
-                className="mt-1 w-full resize-none rounded-md border border-x-border-strong bg-transparent p-1 text-ui outline-none focus:border-x-blue" rows={2} />
-      <div className="mt-1 flex flex-wrap items-center gap-1">
-        {e.tags.map((t) => (
-          <button key={t.id} onClick={() => removeTag(t.id)}
-                  className="rounded-full bg-x-border px-2 py-0.5 text-caption hover:line-through">#{t.name} ✕</button>
-        ))}
-        <input value={tagInput} onChange={(ev) => setTagInput(ev.target.value)}
-               onKeyDown={(ev) => { if (ev.key === 'Enter' && !ev.nativeEvent.isComposing) addTag(); }}
-               placeholder="+태그" className="w-20 bg-transparent text-caption outline-none" />
-      </div>
+
+      {editing ? (
+        <textarea autoFocus value={memo} onChange={(ev) => setMemo(ev.target.value)}
+                  onKeyDown={(ev) => {
+                    if (ev.key === 'Escape') cancel();                                              // Esc = 취소
+                    else if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) save();               // Cmd/Ctrl+Enter = 저장
+                  }}
+                  placeholder="메모 (예: 반복 재현 포맷, 레티날 담론)"
+                  className="mt-1 w-full resize-none rounded-md border border-x-border-strong bg-white p-1 text-ui outline-none focus:border-x-blue" rows={2} />
+      ) : (
+        e.memo?.trim()
+          ? <p className="mt-1 whitespace-pre-wrap text-ui">{e.memo}</p>
+          : <p className="mt-1 text-ui text-x-muted">메모 없음 <span className="text-caption">— 수정으로 추가할 수 있어요</span></p>
+      )}
     </div>
   );
 }
@@ -131,13 +142,6 @@ function TheirComment({ entry: e }: { entry: CandidateRow }) {
     <div className="p-2">
       <CommentByline entry={e} />
       {e.memo && <p className="mt-1 whitespace-pre-wrap text-ui">{e.memo}</p>}
-      {e.tags.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-1">
-          {e.tags.map((t) => (
-            <span key={t.id} className="rounded-full bg-x-border px-2 py-0.5 text-caption text-x-secondary">#{t.name}</span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

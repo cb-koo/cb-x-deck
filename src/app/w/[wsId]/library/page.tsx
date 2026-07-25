@@ -19,8 +19,6 @@ export default function LibraryPage() {
   const meId = member?.id ?? null;
   const [view, setView] = useState<View>('tweets');
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
-  const [tags, setTags] = useState<Array<{ id: string; name: string; count: number }>>([]);
-  const [activeTag, setActiveTag] = useState<string | null>(null);
   const [activeMember, setActiveMember] = useState<string | null>(null); // null = 전체
   const [loaded, setLoaded] = useState(false); // 첫 로드 완료 여부 — 로딩 중엔 빈 상태를 보이지 않게
   const [error, setError] = useState(false);
@@ -34,13 +32,9 @@ export default function LibraryPage() {
   const load = useCallback(async () => {
     setError(false);
     try {
-      const [lr, tr] = await Promise.all([
-        apiFetch(`/api/library?workspaceId=${wsId}`),
-        apiFetch(`/api/tags?workspaceId=${wsId}`),
-      ]);
+      const lr = await apiFetch(`/api/library?workspaceId=${wsId}`);
       if (!lr.ok) { setError(true); return; }
       setEntries(await lr.json());
-      if (tr.ok) setTags(await tr.json());
     } catch {
       setError(true);
     } finally {
@@ -85,8 +79,8 @@ export default function LibraryPage() {
   }, [wsId]);
 
   const groups = useMemo(
-    () => filterLibrary(entries, { memberId: activeMember, tag: activeTag }).filter((e) => e.tweet.tweetId !== pendingRemove),
-    [entries, activeMember, activeTag, pendingRemove],
+    () => filterLibrary(entries, { memberId: activeMember }).filter((e) => e.tweet.tweetId !== pendingRemove),
+    [entries, activeMember, pendingRemove],
   );
 
   // 진입/갱신 시 덱에서 번역해둔 트윗을 캐시에서 조용히 불러온다(과금 없음). 미번역분은 카드 버튼으로 opt-in.
@@ -115,13 +109,6 @@ export default function LibraryPage() {
                 <span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: m.color }} />{m.name}
               </button>
             ))}
-            <span className="ml-3 mr-1 text-caption text-x-muted">태그</span>
-            <button onClick={() => setActiveTag(null)} aria-pressed={activeTag === null} className={`${chip} ${activeTag === null ? on : off}`}>전체</button>
-            {tags.filter((t) => t.count > 0).map((t) => (
-              <button key={t.id} onClick={() => setActiveTag(t.name)} aria-pressed={activeTag === t.name} className={`${chip} ${activeTag === t.name ? on : off}`}>
-                #{t.name} {t.count}
-              </button>
-            ))}
             <Button variant="ghost" onClick={() => translateAll(groups.map((g) => g.tweet.tweetId))} disabled={translatingAll}
                     className={`ml-auto ${showTranslations ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}`}
                     title="지금 보이는 트윗을 한국어로 — 덱에서 이미 번역한 건 무료로 바로 표시돼요 (새로 번역하면 저장돼 재사용돼요)">
@@ -142,7 +129,7 @@ export default function LibraryPage() {
           ) : groups.length === 0 ? (
             <p className="p-4 text-ui text-x-muted">
               조건에 맞는 저장물이 없어요 — 필터를 바꾸거나{' '}
-              <button onClick={() => { setActiveMember(null); setActiveTag(null); }} className="underline">필터 초기화</button>
+              <button onClick={() => setActiveMember(null)} className="underline">필터 초기화</button>
             </p>
           ) : (
             <main className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">

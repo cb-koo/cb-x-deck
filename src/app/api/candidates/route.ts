@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
-import { saveCandidate, removeCandidate, listCandidates } from '@/lib/candidateStore';
+import { saveCandidate, removeCandidate, listCandidates, ensureLibraryItem } from '@/lib/candidateStore';
 
 import { requireMember } from '@/lib/authGuard';
 export async function GET(req: Request) {
@@ -22,6 +22,7 @@ export async function POST(req: Request) {
   const { tweetId, workspaceId, sourceColumnId } = await req.json().catch(() => ({}));
   const memberId = gate.member.id; // 클라이언트 body.memberId 무시(위조 차단)
   if (!tweetId || !workspaceId) return NextResponse.json({ error: 'tweetId·workspaceId 필수' }, { status: 400 });
+  await ensureLibraryItem(getSql(), { workspaceId, tweetId, addedBy: memberId });
   return NextResponse.json(await saveCandidate(getSql(), { tweetId, workspaceId, memberId, sourceColumnId }), { status: 201 });
 }
 

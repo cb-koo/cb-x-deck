@@ -25,12 +25,11 @@ type Drag = {
   lastT: number;
 };
 
-export function useDeckDrag({ columns, containerRef, getColumnEl, onCommit, onAnnounce }: {
+export function useDeckDrag({ columns, containerRef, getColumnEl, onCommit }: {
   columns: ColumnRow[];
   containerRef: React.RefObject<HTMLElement | null>;
   getColumnEl: (id: string) => HTMLElement | null;
   onCommit: (ids: string[]) => void;
-  onAnnounce?: (message: string) => void;
 }) {
   const drag = useRef<Drag | null>(null);
   // 리스너 해제를 위해 같은 함수 참조를 유지한다
@@ -240,10 +239,11 @@ export function useDeckDrag({ columns, containerRef, getColumnEl, onCommit, onAn
     if (to < 0 || to >= columns.length) return;
     const id = columns[index].id;
     onCommit(arrayMove(columns.map((c) => c.id), index, to));
-    onAnnounce?.(`${columns[index].title}, ${columns.length}개 중 ${to + 1}번째`);
+    // 위치 변화 안내는 여기서 하지 않는다 — 그립이 role="slider"라 aria-valuetext가 바뀌면
+    // 스크린리더가 자동으로 읽는다. 별도 안내 채널을 두면 같은 내용이 두 번 읽힌다.
     // 재렌더 뒤에 옮겨간 컬럼을 화면에 보이게 한다
     requestAnimationFrame(() => getColumnEl(id)?.scrollIntoView({ behavior: 'auto', inline: 'nearest', block: 'nearest' }));
-  }, [columns, getColumnEl, onCommit, onAnnounce]);
+  }, [columns, getColumnEl, onCommit]);
 
   return { startDrag, moveByKeyboard };
 }

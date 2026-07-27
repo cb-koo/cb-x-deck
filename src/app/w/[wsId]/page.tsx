@@ -14,7 +14,7 @@ export default function DeckPage() {
   const { wsId } = useParams<{ wsId: string }>();
   const [columns, setColumns] = useState<ColumnRow[]>([]);
   const [modal, setModal] = useState<{ mode: 'create' | 'edit'; column?: ColumnRow; presetKeyword?: string } | null>(null);
-  const [autoRefreshId, setAutoRefreshId] = useState<string | null>(null);
+  const [newColumnId, setNewColumnId] = useState<string | null>(null);
   const { start, advance, activeTour } = useTour();
   const prevColCount = useRef(0);
   const [loadedOnce, setLoadedOnce] = useState(false);
@@ -56,7 +56,7 @@ export default function DeckPage() {
       body: JSON.stringify(isEdit ? { title: v.title, config: v.config } : { ...v, workspaceId: wsId }),
     });
     if (!r.ok) throw new Error((await r.json().catch(() => ({})) as { error?: string }).error ?? `오류 ${r.status}`);
-    if (!isEdit) setAutoRefreshId(((await r.json()) as ColumnRow).id);
+    if (!isEdit) setNewColumnId(((await r.json()) as ColumnRow).id);
     await load();
   }
 
@@ -83,7 +83,7 @@ export default function DeckPage() {
         {columns.map((c, i) => (
           <Column key={c.id} column={c}
                   tourAnchor={i === 0}
-                  autoRefresh={c.id === autoRefreshId}
+                  isNew={c.id === newColumnId}
                   onEdit={() => setModal({ mode: 'edit', column: c })}
                   onDelete={() => remove(c)}
                   onPickTag={(tag) => setModal({ mode: 'create', presetKeyword: tag })} />

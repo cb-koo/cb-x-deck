@@ -33,9 +33,9 @@ function dirLabel(sort: SortKey, dir: SortDir): string {
   return `${SORT_LABEL[sort]} ${dirText(sort, dir)} — 다시 누르면 정렬 순서가 바뀝니다`;
 }
 
-export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourAnchor }: {
+export function Column({ column, isNew, onEdit, onDelete, onPickTag, tourAnchor }: {
   column: ColumnRow;
-  autoRefresh?: boolean;   // 생성 직후 1회 자동 조회 (page.tsx가 방금 만든 컬럼에만 지정)
+  isNew?: boolean;   // 방금 만든 컬럼 — 1회 자동 조회 + 화면으로 스크롤 + 잠깐 강조
   onEdit: () => void;
   onDelete: () => void;
   onPickTag: (tag: string) => void;
@@ -57,6 +57,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
   const { translations, showTranslations, translatingAll, translatingIds, translateErr,
           translateAll, translateOne } = useTranslations();
   const [width, setWidth] = useState<number>(column.config.width ?? 400);
+  const rootRef = useRef<HTMLElement>(null);
+  const [highlight, setHighlight] = useState(false);
   const [showPillar, setShowPillar] = useState(false);
   const [showTrend, setShowTrend] = useState(false);
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
@@ -138,12 +140,25 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
   // 생성 직후 1회 자동 조회 — 미조회(lastRefreshedAt=null) 상태일 때만, 재실행 방지 가드
   const autoRan = useRef(false);
   useEffect(() => {
-    if (autoRefresh && !autoRan.current && !column.lastRefreshedAt) {
+    if (isNew && !autoRan.current && !column.lastRefreshedAt) {
       autoRan.current = true;
       refresh();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoRefresh]);
+  }, [isNew]);
+
+  // 새 컬럼은 스트립 오른쪽 끝에 붙어 화면 밖일 수 있다. 스크롤로 데려오고 잠깐 강조해
+  // "만들어졌다"를 눈에 보이게 한다 — 없으면 컬럼 4개 이상에서 화면이 그대로라 실패로 읽힌다.
+  const cameIntoView = useRef(false);
+  useEffect(() => {
+    if (!isNew || cameIntoView.current || !rootRef.current) return;
+    cameIntoView.current = true;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    rootRef.current.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', inline: 'end', block: 'nearest' });
+    setHighlight(true);
+    const t = setTimeout(() => setHighlight(false), 1500);
+    return () => clearTimeout(t);
+  }, [isNew]);
 
   // 버림 보기 중엔 주제 맵에 버림 트윗이 없어 필터를 걸면 항상 빈 목록이 된다 — 이때는 필터 미적용
   const visible = topicFilter && !showDismissed ? tweets.filter((t) => pillarMap[t.tweetId] === topicFilter) : tweets;
@@ -206,7 +221,8 @@ export function Column({ column, autoRefresh, onEdit, onDelete, onPickTag, tourA
   const keywords = column.kind === 'search' ? ((column.config as SearchConfig).keywords ?? []) : [];
 
   return (
-    <section style={{ width }} className="relative flex h-full shrink-0 flex-col border-r border-x-border">
+    <section ref={rootRef} style={{ width }}
+             className={`relative flex h-full shrink-0 flex-col border-r border-x-border ${highlight ? 'ring-2 ring-inset ring-x-blue' : ''}`}>
       <header className="border-b border-x-border bg-x-surface px-3 pt-2">
         <div className="flex items-center gap-1.5">
           {column.kind === 'watchlist'

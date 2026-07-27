@@ -59,6 +59,25 @@ test('position 자동 증가 + reorderColumns + 집합 불일치 거부', async 
     await assert.rejects(() => reorderColumns(sql, ws.id, [c.id, a.id]), ColumnSetMismatch);
     // 중복 id도 거부
     await assert.rejects(() => reorderColumns(sql, ws.id, [c.id, c.id, a.id, b.id]), ColumnSetMismatch);
+
+    // 개수는 맞는데 남의 워크스페이스 컬럼이 섞인 경우.
+    // 길이·중복 검사만으로는 통과해버리므로 소속(집합) 검사가 유일한 방어선이다 —
+    // 뚫리면 남의 워크스페이스 컬럼 순서를 건드린다. 거부되는 것에서 멈추지 말고
+    // 양쪽 데이터가 실제로 그대로인지까지 확인한다.
+    const other = await createWorkspace(sql, T + '-w4');
+    try {
+      const foreign = await createColumn(sql, { workspaceId: other.id, kind: 'search', title: T + '-x', config: { keywords: ['x'] } });
+      await assert.rejects(
+        () => reorderColumns(sql, ws.id, [foreign.id, a.id, b.id, c.id]), // 길이 4 = 현재 컬럼 수, d 대신 foreign
+        ColumnSetMismatch,
+      );
+      const untouched = await getColumn(sql, foreign.id);
+      assert.equal(untouched!.workspaceId, other.id); // 소속이 넘어오지 않았다
+      assert.equal(untouched!.position, 0);           // 순서도 안 건드려졌다
+      assert.deepEqual((await listColumns(sql, ws.id)).map((x) => x.id), [c.id, a.id, b.id, d.id]); // 이쪽도 그대로
+    } finally {
+      await deleteWorkspace(sql, other.id);
+    }
   } finally {
     await deleteWorkspace(sql, ws.id);
   }

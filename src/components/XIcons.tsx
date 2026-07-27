@@ -64,3 +64,8 @@ export const FolderIcon = ({ className }: { className?: string }) => (
 export const ChevronDownIcon = ({ className }: { className?: string }) => (
   <Icon className={className} d="M12 15.41l-6.7-6.7 1.4-1.42 5.3 5.3 5.3-5.3 1.4 1.41L12 15.41z" />
 );
+
+// 세로 2열 × 3행 점 — 끌 수 있음을 알리는 표준 기호
+export const GripIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M9 5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm6 0a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM9 10.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm6 0a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM9 16a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm6 0a1.5 1.5 0 110 3 1.5 1.5 0 010-3z" />
+);

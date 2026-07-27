@@ -15,15 +15,18 @@ export function ColumnGrip({ title, index, total, onPointerDown, onMove }: {
 }) {
   return (
     <span
-      role="button"
+      // role="button"을 쓰지 않는다 — 버튼이라 안내하면 Enter·스페이스가 먹힐 거라 기대하는데
+      // 이 손잡이는 화살표로 바로 옮기는 방식이라 어긋난다. 무슨 물건인지는 라벨로 말한다.
       tabIndex={0}
       title="끌어서 순서 변경"
-      aria-label={`${title} 순서 변경 — 끌어서 옮기거나 화살표 키를 누르세요. ${total}개 중 ${index + 1}번째`}
+      aria-label={`${title} 순서 변경 손잡이 — 끌어서 옮기거나 화살표 키를 누르세요. ${total}개 중 ${index + 1}번째`}
       onPointerDown={onPointerDown}
       onKeyDown={(e) => {
         // 경계에서는 아무 일도 일어나지 않는다 — 헛도는 저장 요청을 막는다
         if (e.key === 'ArrowLeft' && index > 0) { e.preventDefault(); onMove(-1); }
         if (e.key === 'ArrowRight' && index < total - 1) { e.preventDefault(); onMove(1); }
+        // 포커스가 여기 있을 때 스페이스를 누르면 페이지가 스크롤된다 — 손잡이에선 아무 일도 없어야 한다
+        if (e.key === ' ' || e.key === 'Enter') e.preventDefault();
       }}
       className="shrink-0 cursor-grab touch-none rounded p-1.5 text-x-secondary hover:bg-x-text/5 hover:text-x-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-x-blue active:cursor-grabbing"
     >

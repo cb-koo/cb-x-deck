@@ -227,7 +227,17 @@ export function Column({ column, isNew, index, total, onEdit, onDelete, onPickTa
   const keywords = column.kind === 'search' ? ((column.config as SearchConfig).keywords ?? []) : [];
 
   return (
-    <section ref={rootRef} data-column-id={column.id} style={{ width }}
+    <section ref={rootRef} data-column-id={column.id}
+             style={{
+               width,
+               // 화면 밖 컬럼의 트윗 수백 개는 레이아웃·페인트를 건너뛴다. 화면 안 컬럼도
+               // 강제되는 containment 덕에 한 컬럼의 변화가 다른 컬럼 레이아웃을 건드리지 않는다.
+               // (Chrome 팀 가이드가 칸반 컬럼을 대표 사례로 든다)
+               contentVisibility: 'auto',
+               // 폭·높이가 이미 확정(width는 px, 높이는 h-full)이라 크기 추측이 필요 없다.
+               // 그래서 "c-v:auto 하위로 scrollIntoView가 어긋나는" 알려진 버그에 걸리지 않는다.
+               containIntrinsicWidth: `auto ${width}px`,
+             }}
              className={`relative flex h-full shrink-0 flex-col border-r border-x-border ${highlight ? 'ring-2 ring-inset ring-x-blue' : ''}`}>
       <header className="border-b border-x-border bg-x-surface px-3 pt-2">
         <div className="flex items-center gap-1.5">

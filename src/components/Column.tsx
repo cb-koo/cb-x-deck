@@ -156,8 +156,9 @@ export function Column({ column, isNew, onEdit, onDelete, onPickTag, tourAnchor 
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     rootRef.current.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', inline: 'end', block: 'nearest' });
     setHighlight(true);
-    const t = setTimeout(() => setHighlight(false), 1500);
-    return () => clearTimeout(t);
+    // cleanup에서 취소하지 않는다 — StrictMode 재실행 때 취소만 되고 가드에 막혀
+    // 재예약이 안 돼 강조가 영영 안 꺼진다. 언마운트 후 setState는 React 18+에서 무해하게 무시된다.
+    setTimeout(() => setHighlight(false), 1500);
   }, [isNew]);
 
   // 버림 보기 중엔 주제 맵에 버림 트윗이 없어 필터를 걸면 항상 빈 목록이 된다 — 이때는 필터 미적용

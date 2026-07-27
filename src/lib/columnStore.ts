@@ -25,27 +25,35 @@ export async function createColumn(
 ): Promise<ColumnRow> {
   // position은 서버가 정한다. 클라이언트가 보내면 두 명이 동시에 만들 때 번호가 겹친다.
   // 새 컬럼은 항상 맨 뒤 — "새 건 오른쪽 끝"이라는 화면 규칙과 같은 규칙이다.
-  const [row] = await sql<Row[]>`
-    insert into deck_column (workspace_id, kind, title, position, config)
-    values (
-      ${input.workspaceId}, ${input.kind}, ${input.title},
-      (select coalesce(max(position) + 1, 0) from deck_column where workspace_id = ${input.workspaceId}),
-      ${sql.json(input.config as never)}
-    )
-    returning id, workspace_id, kind, title, position, config, last_refreshed_at`;
-  return toColumn(row);
+  // READ COMMITTED에서 max(position)+1만으로는 동시 생성 시 채번이 겹친다(둘 다 같은
+  // max를 읽음). deck_column 자체엔 락을 걸 행이 없을 수 있어(컬럼 0개인 워크스페이스)
+  // workspace 행을 잡아 동시 생성을 직렬화한다 — reorderColumns가 deck_column에 for
+  // update를 거는 것과 같은 목적, 다른 대상.
+  return (await sql.begin(async (tx) => {
+    await tx`select 1 from workspace where id = ${input.workspaceId} for update`;
+    const [row] = await tx<Row[]>`
+      insert into deck_column (workspace_id, kind, title, position, config)
+      values (
+        ${input.workspaceId}, ${input.kind}, ${input.title},
+        (select coalesce(max(position) + 1, 0) from deck_column where workspace_id = ${input.workspaceId}),
+        ${sql.json(input.config as never)}
+      )
+      returning id, workspace_id, kind, title, position, config, last_refreshed_at`;
+    return toColumn(row);
+  })) as ColumnRow;
 }
 
 export async function updateColumn(
   sql: postgres.Sql,
   id: string,
-  patch: { title?: string; config?: SearchConfig | WatchlistConfig; position?: number },
+  // position은 여기서 받지 않는다. 순서는 reorderColumns만 다룬다 — 전체 배열을
+  // 트랜잭션으로 확정하는 방식 하나로만 바뀌어야 순서 무결성이 유지된다.
+  patch: { title?: string; config?: SearchConfig | WatchlistConfig },
 ): Promise<ColumnRow> {
   const [row] = await sql<Row[]>`
     update deck_column set
       title = coalesce(${patch.title ?? null}, title),
-      config = coalesce(${patch.config ? sql.json(patch.config as never) : null}, config),
-      position = coalesce(${patch.position ?? null}, position)
+      config = coalesce(${patch.config ? sql.json(patch.config as never) : null}, config)
     where id = ${id}
     returning id, workspace_id, kind, title, position, config, last_refreshed_at`;
   if (!row) throw new Error(`column not found: ${id}`);

@@ -165,7 +165,9 @@
 
 ### content-visibility — 덱 전체 최적화
 
-컬럼 `<section>`에 `content-visibility: auto` + `contain-intrinsic-size` 적용.
+컬럼 `<section>`에 `content-visibility: auto` + **폭축에만** `contain-intrinsic-width` 적용.
+
+높이축은 지정하지 않는다. `content-visibility: auto`가 화면 밖에서 강제하는 size containment는 **내용에서 파생되는(intrinsic) 크기만** 무효화하는데, 이 `<section>`의 높이는 상위 `main`의 `flex-1` 배분에서 내려오는 definite 값이라 무효화 대상이 아니다. 단 이 근거는 이 파일 밖의 조상 체인에 의존한다 — 중간 래퍼가 `height: auto`로 바뀌면 화면 밖에서 0px로 접히므로 그때는 `contain-intrinsic-height`를 추가해야 한다. (구현 시 `Column.tsx` 주석으로 이 의존성을 남긴다.)
 
 - 화면 밖 컬럼의 트윗은 레이아웃·페인트를 건너뛴다. 컬럼 6개 중 3개만 보이면 트윗 약 600개분 렌더 작업이 빠진다.
 - 화면 안 컬럼도 이득이 있다: 강제되는 layout/style/paint containment가 경계가 되어, **한 컬럼 내부의 변화가 다른 컬럼의 레이아웃 재계산을 유발하지 않는다.** Google Chrome 팀 가이드가 "칸반 보드의 컬럼"을 대표 사례로 든다.
@@ -175,7 +177,15 @@
 
 `content-visibility: auto` 하위로의 `scrollIntoView`가 어긋나는 [미해결 이슈](https://github.com/w3c/csswg-drafts/issues/9833)가 있다. 하필 A의 "새 컬럼으로 자동 스크롤"이 그 시나리오다. 그러나 이 버그는 **브라우저가 요소 크기를 추측해야 할 때** 생긴다. 우리 컬럼은 폭이 픽셀로 명시(`style={{ width }}`, `Column.tsx:209`)되고 높이는 `h-full`로 고정이라 추측 여지가 없다. `contain-intrinsic-size`는 실제 값과 동일하게 지정한다.
 
-**검증 의무:** 구현 후 실제로 (1) 새 컬럼 자동 스크롤이 정확히 멈추는지, (2) 컬럼 6개 이상에서 가로 스크롤이 매끄러운지 확인한다. [Firefox에서 가로 스크롤 컬럼에 적용 시 터치 스와이프가 뻑뻑해진 사례](https://bugzilla.mozilla.org/show_bug.cgi?id=1922904)가 있다(scroll-snap 관련이며 우리는 미사용). 문제가 재현되면 이 최적화만 되돌린다 — A·B와 독립적이라 분리 제거가 가능하다.
+**검증 결과(2026-07-27, localhost·컬럼 8개·폭 400~553px):** 위험은 예측대로 발생하지 않았다.
+
+- `scrollIntoView({inline:'end'})`가 마지막 컬럼에서 `scrollLeft = maxScroll`과 **정확히 일치**, 잘림 0px. 중간 컬럼·재호출도 동일.
+- 폭 미붕괴(합계 3747px = 개별 폭 합과 일치), 높이 8개 모두 773px 유지.
+- 화면 밖 컬럼 `innerText` 42,545자 DOM 잔존 → 페이지 내 검색 가능.
+- 컬럼 내부 세로 스크롤 위치 유지(800 → 화면 밖 → 800).
+- **미측정:** 프레임 부드러움·Rendering 시간. 검증 당시 브라우저 탭이 `visibilityState: hidden`(창 가려짐)이어서 rAF·타이머가 억제돼 프로파일링이 불가능했다 → 사람이 창을 띄우고 확인할 항목.
+
+**검증 의무(원문):** 구현 후 실제로 (1) 새 컬럼 자동 스크롤이 정확히 멈추는지, (2) 컬럼 6개 이상에서 가로 스크롤이 매끄러운지 확인한다. [Firefox에서 가로 스크롤 컬럼에 적용 시 터치 스와이프가 뻑뻑해진 사례](https://bugzilla.mozilla.org/show_bug.cgi?id=1922904)가 있다(scroll-snap 관련이며 우리는 미사용). 문제가 재현되면 이 최적화만 되돌린다 — A·B와 독립적이라 분리 제거가 가능하다.
 
 ### 채택하지 않은 것
 

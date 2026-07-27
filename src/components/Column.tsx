@@ -234,9 +234,16 @@ export function Column({ column, isNew, index, total, onEdit, onDelete, onPickTa
                // 강제되는 containment 덕에 한 컬럼의 변화가 다른 컬럼 레이아웃을 건드리지 않는다.
                // (Chrome 팀 가이드가 칸반 컬럼을 대표 사례로 든다)
                contentVisibility: 'auto',
-               // 폭·높이가 이미 확정(width는 px, 높이는 h-full)이라 크기 추측이 필요 없다.
-               // 그래서 "c-v:auto 하위로 scrollIntoView가 어긋나는" 알려진 버그에 걸리지 않는다.
+               // 폭은 px로 확정이라 크기 추측이 없다 → "c-v:auto 하위로 scrollIntoView가
+               // 어긋나는" 알려진 버그(csswg#9833)에 걸리지 않는다. 새 컬럼 자동 스크롤이
+               // 이 위에서 동작하므로 이 값과 style.width는 반드시 같은 변수에서 나와야 한다.
                containIntrinsicWidth: `auto ${width}px`,
+               // 높이축엔 contain-intrinsic-height가 없어도 된다 — 다만 이유가 "h-full이라서"가
+               // 아니다. c-v:auto가 화면 밖에서 강제하는 size containment는 '내용에서 나오는
+               // (intrinsic) 크기'만 무효화한다. 이 section의 높이는 상위 main의 flex-1 배분에서
+               // 내려오는 definite 값이라 무효화 대상이 아니다(실측: 8컬럼 모두 773px 유지).
+               // 그 조상 체인이 깨지면(예: 중간 래퍼가 height:auto로 바뀌면) 화면 밖에서 0px로
+               // 접혀 스크롤바가 튄다 — 그때는 contain-intrinsic-height를 추가해야 한다.
              }}
              className={`relative flex h-full shrink-0 flex-col border-r border-x-border ${highlight ? 'ring-2 ring-inset ring-x-blue' : ''}`}>
       <header className="border-b border-x-border bg-x-surface px-3 pt-2">

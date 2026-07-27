@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { listColumns, createColumn, updateColumn, deleteColumn, touchRefreshed, getColumn } from './columnStore.ts';
+import { listColumns, createColumn, updateColumn, deleteColumn, touchRefreshed, getColumn, reorderColumns, ColumnSetMismatch } from './columnStore.ts';
 import { createWorkspace, deleteWorkspace } from './workspaceStore.ts';
 
 const sql = getSql();
@@ -35,5 +35,31 @@ test('CRUD + 워크스페이스 스코프 + touchRefreshed', async () => {
   } finally {
     await deleteWorkspace(sql, ws1.id);
     await deleteWorkspace(sql, ws2.id);
+  }
+});
+
+test('position 자동 증가 + reorderColumns + 집합 불일치 거부', async () => {
+  const ws = await createWorkspace(sql, T + '-w3');
+  try {
+    const mk = (n: string) => createColumn(sql, { workspaceId: ws.id, kind: 'search', title: T + n, config: { keywords: [n] } });
+    const a = await mk('-a');
+    const b = await mk('-b');
+    const c = await mk('-c');
+    assert.deepEqual([a.position, b.position, c.position], [0, 1, 2]); // 새 컬럼은 항상 맨 뒤
+
+    const out = await reorderColumns(sql, ws.id, [c.id, a.id, b.id]);
+    assert.deepEqual(out.map((x) => x.id), [c.id, a.id, b.id]);
+    assert.deepEqual(out.map((x) => x.position), [0, 1, 2]);
+    assert.deepEqual((await listColumns(sql, ws.id)).map((x) => x.id), [c.id, a.id, b.id]);
+
+    const d = await mk('-d');
+    assert.equal(d.position, 3); // 재정렬 뒤에도 맨 뒤로 붙는다
+
+    // 일부만 보내면 거부 — 그 사이 다른 멤버가 컬럼을 추가/삭제했다는 뜻
+    await assert.rejects(() => reorderColumns(sql, ws.id, [c.id, a.id]), ColumnSetMismatch);
+    // 중복 id도 거부
+    await assert.rejects(() => reorderColumns(sql, ws.id, [c.id, c.id, a.id, b.id]), ColumnSetMismatch);
+  } finally {
+    await deleteWorkspace(sql, ws.id);
   }
 });

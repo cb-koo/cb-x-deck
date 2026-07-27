@@ -35,6 +35,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `계정 확인 실패: ${(e as Error).message}` }, { status: 502 });
     }
   }
-  const col = await createColumn(getSql(), { workspaceId, kind: body.kind, title: body.title, config, position: body.position });
+  const col = await createColumn(getSql(), { workspaceId, kind: body.kind, title: body.title, config });
   return NextResponse.json(col, { status: 201 });
 }

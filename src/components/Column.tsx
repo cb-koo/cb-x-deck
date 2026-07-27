@@ -11,6 +11,7 @@ import { TrendPanel } from './TrendPanel';
 import type { PillarPayload } from '@/lib/pillarStats';
 import { ChevronDownIcon, RefreshIcon, SearchIcon, SettingsIcon, TrashIcon, UserIcon } from './XIcons';
 import { Button } from './ui';
+import { ColumnGrip } from './ColumnGrip';
 
 function lastRefreshedLabel(iso: string | null): string {
   if (!iso) return '미조회';
@@ -33,12 +34,16 @@ function dirLabel(sort: SortKey, dir: SortDir): string {
   return `${SORT_LABEL[sort]} ${dirText(sort, dir)} — 다시 누르면 정렬 순서가 바뀝니다`;
 }
 
-export function Column({ column, isNew, onEdit, onDelete, onPickTag, tourAnchor }: {
+export function Column({ column, isNew, index, total, onEdit, onDelete, onPickTag, onGripPointerDown, onKeyboardMove, tourAnchor }: {
   column: ColumnRow;
   isNew?: boolean;   // 방금 만든 컬럼 — 1회 자동 조회 + 화면으로 스크롤 + 잠깐 강조
+  index: number;     // 0-based, 그립의 순서 안내용
+  total: number;
   onEdit: () => void;
   onDelete: () => void;
   onPickTag: (tag: string) => void;
+  onGripPointerDown: (e: React.PointerEvent) => void;
+  onKeyboardMove: (delta: -1 | 1) => void;
   tourAnchor?: boolean;
 }) {
   // 서버는 항상 전체 tweets를 반환한다. 보기(view)는 전체/버림 두 가지뿐이며 dismissed 여부로만 갈린다.
@@ -47,7 +52,7 @@ export function Column({ column, isNew, onEdit, onDelete, onPickTag, tourAnchor 
   const [tweets, setTweets] = useState<StoredTweet[]>([]);
   const [sort, setSort] = useState<SortKey>(column.config.sort ?? 'views');
   const [dir, setDir] = useState<SortDir>(column.config.dir ?? 'desc');
-  const [total, setTotal] = useState(0);
+  const [tweetTotal, setTweetTotal] = useState(0);
   const [showDismissed, setShowDismissed] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(column.lastRefreshedAt);
   const [busy, setBusy] = useState(false);
@@ -116,7 +121,7 @@ export function Column({ column, isNew, onEdit, onDelete, onPickTag, tourAnchor 
     if (r.ok) {
       const res = (await r.json()) as { tweets: StoredTweet[]; total: number };
       setTweets(res.tweets);
-      setTotal(res.total);
+      setTweetTotal(res.total);
       setHasMore(res.tweets.length === PAGE); // 꽉 찬 페이지면 뒤에 더 있을 가능성
     }
   }, [column.id, showDismissed, dir]);
@@ -129,7 +134,7 @@ export function Column({ column, isNew, onEdit, onDelete, onPickTag, tourAnchor 
       if (r.ok) {
         const res = (await r.json()) as { tweets: StoredTweet[]; total: number };
         setTweets((prev) => [...prev, ...res.tweets]);
-        setTotal(res.total);
+        setTweetTotal(res.total);
         setHasMore(res.tweets.length === PAGE);
       }
     } finally { setLoadingMore(false); }
@@ -222,17 +227,21 @@ export function Column({ column, isNew, onEdit, onDelete, onPickTag, tourAnchor 
   const keywords = column.kind === 'search' ? ((column.config as SearchConfig).keywords ?? []) : [];
 
   return (
-    <section ref={rootRef} style={{ width }}
+    <section ref={rootRef} data-column-id={column.id} style={{ width }}
              className={`relative flex h-full shrink-0 flex-col border-r border-x-border ${highlight ? 'ring-2 ring-inset ring-x-blue' : ''}`}>
       <header className="border-b border-x-border bg-x-surface px-3 pt-2">
         <div className="flex items-center gap-1.5">
+          {total > 1 && (
+            <ColumnGrip title={column.title} index={index} total={total}
+                        onPointerDown={onGripPointerDown} onMove={onKeyboardMove} />
+          )}
           {column.kind === 'watchlist'
             ? <UserIcon className="h-4 w-4 shrink-0 text-x-secondary" />
             : <SearchIcon className="h-4 w-4 shrink-0 text-x-secondary" />}
           <h2 className="truncate text-content font-bold">{column.title}</h2>
-          {total > 0 && (
+          {tweetTotal > 0 && (
             <span className="shrink-0 rounded-full bg-x-text/5 px-1.5 py-0.5 text-caption text-x-muted"
-                  title={showDismissed ? '버린 트윗 수' : '이 컬럼에 조회된 전체 트윗 수'}>{total.toLocaleString()}</span>
+                  title={showDismissed ? '버린 트윗 수' : '이 컬럼에 조회된 전체 트윗 수'}>{tweetTotal.toLocaleString()}</span>
           )}
           <span className="ml-auto shrink-0 text-caption text-x-muted">{busy ? '새로고침 중…' : lastRefreshedLabel(lastRefreshed)}</span>
           <Button variant="icon" onClick={refresh} disabled={busy} title="새로고침" aria-label="새로고침"

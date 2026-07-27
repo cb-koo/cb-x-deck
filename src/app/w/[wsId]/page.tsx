@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation';
 import type { ColumnKind, ColumnRow, SearchConfig, WatchlistConfig } from '@/lib/types';
 import { Column } from '@/components/Column';
 import { ColumnSettings } from '@/components/ColumnSettings';
+import { Toast } from '@/components/Toast';
+import { useDeckDrag } from '@/lib/useDeckDrag';
 import { useTour } from '@/lib/tour/useTour';
 import { deckSteps } from '@/lib/tour/tourSteps';
 import { hasSeenTour } from '@/lib/tour/tourState';
@@ -15,6 +17,8 @@ export default function DeckPage() {
   const [columns, setColumns] = useState<ColumnRow[]>([]);
   const [modal, setModal] = useState<{ mode: 'create' | 'edit'; column?: ColumnRow; presetKeyword?: string } | null>(null);
   const [newColumnId, setNewColumnId] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const deckRef = useRef<HTMLElement>(null);
   const { start, advance, activeTour } = useTour();
   const prevColCount = useRef(0);
   const [loadedOnce, setLoadedOnce] = useState(false);
@@ -48,6 +52,47 @@ export default function DeckPage() {
     prevColCount.current = columns.length;
   }, [columns.length, activeTour, advance]);
 
+  // Toast 자동 소멸
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const getColumnEl = useCallback(
+    (id: string) => deckRef.current?.querySelector<HTMLElement>(`[data-column-id="${id}"]`) ?? null,
+    [],
+  );
+
+  // 화면은 즉시 확정하고 저장은 뒤에서. 실패해도 드래그 직전 순서로 되돌리지 않는다 —
+  // 거부되는 이유는 대개 다른 멤버가 그 사이 바꾼 것이라 그 순서도 이미 낡았다. 서버 것을 다시 받는다.
+  const commitOrder = useCallback(async (ids: string[]) => {
+    const byId = new Map(columns.map((c) => [c.id, c]));
+    const next = ids.map((id) => byId.get(id)).filter((c): c is ColumnRow => !!c);
+    if (next.length !== ids.length) return;
+    setColumns(next);
+    try {
+      const r = await apiFetch('/api/columns/reorder', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId: wsId, ids }),
+      });
+      if (!r.ok) {
+        setToast(r.status === 409
+          ? '다른 팀원이 컬럼을 바꿔서 순서를 저장하지 못했어요. 최신 상태로 새로 불러왔습니다.'
+          : '순서를 저장하지 못했어요. 잠시 후 다시 옮겨주세요.');
+        await load();
+      }
+    } catch {
+      setToast('순서를 저장하지 못했어요. 잠시 후 다시 옮겨주세요.');
+      await load();
+    }
+  }, [columns, wsId, load]);
+
+  const { startDrag, moveByKeyboard } = useDeckDrag({
+    columns, containerRef: deckRef, getColumnEl, onCommit: commitOrder,
+  });
+
   async function submit(v: { kind: ColumnKind; title: string; config: SearchConfig | WatchlistConfig }) {
     const isEdit = modal?.mode === 'edit' && modal.column;
     const r = await apiFetch(isEdit ? `/api/columns/${modal.column!.id}` : '/api/columns', {
@@ -76,19 +121,23 @@ export default function DeckPage() {
         </button>
         <HelpButton onClick={() => start('deck', deckSteps())} />
       </div>
-      <main className="flex flex-1 overflow-x-auto">
+      <main ref={deckRef} className="flex flex-1 overflow-x-auto">
         {columns.length === 0 && (
           <p className="m-auto text-ui text-x-muted">컬럼이 없습니다 — “+ 컬럼”으로 키워드/인플루언서 컬럼을 만드세요</p>
         )}
         {columns.map((c, i) => (
           <Column key={c.id} column={c}
+                  index={i} total={columns.length}
                   tourAnchor={i === 0}
                   isNew={c.id === newColumnId}
                   onEdit={() => setModal({ mode: 'edit', column: c })}
                   onDelete={() => remove(c)}
-                  onPickTag={(tag) => setModal({ mode: 'create', presetKeyword: tag })} />
+                  onPickTag={(tag) => setModal({ mode: 'create', presetKeyword: tag })}
+                  onGripPointerDown={(e) => startDrag(i, e)}
+                  onKeyboardMove={(delta) => moveByKeyboard(i, delta)} />
         ))}
       </main>
+      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
       {modal && (
         <ColumnSettings initial={modal.mode === 'edit' ? modal.column : undefined}
                         presetKeyword={modal.presetKeyword}

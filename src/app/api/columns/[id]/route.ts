@@ -27,9 +27,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       const parsed = parseXHandle(rawHandle);
       if (!parsed.ok) return NextResponse.json({ error: handleParseMessage(parsed.reason) }, { status: 400 });
       if (parsed.handle.toLowerCase() === (oldHandle ?? '').toLowerCase()) {
-        // 같은 계정을 가리키는 표기 차이(@handle ↔ handle ↔ 링크)로 API를 다시 부르지 않는다.
+        // 같은 계정을 가리키는 대소문자 차이·링크 표기(URL)만으로는 API를 다시 부르지 않는다.
         // 재해석을 건너뛰는 경로이므로 사용자가 친 임의 표기가 저장되지 않게 정본으로 되돌린다.
         patch.config.handle = oldHandle;
+        // config는 통째로 교체되고 트윗 조회는 userId로 키를 잡는다(handle 아님) — 건너뛰는
+        // 경로에서도 클라이언트가 실어 보낸 userId를 믿지 말고 저장된 값을 권위로 되돌린다.
+        patch.config.userId = (existing.config as WatchlistConfig).userId;
       } else {
         try {
           const info = await makeClient().getUserInfo(parsed.handle);

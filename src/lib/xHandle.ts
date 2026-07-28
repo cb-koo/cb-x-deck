@@ -15,6 +15,9 @@ const RESERVED = new Set([
   'i', 'home', 'explore', 'search', 'notifications', 'messages', 'settings',
   'compose', 'intent', 'share', 'hashtag', 'login', 'logout', 'signup',
   'account', 'tos', 'privacy', 'about', 'download',
+  // statuses = 옛 트윗 영구링크(x.com/statuses/…)가 지금도 돌아다님, communities = 커뮤니티 링크.
+  // 둘 다 핸들 형식과 겹쳐 그대로 두면 getUserInfo를 낭비하고 혼란스러운 "계정 없음"만 돌려준다.
+  'statuses', 'communities',
 ]);
 
 export function parseXHandle(input: string): HandleParse {

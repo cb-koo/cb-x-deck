@@ -227,11 +227,11 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
           <div>
             <label className={label}>계정 (핸들 또는 프로필 링크)</label>
             <input className={input} value={handle} placeholder="@hadakan__ 또는 https://x.com/hadakan__"
-                   autoFocus onChange={(e) => setHandle(e.target.value)} />
+                   autoFocus onChange={(e) => { setHandle(e.target.value); setErr(''); }} />
             {/* 타이핑 중 오류는 띄우지 않는다 — 'https://x'까지 친 상태는 사용자 잘못이 아니다.
                 진짜 판정은 만들기/저장 시점(submit). */}
             {parsedHandle.ok && (
-              <p className="mt-1 text-ui text-x-secondary">✓ <b className="text-x-text">@{parsedHandle.handle}</b> 을 추적할게요</p>
+              <p className="mt-1 text-ui text-x-secondary" aria-live="polite">✓ <b className="text-x-text">@{parsedHandle.handle}</b> 계정을 추적할게요</p>
             )}
             <p className="mt-1 text-caption text-x-muted">이 계정이 새로 올리는 트윗을 자동으로 모아 보여줘요.</p>
             <p className="mt-0.5 text-caption text-x-muted">X 프로필 주소를 그대로 붙여넣어도 되고, @핸들만 적어도 돼요.</p>

@@ -45,6 +45,22 @@ test('X가 아닌 주소·핸들 형식이 아닌 문자열은 invalid', () => {
   assert.deepEqual(parseXHandle('hada-kan'), { ok: false, reason: 'invalid' });
 });
 
+// 허용 호스트 목록은 접두어를 뗀 뒤 Set으로 '정확히' 비교한다 — endsWith/includes로
+// 바뀌거나 접두어가 늘어나면 x.com처럼 보이는 다른 호스트가 몰래 통과할 수 있다.
+test('허용 호스트 판정: 진짜 호스트만 통과 — 비슷하게 생긴 호스트는 통과 못 한다', () => {
+  assert.deepEqual(parseXHandle('https://x.com.evil.com/hadakan__'), { ok: false, reason: 'invalid' }); // 접미어만 같음
+  assert.deepEqual(parseXHandle('https://x.com@evil.com/hadakan__'), { ok: false, reason: 'invalid' }); // 진짜 호스트는 evil.com
+  assert.deepEqual(parseXHandle('https://m.evil.com/hadakan__'), { ok: false, reason: 'invalid' }); // 허용 접두어 + 비허용 호스트
+  assert.deepEqual(parseXHandle('https://evil.com@x.com/hadakan__'), { ok: true, handle: 'hadakan__' }); // 진짜 호스트는 x.com — 문자열 스캔이 아님을 확인
+});
+
+// 계정이 아닌 경로가 핸들 형식(영숫자·밑줄)이라 그대로 통과해버리던 두 가지 —
+// 유료 getUserInfo 호출만 낭비하고 "계정을 찾을 수 없음"으로 혼동을 준다.
+test('트윗 영구링크(/statuses/…)와 커뮤니티 링크(/communities/…)는 notProfile', () => {
+  assert.deepEqual(parseXHandle('https://x.com/statuses/1790123456789'), { ok: false, reason: 'notProfile' });
+  assert.deepEqual(parseXHandle('https://x.com/communities/1234'), { ok: false, reason: 'notProfile' });
+});
+
 test('핸들 길이 경계: 1자·15자는 통과, 16자는 invalid', () => {
   assert.deepEqual(parseXHandle('a'), { ok: true, handle: 'a' });
   assert.deepEqual(parseXHandle('abcdefghijklmno'), { ok: true, handle: 'abcdefghijklmno' });

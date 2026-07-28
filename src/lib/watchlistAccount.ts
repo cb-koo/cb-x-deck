@@ -22,7 +22,8 @@ export type WatchlistResolve =
 export async function resolveWatchlistAccount(
   rawHandle: string,
   lookup: AccountLookup,
-  current?: { handle: string; userId: string } | null,
+  // 저장된 config를 그대로 넘길 수 있게 느슨한 타입 — 옛 컬럼은 필드가 비어 있을 수 있다.
+  current?: { handle?: string | null; userId?: string | null } | null,
 ): Promise<WatchlistResolve> {
   const parsed = parseXHandle(rawHandle);
   if (!parsed.ok) return { ok: false, status: 400, error: handleParseMessage(parsed.reason) };
@@ -31,8 +32,11 @@ export async function resolveWatchlistAccount(
   // 이때 handle과 userId 둘 다 저장된 값을 권위로 돌려준다 — config는 통째로 교체되고
   // 트윗 조회는 userId로 키를 잡으므로, 클라이언트가 실어 보낸 값을 믿으면 제목과
   // 실제 수집 계정이 어긋난다.
-  if (current && parsed.handle.toLowerCase() === (current.handle ?? '').toLowerCase()) {
-    return { ok: true, handle: current.handle, userId: current.userId };
+  // stored가 비었으면 매칭시키지 않는다 — 빈 값끼리 맞아떨어져 조회를 건너뛰면
+  // userId 없는 컬럼이 그대로 저장된다.
+  const stored = current?.handle ?? '';
+  if (stored && parsed.handle.toLowerCase() === stored.toLowerCase()) {
+    return { ok: true, handle: stored, userId: current?.userId ?? '' };
   }
 
   try {

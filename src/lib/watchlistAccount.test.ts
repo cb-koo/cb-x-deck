@@ -41,6 +41,13 @@ test('조회 결과에 id가 없으면 404', async () => {
   assert.deepEqual(r, { ok: false, status: 404, error: '계정을 찾을 수 없음: @nope' });
 });
 
+// 링크를 붙여넣었을 때 오류 문구에 URL 전체가 박히지 않아야 한다 — 사용자에게 한 약속이다.
+test('404 문구는 원문이 아니라 정규화한 핸들을 쓴다', async () => {
+  const { lookup } = stubLookup({ id: '', userName: 'nope' });
+  const r = await resolveWatchlistAccount('https://x.com/nope?s=21', lookup);
+  assert.deepEqual(r, { ok: false, status: 404, error: '계정을 찾을 수 없음: @nope' });
+});
+
 test('조회가 실패하면 502에 원인을 붙인다', async () => {
   const { lookup } = stubLookup(new Error('rate limited'));
   const r = await resolveWatchlistAccount('@hadakan__', lookup);
@@ -78,6 +85,19 @@ test('실제로 다른 계정이면 조회해서 새 값으로 바꾼다', async
   const r = await resolveWatchlistAccount('@other', lookup, { handle: 'hadakan__', userId: '44196397' });
   assert.deepEqual(r, { ok: true, handle: 'other', userId: '999' });
   assert.deepEqual(calls, ['other']);
+});
+
+// 저장된 handle이 비어 있을 때 빈 문자열끼리 맞아떨어져 "같은 계정"으로 판정되면
+// 조회 없이 빈 userId가 저장된다 — 그래서 비교 전에 ?? ''로 막는 게 아니라, 비어
+// 있으면 아예 매칭되지 않아야 한다.
+test('저장된 핸들이 비었거나 없으면 같은 계정으로 보지 않고 조회한다', async () => {
+  const a = stubLookup({ id: '1', userName: 'hadakan__' });
+  await resolveWatchlistAccount('@hadakan__', a.lookup, { userId: '44196397' });
+  assert.deepEqual(a.calls, ['hadakan__']);
+
+  const b = stubLookup({ id: '1', userName: 'hadakan__' });
+  await resolveWatchlistAccount('@hadakan__', b.lookup, { handle: '', userId: '44196397' });
+  assert.deepEqual(b.calls, ['hadakan__']);
 });
 
 test('저장된 계정이 없으면(신규 생성) 항상 조회한다', async () => {

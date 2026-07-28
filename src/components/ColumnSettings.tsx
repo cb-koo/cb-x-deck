@@ -143,9 +143,11 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
         {!initial && (
           <div className="mb-4 flex gap-2">
             {/* 탭을 바꾸면 오류도 지운다 — err는 두 탭이 공유하는 한 칸이라,
-                키워드 탭 오류가 남으면 인플루언서 탭의 성공 문구(!err)까지 가린다. */}
+                키워드 탭 오류가 남으면 인플루언서 탭의 성공 문구(!err)까지 가린다.
+                aria-pressed: 선택 상태를 색으로만 알리면 스크린리더는 어느 쪽인지 모른다 —
+                두 모드가 아예 다른 입력을 그리므로 상태 전달이 특히 중요하다. */}
             {(['search', 'watchlist'] as const).map((k) => (
-              <button key={k} onClick={() => { setKind(k); setErr(''); }}
+              <button key={k} onClick={() => { setKind(k); setErr(''); }} aria-pressed={kind === k}
                       className={kind === k
                         ? 'rounded-full bg-x-text px-4 py-1.5 text-ui font-medium text-white'
                         : `${chip} px-4 py-1.5 text-x-secondary`}>
@@ -173,6 +175,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {keywords.map((k) => (
                     <button key={k.ja} className={chip} title="클릭하면 제거"
+                            aria-label={`${chipLabel(k)} 제거`}
                             onClick={() => setKeywords(keywords.filter((x) => x.ja !== k.ja))}>{chipLabel(k)} ✕</button>
                   ))}
                 </div>
@@ -263,7 +266,10 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
           </div>
         </div>
 
-        {err && <p className="mt-3 text-ui text-x-pink">{err}</p>}
+        {/* role="alert": 오류 문구는 입력칸에서 멀리 떨어져 있어, 알리지 않으면
+            스크린리더 사용자에게 "만들기를 눌렀는데 아무 일도 안 일어난" 상태가 된다.
+            성공 문구엔 aria-live가 있는데 오류엔 없던 건 앞뒤가 안 맞았다. */}
+        {err && <p role="alert" className="mt-3 text-ui text-x-pink">{err}</p>}
         <div className="mt-6 flex justify-end gap-2">
           <button onClick={onClose} className={`${chip} px-4 py-1.5 text-x-secondary`}>취소</button>
           <button onClick={submit} className="rounded-full bg-x-text px-5 py-1.5 text-ui font-bold text-white hover:opacity-90">

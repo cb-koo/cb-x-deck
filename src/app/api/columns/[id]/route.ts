@@ -3,6 +3,7 @@ import { getSql } from '@/lib/db';
 import { deleteColumn, getColumn, updateColumn } from '@/lib/columnStore';
 import { makeClient } from '@/lib/getxapi';
 import type { WatchlistConfig } from '@/lib/types';
+import { handleParseMessage, parseXHandle } from '@/lib/xHandle';
 
 import { requireAllowedUser } from '@/lib/authGuard';
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -18,14 +19,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   // plan gap: PATCH must not blindly persist a new watchlist handle without
   // re-resolving userId (same rule POST enforces on create).
-  if (patch?.config) {
-    if (existing.kind === 'watchlist') {
-      const oldHandle = (existing.config as WatchlistConfig).handle;
-      const newHandle = String((patch.config as WatchlistConfig).handle ?? '').replace(/^@/, '');
-      if (newHandle && newHandle !== oldHandle) {
+  if (patch?.config && existing.kind === 'watchlist') {
+    const oldHandle = (existing.config as WatchlistConfig).handle;
+    const rawHandle = String((patch.config as WatchlistConfig).handle ?? '').trim();
+    // 폭·정렬만 바꾸는 PATCH는 handle을 안 보낸다 — 그 경로를 막지 않는다.
+    if (rawHandle) {
+      const parsed = parseXHandle(rawHandle);
+      if (!parsed.ok) return NextResponse.json({ error: handleParseMessage(parsed.reason) }, { status: 400 });
+      if (parsed.handle.toLowerCase() === (oldHandle ?? '').toLowerCase()) {
+        // 같은 계정을 가리키는 표기 차이(@handle ↔ handle ↔ 링크)로 API를 다시 부르지 않는다.
+        // 재해석을 건너뛰는 경로이므로 사용자가 친 임의 표기가 저장되지 않게 정본으로 되돌린다.
+        patch.config.handle = oldHandle;
+      } else {
         try {
-          const info = await makeClient().getUserInfo(newHandle);
-          if (!info.id) return NextResponse.json({ error: `계정을 찾을 수 없음: ${newHandle}` }, { status: 404 });
+          const info = await makeClient().getUserInfo(parsed.handle);
+          if (!info.id) return NextResponse.json({ error: `계정을 찾을 수 없음: @${parsed.handle}` }, { status: 404 });
           patch.config.handle = info.userName;
           patch.config.userId = info.id;
         } catch (e) {

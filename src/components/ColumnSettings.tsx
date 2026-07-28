@@ -143,9 +143,11 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
         {!initial && (
           <div className="mb-4 flex gap-2">
             {/* 탭을 바꾸면 오류도 지운다 — err는 두 탭이 공유하는 한 칸이라,
-                키워드 탭 오류가 남으면 인플루언서 탭의 성공 문구(!err)까지 가린다. */}
+                키워드 탭 오류가 남으면 인플루언서 탭의 성공 문구(!err)까지 가린다.
+                aria-pressed: 선택 상태를 색으로만 알리면 스크린리더는 어느 쪽인지 모른다 —
+                두 모드가 아예 다른 입력을 그리므로 상태 전달이 특히 중요하다. */}
             {(['search', 'watchlist'] as const).map((k) => (
-              <button key={k} onClick={() => { setKind(k); setErr(''); }}
+              <button key={k} onClick={() => { setKind(k); setErr(''); }} aria-pressed={kind === k}
                       className={kind === k
                         ? 'rounded-full bg-x-text px-4 py-1.5 text-ui font-medium text-white'
                         : `${chip} px-4 py-1.5 text-x-secondary`}>
@@ -158,9 +160,9 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
         {kind === 'search' ? (
           <>
             <div>
-              <label className={label}>키워드 (OR 조합 · 한국어는 자동 번역)</label>
+              <label htmlFor="col-keywords" className={label}>키워드 (OR 조합 · 한국어는 자동 번역)</label>
               <div className="flex gap-2">
-                <input className={input} value={kwInput} placeholder="키워드 입력 후 Enter (한국어 OK)"
+                <input id="col-keywords" className={input} value={kwInput} placeholder="키워드 입력 후 Enter (한국어 OK)"
                        disabled={translating} autoFocus
                        onChange={(e) => setKwInput(e.target.value)}
                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addKwInput(); }} />
@@ -173,6 +175,7 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {keywords.map((k) => (
                     <button key={k.ja} className={chip} title="클릭하면 제거"
+                            aria-label={`${chipLabel(k)} 제거`}
                             onClick={() => setKeywords(keywords.filter((x) => x.ja !== k.ja))}>{chipLabel(k)} ✕</button>
                   ))}
                 </div>
@@ -191,9 +194,9 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
               <p className={sectionTitle}>필터</p>
 
               {/* 최소 좋아요 = 벤치마크 주축 → 추천 버튼을 바로 옆에 붙여 연관성 명확히 */}
-              <label className={label}>최소 좋아요</label>
+              <label htmlFor="col-min-faves" className={label}>최소 좋아요</label>
               <div className="flex items-center gap-2">
-                <input type="number" className={input} value={minFaves ?? ''} onChange={(e) => setMinFaves(e.target.value ? +e.target.value : 0)} />
+                <input id="col-min-faves" type="number" className={input} value={minFaves ?? ''} onChange={(e) => setMinFaves(e.target.value ? +e.target.value : 0)} />
                 <button type="button" onClick={checkDensity} disabled={probing} className={`${chip} shrink-0 disabled:opacity-50`}>{probing ? '조회 중…' : '적정 기준 추천받기'}</button>
               </div>
               <p className="mt-1 text-caption text-x-muted">반응 좋은 트윗만 보려면 기준을 정하세요. 키워드마다 적정값이 달라, 최근 7일을 조회해 추천해 드려요.</p>
@@ -207,18 +210,18 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
               )}
 
               <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
-                <div><label className={label}>최소 RT</label>
-                  <input type="number" className={input} value={minRetweets ?? ''} onChange={(e) => setMinRetweets(e.target.value ? +e.target.value : null)} /></div>
-                <div><label className={label}>최소 답글</label>
-                  <input type="number" className={input} value={minReplies ?? ''} onChange={(e) => setMinReplies(e.target.value ? +e.target.value : null)} /></div>
-                <div><label className={label}>최소 조회수</label>
-                  <input type="number" className={input} value={minViews ?? ''} onChange={(e) => setMinViews(e.target.value ? +e.target.value : null)} />
+                <div><label htmlFor="col-min-retweets" className={label}>최소 RT</label>
+                  <input id="col-min-retweets" type="number" className={input} value={minRetweets ?? ''} onChange={(e) => setMinRetweets(e.target.value ? +e.target.value : null)} /></div>
+                <div><label htmlFor="col-min-replies" className={label}>최소 답글</label>
+                  <input id="col-min-replies" type="number" className={input} value={minReplies ?? ''} onChange={(e) => setMinReplies(e.target.value ? +e.target.value : null)} /></div>
+                <div><label htmlFor="col-min-views" className={label}>최소 조회수</label>
+                  <input id="col-min-views" type="number" className={input} value={minViews ?? ''} onChange={(e) => setMinViews(e.target.value ? +e.target.value : null)} />
                   <p className="mt-1 text-caption text-x-muted">이미 가져온 트윗에서 다시 걸러요 (수집량엔 영향 없음)</p></div>
                 <div />
-                <div><label className={label}>since (이 날짜부터)</label>
-                  <input type="date" className={input} value={sinceDate ?? ''} onChange={(e) => setSinceDate(e.target.value)} /></div>
-                <div><label className={label}>until (이 날짜까지)</label>
-                  <input type="date" className={input} value={untilDate ?? ''} onChange={(e) => setUntilDate(e.target.value)} /></div>
+                <div><label htmlFor="col-since" className={label}>since (이 날짜부터)</label>
+                  <input id="col-since" type="date" className={input} value={sinceDate ?? ''} onChange={(e) => setSinceDate(e.target.value)} /></div>
+                <div><label htmlFor="col-until" className={label}>until (이 날짜까지)</label>
+                  <input id="col-until" type="date" className={input} value={untilDate ?? ''} onChange={(e) => setUntilDate(e.target.value)} /></div>
               </div>
               <label className="mt-3 flex items-center gap-2 text-ui text-x-secondary">
                 <input type="checkbox" checked={imagesOnly} onChange={(e) => setImagesOnly(e.target.checked)} /> 이미지 있는 트윗만
@@ -227,8 +230,8 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
           </>
         ) : (
           <div>
-            <label className={label}>계정 (핸들 또는 프로필 링크)</label>
-            <input className={input} value={handle} placeholder="@hadakan__ 또는 https://x.com/hadakan__"
+            <label htmlFor="col-handle" className={label}>계정 (핸들 또는 프로필 링크)</label>
+            <input id="col-handle" className={input} value={handle} placeholder="@hadakan__ 또는 https://x.com/hadakan__"
                    autoFocus onChange={(e) => { setHandle(e.target.value); setErr(''); }} />
             {/* 타이핑 중 오류는 띄우지 않는다 — 'https://x'까지 친 상태는 사용자 잘못이 아니다.
                 진짜 판정은 만들기/저장 시점(submit). */}
@@ -246,8 +249,8 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
           <p className={sectionTitle}>고급</p>
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
             {kind === 'search' && (
-              <div><label className={label}>언어</label>
-                <select className={input} value={lang ?? ''} onChange={(e) => setLang(e.target.value)}>
+              <div><label htmlFor="col-lang" className={label}>언어</label>
+                <select id="col-lang" className={input} value={lang ?? ''} onChange={(e) => setLang(e.target.value)}>
                   <option value="ja">일본어</option>
                   <option value="ko">한국어</option>
                   <option value="en">영어</option>
@@ -255,15 +258,18 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                   {lang && !['ja', 'ko', 'en'].includes(lang) && <option value={lang}>{lang}</option>}
                 </select></div>
             )}
-            <div><label className={label}>페이지 상한</label>
-              <input type="number" className={input} value={maxPages ?? 3} onChange={(e) => setMaxPages(+e.target.value || 3)} />
+            <div><label htmlFor="col-max-pages" className={label}>페이지 상한</label>
+              <input id="col-max-pages" type="number" className={input} value={maxPages ?? 3} onChange={(e) => setMaxPages(+e.target.value || 3)} />
               <p className="mt-1 text-caption text-x-muted">한 번에 가져올 페이지 수예요. 많을수록 트윗을 더 모으지만 시간·비용이 늘어요.</p></div>
-            <div className="col-span-2"><label className={label}>컬럼 이름 (비우면 자동)</label>
-              <input className={input} value={title} onChange={(e) => setTitle(e.target.value)} /></div>
+            <div className="col-span-2"><label htmlFor="col-title" className={label}>컬럼 이름 (비우면 자동)</label>
+              <input id="col-title" className={input} value={title} onChange={(e) => setTitle(e.target.value)} /></div>
           </div>
         </div>
 
-        {err && <p className="mt-3 text-ui text-x-pink">{err}</p>}
+        {/* role="alert": 오류 문구는 입력칸에서 멀리 떨어져 있어, 알리지 않으면
+            스크린리더 사용자에게 "만들기를 눌렀는데 아무 일도 안 일어난" 상태가 된다.
+            성공 문구엔 aria-live가 있는데 오류엔 없던 건 앞뒤가 안 맞았다. */}
+        {err && <p role="alert" className="mt-3 text-ui text-x-pink">{err}</p>}
         <div className="mt-6 flex justify-end gap-2">
           <button onClick={onClose} className={`${chip} px-4 py-1.5 text-x-secondary`}>취소</button>
           <button onClick={submit} className="rounded-full bg-x-text px-5 py-1.5 text-ui font-bold text-white hover:opacity-90">

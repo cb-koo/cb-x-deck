@@ -115,6 +115,16 @@ parseXHandle(config.handle)
 
 `kind !== 'watchlist'`인 컬럼의 PATCH 경로는 건드리지 않는다.
 
+### 후속 반영 — `resolveWatchlistAccount`로 추출 (2026-07-28)
+
+위 규칙은 두 라우트에 같은 모양으로 복제돼 있었다(조회 + 404/502 처리 + 대입). **`src/lib/watchlistAccount.ts`의 `resolveWatchlistAccount(rawHandle, lookup, current?)` 한 곳으로 합쳤다.** 라우트는 이제 결과를 응답으로 옮기는 3줄만 갖는다.
+
+중복 제거보다 중요한 이유가 있다. 이 저장소엔 **API 라우트 테스트 하네스가 없어서**, 이 로직이 라우트 안에 있는 동안은 "형식 오류는 유료 조회 전에 끊는다"·"같은 계정이면 조회하지 않고 저장된 `userId`를 쓴다" 같은 규칙을 코드 리뷰로만 확인할 수 있었다. 조회를 `lookup` 인자로 받으면 스텁의 **호출 횟수까지 단정**할 수 있어, 이 규칙들이 `src/lib/watchlistAccount.test.ts`에서 실제로 검증된다(10케이스).
+
+- `current`를 주면(수정 경로) 같은 계정일 때 조회를 건너뛰고 저장된 `handle`·`userId`를 돌려준다.
+- `current`가 없으면(생성 경로) 항상 조회한다.
+- 실패는 `{ ok: false, status, error }`로 돌려주고 라우트가 그대로 응답에 옮긴다 — 헬퍼가 `NextResponse`를 만들지 않으므로 순수하게 테스트된다.
+
 ---
 
 ## C. UI — 칸은 하나, 라벨·피드백만 바꾼다

@@ -142,8 +142,10 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
 
         {!initial && (
           <div className="mb-4 flex gap-2">
+            {/* 탭을 바꾸면 오류도 지운다 — err는 두 탭이 공유하는 한 칸이라,
+                키워드 탭 오류가 남으면 인플루언서 탭의 성공 문구(!err)까지 가린다. */}
             {(['search', 'watchlist'] as const).map((k) => (
-              <button key={k} onClick={() => setKind(k)}
+              <button key={k} onClick={() => { setKind(k); setErr(''); }}
                       className={kind === k
                         ? 'rounded-full bg-x-text px-4 py-1.5 text-ui font-medium text-white'
                         : `${chip} px-4 py-1.5 text-x-secondary`}>

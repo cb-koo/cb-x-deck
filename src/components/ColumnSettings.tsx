@@ -230,7 +230,9 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                    autoFocus onChange={(e) => { setHandle(e.target.value); setErr(''); }} />
             {/* 타이핑 중 오류는 띄우지 않는다 — 'https://x'까지 친 상태는 사용자 잘못이 아니다.
                 진짜 판정은 만들기/저장 시점(submit). */}
-            {parsedHandle.ok && (
+            {/* !err로 막는 이유: 서버가 "계정을 찾을 수 없음"을 돌려준 뒤에도 입력은 그대로라,
+                가리지 않으면 같은 핸들에 대해 초록 ✓와 빨간 오류가 동시에 남는다(원칙 4). */}
+            {parsedHandle.ok && !err && (
               <p className="mt-1 text-ui text-x-secondary" aria-live="polite">✓ <b className="text-x-text">@{parsedHandle.handle}</b> 계정을 추적할게요</p>
             )}
             <p className="mt-1 text-caption text-x-muted">이 계정이 새로 올리는 트윗을 자동으로 모아 보여줘요.</p>

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { createColumn, listColumns } from '@/lib/columnStore';
 import { makeClient } from '@/lib/getxapi';
-import { handleParseMessage, parseXHandle } from '@/lib/xHandle';
+import { resolveWatchlistAccount } from '@/lib/watchlistAccount';
 
 import { requireAllowedUser } from '@/lib/authGuard';
 export async function GET(req: Request) {
@@ -27,17 +27,11 @@ export async function POST(req: Request) {
   if (typeof workspaceId !== 'string' || !workspaceId) return NextResponse.json({ error: 'workspaceId 필수' }, { status: 400 });
   const config = { ...body.config };
   if (body.kind === 'watchlist') {
-    // 형식 검증을 먼저 — getUserInfo는 비용 유발 호출이다.
-    const parsed = parseXHandle(String(config.handle ?? ''));
-    if (!parsed.ok) return NextResponse.json({ error: handleParseMessage(parsed.reason) }, { status: 400 });
-    try {
-      const info = await makeClient().getUserInfo(parsed.handle);
-      if (!info.id) return NextResponse.json({ error: `계정을 찾을 수 없음: @${parsed.handle}` }, { status: 404 });
-      config.handle = info.userName;
-      config.userId = info.id;
-    } catch (e) {
-      return NextResponse.json({ error: `계정 확인 실패: ${(e as Error).message}` }, { status: 502 });
-    }
+    // 신규 생성이라 기존 계정이 없다 → 항상 조회한다(형식이 틀리면 조회 전에 끊긴다).
+    const acc = await resolveWatchlistAccount(String(config.handle ?? ''), (h) => makeClient().getUserInfo(h));
+    if (!acc.ok) return NextResponse.json({ error: acc.error }, { status: acc.status });
+    config.handle = acc.handle;
+    config.userId = acc.userId;
   }
   const col = await createColumn(getSql(), { workspaceId, kind: body.kind, title: body.title, config });
   return NextResponse.json(col, { status: 201 });

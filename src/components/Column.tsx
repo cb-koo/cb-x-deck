@@ -249,7 +249,7 @@ export function Column({ column, isNew, index, total, onEdit, onDelete, onPickTa
       <header className="border-b border-x-border bg-x-surface px-3 pt-2">
         <div className="flex items-center gap-1.5">
           {total > 1 && (
-            <ColumnGrip title={column.title} index={index} total={total}
+            <ColumnGrip title={column.title} index={index} total={total} tourAnchor={tourAnchor}
                         onPointerDown={onGripPointerDown} onMove={onKeyboardMove} />
           )}
           {column.kind === 'watchlist'
@@ -303,7 +303,8 @@ export function Column({ column, isNew, index, total, onEdit, onDelete, onPickTa
           </details>
         </div>
         {/* 2행 — 분석 액션: 결과를 새로 만드는 컨트롤. 유료 액션은 비용을 버튼에 상시 표시(AGENTS.md 원칙6·비개발자 안심) */}
-        <div className="flex flex-wrap items-center gap-0.5 border-t border-x-border pb-1 pt-1">
+        <div data-tour={tourAnchor ? 'col-analyze' : undefined}
+             className="flex flex-wrap items-center gap-0.5 border-t border-x-border pb-1 pt-1">
           <span className="mr-0.5 shrink-0 text-caption text-x-muted">분석</span>
           <Button variant="ghost" onClick={() => setShowTrend((v) => !v)}
                   className={showTrend ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
@@ -311,6 +312,7 @@ export function Column({ column, isNew, index, total, onEdit, onDelete, onPickTa
             주간 추이{showTrend ? ' ✓' : ''}
           </Button>
           <Button variant="ghost" onClick={() => translateAll(tweets.map((t) => t.tweetId))} disabled={translatingAll}
+                  data-tour={tourAnchor ? 'col-translate' : undefined}
                   className={showTranslations ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
                   title="이 컬럼에 불러온 트윗을 한국어로 — 몇 초 걸릴 수 있어요 (한 번 번역하면 저장돼요)">
             {translatingAll ? '번역 중…' : showTranslations ? '번역 숨기기' : '전체 번역'}

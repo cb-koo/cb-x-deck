@@ -3,6 +3,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useEffect, useState } from 'react';
 import type { ColumnKind, ColumnRow, SearchConfig, WatchlistConfig } from '@/lib/types';
 import type { KwPair } from '@/lib/suggest';
+import { handleParseMessage, parseXHandle } from '@/lib/xHandle';
 
 export interface ColumnSettingsProps {
   initial?: ColumnRow;                        // 없으면 신규 생성
@@ -39,6 +40,9 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
   const [err, setErr] = useState('');
   const [probe, setProbe] = useState<{ suggested: number; sampleSize: number; likeRange: [number, number]; density: string } | null>(null);
   const [probing, setProbing] = useState(false);
+
+  // 렌더마다 파생 — 입력칸 아래 피드백과 submit이 같은 판정을 쓴다.
+  const parsedHandle = parseXHandle(handle);
 
   // Esc로 모달 닫기 — 키보드 사용자 편의(닫기 버튼은 이미 있으나 관습상 Esc 기대). IME 조합 중 Esc는 무시.
   useEffect(() => {
@@ -113,9 +117,9 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
                     imagesOnly, maxPages: maxPages || 3, sort: init.sort ?? 'views', dir: init.dir ?? 'desc', width: init.width ?? null },
         });
       } else {
-        if (!handle.trim()) { setErr('계정 핸들을 입력하세요'); return; }
-        await onSubmit({ kind, title: title || `@${handle.replace(/^@/, '')}`,
-          config: { handle: handle.replace(/^@/, ''), userId: init.userId ?? '', maxPages: maxPages || 3, sort: init.sort ?? 'views', dir: init.dir ?? 'desc', width: init.width ?? null } });
+        if (!parsedHandle.ok) { setErr(handleParseMessage(parsedHandle.reason)); return; }
+        await onSubmit({ kind, title: title || `@${parsedHandle.handle}`,
+          config: { handle: parsedHandle.handle, userId: init.userId ?? '', maxPages: maxPages || 3, sort: init.sort ?? 'views', dir: init.dir ?? 'desc', width: init.width ?? null } });
       }
       onClose();
     } catch (e) { setErr((e as Error).message); }
@@ -221,9 +225,16 @@ export function ColumnSettings({ initial, presetKeyword, onSubmit, onClose }: Co
           </>
         ) : (
           <div>
-            <label className={label}>계정 핸들</label>
-            <input className={input} value={handle} placeholder="@hadakan__" autoFocus onChange={(e) => setHandle(e.target.value)} />
+            <label className={label}>계정 (핸들 또는 프로필 링크)</label>
+            <input className={input} value={handle} placeholder="@hadakan__ 또는 https://x.com/hadakan__"
+                   autoFocus onChange={(e) => setHandle(e.target.value)} />
+            {/* 타이핑 중 오류는 띄우지 않는다 — 'https://x'까지 친 상태는 사용자 잘못이 아니다.
+                진짜 판정은 만들기/저장 시점(submit). */}
+            {parsedHandle.ok && (
+              <p className="mt-1 text-ui text-x-secondary">✓ <b className="text-x-text">@{parsedHandle.handle}</b> 을 추적할게요</p>
+            )}
             <p className="mt-1 text-caption text-x-muted">이 계정이 새로 올리는 트윗을 자동으로 모아 보여줘요.</p>
+            <p className="mt-0.5 text-caption text-x-muted">X 프로필 주소를 그대로 붙여넣어도 되고, @핸들만 적어도 돼요.</p>
           </div>
         )}
 

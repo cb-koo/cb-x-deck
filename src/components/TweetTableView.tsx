@@ -11,7 +11,13 @@ import { TweetTable } from './TweetTable';
 
 const MORE_KEY = 'table-show-more';   // 칸 더보기 상태 (개인 보기 취향이라 localStorage)
 
-export function TweetTableView({ wsId, columns }: { wsId: string; columns: ColumnRow[] }) {
+export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onRetryColumns }: {
+  wsId: string;
+  columns: ColumnRow[];
+  columnsLoaded: boolean;   // 열 목록(/api/columns) 최초 조회가 끝났는지 — 끝나기 전엔 '아직 열이 없어요'를 보여주면 안 된다
+  columnsError: boolean;    // 열 목록 조회가 실패했는지 — 실패를 빈 상태로 위장하지 않는다(설계 §G-2)
+  onRetryColumns: () => void;
+}) {
   const { show } = useToast();
   const [rows, setRows] = useState<TableRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -44,15 +50,17 @@ export function TweetTableView({ wsId, columns }: { wsId: string; columns: Colum
     setBusy(true); setErr(false);
     try {
       const r = await apiFetch(`/api/tweet-table?${qs({ offset: append ? String(rows.length) : '0', limit: String(TABLE_PAGE) })}`);
-      if (reqIdRef.current !== id) return;   // 그 사이 더 최신 요청이 시작됨 — 이 응답은 버린다
-      if (!r.ok) { setErr(true); return; }
+      if (reqIdRef.current !== id) return;   // 그 사이 더 최신 요청이 시작됨 — 이 응답은 버린다(busy/loaded도 건드리지 않는다)
+      if (!r.ok) { setErr(true); setBusy(false); setLoaded(true); return; }
       const d = await r.json() as { rows: TableRow[]; total: number };
       if (reqIdRef.current !== id) return;   // json 파싱 중에도 최신 요청이 바뀔 수 있다
       setRows((cur) => (append ? [...cur, ...d.rows] : d.rows));
       setTotal(d.total);
+      setBusy(false); setLoaded(true);
     } catch {
-      if (reqIdRef.current === id) setErr(true);
-    } finally { setBusy(false); setLoaded(true); }
+      // 폐기된 응답의 실패까지 busy를 풀면 아직 진행 중인 최신 요청의 버튼이 중간에 다시 눌리게 된다
+      if (reqIdRef.current === id) { setErr(true); setBusy(false); setLoaded(true); }
+    }
   }, [qs, rows.length]);
 
   // 정렬·필터가 바뀌면 처음부터 다시 — append=false
@@ -86,8 +94,12 @@ export function TweetTableView({ wsId, columns }: { wsId: string; columns: Colum
       const a = document.createElement('a');
       a.href = url;
       a.download = `x-deck-table-${new Date().toISOString().slice(0, 10)}.csv`;
+      // Firefox·Safari는 문서에 붙지 않은 <a>의 클릭을 무시할 수 있다 — 붙였다 떼고,
+      // revoke는 클릭 직후가 아니라 다음 틱에 한다(동기 revoke는 다운로드가 시작되기 전에 URL을 죽일 수 있다).
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
       show(d.total > d.rows.length
         ? `상위 ${d.rows.length.toLocaleString('en-US')}줄만 저장했어요 — 열 칩으로 범위를 좁혀보세요`
         : `CSV ${d.rows.length.toLocaleString('en-US')}줄을 저장했어요`);
@@ -101,7 +113,7 @@ export function TweetTableView({ wsId, columns }: { wsId: string; columns: Colum
   const off = 'border-x-border-strong text-x-secondary';
   const cols = visibleColumns(showMore);
   // 표가 실제로 그려지는 상태인지 — 아래쪽의 스크롤 영역과 '더보기' 버튼이 이 값을 공유한다
-  const showTable = loaded && !err && columns.length > 0 && rows.length > 0;
+  const showTable = loaded && !err && columnsLoaded && !columnsError && columns.length > 0 && rows.length > 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -124,7 +136,9 @@ export function TweetTableView({ wsId, columns }: { wsId: string; columns: Colum
         </Button>
         <Button variant="subtle" onClick={saveCsv} disabled={busy || total === 0}
                 title="조건에 맞는 전체를 CSV 파일로 저장해요">
-          CSV 저장 (전체 {total.toLocaleString('en-US')}건)
+          {total > TABLE_MAX
+            ? `CSV 저장 (상위 ${TABLE_MAX.toLocaleString('en-US')}건 / 전체 ${total.toLocaleString('en-US')}건)`
+            : `CSV 저장 (전체 ${total.toLocaleString('en-US')}건)`}
         </Button>
       </div>
 
@@ -136,11 +150,19 @@ export function TweetTableView({ wsId, columns }: { wsId: string; columns: Colum
       {/* 가로·세로 스크롤을 담당하는 컨테이너는 이 하나뿐이다 — sticky thead는 이 div를 기준으로 고정된다.
           '더보기'는 표 스크롤과 무관하게 항상 보이도록 이 컨테이너 밖(아래)에 둔다. */}
       <div className="min-h-0 flex-1 overflow-auto">
-        {!loaded ? (
+        {/* columnsLoaded가 끝나기 전엔 columns가 항상 []이라 '아직 열이 없어요'로 오판된다 —
+            불러오는 중 상태와 합쳐서 로딩이 끝난 뒤에만 진짜 0건 갈래로 넘어가게 한다(설계 §G-2). */}
+        {!loaded || !columnsLoaded ? (
           <p className="p-4 text-ui text-x-muted">불러오는 중…</p>
         ) : err ? (
           <p className="p-4 text-ui text-red-500">
             표를 불러오지 못했어요. <button onClick={() => void load(false)} className="underline">재시도</button>
+          </p>
+        ) : columnsError ? (
+          // 열 목록 조회가 실패한 경우 — 에러를 '아직 열이 없어요'(빈 상태)로 위장하지 않는다.
+          // 표 자체(트윗 행) 로딩과는 다른 요청이라 재시도도 별도로(열 목록만 다시 부른다) 건다.
+          <p className="p-4 text-ui text-red-500">
+            표를 불러오지 못했어요. <button onClick={onRetryColumns} className="underline">재시도</button>
           </p>
         ) : columns.length === 0 ? (
           <p className="p-4 text-ui text-x-muted">아직 열이 없어요 — 카드 보기에서 열을 만들어보세요</p>

@@ -50,10 +50,33 @@ test('행이 없어도 머리글은 나온다 (빈 표를 붙여도 칸 이름�
   assert.ok(out.startsWith('열\t계정'));
 });
 
+test('CSV는 =로 시작하는 본문을 홑따옴표로 고정한다 (엑셀 수식 주입 방지)', () => {
+  const out = toCsv([row({ text: '=SUM(A1:A2)' })], visibleColumns(false));
+  const body = out.split('\r\n')[1];
+  assert.ok(body.includes(`'=SUM(A1:A2)`), body);
+});
+
+test('CSV는 @로 시작하는 계정 칸도 홑따옴표로 고정한다', () => {
+  const out = toCsv([row({ authorHandle: 'danger' })], visibleColumns(false));
+  const body = out.split('\r\n')[1];
+  assert.ok(body.includes(`'@danger`), body);
+});
+
+test('TSV는 수식 가드를 적용하지 않는다 (노션은 수식을 평가하지 않으므로 원문을 그대로 붙인다)', () => {
+  const cols = visibleColumns(false);
+  const r = row({ text: '=SUM(A1:A2)', authorHandle: 'danger' });
+  const tsvOut = toTsv([r], cols).split('\n')[1];
+  const csvOut = toCsv([r], cols).split('\r\n')[1];
+  assert.ok(tsvOut.includes('=SUM(A1:A2)') && !tsvOut.includes(`'=SUM`), tsvOut);
+  assert.ok(tsvOut.includes('@danger') && !tsvOut.includes(`'@danger`), tsvOut);
+  assert.ok(csvOut.includes(`'=SUM(A1:A2)`), csvOut);
+});
+
 test('내보내기 칸을 쓰면 기준 칸이 마지막에 붙는다', () => {
   const out = toTsv([row()], exportColumns(false));
   const head = out.split('\n')[0].split('\t');
   assert.equal(head[head.length - 1], '기준');
   const body = out.split('\n')[1].split('\t');
-  assert.equal(body[body.length - 1], '2026-07-30');
+  // 기준은 날짜만이 아니라 시:분까지 나온다(설계 §E) — row()의 lastFetchedAt은 '2026-07-30T00:00:00Z'
+  assert.equal(body[body.length - 1], '2026-07-30 00:00');
 });

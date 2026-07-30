@@ -52,6 +52,14 @@ function ymd(iso: string | null): string {
   return iso.slice(0, 10);   // ISO는 앞 10자가 YYYY-MM-DD — 표는 정렬 축이라 상대 표기를 쓰지 않는다
 }
 
+// '기준'(last_fetched_at) 전용. 날짜만 찍으면 같은 날 09:00에 새로고침한 열과 22:00에 새로고침한
+// 열이 같은 값으로 보여 "비교 가능"으로 오인된다(설계 §E) — 시:분까지 찍어 그 착시를 막는다.
+// 날짜(tweetCreatedAt)는 요일 단위로 묶어보는 축이라 그대로 YYYY-MM-DD를 쓴다.
+function ymdHm(iso: string | null): string {
+  if (!iso) return '';
+  return iso.slice(0, 16).replace('T', ' ');   // YYYY-MM-DD HH:MM
+}
+
 function metricOf(row: TableRow, key: string): number | null | undefined {
   return (row.metrics as unknown as Record<string, number | null>)[key];
 }
@@ -66,7 +74,7 @@ export function cellDisplay(row: TableRow, col: TableColumn): string {
     case 'link': return tweetPermalink(row.authorHandle, row.tweetId);
     case 'followers': return formatCount(row.authorFollowers);
     case 'saved': return row.savedBy.map((m) => m.name).join(', ');
-    case 'fetchedAt': return ymd(row.lastFetchedAt);
+    case 'fetchedAt': return ymdHm(row.lastFetchedAt);
     default: return formatCount(metricOf(row, col.key) ?? null);
   }
 }
@@ -81,7 +89,7 @@ export function cellExport(row: TableRow, col: TableColumn): string {
     case 'link': return tweetPermalink(row.authorHandle, row.tweetId);
     case 'followers': return row.authorFollowers === null ? '' : String(row.authorFollowers);
     case 'saved': return row.savedBy.map((m) => m.name).join(', ');
-    case 'fetchedAt': return ymd(row.lastFetchedAt);
+    case 'fetchedAt': return ymdHm(row.lastFetchedAt);
     default: {
       const v = metricOf(row, col.key);
       return v === null || v === undefined ? '' : String(v);

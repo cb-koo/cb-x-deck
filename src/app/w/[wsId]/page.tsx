@@ -21,6 +21,9 @@ export default function DeckPage() {
   const view = searchParams.get('view') === 'table' ? 'table' : 'cards';
   // 주소에 보기 모드를 남긴다 — 새로고침·북마크·링크 공유로 유지된다
   function setView(next: 'cards' | 'table') {
+    // 표→카드로 돌아오면 Column이 다시 마운트된다. newColumnId를 남겨두면 "방금 만든 컬럼"으로
+    // 다시 인식돼 유료 새로고침(POST /refresh)이 또 발생한다 — 보기 전환마다 비용이 나가면 안 된다.
+    setNewColumnId(null);
     const p = new URLSearchParams(searchParams.toString());
     if (next === 'table') p.set('view', 'table'); else p.delete('view');
     const q = p.toString();
@@ -34,24 +37,53 @@ export default function DeckPage() {
   const { start, advance, activeTour } = useTour();
   const prevColCount = useRef(0);
   const [loadedOnce, setLoadedOnce] = useState(false);
+  const [columnsError, setColumnsError] = useState(false);
   const didAutoStart = useRef(false);
+  const [pendingHelpTour, setPendingHelpTour] = useState(false);
 
   const load = useCallback(async () => {
-    const r = await apiFetch(`/api/columns?workspaceId=${wsId}`);
-    if (r.ok) setColumns(await r.json());
-    setLoadedOnce(true);
+    try {
+      const r = await apiFetch(`/api/columns?workspaceId=${wsId}`);
+      if (r.ok) { setColumns(await r.json()); setColumnsError(false); }
+      else setColumnsError(true);
+    } catch {
+      setColumnsError(true);
+    } finally {
+      setLoadedOnce(true);
+    }
   }, [wsId]);
   useEffect(() => { load(); }, [load]);
 
   // 덱 첫 방문 시 1회 자동 투어. 최초 로드가 끝난 뒤 실행해야 실제 컬럼 수로 갈래(생성 유도 vs 사용법)를 고른다.
   // (로드 전엔 columns가 항상 []이라 '컬럼 없음' 갈래로 오판됨 — 기존 컬럼이 있는 사용자 배포 시 문제)
+  // 표 보기에서는 시작하지 않는다 — 표에는 add-column 앵커 하나뿐이라 2단계짜리 반쪽 투어가 되고,
+  // skipMissingElement + onDestroyed가 그걸 "봤다"고 기록해버려 진짜 투어를 영영 못 본다.
+  // view를 의존성에 넣어 카드로 돌아왔을 때(아직 못 봤다면) 그때 시작한다.
   useEffect(() => {
-    if (!loadedOnce || didAutoStart.current || hasSeenTour('deck')) return;
+    if (!loadedOnce || didAutoStart.current || hasSeenTour('deck') || view === 'table') return;
     didAutoStart.current = true;
     const t = setTimeout(() => start('deck', deckSteps()), 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadedOnce]);
+  }, [loadedOnce, view]);
+
+  // 도움말 버튼을 표 보기에서 눌러도 같은 이유로 반쪽 투어가 된다 — 카드로 전환한 뒤(뷰가
+  // 실제로 바뀐 걸 확인하고) 투어를 시작한다. setView는 router.replace라 즉시 반영되지 않는다.
+  useEffect(() => {
+    if (!pendingHelpTour || view !== 'cards') return;
+    // setTimeout으로 미룬다 — 카드로 막 바뀐 직후라 Column이 커밋되는 시점과도 겹치고,
+    // 이펙트 본문에서 곧장 setState를 부르지 않기 위해서다(다른 자동 투어 이펙트와 같은 방식).
+    const t = setTimeout(() => {
+      setPendingHelpTour(false);
+      start('deck', deckSteps());
+    }, 0);
+    return () => clearTimeout(t);
+  }, [pendingHelpTour, view, start]);
+
+  function openHelp() {
+    if (view === 'table') { setPendingHelpTour(true); setView('cards'); }
+    else start('deck', deckSteps());
+  }
 
   // 행동 유도형 자동 전진: 모달이 열리면 add-column→create-modal
   useEffect(() => {
@@ -135,10 +167,11 @@ export default function DeckPage() {
             </button>
           ))}
         </div>
-        <HelpButton onClick={() => start('deck', deckSteps())} />
+        <HelpButton onClick={openHelp} />
       </div>
       {view === 'table' ? (
-        <TweetTableView wsId={wsId} columns={columns} />
+        <TweetTableView wsId={wsId} columns={columns}
+                        columnsLoaded={loadedOnce} columnsError={columnsError} onRetryColumns={load} />
       ) : (
       <main ref={deckRef} className="flex flex-1 overflow-x-auto">
         {columns.length === 0 && (

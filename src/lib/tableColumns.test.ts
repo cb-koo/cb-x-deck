@@ -52,6 +52,12 @@ test('날짜는 양쪽 다 YYYY-MM-DD — 상대 표기(2시간 전)를 쓰지 �
   assert.equal(cellExport(ROW, date), '2026-07-11');
 });
 
+test('기준(fetchedAt)은 날짜만이 아니라 시:분까지 — 같은 날 다른 시각에 새로고침한 열이 같은 값으로 보이면 안 된다', () => {
+  const fetchedAt = TABLE_COLUMNS.find((c) => c.key === 'fetchedAt')!;
+  assert.equal(cellDisplay(ROW, fetchedAt), '2026-07-30 01:02');
+  assert.equal(cellExport(ROW, fetchedAt), '2026-07-30 01:02');
+});
+
 test('열·저장은 여러 값을 셀 하나에 쉼표로 담는다', () => {
   const cols = TABLE_COLUMNS.find((c) => c.key === 'columns')!;
   const saved = TABLE_COLUMNS.find((c) => c.key === 'saved')!;

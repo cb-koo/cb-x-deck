@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { mapRawTweet } from '@/lib/mappers';
 import type { StoredTweet } from '@/lib/types';
 import { TweetCard } from '@/components/TweetCard';
+import { ToastProvider } from '@/lib/toastContext';
 
 export default function DebugCardPage() {
   const fixture = JSON.parse(readFileSync('fixtures/search-response.json', 'utf8'));
@@ -17,8 +18,10 @@ export default function DebugCardPage() {
       savedBy: i % 4 === 0 ? [{ id: 'debug', name: '디버그', color: '#1d9bf0' }] : [],
     }));
   return (
-    <main className="mx-auto max-w-[420px] border-x border-x-border">
-      {tweets.map((t) => <TweetCard key={t.tweetId} tweet={t} />)}
-    </main>
+    <ToastProvider>
+      <main className="mx-auto max-w-[420px] border-x border-x-border">
+        {tweets.map((t) => <TweetCard key={t.tweetId} tweet={t} />)}
+      </main>
+    </ToastProvider>
   );
 }

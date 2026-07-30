@@ -124,17 +124,17 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, librar
             showTr ? (
               <div className="mt-1 rounded-lg border border-x-border bg-x-blue/[0.03] px-2.5 py-2">
                 <div className="mb-1 flex items-center justify-between">
-                  <span data-tour={tourAnchor ? 'col-translate' : undefined} className="text-[10px] font-bold text-x-blue-text" title="AI 자동 번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>
+                  <span className="text-[10px] font-bold text-x-blue-text" title="AI 자동 번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>
                   <button onClick={() => setShowOverride(false)} className="text-caption text-x-muted hover:underline">원문만 보기</button>
                 </div>
                 <TweetText text={translation.content} />
               </div>
             ) : (
-              <button data-tour={tourAnchor ? 'col-translate' : undefined} onClick={() => setShowOverride(true)} className="mt-1 text-caption text-x-blue-text hover:underline">🌐 번역 보기</button>
+              <button onClick={() => setShowOverride(true)} className="mt-1 text-caption text-x-blue-text hover:underline">🌐 번역 보기</button>
             )
           ) : (
             onTranslate && (
-              <button data-tour={tourAnchor ? 'col-translate' : undefined} onClick={() => { onTranslate(t.tweetId); setShowOverride(true); }} disabled={translating}
+              <button onClick={() => { onTranslate(t.tweetId); setShowOverride(true); }} disabled={translating}
                       title="이 카드를 한국어로" className="mt-1 text-caption text-x-blue-text hover:underline disabled:opacity-50">
                 {translating ? '번역 중…' : '🌐 번역'}
               </button>

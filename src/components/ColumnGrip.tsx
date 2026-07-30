@@ -6,15 +6,17 @@ import { GripIcon } from './XIcons';
  * 아무도 발견하지 못한다. 반대로 컬럼이 1개뿐이면 호출부에서 렌더하지 않는다(거짓 어포던스 금지).
  * 크기는 헤더의 기존 아이콘 버튼과 동일 규격(p-1.5 + 16px)을 따른다.
  */
-export function ColumnGrip({ title, index, total, onPointerDown, onMove }: {
+export function ColumnGrip({ title, index, total, onPointerDown, onMove, tourAnchor }: {
   title: string;
   index: number;                       // 0-based
   total: number;
   onPointerDown: (e: React.PointerEvent) => void;
   onMove: (delta: -1 | 1) => void;     // 키보드 한 칸 이동
+  tourAnchor?: boolean;                // 첫 컬럼에만 — 투어가 이 손잡이를 가리킨다
 }) {
   return (
     <span
+      data-tour={tourAnchor ? 'col-reorder' : undefined}
       // "N개 중 M번째"라는 값을 화살표로 바꾸는 컨트롤 = slider가 정확한 역할이다(ARIA APG).
       // 덕분에 순서가 바뀌면 스크린리더가 aria-valuetext를 자동으로 읽어준다 — 호출부에 별도
       // 안내 장치(aria-live)를 두지 않아도 된다.

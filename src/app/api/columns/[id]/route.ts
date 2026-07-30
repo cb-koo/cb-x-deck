@@ -3,6 +3,7 @@ import { getSql } from '@/lib/db';
 import { deleteColumn, getColumn, updateColumn } from '@/lib/columnStore';
 import { makeClient } from '@/lib/getxapi';
 import type { WatchlistConfig } from '@/lib/types';
+import { resolveWatchlistAccount } from '@/lib/watchlistAccount';
 
 import { requireAllowedUser } from '@/lib/authGuard';
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -18,20 +19,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   // plan gap: PATCH must not blindly persist a new watchlist handle without
   // re-resolving userId (same rule POST enforces on create).
-  if (patch?.config) {
-    if (existing.kind === 'watchlist') {
-      const oldHandle = (existing.config as WatchlistConfig).handle;
-      const newHandle = String((patch.config as WatchlistConfig).handle ?? '').replace(/^@/, '');
-      if (newHandle && newHandle !== oldHandle) {
-        try {
-          const info = await makeClient().getUserInfo(newHandle);
-          if (!info.id) return NextResponse.json({ error: `계정을 찾을 수 없음: ${newHandle}` }, { status: 404 });
-          patch.config.handle = info.userName;
-          patch.config.userId = info.id;
-        } catch (e) {
-          return NextResponse.json({ error: `계정 확인 실패: ${(e as Error).message}` }, { status: 502 });
-        }
-      }
+  if (patch?.config && existing.kind === 'watchlist') {
+    const rawHandle = String((patch.config as WatchlistConfig).handle ?? '').trim();
+    // 폭·정렬만 바꾸는 PATCH는 handle을 안 보낸다 — 그 경로를 막지 않는다.
+    if (rawHandle) {
+      // 기존 계정을 넘기므로, 같은 계정이면 조회를 건너뛰고 저장된 handle·userId가 그대로 온다.
+      const acc = await resolveWatchlistAccount(rawHandle, (h) => makeClient().getUserInfo(h),
+        existing.config as WatchlistConfig);
+      if (!acc.ok) return NextResponse.json({ error: acc.error }, { status: acc.status });
+      patch.config.handle = acc.handle;
+      patch.config.userId = acc.userId;
     }
   }
 

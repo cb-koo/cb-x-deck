@@ -8,6 +8,7 @@ import { TABLE_MAX, TABLE_PAGE } from '@/lib/tableLimits';
 import { useToast } from '@/lib/toastContext';
 import { Button } from './ui';
 import { TweetTable } from './TweetTable';
+import { DownloadIcon } from './XIcons';
 
 const MORE_KEY = 'table-show-more';   // 칸 더보기 상태 (개인 보기 취향이라 localStorage)
 
@@ -107,25 +108,32 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* 열 칩 + 칸 더보기 + 내보내기 */}
-      <div className="flex flex-wrap items-center gap-1 border-b border-x-border px-4 py-2">
-        <span className="mr-1 text-caption text-x-muted">열</span>
-        <button onClick={() => setColumnId(null)} aria-pressed={columnId === null} className={`${chip} ${columnId === null ? on : off}`}>전체</button>
-        {columns.map((c) => (
-          <button key={c.id} onClick={() => setColumnId(c.id)} aria-pressed={columnId === c.id} className={`${chip} ${columnId === c.id ? on : off}`}>
-            {c.title}
+      {/* 열 칩(왼쪽, 줄바꿈 허용) + 칸 더보기·CSV 저장(오른쪽, 구분선으로 분리 — 칩과 헷갈리지 않게 모양을 다르게 둔다) */}
+      <div className="flex items-start justify-between gap-3 border-b border-x-border px-4 py-2">
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-caption text-x-muted">열</span>
+          <button onClick={() => setColumnId(null)} aria-pressed={columnId === null} className={`${chip} ${columnId === null ? on : off}`}>전체</button>
+          {columns.map((c) => (
+            <button key={c.id} onClick={() => setColumnId(c.id)} aria-pressed={columnId === c.id} className={`${chip} ${columnId === c.id ? on : off}`}>
+              {c.title}
+            </button>
+          ))}
+        </div>
+        <div className="flex shrink-0 items-center gap-2 border-l border-x-border pl-3">
+          <Button variant="ghost" onClick={toggleMore}
+                  title={showMore ? '답글·인용·북마크·팔로워·저장·기준 칸을 접어요' : '답글·인용·북마크·팔로워·저장·기준 칸을 펼쳐요'}>
+            {showMore ? '− 칸 접기' : '+ 칸 더보기'}
+          </Button>
+          {/* 칩과 같은 알약 모양이면 헷갈린다는 피드백 — 테두리는 남기되 모양(각진 사각)과 아이콘으로 구분한다 */}
+          <button onClick={saveCsv} disabled={busy || total === 0}
+                  title="조건에 맞는 전체를 CSV 파일로 저장해요"
+                  className="flex shrink-0 items-center gap-1.5 rounded-md border border-x-border-strong bg-white px-3 py-1 text-ui transition-colors hover:bg-x-hover disabled:opacity-50">
+            <DownloadIcon className="h-4 w-4" />
+            {total > TABLE_MAX
+              ? `CSV 저장 (상위 ${TABLE_MAX.toLocaleString('en-US')}건 / 전체 ${total.toLocaleString('en-US')}건)`
+              : `CSV 저장 (전체 ${total.toLocaleString('en-US')}건)`}
           </button>
-        ))}
-        <Button variant="subtle" onClick={toggleMore} className="ml-auto"
-                title={showMore ? '답글·인용·북마크·팔로워·저장·기준 칸을 접어요' : '답글·인용·북마크·팔로워·저장·기준 칸을 펼쳐요'}>
-          {showMore ? '− 칸 접기' : '+ 칸 더보기'}
-        </Button>
-        <Button variant="subtle" onClick={saveCsv} disabled={busy || total === 0}
-                title="조건에 맞는 전체를 CSV 파일로 저장해요">
-          {total > TABLE_MAX
-            ? `CSV 저장 (상위 ${TABLE_MAX.toLocaleString('en-US')}건 / 전체 ${total.toLocaleString('en-US')}건)`
-            : `CSV 저장 (전체 ${total.toLocaleString('en-US')}건)`}
-        </Button>
+        </div>
       </div>
 
       {/* 지표 신선도 — '카드 보기에서'를 빼면 표 모드에 없는 버튼을 가리키는 죽은 안내가 된다(설계 §E) */}
@@ -134,8 +142,11 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
       </p>
 
       {/* 가로·세로 스크롤을 담당하는 컨테이너는 이 하나뿐이다 — sticky thead는 이 div를 기준으로 고정된다.
-          '더보기'는 표 스크롤과 무관하게 항상 보이도록 이 컨테이너 밖(아래)에 둔다. */}
-      <div className="min-h-0 flex-1 overflow-auto">
+          '더보기'는 표 스크롤과 무관하게 항상 보이도록 이 컨테이너 밖(아래)에 둔다.
+          여백은 좌우(px)·아래(pb)에만 준다 — 위쪽에 pt를 주면 sticky top-0의 기준선이 padding box 상단이라
+          스크롤이 시작되는 순간 그 여백만큼 머리글이 갑자기 튀어 오르는 것처럼 보인다. 좌우 여백은 세로 스크롤과
+          무관하고, 가로로 스크롤해도 표 양 끝에 여백이 그대로 따라와 "가장자리에 딱 붙은" 느낌만 없앤다. */}
+      <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
         {/* columnsLoaded가 끝나기 전엔 columns가 항상 []이라 '아직 열이 없어요'로 오판된다 —
             불러오는 중 상태와 합쳐서 로딩이 끝난 뒤에만 진짜 0건 갈래로 넘어가게 한다(설계 §G-2). */}
         {!loaded || !columnsLoaded ? (

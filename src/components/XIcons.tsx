@@ -74,3 +74,8 @@ export const GripIcon = ({ className }: { className?: string }) => (
 export const ShareIcon = ({ className }: { className?: string }) => (
   <Icon className={className} d="M12 2.59l5.7 5.7-1.41 1.42L13 6.41V16h-2V6.41l-3.3 3.3-1.41-1.42L12 2.59zM21 15l-.02 3.51c0 1.38-1.12 2.49-2.5 2.49H5.5C4.11 21 3 19.88 3 18.5V15h2v3.5c0 .28.22.5.5.5h12.98c.28 0 .5-.22.5-.5L19 15h2z" />
 );
+
+// 내려받기 — CSV 저장 버튼용. 세로 막대(파일) + 아래 화살촉 + 받는 선반, 실제 다운로드를 뜻하는 표준 도형
+export const DownloadIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M11 3H13V13H11ZM8 13H16L12 17ZM4 19H20V21H4Z" />
+);

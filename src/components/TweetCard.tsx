@@ -9,7 +9,9 @@ import { QuotedCard } from './QuotedCard';
 import { TweetText } from './TweetText';
 import { TweetExpansion } from './TweetExpansion';
 import { Button } from './ui';
-import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from './XIcons';
+import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon, ShareIcon } from './XIcons';
+import { tweetPermalink } from '@/lib/tweetLink';
+import { useToast } from '@/lib/toastContext';
 
 function timeAgo(iso: string | null): string {
   if (!iso) return '';
@@ -43,6 +45,7 @@ const metricBase = 'group flex items-center gap-1 text-ui text-x-secondary trans
 export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, libraryHref, onDismiss, onUndismiss, dismissedView, tourAnchor,
                             translation, showTranslation, onTranslate, translating }: TweetCardProps) {
   const [showOverride, setShowOverride] = useState<boolean | null>(null);
+  const { show } = useToast();
   const showTr = showOverride ?? showTranslation ?? false;
   const savedByMe = !!meId && t.savedBy.some((m) => m.id === meId);
 
@@ -68,6 +71,15 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, librar
     const ok = await onSaveMemo(t.tweetId, text);   // 실패해도 입력 보존 → 재시도
     setMemoBusy(false);
     if (ok) { setMemoOpen(false); setMemoDone(true); } else setMemoErr(true);
+  }
+  // 링크 복사 — X와 같은 자리·아이콘의 공유 버튼. 실패해도 버튼을 숨기지 않고 이유를 말한다 (설계 §E)
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(tweetPermalink(t.authorHandle, t.tweetId));
+      show('링크를 복사했어요', { duration: 2500 });
+    } catch {
+      show('링크를 복사하지 못했어요 — 브라우저 권한을 확인해 주세요');
+    }
   }
   const profileUrl = `https://x.com/${t.authorHandle}`;
   const yakkiho = flagYakkiho(t.text);
@@ -147,6 +159,15 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, librar
             <span title="북마크 (Bookmark)" className={`${metricBase} hover:text-x-blue-text`}>
               <BookmarkIcon /> {formatCount(t.metrics.bookmarks)}
             </span>
+            {/* 공유 — 이 줄에서 유일하게 누를 수 있는 요소. 지표는 글자색만 변하고 이것만 원형 배경이 생겨
+                "누를 수 있음"을 구분한다. 파랑은 호버 상태에만 쓴다(상시 의미색 3용도 제한과 무관).
+                액션은 풋터 존 규칙(2026-07-19 §7)의 의도된 예외 — X 손버릇 자리이기 때문 (설계 2026-07-30 §C).
+                음수 마진은 34px 히트 영역을 확보하면서 줄 높이·정렬을 그대로 두기 위한 것. */}
+            <button type="button" onClick={copyLink}
+                    aria-label="링크 복사" title="이 트윗 링크를 복사합니다"
+                    className="-my-2 -mr-2 flex items-center rounded-full p-2 text-x-secondary transition-colors hover:bg-x-blue/10 hover:text-x-blue-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-x-blue">
+              <ShareIcon />
+            </button>
           </div>
         </div>
       </div>

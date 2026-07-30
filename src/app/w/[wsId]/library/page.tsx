@@ -9,13 +9,14 @@ import { ScoutList } from '@/components/ScoutList';
 import { useTranslations } from '@/components/useTranslations';
 import { Button } from '@/components/ui';
 import { useMember } from '@/lib/memberContext';
-import { Toast } from '@/components/Toast';
+import { useToast } from '@/lib/toastContext';
 
 type View = 'tweets' | 'scouts';
 
 export default function LibraryPage() {
   const { wsId } = useParams<{ wsId: string }>();
   const { members, member } = useMember();
+  const { show, hide } = useToast();
   const meId = member?.id ?? null;
   const [view, setView] = useState<View>('tweets');
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
@@ -52,31 +53,39 @@ export default function LibraryPage() {
     setPendingRemove((cur) => (cur === tweetId ? null : cur));
   }, [wsId, load]);
 
+  const undoRemove = useCallback(() => {
+    if (removeTimer.current) clearTimeout(removeTimer.current);
+    setUndoTweet(null);
+    hide();
+    setPendingRemove(null); // 카드 복원, 아무것도 삭제 안 함
+  }, [hide]);
+
+  // 토스트 노출 ⟺ undoTweet !== null 을 유지한다. undoTweet이 바뀌는 지점마다 show/hide를 짝지어 부른다
+  // (effect로 배선하면 react-hooks/set-state-in-effect 위반).
   const requestRemoveTeam = useCallback((tweetId: string) => {
     if (removeTimer.current) clearTimeout(removeTimer.current);
     if (undoTweet && undoTweet !== tweetId) void commitRemove(undoTweet); // 대기 중 다른 건 즉시 커밋
     setPendingRemove(tweetId);
     setUndoTweet(tweetId);
+    // duration:null = 자동 소멸 없음, dismissible:false = ✕ 없음.
+    // 5초 뒤 삭제가 커밋되므로 토스트가 먼저 사라지거나 사용자가 닫아 실행취소 기회를 잃으면 안 된다.
+    show('팀 보관함에서 뺐어요', { actionLabel: '실행취소', onAction: undoRemove, duration: null, dismissible: false });
     removeTimer.current = setTimeout(() => {
       setUndoTweet((cur) => (cur === tweetId ? null : cur)); // 실행취소 불가 시점 → 토스트 내림
+      hide();
       void commitRemove(tweetId);
     }, 5000);
-  }, [commitRemove, undoTweet]);
-
-  const undoRemove = useCallback(() => {
-    if (removeTimer.current) clearTimeout(removeTimer.current);
-    setUndoTweet(null);
-    setPendingRemove(null); // 카드 복원, 아무것도 삭제 안 함
-  }, []);
+  }, [commitRemove, undoTweet, show, hide, undoRemove]);
 
   // 대기 중 tweetId를 ref로 추적(언마운트 시 최신값 참조용) — pendingRemove를 deps로 쓰면
-  // undo/타임아웃마다 cleanup이 돌아 삭제가 잘못 커밋되므로, deps는 wsId만 두고 실제 이탈 시에만 커밋.
+  // undo/타임아웃마다 cleanup이 돌아 삭제가 잘못 커밋되므로, deps는 wsId와 참조 고정된 hide만 둔다.
   const pendingRef = useRef<string | null>(null);
   useEffect(() => { pendingRef.current = pendingRemove; }, [pendingRemove]);
   useEffect(() => () => {
     if (removeTimer.current) clearTimeout(removeTimer.current);
+    hide();   // 프로바이더는 레이아웃에 있어 페이지를 떠나도 살아있다 — 지속 토스트를 남기지 않는다
     if (pendingRef.current) void apiFetch(`/api/library?workspaceId=${wsId}&tweetId=${pendingRef.current}`, { method: 'DELETE' });
-  }, [wsId]);
+  }, [wsId, hide]);
 
   const groups = useMemo(
     () => filterLibrary(entries, { memberId: activeMember }).filter((e) => e.tweet.tweetId !== pendingRemove),
@@ -146,9 +155,6 @@ export default function LibraryPage() {
         </>
       )}
       {view === 'scouts' && <ScoutList wsId={wsId} />}
-      {undoTweet && (
-        <Toast message="팀 보관함에서 뺐어요" actionLabel="실행취소" onAction={undoRemove} />
-      )}
     </div>
   );
 }

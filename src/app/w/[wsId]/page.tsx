@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import type { ColumnKind, ColumnRow, SearchConfig, WatchlistConfig } from '@/lib/types';
 import { Column } from '@/components/Column';
 import { ColumnSettings } from '@/components/ColumnSettings';
-import { Toast } from '@/components/Toast';
+import { useToast } from '@/lib/toastContext';
 import { useDeckDrag } from '@/lib/useDeckDrag';
 import { useTour } from '@/lib/tour/useTour';
 import { deckSteps } from '@/lib/tour/tourSteps';
@@ -17,7 +17,7 @@ export default function DeckPage() {
   const [columns, setColumns] = useState<ColumnRow[]>([]);
   const [modal, setModal] = useState<{ mode: 'create' | 'edit'; column?: ColumnRow; presetKeyword?: string } | null>(null);
   const [newColumnId, setNewColumnId] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const { show } = useToast();
   const deckRef = useRef<HTMLElement>(null);
   const { start, advance, activeTour } = useTour();
   const prevColCount = useRef(0);
@@ -52,13 +52,6 @@ export default function DeckPage() {
     prevColCount.current = columns.length;
   }, [columns.length, activeTour, advance]);
 
-  // Toast 자동 소멸
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 6000);
-    return () => clearTimeout(t);
-  }, [toast]);
-
   const getColumnEl = useCallback(
     (id: string) => deckRef.current?.querySelector<HTMLElement>(`[data-column-id="${id}"]`) ?? null,
     [],
@@ -78,16 +71,16 @@ export default function DeckPage() {
         body: JSON.stringify({ workspaceId: wsId, ids }),
       });
       if (!r.ok) {
-        setToast(r.status === 409
+        show(r.status === 409
           ? '다른 팀원이 컬럼을 바꿔서 순서를 저장하지 못했어요. 최신 상태로 새로 불러왔습니다.'
           : '순서를 저장하지 못했어요. 잠시 후 다시 옮겨주세요.');
         await load();
       }
     } catch {
-      setToast('순서를 저장하지 못했어요. 잠시 후 다시 옮겨주세요.');
+      show('순서를 저장하지 못했어요. 잠시 후 다시 옮겨주세요.');
       await load();
     }
-  }, [columns, wsId, load]);
+  }, [columns, wsId, load, show]);
 
   const { startDrag, moveByKeyboard } = useDeckDrag({
     columns, containerRef: deckRef, getColumnEl, onCommit: commitOrder,
@@ -137,7 +130,6 @@ export default function DeckPage() {
                   onKeyboardMove={(delta) => moveByKeyboard(i, delta)} />
         ))}
       </main>
-      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
       {modal && (
         <ColumnSettings initial={modal.mode === 'edit' ? modal.column : undefined}
                         presetKeyword={modal.presetKeyword}

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { ColumnRow, SortDir, SortKey, TableRow } from '@/lib/types';
 import { exportColumns, visibleColumns } from '@/lib/tableColumns';
-import { toCsv, toTsv } from '@/lib/tableExport';
+import { toCsv } from '@/lib/tableExport';
 import { TABLE_MAX, TABLE_PAGE } from '@/lib/tableLimits';
 import { useToast } from '@/lib/toastContext';
 import { Button } from './ui';
@@ -72,16 +72,6 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
     else { setSort(k); setDir('desc'); }   // 새 기준은 항상 많은순/최신순부터
   }
 
-  async function copyTable() {
-    const text = toTsv(rows, exportColumns(showMore));
-    try {
-      await navigator.clipboard.writeText(text);
-      show(`표 ${rows.length.toLocaleString('en-US')}줄을 복사했어요`, { duration: 2500 });
-    } catch {
-      show('표를 복사하지 못했어요 — 브라우저 권한을 확인해 주세요');
-    }
-  }
-
   async function saveCsv() {
     setBusy(true);
     try {
@@ -129,10 +119,6 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
         <Button variant="subtle" onClick={toggleMore} className="ml-auto"
                 title={showMore ? '답글·인용·북마크·팔로워·저장·기준 칸을 접어요' : '답글·인용·북마크·팔로워·저장·기준 칸을 펼쳐요'}>
           {showMore ? '− 칸 접기' : '+ 칸 더보기'}
-        </Button>
-        <Button variant="subtle" onClick={copyTable} disabled={rows.length === 0}
-                title="지금 표에 보이는 줄을 탭 구분으로 복사해요 — 노션·엑셀에 붙이면 칸이 갈라집니다">
-          표 복사 ({rows.length.toLocaleString('en-US')}줄)
         </Button>
         <Button variant="subtle" onClick={saveCsv} disabled={busy || total === 0}
                 title="조건에 맞는 전체를 CSV 파일로 저장해요">

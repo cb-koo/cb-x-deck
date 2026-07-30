@@ -12,6 +12,7 @@ import type { PillarPayload } from '@/lib/pillarStats';
 import { ChevronDownIcon, RefreshIcon, SearchIcon, SettingsIcon, TrashIcon, UserIcon } from './XIcons';
 import { Button } from './ui';
 import { ColumnGrip } from './ColumnGrip';
+import { SORT_LABEL, DECK_SORTS, dirText, dirLabel } from '@/lib/sortKeys';
 
 function lastRefreshedLabel(iso: string | null): string {
   if (!iso) return '미조회';
@@ -20,18 +21,6 @@ function lastRefreshedLabel(iso: string | null): string {
   if (min < 60) return `${min}분 전`;
   if (min < 1440) return `${Math.floor(min / 60)}시간 전`;
   return `${Math.floor(min / 1440)}일 전`;
-}
-
-const SORT_LABEL: Record<SortKey, string> = { views: '조회수', date: '날짜', bookmarks: '북마크', retweets: 'RT' };
-
-// 활성 기준 버튼에 방향을 말로 붙임 (기준에 따라 문구 분기)
-function dirText(sort: SortKey, dir: SortDir): string {
-  if (sort === 'date') return dir === 'desc' ? '최신순' : '오래된순';
-  return dir === 'desc' ? '많은순' : '적은순';
-}
-// 활성 기준 버튼 호버/스크린리더용 — 현재 정렬 상태 + 다시 누르면 뒤집힌다는 안내
-function dirLabel(sort: SortKey, dir: SortDir): string {
-  return `${SORT_LABEL[sort]} ${dirText(sort, dir)} — 다시 누르면 정렬 순서가 바뀝니다`;
 }
 
 export function Column({ column, isNew, index, total, onEdit, onDelete, onPickTag, onGripPointerDown, onKeyboardMove, tourAnchor }: {
@@ -272,7 +261,7 @@ export function Column({ column, isNew, index, total, onEdit, onDelete, onPickTa
         {/* 1행 — 목록 제어: 정렬 + 보기 (지금 보는 목록을 바꾸는 컨트롤) */}
         <div data-tour={tourAnchor ? 'col-sort' : undefined} className="mt-0.5 flex flex-wrap items-center gap-0.5 pb-1">
           <span className="mr-0.5 shrink-0 text-caption text-x-muted">정렬</span>
-          {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => {
+          {DECK_SORTS.map((k) => {
             const active = sort === k;
             return (
               <button key={k}

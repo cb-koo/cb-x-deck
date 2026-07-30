@@ -1,4 +1,5 @@
-export type SortKey = 'views' | 'date' | 'bookmarks' | 'retweets';
+// 정렬 키. 덱 컬럼은 이 중 4종만 탭으로 노출하고(sortKeys.ts의 DECK_SORTS) 표 보기는 7종을 쓴다.
+export type SortKey = 'views' | 'date' | 'bookmarks' | 'retweets' | 'likes' | 'replies' | 'quotes';
 export type SortDir = 'asc' | 'desc';
 export type ColumnKind = 'search' | 'watchlist';
 
@@ -90,4 +91,19 @@ export interface CandidateRow {
 export interface TweetTranslation {
   content: string;              // 본문 번역
   quotedContent: string | null; // 인용 트윗 본문 번역(없으면 null)
+}
+
+// 표 보기 한 행. StoredTweet을 쓰지 않는 이유: 표는 미디어·인용RT를 안 쓰는데
+// CSV 저장은 최대 5,000행을 한 번에 받으므로 그 JSON이 페이로드를 크게 부풀린다.
+export interface TableRow {
+  tweetId: string;
+  columnTitles: string[];        // 이 트윗이 걸린 열 이름들 (여러 열에 걸리면 여러 개)
+  authorHandle: string;
+  authorName: string | null;
+  authorFollowers: number | null;
+  text: string;
+  tweetCreatedAt: string | null; // ISO
+  metrics: DeckMetrics;
+  savedBy: Member[];
+  lastFetchedAt: string;         // ISO — 지표 기준 시각
 }

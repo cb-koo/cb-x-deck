@@ -31,11 +31,16 @@ export async function linkColumnTweets(sql: postgres.Sql, columnId: string, twee
   }
 }
 
+// 정렬용 SQL 식. metrics는 jsonb라 텍스트로 뽑아 bigint 캐스팅한다.
+// 7종 전부 있는 이유: 표 보기가 지표 6종 + 날짜로 정렬한다(설계 §D).
 const ORDER_EXPR: Record<SortKey, string> = {
   views: `(t.metrics->>'views')::bigint`,
   date: `t.tweet_created_at`,
   bookmarks: `(t.metrics->>'bookmarks')::bigint`,
   retweets: `(t.metrics->>'retweets')::bigint`,
+  likes: `(t.metrics->>'likes')::bigint`,
+  replies: `(t.metrics->>'replies')::bigint`,
+  quotes: `(t.metrics->>'quotes')::bigint`,
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

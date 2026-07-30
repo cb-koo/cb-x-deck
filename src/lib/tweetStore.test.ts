@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { upsertTweets, linkColumnTweets, getColumnTweets, getColumnTweetCount, getTweetsByIds } from './tweetStore.ts';
+import { upsertTweets, linkColumnTweets, getColumnTweets, getColumnTweetCount, getTweetsByIds, getWorkspaceTableRows, getWorkspaceTableCount } from './tweetStore.ts';
 import { createColumn, deleteColumn, touchRefreshed, getColumn } from './columnStore.ts';
 import { createWorkspace, deleteWorkspace, createMember } from './workspaceStore.ts';
 import type { DeckTweet } from './types.ts';
@@ -208,4 +208,60 @@ test('getColumnTweets: dir asc/desc 정렬 반전', async () => {
 test('getColumnTweets: uuid 형식이 아닌 컬럼 id는 예외 없이 [] 반환 (getColumnTweetCount와 대칭)', async () => {
   const rows = await getColumnTweets(sql, 'no-such-column-id', { sort: 'views' });
   assert.deepEqual(rows, []);
+});
+
+test('표 쿼리 — 여러 열에 걸린 트윗은 한 행, 버림 제외, 워크스페이스 격리, 서버 정렬', async () => {
+  const ws = await createWorkspace(sql, P + 'ws-tbl');
+  const other = await createWorkspace(sql, P + 'ws-other');
+  const m = await createMember(sql, P + 'M', '#333333');
+  const colA = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'A', config: { keywords: ['a'] } });
+  const colB = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'B', config: { keywords: ['b'] } });
+  const colX = await createColumn(sql, { workspaceId: other.id, kind: 'search', title: P + 'X', config: { keywords: ['x'] } });
+  try {
+    await upsertTweets(sql, [tw('t1', 100), tw('t2', 300), tw('t3', 200), tw('t4', 999)]);
+    await linkColumnTweets(sql, colA.id, [P + 't1', P + 't2', P + 't3']);
+    await linkColumnTweets(sql, colB.id, [P + 't2']);              // t2는 두 열에 걸림
+    await linkColumnTweets(sql, colX.id, [P + 't4']);              // 다른 워크스페이스
+    await sql`insert into dismissed_tweet (workspace_id, tweet_id, dismissed_by) values (${ws.id}, ${P + 't3'}, ${m.id})`;
+
+    const rows = await getWorkspaceTableRows(sql, ws.id, { sort: 'views' });
+    // t3=버림 제외, t4=다른 워크스페이스 → t2, t1 두 행
+    assert.deepEqual(rows.map((r) => r.tweetId), [P + 't2', P + 't1'], '조회수 많은순 + 버림·타 워크스페이스 제외');
+    const t2 = rows[0];
+    assert.deepEqual([...t2.columnTitles].sort(), [P + 'A', P + 'B'], '두 열에 걸려도 한 행, 열 이름은 모두');
+    assert.equal(t2.metrics.views, 300);
+    assert.ok(t2.lastFetchedAt, '기준 시각이 실려야 한다 (지표 신선도 표시용)');
+
+    const count = await getWorkspaceTableCount(sql, ws.id);
+    assert.equal(count, 2, '중복 병합·버림 제외가 건수에도 반영');
+
+    // 열 칩 필터
+    const onlyB = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', columnId: colB.id });
+    assert.deepEqual(onlyB.map((r) => r.tweetId), [P + 't2']);
+    assert.equal(await getWorkspaceTableCount(sql, ws.id, { columnId: colB.id }), 1);
+
+    // 방향 뒤집기 + 다른 지표로 정렬(likes는 이번에 새로 정렬 가능해진 키)
+    const asc = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', dir: 'asc' });
+    assert.deepEqual(asc.map((r) => r.tweetId), [P + 't1', P + 't2']);
+    const byLikes = await getWorkspaceTableRows(sql, ws.id, { sort: 'likes' });
+    assert.equal(byLikes.length, 2);
+
+    // 페이지네이션
+    const page = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', limit: 1, offset: 1 });
+    assert.deepEqual(page.map((r) => r.tweetId), [P + 't1']);
+  } finally {
+    await sql`delete from dismissed_tweet where workspace_id = ${ws.id}`;
+    await deleteColumn(sql, colA.id); await deleteColumn(sql, colB.id); await deleteColumn(sql, colX.id);
+    await deleteWorkspace(sql, ws.id); await deleteWorkspace(sql, other.id);
+  }
+});
+
+test('표 쿼리 — limit 상한 5000을 넘겨 요청해도 잘린다', async () => {
+  const ws = await createWorkspace(sql, P + 'ws-cap');
+  try {
+    const rows = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', limit: 99999 });
+    assert.deepEqual(rows, []); // 데이터가 없어도 오류 없이 통과 — 상한 처리에서 SQL 오류가 나지 않는지 확인
+  } finally {
+    await deleteWorkspace(sql, ws.id);
+  }
 });

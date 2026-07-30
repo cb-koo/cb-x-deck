@@ -1,5 +1,6 @@
 import type postgres from 'postgres';
-import type { DeckTweet, SortDir, SortKey, StoredTweet } from './types.ts';
+import type { DeckTweet, SortDir, SortKey, StoredTweet, TableRow } from './types.ts';
+import { TABLE_MAX, TABLE_PAGE } from './tableLimits.ts';
 
 export async function upsertTweets(sql: postgres.Sql, tweets: DeckTweet[]): Promise<{ inserted: number; updated: number }> {
   let inserted = 0, updated = 0;
@@ -155,4 +156,75 @@ export async function getColumnTweetCount(
     [columnId, col.workspace_id],
   );
   return Number(row?.n ?? 0);
+}
+
+// 표 보기 — 워크스페이스의 모든 열을 한 목록으로. 새 마이그레이션 없이 기존 조인만 쓴다(설계 §G).
+
+type TableRowRaw = {
+  tweet_id: string; column_titles: string[]; author_handle: string; author_name: string | null;
+  author_followers: string | number | null; text: string; tweet_created_at: Date | null;
+  metrics: TableRow['metrics']; saved_by: TableRow['savedBy']; last_fetched_at: Date;
+};
+
+export async function getWorkspaceTableRows(
+  sql: postgres.Sql, workspaceId: string,
+  opts: { sort: SortKey; dir?: SortDir; offset?: number; limit?: number; columnId?: string },
+): Promise<TableRow[]> {
+  if (!isUuidLike(workspaceId)) return [];
+  if (opts.columnId !== undefined && !isUuidLike(opts.columnId)) return [];
+  const offset = Math.max(0, Math.floor(opts.offset ?? 0));
+  const limit = Math.min(TABLE_MAX, Math.max(1, Math.floor(opts.limit ?? TABLE_PAGE)));
+  const orderExpr = ORDER_EXPR[opts.sort] ?? ORDER_EXPR.views;
+  const orderDir = opts.dir === 'asc' ? 'asc nulls first' : 'desc nulls last';
+  const rows = await sql.unsafe<TableRowRaw[]>(
+    // group by tweet_id: 같은 트윗이 여러 열에 걸리면 행이 늘어나므로 한 행으로 묶고 열 이름을 모은다.
+    // order by에 tweet_id를 tie-break로 둬야 페이지 경계에서 행이 중복·누락되지 않는다.
+    `select t.tweet_id, t.author_handle, t.author_name, t.author_followers, t.text,
+            t.tweet_created_at, t.metrics, t.last_fetched_at,
+            array_agg(distinct dc.title) as column_titles,
+            coalesce((select json_agg(json_build_object('id', m.id, 'name', m.name, 'color', m.color) order by m.name)
+                        from candidate c join member m on m.id = c.member_id
+                       where c.tweet_id = t.tweet_id and c.workspace_id = $1), '[]'::json) as saved_by
+       from column_tweet ct
+       join deck_column dc on dc.id = ct.column_id and dc.workspace_id = $1
+       join tweet t on t.tweet_id = ct.tweet_id
+      where not exists (select 1 from dismissed_tweet d where d.workspace_id = $1 and d.tweet_id = t.tweet_id)
+        ${opts.columnId ? `and ct.column_id = $3` : ``}
+      group by t.tweet_id
+      order by ${orderExpr} ${orderDir}, t.tweet_id
+      limit ${limit} offset $2`,
+    // limit은 위에서 정수로 sanitize해 리터럴로 이미 박아 넣었으므로 파라미터 배열엔 넣지 않는다.
+    // (넣으면 쿼리 텍스트에 안 쓰이는 자리표시자가 생겨 "could not determine data type of parameter" 오류가 난다.)
+    opts.columnId ? [workspaceId, offset, opts.columnId] : [workspaceId, offset],
+  );
+  return rows.map((r) => ({
+    tweetId: r.tweet_id,
+    columnTitles: r.column_titles ?? [],
+    authorHandle: r.author_handle,
+    authorName: r.author_name,
+    authorFollowers: r.author_followers === null ? null : Number(r.author_followers),
+    text: r.text,
+    tweetCreatedAt: r.tweet_created_at?.toISOString() ?? null,
+    metrics: r.metrics,
+    savedBy: r.saved_by ?? [],
+    lastFetchedAt: r.last_fetched_at.toISOString(),
+  }));
+}
+
+export async function getWorkspaceTableCount(
+  sql: postgres.Sql, workspaceId: string, opts: { columnId?: string } = {},
+): Promise<number> {
+  if (!isUuidLike(workspaceId)) return 0;
+  if (opts.columnId !== undefined && !isUuidLike(opts.columnId)) return 0;
+  const rows = await sql.unsafe<Array<{ n: string }>>(
+    // distinct tweet_id — 행 병합과 같은 기준이어야 "전체 N건" 라벨이 실제 행 수와 맞는다.
+    `select count(distinct t.tweet_id) as n
+       from column_tweet ct
+       join deck_column dc on dc.id = ct.column_id and dc.workspace_id = $1
+       join tweet t on t.tweet_id = ct.tweet_id
+      where not exists (select 1 from dismissed_tweet d where d.workspace_id = $1 and d.tweet_id = t.tweet_id)
+        ${opts.columnId ? `and ct.column_id = $2` : ``}`,
+    opts.columnId ? [workspaceId, opts.columnId] : [workspaceId],
+  );
+  return Number(rows[0]?.n ?? 0);
 }

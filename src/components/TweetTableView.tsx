@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { ColumnRow, SortDir, SortKey, TableRow } from '@/lib/types';
 import { exportColumns, visibleColumns } from '@/lib/tableColumns';
@@ -22,6 +22,7 @@ export function TweetTableView({ wsId, columns }: { wsId: string; columns: Colum
   const [loaded, setLoaded] = useState(false);   // 첫 로드 완료 — 로딩 중 빈 상태 문구를 막는다
   const [err, setErr] = useState(false);
   const [busy, setBusy] = useState(false);
+  const reqIdRef = useRef(0);   // 응답 경합 가드 — 가장 최근 요청만 상태를 갱신한다
 
   useEffect(() => {
     try { setShowMore(localStorage.getItem(MORE_KEY) === '1'); } catch { /* 접근 거부 시 기본값 */ }
@@ -39,14 +40,19 @@ export function TweetTableView({ wsId, columns }: { wsId: string; columns: Colum
   }, [wsId, sort, dir, columnId]);
 
   const load = useCallback(async (append: boolean) => {
+    const id = ++reqIdRef.current;   // 이 호출의 번호를 찍어두고, 응답이 오면 아직 최신인지 확인한다
     setBusy(true); setErr(false);
     try {
       const r = await apiFetch(`/api/tweet-table?${qs({ offset: append ? String(rows.length) : '0', limit: String(TABLE_PAGE) })}`);
+      if (reqIdRef.current !== id) return;   // 그 사이 더 최신 요청이 시작됨 — 이 응답은 버린다
       if (!r.ok) { setErr(true); return; }
       const d = await r.json() as { rows: TableRow[]; total: number };
+      if (reqIdRef.current !== id) return;   // json 파싱 중에도 최신 요청이 바뀔 수 있다
       setRows((cur) => (append ? [...cur, ...d.rows] : d.rows));
       setTotal(d.total);
-    } catch { setErr(true); } finally { setBusy(false); setLoaded(true); }
+    } catch {
+      if (reqIdRef.current === id) setErr(true);
+    } finally { setBusy(false); setLoaded(true); }
   }, [qs, rows.length]);
 
   // 정렬·필터가 바뀌면 처음부터 다시 — append=false
@@ -94,6 +100,8 @@ export function TweetTableView({ wsId, columns }: { wsId: string; columns: Colum
   const on = 'border-x-text font-bold text-x-text';
   const off = 'border-x-border-strong text-x-secondary';
   const cols = visibleColumns(showMore);
+  // 표가 실제로 그려지는 상태인지 — 아래쪽의 스크롤 영역과 '더보기' 버튼이 이 값을 공유한다
+  const showTable = loaded && !err && columns.length > 0 && rows.length > 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -125,7 +133,9 @@ export function TweetTableView({ wsId, columns }: { wsId: string; columns: Colum
         지표는 각 글을 마지막으로 가져온 시점 기준이에요 — 카드 보기에서 열을 새로고침하면 갱신됩니다
       </p>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* 가로·세로 스크롤을 담당하는 컨테이너는 이 하나뿐이다 — sticky thead는 이 div를 기준으로 고정된다.
+          '더보기'는 표 스크롤과 무관하게 항상 보이도록 이 컨테이너 밖(아래)에 둔다. */}
+      <div className="min-h-0 flex-1 overflow-auto">
         {!loaded ? (
           <p className="p-4 text-ui text-x-muted">불러오는 중…</p>
         ) : err ? (
@@ -141,18 +151,16 @@ export function TweetTableView({ wsId, columns }: { wsId: string; columns: Colum
         ) : rows.length === 0 ? (
           <p className="p-4 text-ui text-x-muted">아직 수집된 글이 없어요 — 카드 보기에서 열을 새로고침하면 여기에 모입니다</p>
         ) : (
-          <>
-            <TweetTable rows={rows} columns={cols} sort={sort} dir={dir} onSort={onSort} />
-            {rows.length < total && (
-              <div className="p-4 text-center">
-                <Button variant="subtle" onClick={() => void load(true)} disabled={busy}>
-                  {busy ? '불러오는 중…' : `더보기 (${rows.length.toLocaleString('en-US')} / ${total.toLocaleString('en-US')})`}
-                </Button>
-              </div>
-            )}
-          </>
+          <TweetTable rows={rows} columns={cols} sort={sort} dir={dir} onSort={onSort} />
         )}
       </div>
+      {showTable && rows.length < total && (
+        <div className="border-t border-x-border p-4 text-center">
+          <Button variant="subtle" onClick={() => void load(true)} disabled={busy}>
+            {busy ? '불러오는 중…' : `더보기 (${rows.length.toLocaleString('en-US')} / ${total.toLocaleString('en-US')})`}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

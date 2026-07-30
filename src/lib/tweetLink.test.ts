@@ -15,3 +15,17 @@ test('tweetPermalink — 도메인은 항상 x.com (twitter.com 아님)', () => 
   assert.ok(url.startsWith('https://x.com/'), url);
   assert.ok(!url.includes('twitter.com'), url);
 });
+
+// 스냅샷 없는 브리핑 인용은 핸들이 없다 — ID만으로 된 X 해석 가능 형식으로 떨어진다. (설계 §F)
+test('tweetPermalink — 핸들이 null이면 ID만으로 된 링크를 만든다', () => {
+  assert.equal(tweetPermalink(null, '1234567890'), 'https://x.com/i/status/1234567890');
+});
+
+test('tweetPermalink — 핸들이 undefined면 ID만으로 된 링크를 만든다', () => {
+  assert.equal(tweetPermalink(undefined, '1234567890'), 'https://x.com/i/status/1234567890');
+});
+
+test('tweetPermalink — 핸들이 빈 문자열이거나 @만 있어도 ID만으로 된 링크를 만든다', () => {
+  assert.equal(tweetPermalink('', '1234567890'), 'https://x.com/i/status/1234567890');
+  assert.equal(tweetPermalink('@', '1234567890'), 'https://x.com/i/status/1234567890');
+});

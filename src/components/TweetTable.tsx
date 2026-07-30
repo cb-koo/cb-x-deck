@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { SortDir, SortKey, TableRow } from '@/lib/types';
 import { cellDisplay, type TableColumn } from '@/lib/tableColumns';
 import { dirLabel, SORT_LABEL } from '@/lib/sortKeys';
@@ -61,6 +61,10 @@ export function TweetTable({ rows, columns, sort, dir, onSort }: {
   // 서버 렌더를 탄 적이 없다. useEffect로 나중에 읽으면 set-state-in-effect가 걸리므로
   // (TweetTableView의 MORE_KEY도 이미 그 경고를 안고 있다) lazy initializer로 아예 이펙트를 안 쓴다.
   const [widths, setWidths] = useState<Record<string, number>>(() => loadStoredWidths());
+  // 드래그 중 <col>에 직접 쓰기 위한 DOM 참조 — key당 하나. useDeckDrag가 컬럼 엘리먼트를
+  // getColumnEl(id)로 찾아 transform을 직접 쓰는 것과 같은 이유: React state를 거치면
+  // 200행 x 14열 tbody 전체가 매 mousemove마다 다시 렌더링된다(아래 startResize 참조).
+  const colRefs = useRef<Record<string, HTMLTableColElement | null>>({});
 
   function widthFor(key: string): number {
     return resolveWidth(widths, key);
@@ -92,22 +96,39 @@ export function TweetTable({ rows, columns, sort, dir, onSort }: {
     });
   }
 
-  // 우측 가장자리 드래그로 폭 조절 — 덱 컬럼 폭 조절(Column.tsx startResize)과 같은 방식:
-  // document에 mousemove/mouseup을 걸고, 놓을 때만 저장한다.
+  // 우측 가장자리 드래그로 폭 조절. document에 mousemove/mouseup을 거는 큰 틀은
+  // 덱 컬럼 폭 조절(Column.tsx startResize)과 같지만, 그쪽처럼 매 mousemove에 setState하지는
+  // 않는다 — 거긴 컬럼 하나만 다시 그리면 되지만 여기는 표 전체(200행 x 14열)가 다시 그려져
+  // 마우스보다 화면이 늦게 따라오는 게 사용자가 실제로 겪은 문제였다. 대신 useDeckDrag.ts와
+  // 같은 방식을 쓴다: 드래그 중엔 <col> DOM에 폭을 직접 쓴다(그 컬럼의 <col> 하나만 바뀌어도
+  // 브라우저가 표 전체를 리플로해준다 — React가 관여할 필요가 없다). 한 프레임에 mousemove가
+  // 여러 번 와도 rAF로 묶어 프레임당 한 번만 쓴다. React state(및 localStorage 저장)는
+  // 마우스를 놓는 순간 딱 한 번만 커밋한다.
   function startResize(key: string, e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();   // 정렬 버튼은 형제 요소라 원래도 안 타지만, 방어적으로 한 번 더 막는다
     const startX = e.clientX;
     const startW = widthFor(key);
     let w = startW;
+    let raf: number | null = null;
+    const col = colRefs.current[key];
+    const writeWidth = () => {
+      raf = null;
+      if (col) col.style.width = `${w}px`;
+    };
     const move = (ev: MouseEvent) => {
       w = Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, startW + ev.clientX - startX));
-      setWidths((cur) => ({ ...cur, [key]: w }));
+      if (raf === null) raf = requestAnimationFrame(writeWidth);   // 프레임당 최대 1회만 DOM에 쓴다
     };
     const up = () => {
+      if (raf !== null) cancelAnimationFrame(raf);
       document.removeEventListener('mousemove', move);
       document.removeEventListener('mouseup', up);
       document.body.style.cursor = '';
+      // 마지막 rAF가 아직 안 돌았을 수도 있으니 최종값을 확실히 반영한다. 시작 폭으로 되돌아온
+      // 경우(commitWidth를 안 부름)에도 그동안 DOM에 직접 써둔 값이 남아있을 수 있어 항상 쓴다 —
+      // useDeckDrag의 finish가 commit 여부와 무관하게 시각 스타일을 항상 정리하는 것과 같은 이유.
+      if (col) col.style.width = `${w}px`;
       if (w !== startW) commitWidth(key, w);
     };
     document.body.style.cursor = 'col-resize';
@@ -115,12 +136,30 @@ export function TweetTable({ rows, columns, sort, dir, onSort }: {
     document.addEventListener('mouseup', up);
   }
 
+  // table-layout: fixed는 표 자신의 width가 auto가 아닐 때만 적용된다(CSS2.1 §17.5.2) — 이전엔
+  // table-fixed 클래스만 있고 표 폭을 안 정해줘서 auto 레이아웃으로 조용히 되돌아갔고, 그래서
+  // 칸을 아무리 좁혀도 내용(가장 긴 값)이 표를 다시 늘려 잡아버렸다. 이제 <colgroup>으로 칸마다
+  // 폭을 명시하고 표에도 명시적 width를 줘서 고정 레이아웃이 실제로 걸리게 한다 — 그래야 셀의
+  // overflow-hidden + text-ellipsis(아래)가 비로소 의미가 생긴다.
+  const totalWidth = columns.reduce((sum, c) => sum + widthFor(c.key), 0);
+
   return (
     // 가로·세로 스크롤은 부모(TweetTableView)의 컨테이너 하나가 담당한다.
     // 여기서 또 overflow-x-auto를 걸면 그 div가 sticky thead의 기준(가장 가까운 스크롤 컨테이너)이
     // 되어버리는데, 그 div 자신은 세로로 스크롤되지 않으므로 머리글이 고정되지 않는다.
-    // table-fixed + 칸마다 명시한 폭이 있어야 드래그로 정한 폭이 실제로 유지된다(auto면 내용에 맞춰 다시 늘어난다).
-    <table className="table-fixed border-collapse text-ui">
+    // width: max(칸 합, 100%) — 칸 합이 화면보다 좁으면 표가 컨테이너 폭만큼 채워지고(넓은 화면에서
+    // 표가 어중간하게 떠 보이지 않게), 칸 합이 더 크면 그 값 그대로 커져 가로 스크롤이 걸린다.
+    // 100%를 채우려고 남는 폭은 실제 칸이 아니라 맨 끝의 이름 없는 채움 칸(colgroup 마지막 col,
+    // 아래)이 전부 가져간다 — 그래야 사용자가 좁혀둔 칸이 넓은 화면에서 도로 넓어지지 않는다.
+    <table className="table-fixed border-collapse text-ui" style={{ width: `max(${totalWidth}px, 100%)` }}>
+      <colgroup>
+        {columns.map((c) => (
+          <col key={c.key} ref={(el) => { colRefs.current[c.key] = el; }} style={{ width: widthFor(c.key) }} />
+        ))}
+        {/* 채움 칸 — 폭을 지정하지 않아 표의 남는 공간을 전부 떠안는다(고정 레이아웃에서 폭 미지정
+            칸의 몫). 실제 데이터가 없어 헤더·본문 모두에서 빈 칸으로 대응한다(아래 aria-hidden th/td). */}
+        <col />
+      </colgroup>
       <thead className="sticky top-0 z-10 bg-x-surface">
         <tr className="border-b border-x-border-strong text-left">
           {columns.map((c) => {
@@ -130,7 +169,6 @@ export function TweetTable({ rows, columns, sort, dir, onSort }: {
               <th key={c.key} scope="col"
                   // aria-sort는 정렬 가능한 칸에만. 없으면 스크린리더가 현재 정렬을 알 수 없다.
                   aria-sort={c.sort ? (active ? (dir === 'desc' ? 'descending' : 'ascending') : 'none') : undefined}
-                  style={{ width: w }}
                   className={`relative overflow-hidden py-3 pl-2 pr-3 font-medium ${c.numeric ? 'text-right' : 'text-left'} ${active ? 'text-x-text' : 'text-x-secondary'}`}>
                 {c.sort ? (
                   <button type="button" onClick={() => onSort(c.sort!)}
@@ -143,7 +181,11 @@ export function TweetTable({ rows, columns, sort, dir, onSort }: {
                 {/* 폭 조절 손잡이 — ColumnGrip과 같은 접근성 처리를 폭 조절에 맞게 옮겼다:
                     role="button"이면 Enter/스페이스가 뭔가 할 거라는 기대를 주는데 이 손잡이는 화살표로만
                     움직인다. role 없이 두면 스크린리더 컨트롤 탐색에 아예 안 잡힌다(WCAG 4.1.2).
-                    "N개 중 M번째" 대신 "폭 Npx"라는 값을 화살표로 바꾸는 컨트롤이라 여기서도 slider가 맞다. */}
+                    "N개 중 M번째" 대신 "폭 Npx"라는 값을 화살표로 바꾸는 컨트롤이라 여기서도 slider가 맞다.
+                    시각: ColumnGrip과 같은 원칙("hover에 숨기면 아무도 발견 못 한다")을 여기도 적용한다 —
+                    평소에도 칸 경계에 가는 세로선(after:)이 보여 "여기 잡을 수 있다"는 게 항상 드러나고,
+                    hover·focus에서 더 진한 색 + 옅은 배경으로 강해진다. 14개 경계가 한꺼번에 두꺼우면
+                    울타리처럼 보이니 히트 영역(w-1.5, 6px)은 넓게 두되 평소 보이는 선은 1px만 그린다. */}
                 <span
                   role="slider"
                   aria-roledescription="칸 폭 조절 손잡이"
@@ -162,11 +204,13 @@ export function TweetTable({ rows, columns, sort, dir, onSort }: {
                     else if (e.key === 'ArrowRight') { e.preventDefault(); nudgeWidth(c.key, WIDTH_STEP); }
                     else if (e.key === ' ') e.preventDefault();   // 스페이스로 페이지가 스크롤되는 것만 막는다
                   }}
-                  className="absolute right-0 top-0 z-10 h-full w-1.5 touch-none cursor-col-resize hover:bg-x-border-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-x-blue active:bg-x-border-strong"
+                  className="absolute right-0 top-0 z-10 h-full w-1.5 touch-none cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-x-border-strong after:content-[''] hover:bg-x-hover hover:after:bg-x-secondary focus-visible:bg-x-hover focus-visible:after:bg-x-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-x-blue active:bg-x-hover active:after:bg-x-secondary"
                 />
               </th>
             );
           })}
+          {/* colgroup의 채움 칸과 짝을 이루는 빈 헤더 칸 — 데이터가 없어 보조기술 트리에서 뺀다 */}
+          <th aria-hidden="true" />
         </tr>
       </thead>
       <tbody>
@@ -188,6 +232,8 @@ export function TweetTable({ rows, columns, sort, dir, onSort }: {
                 </td>
               );
             })}
+            {/* 헤더의 채움 칸과 짝 — 없으면 열 개수가 colgroup과 안 맞아 브라우저가 채움 칸을 무시한다 */}
+            <td aria-hidden="true" />
           </tr>
         ))}
       </tbody>

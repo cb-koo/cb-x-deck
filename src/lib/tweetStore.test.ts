@@ -4,16 +4,17 @@ import { getSql } from './db.ts';
 import { upsertTweets, linkColumnTweets, getColumnTweets, getColumnTweetCount, getTweetsByIds, getWorkspaceTableRows, getWorkspaceTableCount } from './tweetStore.ts';
 import { createColumn, deleteColumn, touchRefreshed, getColumn } from './columnStore.ts';
 import { createWorkspace, deleteWorkspace, createMember } from './workspaceStore.ts';
+import { TABLE_MAX } from './tableLimits.ts';
 import type { DeckTweet } from './types.ts';
 
 const sql = getSql();
 const P = 'test-ts-' + process.pid + '-';
 
-function tw(id: string, views: number): DeckTweet {
+function tw(id: string, views: number, metrics: Partial<DeckTweet['metrics']> = {}): DeckTweet {
   return {
     tweetId: P + id, authorHandle: 'tester', authorName: 'T', authorAvatarUrl: null, authorFollowers: 10,
     text: 'hello ' + id, media: [], quoted: null,
-    metrics: { views, likes: 1, retweets: 2, replies: 0, quotes: 0, bookmarks: 3 },
+    metrics: { views, likes: 1, retweets: 2, replies: 0, quotes: 0, bookmarks: 3, ...metrics },
     tweetUrl: null, tweetCreatedAt: new Date('2026-07-01T00:00:00Z').toISOString(),
   };
 }
@@ -218,7 +219,8 @@ test('표 쿼리 — 여러 열에 걸린 트윗은 한 행, 버림 제외, 워�
   const colB = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'B', config: { keywords: ['b'] } });
   const colX = await createColumn(sql, { workspaceId: other.id, kind: 'search', title: P + 'X', config: { keywords: ['x'] } });
   try {
-    await upsertTweets(sql, [tw('t1', 100), tw('t2', 300), tw('t3', 200), tw('t4', 999)]);
+    // t1은 조회수는 적지만 좋아요는 많다 — views/likes 정렬 순서가 서로 달라지도록 일부러 엇갈리게 잡는다.
+    await upsertTweets(sql, [tw('t1', 100, { likes: 500 }), tw('t2', 300, { likes: 10 }), tw('t3', 200), tw('t4', 999)]);
     await linkColumnTweets(sql, colA.id, [P + 't1', P + 't2', P + 't3']);
     await linkColumnTweets(sql, colB.id, [P + 't2']);              // t2는 두 열에 걸림
     await linkColumnTweets(sql, colX.id, [P + 't4']);              // 다른 워크스페이스
@@ -244,11 +246,22 @@ test('표 쿼리 — 여러 열에 걸린 트윗은 한 행, 버림 제외, 워�
     const asc = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', dir: 'asc' });
     assert.deepEqual(asc.map((r) => r.tweetId), [P + 't1', P + 't2']);
     const byLikes = await getWorkspaceTableRows(sql, ws.id, { sort: 'likes' });
-    assert.equal(byLikes.length, 2);
+    // t1(likes=500) > t2(likes=10) — views 정렬([t2,t1])과는 반대 순서라, sort 키가 실제로 likes를
+    // 쓰고 있음을 증명한다(views로 새는 버그였다면 [t2, t1]이 나와 이 단언이 깨진다).
+    assert.deepEqual(byLikes.map((r) => r.tweetId), [P + 't1', P + 't2'], 'likes 정렬은 views와 다른 순서를 내야 한다');
 
     // 페이지네이션
     const page = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', limit: 1, offset: 1 });
     assert.deepEqual(page.map((r) => r.tweetId), [P + 't1']);
+
+    // savedBy: candidate + member에서 워크스페이스 범위로 집계 — library_item이 아님을 증명
+    const mSaved = await createMember(sql, P + 'Saved', '#444444');
+    await sql`insert into candidate (tweet_id, workspace_id, member_id) values (${P + 't1'}, ${ws.id}, ${mSaved.id})`;
+    const withSaved = await getWorkspaceTableRows(sql, ws.id, { sort: 'views' });
+    const t1Row = withSaved.find((r) => r.tweetId === P + 't1')!;
+    const t2Row = withSaved.find((r) => r.tweetId === P + 't2')!;
+    assert.deepEqual(t1Row.savedBy.map((mm) => mm.name), [P + 'Saved'], '저장자는 candidate+member에서 워크스페이스 범위로 온다');
+    assert.deepEqual(t2Row.savedBy, [], '아무도 저장하지 않은 트윗은 savedBy가 빈 배열');
   } finally {
     await sql`delete from dismissed_tweet where workspace_id = ${ws.id}`;
     await deleteColumn(sql, colA.id); await deleteColumn(sql, colB.id); await deleteColumn(sql, colX.id);
@@ -256,12 +269,26 @@ test('표 쿼리 — 여러 열에 걸린 트윗은 한 행, 버림 제외, 워�
   }
 });
 
-test('표 쿼리 — limit 상한 5000을 넘겨 요청해도 잘린다', async () => {
+test('표 쿼리 — limit이 실제로 행 수를 제한하고, 상한을 훌쩍 넘겨도 SQL 오류 없이 동작한다', async () => {
+  // 주의: TABLE_MAX=5000 경계 자체(5000건 vs 5001건)는 5001행을 실제로 넣지 않는 한
+  // 관측할 수 없다 — 그건 이 테스트가 하지 않는다(공유 프로덕션 DB에 5000+행을 심는 비용이 과함).
+  // 대신 여기서 실제로 증명하는 것은: (a) limit 파라미터가 진짜로 행 수를 자른다는 것,
+  // (b) 상한을 훨씬 웃도는 limit(99999)을 넘겨도 clamp 로직이 SQL 오류 없이 통과하고,
+  // 존재하는 행만큼만(=상한 이하) 돌려준다는 것.
   const ws = await createWorkspace(sql, P + 'ws-cap');
+  const col = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'cap', config: { keywords: ['x'] } });
   try {
-    const rows = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', limit: 99999 });
-    assert.deepEqual(rows, []); // 데이터가 없어도 오류 없이 통과 — 상한 처리에서 SQL 오류가 나지 않는지 확인
+    await upsertTweets(sql, [tw('cap1', 30), tw('cap2', 20), tw('cap3', 10)]);
+    await linkColumnTweets(sql, col.id, [P + 'cap1', P + 'cap2', P + 'cap3']);
+
+    const limited = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', limit: 2 });
+    assert.equal(limited.length, 2, 'limit 파라미터가 실제로 행 수를 제한해야 한다(무시되면 3이 나온다)');
+
+    const overCap = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', limit: 99999 });
+    assert.equal(overCap.length, 3, '상한을 훌쩍 넘겨 요청해도 SQL 오류 없이, 존재하는 행은 모두 반환된다');
+    assert.ok(overCap.length <= TABLE_MAX, `반환 행 수는 상한(${TABLE_MAX})을 넘어서는 안 된다`);
   } finally {
+    await deleteColumn(sql, col.id);
     await deleteWorkspace(sql, ws.id);
   }
 });

@@ -10,7 +10,9 @@ import { formatCount } from '@/lib/format';
 import { TweetText } from './TweetText';
 import { MediaGrid } from './MediaGrid';
 import { QuotedCard } from './QuotedCard';
-import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from './XIcons';
+import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon, ShareIcon } from './XIcons';
+import { tweetPermalink } from '@/lib/tweetLink';
+import { useToast } from '@/lib/toastContext';
 import { median, weeklyJudgment } from '@/lib/trend';
 import { useTour } from '@/lib/tour/useTour';
 import { BRIEFING_STEPS } from '@/lib/tour/tourSteps';
@@ -92,6 +94,31 @@ function SaveStar({ tweetId, withLabel = false }: { tweetId: string; withLabel?:
   );
 }
 
+// 링크 복사 — 덱 카드(TweetCard)와 같은 아이콘·같은 문구의 공유 버튼. 브리핑은 TweetCard를 재사용하지 않으므로
+// 컴팩트 카드·펼친 카드가 함께 쓰는 이 하나만 둔다(설계 2026-07-30 §F).
+// - 두 카드 모두 컨테이너에 펼치기/접기 onClick이 걸려 있어 전파를 반드시 끊는다(§F).
+// - 스냅샷 없는 인용은 핸들이 없다 — tweetPermalink가 ID만의 형식으로 떨어뜨린다(§F). 여기서 다시 분기하지 않는다.
+// - 실패해도 버튼을 숨기지 않고 이유를 말한다(§E).
+function CopyLinkButton({ c, className = '', iconClassName }: { c: BriefingCitation; className?: string; iconClassName?: string }) {
+  const { show } = useToast();
+  async function copyLink(e: React.MouseEvent) {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(tweetPermalink(c.tweet?.authorHandle, c.tweetId));
+      show('링크를 복사했어요', { duration: 2500 });
+    } catch {
+      show('링크를 복사하지 못했어요 — 브라우저 권한을 확인해 주세요');
+    }
+  }
+  return (
+    <button type="button" onClick={copyLink}
+            aria-label="링크 복사" title="이 트윗 링크를 복사합니다"
+            className={`flex shrink-0 items-center rounded-full text-x-secondary transition-colors hover:bg-x-blue/10 hover:text-x-blue-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-x-blue ${className}`}>
+      <ShareIcon className={iconClassName} />
+    </button>
+  );
+}
+
 // 문단 사이 임베드 카드 — 주장(문단) 바로 아래에 근거 트윗이 보이는 뉴스 기사식 배치.
 // wide = 문단에 인용이 1개일 때의 큰 카드 / 아니면 가로 스트립용 컴팩트 카드.
 function EmbedCard({ c, wide, anchor = true, onToggle, expanded = false }: {
@@ -122,6 +149,9 @@ function EmbedCard({ c, wide, anchor = true, onToggle, expanded = false }: {
         ) : <span className="text-x-secondary">원문 스냅샷 없음</span>}
         <span className="ml-auto shrink-0 text-x-secondary">♥ {formatCount(c.likes)}</span>
         <SaveStar tweetId={c.tweetId} />
+        {/* ♥ 좋아요 · ☆ 다음이 X의 공유 자리(§F). 이 줄은 text-xs/아바타 h-4라 아이콘도 h-4로 맞추고,
+            음수 마진으로 히트 영역만 넓혀 줄 높이는 그대로 둔다. */}
+        <CopyLinkButton c={c} className="-my-1 self-center p-1" iconClassName="h-4 w-4" />
       </p>
       <p className={`mt-1 whitespace-pre-wrap ${wide ? 'line-clamp-4' : 'line-clamp-3'}`}>{c.text}</p>
       {thumb && (
@@ -181,6 +211,9 @@ function FullTweetCard({ c, onCollapse }: { c: BriefingCitation; onCollapse: () 
               <span title="좋아요 (Like)" className={metricBase}><LikeIcon /> {formatCount(t.metrics.likes)}</span>
               <span title="조회수 (View)" className={metricBase}><ViewIcon /> {formatCount(t.metrics.views)}</span>
               <span title="북마크 (Bookmark)" className={metricBase}><BookmarkIcon /> {formatCount(t.metrics.bookmarks)}</span>
+              {/* 지표 바 맨 끝 = 덱 카드와 같은 자리(§F). 지표는 읽기 전용 span이고 이것만 원형 배경이 생겨
+                  "누를 수 있음"을 구분한다. 음수 마진은 줄 높이·정렬(justify-between)을 흐트러뜨리지 않기 위한 것. */}
+              <CopyLinkButton c={c} className="-my-2 -mr-2 p-2" />
             </div>
           )}
           <div className="mt-2 text-right text-xs"><SaveStar tweetId={c.tweetId} withLabel /></div>

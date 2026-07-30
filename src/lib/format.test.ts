@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatCount, formatDate } from './format.ts';
+import { formatCount, formatFull, formatDate } from './format.ts';
 
 test('formatCount: X식 K/M 축약', () => {
   assert.equal(formatCount(null), '–');
@@ -13,6 +13,14 @@ test('formatCount: X식 K/M 축약', () => {
   assert.equal(formatCount(1200000), '1.2M');
   assert.equal(formatCount(13740000), '13.7M');
   assert.equal(formatCount(196000000), '196M');   // 100M 이상은 정수
+});
+
+test('formatFull: 축약 없이 콤마만 (표 보기용)', () => {
+  assert.equal(formatFull(null), '–');
+  assert.equal(formatFull(0), '0');            // 0회와 모름은 다르다
+  assert.equal(formatFull(883), '883');
+  assert.equal(formatFull(15300), '15,300');   // formatCount는 15.3K로 줄이지만 표는 줄이지 않는다
+  assert.equal(formatFull(23700000), '23,700,000');
 });
 
 test('formatDate: ISO → 짧은 표기', () => {

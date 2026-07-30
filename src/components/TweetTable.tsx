@@ -12,20 +12,21 @@ const MAX_COL_WIDTH = 720;   // 덱 컬럼 폭 조절(Column.tsx)과 같은 상�
 const WIDTH_STEP = 24;       // 화살표 키 한 번에 움직이는 양
 
 // 기본 폭 — 1500px 안팎 화면에서 기본 8칸이 꽉 차 보이고, 14칸(칸 더보기)도 무리 없이 가로 스크롤되도록 잡았다.
-// 본문이 가장 넓고(읽는 목적), 지표 칸은 좁고(숫자만), 계정·열은 중간이다.
+// 본문이 가장 넓고(읽는 목적), 계정·열은 중간이다. 지표 칸은 축약 없는 원본 숫자를
+// 담아야 하므로(23,700,000 = 10자) 콤마까지 들어갈 폭을 준다 — 좁히면 줄임표로 잘린다.
 const DEFAULT_COL_WIDTH: Record<string, number> = {
   columns: 140,
   handle: 120,
   date: 100,
   text: 460,
-  views: 88,
-  likes: 88,
-  retweets: 88,
+  views: 108,
+  likes: 100,
+  retweets: 96,
   link: 72,
-  replies: 88,
-  quotes: 88,
-  bookmarks: 96,
-  followers: 96,
+  replies: 96,
+  quotes: 96,
+  bookmarks: 100,
+  followers: 108,
   saved: 140,
   fetchedAt: 150,
 };

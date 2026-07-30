@@ -1,6 +1,7 @@
 // 표 보기의 칸 정의와 셀 값. 화면값과 내보내기값을 나누는 것이 이 모듈의 핵심 책임이다
-// (설계 2026-07-30 §F "값 표기") — 화면의 128K는 읽기 편한 축약이고, 엑셀에 필요한 것은 원값 128000이다.
-import { formatCount } from './format.ts';
+// (설계 2026-07-30 §F "값 표기"). 숫자는 화면·내보내기 모두 축약 없는 원값이고, 갈리는 것은
+// 값이 없을 때다 — 화면은 '–'(모른다는 표시), 내보내기는 빈칸(0으로 채우면 평균이 왜곡된다).
+import { formatFull } from './format.ts';
 import { tweetPermalink } from './tweetLink.ts';
 import { SORT_LABEL } from './sortKeys.ts';
 import type { SortKey, TableRow } from './types.ts';
@@ -10,7 +11,7 @@ export interface TableColumn {
   label: string;
   sort?: SortKey;            // 있으면 이 칸 머리글로 정렬할 수 있다
   group: 'base' | 'more';    // base=기본 8칸, more='칸 더보기'로 펼침
-  numeric?: boolean;         // 우측 정렬 + 화면에서 축약 표기
+  numeric?: boolean;         // 우측 정렬 + 자리수 고정 글꼴
 }
 
 const M = (key: string, sort: SortKey, group: 'base' | 'more'): TableColumn =>
@@ -64,7 +65,9 @@ function metricOf(row: TableRow, key: string): number | null | undefined {
   return (row.metrics as unknown as Record<string, number | null>)[key];
 }
 
-// 화면용 — 숫자는 X식 축약(128K), 없는 값은 formatCount의 '–'
+// 화면용 — 숫자는 축약 없이 콤마 표기(128,000), 없는 값은 '–'.
+// 카드뷰는 X와 같아 보이는 것이 목적이라 X식 축약(formatCount)을 쓰지만, 표는 숫자를 나란히
+// 놓고 비교하는 화면이라 23.7M처럼 줄이면 자리수를 눈으로 맞출 수 없다 (2026-07-31 사용자 결정).
 export function cellDisplay(row: TableRow, col: TableColumn): string {
   switch (col.key) {
     case 'columns': return row.columnTitles.join(', ');
@@ -72,10 +75,10 @@ export function cellDisplay(row: TableRow, col: TableColumn): string {
     case 'date': return ymd(row.tweetCreatedAt);
     case 'text': return row.text;
     case 'link': return tweetPermalink(row.authorHandle, row.tweetId);
-    case 'followers': return formatCount(row.authorFollowers);
+    case 'followers': return formatFull(row.authorFollowers);
     case 'saved': return row.savedBy.map((m) => m.name).join(', ');
     case 'fetchedAt': return ymdHm(row.lastFetchedAt);
-    default: return formatCount(metricOf(row, col.key) ?? null);
+    default: return formatFull(metricOf(row, col.key) ?? null);
   }
 }
 

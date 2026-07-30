@@ -32,14 +32,18 @@ test('내보내기 칸은 접혀 있어도 기준(fetchedAt)을 항상 포함한
   assert.equal(exportColumns(true).length, 14);
 });
 
-test('지표는 화면에선 축약, 내보내기는 원숫자 — 엑셀에서 계산되어야 한다', () => {
+test('지표는 화면도 축약하지 않는다 — 표는 자리수를 눈으로 맞추는 화면 (카드뷰만 X식 축약 유지)', () => {
   const views = TABLE_COLUMNS.find((c) => c.key === 'views')!;
-  assert.equal(cellDisplay(ROW, views), '128K');
-  assert.equal(cellExport(ROW, views), '128000');
+  assert.equal(cellDisplay(ROW, views), '128,000');   // 128K 아님
+  assert.equal(cellExport(ROW, views), '128000');     // 내보내기는 콤마도 없는 원값(엑셀이 숫자로 인식)
+  const followers = TABLE_COLUMNS.find((c) => c.key === 'followers')!;
+  assert.equal(cellDisplay(ROW, followers), '128,000');
+  assert.equal(cellExport(ROW, followers), '128000');
 });
 
-test('값이 없는 지표는 내보낼 때 0이 아니라 빈칸 (0은 평균을 왜곡한다)', () => {
+test('값이 없는 지표는 화면은 –, 내보낼 때는 0이 아니라 빈칸 (0은 평균을 왜곡한다)', () => {
   const replies = TABLE_COLUMNS.find((c) => c.key === 'replies')!;
+  assert.equal(cellDisplay(ROW, replies), '–');
   assert.equal(cellExport(ROW, replies), '');
   // 0은 0으로 나간다 — 모름과 다르다
   const quotes = TABLE_COLUMNS.find((c) => c.key === 'quotes')!;

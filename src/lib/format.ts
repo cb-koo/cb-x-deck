@@ -8,6 +8,14 @@ export function formatCount(n: number | null): string {
   return `${s}${unit}`;
 }
 
+// 축약 없이 콤마만 넣은 원본 숫자. 표 보기가 쓴다 — 표는 숫자를 나란히 놓고 비교하는 화면이라
+// 23.7M처럼 줄이면 자리수를 눈으로 못 맞춘다. 카드뷰는 X와 같아 보이는 것이 목적이므로
+// formatCount(X식 축약)를 계속 쓴다 (2026-07-31 사용자 결정).
+export function formatFull(n: number | null): string {
+  if (n === null || n === undefined) return '–';
+  return n.toLocaleString('en-US');
+}
+
 export function formatDate(iso: string | null): string {
   if (!iso) return '–';
   const d = new Date(iso);

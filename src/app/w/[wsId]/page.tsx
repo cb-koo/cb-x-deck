@@ -1,7 +1,7 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ColumnKind, ColumnRow, SearchConfig, WatchlistConfig } from '@/lib/types';
 import { Column } from '@/components/Column';
 import { ColumnSettings } from '@/components/ColumnSettings';
@@ -11,9 +11,21 @@ import { useTour } from '@/lib/tour/useTour';
 import { deckSteps } from '@/lib/tour/tourSteps';
 import { hasSeenTour } from '@/lib/tour/tourState';
 import { HelpButton } from '@/components/HelpButton';
+import { TweetTableView } from '@/components/TweetTableView';
 
 export default function DeckPage() {
   const { wsId } = useParams<{ wsId: string }>();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const view = searchParams.get('view') === 'table' ? 'table' : 'cards';
+  // 주소에 보기 모드를 남긴다 — 새로고침·북마크·링크 공유로 유지된다
+  function setView(next: 'cards' | 'table') {
+    const p = new URLSearchParams(searchParams.toString());
+    if (next === 'table') p.set('view', 'table'); else p.delete('view');
+    const q = p.toString();
+    router.replace(q ? `${pathname}?${q}` : pathname);
+  }
   const [columns, setColumns] = useState<ColumnRow[]>([]);
   const [modal, setModal] = useState<{ mode: 'create' | 'edit'; column?: ColumnRow; presetKeyword?: string } | null>(null);
   const [newColumnId, setNewColumnId] = useState<string | null>(null);
@@ -112,8 +124,22 @@ export default function DeckPage() {
                 className="rounded-full bg-x-text px-4 py-1.5 text-ui font-bold text-white hover:opacity-90">
           + 컬럼
         </button>
+        {/* 같은 데이터의 다른 표현 — 카드는 한 건을 깊게, 표는 여러 건을 지표로 비교 */}
+        <div className="flex items-center gap-1">
+          <span className="text-caption text-x-muted">보기</span>
+          {(['cards', 'table'] as const).map((v) => (
+            <button key={v} onClick={() => setView(v)} aria-pressed={view === v}
+                    title={v === 'cards' ? 'X와 같은 카드로 봐요' : '지표를 나란히 놓고 비교하거나 노션·엑셀로 빼내요'}
+                    className={`rounded-full border px-2.5 py-1 text-ui ${view === v ? 'border-x-text font-bold text-x-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
+              {v === 'cards' ? '카드' : '표'}
+            </button>
+          ))}
+        </div>
         <HelpButton onClick={() => start('deck', deckSteps())} />
       </div>
+      {view === 'table' ? (
+        <TweetTableView wsId={wsId} columns={columns} />
+      ) : (
       <main ref={deckRef} className="flex flex-1 overflow-x-auto">
         {columns.length === 0 && (
           <p className="m-auto text-ui text-x-muted">컬럼이 없습니다 — “+ 컬럼”으로 키워드/인플루언서 컬럼을 만드세요</p>
@@ -130,6 +156,7 @@ export default function DeckPage() {
                   onKeyboardMove={(delta) => moveByKeyboard(i, delta)} />
         ))}
       </main>
+      )}
       {modal && (
         <ColumnSettings initial={modal.mode === 'edit' ? modal.column : undefined}
                         presetKeyword={modal.presetKeyword}

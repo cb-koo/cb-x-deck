@@ -26,8 +26,10 @@ export function ColumnPicker({ columns, counts, selected, onChange }: {
       <summary className="flex cursor-pointer list-none items-center gap-1 rounded-full border border-x-border-strong px-2.5 py-1 text-ui text-x-secondary hover:bg-x-hover [&::-webkit-details-marker]:hidden">
         열: <span className="font-medium text-x-text">{label}</span> <ChevronDownIcon className="h-3 w-3" />
       </summary>
+      {/* left-0: 트리거가 툴바 왼쪽이라(칩을 대체한 자리) — Column.tsx의 '보기: 전체' 드롭다운은
+          ml-auto로 오른쪽에 붙어 있어 right-0이 맞지만, 이 트리거는 반대쪽이라 잘림을 피하려면 left-0이어야 한다 */}
       <div className="absolute left-0 z-20 mt-1 max-h-80 w-72 overflow-y-auto rounded-xl border border-x-border bg-white p-1 shadow-lg">
-        <button onClick={() => onChange([])}
+        <button onClick={() => onChange([])} aria-pressed={selected.length === 0}
                 className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-ui hover:bg-x-hover ${selected.length === 0 ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
           전체
         </button>

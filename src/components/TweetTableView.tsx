@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { ColumnRow, SortDir, SortKey, TableRow } from '@/lib/types';
 import { exportColumns, visibleColumns } from '@/lib/tableColumns';
@@ -33,6 +33,14 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   const [busy, setBusy] = useState(false);
   const reqIdRef = useRef(0);   // 응답 경합 가드 — 가장 최근 요청만 상태를 갱신한다
 
+  // 표시용 파생값 — 저장된 columnIds에 지금 columns 목록에 없는 id가 섞여 있으면(워크스페이스 전환·
+  // 다른 탭에서의 열 삭제로 URL의 ?view=table을 통해 컴포넌트가 유지된 채 넘어온 경우) 라벨은 '전체'인데
+  // 쿼리는 없는 열을 요청해 결과가 비어버린다(라벨과 값이 어긋남). 이 파생값 하나로 라벨·쿼리·빈 상태 분기를 통일한다.
+  const activeColumnIds = useMemo(
+    () => columnIds.filter((id) => columns.some((c) => c.id === id)),
+    [columnIds, columns],
+  );
+
   useEffect(() => {
     try { setShowMore(localStorage.getItem(MORE_KEY) === '1'); } catch { /* 접근 거부 시 기본값 */ }
   }, []);
@@ -44,9 +52,9 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
 
   const qs = useCallback((extra: Record<string, string>) => {
     const p = new URLSearchParams({ workspaceId: wsId, sort, dir, ...extra });
-    if (columnIds.length > 0) p.set('columnIds', columnIds.join(','));
+    if (activeColumnIds.length > 0) p.set('columnIds', activeColumnIds.join(','));
     return p.toString();
-  }, [wsId, sort, dir, columnIds]);
+  }, [wsId, sort, dir, activeColumnIds]);
 
   const load = useCallback(async (append: boolean) => {
     const id = ++reqIdRef.current;   // 이 호출의 번호를 찍어두고, 응답이 오면 아직 최신인지 확인한다
@@ -66,9 +74,10 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
     }
   }, [qs, rows.length]);
 
-  // 정렬·필터가 바뀌면 처음부터 다시 — append=false
+  // 정렬·필터가 바뀌면 처음부터 다시 — append=false. columnIds가 아니라 activeColumnIds를 봐야
+  // 삭제된 열 id가 걸러진 것 자체(라벨 갱신)도 재조회를 유발한다.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void load(false); }, [wsId, sort, dir, columnIds]);
+  useEffect(() => { void load(false); }, [wsId, sort, dir, activeColumnIds]);
 
   // 열별 건수는 워크스페이스가 바뀔 때만 — 조건·정렬이 바뀌어도 다시 부르지 않는다. 부가 정보라 실패해도 화면은 동작한다.
   const loadCounts = useCallback(async () => {
@@ -107,7 +116,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 0);
       show(d.total > d.rows.length
-        ? `상위 ${d.rows.length.toLocaleString('en-US')}줄만 저장했어요 — 열 칩으로 범위를 좁혀보세요`
+        ? `상위 ${d.rows.length.toLocaleString('en-US')}줄만 저장했어요 — 열 드롭다운으로 범위를 좁혀보세요`
         : `CSV ${d.rows.length.toLocaleString('en-US')}줄을 저장했어요`);
     } catch {
       show('CSV를 저장하지 못했어요 — 잠시 후 다시 시도해주세요');
@@ -122,7 +131,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
     <div className="flex h-full min-h-0 flex-col">
       {/* 열 선택(왼쪽) + 칸 더보기·CSV 저장(오른쪽, 구분선으로 분리) */}
       <div className="flex items-start justify-between gap-3 border-b border-x-border px-4 py-2">
-        <ColumnPicker columns={columns} counts={counts} selected={columnIds} onChange={setColumnIds} />
+        <ColumnPicker columns={columns} counts={counts} selected={activeColumnIds} onChange={setColumnIds} />
         <div className="flex shrink-0 items-center gap-2 border-l border-x-border pl-3">
           <Button variant="ghost" onClick={toggleMore}
                   title={showMore ? '답글·인용·북마크·팔로워·저장·기준 칸을 접어요' : '답글·인용·북마크·팔로워·저장·기준 칸을 펼쳐요'}>
@@ -167,7 +176,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
           </p>
         ) : columns.length === 0 ? (
           <p className="p-4 text-ui text-x-muted">아직 열이 없어요 — 카드 보기에서 열을 만들어보세요</p>
-        ) : rows.length === 0 && columnIds.length > 0 ? (
+        ) : rows.length === 0 && activeColumnIds.length > 0 ? (
           <p className="p-4 text-ui text-x-muted">
             이 열에는 글이 없어요 — <button onClick={() => setColumnIds([])} className="underline">전체 보기</button>
           </p>

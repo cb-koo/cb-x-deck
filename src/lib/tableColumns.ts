@@ -10,43 +10,30 @@ export interface TableColumn {
   key: string;
   label: string;
   sort?: SortKey;            // 있으면 이 칸 머리글로 정렬할 수 있다
-  group: 'base' | 'more';    // base=기본 8칸, more='칸 더보기'로 펼침
   numeric?: boolean;         // 우측 정렬 + 자리수 고정 글꼴
 }
 
-const M = (key: string, sort: SortKey, group: 'base' | 'more'): TableColumn =>
-  ({ key, label: SORT_LABEL[sort], sort, group, numeric: true });
+const M = (key: string, sort: SortKey): TableColumn =>
+  ({ key, label: SORT_LABEL[sort], sort, numeric: true });
 
-// 표시 순서대로. 기본 8칸을 먼저 두고 더보기 6칸이 뒤따른다 —
-// 지표를 다 펼치면 본문 칸이 밀려 "어떤 글인지" 파악이 안 되기 때문(설계 §C).
+// 표시 순서대로. 늘 14칸 전부를 보여준다 — 칸 폭은 드래그로 조절할 수 있어(TweetTable.tsx)
+// 본문 칸이 밀리는 문제는 그쪽에서 다룬다(설계 2026-07-31 "칸 더보기 제거").
 export const TABLE_COLUMNS: TableColumn[] = [
-  { key: 'columns', label: '열', group: 'base' },
-  { key: 'handle', label: '계정', group: 'base' },
-  { key: 'date', label: SORT_LABEL.date, sort: 'date', group: 'base' },
-  { key: 'text', label: '본문', group: 'base' },
-  M('views', 'views', 'base'),
-  M('likes', 'likes', 'base'),
-  M('retweets', 'retweets', 'base'),
-  { key: 'link', label: '링크', group: 'base' },
-  M('replies', 'replies', 'more'),
-  M('quotes', 'quotes', 'more'),
-  M('bookmarks', 'bookmarks', 'more'),
-  { key: 'followers', label: '팔로워', group: 'more', numeric: true },
-  { key: 'saved', label: '저장', group: 'more' },
-  { key: 'fetchedAt', label: '기준', group: 'more' },
+  { key: 'columns', label: '열' },
+  { key: 'handle', label: '계정' },
+  { key: 'date', label: SORT_LABEL.date, sort: 'date' },
+  { key: 'text', label: '본문' },
+  M('views', 'views'),
+  M('likes', 'likes'),
+  M('retweets', 'retweets'),
+  { key: 'link', label: '링크' },
+  M('replies', 'replies'),
+  M('quotes', 'quotes'),
+  M('bookmarks', 'bookmarks'),
+  { key: 'followers', label: '팔로워', numeric: true },
+  { key: 'saved', label: '저장' },
+  { key: 'fetchedAt', label: '기준' },
 ];
-
-export function visibleColumns(showMore: boolean): TableColumn[] {
-  return showMore ? TABLE_COLUMNS : TABLE_COLUMNS.filter((c) => c.group === 'base');
-}
-
-// 내보내기 칸 = 보이는 칸 + '기준'. 화면에서 접어놨어도 넣는다 —
-// 기준 시각 없는 지표 표는 스프레드시트에서 그냥 틀린 비교가 된다(설계 §E).
-export function exportColumns(showMore: boolean): TableColumn[] {
-  const cols = visibleColumns(showMore);
-  if (cols.some((c) => c.key === 'fetchedAt')) return cols;
-  return [...cols, TABLE_COLUMNS.find((c) => c.key === 'fetchedAt')!];
-}
 
 function ymd(iso: string | null): string {
   if (!iso) return '';

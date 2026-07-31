@@ -60,7 +60,7 @@ export function TweetTable({ rows, columns, sort, dir, onSort }: {
 }) {
   // 마운트 시 1회만 읽는다 — 이 컴포넌트는 표가 실제로 그려질 때만 나타나므로(TweetTableView의 로딩 갈래)
   // 서버 렌더를 탄 적이 없다. useEffect로 나중에 읽으면 set-state-in-effect가 걸리므로
-  // (TweetTableView의 MORE_KEY도 이미 그 경고를 안고 있다) lazy initializer로 아예 이펙트를 안 쓴다.
+  // lazy initializer로 아예 이펙트를 안 쓴다.
   const [widths, setWidths] = useState<Record<string, number>>(() => loadStoredWidths());
   // 드래그 중 <col>에 직접 쓰기 위한 DOM 참조 — key당 하나. useDeckDrag가 컬럼 엘리먼트를
   // getColumnEl(id)로 찾아 transform을 직접 쓰는 것과 같은 이유: React state를 거치면

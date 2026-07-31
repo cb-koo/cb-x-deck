@@ -1,8 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { toCsv, CSV_BOM } from './tableExport.ts';
-import { visibleColumns, exportColumns } from './tableColumns.ts';
+import { TABLE_COLUMNS } from './tableColumns.ts';
 import type { TableRow } from './types.ts';
+
+// 칸 더보기 제거 전 visibleColumns(false)/exportColumns(false)가 반환하던 것과 같은 집합을
+// TABLE_COLUMNS에서 key로 뽑아 고정한다 — CSV 픽스처용일 뿐이라 드리프트만 막으면 된다.
+const BASE_KEYS = ['columns', 'handle', 'date', 'text', 'views', 'likes', 'retweets', 'link'];
+const BASE_COLUMNS = BASE_KEYS.map((key) => TABLE_COLUMNS.find((c) => c.key === key)!);
+const BASE_PLUS_FETCHED_AT = [...BASE_COLUMNS, TABLE_COLUMNS.find((c) => c.key === 'fetchedAt')!];
 
 function row(over: Partial<TableRow> = {}): TableRow {
   return {
@@ -14,42 +20,42 @@ function row(over: Partial<TableRow> = {}): TableRow {
 }
 
 test('CSV는 줄바꿈·쉼표·따옴표를 따옴표로 감싸 보존한다', () => {
-  const out = toCsv([row({ text: 'a,b "q"\n다음 줄' })], visibleColumns(false));
+  const out = toCsv([row({ text: 'a,b "q"\n다음 줄' })], BASE_COLUMNS);
   assert.ok(out.includes('"a,b ""q""\n다음 줄"'), out);
 });
 
 test('CSV는 BOM으로 시작한다 (없으면 엑셀이 일본어를 깬다)', () => {
-  const out = toCsv([row()], visibleColumns(false));
+  const out = toCsv([row()], BASE_COLUMNS);
   assert.ok(out.startsWith(CSV_BOM), 'BOM 없음');
   assert.equal(CSV_BOM, '﻿');
 });
 
 test('CSV 줄 구분은 CRLF (엑셀 호환)', () => {
-  const out = toCsv([row(), row()], visibleColumns(false));
+  const out = toCsv([row(), row()], BASE_COLUMNS);
   assert.ok(out.includes('\r\n'), out.slice(0, 80));
 });
 
 test('행이 없어도 머리글은 나온다 (빈 표를 받아도 칸 이름은 남아야 한다)', () => {
-  const out = toCsv([], visibleColumns(false));
+  const out = toCsv([], BASE_COLUMNS);
   const body = out.slice(CSV_BOM.length);
   assert.equal(body.split('\r\n').length, 1);
   assert.ok(body.startsWith('열,계정'));
 });
 
 test('CSV는 =로 시작하는 본문을 홑따옴표로 고정한다 (엑셀 수식 주입 방지)', () => {
-  const out = toCsv([row({ text: '=SUM(A1:A2)' })], visibleColumns(false));
+  const out = toCsv([row({ text: '=SUM(A1:A2)' })], BASE_COLUMNS);
   const body = out.split('\r\n')[1];
   assert.ok(body.includes(`'=SUM(A1:A2)`), body);
 });
 
 test('CSV는 @로 시작하는 계정 칸도 홑따옴표로 고정한다', () => {
-  const out = toCsv([row({ authorHandle: 'danger' })], visibleColumns(false));
+  const out = toCsv([row({ authorHandle: 'danger' })], BASE_COLUMNS);
   const body = out.split('\r\n')[1];
   assert.ok(body.includes(`'@danger`), body);
 });
 
 test('내보내기 칸을 쓰면 기준 칸이 마지막에 붙는다', () => {
-  const out = toCsv([row()], exportColumns(false));
+  const out = toCsv([row()], BASE_PLUS_FETCHED_AT);
   const head = out.split('\r\n')[0].split(',');
   assert.equal(head[head.length - 1], '기준');
   const body = out.split('\r\n')[1].split(',');

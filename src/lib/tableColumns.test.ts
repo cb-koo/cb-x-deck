@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TABLE_COLUMNS, visibleColumns, exportColumns, cellDisplay, cellExport } from './tableColumns.ts';
+import { TABLE_COLUMNS, cellDisplay, cellExport } from './tableColumns.ts';
 import type { TableRow } from './types.ts';
 
 const ROW: TableRow = {
@@ -13,23 +13,13 @@ const ROW: TableRow = {
   lastFetchedAt: '2026-07-30T01:02:03Z',
 };
 
-test('기본은 8칸, 더보기를 켜면 14칸', () => {
-  assert.equal(visibleColumns(false).length, 8);
-  assert.equal(visibleColumns(true).length, 14);
-  assert.equal(TABLE_COLUMNS.length, 14);
-});
-
-test('기본 8칸의 순서와 구성이 설계와 같다', () => {
-  assert.deepEqual(visibleColumns(false).map((c) => c.key),
-    ['columns', 'handle', 'date', 'text', 'views', 'likes', 'retweets', 'link']);
-});
-
-test('내보내기 칸은 접혀 있어도 기준(fetchedAt)을 항상 포함한다', () => {
-  const keys = exportColumns(false).map((c) => c.key);
-  assert.ok(keys.includes('fetchedAt'), '기준 시각 없는 지표 표는 잘못된 비교가 된다');
-  assert.equal(keys.length, 9); // 기본 8 + 기준
-  // 더보기를 켜도 중복되지 않는다
-  assert.equal(exportColumns(true).length, 14);
+// 칸 더보기 토글을 없애면서 8/14 분할을 검사하던 테스트가 사라졌다. 이제 사용자가 보는 것은
+// 이 목록 그대로이므로, 개수와 순서를 여기서 고정한다 — 나머지 테스트는 전부 key로 개별 조회만 한다.
+test('표는 이 14칸을 이 순서로 보여준다', () => {
+  assert.deepEqual(TABLE_COLUMNS.map((c) => c.key), [
+    'columns', 'handle', 'date', 'text', 'views', 'likes', 'retweets', 'link',
+    'replies', 'quotes', 'bookmarks', 'followers', 'saved', 'fetchedAt',
+  ]);
 });
 
 test('지표는 화면도 축약하지 않는다 — 표는 자리수를 눈으로 맞추는 화면 (카드뷰만 X식 축약 유지)', () => {

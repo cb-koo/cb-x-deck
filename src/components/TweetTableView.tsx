@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { ColumnRow, SortDir, SortKey, TableRow } from '@/lib/types';
-import { exportColumns, visibleColumns } from '@/lib/tableColumns';
+import { TABLE_COLUMNS } from '@/lib/tableColumns';
 import { toCsv } from '@/lib/tableExport';
 import { TABLE_MAX, TABLE_PAGE } from '@/lib/tableLimits';
 import { useToast } from '@/lib/toastContext';
@@ -14,8 +14,6 @@ import { TweetTable } from './TweetTable';
 import { DownloadIcon } from './XIcons';
 import { findConflicts } from '@/lib/collectionConflict';
 import { csvFileName, isComplete, type FilterCondition } from '@/lib/tableFilter';
-
-const MORE_KEY = 'table-show-more';   // 칸 더보기 상태 (개인 보기 취향이라 localStorage)
 
 export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onRetryColumns }: {
   wsId: string;
@@ -42,7 +40,6 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   // "정말 0건"인지 "아직 모름"인지 구분이 안 된다. 워크스페이스가 바뀌면 이전 값은 새 워크스페이스의
   // 열에 대해 무의미하므로 loadCounts 안에서 다시 false로 되돌린다.
   const [countsLoaded, setCountsLoaded] = useState(false);
-  const [showMore, setShowMore] = useState(false);
   const [loaded, setLoaded] = useState(false);   // 첫 로드 완료 — 로딩 중 빈 상태 문구를 막는다
   const [err, setErr] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -56,15 +53,6 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
     () => columnIds.filter((id) => columns.some((c) => c.id === id)),
     [columnIds, columns],
   );
-
-  useEffect(() => {
-    try { setShowMore(localStorage.getItem(MORE_KEY) === '1'); } catch { /* 접근 거부 시 기본값 */ }
-  }, []);
-  function toggleMore() {
-    const next = !showMore;
-    setShowMore(next);
-    try { localStorage.setItem(MORE_KEY, next ? '1' : '0'); } catch { /* 저장 못 해도 화면은 동작 */ }
-  }
 
   const qs = useCallback((extra: Record<string, string>) => {
     const p = new URLSearchParams({ workspaceId: wsId, sort, dir, ...extra });
@@ -151,7 +139,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
       const r = await apiFetch(`/api/tweet-table?${qs({ offset: '0', limit: String(TABLE_MAX) })}`);
       if (!r.ok) { show('CSV를 저장하지 못했어요 — 잠시 후 다시 시도해주세요'); return; }
       const d = await r.json() as { rows: TableRow[]; total: number };
-      const csv = toCsv(d.rows, exportColumns(showMore));
+      const csv = toCsv(d.rows, TABLE_COLUMNS);
       const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
       const a = document.createElement('a');
       a.href = url;
@@ -180,7 +168,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
     setFocusRequest((prev) => ({ id, n: (prev?.n ?? 0) + 1 }));
   }
 
-  const cols = visibleColumns(showMore);
+  const cols = TABLE_COLUMNS;
   // 표가 실제로 그려지는 상태인지 — 아래쪽의 스크롤 영역과 '더보기' 버튼이 이 값을 공유한다
   const showTable = loaded && !err && columnsLoaded && !columnsError && columns.length > 0 && rows.length > 0;
   // 패널(배지)과 칩 줄이 같은 경고를 봐야 한다 — 따로 계산하면 둘이 갈라질 수 있다.
@@ -188,7 +176,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* 열 선택(왼쪽) + 칸 더보기·CSV 저장(오른쪽, 구분선으로 분리) */}
+      {/* 열 선택(왼쪽) + CSV 저장(오른쪽, 구분선으로 분리) */}
       <div className="flex items-start justify-between gap-3 border-b border-x-border px-4 py-2">
         <div className="flex items-center gap-2">
           <ColumnPicker columns={columns} counts={counts} countsLoaded={countsLoaded}
@@ -200,11 +188,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
                        focusRequest={focusRequest}
                        panelRef={filterPanelRef} />
         </div>
-        <div className="flex shrink-0 items-center gap-2 border-l border-x-border pl-3">
-          <Button variant="ghost" onClick={toggleMore}
-                  title={showMore ? '답글·인용·북마크·팔로워·저장·기준 칸을 접어요' : '답글·인용·북마크·팔로워·저장·기준 칸을 펼쳐요'}>
-            {showMore ? '− 칸 접기' : '+ 칸 더보기'}
-          </Button>
+        <div className="flex shrink-0 items-center border-l border-x-border pl-3">
           {/* 칩과 같은 알약 모양이면 헷갈린다는 피드백 — 테두리는 남기되 모양(각진 사각)과 아이콘으로 구분한다 */}
           <button onClick={saveCsv} disabled={busy || total === 0}
                   title="조건에 맞는 전체를 CSV 파일로 저장해요"

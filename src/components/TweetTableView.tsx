@@ -36,6 +36,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   const [err, setErr] = useState(false);
   const [busy, setBusy] = useState(false);
   const reqIdRef = useRef(0);   // 응답 경합 가드 — 가장 최근 요청만 상태를 갱신한다
+  const loadKeyRef = useRef<string | null>(null);   // conditions를 뺀 나머지가 마지막으로 즉시 조회를 일으켰을 때의 값
 
   // 표시용 파생값 — 저장된 columnIds에 지금 columns 목록에 없는 id가 섞여 있으면(워크스페이스 전환·
   // 다른 탭에서의 열 삭제로 URL의 ?view=table을 통해 컴포넌트가 유지된 채 넘어온 경우) 라벨은 '전체'인데
@@ -89,8 +90,25 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   // 정렬·필터가 바뀌면 처음부터 다시 — append=false. columnIds가 아니라 activeColumnIds를 봐야
   // 삭제된 열 id가 걸러진 것 자체(라벨 갱신)도 재조회를 유발한다. 조건이 바뀌어도 이어붙이지 않고
   // 처음부터 다시 불러온다(offset 0) — qs가 완성된 조건만 실어 보내므로 미완성 조건은 재조회를 유발하지 않는다.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void load(false); }, [wsId, sort, dir, activeColumnIds, conditions]);
+  //
+  // 단, conditions만 바뀐 경우(필터 값 타이핑)는 즉시 조회하지 않는다 — 숫자 축은 isComplete가
+  // /^\d+$/라서 1 → 10 → 100이 매번 서로 다른 '완성된' 조건이 되고, 문자 축은 빈 값만 아니면 항상
+  // 완성이라 글자 하나하나가 실 DB(싱가포르) 쿼리 + count(distinct)를 태운다(이 기능 자체가 페이지마다
+  // 다시 세지 않으려고 만든 건데, 그 취지를 타이핑에서 다시 어기는 셈). wsId·sort·dir·activeColumnIds로
+  // 만든 키가 지난번과 같으면(=conditions만 바뀜) 입력이 멈추고 나서(~400ms) 한 번만 부르고, 키가
+  // 달라지면(워크스페이스·정렬·열 선택 변경, 최초 마운트 포함) 지연 없이 바로 부른다.
+  useEffect(() => {
+    const key = JSON.stringify({ wsId, sort, dir, activeColumnIds });
+    const filterOnlyChange = loadKeyRef.current === key;
+    loadKeyRef.current = key;
+
+    if (filterOnlyChange) {
+      const timer = setTimeout(() => { void load(false); }, 400);
+      return () => clearTimeout(timer);   // 다음 키 입력이나 언마운트 시 대기 중인 조회를 취소한다
+    }
+    void load(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsId, sort, dir, activeColumnIds, conditions]);
 
   // 열별 건수는 워크스페이스가 바뀔 때만 — 조건·정렬이 바뀌어도 다시 부르지 않는다. 부가 정보라 실패해도 화면은 동작한다.
   const loadCounts = useCallback(async () => {

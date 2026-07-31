@@ -163,3 +163,10 @@ test('csvFileName: 조건을 요약해 같은 날 두 번 받아도 구분된다
   assert.equal(csvFileName({ columnNames: ['a/b:c*?"<>|d'], conditionCount: 0, date: '2026-07-31' }),
     'x-deck-table-abcd-2026-07-31.csv');
 });
+
+test('csvFileName: 제목이 전부 금지 문자뿐이면 지운 빈 이름을 조각으로 넣지 않는다 (하이픈 겹침 방지)', () => {
+  assert.equal(csvFileName({ columnNames: ['***'], conditionCount: 0, date: '2026-07-31' }),
+    'x-deck-table-2026-07-31.csv');
+  assert.equal(csvFileName({ columnNames: ['   '], conditionCount: 1, date: '2026-07-31' }),
+    'x-deck-table-필터1개-2026-07-31.csv');
+});

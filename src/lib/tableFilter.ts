@@ -152,8 +152,12 @@ export function buildFilterSql(
 export function csvFileName(opts: { columnNames: string[]; conditionCount: number; date: string }): string {
   const bad = /[\\/:*?"<>|\s]/g;                       // 파일명에 쓸 수 없는 문자와 공백
   const parts = ['x-deck-table'];
-  if (opts.columnNames.length === 1) parts.push(opts.columnNames[0].replace(bad, ''));
-  else if (opts.columnNames.length > 1) parts.push(`열${opts.columnNames.length}개`);
+  if (opts.columnNames.length === 1) {
+    // 제목이 전부 금지 문자·공백뿐이면(예: '***') 지우고 나면 빈 문자열이 남는다 —
+    // 그걸 그대로 넣으면 '--'가 생겨 이름이 아니라 구분자 두 개로 보인다.
+    const name = opts.columnNames[0].replace(bad, '');
+    if (name) parts.push(name);
+  } else if (opts.columnNames.length > 1) parts.push(`열${opts.columnNames.length}개`);
   if (opts.conditionCount > 0) parts.push(`필터${opts.conditionCount}개`);
   parts.push(opts.date);
   return `${parts.join('-')}.csv`;

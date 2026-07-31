@@ -127,3 +127,14 @@ export function findConflicts(
   }
   return out;
 }
+
+// 칩 줄에는 경고를 한 줄만 세운다(사용자 결정 2026-07-31). 여러 개일 때 무엇을 세울지가 판정이다.
+// '항상 0건'은 '무효'보다 위험하다 — 무엇을 해도 안 나오는데 이유를 알 수 없기 때문이다.
+// 같은 종류끼리는 조건이 놓인 순서를 따른다(사용자가 위에서부터 읽는다).
+export function summarizeConflicts(
+  conflicts: Conflict[],
+): { primary: Conflict; extra: number } | null {
+  if (conflicts.length === 0) return null;
+  const primary = conflicts.find((c) => c.kind === 'alwaysEmpty') ?? conflicts[0];
+  return { primary, extra: conflicts.length - 1 };
+}

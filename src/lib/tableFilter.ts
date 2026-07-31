@@ -182,3 +182,11 @@ export function csvFileName(opts: { columnNames: string[]; conditionCount: numbe
   parts.push(opts.date);
   return `${parts.join('-')}.csv`;
 }
+
+// 열 선택을 한 줄로 말한다. 트리거와 칩이 같은 함수를 써야 갈라지지 않는다 —
+// '3개'처럼 개수만 쓰면 무엇이 걸렸는지 열어봐야 안다(AGENTS.md 원칙 4).
+export function columnSelectionLabel(names: string[]): string {
+  if (names.length === 0) return '전체';
+  if (names.length === 1) return names[0];
+  return `${names[0]} +${names.length - 1}`;
+}

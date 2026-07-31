@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FIELD_SPECS, FILTER_FIELDS, OP_LABEL, isComplete, describeCondition, parseFilters, buildFilterSql,
-         csvFileName, type FilterCondition } from './tableFilter.ts';
+         csvFileName, columnSelectionLabel, type FilterCondition } from './tableFilter.ts';
 
 const c = (over: Partial<FilterCondition> = {}): FilterCondition =>
   ({ id: 'x', field: 'views', op: 'gte', value: '100000', ...over });
@@ -215,4 +215,11 @@ test('csvFileName: 제목이 전부 금지 문자뿐이면 지운 빈 이름을 
     'x-deck-table-2026-07-31.csv');
   assert.equal(csvFileName({ columnNames: ['   '], conditionCount: 1, date: '2026-07-31' }),
     'x-deck-table-필터1개-2026-07-31.csv');
+});
+
+test('columnSelectionLabel: 트리거와 칩이 같은 문구를 쓴다', () => {
+  assert.equal(columnSelectionLabel([]), '전체');
+  assert.equal(columnSelectionLabel(['PDRN 크림']), 'PDRN 크림');
+  assert.equal(columnSelectionLabel(['PDRN 크림', '스킨케어 관련']), 'PDRN 크림 +1');
+  assert.equal(columnSelectionLabel(['A', 'B', 'C']), 'A +2');
 });

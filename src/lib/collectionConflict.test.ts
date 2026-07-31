@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findConflicts } from './collectionConflict.ts';
+import { findConflicts, summarizeConflicts } from './collectionConflict.ts';
 import type { ColumnRow } from './types.ts';
 import type { FilterCondition } from './tableFilter.ts';
 
@@ -223,4 +223,29 @@ test('혼합 선택(검색+인플루언서) — 날짜 alwaysEmpty: 요약형', 
   assert.equal(out.length, 1);
   assert.equal(out[0].kind, 'alwaysEmpty');
   assert.equal(out[0].message, '선택한 열 중 1개는 2026-06-01 이후만 모아서 그 열에서는 한 건도 나오지 않아요');
+});
+
+const cf = (kind: 'noEffect' | 'alwaysEmpty', id: string) =>
+  ({ conditionId: id, kind, message: `${id} 메시지` } as const);
+
+test('summarizeConflicts: 경고가 없으면 null', () => {
+  assert.equal(summarizeConflicts([]), null);
+});
+
+test('summarizeConflicts: 항상 0건이 무효보다 먼저 — 순서가 뒤여도', () => {
+  const out = summarizeConflicts([cf('noEffect', 'a'), cf('alwaysEmpty', 'b')])!;
+  assert.equal(out.primary.conditionId, 'b');
+  assert.equal(out.extra, 1);
+});
+
+test('summarizeConflicts: 같은 종류면 먼저 온 것 — 조건 순서를 따른다', () => {
+  const out = summarizeConflicts([cf('noEffect', 'a'), cf('noEffect', 'b')])!;
+  assert.equal(out.primary.conditionId, 'a');
+  assert.equal(out.extra, 1);
+});
+
+test('summarizeConflicts: 하나뿐이면 나머지는 0', () => {
+  const out = summarizeConflicts([cf('alwaysEmpty', 'z')])!;
+  assert.equal(out.primary.conditionId, 'z');
+  assert.equal(out.extra, 0);
 });

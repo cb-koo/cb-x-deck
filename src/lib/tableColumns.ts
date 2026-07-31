@@ -42,8 +42,13 @@ export const TABLE_COLUMNS: TableColumn[] = [
 // Intl에 맡기면 런타임 시간대 데이터에 의존해 테스트가 환경에 흔들린다.
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
+// 파싱 불가한 값에는 빈 문자열을 돌려준다. 이 함수는 셀마다 불리므로 던지면 표 전체 렌더가
+// 죽는다 — 셀 하나가 비는 것보다 나쁘다. 오늘은 값이 Postgres timestamptz에서 오므로 도달하지
+// 않지만, 실패 양상의 차이가 커서 막아둔다.
 function toKstIso(iso: string): string {
-  return new Date(new Date(iso).getTime() + KST_OFFSET_MS).toISOString();
+  const ms = new Date(iso).getTime();
+  if (Number.isNaN(ms)) return '';
+  return new Date(ms + KST_OFFSET_MS).toISOString();
 }
 
 function ymd(iso: string | null): string {

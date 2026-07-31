@@ -57,6 +57,15 @@ test('최종 수집 시간은 한국 시간으로 시:분까지 — 같은 날 �
   assert.equal(cellExport(ROW, fetchedAt), '2026-07-30 10:02');
 });
 
+test('파싱할 수 없는 시각은 빈칸 — 셀 하나 때문에 표 전체가 죽으면 안 된다', () => {
+  const date = TABLE_COLUMNS.find((c) => c.key === 'date')!;
+  const fetchedAt = TABLE_COLUMNS.find((c) => c.key === 'fetchedAt')!;
+  const broken = { ...ROW, tweetCreatedAt: '날짜아님', lastFetchedAt: '날짜아님' };
+  assert.equal(cellDisplay(broken, date), '');
+  assert.equal(cellDisplay(broken, fetchedAt), '');
+  assert.equal(cellExport(broken, fetchedAt), '');
+});
+
 test('칸 이름은 무엇의 기준인지·무엇의 이름인지 말한다', () => {
   assert.equal(TABLE_COLUMNS.find((c) => c.key === 'fetchedAt')!.label, '최종 수집 시간');
   assert.equal(TABLE_COLUMNS.find((c) => c.key === 'columns')!.label, '컬럼명');

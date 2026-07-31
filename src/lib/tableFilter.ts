@@ -1,5 +1,6 @@
 // 표 보기 필터의 모델과 순수 로직 (설계 2026-07-31).
 // 열(columns)은 여기 없다 — 전용 드롭다운이 유일한 경로이고 columnIds로 따로 흐른다(설계 §A).
+import { TABLE_COLUMNS } from './tableColumns.ts';
 import { SORT_LABEL } from './sortKeys.ts';
 import { formatFull } from './format.ts';
 
@@ -25,19 +26,25 @@ export const OP_LABEL: Record<FilterOp, string> = {
 const NUM_OPS: FilterOp[] = ['gte', 'lte'];
 const DATE_OPS: FilterOp[] = ['after', 'before'];
 
+// 표 머리글에서 축 라벨을 가져온다 (설계 제약: 표와 필터의 라벨이 갈라지면 안 된다)
+function getLabelFromTable(key: string): string {
+  const col = TABLE_COLUMNS.find(c => c.key === key);
+  return col?.label ?? key;
+}
+
 // 라벨은 표 머리글과 같은 출처를 쓴다 — 두 화면의 축 이름이 갈라지면 안 된다.
 export const FIELD_SPECS: Record<FilterField, { label: string; kind: 'text' | 'number' | 'date'; ops: FilterOp[] }> = {
-  handle: { label: '계정', kind: 'text', ops: ['is', 'contains'] },
-  text: { label: '본문', kind: 'text', ops: ['contains', 'notContains'] },
+  handle: { label: getLabelFromTable('handle'), kind: 'text', ops: ['is', 'contains'] },
+  text: { label: getLabelFromTable('text'), kind: 'text', ops: ['contains', 'notContains'] },
   views: { label: SORT_LABEL.views, kind: 'number', ops: NUM_OPS },
   likes: { label: SORT_LABEL.likes, kind: 'number', ops: NUM_OPS },
   retweets: { label: SORT_LABEL.retweets, kind: 'number', ops: NUM_OPS },
   replies: { label: SORT_LABEL.replies, kind: 'number', ops: NUM_OPS },
   quotes: { label: SORT_LABEL.quotes, kind: 'number', ops: NUM_OPS },
   bookmarks: { label: SORT_LABEL.bookmarks, kind: 'number', ops: NUM_OPS },
-  followers: { label: '팔로워', kind: 'number', ops: NUM_OPS },
+  followers: { label: getLabelFromTable('followers'), kind: 'number', ops: NUM_OPS },
   date: { label: SORT_LABEL.date, kind: 'date', ops: DATE_OPS },
-  fetchedAt: { label: '기준', kind: 'date', ops: DATE_OPS },
+  fetchedAt: { label: getLabelFromTable('fetchedAt'), kind: 'date', ops: DATE_OPS },
 };
 
 // UI 표시 순서 — 자주 쓰는 것부터

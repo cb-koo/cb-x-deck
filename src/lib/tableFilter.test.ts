@@ -50,6 +50,18 @@ test('값이 비면 미완성 — 축만 고른 중간 상태가 결과를 0건�
   assert.equal(isComplete(c({ field: 'date', op: 'after', value: '2026-07-01' })), true);
 });
 
+test('isComplete: 모양은 맞아도 달력에 없는 날짜는 미완성 — $1::date에서 Postgres가 던지기 전에 막는다', () => {
+  assert.equal(isComplete(c({ field: 'date', op: 'after', value: '2026-13-40' })), false);
+  assert.equal(isComplete(c({ field: 'date', op: 'after', value: '2026-02-30' })), false);
+  assert.equal(isComplete(c({ field: 'date', op: 'after', value: '2024-02-29' })), true);   // 윤년은 정상
+});
+
+test('isComplete: 숫자는 15자리까지 — 그 이상은 1e+30이 되어 bigint 캐스팅에서 Postgres가 던진다', () => {
+  assert.equal(isComplete(c({ field: 'views', value: '999999999999999' })), true);          // 15자리
+  assert.equal(isComplete(c({ field: 'views', value: '1000000000000000' })), false);        // 16자리
+  assert.equal(isComplete(c({ field: 'views', value: '1'.repeat(30) })), false);             // 30자리
+});
+
 test('조건을 사용자 말로 서술한다 (칩 라벨용)', () => {
   assert.equal(describeCondition(c()), '조회수 이상 100,000');
   assert.equal(describeCondition(c({ field: 'handle', op: 'contains', value: 'beauty' })), '계정 포함 beauty');
@@ -105,6 +117,17 @@ test('buildFilterSql: 계정 같음/포함', () => {
   const b = buildFilterSql([{ id: '1', field: 'handle', op: 'contains', value: 'beauty' }], 1);
   assert.match(b.clauses[0], /t\.author_handle ilike/);
   assert.deepEqual(b.params, ['%beauty%']);
+});
+
+test('buildFilterSql: 계정은 화면에서 복사한 "@handle"도 저장된 값(@ 없음)으로 찾는다', () => {
+  const isWith = buildFilterSql([{ id: '1', field: 'handle', op: 'is', value: '@beautyfulence' }], 1);
+  assert.deepEqual(isWith.params, ['beautyfulence']);
+  const isWithout = buildFilterSql([{ id: '1', field: 'handle', op: 'is', value: 'beautyfulence' }], 1);
+  assert.deepEqual(isWithout.params, ['beautyfulence']);
+  const containsWith = buildFilterSql([{ id: '1', field: 'handle', op: 'contains', value: '@beauty' }], 1);
+  assert.deepEqual(containsWith.params, ['%beauty%']);
+  const containsWithout = buildFilterSql([{ id: '1', field: 'handle', op: 'contains', value: 'beauty' }], 1);
+  assert.deepEqual(containsWithout.params, ['%beauty%']);
 });
 
 test('buildFilterSql: 본문 포함/제외 + LIKE 메타문자 이스케이프', () => {

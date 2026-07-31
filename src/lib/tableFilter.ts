@@ -54,6 +54,15 @@ export const FILTER_FIELDS: FilterField[] = [
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// DATE_RE는 모양만 본다 — 2026-13-40도 통과시켜 그대로 $1::date로 넘어가면 Postgres가 던지고
+// 라우트엔 try/catch가 없어 500이 된다. 달력에 실재하는 날짜인지 왕복 검증한다:
+// Date.UTC는 넘친 값을 다음 달/해로 굴려버리므로, 굴러간 결과가 원래 입력과 같은지로 판별한다.
+function isValidCalendarDate(v: string): boolean {
+  const [y, m, d] = v.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
 // 미완성 조건은 쿼리에 보내지 않는다 — 축만 고르고 값을 아직 안 넣은 중간 상태에서
 // 결과가 0건으로 튀면 사용자는 자기가 뭘 잘못했다고 생각한다.
 export function isComplete(c: FilterCondition): boolean {
@@ -61,8 +70,10 @@ export function isComplete(c: FilterCondition): boolean {
   if (!v) return false;
   const spec = FIELD_SPECS[c.field];
   if (!spec) return false;
-  if (spec.kind === 'number') return /^\d+$/.test(v);          // 정수만 — SQL에 NaN이 흘러가지 않게
-  if (spec.kind === 'date') return DATE_RE.test(v);
+  // 정수만, 15자리까지 — SQL에 NaN이 흘러가지 않게, 그리고 자릿수 제한 없는 숫자는
+  // 1e+30 같은 값이 되어 bigint 캐스팅에서 Postgres가 던진다(실재하는 지표 어떤 것도 이 자릿수를 넘지 않는다).
+  if (spec.kind === 'number') return /^\d{1,15}$/.test(v);
+  if (spec.kind === 'date') return DATE_RE.test(v) && isValidCalendarDate(v);
   return true;
 }
 
@@ -127,7 +138,9 @@ export function buildFilterSql(
     const spec = FIELD_SPECS[c.field];
     const expr = FIELD_EXPR[c.field];
     if (!spec || !expr || !spec.ops.includes(c.op)) continue;   // 허용 목록 밖이면 조각 없음
-    const v = c.value.trim();
+    // 계정 열은 화면·CSV에 '@handle'로 보이지만 저장은 '@' 없이 되어 있다 — 화면에서 복사한
+    // '@beautyfulence'를 그대로 넣으면 0건이 된다. 이 축만 앞의 '@' 하나를 벗겨서 맞춘다.
+    const v = c.field === 'handle' ? c.value.trim().replace(/^@/, '') : c.value.trim();
     switch (c.op) {
       case 'gte':
       case 'lte':

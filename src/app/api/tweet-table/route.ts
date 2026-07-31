@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { getWorkspaceTableRows, getWorkspaceTableCount } from '@/lib/tweetStore';
-import { parseFilters } from '@/lib/tableFilter';
+import { parseFilters, type FilterCondition } from '@/lib/tableFilter';
 import { TABLE_MAX, TABLE_PAGE } from '@/lib/tableLimits';
 import { requireAllowedUser } from '@/lib/authGuard';
 import type { SortKey } from '@/lib/types';
@@ -21,7 +21,7 @@ export async function GET(req: Request) {
   // 쉼표로 구분한 uuid 목록. 형식 검증은 store가 isUuidLike로 한다.
   const columnIds = (sp.get('columnIds') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   // 잘못된 JSON은 필터 없음으로 떨어진다 — 화면이 에러로 죽는 것보다 낫다.
-  let filters = undefined;
+  let filters: FilterCondition[] | undefined = undefined;
   const rawFilters = sp.get('filters');
   if (rawFilters) {
     try { filters = parseFilters(JSON.parse(rawFilters)); } catch { filters = []; }

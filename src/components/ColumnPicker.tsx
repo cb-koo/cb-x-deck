@@ -5,9 +5,11 @@ import { ChevronDownIcon } from './XIcons';
 
 // 열 선택 — 여러 개 고를 수 있다. 빈 배열 = 전체.
 // 칩(단일 선택)을 대체한다: 열이 12개면 칩이 툴바 두 줄을 먹고, 열이 늘어나면 계속 늘어난다.
-export function ColumnPicker({ columns, counts, selected, onChange }: {
+export function ColumnPicker({ columns, counts, countsLoaded, selected, onChange }: {
   columns: ColumnRow[];
   counts: Record<string, number>;
+  countsLoaded: boolean;            // counts 요청이 성공적으로 끝났는지 — 끝나기 전엔 없는 항목을
+                                     // '0건'으로 단정하지 않는다(모르는 것과 진짜 0건은 다르다)
   selected: string[];               // 빈 배열 = 전체
   onChange: (ids: string[]) => void;
 }) {
@@ -33,14 +35,20 @@ export function ColumnPicker({ columns, counts, selected, onChange }: {
                 className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-ui hover:bg-x-hover ${selected.length === 0 ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
           전체
         </button>
-        {columns.map((c) => (
-          <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-ui hover:bg-x-hover">
-            {/* 체크 상태를 아이콘으로만 표현하지 않는다 — 스크린리더가 읽어야 한다 */}
-            <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggle(c.id)} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-x-text">{c.title}</span>
-            <span className="shrink-0 text-caption text-x-muted">{formatFull(counts[c.id] ?? 0)}</span>
-          </label>
-        ))}
+        {columns.map((c) => {
+          // counts에 항목이 없으면: 아직 로드가 안 끝났으면 '모름'(–)이지, 로드가 끝났는데도
+          // 없으면 그 열이 진짜로 비어 있는 것이다(A4) — 두 경우를 같은 '0'으로 보여주면 구분이 안 된다.
+          const n = counts[c.id];
+          const countText = n !== undefined ? formatFull(n) : countsLoaded ? formatFull(0) : '–';
+          return (
+            <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-ui hover:bg-x-hover">
+              {/* 체크 상태를 아이콘으로만 표현하지 않는다 — 스크린리더가 읽어야 한다 */}
+              <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggle(c.id)} className="shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-x-text">{c.title}</span>
+              <span className="shrink-0 text-caption text-x-muted">{countText}</span>
+            </label>
+          );
+        })}
       </div>
     </details>
   );

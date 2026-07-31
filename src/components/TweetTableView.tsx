@@ -31,6 +31,13 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   const [columnIds, setColumnIds] = useState<string[]>([]);   // 빈 배열 = 전체
   const [conditions, setConditions] = useState<FilterCondition[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  // 워크스페이스 전체 수집 건수 — 필터·열 선택과 무관하다(A1). FilterRows의 "이미 모은 N건 중에서만
+  // 걸러요"는 이 값을 써야 한다: total(아래)은 필터링 결과라 필터 후 12건을 "모은 건수"로 잘못 말하게 된다.
+  const [workspaceTotal, setWorkspaceTotal] = useState(0);
+  // counts 요청이 성공적으로 한 번이라도 끝났는지(A4) — 끝나기 전엔 counts에 없는 항목이
+  // "정말 0건"인지 "아직 모름"인지 구분이 안 된다. 워크스페이스가 바뀌면 이전 값은 새 워크스페이스의
+  // 열에 대해 무의미하므로 loadCounts 안에서 다시 false로 되돌린다.
+  const [countsLoaded, setCountsLoaded] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [loaded, setLoaded] = useState(false);   // 첫 로드 완료 — 로딩 중 빈 상태 문구를 막는다
   const [err, setErr] = useState(false);
@@ -111,12 +118,17 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   }, [wsId, sort, dir, activeColumnIds, conditions]);
 
   // 열별 건수는 워크스페이스가 바뀔 때만 — 조건·정렬이 바뀌어도 다시 부르지 않는다. 부가 정보라 실패해도 화면은 동작한다.
+  // 호출 시작 시 countsLoaded를 false로 되돌린다 — 워크스페이스 전환 직후 아직 새 값이 안 왔는데
+  // 이전 워크스페이스의 '로드됨' 상태가 남아 있으면 새 열들이 (아직 모르는 게 아니라) '진짜 0건'으로 보인다(A4).
   const loadCounts = useCallback(async () => {
+    setCountsLoaded(false);
     try {
       const r = await apiFetch(`/api/tweet-table/counts?workspaceId=${wsId}`);
       if (!r.ok) return;
-      const d = await r.json() as { counts: Array<{ columnId: string; n: number }> };
+      const d = await r.json() as { counts: Array<{ columnId: string; n: number }>; total: number };
       setCounts(Object.fromEntries(d.counts.map((c) => [c.columnId, c.n])));
+      setWorkspaceTotal(d.total);
+      setCountsLoaded(true);
     } catch { /* 건수는 부가 정보 — 실패해도 화면은 동작한다 */ }
   }, [wsId]);
 
@@ -151,7 +163,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 0);
       show(d.total > d.rows.length
-        ? `상위 ${d.rows.length.toLocaleString('en-US')}줄만 저장했어요 — 열 드롭다운으로 범위를 좁혀보세요`
+        ? `상위 ${d.rows.length.toLocaleString('en-US')}줄만 저장했어요 — 위에서 열을 선택해 범위를 좁혀보세요`
         : `CSV ${d.rows.length.toLocaleString('en-US')}줄을 저장했어요`);
     } catch {
       show('CSV를 저장하지 못했어요 — 잠시 후 다시 시도해주세요');
@@ -166,7 +178,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
     <div className="flex h-full min-h-0 flex-col">
       {/* 열 선택(왼쪽) + 칸 더보기·CSV 저장(오른쪽, 구분선으로 분리) */}
       <div className="flex items-start justify-between gap-3 border-b border-x-border px-4 py-2">
-        <ColumnPicker columns={columns} counts={counts} selected={activeColumnIds} onChange={setColumnIds} />
+        <ColumnPicker columns={columns} counts={counts} countsLoaded={countsLoaded} selected={activeColumnIds} onChange={setColumnIds} />
         <div className="flex shrink-0 items-center gap-2 border-l border-x-border pl-3">
           <Button variant="ghost" onClick={toggleMore}
                   title={showMore ? '답글·인용·북마크·팔로워·저장·기준 칸을 접어요' : '답글·인용·북마크·팔로워·저장·기준 칸을 펼쳐요'}>
@@ -188,7 +200,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
       <div className="border-b border-x-border px-4 py-2">
         <FilterRows conditions={conditions} onChange={setConditions}
                     conflicts={findConflicts(conditions.filter(isComplete), columns, activeColumnIds)}
-                    totalLabel={total.toLocaleString('en-US')}
+                    totalLabel={workspaceTotal.toLocaleString('en-US')}
                     hasColumnFilter={activeColumnIds.length > 0}
                     onClearAll={() => { setColumnIds([]); setConditions([]); }} />
       </div>

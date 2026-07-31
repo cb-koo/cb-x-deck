@@ -24,10 +24,33 @@ function searchConfigs(columns: ColumnRow[], selectedIds: string[]): SearchConfi
   return pool.filter((c) => c.kind === 'search').map((c) => c.config as SearchConfig);
 }
 
+// total(선택 범위 안 검색 열 수)이 1보다 크면 항상 요약형을 쓴다 — 걸린 열이 하나뿐이어도
+// "이 열은 …"은 나머지 열까지 그 결론에 묶어버려 거짓이 된다(A2). 요약형만이 선택 전체에 대해 참이다.
 function message(kind: Conflict['kind'], label: string, threshold: string, opWord: string, value: string, hitCount: number, total: number): string {
-  if (total > 1 && hitCount > 1) return `선택한 열 중 ${hitCount}개는 ${label} ${threshold} 이상만 모아요`;
+  if (total > 1) {
+    if (kind === 'noEffect') return `선택한 열 중 ${hitCount}개는 ${label} ${threshold} 이상만 모아요`;
+    return `선택한 열 중 ${hitCount}개는 ${label} ${threshold} 이상만 모아서 그 열에서는 한 건도 나오지 않아요`;
+  }
   if (kind === 'noEffect') return `이 열은 ${label} ${threshold} 이상만 모으고 있어서 ${value}으로 낮춰도 더 나오지 않아요`;
   return `이 열은 ${label} ${threshold} 이상만 모으고 있어서 ${value} ${opWord}로는 한 건도 나오지 않아요`;
+}
+
+// 날짜 두 축(sinceDate/untilDate)의 메시지 — 숫자 축과 같은 패턴(요약형은 total>1이면 항상)이다.
+// bound는 그 방향에서 가장 느슨한 기준일(호출부에서 이미 최솟값/최댓값으로 골라 넘긴다), boundWord는
+// 그 기준이 "이후"(sinceDate)인지 "이전"(untilDate)인지 — 두 축이 같은 목소리로 읽히게 이 함수 하나로 만든다.
+function dateMessage(kind: Conflict['kind'], bound: string, boundWord: '이후' | '이전', hitCount: number, total: number, value: string): string {
+  if (total > 1) {
+    if (kind === 'noEffect') return `선택한 열 중 ${hitCount}개는 ${bound} ${boundWord}만 모아요`;
+    return `선택한 열 중 ${hitCount}개는 ${bound} ${boundWord}만 모아서 그 열에서는 한 건도 나오지 않아요`;
+  }
+  if (boundWord === '이후') {
+    return kind === 'noEffect'
+      ? `이 열은 ${bound} 이후만 모으고 있어서 ${value}으로 낮춰도 더 나오지 않아요`
+      : `이 열은 ${bound} 이후만 모으고 있어서 ${value} 이전으로는 한 건도 나오지 않아요`;
+  }
+  return kind === 'noEffect'
+    ? `이 열은 ${bound} 이전만 모으고 있어서 ${value}으로 올려도 더 나오지 않아요`
+    : `이 열은 ${bound} 이전만 모으고 있어서 ${value} 이후로는 한 건도 나오지 않아요`;
 }
 
 export function findConflicts(
@@ -72,9 +95,7 @@ export function findConflicts(
         const loosest = sinceHits.map((cfg) => cfg.sinceDate!).sort()[0];
         const kind = c.op === 'after' ? 'noEffect' : 'alwaysEmpty';
         out.push({ conditionId: c.id, kind,
-          message: kind === 'noEffect'
-            ? `이 열은 ${loosest} 이후만 모으고 있어서 ${v}으로 낮춰도 더 나오지 않아요`
-            : `이 열은 ${loosest} 이후만 모으고 있어서 ${v} 이전으로는 한 건도 나오지 않아요` });
+          message: dateMessage(kind, loosest, '이후', sinceHits.length, configs.length, v) });
         continue;
       }
       // 수집은 untilDate 당일을 포함하지 않는다(X 검색 연산자 until:은 그 날짜를 뺀다.
@@ -90,9 +111,7 @@ export function findConflicts(
         const loosest = untilHits.map((cfg) => cfg.untilDate!).sort().reverse()[0];
         const kind = c.op === 'before' ? 'noEffect' : 'alwaysEmpty';
         out.push({ conditionId: c.id, kind,
-          message: kind === 'noEffect'
-            ? `이 열은 ${loosest} 이전만 모으고 있어서 ${v}으로 올려도 더 나오지 않아요`
-            : `이 열은 ${loosest} 이전만 모으고 있어서 ${v} 이후로는 한 건도 나오지 않아요` });
+          message: dateMessage(kind, loosest, '이전', untilHits.length, configs.length, v) });
       }
     }
   }

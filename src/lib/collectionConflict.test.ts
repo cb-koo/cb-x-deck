@@ -113,5 +113,76 @@ test('날짜 요약 — 기준이 다른 여러 열은 가장 느슨한(이른) 
   const out = findConflicts([c({ field: 'date', op: 'after', value: '2026-01-01' })], cols, ['a', 'b']);
   assert.equal(out.length, 1);
   assert.equal(out[0].kind, 'noEffect');
-  assert.equal(out[0].message, '이 열은 2026-03-01 이후만 모으고 있어서 2026-01-01으로 낮춰도 더 나오지 않아요');
+  // 두 열 다 걸리므로(A2) 요약형이어야 한다 — 이 테스트 이름이 이미 "요약한다"였던 것과 달리
+  // 이 문구는 이제껏 걸린 열이 하나뿐일 때 쓰는 단수형이었다(날짜 축엔 요약형 자체가 없던 결함).
+  assert.equal(out[0].message, '선택한 열 중 2개는 2026-03-01 이후만 모아요');
+});
+
+// A2 — 열 하나의 사정을 선택 전체의 결론처럼 말하지 않는다: 여러 열이 선택 범위에 있으면
+// 걸린 열이 단 하나뿐이어도 "이 열은 …"이 아니라 요약형을 써야 한다(그래야 나머지 열까지
+// 그 결론에 묶이지 않는다). 새 alwaysEmpty 요약 문구는 제품 담당자가 확정한 것 그대로다.
+
+test('A2: 숫자 — 선택 범위에 여러 열이 있어도 걸린 열이 하나뿐이면 그 하나만 세어 요약한다 (noEffect)', () => {
+  const cols = [A, col('b', 'B', { keywords: ['y'], minFaves: 50 })];
+  const out = findConflicts([c({ value: '100' })], cols, []);   // 빈 배열 = 전체(2개), 걸리는 건 A 하나
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'noEffect');
+  assert.equal(out[0].message, '선택한 열 중 1개는 좋아요 300 이상만 모아요');
+});
+
+test('A2: 숫자 — 새 alwaysEmpty 요약 문구 (제품 확정)', () => {
+  const cols = [A, col('b', 'B', { keywords: ['y'], minFaves: 300 })];
+  const out = findConflicts([c({ op: 'lte', value: '200' })], cols, []);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'alwaysEmpty');
+  assert.equal(out[0].message, '선택한 열 중 2개는 좋아요 300 이상만 모아서 그 열에서는 한 건도 나오지 않아요');
+});
+
+test('A2: 숫자 — 선택 범위에 여러 열이 있어도 걸린 열이 하나뿐이면 alwaysEmpty도 요약한다', () => {
+  const cols = [
+    col('a', 'A', { keywords: ['x'], minViews: 100000 }),
+    col('b', 'B', { keywords: ['y'], minViews: 50 }),
+  ];
+  const out = findConflicts([c({ field: 'views', op: 'lte', value: '1000' })], cols, []);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'alwaysEmpty');
+  assert.equal(out[0].message, '선택한 열 중 1개는 조회수 100,000 이상만 모아서 그 열에서는 한 건도 나오지 않아요');
+});
+
+test('A2: 날짜(since) — 선택 범위에 여러 열이 있어도 걸린 열이 하나뿐이면 요약한다 (noEffect)', () => {
+  const cols = [
+    col('s', 'S', { keywords: ['x'], sinceDate: '2026-06-01' }),
+    col('n', 'N', { keywords: ['y'] }),   // sinceDate 없음 — 대응 설정이 없어 걸리지 않는다
+  ];
+  const out = findConflicts([c({ field: 'date', op: 'after', value: '2026-01-01' })], cols, []);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'noEffect');
+  assert.equal(out[0].message, '선택한 열 중 1개는 2026-06-01 이후만 모아요');
+});
+
+test('A2: 날짜(since) — 선택 범위에 여러 열이 있어도 걸린 열이 하나뿐이면 요약한다 (alwaysEmpty)', () => {
+  const cols = [
+    col('s', 'S', { keywords: ['x'], sinceDate: '2026-06-01' }),
+    col('n', 'N', { keywords: ['y'] }),
+  ];
+  const out = findConflicts([c({ field: 'date', op: 'before', value: '2026-01-01' })], cols, []);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'alwaysEmpty');
+  assert.equal(out[0].message, '선택한 열 중 1개는 2026-06-01 이후만 모아서 그 열에서는 한 건도 나오지 않아요');
+});
+
+test('A2: 날짜(until) — 선택 범위에 여러 열이 있어도 걸린 열이 하나뿐이면 요약한다 (noEffect/alwaysEmpty)', () => {
+  const cols = [
+    col('u', 'U', { keywords: ['x'], untilDate: '2026-07-31' }),
+    col('n', 'N', { keywords: ['y'] }),
+  ];
+  const noEffect = findConflicts([c({ field: 'date', op: 'before', value: '2026-12-31' })], cols, []);
+  assert.equal(noEffect.length, 1);
+  assert.equal(noEffect[0].kind, 'noEffect');
+  assert.equal(noEffect[0].message, '선택한 열 중 1개는 2026-07-31 이전만 모아요');
+
+  const alwaysEmpty = findConflicts([c({ field: 'date', op: 'after', value: '2026-07-31' })], cols, []);
+  assert.equal(alwaysEmpty.length, 1);
+  assert.equal(alwaysEmpty[0].kind, 'alwaysEmpty');
+  assert.equal(alwaysEmpty[0].message, '선택한 열 중 1개는 2026-07-31 이전만 모아서 그 열에서는 한 건도 나오지 않아요');
 });

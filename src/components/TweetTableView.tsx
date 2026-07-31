@@ -7,6 +7,7 @@ import { toCsv } from '@/lib/tableExport';
 import { TABLE_MAX, TABLE_PAGE } from '@/lib/tableLimits';
 import { useToast } from '@/lib/toastContext';
 import { Button } from './ui';
+import { ColumnPicker } from './ColumnPicker';
 import { TweetTable } from './TweetTable';
 import { DownloadIcon } from './XIcons';
 
@@ -24,7 +25,8 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   const [total, setTotal] = useState(0);
   const [sort, setSort] = useState<SortKey>('views');
   const [dir, setDir] = useState<SortDir>('desc');
-  const [columnId, setColumnId] = useState<string | null>(null);   // null = 전체
+  const [columnIds, setColumnIds] = useState<string[]>([]);   // 빈 배열 = 전체
+  const [counts, setCounts] = useState<Record<string, number>>({});
   const [showMore, setShowMore] = useState(false);
   const [loaded, setLoaded] = useState(false);   // 첫 로드 완료 — 로딩 중 빈 상태 문구를 막는다
   const [err, setErr] = useState(false);
@@ -42,9 +44,9 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
 
   const qs = useCallback((extra: Record<string, string>) => {
     const p = new URLSearchParams({ workspaceId: wsId, sort, dir, ...extra });
-    if (columnId) p.set('columnId', columnId);
+    if (columnIds.length > 0) p.set('columnIds', columnIds.join(','));
     return p.toString();
-  }, [wsId, sort, dir, columnId]);
+  }, [wsId, sort, dir, columnIds]);
 
   const load = useCallback(async (append: boolean) => {
     const id = ++reqIdRef.current;   // 이 호출의 번호를 찍어두고, 응답이 오면 아직 최신인지 확인한다
@@ -66,7 +68,20 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
 
   // 정렬·필터가 바뀌면 처음부터 다시 — append=false
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void load(false); }, [wsId, sort, dir, columnId]);
+  useEffect(() => { void load(false); }, [wsId, sort, dir, columnIds]);
+
+  // 열별 건수는 워크스페이스가 바뀔 때만 — 조건·정렬이 바뀌어도 다시 부르지 않는다. 부가 정보라 실패해도 화면은 동작한다.
+  const loadCounts = useCallback(async () => {
+    try {
+      const r = await apiFetch(`/api/tweet-table/counts?workspaceId=${wsId}`);
+      if (!r.ok) return;
+      const d = await r.json() as { counts: Array<{ columnId: string; n: number }> };
+      setCounts(Object.fromEntries(d.counts.map((c) => [c.columnId, c.n])));
+    } catch { /* 건수는 부가 정보 — 실패해도 화면은 동작한다 */ }
+  }, [wsId]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadCounts(); }, [wsId]);
 
   function onSort(k: SortKey) {
     if (k === sort) setDir((d) => (d === 'desc' ? 'asc' : 'desc'));
@@ -99,26 +114,15 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
     } finally { setBusy(false); }
   }
 
-  const chip = 'rounded-full border px-2 py-0.5 text-ui hover:bg-x-hover';
-  const on = 'border-x-text font-bold text-x-text';
-  const off = 'border-x-border-strong text-x-secondary';
   const cols = visibleColumns(showMore);
   // 표가 실제로 그려지는 상태인지 — 아래쪽의 스크롤 영역과 '더보기' 버튼이 이 값을 공유한다
   const showTable = loaded && !err && columnsLoaded && !columnsError && columns.length > 0 && rows.length > 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* 열 칩(왼쪽, 줄바꿈 허용) + 칸 더보기·CSV 저장(오른쪽, 구분선으로 분리 — 칩과 헷갈리지 않게 모양을 다르게 둔다) */}
+      {/* 열 선택(왼쪽) + 칸 더보기·CSV 저장(오른쪽, 구분선으로 분리) */}
       <div className="flex items-start justify-between gap-3 border-b border-x-border px-4 py-2">
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="mr-1 text-caption text-x-muted">열</span>
-          <button onClick={() => setColumnId(null)} aria-pressed={columnId === null} className={`${chip} ${columnId === null ? on : off}`}>전체</button>
-          {columns.map((c) => (
-            <button key={c.id} onClick={() => setColumnId(c.id)} aria-pressed={columnId === c.id} className={`${chip} ${columnId === c.id ? on : off}`}>
-              {c.title}
-            </button>
-          ))}
-        </div>
+        <ColumnPicker columns={columns} counts={counts} selected={columnIds} onChange={setColumnIds} />
         <div className="flex shrink-0 items-center gap-2 border-l border-x-border pl-3">
           <Button variant="ghost" onClick={toggleMore}
                   title={showMore ? '답글·인용·북마크·팔로워·저장·기준 칸을 접어요' : '답글·인용·북마크·팔로워·저장·기준 칸을 펼쳐요'}>
@@ -163,9 +167,9 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
           </p>
         ) : columns.length === 0 ? (
           <p className="p-4 text-ui text-x-muted">아직 열이 없어요 — 카드 보기에서 열을 만들어보세요</p>
-        ) : rows.length === 0 && columnId ? (
+        ) : rows.length === 0 && columnIds.length > 0 ? (
           <p className="p-4 text-ui text-x-muted">
-            이 열에는 글이 없어요 — <button onClick={() => setColumnId(null)} className="underline">전체 보기</button>
+            이 열에는 글이 없어요 — <button onClick={() => setColumnIds([])} className="underline">전체 보기</button>
           </p>
         ) : rows.length === 0 ? (
           <p className="p-4 text-ui text-x-muted">아직 수집된 글이 없어요 — 카드 보기에서 열을 새로고침하면 여기에 모입니다</p>

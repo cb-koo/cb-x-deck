@@ -1,6 +1,9 @@
 'use client';
+import { useRef } from 'react';
 import type { ColumnRow } from '@/lib/types';
 import { formatFull } from '@/lib/format';
+import { columnSelectionLabel } from '@/lib/tableFilter';
+import { useDismissible } from '@/lib/useDismissible';
 import { ChevronDownIcon } from './XIcons';
 
 // 열 선택 — 여러 개 고를 수 있다. 빈 배열 = 전체.
@@ -15,16 +18,17 @@ export function ColumnPicker({ columns, counts, countsLoaded, selected, onChange
 }) {
   // 트리거가 현재 값을 말한다 — '3개'로만 쓰면 무엇이 걸렸는지 열어봐야 안다(AGENTS.md 원칙 4)
   const names = selected.map((id) => columns.find((c) => c.id === id)?.title).filter(Boolean) as string[];
-  const label = names.length === 0 ? '전체'
-    : names.length === 1 ? names[0]
-    : `${names[0]} +${names.length - 1}`;
+  const label = columnSelectionLabel(names);
+
+  const ref = useRef<HTMLDetailsElement>(null);
+  useDismissible(ref);
 
   function toggle(id: string) {
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   }
 
   return (
-    <details className="relative shrink-0">
+    <details ref={ref} className="relative shrink-0">
       <summary className="flex cursor-pointer list-none items-center gap-1 rounded-full border border-x-border-strong px-2.5 py-1 text-ui text-x-secondary hover:bg-x-hover [&::-webkit-details-marker]:hidden">
         열: <span className="font-medium text-x-text">{label}</span> <ChevronDownIcon className="h-3 w-3" />
       </summary>

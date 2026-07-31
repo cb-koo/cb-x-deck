@@ -97,7 +97,7 @@ export interface TweetTranslation {
 // CSV 저장은 최대 5,000행을 한 번에 받으므로 그 JSON이 페이로드를 크게 부풀린다.
 export interface TableRow {
   tweetId: string;
-  columnTitles: string[];        // 이 트윗이 걸린 열 이름들 (여러 열에 걸리면 여러 개)
+  columnTitles: string[];        // 이 트윗이 걸린 컬럼 이름들 (여러 컬럼에 걸리면 여러 개)
   authorHandle: string;
   authorName: string | null;
   authorFollowers: number | null;

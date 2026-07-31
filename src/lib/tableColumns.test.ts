@@ -71,7 +71,7 @@ test('칸 이름은 무엇의 기준인지·무엇의 이름인지 말한다', (
   assert.equal(TABLE_COLUMNS.find((c) => c.key === 'columns')!.label, '컬럼명');
 });
 
-test('열·저장은 여러 값을 셀 하나에 쉼표로 담는다', () => {
+test('컬럼명·저장은 여러 값을 셀 하나에 쉼표로 담는다', () => {
   const cols = TABLE_COLUMNS.find((c) => c.key === 'columns')!;
   const saved = TABLE_COLUMNS.find((c) => c.key === 'saved')!;
   assert.equal(cellExport(ROW, cols), '니키비, PDRN');

@@ -159,7 +159,7 @@ export async function getColumnTweetCount(
   return Number(row?.n ?? 0);
 }
 
-// 표 보기 — 워크스페이스의 모든 열을 한 목록으로. 새 마이그레이션 없이 기존 조인만 쓴다(설계 §G).
+// 표 보기 — 워크스페이스의 모든 컬럼을 한 목록으로. 새 마이그레이션 없이 기존 조인만 쓴다(설계 §G).
 
 type TableRowRaw = {
   tweet_id: string; column_titles: string[]; author_handle: string; author_name: string | null;
@@ -174,8 +174,8 @@ function paramBag() {
   return { params, bind: (v: unknown) => { params.push(v); return `$${params.length}`; } };
 }
 
-// 워크스페이스 안에서 그 트윗이 속한 모든 열 이름. 필터와 분리한다 —
-// 열을 좁혔다고 소속을 축소해 적으면 내보낸 파일이 사실을 왜곡한다(설계 §D).
+// 워크스페이스 안에서 그 트윗이 속한 모든 컬럼 이름. 필터와 분리한다 —
+// 컬럼을 좁혔다고 소속을 축소해 적으면 내보낸 파일이 사실을 왜곡한다(설계 §D).
 function columnTitlesSubquery(wsParam: string): string {
   return `(select array_agg(distinct dc2.title)
              from column_tweet ct2
@@ -211,7 +211,7 @@ export async function getWorkspaceTableRows(
   const ws = bag.bind(workspaceId);
   const where = tableWhere(ws, bag, opts.columnIds, opts.filters);
   const rows = await sql.unsafe<TableRowRaw[]>(
-    // group by tweet_id: 같은 트윗이 여러 열에 걸리면 행이 늘어나므로 한 행으로 묶는다.
+    // group by tweet_id: 같은 트윗이 여러 컬럼에 걸리면 행이 늘어나므로 한 행으로 묶는다.
     // order by에 tweet_id를 tie-break로 둬야 페이지 경계에서 행이 중복·누락되지 않는다.
     // limit/offset은 위에서 정수로 sanitize해 리터럴로 넣는다(자리표시자로 넘기면 안 쓰이는 번호가 생긴다).
     `select t.tweet_id, t.author_handle, t.author_name, t.author_followers, t.text,
@@ -263,8 +263,8 @@ export async function getWorkspaceTableCount(
   return Number(rows[0]?.n ?? 0);
 }
 
-// 열 드롭다운 목록에 붙이는 건수. 다른 조건은 반영하지 않는다 — 그 열의 전체 건수다(설계 §A).
-// 조건마다 12개 열을 다시 세면 조작할 때마다 쿼리가 하나 더 붙는다.
+// 컬럼 드롭다운 목록에 붙이는 건수. 다른 조건은 반영하지 않는다 — 그 컬럼의 전체 건수다(설계 §A).
+// 조건마다 12개 컬럼을 다시 세면 조작할 때마다 쿼리가 하나 더 붙는다.
 export async function getWorkspaceColumnCounts(
   sql: postgres.Sql, workspaceId: string,
 ): Promise<Array<{ columnId: string; n: number }>> {

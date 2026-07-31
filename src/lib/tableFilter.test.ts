@@ -26,7 +26,7 @@ test('축마다 쓸 수 있는 연산자가 정해져 있다', () => {
   assert.deepEqual(FIELD_SPECS.fetchedAt.ops, ['after', 'before']);
 });
 
-test('열은 필터 축이 아니다 — 전용 드롭다운이 유일한 경로', () => {
+test('컬럼은 필터 축이 아니다 — 전용 드롭다운이 유일한 경로', () => {
   assert.ok(!FILTER_FIELDS.includes('columns' as never));
   assert.equal(FILTER_FIELDS.length, 11);
 });
@@ -204,7 +204,7 @@ test('csvFileName: 조건을 요약해 같은 날 두 번 받아도 구분된다
   assert.equal(csvFileName({ columnNames: ['PDRN 크림'], conditionCount: 0, date: '2026-07-31' }),
     'x-deck-table-PDRN크림-2026-07-31.csv');
   assert.equal(csvFileName({ columnNames: ['A', 'B'], conditionCount: 0, date: '2026-07-31' }),
-    'x-deck-table-열2개-2026-07-31.csv');
+    'x-deck-table-컬럼2개-2026-07-31.csv');
   assert.equal(csvFileName({ columnNames: [], conditionCount: 3, date: '2026-07-31' }),
     'x-deck-table-필터3개-2026-07-31.csv');
   assert.equal(csvFileName({ columnNames: ['PDRN 크림'], conditionCount: 2, date: '2026-07-31' }),

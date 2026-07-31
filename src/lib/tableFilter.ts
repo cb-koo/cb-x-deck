@@ -1,5 +1,5 @@
 // 표 보기 필터의 모델과 순수 로직 (설계 2026-07-31).
-// 열(columns)은 여기 없다 — 전용 드롭다운이 유일한 경로이고 columnIds로 따로 흐른다(설계 §A).
+// 컬럼(columns)은 여기 없다 — 전용 드롭다운이 유일한 경로이고 columnIds로 따로 흐른다(설계 §A).
 import { TABLE_COLUMNS } from './tableColumns.ts';
 import { SORT_LABEL } from './sortKeys.ts';
 import { formatFull } from './format.ts';
@@ -141,7 +141,7 @@ export function buildFilterSql(
     const spec = FIELD_SPECS[c.field];
     const expr = FIELD_EXPR[c.field];
     if (!spec || !expr || !spec.ops.includes(c.op)) continue;   // 허용 목록 밖이면 조각 없음
-    // 계정 열은 화면·CSV에 '@handle'로 보이지만 저장은 '@' 없이 되어 있다 — 화면에서 복사한
+    // 계정 컬럼은 화면·CSV에 '@handle'로 보이지만 저장은 '@' 없이 되어 있다 — 화면에서 복사한
     // '@beautyfulence'를 그대로 넣으면 0건이 된다. 이 축만 앞의 '@'를 모두 벗겨서 맞춘다
     // ('@@x'처럼 여러 개가 붙어도 '@x'가 아니라 'x'를 찾아야 한다).
     const v = c.field === 'handle' ? c.value.trim().replace(/^@+/, '') : c.value.trim();
@@ -180,13 +180,13 @@ export function csvFileName(opts: { columnNames: string[]; conditionCount: numbe
     // 그걸 그대로 넣으면 '--'가 생겨 이름이 아니라 구분자 두 개로 보인다.
     const name = opts.columnNames[0].replace(bad, '');
     if (name) parts.push(name);
-  } else if (opts.columnNames.length > 1) parts.push(`열${opts.columnNames.length}개`);
+  } else if (opts.columnNames.length > 1) parts.push(`컬럼${opts.columnNames.length}개`);
   if (opts.conditionCount > 0) parts.push(`필터${opts.conditionCount}개`);
   parts.push(opts.date);
   return `${parts.join('-')}.csv`;
 }
 
-// 열 선택을 한 줄로 말한다. 트리거와 칩이 같은 함수를 써야 갈라지지 않는다 —
+// 컬럼 선택을 한 줄로 말한다. 트리거와 칩이 같은 함수를 써야 갈라지지 않는다 —
 // '3개'처럼 개수만 쓰면 무엇이 걸렸는지 열어봐야 안다(AGENTS.md 원칙 4).
 export function columnSelectionLabel(names: string[]): string {
   if (names.length === 0) return '전체';

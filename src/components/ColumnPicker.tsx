@@ -6,8 +6,8 @@ import { columnSelectionLabel } from '@/lib/tableFilter';
 import { useDismissible } from '@/lib/useDismissible';
 import { ChevronDownIcon } from './XIcons';
 
-// 열 선택 — 여러 개 고를 수 있다. 빈 배열 = 전체.
-// 칩(단일 선택)을 대체한다: 열이 12개면 칩이 툴바 두 줄을 먹고, 열이 늘어나면 계속 늘어난다.
+// 컬럼 선택 — 여러 개 고를 수 있다. 빈 배열 = 전체.
+// 칩(단일 선택)을 대체한다: 컬럼이 12개면 칩이 툴바 두 줄을 먹고, 컬럼이 늘어나면 계속 늘어난다.
 export function ColumnPicker({ columns, counts, countsLoaded, selected, onChange }: {
   columns: ColumnRow[];
   counts: Record<string, number>;
@@ -30,7 +30,7 @@ export function ColumnPicker({ columns, counts, countsLoaded, selected, onChange
   return (
     <details ref={ref} className="relative shrink-0">
       <summary className="flex cursor-pointer list-none items-center gap-1 rounded-full border border-x-border-strong px-2.5 py-1 text-ui text-x-secondary hover:bg-x-hover [&::-webkit-details-marker]:hidden">
-        열: <span className="font-medium text-x-text">{label}</span> <ChevronDownIcon className="h-3 w-3" />
+        컬럼: <span className="font-medium text-x-text">{label}</span> <ChevronDownIcon className="h-3 w-3" />
       </summary>
       {/* left-0: 트리거가 툴바 왼쪽이라(칩을 대체한 자리) — Column.tsx의 '보기: 전체' 드롭다운은
           ml-auto로 오른쪽에 붙어 있어 right-0이 맞지만, 이 트리거는 반대쪽이라 잘림을 피하려면 left-0이어야 한다 */}
@@ -41,7 +41,7 @@ export function ColumnPicker({ columns, counts, countsLoaded, selected, onChange
         </button>
         {columns.map((c) => {
           // counts에 항목이 없으면: 아직 로드가 안 끝났으면 '모름'(–)이지, 로드가 끝났는데도
-          // 없으면 그 열이 진짜로 비어 있는 것이다(A4) — 두 경우를 같은 '0'으로 보여주면 구분이 안 된다.
+          // 없으면 그 컬럼이 진짜로 비어 있는 것이다(A4) — 두 경우를 같은 '0'으로 보여주면 구분이 안 된다.
           const n = counts[c.id];
           const countText = n !== undefined ? formatFull(n) : countsLoaded ? formatFull(0) : '–';
           return (

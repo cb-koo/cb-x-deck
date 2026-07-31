@@ -18,8 +18,8 @@ import { csvFileName, isComplete, type FilterCondition } from '@/lib/tableFilter
 export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onRetryColumns }: {
   wsId: string;
   columns: ColumnRow[];
-  columnsLoaded: boolean;   // 열 목록(/api/columns) 최초 조회가 끝났는지 — 끝나기 전엔 '아직 열이 없어요'를 보여주면 안 된다
-  columnsError: boolean;    // 열 목록 조회가 실패했는지 — 실패를 빈 상태로 위장하지 않는다(설계 §G-2)
+  columnsLoaded: boolean;   // 컬럼 목록(/api/columns) 최초 조회가 끝났는지 — 끝나기 전엔 '아직 컬럼이 없어요'를 보여주면 안 된다
+  columnsError: boolean;    // 컬럼 목록 조회가 실패했는지 — 실패를 빈 상태로 위장하지 않는다(설계 §G-2)
   onRetryColumns: () => void;
 }) {
   const { show } = useToast();
@@ -33,12 +33,12 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   // 칩을 눌러 패널을 열 때 어느 조건에 초점을 줄지. n은 같은 칩을 두 번 눌러도 다시 초점이 가게 하는 카운터.
   const [focusRequest, setFocusRequest] = useState<{ id: string; n: number } | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
-  // 워크스페이스 전체 수집 건수 — 필터·열 선택과 무관하다(A1). FilterPanel의 FilterRows "이미 모은 N건 중에서만
+  // 워크스페이스 전체 수집 건수 — 필터·컬럼 선택과 무관하다(A1). FilterPanel의 FilterRows "이미 모은 N건 중에서만
   // 걸러요"는 이 값을 써야 한다: total(아래)은 필터링 결과라 필터 후 12건을 "모은 건수"로 잘못 말하게 된다.
   const [workspaceTotal, setWorkspaceTotal] = useState(0);
   // counts 요청이 성공적으로 한 번이라도 끝났는지(A4) — 끝나기 전엔 counts에 없는 항목이
   // "정말 0건"인지 "아직 모름"인지 구분이 안 된다. 워크스페이스가 바뀌면 이전 값은 새 워크스페이스의
-  // 열에 대해 무의미하므로 loadCounts 안에서 다시 false로 되돌린다.
+  // 컬럼에 대해 무의미하므로 loadCounts 안에서 다시 false로 되돌린다.
   const [countsLoaded, setCountsLoaded] = useState(false);
   const [loaded, setLoaded] = useState(false);   // 첫 로드 완료 — 로딩 중 빈 상태 문구를 막는다
   const [err, setErr] = useState(false);
@@ -47,8 +47,8 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   const loadKeyRef = useRef<string | null>(null);   // conditions를 뺀 나머지가 마지막으로 즉시 조회를 일으켰을 때의 값
 
   // 표시용 파생값 — 저장된 columnIds에 지금 columns 목록에 없는 id가 섞여 있으면(워크스페이스 전환·
-  // 다른 탭에서의 열 삭제로 URL의 ?view=table을 통해 컴포넌트가 유지된 채 넘어온 경우) 라벨은 '전체'인데
-  // 쿼리는 없는 열을 요청해 결과가 비어버린다(라벨과 값이 어긋남). 이 파생값 하나로 라벨·쿼리·빈 상태 분기를 통일한다.
+  // 다른 탭에서의 컬럼 삭제로 URL의 ?view=table을 통해 컴포넌트가 유지된 채 넘어온 경우) 라벨은 '전체'인데
+  // 쿼리는 없는 컬럼을 요청해 결과가 비어버린다(라벨과 값이 어긋남). 이 파생값 하나로 라벨·쿼리·빈 상태 분기를 통일한다.
   const activeColumnIds = useMemo(
     () => columnIds.filter((id) => columns.some((c) => c.id === id)),
     [columnIds, columns],
@@ -87,7 +87,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   }, [qs, rows.length]);
 
   // 정렬·필터가 바뀌면 처음부터 다시 — append=false. columnIds가 아니라 activeColumnIds를 봐야
-  // 삭제된 열 id가 걸러진 것 자체(라벨 갱신)도 재조회를 유발한다. 조건이 바뀌어도 이어붙이지 않고
+  // 삭제된 컬럼 id가 걸러진 것 자체(라벨 갱신)도 재조회를 유발한다. 조건이 바뀌어도 이어붙이지 않고
   // 처음부터 다시 불러온다(offset 0) — qs가 완성된 조건만 실어 보내므로 미완성 조건은 재조회를 유발하지 않는다.
   //
   // 단, conditions만 바뀐 경우(필터 값 타이핑)는 즉시 조회하지 않는다 — 숫자 축은 isComplete가
@@ -95,7 +95,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   // 완성이라 글자 하나하나가 실 DB(싱가포르) 쿼리 + count(distinct)를 태운다(이 기능 자체가 페이지마다
   // 다시 세지 않으려고 만든 건데, 그 취지를 타이핑에서 다시 어기는 셈). wsId·sort·dir·activeColumnIds로
   // 만든 키가 지난번과 같으면(=conditions만 바뀜) 입력이 멈추고 나서(~400ms) 한 번만 부르고, 키가
-  // 달라지면(워크스페이스·정렬·열 선택 변경, 최초 마운트 포함) 지연 없이 바로 부른다.
+  // 달라지면(워크스페이스·정렬·컬럼 선택 변경, 최초 마운트 포함) 지연 없이 바로 부른다.
   useEffect(() => {
     const key = JSON.stringify({ wsId, sort, dir, activeColumnIds });
     const filterOnlyChange = loadKeyRef.current === key;
@@ -109,9 +109,9 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsId, sort, dir, activeColumnIds, conditions]);
 
-  // 열별 건수는 워크스페이스가 바뀔 때만 — 조건·정렬이 바뀌어도 다시 부르지 않는다. 부가 정보라 실패해도 화면은 동작한다.
+  // 컬럼별 건수는 워크스페이스가 바뀔 때만 — 조건·정렬이 바뀌어도 다시 부르지 않는다. 부가 정보라 실패해도 화면은 동작한다.
   // 호출 시작 시 countsLoaded를 false로 되돌린다 — 워크스페이스 전환 직후 아직 새 값이 안 왔는데
-  // 이전 워크스페이스의 '로드됨' 상태가 남아 있으면 새 열들이 (아직 모르는 게 아니라) '진짜 0건'으로 보인다(A4).
+  // 이전 워크스페이스의 '로드됨' 상태가 남아 있으면 새 컬럼들이 (아직 모르는 게 아니라) '진짜 0건'으로 보인다(A4).
   const loadCounts = useCallback(async () => {
     setCountsLoaded(false);
     try {
@@ -155,7 +155,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 0);
       show(d.total > d.rows.length
-        ? `상위 ${d.rows.length.toLocaleString('en-US')}줄만 저장했어요 — 위에서 열을 선택해 범위를 좁혀보세요`
+        ? `상위 ${d.rows.length.toLocaleString('en-US')}줄만 저장했어요 — 위에서 컬럼을 선택해 범위를 좁혀보세요`
         : `CSV ${d.rows.length.toLocaleString('en-US')}줄을 저장했어요`);
     } catch {
       show('CSV를 저장하지 못했어요 — 잠시 후 다시 시도해주세요');
@@ -176,7 +176,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* 열 선택(왼쪽) + CSV 저장(오른쪽, 구분선으로 분리) */}
+      {/* 컬럼 선택(왼쪽) + CSV 저장(오른쪽, 구분선으로 분리) */}
       <div className="flex items-start justify-between gap-3 border-b border-x-border px-4 py-2">
         <div className="flex items-center gap-2">
           <ColumnPicker columns={columns} counts={counts} countsLoaded={countsLoaded}
@@ -212,7 +212,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
 
       {/* 지표 신선도 — '카드 보기에서'를 빼면 표 모드에 없는 버튼을 가리키는 죽은 안내가 된다(설계 §E) */}
       <p className="border-b border-x-border px-4 py-1 text-caption text-x-muted">
-        지표는 각 글을 마지막으로 가져온 시점 기준이에요 — 카드 보기에서 열을 새로고침하면 갱신됩니다
+        지표는 각 글을 마지막으로 가져온 시점 기준이에요 — 카드 보기에서 컬럼을 새로고침하면 갱신됩니다
       </p>
 
       {/* 가로·세로 스크롤을 담당하는 컨테이너는 이 하나뿐이다 — sticky thead는 이 div를 기준으로 고정된다.
@@ -221,7 +221,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
           스크롤이 시작되는 순간 그 여백만큼 머리글이 갑자기 튀어 오르는 것처럼 보인다. 좌우 여백은 세로 스크롤과
           무관하고, 가로로 스크롤해도 표 양 끝에 여백이 그대로 따라와 "가장자리에 딱 붙은" 느낌만 없앤다. */}
       <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
-        {/* columnsLoaded가 끝나기 전엔 columns가 항상 []이라 '아직 열이 없어요'로 오판된다 —
+        {/* columnsLoaded가 끝나기 전엔 columns가 항상 []이라 '아직 컬럼이 없어요'로 오판된다 —
             불러오는 중 상태와 합쳐서 로딩이 끝난 뒤에만 진짜 0건 갈래로 넘어가게 한다(설계 §G-2). */}
         {!loaded || !columnsLoaded ? (
           <p className="p-4 text-ui text-x-muted">불러오는 중…</p>
@@ -230,19 +230,19 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
             표를 불러오지 못했어요. <button onClick={() => void load(false)} className="underline">재시도</button>
           </p>
         ) : columnsError ? (
-          // 열 목록 조회가 실패한 경우 — 에러를 '아직 열이 없어요'(빈 상태)로 위장하지 않는다.
-          // 표 자체(트윗 행) 로딩과는 다른 요청이라 재시도도 별도로(열 목록만 다시 부른다) 건다.
+          // 컬럼 목록 조회가 실패한 경우 — 에러를 '아직 컬럼이 없어요'(빈 상태)로 위장하지 않는다.
+          // 표 자체(트윗 행) 로딩과는 다른 요청이라 재시도도 별도로(컬럼 목록만 다시 부른다) 건다.
           <p className="p-4 text-ui text-red-500">
             표를 불러오지 못했어요. <button onClick={onRetryColumns} className="underline">재시도</button>
           </p>
         ) : columns.length === 0 ? (
-          <p className="p-4 text-ui text-x-muted">아직 열이 없어요 — 카드 보기에서 열을 만들어보세요</p>
+          <p className="p-4 text-ui text-x-muted">아직 컬럼이 없어요 — 카드 보기에서 컬럼을 만들어보세요</p>
         ) : rows.length === 0 && (activeColumnIds.length > 0 || conditions.some(isComplete)) ? (
           <p className="p-4 text-ui text-x-muted">
             조건에 맞는 글이 없어요 — <button onClick={() => { setColumnIds([]); setConditions([]); }} className="underline">필터 지우기</button>
           </p>
         ) : rows.length === 0 ? (
-          <p className="p-4 text-ui text-x-muted">아직 수집된 글이 없어요 — 카드 보기에서 열을 새로고침하면 여기에 모입니다</p>
+          <p className="p-4 text-ui text-x-muted">아직 수집된 글이 없어요 — 카드 보기에서 컬럼을 새로고침하면 여기에 모입니다</p>
         ) : (
           <TweetTable rows={rows} columns={cols} sort={sort} dir={dir} onSort={onSort} />
         )}

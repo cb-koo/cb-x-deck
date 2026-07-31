@@ -1,7 +1,7 @@
 'use client';
+import { useEffect, useRef } from 'react';
 import { FIELD_SPECS, FILTER_FIELDS, OP_LABEL, type FilterCondition, type FilterField } from '@/lib/tableFilter';
 import type { Conflict } from '@/lib/collectionConflict';
-import { Button } from './ui';
 
 let seq = 0;
 // 개발 환경에서 Fast Refresh 시 seq가 0으로 리셋되지만, 이미 생성된 id들은 부모 상태에 남아 있어 충돌하지 않는다.
@@ -9,14 +9,13 @@ const nextId = () => `f${++seq}`;
 
 // 조건 행 — 건 조건만 보이므로 평소엔 자리를 차지하지 않는다(설계 §A).
 // 조건은 모두 AND로 묶인다. 논리 연산자를 노출하지 않는다 — 사용자는 비개발 기획 담당자다.
-export function FilterRows({ conditions, conflicts, onChange, totalLabel, countsLoaded, hasColumnFilter, onClearAll }: {
+export function FilterRows({ conditions, conflicts, onChange, totalLabel, countsLoaded, focusRequest }: {
   conditions: FilterCondition[];
   conflicts: Conflict[];
   onChange: (next: FilterCondition[]) => void;
   totalLabel: string;
   countsLoaded: boolean;      // totalLabel이 실제로 로드됐는지 — 실패 시 0으로 남아 있는 것과 구분한다
-  hasColumnFilter: boolean;   // 열이 좁혀져 있는지 — 조건이 없어도 '필터 지우기'가 보여야 한다
-  onClearAll: () => void;     // 조건 + 열 선택을 함께 되돌린다
+  focusRequest: { id: string; n: number } | null;   // 칩을 눌러 열렸을 때 그 조건에 초점
 }) {
   function add() {
     const field: FilterField = 'handle';
@@ -36,14 +35,15 @@ export function FilterRows({ conditions, conflicts, onChange, totalLabel, counts
   }
   const sel = 'rounded border border-x-border-strong bg-white px-1.5 py-1 text-ui text-x-text';
 
+  // 칩을 눌러 패널이 열렸으면 그 조건의 첫 컨트롤에 초점을 준다 — 어느 줄을 눌렀는지 잃지 않게.
+  // focus()는 DOM 메서드라 set-state-in-effect와 무관하다.
+  const rowRefs = useRef<Record<string, HTMLSelectElement | null>>({});
+  useEffect(() => {
+    if (focusRequest) rowRefs.current[focusRequest.id]?.focus();
+  }, [focusRequest]);
+
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-2">
-        <Button variant="subtle" onClick={add}>+ 필터</Button>
-        {(conditions.length > 0 || hasColumnFilter) && (
-          <Button variant="ghost" onClick={onClearAll}>필터 지우기</Button>
-        )}
-      </div>
       {conditions.map((c) => {
         const spec = FIELD_SPECS[c.field];
         // 알려지지 않은 축이 들어오면 이 행은 건너뛴다 (차후 축 정의 변경 시에도 안정적)
@@ -53,7 +53,8 @@ export function FilterRows({ conditions, conflicts, onChange, totalLabel, counts
         return (
           <div key={c.id} className="flex flex-col gap-0.5">
             <div className="flex flex-wrap items-center gap-1">
-              <select aria-label="필터 항목" aria-describedby={warningId} value={c.field} className={sel}
+              <select ref={(el) => { rowRefs.current[c.id] = el; }}
+                      aria-label="필터 항목" aria-describedby={warningId} value={c.field} className={sel}
                       onChange={(e) => patch(c.id, { field: e.target.value as FilterField })}>
                 {FILTER_FIELDS.map((f) => <option key={f} value={f}>{FIELD_SPECS[f].label}</option>)}
               </select>
@@ -78,10 +79,13 @@ export function FilterRows({ conditions, conflicts, onChange, totalLabel, counts
           </div>
         );
       })}
+      <button onClick={add} className="self-start rounded px-1.5 py-1 text-ui font-medium text-x-blue-text hover:bg-x-hover">
+        ＋ 조건 추가
+      </button>
       {conditions.length > 0 && countsLoaded && (
         // 건수를 아직 모르는 것과 진짜 0건은 다르다 — countsLoaded가 false면(최초 로딩 중이거나
         // 건수 요청이 실패해 조용히 넘어간 경우) 줄 자체를 감춘다. 없는 편이 틀린 것보다 낫다.
-        <p className="pl-1 text-caption text-x-muted">
+        <p className="border-t border-x-border pt-1.5 pl-1 text-caption text-x-muted">
           이미 모은 {totalLabel}건 중에서만 걸러요 (새로 가져오지 않아서 무료)
         </p>
       )}

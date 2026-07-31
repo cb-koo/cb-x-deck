@@ -22,7 +22,10 @@ export function FilterChips({
   const hasColumns = columnNames.length > 0;
   if (ready.length === 0 && !hasColumns) return null;
 
-  const summary = summarizeConflicts(conflicts);
+  // 요약 문구가 표시되지 않는 조건을 설명하지 않도록 필터를 일관성 있게 유지한다.
+  // ready에 없는 조건에 대한 경고를 summarizeConflicts에 넘기면 안 된다(라벨과 값의 어긋남).
+  const readyIds = new Set(ready.map((c) => c.id));
+  const summary = summarizeConflicts(conflicts.filter((c) => readyIds.has(c.conditionId)));
   const byCondition = new Map(conflicts.map((c) => [c.conditionId, c]));
 
   const chip = 'inline-flex items-center gap-1.5 rounded-full border bg-x-hover py-0.5 pl-2.5 pr-0.5 text-ui text-x-text';
@@ -34,7 +37,7 @@ export function FilterChips({
         {hasColumns && (
           <span className={`${chip} border-x-border-strong`}>
             열 {columnSelectionLabel(columnNames)}
-            <button aria-label="열 선택 지우기" title="열 선택 지우기" onClick={onClearColumns} className={del}>✕</button>
+            <button type="button" aria-label="열 선택 지우기" title="열 선택 지우기" onClick={onClearColumns} className={del}>✕</button>
           </span>
         )}
         {ready.map((c) => {
@@ -48,15 +51,21 @@ export function FilterChips({
                 <span aria-hidden="true"
                       className={`h-1.5 w-1.5 shrink-0 rounded-full ${conflict.kind === 'alwaysEmpty' ? 'bg-red-500' : 'bg-amber-600'}`} />
               )}
-              <button onClick={() => onOpenCondition(c.id)} className="hover:underline">
+              <button
+                type="button"
+                onClick={() => onOpenCondition(c.id)}
+                title="이 조건 고치기"
+                aria-label={`${describeCondition(c)} 고치기`}
+                className="hover:underline"
+              >
                 {describeCondition(c)}
               </button>
-              <button aria-label="이 조건 지우기" title="이 조건 지우기"
+              <button type="button" aria-label="이 조건 지우기" title="이 조건 지우기"
                       onClick={() => onRemoveCondition(c.id)} className={del}>✕</button>
             </span>
           );
         })}
-        <button onClick={onClearAll} className="ml-0.5 text-ui text-x-blue-text underline hover:no-underline">
+        <button type="button" onClick={onClearAll} className="ml-0.5 text-ui text-x-blue-text underline hover:no-underline">
           필터 지우기
         </button>
       </div>

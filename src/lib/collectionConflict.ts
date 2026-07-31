@@ -49,35 +49,50 @@ export function findConflicts(
         return typeof t === 'number' && v < t;
       });
       if (stricter.length === 0) continue;
-      const worst = Math.max(...stricter.map((cfg) => Number(cfg[numKey])));
+      // 여러 열이 다른 기준이면(100과 300) "300 이상만 모아요"는 100인 열엔 거짓이다.
+      // 가장 느슨한(=가장 작은) 기준을 대야 선택된 모든 열에 대해 참이다.
+      const loosest = Math.min(...stricter.map((cfg) => Number(cfg[numKey])));
       const kind = c.op === 'gte' ? 'noEffect' : 'alwaysEmpty';
       out.push({ conditionId: c.id, kind,
-        message: message(kind, label, formatFull(worst), '이하', formatFull(v), stricter.length, configs.length) });
+        message: message(kind, label, formatFull(loosest), '이하', formatFull(v), stricter.length, configs.length) });
       continue;
     }
 
     if (c.field === 'date' && (c.op === 'after' || c.op === 'before')) {
       const v = c.value.trim();
-      // sinceDate보다 과거를 요구하면: '이후'는 무효, '이전'은 항상 0건
-      const sinceHits = configs.filter((cfg) => typeof cfg.sinceDate === 'string' && cfg.sinceDate! > v);
+      // 수집은 sinceDate 당일부터 포함한다(buildFilterSql의 'after' >= 와 동일).
+      // 그래서 필터 값이 sinceDate와 같을 때:
+      //  - 'before'(< v)는 수집 시작일 자체보다 앞을 요구하는 셈이라 항상 0건 → 등호도 경고한다.
+      //  - 'after'(>= v)는 수집 하한과 정확히 같아질 뿐이라 단순 무효 → 등호는 조용히 넘어간다
+      //    (문구가 "낮춰도"라 실제로 낮추지 않은 등호 상황에는 맞지 않는다).
+      const sinceHits = configs.filter((cfg) =>
+        typeof cfg.sinceDate === 'string' && (c.op === 'before' ? cfg.sinceDate! >= v : cfg.sinceDate! > v));
       if (sinceHits.length > 0) {
-        const worst = sinceHits.map((cfg) => cfg.sinceDate!).sort().reverse()[0];
+        // 여러 열이 걸리면 가장 이른(=가장 느슨한) sinceDate를 대야 모두에게 참이다.
+        const loosest = sinceHits.map((cfg) => cfg.sinceDate!).sort()[0];
         const kind = c.op === 'after' ? 'noEffect' : 'alwaysEmpty';
         out.push({ conditionId: c.id, kind,
           message: kind === 'noEffect'
-            ? `이 열은 ${worst} 이후만 모으고 있어서 ${v}으로 낮춰도 더 나오지 않아요`
-            : `이 열은 ${worst} 이후만 모으고 있어서 ${v} 이전으로는 한 건도 나오지 않아요` });
+            ? `이 열은 ${loosest} 이후만 모으고 있어서 ${v}으로 낮춰도 더 나오지 않아요`
+            : `이 열은 ${loosest} 이후만 모으고 있어서 ${v} 이전으로는 한 건도 나오지 않아요` });
         continue;
       }
-      // untilDate보다 미래를 요구하면: '이전'은 무효, '이후'는 항상 0건
-      const untilHits = configs.filter((cfg) => typeof cfg.untilDate === 'string' && cfg.untilDate! < v);
+      // 수집은 untilDate 당일을 포함하지 않는다(X 검색 연산자 until:은 그 날짜를 뺀다.
+      // queryBuilder.ts가 untilDate를 그대로 until:로 넘기고, 이 파일의 기존 문구도
+      // "~ 이전만 모으고 있어서"로 buildFilterSql의 'before' < 와 같은 뜻을 쓰고 있었다).
+      // 그래서 필터 값이 untilDate와 같을 때:
+      //  - 'after'(>= v)는 수집 상한과 정확히 겹치지 않아(수집은 모두 < v) 항상 0건 → 등호도 경고한다.
+      //  - 'before'(< v)는 수집 상한과 정확히 같은 경계라 단순 무효(중복) → 등호는 조용히 넘어간다.
+      const untilHits = configs.filter((cfg) =>
+        typeof cfg.untilDate === 'string' && (c.op === 'after' ? cfg.untilDate! <= v : cfg.untilDate! < v));
       if (untilHits.length > 0) {
-        const worst = untilHits.map((cfg) => cfg.untilDate!).sort()[0];
+        // 여러 열이 걸리면 가장 늦은(=가장 느슨한) untilDate를 대야 모두에게 참이다.
+        const loosest = untilHits.map((cfg) => cfg.untilDate!).sort().reverse()[0];
         const kind = c.op === 'before' ? 'noEffect' : 'alwaysEmpty';
         out.push({ conditionId: c.id, kind,
           message: kind === 'noEffect'
-            ? `이 열은 ${worst} 이전만 모으고 있어서 ${v}으로 올려도 더 나오지 않아요`
-            : `이 열은 ${worst} 이전만 모으고 있어서 ${v} 이후로는 한 건도 나오지 않아요` });
+            ? `이 열은 ${loosest} 이전만 모으고 있어서 ${v}으로 올려도 더 나오지 않아요`
+            : `이 열은 ${loosest} 이전만 모으고 있어서 ${v} 이후로는 한 건도 나오지 않아요` });
       }
     }
   }

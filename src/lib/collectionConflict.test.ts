@@ -67,3 +67,51 @@ test('대응 설정이 없는 축은 경고하지 않는다', () => {
   assert.deepEqual(findConflicts([c({ field: 'followers', op: 'gte', value: '1' })], [A], ['a']), []);
   assert.deepEqual(findConflicts([c({ field: 'text', op: 'contains', value: 'x' })], [A], ['a']), []);
 });
+
+test('날짜 경계 — sinceDate와 정확히 같은 이전(before)은 항상 0건이라 경고한다', () => {
+  const since = col('s', 'S', { keywords: ['x'], sinceDate: '2026-06-01' });
+  const out = findConflicts([c({ field: 'date', op: 'before', value: '2026-06-01' })], [since], ['s']);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'alwaysEmpty');
+  assert.equal(out[0].message, '이 열은 2026-06-01 이후만 모으고 있어서 2026-06-01 이전으로는 한 건도 나오지 않아요');
+});
+
+test('날짜 경계 — sinceDate와 정확히 같은 이후(after)는 낮춘 게 아니라서 조용히 넘어간다', () => {
+  const since = col('s', 'S', { keywords: ['x'], sinceDate: '2026-06-01' });
+  assert.deepEqual(findConflicts([c({ field: 'date', op: 'after', value: '2026-06-01' })], [since], ['s']), []);
+});
+
+test('숫자 요약 — 기준이 다른 여러 열은 가장 낮은 기준을 말한다', () => {
+  const cols = [
+    col('a', 'A', { keywords: ['x'], minFaves: 100 }),
+    col('b', 'B', { keywords: ['y'], minFaves: 300 }),
+  ];
+  const out = findConflicts([c({ value: '50' })], cols, ['a', 'b']);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'noEffect');
+  assert.equal(out[0].message, '선택한 열 중 2개는 좋아요 100 이상만 모아요');
+});
+
+test('날짜 경계 — untilDate와 정확히 같은 이후(after)는 항상 0건이라 경고한다', () => {
+  const until = col('u', 'U', { keywords: ['x'], untilDate: '2026-07-31' });
+  const out = findConflicts([c({ field: 'date', op: 'after', value: '2026-07-31' })], [until], ['u']);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'alwaysEmpty');
+  assert.equal(out[0].message, '이 열은 2026-07-31 이전만 모으고 있어서 2026-07-31 이후로는 한 건도 나오지 않아요');
+});
+
+test('날짜 경계 — untilDate와 정확히 같은 이전(before)은 중복일 뿐이라 조용히 넘어간다', () => {
+  const until = col('u', 'U', { keywords: ['x'], untilDate: '2026-07-31' });
+  assert.deepEqual(findConflicts([c({ field: 'date', op: 'before', value: '2026-07-31' })], [until], ['u']), []);
+});
+
+test('날짜 요약 — 기준이 다른 여러 열은 가장 느슨한(이른) sinceDate를 말한다', () => {
+  const cols = [
+    col('a', 'A', { keywords: ['x'], sinceDate: '2026-06-01' }),
+    col('b', 'B', { keywords: ['y'], sinceDate: '2026-03-01' }),
+  ];
+  const out = findConflicts([c({ field: 'date', op: 'after', value: '2026-01-01' })], cols, ['a', 'b']);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'noEffect');
+  assert.equal(out[0].message, '이 열은 2026-03-01 이후만 모으고 있어서 2026-01-01으로 낮춰도 더 나오지 않아요');
+});

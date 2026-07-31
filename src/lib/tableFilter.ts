@@ -91,3 +91,54 @@ export function parseFilters(raw: unknown): FilterCondition[] {
   }
   return out;
 }
+
+// 축 → SQL 식. 허용 목록이다. 여기 없는 축은 조각을 만들지 못한다.
+// 지표는 정렬식(tweetStore.ORDER_EXPR)과 같은 형태를 쓴다 — 나중에 표현식 인덱스를 넣을 때
+// 식이 정확히 일치해야 인덱스가 쓰인다(설계 §E).
+const FIELD_EXPR: Record<FilterField, string> = {
+  handle: 't.author_handle',
+  text: 't.text',
+  views: `(t.metrics->>'views')::bigint`,
+  likes: `(t.metrics->>'likes')::bigint`,
+  retweets: `(t.metrics->>'retweets')::bigint`,
+  replies: `(t.metrics->>'replies')::bigint`,
+  quotes: `(t.metrics->>'quotes')::bigint`,
+  bookmarks: `(t.metrics->>'bookmarks')::bigint`,
+  followers: 't.author_followers',
+  date: 't.tweet_created_at',
+  fetchedAt: 't.last_fetched_at',
+};
+
+// LIKE 패턴 메타문자를 죽인다. 사용자가 '50%'를 찾으면 %가 와일드카드가 되어
+// 50으로 시작하는 글 전부에 걸린다. '_'도 한 글자 와일드카드다.
+function escapeLike(v: string): string {
+  return v.replace(/([\\%_])/g, '\\$1');
+}
+
+export function buildFilterSql(
+  conditions: FilterCondition[], nextParam: number,
+): { clauses: string[]; params: unknown[] } {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  let n = nextParam;
+  const bind = (v: unknown) => { params.push(v); return `$${n++}`; };
+
+  for (const c of conditions) {
+    const spec = FIELD_SPECS[c.field];
+    const expr = FIELD_EXPR[c.field];
+    if (!spec || !expr || !spec.ops.includes(c.op)) continue;   // 허용 목록 밖이면 조각 없음
+    const v = c.value.trim();
+    switch (c.op) {
+      case 'gte': clauses.push(`${expr} >= ${bind(Number(v))}`); break;
+      case 'lte': clauses.push(`${expr} <= ${bind(Number(v))}`); break;
+      case 'is': clauses.push(`${expr} = ${bind(v)}`); break;
+      case 'contains': clauses.push(`${expr} ilike ${bind(`%${escapeLike(v)}%`)} escape '\\'`); break;
+      case 'notContains': clauses.push(`${expr} not ilike ${bind(`%${escapeLike(v)}%`)} escape '\\'`); break;
+      // '이후'는 그 날짜 포함, '이전'은 그 날짜 미포함 — 두 조건을 겹쳐 범위를 만들 때
+      // 경계 하루가 양쪽에 들어가지 않게 한쪽만 포함한다.
+      case 'after': clauses.push(`${expr} >= ${bind(v)}::date`); break;
+      case 'before': clauses.push(`${expr} < ${bind(v)}::date`); break;
+    }
+  }
+  return { clauses, params };
+}

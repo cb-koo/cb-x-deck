@@ -775,7 +775,7 @@ Expected: `tsc` 출력 없음(T3에서 남았던 오류가 사라진다). 린트
 
 **주의**: `TweetTableView.tsx`가 아직 `columnId`(단수)를 쿼리에 넣는다. 그 파라미터는 이제 서버가 무시하므로 **열 필터가 일시적으로 동작하지 않는다** — T6에서 배선한다. 이 상태로 커밋해도 화면은 깨지지 않는다(전체가 보인다).
 
-- [ ] **Step 4: 커밋**
+- [ ] **Step 5: 커밋**
 
 메시지 요약: `feat(x-research): 표 API가 열 다중선택·필터 조건을 받는다 + 열별 건수 라우트`
 
@@ -1122,8 +1122,9 @@ Expected: PASS — `# pass 7`, `# fail 0`. 문구가 한 글자라도 다르면 
 
 **Interfaces:**
 - Consumes: T1의 `FILTER_FIELDS`·`FIELD_SPECS`·`OP_LABEL`·`FilterCondition`, T7의 `Conflict`
-- Produces: `FilterRows({ conditions, conflicts, onChange, totalLabel })`
-  - `conditions: FilterCondition[]`, `conflicts: Conflict[]`, `onChange: (next: FilterCondition[]) => void`, `totalLabel: string`(안내 줄에 넣을 건수 문자열)
+- Produces: `FilterRows({ conditions, conflicts, onChange, totalLabel, hasColumnFilter, onClearAll })`
+  - `conditions: FilterCondition[]`, `conflicts: Conflict[]`, `onChange: (next: FilterCondition[]) => void`, `totalLabel: string`(안내 줄에 넣을 건수 문자열), `hasColumnFilter: boolean`, `onClearAll: () => void`
+  - **`필터 지우기`는 열만 좁혀져 있어도 보인다.** 필터는 휘발성이라 새로고침하면 조건이 사라지는데(설계 §F), 걸려 있다는 사실만은 화면에서 읽혀야 한다.
 
 - [ ] **Step 1: 컴포넌트 작성**
 
@@ -1145,6 +1146,8 @@ export function FilterRows({ conditions, conflicts, onChange, totalLabel }: {
   conflicts: Conflict[];
   onChange: (next: FilterCondition[]) => void;
   totalLabel: string;
+  hasColumnFilter: boolean;   // 열이 좁혀져 있는지 — 조건이 없어도 '필터 지우기'가 보여야 한다
+  onClearAll: () => void;     // 조건 + 열 선택을 함께 되돌린다
 }) {
   function add() {
     const field: FilterField = 'handle';
@@ -1165,8 +1168,8 @@ export function FilterRows({ conditions, conflicts, onChange, totalLabel }: {
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2">
         <Button variant="subtle" onClick={add}>+ 필터</Button>
-        {conditions.length > 0 && (
-          <Button variant="ghost" onClick={() => onChange([])}>필터 지우기</Button>
+        {(conditions.length > 0 || hasColumnFilter) && (
+          <Button variant="ghost" onClick={onClearAll}>필터 지우기</Button>
         )}
       </div>
       {conditions.map((c) => {
@@ -1308,6 +1311,20 @@ import { csvFileName, isComplete, type FilterCondition } from '@/lib/tableFilter
 
 4. 로딩 effect의 deps에 `conditions`를 더한다 — 조건이 바뀌면 처음부터 다시 불러온다.
 
+4-1. `더보기`일 때 총계를 요청하지 않고, 응답에 `total`이 없으면 기존 값을 유지한다(T4 Step 3의 서버 변경과 짝):
+```tsx
+      const r = await apiFetch(`/api/tweet-table?${qs({
+        offset: append ? String(rows.length) : '0',
+        limit: String(TABLE_PAGE),
+        ...(append ? { withCount: '0' } : {}),
+      })}`);
+      ...
+      const d = await r.json() as { rows: TableRow[]; total?: number };
+      setRows((cur) => (append ? [...cur, ...d.rows] : d.rows));
+      if (d.total !== undefined) setTotal(d.total);   // 더보기 응답엔 없다 — 기존 값을 유지한다
+```
+`saveCsv`는 전체를 다시 받는 경로라 총계가 필요하다 — 거기엔 `withCount`를 넣지 않는다.
+
 5. `saveCsv`의 파일명을 바꾼다:
 ```tsx
       a.download = csvFileName({
@@ -1322,7 +1339,9 @@ import { csvFileName, isComplete, type FilterCondition } from '@/lib/tableFilter
       <div className="border-b border-x-border px-4 py-2">
         <FilterRows conditions={conditions} onChange={setConditions}
                     conflicts={findConflicts(conditions.filter(isComplete), columns, columnIds)}
-                    totalLabel={total.toLocaleString('en-US')} />
+                    totalLabel={total.toLocaleString('en-US')}
+                    hasColumnFilter={columnIds.length > 0}
+                    onClearAll={() => { setColumnIds([]); setConditions([]); }} />
       </div>
 ```
 
@@ -1364,7 +1383,19 @@ Expected: `tsc=0`, 린트 24, 빌드 성공(`/api/tweet-table/counts`가 라우�
 조건 4개를 건 상태의 쿼리를 `EXPLAIN (ANALYZE)`로 5회 돌려 **웜 중앙값이 스펙 §E의 12.9ms에서 크게 벗어나지 않는지** 확인하고 수치를 기록한다. 첫 회는 콜드라 버린다.
 
 ```
-node --import tsx --env-file-if-exists=.env -e "<스펙 §E와 같은 형태의 쿼리를 5회 EXPLAIN ANALYZE>"
+node --import tsx --env-file-if-exists=.env -e "
+const { getSql } = await import('/Users/koo_clinicbridge/orca/workspaces/cb-x-deck/ux-ux/src/lib/db.ts');
+const { getWorkspaceTableRows } = await import('/Users/koo_clinicbridge/orca/workspaces/cb-x-deck/ux-ux/src/lib/tweetStore.ts');
+const sql = getSql();
+const [ws] = await sql\`select id from workspace where name='기본'\`;
+const f = (field,op,value) => ({ id:field, field, op, value });
+const filters = [f('views','gte','1000000'), f('text','contains','スキン'), f('followers','gte','1000'), f('date','after','2026-06-01')];
+const t = [];
+for (let i=0;i<6;i++) { const s=Date.now(); await getWorkspaceTableRows(sql, ws.id, { sort:'views', filters }); t.push(Date.now()-s); }
+t.shift(); t.sort((a,b)=>a-b);
+console.log('웜 중앙값', t[2]+'ms', '| 전체', t.join(', '));
+await sql.end();
+"
 ```
 
 - [ ] **Step 4: 브라우저 확인**

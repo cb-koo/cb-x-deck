@@ -8,8 +8,11 @@ import { TABLE_MAX, TABLE_PAGE } from '@/lib/tableLimits';
 import { useToast } from '@/lib/toastContext';
 import { Button } from './ui';
 import { ColumnPicker } from './ColumnPicker';
+import { FilterRows } from './FilterRows';
 import { TweetTable } from './TweetTable';
 import { DownloadIcon } from './XIcons';
+import { findConflicts } from '@/lib/collectionConflict';
+import { csvFileName, isComplete, type FilterCondition } from '@/lib/tableFilter';
 
 const MORE_KEY = 'table-show-more';   // 칸 더보기 상태 (개인 보기 취향이라 localStorage)
 
@@ -26,6 +29,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   const [sort, setSort] = useState<SortKey>('views');
   const [dir, setDir] = useState<SortDir>('desc');
   const [columnIds, setColumnIds] = useState<string[]>([]);   // 빈 배열 = 전체
+  const [conditions, setConditions] = useState<FilterCondition[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [showMore, setShowMore] = useState(false);
   const [loaded, setLoaded] = useState(false);   // 첫 로드 완료 — 로딩 중 빈 상태 문구를 막는다
@@ -53,20 +57,28 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   const qs = useCallback((extra: Record<string, string>) => {
     const p = new URLSearchParams({ workspaceId: wsId, sort, dir, ...extra });
     if (activeColumnIds.length > 0) p.set('columnIds', activeColumnIds.join(','));
+    // 미완성 조건(축만 고르고 값을 아직 안 넣은 상태)은 쿼리에 보내지 않는다 —
+    // 결과가 0건으로 튀면 사용자는 자기가 뭘 잘못했다고 생각한다.
+    const ready = conditions.filter(isComplete);
+    if (ready.length > 0) p.set('filters', JSON.stringify(ready));
     return p.toString();
-  }, [wsId, sort, dir, activeColumnIds]);
+  }, [wsId, sort, dir, activeColumnIds, conditions]);
 
   const load = useCallback(async (append: boolean) => {
     const id = ++reqIdRef.current;   // 이 호출의 번호를 찍어두고, 응답이 오면 아직 최신인지 확인한다
     setBusy(true); setErr(false);
     try {
-      const r = await apiFetch(`/api/tweet-table?${qs({ offset: append ? String(rows.length) : '0', limit: String(TABLE_PAGE) })}`);
+      const r = await apiFetch(`/api/tweet-table?${qs({
+        offset: append ? String(rows.length) : '0',
+        limit: String(TABLE_PAGE),
+        ...(append ? { withCount: '0' } : {}),
+      })}`);
       if (reqIdRef.current !== id) return;   // 그 사이 더 최신 요청이 시작됨 — 이 응답은 버린다(busy/loaded도 건드리지 않는다)
       if (!r.ok) { setErr(true); setBusy(false); setLoaded(true); return; }
-      const d = await r.json() as { rows: TableRow[]; total: number };
+      const d = await r.json() as { rows: TableRow[]; total?: number };
       if (reqIdRef.current !== id) return;   // json 파싱 중에도 최신 요청이 바뀔 수 있다
       setRows((cur) => (append ? [...cur, ...d.rows] : d.rows));
-      setTotal(d.total);
+      if (d.total !== undefined) setTotal(d.total);   // 더보기 응답엔 없다 — 기존 값을 유지한다
       setBusy(false); setLoaded(true);
     } catch {
       // 폐기된 응답의 실패까지 busy를 풀면 아직 진행 중인 최신 요청의 버튼이 중간에 다시 눌리게 된다
@@ -75,9 +87,10 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   }, [qs, rows.length]);
 
   // 정렬·필터가 바뀌면 처음부터 다시 — append=false. columnIds가 아니라 activeColumnIds를 봐야
-  // 삭제된 열 id가 걸러진 것 자체(라벨 갱신)도 재조회를 유발한다.
+  // 삭제된 열 id가 걸러진 것 자체(라벨 갱신)도 재조회를 유발한다. 조건이 바뀌어도 이어붙이지 않고
+  // 처음부터 다시 불러온다(offset 0) — qs가 완성된 조건만 실어 보내므로 미완성 조건은 재조회를 유발하지 않는다.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void load(false); }, [wsId, sort, dir, activeColumnIds]);
+  useEffect(() => { void load(false); }, [wsId, sort, dir, activeColumnIds, conditions]);
 
   // 열별 건수는 워크스페이스가 바뀔 때만 — 조건·정렬이 바뀌어도 다시 부르지 않는다. 부가 정보라 실패해도 화면은 동작한다.
   const loadCounts = useCallback(async () => {
@@ -108,7 +121,11 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
       const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
       const a = document.createElement('a');
       a.href = url;
-      a.download = `x-deck-table-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = csvFileName({
+        columnNames: activeColumnIds.map((id) => columns.find((c) => c.id === id)?.title ?? '').filter(Boolean),
+        conditionCount: conditions.filter(isComplete).length,
+        date: new Date().toISOString().slice(0, 10),
+      });
       // Firefox·Safari는 문서에 붙지 않은 <a>의 클릭을 무시할 수 있다 — 붙였다 떼고,
       // revoke는 클릭 직후가 아니라 다음 틱에 한다(동기 revoke는 다운로드가 시작되기 전에 URL을 죽일 수 있다).
       document.body.appendChild(a);
@@ -149,6 +166,15 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
         </div>
       </div>
 
+      {/* 조건 행 — 평소엔 '+ 필터' 하나뿐이라 자리를 차지하지 않는다(설계 §A) */}
+      <div className="border-b border-x-border px-4 py-2">
+        <FilterRows conditions={conditions} onChange={setConditions}
+                    conflicts={findConflicts(conditions.filter(isComplete), columns, activeColumnIds)}
+                    totalLabel={total.toLocaleString('en-US')}
+                    hasColumnFilter={activeColumnIds.length > 0}
+                    onClearAll={() => { setColumnIds([]); setConditions([]); }} />
+      </div>
+
       {/* 지표 신선도 — '카드 보기에서'를 빼면 표 모드에 없는 버튼을 가리키는 죽은 안내가 된다(설계 §E) */}
       <p className="border-b border-x-border px-4 py-1 text-caption text-x-muted">
         지표는 각 글을 마지막으로 가져온 시점 기준이에요 — 카드 보기에서 열을 새로고침하면 갱신됩니다
@@ -176,9 +202,9 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
           </p>
         ) : columns.length === 0 ? (
           <p className="p-4 text-ui text-x-muted">아직 열이 없어요 — 카드 보기에서 열을 만들어보세요</p>
-        ) : rows.length === 0 && activeColumnIds.length > 0 ? (
+        ) : rows.length === 0 && (activeColumnIds.length > 0 || conditions.some(isComplete)) ? (
           <p className="p-4 text-ui text-x-muted">
-            이 열에는 글이 없어요 — <button onClick={() => setColumnIds([])} className="underline">전체 보기</button>
+            조건에 맞는 글이 없어요 — <button onClick={() => { setColumnIds([]); setConditions([]); }} className="underline">필터 지우기</button>
           </p>
         ) : rows.length === 0 ? (
           <p className="p-4 text-ui text-x-muted">아직 수집된 글이 없어요 — 카드 보기에서 열을 새로고침하면 여기에 모입니다</p>

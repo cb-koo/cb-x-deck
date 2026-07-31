@@ -146,3 +146,15 @@ export function buildFilterSql(
   }
   return { clauses, params };
 }
+
+// 내보낸 파일이 어떤 조건의 결과인지 이름만 보고 알 수 있게 한다 —
+// 같은 날 다른 조건으로 두 번 받으면 (1).csv가 되어 구분이 안 된다(설계 §F).
+export function csvFileName(opts: { columnNames: string[]; conditionCount: number; date: string }): string {
+  const bad = /[\\/:*?"<>|\s]/g;                       // 파일명에 쓸 수 없는 문자와 공백
+  const parts = ['x-deck-table'];
+  if (opts.columnNames.length === 1) parts.push(opts.columnNames[0].replace(bad, ''));
+  else if (opts.columnNames.length > 1) parts.push(`열${opts.columnNames.length}개`);
+  if (opts.conditionCount > 0) parts.push(`필터${opts.conditionCount}개`);
+  parts.push(opts.date);
+  return `${parts.join('-')}.csv`;
+}

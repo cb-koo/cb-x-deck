@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FIELD_SPECS, FILTER_FIELDS, OP_LABEL, isComplete, describeCondition, parseFilters, buildFilterSql,
-         type FilterCondition } from './tableFilter.ts';
+         csvFileName, type FilterCondition } from './tableFilter.ts';
 
 const c = (over: Partial<FilterCondition> = {}): FilterCondition =>
   ({ id: 'x', field: 'views', op: 'gte', value: '100000', ...over });
@@ -146,4 +146,20 @@ test('buildFilterSql: 숫자 축에 숫자가 아닌 값이 오면 조각을 만
   const { clauses, params } = buildFilterSql([{ id: '1', field: 'views', op: 'gte', value: 'abc' }], 1);
   assert.deepEqual(clauses, []);
   assert.deepEqual(params, []);
+});
+
+test('csvFileName: 조건을 요약해 같은 날 두 번 받아도 구분된다', () => {
+  assert.equal(csvFileName({ columnNames: [], conditionCount: 0, date: '2026-07-31' }),
+    'x-deck-table-2026-07-31.csv');
+  assert.equal(csvFileName({ columnNames: ['PDRN 크림'], conditionCount: 0, date: '2026-07-31' }),
+    'x-deck-table-PDRN크림-2026-07-31.csv');
+  assert.equal(csvFileName({ columnNames: ['A', 'B'], conditionCount: 0, date: '2026-07-31' }),
+    'x-deck-table-열2개-2026-07-31.csv');
+  assert.equal(csvFileName({ columnNames: [], conditionCount: 3, date: '2026-07-31' }),
+    'x-deck-table-필터3개-2026-07-31.csv');
+  assert.equal(csvFileName({ columnNames: ['PDRN 크림'], conditionCount: 2, date: '2026-07-31' }),
+    'x-deck-table-PDRN크림-필터2개-2026-07-31.csv');
+  // 파일명에 쓸 수 없는 문자는 제거한다
+  assert.equal(csvFileName({ columnNames: ['a/b:c*?"<>|d'], conditionCount: 0, date: '2026-07-31' }),
+    'x-deck-table-abcd-2026-07-31.csv');
 });

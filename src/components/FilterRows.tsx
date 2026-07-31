@@ -53,7 +53,11 @@ export function FilterRows({ conditions, conflicts, onChange, totalLabel, counts
         return (
           <div key={c.id} className="flex flex-col gap-0.5">
             <div className="flex flex-wrap items-center gap-1">
-              <select ref={(el) => { rowRefs.current[c.id] = el; }}
+              <select ref={(el) => {
+                        // 삭제된 조건의 경우 null이 오지만 키를 남기면 맵이 조용히 틀려진다 — 삭제한다
+                        if (el === null) delete rowRefs.current[c.id];
+                        else rowRefs.current[c.id] = el;
+                      }}
                       aria-label="필터 항목" aria-describedby={warningId} value={c.field} className={sel}
                       onChange={(e) => patch(c.id, { field: e.target.value as FilterField })}>
                 {FILTER_FIELDS.map((f) => <option key={f} value={f}>{FIELD_SPECS[f].label}</option>)}

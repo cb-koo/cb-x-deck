@@ -26,7 +26,8 @@ export function FilterPanel({ conditions, conflicts, onChange, totalLabel, count
         필터
         {n > 0 && (
           // 개수는 배지로 — '필터'만 있으면 걸려 있는지 알 수 없다(AGENTS.md 원칙 4)
-          <span className="ml-0.5 inline-flex h-[1.05rem] min-w-[1.05rem] items-center justify-center rounded-full bg-x-blue px-1 text-caption font-bold tabular-nums text-white">
+          // JSX가 공백을 지워 '필터2'로 붙어 읽히므로 aria-label로 명시한다
+          <span aria-label={`조건 ${n}개 적용됨`} className="ml-0.5 inline-flex h-[1.05rem] min-w-[1.05rem] items-center justify-center rounded-full bg-x-blue px-1 text-caption font-bold tabular-nums text-white">
             {n}
           </span>
         )}

@@ -35,7 +35,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   // 칩을 눌러 패널을 열 때 어느 조건에 초점을 줄지. n은 같은 칩을 두 번 눌러도 다시 초점이 가게 하는 카운터.
   const [focusRequest, setFocusRequest] = useState<{ id: string; n: number } | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
-  // 워크스페이스 전체 수집 건수 — 필터·열 선택과 무관하다(A1). FilterRows의 "이미 모은 N건 중에서만
+  // 워크스페이스 전체 수집 건수 — 필터·열 선택과 무관하다(A1). FilterPanel의 FilterRows "이미 모은 N건 중에서만
   // 걸러요"는 이 값을 써야 한다: total(아래)은 필터링 결과라 필터 후 12건을 "모은 건수"로 잘못 말하게 된다.
   const [workspaceTotal, setWorkspaceTotal] = useState(0);
   // counts 요청이 성공적으로 한 번이라도 끝났는지(A4) — 끝나기 전엔 counts에 없는 항목이

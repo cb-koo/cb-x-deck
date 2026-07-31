@@ -6,12 +6,16 @@ import { summarizeConflicts, type Conflict } from '@/lib/collectionConflict';
 // 패널 안에 상태가 있고, 트리거에 개수 배지가 있고, 여기에 요약이 있다 — 세 겹으로 두는 것이
 // 의도된 중복이다. 어느 하나만 두면 "뭐가 걸렸는지 열어봐야 아는" 상태가 된다.
 export function FilterChips({
-  conditions, conflicts, columnNames,
+  conditions, conflicts, columnNames, hasColumnFilter,
   onRemoveCondition, onClearColumns, onClearAll, onOpenCondition,
 }: {
   conditions: FilterCondition[];
   conflicts: Conflict[];
   columnNames: string[];
+  // 열 선택이 있는지의 진실은 activeColumnIds다 — columnNames는 제목을 표시용으로 붙인 파생값이라
+  // 제목이 빈 문자열로 풀리면(오늘은 열 생성이 막지만 PATCH는 안 막는다) 줄·지우기 버튼이
+  // 선택이 없는 것처럼 사라져버린다(라벨과 값의 어긋남). 행 노출·지우기 버튼은 이 값으로만 판단한다.
+  hasColumnFilter: boolean;
   onRemoveCondition: (id: string) => void;
   onClearColumns: () => void;
   onClearAll: () => void;
@@ -19,8 +23,7 @@ export function FilterChips({
 }) {
   // 미완성 조건은 쿼리에 안 가므로 칩으로도 보이면 안 된다 — 라벨과 실제가 어긋난다.
   const ready = conditions.filter(isComplete);
-  const hasColumns = columnNames.length > 0;
-  if (ready.length === 0 && !hasColumns) return null;
+  if (ready.length === 0 && !hasColumnFilter) return null;
 
   // 요약 문구가 표시되지 않는 조건을 설명하지 않도록 필터를 일관성 있게 유지한다.
   // ready에 없는 조건에 대한 경고를 summarizeConflicts에 넘기면 안 된다(라벨과 값의 어긋남).
@@ -34,7 +37,7 @@ export function FilterChips({
   return (
     <div className="flex flex-col gap-0.5 border-b border-x-border px-4 py-1.5">
       <div className="flex flex-wrap items-center gap-1.5">
-        {hasColumns && (
+        {hasColumnFilter && (
           <span className={`${chip} border-x-border-strong`}>
             열 {columnSelectionLabel(columnNames)}
             <button type="button" aria-label="열 선택 지우기" title="열 선택 지우기" onClick={onClearColumns} className={del}>✕</button>

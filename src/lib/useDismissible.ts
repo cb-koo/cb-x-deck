@@ -8,7 +8,15 @@ import { useEffect, type RefObject } from 'react';
 // Column.tsx가 같은 이유로 removeAttribute('open')을 쓴다 — 같은 방식을 공유한다.
 export function useDismissible(ref: RefObject<HTMLDetailsElement | null>): void {
   useEffect(() => {
-    const close = () => ref.current?.removeAttribute('open');
+    const close = () => {
+      const el = ref.current;
+      // 패널 안에 초점이 있는 채로 open을 지우면 그 요소가 display:none이 되어
+      // document.activeElement가 body로 튕긴다(Tab이 트리거로 안 돌아오고 페이지 맨 위부터 다시 시작).
+      // open을 지우기 전에, 감춰지기 전인 지금 summary로 초점을 옮겨둔다 — 순서가 바뀌면
+      // 이미 사라진 요소에 초점을 주려는 셈이라 아무 효과가 없다.
+      if (el?.contains(document.activeElement)) el.querySelector('summary')?.focus();
+      el?.removeAttribute('open');
+    };
 
     const onPointerDown = (e: PointerEvent) => {
       const el = ref.current;

@@ -220,6 +220,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
       <FilterChips conditions={conditions}
                    conflicts={conflicts}
                    columnNames={activeColumnIds.map((id) => columns.find((c) => c.id === id)?.title ?? '').filter(Boolean)}
+                   hasColumnFilter={activeColumnIds.length > 0}
                    onRemoveCondition={(id) => setConditions(conditions.filter((c) => c.id !== id))}
                    onClearColumns={() => setColumnIds([])}
                    onClearAll={() => { setColumnIds([]); setConditions([]); }}

@@ -1,6 +1,6 @@
 'use client';
 import type { RefObject } from 'react';
-import type { FilterCondition } from '@/lib/tableFilter';
+import { isComplete, type FilterCondition } from '@/lib/tableFilter';
 import type { Conflict } from '@/lib/collectionConflict';
 import { useDismissible } from '@/lib/useDismissible';
 import { FilterRows } from './FilterRows';
@@ -18,16 +18,20 @@ export function FilterPanel({ conditions, conflicts, onChange, totalLabel, count
   panelRef: RefObject<HTMLDetailsElement | null>;
 }) {
   useDismissible(panelRef);
-  const n = conditions.length;
+  // 배지·트리거 색·접근성 이름은 모두 '완성된' 조건만 센다 — 값 없이 축만 고른 중간 상태는
+  // 쿼리에도, 칩 줄에도 나타나지 않으므로 여기서만 "적용됨"이라 하면 라벨과 값이 어긋난다.
+  const n = conditions.filter(isComplete).length;
 
   return (
     <details ref={panelRef} className="relative shrink-0">
-      <summary className={`flex cursor-pointer list-none items-center gap-1 rounded-full border px-2.5 py-1 text-ui text-x-secondary hover:bg-x-hover [&::-webkit-details-marker]:hidden ${n > 0 ? 'border-x-blue' : 'border-x-border-strong'}`}>
+      {/* 접근성 이름은 summary에 둔다 — 배지 <span>은 role=generic이라 노출이 보장되지 않는다 */}
+      <summary aria-label={n > 0 ? `필터, 조건 ${n}개 적용됨` : '필터'}
+               className={`flex cursor-pointer list-none items-center gap-1 rounded-full border px-2.5 py-1 text-ui text-x-secondary hover:bg-x-hover [&::-webkit-details-marker]:hidden ${n > 0 ? 'border-x-blue' : 'border-x-border-strong'}`}>
         필터
         {n > 0 && (
           // 개수는 배지로 — '필터'만 있으면 걸려 있는지 알 수 없다(AGENTS.md 원칙 4)
-          // JSX가 공백을 지워 '필터2'로 붙어 읽히므로 aria-label로 명시한다
-          <span aria-label={`조건 ${n}개 적용됨`} className="ml-0.5 inline-flex h-[1.05rem] min-w-[1.05rem] items-center justify-center rounded-full bg-x-blue px-1 text-caption font-bold tabular-nums text-white">
+          // 접근성 이름은 summary의 aria-label이 이미 커버하므로 배지는 숨긴다
+          <span aria-hidden="true" className="ml-0.5 inline-flex h-[1.05rem] min-w-[1.05rem] items-center justify-center rounded-full bg-x-blue px-1 text-caption font-bold tabular-nums text-white">
             {n}
           </span>
         )}

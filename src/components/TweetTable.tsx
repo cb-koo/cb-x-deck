@@ -5,13 +5,14 @@ import { cellDisplay, type TableColumn } from '@/lib/tableColumns';
 import { dirLabel, SORT_LABEL } from '@/lib/sortKeys';
 import { tweetPermalink } from '@/lib/tweetLink';
 
-// 칸 폭 기억 — 표를 새로고침해도 사용자가 맞춘 폭이 유지되도록 (칸 더보기와 같은 가벼운 방식, TweetTableView.tsx 참조)
+// 칸 폭 기억 — 표를 새로고침해도 사용자가 맞춘 폭이 유지되도록. 개인 보기 취향이라 서버가 아니라 localStorage에 둔다.
 const WIDTHS_KEY = 'table-col-widths';
 const MIN_COL_WIDTH = 48;    // 이 아래로는 머리글 글자가 안 읽힌다
 const MAX_COL_WIDTH = 720;   // 덱 컬럼 폭 조절(Column.tsx)과 같은 상한
 const WIDTH_STEP = 24;       // 화살표 키 한 번에 움직이는 양
 
-// 기본 폭 — 1500px 안팎 화면에서 기본 8칸이 꽉 차 보이고, 14칸(칸 더보기)도 무리 없이 가로 스크롤되도록 잡았다.
+// 기본 폭 — 1500px 안팎 화면에서 14칸이 무리 없이 가로 스크롤되도록 잡았다.
+// (칸 더보기/접기 토글은 2026-07-31에 제거됐다 — 이제 항상 14칸이고, 좁으면 사용자가 폭을 줄인다.)
 // 본문이 가장 넓고(읽는 목적), 계정·열은 중간이다. 지표 칸은 축약 없는 원본 숫자를
 // 담아야 하므로(23,700,000 = 10자) 콤마까지 들어갈 폭을 준다 — 좁히면 줄임표로 잘린다.
 const DEFAULT_COL_WIDTH: Record<string, number> = {

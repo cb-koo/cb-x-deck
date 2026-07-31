@@ -8,7 +8,8 @@ import { TABLE_MAX, TABLE_PAGE } from '@/lib/tableLimits';
 import { useToast } from '@/lib/toastContext';
 import { Button } from './ui';
 import { ColumnPicker } from './ColumnPicker';
-import { FilterRows } from './FilterRows';
+import { FilterPanel } from './FilterPanel';
+import { FilterChips } from './FilterChips';
 import { TweetTable } from './TweetTable';
 import { DownloadIcon } from './XIcons';
 import { findConflicts } from '@/lib/collectionConflict';
@@ -30,6 +31,9 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   const [dir, setDir] = useState<SortDir>('desc');
   const [columnIds, setColumnIds] = useState<string[]>([]);   // 빈 배열 = 전체
   const [conditions, setConditions] = useState<FilterCondition[]>([]);
+  const filterPanelRef = useRef<HTMLDetailsElement>(null);
+  // 칩을 눌러 패널을 열 때 어느 조건에 초점을 줄지. n은 같은 칩을 두 번 눌러도 다시 초점이 가게 하는 카운터.
+  const [focusRequest, setFocusRequest] = useState<{ id: string; n: number } | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
   // 워크스페이스 전체 수집 건수 — 필터·열 선택과 무관하다(A1). FilterRows의 "이미 모은 N건 중에서만
   // 걸러요"는 이 값을 써야 한다: total(아래)은 필터링 결과라 필터 후 12건을 "모은 건수"로 잘못 말하게 된다.
@@ -170,15 +174,32 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
     } finally { setBusy(false); }
   }
 
+  // 칩 본문을 누르면 패널을 열고 그 조건으로 데려간다 — 어느 줄을 고치려 했는지 잃지 않게.
+  function openCondition(id: string) {
+    if (filterPanelRef.current) filterPanelRef.current.open = true;
+    setFocusRequest((prev) => ({ id, n: (prev?.n ?? 0) + 1 }));
+  }
+
   const cols = visibleColumns(showMore);
   // 표가 실제로 그려지는 상태인지 — 아래쪽의 스크롤 영역과 '더보기' 버튼이 이 값을 공유한다
   const showTable = loaded && !err && columnsLoaded && !columnsError && columns.length > 0 && rows.length > 0;
+  // 패널(배지)과 칩 줄이 같은 경고를 봐야 한다 — 따로 계산하면 둘이 갈라질 수 있다.
+  const conflicts = findConflicts(conditions.filter(isComplete), columns, activeColumnIds);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* 열 선택(왼쪽) + 칸 더보기·CSV 저장(오른쪽, 구분선으로 분리) */}
       <div className="flex items-start justify-between gap-3 border-b border-x-border px-4 py-2">
-        <ColumnPicker columns={columns} counts={counts} countsLoaded={countsLoaded} selected={activeColumnIds} onChange={setColumnIds} />
+        <div className="flex items-center gap-2">
+          <ColumnPicker columns={columns} counts={counts} countsLoaded={countsLoaded}
+                        selected={activeColumnIds} onChange={setColumnIds} />
+          <FilterPanel conditions={conditions} onChange={setConditions}
+                       conflicts={conflicts}
+                       totalLabel={workspaceTotal.toLocaleString('en-US')}
+                       countsLoaded={countsLoaded}
+                       focusRequest={focusRequest}
+                       panelRef={filterPanelRef} />
+        </div>
         <div className="flex shrink-0 items-center gap-2 border-l border-x-border pl-3">
           <Button variant="ghost" onClick={toggleMore}
                   title={showMore ? '답글·인용·북마크·팔로워·저장·기준 칸을 접어요' : '답글·인용·북마크·팔로워·저장·기준 칸을 펼쳐요'}>
@@ -196,15 +217,13 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
         </div>
       </div>
 
-      {/* 조건 행 — 평소엔 '+ 필터' 하나뿐이라 자리를 차지하지 않는다(설계 §A) */}
-      <div className="border-b border-x-border px-4 py-2">
-        <FilterRows conditions={conditions} onChange={setConditions}
-                    conflicts={findConflicts(conditions.filter(isComplete), columns, activeColumnIds)}
-                    totalLabel={workspaceTotal.toLocaleString('en-US')}
-                    countsLoaded={countsLoaded}
-                    hasColumnFilter={activeColumnIds.length > 0}
-                    onClearAll={() => { setColumnIds([]); setConditions([]); }} />
-      </div>
+      <FilterChips conditions={conditions}
+                   conflicts={conflicts}
+                   columnNames={activeColumnIds.map((id) => columns.find((c) => c.id === id)?.title ?? '').filter(Boolean)}
+                   onRemoveCondition={(id) => setConditions(conditions.filter((c) => c.id !== id))}
+                   onClearColumns={() => setColumnIds([])}
+                   onClearAll={() => { setColumnIds([]); setConditions([]); }}
+                   onOpenCondition={openCondition} />
 
       {/* 지표 신선도 — '카드 보기에서'를 빼면 표 모드에 없는 버튼을 가리키는 죽은 안내가 된다(설계 §E) */}
       <p className="border-b border-x-border px-4 py-1 text-caption text-x-muted">

@@ -4,6 +4,7 @@ import type { Conflict } from '@/lib/collectionConflict';
 import { Button } from './ui';
 
 let seq = 0;
+// 개발 환경에서 Fast Refresh 시 seq가 0으로 리셋되지만, 이미 생성된 id들은 부모 상태에 남아 있어 충돌하지 않는다.
 const nextId = () => `f${++seq}`;
 
 // 조건 행 — 건 조건만 보이므로 평소엔 자리를 차지하지 않는다(설계 §A).
@@ -26,6 +27,9 @@ export function FilterRows({ conditions, conflicts, onChange, totalLabel, hasCol
       const next = { ...c, ...part };
       // 축이 바뀌면 그 축에 없는 연산자가 남을 수 있다 — 첫 연산자로 되돌린다
       if (part.field && !FIELD_SPECS[part.field].ops.includes(next.op)) next.op = FIELD_SPECS[part.field].ops[0];
+      // 축의 형식(text/number/date)이 바뀌면 값을 지운다. 같은 형식 내에서 바꾸면(예: 좋아요→조회수) 값을 유지해야 한다.
+      // 형식이 안 맞는 값이 남으면 isComplete()가 조용히 걸러 라벨과 실제가 어긋난다.
+      if (part.field && FIELD_SPECS[c.field].kind !== FIELD_SPECS[part.field].kind) next.value = '';
       return next;
     }));
   }
@@ -41,6 +45,8 @@ export function FilterRows({ conditions, conflicts, onChange, totalLabel, hasCol
       </div>
       {conditions.map((c) => {
         const spec = FIELD_SPECS[c.field];
+        // 알려지지 않은 축이 들어오면 이 행은 건너뛴다 (차후 축 정의 변경 시에도 안정적)
+        if (!spec) return null;
         const conflict = conflicts.find((x) => x.conditionId === c.id);
         const warningId = conflict ? `filter-warning-${c.id}` : undefined;
         return (

@@ -19,7 +19,7 @@ const M = (key: string, sort: SortKey): TableColumn =>
 // 표시 순서대로. 늘 14칸 전부를 보여준다 — 칸 폭은 드래그로 조절할 수 있어(TweetTable.tsx)
 // 본문 칸이 밀리는 문제는 그쪽에서 다룬다(설계 2026-07-31 "칸 더보기 제거").
 export const TABLE_COLUMNS: TableColumn[] = [
-  { key: 'columns', label: '열' },
+  { key: 'columns', label: '컬럼명' },
   { key: 'handle', label: '계정' },
   { key: 'date', label: SORT_LABEL.date, sort: 'date' },
   { key: 'text', label: '본문' },
@@ -32,20 +32,30 @@ export const TABLE_COLUMNS: TableColumn[] = [
   M('bookmarks', 'bookmarks'),
   { key: 'followers', label: '팔로워', numeric: true },
   { key: 'saved', label: '저장' },
-  { key: 'fetchedAt', label: '기준' },
+  { key: 'fetchedAt', label: '최종 수집 시간' },
 ];
+
+// 표의 날짜·시각은 전부 한국 시간으로 보여준다. 서버는 UTC로 저장하고(timestamptz),
+// 필터 경계도 SQL에서 Asia/Seoul 자정으로 계산하므로(tableFilter.ts) 표시가 같은 시간대여야
+// "보이는 날짜"와 "걸러지는 경계"가 일치한다.
+// 고정 +9시간인 이유: 한국은 1988년 이후 서머타임이 없어 Asia/Seoul은 항상 UTC+9다.
+// Intl에 맡기면 런타임 시간대 데이터에 의존해 테스트가 환경에 흔들린다.
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function toKstIso(iso: string): string {
+  return new Date(new Date(iso).getTime() + KST_OFFSET_MS).toISOString();
+}
 
 function ymd(iso: string | null): string {
   if (!iso) return '';
-  return iso.slice(0, 10);   // ISO는 앞 10자가 YYYY-MM-DD — 표는 정렬 축이라 상대 표기를 쓰지 않는다
+  return toKstIso(iso).slice(0, 10);   // 표는 정렬 축이라 상대 표기를 쓰지 않는다
 }
 
-// '기준'(last_fetched_at) 전용. 날짜만 찍으면 같은 날 09:00에 새로고침한 열과 22:00에 새로고침한
-// 열이 같은 값으로 보여 "비교 가능"으로 오인된다(설계 §E) — 시:분까지 찍어 그 착시를 막는다.
-// 날짜(tweetCreatedAt)는 요일 단위로 묶어보는 축이라 그대로 YYYY-MM-DD를 쓴다.
+// '최종 수집 시간'(last_fetched_at) 전용. 날짜만 찍으면 같은 날 09:00에 새로고침한 컬럼과
+// 22:00에 새로고침한 컬럼이 같은 값으로 보여 "비교 가능"으로 오인된다(설계 §E) — 시:분까지 찍는다.
 function ymdHm(iso: string | null): string {
   if (!iso) return '';
-  return iso.slice(0, 16).replace('T', ' ');   // YYYY-MM-DD HH:MM
+  return toKstIso(iso).slice(0, 16).replace('T', ' ');   // YYYY-MM-DD HH:MM
 }
 
 function metricOf(row: TableRow, key: string): number | null | undefined {

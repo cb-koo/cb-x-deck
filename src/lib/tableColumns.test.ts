@@ -40,16 +40,26 @@ test('값이 없는 지표는 화면은 –, 내보낼 때는 0이 아니라 빈
   assert.equal(cellExport(ROW, quotes), '0');
 });
 
-test('날짜는 양쪽 다 YYYY-MM-DD — 상대 표기(2시간 전)를 쓰지 않는다', () => {
+test('날짜는 한국 시간 기준 YYYY-MM-DD — 상대 표기(2시간 전)를 쓰지 않는다', () => {
   const date = TABLE_COLUMNS.find((c) => c.key === 'date')!;
+  // 픽스처는 2026-07-11T04:05:06Z = 한국 7/11 13:05 → 같은 날
   assert.equal(cellDisplay(ROW, date), '2026-07-11');
   assert.equal(cellExport(ROW, date), '2026-07-11');
+  // UTC로는 7/10인 시각이 한국에서는 7/11이다 — 여기서 두 방식이 갈린다
+  const lateNight = { ...ROW, tweetCreatedAt: '2026-07-10T16:30:00Z' };
+  assert.equal(cellDisplay(lateNight, date), '2026-07-11');
 });
 
-test('기준(fetchedAt)은 날짜만이 아니라 시:분까지 — 같은 날 다른 시각에 새로고침한 열이 같은 값으로 보이면 안 된다', () => {
+test('최종 수집 시간은 한국 시간으로 시:분까지 — 같은 날 다른 시각에 새로고침한 컬럼이 같은 값으로 보이면 안 된다', () => {
   const fetchedAt = TABLE_COLUMNS.find((c) => c.key === 'fetchedAt')!;
-  assert.equal(cellDisplay(ROW, fetchedAt), '2026-07-30 01:02');
-  assert.equal(cellExport(ROW, fetchedAt), '2026-07-30 01:02');
+  // 2026-07-30T01:02:03Z = 한국 7/30 10:02. UTC로 찍으면 01:02로 보여 9시간 어긋난다.
+  assert.equal(cellDisplay(ROW, fetchedAt), '2026-07-30 10:02');
+  assert.equal(cellExport(ROW, fetchedAt), '2026-07-30 10:02');
+});
+
+test('칸 이름은 무엇의 기준인지·무엇의 이름인지 말한다', () => {
+  assert.equal(TABLE_COLUMNS.find((c) => c.key === 'fetchedAt')!.label, '최종 수집 시간');
+  assert.equal(TABLE_COLUMNS.find((c) => c.key === 'columns')!.label, '컬럼명');
 });
 
 test('열·저장은 여러 값을 셀 하나에 쉼표로 담는다', () => {

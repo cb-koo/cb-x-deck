@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { upsertTweets, linkColumnTweets, getColumnTweets, getColumnTweetCount, getTweetsByIds, getWorkspaceTableRows, getWorkspaceTableCount } from './tweetStore.ts';
+import { upsertTweets, linkColumnTweets, getColumnTweets, getColumnTweetCount, getTweetsByIds, getWorkspaceTableRows, getWorkspaceTableCount, getWorkspaceColumnCounts } from './tweetStore.ts';
 import { createColumn, deleteColumn, touchRefreshed, getColumn } from './columnStore.ts';
 import { createWorkspace, deleteWorkspace, createMember } from './workspaceStore.ts';
 import { TABLE_MAX } from './tableLimits.ts';
@@ -238,9 +238,9 @@ test('표 쿼리 — 여러 열에 걸린 트윗은 한 행, 버림 제외, 워�
     assert.equal(count, 2, '중복 병합·버림 제외가 건수에도 반영');
 
     // 열 칩 필터
-    const onlyB = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', columnId: colB.id });
+    const onlyB = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', columnIds: [colB.id] });
     assert.deepEqual(onlyB.map((r) => r.tweetId), [P + 't2']);
-    assert.equal(await getWorkspaceTableCount(sql, ws.id, { columnId: colB.id }), 1);
+    assert.equal(await getWorkspaceTableCount(sql, ws.id, { columnIds: [colB.id] }), 1);
 
     // 방향 뒤집기 + 다른 지표로 정렬(likes는 이번에 새로 정렬 가능해진 키)
     const asc = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', dir: 'asc' });
@@ -290,5 +290,88 @@ test('표 쿼리 — limit이 실제로 행 수를 제한하고, 상한을 훌�
   } finally {
     await deleteColumn(sql, col.id);
     await deleteWorkspace(sql, ws.id);
+  }
+});
+
+test('표 쿼리 — 열 다중선택은 OR, 열 이름은 필터와 무관하게 전체', async () => {
+  const ws = await createWorkspace(sql, P + 'ws-f1');
+  const colA = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'A', config: { keywords: ['a'] } });
+  const colB = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'B', config: { keywords: ['b'] } });
+  const colC = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'C', config: { keywords: ['c'] } });
+  try {
+    await upsertTweets(sql, [tw('f1', 100), tw('f2', 200), tw('f3', 300)]);
+    await linkColumnTweets(sql, colA.id, [P + 'f1', P + 'f2']);
+    await linkColumnTweets(sql, colB.id, [P + 'f2']);          // f2는 A·B 양쪽
+    await linkColumnTweets(sql, colC.id, [P + 'f3']);
+
+    const ab = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', columnIds: [colA.id, colB.id] });
+    assert.deepEqual(ab.map((r) => r.tweetId), [P + 'f2', P + 'f1'], 'A 또는 B에 걸린 것 (OR)');
+
+    // A만 골랐어도 f2의 열 이름에는 B가 함께 나와야 한다 — 내보낸 파일이 소속을 축소하면 안 된다
+    const onlyA = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', columnIds: [colA.id] });
+    const f2 = onlyA.find((r) => r.tweetId === P + 'f2')!;
+    assert.deepEqual([...f2.columnTitles].sort(), [P + 'A', P + 'B']);
+
+    assert.equal(await getWorkspaceTableCount(sql, ws.id, { columnIds: [colA.id, colB.id] }), 2);
+    assert.equal(await getWorkspaceTableCount(sql, ws.id), 3);
+  } finally {
+    await deleteColumn(sql, colA.id); await deleteColumn(sql, colB.id); await deleteColumn(sql, colC.id);
+    await deleteWorkspace(sql, ws.id);
+  }
+});
+
+test('표 쿼리 — 조건이 AND로 결합되고 건수도 같은 조건을 쓴다', async () => {
+  const ws = await createWorkspace(sql, P + 'ws-f2');
+  const col = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'F', config: { keywords: ['x'] } });
+  try {
+    await upsertTweets(sql, [
+      { ...tw('sk1', 500), text: 'スキンケア 良い', authorHandle: 'aaa', authorFollowers: 100 },
+      { ...tw('sk2', 900), text: 'スキンケア 悪い', authorHandle: 'bbb', authorFollowers: 5000 },
+      { ...tw('sk3', 900), text: '関係ない', authorHandle: 'aaa', authorFollowers: 5000 },
+    ]);
+    await linkColumnTweets(sql, col.id, [P + 'sk1', P + 'sk2', P + 'sk3']);
+
+    const f = (field: string, op: string, value: string) => ({ id: field, field, op, value } as never);
+    // 조회수 600 이상 AND 본문에 スキンケア 포함 → sk2만
+    const rows = await getWorkspaceTableRows(sql, ws.id, {
+      sort: 'views', filters: [f('views', 'gte', '600'), f('text', 'contains', 'スキンケア')],
+    });
+    assert.deepEqual(rows.map((r) => r.tweetId), [P + 'sk2']);
+    assert.equal(await getWorkspaceTableCount(sql, ws.id, {
+      filters: [f('views', 'gte', '600'), f('text', 'contains', 'スキンケア')],
+    }), 1, '건수와 행 목록이 같은 조건을 써야 라벨이 실제와 맞는다');
+
+    // 본문 제외
+    const exc = await getWorkspaceTableRows(sql, ws.id, { sort: 'views', filters: [f('text', 'notContains', 'スキンケア')] });
+    assert.deepEqual(exc.map((r) => r.tweetId), [P + 'sk3']);
+
+    // 계정 같음 + 팔로워 이상
+    const acct = await getWorkspaceTableRows(sql, ws.id, {
+      sort: 'views', filters: [f('handle', 'is', 'aaa'), f('followers', 'gte', '1000')],
+    });
+    assert.deepEqual(acct.map((r) => r.tweetId), [P + 'sk3']);
+
+    // 날짜: 픽스처는 2026-07-01 작성 → 이후 포함, 이전 미포함
+    assert.equal((await getWorkspaceTableRows(sql, ws.id, { sort: 'views', filters: [f('date', 'after', '2026-07-01')] })).length, 3);
+    assert.equal((await getWorkspaceTableRows(sql, ws.id, { sort: 'views', filters: [f('date', 'before', '2026-07-01')] })).length, 0);
+  } finally {
+    await deleteColumn(sql, col.id); await deleteWorkspace(sql, ws.id);
+  }
+});
+
+test('표 쿼리 — 열별 건수', async () => {
+  const ws = await createWorkspace(sql, P + 'ws-f3');
+  const colA = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'CA', config: { keywords: ['a'] } });
+  const colB = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'CB', config: { keywords: ['b'] } });
+  try {
+    await upsertTweets(sql, [tw('h1', 10), tw('h2', 20)]);
+    await linkColumnTweets(sql, colA.id, [P + 'h1', P + 'h2']);
+    await linkColumnTweets(sql, colB.id, [P + 'h1']);
+    const counts = await getWorkspaceColumnCounts(sql, ws.id);
+    const byId = new Map(counts.map((c) => [c.columnId, c.n]));
+    assert.equal(byId.get(colA.id), 2);
+    assert.equal(byId.get(colB.id), 1);
+  } finally {
+    await deleteColumn(sql, colA.id); await deleteColumn(sql, colB.id); await deleteWorkspace(sql, ws.id);
   }
 });

@@ -1,6 +1,7 @@
 import type postgres from 'postgres';
 import type { DeckTweet, SortDir, SortKey, StoredTweet, TableRow } from './types.ts';
 import { TABLE_MAX, TABLE_PAGE } from './tableLimits.ts';
+import { buildFilterSql, type FilterCondition } from './tableFilter.ts';
 
 export async function upsertTweets(sql: postgres.Sql, tweets: DeckTweet[]): Promise<{ inserted: number; updated: number }> {
   let inserted = 0, updated = 0;
@@ -166,36 +167,67 @@ type TableRowRaw = {
   metrics: TableRow['metrics']; saved_by: TableRow['savedBy']; last_fetched_at: Date;
 };
 
+// 파라미터 번호를 손으로 세지 않는다 — 조건 개수가 가변이라 하드코딩하면 어긋난다.
+// (이 파일은 예전에 쓰이지 않는 자리표시자 때문에 42P18 오류를 낸 적이 있다.)
+function paramBag() {
+  const params: unknown[] = [];
+  return { params, bind: (v: unknown) => { params.push(v); return `$${params.length}`; } };
+}
+
+// 워크스페이스 안에서 그 트윗이 속한 모든 열 이름. 필터와 분리한다 —
+// 열을 좁혔다고 소속을 축소해 적으면 내보낸 파일이 사실을 왜곡한다(설계 §D).
+function columnTitlesSubquery(wsParam: string): string {
+  return `(select array_agg(distinct dc2.title)
+             from column_tweet ct2
+             join deck_column dc2 on dc2.id = ct2.column_id and dc2.workspace_id = ${wsParam}
+            where ct2.tweet_id = t.tweet_id)`;
+}
+
+function tableWhere(
+  wsParam: string, bag: ReturnType<typeof paramBag>,
+  columnIds?: string[], filters?: FilterCondition[],
+): string {
+  const parts = [
+    `not exists (select 1 from dismissed_tweet d where d.workspace_id = ${wsParam} and d.tweet_id = t.tweet_id)`,
+  ];
+  const ids = (columnIds ?? []).filter(isUuidLike);
+  if (ids.length > 0) parts.push(`ct.column_id = any(${bag.bind(ids)}::uuid[])`);
+  const { clauses, params } = buildFilterSql(filters ?? [], bag.params.length + 1);
+  for (const p of params) bag.params.push(p);
+  parts.push(...clauses);
+  return parts.join(' and ');
+}
+
 export async function getWorkspaceTableRows(
   sql: postgres.Sql, workspaceId: string,
-  opts: { sort: SortKey; dir?: SortDir; offset?: number; limit?: number; columnId?: string },
+  opts: { sort: SortKey; dir?: SortDir; offset?: number; limit?: number; columnIds?: string[]; filters?: FilterCondition[] },
 ): Promise<TableRow[]> {
   if (!isUuidLike(workspaceId)) return [];
-  if (opts.columnId !== undefined && !isUuidLike(opts.columnId)) return [];
   const offset = Math.max(0, Math.floor(opts.offset ?? 0));
   const limit = Math.min(TABLE_MAX, Math.max(1, Math.floor(opts.limit ?? TABLE_PAGE)));
   const orderExpr = ORDER_EXPR[opts.sort] ?? ORDER_EXPR.views;
   const orderDir = opts.dir === 'asc' ? 'asc nulls first' : 'desc nulls last';
+  const bag = paramBag();
+  const ws = bag.bind(workspaceId);
+  const where = tableWhere(ws, bag, opts.columnIds, opts.filters);
   const rows = await sql.unsafe<TableRowRaw[]>(
-    // group by tweet_id: 같은 트윗이 여러 열에 걸리면 행이 늘어나므로 한 행으로 묶고 열 이름을 모은다.
+    // group by tweet_id: 같은 트윗이 여러 열에 걸리면 행이 늘어나므로 한 행으로 묶는다.
     // order by에 tweet_id를 tie-break로 둬야 페이지 경계에서 행이 중복·누락되지 않는다.
+    // limit/offset은 위에서 정수로 sanitize해 리터럴로 넣는다(자리표시자로 넘기면 안 쓰이는 번호가 생긴다).
     `select t.tweet_id, t.author_handle, t.author_name, t.author_followers, t.text,
             t.tweet_created_at, t.metrics, t.last_fetched_at,
-            array_agg(distinct dc.title) as column_titles,
+            ${columnTitlesSubquery(ws)} as column_titles,
             coalesce((select json_agg(json_build_object('id', m.id, 'name', m.name, 'color', m.color) order by m.name)
                         from candidate c join member m on m.id = c.member_id
-                       where c.tweet_id = t.tweet_id and c.workspace_id = $1), '[]'::json) as saved_by
+                       where c.tweet_id = t.tweet_id and c.workspace_id = ${ws}), '[]'::json) as saved_by
        from column_tweet ct
-       join deck_column dc on dc.id = ct.column_id and dc.workspace_id = $1
+       join deck_column dc on dc.id = ct.column_id and dc.workspace_id = ${ws}
        join tweet t on t.tweet_id = ct.tweet_id
-      where not exists (select 1 from dismissed_tweet d where d.workspace_id = $1 and d.tweet_id = t.tweet_id)
-        ${opts.columnId ? `and ct.column_id = $3` : ``}
+      where ${where}
       group by t.tweet_id
       order by ${orderExpr} ${orderDir}, t.tweet_id
-      limit ${limit} offset $2`,
-    // limit은 위에서 정수로 sanitize해 리터럴로 이미 박아 넣었으므로 파라미터 배열엔 넣지 않는다.
-    // (넣으면 쿼리 텍스트에 안 쓰이는 자리표시자가 생겨 "could not determine data type of parameter" 오류가 난다.)
-    opts.columnId ? [workspaceId, offset, opts.columnId] : [workspaceId, offset],
+      limit ${limit} offset ${offset}`,
+    bag.params as never[],
   );
   return rows.map((r) => ({
     tweetId: r.tweet_id,
@@ -212,19 +244,37 @@ export async function getWorkspaceTableRows(
 }
 
 export async function getWorkspaceTableCount(
-  sql: postgres.Sql, workspaceId: string, opts: { columnId?: string } = {},
+  sql: postgres.Sql, workspaceId: string,
+  opts: { columnIds?: string[]; filters?: FilterCondition[] } = {},
 ): Promise<number> {
   if (!isUuidLike(workspaceId)) return 0;
-  if (opts.columnId !== undefined && !isUuidLike(opts.columnId)) return 0;
+  const bag = paramBag();
+  const ws = bag.bind(workspaceId);
+  const where = tableWhere(ws, bag, opts.columnIds, opts.filters);
   const rows = await sql.unsafe<Array<{ n: string }>>(
     // distinct tweet_id — 행 병합과 같은 기준이어야 "전체 N건" 라벨이 실제 행 수와 맞는다.
     `select count(distinct t.tweet_id) as n
        from column_tweet ct
-       join deck_column dc on dc.id = ct.column_id and dc.workspace_id = $1
+       join deck_column dc on dc.id = ct.column_id and dc.workspace_id = ${ws}
        join tweet t on t.tweet_id = ct.tweet_id
-      where not exists (select 1 from dismissed_tweet d where d.workspace_id = $1 and d.tweet_id = t.tweet_id)
-        ${opts.columnId ? `and ct.column_id = $2` : ``}`,
-    opts.columnId ? [workspaceId, opts.columnId] : [workspaceId],
+      where ${where}`,
+    bag.params as never[],
   );
   return Number(rows[0]?.n ?? 0);
+}
+
+// 열 드롭다운 목록에 붙이는 건수. 다른 조건은 반영하지 않는다 — 그 열의 전체 건수다(설계 §A).
+// 조건마다 12개 열을 다시 세면 조작할 때마다 쿼리가 하나 더 붙는다.
+export async function getWorkspaceColumnCounts(
+  sql: postgres.Sql, workspaceId: string,
+): Promise<Array<{ columnId: string; n: number }>> {
+  if (!isUuidLike(workspaceId)) return [];
+  const rows = await sql<Array<{ column_id: string; n: string }>>`
+    select ct.column_id, count(distinct ct.tweet_id) as n
+      from column_tweet ct
+      join deck_column dc on dc.id = ct.column_id and dc.workspace_id = ${workspaceId}
+     where not exists (select 1 from dismissed_tweet d
+                        where d.workspace_id = ${workspaceId} and d.tweet_id = ct.tweet_id)
+     group by ct.column_id`;
+  return rows.map((r) => ({ columnId: r.column_id, n: Number(r.n) }));
 }

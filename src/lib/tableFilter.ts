@@ -129,8 +129,12 @@ export function buildFilterSql(
     if (!spec || !expr || !spec.ops.includes(c.op)) continue;   // 허용 목록 밖이면 조각 없음
     const v = c.value.trim();
     switch (c.op) {
-      case 'gte': clauses.push(`${expr} >= ${bind(Number(v))}`); break;
-      case 'lte': clauses.push(`${expr} <= ${bind(Number(v))}`); break;
+      case 'gte':
+      case 'lte':
+        // 정수만 — SQL에 NaN이 흘러가지 않게
+        if (!/^\d+$/.test(v)) continue;
+        clauses.push(`${expr} ${c.op === 'gte' ? '>=' : '<='} ${bind(Number(v))}`);
+        break;
       case 'is': clauses.push(`${expr} = ${bind(v)}`); break;
       case 'contains': clauses.push(`${expr} ilike ${bind(`%${escapeLike(v)}%`)} escape '\\'`); break;
       case 'notContains': clauses.push(`${expr} not ilike ${bind(`%${escapeLike(v)}%`)} escape '\\'`); break;

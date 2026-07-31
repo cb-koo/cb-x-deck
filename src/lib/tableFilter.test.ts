@@ -141,3 +141,9 @@ test('buildFilterSql: 허용 목록 밖 조합은 조각을 만들지 않는다 
   const { clauses } = buildFilterSql([{ id: '1', field: 'text' as never, op: 'gte', value: '5' }], 1);
   assert.deepEqual(clauses, []);
 });
+
+test('buildFilterSql: 숫자 축에 숫자가 아닌 값이 오면 조각을 만들지 않는다', () => {
+  const { clauses, params } = buildFilterSql([{ id: '1', field: 'views', op: 'gte', value: 'abc' }], 1);
+  assert.deepEqual(clauses, []);
+  assert.deepEqual(params, []);
+});

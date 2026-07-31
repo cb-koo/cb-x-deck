@@ -186,3 +186,41 @@ test('A2: 날짜(until) — 선택 범위에 여러 열이 있어도 걸린 열�
   assert.equal(alwaysEmpty[0].kind, 'alwaysEmpty');
   assert.equal(alwaysEmpty[0].message, '선택한 열 중 1개는 2026-07-31 이전만 모아서 그 열에서는 한 건도 나오지 않아요');
 });
+
+// 단수/요약 판정은 '검색 열 수'가 아니라 '선택 범위 안 열 수(검색+인플루언서)'로 해야 한다.
+// 검색 열 하나 + 인플루언서 열 하나를 선택하면 검색 열은 하나뿐이지만 범위 안 열은 둘이라
+// 단수형("이 열은 …")이 아니라 요약형을 써야 그 열들이 함께 보이는 표에서 대명사가 맞다.
+
+test('혼합 선택(검색+인플루언서) — 숫자 noEffect: 검색 열은 하나뿐이어도 범위 열이 둘이면 요약형', () => {
+  const w = watch('w', 'W');
+  const out = findConflicts([c({})], [A, w], ['a', 'w']);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'noEffect');
+  assert.equal(out[0].message, '선택한 열 중 1개는 좋아요 300 이상만 모아요');
+});
+
+test('혼합 선택(검색+인플루언서) — 숫자 alwaysEmpty: 요약형', () => {
+  const w = watch('w', 'W');
+  const out = findConflicts([c({ op: 'lte', value: '200' })], [A, w], ['a', 'w']);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'alwaysEmpty');
+  assert.equal(out[0].message, '선택한 열 중 1개는 좋아요 300 이상만 모아서 그 열에서는 한 건도 나오지 않아요');
+});
+
+test('혼합 선택(검색+인플루언서) — 날짜 noEffect: 요약형', () => {
+  const since = col('s', 'S', { keywords: ['x'], sinceDate: '2026-06-01' });
+  const w = watch('w', 'W');
+  const out = findConflicts([c({ field: 'date', op: 'after', value: '2026-01-01' })], [since, w], ['s', 'w']);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'noEffect');
+  assert.equal(out[0].message, '선택한 열 중 1개는 2026-06-01 이후만 모아요');
+});
+
+test('혼합 선택(검색+인플루언서) — 날짜 alwaysEmpty: 요약형', () => {
+  const since = col('s', 'S', { keywords: ['x'], sinceDate: '2026-06-01' });
+  const w = watch('w', 'W');
+  const out = findConflicts([c({ field: 'date', op: 'before', value: '2026-06-01' })], [since, w], ['s', 'w']);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'alwaysEmpty');
+  assert.equal(out[0].message, '선택한 열 중 1개는 2026-06-01 이후만 모아서 그 열에서는 한 건도 나오지 않아요');
+});

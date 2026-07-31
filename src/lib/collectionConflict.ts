@@ -19,12 +19,19 @@ const NUM_CONFIG_KEY: Partial<Record<FilterCondition['field'], keyof SearchConfi
   likes: 'minFaves', retweets: 'minRetweets', replies: 'minReplies', views: 'minViews',
 };
 
-function searchConfigs(columns: ColumnRow[], selectedIds: string[]): SearchConfig[] {
-  const pool = selectedIds.length > 0 ? columns.filter((c) => selectedIds.includes(c.id)) : columns;
-  return pool.filter((c) => c.kind === 'search').map((c) => c.config as SearchConfig);
+// 선택 범위 안 열 전체(검색+인플루언서). 단수/요약 판정은 이 크기로 해야 한다 —
+// 검색 열만 세면(searchConfigs 이후) 검색 열 하나 + 인플루언서 열 하나를 골라도
+// "범위 안 열 1개"로 오판해 단수형("이 열은 …")을 쓰게 되고, 그 문장은 인플루언서 열까지
+// 함께 보이는 표에서는 "어느 열 얘기인지" 대명사가 거짓이 된다.
+function scopePool(columns: ColumnRow[], selectedIds: string[]): ColumnRow[] {
+  return selectedIds.length > 0 ? columns.filter((c) => selectedIds.includes(c.id)) : columns;
 }
 
-// total(선택 범위 안 검색 열 수)이 1보다 크면 항상 요약형을 쓴다 — 걸린 열이 하나뿐이어도
+function searchConfigs(columns: ColumnRow[], selectedIds: string[]): SearchConfig[] {
+  return scopePool(columns, selectedIds).filter((c) => c.kind === 'search').map((c) => c.config as SearchConfig);
+}
+
+// total(선택 범위 안 열 전체 수 — 검색+인플루언서)이 1보다 크면 항상 요약형을 쓴다 — 걸린 열이 하나뿐이어도
 // "이 열은 …"은 나머지 열까지 그 결론에 묶어버려 거짓이 된다(A2). 요약형만이 선택 전체에 대해 참이다.
 function message(kind: Conflict['kind'], label: string, threshold: string, opWord: string, value: string, hitCount: number, total: number): string {
   if (total > 1) {
@@ -58,6 +65,9 @@ export function findConflicts(
 ): Conflict[] {
   const configs = searchConfigs(columns, selectedColumnIds);
   if (configs.length === 0) return [];
+  // 단수/요약 판정은 검색 열 수가 아니라 선택 범위 전체의 열 수로 한다 — 검색 열 하나 +
+  // 인플루언서 열 하나를 선택해도 "범위 안 열은 하나뿐"이 아니다(위 scopePool 주석 참조).
+  const total = scopePool(columns, selectedColumnIds).length;
   const out: Conflict[] = [];
 
   for (const c of conditions) {
@@ -77,7 +87,7 @@ export function findConflicts(
       const loosest = Math.min(...stricter.map((cfg) => Number(cfg[numKey])));
       const kind = c.op === 'gte' ? 'noEffect' : 'alwaysEmpty';
       out.push({ conditionId: c.id, kind,
-        message: message(kind, label, formatFull(loosest), '이하', formatFull(v), stricter.length, configs.length) });
+        message: message(kind, label, formatFull(loosest), '이하', formatFull(v), stricter.length, total) });
       continue;
     }
 
@@ -95,7 +105,7 @@ export function findConflicts(
         const loosest = sinceHits.map((cfg) => cfg.sinceDate!).sort()[0];
         const kind = c.op === 'after' ? 'noEffect' : 'alwaysEmpty';
         out.push({ conditionId: c.id, kind,
-          message: dateMessage(kind, loosest, '이후', sinceHits.length, configs.length, v) });
+          message: dateMessage(kind, loosest, '이후', sinceHits.length, total, v) });
         continue;
       }
       // 수집은 untilDate 당일을 포함하지 않는다(X 검색 연산자 until:은 그 날짜를 뺀다.
@@ -111,7 +121,7 @@ export function findConflicts(
         const loosest = untilHits.map((cfg) => cfg.untilDate!).sort().reverse()[0];
         const kind = c.op === 'before' ? 'noEffect' : 'alwaysEmpty';
         out.push({ conditionId: c.id, kind,
-          message: dateMessage(kind, loosest, '이전', untilHits.length, configs.length, v) });
+          message: dateMessage(kind, loosest, '이전', untilHits.length, total, v) });
       }
     }
   }

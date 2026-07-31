@@ -9,11 +9,12 @@ const nextId = () => `f${++seq}`;
 
 // 조건 행 — 건 조건만 보이므로 평소엔 자리를 차지하지 않는다(설계 §A).
 // 조건은 모두 AND로 묶인다. 논리 연산자를 노출하지 않는다 — 사용자는 비개발 기획 담당자다.
-export function FilterRows({ conditions, conflicts, onChange, totalLabel, hasColumnFilter, onClearAll }: {
+export function FilterRows({ conditions, conflicts, onChange, totalLabel, countsLoaded, hasColumnFilter, onClearAll }: {
   conditions: FilterCondition[];
   conflicts: Conflict[];
   onChange: (next: FilterCondition[]) => void;
   totalLabel: string;
+  countsLoaded: boolean;      // totalLabel이 실제로 로드됐는지 — 실패 시 0으로 남아 있는 것과 구분한다
   hasColumnFilter: boolean;   // 열이 좁혀져 있는지 — 조건이 없어도 '필터 지우기'가 보여야 한다
   onClearAll: () => void;     // 조건 + 열 선택을 함께 되돌린다
 }) {
@@ -77,7 +78,9 @@ export function FilterRows({ conditions, conflicts, onChange, totalLabel, hasCol
           </div>
         );
       })}
-      {conditions.length > 0 && (
+      {conditions.length > 0 && countsLoaded && (
+        // 건수를 아직 모르는 것과 진짜 0건은 다르다 — countsLoaded가 false면(최초 로딩 중이거나
+        // 건수 요청이 실패해 조용히 넘어간 경우) 줄 자체를 감춘다. 없는 편이 틀린 것보다 낫다.
         <p className="pl-1 text-caption text-x-muted">
           이미 모은 {totalLabel}건 중에서만 걸러요 (새로 가져오지 않아서 무료)
         </p>

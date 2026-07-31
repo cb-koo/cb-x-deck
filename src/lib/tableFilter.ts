@@ -53,6 +53,9 @@ export const FILTER_FIELDS: FilterField[] = [
 ];
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+// 정수 15자리까지 — isComplete와 buildFilterSql이 같은 상한을 써야 한다. 하나만 바뀌면
+// 서버의 마지막 방어선(buildFilterSql)이 클라이언트 쪽(isComplete)보다 느슨해져 어긋난다.
+const NUMBER_RE = /^\d{1,15}$/;
 
 // DATE_RE는 모양만 본다 — 2026-13-40도 통과시켜 그대로 $1::date로 넘어가면 Postgres가 던지고
 // 라우트엔 try/catch가 없어 500이 된다. 달력에 실재하는 날짜인지 왕복 검증한다:
@@ -72,7 +75,7 @@ export function isComplete(c: FilterCondition): boolean {
   if (!spec) return false;
   // 정수만, 15자리까지 — SQL에 NaN이 흘러가지 않게, 그리고 자릿수 제한 없는 숫자는
   // 1e+30 같은 값이 되어 bigint 캐스팅에서 Postgres가 던진다(실재하는 지표 어떤 것도 이 자릿수를 넘지 않는다).
-  if (spec.kind === 'number') return /^\d{1,15}$/.test(v);
+  if (spec.kind === 'number') return NUMBER_RE.test(v);
   if (spec.kind === 'date') return DATE_RE.test(v) && isValidCalendarDate(v);
   return true;
 }
@@ -139,13 +142,17 @@ export function buildFilterSql(
     const expr = FIELD_EXPR[c.field];
     if (!spec || !expr || !spec.ops.includes(c.op)) continue;   // 허용 목록 밖이면 조각 없음
     // 계정 열은 화면·CSV에 '@handle'로 보이지만 저장은 '@' 없이 되어 있다 — 화면에서 복사한
-    // '@beautyfulence'를 그대로 넣으면 0건이 된다. 이 축만 앞의 '@' 하나를 벗겨서 맞춘다.
-    const v = c.field === 'handle' ? c.value.trim().replace(/^@/, '') : c.value.trim();
+    // '@beautyfulence'를 그대로 넣으면 0건이 된다. 이 축만 앞의 '@'를 모두 벗겨서 맞춘다
+    // ('@@x'처럼 여러 개가 붙어도 '@x'가 아니라 'x'를 찾아야 한다).
+    const v = c.field === 'handle' ? c.value.trim().replace(/^@+/, '') : c.value.trim();
+    // '@'만 입력하면 벗겨낸 뒤 빈 문자열이 남는다 — isComplete는 벗기기 전 원문을 보므로 통과시키고,
+    // 그 빈 문자열로 조건을 만들면 ilike '%%'가 되어 전부와 일치하는 필터 행이 눈에 보이게 생긴다.
+    if (c.field === 'handle' && v === '') continue;
     switch (c.op) {
       case 'gte':
       case 'lte':
-        // 정수만 — SQL에 NaN이 흘러가지 않게
-        if (!/^\d+$/.test(v)) continue;
+        // 정수만, isComplete와 같은 상한까지 — SQL에 NaN이 흘러가지 않게
+        if (!NUMBER_RE.test(v)) continue;
         clauses.push(`${expr} ${c.op === 'gte' ? '>=' : '<='} ${bind(Number(v))}`);
         break;
       case 'is': clauses.push(`${expr} = ${bind(v)}`); break;

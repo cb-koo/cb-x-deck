@@ -130,6 +130,20 @@ test('buildFilterSql: 계정은 화면에서 복사한 "@handle"도 저장된 �
   assert.deepEqual(containsWithout.params, ['%beauty%']);
 });
 
+test('buildFilterSql: 계정 앞의 "@"는 여러 개가 붙어도 전부 벗긴다 ("@@x" → "x", "@x"가 아니다)', () => {
+  const { params } = buildFilterSql([{ id: '1', field: 'handle', op: 'is', value: '@@x' }], 1);
+  assert.deepEqual(params, ['x']);
+});
+
+test('buildFilterSql: 계정 값이 "@"뿐이면 벗긴 뒤 빈 문자열 — 전부와 일치하는 조건을 만들지 않는다', () => {
+  const isOp = buildFilterSql([{ id: '1', field: 'handle', op: 'is', value: '@' }], 1);
+  assert.deepEqual(isOp.clauses, []);
+  assert.deepEqual(isOp.params, []);
+  const containsOp = buildFilterSql([{ id: '1', field: 'handle', op: 'contains', value: '@@' }], 1);
+  assert.deepEqual(containsOp.clauses, []);
+  assert.deepEqual(containsOp.params, []);
+});
+
 test('buildFilterSql: 본문 포함/제외 + LIKE 메타문자 이스케이프', () => {
   const inc = buildFilterSql([{ id: '1', field: 'text', op: 'contains', value: 'スキン' }], 1);
   assert.match(inc.clauses[0], /t\.text ilike \$1 escape/);
@@ -169,6 +183,15 @@ test('buildFilterSql: 숫자 축에 숫자가 아닌 값이 오면 조각을 만
   const { clauses, params } = buildFilterSql([{ id: '1', field: 'views', op: 'gte', value: 'abc' }], 1);
   assert.deepEqual(clauses, []);
   assert.deepEqual(params, []);
+});
+
+test('buildFilterSql: 숫자 상한이 isComplete와 같다 — 15자리는 통과, 16자리는 조각을 만들지 않는다', () => {
+  const ok = buildFilterSql([{ id: '1', field: 'views', op: 'gte', value: '999999999999999' }], 1);
+  assert.equal(ok.clauses.length, 1);
+  assert.deepEqual(ok.params, [999999999999999]);
+  const tooLong = buildFilterSql([{ id: '1', field: 'views', op: 'gte', value: '1000000000000000' }], 1);
+  assert.deepEqual(tooLong.clauses, []);
+  assert.deepEqual(tooLong.params, []);
 });
 
 test('csvFileName: 조건을 요약해 같은 날 두 번 받아도 구분된다', () => {

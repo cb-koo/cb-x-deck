@@ -201,6 +201,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
         <FilterRows conditions={conditions} onChange={setConditions}
                     conflicts={findConflicts(conditions.filter(isComplete), columns, activeColumnIds)}
                     totalLabel={workspaceTotal.toLocaleString('en-US')}
+                    countsLoaded={countsLoaded}
                     hasColumnFilter={activeColumnIds.length > 0}
                     onClearAll={() => { setColumnIds([]); setConditions([]); }} />
       </div>

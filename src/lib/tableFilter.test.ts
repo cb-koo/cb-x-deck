@@ -13,7 +13,9 @@ test('축 라벨은 표 머리글과 같은 출처를 쓴다 (갈라지면 안 �
   assert.equal(FIELD_SPECS.handle.label, '계정');
   assert.equal(FIELD_SPECS.text.label, '본문');
   assert.equal(FIELD_SPECS.followers.label, '팔로워');
-  assert.equal(FIELD_SPECS.fetchedAt.label, '기준');
+  // 칸 이름을 '최종 수집 시간'으로 바꿨을 때 이 단정이 깨진 것이 곧 파생이 살아 있다는 증거다 —
+  // FIELD_SPECS가 TABLE_COLUMNS에서 라벨을 가져오므로 필터 축 이름이 자동으로 따라온다.
+  assert.equal(FIELD_SPECS.fetchedAt.label, '최종 수집 시간');
 });
 
 test('축마다 쓸 수 있는 연산자가 정해져 있다', () => {
@@ -159,13 +161,15 @@ test('buildFilterSql: 본문 포함/제외 + LIKE 메타문자 이스케이프',
   assert.match(exc.clauses[0], /t\.text not ilike \$1 escape/);
 });
 
-test('buildFilterSql: 날짜 이후는 그 날 포함, 이전은 그 날 미포함', () => {
+test('buildFilterSql: 날짜 경계는 한국 시간 자정 — UTC 자정(한국 오전 9시)이면 그날 새벽 글이 빠진다', () => {
   const after = buildFilterSql([{ id: '1', field: 'date', op: 'after', value: '2026-07-01' }], 1);
-  assert.match(after.clauses[0], /t\.tweet_created_at >= \$1::date/);
+  assert.match(after.clauses[0], /t\.tweet_created_at >= \$1::date::timestamp at time zone 'Asia\/Seoul'/);
   const before = buildFilterSql([{ id: '1', field: 'date', op: 'before', value: '2026-07-01' }], 1);
-  assert.match(before.clauses[0], /t\.tweet_created_at < \$1::date/);
+  assert.match(before.clauses[0], /t\.tweet_created_at < \$1::date::timestamp at time zone 'Asia\/Seoul'/);
   const fetched = buildFilterSql([{ id: '1', field: 'fetchedAt', op: 'after', value: '2026-07-01' }], 1);
-  assert.match(fetched.clauses[0], /t\.last_fetched_at >= \$1::date/);
+  assert.match(fetched.clauses[0], /t\.last_fetched_at >= \$1::date::timestamp at time zone 'Asia\/Seoul'/);
+  // 값은 여전히 바인딩 파라미터다
+  assert.deepEqual(after.params, ['2026-07-01']);
 });
 
 test('buildFilterSql: 조건이 없으면 빈 결과', () => {

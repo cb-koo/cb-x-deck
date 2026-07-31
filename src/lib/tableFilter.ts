@@ -158,10 +158,13 @@ export function buildFilterSql(
       case 'is': clauses.push(`${expr} = ${bind(v)}`); break;
       case 'contains': clauses.push(`${expr} ilike ${bind(`%${escapeLike(v)}%`)} escape '\\'`); break;
       case 'notContains': clauses.push(`${expr} not ilike ${bind(`%${escapeLike(v)}%`)} escape '\\'`); break;
+      // 경계는 한국 시간 자정이다. Postgres 서버 시간대가 UTC라 $1::date를 그대로 쓰면
+      // UTC 자정(한국 오전 9시)이 되어 '이후'가 그날 새벽 글을 버린다(2026-07-31 실측).
+      // 표시(tableColumns.ymd)도 같은 시간대를 쓴다 — 보이는 날짜와 걸러지는 경계가 같아야 한다.
       // '이후'는 그 날짜 포함, '이전'은 그 날짜 미포함 — 두 조건을 겹쳐 범위를 만들 때
       // 경계 하루가 양쪽에 들어가지 않게 한쪽만 포함한다.
-      case 'after': clauses.push(`${expr} >= ${bind(v)}::date`); break;
-      case 'before': clauses.push(`${expr} < ${bind(v)}::date`); break;
+      case 'after': clauses.push(`${expr} >= ${bind(v)}::date::timestamp at time zone 'Asia/Seoul'`); break;
+      case 'before': clauses.push(`${expr} < ${bind(v)}::date::timestamp at time zone 'Asia/Seoul'`); break;
     }
   }
   return { clauses, params };

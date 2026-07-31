@@ -351,9 +351,19 @@ test('표 쿼리 — 조건이 AND로 결합되고 건수도 같은 조건을 �
     });
     assert.deepEqual(acct.map((r) => r.tweetId), [P + 'sk3']);
 
-    // 날짜: 픽스처는 2026-07-01 작성 → 이후 포함, 이전 미포함
+    // 날짜: 픽스처는 2026-07-01T00:00:00Z(= 한국 7/1 09:00) 작성 → 이후 포함, 이전 미포함.
+    // KST 경계(2026-06-30T15:00:00Z)로 바뀌어도 픽스처 시각은 여전히 그 뒤이므로 기대값은 그대로다.
     assert.equal((await getWorkspaceTableRows(sql, ws.id, { sort: 'views', filters: [f('date', 'after', '2026-07-01')] })).length, 3);
     assert.equal((await getWorkspaceTableRows(sql, ws.id, { sort: 'views', filters: [f('date', 'before', '2026-07-01')] })).length, 0);
+
+    // 한국시간 7/2 00:30(= UTC 7/1 15:30)에 올라온 글은 'after 2026-07-02'에 잡혀야 한다.
+    // UTC 자정 경계였을 때는 빠졌다 — 표에 7/2로 보이는데 7/2 이후 필터에 안 걸리는 상태였다.
+    await upsertTweets(sql, [{ ...tw('kst1', 50), tweetCreatedAt: '2026-07-01T15:30:00Z' }]);
+    await linkColumnTweets(sql, col.id, [P + 'kst1']);
+    const kst = await getWorkspaceTableRows(sql, ws.id, {
+      sort: 'views', filters: [f('date', 'after', '2026-07-02')],
+    });
+    assert.ok(kst.some((r) => r.tweetId === P + 'kst1'), '한국시간 기준 7/2 글이 7/2 이후에 잡힌다');
   } finally {
     await deleteColumn(sql, col.id); await deleteWorkspace(sql, ws.id);
   }

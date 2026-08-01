@@ -95,6 +95,8 @@ export interface TweetTranslation {
 
 // 표 보기 한 행. StoredTweet을 쓰지 않는 이유: 표는 미디어·인용RT를 안 쓰는데
 // CSV 저장은 최대 5,000행을 한 번에 받으므로 그 JSON이 페이로드를 크게 부풀린다.
+// firstSeenAt은 그 예외다 — 날짜 문자열 하나라 페이로드에 거의 영향이 없고, 없으면
+// 카드 팝업 헤더가 '최종 수집'만 먼저 떴다가 조회가 끝나야 '수집'이 붙어 깜빡인다(2차 설계 §C-1).
 export interface TableRow {
   tweetId: string;
   columnTitles: string[];        // 이 트윗이 걸린 컬럼 이름들 (여러 컬럼에 걸리면 여러 개)
@@ -105,5 +107,6 @@ export interface TableRow {
   tweetCreatedAt: string | null; // ISO
   metrics: DeckMetrics;
   savedBy: Member[];
-  lastFetchedAt: string;         // ISO — 지표 기준 시각
+  firstSeenAt: string;           // ISO — 이 트윗이 처음 들어온 시각 (팝업 헤더의 '수집')
+  lastFetchedAt: string;         // ISO — 지표 기준 시각 (표의 '최종 수집 시간', 팝업 헤더의 '최종 수집')
 }

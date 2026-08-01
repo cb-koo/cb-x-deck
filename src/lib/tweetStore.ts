@@ -193,7 +193,7 @@ export async function getColumnTweetCount(
 type TableRowRaw = {
   tweet_id: string; column_titles: string[]; author_handle: string; author_name: string | null;
   author_followers: string | number | null; text: string; tweet_created_at: Date | null;
-  metrics: TableRow['metrics']; saved_by: TableRow['savedBy']; last_fetched_at: Date;
+  metrics: TableRow['metrics']; saved_by: TableRow['savedBy']; first_seen_at: Date; last_fetched_at: Date;
 };
 
 // 파라미터 번호를 손으로 세지 않는다 — 조건 개수가 가변이라 하드코딩하면 어긋난다.
@@ -244,7 +244,7 @@ export async function getWorkspaceTableRows(
     // order by에 tweet_id를 tie-break로 둬야 페이지 경계에서 행이 중복·누락되지 않는다.
     // limit/offset은 위에서 정수로 sanitize해 리터럴로 넣는다(자리표시자로 넘기면 안 쓰이는 번호가 생긴다).
     `select t.tweet_id, t.author_handle, t.author_name, t.author_followers, t.text,
-            t.tweet_created_at, t.metrics, t.last_fetched_at,
+            t.tweet_created_at, t.metrics, t.first_seen_at, t.last_fetched_at,
             ${columnTitlesSubquery(ws)} as column_titles,
             coalesce((select json_agg(json_build_object('id', m.id, 'name', m.name, 'color', m.color) order by m.name)
                         from candidate c join member m on m.id = c.member_id
@@ -268,6 +268,7 @@ export async function getWorkspaceTableRows(
     tweetCreatedAt: r.tweet_created_at?.toISOString() ?? null,
     metrics: r.metrics,
     savedBy: r.saved_by ?? [],
+    firstSeenAt: r.first_seen_at.toISOString(),
     lastFetchedAt: r.last_fetched_at.toISOString(),
   }));
 }

@@ -233,6 +233,10 @@ test('표 쿼리 — 여러 컬럼에 걸린 트윗은 한 행, 버림 제외, �
     assert.deepEqual([...t2.columnTitles].sort(), [P + 'A', P + 'B'], '두 컬럼에 걸려도 한 행, 컬럼 이름은 모두');
     assert.equal(t2.metrics.views, 300);
     assert.ok(t2.lastFetchedAt, '기준 시각이 실려야 한다 (지표 신선도 표시용)');
+    // 팝업 헤더가 '수집'으로 쓰는 값 — 없으면 카드를 즉시 그릴 때 이 자리만 늦게 채워져 깜빡인다(2차 설계 §C-1)
+    assert.ok(t2.firstSeenAt, '표 행에 수집 시각이 실려야 한다');
+    assert.ok(Date.parse(t2.firstSeenAt) > 0, '수집 시각은 파싱 가능한 ISO여야 한다');
+    assert.ok(Date.parse(t2.firstSeenAt) <= Date.parse(t2.lastFetchedAt), '수집은 최종 수집보다 앞선다');
 
     const count = await getWorkspaceTableCount(sql, ws.id);
     assert.equal(count, 2, '중복 병합·버림 제외가 건수에도 반영');

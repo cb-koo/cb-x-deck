@@ -101,7 +101,7 @@ export async function getTweetsByIds(sql: postgres.Sql, tweetIds: string[]): Pro
 }
 
 // 표 보기의 카드 팝업 — 행 하나를 눌렀을 때 그 트윗만 카드에 필요한 형태로 준다.
-// TableRow에 없는 것(아바타·미디어·인용RT·tweetUrl·firstSeenAt) 때문에 필요하다.
+// TableRow에 없는 것(아바타·미디어·인용RT·tweetUrl) 때문에 필요하다.
 // getColumnTweets와 같은 조인(인용RT 캐시·savedBy)을 쓰되 컬럼 조인만 없다 — 표의 행은
 // 특정 컬럼에서 온 게 아니라 워크스페이스 전체에서 온 것이다(TableRow와 같은 범위).
 // is_new는 "직전 새로고침 이후 이 컬럼에 새로 들어옴"이라 컬럼이 없는 여기선 의미가 없어 항상 false다.

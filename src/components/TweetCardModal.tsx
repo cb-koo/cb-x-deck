@@ -14,6 +14,14 @@ type Load = 'loading' | 'done' | 'error' | 'missing';
 // 표 행이 이미 들고 있는 값으로 만드는 잠정 카드 — 클릭 즉시 그리기 위해서다(2차 설계 §C-2).
 // 없는 것만 비워둔다. 비워도 TweetCard가 알아서 견딘다: 아바타 null이면 회색 원,
 // tweetUrl null이면 시각이 링크 없는 텍스트, media []면 그리드 자체가 안 나온다.
+// 저장자 목록이 실질적으로 같은지 — 멤버 id 집합으로 비교한다(배열 참조·순서는 무시).
+// 조회로 받은 값을 표 행에 그대로 반영하기 전에, 이미 같은 값이면 굳이 setRows를 다시 태우지 않으려는 용도다.
+function sameSavedBy(a: Member[], b: Member[]): boolean {
+  if (a.length !== b.length) return false;
+  const bIds = new Set(b.map((m) => m.id));
+  return a.every((m) => bIds.has(m.id));
+}
+
 function provisionalFrom(row: TableRow): StoredTweet {
   return {
     tweetId: row.tweetId,
@@ -73,6 +81,11 @@ export function TweetCardModal({ wsId, tweetId, row, cached, onLoaded, onClose, 
   // 손대지 않았다면(null) 조회 결과를 그대로 믿는다 — 다른 멤버가 그 사이 저장했을 수 있고
   // 그건 서버가 맞다.
   const localSavedByRef = useRef<Member[] | null>(null);
+  // 조회 이펙트가 fetch 완료 시점의 최신 row를 읽기 위한 참조. row를 이펙트 deps에 그대로 넣으면
+  // (표가 다른 이유로 다시 렌더될 때마다 row 참조가 바뀌므로) 이 조회 이펙트가 저장과 무관하게
+  // 다시 실행돼 불필요한 재요청을 만든다 — 그래서 별도의 작은 이펙트로 최신값만 따라가게 한다.
+  const rowRef = useRef(row);
+  useEffect(() => { rowRef.current = row; }, [row]);
 
   // 화면에 그릴 카드. 완성본이 있으면 그것, 없으면 표 행으로 만든 잠정 카드.
   // row가 갱신되면(저장으로 부모가 행을 고치면) 잠정 카드도 따라 갱신된다.
@@ -95,17 +108,29 @@ export function TweetCardModal({ wsId, tweetId, row, cached, onLoaded, onClose, 
         const d = await r.json() as { tweet: StoredTweet };
         if (!alive) return;
         // 그 사이 이 팝업에서 저장 상태를 직접 바꿨다면 그 값이 이 조회 결과보다 우선한다 — 위 주석 참고.
-        const fetched = localSavedByRef.current ? { ...d.tweet, savedBy: localSavedByRef.current } : d.tweet;
+        const localOverride = localSavedByRef.current;
+        const fetched = localOverride ? { ...d.tweet, savedBy: localOverride } : d.tweet;
         setFull(fetched);
         setLoad('done');
         onLoaded(fetched);
+        // 로컬에서 손대지 않았다면(override 없음) 이 조회 결과가 서버의 최신 상태다 — 다른 멤버가
+        // 그 사이 저장했을 수 있으니 표 행도 같이 갱신한다. 손댔다면 parent는 applySavedBy를 통해
+        // 이미 그 값을 갖고 있으므로(그게 출처다) 다시 보낼 필요가 없다. row가 없거나(팝업이 연 뒤
+        // 표에서 사라진 행) 이미 같은 값이면 setRows를 다시 태우지 않는다.
+        const curRow = rowRef.current;
+        if (!localOverride && (!curRow || !sameSavedBy(fetched.savedBy, curRow.savedBy))) {
+          onSavedByChange(tweetId, fetched.savedBy);
+        }
       } catch {
         if (alive) setLoad('error');
       }
     })();
     return () => { alive = false; };
-    // onLoaded는 호출부에서 useCallback으로 안정화한다
-  }, [wsId, tweetId, retry, cached, onLoaded]);
+    // onLoaded·onSavedByChange는 호출부에서 useCallback으로 안정화한다. row는 deps에 없다 —
+    // 이 안에서 row를 직접 읽지 않고 rowRef.current를 읽는다(위 rowRef 참고): row 참조가 바뀔
+    // 때마다(표의 무관한 갱신으로도 바뀐다) 이 조회 이펙트가 재실행돼 불필요한 재요청이 나가는
+    // 것을 막기 위해서다.
+  }, [wsId, tweetId, retry, cached, onLoaded, onSavedByChange]);
 
   // Esc로 닫기 — ColumnSettings와 같은 처리. IME 조합 중 Esc는 글자 조합 취소라 무시한다.
   useEffect(() => {
@@ -186,8 +211,11 @@ export function TweetCardModal({ wsId, tweetId, row, cached, onLoaded, onClose, 
            className="max-h-[90vh] w-[560px] max-w-[92vw] overflow-y-auto overflow-x-hidden rounded-2xl bg-white"
            onClick={(e) => e.stopPropagation()}>
         {/* 상단 바 — X 게시 모달과 같은 배치: ✕ 왼쪽, 오른쪽에 파란 텍스트 액션.
-            파랑은 x-blue가 아니라 x-blue-text를 쓴다 — 밝은 쪽은 텍스트 대비가 AA에 미달한다(globals.css). */}
-        <div className="flex min-h-[53px] items-center justify-between px-2 py-1.5">
+            파랑은 x-blue가 아니라 x-blue-text를 쓴다 — 밝은 쪽은 텍스트 대비가 AA에 미달한다(globals.css).
+            sticky top-0: 다이얼로그가 세로로 넘치면(미디어·인용RT가 있는 긴 글) 이 바도 같이 스크롤되어
+            ✕·원문 링크가 뷰포트 밖으로 나가버렸다 — X의 게시 모달은 이 바를 고정한다. bg-white로
+            뒤 내용이 비치지 않게 하고 z-10으로 스크롤되는 메타 줄·카드 위에 그린다. */}
+        <div className="sticky top-0 z-10 flex min-h-[53px] items-center justify-between bg-white px-2 py-1.5">
           <button ref={closeRef} onClick={onClose} aria-label="닫기" title="닫기"
                   className="flex h-[34px] w-[34px] items-center justify-center rounded-full text-x-text hover:bg-x-hover">✕</button>
           {/* tweet이 null이면 row도 null이라(둘 다 없을 때만 이 상태다) 핸들 없는 /i/status/ 형식으로 떨어진다 */}
@@ -205,14 +233,16 @@ export function TweetCardModal({ wsId, tweetId, row, cached, onLoaded, onClose, 
               <div className="flex flex-wrap gap-1.5">
                 {columnTitles.map((title) => (
                   <span key={title}
-                        className="rounded-full border border-x-border-strong px-2.5 py-0.5 text-ui font-bold text-x-secondary">
+                        className="max-w-[45%] truncate rounded-full border border-x-border-strong px-2.5 py-0.5 text-ui font-bold text-x-secondary">
                     {title}
                   </span>
                 ))}
               </div>
             )}
             {tweet && (
-              <p className="shrink-0 text-ui text-x-muted">
+              // ml-auto: 컬럼 알약이 없어 이 <p>가 유일한 자식이 되면 justify-between이 왼쪽으로
+              // 붙인다 — 알약이 있을 때도(오른쪽 끝에 붙는 것은 동일) 해가 되지 않는다.
+              <p className="ml-auto shrink-0 text-ui text-x-muted">
                 수집 {ymd(tweet.firstSeenAt)} · 최종 수집 {ymdHm(tweet.lastFetchedAt)}
               </p>
             )}
@@ -237,7 +267,8 @@ export function TweetCardModal({ wsId, tweetId, row, cached, onLoaded, onClose, 
         {!tweet && load === 'loading' && <p className="px-4 pb-4 text-ui text-x-muted">불러오는 중…</p>}
         {!tweet && load === 'error' && (
           <p className="px-4 pb-4 text-ui text-red-500">
-            글을 불러오지 못했어요. <button onClick={() => setRetry((n) => n + 1)} className="underline">다시 시도</button>
+            글을 불러오지 못했어요.{' '}
+            <button onClick={() => { setLoad('loading'); setRetry((n) => n + 1); }} className="underline">다시 시도</button>
           </p>
         )}
         {!tweet && load === 'missing' && (
@@ -250,8 +281,15 @@ export function TweetCardModal({ wsId, tweetId, row, cached, onLoaded, onClose, 
         {/* 카드는 이미 읽을 수 있는데 나머지를 못 받은 경우 — 본문이 보이므로 실패의 크기가 다르다(2차 설계 §D) */}
         {tweet && load === 'error' && (
           <p className="px-4 pb-3 text-caption text-red-500">
-            이미지·인용을 불러오지 못했어요. <button onClick={() => setRetry((n) => n + 1)} className="underline">다시 시도</button>
+            이미지·인용을 불러오지 못했어요.{' '}
+            <button onClick={() => { setLoad('loading'); setRetry((n) => n + 1); }} className="underline">다시 시도</button>
           </p>
+        )}
+        {/* 재시도 중임을 알려준다 — 단, 첫 조회 때는 안 보여준다. retry는 재시도 버튼을 누를 때만
+            늘어나므로(첫 조회는 항상 retry===0), retry>0으로 '이건 첫 그림이 아니라 재시도다'를 구분한다.
+            그래야 즉시 그리기의 취지(첫 화면은 끝난 것처럼 보여야 한다)가 첫 조회에서 깨지지 않는다. */}
+        {tweet && load === 'loading' && retry > 0 && (
+          <p className="px-4 pb-3 text-caption text-x-muted">이미지·인용을 다시 불러오는 중…</p>
         )}
         {tweet && load === 'missing' && (
           <p className="px-4 pb-3 text-caption text-x-muted">

@@ -80,7 +80,15 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
 
   const load = useCallback(async (append: boolean) => {
     const id = ++reqIdRef.current;   // 이 호출의 번호를 찍어두고, 응답이 오면 아직 최신인지 확인한다
-    if (!append) tweetCacheRef.current.clear();   // 처음부터 다시 받는 조회 = 지표가 바뀌었을 수 있다
+    if (!append) {
+      tweetCacheRef.current.clear();   // 처음부터 다시 받는 조회 = 지표가 바뀌었을 수 있다
+      // 열려 있는 팝업이 들고 있던 스냅샷도 같이 비운다 — 안 그러면 400ms 필터 디바운스로 이
+      // 조회가 지연 발동했을 때, 그 사이 열린 팝업은 방금 지운 캐시의 옛 값을 여전히 쥐고 있고
+      // cached가 non-null이라 다시는 재조회하지 않는다(표는 새로고침됐는데 팝업만 낡은 채로 남는다).
+      // null로 바뀌면 TweetCardModal의 조회 이펙트가 cached를 deps로 갖고 있어 다시 실행되어
+      // 실제로 재조회한다.
+      setOpenTweetCached(null);
+    }
     setBusy(true); setErr(false);
     try {
       const r = await apiFetch(`/api/tweet-table?${qs({

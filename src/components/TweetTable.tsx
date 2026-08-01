@@ -56,8 +56,20 @@ function resolveWidth(map: Record<string, number>, key: string): number {
   return typeof v === 'number' && v > 0 ? v : defaultWidth(key);
 }
 
-export function TweetTable({ rows, columns, sort, dir, onSort }: {
+// 행을 눌렀을 때 카드를 열어야 하는 클릭인지. 두 가지는 카드를 열지 않는다:
+// (1) 셀 안의 링크·버튼 — '원문 ↗'를 눌렀는데 팝업까지 뜨면 두 일이 동시에 일어난 것처럼 보인다.
+// (2) 글자를 드래그해 선택한 경우 — 값을 복사하려던 동작이 팝업으로 끝나면 안 된다.
+//     판정 시점이 mouseup 이후인 click이라, 드래그가 끝난 뒤의 선택 상태를 본다.
+function opensCard(e: React.MouseEvent): boolean {
+  if (e.target instanceof Element && e.target.closest('a, button')) return false;
+  const sel = window.getSelection();
+  if (sel && !sel.isCollapsed && sel.toString().trim() !== '') return false;
+  return true;
+}
+
+export function TweetTable({ rows, columns, sort, dir, onSort, onOpenTweet }: {
   rows: TableRow[]; columns: TableColumn[]; sort: SortKey; dir: SortDir; onSort: (k: SortKey) => void;
+  onOpenTweet: (tweetId: string) => void;
 }) {
   // 마운트 시 1회만 읽는다 — 이 컴포넌트는 표가 실제로 그려질 때만 나타나므로(TweetTableView의 로딩 갈래)
   // 서버 렌더를 탄 적이 없다. useEffect로 나중에 읽으면 set-state-in-effect가 걸리므로
@@ -217,7 +229,20 @@ export function TweetTable({ rows, columns, sort, dir, onSort }: {
       </thead>
       <tbody>
         {rows.map((r) => (
-          <tr key={r.tweetId} className="border-b border-x-border align-top hover:bg-x-hover">
+          // 행 전체가 카드를 여는 손잡이다. role="button"으로 덮어쓰지 않는다 — 행을 버튼이라고
+          // 말하면 보조기술에서 표의 행·칸 구조가 사라진다. 행은 행으로 두고 조작만 얹는다.
+          // data-tweet-id: 팝업을 닫을 때 이 행으로 포커스를 되돌리기 위한 표식(TweetTableView).
+          <tr key={r.tweetId}
+              data-tweet-id={r.tweetId}
+              tabIndex={0}
+              onClick={(e) => { if (opensCard(e)) onOpenTweet(r.tweetId); }}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                if (e.target !== e.currentTarget) return;   // 셀 안 링크에 포커스가 있으면 그쪽 몫
+                e.preventDefault();                          // 스페이스로 페이지가 스크롤되는 것을 막는다
+                onOpenTweet(r.tweetId);
+              }}
+              className="cursor-pointer border-b border-x-border align-top hover:bg-x-hover focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
             {columns.map((c) => {
               const text = cellDisplay(r, c);
               return (

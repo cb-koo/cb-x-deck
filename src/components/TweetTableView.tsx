@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
-import type { ColumnRow, Member, SortDir, SortKey, TableRow } from '@/lib/types';
+import type { ColumnRow, Member, SortDir, SortKey, StoredTweet, TableRow } from '@/lib/types';
 import { TABLE_COLUMNS } from '@/lib/tableColumns';
 import { toCsv } from '@/lib/tableExport';
 import { TABLE_MAX, TABLE_PAGE } from '@/lib/tableLimits';
@@ -47,6 +47,13 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   const [busy, setBusy] = useState(false);
   // 카드 팝업으로 열려 있는 행. null이면 닫힘.
   const [openTweetId, setOpenTweetId] = useState<string | null>(null);
+  // openTweetId를 연 시점에 캐시에 있던 완성본 스냅샷 — 렌더 중에 ref를 직접 읽지 않기 위해
+  // (react-hooks/refs) 행을 여는 이벤트 핸들러(openTweet)에서 한 번만 읽어 상태로 들고 있는다.
+  const [openTweetCached, setOpenTweetCached] = useState<StoredTweet | null>(null);
+  // 한 번 받아온 완성본(미디어·인용RT까지)을 들고 있다가 같은 행을 다시 열면 즉시 보여준다.
+  // 표를 다시 조회하거나 워크스페이스가 바뀌면 비운다 — 지표가 갱신됐는데 옛 숫자를 들고 있으면
+  // 표와 팝업이 어긋난다(2차 설계 §C-3).
+  const tweetCacheRef = useRef<Map<string, StoredTweet>>(new Map());
   // 번역 상태·동작은 덱·보관함과 같은 훅을 쓴다 — 캐시는 tweet_id 단위 전역이라
   // 덱에서 이미 번역해 둔 글이면 팝업을 여는 순간 번역이 함께 보인다.
   const { translations, translatingIds, translateErr, loadCached, translateOne } = useTranslations();
@@ -73,6 +80,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
 
   const load = useCallback(async (append: boolean) => {
     const id = ++reqIdRef.current;   // 이 호출의 번호를 찍어두고, 응답이 오면 아직 최신인지 확인한다
+    if (!append) tweetCacheRef.current.clear();   // 처음부터 다시 받는 조회 = 지표가 바뀌었을 수 있다
     setBusy(true); setErr(false);
     try {
       const r = await apiFetch(`/api/tweet-table?${qs({
@@ -92,6 +100,13 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
       if (reqIdRef.current === id) { setErr(true); setBusy(false); setLoaded(true); }
     }
   }, [qs, rows.length]);
+
+  // 행을 여는 진입점 — 클릭 이벤트 핸들러 안에서 캐시를 읽는다(렌더 중이 아니라서 react-hooks/refs에
+  // 걸리지 않는다). 같은 트윗을 다시 열 때 완성본이 있으면 그 스냅샷을 함께 들고 있다가 모달에 넘긴다.
+  const openTweet = useCallback((id: string) => {
+    setOpenTweetId(id);
+    setOpenTweetCached(tweetCacheRef.current.get(id) ?? null);
+  }, []);
 
   // 팝업을 열면 캐시에 있는 번역만 조용히 가져온다 — LLM 호출이 없어 과금이 없다.
   useEffect(() => { if (openTweetId) void loadCached([openTweetId]); }, [openTweetId, loadCached]);
@@ -113,6 +128,13 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   // 다시 받고 스크롤이 튄다.
   const applySavedBy = useCallback((tweetId: string, savedBy: Member[]) => {
     setRows((cur) => cur.map((r) => (r.tweetId === tweetId ? { ...r, savedBy } : r)));
+    // 캐시에 완성본이 있으면 그것도 함께 — 안 그러면 닫았다 다시 열 때 옛 저장 상태가 나온다
+    const hit = tweetCacheRef.current.get(tweetId);
+    if (hit) tweetCacheRef.current.set(tweetId, { ...hit, savedBy });
+  }, []);
+
+  const cacheTweet = useCallback((tweet: StoredTweet) => {
+    tweetCacheRef.current.set(tweet.tweetId, tweet);
   }, []);
 
   // 정렬·필터가 바뀌면 처음부터 다시 — append=false. columnIds가 아니라 activeColumnIds를 봐야
@@ -274,7 +296,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
           <p className="p-4 text-ui text-x-muted">아직 수집된 글이 없어요 — 카드 보기에서 컬럼을 새로고침하면 여기에 모입니다</p>
         ) : (
           <TweetTable rows={rows} columns={cols} sort={sort} dir={dir} onSort={onSort}
-                      onOpenTweet={setOpenTweetId} />
+                      onOpenTweet={openTweet} />
         )}
       </div>
       {showTable && rows.length < total && (
@@ -284,12 +306,16 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
           </Button>
         </div>
       )}
-      {/* key={openTweetId}: 다른 행을 열면 새로 마운트되어 항상 '불러오는 중'부터 시작한다 —
-          이전 트윗의 카드가 한 프레임 남아 있는 일이 없다. */}
+      {/* key={openTweetId}: 다른 행을 열면 새로 마운트되어 상태가 섞이지 않는다.
+          row: 클릭 즉시 카드를 그리는 데 쓴다. 팝업이 열린 사이 목록이 다시 로드돼 그 행이
+          사라졌으면 null이 되고, 그때는 팝업이 조회 결과를 기다린다(2차 설계 §C-4). */}
       {openTweetId && (
         <TweetCardModal key={openTweetId}
                         wsId={wsId}
                         tweetId={openTweetId}
+                        row={rows.find((r) => r.tweetId === openTweetId) ?? null}
+                        cached={openTweetCached}
+                        onLoaded={cacheTweet}
                         onClose={closeCard}
                         onSavedByChange={applySavedBy}
                         translation={translations[openTweetId] ?? null}

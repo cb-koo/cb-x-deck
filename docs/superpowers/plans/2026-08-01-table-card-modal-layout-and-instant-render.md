@@ -678,6 +678,13 @@ import type { ColumnRow, Member, SortDir, SortKey, StoredTweet, TableRow } from 
 
 - [ ] **Step 6: 모달에 행과 캐시를 넘긴다**
 
+> **구현 중 정정(2026-08-01).** 아래 코드의 `cached={tweetCacheRef.current.get(openTweetId) ?? null}`은
+> **쓰면 안 된다** — 이 저장소는 렌더 중 `ref.current`를 읽는 것도 에러로 잡는다(`react-hooks/refs`,
+> 기준선이 23 → 25로 늘어난다). 대신 캐시 읽기를 **행을 여는 이벤트 핸들러**로 옮긴다:
+> `openTweet(id)` 콜백에서 `setOpenTweetId(id)`와 함께 `setOpenTweetCached(tweetCacheRef.current.get(id) ?? null)`을
+> 하고, JSX에는 그 상태를 넘긴다. `TweetTable`의 `onOpenTweet`도 `setOpenTweetId`가 아니라 이 콜백을 받는다 —
+> 진입점이 하나여야 마우스·키보드 양쪽에서 스냅샷이 갱신된다. 실제 구현은 이 정정을 따랐다(`e0f44e8`).
+
 기존 모달 렌더 블록을 아래로 바꾼다.
 
 ```tsx

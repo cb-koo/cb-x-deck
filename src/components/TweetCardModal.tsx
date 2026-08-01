@@ -16,19 +16,30 @@ type State =
 // 표 보기에서 행을 누르면 뜨는 트윗 카드.
 // 카드 자체는 TweetCard 그대로다(= X 미러링). 이 파일은 껍데기·조회·저장 배선만 한다.
 // 모달 틀(배경·Esc·✕)은 ColumnSettings와 같은 패턴을 쓴다 — 두 모달의 조작감이 갈리지 않게.
-export function TweetCardModal({ wsId, tweetId, onClose, onSavedByChange, translation, translating, onTranslate }: {
+export function TweetCardModal({ wsId, tweetId, onClose, onSavedByChange, translation, translating, translateErr, onTranslate }: {
   wsId: string;
   tweetId: string;
   onClose: () => void;
   onSavedByChange: (tweetId: string, savedBy: Member[]) => void;
   translation: TweetTranslation | null;
   translating: boolean;
+  translateErr: string;
   onTranslate: (tweetId: string) => void;
 }) {
   // 초기값이 'loading' — 이펙트 안에서 동기적으로 setState 하지 않기 위해서다(react-hooks/set-state-in-effect).
   // 호출부가 key={tweetId}로 렌더하므로 다른 행을 열면 이 컴포넌트가 새로 마운트되어 자연히 loading부터 시작한다.
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [retry, setRetry] = useState(0);
+  // translateErr는 useTranslations 훅 전역 상태 — tweet_id 단위가 아니라 모든 카드가 공유하고,
+  // 실패 시 세팅된 채 다음 성공 때만 지워진다(다른 행을 열었다고 지워지지 않음). 그대로 렌더하면
+  // 방금 연 카드에 '전혀 다른 트윗'에서 난 실패가 튀어나온다. 이 컴포넌트는 key={tweetId}로 카드마다
+  // 새로 마운트되므로, "이 카드에서 번역을 눌러봤는가"를 로컬 state로 잡아두면 새로 열린 카드는
+  // 항상 false로 시작해 남의 실패를 걸러낸다.
+  const [translateAttempted, setTranslateAttempted] = useState(false);
+  function handleTranslate(id: string) {
+    setTranslateAttempted(true);
+    onTranslate(id);
+  }
   const { member } = useMember();
   const { show } = useToast();
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -144,15 +155,24 @@ export function TweetCardModal({ wsId, tweetId, onClose, onSavedByChange, transl
           </p>
         )}
         {state.kind === 'ok' && (
-          <TweetCard tweet={state.tweet}
-                     meId={member?.id ?? null}
-                     onSave={save}
-                     onUnsave={unsave}
-                     onSaveMemo={saveMemo}
-                     libraryHref={`/w/${wsId}/library`}
-                     translation={translation}
-                     translating={translating}
-                     onTranslate={onTranslate} />
+          <>
+            <TweetCard tweet={state.tweet}
+                       meId={member?.id ?? null}
+                       onSave={save}
+                       onUnsave={unsave}
+                       onSaveMemo={saveMemo}
+                       libraryHref={`/w/${wsId}/library`}
+                       translation={translation}
+                       translating={translating}
+                       onTranslate={handleTranslate} />
+            {/* 이 카드에서 실제로 번역을 시도했고(translateAttempted), 그 시도가 아직 진행 중이 아닌데
+                실패가 남아 있을 때만 보여준다 — 유료 API 경로라 사용자가 실패 여부를 반드시 알아야 한다(설계). */}
+            {translateAttempted && !translating && translateErr && (
+              <p className="px-4 pb-4 text-caption text-red-500">
+                {translateErr} <button onClick={() => handleTranslate(tweetId)} className="underline">다시 시도</button>
+              </p>
+            )}
+          </>
         )}
       </div>
     </div>

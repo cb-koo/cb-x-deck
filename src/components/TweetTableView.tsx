@@ -49,7 +49,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   const [openTweetId, setOpenTweetId] = useState<string | null>(null);
   // 번역 상태·동작은 덱·보관함과 같은 훅을 쓴다 — 캐시는 tweet_id 단위 전역이라
   // 덱에서 이미 번역해 둔 글이면 팝업을 여는 순간 번역이 함께 보인다.
-  const { translations, translatingIds, loadCached, translateOne } = useTranslations();
+  const { translations, translatingIds, translateErr, loadCached, translateOne } = useTranslations();
   const reqIdRef = useRef(0);   // 응답 경합 가드 — 가장 최근 요청만 상태를 갱신한다
   const loadKeyRef = useRef<string | null>(null);   // conditions를 뺀 나머지가 마지막으로 즉시 조회를 일으켰을 때의 값
 
@@ -241,7 +241,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
 
       {/* 지표 신선도 — '카드 보기에서'를 빼면 표 모드에 없는 버튼을 가리키는 죽은 안내가 된다(설계 §E) */}
       <p className="border-b border-x-border px-4 py-1 text-caption text-x-muted">
-        행을 클릭하면 글 전체를 카드로 볼 수 있어요 · 지표는 각 글을 마지막으로 가져온 시점 기준이에요 — 카드 보기에서 컬럼을 새로고침하면 갱신됩니다
+        행을 클릭하면 이 화면에서 글 전체를 볼 수 있어요 · 지표는 각 글을 마지막으로 가져온 시점 기준이에요 — 카드 보기에서 컬럼을 새로고침하면 갱신됩니다
       </p>
 
       {/* 가로·세로 스크롤을 담당하는 컨테이너는 이 하나뿐이다 — sticky thead는 이 div를 기준으로 고정된다.
@@ -294,6 +294,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
                         onSavedByChange={applySavedBy}
                         translation={translations[openTweetId] ?? null}
                         translating={translatingIds.has(openTweetId)}
+                        translateErr={translateErr}
                         onTranslate={translateOne} />
       )}
     </div>

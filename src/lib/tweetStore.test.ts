@@ -422,10 +422,18 @@ test('getWorkspaceTweet: 카드에 필요한 전체 데이터 + 워크스페이�
     assert.equal(await getWorkspaceTweet(sql, other.id, P + 'one'), null, '다른 워크스페이스에서는 안 보인다');
     assert.equal(await getWorkspaceTweet(sql, ws.id, P + 'no-such'), null, '없는 트윗은 null');
     assert.equal(await getWorkspaceTweet(sql, 'not-a-uuid', P + 'one'), null, 'uuid가 아니면 조회 없이 null (22P02 방지)');
+
+    // 버림 트윗도 그대로 반환한다 — 표가 이미 버림을 제외하므로 이 함수까지 다시 거르면
+    // 목록을 다시 부르기 직전의 찰나에 누른 그 글을 카드에서 못 보여주게 된다(getWorkspaceTweet 위 주석 참조).
+    await sql`insert into dismissed_tweet (workspace_id, tweet_id, dismissed_by) values (${ws.id}, ${P + 'one'}, ${m.id})`;
+    const dismissed = await getWorkspaceTweet(sql, ws.id, P + 'one');
+    assert.ok(dismissed, '버림 처리된 트윗도 여전히 조회된다(의도된 동작 — 필터링하지 않는다)');
+    assert.equal(dismissed!.tweetId, P + 'one');
   } finally {
     await deleteColumn(sql, col.id);
     await deleteWorkspace(sql, ws.id);
     await deleteWorkspace(sql, other.id);
     await sql`delete from quoted_tweet where id like ${P + '%'}`;
+    await sql`delete from dismissed_tweet where workspace_id = ${ws.id}`;
   }
 });

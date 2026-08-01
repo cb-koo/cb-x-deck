@@ -100,6 +100,35 @@ export async function getTweetsByIds(sql: postgres.Sql, tweetIds: string[]): Pro
   }));
 }
 
+// 표 보기의 카드 팝업 — 행 하나를 눌렀을 때 그 트윗만 카드에 필요한 형태로 준다.
+// TableRow에 없는 것(아바타·미디어·인용RT·tweetUrl·firstSeenAt) 때문에 필요하다.
+// getColumnTweets와 같은 조인(인용RT 캐시·savedBy)을 쓰되 컬럼 조인만 없다 — 표의 행은
+// 특정 컬럼에서 온 게 아니라 워크스페이스 전체에서 온 것이다(TableRow와 같은 범위).
+// is_new는 "직전 새로고침 이후 이 컬럼에 새로 들어옴"이라 컬럼이 없는 여기선 의미가 없어 항상 false다.
+// 버림 트윗을 굳이 빼지 않는다 — 표가 이미 버림을 제외하므로 눌릴 일이 거의 없고,
+// 목록을 다시 부르기 직전의 찰나에 눌렀다면 방금 누른 그 글을 보여주는 쪽이 맞다.
+export async function getWorkspaceTweet(
+  sql: postgres.Sql, workspaceId: string, tweetId: string,
+): Promise<StoredTweet | null> {
+  // workspace_id는 uuid 컬럼이라 형식이 안 맞는 문자열은 "없음"이 아니라 캐스팅 오류(22P02)가 된다
+  if (!isUuidLike(workspaceId) || !tweetId) return null;
+  const [row] = await sql<TweetRow[]>`
+    select t.*,
+           qt.data as quoted_enriched,
+           false as is_new,
+           coalesce((select json_agg(json_build_object('id', m.id, 'name', m.name, 'color', m.color) order by m.name)
+                       from candidate c join member m on m.id = c.member_id
+                      where c.tweet_id = t.tweet_id and c.workspace_id = ${workspaceId}), '[]'::json) as saved_by
+      from tweet t
+      left join quoted_tweet qt on qt.id = t.quoted->>'id' and qt.status = 'ok'
+     where t.tweet_id = ${tweetId}
+       and exists (select 1
+                     from column_tweet ct
+                     join deck_column dc on dc.id = ct.column_id and dc.workspace_id = ${workspaceId}
+                    where ct.tweet_id = t.tweet_id)`;
+  return row ? toStored(row) : null;
+}
+
 export const PAGE_SIZE = 200;
 
 export async function getColumnTweets(

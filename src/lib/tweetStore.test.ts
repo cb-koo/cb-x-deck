@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { upsertTweets, linkColumnTweets, getColumnTweets, getColumnTweetCount, getTweetsByIds, getWorkspaceTableRows, getWorkspaceTableCount, getWorkspaceColumnCounts } from './tweetStore.ts';
+import { upsertTweets, linkColumnTweets, getColumnTweets, getColumnTweetCount, getTweetsByIds, getWorkspaceTweet, getWorkspaceTableRows, getWorkspaceTableCount, getWorkspaceColumnCounts } from './tweetStore.ts';
 import { createColumn, deleteColumn, touchRefreshed, getColumn } from './columnStore.ts';
 import { createWorkspace, deleteWorkspace, createMember } from './workspaceStore.ts';
 import { TABLE_MAX } from './tableLimits.ts';
@@ -383,5 +383,49 @@ test('표 쿼리 — 컬럼별 건수', async () => {
     assert.equal(byId.get(colB.id), 1);
   } finally {
     await deleteColumn(sql, colA.id); await deleteColumn(sql, colB.id); await deleteWorkspace(sql, ws.id);
+  }
+});
+
+test('getWorkspaceTweet: 카드에 필요한 전체 데이터 + 워크스페이스 격리 + savedBy', async () => {
+  const { upsertQuoted } = await import('./quotedStore.ts');
+  const ws = await createWorkspace(sql, P + 'ws-one');
+  const other = await createWorkspace(sql, P + 'ws-one-other');
+  const m = await createMember(sql, P + 'One', '#555555');
+  const col = await createColumn(sql, { workspaceId: ws.id, kind: 'search', title: P + 'one', config: { keywords: ['x'] } });
+  try {
+    // 표 행(TableRow)에는 없어서 카드를 그릴 수 없던 것들을 일부러 다 채운다
+    const base = tw('one', 42);
+    base.authorAvatarUrl = 'https://example.test/a.png';
+    base.media = [{ type: 'photo', url: 'https://example.test/p.jpg', videoUrl: null }];
+    base.quoted = { id: P + 'one-inner', text: 'inner text', userName: '이름', screenName: 'handle9' };
+    base.tweetUrl = 'https://x.com/tester/status/' + P + 'one';
+    await upsertTweets(sql, [base]);
+    await linkColumnTweets(sql, col.id, [base.tweetId]);
+    await upsertQuoted(sql, P + 'one-inner', { ...tw('one-inner', 5), tweetId: P + 'one-inner' });
+
+    const got = await getWorkspaceTweet(sql, ws.id, P + 'one');
+    assert.ok(got, '이 워크스페이스의 컬럼에 걸린 트윗은 조회된다');
+    assert.equal(got.authorAvatarUrl, 'https://example.test/a.png');
+    assert.deepEqual(got.media, [{ type: 'photo', url: 'https://example.test/p.jpg', videoUrl: null }]);
+    assert.equal(got.quoted!.userName, '이름');
+    assert.equal(got.quoted!.enriched!.text, 'hello one-inner', '인용RT 캐시가 enriched로 실려야 카드가 완전해진다');
+    assert.ok(got.firstSeenAt && got.lastFetchedAt, '카드 하단 수집·갱신 시각');
+    assert.equal(got.isNew, false, 'NEW는 컬럼 개념 — 표에서는 항상 false');
+    assert.deepEqual(got.savedBy, [], '아직 아무도 저장하지 않음');
+
+    // savedBy는 워크스페이스 범위 집계
+    await sql`insert into candidate (tweet_id, workspace_id, member_id) values (${P + 'one'}, ${ws.id}, ${m.id})`;
+    const saved = await getWorkspaceTweet(sql, ws.id, P + 'one');
+    assert.deepEqual(saved!.savedBy.map((x) => x.name), [P + 'One']);
+
+    // 격리·부재 갈래
+    assert.equal(await getWorkspaceTweet(sql, other.id, P + 'one'), null, '다른 워크스페이스에서는 안 보인다');
+    assert.equal(await getWorkspaceTweet(sql, ws.id, P + 'no-such'), null, '없는 트윗은 null');
+    assert.equal(await getWorkspaceTweet(sql, 'not-a-uuid', P + 'one'), null, 'uuid가 아니면 조회 없이 null (22P02 방지)');
+  } finally {
+    await deleteColumn(sql, col.id);
+    await deleteWorkspace(sql, ws.id);
+    await deleteWorkspace(sql, other.id);
+    await sql`delete from quoted_tweet where id like ${P + '%'}`;
   }
 });

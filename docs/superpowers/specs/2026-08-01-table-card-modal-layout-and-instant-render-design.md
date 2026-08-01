@@ -172,4 +172,21 @@
 ## G. 백로그로 남기는 것
 
 - **`supabase.auth.getUser()` 호출당 왕복.** 매 API 호출이 인증 서버로 네트워크 요청을 한다(측정 30~45ms). supabase-js 2.110에는 JWT를 로컬에서 검증하는 `getClaims()`가 있다 — 전 라우트에 걸린 개선이라 별도 과제로 다룰 값어치가 있다.
-- **덱 카드 하단 `수집 · 갱신`이 UTC이고, `갱신`은 표의 `최종 수집 시간`과 같은 값이다.** 표기·시간대를 앱 전체에서 한 번에 훑는 편이 낫다.
+- **앱 전체 날짜 표기·시간대를 서울로 통일** — 2026-08-01에 범위만 조사하고 착수는 미뤘다(사용자 결정: "다음에"). 아래가 그 조사 결과다. 다시 조사하지 말 것.
+
+  **이미 맞는 것** — `tableColumns.ts`의 `ymd`/`ymdHm`(KST 고정 +9), `tableFilter.ts`의 SQL 경계(`at time zone 'Asia/Seoul'`). 07-31에 끝낸 절반이다. 남은 것은 표시 쪽이다.
+
+  | 분류 | 위치 | 증상 |
+  |---|---|---|
+  | UTC로 표시 | `format.ts`의 `formatDate`(`getUTC*`) → 덱 카드 `수집·갱신`, `research/page.tsx`의 발행일 | 한국 오전 9시 이전 값이 하루 전으로 보인다 |
+  | '오늘'을 UTC로 계산 | `TweetTableView.tsx`(CSV 파일명), `BriefingSection.tsx`(`untilDate` 기본값), `TrendPanel.tsx`(같음), `api/research/density/route.ts`(`since`) | 한국 새벽 0~9시에 **하루 밀린다** — 표시가 아니라 동작 버그 |
+  | 브라우저 로컬 | `TweetCard.timeAgo`의 날짜 폴백, `CandidateCard`의 저장일(`toLocaleDateString('ko-KR')`) | 한국에서 보면 맞지만 고정돼 있지 않다 |
+  | 이름만 어긋남 | `usageStore.ts`의 `at time zone 'Asia/Tokyo'` | 오프셋이 같아 숫자는 동일. 이름만 정리 |
+
+  **★ 건드리면 안 되는 곳** — `getUTC*`가 보인다고 전부 바꾸면 오히려 깨진다. **날짜 전용 문자열**(`YYYY-MM-DD`)을 `'T00:00:00Z'`로 파싱해 `getUTC*`로 읽는 것은 **정확한 왕복**이다: `briefing.ts`의 주차 라벨, `trend.ts`의 `weekStart` 계산, `tableFilter.ts`의 날짜 유효성 검사, `actualCost.ts`의 `ymd(Date)`(Exa API 파라미터), `BriefingSection`의 `fmtDay`·`fmtWeekRange`. 여기에 +9를 먹이면 날짜가 밀린다. 계획에 "바꾸지 않는 것"으로 명시해야 한다.
+
+  **구조 정리**: KST 변환(`toKstIso`)이 지금 `tableColumns.ts`에 있다 — 표 전용 파일에 앱 전체 관심사가 들어가 있다. `format.ts`(또는 새 `datetime.ts`)로 옮겨 `formatDate`·`ymd`·`ymdHm`·`today()`가 한 곳에서 나오게 한다. 그래야 다음에 또 갈라지지 않는다.
+
+  **규모**: 파일 9개 · 호출부 10곳 · 작업 5개 안팎, 한 세션. 순수 함수가 많아 실 DB 없이 검증되는 비중이 크다.
+
+  **착수 전 정할 것 둘**: ①브리핑의 `fmtDayJst`가 JST인 게 의도인가(일본 트윗 제품이라 의도일 수 있다. 오프셋이 같아 서울로 통일해도 화면은 안 바뀐다) ②`timeAgo`·저장일처럼 브라우저 로컬을 쓰는 곳도 서울로 고정할 것인가(고정하면 해외에서도 같은 값이 보인다).

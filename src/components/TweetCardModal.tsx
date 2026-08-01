@@ -67,6 +67,12 @@ export function TweetCardModal({ wsId, tweetId, row, cached, onLoaded, onClose, 
   const closeRef = useRef<HTMLButtonElement>(null);
   // 저장으로 만들어진 내 candidate.id — 저장 직후 메모 PATCH 배선용 (Column.tsx와 같은 방식)
   const savedIdRef = useRef<string | null>(null);
+  // 이 팝업 안에서 사용자가 저장 상태를 직접 바꿨다면(저장/취소/롤백) 그 값을 여기 들고 있는다.
+  // 마운트 시점에 나간 조회는 그 변경 이전 시점의 스냅샷이라, 그대로 받아들이면 방금 한 저장이
+  // 되돌아가 보인다 — 값이 있으면 도착한 조회 결과의 savedBy를 이 값으로 덮어써 지킨다.
+  // 손대지 않았다면(null) 조회 결과를 그대로 믿는다 — 다른 멤버가 그 사이 저장했을 수 있고
+  // 그건 서버가 맞다.
+  const localSavedByRef = useRef<Member[] | null>(null);
 
   // 화면에 그릴 카드. 완성본이 있으면 그것, 없으면 표 행으로 만든 잠정 카드.
   // row가 갱신되면(저장으로 부모가 행을 고치면) 잠정 카드도 따라 갱신된다.
@@ -88,9 +94,11 @@ export function TweetCardModal({ wsId, tweetId, row, cached, onLoaded, onClose, 
         if (!r.ok) { setLoad('error'); return; }
         const d = await r.json() as { tweet: StoredTweet };
         if (!alive) return;
-        setFull(d.tweet);
+        // 그 사이 이 팝업에서 저장 상태를 직접 바꿨다면 그 값이 이 조회 결과보다 우선한다 — 위 주석 참고.
+        const fetched = localSavedByRef.current ? { ...d.tweet, savedBy: localSavedByRef.current } : d.tweet;
+        setFull(fetched);
         setLoad('done');
-        onLoaded(d.tweet);
+        onLoaded(fetched);
       } catch {
         if (alive) setLoad('error');
       }
@@ -113,6 +121,7 @@ export function TweetCardModal({ wsId, tweetId, row, cached, onLoaded, onClose, 
   // 저장 상태를 카드와 표 행에 동시에 반영한다 — 한쪽만 바꾸면 팝업을 닫았을 때 표가 거짓말을 한다.
   // 잠정 카드는 row에서 파생되므로 부모가 행을 고치면 따라 바뀐다. 완성본은 여기서 직접 고친다.
   function applySavedBy(savedBy: Member[]) {
+    localSavedByRef.current = savedBy;
     setFull((cur) => (cur ? { ...cur, savedBy } : cur));
     onSavedByChange(tweetId, savedBy);
   }
@@ -192,14 +201,16 @@ export function TweetCardModal({ wsId, tweetId, row, cached, onLoaded, onClose, 
             같은 값이 다른 날짜로 보이면 안 된다(2차 설계 §B). */}
         {(columnTitles.length > 0 || tweet) && (
           <div className="flex items-baseline justify-between gap-3 px-4 pb-3">
-            <div className="flex flex-wrap gap-1.5">
-              {columnTitles.map((title) => (
-                <span key={title}
-                      className="rounded-full border border-x-border-strong px-2.5 py-0.5 text-ui font-bold text-x-secondary">
-                  {title}
-                </span>
-              ))}
-            </div>
+            {columnTitles.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {columnTitles.map((title) => (
+                  <span key={title}
+                        className="rounded-full border border-x-border-strong px-2.5 py-0.5 text-ui font-bold text-x-secondary">
+                    {title}
+                  </span>
+                ))}
+              </div>
+            )}
             {tweet && (
               <p className="shrink-0 text-ui text-x-muted">
                 수집 {ymd(tweet.firstSeenAt)} · 최종 수집 {ymdHm(tweet.lastFetchedAt)}

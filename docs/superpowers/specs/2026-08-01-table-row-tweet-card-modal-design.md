@@ -127,10 +127,10 @@ hover 신호만으로는 "여기 누르면 뭐가 나온다"를 미리 알 수 �
 | `src/lib/tweetStore.test.ts` | 위 함수 테스트(실 DB) — 정상 조회 / 다른 워크스페이스 / 없는 id / uuid 아닌 workspaceId |
 | `src/app/api/tweets/[id]/route.ts` | 신설 |
 | `src/components/TweetCardModal.tsx` | 신설 |
-| `src/components/TweetTable.tsx` | 행 클릭 + 키보드 + `onRowClick` prop, 행에 `data-tweet-id`(포커스 복귀용) |
+| `src/components/TweetTable.tsx` | 행 클릭 + 키보드 + `onOpenTweet` prop, 행에 `data-tweet-id`(포커스 복귀용) |
 | `src/components/TweetTableView.tsx` | 모달 상태, 저장·메모·번역 배선, 행 `savedBy` 로컬 갱신, 안내 문구 한 줄 |
 
-**검증.** `npm test`(실 DB, 약 4분)와 린트 기준선 24개 유지. 라우트·컴포넌트 하네스가 없어 자동 검증은 store 계층까지이고, 화면 확인은 OAuth 게이팅 때문에 사용자만 가능하다 — 배포 후 확인이 필요한 부분을 구현 완료 시 명시한다.
+**검증.** `npm test`(실 DB, 약 4분)와 린트 기준선 유지(2026-08-01 측정값 23개 — 숫자는 작업 전에 직접 잰다). 라우트·컴포넌트 하네스가 없어 자동 검증은 store 계층까지이고, 화면 확인은 OAuth 게이팅 때문에 사용자만 가능하다 — 배포 후 확인이 필요한 부분을 구현 완료 시 명시한다.
 
 ## F. 하지 않는 것
 

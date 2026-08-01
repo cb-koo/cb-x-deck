@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 덱 > 표 보기에서 행을 클릭하면 X를 열지 않고 그 자리에서 트윗 카드를 팝업으로 보여주고, 거기서 저장·메모·번역까지 할 수 있게 한다.
+**Goal:** 덱 &gt; 표 보기에서 행을 클릭하면 X를 열지 않고 그 자리에서 트윗 카드를 팝업으로 보여주고, 거기서 저장·메모·번역까지 할 수 있게 한다.
 
 **Architecture:** 표 API(`/api/tweet-table`)는 그대로 둔다 — CSV가 최대 5,000행을 받는 경로라 카드용 데이터(미디어·인용RT·아바타)를 얹으면 그 페이로드가 무거워진다. 대신 행을 누른 순간 `GET /api/tweets/[id]?workspaceId=`로 그 한 건만 `StoredTweet`으로 받아, 기존 `TweetCard`를 모달 안에 그대로 렌더한다. 저장 결과는 표 전체를 다시 부르지 않고 그 행의 `savedBy`만 로컬에서 갱신한다.
 
@@ -13,23 +13,25 @@
 ## Global Constraints
 
 - **표 API를 수정하지 않는다.** `/api/tweet-table`, `getWorkspaceTableRows`, `TableRow` 타입은 이 작업에서 건드리지 않는다.
-- **`TweetCard`를 수정하지 않는다.** 카드는 X 미러링의 결과물이고, 팝업은 껍데기만 제공한다. 팝업 전용 카드 레이아웃을 새로 만들지 않는다.
-- **`react-hooks/set-state-in-effect`는 이 저장소에서 에러다.** `useEffect` 본문에서 **동기적으로** `setState`를 호출하면 안 된다. `await` 뒤의 `setState`는 걸리지 않는다. 초기 상태는 `useState` 초기값으로 준다.
+- `**TweetCard`를 수정하지 않는다.** 카드는 X 미러링의 결과물이고, 팝업은 껍데기만 제공한다. 팝업 전용 카드 레이아웃을 새로 만들지 않는다.
+- `**react-hooks/set-state-in-effect`는 이 저장소에서 에러다.** `useEffect` 본문에서 **동기적으로** `setState`를 호출하면 안 된다. `await` 뒤의 `setState`는 걸리지 않는다. 초기 상태는 `useState` 초기값으로 준다.
 - **린트 기준선을 늘리지 않는다.** 현재 `npm run lint`는 정확히 `✖ 23 problems (12 errors, 11 warnings)`이다. 작업 후에도 같은 숫자여야 한다.
-- **`npx tsc --noEmit`은 출력 없이 통과해야 한다.**
+- `**npx tsc --noEmit`은 출력 없이 통과해야 한다.**
 - 사용자 대면 문구는 한국어. 내부 개념어(`StoredTweet`, `savedBy` 등)를 화면 문구에 쓰지 않는다(`AGENTS.md`).
 - 커밋 메시지는 한국어, 저장소의 기존 형식(`feat(table): …`)을 따른다.
 
 ## File Structure
 
-| 파일 | 책임 |
-|---|---|
-| `src/lib/tweetStore.ts` | (수정) `getWorkspaceTweet` 추가 — 워크스페이스 범위에서 트윗 한 건을 `StoredTweet`으로 |
-| `src/lib/tweetStore.test.ts` | (수정) 위 함수의 실 DB 테스트 |
-| `src/app/api/tweets/[id]/route.ts` | (신규) 그 한 건을 내려주는 GET 라우트 |
-| `src/components/TweetCardModal.tsx` | (신규) 모달 껍데기 + 조회/로딩/에러 + 저장·메모 배선. 안쪽은 `TweetCard` 그대로 |
-| `src/components/TweetTable.tsx` | (수정) 행 클릭·키보드로 여는 신호만. 모달을 알지 못한다 |
-| `src/components/TweetTableView.tsx` | (수정) 어느 행이 열렸는지, 번역 상태, 행 `savedBy` 갱신, 포커스 복귀 |
+
+| 파일                                  | 책임                                                                |
+| ----------------------------------- | ----------------------------------------------------------------- |
+| `src/lib/tweetStore.ts`             | (수정) `getWorkspaceTweet` 추가 — 워크스페이스 범위에서 트윗 한 건을 `StoredTweet`으로 |
+| `src/lib/tweetStore.test.ts`        | (수정) 위 함수의 실 DB 테스트                                               |
+| `src/app/api/tweets/[id]/route.ts`  | (신규) 그 한 건을 내려주는 GET 라우트                                          |
+| `src/components/TweetCardModal.tsx` | (신규) 모달 껍데기 + 조회/로딩/에러 + 저장·메모 배선. 안쪽은 `TweetCard` 그대로            |
+| `src/components/TweetTable.tsx`     | (수정) 행 클릭·키보드로 여는 신호만. 모달을 알지 못한다                                 |
+| `src/components/TweetTableView.tsx` | (수정) 어느 행이 열렸는지, 번역 상태, 행 `savedBy` 갱신, 포커스 복귀                    |
+
 
 **의존 방향:** `TweetTableView` → (`TweetTable`, `TweetCardModal`) → `TweetCard`. `TweetTable`은 모달의 존재를 모르고 `onOpenTweet(tweetId)`만 부른다.
 
@@ -38,10 +40,12 @@
 ### Task 1: `getWorkspaceTweet` — 트윗 한 건을 카드용 데이터로
 
 **Files:**
+
 - Modify: `src/lib/tweetStore.ts` (`getTweetsByIds` 바로 뒤, `export const PAGE_SIZE = 200;` 앞)
 - Test: `src/lib/tweetStore.test.ts`
 
 **Interfaces:**
+
 - Consumes: 같은 파일의 `isUuidLike`, `toStored`, `TweetRow` 타입 (모두 이미 있음)
 - Produces: `getWorkspaceTweet(sql: postgres.Sql, workspaceId: string, tweetId: string): Promise<StoredTweet | null>`
 
@@ -178,9 +182,11 @@ git commit -m "feat(table): 워크스페이스 범위로 트윗 한 건을 카�
 ### Task 2: `GET /api/tweets/[id]` — 그 한 건을 내려주는 라우트
 
 **Files:**
+
 - Create: `src/app/api/tweets/[id]/route.ts`
 
 **Interfaces:**
+
 - Consumes: `getWorkspaceTweet` (Task 1), `requireAllowedUser`, `getSql`
 - Produces: `GET /api/tweets/{tweetId}?workspaceId={uuid}` → `200 { tweet: StoredTweet }` / `400 { error }` / `404 { error }`
 
@@ -232,9 +238,11 @@ git commit -m "feat(table): 트윗 한 건 조회 라우트 (GET /api/tweets/[id
 ### Task 3: `TweetCardModal` — 팝업 껍데기 + 조회 + 저장·메모
 
 **Files:**
+
 - Create: `src/components/TweetCardModal.tsx`
 
 **Interfaces:**
+
 - Consumes: `GET /api/tweets/[id]?workspaceId=` (Task 2), `TweetCard`, `useMember`, `useToast`, `apiFetch`, `tweetPermalink`
 - Produces:
   ```ts
@@ -248,11 +256,13 @@ git commit -m "feat(table): 트윗 한 건 조회 라우트 (GET /api/tweets/[id
     onTranslate: (tweetId: string) => void;
   }): React.JSX.Element
   ```
+
   호출부는 `key={tweetId}`로 렌더해 트윗이 바뀌면 새로 마운트되게 한다(Task 5).
 
 - [ ] **Step 1: 컴포넌트를 만든다**
 
 주의할 점 셋:
+
 1. `useEffect` 본문에서 동기 `setState`를 하지 않는다 — 초기 상태는 `useState` 초기값(`{ kind: 'loading' }`)이고, 상태 변경은 전부 `await` 뒤에서 일어난다. (`react-hooks/set-state-in-effect`가 에러)
 2. 저장은 낙관적으로 반영하고 실패 시 되돌린다 — 표 전체를 다시 부르지 않기 위해서다.
 3. `savedBy` 정렬은 서버(`order by m.name`)와 같게 맞춘다 — 안 맞추면 저장 직후와 재조회 후 배지 순서가 달라진다.
@@ -287,13 +297,13 @@ export function TweetCardModal({ wsId, tweetId, onClose, onSavedByChange, transl
 }) {
   // 초기값이 'loading' — 이펙트 안에서 동기적으로 setState 하지 않기 위해서다(react-hooks/set-state-in-effect).
   // 호출부가 key={tweetId}로 렌더하므로 다른 행을 열면 이 컴포넌트가 새로 마운트되어 자연히 loading부터 시작한다.
-  const [state, setState] = useState<State>({ kind: 'loading' });
+  const [state, setState] = useState[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3CState%3E]]({ kind: 'loading' });
   const [retry, setRetry] = useState(0);
   const { member } = useMember();
   const { show } = useToast();
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3CHTMLButtonElement%3E]](null);
   // 저장으로 만들어진 내 candidate.id — 저장 직후 메모 PATCH 배선용 (Column.tsx와 같은 방식)
-  const savedIdRef = useRef<string | null>(null);
+  const savedIdRef = useRef[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3Cstring%20%7C%20null%3E]](null);
 
   useEffect(() => {
     let alive = true;
@@ -369,7 +379,7 @@ export function TweetCardModal({ wsId, tweetId, onClose, onSavedByChange, transl
 
   // 저장 시점 인라인 메모 — 방금 만든 candidate 행에 PATCH (Column.tsx의 saveMemo와 같다).
   // false를 돌려주면 카드가 입력을 보존하고 재시도 버튼을 보여준다.
-  async function saveMemo(_tweetId: string, memo: string): Promise<boolean> {
+  async function saveMemo(_tweetId: string, memo: string): Promise[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3Cboolean%3E]] {
     const id = savedIdRef.current;
     if (!id) return false;
     try {
@@ -381,41 +391,30 @@ export function TweetCardModal({ wsId, tweetId, onClose, onSavedByChange, transl
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      {/* 카드 위에 별도 테두리·여백을 얹지 않는다 — 카드(<article>)가 이미 자기 배경·여백을 들고 있고
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%3Cdiv%20className%3D%22fixed%20inset-0%20z-50%20flex%20items-center%20justify-center%20bg-black%2F40%20p-4%22%20onClick%3D%7BonClose%7D%3E]]
+      {/* 카드 위에 별도 테두리·여백을 얹지 않는다 — 카드([[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3Carticle%3E]])가 이미 자기 배경·여백을 들고 있고
           그게 X 미러링의 결과물이다. 껍데기는 위치·모서리·세로 넘침만 담당한다. */}
-      <div role="dialog" aria-modal="true" aria-label="트윗 카드"
-           className="max-h-[90vh] w-[560px] max-w-[92vw] overflow-y-auto overflow-x-hidden rounded-2xl bg-white"
-           onClick={(e) => e.stopPropagation()}>
-        <div className="flex justify-end px-2 pt-2">
-          <button ref={closeRef} onClick={onClose} aria-label="닫기" title="닫기"
-                  className="rounded-full p-2 text-x-secondary hover:bg-x-hover">✕</button>
-        </div>
-        {state.kind === 'loading' && <p className="px-4 pb-4 text-ui text-x-muted">불러오는 중…</p>}
+      [[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3Cdiv%20role%3D%22dialog%22%20aria-modal%3D%22true%22%20aria-label%3D%22%ED%8A%B8%EC%9C%97%20%EC%B9%B4%EB%93%9C%22%0A%20%20%20%20%20%20%20%20%20%20%20className%3D%22max-h-%5B90vh%5D%20w-%5B560px%5D%20max-w-%5B92vw%5D%20overflow-y-auto%20overflow-x-hidden%20rounded-2xl%20bg-white%22%0A%20%20%20%20%20%20%20%20%20%20%20onClick%3D%7B(e)%20%3D%3E]] e.stopPropagation()}>
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%20%20%20%20%3Cdiv%20className%3D%22flex%20justify-end%20px-2%20pt-2%22%3E]]
+          [[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3Cbutton%20ref%3D%7BcloseRef%7D%20onClick%3D%7BonClose%7D%20aria-label%3D%22%EB%8B%AB%EA%B8%B0%22%20title%3D%22%EB%8B%AB%EA%B8%B0%22%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20className%3D%22rounded-full%20p-2%20text-x-secondary%20hover%3Abg-x-hover%22%3E]]✕[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3C%2Fbutton%3E]]
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%20%20%20%20%3C%2Fdiv%3E]]
+        {state.kind === 'loading' && [[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3Cp%20className%3D%22px-4%20pb-4%20text-ui%20text-x-muted%22%3E]]불러오는 중…[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3C%2Fp%3E]]}
         {state.kind === 'error' && (
-          <p className="px-4 pb-4 text-ui text-red-500">
-            글을 불러오지 못했어요. <button onClick={() => setRetry((n) => n + 1)} className="underline">다시 시도</button>
-          </p>
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%20%20%20%20%20%20%3Cp%20className%3D%22px-4%20pb-4%20text-ui%20text-red-500%22%3E]]
+            글을 불러오지 못했어요. [[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3Cbutton%20onClick%3D%7B()%20%3D%3E]] setRetry((n) => n + 1)} className="underline">다시 시도[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3C%2Fbutton%3E]]
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%20%20%20%20%20%20%3C%2Fp%3E]]
         )}
         {state.kind === 'missing' && (
-          <p className="px-4 pb-4 text-ui text-x-muted">
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%20%20%20%20%20%20%3Cp%20className%3D%22px-4%20pb-4%20text-ui%20text-x-muted%22%3E]]
             이 글을 찾을 수 없어요 —{' '}
-            <a href={tweetPermalink(null, tweetId)} target="_blank" rel="noopener" className="text-x-blue-text hover:underline">원문 보기 ↗</a>
-          </p>
+            [[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3Ca%20href%3D%7BtweetPermalink(null%2C%20tweetId)%7D%20target%3D%22_blank%22%20rel%3D%22noopener%22%20className%3D%22text-x-blue-text%20hover%3Aunderline%22%3E]]원문 보기 ↗[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3C%2Fa%3E]]
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%20%20%20%20%20%20%3C%2Fp%3E]]
         )}
         {state.kind === 'ok' && (
-          <TweetCard tweet={state.tweet}
-                     meId={member?.id ?? null}
-                     onSave={save}
-                     onUnsave={unsave}
-                     onSaveMemo={saveMemo}
-                     libraryHref={`/w/${wsId}/library`}
-                     translation={translation}
-                     translating={translating}
-                     onTranslate={onTranslate} />
+          [[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3CTweetCard%20tweet%3D%7Bstate.tweet%7D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20meId%3D%7Bmember%3F.id%20%3F%3F%20null%7D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20onSave%3D%7Bsave%7D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20onUnsave%3D%7Bunsave%7D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20onSaveMemo%3D%7BsaveMemo%7D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20libraryHref%3D%7B%60%2Fw%2F%24%7BwsId%7D%2Flibrary%60%7D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20translation%3D%7Btranslation%7D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20translating%3D%7Btranslating%7D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20onTranslate%3D%7BonTranslate%7D%20%2F%3E]]
         )}
-      </div>
-    </div>
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%20%20%3C%2Fdiv%3E]]
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%3C%2Fdiv%3E]]
   );
 }
 ```
@@ -446,9 +445,11 @@ git commit -m "feat(table): 트윗 카드 팝업 컴포넌트
 ### Task 4: `TweetTable` — 행을 클릭·키보드로 열 수 있게
 
 **Files:**
+
 - Modify: `src/components/TweetTable.tsx` (props 시그니처, `<tbody>`의 `<tr>`)
 
 **Interfaces:**
+
 - Consumes: 없음(순수 UI)
 - Produces: `TweetTable`에 필수 prop `onOpenTweet: (tweetId: string) => void` 추가. 각 `<tr>`에 `data-tweet-id={r.tweetId}` (Task 5의 포커스 복귀가 이 속성으로 행을 찾는다)
 
@@ -492,10 +493,7 @@ export function TweetTable({ rows, columns, sort, dir, onSort, onOpenTweet }: {
           // 행 전체가 카드를 여는 손잡이다. role="button"으로 덮어쓰지 않는다 — 행을 버튼이라고
           // 말하면 보조기술에서 표의 행·칸 구조가 사라진다. 행은 행으로 두고 조작만 얹는다.
           // data-tweet-id: 팝업을 닫을 때 이 행으로 포커스를 되돌리기 위한 표식(TweetTableView).
-          <tr key={r.tweetId}
-              data-tweet-id={r.tweetId}
-              tabIndex={0}
-              onClick={(e) => { if (opensCard(e)) onOpenTweet(r.tweetId); }}
+          [[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3Ctr%20key%3D%7Br.tweetId%7D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20data-tweet-id%3D%7Br.tweetId%7D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20tabIndex%3D%7B0%7D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20onClick%3D%7B(e)%20%3D%3E]] { if (opensCard(e)) onOpenTweet(r.tweetId); }}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter' && e.key !== ' ') return;
                 if (e.target !== e.currentTarget) return;   // 셀 안 링크에 포커스가 있으면 그쪽 몫
@@ -531,9 +529,11 @@ git commit -m "feat(table): 행을 클릭·Enter로 열 수 있게 (여는 신�
 ### Task 5: `TweetTableView` — 상태 배선, 포커스 복귀, 안내 문구
 
 **Files:**
+
 - Modify: `src/components/TweetTableView.tsx`
 
 **Interfaces:**
+
 - Consumes: `TweetTable`의 `onOpenTweet` (Task 4), `TweetCardModal` (Task 3), `useTranslations`
 - Produces: 없음(최상위 배선)
 
@@ -555,7 +555,7 @@ import { useTranslations } from './useTranslations';
 
 ```tsx
   // 카드 팝업으로 열려 있는 행. null이면 닫힘.
-  const [openTweetId, setOpenTweetId] = useState<string | null>(null);
+  const [openTweetId, setOpenTweetId] = useState[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3Cstring%20%7C%20null%3E]](null);
   // 번역 상태·동작은 덱·보관함과 같은 훅을 쓴다 — 캐시는 tweet_id 단위 전역이라
   // 덱에서 이미 번역해 둔 글이면 팝업을 여는 순간 번역이 함께 보인다.
   const { translations, translatingIds, loadCached, translateOne } = useTranslations();
@@ -592,17 +592,17 @@ import { useTranslations } from './useTranslations';
 기존
 
 ```tsx
-      <p className="border-b border-x-border px-4 py-1 text-caption text-x-muted">
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%20%20%3Cp%20className%3D%22border-b%20border-x-border%20px-4%20py-1%20text-caption%20text-x-muted%22%3E]]
         지표는 각 글을 마지막으로 가져온 시점 기준이에요 — 카드 보기에서 컬럼을 새로고침하면 갱신됩니다
-      </p>
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%20%20%3C%2Fp%3E]]
 ```
 
 를 아래로 바꾼다. hover 신호만으로는 "여기 누르면 뭐가 나온다"를 미리 알 수 없다 — 행동 전에 기대를 설정한다(`AGENTS.md` 원칙 2).
 
 ```tsx
-      <p className="border-b border-x-border px-4 py-1 text-caption text-x-muted">
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%20%20%3Cp%20className%3D%22border-b%20border-x-border%20px-4%20py-1%20text-caption%20text-x-muted%22%3E]]
         행을 클릭하면 글 전체를 카드로 볼 수 있어요 · 지표는 각 글을 마지막으로 가져온 시점 기준이에요 — 카드 보기에서 컬럼을 새로고침하면 갱신됩니다
-      </p>
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%20%20%3C%2Fp%3E]]
 ```
 
 - [ ] **Step 4: 표에 prop을 넘기고 모달을 렌더한다**
@@ -610,14 +610,13 @@ import { useTranslations } from './useTranslations';
 기존
 
 ```tsx
-          <TweetTable rows={rows} columns={cols} sort={sort} dir={dir} onSort={onSort} />
+[[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:block-html:%20%20%20%20%20%20%20%20%20%20%3CTweetTable%20rows%3D%7Brows%7D%20columns%3D%7Bcols%7D%20sort%3D%7Bsort%7D%20dir%3D%7Bdir%7D%20onSort%3D%7BonSort%7D%20%2F%3E]]
 ```
 
 를 바꾼다.
 
 ```tsx
-          <TweetTable rows={rows} columns={cols} sort={sort} dir={dir} onSort={onSort}
-                      onOpenTweet={setOpenTweetId} />
+          [[ORCA_RICH_MD:b693312cbf54141ac5daef51e5fd017f:inline-html:%3CTweetTable%20rows%3D%7Brows%7D%20columns%3D%7Bcols%7D%20sort%3D%7Bsort%7D%20dir%3D%7Bdir%7D%20onSort%3D%7BonSort%7D%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20onOpenTweet%3D%7BsetOpenTweetId%7D%20%2F%3E]]
 ```
 
 그리고 컴포넌트 최상위 `</div>` 바로 앞(= '더보기' 블록 다음)에 모달을 넣는다.
@@ -681,3 +680,4 @@ git commit -m "feat(table): 행을 클릭하면 트윗 카드 팝업
 7. Esc·배경 클릭·✕ 셋 다 닫힌다
 8. 행에 Tab으로 포커스 → Enter로 열리고, Esc로 닫으면 포커스가 그 행으로 돌아온다
 9. 하단 '답글/스레드/리포스터'는 누르기 전엔 호출되지 않는다(누르면 $0.001 과금)
+

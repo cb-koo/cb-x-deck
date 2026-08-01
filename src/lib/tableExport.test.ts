@@ -15,7 +15,7 @@ function row(over: Partial<TableRow> = {}): TableRow {
     tweetId: '111', columnTitles: ['A'], authorHandle: 'h', authorName: null, authorFollowers: 10,
     text: 'plain', tweetCreatedAt: '2026-07-11T00:00:00Z',
     metrics: { views: 5, likes: 4, retweets: 3, replies: 2, quotes: 1, bookmarks: 0 },
-    savedBy: [], lastFetchedAt: '2026-07-30T00:00:00Z', ...over,
+    savedBy: [], firstSeenAt: '2026-07-11T00:00:00Z', lastFetchedAt: '2026-07-30T00:00:00Z', ...over,
   };
 }
 

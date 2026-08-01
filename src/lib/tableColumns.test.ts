@@ -10,6 +10,7 @@ const ROW: TableRow = {
   text: '첫 줄\n둘째 줄', tweetCreatedAt: '2026-07-11T04:05:06Z',
   metrics: { views: 128000, likes: 512, retweets: 34, replies: null, quotes: 0, bookmarks: 211 },
   savedBy: [{ id: 'm1', name: '박구건', color: '#111' }, { id: 'm2', name: '모에카', color: '#222' }],
+  firstSeenAt: '2026-07-11T04:05:06Z',
   lastFetchedAt: '2026-07-30T01:02:03Z',
 };
 

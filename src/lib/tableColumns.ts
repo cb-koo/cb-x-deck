@@ -51,14 +51,17 @@ function toKstIso(iso: string): string {
   return new Date(ms + KST_OFFSET_MS).toISOString();
 }
 
-function ymd(iso: string | null): string {
+// 표와 카드 팝업이 같은 함수를 쓴다 — 팝업은 표 바로 위에 뜨므로 같은 값이 다른 날짜로
+// 보이면 안 된다(2차 설계 §B). 규칙을 두 번 구현하지 않으려고 export 한다.
+export function ymd(iso: string | null): string {
   if (!iso) return '';
   return toKstIso(iso).slice(0, 10);   // 표는 정렬 축이라 상대 표기를 쓰지 않는다
 }
 
 // '최종 수집 시간'(last_fetched_at) 전용. 날짜만 찍으면 같은 날 09:00에 새로고침한 컬럼과
 // 22:00에 새로고침한 컬럼이 같은 값으로 보여 "비교 가능"으로 오인된다(설계 §E) — 시:분까지 찍는다.
-function ymdHm(iso: string | null): string {
+// ymd와 함께 카드 팝업 헤더도 쓴다(2차 설계 §B).
+export function ymdHm(iso: string | null): string {
   if (!iso) return '';
   return toKstIso(iso).slice(0, 16).replace('T', ' ');   // YYYY-MM-DD HH:MM
 }

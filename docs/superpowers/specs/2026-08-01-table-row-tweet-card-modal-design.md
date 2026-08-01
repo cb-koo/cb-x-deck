@@ -65,6 +65,8 @@ Space는 `preventDefault`로 페이지 스크롤을 막는다(헤더 폭 조절 
 
 200행이 전부 탭 정지점이 되는 건 감수한다 — 표의 행은 원래 목록의 항목이고, 건너뛰려면 표 컨테이너 밖으로 나가는 기존 흐름이 있다.
 
+**닫을 때 포커스를 눌렀던 행으로 되돌린다.** 이게 없으면 모달이 사라지는 순간 포커스가 `body`로 튕겨 200행 중 어디를 보고 있었는지 잃는다 — `useDismissible.ts:17`이 `<details>`에서 이미 같은 문제를 다루고 있고, 여기서는 행 수가 많아 손실이 더 크다. `TweetTableView`가 어느 행을 열었는지 이미 알고 있으므로(`openTweetId`), 모달을 닫을 때 `[data-tweet-id="…"]` 행을 찾아 `focus()`한다. 그 행이 사라졌으면(그 사이 재조회) 아무것도 하지 않는다 — 없는 요소에 포커스를 주려는 건 효과가 없다.
+
 ### B-3. 발견성
 
 표 위의 안내 줄(`TweetTableView.tsx:214`, "지표는 각 글을 마지막으로 가져온 시점 기준이에요 …")에 한 문장을 더한다:
@@ -78,6 +80,8 @@ hover 신호만으로는 "여기 누르면 뭐가 나온다"를 미리 알 수 �
 **`TweetCardModal.tsx`** 신설.
 
 **껍데기.** `ColumnSettings.tsx:135`와 같은 패턴 — `fixed inset-0 z-50` + `bg-black/40` 배경, 배경 클릭으로 닫기, 안쪽은 `stopPropagation`, `role="dialog" aria-modal="true"`, Esc 닫기(IME 조합 중 Esc는 무시), 우상단 ✕.
+
+열릴 때 포커스를 모달 안(우상단 ✕)으로 옮긴다. 그래야 Esc·Tab이 모달의 것이 되고, 스크린리더가 표 행이 아니라 열린 카드를 읽는다. 닫을 때 원래 행으로 되돌리는 것은 §B-2. (포커스 트랩은 넣지 않는다 — `ColumnSettings`도 없고, 이 모달만 다르게 굴면 두 모달의 조작감이 갈린다. 배경 스크롤 잠금도 같은 이유로 넣지 않는다.)
 
 **안쪽은 `TweetCard`를 그대로 렌더한다.** 팝업 전용 레이아웃·간격·테두리를 새로 얹지 않는다 — 카드(`<article>`)가 이미 자기 배경·여백·구분선을 들고 있고 그게 X 미러링의 결과물이다. 껍데기는 위치 잡기와 모서리 둥글리기(`overflow-hidden rounded-2xl`), 세로 넘침 처리(`max-h-[90vh] overflow-y-auto`)만 한다. 폭은 X 타임라인 카드와 같은 감각으로 `w-[560px] max-w-[92vw]`.
 
@@ -123,7 +127,7 @@ hover 신호만으로는 "여기 누르면 뭐가 나온다"를 미리 알 수 �
 | `src/lib/tweetStore.test.ts` | 위 함수 테스트(실 DB) — 정상 조회 / 다른 워크스페이스 / 없는 id / uuid 아닌 workspaceId |
 | `src/app/api/tweets/[id]/route.ts` | 신설 |
 | `src/components/TweetCardModal.tsx` | 신설 |
-| `src/components/TweetTable.tsx` | 행 클릭 + 키보드 + `onRowClick` prop |
+| `src/components/TweetTable.tsx` | 행 클릭 + 키보드 + `onRowClick` prop, 행에 `data-tweet-id`(포커스 복귀용) |
 | `src/components/TweetTableView.tsx` | 모달 상태, 저장·메모·번역 배선, 행 `savedBy` 로컬 갱신, 안내 문구 한 줄 |
 
 **검증.** `npm test`(실 DB, 약 4분)와 린트 기준선 24개 유지. 라우트·컴포넌트 하네스가 없어 자동 검증은 store 계층까지이고, 화면 확인은 OAuth 게이팅 때문에 사용자만 가능하다 — 배포 후 확인이 필요한 부분을 구현 완료 시 명시한다.

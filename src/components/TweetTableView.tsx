@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
-import type { ColumnRow, SortDir, SortKey, TableRow } from '@/lib/types';
+import type { ColumnRow, Member, SortDir, SortKey, TableRow } from '@/lib/types';
 import { TABLE_COLUMNS } from '@/lib/tableColumns';
 import { toCsv } from '@/lib/tableExport';
 import { TABLE_MAX, TABLE_PAGE } from '@/lib/tableLimits';
@@ -11,6 +11,8 @@ import { ColumnPicker } from './ColumnPicker';
 import { FilterPanel } from './FilterPanel';
 import { FilterChips } from './FilterChips';
 import { TweetTable } from './TweetTable';
+import { TweetCardModal } from './TweetCardModal';
+import { useTranslations } from './useTranslations';
 import { DownloadIcon } from './XIcons';
 import { findConflicts } from '@/lib/collectionConflict';
 import { csvFileName, isComplete, type FilterCondition } from '@/lib/tableFilter';
@@ -43,6 +45,11 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   const [loaded, setLoaded] = useState(false);   // 첫 로드 완료 — 로딩 중 빈 상태 문구를 막는다
   const [err, setErr] = useState(false);
   const [busy, setBusy] = useState(false);
+  // 카드 팝업으로 열려 있는 행. null이면 닫힘.
+  const [openTweetId, setOpenTweetId] = useState<string | null>(null);
+  // 번역 상태·동작은 덱·보관함과 같은 훅을 쓴다 — 캐시는 tweet_id 단위 전역이라
+  // 덱에서 이미 번역해 둔 글이면 팝업을 여는 순간 번역이 함께 보인다.
+  const { translations, translatingIds, loadCached, translateOne } = useTranslations();
   const reqIdRef = useRef(0);   // 응답 경합 가드 — 가장 최근 요청만 상태를 갱신한다
   const loadKeyRef = useRef<string | null>(null);   // conditions를 뺀 나머지가 마지막으로 즉시 조회를 일으켰을 때의 값
 
@@ -85,6 +92,28 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
       if (reqIdRef.current === id) { setErr(true); setBusy(false); setLoaded(true); }
     }
   }, [qs, rows.length]);
+
+  // 팝업을 열면 캐시에 있는 번역만 조용히 가져온다 — LLM 호출이 없어 과금이 없다.
+  useEffect(() => { if (openTweetId) void loadCached([openTweetId]); }, [openTweetId, loadCached]);
+
+  // 팝업을 닫을 때 포커스를 눌렀던 행으로 되돌린다. 안 그러면 포커스가 body로 튕겨
+  // 200행 중 어디를 보고 있었는지 잃는다(useDismissible이 <details>에서 다루는 것과 같은 문제).
+  // 모달이 사라진 다음 프레임에 옮긴다 — 아직 떠 있는 동안 옮기면 언마운트가 도로 가져간다.
+  const closeCard = useCallback(() => {
+    const id = openTweetId;
+    setOpenTweetId(null);
+    if (!id) return;
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLTableRowElement>(`tr[data-tweet-id="${CSS.escape(id)}"]`)?.focus();
+    });
+  }, [openTweetId]);
+
+  // 팝업에서 저장·저장취소가 일어나면 그 행의 '저장' 칸만 갱신한다.
+  // 덱은 저장할 때마다 목록을 다시 부르지만(Column.tsx), 여기서 그러면 200행 + 총계를
+  // 다시 받고 스크롤이 튄다.
+  const applySavedBy = useCallback((tweetId: string, savedBy: Member[]) => {
+    setRows((cur) => cur.map((r) => (r.tweetId === tweetId ? { ...r, savedBy } : r)));
+  }, []);
 
   // 정렬·필터가 바뀌면 처음부터 다시 — append=false. columnIds가 아니라 activeColumnIds를 봐야
   // 삭제된 컬럼 id가 걸러진 것 자체(라벨 갱신)도 재조회를 유발한다. 조건이 바뀌어도 이어붙이지 않고
@@ -212,7 +241,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
 
       {/* 지표 신선도 — '카드 보기에서'를 빼면 표 모드에 없는 버튼을 가리키는 죽은 안내가 된다(설계 §E) */}
       <p className="border-b border-x-border px-4 py-1 text-caption text-x-muted">
-        지표는 각 글을 마지막으로 가져온 시점 기준이에요 — 카드 보기에서 컬럼을 새로고침하면 갱신됩니다
+        행을 클릭하면 글 전체를 카드로 볼 수 있어요 · 지표는 각 글을 마지막으로 가져온 시점 기준이에요 — 카드 보기에서 컬럼을 새로고침하면 갱신됩니다
       </p>
 
       {/* 가로·세로 스크롤을 담당하는 컨테이너는 이 하나뿐이다 — sticky thead는 이 div를 기준으로 고정된다.
@@ -244,7 +273,8 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
         ) : rows.length === 0 ? (
           <p className="p-4 text-ui text-x-muted">아직 수집된 글이 없어요 — 카드 보기에서 컬럼을 새로고침하면 여기에 모입니다</p>
         ) : (
-          <TweetTable rows={rows} columns={cols} sort={sort} dir={dir} onSort={onSort} />
+          <TweetTable rows={rows} columns={cols} sort={sort} dir={dir} onSort={onSort}
+                      onOpenTweet={setOpenTweetId} />
         )}
       </div>
       {showTable && rows.length < total && (
@@ -253,6 +283,18 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
             {busy ? '불러오는 중…' : `더보기 (${rows.length.toLocaleString('en-US')} / ${total.toLocaleString('en-US')})`}
           </Button>
         </div>
+      )}
+      {/* key={openTweetId}: 다른 행을 열면 새로 마운트되어 항상 '불러오는 중'부터 시작한다 —
+          이전 트윗의 카드가 한 프레임 남아 있는 일이 없다. */}
+      {openTweetId && (
+        <TweetCardModal key={openTweetId}
+                        wsId={wsId}
+                        tweetId={openTweetId}
+                        onClose={closeCard}
+                        onSavedByChange={applySavedBy}
+                        translation={translations[openTweetId] ?? null}
+                        translating={translatingIds.has(openTweetId)}
+                        onTranslate={translateOne} />
       )}
     </div>
   );

@@ -224,25 +224,28 @@ export function TweetCardModal({ wsId, tweetId, row, cached, onLoaded, onClose, 
              className="rounded-full px-3.5 py-1.5 text-content font-bold text-x-blue-text hover:bg-x-hover">원문 ↗</a>
         </div>
 
-        {/* 메타 줄 — 왼쪽에 이 글이 걸린 컬럼, 오른쪽에 언제 모았고 언제 마지막으로 가져왔는지.
+        {/* 메타 — 이 글이 걸린 컬럼, 그리고 언제 모았고 언제 마지막으로 가져왔는지.
+            둘을 한 줄에 좌우로 놓았더니 컬럼명이 네 글자에서 잘렸다: 날짜 쪽이 줄지 않게 잡혀 있어
+            줄의 대부분을 먹고 알약은 남은 좁은 폭만 받았다. 폭을 나눠 갖는 대신 줄을 나눈다 —
+            컬럼명이 줄 전체를 쓰고 여러 개면 줄바꿈된다(2026-08-01 사용자 결정 A안).
             날짜는 표가 쓰는 함수를 그대로 쓴다(한국 시간) — 팝업은 표 바로 위에 뜨므로
             같은 값이 다른 날짜로 보이면 안 된다(2차 설계 §B). */}
         {(columnTitles.length > 0 || tweet) && (
-          <div className="flex items-baseline justify-between gap-3 px-4 pb-3">
+          <div className="space-y-1 px-4 pb-3">
             {columnTitles.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {columnTitles.map((title) => (
+                  // max-w-full + truncate: 줄 전체를 쓸 수 있으니 보통은 잘리지 않고,
+                  // 병적으로 긴 컬럼명만 잘림표로 끊어 가로 스크롤이 생기지 않게 한다.
                   <span key={title}
-                        className="max-w-[45%] truncate rounded-full border border-x-border-strong px-2.5 py-0.5 text-ui font-bold text-x-secondary">
+                        className="max-w-full truncate rounded-full border border-x-border-strong px-2.5 py-0.5 text-ui font-bold text-x-secondary">
                     {title}
                   </span>
                 ))}
               </div>
             )}
             {tweet && (
-              // ml-auto: 컬럼 알약이 없어 이 <p>가 유일한 자식이 되면 justify-between이 왼쪽으로
-              // 붙인다 — 알약이 있을 때도(오른쪽 끝에 붙는 것은 동일) 해가 되지 않는다.
-              <p className="ml-auto shrink-0 text-ui text-x-muted">
+              <p className="text-ui text-x-muted">
                 수집 {ymd(tweet.firstSeenAt)} · 최종 수집 {ymdHm(tweet.lastFetchedAt)}
               </p>
             )}

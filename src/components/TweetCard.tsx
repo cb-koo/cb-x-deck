@@ -37,13 +37,14 @@ export interface TweetCardProps {
   showTranslation?: boolean;              // 컬럼 기본 표시 상태
   onTranslate?: (tweetId: string) => void;
   translating?: boolean;                  // 이 카드 번역 진행 중
+  showCollectedAt?: boolean;              // 기본 true. 표 보기 팝업은 이 정보를 모달 헤더로 올려서 false를 넘긴다
 }
 
 // hover: Reply·View·Bookmark 파랑, Repost 초록, Like 핑크 (실제 X 동작)
 const metricBase = 'group flex items-center gap-1 text-ui text-x-secondary transition-colors';
 
 export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, libraryHref, onDismiss, onUndismiss, dismissedView, tourAnchor,
-                            translation, showTranslation, onTranslate, translating }: TweetCardProps) {
+                            translation, showTranslation, onTranslate, translating, showCollectedAt = true }: TweetCardProps) {
   const [showOverride, setShowOverride] = useState<boolean | null>(null);
   const { show } = useToast();
   const showTr = showOverride ?? showTranslation ?? false;
@@ -238,9 +239,13 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, librar
               : '보관함'}에서 이어서 정리할 수 있어요
           </p>
         )}
-        <p className="px-1 text-right text-caption text-x-muted">
-          수집 {formatDate(t.firstSeenAt)} · 갱신 {formatDate(t.lastFetchedAt)}
-        </p>
+        {/* 표 보기 팝업은 이 정보를 모달 헤더로 올려 잡는다(2차 설계 §A-4) — 두 번 나오지 않게 여기선 끈다.
+            덱 카드는 프롭을 안 넘겨 기본값 true라 지금 그대로다. */}
+        {showCollectedAt && (
+          <p className="px-1 text-right text-caption text-x-muted">
+            수집 {formatDate(t.firstSeenAt)} · 갱신 {formatDate(t.lastFetchedAt)}
+          </p>
+        )}
       </div>
     </article>
   );

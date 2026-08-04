@@ -4,10 +4,17 @@ import { recordUsageSafe } from './usageStore.ts';
 export interface LLMResponse {
   content: Array<{ type: string; text?: string }>;
   usage?: { input_tokens?: number; output_tokens?: number };
+  stop_reason?: string;
 }
 
 export interface AnthropicLike {
   messages: { create(p: object): Promise<LLMResponse> };
+}
+
+// Opus 계열 안전 분류기는 거절을 HTTP 200 + stop_reason: 'refusal' + 빈 content로 반환한다.
+// 빈 응답을 정상 취급하지 않도록 명시적 에러로 승격 — 호출부가 평문 안내로 매핑한다.
+export class LLMRefusalError extends Error {
+  constructor() { super('안전 분류기가 이 요청을 거절했어요'); this.name = 'LLMRefusalError'; }
 }
 
 // 짝 없는 UTF-16 서로게이트 제거 — 이모지를 slice로 반토막 내면 상위/하위 한쪽만 남고,
@@ -31,7 +38,7 @@ function sanitizeContent(content: unknown): unknown {
 // 모든 Anthropic 호출의 단일 통로. 응답 usage(토큰)를 fire-and-forget으로 기록.
 export async function callLLM(
   operation: string,
-  params: { model: string; max_tokens: number; messages: object[] },
+  params: { model: string; max_tokens: number; messages: object[] } & Record<string, unknown>,
   client?: AnthropicLike,
 ): Promise<LLMResponse> {
   const c = client ?? (new Anthropic() as unknown as AnthropicLike);
@@ -51,5 +58,6 @@ export async function callLLM(
     outputTokens: res.usage?.output_tokens ?? null,
     units: 1,
   });
+  if (res.stop_reason === 'refusal') throw new LLMRefusalError();
   return res;
 }

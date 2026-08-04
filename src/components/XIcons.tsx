@@ -69,3 +69,13 @@ export const ChevronDownIcon = ({ className }: { className?: string }) => (
 export const GripIcon = ({ className }: { className?: string }) => (
   <Icon className={className} d="M9 5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm6 0a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM9 10.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm6 0a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM9 16a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm6 0a1.5 1.5 0 110 3 1.5 1.5 0 010-3z" />
 );
+
+// 콘텐츠 생성(연필 컴포즈) — X compose 아이콘
+export const PenIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M23 3c-6.62-.1-10.38 2.421-13.05 6.03C7.29 12.61 6 17.331 6 22h2c0-1.007.07-2.012.19-3H12c4.1 0 7.48-3.082 7.94-7.054C22.79 10.147 23.17 6.359 23 3zm-7 8h-1.5v2H16c.63-.016 1.2-.08 1.72-.188C16.95 15.24 14.68 17 12 17H8.55c.57-2.512 1.57-4.851 3-6.78 2.16-2.912 5.29-4.911 9.45-5.187C20.95 8.079 19.9 11 16 11zM4 9V6H1V4h3V1h2v3h3v2H6v3H4z" />
+);
+
+// 클라이언트(클리닉 건물)
+export const ClinicIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M3 21h18v-2h-1V4c0-1.1-.9-2-2-2H6C4.9 2 4 2.9 4 4v15H3v2zM6 4h12v15h-3v-4H9v4H6V4zm2 2h2v2H8V6zm4 0h2v2h-2V6zM8 10h2v2H8v-2zm4 0h2v2h-2v-2z" />
+);

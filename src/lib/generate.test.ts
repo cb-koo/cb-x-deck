@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { generateDraft, GenerateInputError, MAX_REFS, CONTENT_MODEL } from './generate.ts';
+import { generateDraft, regeneratePost, GenerateInputError, MAX_REFS, CONTENT_MODEL } from './generate.ts';
 import { createClient, createProcedure } from './clientStore.ts';
 import { createWorkspace, deleteWorkspace } from './workspaceStore.ts';
 import { getDraft, removeDraft } from './draftStore.ts';
@@ -100,3 +100,44 @@ async function getClientProcIds(clientId: string): Promise<string[]> {
     select id from client_procedure where client_id = ${clientId}`;
   return rows.map((r) => r.id);
 }
+
+function fakeThread(): AnthropicLike {
+  return { messages: { create: async () => ({
+    content: [{ type: 'text', text: JSON.stringify({ posts: [{ text: '1番' }, { text: '2番' }, { text: '3番' }] }) }],
+    usage: { input_tokens: 100, output_tokens: 50 },
+    stop_reason: 'end_turn',
+  }) } };
+}
+
+test('스레드 부분 재생성: 해당 post만 edited에 반영, content 불변', async () => {
+  const id = await generateDraft(sql, {
+    clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
+    direction: P + '스레드', format: 'thread', constraintsOn: false, memberId: null,
+  }, fakeThread());
+  const regenFake: AnthropicLike = { messages: { create: async () => ({
+    content: [{ type: 'text', text: JSON.stringify({ posts: [{ text: '新2番' }] }) }],
+    usage: { input_tokens: 100, output_tokens: 20 },
+    stop_reason: 'end_turn',
+  }) } };
+  try {
+    const updated = await regeneratePost(sql, id, 1, regenFake);
+    assert.equal(updated.edited!.posts.length, 3);
+    assert.equal(updated.edited!.posts[0].text, '1番');   // 나머지 유지
+    assert.equal(updated.edited!.posts[1].text, '新2番'); // 대상만 교체
+    assert.equal(updated.content.posts[1].text, '2番');   // 원본 불변
+  } finally {
+    await removeDraft(sql, id);
+  }
+});
+
+test('잘못된 index면 GenerateInputError', async () => {
+  const id = await generateDraft(sql, {
+    clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
+    direction: P + '스레드2', format: 'thread', constraintsOn: false, memberId: null,
+  }, fakeThread());
+  try {
+    await assert.rejects(regeneratePost(sql, id, 99, fakeThread()), GenerateInputError);
+  } finally {
+    await removeDraft(sql, id);
+  }
+});

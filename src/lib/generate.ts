@@ -3,7 +3,8 @@ import { callLLM, type AnthropicLike } from './llm.ts';
 import { getClientWithProcedures } from './clientStore.ts';
 import { getReferencesByIds } from './referenceStore.ts';
 import { buildUserPrompt, draftOutputSchema, DRAFT_SYSTEM } from './generatePrompt.ts';
-import { insertDraft } from './draftStore.ts';
+import { insertDraft, getDraft, updateDraft, type DraftRow } from './draftStore.ts';
+import { X_MAX_WEIGHTED } from './xLength.ts';
 import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
 
 export const CONTENT_MODEL = () => process.env.CONTENT_MODEL ?? 'claude-opus-5';
@@ -76,4 +77,50 @@ export async function generateDraft(
     referenceMode: hasRefs ? req.mode : 'off', refs,
     content, model: CONTENT_MODEL(), memberId: req.memberId,
   });
+}
+
+// 스레드에서 한 트윗만 다시 — 결과는 edited에 반영(원본 content 불변, 스펙 §2).
+// 편집 중 상태(edited)가 있으면 그 위에서 교체한다.
+export async function regeneratePost(
+  sql: postgres.Sql, draftId: string, postIndex: number, client?: AnthropicLike,
+): Promise<DraftRow> {
+  const draft = await getDraft(sql, draftId);
+  if (!draft) throw new GenerateInputError('초안을 찾을 수 없어요');
+  const base = draft.edited ?? draft.content;
+  if (!Number.isInteger(postIndex) || postIndex < 0 || postIndex >= base.posts.length) {
+    throw new GenerateInputError('다시 만들 트윗을 찾을 수 없어요');
+  }
+
+  const thread = base.posts.map((p, n) => `${n + 1}. ${p.text}`).join('\n---\n');
+  const user = [
+    '아래는 X 스레드 초안입니다. 다른 포스트는 그대로 두고,',
+    `${postIndex + 1}번 포스트만 같은 맥락에서 다른 표현·접근으로 다시 쓰세요.`,
+    `가중 ${X_MAX_WEIGHTED}자(일본어 약 140자) 이내.`,
+    draft.direction.trim() ? `방향성: ${draft.direction.trim()}` : '',
+    '',
+    thread,
+    '',
+    `출력: 다시 쓴 ${postIndex + 1}번 포스트 1개만 posts 배열에 담으세요.`,
+  ].filter((l, n, arr) => l !== '' || arr[n - 1] !== '').join('\n');
+
+  const res = await callLLM('draft-regen', {
+    model: CONTENT_MODEL(), max_tokens: 16000, system: DRAFT_SYSTEM,
+    messages: [{ role: 'user', content: user }],
+    output_config: { format: { type: 'json_schema', schema: draftOutputSchema() } },
+  }, client);
+
+  const text = res.content.find((b) => b.type === 'text')?.text ?? '';
+  let posts: Array<{ text: string }>;
+  try {
+    posts = (JSON.parse(text) as { posts: Array<{ text: string }> }).posts;
+  } catch {
+    throw new Error('AI가 이번엔 형식을 맞추지 못했어요 — 다시 시도해주세요');
+  }
+  if (!posts?.[0]?.text?.trim()) throw new Error('AI가 이번엔 형식을 맞추지 못했어요 — 다시 시도해주세요');
+
+  const edited = {
+    posts: base.posts.map((p, n) => (n === postIndex ? { text: posts[0].text, media: p.media } : p)),
+  };
+  await updateDraft(sql, draftId, { edited });
+  return (await getDraft(sql, draftId)) as DraftRow;
 }

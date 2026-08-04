@@ -1,5 +1,5 @@
 'use client';
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Toast } from '@/components/Toast';
@@ -47,7 +47,12 @@ function Workbench() {
     Promise.all([
       apiFetch('/api/clients').then((r) => r.json()),
       apiFetch('/api/drafts').then((r) => r.json()),
-    ]).then(([c, d]) => { setClients(c); setDrafts(d); setLoaded(true); });
+    ]).then(([c, d]) => {
+      setClients(c); setDrafts(d); setLoaded(true);
+      // 복원된 clientId가 응답 목록에 없으면(유령 클라이언트) 정리 — 400 방지
+      setComposer((cur) => (cur.clientId && !(c as Array<{ client: ClientRow }>).some((x) => x.client.id === cur.clientId)
+        ? { ...cur, clientId: null, procedureIds: [] } : cur));
+    }).catch(() => { setLoaded(true); setToast('목록을 불러오지 못했어요 — 새로고침해 주세요'); });
   }, []);
   const updateComposer = useCallback((v: ComposerState) => {
     setComposer(v);
@@ -65,28 +70,41 @@ function Workbench() {
     });
   }, [searchParams]);
 
+  const selectedRefIds = useMemo(() => refRows.map((x) => x.tweetId), [refRows]);
+
   const bannedFor = useCallback((d: DraftRow) => {
     const c = clients.find((x) => x.client.id === d.clientId);
     if (!c) return [];
     return [...c.client.bannedPhrases, ...c.procedures.filter((p) => d.procedureNames.includes(p.name)).flatMap((p) => p.bannedPhrases)];
   }, [clients]);
 
-  async function generate(avoid?: string, fromDraftId?: string) {
+  async function generate(avoid?: string, fromDraft?: DraftRow) {
     if (generating) return;
     setGenerating(true);
-    if (fromDraftId) setAnotherOf(fromDraftId);
+    if (fromDraft) setAnotherOf(fromDraft.id);
     const ac = new AbortController();
     abortRef.current = ac;
     try {
+      // "다른 각도로"는 화면의 현재 컴포저 설정이 아니라, 그 초안이 실제로 만들어진 재료를 기준으로 재생성한다.
+      const src = fromDraft ? {
+        clientId: fromDraft.clientId,
+        procedureIds: (() => {
+          const c = clients.find((x) => x.client.id === fromDraft.clientId);
+          return c ? c.procedures.filter((p) => fromDraft.procedureNames.includes(p.name)).map((p) => p.id) : [];
+        })(),
+        refTweetIds: fromDraft.refs.map((r) => r.tweetId),
+        mode: fromDraft.referenceMode,
+        direction: fromDraft.direction,
+        format: fromDraft.format,
+      } : {
+        clientId: composer.clientId, procedureIds: composer.procedureIds,
+        refTweetIds: refRows.map((x) => x.tweetId),
+        mode: refRows.length > 0 ? composer.mode : 'off',
+        direction: composer.direction, format: composer.format,
+      };
       const r = await apiFetch('/api/drafts', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ac.signal,
-        body: JSON.stringify({
-          clientId: composer.clientId, procedureIds: composer.procedureIds,
-          refTweetIds: refRows.map((x) => x.tweetId),
-          mode: refRows.length > 0 ? composer.mode : 'off',
-          direction: composer.direction, format: composer.format,
-          constraintsOn: composer.constraintsOn, avoid,
-        }),
+        body: JSON.stringify({ ...src, constraintsOn: composer.constraintsOn, avoid }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) { setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
@@ -114,6 +132,7 @@ function Workbench() {
 
   // 삭제: 낙관적 제거 + 5초 실행취소 (보관함 패턴)
   function requestRemove(d: DraftRow) {
+    setToast(null); // 죽은 에러 토스트가 삭제 직후 다시 뜨는 것을 방지
     if (removeTimer.current) clearTimeout(removeTimer.current);
     if (pendingRemove) void apiFetch(`/api/drafts/${pendingRemove.id}`, { method: 'DELETE' });
     delete dismissedRef.current[d.id];
@@ -182,6 +201,7 @@ function Workbench() {
             </div>
           </div>
           <p className="mt-2 text-ui text-x-secondary">원고 작성 중… 보통 15~30초 걸려요</p>
+          <p className="mt-0.5 text-caption text-x-muted">취소해도 완성되면 목록에 저장됩니다 — 생성 자체는 멈추지 않아요</p>
         </div>
       )}
 
@@ -194,8 +214,9 @@ function Workbench() {
       {drafts.map((d) => (
         <DraftCard key={d.id} draft={d} banned={bannedFor(d)}
                    onEdit={() => setEditing(d)}
-                   onAnother={() => generate((d.edited ?? d.content).posts[0]?.text, d.id)}
+                   onAnother={() => generate((d.edited ?? d.content).posts[0]?.text, d)}
                    anotherBusy={generating && anotherOf === d.id}
+                   anotherDisabled={generating}
                    onDelete={() => requestRemove(d)}
                    onRegenPost={(i) => regenPost(d, i)}
                    regenBusyIndex={regenBusy?.draftId === d.id ? regenBusy.index : null}
@@ -208,7 +229,7 @@ function Workbench() {
                         onSaved={(u) => { setDrafts((cur) => cur.map((d) => (d.id === u.id ? u : d))); setEditing(null); }} />
       )}
       <RefPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} lastWsId={lastWsId}
-                      selectedIds={refRows.map((x) => x.tweetId)} onApply={setRefRows} />
+                      selectedIds={selectedRefIds} seedRows={refRows} onApply={setRefRows} />
       {pendingRemove && <Toast message="초안을 삭제했어요" actionLabel="실행 취소" onAction={undoRemove} />}
       {toast && !pendingRemove && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </div>

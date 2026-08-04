@@ -12,15 +12,16 @@ const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
 };
 
 // 초안 카드 — X 실측(600px·radius16·아바타40·본문 15/20). 지표·배지·이미지 자리 없음(없는 데이터는 자리도 안 만듦)
-export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags }: {
+export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anotherDisabled, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags }: {
   draft: DraftRow; banned: string[];
-  onEdit: () => void; onAnother: () => void; anotherBusy: boolean;
+  onEdit: () => void; onAnother: () => void; anotherBusy: boolean; anotherDisabled: boolean;
   onDelete: () => void; onRegenPost: (index: number) => void; regenBusyIndex: number | null;
   onDismissFlag: (key: string, dismiss: boolean) => void;
   onRestoreAllFlags: () => void;
 }) {
   const [refsOpen, setRefsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedPost, setCopiedPost] = useState<number | null>(null);
   const content = draft.edited ?? draft.content;
   const flags = collectDraftFlags(content, banned, draft.dismissedFlags);
   const active = flags.filter((f) => !f.dismissed);
@@ -49,7 +50,7 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, onDel
           </p>
           <div className={isThread ? 'relative mt-1 space-y-3 pl-3 before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.5 before:bg-x-border-strong' : 'mt-0.5'}>
             {content.posts.map((p, i) => {
-              const hb = hookBoundary(p.text);
+              const hb = i === 0 ? hookBoundary(p.text) : null;
               const len = xWeightedLength(p.text);
               return (
                 <div key={i}>
@@ -74,6 +75,12 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, onDel
                         {regenBusyIndex === i ? '다시 만드는 중…' : '이 트윗만 다시'}
                       </button>
                     )}
+                    {isThread && (
+                      <button onClick={() => { void navigator.clipboard.writeText(p.text).catch(() => {}); setCopiedPost(i); setTimeout(() => setCopiedPost(null), 1500); }}
+                              className="text-x-blue-text hover:underline">
+                        {copiedPost === i ? '복사됨 ✓' : '복사'}
+                      </button>
+                    )}
                   </p>
                 </div>
               );
@@ -85,7 +92,7 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, onDel
               <svg viewBox="0 0 24 24" className="h-[19px] w-[19px] fill-current" aria-hidden><path d="M14.06 9.02l.92.92L5.92 19H5v-.92l9.06-9.06zM17.66 3c-.25 0-.51.1-.7.29l-1.83 1.83 3.75 3.75 1.83-1.83c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.2-.2-.45-.29-.71-.29zm-3.6 3.19L3 17.25V21h3.75L17.81 9.94l-3.75-3.75z" /></svg>
               편집
             </button>
-            <button onClick={onAnother} disabled={anotherBusy} className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-x-text/5 disabled:opacity-50">
+            <button onClick={onAnother} disabled={anotherBusy || anotherDisabled} className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-x-text/5 disabled:opacity-50">
               <RefreshIcon className="h-[19px] w-[19px]" />{anotherBusy ? '만드는 중…' : '다른 각도로'}
             </button>
             <button onClick={copyAll} className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-x-text/5">

@@ -15,7 +15,7 @@ export function GlobalShell({ children }: { children: React.ReactNode }) {
     const saved = localStorage.getItem(LAST_WS_KEY);
     if (saved) { setWsId(saved); return; }
     apiFetch('/api/workspaces').then((r) => r.json())
-      .then((ws: Workspace[]) => { if (ws[0]) setWsId(ws[0].id); });
+      .then((ws: Workspace[]) => { if (ws[0]) { setWsId(ws[0].id); localStorage.setItem(LAST_WS_KEY, ws[0].id); } });
   }, []);
   return (
     <MemberProvider>

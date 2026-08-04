@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { DraftRow } from '@/lib/draftStore';
 import type { DraftContent } from '@/lib/draftTypes';
@@ -15,6 +15,13 @@ export function DraftEditModal({ draft, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const empty = texts.some((t) => !t.trim());
+
+  // Esc로 모달 닫기 — ColumnSettings 선례와 동일한 방식. IME 조합 중 Esc는 무시.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   async function save() {
     setErr(''); setSaving(true);

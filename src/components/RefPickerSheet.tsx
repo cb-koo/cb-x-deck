@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import type { ReferenceRow } from '@/lib/referenceStore';
@@ -7,26 +7,43 @@ import type { ReferenceRow } from '@/lib/referenceStore';
 export const MAX_REFS_UI = 8; // 서버 MAX_REFS와 동일 (generate.ts)
 
 // 레퍼런스 선택 — 진입점 B에서만 만나는 화면. 전체/워크스페이스 세그먼트 + 태그 필터 + 메모 우선(서버 정렬)
-export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, onApply }: {
+export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows, onApply }: {
   open: boolean; onClose: () => void; lastWsId: string | null;
-  selectedIds: string[]; onApply: (rows: ReferenceRow[]) => void;
+  selectedIds: string[]; seedRows: ReferenceRow[]; onApply: (rows: ReferenceRow[]) => void;
 }) {
   const [scope, setScope] = useState<'all' | 'ws'>('all');
   const [rows, setRows] = useState<ReferenceRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [tag, setTag] = useState<string | null>(null);
   const [sel, setSel] = useState<string[]>(selectedIds);
+  // scope를 넘나들며 선택이 쌓인다 — 현재 scope 응답(rows)엔 없는 row도 sel에 남을 수 있어
+  // "N건 적용"이 실제 적용 내용과 어긋나지 않으려면 본 적 있는 row를 전부 여기 누적해둬야 한다.
+  const cacheRef = useRef(new Map<string, ReferenceRow>());
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 시트를 열 때마다 상위 선택값으로 재동기화(기존 코드베이스 관례)
   useEffect(() => { if (open) setSel(selectedIds); }, [open, selectedIds]);
+  // 시트를 열 때 부모가 이미 알고 있는 row(현재 선택된 레퍼런스)를 캐시에 시드 —
+  // 그렇지 않으면 열자마자 적용을 누를 때 캐시엔 id만 있고 row 본문이 없다.
+  useEffect(() => { if (open) seedRows.forEach((r) => cacheRef.current.set(r.tweetId, r)); }, [open, seedRows]);
   useEffect(() => {
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 재조회 시작 시 로딩 표시 초기화
     setLoaded(false);
     const s = scope === 'ws' && lastWsId ? lastWsId : 'all';
     apiFetch(`/api/references?scope=${s}`).then((r) => r.json())
-      .then((data: ReferenceRow[]) => { setRows(data); setLoaded(true); });
+      .then((data: ReferenceRow[]) => {
+        data.forEach((r) => cacheRef.current.set(r.tweetId, r));
+        setRows(data); setLoaded(true);
+      });
   }, [open, scope, lastWsId]);
+
+  // Esc로 시트 닫기 — ColumnSettings 선례와 동일한 방식(document 레벨 리스너). IME 조합 중 Esc는 무시.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
 
   const allTags = useMemo(() => [...new Set(rows.flatMap((r) => r.tags))].slice(0, 12), [rows]);
   const visible = tag ? rows.filter((r) => r.tags.includes(tag)) : rows;
@@ -98,7 +115,7 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, onApply }
             {MAX_REFS_UI}건까지 고를 수 있어요. 더 넣으면 원고가 레퍼런스 문구를 그대로 베낄 위험이 커져요 — 서로 다른 앵글로 3~5건이 가장 좋아요.
           </p>
           <div className="flex items-center gap-3">
-            <Button variant="primary" onClick={() => { onApply(rows.filter((r) => sel.includes(r.tweetId))); onClose(); }}>
+            <Button variant="primary" onClick={() => { onApply(sel.map((id) => cacheRef.current.get(id)).filter((r): r is ReferenceRow => !!r)); onClose(); }}>
               {sel.length}건 적용
             </Button>
             <button onClick={onClose} className="text-ui text-x-secondary">취소</button>

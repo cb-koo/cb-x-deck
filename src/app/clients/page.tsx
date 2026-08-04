@@ -82,26 +82,31 @@ function ClientEditor({ data, onChanged, onDeleted }: {
   const [saving, setSaving] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [newProc, setNewProc] = useState('');
+  const [err, setErr] = useState('');
 
   async function save() {
     setSaving(true);
-    await apiFetch(`/api/clients/${client.id}`, {
+    const r = await apiFetch(`/api/clients/${client.id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ info, bannedPhrases: fromLines(banned) }),
     });
-    setSaving(false); await onChanged();
+    setSaving(false);
+    if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
+    setErr(''); await onChanged();
   }
   async function removeClient() {
-    await apiFetch(`/api/clients/${client.id}`, { method: 'DELETE' });
-    onDeleted();
+    const r = await apiFetch(`/api/clients/${client.id}`, { method: 'DELETE' });
+    if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
+    setErr(''); onDeleted();
   }
   async function addProc() {
     const name = newProc.trim();
     if (!name) return;
-    await apiFetch(`/api/clients/${client.id}/procedures`, {
+    const r = await apiFetch(`/api/clients/${client.id}/procedures`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
     });
-    setNewProc(''); await onChanged();
+    if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
+    setErr(''); setNewProc(''); await onChanged();
   }
 
   return (
@@ -120,6 +125,7 @@ function ClientEditor({ data, onChanged, onDeleted }: {
       </div>
 
       <div className="space-y-4 border-t border-x-border px-4 py-4">
+        {err && <p className="text-ui text-red-500">{err}</p>}
         <label className="block">
           <span className="text-caption text-x-muted">클리닉·의사 정보 — 원고를 만드는 재료예요. 기존 소개 문서를 붙여넣어도 좋아요</span>
           <textarea value={info} onChange={(e) => setInfo(e.target.value)} rows={6}
@@ -156,17 +162,20 @@ function ProcedureEditor({ proc, onChanged }: { proc: ProcedureRow; onChanged: (
   const [description, setDescription] = useState(proc.description);
   const [effect, setEffect] = useState(proc.effectPhrases);
   const [banned, setBanned] = useState(toLines(proc.bannedPhrases));
+  const [err, setErr] = useState('');
 
   async function save() {
-    await apiFetch(`/api/procedures/${proc.id}`, {
+    const r = await apiFetch(`/api/procedures/${proc.id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description, effectPhrases: effect, bannedPhrases: fromLines(banned) }),
     });
-    setOpen(false); await onChanged();
+    if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
+    setErr(''); setOpen(false); await onChanged();
   }
   async function remove() {
-    await apiFetch(`/api/procedures/${proc.id}`, { method: 'DELETE' });
-    await onChanged();
+    const r = await apiFetch(`/api/procedures/${proc.id}`, { method: 'DELETE' });
+    if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
+    setErr(''); await onChanged();
   }
 
   return (
@@ -177,6 +186,7 @@ function ProcedureEditor({ proc, onChanged }: { proc: ProcedureRow; onChanged: (
         </button>
         <button onClick={remove} className="text-caption text-x-muted hover:text-red-500">삭제</button>
       </div>
+      {err && <p className="mt-1 text-ui text-red-500">{err}</p>}
       {open && (
         <div className="mt-2 space-y-2">
           <label className="block">

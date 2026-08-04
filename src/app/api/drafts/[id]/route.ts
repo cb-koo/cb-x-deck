@@ -19,6 +19,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const { id } = await ctx.params;
   const body = (await req.json().catch(() => ({}))) as
     { edited?: DraftContent; dismissedFlags?: string[] };
+  if (body.edited !== undefined) {
+    const posts = (body.edited as { posts?: unknown })?.posts;
+    if (!Array.isArray(posts) || posts.length === 0 ||
+        posts.some((p) => typeof (p as { text?: unknown })?.text !== 'string')) {
+      return NextResponse.json({ error: '편집 내용 형식이 올바르지 않아요' }, { status: 400 });
+    }
+    body.edited = {
+      posts: (posts as Array<{ text: string; media?: unknown }>).map((p) => ({
+        text: p.text, media: Array.isArray(p.media) ? p.media : [],
+      })),
+    } as DraftContent;
+  }
   await updateDraft(getSql(), id, body);
   return NextResponse.json(await getDraft(getSql(), id));
 }

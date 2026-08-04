@@ -141,3 +141,16 @@ test('잘못된 index면 GenerateInputError', async () => {
     await removeDraft(sql, id);
   }
 });
+
+test('요청한 레퍼런스가 보관함에 없으면 GenerateInputError (유료 호출 전 차단)', async () => {
+  let called = false;
+  const fake: AnthropicLike = { messages: { create: async () => { called = true; return { content: [] }; } } };
+  await assert.rejects(
+    generateDraft(sql, {
+      clientId: null, procedureIds: [], refTweetIds: [P + 'no-such-tweet'], mode: 'both',
+      direction: '', format: 'single', constraintsOn: false, memberId: null,
+    }, fake),
+    GenerateInputError,
+  );
+  assert.equal(called, false);
+});

@@ -8,7 +8,7 @@ export async function GET(req: Request) {
   const gate = await requireAllowedUser();
   if (gate.response) return gate.response;
   const url = new URL(req.url);
-  const scope = url.searchParams.get('scope') ?? 'all';
+  const scope = url.searchParams.get('scope') || 'all';
   const tag = url.searchParams.get('tag') ?? undefined;
   const rows = await listReferences(getSql(), {
     scope: scope === 'all' ? 'all' : { workspaceId: scope },

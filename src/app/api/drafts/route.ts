@@ -17,6 +17,14 @@ export async function POST(req: Request) {
   if (gate.response) return gate.response;
   const sql = getSql();
   const body = (await req.json().catch(() => ({}))) as Partial<GenerateRequest>;
+  const MODES = ['off', 'form', 'angle', 'both'] as const;
+  if (body.mode !== undefined && !MODES.includes(body.mode as typeof MODES[number])) {
+    return NextResponse.json({ error: '참고 방식 값이 올바르지 않아요' }, { status: 400 });
+  }
+  if ((body.refTweetIds !== undefined && !Array.isArray(body.refTweetIds)) ||
+      (body.procedureIds !== undefined && !Array.isArray(body.procedureIds))) {
+    return NextResponse.json({ error: '요청 형식이 올바르지 않아요' }, { status: 400 });
+  }
   try {
     const id = await generateDraft(sql, {
       clientId: body.clientId ?? null,

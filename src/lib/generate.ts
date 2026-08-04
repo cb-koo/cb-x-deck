@@ -41,6 +41,10 @@ export async function generateDraft(
     tweetId: r.tweetId, handle: r.authorHandle, name: r.authorName,
     excerpt: r.text, memos: r.memos,
   }));
+  if (hasRefs && refs.length < req.refTweetIds.length) {
+    throw new GenerateInputError(
+      `레퍼런스 ${req.refTweetIds.length - refs.length}건을 보관함에서 찾을 수 없어요 — 목록을 새로고침해 주세요`);
+  }
 
   // 프롬프트 → LLM (구조화 출력)
   const user = buildUserPrompt({
@@ -49,7 +53,7 @@ export async function generateDraft(
     procedures, references: refs, mode: hasRefs ? req.mode : 'off',
     direction: req.direction, format: req.format, constraintsOn: req.constraintsOn, avoid: req.avoid,
   });
-  const res = await callLLM('draft', {
+  const res = await callLLM('anthropic.draft', {
     model: CONTENT_MODEL(),
     max_tokens: 16000, // Opus 5는 thinking 기본 ON — thinking+응답 합산 상한이라 여유 필요
     system: DRAFT_SYSTEM,
@@ -103,7 +107,7 @@ export async function regeneratePost(
     `출력: 다시 쓴 ${postIndex + 1}번 포스트 1개만 posts 배열에 담으세요.`,
   ].filter((l, n, arr) => l !== '' || arr[n - 1] !== '').join('\n');
 
-  const res = await callLLM('draft-regen', {
+  const res = await callLLM('anthropic.draftRegen', {
     model: CONTENT_MODEL(), max_tokens: 16000, system: DRAFT_SYSTEM,
     messages: [{ role: 'user', content: user }],
     output_config: { format: { type: 'json_schema', schema: draftOutputSchema() } },

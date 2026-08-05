@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { generateDraft, regeneratePost, GenerateInputError, MAX_REFS, CONTENT_MODEL } from './generate.ts';
+import { generateDraft, regeneratePost, rewriteDraft, GenerateInputError, MAX_REFS, CONTENT_MODEL } from './generate.ts';
 import { createClient, createProcedure } from './clientStore.ts';
 import { createWorkspace, deleteWorkspace } from './workspaceStore.ts';
 import { getDraft, removeDraft } from './draftStore.ts';
@@ -132,6 +132,37 @@ test('스레드 부분 재생성: 해당 post만 edited에 반영, content 불�
     const again = await regeneratePost(sql, id, 1, regenFake);
     assert.equal(again.history.length, 2);
     assert.equal(again.history[1].posts[1].text, '新2番');
+  } finally {
+    await removeDraft(sql, id);
+  }
+});
+
+test('다시 쓰기: 피드백이 프롬프트에 실리고, 직전 표시본이 history에 보존', async () => {
+  const id = await generateDraft(sql, {
+    clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
+    direction: P + '다시쓰기', format: 'single', constraintsOn: false, memberId: null,
+  }, fakeLLM());
+  let prompt = '';
+  const rwFake: AnthropicLike = { messages: { create: async (p: object) => {
+    prompt = ((p as { messages: Array<{ content: string }> }).messages[0]).content;
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ posts: [{ text: '書き直し版' }, { text: '余分' }] }) }],
+      usage: { input_tokens: 100, output_tokens: 30 },
+      stop_reason: 'end_turn',
+    };
+  } } };
+  try {
+    const updated = await rewriteDraft(sql, id, '비용 얘기는 빼줘', rwFake);
+    assert.ok(prompt.includes('비용 얘기는 빼줘'));            // 피드백 전달
+    assert.ok(prompt.includes('正直迷ってた。'));               // 현재 버전 전문 포함
+    assert.equal(updated.edited!.posts.length, 1);             // single은 1개로 절단
+    assert.equal(updated.edited!.posts[0].text, '書き直し版');
+    assert.equal(updated.history.length, 1);                   // 직전 표시본 보존
+    assert.deepEqual(updated.history[0], updated.content);
+    // 피드백 없이 한 번 더 — 겹침 금지 지시 확인 + 이력 축적
+    const again = await rewriteDraft(sql, id, undefined, rwFake);
+    assert.ok(prompt.includes('겹치지 않게'));
+    assert.equal(again.history.length, 2);
   } finally {
     await removeDraft(sql, id);
   }

@@ -32,7 +32,7 @@ function Workbench() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editing, setEditing] = useState<DraftRow | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [anotherOf, setAnotherOf] = useState<string | null>(null);
+  const [rewritingId, setRewritingId] = useState<string | null>(null);
   const [regenBusy, setRegenBusy] = useState<{ draftId: string; index: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<DraftRow | null>(null);
@@ -78,25 +78,13 @@ function Workbench() {
     return [...c.client.bannedPhrases, ...c.procedures.filter((p) => d.procedureNames.includes(p.name)).flatMap((p) => p.bannedPhrases)];
   }, [clients]);
 
-  async function generate(avoid?: string, fromDraft?: DraftRow) {
+  async function generate() {
     if (generating) return;
     setGenerating(true);
-    if (fromDraft) setAnotherOf(fromDraft.id);
     const ac = new AbortController();
     abortRef.current = ac;
     try {
-      // "다른 각도로"는 화면의 현재 컴포저 설정이 아니라, 그 초안이 실제로 만들어진 재료를 기준으로 재생성한다.
-      const src = fromDraft ? {
-        clientId: fromDraft.clientId,
-        procedureIds: (() => {
-          const c = clients.find((x) => x.client.id === fromDraft.clientId);
-          return c ? c.procedures.filter((p) => fromDraft.procedureNames.includes(p.name)).map((p) => p.id) : [];
-        })(),
-        refTweetIds: fromDraft.refs.map((r) => r.tweetId),
-        mode: fromDraft.referenceMode,
-        direction: fromDraft.direction,
-        format: fromDraft.format,
-      } : {
+      const src = {
         clientId: composer.clientId, procedureIds: composer.procedureIds,
         refTweetIds: refRows.map((x) => x.tweetId),
         mode: refRows.length > 0 ? composer.mode : 'off',
@@ -104,7 +92,7 @@ function Workbench() {
       };
       const r = await apiFetch('/api/drafts', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ac.signal,
-        body: JSON.stringify({ ...src, constraintsOn: composer.constraintsOn, avoid }),
+        body: JSON.stringify({ ...src, constraintsOn: composer.constraintsOn }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) { setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
@@ -112,7 +100,26 @@ function Workbench() {
     } catch (e) {
       if ((e as Error).name !== 'AbortError') setToast('생성 중 오류가 났어요 — 잠시 후 다시 시도해주세요');
     } finally {
-      setGenerating(false); setAnotherOf(null); abortRef.current = null;
+      setGenerating(false); abortRef.current = null;
+    }
+  }
+
+  // 다시 쓰기 — 같은 초안의 새 버전으로. 피드백이 있으면 반영, 없으면 같은 조건 재생성.
+  async function rewrite(id: string, feedback: string) {
+    if (rewritingId) return;
+    setRewritingId(id);
+    try {
+      const r = await apiFetch(`/api/drafts/${id}/rewrite`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(feedback ? { feedback } : {}),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) { setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
+      setDrafts((cur) => cur.map((d) => (d.id === id ? (body as DraftRow) : d)));
+    } catch {
+      setToast('다시 쓰기 중 오류가 났어요 — 잠시 후 다시 시도해주세요');
+    } finally {
+      setRewritingId(null);
     }
   }
 
@@ -214,9 +221,8 @@ function Workbench() {
       {drafts.map((d) => (
         <DraftCard key={d.id} draft={d} banned={bannedFor(d)}
                    onEdit={() => setEditing(d)}
-                   onAnother={() => generate((d.edited ?? d.content).posts[0]?.text, d)}
-                   anotherBusy={generating && anotherOf === d.id}
-                   anotherDisabled={generating}
+                   onRewrite={(feedback) => rewrite(d.id, feedback)}
+                   rewriteBusy={rewritingId === d.id}
                    onDelete={() => requestRemove(d)}
                    onRegenPost={(i) => regenPost(d, i)}
                    regenBusyIndex={regenBusy?.draftId === d.id ? regenBusy.index : null}

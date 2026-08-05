@@ -47,9 +47,18 @@ test('형식 규칙: single=1개·thread=3~5개, 첫 단락 훅 규칙 포함', 
   assert.ok(t.includes('3~5'));
 });
 
-test('avoid(다른 각도로) 포함', () => {
-  const p = buildUserPrompt({ ...base, direction: 'x', avoid: '실패담 앵글' });
-  assert.ok(p.includes('실패담 앵글') && p.includes('다른 각도'));
+test('rewrite: 피드백 있으면 반영 지시 + 현재 버전 포함', () => {
+  const p = buildUserPrompt({ ...base, direction: 'x',
+    rewrite: { current: ['現行1', '現行2'], feedback: '비용 얘기는 빼줘' } });
+  assert.ok(p.includes('현재 버전'));
+  assert.ok(p.includes('現行1') && p.includes('現行2'));
+  assert.ok(p.includes('사용자 피드백') && p.includes('비용 얘기는 빼줘'));
+});
+
+test('rewrite: 피드백 없으면 같은 조건 + 겹침 금지 지시', () => {
+  const p = buildUserPrompt({ ...base, direction: 'x', rewrite: { current: ['現行'] } });
+  assert.ok(p.includes('겹치지 않게'));
+  assert.ok(!p.includes('사용자 피드백'));
 });
 
 test('출력 스키마: posts 배열 필수', () => {

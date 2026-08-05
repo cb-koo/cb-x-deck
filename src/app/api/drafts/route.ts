@@ -34,7 +34,6 @@ export async function POST(req: Request) {
       direction: body.direction ?? '',
       format: body.format === 'thread' ? 'thread' : 'single',
       constraintsOn: !!body.constraintsOn,
-      avoid: body.avoid,
       memberId: gate.member.id, // 클라이언트 body 무시 — 위조 차단(브리핑 관례)
     });
     return NextResponse.json(await getDraft(sql, id));

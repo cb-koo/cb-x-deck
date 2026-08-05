@@ -16,7 +16,7 @@ export class GenerateInputError extends Error {}
 export interface GenerateRequest {
   clientId: string | null; procedureIds: string[]; refTweetIds: string[];
   mode: ReferenceMode; direction: string; format: DraftFormat;
-  constraintsOn: boolean; avoid?: string; memberId: string | null;
+  constraintsOn: boolean; memberId: string | null;
 }
 
 export async function generateDraft(
@@ -51,7 +51,7 @@ export async function generateDraft(
     client: clientData ? { name: clientData.client.name, info: clientData.client.info,
                            bannedPhrases: clientData.client.bannedPhrases } : null,
     procedures, references: refs, mode: hasRefs ? req.mode : 'off',
-    direction: req.direction, format: req.format, constraintsOn: req.constraintsOn, avoid: req.avoid,
+    direction: req.direction, format: req.format, constraintsOn: req.constraintsOn,
   });
   const res = await callLLM('anthropic.draft', {
     model: CONTENT_MODEL(),
@@ -81,6 +81,51 @@ export async function generateDraft(
     referenceMode: hasRefs ? req.mode : 'off', refs,
     content, model: CONTENT_MODEL(), memberId: req.memberId,
   });
+}
+
+// 초안 전체 다시 쓰기 — 피드백이 있으면 반영, 없으면 같은 조건으로 재생성(겹치지 않게).
+// 결과는 같은 초안의 새 버전(edited)이 되고 직전 표시본은 history에 보존된다.
+// 레퍼런스는 초안의 스냅샷(발췌+메모)을 그대로 사용 — 보관함에서 지워져도 다시 쓰기는 동작.
+// 클라이언트는 살아 있으면 다시 로드(시술은 스냅샷 이름으로 매칭), 삭제됐으면 없이 진행.
+export async function rewriteDraft(
+  sql: postgres.Sql, draftId: string, feedback: string | undefined, client?: AnthropicLike,
+): Promise<DraftRow> {
+  const draft = await getDraft(sql, draftId);
+  if (!draft) throw new GenerateInputError('초안을 찾을 수 없어요');
+  const base = draft.edited ?? draft.content;
+
+  const clientData = draft.clientId ? await getClientWithProcedures(sql, draft.clientId) : null;
+  const procedures = (clientData?.procedures ?? []).filter((p) => draft.procedureNames.includes(p.name));
+  const user = buildUserPrompt({
+    client: clientData ? { name: clientData.client.name, info: clientData.client.info,
+                           bannedPhrases: clientData.client.bannedPhrases } : null,
+    procedures, references: draft.refs, mode: draft.refs.length > 0 ? draft.referenceMode : 'off',
+    direction: draft.direction, format: draft.format,
+    constraintsOn: false, // 생성 시점의 제약 토글은 초안에 저장되지 않음 — 사후 검수 표식이 항상 커버
+    rewrite: { current: base.posts.map((p) => p.text), feedback },
+  });
+
+  const res = await callLLM('anthropic.draftRewrite', {
+    model: CONTENT_MODEL(), max_tokens: 16000, system: DRAFT_SYSTEM,
+    messages: [{ role: 'user', content: user }],
+    output_config: { format: { type: 'json_schema', schema: draftOutputSchema() } },
+  }, client);
+
+  const text = res.content.find((b) => b.type === 'text')?.text ?? '';
+  let posts: Array<{ text: string }>;
+  try {
+    posts = (JSON.parse(text) as { posts: Array<{ text: string }> }).posts;
+  } catch {
+    throw new Error('AI가 이번엔 형식을 맞추지 못했어요 — 다시 시도해주세요');
+  }
+  if (!Array.isArray(posts) || posts.length === 0 || posts.some((p) => !p?.text?.trim())) {
+    throw new Error('AI가 이번엔 형식을 맞추지 못했어요 — 다시 시도해주세요');
+  }
+  if (draft.format === 'single') posts = posts.slice(0, 1);
+
+  const edited = { posts: posts.map((p, n) => ({ text: p.text, media: base.posts[n]?.media ?? [] })) };
+  await updateDraft(sql, draftId, { edited, history: [...draft.history, base] });
+  return (await getDraft(sql, draftId)) as DraftRow;
 }
 
 // 스레드에서 한 트윗만 다시 — 결과는 edited에 반영(원본 content 불변, 스펙 §2).

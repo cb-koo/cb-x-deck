@@ -9,7 +9,8 @@ export interface PromptInput {
   direction: string;
   format: DraftFormat;
   constraintsOn: boolean;
-  avoid?: string; // '다른 각도로' — 피할 접근
+  // '다시 쓰기' — 현재 버전 전문 + (선택) 사용자 피드백. 피드백이 없으면 같은 조건 재생성.
+  rewrite?: { current: string[]; feedback?: string };
 }
 
 export const DRAFT_SYSTEM =
@@ -51,9 +52,13 @@ export function buildUserPrompt(i: PromptInput): string {
   // 3) 이번 작업 지시 — 가변 정보는 뒤에
   const task = ['## 이번 초안'];
   if (i.direction.trim()) task.push(`방향성: ${i.direction.trim()}`);
-  if (i.avoid) task.push(
-    `이전 초안과 확연히 다른 각도로 쓰세요. 소구 축(효과 실감·비용·불안 해소·시술 과정 체험담·의외의 사실) 중 이전 초안과 다른 축을 고르고, 훅의 문형(질문형/단정형/이야기형)도 이전과 다르게 하세요. 이전 초안의 훅: "${i.avoid}"`,
-  );
+  if (i.rewrite) {
+    const cur = i.rewrite.current.map((t, n) => `${n + 1}. ${t}`).join('\n---\n');
+    task.push('아래는 이 초안의 현재 버전입니다. 처음부터 다시 쓰세요.', cur);
+    task.push(i.rewrite.feedback?.trim()
+      ? `사용자 피드백(반드시 반영해서 다시 쓰기): ${i.rewrite.feedback.trim()}`
+      : '같은 조건으로 새로 쓰되, 현재 버전과 훅·표현이 겹치지 않게 하세요.');
+  }
   task.push(i.format === 'single'
     ? `형식: 단문 포스트 1개. 가중 ${X_MAX_WEIGHTED}자(일본어 약 140자) 이내.`
     : `형식: 스레드 3~5개 포스트. 각 포스트는 가중 ${X_MAX_WEIGHTED}자(일본어 약 140자) 이내. 1번 포스트가 훅.`);

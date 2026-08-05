@@ -14,9 +14,9 @@ const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
 };
 
 // 초안 카드 — X 실측(600px·radius16·아바타40·본문 15/20). 지표·배지·이미지 자리 없음(없는 데이터는 자리도 안 만듦)
-export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anotherDisabled, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags }: {
+export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags }: {
   draft: DraftRow; banned: string[];
-  onEdit: () => void; onAnother: () => void; anotherBusy: boolean; anotherDisabled: boolean;
+  onEdit: () => void; onRewrite: (feedback: string) => void; rewriteBusy: boolean;
   onDelete: () => void; onRegenPost: (index: number) => void; regenBusyIndex: number | null;
   onDismissFlag: (key: string, dismiss: boolean) => void;
   onRestoreAllFlags: () => void;
@@ -27,6 +27,8 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
   const refTr = useTranslations();
   const [copied, setCopied] = useState(false);
   const [copiedPost, setCopiedPost] = useState<number | null>(null);
+  const [rwOpen, setRwOpen] = useState(false);   // 다시 쓰기 피드백 입력 열림
+  const [rwText, setRwText] = useState('');
   const current = draft.edited ?? draft.content;
   const flags = collectDraftFlags(current, banned, draft.dismissedFlags);
   const active = flags.filter((f) => !f.dismissed);
@@ -155,8 +157,10 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
               <svg viewBox="0 0 24 24" className="h-[19px] w-[19px] fill-current" aria-hidden><path d="M14.06 9.02l.92.92L5.92 19H5v-.92l9.06-9.06zM17.66 3c-.25 0-.51.1-.7.29l-1.83 1.83 3.75 3.75 1.83-1.83c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.2-.2-.45-.29-.71-.29zm-3.6 3.19L3 17.25V21h3.75L17.81 9.94l-3.75-3.75z" /></svg>
               편집
             </button>
-            <button onClick={onAnother} disabled={anotherBusy || anotherDisabled} className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-x-text/5 disabled:opacity-50">
-              <RefreshIcon className="h-[19px] w-[19px]" />{anotherBusy ? '만드는 중…' : '다른 각도로'}
+            <button onClick={() => setRwOpen(!rwOpen)} disabled={rewriteBusy || !isLatest}
+                    title={isLatest ? undefined : '이전 버전을 보는 중 — 다시 쓰기는 최신 버전에서'}
+                    className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-x-text/5 disabled:opacity-50 disabled:hover:bg-transparent">
+              <RefreshIcon className="h-[19px] w-[19px]" />{rewriteBusy ? '다시 쓰는 중…' : '다시 쓰기'}
             </button>
             <button onClick={copyAll} className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-x-text/5">
               <svg viewBox="0 0 24 24" className="h-[19px] w-[19px] fill-current" aria-hidden><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" /></svg>
@@ -167,6 +171,21 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
             </button>
             <span className="ml-auto tabular-nums">{isThread ? `${shown.posts.length}개 · 총 ${total}자` : ''}</span>
           </div>
+          {rwOpen && !rewriteBusy && (
+            <div className="mt-2 rounded-xl border border-x-border-strong p-2.5">
+              <textarea value={rwText} onChange={(e) => setRwText(e.target.value)} rows={2} autoFocus
+                        placeholder="고칠 점이나 원하는 방향을 적어주세요 — 비워두면 같은 조건으로 다시 생성해요"
+                        className="w-full resize-y text-[15px] leading-5 outline-none placeholder:text-x-muted" />
+              <div className="mt-1.5 flex items-center justify-end gap-2">
+                <button onClick={() => { setRwOpen(false); setRwText(''); }}
+                        className="rounded-full px-3 py-1 text-[13px] text-x-secondary hover:bg-x-text/5">취소</button>
+                <button onClick={() => { onRewrite(rwText.trim()); setRwOpen(false); setRwText(''); }}
+                        className="rounded-full bg-x-blue px-3 py-1 text-[13px] font-bold text-white hover:opacity-90">
+                  {rwText.trim() ? '피드백 반영해 다시 쓰기' : '같은 조건으로 다시 쓰기'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

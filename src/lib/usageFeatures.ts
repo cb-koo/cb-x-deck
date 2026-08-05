@@ -16,6 +16,7 @@ const FEATURE: Record<string, string> = {
   'anthropic.research': '리서치 요약',
   'anthropic.draft': '원고 생성',
   'anthropic.draftRegen': '원고 부분 재생성',
+  'anthropic.draftRewrite': '원고 다시 쓰기',
   'anthropic.draftTranslate': '원고 번역',
 };
 

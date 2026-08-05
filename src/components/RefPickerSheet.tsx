@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
+import { MediaGrid } from '@/components/MediaGrid';
 import { useTranslations } from '@/components/useTranslations';
 import type { ReferenceRow } from '@/lib/referenceStore';
 
@@ -112,6 +113,7 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
                 <span className="min-w-0 flex-1">
                   <span className="block text-ui"><b>{r.authorName ?? r.authorHandle}</b> <span className="text-x-muted">@{r.authorHandle}{r.likes != null && ` · ♡${r.likes}`}</span></span>
                   <span className="mt-0.5 line-clamp-2 block text-[15px] leading-5">{r.text}</span>
+                  <MediaGrid media={r.media} />
                   {showTranslations && translations[r.tweetId] && (
                     <span className="mt-1 block rounded-lg border border-x-border bg-x-blue/[0.03] px-2.5 py-1.5">
                       <span className="block text-[10px] font-bold text-x-blue-text" title="AI 자동 번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>

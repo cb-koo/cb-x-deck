@@ -45,6 +45,16 @@ test('insert→list→get→update(edited·dismissed)→remove 왕복 + 스냅�
   assert.deepEqual(got!.edited, edited);
   assert.deepEqual(got!.content, content);          // 원본 불변
   assert.deepEqual(got!.dismissedFlags, ['yakkiho:効果がある']);
+  assert.deepEqual(got!.history, []);               // 기본값
+  assert.equal(got!.translation, null);
+
+  // 버전 이력 + 번역 캐시 왕복 (부분 패치 — 서로를 덮지 않음)
+  await updateDraft(sql, id, { history: [content] });
+  await updateDraft(sql, id, { translation: { sourceHash: 'h1', posts: ['수정판'] } });
+  const got2 = await getDraft(sql, id);
+  assert.deepEqual(got2!.history, [content]);
+  assert.deepEqual(got2!.translation, { sourceHash: 'h1', posts: ['수정판'] });
+  assert.deepEqual(got2!.edited, edited);           // edited는 그대로
 
   await removeDraft(sql, id);
   assert.equal(await getDraft(sql, id), null);

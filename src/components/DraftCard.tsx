@@ -27,15 +27,23 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
   const refTr = useTranslations();
   const [copied, setCopied] = useState(false);
   const [copiedPost, setCopiedPost] = useState<number | null>(null);
-  const content = draft.edited ?? draft.content;
-  const flags = collectDraftFlags(content, banned, draft.dismissedFlags);
+  const current = draft.edited ?? draft.content;
+  const flags = collectDraftFlags(current, banned, draft.dismissedFlags);
   const active = flags.filter((f) => !f.dismissed);
   const dismissedCount = flags.length - active.length;
-  const total = content.posts.reduce((n, p) => n + xWeightedLength(p.text), 0);
   const isThread = draft.format === 'thread';
 
+  // 버전 이력 — 재생성 직전 스냅샷들(history) + 현재 표시본. ‹ 1/2 › 페이저로 이전 버전 열람.
+  // verIdx=null은 '항상 최신' — 새 버전이 생겨도 자동으로 따라간다.
+  const versions = [...draft.history, current];
+  const [verIdx, setVerIdx] = useState<number | null>(null);
+  const shownIdx = Math.min(verIdx ?? versions.length - 1, versions.length - 1);
+  const shown = versions[shownIdx];
+  const isLatest = shownIdx === versions.length - 1;
+  const total = shown.posts.reduce((n, p) => n + xWeightedLength(p.text), 0);
+
   async function copyAll() {
-    await navigator.clipboard.writeText(draftCopyText(content));
+    await navigator.clipboard.writeText(draftCopyText(shown));
     setCopied(true); setTimeout(() => setCopied(false), 1500);
   }
 
@@ -45,7 +53,7 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
   const [showTr, setShowTr] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [trErr, setTrErr] = useState('');
-  const srcKey = JSON.stringify(content.posts.map((p) => p.text));
+  const srcKey = JSON.stringify(current.posts.map((p) => p.text));
   const hasTr = trPosts !== null && trFor === srcKey;
 
   async function toggleTranslate() {
@@ -79,12 +87,12 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
             {draft.edited && <span className="text-x-muted"> · 편집됨</span>}
           </p>
           <div className={isThread ? 'relative mt-1 space-y-3 pl-3 before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.5 before:bg-x-border-strong' : 'mt-0.5'}>
-            {content.posts.map((p, i) => {
+            {shown.posts.map((p, i) => {
               const hb = i === 0 ? hookBoundary(p.text) : null;
               const len = xWeightedLength(p.text);
               return (
                 <div key={i}>
-                  {isThread && <p className="text-caption font-bold text-x-muted">{i + 1} / {content.posts.length}</p>}
+                  {isThread && <p className="text-caption font-bold text-x-muted">{i + 1} / {shown.posts.length}</p>}
                   {hb ? (
                     <p className="whitespace-pre-wrap text-[15px] leading-5">
                       {hb.hook}
@@ -96,7 +104,7 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
                   ) : (
                     <p className="whitespace-pre-wrap text-[15px] leading-5">{p.text}</p>
                   )}
-                  {showTr && hasTr && (
+                  {isLatest && showTr && hasTr && (
                     <div className="mt-1 rounded-lg border border-x-border bg-x-blue/[0.03] px-2.5 py-2">
                       <span className="text-[10px] font-bold text-x-blue-text" title="AI 자동 번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>
                       <p className="mt-0.5 whitespace-pre-wrap text-[15px] leading-5">{trPosts?.[i]}</p>
@@ -105,7 +113,7 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
                   <MediaGrid media={p.media} />
                   <p className="mt-1 flex items-center gap-3 text-caption tabular-nums text-x-muted">
                     <span className={len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : ''}>X 기준 {len} / {X_MAX_WEIGHTED}{len > X_MAX_WEIGHTED && ` — ${len - X_MAX_WEIGHTED} 줄여야 해요`}</span>
-                    {isThread && (
+                    {isThread && isLatest && (
                       <button onClick={() => onRegenPost(i)} disabled={regenBusyIndex !== null}
                               className="text-x-blue-text hover:underline disabled:opacity-50">
                         {regenBusyIndex === i ? '다시 만드는 중…' : '이 트윗만 다시'}
@@ -122,15 +130,28 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
               );
             })}
           </div>
-          <p className="mt-2 text-[13px]">
-            <button onClick={toggleTranslate} disabled={translating} className="text-x-blue-text hover:underline disabled:opacity-50">
-              {translating ? '번역 중…' : showTr ? '원문만 보기' : '🌐 번역 보기'}
-            </button>
-            {trErr && <span className="ml-2 text-red-600">{trErr}</span>}
-          </p>
+          {versions.length > 1 && (
+            <p className="mt-1.5 flex items-center justify-end gap-1.5 text-caption tabular-nums text-x-muted">
+              {!isLatest && <span>이전 버전 (읽기 전용)</span>}
+              <button onClick={() => setVerIdx(shownIdx - 1)} disabled={shownIdx === 0} aria-label="이전 버전 보기"
+                      className="rounded px-1.5 text-[15px] leading-none text-x-blue-text hover:bg-x-blue/10 disabled:opacity-30 disabled:hover:bg-transparent">‹</button>
+              {shownIdx + 1} / {versions.length}
+              <button onClick={() => setVerIdx(shownIdx + 2 >= versions.length ? null : shownIdx + 1)} disabled={isLatest} aria-label="다음 버전 보기"
+                      className="rounded px-1.5 text-[15px] leading-none text-x-blue-text hover:bg-x-blue/10 disabled:opacity-30 disabled:hover:bg-transparent">›</button>
+            </p>
+          )}
+          {isLatest && (
+            <p className="mt-2 text-[13px]">
+              <button onClick={toggleTranslate} disabled={translating} className="text-x-blue-text hover:underline disabled:opacity-50">
+                {translating ? '번역 중…' : showTr ? '원문만 보기' : '🌐 번역 보기'}
+              </button>
+              {trErr && <span className="ml-2 text-red-600">{trErr}</span>}
+            </p>
+          )}
           {/* 액션 행 — X 액션 바 자리에 우리 액션 (없는 지표를 채우지 않고 교체) */}
           <div className="mt-3 flex max-w-[440px] items-center gap-1 text-[13px] text-x-secondary">
-            <button onClick={onEdit} className="flex items-center gap-1.5 rounded-full px-2 py-1 text-x-blue-text hover:bg-x-blue/10">
+            <button onClick={onEdit} disabled={!isLatest} title={isLatest ? undefined : '이전 버전을 보는 중 — 편집은 최신 버전에서'}
+                    className="flex items-center gap-1.5 rounded-full px-2 py-1 text-x-blue-text hover:bg-x-blue/10 disabled:opacity-50 disabled:hover:bg-transparent">
               <svg viewBox="0 0 24 24" className="h-[19px] w-[19px] fill-current" aria-hidden><path d="M14.06 9.02l.92.92L5.92 19H5v-.92l9.06-9.06zM17.66 3c-.25 0-.51.1-.7.29l-1.83 1.83 3.75 3.75 1.83-1.83c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.2-.2-.45-.29-.71-.29zm-3.6 3.19L3 17.25V21h3.75L17.81 9.94l-3.75-3.75z" /></svg>
               편집
             </button>
@@ -144,7 +165,7 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
             <button onClick={onDelete} aria-label="초안 삭제" className="flex items-center rounded-full px-2 py-1 hover:bg-red-50 hover:text-red-600">
               <TrashIcon className="h-[19px] w-[19px]" />
             </button>
-            <span className="ml-auto tabular-nums">{isThread ? `${content.posts.length}개 · 총 ${total}자` : ''}</span>
+            <span className="ml-auto tabular-nums">{isThread ? `${shown.posts.length}개 · 총 ${total}자` : ''}</span>
           </div>
         </div>
       </div>

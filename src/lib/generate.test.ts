@@ -125,6 +125,13 @@ test('스레드 부분 재생성: 해당 post만 edited에 반영, content 불�
     assert.equal(updated.edited!.posts[0].text, '1番');   // 나머지 유지
     assert.equal(updated.edited!.posts[1].text, '新2番'); // 대상만 교체
     assert.equal(updated.content.posts[1].text, '2番');   // 원본 불변
+    assert.equal(updated.history.length, 1);              // 직전 표시본이 이력에 보존
+    assert.equal(updated.history[0].posts[1].text, '2番');
+
+    // 한 번 더 재생성하면 이력이 쌓인다
+    const again = await regeneratePost(sql, id, 1, regenFake);
+    assert.equal(again.history.length, 2);
+    assert.equal(again.history[1].posts[1].text, '新2番');
   } finally {
     await removeDraft(sql, id);
   }

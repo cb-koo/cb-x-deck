@@ -125,6 +125,7 @@ export async function regeneratePost(
   const edited = {
     posts: base.posts.map((p, n) => (n === postIndex ? { text: posts[0].text, media: p.media } : p)),
   };
-  await updateDraft(sql, draftId, { edited });
+  // 직전 표시본을 이력에 보존 — ‹ 1/2 › 페이저로 이전 버전 열람 가능
+  await updateDraft(sql, draftId, { edited, history: [...draft.history, base] });
   return (await getDraft(sql, draftId)) as DraftRow;
 }

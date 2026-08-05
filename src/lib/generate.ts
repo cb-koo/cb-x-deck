@@ -84,15 +84,23 @@ export async function generateDraft(
 }
 
 // 초안 전체 다시 쓰기 — 피드백이 있으면 반영, 없으면 같은 조건으로 재생성(겹치지 않게).
-// 결과는 같은 초안의 새 버전(edited)이 되고 직전 표시본은 history에 보존된다.
+// baseIndex로 기준 버전을 고를 수 있다(기본 = 최신) — 같은 원본에 코멘트만 바꿔 여러 버전 생성.
+// 결과는 같은 초안의 새 버전(edited)이 되고 직전 표시본은 history에 보존된다(타임라인은 항상 선형).
 // 레퍼런스는 초안의 스냅샷(발췌+메모)을 그대로 사용 — 보관함에서 지워져도 다시 쓰기는 동작.
 // 클라이언트는 살아 있으면 다시 로드(시술은 스냅샷 이름으로 매칭), 삭제됐으면 없이 진행.
 export async function rewriteDraft(
-  sql: postgres.Sql, draftId: string, feedback: string | undefined, client?: AnthropicLike,
+  sql: postgres.Sql, draftId: string,
+  opts: { feedback?: string; baseIndex?: number }, client?: AnthropicLike,
 ): Promise<DraftRow> {
   const draft = await getDraft(sql, draftId);
   if (!draft) throw new GenerateInputError('초안을 찾을 수 없어요');
-  const base = draft.edited ?? draft.content;
+  const versions = [...draft.history, draft.edited ?? draft.content];
+  const idx = opts.baseIndex ?? versions.length - 1;
+  if (!Number.isInteger(idx) || idx < 0 || idx >= versions.length) {
+    throw new GenerateInputError('기준 버전을 찾을 수 없어요 — 새로고침해 주세요');
+  }
+  const base = versions[idx];
+  const feedback = opts.feedback;
 
   const clientData = draft.clientId ? await getClientWithProcedures(sql, draft.clientId) : null;
   const procedures = (clientData?.procedures ?? []).filter((p) => draft.procedureNames.includes(p.name));
@@ -124,7 +132,8 @@ export async function rewriteDraft(
   if (draft.format === 'single') posts = posts.slice(0, 1);
 
   const edited = { posts: posts.map((p, n) => ({ text: p.text, media: base.posts[n]?.media ?? [] })) };
-  await updateDraft(sql, draftId, { edited, history: [...draft.history, base] });
+  // 직전 표시본(기준 버전이 아니라 최신)을 이력에 보존 — 어떤 버전을 기준으로 썼든 타임라인은 선형
+  await updateDraft(sql, draftId, { edited, history: [...draft.history, draft.edited ?? draft.content] });
   return (await getDraft(sql, draftId)) as DraftRow;
 }
 

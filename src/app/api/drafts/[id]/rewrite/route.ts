@@ -10,13 +10,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
-  const body = (await req.json().catch(() => ({}))) as { feedback?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { feedback?: unknown; baseIndex?: unknown };
   if (body.feedback !== undefined && typeof body.feedback !== 'string') {
     return NextResponse.json({ error: '피드백은 텍스트로 보내주세요' }, { status: 400 });
   }
+  if (body.baseIndex !== undefined && !Number.isInteger(body.baseIndex)) {
+    return NextResponse.json({ error: '요청 형식이 올바르지 않아요' }, { status: 400 });
+  }
   const feedback = typeof body.feedback === 'string' ? body.feedback.trim().slice(0, MAX_FEEDBACK) : undefined;
   try {
-    return NextResponse.json(await rewriteDraft(getSql(), id, feedback || undefined));
+    return NextResponse.json(await rewriteDraft(getSql(), id, {
+      feedback: feedback || undefined,
+      baseIndex: body.baseIndex as number | undefined,
+    }));
   } catch (e) {
     if (e instanceof GenerateInputError) return NextResponse.json({ error: e.message }, { status: 400 });
     if (e instanceof LLMRefusalError) {

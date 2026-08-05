@@ -152,7 +152,7 @@ test('다시 쓰기: 피드백이 프롬프트에 실리고, 직전 표시본이
     };
   } } };
   try {
-    const updated = await rewriteDraft(sql, id, '비용 얘기는 빼줘', rwFake);
+    const updated = await rewriteDraft(sql, id, { feedback: '비용 얘기는 빼줘' }, rwFake);
     assert.ok(prompt.includes('비용 얘기는 빼줘'));            // 피드백 전달
     assert.ok(prompt.includes('正直迷ってた。'));               // 현재 버전 전문 포함
     assert.equal(updated.edited!.posts.length, 1);             // single은 1개로 절단
@@ -160,9 +160,16 @@ test('다시 쓰기: 피드백이 프롬프트에 실리고, 직전 표시본이
     assert.equal(updated.history.length, 1);                   // 직전 표시본 보존
     assert.deepEqual(updated.history[0], updated.content);
     // 피드백 없이 한 번 더 — 겹침 금지 지시 확인 + 이력 축적
-    const again = await rewriteDraft(sql, id, undefined, rwFake);
+    const again = await rewriteDraft(sql, id, {}, rwFake);
     assert.ok(prompt.includes('겹치지 않게'));
     assert.equal(again.history.length, 2);
+    // 기준 버전 지정 — 1번(원본)을 기준으로: 프롬프트에 원본만 실리고 최신본은 안 실림
+    const fromV1 = await rewriteDraft(sql, id, { baseIndex: 0, feedback: '더 캐주얼하게' }, rwFake);
+    assert.ok(prompt.includes('正直迷ってた。'));
+    assert.ok(!prompt.includes('書き直し版'));
+    assert.equal(fromV1.history.length, 3);                    // 타임라인은 선형으로 계속 쌓임
+    // 범위 밖 버전이면 GenerateInputError
+    await assert.rejects(rewriteDraft(sql, id, { baseIndex: 99 }, rwFake), GenerateInputError);
   } finally {
     await removeDraft(sql, id);
   }

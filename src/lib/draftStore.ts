@@ -2,8 +2,18 @@ import type postgres from 'postgres';
 import type { Member } from './types.ts';
 import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
 
-// 표시본(edited ?? content)의 한국어 번역 캐시 — 원문이 바뀌면 sourceHash가 어긋나 재번역
-export interface DraftTranslation { sourceHash: string; posts: string[] }
+// 버전별 한국어 번역 캐시 — sourceHash(원문 지문) → 번역 posts. 어떤 버전이든 한 번 번역하면 재사용.
+export type DraftTranslation = Record<string, string[]>;
+
+// 초기 단일 슬롯 형태({sourceHash, posts})의 잔존 데이터를 맵으로 정규화
+function normalizeTranslation(v: unknown): DraftTranslation | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as { sourceHash?: unknown; posts?: unknown };
+  if (typeof o.sourceHash === 'string' && Array.isArray(o.posts)) {
+    return { [o.sourceHash]: o.posts as string[] };
+  }
+  return v as DraftTranslation;
+}
 
 export interface DraftRow {
   id: string; clientId: string | null; clientName: string | null; procedureNames: string[];
@@ -28,7 +38,7 @@ type Row = {
 const toRow = (r: Row): DraftRow => ({
   id: r.id, clientId: r.client_id, clientName: r.client_name, procedureNames: r.procedure_names,
   direction: r.direction, format: r.format, referenceMode: r.reference_mode, refs: r.refs,
-  content: r.content, edited: r.edited, history: r.history, translation: r.translation,
+  content: r.content, edited: r.edited, history: r.history, translation: normalizeTranslation(r.translation),
   dismissedFlags: r.dismissed_flags,
   model: r.model, createdAt: r.created_at.toISOString(),
   member: r.member_id ? { id: r.member_id, name: r.member_name as string, color: r.member_color as string } : null,

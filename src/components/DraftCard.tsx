@@ -16,7 +16,7 @@ const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
 // 초안 카드 — X 실측(600px·radius16·아바타40·본문 15/20). 지표·배지·이미지 자리 없음(없는 데이터는 자리도 안 만듦)
 export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags }: {
   draft: DraftRow; banned: string[];
-  onEdit: () => void; onRewrite: (feedback: string) => void; rewriteBusy: boolean;
+  onEdit: () => void; onRewrite: (feedback: string, baseIndex: number) => void; rewriteBusy: boolean;
   onDelete: () => void; onRegenPost: (index: number) => void; regenBusyIndex: number | null;
   onDismissFlag: (key: string, dismiss: boolean) => void;
   onRestoreAllFlags: () => void;
@@ -49,24 +49,29 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
     setCopied(true); setTimeout(() => setCopied(false), 1500);
   }
 
-  // 검토용 한국어 번역 — 카드 로컬 캐시(원문이 편집되면 srcKey가 달라져 자동 무효화)
+  // 검토용 한국어 번역 — 보고 있는 버전 기준. 카드 로컬은 한 버전 슬롯만 들고,
+  // 버전을 오가면 서버의 버전별 캐시(draft.translation 맵)에서 무과금으로 다시 받아온다.
   const [trPosts, setTrPosts] = useState<string[] | null>(null);
   const [trFor, setTrFor] = useState('');
   const [showTr, setShowTr] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [trErr, setTrErr] = useState('');
-  const srcKey = JSON.stringify(current.posts.map((p) => p.text));
+  const srcKey = JSON.stringify(shown.posts.map((p) => p.text));
   const hasTr = trPosts !== null && trFor === srcKey;
 
   async function toggleTranslate() {
-    if (showTr) { setShowTr(false); return; }
+    if (showTr && hasTr) { setShowTr(false); return; }
     if (hasTr) { setShowTr(true); return; }
     setTranslating(true); setTrErr('');
+    const key = srcKey; // 요청 중 버전 이동 대비 — 응답을 요청 시점 버전에 귀속
     try {
-      const r = await apiFetch(`/api/drafts/${draft.id}/translate`, { method: 'POST' });
+      const r = await apiFetch(`/api/drafts/${draft.id}/translate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ versionIndex: shownIdx }),
+      });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) { setTrErr((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
-      setTrPosts((body as { posts: string[] }).posts); setTrFor(srcKey); setShowTr(true);
+      setTrPosts((body as { posts: string[] }).posts); setTrFor(key); setShowTr(true);
     } catch {
       setTrErr('번역에 실패했어요 — 네트워크를 확인해주세요');
     } finally {
@@ -106,7 +111,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
                   ) : (
                     <p className="whitespace-pre-wrap text-[15px] leading-5">{p.text}</p>
                   )}
-                  {isLatest && showTr && hasTr && (
+                  {showTr && hasTr && (
                     <div className="mt-1 rounded-lg border border-x-border bg-x-blue/[0.03] px-2.5 py-2">
                       <span className="text-[10px] font-bold text-x-blue-text" title="AI 자동 번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>
                       <p className="mt-0.5 whitespace-pre-wrap text-[15px] leading-5">{trPosts?.[i]}</p>
@@ -142,14 +147,12 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
                       className="rounded px-1.5 text-[15px] leading-none text-x-blue-text hover:bg-x-blue/10 disabled:opacity-30 disabled:hover:bg-transparent">›</button>
             </p>
           )}
-          {isLatest && (
-            <p className="mt-2 text-[13px]">
-              <button onClick={toggleTranslate} disabled={translating} className="text-x-blue-text hover:underline disabled:opacity-50">
-                {translating ? '번역 중…' : showTr ? '원문만 보기' : '🌐 번역 보기'}
-              </button>
-              {trErr && <span className="ml-2 text-red-600">{trErr}</span>}
-            </p>
-          )}
+          <p className="mt-2 text-[13px]">
+            <button onClick={toggleTranslate} disabled={translating} className="text-x-blue-text hover:underline disabled:opacity-50">
+              {translating ? '번역 중…' : showTr && hasTr ? '원문만 보기' : '🌐 번역 보기'}
+            </button>
+            {trErr && <span className="ml-2 text-red-600">{trErr}</span>}
+          </p>
           {/* 액션 행 — X 액션 바 자리에 우리 액션 (없는 지표를 채우지 않고 교체) */}
           <div className="mt-3 flex max-w-[440px] items-center gap-1 text-[13px] text-x-secondary">
             <button onClick={onEdit} disabled={!isLatest} title={isLatest ? undefined : '이전 버전을 보는 중 — 편집은 최신 버전에서'}
@@ -157,8 +160,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
               <svg viewBox="0 0 24 24" className="h-[19px] w-[19px] fill-current" aria-hidden><path d="M14.06 9.02l.92.92L5.92 19H5v-.92l9.06-9.06zM17.66 3c-.25 0-.51.1-.7.29l-1.83 1.83 3.75 3.75 1.83-1.83c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.2-.2-.45-.29-.71-.29zm-3.6 3.19L3 17.25V21h3.75L17.81 9.94l-3.75-3.75z" /></svg>
               편집
             </button>
-            <button onClick={() => setRwOpen(!rwOpen)} disabled={rewriteBusy || !isLatest}
-                    title={isLatest ? undefined : '이전 버전을 보는 중 — 다시 쓰기는 최신 버전에서'}
+            <button onClick={() => setRwOpen(!rwOpen)} disabled={rewriteBusy}
                     className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-x-text/5 disabled:opacity-50 disabled:hover:bg-transparent">
               <RefreshIcon className="h-[19px] w-[19px]" />{rewriteBusy ? '다시 쓰는 중…' : '다시 쓰기'}
             </button>
@@ -173,13 +175,16 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
           </div>
           {rwOpen && !rewriteBusy && (
             <div className="mt-2 rounded-xl border border-x-border-strong p-2.5">
+              {!isLatest && (
+                <p className="mb-1 text-caption text-x-muted">지금 보고 있는 {shownIdx + 1}번 버전을 기준으로 다시 써요 — 결과는 새 버전({versions.length + 1}번)으로 추가됩니다</p>
+              )}
               <textarea value={rwText} onChange={(e) => setRwText(e.target.value)} rows={2} autoFocus
                         placeholder="고칠 점이나 원하는 방향을 적어주세요 — 비워두면 같은 조건으로 다시 생성해요"
                         className="w-full resize-y text-[15px] leading-5 outline-none placeholder:text-x-muted" />
               <div className="mt-1.5 flex items-center justify-end gap-2">
                 <button onClick={() => { setRwOpen(false); setRwText(''); }}
                         className="rounded-full px-3 py-1 text-[13px] text-x-secondary hover:bg-x-text/5">취소</button>
-                <button onClick={() => { onRewrite(rwText.trim()); setRwOpen(false); setRwText(''); }}
+                <button onClick={() => { onRewrite(rwText.trim(), shownIdx); setRwOpen(false); setRwText(''); setVerIdx(null); }}
                         className="rounded-full bg-x-blue px-3 py-1 text-[13px] font-bold text-white hover:opacity-90">
                   {rwText.trim() ? '피드백 반영해 다시 쓰기' : '같은 조건으로 다시 쓰기'}
                 </button>

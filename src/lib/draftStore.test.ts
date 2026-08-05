@@ -48,12 +48,12 @@ test('insert→list→get→update(edited·dismissed)→remove 왕복 + 스냅�
   assert.deepEqual(got!.history, []);               // 기본값
   assert.equal(got!.translation, null);
 
-  // 버전 이력 + 번역 캐시 왕복 (부분 패치 — 서로를 덮지 않음)
+  // 버전 이력 + 번역 캐시(버전별 맵) 왕복 (부분 패치 — 서로를 덮지 않음)
   await updateDraft(sql, id, { history: [content] });
-  await updateDraft(sql, id, { translation: { sourceHash: 'h1', posts: ['수정판'] } });
+  await updateDraft(sql, id, { translation: { h1: ['수정판'], h2: ['원본판'] } });
   const got2 = await getDraft(sql, id);
   assert.deepEqual(got2!.history, [content]);
-  assert.deepEqual(got2!.translation, { sourceHash: 'h1', posts: ['수정판'] });
+  assert.deepEqual(got2!.translation, { h1: ['수정판'], h2: ['원본판'] });
   assert.deepEqual(got2!.edited, edited);           // edited는 그대로
 
   await removeDraft(sql, id);

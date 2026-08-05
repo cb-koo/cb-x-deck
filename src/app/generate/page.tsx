@@ -105,13 +105,14 @@ function Workbench() {
   }
 
   // 다시 쓰기 — 같은 초안의 새 버전으로. 피드백이 있으면 반영, 없으면 같은 조건 재생성.
-  async function rewrite(id: string, feedback: string) {
+  // baseIndex = 사용자가 보고 있던 버전(그 버전을 기준으로 다시 쓴다).
+  async function rewrite(id: string, feedback: string, baseIndex: number) {
     if (rewritingId) return;
     setRewritingId(id);
     try {
       const r = await apiFetch(`/api/drafts/${id}/rewrite`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(feedback ? { feedback } : {}),
+        body: JSON.stringify({ baseIndex, ...(feedback ? { feedback } : {}) }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) { setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
@@ -221,7 +222,7 @@ function Workbench() {
       {drafts.map((d) => (
         <DraftCard key={d.id} draft={d} banned={bannedFor(d)}
                    onEdit={() => setEditing(d)}
-                   onRewrite={(feedback) => rewrite(d.id, feedback)}
+                   onRewrite={(feedback, baseIndex) => rewrite(d.id, feedback, baseIndex)}
                    rewriteBusy={rewritingId === d.id}
                    onDelete={() => requestRemove(d)}
                    onRegenPost={(i) => regenPost(d, i)}

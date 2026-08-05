@@ -68,7 +68,7 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
                   )}
                   <MediaGrid media={p.media} />
                   <p className="mt-1 flex items-center gap-3 text-caption tabular-nums text-x-muted">
-                    <span className={len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : ''}>{len} / {X_MAX_WEIGHTED} (가중 — 일본어 약 140자)</span>
+                    <span className={len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : ''}>X 기준 {len} / {X_MAX_WEIGHTED}{len > X_MAX_WEIGHTED && ` — ${len - X_MAX_WEIGHTED} 줄여야 해요`}</span>
                     {isThread && (
                       <button onClick={() => onRegenPost(i)} disabled={regenBusyIndex !== null}
                               className="text-x-blue-text hover:underline disabled:opacity-50">

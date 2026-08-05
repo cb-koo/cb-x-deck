@@ -59,14 +59,14 @@ export function DraftEditModal({ draft, onClose, onSaved }: {
                 <div className="min-w-0 flex-1">
                   {base.posts.length > 1 && <p className="text-caption font-bold text-x-muted">{i + 1} / {base.posts.length}</p>}
                   {compare ? (
-                    <div className="space-y-2">
+                    <div className="space-y-4">
                       <div>
-                        <p className="mb-0.5 text-caption font-bold text-x-muted">생성 원본</p>
-                        <p className="whitespace-pre-wrap rounded-lg bg-x-surface p-2 text-[15px] leading-5 text-x-secondary">{draft.content.posts[i]?.text}</p>
+                        <p className="mb-1 text-[13px] font-bold text-x-muted">생성 원본</p>
+                        <p className="whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-[17px] leading-normal text-x-secondary">{draft.content.posts[i]?.text}</p>
                       </div>
                       <div>
-                        <p className="mb-0.5 text-caption font-bold text-x-muted">현재 편집본</p>
-                        <p className="whitespace-pre-wrap text-[15px] leading-5">{texts[i]}</p>
+                        <p className="mb-1 text-[13px] font-bold text-x-blue-text">현재 편집본</p>
+                        <p className="whitespace-pre-wrap rounded-lg border border-x-border-strong p-3 text-[17px] leading-normal">{texts[i]}</p>
                       </div>
                     </div>
                   ) : (
@@ -75,7 +75,9 @@ export function DraftEditModal({ draft, onClose, onSaved }: {
                               className="w-full resize-y text-[20px] leading-6 outline-none placeholder:text-x-muted"
                               placeholder="본문을 입력하세요" autoFocus={i === 0} />
                   )}
-                  <p className={`text-caption tabular-nums ${len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : 'text-x-muted'}`}>{len} / {X_MAX_WEIGHTED} (가중 — 일본어 약 140자)</p>
+                  <p className={`text-caption tabular-nums ${len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : 'text-x-muted'}`}>
+                    X 기준 {len} / {X_MAX_WEIGHTED}{len > X_MAX_WEIGHTED && ` — ${len - X_MAX_WEIGHTED} 줄여야 해요`}
+                  </p>
                 </div>
               </div>
             );

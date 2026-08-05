@@ -1,11 +1,13 @@
 import type postgres from 'postgres';
-import type { DeckMedia } from './types.ts';
+import type { DeckMedia, DeckMetrics } from './types.ts';
+
+const EMPTY_METRICS: DeckMetrics = { views: null, likes: null, retweets: null, replies: null, quotes: null, bookmarks: null };
 
 // 보관함 전역 읽기 — 레퍼런스 선택용 (스펙 §2 /api/references, 보관함 구조 A안).
 // 트윗 본체(tweet)는 전역 PK이므로 워크스페이스 간 병합은 소속(library_item)·메모(candidate) 차원에서만 일어난다.
 export interface ReferenceRow {
   tweetId: string; authorHandle: string; authorName: string | null; authorAvatarUrl: string | null;
-  text: string; media: DeckMedia[]; likes: number | null;
+  text: string; media: DeckMedia[]; likes: number | null; metrics: DeckMetrics;
   memos: Array<{ member: string; text: string }>;
   tags: string[];
   workspaces: Array<{ id: string; name: string }>;
@@ -15,7 +17,7 @@ export interface ReferenceRow {
 type ItemRow = {
   tweet_id: string; added_at: Date; workspace_id: string; workspace_name: string;
   author_handle: string; author_name: string | null; author_avatar_url: string | null;
-  text: string; media: DeckMedia[] | null; likes: number | null;
+  text: string; media: DeckMedia[] | null; likes: number | null; metrics: DeckMetrics | null;
 };
 type CandRow = { tweet_id: string; memo: string; member_name: string; tags: string[] };
 
@@ -28,7 +30,7 @@ async function fetchRows(
   const idFilter = tweetIds ? sql`li.tweet_id in ${sql(tweetIds)}` : sql`true`;
   const items = await sql<ItemRow[]>`
     select li.tweet_id, li.added_at, li.workspace_id, w.name as workspace_name,
-           t.author_handle, t.author_name, t.author_avatar_url, t.text, t.media,
+           t.author_handle, t.author_name, t.author_avatar_url, t.text, t.media, t.metrics,
            nullif(t.metrics->>'likes', '')::int as likes
       from library_item li
       join tweet t on t.tweet_id = li.tweet_id
@@ -56,7 +58,8 @@ async function fetchRows(
     if (cur) { cur.workspaces.push({ id: r.workspace_id, name: r.workspace_name }); continue; }
     byTweet.set(r.tweet_id, {
       tweetId: r.tweet_id, authorHandle: r.author_handle, authorName: r.author_name,
-      authorAvatarUrl: r.author_avatar_url, text: r.text, media: r.media ?? [], likes: r.likes,
+      authorAvatarUrl: r.author_avatar_url, text: r.text, media: r.media ?? [],
+      likes: r.likes, metrics: r.metrics ?? EMPTY_METRICS,
       memos: [], tags: [], workspaces: [{ id: r.workspace_id, name: r.workspace_name }],
       addedAt: r.added_at.toISOString(),
     });

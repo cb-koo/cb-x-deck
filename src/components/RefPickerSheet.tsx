@@ -4,6 +4,8 @@ import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { MediaGrid } from '@/components/MediaGrid';
 import { useTranslations } from '@/components/useTranslations';
+import { formatCount } from '@/lib/format';
+import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from '@/components/XIcons';
 import type { ReferenceRow } from '@/lib/referenceStore';
 
 export const MAX_REFS_UI = 8; // 서버 MAX_REFS와 동일 (generate.ts)
@@ -111,9 +113,17 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
                       className={`flex w-full gap-2.5 border-b border-x-border px-4 py-2.5 text-left ${on ? 'bg-x-blue/5 shadow-[inset_3px_0_0_#1d9bf0]' : 'hover:bg-x-hover'}`}>
                 <span aria-hidden className={`mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border text-caption font-bold ${on ? 'border-x-blue bg-x-blue text-white' : 'border-x-border-strong bg-white'}`}>{on ? '✓' : ''}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-ui"><b>{r.authorName ?? r.authorHandle}</b> <span className="text-x-muted">@{r.authorHandle}{r.likes != null && ` · ♡${r.likes}`}</span></span>
+                  <span className="block text-ui"><b>{r.authorName ?? r.authorHandle}</b> <span className="text-x-muted">@{r.authorHandle}</span></span>
                   <span className="mt-0.5 line-clamp-2 block text-[15px] leading-5">{r.text}</span>
                   <MediaGrid media={r.media} />
+                  {/* 성과 지표 — 덱 카드와 같은 아이콘·포맷(레퍼런스 고를 때 판단 근거) */}
+                  <span className="mt-1 flex items-center gap-4 text-caption tabular-nums text-x-muted">
+                    <span className="flex items-center gap-1"><ReplyIcon className="h-[13px] w-[13px]" /> {formatCount(r.metrics.replies)}</span>
+                    <span className="flex items-center gap-1"><RepostIcon className="h-[13px] w-[13px]" /> {formatCount(r.metrics.retweets)}</span>
+                    <span className="flex items-center gap-1"><LikeIcon className="h-[13px] w-[13px]" /> {formatCount(r.metrics.likes)}</span>
+                    <span className="flex items-center gap-1"><ViewIcon className="h-[13px] w-[13px]" /> {formatCount(r.metrics.views)}</span>
+                    <span className="flex items-center gap-1"><BookmarkIcon className="h-[13px] w-[13px]" /> {formatCount(r.metrics.bookmarks)}</span>
+                  </span>
                   {showTranslations && translations[r.tweetId] && (
                     <span className="mt-1 block rounded-lg border border-x-border bg-x-blue/[0.03] px-2.5 py-1.5">
                       <span className="block text-[10px] font-bold text-x-blue-text" title="AI 자동 번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>

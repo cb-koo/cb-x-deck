@@ -9,7 +9,7 @@ import { QuotedCard } from './QuotedCard';
 import { TweetText } from './TweetText';
 import { TweetExpansion } from './TweetExpansion';
 import { Button } from './ui';
-import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon, ShareIcon } from './XIcons';
+import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon, ShareIcon, PenIcon } from './XIcons';
 import { tweetPermalink } from '@/lib/tweetLink';
 import { useToast } from '@/lib/toastContext';
 
@@ -185,6 +185,12 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, librar
                 </span>
               ))}
             </span>
+            {t.savedBy.length > 0 && (
+              <a href={`/generate?ref=${t.tweetId}`} title="이 트윗을 레퍼런스로 초안 만들기"
+                 className="flex items-center gap-1 rounded-full px-2 py-1 text-ui text-x-secondary hover:bg-x-blue/10 hover:text-x-blue-text">
+                <PenIcon className="h-[15px] w-[15px]" />초안
+              </a>
+            )}
             {(onSave || onUnsave) && (savedByMe
               ? <Button variant="ghost" onClick={handleUnsave} data-tour={tourAnchor ? 'col-save' : undefined} className="font-medium text-amber-500">★ 저장됨</Button>
               : <Button variant="ghost" onClick={handleSave} data-tour={tourAnchor ? 'col-save' : undefined}>☆ 저장</Button>)}

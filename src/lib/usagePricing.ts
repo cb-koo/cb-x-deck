@@ -14,6 +14,7 @@ export const ANTHROPIC_PRICES: Record<string, { in: number; out: number }> = {
   'claude-haiku-4-5': { in: 1, out: 5 },
   'claude-sonnet-5': { in: 3, out: 15 },
   'claude-opus-4-8': { in: 5, out: 25 },
+  'claude-opus-5': { in: 5, out: 25 },
 };
 const DEFAULT_ANTHROPIC = ANTHROPIC_PRICES['claude-haiku-4-5']; // 앱 기본 모델
 

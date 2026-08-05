@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { CandidateRow } from '@/lib/types';
 import type { LibraryEntry } from '@/lib/candidateStore';
 import { TweetCard } from './TweetCard';
+import { PenIcon } from './XIcons';
 
 // 콘텐츠당 카드 1장 + 멤버별 코멘트(=candidate.memo). 내 행만 편집 가능.
 // 번역 prop은 페이지가 공유 훅(useTranslations)에서 내려주는 것을 TweetCard로 그대로 전달.
@@ -66,7 +67,17 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
       )}
       <div className="flex items-center justify-between border-t border-x-border px-2 py-1 text-caption text-x-muted">
         <span>{entry.candidates.length === 0 ? `담은 사람: ${entry.addedBy?.name ?? '팀'} · 저장한 사람 없음` : ''}</span>
-        <button onClick={() => setRemovingTeam(true)} className={`hover:text-red-500 ${removingTeam ? 'font-medium text-red-500' : ''}`}>팀 보관함에서 빼기</button>
+        <span className="flex items-center gap-1">
+          {/* 아래 TweetCard는 이 entry.tweet을 그대로 넘겨받아 t.savedBy.length > 0이면 자체 풋터에 이미 "초안"을 노출함
+              (코멘트가 1개라도 있으면 savedBy가 채워짐) → 여기선 그 조건이 거짓일 때(코멘트 없는 담기만 된 카드)만 보완 노출해 중복을 막는다 */}
+          {entry.tweet.savedBy.length === 0 && (
+            <a href={`/generate?ref=${entry.tweet.tweetId}`} title="이 트윗을 레퍼런스로 초안 만들기"
+               className="flex items-center gap-1 rounded-full px-2 py-1 text-ui text-x-secondary hover:bg-x-blue/10 hover:text-x-blue-text">
+              <PenIcon className="h-[15px] w-[15px]" />초안
+            </a>
+          )}
+          <button onClick={() => setRemovingTeam(true)} className={`hover:text-red-500 ${removingTeam ? 'font-medium text-red-500' : ''}`}>팀 보관함에서 빼기</button>
+        </span>
       </div>
     </div>
   );

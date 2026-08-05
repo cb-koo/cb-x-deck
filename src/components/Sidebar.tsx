@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import type { Workspace } from '@/lib/types';
 import { useMember } from '@/lib/memberContext';
-import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon } from './XIcons';
+import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon } from './XIcons';
 
 export function Sidebar({ wsId }: { wsId: string }) {
   const router = useRouter();
@@ -67,6 +67,12 @@ export function Sidebar({ wsId }: { wsId: string }) {
     { href: `/w/${wsId}/library`, label: '보관함', Ic: FolderIcon, tour: undefined },
   ];
 
+  // 워크스페이스 무관 최상위 기능 (스펙 §4 — 콘텐츠 생성·클라이언트는 /w/[wsId] 밖)
+  const globalNav = [
+    { href: '/generate', label: '콘텐츠 생성', Ic: PenIcon },
+    { href: '/clients', label: '클라이언트', Ic: ClinicIcon },
+  ];
+
   return (
     <aside data-tour="sidebar" className="flex h-screen w-52 shrink-0 flex-col border-r border-x-border bg-x-surface p-3">
       <p className="mb-1 px-1 text-caption text-x-muted">워크스페이스 (클라이언트)</p>
@@ -102,6 +108,13 @@ export function Sidebar({ wsId }: { wsId: string }) {
       <nav className="mt-2 flex-1">
         {nav.map((n) => (
           <a key={n.href} href={n.href} data-tour={n.tour}
+             className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
+            <n.Ic className="h-[18px] w-[18px]" />{n.label}
+          </a>
+        ))}
+        <div className="my-2 border-t border-x-border" />
+        {globalNav.map((n) => (
+          <a key={n.href} href={n.href}
              className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
             <n.Ic className="h-[18px] w-[18px]" />{n.label}
           </a>

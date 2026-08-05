@@ -18,8 +18,8 @@ export interface TranslateInput {
   quotedText?: string | null;
 }
 
-// 미용/미용의료 핵심 용어집(소량). 늘리면 PROMPT_VERSION을 올릴 것.
-const GLOSSARY = [
+// 미용/미용의료 핵심 용어집(소량). 늘리면 PROMPT_VERSION을 올릴 것. (translateDraft.ts와 공유)
+export const GLOSSARY = [
   '毛穴→모공', 'キメ→피부결', '薬機法→약기법(일본 의약품·의료기기 광고 규제법)',
   'スキンケア→스킨케어', '美容医療→미용의료', '施術→시술', '成分→성분',
   'ニキビ→여드름', 'シミ→기미', 'シワ→주름', 'たるみ→처짐',

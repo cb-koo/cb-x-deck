@@ -1,6 +1,6 @@
 # cb-x-deck
 
-TweetDeck식 X(트위터) 벤치마크 리서치 도구. X 콘텐츠 기획(글감·포맷 발굴) 탐색 단계 지원용.
+TweetDeck식 X(트위터) 벤치마크 리서치 + 콘텐츠 생성 도구. X 콘텐츠 기획(글감·포맷 발굴)부터 인플루언서 발송용 원고 초안 제작까지 지원.
 
 ## 실행
 
@@ -9,8 +9,10 @@ npm install
 npm run dev   # http://localhost:3000
 ```
 
-`.env` 필요 키: `PGHOST/PGPORT/PGUSER/PGDATABASE/PGPASSWORD`(Supabase Session pooler),
-`GETXAPI_KEY`, `ANTHROPIC_API_KEY`, `EXA_API_KEY`(리서치). (SUPABASE_* 키는 v2 배포용 예비)
+`.env` 필요 키: `PGHOST/PGPORT/PGUSER/PGDATABASE/PGPASSWORD`(Supabase Transaction pooler, PGPORT 6543),
+`NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_ANON_KEY`(Google OAuth 로그인),
+`GETXAPI_KEY`, `ANTHROPIC_API_KEY`, `EXA_API_KEY`(리서치).
+선택: `CONTENT_MODEL`(원고 생성 모델 오버라이드 — 프로덕션은 `claude-sonnet-5`, 미설정 시 opus-5).
 
 ## URL 체계 및 워크스페이스·멤버
 
@@ -19,8 +21,23 @@ npm run dev   # http://localhost:3000
   - `/w/[wsId]/deck` — 덱 (기본)
   - `/w/[wsId]/library` — 보관함 (저장됨)
   - `/w/[wsId]/research` — 리서치 (exa 웹 기사 검색 → 덱 키워드 발굴)
+- 워크스페이스 밖 최상위 기능:
+  - `/generate` — 콘텐츠 생성 (원고 작업대)
+  - `/clients` — 클라이언트 관리 (클리닉 정보·시술·금지 표현)
 
+워크스페이스는 리서치 목적 단위(클라이언트와 1:1이 아님 — 클라이언트는 별도 엔티티).
 각 워크스페이스는 독립적인 컬럼 집합을 유지. 멤버는 사이드바에서 등록·전환(팀 협업용).
+
+## 콘텐츠 생성 (원고)
+
+클라이언트 정보 + 보관함 레퍼런스(최대 8건, 형식만/앵글만/둘 다) + 제작 방향성 → 인플루언서 발송용
+일본어 X 원고(단문/스레드). 세 재료는 각각 켜고 끌 수 있음.
+
+- 진입점 3개: 덱/보관함 카드의 "이 트윗으로 초안 만들기" / 작업대에서 보관함 열어 선택 / 백지 시작
+- **다시 쓰기**: 피드백을 넣어 재생성(비우면 같은 조건 재롤). 결과는 같은 카드의 새 버전 — 우하단 ‹ 1/N ›로 버전 이동, 어느 버전이든 그 버전 기준으로 다시 쓰기 가능. 생성 원본은 불변(편집·재생성 이력 별도 보존)
+- **한국어 번역**: 초안·레퍼런스 모두 버튼 한 번(버전별 DB 캐시, 트윗 번역은 덱과 전역 공유)
+- **검수 표식**: 약기법 위험어·클라이언트 금지어 등을 앰버로 표시(차단 아님, 무시 영속)
+- 글자수는 X 가중 기준 N/280 (CJK·이모지 2, URL 23 — 일본어 약 140자)
 
 ## NEW 배지 및 멤버별 저장
 
@@ -46,17 +63,21 @@ DB 스키마 초기화 (`migrations/*.sql`). 로컬 개발·배포 전 최초 1�
 | `npm run smoke:getxapi` | GetXAPI 실호출 계약 검증 + fixtures 재채집 (~$0.003) |
 | `npm run smoke:suggest` | Claude 연관 키워드 실호출 확인 |
 | `npm run smoke:exa` | exa 검색 실호출 계약 검증 (~$0.005) |
+| `npm run smoke:translate` | 트윗 번역 실호출 확인 |
+| `npm run smoke:generate` | 원고 생성 실호출 확인 (~$0.015) |
 
 ## 비용 특성
 
 - 자동 폴링 없음 — 새로고침 버튼을 누를 때만 GetXAPI 호출 ($0.001/페이지 × maxPages, 기본 3)
 - 검색 레이트 리밋: 단시간 ~7콜 — 여러 컬럼 연속 새로고침 시 간격 두기 (429는 자동 재시도)
 - 리서치: exa 검색 1회 ≈ $0.005 + 기사별 키워드 추출(Haiku) 소액. 버튼 누를 때만 호출
+- 원고 생성·다시 쓰기: 초안당 ≈ $0.015 (sonnet-5, `CONTENT_MODEL`로 교체 가능). 번역은 Haiku 소액 + 캐시 재사용
+- 사용량·비용은 `/w/[wsId]/usage`에서 기능별 집계
 
 ## 구조
 
-- `src/lib/` — 로직 전부 (getxapi·exa 클라이언트, 매퍼, 쿼리빌더, 스토어, refresh 파이프라인, 리서치 추출)
+- `src/lib/` — 로직 전부 (getxapi·exa 클라이언트, 매퍼, 쿼리빌더, 스토어, refresh 파이프라인, 리서치 추출, 원고 생성·번역 파이프라인)
 - `src/app/api/` — 얇은 프록시 라우트 (키는 서버에만)
-- `src/components/` — X UI 재현 TweetCard, 덱 컬럼, 보관함 카드
-- 스키마: workspace(클라이언트) / member(팀원) / deck_column(prev_refreshed_at로 NEW 판정) / tweet(아카이브, first_seen·last_fetched) / column_tweet(first_appeared_at) / candidate(멤버별 저장) / tag — tweet_seen은 폐기된 봤음 추적의 잔여 테이블(미사용)
-- 설계 spec: `docs/superpowers/specs/2026-07-07-cb-x-deck-v1-design.md`
+- `src/components/` — X UI 재현 TweetCard, 덱 컬럼, 보관함 카드, 초안 카드(DraftCard)·레퍼런스 선택(RefPickerSheet)
+- 스키마: workspace(리서치 단위) / member(팀원) / deck_column(prev_refreshed_at로 NEW 판정) / tweet(아카이브, first_seen·last_fetched) / column_tweet(first_appeared_at) / candidate(멤버별 저장·메모) / tag / library_item(트윗의 워크스페이스 소속) / tweet_translation(번역 캐시) / client·client_procedure(클리닉·시술) / draft(원고: content 불변 + edited + history + translation) — tweet_seen은 폐기된 봤음 추적의 잔여 테이블(미사용)
+- 설계 spec: `docs/superpowers/specs/2026-07-07-cb-x-deck-v1-design.md`, 콘텐츠 생성은 `docs/superpowers/specs/2026-08-03-content-generator-design.md`

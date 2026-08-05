@@ -16,6 +16,7 @@ const FEATURE: Record<string, string> = {
   'anthropic.research': '리서치 요약',
   'anthropic.draft': '원고 생성',
   'anthropic.draftRegen': '원고 부분 재생성',
+  'anthropic.draftTranslate': '원고 번역',
 };
 
 // 알려진 operation은 사용자 언어 라벨로, 그 외에는 제공사별 '기타'로 — 내부 원문(anthropic.translate·probe 등)을 화면에 노출하지 않는다.

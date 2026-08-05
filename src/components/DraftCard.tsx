@@ -1,11 +1,13 @@
 'use client';
 import { useState } from 'react';
+import { apiFetch } from '@/lib/apiFetch';
 import type { DraftRow } from '@/lib/draftStore';
 import type { RefSnapshot } from '@/lib/draftTypes';
 import { xWeightedLength, X_MAX_WEIGHTED } from '@/lib/xLength';
 import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags } from '@/lib/draftUi';
 import { MediaGrid } from '@/components/MediaGrid';
 import { RefreshIcon, TrashIcon } from '@/components/XIcons';
+import { useTranslations } from '@/components/useTranslations';
 
 const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
   off: '참고 없음', form: '형식만', angle: '앵글만', both: '형식 + 앵글',
@@ -20,6 +22,9 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
   onRestoreAllFlags: () => void;
 }) {
   const [refsOpen, setRefsOpen] = useState(false);
+  // 레퍼런스 번역 — 덱/보관함과 같은 훅·같은 캐시(tweet_translation, tweet_id 단위 전역).
+  // 덱에서 이미 번역한 트윗은 여기서 과금 없이 재사용되고, 여기서 번역한 것도 덱에서 재사용된다.
+  const refTr = useTranslations();
   const [copied, setCopied] = useState(false);
   const [copiedPost, setCopiedPost] = useState<number | null>(null);
   const content = draft.edited ?? draft.content;
@@ -32,6 +37,31 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
   async function copyAll() {
     await navigator.clipboard.writeText(draftCopyText(content));
     setCopied(true); setTimeout(() => setCopied(false), 1500);
+  }
+
+  // 검토용 한국어 번역 — 카드 로컬 캐시(원문이 편집되면 srcKey가 달라져 자동 무효화)
+  const [trPosts, setTrPosts] = useState<string[] | null>(null);
+  const [trFor, setTrFor] = useState('');
+  const [showTr, setShowTr] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const [trErr, setTrErr] = useState('');
+  const srcKey = JSON.stringify(content.posts.map((p) => p.text));
+  const hasTr = trPosts !== null && trFor === srcKey;
+
+  async function toggleTranslate() {
+    if (showTr) { setShowTr(false); return; }
+    if (hasTr) { setShowTr(true); return; }
+    setTranslating(true); setTrErr('');
+    try {
+      const r = await apiFetch(`/api/drafts/${draft.id}/translate`, { method: 'POST' });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) { setTrErr((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
+      setTrPosts((body as { posts: string[] }).posts); setTrFor(srcKey); setShowTr(true);
+    } catch {
+      setTrErr('번역에 실패했어요 — 네트워크를 확인해주세요');
+    } finally {
+      setTranslating(false);
+    }
   }
 
   return (
@@ -66,6 +96,12 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
                   ) : (
                     <p className="whitespace-pre-wrap text-[15px] leading-5">{p.text}</p>
                   )}
+                  {showTr && hasTr && (
+                    <div className="mt-1 rounded-lg border border-x-border bg-x-blue/[0.03] px-2.5 py-2">
+                      <span className="text-[10px] font-bold text-x-blue-text" title="AI 자동 번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>
+                      <p className="mt-0.5 whitespace-pre-wrap text-[15px] leading-5">{trPosts?.[i]}</p>
+                    </div>
+                  )}
                   <MediaGrid media={p.media} />
                   <p className="mt-1 flex items-center gap-3 text-caption tabular-nums text-x-muted">
                     <span className={len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : ''}>X 기준 {len} / {X_MAX_WEIGHTED}{len > X_MAX_WEIGHTED && ` — ${len - X_MAX_WEIGHTED} 줄여야 해요`}</span>
@@ -86,6 +122,12 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
               );
             })}
           </div>
+          <p className="mt-2 text-[13px]">
+            <button onClick={toggleTranslate} disabled={translating} className="text-x-blue-text hover:underline disabled:opacity-50">
+              {translating ? '번역 중…' : showTr ? '원문만 보기' : '🌐 번역 보기'}
+            </button>
+            {trErr && <span className="ml-2 text-red-600">{trErr}</span>}
+          </p>
           {/* 액션 행 — X 액션 바 자리에 우리 액션 (없는 지표를 채우지 않고 교체) */}
           <div className="mt-3 flex max-w-[440px] items-center gap-1 text-[13px] text-x-secondary">
             <button onClick={onEdit} className="flex items-center gap-1.5 rounded-full px-2 py-1 text-x-blue-text hover:bg-x-blue/10">
@@ -125,7 +167,8 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
         <p className="py-0.5 text-caption text-x-muted">ℹ️ PR 표기(#PR)는 원고와 함께 인플루언서에게 안내하세요 — 스테마 규제</p>
 
         <div className="mt-1 flex items-baseline justify-between gap-3 border-t border-x-border pt-1.5 text-[13px]">
-          <button onClick={() => setRefsOpen(!refsOpen)} disabled={draft.refs.length === 0}
+          <button onClick={() => { const opening = !refsOpen; setRefsOpen(opening); if (opening) void refTr.loadCached(draft.refs.map((r) => r.tweetId)); }}
+                  disabled={draft.refs.length === 0}
                   className="text-left disabled:cursor-default">
             참고 레퍼런스 {draft.refs.length}건{draft.refs.length > 0 && <span className="text-x-blue-text"> · {MODE_LABEL[draft.referenceMode]} {refsOpen ? '⌃' : '⌄'}</span>}
           </button>
@@ -133,12 +176,27 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
             {[draft.clientName, ...draft.procedureNames].filter(Boolean).join(' · ')}{draft.model ? ` · ${draft.model}` : ''}
           </span>
         </div>
+        {refsOpen && draft.refs.length > 0 && (
+          <p className="mt-1.5 text-[13px]">
+            <button onClick={() => void refTr.translateAll(draft.refs.map((r) => r.tweetId))} disabled={refTr.translatingAll}
+                    className="text-x-blue-text hover:underline disabled:opacity-50">
+              {refTr.translatingAll ? '번역 중…' : refTr.showTranslations ? '원문만 보기' : '🌐 번역 보기'}
+            </button>
+            {refTr.translateErr && <span className="ml-2 text-red-600">{refTr.translateErr}</span>}
+          </p>
+        )}
         {refsOpen && draft.refs.map((r: RefSnapshot) => (
           <div key={r.tweetId} className="mt-2 rounded-lg border border-x-border bg-white px-3 py-2">
             <p className="text-ui"><b>{r.name ?? r.handle}</b> <span className="text-x-muted">@{r.handle}</span>
               <a href={`https://x.com/i/status/${r.tweetId}`} target="_blank" rel="noreferrer" className="ml-2 text-x-blue-text hover:underline">원문 ↗</a>
             </p>
             <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap text-[15px] leading-5">{r.excerpt}</p>
+            {refTr.showTranslations && refTr.translations[r.tweetId] && (
+              <div className="mt-1 rounded-lg border border-x-border bg-x-blue/[0.03] px-2.5 py-1.5">
+                <span className="text-[10px] font-bold text-x-blue-text" title="AI 자동 번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>
+                <p className="mt-0.5 line-clamp-3 whitespace-pre-wrap text-[15px] leading-5">{refTr.translations[r.tweetId].content}</p>
+              </div>
+            )}
             {r.memos.map((m, i) => (
               <p key={i} className="mt-1 rounded-r border-l-2 border-x-blue bg-x-surface px-2 py-1 text-caption"><b>{m.member}</b> {m.text}</p>
             ))}

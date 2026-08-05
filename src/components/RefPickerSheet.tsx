@@ -110,30 +110,33 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
             const on = sel.includes(r.tweetId);
             return (
               <button key={r.tweetId} onClick={() => toggle(r.tweetId)}
-                      className={`flex w-full gap-2.5 border-b border-x-border px-4 py-2.5 text-left ${on ? 'bg-x-blue/5 shadow-[inset_3px_0_0_#1d9bf0]' : 'hover:bg-x-hover'}`}>
+                      className={`flex w-full gap-3 border-b border-x-border px-4 py-4 text-left ${on ? 'bg-x-blue/5 shadow-[inset_3px_0_0_#1d9bf0]' : 'hover:bg-x-hover'}`}>
                 <span aria-hidden className={`mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border text-caption font-bold ${on ? 'border-x-blue bg-x-blue text-white' : 'border-x-border-strong bg-white'}`}>{on ? '✓' : ''}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-ui"><b>{r.authorName ?? r.authorHandle}</b> <span className="text-x-muted">@{r.authorHandle}</span></span>
-                  <span className="mt-0.5 line-clamp-2 block text-[15px] leading-5">{r.text}</span>
-                  <MediaGrid media={r.media} />
+                  <span className="block text-[15px]"><b>{r.authorName ?? r.authorHandle}</b> <span className="text-x-muted">@{r.authorHandle}</span></span>
+                  {/* 읽기 화면 — Reading 스케일(행간 1.5), 목록 훑기용이라 3줄까지만 */}
+                  <span className="mt-1 line-clamp-3 block whitespace-pre-wrap text-[15px] leading-normal">{r.text}</span>
+                  {r.media.length > 0 && (
+                    <span className="mt-2 block max-w-[280px]"><MediaGrid media={r.media} /></span>
+                  )}
                   {/* 성과 지표 — 덱 카드와 같은 아이콘·포맷(레퍼런스 고를 때 판단 근거) */}
-                  <span className="mt-1 flex items-center gap-4 text-caption tabular-nums text-x-muted">
-                    <span className="flex items-center gap-1"><ReplyIcon className="h-[13px] w-[13px]" /> {formatCount(r.metrics.replies)}</span>
-                    <span className="flex items-center gap-1"><RepostIcon className="h-[13px] w-[13px]" /> {formatCount(r.metrics.retweets)}</span>
-                    <span className="flex items-center gap-1"><LikeIcon className="h-[13px] w-[13px]" /> {formatCount(r.metrics.likes)}</span>
-                    <span className="flex items-center gap-1"><ViewIcon className="h-[13px] w-[13px]" /> {formatCount(r.metrics.views)}</span>
-                    <span className="flex items-center gap-1"><BookmarkIcon className="h-[13px] w-[13px]" /> {formatCount(r.metrics.bookmarks)}</span>
+                  <span className="mt-2.5 flex items-center gap-5 text-[13px] tabular-nums text-x-muted">
+                    <span className="flex items-center gap-1"><ReplyIcon className="h-[14px] w-[14px]" /> {formatCount(r.metrics.replies)}</span>
+                    <span className="flex items-center gap-1"><RepostIcon className="h-[14px] w-[14px]" /> {formatCount(r.metrics.retweets)}</span>
+                    <span className="flex items-center gap-1"><LikeIcon className="h-[14px] w-[14px]" /> {formatCount(r.metrics.likes)}</span>
+                    <span className="flex items-center gap-1"><ViewIcon className="h-[14px] w-[14px]" /> {formatCount(r.metrics.views)}</span>
+                    <span className="flex items-center gap-1"><BookmarkIcon className="h-[14px] w-[14px]" /> {formatCount(r.metrics.bookmarks)}</span>
                   </span>
                   {showTranslations && translations[r.tweetId] && (
-                    <span className="mt-1 block rounded-lg border border-x-border bg-x-blue/[0.03] px-2.5 py-1.5">
-                      <span className="block text-[10px] font-bold text-x-blue-text" title="AI 자동 번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>
-                      <span className="mt-0.5 line-clamp-2 block text-[15px] leading-5">{translations[r.tweetId].content}</span>
+                    <span className="mt-2 block rounded-lg border border-x-border bg-x-blue/[0.03] px-3 py-2">
+                      <span className="block text-caption font-bold text-x-blue-text" title="AI 자동 번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>
+                      <span className="mt-1 line-clamp-3 block whitespace-pre-wrap text-[15px] leading-normal">{translations[r.tweetId].content}</span>
                     </span>
                   )}
                   {r.memos.map((m, i) => (
-                    <span key={i} className="mt-1 block rounded-r border-l-2 border-x-blue bg-x-surface px-2 py-1 text-caption"><b>{m.member}</b> {m.text}</span>
+                    <span key={i} className="mt-2 block rounded-r border-l-2 border-x-blue bg-x-surface px-2.5 py-1.5 text-[13px] leading-normal"><b>{m.member}</b> {m.text}</span>
                   ))}
-                  <span className="mt-1 block text-caption text-x-muted">
+                  <span className="mt-2 block text-[13px] text-x-muted">
                     {r.memos.length === 0 && '메모 없음 — 저장만 되어 있어요 · '}
                     {r.tags.map((t) => `#${t}`).join(' ')}{r.tags.length > 0 && ' · '}
                     {r.workspaces.length > 1 ? `${r.workspaces.length}곳에 저장됨 · ` : ''}{r.workspaces.map((w) => w.name).join(', ')}

@@ -51,7 +51,9 @@ export function buildUserPrompt(i: PromptInput): string {
   // 3) 이번 작업 지시 — 가변 정보는 뒤에
   const task = ['## 이번 초안'];
   if (i.direction.trim()) task.push(`방향성: ${i.direction.trim()}`);
-  if (i.avoid) task.push(`이전 초안과 다른 각도로 접근하세요. 피할 접근: ${i.avoid}`);
+  if (i.avoid) task.push(
+    `이전 초안과 확연히 다른 각도로 쓰세요. 소구 축(효과 실감·비용·불안 해소·시술 과정 체험담·의외의 사실) 중 이전 초안과 다른 축을 고르고, 훅의 문형(질문형/단정형/이야기형)도 이전과 다르게 하세요. 이전 초안의 훅: "${i.avoid}"`,
+  );
   task.push(i.format === 'single'
     ? `형식: 단문 포스트 1개. 가중 ${X_MAX_WEIGHTED}자(일본어 약 140자) 이내.`
     : `형식: 스레드 3~5개 포스트. 각 포스트는 가중 ${X_MAX_WEIGHTED}자(일본어 약 140자) 이내. 1번 포스트가 훅.`);

@@ -60,8 +60,14 @@ export function DraftEditModal({ draft, onClose, onSaved }: {
                   {base.posts.length > 1 && <p className="text-caption font-bold text-x-muted">{i + 1} / {base.posts.length}</p>}
                   {compare ? (
                     <div className="space-y-2">
-                      <p className="whitespace-pre-wrap rounded-lg bg-x-surface p-2 text-[15px] leading-5 text-x-secondary">{draft.content.posts[i]?.text}</p>
-                      <p className="whitespace-pre-wrap text-[15px] leading-5">{texts[i]}</p>
+                      <div>
+                        <p className="mb-0.5 text-caption font-bold text-x-muted">생성 원본</p>
+                        <p className="whitespace-pre-wrap rounded-lg bg-x-surface p-2 text-[15px] leading-5 text-x-secondary">{draft.content.posts[i]?.text}</p>
+                      </div>
+                      <div>
+                        <p className="mb-0.5 text-caption font-bold text-x-muted">현재 편집본</p>
+                        <p className="whitespace-pre-wrap text-[15px] leading-5">{texts[i]}</p>
+                      </div>
                     </div>
                   ) : (
                     <textarea value={texts[i]} rows={Math.max(3, texts[i].split('\n').length + 1)}
@@ -69,7 +75,7 @@ export function DraftEditModal({ draft, onClose, onSaved }: {
                               className="w-full resize-y text-[20px] leading-6 outline-none placeholder:text-x-muted"
                               placeholder="본문을 입력하세요" autoFocus={i === 0} />
                   )}
-                  <p className={`text-caption tabular-nums ${len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : 'text-x-muted'}`}>{len} / {X_MAX_WEIGHTED}</p>
+                  <p className={`text-caption tabular-nums ${len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : 'text-x-muted'}`}>{len} / {X_MAX_WEIGHTED} (가중 — 일본어 약 140자)</p>
                 </div>
               </div>
             );

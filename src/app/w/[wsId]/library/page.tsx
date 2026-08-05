@@ -26,7 +26,7 @@ export default function LibraryPage() {
   const [pendingRemove, setPendingRemove] = useState<string | null>(null); // 리스트에서 숨김(커밋 완료까지)
   const [undoTweet, setUndoTweet] = useState<string | null>(null); // 실행취소 토스트 노출(커밋 시작 전까지)
   const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { translations, showTranslations, translatingAll, translatingIds, translateErr,
+  const { translations, showTranslations, translatingAll, translateProgress, translatingIds, translateErr,
           loadCached, translateAll, translateOne } = useTranslations();
 
   // 전량 fetch 후 클라이언트에서 그룹 단위 필터 — 서버 필터를 쓰면 같은 트윗의 타인 코멘트 행이 잘려나감
@@ -121,7 +121,9 @@ export default function LibraryPage() {
             <Button variant="ghost" onClick={() => translateAll(groups.map((g) => g.tweet.tweetId))} disabled={translatingAll}
                     className={`ml-auto ${showTranslations ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}`}
                     title="지금 보이는 트윗을 한국어로 — 덱에서 이미 번역한 건 무료로 바로 표시돼요 (새로 번역하면 저장돼 재사용돼요)">
-              {translatingAll ? '번역 중…' : showTranslations ? '번역 숨기기' : '전체 번역'}
+              {translatingAll
+                ? `번역 중… ${translateProgress ? `${translateProgress.done}/${translateProgress.total}` : ''}`
+                : showTranslations ? '번역 숨기기' : '전체 번역'}
             </Button>
           </div>
           {translateErr && (

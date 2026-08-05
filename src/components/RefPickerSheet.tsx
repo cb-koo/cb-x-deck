@@ -21,7 +21,7 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
   // "N건 적용"이 실제 적용 내용과 어긋나지 않으려면 본 적 있는 row를 전부 여기 누적해둬야 한다.
   const cacheRef = useRef(new Map<string, ReferenceRow>());
   // 번역 — 덱/보관함과 같은 훅·같은 전역 캐시(tweet_translation). 이미 번역된 건 무과금 재사용.
-  const { translations, showTranslations, translatingAll, translateErr, loadCached, translateAll } = useTranslations();
+  const { translations, showTranslations, translatingAll, translateProgress, translateErr, loadCached, translateAll } = useTranslations();
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 시트를 열 때마다 상위 선택값으로 재동기화(기존 코드베이스 관례)
   useEffect(() => { if (open) setSel(selectedIds); }, [open, selectedIds]);
@@ -83,7 +83,9 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
           <button onClick={() => void translateAll(visible.map((r) => r.tweetId))} disabled={translatingAll}
                   title="지금 보이는 레퍼런스를 한국어로 — 덱/보관함에서 이미 번역한 건 무료로 바로 표시돼요"
                   className="ml-auto text-ui text-x-blue-text hover:underline disabled:opacity-50">
-            {translatingAll ? '번역 중…' : showTranslations ? '번역 숨기기' : '🌐 전체 번역'}
+            {translatingAll
+              ? `번역 중… ${translateProgress ? `${translateProgress.done}/${translateProgress.total}` : ''}`
+              : showTranslations ? '번역 숨기기' : '🌐 전체 번역'}
           </button>
         </div>
         {translateErr && (

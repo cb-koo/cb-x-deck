@@ -14,6 +14,9 @@ export function useTranslations() {
   const [translations, setTranslations] = useState<Record<string, TweetTranslation>>({});
   const [showTranslations, setShowTranslations] = useState(false);
   const [translatingAll, setTranslatingAll] = useState(false);
+  // 배치 진행률 — 미번역분이 많으면 오래 걸리는데, 화면에 보이는 것부터 끝나서 "다 됐는데 번역 중?"
+  // 오해가 생긴다. 남은 작업량을 보여줘 오해를 없앤다. 배치가 없으면 null.
+  const [translateProgress, setTranslateProgress] = useState<{ done: number; total: number } | null>(null);
   const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
   const [translateErr, setTranslateErr] = useState(''); // 번역 전용 오류(목록 새로고침 오류와 분리)
 
@@ -64,14 +67,17 @@ export function useTranslations() {
     setShowTranslations(true); // 표시 모드 먼저 켬 — 청크가 도착하는 대로 그 카드가 바로 뜬다
     try {
       const need = ids.filter((id) => !translationsRef.current[id]);
+      if (need.length > 0) setTranslateProgress({ done: 0, total: need.length });
       let anyOk = false;
       for (let i = 0; i < need.length; i += CHUNK) {
         if (await translateIds(need.slice(i, i + CHUNK))) anyOk = true;
+        setTranslateProgress({ done: Math.min(i + CHUNK, need.length), total: need.length });
       }
       // 보여줄 게 전무(캐시도 없고 전부 실패)면 표시 모드 원복 — '번역 숨기기' 오인 방지
       if (need.length > 0 && !anyOk && !alreadyShown) setShowTranslations(false);
     } finally {
       setTranslatingAll(false); // 네트워크 예외에도 '번역 중…' 고착 방지
+      setTranslateProgress(null);
     }
   }, [translateIds]);
 
@@ -82,7 +88,7 @@ export function useTranslations() {
   }, [translateIds]);
 
   return {
-    translations, showTranslations, translatingAll, translatingIds, translateErr,
+    translations, showTranslations, translatingAll, translateProgress, translatingIds, translateErr,
     loadCached, translateAll, translateOne,
   };
 }

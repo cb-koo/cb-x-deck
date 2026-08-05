@@ -176,15 +176,6 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
             {[draft.clientName, ...draft.procedureNames].filter(Boolean).join(' · ')}{draft.model ? ` · ${draft.model}` : ''}
           </span>
         </div>
-        {refsOpen && draft.refs.length > 0 && (
-          <p className="mt-1.5 text-[13px]">
-            <button onClick={() => void refTr.translateAll(draft.refs.map((r) => r.tweetId))} disabled={refTr.translatingAll}
-                    className="text-x-blue-text hover:underline disabled:opacity-50">
-              {refTr.translatingAll ? '번역 중…' : refTr.showTranslations ? '원문만 보기' : '🌐 번역 보기'}
-            </button>
-            {refTr.translateErr && <span className="ml-2 text-red-600">{refTr.translateErr}</span>}
-          </p>
-        )}
         {refsOpen && draft.refs.map((r: RefSnapshot) => (
           <div key={r.tweetId} className="mt-2 rounded-lg border border-x-border bg-white px-3 py-2">
             <p className="text-ui"><b>{r.name ?? r.handle}</b> <span className="text-x-muted">@{r.handle}</span>
@@ -202,6 +193,15 @@ export function DraftCard({ draft, banned, onEdit, onAnother, anotherBusy, anoth
             ))}
           </div>
         ))}
+        {refsOpen && draft.refs.length > 0 && (
+          <p className="mt-1.5 text-[13px]">
+            <button onClick={() => void refTr.translateAll(draft.refs.map((r) => r.tweetId))} disabled={refTr.translatingAll}
+                    className="text-x-blue-text hover:underline disabled:opacity-50">
+              {refTr.translatingAll ? '번역 중…' : refTr.showTranslations ? '원문만 보기' : '🌐 번역 보기'}
+            </button>
+            {refTr.translateErr && <span className="ml-2 text-red-600">{refTr.translateErr}</span>}
+          </p>
+        )}
       </div>
     </div>
   );

@@ -37,6 +37,9 @@ npm run dev   # http://localhost:3000
 - **다시 쓰기**: 피드백을 넣어 재생성(비우면 같은 조건 재롤). 결과는 같은 카드의 새 버전 — 우하단 ‹ 1/N ›로 버전 이동, 어느 버전이든 그 버전 기준으로 다시 쓰기 가능. 생성 원본은 불변(편집·재생성 이력 별도 보존)
 - **한국어 번역**: 초안·레퍼런스 모두 버튼 한 번(버전별 DB 캐시, 트윗 번역은 덱과 전역 공유)
 - **검수 표식**: 약기법 위험어·클라이언트 금지어 등을 앰버로 표시(차단 아님, 무시 영속)
+- **상태 축**: 초안마다 상태(초안 → 검수 대기 → 사용 확정 → 전달됨 / 미사용)를 카드에서 바로 바꾸고, 상태 탭·클라이언트 필터로 걸러 볼 수 있다 — 전이 제약 없음(자유 라벨)
+- **유실 방지**: 편집 모달·레퍼런스 시트는 저장/적용 안 한 변경이 있으면 닫기 전에 확인한다
+- **취소 후 자동 반영**: 생성 취소는 기다리기만 중단 — 완성되면 목록에 자동으로 나타난다
 - 글자수는 X 가중 기준 N/280 (CJK·이모지 2, URL 23 — 일본어 약 140자)
 
 ## NEW 배지 및 멤버별 저장
@@ -71,7 +74,7 @@ DB 스키마 초기화 (`migrations/*.sql`). 로컬 개발·배포 전 최초 1�
 - 자동 폴링 없음 — 새로고침 버튼을 누를 때만 GetXAPI 호출 ($0.001/페이지 × maxPages, 기본 3)
 - 검색 레이트 리밋: 단시간 ~7콜 — 여러 컬럼 연속 새로고침 시 간격 두기 (429는 자동 재시도)
 - 리서치: exa 검색 1회 ≈ $0.005 + 기사별 키워드 추출(Haiku) 소액. 버튼 누를 때만 호출
-- 원고 생성·다시 쓰기: 초안당 ≈ $0.015 (sonnet-5, `CONTENT_MODEL`로 교체 가능). 번역은 Haiku 소액 + 캐시 재사용
+- 원고 생성·다시 쓰기: 초안당 ≈ $0.02 (버튼 캡션에 표기, sonnet-5·`CONTENT_MODEL`로 교체 가능). 번역은 Haiku 소액 + 캐시 재사용
 - 사용량·비용은 `/w/[wsId]/usage`에서 기능별 집계
 
 ## 구조
@@ -79,5 +82,5 @@ DB 스키마 초기화 (`migrations/*.sql`). 로컬 개발·배포 전 최초 1�
 - `src/lib/` — 로직 전부 (getxapi·exa 클라이언트, 매퍼, 쿼리빌더, 스토어, refresh 파이프라인, 리서치 추출, 원고 생성·번역 파이프라인)
 - `src/app/api/` — 얇은 프록시 라우트 (키는 서버에만)
 - `src/components/` — X UI 재현 TweetCard, 덱 컬럼, 보관함 카드, 초안 카드(DraftCard)·레퍼런스 선택(RefPickerSheet)
-- 스키마: workspace(리서치 단위) / member(팀원) / deck_column(prev_refreshed_at로 NEW 판정) / tweet(아카이브, first_seen·last_fetched) / column_tweet(first_appeared_at) / candidate(멤버별 저장·메모) / tag / library_item(트윗의 워크스페이스 소속) / tweet_translation(번역 캐시) / client·client_procedure(클리닉·시술) / draft(원고: content 불변 + edited + history + translation) — tweet_seen은 폐기된 봤음 추적의 잔여 테이블(미사용)
+- 스키마: workspace(리서치 단위) / member(팀원) / deck_column(prev_refreshed_at로 NEW 판정) / tweet(아카이브, first_seen·last_fetched) / column_tweet(first_appeared_at) / candidate(멤버별 저장·메모) / tag / library_item(트윗의 워크스페이스 소속) / tweet_translation(번역 캐시) / client·client_procedure(클리닉·시술) / draft(원고: content 불변 + edited + history + translation + status) — tweet_seen은 폐기된 봤음 추적의 잔여 테이블(미사용)
 - 설계 spec: `docs/superpowers/specs/2026-07-07-cb-x-deck-v1-design.md`, 콘텐츠 생성은 `docs/superpowers/specs/2026-08-03-content-generator-design.md`

@@ -157,13 +157,17 @@ function Workbench() {
         const r = await apiFetch('/api/drafts');
         if (!r.ok) return; // 조용히 다음 주기 재시도 (스펙 §4)
         const fetched = (await r.json()) as DraftRow[];
-        let found = false;
+        let freshList: DraftRow[] = [];
         setDrafts((cur) => {
-          const fresh = newDraftsSince(cur, fetched, genStartedAt.current);
-          found = fresh.length > 0;
-          return found ? [...fresh, ...cur] : cur;
+          freshList = newDraftsSince(cur, fetched, genStartedAt.current);
+          return freshList.length > 0 ? [...freshList, ...cur] : cur;
         });
-        if (found) { stopPolling(); setToast('아까 취소한 원고가 완성됐어요'); }
+        if (freshList.length > 0) {
+          stopPolling();
+          setToast('아까 취소한 원고가 완성됐어요');
+          // 직접 성공 경로와 동일 — 완성본이 현재 필터에 가려 안 보이면 필터를 전체로 (T11 픽스 후속)
+          setFilter((f) => (filterDrafts(freshList, f).length > 0 ? f : { status: 'all', clientId: '' }));
+        }
       } catch { /* 다음 주기 재시도 */ }
     }, 5000);
   }

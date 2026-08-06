@@ -212,7 +212,8 @@ function Workbench() {
     const prev = d.status;
     setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, status } : x)));
     void patchDraft(d.id, { status }).then((updated) => {
-      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, status: prev } : x)));
+      // 실패 롤백은 이 요청이 세팅한 값이 아직 표시 중일 때만 — 연속 변경 시 뒤 갱신을 덮지 않도록 (무시 표식 레이스 픽스와 같은 계열)
+      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.status === status ? { ...x, status: prev } : x)));
     });
   }
 

@@ -1,5 +1,6 @@
 import type { DraftContent } from './draftTypes.ts';
 import { draftFlags, flagKey, type DraftFlag } from './complianceFlags.ts';
+import type { DraftStatus } from './draftStatus.ts';
 
 // 첫 단락 = 훅 (스펙 '산출물 규격'). 첫 빈 줄이 경계. 없거나 내용이 뒤에 없으면 null.
 export function hookBoundary(text: string): { hook: string; rest: string } | null {
@@ -61,4 +62,21 @@ export function newDraftsSince<T extends { id: string; createdAt: string }>(
 ): T[] {
   const known = new Set(cur.map((d) => d.id));
   return fetched.filter((d) => !known.has(d.id) && Date.parse(d.createdAt) >= sinceMs);
+}
+
+// /generate 목록 필터 (스펙 3-1) — clientId: '' 전체 · 'none' 클라이언트 없음 · 그 외 해당 id
+export interface DraftListFilter { status: DraftStatus | 'all'; clientId: string }
+
+export function filterDrafts<T extends { status: DraftStatus; clientId: string | null }>(
+  drafts: T[], f: DraftListFilter,
+): T[] {
+  return drafts.filter((d) =>
+    (f.status === 'all' || d.status === f.status) &&
+    (f.clientId === '' || (f.clientId === 'none' ? d.clientId === null : d.clientId === f.clientId)));
+}
+
+export function statusCounts(drafts: Array<{ status: DraftStatus }>): Record<DraftStatus, number> {
+  const out: Record<DraftStatus, number> = { draft: 0, review: 0, approved: 0, delivered: 0, unused: 0 };
+  for (const d of drafts) out[d.status] += 1;
+  return out;
 }

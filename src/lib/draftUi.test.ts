@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags, textsChanged, idSetChanged, newDraftsSince } from './draftUi.ts';
+import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags, textsChanged, idSetChanged, newDraftsSince, filterDrafts, statusCounts } from './draftUi.ts';
 import type { DraftContent } from './draftTypes.ts';
 
 test('hookBoundary: 첫 빈 줄에서 분리, 없으면 null', () => {
@@ -60,4 +60,25 @@ test('newDraftsSince — 모르는 id이면서 기준 시각 이후인 것만', 
   ];
   const since = Date.parse('2026-08-06T10:01:00Z');
   assert.deepEqual(newDraftsSince(cur, fetched, since).map((d) => d.id), ['b']);
+});
+
+test('filterDrafts — 상태·클라이언트 AND 조합', () => {
+  const drafts = [
+    { status: 'draft' as const, clientId: 'c1' },
+    { status: 'review' as const, clientId: 'c1' },
+    { status: 'review' as const, clientId: null },
+  ];
+  assert.equal(filterDrafts(drafts, { status: 'all', clientId: '' }).length, 3);
+  assert.equal(filterDrafts(drafts, { status: 'review', clientId: '' }).length, 2);
+  assert.equal(filterDrafts(drafts, { status: 'review', clientId: 'c1' }).length, 1);
+  assert.equal(filterDrafts(drafts, { status: 'all', clientId: 'none' }).length, 1); // 클라이언트 없음
+});
+
+test('statusCounts — 상태별 건수', () => {
+  const counts = statusCounts([
+    { status: 'draft' }, { status: 'draft' }, { status: 'delivered' },
+  ]);
+  assert.equal(counts.draft, 2);
+  assert.equal(counts.delivered, 1);
+  assert.equal(counts.review, 0);
 });

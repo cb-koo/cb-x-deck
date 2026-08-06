@@ -2,11 +2,12 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
-import { newDraftsSince } from '@/lib/draftUi';
+import { newDraftsSince, filterDrafts, statusCounts, type DraftListFilter } from '@/lib/draftUi';
 import { Toast } from '@/components/Toast';
 import { DraftCard } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
 import { RefPickerSheet } from '@/components/RefPickerSheet';
+import { DraftFilterBar } from '@/components/DraftFilterBar';
 import { DraftComposer, DEFAULT_COMPOSER, type ComposerState } from '@/components/DraftComposer';
 import { LAST_WS_KEY } from '@/components/GlobalShell';
 import type { DraftRow } from '@/lib/draftStore';
@@ -32,6 +33,7 @@ function Workbench() {
   const [composer, setComposer] = useState<ComposerState>(DEFAULT_COMPOSER);
   const [refRows, setRefRows] = useState<ReferenceRow[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [filter, setFilter] = useState<DraftListFilter>({ status: 'all', clientId: '' });
   const [editing, setEditing] = useState<DraftRow | null>(null);
   const [generating, setGenerating] = useState(false);
   const [rewritingId, setRewritingId] = useState<string | null>(null);
@@ -76,6 +78,12 @@ function Workbench() {
   }, [searchParams]);
 
   const selectedRefIds = useMemo(() => refRows.map((x) => x.tweetId), [refRows]);
+
+  const clientScoped = useMemo(
+    () => filterDrafts(drafts, { status: 'all', clientId: filter.clientId }), [drafts, filter.clientId]);
+  const visibleDrafts = useMemo(
+    () => filterDrafts(clientScoped, { status: filter.status, clientId: '' }), [clientScoped, filter.status]);
+  const counts = useMemo(() => statusCounts(clientScoped), [clientScoped]);
 
   const bannedFor = useCallback((d: DraftRow) => {
     const c = clients.find((x) => x.client.id === d.clientId);
@@ -236,6 +244,12 @@ function Workbench() {
                      onClearRefs={() => setRefRows([])}
                      generating={generating} onGenerate={() => generate()} onCancel={cancelGenerate} />
 
+      {loaded && drafts.length > 0 && (
+        <DraftFilterBar counts={counts} total={clientScoped.length} filter={filter}
+                        clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
+                        onChange={setFilter} />
+      )}
+
       {generating && (
         <div className="w-full max-w-[600px] animate-pulse rounded-2xl border border-x-border-strong bg-white px-4 py-3">
           <div className="flex gap-3">
@@ -257,7 +271,13 @@ function Workbench() {
         </p>
       )}
 
-      {drafts.map((d) => (
+      {loaded && drafts.length > 0 && visibleDrafts.length === 0 && !generating && (
+        <p className="w-full max-w-[600px] rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
+          이 조건에 맞는 초안이 없어요 — 탭이나 클라이언트 필터를 바꿔보세요.
+        </p>
+      )}
+
+      {visibleDrafts.map((d) => (
         <DraftCard key={d.id} draft={d} banned={bannedFor(d)}
                    onEdit={() => setEditing(d)}
                    onRewrite={(feedback, baseIndex) => rewrite(d.id, feedback, baseIndex)}

@@ -4,12 +4,18 @@ import { generateDraft, GenerateInputError, type GenerateRequest } from '@/lib/g
 import { listDrafts, getDraft } from '@/lib/draftStore';
 import { LLMRefusalError } from '@/lib/llm';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
+import { isDraftStatus } from '@/lib/draftStatus';
 
 export async function GET(req: Request) {
   const gate = await requireAllowedUser();
   if (gate.response) return gate.response;
-  const clientId = new URL(req.url).searchParams.get('clientId') ?? undefined;
-  return NextResponse.json(await listDrafts(getSql(), { clientId }));
+  const params = new URL(req.url).searchParams;
+  const clientId = params.get('clientId') ?? undefined;
+  const status = params.get('status');
+  if (status !== null && !isDraftStatus(status)) {
+    return NextResponse.json({ error: '상태 값이 올바르지 않아요' }, { status: 400 });
+  }
+  return NextResponse.json(await listDrafts(getSql(), { clientId, status: status ?? undefined }));
 }
 
 export async function POST(req: Request) {

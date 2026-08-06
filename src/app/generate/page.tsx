@@ -45,6 +45,8 @@ function Workbench() {
   const dismissedRef = useRef<Record<string, string[]>>({});
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const genStartedAt = useRef(0); // 이번 생성 요청 시각 — 폴링 병합의 하한선
+  const draftsRef = useRef<DraftRow[]>([]);
+  useEffect(() => { draftsRef.current = drafts; }, [drafts]);
   const lastWsId = typeof window !== 'undefined' ? localStorage.getItem(LAST_WS_KEY) : null;
 
   useEffect(() => {
@@ -157,17 +159,15 @@ function Workbench() {
         const r = await apiFetch('/api/drafts');
         if (!r.ok) return; // 조용히 다음 주기 재시도 (스펙 §4)
         const fetched = (await r.json()) as DraftRow[];
-        let freshList: DraftRow[] = [];
-        setDrafts((cur) => {
-          freshList = newDraftsSince(cur, fetched, genStartedAt.current);
-          return freshList.length > 0 ? [...freshList, ...cur] : cur;
-        });
-        if (freshList.length > 0) {
-          stopPolling();
-          setToast('아까 취소한 원고가 완성됐어요');
-          // 직접 성공 경로와 동일 — 완성본이 현재 필터에 가려 안 보이면 필터를 전체로 (T11 픽스 후속)
-          setFilter((f) => (filterDrafts(freshList, f).length > 0 ? f : { status: 'all', clientId: '' }));
-        }
+        // 판정은 ref 미러 기준 — setDrafts 업데이터의 동기 실행(eager state)에 기대지 않는다 (최종 리뷰 반영)
+        const fresh = newDraftsSince(draftsRef.current, fetched, genStartedAt.current);
+        if (fresh.length === 0) return;
+        // 삽입은 업데이터 안에서 재계산 — ref가 한 렌더 뒤처져도 중복 삽입이 없다
+        setDrafts((cur) => [...newDraftsSince(cur, fetched, genStartedAt.current), ...cur]);
+        stopPolling();
+        setToast('아까 취소한 원고가 완성됐어요');
+        // 직접 성공 경로와 동일 — 완성본이 현재 필터에 가려 안 보이면 필터를 전체로 (T11 픽스 후속)
+        setFilter((f) => (filterDrafts(fresh, f).length > 0 ? f : { status: 'all', clientId: '' }));
       } catch { /* 다음 주기 재시도 */ }
     }, 5000);
   }

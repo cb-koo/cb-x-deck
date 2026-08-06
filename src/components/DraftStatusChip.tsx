@@ -7,7 +7,7 @@ const STATUS_STYLE: Record<DraftStatus, string> = {
   review: 'bg-amber-100 text-amber-800',
   approved: 'bg-x-blue/10 text-x-blue-text',
   delivered: 'bg-green-100 text-green-800',
-  unused: 'bg-x-surface text-x-muted',
+  unused: 'bg-x-border/40 text-x-muted',
 };
 
 // 칩처럼 보이는 select — 클릭 시 5개 상태 중 선택, 즉시 저장은 부모 몫
@@ -15,7 +15,7 @@ export function DraftStatusChip({ status, onChange }: {
   status: DraftStatus; onChange: (s: DraftStatus) => void;
 }) {
   return (
-    <label className={`relative inline-flex cursor-pointer items-center rounded-full px-2.5 py-0.5 text-caption font-bold ${STATUS_STYLE[status]}`}>
+    <label className={`relative inline-flex cursor-pointer items-center rounded-full px-2.5 py-0.5 text-caption font-bold focus-within:ring-2 focus-within:ring-x-blue ${STATUS_STYLE[status]}`}>
       {STATUS_LABEL[status]} <span aria-hidden className="ml-0.5">⌄</span>
       <select value={status} onChange={(e) => onChange(e.target.value as DraftStatus)}
               aria-label="초안 상태 변경" className="absolute inset-0 w-full cursor-pointer opacity-0">

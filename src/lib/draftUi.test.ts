@@ -42,6 +42,7 @@ test('textsChanged — 본문 배열이 하나라도 다르면 dirty', () => {
   assert.equal(textsChanged(['a', 'b'], ['a', 'b']), false);
   assert.equal(textsChanged(['a', 'b'], ['a', 'c']), true);
   assert.equal(textsChanged(['a'], ['a', '']), true);   // 길이 차이도 dirty
+  assert.equal(textsChanged([], []), false);            // 빈 배열끼리는 안 변함
 });
 
 test('idSetChanged — 순서 무관 집합 비교', () => {
@@ -57,9 +58,10 @@ test('newDraftsSince — 모르는 id이면서 기준 시각 이후인 것만', 
     { id: 'b', createdAt: '2026-08-06T10:05:00Z' },  // 새 것 — 포함
     { id: 'a', createdAt: '2026-08-06T10:00:00Z' },  // 이미 있음 — 제외
     { id: 'c', createdAt: '2026-08-06T09:00:00Z' },  // 기준 이전(예: 삭제 대기 중인 옛 초안) — 제외
+    { id: 'd', createdAt: '2026-08-06T10:01:00Z' },  // 기준 시각과 정확히 같음 — 포함(>=)
   ];
   const since = Date.parse('2026-08-06T10:01:00Z');
-  assert.deepEqual(newDraftsSince(cur, fetched, since).map((d) => d.id), ['b']);
+  assert.deepEqual(newDraftsSince(cur, fetched, since).map((d) => d.id), ['b', 'd']);
 });
 
 test('filterDrafts — 상태·클라이언트 AND 조합', () => {

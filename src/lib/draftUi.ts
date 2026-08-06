@@ -65,6 +65,7 @@ export function newDraftsSince<T extends { id: string; createdAt: string }>(
 }
 
 // /generate 목록 필터 (스펙 3-1) — clientId: '' 전체 · 'none' 클라이언트 없음 · 그 외 해당 id
+// 'none'에는 클라이언트 삭제로 고아가 된 초안(client_id ON DELETE SET NULL)도 포함된다.
 export interface DraftListFilter { status: DraftStatus | 'all'; clientId: string }
 
 export function filterDrafts<T extends { status: DraftStatus; clientId: string | null }>(

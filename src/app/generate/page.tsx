@@ -112,6 +112,8 @@ function Workbench() {
       const body = await r.json().catch(() => ({}));
       if (!r.ok) { setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
       setDrafts((cur) => [body as DraftRow, ...cur]);
+      // 방금 만든 초안이 현재 필터에 가려 안 보이면 필터를 전체로 — 생성 결과가 소리 없이 사라지지 않게 (T11 리뷰 반영)
+      setFilter((f) => (filterDrafts([body as DraftRow], f).length > 0 ? f : { status: 'all', clientId: '' }));
     } catch (e) {
       if ((e as Error).name !== 'AbortError') setToast('생성 중 오류가 났어요 — 잠시 후 다시 시도해주세요');
     } finally {

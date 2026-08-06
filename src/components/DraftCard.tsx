@@ -218,7 +218,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
             참고 레퍼런스 {draft.refs.length}건{draft.refs.length > 0 && <span className="text-x-blue-text"> · {MODE_LABEL[draft.referenceMode]} {refsOpen ? '⌃' : '⌄'}</span>}
           </button>
           <span className="shrink-0 text-caption tabular-nums text-x-muted">
-            {[draft.clientName, ...draft.procedureNames].filter(Boolean).join(' · ')}{draft.model ? ` · ${draft.model}` : ''}
+            {[draft.clientName, ...draft.procedureNames].filter(Boolean).join(' · ')}
           </span>
         </div>
         {refsOpen && draft.refs.map((r: RefSnapshot) => (

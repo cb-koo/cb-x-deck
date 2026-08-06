@@ -12,6 +12,7 @@ import { LAST_WS_KEY } from '@/components/GlobalShell';
 import type { DraftRow } from '@/lib/draftStore';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { ReferenceRow } from '@/lib/referenceStore';
+import type { DraftStatus } from '@/lib/draftStatus';
 
 const COMPOSER_KEY = 'cbx-composer'; // 직전 설정 유지 (스펙 §4 "바꾸기 — 직전 값 유지")
 
@@ -199,6 +200,14 @@ function Workbench() {
     void patchDraft(d.id, { dismissedFlags: [] });
   }
 
+  function changeStatus(d: DraftRow, status: DraftStatus) {
+    const prev = d.status;
+    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, status } : x)));
+    void patchDraft(d.id, { status }).then((updated) => {
+      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, status: prev } : x)));
+    });
+  }
+
   async function regenPost(d: DraftRow, index: number) {
     setRegenBusy({ draftId: d.id, index });
     const r = await apiFetch(`/api/drafts/${d.id}/regen-post`, {
@@ -257,7 +266,8 @@ function Workbench() {
                    onRegenPost={(i) => regenPost(d, i)}
                    regenBusyIndex={regenBusy?.draftId === d.id ? regenBusy.index : null}
                    onDismissFlag={(key, dismiss) => toggleDismiss(d, key, dismiss)}
-                   onRestoreAllFlags={() => restoreAllFlags(d)} />
+                   onRestoreAllFlags={() => restoreAllFlags(d)}
+                   onChangeStatus={(s) => changeStatus(d, s)} />
       ))}
 
       {editing && (

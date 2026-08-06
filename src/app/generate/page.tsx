@@ -196,6 +196,7 @@ function Workbench() {
       <DraftComposer clients={clients} value={composer} onChange={updateComposer}
                      refRows={refRows} onOpenPicker={() => setPickerOpen(true)}
                      onRemoveRef={(id) => setRefRows((cur) => cur.filter((x) => x.tweetId !== id))}
+                     onClearRefs={() => setRefRows([])}
                      generating={generating} onGenerate={() => generate()} onCancel={cancelGenerate} />
 
       {generating && (

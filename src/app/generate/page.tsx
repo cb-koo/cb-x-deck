@@ -2,6 +2,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
+import { newDraftsSince } from '@/lib/draftUi';
 import { Toast } from '@/components/Toast';
 import { DraftCard } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
@@ -39,6 +40,8 @@ function Workbench() {
   const abortRef = useRef<AbortController | null>(null);
   const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dismissedRef = useRef<Record<string, string[]>>({});
+  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const genStartedAt = useRef(0); // 이번 생성 요청 시각 — 폴링 병합의 하한선
   const lastWsId = typeof window !== 'undefined' ? localStorage.getItem(LAST_WS_KEY) : null;
 
   useEffect(() => {
@@ -54,6 +57,7 @@ function Workbench() {
         ? { ...cur, clientId: null, procedureIds: [] } : cur));
     }).catch(() => { setLoaded(true); setToast('목록을 불러오지 못했어요 — 새로고침해 주세요'); });
   }, []);
+  useEffect(() => () => { if (pollTimer.current) clearInterval(pollTimer.current); }, []);
   const updateComposer = useCallback((v: ComposerState) => {
     setComposer(v);
     localStorage.setItem(COMPOSER_KEY, JSON.stringify({ ...v, direction: '' })); // 방향성은 매번 새로
@@ -80,6 +84,8 @@ function Workbench() {
 
   async function generate() {
     if (generating) return;
+    stopPolling();
+    genStartedAt.current = Date.now();
     setGenerating(true);
     const ac = new AbortController();
     abortRef.current = ac;
@@ -124,9 +130,31 @@ function Workbench() {
     }
   }
 
+  function stopPolling() {
+    if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
+  }
+
+  // 취소 = 기다리기만 중단(서버 생성은 계속) → 완성본을 폴링으로 자동 반영 (스펙 3-5)
   function cancelGenerate() {
     abortRef.current?.abort();
-    setToast('기다리기를 취소했어요 — 완성되면 목록에 저장됩니다 (새로고침으로 확인)');
+    setToast('기다리기를 취소했어요 — 완성되면 목록에 자동으로 나타나요');
+    const deadline = Date.now() + 120_000; // 최대 2분
+    stopPolling();
+    pollTimer.current = setInterval(async () => {
+      if (Date.now() > deadline) { stopPolling(); return; }
+      try {
+        const r = await apiFetch('/api/drafts');
+        if (!r.ok) return; // 조용히 다음 주기 재시도 (스펙 §4)
+        const fetched = (await r.json()) as DraftRow[];
+        let found = false;
+        setDrafts((cur) => {
+          const fresh = newDraftsSince(cur, fetched, genStartedAt.current);
+          found = fresh.length > 0;
+          return found ? [...fresh, ...cur] : cur;
+        });
+        if (found) { stopPolling(); setToast('아까 취소한 원고가 완성됐어요'); }
+      } catch { /* 다음 주기 재시도 */ }
+    }, 5000);
   }
 
   async function patchDraft(id: string, body: object) {

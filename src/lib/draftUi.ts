@@ -43,3 +43,22 @@ export function collectDraftFlags(
   });
   return out;
 }
+
+// 편집 모달 dirty 판정 (스펙 3-3) — 열 때의 본문과 현재 입력이 하나라도 다르면 true
+export function textsChanged(base: string[], current: string[]): boolean {
+  return base.length !== current.length || base.some((t, i) => t !== current[i]);
+}
+
+// 레퍼런스 시트 dirty 판정 (스펙 3-4) — 선택 id 집합이 다르면 true (순서 무관)
+export function idSetChanged(a: string[], b: string[]): boolean {
+  return [...a].sort().join('\0') !== [...b].sort().join('\0');
+}
+
+// 취소 후 폴링 병합 (스펙 3-5) — 목록에 없는 id이면서 생성 시작 이후 만들어진 것만.
+// sinceMs 기준이 없으면 '삭제 대기 중(5초 실행취소)'인 옛 초안이 폴링으로 되살아난다.
+export function newDraftsSince<T extends { id: string; createdAt: string }>(
+  cur: T[], fetched: T[], sinceMs: number,
+): T[] {
+  const known = new Set(cur.map((d) => d.id));
+  return fetched.filter((d) => !known.has(d.id) && Date.parse(d.createdAt) >= sinceMs);
+}

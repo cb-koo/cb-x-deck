@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: '요청 형식이 올바르지 않아요' }, { status: 400 });
   }
   try {
-    const id = await generateDraft(sql, {
+    const ids = await generateDraft(sql, {
       clientId: body.clientId ?? null,
       procedureIds: body.procedureIds ?? [],
       refTweetIds: body.refTweetIds ?? [],
@@ -40,9 +40,10 @@ export async function POST(req: Request) {
       direction: body.direction ?? '',
       format: body.format === 'thread' ? 'thread' : 'single',
       constraintsOn: !!body.constraintsOn,
+      count: body.count,
       memberId: gate.member.id, // 클라이언트 body 무시 — 위조 차단(브리핑 관례)
     });
-    return NextResponse.json(await getDraft(sql, id));
+    return NextResponse.json(await Promise.all(ids.map((id) => getDraft(sql, id))));
   } catch (e) {
     if (e instanceof GenerateInputError) return NextResponse.json({ error: e.message }, { status: 400 });
     if (e instanceof LLMRefusalError) {

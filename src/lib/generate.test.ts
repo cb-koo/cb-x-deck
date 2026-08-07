@@ -69,7 +69,7 @@ test('생성 왕복: 스냅샷·모델 기록·프롬프트에 클라+레퍼런�
 
   const client = await getClientProcIds(c.id);
   let sent: Record<string, unknown> = {};
-  const id = await generateDraft(sql, {
+  const [id] = await generateDraft(sql, {
     clientId: c.id, procedureIds: client, refTweetIds: [T1], mode: 'both',
     direction: P + '다운타임 강조', format: 'single', constraintsOn: false, memberId: null,
   }, fakeLLM((p) => { sent = p; }));
@@ -110,7 +110,7 @@ function fakeThread(): AnthropicLike {
 }
 
 test('스레드 부분 재생성: 해당 post만 edited에 반영, content 불변', async () => {
-  const id = await generateDraft(sql, {
+  const [id] = await generateDraft(sql, {
     clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
     direction: P + '스레드', format: 'thread', constraintsOn: false, memberId: null,
   }, fakeThread());
@@ -138,7 +138,7 @@ test('스레드 부분 재생성: 해당 post만 edited에 반영, content 불�
 });
 
 test('다시 쓰기: 피드백이 프롬프트에 실리고, 직전 표시본이 history에 보존', async () => {
-  const id = await generateDraft(sql, {
+  const [id] = await generateDraft(sql, {
     clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
     direction: P + '다시쓰기', format: 'single', constraintsOn: false, memberId: null,
   }, fakeLLM());
@@ -176,7 +176,7 @@ test('다시 쓰기: 피드백이 프롬프트에 실리고, 직전 표시본이
 });
 
 test('잘못된 index면 GenerateInputError', async () => {
-  const id = await generateDraft(sql, {
+  const [id] = await generateDraft(sql, {
     clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
     direction: P + '스레드2', format: 'thread', constraintsOn: false, memberId: null,
   }, fakeThread());
@@ -198,4 +198,55 @@ test('요청한 레퍼런스가 보관함에 없으면 GenerateInputError (유�
     GenerateInputError,
   );
   assert.equal(called, false);
+});
+
+test('count 3 — 1콜로 variants 3개를 받아 3행 삽입, 같은 batch·순번', async () => {
+  const fake: AnthropicLike = { messages: { create: async (p: object) => {
+    // variants 스키마가 전달됐는지 확인
+    const schema = JSON.stringify(
+      (p as { output_config?: { format?: { schema?: object } } }).output_config?.format?.schema ?? {});
+    assert.ok(schema.includes('variants'));
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ variants: [
+        { posts: [{ text: '시안A本文' }] },
+        { posts: [{ text: '시안B本文' }] },
+        { posts: [{ text: '시안C本文' }] },
+      ] }) }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      stop_reason: 'end_turn',
+    };
+  } } };
+  const ids = await generateDraft(sql, {
+    clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
+    direction: P + '다중', format: 'single', constraintsOn: false, memberId: null, count: 3,
+  }, fake);
+  assert.equal(ids.length, 3);
+  const rows = await Promise.all(ids.map((id) => getDraft(sql, id)));
+  assert.equal(rows[0]!.content.posts[0].text, '시안A本文');
+  assert.equal(rows[2]!.content.posts[0].text, '시안C本文');
+  assert.ok(rows[0]!.batchId);                                  // 묶음 생성됨
+  assert.equal(rows[1]!.batchId, rows[0]!.batchId);             // 같은 묶음
+  assert.deepEqual(rows.map((r) => r!.variantIndex), [0, 1, 2]);
+  for (const id of ids) await removeDraft(sql, id);
+});
+
+test('count 1 — 기존과 동일: posts 스키마·batch null', async () => {
+  const fake: AnthropicLike = { messages: { create: async (p: object) => {
+    const schema = JSON.stringify(
+      (p as { output_config?: { format?: { schema?: object } } }).output_config?.format?.schema ?? {});
+    assert.ok(!schema.includes('variants'));                     // 단일은 기존 posts 스키마
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ posts: [{ text: '単発本文' }] }) }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      stop_reason: 'end_turn',
+    };
+  } } };
+  const [id] = await generateDraft(sql, {
+    clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
+    direction: P + '단발', format: 'single', constraintsOn: false, memberId: null,
+  }, fake);
+  const row = await getDraft(sql, id);
+  assert.equal(row!.batchId, null);
+  assert.equal(row!.variantIndex, null);
+  await removeDraft(sql, id);
 });

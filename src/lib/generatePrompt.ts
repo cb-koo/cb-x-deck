@@ -11,6 +11,8 @@ export interface PromptInput {
   constraintsOn: boolean;
   // '다시 쓰기' — 현재 버전 전문 + (선택) 사용자 피드백. 피드백이 없으면 같은 조건 재생성.
   rewrite?: { current: string[]; feedback?: string };
+  // 다중 시안 — 2 이상이면 "서로 다른 앵글로 N개" 지시가 붙는다. 1/미지정 = 기존 프롬프트 그대로.
+  variantCount?: number;
 }
 
 export const DRAFT_SYSTEM =
@@ -59,6 +61,10 @@ export function buildUserPrompt(i: PromptInput): string {
       ? `사용자 피드백(반드시 반영해서 다시 쓰기): ${i.rewrite.feedback.trim()}`
       : '같은 조건으로 새로 쓰되, 현재 버전과 훅·표현이 겹치지 않게 하세요.');
   }
+  if ((i.variantCount ?? 1) > 1) {
+    task.push(`이번 요청은 시안 ${i.variantCount}개입니다. 서로 다른 앵글·훅으로 ${i.variantCount}개를 만드세요.`,
+      '시안끼리 첫 문장(훅)·소재 접근이 겹치면 안 됩니다.');
+  }
   task.push(i.format === 'single'
     ? `형식: 단문 포스트 1개. 가중 ${X_MAX_WEIGHTED}자(일본어 약 140자) 이내.`
     : `형식: 스레드 3~5개 포스트. 각 포스트는 가중 ${X_MAX_WEIGHTED}자(일본어 약 140자) 이내. 1번 포스트가 훅.`);
@@ -88,6 +94,21 @@ export function draftOutputSchema(): object {
       },
     },
     required: ['posts'],
+    additionalProperties: false,
+  };
+}
+
+// 다중 시안용 — variants[n].posts 구조. 단일 생성은 기존 draftOutputSchema를 그대로 쓴다.
+export function variantsOutputSchema(): object {
+  return {
+    type: 'object',
+    properties: {
+      variants: {
+        type: 'array',
+        items: draftOutputSchema(),
+      },
+    },
+    required: ['variants'],
     additionalProperties: false,
   };
 }

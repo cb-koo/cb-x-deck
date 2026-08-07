@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildUserPrompt, draftOutputSchema, type PromptInput } from './generatePrompt.ts';
+import { buildUserPrompt, draftOutputSchema, variantsOutputSchema, type PromptInput } from './generatePrompt.ts';
 
 const base: PromptInput = {
   client: null, procedures: [], references: [], mode: 'off',
@@ -65,4 +65,24 @@ test('출력 스키마: posts 배열 필수', () => {
   const s = draftOutputSchema() as { properties: { posts: object }; required: string[] };
   assert.ok(s.properties.posts);
   assert.deepEqual(s.required, ['posts']);
+});
+
+test('variantCount>1 — 다양성 지시가 들어가고, 1이면 흔적도 없다', () => {
+  const base = {
+    client: null, procedures: [], references: [], mode: 'off' as const,
+    direction: '테스트', format: 'single' as const, constraintsOn: false,
+  };
+  const multi = buildUserPrompt({ ...base, variantCount: 3 });
+  assert.ok(multi.includes('시안 3개'));
+  assert.ok(multi.includes('서로 다른 앵글'));
+  const single = buildUserPrompt({ ...base, variantCount: 1 });
+  const none = buildUserPrompt(base);
+  assert.equal(single, none);                 // count 1 = 기존 프롬프트와 동일
+  assert.ok(!none.includes('시안'));
+});
+
+test('variantsOutputSchema — variants 배열 스키마', () => {
+  const s = variantsOutputSchema() as { properties: { variants: { items: { properties: object } } }; required: string[] };
+  assert.deepEqual(s.required, ['variants']);
+  assert.ok('posts' in s.properties.variants.items.properties);
 });

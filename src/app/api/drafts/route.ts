@@ -31,6 +31,9 @@ export async function POST(req: Request) {
       (body.procedureIds !== undefined && !Array.isArray(body.procedureIds))) {
     return NextResponse.json({ error: '요청 형식이 올바르지 않아요' }, { status: 400 });
   }
+  if (body.count !== undefined && (!Number.isInteger(body.count) || body.count < 1 || body.count > 5)) {
+    return NextResponse.json({ error: '시안 수는 1~5 사이여야 해요' }, { status: 400 });
+  }
   try {
     const ids = await generateDraft(sql, {
       clientId: body.clientId ?? null,

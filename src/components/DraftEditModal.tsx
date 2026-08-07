@@ -4,6 +4,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import type { DraftRow } from '@/lib/draftStore';
 import type { DraftContent } from '@/lib/draftTypes';
 import { xWeightedLength, X_MAX_WEIGHTED } from '@/lib/xLength';
+import { textsChanged } from '@/lib/draftUi';
 
 // X 컴포즈 모달 구조: ✕ / 원본과 비교 / 아바타 40 / 입력 20px·lh24 / 하단 바 + 저장 36px (스펙 §4)
 export function DraftEditModal({ draft, onClose, onSaved }: {
@@ -15,13 +16,21 @@ export function DraftEditModal({ draft, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const empty = texts.some((t) => !t.trim());
+  const dirty = textsChanged(base.posts.map((p) => p.text), texts);
+  // 이 모달엔 별도 '취소' 버튼이 없어 ✕·Esc·배경 클릭 모두 확인 대상 (스펙 3-3)
+  function requestClose() {
+    if (!dirty || window.confirm('저장하지 않은 수정이 있어요. 닫을까요?')) onClose();
+  }
 
   // Esc로 모달 닫기 — ColumnSettings 선례와 동일한 방식. IME 조합 중 Esc는 무시.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing) return;
+      if (!dirty || window.confirm('저장하지 않은 수정이 있어요. 닫을까요?')) onClose();
+    };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [dirty, onClose]);
 
   async function save() {
     setErr(''); setSaving(true);
@@ -37,11 +46,11 @@ export function DraftEditModal({ draft, onClose, onSaved }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-x-text/40 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-x-text/40 p-6" onClick={requestClose}>
       <div className="w-full max-w-[600px] rounded-2xl bg-white" role="dialog" aria-label="초안 편집"
            onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-2.5">
-          <button onClick={onClose} aria-label="닫기" className="rounded-full px-2 py-1 text-[19px] hover:bg-x-text/5">✕</button>
+          <button onClick={requestClose} aria-label="닫기" className="rounded-full px-2 py-1 text-[19px] hover:bg-x-text/5">✕</button>
           <button onClick={() => setCompare(!compare)} className="text-[15px] font-bold text-x-blue-text hover:underline">
             {compare ? '편집으로 돌아가기' : '원본과 비교'}
           </button>

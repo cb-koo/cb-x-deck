@@ -6,6 +6,7 @@ import { MediaGrid } from '@/components/MediaGrid';
 import { useTranslations } from '@/components/useTranslations';
 import { formatCount } from '@/lib/format';
 import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from '@/components/XIcons';
+import { idSetChanged } from '@/lib/draftUi';
 import type { ReferenceRow } from '@/lib/referenceStore';
 
 export const MAX_REFS_UI = 8; // 서버 MAX_REFS와 동일 (generate.ts)
@@ -47,22 +48,29 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
   // Esc로 시트 닫기 — ColumnSettings 선례와 동일한 방식(document 레벨 리스너). IME 조합 중 Esc는 무시.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing) return;
+      if (!idSetChanged(sel, selectedIds) || window.confirm('선택을 적용하지 않았어요. 닫을까요?')) onClose();
+    };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, onClose, sel, selectedIds]);
 
   const allTags = useMemo(() => [...new Set(rows.flatMap((r) => r.tags))].slice(0, 12), [rows]);
   const visible = tag ? rows.filter((r) => r.tags.includes(tag)) : rows;
 
   if (!open) return null;
+  const dirty = idSetChanged(sel, selectedIds);
+  function requestClose() {
+    if (!dirty || window.confirm('선택을 적용하지 않았어요. 닫을까요?')) onClose();
+  }
   function toggle(id: string) {
     setSel((cur) => cur.includes(id) ? cur.filter((x) => x !== id)
       : cur.length >= MAX_REFS_UI ? cur : [...cur, id]);
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center bg-x-text/40 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-40 flex items-start justify-center bg-x-text/40 p-6" onClick={requestClose}>
       <div className="max-h-full w-full max-w-[640px] overflow-y-auto rounded-2xl bg-white"
            role="dialog" aria-label="레퍼런스 선택" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 flex items-center gap-3 border-b border-x-border bg-white px-4 py-3">

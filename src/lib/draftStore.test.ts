@@ -59,3 +59,30 @@ test('insert→list→get→update(edited·dismissed)→remove 왕복 + 스냅�
   await removeDraft(sql, id);
   assert.equal(await getDraft(sql, id), null);
 });
+
+test('status — 기본값·패치·필터·부분 패치 독립', async () => {
+  const id = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + '상태 왕복', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+
+  assert.equal((await getDraft(sql, id))!.status, 'draft');       // DB 기본값
+
+  await updateDraft(sql, id, { status: 'review' });
+  assert.equal((await getDraft(sql, id))!.status, 'review');
+
+  const listed = await listDrafts(sql, { status: 'review' });
+  assert.ok(listed.some((d) => d.id === id));
+  const excluded = await listDrafts(sql, { status: 'delivered' });
+  assert.ok(!excluded.some((d) => d.id === id));
+
+  // 다른 필드 패치가 status를 덮지 않는다 (coalesce 부분 패치)
+  await updateDraft(sql, id, { dismissedFlags: ['yakkiho:効果がある'] });
+  assert.equal((await getDraft(sql, id))!.status, 'review');
+
+  // DB CHECK — 유효하지 않은 상태는 거부
+  await assert.rejects(sql`update draft set status = 'bogus' where id = ${id}`);
+
+  await removeDraft(sql, id);
+});

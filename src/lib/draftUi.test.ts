@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags } from './draftUi.ts';
+import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags, textsChanged, idSetChanged, newDraftsSince, filterDrafts, statusCounts } from './draftUi.ts';
 import type { DraftContent } from './draftTypes.ts';
 
 test('hookBoundary: 첫 빈 줄에서 분리, 없으면 null', () => {
@@ -36,4 +36,51 @@ test('collectDraftFlags: post별 표식 + dismissed 판정 + 중복 제거', () 
   assert.equal(p0[0].dismissed, true);              // dismissed 반영
   const p1 = flags.filter((f) => f.postIndex === 1);
   assert.ok(p1.some((f) => f.flag.kind === 'banned' && !f.dismissed));
+});
+
+test('textsChanged — 본문 배열이 하나라도 다르면 dirty', () => {
+  assert.equal(textsChanged(['a', 'b'], ['a', 'b']), false);
+  assert.equal(textsChanged(['a', 'b'], ['a', 'c']), true);
+  assert.equal(textsChanged(['a'], ['a', '']), true);   // 길이 차이도 dirty
+  assert.equal(textsChanged([], []), false);            // 빈 배열끼리는 안 변함
+});
+
+test('idSetChanged — 순서 무관 집합 비교', () => {
+  assert.equal(idSetChanged(['1', '2'], ['2', '1']), false); // 순서만 다름 = 안 변함
+  assert.equal(idSetChanged(['1'], ['1', '2']), true);
+  assert.equal(idSetChanged(['1', '3'], ['1', '2']), true);
+  assert.equal(idSetChanged([], []), false);
+});
+
+test('newDraftsSince — 모르는 id이면서 기준 시각 이후인 것만', () => {
+  const cur = [{ id: 'a', createdAt: '2026-08-06T10:00:00Z' }];
+  const fetched = [
+    { id: 'b', createdAt: '2026-08-06T10:05:00Z' },  // 새 것 — 포함
+    { id: 'a', createdAt: '2026-08-06T10:00:00Z' },  // 이미 있음 — 제외
+    { id: 'c', createdAt: '2026-08-06T09:00:00Z' },  // 기준 이전(예: 삭제 대기 중인 옛 초안) — 제외
+    { id: 'd', createdAt: '2026-08-06T10:01:00Z' },  // 기준 시각과 정확히 같음 — 포함(>=)
+  ];
+  const since = Date.parse('2026-08-06T10:01:00Z');
+  assert.deepEqual(newDraftsSince(cur, fetched, since).map((d) => d.id), ['b', 'd']);
+});
+
+test('filterDrafts — 상태·클라이언트 AND 조합', () => {
+  const drafts = [
+    { status: 'draft' as const, clientId: 'c1' },
+    { status: 'review' as const, clientId: 'c1' },
+    { status: 'review' as const, clientId: null },
+  ];
+  assert.equal(filterDrafts(drafts, { status: 'all', clientId: '' }).length, 3);
+  assert.equal(filterDrafts(drafts, { status: 'review', clientId: '' }).length, 2);
+  assert.equal(filterDrafts(drafts, { status: 'review', clientId: 'c1' }).length, 1);
+  assert.equal(filterDrafts(drafts, { status: 'all', clientId: 'none' }).length, 1); // 클라이언트 없음
+});
+
+test('statusCounts — 상태별 건수', () => {
+  const counts = statusCounts([
+    { status: 'draft' }, { status: 'draft' }, { status: 'delivered' },
+  ]);
+  assert.equal(counts.draft, 2);
+  assert.equal(counts.delivered, 1);
+  assert.equal(counts.review, 0);
 });

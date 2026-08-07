@@ -1,6 +1,7 @@
 import type postgres from 'postgres';
 import type { Member } from './types.ts';
 import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
+import type { DraftStatus } from './draftStatus.ts';
 
 // 버전별 한국어 번역 캐시 — sourceHash(원문 지문) → 번역 posts. 어떤 버전이든 한 번 번역하면 재사용.
 export type DraftTranslation = Record<string, string[]>;
@@ -22,6 +23,7 @@ export interface DraftRow {
   history: DraftContent[]; // 재생성 직전 표시본 스냅샷들 — [ ...history, edited ?? content ]가 버전 타임라인
   translation: DraftTranslation | null;
   dismissedFlags: string[];
+  status: DraftStatus; // 결정 진행도 라벨 — 전이 제약 없음 (스펙 §2)
   model: string | null; createdAt: string; member: Member | null;
 }
 
@@ -31,6 +33,7 @@ type Row = {
   content: DraftContent; edited: DraftContent | null;
   history: DraftContent[]; translation: DraftTranslation | null;
   dismissed_flags: string[];
+  status: DraftStatus;
   model: string | null; created_at: Date;
   member_id: string | null; member_name: string | null; member_color: string | null;
 };
@@ -40,6 +43,7 @@ const toRow = (r: Row): DraftRow => ({
   direction: r.direction, format: r.format, referenceMode: r.reference_mode, refs: r.refs,
   content: r.content, edited: r.edited, history: r.history, translation: normalizeTranslation(r.translation),
   dismissedFlags: r.dismissed_flags,
+  status: r.status,
   model: r.model, createdAt: r.created_at.toISOString(),
   member: r.member_id ? { id: r.member_id, name: r.member_name as string, color: r.member_color as string } : null,
 });
@@ -47,7 +51,7 @@ const toRow = (r: Row): DraftRow => ({
 const SELECT = (sql: postgres.Sql) => sql`
   select d.id, d.client_id, d.client_name, d.procedure_names, d.direction, d.format,
          d.reference_mode, d.refs, d.content, d.edited, d.history, d.translation,
-         d.dismissed_flags, d.model, d.created_at,
+         d.dismissed_flags, d.status, d.model, d.created_at,
          m.id as member_id, m.name as member_name, m.color as member_color
     from draft d
     left join member m on m.id = d.created_by`;
@@ -69,11 +73,12 @@ export async function insertDraft(sql: postgres.Sql, input: {
 }
 
 export async function listDrafts(
-  sql: postgres.Sql, opts: { clientId?: string; limit?: number } = {},
+  sql: postgres.Sql, opts: { clientId?: string; status?: DraftStatus; limit?: number } = {},
 ): Promise<DraftRow[]> {
-  const where = opts.clientId ? sql`where d.client_id = ${opts.clientId}` : sql``;
+  const byClient = opts.clientId ? sql`and d.client_id = ${opts.clientId}` : sql``;
+  const byStatus = opts.status ? sql`and d.status = ${opts.status}` : sql``;
   const rows = await sql<Row[]>`
-    ${SELECT(sql)} ${where}
+    ${SELECT(sql)} where true ${byClient} ${byStatus}
     order by d.created_at desc
     limit ${opts.limit ?? 50}`;
   return rows.map(toRow);
@@ -86,13 +91,15 @@ export async function getDraft(sql: postgres.Sql, id: string): Promise<DraftRow 
 
 export async function updateDraft(
   sql: postgres.Sql, id: string,
-  patch: { edited?: DraftContent; dismissedFlags?: string[]; history?: DraftContent[]; translation?: DraftTranslation },
+  patch: { edited?: DraftContent; dismissedFlags?: string[]; history?: DraftContent[];
+           translation?: DraftTranslation; status?: DraftStatus },
 ): Promise<void> {
   await sql`update draft set
       edited = coalesce(${patch.edited ? sql.json(patch.edited as never) : null}, edited),
       dismissed_flags = coalesce(${patch.dismissedFlags ? sql.json(patch.dismissedFlags) : null}, dismissed_flags),
       history = coalesce(${patch.history ? sql.json(patch.history as never) : null}, history),
-      translation = coalesce(${patch.translation ? sql.json(patch.translation as never) : null}, translation)
+      translation = coalesce(${patch.translation ? sql.json(patch.translation as never) : null}, translation),
+      status = coalesce(${patch.status ?? null}, status)
     where id = ${id}`;
 }
 

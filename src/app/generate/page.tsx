@@ -2,15 +2,18 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
+import { newDraftsSince, filterDrafts, statusCounts, type DraftListFilter } from '@/lib/draftUi';
 import { Toast } from '@/components/Toast';
 import { DraftCard } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
 import { RefPickerSheet } from '@/components/RefPickerSheet';
+import { DraftFilterBar } from '@/components/DraftFilterBar';
 import { DraftComposer, DEFAULT_COMPOSER, type ComposerState } from '@/components/DraftComposer';
 import { LAST_WS_KEY } from '@/components/GlobalShell';
 import type { DraftRow } from '@/lib/draftStore';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { ReferenceRow } from '@/lib/referenceStore';
+import type { DraftStatus } from '@/lib/draftStatus';
 
 const COMPOSER_KEY = 'cbx-composer'; // 직전 설정 유지 (스펙 §4 "바꾸기 — 직전 값 유지")
 
@@ -30,6 +33,7 @@ function Workbench() {
   const [composer, setComposer] = useState<ComposerState>(DEFAULT_COMPOSER);
   const [refRows, setRefRows] = useState<ReferenceRow[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [filter, setFilter] = useState<DraftListFilter>({ status: 'all', clientId: '' });
   const [editing, setEditing] = useState<DraftRow | null>(null);
   const [generating, setGenerating] = useState(false);
   const [rewritingId, setRewritingId] = useState<string | null>(null);
@@ -39,6 +43,10 @@ function Workbench() {
   const abortRef = useRef<AbortController | null>(null);
   const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dismissedRef = useRef<Record<string, string[]>>({});
+  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const genStartedAt = useRef(0); // 이번 생성 요청 시각 — 폴링 병합의 하한선
+  const draftsRef = useRef<DraftRow[]>([]);
+  useEffect(() => { draftsRef.current = drafts; }, [drafts]);
   const lastWsId = typeof window !== 'undefined' ? localStorage.getItem(LAST_WS_KEY) : null;
 
   useEffect(() => {
@@ -54,6 +62,7 @@ function Workbench() {
         ? { ...cur, clientId: null, procedureIds: [] } : cur));
     }).catch(() => { setLoaded(true); setToast('목록을 불러오지 못했어요 — 새로고침해 주세요'); });
   }, []);
+  useEffect(() => () => { if (pollTimer.current) clearInterval(pollTimer.current); }, []);
   const updateComposer = useCallback((v: ComposerState) => {
     setComposer(v);
     localStorage.setItem(COMPOSER_KEY, JSON.stringify({ ...v, direction: '' })); // 방향성은 매번 새로
@@ -72,6 +81,12 @@ function Workbench() {
 
   const selectedRefIds = useMemo(() => refRows.map((x) => x.tweetId), [refRows]);
 
+  const clientScoped = useMemo(
+    () => filterDrafts(drafts, { status: 'all', clientId: filter.clientId }), [drafts, filter.clientId]);
+  const visibleDrafts = useMemo(
+    () => filterDrafts(clientScoped, { status: filter.status, clientId: '' }), [clientScoped, filter.status]);
+  const counts = useMemo(() => statusCounts(clientScoped), [clientScoped]);
+
   const bannedFor = useCallback((d: DraftRow) => {
     const c = clients.find((x) => x.client.id === d.clientId);
     if (!c) return [];
@@ -80,6 +95,8 @@ function Workbench() {
 
   async function generate() {
     if (generating) return;
+    stopPolling();
+    genStartedAt.current = Date.now();
     setGenerating(true);
     const ac = new AbortController();
     abortRef.current = ac;
@@ -97,6 +114,8 @@ function Workbench() {
       const body = await r.json().catch(() => ({}));
       if (!r.ok) { setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
       setDrafts((cur) => [body as DraftRow, ...cur]);
+      // 방금 만든 초안이 현재 필터에 가려 안 보이면 필터를 전체로 — 생성 결과가 소리 없이 사라지지 않게 (T11 리뷰 반영)
+      setFilter((f) => (filterDrafts([body as DraftRow], f).length > 0 ? f : { status: 'all', clientId: '' }));
     } catch (e) {
       if ((e as Error).name !== 'AbortError') setToast('생성 중 오류가 났어요 — 잠시 후 다시 시도해주세요');
     } finally {
@@ -124,9 +143,33 @@ function Workbench() {
     }
   }
 
+  function stopPolling() {
+    if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
+  }
+
+  // 취소 = 기다리기만 중단(서버 생성은 계속) → 완성본을 폴링으로 자동 반영 (스펙 3-5)
   function cancelGenerate() {
     abortRef.current?.abort();
-    setToast('기다리기를 취소했어요 — 완성되면 목록에 저장됩니다 (새로고침으로 확인)');
+    setToast('기다리기를 취소했어요 — 완성되면 목록에 자동으로 나타나요');
+    const deadline = Date.now() + 120_000; // 최대 2분
+    stopPolling();
+    pollTimer.current = setInterval(async () => {
+      if (Date.now() > deadline) { stopPolling(); return; }
+      try {
+        const r = await apiFetch('/api/drafts');
+        if (!r.ok) return; // 조용히 다음 주기 재시도 (스펙 §4)
+        const fetched = (await r.json()) as DraftRow[];
+        // 판정은 ref 미러 기준 — setDrafts 업데이터의 동기 실행(eager state)에 기대지 않는다 (최종 리뷰 반영)
+        const fresh = newDraftsSince(draftsRef.current, fetched, genStartedAt.current);
+        if (fresh.length === 0) return;
+        // 삽입은 업데이터 안에서 재계산 — ref가 한 렌더 뒤처져도 중복 삽입이 없다
+        setDrafts((cur) => [...newDraftsSince(cur, fetched, genStartedAt.current), ...cur]);
+        stopPolling();
+        setToast('아까 취소한 원고가 완성됐어요');
+        // 직접 성공 경로와 동일 — 완성본이 현재 필터에 가려 안 보이면 필터를 전체로 (T11 픽스 후속)
+        setFilter((f) => (filterDrafts(fresh, f).length > 0 ? f : { status: 'all', clientId: '' }));
+      } catch { /* 다음 주기 재시도 */ }
+    }, 5000);
   }
 
   async function patchDraft(id: string, body: object) {
@@ -171,6 +214,15 @@ function Workbench() {
     void patchDraft(d.id, { dismissedFlags: [] });
   }
 
+  function changeStatus(d: DraftRow, status: DraftStatus) {
+    const prev = d.status;
+    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, status } : x)));
+    void patchDraft(d.id, { status }).then((updated) => {
+      // 실패 롤백은 이 요청이 세팅한 값이 아직 표시 중일 때만 — 연속 변경 시 뒤 갱신을 덮지 않도록 (무시 표식 레이스 픽스와 같은 계열)
+      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.status === status ? { ...x, status: prev } : x)));
+    });
+  }
+
   async function regenPost(d: DraftRow, index: number) {
     setRegenBusy({ draftId: d.id, index });
     const r = await apiFetch(`/api/drafts/${d.id}/regen-post`, {
@@ -196,7 +248,14 @@ function Workbench() {
       <DraftComposer clients={clients} value={composer} onChange={updateComposer}
                      refRows={refRows} onOpenPicker={() => setPickerOpen(true)}
                      onRemoveRef={(id) => setRefRows((cur) => cur.filter((x) => x.tweetId !== id))}
+                     onClearRefs={() => setRefRows([])}
                      generating={generating} onGenerate={() => generate()} onCancel={cancelGenerate} />
+
+      {loaded && drafts.length > 0 && (
+        <DraftFilterBar counts={counts} total={clientScoped.length} filter={filter}
+                        clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
+                        onChange={setFilter} />
+      )}
 
       {generating && (
         <div className="w-full max-w-[600px] animate-pulse rounded-2xl border border-x-border-strong bg-white px-4 py-3">
@@ -219,7 +278,13 @@ function Workbench() {
         </p>
       )}
 
-      {drafts.map((d) => (
+      {loaded && drafts.length > 0 && visibleDrafts.length === 0 && !generating && (
+        <p className="w-full max-w-[600px] rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
+          이 조건에 맞는 초안이 없어요 — 탭이나 클라이언트 필터를 바꿔보세요.
+        </p>
+      )}
+
+      {visibleDrafts.map((d) => (
         <DraftCard key={d.id} draft={d} banned={bannedFor(d)}
                    onEdit={() => setEditing(d)}
                    onRewrite={(feedback, baseIndex) => rewrite(d.id, feedback, baseIndex)}
@@ -228,7 +293,8 @@ function Workbench() {
                    onRegenPost={(i) => regenPost(d, i)}
                    regenBusyIndex={regenBusy?.draftId === d.id ? regenBusy.index : null}
                    onDismissFlag={(key, dismiss) => toggleDismiss(d, key, dismiss)}
-                   onRestoreAllFlags={() => restoreAllFlags(d)} />
+                   onRestoreAllFlags={() => restoreAllFlags(d)}
+                   onChangeStatus={(s) => changeStatus(d, s)} />
       ))}
 
       {editing && (

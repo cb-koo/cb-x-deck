@@ -3,6 +3,7 @@ import { getSql } from '@/lib/db';
 import { getDraft, updateDraft, removeDraft } from '@/lib/draftStore';
 import type { DraftContent } from '@/lib/draftTypes';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
+import { isDraftStatus, type DraftStatus } from '@/lib/draftStatus';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAllowedUser();
@@ -18,7 +19,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
   const body = (await req.json().catch(() => ({}))) as
-    { edited?: DraftContent; dismissedFlags?: string[] };
+    { edited?: DraftContent; dismissedFlags?: string[]; status?: string };
+  if (body.status !== undefined && !isDraftStatus(body.status)) {
+    return NextResponse.json({ error: '상태 값이 올바르지 않아요' }, { status: 400 });
+  }
   if (body.edited !== undefined) {
     const posts = (body.edited as { posts?: unknown })?.posts;
     if (!Array.isArray(posts) || posts.length === 0 ||
@@ -31,7 +35,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       })),
     } as DraftContent;
   }
-  await updateDraft(getSql(), id, body);
+  await updateDraft(getSql(), id,
+    body as { edited?: DraftContent; dismissedFlags?: string[]; status?: DraftStatus });
   return NextResponse.json(await getDraft(getSql(), id));
 }
 

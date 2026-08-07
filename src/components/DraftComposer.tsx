@@ -13,12 +13,14 @@ export const DEFAULT_COMPOSER: ComposerState = {
   clientId: null, procedureIds: [], format: 'single', mode: 'both', constraintsOn: false, direction: '',
 };
 const MODE_LABEL: Record<ReferenceMode, string> = { off: '참고 안 함', form: '형식만', angle: '앵글만', both: '형식+앵글' };
+// CONTENT_MODEL 변경 시 함께 갱신 (스펙 3-6 — sonnet 실측 ≈$0.015의 보수적 반올림)
+const COST_CAPTION = '생성 1회 ≈ $0.02';
 
 // 작업대 상단 — 노출 컨트롤 4개(방향성·바꾸기·원고 만들기·레퍼런스 추가), 나머지는 접힌 요약 (스펙 §4)
-export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker, onRemoveRef, generating, onGenerate, onCancel }: {
+export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker, onRemoveRef, onClearRefs, generating, onGenerate, onCancel }: {
   clients: Array<{ client: ClientRow; procedures: ProcedureRow[] }>;
   value: ComposerState; onChange: (v: ComposerState) => void;
-  refRows: ReferenceRow[]; onOpenPicker: () => void; onRemoveRef: (tweetId: string) => void;
+  refRows: ReferenceRow[]; onOpenPicker: () => void; onRemoveRef: (tweetId: string) => void; onClearRefs: () => void;
   generating: boolean; onGenerate: () => void; onCancel: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -50,6 +52,9 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
         ) : (
           <span>레퍼런스 없이 시작 — 보관함의 좋았던 포스트를 참고하면 원고가 더 좋아져요</span>
         )}
+        {refRows.length >= 2 && (
+          <button onClick={onClearRefs} className="shrink-0 text-x-muted hover:text-red-500 hover:underline">모두 빼기</button>
+        )}
         <button onClick={onOpenPicker} className="ml-auto shrink-0 text-x-blue-text hover:underline">
           {refRows.length > 0 ? '+ 레퍼런스 추가' : '보관함에서 고르기'}
         </button>
@@ -72,12 +77,16 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
           ) : (
             <button onClick={onGenerate} disabled={!canGenerate}
                     className="h-9 rounded-full bg-x-blue px-[17px] text-[15px] font-bold text-white hover:bg-x-blue-hover disabled:opacity-50">
-              원고 만들기 (약 $0.1 이하)
+              원고 만들기
             </button>
           )}
         </div>
-        {!canGenerate && !generating && (
-          <p className="mt-1 text-caption text-x-muted">클라이언트·레퍼런스·방향성 중 하나는 있어야 원고를 만들 수 있어요</p>
+        {!generating && (
+          <p className="mt-1 text-caption text-x-muted">
+            {canGenerate
+              ? `${COST_CAPTION}${clients.length > 0 && !value.clientId ? " · 클라이언트 정보 없이 만들어요 — '바꾸기'에서 선택할 수 있어요" : ''}`
+              : '클라이언트·레퍼런스·방향성 중 하나는 있어야 원고를 만들 수 있어요'}
+          </p>
         )}
 
         {open && (
@@ -113,7 +122,7 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
               {(['single', 'thread'] as const).map((f) => (
                 <button key={f} onClick={() => onChange({ ...value, format: f })}
                         className={`rounded-full border px-3 py-0.5 ${value.format === f ? 'border-x-blue bg-x-blue text-white' : 'border-x-border-strong text-x-secondary'}`}>
-                  {f === 'single' ? '단문 (~140자)' : '스레드 (3~5개)'}
+                  {f === 'single' ? '단문 (트윗 1개, X 기준 280 이내)' : '스레드 (트윗 3~5개)'}
                 </button>
               ))}
             </div>

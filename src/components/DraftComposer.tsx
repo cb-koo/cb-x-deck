@@ -8,9 +8,11 @@ import type { DraftFormat, ReferenceMode } from '@/lib/draftTypes';
 export interface ComposerState {
   clientId: string | null; procedureIds: string[];
   format: DraftFormat; mode: ReferenceMode; constraintsOn: boolean; direction: string;
+  count: number; // 시안 수 (1~5) — 저장하지 않고 생성 후 1로 리셋 (스펙 §1, 비용 opt-in)
 }
 export const DEFAULT_COMPOSER: ComposerState = {
   clientId: null, procedureIds: [], format: 'single', mode: 'both', constraintsOn: false, direction: '',
+  count: 1,
 };
 const MODE_LABEL: Record<ReferenceMode, string> = { off: '참고 안 함', form: '형식만', angle: '앵글만', both: '형식+앵글' };
 // CONTENT_MODEL 변경 시 함께 갱신 (스펙 3-6 — sonnet 실측 ≈$0.015의 보수적 반올림)
@@ -32,6 +34,7 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
     ...(cur ? cur.procedures.filter((p) => value.procedureIds.includes(p.id)).map((p) => p.name) : []),
     value.format === 'single' ? '단문' : '스레드',
     `참고: ${refRows.length > 0 ? MODE_LABEL[value.mode] : '없음'}`,
+    value.count > 1 ? `시안 ${value.count}개` : null,
     value.constraintsOn ? '생성 제약 켬' : null,
   ].filter(Boolean).join(' · ');
 
@@ -84,7 +87,7 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
         {!generating && (
           <p className="mt-1 text-caption text-x-muted">
             {canGenerate
-              ? `${COST_CAPTION}${clients.length > 0 && !value.clientId ? " · 클라이언트 정보 없이 만들어요 — '바꾸기'에서 선택할 수 있어요" : ''}`
+              ? `${COST_CAPTION}${value.count > 1 ? ` × ${value.count}` : ''}${clients.length > 0 && !value.clientId ? " · 클라이언트 정보 없이 만들어요 — '바꾸기'에서 선택할 수 있어요" : ''}`
               : '클라이언트·레퍼런스·방향성 중 하나는 있어야 원고를 만들 수 있어요'}
           </p>
         )}
@@ -136,6 +139,13 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
               ))}
               <span className="text-caption text-x-muted">— 레퍼런스에서 무엇을 가져올지</span>
             </div>
+            <label className="flex items-center gap-2">
+              <span className="w-20 shrink-0 text-caption text-x-muted">시안 수</span>
+              <input type="number" min={1} max={5} value={value.count}
+                     onChange={(e) => onChange({ ...value, count: Math.min(5, Math.max(1, Math.trunc(Number(e.target.value) || 1))) })}
+                     className="w-16 rounded-md border border-x-border-strong bg-white px-2 py-1 outline-none focus:border-x-blue" />
+              <span className="text-caption text-x-secondary">서로 다른 앵글로 여러 개 만들어 하나 이상 골라요 — 개수만큼 비용·시간이 늘어요</span>
+            </label>
             <label className="flex items-center gap-2">
               <span className="w-20 shrink-0 text-caption text-x-muted">생성 제약</span>
               <input type="checkbox" checked={value.constraintsOn}

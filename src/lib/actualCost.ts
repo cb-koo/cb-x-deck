@@ -1,3 +1,5 @@
+import { kstDate } from './datetime.ts';
+
 const GETXAPI_BASE = 'https://api.getxapi.com';
 const EXA_ADMIN_BASE = 'https://admin-api.exa.ai';
 const TIMEOUT_MS = 5000;
@@ -44,8 +46,6 @@ export async function getxapiActual(fetchImpl: Fetch = fetch): Promise<GetxapiAc
   };
 }
 
-function ymd(d: Date): string { return d.toISOString().slice(0, 10); }
-
 export async function exaActual(from: Date, to: Date, fetchImpl: Fetch = fetch): Promise<ExaActual | null> {
   const key = process.env.EXA_SERVICE_KEY;
   if (!key) return null;
@@ -55,14 +55,14 @@ export async function exaActual(from: Date, to: Date, fetchImpl: Fetch = fetch):
   const k = keys[0];
   if (!k || typeof k.id !== 'string') return null;
   const usage = await getJson(
-    `${EXA_ADMIN_BASE}/team-management/api-keys/${encodeURIComponent(k.id)}/usage?start_date=${ymd(from)}&end_date=${ymd(to)}`,
+    `${EXA_ADMIN_BASE}/team-management/api-keys/${encodeURIComponent(k.id)}/usage?start_date=${kstDate(from.toISOString())}&end_date=${kstDate(to.toISOString())}`,
     h, fetchImpl,
   ) as Record<string, unknown> | null;
   if (!usage || typeof usage.total_cost_usd !== 'number') return null;
   return {
     totalCostUsd: usage.total_cost_usd,
-    periodStart: ymd(from),
-    periodEnd: ymd(to),
+    periodStart: kstDate(from.toISOString()),
+    periodEnd: kstDate(to.toISOString()),
     budgetUsd: typeof k.budgetCents === 'number' ? k.budgetCents / 100 : null,
     overBudget: k.isOverBudget === true,
   };
@@ -76,7 +76,7 @@ export async function getProviderActuals(
 ): Promise<ProviderActual[]> {
   const now = opts?.now ?? Date.now;
   const fetchImpl = opts?.fetchImpl ?? fetch;
-  const cacheKey = `${ymd(from)}_${ymd(to)}`;
+  const cacheKey = `${kstDate(from.toISOString())}_${kstDate(to.toISOString())}`;
   const hit = cache.get(cacheKey);
   if (hit && now() - hit.at < TTL_MS) return hit.data;
 

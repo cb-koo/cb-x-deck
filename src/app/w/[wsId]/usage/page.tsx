@@ -4,6 +4,7 @@ import {
   summarizeByApi, summarizeByFeature, summarizeByDay, totalCostUsd,
 } from '@/lib/usageStore';
 import { getProviderActuals } from '@/lib/actualCost';
+import { kstMonthStart, kstDaysAgoStart } from '@/lib/datetime';
 import { UsageHeadline } from './UsageHeadline';
 import { ActualCostPanel } from './ActualCostPanel';
 import { FeatureBreakdown } from './FeatureBreakdown';
@@ -16,12 +17,14 @@ type Period = '7d' | '30d' | 'month';
 const PERIOD_LABEL: Record<Period, string> = { '7d': '최근 7일', '30d': '최근 30일', month: '이번 달' };
 
 // 현재 기간 + 동일 길이 직전 기간(추세 비교용)
+// 경계는 한국 자정이다 — 막대 라벨이 KST 버킷(usageStore.dailyAggregate)이라 경계도 같아야
+// 첫·마지막 막대가 부분 집계가 되지 않는다. 서버 로컬(Vercel=UTC)로 만들면 매월 1일 오전
+// 9시간이 빠지고, 한국 1일 새벽에는 전달을 보여준다.
 function ranges(period: Period): { from: Date; to: Date; prevFrom: Date; prevTo: Date } {
   const to = new Date();
-  const from = new Date(to);
-  if (period === '7d') from.setDate(from.getDate() - 7);
-  else if (period === 'month') { from.setDate(1); from.setHours(0, 0, 0, 0); }
-  else from.setDate(from.getDate() - 30);
+  const from = period === 'month' ? kstMonthStart()
+    : period === '7d' ? kstDaysAgoStart(7)
+    : kstDaysAgoStart(30);
   const spanMs = to.getTime() - from.getTime();
   const prevTo = new Date(from.getTime());
   const prevFrom = new Date(from.getTime() - spanMs);

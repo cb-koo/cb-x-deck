@@ -63,7 +63,9 @@ export async function rawAggregate(sql: postgres.Sql, from: Date, to: Date): Pro
 
 export async function dailyAggregate(sql: postgres.Sql, from: Date, to: Date): Promise<Array<AggRow & { day: string }>> {
   const rows = await sql<Array<{ day: string; api: string; model: string | null; calls: number; input_tokens: number; output_tokens: number }>>`
-    select to_char(date_trunc('day', created_at at time zone 'Asia/Tokyo'), 'YYYY-MM-DD') as day,
+    -- Asia/Seoul: 이 화면의 다른 값들과 같은 기준. 예전엔 Asia/Tokyo였는데 오프셋이 같아
+    -- 출력은 동일했지만, 기간 경계(usage/page.tsx)가 KST로 바뀌면서 이름이 어긋나 보인다.
+    select to_char(date_trunc('day', created_at at time zone 'Asia/Seoul'), 'YYYY-MM-DD') as day,
            api, model,
            count(*)::int as calls,
            coalesce(sum(input_tokens), 0)::float8 as input_tokens,

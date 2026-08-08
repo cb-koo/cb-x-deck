@@ -2,7 +2,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import type { StoredTweet, TweetTranslation } from '@/lib/types';
-import { formatCount, formatDate } from '@/lib/format';
+import { formatCount } from '@/lib/format';
+import { kstShort, kstMonthDayKo } from '@/lib/datetime';
 import { flagYakkiho } from '@/lib/complianceFlags';
 import { MediaGrid } from './MediaGrid';
 import { QuotedCard } from './QuotedCard';
@@ -18,8 +19,7 @@ function timeAgo(iso: string | null): string {
   const s = (Date.now() - Date.parse(iso)) / 1000;
   if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}분`;
   if (s < 86400) return `${Math.floor(s / 3600)}시간`;
-  const d = new Date(iso);
-  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+  return kstMonthDayKo(iso);   // 24시간이 넘으면 달력 날짜 — 한국 기준으로 고정한다
 }
 
 export interface TweetCardProps {
@@ -249,7 +249,7 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, librar
             덱 카드는 프롭을 안 넘겨 기본값 true라 지금 그대로다. */}
         {showCollectedAt && (
           <p className="px-1 text-right text-caption text-x-muted">
-            수집 {formatDate(t.firstSeenAt)} · 갱신 {formatDate(t.lastFetchedAt)}
+            수집 {kstShort(t.firstSeenAt)} · 갱신 {kstShort(t.lastFetchedAt)}
           </p>
         )}
       </div>

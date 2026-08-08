@@ -1,13 +1,8 @@
 'use client';
 import type { DeckQuoted, DeckTweet } from '@/lib/types';
+import { kstMonthDayKo } from '@/lib/datetime';
 import { MediaGrid } from './MediaGrid';
 import { TweetText } from './TweetText';
-
-function shortDate(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
-}
 
 // 실제 X 인용 카드 레이아웃: 아바타+이름+@핸들+날짜 헤더 → 본문 → 미디어.
 // 박스 전체 클릭 = 인용 원문 (중첩 <a> 회피를 위해 div onClick — 내부 링크는 TweetText가 전파 차단)
@@ -32,7 +27,7 @@ export function QuotedCard({ quoted, translation }: { quoted: DeckQuoted & { enr
           <span className="flex min-w-0 items-baseline gap-x-1">
             {name && <span className="truncate font-bold text-x-text">{name}</span>}
             {handle && <span className="truncate text-x-secondary">@{handle}</span>}
-            {e?.tweetCreatedAt && <span className="shrink-0 text-x-secondary">· {shortDate(e.tweetCreatedAt)}</span>}
+            {e?.tweetCreatedAt && <span className="shrink-0 text-x-secondary">· {kstMonthDayKo(e.tweetCreatedAt)}</span>}
           </span>
         </div>
         <TweetText text={e?.text ?? quoted.text} className="mt-1 text-x-text" />

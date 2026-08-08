@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatCount, formatFull, formatDate } from './format.ts';
+import { formatCount, formatFull } from './format.ts';
 
 test('formatCount: X식 K/M 축약', () => {
   assert.equal(formatCount(null), '–');
@@ -21,9 +21,4 @@ test('formatFull: 축약 없이 콤마만 (표 보기용)', () => {
   assert.equal(formatFull(883), '883');
   assert.equal(formatFull(15300), '15,300');   // formatCount는 15.3K로 줄이지만 표는 줄이지 않는다
   assert.equal(formatFull(23700000), '23,700,000');
-});
-
-test('formatDate: ISO → 짧은 표기', () => {
-  assert.equal(formatDate(null), '–');
-  assert.equal(formatDate('2026-07-06T23:29:44.000Z'), "'26.07.06");
 });

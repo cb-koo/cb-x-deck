@@ -230,6 +230,32 @@ test('count 3 — 1콜로 variants 3개를 받아 3행 삽입, 같은 batch·순
   for (const id of ids) await removeDraft(sql, id);
 });
 
+test('count 3인데 모델이 2개만 반환 — 받은 만큼만 삽입', async () => {
+  const fake: AnthropicLike = { messages: { create: async (p: object) => {
+    const schema = JSON.stringify(
+      (p as { output_config?: { format?: { schema?: object } } }).output_config?.format?.schema ?? {});
+    assert.ok(schema.includes('variants'));
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ variants: [
+        { posts: [{ text: '시안A本文' }] },
+        { posts: [{ text: '시안B本文' }] },
+      ] }) }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      stop_reason: 'end_turn',
+    };
+  } } };
+  const ids = await generateDraft(sql, {
+    clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
+    direction: P + '부분반환', format: 'single', constraintsOn: false, memberId: null, count: 3,
+  }, fake);
+  assert.equal(ids.length, 2);
+  const rows = await Promise.all(ids.map((id) => getDraft(sql, id)));
+  assert.ok(rows[0]!.batchId);
+  assert.equal(rows[1]!.batchId, rows[0]!.batchId);
+  assert.deepEqual(rows.map((r) => r!.variantIndex), [0, 1]);
+  for (const id of ids) await removeDraft(sql, id);
+});
+
 test('count 1 — 기존과 동일: posts 스키마·batch null', async () => {
   const fake: AnthropicLike = { messages: { create: async (p: object) => {
     const schema = JSON.stringify(

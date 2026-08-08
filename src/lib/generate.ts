@@ -24,6 +24,9 @@ export async function generateDraft(
   sql: postgres.Sql, req: GenerateRequest, client?: AnthropicLike,
 ): Promise<string[]> {
   const count = req.count ?? 1;
+  if (!Number.isInteger(count) || count < 1 || count > 5) {
+    throw new GenerateInputError('시안 수는 1~5 사이여야 해요');
+  }
   const hasClient = !!req.clientId;
   const hasRefs = req.refTweetIds.length > 0 && req.mode !== 'off';
   const hasDirection = req.direction.trim().length > 0;
@@ -83,19 +86,19 @@ export async function generateDraft(
   variants = variants.slice(0, count);
 
   const batchId = count > 1 ? crypto.randomUUID() : null;
-  const ids: string[] = [];
-  for (let i = 0; i < variants.length; i++) {
-    const content: DraftContent = { posts: variants[i].posts.map((p) => ({ text: p.text, media: [] })) };
-    ids.push(await insertDraft(sql, {
-      clientId: req.clientId, clientName: clientData?.client.name ?? null,
-      procedureNames: procedures.map((p) => p.name),
-      direction: req.direction, format: req.format,
-      referenceMode: hasRefs ? req.mode : 'off', refs,
-      content, model: CONTENT_MODEL(), memberId: req.memberId,
-      batchId, variantIndex: batchId ? i : null,
-    }));
-  }
-  return ids;
+  const toContent = (v: { posts: Array<{ text: string }> }): DraftContent =>
+    ({ posts: v.posts.map((p) => ({ text: p.text, media: [] })) });
+  const insertOne = (tx: postgres.Sql, i: number) => insertDraft(tx, {
+    clientId: req.clientId, clientName: clientData?.client.name ?? null,
+    procedureNames: procedures.map((p) => p.name),
+    direction: req.direction, format: req.format,
+    referenceMode: hasRefs ? req.mode : 'off', refs,
+    content: toContent(variants[i]), model: CONTENT_MODEL(), memberId: req.memberId,
+    batchId, variantIndex: batchId ? i : null,
+  });
+  // 배치는 한 단위 — 중간 실패 시 고아 부분 배치가 남지 않게 트랜잭션. 단일 생성은 기존 경로 그대로.
+  if (!batchId) return [await insertOne(sql, 0)];
+  return sql.begin((tx) => Promise.all(variants.map((_, i) => insertOne(tx as unknown as postgres.Sql, i)))) as Promise<string[]>;
 }
 
 // 초안 전체 다시 쓰기 — 피드백이 있으면 반영, 없으면 같은 조건으로 재생성(겹치지 않게).

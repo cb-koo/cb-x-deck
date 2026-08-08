@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import type { KwPair } from '@/lib/suggest';
 import type { ExaResult } from '@/lib/exa';
-import { formatDate } from '@/lib/format';
+import { kstShort } from '@/lib/datetime';
 
 interface Extraction { keywords: KwPair[]; hooks: KwPair[] }
 const chipKey = (k: KwPair) => k.ja;
@@ -122,7 +122,7 @@ export default function ResearchPage() {
                   <a href={r.url} target="_blank" rel="noopener noreferrer" className="font-bold hover:underline">
                     {r.title ?? r.url}
                   </a>
-                  <p className="text-[11px] text-gray-400">{new URL(r.url).hostname} · {formatDate(r.publishedDate)}</p>
+                  <p className="text-[11px] text-gray-400">{new URL(r.url).hostname} · {kstShort(r.publishedDate)}</p>
                 </div>
                 <button onClick={() => extract(r)} disabled={ex === 'loading'}
                         className="shrink-0 rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900">

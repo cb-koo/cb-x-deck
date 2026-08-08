@@ -3,14 +3,11 @@ import { apiFetch } from '@/lib/apiFetch';
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import type { PillarPayload } from '@/lib/pillarStats';
 import { formatCount } from '@/lib/format';
+import { kstMonthDay } from '@/lib/datetime';
 import { Button, PanelShell } from './ui';
 
-function fmtDay(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-}
 function fmtPeriod(p: [string, string] | null): string {
-  return p ? ` (${fmtDay(p[0])}~${fmtDay(p[1])})` : '';
+  return p ? ` (${kstMonthDay(p[0])}~${kstMonthDay(p[1])})` : '';
 }
 
 export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAfterBackfill, onClose }: {
@@ -68,7 +65,7 @@ export function PillarPanel({ columnId, topicFilter, onTopicFilter, onData, onAf
 
   return (
     <PanelShell title="주제별로 묶기" onClose={onClose}
-                sub={a ? `표본 ${a.sampleSize}건${fmtPeriod(data?.samplePeriod ?? null)} · 투고 ${stats?.postCount ?? 0} · 인용RT ${stats?.quoteCount ?? 0} · 분석 ${fmtDay(a.analyzedAt)}` : undefined}>
+                sub={a ? `표본 ${a.sampleSize}건${fmtPeriod(data?.samplePeriod ?? null)} · 투고 ${stats?.postCount ?? 0} · 인용RT ${stats?.quoteCount ?? 0} · 분석 ${kstMonthDay(a.analyzedAt)}` : undefined}>
       {data && !a && (
         <div className="mt-1">
           <p className="text-ui text-x-secondary">이 계정의 트윗을 주제별로 묶어 게시량 대비 반응(좋아요 중앙값)을 비교해요. (약 $0.05 이하)</p>

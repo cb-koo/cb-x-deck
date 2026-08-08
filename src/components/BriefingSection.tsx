@@ -7,6 +7,7 @@ import type { TrendPayload } from '@/lib/trend';
 import type { BriefingListRow, BriefingRow } from '@/lib/briefingStore';
 import type { BriefingCitation, BriefingContent, TrendModule, TrendStage } from '@/lib/briefingTypes';
 import { formatCount } from '@/lib/format';
+import { asDateOnly, dateOnlyMonthDay, kstMonthDay, kstToday, weekRangeLabel } from '@/lib/datetime';
 import { TweetText } from './TweetText';
 import { MediaGrid } from './MediaGrid';
 import { QuotedCard } from './QuotedCard';
@@ -23,25 +24,6 @@ const WEEK_OPTIONS = [2, 4, 8] as const;
 const REFERENCE_MIN = 30;
 // 주당 이 밑이면 좋아요 중앙값이 트윗 1건에 좌우돼 널뛰기(스파이크 실측) — 추이 패널 sparse 기준과 동일
 const WEEKLY_MIN = 5;
-
-function fmtDay(s: string): string {
-  const d = new Date(s + 'T00:00:00Z');
-  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
-}
-
-// ISO 타임스탬프 → JST 달력 기준 'M/D' (UTC로 자르면 오전 생성분이 하루 밀려 보임)
-function fmtDayJst(iso: string): string {
-  const d = new Date(Date.parse(iso) + 9 * 3_600_000);
-  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
-}
-
-// 주 시작일 → '6/15~21' (월이 바뀌면 '6/29~7/5')
-function fmtWeekRange(weekStart: string): string {
-  const s = new Date(weekStart + 'T00:00:00Z');
-  const e = new Date(s.getTime() + 6 * 86_400_000);
-  const end = s.getUTCMonth() === e.getUTCMonth() ? `${e.getUTCDate()}` : `${e.getUTCMonth() + 1}/${e.getUTCDate()}`;
-  return `${s.getUTCMonth() + 1}/${s.getUTCDate()}~${end}`;
-}
 
 // 브리핑 인용 트윗 → 보관함 저장 (덱 카드와 같은 ☆/★ 의미: 별 = 내가 저장한 트윗)
 const SaveCtx = createContext<{ savedIds: Set<string>; toggleSave: (tweetId: string) => void } | null>(null);
@@ -447,7 +429,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
       const kind = columns.find((c) => c.id === columnId)?.kind;
       const body = kind === 'watchlist'
         ? { maxPages: 10 }
-        : { sinceDate: preview.since, untilDate: new Date().toISOString().slice(0, 10) };
+        : { sinceDate: preview.since, untilDate: kstToday() };
       const r = await apiFetch(`/api/columns/${columnId}/refresh`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
@@ -551,7 +533,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
           <div className="flex items-baseline gap-2 border-b border-x-border px-4 py-2">
             <p className="font-bold">{current.columnTitle}</p>
             <span className="text-xs text-x-muted">
-              {fmtDay(current.periodFrom)}~{fmtDay(current.periodTo)} · 표본 {current.sampleSize}건 · {fmtDayJst(current.createdAt)} 생성
+              {dateOnlyMonthDay(asDateOnly(current.periodFrom))}~{dateOnlyMonthDay(asDateOnly(current.periodTo))} · 표본 {current.sampleSize}건 · {kstMonthDay(current.createdAt)} 생성
               {current.member && <span className="ml-1 rounded px-1" style={{ backgroundColor: current.member.color + '33' }}>{current.member.name}</span>}
             </span>
             <button onClick={() => setCurrent(null)} className="ml-auto rounded px-1 text-x-secondary hover:bg-x-border">✕</button>
@@ -569,7 +551,7 @@ export function BriefingSection({ wsId }: { wsId: string }) {
                     : w.medianLikes > prev * 1.1 ? 'up' : w.medianLikes < prev * 0.9 ? 'down' : 'flat';
                   return (
                     <li key={w.weekStart} className="flex items-center gap-2">
-                      <span className="w-28 shrink-0">{i + 1}주차 <span className="text-x-muted">({fmtWeekRange(w.weekStart)})</span></span>
+                      <span className="w-28 shrink-0">{i + 1}주차 <span className="text-x-muted">({weekRangeLabel(asDateOnly(w.weekStart))})</span></span>
                       <span className="h-2 rounded-sm bg-x-blue/60"
                             style={{ width: `${Math.round((w.count / max) * 120)}px`, minWidth: w.count > 0 ? 4 : 0 }} />
                       <span className="shrink-0">글 {w.count}</span>
@@ -640,9 +622,9 @@ export function BriefingSection({ wsId }: { wsId: string }) {
                 <ul className="mt-1 space-y-0.5 border-l border-x-border pl-3 text-sm">
                   {g.rows.map((b) => (
                     <li key={b.id} className="flex items-center gap-2">
-                      <span className="shrink-0 text-x-secondary">{fmtDay(b.periodFrom)}~{fmtDay(b.periodTo)}</span>
+                      <span className="shrink-0 text-x-secondary">{dateOnlyMonthDay(asDateOnly(b.periodFrom))}~{dateOnlyMonthDay(asDateOnly(b.periodTo))}</span>
                       <span className="shrink-0 text-xs text-x-muted">
-                        {fmtDayJst(b.createdAt)} 생성
+                        {kstMonthDay(b.createdAt)} 생성
                         {b.member && <span className="ml-1 rounded px-1" style={{ backgroundColor: b.member.color + '33' }}>{b.member.name}</span>}
                       </span>
                       {confirmingDeleteId === b.id ? (

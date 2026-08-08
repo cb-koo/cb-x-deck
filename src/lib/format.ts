@@ -15,10 +15,3 @@ export function formatFull(n: number | null): string {
   if (n === null || n === undefined) return '–';
   return n.toLocaleString('en-US');
 }
-
-export function formatDate(iso: string | null): string {
-  if (!iso) return '–';
-  const d = new Date(iso);
-  const pad = (x: number) => String(x).padStart(2, '0');
-  return `'${String(d.getUTCFullYear()).slice(2)}.${pad(d.getUTCMonth() + 1)}.${pad(d.getUTCDate())}`;
-}

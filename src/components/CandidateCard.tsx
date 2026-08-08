@@ -3,6 +3,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useState } from 'react';
 import type { CandidateRow } from '@/lib/types';
 import type { LibraryEntry } from '@/lib/candidateStore';
+import { kstShort } from '@/lib/datetime';
 import { TweetCard } from './TweetCard';
 import { PenIcon } from './XIcons';
 
@@ -88,7 +89,7 @@ function CommentByline({ entry: e }: { entry: CandidateRow }) {
     <p className="flex items-center gap-1 text-caption text-x-muted">
       <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-bold text-white"
             style={{ backgroundColor: e.member.color }}>{e.member.name.slice(0, 1)}</span>
-      {e.member.name} · {new Date(e.savedAt).toLocaleDateString('ko-KR')}
+      {e.member.name} · {kstShort(e.savedAt)}
     </p>
   );
 }

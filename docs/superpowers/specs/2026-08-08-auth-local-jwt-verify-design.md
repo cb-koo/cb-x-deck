@@ -45,14 +45,9 @@
 
 ## 설계
 
-### A. `src/lib/authJwks.ts` (신규)
+### ~~A. `src/lib/authJwks.ts` (신규)~~ — 만들었다가 되돌렸다
 
-모듈 레벨 JWKS 캐시 하나. 책임은 "지금 쓸 수 있는 JWKS를 준다" 하나뿐이다.
-
-- 최초 호출에서 `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`을 받아 모듈 변수에 담는다.
-- TTL을 둔다(10분). 만료되면 다음 호출에서 다시 받는다.
-- **동시 요청이 몰려도 fetch는 한 번만** — 진행 중인 Promise를 들고 있다가 공유한다. 콜드 스타트 직후 요청이 여러 개면 그렇지 않을 때 같은 fetch가 N번 나간다.
-- 실패하면 **던지지 않고 `null`을 돌려준다.** 그러면 호출부가 `jwks` 없이 `getClaims`를 부르고, 그때는 라이브러리가 알아서 네트워크로 받아온다 — 즉 캐시는 최적화일 뿐이고, 실패해도 인증이 죽지 않는다.
+위 정정 참조. 라이브러리가 이미 모듈 전역(`GLOBAL_JWKS`, `storageKey`별, TTL 10분)에 캐시하므로 우리 쪽 캐시는 같은 일을 두 번 하는 코드였다. **JWKS는 아무것도 하지 않는다** — `getClaims()`를 인자 없이 부르면 된다.
 
 ### B. `requireAllowedUser` 교체 (`src/lib/authGuard.ts`)
 

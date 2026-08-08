@@ -2,7 +2,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
-import { newDraftsSince, filterDrafts, statusCounts, type DraftListFilter } from '@/lib/draftUi';
+import { newDraftsSince, filterDrafts, statusCounts, siblingCount, type DraftListFilter } from '@/lib/draftUi';
 import { Toast } from '@/components/Toast';
 import { DraftCard } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
@@ -301,7 +301,8 @@ function Workbench() {
                    regenBusyIndex={regenBusy?.draftId === d.id ? regenBusy.index : null}
                    onDismissFlag={(key, dismiss) => toggleDismiss(d, key, dismiss)}
                    onRestoreAllFlags={() => restoreAllFlags(d)}
-                   onChangeStatus={(s) => changeStatus(d, s)} />
+                   onChangeStatus={(s) => changeStatus(d, s)}
+                   siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null} />
       ))}
 
       {editing && (

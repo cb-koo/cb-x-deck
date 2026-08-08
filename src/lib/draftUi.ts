@@ -81,3 +81,13 @@ export function statusCounts(drafts: Array<{ status: DraftStatus }>): Record<Dra
   for (const d of drafts) out[d.status] += 1;
   return out;
 }
+
+// 다중 시안 형제 표시 (스펙 §1 얇은 표시) — variant_index → A/B/C…
+export function variantLabel(index: number): string {
+  return String.fromCharCode(65 + index); // 시안 수 상한 5라 Z 초과 없음
+}
+
+// "같은 조건 N개 중"의 N — 로드된 목록 기준. 형제가 삭제되면 줄어든다(라벨-값 일치).
+export function siblingCount(drafts: Array<{ batchId: string | null }>, batchId: string): number {
+  return drafts.filter((d) => d.batchId === batchId).length;
+}

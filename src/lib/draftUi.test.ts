@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags, textsChanged, idSetChanged, newDraftsSince, filterDrafts, statusCounts } from './draftUi.ts';
+import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags, textsChanged, idSetChanged, newDraftsSince, filterDrafts, statusCounts, variantLabel, siblingCount } from './draftUi.ts';
 import type { DraftContent } from './draftTypes.ts';
 
 test('hookBoundary: 첫 빈 줄에서 분리, 없으면 null', () => {
@@ -83,4 +83,18 @@ test('statusCounts — 상태별 건수', () => {
   assert.equal(counts.draft, 2);
   assert.equal(counts.delivered, 1);
   assert.equal(counts.review, 0);
+});
+
+test('variantLabel — 0부터 A·B·C…', () => {
+  assert.equal(variantLabel(0), 'A');
+  assert.equal(variantLabel(1), 'B');
+  assert.equal(variantLabel(4), 'E');
+});
+
+test('siblingCount — 같은 batch만 센다 (삭제되면 정직하게 줄어듦)', () => {
+  const drafts = [
+    { batchId: 'b1' }, { batchId: 'b1' }, { batchId: 'b2' }, { batchId: null },
+  ];
+  assert.equal(siblingCount(drafts, 'b1'), 2);
+  assert.equal(siblingCount(drafts, 'b2'), 1);
 });

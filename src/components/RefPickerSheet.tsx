@@ -7,6 +7,7 @@ import { useTranslations } from '@/components/useTranslations';
 import { formatCount } from '@/lib/format';
 import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from '@/components/XIcons';
 import { idSetChanged } from '@/lib/draftUi';
+import { matchesRefSearch, sortRefRows, REF_SORT_LABEL, type RefSortKey } from '@/lib/refSheetFilter';
 import type { ReferenceRow } from '@/lib/referenceStore';
 
 export const MAX_REFS_UI = 8; // 서버 MAX_REFS와 동일 (generate.ts)
@@ -20,6 +21,8 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
   const [rows, setRows] = useState<ReferenceRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [tag, setTag] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [sortKey, setSortKey] = useState<RefSortKey>('default');
   const [sel, setSel] = useState<string[]>(selectedIds);
   // scope를 넘나들며 선택이 쌓인다 — 현재 scope 응답(rows)엔 없는 row도 sel에 남을 수 있어
   // "N건 적용"이 실제 적용 내용과 어긋나지 않으려면 본 적 있는 row를 전부 여기 누적해둬야 한다.
@@ -28,7 +31,7 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
   const { translations, showTranslations, translatingAll, translateProgress, translateErr, loadCached, translateAll } = useTranslations();
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 시트를 열 때마다 상위 선택값으로 재동기화(기존 코드베이스 관례)
-  useEffect(() => { if (open) setSel(selectedIds); }, [open, selectedIds]);
+  useEffect(() => { if (open) { setSel(selectedIds); setQuery(''); setSortKey('default'); } }, [open, selectedIds]);
   // 시트를 열 때 부모가 이미 알고 있는 row(현재 선택된 레퍼런스)를 캐시에 시드 —
   // 그렇지 않으면 열자마자 적용을 누를 때 캐시엔 id만 있고 row 본문이 없다.
   useEffect(() => { if (open) seedRows.forEach((r) => cacheRef.current.set(r.tweetId, r)); }, [open, seedRows]);
@@ -57,7 +60,11 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
   }, [open, onClose, sel, selectedIds]);
 
   const allTags = useMemo(() => [...new Set(rows.flatMap((r) => r.tags))].slice(0, 12), [rows]);
-  const visible = tag ? rows.filter((r) => r.tags.includes(tag)) : rows;
+  const visible = useMemo(() => {
+    const tagged = tag ? rows.filter((r) => r.tags.includes(tag)) : rows;
+    const searched = tagged.filter((r) => matchesRefSearch(r, query, translations[r.tweetId]?.content));
+    return sortRefRows(searched, sortKey);
+  }, [rows, tag, query, sortKey, translations]);
 
   if (!open) return null;
   const dirty = idSetChanged(sel, selectedIds);
@@ -91,6 +98,17 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
               #{t}
             </button>
           ))}
+          <input value={query} onChange={(e) => setQuery(e.target.value)}
+                 placeholder="본문·작성자·메모·태그·번역문 검색"
+                 aria-label="레퍼런스 검색"
+                 className="min-w-[180px] flex-1 rounded-md border border-x-border-strong bg-white px-2 py-1 text-ui outline-none focus:border-x-blue" />
+          <select value={sortKey} onChange={(e) => setSortKey(e.target.value as RefSortKey)}
+                  aria-label="레퍼런스 정렬"
+                  className="rounded-md border border-x-border-strong bg-white px-2 py-1 text-caption outline-none focus:border-x-blue">
+            {(Object.keys(REF_SORT_LABEL) as RefSortKey[]).map((k) => (
+              <option key={k} value={k}>{REF_SORT_LABEL[k]}</option>
+            ))}
+          </select>
           <button onClick={() => void translateAll(visible.map((r) => r.tweetId))} disabled={translatingAll}
                   title="지금 보이는 레퍼런스를 한국어로 — 덱/보관함에서 이미 번역한 건 무료로 바로 표시돼요"
                   className="ml-auto text-ui text-x-blue-text hover:underline disabled:opacity-50">
@@ -111,8 +129,11 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
 
         <div>
           {!loaded && <p className="p-4 text-ui text-x-muted">불러오는 중…</p>}
-          {loaded && visible.length === 0 && (
+          {loaded && rows.length === 0 && (
             <p className="p-4 text-ui text-x-secondary">보관함이 비어 있어요 — 덱에서 트윗을 ☆ 저장하면 여기서 참고할 수 있어요.</p>
+          )}
+          {loaded && rows.length > 0 && visible.length === 0 && (
+            <p className="p-4 text-ui text-x-secondary">검색과 일치하는 레퍼런스가 없어요 — 검색어를 줄이거나 태그·정렬을 바꿔보세요.</p>
           )}
           {visible.map((r) => {
             const on = sel.includes(r.tweetId);

@@ -1,4 +1,6 @@
-import type { JWK } from '@supabase/auth-js';
+// auth-js가 아니라 supabase-js에서 가져온다 — auth-js는 전이 의존성이라 package.json에 없다.
+// supabase-js(직접 의존성)가 `export * from '@supabase/auth-js'`로 그대로 재수출한다.
+import type { JWK } from '@supabase/supabase-js';
 
 export interface Jwks { keys: JWK[] }
 

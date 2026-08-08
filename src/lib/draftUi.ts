@@ -1,6 +1,7 @@
 import type { DraftContent } from './draftTypes.ts';
 import { draftFlags, flagKey, type DraftFlag } from './complianceFlags.ts';
 import type { DraftStatus } from './draftStatus.ts';
+import { kstMonthDayKo } from './datetime.ts';
 
 // 첫 단락 = 훅 (스펙 '산출물 규격'). 첫 빈 줄이 경계. 없거나 내용이 뒤에 없으면 null.
 export function hookBoundary(text: string): { hook: string; rest: string } | null {
@@ -21,8 +22,7 @@ export function draftTimeLabel(iso: string): string {
   if (s < 60) return '방금';
   if (s < 3600) return `${Math.floor(s / 60)}분`;
   if (s < 86400) return `${Math.floor(s / 3600)}시간`;
-  const d = new Date(iso);
-  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+  return kstMonthDayKo(iso);   // 24시간이 넘으면 달력 날짜 — 브라우저 로컬이 아니라 한국 기준으로 고정한다
 }
 
 export interface PostFlag { postIndex: number; flag: DraftFlag; key: string; dismissed: boolean }

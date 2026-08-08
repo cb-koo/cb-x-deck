@@ -26,6 +26,14 @@ test('draftTimeLabel: 방금/분/시간 구간', () => {
   assert.equal(draftTimeLabel(new Date(now - 3 * 3600_000).toISOString()), '3시간');
 });
 
+// 24시간이 넘으면 상대 표기를 버리고 달력 날짜로 떨어지는데, 여기가 예전엔 브라우저 로컬 시간대였다.
+// UTC로는 7/6 23:29지만 한국에서는 7/7 08:29 — 한국 기준으로 찍혀야 한다.
+test('draftTimeLabel: 24시간이 넘으면 한국 날짜로 떨어진다', () => {
+  // 미래 시각을 쓰면 경과 초가 음수라 '방금'으로 떨어져 이 분기를 못 탄다 — 반드시 과거 시각으로 둔다.
+  // 연말 걸침 같은 달력 경계는 kstMonthDayKo 쪽(datetime.test.ts)이 이미 고정하고 있다.
+  assert.equal(draftTimeLabel('2026-07-06T23:29:44.000Z'), '7월 7일');
+});
+
 test('collectDraftFlags: post별 표식 + dismissed 판정 + 중복 제거', () => {
   const content: DraftContent = {
     posts: [{ text: '効果がある。効果がある。', media: [] }, { text: 'B클리닉より', media: [] }],

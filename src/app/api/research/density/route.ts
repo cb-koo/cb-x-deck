@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { makeClient, GetxapiAuthError } from '@/lib/getxapi';
 import { suggestMinFaves } from '@/lib/densityProbe';
+import { kstDaysAgo } from '@/lib/datetime';
 
 import { requireAllowedUser } from '@/lib/authGuard';
 export async function POST(req: Request) {
@@ -11,7 +12,7 @@ export async function POST(req: Request) {
   if (kws.length === 0) return NextResponse.json({ error: '키워드가 필요합니다' }, { status: 400 });
 
   // 프로브 전용 최소 쿼리 — filter:images 등은 밀도 측정에 불필요. min_faves:50로 최근 7일.
-  const since = new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10);
+  const since = kstDaysAgo(7);
   const group = kws.length > 1 ? `(${kws.join(' OR ')})` : kws[0];
   const q = `${group}${lang ? ` lang:${lang}` : ''} min_faves:50 since:${since}`;
 

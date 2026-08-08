@@ -4,6 +4,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import type { ColumnRow, Member, SortDir, SortKey, StoredTweet, TableRow } from '@/lib/types';
 import { TABLE_COLUMNS } from '@/lib/tableColumns';
 import { toCsv } from '@/lib/tableExport';
+import { kstToday } from '@/lib/datetime';
 import { TABLE_MAX, TABLE_PAGE } from '@/lib/tableLimits';
 import { useToast } from '@/lib/toastContext';
 import { Button } from './ui';
@@ -205,7 +206,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
       a.download = csvFileName({
         columnNames: activeColumnIds.map((id) => columns.find((c) => c.id === id)?.title ?? '').filter(Boolean),
         conditionCount: conditions.filter(isComplete).length,
-        date: new Date().toISOString().slice(0, 10),
+        date: kstToday(),
       });
       // Firefox·Safari는 문서에 붙지 않은 <a>의 클릭을 무시할 수 있다 — 붙였다 떼고,
       // revoke는 클릭 직후가 아니라 다음 틱에 한다(동기 revoke는 다운로드가 시작되기 전에 URL을 죽일 수 있다).

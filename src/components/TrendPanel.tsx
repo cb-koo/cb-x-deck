@@ -4,12 +4,9 @@ import { Fragment, useCallback, useEffect, useState } from 'react';
 import type { ColumnKind } from '@/lib/types';
 import type { TrendPayload } from '@/lib/trend';
 import { formatCount } from '@/lib/format';
+import { asDateOnly, dateOnlyMonthDay, kstToday } from '@/lib/datetime';
 import { Button, PanelShell } from './ui';
 
-function fmtWeek(weekStart: string): string {
-  const d = new Date(weekStart + 'T00:00:00Z');
-  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
-}
 const DIR_ICON = { up: '▲', flat: '─', down: '▼' } as const;
 const DIR_COLOR = { up: 'text-red-500', flat: 'text-x-muted', down: 'text-blue-500' } as const;
 
@@ -37,7 +34,7 @@ export function TrendPanel({ columnId, kind, onAfterBackfill, onClose }: {
     try {
       const body = kind === 'watchlist'
         ? { maxPages: 10 }
-        : { sinceDate: data.weekly[0].weekStart, untilDate: new Date().toISOString().slice(0, 10) };
+        : { sinceDate: data.weekly[0].weekStart, untilDate: kstToday() };
       const r = await apiFetch(`/api/columns/${columnId}/refresh`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
@@ -69,7 +66,7 @@ export function TrendPanel({ columnId, kind, onAfterBackfill, onClose }: {
           <div className="mt-1.5 grid grid-cols-[44px_1fr_44px_76px] items-center gap-x-2 gap-y-1 tabular-nums">
             {data.weekly.map((b) => (
               <Fragment key={b.weekStart}>
-                <span className="text-caption text-x-muted">{fmtWeek(b.weekStart)}주</span>
+                <span className="text-caption text-x-muted">{dateOnlyMonthDay(asDateOnly(b.weekStart))}주</span>
                 <span className="h-2">
                   <span className="block h-2 rounded-sm bg-x-blue/60"
                         style={{ width: `${Math.round((b.count / maxCount) * 100)}%`, minWidth: b.count > 0 ? 4 : 0 }} />
@@ -80,7 +77,7 @@ export function TrendPanel({ columnId, kind, onAfterBackfill, onClose }: {
             ))}
             {data.partialWeek && (
               <Fragment>
-                <span className="text-caption text-x-muted opacity-60">{fmtWeek(data.partialWeek.weekStart)}주</span>
+                <span className="text-caption text-x-muted opacity-60">{dateOnlyMonthDay(asDateOnly(data.partialWeek.weekStart))}주</span>
                 <span className="col-span-3 text-caption text-x-muted">▒ 집계 중 ({data.partialWeek.count}건) — 이번 주는 아직 숫자가 낮게 나와요</span>
               </Fragment>
             )}

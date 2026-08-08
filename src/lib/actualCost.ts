@@ -54,6 +54,9 @@ export async function exaActual(from: Date, to: Date, fetchImpl: Fetch = fetch):
   const keys = list && Array.isArray(list.apiKeys) ? (list.apiKeys as Array<Record<string, unknown>>) : [];
   const k = keys[0];
   if (!k || typeof k.id !== 'string') return null;
+  // start_date/end_date는 한국 달력 날짜를 그대로 보낸다 — 이전(UTC 기준 자르기로 '이번 달'이
+  // 전달 말일이 되던 문제)보다는 낫지만, Exa 쪽 집계가 UTC로 버킷팅될 가능성이 높아 경계 하루는
+  // 여전히 어긋날 수 있다. UTC로 되돌리는 "수정"은 하지 말 것 — 그게 원래 버그다.
   const usage = await getJson(
     `${EXA_ADMIN_BASE}/team-management/api-keys/${encodeURIComponent(k.id)}/usage?start_date=${kstDate(from.toISOString())}&end_date=${kstDate(to.toISOString())}`,
     h, fetchImpl,

@@ -19,27 +19,42 @@ test('instant 계열: 표기 변형', () => {
   assert.equal(kstMonthDay('2026-07-06T23:29:44.000Z'), '7/7');
   assert.equal(kstMonthDayKo('2026-07-06T23:29:44.000Z'), '7월 7일');
   assert.equal(kstMonthDay('2026-12-31T15:00:00.000Z'), '1/1');      // 연말 걸침
+  assert.equal(kstMonthDay('2026-07-31T15:00:00.000Z'), '8/1');      // 평범한 월말 걸침(연말 아님)
 });
 
 test('instant 계열: 값이 없거나 못 읽으면 화면을 죽이지 않는다', () => {
   assert.equal(kstDate(null), '');
   assert.equal(kstDate('not-a-date'), '');
   assert.equal(kstShort(null), '–');            // 카드에서 '모름' 자리를 지키던 기존 표기
+  assert.equal(kstShort('not-a-date'), '–');    // null이 아니어도 파싱 실패면 같은 자리 표기
   assert.equal(kstMonthDay(null), '');
+  assert.equal(kstDateTime(null), '');
+  assert.equal(kstMonthDayKo(null), '');
 });
 
-test('오늘/기간: 한국 자정을 기준으로 만든다', () => {
-  // 실제 '지금'에 의존하지 않도록, 만들어진 값들 사이의 관계만 단정한다.
-  assert.match(kstToday(), /^\d{4}-\d{2}-\d{2}$/);
-  assert.equal(kstDaysAgo(0), kstToday());
-  // 7일 전은 오늘보다 정확히 7일 앞선 한국 날짜다
-  const ms = (d: string) => Date.parse(d + 'T00:00:00Z');
-  assert.equal(ms(kstToday()) - ms(kstDaysAgo(7)), 7 * 86_400_000);
-  // 00:00 KST의 순간은 그 날짜의 UTC 자정보다 9시간 이르다
-  assert.equal(ms(kstToday()) - kstTodayStart().getTime(), 9 * 3_600_000);
-  assert.equal(kstDaysAgoStart(3).getTime(), kstTodayStart().getTime() - 3 * 86_400_000);
-  // 이번 달 1일 00:00 KST
-  assert.equal(kstMonthStart().getTime(), ms(kstToday().slice(0, 7) + '-01') - 9 * 3_600_000);
+test('오늘/기간: 고정된 시계로 그 버그(월말 UTC 15시 이후 "이번 달"이 전달이 되던 것)를 재현한다', () => {
+  // 2026-07-31T16:00:00Z + 9h = 2026-08-01T01:00:00Z → 한국은 이미 8/1 새벽 1시.
+  // UTC로 자르면 여기서 '7/31'이 나와 이번 달이 7월로 밀린다 — 그게 고쳐진 버그다.
+  const nowA = () => Date.parse('2026-07-31T16:00:00Z');
+  assert.equal(kstToday(nowA), '2026-08-01');
+  // 이번 달 1일 00:00 KST → UTC로는 8/1 00:00 - 9h = 7/31 15:00Z. 7월이 아니라 8월 1일에 앉는다.
+  assert.equal(kstMonthStart(nowA).getTime(), Date.parse('2026-07-31T15:00:00Z'));
+
+  // 경계 반대편에서도 같은 결과여야 한다: 2026-08-01T02:00:00Z + 9h = 2026-08-01T11:00:00Z(한국 오전 11시).
+  const nowB = () => Date.parse('2026-08-01T02:00:00Z');
+  assert.equal(kstToday(nowB), '2026-08-01');
+  assert.equal(kstMonthStart(nowB).getTime(), Date.parse('2026-07-31T15:00:00Z'));
+
+  // kstDaysAgo(0)은 오늘과 같다(같은 고정 시계 기준)
+  assert.equal(kstDaysAgo(0, nowA), kstToday(nowA));
+  // 7일 전: 2026-08-01T02:00:00Z - 7일 = 2026-07-25T02:00:00Z, +9h = 2026-07-25T11:00:00Z → '2026-07-25'
+  assert.equal(kstDaysAgo(7, nowB), '2026-07-25');
+
+  // 00:00 KST의 순간(=kstTodayStart)은 그 날짜의 UTC 자정보다 9시간 이르다
+  assert.equal(kstTodayStart(nowB).getTime(), Date.parse('2026-07-31T15:00:00Z'));
+  // 3일 전 00:00 KST: 2026-07-29T00:00 KST → UTC로 2026-07-28T15:00:00Z
+  assert.equal(kstDaysAgoStart(3, nowB).getTime(), Date.parse('2026-07-28T15:00:00Z'));
+  assert.equal(kstDaysAgoStart(3, nowB).getTime(), kstTodayStart(nowB).getTime() - 3 * 86_400_000);
 });
 
 test('date-only 계열: 시간대 시프트를 하지 않는다', () => {

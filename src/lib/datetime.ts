@@ -59,29 +59,33 @@ export function kstMonthDayKo(iso: string | null): string {
   return `${Number(k.slice(5, 7))}월 ${Number(k.slice(8, 10))}일`;
 }
 
-/** 오늘(한국) YYYY-MM-DD. '오늘'을 UTC로 자르면 한국 새벽 0~9시에 어제가 된다. */
-export function kstToday(): string {
-  return toKstIso(new Date().toISOString()).slice(0, 10);
+/**
+ * 오늘(한국) YYYY-MM-DD. '오늘'을 UTC로 자르면 한국 새벽 0~9시에 어제가 된다.
+ * now는 시계 주입 지점 — 실제 호출부는 인자를 넘기지 않아 기본값(실제 시계)으로 지금까지와 동일하게 동작한다.
+ * 테스트만 고정된 시각을 넘겨 그 경계 버그(월말 UTC 15시 등)를 재현한다.
+ */
+export function kstToday(now: () => number = Date.now): string {
+  return toKstIso(new Date(now()).toISOString()).slice(0, 10);
 }
 
 /** n일 전(한국) YYYY-MM-DD. */
-export function kstDaysAgo(n: number): string {
-  return toKstIso(new Date(Date.now() - n * 86_400_000).toISOString()).slice(0, 10);
+export function kstDaysAgo(n: number, now: () => number = Date.now): string {
+  return toKstIso(new Date(now() - n * 86_400_000).toISOString()).slice(0, 10);
 }
 
 /** 오늘 00:00(한국)이 가리키는 순간. SQL 경계로 넘길 때 쓴다. */
-export function kstTodayStart(): Date {
-  return kstMidnightInstant(kstToday());
+export function kstTodayStart(now: () => number = Date.now): Date {
+  return kstMidnightInstant(kstToday(now));
 }
 
 /** n일 전 00:00(한국)이 가리키는 순간. */
-export function kstDaysAgoStart(n: number): Date {
-  return kstMidnightInstant(kstDaysAgo(n));
+export function kstDaysAgoStart(n: number, now: () => number = Date.now): Date {
+  return kstMidnightInstant(kstDaysAgo(n, now));
 }
 
 /** 이번 달 1일 00:00(한국)이 가리키는 순간. */
-export function kstMonthStart(): Date {
-  return kstMidnightInstant(`${kstToday().slice(0, 7)}-01`);
+export function kstMonthStart(now: () => number = Date.now): Date {
+  return kstMidnightInstant(`${kstToday(now).slice(0, 7)}-01`);
 }
 
 // ─────────────────────────── date-only 계열 ───────────────────────────
@@ -90,8 +94,15 @@ export function kstMonthStart(): Date {
 // 유일한 기계적 장치다(나머지는 사람의 주의력에 의존한다).
 export type DateOnly = string & { readonly __dateOnly: unique symbol };
 
-/** 'YYYY-MM-DD'임이 확실한 값에만 쓴다 — date 컬럼, 주 시작일, <input type="date">. */
+/**
+ * 'YYYY-MM-DD'임이 확실한 값에만 쓴다 — date 컬럼, 주 시작일, <input type="date">.
+ * 브랜딩 타입은 컴파일 타임에만 막는다 — 잘못된 문자열이 런타임에 들어오면 조용히 NaN 섞인
+ * 라벨을 만든다. 개발 중에만 경고하고 던지지 않는다 — 잘못된 값 하나가 화면 전체를 죽이면 안 된다.
+ */
 export function asDateOnly(s: string): DateOnly {
+  if (process.env.NODE_ENV !== 'production' && !/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    console.warn(`asDateOnly: 'YYYY-MM-DD'가 아닌 값 — ${s}`);
+  }
   return s as DateOnly;
 }
 

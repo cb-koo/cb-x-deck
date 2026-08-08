@@ -18,20 +18,30 @@
 | `isAllowedUser` | `app_metadata.provider` / `providers` | ✅ |
 | `resolveMember` (`workspaceStore.ts:36`) | `email`, `user_metadata.full_name`/`name` | ✅ |
 
-## ★ 핵심 함정 — 그냥 바꾸면 이득이 거의 없다
+## ~~★ 핵심 함정 — 그냥 바꾸면 이득이 거의 없다~~ → **오판이었다(2026-08-08 정정)**
 
-`getClaims()`의 JWKS 캐시는 **인스턴스 변수**다(`this.jwks` / `this.jwks_cached_at`, `GoTrueClient.js:5129-5145`). 그런데 이 저장소의 `createClient()`(`supabase/server.ts`)는 요청 쿠키에 묶이므로 **요청마다 새 클라이언트를 만든다.** 즉 캐시가 매번 비어 있어 요청마다 `/.well-known/jwks.json`을 새로 받는다.
+> **이 절의 원래 주장은 틀렸다.** 설계 당시 나는 "`getClaims()`의 JWKS 캐시가 인스턴스 변수(`this.jwks`)인데 이 저장소는 요청마다 클라이언트를 새로 만드니 매 요청이 JWKS를 다시 받는다"고 적었고, 그래서 **모듈 레벨 JWKS 캐시(`authJwks.ts`)를 만들라고 계획에 넣었다.**
+>
+> 구현 중 T2 담당이 반박했고, 확인해보니 그쪽이 옳았다. `this.jwks`는 **인스턴스 변수가 아니라 모듈 전역을 읽고 쓰는 게터**다:
+>
+> ```js
+> const GLOBAL_JWKS = {};                       // GoTrueClient.js:46
+> get jwks() { return GLOBAL_JWKS[this.storageKey]?.jwks ?? { keys: [] }; }   // :51-53
+> set jwks(v) { GLOBAL_JWKS[this.storageKey] = { ...GLOBAL_JWKS[this.storageKey], jwks: v }; }
+> ```
+>
+> `storageKey`로 키잉된 모듈 전역이므로 **요청마다 클라이언트를 새로 만들어도 캐시는 살아남는다.** TTL도 10분(`constants.js:35`)으로 내가 지정하려던 값과 같다. 즉 `authJwks.ts`는 라이브러리가 이미 하는 일을 한 번 더 하는 코드였고, **만든 뒤 되돌렸다.**
+>
+> **내가 어디서 틀렸나:** `this.jwks`라는 표기만 보고 인스턴스 상태라고 단정했다. 그것이 게터인지 확인하지 않았다. 라이브러리 내부 동작을 근거로 설계를 세울 때는 **선언부까지 읽어야** 한다.
+>
+> **남는 결론은 그대로다.** `getUser()`(인증 서버 왕복 37~40ms) → `getClaims()`(로컬 서명 검증)의 이득은 이 오판과 무관하게 유효하다. 웜 인스턴스에서 JWKS는 10분에 한 번만 받는다.
 
-실측:
+**참고 실측** (오판 여부와 별개로 유효한 값):
 
 | 경로 | 첫 요청 | 연결 재사용 |
 |---|---|---|
-| JWKS | 320ms | **13ms** |
-| auth `/user` (현재) | — | **37~40ms** |
-
-그냥 바꾸면 37ms → 13ms다. 나쁘지 않지만 목표는 아니다.
-
-**해법은 코드에 이미 있다.** `getClaims(jwt, { jwks })`로 키를 직접 넘기면 `fetchJwk`가 첫 줄에서 그대로 반환하고 네트워크를 타지 않는다(`GoTrueClient.js:5122-5126`). 그래서 **JWKS를 우리 모듈 레벨에 캐시**한다 — 모듈 스코프는 워밍된 람다 인스턴스 안에서 요청 간에 살아남는다.
+| JWKS | 320ms | 13ms |
+| auth `/user` (기존 방식) | — | **37~40ms** |
 
 ## 설계
 

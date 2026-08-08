@@ -3,7 +3,6 @@ import { createClient } from '@/lib/supabase/server';
 import { isAllowedUser } from '@/lib/auth';
 import { getSql } from '@/lib/db';
 import { resolveMember } from '@/lib/workspaceStore';
-import { getCachedJwks, invalidateJwks } from '@/lib/authJwks';
 import type { Member } from '@/lib/types';
 
 // 라우트 게이트가 실제로 쓰는 것만 담는다. 예전엔 Supabase의 User를 통째로 들고 다녔지만
@@ -26,23 +25,21 @@ function unauthorized() {
  * 맞바꿈: 서버에서 무효화된 세션(로그아웃·계정 삭제)을 토큰이 만료될 때까지 모른다.
  * 사내 구글 도메인으로 게이팅된 소수 사용자이고 강제 로그아웃 기능이 없어 감수한 것이다
  * (2026-08-08 사용자 승인). 외부 사용자를 받거나 강제 로그아웃이 생기면 재검토할 것.
+ *
+ * 서명키(JWKS)는 우리가 따로 캐시하지 않는다 — auth-js가 모듈 전역(GLOBAL_JWKS, storageKey별)에
+ * 10분 TTL로 들고 있어 요청마다 클라이언트를 새로 만들어도 살아남는다. this.jwks가 그 전역을
+ * 읽고 쓰는 게터라, 인스턴스 상태로 오해하기 쉽다(실제로 한 번 오판했다).
  */
 export async function requireAllowedUser(): Promise<
   { user: GateIdentity; response: null } | { user: null; response: NextResponse }
 > {
   const supabase = await createClient();
-  // 우리가 든 키를 넘기면 네트워크를 타지 않는다. null이면 라이브러리가 알아서 받아온다.
-  const jwks = await getCachedJwks();
-  const { data, error } = await supabase.auth.getClaims(undefined, jwks ? { jwks } : undefined);
+  const { data, error } = await supabase.auth.getClaims();
 
-  if (error) {
-    // 키 회전 직후라면 우리가 든 키로는 검증할 수 없다 — 버려서 다음 요청이 새로 받게 한다.
-    // (라이브러리는 모르는 kid를 만나면 스스로 받아오지만, 우리 캐시가 낡은 채로 남으면
-    //  매 요청이 그 우회 경로를 타게 된다.)
-    if (jwks) invalidateJwks();
-    return { user: null, response: unauthorized() };
-  }
-  if (!data) return { user: null, response: unauthorized() };   // 세션 없음
+  // 세 갈래를 모두 막아야 한다: 오류 / 세션 없음({data:null,error:null} — error가 null이라
+  // 오류 검사만으로는 안 걸린다) / 허용되지 않은 사용자.
+  if (error) return { user: null, response: unauthorized() };
+  if (!data) return { user: null, response: unauthorized() };
 
   const c = data.claims;
   const identity: GateIdentity = {

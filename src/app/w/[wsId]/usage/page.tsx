@@ -52,7 +52,7 @@ export default async function UsagePage({
 
   const byApi = summarizeByApi(rows);
   const byFeature = summarizeByFeature(rows);
-  const byDay = summarizeByDay(daily);
+  const byDay = summarizeByDay(daily, { from, to });
   const total = totalCostUsd(rows);
   const prevTotal = totalCostUsd(prevRows);
   const estimateByApi: Record<string, number> = Object.fromEntries(byApi.map((a) => [a.api, a.costUsd]));

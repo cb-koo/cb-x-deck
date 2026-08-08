@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   asDateOnly, kstDate, kstDateTime, kstShort, kstMonthDay, kstMonthDayKo,
-  kstToday, kstDaysAgo, kstTodayStart, kstDaysAgoStart, kstMonthStart,
+  kstToday, kstDaysAgo, kstTodayStart, kstDaysAgoStart, kstMonthStart, kstDayRange,
   dateOnlyMonthDay, weekRangeLabel,
 } from './datetime.ts';
 
@@ -55,6 +55,24 @@ test('오늘/기간: 고정된 시계로 그 버그(월말 UTC 15시 이후 "이
   // 3일 전 00:00 KST: 2026-07-29T00:00 KST → UTC로 2026-07-28T15:00:00Z
   assert.equal(kstDaysAgoStart(3, nowB).getTime(), Date.parse('2026-07-28T15:00:00Z'));
   assert.equal(kstDaysAgoStart(3, nowB).getTime(), kstTodayStart(nowB).getTime() - 3 * 86_400_000);
+});
+
+test('kstDayRange: from~to가 걸치는 한국 달력일을 오름차순으로 빠짐없이 나열한다', () => {
+  // 8/2 00:00 KST ~ 8/8 14:06 KST — usage "최근 7일"의 실제 경계. 7일이 나와야 한다.
+  const from = new Date('2026-08-02T00:00:00+09:00');
+  const to = new Date('2026-08-08T14:06:00+09:00');
+  assert.deepEqual(kstDayRange(from, to), [
+    '2026-08-02', '2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-08',
+  ]);
+
+  // 하루짜리 구간(from, to가 같은 한국 날짜)이면 1개만 나온다.
+  assert.deepEqual(kstDayRange(new Date('2026-08-02T01:00:00+09:00'), new Date('2026-08-02T23:00:00+09:00')), ['2026-08-02']);
+
+  // 월경계: UTC 15:00을 넘으면 한국은 다음 날이므로, 7/31 23:00Z(=8/1 08:00 KST) 부터는 8월로 넘어간다.
+  assert.deepEqual(
+    kstDayRange(new Date('2026-07-31T14:00:00Z'), new Date('2026-08-01T01:00:00Z')),
+    ['2026-07-31', '2026-08-01'],
+  );
 });
 
 test('date-only 계열: 시간대 시프트를 하지 않는다', () => {

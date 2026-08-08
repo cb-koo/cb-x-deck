@@ -49,6 +49,27 @@ test('summarizeByDay: 일별 비용 합', () => {
   ]);
 });
 
+test('summarizeByDay: range를 주면 기록 없는 날도 0원 막대로 채워 7일이 모두 나온다', () => {
+  // 실제 제보 재현: 8/2~8/3(주말)엔 사용 기록이 아예 없어 막대가 5개만 나왔다.
+  // range를 주면 그 이틀도 0원 자리로 채워져 라벨("최근 7일")과 막대 수가 맞아야 한다.
+  const daily = [
+    { day: '2026-08-04', api: 'getxapi', operation: '', model: null, calls: 1000, inputTokens: 0, outputTokens: 0 },
+    { day: '2026-08-05', api: 'getxapi', operation: '', model: null, calls: 1000, inputTokens: 0, outputTokens: 0 },
+    { day: '2026-08-06', api: 'getxapi', operation: '', model: null, calls: 1000, inputTokens: 0, outputTokens: 0 },
+    { day: '2026-08-07', api: 'getxapi', operation: '', model: null, calls: 1000, inputTokens: 0, outputTokens: 0 },
+    { day: '2026-08-08', api: 'getxapi', operation: '', model: null, calls: 1000, inputTokens: 0, outputTokens: 0 },
+  ];
+  const from = new Date('2026-08-02T00:00:00+09:00'); // 한국 자정, "최근 7일"의 시작
+  const to = new Date('2026-08-08T14:06:00+09:00'); // 제보 당시 "지금"
+  const out = summarizeByDay(daily, { from, to });
+  assert.deepEqual(out.map((d) => d.day), [
+    '2026-08-02', '2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-08',
+  ]);
+  assert.equal(out[0].costUsd, 0); // 8/2 — 주말, 기록 없음
+  assert.equal(out[1].costUsd, 0); // 8/3 — 주말, 기록 없음
+  assert.equal(out[2].costUsd, 1); // 8/4 — 1000 * 0.001
+});
+
 test('totalCostUsd', () => {
   assert.equal(totalCostUsd(rows), 1.5 + 7 + 1);
 });

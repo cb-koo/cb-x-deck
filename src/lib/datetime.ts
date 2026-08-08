@@ -88,6 +88,27 @@ export function kstMonthStart(now: () => number = Date.now): Date {
   return kstMidnightInstant(`${kstToday(now).slice(0, 7)}-01`);
 }
 
+/**
+ * from~to(둘 다 순간)가 걸치는 한국 달력일을 'YYYY-MM-DD' 오름차순으로 나열한다.
+ * usage 일별 차트의 빈칸 채우기(zero-fill)가 쓴다 — "최근 7일"인데 기록 없는 날은
+ * 막대가 통째로 빠져 라벨과 막대 수가 어긋나던 문제를, 그 날짜가 무엇인지부터
+ * 알아야 고칠 수 있다.
+ */
+export function kstDayRange(from: Date, to: Date): string[] {
+  const start = kstDate(from.toISOString());
+  const end = kstDate(to.toISOString());
+  const days: string[] = [];
+  let cur = start;
+  while (cur <= end) {
+    days.push(cur);
+    // 달력일 문자열의 산술이다 — 시간대 시프트가 아니라 다음 날짜 문자열을 구할 뿐이다.
+    const next = new Date(cur + 'T00:00:00Z');
+    next.setUTCDate(next.getUTCDate() + 1);
+    cur = next.toISOString().slice(0, 10);
+  }
+  return days;
+}
+
 // ─────────────────────────── date-only 계열 ───────────────────────────
 
 // 브랜딩 타입 — instant를 실수로 넘기면 컴파일이 막힌다. 이 작업에서 (C) 사고를 막는

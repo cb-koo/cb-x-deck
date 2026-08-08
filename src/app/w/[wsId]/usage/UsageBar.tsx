@@ -1,7 +1,9 @@
 import { formatMoney } from '@/lib/usagePricing';
 
 export function UsageBar({ data }: { data: Array<{ day: string; costUsd: number }> }) {
-  if (data.length === 0) return <p className="text-caption text-x-muted">이 기간엔 기록이 없어요</p>;
+  // zero-fill(빈 날도 0원 막대로 채움) 이후엔 배열이 비지 않는다 — 기간 전체가 0원이어도
+  // "기록 없음"을 알리려면 길이가 아니라 값을 봐야 한다.
+  if (data.length === 0 || data.every((d) => d.costUsd === 0)) return <p className="text-caption text-x-muted">이 기간엔 기록이 없어요</p>;
   const max = Math.max(...data.map((d) => d.costUsd), 0.0001);
   return (
     <div className="flex gap-1" style={{ height: 140 }}>

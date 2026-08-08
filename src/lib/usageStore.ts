@@ -2,6 +2,7 @@ import type postgres from 'postgres';
 import { getUsageSql } from './db.ts';
 import { rowCostUsd } from './usagePricing.ts';
 import { featureLabel, apiLabel } from './usageFeatures.ts';
+import { kstDayRange } from './datetime.ts';
 
 export interface UsageEvent {
   api: string;
@@ -107,10 +108,14 @@ export function summarizeByFeature(rows: AggRow[]) {
   return [...m.values()].sort((a, b) => b.costUsd - a.costUsd);
 }
 
-export function summarizeByDay(rows: Array<AggRow & { day: string }>) {
+// range를 주면 그 기간의 한국 달력일을 빠짐없이 채운다(zero-fill) — 기록 없는 날도
+// costUsd: 0인 자리를 갖게 되어, "최근 7일" 라벨인데 막대가 5개만 뜨는 어긋남이 없어진다.
+// range를 안 주면 예전처럼 rows에 있는 날만(기록이 있는 날만) 나온다.
+export function summarizeByDay(rows: Array<AggRow & { day: string }>, range?: { from: Date; to: Date }) {
   const m = new Map<string, number>();
   for (const r of rows) m.set(r.day, (m.get(r.day) ?? 0) + rowCostUsd(r));
-  return [...m.entries()].map(([day, costUsd]) => ({ day, costUsd })).sort((a, b) => a.day.localeCompare(b.day));
+  const days = range ? kstDayRange(range.from, range.to) : [...m.keys()].sort((a, b) => a.localeCompare(b));
+  return days.map((day) => ({ day, costUsd: m.get(day) ?? 0 }));
 }
 
 export function totalCostUsd(rows: AggRow[]): number {

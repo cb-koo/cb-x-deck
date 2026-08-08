@@ -82,9 +82,10 @@ export async function listDrafts(
 ): Promise<DraftRow[]> {
   const byClient = opts.clientId ? sql`and d.client_id = ${opts.clientId}` : sql``;
   const byStatus = opts.status ? sql`and d.status = ${opts.status}` : sql``;
+  // 배치 형제는 created_at이 동일 — variant_index로 A/B/C 순서 고정 (단일 초안 null은 앞)
   const rows = await sql<Row[]>`
     ${SELECT(sql)} where true ${byClient} ${byStatus}
-    order by d.created_at desc
+    order by d.created_at desc, d.variant_index asc nulls first
     limit ${opts.limit ?? 50}`;
   return rows.map(toRow);
 }

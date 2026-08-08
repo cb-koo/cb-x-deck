@@ -5,6 +5,7 @@ import { formatFull } from './format.ts';
 import { tweetPermalink } from './tweetLink.ts';
 import { SORT_LABEL } from './sortKeys.ts';
 import type { SortKey, TableRow } from './types.ts';
+import { kstDate, kstDateTime } from './datetime.ts';
 
 export interface TableColumn {
   key: string;
@@ -35,36 +36,11 @@ export const TABLE_COLUMNS: TableColumn[] = [
   { key: 'fetchedAt', label: '최종 수집 시간' },
 ];
 
-// 표의 날짜·시각은 전부 한국 시간으로 보여준다. 서버는 UTC로 저장하고(timestamptz),
-// 필터 경계도 SQL에서 Asia/Seoul 자정으로 계산하므로(tableFilter.ts) 표시가 같은 시간대여야
-// "보이는 날짜"와 "걸러지는 경계"가 일치한다.
-// 고정 +9시간인 이유: 한국은 1988년 이후 서머타임이 없어 Asia/Seoul은 항상 UTC+9다.
-// Intl에 맡기면 런타임 시간대 데이터에 의존해 테스트가 환경에 흔들린다.
-const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
-
-// 파싱 불가한 값에는 빈 문자열을 돌려준다. 이 함수는 셀마다 불리므로 던지면 표 전체 렌더가
-// 죽는다 — 셀 하나가 비는 것보다 나쁘다. 오늘은 값이 Postgres timestamptz에서 오므로 도달하지
-// 않지만, 실패 양상의 차이가 커서 막아둔다.
-function toKstIso(iso: string): string {
-  const ms = new Date(iso).getTime();
-  if (Number.isNaN(ms)) return '';
-  return new Date(ms + KST_OFFSET_MS).toISOString();
-}
-
-// 표와 카드 팝업이 같은 함수를 쓴다 — 팝업은 표 바로 위에 뜨므로 같은 값이 다른 날짜로
-// 보이면 안 된다(2차 설계 §B). 규칙을 두 번 구현하지 않으려고 export 한다.
-export function ymd(iso: string | null): string {
-  if (!iso) return '';
-  return toKstIso(iso).slice(0, 10);   // 표는 정렬 축이라 상대 표기를 쓰지 않는다
-}
-
-// '최종 수집 시간'(last_fetched_at) 전용. 날짜만 찍으면 같은 날 09:00에 새로고침한 컬럼과
-// 22:00에 새로고침한 컬럼이 같은 값으로 보여 "비교 가능"으로 오인된다(설계 §E) — 시:분까지 찍는다.
-// ymd와 함께 카드 팝업 헤더도 쓴다(2차 설계 §B).
-export function ymdHm(iso: string | null): string {
-  if (!iso) return '';
-  return toKstIso(iso).slice(0, 16).replace('T', ' ');   // YYYY-MM-DD HH:MM
-}
+// 날짜·시각 표기는 src/lib/datetime.ts 한 곳에서 나온다(설계 §A). 여기 있던 고정 +9 구현이
+// 그 모듈로 승격됐다 — 표 밖(카드·브리핑·사용량)도 같은 규칙을 써야 하는데 표 전용 파일에
+// 갇혀 있었기 때문이다. 표 쪽 호출부를 건드리지 않으려고 이름 그대로 다시 내보낸다.
+export const ymd = kstDate;
+export const ymdHm = kstDateTime;
 
 function metricOf(row: TableRow, key: string): number | null | undefined {
   return (row.metrics as unknown as Record<string, number | null>)[key];

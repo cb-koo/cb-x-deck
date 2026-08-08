@@ -2,7 +2,7 @@ import type postgres from 'postgres';
 import { callLLM, type AnthropicLike } from './llm.ts';
 import { getClientWithProcedures } from './clientStore.ts';
 import { getReferencesByIds } from './referenceStore.ts';
-import { buildUserPrompt, draftOutputSchema, DRAFT_SYSTEM } from './generatePrompt.ts';
+import { buildUserPrompt, draftOutputSchema, variantsOutputSchema, DRAFT_SYSTEM } from './generatePrompt.ts';
 import { insertDraft, getDraft, updateDraft, type DraftRow } from './draftStore.ts';
 import { X_MAX_WEIGHTED } from './xLength.ts';
 import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
@@ -17,11 +17,16 @@ export interface GenerateRequest {
   clientId: string | null; procedureIds: string[]; refTweetIds: string[];
   mode: ReferenceMode; direction: string; format: DraftFormat;
   constraintsOn: boolean; memberId: string | null;
+  count?: number; // 시안 수 (1~5, 기본 1) — 라우트가 범위 검증
 }
 
 export async function generateDraft(
   sql: postgres.Sql, req: GenerateRequest, client?: AnthropicLike,
-): Promise<string> {
+): Promise<string[]> {
+  const count = req.count ?? 1;
+  if (!Number.isInteger(count) || count < 1 || count > 5) {
+    throw new GenerateInputError('시안 수는 1~5 사이여야 해요');
+  }
   const hasClient = !!req.clientId;
   const hasRefs = req.refTweetIds.length > 0 && req.mode !== 'off';
   const hasDirection = req.direction.trim().length > 0;
@@ -46,41 +51,54 @@ export async function generateDraft(
       `레퍼런스 ${req.refTweetIds.length - refs.length}건을 보관함에서 찾을 수 없어요 — 목록을 새로고침해 주세요`);
   }
 
-  // 프롬프트 → LLM (구조화 출력)
+  // 프롬프트 → LLM (구조화 출력) — count 1이면 기존 posts 스키마·프롬프트 그대로 (스펙 §1)
   const user = buildUserPrompt({
     client: clientData ? { name: clientData.client.name, info: clientData.client.info,
                            bannedPhrases: clientData.client.bannedPhrases } : null,
     procedures, references: refs, mode: hasRefs ? req.mode : 'off',
     direction: req.direction, format: req.format, constraintsOn: req.constraintsOn,
+    ...(count > 1 ? { variantCount: count } : {}),
   });
   const res = await callLLM('anthropic.draft', {
     model: CONTENT_MODEL(),
     max_tokens: 16000, // Opus 5는 thinking 기본 ON — thinking+응답 합산 상한이라 여유 필요
     system: DRAFT_SYSTEM,
     messages: [{ role: 'user', content: user }],
-    output_config: { format: { type: 'json_schema', schema: draftOutputSchema() } },
+    output_config: { format: { type: 'json_schema', schema: count > 1 ? variantsOutputSchema() : draftOutputSchema() } },
   }, client);
 
   // 파싱 — 구조화 출력이라 JSON 보장이 원칙이나, 방어적으로 검증
   const text = res.content.find((b) => b.type === 'text')?.text ?? '';
-  let posts: Array<{ text: string }>;
+  let variants: Array<{ posts: Array<{ text: string }> }>;
   try {
-    posts = (JSON.parse(text) as { posts: Array<{ text: string }> }).posts;
+    variants = count > 1
+      ? (JSON.parse(text) as { variants: Array<{ posts: Array<{ text: string }> }> }).variants
+      : [JSON.parse(text) as { posts: Array<{ text: string }> }];
   } catch {
     throw new Error('AI가 이번엔 형식을 맞추지 못했어요 — 다시 시도해주세요');
   }
-  if (!Array.isArray(posts) || posts.length === 0 || posts.some((p) => typeof p.text !== 'string' || !p.text.trim())) {
+  const bad = (v: { posts?: Array<{ text?: string }> }) =>
+    !Array.isArray(v?.posts) || v.posts.length === 0 || v.posts.some((p) => typeof p?.text !== 'string' || !p.text.trim());
+  if (!Array.isArray(variants) || variants.length === 0 || variants.some(bad)) {
     throw new Error('AI가 이번엔 형식을 맞추지 못했어요 — 다시 시도해주세요');
   }
+  // 모델이 count보다 적게/많게 반환하면 받은 만큼만 — 도착한 카드 수가 곧 사실 (스펙 §3)
+  variants = variants.slice(0, count);
 
-  const content: DraftContent = { posts: posts.map((p) => ({ text: p.text, media: [] })) };
-  return insertDraft(sql, {
+  const batchId = count > 1 ? crypto.randomUUID() : null;
+  const toContent = (v: { posts: Array<{ text: string }> }): DraftContent =>
+    ({ posts: v.posts.map((p) => ({ text: p.text, media: [] })) });
+  const insertOne = (tx: postgres.Sql, i: number) => insertDraft(tx, {
     clientId: req.clientId, clientName: clientData?.client.name ?? null,
     procedureNames: procedures.map((p) => p.name),
     direction: req.direction, format: req.format,
     referenceMode: hasRefs ? req.mode : 'off', refs,
-    content, model: CONTENT_MODEL(), memberId: req.memberId,
+    content: toContent(variants[i]), model: CONTENT_MODEL(), memberId: req.memberId,
+    batchId, variantIndex: batchId ? i : null,
   });
+  // 배치는 한 단위 — 중간 실패 시 고아 부분 배치가 남지 않게 트랜잭션. 단일 생성은 기존 경로 그대로.
+  if (!batchId) return [await insertOne(sql, 0)];
+  return sql.begin((tx) => Promise.all(variants.map((_, i) => insertOne(tx as unknown as postgres.Sql, i)))) as Promise<string[]>;
 }
 
 // 초안 전체 다시 쓰기 — 피드백이 있으면 반영, 없으면 같은 조건으로 재생성(겹치지 않게).

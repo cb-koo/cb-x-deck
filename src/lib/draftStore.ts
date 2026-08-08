@@ -24,6 +24,8 @@ export interface DraftRow {
   translation: DraftTranslation | null;
   dismissedFlags: string[];
   status: DraftStatus; // 결정 진행도 라벨 — 전이 제약 없음 (스펙 §2)
+  batchId: string | null;      // 다중 시안 묶음 — 단일 생성은 null
+  variantIndex: number | null; // 묶음 내 순번(0부터, 표시 라벨 A/B/C…)
   model: string | null; createdAt: string; member: Member | null;
 }
 
@@ -34,6 +36,7 @@ type Row = {
   history: DraftContent[]; translation: DraftTranslation | null;
   dismissed_flags: string[];
   status: DraftStatus;
+  batch_id: string | null; variant_index: number | null;
   model: string | null; created_at: Date;
   member_id: string | null; member_name: string | null; member_color: string | null;
 };
@@ -44,6 +47,7 @@ const toRow = (r: Row): DraftRow => ({
   content: r.content, edited: r.edited, history: r.history, translation: normalizeTranslation(r.translation),
   dismissedFlags: r.dismissed_flags,
   status: r.status,
+  batchId: r.batch_id, variantIndex: r.variant_index,
   model: r.model, createdAt: r.created_at.toISOString(),
   member: r.member_id ? { id: r.member_id, name: r.member_name as string, color: r.member_color as string } : null,
 });
@@ -51,7 +55,7 @@ const toRow = (r: Row): DraftRow => ({
 const SELECT = (sql: postgres.Sql) => sql`
   select d.id, d.client_id, d.client_name, d.procedure_names, d.direction, d.format,
          d.reference_mode, d.refs, d.content, d.edited, d.history, d.translation,
-         d.dismissed_flags, d.status, d.model, d.created_at,
+         d.dismissed_flags, d.status, d.batch_id, d.variant_index, d.model, d.created_at,
          m.id as member_id, m.name as member_name, m.color as member_color
     from draft d
     left join member m on m.id = d.created_by`;
@@ -60,14 +64,15 @@ export async function insertDraft(sql: postgres.Sql, input: {
   clientId: string | null; clientName: string | null; procedureNames: string[];
   direction: string; format: DraftFormat; referenceMode: ReferenceMode; refs: RefSnapshot[];
   content: DraftContent; model: string | null; memberId: string | null;
+  batchId?: string | null; variantIndex?: number | null;
 }): Promise<string> {
   const rows = await sql<Array<{ id: string }>>`
     insert into draft (client_id, client_name, procedure_names, direction, format,
-                       reference_mode, refs, content, model, created_by)
+                       reference_mode, refs, content, model, created_by, batch_id, variant_index)
     values (${input.clientId}, ${input.clientName}, ${sql.json(input.procedureNames)},
             ${input.direction}, ${input.format}, ${input.referenceMode},
             ${sql.json(input.refs as never)}, ${sql.json(input.content as never)},
-            ${input.model}, ${input.memberId})
+            ${input.model}, ${input.memberId}, ${input.batchId ?? null}, ${input.variantIndex ?? null})
     returning id`;
   return rows[0].id;
 }
@@ -77,9 +82,10 @@ export async function listDrafts(
 ): Promise<DraftRow[]> {
   const byClient = opts.clientId ? sql`and d.client_id = ${opts.clientId}` : sql``;
   const byStatus = opts.status ? sql`and d.status = ${opts.status}` : sql``;
+  // 배치 형제는 created_at이 동일 — variant_index로 A/B/C 순서 고정 (단일 초안 null은 앞)
   const rows = await sql<Row[]>`
     ${SELECT(sql)} where true ${byClient} ${byStatus}
-    order by d.created_at desc
+    order by d.created_at desc, d.variant_index asc nulls first
     limit ${opts.limit ?? 50}`;
   return rows.map(toRow);
 }

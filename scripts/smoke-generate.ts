@@ -5,7 +5,7 @@ import { getDraft, removeDraft } from '../src/lib/draftStore.ts';
 
 (async () => {
   const sql = getSql();
-  const id = await generateDraft(sql, {
+  const [id] = await generateDraft(sql, {
     clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
     direction: '여름 전 시술을 고민하는 20대에게, 다운타임이 짧다는 점을 강조하는 단문',
     format: 'single', constraintsOn: false, memberId: null,

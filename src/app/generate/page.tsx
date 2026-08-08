@@ -2,7 +2,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
-import { newDraftsSince, filterDrafts, statusCounts, type DraftListFilter } from '@/lib/draftUi';
+import { newDraftsSince, filterDrafts, statusCounts, siblingCount, type DraftListFilter } from '@/lib/draftUi';
 import { Toast } from '@/components/Toast';
 import { DraftCard } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
@@ -45,6 +45,7 @@ function Workbench() {
   const dismissedRef = useRef<Record<string, string[]>>({});
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const genStartedAt = useRef(0); // 이번 생성 요청 시각 — 폴링 병합의 하한선
+  const genCount = useRef(1); // 이번 생성의 시안 수 — 스켈레톤 문구용
   const draftsRef = useRef<DraftRow[]>([]);
   useEffect(() => { draftsRef.current = drafts; }, [drafts]);
   const lastWsId = typeof window !== 'undefined' ? localStorage.getItem(LAST_WS_KEY) : null;
@@ -65,7 +66,7 @@ function Workbench() {
   useEffect(() => () => { if (pollTimer.current) clearInterval(pollTimer.current); }, []);
   const updateComposer = useCallback((v: ComposerState) => {
     setComposer(v);
-    localStorage.setItem(COMPOSER_KEY, JSON.stringify({ ...v, direction: '' })); // 방향성은 매번 새로
+    localStorage.setItem(COMPOSER_KEY, JSON.stringify({ ...v, direction: '', count: 1 })); // 방향성·시안 수는 매번 새로
   }, []);
 
   // 진입점 A: /generate?ref=<tweetId> — 보관함에 있으면 레퍼런스로 연결
@@ -97,6 +98,7 @@ function Workbench() {
     if (generating) return;
     stopPolling();
     genStartedAt.current = Date.now();
+    genCount.current = composer.count;
     setGenerating(true);
     const ac = new AbortController();
     abortRef.current = ac;
@@ -106,6 +108,7 @@ function Workbench() {
         refTweetIds: refRows.map((x) => x.tweetId),
         mode: refRows.length > 0 ? composer.mode : 'off',
         direction: composer.direction, format: composer.format,
+        count: composer.count,
       };
       const r = await apiFetch('/api/drafts', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ac.signal,
@@ -113,9 +116,11 @@ function Workbench() {
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) { setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
-      setDrafts((cur) => [body as DraftRow, ...cur]);
+      const created = body as DraftRow[];
+      setDrafts((cur) => [...created, ...cur]);
       // 방금 만든 초안이 현재 필터에 가려 안 보이면 필터를 전체로 — 생성 결과가 소리 없이 사라지지 않게 (T11 리뷰 반영)
-      setFilter((f) => (filterDrafts([body as DraftRow], f).length > 0 ? f : { status: 'all', clientId: '' }));
+      setFilter((f) => (filterDrafts(created, f).length > 0 ? f : { status: 'all', clientId: '' }));
+      setComposer((c) => ({ ...c, count: 1 })); // 시안 수는 1회용 — 다음 생성이 조용히 N배 비용이 되지 않게
     } catch (e) {
       if ((e as Error).name !== 'AbortError') setToast('생성 중 오류가 났어요 — 잠시 후 다시 시도해주세요');
     } finally {
@@ -267,7 +272,9 @@ function Workbench() {
               <div className="h-3.5 w-4/5 rounded bg-x-border" />
             </div>
           </div>
-          <p className="mt-2 text-ui text-x-secondary">원고 작성 중… 보통 15~30초 걸려요</p>
+          <p className="mt-2 text-ui text-x-secondary">
+            {genCount.current > 1 ? `시안 ${genCount.current}개 작성 중… 개수만큼 조금 더 걸려요` : '원고 작성 중… 보통 15~30초 걸려요'}
+          </p>
           <p className="mt-0.5 text-caption text-x-muted">취소해도 완성되면 목록에 저장됩니다 — 생성 자체는 멈추지 않아요</p>
         </div>
       )}
@@ -294,7 +301,8 @@ function Workbench() {
                    regenBusyIndex={regenBusy?.draftId === d.id ? regenBusy.index : null}
                    onDismissFlag={(key, dismiss) => toggleDismiss(d, key, dismiss)}
                    onRestoreAllFlags={() => restoreAllFlags(d)}
-                   onChangeStatus={(s) => changeStatus(d, s)} />
+                   onChangeStatus={(s) => changeStatus(d, s)}
+                   siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null} />
       ))}
 
       {editing && (

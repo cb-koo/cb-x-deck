@@ -4,7 +4,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import type { DraftRow } from '@/lib/draftStore';
 import type { RefSnapshot } from '@/lib/draftTypes';
 import { xWeightedLength, X_MAX_WEIGHTED } from '@/lib/xLength';
-import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags } from '@/lib/draftUi';
+import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags, variantLabel } from '@/lib/draftUi';
 import { MediaGrid } from '@/components/MediaGrid';
 import { RefreshIcon, TrashIcon } from '@/components/XIcons';
 import { useTranslations } from '@/components/useTranslations';
@@ -16,13 +16,14 @@ const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
 };
 
 // 초안 카드 — X 실측(600px·radius16·아바타40·본문 15/20). 지표·배지·이미지 자리 없음(없는 데이터는 자리도 안 만듦)
-export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus }: {
+export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, siblingTotal }: {
   draft: DraftRow; banned: string[];
   onEdit: () => void; onRewrite: (feedback: string, baseIndex: number) => void; rewriteBusy: boolean;
   onDelete: () => void; onRegenPost: (index: number) => void; regenBusyIndex: number | null;
   onDismissFlag: (key: string, dismiss: boolean) => void;
   onRestoreAllFlags: () => void;
   onChangeStatus: (s: DraftStatus) => void;
+  siblingTotal: number | null; // 다중 시안 형제 수 (batch 없으면 null)
 }) {
   const [refsOpen, setRefsOpen] = useState(false);
   // 레퍼런스 번역 — 덱/보관함과 같은 훅·같은 캐시(tweet_translation, tweet_id 단위 전역).
@@ -199,8 +200,13 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
 
       {/* 회색 = 도구층: 검수 표식 + PR 안내 + 근거 풋터 (spec §2 표면 2층) */}
       <div className="border-t border-x-border bg-x-surface px-4 py-2.5">
-        <div className="flex items-center pb-1">
+        <div className="flex items-center gap-2 pb-1">
           <DraftStatusChip status={draft.status} onChange={onChangeStatus} />
+          {draft.batchId !== null && siblingTotal !== null && (
+            <span className="text-caption text-x-muted">
+              시안 {variantLabel(draft.variantIndex ?? 0)} · 같은 조건 {siblingTotal}개 중
+            </span>
+          )}
         </div>
         {active.map((f) => (
           <p key={`${f.postIndex}:${f.key}`} className="flex items-baseline gap-2 py-0.5 text-[13px]">

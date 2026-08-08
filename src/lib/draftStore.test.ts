@@ -86,3 +86,32 @@ test('status — 기본값·패치·필터·부분 패치 독립', async () => {
 
   await removeDraft(sql, id);
 });
+
+test('batch — 기본 null·삽입 왕복', async () => {
+  const soloId = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + '단일', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+  const solo = await getDraft(sql, soloId);
+  assert.equal(solo!.batchId, null);          // 단일 생성은 batch 없음 (기존 행과 동일)
+  assert.equal(solo!.variantIndex, null);
+
+  const batchId = crypto.randomUUID();
+  const ids: string[] = [];
+  for (let i = 0; i < 2; i++) {
+    ids.push(await insertDraft(sql, {
+      clientId: null, clientName: null, procedureNames: [],
+      direction: P + '배치', format: 'single', referenceMode: 'off', refs: [],
+      content, model: null, memberId: null, batchId, variantIndex: i,
+    }));
+  }
+  const a = await getDraft(sql, ids[0]);
+  const b = await getDraft(sql, ids[1]);
+  assert.equal(a!.batchId, batchId);
+  assert.equal(a!.variantIndex, 0);
+  assert.equal(b!.batchId, batchId);
+  assert.equal(b!.variantIndex, 1);
+
+  for (const id of [soloId, ...ids]) await removeDraft(sql, id);
+});

@@ -97,7 +97,7 @@ const DECK_STEPS: TourStep[] = [
     id: 'deck-sidebar',
     element: '[data-tour="sidebar"]',
     title: '영역·워크스페이스 오가기',
-    description: '왼쪽에서 <b>리서치·덱·브리핑·보관함</b>을 오가고, 맨 위에서 <b>워크스페이스</b>(클라이언트별 작업 공간)를 바꿔요.',
+    description: '왼쪽에서 <b>리서치·덱·브리핑·보관함</b>을 오가고, 맨 위에서 <b>워크스페이스</b>(팀 공용 작업 공간)를 바꿔요.',
     side: 'right',
     align: 'start',
   },

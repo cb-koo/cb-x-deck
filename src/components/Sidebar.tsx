@@ -1,6 +1,6 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import type { Workspace } from '@/lib/types';
 import { useMember } from '@/lib/memberContext';
@@ -11,54 +11,10 @@ export function Sidebar({ wsId }: { wsId: string }) {
   const pathname = usePathname();
   const { member } = useMember();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [newWs, setNewWs] = useState('');
-  const [addingWs, setAddingWs] = useState(false);
-  const creating = useRef(false);
-  // 삭제 확인 상태: null=평상시, {colCount}=확인 대기
-  const [confirmDelete, setConfirmDelete] = useState<{ colCount: number } | null>(null);
-  const [wsErr, setWsErr] = useState('');
 
   useEffect(() => {
     apiFetch('/api/workspaces').then((r) => r.json()).then(setWorkspaces);
   }, []);
-
-  async function createWs() {
-    const name = newWs.trim();
-    if (!name || creating.current) return;
-    creating.current = true; // 한글 IME Enter 이중 발화·더블클릭으로 인한 중복 생성 방지
-    try {
-      const r = await apiFetch('/api/workspaces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-      if (r.ok) {
-        const w = (await r.json()) as Workspace;
-        setWorkspaces([...workspaces, w]);
-        setNewWs(''); setAddingWs(false);
-        router.push(`/w/${w.id}`);
-      }
-    } finally { creating.current = false; }
-  }
-
-  // 삭제 1단계: 삭제될 컬럼 수를 조회해 확인 UI 표시
-  async function askDeleteWs() {
-    setWsErr('');
-    if (workspaces.length <= 1) { setWsErr('마지막 워크스페이스는 삭제할 수 없습니다'); return; }
-    const r = await apiFetch(`/api/columns?workspaceId=${wsId}`);
-    const colCount = r.ok ? ((await r.json()) as unknown[]).length : 0;
-    setConfirmDelete({ colCount });
-  }
-
-  // 삭제 2단계: 확정 → 삭제 후 첫 워크스페이스로 이동
-  async function confirmDeleteWs() {
-    const r = await apiFetch(`/api/workspaces/${wsId}`, { method: 'DELETE' });
-    if (!r.ok) {
-      setWsErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`);
-      setConfirmDelete(null);
-      return;
-    }
-    const remaining = workspaces.filter((w) => w.id !== wsId);
-    setWorkspaces(remaining);
-    setConfirmDelete(null);
-    if (remaining[0]) router.push(`/w/${remaining[0].id}`);
-  }
 
   const nav = [
     { href: `/w/${wsId}/research`, label: '리서치', Ic: SearchIcon, tour: undefined as string | undefined },
@@ -80,30 +36,10 @@ export function Sidebar({ wsId }: { wsId: string }) {
               className="mb-1 w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue">
         {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
       </select>
-      {addingWs ? (
-        <div className="mb-2 flex gap-1">
-          <input value={newWs} onChange={(e) => setNewWs(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) createWs(); }}
-                 placeholder="클라이언트명" autoFocus className="w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue" />
-          <button onClick={createWs} className="text-ui">✓</button>
-        </div>
-      ) : (
-        <div className="mb-2 flex items-center justify-between">
-          <button onClick={() => setAddingWs(true)} className="px-1 text-left text-ui text-x-muted hover:text-x-secondary">+ 워크스페이스 추가</button>
-          <button onClick={askDeleteWs} className="px-1 text-ui text-x-muted hover:text-red-500" title="현재 워크스페이스 삭제">삭제</button>
-        </div>
-      )}
-      {confirmDelete && (
-        <div className="mb-2 rounded border border-red-300 bg-red-50 p-2 text-caption">
-          <p className="mb-1 text-red-600">
-            현재 워크스페이스와 컬럼 {confirmDelete.colCount}개·저장 후보가 함께 삭제됩니다. 되돌릴 수 없습니다.
-          </p>
-          <div className="flex gap-1">
-            <button onClick={confirmDeleteWs} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">삭제 확정</button>
-            <button onClick={() => setConfirmDelete(null)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
-          </div>
-        </div>
-      )}
-      {wsErr && <p className="mb-2 px-1 text-caption text-red-500">{wsErr}</p>}
+      <a href="/workspaces"
+         className={`mb-2 block px-1 text-ui hover:text-x-secondary ${pathname === '/workspaces' ? 'font-bold text-x-text' : 'text-x-muted'}`}>
+        워크스페이스 관리
+      </a>
 
       <nav className="mt-2 flex-1">
         {nav.map((n) => (

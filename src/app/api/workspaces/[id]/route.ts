@@ -1,16 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
-import { deleteWorkspace, listWorkspaces } from '@/lib/workspaceStore';
+import { renameWorkspace } from '@/lib/workspaceStore';
 
 import { requireAllowedUser } from '@/lib/authGuard';
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await requireAllowedUser();
   if (gate.response) return gate.response;
   const { id } = await params;
-  const sql = getSql();
-  const all = await listWorkspaces(sql);
-  if (!all.some((w) => w.id === id)) return NextResponse.json({ error: '워크스페이스를 찾을 수 없습니다' }, { status: 404 });
-  if (all.length <= 1) return NextResponse.json({ error: '마지막 워크스페이스는 삭제할 수 없습니다' }, { status: 409 });
-  await deleteWorkspace(sql, id);
-  return NextResponse.json({ ok: true });
+  const { name } = await req.json().catch(() => ({}));
+  if (typeof name !== 'string' || !name.trim()) return NextResponse.json({ error: '이름 필수' }, { status: 400 });
+  const renamed = await renameWorkspace(getSql(), id, name);
+  if (!renamed) return NextResponse.json({ error: '워크스페이스를 찾을 수 없습니다' }, { status: 404 });
+  return NextResponse.json(renamed);
 }

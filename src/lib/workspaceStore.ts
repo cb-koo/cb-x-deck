@@ -19,6 +19,12 @@ export async function deleteWorkspace(sql: postgres.Sql, id: string): Promise<vo
   await sql`delete from workspace where id = ${id}`;
 }
 
+export async function renameWorkspace(sql: postgres.Sql, id: string, name: string): Promise<Workspace | null> {
+  const [row] = await sql<Array<{ id: string; name: string; position: number }>>`
+    update workspace set name = ${name.trim()} where id = ${id} returning id, name, position`;
+  return row ?? null;
+}
+
 export async function listMembers(sql: postgres.Sql): Promise<Member[]> {
   const rows = await sql<Array<{ id: string; name: string; color: string }>>`
     select id, name, color from member order by created_at`;

@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { listWorkspaces, createWorkspace, deleteWorkspace, listMembers, createMember, resolveMember } from './workspaceStore.ts';
+import { listWorkspaces, createWorkspace, deleteWorkspace, renameWorkspace, listMembers, createMember, resolveMember } from './workspaceStore.ts';
 
 const sql = getSql();
 const T = 'test-ws-' + process.pid;
@@ -60,4 +60,14 @@ test('resolveMember: 신규 생성 + 재조회 반환 + 이름 폴백', async ()
   const email2 = P + 'bob@x.com';
   const m3 = await resolveMember(sql, { email: email2, user_metadata: {} });
   assert.equal(m3.name, P + 'bob');
+});
+
+test('renameWorkspace: 이름 변경 + 미존재 null', async () => {
+  const w = await createWorkspace(sql, T + '-rn');
+  const renamed = await renameWorkspace(sql, w.id, T + '-rn-신규');
+  assert.equal(renamed?.name, T + '-rn-신규');
+  assert.equal(renamed?.id, w.id);
+  const missing = await renameWorkspace(sql, '00000000-0000-0000-0000-000000000000', 'x');
+  assert.equal(missing, null);
+  await deleteWorkspace(sql, w.id);
 });

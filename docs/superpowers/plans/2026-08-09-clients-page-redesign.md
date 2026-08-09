@@ -34,7 +34,7 @@
   - `clientSummary(client: ClientRow, procedures: ProcedureRow[]): { procedureCount: number; bannedTotal: number; infoMissing: boolean }`
   - `procedureSummary(p: ProcedureRow): { empty: boolean; text: string }`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `src/lib/clientSummary.test.ts`:
 
@@ -100,12 +100,12 @@ test('procedureSummary: 공백뿐인 설명은 비어 있음으로 판정', () =
 });
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `node --import tsx --test src/lib/clientSummary.test.ts`
 Expected: FAIL — `Cannot find module './clientSummary.ts'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `src/lib/clientSummary.ts`:
 
@@ -139,12 +139,12 @@ export function procedureSummary(p: ProcedureRow): { empty: boolean; text: strin
 }
 ```
 
-- [ ] **Step 4: 통과 확인**
+- [x] **Step 4: 통과 확인**
 
 Run: `node --import tsx --test src/lib/clientSummary.test.ts`
 Expected: PASS (tests 8, fail 0)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/clientSummary.ts src/lib/clientSummary.test.ts
@@ -173,7 +173,7 @@ git commit -m "feat(clients): 클라이언트·시술 채움 상태 요약 순�
 
 컴포넌트 하나가 기본 정보 편집·시술 목록·이름 변경·삭제 모달을 담당한다. 내부 편집기(기본 정보, 펼친 시술)는 레지스트리에 `isDirty`/`save`를 등록하고, 부모는 `handleRef`로 전체 dirty 확인·일괄 저장을 한다.
 
-- [ ] **Step 1: 컴포넌트 작성**
+- [x] **Step 1: 컴포넌트 작성**
 
 `src/app/clients/ClientDetail.tsx` 전체:
 
@@ -516,12 +516,12 @@ function ProcedureEditor({ proc, register, onSaved, onClose }: {
 }
 ```
 
-- [ ] **Step 2: 타입 확인**
+- [x] **Step 2: 타입 확인**
 
 Run: `npx tsc --noEmit`
 Expected: 에러 0 (기존 page.tsx는 아직 옛 구조 — 이 파일은 독립 컴파일)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/app/clients/ClientDetail.tsx
@@ -541,7 +541,7 @@ git commit -m "feat(clients): 상세 패널 컴포넌트 — 저장 피드백·�
 
 동작 요약: `?client=<id>`로 선택 표현(`router.replace`, w/[wsId] setView 패턴). 쿼리 없음/무효 → 첫 번째 폴백(무효 딥링크면 안내 표시). dirty 상태에서 다른 클라이언트 클릭 → 3버튼 모달. 새 클라이언트 생성은 dirty면 자동 저장 후 진행(생성 의사가 명확하므로 모달 생략). 탭 닫기/새로고침은 beforeunload.
 
-- [ ] **Step 1: page.tsx 전체 교체**
+- [x] **Step 1: page.tsx 전체 교체**
 
 ```tsx
 'use client';
@@ -750,12 +750,12 @@ function ClientsSplit() {
 }
 ```
 
-- [ ] **Step 2: 타입·린트 확인**
+- [x] **Step 2: 타입·린트 확인**
 
 Run: `npx tsc --noEmit && npm run lint`
 Expected: tsc 에러 0, lint 기준선 24개(신규 에러 없음)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/app/clients/page.tsx
@@ -768,17 +768,17 @@ git commit -m "feat(clients): 2단 분할 개편 — 채움 상태 목록·쿼�
 
 **Files:** 변경 없음 (검증만)
 
-- [ ] **Step 1: 단위 테스트**
+- [x] **Step 1: 단위 테스트**
 
 Run: `node --import tsx --test src/lib/clientSummary.test.ts`
 Expected: PASS (tests 8, fail 0)
 
-- [ ] **Step 2: 타입·린트 재확인**
+- [x] **Step 2: 타입·린트 재확인**
 
 Run: `npx tsc --noEmit && npm run lint`
 Expected: tsc 에러 0, lint 신규 에러 없음 (기준선 24)
 
-- [ ] **Step 3: dev 서버로 수동 확인 항목 정리** (화면 확인은 OAuth 게이팅으로 사용자 몫 — 체크리스트 전달)
+- [x] **Step 3: dev 서버로 수동 확인 항목 정리** (화면 확인은 OAuth 게이팅으로 사용자 몫 — 체크리스트 전달)
 
 Run: `npm run dev` 후 사용자에게 안내:
 
@@ -794,7 +794,7 @@ Run: `npm run dev` 후 사용자에게 안내:
 10. 클라이언트 0개 상태(테스트 환경) → 중앙 빈 상태 + CTA
 11. 생성 페이지 `/generate`의 "등록하러 가기" 링크 정상 동작
 
-- [ ] **Step 4: 계획 체크박스 갱신 커밋**
+- [x] **Step 4: 계획 체크박스 갱신 커밋**
 
 ```bash
 git add docs/superpowers/plans/2026-08-09-clients-page-redesign.md

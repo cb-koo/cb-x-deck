@@ -124,7 +124,9 @@ export async function listAllTags(
       from tag tg
       left join candidate_tag ctg on ctg.tag_id = tg.id
       left join candidate c on c.id = ctg.candidate_id and c.workspace_id = ${workspaceId}
-     group by tg.id order by tg.name`;
+     group by tg.id
+     having count(distinct c.tweet_id) > 0
+     order by tg.name`;
   return rows.map((r) => ({ id: r.id, name: r.name, count: Number(r.count) }));
 }
 

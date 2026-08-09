@@ -132,3 +132,12 @@ test('library_item: 소속 분리 · 저장취소 후 잔존 · 팀에서 빼기
     await deleteWorkspace(sql, ws.id);
   }
 });
+
+test('listAllTags: 그 워크스페이스에서 쓰인 태그만 반환한다(0건 미노출)', async () => {
+  // 이 파일 앞 테스트가 다른 워크스페이스에 태그를 만들어 둔 상태다(같은 파일 = 순차 실행).
+  // 후보가 하나도 없는 새 워크스페이스의 태그 목록은 비어 있어야 한다.
+  const wsEmpty = await createWorkspace(sql, P + 'ws-tag-empty');
+  const tags = await listAllTags(sql, wsEmpty.id);
+  assert.equal(tags.length, 0, `0건 태그가 노출됨: ${tags.map((t) => t.name).join(',')}`);
+  await deleteWorkspace(sql, wsEmpty.id);
+});

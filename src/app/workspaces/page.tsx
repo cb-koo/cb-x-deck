@@ -206,6 +206,7 @@ export default function WorkspacesPage() {
               <div className="flex min-w-0 flex-1 items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <input value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus
                        onKeyDown={(e) => {
+                         e.stopPropagation(); // 카드의 Enter 이동 핸들러로 버블 방지 — 저장과 이동이 동시에 일어난다
                          if (e.key === 'Enter' && !e.nativeEvent.isComposing) saveRename(w.id);
                          if (e.key === 'Escape') setEditingId(null);
                        }}

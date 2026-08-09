@@ -59,6 +59,8 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   // 덱에서 이미 번역해 둔 글이면 팝업을 여는 순간 번역이 함께 보인다.
   const { translations, translatingIds, translateErr, loadCached, translateOne } = useTranslations();
   const reqIdRef = useRef(0);   // 응답 경합 가드 — 가장 최근 요청만 상태를 갱신한다
+  const countsReqIdRef = useRef(0);   // loadCounts 전용 경합 가드 — load()의 reqIdRef와 같은 패턴이지만
+  // 행 조회와는 별개 요청 흐름이라 카운터를 따로 둔다(워크스페이스를 빠르게 전환해도 섞이지 않게).
   const loadKeyRef = useRef<string | null>(null);   // conditions를 뺀 나머지가 마지막으로 즉시 조회를 일으켰을 때의 값
 
   // 표시용 파생값 — 저장된 columnIds에 지금 columns 목록에 없는 id가 섞여 있으면(워크스페이스 전환·
@@ -67,6 +69,15 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   const activeColumnIds = useMemo(
     () => columnIds.filter((id) => columns.some((c) => c.id === id)),
     [columnIds, columns],
+  );
+
+  // 선택된 컬럼들의 표시용 제목 — CSV 파일명과 칩 줄이 같은 값을 봐야 갈라지지 않는다.
+  // 제목이 빈 문자열인 컬럼도 목록에서 자리를 차지해야 한다 — 지워버리면(filter(Boolean))
+  // 선택된 컬럼 전부의 제목이 비어 있을 때 목록 자체가 비어 columnSelectionLabel이
+  // '전체'를 돌려준다(선택한 것과 정반대로 보인다, 원칙 4: 라벨과 값 불일치).
+  const activeColumnNames = useMemo(
+    () => activeColumnIds.map((id) => columns.find((c) => c.id === id)?.title || '제목 없음'),
+    [activeColumnIds, columns],
   );
 
   const qs = useCallback((extra: Record<string, string>) => {
@@ -173,11 +184,14 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
   // 호출 시작 시 countsLoaded를 false로 되돌린다 — 워크스페이스 전환 직후 아직 새 값이 안 왔는데
   // 이전 워크스페이스의 '로드됨' 상태가 남아 있으면 새 컬럼들이 (아직 모르는 게 아니라) '진짜 0건'으로 보인다(A4).
   const loadCounts = useCallback(async () => {
+    const id = ++countsReqIdRef.current;   // 이 호출의 번호를 찍어두고, 응답이 오면 아직 최신인지 확인한다
     setCountsLoaded(false);
     try {
       const r = await apiFetch(`/api/tweet-table/counts?workspaceId=${wsId}`);
+      if (countsReqIdRef.current !== id) return;   // 그 사이 더 최신 요청이 시작됨 — 이 응답은 버린다(countsLoaded도 건드리지 않는다)
       if (!r.ok) return;
       const d = await r.json() as { counts: Array<{ columnId: string; n: number }>; total: number };
+      if (countsReqIdRef.current !== id) return;   // json 파싱 중에도 최신 요청이 바뀔 수 있다
       setCounts(Object.fromEntries(d.counts.map((c) => [c.columnId, c.n])));
       setWorkspaceTotal(d.total);
       setCountsLoaded(true);
@@ -204,7 +218,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
       const a = document.createElement('a');
       a.href = url;
       a.download = csvFileName({
-        columnNames: activeColumnIds.map((id) => columns.find((c) => c.id === id)?.title ?? '').filter(Boolean),
+        columnNames: activeColumnNames,
         conditionCount: conditions.filter(isComplete).length,
         date: kstToday(),
       });
@@ -263,7 +277,7 @@ export function TweetTableView({ wsId, columns, columnsLoaded, columnsError, onR
 
       <FilterChips conditions={conditions}
                    conflicts={conflicts}
-                   columnNames={activeColumnIds.map((id) => columns.find((c) => c.id === id)?.title ?? '').filter(Boolean)}
+                   columnNames={activeColumnNames}
                    hasColumnFilter={activeColumnIds.length > 0}
                    onRemoveCondition={(id) => setConditions(conditions.filter((c) => c.id !== id))}
                    onClearColumns={() => setColumnIds([])}

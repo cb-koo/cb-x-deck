@@ -37,12 +37,21 @@ export function GlobalShell({ children }: { children: React.ReactNode }) {
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로드, setState는 전부 비동기 콜백(기존 코드베이스 관례)
   useEffect(() => { load(); }, [load]);
+  // /workspaces의 생성·삭제와 같은 채널로 재조회 — 아니면 거기서 만들거나(0개 안내를 따른 경우)
+  // 현재 선택된 걸 지웠을 때 GlobalShell의 wsId가 낡은 채 남는다 (src/app/w/[wsId]/layout.tsx와 동일 패턴)
+  useEffect(() => {
+    window.addEventListener('cbx-workspaces-changed', load);
+    return () => window.removeEventListener('cbx-workspaces-changed', load);
+  }, [load]);
 
   return (
     <MemberProvider>
       <div className="flex h-screen">
         {state !== 'loading' && (
-          <Sidebar wsId={state === 'ready' ? wsId : null} wsError={state === 'error'} onRetryWs={load} />
+          // key={state}: error→ready는 리마운트가 아니라 props 갱신이라 Sidebar 내부의
+          // 목록 fetch([]-dep effect)가 재실행되지 않는다 — key로 강제 리마운트해 재시도 성공 후
+          // 셀렉트가 0개로 남는 것을 막는다.
+          <Sidebar key={state} wsId={state === 'ready' ? wsId : null} wsError={state === 'error'} onRetryWs={load} />
         )}
         <div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
       </div>

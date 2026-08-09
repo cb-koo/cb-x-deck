@@ -68,8 +68,9 @@ function ClientsSplit() {
     return () => window.removeEventListener('beforeunload', h);
   }, []);
 
-  // 워크스페이스 select 전환(클라이언트 라우팅)은 beforeunload를 우회한다 — navGuard로 같은 모달에 연결.
-  // 사이드바 페이지 링크는 전부 <a>(하드 내비게이션)라 위 beforeunload가 잡는다.
+  // 사이드바의 모든 클라이언트 사이드 이동(페이지 Link의 onNavigate + 워크스페이스 select의 onChange)이
+  // 이 가드로 들어온다 — 둘 다 클라이언트 라우팅이라 위 beforeunload를 우회하기 때문. beforeunload는
+  // 탭 닫기·새로고침·하드 이동(주소창 입력 등)만 잡는다.
   useEffect(() => setNavGuard((href) => {
     if (!detailRef.current?.isDirty()) return false;
     setPending({ kind: 'href', href });

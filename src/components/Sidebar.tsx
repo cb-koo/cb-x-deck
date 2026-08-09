@@ -36,7 +36,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     return () => window.removeEventListener('cbx-workspaces-changed', loadWs);
   }, []);
 
-  // 로그아웃 — /denied와 동일 패턴. 하드 이동이라 편집 중이면 beforeunload가 잡는다.
+  // 로그아웃 — /denied와 동일 패턴. signOut 후 하드 이동. 편집 유실 가드는 못 태운다
+  // (가드 모달의 '이동'이 인증된 상태를 전제) — 알려진 한계, 후속 과제.
   const signOut = async () => {
     await createClient().auth.signOut();
     window.location.href = '/login';
@@ -122,7 +123,7 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
           <div className="flex items-center gap-2 px-1 py-1 text-sm">
             <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: member.color }} />
             <span className="min-w-0 truncate">{member.name}</span>
-            <button onClick={signOut} className="ml-auto shrink-0 text-caption text-x-muted hover:text-x-secondary">로그아웃</button>
+            <button onClick={signOut} className="ml-auto shrink-0 px-1 py-1 -my-1 text-caption text-x-muted hover:text-x-secondary">로그아웃</button>
           </div>
         ) : (
           <p className="px-1 text-caption text-x-muted">불러오는 중…</p>

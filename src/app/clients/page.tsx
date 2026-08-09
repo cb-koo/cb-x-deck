@@ -5,10 +5,13 @@ import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { clientSummary } from '@/lib/clientSummary';
 import { relTime } from '@/lib/relTime';
+import { setNavGuard } from '@/lib/navGuard';
 import { ClientDetail, type DetailHandle } from './ClientDetail';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 
 type ClientWithProcs = { client: ClientRow; procedures: ProcedureRow[] };
+// 미저장 확인 모달의 이동 대상 — 페이지 내 클라이언트 전환 또는 밖으로의 이동(워크스페이스 select)
+type PendingNav = { kind: 'client'; id: string } | { kind: 'href'; href: string };
 
 export default function ClientsPage() {
   // useSearchParams는 Suspense 경계 필수 (generate/page.tsx 선례)
@@ -29,7 +32,7 @@ function ClientsSplit() {
   const [newName, setNewName] = useState('');
   const creating = useRef(false); // IME Enter 이중 발화·더블클릭 중복 생성 방지
   const [err, setErr] = useState('');
-  const [pendingId, setPendingId] = useState<string | null>(null); // 미저장 확인 모달의 이동 대상
+  const [pending, setPending] = useState<PendingNav | null>(null);
   const [guardErr, setGuardErr] = useState('');
   const guardBusy = useRef(false);
   const detailRef = useRef<DetailHandle | null>(null);
@@ -65,23 +68,40 @@ function ClientsSplit() {
     return () => window.removeEventListener('beforeunload', h);
   }, []);
 
+  // 워크스페이스 select 전환(클라이언트 라우팅)은 beforeunload를 우회한다 — navGuard로 같은 모달에 연결.
+  // 사이드바 페이지 링크는 전부 <a>(하드 내비게이션)라 위 beforeunload가 잡는다.
+  useEffect(() => setNavGuard((href) => {
+    if (!detailRef.current?.isDirty()) return false;
+    setPending({ kind: 'href', href });
+    setGuardErr('');
+    return true;
+  }), []);
+
   function applySelect(id: string) {
     setNotice('');
     router.replace(`${pathname}?client=${id}`);
   }
   function selectClient(id: string) {
     if (id === urlId) return;
-    if (detailRef.current?.isDirty()) { setPendingId(id); setGuardErr(''); return; }
+    if (detailRef.current?.isDirty()) { setPending({ kind: 'client', id }); setGuardErr(''); return; }
     applySelect(id);
   }
 
+  // 모달의 "이동" 실행 — 대상 종류에 따라 페이지 내 전환 또는 라우터 이동
+  function proceedPending() {
+    if (!pending) return;
+    setPending(null);
+    if (pending.kind === 'client') applySelect(pending.id);
+    else router.push(pending.href);
+  }
+
   async function guardSaveAndMove() {
-    if (!pendingId || guardBusy.current) return;
+    if (!pending || guardBusy.current) return;
     guardBusy.current = true;
     try {
       const ok = (await detailRef.current?.saveAll()) ?? true;
       if (!ok) { setGuardErr('저장하지 못했어요 — 네트워크를 확인하고 다시 시도해주세요.'); return; }
-      applySelect(pendingId); setPendingId(null);
+      proceedPending();
     } finally { guardBusy.current = false; }
   }
 
@@ -185,8 +205,8 @@ function ClientsSplit() {
         )}
       </main>
 
-      {pendingId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setPendingId(null)}>
+      {pending && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setPending(null)}>
           <div className="w-full max-w-[360px] rounded-xl bg-white p-5 shadow-[0_4px_24px_rgba(0,0,0,0.12)]"
                role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <h2 className="mb-2 text-[20px] font-bold">저장 안 한 변경이 있어요</h2>
@@ -194,8 +214,8 @@ function ClientsSplit() {
             {guardErr && <p className="mb-2 text-caption text-red-500">{guardErr}</p>}
             <div className="flex flex-col gap-2">
               <Button variant="primary" onClick={guardSaveAndMove}>저장하고 이동</Button>
-              <Button onClick={() => { const id = pendingId; setPendingId(null); applySelect(id); }}>저장 안 하고 이동</Button>
-              <Button variant="ghost" onClick={() => setPendingId(null)}>취소</Button>
+              <Button onClick={proceedPending}>저장 안 하고 이동</Button>
+              <Button variant="ghost" onClick={() => setPending(null)}>취소</Button>
             </div>
           </div>
         </div>

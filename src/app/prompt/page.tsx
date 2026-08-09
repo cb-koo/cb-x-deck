@@ -4,7 +4,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { relTime } from '@/lib/relTime';
 import {
-  buildUserPrompt, PROMPT_DEFAULTS,
+  buildUserPrompt, draftSystem, PROMPT_DEFAULTS,
   type PromptFieldKey, type PromptInput, type PromptOverrides,
 } from '@/lib/generatePrompt';
 
@@ -67,8 +67,12 @@ export default function PromptPage() {
     for (const k of KEYS) { const t = values[k].trim(); if (t && t !== PROMPT_DEFAULTS[k]) out[k] = t; }
     return out;
   }, [values]);
-  const preview = useMemo(() => (values ? buildUserPrompt(SAMPLE, overrides) : ''), [values, overrides]);
-  const previewSystem = overrides.system ?? PROMPT_DEFAULTS.system;
+  const [previewMode, setPreviewMode] = useState<'form' | 'angle' | 'both'>('both');
+  const preview = useMemo(
+    () => (values ? buildUserPrompt({ ...SAMPLE, mode: previewMode }, overrides) : ''),
+    [values, overrides, previewMode],
+  );
+  const previewSystem = draftSystem(overrides);
 
   async function save() {
     if (!values || saving) return;
@@ -106,19 +110,19 @@ export default function PromptPage() {
         <>
           <div className="mt-5 space-y-4">
             {FIELDS.map((f) => (
-              <label key={f.key} className="block">
-                <span className="flex items-baseline justify-between">
-                  <span className="text-ui font-bold">{f.label}</span>
+              <div key={f.key}>
+                <div className="flex items-baseline justify-between">
+                  <label htmlFor={`pf-${f.key}`} className="text-ui font-bold">{f.label}</label>
                   {values[f.key].trim() !== PROMPT_DEFAULTS[f.key] && (
-                    <button onClick={(e) => { e.preventDefault(); setValues({ ...values, [f.key]: PROMPT_DEFAULTS[f.key] }); setSaved(false); }}
+                    <button onClick={() => { setValues({ ...values, [f.key]: PROMPT_DEFAULTS[f.key] }); setSaved(false); }}
                             className="text-caption text-x-blue-text hover:underline">기본값 복원</button>
                   )}
-                </span>
+                </div>
                 <p className="text-caption text-x-muted">{f.help}</p>
-                <textarea value={values[f.key]} rows={f.rows}
+                <textarea id={`pf-${f.key}`} value={values[f.key]} rows={f.rows}
                           onChange={(e) => { setValues({ ...values, [f.key]: e.target.value }); setSaved(false); }}
                           className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
-              </label>
+              </div>
             ))}
           </div>
           {err && <p className="mt-3 text-ui text-red-500">{err}</p>}
@@ -131,8 +135,25 @@ export default function PromptPage() {
             <h2 className="text-content font-bold">AI에게 전달되는 모습 (샘플)</h2>
             <p className="text-caption text-x-muted">
               지금 편집 중인 문장이 들어간 실제 전달 형태예요. 실제 생성에선 (샘플) 자리에 그때 고른
-              클라이언트·시술·레퍼런스·방향성이 들어가요.
+              클라이언트·시술·레퍼런스·방향성이 들어가요. 고른 방식의 규칙 문장이 본문 미리보기에 들어가요.
             </p>
+            <div className="mt-2 flex items-center gap-1.5 text-caption text-x-muted">
+              <span>샘플의 참고 방식:</span>
+              {([
+                ['form', '형식만'],
+                ['angle', '앵글만'],
+                ['both', '형식+앵글'],
+              ] as const).map(([m, label]) => (
+                <button key={m} onClick={() => setPreviewMode(m)}
+                        className={`rounded-full border border-x-border px-2.5 py-0.5 text-caption ${
+                          previewMode === m
+                            ? 'bg-[#e3f1fb] text-x-blue-text'
+                            : 'text-x-secondary hover:bg-x-hover'
+                        }`}>
+                  {label}
+                </button>
+              ))}
+            </div>
             <p className="mt-2 text-caption font-bold text-x-muted">역할 지시 (시스템)</p>
             <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-ui leading-normal">{previewSystem}</pre>
             <p className="mt-2 text-caption font-bold text-x-muted">본문</p>

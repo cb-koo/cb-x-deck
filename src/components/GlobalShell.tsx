@@ -32,7 +32,9 @@ export function GlobalShell({ children }: { children: React.ReactNode }) {
       }
       setState('ready');
     } catch {
-      setState('error');
+      // ready 중의 재조회 실패(이벤트 구독 경로)는 멀쩡한 사이드바를 오류 화면으로 바꾸지 않는다 —
+      // w/[wsId]/layout의 failed && !known과 같은 보수성 (최종 리뷰 Minor 7)
+      setState((s) => (s === 'ready' ? 'ready' : 'error'));
     }
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로드, setState는 전부 비동기 콜백(기존 코드베이스 관례)

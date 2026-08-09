@@ -23,6 +23,18 @@ test('workspace CRUD', async () => {
   assert.ok(!(await listWorkspaces(sql)).some((x) => x.id === w.id));
 });
 
+test('createWorkspace: 새 워크스페이스는 목록 맨 뒤 position을 받는다', async () => {
+  const a = await createWorkspace(sql, T + '-pos-a');
+  const b = await createWorkspace(sql, T + '-pos-b');
+  assert.ok(b.position > a.position, `b(${b.position})는 a(${a.position})보다 뒤여야 한다`);
+  const all = await listWorkspaces(sql);
+  const ia = all.findIndex((w) => w.id === a.id);
+  const ib = all.findIndex((w) => w.id === b.id);
+  assert.ok(ib > ia);
+  await deleteWorkspace(sql, a.id);
+  await deleteWorkspace(sql, b.id);
+});
+
 test('member 생성·목록', async () => {
   const m = await createMember(sql, T + '-m', '#00ba7c');
   assert.equal(m.color, '#00ba7c');

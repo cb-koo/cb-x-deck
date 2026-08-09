@@ -9,7 +9,9 @@ export async function listWorkspaces(sql: postgres.Sql): Promise<Workspace[]> {
 
 export async function createWorkspace(sql: postgres.Sql, name: string): Promise<Workspace> {
   const [row] = await sql<Array<{ id: string; name: string; position: number }>>`
-    insert into workspace (name) values (${name.trim()}) returning id, name, position`;
+    insert into workspace (name, position)
+    values (${name.trim()}, (select coalesce(max(position) + 1, 0) from workspace))
+    returning id, name, position`;
   return row;
 }
 

@@ -35,6 +35,8 @@ export default function WorkspacesPage() {
   // 삭제 모달: 대상 워크스페이스 + 확인 입력값
   const [deleting, setDeleting] = useState<WorkspaceMeta | null>(null);
   const [confirmText, setConfirmText] = useState('');
+  const deletingBusy = useRef(false); // 더블클릭 재진입 방지 (creating/renaming과 동일 패턴)
+  const [deleteErr, setDeleteErr] = useState(''); // 모달 안에 표시 — 상단 err는 모달 뒤에 가려짐
 
   // 드래그 순서 변경 — 핸들에서만 시작. 5px 임계값 전엔 클릭으로 취급.
   const [dragId, setDragId] = useState<string | null>(null);
@@ -104,20 +106,23 @@ export default function WorkspacesPage() {
   }
 
   async function confirmDelete() {
-    if (!deleting || confirmText !== deleting.name) return;
-    const r = await apiFetch(`/api/workspaces/${deleting.id}`, { method: 'DELETE' });
-    if (!r.ok) {
-      setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`);
-      setDeleting(null); setConfirmText('');
-      return;
-    }
-    // 현재 보던 워크스페이스를 지웠으면 복귀 지점도 정리 (/ 진입이 첫 번째로 폴백하도록)
-    if (localStorage.getItem(LAST_WS_KEY) === deleting.id) {
-      localStorage.removeItem(LAST_WS_KEY);
-      setCurrentId(null);
-    }
-    setDeleting(null); setConfirmText(''); setErr('');
-    await load();
+    if (!deleting || confirmText !== deleting.name || deletingBusy.current) return;
+    deletingBusy.current = true;
+    try {
+      const r = await apiFetch(`/api/workspaces/${deleting.id}`, { method: 'DELETE' });
+      if (!r.ok) {
+        // 모달을 유지해 재시도 가능하게 — saveRename의 실패 처리와 일관
+        setDeleteErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`);
+        return;
+      }
+      // 현재 보던 워크스페이스를 지웠으면 복귀 지점도 정리 (/ 진입이 첫 번째로 폴백하도록)
+      if (localStorage.getItem(LAST_WS_KEY) === deleting.id) {
+        localStorage.removeItem(LAST_WS_KEY);
+        setCurrentId(null);
+      }
+      setDeleting(null); setConfirmText(''); setDeleteErr('');
+      await load();
+    } finally { deletingBusy.current = false; }
   }
 
   const load = useCallback(async () => {
@@ -224,7 +229,7 @@ export default function WorkspacesPage() {
                 <div className="flex shrink-0 items-center gap-3" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => { setEditingId(w.id); setEditName(w.name); }}
                           className="text-ui text-x-secondary hover:text-x-text">이름 변경</button>
-                  <button onClick={() => { setDeleting(w); setConfirmText(''); }}
+                  <button onClick={() => { setDeleting(w); setConfirmText(''); setDeleteErr(''); }}
                           disabled={rows.length <= 1}
                           title={rows.length <= 1 ? '마지막 워크스페이스는 삭제할 수 없습니다' : undefined}
                           className="text-ui text-x-secondary hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40">삭제</button>
@@ -235,7 +240,7 @@ export default function WorkspacesPage() {
         ))}
       </div>
       {deleting && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setDeleting(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setDeleting(null); setDeleteErr(''); }}>
           <div className="w-full max-w-[360px] rounded-xl bg-white p-5 shadow-[0_4px_24px_rgba(0,0,0,0.12)]"
                role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <h2 className="mb-2 text-[20px] font-bold">워크스페이스 삭제</h2>
@@ -249,8 +254,9 @@ export default function WorkspacesPage() {
                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) confirmDelete(); }}
                    placeholder={deleting.name}
                    className="mb-3 w-full rounded-lg border border-x-border-strong px-3 py-1.5 text-content outline-none focus:border-x-blue" />
+            {deleteErr && <p className="mb-2 text-caption text-red-500">{deleteErr}</p>}
             <div className="flex justify-end gap-2">
-              <Button onClick={() => setDeleting(null)}>취소</Button>
+              <Button onClick={() => { setDeleting(null); setDeleteErr(''); }}>취소</Button>
               <button onClick={confirmDelete} disabled={confirmText !== deleting.name}
                       className="rounded-full bg-x-pink px-3 py-1 text-ui font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50">
                 삭제

@@ -2,14 +2,13 @@ import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { getPromptOverrides, listPromptVersions, sanitizeOverrides, savePromptOverrides } from '@/lib/promptSettings';
-import { PROMPT_DEFAULTS } from '@/lib/generatePrompt';
 
 export async function GET() {
   const gate = await requireAllowedUser();
   if (gate.response) return gate.response;
   const sql = getSql();
   const [overrides, versions] = await Promise.all([getPromptOverrides(sql), listPromptVersions(sql)]);
-  return NextResponse.json({ overrides, defaults: PROMPT_DEFAULTS, versions });
+  return NextResponse.json({ overrides, versions });
 }
 
 export async function PUT(req: Request) {

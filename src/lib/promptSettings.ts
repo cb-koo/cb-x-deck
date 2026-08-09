@@ -33,8 +33,9 @@ function filterKnown(raw: unknown): PromptOverrides {
 }
 
 export async function getPromptOverrides(sql: postgres.Sql): Promise<PromptOverrides> {
+  // id desc는 타이브레이커 — created_at 동률(같은 트랜잭션 등)에서 get과 list가 서로 다른 행을 고르지 않게 기준을 공유한다.
   const rows = await sql<Array<{ overrides: unknown }>>`
-    select overrides from prompt_template_version order by created_at desc limit 1`;
+    select overrides from prompt_template_version order by created_at desc, id desc limit 1`;
   return rows.length ? filterKnown(rows[0].overrides) : {};
 }
 
@@ -50,7 +51,7 @@ export async function listPromptVersions(sql: postgres.Sql, limit = 20): Promise
     select v.id, v.overrides, v.created_at, m.name as member_name
       from prompt_template_version v
       left join member m on m.id = v.member_id
-     order by v.created_at desc
+     order by v.created_at desc, v.id desc
      limit ${limit}`;
   return rows.map((r) => ({
     id: r.id, overrides: filterKnown(r.overrides),

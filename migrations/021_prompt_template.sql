@@ -6,5 +6,5 @@ create table if not exists prompt_template_version (
   member_id uuid references member(id) on delete set null,
   created_at timestamptz not null default now()
 );
--- 앱은 직접 Postgres 연결이라 무영향 — anon/authenticated 키만 차단 (신규 테이블 관례)
+-- anon/authenticated 키 차단용 — 앱은 직접 Postgres(rolbypassrls)라 무영향
 alter table prompt_template_version enable row level security;

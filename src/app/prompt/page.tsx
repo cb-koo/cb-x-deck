@@ -7,11 +7,12 @@ import {
   buildUserPrompt, draftSystem, PROMPT_DEFAULTS,
   type PromptFieldKey, type PromptInput, type PromptOverrides,
 } from '@/lib/generatePrompt';
+import type { PromptVersionRow } from '@/lib/promptSettings';
 
 // 필드 메타 — 라벨은 사용자 언어, help는 "이 문장이 언제 들어가는지"
 const FIELDS: Array<{ key: PromptFieldKey; label: string; help: string; rows: number }> = [
   { key: 'system', label: '역할 지시', help: 'AI가 어떤 사람으로서 쓰는지 — 원고 전체의 톤을 정해요. 모든 생성·다시 쓰기에 들어가요.', rows: 3 },
-  { key: 'hook', label: '첫 문장(훅) 지시', help: '모든 생성에 들어가요 — 첫 단락을 어떻게 쓰라고 시킬지.', rows: 2 },
+  { key: 'hook', label: '첫 문장(훅) 지시', help: '새 원고 생성과 다시 쓰기에 들어가요. \'이 트윗만 다시\'에는 역할 지시만 적용돼요.', rows: 2 },
   { key: 'noCopy', label: '레퍼런스 베끼기 금지', help: '레퍼런스를 참고하는 생성에 항상 함께 들어가요.', rows: 2 },
   { key: 'modeForm', label: '레퍼런스 "형식만" 규칙', help: '생성 화면에서 참고 방식으로 "형식만"을 골랐을 때 들어가요.', rows: 2 },
   { key: 'modeAngle', label: '레퍼런스 "앵글만" 규칙', help: '참고 방식 "앵글만"일 때 들어가요.', rows: 2 },
@@ -32,7 +33,6 @@ const SAMPLE: PromptInput = {
   mode: 'both', direction: '(샘플) 여름 이벤트 안내', format: 'single', constraintsOn: true,
 };
 
-type VersionRow = { id: string; overrides: PromptOverrides; memberName: string | null; createdAt: string };
 type Values = Record<PromptFieldKey, string>;
 const toValues = (o: PromptOverrides): Values =>
   Object.fromEntries(KEYS.map((k) => [k, o[k] ?? PROMPT_DEFAULTS[k]])) as Values;
@@ -40,7 +40,7 @@ const toValues = (o: PromptOverrides): Values =>
 export default function PromptPage() {
   const [values, setValues] = useState<Values | null>(null); // null = 로딩 전
   const [loadErr, setLoadErr] = useState(false);
-  const [versions, setVersions] = useState<VersionRow[]>([]);
+  const [versions, setVersions] = useState<PromptVersionRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
@@ -51,7 +51,7 @@ export default function PromptPage() {
     try {
       const r = await apiFetch('/api/prompt-settings');
       if (!r.ok) throw new Error(String(r.status));
-      const data = (await r.json()) as { overrides: PromptOverrides; versions: VersionRow[] };
+      const data = (await r.json()) as { overrides: PromptOverrides; versions: PromptVersionRow[] };
       setValues(toValues(data.overrides));
       setVersions(data.versions);
       setLoadErr(false);
@@ -119,7 +119,7 @@ export default function PromptPage() {
                   )}
                 </div>
                 <p className="text-caption text-x-muted">{f.help}</p>
-                <textarea id={`pf-${f.key}`} value={values[f.key]} rows={f.rows}
+                <textarea id={`pf-${f.key}`} value={values[f.key]} rows={f.rows} maxLength={2000}
                           onChange={(e) => { setValues({ ...values, [f.key]: e.target.value }); setSaved(false); }}
                           className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
               </div>
@@ -145,10 +145,10 @@ export default function PromptPage() {
                 ['both', '형식+앵글'],
               ] as const).map(([m, label]) => (
                 <button key={m} onClick={() => setPreviewMode(m)}
-                        className={`rounded-full border border-x-border px-2.5 py-0.5 text-caption ${
+                        className={`rounded-full border px-2.5 py-0.5 text-caption ${
                           previewMode === m
-                            ? 'bg-[#e3f1fb] text-x-blue-text'
-                            : 'text-x-secondary hover:bg-x-hover'
+                            ? 'border-x-border bg-[#e3f1fb] text-x-blue-text'
+                            : 'border-x-border-strong text-x-secondary hover:bg-x-hover'
                         }`}>
                   {label}
                 </button>

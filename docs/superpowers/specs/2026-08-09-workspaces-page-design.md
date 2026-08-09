@@ -89,9 +89,8 @@
 - `workspaceStore.ts`에 `renameWorkspace(id, name)` 추가.
 
 ### 순서 변경 — `PATCH /api/workspaces/reorder` (신설)
-- body `{ orderedIds: string[] }`. 전체 순서를 한 번에 저장(개별 position PATCH 아님 — 드래그 한 번 = 요청 한 번).
-- 서버는 전달된 id 각각에 index를 position으로 기록. 목록에 없는 id는 무시, 누락된 기존 워크스페이스는 뒤쪽에 기존 상대순서 유지.
-- 동시 편집은 last-write-wins (소규모 팀, 충돌 빈도 낮음 — 낙관적 처리로 충분).
+- body `{ ids: string[] }`. 전체 순서를 한 번에 저장(개별 position PATCH 아님 — 드래그 한 번 = 요청 한 번).
+- 기존 컬럼 순서 변경(`/api/columns/reorder` + `reorderColumns`)과 동일 패턴: 트랜잭션 + `for update` 잠금, 전달된 id 집합이 현재 워크스페이스 집합과 다르면(그 사이 다른 팀원이 추가/삭제) 409 — 클라이언트는 재조회한다.
 
 ### position backfill
 - 마이그레이션: 현재 전부 0인 `workspace.position`을 `created_at` 순번으로 1회 backfill.

@@ -1,0 +1,336 @@
+'use client';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { apiFetch } from '@/lib/apiFetch';
+import { Button } from '@/components/ui';
+import { procedureSummary } from '@/lib/clientSummary';
+import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
+
+// 부모(page)가 미저장 확인·일괄 저장에 쓰는 핸들
+export interface DetailHandle { isDirty: () => boolean; saveAll: () => Promise<boolean> }
+// 내부 편집기(기본 정보/펼친 시술)가 레지스트리에 등록하는 인터페이스
+type Editor = { isDirty: () => boolean; save: () => Promise<boolean> };
+type Register = (key: string, editor: Editor) => () => void;
+
+// 줄바꿈 textarea ↔ string[] (금지 표현 입력)
+const toLines = (arr: string[]) => arr.join('\n');
+const fromLines = (s: string) => s.split('\n').map((x) => x.trim()).filter(Boolean);
+
+async function errOf(r: Response): Promise<string> {
+  return ((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`;
+}
+
+export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
+  data: { client: ClientRow; procedures: ProcedureRow[] };
+  handleRef: React.RefObject<DetailHandle | null>;
+  onChanged: () => Promise<void>;
+  onDeleted: () => void;
+}) {
+  const { client, procedures } = data;
+  const editors = useRef(new Map<string, Editor>());
+  const register: Register = useCallback((key, editor) => {
+    editors.current.set(key, editor);
+    return () => { editors.current.delete(key); };
+  }, []);
+  useEffect(() => {
+    const reg = editors.current;
+    handleRef.current = {
+      isDirty: () => [...reg.values()].some((e) => e.isDirty()),
+      saveAll: async () => {
+        for (const e of reg.values()) if (e.isDirty() && !(await e.save())) return false;
+        return true;
+      },
+    };
+    return () => { handleRef.current = null; };
+  }, [handleRef]);
+
+  // 이름 변경 (인라인) — workspaces/page.tsx saveRename 패턴
+  const [editingName, setEditingName] = useState(false);
+  const [editName, setEditName] = useState('');
+  const renaming = useRef(false); // IME Enter 이중 발화 방지
+  // 삭제 모달 — 이름 입력 확인 (워크스페이스 삭제와 동일 격: 시술·초안 연결 파급이 있음)
+  const [deleting, setDeleting] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const deletingBusy = useRef(false);
+  const [deleteErr, setDeleteErr] = useState('');
+  // 시술 추가
+  const [newProc, setNewProc] = useState('');
+  const addingProc = useRef(false);
+  const [err, setErr] = useState('');
+
+  async function saveRename() {
+    const name = editName.trim();
+    if (!name || renaming.current) return;
+    renaming.current = true;
+    try {
+      const r = await apiFetch(`/api/clients/${client.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+      });
+      if (!r.ok) { setErr(await errOf(r)); return; }
+      setEditingName(false); setErr(''); await onChanged();
+    } finally { renaming.current = false; }
+  }
+
+  async function confirmDelete() {
+    if (confirmText !== client.name || deletingBusy.current) return;
+    deletingBusy.current = true;
+    try {
+      const r = await apiFetch(`/api/clients/${client.id}`, { method: 'DELETE' });
+      if (!r.ok) { setDeleteErr(await errOf(r)); return; } // 모달 유지해 재시도 가능하게
+      setDeleting(false); setConfirmText(''); setDeleteErr('');
+      onDeleted();
+    } finally { deletingBusy.current = false; }
+  }
+
+  async function addProc() {
+    const name = newProc.trim();
+    if (!name || addingProc.current) return;
+    addingProc.current = true;
+    try {
+      const r = await apiFetch(`/api/clients/${client.id}/procedures`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+      });
+      if (!r.ok) { setErr(await errOf(r)); return; }
+      setErr(''); setNewProc(''); await onChanged();
+    } finally { addingProc.current = false; }
+  }
+
+  return (
+    <div className="min-w-0 flex-1 px-6 py-6">
+      <div className="flex items-baseline justify-between gap-3">
+        {editingName ? (
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <input value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus
+                   onKeyDown={(e) => {
+                     if (e.key === 'Enter' && !e.nativeEvent.isComposing) saveRename();
+                     if (e.key === 'Escape') setEditingName(false);
+                   }}
+                   className="w-full max-w-[320px] rounded-lg border border-x-border-strong bg-white px-3 py-1.5 text-content outline-none focus:border-x-blue" />
+            <Button variant="primary" className="shrink-0 whitespace-nowrap" onClick={saveRename}>저장</Button>
+            <Button variant="ghost" className="shrink-0 whitespace-nowrap" onClick={() => setEditingName(false)}>취소</Button>
+          </div>
+        ) : (
+          <>
+            <h1 className="min-w-0 truncate text-[20px] font-bold">{client.name}</h1>
+            <span className="flex shrink-0 items-center gap-3">
+              <button onClick={() => { setEditingName(true); setEditName(client.name); }}
+                      className="text-ui text-x-secondary hover:text-x-text">이름 변경</button>
+              <button onClick={() => { setDeleting(true); setConfirmText(''); setDeleteErr(''); }}
+                      className="text-ui text-x-secondary hover:text-red-500">삭제</button>
+            </span>
+          </>
+        )}
+      </div>
+      {err && <p className="mt-2 text-ui text-red-500">{err}</p>}
+
+      <BasicInfoEditor key={client.id} client={client} register={register} onSaved={onChanged} />
+
+      <div className="mt-4 rounded-2xl border border-x-border-strong">
+        <div className="px-4 py-3">
+          <h3 className="text-content font-bold">시술 <span className="text-ui font-normal text-x-secondary">{procedures.length}개</span></h3>
+          <p className="text-caption text-x-muted">원고를 만들 때 이번 건에 해당하는 시술만 골라 반영해요.</p>
+        </div>
+        <div className="border-t border-x-border px-4 py-4">
+          <div className="space-y-2">
+            {procedures.map((p) => (
+              <ProcedureCard key={p.id} proc={p} register={register} onChanged={onChanged} />
+            ))}
+          </div>
+          <div className="mt-3 flex gap-2">
+            <input value={newProc} onChange={(e) => setNewProc(e.target.value)}
+                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addProc(); }}
+                   placeholder="새 시술 이름 (예: 보톡스)"
+                   className="w-56 rounded-md border border-x-border-strong px-2 py-1 text-ui outline-none focus:border-x-blue" />
+            <Button onClick={addProc}>시술 추가</Button>
+          </div>
+        </div>
+      </div>
+
+      {deleting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setDeleting(false); setDeleteErr(''); }}>
+          <div className="w-full max-w-[360px] rounded-xl bg-white p-5 shadow-[0_4px_24px_rgba(0,0,0,0.12)]"
+               role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <h2 className="mb-2 text-[20px] font-bold">클라이언트 삭제</h2>
+            <p className="mb-1 text-content">
+              &lsquo;{client.name}&rsquo;과(와) 시술 {procedures.length}개가 함께 삭제됩니다. 되돌릴 수 없습니다.
+            </p>
+            <p className="mb-3 text-caption text-x-muted">이 클라이언트로 만든 초안은 스냅샷으로 남아요.</p>
+            <p className="mb-1 text-ui text-x-secondary">계속하려면 클라이언트 이름을 입력하세요</p>
+            <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoFocus
+                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) confirmDelete(); }}
+                   placeholder={client.name}
+                   className="mb-3 w-full rounded-lg border border-x-border-strong px-3 py-1.5 text-content outline-none focus:border-x-blue" />
+            {deleteErr && <p className="mb-2 text-caption text-red-500">{deleteErr}</p>}
+            <div className="flex justify-end gap-2">
+              <Button onClick={() => { setDeleting(false); setDeleteErr(''); }}>취소</Button>
+              <button onClick={confirmDelete} disabled={confirmText !== client.name}
+                      className="rounded-full bg-x-pink px-3 py-1 text-ui font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50">
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 기본 정보(클리닉·의사 정보 + 공통 금지 표현) 편집기.
+// baseline(마지막 저장값) 대비로 dirty를 판정하고, 저장 성공 시 "저장됨 ✓"를 잠시 표시한다.
+function BasicInfoEditor({ client, register, onSaved }: {
+  client: ClientRow; register: Register; onSaved: () => Promise<void>;
+}) {
+  const [info, setInfo] = useState(client.info);
+  const [banned, setBanned] = useState(toLines(client.bannedPhrases));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState('');
+  const baseline = useRef({ info: client.info, banned: toLines(client.bannedPhrases) });
+  const cur = useRef({ info, banned });
+  cur.current = { info, banned };
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current); }, []);
+
+  const save = useCallback(async (): Promise<boolean> => {
+    setSaving(true);
+    try {
+      const r = await apiFetch(`/api/clients/${client.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ info: cur.current.info, bannedPhrases: fromLines(cur.current.banned) }),
+      });
+      if (!r.ok) { setErr(await errOf(r)); return false; }
+      baseline.current = { ...cur.current };
+      setErr(''); setSaved(true);
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaved(false), 2500);
+      await onSaved();
+      return true;
+    } finally { setSaving(false); }
+  }, [client.id, onSaved]);
+
+  useEffect(() => register('info', {
+    isDirty: () => cur.current.info !== baseline.current.info || cur.current.banned !== baseline.current.banned,
+    save,
+  }), [register, save]);
+
+  return (
+    <div className="mt-4 rounded-2xl border border-x-border-strong px-4 py-4">
+      {err && <p className="mb-2 text-ui text-red-500">{err}</p>}
+      <label className="block">
+        <span className="text-ui font-bold">클리닉·의사 정보</span>
+        <p className="text-caption text-x-muted">원고를 만드는 재료예요. 기존 소개 문서를 붙여넣어도 좋아요.</p>
+        <textarea value={info} onChange={(e) => { setInfo(e.target.value); setSaved(false); }} rows={6}
+                  className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
+      </label>
+      <label className="mt-3 block">
+        <span className="text-ui font-bold">금지 표현 <span className="font-normal text-x-muted">한 줄에 하나</span></span>
+        <p className="text-caption text-x-muted">원고에 절대 쓰면 안 되는 말 — 검수 기준으로도 쓰여요. (예: 경쟁사명, 계약상 못 쓰는 표현)</p>
+        <textarea value={banned} onChange={(e) => { setBanned(e.target.value); setSaved(false); }} rows={3}
+                  className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
+      </label>
+      <div className="mt-3 flex items-center gap-2.5">
+        <Button variant="primary" onClick={save} disabled={saving}>{saving ? '저장 중…' : '저장'}</Button>
+        {saved && <span className="text-ui font-medium text-x-green">저장됨 ✓</span>}
+      </div>
+    </div>
+  );
+}
+
+// 시술 카드 — 접힘 시 요약 줄(채움 상태), 펼침 시 편집기. 삭제는 2단계 확인.
+function ProcedureCard({ proc, register, onChanged }: {
+  proc: ProcedureRow; register: Register; onChanged: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [err, setErr] = useState('');
+  const summary = procedureSummary(proc);
+
+  async function remove() {
+    const r = await apiFetch(`/api/procedures/${proc.id}`, { method: 'DELETE' });
+    if (!r.ok) { setErr(await errOf(r)); return; }
+    setErr(''); await onChanged();
+  }
+
+  return (
+    <div className="rounded-lg border border-x-border bg-x-surface px-3 py-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <button onClick={() => setOpen(!open)} className="min-w-0 flex-1 text-left">
+          <span className="text-ui font-medium hover:text-x-blue-text">{proc.name} {open ? '⌃' : '⌄'}</span>
+          {!open && (
+            <p className={`text-caption ${summary.empty ? 'text-[#b45309]' : 'text-x-secondary'}`}>{summary.text}</p>
+          )}
+        </button>
+        {confirmDel ? (
+          <span className="flex shrink-0 items-center gap-2 text-caption">
+            <button onClick={remove} className="rounded bg-red-600 px-2 py-0.5 text-white">삭제 확정</button>
+            <button onClick={() => setConfirmDel(false)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
+          </span>
+        ) : (
+          <button onClick={() => setConfirmDel(true)} className="shrink-0 text-caption text-x-muted hover:text-red-500">삭제</button>
+        )}
+      </div>
+      {err && <p className="mt-1 text-ui text-red-500">{err}</p>}
+      {open && <ProcedureEditor proc={proc} register={register} onSaved={onChanged} onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
+
+// 펼친 시술 편집기 — 펼쳐진 동안만 레지스트리에 등록된다 (접으면 dirty 대상에서 제외).
+function ProcedureEditor({ proc, register, onSaved, onClose }: {
+  proc: ProcedureRow; register: Register; onSaved: () => Promise<void>; onClose: () => void;
+}) {
+  const [description, setDescription] = useState(proc.description);
+  const [effect, setEffect] = useState(proc.effectPhrases);
+  const [banned, setBanned] = useState(toLines(proc.bannedPhrases));
+  const [err, setErr] = useState('');
+  const baseline = useRef({ description: proc.description, effect: proc.effectPhrases, banned: toLines(proc.bannedPhrases) });
+  const cur = useRef({ description, effect, banned });
+  cur.current = { description, effect, banned };
+
+  const save = useCallback(async (): Promise<boolean> => {
+    const r = await apiFetch(`/api/procedures/${proc.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description: cur.current.description, effectPhrases: cur.current.effect,
+        bannedPhrases: fromLines(cur.current.banned),
+      }),
+    });
+    if (!r.ok) { setErr(await errOf(r)); return false; }
+    baseline.current = { ...cur.current };
+    setErr('');
+    await onSaved();
+    return true;
+  }, [proc.id, onSaved]);
+
+  useEffect(() => register(`proc:${proc.id}`, {
+    isDirty: () =>
+      cur.current.description !== baseline.current.description ||
+      cur.current.effect !== baseline.current.effect ||
+      cur.current.banned !== baseline.current.banned,
+    save,
+  }), [register, save, proc.id]);
+
+  async function saveAndClose() { if (await save()) onClose(); }
+
+  return (
+    <div className="mt-2 space-y-2">
+      {err && <p className="text-ui text-red-500">{err}</p>}
+      <label className="block">
+        <span className="text-caption font-bold text-x-secondary">시술 설명</span>
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
+                  className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white p-2 text-ui outline-none focus:border-x-blue" />
+      </label>
+      <label className="block">
+        <span className="text-caption font-bold text-x-secondary">효과·결과로 쓸 수 있는 표현</span>
+        <p className="text-caption text-x-muted">여기 적힌 범위까지만 원고에 사용돼요.</p>
+        <textarea value={effect} onChange={(e) => setEffect(e.target.value)} rows={2}
+                  className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white p-2 text-ui outline-none focus:border-x-blue" />
+      </label>
+      <label className="block">
+        <span className="text-caption font-bold text-x-secondary">이 시술만의 금지 표현 <span className="font-normal text-x-muted">한 줄에 하나</span></span>
+        <textarea value={banned} onChange={(e) => setBanned(e.target.value)} rows={2}
+                  className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white p-2 text-ui outline-none focus:border-x-blue" />
+      </label>
+      <Button variant="primary" onClick={saveAndClose}>시술 저장</Button>
+    </div>
+  );
+}

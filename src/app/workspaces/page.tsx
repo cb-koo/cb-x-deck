@@ -48,10 +48,21 @@ export default function WorkspacesPage() {
   useEffect(() => () => { dragCleanupRef.current?.(); }, []);
 
   async function commitOrder(ids: string[]) {
-    const r = await apiFetch('/api/workspaces/reorder', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
-    });
-    if (!r.ok) { await load(); return; } // 409(다른 팀원이 추가/삭제) 포함 — 서버 기준으로 재동기화
+    try {
+      const r = await apiFetch('/api/workspaces/reorder', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+      });
+      if (!r.ok) { // 409(다른 팀원이 추가/삭제) 포함 — 서버 기준 재동기화 + 이유 표시
+        setErr('순서를 저장하지 못했습니다 — 목록을 다시 불러왔습니다');
+        await load();
+        return;
+      }
+      setErr('');
+      window.dispatchEvent(new Event('cbx-workspaces-changed'));
+    } catch {
+      setErr('순서를 저장하지 못했습니다 — 네트워크를 확인해주세요');
+      await load();
+    }
   }
 
   function startDrag(id: string, e: React.PointerEvent) {
@@ -106,6 +117,7 @@ export default function WorkspacesPage() {
       });
       if (!r.ok) { setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`); return; }
       setEditingId(null); setErr('');
+      window.dispatchEvent(new Event('cbx-workspaces-changed'));
       await load();
     } finally { renaming.current = false; }
   }
@@ -126,6 +138,7 @@ export default function WorkspacesPage() {
         setCurrentId(null);
       }
       setDeleting(null); setConfirmText(''); setDeleteErr('');
+      window.dispatchEvent(new Event('cbx-workspaces-changed'));
       await load();
     } finally { deletingBusy.current = false; }
   }
@@ -156,6 +169,7 @@ export default function WorkspacesPage() {
       });
       if (!r.ok) { setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`); return; }
       setNewName(''); setAdding(false); setErr('');
+      window.dispatchEvent(new Event('cbx-workspaces-changed'));
       await load();
     } finally { creating.current = false; }
   }
@@ -208,7 +222,7 @@ export default function WorkspacesPage() {
                   className="cursor-grab touch-none select-none text-ui text-x-muted active:cursor-grabbing"
                   title="끌어서 순서 변경" aria-hidden>⠿</span>
             {editingId === w.id ? (
-              <div className="flex min-w-0 flex-1 items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              <div className="flex min-w-0 flex-1 items-center gap-2" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                 <input value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus
                        onKeyDown={(e) => {
                          e.stopPropagation(); // 카드의 Enter 이동 핸들러로 버블 방지 — 저장과 이동이 동시에 일어난다
@@ -232,7 +246,7 @@ export default function WorkspacesPage() {
                     컬럼 {w.columnCount}개 · 저장 후보 {w.candidateCount}건 · {relTime(w.lastActivityAt)}
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                <div className="flex shrink-0 items-center gap-3" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                   <button onClick={() => { setEditingId(w.id); setEditName(w.name); }}
                           className="text-ui text-x-secondary hover:text-x-text">이름 변경</button>
                   <button onClick={() => { setDeleting(w); setConfirmText(''); setDeleteErr(''); }}

@@ -13,7 +13,11 @@ export function Sidebar({ wsId }: { wsId: string }) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
 
   useEffect(() => {
-    apiFetch('/api/workspaces').then((r) => r.json()).then(setWorkspaces);
+    const loadWs = () => { apiFetch('/api/workspaces').then((r) => r.json()).then(setWorkspaces); };
+    loadWs();
+    // /workspaces 페이지의 이름 변경·삭제·순서 변경을 같은 화면의 이 select에 즉시 반영 (스펙 §1)
+    window.addEventListener('cbx-workspaces-changed', loadWs);
+    return () => window.removeEventListener('cbx-workspaces-changed', loadWs);
   }, []);
 
   const nav = [

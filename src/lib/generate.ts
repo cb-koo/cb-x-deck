@@ -2,7 +2,8 @@ import type postgres from 'postgres';
 import { callLLM, type AnthropicLike } from './llm.ts';
 import { getClientWithProcedures } from './clientStore.ts';
 import { getReferencesByIds } from './referenceStore.ts';
-import { buildUserPrompt, draftOutputSchema, variantsOutputSchema, DRAFT_SYSTEM } from './generatePrompt.ts';
+import { buildUserPrompt, draftOutputSchema, variantsOutputSchema, draftSystem } from './generatePrompt.ts';
+import { getPromptOverrides } from './promptSettings.ts';
 import { insertDraft, getDraft, updateDraft, type DraftRow } from './draftStore.ts';
 import { X_MAX_WEIGHTED } from './xLength.ts';
 import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
@@ -51,6 +52,9 @@ export async function generateDraft(
       `레퍼런스 ${req.refTweetIds.length - refs.length}건을 보관함에서 찾을 수 없어요 — 목록을 새로고침해 주세요`);
   }
 
+  // 팀이 /prompt에서 편집한 지시문 오버라이드 — 생성 시점의 최신 저장본 1회 로드
+  const promptOverrides = await getPromptOverrides(sql);
+
   // 프롬프트 → LLM (구조화 출력) — count 1이면 기존 posts 스키마·프롬프트 그대로 (스펙 §1)
   const user = buildUserPrompt({
     client: clientData ? { name: clientData.client.name, info: clientData.client.info,
@@ -58,11 +62,11 @@ export async function generateDraft(
     procedures, references: refs, mode: hasRefs ? req.mode : 'off',
     direction: req.direction, format: req.format, constraintsOn: req.constraintsOn,
     ...(count > 1 ? { variantCount: count } : {}),
-  });
+  }, promptOverrides);
   const res = await callLLM('anthropic.draft', {
     model: CONTENT_MODEL(),
     max_tokens: 16000, // Opus 5는 thinking 기본 ON — thinking+응답 합산 상한이라 여유 필요
-    system: DRAFT_SYSTEM,
+    system: draftSystem(promptOverrides),
     messages: [{ role: 'user', content: user }],
     output_config: { format: { type: 'json_schema', schema: count > 1 ? variantsOutputSchema() : draftOutputSchema() } },
   }, client);
@@ -122,6 +126,8 @@ export async function rewriteDraft(
 
   const clientData = draft.clientId ? await getClientWithProcedures(sql, draft.clientId) : null;
   const procedures = (clientData?.procedures ?? []).filter((p) => draft.procedureNames.includes(p.name));
+  // 팀이 /prompt에서 편집한 지시문 오버라이드 — 생성 시점의 최신 저장본 1회 로드
+  const promptOverrides = await getPromptOverrides(sql);
   const user = buildUserPrompt({
     client: clientData ? { name: clientData.client.name, info: clientData.client.info,
                            bannedPhrases: clientData.client.bannedPhrases } : null,
@@ -129,10 +135,10 @@ export async function rewriteDraft(
     direction: draft.direction, format: draft.format,
     constraintsOn: false, // 생성 시점의 제약 토글은 초안에 저장되지 않음 — 사후 검수 표식이 항상 커버
     rewrite: { current: base.posts.map((p) => p.text), feedback },
-  });
+  }, promptOverrides);
 
   const res = await callLLM('anthropic.draftRewrite', {
-    model: CONTENT_MODEL(), max_tokens: 16000, system: DRAFT_SYSTEM,
+    model: CONTENT_MODEL(), max_tokens: 16000, system: draftSystem(promptOverrides),
     messages: [{ role: 'user', content: user }],
     output_config: { format: { type: 'json_schema', schema: draftOutputSchema() } },
   }, client);
@@ -179,8 +185,10 @@ export async function regeneratePost(
     `출력: 다시 쓴 ${postIndex + 1}번 포스트 1개만 posts 배열에 담으세요.`,
   ].filter((l, n, arr) => l !== '' || arr[n - 1] !== '').join('\n');
 
+  // 팀이 /prompt에서 편집한 지시문 오버라이드 — 생성 시점의 최신 저장본 1회 로드
+  const promptOverrides = await getPromptOverrides(sql);
   const res = await callLLM('anthropic.draftRegen', {
-    model: CONTENT_MODEL(), max_tokens: 16000, system: DRAFT_SYSTEM,
+    model: CONTENT_MODEL(), max_tokens: 16000, system: draftSystem(promptOverrides),
     messages: [{ role: 'user', content: user }],
     output_config: { format: { type: 'json_schema', schema: draftOutputSchema() } },
   }, client);

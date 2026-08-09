@@ -10,6 +10,10 @@ export interface WorkspaceMeta extends Workspace {
   columnCount: number;
   candidateCount: number;
   lastActivityAt: string; // ISO — max(컬럼 created_at, 후보 saved_at, 워크스페이스 created_at)
+  // 최근 활동이 "저장(후보 담기)"일 때만 그 멤버 이름. 컬럼 생성에는 멤버 기록이 없어
+  // 그 경우 null — 모르는 값은 표시하지 않는다 (원칙 4).
+  lastActivityMemberName: string | null;
+  createdByName: string | null; // 019 이전 생성분은 기록이 없어 null
 }
 export interface Member { id: string; name: string; color: string }
 

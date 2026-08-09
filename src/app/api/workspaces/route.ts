@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { listWorkspaces, createWorkspace, listWorkspacesWithMeta } from '@/lib/workspaceStore';
 
-import { requireAllowedUser } from '@/lib/authGuard';
+import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 export async function GET(req: Request) {
   const gate = await requireAllowedUser();
   if (gate.response) return gate.response;
@@ -12,9 +12,10 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const gate = await requireAllowedUser();
+  // 생성자를 기록하기 위해 멤버까지 해석한다 (저장 API들과 동일 패턴)
+  const gate = await requireMember();
   if (gate.response) return gate.response;
   const { name } = await req.json().catch(() => ({}));
   if (typeof name !== 'string' || !name.trim()) return NextResponse.json({ error: '이름 필수' }, { status: 400 });
-  return NextResponse.json(await createWorkspace(getSql(), name), { status: 201 });
+  return NextResponse.json(await createWorkspace(getSql(), name, gate.member.id), { status: 201 });
 }

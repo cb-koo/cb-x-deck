@@ -190,8 +190,8 @@ export default function WorkspacesPage() {
                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) createWs(); }}
                  placeholder="새 워크스페이스 이름"
                  className="w-full rounded-lg border border-x-border-strong bg-transparent px-3 py-1.5 text-content outline-none focus:border-x-blue" />
-          <Button variant="primary" onClick={createWs}>만들기</Button>
-          <Button variant="ghost" onClick={() => { setAdding(false); setNewName(''); }}>취소</Button>
+          <Button variant="primary" className="shrink-0 whitespace-nowrap" onClick={createWs}>만들기</Button>
+          <Button variant="ghost" className="shrink-0 whitespace-nowrap" onClick={() => { setAdding(false); setNewName(''); }}>취소</Button>
         </div>
       )}
       {err && <p className="mb-2 text-caption text-red-500">{err}</p>}
@@ -230,8 +230,9 @@ export default function WorkspacesPage() {
                          if (e.key === 'Escape') setEditingId(null);
                        }}
                        className="w-full rounded-lg border border-x-border-strong bg-white px-3 py-1.5 text-content outline-none focus:border-x-blue" />
-                <Button variant="primary" onClick={() => saveRename(w.id)}>저장</Button>
-                <Button variant="ghost" onClick={() => setEditingId(null)}>취소</Button>
+                {/* shrink-0 없으면 w-full 입력창이 버튼을 눌러 글자가 세로로 꺾인다 */}
+                <Button variant="primary" className="shrink-0 whitespace-nowrap" onClick={() => saveRename(w.id)}>저장</Button>
+                <Button variant="ghost" className="shrink-0 whitespace-nowrap" onClick={() => setEditingId(null)}>취소</Button>
               </div>
             ) : (
               <>
@@ -244,6 +245,8 @@ export default function WorkspacesPage() {
                   </p>
                   <p className="text-ui text-x-secondary">
                     컬럼 {w.columnCount}개 · 저장 후보 {w.candidateCount}건 · {relTime(w.lastActivityAt)}
+                    {w.lastActivityMemberName && `(${w.lastActivityMemberName})`}
+                    {w.createdByName && ` · ${w.createdByName} 님이 만듦`}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>

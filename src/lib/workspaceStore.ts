@@ -12,6 +12,8 @@ export async function listWorkspacesWithMeta(sql: postgres.Sql): Promise<Workspa
   const rows = await sql<Array<{
     id: string; name: string; position: number;
     column_count: number; candidate_count: number; last_activity_at: string;
+    last_candidate_at: string | null; last_candidate_member: string | null;
+    created_by_name: string | null;
   }>>`
     select w.id, w.name, w.position,
       (select count(*)::int from deck_column c where c.workspace_id = w.id) as column_count,
@@ -20,20 +22,33 @@ export async function listWorkspacesWithMeta(sql: postgres.Sql): Promise<Workspa
         w.created_at,
         coalesce((select max(c.created_at) from deck_column c where c.workspace_id = w.id), w.created_at),
         coalesce((select max(ca.saved_at) from candidate ca where ca.workspace_id = w.id), w.created_at)
-      ) as last_activity_at
+      ) as last_activity_at,
+      (select ca.saved_at from candidate ca where ca.workspace_id = w.id
+        order by ca.saved_at desc limit 1) as last_candidate_at,
+      (select m.name from candidate ca join member m on m.id = ca.member_id
+        where ca.workspace_id = w.id order by ca.saved_at desc limit 1) as last_candidate_member,
+      (select m.name from member m where m.id = w.created_by) as created_by_name
     from workspace w
     order by w.position, w.created_at`;
-  return rows.map((r) => ({
-    id: r.id, name: r.name, position: r.position,
-    columnCount: r.column_count, candidateCount: r.candidate_count,
-    lastActivityAt: new Date(r.last_activity_at).toISOString(),
-  }));
+  return rows.map((r) => {
+    const lastActivityAt = new Date(r.last_activity_at).toISOString();
+    // 저장(후보 담기)에만 멤버가 기록된다 — 최근 활동이 그 저장일 때만 멤버를 붙이고,
+    // 컬럼 생성 등 멤버를 모르는 활동이 최신이면 null (원칙 4: 모르는 값은 표시하지 않는다).
+    const lastCandidateAt = r.last_candidate_at ? new Date(r.last_candidate_at).toISOString() : null;
+    return {
+      id: r.id, name: r.name, position: r.position,
+      columnCount: r.column_count, candidateCount: r.candidate_count,
+      lastActivityAt,
+      lastActivityMemberName: lastCandidateAt === lastActivityAt ? r.last_candidate_member : null,
+      createdByName: r.created_by_name,
+    };
+  });
 }
 
-export async function createWorkspace(sql: postgres.Sql, name: string): Promise<Workspace> {
+export async function createWorkspace(sql: postgres.Sql, name: string, createdBy?: string | null): Promise<Workspace> {
   const [row] = await sql<Array<{ id: string; name: string; position: number }>>`
-    insert into workspace (name, position)
-    values (${name.trim()}, (select coalesce(max(position) + 1, 0) from workspace))
+    insert into workspace (name, position, created_by)
+    values (${name.trim()}, (select coalesce(max(position) + 1, 0) from workspace), ${createdBy ?? null})
     returning id, name, position`;
   return row;
 }

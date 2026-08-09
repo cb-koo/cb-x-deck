@@ -102,3 +102,26 @@ test('listWorkspacesWithMeta: 컬럼·후보 수와 최근 활동', async () => 
   await sql`delete from deck_column where id = ${col.id}`;
   await deleteWorkspace(sql, w.id);
 });
+
+test('listWorkspacesWithMeta: 생성자 이름 + 최근 활동 멤버(저장일 때만)', async () => {
+  const member = await createMember(sql, T + '-mm', '#1d9bf0');
+  const w = await createWorkspace(sql, T + '-meta2', member.id);
+  // 저장이 아직 없으면: 생성자만 표시되고 활동 멤버는 null (컬럼 생성엔 멤버 기록이 없다)
+  let m = (await listWorkspacesWithMeta(sql)).find((x) => x.id === w.id);
+  assert.equal(m?.createdByName, T + '-mm');
+  assert.equal(m?.lastActivityMemberName, null);
+  // 후보 저장이 최신 활동이 되면 그 멤버 이름이 붙는다
+  const tweetId = 'test-ws-tweet-' + process.pid;
+  await sql`insert into tweet (tweet_id, author_handle) values (${tweetId}, 'test') on conflict do nothing`;
+  await sql`insert into candidate (tweet_id, workspace_id, member_id) values (${tweetId}, ${w.id}, ${member.id})`;
+  m = (await listWorkspacesWithMeta(sql)).find((x) => x.id === w.id);
+  assert.equal(m?.candidateCount, 1);
+  assert.equal(m?.lastActivityMemberName, T + '-mm');
+  // 생성자 미기록(옛 워크스페이스)이면 null
+  const legacy = await createWorkspace(sql, T + '-legacy');
+  const lm = (await listWorkspacesWithMeta(sql)).find((x) => x.id === legacy.id);
+  assert.equal(lm?.createdByName, null);
+  await sql`delete from tweet where tweet_id = ${tweetId}`; // candidate는 cascade
+  await deleteWorkspace(sql, w.id);
+  await deleteWorkspace(sql, legacy.id);
+});

@@ -2,6 +2,7 @@ import type postgres from 'postgres';
 import type { DeckTweet, SortDir, SortKey, StoredTweet, TableRow } from './types.ts';
 import { TABLE_MAX, TABLE_PAGE } from './tableLimits.ts';
 import { buildFilterSql, type FilterCondition } from './tableFilter.ts';
+import { isUuidLike } from './uuid.ts';
 
 export async function upsertTweets(sql: postgres.Sql, tweets: DeckTweet[]): Promise<{ inserted: number; updated: number }> {
   let inserted = 0, updated = 0;
@@ -44,11 +45,6 @@ const ORDER_EXPR: Record<SortKey, string> = {
   replies: `(t.metrics->>'replies')::bigint`,
   quotes: `(t.metrics->>'quotes')::bigint`,
 };
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function isUuidLike(id: string): boolean {
-  return UUID_RE.test(id);
-}
 
 type TweetRow = {
   tweet_id: string; author_handle: string; author_name: string | null; author_avatar_url: string | null;

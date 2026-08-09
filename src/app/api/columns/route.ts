@@ -5,11 +5,13 @@ import { makeClient } from '@/lib/getxapi';
 import { resolveWatchlistAccount } from '@/lib/watchlistAccount';
 
 import { requireAllowedUser } from '@/lib/authGuard';
+import { isUuidLike } from '@/lib/uuid';
 export async function GET(req: Request) {
   const gate = await requireAllowedUser();
   if (gate.response) return gate.response;
   const workspaceId = new URL(req.url).searchParams.get('workspaceId');
   if (!workspaceId) return NextResponse.json({ error: 'workspaceId 필수' }, { status: 400 });
+  if (!isUuidLike(workspaceId)) return NextResponse.json({ error: 'workspaceId 형식이 올바르지 않습니다' }, { status: 400 });
   return NextResponse.json(await listColumns(getSql(), workspaceId));
 }
 

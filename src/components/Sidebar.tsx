@@ -1,14 +1,26 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import type { Workspace } from '@/lib/types';
 import { useMember } from '@/lib/memberContext';
 import { swapWorkspacePath } from '@/lib/wsNav';
 import { interceptNav } from '@/lib/navGuard';
+import { createClient } from '@/lib/supabase/client';
 import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon } from './XIcons';
 
-export function Sidebar({ wsId }: { wsId: string }) {
+// SPA 이동 가드 — /clients 등이 등록한 편집 유실 방지(navGuard)에 걸리면 이동을 중단한다.
+// <a> 시절엔 beforeunload가 잡았지만 Link(클라이언트 라우팅)는 우회하므로 onNavigate에 연결.
+const guardedNavigate = (href: string) => (e: { preventDefault: () => void }) => {
+  if (interceptNav(href)) e.preventDefault();
+};
+
+export function Sidebar({ wsId, wsError = false, onRetryWs }: {
+  wsId: string | null; // null = 목록 실패(wsError=true) 또는 워크스페이스 0개 — 전역 메뉴만 렌더
+  wsError?: boolean;
+  onRetryWs?: () => void;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const { member } = useMember();
@@ -22,7 +34,13 @@ export function Sidebar({ wsId }: { wsId: string }) {
     return () => window.removeEventListener('cbx-workspaces-changed', loadWs);
   }, []);
 
-  const nav = [
+  // 로그아웃 — /denied와 동일 패턴. 하드 이동이라 편집 중이면 beforeunload가 잡는다.
+  const signOut = async () => {
+    await createClient().auth.signOut();
+    window.location.href = '/login';
+  };
+
+  const nav = wsId === null ? [] : [
     { href: `/w/${wsId}/research`, label: '리서치', Ic: SearchIcon, tour: undefined as string | undefined },
     { href: `/w/${wsId}`, label: '덱', Ic: ColumnsIcon, tour: 'nav-deck' },
     { href: `/w/${wsId}/briefing`, label: '브리핑', Ic: DocIcon, tour: 'nav-briefing' },
@@ -38,42 +56,62 @@ export function Sidebar({ wsId }: { wsId: string }) {
   return (
     <aside data-tour="sidebar" className="flex h-screen w-52 shrink-0 flex-col border-r border-x-border bg-x-surface p-3">
       <p className="mb-1 px-1 text-caption text-x-muted">워크스페이스</p>
-      {/* 전환해도 보던 화면(표 보기·보관함 등)과 쿼리를 유지한다 — wsNav 참조 */}
-      <select value={wsId} onChange={(e) => {
-                const target = swapWorkspacePath(pathname, window.location.search, e.target.value);
-                // 편집 중 유실 방지 — 페이지 링크(<a>)는 beforeunload가 잡지만 이 select는 클라이언트 라우팅이라 여기서 가드
-                if (interceptNav(target)) { e.target.value = wsId; return; } // 가드가 모달로 이어감 — select 표시 원복
-                router.push(target);
-              }}
-              className="mb-1 w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue">
-        {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-      </select>
-      <a href="/workspaces"
-         className={`mb-2 block px-1 text-ui hover:text-x-secondary ${pathname === '/workspaces' ? 'font-bold text-x-text' : 'text-x-muted'}`}>
+      {wsId !== null ? (
+        <select value={wsId} aria-label="워크스페이스 선택"
+                onChange={(e) => {
+                  const target = swapWorkspacePath(pathname, window.location.search, e.target.value);
+                  // 편집 중 유실 방지 — 페이지 링크는 onNavigate 가드, 이 select는 여기서 가드
+                  if (interceptNav(target)) { e.target.value = wsId; return; } // 가드가 모달로 이어감 — select 표시 원복
+                  router.push(target);
+                }}
+                className="mb-1 w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue">
+          {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+        </select>
+      ) : (
+        <div className="mb-1 px-1 py-1">
+          {wsError ? (
+            <>
+              <p className="text-caption text-x-secondary">목록을 불러오지 못했습니다</p>
+              <button onClick={onRetryWs}
+                      className="mt-1 rounded-full border border-x-border-strong bg-white px-2.5 py-0.5 text-caption hover:bg-x-hover">
+                다시 시도
+              </button>
+            </>
+          ) : (
+            <p className="text-caption text-x-secondary">워크스페이스가 없습니다 — 아래 관리에서 만들 수 있어요</p>
+          )}
+        </div>
+      )}
+      <Link href="/workspaces" onNavigate={guardedNavigate('/workspaces')}
+            aria-current={pathname === '/workspaces' ? 'page' : undefined}
+            className={`mb-2 block px-1 text-ui hover:text-x-secondary ${pathname === '/workspaces' ? 'font-bold text-x-text' : 'text-x-muted'}`}>
         워크스페이스 관리
-      </a>
+      </Link>
 
       <nav className="mt-2 flex-1">
         {nav.map((n) => (
-          <a key={n.href} href={n.href} data-tour={n.tour}
-             className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
+          <Link key={n.href} href={n.href} data-tour={n.tour} onNavigate={guardedNavigate(n.href)}
+                aria-current={pathname === n.href ? 'page' : undefined}
+                className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
             <n.Ic className="h-[18px] w-[18px]" />{n.label}
-          </a>
+          </Link>
         ))}
-        <div className="my-2 border-t border-x-border" />
+        {nav.length > 0 && <div className="my-2 border-t border-x-border" />}
         {globalNav.map((n) => (
-          <a key={n.href} href={n.href}
-             className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
+          <Link key={n.href} href={n.href} onNavigate={guardedNavigate(n.href)}
+                aria-current={pathname === n.href ? 'page' : undefined}
+                className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
             <n.Ic className="h-[18px] w-[18px]" />{n.label}
-          </a>
+          </Link>
         ))}
       </nav>
 
       <div className="mb-2 border-t border-x-border pt-2">
-        <a href="/usage"
-           className={`flex items-center gap-2.5 rounded-full px-3 py-1.5 text-caption hover:bg-x-text/5 ${pathname === '/usage' ? 'text-x-text' : 'text-x-muted'}`}>
+        <Link href="/usage" onNavigate={guardedNavigate('/usage')}
+              aria-current={pathname === '/usage' ? 'page' : undefined}
+              className={`flex items-center gap-2.5 rounded-full px-3 py-1.5 text-caption hover:bg-x-text/5 ${pathname === '/usage' ? 'text-x-text' : 'text-x-muted'}`}>
           API 사용량
-        </a>
+        </Link>
       </div>
 
       <div className="border-t border-x-border pt-2">
@@ -81,7 +119,8 @@ export function Sidebar({ wsId }: { wsId: string }) {
         {member ? (
           <div className="flex items-center gap-2 px-1 py-1 text-sm">
             <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: member.color }} />
-            <span>{member.name}</span>
+            <span className="min-w-0 truncate">{member.name}</span>
+            <button onClick={signOut} className="ml-auto shrink-0 text-caption text-x-muted hover:text-x-secondary">로그아웃</button>
           </div>
         ) : (
           <p className="px-1 text-caption text-x-muted">불러오는 중…</p>

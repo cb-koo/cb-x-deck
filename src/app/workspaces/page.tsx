@@ -27,6 +27,24 @@ export default function WorkspacesPage() {
   const [newName, setNewName] = useState('');
   const creating = useRef(false); // 한글 IME Enter 이중 발화·더블클릭 중복 생성 방지 (Sidebar와 동일 패턴)
   const [err, setErr] = useState('');
+  // 이름 변경: 편집 중인 카드 id와 입력값
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const renaming = useRef(false); // IME Enter 이중 발화 방지
+
+  async function saveRename(id: string) {
+    const name = editName.trim();
+    if (!name || renaming.current) return;
+    renaming.current = true;
+    try {
+      const r = await apiFetch(`/api/workspaces/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+      });
+      if (!r.ok) { setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`); return; }
+      setEditingId(null); setErr('');
+      await load();
+    } finally { renaming.current = false; }
+  }
 
   const load = useCallback(async () => {
     setLoadErr(false);
@@ -40,7 +58,6 @@ export default function WorkspacesPage() {
       setLoaded(true);
     }
   }, []);
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 목록 조회(기존 코드베이스 관례, RefPickerSheet/page.tsx 선례)
   useEffect(() => { load(); }, [load]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로컬 저장값 복원(기존 코드베이스 관례, generate/page.tsx 선례)
   useEffect(() => { setCurrentId(localStorage.getItem(LAST_WS_KEY)); }, []);
@@ -104,21 +121,37 @@ export default function WorkspacesPage() {
                  w.id === currentId ? 'border-[1.5px] border-x-blue' : 'border-x-border hover:border-x-border-strong'
                }`}>
             <span className="select-none text-ui text-x-muted" aria-hidden>⠿</span>
-            <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-2 truncate text-content font-bold">
-                {w.name}
-                {w.id === currentId && (
-                  <span className="rounded-full bg-[#e3f1fb] px-2 py-0.5 text-caption font-normal text-x-blue-text">현재</span>
-                )}
-              </p>
-              <p className="text-ui text-x-secondary">
-                컬럼 {w.columnCount}개 · 저장 후보 {w.candidateCount}건 · {relTime(w.lastActivityAt)}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-3" onClick={(e) => e.stopPropagation()}>
-              <button className="text-ui text-x-secondary hover:text-x-text">이름 변경</button>
-              <button className="text-ui text-x-secondary hover:text-red-500">삭제</button>
-            </div>
+            {editingId === w.id ? (
+              <div className="flex min-w-0 flex-1 items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                <input value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus
+                       onKeyDown={(e) => {
+                         if (e.key === 'Enter' && !e.nativeEvent.isComposing) saveRename(w.id);
+                         if (e.key === 'Escape') setEditingId(null);
+                       }}
+                       className="w-full rounded-lg border border-x-border-strong bg-white px-3 py-1.5 text-content outline-none focus:border-x-blue" />
+                <Button variant="primary" onClick={() => saveRename(w.id)}>저장</Button>
+                <Button variant="ghost" onClick={() => setEditingId(null)}>취소</Button>
+              </div>
+            ) : (
+              <>
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-2 truncate text-content font-bold">
+                    {w.name}
+                    {w.id === currentId && (
+                      <span className="rounded-full bg-[#e3f1fb] px-2 py-0.5 text-caption font-normal text-x-blue-text">현재</span>
+                    )}
+                  </p>
+                  <p className="text-ui text-x-secondary">
+                    컬럼 {w.columnCount}개 · 저장 후보 {w.candidateCount}건 · {relTime(w.lastActivityAt)}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => { setEditingId(w.id); setEditName(w.name); }}
+                          className="text-ui text-x-secondary hover:text-x-text">이름 변경</button>
+                  <button className="text-ui text-x-secondary hover:text-red-500">삭제</button>
+                </div>
+              </>
+            )}
           </div>
         ))}
       </div>

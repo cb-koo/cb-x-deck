@@ -29,7 +29,7 @@
 - Produces (Task 2가 사용): `Sidebar({ wsId: string | null; wsError?: boolean; onRetryWs?: () => void })`
   — 기존 호출부(`/w/[wsId]/layout.tsx`, string 전달)와 호환
 
-- [ ] **Step 1: 파일 전체 교체**
+- [x] **Step 1: 파일 전체 교체**
 
 ```tsx
 'use client';
@@ -165,7 +165,7 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
 }
 ```
 
-- [ ] **Step 2: 자체 점검** — 클래스 문자열·data-tour가 원본과 동일한지 diff로 확인. tsc는 돌리지 말 것(짝 레인 T2가 같은 시각에 GlobalShell을 고치는 중 — 전체 검증은 Task 3).
+- [x] **Step 2: 자체 점검** — 클래스 문자열·data-tour가 원본과 동일한지 diff로 확인. tsc는 돌리지 말 것(짝 레인 T2가 같은 시각에 GlobalShell을 고치는 중 — 전체 검증은 Task 3).
 
 ---
 
@@ -178,7 +178,7 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
 - Consumes: Task 1의 `Sidebar({ wsId: string | null; wsError?; onRetryWs? })` — **T1과 동시 진행되므로 이 시그니처를 전제로 작성** (tsc는 Task 3에서 일괄)
 - Produces: `LAST_WS_KEY` export 유지 (외부 3곳이 import)
 
-- [ ] **Step 1: 파일 전체 교체**
+- [x] **Step 1: 파일 전체 교체**
 
 ```tsx
 'use client';
@@ -236,16 +236,16 @@ export function GlobalShell({ children }: { children: React.ReactNode }) {
 재시도 중 상태를 'loading'으로 되돌리지 않는다 — 버튼이 남아 있다가 성공하면 즉시 전체 사이드바로 바뀐다
 (되돌리면 재시도마다 사이드바가 깜빡이며 사라진다).
 
-- [ ] **Step 2: 자체 점검** — `LAST_WS_KEY` export가 남아 있는지 확인. tsc는 Task 3에서 일괄.
+- [x] **Step 2: 자체 점검** — `LAST_WS_KEY` export가 남아 있는지 확인. tsc는 Task 3에서 일괄.
 
 ---
 
 ### Task 3: 일괄 검증 (T1·T2 완료 후)
 
-- [ ] `npx tsc --noEmit` — 에러 0
-- [ ] `npm run lint` — 24 problems (기준선, 신규 없음)
-- [ ] `npm run build` — 성공
-- [ ] `grep -n "data-tour" src/components/Sidebar.tsx` — sidebar·nav-deck·nav-briefing 3개 유지
+- [x] `npx tsc --noEmit` — 에러 0
+- [x] `npm run lint` — 24 problems (기준선, 신규 없음)
+- [x] `npm run build` — 성공
+- [x] `grep -n "data-tour" src/components/Sidebar.tsx` — sidebar·nav-deck·nav-briefing 3개 유지
 
 ---
 

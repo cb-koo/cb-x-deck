@@ -33,7 +33,7 @@
 - `buildUserPrompt(i: PromptInput, overrides?: PromptOverrides): string`
 - `draftSystem(overrides?: PromptOverrides): string` / 기존 `DRAFT_SYSTEM` export는 유지(호환)
 
-- [ ] **Step 1: `src/lib/generatePrompt.ts` 전체 교체**
+- [x] **Step 1: `src/lib/generatePrompt.ts` 전체 교체**
 
 ```ts
 import { X_MAX_WEIGHTED } from './xLength.ts';
@@ -170,7 +170,7 @@ export function variantsOutputSchema(): object {
 }
 ```
 
-- [ ] **Step 2: `src/lib/generatePrompt.test.ts` 작성**
+- [x] **Step 2: `src/lib/generatePrompt.test.ts` 작성**
 
 ```ts
 import { test } from 'node:test';
@@ -216,7 +216,7 @@ test('모드별 오버라이드는 그 모드가 선택됐을 때만 적용', ()
 });
 ```
 
-- [ ] **Step 3: 이 파일 2개만으로 테스트 실행** — `node --import tsx --test src/lib/generatePrompt.test.ts`
+- [x] **Step 3: 이 파일 2개만으로 테스트 실행** — `node --import tsx --test src/lib/generatePrompt.test.ts`
 Expected: PASS (tests 4). 추가로 `node --import tsx --env-file-if-exists=.env --test src/lib/generate.test.ts` 실행해 기존 생성 테스트가 여전히 통과하는지 확인(기본 동작 불변 계약).
 
 ---
@@ -236,7 +236,7 @@ Expected: PASS (tests 4). 추가로 `node --import tsx --env-file-if-exists=.env
 
 ⚠️ **테스트는 작성만** — T1이 같은 시각에 generatePrompt를 고치는 중이라 import가 아직 없을 수 있다. 실행은 통합 게이트(오케스트레이터).
 
-- [ ] **Step 1: `migrations/021_prompt_template.sql`**
+- [x] **Step 1: `migrations/021_prompt_template.sql`**
 
 ```sql
 -- AI 지시문(프롬프트 고정 문장) 오버라이드 — append-only, 최신 행 = 현재값. 행 없음 = 전부 기본값.
@@ -251,7 +251,7 @@ create table if not exists prompt_template_version (
 alter table prompt_template_version enable row level security;
 ```
 
-- [ ] **Step 2: `src/lib/promptSettings.ts`**
+- [x] **Step 2: `src/lib/promptSettings.ts`**
 
 ```ts
 import type postgres from 'postgres';
@@ -315,7 +315,7 @@ export async function listPromptVersions(sql: postgres.Sql, limit = 20): Promise
 }
 ```
 
-- [ ] **Step 3: `src/lib/promptSettings.test.ts`** (작성만 — 실행은 통합 게이트)
+- [x] **Step 3: `src/lib/promptSettings.test.ts`** (작성만 — 실행은 통합 게이트)
 
 ```ts
 import { test, after } from 'node:test';
@@ -360,12 +360,12 @@ test('저장 → 최신 반영, 이력은 최신순 + 멤버 없으면 null', as
 
 ### 통합 게이트 (오케스트레이터 — T1·T2 완료 후)
 
-- [ ] 마이그레이션 적용: `set -a; source .env; set +a; psql -v ON_ERROR_STOP=1 -f migrations/021_prompt_template.sql`
-- [ ] `node --import tsx --test src/lib/generatePrompt.test.ts` → PASS 4
-- [ ] `node --import tsx --env-file-if-exists=.env --test src/lib/promptSettings.test.ts` → PASS 2
-- [ ] `node --import tsx --env-file-if-exists=.env --test src/lib/generate.test.ts` → 기존 통과 유지
-- [ ] `npx tsc --noEmit` → 0
-- [ ] 커밋 2개 (T1, T2 순)
+- [x] 마이그레이션 적용: `set -a; source .env; set +a; psql -v ON_ERROR_STOP=1 -f migrations/021_prompt_template.sql`
+- [x] `node --import tsx --test src/lib/generatePrompt.test.ts` → PASS 4
+- [x] `node --import tsx --env-file-if-exists=.env --test src/lib/promptSettings.test.ts` → PASS 2
+- [x] `node --import tsx --env-file-if-exists=.env --test src/lib/generate.test.ts` → 기존 통과 유지
+- [x] `npx tsc --noEmit` → 0
+- [x] 커밋 2개 (T1, T2 순)
 
 ---
 
@@ -379,7 +379,7 @@ test('저장 → 최신 반영, 이력은 최신순 + 멤버 없으면 null', as
 - Consumes: T1 `draftSystem`·`buildUserPrompt(input, overrides)`·`PROMPT_DEFAULTS`, T2 스토어 4함수
 - Produces: `GET /api/prompt-settings` → `{ overrides, defaults, versions }` / `PUT` body `{ overrides }` → `{ overrides }` | 400 `{ error }`
 
-- [ ] **Step 1: `src/lib/generate.ts` 수정** — 정확히 아래 4곳:
+- [x] **Step 1: `src/lib/generate.ts` 수정** — 정확히 아래 4곳:
 
 (a) import 교체:
 ```ts
@@ -401,7 +401,7 @@ import { getPromptOverrides } from './promptSettings.ts';
 (d) `regeneratePost`: `callLLM` 직전에 같은 로드 추가, `system: draftSystem(promptOverrides)`
 (인라인 프롬프트라 system만 적용 — 스펙)
 
-- [ ] **Step 2: `src/app/api/prompt-settings/route.ts`**
+- [x] **Step 2: `src/app/api/prompt-settings/route.ts`**
 
 ```ts
 import { NextResponse } from 'next/server';
@@ -430,7 +430,7 @@ export async function PUT(req: Request) {
 }
 ```
 
-- [ ] **Step 3: 자체 점검** — generate.ts에서 `DRAFT_SYSTEM` 잔존 참조 0건(`grep -n DRAFT_SYSTEM src/lib/generate.ts`), 로드가 각 함수당 1회.
+- [x] **Step 3: 자체 점검** — generate.ts에서 `DRAFT_SYSTEM` 잔존 참조 0건(`grep -n DRAFT_SYSTEM src/lib/generate.ts`), 로드가 각 함수당 1회.
 
 ---
 
@@ -444,7 +444,7 @@ export async function PUT(req: Request) {
 **Interfaces:**
 - Consumes: T1 `buildUserPrompt`·`PROMPT_DEFAULTS`·타입 (클라이언트에서 직접 import — 순수 함수), T3 API
 
-- [ ] **Step 1: `src/app/prompt/layout.tsx`**
+- [x] **Step 1: `src/app/prompt/layout.tsx`**
 
 ```tsx
 import { GlobalShell } from '@/components/GlobalShell';
@@ -454,7 +454,7 @@ export default function PromptLayout({ children }: { children: React.ReactNode }
 }
 ```
 
-- [ ] **Step 2: `src/app/prompt/page.tsx`**
+- [x] **Step 2: `src/app/prompt/page.tsx`**
 
 ```tsx
 'use client';
@@ -631,7 +631,7 @@ export default function PromptPage() {
 }
 ```
 
-- [ ] **Step 3: `src/app/generate/page.tsx` 진입 링크** — `<h1 className="text-[20px] font-bold">콘텐츠 생성</h1>` 줄을 아래로 교체 (이 파일의 다른 부분은 만지지 말 것):
+- [x] **Step 3: `src/app/generate/page.tsx` 진입 링크** — `<h1 className="text-[20px] font-bold">콘텐츠 생성</h1>` 줄을 아래로 교체 (이 파일의 다른 부분은 만지지 말 것):
 
 ```tsx
         <div className="flex items-baseline justify-between">
@@ -644,7 +644,7 @@ export default function PromptPage() {
 
 ### 최종 검증 (오케스트레이터 — T3·T4 완료 후)
 
-- [ ] `npx tsc --noEmit` 0 / `npm run lint` 24 유지 / `npm run build` 성공
-- [ ] 태스크 리뷰(sonnet, 통합 diff) → 수정 → 최종 브랜치 리뷰(opus)
-- [ ] 사용자 화면 확인: 필드 편집→미리보기 즉시 반영 / 저장→"저장됨 ✓" / 기본값 복원 버튼 표시 조건 /
+- [x] `npx tsc --noEmit` 0 / `npm run lint` 24 유지 / `npm run build` 성공
+- [x] 태스크 리뷰(sonnet, 통합 diff) → 수정 → 최종 브랜치 리뷰(opus)
+- [x] 사용자 화면 확인: 필드 편집→미리보기 즉시 반영 / 저장→"저장됨 ✓" / 기본값 복원 버튼 표시 조건 /
       이력 불러오기→저장 / 저장 후 실제 생성에서 바뀐 문장 반영(생성 1회) / generate 링크 진입

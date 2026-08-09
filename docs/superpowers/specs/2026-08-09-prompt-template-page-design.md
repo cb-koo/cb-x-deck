@@ -45,7 +45,7 @@
 
 ## API
 
-- `GET /api/prompt-settings` → `{ overrides, defaults, versions }` (versions = 최근 20개:
+- `GET /api/prompt-settings` → `{ overrides, versions }` (기본값은 클라이언트 번들의 PROMPT_DEFAULTS 사용 — 리뷰 M2로 defaults payload 제거. versions = 최근 20개:
   id·overrides·createdAt·memberName). `requireAllowedUser`.
 - `PUT /api/prompt-settings` body `{ overrides }` → 검증(알려진 키만, 문자열, 각 2000자 이내) 후
   insert. `requireMember`로 저장자 귀속(초안 관례 — 클라이언트 body의 member 무시).

@@ -186,7 +186,8 @@ function BasicInfoEditor({ client, register, onSaved }: {
   const [err, setErr] = useState('');
   const baseline = useRef({ info: client.info, banned: toLines(client.bannedPhrases) });
   const cur = useRef({ info, banned });
-  cur.current = { info, banned };
+  // 렌더 중 ref 쓰기는 금지(react-hooks/refs) — isDirty/save는 이벤트 핸들러에서만 읽으므로 커밋 후 갱신이면 충분
+  useEffect(() => { cur.current = { info, banned }; }, [info, banned]);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current); }, []);
 
@@ -284,7 +285,8 @@ function ProcedureEditor({ proc, register, onSaved, onClose }: {
   const [err, setErr] = useState('');
   const baseline = useRef({ description: proc.description, effect: proc.effectPhrases, banned: toLines(proc.bannedPhrases) });
   const cur = useRef({ description, effect, banned });
-  cur.current = { description, effect, banned };
+  // 렌더 중 ref 쓰기는 금지(react-hooks/refs) — isDirty/save는 이벤트 핸들러에서만 읽으므로 커밋 후 갱신이면 충분
+  useEffect(() => { cur.current = { description, effect, banned }; }, [description, effect, banned]);
 
   const save = useCallback(async (): Promise<boolean> => {
     const r = await apiFetch(`/api/procedures/${proc.id}`, {

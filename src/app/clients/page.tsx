@@ -1,210 +1,202 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
+import { clientSummary } from '@/lib/clientSummary';
+import { ClientDetail, type DetailHandle } from './ClientDetail';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 
 type ClientWithProcs = { client: ClientRow; procedures: ProcedureRow[] };
 
-// 줄바꿈 textarea ↔ string[] (금지 표현 입력)
-const toLines = (arr: string[]) => arr.join('\n');
-const fromLines = (s: string) => s.split('\n').map((x) => x.trim()).filter(Boolean);
-
 export default function ClientsPage() {
+  // useSearchParams는 Suspense 경계 필수 (generate/page.tsx 선례)
+  return <Suspense><ClientsSplit /></Suspense>;
+}
+
+function ClientsSplit() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const urlId = searchParams.get('client');
+
   const [rows, setRows] = useState<ClientWithProcs[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [loadErr, setLoadErr] = useState(false);
+  const [notice, setNotice] = useState(''); // 무효 딥링크 폴백 안내
+  const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
+  const creating = useRef(false); // IME Enter 이중 발화·더블클릭 중복 생성 방지
   const [err, setErr] = useState('');
+  const [pendingId, setPendingId] = useState<string | null>(null); // 미저장 확인 모달의 이동 대상
+  const [guardErr, setGuardErr] = useState('');
+  const guardBusy = useRef(false);
+  const detailRef = useRef<DetailHandle | null>(null);
 
   const load = useCallback(async () => {
-    const r = await apiFetch('/api/clients');
-    if (r.ok) setRows(await r.json());
-    setLoaded(true);
+    setLoadErr(false);
+    try {
+      const r = await apiFetch('/api/clients');
+      if (!r.ok) throw new Error(String(r.status));
+      setRows(await r.json());
+    } catch {
+      setLoadErr(true); // 실패를 빈 상태로 위장하지 않는다
+    } finally {
+      setLoaded(true);
+    }
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const selected = rows.find((x) => x.client.id === selectedId) ?? null;
+  const selected = rows.find((x) => x.client.id === urlId) ?? null;
+
+  // 쿼리 없음/무효 → 첫 번째로 폴백. 무효 딥링크(삭제된 클라이언트 등)면 정직하게 알린다 (87f8353 원칙).
+  useEffect(() => {
+    if (!loaded || loadErr || rows.length === 0 || selected) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 폴백 안내는 URL 교체와 함께 1회 설정 (기존 코드베이스 관례)
+    if (urlId) setNotice('링크가 가리키는 클라이언트를 찾을 수 없어 첫 번째 클라이언트를 표시했어요.');
+    router.replace(`${pathname}?client=${rows[0].client.id}`);
+  }, [loaded, loadErr, rows, selected, urlId, pathname, router]);
+
+  // 탭 닫기·새로고침 유실 방지 (페이지 내 전환은 selectClient 모달이 담당)
+  useEffect(() => {
+    const h = (e: BeforeUnloadEvent) => { if (detailRef.current?.isDirty()) e.preventDefault(); };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, []);
+
+  function applySelect(id: string) {
+    setNotice('');
+    router.replace(`${pathname}?client=${id}`);
+  }
+  function selectClient(id: string) {
+    if (id === urlId) return;
+    if (detailRef.current?.isDirty()) { setPendingId(id); setGuardErr(''); return; }
+    applySelect(id);
+  }
+
+  async function guardSaveAndMove() {
+    if (!pendingId || guardBusy.current) return;
+    guardBusy.current = true;
+    try {
+      const ok = (await detailRef.current?.saveAll()) ?? true;
+      if (!ok) { setGuardErr('저장하지 못했어요 — 네트워크를 확인하고 다시 시도해주세요.'); return; }
+      applySelect(pendingId); setPendingId(null);
+    } finally { guardBusy.current = false; }
+  }
 
   async function createClient() {
     const name = newName.trim();
-    if (!name) return;
-    const r = await apiFetch('/api/clients', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
-    });
-    if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
-    const c = (await r.json()) as ClientRow;
-    setNewName(''); await load(); setSelectedId(c.id);
+    if (!name || creating.current) return;
+    creating.current = true;
+    try {
+      // 편집 중이던 내용은 자동 저장 후 진행 — 생성 의사가 명확하므로 모달을 띄우지 않는다
+      if (detailRef.current?.isDirty() && !(await detailRef.current.saveAll())) {
+        setErr('편집 중인 내용을 저장하지 못해 생성을 멈췄어요 — 네트워크를 확인해주세요.');
+        return;
+      }
+      const r = await apiFetch('/api/clients', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+      });
+      if (!r.ok) { setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`); return; }
+      const c = (await r.json()) as ClientRow;
+      setNewName(''); setAdding(false); setErr('');
+      await load();
+      applySelect(c.id);
+    } finally { creating.current = false; }
+  }
+
+  // 삭제 후: 쿼리를 비우면 폴백 effect가 첫 번째(남은 것)를 안내 없이 선택한다
+  function handleDeleted() {
+    router.replace(pathname);
+    load();
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      <h1 className="text-[20px] font-bold">클라이언트</h1>
-      <p className="mt-1 text-ui text-x-secondary">
-        클리닉 정보와 금지 표현을 한 번 등록해두면, 원고를 만들 때마다 자동으로 반영돼요.
-      </p>
-      {err && <p className="mt-2 text-ui text-red-500">{err}</p>}
-
-      <div className="mt-4 flex gap-2">
-        <input value={newName} onChange={(e) => setNewName(e.target.value)}
-               onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) createClient(); }}
-               placeholder="새 클라이언트 이름 (예: A클리닉)"
-               className="w-64 rounded-md border border-x-border-strong bg-white px-3 py-1.5 text-ui outline-none focus:border-x-blue" />
-        <Button variant="primary" onClick={createClient}>추가</Button>
-      </div>
-
-      {loaded && rows.length === 0 && (
-        <p className="mt-6 rounded-lg bg-x-surface p-4 text-ui text-x-secondary">
-          아직 클라이언트가 없어요. 위에서 이름을 추가하면 상세 정보를 채울 수 있어요.
+    <div className="flex">
+      <aside className="sticky top-0 max-h-screen w-[236px] shrink-0 self-start overflow-y-auto border-r border-x-border px-3 py-5">
+        <div className="mb-3 flex items-center justify-between px-2">
+          <h2 className="text-content font-bold">클라이언트</h2>
+          <button onClick={() => setAdding(true)} className="text-ui font-medium text-x-blue-text hover:underline">+ 추가</button>
+        </div>
+        <p className="mb-3 px-2 text-caption text-x-muted">
+          클리닉 정보와 금지 표현을 등록해두면 원고를 만들 때마다 자동으로 반영돼요.
         </p>
-      )}
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        {rows.map(({ client }) => (
-          <button key={client.id} onClick={() => setSelectedId(client.id)}
-                  className={`rounded-full border px-3 py-1 text-ui ${selectedId === client.id ? 'border-x-blue text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
-            {client.name}
-          </button>
-        ))}
-      </div>
-
-      {selected && <ClientEditor key={selected.client.id} data={selected} onChanged={load} onDeleted={() => { setSelectedId(null); load(); }} />}
-    </div>
-  );
-}
-
-function ClientEditor({ data, onChanged, onDeleted }: {
-  data: ClientWithProcs; onChanged: () => Promise<void>; onDeleted: () => void;
-}) {
-  const { client, procedures } = data;
-  const [info, setInfo] = useState(client.info);
-  const [banned, setBanned] = useState(toLines(client.bannedPhrases));
-  const [saving, setSaving] = useState(false);
-  const [confirmDel, setConfirmDel] = useState(false);
-  const [newProc, setNewProc] = useState('');
-  const [err, setErr] = useState('');
-
-  async function save() {
-    setSaving(true);
-    const r = await apiFetch(`/api/clients/${client.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ info, bannedPhrases: fromLines(banned) }),
-    });
-    setSaving(false);
-    if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
-    setErr(''); await onChanged();
-  }
-  async function removeClient() {
-    const r = await apiFetch(`/api/clients/${client.id}`, { method: 'DELETE' });
-    if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
-    setErr(''); onDeleted();
-  }
-  async function addProc() {
-    const name = newProc.trim();
-    if (!name) return;
-    const r = await apiFetch(`/api/clients/${client.id}/procedures`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
-    });
-    if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
-    setErr(''); setNewProc(''); await onChanged();
-  }
-
-  return (
-    <div className="mt-6 rounded-2xl border border-x-border-strong">
-      <div className="flex items-baseline justify-between px-4 py-3">
-        <h2 className="text-[15px] font-bold">{client.name}</h2>
-        {confirmDel ? (
-          <span className="flex items-center gap-2 text-caption">
-            <span className="text-red-600">시술·초안 연결이 함께 정리돼요. 초안은 스냅샷으로 남아요.</span>
-            <button onClick={removeClient} className="rounded bg-red-600 px-2 py-0.5 text-white">삭제 확정</button>
-            <button onClick={() => setConfirmDel(false)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
-          </span>
-        ) : (
-          <button onClick={() => setConfirmDel(true)} className="text-caption text-x-muted hover:text-red-500">클라이언트 삭제</button>
+        {adding && (
+          <div className="mb-2 px-1">
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus
+                   onKeyDown={(e) => {
+                     if (e.key === 'Enter' && !e.nativeEvent.isComposing) createClient();
+                     if (e.key === 'Escape') { setAdding(false); setNewName(''); }
+                   }}
+                   placeholder="새 클라이언트 이름"
+                   className="w-full rounded-lg border border-x-border-strong px-2.5 py-1.5 text-ui outline-none focus:border-x-blue" />
+            <div className="mt-1.5 flex gap-1.5">
+              <Button variant="primary" onClick={createClient}>만들기</Button>
+              <Button variant="ghost" onClick={() => { setAdding(false); setNewName(''); }}>취소</Button>
+            </div>
+          </div>
         )}
-      </div>
+        {err && <p className="mb-2 px-2 text-caption text-red-500">{err}</p>}
 
-      <div className="space-y-4 border-t border-x-border px-4 py-4">
-        {err && <p className="text-ui text-red-500">{err}</p>}
-        <label className="block">
-          <span className="text-caption text-x-muted">클리닉·의사 정보 — 원고를 만드는 재료예요. 기존 소개 문서를 붙여넣어도 좋아요</span>
-          <textarea value={info} onChange={(e) => setInfo(e.target.value)} rows={6}
-                    className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
-        </label>
-        <label className="block">
-          <span className="text-caption text-x-muted">금지 표현 (한 줄에 하나) — 원고 검수 기준으로도 쓰여요 (예: 경쟁사명, 계약상 못 쓰는 표현)</span>
-          <textarea value={banned} onChange={(e) => setBanned(e.target.value)} rows={3}
-                    className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
-        </label>
-        <Button variant="primary" onClick={save} disabled={saving}>{saving ? '저장 중…' : '저장'}</Button>
-      </div>
+        {!loaded && <p className="px-2 py-4 text-ui text-x-muted">불러오는 중…</p>}
+        {loaded && loadErr && (
+          <div className="px-2 py-4">
+            <p className="mb-2 text-ui text-x-secondary">목록을 불러오지 못했습니다</p>
+            <Button onClick={load}>다시 시도</Button>
+          </div>
+        )}
+        {loaded && !loadErr && rows.map(({ client, procedures }) => {
+          const s = clientSummary(client, procedures);
+          const on = client.id === urlId;
+          return (
+            <button key={client.id} onClick={() => selectClient(client.id)}
+                    className={`mb-0.5 block w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
+                      on ? 'bg-[#e3f1fb]' : 'hover:bg-x-hover'
+                    }`}>
+              <p className={`flex items-center gap-1.5 text-ui font-semibold ${on ? 'text-x-blue-text' : ''}`}>
+                <span className="min-w-0 truncate">{client.name}</span>
+                {s.infoMissing && <span title="클리닉 정보 미입력" className="shrink-0 text-caption text-[#b45309]">⚠️</span>}
+              </p>
+              <p className="text-caption text-x-muted">
+                시술 {s.procedureCount} · {s.infoMissing ? '정보 미입력' : `금지 ${s.bannedTotal}`}
+              </p>
+            </button>
+          );
+        })}
+      </aside>
 
-      <div className="border-t border-x-border px-4 py-4">
-        <h3 className="text-ui font-medium">시술 ({procedures.length})</h3>
-        <p className="text-caption text-x-muted">원고를 만들 때 이번 건에 해당하는 시술만 골라 반영해요</p>
-        <div className="mt-2 space-y-3">
-          {procedures.map((p) => <ProcedureEditor key={p.id} proc={p} onChanged={onChanged} />)}
-        </div>
-        <div className="mt-3 flex gap-2">
-          <input value={newProc} onChange={(e) => setNewProc(e.target.value)}
-                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addProc(); }}
-                 placeholder="새 시술 이름 (예: 보톡스)"
-                 className="w-56 rounded-md border border-x-border-strong px-2 py-1 text-ui outline-none focus:border-x-blue" />
-          <Button onClick={addProc}>시술 추가</Button>
-        </div>
-      </div>
-    </div>
-  );
-}
+      <main className="min-w-0 flex-1">
+        {notice && (
+          <p className="mx-6 mt-4 rounded-lg bg-x-surface px-3 py-2 text-ui text-x-secondary">{notice}</p>
+        )}
+        {loaded && !loadErr && rows.length === 0 && !adding && (
+          <div className="px-6 py-16 text-center">
+            <p className="mb-1 text-content font-bold">아직 클라이언트가 없어요</p>
+            <p className="mb-4 text-ui text-x-secondary">
+              클리닉 정보와 금지 표현을 등록해두면, 원고를 만들 때마다 자동으로 반영돼요.
+            </p>
+            <Button variant="primary" onClick={() => setAdding(true)}>+ 새 클라이언트</Button>
+          </div>
+        )}
+        {selected && (
+          <ClientDetail key={selected.client.id} data={selected}
+                        handleRef={detailRef} onChanged={load} onDeleted={handleDeleted} />
+        )}
+      </main>
 
-function ProcedureEditor({ proc, onChanged }: { proc: ProcedureRow; onChanged: () => Promise<void> }) {
-  const [open, setOpen] = useState(false);
-  const [description, setDescription] = useState(proc.description);
-  const [effect, setEffect] = useState(proc.effectPhrases);
-  const [banned, setBanned] = useState(toLines(proc.bannedPhrases));
-  const [err, setErr] = useState('');
-
-  async function save() {
-    const r = await apiFetch(`/api/procedures/${proc.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description, effectPhrases: effect, bannedPhrases: fromLines(banned) }),
-    });
-    if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
-    setErr(''); setOpen(false); await onChanged();
-  }
-  async function remove() {
-    const r = await apiFetch(`/api/procedures/${proc.id}`, { method: 'DELETE' });
-    if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
-    setErr(''); await onChanged();
-  }
-
-  return (
-    <div className="rounded-lg border border-x-border bg-x-surface px-3 py-2">
-      <div className="flex items-baseline justify-between">
-        <button onClick={() => setOpen(!open)} className="text-ui font-medium hover:text-x-blue-text">
-          {proc.name} {open ? '⌃' : '⌄'}
-        </button>
-        <button onClick={remove} className="text-caption text-x-muted hover:text-red-500">삭제</button>
-      </div>
-      {err && <p className="mt-1 text-ui text-red-500">{err}</p>}
-      {open && (
-        <div className="mt-2 space-y-2">
-          <label className="block">
-            <span className="text-caption text-x-muted">시술 설명</span>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
-                      className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white p-2 text-ui outline-none focus:border-x-blue" />
-          </label>
-          <label className="block">
-            <span className="text-caption text-x-muted">효과·결과로 쓸 수 있는 표현 — 여기 적힌 범위까지만 원고에 사용돼요</span>
-            <textarea value={effect} onChange={(e) => setEffect(e.target.value)} rows={2}
-                      className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white p-2 text-ui outline-none focus:border-x-blue" />
-          </label>
-          <label className="block">
-            <span className="text-caption text-x-muted">이 시술만의 금지 표현 (한 줄에 하나)</span>
-            <textarea value={banned} onChange={(e) => setBanned(e.target.value)} rows={2}
-                      className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white p-2 text-ui outline-none focus:border-x-blue" />
-          </label>
-          <Button variant="primary" onClick={save}>시술 저장</Button>
+      {pendingId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setPendingId(null)}>
+          <div className="w-full max-w-[360px] rounded-xl bg-white p-5 shadow-[0_4px_24px_rgba(0,0,0,0.12)]"
+               role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <h2 className="mb-2 text-[20px] font-bold">저장 안 한 변경이 있어요</h2>
+            <p className="mb-4 text-content">지금 이동하면 편집 중인 내용이 사라져요. 어떻게 할까요?</p>
+            {guardErr && <p className="mb-2 text-caption text-red-500">{guardErr}</p>}
+            <div className="flex flex-col gap-2">
+              <Button variant="primary" onClick={guardSaveAndMove}>저장하고 이동</Button>
+              <Button onClick={() => { const id = pendingId; setPendingId(null); applySelect(id); }}>저장 안 하고 이동</Button>
+              <Button variant="ghost" onClick={() => setPendingId(null)}>취소</Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

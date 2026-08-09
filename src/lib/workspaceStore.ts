@@ -25,6 +25,32 @@ export async function renameWorkspace(sql: postgres.Sql, id: string, name: strin
   return row ?? null;
 }
 
+export class WorkspaceSetMismatch extends Error {
+  constructor() {
+    super('워크스페이스 목록이 변경되었습니다');
+    this.name = 'WorkspaceSetMismatch';
+  }
+}
+
+// 전체 순서를 한 번에 재부여한다. 전달된 id 집합이 현재 집합과 다르면(그 사이 다른
+// 팀원이 추가/삭제) 엉뚱한 덮어쓰기가 되므로 throw — 클라이언트는 재조회한다.
+// columnStore.reorderColumns와 동일 패턴(전역이라 workspaceId 필터만 없음).
+export async function reorderWorkspaces(sql: postgres.Sql, ids: string[]): Promise<Workspace[]> {
+  return (await sql.begin(async (tx) => {
+    const rows = await tx<{ id: string }[]>`select id from workspace for update`;
+    const current = new Set(rows.map((r) => r.id));
+    const unique = new Set(ids);
+    if (unique.size !== ids.length || ids.length !== current.size || ids.some((id) => !current.has(id))) {
+      throw new WorkspaceSetMismatch();
+    }
+    for (const [i, id] of ids.entries()) {
+      await tx`update workspace set position = ${i} where id = ${id}`;
+    }
+    return await tx<Array<{ id: string; name: string; position: number }>>`
+      select id, name, position from workspace order by position, created_at`;
+  })) as Workspace[];
+}
+
 export async function listMembers(sql: postgres.Sql): Promise<Member[]> {
   const rows = await sql<Array<{ id: string; name: string; color: string }>>`
     select id, name, color from member order by created_at`;

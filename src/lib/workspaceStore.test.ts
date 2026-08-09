@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { listWorkspaces, createWorkspace, deleteWorkspace, renameWorkspace, listMembers, createMember, resolveMember } from './workspaceStore.ts';
+import { listWorkspaces, createWorkspace, deleteWorkspace, renameWorkspace, reorderWorkspaces, WorkspaceSetMismatch, listMembers, createMember, resolveMember } from './workspaceStore.ts';
 
 const sql = getSql();
 const T = 'test-ws-' + process.pid;
@@ -70,4 +70,20 @@ test('renameWorkspace: 이름 변경 + 미존재 null', async () => {
   const missing = await renameWorkspace(sql, '00000000-0000-0000-0000-000000000000', 'x');
   assert.equal(missing, null);
   await deleteWorkspace(sql, w.id);
+});
+
+test('reorderWorkspaces: 전체 순서 재부여 + 집합 불일치 throw', async () => {
+  const a = await createWorkspace(sql, T + '-ro-a');
+  const b = await createWorkspace(sql, T + '-ro-b');
+  const before = await listWorkspaces(sql);
+  // b를 a 앞으로: 전체 id 배열에서 둘의 위치를 맞바꾼다
+  const ids = before.map((w) => w.id);
+  const ia = ids.indexOf(a.id); const ib = ids.indexOf(b.id);
+  [ids[ia], ids[ib]] = [ids[ib], ids[ia]];
+  const after = await reorderWorkspaces(sql, ids);
+  assert.deepEqual(after.map((w) => w.id), ids);
+  // 집합 불일치: 하나 빠진 배열
+  await assert.rejects(() => reorderWorkspaces(sql, ids.slice(1)), WorkspaceSetMismatch);
+  await deleteWorkspace(sql, a.id);
+  await deleteWorkspace(sql, b.id);
 });

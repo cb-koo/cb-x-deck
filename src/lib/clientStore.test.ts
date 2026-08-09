@@ -49,3 +49,33 @@ test('procedure CRUD + client 삭제 시 cascade', async () => {
   const orphan = await sql`select id from client_procedure where id = ${p2.id}`;
   assert.equal(orphan.length, 0); // cascade
 });
+
+test('updated_at: 시술 추가·수정·삭제가 클라이언트 수정 시각을 끌어올린다', async () => {
+  const c = await createClient(sql, P + 'U클리닉');
+  assert.ok(c.updatedAt); // 생성 시 기본값
+
+  // 벽시계 경합(같은 ms) 회피 — 1시간 전으로 되돌린 뒤 "방금으로 갱신됐는가"를 본다
+  const backdate = () => sql`update client set updated_at = now() - interval '1 hour' where id = ${c.id}`;
+  const freshness = async () => {
+    const got = await getClientWithProcedures(sql, c.id);
+    return Date.now() - new Date(got!.client.updatedAt).getTime();
+  };
+
+  await backdate();
+  await updateClient(sql, c.id, { info: '수정' });
+  assert.ok((await freshness()) < 60_000, 'updateClient가 갱신');
+
+  await backdate();
+  const p = await createProcedure(sql, c.id, { name: '필러' });
+  assert.ok((await freshness()) < 60_000, 'createProcedure가 부모 갱신');
+
+  await backdate();
+  await updateProcedure(sql, p.id, { description: '볼륨' });
+  assert.ok((await freshness()) < 60_000, 'updateProcedure가 부모 갱신');
+
+  await backdate();
+  await deleteProcedure(sql, p.id);
+  assert.ok((await freshness()) < 60_000, 'deleteProcedure가 부모 갱신');
+
+  await deleteClient(sql, c.id);
+});

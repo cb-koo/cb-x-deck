@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { clientSummary } from '@/lib/clientSummary';
+import { relTime } from '@/lib/relTime';
 import { ClientDetail, type DetailHandle } from './ClientDetail';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 
@@ -158,7 +159,7 @@ function ClientsSplit() {
                 {s.infoMissing && <span title="클리닉 정보 미입력" className="shrink-0 text-caption text-[#b45309]">⚠️</span>}
               </p>
               <p className="text-caption text-x-muted">
-                시술 {s.procedureCount} · {s.infoMissing ? '정보 미입력' : `금지 ${s.bannedTotal}`}
+                시술 {s.procedureCount} · {s.infoMissing ? '정보 미입력' : `금지 ${s.bannedTotal}`} · {relTime(client.updatedAt, '수정')}
               </p>
             </button>
           );

@@ -5,17 +5,8 @@ import { apiFetch } from '@/lib/apiFetch';
 import { arrayMove } from '@/lib/deckReorder';
 import { Button } from '@/components/ui';
 import { LAST_WS_KEY } from '@/components/GlobalShell';
+import { relTime } from '@/lib/relTime';
 import type { WorkspaceMeta } from '@/lib/types';
-
-// 상대 시각 — 카드 메타의 "최근 활동" 표기
-function relTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const d = Math.floor(diff / 86400000);
-  if (d === 0) return '오늘 활동';
-  if (d < 7) return `${d}일 전 활동`;
-  if (d < 30) return `${Math.floor(d / 7)}주 전 활동`;
-  return `${Math.floor(d / 30)}달 전 활동`;
-}
 
 export default function WorkspacesPage() {
   const router = useRouter();
@@ -244,7 +235,7 @@ export default function WorkspacesPage() {
                     )}
                   </p>
                   <p className="text-ui text-x-secondary">
-                    컬럼 {w.columnCount}개 · 저장 후보 {w.candidateCount}건 · {relTime(w.lastActivityAt)}
+                    컬럼 {w.columnCount}개 · 저장 후보 {w.candidateCount}건 · {relTime(w.lastActivityAt, '활동')}
                     {w.lastActivityMemberName && `(${w.lastActivityMemberName})`}
                     {w.createdByName && ` · ${w.createdByName} 님이 만듦`}
                   </p>

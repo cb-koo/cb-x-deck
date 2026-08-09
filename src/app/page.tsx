@@ -12,7 +12,6 @@ export default function RootRedirect() {
   const [failed, setFailed] = useState(false);
 
   const go = useCallback(async () => {
-    setFailed(false);
     try {
       const r = await apiFetch('/api/workspaces');
       if (!r.ok) throw new Error(String(r.status));
@@ -25,13 +24,15 @@ export default function RootRedirect() {
       setFailed(true); // 무한 스피너 금지 — 실패는 실패로 보여준다
     }
   }, [router]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 조회 실패를 보여주기 위한 setState(fetch 실패 처리, RefPickerSheet 선례)
   useEffect(() => { go(); }, [go]);
 
   if (failed) {
     return (
       <div className="p-8 text-sm">
         <p className="mb-2 text-x-secondary">워크스페이스 목록을 불러오지 못했습니다.</p>
-        <button onClick={go} className="rounded-full border border-x-border-strong px-3 py-1 hover:bg-x-hover">다시 시도</button>
+        {/* 재시도 시 에러 해제는 여기서 — go() 안에서 하면 이펙트 동기 setState(lint 에러) */}
+        <button onClick={() => { setFailed(false); go(); }} className="rounded-full border border-x-border-strong px-3 py-1 hover:bg-x-hover">다시 시도</button>
       </div>
     );
   }

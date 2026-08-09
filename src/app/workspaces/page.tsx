@@ -31,6 +31,9 @@ export default function WorkspacesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const renaming = useRef(false); // IME Enter 이중 발화 방지
+  // 삭제 모달: 대상 워크스페이스 + 확인 입력값
+  const [deleting, setDeleting] = useState<WorkspaceMeta | null>(null);
+  const [confirmText, setConfirmText] = useState('');
 
   async function saveRename(id: string) {
     const name = editName.trim();
@@ -44,6 +47,23 @@ export default function WorkspacesPage() {
       setEditingId(null); setErr('');
       await load();
     } finally { renaming.current = false; }
+  }
+
+  async function confirmDelete() {
+    if (!deleting || confirmText !== deleting.name) return;
+    const r = await apiFetch(`/api/workspaces/${deleting.id}`, { method: 'DELETE' });
+    if (!r.ok) {
+      setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`);
+      setDeleting(null); setConfirmText('');
+      return;
+    }
+    // 현재 보던 워크스페이스를 지웠으면 복귀 지점도 정리 (/ 진입이 첫 번째로 폴백하도록)
+    if (localStorage.getItem(LAST_WS_KEY) === deleting.id) {
+      localStorage.removeItem(LAST_WS_KEY);
+      setCurrentId(null);
+    }
+    setDeleting(null); setConfirmText(''); setErr('');
+    await load();
   }
 
   const load = useCallback(async () => {
@@ -148,13 +168,41 @@ export default function WorkspacesPage() {
                 <div className="flex shrink-0 items-center gap-3" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => { setEditingId(w.id); setEditName(w.name); }}
                           className="text-ui text-x-secondary hover:text-x-text">이름 변경</button>
-                  <button className="text-ui text-x-secondary hover:text-red-500">삭제</button>
+                  <button onClick={() => { setDeleting(w); setConfirmText(''); }}
+                          disabled={rows.length <= 1}
+                          title={rows.length <= 1 ? '마지막 워크스페이스는 삭제할 수 없습니다' : undefined}
+                          className="text-ui text-x-secondary hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40">삭제</button>
                 </div>
               </>
             )}
           </div>
         ))}
       </div>
+      {deleting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setDeleting(null)}>
+          <div className="w-full max-w-[360px] rounded-xl bg-white p-5 shadow-[0_4px_24px_rgba(0,0,0,0.12)]"
+               role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <h2 className="mb-2 text-[20px] font-bold">워크스페이스 삭제</h2>
+            <p className="mb-1 text-content">
+              &lsquo;{deleting.name}&rsquo;과(와) 컬럼 {deleting.columnCount}개 · 저장 후보 {deleting.candidateCount}건이
+              함께 삭제됩니다. 되돌릴 수 없습니다.
+            </p>
+            <p className="mb-3 text-caption text-x-muted">브리핑·발굴 계정·숨김 처리 등 이 워크스페이스에 속한 데이터가 모두 삭제됩니다.</p>
+            <p className="mb-1 text-ui text-x-secondary">계속하려면 워크스페이스 이름을 입력하세요</p>
+            <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoFocus
+                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) confirmDelete(); }}
+                   placeholder={deleting.name}
+                   className="mb-3 w-full rounded-lg border border-x-border-strong px-3 py-1.5 text-content outline-none focus:border-x-blue" />
+            <div className="flex justify-end gap-2">
+              <Button onClick={() => setDeleting(null)}>취소</Button>
+              <button onClick={confirmDelete} disabled={confirmText !== deleting.name}
+                      className="rounded-full bg-x-pink px-3 py-1 text-ui font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50">
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

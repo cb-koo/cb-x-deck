@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
+import { arrayMove } from '@/lib/deckReorder';
 import { Button } from '@/components/ui';
 import { LAST_WS_KEY } from '@/components/GlobalShell';
 import type { WorkspaceMeta } from '@/lib/types';
@@ -34,6 +35,59 @@ export default function WorkspacesPage() {
   // 삭제 모달: 대상 워크스페이스 + 확인 입력값
   const [deleting, setDeleting] = useState<WorkspaceMeta | null>(null);
   const [confirmText, setConfirmText] = useState('');
+
+  // 드래그 순서 변경 — 핸들에서만 시작. 5px 임계값 전엔 클릭으로 취급.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const dragRef = useRef<{ id: string; startY: number; active: boolean; snapshot: WorkspaceMeta[] } | null>(null);
+  const rowsRef = useRef(rows);
+  useEffect(() => { rowsRef.current = rows; }, [rows]);
+
+  async function commitOrder(ids: string[]) {
+    const r = await apiFetch('/api/workspaces/reorder', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    });
+    if (!r.ok) { await load(); return; } // 409(다른 팀원이 추가/삭제) 포함 — 서버 기준으로 재동기화
+  }
+
+  function startDrag(id: string, e: React.PointerEvent) {
+    if (rowsRef.current.length < 2) return;
+    e.preventDefault();
+    dragRef.current = { id, startY: e.clientY, active: false, snapshot: rowsRef.current };
+    const move = (ev: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      if (!d.active && Math.abs(ev.clientY - d.startY) < 5) return;
+      if (!d.active) { d.active = true; setDragId(d.id); }
+      // 목표 인덱스 = 포인터보다 중심점이 위에 있는 "다른" 카드의 수.
+      // 자기 카드를 세면 자기 중심점을 스칠 때마다 인덱스가 흔들리고,
+      // 포인터가 맨 위 카드 중심보다 위일 때 0이 나오지 않는다.
+      const cur = rowsRef.current;
+      const from = cur.findIndex((w) => w.id === d.id);
+      let to = 0;
+      for (const el of document.querySelectorAll<HTMLElement>('[data-ws-card]')) {
+        if (el.dataset.wsCard === d.id) continue;
+        const r = el.getBoundingClientRect();
+        if (ev.clientY > r.top + r.height / 2) to++;
+      }
+      if (to !== from) setRows(arrayMove(cur, from, to));
+    };
+    const finish = (commit: boolean) => {
+      const d = dragRef.current;
+      dragRef.current = null;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('keydown', key);
+      setDragId(null);
+      if (!d) return;
+      if (commit && d.active) commitOrder(rowsRef.current.map((w) => w.id));
+      if (!commit && d.active) setRows(d.snapshot); // Escape → 원위치
+    };
+    const up = () => finish(true);
+    const key = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { ev.preventDefault(); finish(false); } };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('keydown', key);
+  }
 
   async function saveRename(id: string) {
     const name = editName.trim();
@@ -134,13 +188,15 @@ export default function WorkspacesPage() {
 
       <div className="flex flex-col gap-2.5">
         {rows.map((w) => (
-          <div key={w.id} role="link" tabIndex={0}
+          <div key={w.id} data-ws-card={w.id} role="link" tabIndex={0}
                onClick={() => router.push(`/w/${w.id}`)}
                onKeyDown={(e) => { if (e.key === 'Enter') router.push(`/w/${w.id}`); }}
                className={`group flex cursor-pointer items-center gap-3 rounded-xl border p-4 transition-colors hover:bg-x-hover ${
                  w.id === currentId ? 'border-[1.5px] border-x-blue' : 'border-x-border hover:border-x-border-strong'
-               }`}>
-            <span className="select-none text-ui text-x-muted" aria-hidden>⠿</span>
+               } ${dragId === w.id ? 'shadow-[0_4px_16px_rgba(0,0,0,0.12)]' : ''}`}>
+            <span onPointerDown={(e) => startDrag(w.id, e)} onClick={(e) => e.stopPropagation()}
+                  className="cursor-grab touch-none select-none text-ui text-x-muted active:cursor-grabbing"
+                  title="끌어서 순서 변경" aria-hidden>⠿</span>
             {editingId === w.id ? (
               <div className="flex min-w-0 flex-1 items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <input value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus

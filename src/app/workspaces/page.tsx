@@ -41,8 +41,11 @@ export default function WorkspacesPage() {
   // 드래그 순서 변경 — 핸들에서만 시작. 5px 임계값 전엔 클릭으로 취급.
   const [dragId, setDragId] = useState<string | null>(null);
   const dragRef = useRef<{ id: string; startY: number; active: boolean; snapshot: WorkspaceMeta[] } | null>(null);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
   const rowsRef = useRef(rows);
   useEffect(() => { rowsRef.current = rows; }, [rows]);
+  // 드래그 도중 언마운트되면 window 리스너가 남아 언마운트된 컴포넌트에 setState를 쏜다 — 취소만 하고 정리
+  useEffect(() => () => { dragCleanupRef.current?.(); }, []);
 
   async function commitOrder(ids: string[]) {
     const r = await apiFetch('/api/workspaces/reorder', {
@@ -76,6 +79,7 @@ export default function WorkspacesPage() {
     const finish = (commit: boolean) => {
       const d = dragRef.current;
       dragRef.current = null;
+      dragCleanupRef.current = null;
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('keydown', key);
@@ -89,6 +93,7 @@ export default function WorkspacesPage() {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('keydown', key);
+    dragCleanupRef.current = () => finish(false);
   }
 
   async function saveRename(id: string) {

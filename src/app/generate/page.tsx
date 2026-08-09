@@ -241,7 +241,10 @@ function Workbench() {
   return (
     <div className="flex flex-col items-center gap-4 p-6">
       <div className="w-full max-w-[600px]">
-        <h1 className="text-[20px] font-bold">콘텐츠 생성</h1>
+        <div className="flex items-baseline justify-between">
+          <h1 className="text-[20px] font-bold">콘텐츠 생성</h1>
+          <a href="/prompt" className="text-ui text-x-secondary hover:text-x-text">AI 지시문</a>
+        </div>
         <p className="mt-0.5 text-ui text-x-secondary">레퍼런스와 클라이언트 정보를 조합해 인플루언서에게 보낼 X 원고 초안을 만들어요.</p>
         {loaded && clients.length === 0 && (
           <p className="mt-2 rounded-lg bg-x-surface p-3 text-ui text-x-secondary">

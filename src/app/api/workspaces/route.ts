@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
-import { listWorkspaces, createWorkspace } from '@/lib/workspaceStore';
+import { listWorkspaces, createWorkspace, listWorkspacesWithMeta } from '@/lib/workspaceStore';
 
 import { requireAllowedUser } from '@/lib/authGuard';
-export async function GET() {
+export async function GET(req: Request) {
   const gate = await requireAllowedUser();
   if (gate.response) return gate.response;
-  return NextResponse.json(await listWorkspaces(getSql()));
+  const meta = new URL(req.url).searchParams.get('meta');
+  const sql = getSql();
+  return NextResponse.json(meta === '1' ? await listWorkspacesWithMeta(sql) : await listWorkspaces(sql));
 }
 
 export async function POST(req: Request) {

@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { listWorkspaces, createWorkspace, deleteWorkspace, renameWorkspace, reorderWorkspaces, WorkspaceSetMismatch, listMembers, createMember, resolveMember } from './workspaceStore.ts';
+import { listWorkspaces, createWorkspace, deleteWorkspace, renameWorkspace, reorderWorkspaces, WorkspaceSetMismatch, listMembers, createMember, resolveMember, listWorkspacesWithMeta } from './workspaceStore.ts';
 
 const sql = getSql();
 const T = 'test-ws-' + process.pid;
@@ -86,4 +86,19 @@ test('reorderWorkspaces: 전체 순서 재부여 + 집합 불일치 throw', asyn
   await assert.rejects(() => reorderWorkspaces(sql, ids.slice(1)), WorkspaceSetMismatch);
   await deleteWorkspace(sql, a.id);
   await deleteWorkspace(sql, b.id);
+});
+
+test('listWorkspacesWithMeta: 컬럼·후보 수와 최근 활동', async () => {
+  const w = await createWorkspace(sql, T + '-meta');
+  // 컬럼 1개 직접 삽입 (columnStore를 끌어오지 않고 최소 픽스처)
+  const [col] = await sql<{ id: string }[]>`
+    insert into deck_column (kind, title, workspace_id) values ('search', ${T + '-col'}, ${w.id}) returning id`;
+  const metas = await listWorkspacesWithMeta(sql);
+  const m = metas.find((x) => x.id === w.id);
+  assert.ok(m);
+  assert.equal(m.columnCount, 1);
+  assert.equal(m.candidateCount, 0);
+  assert.ok(m.lastActivityAt); // 컬럼 삽입 시각 이상
+  await sql`delete from deck_column where id = ${col.id}`;
+  await deleteWorkspace(sql, w.id);
 });

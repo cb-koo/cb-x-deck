@@ -4,6 +4,13 @@ export type SortDir = 'asc' | 'desc';
 export type ColumnKind = 'search' | 'watchlist';
 
 export interface Workspace { id: string; name: string; position: number }
+// /workspaces 관리 페이지 카드 메타. candidateCount의 UI 라벨은 "저장 후보"로 통일한다
+// (삭제 모달의 수치와 같은 값·같은 용어여야 한다 — AGENTS.md 원칙 4).
+export interface WorkspaceMeta extends Workspace {
+  columnCount: number;
+  candidateCount: number;
+  lastActivityAt: string; // ISO — max(컬럼 created_at, 후보 saved_at, 워크스페이스 created_at)
+}
 export interface Member { id: string; name: string; color: string }
 
 export interface SearchConfig {

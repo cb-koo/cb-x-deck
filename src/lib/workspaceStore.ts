@@ -1,10 +1,33 @@
 import type postgres from 'postgres';
-import type { Member, Workspace } from './types.ts';
+import type { Member, Workspace, WorkspaceMeta } from './types.ts';
 
 export async function listWorkspaces(sql: postgres.Sql): Promise<Workspace[]> {
   const rows = await sql<Array<{ id: string; name: string; position: number }>>`
     select id, name, position from workspace order by position, created_at`;
   return rows;
+}
+
+// 관리 페이지용: 워크스페이스별 컬럼 수·저장 후보 수·최근 활동을 한 번에 (N+1 금지).
+export async function listWorkspacesWithMeta(sql: postgres.Sql): Promise<WorkspaceMeta[]> {
+  const rows = await sql<Array<{
+    id: string; name: string; position: number;
+    column_count: number; candidate_count: number; last_activity_at: string;
+  }>>`
+    select w.id, w.name, w.position,
+      (select count(*)::int from deck_column c where c.workspace_id = w.id) as column_count,
+      (select count(*)::int from candidate ca where ca.workspace_id = w.id) as candidate_count,
+      greatest(
+        w.created_at,
+        coalesce((select max(c.created_at) from deck_column c where c.workspace_id = w.id), w.created_at),
+        coalesce((select max(ca.saved_at) from candidate ca where ca.workspace_id = w.id), w.created_at)
+      ) as last_activity_at
+    from workspace w
+    order by w.position, w.created_at`;
+  return rows.map((r) => ({
+    id: r.id, name: r.name, position: r.position,
+    columnCount: r.column_count, candidateCount: r.candidate_count,
+    lastActivityAt: new Date(r.last_activity_at).toISOString(),
+  }));
 }
 
 export async function createWorkspace(sql: postgres.Sql, name: string): Promise<Workspace> {

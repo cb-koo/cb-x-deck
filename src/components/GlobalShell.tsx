@@ -12,10 +12,21 @@ export const LAST_WS_KEY = 'cbx-last-ws';
 export function GlobalShell({ children }: { children: React.ReactNode }) {
   const [wsId, setWsId] = useState<string | null>(null);
   useEffect(() => {
-    const saved = localStorage.getItem(LAST_WS_KEY);
-    if (saved) { setWsId(saved); return; }
-    apiFetch('/api/workspaces').then((r) => r.json())
-      .then((ws: Workspace[]) => { if (ws[0]) { setWsId(ws[0].id); localStorage.setItem(LAST_WS_KEY, ws[0].id); } });
+    // 저장값을 무검증으로 쓰면 삭제된 워크스페이스의 죽은 사이드바가 그려진다 —
+    // 루트(/)와 동일하게 목록 대조 후 폴백 (표시 정확성 스펙 §B-2)
+    (async () => {
+      try {
+        const r = await apiFetch('/api/workspaces');
+        if (!r.ok) return; // 사이드바만 생략 — 페이지 콘텐츠는 그대로
+        const ws = (await r.json()) as Workspace[];
+        const saved = localStorage.getItem(LAST_WS_KEY);
+        const target = ws.find((w) => w.id === saved) ?? ws[0];
+        if (target) {
+          setWsId(target.id);
+          localStorage.setItem(LAST_WS_KEY, target.id);
+        }
+      } catch { /* 사이드바만 생략 */ }
+    })();
   }, []);
   return (
     <MemberProvider>

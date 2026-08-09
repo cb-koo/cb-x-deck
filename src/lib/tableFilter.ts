@@ -33,8 +33,11 @@ function getLabelFromTable(key: string): string {
 }
 
 // 라벨은 표 머리글과 같은 출처를 쓴다 — 두 화면의 축 이름이 갈라지면 안 된다.
-export const FIELD_SPECS: Record<FilterField, { label: string; kind: 'text' | 'number' | 'date'; ops: FilterOp[] }> = {
-  handle: { label: getLabelFromTable('handle'), kind: 'text', ops: ['is', 'contains'] },
+// foldCase: 'is'가 대소문자를 가리지 않아야 하는 축만 켠다. 연산자(is) 전체가 아니라
+// 축(field)에 다는 이유 — X 핸들은 대소문자 구분이 없지만, 나중에 'is'를 쓰는 다른 축이
+// 생기면(예: 완전히 일치해야 뜻이 서는 값) 그 축은 이 플래그 없이 정확 비교를 유지해야 한다.
+export const FIELD_SPECS: Record<FilterField, { label: string; kind: 'text' | 'number' | 'date'; ops: FilterOp[]; foldCase?: boolean }> = {
+  handle: { label: getLabelFromTable('handle'), kind: 'text', ops: ['is', 'contains'], foldCase: true },
   text: { label: getLabelFromTable('text'), kind: 'text', ops: ['contains', 'notContains'] },
   views: { label: SORT_LABEL.views, kind: 'number', ops: NUM_OPS },
   likes: { label: SORT_LABEL.likes, kind: 'number', ops: NUM_OPS },
@@ -66,10 +69,21 @@ function isValidCalendarDate(v: string): boolean {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
 
+// 계정 컬럼은 화면·CSV에 '@handle'로 보이지만 저장은 '@' 없이 되어 있다 — 화면에서 복사한
+// '@beautyfulence'를 그대로 넣으면 0건이 된다. 이 축만 앞의 '@'를 모두 벗겨서 맞춘다
+// ('@@x'처럼 여러 개가 붙어도 '@x'가 아니라 'x'를 찾아야 한다).
+// isComplete와 buildFilterSql이 반드시 이 함수 하나로 값을 얻어야 한다 — 각자 따로 벗기면
+// '@'만 입력했을 때 isComplete는 원문(벗기기 전)을 보고 완성으로 판정해 칩을 띄우지만
+// buildFilterSql은 벗긴 뒤 빈 문자열이라 조건을 만들지 않는 모순이 생긴다(칩은 있는데 필터는 없음).
+export function normalizeFilterValue(c: Pick<FilterCondition, 'field' | 'value'>): string {
+  const v = c.value.trim();
+  return c.field === 'handle' ? v.replace(/^@+/, '') : v;
+}
+
 // 미완성 조건은 쿼리에 보내지 않는다 — 축만 고르고 값을 아직 안 넣은 중간 상태에서
 // 결과가 0건으로 튀면 사용자는 자기가 뭘 잘못했다고 생각한다.
 export function isComplete(c: FilterCondition): boolean {
-  const v = c.value.trim();
+  const v = normalizeFilterValue(c);
   if (!v) return false;
   const spec = FIELD_SPECS[c.field];
   if (!spec) return false;
@@ -141,13 +155,13 @@ export function buildFilterSql(
     const spec = FIELD_SPECS[c.field];
     const expr = FIELD_EXPR[c.field];
     if (!spec || !expr || !spec.ops.includes(c.op)) continue;   // 허용 목록 밖이면 조각 없음
-    // 계정 컬럼은 화면·CSV에 '@handle'로 보이지만 저장은 '@' 없이 되어 있다 — 화면에서 복사한
-    // '@beautyfulence'를 그대로 넣으면 0건이 된다. 이 축만 앞의 '@'를 모두 벗겨서 맞춘다
-    // ('@@x'처럼 여러 개가 붙어도 '@x'가 아니라 'x'를 찾아야 한다).
-    const v = c.field === 'handle' ? c.value.trim().replace(/^@+/, '') : c.value.trim();
-    // '@'만 입력하면 벗겨낸 뒤 빈 문자열이 남는다 — isComplete는 벗기기 전 원문을 보므로 통과시키고,
-    // 그 빈 문자열로 조건을 만들면 ilike '%%'가 되어 전부와 일치하는 필터 행이 눈에 보이게 생긴다.
-    if (c.field === 'handle' && v === '') continue;
+    // '@' 벗기기 등 축별 정규화는 isComplete와 여기서 같은 함수를 쓴다(normalizeFilterValue) —
+    // 따로 벗기면 완성 판정과 실제 SQL이 어긋난다.
+    const v = normalizeFilterValue(c);
+    // '@'만 입력하면 벗겨낸 뒤 빈 문자열이 남는다 — 그 빈 문자열로 조건을 만들면 ilike '%%'가
+    // 되어 전부와 일치하는 필터 행이 눈에 보이게 생긴다. (isComplete도 이제 같은 정규화를 거쳐
+    // 이런 값을 미완성으로 보므로 정상 경로로는 여기 도달하지 않지만, 방어선은 유지한다.)
+    if (!v) continue;
     switch (c.op) {
       case 'gte':
       case 'lte':
@@ -155,7 +169,12 @@ export function buildFilterSql(
         if (!NUMBER_RE.test(v)) continue;
         clauses.push(`${expr} ${c.op === 'gte' ? '>=' : '<='} ${bind(Number(v))}`);
         break;
-      case 'is': clauses.push(`${expr} = ${bind(v)}`); break;
+      // X 핸들은 대소문자를 가리지 않는다('napapaparr'로 저장돼도 'NAPAPAPARR'로도 찾아야 한다) —
+      // ilike로 바꾸면 '_'·'%'가 이스케이프 없이 와일드카드가 되므로(escapeLike는 contains만 쓴다),
+      // 대신 양쪽을 lower()로 접어 =로 비교한다. foldCase가 없는 축은 그대로 정확 비교.
+      case 'is': clauses.push(spec.foldCase
+        ? `lower(${expr}) = lower(${bind(v)})`
+        : `${expr} = ${bind(v)}`); break;
       case 'contains': clauses.push(`${expr} ilike ${bind(`%${escapeLike(v)}%`)} escape '\\'`); break;
       case 'notContains': clauses.push(`${expr} not ilike ${bind(`%${escapeLike(v)}%`)} escape '\\'`); break;
       // 경계는 한국 시간 자정이다. Postgres 서버 시간대가 UTC라 $1::date를 그대로 쓰면

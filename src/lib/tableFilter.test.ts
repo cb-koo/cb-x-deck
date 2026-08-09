@@ -114,11 +114,25 @@ test('buildFilterSql: 팔로워는 실제 컬럼', () => {
 
 test('buildFilterSql: 계정 같음/포함', () => {
   const a = buildFilterSql([{ id: '1', field: 'handle', op: 'is', value: 'beautyfulence' }], 1);
-  assert.match(a.clauses[0], /t\.author_handle = \$1/);
+  // X 핸들은 대소문자를 가리지 않는다 — 양쪽을 lower()로 접어서 비교한다
+  assert.match(a.clauses[0], /lower\(t\.author_handle\) = lower\(\$1\)/);
   assert.deepEqual(a.params, ['beautyfulence']);
   const b = buildFilterSql([{ id: '1', field: 'handle', op: 'contains', value: 'beauty' }], 1);
   assert.match(b.clauses[0], /t\.author_handle ilike/);
   assert.deepEqual(b.params, ['%beauty%']);
+});
+
+test('buildFilterSql: 계정 같음은 대소문자만 접는다 — 값 자체는 바꾸지 않고, ilike로 바뀌지도 않는다', () => {
+  // 프로덕션 확인: 저장값 'napapaparr'는 '같음 napapaparr'로는 찾히지만 '같음 NAPAPAPARR'로는 0건이었다
+  const upper = buildFilterSql([{ id: '1', field: 'handle', op: 'is', value: 'NAPAPAPARR' }], 1);
+  assert.match(upper.clauses[0], /lower\(t\.author_handle\) = lower\(\$1\)/);
+  assert.deepEqual(upper.params, ['NAPAPAPARR']);   // 원문 그대로 바인딩 — SQL에서 lower()가 접는다
+  // '_'와 '%'는 LIKE 메타문자다. is는 =(lower로 감싼 것뿐)이라 이스케이프가 필요 없고,
+  // ilike로 바뀌면 안 된다 — 바뀌면 이스케이프 없이 와일드카드가 살아 그대로 해석된다.
+  const meta = buildFilterSql([{ id: '1', field: 'handle', op: 'is', value: 'na_pa%r' }], 1);
+  assert.match(meta.clauses[0], /lower\(t\.author_handle\) = lower\(\$1\)/);
+  assert.ok(!meta.clauses[0].includes('ilike'), meta.clauses[0]);
+  assert.deepEqual(meta.params, ['na_pa%r']);
 });
 
 test('buildFilterSql: 계정은 화면에서 복사한 "@handle"도 저장된 값(@ 없음)으로 찾는다', () => {
@@ -144,6 +158,25 @@ test('buildFilterSql: 계정 값이 "@"뿐이면 벗긴 뒤 빈 문자열 — �
   const containsOp = buildFilterSql([{ id: '1', field: 'handle', op: 'contains', value: '@@' }], 1);
   assert.deepEqual(containsOp.clauses, []);
   assert.deepEqual(containsOp.params, []);
+});
+
+test('isComplete: 계정 값이 "@"뿐이면 벗긴 뒤 빈 문자열이라 미완성이다 — 칩이 걸린 것처럼 보이면 안 된다', () => {
+  // 이전에는 원문 '@'만 보고 완성으로 판정해 칩이 뜨지만, buildFilterSql은 벗긴 뒤 빈 값이라
+  // 조건을 만들지 않았다(위 테스트) — 칩은 "적용됨"이라 말하는데 실제로는 아무것도 걸리지 않는
+  // 라벨/값 불일치였다. isComplete도 같은 정규화를 거쳐야 이 모순이 사라진다.
+  assert.equal(isComplete({ id: 'x', field: 'handle', op: 'is', value: '@' }), false);
+  assert.equal(isComplete({ id: 'x', field: 'handle', op: 'contains', value: '@@' }), false);
+  assert.equal(isComplete({ id: 'x', field: 'handle', op: 'is', value: '  @  ' }), false);
+});
+
+test('end to end: "@handle" 값은 여전히 완성으로 판정되고 SQL도 정상적으로 만들어진다', () => {
+  const raw = [{ id: '1', field: 'handle', op: 'is', value: '@beautyfulence' }];
+  const parsed = parseFilters(raw);
+  assert.equal(parsed.length, 1);   // parseFilters의 게이트(isComplete)를 통과해야 한다
+  const { clauses, params } = buildFilterSql(parsed, 1);
+  assert.equal(clauses.length, 1);
+  assert.match(clauses[0], /lower\(t\.author_handle\) = lower\(\$1\)/);
+  assert.deepEqual(params, ['beautyfulence']);
 });
 
 test('buildFilterSql: 본문 포함/제외 + LIKE 메타문자 이스케이프', () => {

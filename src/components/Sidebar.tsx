@@ -27,7 +27,9 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
 
   useEffect(() => {
-    const loadWs = () => { apiFetch('/api/workspaces').then((r) => r.json()).then(setWorkspaces); };
+    // 실패 시 이전 목록 유지 — 실패 상태 표시는 GlobalShell(wsError)이 책임진다. catch가 없으면
+    // 바로 그 실패 시나리오에서 이 fetch가 unhandled rejection을 만든다 (리뷰 지적).
+    const loadWs = () => { apiFetch('/api/workspaces').then((r) => r.json()).then(setWorkspaces).catch(() => {}); };
     loadWs();
     // /workspaces 페이지의 이름 변경·삭제·순서 변경을 같은 화면의 이 select에 즉시 반영 (스펙 §1)
     window.addEventListener('cbx-workspaces-changed', loadWs);

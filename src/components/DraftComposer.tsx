@@ -56,7 +56,6 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
               {clients.map(({ client }) => <option key={client.id} value={client.id}>{client.name}</option>)}
             </select>
           </div>
-          {clients.length === 0 && <a href="/clients" className="text-caption text-x-blue-text hover:underline">클라이언트를 먼저 등록하세요 →</a>}
         </label>
         {cur && cur.procedures.length > 0 && (
           <div>
@@ -189,7 +188,10 @@ export function ComposerFooter({ clients, value, refRows, generating, onGenerate
         <p className="text-caption text-x-muted">클라이언트·레퍼런스·방향성 중 하나는 있어야 원고를 만들 수 있어요</p>
       )}
       {generating ? (
-        <Button onClick={onCancel} className="mt-2 w-full">취소</Button>
+        <>
+          <Button onClick={onCancel} className="mt-2 w-full">취소</Button>
+          <p className="mt-1 text-caption text-x-muted">취소해도 완성되면 목록에 저장됩니다 — 생성 자체는 멈추지 않아요</p>
+        </>
       ) : (
         <button onClick={onGenerate} disabled={!ok}
                 className="mt-2 h-9 w-full rounded-full bg-x-blue px-[17px] text-[15px] font-bold text-white hover:bg-x-blue-hover disabled:opacity-50">

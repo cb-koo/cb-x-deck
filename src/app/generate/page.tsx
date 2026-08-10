@@ -45,6 +45,8 @@ function Workbench() {
   const [panelW, setPanelW] = useState(PANEL_DEFAULT);
   const [resizing, setResizing] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  // 좌패널 풋터에서 생성하면 우측이 스크롤된 상태일 수 있어 결과가 소리 없이 화면 밖에 놓이지 않게 하기 위함(T11 계열)
+  const resultsRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const raw = localStorage.getItem(PANEL_WIDTH_KEY);
     if (raw === null) return;
@@ -115,6 +117,7 @@ function Workbench() {
     genStartedAt.current = Date.now();
     genCount.current = composer.count;
     setGenerating(true);
+    resultsRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     const ac = new AbortController();
     abortRef.current = ac;
     try {
@@ -186,6 +189,7 @@ function Workbench() {
         setDrafts((cur) => [...newDraftsSince(cur, fetched, genStartedAt.current), ...cur]);
         stopPolling();
         setToast('아까 취소한 원고가 완성됐어요');
+        resultsRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
         // 직접 성공 경로와 동일 — 완성본이 현재 필터에 가려 안 보이면 필터를 전체로 (T11 픽스 후속)
         setFilter((f) => (filterDrafts(fresh, f).length > 0 ? f : { status: 'all', clientId: '' }));
       } catch { /* 다음 주기 재시도 */ }
@@ -257,7 +261,7 @@ function Workbench() {
     <div ref={rootRef} style={{ ['--panel-w' as string]: `${panelW}px` }}
          className={`flex flex-col lg:h-full lg:flex-row ${resizing ? 'select-none' : ''}`}>
       {/* 좌: 생성 패널 — lg에서 자체 스크롤 + 하단 고정 풋터 */}
-      <div className="flex shrink-0 flex-col lg:min-h-0 lg:w-[var(--panel-w)]">
+      <div className="flex shrink-0 flex-col bg-x-surface lg:min-h-0 lg:w-[var(--panel-w)]">
         <div className="space-y-3 p-4 lg:flex-1 lg:overflow-y-auto">
           <div>
             <h1 className="text-[20px] font-bold">콘텐츠 생성</h1>
@@ -298,7 +302,7 @@ function Workbench() {
                             onChange={setFilter} />
           </div>
         )}
-        <div className="flex flex-col items-center gap-4 p-6 lg:flex-1 lg:overflow-y-auto">
+        <div ref={resultsRef} className="flex flex-col items-center gap-4 p-6 lg:flex-1 lg:overflow-y-auto">
           {generating && (
             <div className="w-full max-w-[600px] animate-pulse rounded-2xl border border-x-border-strong bg-white px-4 py-3">
               <div className="flex gap-3">

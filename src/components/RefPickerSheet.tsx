@@ -58,11 +58,13 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.isComposing) return;
+      // 두 리스너가 같은 Esc에 함께 발화 — 모달이 열려 있으면 시트는 무시(모달 자체 리스너가 처리)
+      if (addOpen) return;
       if (!idSetChanged(sel, selectedIds) || window.confirm('선택을 적용하지 않았어요. 닫을까요?')) onClose();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose, sel, selectedIds]);
+  }, [open, onClose, sel, selectedIds, addOpen]);
 
   const allTags = useMemo(() => [...new Set(rows.flatMap((r) => r.tags))].slice(0, 12), [rows]);
   const visible = useMemo(() => {
@@ -86,6 +88,8 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
     if (sel.includes(r.tweetId)) setAddNotice(`${saved} — 이미 선택돼 있어요`);
     else if (sel.length >= MAX_REFS_UI) setAddNotice(`${saved} — 선택이 ${MAX_REFS_UI}건이라 자동 선택은 안 했어요. 목록에서 직접 조정해주세요`);
     else { setSel((cur) => [...cur, r.tweetId]); setAddNotice(`${saved} — 레퍼런스로 선택했어요`); }
+    // 다른 워크스페이스에 저장한 경우 현재 범위 밖 — 전체 보관함으로 전환해 방금 트윗이 보이게
+    if (r.workspaceId !== lastWsId && scope === 'ws') setScope('all');
     setReloadKey((k) => k + 1);
   }
 

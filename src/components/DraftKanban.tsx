@@ -3,7 +3,7 @@ import { useState } from 'react';
 import type { DraftRow } from '@/lib/draftStore';
 import { DRAFT_STATUSES, STATUS_LABEL, type DraftStatus } from '@/lib/draftStatus';
 import { draftTimeLabel } from '@/lib/draftUi';
-import { draftPreviewLine, groupByStatus } from '@/lib/draftViews';
+import { draftPreviewLine, draftKoLine, groupByStatus } from '@/lib/draftViews';
 
 // 열 헤더 점 색 — DraftStatusChip의 STATUS_STYLE과 같은 계열 유지 (색은 UI 파일에만)
 const STATUS_DOT: Record<DraftStatus, string> = {
@@ -37,7 +37,9 @@ export function DraftKanban({ drafts, clientNameOf, onChangeStatus, onOpenCard }
             {STATUS_LABEL[s]} <span className="tabular-nums font-normal text-x-muted">{byStatus[s].length}</span>
           </p>
           <div className="flex flex-col gap-2">
-            {byStatus[s].map((d) => (
+            {byStatus[s].map((d) => {
+              const ko = draftKoLine(d);
+              return (
               <div key={d.id} draggable tabIndex={0}
                    onDragStart={(e) => { e.dataTransfer.setData('text/plain', d.id); e.dataTransfer.effectAllowed = 'move'; }}
                    onClick={() => onOpenCard(d.id)}
@@ -48,7 +50,10 @@ export function DraftKanban({ drafts, clientNameOf, onChangeStatus, onOpenCard }
                      onOpenCard(d.id);
                    }}
                    className="cursor-pointer rounded-lg border border-x-border bg-white p-2 hover:border-x-border-strong focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
-                <p className="line-clamp-2 text-ui">{draftPreviewLine(d) || '(내용 없음)'}</p>
+                {/* 캐시된 한국어 대역 우선 — 번역본임은 🌐로 명시(원문인 척하면 라벨-값 불일치, 원칙 4) */}
+                <p className="line-clamp-2 text-ui">
+                  {ko ? <><span aria-hidden title="한국어 번역으로 표시 중 — 원문은 카드에서">🌐 </span>{ko}</> : (draftPreviewLine(d) || '(내용 없음)')}
+                </p>
                 {/* 속성은 칩으로 — 본문 텍스트와 시각 문법을 분리(속성=칩, 내용=평문) */}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1">
                   {d.clientId && (
@@ -65,7 +70,8 @@ export function DraftKanban({ drafts, clientNameOf, onChangeStatus, onOpenCard }
                   <span className="ml-auto pl-1 text-caption text-x-muted">{draftTimeLabel(d.createdAt)}</span>
                 </div>
               </div>
-            ))}
+              );
+            })}
             {byStatus[s].length === 0 && (
               <p className="rounded-lg border border-dashed border-x-border-strong p-3 text-center text-caption leading-relaxed text-x-muted">
                 여기로 끌어다 놓으면<br />상태가 바뀝니다

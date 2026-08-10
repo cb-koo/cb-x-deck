@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { draftPreviewLine, sortDrafts, groupByStatus } from './draftViews.ts';
+import { draftPreviewLine, draftKoLine, sortDrafts, groupByStatus } from './draftViews.ts';
 import type { DraftStatus } from './draftStatus.ts';
 
 const post = (text: string) => ({ posts: [{ text }] });
@@ -12,6 +12,12 @@ test('draftPreviewLine: 편집본 우선, 첫 줄만, 공백 정리', () => {
   assert.equal(draftPreviewLine({ content: post('원문 첫 줄\n둘째 줄'), edited: null }), '원문 첫 줄');
   assert.equal(draftPreviewLine({ content: post('원문'), edited: post('  편집본 첫 줄  \n둘째') }), '편집본 첫 줄');
   assert.equal(draftPreviewLine({ content: { posts: [] }, edited: null }), '');
+});
+
+test('draftKoLine: 캐시 없으면 null, 있으면 첫 줄만', () => {
+  assert.equal(draftKoLine({ koLatest: null }), null);
+  assert.equal(draftKoLine({ koLatest: ['첫 줄\n둘째 줄'] }), '첫 줄');
+  assert.equal(draftKoLine({ koLatest: ['  '] }), null);
 });
 
 test('sortDrafts: 생성일 내림차순 기본·원본 불변', () => {

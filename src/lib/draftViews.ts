@@ -8,6 +8,14 @@ export function draftPreviewLine(d: { content: PreviewSource; edited: PreviewSou
   return (text.split('\n')[0] ?? '').trim();
 }
 
+// 캐시된 한국어 대역의 첫 줄 — 없으면 null(호출부가 원문 미리보기로 폴백)
+export function draftKoLine(d: { koLatest: string[] | null }): string | null {
+  const t = d.koLatest?.[0];
+  if (!t) return null;
+  const line = (t.split('\n')[0] ?? '').trim();
+  return line || null;
+}
+
 export type TableSortKey = 'createdAt' | 'client' | 'status';
 export interface TableSort { key: TableSortKey; dir: 'asc' | 'desc' }
 

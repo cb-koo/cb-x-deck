@@ -4,7 +4,7 @@ import type { DraftRow } from '@/lib/draftStore';
 import type { DraftStatus } from '@/lib/draftStatus';
 import { DraftStatusChip } from '@/components/DraftStatusChip';
 import { draftTimeLabel } from '@/lib/draftUi';
-import { draftPreviewLine, sortDrafts, type TableSort, type TableSortKey } from '@/lib/draftViews';
+import { draftPreviewLine, draftKoLine, sortDrafts, type TableSort, type TableSortKey } from '@/lib/draftViews';
 
 // 트리아지용 테이블 — 정독 액션은 없다. 행 클릭 = 카드 뷰 점프 (스펙 2차 §DraftTable)
 export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }: {
@@ -46,7 +46,9 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }:
           </tr>
         </thead>
         <tbody>
-          {rows.map((d) => (
+          {rows.map((d) => {
+            const ko = draftKoLine(d);
+            return (
             // 행 전체가 카드를 여는 손잡이다. role="button"으로 덮어쓰지 않는다 — 행을 버튼이라고
             // 말하면 보조기술에서 표의 행·칸 구조가 사라진다. 행은 행으로 두고 조작만 얹는다.
             <tr key={d.id}
@@ -59,7 +61,9 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }:
                   onOpenCard(d.id);
                 }}
                 className="cursor-pointer border-b border-x-border hover:bg-x-hover focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
-              <td className="max-w-[360px] truncate px-3 py-2">{draftPreviewLine(d) || '(내용 없음)'}</td>
+              <td className="max-w-[360px] truncate px-3 py-2">
+                {ko ? <><span aria-hidden title="한국어 번역으로 표시 중 — 원문은 카드에서">🌐 </span>{ko}</> : (draftPreviewLine(d) || '(내용 없음)')}
+              </td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{clientNameOf(d.clientId)}</td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{d.procedureNames.join(' · ') || '—'}</td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{d.format === 'thread' ? '스레드' : '단문'}</td>
@@ -69,7 +73,8 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }:
               </td>
               <td className="whitespace-nowrap px-3 py-2 text-caption text-x-muted">{draftTimeLabel(d.createdAt)}</td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

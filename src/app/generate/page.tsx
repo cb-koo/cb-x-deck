@@ -3,6 +3,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { newDraftsSince, filterDrafts, statusCounts, siblingCount, type DraftListFilter } from '@/lib/draftUi';
+import { searchDrafts, filterByProcedure, filterByPeriod, procedureOptions, type Period } from '@/lib/draftViews';
 import { Toast } from '@/components/Toast';
 import { DraftCard } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
@@ -40,6 +41,10 @@ function Workbench() {
   const [refRows, setRefRows] = useState<ReferenceRow[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [filter, setFilter] = useState<DraftListFilter>({ status: 'all', clientId: '' });
+  // 신규 렌즈 3축 — 기존 필터와 동일하게 세션 한정(저장 안 함) (6차 스펙)
+  const [query, setQuery] = useState('');
+  const [procFilter, setProcFilter] = useState(''); // 시술명, '' = 전체
+  const [period, setPeriod] = useState<Period>('all');
   const [editing, setEditing] = useState<DraftRow | null>(null);
   const [generating, setGenerating] = useState(false);
   const [rewritingId, setRewritingId] = useState<string | null>(null);
@@ -137,15 +142,40 @@ function Workbench() {
 
   const clientScoped = useMemo(
     () => filterDrafts(drafts, { status: 'all', clientId: filter.clientId }), [drafts, filter.clientId]);
+  // 클라이언트 → (시술·기간·검색) → 상태 탭 순으로 좁힌다. 칸반은 상태만 무시하므로 scoped를 쓴다.
+  const scoped = useMemo(
+    () => filterByPeriod(filterByProcedure(searchDrafts(clientScoped, query), procFilter), period, Date.now()),
+    [clientScoped, query, procFilter, period]);
   const visibleDrafts = useMemo(
-    () => filterDrafts(clientScoped, { status: filter.status, clientId: '' }), [clientScoped, filter.status]);
-  const counts = useMemo(() => statusCounts(clientScoped), [clientScoped]);
+    () => filterDrafts(scoped, { status: filter.status, clientId: '' }), [scoped, filter.status]);
+  const counts = useMemo(() => statusCounts(scoped), [scoped]); // 탭 건수도 검색·필터 반영(라벨-값 일치)
+  const procOptions = useMemo(() => procedureOptions(clientScoped), [clientScoped]);
+  // 클라이언트 전환 등으로 선택 시술이 옵션에서 사라지면 리셋 — 유령 필터 방지
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 옵션-선택 정합 유지(파생 리셋), 조건부 1회
+    if (procFilter && !procOptions.includes(procFilter)) setProcFilter('');
+  }, [procOptions, procFilter]);
 
   const bannedFor = useCallback((d: DraftRow) => {
     const c = clients.find((x) => x.client.id === d.clientId);
     if (!c) return [];
     return [...c.client.bannedPhrases, ...c.procedures.filter((p) => d.procedureNames.includes(p.name)).flatMap((p) => p.bannedPhrases)];
   }, [clients]);
+
+  // 생성 완료 시점의 최신 렌즈로 판정 — 생성 대기 중 필터를 바꿔도 낡은 클로저를 쓰지 않는다 (draftsRef와 같은 관례)
+  const lensRef = useRef({ filter, query, procFilter, period });
+  useEffect(() => { lensRef.current = { filter, query, procFilter, period }; });
+  // 새 초안이 현재 렌즈(상태·클라이언트·검색·시술·기간)에 가려 있으면 전부 리셋 — T11의 6차 확장
+  const revealIfHidden = useCallback((created: DraftRow[]) => {
+    const L = lensRef.current;
+    const visible = filterByPeriod(
+      filterByProcedure(searchDrafts(filterDrafts(created, L.filter), L.query), L.procFilter),
+      L.period, Date.now()).length > 0;
+    if (!visible) {
+      setFilter({ status: 'all', clientId: '' });
+      setQuery(''); setProcFilter(''); setPeriod('all');
+    }
+  }, []);
 
   async function generate() {
     if (generating) return;
@@ -172,8 +202,8 @@ function Workbench() {
       if (!r.ok) { setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
       const created = body as DraftRow[];
       setDrafts((cur) => [...created, ...cur]);
-      // 방금 만든 초안이 현재 필터에 가려 안 보이면 필터를 전체로 — 생성 결과가 소리 없이 사라지지 않게 (T11 리뷰 반영)
-      setFilter((f) => (filterDrafts(created, f).length > 0 ? f : { status: 'all', clientId: '' }));
+      // 렌즈 전체 리셋 — T11의 6차 확장(생성 결과가 소리 없이 사라지지 않게)
+      revealIfHidden(created);
       setComposer((c) => ({ ...c, count: 1 })); // 시안 수는 1회용 — 다음 생성이 조용히 N배 비용이 되지 않게
     } catch (e) {
       if ((e as Error).name !== 'AbortError') setToast('생성 중 오류가 났어요 — 잠시 후 다시 시도해주세요');
@@ -226,8 +256,8 @@ function Workbench() {
         stopPolling();
         setToast('아까 취소한 원고가 완성됐어요');
         resultsRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-        // 직접 성공 경로와 동일 — 완성본이 현재 필터에 가려 안 보이면 필터를 전체로 (T11 픽스 후속)
-        setFilter((f) => (filterDrafts(fresh, f).length > 0 ? f : { status: 'all', clientId: '' }));
+        // 직접 성공 경로와 동일 — 렌즈 전체 리셋 — T11의 6차 확장
+        revealIfHidden(fresh);
       } catch { /* 다음 주기 재시도 */ }
     }, 5000);
   }
@@ -363,6 +393,23 @@ function Workbench() {
               <DraftFilterBar counts={counts} total={clientScoped.length} filter={filter}
                               clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
                               onChange={setFilter} showStatusTabs={view !== 'kanban'} />
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-caption">
+                <input type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+                       placeholder="제목·내용·방향성 검색" aria-label="초안 검색"
+                       className="w-48 rounded-md border border-x-border-strong bg-white px-2 py-1 outline-none focus:border-x-blue" />
+                <select value={procFilter} onChange={(e) => setProcFilter(e.target.value)} aria-label="시술로 거르기"
+                        className="rounded-md border border-x-border-strong bg-white px-2 py-1 outline-none focus:border-x-blue">
+                  <option value="">모든 시술</option>
+                  {procOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+                <select value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label="기간으로 거르기"
+                        className="rounded-md border border-x-border-strong bg-white px-2 py-1 outline-none focus:border-x-blue">
+                  <option value="all">전체 기간</option>
+                  <option value="today">오늘</option>
+                  <option value="7d">최근 7일</option>
+                  <option value="30d">최근 30일</option>
+                </select>
+              </div>
             </div>
           </div>
         )}
@@ -397,9 +444,9 @@ function Workbench() {
           )}
 
           {loaded && drafts.length > 0 && !generating
-            && (view === 'kanban' ? clientScoped.length === 0 : visibleDrafts.length === 0) && (
+            && (view === 'kanban' ? scoped.length === 0 : visibleDrafts.length === 0) && (
             <p className="w-full max-w-[600px] mx-auto rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
-              이 조건에 맞는 초안이 없어요 — 탭이나 클라이언트 필터를 바꿔보세요.
+              이 조건에 맞는 초안이 없어요 — 필터나 검색어를 바꿔보세요.
             </p>
           )}
 
@@ -423,7 +470,7 @@ function Workbench() {
           {/* 가드는 drafts 기준 — 클라이언트 필터가 0건이어도 빈 5열+드롭 안내가 그려져야
               무설명 빈 화면이 되지 않는다(T4 리뷰 발견). 초안 0건은 위의 빈 상태 문구가 담당. */}
           {view === 'kanban' && loaded && drafts.length > 0 && (
-            <DraftKanban drafts={clientScoped} clientNameOf={clientNameOf}
+            <DraftKanban drafts={scoped} clientNameOf={clientNameOf}
                          onChangeStatus={changeStatus} onOpenCard={setPeekId} />
           )}
           </div>

@@ -10,6 +10,7 @@ import { useTranslations } from '@/components/useTranslations';
 import { Button } from '@/components/ui';
 import { useMember } from '@/lib/memberContext';
 import { useToast } from '@/lib/toastContext';
+import { AddByLinkModal, type AddedByLink } from '@/components/AddByLinkModal';
 
 type View = 'tweets' | 'scouts';
 
@@ -25,6 +26,7 @@ export default function LibraryPage() {
   const [error, setError] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<string | null>(null); // 리스트에서 숨김(커밋 완료까지)
   const [undoTweet, setUndoTweet] = useState<string | null>(null); // 실행취소 토스트 노출(커밋 시작 전까지)
+  const [addOpen, setAddOpen] = useState(false);
   const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { translations, showTranslations, translatingAll, translateProgress, translatingIds, translateErr,
           loadCached, translateAll, translateOne } = useTranslations();
@@ -43,6 +45,12 @@ export default function LibraryPage() {
     }
   }, [wsId]);
   useEffect(() => { load(); }, [load]);
+
+  // 링크 추가 성공 — 결과를 판단까지 서술(UX 원칙 3): 중복이면 ★ 표시만 갱신됐음을 알린다
+  const handleAdded = useCallback((r: AddedByLink) => {
+    void load();
+    show(r.alreadyInLibrary ? '이미 보관함에 있어요 — 내 저장(★)으로 표시했어요' : '보관함에 추가했어요');
+  }, [load, show]);
 
   // 팀에서 빼기: 즉시 서버 삭제하지 않고 낙관적으로 숨긴 뒤 ~5초 실행취소 토스트.
   // pendingRemove=리스트 숨김(커밋 완료까지), undoTweet=토스트/실행취소(커밋 시작 전까지).
@@ -104,6 +112,7 @@ export default function LibraryPage() {
       <div className="flex items-center justify-between border-b border-x-border px-4 py-2">
         <h1 className="font-bold">📁 보관함 <span className="text-ui font-normal text-x-muted">{view === 'tweets' && loaded && !error ? `${groups.length}건` : ''}</span></h1>
         <div className="flex gap-1">
+          <button onClick={() => setAddOpen(true)} className={`${chip} ${off}`}>🔗 링크로 추가</button>
           <button onClick={() => setView('tweets')} aria-pressed={view === 'tweets'} className={`${chip} ${view === 'tweets' ? on : off}`}>트윗</button>
           <button onClick={() => setView('scouts')} aria-pressed={view === 'scouts'} className={`${chip} ${view === 'scouts' ? on : off}`}>섭외 후보</button>
         </div>
@@ -157,6 +166,7 @@ export default function LibraryPage() {
         </>
       )}
       {view === 'scouts' && <ScoutList wsId={wsId} />}
+      <AddByLinkModal open={addOpen} onClose={() => setAddOpen(false)} fixedWsId={wsId} onAdded={handleAdded} />
     </div>
   );
 }

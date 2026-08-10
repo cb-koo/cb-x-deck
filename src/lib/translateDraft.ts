@@ -5,8 +5,10 @@ import { GLOSSARY } from './translate.ts';
 // 생성 원고(일본어)를 검토용 한국어로 — 트윗 번역(translate.ts)과 같은 용어집·톤 규칙.
 // 초안 1건 = 포스트 1~5개, 각 가중 280자 이내라 한 호출로도 출력 잘림 위험이 없다.
 // 트윗 번역과 달리 캐시가 없다: 초안은 짧고(호출당 1원 미만) 편집되면 원문 자체가 바뀐다.
-export async function translateDraftPosts(texts: string[], client?: AnthropicLike): Promise<string[] | null> {
-  if (texts.length === 0) return [];
+export async function translateDraftPosts(
+  texts: string[], client?: AnthropicLike,
+): Promise<{ posts: string[]; title: string | null } | null> {
+  if (texts.length === 0) return { posts: [], title: null };
   const blocks = texts.map((t, i) => `### 포스트 ${i + 1}\n${t}`);
   const prompt = `당신은 일본 뷰티/미용의료 X(트위터) 원고를 한국 콘텐츠 기획팀에 전달하는 번역가입니다.
 아래 일본어 포스트들을 자연스러운 한국어로 번역하세요.
@@ -17,11 +19,15 @@ export async function translateDraftPosts(texts: string[], client?: AnthropicLik
 - 직역 금지 — 한국 뷰티 업계에서 통용되는 표현으로. 트윗 특유의 구어 톤 유지
 - 아래 용어집을 우선 적용:
 ${GLOSSARY.map((g) => `  ${g}`).join('\n')}
+- 마지막으로, 전체 내용을 대표하는 한국어 제목 1개를 만드세요:
+  · 15자 내외의 명사구 — 이 원고만의 앵글·소구점 중심 (예: "다운타임 3일 후기형", "가격 비교로 불안 해소")
+  · 병원 이름·시술 나열·"단문/스레드" 같은 속성 표기는 넣지 않기 (별도 필드에 이미 있음)
+  · 이모지·해시태그·괄호·마침표 금지
 
 [포스트 목록 — 각 포스트는 "### 포스트 N" 블록]
 ${blocks.join('\n\n')}
 
-번호(### 포스트 N의 N)를 키로 하는 JSON만 출력: {"1":"...","2":"..."}
+번호(### 포스트 N의 N)를 키로, 제목은 "title" 키로 하는 JSON만 출력: {"title":"...","1":"...","2":"..."}
 문자열 안의 줄바꿈은 \\n으로 이스케이프하세요.`;
 
   const res = await callLLM('anthropic.draftTranslate', {
@@ -39,5 +45,7 @@ ${blocks.join('\n\n')}
     if (typeof v !== 'string' || !v.trim()) return null;
     out.push(v.trim());
   }
-  return out;
+  // 제목은 부가물의 부가물 — 없거나 비면 번역만 반환(전체 실패로 취급하지 않음)
+  const t = j['title'];
+  return { posts: out, title: typeof t === 'string' && t.trim() ? t.trim() : null };
 }

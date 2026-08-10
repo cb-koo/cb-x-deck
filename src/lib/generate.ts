@@ -14,7 +14,8 @@ export const MAX_REFS = 8; // few-shot 실무 상한 — 초과 시 원고가 �
 
 // 대역은 부가물 — 번역이 지연·행에 빠져도 이미 과금된 원고 저장을 지연시키지 않는다 (최종 리뷰)
 const GLOSS_TIMEOUT_MS = 15_000;
-function withGlossTimeout(p: Promise<string[] | null>): Promise<string[] | null> {
+type Gloss = { posts: string[]; title: string | null };
+function withGlossTimeout(p: Promise<Gloss | null>): Promise<Gloss | null> {
   return Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), GLOSS_TIMEOUT_MS))]);
 }
 
@@ -104,7 +105,7 @@ export async function generateDraft(
   const glossOf = (i: number): DraftTranslation | null => {
     const g = glosses[i];
     if (!g) return null;
-    return { [draftVersionHash(variants[i].posts)]: g };
+    return { [draftVersionHash(variants[i].posts)]: g.posts };
   };
 
   const batchId = count > 1 ? crypto.randomUUID() : null;
@@ -118,6 +119,8 @@ export async function generateDraft(
     content: toContent(variants[i]), model: CONTENT_MODEL(), memberId: req.memberId,
     batchId, variantIndex: batchId ? i : null,
     translation: glossOf(i),
+    koTitle: glosses[i]?.title ?? null,
+    koTitleHash: glosses[i]?.title ? draftVersionHash(variants[i].posts) : null,
   });
   // 배치는 한 단위 — 중간 실패 시 고아 부분 배치가 남지 않게 트랜잭션. 단일 생성은 기존 경로 그대로.
   if (!batchId) return [await insertOne(sql, 0)];
@@ -177,7 +180,8 @@ export async function rewriteDraft(
   const edited = { posts: posts.map((p, n) => ({ text: p.text, media: base.posts[n]?.media ?? [] })) };
   // 새 버전의 한국어 대역 — 같은 텍스트로 되돌아온 버전은 재과금 없이 캐시 재사용, 실패 시 생략(번역 버튼 경로가 커버)
   const h = draftVersionHash(edited.posts);
-  let gloss: string[] | null = draft.translation?.[h] ?? null;
+  // 캐시 히트는 posts만 갖고 있다(과거엔 title이 없었거나 다른 버전의 title) — 제목은 미생성으로 취급
+  let gloss: Gloss | null = draft.translation?.[h] ? { posts: draft.translation[h], title: null } : null;
   if (!gloss) {
     try { gloss = await withGlossTimeout(translateDraftPosts(edited.posts.map((p) => p.text), client)); }
     catch (e) { console.warn('[draft] 대역 생성 생략', { err: e instanceof Error ? e.message : String(e) }); gloss = null; }
@@ -185,7 +189,9 @@ export async function rewriteDraft(
   // 직전 표시본(기준 버전이 아니라 최신)을 이력에 보존 — 어떤 버전을 기준으로 썼든 타임라인은 선형
   await updateDraft(sql, draftId, {
     edited, history: [...draft.history, draft.edited ?? draft.content],
-    ...(gloss ? { translation: { ...(draft.translation ?? {}), [h]: gloss } } : {}),
+    ...(gloss ? { translation: { ...(draft.translation ?? {}), [h]: gloss.posts } } : {}),
+    // 제목이 없으면(캐시 재사용·실패) patch 생략 — 이전 제목을 지우지 않는다: 해시 불일치로 자연 무효화되므로
+    ...(gloss?.title ? { koTitle: gloss.title, koTitleHash: h } : {}),
   });
   return (await getDraft(sql, draftId)) as DraftRow;
 }
@@ -236,7 +242,8 @@ export async function regeneratePost(
   };
   // 새 버전의 한국어 대역 — 같은 텍스트로 되돌아온 버전은 재과금 없이 캐시 재사용, 실패 시 생략(번역 버튼 경로가 커버)
   const h = draftVersionHash(edited.posts);
-  let gloss: string[] | null = draft.translation?.[h] ?? null;
+  // 캐시 히트는 posts만 갖고 있다(과거엔 title이 없었거나 다른 버전의 title) — 제목은 미생성으로 취급
+  let gloss: Gloss | null = draft.translation?.[h] ? { posts: draft.translation[h], title: null } : null;
   if (!gloss) {
     try { gloss = await withGlossTimeout(translateDraftPosts(edited.posts.map((p) => p.text), client)); }
     catch (e) { console.warn('[draft] 대역 생성 생략', { err: e instanceof Error ? e.message : String(e) }); gloss = null; }
@@ -244,7 +251,9 @@ export async function regeneratePost(
   // 직전 표시본을 이력에 보존 — ‹ 1/2 › 페이저로 이전 버전 열람 가능
   await updateDraft(sql, draftId, {
     edited, history: [...draft.history, base],
-    ...(gloss ? { translation: { ...(draft.translation ?? {}), [h]: gloss } } : {}),
+    ...(gloss ? { translation: { ...(draft.translation ?? {}), [h]: gloss.posts } } : {}),
+    // 제목이 없으면(캐시 재사용·실패) patch 생략 — 이전 제목을 지우지 않는다: 해시 불일치로 자연 무효화되므로
+    ...(gloss?.title ? { koTitle: gloss.title, koTitleHash: h } : {}),
   });
   return (await getDraft(sql, draftId)) as DraftRow;
 }

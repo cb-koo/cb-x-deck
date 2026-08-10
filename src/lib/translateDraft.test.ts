@@ -19,7 +19,7 @@ function fakeClient(text: string) {
 test('번호 키 JSON을 입력 순서 배열로 매핑', async () => {
   const { client } = fakeClient('{"1":"첫 번째 번역","2":"두 번째 번역"}');
   const out = await translateDraftPosts(['毛穴ケア', 'レチノール'], client);
-  assert.deepEqual(out, ['첫 번째 번역', '두 번째 번역']);
+  assert.deepEqual(out?.posts, ['첫 번째 번역', '두 번째 번역']);
 });
 
 test('일부 포스트 누락이면 null(전부 또는 실패)', async () => {
@@ -37,7 +37,7 @@ test('파싱 불가면 null(throw 금지)', async () => {
 test('빈 입력은 빈 배열 — LLM 호출 없음', async () => {
   const { client, calls } = fakeClient('{}');
   const out = await translateDraftPosts([], client);
-  assert.deepEqual(out, []);
+  assert.deepEqual(out, { posts: [], title: null });
   assert.equal(calls.length, 0);
 });
 
@@ -47,4 +47,16 @@ test('프롬프트에 원문·용어집·줄바꿈 규칙 포함', async () => {
   assert.ok(calls[0].includes('シワ改善の話'));
   assert.ok(calls[0].includes('毛穴→모공'));
   assert.ok(calls[0].includes('줄바꿈'));
+});
+
+test('title 포함 응답은 posts와 title을 함께 반환', async () => {
+  const { client } = fakeClient('{"title":"다운타임 후기형","1":"첫 번째 번역"}');
+  const out = await translateDraftPosts(['毛穴ケア'], client);
+  assert.deepEqual(out, { posts: ['첫 번째 번역'], title: '다운타임 후기형' });
+});
+
+test('title 누락이면 {posts, title: null} — 번역 자체는 실패로 취급하지 않음', async () => {
+  const { client } = fakeClient('{"1":"첫 번째 번역"}');
+  const out = await translateDraftPosts(['毛穴ケア'], client);
+  assert.deepEqual(out, { posts: ['첫 번째 번역'], title: null });
 });

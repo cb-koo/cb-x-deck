@@ -29,10 +29,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const hash = draftVersionHash(versions[idx].posts);
     const cache = draft.translation ?? {};
     if (cache[hash]) return NextResponse.json({ posts: cache[hash] });
-    const posts = await translateDraftPosts(texts);
-    if (!posts) return NextResponse.json({ error: '번역에 실패했어요 — 잠시 후 다시 시도해주세요' }, { status: 502 });
-    await updateDraft(sql, id, { translation: { ...cache, [hash]: posts } });
-    return NextResponse.json({ posts });
+    const r = await translateDraftPosts(texts);
+    if (!r) return NextResponse.json({ error: '번역에 실패했어요 — 잠시 후 다시 시도해주세요' }, { status: 502 });
+    // 과거 버전(최신이 아닌 versionIndex) 번역이면 제목을 저장하지 않는다 — 스테일 제목 방지
+    const isLatest = hash === draftVersionHash(versions[versions.length - 1].posts);
+    await updateDraft(sql, id, {
+      translation: { ...cache, [hash]: r.posts },
+      ...(r.title && isLatest ? { koTitle: r.title, koTitleHash: hash } : {}),
+    });
+    return NextResponse.json({ posts: r.posts });
   } catch (e) {
     console.error('[draft] 번역 오류', { id, err: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: '번역 중 오류가 났어요 — 잠시 후 다시 시도해주세요' }, { status: 502 });

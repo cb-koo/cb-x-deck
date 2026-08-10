@@ -5,7 +5,7 @@ import { getSql } from './db.ts';
 import { generateDraft, regeneratePost, rewriteDraft, GenerateInputError, MAX_REFS, CONTENT_MODEL } from './generate.ts';
 import { createClient, createProcedure } from './clientStore.ts';
 import { createWorkspace, deleteWorkspace } from './workspaceStore.ts';
-import { getDraft, removeDraft } from './draftStore.ts';
+import { getDraft, removeDraft, updateDraft } from './draftStore.ts';
 import { savePromptOverrides } from './promptSettings.ts';
 import { PROMPT_DEFAULTS } from './generatePrompt.ts';
 import type { AnthropicLike } from './llm.ts';
@@ -314,12 +314,12 @@ test('저장한 프롬프트 오버라이드가 생성 프롬프트에 반영된
   // 하네스 밖 잔존물 재확인은 불필요 — 최신 행 오염 여부는 promptSettings.test.ts가 이미 커버.
 });
 
-// 프롬프트로 분기하는 fake — 원고 요청은 posts JSON, 번역 요청(translateDraftPosts의 프롬프트에 '번역가' 포함)은 번호 키 JSON
+// 프롬프트로 분기하는 fake — 원고 요청은 posts JSON, 번역 요청(translateDraftPosts의 프롬프트에 '번역가' 포함)은 번호 키+title JSON
 function fakeWithGloss(): AnthropicLike {
   return { messages: { create: async (p: unknown) => {
     const prompt = String((p as { messages: Array<{ content: unknown }> }).messages[0].content);
     if (prompt.includes('번역가')) {
-      return { content: [{ type: 'text', text: JSON.stringify({ '1': '한국어 대역입니다' }) }] } as never;
+      return { content: [{ type: 'text', text: JSON.stringify({ title: '다운타임 후기형', '1': '한국어 대역입니다' }) }] } as never;
     }
     return { content: [{ type: 'text', text: JSON.stringify({ posts: [{ text: '日本語の本文' }] }) }] } as never;
   } } };
@@ -336,6 +336,45 @@ test('생성 시 한국어 대역이 번역 캐시에 저장되고 koLatest로 �
     assert.equal(Object.keys(draft!.translation!).length, 1);        // 버전 1개 = 키 1개
     assert.deepEqual(Object.values(draft!.translation!)[0], ['한국어 대역입니다']);
     assert.deepEqual(draft!.koLatest, ['한국어 대역입니다']);         // 최신 버전 파생값
+    assert.equal(draft!.koTitle, '다운타임 후기형');                  // 제목도 동승 저장
+  } finally {
+    await removeDraft(sql, id);
+  }
+});
+
+test('편집(updateDraft로 edited 변경)하면 koTitle이 null로 파생된다 — 해시 불일치로 스테일 방지', async () => {
+  const [id] = await generateDraft(sql, {
+    clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
+    direction: P + '제목스테일', format: 'single', constraintsOn: false, memberId: null,
+  }, fakeWithGloss());
+  try {
+    const before = await getDraft(sql, id);
+    assert.equal(before!.koTitle, '다운타임 후기형');
+    // 원문을 편집 — koTitle의 해시(원본 버전)와 최신 버전(edited)의 해시가 어긋난다
+    await updateDraft(sql, id, { edited: { posts: [{ text: '편집된 본문', media: [] }] } });
+    const after = await getDraft(sql, id);
+    assert.equal(after!.koTitle, null); // 저장된 ko_title_hash는 그대로지만 최신 버전과 불일치해 숨김
+  } finally {
+    await removeDraft(sql, id);
+  }
+});
+
+test('번역 응답에 title이 없으면 koTitle은 null이고 translation은 정상 저장', async () => {
+  const fake: AnthropicLike = { messages: { create: async (p: unknown) => {
+    const prompt = String((p as { messages: Array<{ content: unknown }> }).messages[0].content);
+    if (prompt.includes('번역가')) {
+      return { content: [{ type: 'text', text: JSON.stringify({ '1': '한국어 대역입니다' }) }] } as never; // title 키 없음
+    }
+    return { content: [{ type: 'text', text: JSON.stringify({ posts: [{ text: '日本語の本文' }] }) }] } as never;
+  } } };
+  const [id] = await generateDraft(sql, {
+    clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
+    direction: P + '제목없음', format: 'single', constraintsOn: false, memberId: null,
+  }, fake);
+  try {
+    const draft = await getDraft(sql, id);
+    assert.equal(draft!.koTitle, null);
+    assert.deepEqual(draft!.koLatest, ['한국어 대역입니다']); // 번역 자체는 정상 저장
   } finally {
     await removeDraft(sql, id);
   }

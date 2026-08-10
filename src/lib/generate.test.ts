@@ -18,7 +18,9 @@ function fakeLLM(capture?: (p: Record<string, unknown>) => void): AnthropicLike 
   return {
     messages: {
       create: async (p: object) => {
-        capture?.(p as Record<string, unknown>);
+        // 번역 호출(부가물)이 마지막에 오므로 캡처는 원고 호출만 — 테스트 의도 보존
+        const prompt = String((p as { messages?: Array<{ content?: unknown }> }).messages?.[0]?.content ?? '');
+        if (!prompt.includes('번역가')) capture?.(p as Record<string, unknown>);
         return {
           content: [{ type: 'text', text: JSON.stringify({ posts: [{ text: '正直迷ってた。\n\n良かった。' }] }) }],
           usage: { input_tokens: 100, output_tokens: 50 },
@@ -147,7 +149,9 @@ test('다시 쓰기: 피드백이 프롬프트에 실리고, 직전 표시본이
   }, fakeLLM());
   let prompt = '';
   const rwFake: AnthropicLike = { messages: { create: async (p: object) => {
-    prompt = ((p as { messages: Array<{ content: string }> }).messages[0]).content;
+    const content = ((p as { messages: Array<{ content: string }> }).messages[0]).content;
+    // 번역 호출(부가물)이 마지막에 오므로 캡처는 원고 호출만 — 테스트 의도 보존
+    if (!content.includes('번역가')) prompt = content;
     return {
       content: [{ type: 'text', text: JSON.stringify({ posts: [{ text: '書き直し版' }, { text: '余分' }] }) }],
       usage: { input_tokens: 100, output_tokens: 30 },
@@ -308,4 +312,71 @@ test('저장한 프롬프트 오버라이드가 생성 프롬프트에 반영된
   // generateDraft가 tx 안에서 draft를 insert하지만(단일 생성은 sql.begin을 타지 않아도 위 트랜잭션 자체가
   // 이 롤백 하네스이므로) 상위 트랜잭션 롤백과 함께 draft·prompt_template_version 행 모두 사라진다.
   // 하네스 밖 잔존물 재확인은 불필요 — 최신 행 오염 여부는 promptSettings.test.ts가 이미 커버.
+});
+
+// 프롬프트로 분기하는 fake — 원고 요청은 posts JSON, 번역 요청(translateDraftPosts의 프롬프트에 '번역가' 포함)은 번호 키 JSON
+function fakeWithGloss(): AnthropicLike {
+  return { messages: { create: async (p: unknown) => {
+    const prompt = String((p as { messages: Array<{ content: unknown }> }).messages[0].content);
+    if (prompt.includes('번역가')) {
+      return { content: [{ type: 'text', text: JSON.stringify({ '1': '한국어 대역입니다' }) }] } as never;
+    }
+    return { content: [{ type: 'text', text: JSON.stringify({ posts: [{ text: '日本語の本文' }] }) }] } as never;
+  } } };
+}
+
+test('생성 시 한국어 대역이 번역 캐시에 저장되고 koLatest로 노출된다', async () => {
+  const [id] = await generateDraft(sql, {
+    clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
+    direction: P + '대역캐시', format: 'single', constraintsOn: false, memberId: null,
+  }, fakeWithGloss());
+  try {
+    const draft = await getDraft(sql, id);
+    assert.ok(draft!.translation);                                   // null 아님
+    assert.equal(Object.keys(draft!.translation!).length, 1);        // 버전 1개 = 키 1개
+    assert.deepEqual(Object.values(draft!.translation!)[0], ['한국어 대역입니다']);
+    assert.deepEqual(draft!.koLatest, ['한국어 대역입니다']);         // 최신 버전 파생값
+  } finally {
+    await removeDraft(sql, id);
+  }
+});
+
+test('번역이 실패해도 생성은 성공하고 캐시만 비어 있다', async () => {
+  // fakeLLM은 모든 호출(원고+번역)에 posts JSON을 반환 — 번역 요청 파싱은 번호 키가 없어 null이 되고,
+  // generateDraft의 try/catch(생략 계약)가 그 null을 그대로 받아들여 생성 자체는 막지 않는다.
+  const [id] = await generateDraft(sql, {
+    clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
+    direction: P + '대역실패', format: 'single', constraintsOn: false, memberId: null,
+  }, fakeLLM());
+  try {
+    const draft = await getDraft(sql, id);
+    assert.ok(draft);                       // 생성 자체는 성공
+    assert.equal(draft!.translation, null); // 캐시만 비어 있음
+    assert.equal(draft!.koLatest, null);
+  } finally {
+    await removeDraft(sql, id);
+  }
+});
+
+test('다시 쓰기의 새 버전에도 대역이 저장된다', async () => {
+  const [id] = await generateDraft(sql, {
+    clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
+    direction: P + '대역다시쓰기', format: 'single', constraintsOn: false, memberId: null,
+  }, fakeWithGloss());
+  // 다시 쓰기 단계는 원본과 다른 일본어 본문을 반환하는 별도 fake를 쓴다 — 두 버전이 같은 텍스트면
+  // sourceHash가 같아져 캐시 키가 우연히 겹치고, "버전마다 별도 캐시"라는 이 기능의 핵심을 검증하지 못한다.
+  const rewriteFake: AnthropicLike = { messages: { create: async (p: unknown) => {
+    const prompt = String((p as { messages: Array<{ content: unknown }> }).messages[0].content);
+    if (prompt.includes('번역가')) {
+      return { content: [{ type: 'text', text: JSON.stringify({ '1': '한국어 대역입니다' }) }] } as never;
+    }
+    return { content: [{ type: 'text', text: JSON.stringify({ posts: [{ text: '書き直し日本語本文' }] }) }] } as never;
+  } } };
+  try {
+    const updated = await rewriteDraft(sql, id, {}, rewriteFake);
+    assert.deepEqual(updated.koLatest, ['한국어 대역입니다']);              // 최신 버전(새 버전)의 대역
+    assert.equal(Object.keys(updated.translation ?? {}).length, 2);      // 원본 버전 + 새 버전
+  } finally {
+    await removeDraft(sql, id);
+  }
 });

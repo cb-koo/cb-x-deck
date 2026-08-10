@@ -4,7 +4,9 @@ import { getClientWithProcedures } from './clientStore.ts';
 import { getReferencesByIds } from './referenceStore.ts';
 import { buildUserPrompt, draftOutputSchema, variantsOutputSchema, draftSystem } from './generatePrompt.ts';
 import { getPromptOverrides } from './promptSettings.ts';
-import { insertDraft, getDraft, updateDraft, type DraftRow } from './draftStore.ts';
+import { insertDraft, getDraft, updateDraft, type DraftRow, type DraftTranslation } from './draftStore.ts';
+import { translateDraftPosts } from './translateDraft.ts';
+import { hashSource } from './translationStore.ts';
 import { X_MAX_WEIGHTED } from './xLength.ts';
 import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
 
@@ -89,6 +91,16 @@ export async function generateDraft(
   // 모델이 count보다 적게/많게 반환하면 받은 만큼만 — 도착한 카드 수가 곧 사실 (스펙 §3)
   variants = variants.slice(0, count);
 
+  // 한국어 대역 — 부가물이라 실패(null·예외)해도 생성을 막지 않는다. mock client를 그대로 전달(테스트 가능성)
+  const glosses = await Promise.all(variants.map(async (v) => {
+    try { return await translateDraftPosts(v.posts.map((p) => p.text), client); } catch { return null; }
+  }));
+  const glossOf = (i: number): DraftTranslation | null => {
+    const g = glosses[i];
+    if (!g) return null;
+    return { [hashSource(JSON.stringify(variants[i].posts.map((p) => p.text)), null)]: g };
+  };
+
   const batchId = count > 1 ? crypto.randomUUID() : null;
   const toContent = (v: { posts: Array<{ text: string }> }): DraftContent =>
     ({ posts: v.posts.map((p) => ({ text: p.text, media: [] })) });
@@ -99,6 +111,7 @@ export async function generateDraft(
     referenceMode: hasRefs ? req.mode : 'off', refs,
     content: toContent(variants[i]), model: CONTENT_MODEL(), memberId: req.memberId,
     batchId, variantIndex: batchId ? i : null,
+    translation: glossOf(i),
   });
   // 배치는 한 단위 — 중간 실패 시 고아 부분 배치가 남지 않게 트랜잭션. 단일 생성은 기존 경로 그대로.
   if (!batchId) return [await insertOne(sql, 0)];
@@ -156,8 +169,14 @@ export async function rewriteDraft(
   if (draft.format === 'single') posts = posts.slice(0, 1);
 
   const edited = { posts: posts.map((p, n) => ({ text: p.text, media: base.posts[n]?.media ?? [] })) };
+  // 새 버전의 한국어 대역 — 실패 시 기존 캐시 그대로(생략), 번역 버튼 경로가 커버
+  let gloss: string[] | null = null;
+  try { gloss = await translateDraftPosts(edited.posts.map((p) => p.text), client); } catch { gloss = null; }
   // 직전 표시본(기준 버전이 아니라 최신)을 이력에 보존 — 어떤 버전을 기준으로 썼든 타임라인은 선형
-  await updateDraft(sql, draftId, { edited, history: [...draft.history, draft.edited ?? draft.content] });
+  await updateDraft(sql, draftId, {
+    edited, history: [...draft.history, draft.edited ?? draft.content],
+    ...(gloss ? { translation: { ...(draft.translation ?? {}), [hashSource(JSON.stringify(edited.posts.map((p) => p.text)), null)]: gloss } } : {}),
+  });
   return (await getDraft(sql, draftId)) as DraftRow;
 }
 
@@ -205,7 +224,13 @@ export async function regeneratePost(
   const edited = {
     posts: base.posts.map((p, n) => (n === postIndex ? { text: posts[0].text, media: p.media } : p)),
   };
+  // 새 버전의 한국어 대역 — 실패 시 기존 캐시 그대로(생략), 번역 버튼 경로가 커버
+  let gloss: string[] | null = null;
+  try { gloss = await translateDraftPosts(edited.posts.map((p) => p.text), client); } catch { gloss = null; }
   // 직전 표시본을 이력에 보존 — ‹ 1/2 › 페이저로 이전 버전 열람 가능
-  await updateDraft(sql, draftId, { edited, history: [...draft.history, base] });
+  await updateDraft(sql, draftId, {
+    edited, history: [...draft.history, base],
+    ...(gloss ? { translation: { ...(draft.translation ?? {}), [hashSource(JSON.stringify(edited.posts.map((p) => p.text)), null)]: gloss } } : {}),
+  });
   return (await getDraft(sql, draftId)) as DraftRow;
 }

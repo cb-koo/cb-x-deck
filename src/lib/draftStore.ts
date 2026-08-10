@@ -2,6 +2,7 @@ import type postgres from 'postgres';
 import type { Member } from './types.ts';
 import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
 import type { DraftStatus } from './draftStatus.ts';
+import { hashSource } from './translationStore.ts';
 
 // 버전별 한국어 번역 캐시 — sourceHash(원문 지문) → 번역 posts. 어떤 버전이든 한 번 번역하면 재사용.
 export type DraftTranslation = Record<string, string[]>;
@@ -22,6 +23,7 @@ export interface DraftRow {
   content: DraftContent; edited: DraftContent | null;
   history: DraftContent[]; // 재생성 직전 표시본 스냅샷들 — [ ...history, edited ?? content ]가 버전 타임라인
   translation: DraftTranslation | null;
+  koLatest: string[] | null; // 최신 버전(edited ?? content)의 캐시 번역 파생값 — 클라이언트는 이 필드만 읽는다 (4차 스펙)
   dismissedFlags: string[];
   status: DraftStatus; // 결정 진행도 라벨 — 전이 제약 없음 (스펙 §2)
   batchId: string | null;      // 다중 시안 묶음 — 단일 생성은 null
@@ -41,16 +43,23 @@ type Row = {
   member_id: string | null; member_name: string | null; member_color: string | null;
 };
 
-const toRow = (r: Row): DraftRow => ({
-  id: r.id, clientId: r.client_id, clientName: r.client_name, procedureNames: r.procedure_names,
-  direction: r.direction, format: r.format, referenceMode: r.reference_mode, refs: r.refs,
-  content: r.content, edited: r.edited, history: r.history, translation: normalizeTranslation(r.translation),
-  dismissedFlags: r.dismissed_flags,
-  status: r.status,
-  batchId: r.batch_id, variantIndex: r.variant_index,
-  model: r.model, createdAt: r.created_at.toISOString(),
-  member: r.member_id ? { id: r.member_id, name: r.member_name as string, color: r.member_color as string } : null,
-});
+const toRow = (r: Row): DraftRow => {
+  const translation = normalizeTranslation(r.translation);
+  const latest = r.edited ?? r.content;
+  return {
+    id: r.id, clientId: r.client_id, clientName: r.client_name, procedureNames: r.procedure_names,
+    direction: r.direction, format: r.format, referenceMode: r.reference_mode, refs: r.refs,
+    content: r.content, edited: r.edited, history: r.history,
+    translation,
+    // 최신 버전의 캐시 번역 — 해시 계산은 서버 소관(node:crypto), 클라이언트는 이 필드만 읽는다 (4차 스펙)
+    koLatest: translation?.[hashSource(JSON.stringify(latest.posts.map((p) => p.text)), null)] ?? null,
+    dismissedFlags: r.dismissed_flags,
+    status: r.status,
+    batchId: r.batch_id, variantIndex: r.variant_index,
+    model: r.model, createdAt: r.created_at.toISOString(),
+    member: r.member_id ? { id: r.member_id, name: r.member_name as string, color: r.member_color as string } : null,
+  };
+};
 
 const SELECT = (sql: postgres.Sql) => sql`
   select d.id, d.client_id, d.client_name, d.procedure_names, d.direction, d.format,
@@ -65,14 +74,16 @@ export async function insertDraft(sql: postgres.Sql, input: {
   direction: string; format: DraftFormat; referenceMode: ReferenceMode; refs: RefSnapshot[];
   content: DraftContent; model: string | null; memberId: string | null;
   batchId?: string | null; variantIndex?: number | null;
+  translation?: DraftTranslation | null; // 생성 시점에 함께 마련된 한국어 대역 캐시 — 없으면 null(부가물 실패 허용)
 }): Promise<string> {
   const rows = await sql<Array<{ id: string }>>`
     insert into draft (client_id, client_name, procedure_names, direction, format,
-                       reference_mode, refs, content, model, created_by, batch_id, variant_index)
+                       reference_mode, refs, content, model, created_by, batch_id, variant_index, translation)
     values (${input.clientId}, ${input.clientName}, ${sql.json(input.procedureNames)},
             ${input.direction}, ${input.format}, ${input.referenceMode},
             ${sql.json(input.refs as never)}, ${sql.json(input.content as never)},
-            ${input.model}, ${input.memberId}, ${input.batchId ?? null}, ${input.variantIndex ?? null})
+            ${input.model}, ${input.memberId}, ${input.batchId ?? null}, ${input.variantIndex ?? null},
+            ${input.translation ? sql.json(input.translation as never) : null})
     returning id`;
   return rows[0].id;
 }

@@ -127,7 +127,7 @@ export default function PromptPage() {
   }
 
   return (
-    <main className="mx-auto max-w-[1100px] px-6 py-8">
+    <main className="mx-auto max-w-[1100px] px-6 pb-24 pt-8">
       <h1 className="text-[20px] font-bold">프롬프트</h1>
       <p className="mt-1 text-ui text-x-secondary">
         원고를 만들 때 AI에게 주는 지시문이에요. 여기서 바꾸면 팀 전체의 이후 생성에 바로 적용돼요.
@@ -173,7 +173,8 @@ export default function PromptPage() {
               </div>
             </div>
 
-            <div className="sticky top-6 max-h-[calc(100vh-3rem)] w-[46%] shrink-0 self-start overflow-y-auto">
+            {/* 미리보기 = 도구층 패널(회색 표면) — 흰 배경의 편집 영역과 층으로 구분 (spec §2 표면 2층 관례) */}
+            <div className="sticky top-6 max-h-[calc(100vh-3rem)] w-[46%] shrink-0 self-start overflow-y-auto rounded-2xl border border-x-border bg-x-surface p-4">
               <h2 className="text-content font-bold">AI에게 전달되는 모습 (샘플)</h2>
               <p className="text-caption text-x-muted">
                 지금 편집 중인 문장이 들어간 실제 전달 형태예요. 실제 생성에선 (샘플) 자리에 그때 고른
@@ -198,14 +199,14 @@ export default function PromptPage() {
                 ))}
               </div>
               <p className="mt-2 text-caption font-bold text-x-muted">역할 지시 (시스템)</p>
-              <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-ui leading-relaxed">{highlight(previewSystem, needle)}</pre>
+              <pre className="mt-1 whitespace-pre-wrap rounded-lg border border-x-border bg-white p-3 text-ui leading-relaxed">{highlight(previewSystem, needle)}</pre>
               <p className="mt-2 text-caption font-bold text-x-muted">본문</p>
-              <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-ui leading-relaxed">{highlight(preview, needle)}</pre>
+              <pre className="mt-1 whitespace-pre-wrap rounded-lg border border-x-border bg-white p-3 text-ui leading-relaxed">{highlight(preview, needle)}</pre>
             </div>
           </div>
 
           {versions.length > 0 && (
-            <details className="mt-8">
+            <details className="mt-10">
               <summary className="cursor-pointer text-content font-bold">변경 이력 ({versions.length})</summary>
               <div className="mt-2 space-y-2">
                 {versions.map((v) => {
@@ -227,7 +228,7 @@ export default function PromptPage() {
                   );
                 })}
               </div>
-              <p className="mt-1 text-caption text-x-muted">불러온 버전은 저장을 눌러야 적용돼요.</p>
+              <p className="mt-2 text-caption text-x-muted">불러온 버전은 저장을 눌러야 적용돼요.</p>
             </details>
           )}
         </>

@@ -8,7 +8,8 @@ import { DraftCard } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
 import { RefPickerSheet } from '@/components/RefPickerSheet';
 import { DraftFilterBar } from '@/components/DraftFilterBar';
-import { DraftComposer, DEFAULT_COMPOSER, type ComposerState } from '@/components/DraftComposer';
+import { DraftComposer, ComposerFooter, DEFAULT_COMPOSER, type ComposerState } from '@/components/DraftComposer';
+import { clampPanelWidth, PANEL_DEFAULT, PANEL_WIDTH_KEY } from '@/lib/panelResize';
 import { LAST_WS_KEY } from '@/components/GlobalShell';
 import type { DraftRow } from '@/lib/draftStore';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
@@ -40,6 +41,20 @@ function Workbench() {
   const [regenBusy, setRegenBusy] = useState<{ draftId: string; index: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<DraftRow | null>(null);
+  // 좌패널 폭 — 드래그 리사이즈, 더블클릭 복원, 저장값은 복원 시 클램프 (스펙 §경계 조건)
+  const [panelW, setPanelW] = useState(PANEL_DEFAULT);
+  const [resizing, setResizing] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const raw = localStorage.getItem(PANEL_WIDTH_KEY);
+    if (raw === null) return;
+    setPanelW(clampPanelWidth(Number(raw), rootRef.current?.clientWidth ?? Infinity));
+  }, []);
+  function applyWidth(w: number) {
+    const clamped = clampPanelWidth(w, rootRef.current?.clientWidth ?? Infinity);
+    setPanelW(clamped);
+    localStorage.setItem(PANEL_WIDTH_KEY, String(clamped));
+  }
   const abortRef = useRef<AbortController | null>(null);
   const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dismissedRef = useRef<Record<string, string[]>>({});
@@ -239,71 +254,95 @@ function Workbench() {
   }
 
   return (
-    <div className="flex flex-col items-center gap-4 p-6">
-      <div className="w-full max-w-[600px]">
-        <h1 className="text-[20px] font-bold">콘텐츠 생성</h1>
-        <p className="mt-0.5 text-ui text-x-secondary">레퍼런스와 클라이언트 정보를 조합해 인플루언서에게 보낼 X 원고 초안을 만들어요.</p>
-        {loaded && clients.length === 0 && (
-          <p className="mt-2 rounded-lg bg-x-surface p-3 text-ui text-x-secondary">
-            클라이언트를 먼저 등록하면 클리닉 정보가 원고에 반영돼요 — <a href="/clients" className="font-bold text-x-blue-text hover:underline">등록하러 가기</a>
-          </p>
-        )}
+    <div ref={rootRef} style={{ ['--panel-w' as string]: `${panelW}px` }}
+         className={`flex flex-col lg:h-full lg:flex-row ${resizing ? 'select-none' : ''}`}>
+      {/* 좌: 생성 패널 — lg에서 자체 스크롤 + 하단 고정 풋터 */}
+      <div className="flex shrink-0 flex-col lg:min-h-0 lg:w-[var(--panel-w)]">
+        <div className="space-y-3 p-4 lg:flex-1 lg:overflow-y-auto">
+          <div>
+            <h1 className="text-[20px] font-bold">콘텐츠 생성</h1>
+            <p className="mt-0.5 text-caption text-x-secondary">레퍼런스와 클라이언트 정보를 조합해 인플루언서에게 보낼 X 원고 초안을 만들어요.</p>
+          </div>
+          {loaded && clients.length === 0 && (
+            <p className="rounded-lg bg-x-surface p-3 text-caption text-x-secondary">
+              클라이언트를 먼저 등록하면 클리닉 정보가 원고에 반영돼요 — <a href="/clients" className="font-bold text-x-blue-text hover:underline">등록하러 가기</a>
+            </p>
+          )}
+          <DraftComposer clients={clients} value={composer} onChange={updateComposer}
+                         refRows={refRows} onOpenPicker={() => setPickerOpen(true)}
+                         onRemoveRef={(id) => setRefRows((cur) => cur.filter((x) => x.tweetId !== id))}
+                         onClearRefs={() => setRefRows([])} />
+        </div>
+        <ComposerFooter clients={clients} value={composer} refRows={refRows}
+                        generating={generating} onGenerate={() => generate()} onCancel={cancelGenerate} />
       </div>
 
-      <DraftComposer clients={clients} value={composer} onChange={updateComposer}
-                     refRows={refRows} onOpenPicker={() => setPickerOpen(true)}
-                     onRemoveRef={(id) => setRefRows((cur) => cur.filter((x) => x.tweetId !== id))}
-                     onClearRefs={() => setRefRows([])}
-                     generating={generating} onGenerate={() => generate()} onCancel={cancelGenerate} />
+      {/* 구분선 — lg 전용 드래그 핸들. 키보드 화살표로도 조절 (스펙 §접근성) */}
+      <div role="separator" aria-orientation="vertical" aria-label="패널 폭 조절" tabIndex={0}
+           onPointerDown={(e) => { setResizing(true); e.currentTarget.setPointerCapture(e.pointerId); }}
+           onPointerMove={(e) => { if (resizing && rootRef.current) applyWidth(e.clientX - rootRef.current.getBoundingClientRect().left); }}
+           onPointerUp={() => setResizing(false)} onPointerCancel={() => setResizing(false)}
+           onDoubleClick={() => applyWidth(PANEL_DEFAULT)}
+           onKeyDown={(e) => {
+             const d = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0;
+             if (d) { e.preventDefault(); applyWidth(panelW + d); }
+           }}
+           className="hidden w-1.5 shrink-0 cursor-col-resize touch-none bg-x-border hover:bg-x-blue/50 focus:bg-x-blue/60 focus:outline-none lg:block" />
 
-      {loaded && drafts.length > 0 && (
-        <DraftFilterBar counts={counts} total={clientScoped.length} filter={filter}
-                        clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
-                        onChange={setFilter} />
-      )}
-
-      {generating && (
-        <div className="w-full max-w-[600px] animate-pulse rounded-2xl border border-x-border-strong bg-white px-4 py-3">
-          <div className="flex gap-3">
-            <div className="h-10 w-10 rounded-full bg-x-border" />
-            <div className="flex-1 space-y-2 py-1">
-              <div className="h-3.5 w-1/3 rounded bg-x-border" />
-              <div className="h-3.5 w-full rounded bg-x-border" />
-              <div className="h-3.5 w-4/5 rounded bg-x-border" />
-            </div>
+      {/* 우: 결과 영역 — 필터 헤더는 스크롤 밖 고정 행 (Dense Scan List) */}
+      <div className="flex min-w-0 flex-1 flex-col lg:min-h-0">
+        {loaded && drafts.length > 0 && (
+          <div className="border-b border-x-border bg-x-surface px-4 py-2">
+            <DraftFilterBar counts={counts} total={clientScoped.length} filter={filter}
+                            clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
+                            onChange={setFilter} />
           </div>
-          <p className="mt-2 text-ui text-x-secondary">
-            {genCount.current > 1 ? `시안 ${genCount.current}개 작성 중… 개수만큼 조금 더 걸려요` : '원고 작성 중… 보통 15~30초 걸려요'}
-          </p>
-          <p className="mt-0.5 text-caption text-x-muted">취소해도 완성되면 목록에 저장됩니다 — 생성 자체는 멈추지 않아요</p>
+        )}
+        <div className="flex flex-col items-center gap-4 p-6 lg:flex-1 lg:overflow-y-auto">
+          {generating && (
+            <div className="w-full max-w-[600px] animate-pulse rounded-2xl border border-x-border-strong bg-white px-4 py-3">
+              <div className="flex gap-3">
+                <div className="h-10 w-10 rounded-full bg-x-border" />
+                <div className="flex-1 space-y-2 py-1">
+                  <div className="h-3.5 w-1/3 rounded bg-x-border" />
+                  <div className="h-3.5 w-full rounded bg-x-border" />
+                  <div className="h-3.5 w-4/5 rounded bg-x-border" />
+                </div>
+              </div>
+              <p className="mt-2 text-ui text-x-secondary">
+                {genCount.current > 1 ? `시안 ${genCount.current}개 작성 중… 개수만큼 조금 더 걸려요` : '원고 작성 중… 보통 15~30초 걸려요'}
+              </p>
+              <p className="mt-0.5 text-caption text-x-muted">취소해도 완성되면 목록에 저장됩니다 — 생성 자체는 멈추지 않아요</p>
+            </div>
+          )}
+
+          {loaded && drafts.length === 0 && !generating && (
+            <p className="w-full max-w-[600px] rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
+              아직 초안이 없어요. 방향성을 적거나 레퍼런스를 골라 첫 원고를 만들어보세요 — 만든 초안은 자동으로 저장돼요.
+            </p>
+          )}
+
+          {loaded && drafts.length > 0 && visibleDrafts.length === 0 && !generating && (
+            <p className="w-full max-w-[600px] rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
+              이 조건에 맞는 초안이 없어요 — 탭이나 클라이언트 필터를 바꿔보세요.
+            </p>
+          )}
+
+          {visibleDrafts.map((d) => (
+            <DraftCard key={d.id} draft={d} banned={bannedFor(d)}
+                       onEdit={() => setEditing(d)}
+                       onRewrite={(feedback, baseIndex) => rewrite(d.id, feedback, baseIndex)}
+                       rewriteBusy={rewritingId === d.id}
+                       onDelete={() => requestRemove(d)}
+                       onRegenPost={(i) => regenPost(d, i)}
+                       regenBusyIndex={regenBusy?.draftId === d.id ? regenBusy.index : null}
+                       onDismissFlag={(key, dismiss) => toggleDismiss(d, key, dismiss)}
+                       onRestoreAllFlags={() => restoreAllFlags(d)}
+                       onChangeStatus={(s) => changeStatus(d, s)}
+                       siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null} />
+          ))}
         </div>
-      )}
-
-      {loaded && drafts.length === 0 && !generating && (
-        <p className="w-full max-w-[600px] rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
-          아직 초안이 없어요. 방향성을 적거나 레퍼런스를 골라 첫 원고를 만들어보세요 — 만든 초안은 자동으로 저장돼요.
-        </p>
-      )}
-
-      {loaded && drafts.length > 0 && visibleDrafts.length === 0 && !generating && (
-        <p className="w-full max-w-[600px] rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
-          이 조건에 맞는 초안이 없어요 — 탭이나 클라이언트 필터를 바꿔보세요.
-        </p>
-      )}
-
-      {visibleDrafts.map((d) => (
-        <DraftCard key={d.id} draft={d} banned={bannedFor(d)}
-                   onEdit={() => setEditing(d)}
-                   onRewrite={(feedback, baseIndex) => rewrite(d.id, feedback, baseIndex)}
-                   rewriteBusy={rewritingId === d.id}
-                   onDelete={() => requestRemove(d)}
-                   onRegenPost={(i) => regenPost(d, i)}
-                   regenBusyIndex={regenBusy?.draftId === d.id ? regenBusy.index : null}
-                   onDismissFlag={(key, dismiss) => toggleDismiss(d, key, dismiss)}
-                   onRestoreAllFlags={() => restoreAllFlags(d)}
-                   onChangeStatus={(s) => changeStatus(d, s)}
-                   siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null} />
-      ))}
+      </div>
 
       {editing && (
         <DraftEditModal draft={editing} onClose={() => setEditing(null)}

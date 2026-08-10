@@ -11,7 +11,7 @@ export function DraftFilterBar({ counts, total, filter, clients, onChange }: {
   const tab = (on: boolean) =>
     `rounded-full border px-2.5 py-0.5 tabular-nums ${on ? 'border-x-blue bg-x-blue/10 font-bold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`;
   return (
-    <div className="flex w-full max-w-[600px] flex-wrap items-center gap-1.5 text-[13px]">
+    <div className="flex w-full flex-wrap items-center gap-1.5 text-[13px]">
       <button onClick={() => onChange({ ...filter, status: 'all' })} className={tab(filter.status === 'all')}>
         전체 {total}
       </button>

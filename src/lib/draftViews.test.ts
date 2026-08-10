@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { draftPreviewLine, draftKoLine, draftLabel, sortDrafts, groupByStatus, searchDrafts, filterByProcedure, filterByPeriod, procedureOptions } from './draftViews.ts';
+import { draftPreviewLine, draftKoLine, draftLabel, sortDrafts, groupByStatus, searchDrafts, filterByProcedure, filterByPeriod, procedureOptions, applyPeriod, formatPeriodLabel, isRangeInverted } from './draftViews.ts';
 import type { DraftStatus } from './draftStatus.ts';
 
 const post = (text: string) => ({ posts: [{ text }] });
@@ -136,4 +136,35 @@ test('procedureOptions: 유니크·가나다 정렬', () => {
   assert.deepEqual(procedureOptions([
     { procedureNames: ['보톡스', '리프팅'] }, { procedureNames: ['리프팅', '가슴성형'] },
   ]), ['가슴성형', '리프팅', '보톡스']);
+});
+
+test('applyPeriod: preset은 filterByPeriod 위임과 동일', () => {
+  const now = Date.parse('2026-08-10T15:00:00+09:00');
+  const rows = [{ createdAt: new Date(now - 8 * 86_400_000).toISOString() }, { createdAt: new Date(now - 1000).toISOString() }];
+  assert.deepEqual(applyPeriod(rows, { kind: 'preset', preset: '7d' }, now), filterByPeriod(rows, '7d', now));
+  assert.equal(applyPeriod(rows, { kind: 'preset', preset: 'all' }, now).length, 2);
+});
+
+test('applyPeriod: range는 양끝 날짜 포함(로컬 자정 경계)', () => {
+  const day = (s: string, h: number) => ({ createdAt: new Date(new Date(`${s}T00:00:00`).getTime() + h * 3_600_000).toISOString() });
+  const rows = [day('2026-08-01', 12), day('2026-08-05', 23), day('2026-08-06', 1)];
+  const out = applyPeriod(rows, { kind: 'range', from: '2026-08-01', to: '2026-08-05' }, 0);
+  assert.deepEqual(out, [rows[0], rows[1]]); // 8/6 01시는 제외, 8/5 23시는 포함
+});
+
+test('applyPeriod: 단측 range와 역전 range', () => {
+  const rows = [{ createdAt: '2026-08-01T05:00:00.000Z' }, { createdAt: '2026-08-09T05:00:00.000Z' }];
+  assert.equal(applyPeriod(rows, { kind: 'range', from: '', to: '' }, 0).length, 2);
+  assert.equal(applyPeriod(rows, { kind: 'range', from: '2026-08-05', to: '' }, 0).length, 1);
+  assert.equal(applyPeriod(rows, { kind: 'range', from: '2026-08-09', to: '2026-08-01' }, 0).length, 2); // 역전은 미적용(전체)
+  assert.equal(isRangeInverted({ kind: 'range', from: '2026-08-09', to: '2026-08-01' }), true);
+  assert.equal(isRangeInverted({ kind: 'range', from: '2026-08-01', to: '2026-08-09' }), false);
+});
+
+test('formatPeriodLabel: 프리셋·범위·단측 표기', () => {
+  assert.equal(formatPeriodLabel({ kind: 'preset', preset: 'all' }), '전체 기간');
+  assert.equal(formatPeriodLabel({ kind: 'preset', preset: '7d' }), '최근 7일');
+  assert.equal(formatPeriodLabel({ kind: 'range', from: '2026-08-01', to: '2026-08-10' }), '8.1 – 8.10');
+  assert.equal(formatPeriodLabel({ kind: 'range', from: '2026-08-01', to: '' }), '8.1 이후');
+  assert.equal(formatPeriodLabel({ kind: 'range', from: '', to: '' }), '전체 기간');
 });

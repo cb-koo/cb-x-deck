@@ -38,9 +38,15 @@ const SAMPLE: PromptInput = {
             bannedPhrases: ['완치', '부작용 없음'] },
   procedures: [{ name: '보톡스', description: '이마·미간 주름 부위에 소량 주사.',
                  effectPhrases: '주름이 옅어 보이는 효과, 개인차 있음', bannedPhrases: ['주름 제거'] }],
-  references: [{ tweetId: '0', handle: 'sample_account', name: null,
-                 excerpt: '(샘플) 실제로는 보관함에서 고른 레퍼런스 원문이 들어가요',
-                 memos: [{ member: '팀', text: '(샘플) 레퍼런스에 단 팀 메모가 참고 포인트로 들어가요' }] }],
+  // 2건으로 두어 반복 구조를 보여준다 — 규칙 문장은 1회, 레퍼런스는 ### 번호로 반복 (메모 없는 건도 예시)
+  references: [
+    { tweetId: '0', handle: 'sample_account1', name: null,
+      excerpt: '(샘플) 실제로는 보관함에서 고른 레퍼런스 원문이 들어가요',
+      memos: [{ member: '팀', text: '(샘플) 레퍼런스에 단 팀 메모가 참고 포인트로 들어가요' }] },
+    { tweetId: '1', handle: 'sample_account2', name: null,
+      excerpt: '(샘플) 레퍼런스를 여러 개 고르면 이렇게 번호로 이어져요 — 메모가 없으면 원문만 들어가요',
+      memos: [] },
+  ],
   mode: 'both', direction: '(샘플) 여름 이벤트 안내', format: 'single', constraintsOn: true,
 };
 

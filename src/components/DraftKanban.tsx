@@ -31,7 +31,7 @@ export function DraftKanban({ drafts, clientNameOf, onChangeStatus, onOpenCard }
                const d = drafts.find((x) => x.id === e.dataTransfer.getData('text/plain'));
                if (d && d.status !== s) onChangeStatus(d, s);
              }}
-             className={`flex min-h-[220px] w-[210px] shrink-0 flex-col rounded-xl border p-2 ${overCol === s ? 'border-x-blue bg-x-blue/5' : 'border-x-border bg-x-surface'}`}>
+             className={`flex min-h-[220px] min-w-[230px] max-w-[360px] flex-1 shrink-0 flex-col rounded-xl border p-2 ${overCol === s ? 'border-x-blue bg-x-blue/5' : 'border-x-border bg-x-surface'}`}>
           <p className="flex items-center gap-1.5 px-1 pb-2 text-caption font-bold text-x-secondary">
             <span aria-hidden className={`inline-block h-2 w-2 rounded-full ${STATUS_DOT[s]}`} />
             {STATUS_LABEL[s]} <span className="tabular-nums font-normal text-x-muted">{byStatus[s].length}</span>
@@ -49,10 +49,21 @@ export function DraftKanban({ drafts, clientNameOf, onChangeStatus, onOpenCard }
                    }}
                    className="cursor-pointer rounded-lg border border-x-border bg-white p-2 hover:border-x-border-strong focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
                 <p className="line-clamp-2 text-ui">{draftPreviewLine(d) || '(내용 없음)'}</p>
-                <p className="mt-1 truncate text-caption text-x-muted">
-                  {[d.clientId ? clientNameOf(d.clientId) : null, ...d.procedureNames, d.format === 'thread' ? '스레드' : '단문'].filter(Boolean).join(' · ')}
-                </p>
-                <p className="mt-0.5 text-caption text-x-muted">{draftTimeLabel(d.createdAt)}</p>
+                {/* 속성은 칩으로 — 본문 텍스트와 시각 문법을 분리(속성=칩, 내용=평문) */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  {d.clientId && (
+                    <span className="max-w-[140px] truncate rounded bg-x-blue/10 px-1.5 py-px text-caption font-medium text-x-blue-text">
+                      {clientNameOf(d.clientId)}
+                    </span>
+                  )}
+                  {d.procedureNames.map((p) => (
+                    <span key={p} className="rounded-full border border-x-border-strong px-1.5 py-px text-caption text-x-muted">{p}</span>
+                  ))}
+                  <span className="rounded-full border border-x-border-strong px-1.5 py-px text-caption text-x-muted">
+                    {d.format === 'thread' ? '스레드' : '단문'}
+                  </span>
+                  <span className="ml-auto pl-1 text-caption text-x-muted">{draftTimeLabel(d.createdAt)}</span>
+                </div>
               </div>
             ))}
             {byStatus[s].length === 0 && (

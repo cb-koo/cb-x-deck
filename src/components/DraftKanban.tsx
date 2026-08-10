@@ -3,7 +3,7 @@ import { useState } from 'react';
 import type { DraftRow } from '@/lib/draftStore';
 import { DRAFT_STATUSES, STATUS_LABEL, type DraftStatus } from '@/lib/draftStatus';
 import { draftTimeLabel } from '@/lib/draftUi';
-import { draftPreviewLine, draftKoLine, groupByStatus } from '@/lib/draftViews';
+import { draftLabel, draftPreviewLine, draftKoLine, groupByStatus } from '@/lib/draftViews';
 
 // 열 헤더 점 색 — DraftStatusChip의 STATUS_STYLE과 같은 계열 유지 (색은 UI 파일에만)
 const STATUS_DOT: Record<DraftStatus, string> = {
@@ -38,7 +38,7 @@ export function DraftKanban({ drafts, clientNameOf, onChangeStatus, onOpenCard }
           </p>
           <div className="flex flex-col gap-2">
             {byStatus[s].map((d) => {
-              const ko = draftKoLine(d);
+              const label = draftLabel(d);
               return (
               <div key={d.id} draggable tabIndex={0}
                    onDragStart={(e) => { e.dataTransfer.setData('text/plain', d.id); e.dataTransfer.effectAllowed = 'move'; }}
@@ -50,11 +50,17 @@ export function DraftKanban({ drafts, clientNameOf, onChangeStatus, onOpenCard }
                      onOpenCard(d.id);
                    }}
                    className="cursor-pointer rounded-lg border border-x-border bg-white p-2 hover:border-x-border-strong focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
-                {/* 캐시된 한국어 대역 우선 — 번역본임은 🌐로 명시(원문인 척하면 라벨-값 불일치, 원칙 4) */}
-                <p className="line-clamp-2 text-ui">
-                  {/* 마커는 스크린리더에도 노출 — 번역본 표시의 유일한 수단이라 숨기면 원칙 4 위반 (DraftCard 관례) */}
-                  {ko ? <><span title="한국어 번역으로 표시 중 — 원문은 카드에서">🌐 </span><span className="sr-only">한국어 번역: </span>{ko}</> : (draftPreviewLine(d) || '(내용 없음)')}
-                </p>
+                {label.kind === 'title' ? (
+                  <>
+                    <p className="text-ui font-medium">{label.text}</p>
+                    {/* 제목이 있으면 본문 미리보기는 보조로 강등(대역 우선) — 제목은 생성 라벨이라 🌐 없음 */}
+                    <p className="mt-0.5 truncate text-caption text-x-muted">{draftKoLine(d) ?? draftPreviewLine(d)}</p>
+                  </>
+                ) : (
+                  <p className="line-clamp-2 text-ui">
+                    {label.kind === 'ko' ? <><span title="한국어 번역으로 표시 중 — 원문은 카드에서">🌐 </span><span className="sr-only">한국어 번역: </span>{label.text}</> : label.text}
+                  </p>
+                )}
                 {/* 속성은 칩으로 — 본문 텍스트와 시각 문법을 분리(속성=칩, 내용=평문) */}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1">
                   {d.clientId && (

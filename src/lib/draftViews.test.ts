@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { draftPreviewLine, draftKoLine, sortDrafts, groupByStatus } from './draftViews.ts';
+import { draftPreviewLine, draftKoLine, draftLabel, sortDrafts, groupByStatus } from './draftViews.ts';
 import type { DraftStatus } from './draftStatus.ts';
 
 const post = (text: string) => ({ posts: [{ text }] });
@@ -18,6 +18,44 @@ test('draftKoLine: 캐시 없으면 null, 있으면 첫 줄만', () => {
   assert.equal(draftKoLine({ koLatest: null }), null);
   assert.equal(draftKoLine({ koLatest: ['첫 줄\n둘째 줄'] }), '첫 줄');
   assert.equal(draftKoLine({ koLatest: ['  '] }), null);
+});
+
+test('draftLabel: 제목 우선 — koTitle이 있으면 kind=title', () => {
+  const label = draftLabel({
+    koTitle: '생성된 제목',
+    koLatest: ['번역본 첫 줄'],
+    content: post('원문 첫 줄'),
+    edited: null,
+  });
+  assert.deepEqual(label, { text: '생성된 제목', kind: 'title' });
+});
+
+test('draftLabel: 제목 없으면 ko — koLatest 첫 줄이 있으면 kind=ko', () => {
+  const label = draftLabel({
+    koTitle: null,
+    koLatest: ['번역본 첫 줄\n둘째 줄'],
+    content: post('원문 첫 줄'),
+    edited: null,
+  });
+  assert.deepEqual(label, { text: '번역본 첫 줄', kind: 'ko' });
+});
+
+test('draftLabel: 둘 다 없으면 원문·빈 값은 (내용 없음)', () => {
+  const labelWithContent = draftLabel({
+    koTitle: null,
+    koLatest: null,
+    content: post('원문 첫 줄'),
+    edited: null,
+  });
+  assert.deepEqual(labelWithContent, { text: '원문 첫 줄', kind: 'original' });
+
+  const labelEmpty = draftLabel({
+    koTitle: null,
+    koLatest: null,
+    content: { posts: [] },
+    edited: null,
+  });
+  assert.deepEqual(labelEmpty, { text: '(내용 없음)', kind: 'original' });
 });
 
 test('sortDrafts: 생성일 내림차순 기본·원본 불변', () => {

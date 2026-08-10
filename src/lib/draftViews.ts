@@ -16,6 +16,15 @@ export function draftKoLine(d: { koLatest: string[] | null }): string | null {
   return line || null;
 }
 
+// 목록·보드 항목 라벨 폴백 체인 — 제목(생성 라벨) → 한국어 대역 첫 줄(번역) → 원문 첫 줄 (5차 스펙 §표시)
+export function draftLabel(d: { koTitle: string | null; koLatest: string[] | null; content: PreviewSource; edited: PreviewSource | null }):
+  { text: string; kind: 'title' | 'ko' | 'original' } {
+  if (d.koTitle) return { text: d.koTitle, kind: 'title' };
+  const ko = draftKoLine(d);
+  if (ko) return { text: ko, kind: 'ko' };
+  return { text: draftPreviewLine(d) || '(내용 없음)', kind: 'original' };
+}
+
 export type TableSortKey = 'createdAt' | 'client' | 'status';
 export interface TableSort { key: TableSortKey; dir: 'asc' | 'desc' }
 

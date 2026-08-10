@@ -4,7 +4,7 @@ import type { DraftRow } from '@/lib/draftStore';
 import type { DraftStatus } from '@/lib/draftStatus';
 import { DraftStatusChip } from '@/components/DraftStatusChip';
 import { draftTimeLabel } from '@/lib/draftUi';
-import { draftPreviewLine, draftKoLine, sortDrafts, type TableSort, type TableSortKey } from '@/lib/draftViews';
+import { draftLabel, draftPreviewLine, draftKoLine, sortDrafts, type TableSort, type TableSortKey } from '@/lib/draftViews';
 
 // 트리아지용 테이블 — 정독 액션은 없다. 행 클릭 = 카드 뷰 점프 (스펙 2차 §DraftTable)
 export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }: {
@@ -47,7 +47,7 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }:
         </thead>
         <tbody>
           {rows.map((d) => {
-            const ko = draftKoLine(d);
+            const label = draftLabel(d);
             return (
             // 행 전체가 카드를 여는 손잡이다. role="button"으로 덮어쓰지 않는다 — 행을 버튼이라고
             // 말하면 보조기술에서 표의 행·칸 구조가 사라진다. 행은 행으로 두고 조작만 얹는다.
@@ -61,9 +61,11 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }:
                   onOpenCard(d.id);
                 }}
                 className="cursor-pointer border-b border-x-border hover:bg-x-hover focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
-              <td className="max-w-[360px] truncate px-3 py-2">
-                {/* 마커는 스크린리더에도 노출 — 번역본 표시의 유일한 수단이라 숨기면 원칙 4 위반 (DraftCard 관례) */}
-                {ko ? <><span title="한국어 번역으로 표시 중 — 원문은 카드에서">🌐 </span><span className="sr-only">한국어 번역: </span>{ko}</> : (draftPreviewLine(d) || '(내용 없음)')}
+              <td className="max-w-[360px] truncate px-3 py-2"
+                  title={label.kind === 'title' ? (draftKoLine(d) ?? draftPreviewLine(d)) : undefined}>
+                {label.kind === 'title' ? <span className="font-medium">{label.text}</span>
+                 : label.kind === 'ko' ? <><span title="한국어 번역으로 표시 중 — 원문은 카드에서">🌐 </span><span className="sr-only">한국어 번역: </span>{label.text}</>
+                 : label.text}
               </td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{clientNameOf(d.clientId)}</td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{d.procedureNames.join(' · ') || '—'}</td>

@@ -416,7 +416,9 @@ function Workbench() {
             <DraftTable drafts={visibleDrafts} clientNameOf={clientNameOf}
                         onChangeStatus={changeStatus} onOpenCard={openCard} />
           )}
-          {view === 'kanban' && loaded && clientScoped.length > 0 && (
+          {/* 가드는 drafts 기준 — 클라이언트 필터가 0건이어도 빈 5열+드롭 안내가 그려져야
+              무설명 빈 화면이 되지 않는다(T4 리뷰 발견). 초안 0건은 위의 빈 상태 문구가 담당. */}
+          {view === 'kanban' && loaded && drafts.length > 0 && (
             <DraftKanban drafts={clientScoped} clientNameOf={clientNameOf}
                          onChangeStatus={changeStatus} onOpenCard={openCard} />
           )}

@@ -52,7 +52,8 @@ function Workbench() {
   const [view, setViewState] = useState<ResultView>('cards');
   // 패널 접힘: null=자동(카드 뷰=펼침, 테이블·칸반=접힘), 'open'|'closed'=수동 고정(세션 한정)
   const [panelPref, setPanelPref] = useState<'open' | 'closed' | null>(null);
-  const [highlightId, setHighlightId] = useState<string | null>(null);
+  // 피크 오버레이 — 항목 열람은 뷰 전환이 아니라 현재 뷰 위의 레이어로 (3차 스펙 §2)
+  const [peekId, setPeekId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   // 좌패널 풋터에서 생성하면 우측이 스크롤된 상태일 수 있어 결과가 소리 없이 화면 밖에 놓이지 않게 하기 위함(T11 계열)
   const resultsRef = useRef<HTMLDivElement | null>(null);
@@ -88,17 +89,15 @@ function Workbench() {
     (id: string | null) => (id ? (clients.find((c) => c.client.id === id)?.client.name ?? '—') : '—'),
     [clients]);
 
-  // 테이블·칸반에서 원고를 눌렀을 때 — 카드 뷰로 점프해 정독. 필터에 가려 있으면 전체로(T11 계열: 점프가 소리 없이 실패하지 않게)
-  function openCard(id: string) {
-    setViewState('cards'); // 점프는 '선택'이 아니므로 저장하지 않는다 — 다음 방문은 저장된 선호대로 (최종 리뷰 F5)
-    const target = draftsRef.current.find((d) => d.id === id);
-    if (target) setFilter((f) => (filterDrafts([target], f).length > 0 ? f : { status: 'all', clientId: '' }));
-    setHighlightId(id);
-    setTimeout(() => { // 카드 뷰 DOM이 그려진 다음 프레임에 스크롤
-      document.querySelector(`[data-draft-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 80);
-    setTimeout(() => setHighlightId(null), 1600);
-  }
+  // drafts에서 파생 — 원본이 사라지면(삭제 확정 등) 오버레이도 자연 소멸
+  const peeked = peekId ? drafts.find((d) => d.id === peekId) ?? null : null;
+  // Esc로 피크 닫기 — DraftEditModal 선례. 편집 모달이 위에 열려 있으면 그쪽 Esc가 우선이라 여기선 무시.
+  useEffect(() => {
+    if (!peekId || editing) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) setPeekId(null); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [peekId, editing]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로컬 저장값 복원(기존 코드베이스 관례, RefPickerSheet 선례)
@@ -349,15 +348,17 @@ function Workbench() {
       <div className="flex min-w-0 flex-1 flex-col lg:min-h-0">
         {loaded && drafts.length > 0 && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-x-border bg-x-surface px-4 py-2">
-            <div className="flex gap-1" role="group" aria-label="보기 방식">
-              {(['cards', 'table', 'kanban'] as const).map((v) => (
+            {/* 세그먼티드 컨트롤 — 배타적 모드 전환기라 필터 알약과 다른 시각 문법(채움형) (3차 스펙 §1) */}
+            <div role="group" aria-label="보기 방식" className="flex shrink-0 overflow-hidden rounded-lg border border-x-border-strong">
+              {(['cards', 'table', 'kanban'] as const).map((v, i) => (
                 <button key={v} onClick={() => setView(v)} aria-pressed={view === v}
                         title={v === 'cards' ? '원고를 한 건씩 정독·편집해요' : v === 'table' ? '목록으로 훑고 정렬해요' : '단계별로 끌어서 상태를 옮겨요'}
-                        className={`rounded-full border px-2.5 py-0.5 text-[13px] ${view === v ? 'border-x-blue bg-x-blue/10 font-bold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
+                        className={`px-2.5 py-1 text-[13px] ${i > 0 ? 'border-l border-x-border-strong' : ''} ${view === v ? 'bg-x-blue font-bold text-white' : 'bg-white text-x-secondary hover:bg-x-hover'}`}>
                   {v === 'cards' ? '카드' : v === 'table' ? '테이블' : '칸반'}
                 </button>
               ))}
             </div>
+            <span aria-hidden className="h-4 w-px shrink-0 bg-x-border-strong" />
             <div className="min-w-0 flex-1">
               <DraftFilterBar counts={counts} total={clientScoped.length} filter={filter}
                               clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
@@ -403,35 +404,55 @@ function Workbench() {
           )}
 
           {view === 'cards' && visibleDrafts.map((d) => (
-            <div key={d.id} data-draft-id={d.id}
-                 className={`w-full max-w-[600px] ${highlightId === d.id ? 'rounded-2xl ring-2 ring-x-blue' : ''}`}>
-              <DraftCard draft={d} banned={bannedFor(d)}
-                         onEdit={() => setEditing(d)}
-                         onRewrite={(feedback, baseIndex) => rewrite(d.id, feedback, baseIndex)}
-                         rewriteBusy={rewritingId === d.id}
-                         onDelete={() => requestRemove(d)}
-                         onRegenPost={(i) => regenPost(d, i)}
-                         regenBusyIndex={regenBusy?.draftId === d.id ? regenBusy.index : null}
-                         onDismissFlag={(key, dismiss) => toggleDismiss(d, key, dismiss)}
-                         onRestoreAllFlags={() => restoreAllFlags(d)}
-                         onChangeStatus={(s) => changeStatus(d, s)}
-                         siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null} />
-            </div>
+            <DraftCard key={d.id} draft={d} banned={bannedFor(d)}
+                       onEdit={() => setEditing(d)}
+                       onRewrite={(feedback, baseIndex) => rewrite(d.id, feedback, baseIndex)}
+                       rewriteBusy={rewritingId === d.id}
+                       onDelete={() => requestRemove(d)}
+                       onRegenPost={(i) => regenPost(d, i)}
+                       regenBusyIndex={regenBusy?.draftId === d.id ? regenBusy.index : null}
+                       onDismissFlag={(key, dismiss) => toggleDismiss(d, key, dismiss)}
+                       onRestoreAllFlags={() => restoreAllFlags(d)}
+                       onChangeStatus={(s) => changeStatus(d, s)}
+                       siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null} />
           ))}
           {view === 'table' && loaded && visibleDrafts.length > 0 && (
             <DraftTable drafts={visibleDrafts} clientNameOf={clientNameOf}
-                        onChangeStatus={changeStatus} onOpenCard={openCard} />
+                        onChangeStatus={changeStatus} onOpenCard={setPeekId} />
           )}
           {/* 가드는 drafts 기준 — 클라이언트 필터가 0건이어도 빈 5열+드롭 안내가 그려져야
               무설명 빈 화면이 되지 않는다(T4 리뷰 발견). 초안 0건은 위의 빈 상태 문구가 담당. */}
           {view === 'kanban' && loaded && drafts.length > 0 && (
             <DraftKanban drafts={clientScoped} clientNameOf={clientNameOf}
-                         onChangeStatus={changeStatus} onOpenCard={openCard} />
+                         onChangeStatus={changeStatus} onOpenCard={setPeekId} />
           )}
           </div>
         </div>
       </div>
 
+      {peeked && (
+        <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-x-text/40 p-6"
+             onClick={() => setPeekId(null)}>
+          <div role="dialog" aria-modal="true" aria-label="원고 상세" className="w-full max-w-[600px]"
+               onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex justify-end">
+              <button onClick={() => setPeekId(null)} aria-label="상세 닫기" title="닫기 (Esc)"
+                      className="rounded-full bg-white/90 px-2.5 py-1 text-[13px] font-bold text-x-secondary hover:bg-white">✕ 닫기</button>
+            </div>
+            <DraftCard draft={peeked} banned={bannedFor(peeked)}
+                       onEdit={() => setEditing(peeked)}
+                       onRewrite={(feedback, baseIndex) => rewrite(peeked.id, feedback, baseIndex)}
+                       rewriteBusy={rewritingId === peeked.id}
+                       onDelete={() => { setPeekId(null); requestRemove(peeked); }}
+                       onRegenPost={(i) => regenPost(peeked, i)}
+                       regenBusyIndex={regenBusy?.draftId === peeked.id ? regenBusy.index : null}
+                       onDismissFlag={(key, dismiss) => toggleDismiss(peeked, key, dismiss)}
+                       onRestoreAllFlags={() => restoreAllFlags(peeked)}
+                       onChangeStatus={(s) => changeStatus(peeked, s)}
+                       siblingTotal={peeked.batchId ? siblingCount(drafts, peeked.batchId) : null} />
+          </div>
+        </div>
+      )}
       {editing && (
         <DraftEditModal draft={editing} onClose={() => setEditing(null)}
                         onSaved={(u) => { setDrafts((cur) => cur.map((d) => (d.id === u.id ? u : d))); setEditing(null); }} />

@@ -8,7 +8,7 @@ import { useMember } from '@/lib/memberContext';
 import { swapWorkspacePath } from '@/lib/wsNav';
 import { interceptNav } from '@/lib/navGuard';
 import { createClient } from '@/lib/supabase/client';
-import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon } from './XIcons';
+import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, SettingsIcon } from './XIcons';
 
 // SPA 이동 가드 — /clients 등이 등록한 편집 유실 방지(navGuard)에 걸리면 이동을 중단한다.
 // <a> 시절엔 beforeunload가 잡았지만 Link(클라이언트 라우팅)는 우회하므로 onNavigate에 연결.
@@ -50,10 +50,15 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     { href: `/w/${wsId}/library`, label: '보관함', Ic: FolderIcon, tour: undefined },
   ];
 
-  // 워크스페이스 무관 최상위 기능 (스펙 §4 — 콘텐츠 생성·클라이언트는 /w/[wsId] 밖)
+  // 워크스페이스 무관 최상위 기능 (스펙 §4 — 콘텐츠 생성은 /w/[wsId] 밖)
   const globalNav = [
     { href: '/generate', label: '콘텐츠 생성', Ic: PenIcon },
+  ];
+
+  // 설정 성격 화면(가끔 들어가 재료·규칙을 손보는 곳) — 매일 쓰는 작업 메뉴와 분리 (사이드바 개선 스펙)
+  const settingsNav = [
     { href: '/clients', label: '클라이언트', Ic: ClinicIcon },
+    { href: '/prompt', label: 'AI 지시문', Ic: SettingsIcon },
   ];
 
   return (
@@ -101,6 +106,15 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
         ))}
         {nav.length > 0 && <div className="my-2 border-t border-x-border" />}
         {globalNav.map((n) => (
+          <Link key={n.href} href={n.href} onNavigate={guardedNavigate(n.href)}
+                aria-current={pathname === n.href ? 'page' : undefined}
+                className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
+            <n.Ic className="h-[18px] w-[18px]" />{n.label}
+          </Link>
+        ))}
+        {globalNav.length > 0 && <div className="my-2 border-t border-x-border" />}
+        <p className="mb-1 px-1 text-caption text-x-muted">설정</p>
+        {settingsNav.map((n) => (
           <Link key={n.href} href={n.href} onNavigate={guardedNavigate(n.href)}
                 aria-current={pathname === n.href ? 'page' : undefined}
                 className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>

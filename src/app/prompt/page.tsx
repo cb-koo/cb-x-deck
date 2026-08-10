@@ -91,7 +91,7 @@ export default function PromptPage() {
   }
 
   return (
-    <main className="mx-auto max-w-[720px] px-6 py-8">
+    <main className="mx-auto max-w-[1100px] px-6 py-8">
       <h1 className="text-[20px] font-bold">AI 지시문</h1>
       <p className="mt-1 text-ui text-x-secondary">
         원고를 만들 때 AI에게 주는 지시문이에요. 여기서 바꾸면 팀 전체의 이후 생성에 바로 적용돼요.
@@ -108,56 +108,60 @@ export default function PromptPage() {
 
       {values && (
         <>
-          <div className="mt-5 space-y-4">
-            {FIELDS.map((f) => (
-              <div key={f.key}>
-                <div className="flex items-baseline justify-between">
-                  <label htmlFor={`pf-${f.key}`} className="text-ui font-bold">{f.label}</label>
-                  {values[f.key].trim() !== PROMPT_DEFAULTS[f.key] && (
-                    <button onClick={() => { setValues({ ...values, [f.key]: PROMPT_DEFAULTS[f.key] }); setSaved(false); }}
-                            className="text-caption text-x-blue-text hover:underline">기본값 복원</button>
-                  )}
-                </div>
-                <p className="text-caption text-x-muted">{f.help}</p>
-                <textarea id={`pf-${f.key}`} value={values[f.key]} rows={f.rows} maxLength={2000}
-                          onChange={(e) => { setValues({ ...values, [f.key]: e.target.value }); setSaved(false); }}
-                          className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
+          <div className="mt-5 flex items-start gap-8">
+            <div className="flex-1 min-w-0">
+              <div className="space-y-4">
+                {FIELDS.map((f) => (
+                  <div key={f.key}>
+                    <div className="flex items-baseline justify-between">
+                      <label htmlFor={`pf-${f.key}`} className="text-ui font-bold">{f.label}</label>
+                      {values[f.key].trim() !== PROMPT_DEFAULTS[f.key] && (
+                        <button onClick={() => { setValues({ ...values, [f.key]: PROMPT_DEFAULTS[f.key] }); setSaved(false); }}
+                                className="text-caption text-x-blue-text hover:underline">기본값 복원</button>
+                      )}
+                    </div>
+                    <p className="text-caption text-x-muted">{f.help}</p>
+                    <textarea id={`pf-${f.key}`} value={values[f.key]} rows={f.rows} maxLength={2000}
+                              onChange={(e) => { setValues({ ...values, [f.key]: e.target.value }); setSaved(false); }}
+                              className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          {err && <p className="mt-3 text-ui text-red-500">{err}</p>}
-          <div className="mt-4 flex items-center gap-2.5">
-            <Button variant="primary" onClick={save} disabled={saving}>{saving ? '저장 중…' : '저장'}</Button>
-            {saved && <span className="text-ui font-medium text-x-green">저장됨 ✓ — 다음 생성부터 적용돼요</span>}
-          </div>
-
-          <div className="mt-8">
-            <h2 className="text-content font-bold">AI에게 전달되는 모습 (샘플)</h2>
-            <p className="text-caption text-x-muted">
-              지금 편집 중인 문장이 들어간 실제 전달 형태예요. 실제 생성에선 (샘플) 자리에 그때 고른
-              클라이언트·시술·레퍼런스·방향성이 들어가요. 고른 방식의 규칙 문장이 본문 미리보기에 들어가요.
-            </p>
-            <div className="mt-2 flex items-center gap-1.5 text-caption text-x-muted">
-              <span>샘플의 참고 방식:</span>
-              {([
-                ['form', '형식만'],
-                ['angle', '앵글만'],
-                ['both', '형식+앵글'],
-              ] as const).map(([m, label]) => (
-                <button key={m} onClick={() => setPreviewMode(m)}
-                        className={`rounded-full border px-2.5 py-0.5 text-caption ${
-                          previewMode === m
-                            ? 'border-x-border bg-[#e3f1fb] text-x-blue-text'
-                            : 'border-x-border-strong text-x-secondary hover:bg-x-hover'
-                        }`}>
-                  {label}
-                </button>
-              ))}
+              {err && <p className="mt-3 text-ui text-red-500">{err}</p>}
+              <div className="mt-4 flex items-center gap-2.5">
+                <Button variant="primary" onClick={save} disabled={saving}>{saving ? '저장 중…' : '저장'}</Button>
+                {saved && <span className="text-ui font-medium text-x-green">저장됨 ✓ — 다음 생성부터 적용돼요</span>}
+              </div>
             </div>
-            <p className="mt-2 text-caption font-bold text-x-muted">역할 지시 (시스템)</p>
-            <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-ui leading-normal">{previewSystem}</pre>
-            <p className="mt-2 text-caption font-bold text-x-muted">본문</p>
-            <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-ui leading-normal">{preview}</pre>
+
+            <div className="sticky top-6 max-h-[calc(100vh-3rem)] w-[46%] shrink-0 self-start overflow-y-auto">
+              <h2 className="text-content font-bold">AI에게 전달되는 모습 (샘플)</h2>
+              <p className="text-caption text-x-muted">
+                지금 편집 중인 문장이 들어간 실제 전달 형태예요. 실제 생성에선 (샘플) 자리에 그때 고른
+                클라이언트·시술·레퍼런스·방향성이 들어가요. 고른 방식의 규칙 문장이 본문 미리보기에 들어가요.
+              </p>
+              <div className="mt-2 flex items-center gap-1.5 text-caption text-x-muted">
+                <span>샘플의 참고 방식:</span>
+                {([
+                  ['form', '형식만'],
+                  ['angle', '앵글만'],
+                  ['both', '형식+앵글'],
+                ] as const).map(([m, label]) => (
+                  <button key={m} onClick={() => setPreviewMode(m)}
+                          className={`rounded-full border px-2.5 py-0.5 text-caption ${
+                            previewMode === m
+                              ? 'border-x-border bg-[#e3f1fb] text-x-blue-text'
+                              : 'border-x-border-strong text-x-secondary hover:bg-x-hover'
+                          }`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-caption font-bold text-x-muted">역할 지시 (시스템)</p>
+              <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-ui leading-normal">{previewSystem}</pre>
+              <p className="mt-2 text-caption font-bold text-x-muted">본문</p>
+              <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-ui leading-normal">{preview}</pre>
+            </div>
           </div>
 
           {versions.length > 0 && (

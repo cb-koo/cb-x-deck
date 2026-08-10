@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { draftPreviewLine, draftKoLine, draftLabel, sortDrafts, groupByStatus } from './draftViews.ts';
+import { draftPreviewLine, draftKoLine, draftLabel, sortDrafts, groupByStatus, searchDrafts, filterByProcedure, filterByPeriod, procedureOptions } from './draftViews.ts';
 import type { DraftStatus } from './draftStatus.ts';
 
 const post = (text: string) => ({ posts: [{ text }] });
@@ -89,4 +89,51 @@ test('groupByStatus: 5개 열이 항상 존재하고 열 안은 최신순', () =
   assert.deepEqual(g.draft.map((x) => x.id), ['new', 'old']);
   assert.equal(g.delivered.length, 1);
   assert.deepEqual(g.review, []); assert.deepEqual(g.approved, []); assert.deepEqual(g.unused, []);
+});
+
+test('searchDrafts: 빈 질의는 전체, 토큰 AND, 대소문자 무시, 4개 필드 대상', () => {
+  const d = (over: object) => ({ koTitle: null, koLatest: null, direction: '', content: { posts: [{ text: '' }] }, edited: null, ...over });
+  const list = [
+    d({ koTitle: '다운타임 후기형' }),
+    d({ koLatest: ['가격 비교 정리'] }),
+    d({ content: { posts: [{ text: 'ダウンタイム' }] } }),
+    d({ direction: '여름 시즌 Lifting' }),
+  ];
+  assert.equal(searchDrafts(list, '').length, 4);
+  assert.equal(searchDrafts(list, '  ').length, 4);
+  assert.deepEqual(searchDrafts(list, '다운타임'), [list[0]]);
+  assert.deepEqual(searchDrafts(list, '가격 정리'), [list[1]]);      // 토큰 AND
+  assert.deepEqual(searchDrafts(list, 'ダウン'), [list[2]]);
+  assert.deepEqual(searchDrafts(list, 'lifting'), [list[3]]);        // 대소문자 무시
+  assert.equal(searchDrafts(list, '가격 후기형').length, 0);         // 서로 다른 항목에 분산되면 미매치
+});
+
+test('searchDrafts: 편집본이 있으면 편집본 기준', () => {
+  const x = { koTitle: null, koLatest: null, direction: '',
+    content: { posts: [{ text: '원문에만 있는말' }] }, edited: { posts: [{ text: '편집본' }] } };
+  assert.equal(searchDrafts([x], '원문에만').length, 0);
+  assert.equal(searchDrafts([x], '편집본').length, 1);
+});
+
+test('filterByProcedure: 빈 이름은 전체, 지정 시 포함 항목만', () => {
+  const a = { procedureNames: ['리프팅', '보톡스'] }, b = { procedureNames: [] };
+  assert.equal(filterByProcedure([a, b], '').length, 2);
+  assert.deepEqual(filterByProcedure([a, b], '리프팅'), [a]);
+});
+
+test('filterByPeriod: 자정·N일 경계', () => {
+  const now = Date.parse('2026-08-10T15:00:00+09:00');
+  const midnight = new Date(now); midnight.setHours(0, 0, 0, 0);
+  const mk = (t: number) => ({ createdAt: new Date(t).toISOString() });
+  const justBefore = mk(midnight.getTime() - 60_000), justAfter = mk(midnight.getTime() + 60_000);
+  assert.deepEqual(filterByPeriod([justBefore, justAfter], 'today', now), [justAfter]);
+  const eightDays = mk(now - 8 * 86_400_000), sixDays = mk(now - 6 * 86_400_000);
+  assert.deepEqual(filterByPeriod([eightDays, sixDays], '7d', now), [sixDays]);
+  assert.equal(filterByPeriod([eightDays, sixDays], 'all', now).length, 2);
+});
+
+test('procedureOptions: 유니크·가나다 정렬', () => {
+  assert.deepEqual(procedureOptions([
+    { procedureNames: ['보톡스', '리프팅'] }, { procedureNames: ['리프팅', '가슴성형'] },
+  ]), ['가슴성형', '리프팅', '보톡스']);
 });

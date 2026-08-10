@@ -48,3 +48,40 @@ export function groupByStatus<T extends { status: DraftStatus; createdAt: string
   for (const s of DRAFT_STATUSES) out[s].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   return out;
 }
+
+// 검색 — 공백 분리 토큰 전부(AND)가 제목·대역·원문(최신 버전)·방향성 중 어딘가에 포함(대소문자 무시)
+export function searchDrafts<T extends {
+  koTitle: string | null; koLatest: string[] | null; direction: string;
+  content: PreviewSource; edited: PreviewSource | null;
+}>(list: T[], query: string): T[] {
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return list;
+  return list.filter((d) => {
+    const hay = [
+      d.koTitle ?? '', ...(d.koLatest ?? []),
+      ...(d.edited ?? d.content).posts.map((p) => p.text),
+      d.direction,
+    ].join('\n').toLowerCase();
+    return tokens.every((t) => hay.includes(t));
+  });
+}
+
+export function filterByProcedure<T extends { procedureNames: string[] }>(list: T[], name: string): T[] {
+  return name ? list.filter((d) => d.procedureNames.includes(name)) : list;
+}
+
+export type Period = 'all' | 'today' | '7d' | '30d';
+
+// now를 인자로 받아 순수 유지. 'today'는 로컬 자정 기준(사용자 시간대 = 서울 운영 전제, relTime 관례)
+export function filterByPeriod<T extends { createdAt: string }>(list: T[], period: Period, now: number): T[] {
+  if (period === 'all') return list;
+  let start: number;
+  if (period === 'today') { const d = new Date(now); d.setHours(0, 0, 0, 0); start = d.getTime(); }
+  else start = now - (period === '7d' ? 7 : 30) * 86_400_000;
+  return list.filter((x) => Date.parse(x.createdAt) >= start);
+}
+
+// 시술 필터 옵션 — 실제 존재하는 시술만(거짓 어포던스 방지), 유니크·가나다
+export function procedureOptions(list: Array<{ procedureNames: string[] }>): string[] {
+  return [...new Set(list.flatMap((d) => d.procedureNames))].sort((a, b) => a.localeCompare(b, 'ko'));
+}

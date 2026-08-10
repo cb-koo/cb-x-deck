@@ -7,6 +7,7 @@ import { useTranslations } from '@/components/useTranslations';
 import { formatCount } from '@/lib/format';
 import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from '@/components/XIcons';
 import { idSetChanged } from '@/lib/draftUi';
+import { AddByLinkModal, type AddedByLink } from '@/components/AddByLinkModal';
 import { matchesRefSearch, sortRefRows, REF_SORT_LABEL, type RefSortKey } from '@/lib/refSheetFilter';
 import type { ReferenceRow } from '@/lib/referenceStore';
 
@@ -24,14 +25,18 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<RefSortKey>('default');
   const [sel, setSel] = useState<string[]>(selectedIds);
+  const [addOpen, setAddOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [addNotice, setAddNotice] = useState<string | null>(null); // /generate엔 토스트가 없다 — 인라인 안내
   // scope를 넘나들며 선택이 쌓인다 — 현재 scope 응답(rows)엔 없는 row도 sel에 남을 수 있어
   // "N건 적용"이 실제 적용 내용과 어긋나지 않으려면 본 적 있는 row를 전부 여기 누적해둬야 한다.
   const cacheRef = useRef(new Map<string, ReferenceRow>());
   // 번역 — 덱/보관함과 같은 훅·같은 전역 캐시(tweet_translation). 이미 번역된 건 무과금 재사용.
   const { translations, showTranslations, translatingAll, translateProgress, translateErr, loadCached, translateAll } = useTranslations();
 
+  // setAddOpen(false): Esc는 시트·모달 리스너가 함께 반응해 모달이 열린 채 시트가 닫힐 수 있다 — 다음에 열 때 모달이 되살아나지 않게.
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 시트를 열 때마다 상위 선택값으로 재동기화(기존 코드베이스 관례)
-  useEffect(() => { if (open) { setSel(selectedIds); setQuery(''); setSortKey('default'); } }, [open, selectedIds]);
+  useEffect(() => { if (open) { setSel(selectedIds); setQuery(''); setSortKey('default'); setAddNotice(null); setAddOpen(false); } }, [open, selectedIds]);
   // 시트를 열 때 부모가 이미 알고 있는 row(현재 선택된 레퍼런스)를 캐시에 시드 —
   // 그렇지 않으면 열자마자 적용을 누를 때 캐시엔 id만 있고 row 본문이 없다.
   useEffect(() => { if (open) seedRows.forEach((r) => cacheRef.current.set(r.tweetId, r)); }, [open, seedRows]);
@@ -46,7 +51,7 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
         setRows(data); setLoaded(true);
         void loadCached(data.map((r) => r.tweetId)); // 기번역분 조용히 로드(과금 없음)
       });
-  }, [open, scope, lastWsId, loadCached]);
+  }, [open, scope, lastWsId, loadCached, reloadKey]);
 
   // Esc로 시트 닫기 — ColumnSettings 선례와 동일한 방식(document 레벨 리스너). IME 조합 중 Esc는 무시.
   useEffect(() => {
@@ -75,8 +80,17 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
     setSel((cur) => cur.includes(id) ? cur.filter((x) => x !== id)
       : cur.length >= MAX_REFS_UI ? cur : [...cur, id]);
   }
+  // 링크 추가 성공 — 선택은 즉시, 목록은 재조회로. 결과는 판단까지 서술(UX 원칙 3).
+  function handleAdded(r: AddedByLink) {
+    const saved = r.alreadyInLibrary ? '이미 보관함에 있어요' : '보관함에 추가했어요';
+    if (sel.includes(r.tweetId)) setAddNotice(`${saved} — 이미 선택돼 있어요`);
+    else if (sel.length >= MAX_REFS_UI) setAddNotice(`${saved} — 선택이 ${MAX_REFS_UI}건이라 자동 선택은 안 했어요. 목록에서 직접 조정해주세요`);
+    else { setSel((cur) => [...cur, r.tweetId]); setAddNotice(`${saved} — 레퍼런스로 선택했어요`); }
+    setReloadKey((k) => k + 1);
+  }
 
   return (
+    <>
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-x-text/40 p-6" onClick={requestClose}>
       <div className="max-h-full w-full max-w-[640px] overflow-y-auto rounded-2xl bg-white"
            role="dialog" aria-label="레퍼런스 선택" onClick={(e) => e.stopPropagation()}>
@@ -189,6 +203,7 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
         </div>
 
         <div className="sticky bottom-0 border-t border-x-border bg-white px-4 py-3">
+          {addNotice && <p className="mb-2 text-caption text-x-blue-text">{addNotice}</p>}
           <p className="mb-2 text-caption text-amber-700">
             {MAX_REFS_UI}건까지 고를 수 있어요. 더 넣으면 원고가 레퍼런스 문구를 그대로 베낄 위험이 커져요 — 서로 다른 앵글로 3~5건이 가장 좋아요.
           </p>
@@ -197,10 +212,14 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
               {sel.length}건 적용
             </Button>
             <button onClick={onClose} className="text-ui text-x-secondary">취소</button>
+            <button onClick={() => { setAddNotice(null); setAddOpen(true); }} className="text-ui text-x-blue-text hover:underline">🔗 링크로 추가</button>
             <span className="ml-auto text-caption text-x-muted">선택은 다음 생성에도 유지돼요</span>
           </div>
         </div>
       </div>
     </div>
+    {/* 시트 오버레이의 형제로 — 안에 두면 모달 클릭이 시트 배경의 requestClose로 버블링된다 */}
+    <AddByLinkModal open={addOpen} onClose={() => setAddOpen(false)} defaultWsId={lastWsId} onAdded={handleAdded} />
+    </>
   );
 }

@@ -26,9 +26,11 @@
 
 ## 구성 요소
 
-### ① 링크 파서 — `src/lib/tweetLink.ts` (신규)
+### ① 링크 파서 — `src/lib/tweetLink.ts` (기존 파일에 추가)
 
-`xHandle.ts` 관례(순수 함수 + 사유별 사용자 문구 함수 + 단위 테스트)를 따른다.
+`tweetLink.ts`에는 이미 링크 **조립** 함수(`tweetPermalink`)가 있다 — 파싱(역방향)을 같은 파일에
+추가해 트윗 링크 규칙을 한 곳에 모은다. `xHandle.ts` 관례(순수 함수 + 사유별 사용자 문구 함수 +
+단위 테스트)를 따른다.
 
 ```ts
 export type TweetLinkParse =

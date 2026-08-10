@@ -1,10 +1,13 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
+import type postgres from 'postgres';
 import { getSql } from './db.ts';
 import { generateDraft, regeneratePost, rewriteDraft, GenerateInputError, MAX_REFS, CONTENT_MODEL } from './generate.ts';
 import { createClient, createProcedure } from './clientStore.ts';
 import { createWorkspace, deleteWorkspace } from './workspaceStore.ts';
 import { getDraft, removeDraft } from './draftStore.ts';
+import { savePromptOverrides } from './promptSettings.ts';
+import { PROMPT_DEFAULTS } from './generatePrompt.ts';
 import type { AnthropicLike } from './llm.ts';
 
 const sql = getSql();
@@ -275,4 +278,34 @@ test('count 1 — 기존과 동일: posts 스키마·batch null', async () => {
   assert.equal(row!.batchId, null);
   assert.equal(row!.variantIndex, null);
   await removeDraft(sql, id);
+});
+
+// prompt_template_version은 최신 행 = 팀 전역 설정이라, 커밋되는 테스트 행은 그 순간 실제 생성에 반영된다.
+// 트랜잭션 안에서 저장→generateDraft 왕복을 검증하고 강제 롤백해 프로덕션 오염 창을 0으로 만든다
+// (promptSettings.test.ts와 동일한 하네스).
+const ROLLBACK = Symbol('rollback');
+
+test('저장한 프롬프트 오버라이드가 생성 프롬프트에 반영된다 (롤백 하네스)', async () => {
+  await sql.begin(async (tx) => {
+    const txSql = tx as unknown as postgres.Sql;
+    await savePromptOverrides(txSql, { system: '오버라이드된 역할 지시', hook: '오버라이드된 훅 지시' }, null);
+
+    let sent: Record<string, unknown> = {};
+    // direction만 있으면 3요소(클라·레퍼런스·방향성) 검증 통과 — API 비용 없이 fakeLLM으로 캡처
+    // generateDraft 내부의 sql.begin은 count>1일 때만 타므로(count 미지정=1) 중첩 트랜잭션 이슈 없음.
+    await generateDraft(txSql, {
+      clientId: null, procedureIds: [], refTweetIds: [], mode: 'off',
+      direction: '반영 확인용', format: 'single', constraintsOn: false, memberId: null,
+    }, fakeLLM((p) => { sent = p; }));
+
+    assert.equal(sent.system, '오버라이드된 역할 지시');
+    const userMsg = (sent.messages as Array<{ content: string }>)[0].content;
+    assert.ok(userMsg.includes('오버라이드된 훅 지시'));
+    assert.ok(!userMsg.includes(PROMPT_DEFAULTS.hook));
+
+    throw ROLLBACK;
+  }).catch((e) => { if (e !== ROLLBACK) throw e; });
+  // generateDraft가 tx 안에서 draft를 insert하지만(단일 생성은 sql.begin을 타지 않아도 위 트랜잭션 자체가
+  // 이 롤백 하네스이므로) 상위 트랜잭션 롤백과 함께 draft·prompt_template_version 행 모두 사라진다.
+  // 하네스 밖 잔존물 재확인은 불필요 — 최신 행 오염 여부는 promptSettings.test.ts가 이미 커버.
 });

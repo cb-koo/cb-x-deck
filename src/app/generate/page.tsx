@@ -8,6 +8,8 @@ import { DraftCard } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
 import { RefPickerSheet } from '@/components/RefPickerSheet';
 import { DraftFilterBar } from '@/components/DraftFilterBar';
+import { DraftTable } from '@/components/DraftTable';
+import { DraftKanban } from '@/components/DraftKanban';
 import { DraftComposer, ComposerFooter, DEFAULT_COMPOSER, type ComposerState } from '@/components/DraftComposer';
 import { clampPanelWidth, PANEL_DEFAULT, PANEL_WIDTH_KEY } from '@/lib/panelResize';
 import { LAST_WS_KEY } from '@/components/GlobalShell';
@@ -17,6 +19,9 @@ import type { ReferenceRow } from '@/lib/referenceStore';
 import type { DraftStatus } from '@/lib/draftStatus';
 
 const COMPOSER_KEY = 'cbx-composer'; // 직전 설정 유지 (스펙 §4 "바꾸기 — 직전 값 유지")
+// 보기 방식 — 렌즈(필터)와 달리 작업 방식 선호라 저장한다 (스펙 2차 §확정 결정)
+type ResultView = 'cards' | 'table' | 'kanban';
+const VIEW_KEY = 'cbx-generate-view';
 
 export default function GeneratePage() {
   return (
@@ -44,6 +49,10 @@ function Workbench() {
   // 좌패널 폭 — 드래그 리사이즈, 더블클릭 복원, 저장값은 복원 시 클램프 (스펙 §경계 조건)
   const [panelW, setPanelW] = useState(PANEL_DEFAULT);
   const [resizing, setResizing] = useState(false);
+  const [view, setViewState] = useState<ResultView>('cards');
+  // 패널 접힘: null=자동(카드 뷰=펼침, 테이블·칸반=접힘), 'open'|'closed'=수동 고정(세션 한정)
+  const [panelPref, setPanelPref] = useState<'open' | 'closed' | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   // 좌패널 풋터에서 생성하면 우측이 스크롤된 상태일 수 있어 결과가 소리 없이 화면 밖에 놓이지 않게 하기 위함(T11 계열)
   const resultsRef = useRef<HTMLDivElement | null>(null);
@@ -66,6 +75,28 @@ function Workbench() {
   const draftsRef = useRef<DraftRow[]>([]);
   useEffect(() => { draftsRef.current = drafts; }, [drafts]);
   const lastWsId = typeof window !== 'undefined' ? localStorage.getItem(LAST_WS_KEY) : null;
+  useEffect(() => {
+    const v = localStorage.getItem(VIEW_KEY);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 저장값 복원 (COMPOSER_KEY와 같은 관례)
+    if (v === 'table' || v === 'kanban') setViewState(v);
+  }, []);
+  const setView = useCallback((v: ResultView) => { setViewState(v); localStorage.setItem(VIEW_KEY, v); }, []);
+  const panelOpen = panelPref !== null ? panelPref === 'open' : view === 'cards';
+  const clientNameOf = useCallback(
+    (id: string | null) => (id ? (clients.find((c) => c.client.id === id)?.client.name ?? '?') : '—'),
+    [clients]);
+
+  // 테이블·칸반에서 원고를 눌렀을 때 — 카드 뷰로 점프해 정독. 필터에 가려 있으면 전체로(T11 계열: 점프가 소리 없이 실패하지 않게)
+  function openCard(id: string) {
+    setView('cards');
+    const target = draftsRef.current.find((d) => d.id === id);
+    if (target) setFilter((f) => (filterDrafts([target], f).length > 0 ? f : { status: 'all', clientId: '' }));
+    setHighlightId(id);
+    setTimeout(() => { // 카드 뷰 DOM이 그려진 다음 프레임에 스크롤
+      document.querySelector(`[data-draft-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+    setTimeout(() => setHighlightId(null), 1600);
+  }
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로컬 저장값 복원(기존 코드베이스 관례, RefPickerSheet 선례)
@@ -92,8 +123,10 @@ function Workbench() {
     if (!ref) return;
     apiFetch('/api/references?scope=all').then((r) => r.json()).then((rows: ReferenceRow[]) => {
       const found = rows.find((x) => x.tweetId === ref);
-      if (found) setRefRows((cur) => (cur.some((x) => x.tweetId === ref) ? cur : [...cur, found]));
-      else setToast('이 트윗은 보관함에 없어요 — 덱에서 ☆ 저장한 뒤 다시 시도해주세요');
+      if (found) {
+        setRefRows((cur) => (cur.some((x) => x.tweetId === ref) ? cur : [...cur, found]));
+        setPanelPref('open'); // 접힌 상태로 진입해도 연결 결과가 보이게 (스펙 §경계 조건)
+      } else setToast('이 트윗은 보관함에 없어요 — 덱에서 ☆ 저장한 뒤 다시 시도해주세요');
     });
   }, [searchParams]);
 
@@ -260,12 +293,16 @@ function Workbench() {
   return (
     <div ref={rootRef} style={{ ['--panel-w' as string]: `${panelW}px` }}
          className={`flex flex-col lg:h-full lg:flex-row ${resizing ? 'select-none' : ''}`}>
-      {/* 좌: 생성 패널 — lg에서 자체 스크롤 + 하단 고정 풋터 */}
-      <div className="flex shrink-0 flex-col bg-x-surface lg:min-h-0 lg:w-[var(--panel-w)]">
+      {/* 좌: 생성 패널 — 접히면 lg에서 레일로. <lg 스택에서는 접기 개념 없음(항상 펼침) */}
+      <div className={`flex shrink-0 flex-col bg-x-surface lg:min-h-0 ${panelOpen ? 'lg:w-[var(--panel-w)]' : 'lg:hidden'}`}>
         <div className="space-y-3 p-4 lg:flex-1 lg:overflow-y-auto">
-          <div>
-            <h1 className="text-[20px] font-bold">콘텐츠 생성</h1>
-            <p className="mt-0.5 text-caption text-x-secondary">레퍼런스와 클라이언트 정보를 조합해 인플루언서에게 보낼 X 원고 초안을 만들어요.</p>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h1 className="text-[20px] font-bold">콘텐츠 생성</h1>
+              <p className="mt-0.5 text-caption text-x-secondary">레퍼런스와 클라이언트 정보를 조합해 인플루언서에게 보낼 X 원고 초안을 만들어요.</p>
+            </div>
+            <button onClick={() => setPanelPref('closed')} aria-label="생성 패널 접기" title="생성 패널 접기"
+                    className="hidden shrink-0 rounded p-1 text-x-muted hover:bg-x-hover lg:block">«</button>
           </div>
           {loaded && clients.length === 0 && (
             <p className="rounded-lg bg-x-surface p-3 text-caption text-x-secondary">
@@ -280,8 +317,18 @@ function Workbench() {
         <ComposerFooter clients={clients} value={composer} refRows={refRows}
                         generating={generating} onGenerate={() => generate()} onCancel={cancelGenerate} />
       </div>
+      {!panelOpen && (
+        <div className="hidden w-12 shrink-0 flex-col items-center gap-1.5 border-r border-x-border bg-x-surface py-3 lg:flex">
+          <button onClick={() => setPanelPref('open')} aria-label="생성 패널 펼치기" title="생성 패널 펼치기"
+                  className="rounded p-1.5 text-x-secondary hover:bg-x-hover">»</button>
+          <button onClick={() => setPanelPref('open')} aria-label="새 원고 만들기 — 생성 패널이 펼쳐집니다" title="새 원고"
+                  className="rounded p-1.5 text-[15px] font-bold text-x-blue-text hover:bg-x-blue/10">✚</button>
+          {generating && <span role="status" aria-label="원고 생성 중" className="mt-1 h-2 w-2 animate-pulse rounded-full bg-x-blue" />}
+        </div>
+      )}
 
-      {/* 구분선 — lg 전용 드래그 핸들. 키보드 화살표로도 조절 (스펙 §접근성) */}
+      {/* 구분선 — lg 전용 드래그 핸들. 키보드 화살표로도 조절 (스펙 §접근성). 접힘 상태에선 리사이즈 대상이 없어 숨김 */}
+      {panelOpen && (
       <div role="separator" aria-orientation="vertical" aria-label="패널 폭 조절" tabIndex={0}
            onPointerDown={(e) => { setResizing(true); e.currentTarget.setPointerCapture(e.pointerId); }}
            onPointerMove={(e) => { if (resizing && rootRef.current) applyWidth(e.clientX - rootRef.current.getBoundingClientRect().left); }}
@@ -292,21 +339,32 @@ function Workbench() {
              if (d) { e.preventDefault(); applyWidth(panelW + d); }
            }}
            className="hidden w-1.5 shrink-0 cursor-col-resize touch-none bg-x-border hover:bg-x-blue/50 focus:bg-x-blue/60 focus:outline-none lg:block" />
+      )}
 
       {/* 우: 결과 영역 — 필터 헤더는 스크롤 밖 고정 행 (Dense Scan List) */}
       <div className="flex min-w-0 flex-1 flex-col lg:min-h-0">
         {loaded && drafts.length > 0 && (
-          <div className="border-b border-x-border bg-x-surface px-4 py-2">
-            <DraftFilterBar counts={counts} total={clientScoped.length} filter={filter}
-                            clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
-                            onChange={setFilter} />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-x-border bg-x-surface px-4 py-2">
+            <div className="flex gap-1" role="group" aria-label="보기 방식">
+              {(['cards', 'table', 'kanban'] as const).map((v) => (
+                <button key={v} onClick={() => setView(v)} aria-pressed={view === v}
+                        className={`rounded-full border px-2.5 py-0.5 text-[13px] ${view === v ? 'border-x-blue bg-x-blue/10 font-bold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
+                  {v === 'cards' ? '카드' : v === 'table' ? '테이블' : '칸반'}
+                </button>
+              ))}
+            </div>
+            <div className="min-w-0 flex-1">
+              <DraftFilterBar counts={counts} total={clientScoped.length} filter={filter}
+                              clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
+                              onChange={setFilter} showStatusTabs={view !== 'kanban'} />
+            </div>
           </div>
         )}
         {/* 스크롤 컨테이너와 flex 정렬을 분리 — 높이 제약된 flex 컬럼에서는 overflow-hidden인 카드가
             flex 아이템으로 찌그러진다(automatic minimum size 0). 정렬은 자연 높이의 내부 div가 담당. */}
         <div ref={resultsRef} className="lg:flex-1 lg:overflow-y-auto">
-          <div className="flex flex-col items-center gap-4 p-6">
-          {generating && (
+          <div className={view === 'cards' ? 'flex flex-col items-center gap-4 p-6' : 'p-4'}>
+          {generating && view === 'cards' && (
             <div className="w-full max-w-[600px] animate-pulse rounded-2xl border border-x-border-strong bg-white px-4 py-3">
               <div className="flex gap-3">
                 <div className="h-10 w-10 rounded-full bg-x-border" />
@@ -322,6 +380,9 @@ function Workbench() {
               <p className="mt-0.5 text-caption text-x-muted">취소해도 완성되면 목록에 저장됩니다 — 생성 자체는 멈추지 않아요</p>
             </div>
           )}
+          {generating && view !== 'cards' && (
+            <p className="mb-3 rounded-lg bg-white px-3 py-2 text-ui text-x-secondary">원고 작성 중… 완성되면 초안으로 나타나요 — 취소해도 생성은 계속됩니다</p>
+          )}
 
           {loaded && drafts.length === 0 && !generating && (
             <p className="w-full max-w-[600px] rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
@@ -329,25 +390,36 @@ function Workbench() {
             </p>
           )}
 
-          {loaded && drafts.length > 0 && visibleDrafts.length === 0 && !generating && (
+          {loaded && drafts.length > 0 && visibleDrafts.length === 0 && !generating && view !== 'kanban' && (
             <p className="w-full max-w-[600px] rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
               이 조건에 맞는 초안이 없어요 — 탭이나 클라이언트 필터를 바꿔보세요.
             </p>
           )}
 
-          {visibleDrafts.map((d) => (
-            <DraftCard key={d.id} draft={d} banned={bannedFor(d)}
-                       onEdit={() => setEditing(d)}
-                       onRewrite={(feedback, baseIndex) => rewrite(d.id, feedback, baseIndex)}
-                       rewriteBusy={rewritingId === d.id}
-                       onDelete={() => requestRemove(d)}
-                       onRegenPost={(i) => regenPost(d, i)}
-                       regenBusyIndex={regenBusy?.draftId === d.id ? regenBusy.index : null}
-                       onDismissFlag={(key, dismiss) => toggleDismiss(d, key, dismiss)}
-                       onRestoreAllFlags={() => restoreAllFlags(d)}
-                       onChangeStatus={(s) => changeStatus(d, s)}
-                       siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null} />
+          {view === 'cards' && visibleDrafts.map((d) => (
+            <div key={d.id} data-draft-id={d.id}
+                 className={`w-full max-w-[600px] ${highlightId === d.id ? 'rounded-2xl ring-2 ring-x-blue' : ''}`}>
+              <DraftCard draft={d} banned={bannedFor(d)}
+                         onEdit={() => setEditing(d)}
+                         onRewrite={(feedback, baseIndex) => rewrite(d.id, feedback, baseIndex)}
+                         rewriteBusy={rewritingId === d.id}
+                         onDelete={() => requestRemove(d)}
+                         onRegenPost={(i) => regenPost(d, i)}
+                         regenBusyIndex={regenBusy?.draftId === d.id ? regenBusy.index : null}
+                         onDismissFlag={(key, dismiss) => toggleDismiss(d, key, dismiss)}
+                         onRestoreAllFlags={() => restoreAllFlags(d)}
+                         onChangeStatus={(s) => changeStatus(d, s)}
+                         siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null} />
+            </div>
           ))}
+          {view === 'table' && loaded && visibleDrafts.length > 0 && (
+            <DraftTable drafts={visibleDrafts} clientNameOf={clientNameOf}
+                        onChangeStatus={changeStatus} onOpenCard={openCard} />
+          )}
+          {view === 'kanban' && loaded && clientScoped.length > 0 && (
+            <DraftKanban drafts={clientScoped} clientNameOf={clientNameOf}
+                         onChangeStatus={changeStatus} onOpenCard={openCard} />
+          )}
           </div>
         </div>
       </div>

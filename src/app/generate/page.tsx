@@ -390,7 +390,8 @@ function Workbench() {
             </div>
             <span aria-hidden className="h-4 w-px shrink-0 bg-x-border-strong" />
             <div className="min-w-0 flex-1">
-              <DraftFilterBar counts={counts} total={clientScoped.length} filter={filter}
+              {/* 전체 탭 건수도 검색·시술·기간 반영 — counts와 같은 집합이어야 라벨-값 일치(6차 리뷰 High) */}
+              <DraftFilterBar counts={counts} total={scoped.length} filter={filter}
                               clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
                               onChange={setFilter} showStatusTabs={view !== 'kanban'} />
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-caption">

@@ -4,14 +4,19 @@ import { getClientWithProcedures } from './clientStore.ts';
 import { getReferencesByIds } from './referenceStore.ts';
 import { buildUserPrompt, draftOutputSchema, variantsOutputSchema, draftSystem } from './generatePrompt.ts';
 import { getPromptOverrides } from './promptSettings.ts';
-import { insertDraft, getDraft, updateDraft, type DraftRow, type DraftTranslation } from './draftStore.ts';
+import { insertDraft, getDraft, updateDraft, draftVersionHash, type DraftRow, type DraftTranslation } from './draftStore.ts';
 import { translateDraftPosts } from './translateDraft.ts';
-import { hashSource } from './translationStore.ts';
 import { X_MAX_WEIGHTED } from './xLength.ts';
 import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
 
 export const CONTENT_MODEL = () => process.env.CONTENT_MODEL ?? 'claude-opus-5';
 export const MAX_REFS = 8; // few-shot 실무 상한 — 초과 시 원고가 레퍼런스 문구를 베낄 위험(over-copying)이 커진다
+
+// 대역은 부가물 — 번역이 지연·행에 빠져도 이미 과금된 원고 저장을 지연시키지 않는다 (최종 리뷰)
+const GLOSS_TIMEOUT_MS = 15_000;
+function withGlossTimeout(p: Promise<string[] | null>): Promise<string[] | null> {
+  return Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), GLOSS_TIMEOUT_MS))]);
+}
 
 // 입력이 잘못된 경우 — 라우트가 400 + 평문으로 매핑
 export class GenerateInputError extends Error {}
@@ -93,12 +98,13 @@ export async function generateDraft(
 
   // 한국어 대역 — 부가물이라 실패(null·예외)해도 생성을 막지 않는다. mock client를 그대로 전달(테스트 가능성)
   const glosses = await Promise.all(variants.map(async (v) => {
-    try { return await translateDraftPosts(v.posts.map((p) => p.text), client); } catch { return null; }
+    try { return await withGlossTimeout(translateDraftPosts(v.posts.map((p) => p.text), client)); }
+    catch (e) { console.warn('[draft] 대역 생성 생략', { err: e instanceof Error ? e.message : String(e) }); return null; }
   }));
   const glossOf = (i: number): DraftTranslation | null => {
     const g = glosses[i];
     if (!g) return null;
-    return { [hashSource(JSON.stringify(variants[i].posts.map((p) => p.text)), null)]: g };
+    return { [draftVersionHash(variants[i].posts)]: g };
   };
 
   const batchId = count > 1 ? crypto.randomUUID() : null;
@@ -169,13 +175,17 @@ export async function rewriteDraft(
   if (draft.format === 'single') posts = posts.slice(0, 1);
 
   const edited = { posts: posts.map((p, n) => ({ text: p.text, media: base.posts[n]?.media ?? [] })) };
-  // 새 버전의 한국어 대역 — 실패 시 기존 캐시 그대로(생략), 번역 버튼 경로가 커버
-  let gloss: string[] | null = null;
-  try { gloss = await translateDraftPosts(edited.posts.map((p) => p.text), client); } catch { gloss = null; }
+  // 새 버전의 한국어 대역 — 같은 텍스트로 되돌아온 버전은 재과금 없이 캐시 재사용, 실패 시 생략(번역 버튼 경로가 커버)
+  const h = draftVersionHash(edited.posts);
+  let gloss: string[] | null = draft.translation?.[h] ?? null;
+  if (!gloss) {
+    try { gloss = await withGlossTimeout(translateDraftPosts(edited.posts.map((p) => p.text), client)); }
+    catch (e) { console.warn('[draft] 대역 생성 생략', { err: e instanceof Error ? e.message : String(e) }); gloss = null; }
+  }
   // 직전 표시본(기준 버전이 아니라 최신)을 이력에 보존 — 어떤 버전을 기준으로 썼든 타임라인은 선형
   await updateDraft(sql, draftId, {
     edited, history: [...draft.history, draft.edited ?? draft.content],
-    ...(gloss ? { translation: { ...(draft.translation ?? {}), [hashSource(JSON.stringify(edited.posts.map((p) => p.text)), null)]: gloss } } : {}),
+    ...(gloss ? { translation: { ...(draft.translation ?? {}), [h]: gloss } } : {}),
   });
   return (await getDraft(sql, draftId)) as DraftRow;
 }
@@ -224,13 +234,17 @@ export async function regeneratePost(
   const edited = {
     posts: base.posts.map((p, n) => (n === postIndex ? { text: posts[0].text, media: p.media } : p)),
   };
-  // 새 버전의 한국어 대역 — 실패 시 기존 캐시 그대로(생략), 번역 버튼 경로가 커버
-  let gloss: string[] | null = null;
-  try { gloss = await translateDraftPosts(edited.posts.map((p) => p.text), client); } catch { gloss = null; }
+  // 새 버전의 한국어 대역 — 같은 텍스트로 되돌아온 버전은 재과금 없이 캐시 재사용, 실패 시 생략(번역 버튼 경로가 커버)
+  const h = draftVersionHash(edited.posts);
+  let gloss: string[] | null = draft.translation?.[h] ?? null;
+  if (!gloss) {
+    try { gloss = await withGlossTimeout(translateDraftPosts(edited.posts.map((p) => p.text), client)); }
+    catch (e) { console.warn('[draft] 대역 생성 생략', { err: e instanceof Error ? e.message : String(e) }); gloss = null; }
+  }
   // 직전 표시본을 이력에 보존 — ‹ 1/2 › 페이저로 이전 버전 열람 가능
   await updateDraft(sql, draftId, {
     edited, history: [...draft.history, base],
-    ...(gloss ? { translation: { ...(draft.translation ?? {}), [hashSource(JSON.stringify(edited.posts.map((p) => p.text)), null)]: gloss } } : {}),
+    ...(gloss ? { translation: { ...(draft.translation ?? {}), [h]: gloss } } : {}),
   });
   return (await getDraft(sql, draftId)) as DraftRow;
 }

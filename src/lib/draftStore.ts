@@ -7,6 +7,11 @@ import { hashSource } from './translationStore.ts';
 // 버전별 한국어 번역 캐시 — sourceHash(원문 지문) → 번역 posts. 어떤 버전이든 한 번 번역하면 재사용.
 export type DraftTranslation = Record<string, string[]>;
 
+// 버전 텍스트의 캐시 키 — 생성·다시쓰기·라우트·toRow가 전부 이 식을 써야 한다(드리프트=조용한 캐시 미스=이중 과금)
+export function draftVersionHash(posts: Array<{ text: string }>): string {
+  return hashSource(JSON.stringify(posts.map((p) => p.text)), null);
+}
+
 // 초기 단일 슬롯 형태({sourceHash, posts})의 잔존 데이터를 맵으로 정규화
 function normalizeTranslation(v: unknown): DraftTranslation | null {
   if (!v || typeof v !== 'object') return null;
@@ -52,7 +57,7 @@ const toRow = (r: Row): DraftRow => {
     content: r.content, edited: r.edited, history: r.history,
     translation,
     // 최신 버전의 캐시 번역 — 해시 계산은 서버 소관(node:crypto), 클라이언트는 이 필드만 읽는다 (4차 스펙)
-    koLatest: translation?.[hashSource(JSON.stringify(latest.posts.map((p) => p.text)), null)] ?? null,
+    koLatest: translation?.[draftVersionHash(latest.posts)] ?? null,
     dismissedFlags: r.dismissed_flags,
     status: r.status,
     batchId: r.batch_id, variantIndex: r.variant_index,

@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
-import { getDraft, updateDraft } from '@/lib/draftStore';
+import { getDraft, updateDraft, draftVersionHash } from '@/lib/draftStore';
 import { translateDraftPosts } from '@/lib/translateDraft';
-import { hashSource } from '@/lib/translationStore';
 import { requireMember } from '@/lib/authGuard';
 
 // 지정한 버전(기본 = 최신)을 서버에서 읽어 번역 — 클라이언트가 임의 텍스트를
@@ -27,7 +26,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       idx = body.versionIndex as number;
     }
     const texts = versions[idx].posts.map((p) => p.text);
-    const hash = hashSource(JSON.stringify(texts), null);
+    const hash = draftVersionHash(versions[idx].posts);
     const cache = draft.translation ?? {};
     if (cache[hash]) return NextResponse.json({ posts: cache[hash] });
     const posts = await translateDraftPosts(texts);

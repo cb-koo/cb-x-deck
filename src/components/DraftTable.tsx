@@ -63,7 +63,7 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }:
                 className="cursor-pointer border-b border-x-border hover:bg-x-hover focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
               <td className="max-w-[360px] truncate px-3 py-2">
                 {/* 마커는 스크린리더에도 노출 — 번역본 표시의 유일한 수단이라 숨기면 원칙 4 위반 (DraftCard 관례) */}
-                {ko ? <><span title="한국어 번역으로 표시 중 — 원문은 카드에서">🌐 </span>{ko}</> : (draftPreviewLine(d) || '(내용 없음)')}
+                {ko ? <><span title="한국어 번역으로 표시 중 — 원문은 카드에서">🌐 </span><span className="sr-only">한국어 번역: </span>{ko}</> : (draftPreviewLine(d) || '(내용 없음)')}
               </td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{clientNameOf(d.clientId)}</td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{d.procedureNames.join(' · ') || '—'}</td>

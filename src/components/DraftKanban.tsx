@@ -53,7 +53,7 @@ export function DraftKanban({ drafts, clientNameOf, onChangeStatus, onOpenCard }
                 {/* 캐시된 한국어 대역 우선 — 번역본임은 🌐로 명시(원문인 척하면 라벨-값 불일치, 원칙 4) */}
                 <p className="line-clamp-2 text-ui">
                   {/* 마커는 스크린리더에도 노출 — 번역본 표시의 유일한 수단이라 숨기면 원칙 4 위반 (DraftCard 관례) */}
-                  {ko ? <><span title="한국어 번역으로 표시 중 — 원문은 카드에서">🌐 </span>{ko}</> : (draftPreviewLine(d) || '(내용 없음)')}
+                  {ko ? <><span title="한국어 번역으로 표시 중 — 원문은 카드에서">🌐 </span><span className="sr-only">한국어 번역: </span>{ko}</> : (draftPreviewLine(d) || '(내용 없음)')}
                 </p>
                 {/* 속성은 칩으로 — 본문 텍스트와 시각 문법을 분리(속성=칩, 내용=평문) */}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1">

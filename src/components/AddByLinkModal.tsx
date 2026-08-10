@@ -24,10 +24,10 @@ export function AddByLinkModal({ open, onClose, fixedWsId, defaultWsId, onAdded 
   useEffect(() => { if (open) { setUrl(''); setMemo(''); setServerErr(null); setWsId(fixedWsId ?? defaultWsId ?? ''); } }, [open, fixedWsId, defaultWsId]);
   useEffect(() => {
     if (!open || fixedWsId) return; // 드롭다운은 레퍼런스 선택창 진입에서만
-    apiFetch('/api/workspaces').then((r) => r.json()).then((list: Array<{ id: string; name: string }>) => {
+    apiFetch('/api/workspaces').then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); }).then((list: Array<{ id: string; name: string }>) => {
       setWorkspaces(list);
       setWsId((cur) => (cur && list.some((w) => w.id === cur) ? cur : (list[0]?.id ?? '')));
-    });
+    }).catch(() => setServerErr('워크스페이스 목록을 불러오지 못했어요 — 모달을 닫았다 다시 열어 재시도해주세요'));
   }, [open, fixedWsId]);
   useEffect(() => {
     if (!open) return;

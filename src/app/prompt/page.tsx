@@ -146,16 +146,23 @@ export default function PromptPage() {
         <>
           <div className="mt-5 flex items-start gap-9">
             <div className="flex-1 min-w-0">
-              <div className="space-y-8">
-                <div>
-                  <h2 className="text-caption font-bold tracking-wide text-x-secondary">항상 적용되는 지시</h2>
-                  <div className="mt-3 space-y-4">
+              {/* 그룹 = 카드 섹션 — ClientDetail의 섹션 카드(테두리+제목 헤더+구분선 본문)와 동일 관례 */}
+              <div className="space-y-5">
+                <section className="rounded-2xl border border-x-border-strong">
+                  <div className="px-4 py-3">
+                    <h2 className="text-content font-bold">항상 적용되는 지시</h2>
+                    <p className="text-caption text-x-muted">모든 원고 생성에 기본으로 들어가는 문장이에요.</p>
+                  </div>
+                  <div className="space-y-4 border-t border-x-border px-4 py-4">
                     {FIELDS_ALWAYS.map((f) => renderField(values, f))}
                   </div>
-                </div>
-                <div className="border-t border-x-border pt-5">
-                  <h2 className="text-caption font-bold tracking-wide text-x-secondary">레퍼런스를 참고할 때</h2>
-                  <div className="mt-3 space-y-4">
+                </section>
+                <section className="rounded-2xl border border-x-border-strong">
+                  <div className="px-4 py-3">
+                    <h2 className="text-content font-bold">레퍼런스를 참고할 때</h2>
+                    <p className="text-caption text-x-muted">보관함 레퍼런스를 골라 생성할 때만 들어가는 문장이에요.</p>
+                  </div>
+                  <div className="space-y-4 border-t border-x-border px-4 py-4">
                     {renderField(values, FIELD_NO_COPY)}
                     <div>
                       <p className="text-caption text-x-muted">아래 셋 중 생성할 때 고른 참고 방식 하나만 들어가요.</p>
@@ -164,7 +171,7 @@ export default function PromptPage() {
                       </div>
                     </div>
                   </div>
-                </div>
+                </section>
               </div>
               {err && <p className="mt-3 text-ui text-red-500">{err}</p>}
               <div className="mt-4 flex items-center gap-2.5">

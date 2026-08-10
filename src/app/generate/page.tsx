@@ -302,7 +302,10 @@ function Workbench() {
                             onChange={setFilter} />
           </div>
         )}
-        <div ref={resultsRef} className="flex flex-col items-center gap-4 p-6 lg:flex-1 lg:overflow-y-auto">
+        {/* 스크롤 컨테이너와 flex 정렬을 분리 — 높이 제약된 flex 컬럼에서는 overflow-hidden인 카드가
+            flex 아이템으로 찌그러진다(automatic minimum size 0). 정렬은 자연 높이의 내부 div가 담당. */}
+        <div ref={resultsRef} className="lg:flex-1 lg:overflow-y-auto">
+          <div className="flex flex-col items-center gap-4 p-6">
           {generating && (
             <div className="w-full max-w-[600px] animate-pulse rounded-2xl border border-x-border-strong bg-white px-4 py-3">
               <div className="flex gap-3">
@@ -345,6 +348,7 @@ function Workbench() {
                        onChangeStatus={(s) => changeStatus(d, s)}
                        siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null} />
           ))}
+          </div>
         </div>
       </div>
 

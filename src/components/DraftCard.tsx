@@ -85,6 +85,18 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
 
   return (
     <div className="w-full max-w-[600px] overflow-hidden rounded-2xl border border-x-border-strong bg-white">
+      {/* 상단 도구층 스트립 — 상태·조건 메타를 좌상단 동일 위치에, 카드를 열지 않고 훑도록 (스펙 §DraftCard) */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-x-border bg-x-surface px-4 py-2">
+        <DraftStatusChip status={draft.status} onChange={onChangeStatus} />
+        {draft.batchId !== null && siblingTotal !== null && (
+          <span className="text-caption text-x-muted">
+            시안 {variantLabel(draft.variantIndex ?? 0)} · 같은 조건 {siblingTotal}개 중
+          </span>
+        )}
+        <span className="ml-auto text-caption text-x-muted">
+          {[...draft.procedureNames, draft.format === 'thread' ? '스레드' : '단문'].join(' · ')}
+        </span>
+      </div>
       {/* 흰색 = X 콘텐츠층 */}
       <div className="flex gap-3 px-4 py-3">
         <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[15px] font-bold text-white"
@@ -200,14 +212,6 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
 
       {/* 회색 = 도구층: 검수 표식 + PR 안내 + 근거 풋터 (spec §2 표면 2층) */}
       <div className="border-t border-x-border bg-x-surface px-4 py-2.5">
-        <div className="flex items-center gap-2 pb-1">
-          <DraftStatusChip status={draft.status} onChange={onChangeStatus} />
-          {draft.batchId !== null && siblingTotal !== null && (
-            <span className="text-caption text-x-muted">
-              시안 {variantLabel(draft.variantIndex ?? 0)} · 같은 조건 {siblingTotal}개 중
-            </span>
-          )}
-        </div>
         {active.map((f) => (
           <p key={`${f.postIndex}:${f.key}`} className="flex items-baseline gap-2 py-0.5 text-[13px]">
             <span className="border-b-2 border-amber-700 font-bold text-amber-700">{f.flag.term}</span>

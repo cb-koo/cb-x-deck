@@ -52,9 +52,14 @@ export function DraftKanban({ drafts, clientNameOf, onChangeStatus, onOpenCard }
                    className="cursor-pointer rounded-lg border border-x-border bg-white p-2 hover:border-x-border-strong focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
                 {label.kind === 'title' ? (
                   <>
-                    <p className="text-ui font-medium">{label.text}</p>
-                    {/* 제목이 있으면 본문 미리보기는 보조로 강등(대역 우선) — 제목은 생성 라벨이라 🌐 없음 */}
-                    <p className="mt-0.5 truncate text-caption text-x-muted">{draftKoLine(d) ?? draftPreviewLine(d)}</p>
+                    <p className="truncate text-ui font-medium">{label.text}</p>
+                    {/* 제목이 있으면 본문 미리보기는 보조로 강등 — 제목은 생성 라벨이라 🌐 없음.
+                        단 보조 줄이 대역이면 그건 번역이므로 🌐 유지(원칙 4 — 최종 리뷰 F2) */}
+                    <p className="mt-0.5 truncate text-caption text-x-muted">
+                      {draftKoLine(d)
+                        ? <><span title="한국어 번역으로 표시 중 — 원문은 카드에서">🌐 </span><span className="sr-only">한국어 번역: </span>{draftKoLine(d)}</>
+                        : draftPreviewLine(d)}
+                    </p>
                   </>
                 ) : (
                   <p className="line-clamp-2 text-ui">

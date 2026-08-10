@@ -53,15 +53,16 @@ type Row = {
 const toRow = (r: Row): DraftRow => {
   const translation = normalizeTranslation(r.translation);
   const latest = r.edited ?? r.content;
+  const latestHash = draftVersionHash(latest.posts); // koLatest·koTitle이 공유 — 행당 SHA 1회
   return {
     id: r.id, clientId: r.client_id, clientName: r.client_name, procedureNames: r.procedure_names,
     direction: r.direction, format: r.format, referenceMode: r.reference_mode, refs: r.refs,
     content: r.content, edited: r.edited, history: r.history,
     translation,
     // 최신 버전의 캐시 번역 — 해시 계산은 서버 소관(node:crypto), 클라이언트는 이 필드만 읽는다 (4차 스펙)
-    koLatest: translation?.[draftVersionHash(latest.posts)] ?? null,
+    koLatest: translation?.[latestHash] ?? null,
     // 저장된 제목의 hash가 최신 버전과 다르면(=편집·재생성 이후) 낡은 제목이므로 숨긴다
-    koTitle: r.ko_title && r.ko_title_hash === draftVersionHash(latest.posts) ? r.ko_title : null,
+    koTitle: r.ko_title && r.ko_title_hash === latestHash ? r.ko_title : null,
     dismissedFlags: r.dismissed_flags,
     status: r.status,
     batchId: r.batch_id, variantIndex: r.variant_index,

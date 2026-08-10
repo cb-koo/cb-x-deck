@@ -206,13 +206,19 @@ export default function PromptPage() {
           </div>
 
           {versions.length > 0 && (
-            <details className="mt-10">
-              <summary className="cursor-pointer text-content font-bold">변경 이력 ({versions.length})</summary>
-              <div className="mt-2 space-y-2">
+            <section className="mt-12 border-t border-x-border pt-6">
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-content font-bold">변경 이력</h2>
+                <span className="text-ui text-x-secondary">{versions.length}개</span>
+              </div>
+              <p className="mt-0.5 text-caption text-x-muted">
+                팀이 저장한 지시문 기록이에요. 불러온 버전은 저장을 눌러야 적용돼요.
+              </p>
+              <div className="mt-3 space-y-2">
                 {versions.map((v) => {
                   const keys = Object.keys(v.overrides) as PromptFieldKey[];
                   return (
-                    <div key={v.id} className="flex items-baseline justify-between gap-3 rounded-lg border border-x-border px-3 py-2">
+                    <div key={v.id} className="flex items-baseline justify-between gap-3 rounded-lg border border-x-border px-3 py-2 hover:border-x-border-strong">
                       <div className="min-w-0">
                         <p className="text-ui">
                           {relTime(v.createdAt, '저장')}{v.memberName ? ` · ${v.memberName}` : ''}
@@ -228,8 +234,7 @@ export default function PromptPage() {
                   );
                 })}
               </div>
-              <p className="mt-2 text-caption text-x-muted">불러온 버전은 저장을 눌러야 적용돼요.</p>
-            </details>
+            </section>
           )}
         </>
       )}

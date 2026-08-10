@@ -9,3 +9,51 @@ export function tweetPermalink(authorHandle: string | null | undefined, tweetId:
   if (!handle) return `https://x.com/i/status/${tweetId}`;
   return `https://x.com/${handle}/status/${tweetId}`;
 }
+
+// 역방향: 사용자가 붙여넣은 링크 → 트윗 ID. (조립·파싱 규칙을 이 파일 한 곳에 모은다 — xHandle.ts 관례)
+// 클라이언트 인라인 검증과 서버 재검증이 같은 함수를 쓴다.
+export type TweetLinkParseReason = 'empty' | 'notTweet' | 'invalid';
+export type TweetLinkParse =
+  | { ok: true; tweetId: string }
+  | { ok: false; reason: TweetLinkParseReason };
+
+const HOSTS = new Set(['x.com', 'twitter.com']);
+const SUBDOMAINS = ['www.', 'mobile.', 'm.'];
+const HANDLE_RE = /^[A-Za-z0-9_]{1,15}$/;
+const ID_RE = /^\d+$/;
+
+export function parseTweetLink(input: string): TweetLinkParse {
+  const raw = (input ?? '').trim();
+  if (!raw) return { ok: false, reason: 'empty' };
+
+  let url: URL;
+  try {
+    url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+  } catch {
+    return { ok: false, reason: 'invalid' };
+  }
+
+  let host = url.hostname.toLowerCase();
+  for (const sub of SUBDOMAINS) if (host.startsWith(sub)) { host = host.slice(sub.length); break; }
+  if (!HOSTS.has(host)) return { ok: false, reason: 'invalid' };
+
+  const parts = url.pathname.split('/').filter(Boolean);
+  // 표준형 x.com/<계정>/status/<ID> — /photo/1 같은 뒤 꼬리는 무시
+  if (parts.length >= 3 && HANDLE_RE.test(parts[0]) && parts[1] === 'status' && ID_RE.test(parts[2]))
+    return { ok: true, tweetId: parts[2] };
+  // X 앱 "링크 복사"가 주는 형태 두 가지
+  if (parts[0] === 'i' && parts[1] === 'status' && parts[2] && ID_RE.test(parts[2]))
+    return { ok: true, tweetId: parts[2] };
+  if (parts[0] === 'i' && parts[1] === 'web' && parts[2] === 'status' && parts[3] && ID_RE.test(parts[3]))
+    return { ok: true, tweetId: parts[3] };
+  // 레거시 영구링크 x.com/statuses/<ID>
+  if (parts[0] === 'statuses' && parts[1] && ID_RE.test(parts[1]))
+    return { ok: true, tweetId: parts[1] };
+  return { ok: false, reason: 'notTweet' };
+}
+
+export function tweetLinkParseMessage(reason: TweetLinkParseReason): string {
+  if (reason === 'empty') return '트윗 링크를 넣어주세요';
+  if (reason === 'notTweet') return '트윗 주소가 아니에요 — X에서 공유 → 링크 복사한 주소를 붙여넣어주세요 (예: x.com/계정/status/숫자)';
+  return 'X 트윗 주소가 아니에요 — x.com 또는 twitter.com 링크를 붙여넣어주세요';
+}

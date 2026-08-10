@@ -38,13 +38,19 @@ export function DraftKanban({ drafts, clientNameOf, onChangeStatus, onOpenCard }
           </p>
           <div className="flex flex-col gap-2">
             {byStatus[s].map((d) => (
-              <div key={d.id} draggable
+              <div key={d.id} draggable tabIndex={0}
                    onDragStart={(e) => { e.dataTransfer.setData('text/plain', d.id); e.dataTransfer.effectAllowed = 'move'; }}
                    onClick={() => onOpenCard(d.id)}
-                   className="cursor-pointer rounded-lg border border-x-border bg-white p-2 hover:border-x-border-strong">
+                   onKeyDown={(e) => {
+                     if (e.key !== 'Enter' && e.key !== ' ') return;
+                     if (e.target !== e.currentTarget) return;   // 카드 안 요소에 포커스가 있으면 그쪽 몫
+                     e.preventDefault();                          // 스페이스로 페이지가 스크롤되는 것을 막는다
+                     onOpenCard(d.id);
+                   }}
+                   className="cursor-pointer rounded-lg border border-x-border bg-white p-2 hover:border-x-border-strong focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
                 <p className="line-clamp-2 text-ui">{draftPreviewLine(d) || '(내용 없음)'}</p>
                 <p className="mt-1 truncate text-caption text-x-muted">
-                  {[clientNameOf(d.clientId), ...d.procedureNames, d.format === 'thread' ? '스레드' : '단문'].filter(Boolean).join(' · ')}
+                  {[d.clientId ? clientNameOf(d.clientId) : null, ...d.procedureNames, d.format === 'thread' ? '스레드' : '단문'].filter(Boolean).join(' · ')}
                 </p>
                 <p className="mt-0.5 text-caption text-x-muted">{draftTimeLabel(d.createdAt)}</p>
               </div>

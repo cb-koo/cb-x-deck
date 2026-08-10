@@ -82,13 +82,15 @@ function Workbench() {
   }, []);
   const setView = useCallback((v: ResultView) => { setViewState(v); localStorage.setItem(VIEW_KEY, v); }, []);
   const panelOpen = panelPref !== null ? panelPref === 'open' : view === 'cards';
+  const panelOpenRef = useRef(panelOpen);
+  useEffect(() => { panelOpenRef.current = panelOpen; });
   const clientNameOf = useCallback(
-    (id: string | null) => (id ? (clients.find((c) => c.client.id === id)?.client.name ?? '?') : '—'),
+    (id: string | null) => (id ? (clients.find((c) => c.client.id === id)?.client.name ?? '—') : '—'),
     [clients]);
 
   // 테이블·칸반에서 원고를 눌렀을 때 — 카드 뷰로 점프해 정독. 필터에 가려 있으면 전체로(T11 계열: 점프가 소리 없이 실패하지 않게)
   function openCard(id: string) {
-    setView('cards');
+    setViewState('cards'); // 점프는 '선택'이 아니므로 저장하지 않는다 — 다음 방문은 저장된 선호대로 (최종 리뷰 F5)
     const target = draftsRef.current.find((d) => d.id === id);
     if (target) setFilter((f) => (filterDrafts([target], f).length > 0 ? f : { status: 'all', clientId: '' }));
     setHighlightId(id);
@@ -125,7 +127,9 @@ function Workbench() {
       const found = rows.find((x) => x.tweetId === ref);
       if (found) {
         setRefRows((cur) => (cur.some((x) => x.tweetId === ref) ? cur : [...cur, found]));
-        setPanelPref('open'); // 접힌 상태로 진입해도 연결 결과가 보이게 (스펙 §경계 조건)
+        // 실제로 접혀 있을 때만 펼침으로 고정 — 이미 펼쳐져 있는데 고정하면 수동 우선 규칙 때문에
+        // 자동 접힘이 세션 내내 죽는다 (최종 리뷰 F2)
+        if (!panelOpenRef.current) setPanelPref('open');
       } else setToast('이 트윗은 보관함에 없어요 — 덱에서 ☆ 저장한 뒤 다시 시도해주세요');
     });
   }, [searchParams]);
@@ -348,6 +352,7 @@ function Workbench() {
             <div className="flex gap-1" role="group" aria-label="보기 방식">
               {(['cards', 'table', 'kanban'] as const).map((v) => (
                 <button key={v} onClick={() => setView(v)} aria-pressed={view === v}
+                        title={v === 'cards' ? '원고를 한 건씩 정독·편집해요' : v === 'table' ? '목록으로 훑고 정렬해요' : '단계별로 끌어서 상태를 옮겨요'}
                         className={`rounded-full border px-2.5 py-0.5 text-[13px] ${view === v ? 'border-x-blue bg-x-blue/10 font-bold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
                   {v === 'cards' ? '카드' : v === 'table' ? '테이블' : '칸반'}
                 </button>
@@ -385,13 +390,14 @@ function Workbench() {
           )}
 
           {loaded && drafts.length === 0 && !generating && (
-            <p className="w-full max-w-[600px] rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
+            <p className="w-full max-w-[600px] mx-auto rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
               아직 초안이 없어요. 방향성을 적거나 레퍼런스를 골라 첫 원고를 만들어보세요 — 만든 초안은 자동으로 저장돼요.
             </p>
           )}
 
-          {loaded && drafts.length > 0 && visibleDrafts.length === 0 && !generating && view !== 'kanban' && (
-            <p className="w-full max-w-[600px] rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
+          {loaded && drafts.length > 0 && !generating
+            && (view === 'kanban' ? clientScoped.length === 0 : visibleDrafts.length === 0) && (
+            <p className="w-full max-w-[600px] mx-auto rounded-2xl border border-x-border bg-x-surface p-6 text-center text-ui text-x-secondary">
               이 조건에 맞는 초안이 없어요 — 탭이나 클라이언트 필터를 바꿔보세요.
             </p>
           )}

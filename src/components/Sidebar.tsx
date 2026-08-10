@@ -8,7 +8,7 @@ import { useMember } from '@/lib/memberContext';
 import { swapWorkspacePath } from '@/lib/wsNav';
 import { interceptNav } from '@/lib/navGuard';
 import { createClient } from '@/lib/supabase/client';
-import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, SettingsIcon } from './XIcons';
+import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, PromptIcon } from './XIcons';
 
 // SPA 이동 가드 — /clients 등이 등록한 편집 유실 방지(navGuard)에 걸리면 이동을 중단한다.
 // <a> 시절엔 beforeunload가 잡았지만 Link(클라이언트 라우팅)는 우회하므로 onNavigate에 연결.
@@ -58,7 +58,7 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
   // 설정 성격 화면(가끔 들어가 재료·규칙을 손보는 곳) — 매일 쓰는 작업 메뉴와 분리 (사이드바 개선 스펙)
   const settingsNav = [
     { href: '/clients', label: '클라이언트', Ic: ClinicIcon },
-    { href: '/prompt', label: 'AI 지시문', Ic: SettingsIcon },
+    { href: '/prompt', label: '프롬프트', Ic: PromptIcon },
   ];
 
   return (

@@ -15,6 +15,17 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }:
 }) {
   const [sort, setSort] = useState<TableSort>({ key: 'createdAt', dir: 'desc' });
   const rows = sortDrafts(drafts, sort, clientNameOf);
+
+  // 행을 눌렀을 때 카드를 열어야 하는 클릭인지. 두 가지는 카드를 열지 않는다:
+  // (1) 셀 안의 링크·버튼 — 상태 칩을 눌렀는데 팝업까지 뜨면 두 일이 동시에 일어난 것처럼 보인다.
+  // (2) 글자를 드래그해 선택한 경우 — 값을 복사하려던 동작이 팝업으로 끝나면 안 된다.
+  function opensCard(e: React.MouseEvent): boolean {
+    if (e.target instanceof Element && e.target.closest('a, button')) return false;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.toString().trim() !== '') return false;
+    return true;
+  }
+
   const sortBtn = (key: TableSortKey, label: string) => (
     <button onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }))}
             className="flex items-center gap-1 hover:text-x-text">
@@ -27,17 +38,27 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }:
         <thead>
           <tr className="border-b border-x-border text-left text-caption text-x-muted">
             <th className="px-3 py-2 font-normal">원고</th>
-            <th className="px-3 py-2 font-normal">{sortBtn('client', '클라이언트')}</th>
+            <th className="px-3 py-2 font-normal" aria-sort={sort.key === 'client' ? (sort.dir === 'desc' ? 'descending' : 'ascending') : undefined}>{sortBtn('client', '클라이언트')}</th>
             <th className="px-3 py-2 font-normal">시술</th>
             <th className="px-3 py-2 font-normal">형식</th>
-            <th className="px-3 py-2 font-normal">{sortBtn('status', '상태')}</th>
-            <th className="px-3 py-2 font-normal">{sortBtn('createdAt', '생성')}</th>
+            <th className="px-3 py-2 font-normal" aria-sort={sort.key === 'status' ? (sort.dir === 'desc' ? 'descending' : 'ascending') : undefined}>{sortBtn('status', '상태')}</th>
+            <th className="px-3 py-2 font-normal" aria-sort={sort.key === 'createdAt' ? (sort.dir === 'desc' ? 'descending' : 'ascending') : undefined}>{sortBtn('createdAt', '생성')}</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((d) => (
-            <tr key={d.id} onClick={() => onOpenCard(d.id)}
-                className="cursor-pointer border-b border-x-border hover:bg-x-hover">
+            // 행 전체가 카드를 여는 손잡이다. role="button"으로 덮어쓰지 않는다 — 행을 버튼이라고
+            // 말하면 보조기술에서 표의 행·칸 구조가 사라진다. 행은 행으로 두고 조작만 얹는다.
+            <tr key={d.id}
+                tabIndex={0}
+                onClick={(e) => { if (opensCard(e)) onOpenCard(d.id); }}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                  if (e.target !== e.currentTarget) return;   // 셀 안 요소에 포커스가 있으면 그쪽 몫
+                  e.preventDefault();                          // 스페이스로 페이지가 스크롤되는 것을 막는다
+                  onOpenCard(d.id);
+                }}
+                className="cursor-pointer border-b border-x-border hover:bg-x-hover focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
               <td className="max-w-[360px] truncate px-3 py-2">{draftPreviewLine(d) || '(내용 없음)'}</td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{clientNameOf(d.clientId)}</td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{d.procedureNames.join(' · ') || '—'}</td>

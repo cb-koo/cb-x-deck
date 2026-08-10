@@ -10,14 +10,25 @@ import {
 import type { PromptVersionRow } from '@/lib/promptSettings';
 
 // 필드 메타 — 라벨은 사용자 언어, help는 "이 문장이 언제 들어가는지"
-const FIELDS: Array<{ key: PromptFieldKey; label: string; help: string; rows: number }> = [
-  { key: 'system', label: '역할 지시', help: 'AI가 어떤 사람으로서 쓰는지 — 원고 전체의 톤을 정해요. 모든 생성·다시 쓰기에 들어가요.', rows: 3 },
-  { key: 'hook', label: '첫 문장(훅) 지시', help: '새 원고 생성과 다시 쓰기에 들어가요. \'이 트윗만 다시\'에는 역할 지시만 적용돼요.', rows: 2 },
-  { key: 'noCopy', label: '레퍼런스 베끼기 금지', help: '레퍼런스를 참고하는 생성에 항상 함께 들어가요.', rows: 2 },
-  { key: 'modeForm', label: '레퍼런스 "형식만" 규칙', help: '생성 화면에서 참고 방식으로 "형식만"을 골랐을 때 들어가요.', rows: 2 },
-  { key: 'modeAngle', label: '레퍼런스 "앵글만" 규칙', help: '참고 방식 "앵글만"일 때 들어가요.', rows: 2 },
-  { key: 'modeBoth', label: '레퍼런스 "형식+앵글" 규칙', help: '참고 방식 "형식+앵글"일 때 들어가요.', rows: 2 },
+// group A: 항상 적용되는 지시 / group B: 레퍼런스를 참고할 때만 적용되는 지시
+const FIELDS: Array<{ key: PromptFieldKey; label: string; help: string; rows: number; group: 'A' | 'B' }> = [
+  { key: 'system', label: '역할 지시', help: 'AI가 어떤 사람으로서 쓰는지 — 원고 전체의 톤을 정해요. 모든 생성·다시 쓰기에 들어가요.', rows: 3, group: 'A' },
+  { key: 'hook', label: '첫 문장(훅) 지시', help: '새 원고 생성과 다시 쓰기에 들어가요. \'이 트윗만 다시\'에는 역할 지시만 적용돼요.', rows: 2, group: 'A' },
+  { key: 'noCopy', label: '레퍼런스 베끼기 금지', help: '레퍼런스를 참고하는 생성에 항상 함께 들어가요.', rows: 2, group: 'B' },
+  { key: 'modeForm', label: '레퍼런스 "형식만" 규칙', help: '생성 화면에서 참고 방식으로 "형식만"을 골랐을 때 들어가요.', rows: 2, group: 'B' },
+  { key: 'modeAngle', label: '레퍼런스 "앵글만" 규칙', help: '참고 방식 "앵글만"일 때 들어가요.', rows: 2, group: 'B' },
+  { key: 'modeBoth', label: '레퍼런스 "형식+앵글" 규칙', help: '참고 방식 "형식+앵글"일 때 들어가요.', rows: 2, group: 'B' },
 ];
+const FIELDS_ALWAYS = FIELDS.filter((f) => f.group === 'A');
+const FIELD_NO_COPY = FIELDS.find((f) => f.key === 'noCopy')!;
+const FIELDS_MODES = FIELDS.filter((f) => f.group === 'B' && f.key !== 'noCopy');
+
+// 편집 중인 문장이 미리보기 문자열에 등장하면 그 부분을 하이라이트
+function highlight(text: string, needle: string | null): React.ReactNode {
+  if (!needle || !text.includes(needle)) return text;
+  const parts = text.split(needle);
+  return parts.flatMap((p, n) => (n === 0 ? [p] : [<mark key={n} className="rounded bg-[#e3f1fb] text-inherit">{needle}</mark>, p]));
+}
 const KEYS = FIELDS.map((f) => f.key);
 const LABEL = Object.fromEntries(FIELDS.map((f) => [f.key, f.label])) as Record<PromptFieldKey, string>;
 
@@ -39,6 +50,7 @@ const toValues = (o: PromptOverrides): Values =>
 
 export default function PromptPage() {
   const [values, setValues] = useState<Values | null>(null); // null = 로딩 전
+  const [focusedKey, setFocusedKey] = useState<PromptFieldKey | null>(null); // 미리보기 하이라이트용
   const [loadErr, setLoadErr] = useState(false);
   const [versions, setVersions] = useState<PromptVersionRow[]>([]);
   const [saving, setSaving] = useState(false);
@@ -73,6 +85,30 @@ export default function PromptPage() {
     [values, overrides, previewMode],
   );
   const previewSystem = draftSystem(overrides);
+  const needle = useMemo(
+    () => (values && focusedKey ? (values[focusedKey].trim() || PROMPT_DEFAULTS[focusedKey]) : null),
+    [values, focusedKey],
+  );
+
+  function renderField(v: Values, f: typeof FIELDS[number]) {
+    return (
+      <div key={f.key}>
+        <div className="flex items-baseline justify-between">
+          <label htmlFor={`pf-${f.key}`} className="text-ui font-bold">{f.label}</label>
+          {v[f.key].trim() !== PROMPT_DEFAULTS[f.key] && (
+            <button onClick={() => { setValues({ ...v, [f.key]: PROMPT_DEFAULTS[f.key] }); setSaved(false); }}
+                    className="text-caption text-x-blue-text hover:underline">기본값 복원</button>
+          )}
+        </div>
+        <p className="text-caption text-x-muted">{f.help}</p>
+        <textarea id={`pf-${f.key}`} value={v[f.key]} rows={f.rows} maxLength={2000}
+                  onChange={(e) => { setValues({ ...v, [f.key]: e.target.value }); setSaved(false); }}
+                  onFocus={() => setFocusedKey(f.key)}
+                  onBlur={() => setFocusedKey(null)}
+                  className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
+      </div>
+    );
+  }
 
   async function save() {
     if (!values || saving) return;
@@ -92,7 +128,7 @@ export default function PromptPage() {
 
   return (
     <main className="mx-auto max-w-[1100px] px-6 py-8">
-      <h1 className="text-[20px] font-bold">AI 지시문</h1>
+      <h1 className="text-[20px] font-bold">프롬프트</h1>
       <p className="mt-1 text-ui text-x-secondary">
         원고를 만들 때 AI에게 주는 지시문이에요. 여기서 바꾸면 팀 전체의 이후 생성에 바로 적용돼요.
         비워두면 그 문장은 기본값으로 동작해요.
@@ -108,24 +144,27 @@ export default function PromptPage() {
 
       {values && (
         <>
-          <div className="mt-5 flex items-start gap-8">
+          <div className="mt-5 flex items-start gap-9">
             <div className="flex-1 min-w-0">
-              <div className="space-y-4">
-                {FIELDS.map((f) => (
-                  <div key={f.key}>
-                    <div className="flex items-baseline justify-between">
-                      <label htmlFor={`pf-${f.key}`} className="text-ui font-bold">{f.label}</label>
-                      {values[f.key].trim() !== PROMPT_DEFAULTS[f.key] && (
-                        <button onClick={() => { setValues({ ...values, [f.key]: PROMPT_DEFAULTS[f.key] }); setSaved(false); }}
-                                className="text-caption text-x-blue-text hover:underline">기본값 복원</button>
-                      )}
-                    </div>
-                    <p className="text-caption text-x-muted">{f.help}</p>
-                    <textarea id={`pf-${f.key}`} value={values[f.key]} rows={f.rows} maxLength={2000}
-                              onChange={(e) => { setValues({ ...values, [f.key]: e.target.value }); setSaved(false); }}
-                              className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
+              <div className="space-y-8">
+                <div>
+                  <h2 className="text-caption font-bold tracking-wide text-x-secondary">항상 적용되는 지시</h2>
+                  <div className="mt-3 space-y-4">
+                    {FIELDS_ALWAYS.map((f) => renderField(values, f))}
                   </div>
-                ))}
+                </div>
+                <div className="border-t border-x-border pt-5">
+                  <h2 className="text-caption font-bold tracking-wide text-x-secondary">레퍼런스를 참고할 때</h2>
+                  <div className="mt-3 space-y-4">
+                    {renderField(values, FIELD_NO_COPY)}
+                    <div>
+                      <p className="text-caption text-x-muted">아래 셋 중 생성할 때 고른 참고 방식 하나만 들어가요.</p>
+                      <div className="mt-3 space-y-4 border-l-2 border-x-border pl-3">
+                        {FIELDS_MODES.map((f) => renderField(values, f))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
               {err && <p className="mt-3 text-ui text-red-500">{err}</p>}
               <div className="mt-4 flex items-center gap-2.5">
@@ -140,6 +179,7 @@ export default function PromptPage() {
                 지금 편집 중인 문장이 들어간 실제 전달 형태예요. 실제 생성에선 (샘플) 자리에 그때 고른
                 클라이언트·시술·레퍼런스·방향성이 들어가요. 고른 방식의 규칙 문장이 본문 미리보기에 들어가요.
               </p>
+              <p className="text-caption text-x-muted">입력칸을 클릭하면 그 문장이 오른쪽에서 파랗게 표시돼요.</p>
               <div className="mt-2 flex items-center gap-1.5 text-caption text-x-muted">
                 <span>샘플의 참고 방식:</span>
                 {([
@@ -158,9 +198,9 @@ export default function PromptPage() {
                 ))}
               </div>
               <p className="mt-2 text-caption font-bold text-x-muted">역할 지시 (시스템)</p>
-              <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-ui leading-normal">{previewSystem}</pre>
+              <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-ui leading-relaxed">{highlight(previewSystem, needle)}</pre>
               <p className="mt-2 text-caption font-bold text-x-muted">본문</p>
-              <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-ui leading-normal">{preview}</pre>
+              <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-ui leading-relaxed">{highlight(preview, needle)}</pre>
             </div>
           </div>
 

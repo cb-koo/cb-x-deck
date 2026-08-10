@@ -3,12 +3,13 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { newDraftsSince, filterDrafts, statusCounts, siblingCount, type DraftListFilter } from '@/lib/draftUi';
-import { searchDrafts, filterByProcedure, filterByPeriod, procedureOptions, type Period } from '@/lib/draftViews';
+import { searchDrafts, filterByProcedure, applyPeriod, procedureOptions, type PeriodValue } from '@/lib/draftViews';
 import { Toast } from '@/components/Toast';
 import { DraftCard } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
 import { RefPickerSheet } from '@/components/RefPickerSheet';
 import { DraftFilterBar } from '@/components/DraftFilterBar';
+import { PeriodPicker } from '@/components/PeriodPicker';
 import { DraftTable } from '@/components/DraftTable';
 import { DraftKanban } from '@/components/DraftKanban';
 import { DraftComposer, ComposerFooter, DEFAULT_COMPOSER, type ComposerState } from '@/components/DraftComposer';
@@ -44,7 +45,7 @@ function Workbench() {
   // 신규 렌즈 3축 — 기존 필터와 동일하게 세션 한정(저장 안 함) (6차 스펙)
   const [query, setQuery] = useState('');
   const [procFilter, setProcFilter] = useState(''); // 시술명, '' = 전체
-  const [period, setPeriod] = useState<Period>('all');
+  const [period, setPeriod] = useState<PeriodValue>({ kind: 'preset', preset: 'all' });
   const [editing, setEditing] = useState<DraftRow | null>(null);
   const [generating, setGenerating] = useState(false);
   const [rewritingId, setRewritingId] = useState<string | null>(null);
@@ -144,7 +145,7 @@ function Workbench() {
     () => filterDrafts(drafts, { status: 'all', clientId: filter.clientId }), [drafts, filter.clientId]);
   // 클라이언트 → (시술·기간·검색) → 상태 탭 순으로 좁힌다. 칸반은 상태만 무시하므로 scoped를 쓴다.
   const scoped = useMemo(
-    () => filterByPeriod(filterByProcedure(searchDrafts(clientScoped, query), procFilter), period, Date.now()),
+    () => applyPeriod(filterByProcedure(searchDrafts(clientScoped, query), procFilter), period, Date.now()),
     [clientScoped, query, procFilter, period]);
   const visibleDrafts = useMemo(
     () => filterDrafts(scoped, { status: filter.status, clientId: '' }), [scoped, filter.status]);
@@ -168,12 +169,12 @@ function Workbench() {
   // 새 초안이 현재 렌즈(상태·클라이언트·검색·시술·기간)에 가려 있으면 전부 리셋 — T11의 6차 확장
   const revealIfHidden = useCallback((created: DraftRow[]) => {
     const L = lensRef.current;
-    const visible = filterByPeriod(
+    const visible = applyPeriod(
       filterByProcedure(searchDrafts(filterDrafts(created, L.filter), L.query), L.procFilter),
       L.period, Date.now()).length > 0;
     if (!visible) {
       setFilter({ status: 'all', clientId: '' });
-      setQuery(''); setProcFilter(''); setPeriod('all');
+      setQuery(''); setProcFilter(''); setPeriod({ kind: 'preset', preset: 'all' });
     }
   }, []);
 
@@ -377,40 +378,38 @@ function Workbench() {
       {/* 우: 결과 영역 — 필터 헤더는 스크롤 밖 고정 행 (Dense Scan List) */}
       <div className="flex min-w-0 flex-1 flex-col lg:min-h-0">
         {loaded && drafts.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-x-border bg-x-surface px-4 py-2">
-            {/* 세그먼티드 컨트롤 — 배타적 모드 전환기라 필터 알약과 다른 시각 문법(채움형) (3차 스펙 §1) */}
-            <div role="group" aria-label="보기 방식" className="flex shrink-0 overflow-hidden rounded-lg border border-x-border-strong">
-              {(['cards', 'table', 'kanban'] as const).map((v, i) => (
-                <button key={v} onClick={() => setView(v)} aria-pressed={view === v}
-                        title={v === 'cards' ? '원고를 한 건씩 정독·편집해요' : v === 'table' ? '목록으로 훑고 정렬해요' : '단계별로 끌어서 상태를 옮겨요'}
-                        className={`px-2.5 py-1 text-[13px] ${i > 0 ? 'border-l border-x-border-strong' : ''} ${view === v ? 'bg-x-blue font-bold text-white' : 'bg-white text-x-secondary hover:bg-x-hover'}`}>
-                  {v === 'cards' ? '카드' : v === 'table' ? '테이블' : '칸반'}
-                </button>
-              ))}
-            </div>
-            <span aria-hidden className="h-4 w-px shrink-0 bg-x-border-strong" />
-            <div className="min-w-0 flex-1">
-              {/* 전체 탭 건수도 검색·시술·기간 반영 — counts와 같은 집합이어야 라벨-값 일치(6차 리뷰 High) */}
-              <DraftFilterBar counts={counts} total={scoped.length} filter={filter}
-                              clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
-                              onChange={setFilter} showStatusTabs={view !== 'kanban'} />
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-caption">
-                <input type="search" value={query} onChange={(e) => setQuery(e.target.value)}
-                       placeholder="제목·내용·방향성 검색" aria-label="초안 검색"
-                       className="w-48 rounded-md border border-x-border-strong bg-white px-2 py-1 outline-none focus:border-x-blue" />
-                <select value={procFilter} onChange={(e) => setProcFilter(e.target.value)} aria-label="시술로 거르기"
-                        className="rounded-md border border-x-border-strong bg-white px-2 py-1 outline-none focus:border-x-blue">
-                  <option value="">모든 시술</option>
-                  {procOptions.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-                <select value={period} onChange={(e) => setPeriod(e.target.value as Period)} aria-label="기간으로 거르기"
-                        className="rounded-md border border-x-border-strong bg-white px-2 py-1 outline-none focus:border-x-blue">
-                  <option value="all">전체 기간</option>
-                  <option value="today">오늘</option>
-                  <option value="7d">최근 7일</option>
-                  <option value="30d">최근 30일</option>
-                </select>
+          <div className="border-b border-x-border bg-x-surface px-4 py-2">
+            {/* 1행 — 무엇을 보나: 뷰 | 상태 | 클라이언트 (GitLab·Notion 관례: 모드와 필터의 레이어 분리) */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* 세그먼티드 컨트롤 — 배타적 모드 전환기라 필터 알약과 다른 시각 문법(채움형) (3차 스펙 §1) */}
+              <div role="group" aria-label="보기 방식" className="flex h-8 shrink-0 overflow-hidden rounded-lg border border-x-border-strong">
+                {(['cards', 'table', 'kanban'] as const).map((v, i) => (
+                  <button key={v} onClick={() => setView(v)} aria-pressed={view === v}
+                          title={v === 'cards' ? '원고를 한 건씩 정독·편집해요' : v === 'table' ? '목록으로 훑고 정렬해요' : '단계별로 끌어서 상태를 옮겨요'}
+                          className={`h-full px-3 text-[13px] ${i > 0 ? 'border-l border-x-border-strong' : ''} ${view === v ? 'bg-x-blue font-bold text-white' : 'bg-white text-x-secondary hover:bg-x-hover'}`}>
+                    {v === 'cards' ? '카드' : v === 'table' ? '테이블' : '칸반'}
+                  </button>
+                ))}
               </div>
+              <span aria-hidden className="h-5 w-px shrink-0 bg-x-border-strong" />
+              <div className="min-w-0 flex-1">
+                {/* 전체 탭 건수도 검색·시술·기간 반영 — counts와 같은 집합이어야 라벨-값 일치(6차 리뷰 High) */}
+                <DraftFilterBar counts={counts} total={scoped.length} filter={filter}
+                                clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
+                                onChange={setFilter} showStatusTabs={view !== 'kanban'} />
+              </div>
+            </div>
+            {/* 2행 — 어떻게 좁히나: 검색(최광폭)·시술·기간 (필터 초과분은 둘째 줄+구분선 — GitLab) */}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-x-border pt-2">
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+                     placeholder="제목·내용·방향성 검색" aria-label="초안 검색"
+                     className="h-8 min-w-[200px] max-w-[360px] flex-1 rounded-md border border-x-border-strong bg-white px-2.5 text-[13px] outline-none focus:border-x-blue" />
+              <select value={procFilter} onChange={(e) => setProcFilter(e.target.value)} aria-label="시술로 거르기"
+                      className="h-8 rounded-md border border-x-border-strong bg-white px-2 text-[13px] outline-none focus:border-x-blue">
+                <option value="">모든 시술</option>
+                {procOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <PeriodPicker value={period} onChange={setPeriod} />
             </div>
           </div>
         )}

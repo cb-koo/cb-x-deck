@@ -11,7 +11,7 @@ export function DraftFilterBar({ counts, total, filter, clients, onChange, showS
   showStatusTabs?: boolean;
 }) {
   const tab = (on: boolean) =>
-    `rounded-full border px-2.5 py-0.5 tabular-nums ${on ? 'border-x-blue bg-x-blue/10 font-bold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`;
+    `inline-flex h-8 items-center rounded-full border px-3 tabular-nums ${on ? 'border-x-blue bg-x-blue/10 font-bold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`;
   return (
     <div className="flex w-full flex-wrap items-center gap-1.5 text-[13px]">
       {showStatusTabs && (
@@ -29,7 +29,7 @@ export function DraftFilterBar({ counts, total, filter, clients, onChange, showS
       )}
       <select value={filter.clientId} onChange={(e) => onChange({ ...filter, clientId: e.target.value })}
               aria-label="클라이언트로 거르기"
-              className="ml-auto rounded-md border border-x-border-strong bg-white px-2 py-1 text-caption outline-none focus:border-x-blue">
+              className="ml-auto h-8 rounded-md border border-x-border-strong bg-white px-2 text-[13px] outline-none focus:border-x-blue">
         <option value="">모든 클라이언트</option>
         {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         <option value="none">클라이언트 없음</option>

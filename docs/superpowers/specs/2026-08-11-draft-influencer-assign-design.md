@@ -15,7 +15,7 @@
 - **비용 유발 호출은 하지 않는다.** 계정 실재 확인(`getUserInfo`)은 유료다. 배정할 때마다 낼 비용이 아니라, 나중에 인플루언서를 **등록**하는 시점에 한 번 낼 비용이다. 이번엔 형식 검증만 한다.
 - **없는 데이터는 자리도 안 만든다.** 미배정 초안의 카드·칸반에는 아무것도 그리지 않는다(DraftCard의 기존 원칙). 표에서만 열 정합을 위해 `—`를 쓴다.
 - **어포던스는 실제 동작과 일치시킨다.** 지금 자동완성은 "등록된 목록"이 아니라 "이미 배정한 적 있는 계정"이다. 도움말이 그렇게 말한다 — 목록에서 고르는 것처럼 보이게 하지 않는다.
-- **교체 지점을 한 파일에 가둔다.** 인플루언서 목록 DB가 생겼을 때 바뀌는 건 옵션의 출처와 위젯이다. 둘 다 `InfluencerField.tsx` 안에서 끝나야 한다 — 마이그레이션·API·저장 형식은 그대로 간다.
+- **교체 지점을 최소한으로 가둔다.** 인플루언서 목록 DB가 생겼을 때 바뀌는 건 딱 둘이다 — 옵션을 어디서 읽는가(`/api/drafts/influencers` 라우트 내부)와 어떤 위젯으로 고르는가(`InfluencerField.tsx` 내부). 마이그레이션·저장 형식·API 응답 형태·호출부는 그대로 간다.
 
 ---
 
@@ -57,21 +57,38 @@ influencer_handle = case when ${patch.influencerHandle !== undefined}
 
 `insertDraft`는 손대지 않는다 — 생성 시점에는 배정하지 않는다(원고를 만든 다음 누구에게 줄지 정하는 순서).
 
-## C. `src/lib/draftViews.ts` — 옵션 파생
+## C. 옵션 목록 — 서버가 소유한다
 
 ```ts
+// src/lib/draftTypes.ts — 클라이언트·서버 공용 타입
 export interface InfluencerOption { handle: string; name?: string }
-
-// 이미 배정된 핸들 — 소문자 기준 중복 제거, 첫 등장 표기를 대표로. 알파벳순.
-// name은 지금 항상 비어 있다. 인플루언서 목록 DB가 생기면 그쪽이 채운다(타입은 그대로).
-export function influencerOptions(
-  list: Array<{ influencerHandle: string | null }>,
-): InfluencerOption[];
 ```
 
-옵션 타입을 문자열이 아니라 객체로 두는 이유는 하나다. 나중에 목록이 `하다칸 (@hadakan__)`처럼 이름을 병기하게 될 때 **타입도 호출부도 바뀌지 않게** 하기 위해서다.
+옵션 타입을 문자열이 아니라 객체로 두는 이유는 하나다. 나중에 목록이 `하다칸 (@hadakan__)`처럼 이름을 병기하게 될 때 **타입도 호출부도 바뀌지 않게** 하기 위해서다. `name`은 지금 항상 비어 있고, 인플루언서 목록 DB가 생기면 그쪽이 채운다.
 
-이 함수가 **미래 인플루언서 목록의 씨앗**이다. 파생값이라 자정 능력이 있다 — 오타로 들어간 핸들도 그 초안이 지워지면 후보에서 함께 사라진다. 별도 레지스트리 테이블을 지금 만들면 이 성질을 잃고 정리 UI가 필요해진다.
+```ts
+// src/lib/draftStore.ts — 배정된 적 있는 핸들 전체. 소문자 기준 중복 제거, 대표 표기는 최신 것.
+export async function listInfluencerHandles(sql: postgres.Sql): Promise<InfluencerOption[]>;
+```
+
+```sql
+select distinct on (lower(influencer_handle)) influencer_handle
+  from draft
+ where influencer_handle is not null
+ order by lower(influencer_handle), created_at desc
+```
+
+**화면에 로드된 초안에서 파생하지 않는다.** `/api/drafts`는 최근 50건만 돌려주므로(`listDrafts`의 기본 limit), 51번째 이전에 배정된 인플루언서는 후보에서 사라진다. 담당자는 기억으로 다시 타이핑하게 되고, 그게 정확히 이 기능이 막으려던 표기 분화다 — 자동완성이 불완전하면 자동완성이 없느니만 못하다.
+
+**대표 표기는 최신 것을 쓴다.** 같은 사람을 `Hadakan__`으로 적었다가 나중에 `hadakan__`으로 적었다면 최근 표기가 현재 습관에 가깝다.
+
+이 쿼리가 **미래 인플루언서 목록의 씨앗**이다. 파생값이라 자정 능력이 있다 — 오타로 들어간 핸들도 그 초안이 지워지면 후보에서 함께 사라진다. 별도 레지스트리 테이블을 지금 만들면 이 성질을 잃고 정리 UI가 필요해진다.
+
+## C-2. `src/app/api/drafts/influencers/route.ts` (신규)
+
+`GET` → `InfluencerOption[]`. `requireAllowedUser` 게이트(읽기 전용이므로 `/api/drafts` GET과 동일 등급), 얇은 라우트 — 로직은 저장 계층에 있다.
+
+**이 라우트가 미래의 교체 지점이다.** 인플루언서 목록 DB가 생기면 이 파일 안에서 조회 대상이 `draft`에서 `influencer` 테이블로 바뀐다. URL도, 응답 형태도, 호출부도 그대로다.
 
 ## D. `src/components/InfluencerField.tsx` — 입력 필드 (신규)
 
@@ -118,7 +135,11 @@ export function InfluencerField({ value, options, onChange, error }: {
 
 ## G. `src/app/generate/page.tsx` — 배선
 
-`influencerOptions(drafts)`를 `useMemo`로 계산해 `DraftEditModal`에 넘긴다. **나중에 이 한 줄이 API 조회로 바뀐다** — 교체 지점이 여기 하나다.
+마운트 시 `/api/drafts/influencers`를 기존 `Promise.all`에 얹어 받아 `influencerOptions` 상태에 담고, `DraftEditModal`에 넘긴다.
+
+**실패해도 필드는 계속 쓸 수 있어야 한다.** 목록 조회가 실패하면 옵션을 빈 배열로 두고 토스트도 띄우지 않는다 — 자동완성은 편의이고, 자유 입력이라는 본 기능은 그대로 동작한다. 쓸 수 있는 걸 못 쓰는 것처럼 보이게 만들지 않는다.
+
+배정을 저장한 뒤에는 옵션 목록을 다시 부르지 않는다. 방금 입력한 핸들은 이미 그 사람 머릿속에 있고, 다음 마운트에서 목록에 합류한다 — 한 번의 저장마다 조회를 한 번 더 하는 값이 그만하지 않다.
 
 `patchDraft`는 이미 임의 본문을 받으므로 그대로 쓴다.
 
@@ -138,8 +159,8 @@ PATCH 본문에 `influencerHandle?: string | null`을 받는다.
 
 라우트·컴포넌트 하네스가 없는 저장소이므로 순수 함수와 저장 계층으로 커버한다.
 
-- `draftViews.test.ts` — `influencerOptions`: 대소문자가 다른 같은 핸들은 하나로, 첫 등장 표기가 대표, `null`은 제외, 정렬.
 - `draftStore.test.ts` — 배정 저장 → 조회, 배정 해제(`null`) 저장이 실제로 `null`이 되는지(`coalesce`를 안 쓴 이유가 여기서 검증된다), `undefined`가 기존값을 보존하는지.
+- `draftStore.test.ts` — `listInfluencerHandles`: 대소문자만 다른 같은 핸들이 하나로 합쳐지는지, 대표 표기가 최신 것인지, 미배정(`null`)이 빠지는지, 소문자 기준 정렬인지.
 - `xHandle.test.ts`는 이미 있으므로 파싱은 추가 테스트 없이 재사용한다.
 
 ## 향후 확장
@@ -154,7 +175,7 @@ select distinct influencer_handle from draft
 
 그다음 `draft.influencer_id`를 더해 핸들 조인으로 채우고, `influencer_handle`은 `client_name`과 같은 **스냅샷**으로 남긴다(엔티티가 지워져도 지난 원고의 배정 이력이 재현된다).
 
-UI에서는 `InfluencerField` 내부만 바뀐다 — `datalist`가 커스텀 선택창이 되고, 옵션에 이름이 붙고, 목록에 없는 핸들에 "아직 등록되지 않은 계정 — 새로 등록할까요?"가 생긴다. **위젯 교체를 강제하는 건 이 마지막 항목 하나뿐이다.** 마이그레이션·저장 형식·API 계약은 그대로다.
+그다음 `/api/drafts/influencers`가 `draft` 대신 `influencer` 테이블을 읽게 바꾼다 — URL도 응답 형태도 호출부도 그대로다. UI에서는 `InfluencerField` 내부에서 `datalist`가 커스텀 선택창이 되고, 옵션에 이름이 붙고, 목록에 없는 핸들에 "아직 등록되지 않은 계정 — 새로 등록할까요?"가 생긴다. **위젯 교체를 강제하는 건 이 마지막 항목 하나뿐이다** — 이름 병기는 `datalist`도 할 수 있다. 마이그레이션·저장 형식·API 계약은 그대로다.
 
 **인플루언서 컬럼(watchlist)과의 연결.** 덱의 인플루언서 컬럼이 이미 같은 핸들로 계정을 추적한다. "이 사람이 최근 뭘 올렸나"와 "이 사람에게 어떤 원고를 줬나"가 별도 매핑 없이 이어진다.
 

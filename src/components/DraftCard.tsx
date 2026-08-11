@@ -98,8 +98,10 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
             시안 {variantLabel(draft.variantIndex ?? 0)} · 같은 조건 {siblingTotal}개 중
           </span>
         )}
+        {/* 시술명은 여기 두지 않는다 — 아래 근거 풋터에 '클라이언트 · 시술'로 이미 있어 한 카드에 두 번
+            나왔고, 커진 컨트롤 바로 옆의 중복 글자가 대비를 갉아먹었다. 이 줄은 '내가 정하는 것'만 남긴다. */}
         <span className="ml-auto text-caption text-x-muted">
-          {[...draft.procedureNames, draft.format === 'thread' ? '스레드' : '단문'].join(' · ')}
+          {draft.format === 'thread' ? '스레드' : '단문'}
         </span>
       </div>
       {/* 흰색 = X 콘텐츠층 */}

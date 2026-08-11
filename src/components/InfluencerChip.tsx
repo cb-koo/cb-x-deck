@@ -106,16 +106,20 @@ export function InfluencerChip({ handle, options, onChange }: {
 
   return (
     <>
-      {/* 배정됨은 중립 채움 칩, 미배정은 채움 없는 낮은 대비 — 의미색은 상태 칩이 독점하고,
-          배정된 카드가 훑을 때 먼저 눈에 들어와야 한다. 미배정 문구는 '표시'가 아니라 손잡이라 '+'로 행동을 말한다. */}
+      {/* 크기(13px·높이 32px·테두리)는 DraftStatusChip과 같은 규격 — 이 줄에서 '내가 정하는 것'은
+          같은 덩치로 보이고 옆의 읽기용 메타(11px 회색)와 대비돼야 한다. 처음엔 11px이라 메타 글자와
+          구분이 안 됐고 "눈에 안 들어온다"는 피드백을 받았다.
+          의미색은 상태 칩이 독점하므로 여기는 무채색이고, 값의 유무를 실선/점선으로 말한다 —
+          점선은 "비어 있는 칸"이라는 뜻이라 미배정이 '채우는 자리'로 읽힌다. */}
       <button ref={chipRef} type="button" onClick={() => (open ? close() : openPop())}
               aria-haspopup="dialog" aria-expanded={open}
               aria-label={handle ? `게시할 인플루언서 @${handle} — 바꾸기` : '게시할 인플루언서 배정하기'}
               title={handle ? '이 원고를 줄 인플루언서 — 눌러서 바꾸기' : '이 원고를 줄 인플루언서를 배정합니다'}
-              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-caption focus:outline-none focus-visible:ring-2 focus-visible:ring-x-blue ${
-                handle ? 'bg-x-text/5 text-x-secondary hover:bg-x-text/10' : 'text-x-muted hover:bg-x-text/5 hover:text-x-secondary'
+              className={`inline-flex h-8 items-center gap-1.5 rounded-lg border bg-white px-2.5 text-ui focus:outline-none focus-visible:ring-2 focus-visible:ring-x-blue ${
+                handle ? 'border-x-border-strong text-x-text hover:bg-x-hover'
+                       : 'border-dashed border-x-border-strong text-x-muted hover:bg-x-hover hover:text-x-secondary'
               }`}>
-        {handle ? <>@{handle} <span aria-hidden className="ml-0.5">⌄</span></> : '+ 인플루언서'}
+        {handle ? <>@{handle} <span aria-hidden className="text-x-muted">⌄</span></> : '+ 인플루언서'}
       </button>
 
       {open && createPortal(

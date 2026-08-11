@@ -1,5 +1,4 @@
 'use client';
-import { useState } from 'react';
 import { Button } from '@/components/ui';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { ReferenceRow } from '@/lib/referenceStore';
@@ -23,50 +22,90 @@ export function canGenerate(value: ComposerState, refCount: number): boolean {
   return !!value.clientId || (refCount > 0 && value.mode !== 'off') || value.direction.trim().length > 0;
 }
 
-// 섹션 래퍼 — 카드 섹션 관례(테두리 + 제목 헤더, /prompt 선례)
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+// 섹션 래퍼 — 카드 섹션 관례(테두리 + 제목 헤더, /prompt 선례).
+// 제목을 11px→13px로 올렸다: 이전엔 제목·라벨·설명·버튼이 전부 11px이라 층위가 없어
+// "빽빽하다"는 피드백을 받았다. 대비는 다 키워서가 아니라 '차이'에서 생긴다.
+function Section({ title, right, children }: {
+  title: string; right?: React.ReactNode; children: React.ReactNode;
+}) {
   return (
-    <section className="rounded-xl border border-x-border bg-white">
-      <h3 className="border-b border-x-border px-3 py-1.5 text-caption font-bold text-x-secondary">{title}</h3>
-      <div className="space-y-2.5 p-3 text-ui">{children}</div>
+    <section className="rounded-xl border border-x-border-strong bg-white">
+      <div className="flex items-center gap-1.5 border-b border-x-border bg-x-surface/60 px-3 py-2">
+        <h3 className="text-ui font-bold text-x-text">{title}</h3>
+        {right}
+      </div>
+      <div className="space-y-3.5 p-3.5">{children}</div>
     </section>
   );
 }
 
-// 좌 생성 패널의 섹션부 — 조건은 항상 펼침, '생성 제약'만 고급 옵션으로 접힘 (스펙 B-2)
+// ⓘ — 이름만으로 알 수 없는 것에만 붙인다. 서술형 설명을 패널 본문에 늘어놓지 않기 위한 장치이고,
+// 브라우저 기본 title을 쓴다(이 저장소가 이미 쓰는 방식 — 새 컴포넌트를 만들 만큼의 값이 아직 없다).
+function Info({ text }: { text: string }) {
+  return (
+    <span title={text} aria-label={text} role="note"
+          className="inline-flex h-4 w-4 shrink-0 cursor-help items-center justify-center rounded-full border border-x-border-strong text-[10px] leading-none text-x-muted">ⓘ</span>
+  );
+}
+
+function Label({ children, info }: { children: React.ReactNode; info?: string }) {
+  return (
+    <span className="flex items-center gap-1 text-ui font-medium text-x-text">
+      {children}{info && <Info text={info} />}
+    </span>
+  );
+}
+
+// '선택 사항'을 문장이 아니라 한 단어로 — "비워도 돼요 — 레퍼런스나 클라이언트 정보만으로도…" 같은
+// 안내문이 섹션마다 붙어 있던 것을 대체한다.
+const Optional = () => <span className="text-caption text-x-muted">선택</span>;
+
+// 실제로 프롬프트에 실리는 금지어 수 — 클라이언트 것 + '선택한' 시술 것.
+// generate.ts가 procedureIds로 시술을 거르므로 같은 집합을 세야 표시와 동작이 일치한다.
+// 섹션부(잠금·개수 표시)와 풋터(요약)가 같은 판정을 써야 해서 함수로 뽑았다 — canGenerate와 같은 이유.
+function bannedPhraseCount(
+  cur: { client: ClientRow; procedures: ProcedureRow[] } | null, procedureIds: string[],
+): number {
+  if (!cur) return 0;
+  return cur.client.bannedPhrases.length
+    + cur.procedures.filter((p) => procedureIds.includes(p.id))
+        .reduce((n, p) => n + p.bannedPhrases.length, 0);
+}
+
+// 좌 생성 패널의 섹션부 — 사용 흐름 순: 누구 것인지 → 무엇을 참고할지 → 무엇을 말할지 → 어떤 모양·몇 개로.
+// 서술형 설명은 두지 않는다: 이름만으로 알 수 있으면 이름만, 알 수 없으면 ⓘ, 선택 사항은 '선택' 한 단어.
+// (이전엔 설명 문장 9개가 전부 11px로 깔려 있어 "투머치"·"빽빽하다"는 피드백을 받았다.)
 export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker, onRemoveRef, onClearRefs }: {
   clients: Array<{ client: ClientRow; procedures: ProcedureRow[] }>;
   value: ComposerState; onChange: (v: ComposerState) => void;
   refRows: ReferenceRow[]; onOpenPicker: () => void; onRemoveRef: (tweetId: string) => void; onClearRefs: () => void;
 }) {
-  const [advOpen, setAdvOpen] = useState(false);
   const cur = clients.find((c) => c.client.id === value.clientId) ?? null;
   const hasRefs = refRows.length > 0;
+  const bannedCount = bannedPhraseCount(cur, value.procedureIds);
 
   return (
-    <div className="space-y-3">
-      <Section title="생성 조건">
+    <div className="space-y-4">
+      <Section title="클라이언트 정보">
         <label className="block">
-          <span className="text-caption text-x-muted">클라이언트</span>
-          <div className="mt-1 flex items-center gap-2">
-            <select value={value.clientId ?? ''}
-                    className="w-full rounded-md border border-x-border-strong bg-white px-2 py-1 outline-none focus:border-x-blue"
-                    onChange={(e) => onChange({ ...value, clientId: e.target.value || null, procedureIds: [] })}>
-              <option value="">반영 안 함</option>
-              {clients.map(({ client }) => <option key={client.id} value={client.id}>{client.name}</option>)}
-            </select>
-          </div>
+          <Label>클라이언트</Label>
+          <select value={value.clientId ?? ''}
+                  className="mt-1.5 h-9 w-full rounded-lg border border-x-border-strong bg-white px-2.5 text-ui outline-none focus:border-x-blue"
+                  onChange={(e) => onChange({ ...value, clientId: e.target.value || null, procedureIds: [] })}>
+            <option value="">반영 안 함</option>
+            {clients.map(({ client }) => <option key={client.id} value={client.id}>{client.name}</option>)}
+          </select>
         </label>
         {cur && cur.procedures.length > 0 && (
           <div>
-            <span className="text-caption text-x-muted">시술</span>
-            <div className="mt-1 flex flex-wrap gap-1.5">
+            <Label>시술</Label>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
               {cur.procedures.map((p) => {
                 const on = value.procedureIds.includes(p.id);
                 return (
                   <button key={p.id}
                           onClick={() => onChange({ ...value, procedureIds: on ? value.procedureIds.filter((x) => x !== p.id) : [...value.procedureIds, p.id] })}
-                          className={`rounded-full border px-2.5 py-0.5 text-caption ${on ? 'border-x-blue bg-x-blue/10 text-x-blue-text' : 'border-x-border-strong text-x-muted'}`}>
+                          className={`inline-flex h-7 items-center rounded-full border px-3 text-ui ${on ? 'border-x-blue bg-x-blue/10 font-medium text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
                     {p.name}
                   </button>
                 );
@@ -74,85 +113,98 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
             </div>
           </div>
         )}
+      </Section>
+
+      <Section title="참고할 레퍼런스" right={<Optional />}>
+        {hasRefs ? (
+          <>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {refRows.map((r) => (
+                <span key={r.tweetId} className="inline-flex h-7 items-center gap-1 rounded-full border border-x-border-strong bg-white px-2.5 text-ui">
+                  @{r.authorHandle}
+                  <button onClick={() => onRemoveRef(r.tweetId)} aria-label={`@${r.authorHandle} 레퍼런스 빼기`} className="text-x-muted hover:text-red-500">✕</button>
+                </span>
+              ))}
+              {refRows.length >= 2 && (
+                <button onClick={onClearRefs} className="shrink-0 text-caption text-x-muted hover:text-red-500 hover:underline">모두 빼기</button>
+              )}
+            </div>
+            <button onClick={onOpenPicker}
+                    className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-x-border-strong bg-white text-ui text-x-blue-text hover:bg-x-hover">
+              ＋ 레퍼런스 더 고르기
+            </button>
+            {/* 참고 방식은 레퍼런스가 있을 때만 나타난다 — 예전엔 레퍼런스보다 '위'에서 비활성으로 먼저 보였다.
+                못 누르는 버튼을 먼저 보여주고 그걸 켜는 스위치를 아래에 두는 구조였다. */}
+            <div className="border-t border-x-border pt-3">
+              <Label info="형식 = 문장 구조·길이. 앵글 = 소재를 다루는 접근 관점. 둘을 함께 고르면 구조와 관점을 모두 참고합니다.">
+                이 레퍼런스에서 무엇을 가져올까요
+              </Label>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {(['form', 'angle', 'both'] as const).map((m) => (
+                  <button key={m} onClick={() => onChange({ ...value, mode: m })}
+                          className={`inline-flex h-7 items-center rounded-full border px-2.5 text-ui ${value.mode === m ? 'border-x-blue bg-x-blue font-medium text-white' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
+                    {MODE_LABEL[m]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          // 텍스트 링크였던 것을 실제 버튼으로 — 레퍼런스 기반 생성이 이 도구의 차별점인데
+          // 진입점이 11px 파란 밑줄이라 각주처럼 보였다.
+          <button onClick={onOpenPicker}
+                  className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-x-blue bg-x-blue/5 text-ui font-bold text-x-blue-text hover:bg-x-blue/10">
+            <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-current" aria-hidden><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z" /></svg>
+            보관함에서 고르기
+          </button>
+        )}
+      </Section>
+
+      <Section title="이번 원고의 방향" right={<Optional />}>
+        <textarea value={value.direction} onChange={(e) => onChange({ ...value, direction: e.target.value })}
+                  rows={3} aria-label="이번 원고의 방향"
+                  placeholder="예: 여름 전 시술을 고민하는 20대에게, 다운타임이 짧다는 점을 강조"
+                  className="w-full rounded-lg border border-x-border-strong p-2.5 text-[15px] leading-normal outline-none focus:border-x-blue" />
+      </Section>
+
+      <Section title="형식과 개수">
         <div>
-          <span className="text-caption text-x-muted">형식</span>
-          <div className="mt-1 flex gap-2">
+          <Label info="단문 = 트윗 1개(X 기준 280자 이내). 스레드 = 이어지는 트윗 3~5개.">형식</Label>
+          <div className="mt-1.5 flex gap-1.5">
             {(['single', 'thread'] as const).map((f) => (
               <button key={f} onClick={() => onChange({ ...value, format: f })}
-                      className={`rounded-full border px-3 py-0.5 ${value.format === f ? 'border-x-blue bg-x-blue text-white' : 'border-x-border-strong text-x-secondary'}`}>
+                      className={`inline-flex h-8 flex-1 items-center justify-center rounded-lg border text-ui ${value.format === f ? 'border-x-blue bg-x-blue font-bold text-white' : 'border-x-border-strong bg-white text-x-secondary hover:bg-x-hover'}`}>
                 {f === 'single' ? '단문' : '스레드'}
               </button>
             ))}
           </div>
-          <p className="mt-1 text-caption text-x-muted">단문 = 트윗 1개(X 기준 280 이내) · 스레드 = 트윗 3~5개</p>
         </div>
-        <div>
-          <span className="text-caption text-x-muted">참고 방식 — 레퍼런스에서 무엇을 가져올지</span>
-          <div className="mt-1 flex gap-2">
-            {(['form', 'angle', 'both'] as const).map((m) => (
-              <button key={m} disabled={!hasRefs} onClick={() => onChange({ ...value, mode: m })}
-                      className={`rounded-full border px-3 py-0.5 ${hasRefs && value.mode === m ? 'border-x-blue bg-x-blue text-white' : 'border-x-border-strong text-x-secondary'} disabled:opacity-40`}>
-                {MODE_LABEL[m]}
-              </button>
-            ))}
-          </div>
-          {!hasRefs && <p className="mt-1 text-caption text-x-muted">레퍼런스를 연결하면 선택할 수 있어요</p>}
-        </div>
-        <label className="block">
-          <span className="text-caption text-x-muted">시안 수</span>
-          <div className="mt-1 flex items-center gap-2">
+        <label className="flex items-center justify-between gap-2 border-t border-x-border pt-3">
+          <Label info="같은 조건으로 서로 다른 앵글의 원고를 여러 개 만들어 그중 하나를 고릅니다. 개수만큼 비용과 시간이 늘어납니다.">시안 수</Label>
+          <span className="flex items-center gap-1.5">
             <input type="number" min={1} max={5} value={value.count}
                    onChange={(e) => onChange({ ...value, count: Math.min(5, Math.max(1, Math.trunc(Number(e.target.value) || 1))) })}
-                   className="w-16 rounded-md border border-x-border-strong bg-white px-2 py-1 outline-none focus:border-x-blue" />
-            <span className="text-caption text-x-secondary">서로 다른 앵글로 여러 개 만들어 하나 이상 골라요 — 개수만큼 비용·시간이 늘어요</span>
-          </div>
+                   className="h-9 w-14 rounded-lg border border-x-border-strong bg-white px-2 text-center text-ui outline-none focus:border-x-blue" />
+            <span className="text-ui text-x-secondary">개</span>
+          </span>
         </label>
-      </Section>
-
-      <Section title="레퍼런스">
-        {hasRefs ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {refRows.map((r) => (
-              <span key={r.tweetId} className="flex items-center gap-1 rounded-full border border-x-border-strong bg-white px-2 py-0.5 text-caption">
-                @{r.authorHandle}
-                <button onClick={() => onRemoveRef(r.tweetId)} aria-label={`@${r.authorHandle} 레퍼런스 빼기`} className="text-x-muted hover:text-red-500">✕</button>
-              </span>
-            ))}
-            {refRows.length >= 2 && (
-              <button onClick={onClearRefs} className="shrink-0 text-caption text-x-muted hover:text-red-500 hover:underline">모두 빼기</button>
-            )}
-          </div>
-        ) : (
-          <p className="text-caption text-x-secondary">레퍼런스 없이 시작 — 보관함의 좋았던 포스트를 참고하면 원고가 더 좋아져요</p>
-        )}
-        <button onClick={onOpenPicker} className="text-caption text-x-blue-text hover:underline">
-          {hasRefs ? '+ 레퍼런스 추가' : '보관함에서 고르기'}
-        </button>
-      </Section>
-
-      <Section title="방향성">
-        <label className="block">
-          <span className="text-caption text-x-muted">이번 초안은 어떤 방향으로 만들까요? (비워도 돼요 — 레퍼런스나 클라이언트 정보만으로도 만들 수 있어요)</span>
-          <textarea value={value.direction} onChange={(e) => onChange({ ...value, direction: e.target.value })}
-                    rows={3} placeholder="예: 여름 전 시술을 고민하는 20대에게, 다운타임이 짧다는 점을 강조"
-                    className="mt-1 w-full rounded-lg border border-x-border-strong p-2.5 text-[15px] leading-normal outline-none focus:border-x-blue" />
-        </label>
-      </Section>
-
-      <div>
-        <button onClick={() => setAdvOpen(!advOpen)} className="text-caption text-x-blue-text hover:underline">
-          {advOpen ? '▾ 고급 옵션 접기' : '▸ 고급 옵션'}
-        </button>
-        {advOpen && (
-          <label className="mt-2 flex items-start gap-2 rounded-lg bg-x-surface p-3">
-            <input type="checkbox" checked={value.constraintsOn}
-                   onChange={(e) => onChange({ ...value, constraintsOn: e.target.checked })} />
-            <span className="text-caption text-x-secondary">
-              <b className="text-x-text">생성 제약</b> — 금지 표현을 생성 단계부터 피하기. 끄면 자유롭게 만들고, 검수 표식은 항상 표시돼요
+        {/* 금지어가 0개면 프롬프트에 아무것도 안 실린다(generatePrompt의 banned.length 가드) —
+            켜도 아무 일이 없는데 켤 수 있게 두면 지켜지는 줄 알고 안심하게 되므로 잠근다. */}
+        <label className={`flex items-center gap-2 border-t border-x-border pt-3 ${bannedCount === 0 ? 'opacity-60' : ''}`}>
+          <input type="checkbox" checked={value.constraintsOn} disabled={bannedCount === 0}
+                 onChange={(e) => onChange({ ...value, constraintsOn: e.target.checked })}
+                 className="h-4 w-4 shrink-0" />
+          <span className="flex flex-1 items-center gap-1 text-ui text-x-text">
+            금지 표현 피하기
+            <Info text={bannedCount > 0
+              ? '등록해둔 금지 표현을 AI에게 미리 알려줘 처음부터 쓰지 않게 합니다. 꺼도 완성된 원고에 금지 표현이 있으면 노란 밑줄로 표시됩니다.'
+              : '이 클라이언트와 선택한 시술에 등록된 금지 표현이 없어 지금은 켜도 달라지는 것이 없습니다. 클라이언트 관리에서 추가할 수 있습니다.'} />
+            <span className="ml-auto shrink-0 text-caption tabular-nums text-x-muted">
+              {bannedCount > 0 ? `${bannedCount}개` : '없음'}
             </span>
-          </label>
-        )}
-      </div>
+          </span>
+        </label>
+      </Section>
     </div>
   );
 }
@@ -171,20 +223,23 @@ export function ComposerFooter({ clients, value, refRows, generating, onGenerate
     value.format === 'single' ? '단문' : '스레드',
     refRows.length > 0 ? `참고: ${MODE_LABEL[value.mode]}` : null,
     value.count > 1 ? `시안 ${value.count}개` : null,
-    value.constraintsOn ? '생성 제약 켬' : null,
+    // 금지어가 0개면 켜져 있어도 프롬프트에 실리는 게 없다 — 요약이 "피하는 중"이라고 말하면 거짓이 된다
+    value.constraintsOn && bannedPhraseCount(cur, value.procedureIds) > 0 ? '금지 표현 피함' : null,
   ].filter(Boolean).join(' · ');
 
   return (
     <div className="border-t border-x-border bg-x-surface px-4 py-3">
       {ok ? (
         <>
-          <p className="text-caption text-x-secondary">{summary}</p>
+          {/* 요약은 13px — 무엇으로 만들어지는지가 버튼 바로 위에서 읽혀야 하고, 비용·소요는 보조라 11px로 남긴다 */}
+          <p className="text-ui text-x-secondary">{summary}</p>
           <p className="mt-0.5 text-caption text-x-muted">
             {COST_CAPTION}{value.count > 1 ? ` × ${value.count}` : ''} · 15~30초
-            {clients.length > 0 && !value.clientId ? ' · 클라이언트 정보 없이 만들어요 — 위 생성 조건에서 선택할 수 있어요' : ''}
+            {clients.length > 0 && !value.clientId ? ' · 클라이언트 정보 없이 만들어요' : ''}
           </p>
         </>
       ) : (
+        // 버튼이 안 눌리는 이유는 툴팁으로 숨기지 않는다 — 막힌 자리에서 바로 읽혀야 한다
         <p className="text-caption text-x-muted">클라이언트·레퍼런스·방향성 중 하나는 있어야 원고를 만들 수 있어요</p>
       )}
       {generating ? (
@@ -194,7 +249,7 @@ export function ComposerFooter({ clients, value, refRows, generating, onGenerate
         </>
       ) : (
         <button onClick={onGenerate} disabled={!ok}
-                className="mt-2 h-9 w-full rounded-full bg-x-blue px-[17px] text-[15px] font-bold text-white hover:bg-x-blue-hover disabled:opacity-50">
+                className="mt-2.5 h-11 w-full rounded-full bg-x-blue px-[17px] text-[15px] font-bold text-white hover:bg-x-blue-hover disabled:opacity-50">
           원고 만들기
         </button>
       )}

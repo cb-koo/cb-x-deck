@@ -347,10 +347,8 @@ function Workbench() {
       <div className={`flex shrink-0 flex-col bg-x-surface lg:min-h-0 ${panelOpen ? 'lg:w-[var(--panel-w)]' : 'lg:hidden'}`}>
         <div className="space-y-3 p-4 lg:flex-1 lg:overflow-y-auto">
           <div className="flex items-start justify-between gap-2">
-            <div>
-              <h1 className="text-[20px] font-bold">콘텐츠 생성</h1>
-              <p className="mt-0.5 text-caption text-x-secondary">레퍼런스와 클라이언트 정보를 조합해 인플루언서에게 보낼 X 원고 초안을 만들어요.</p>
-            </div>
+            {/* 소개 문구는 두지 않는다 — 첫 진입에만 쓸모 있고 매번 읽지 않는다(패널 설명 정리) */}
+            <h1 className="text-[20px] font-bold">콘텐츠 생성</h1>
             <button onClick={() => setPanelPref('closed')} aria-label="생성 패널 접기" title="생성 패널 접기"
                     className="hidden shrink-0 rounded p-1 text-x-muted hover:bg-x-hover lg:block">«</button>
           </div>

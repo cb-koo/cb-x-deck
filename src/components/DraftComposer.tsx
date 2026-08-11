@@ -1,5 +1,6 @@
 'use client';
 import { Button } from '@/components/ui';
+import { InfoTip } from '@/components/InfoTip';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { ReferenceRow } from '@/lib/referenceStore';
 import type { DraftFormat, ReferenceMode } from '@/lib/draftTypes';
@@ -39,19 +40,11 @@ function Section({ title, right, children }: {
   );
 }
 
-// ⓘ — 이름만으로 알 수 없는 것에만 붙인다. 서술형 설명을 패널 본문에 늘어놓지 않기 위한 장치이고,
-// 브라우저 기본 title을 쓴다(이 저장소가 이미 쓰는 방식 — 새 컴포넌트를 만들 만큼의 값이 아직 없다).
-function Info({ text }: { text: string }) {
-  return (
-    <span title={text} aria-label={text} role="note"
-          className="inline-flex h-4 w-4 shrink-0 cursor-help items-center justify-center rounded-full border border-x-border-strong text-[10px] leading-none text-x-muted">ⓘ</span>
-  );
-}
-
+// ⓘ — 이름만으로 알 수 없는 것에만 붙인다. 서술형 설명을 패널 본문에 늘어놓지 않기 위한 장치.
 function Label({ children, info }: { children: React.ReactNode; info?: string }) {
   return (
     <span className="flex items-center gap-1 text-ui font-medium text-x-text">
-      {children}{info && <Info text={info} />}
+      {children}{info && <InfoTip text={info} label={`${typeof children === 'string' ? children : ''} 설명 보기`.trim()} />}
     </span>
   );
 }
@@ -196,7 +189,7 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
                  className="h-4 w-4 shrink-0" />
           <span className="flex flex-1 items-center gap-1 text-ui text-x-text">
             금지 표현 피하기
-            <Info text={bannedCount > 0
+            <InfoTip label="금지 표현 피하기 설명 보기" text={bannedCount > 0
               ? '등록해둔 금지 표현을 AI에게 미리 알려줘 처음부터 쓰지 않게 합니다. 꺼도 완성된 원고에 금지 표현이 있으면 노란 밑줄로 표시됩니다.'
               : '이 클라이언트와 선택한 시술에 등록된 금지 표현이 없어 지금은 켜도 달라지는 것이 없습니다. 클라이언트 관리에서 추가할 수 있습니다.'} />
             <span className="ml-auto shrink-0 text-caption tabular-nums text-x-muted">

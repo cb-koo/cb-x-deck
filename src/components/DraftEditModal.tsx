@@ -2,29 +2,21 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { DraftRow } from '@/lib/draftStore';
-import type { DraftContent, InfluencerOption } from '@/lib/draftTypes';
+import type { DraftContent } from '@/lib/draftTypes';
 import { xWeightedLength, X_MAX_WEIGHTED } from '@/lib/xLength';
 import { textsChanged } from '@/lib/draftUi';
-import { InfluencerField } from './InfluencerField';
-import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
 
 // X 컴포즈 모달 구조: ✕ / 원본과 비교 / 아바타 40 / 입력 20px·lh24 / 하단 바 + 저장 36px (스펙 §4)
-export function DraftEditModal({ draft, options, onClose, onSaved }: {
-  draft: DraftRow; options: InfluencerOption[]; onClose: () => void; onSaved: (updated: DraftRow) => void;
+export function DraftEditModal({ draft, onClose, onSaved }: {
+  draft: DraftRow; onClose: () => void; onSaved: (updated: DraftRow) => void;
 }) {
   const base = draft.edited ?? draft.content;
-  const baseHandle = draft.influencerHandle ?? ''; // '' = 미배정
   const [texts, setTexts] = useState(base.posts.map((p) => p.text));
-  const [handle, setHandle] = useState(baseHandle);
-  const [handleErr, setHandleErr] = useState<string | null>(null);
   const [compare, setCompare] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const empty = texts.some((t) => !t.trim());
-  // 저장되는 값은 앞뒤 공백을 뗀 것이라 공백만 다른 건 변경이 아니다.
-  const handleDirty = handle.trim() !== baseHandle;
-  // 배정 변경도 dirty에 포함한다 — 배정만 바꾸고 ✕·Esc·배경 클릭으로 닫으면 경고 없이 조용히 날아간다 (스펙 §E)
-  const dirty = textsChanged(base.posts.map((p) => p.text), texts) || handleDirty;
+  const dirty = textsChanged(base.posts.map((p) => p.text), texts);
   // 이 모달엔 별도 '취소' 버튼이 없어 ✕·Esc·배경 클릭 모두 확인 대상 (스펙 3-3)
   function requestClose() {
     if (!dirty || window.confirm('저장하지 않은 수정이 있어요. 닫을까요?')) onClose();
@@ -41,24 +33,12 @@ export function DraftEditModal({ draft, options, onClose, onSaved }: {
   }, [dirty, onClose]);
 
   async function save() {
-    // 빈 칸은 오류가 아니라 '배정 해제'다 — parseXHandle('')은 'empty' 오류를 돌려주므로 파서를 부르기 전에 null로 확정한다.
-    const typed = handle.trim();
-    let influencerHandle: string | null = null;
-    if (typed) {
-      const parsed = parseXHandle(typed);
-      // 형식이 틀리면 저장을 막는다(거짓 성공 방지). 문구는 서버 검증과 같은 함수가 소유한다.
-      if (!parsed.ok) { setHandleErr(handleParseMessage(parsed.reason)); return; }
-      influencerHandle = parsed.handle;
-    }
-    setErr(''); setHandleErr(null); setSaving(true);
+    setErr(''); setSaving(true);
     const edited: DraftContent = {
       posts: base.posts.map((p, i) => ({ text: texts[i], media: p.media })),
     };
     const r = await apiFetch(`/api/drafts/${draft.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      // 배정이 안 바뀌었으면 키 자체를 싣지 않는다 — 서버는 undefined를 '건드리지 않음'으로 읽는다.
-      body: JSON.stringify(handleDirty ? { edited, influencerHandle } : { edited }),
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ edited }),
     });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
@@ -111,14 +91,6 @@ export function DraftEditModal({ draft, options, onClose, onSaved }: {
               </div>
             );
           })}
-        </div>
-
-        {/* 배정 칸은 본문 아래·PR 안내 위 — 바로 다음 줄이 "인플루언서가 자기 계정으로 게시합니다"라 문맥이 이어진다.
-            필드는 자체 여백·구분선이 없으므로 컨테이너는 여기서 준다. */}
-        <div className="border-t border-x-border px-4 py-2.5">
-          <InfluencerField value={handle} options={options} error={handleErr}
-                           // 고치는 중에도 빨간 문구가 붙어 있으면 "고쳤는데 여전히 틀렸다"로 읽힌다 — 타이핑 시작과 함께 지운다.
-                           onChange={(v) => { setHandle(v); setHandleErr(null); }} />
         </div>
 
         <p className="border-t border-x-border px-4 py-2 text-[14px] font-bold text-x-blue-text">

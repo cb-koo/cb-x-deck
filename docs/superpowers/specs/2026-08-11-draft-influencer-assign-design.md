@@ -93,15 +93,19 @@ select distinct on (lower(influencer_handle)) influencer_handle
 ## D. `src/components/InfluencerField.tsx` — 입력 필드 (신규)
 
 ```tsx
-export function InfluencerField({ value, options, onChange, error }: {
+export function InfluencerField({ value, options, onChange, error, autoFocus, onEnter }: {
   value: string;                    // 핸들('@' 없음), '' = 미배정
   options: InfluencerOption[];
   onChange: (v: string) => void;
   error: string | null;
+  autoFocus?: boolean;              // 이 칸 하나만 있는 자리(팝오버)에서
+  onEnter?: (current: string) => void;  // 저장 버튼이 손에서 먼 자리에서. IME 조합 중 Enter는 무시
 }): JSX.Element;
 ```
 
-**출처를 모른다.** 옵션을 prop으로만 받으므로, 나중에 `/api/influencers`에서 오든 초안에서 파생되든 이 컴포넌트는 그대로다.
+`onEnter`는 state가 아니라 **입력칸의 현재 값**을 넘긴다 — `datalist` 제안을 Enter로 고른 직후에는 React state가 아직 그 값이 아니라서, state를 쓰면 타이핑하던 중간 문자열이 저장된다.
+
+**출처를 모른다.** 옵션을 prop으로만 받으므로, 나중에 `/api/influencers`에서 오든 초안에서 파생되든 이 컴포넌트는 그대로다. 어느 자리(팝오버·모달·페이지)에 놓일지도 모른다 — 자체 패딩·구분선을 갖지 않고 감싸는 쪽이 컨테이너를 담당한다.
 
 | 요소 | 내용 |
 |---|---|
@@ -113,21 +117,49 @@ export function InfluencerField({ value, options, onChange, error }: {
 
 **지금 `datalist`인 이유.** 옵션이 핸들 문자열뿐이라 커스텀 선택창이 보여줄 추가 정보(이름·등록 여부·프로필 이미지)가 하나도 없다. 그 값어치가 전부 미래에 있으므로 지금 만들면 절반이 빈 코드가 된다. `datalist`로도 "타이핑해서 후보 좁혀 고르기"는 이미 동작한다.
 
-## E. `src/components/DraftEditModal.tsx` — 입력 지점
+## E. `src/components/InfluencerChip.tsx` — 입력 지점 (신규)
 
-모달 props에 `options: InfluencerOption[]`를 더해 `InfluencerField`로 그대로 넘긴다(모달도 출처를 모른다). 필드는 본문 스크롤 영역과 기존 PR 안내 줄 사이에 놓는다 — 바로 아래 문구가 "🌐 인플루언서가 자기 계정으로 게시합니다 — PR 표기 안내를 함께 전달하세요"라서 문맥이 이어진다.
+> **1차 구현 후 방향 수정.** 처음에는 편집 모달 안에 입력 칸을 뒀는데, 실사용 확인에서 "편집 버튼 누르고 들어가면 단계가 너무 많다"는 피드백이 나왔다. 배정은 원고를 정독하는 일이 아니라 훑다가 찍는 일이라 모달이 과했다. **입력 지점을 초안 카드로 옮기고 모달에서는 제거한다** — 값을 고치는 곳이 하나여야 저장 경로도 하나다. AGENTS.md 원칙 6("반복 마찰이 실사용 피드백으로 확인되면 자동화/승격을 검토")의 적용 사례다.
 
-**저장은 기존 버튼 하나로.** 본문과 배정이 한 번의 PATCH로 함께 나간다. 별도 저장 버튼을 만들면 "본문만 저장되고 배정은 안 됐나?"라는 의심이 생긴다.
+카드 상단 도구층 스트립에서 상태 칩 옆에 놓이는 칩이다. 클릭하면 `InfluencerField`를 담은 작은 팝오버가 열린다.
 
-- `dirty` 판정에 배정 변경을 포함한다 — 배정만 바꾸고 닫으려 할 때도 확인을 띄운다.
-- 저장 직전 검증: **빈 문자열은 오류가 아니라 배정 해제다.** `parseXHandle('')`은 `empty` 오류를 돌려주므로, 빈 값은 파서를 부르기 전에 `null`로 확정한다. 비어 있지 않은데 파싱 실패면 저장을 막고 인라인 문구를 띄운다(거짓 성공 방지).
-- PATCH 본문: `{ edited, influencerHandle }` — 배정이 바뀌었을 때만 `influencerHandle`을 싣는다.
+```tsx
+export function InfluencerChip({ handle, options, onChange }: {
+  handle: string | null;                     // null = 미배정
+  options: InfluencerOption[];
+  onChange: (next: string | null) => void;   // 정규화된 핸들, 또는 null(배정 해제)
+}): JSX.Element;
+```
+
+**검증은 칩이 진다.** `onChange`는 `parseXHandle`을 통과한 값으로 저장을 눌렀을 때만 불린다. 부모는 상태 칩과 똑같이 "받은 값을 낙관적으로 반영"만 하면 된다.
+
+| 상태 | 표시 |
+|---|---|
+| 배정됨 | `@hadakan__ ⌄` — 중립 채움(`bg-x-text/5`). 의미색은 상태 칩이 독점한다 |
+| 미배정 | `+ 인플루언서` — 채움 없는 낮은 대비. 배정된 카드가 먼저 눈에 들어와야 한다 |
+
+미배정 표시는 "없는 데이터"가 아니라 **행동 손잡이**라서 자리를 만든다 — 상태 칩이 늘 그 자리에 있는 것과 같다. 다만 조용해야 한다.
+
+**팝오버 동작.** 열 때 현재 값으로 시작하고 입력칸에 포커스한다. Esc·바깥 클릭으로 닫고, 입력칸 Enter로도 저장한다. **IME 조합 중 Esc/Enter는 무시한다** — 한국어·일본어 조합 확정이 저장이나 닫기로 새면 안 된다.
+
+- **빈 값은 오류가 아니라 배정 해제다.** `parseXHandle('')`은 `empty` 오류를 돌려주므로 빈 값은 파서를 부르기 전에 `null`로 확정한다.
+- 별도 '배정 해제' 버튼을 두지 않는다. 칸이 비면 저장 버튼 캡션이 `배정 해제`로 바뀌고, 칸이 차 있을 땐 "칸을 비우고 저장하면 배정이 해제돼요" 한 줄이 뜬다 — 둘이 동시에 나오지 않게 해서 시끄러워지지 않는다.
+- 파싱 실패면 닫지 않고 `handleParseMessage(reason)`를 표시한다(거짓 성공 방지). 값을 고치기 시작하면 지운다.
+- 바뀐 게 없으면 `onChange`를 부르지 않는다 — 같은 값으로 PATCH를 한 번 더 보낼 이유가 없다.
+
+**팝오버는 `document.body`로 포털한다.** 카드 루트가 `overflow-hidden`이라 짧은 카드에서 잘리고, 이 카드는 테이블·칸반에서 클릭했을 때 peek 오버레이(`z-40`, 자체 스택 컨텍스트) 안에서도 뜬다. 포털 + `position: fixed` + 칩 좌표 추적이 두 문제를 한 번에 없앤다. 파생되는 세 가지를 함께 막는다 — 팝오버 안 클릭이 오버레이 배경 클릭으로 새지 않게 `stopPropagation`, Esc 한 번에 팝오버와 상세가 같이 닫히지 않게 **capture 단계**에서 가로채기, 오버레이 스크롤 시 앵커가 어긋나지 않게 `scroll`(capture)·`resize` 재계산.
+
+## E-2. `src/components/DraftEditModal.tsx`
+
+**인플루언서 칸을 두지 않는다.** 배정하는 곳은 카드 하나다. 두 곳에 두면 같은 값을 고치는 저장 경로가 둘이 되고, 모달 쪽은 본문 dirty 판정과 얽혀 복잡해진다.
 
 ## F. 표시 3곳
 
-세 뷰 모두 `@핸들`로 표기하되, **각 뷰가 이미 쓰는 시각 문법을 따른다.**
+배정 **입력**은 카드에서만 하고, 테이블·칸반은 **표시**만 한다. 다만 두 뷰 모두 항목을 클릭하면 peek 오버레이로 카드가 뜨므로, **세 뷰 전부 한 번의 클릭으로 배정에 닿는다.**
 
-**`DraftCard`** — 상단 도구층 스트립에서 **상태 칩과 시안 라벨 사이**. "누구에게"와 "어디까지"가 한 자리에서 읽힌다. 그 줄은 평문 메타를 쓰므로 평문 `@handle`. 미배정이면 아무것도 그리지 않는다.
+세 뷰 모두 `@핸들`로 표기하되 각 뷰가 이미 쓰는 시각 문법을 따른다.
+
+**`DraftCard`** — 상단 도구층 스트립에서 **상태 칩과 시안 라벨 사이**에 `InfluencerChip`. 미배정이면 조용한 `+ 인플루언서` 손잡이가 보인다(E 참조).
 
 **`DraftKanban`** — 카드 하단 속성 칩 줄, 클라이언트 칩 다음. 그 줄에 이미 파랑 채움(클라이언트)과 테두리 알약(시술·형식)이 있으므로 **중립 회색 채움 칩**(`bg-x-text/5`)을 써서 둘 다와 구분한다. 미배정이면 칩 없음.
 
@@ -135,7 +167,9 @@ export function InfluencerField({ value, options, onChange, error }: {
 
 ## G. `src/app/generate/page.tsx` — 배선
 
-마운트 시 `/api/drafts/influencers`를 기존 `Promise.all`에 얹어 받아 `influencerOptions` 상태에 담고, `DraftEditModal`에 넘긴다.
+마운트 시 `/api/drafts/influencers`를 기존 `Promise.all`에 얹어 받아 `influencerOptions` 상태에 담고, **`DraftCard`를 렌더하는 두 곳(목록과 peek 오버레이) 모두**에 넘긴다.
+
+저장은 `changeStatus`와 같은 **낙관적 갱신 + 실패 롤백**이다. 롤백 조건도 동일하게 "이 요청이 세팅한 값이 아직 표시 중일 때만" — 연속 변경 시 뒤 갱신을 덮지 않기 위해서다.
 
 **실패해도 필드는 계속 쓸 수 있어야 한다.** 목록 조회가 실패하면 옵션을 빈 배열로 두고 토스트도 띄우지 않는다 — 자동완성은 편의이고, 자유 입력이라는 본 기능은 그대로 동작한다. 쓸 수 있는 걸 못 쓰는 것처럼 보이게 만들지 않는다.
 
@@ -186,5 +220,5 @@ select distinct influencer_handle from draft
 - **`influencer` 테이블·관리 페이지.** 관리 기능이 기획 단계라 "인플루언서 레코드에 뭐가 들어갈지"를 지금 정할 수 없다. 잘못 정한 스키마는 나중에 짐이 된다.
 - **인플루언서로 거르기 필터.** `influencerOptions`가 있으므로 나중에 두 줄이다. 실사용에서 원고가 쌓인 뒤 필요해지면 넣는다.
 - **계정 실재 확인 API 콜.** 위 원칙 참조.
-- **카드·테이블·칸반에서 직접 배정.** 이번엔 표시만 한다. 편집창을 여는 마찰이 실사용 피드백으로 확인되면 그때 승격을 검토한다(AGENTS.md 원칙 6의 결).
+- **테이블·칸반에서 그 자리 배정.** 두 뷰는 표시만 한다 — 항목을 클릭하면 카드가 오버레이로 떠서 거기서 배정하면 되므로, 같은 입력 UI를 세 곳에 복제할 이유가 없다. (카드에서의 직접 배정은 실사용 피드백을 받아 이번에 승격했다 — E 참조.)
 - **"전달됨인데 미배정" 경고.** 상태와 배정의 정합을 강제하지 않는다 — 상태 축은 전이 제약 없는 자유 라벨로 설계돼 있고(`016`), 여기에 규칙을 넣으면 그 결정을 뒤집는 것이 된다.

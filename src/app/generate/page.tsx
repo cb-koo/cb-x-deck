@@ -320,6 +320,16 @@ function Workbench() {
     });
   }
 
+  // 인플루언서 배정 — 편집 모달에서 카드로 옮긴 배선. changeStatus와 같은 모양(낙관적 갱신 + 실패 시 조건부 롤백).
+  function assignInfluencer(d: DraftRow, next: string | null) {
+    const prev = d.influencerHandle;
+    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, influencerHandle: next } : x)));
+    void patchDraft(d.id, { influencerHandle: next }).then((updated) => {
+      // 이 요청이 세팅한 값이 아직 표시 중일 때만 되돌린다 — 연속 변경 시 뒤 갱신을 덮지 않도록
+      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.influencerHandle === next ? { ...x, influencerHandle: prev } : x)));
+    });
+  }
+
   async function regenPost(d: DraftRow, index: number) {
     setRegenBusy({ draftId: d.id, index });
     const r = await apiFetch(`/api/drafts/${d.id}/regen-post`, {
@@ -467,7 +477,9 @@ function Workbench() {
                        onDismissFlag={(key, dismiss) => toggleDismiss(d, key, dismiss)}
                        onRestoreAllFlags={() => restoreAllFlags(d)}
                        onChangeStatus={(s) => changeStatus(d, s)}
-                       siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null} />
+                       siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null}
+                       influencerOptions={influencerOptions}
+                       onAssignInfluencer={(next) => assignInfluencer(d, next)} />
           ))}
           {view === 'table' && loaded && visibleDrafts.length > 0 && (
             <DraftTable drafts={visibleDrafts} clientNameOf={clientNameOf}
@@ -502,12 +514,14 @@ function Workbench() {
                        onDismissFlag={(key, dismiss) => toggleDismiss(peeked, key, dismiss)}
                        onRestoreAllFlags={() => restoreAllFlags(peeked)}
                        onChangeStatus={(s) => changeStatus(peeked, s)}
-                       siblingTotal={peeked.batchId ? siblingCount(drafts, peeked.batchId) : null} />
+                       siblingTotal={peeked.batchId ? siblingCount(drafts, peeked.batchId) : null}
+                       influencerOptions={influencerOptions}
+                       onAssignInfluencer={(next) => assignInfluencer(peeked, next)} />
           </div>
         </div>
       )}
       {editing && (
-        <DraftEditModal draft={editing} options={influencerOptions} onClose={() => setEditing(null)}
+        <DraftEditModal draft={editing} onClose={() => setEditing(null)}
                         onSaved={(u) => { setDrafts((cur) => cur.map((d) => (d.id === u.id ? u : d))); setEditing(null); }} />
       )}
       <RefPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} lastWsId={lastWsId}

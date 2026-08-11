@@ -2,13 +2,14 @@
 import { useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { DraftRow } from '@/lib/draftStore';
-import type { RefSnapshot } from '@/lib/draftTypes';
+import type { RefSnapshot, InfluencerOption } from '@/lib/draftTypes';
 import { xWeightedLength, X_MAX_WEIGHTED } from '@/lib/xLength';
 import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags, variantLabel } from '@/lib/draftUi';
 import { MediaGrid } from '@/components/MediaGrid';
 import { RefreshIcon, TrashIcon } from '@/components/XIcons';
 import { useTranslations } from '@/components/useTranslations';
 import { DraftStatusChip } from '@/components/DraftStatusChip';
+import { InfluencerChip } from '@/components/InfluencerChip';
 import type { DraftStatus } from '@/lib/draftStatus';
 
 const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
@@ -16,7 +17,7 @@ const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
 };
 
 // 초안 카드 — X 실측(600px·radius16·아바타40·본문 15/20). 지표·배지·이미지 자리 없음(없는 데이터는 자리도 안 만듦)
-export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, siblingTotal }: {
+export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, siblingTotal, influencerOptions, onAssignInfluencer }: {
   draft: DraftRow; banned: string[];
   onEdit: () => void; onRewrite: (feedback: string, baseIndex: number) => void; rewriteBusy: boolean;
   onDelete: () => void; onRegenPost: (index: number) => void; regenBusyIndex: number | null;
@@ -24,6 +25,8 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   onRestoreAllFlags: () => void;
   onChangeStatus: (s: DraftStatus) => void;
   siblingTotal: number | null; // 다중 시안 형제 수 (batch 없으면 null)
+  influencerOptions: InfluencerOption[]; // 배정 자동완성 후보 — 편집 모달에서 옮겨온 배선
+  onAssignInfluencer: (next: string | null) => void;
 }) {
   const [refsOpen, setRefsOpen] = useState(false);
   // 레퍼런스 번역 — 덱/보관함과 같은 훅·같은 캐시(tweet_translation, tweet_id 단위 전역).
@@ -88,10 +91,8 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
       {/* 상단 도구층 스트립 — 상태·조건 메타를 좌상단 동일 위치에, 카드를 열지 않고 훑도록 (스펙 §DraftCard) */}
       <div className="flex flex-wrap items-center gap-2 border-b border-x-border bg-x-surface px-4 py-2">
         <DraftStatusChip status={draft.status} onChange={onChangeStatus} />
-        {/* 인플루언서 배정 — 상태와 나란히 "누구에게·어디까지"를 한 자리에서 (스펙 §F). 미배정이면 자리 자체를 만들지 않는다 */}
-        {draft.influencerHandle && (
-          <span className="text-caption text-x-muted">@{draft.influencerHandle}</span>
-        )}
+        {/* 인플루언서 배정 — 상태와 나란히 "누구에게·어디까지"를 한 자리에서 (스펙 §F). 편집 모달을 열지 않고 카드에서 바로 배정 — 미배정 표시도 칩이 알아서 그린다 */}
+        <InfluencerChip handle={draft.influencerHandle} options={influencerOptions} onChange={onAssignInfluencer} />
         {draft.batchId !== null && siblingTotal !== null && (
           <span className="text-caption text-x-muted">
             시안 {variantLabel(draft.variantIndex ?? 0)} · 같은 조건 {siblingTotal}개 중

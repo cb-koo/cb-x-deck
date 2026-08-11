@@ -10,11 +10,13 @@ import type { InfluencerOption } from '@/lib/draftTypes';
 //
 // 정규화(parseXHandle)와 오류 판정도 여기서 하지 않는다. 저장되는 값의 근거는 서버 정규화이고,
 // 호출부(편집창)가 같은 함수로 즉시 피드백을 만든다 — 이 필드는 받은 error를 표시만 한다.
-export function InfluencerField({ value, options, onChange, error }: {
+export function InfluencerField({ value, options, onChange, error, autoFocus, onEnter }: {
   value: string;                    // 핸들('@' 없음), '' = 미배정
   options: InfluencerOption[];
   onChange: (v: string) => void;
   error: string | null;
+  autoFocus?: boolean;              // 팝오버처럼 이 칸 하나만 있는 자리에서 (편집창은 본문이 먼저 잡는다)
+  onEnter?: (current: string) => void;  // 입력칸에서 Enter로 저장 — 저장 버튼이 팝오버 안에만 있어 손이 멀다
 }) {
   // useId: 편집창은 열 때마다 새로 마운트되고 한 화면에 여러 번 뜰 수 있어, 고정 id면 label-input 연결이 깨진다.
   const inputId = useId();
@@ -27,6 +29,10 @@ export function InfluencerField({ value, options, onChange, error }: {
       <label htmlFor={inputId} className="block text-caption text-x-muted">게시할 인플루언서</label>
       <input id={inputId} list={listId} value={value} onChange={(e) => onChange(e.target.value)}
              placeholder="@핸들 또는 프로필 링크 붙여넣기"
+             autoFocus={autoFocus}
+             // 한글·일본어 입력에서 조합을 확정하는 Enter가 저장으로 새면 안 된다(저장소 관례: nativeEvent.isComposing).
+             // 값은 state가 아니라 입력칸에서 읽는다 — 제안 목록을 Enter로 고른 직후엔 state가 아직 그 값이 아니다.
+             onKeyDown={onEnter && ((e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) onEnter(e.currentTarget.value); })}
              // 핸들은 대소문자 그대로 보존해야 하고 사전에 없는 문자열이라, 모바일 자동 대문자·자동 교정이 값을 망친다.
              // autoComplete="off": 브라우저 저장값(이름·주소) 팝업이 배정 후보 위에 겹쳐 뜨는 걸 막는다.
              autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}

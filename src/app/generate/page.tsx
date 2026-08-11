@@ -19,6 +19,7 @@ import type { DraftRow } from '@/lib/draftStore';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { ReferenceRow } from '@/lib/referenceStore';
 import type { DraftStatus } from '@/lib/draftStatus';
+import type { InfluencerOption } from '@/lib/draftTypes';
 
 const COMPOSER_KEY = 'cbx-composer'; // 직전 설정 유지 (스펙 §4 "바꾸기 — 직전 값 유지")
 // 보기 방식 — 렌즈(필터)와 달리 작업 방식 선호라 저장한다 (스펙 2차 §확정 결정)
@@ -37,6 +38,7 @@ function Workbench() {
   const searchParams = useSearchParams();
   const [clients, setClients] = useState<Array<{ client: ClientRow; procedures: ProcedureRow[] }>>([]);
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
+  const [influencerOptions, setInfluencerOptions] = useState<InfluencerOption[]>([]); // 편집창 자동완성 후보
   const [loaded, setLoaded] = useState(false);
   const [composer, setComposer] = useState<ComposerState>(DEFAULT_COMPOSER);
   const [refRows, setRefRows] = useState<ReferenceRow[]>([]);
@@ -111,8 +113,12 @@ function Workbench() {
     Promise.all([
       apiFetch('/api/clients').then((r) => r.json()),
       apiFetch('/api/drafts').then((r) => r.json()),
-    ]).then(([c, d]) => {
+      // 자동완성은 편의일 뿐이라 실패해도 빈 목록으로 삼킨다 — 자유 입력이라는 본 기능은 그대로 동작하므로
+      // 여기서 전체 로딩을 실패시키거나 토스트를 띄우면, 쓸 수 있는 걸 못 쓰는 것처럼 보이게 만든다 (스펙 §G).
+      apiFetch('/api/drafts/influencers').then((r) => (r.ok ? r.json() : [])).catch(() => []),
+    ]).then(([c, d, inf]) => {
       setClients(c); setDrafts(d); setLoaded(true);
+      setInfluencerOptions(Array.isArray(inf) ? inf : []);
       // 복원된 clientId가 응답 목록에 없으면(유령 클라이언트) 정리 — 400 방지
       setComposer((cur) => (cur.clientId && !(c as Array<{ client: ClientRow }>).some((x) => x.client.id === cur.clientId)
         ? { ...cur, clientId: null, procedureIds: [] } : cur));
@@ -501,7 +507,7 @@ function Workbench() {
         </div>
       )}
       {editing && (
-        <DraftEditModal draft={editing} onClose={() => setEditing(null)}
+        <DraftEditModal draft={editing} options={influencerOptions} onClose={() => setEditing(null)}
                         onSaved={(u) => { setDrafts((cur) => cur.map((d) => (d.id === u.id ? u : d))); setEditing(null); }} />
       )}
       <RefPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} lastWsId={lastWsId}

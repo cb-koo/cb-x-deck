@@ -1,6 +1,6 @@
 import type postgres from 'postgres';
 import type { Member } from './types.ts';
-import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
+import type { DraftContent, DraftFormat, InfluencerOption, ReferenceMode, RefSnapshot } from './draftTypes.ts';
 import type { DraftStatus } from './draftStatus.ts';
 import { hashSource } from './translationStore.ts';
 
@@ -32,6 +32,9 @@ export interface DraftRow {
   koTitle: string | null; // 최신 버전과 해시가 일치할 때만 값 — 아니면 null(스테일 방지, koLatest와 동일 패턴)
   dismissedFlags: string[];
   status: DraftStatus; // 결정 진행도 라벨 — 전이 제약 없음 (스펙 §2)
+  // 게시할 인플루언서의 X 핸들('@' 없음, 사용자가 친 대소문자 그대로) — null = 미배정.
+  // 배정 단위는 시안 하나(행)다: 형제 시안 셋 다 배정하면 "원고 3개를 줬다"가 되어 사실과 어긋난다.
+  influencerHandle: string | null;
   batchId: string | null;      // 다중 시안 묶음 — 단일 생성은 null
   variantIndex: number | null; // 묶음 내 순번(0부터, 표시 라벨 A/B/C…)
   model: string | null; createdAt: string; member: Member | null;
@@ -45,6 +48,7 @@ type Row = {
   ko_title: string | null; ko_title_hash: string | null;
   dismissed_flags: string[];
   status: DraftStatus;
+  influencer_handle: string | null;
   batch_id: string | null; variant_index: number | null;
   model: string | null; created_at: Date;
   member_id: string | null; member_name: string | null; member_color: string | null;
@@ -65,6 +69,7 @@ const toRow = (r: Row): DraftRow => {
     koTitle: r.ko_title && r.ko_title_hash === latestHash ? r.ko_title : null,
     dismissedFlags: r.dismissed_flags,
     status: r.status,
+    influencerHandle: r.influencer_handle,
     batchId: r.batch_id, variantIndex: r.variant_index,
     model: r.model, createdAt: r.created_at.toISOString(),
     member: r.member_id ? { id: r.member_id, name: r.member_name as string, color: r.member_color as string } : null,
@@ -75,7 +80,7 @@ const SELECT = (sql: postgres.Sql) => sql`
   select d.id, d.client_id, d.client_name, d.procedure_names, d.direction, d.format,
          d.reference_mode, d.refs, d.content, d.edited, d.history, d.translation,
          d.ko_title, d.ko_title_hash,
-         d.dismissed_flags, d.status, d.batch_id, d.variant_index, d.model, d.created_at,
+         d.dismissed_flags, d.status, d.influencer_handle, d.batch_id, d.variant_index, d.model, d.created_at,
          m.id as member_id, m.name as member_name, m.color as member_color
     from draft d
     left join member m on m.id = d.created_by`;
@@ -124,7 +129,8 @@ export async function updateDraft(
   sql: postgres.Sql, id: string,
   patch: { edited?: DraftContent; dismissedFlags?: string[]; history?: DraftContent[];
            translation?: DraftTranslation; status?: DraftStatus;
-           koTitle?: string | null; koTitleHash?: string | null }, // 호출부가 둘을 항상 쌍으로 세팅
+           koTitle?: string | null; koTitleHash?: string | null; // 호출부가 둘을 항상 쌍으로 세팅
+           influencerHandle?: string | null }, // null이 '배정 해제'라는 뜻을 갖는 유일한 필드 — 아래 case when 참조
 ): Promise<void> {
   await sql`update draft set
       edited = coalesce(${patch.edited ? sql.json(patch.edited as never) : null}, edited),
@@ -133,8 +139,27 @@ export async function updateDraft(
       translation = coalesce(${patch.translation ? sql.json(patch.translation as never) : null}, translation),
       status = coalesce(${patch.status ?? null}, status),
       ko_title = coalesce(${patch.koTitle ? patch.koTitle : null}, ko_title),
-      ko_title_hash = coalesce(${patch.koTitleHash ? patch.koTitleHash : null}, ko_title_hash)
+      ko_title_hash = coalesce(${patch.koTitleHash ? patch.koTitleHash : null}, ko_title_hash),
+      -- 이 컬럼만 coalesce를 쓰지 않는다: coalesce는 "null이면 기존값 유지"라 배정 해제를 표현할 방법이 없다.
+      -- undefined = 건드리지 않음 · null = 배정 해제 · 문자열 = 배정 (::text는 파라미터 타입 추론 명시)
+      influencer_handle = case when ${patch.influencerHandle !== undefined}
+                            then ${patch.influencerHandle ?? null}::text
+                            else influencer_handle end
     where id = ${id}`;
+}
+
+// 배정된 적 있는 핸들 전체 — 자동완성 후보. 화면에 로드된 초안에서 파생하지 않는 이유는
+// listDrafts가 최근 50건만 돌려주기 때문이다(51번째 이전 배정이 후보에서 사라지면 담당자가 기억으로
+// 다시 타이핑하고, 그게 정확히 이 기능이 막으려던 표기 분화다).
+// X 핸들은 대소문자를 구분하지 않으므로 lower 기준으로 합치고, 대표 표기는 최신 것(현재 습관에 가깝다).
+// distinct on은 order by의 첫 표현식이 그것과 일치해야 하므로 정렬도 lower가 앞에 온다 = 결과는 소문자 사전순.
+export async function listInfluencerHandles(sql: postgres.Sql): Promise<InfluencerOption[]> {
+  const rows = await sql<Array<{ influencer_handle: string }>>`
+    select distinct on (lower(influencer_handle)) influencer_handle
+      from draft
+     where influencer_handle is not null
+     order by lower(influencer_handle), created_at desc`;
+  return rows.map((r) => ({ handle: r.influencer_handle }));
 }
 
 export async function removeDraft(sql: postgres.Sql, id: string): Promise<void> {

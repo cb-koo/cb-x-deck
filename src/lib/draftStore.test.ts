@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { insertDraft, listDrafts, getDraft, updateDraft, removeDraft } from './draftStore.ts';
+import { insertDraft, listDrafts, getDraft, updateDraft, removeDraft, listInfluencerHandles } from './draftStore.ts';
 import { createClient, deleteClient } from './clientStore.ts';
 import type { DraftContent } from './draftTypes.ts';
 
@@ -114,4 +114,61 @@ test('batch — 기본 null·삽입 왕복', async () => {
   assert.equal(b!.variantIndex, 1);
 
   for (const id of [soloId, ...ids]) await removeDraft(sql, id);
+});
+
+// 배정 patch의 세 가지 의미를 각각 고정한다 — 다른 컬럼과 같은 coalesce로 "일관성 있게" 되돌리면
+// 해제(null)가 조용히 무시되므로, 그 회귀를 여기서 잡는다.
+test('influencer — 배정 저장·미지정(undefined) 보존·해제(null)', async () => {
+  const id = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + '배정 왕복', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+
+  assert.equal((await getDraft(sql, id))!.influencerHandle, null); // 생성 시점에는 미배정
+
+  await updateDraft(sql, id, { influencerHandle: 'Hadakan__' });
+  assert.equal((await getDraft(sql, id))!.influencerHandle, 'Hadakan__'); // 사용자가 친 대소문자 그대로
+
+  // undefined = 컬럼을 건드리지 않음 — 다른 필드만 패치해도 배정이 남는다
+  await updateDraft(sql, id, { status: 'review' });
+  assert.equal((await getDraft(sql, id))!.influencerHandle, 'Hadakan__');
+
+  // null = 배정 해제. coalesce였다면 기존값이 살아남아 이 단언이 깨진다
+  await updateDraft(sql, id, { influencerHandle: null });
+  const cleared = await getDraft(sql, id);
+  assert.equal(cleared!.influencerHandle, null);
+  assert.equal(cleared!.status, 'review'); // 해제가 다른 컬럼을 함께 지우지 않았다
+
+  await removeDraft(sql, id);
+});
+
+test('listInfluencerHandles — 소문자 중복 제거·대표 표기는 최신·미배정 제외·소문자 정렬', async () => {
+  const H = 'zzt' + process.pid; // 실제 DB를 공유하므로 남의 행과 섞이지 않을 접두사
+  const mk = async (dir: string) => insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + dir, format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+
+  const oldId = await mk('배정-옛표기');
+  const newId = await mk('배정-새표기');
+  const alphaId = await mk('배정-알파');
+  const noneId = await mk('미배정');
+
+  await updateDraft(sql, oldId, { influencerHandle: H + 'Bravo' });
+  await updateDraft(sql, newId, { influencerHandle: H + 'bravo' }); // 같은 사람, 대소문자만 다름
+  await updateDraft(sql, alphaId, { influencerHandle: H + 'alpha' });
+  // 대표 표기 판정이 삽입 순서가 아니라 created_at에 달려 있음을 명시 (같은 트랜잭션이면 now()가 동률)
+  await sql`update draft set created_at = '2020-01-01' where id = ${oldId}`;
+  await sql`update draft set created_at = '2021-01-01' where id = ${newId}`;
+
+  const opts = await listInfluencerHandles(sql);
+  const mine = opts.filter((o) => o.handle.toLowerCase().startsWith(H));
+  // 둘로 합쳐지고(중복 제거), bravo의 대표 표기는 최신인 소문자, 정렬은 lower 기준 alpha < bravo,
+  // 미배정 행은 애초에 후보에 없다(길이 2가 증명)
+  assert.deepEqual(mine.map((o) => o.handle), [H + 'alpha', H + 'bravo']);
+  assert.equal(mine[0].name, undefined); // 이름은 인플루언서 DB가 생기면 채워질 자리
+
+  for (const id of [oldId, newId, alphaId, noneId]) await removeDraft(sql, id);
 });

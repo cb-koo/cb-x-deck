@@ -176,8 +176,10 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
             </button>
             {trErr && <span className="ml-2 text-red-600">{trErr}</span>}
           </p>
-          {/* 액션 행 — X 액션 바 자리에 우리 액션 (없는 지표를 채우지 않고 교체) */}
-          <div className="mt-3 flex max-w-[440px] items-center gap-1 text-[13px] text-x-secondary">
+          {/* 액션 행 — X 액션 바 자리에 우리 액션 (없는 지표를 채우지 않고 교체).
+              X는 이 폭(440px) 안에서 아이콘 5개를 균등 분산하지만 우리는 왼쪽에 몰아 붙였다 —
+              폭 제한이 하던 일이 글자수를 칼럼 오른쪽 끝이 아닌 440px 지점에 세우는 것뿐이라 걷어냈다. */}
+          <div className="mt-3 flex items-center gap-1 text-[13px] text-x-secondary">
             <button onClick={onEdit} disabled={!isLatest} title={isLatest ? undefined : '이전 버전을 보는 중 — 편집은 최신 버전에서'}
                     className="flex items-center gap-1.5 rounded-full px-2 py-1 text-x-blue-text hover:bg-x-blue/10 disabled:opacity-50 disabled:hover:bg-transparent">
               <svg viewBox="0 0 24 24" className="h-[19px] w-[19px] fill-current" aria-hidden><path d="M14.06 9.02l.92.92L5.92 19H5v-.92l9.06-9.06zM17.66 3c-.25 0-.51.1-.7.29l-1.83 1.83 3.75 3.75 1.83-1.83c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.2-.2-.45-.29-.71-.29zm-3.6 3.19L3 17.25V21h3.75L17.81 9.94l-3.75-3.75z" /></svg>
@@ -191,10 +193,12 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
               <svg viewBox="0 0 24 24" className="h-[19px] w-[19px] fill-current" aria-hidden><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" /></svg>
               {copied ? '복사됨 ✓' : '복사'}
             </button>
-            <button onClick={onDelete} aria-label="초안 삭제" className="flex items-center rounded-full px-2 py-1 hover:bg-red-50 hover:text-red-600">
+            <span className="ml-auto tabular-nums">{isThread ? `${shown.posts.length}개 · 총 ${total}자` : ''}</span>
+            {/* 삭제만 오른쪽 끝으로 떼어놓는다 — 되돌릴 수 있는 액션(복사) 바로 옆에 파괴적 액션이
+                8px 간격으로 붙어 있으면 오클릭이 난다. 5초 실행취소가 있지만 토스트를 놓치면 끝이다. */}
+            <button onClick={onDelete} aria-label="초안 삭제" className="ml-1 flex items-center rounded-full px-2 py-1 hover:bg-red-50 hover:text-red-600">
               <TrashIcon className="h-[19px] w-[19px]" />
             </button>
-            <span className="ml-auto tabular-nums">{isThread ? `${shown.posts.length}개 · 총 ${total}자` : ''}</span>
           </div>
           {rwOpen && !rewriteBusy && (
             <div className="mt-2 rounded-xl border border-x-border-strong p-2.5">

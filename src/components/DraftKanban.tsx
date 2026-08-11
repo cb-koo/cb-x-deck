@@ -73,6 +73,12 @@ export function DraftKanban({ drafts, clientNameOf, onChangeStatus, onOpenCard }
                       {clientNameOf(d.clientId)}
                     </span>
                   )}
+                  {/* 인플루언서 배정 — 클라이언트(파랑 채움)·시술/형식(테두리 알약)과 구분되는 중립 회색 채움. 미배정이면 칩 없음 */}
+                  {d.influencerHandle && (
+                    <span className="max-w-[140px] truncate rounded bg-x-text/5 px-1.5 py-px text-caption text-x-muted">
+                      @{d.influencerHandle}
+                    </span>
+                  )}
                   {d.procedureNames.map((p) => (
                     <span key={p} className="rounded-full border border-x-border-strong px-1.5 py-px text-caption text-x-muted">{p}</span>
                   ))}

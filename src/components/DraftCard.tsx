@@ -88,6 +88,10 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
       {/* 상단 도구층 스트립 — 상태·조건 메타를 좌상단 동일 위치에, 카드를 열지 않고 훑도록 (스펙 §DraftCard) */}
       <div className="flex flex-wrap items-center gap-2 border-b border-x-border bg-x-surface px-4 py-2">
         <DraftStatusChip status={draft.status} onChange={onChangeStatus} />
+        {/* 인플루언서 배정 — 상태와 나란히 "누구에게·어디까지"를 한 자리에서 (스펙 §F). 미배정이면 자리 자체를 만들지 않는다 */}
+        {draft.influencerHandle && (
+          <span className="text-caption text-x-muted">@{draft.influencerHandle}</span>
+        )}
         {draft.batchId !== null && siblingTotal !== null && (
           <span className="text-caption text-x-muted">
             시안 {variantLabel(draft.variantIndex ?? 0)} · 같은 조건 {siblingTotal}개 중

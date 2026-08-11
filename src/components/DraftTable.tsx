@@ -39,6 +39,8 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }:
           <tr className="border-b border-x-border text-left text-caption text-x-muted">
             <th className="px-3 py-2 font-normal">원고</th>
             <th className="px-3 py-2 font-normal" aria-sort={sort.key === 'client' ? (sort.dir === 'desc' ? 'descending' : 'ascending') : undefined}>{sortBtn('client', '클라이언트')}</th>
+            {/* 인플루언서 — 시술·형식과 같은 비정렬 열(스펙 §F). 클라이언트 바로 다음: 둘 다 "누구" 축이라 붙여야 훑기 좋다 */}
+            <th className="px-3 py-2 font-normal">인플루언서</th>
             <th className="px-3 py-2 font-normal">시술</th>
             <th className="px-3 py-2 font-normal">형식</th>
             <th className="px-3 py-2 font-normal" aria-sort={sort.key === 'status' ? (sort.dir === 'desc' ? 'descending' : 'ascending') : undefined}>{sortBtn('status', '상태')}</th>
@@ -68,6 +70,8 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }:
                  : label.text}
               </td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{clientNameOf(d.clientId)}</td>
+              {/* 열 정합을 위해서만 미배정에 '—'를 쓴다 (카드·칸반은 자리 자체를 안 그림 — 표만 예외) */}
+              <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{d.influencerHandle ? `@${d.influencerHandle}` : '—'}</td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{d.procedureNames.join(' · ') || '—'}</td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{d.format === 'thread' ? '스레드' : '단문'}</td>
               {/* 칩 클릭이 행 클릭(카드 점프)으로 번지지 않게 — 셀에서 차단 */}

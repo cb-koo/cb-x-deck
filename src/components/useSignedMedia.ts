@@ -47,12 +47,10 @@ export function useSignedMedia(posts: DraftPost[]): SignedMediaResult {
     const need = paths.filter((p) => !requestedRef.current.has(p));
     if (need.length === 0) return;
     need.forEach((p) => requestedRef.current.add(p));
-    let cancelled = false;
     (async () => {
       const supabase = createClient();
       // 모은 경로 전체를 단 한 번의 배치 호출로 서명한다 — 포스트 수만큼 왕복하지 않는다(설계 §D).
       const { data, error } = await supabase.storage.from(BUCKET).createSignedUrls(need, EXPIRES_IN);
-      if (cancelled) return;
       if (error || !data) {
         setFailed((prev) => new Set([...prev, ...need]));
         return;
@@ -66,7 +64,11 @@ export function useSignedMedia(posts: DraftPost[]): SignedMediaResult {
       if (Object.keys(nextSigned).length > 0) setSigned((prev) => ({ ...prev, ...nextSigned }));
       if (nextFailed.length > 0) setFailed((prev) => new Set([...prev, ...nextFailed]));
     })();
-    return () => { cancelled = true; }; // 언마운트·버전 전환 도중 응답이 와도 옛 렌더의 상태를 덮지 않음
+    // cleanup에서 취소하지 않는다 — Column.tsx:153과 같은 함정이다. StrictMode가 이펙트를 두 번
+    // 돌리면 1회차는 requestedRef에 경로를 적고 요청을 띄운 뒤 cleanup에서 취소되고, 2회차는 그
+    // 가드에 막혀 요청을 아예 안 한다. 결과적으로 서명이 영영 도착하지 않아 이미지가 빈칸으로 남는다
+    // (2026-08-12 실제로 그렇게 났다). 결과는 경로→URL 캐시일 뿐이라 늦게 와도 틀리지 않고,
+    // 언마운트 후 setState는 React 18+에서 무해하게 무시된다.
   }, [paths]);
 
   // 만료 대응 — 렌더 때 받은 서명 URL이 하루 뒤 깨지면 <img onError>가 원본 경로로 이 함수를 부른다.

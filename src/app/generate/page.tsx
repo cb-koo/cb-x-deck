@@ -112,19 +112,29 @@ function Workbench() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로컬 저장값 복원(기존 코드베이스 관례, RefPickerSheet 선례)
     try { const s = localStorage.getItem(COMPOSER_KEY); if (s) setComposer({ ...DEFAULT_COMPOSER, ...JSON.parse(s) }); } catch { /* 무시 */ }
-    Promise.all([
-      apiFetch('/api/clients').then((r) => r.json()),
-      apiFetch('/api/drafts').then((r) => r.json()),
-      // 자동완성은 편의일 뿐이라 실패해도 빈 목록으로 삼킨다 — 자유 입력이라는 본 기능은 그대로 동작하므로
-      // 여기서 전체 로딩을 실패시키거나 토스트를 띄우면, 쓸 수 있는 걸 못 쓰는 것처럼 보이게 만든다 (스펙 §G).
-      apiFetch('/api/drafts/influencers').then((r) => (r.ok ? r.json() : [])).catch(() => []),
-    ]).then(([c, d, inf]) => {
-      setClients(c); setDrafts(d); setLoaded(true);
-      setInfluencerOptions(Array.isArray(inf) ? inf : []);
+    // 셋을 Promise.all로 묶어 두었더니 가장 느린 하나가 화면 전체를 잡아 세웠다. /api/clients는 N+1
+    // 질의라 초안 목록보다 몇 배 느리고(로컬 실측 2초, 병렬 부하가 겹치면 20초대), 그동안 결과 열에는
+    // 아무것도 그려지지 않는다 — "콘텐츠창이 안 보인다"의 정체가 이것이었다. 게다가 셋 중 하나만
+    // 실패해도 catch가 전부를 실패로 처리해, 초안은 멀쩡한데 한 건도 안 보였다.
+    // 서로 필요로 하지 않는 세 데이터이므로 각자 도착하는 대로 화면에 반영한다.
+
+    // 초안 — 결과 열의 주인공이라 이것만 loaded를 좌우한다.
+    apiFetch('/api/drafts').then((r) => r.json())
+      .then((d) => { setDrafts(d); setLoaded(true); })
+      .catch(() => { setLoaded(true); setToast('초안 목록을 불러오지 못했어요 — 새로고침해 주세요'); });
+
+    // 클라이언트 — 좌패널 생성 폼에서만 쓴다. 늦거나 실패해도 초안 열람은 막지 않는다.
+    apiFetch('/api/clients').then((r) => r.json()).then((c) => {
+      setClients(c);
       // 복원된 clientId가 응답 목록에 없으면(유령 클라이언트) 정리 — 400 방지
       setComposer((cur) => (cur.clientId && !(c as Array<{ client: ClientRow }>).some((x) => x.client.id === cur.clientId)
         ? { ...cur, clientId: null, procedureIds: [] } : cur));
-    }).catch(() => { setLoaded(true); setToast('목록을 불러오지 못했어요 — 새로고침해 주세요'); });
+    }).catch(() => setToast('클라이언트 목록을 불러오지 못했어요 — 원고 생성 시 클라이언트를 고를 수 없어요'));
+
+    // 자동완성은 편의일 뿐이라 실패해도 빈 목록으로 삼킨다 — 자유 입력이라는 본 기능은 그대로 동작하므로
+    // 여기서 토스트를 띄우면, 쓸 수 있는 걸 못 쓰는 것처럼 보이게 만든다 (스펙 §G).
+    apiFetch('/api/drafts/influencers').then((r) => (r.ok ? r.json() : [])).catch(() => [])
+      .then((inf) => setInfluencerOptions(Array.isArray(inf) ? inf : []));
   }, []);
   useEffect(() => () => { if (pollTimer.current) clearInterval(pollTimer.current); }, []);
   const updateComposer = useCallback((v: ComposerState) => {

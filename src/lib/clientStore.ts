@@ -9,9 +9,19 @@ export interface ProcedureRow {
 type CRow = { id: string; name: string; info: string; banned_phrases: string[]; position: number; updated_at: Date };
 type PRow = { id: string; client_id: string; name: string; description: string; effect_phrases: string; banned_phrases: string[]; position: number };
 
+// updated_at이 Date로 해석되지 않으면 toISOString()이 RangeError를 던진다. 그러면 그 한 값 때문에
+// listClients 전체가 터지고, /api/clients가 500이 되고, /generate의 초기 Promise.all이 통째로 실패해
+// "목록을 불러오지 못했어요"만 남는다 — 초안이 한 건도 안 보인다(2026-08-12 로컬에서 간헐 관측).
+// 화면에 '3일 전 수정'을 적기 위한 파생값 하나가 목록 전체를 못 쓰게 만들 이유가 없다.
+// 왜 그 값이 간헐적으로 깨지는지는 아직 못 밝혔다 — 원인과 별개로 여기서 무너지지는 않게 한다.
+function toIsoOrEmpty(v: Date | string): string {
+  const t = new Date(v).getTime();
+  return Number.isFinite(t) ? new Date(t).toISOString() : '';
+}
+
 const toClient = (r: CRow): ClientRow =>
   ({ id: r.id, name: r.name, info: r.info, bannedPhrases: r.banned_phrases, position: r.position,
-     updatedAt: new Date(r.updated_at).toISOString() });
+     updatedAt: toIsoOrEmpty(r.updated_at) });
 const toProcedure = (r: PRow): ProcedureRow =>
   ({ id: r.id, clientId: r.client_id, name: r.name, description: r.description,
      effectPhrases: r.effect_phrases, bannedPhrases: r.banned_phrases, position: r.position });

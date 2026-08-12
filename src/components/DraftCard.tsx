@@ -24,6 +24,37 @@ const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
 
 const FULL_SLOT_HINT = `트윗당 ${MAX_MEDIA_PER_POST}장까지예요 — 순서를 바꾸려면 이미지를 떼고 다시 올려주세요`;
 
+// 다시 쓰기로 빠진 이미지 안내 (설계 §H-1). versionIndex = 그 이미지가 아직 붙어 있는 버전의 번호(0-기준).
+export interface MediaDropNotice {
+  versionIndex: number;   // 페이저로 되돌아갈 자리 — 기준 버전은 새 버전이 붙어도 같은 index에 남는다
+  postNumbers: number[];  // 이미지를 잃은 트윗 번호(1-기준)
+  count: number;          // 빠진 이미지 수
+  newPostCount: number;   // 다시 쓴 원고의 트윗 수 — "왜 빠졌는지"가 이 숫자다
+}
+
+// 다시 쓰기는 미디어를 위치 기준으로 이월한다(generate.ts) — 스레드가 짧아지면 뒤쪽 트윗의 이미지는
+// 갈 자리가 없어 빠진다. 그 사실을 사후에 알리기 위해 기준 버전과 새 버전을 비교한다.
+//
+// 서버가 아니라 화면이 계산하는 이유: 이월 규칙이 위치 기준이라 두 버전만 있으면 답이 결정되고,
+// 그 두 벌을 클라이언트가 이미 갖고 있다(응답의 history[baseIndex] = 기준 버전, edited = 새 버전).
+// 서버가 돌려주려면 rewriteDraft의 반환 타입과 라우트 응답 모양까지 바꿔야 하는데, 그렇게 해서
+// 새로 알게 되는 사실이 하나도 없다 — 없는 것을 만들지 않는다(설계 §원칙).
+export function droppedMediaOnRewrite(
+  base: DraftContent, next: DraftContent, versionIndex: number,
+): MediaDropNotice | null {
+  // 자리를 잃은 트윗 = 새 원고의 길이를 넘어선 자리. 그 자리에 이미지가 있었을 때만 손실이다.
+  const lost = base.posts
+    .map((p, n) => ({ postNumber: n + 1, count: p.media.length }))
+    .filter((x) => x.postNumber > next.posts.length && x.count > 0);
+  if (lost.length === 0) return null;
+  return {
+    versionIndex,
+    postNumbers: lost.map((x) => x.postNumber),
+    count: lost.reduce((n, x) => n + x.count, 0),
+    newPostCount: next.posts.length,
+  };
+}
+
 // 첨부 컨트롤 — X 액션 바(카드 하단)가 아니라 포스트별 메타 행에 둔다(설계 §E). 미디어가 포스트 단위라
 // 층위가 맞고, X 트윗 카드에는 첨부 버튼이 없다(있는 건 컴포저다). 남는 자리는 상시 표시한다 —
 // 4장이 된 뒤에 "4장까지예요"를 띄우는 것은 사후 통보다(AGENTS #2).
@@ -92,7 +123,7 @@ function MediaOverlayActions({ canDetach, isGif, onDetach, onDownload, onCopy }:
 }
 
 // 초안 카드 — X 실측(600px·radius16·아바타40·본문 15/20). 지표·배지·이미지 자리 없음(없는 데이터는 자리도 안 만듦)
-export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, siblingTotal, influencerOptions, onAssignInfluencer, onSaveMedia }: {
+export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, siblingTotal, influencerOptions, onAssignInfluencer, onSaveMedia, mediaDropNotice, onDismissMediaDrop }: {
   draft: DraftRow; banned: string[];
   onEdit: () => void; onRewrite: (feedback: string, baseIndex: number) => void; rewriteBusy: boolean;
   onDelete: () => void; onRegenPost: (index: number) => void; regenBusyIndex: number | null;
@@ -104,6 +135,10 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   onAssignInfluencer: (next: string | null) => void;
   // 이미지 첨부·떼기 즉시 저장 (설계 §확정 판단) — 낙관적 갱신·롤백은 페이지가 한다(assignInfluencer와 같은 패턴)
   onSaveMedia: (next: DraftContent) => void;
+  // 방금 다시 쓰기로 이미지가 빠졌다는 사실 (설계 §H-1). '방금'이라는 사건이라 카드가 스스로 알 수 없다 —
+  // 다시 쓰기를 실행한 페이지가 응답을 받는 순간 계산해 내려준다. null이면 안내 없음.
+  mediaDropNotice: MediaDropNotice | null;
+  onDismissMediaDrop: () => void;
 }) {
   const [refsOpen, setRefsOpen] = useState(false);
   // 레퍼런스 번역 — 덱/보관함과 같은 훅·같은 캐시(tweet_translation, tweet_id 단위 전역).
@@ -386,6 +421,29 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
               );
             })}
           </div>
+          {/* 다시 쓰기로 빠진 이미지 안내 (설계 §H-1) — 미리 막지 않고 사후에, 왜인지와 손잡이를 함께.
+              토스트가 아니라 카드 안인 이유 둘: 여러 카드가 늘어선 화면에서 토스트는 "어느 원고인지"를
+              말하지 못하고, 손잡이인 '이전 버전 보기'가 움직여야 하는 것이 이 카드의 버전 페이저다.
+              자리도 트윗 목록 바로 아래 — 이미지가 있던 그 자리에 왜 없는지가 붙어야 한다. */}
+          {mediaDropNotice && (
+            <div role="status" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
+              <p>
+                다시 쓴 원고가 트윗 {mediaDropNotice.newPostCount}개로 줄어{' '}
+                {mediaDropNotice.postNumbers.join('·')}번의 이미지 {mediaDropNotice.count}장이 빠졌어요
+              </p>
+              {/* 파일을 지우지 않는다는 §확정 판단 덕에 이 문장이 사실이다 — 이전 버전에서 실제로 받을 수 있다 */}
+              <p className="mt-0.5 text-x-secondary">
+                파일은 그대로 남아 있어요 — 이전 버전에서 받아두거나, 남은 트윗에 다시 붙이면 돼요
+              </p>
+              <p className="mt-1 flex items-center gap-3">
+                <button onClick={() => { goVersion(mediaDropNotice.versionIndex); onDismissMediaDrop(); }}
+                        className="font-bold text-x-blue-text hover:underline">
+                  이전 버전 보기
+                </button>
+                <button onClick={onDismissMediaDrop} className="text-x-muted hover:underline">닫기</button>
+              </p>
+            </div>
+          )}
           {/* 전달 안내 — 지금 이미지가 앱 밖으로 나가는 길은 받기와 복사뿐이고 화면이 그렇게 말해야 한다(설계 §G).
               액션 행이 아니라 콘텐츠 열에 둔다: 액션 행은 X 액션 바 미러링 자리다(§E).
               '모두 받기'가 카드 단위인 이유 — 스레드 전체를 한 번에 넘기는 것이 실제 전달 단위이고,

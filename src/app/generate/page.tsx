@@ -5,7 +5,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { newDraftsSince, filterDrafts, statusCounts, siblingCount, type DraftListFilter } from '@/lib/draftUi';
 import { searchDrafts, filterByProcedure, applyPeriod, procedureOptions, type PeriodValue } from '@/lib/draftViews';
 import { Toast } from '@/components/Toast';
-import { DraftCard } from '@/components/DraftCard';
+import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
 import { RefPickerSheet } from '@/components/RefPickerSheet';
 import { DraftFilterBar } from '@/components/DraftFilterBar';
@@ -53,6 +53,8 @@ function Workbench() {
   const [rewritingId, setRewritingId] = useState<string | null>(null);
   const [regenBusy, setRegenBusy] = useState<{ draftId: string; index: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // 다시 쓰기로 이미지가 빠진 사실 (설계 §H-1) — 한 번에 한 초안만 다시 쓸 수 있으므로 슬롯도 하나면 된다
+  const [mediaDrop, setMediaDrop] = useState<{ draftId: string; notice: MediaDropNotice } | null>(null);
   const [pendingRemove, setPendingRemove] = useState<DraftRow | null>(null);
   // 좌패널 폭 — 드래그 리사이즈, 더블클릭 복원, 저장값은 복원 시 클램프 (스펙 §경계 조건)
   const [panelW, setPanelW] = useState(PANEL_DEFAULT);
@@ -223,6 +225,7 @@ function Workbench() {
   // baseIndex = 사용자가 보고 있던 버전(그 버전을 기준으로 다시 쓴다).
   async function rewrite(id: string, feedback: string, baseIndex: number) {
     if (rewritingId) return;
+    setMediaDrop((cur) => (cur?.draftId === id ? null : cur)); // 지난 안내는 걷는다 — 이번 결과로 대체된다
     setRewritingId(id);
     try {
       const r = await apiFetch(`/api/drafts/${id}/rewrite`, {
@@ -231,7 +234,17 @@ function Workbench() {
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) { setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
-      setDrafts((cur) => cur.map((d) => (d.id === id ? (body as DraftRow) : d)));
+      const updated = body as DraftRow;
+      setDrafts((cur) => cur.map((d) => (d.id === id ? updated : d)));
+      // 스레드가 짧아져 뒤쪽 트윗의 이미지가 빠졌으면 알린다 (설계 §H-1) — 조용히 사라지는 것만은 막는다.
+      // 다시 쓰기 전 상태를 따로 들고 있을 필요가 없다: 서버가 history 끝에 직전 표시본을 덧붙이므로
+      // 응답의 history가 곧 '다시 쓰기 직전의 버전 목록'이고, 서버가 미디어를 이월한 기준 버전이
+      // history[baseIndex]다. 새 버전은 뒤에 붙을 뿐이라 그 index는 카드의 페이저에서도 그대로다 —
+      // 그래서 baseIndex가 '이전 버전 보기'가 데려갈 자리이기도 하다.
+      const i = Math.min(Math.max(baseIndex, 0), updated.history.length - 1);
+      const base = updated.history[i];
+      const notice = base ? droppedMediaOnRewrite(base, updated.edited ?? updated.content, i) : null;
+      if (notice) setMediaDrop({ draftId: id, notice });
     } catch {
       setToast('다시 쓰기 중 오류가 났어요 — 잠시 후 다시 시도해주세요');
     } finally {
@@ -489,7 +502,9 @@ function Workbench() {
                        siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null}
                        influencerOptions={influencerOptions}
                        onAssignInfluencer={(next) => assignInfluencer(d, next)}
-                       onSaveMedia={(next) => saveDraftMedia(d, next)} />
+                       onSaveMedia={(next) => saveDraftMedia(d, next)}
+                       mediaDropNotice={mediaDrop?.draftId === d.id ? mediaDrop.notice : null}
+                       onDismissMediaDrop={() => setMediaDrop(null)} />
           ))}
           {view === 'table' && loaded && visibleDrafts.length > 0 && (
             <DraftTable drafts={visibleDrafts} clientNameOf={clientNameOf}
@@ -527,7 +542,9 @@ function Workbench() {
                        siblingTotal={peeked.batchId ? siblingCount(drafts, peeked.batchId) : null}
                        influencerOptions={influencerOptions}
                        onAssignInfluencer={(next) => assignInfluencer(peeked, next)}
-                       onSaveMedia={(next) => saveDraftMedia(peeked, next)} />
+                       onSaveMedia={(next) => saveDraftMedia(peeked, next)}
+                       mediaDropNotice={mediaDrop?.draftId === peeked.id ? mediaDrop.notice : null}
+                       onDismissMediaDrop={() => setMediaDrop(null)} />
           </div>
         </div>
       )}

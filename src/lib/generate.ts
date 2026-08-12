@@ -177,6 +177,13 @@ export async function rewriteDraft(
   }
   if (draft.format === 'single') posts = posts.slice(0, 1);
 
+  // 미디어는 위치 기준 이월 — 기준 버전 n번 트윗의 이미지가 다시 쓴 n번 트윗에 그대로 남는다.
+  // 스레드가 짧아지면 뒤쪽 트윗의 이미지는 갈 자리가 없어 빠지는데, 여기서 막지 않는다(설계 §H-1) —
+  // 첨부가 있다고 다시 쓰기 앞에 확인 창을 세우면 마찰이 크다. 대신 사후에 화면이 왜인지와 손잡이를
+  // 함께 알린다. 어느 트윗의 몇 장이 빠졌는지는 화면이 계산한다(DraftCard의 droppedMediaOnRewrite):
+  // 이월 규칙이 위치 기준이라 '기준 버전 + 새 버전'만으로 결과가 결정되고, 그 두 벌은 응답의
+  // history·edited에 이미 다 들어 있다. 스토리지 객체는 지우지 않으므로(§확정 판단) 빠진 이미지는
+  // 이전 버전에서 그대로 받을 수 있다 — 안내 문구가 사실과 어긋나지 않는 이유다.
   const edited = { posts: posts.map((p, n) => ({ text: p.text, media: base.posts[n]?.media ?? [] })) };
   // 새 버전의 한국어 대역 — 같은 텍스트로 되돌아온 버전은 재과금 없이 캐시 재사용, 실패 시 생략(번역 버튼 경로가 커버)
   const h = draftVersionHash(edited.posts);
@@ -237,6 +244,8 @@ export async function regeneratePost(
   }
   if (!posts?.[0]?.text?.trim()) throw new Error('AI가 이번엔 형식을 맞추지 못했어요 — 다시 시도해주세요');
 
+  // 여기는 §H-1의 이미지 유실이 일어나지 않는다 — base.posts를 그대로 map하므로 트윗 수가 그대로고,
+  // 교체되는 트윗도 자기 media를 들고 간다. 빠질 이미지가 없으니 안내도 다시 쓰기 경로에만 둔다.
   const edited = {
     posts: base.posts.map((p, n) => (n === postIndex ? { text: posts[0].text, media: p.media } : p)),
   };

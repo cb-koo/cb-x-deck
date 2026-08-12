@@ -177,26 +177,35 @@ export async function rewriteDraft(
   }
   if (draft.format === 'single') posts = posts.slice(0, 1);
 
-  // 미디어는 위치 기준 이월 — 기준 버전 n번 트윗의 이미지가 다시 쓴 n번 트윗에 그대로 남는다.
-  // 스레드가 짧아지면 뒤쪽 트윗의 이미지는 갈 자리가 없어 빠지는데, 여기서 막지 않는다(설계 §H-1) —
-  // 첨부가 있다고 다시 쓰기 앞에 확인 창을 세우면 마찰이 크다. 대신 사후에 화면이 왜인지와 손잡이를
-  // 함께 알린다. 어느 트윗의 몇 장이 빠졌는지는 화면이 계산한다(DraftCard의 droppedMediaOnRewrite):
-  // 이월 규칙이 위치 기준이라 '기준 버전 + 새 버전'만으로 결과가 결정되고, 그 두 벌은 응답의
-  // history·edited에 이미 다 들어 있다. 스토리지 객체는 지우지 않으므로(§확정 판단) 빠진 이미지는
-  // 이전 버전에서 그대로 받을 수 있다 — 안내 문구가 사실과 어긋나지 않는 이유다.
-  const edited = { posts: posts.map((p, n) => ({ text: p.text, media: base.posts[n]?.media ?? [] })) };
-  // 새 버전의 한국어 대역 — 같은 텍스트로 되돌아온 버전은 재과금 없이 캐시 재사용, 실패 시 생략(번역 버튼 경로가 커버)
-  const h = draftVersionHash(edited.posts);
-  // 캐시 히트는 posts만 갖고 있다(과거엔 title이 없었거나 다른 버전의 title) — 제목은 미생성으로 취급
+  // 새 버전의 한국어 대역 — 해시는 텍스트만 본다(draftVersionHash). 같은 텍스트로 되돌아온 버전은
+  // 재과금 없이 캐시 재사용, 실패 시 생략(번역 버튼 경로가 커버). 캐시 조회는 시작 시점 스냅샷으로
+  // 해도 무해하다 — 어긋나 봐야 재번역 한 번이다.
+  const h = draftVersionHash(posts);
   let gloss: Gloss | null = draft.translation?.[h] ? { posts: draft.translation[h], title: null } : null;
   if (!gloss) {
-    try { gloss = await withGlossTimeout(translateDraftPosts(edited.posts.map((p) => p.text), client)); }
+    try { gloss = await withGlossTimeout(translateDraftPosts(posts.map((p) => p.text), client)); }
     catch (e) { console.warn('[draft] 대역 생성 생략', { err: e instanceof Error ? e.message : String(e) }); gloss = null; }
   }
+
+  // 여기까지 LLM·번역으로 수 초~수십 초가 지났다 — 그동안 사용자가 카드에서 이미지를 붙였을 수 있다
+  // (첨부는 즉시 저장이라 PATCH가 이미 서버에 반영됐다). 시작 시점 스냅샷(draft)으로 edited·history를
+  // 쓰면 그 첨부가 통째로 덮여 사라진다(리뷰 발견). 그래서 쓰기 직전에 다시 읽는다 — 남는 경쟁 창은
+  // 이 조회~update 사이 밀리초로, LLM 10초 창과는 자릿수가 다르다.
+  const fresh = (await getDraft(sql, draftId)) ?? draft;
+  const freshLatest = fresh.edited ?? fresh.content;
+
+  // 미디어는 "지금 최신 버전"에서 위치 기준 이월 — 기준 버전(base)이 아니다. 텍스트는 사용자가 고른
+  // 버전에서 다시 쓰지만, 이미지는 초안에 순방향으로 쌓이는 자산이라 옛 버전을 기준으로 삼는 순간
+  // 최신 버전에 붙여둔 이미지가 소리 없이 사라진다(리뷰 발견 — §H-1 안내로도 못 잡던 경로).
+  // 스레드가 짧아지면 뒤쪽 이미지는 갈 자리가 없어 빠지는데, 여기서 막지 않는다(설계 §H-1) —
+  // 사후에 화면이 왜인지와 손잡이를 함께 알린다. 화면 계산의 비교 기준도 같은 이유로 '직전 최신'
+  // (응답 history의 마지막)이다. 스토리지 객체는 지우지 않으므로(§확정 판단) 빠진 이미지는
+  // 이전 버전에서 그대로 받을 수 있다.
+  const edited = { posts: posts.map((p, n) => ({ text: p.text, media: freshLatest.posts[n]?.media ?? [] })) };
   // 직전 표시본(기준 버전이 아니라 최신)을 이력에 보존 — 어떤 버전을 기준으로 썼든 타임라인은 선형
   await updateDraft(sql, draftId, {
-    edited, history: [...draft.history, draft.edited ?? draft.content],
-    ...(gloss ? { translation: { ...(draft.translation ?? {}), [h]: gloss.posts } } : {}),
+    edited, history: [...fresh.history, freshLatest],
+    ...(gloss ? { translation: { ...(fresh.translation ?? {}), [h]: gloss.posts } } : {}),
     // 제목이 없으면(캐시 재사용·실패) patch 생략 — 이전 제목을 지우지 않는다: 해시 불일치로 자연 무효화되므로
     ...(gloss?.title ? { koTitle: gloss.title, koTitleHash: h } : {}),
   });
@@ -244,23 +253,27 @@ export async function regeneratePost(
   }
   if (!posts?.[0]?.text?.trim()) throw new Error('AI가 이번엔 형식을 맞추지 못했어요 — 다시 시도해주세요');
 
-  // 여기는 §H-1의 이미지 유실이 일어나지 않는다 — base.posts를 그대로 map하므로 트윗 수가 그대로고,
-  // 교체되는 트윗도 자기 media를 들고 간다. 빠질 이미지가 없으니 안내도 다시 쓰기 경로에만 둔다.
-  const edited = {
-    posts: base.posts.map((p, n) => (n === postIndex ? { text: posts[0].text, media: p.media } : p)),
-  };
-  // 새 버전의 한국어 대역 — 같은 텍스트로 되돌아온 버전은 재과금 없이 캐시 재사용, 실패 시 생략(번역 버튼 경로가 커버)
-  const h = draftVersionHash(edited.posts);
-  // 캐시 히트는 posts만 갖고 있다(과거엔 title이 없었거나 다른 버전의 title) — 제목은 미생성으로 취급
+  // 텍스트는 시작 시점 base에서 한 트윗만 교체 — 트윗 수가 그대로라 §H-1의 위치 이월 유실은 없다.
+  const newTexts = base.posts.map((p, n) => (n === postIndex ? posts[0].text : p.text));
+  // 새 버전의 한국어 대역 — 해시는 텍스트만 본다. 캐시 조회는 시작 시점 스냅샷으로 해도 무해(어긋나 봐야 재번역 한 번).
+  const h = draftVersionHash(newTexts.map((text) => ({ text })));
   let gloss: Gloss | null = draft.translation?.[h] ? { posts: draft.translation[h], title: null } : null;
   if (!gloss) {
-    try { gloss = await withGlossTimeout(translateDraftPosts(edited.posts.map((p) => p.text), client)); }
+    try { gloss = await withGlossTimeout(translateDraftPosts(newTexts, client)); }
     catch (e) { console.warn('[draft] 대역 생성 생략', { err: e instanceof Error ? e.message : String(e) }); gloss = null; }
   }
+
+  // 쓰기 직전 재조회 — rewriteDraft와 같은 이유(LLM·번역 수 초 사이에 즉시 저장된 첨부를 덮지 않기 위해).
+  // 미디어는 지금 최신 버전에서 위치 기준으로 가져온다.
+  const fresh = (await getDraft(sql, draftId)) ?? draft;
+  const freshLatest = fresh.edited ?? fresh.content;
+  const edited = {
+    posts: newTexts.map((text, n) => ({ text, media: freshLatest.posts[n]?.media ?? [] })),
+  };
   // 직전 표시본을 이력에 보존 — ‹ 1/2 › 페이저로 이전 버전 열람 가능
   await updateDraft(sql, draftId, {
-    edited, history: [...draft.history, base],
-    ...(gloss ? { translation: { ...(draft.translation ?? {}), [h]: gloss.posts } } : {}),
+    edited, history: [...fresh.history, freshLatest],
+    ...(gloss ? { translation: { ...(fresh.translation ?? {}), [h]: gloss.posts } } : {}),
     // 제목이 없으면(캐시 재사용·실패) patch 생략 — 이전 제목을 지우지 않는다: 해시 불일치로 자연 무효화되므로
     ...(gloss?.title ? { koTitle: gloss.title, koTitleHash: h } : {}),
   });

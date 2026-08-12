@@ -175,9 +175,11 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
             const remaining = MAX_MEDIA_PER_POST - media[i].length;
             const full = remaining <= 0;
             return (
+              // preventDefault는 compare 검사보다 먼저 — 안 그러면 비교 모드에서 떨군 파일을 브라우저가
+              // 기본 동작으로 열어 탭째 이동한다(모달의 미저장 텍스트가 통째로 날아감, 리뷰 발견)
               <div key={i}
                    className={`flex gap-3 rounded-xl py-2 transition-colors ${dragOverIndex === i ? 'bg-x-blue/5 ring-2 ring-inset ring-x-blue/40' : ''}`}
-                   onDragOver={(e) => { if (compare) return; e.preventDefault(); e.stopPropagation(); setDragOverIndex(i); }}
+                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (compare) return; setDragOverIndex(i); }}
                    onDragLeave={() => setDragOverIndex((cur) => (cur === i ? null : cur))}
                    onDrop={(e) => {
                      e.preventDefault(); e.stopPropagation(); setDragOverIndex(null);

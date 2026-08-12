@@ -230,25 +230,38 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   const latestRef = useRef(current);
   useEffect(() => { latestRef.current = current; }, [current]);
 
-  // 만료된 서명 URL을 <img onError>에서 한 번만 재서명한다(설계 §D). MediaGrid는 4개 호출부가 함께 쓰는
+  // 만료된 서명 URL을 <img onError>에서 재서명한다(설계 §D). MediaGrid는 4개 호출부가 함께 쓰는
   // 순수 렌더라 오류 슬롯이 없어서, 그리드를 감싼 div에서 캡처 단계로 받는다.
-  // 경로당 한 번만 부르는 이유: 재서명도 실패하면 훅이 원본 경로를 그대로 돌려주고, 그 경로가 다시
-  // 404를 내며 onError → resign이 무한히 돈다.
-  const resignedRef = useRef<Set<string>>(new Set());
+  // '경로당 평생 1회'로 냈다가 리뷰에서 잡혔다: 복구된 서명도 24시간 뒤 또 만료되는데 그때는 가드에
+  // 막혀 새로고침 전까지 영영 깨진 채였다. 지금은 시각 기반 쿨다운이다 — 실패가 반복돼도 10초에 한 번만
+  // 재시도하므로 onError 폭주는 여전히 막히고, 하루 뒤 두 번째 만료도 스스로 복구된다.
+  const resignedRef = useRef<Map<string, number>>(new Map());
   function handleMediaError(e: SyntheticEvent<HTMLDivElement>, post: DraftPost, signedPost: DraftPost) {
     const src = (e.target as HTMLImageElement | null)?.getAttribute?.('src') ?? '';
     if (!src) return;
     const k = signedPost.media.findIndex((m) => m.url === src);
     const path = post.media[k]?.url;
     if (!path || path.startsWith('http')) return; // X CDN 절대 URL은 우리가 서명한 것이 아니다(§B)
-    if (resignedRef.current.has(path)) return;
-    resignedRef.current.add(path);
+    const last = resignedRef.current.get(path) ?? 0;
+    // eslint-disable-next-line react-hooks/purity -- <img onError> 이벤트 핸들러 안이다(렌더 아님) — 쿨다운엔 실제 시각이 필요
+    const now = Date.now();
+    if (now - last < 10_000) return;
+    resignedRef.current.set(path, now);
     resign(path);
   }
 
   function mergeMedia(postIndex: number, media: DeckMedia[]): DraftContent {
     const latest = latestRef.current;
     return { posts: latest.posts.map((p, n) => (n === postIndex ? { ...p, media } : p)) };
+  }
+
+  // 병합 결과를 latestRef에 '동기'로 되반영하고 저장한다 — useEffect 갱신만 기다리면, 연이은 두 업로드가
+  // 같은 커밋 창에 끝났을 때 두 번째 병합이 첫 번째 저장분이 없는 스냅샷에서 출발해 그 첨부를 지운 채
+  // 저장된다(리뷰 발견). 실패 롤백은 부모의 setDrafts가 되돌리고, 그 값이 effect로 다시 이 ref에 온다.
+  function saveMerged(postIndex: number, media: DeckMedia[]) {
+    const next = mergeMedia(postIndex, media);
+    latestRef.current = next;
+    onSaveMedia(next);
   }
 
   // 파일을 고른(또는 떨군) 즉시 올리고 바로 저장한다 — 모달의 저장 버튼을 기다리지 않는다(설계 §확정 판단).
@@ -276,7 +289,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
     }
     // 중간에 실패해도 이미 올라간 것은 저장한다 — 성공한 업로드를 버리면 사용자가 같은 일을 두 번 한다.
     if (uploaded.length > 0) {
-      onSaveMedia(mergeMedia(postIndex, [...(latestRef.current.posts[postIndex]?.media ?? []), ...uploaded]));
+      saveMerged(postIndex, [...(latestRef.current.posts[postIndex]?.media ?? []), ...uploaded]);
     }
     setMediaErr((cur) => ({ ...cur, [postIndex]: [notice, failMsg].filter(Boolean).join(' · ') }));
     setUploading((cur) => { const next = { ...cur }; delete next[postIndex]; return next; });
@@ -285,7 +298,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   function detachMedia(postIndex: number, mediaIndex: number) {
     // 스토리지 객체는 지우지 않는다(설계 §확정 판단) — 이전 버전이 같은 파일을 참조한다. 참조만 뗀다.
     const media = (latestRef.current.posts[postIndex]?.media ?? []).filter((_, k) => k !== mediaIndex);
-    onSaveMedia(mergeMedia(postIndex, media));
+    saveMerged(postIndex, media);
   }
 
   const filenameBase = {
@@ -316,6 +329,13 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
     const path = shown.posts[postIndex]?.media[mediaIndex]?.url ?? '';
     await downloadDraftImage(path, mediaFilename(postIndex, mediaIndex, path));
     noticeIfUnassigned();
+    noticePr(); // 이미지 한 장도 원고가 앱 밖으로 나가는 경로다 — 전체 받기와 같은 규칙(리뷰 발견)
+  }
+
+  // 이미지 개별 복사(오버레이) — PR 안내까지가 이 경로의 몫이다. 전달 수단이면 어디든 같은 규칙.
+  async function copyOne(postIndex: number, mediaIndex: number) {
+    await copyDraftImageToClipboard(shown.posts[postIndex]?.media[mediaIndex]?.url ?? '');
+    noticePr();
   }
 
   async function downloadAll() {
@@ -454,7 +474,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
                                  <MediaOverlayActions canDetach={isLatest} isGif={isGifDraftMedia(p.media[mi]?.url ?? '')}
                                                       onDetach={() => detachMedia(i, mi)}
                                                       onDownload={() => downloadOne(i, mi)}
-                                                      onCopy={() => copyDraftImageToClipboard(p.media[mi]?.url ?? '')}
+                                                      onCopy={() => copyOne(i, mi)}
                                                       onOpen={() => setLightbox({ post: i, idx: mi })} />
                                )} />
                   </div>
@@ -474,7 +494,8 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
                         {regenBusyIndex === i ? '다시 만드는 중…' : '이 트윗만 다시'}
                       </button>
                     )}
-                    <button onClick={() => { void navigator.clipboard.writeText(p.text).catch(() => {}); setCopiedPost(i); setTimeout(() => setCopiedPost(null), 1500); }}
+                    {/* 트윗 하나만 복사해도 원고는 나간다 — PR 안내는 전체 복사와 같은 규칙(리뷰 발견) */}
+                    <button onClick={() => { void navigator.clipboard.writeText(p.text).catch(() => {}); setCopiedPost(i); setTimeout(() => setCopiedPost(null), 1500); noticePr(); }}
                             className="text-x-blue-text hover:underline">
                       {copiedPost === i ? '복사됨 ✓' : '복사'}
                     </button>

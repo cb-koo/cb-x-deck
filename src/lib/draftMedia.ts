@@ -157,16 +157,15 @@ export async function downloadDraftImage(storagePath: string, filename: string):
   if (!res.ok) throw new Error('이미지를 받지 못했어요 — 다시 시도해주세요');
   const blob = await res.blob();
   const objectUrl = URL.createObjectURL(blob);
-  try {
-    const a = document.createElement('a');
-    a.href = objectUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // revoke는 미룬다 — click() 직후 동기로 걷으면 다운로드가 blob URL을 읽기 전에 무효화되어
+  // 저장이 간헐적으로 끊긴다(특히 Firefox, 리뷰 발견). 10초면 로컬 blob 읽기에는 차고 넘친다.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
 }
 
 // ─────────────────────────── 클립보드 복사 ───────────────────────────
@@ -187,10 +186,16 @@ async function toPngBlob(blob: Blob): Promise<Blob> {
 }
 
 export async function copyDraftImageToClipboard(storagePath: string): Promise<void> {
-  const signedUrl = await signDraftMediaUrl(storagePath);
-  const res = await fetch(signedUrl);
-  if (!res.ok) throw new Error('이미지를 가져오지 못했어요 — 다시 시도해주세요');
-  const blob = await res.blob();
-  const pngBlob = blob.type === 'image/png' ? blob : await toPngBlob(blob);
-  await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+  // clipboard.write를 첫 await '앞'에서 호출한다 — Safari는 클릭에서 비롯된 transient user activation이
+  // 살아 있는 동안에만 클립보드 쓰기를 허용해서, 서명·fetch·변환(수백 ms~수 초)을 기다린 뒤 쓰면
+  // NotAllowedError로 항상 거부된다(리뷰 발견). ClipboardItem에 Promise를 담아 동기적으로 write를
+  // 시작해 두면 활성화가 유지된 채 데이터만 나중에 채워진다. Chrome도 같은 형태를 지원한다.
+  const pngPromise = (async () => {
+    const signedUrl = await signDraftMediaUrl(storagePath);
+    const res = await fetch(signedUrl);
+    if (!res.ok) throw new Error('이미지를 가져오지 못했어요 — 다시 시도해주세요');
+    const blob = await res.blob();
+    return blob.type === 'image/png' ? blob : await toPngBlob(blob);
+  })();
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngPromise })]);
 }

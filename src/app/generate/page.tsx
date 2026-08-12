@@ -40,6 +40,10 @@ function Workbench() {
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [influencerOptions, setInfluencerOptions] = useState<InfluencerOption[]>([]); // 편집창 자동완성 후보
   const [loaded, setLoaded] = useState(false);
+  // 초안(loaded)과 별도 추적 — 로딩을 API별로 독립시키면서 'loaded면 clients도 있다'는 가정이 깨졌다.
+  // 이 플래그 없이 loaded로 온보딩 배너를 걸면, clients가 아직 오는 중(2~20초)에 "클라이언트를 먼저
+  // 등록하면…"이 등록을 이미 마친 사용자에게 뜬다(리뷰 발견).
+  const [clientsLoaded, setClientsLoaded] = useState(false);
   const [composer, setComposer] = useState<ComposerState>(DEFAULT_COMPOSER);
   const [refRows, setRefRows] = useState<ReferenceRow[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -125,7 +129,7 @@ function Workbench() {
 
     // 클라이언트 — 좌패널 생성 폼에서만 쓴다. 늦거나 실패해도 초안 열람은 막지 않는다.
     apiFetch('/api/clients').then((r) => r.json()).then((c) => {
-      setClients(c);
+      setClients(c); setClientsLoaded(true);
       // 복원된 clientId가 응답 목록에 없으면(유령 클라이언트) 정리 — 400 방지
       setComposer((cur) => (cur.clientId && !(c as Array<{ client: ClientRow }>).some((x) => x.client.id === cur.clientId)
         ? { ...cur, clientId: null, procedureIds: [] } : cur));
@@ -247,13 +251,14 @@ function Workbench() {
       const updated = body as DraftRow;
       setDrafts((cur) => cur.map((d) => (d.id === id ? updated : d)));
       // 스레드가 짧아져 뒤쪽 트윗의 이미지가 빠졌으면 알린다 (설계 §H-1) — 조용히 사라지는 것만은 막는다.
-      // 다시 쓰기 전 상태를 따로 들고 있을 필요가 없다: 서버가 history 끝에 직전 표시본을 덧붙이므로
-      // 응답의 history가 곧 '다시 쓰기 직전의 버전 목록'이고, 서버가 미디어를 이월한 기준 버전이
-      // history[baseIndex]다. 새 버전은 뒤에 붙을 뿐이라 그 index는 카드의 페이저에서도 그대로다 —
-      // 그래서 baseIndex가 '이전 버전 보기'가 데려갈 자리이기도 하다.
-      const i = Math.min(Math.max(baseIndex, 0), updated.history.length - 1);
-      const base = updated.history[i];
-      const notice = base ? droppedMediaOnRewrite(base, updated.edited ?? updated.content, i) : null;
+      // 비교 기준은 기준 버전(baseIndex)이 아니라 '직전 최신'이다: 서버가 미디어를 이월하는 출처가
+      // 지금 최신 버전이기 때문이다(옛 버전을 기준으로 다시 써도 최신에 붙인 이미지가 따라온다 —
+      // 기준 버전과 비교하면 바로 그 경우의 유실을 놓친다, 리뷰 발견). 서버가 history 끝에 직전
+      // 표시본을 덧붙이므로 응답 history의 마지막이 곧 그 '직전 최신'이고, 그 index가
+      // '이전 버전 보기'가 데려갈 자리다.
+      const i = updated.history.length - 1;
+      const prevLatest = updated.history[i];
+      const notice = prevLatest ? droppedMediaOnRewrite(prevLatest, updated.edited ?? updated.content, i) : null;
       if (notice) setMediaDrop({ draftId: id, notice });
     } catch {
       setToast('다시 쓰기 중 오류가 났어요 — 잠시 후 다시 시도해주세요');
@@ -386,7 +391,9 @@ function Workbench() {
             <button onClick={() => setPanelPref('closed')} aria-label="생성 패널 접기" title="생성 패널 접기"
                     className="hidden shrink-0 rounded p-1 text-x-muted hover:bg-x-hover lg:block">«</button>
           </div>
-          {loaded && clients.length === 0 && (
+          {/* clientsLoaded 기준 — loaded(초안)로 걸면 clients 응답이 오기 전 몇 초 동안
+              등록을 이미 마친 사용자에게 "먼저 등록하라"는 거짓 안내가 뜬다 */}
+          {clientsLoaded && clients.length === 0 && (
             <p className="rounded-lg bg-x-surface p-3 text-caption text-x-secondary">
               클라이언트를 먼저 등록하면 클리닉 정보가 원고에 반영돼요 — <a href="/clients" className="font-bold text-x-blue-text hover:underline">등록하러 가기</a>
             </p>

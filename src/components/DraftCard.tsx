@@ -1,11 +1,17 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState, type SyntheticEvent } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { DraftRow } from '@/lib/draftStore';
-import type { RefSnapshot, InfluencerOption } from '@/lib/draftTypes';
+import type { RefSnapshot, InfluencerOption, DraftContent, DraftPost } from '@/lib/draftTypes';
+import type { DeckMedia } from '@/lib/types';
 import { xWeightedLength, X_MAX_WEIGHTED } from '@/lib/xLength';
-import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags, variantLabel } from '@/lib/draftUi';
+import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags, variantLabel, textsChanged } from '@/lib/draftUi';
+import {
+  MAX_MEDIA_PER_POST, selectDraftImages, uploadDraftImage,
+  draftMediaFilename, downloadDraftImage, copyDraftImageToClipboard, isGifDraftMedia,
+} from '@/lib/draftMedia';
 import { MediaGrid } from '@/components/MediaGrid';
+import { useSignedMedia } from '@/components/useSignedMedia';
 import { RefreshIcon, TrashIcon } from '@/components/XIcons';
 import { useTranslations } from '@/components/useTranslations';
 import { DraftStatusChip } from '@/components/DraftStatusChip';
@@ -16,8 +22,77 @@ const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
   off: '참고 없음', form: '형식만', angle: '앵글만', both: '형식 + 앵글',
 };
 
+const FULL_SLOT_HINT = `트윗당 ${MAX_MEDIA_PER_POST}장까지예요 — 순서를 바꾸려면 이미지를 떼고 다시 올려주세요`;
+
+// 첨부 컨트롤 — X 액션 바(카드 하단)가 아니라 포스트별 메타 행에 둔다(설계 §E). 미디어가 포스트 단위라
+// 층위가 맞고, X 트윗 카드에는 첨부 버튼이 없다(있는 건 컴포저다). 남는 자리는 상시 표시한다 —
+// 4장이 된 뒤에 "4장까지예요"를 띄우는 것은 사후 통보다(AGENTS #2).
+function PostAttachControl({ used, busyCount, disabledReason, onFiles }: {
+  used: number; busyCount: number; disabledReason: string | null; onFiles: (files: File[]) => void;
+}) {
+  const label = `＋ 이미지 ${used}/${MAX_MEDIA_PER_POST}`;
+  if (busyCount > 0) return <span className="text-x-muted">이미지 올리는 중… {busyCount}장</span>;
+  // 비활성일 때는 버튼(label)이 아니라 글자로 그린다 — 눌러도 아무 일이 없는 손잡이를 남기지 않는다.
+  if (disabledReason) return <span title={disabledReason} className="cursor-default opacity-50">{label}</span>;
+  return (
+    <label title="jpg·png·gif·webp · 5MB까지 — 고른 이미지는 바로 저장돼요" className="cursor-pointer text-x-blue-text hover:underline">
+      {label}
+      <input type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp" className="hidden"
+             onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; onFiles(files); }} />
+    </label>
+  );
+}
+
+// 이미지별 hover 액션 — 떼기·받기·복사 (설계 §E·§G). MediaGrid의 renderOverlay 슬롯으로 주입된다.
+// 진행·완료·실패 상태를 이미지마다 따로 들어야 해서 카드 본체가 아니라 여기가 들고 있는다 —
+// 카드에 이미지 수만큼 상태를 두면 그리드 칸 수가 바뀔 때마다 상태 맵을 청소해야 한다.
+function MediaOverlayActions({ canDetach, isGif, onDetach, onDownload, onCopy }: {
+  canDetach: boolean; isGif: boolean;
+  onDetach: () => void; onDownload: () => Promise<void>; onCopy: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState<'download' | 'copy' | null>(null);
+  const [flash, setFlash] = useState('');   // 짧은 완료 표시 — 카드의 '복사됨 ✓'와 같은 방식
+  const [err, setErr] = useState('');
+
+  async function run(kind: 'download' | 'copy', fn: () => Promise<void>, ok: string) {
+    setErr(''); setBusy(kind);
+    try {
+      await fn();
+      setFlash(ok); setTimeout(() => setFlash(''), 1500);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '실패했어요 — 다시 시도해주세요');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const btn = 'rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white hover:bg-black/80 disabled:opacity-60';
+  return (
+    <div className="flex h-full w-full flex-col items-end justify-between p-1.5 opacity-0 transition-opacity focus-within:opacity-100 hover:opacity-100">
+      <div className="flex gap-1">
+        {canDetach && (
+          <button onClick={onDetach} aria-label="이미지 떼기"
+                  title="이미지 떼기 — 파일은 남아 있어 다시 올릴 수 있어요" className={btn}>✕</button>
+        )}
+        <button onClick={() => void run('download', onDownload, '받았어요 ✓')} disabled={busy !== null} className={btn}>
+          {busy === 'download' ? '받는 중…' : '받기'}
+        </button>
+        {/* GIF에는 복사 버튼을 그리지 않는다 — 클립보드는 PNG만 받아 캔버스를 거치는데 그러면 움직임이 죽는다(설계 §G) */}
+        {!isGif && (
+          <button onClick={() => void run('copy', onCopy, '복사됨 ✓')} disabled={busy !== null} className={btn}>
+            {busy === 'copy' ? '복사 중…' : '복사'}
+          </button>
+        )}
+      </div>
+      {(err || flash) && (
+        <span className={`rounded bg-black/70 px-1.5 py-0.5 text-[11px] font-bold ${err ? 'text-red-200' : 'text-white'}`}>{err || flash}</span>
+      )}
+    </div>
+  );
+}
+
 // 초안 카드 — X 실측(600px·radius16·아바타40·본문 15/20). 지표·배지·이미지 자리 없음(없는 데이터는 자리도 안 만듦)
-export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, siblingTotal, influencerOptions, onAssignInfluencer }: {
+export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, siblingTotal, influencerOptions, onAssignInfluencer, onSaveMedia }: {
   draft: DraftRow; banned: string[];
   onEdit: () => void; onRewrite: (feedback: string, baseIndex: number) => void; rewriteBusy: boolean;
   onDelete: () => void; onRegenPost: (index: number) => void; regenBusyIndex: number | null;
@@ -27,6 +102,8 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   siblingTotal: number | null; // 다중 시안 형제 수 (batch 없으면 null)
   influencerOptions: InfluencerOption[]; // 배정 자동완성 후보 — 편집 모달에서 옮겨온 배선
   onAssignInfluencer: (next: string | null) => void;
+  // 이미지 첨부·떼기 즉시 저장 (설계 §확정 판단) — 낙관적 갱신·롤백은 페이지가 한다(assignInfluencer와 같은 패턴)
+  onSaveMedia: (next: DraftContent) => void;
 }) {
   const [refsOpen, setRefsOpen] = useState(false);
   // 레퍼런스 번역 — 덱/보관함과 같은 훅·같은 캐시(tweet_translation, tweet_id 단위 전역).
@@ -50,6 +127,128 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   const shown = versions[shownIdx];
   const isLatest = shownIdx === versions.length - 1;
   const total = shown.posts.reduce((n, p) => n + xWeightedLength(p.text), 0);
+
+  // 텍스트가 실제로 달라졌을 때만 '편집됨' (설계 §H-2) — 이미지만 붙여도 edited가 채워지므로
+  // draft.edited 유무만 보면 첨부가 편집으로 둔갑한다. 첨부 사실은 이미지 자체가 이미 보여준다.
+  const textEdited = draft.edited !== null &&
+    textsChanged(draft.content.posts.map((p) => p.text), draft.edited.posts.map((p) => p.text));
+
+  // ── 이미지 (설계 §D·§E·§G) ─────────────────────────────────────────
+  // 서명 URL은 카드에서 딱 한 번, 보고 있는 버전의 포스트 배열 전체에 대해 발급받는다 —
+  // 포스트마다 훅을 부르면 버전 전환으로 트윗 수가 바뀔 때 훅 개수가 달라져 React가 죽는다(useSignedMedia 주석).
+  const { posts: signedPosts, resign } = useSignedMedia(shown.posts);
+  const [uploading, setUploading] = useState<Record<number, number>>({}); // 포스트 index → 올리는 중인 파일 수
+  const [mediaErr, setMediaErr] = useState<Record<number, string>>({});   // 실패 사유는 그 포스트 자리에(§E)
+  const [dragPost, setDragPost] = useState<number | null>(null);
+  const [dlBusy, setDlBusy] = useState(false);    // 전체 받기 진행 중
+  const [dlDone, setDlDone] = useState(0);        // 그중 몇 장까지 받았는지
+  const [dlErr, setDlErr] = useState('');
+  const [nameNotice, setNameNotice] = useState(false);
+  const mediaCount = shown.posts.reduce((n, p) => n + p.media.length, 0);
+
+  // 저장 병합의 기준은 렌더 시점 값이 아니라 이 거울이다 — 업로드는 몇 초 걸리고, 그동안 다른 포스트에
+  // 떨군 첨부가 먼저 저장될 수 있다. 렌더 시점 current에 얹으면 먼저 저장된 첨부가 조용히 지워진다.
+  const latestRef = useRef(current);
+  useEffect(() => { latestRef.current = current; }, [current]);
+
+  // 만료된 서명 URL을 <img onError>에서 한 번만 재서명한다(설계 §D). MediaGrid는 4개 호출부가 함께 쓰는
+  // 순수 렌더라 오류 슬롯이 없어서, 그리드를 감싼 div에서 캡처 단계로 받는다.
+  // 경로당 한 번만 부르는 이유: 재서명도 실패하면 훅이 원본 경로를 그대로 돌려주고, 그 경로가 다시
+  // 404를 내며 onError → resign이 무한히 돈다.
+  const resignedRef = useRef<Set<string>>(new Set());
+  function handleMediaError(e: SyntheticEvent<HTMLDivElement>, post: DraftPost, signedPost: DraftPost) {
+    const src = (e.target as HTMLImageElement | null)?.getAttribute?.('src') ?? '';
+    if (!src) return;
+    const k = signedPost.media.findIndex((m) => m.url === src);
+    const path = post.media[k]?.url;
+    if (!path || path.startsWith('http')) return; // X CDN 절대 URL은 우리가 서명한 것이 아니다(§B)
+    if (resignedRef.current.has(path)) return;
+    resignedRef.current.add(path);
+    resign(path);
+  }
+
+  function mergeMedia(postIndex: number, media: DeckMedia[]): DraftContent {
+    const latest = latestRef.current;
+    return { posts: latest.posts.map((p, n) => (n === postIndex ? { ...p, media } : p)) };
+  }
+
+  // 파일을 고른(또는 떨군) 즉시 올리고 바로 저장한다 — 모달의 저장 버튼을 기다리지 않는다(설계 §확정 판단).
+  async function attachFiles(postIndex: number, files: File[]) {
+    if (files.length === 0) return;
+    // 막는 이유를 그 자리에 말한다 — 드롭은 버튼이 비활성이어도 들어올 수 있는 입구다.
+    if (!isLatest) { setMediaErr((cur) => ({ ...cur, [postIndex]: '이전 버전을 보는 중 — 첨부는 최신 버전에서' })); return; }
+    if (uploading[postIndex]) { setMediaErr((cur) => ({ ...cur, [postIndex]: '올리는 중이에요 — 끝나면 이어서 올려주세요' })); return; }
+    const remaining = MAX_MEDIA_PER_POST - (latestRef.current.posts[postIndex]?.media.length ?? 0);
+    if (remaining <= 0) { setMediaErr((cur) => ({ ...cur, [postIndex]: FULL_SLOT_HINT })); return; }
+    const sel = selectDraftImages(files, remaining);
+    // 자리 초과는 slotMessage 한 줄이 이미 말하므로 같은 사유를 항목별로 또 늘어놓지 않는다.
+    const otherReasons = [...new Set(sel.rejected.map((r) => r.reason))]
+      .filter((r) => r !== `트윗당 ${MAX_MEDIA_PER_POST}장까지예요`);
+    const notice = [sel.slotMessage, ...otherReasons].filter(Boolean).join(' · ');
+    setMediaErr((cur) => ({ ...cur, [postIndex]: notice }));
+    if (sel.accepted.length === 0) return;
+
+    setUploading((cur) => ({ ...cur, [postIndex]: sel.accepted.length }));
+    const uploaded: DeckMedia[] = [];
+    let failMsg = '';
+    for (const file of sel.accepted) {
+      try { uploaded.push(await uploadDraftImage(draft.id, file)); }
+      catch (e) { failMsg = e instanceof Error ? e.message : '업로드에 실패했어요 — 다시 시도해주세요'; break; }
+    }
+    // 중간에 실패해도 이미 올라간 것은 저장한다 — 성공한 업로드를 버리면 사용자가 같은 일을 두 번 한다.
+    if (uploaded.length > 0) {
+      onSaveMedia(mergeMedia(postIndex, [...(latestRef.current.posts[postIndex]?.media ?? []), ...uploaded]));
+    }
+    setMediaErr((cur) => ({ ...cur, [postIndex]: [notice, failMsg].filter(Boolean).join(' · ') }));
+    setUploading((cur) => { const next = { ...cur }; delete next[postIndex]; return next; });
+  }
+
+  function detachMedia(postIndex: number, mediaIndex: number) {
+    // 스토리지 객체는 지우지 않는다(설계 §확정 판단) — 이전 버전이 같은 파일을 참조한다. 참조만 뗀다.
+    const media = (latestRef.current.posts[postIndex]?.media ?? []).filter((_, k) => k !== mediaIndex);
+    onSaveMedia(mergeMedia(postIndex, media));
+  }
+
+  const filenameBase = {
+    createdAt: draft.createdAt, influencerHandle: draft.influencerHandle,
+    clientName: draft.clientName, batchId: draft.batchId, variantIndex: draft.variantIndex,
+  };
+  // 미배정으로 받으면 파일명이 클라이언트명으로 나간다 — 배정 전후로 같은 이미지가 두 이름으로
+  // 남는 것을 모르고 겪지 않게 알린다(설계 §G). 이미 받은 뒤의 사실 통지라 잠깐 띄웠다 걷는다.
+  function noticeIfUnassigned() {
+    if (draft.influencerHandle) return;
+    setNameNotice(true);
+    setTimeout(() => setNameNotice(false), 8000);
+  }
+  function mediaFilename(postIndex: number, mediaIndex: number, storageUrl: string) {
+    return draftMediaFilename({ ...filenameBase, postIndex, mediaIndex, storageUrl });
+  }
+
+  async function downloadOne(postIndex: number, mediaIndex: number) {
+    const path = shown.posts[postIndex]?.media[mediaIndex]?.url ?? '';
+    await downloadDraftImage(path, mediaFilename(postIndex, mediaIndex, path));
+    noticeIfUnassigned();
+  }
+
+  async function downloadAll() {
+    setDlErr(''); setDlDone(0); setDlBusy(true);
+    const items = shown.posts.flatMap((p, pi) => p.media.map((m, mi) => ({ path: m.url, pi, mi })));
+    try {
+      for (const [n, it] of items.entries()) {
+        await downloadDraftImage(it.path, mediaFilename(it.pi, it.mi, it.path));
+        setDlDone(n + 1);
+      }
+      noticeIfUnassigned();
+    } catch (e) {
+      setDlErr(e instanceof Error ? e.message : '이미지를 받지 못했어요 — 다시 시도해주세요');
+    } finally {
+      setDlBusy(false);
+    }
+  }
+
+  // 버전을 옮기면 첨부 안내·오류를 걷는다 — 포스트 index로 붙어 있어서 그냥 두면 다른 버전의
+  // 엉뚱한 트윗 밑에 남는다.
+  function goVersion(next: number | null) { setVerIdx(next); setMediaErr({}); }
 
   async function copyAll() {
     await navigator.clipboard.writeText(draftCopyText(shown));
@@ -114,14 +313,26 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
           <p className="text-[15px] leading-5">
             <b>{draft.member?.name ?? '초안'}</b>
             <span className="text-x-secondary"> · 초안 · {draftTimeLabel(draft.createdAt)}</span>
-            {draft.edited && <span className="text-x-muted"> · 편집됨</span>}
+            {textEdited && <span className="text-x-muted"> · 편집됨</span>}
           </p>
           <div className={isThread ? 'relative mt-1 space-y-3 pl-3 before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.5 before:bg-x-border-strong' : 'mt-0.5'}>
             {shown.posts.map((p, i) => {
               const hb = i === 0 ? hookBoundary(p.text) : null;
               const len = xWeightedLength(p.text);
+              const signedPost = signedPosts[i] ?? p;
+              const attachDisabled = !isLatest
+                ? '이전 버전을 보는 중 — 첨부는 최신 버전에서'
+                : p.media.length >= MAX_MEDIA_PER_POST ? FULL_SLOT_HINT : null;
               return (
-                <div key={i}>
+                // 드롭 대상은 포스트 블록 — 떨군 자리의 트윗에 붙는다(설계 §E). 미디어가 포스트 단위라
+                // 카드 전체를 대상으로 하면 "몇 번째 트윗 것인지"가 다시 사라진다.
+                // 첨부할 수 없는 상태에서도 preventDefault는 한다 — 안 하면 브라우저가 그 파일로 페이지를
+                // 열어버려 작업 중인 화면이 통째로 날아간다. 대신 왜 안 되는지를 attachFiles가 말한다.
+                <div key={i}
+                     onDragOver={(e) => { e.preventDefault(); if (!attachDisabled) setDragPost(i); }}
+                     onDragLeave={() => setDragPost((cur) => (cur === i ? null : cur))}
+                     onDrop={(e) => { e.preventDefault(); setDragPost(null); void attachFiles(i, Array.from(e.dataTransfer.files)); }}
+                     className={dragPost === i ? 'rounded-lg ring-2 ring-x-blue ring-offset-2' : undefined}>
                   {isThread && <p className="text-caption font-bold text-x-muted">{i + 1} / {shown.posts.length}</p>}
                   {hb ? (
                     <p className="whitespace-pre-wrap text-[15px] leading-5">
@@ -140,8 +351,18 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
                       <p className="mt-0.5 whitespace-pre-wrap text-[15px] leading-5">{trPosts?.[i]}</p>
                     </div>
                   )}
-                  <MediaGrid media={p.media} />
-                  <p className="mt-1 flex items-center gap-3 text-caption tabular-nums text-x-muted">
+                  {/* 그리드 자체는 X 미러링 한 벌뿐이다(설계 §D) — 우리 것은 오버레이 슬롯과, 만료 서명을
+                      되살리는 이 onErrorCapture뿐이다. */}
+                  <div onErrorCapture={(e) => handleMediaError(e, p, signedPost)}>
+                    <MediaGrid media={signedPost.media}
+                               renderOverlay={(mi) => (
+                                 <MediaOverlayActions canDetach={isLatest} isGif={isGifDraftMedia(p.media[mi]?.url ?? '')}
+                                                      onDetach={() => detachMedia(i, mi)}
+                                                      onDownload={() => downloadOne(i, mi)}
+                                                      onCopy={() => copyDraftImageToClipboard(p.media[mi]?.url ?? '')} />
+                               )} />
+                  </div>
+                  <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption tabular-nums text-x-muted">
                     <span className={len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : ''}>X 기준 {len} / {X_MAX_WEIGHTED}{len > X_MAX_WEIGHTED && ` — ${len - X_MAX_WEIGHTED} 줄여야 해요`}</span>
                     {isThread && isLatest && (
                       <button onClick={() => onRegenPost(i)} disabled={regenBusyIndex !== null}
@@ -155,18 +376,43 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
                         {copiedPost === i ? '복사됨 ✓' : '복사'}
                       </button>
                     )}
+                    <PostAttachControl used={p.media.length} busyCount={uploading[i] ?? 0}
+                                       disabledReason={attachDisabled}
+                                       onFiles={(files) => void attachFiles(i, files)} />
+                    {dragPost === i && <span className="text-x-blue-text">여기에 놓으면 이 트윗에 붙어요</span>}
+                    {mediaErr[i] && <span className="text-red-600">{mediaErr[i]}</span>}
                   </p>
                 </div>
               );
             })}
           </div>
+          {/* 전달 안내 — 지금 이미지가 앱 밖으로 나가는 길은 받기와 복사뿐이고 화면이 그렇게 말해야 한다(설계 §G).
+              액션 행이 아니라 콘텐츠 열에 둔다: 액션 행은 X 액션 바 미러링 자리다(§E).
+              '모두 받기'가 카드 단위인 이유 — 스레드 전체를 한 번에 넘기는 것이 실제 전달 단위이고,
+              포스트당 최대 4장이라 7장 같은 수는 카드 단위로만 나온다. */}
+          {mediaCount > 0 && (
+            <div className="mt-2 space-y-0.5 text-caption text-x-muted">
+              {mediaCount >= 2 && (
+                <p>
+                  <button onClick={() => void downloadAll()} disabled={dlBusy}
+                          className="text-x-blue-text hover:underline disabled:opacity-50">
+                    {/* 파일 개수를 밝혀 여러 파일 확인창을 미리 알린다(§G) */}
+                    {dlBusy ? `받는 중… ${dlDone} / ${mediaCount}` : `이미지 ${mediaCount}장 모두 받기(파일 ${mediaCount}개)`}
+                  </button>
+                  {dlErr && <span className="ml-2 text-red-600">{dlErr}</span>}
+                </p>
+              )}
+              <p>이미지는 받거나 복사해서 인플루언서에게 전달하세요 — 텍스트 ‘복사’에는 이미지가 함께 담기지 않아요</p>
+              {nameNotice && <p className="text-x-secondary">아직 인플루언서가 정해지지 않아 클라이언트명으로 저장했어요.</p>}
+            </div>
+          )}
           {versions.length > 1 && (
             <p className="mt-1.5 flex items-center justify-end gap-1.5 text-caption tabular-nums text-x-muted">
               {!isLatest && <span>이전 버전 (읽기 전용)</span>}
-              <button onClick={() => setVerIdx(shownIdx - 1)} disabled={shownIdx === 0} aria-label="이전 버전 보기"
+              <button onClick={() => goVersion(shownIdx - 1)} disabled={shownIdx === 0} aria-label="이전 버전 보기"
                       className="rounded px-1.5 text-[15px] leading-none text-x-blue-text hover:bg-x-blue/10 disabled:opacity-30 disabled:hover:bg-transparent">‹</button>
               {shownIdx + 1} / {versions.length}
-              <button onClick={() => setVerIdx(shownIdx + 2 >= versions.length ? null : shownIdx + 1)} disabled={isLatest} aria-label="다음 버전 보기"
+              <button onClick={() => goVersion(shownIdx + 2 >= versions.length ? null : shownIdx + 1)} disabled={isLatest} aria-label="다음 버전 보기"
                       className="rounded px-1.5 text-[15px] leading-none text-x-blue-text hover:bg-x-blue/10 disabled:opacity-30 disabled:hover:bg-transparent">›</button>
             </p>
           )}

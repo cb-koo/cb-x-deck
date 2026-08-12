@@ -19,7 +19,7 @@ import type { DraftRow } from '@/lib/draftStore';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { ReferenceRow } from '@/lib/referenceStore';
 import type { DraftStatus } from '@/lib/draftStatus';
-import type { InfluencerOption } from '@/lib/draftTypes';
+import type { InfluencerOption, DraftContent } from '@/lib/draftTypes';
 
 const COMPOSER_KEY = 'cbx-composer'; // 직전 설정 유지 (스펙 §4 "바꾸기 — 직전 값 유지")
 // 보기 방식 — 렌즈(필터)와 달리 작업 방식 선호라 저장한다 (스펙 2차 §확정 결정)
@@ -330,6 +330,17 @@ function Workbench() {
     });
   }
 
+  // 이미지 첨부·떼기 즉시 저장 (설계 §확정 판단) — 파일을 올린 순간 PATCH가 나간다. 모달의 저장
+  // 버튼에만 매달면 이미지를 붙이고 Esc를 누른 사용자가 '업로드는 됐는데 첨부는 사라진' 상태를 겪는다.
+  // 모양은 assignInfluencer와 같다: 낙관적 갱신 + 이 요청이 세팅한 값이 아직 표시 중일 때만 롤백.
+  function saveDraftMedia(d: DraftRow, next: DraftContent) {
+    const prev = d.edited;
+    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, edited: next } : x)));
+    void patchDraft(d.id, { edited: next }).then((updated) => {
+      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.edited === next ? { ...x, edited: prev } : x)));
+    });
+  }
+
   async function regenPost(d: DraftRow, index: number) {
     setRegenBusy({ draftId: d.id, index });
     const r = await apiFetch(`/api/drafts/${d.id}/regen-post`, {
@@ -477,7 +488,8 @@ function Workbench() {
                        onChangeStatus={(s) => changeStatus(d, s)}
                        siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null}
                        influencerOptions={influencerOptions}
-                       onAssignInfluencer={(next) => assignInfluencer(d, next)} />
+                       onAssignInfluencer={(next) => assignInfluencer(d, next)}
+                       onSaveMedia={(next) => saveDraftMedia(d, next)} />
           ))}
           {view === 'table' && loaded && visibleDrafts.length > 0 && (
             <DraftTable drafts={visibleDrafts} clientNameOf={clientNameOf}
@@ -514,13 +526,17 @@ function Workbench() {
                        onChangeStatus={(s) => changeStatus(peeked, s)}
                        siblingTotal={peeked.batchId ? siblingCount(drafts, peeked.batchId) : null}
                        influencerOptions={influencerOptions}
-                       onAssignInfluencer={(next) => assignInfluencer(peeked, next)} />
+                       onAssignInfluencer={(next) => assignInfluencer(peeked, next)}
+                       onSaveMedia={(next) => saveDraftMedia(peeked, next)} />
           </div>
         </div>
       )}
+      {/* onSaved는 '저장 버튼을 눌러 편집을 마쳤다'라 모달을 닫지만, onMediaSaved(이미지 즉시 저장)에서
+          닫으면 두 장째를 못 붙인다 — 목록만 갱신한다 */}
       {editing && (
         <DraftEditModal draft={editing} onClose={() => setEditing(null)}
-                        onSaved={(u) => { setDrafts((cur) => cur.map((d) => (d.id === u.id ? u : d))); setEditing(null); }} />
+                        onSaved={(u) => { setDrafts((cur) => cur.map((d) => (d.id === u.id ? u : d))); setEditing(null); }}
+                        onMediaSaved={(u) => setDrafts((cur) => cur.map((d) => (d.id === u.id ? u : d)))} />
       )}
       <RefPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} lastWsId={lastWsId}
                       selectedIds={selectedRefIds} seedRows={refRows} onApply={setRefRows} />

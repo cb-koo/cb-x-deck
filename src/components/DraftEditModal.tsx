@@ -10,6 +10,7 @@ import { uploadDraftImage, selectDraftImages, MAX_MEDIA_PER_POST } from '@/lib/d
 import { useSignedMedia } from '@/components/useSignedMedia';
 import { MediaGrid } from '@/components/MediaGrid';
 import { InfoTip } from '@/components/InfoTip';
+import { MediaIcon } from '@/components/XIcons';
 
 // X 컴포즈 모달 구조: ✕ / 원본과 비교 / 아바타 40 / 입력 20px·lh24 / 하단 바 + 저장 36px (스펙 §4)
 // 저장 완료 콜백이 둘인 이유: 텍스트 저장은 "저장 버튼을 눌러 편집을 마쳤다"는 뜻이라 모달이 닫혀야
@@ -206,11 +207,15 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
                               className="w-full resize-y text-[20px] leading-6 outline-none placeholder:text-x-muted"
                               placeholder="본문을 입력하세요" autoFocus={i === 0} />
                   )}
-                  <p className={`text-caption tabular-nums ${len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : 'text-x-muted'}`}>
-                    X 기준 {len} / {X_MAX_WEIGHTED}{len > X_MAX_WEIGHTED && ` — ${len - X_MAX_WEIGHTED} 줄여야 해요`}
-                  </p>
+                  {/* 비교 모드엔 첨부 컨트롤이 없어 글자수만 따로 선다 */}
+                  {compare && (
+                    <p className={`text-caption tabular-nums ${len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : 'text-x-muted'}`}>
+                      X 기준 {len} / {X_MAX_WEIGHTED}{len > X_MAX_WEIGHTED && ` — ${len - X_MAX_WEIGHTED} 줄여야 해요`}
+                    </p>
+                  )}
 
-                  {/* 첨부 — X 컴포저 미러(설계 §E). 여기서 즉시 저장되므로 아래 '저장' 버튼은 텍스트만 책임진다. */}
+                  {/* 첨부 — X 컴포저 미러(설계 §E). 여기서 즉시 저장되므로 아래 '저장' 버튼은 텍스트만 책임진다.
+                      X 컴포저와 같은 배치: 미디어 버튼은 입력창 아래 왼쪽, 글자수는 같은 줄 오른쪽 끝. */}
                   {!compare && (
                     <div className="mt-2">
                       <div className="flex flex-wrap items-center gap-2">
@@ -221,16 +226,25 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
                                  e.target.value = ''; // 같은 파일을 다시 골라도 change가 다시 뜨도록
                                  void attachFiles(i, files);
                                }} />
+                        {/* X 컴포저 하단 바의 미디어 버튼 그대로 — 20px 글리프 + 32px 원형 히트 영역 + 파랑 10% 호버.
+                            테두리 달린 작은 글자 버튼으로 먼저 냈다가 "너무 작아서 보이지 않는다"는 피드백을 받아 바꿨다. */}
                         <button type="button" onClick={() => fileInputs.current[i]?.click()}
-                                disabled={mediaBusy || full}
-                                className="flex items-center gap-1 rounded-full border border-x-border-strong px-2.5 py-1 text-caption font-bold text-x-blue-text hover:bg-x-blue/10 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent">
-                          ＋ 이미지 {media[i].length}/{MAX_MEDIA_PER_POST}
+                                disabled={mediaBusy || full} aria-label="이미지 첨부"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-x-blue hover:bg-x-blue/10 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent">
+                          <MediaIcon className="h-5 w-5" />
                         </button>
+                        {/* 0장일 때 '0/4'는 아직 필요 없는 정보다 — 상한은 4장에 가까워질 때 의미가 생긴다(AGENTS #2) */}
+                        {media[i].length > 0 && (
+                          <span className="text-caption tabular-nums text-x-muted">{media[i].length}/{MAX_MEDIA_PER_POST}</span>
+                        )}
                         {full && (
                           <InfoTip label="이미지 자리 없음 설명 보기"
                                    text={`트윗당 최대 ${MAX_MEDIA_PER_POST}장까지 붙일 수 있어요 — 더 붙이려면 먼저 하나를 떼어주세요`} />
                         )}
                         {busyPost === i && <span className="text-caption text-x-muted">올리는 중…</span>}
+                        <span className={`ml-auto shrink-0 text-caption tabular-nums ${len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : 'text-x-muted'}`}>
+                          X 기준 {len} / {X_MAX_WEIGHTED}{len > X_MAX_WEIGHTED && ` — ${len - X_MAX_WEIGHTED} 줄여야 해요`}
+                        </span>
                       </div>
                       {mediaErr[i] && <p className="mt-1 text-caption text-red-500">{mediaErr[i]}</p>}
                       <MediaGrid media={signedPosts[i]?.media ?? []} renderOverlay={(k) => (

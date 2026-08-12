@@ -12,7 +12,9 @@ import {
 } from '@/lib/draftMedia';
 import { MediaGrid } from '@/components/MediaGrid';
 import { useSignedMedia } from '@/components/useSignedMedia';
-import { RefreshIcon, TrashIcon } from '@/components/XIcons';
+import { RefreshIcon, TrashIcon, MediaIcon, GlobeIcon, DownloadIcon, EditIcon, CopyIcon, CheckIcon } from '@/components/XIcons';
+import { Tooltip } from '@/components/Tooltip';
+import { ImageLightbox } from '@/components/ImageLightbox';
 import { useTranslations } from '@/components/useTranslations';
 import { DraftStatusChip } from '@/components/DraftStatusChip';
 import { InfluencerChip } from '@/components/InfluencerChip';
@@ -23,6 +25,15 @@ const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
 };
 
 const FULL_SLOT_HINT = `트윗당 ${MAX_MEDIA_PER_POST}장까지예요 — 순서를 바꾸려면 이미지를 떼고 다시 올려주세요`;
+
+// 액션 행의 아이콘 버튼 한 벌 — 첨부·편집·다시쓰기·복사·번역·받기·삭제가 모두 같은 치수와 같은 색을 쓴다.
+// X 액션 바와 같은 크기감(19px 글리프 + 35px 원형 히트 영역)이고, 하나라도 어긋나면 줄이 들쭉날쭉해진다.
+//
+// 색 규칙도 X와 같다: 평소엔 전부 중립 회색(행이 물려주는 text-x-secondary), 호버할 때만 색이 들어오고,
+// 켜져 있는 상태(번역 중)나 방금 끝난 일(복사됨)만 색으로 남는다. 특정 버튼을 미리 파랗게 칠해두면
+// 그것만 '진짜 버튼'처럼 보이고 나머지는 장식처럼 읽힌다 — 실제로 첨부·편집만 파랬을 때 그랬다.
+const ACTION_BTN = 'flex items-center rounded-full p-2 hover:bg-x-blue/10 hover:text-x-blue-text disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-current';
+const ACTION_ICON = 'h-[19px] w-[19px]';
 
 // 다시 쓰기로 빠진 이미지 안내 (설계 §H-1). versionIndex = 그 이미지가 아직 붙어 있는 버전의 번호(0-기준).
 export interface MediaDropNotice {
@@ -61,25 +72,47 @@ export function droppedMediaOnRewrite(
 function PostAttachControl({ used, busyCount, disabledReason, onFiles }: {
   used: number; busyCount: number; disabledReason: string | null; onFiles: (files: File[]) => void;
 }) {
-  const label = `＋ 이미지 ${used}/${MAX_MEDIA_PER_POST}`;
   if (busyCount > 0) return <span className="text-x-muted">이미지 올리는 중… {busyCount}장</span>;
+
+  // 남은 자리는 붙은 게 있을 때만 쓴다 — 0장일 때 '0/4'는 아직 필요 없는 정보다(AGENTS #2 progressive
+  // disclosure). 상한은 4장에 가까워질 때 의미가 생기고, 그 전까지는 아이콘 하나가 할 말을 다 한다.
+  const count = used > 0 ? <span className="tabular-nums">{used}/{MAX_MEDIA_PER_POST}</span> : null;
+
   // 비활성일 때는 버튼(label)이 아니라 글자로 그린다 — 눌러도 아무 일이 없는 손잡이를 남기지 않는다.
-  if (disabledReason) return <span title={disabledReason} className="cursor-default opacity-50">{label}</span>;
+  if (disabledReason) {
+    return (
+      <Tooltip text={disabledReason}>
+        <span className="inline-flex items-center gap-1 opacity-40">
+          <span className={ACTION_BTN} role="img" aria-label={disabledReason}><MediaIcon className={ACTION_ICON} /></span>
+          {count}
+        </span>
+      </Tooltip>
+    );
+  }
   return (
-    <label title="jpg·png·gif·webp · 5MB까지 — 고른 이미지는 바로 저장돼요" className="cursor-pointer text-x-blue-text hover:underline">
-      {label}
-      <input type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp" className="hidden"
-             onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; onFiles(files); }} />
-    </label>
+    <Tooltip text="이미지 첨부 — jpg·png·gif·webp, 5MB까지">
+      <span className="inline-flex items-center gap-1">
+        {/* label이 곧 버튼 — 파일 입력을 감싸므로 클릭이 그대로 파일 선택으로 간다.
+            치수는 옆 액션 아이콘들과 같은 한 벌(ACTION_BTN/ACTION_ICON)을 쓴다 — 단문에서는 이 버튼이
+            편집·복사와 같은 줄에 서므로, 혼자 다른 크기면 그 줄이 어긋나 보인다. */}
+        <label aria-label="이미지 첨부" className={`${ACTION_BTN} cursor-pointer`}>
+          <MediaIcon className={ACTION_ICON} />
+          <input type="file" multiple accept="image/jpeg,image/png,image/gif,image/webp" className="hidden"
+                 onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; onFiles(files); }} />
+        </label>
+        {count}
+      </span>
+    </Tooltip>
   );
 }
 
 // 이미지별 hover 액션 — 떼기·받기·복사 (설계 §E·§G). MediaGrid의 renderOverlay 슬롯으로 주입된다.
 // 진행·완료·실패 상태를 이미지마다 따로 들어야 해서 카드 본체가 아니라 여기가 들고 있는다 —
 // 카드에 이미지 수만큼 상태를 두면 그리드 칸 수가 바뀔 때마다 상태 맵을 청소해야 한다.
-function MediaOverlayActions({ canDetach, isGif, onDetach, onDownload, onCopy }: {
+function MediaOverlayActions({ canDetach, isGif, onDetach, onDownload, onCopy, onOpen }: {
   canDetach: boolean; isGif: boolean;
   onDetach: () => void; onDownload: () => Promise<void>; onCopy: () => Promise<void>;
+  onOpen: () => void;  // 이미지 클릭 → 확대 보기. 오버레이가 이미지를 덮고 있어 클릭 수신도 여기 몫이다
 }) {
   const [busy, setBusy] = useState<'download' | 'copy' | null>(null);
   const [flash, setFlash] = useState('');   // 짧은 완료 표시 — 카드의 '복사됨 ✓'와 같은 방식
@@ -99,7 +132,9 @@ function MediaOverlayActions({ canDetach, isGif, onDetach, onDownload, onCopy }:
 
   const btn = 'rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white hover:bg-black/80 disabled:opacity-60';
   return (
-    <div className="flex h-full w-full flex-col items-end justify-between p-1.5 opacity-0 transition-opacity focus-within:opacity-100 hover:opacity-100">
+    // 버튼이 아닌 영역 클릭 = 확대 보기(X와 동일). target 검사로 거르므로 버튼들엔 stopPropagation이 필요 없다.
+    <div onClick={(e) => { if (e.target === e.currentTarget) onOpen(); }}
+         className="flex h-full w-full cursor-zoom-in flex-col items-end justify-between p-1.5 opacity-0 transition-opacity focus-within:opacity-100 hover:opacity-100">
       <div className="flex gap-1">
         {canDetach && (
           <button onClick={onDetach} aria-label="이미지 떼기"
@@ -162,6 +197,12 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   const shown = versions[shownIdx];
   const isLatest = shownIdx === versions.length - 1;
   const total = shown.posts.reduce((n, p) => n + xWeightedLength(p.text), 0);
+  // 단문용 파생값 — 단문은 포스트별 도구 행이 없고 아래 액션 행이 그 바를 겸하므로(X 단문 컴포저와
+  // 같은 구조) 0번 포스트의 글자수·첨부 가능 여부를 이 층에서 알아야 한다.
+  const soloLen = xWeightedLength(shown.posts[0]?.text ?? '');
+  const soloAttachDisabled = !isLatest
+    ? '이전 버전을 보는 중 — 첨부는 최신 버전에서'
+    : (shown.posts[0]?.media.length ?? 0) >= MAX_MEDIA_PER_POST ? FULL_SLOT_HINT : null;
 
   // 텍스트가 실제로 달라졌을 때만 '편집됨' (설계 §H-2) — 이미지만 붙여도 edited가 채워지므로
   // draft.edited 유무만 보면 첨부가 편집으로 둔갑한다. 첨부 사실은 이미지 자체가 이미 보여준다.
@@ -179,6 +220,9 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   const [dlDone, setDlDone] = useState(0);        // 그중 몇 장까지 받았는지
   const [dlErr, setDlErr] = useState('');
   const [nameNotice, setNameNotice] = useState(false);
+  const [prNotice, setPrNotice] = useState(false);  // 복사·받기 직후의 PR 표기 안내 (상시 배너를 대체)
+  // 확대 보기 — 어느 트윗의 몇 번째 이미지인지. 이동 범위는 그 트윗의 이미지들(X 뷰어와 동일).
+  const [lightbox, setLightbox] = useState<{ post: number; idx: number } | null>(null);
   const mediaCount = shown.posts.reduce((n, p) => n + p.media.length, 0);
 
   // 저장 병합의 기준은 렌더 시점 값이 아니라 이 거울이다 — 업로드는 몇 초 걸리고, 그동안 다른 포스트에
@@ -255,6 +299,15 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
     setNameNotice(true);
     setTimeout(() => setNameNotice(false), 8000);
   }
+
+  // PR 표기 안내 — 예전엔 모든 카드 하단에 상시 배너로 있었다. 같은 경고를 두세 번만 봐도 시선이
+  // 안 가고(banner blindness·습관화), 매 카드에 한 줄씩 차지하기까지 했다. 그래서 상시 표시를 걷고
+  // "원고가 실제로 앱 밖으로 나가는 순간"인 복사·받기 직후로 옮겼다 — 규제 안내는 행동하는 자리에
+  // 있어야 작동한다. 8초는 한 문장을 읽기에 충분하고, 다음 작업을 가리지 않는 길이다.
+  function noticePr() {
+    setPrNotice(true);
+    setTimeout(() => setPrNotice(false), 8000);
+  }
   function mediaFilename(postIndex: number, mediaIndex: number, storageUrl: string) {
     return draftMediaFilename({ ...filenameBase, postIndex, mediaIndex, storageUrl });
   }
@@ -274,6 +327,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
         setDlDone(n + 1);
       }
       noticeIfUnassigned();
+      noticePr();
     } catch (e) {
       setDlErr(e instanceof Error ? e.message : '이미지를 받지 못했어요 — 다시 시도해주세요');
     } finally {
@@ -288,6 +342,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   async function copyAll() {
     await navigator.clipboard.writeText(draftCopyText(shown));
     setCopied(true); setTimeout(() => setCopied(false), 1500);
+    noticePr();
   }
 
   // 검토용 한국어 번역 — 보고 있는 버전 기준. 카드 로컬은 한 버전 슬롯만 들고,
@@ -388,35 +443,55 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
                   )}
                   {/* 그리드 자체는 X 미러링 한 벌뿐이다(설계 §D) — 우리 것은 오버레이 슬롯과, 만료 서명을
                       되살리는 이 onErrorCapture뿐이다. */}
+                  {lightbox?.post === i && (
+                    <ImageLightbox urls={signedPost.media.map((m) => m.url)} index={lightbox.idx}
+                                   onIndexChange={(idx) => setLightbox({ post: i, idx })}
+                                   onClose={() => setLightbox(null)} />
+                  )}
                   <div onErrorCapture={(e) => handleMediaError(e, p, signedPost)}>
                     <MediaGrid media={signedPost.media}
                                renderOverlay={(mi) => (
                                  <MediaOverlayActions canDetach={isLatest} isGif={isGifDraftMedia(p.media[mi]?.url ?? '')}
                                                       onDetach={() => detachMedia(i, mi)}
                                                       onDownload={() => downloadOne(i, mi)}
-                                                      onCopy={() => copyDraftImageToClipboard(p.media[mi]?.url ?? '')} />
+                                                      onCopy={() => copyDraftImageToClipboard(p.media[mi]?.url ?? '')}
+                                                      onOpen={() => setLightbox({ post: i, idx: mi })} />
                                )} />
                   </div>
+                  {/* 포스트 도구 행 — 스레드에서만 그린다. X도 스레드 컴포저에선 트윗마다 자기 하단 바를
+                      갖고(미디어 버튼 포함), 단문 컴포저에선 바가 하나뿐이다. 단문 카드는 카드 자체가
+                      트윗 하나이므로 이 줄을 따로 두지 않고 아래 액션 행이 그 바 역할을 겸한다.
+                      도구는 왼쪽, 글자수는 오른쪽 끝 — X 컴포저와 아래 액션 행이 쓰는 그 규칙. */}
+                  {isThread && (
                   <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption tabular-nums text-x-muted">
-                    <span className={len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : ''}>X 기준 {len} / {X_MAX_WEIGHTED}{len > X_MAX_WEIGHTED && ` — ${len - X_MAX_WEIGHTED} 줄여야 해요`}</span>
-                    {isThread && isLatest && (
+                    {/* 미디어 버튼이 맨 왼쪽 — X 컴포저 하단 바에서 미디어가 첫 자리인 것과 같다 */}
+                    <PostAttachControl used={p.media.length} busyCount={uploading[i] ?? 0}
+                                       disabledReason={attachDisabled}
+                                       onFiles={(files) => void attachFiles(i, files)} />
+                    {isLatest && (
                       <button onClick={() => onRegenPost(i)} disabled={regenBusyIndex !== null}
                               className="text-x-blue-text hover:underline disabled:opacity-50">
                         {regenBusyIndex === i ? '다시 만드는 중…' : '이 트윗만 다시'}
                       </button>
                     )}
-                    {isThread && (
-                      <button onClick={() => { void navigator.clipboard.writeText(p.text).catch(() => {}); setCopiedPost(i); setTimeout(() => setCopiedPost(null), 1500); }}
-                              className="text-x-blue-text hover:underline">
-                        {copiedPost === i ? '복사됨 ✓' : '복사'}
-                      </button>
-                    )}
-                    <PostAttachControl used={p.media.length} busyCount={uploading[i] ?? 0}
-                                       disabledReason={attachDisabled}
-                                       onFiles={(files) => void attachFiles(i, files)} />
+                    <button onClick={() => { void navigator.clipboard.writeText(p.text).catch(() => {}); setCopiedPost(i); setTimeout(() => setCopiedPost(null), 1500); }}
+                            className="text-x-blue-text hover:underline">
+                      {copiedPost === i ? '복사됨 ✓' : '복사'}
+                    </button>
                     {dragPost === i && <span className="text-x-blue-text">여기에 놓으면 이 트윗에 붙어요</span>}
                     {mediaErr[i] && <span className="text-red-600">{mediaErr[i]}</span>}
+                    <span className={`ml-auto shrink-0 ${len > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : ''}`}>
+                      X 기준 {len} / {X_MAX_WEIGHTED}{len > X_MAX_WEIGHTED && ` — ${len - X_MAX_WEIGHTED} 줄여야 해요`}
+                    </span>
                   </p>
+                  )}
+                  {/* 단문에서 드롭 힌트·첨부 오류는 위 도구 행이 없으므로 여기서 받는다 */}
+                  {!isThread && (dragPost === i || mediaErr[i]) && (
+                    <p className="mt-1 text-caption">
+                      {dragPost === i && <span className="text-x-blue-text">여기에 놓으면 이미지가 붙어요</span>}
+                      {mediaErr[i] && <span className="text-red-600">{mediaErr[i]}</span>}
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -444,23 +519,12 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
               </p>
             </div>
           )}
-          {/* 전달 안내 — 지금 이미지가 앱 밖으로 나가는 길은 받기와 복사뿐이고 화면이 그렇게 말해야 한다(설계 §G).
-              액션 행이 아니라 콘텐츠 열에 둔다: 액션 행은 X 액션 바 미러링 자리다(§E).
-              '모두 받기'가 카드 단위인 이유 — 스레드 전체를 한 번에 넘기는 것이 실제 전달 단위이고,
-              포스트당 최대 4장이라 7장 같은 수는 카드 단위로만 나온다. */}
-          {mediaCount > 0 && (
-            <div className="mt-2 space-y-0.5 text-caption text-x-muted">
-              {mediaCount >= 2 && (
-                <p>
-                  <button onClick={() => void downloadAll()} disabled={dlBusy}
-                          className="text-x-blue-text hover:underline disabled:opacity-50">
-                    {/* 파일 개수를 밝혀 여러 파일 확인창을 미리 알린다(§G) */}
-                    {dlBusy ? `받는 중… ${dlDone} / ${mediaCount}` : `이미지 ${mediaCount}장 모두 받기(파일 ${mediaCount}개)`}
-                  </button>
-                  {dlErr && <span className="ml-2 text-red-600">{dlErr}</span>}
-                </p>
-              )}
-              <p>이미지는 받거나 복사해서 인플루언서에게 전달하세요 — 텍스트 ‘복사’에는 이미지가 함께 담기지 않아요</p>
+          {/* 전달 안내는 상시 문장으로 두지 않는다 — "이미지는 받거나 복사해서 전달하세요"는 한 번 알면
+              그 뒤로는 매 카드에 붙는 소음이다. 받기는 아래 액션 행의 버튼이 스스로 말하고, 받은 뒤에만
+              필요한 사실(파일명 규칙·PR 표기)은 받은 직후에 잠깐 나타났다 걷힌다. */}
+          {(nameNotice || dlErr) && (
+            <div className="mt-2 space-y-0.5 text-caption">
+              {dlErr && <p className="text-red-600">{dlErr}</p>}
               {nameNotice && <p className="text-x-secondary">아직 인플루언서가 정해지지 않아 클라이언트명으로 저장했어요.</p>}
             </div>
           )}
@@ -474,36 +538,86 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
                       className="rounded px-1.5 text-[15px] leading-none text-x-blue-text hover:bg-x-blue/10 disabled:opacity-30 disabled:hover:bg-transparent">›</button>
             </p>
           )}
-          <p className="mt-2 text-[13px]">
-            <button onClick={toggleTranslate} disabled={translating} className="text-x-blue-text hover:underline disabled:opacity-50">
-              {translating ? '번역 중…' : showTr && hasTr ? '원문만 보기' : '🌐 번역 보기'}
-            </button>
-            {trErr && <span className="ml-2 text-red-600">{trErr}</span>}
-          </p>
           {/* 액션 행 — X 액션 바 자리에 우리 액션 (없는 지표를 채우지 않고 교체).
               X는 이 폭(440px) 안에서 아이콘 5개를 균등 분산하지만 우리는 왼쪽에 몰아 붙였다 —
-              폭 제한이 하던 일이 글자수를 칼럼 오른쪽 끝이 아닌 440px 지점에 세우는 것뿐이라 걷어냈다. */}
-          <div className="mt-3 flex items-center gap-1 text-[13px] text-x-secondary">
-            <button onClick={onEdit} disabled={!isLatest} title={isLatest ? undefined : '이전 버전을 보는 중 — 편집은 최신 버전에서'}
-                    className="flex items-center gap-1.5 rounded-full px-2 py-1 text-x-blue-text hover:bg-x-blue/10 disabled:opacity-50 disabled:hover:bg-transparent">
-              <svg viewBox="0 0 24 24" className="h-[19px] w-[19px] fill-current" aria-hidden><path d="M14.06 9.02l.92.92L5.92 19H5v-.92l9.06-9.06zM17.66 3c-.25 0-.51.1-.7.29l-1.83 1.83 3.75 3.75 1.83-1.83c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.2-.2-.45-.29-.71-.29zm-3.6 3.19L3 17.25V21h3.75L17.81 9.94l-3.75-3.75z" /></svg>
-              편집
-            </button>
-            <button onClick={() => setRwOpen(!rwOpen)} disabled={rewriteBusy}
-                    className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-x-text/5 disabled:opacity-50 disabled:hover:bg-transparent">
-              <RefreshIcon className="h-[19px] w-[19px]" />{rewriteBusy ? '다시 쓰는 중…' : '다시 쓰기'}
-            </button>
-            <button onClick={copyAll} className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-x-text/5">
-              <svg viewBox="0 0 24 24" className="h-[19px] w-[19px] fill-current" aria-hidden><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" /></svg>
-              {copied ? '복사됨 ✓' : '복사'}
-            </button>
-            <span className="ml-auto tabular-nums">{isThread ? `${shown.posts.length}개 · 총 ${total}자` : ''}</span>
+              폭 제한이 하던 일이 글자수를 칼럼 오른쪽 끝이 아닌 440px 지점에 세우는 것뿐이라 걷어냈다.
+
+              번역·이미지 받기가 각자 별도의 줄을 갖고 있었다. "이 원고에 하는 일"이 네 군데(번역 줄,
+              이 행, 이미지 안내 문단, 버전 페이저)로 흩어져 액션 하나 찾는 데 세 줄을 훑어야 했다.
+              둘 다 동사이므로 이 행이 제자리다 — 액션 행이 금지하는 것은 관리용 컨트롤(상태·인플루언서
+              = 원고에 '대한 사실')이지 원고에 '하는 일'이 아니다(인플루언서 스펙 180행). */}
+          <div className="mt-3 flex flex-wrap items-center gap-1 text-[13px] text-x-secondary">
+            {/* 단문은 카드가 곧 트윗 하나라 이 행이 X 단문 컴포저의 하단 바를 겸한다 — 미디어 버튼이
+                맨 왼쪽(X와 같은 자리)이고, 스레드는 트윗마다 자기 도구 행에 따로 갖는다. */}
+            {!isThread && (
+              <span className="mr-1">
+                <PostAttachControl used={shown.posts[0]?.media.length ?? 0} busyCount={uploading[0] ?? 0}
+                                   disabledReason={soloAttachDisabled}
+                                   onFiles={(files) => void attachFiles(0, files)} />
+              </span>
+            )}
+            <Tooltip text={isLatest ? '편집' : '이전 버전을 보는 중 — 편집은 최신 버전에서'}>
+              <button onClick={onEdit} disabled={!isLatest} aria-label="편집"
+                      className={ACTION_BTN}>
+                <EditIcon className={ACTION_ICON} />
+              </button>
+            </Tooltip>
+            {/* ↻는 '새로고침'으로도 읽히는 아이콘이라 아이콘만 두면 뜻이 사라진다 — 이 행에서 이름표가
+                가장 필요한 버튼이고, 아이콘만 남기는 결정이 툴팁을 전제로 성립한 이유다. */}
+            <Tooltip text={rewriteBusy ? '다시 쓰는 중…' : 'AI로 다시 쓰기'}>
+              <button onClick={() => setRwOpen(!rwOpen)} disabled={rewriteBusy} aria-label="AI로 다시 쓰기"
+                      className={`${ACTION_BTN}`}>
+                <RefreshIcon className={ACTION_ICON} />
+              </button>
+            </Tooltip>
+            <Tooltip text={copied ? '복사됨' : '원고 복사'}>
+              <button onClick={copyAll} aria-label="원고 복사" className={`${ACTION_BTN}`}>
+                {/* 라벨이 없으니 '복사됨 ✓'도 아이콘이 말한다 — 잠깐 체크로 바뀐다 */}
+                {copied ? <CheckIcon className={`${ACTION_ICON} text-x-blue`} /> : <CopyIcon className={ACTION_ICON} />}
+              </button>
+            </Tooltip>
+            {/* 번역은 켜고 끄는 토글이라 상태를 색으로 남긴다 — X가 좋아요를 색으로 표시하는 방식 */}
+            <Tooltip text={translating ? '번역 중…' : showTr && hasTr ? '원문만 보기' : '한국어로 번역'}>
+              <button onClick={toggleTranslate} disabled={translating}
+                      aria-label={showTr && hasTr ? '원문만 보기' : '한국어로 번역'} aria-pressed={showTr && hasTr}
+                      className={`${ACTION_BTN} ${showTr && hasTr ? 'text-x-blue-text' : ''}`}>
+                <GlobeIcon className={ACTION_ICON} />
+              </button>
+            </Tooltip>
+            {/* 이미지 받기 — 스레드 전체를 한 번에 넘기는 것이 실제 전달 단위라 카드 단위다(포스트당 4장
+                제한이라 7장 같은 수는 카드 단위로만 나온다). 개수는 지우지 않는다: 파일이 몇 개 떨어질지
+                미리 알려 여러 파일 확인창을 예고하는 정보라, X가 액션 아이콘 옆에 숫자를 두는 것과 같다. */}
+            {mediaCount > 0 && (
+              <Tooltip text={dlBusy ? '받는 중…' : `이미지 ${mediaCount}장 받기 — 파일 ${mediaCount}개로 저장돼요`}>
+                <button onClick={() => void downloadAll()} disabled={dlBusy} aria-label={`이미지 ${mediaCount}장 받기`}
+                        className={`${ACTION_BTN} gap-1`}>
+                  <DownloadIcon className={ACTION_ICON} />
+                  <span className="tabular-nums">{dlBusy ? `${dlDone}/${mediaCount}` : mediaCount}</span>
+                </button>
+              </Tooltip>
+            )}
+            {/* 오른쪽 끝은 언제나 글자수 — 스레드는 카드 합계, 단문은 그 트윗 하나의 수(도구 행이 없으므로) */}
+            <span className={`ml-auto shrink-0 tabular-nums ${!isThread && soloLen > X_MAX_WEIGHTED ? 'font-bold text-amber-700' : ''}`}>
+              {isThread
+                ? `${shown.posts.length}개 · 총 ${total}자`
+                : `X 기준 ${soloLen} / ${X_MAX_WEIGHTED}${soloLen > X_MAX_WEIGHTED ? ` — ${soloLen - X_MAX_WEIGHTED} 줄여야 해요` : ''}`}
+            </span>
             {/* 삭제만 오른쪽 끝으로 떼어놓는다 — 되돌릴 수 있는 액션(복사) 바로 옆에 파괴적 액션이
                 8px 간격으로 붙어 있으면 오클릭이 난다. 5초 실행취소가 있지만 토스트를 놓치면 끝이다. */}
-            <button onClick={onDelete} aria-label="초안 삭제" className="ml-1 flex items-center rounded-full px-2 py-1 hover:bg-red-50 hover:text-red-600">
-              <TrashIcon className="h-[19px] w-[19px]" />
-            </button>
+            <Tooltip text="초안 삭제">
+              <button onClick={onDelete} aria-label="초안 삭제" className={`${ACTION_BTN} ml-1 hover:bg-red-50 hover:text-red-600`}>
+                <TrashIcon className={ACTION_ICON} />
+              </button>
+            </Tooltip>
           </div>
+          {trErr && <p className="mt-1 text-[13px] text-red-600">{trErr}</p>}
+          {/* PR 표기 — 원고가 방금 앱 밖으로 나갔을 때만. 상시 배너였을 땐 매 카드에 한 줄씩 있었고
+              그래서 아무도 읽지 않았다(banner blindness). 지금은 복사·받기 직후 8초만 머문다. */}
+          {prNotice && (
+            <p role="status" className="mt-1.5 rounded-lg bg-x-blue/5 px-2.5 py-1.5 text-[13px] text-x-blue-text">
+              ℹ️ 인플루언서에게 <b>#PR 표기</b>를 함께 안내하세요 — 스테마 규제
+            </p>
+          )}
           {rwOpen && !rewriteBusy && (
             <div className="mt-2 rounded-xl border border-x-border-strong p-2.5">
               {!isLatest && (
@@ -540,9 +654,10 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
             <button onClick={onRestoreAllFlags} className="ml-2 text-x-blue-text hover:underline">모두 되돌리기</button>
           </p>
         )}
-        <p className="py-0.5 text-caption text-x-muted">ℹ️ PR 표기(#PR)는 원고와 함께 인플루언서에게 안내하세요 — 스테마 규제</p>
-
-        <div className="mt-1 flex items-baseline justify-between gap-3 border-t border-x-border pt-1.5 text-[13px]">
+        {/* PR 표기 안내가 여기 상시로 있었다 — 매 카드 같은 문구라 며칠이면 아무도 안 읽는다.
+            복사·받기 직후(원고가 실제로 나가는 순간)로 옮겼다. 검수 표식이 없으면 이 회색 층은
+            근거 풋터 한 줄만 남으므로 위쪽 구분선도 필요 없어졌다. */}
+        <div className={`flex items-baseline justify-between gap-3 text-[13px] ${active.length > 0 || dismissedCount > 0 ? 'mt-1 border-t border-x-border pt-1.5' : ''}`}>
           <button onClick={() => { const opening = !refsOpen; setRefsOpen(opening); if (opening) void refTr.loadCached(draft.refs.map((r) => r.tweetId)); }}
                   disabled={draft.refs.length === 0}
                   className="text-left disabled:cursor-default">

@@ -59,7 +59,7 @@ create policy "draft-media write" on storage.objects
 
 **멱등성이 필수다.** `scripts/apply-migrations.sh`에는 적용 이력 테이블이 없고 `migrations/*.sql`을 매번 전부 재실행한다. 기존 파일이 모두 `if not exists`인 이유가 이것이다.
 
-**권한은 실행해봐야 안다.** `storage.objects`는 `supabase_storage_admin` 소유이고 정책 DDL은 소유권을 요구한다. 현재 Supabase는 `postgres` 역할에 이 멤버십을 주므로 보통 성공하지만, **가정하지 말고 실제로 `npm run migrate`를 돌려 확인한다.** `must be owner of table objects`가 나면 대시보드로 설정하되 이 SQL 파일은 `-- 대시보드에서 실행` 주석과 함께 커밋한다 — 그래야 설정이 코드에 남는다.
+**권한 — 확인 완료(2026-08-12).** `storage.objects`는 `supabase_storage_admin` 소유이고 정책 DDL은 소유권을 요구해서, 대시보드 폴백이 필요할 수 있다고 봤다. 실제로 이 프로젝트의 `postgres` 역할에는 `supabase_storage_admin` **멤버십이 없다**(`pg_has_role` 조회 결과 0행). 그런데도 정책 생성은 통과한다 — 직접 부여된 권한이 있다. 롤백 트랜잭션으로 먼저 확인한 뒤 프로덕션에 적용했고, 버킷(`public=f`, 5MB, 이미지 4종)과 정책 2개(authenticated SELECT·INSERT)가 정상 생성됐다. **멤버십 조회만 보고 판단했다면 오진했을 것이다 — 권한은 실행으로만 확인된다.**
 
 **권한을 로그인 여부로만 가르는 이유.** 이 앱의 스키마에는 멤버십 모델이 없다 — 워크스페이스 전체가 콘텐츠를 공유하는 것이 의도된 설계이고, `requireMember()`가 하는 일은 접근 제어가 아니라 신원 해석이다. 로그인 자체가 도메인 게이팅(Google OAuth + 허용 이메일)으로 이미 좁혀져 있다.
 

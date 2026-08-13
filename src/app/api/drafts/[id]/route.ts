@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { getDraft, updateDraft, removeDraft } from '@/lib/draftStore';
-import type { DraftContent } from '@/lib/draftTypes';
+import type { DraftContent, DraftFormat } from '@/lib/draftTypes';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { isDraftStatus, type DraftStatus } from '@/lib/draftStatus';
-import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
+import { normalizeInfluencerPatch } from '@/lib/influencerPatch';
+import { formatForPosts } from '@/lib/draftFormat';
 import { normalizeDraftMedia } from '@/lib/draftMediaGuard';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -21,25 +22,23 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
   const body = (await req.json().catch(() => ({}))) as
-    { edited?: DraftContent; dismissedFlags?: string[]; status?: string; influencerHandle?: string | null };
+    { edited?: DraftContent; dismissedFlags?: string[]; status?: string;
+      influencerHandle?: string | null; title?: string | null };
   if (body.status !== undefined && !isDraftStatus(body.status)) {
     return NextResponse.json({ error: '상태 값이 올바르지 않아요' }, { status: 400 });
   }
-  // undefined = 건드리지 않음(아래로 그대로 통과) · null·공백뿐인 문자열 = 배정 해제 ·
-  // 그 외 = parseXHandle로 정규화(빈 값을 파서에 넣지 않는다 — 'empty' 오류가 배정 해제 요청에 잘못 붙는 것을 막는다).
-  let influencerHandle: string | null | undefined = body.influencerHandle;
-  if (influencerHandle !== undefined) {
-    const trimmed = influencerHandle == null ? null : influencerHandle.trim();
-    if (!trimmed) {
-      influencerHandle = null;
-    } else {
-      const parsed = parseXHandle(trimmed);
-      if (!parsed.ok) {
-        return NextResponse.json({ error: handleParseMessage(parsed.reason) }, { status: 400 });
-      }
-      influencerHandle = parsed.handle;
+  if (body.title !== undefined && body.title !== null) {
+    if (typeof body.title !== 'string') {
+      return NextResponse.json({ error: '제목 형식이 올바르지 않아요' }, { status: 400 });
+    }
+    if (body.title.trim().length > 80) {
+      return NextResponse.json({ error: '제목은 80자까지 쓸 수 있어요' }, { status: 400 });
     }
   }
+  const inf = normalizeInfluencerPatch(body.influencerHandle);
+  if (!inf.ok) return NextResponse.json({ error: inf.message }, { status: 400 });
+  const influencerHandle = inf.value;
+  let derivedFormat: DraftFormat | undefined;
   if (body.edited !== undefined) {
     const posts = (body.edited as { posts?: unknown })?.posts;
     if (!Array.isArray(posts) || posts.length === 0 ||
@@ -58,10 +57,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         text: p.text, media: normalizedMedia[i]!,
       })),
     } as DraftContent;
+    // 칸 수가 바뀌었으면 format도 맞춘다 — 클라이언트가 보낸 값을 믿지 않고 본문에서 파생한다.
+    // 어긋난 채 저장되면 다시쓰기가 손으로 늘린 칸을 잘라낸다(설계 §E).
+    derivedFormat = formatForPosts((body.edited as DraftContent).posts.length);
   }
+  // body를 통째로 펼치지 않는다. 그렇게 하면 요청 본문의 아무 키나 updateDraft의 patch로 흘러가
+  // 클라이언트가 history·translation·koTitle 같은 서버 소관 필드를 직접 세팅할 수 있다. format이
+  // 특히 위험하다 — 본문과 어긋난 값이 저장되면 다시쓰기가 손으로 늘린 칸을 잘라낸다(설계 §E).
+  // 받을 필드를 여기서 하나씩 명시한다.
   await updateDraft(getSql(), id, {
-    ...(body as { edited?: DraftContent; dismissedFlags?: string[]; status?: DraftStatus }),
+    ...(body.edited !== undefined ? { edited: body.edited } : {}),
+    ...(body.dismissedFlags !== undefined ? { dismissedFlags: body.dismissedFlags } : {}),
+    ...(body.status !== undefined ? { status: body.status as DraftStatus } : {}),
+    ...(body.title !== undefined ? { title: body.title } : {}),
     influencerHandle, // 정규화된 값으로 덮어쓴다 — body의 원문 그대로가 아니다(핸들만 저장 원칙)
+    ...(derivedFormat ? { format: derivedFormat } : {}),
   });
   return NextResponse.json(await getDraft(getSql(), id));
 }

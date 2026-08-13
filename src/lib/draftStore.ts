@@ -135,7 +135,8 @@ export async function updateDraft(
            translation?: DraftTranslation; status?: DraftStatus;
            title?: string | null; // '' · null = 지움 · 문자열 = 설정 · undefined = 건드리지 않음
            koTitle?: string | null; koTitleHash?: string | null; // 호출부가 둘을 항상 쌍으로 세팅
-           influencerHandle?: string | null }, // null이 '배정 해제'라는 뜻을 갖는 유일한 필드 — 아래 case when 참조
+           influencerHandle?: string | null; // null이 '배정 해제'라는 뜻을 갖는 유일한 필드 — 아래 case when 참조
+           format?: DraftFormat }, // 칸 수 변경 시 서버가 파생해 넘긴다 — '지움' 개념이 없으므로 coalesce로 충분
 ): Promise<void> {
   await sql`update draft set
       edited = coalesce(${patch.edited ? sql.json(patch.edited as never) : null}, edited),
@@ -143,6 +144,7 @@ export async function updateDraft(
       history = coalesce(${patch.history ? sql.json(patch.history as never) : null}, history),
       translation = coalesce(${patch.translation ? sql.json(patch.translation as never) : null}, translation),
       status = coalesce(${patch.status ?? null}, status),
+      format = coalesce(${patch.format ?? null}, format),
       -- undefined = 건드리지 않음 · '' 또는 null = 지움 · 문자열 = 설정 (influencer_handle과 같은 구조)
       title = case when ${patch.title !== undefined}
                 then ${patch.title ? patch.title : null}::text

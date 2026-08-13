@@ -7,6 +7,7 @@ import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { isDraftStatus, type DraftStatus } from '@/lib/draftStatus';
 import { normalizeInfluencerPatch } from '@/lib/influencerPatch';
 import { isUuidLike } from '@/lib/uuid';
+import { LIST_CAP } from '@/lib/draftPaging';
 
 export async function GET(req: Request) {
   const gate = await requireAllowedUser();
@@ -17,7 +18,13 @@ export async function GET(req: Request) {
   if (status !== null && !isDraftStatus(status)) {
     return NextResponse.json({ error: '상태 값이 올바르지 않아요' }, { status: 400 });
   }
-  return NextResponse.json(await listDrafts(getSql(), { clientId, status: status ?? undefined }));
+  // 폴링은 방금 만들어진 것만 찾으므로 작은 값으로 부른다(설계 §I) — 취소 한 번에
+  // 5초 간격 24회가 나가는데 그때마다 전량을 받으면 수 MB가 오간다.
+  // 숫자가 아니거나 범위를 벗어난 값은 오류로 세우지 않고 상한으로 클램프한다 — 목록 조회는
+  // 읽기 전용이고, 여기서 400을 주면 낡은 클라이언트가 목록을 통째로 못 보는 쪽이 더 나쁘다.
+  const rawLimit = Number(params.get('limit'));
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), LIST_CAP) : LIST_CAP;
+  return NextResponse.json(await listDrafts(getSql(), { clientId, status: status ?? undefined, limit }));
 }
 
 export async function POST(req: Request) {

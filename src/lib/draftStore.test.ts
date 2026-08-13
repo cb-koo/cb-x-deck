@@ -235,3 +235,22 @@ test('벌크: 여러 건 상태·배정 한 번에, 그리고 한 번에 삭제'
   await removeDraftsBulk(sql, ids);
   for (const id of ids) assert.equal(await getDraft(sql, id), null);
 });
+
+test('listDrafts: limit이 실제로 개수를 자른다', async () => {
+  const mk = () => insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + 'limit', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+  const ids = [await mk(), await mk(), await mk()];
+
+  const two = await listDrafts(sql, { limit: 2 });
+  assert.equal(two.length, 2);
+  // 최신순이므로 마지막에 만든 것이 먼저 온다
+  assert.equal(two[0].id, ids[2]);
+
+  const many = await listDrafts(sql, { limit: 1000 });
+  assert.ok(many.length >= 3, '상한을 크게 주면 최소한 방금 만든 3건은 들어온다');
+
+  await removeDraftsBulk(sql, ids);
+});

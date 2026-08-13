@@ -40,12 +40,12 @@ export function InfluencerField({ value, options, onChange, error, autoFocus, on
              aria-describedby={error ? `${helpId} ${errId}` : helpId}
              className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue" />
       {/* datalist는 '고르는 목록'이 아니라 '좁혀주는 제안'이라 목록에 없는 값도 그대로 입력된다 —
-          지금 후보가 등록된 인플루언서 명단이 아니라서, 도움말이 그 사실을 그대로 말한다. */}
+          후보는 등록된 인플루언서 명단(인플루언서 DB)에서 오므로, 도움말이 그 사실을 그대로 말한다. */}
       <datalist id={listId}>
         {options.map((o) => <option key={o.handle} value={o.handle} label={o.name} />)}
       </datalist>
       <p id={helpId} className="mt-1 text-caption text-x-muted">
-        X 프로필 주소를 그대로 붙여넣어도 돼요 — 이미 배정한 적 있는 계정이 아래에 제안됩니다
+        X 프로필 주소를 그대로 붙여넣어도 돼요 — 등록된 인플루언서가 아래에 제안됩니다
       </p>
       {/* role="alert": 이 오류는 저장 버튼을 눌렀을 때 뜬다 — 그때 포커스는 버튼에 있어
           입력칸에 걸어둔 aria-describedby만으로는 읽히지 않는다(ColumnSettings 선례). */}

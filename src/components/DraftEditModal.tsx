@@ -6,6 +6,8 @@ import type { DraftContent, DraftPost } from '@/lib/draftTypes';
 import type { DeckMedia } from '@/lib/types';
 import { xWeightedLength, X_MAX_WEIGHTED } from '@/lib/xLength';
 import { textsChanged } from '@/lib/draftUi';
+import { draftLabel } from '@/lib/draftViews';
+import { addSlot, removeSlot } from '@/lib/draftFormat';
 import { uploadDraftImage, selectDraftImages, MAX_MEDIA_PER_POST } from '@/lib/draftMedia';
 import { useSignedMedia } from '@/components/useSignedMedia';
 import { MediaGrid } from '@/components/MediaGrid';
@@ -29,6 +31,11 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
   // 사고가 난다. 그래서 이미지 PATCH는 항상 이 savedTexts를 쓰고, texts는 저장 버튼을 눌렀을 때만 반영된다.
   const [savedTexts, setSavedTexts] = useState(base.posts.map((p) => p.text));
   const [media, setMedia] = useState<DeckMedia[][]>(base.posts.map((p) => p.media));
+  // 사람이 붙이는 제목 — 텍스트 '저장' 버튼과 같은 PATCH로만 나간다(설계 §제목).
+  const [title, setTitle] = useState(draft.title ?? '');
+  // 제목이 비었을 때 보여줄 것 — 지금 목록·보드에 실제로 나오고 있는 라벨이다.
+  // 이 값이 어디에 쓰이는지 보여주지 않으면 사용자는 뭘 적어야 할지 알 수 없다(AGENTS 원칙 2).
+  const currentLabel = draftLabel(draft).text;
   const [compare, setCompare] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -43,7 +50,8 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
 
   const empty = texts.some((t) => !t.trim());
   // dirty 판정은 텍스트 기준 그대로 — 미디어는 이미 저장돼 있으므로 넣으면 "저장 안 됨" 거짓 경고가 된다(설계 §확정 판단).
-  const dirty = textsChanged(savedTexts, texts);
+  // 제목은 저장 버튼으로만 나가므로 여기 포함한다 — 제목만 고치고 닫으면 경고 없이 사라지면 안 된다.
+  const dirty = textsChanged(savedTexts, texts) || title.trim() !== (draft.title ?? '').trim();
 
   // 서명 URL 발급은 카드와 같은 훅으로 딱 한 번 — 포스트마다 부르면 훅 개수가 바뀌어 크래시한다.
   // text는 서명과 무관해 빈 문자열로 채운다(이 훅은 media만 본다).
@@ -77,7 +85,9 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
       posts: texts.map((t, i) => ({ text: t, media: media[i] })),
     };
     const r = await apiFetch(`/api/drafts/${draft.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ edited }),
+      // 제목은 이 PATCH에만 실린다 — 빈 문자열은 서버가 '지움'으로 받는다.
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edited, title: title.trim() }),
     });
     setSaving(false);
     if (!r.ok) { setErr((await r.json().catch(() => ({}))).error ?? `오류 ${r.status}`); return; }
@@ -95,6 +105,37 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
     });
     if (!r.ok) return null;
     return (await r.json()) as DraftRow;
+  }
+
+  // 칸 추가·삭제는 텍스트·미디어 배열의 길이를 동시에 바꾼다. 저장 버튼까지 미루면 그 사이에
+  // 새 칸으로 이미지를 붙이는 순간 savedTexts(옛 길이)와 media(새 길이)가 어긋난 PATCH가 나간다.
+  // 그래서 이미지와 같은 즉시 저장으로 둔다(설계 §D). format은 서버가 posts 길이에서 파생하고,
+  // 아직 저장 버튼을 안 누른 title은 여기 싣지 않는다(savedTexts를 따로 두는 이유와 같다).
+  async function saveSlots(nextTexts: string[], nextMedia: DeckMedia[][]) {
+    // -1 = 전체 잠금. 구조 변경은 특정 포스트의 일이 아니다. busyPost는 `busyPost === i`("올리는 중…"
+    // 표시)와 `busyPost !== null`(잠금) 두 곳에서만 읽히므로, 실제 인덱스와 겹치지 않는 -1이 안전하다.
+    setBusyPost(-1);
+    setErr('');
+    try {
+      const edited: DraftContent = {
+        posts: nextTexts.map((text, i) => ({ text, media: nextMedia[i] ?? [] })),
+      };
+      const r = await apiFetch(`/api/drafts/${draft.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ edited }),
+      });
+      if (!r.ok) {
+        setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? '칸을 저장하지 못했어요');
+        return false;
+      }
+      setTexts(nextTexts);
+      setSavedTexts(nextTexts); // 즉시 저장이므로 '서버에 반영된 텍스트'가 곧 이 값이다
+      setMedia(nextMedia);
+      onMediaSaved((await r.json()) as DraftRow); // 목록만 갱신하고 모달은 열어둔다
+      return true;
+    } finally {
+      setBusyPost(null);
+    }
   }
 
   async function attachFiles(i: number, files: File[]) {
@@ -169,10 +210,24 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
           </button>
         </div>
 
+        {/* 제목 — 비었을 때 placeholder가 '지금 목록엔 이렇게 나오고 있다'를 그대로 보여준다.
+            여기 쓰면 그 이름으로 바뀐다는 기대를 한 자리에서 세운다(AGENTS 원칙 2). */}
+        <div className="border-b border-x-border px-4 pb-2">
+          <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80}
+                 placeholder={currentLabel}
+                 aria-label="원고 제목"
+                 className="w-full text-[17px] font-bold outline-none placeholder:font-normal placeholder:text-x-muted" />
+          <p className="text-caption text-x-muted">
+            목록과 보드에서 이 원고를 부를 이름이에요 — 비워두면 자동 제목이 쓰여요
+          </p>
+        </div>
+
         <div className="max-h-[60vh] overflow-y-auto px-4 pb-2">
-          {base.posts.map((_p, i) => {
+          {texts.map((_t, i) => {
             const len = xWeightedLength(texts[i]);
-            const remaining = MAX_MEDIA_PER_POST - media[i].length;
+            // 칸 구조 변경은 texts·media를 한 번에 갱신하지만, 렌더 기준이 texts라 방어적으로 받는다
+            const slotMedia = media[i] ?? [];
+            const remaining = MAX_MEDIA_PER_POST - slotMedia.length;
             const full = remaining <= 0;
             return (
               // preventDefault는 compare 검사보다 먼저 — 안 그러면 비교 모드에서 떨군 파일을 브라우저가
@@ -191,12 +246,15 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
                   {(draft.member?.name ?? '초').slice(0, 1)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  {base.posts.length > 1 && <p className="text-caption font-bold text-x-muted">{i + 1} / {base.posts.length}</p>}
+                  {texts.length > 1 && <p className="text-caption font-bold text-x-muted">{i + 1} / {texts.length}</p>}
                   {compare ? (
                     <div className="space-y-4">
                       <div>
                         <p className="mb-1 text-[13px] font-bold text-x-muted">생성 원본</p>
-                        <p className="whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-[17px] leading-normal text-x-secondary">{draft.content.posts[i]?.text}</p>
+                        {/* 손으로 늘린 칸은 생성 원본이 없다 — 빈 칸으로 두면 원본이 사라진 것처럼 보인다 */}
+                        <p className="whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-[17px] leading-normal text-x-secondary">
+                          {draft.content.posts[i]?.text ?? '새로 추가한 칸 — 생성 원본 없음'}
+                        </p>
                       </div>
                       <div>
                         <p className="mb-1 text-[13px] font-bold text-x-blue-text">현재 편집본</p>
@@ -236,8 +294,8 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
                           <MediaIcon className="h-5 w-5" />
                         </button>
                         {/* 0장일 때 '0/4'는 아직 필요 없는 정보다 — 상한은 4장에 가까워질 때 의미가 생긴다(AGENTS #2) */}
-                        {media[i].length > 0 && (
-                          <span className="text-caption tabular-nums text-x-muted">{media[i].length}/{MAX_MEDIA_PER_POST}</span>
+                        {slotMedia.length > 0 && (
+                          <span className="text-caption tabular-nums text-x-muted">{slotMedia.length}/{MAX_MEDIA_PER_POST}</span>
                         )}
                         {full && (
                           <InfoTip label="이미지 자리 없음 설명 보기"
@@ -260,10 +318,43 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
                       )} />
                     </div>
                   )}
+
+                  {/* 칸이 1개면 숨긴다 — 0칸 원고는 저장할 수 없다(서버도 400으로 막는다).
+                      이미지가 붙은 칸일 때만 확인을 받는다. 텍스트만 있는 칸은 편집 저장과 같은 무게다. */}
+                  {texts.length > 1 && !compare && (
+                    <div className="mt-1 flex justify-end">
+                      <button type="button" disabled={mediaBusy}
+                              onClick={() => {
+                                if (slotMedia.length > 0 &&
+                                    !window.confirm(`이 칸의 이미지 ${slotMedia.length}장도 함께 빠져요. 칸을 지울까요?`)) return;
+                                void saveSlots(removeSlot(texts, i), removeSlot(media, i));
+                              }}
+                              className="text-caption text-x-muted hover:text-red-600 disabled:opacity-40">
+                        칸 지우기
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
           })}
+
+          {/* 칸 추가도 즉시 저장이다 — 첫 칸만 있는 원고에는 그래서 뭐가 되는지 한 줄로 알린다.
+              칸을 넣고 빼는 일은 지금까지 쓴 본문까지 함께 저장한다(설계 §D — 텍스트·미디어 배열의
+              길이를 한 번에 맞춰야 하므로). 그 사실을 말하지 않으면, 편집하다 칸을 더한 뒤 Esc로
+              되돌리려던 사용자가 '이미 저장됐다'는 것을 모른 채 닫는다(AGENTS 원칙 2). */}
+          {!compare && (
+            <div className="mt-2">
+              <button type="button" disabled={mediaBusy}
+                      onClick={() => void saveSlots(addSlot(texts, ''), addSlot(media, []))}
+                      className="w-full rounded-lg border border-dashed border-x-border-strong py-2 text-ui font-bold text-x-secondary hover:bg-x-hover disabled:opacity-40">
+                + 칸 추가 {texts.length === 1 && <span className="font-normal text-x-muted">— 스레드로 이어 쓸 수 있어요</span>}
+              </button>
+              <p className="mt-1 text-center text-caption text-x-muted">
+                칸을 넣거나 빼면 지금까지 쓴 본문도 함께 저장돼요
+              </p>
+            </div>
+          )}
         </div>
 
         <p className="border-t border-x-border px-4 py-2 text-[14px] font-bold text-x-blue-text">

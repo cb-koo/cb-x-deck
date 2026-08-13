@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
+import type postgres from 'postgres';
 import { getSql } from '@/lib/db';
 import { getDraft, updateDraft, removeDraft } from '@/lib/draftStore';
 import type { DraftContent } from '@/lib/draftTypes';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { isDraftStatus, type DraftStatus } from '@/lib/draftStatus';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
+import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAllowedUser();
@@ -51,11 +53,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       })),
     } as DraftContent;
   }
-  await updateDraft(getSql(), id, {
-    ...(body as { edited?: DraftContent; dismissedFlags?: string[]; status?: DraftStatus }),
-    influencerHandle, // 정규화된 값으로 덮어쓴다 — body의 원문 그대로가 아니다(핸들만 저장 원칙)
+  const sql = getSql();
+  const before = await getDraft(sql, id);
+  if (!before) return NextResponse.json({ error: `draft not found: ${id}` }, { status: 404 });
+  await sql.begin(async (tx) => {
+    const tsql = tx as unknown as postgres.Sql;
+    await updateDraft(tsql, id, {
+      ...(body as { edited?: DraftContent; dismissedFlags?: string[]; status?: DraftStatus }),
+      influencerHandle, // 정규화된 값으로 덮어쓴다 — body의 원문 그대로가 아니다(핸들만 저장 원칙)
+    });
+    await syncInfluencerOnDraftUpdate(tsql, { before, influencerHandle, status: body.status, actorId: gate.member.id });
   });
-  return NextResponse.json(await getDraft(getSql(), id));
+  return NextResponse.json(await getDraft(sql, id));
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {

@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { formatCount } from '@/lib/format';
 import { relTime } from '@/lib/relTime';
+import { judgeContact } from '@/lib/influencerJudgment';
 import { AddInfluencersDialog } from './AddInfluencersDialog';
 import { Avatar, InfluencerProfile } from './InfluencerProfile';
 import type { InfluencerRow } from '@/lib/influencerStore';
@@ -171,6 +172,9 @@ function RosterRow({ row, active, onSelect }: { row: InfluencerRow; active: bool
   else if (row.profileRefreshedAt === null) meta.push('프로필 미조회');
   meta.push(row.lastLogAt ? relTime(row.lastLogAt, '기록') : '기록 없음');
   if (row.draftCount > 0) meta.push(`원고 ${row.draftCount}`);
+  // 프로필과 같은 판단 함수를 쓴다 — 명부와 프로필이 서로 다른 말을 하면 안 된다.
+  // 점은 거들 뿐이고 뜻은 글자가 나른다(색·모양만으로 전달 금지).
+  const { needsFollowup } = judgeContact(row.lastContactAt, row.createdAt);
 
   return (
     <button onClick={onSelect}
@@ -183,7 +187,14 @@ function RosterRow({ row, active, onSelect }: { row: InfluencerRow; active: bool
           <span className="min-w-0 truncate">{row.displayName ?? `@${row.handle}`}</span>
           {row.displayName && <span className="min-w-0 shrink truncate text-caption font-normal text-x-muted">@{row.handle}</span>}
         </span>
-        <span className="block text-caption text-x-muted">{meta.join(' · ')}</span>
+        <span className="block text-caption text-x-muted">
+          {meta.join(' · ')}
+          {needsFollowup && (
+            <span className="ml-1.5 whitespace-nowrap font-medium text-red-600">
+              <span aria-hidden>●</span> 팔로업 필요
+            </span>
+          )}
+        </span>
         {row.tags.length > 0 && (
           <span className="mt-1 flex flex-wrap gap-1">
             {row.tags.map((t) => (

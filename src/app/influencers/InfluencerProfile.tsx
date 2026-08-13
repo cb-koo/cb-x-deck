@@ -6,9 +6,11 @@ import { Button } from '@/components/ui';
 import { InfoTip } from '@/components/InfoTip';
 import { formatCount } from '@/lib/format';
 import { relTime } from '@/lib/relTime';
+import { kstMonthDay } from '@/lib/datetime';
+import { isProfileStale, judgeContact, summarizeDraftStatuses } from '@/lib/influencerJudgment';
 import { STATUS_LABEL, type DraftStatus } from '@/lib/draftStatus';
 import type {
-  DraftRollupItem, InfluencerChannel, InfluencerDetail, InfluencerLogRow,
+  DraftRollupItem, InfluencerAutoEvent, InfluencerChannel, InfluencerDetail, InfluencerLogRow,
 } from '@/lib/influencerStore';
 
 const CHANNEL_LABEL: Record<InfluencerChannel, string> = {
@@ -129,6 +131,10 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
 
   const inf = data.influencer;
   const unfetched = inf.profileRefreshedAt === null; // 아직 X에서 한 번도 프로필을 받아오지 않은 상태
+  // 판단은 리스트와 같은 함수로 한 번만 — 프로필과 명부가 서로 다른 말을 하지 않게(라벨-값 일치)
+  const contact = judgeContact(inf.lastContactAt, inf.createdAt);
+  const draftLine = summarizeDraftStatuses(data.draftStatusCounts);
+  const stale = isProfileStale(inf.profileRefreshedAt);
 
   return (
     <div className="min-w-0 px-6 py-6">
@@ -149,6 +155,9 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
             <span className="text-caption text-x-muted">
               {inf.profileRefreshedAt ? relTime(inf.profileRefreshedAt, '기준') : '프로필 미조회'}
             </span>
+            {/* 갱신 넛지(스펙 §④) — 경고색을 쓰지 않는다. 비용 유발 액션(X 1회 조회)을 재촉하는 것처럼
+                읽히면 안 되고, 지금 보이는 값이 언제 것인지만 알려주면 된다. */}
+            {stale && <span className="text-caption text-x-secondary">오래된 정보예요 — 갱신 권장</span>}
           </p>
           {inf.bio && <p className="mt-1 whitespace-pre-wrap text-ui text-x-secondary">{inf.bio}</p>}
         </div>
@@ -161,6 +170,19 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
           </p>
         </div>
       </div>
+
+      {/* 현황 스트립(스펙 §①) — "이 사람 지금 어떤 상태인가"를 스크롤 없이 답한다.
+          경고를 색으로만 전하지 않는다: 넘겼으면 '팔로업 필요'라는 말이 항상 함께 붙는다. */}
+      <div className="mt-3">
+        <span className={`inline-block rounded-full px-2.5 py-0.5 text-ui ${
+          contact.needsFollowup ? 'bg-red-50 font-medium text-red-700' : 'bg-x-surface text-x-secondary'
+        }`}>
+          {contact.label}{contact.needsFollowup && ' → 팔로업 필요'}
+        </span>
+        {/* 원고 상태 요약은 전체 카운트 기준 — 아래 '넘긴 원고' 목록(최근 50건)과 세는 범위가 다르다 */}
+        {draftLine && <p className="mt-1 text-ui text-x-secondary">원고 {draftLine}</p>}
+      </div>
+
       {msg && <p role="alert" className={`mt-3 rounded-lg px-3 py-2 text-ui ${MSG_STYLE[msg.tone]}`}>{msg.text}</p>}
 
       <TagEditor id={id} tags={inf.tags} onSaved={onChanged} />
@@ -173,7 +195,7 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
                   onChanged();
                 }} />
 
-      <DraftRollup drafts={data.drafts} />
+      <DraftRollup drafts={data.drafts} draftCount={inf.draftCount} />
 
       <DangerZone id={id} logCount={data.logs.length} onDeleted={onDeleted} />
     </div>
@@ -293,13 +315,47 @@ function autoText(l: InfluencerLogRow): ReactNode {
   }
 }
 
+// 묶음 한 줄 문구 — 개별 행의 동사(autoText)를 그대로 이어 쓴다. 같은 사실을 두 가지 말로 부르지 않는다.
+function groupText(eventType: InfluencerAutoEvent | null, n: number): string {
+  switch (eventType) {
+    case 'draft_assigned': return `원고 ${n}건 배정`;
+    case 'draft_unassigned': return `배정 해제 ${n}건`;
+    case 'draft_delivered': return `원고 ${n}건 전달됨`;
+    case 'handle_changed': return `핸들 변경 ${n}건`;
+    default: return `활동 기록 ${n}건`;
+  }
+}
+
+// 인접한 같은 event_type의 auto 항목을 한 덩어리로 (스펙 §②). manual이 사이에 끼면 묶지 않는다 —
+// 묶으면 시간 순서가 왜곡된다. 렌더 시점 파생일 뿐 원본 logs는 그대로 둔다.
+function groupAuto(logs: InfluencerLogRow[]): InfluencerLogRow[][] {
+  const out: InfluencerLogRow[][] = [];
+  for (const l of logs) {
+    const prev = out[out.length - 1];
+    const head = prev?.[0];
+    if (prev && head && head.kind === 'auto' && l.kind === 'auto' && head.eventType === l.eventType) prev.push(l);
+    else out.push([l]);
+  }
+  return out;
+}
+
+// 묶음 기간 — 목록이 최신순이므로 마지막 항목이 가장 오래된 것. 하루 안에 몰렸으면 날짜 하나만 적는다.
+function groupRange(logs: InfluencerLogRow[]): string {
+  const from = kstMonthDay(logs[logs.length - 1].createdAt);
+  const to = kstMonthDay(logs[0].createdAt);
+  return from === to ? from : `${from}~${to}`;
+}
+
 function Timeline({ id, logs, onAdded, onRemoved }: {
   id: string; logs: InfluencerLogRow[];
   onAdded: (row: InfluencerLogRow) => void;
   onRemoved: (logId: string) => void;
 }) {
   const [body, setBody] = useState('');
-  const [channel, setChannel] = useState<'' | InfluencerChannel>('');
+  // 채널 기본값 = 가장 최근 manual 로그의 채널(스펙 §③). 상태에는 "사용자가 고른 값"만 담고 기본값은
+  // 렌더에서 파생한다 — 한 번 직접 고르면 기록을 남긴 뒤에도 그 선택이 그대로 남는다.
+  const [picked, setPicked] = useState<'' | InfluencerChannel | null>(null);
+  const channel = picked ?? logs.find((l) => l.kind === 'manual')?.channel ?? '';
   const [err, setErr] = useState('');
   const busy = useRef(false);
 
@@ -329,7 +385,7 @@ function Timeline({ id, logs, onAdded, onRemoved }: {
                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) add(); }}
                placeholder="예: 단가 협의 완료, 다음 주 원고 전달 예정" aria-label="기록 내용"
                className="min-w-0 flex-1 rounded-lg border border-x-border-strong px-2.5 py-1.5 text-ui outline-none focus:border-x-blue" />
-        <select value={channel} onChange={(e) => setChannel(e.target.value as '' | InfluencerChannel)}
+        <select value={channel} onChange={(e) => setPicked(e.target.value as '' | InfluencerChannel)}
                 aria-label="이야기가 오간 곳"
                 className="shrink-0 rounded-lg border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue">
           <option value="">어디서 (선택)</option>
@@ -345,10 +401,46 @@ function Timeline({ id, logs, onAdded, onRemoved }: {
         <p className="mt-3 text-ui text-x-muted">아직 기록이 없어요 — 위에 한 줄 남기면 여기 쌓여요.</p>
       ) : (
         <ul className="mt-3 space-y-1.5">
-          {logs.map((l) => <LogItem key={l.id} id={id} log={l} onRemoved={onRemoved} />)}
+          {groupAuto(logs).map((g) => {
+            if (g.length > 1) return <AutoGroup key={g[0].id} logs={g} />;
+            const l = g[0];
+            return l.kind === 'auto'
+              ? <AutoLine key={l.id} log={l} />
+              : <LogItem key={l.id} id={id} log={l} onRemoved={onRemoved} />;
+          })}
         </ul>
       )}
     </section>
+  );
+}
+
+// 자동 이벤트 한 줄 — 카드도 아이콘도 없는 회색 텍스트. 사람이 남긴 기록이 스캔에서 먼저 보이도록
+// 일부러 약하게 둔다(스펙 §②). 지우기 버튼이 없는 것도 그대로다 — 자동 기록은 지나간 사실이다.
+function AutoLine({ log }: { log: InfluencerLogRow }) {
+  return (
+    <li className="flex flex-wrap items-baseline gap-x-1.5 px-3 py-0.5 text-ui text-x-secondary">
+      {/* 카드·아이콘을 걷어내면 화면에서는 위계로 구분되지만 스크린리더에는 아무 단서도 남지 않는다 —
+          '자동 기록'이라는 사실은 눈에 보이지 않게라도 반드시 읽혀야 한다(기존 sr-only 관례). */}
+      <span><span className="sr-only">자동 기록: </span>{autoText(log)}</span>
+      {log.member && <span className="text-caption text-x-muted">{log.member.name}</span>}
+      <span className="text-caption text-x-muted">{relTime(log.createdAt, '').trim()}</span>
+    </li>
+  );
+}
+
+// 같은 일이 연달아 일어난 구간은 한 줄로 접는다 — 펼치면 개별 행(원고 제목 링크 포함)이 그대로 나온다.
+function AutoGroup({ logs }: { logs: InfluencerLogRow[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li>
+      <button onClick={() => setOpen(!open)} aria-expanded={open}
+              className="flex w-full flex-wrap items-baseline gap-x-1.5 rounded-lg px-3 py-0.5 text-left text-ui text-x-secondary hover:bg-x-hover">
+        <span aria-hidden className="text-caption text-x-muted">{open ? '▾' : '▸'}</span>
+        <span>{groupText(logs[0].eventType, logs.length)}</span>
+        <span className="text-caption text-x-muted">({groupRange(logs)})</span>
+      </button>
+      {open && <ul className="pl-4">{logs.map((l) => <AutoLine key={l.id} log={l} />)}</ul>}
+    </li>
   );
 }
 
@@ -366,23 +458,22 @@ function LogItem({ id, log, onRemoved }: { id: string; log: InfluencerLogRow; on
     }
   }
 
-  const auto = log.kind === 'auto';
+  // 사람이 남긴 기록만 이 카드로 온다(자동 이벤트는 AutoLine) — 배경·채널칩·작성자를 그대로 유지한다.
   return (
-    <li className={`rounded-lg px-3 py-2 ${auto ? 'bg-x-surface' : 'border border-x-border'}`}>
+    <li className="rounded-lg border border-x-border px-3 py-2">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1 text-ui">
-          {auto ? <span className="text-x-secondary">{autoText(log)}</span> : <span className="whitespace-pre-wrap">{log.body}</span>}
+          <span className="whitespace-pre-wrap">{log.body}</span>
           <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-caption text-x-muted">
-            {!auto && log.channel && (
+            {log.channel && (
               <span className="rounded-full bg-x-border/50 px-1.5 py-0.5 text-x-secondary">{CHANNEL_LABEL[log.channel]}</span>
             )}
-            {auto && <span>자동 기록</span>}
             {log.member && <span>{log.member.name}</span>}
             <span>{relTime(log.createdAt, '').trim()}</span>
           </p>
         </div>
         {/* 지울 수 있는 건 사람이 쓴 기록뿐 — 자동 기록은 사실이라 버튼 자체를 두지 않는다 */}
-        {!auto && (confirming ? (
+        {confirming ? (
           <span className="flex shrink-0 items-center gap-1.5 text-caption">
             <button onClick={remove} className="rounded bg-red-600 px-2 py-0.5 text-white">지우기</button>
             <button onClick={() => setConfirming(false)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
@@ -390,19 +481,24 @@ function LogItem({ id, log, onRemoved }: { id: string; log: InfluencerLogRow; on
         ) : (
           <button onClick={() => setConfirming(true)} aria-label="이 기록 지우기"
                   className="shrink-0 text-caption text-x-muted hover:text-red-500">✕</button>
-        ))}
+        )}
       </div>
       {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
     </li>
   );
 }
 
-function DraftRollup({ drafts }: { drafts: DraftRollupItem[] }) {
+// 헤더 숫자는 전체 배정 수(draftCount), 아래 목록은 최근 것만 온다 — 두 숫자가 다르면 그 사실을 적는다.
+// (v1에서 "넘긴 원고 62"라 써놓고 50건만 나오던 자기모순을 여기서 해소한다)
+function DraftRollup({ drafts, draftCount }: { drafts: DraftRollupItem[]; draftCount: number }) {
   return (
     <section className="mt-6">
-      <div className="flex items-center gap-1.5">
-        <h2 className="text-ui font-bold">넘긴 원고 <span className="font-normal text-x-secondary">{drafts.length}</span></h2>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <h2 className="text-ui font-bold">넘긴 원고 <span className="font-normal text-x-secondary">{draftCount}</span></h2>
         <InfoTip text="이 계정으로 배정한 원고를 모아 보여줘요. 원고를 누르면 콘텐츠 생성 화면에서 그 원고가 열려요." />
+        {draftCount > drafts.length && (
+          <span className="text-caption text-x-muted">· 최근 {drafts.length}건 표시</span>
+        )}
       </div>
       {drafts.length === 0 ? (
         <p className="mt-1 text-ui text-x-muted">아직 배정한 원고가 없어요 — 콘텐츠 생성에서 원고를 만들고 이 계정을 배정하면 여기 모여요.</p>

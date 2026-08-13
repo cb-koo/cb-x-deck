@@ -18,6 +18,8 @@ import { ImageLightbox } from '@/components/ImageLightbox';
 import { useTranslations } from '@/components/useTranslations';
 import { DraftStatusChip } from '@/components/DraftStatusChip';
 import { InfluencerChip } from '@/components/InfluencerChip';
+import { DraftTitleField } from '@/components/DraftTitleField';
+import { draftLabel } from '@/lib/draftViews';
 import type { DraftStatus } from '@/lib/draftStatus';
 
 const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
@@ -158,13 +160,16 @@ function MediaOverlayActions({ canDetach, isGif, onDetach, onDownload, onCopy, o
 }
 
 // 초안 카드 — X 실측(600px·radius16·아바타40·본문 15/20). 지표·배지·이미지 자리 없음(없는 데이터는 자리도 안 만듦)
-export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, siblingTotal, influencerOptions, onAssignInfluencer, onSaveMedia, mediaDropNotice, onDismissMediaDrop }: {
+export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, onChangeTitle, siblingTotal, influencerOptions, onAssignInfluencer, onSaveMedia, mediaDropNotice, onDismissMediaDrop }: {
   draft: DraftRow; banned: string[];
   onEdit: () => void; onRewrite: (feedback: string, baseIndex: number) => void; rewriteBusy: boolean;
   onDelete: () => void; onRegenPost: (index: number) => void; regenBusyIndex: number | null;
   onDismissFlag: (key: string, dismiss: boolean) => void;
   onRestoreAllFlags: () => void;
   onChangeStatus: (s: DraftStatus) => void;
+  // 원고 이름 — 카드가 세 보기 방식(카드·표 팝업·칸반 팝업)의 공통 콘텐츠 표면이라 여기 둔다.
+  // 편집 모달에만 두었더니 표·칸반 팝업에는 제목을 넣을 곳이 없었다(사용자 피드백 2026-08-13).
+  onChangeTitle: (next: string | null) => void;
   siblingTotal: number | null; // 다중 시안 형제 수 (batch 없으면 null)
   influencerOptions: InfluencerOption[]; // 배정 자동완성 후보 — 편집 모달에서 옮겨온 배선
   onAssignInfluencer: (next: string | null) => void;
@@ -412,6 +417,12 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
         <span className="ml-auto text-caption text-x-muted">
           {draft.format === 'thread' ? '스레드' : '단문'}
         </span>
+      </div>
+      {/* 원고 이름 — 도구층의 둘째 줄. 칩과 같은 줄에 두지 않는 이유는 제목이 최대 80자라
+          한 줄에 섞으면 상태·인플루언서 칩을 밀어내기 때문이다. X 콘텐츠층(아래 흰 영역) 밖에
+          두어 본문 미러링은 그대로 둔다 — 제목은 X에 없는, 우리 목록에만 있는 개념이다. */}
+      <div className="border-b border-x-border bg-x-surface px-4 pb-2">
+        <DraftTitleField title={draft.title} fallback={draftLabel(draft).text} onChange={onChangeTitle} />
       </div>
       {/* 흰색 = X 콘텐츠층 */}
       <div className="flex gap-3 px-4 py-3">

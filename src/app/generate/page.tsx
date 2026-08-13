@@ -343,6 +343,10 @@ function Workbench() {
   // 삭제: 낙관적 제거 + 5초 실행취소 (보관함 패턴). 단건·일괄이 같은 경로를 쓴다 — 단건은 길이 1이다.
   function requestRemove(rows: DraftRow[]) {
     if (rows.length === 0) return;
+    // 실행취소 토스트만으로는 부족하다는 실사용 피드백(2026-08-13) — 5초는 "어? 방금 뭐였지"를
+    // 알아차리기엔 짧다. 확인은 한 건이든 여러 건이든 항상 받되, 되돌릴 수 있다는 사실도 같이 알린다.
+    const what = rows.length === 1 ? '이 원고를' : `고른 원고 ${rows.length}개를`;
+    if (!window.confirm(`${what} 삭제할까요?\n\n삭제 후 5초 안에는 실행 취소할 수 있어요.`)) return;
     setToast(null); // 죽은 에러 토스트가 삭제 직후 다시 뜨는 것을 방지
     if (removeTimer.current) clearTimeout(removeTimer.current);
     flushRemove(pendingRemove); // 앞선 실행취소 대기분을 먼저 확정
@@ -443,7 +447,12 @@ function Workbench() {
 
   function bulkInfluencer(handle: string | null) {
     const ids = [...selectedIds];
-    // "배정 단위는 시안 하나"라는 원칙이 깨지는 순간만 확인을 받는다(설계 §F). 막지는 않는다 —
+    if (ids.length === 0) return;
+    // 일괄 배정은 카드와 같은 입력칸을 쓰므로 새 핸들도 칠 수 있다 — 그 대신 오타 하나가 여러 건에
+    // 한꺼번에 박히지 않도록 실행 직전에 "누구에게 · 몇 건"을 그대로 보여주고 확인을 받는다.
+    const who = handle === null ? '배정을 해제' : `@${handle} 님에게 배정`;
+    if (!window.confirm(`고른 원고 ${ids.length}개를 ${who}할까요?`)) return;
+    // "배정 단위는 시안 하나"라는 원칙이 깨지는 순간엔 한 번 더 알린다(설계 §F). 막지는 않는다 —
     // 결정은 사람 몫이고, 상태 축이 전이 제약을 두지 않은 것과 같은 이유다.
     const siblings = siblingWarning(drafts, selectedIds);
     if (handle !== null && siblings >= 2) {
@@ -453,6 +462,15 @@ function Workbench() {
       if (!ok) return;
     }
     void bulkPatch(ids, { influencerHandle: handle }); // 배정도 선택 유지 — 이어서 상태를 바꾸는 흐름이 있다
+  }
+
+  // 원고 이름 — changeStatus와 같은 모양(낙관적 갱신 + 이 요청이 세팅한 값이 아직 표시 중일 때만 롤백).
+  function changeTitle(d: DraftRow, next: string | null) {
+    const prev = d.title;
+    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, title: next } : x)));
+    void patchDraft(d.id, { title: next ?? '' }).then((updated) => {
+      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.title === next ? { ...x, title: prev } : x)));
+    });
   }
 
   // 이미지 첨부·떼기 즉시 저장 (설계 §확정 판단) — 파일을 올린 순간 PATCH가 나간다. 모달의 저장
@@ -613,6 +631,7 @@ function Workbench() {
                        onDismissFlag={(key, dismiss) => toggleDismiss(d, key, dismiss)}
                        onRestoreAllFlags={() => restoreAllFlags(d)}
                        onChangeStatus={(s) => changeStatus(d, s)}
+                       onChangeTitle={(next) => changeTitle(d, next)}
                        siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null}
                        influencerOptions={influencerOptions}
                        onAssignInfluencer={(next) => assignInfluencer(d, next)}
@@ -664,6 +683,7 @@ function Workbench() {
                        onDismissFlag={(key, dismiss) => toggleDismiss(peeked, key, dismiss)}
                        onRestoreAllFlags={() => restoreAllFlags(peeked)}
                        onChangeStatus={(s) => changeStatus(peeked, s)}
+                       onChangeTitle={(next) => changeTitle(peeked, next)}
                        siblingTotal={peeked.batchId ? siblingCount(drafts, peeked.batchId) : null}
                        influencerOptions={influencerOptions}
                        onAssignInfluencer={(next) => assignInfluencer(peeked, next)}

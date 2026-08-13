@@ -1,6 +1,7 @@
 'use client';
 import { DRAFT_STATUSES, STATUS_LABEL, type DraftStatus } from '@/lib/draftStatus';
 import type { InfluencerOption } from '@/lib/draftTypes';
+import { InfluencerChip } from '@/components/InfluencerChip';
 
 // 표 뷰에서 여러 건을 고르면 뜨는 바. 결과 패널 스크롤 컨테이너 하단에 sticky로 붙는다 —
 // 50행을 내려가 고른 뒤 액션을 찾아 다시 올라오는 일이 없도록.
@@ -28,17 +29,13 @@ export function BulkActionBar({ count, options, onStatus, onInfluencer, onDelete
         </select>
       </label>
 
-      {/* 일괄 배정은 이미 배정된 적 있는 후보에서만 고른다 — 새 핸들을 여기서 타이핑하게 하면
-          오타 하나가 여러 건에 한꺼번에 박힌다. 새 핸들은 카드에서 한 건 배정하면 후보에 들어온다. */}
-      <label className="relative inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-x-border-strong bg-white px-2.5 text-ui font-bold text-x-secondary focus-within:ring-2 focus-within:ring-x-blue">
-        인플루언서 <span aria-hidden className="opacity-60">⌄</span>
-        <select value="" onChange={(e) => { if (e.target.value) onInfluencer(e.target.value === '__clear__' ? null : e.target.value); }}
-                aria-label="선택한 원고의 인플루언서 배정" className="absolute inset-0 w-full cursor-pointer opacity-0">
-          <option value="">인플루언서 고르기</option>
-          {options.map((o) => <option key={o.handle} value={o.handle}>{o.name ? `${o.name} (@${o.handle})` : `@${o.handle}`}</option>)}
-          <option value="__clear__">배정 해제</option>
-        </select>
-      </label>
+      {/* 처음엔 '이미 배정된 적 있는 후보'만 고르는 셀렉트였다. 오타 하나가 여러 건에 박히는 걸
+          막으려던 것인데, 실제로는 배정된 적 있는 핸들이 0개라 고를 게 아무것도 없는 죽은 버튼이
+          됐다(사용자 피드백 2026-08-13 — "어떤 기능인지 모르겠음"). 후보를 만드는 유일한 길이
+          '카드에서 한 건 배정'인데 화면 어디에도 그 말이 없었다.
+          그래서 카드에서 쓰는 칩을 그대로 쓴다 — 핸들 검증·프로필 링크 붙여넣기·후보 제안이
+          이미 들어 있고, 규칙이 두 벌로 갈라지지 않는다. 오타 방지는 실행 직전 확인창이 맡는다. */}
+      <InfluencerChip handle={null} options={options} onChange={onInfluencer} label="인플루언서 배정" />
 
       <button onClick={onDelete}
               className="h-8 rounded-lg border border-red-200 px-2.5 text-ui font-bold text-red-600 hover:bg-red-50">

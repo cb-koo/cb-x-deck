@@ -14,11 +14,16 @@ import { InfluencerField } from './InfluencerField';
 const POP_W = 288;   // px. Tailwind 임의값 대신 상수 — 화면 밖으로 나가지 않게 좌표를 잴 때 같은 수가 필요하다.
 const POP_H = 210;   // 라벨+입력+도움말+버튼 줄의 높이 상한. 위/아래 뒤집기 '판단'에만 쓰므로 근사치로 충분하다.
 
-export function InfluencerChip({ handle, options, onChange }: {
+export function InfluencerChip({ handle, options, onChange, label }: {
   handle: string | null;                     // null = 미배정
   options: InfluencerOption[];
   onChange: (next: string | null) => void;   // 정규화된 핸들, 또는 null(배정 해제)
+  // 일괄 배정 바처럼 "이 한 건"이 아닌 자리에서 버튼 글자를 바꿔 단다. 없으면 카드용 기본 문구.
+  // 검증·정규화·후보 제안은 그대로 공유한다 — 일괄 배정에만 따로 입력칸을 만들면 규칙이 갈라진다.
+  label?: string;
 }) {
+  // label이 있으면 "여러 건에 한꺼번에" 모드다 — 이 칩이 특정 원고의 현재 배정을 대변하지 않는다.
+  const bulk = label !== undefined;
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const [value, setValue] = useState('');
@@ -67,7 +72,9 @@ export function InfluencerChip({ handle, options, onChange }: {
     }
     // 바뀐 게 없으면 부모를 부르지 않는다 — 같은 값으로 PATCH를 한 번 더 보낼 이유가 없다.
     // 대소문자는 그대로 보존해 비교한다(Hadakan__ → hadakan__ 도 사용자가 의도한 표기 변경이다).
-    if (next !== handle) onChange(next);
+    // 단 일괄 배정(label 모드)에는 '현재 값'이라는 게 없다 — handle이 늘 null이라 이 비교를 그대로
+    // 두면 빈 칸 저장(=여러 건 배정 해제)이 null !== null에 걸려 아무 일도 일어나지 않는다.
+    if (bulk || next !== handle) onChange(next);
     close();
   }
 
@@ -113,13 +120,15 @@ export function InfluencerChip({ handle, options, onChange }: {
           점선은 "비어 있는 칸"이라는 뜻이라 미배정이 '채우는 자리'로 읽힌다. */}
       <button ref={chipRef} type="button" onClick={() => (open ? close() : openPop())}
               aria-haspopup="dialog" aria-expanded={open}
-              aria-label={handle ? `게시할 인플루언서 @${handle} — 바꾸기` : '게시할 인플루언서 배정하기'}
-              title={handle ? '이 원고를 줄 인플루언서 — 눌러서 바꾸기' : '이 원고를 줄 인플루언서를 배정합니다'}
+              aria-label={label ?? (handle ? `게시할 인플루언서 @${handle} — 바꾸기` : '게시할 인플루언서 배정하기')}
+              title={label ? '고른 원고에 인플루언서를 한 번에 배정합니다'
+                           : (handle ? '이 원고를 줄 인플루언서 — 눌러서 바꾸기' : '이 원고를 줄 인플루언서를 배정합니다')}
               className={`inline-flex h-8 items-center gap-1.5 rounded-lg border bg-white px-2.5 text-ui focus:outline-none focus-visible:ring-2 focus-visible:ring-x-blue ${
                 handle ? 'border-x-border-strong text-x-text hover:bg-x-hover'
                        : 'border-dashed border-x-border-strong text-x-muted hover:bg-x-hover hover:text-x-secondary'
               }`}>
-        {handle ? <>@{handle} <span aria-hidden className="text-x-muted">⌄</span></> : '+ 인플루언서'}
+        {label ? <>{label} <span aria-hidden className="text-x-muted">⌄</span></>
+               : (handle ? <>@{handle} <span aria-hidden className="text-x-muted">⌄</span></> : '+ 인플루언서')}
       </button>
 
       {open && createPortal(
@@ -135,7 +144,7 @@ export function InfluencerChip({ handle, options, onChange }: {
                            // 제안 목록에서 Enter로 고른 직후에는 state가 아직 그 값이 아니다 — 입력칸의 현재 값으로 저장한다.
                            onEnter={(v) => save(v)} />
           {/* '지우려면 어떻게 하지'로 막히지 않게. 칸이 빈 순간엔 저장 버튼이 스스로 '배정 해제'라고 말하므로 그때는 숨긴다. */}
-          {handle && typed !== '' && (
+          {(handle || bulk) && typed !== '' && (
             <p className="mt-1.5 text-caption text-x-muted">칸을 비우고 저장하면 배정이 해제돼요</p>
           )}
           <div className="mt-2 flex items-center justify-end gap-2">
@@ -143,7 +152,7 @@ export function InfluencerChip({ handle, options, onChange }: {
                     className="rounded-full px-3 py-1 text-[13px] text-x-secondary hover:bg-x-text/5">취소</button>
             <button type="button" onClick={() => save()}
                     className="rounded-full bg-x-blue px-3 py-1 text-[13px] font-bold text-white hover:bg-x-blue-hover">
-              {!typed && handle ? '배정 해제' : '저장'}
+              {!typed && (handle || bulk) ? '배정 해제' : '저장'}
             </button>
           </div>
         </div>,

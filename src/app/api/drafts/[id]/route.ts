@@ -54,16 +54,22 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     } as DraftContent;
   }
   const sql = getSql();
-  const before = await getDraft(sql, id);
-  if (!before) return NextResponse.json({ error: `draft not found: ${id}` }, { status: 404 });
-  await sql.begin(async (tx) => {
-    const tsql = tx as unknown as postgres.Sql;
-    await updateDraft(tsql, id, {
+  const result = await sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql; // 저장소 선례: generate.ts:127
+    // 동시 PATCH가 스테일 스냅샷으로 로그를 쓰지 않도록 행을 잠그고 읽는다 (리뷰 반영)
+    await tx`select id from draft where id = ${id} for update`;
+    const before = await getDraft(tx, id);
+    if (!before) return null;
+    await updateDraft(tx, id, {
       ...(body as { edited?: DraftContent; dismissedFlags?: string[]; status?: DraftStatus }),
       influencerHandle, // 정규화된 값으로 덮어쓴다 — body의 원문 그대로가 아니다(핸들만 저장 원칙)
     });
-    await syncInfluencerOnDraftUpdate(tsql, { before, influencerHandle, status: body.status, actorId: gate.member.id });
+    await syncInfluencerOnDraftUpdate(tx, { before, influencerHandle, status: body.status, actorId: gate.member.id });
+    return true;
   });
+  if (!result) {
+    return NextResponse.json({ error: '원고를 찾을 수 없어요 — 다른 사람이 삭제했을 수 있어요' }, { status: 404 });
+  }
   return NextResponse.json(await getDraft(sql, id));
 }
 

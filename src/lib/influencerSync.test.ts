@@ -32,14 +32,15 @@ async function newDraft(tag: string, handle?: string): Promise<string> {
   return id;
 }
 
-// 라우트와 같은 순서·같은 트랜잭션: updateDraft → syncInfluencerOnDraftUpdate
+// 라우트와 같은 순서·같은 트랜잭션: 행 잠금 + before 읽기 → updateDraft → syncInfluencerOnDraftUpdate
 async function patchDraft(
   id: string, patch: { influencerHandle?: string | null; status?: DraftStatus },
 ): Promise<void> {
-  const before = await getDraft(sql, id);
-  assert.ok(before, 'before 원고가 있어야 한다');
   await sql.begin(async (tx) => {
     const tsql = tx as unknown as postgres.Sql;
+    await tsql`select id from draft where id = ${id} for update`;
+    const before = await getDraft(tsql, id);
+    assert.ok(before, 'before 원고가 있어야 한다');
     await updateDraft(tsql, id, patch);
     await syncInfluencerOnDraftUpdate(tsql, {
       before, influencerHandle: patch.influencerHandle, status: patch.status, actorId: null,

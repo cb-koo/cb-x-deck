@@ -53,16 +53,18 @@ export function groupByStatus<T extends { status: DraftStatus; createdAt: string
   return out;
 }
 
-// 검색 — 공백 분리 토큰 전부(AND)가 제목·대역·원문(최신 버전)·방향성 중 어딘가에 포함(대소문자 무시)
+// 검색 — 공백 분리 토큰 전부(AND)가 이름·제목·대역·원문(최신 버전)·방향성 중 어딘가에 포함(대소문자 무시).
+// 사람이 붙인 title이 맨 앞인 이유는 그것이 사용자가 "이 원고"라고 부르는 이름이기 때문이다 —
+// 이름을 붙여놓고 그 이름으로 못 찾으면 이름을 붙일 이유가 없다(2026-08-13 누락 수정).
 export function searchDrafts<T extends {
-  koTitle: string | null; koLatest: string[] | null; direction: string;
+  title: string | null; koTitle: string | null; koLatest: string[] | null; direction: string;
   content: PreviewSource; edited: PreviewSource | null;
 }>(list: T[], query: string): T[] {
   const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return list;
   return list.filter((d) => {
     const hay = [
-      d.koTitle ?? '', ...(d.koLatest ?? []),
+      d.title ?? '', d.koTitle ?? '', ...(d.koLatest ?? []),
       ...(d.edited ?? d.content).posts.map((p) => p.text),
       d.direction,
     ].join('\n').toLowerCase();

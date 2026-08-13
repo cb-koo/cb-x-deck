@@ -127,7 +127,7 @@ test('groupByStatus: 5개 열이 항상 존재하고 열 안은 최신순', () =
 });
 
 test('searchDrafts: 빈 질의는 전체, 토큰 AND, 대소문자 무시, 4개 필드 대상', () => {
-  const d = (over: object) => ({ koTitle: null, koLatest: null, direction: '', content: { posts: [{ text: '' }] }, edited: null, ...over });
+  const d = (over: object) => ({ title: null, koTitle: null, koLatest: null, direction: '', content: { posts: [{ text: '' }] }, edited: null, ...over });
   const list = [
     d({ koTitle: '다운타임 후기형' }),
     d({ koLatest: ['가격 비교 정리'] }),
@@ -144,10 +144,22 @@ test('searchDrafts: 빈 질의는 전체, 토큰 AND, 대소문자 무시, 4개 
 });
 
 test('searchDrafts: 편집본이 있으면 편집본 기준', () => {
-  const x = { koTitle: null, koLatest: null, direction: '',
+  const x = { title: null, koTitle: null, koLatest: null, direction: '',
     content: { posts: [{ text: '원문에만 있는말' }] }, edited: { posts: [{ text: '편집본' }] } };
   assert.equal(searchDrafts([x], '원문에만').length, 0);
   assert.equal(searchDrafts([x], '편집본').length, 1);
+});
+
+test('searchDrafts: 사람이 붙인 제목도 검색 대상이다', () => {
+  const rows = [
+    { title: '보톡스 다운타임 훅', koTitle: null, koLatest: null, direction: '',
+      content: { posts: [{ text: '本文' }] }, edited: null },
+    { title: null, koTitle: '자동 제목', koLatest: null, direction: '',
+      content: { posts: [{ text: '다른 본문' }] }, edited: null },
+  ];
+  assert.equal(searchDrafts(rows, '다운타임').length, 1);
+  assert.equal(searchDrafts(rows, '보톡스 훅').length, 1, '공백 토큰 AND도 제목 안에서 동작');
+  assert.equal(searchDrafts(rows, '자동').length, 1, '자동 제목 검색은 그대로');
 });
 
 test('filterByProcedure: 빈 이름은 전체, 지정 시 포함 항목만', () => {

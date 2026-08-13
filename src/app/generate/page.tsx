@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { newDraftsSince, filterDrafts, statusCounts, siblingCount, type DraftListFilter } from '@/lib/draftUi';
 import { searchDrafts, filterByProcedure, applyPeriod, procedureOptions, sortDrafts, type PeriodValue, type TableSort } from '@/lib/draftViews';
 import { toggleId, toggleAll, pruneSelection, siblingWarning } from '@/lib/draftSelection';
+import { draftLinksText } from '@/lib/draftShare';
 import { PAGE_STEP, LIST_CAP, atCap } from '@/lib/draftPaging';
 import { Toast } from '@/components/Toast';
 import { BulkActionBar } from '@/components/BulkActionBar';
@@ -247,6 +248,12 @@ function Workbench() {
   // 선택의 '보이는 것'은 실제로 그려진 것이다(설계 §E) — 이 한 줄이 일괄 삭제의 안전장치다.
   // visibleDrafts(자르기 전)에서 뽑으면 헤더 체크박스가 화면에 없는 수백 건까지 고르고 그대로 지운다.
   const visibleIds = useMemo(() => shownDrafts.map((d) => d.id), [shownDrafts]);
+  // 고른 원고들의 "제목 + 링크" 묶음. shownDrafts에서 뽑으므로 복사 순서가 표에 보이는 순서와 같다 —
+  // 클릭한 순서로 담으면 화면에서 본 차례와 어긋나 어느 게 빠졌는지 대조하기 어렵다.
+  const selectedLinksText = useMemo(
+    () => (typeof window === 'undefined' ? ''
+      : draftLinksText(shownDrafts.filter((d) => selectedIds.has(d.id)), window.location.origin)),
+    [shownDrafts, selectedIds]);
   // 필터·검색·기간이 바뀌거나 목록이 갱신되면 화면에서 사라진 선택을 떨군다. 사용자가 보지 못한
   // 원고가 일괄 삭제에 함께 휩쓸리는 것을 막는 유일한 장치다 (설계 §화면).
   useEffect(() => {
@@ -741,6 +748,7 @@ function Workbench() {
                               onMore={() => setShownCount((n) => n + PAGE_STEP)} />
               {selectedIds.size > 0 && (
                 <BulkActionBar count={selectedIds.size} options={influencerOptions}
+                               linksText={selectedLinksText}
                                onStatus={bulkStatus} onInfluencer={bulkInfluencer}
                                onDelete={() => requestRemove(drafts.filter((d) => selectedIds.has(d.id)))}
                                onClear={() => setSelectedIds(new Set())} />

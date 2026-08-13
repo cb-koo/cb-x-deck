@@ -20,6 +20,7 @@ import { DraftStatusChip } from '@/components/DraftStatusChip';
 import { InfluencerChip } from '@/components/InfluencerChip';
 import { DraftTitleField } from '@/components/DraftTitleField';
 import { draftLabel } from '@/lib/draftViews';
+import { draftShareUrl } from '@/lib/draftShare';
 import type { DraftStatus } from '@/lib/draftStatus';
 
 const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
@@ -380,7 +381,8 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
     setLinkErr('');
     try {
       // 지금 보고 있는 곳을 기준으로 만든다 — 로컬에서 보면 로컬 주소가 나오는 게 정직하다.
-      await navigator.clipboard.writeText(`${window.location.origin}/generate?draft=${draft.id}`);
+      // 주소 모양은 표의 일괄 복사와 같은 함수를 쓴다 — 두 벌로 두면 조용히 갈라진다.
+      await navigator.clipboard.writeText(draftShareUrl(window.location.origin, draft.id));
       setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500);
     } catch {
       // 실패해도 버튼을 숨기지 않고 이유를 말한다 — 클립보드는 브라우저 권한에 걸릴 수 있다.

@@ -65,6 +65,9 @@ function InfluencersSplit() {
     });
   }, [rows, q, tag]);
 
+  // 리스트의 모든 행이 같은 순간을 기준으로 판단하도록 한 번만 계산해 공유한다.
+  const now = new Date();
+
   const select = useCallback((id: string) => {
     router.replace(`${pathname}?i=${id}`);
   }, [router, pathname]);
@@ -126,7 +129,7 @@ function InfluencersSplit() {
           <p className="px-2 py-4 text-ui text-x-muted">조건에 맞는 인플루언서가 없어요</p>
         )}
         {loaded && !loadErr && filtered.map((r) => (
-          <RosterRow key={r.id} row={r} active={r.id === urlId} onSelect={() => select(r.id)} />
+          <RosterRow key={r.id} row={r} active={r.id === urlId} onSelect={() => select(r.id)} now={now} />
         ))}
       </aside>
 
@@ -166,7 +169,7 @@ function InfluencersSplit() {
 
 // 명부 한 줄 — "누구인지(아바타·이름·핸들)"와 "지금 어떤 상태인지(마지막 기록·원고 수)"를 한눈에.
 // 프로필을 아직 조회하지 않은 계정도 1급 시민이다: 이름 자리에 핸들을 세우고 미조회임을 메타에 적는다.
-function RosterRow({ row, active, onSelect }: { row: InfluencerRow; active: boolean; onSelect: () => void }) {
+function RosterRow({ row, active, onSelect, now }: { row: InfluencerRow; active: boolean; onSelect: () => void; now: Date }) {
   const meta: string[] = [];
   if (row.followersCount !== null) meta.push(`팔로워 ${formatCount(row.followersCount)}`);
   else if (row.profileRefreshedAt === null) meta.push('프로필 미조회');
@@ -174,7 +177,7 @@ function RosterRow({ row, active, onSelect }: { row: InfluencerRow; active: bool
   if (row.draftCount > 0) meta.push(`원고 ${row.draftCount}`);
   // 프로필과 같은 판단 함수를 쓴다 — 명부와 프로필이 서로 다른 말을 하면 안 된다.
   // 점은 거들 뿐이고 뜻은 글자가 나른다(색·모양만으로 전달 금지).
-  const { needsFollowup } = judgeContact(row.lastContactAt, row.createdAt);
+  const { needsFollowup, daysSince } = judgeContact(row.lastContactAt, row.createdAt, now);
 
   return (
     <button onClick={onSelect}
@@ -191,7 +194,8 @@ function RosterRow({ row, active, onSelect }: { row: InfluencerRow; active: bool
           {meta.join(' · ')}
           {needsFollowup && (
             <span className="ml-1.5 whitespace-nowrap font-medium text-red-600">
-              <span aria-hidden>●</span> 팔로업 필요
+              <span aria-hidden>●</span>{' '}
+              {daysSince !== null ? `연락 ${daysSince}일째 없음` : '연락 기록 없음'} — 팔로업 필요
             </span>
           )}
         </span>

@@ -402,7 +402,7 @@ function Timeline({ id, logs, onAdded, onRemoved }: {
       ) : (
         <ul className="mt-3 space-y-1.5">
           {groupAuto(logs).map((g) => {
-            if (g.length > 1) return <AutoGroup key={g[0].id} logs={g} />;
+            if (g.length > 1) return <AutoGroup key={g[g.length - 1].id} logs={g} />;
             const l = g[0];
             return l.kind === 'auto'
               ? <AutoLine key={l.id} log={l} />
@@ -433,10 +433,10 @@ function AutoGroup({ logs }: { logs: InfluencerLogRow[] }) {
   const [open, setOpen] = useState(false);
   return (
     <li>
-      <button onClick={() => setOpen(!open)} aria-expanded={open}
+      <button onClick={() => setOpen((o) => !o)} aria-expanded={open}
               className="flex w-full flex-wrap items-baseline gap-x-1.5 rounded-lg px-3 py-0.5 text-left text-ui text-x-secondary hover:bg-x-hover">
         <span aria-hidden className="text-caption text-x-muted">{open ? '▾' : '▸'}</span>
-        <span>{groupText(logs[0].eventType, logs.length)}</span>
+        <span><span className="sr-only">자동 기록: </span>{groupText(logs[0].eventType, logs.length)}</span>
         <span className="text-caption text-x-muted">({groupRange(logs)})</span>
       </button>
       {open && <ul className="pl-4">{logs.map((l) => <AutoLine key={l.id} log={l} />)}</ul>}

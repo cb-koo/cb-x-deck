@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
+import type postgres from 'postgres';
 import { getSql } from '@/lib/db';
 import { generateDraft, GenerateInputError, type GenerateRequest } from '@/lib/generate';
-import { listDrafts, getDraft, updateDraftsBulk, removeDraftsBulk } from '@/lib/draftStore';
+import { listDrafts, getDraft, getDraftsByIdsForUpdate, updateDraftsBulk, removeDraftsBulk } from '@/lib/draftStore';
+import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 import { LLMRefusalError } from '@/lib/llm';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { isDraftStatus, type DraftStatus } from '@/lib/draftStatus';
@@ -96,9 +98,23 @@ export async function PATCH(req: Request) {
   if (body.status === undefined && inf.value === undefined) {
     return NextResponse.json({ error: '바꿀 내용이 없어요' }, { status: 400 });
   }
-  await updateDraftsBulk(getSql(), parsed.ids, {
-    status: body.status as DraftStatus | undefined,
-    ...(inf.value !== undefined ? { influencerHandle: inf.value } : {}),
+  // 갱신과 자동 로그(influencerSync)를 같은 트랜잭션에 — 단건 PATCH와 같은 원칙(스펙 §5).
+  // UPDATE는 여전히 한 문장이고, 로그 insert N개는 같은 커넥션 위의 짧은 문장들이라
+  // updateDraftsBulk가 피하려던 "커넥션 N개 동시 점유"와는 다르다.
+  const sql = getSql();
+  await sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql; // 저장소 선례: generate.ts:127
+    const befores = await getDraftsByIdsForUpdate(tx, parsed.ids);
+    await updateDraftsBulk(tx, parsed.ids, {
+      status: body.status as DraftStatus | undefined,
+      ...(inf.value !== undefined ? { influencerHandle: inf.value } : {}),
+    });
+    for (const before of befores) {
+      await syncInfluencerOnDraftUpdate(tx, {
+        before, influencerHandle: inf.value,
+        status: body.status as string | undefined, actorId: gate.member.id,
+      });
+    }
   });
   return NextResponse.json({ ok: true, updated: parsed.ids.length });
 }

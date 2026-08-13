@@ -185,6 +185,14 @@ function Workbench() {
     });
   }, [searchParams]);
 
+  // 진입점 B: /generate?draft=<id> — 인플루언서 프로필의 원고 롤업·로그에서 진입, 확대 보기로 연다.
+  // 필터가 숨겨도 열린다 — peeked 파생이 필터 전 drafts를 보기 때문(101행).
+  useEffect(() => {
+    const target = searchParams.get('draft');
+    if (!target || !loaded) return;
+    if (draftsRef.current.some((d) => d.id === target)) setPeekId(target);
+  }, [searchParams, loaded]);
+
   const selectedRefIds = useMemo(() => refRows.map((x) => x.tweetId), [refRows]);
 
   const clientScoped = useMemo(

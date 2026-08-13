@@ -16,6 +16,7 @@ export interface UserInfo {
   name: string | null;
   followers: number | null;
   profilePicture: string | null;
+  description: string | null;
 }
 
 export interface UsersPage {
@@ -73,6 +74,7 @@ export class GetxapiClient {
       name: typeof d.name === 'string' ? d.name : null,
       followers: typeof d.followers === 'number' ? d.followers : null,
       profilePicture: typeof d.profilePicture === 'string' ? d.profilePicture : null,
+      description: typeof d.description === 'string' ? d.description : null,
     };
   }
 

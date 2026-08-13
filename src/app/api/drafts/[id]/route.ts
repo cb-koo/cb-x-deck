@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import type postgres from 'postgres';
 import { getSql } from '@/lib/db';
 import { getDraft, updateDraft, removeDraft } from '@/lib/draftStore';
 import type { DraftContent, DraftFormat } from '@/lib/draftTypes';
@@ -7,6 +8,7 @@ import { isDraftStatus, type DraftStatus } from '@/lib/draftStatus';
 import { normalizeInfluencerPatch } from '@/lib/influencerPatch';
 import { formatForPosts } from '@/lib/draftFormat';
 import { normalizeDraftMedia } from '@/lib/draftMediaGuard';
+import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAllowedUser();
@@ -61,19 +63,32 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     // 어긋난 채 저장되면 다시쓰기가 손으로 늘린 칸을 잘라낸다(설계 §E).
     derivedFormat = formatForPosts((body.edited as DraftContent).posts.length);
   }
-  // body를 통째로 펼치지 않는다. 그렇게 하면 요청 본문의 아무 키나 updateDraft의 patch로 흘러가
-  // 클라이언트가 history·translation·koTitle 같은 서버 소관 필드를 직접 세팅할 수 있다. format이
-  // 특히 위험하다 — 본문과 어긋난 값이 저장되면 다시쓰기가 손으로 늘린 칸을 잘라낸다(설계 §E).
-  // 받을 필드를 여기서 하나씩 명시한다.
-  await updateDraft(getSql(), id, {
-    ...(body.edited !== undefined ? { edited: body.edited } : {}),
-    ...(body.dismissedFlags !== undefined ? { dismissedFlags: body.dismissedFlags } : {}),
-    ...(body.status !== undefined ? { status: body.status as DraftStatus } : {}),
-    ...(body.title !== undefined ? { title: body.title } : {}),
-    influencerHandle, // 정규화된 값으로 덮어쓴다 — body의 원문 그대로가 아니다(핸들만 저장 원칙)
-    ...(derivedFormat ? { format: derivedFormat } : {}),
+  const sql = getSql();
+  const result = await sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql; // 저장소 선례: generate.ts:127
+    // 동시 PATCH가 스테일 스냅샷으로 로그를 쓰지 않도록 행을 잠그고 읽는다 (리뷰 반영)
+    await tx`select id from draft where id = ${id} for update`;
+    const before = await getDraft(tx, id);
+    if (!before) return null;
+    // body를 통째로 펼치지 않는다. 그렇게 하면 요청 본문의 아무 키나 updateDraft의 patch로 흘러가
+    // 클라이언트가 history·translation·koTitle 같은 서버 소관 필드를 직접 세팅할 수 있다. format이
+    // 특히 위험하다 — 본문과 어긋난 값이 저장되면 다시쓰기가 손으로 늘린 칸을 잘라낸다(설계 §E).
+    // 받을 필드를 여기서 하나씩 명시한다.
+    await updateDraft(tx, id, {
+      ...(body.edited !== undefined ? { edited: body.edited } : {}),
+      ...(body.dismissedFlags !== undefined ? { dismissedFlags: body.dismissedFlags } : {}),
+      ...(body.status !== undefined ? { status: body.status as DraftStatus } : {}),
+      ...(body.title !== undefined ? { title: body.title } : {}),
+      influencerHandle, // 정규화된 값으로 덮어쓴다 — body의 원문 그대로가 아니다(핸들만 저장 원칙)
+      ...(derivedFormat ? { format: derivedFormat } : {}),
+    });
+    await syncInfluencerOnDraftUpdate(tx, { before, influencerHandle, status: body.status as string | undefined, actorId: gate.member.id });
+    return true;
   });
-  return NextResponse.json(await getDraft(getSql(), id));
+  if (!result) {
+    return NextResponse.json({ error: '원고를 찾을 수 없어요 — 다른 사람이 삭제했을 수 있어요' }, { status: 404 });
+  }
+  return NextResponse.json(await getDraft(sql, id));
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {

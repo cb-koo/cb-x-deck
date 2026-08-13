@@ -47,11 +47,19 @@ test('401 → GetxapiAuthError', async () => {
 });
 
 test('getUserInfo: data 언래핑', async () => {
-  const { fn } = fakeFetch([{ status: 200, body: { status: 'success', data: { id: '99', userName: 'x', name: 'X', followers: 5, profilePicture: null } } }]);
+  const { fn } = fakeFetch([{ status: 200, body: { status: 'success', data: { id: '99', userName: 'x', name: 'X', followers: 5, profilePicture: null, description: '뷰티 인플루언서' } } }]);
   const c = new GetxapiClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {} });
   const u = await c.getUserInfo('x');
   assert.equal(u.id, '99');
   assert.equal(u.followers, 5);
+  assert.equal(u.description, '뷰티 인플루언서');
+});
+
+test('getUserInfo: description 없으면 null', async () => {
+  const { fn } = fakeFetch([{ status: 200, body: { data: { id: '1', userName: 'x' } } }]);
+  const c = new GetxapiClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {} });
+  const u = await c.getUserInfo('x');
+  assert.equal(u.description, null);
 });
 
 test('getTweetDetail: 200이면 data 반환, id 파라미터 사용', async () => {

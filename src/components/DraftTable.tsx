@@ -1,24 +1,26 @@
 'use client';
-import { useState } from 'react';
 import type { DraftRow } from '@/lib/draftStore';
 import type { DraftStatus } from '@/lib/draftStatus';
 import { DraftStatusChip } from '@/components/DraftStatusChip';
 import { draftTimeLabel } from '@/lib/draftUi';
-import { draftLabel, draftPreviewLine, draftKoLine, sortDrafts, type TableSort, type TableSortKey } from '@/lib/draftViews';
+import { draftLabel, draftPreviewLine, draftKoLine, type TableSort, type TableSortKey } from '@/lib/draftViews';
 import { allSelected } from '@/lib/draftSelection';
 
 // 트리아지용 테이블 — 정독 액션은 없다. 행 클릭 = 카드 뷰 점프 (스펙 2차 §DraftTable)
-export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard, selectedIds, onToggleId, onToggleAll }: {
-  drafts: DraftRow[];
+export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard, selectedIds, onToggleId, onToggleAll, sort, onSortChange }: {
+  drafts: DraftRow[];        // 이미 정렬·절단이 끝난 배열 — 이 컴포넌트는 순서를 바꾸지 않는다(설계 §D)
   clientNameOf: (id: string | null) => string;
   onChangeStatus: (d: DraftRow, s: DraftStatus) => void;
   onOpenCard: (id: string) => void;
   selectedIds: ReadonlySet<string>;
   onToggleId: (id: string) => void;
   onToggleAll: () => void;
+  sort: TableSort;
+  onSortChange: (next: TableSort) => void;
 }) {
-  const [sort, setSort] = useState<TableSort>({ key: 'createdAt', dir: 'desc' });
-  const rows = sortDrafts(drafts, sort, clientNameOf);
+  // 정렬은 페이지가 소유한다 — 여기서 정렬하면 "이미 잘린 배열을 정렬"한 결과가 되어
+  // 전체 정렬의 상위 N건으로 보이지 않는다(설계 §D). 이 컴포넌트는 받은 순서를 그대로 그린다.
+  const rows = drafts;
   const headChecked = allSelected(selectedIds, rows.map((d) => d.id));
   // 일부만 골랐을 때 헤더 체크박스는 '중간' 상태로 — 전부 선택된 것처럼 보이면 안 된다
   const headIndeterminate = !headChecked && rows.some((d) => selectedIds.has(d.id));
@@ -34,7 +36,7 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard, s
   }
 
   const sortBtn = (key: TableSortKey, label: string) => (
-    <button onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }))}
+    <button onClick={() => onSortChange({ key, dir: sort.key === key && sort.dir === 'desc' ? 'asc' : 'desc' })}
             className="flex items-center gap-1 hover:text-x-text">
       {label}{sort.key === key && <span aria-hidden>{sort.dir === 'desc' ? '↓' : '↑'}</span>}
     </button>

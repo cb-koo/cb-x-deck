@@ -151,7 +151,9 @@ export function AddInfluencersDialog({ onClose, onFinished }: {
 function ResultLabel({ state }: { state: LineState }) {
   if (state.phase === 'waiting') return <span className="shrink-0 text-caption text-x-muted">대기 중</span>;
   if (state.phase === 'running') return <span className="shrink-0 text-caption text-x-secondary">조회 중…</span>;
-  if (state.phase === 'error') return <span className="max-w-[240px] shrink-0 text-caption text-red-600">{state.message}</span>;
+  if (state.phase === 'error') {
+    return <span role="alert" className="max-w-[240px] shrink-0 text-caption text-red-600">{state.message}</span>;
+  }
   return (
     <span className="shrink-0 text-caption text-x-secondary">
       {state.kind === 'renamed' ? `개명 감지 — @${state.handle}로 갱신됨` : DONE_LABEL[state.kind]}

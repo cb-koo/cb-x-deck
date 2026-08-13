@@ -115,20 +115,29 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
   }
 
   if (!loaded) return <p className="px-6 py-6 text-ui text-x-muted">불러오는 중…</p>;
-  if (loadErr || !data) {
+  // 전체 오류 화면은 "한 번도 못 받아온" 경우에만 — 이미 좋은 데이터가 있는데 재조회만 실패했다면
+  // 화면을 지우지 말고 얇은 안내띠로만 알린다(아래 loadErr strip).
+  if (loadErr && !data) {
     return (
       <div className="px-6 py-6">
-        <p className="mb-2 text-ui text-x-secondary">프로필을 불러오지 못했습니다</p>
+        <p className="mb-2 text-ui text-x-secondary" role="alert">프로필을 불러오지 못했습니다</p>
         <Button onClick={load}>다시 시도</Button>
       </div>
     );
   }
+  if (!data) return null; // 위 분기가 모든 "data 없음"을 처리하므로 이론상 도달하지 않음 — 타입 좁히기용
 
   const inf = data.influencer;
   const unfetched = inf.profileRefreshedAt === null; // 아직 X에서 한 번도 프로필을 받아오지 않은 상태
 
   return (
     <div className="min-w-0 px-6 py-6">
+      {loadErr && (
+        <div role="alert" className="mb-3 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-ui text-red-700">
+          <span>새로고침에 실패했어요 — 표시된 정보가 최신이 아닐 수 있어요</span>
+          <Button variant="subtle" className="ml-auto shrink-0 bg-white" onClick={load}>다시 시도</Button>
+        </div>
+      )}
       <div className="flex items-start gap-3">
         <Avatar url={inf.avatarUrl} name={inf.displayName ?? inf.handle} size={48} />
         <div className="min-w-0 flex-1">
@@ -152,7 +161,7 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
           </p>
         </div>
       </div>
-      {msg && <p className={`mt-3 rounded-lg px-3 py-2 text-ui ${MSG_STYLE[msg.tone]}`}>{msg.text}</p>}
+      {msg && <p role="alert" className={`mt-3 rounded-lg px-3 py-2 text-ui ${MSG_STYLE[msg.tone]}`}>{msg.text}</p>}
 
       <TagEditor id={id} tags={inf.tags} onSaved={onChanged} />
       <NoteEditor id={id} note={inf.note} />
@@ -222,10 +231,10 @@ function TagEditor({ id, tags, onSaved }: { id: string; tags: string[]; onSaved:
         ))}
         <input value={input} onChange={(e) => setInput(e.target.value)}
                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) add(); }}
-               onBlur={add} placeholder="태그 입력 후 Enter" aria-label="태그 추가"
+               placeholder="태그 입력 후 Enter" aria-label="태그 추가"
                className="w-40 rounded-lg border border-x-border-strong px-2 py-0.5 text-ui outline-none focus:border-x-blue" />
       </div>
-      {err && <p className="mt-1 text-caption text-red-500">{err}</p>}
+      {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
     </section>
   );
 }
@@ -264,7 +273,7 @@ function NoteEditor({ id, note }: { id: string; note: string }) {
       <p className="text-caption text-x-muted">단가·정산 방식처럼 매번 확인하는 내용을 적어두세요. 칸 밖을 클릭하면 저장돼요.</p>
       <textarea value={text} onChange={(e) => { setText(e.target.value); setSaved(false); }} onBlur={saveOnBlur} rows={3}
                 className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
-      {err && <p className="text-caption text-red-500">{err}</p>}
+      {err && <p role="alert" className="text-caption text-red-500">{err}</p>}
     </section>
   );
 }
@@ -330,7 +339,7 @@ function Timeline({ id, logs, onAdded, onRemoved }: {
         </select>
         <Button variant="primary" className="shrink-0 whitespace-nowrap" onClick={add}>기록</Button>
       </div>
-      {err && <p className="mt-1 text-caption text-red-500">{err}</p>}
+      {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
 
       {logs.length === 0 ? (
         <p className="mt-3 text-ui text-x-muted">아직 기록이 없어요 — 위에 한 줄 남기면 여기 쌓여요.</p>
@@ -383,7 +392,7 @@ function LogItem({ id, log, onRemoved }: { id: string; log: InfluencerLogRow; on
                   className="shrink-0 text-caption text-x-muted hover:text-red-500">✕</button>
         ))}
       </div>
-      {err && <p className="mt-1 text-caption text-red-500">{err}</p>}
+      {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
     </li>
   );
 }
@@ -451,7 +460,7 @@ function DangerZone({ id, logCount, onDeleted }: { id: string; logCount: number;
         <button onClick={() => { setConfirming(true); setErr(''); }}
                 className="text-ui text-x-secondary hover:text-red-500">명부에서 제거</button>
       )}
-      {err && <p className="mt-1 text-caption text-red-500">{err}</p>}
+      {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
     </section>
   );
 }

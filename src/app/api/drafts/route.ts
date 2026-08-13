@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
+import type postgres from 'postgres';
 import { getSql } from '@/lib/db';
 import { generateDraft, GenerateInputError, type GenerateRequest } from '@/lib/generate';
-import { listDrafts, getDraft } from '@/lib/draftStore';
+import { listDrafts, getDraft, getDraftsByIdsForUpdate, updateDraftsBulk, removeDraftsBulk } from '@/lib/draftStore';
+import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 import { LLMRefusalError } from '@/lib/llm';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
-import { isDraftStatus } from '@/lib/draftStatus';
+import { isDraftStatus, type DraftStatus } from '@/lib/draftStatus';
+import { normalizeInfluencerPatch } from '@/lib/influencerPatch';
+import { isUuidLike } from '@/lib/uuid';
 
 export async function GET(req: Request) {
   const gate = await requireAllowedUser();
@@ -57,4 +61,63 @@ export async function POST(req: Request) {
     console.error('[draft] 생성 중 오류', { err: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: '생성 중 오류가 났어요 — 잠시 후 다시 시도해주세요' }, { status: 502 });
   }
+}
+
+// 일괄 처리 상한. UI는 최근 50건까지만 보여줘 넘길 수 없지만, 라우트는 UI를 믿지 않는다.
+const BULK_MAX = 100;
+
+// 두 벌크 라우트가 공유하는 ids 검증. 형식이 틀린 요청은 UI가 보낼 수 없는 값이다(손상된 요청).
+function parseIds(v: unknown): { ok: true; ids: string[] } | { ok: false; error: string } {
+  if (!Array.isArray(v) || v.length === 0) return { ok: false, error: '대상을 하나 이상 골라주세요' };
+  if (v.length > BULK_MAX) return { ok: false, error: `한 번에 ${BULK_MAX}개까지 처리할 수 있어요` };
+  if (v.some((x) => typeof x !== 'string' || !isUuidLike(x))) {
+    return { ok: false, error: '요청 형식이 올바르지 않아요' };
+  }
+  return { ok: true, ids: v as string[] };
+}
+
+export async function PATCH(req: Request) {
+  const gate = await requireMember();
+  if (gate.response) return gate.response;
+  const body = (await req.json().catch(() => ({}))) as
+    { ids?: unknown; status?: unknown; influencerHandle?: string | null };
+  const parsed = parseIds(body.ids);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  if (body.status !== undefined && !isDraftStatus(body.status)) {
+    return NextResponse.json({ error: '상태 값이 올바르지 않아요' }, { status: 400 });
+  }
+  const inf = normalizeInfluencerPatch(body.influencerHandle);
+  if (!inf.ok) return NextResponse.json({ error: inf.message }, { status: 400 });
+  if (body.status === undefined && inf.value === undefined) {
+    return NextResponse.json({ error: '바꿀 내용이 없어요' }, { status: 400 });
+  }
+  // 갱신과 자동 로그(influencerSync)를 같은 트랜잭션에 — 단건 PATCH와 같은 원칙(스펙 §5).
+  // UPDATE는 여전히 한 문장이고, 로그 insert N개는 같은 커넥션 위의 짧은 문장들이라
+  // updateDraftsBulk가 피하려던 "커넥션 N개 동시 점유"와는 다르다.
+  const sql = getSql();
+  await sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql; // 저장소 선례: generate.ts:127
+    const befores = await getDraftsByIdsForUpdate(tx, parsed.ids);
+    await updateDraftsBulk(tx, parsed.ids, {
+      status: body.status as DraftStatus | undefined,
+      ...(inf.value !== undefined ? { influencerHandle: inf.value } : {}),
+    });
+    for (const before of befores) {
+      await syncInfluencerOnDraftUpdate(tx, {
+        before, influencerHandle: inf.value,
+        status: body.status as string | undefined, actorId: gate.member.id,
+      });
+    }
+  });
+  return NextResponse.json({ ok: true, updated: parsed.ids.length });
+}
+
+export async function DELETE(req: Request) {
+  const gate = await requireMember();
+  if (gate.response) return gate.response;
+  const body = (await req.json().catch(() => ({}))) as { ids?: unknown };
+  const parsed = parseIds(body.ids);
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  await removeDraftsBulk(getSql(), parsed.ids);
+  return NextResponse.json({ ok: true, removed: parsed.ids.length });
 }

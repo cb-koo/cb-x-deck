@@ -1,0 +1,16 @@
+# CLI 배포(vercel --prod) 시 업로드에서 제외할 것들.
+# 이 파일이 없으면 .env가 빌드 업로드에 딸려 올라간 적이 있다(2026-08 확인) — 그 사고 방지가 이 파일의 존재 이유다.
+# .vercelignore가 존재하면 .gitignore 대신 이것만 쓰이므로, 제외 목록을 여기에 온전히 다시 적는다.
+.env*
+.vercel
+/node_modules
+/.next/
+/out/
+/build
+/coverage
+.git
+.DS_Store
+*.pem
+*.tsbuildinfo
+.worktrees/
+.superpowers/

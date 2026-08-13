@@ -22,6 +22,7 @@ test('draftKoLine: 캐시 없으면 null, 있으면 첫 줄만', () => {
 
 test('draftLabel: 제목 우선 — koTitle이 있으면 kind=title', () => {
   const label = draftLabel({
+    title: null,
     koTitle: '생성된 제목',
     koLatest: ['번역본 첫 줄'],
     content: post('원문 첫 줄'),
@@ -32,6 +33,7 @@ test('draftLabel: 제목 우선 — koTitle이 있으면 kind=title', () => {
 
 test('draftLabel: 제목 없으면 ko — koLatest 첫 줄이 있으면 kind=ko', () => {
   const label = draftLabel({
+    title: null,
     koTitle: null,
     koLatest: ['번역본 첫 줄\n둘째 줄'],
     content: post('원문 첫 줄'),
@@ -42,6 +44,7 @@ test('draftLabel: 제목 없으면 ko — koLatest 첫 줄이 있으면 kind=ko'
 
 test('draftLabel: 둘 다 없으면 원문·빈 값은 (내용 없음)', () => {
   const labelWithContent = draftLabel({
+    title: null,
     koTitle: null,
     koLatest: null,
     content: post('원문 첫 줄'),
@@ -50,12 +53,44 @@ test('draftLabel: 둘 다 없으면 원문·빈 값은 (내용 없음)', () => {
   assert.deepEqual(labelWithContent, { text: '원문 첫 줄', kind: 'original' });
 
   const labelEmpty = draftLabel({
+    title: null,
     koTitle: null,
     koLatest: null,
     content: { posts: [] },
     edited: null,
   });
   assert.deepEqual(labelEmpty, { text: '(내용 없음)', kind: 'original' });
+});
+
+test('draftLabel: 사람이 붙인 title이 자동 koTitle보다 앞선다', () => {
+  const label = draftLabel({
+    title: '사람이 붙인 이름',
+    koTitle: '자동 제목',
+    koLatest: ['번역본 첫 줄'],
+    content: post('원문 첫 줄'),
+    edited: null,
+  });
+  assert.deepEqual(label, { text: '사람이 붙인 이름', kind: 'title' });
+});
+
+test('draftLabel: title이 공백뿐이면 없는 것으로 본다', () => {
+  const label = draftLabel({
+    title: '   ',
+    koTitle: '자동 제목',
+    koLatest: null,
+    content: post('원문 첫 줄'),
+    edited: null,
+  });
+  assert.deepEqual(label, { text: '자동 제목', kind: 'title' });
+});
+
+test('draftLabel: 제목이 둘 다 없으면 기존 폴백 그대로', () => {
+  assert.deepEqual(
+    draftLabel({ title: null, koTitle: null, koLatest: ['번역 첫 줄'], content: post('원문'), edited: null }),
+    { text: '번역 첫 줄', kind: 'ko' });
+  assert.deepEqual(
+    draftLabel({ title: null, koTitle: null, koLatest: null, content: post('원문 첫 줄'), edited: null }),
+    { text: '원문 첫 줄', kind: 'original' });
 });
 
 test('sortDrafts: 생성일 내림차순 기본·원본 불변', () => {

@@ -16,9 +16,13 @@ export function draftKoLine(d: { koLatest: string[] | null }): string | null {
   return line || null;
 }
 
-// 목록·보드 항목 라벨 폴백 체인 — 제목(생성 라벨) → 한국어 대역 첫 줄(번역) → 원문 첫 줄 (5차 스펙 §표시)
-export function draftLabel(d: { koTitle: string | null; koLatest: string[] | null; content: PreviewSource; edited: PreviewSource | null }):
+// 목록·보드 항목 라벨 폴백 체인 — 사람이 붙인 제목 → 자동 제목 → 한국어 대역 첫 줄 → 원문 첫 줄
+// (5차 스펙 §표시를 2026-08-13 설계 §A로 확장). 사람이 붙인 제목이 맨 앞인 이유는 그것만이
+// 본문 편집에도 살아남는 값이라, 사용자가 "내가 지은 이름"으로 원고를 찾을 수 있어야 하기 때문이다.
+export function draftLabel(d: { title: string | null; koTitle: string | null; koLatest: string[] | null; content: PreviewSource; edited: PreviewSource | null }):
   { text: string; kind: 'title' | 'ko' | 'original' } {
+  const manual = d.title?.trim();
+  if (manual) return { text: manual, kind: 'title' };
   if (d.koTitle) return { text: d.koTitle, kind: 'title' };
   const ko = draftKoLine(d);
   if (ko) return { text: ko, kind: 'ko' };

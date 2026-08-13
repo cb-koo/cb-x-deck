@@ -1,7 +1,10 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { insertDraft, listDrafts, getDraft, updateDraft, removeDraft } from './draftStore.ts';
+import {
+  insertDraft, listDrafts, getDraft, updateDraft, removeDraft,
+  updateDraftsBulk, removeDraftsBulk,
+} from './draftStore.ts';
 import { createClient, deleteClient } from './clientStore.ts';
 import type { DraftContent } from './draftTypes.ts';
 
@@ -141,4 +144,64 @@ test('influencer — 배정 저장·미지정(undefined) 보존·해제(null)', 
   assert.equal(cleared!.status, 'review'); // 해제가 다른 컬럼을 함께 지우지 않았다
 
   await removeDraft(sql, id);
+});
+
+test('title: 설정·유지·지움 — 본문을 편집해도 살아남는다', async () => {
+  const id = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + 'title 왕복', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+
+  // 처음엔 없다
+  assert.equal((await getDraft(sql, id))!.title, null);
+
+  // 설정
+  await updateDraft(sql, id, { title: '보톡스 다운타임 훅' });
+  assert.equal((await getDraft(sql, id))!.title, '보톡스 다운타임 훅');
+
+  // 본문을 편집해도 제목은 그대로 (ko_title과 다른 지점 — 해시 검사를 타지 않는다)
+  await updateDraft(sql, id, { edited: { posts: [{ text: '고친 본문', media: [] }] } });
+  assert.equal((await getDraft(sql, id))!.title, '보톡스 다운타임 훅');
+
+  // 건드리지 않으면 유지
+  await updateDraft(sql, id, { status: 'review' });
+  assert.equal((await getDraft(sql, id))!.title, '보톡스 다운타임 훅');
+
+  // 빈 문자열 = 지움
+  await updateDraft(sql, id, { title: '' });
+  assert.equal((await getDraft(sql, id))!.title, null);
+
+  await removeDraft(sql, id);
+});
+
+test('벌크: 여러 건 상태·배정 한 번에, 그리고 한 번에 삭제', async () => {
+  const mk = () => insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + '벌크', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+  const ids = [await mk(), await mk(), await mk()];
+
+  await updateDraftsBulk(sql, ids, { status: 'approved' });
+  for (const id of ids) assert.equal((await getDraft(sql, id))!.status, 'approved');
+
+  // 배정: 상태는 건드리지 않는다(undefined = 유지)
+  await updateDraftsBulk(sql, ids, { influencerHandle: 'mika_jp' });
+  for (const id of ids) {
+    const got = (await getDraft(sql, id))!;
+    assert.equal(got.influencerHandle, 'mika_jp');
+    assert.equal(got.status, 'approved');
+  }
+
+  // null = 배정 해제
+  await updateDraftsBulk(sql, ids, { influencerHandle: null });
+  assert.equal((await getDraft(sql, ids[0]))!.influencerHandle, null);
+
+  // 빈 배열은 아무 것도 하지 않는다 (SQL을 쏘지 않는다)
+  await updateDraftsBulk(sql, [], { status: 'unused' });
+  assert.equal((await getDraft(sql, ids[0]))!.status, 'approved');
+
+  await removeDraftsBulk(sql, ids);
+  for (const id of ids) assert.equal(await getDraft(sql, id), null);
 });

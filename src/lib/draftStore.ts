@@ -29,6 +29,8 @@ export interface DraftRow {
   history: DraftContent[]; // 재생성 직전 표시본 스냅샷들 — [ ...history, edited ?? content ]가 버전 타임라인
   translation: DraftTranslation | null;
   koLatest: string[] | null; // 최신 버전(edited ?? content)의 캐시 번역 파생값 — 클라이언트는 이 필드만 읽는다 (4차 스펙)
+  // 사람이 붙인 제목 — ko_title과 달리 해시 검사를 타지 않는다(본문을 고쳐도 남는다, 설계 §A)
+  title: string | null;
   koTitle: string | null; // 최신 버전과 해시가 일치할 때만 값 — 아니면 null(스테일 방지, koLatest와 동일 패턴)
   dismissedFlags: string[];
   status: DraftStatus; // 결정 진행도 라벨 — 전이 제약 없음 (스펙 §2)
@@ -45,6 +47,7 @@ type Row = {
   direction: string; format: DraftFormat; reference_mode: ReferenceMode; refs: RefSnapshot[];
   content: DraftContent; edited: DraftContent | null;
   history: DraftContent[]; translation: DraftTranslation | null;
+  title: string | null;
   ko_title: string | null; ko_title_hash: string | null;
   dismissed_flags: string[];
   status: DraftStatus;
@@ -65,6 +68,7 @@ const toRow = (r: Row): DraftRow => {
     translation,
     // 최신 버전의 캐시 번역 — 해시 계산은 서버 소관(node:crypto), 클라이언트는 이 필드만 읽는다 (4차 스펙)
     koLatest: translation?.[latestHash] ?? null,
+    title: r.title,
     // 저장된 제목의 hash가 최신 버전과 다르면(=편집·재생성 이후) 낡은 제목이므로 숨긴다
     koTitle: r.ko_title && r.ko_title_hash === latestHash ? r.ko_title : null,
     dismissedFlags: r.dismissed_flags,
@@ -79,7 +83,7 @@ const toRow = (r: Row): DraftRow => {
 const SELECT = (sql: postgres.Sql) => sql`
   select d.id, d.client_id, d.client_name, d.procedure_names, d.direction, d.format,
          d.reference_mode, d.refs, d.content, d.edited, d.history, d.translation,
-         d.ko_title, d.ko_title_hash,
+         d.title, d.ko_title, d.ko_title_hash,
          d.dismissed_flags, d.status, d.influencer_handle, d.batch_id, d.variant_index, d.model, d.created_at,
          m.id as member_id, m.name as member_name, m.color as member_color
     from draft d
@@ -129,8 +133,10 @@ export async function updateDraft(
   sql: postgres.Sql, id: string,
   patch: { edited?: DraftContent; dismissedFlags?: string[]; history?: DraftContent[];
            translation?: DraftTranslation; status?: DraftStatus;
+           title?: string | null; // '' · null = 지움 · 문자열 = 설정 · undefined = 건드리지 않음
            koTitle?: string | null; koTitleHash?: string | null; // 호출부가 둘을 항상 쌍으로 세팅
-           influencerHandle?: string | null }, // null이 '배정 해제'라는 뜻을 갖는 유일한 필드 — 아래 case when 참조
+           influencerHandle?: string | null; // null이 '배정 해제'라는 뜻을 갖는 유일한 필드 — 아래 case when 참조
+           format?: DraftFormat }, // 칸 수 변경 시 서버가 파생해 넘긴다 — '지움' 개념이 없으므로 coalesce로 충분
 ): Promise<void> {
   await sql`update draft set
       edited = coalesce(${patch.edited ? sql.json(patch.edited as never) : null}, edited),
@@ -138,6 +144,11 @@ export async function updateDraft(
       history = coalesce(${patch.history ? sql.json(patch.history as never) : null}, history),
       translation = coalesce(${patch.translation ? sql.json(patch.translation as never) : null}, translation),
       status = coalesce(${patch.status ?? null}, status),
+      format = coalesce(${patch.format ?? null}, format),
+      -- undefined = 건드리지 않음 · '' 또는 null = 지움 · 문자열 = 설정 (influencer_handle과 같은 구조)
+      title = case when ${patch.title !== undefined}
+                then ${patch.title ? patch.title : null}::text
+                else title end,
       ko_title = coalesce(${patch.koTitle ? patch.koTitle : null}, ko_title),
       ko_title_hash = coalesce(${patch.koTitleHash ? patch.koTitleHash : null}, ko_title_hash),
       -- 이 컬럼만 coalesce를 쓰지 않는다: coalesce는 "null이면 기존값 유지"라 배정 해제를 표현할 방법이 없다.
@@ -146,6 +157,35 @@ export async function updateDraft(
                             then ${patch.influencerHandle ?? null}::text
                             else influencer_handle end
     where id = ${id}`;
+}
+
+// 일괄 변경 — 개별 updateDraft를 N번 부르지 않는다. 50건을 고르면 커넥션 50개가 동시에 붙는데,
+// 이 저장소는 이미 커넥션 고갈로 목록이 비는 회귀를 겪었다(설계 §B). 한 문장으로 끝낸다.
+// null·undefined 의미는 updateDraft와 같다: undefined = 건드리지 않음, null = 배정 해제.
+export async function updateDraftsBulk(
+  sql: postgres.Sql, ids: string[],
+  patch: { status?: DraftStatus; influencerHandle?: string | null },
+): Promise<void> {
+  if (ids.length === 0) return; // any(빈 배열)은 0건을 맞히지만, 쿼리를 안 쏘는 편이 정직하다
+  await sql`update draft set
+      status = coalesce(${patch.status ?? null}, status),
+      influencer_handle = case when ${patch.influencerHandle !== undefined}
+                            then ${patch.influencerHandle ?? null}::text
+                            else influencer_handle end
+    where id = any(${ids}::uuid[])`;
+}
+
+export async function removeDraftsBulk(sql: postgres.Sql, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await sql`delete from draft where id = any(${ids}::uuid[])`;
+}
+
+// 벌크 PATCH가 자동 로그(influencerSync)를 우회하지 않도록, 갱신 전 상태를 잠그고 통째로 읽는다.
+// for update of d: member 조인은 잠그지 않는다. 호출자는 같은 트랜잭션에서 갱신+로그까지 끝낸다.
+export async function getDraftsByIdsForUpdate(sql: postgres.Sql, ids: string[]): Promise<DraftRow[]> {
+  if (ids.length === 0) return [];
+  const rows = await sql<Row[]>`${SELECT(sql)} where d.id = any(${ids}::uuid[]) for update of d`;
+  return rows.map(toRow);
 }
 
 export async function removeDraft(sql: postgres.Sql, id: string): Promise<void> {

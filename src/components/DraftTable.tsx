@@ -5,16 +5,23 @@ import type { DraftStatus } from '@/lib/draftStatus';
 import { DraftStatusChip } from '@/components/DraftStatusChip';
 import { draftTimeLabel } from '@/lib/draftUi';
 import { draftLabel, draftPreviewLine, draftKoLine, sortDrafts, type TableSort, type TableSortKey } from '@/lib/draftViews';
+import { allSelected } from '@/lib/draftSelection';
 
 // 트리아지용 테이블 — 정독 액션은 없다. 행 클릭 = 카드 뷰 점프 (스펙 2차 §DraftTable)
-export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }: {
+export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard, selectedIds, onToggleId, onToggleAll }: {
   drafts: DraftRow[];
   clientNameOf: (id: string | null) => string;
   onChangeStatus: (d: DraftRow, s: DraftStatus) => void;
   onOpenCard: (id: string) => void;
+  selectedIds: ReadonlySet<string>;
+  onToggleId: (id: string) => void;
+  onToggleAll: () => void;
 }) {
   const [sort, setSort] = useState<TableSort>({ key: 'createdAt', dir: 'desc' });
   const rows = sortDrafts(drafts, sort, clientNameOf);
+  const headChecked = allSelected(selectedIds, rows.map((d) => d.id));
+  // 일부만 골랐을 때 헤더 체크박스는 '중간' 상태로 — 전부 선택된 것처럼 보이면 안 된다
+  const headIndeterminate = !headChecked && rows.some((d) => selectedIds.has(d.id));
 
   // 행을 눌렀을 때 카드를 열어야 하는 클릭인지. 두 가지는 카드를 열지 않는다:
   // (1) 셀 안의 링크·버튼 — 상태 칩을 눌렀는데 팝업까지 뜨면 두 일이 동시에 일어난 것처럼 보인다.
@@ -37,6 +44,13 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }:
       <table className="w-full text-ui">
         <thead>
           <tr className="border-b border-x-border text-left text-caption text-x-muted">
+            <th className="w-10 px-3 py-2 font-normal">
+              <input type="checkbox" checked={headChecked}
+                     ref={(el) => { if (el) el.indeterminate = headIndeterminate; }}
+                     onChange={onToggleAll}
+                     aria-label="보이는 원고 전체 선택"
+                     className="h-4 w-4 cursor-pointer accent-x-blue" />
+            </th>
             <th className="px-3 py-2 font-normal">원고</th>
             <th className="px-3 py-2 font-normal" aria-sort={sort.key === 'client' ? (sort.dir === 'desc' ? 'descending' : 'ascending') : undefined}>{sortBtn('client', '클라이언트')}</th>
             {/* 인플루언서 — 시술·형식과 같은 비정렬 열(스펙 §F). 클라이언트 바로 다음: 둘 다 "누구" 축이라 붙여야 훑기 좋다 */}
@@ -62,7 +76,14 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard }:
                   e.preventDefault();                          // 스페이스로 페이지가 스크롤되는 것을 막는다
                   onOpenCard(d.id);
                 }}
-                className="cursor-pointer border-b border-x-border hover:bg-x-hover focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
+                className={`cursor-pointer border-b border-x-border focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue ${selectedIds.has(d.id) ? 'bg-x-blue/5' : 'hover:bg-x-hover'}`}>
+              {/* 체크박스 클릭이 행 클릭(카드 열기)으로 번지지 않게 — 상태 칩 셀과 같은 방식 */}
+              <td className="w-10 px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                <input type="checkbox" checked={selectedIds.has(d.id)}
+                       onChange={() => onToggleId(d.id)}
+                       aria-label={`${label.text} 선택`}
+                       className="h-4 w-4 cursor-pointer accent-x-blue" />
+              </td>
               <td className="max-w-[360px] truncate px-3 py-2"
                   title={label.kind === 'title' ? (draftKoLine(d) ?? draftPreviewLine(d)) : undefined}>
                 {label.kind === 'title' ? <span className="font-medium">{label.text}</span>

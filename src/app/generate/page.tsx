@@ -187,10 +187,20 @@ function Workbench() {
 
   // 진입점 B: /generate?draft=<id> — 인플루언서 프로필의 원고 롤업·로그에서 진입, 확대 보기로 연다.
   // 필터가 숨겨도 열린다 — peeked 파생이 필터 전 drafts를 보기 때문(101행).
+  // deeplinkDone: 주소창의 draft 값을 '소비했다'는 표시. 아래 동기화 이펙트가 이걸 기다린다 —
+  // 목록이 로드되기 전에 주소를 건드리면 열어야 할 대상을 우리 손으로 지워버린다(아래 참조).
+  const [deeplinkDone, setDeeplinkDone] = useState(false);
   useEffect(() => {
+    if (!loaded) return; // 목록이 있어야 대상을 찾을 수 있다
     const target = searchParams.get('draft');
-    if (!target || !loaded) return;
-    if (draftsRef.current.some((d) => d.id === target)) setPeekId(target);
+    if (target) {
+      if (draftsRef.current.some((d) => d.id === target)) setPeekId(target);
+      // 못 찾으면 조용히 넘어가지 않는다 — 링크를 받은 사람에겐 "안 열린다"만 남고 이유가 없다.
+      // 최근 1000건까지만 로드하므로 그보다 오래된 원고이거나, 그 사이 삭제된 경우다.
+      else setToast('링크가 가리키는 원고를 찾을 수 없어요 — 삭제됐거나 너무 오래된 원고일 수 있어요');
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 딥링크 소비 표시, 로드 후 1회
+    setDeeplinkDone(true);
   }, [searchParams, loaded]);
 
   // 확대 보기를 열면 주소창에도 남긴다 — 링크를 얻는 두 번째 경로다(카드의 링크 복사 버튼이 첫 번째).
@@ -199,12 +209,18 @@ function Workbench() {
   // Next 라우터가 아니라 history.replaceState를 쓰는 이유: 이 페이지는 초안 수백 건을 들고 있어
   // 라우터 갱신이 리렌더를 부르는데, 여기서 필요한 건 주소 표시뿐이다. replace라 뒤로가기 기록도
   // 쌓이지 않는다 — 원고를 여닫을 때마다 뒤로가기가 한 칸씩 늘어나면 그게 더 성가시다.
+  //
+  // deeplinkDone을 기다리는 것이 핵심이다. 이 가드가 없으면 마운트 직후(목록 로드 전) 이 이펙트가
+  // peekId=null 상태로 먼저 돌아 주소에서 draft를 지운다. 이 Next는 history.replaceState를 라우터와
+  // 통합하고 있어서 지워진 값이 useSearchParams에도 반영되고, 그래서 목록이 로드된 뒤엔 열어야 할
+  // 대상이 이미 사라져 있다 — 링크로 들어와도 /generate로 튕기는 증상이 정확히 이것이었다.
   useEffect(() => {
+    if (!deeplinkDone) return;
     const url = new URL(window.location.href);
     if (peekId) url.searchParams.set('draft', peekId);
     else url.searchParams.delete('draft');
     if (url.toString() !== window.location.href) window.history.replaceState(null, '', url);
-  }, [peekId]);
+  }, [peekId, deeplinkDone]);
 
   const selectedRefIds = useMemo(() => refRows.map((x) => x.tweetId), [refRows]);
 

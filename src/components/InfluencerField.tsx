@@ -4,8 +4,8 @@ import type { InfluencerOption } from '@/lib/draftTypes';
 
 // 원고를 게시할 인플루언서 한 명 — X 핸들 한 칸 (스펙 2026-08-11 §D).
 //
-// 이 컴포넌트는 옵션의 출처를 모른다. 지금은 '이미 배정한 적 있는 계정'을 초안에서 파생하지만,
-// 나중에 인플루언서 목록 DB가 생기면 바뀌는 건 옵션을 읽어오는 쪽뿐이고 이 파일은 그대로 간다.
+// 이 컴포넌트는 옵션의 출처를 모른다. 지금은 인플루언서 명부 테이블에서 옵션을 읽어오지만,
+// 그 사실도 이 파일은 모른다 — 옵션을 읽어오는 쪽이 또 바뀌어도 이 파일은 그대로 간다.
 // 그래서 fetch를 하지 않고 prop으로만 받는다 — 교체 지점을 이 파일 밖에 가두기 위해서다.
 //
 // 정규화(parseXHandle)와 오류 판정도 여기서 하지 않는다. 저장되는 값의 근거는 서버 정규화이고,
@@ -40,12 +40,12 @@ export function InfluencerField({ value, options, onChange, error, autoFocus, on
              aria-describedby={error ? `${helpId} ${errId}` : helpId}
              className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue" />
       {/* datalist는 '고르는 목록'이 아니라 '좁혀주는 제안'이라 목록에 없는 값도 그대로 입력된다 —
-          지금 후보가 등록된 인플루언서 명단이 아니라서, 도움말이 그 사실을 그대로 말한다. */}
+          후보는 등록된 인플루언서 명단(인플루언서 DB)에서 오므로, 도움말이 그 사실을 그대로 말한다. */}
       <datalist id={listId}>
         {options.map((o) => <option key={o.handle} value={o.handle} label={o.name} />)}
       </datalist>
       <p id={helpId} className="mt-1 text-caption text-x-muted">
-        X 프로필 주소를 그대로 붙여넣어도 돼요 — 이미 배정한 적 있는 계정이 아래에 제안됩니다
+        X 프로필 주소를 그대로 붙여넣어도 돼요 — 등록된 인플루언서가 아래에 제안됩니다
       </p>
       {/* role="alert": 이 오류는 저장 버튼을 눌렀을 때 뜬다 — 그때 포커스는 버튼에 있어
           입력칸에 걸어둔 aria-describedby만으로는 읽히지 않는다(ColumnSettings 선례). */}

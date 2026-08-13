@@ -8,7 +8,7 @@ import { useMember } from '@/lib/memberContext';
 import { swapWorkspacePath } from '@/lib/wsNav';
 import { interceptNav } from '@/lib/navGuard';
 import { createClient } from '@/lib/supabase/client';
-import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, PromptIcon } from './XIcons';
+import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, PromptIcon, UserIcon } from './XIcons';
 
 // SPA 이동 가드 — /clients 등이 등록한 편집 유실 방지(navGuard)에 걸리면 이동을 중단한다.
 // <a> 시절엔 beforeunload가 잡았지만 Link(클라이언트 라우팅)는 우회하므로 onNavigate에 연결.
@@ -51,8 +51,10 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
   ];
 
   // 워크스페이스 무관 최상위 기능 (스펙 §4 — 콘텐츠 생성은 /w/[wsId] 밖)
+  // 인플루언서 명부도 워크스페이스 밖 — 원고를 누구에게 줄지는 워크스페이스와 무관한 사람 정보다(스펙 §3)
   const globalNav = [
     { href: '/generate', label: '콘텐츠 생성', Ic: PenIcon },
+    { href: '/influencers', label: '인플루언서', Ic: UserIcon },
   ];
 
   // 설정 성격 화면(가끔 들어가 재료·규칙을 손보는 곳) — 매일 쓰는 작업 메뉴와 분리 (사이드바 개선 스펙)

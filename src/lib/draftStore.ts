@@ -1,6 +1,6 @@
 import type postgres from 'postgres';
 import type { Member } from './types.ts';
-import type { DraftContent, DraftFormat, InfluencerOption, ReferenceMode, RefSnapshot } from './draftTypes.ts';
+import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
 import type { DraftStatus } from './draftStatus.ts';
 import { hashSource } from './translationStore.ts';
 
@@ -180,18 +180,12 @@ export async function removeDraftsBulk(sql: postgres.Sql, ids: string[]): Promis
   await sql`delete from draft where id = any(${ids}::uuid[])`;
 }
 
-// 배정된 적 있는 핸들 전체 — 자동완성 후보. 화면에 로드된 초안에서 파생하지 않는 이유는
-// listDrafts가 최근 50건만 돌려주기 때문이다(51번째 이전 배정이 후보에서 사라지면 담당자가 기억으로
-// 다시 타이핑하고, 그게 정확히 이 기능이 막으려던 표기 분화다).
-// X 핸들은 대소문자를 구분하지 않으므로 lower 기준으로 합치고, 대표 표기는 최신 것(현재 습관에 가깝다).
-// distinct on은 order by의 첫 표현식이 그것과 일치해야 하므로 정렬도 lower가 앞에 온다 = 결과는 소문자 사전순.
-export async function listInfluencerHandles(sql: postgres.Sql): Promise<InfluencerOption[]> {
-  const rows = await sql<Array<{ influencer_handle: string }>>`
-    select distinct on (lower(influencer_handle)) influencer_handle
-      from draft
-     where influencer_handle is not null
-     order by lower(influencer_handle), created_at desc`;
-  return rows.map((r) => ({ handle: r.influencer_handle }));
+// 벌크 PATCH가 자동 로그(influencerSync)를 우회하지 않도록, 갱신 전 상태를 잠그고 통째로 읽는다.
+// for update of d: member 조인은 잠그지 않는다. 호출자는 같은 트랜잭션에서 갱신+로그까지 끝낸다.
+export async function getDraftsByIdsForUpdate(sql: postgres.Sql, ids: string[]): Promise<DraftRow[]> {
+  if (ids.length === 0) return [];
+  const rows = await sql<Row[]>`${SELECT(sql)} where d.id = any(${ids}::uuid[]) for update of d`;
+  return rows.map(toRow);
 }
 
 export async function removeDraft(sql: postgres.Sql, id: string): Promise<void> {

@@ -1,0 +1,273 @@
+import { test, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { getSql } from './db.ts';
+import { insertDraft, updateDraft } from './draftStore.ts';
+import type { DraftContent } from './draftTypes.ts';
+import type { UserInfo } from './getxapi.ts';
+import {
+  createInfluencer, listInfluencers, findInfluencerById, findByHandle, findDuplicateByXUserId,
+  getInfluencerDetail, updateInfluencer, deleteInfluencer, applyProfileSnapshot, ensureInfluencer,
+  renameInfluencer, addManualLog, deleteManualLog, insertAutoLog, listOptions,
+} from './influencerStore.ts';
+
+const sql = getSql();
+// 핸들 접두어 — 병렬 실행/실 DB 오염 방지. 소문자로 시작해야 lower 정리 쿼리가 맞아떨어진다.
+const P = 'tinf' + process.pid;
+const content: DraftContent = { posts: [{ text: '正直迷ってた。\n\nでも良かった。', media: [] }] };
+
+after(async () => {
+  await sql`delete from draft where lower(influencer_handle) like ${P.toLowerCase() + '%'}`;
+  await sql`delete from draft where direction like ${P + '%'}`;
+  await sql`delete from influencer where lower(handle) like ${P.toLowerCase() + '%'}`; // 로그는 cascade
+  await sql.end();
+});
+
+test('1) CRUD 왕복: 생성 기본값 → 수정 반영 → 목록 포함 → 삭제', async () => {
+  const { row, created } = await createInfluencer(sql, { handle: P + 'crud', createdBy: null });
+  assert.equal(created, true);
+  assert.equal(row.handle, P + 'crud');
+  assert.deepEqual(row.tags, []);
+  assert.equal(row.note, '');
+  assert.equal(row.xUserId, null);
+  assert.equal(row.displayName, null);
+  assert.equal(row.profileRefreshedAt, null);
+  assert.equal(row.lastLogAt, null);
+  assert.equal(row.draftCount, 0);
+  assert.ok(row.createdAt);
+
+  await updateInfluencer(sql, row.id, { note: '단가 30만', tags: ['뷰티', '도쿄'] });
+  const got = await findInfluencerById(sql, row.id);
+  assert.equal(got!.note, '단가 30만');
+  assert.deepEqual(got!.tags, ['뷰티', '도쿄']);
+
+  assert.ok((await listInfluencers(sql)).some((x) => x.id === row.id), '목록에 포함');
+
+  await deleteInfluencer(sql, row.id);
+  assert.equal(await findInfluencerById(sql, row.id), null);
+});
+
+test('2) lower 중복: 대소문자만 다른 핸들은 새로 만들지 않고 기존 행(표기 보존)을 돌려준다', async () => {
+  const first = await createInfluencer(sql, { handle: P + 'Abc', createdBy: null });
+  assert.equal(first.created, true);
+
+  const again = await createInfluencer(sql, { handle: P + 'ABC', createdBy: null });
+  assert.equal(again.created, false);
+  assert.equal(again.row.id, first.row.id);
+  assert.equal(again.row.handle, P + 'Abc'); // 최초 표기 유지
+
+  const found = await findByHandle(sql, P + 'aBC');
+  assert.equal(found!.id, first.row.id);
+  assert.equal(await findByHandle(sql, P + 'nosuch'), null);
+});
+
+test('3) ensureInfluencer: 없으면 만들고, 대소문자 변형 재호출은 같은 id (on conflict 경로)', async () => {
+  const id = await ensureInfluencer(sql, P + 'Ensure', null);
+  assert.ok(id);
+  const again = await ensureInfluencer(sql, P + 'ENSURE', null);
+  assert.equal(again, id);
+
+  const row = await findInfluencerById(sql, id);
+  assert.equal(row!.handle, P + 'Ensure'); // 재호출이 표기를 덮지 않는다
+});
+
+test('4) applyProfileSnapshot: x_user_id·스냅샷 4종·조회 시각', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'snap', createdBy: null });
+  const info: UserInfo = {
+    id: '999' + process.pid,
+    userName: P + 'snap',
+    name: 'みか',
+    followers: 12345,
+    profilePicture: 'https://example.com/a.jpg',
+    description: '美容好き',
+  };
+  await applyProfileSnapshot(sql, row.id, info);
+
+  const got = await findInfluencerById(sql, row.id);
+  assert.equal(got!.xUserId, '999' + process.pid);
+  assert.equal(got!.displayName, 'みか');
+  assert.equal(got!.avatarUrl, 'https://example.com/a.jpg');
+  assert.equal(got!.bio, '美容好き');
+  assert.equal(got!.followersCount, 12345);
+  assert.ok(got!.profileRefreshedAt, 'profileRefreshedAt not null');
+  assert.ok(Date.now() - new Date(got!.profileRefreshedAt!).getTime() < 60_000);
+
+  // 생성과 동시에 스냅샷을 넣는 경로(프로필 조회 후 등록) — 같은 컬럼이 채워진다
+  const born = await createInfluencer(sql, {
+    handle: P + 'snap2', createdBy: null, snapshot: { ...info, userName: P + 'snap2' },
+  });
+  assert.equal(born.created, true);
+  assert.equal(born.row.xUserId, '999' + process.pid);
+  assert.equal(born.row.displayName, 'みか');
+  assert.equal(born.row.bio, '美容好き');
+  assert.equal(born.row.followersCount, 12345);
+  assert.equal(born.row.avatarUrl, 'https://example.com/a.jpg');
+  assert.ok(born.row.profileRefreshedAt, '스냅샷과 함께 만들면 조회 시각도 찍힌다');
+});
+
+test('5) 로그: 수동 기록·자동 이벤트가 한 시계열, 자동 로그는 지워지지 않는다', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'log', createdBy: null });
+  const [m] = await sql<Array<{ id: string; name: string; color: string }>>`
+    select id, name, color from member limit 1`;
+
+  const manual = await addManualLog(sql, row.id, { body: 'DM 답장 옴', channel: 'dm', authorId: m?.id ?? null });
+  assert.equal(manual.kind, 'manual');
+  assert.equal(manual.body, 'DM 답장 옴');
+  assert.equal(manual.channel, 'dm');
+  assert.equal(manual.eventType, null);
+  assert.ok(manual.createdAt);
+  if (m) assert.deepEqual(manual.member, { id: m.id, name: m.name, color: m.color });
+  else assert.equal(manual.member, null);
+
+  await insertAutoLog(sql, {
+    influencerId: row.id, eventType: 'draft_assigned', draftId: null, draftTitle: 'T', authorId: null,
+  });
+
+  const detail = await getInfluencerDetail(sql, row.id);
+  assert.equal(detail!.influencer.id, row.id);
+  assert.equal(detail!.logs.length, 2);
+  assert.equal(detail!.logs[0].kind, 'auto', '최신순 — 자동 로그가 앞');
+  assert.equal(detail!.logs[0].eventType, 'draft_assigned');
+  assert.equal(detail!.logs[0].draftTitle, 'T');
+  assert.equal(detail!.logs[0].body, null);
+  assert.equal(detail!.logs[1].id, manual.id);
+
+  const autoId = detail!.logs[0].id;
+  assert.equal(await deleteManualLog(sql, row.id, autoId), false, 'auto는 삭제 불가');
+  assert.equal((await getInfluencerDetail(sql, row.id))!.logs.length, 2);
+
+  assert.equal(await deleteManualLog(sql, row.id, manual.id), true);
+  const rest = await getInfluencerDetail(sql, row.id);
+  assert.equal(rest!.logs.length, 1);
+  assert.equal(rest!.logs[0].id, autoId);
+});
+
+test('6) 파생값: lastLogAt·draftCount(lower 조인)·원고 롤업', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'Derive', createdBy: null });
+  await addManualLog(sql, row.id, { body: '첫 접촉', channel: null, authorId: null });
+
+  const draftId = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + '방향', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+  // 배정 표기는 사용자가 친 대로 — 조인은 lower 기준이어야 센다
+  await updateDraft(sql, draftId, { influencerHandle: P + 'DERIVE' });
+
+  const listed = (await listInfluencers(sql)).find((x) => x.id === row.id);
+  assert.ok(listed, '목록에 있음');
+  assert.ok(listed!.lastLogAt, 'lastLogAt not null');
+  assert.equal(listed!.draftCount, 1);
+
+  const detail = await getInfluencerDetail(sql, row.id);
+  assert.equal(detail!.drafts.length, 1);
+  assert.equal(detail!.drafts[0].id, draftId);
+  assert.equal(detail!.drafts[0].status, 'draft');
+  assert.equal(detail!.drafts[0].title, '正直迷ってた。'); // 제목 없으면 최신 본문 첫 줄
+  assert.ok(detail!.drafts[0].createdAt);
+});
+
+test('7) findDuplicateByXUserId: 같은 X 계정을 가리키는 다른 행의 핸들', async () => {
+  const xid = '7' + process.pid + '7';
+  const a = await createInfluencer(sql, { handle: P + 'dupA', createdBy: null });
+  const b = await createInfluencer(sql, { handle: P + 'dupB', createdBy: null });
+  const info = (userName: string): UserInfo =>
+    ({ id: xid, userName, name: null, followers: null, profilePicture: null, description: null });
+  await applyProfileSnapshot(sql, a.row.id, info(P + 'dupA'));
+
+  assert.equal(await findDuplicateByXUserId(sql, xid, a.row.id), null, '자기 자신은 제외');
+
+  await applyProfileSnapshot(sql, b.row.id, info(P + 'dupB'));
+  assert.equal(await findDuplicateByXUserId(sql, xid, b.row.id), P + 'dupA');
+  assert.equal(await findDuplicateByXUserId(sql, xid, a.row.id), P + 'dupB');
+  assert.equal(await findDuplicateByXUserId(sql, xid + 'zzz', a.row.id), null);
+});
+
+test('8) renameInfluencer: 핸들 교체 + 배정 원고 일괄 이관 + handle_changed 로그', async () => {
+  const from = P + 'Old';
+  const to = P + 'New';
+  const { row } = await createInfluencer(sql, { handle: from, createdBy: null });
+  const draftId = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + '개명', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+  await updateDraft(sql, draftId, { influencerHandle: P + 'OLD' }); // 표기가 달라도 이관돼야 한다
+
+  await renameInfluencer(sql, { influencerId: row.id, from, to, actorId: null });
+
+  const got = await findInfluencerById(sql, row.id);
+  assert.equal(got!.handle, to);
+  assert.equal(got!.draftCount, 1, '배정 사실은 불변');
+
+  const [d] = await sql<Array<{ influencer_handle: string }>>`
+    select influencer_handle from draft where id = ${draftId}`;
+  assert.equal(d.influencer_handle, to);
+
+  const detail = await getInfluencerDetail(sql, row.id);
+  const log = detail!.logs.find((l) => l.eventType === 'handle_changed');
+  assert.ok(log, 'handle_changed 로그 있음');
+  assert.equal(log!.kind, 'auto');
+  assert.deepEqual(log!.payload, { from, to });
+  assert.equal(await findByHandle(sql, from), null);
+  assert.equal((await findByHandle(sql, to))!.id, row.id);
+});
+
+test('10) lastContactAt: manual 로그만 반영 — auto만 있으면 null, manual이 생기면 그 시각', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'Contact', createdBy: null });
+  assert.equal(row.lastContactAt, null);
+
+  await insertAutoLog(sql, {
+    influencerId: row.id, eventType: 'draft_assigned', draftId: null, draftTitle: 'T', authorId: null,
+  });
+  const afterAuto = await findInfluencerById(sql, row.id);
+  assert.equal(afterAuto!.lastContactAt, null, 'auto 로그만으로는 연락 기록이 아니다');
+
+  const manual = await addManualLog(sql, row.id, { body: '연락함', channel: 'dm', authorId: null });
+  const afterManual = await findInfluencerById(sql, row.id);
+  assert.equal(afterManual!.lastContactAt, manual.createdAt);
+
+  const listed = (await listInfluencers(sql)).find((x) => x.id === row.id);
+  assert.equal(listed!.lastContactAt, manual.createdAt, '목록도 같은 정의를 쓴다');
+});
+
+test('11) draftStatusCounts: 상태별 카운트 — lower 조인, 존재하는 상태만', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'Counts', createdBy: null });
+
+  const d1 = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + 'counts1', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+  await updateDraft(sql, d1, { influencerHandle: P + 'COUNTS' }); // 표기 달라도 lower로 잡힌다
+
+  const d2 = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + 'counts2', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+  await updateDraft(sql, d2, { influencerHandle: P + 'Counts', status: 'delivered' });
+
+  const detail = await getInfluencerDetail(sql, row.id);
+  assert.deepEqual(detail!.draftStatusCounts, { draft: 1, delivered: 1 });
+});
+
+test('9) listOptions: 표시 이름은 있으면 name, 없으면 undefined', async () => {
+  const withName = await createInfluencer(sql, { handle: P + 'optA', createdBy: null });
+  const noName = await createInfluencer(sql, { handle: P + 'optB', createdBy: null });
+  await applyProfileSnapshot(sql, withName.row.id, {
+    id: '888' + process.pid, userName: P + 'optA', name: 'ゆい',
+    followers: 10, profilePicture: null, description: null,
+  });
+
+  const opts = await listOptions(sql);
+  const a = opts.find((o) => o.handle === P + 'optA');
+  const b = opts.find((o) => o.handle === P + 'optB');
+  assert.equal(a!.name, 'ゆい');
+  assert.equal(b!.name, undefined);
+
+  const ours = opts.filter((o) => o.handle.toLowerCase().startsWith(P.toLowerCase()));
+  const sorted = [...ours].sort((x, y) => x.handle.toLowerCase().localeCompare(y.handle.toLowerCase()));
+  assert.deepEqual(ours.map((o) => o.handle), sorted.map((o) => o.handle), 'lower(handle) 사전순');
+
+  await deleteInfluencer(sql, noName.row.id);
+});

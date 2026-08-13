@@ -15,8 +15,9 @@ export interface InfluencerRow {
   displayName: string | null; avatarUrl: string | null; bio: string | null;
   followersCount: number | null; profileRefreshedAt: string | null;
   tags: string[]; note: string; createdAt: string;
-  lastLogAt: string | null;  // 파생: 로그 최신행 — 라벨은 "마지막 기록" (스펙 §2)
+  lastLogAt: string | null;  // 파생: 로그 최신행(all kind) — 라벨은 "마지막 기록" (스펙 §2)
   draftCount: number;        // 파생: lower(handle) 조인 count
+  lastContactAt: string | null;  // 파생: kind='manual' 로그만의 최신행 — "연락 기록" 축 (스펙 §① 라벨-값 일치)
 }
 
 export interface InfluencerLogRow {
@@ -29,7 +30,10 @@ export interface InfluencerLogRow {
 
 export interface DraftRollupItem { id: string; title: string; status: DraftStatus; createdAt: string }
 
-export interface InfluencerDetail { influencer: InfluencerRow; logs: InfluencerLogRow[]; drafts: DraftRollupItem[] }
+export interface InfluencerDetail {
+  influencer: InfluencerRow; logs: InfluencerLogRow[]; drafts: DraftRollupItem[];
+  draftStatusCounts: Partial<Record<DraftStatus, number>>;  // 파생: lower 조인 group by status, 전체 기준(50건 롤업과 별개)
+}
 
 type IRow = {
   id: string; handle: string; x_user_id: string | null;
@@ -37,6 +41,7 @@ type IRow = {
   followers_count: number | null; profile_refreshed_at: Date | null;
   tags: string[]; note: string; created_at: Date;
   last_log_at: Date | null; draft_count: string | number;
+  last_contact_at: Date | null;
 };
 
 type LRow = {
@@ -60,6 +65,7 @@ const toRow = (r: IRow): InfluencerRow => ({
   tags: r.tags, note: r.note, createdAt: new Date(r.created_at).toISOString(),
   lastLogAt: r.last_log_at ? new Date(r.last_log_at).toISOString() : null,
   draftCount: Number(r.draft_count), // count(*)는 bigint → postgres.js가 문자열로 준다
+  lastContactAt: r.last_contact_at ? new Date(r.last_contact_at).toISOString() : null,
 });
 
 const toLog = (r: LRow): InfluencerLogRow => ({
@@ -70,13 +76,16 @@ const toLog = (r: LRow): InfluencerLogRow => ({
   createdAt: new Date(r.created_at).toISOString(),
 });
 
-// 파생값 2개는 목록·상세·생성 직후가 모두 같은 정의를 써야 한다(드리프트 = 카드마다 다른 숫자).
+// 파생값들은 목록·상세·생성 직후가 모두 같은 정의를 써야 한다(드리프트 = 카드마다 다른 숫자).
 // draft_count는 lower 조인 — 배정은 사용자가 친 표기 그대로 저장되기 때문이다.
+// last_contact_at은 kind='manual'만 — auto 이벤트는 "연락"이 아니다(라벨-값 일치, 스펙 §①).
 const SELECT = (sql: postgres.Sql) => sql`
   select i.id, i.handle, i.x_user_id, i.display_name, i.avatar_url, i.bio, i.followers_count,
          i.profile_refreshed_at, i.tags, i.note, i.created_at,
          (select max(l.created_at) from influencer_log l where l.influencer_id = i.id) as last_log_at,
-         (select count(*) from draft d where lower(d.influencer_handle) = lower(i.handle)) as draft_count
+         (select count(*) from draft d where lower(d.influencer_handle) = lower(i.handle)) as draft_count,
+         (select max(l2.created_at) from influencer_log l2
+           where l2.influencer_id = i.id and l2.kind = 'manual') as last_contact_at
     from influencer i`;
 
 const LOG_SELECT = (sql: postgres.Sql) => sql`
@@ -150,12 +159,21 @@ export async function getInfluencerDetail(sql: postgres.Sql, id: string): Promis
       from draft where lower(influencer_handle) = lower(${influencer.handle})
      order by created_at desc limit 50`;
 
+  // 원고 요약 줄(스펙 §①)은 전체 카운트 기준 — 위 drafts(최근 50건 롤업)와는 다른 쿼리다(자기모순 v1 fast-follow #7 해소).
+  const statusRows = await sql<Array<{ status: DraftStatus; count: string | number }>>`
+    select status, count(*) from draft
+     where lower(influencer_handle) = lower(${influencer.handle})
+     group by status`;
+  const draftStatusCounts: Partial<Record<DraftStatus, number>> = {};
+  for (const r of statusRows) draftStatusCounts[r.status] = Number(r.count);
+
   return {
     influencer,
     logs: logs.map(toLog),
     drafts: drafts.map((d) => ({
       id: d.id, title: rollupTitle(d), status: d.status, createdAt: new Date(d.created_at).toISOString(),
     })),
+    draftStatusCounts,
   };
 }
 

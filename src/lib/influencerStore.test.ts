@@ -212,6 +212,45 @@ test('8) renameInfluencer: 핸들 교체 + 배정 원고 일괄 이관 + handle_
   assert.equal((await findByHandle(sql, to))!.id, row.id);
 });
 
+test('10) lastContactAt: manual 로그만 반영 — auto만 있으면 null, manual이 생기면 그 시각', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'Contact', createdBy: null });
+  assert.equal(row.lastContactAt, null);
+
+  await insertAutoLog(sql, {
+    influencerId: row.id, eventType: 'draft_assigned', draftId: null, draftTitle: 'T', authorId: null,
+  });
+  const afterAuto = await findInfluencerById(sql, row.id);
+  assert.equal(afterAuto!.lastContactAt, null, 'auto 로그만으로는 연락 기록이 아니다');
+
+  const manual = await addManualLog(sql, row.id, { body: '연락함', channel: 'dm', authorId: null });
+  const afterManual = await findInfluencerById(sql, row.id);
+  assert.equal(afterManual!.lastContactAt, manual.createdAt);
+
+  const listed = (await listInfluencers(sql)).find((x) => x.id === row.id);
+  assert.equal(listed!.lastContactAt, manual.createdAt, '목록도 같은 정의를 쓴다');
+});
+
+test('11) draftStatusCounts: 상태별 카운트 — lower 조인, 존재하는 상태만', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'Counts', createdBy: null });
+
+  const d1 = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + 'counts1', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+  await updateDraft(sql, d1, { influencerHandle: P + 'COUNTS' }); // 표기 달라도 lower로 잡힌다
+
+  const d2 = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + 'counts2', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+  await updateDraft(sql, d2, { influencerHandle: P + 'Counts', status: 'delivered' });
+
+  const detail = await getInfluencerDetail(sql, row.id);
+  assert.deepEqual(detail!.draftStatusCounts, { draft: 1, delivered: 1 });
+});
+
 test('9) listOptions: 표시 이름은 있으면 name, 없으면 undefined', async () => {
   const withName = await createInfluencer(sql, { handle: P + 'optA', createdBy: null });
   const noName = await createInfluencer(sql, { handle: P + 'optB', createdBy: null });

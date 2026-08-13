@@ -3,8 +3,9 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { newDraftsSince, filterDrafts, statusCounts, siblingCount, type DraftListFilter } from '@/lib/draftUi';
-import { searchDrafts, filterByProcedure, applyPeriod, procedureOptions, type PeriodValue } from '@/lib/draftViews';
+import { searchDrafts, filterByProcedure, applyPeriod, procedureOptions, sortDrafts, type PeriodValue, type TableSort } from '@/lib/draftViews';
 import { toggleId, toggleAll, pruneSelection, siblingWarning } from '@/lib/draftSelection';
+import { PAGE_STEP, LIST_CAP, atCap } from '@/lib/draftPaging';
 import { Toast } from '@/components/Toast';
 import { BulkActionBar } from '@/components/BulkActionBar';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
@@ -14,6 +15,7 @@ import { DraftFilterBar } from '@/components/DraftFilterBar';
 import { PeriodPicker } from '@/components/PeriodPicker';
 import { DraftTable } from '@/components/DraftTable';
 import { DraftKanban } from '@/components/DraftKanban';
+import { ShowMoreButton } from '@/components/ShowMoreButton';
 import { DraftComposer, ComposerFooter, DEFAULT_COMPOSER, type ComposerState } from '@/components/DraftComposer';
 import { clampPanelWidth, PANEL_DEFAULT, PANEL_WIDTH_KEY } from '@/lib/panelResize';
 import { LAST_WS_KEY } from '@/components/GlobalShell';
@@ -75,6 +77,15 @@ function Workbench() {
   // 표 뷰 다중 선택 — 선택은 페이지가 소유한다(설계 §화면). 일괄 처리 핸들러가 여기 있는
   // 낙관적 갱신 자리를 써야 하고, 필터가 바뀔 때 선택을 떨구는 것도 필터를 쥔 쪽의 몫이다.
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
+  // 화면에 그리는 개수 — 데이터는 전량 로드하고 이것만 제한한다(설계 §A). 통신은 병목이 아니고,
+  // 카드 수백 장이 한 번에 DOM에 올라가는 쪽이 병목이다.
+  const [shownCount, setShownCount] = useState(PAGE_STEP);
+  // 표 정렬 — 자르기보다 먼저 정렬해야 하므로 상태가 여기(페이지)에 있어야 한다(설계 §D).
+  // 표 안에서 정렬하면 "최근 50건만 정렬한 결과"를 사용자가 전체 정렬로 읽게 된다.
+  const [tableSort, setTableSort] = useState<TableSort>({ key: 'createdAt', dir: 'desc' });
+  // 칸반에서 방금 옮긴 카드 — 세션 한정. 열은 최신순 정렬 + 상위 N장만 그리므로, 오래된 원고를
+  // 옮기면 정렬에 밀려 화면에서 사라진다. 그 카드를 열 맨 위에 세워 "옮겼는데 없어졌다"를 막는다(설계 §H).
+  const [pinnedIds, setPinnedIds] = useState<ReadonlySet<string>>(new Set());
   const rootRef = useRef<HTMLDivElement | null>(null);
   // 좌패널 풋터에서 생성하면 우측이 스크롤된 상태일 수 있어 결과가 소리 없이 화면 밖에 놓이지 않게 하기 위함(T11 계열)
   const resultsRef = useRef<HTMLDivElement | null>(null);
@@ -184,7 +195,21 @@ function Workbench() {
     [clientScoped, query, procFilter, period]);
   const visibleDrafts = useMemo(
     () => filterDrafts(scoped, { status: filter.status, clientId: '' }), [scoped, filter.status]);
-  const visibleIds = useMemo(() => visibleDrafts.map((d) => d.id), [visibleDrafts]);
+  // 조건(필터·검색·시술·기간·뷰)이 바뀌면 표시 개수를 처음으로 되돌린다. 새 조건에서 이전에
+  // 늘려둔 개수가 남으면 "왜 이만큼 보이지"가 설명되지 않는다(설계 §C).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 조건 변경 시 1회 리셋(옵션-선택 리셋과 같은 관례)
+    setShownCount(PAGE_STEP);
+  }, [filter.status, filter.clientId, query, procFilter, period, view]);
+  // 표는 정렬한 뒤에 자른다 — 순서가 뒤바뀌면 "최근 50건만 정렬한 결과"를 전체 정렬로 읽게 된다(설계 §D).
+  // 카드 뷰는 정렬 개념이 없어 목록 순서(최신순) 그대로 자른다.
+  const orderedDrafts = useMemo(
+    () => (view === 'table' ? sortDrafts(visibleDrafts, tableSort, clientNameOf) : visibleDrafts),
+    [view, visibleDrafts, tableSort, clientNameOf]);
+  const shownDrafts = useMemo(() => orderedDrafts.slice(0, shownCount), [orderedDrafts, shownCount]);
+  // 선택의 '보이는 것'은 실제로 그려진 것이다(설계 §E) — 이 한 줄이 일괄 삭제의 안전장치다.
+  // visibleDrafts(자르기 전)에서 뽑으면 헤더 체크박스가 화면에 없는 수백 건까지 고르고 그대로 지운다.
+  const visibleIds = useMemo(() => shownDrafts.map((d) => d.id), [shownDrafts]);
   // 필터·검색·기간이 바뀌거나 목록이 갱신되면 화면에서 사라진 선택을 떨군다. 사용자가 보지 못한
   // 원고가 일괄 삭제에 함께 휩쓸리는 것을 막는 유일한 장치다 (설계 §화면).
   useEffect(() => {
@@ -304,7 +329,9 @@ function Workbench() {
     pollTimer.current = setInterval(async () => {
       if (Date.now() > deadline) { stopPolling(); return; }
       try {
-        const r = await apiFetch('/api/drafts');
+        // 폴링이 찾는 것은 방금 만들어진 것뿐이고 새 원고는 항상 최신순 맨 앞에 온다(시안 최대 5개).
+        // 전량을 5초마다 다시 받으면 취소 한 번에 수 MB가 오간다(설계 §I).
+        const r = await apiFetch('/api/drafts?limit=20');
         if (!r.ok) return; // 조용히 다음 주기 재시도 (스펙 §4)
         const fetched = (await r.json()) as DraftRow[];
         // 판정은 ref 미러 기준 — setDrafts 업데이터의 동기 실행(eager state)에 기대지 않는다 (최종 리뷰 반영)
@@ -404,6 +431,19 @@ function Workbench() {
       // 실패 롤백은 이 요청이 세팅한 값이 아직 표시 중일 때만 — 연속 변경 시 뒤 갱신을 덮지 않도록 (무시 표식 레이스 픽스와 같은 계열)
       if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.status === status ? { ...x, status: prev } : x)));
     });
+  }
+
+  // 칸반 드롭 = 상태 변경 + 그 카드를 옮겨간 열 맨 위에 고정(설계 §H). 고정은 화면 표시일 뿐이라
+  // 상태 변경이 실패해 롤백돼도 풀지 않는다 — 카드는 원래 열로 돌아가고 거기서도 맨 위에 서면 된다.
+  function kanbanChangeStatus(d: DraftRow, s: DraftStatus) {
+    setPinnedIds((cur) => new Set([...cur, d.id]));
+    changeStatus(d, s);
+  }
+  // 종착 열의 '전체 보기' — 표 뷰로 전환하며 그 상태 필터를 건다(설계 §F).
+  // 안내문이 아니라 실제로 데려간다 — 말만 하고 사용자가 직접 뷰를 바꾸게 하면 거짓 어포던스다.
+  function goToTable(status: DraftStatus) {
+    setFilter((f) => ({ ...f, status }));
+    setView('table');
   }
 
   // 인플루언서 배정 — 편집 모달에서 카드로 옮긴 배선. changeStatus와 같은 모양(낙관적 갱신 + 실패 시 조건부 롤백).
@@ -587,6 +627,13 @@ function Workbench() {
             flex 아이템으로 찌그러진다(automatic minimum size 0). 정렬은 자연 높이의 내부 div가 담당. */}
         <div ref={resultsRef} className="lg:flex-1 lg:overflow-y-auto">
           <div className={view === 'cards' ? 'flex flex-col items-center gap-4 p-6' : 'p-4'}>
+          {/* 상한에 닿았을 때만 — 숫자는 LIST_CAP에서 파생시킨다(라벨-값 일치). 여기에 1000을 직접
+              적으면 상한만 바꿨을 때 "1000건만 보고 있어요"가 곧바로 거짓말이 된다(설계 §B). */}
+          {atCap(drafts.length, LIST_CAP) && (
+            <p className="mb-3 w-full max-w-[600px] rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-ui text-amber-800">
+              원고가 {LIST_CAP}건을 넘어 최근 {LIST_CAP}건만 보고 있어요 — 예전 원고는 아직 검색·필터에 잡히지 않아요.
+            </p>
+          )}
           {generating && view === 'cards' && (
             <div className="w-full max-w-[600px] animate-pulse rounded-2xl border border-x-border-strong bg-white px-4 py-3">
               <div className="flex gap-3">
@@ -620,7 +667,7 @@ function Workbench() {
             </p>
           )}
 
-          {view === 'cards' && visibleDrafts.map((d) => (
+          {view === 'cards' && shownDrafts.map((d) => (
             <DraftCard key={d.id} draft={d} banned={bannedFor(d)}
                        onEdit={() => setEditing(d)}
                        onRewrite={(feedback, baseIndex) => rewrite(d.id, feedback, baseIndex)}
@@ -639,13 +686,22 @@ function Workbench() {
                        mediaDropNotice={mediaDrop?.draftId === d.id ? mediaDrop.notice : null}
                        onDismissMediaDrop={() => setMediaDrop(null)} />
           ))}
-          {view === 'table' && loaded && visibleDrafts.length > 0 && (
+          {view === 'cards' && (
+            <div className="w-full max-w-[600px]">
+              <ShowMoreButton total={orderedDrafts.length} shown={shownDrafts.length}
+                              onMore={() => setShownCount((n) => n + PAGE_STEP)} />
+            </div>
+          )}
+          {view === 'table' && loaded && shownDrafts.length > 0 && (
             <>
-              <DraftTable drafts={visibleDrafts} clientNameOf={clientNameOf}
+              <DraftTable drafts={shownDrafts} clientNameOf={clientNameOf}
                           onChangeStatus={changeStatus} onOpenCard={setPeekId}
                           selectedIds={selectedIds}
                           onToggleId={(id) => setSelectedIds((cur) => toggleId(cur, id))}
-                          onToggleAll={() => setSelectedIds((cur) => toggleAll(cur, visibleIds))} />
+                          onToggleAll={() => setSelectedIds((cur) => toggleAll(cur, visibleIds))}
+                          sort={tableSort} onSortChange={setTableSort} />
+              <ShowMoreButton total={orderedDrafts.length} shown={shownDrafts.length}
+                              onMore={() => setShownCount((n) => n + PAGE_STEP)} />
               {selectedIds.size > 0 && (
                 <BulkActionBar count={selectedIds.size} options={influencerOptions}
                                onStatus={bulkStatus} onInfluencer={bulkInfluencer}
@@ -658,7 +714,8 @@ function Workbench() {
               무설명 빈 화면이 되지 않는다(T4 리뷰 발견). 초안 0건은 위의 빈 상태 문구가 담당. */}
           {view === 'kanban' && loaded && drafts.length > 0 && (
             <DraftKanban drafts={scoped} clientNameOf={clientNameOf}
-                         onChangeStatus={changeStatus} onOpenCard={setPeekId} />
+                         onChangeStatus={kanbanChangeStatus} onOpenCard={setPeekId}
+                         pinnedIds={pinnedIds} onGoToTable={goToTable} />
           )}
           </div>
         </div>

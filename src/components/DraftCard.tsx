@@ -12,7 +12,7 @@ import {
 } from '@/lib/draftMedia';
 import { MediaGrid } from '@/components/MediaGrid';
 import { useSignedMedia } from '@/components/useSignedMedia';
-import { RefreshIcon, TrashIcon, MediaIcon, GlobeIcon, DownloadIcon, EditIcon, CopyIcon, CheckIcon } from '@/components/XIcons';
+import { RefreshIcon, TrashIcon, MediaIcon, GlobeIcon, DownloadIcon, EditIcon, CopyIcon, CheckIcon, ShareIcon } from '@/components/XIcons';
 import { Tooltip } from '@/components/Tooltip';
 import { ImageLightbox } from '@/components/ImageLightbox';
 import { useTranslations } from '@/components/useTranslations';
@@ -370,6 +370,24 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
     noticePr();
   }
 
+  // 원고 링크 복사 — 팀원에게 "이 원고 봐줘"를 보낼 수단. 지금까지는 /generate?draft=<id>를 여는 쪽만
+  // 있고(인플루언서 프로필의 원고 롤업) 만드는 쪽이 없어, 사람이 링크를 얻을 방법이 아예 없었다.
+  // 확대 보기는 주소창을 바꾸지 않고 원고 id도 화면에 없어서 손으로 만들 수도 없었다.
+  // 덱의 트윗 카드(TweetCard.copyLink)와 같은 자리·같은 아이콘·같은 피드백을 쓴다.
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [linkErr, setLinkErr] = useState('');
+  async function copyDraftLink() {
+    setLinkErr('');
+    try {
+      // 지금 보고 있는 곳을 기준으로 만든다 — 로컬에서 보면 로컬 주소가 나오는 게 정직하다.
+      await navigator.clipboard.writeText(`${window.location.origin}/generate?draft=${draft.id}`);
+      setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500);
+    } catch {
+      // 실패해도 버튼을 숨기지 않고 이유를 말한다 — 클립보드는 브라우저 권한에 걸릴 수 있다.
+      setLinkErr('링크를 복사하지 못했어요 — 브라우저 권한을 확인해주세요');
+    }
+  }
+
   // 검토용 한국어 번역 — 보고 있는 버전 기준. 카드 로컬은 한 버전 슬롯만 들고,
   // 버전을 오가면 서버의 버전별 캐시(draft.translation 맵)에서 무과금으로 다시 받아온다.
   const [trPosts, setTrPosts] = useState<string[] | null>(null);
@@ -608,6 +626,13 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
                 {copied ? <CheckIcon className={`${ACTION_ICON} text-x-blue`} /> : <CopyIcon className={ACTION_ICON} />}
               </button>
             </Tooltip>
+            {/* 링크 복사 — 원고 복사 바로 옆. 둘 다 "이 원고를 밖으로 가져간다"는 같은 계열이고,
+                하나는 내용을, 하나는 위치를 가져간다. 피드백도 복사 버튼과 같은 방식(잠깐 체크 표시). */}
+            <Tooltip text={linkCopied ? '복사됨' : '이 원고 링크 복사 — 팀원에게 보내면 이 원고가 열려요'}>
+              <button onClick={() => void copyDraftLink()} aria-label="원고 링크 복사" className={`${ACTION_BTN}`}>
+                {linkCopied ? <CheckIcon className={`${ACTION_ICON} text-x-blue`} /> : <ShareIcon className={ACTION_ICON} />}
+              </button>
+            </Tooltip>
             {/* 번역은 켜고 끄는 토글이라 상태를 색으로 남긴다 — X가 좋아요를 색으로 표시하는 방식 */}
             <Tooltip text={translating ? '번역 중…' : showTr && hasTr ? '원문만 보기' : '한국어로 번역'}>
               <button onClick={toggleTranslate} disabled={translating}
@@ -643,6 +668,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
             </Tooltip>
           </div>
           {trErr && <p className="mt-1 text-[13px] text-red-600">{trErr}</p>}
+          {linkErr && <p className="mt-1 text-[13px] text-red-600">{linkErr}</p>}
           {/* PR 표기 — 원고가 방금 앱 밖으로 나갔을 때만. 상시 배너였을 땐 매 카드에 한 줄씩 있었고
               그래서 아무도 읽지 않았다(banner blindness). 지금은 복사·받기 직후 8초만 머문다. */}
           {prNotice && (

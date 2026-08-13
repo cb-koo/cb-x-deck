@@ -193,6 +193,19 @@ function Workbench() {
     if (draftsRef.current.some((d) => d.id === target)) setPeekId(target);
   }, [searchParams, loaded]);
 
+  // 확대 보기를 열면 주소창에도 남긴다 — 링크를 얻는 두 번째 경로다(카드의 링크 복사 버튼이 첫 번째).
+  // 이게 없으면 원고를 열어놓고도 주소창에는 /generate만 있어서, 보고 있는 것을 그대로 보낼 수 없다.
+  //
+  // Next 라우터가 아니라 history.replaceState를 쓰는 이유: 이 페이지는 초안 수백 건을 들고 있어
+  // 라우터 갱신이 리렌더를 부르는데, 여기서 필요한 건 주소 표시뿐이다. replace라 뒤로가기 기록도
+  // 쌓이지 않는다 — 원고를 여닫을 때마다 뒤로가기가 한 칸씩 늘어나면 그게 더 성가시다.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (peekId) url.searchParams.set('draft', peekId);
+    else url.searchParams.delete('draft');
+    if (url.toString() !== window.location.href) window.history.replaceState(null, '', url);
+  }, [peekId]);
+
   const selectedRefIds = useMemo(() => refRows.map((x) => x.tweetId), [refRows]);
 
   const clientScoped = useMemo(

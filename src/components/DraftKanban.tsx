@@ -65,7 +65,11 @@ export function DraftKanban({ drafts, clientNameOf, onChangeStatus, onOpenCard, 
                      e.preventDefault();                          // 스페이스로 페이지가 스크롤되는 것을 막는다
                      onOpenCard(d.id);
                    }}
-                   className="cursor-pointer rounded-lg border border-x-border bg-white p-2 hover:border-x-border-strong focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
+                   // relative가 반드시 있어야 한다. 카드 안의 sr-only(스크린리더용 "한국어 번역:" 라벨)는
+                   // position:absolute인데, 위치 기준이 될 조상이 없으면 문서를 기준으로 배치된다. 그러면
+                   // 열의 overflow-y-auto가 카드는 잘라내도 그 요소들은 클리핑을 빠져나가, 문서 높이만
+                   // 3000px 가까이 늘어나 칸반 아래에 스크롤되는 빈 공간이 생긴다(실측으로 확인).
+                   className="relative cursor-pointer rounded-lg border border-x-border bg-white p-2 hover:border-x-border-strong focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue">
                 {/* 방금 옮긴 카드는 최신순 정렬을 무시하고 맨 위에 세워둔 것이라, 왜 여기 있는지 밝힌다(설계 §H) */}
                 {pinnedIds.has(d.id) && (
                   <p className="mb-1 text-caption font-bold text-x-blue-text">방금 옮김</p>

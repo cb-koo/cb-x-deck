@@ -78,7 +78,11 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard, s
                   e.preventDefault();                          // 스페이스로 페이지가 스크롤되는 것을 막는다
                   onOpenCard(d.id);
                 }}
-                className={`cursor-pointer border-b border-x-border focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue ${selectedIds.has(d.id) ? 'bg-x-blue/5' : 'hover:bg-x-hover'}`}>
+                // relative가 있어야 한다. 셀 안의 sr-only(스크린리더용 "한국어 번역:" 라벨)는
+                // position:absolute인데 위치 기준이 될 조상이 없으면 문서를 기준으로 배치되고,
+                // 그러면 결과 패널의 overflow-y-auto가 이 요소들을 클리핑하지 못해 패널 대신
+                // 페이지 전체가 스크롤된다(툴바까지 같이 밀려 올라감). 칸반 카드와 같은 원인이다.
+                className={`relative cursor-pointer border-b border-x-border focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue ${selectedIds.has(d.id) ? 'bg-x-blue/5' : 'hover:bg-x-hover'}`}>
               {/* 체크박스 클릭이 행 클릭(카드 열기)으로 번지지 않게 — 상태 칩 셀과 같은 방식 */}
               <td className="w-10 px-3 py-2" onClick={(e) => e.stopPropagation()}>
                 <input type="checkbox" checked={selectedIds.has(d.id)}

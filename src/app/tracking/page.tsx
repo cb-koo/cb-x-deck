@@ -5,6 +5,7 @@ import { Button } from '@/components/ui';
 import { useToast } from '@/lib/toastContext';
 import { draftLabel } from '@/lib/draftViews';
 import { TrackAddForm } from '@/components/TrackAddForm';
+import { TrackAddManyDialog } from '@/components/TrackAddManyDialog';
 import { TrackingTable, type DraftOption, type DraftsState } from '@/components/TrackingTable';
 import type { TrackedPostRow } from '@/lib/trackingStore';
 import type { DraftRow } from '@/lib/draftStore';
@@ -21,7 +22,8 @@ export default function TrackingPage() {
   const [rows, setRows] = useState<TrackedPostRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
-  const [addProgress, setAddProgress] = useState<{ done: number; total: number } | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [showAddMany, setShowAddMany] = useState(false);
   const [refreshingIds, setRefreshingIds] = useState<ReadonlySet<string>>(new Set());
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -103,37 +105,19 @@ export default function TrackingPage() {
     }
   }, [hide]);
 
-  // 여러 링크는 위에서부터 순차로(서버 계약: 한 요청 = 링크 하나. 인플루언서 등록과 같은 규칙).
-  // 실패한 링크만 입력칸에 돌려준다 — 성공분을 다시 붙여넣게 만들지 않기 위해서다.
-  const addMany = useCallback(async (urls: string[]): Promise<{ ok: true } | { ok: false; keep: string }> => {
-    setAddProgress({ done: 0, total: urls.length });
-    const failedUrls: string[] = [];
-    let added = 0, dup = 0, lastRow: TrackedPostRow | null = null, lastFailMsg = '';
+  // 단건 등록(폼 경로) — 결과를 그 건의 말로 알려주고 그 행을 짚어준다.
+  // 여러 건은 TrackAddManyDialog가 addOne을 직접 순차로 부르며 줄마다 결과를 그린다.
+  const addSingle = useCallback(async (url: string): Promise<'ok' | 'keep'> => {
+    setAdding(true);
     try {
-      for (const url of urls) {
-        const r = await addOne(url);
-        if (r.kind === 'fail') { failedUrls.push(url); lastFailMsg = r.msg; }
-        else { lastRow = r.row; if (r.kind === 'added') added += 1; else dup += 1; }
-        setAddProgress((cur) => (cur ? { ...cur, done: cur.done + 1 } : cur));
-      }
+      const r = await addOne(url);
+      if (r.kind === 'fail') { show(r.msg); return 'keep'; } // 실패 시 입력 보존
+      show(r.kind === 'dup' ? '이미 추적 중이에요' : '추적을 시작했어요 — 지금 지표를 담아뒀어요');
+      flash(r.row.id);
+      return 'ok';
     } finally {
-      setAddProgress(null);
+      setAdding(false);
     }
-
-    if (urls.length === 1) { // 한 건은 결과를 그 건의 말로 — 집계 문구로 뭉개지 않는다
-      if (failedUrls.length > 0) { show(lastFailMsg); return { ok: false, keep: failedUrls[0] }; }
-      show(dup > 0 ? '이미 추적 중이에요' : '추적을 시작했어요 — 지금 지표를 담아뒀어요');
-      if (lastRow) flash(lastRow.id);
-      return { ok: true };
-    }
-    // 여러 건은 집계로 — 몇 건이 어떻게 됐고 다음에 뭘 하면 되는지까지(UX 원칙 3)
-    const parts: string[] = [];
-    if (added > 0) parts.push(`${added}건 추적 시작`);
-    if (dup > 0) parts.push(`${dup}건은 이미 추적 중`);
-    if (failedUrls.length > 0) parts.push(`${failedUrls.length}건 실패 — 실패한 링크는 입력칸에 남겨뒀어요`);
-    show(parts.join(' · '));
-    if (lastRow) flash(lastRow.id);
-    return failedUrls.length > 0 ? { ok: false, keep: failedUrls.join('\n') } : { ok: true };
   }, [addOne, show, flash]);
 
   // 한 건 새로고침. 실패(502)면 행을 건드리지 않는다 — 못 가져온 것은 게시물의 상태가 아니라 우리 사정이다.
@@ -314,8 +298,11 @@ export default function TrackingPage() {
       </p>
 
       <div className="mb-5 rounded-xl border border-x-border p-3">
-        <TrackAddForm progress={addProgress} onSubmit={addMany} />
+        <TrackAddForm busy={adding} onSubmit={addSingle} onOpenMany={() => setShowAddMany(true)} />
       </div>
+      {showAddMany && (
+        <TrackAddManyDialog onClose={() => setShowAddMany(false)} onAddOne={addOne} />
+      )}
 
       {!loaded && <p className="py-8 text-center text-ui text-x-muted">불러오는 중…</p>}
       {loaded && loadErr && (

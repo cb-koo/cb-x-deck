@@ -1,6 +1,7 @@
 'use client';
 import { useEffect } from 'react';
 import { RefTweetCard } from '@/components/RefTweetCard';
+import { tweetPermalink } from '@/lib/tweetLink';
 import type { ReferenceRow } from '@/lib/referenceStore';
 
 // 레퍼런스 미리보기 — 패널 칩 클릭으로 연다. 데이터가 부모 refRows에 이미 있어 조회 없이 즉시 뜬다(스펙 §B).
@@ -19,10 +20,10 @@ export function RefPreviewModal({ row, onClose, onRemove }: {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6" onClick={onClose}>
       <div className="max-h-full w-full max-w-[480px] overflow-y-auto rounded-2xl bg-white" role="dialog" aria-modal="true"
-           aria-label="레퍼런스 미리보기" onClick={(e) => e.stopPropagation()}>
+           aria-label="참고할 레퍼런스" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 flex items-center border-b border-x-border bg-white px-4 py-3">
           <h2 className="text-[15px] font-bold">참고할 레퍼런스</h2>
-          <button onClick={onClose} aria-label="닫기" className="ml-auto rounded px-1.5 text-x-secondary hover:bg-x-border">✕</button>
+          <button onClick={onClose} aria-label="닫기" autoFocus className="ml-auto rounded px-1.5 text-x-secondary hover:bg-x-border">✕</button>
         </div>
         <div className="relative flex gap-3 px-4 pb-3.5 pt-3">
           <RefTweetCard row={row} />
@@ -33,7 +34,7 @@ export function RefPreviewModal({ row, onClose, onRemove }: {
                   className="text-ui text-x-secondary hover:text-red-500 hover:underline">
             이 레퍼런스 빼기
           </button>
-          <a href={`https://x.com/${row.authorHandle}/status/${row.tweetId}`} target="_blank" rel="noopener noreferrer"
+          <a href={tweetPermalink(row.authorHandle, row.tweetId)} target="_blank" rel="noopener noreferrer"
              className="ml-auto text-ui text-x-blue-text hover:underline">
             X에서 원문 보기 ↗
           </a>

@@ -127,7 +127,7 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
               {refRows.map((r) => (
                 <span key={r.tweetId} className="inline-flex h-7 items-center gap-1 rounded-full border border-x-border-strong bg-white px-2.5 text-ui">
                   {/* 본문 클릭=미리보기, ✕=빼기 — 링크+닫기 조합이라 타깃 둘이어도 관례적(스펙 §C) */}
-                  <button onClick={() => onPreviewRef(r.tweetId)} title="클릭해서 내용 보기" className="hover:underline">
+                  <button onClick={() => onPreviewRef(r.tweetId)} title="클릭해서 내용 보기" aria-label={`@${r.authorHandle} 레퍼런스 내용 보기`} className="hover:underline">
                     @{r.authorHandle}
                   </button>
                   <button onClick={() => onRemoveRef(r.tweetId)} aria-label={`@${r.authorHandle} 레퍼런스 빼기`} className="text-x-muted hover:text-red-500">✕</button>

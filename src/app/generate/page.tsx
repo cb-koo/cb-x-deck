@@ -150,11 +150,11 @@ function Workbench() {
   const previewRefRow = previewRefId ? refRows.find((x) => x.tweetId === previewRefId) ?? null : null;
   // Esc로 피크 닫기 — DraftEditModal 선례. 편집 모달·링크 추가 모달이 위에 열려 있으면 그쪽 Esc가 우선이라 여기선 무시.
   useEffect(() => {
-    if (!peekId || editing || addLinkOpen || previewRefId) return;
+    if (!peekId || editing || addLinkOpen || previewRefRow) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) setPeekId(null); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [peekId, editing, addLinkOpen, previewRefId]);
+  }, [peekId, editing, addLinkOpen, previewRefRow]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로컬 저장값 복원(기존 코드베이스 관례, RefPickerSheet 선례)
@@ -187,6 +187,13 @@ function Workbench() {
   const updateComposer = useCallback((v: ComposerState) => {
     setComposer(v);
     localStorage.setItem(COMPOSER_KEY, JSON.stringify({ ...v, direction: '', count: 1 })); // 방향성·시안 수는 매번 새로
+  }, []);
+
+  // 레퍼런스 빼기 — 칩 ✕와 미리보기 '빼기'가 공유. 미리보기 대상이 빠지면 id도 함께 비워
+  // 같은 트윗을 나중에 다시 넣었을 때 모달이 불쑥 열리지 않게 한다(리뷰 Important).
+  const removeRef = useCallback((tweetId: string) => {
+    setRefRows((cur) => cur.filter((x) => x.tweetId !== tweetId));
+    setPreviewRefId((cur) => (cur === tweetId ? null : cur));
   }, []);
 
   // 진입점 A: /generate?ref=<tweetId> — 보관함에 있으면 레퍼런스로 연결
@@ -640,8 +647,8 @@ function Workbench() {
                          refRows={refRows} onOpenPicker={() => setPickerOpen(true)}
                          onOpenAddLink={() => setAddLinkOpen(true)}
                          onPreviewRef={setPreviewRefId}
-                         onRemoveRef={(id) => setRefRows((cur) => cur.filter((x) => x.tweetId !== id))}
-                         onClearRefs={() => setRefRows([])} />
+                         onRemoveRef={removeRef}
+                         onClearRefs={() => { setRefRows([]); setPreviewRefId(null); }} />
         </div>
         <ComposerFooter clients={clients} value={composer} refRows={refRows}
                         generating={generating} onGenerate={() => generate()} onCancel={cancelGenerate}
@@ -863,7 +870,7 @@ function Workbench() {
       <AddByLinkModal open={addLinkOpen} onClose={() => setAddLinkOpen(false)} defaultWsId={lastWsId}
                       onAdded={(r) => { void handleAddedByLink(r); }} />
       <RefPreviewModal row={previewRefRow} onClose={() => setPreviewRefId(null)}
-                       onRemove={(id) => setRefRows((cur) => cur.filter((x) => x.tweetId !== id))} />
+                       onRemove={removeRef} />
       {pendingRemove.length > 0 && (
         <Toast message={pendingRemove.length === 1 ? '초안을 삭제했어요' : `원고 ${pendingRemove.length}개를 삭제했어요`}
                actionLabel="실행 취소" onAction={undoRemove} />

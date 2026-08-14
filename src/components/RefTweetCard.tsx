@@ -6,7 +6,7 @@ import type { ReferenceRow } from '@/lib/referenceStore';
 
 // X 실측 트윗 카드(시안 A)의 내용부 — RefPickerSheet(선택 버튼으로 감쌈)와 RefPreviewModal(맨몸)이 공유한다.
 // 카드는 단일 표면: 여기 고치면 두 화면에 함께 반영된다(DraftCard 선례). 선택 체크 원은 시트 전용이라 여기 없다.
-// 전부 span인 이유: 시트에서 <button> 안에 들어가므로 block 요소를 둘 수 없다.
+// 거의 전부 span인 이유: 시트에서 <button> 안에 들어가기 때문(기존 마크업 그대로 — MediaGrid의 div는 추출 전부터 있던 예외).
 export function RefTweetCard({ row: r, translation }: { row: ReferenceRow; translation?: string }) {
   return (
     <>

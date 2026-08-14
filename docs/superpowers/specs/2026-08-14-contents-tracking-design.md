@@ -72,6 +72,7 @@ create index on post_metric_snapshot (tracked_post_id, captured_at desc);  -- "�
 | `unavailable` | X가 명시적으로 "없음" 응답 (404/400 = 삭제·비공개·정지) | `unavailable_at` 기록, 화면에 "볼 수 없음" |
 | `error` | 통신 실패·5xx·타임아웃 — 판단 불가 | **아무것도 저장 안 함**, 사용자에게 재시도 안내 |
 
+- **복귀 수용**: unavailable였던 행이 이후 새로고침에서 ok가 되면 `unavailable_at`을 비운다(비공개 해제 등). "볼 수 없음" 딱지가 실제와 어긋난 채 영구히 남지 않게.
 - **unavailable과 error는 절대 섞이지 않는다.** 애매하면 error(기록 안 함) — 틀린 기록보다 빈 기록. 근거: error를 unavailable로 오판하면 멀쩡한 게시물에 "볼 수 없음" 딱지(잘못된 정보를 사실처럼 표시), 반대면 삭제를 영영 모름.
 - 코드 전제 확인됨: `getTweetDetail`(getxapi.ts:82)이 이미 404/400→null, 일시 오류→예외로 구분. 5xx/429 재시도·백오프·사용량 기록(recordUsageSafe)도 기존 클라이언트가 처리.
 - 지표 정규화는 기존 `mapRawTweet`(mappers.ts:50)의 6종 매핑 재사용.

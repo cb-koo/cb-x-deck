@@ -175,6 +175,28 @@ test('title: 설정·유지·지움 — 본문을 편집해도 살아남는다',
   await removeDraft(sql, id);
 });
 
+// 직접 쓰기(설계 §A-4 각주) — 지금까지 title은 삽입 후 PATCH로만 들어왔다. 작성 모달은
+// 저장 한 번에 제목까지 넣어야 하므로 insertDraft 시점부터 받는다.
+test('insertDraft: title 옵션 — 삽입 시점부터 저장되고, 생략하면 기존과 동일하게 null', async () => {
+  const withTitle = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + '삽입시 제목', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null, title: '직접 쓴 제목',
+  });
+  assert.equal((await getDraft(sql, withTitle))!.title, '직접 쓴 제목');
+
+  // 옵션을 안 넘긴 기존 호출부(generate.ts)는 지금처럼 null이어야 한다 — 무변경 통과가 요구사항
+  const withoutTitle = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [],
+    direction: P + '삽입시 제목 없음', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+  assert.equal((await getDraft(sql, withoutTitle))!.title, null);
+
+  await removeDraft(sql, withTitle);
+  await removeDraft(sql, withoutTitle);
+});
+
 test('벌크: 여러 건 상태·배정 한 번에, 그리고 한 번에 삭제', async () => {
   const mk = () => insertDraft(sql, {
     clientId: null, clientName: null, procedureNames: [],

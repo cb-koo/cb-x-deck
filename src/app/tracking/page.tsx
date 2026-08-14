@@ -1,12 +1,14 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { useToast } from '@/lib/toastContext';
 import { draftLabel } from '@/lib/draftViews';
 import { TrackAddForm } from '@/components/TrackAddForm';
 import { TrackAddManyDialog } from '@/components/TrackAddManyDialog';
-import { TrackingTable, type DraftOption, type DraftsState } from '@/components/TrackingTable';
+import { TrackingTable, type DraftOption, type DraftsState, type TrackSortKey, type TrackSortDir } from '@/components/TrackingTable';
+import { ShowMoreButton } from '@/components/ShowMoreButton';
+import { PAGE_STEP } from '@/lib/draftPaging';
 import type { TrackedPostRow } from '@/lib/trackingStore';
 import type { DraftRow } from '@/lib/draftStore';
 
@@ -32,6 +34,10 @@ export default function TrackingPage() {
   const [pendingRemove, setPendingRemove] = useState<ReadonlySet<string>>(new Set());
   const [undoActive, setUndoActive] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
+  // 정렬은 페이지가 소유한다(DraftTable·TweetTable 관례) — 표는 받은 순서를 그대로 그린다.
+  const [sort, setSort] = useState<TrackSortKey>('created');
+  const [dir, setDir] = useState<TrackSortDir>('desc');
+  const [shownCount, setShownCount] = useState(PAGE_STEP);
   const [drafts, setDrafts] = useState<DraftOption[]>([]);
   const [draftsState, setDraftsState] = useState<DraftsState>('idle');
   const [pickerFor, setPickerFor] = useState<string | null>(null);
@@ -276,14 +282,43 @@ export default function TrackingPage() {
     });
   }, []);
 
+  const onSort = useCallback((k: TrackSortKey) => {
+    setSort((cur) => {
+      if (cur === k) { setDir((d) => (d === 'desc' ? 'asc' : 'desc')); return cur; }
+      setDir('desc'); // 새 기준은 큰 값부터 — 지표·시각 모두 "많은/최근 것"이 먼저 궁금하다
+      return k;
+    });
+  }, []);
+
   const visible = rows.filter((r) => !pendingRemove.has(r.id));
-  // 선택의 '보이는 것'은 실제로 그려진 것이다 — 화면에 없는 행이 카운트·삭제에 끼면 안 된다(generate 관례)
-  const selectedVisible = visible.filter((r) => selectedIds.has(r.id));
-  const allSelected = visible.length > 0 && selectedVisible.length === visible.length;
+  const sorted = useMemo(() => {
+    const val = (r: TrackedPostRow): string | number | null => {
+      if (sort === 'created') return r.createdAt;
+      if (sort === 'posted') return r.postedAt;
+      if (sort === 'captured') return r.capturedAt;
+      return r.metrics?.[sort] ?? null;
+    };
+    return [...visible].sort((a, b) => {
+      const va = val(a), vb = val(b);
+      // 값이 없는 행은 방향과 무관하게 맨 뒤 — '모름'이 0이나 최신처럼 끼어들면 순서가 거짓말이 된다
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1;
+      if (vb === null) return -1;
+      // 시각은 ISO 문자열이라 사전순 = 시간순
+      const cmp = typeof va === 'number' ? va - (vb as number) : String(va).localeCompare(String(vb));
+      return dir === 'desc' ? -cmp : cmp;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- visible은 rows·pendingRemove의 파생값
+  }, [rows, pendingRemove, sort, dir]);
+  const shown = useMemo(() => sorted.slice(0, shownCount), [sorted, shownCount]);
+
+  // 선택의 '보이는 것'은 실제로 그려진 것이다 — 절단 밖·숨김 행이 카운트·삭제에 끼면 안 된다(generate 관례)
+  const selectedVisible = shown.filter((r) => selectedIds.has(r.id));
+  const allSelected = shown.length > 0 && selectedVisible.length === shown.length;
 
   const toggleAll = useCallback(() => {
-    setSelectedIds(allSelected ? new Set() : new Set(visible.map((r) => r.id)));
-  }, [allSelected, visible]);
+    setSelectedIds(allSelected ? new Set() : new Set(shown.map((r) => r.id)));
+  }, [allSelected, shown]);
 
   return (
     <main className="mx-auto max-w-[1100px] px-6 py-8">
@@ -328,13 +363,17 @@ export default function TrackingPage() {
                 : `전체 새로고침 (${visible.length}건 — API 호출 ${visible.length}회)`}
             </Button>
           </div>
-          <TrackingTable rows={visible} highlightId={highlightId} refreshingIds={refreshingIds}
+          <TrackingTable rows={shown} highlightId={highlightId} refreshingIds={refreshingIds}
                          selectedIds={selectedIds} onToggleSelect={toggleSelect}
                          allSelected={allSelected} onToggleAll={toggleAll}
+                         sort={sort} dir={dir} onSort={onSort}
                          drafts={drafts} draftsState={draftsState} onLoadDrafts={() => void loadDrafts()}
                          pickerFor={pickerFor} onOpenPicker={openPicker}
                          onLinkDraft={(row, draftId) => void linkDraft(row, draftId)}
                          onRefresh={(row) => void refreshOne(row.id)} onRemove={(row) => requestRemove([row])} />
+          {/* '더 보기'는 표 스크롤 컨테이너 밖 — 표를 끝까지 내리지 않아도 잘렸다는 사실이 보인다(TweetTableView 관례) */}
+          <ShowMoreButton total={sorted.length} shown={shown.length}
+                          onMore={() => setShownCount((n) => n + PAGE_STEP)} />
           {/* 여러 건을 고르면 뜨는 바 — 결과를 내려가 고른 뒤 액션을 찾아 되올라오지 않게 하단 sticky(BulkActionBar 규격) */}
           {selectedVisible.length > 0 && (
             <div className="sticky bottom-0 z-10 -mx-4 mt-2 flex flex-wrap items-center gap-3 border-t border-x-border bg-white px-4 py-2.5 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">

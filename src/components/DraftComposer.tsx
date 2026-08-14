@@ -65,6 +65,16 @@ function bannedPhraseCount(
         .reduce((n, p) => n + p.bannedPhrases.length, 0);
 }
 
+// 🔗 진입점 — 빈 상태·선택 후 두 자리에 같은 모습으로 나온다. 마크업을 한 곳에 두어 톤 수정이 한쪽만 반영되는 일을 막는다.
+function AddLinkButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button onClick={onClick}
+            className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-x-border-strong bg-white text-ui text-x-blue-text hover:bg-x-hover">
+      🔗 링크로 추가
+    </button>
+  );
+}
+
 // 좌 생성 패널의 섹션부 — 사용 흐름 순: 누구 것인지 → 무엇을 참고할지 → 무엇을 말할지 → 어떤 모양·몇 개로.
 // 서술형 설명은 두지 않는다: 이름만으로 알 수 있으면 이름만, 알 수 없으면 ⓘ, 선택 사항은 '선택' 한 단어.
 // (이전엔 설명 문장 9개가 전부 11px로 깔려 있어 "투머치"·"빽빽하다"는 피드백을 받았다.)
@@ -128,10 +138,7 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
               ＋ 레퍼런스 더 고르기
             </button>
             {/* 시트 안에만 있던 링크 추가를 패널로도 — X에서 방금 본 트윗을 시트를 거치지 않고 바로 (스펙 §A) */}
-            <button onClick={onOpenAddLink}
-                    className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-x-border-strong bg-white text-ui text-x-blue-text hover:bg-x-hover">
-              🔗 링크로 추가
-            </button>
+            <AddLinkButton onClick={onOpenAddLink} />
             {/* 참고 방식은 레퍼런스가 있을 때만 나타난다 — 예전엔 레퍼런스보다 '위'에서 비활성으로 먼저 보였다.
                 못 누르는 버튼을 먼저 보여주고 그걸 켜는 스위치를 아래에 두는 구조였다. */}
             <div className="border-t border-x-border pt-3">
@@ -158,10 +165,7 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
               보관함에서 고르기
             </button>
             {/* 보조 진입점 — 주 진입점(보관함)보다 낮은 위계의 흰 배경. 도움말은 모달 안에 이미 있다(스펙 §A) */}
-            <button onClick={onOpenAddLink}
-                    className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-x-border-strong bg-white text-ui text-x-blue-text hover:bg-x-hover">
-              🔗 링크로 추가
-            </button>
+            <AddLinkButton onClick={onOpenAddLink} />
           </>
         )}
       </Section>

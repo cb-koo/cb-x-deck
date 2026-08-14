@@ -205,15 +205,19 @@ function Workbench() {
   async function handleAddedByLink(r: AddedByLink) {
     const saved = r.alreadyInLibrary ? '이미 보관함에 있어요' : '보관함에 추가했어요';
     if (refRows.some((x) => x.tweetId === r.tweetId)) { setToast(`${saved} — 이미 레퍼런스로 선택돼 있어요`); return; }
-    if (refRows.length >= MAX_REFS_UI) { setToast(`${saved} — 레퍼런스가 ${MAX_REFS_UI}건이라 자동 선택은 안 했어요. '보관함에서 고르기'에서 조정해주세요`); return; }
+    // 안내 문구는 이 시점 화면에서 참인 표현만 — 패널 버튼 라벨이 상태에 따라 달라서('보관함에서 고르기'/'더 고르기')
+    // 특정 라벨을 콕 집으면 화면에 없는 버튼을 가리킬 수 있다(리뷰 Important, UX 원칙 4).
+    if (refRows.length >= MAX_REFS_UI) { setToast(`${saved} — 레퍼런스가 ${MAX_REFS_UI}건이라 자동 선택은 안 했어요. 위 레퍼런스 목록에서 조정해주세요`); return; }
     try {
-      const rows: ReferenceRow[] = await apiFetch('/api/references?scope=all').then((res) => res.json());
+      const res = await apiFetch('/api/references?scope=all');
+      if (!res.ok) throw new Error(String(res.status)); // 500 응답 body가 배열이 아니어도 폴백이 '우연'이 아니라 의도가 되게
+      const rows: ReferenceRow[] = await res.json();
       const found = rows.find((x) => x.tweetId === r.tweetId);
-      if (!found) { setToast(`${saved} — 목록을 갱신하지 못했어요. '보관함에서 고르기'에서 선택해주세요`); return; }
+      if (!found) { setToast(`${saved} — 목록을 갱신하지 못했어요. 레퍼런스 고르기에서 선택해주세요`); return; }
       setRefRows((cur) => (cur.some((x) => x.tweetId === r.tweetId) ? cur : [...cur, found]));
       setToast(`${saved} — 레퍼런스로 선택했어요`);
     } catch {
-      setToast(`${saved} — 목록을 갱신하지 못했어요. '보관함에서 고르기'에서 선택해주세요`);
+      setToast(`${saved} — 목록을 갱신하지 못했어요. 레퍼런스 고르기에서 선택해주세요`);
     }
   }
 

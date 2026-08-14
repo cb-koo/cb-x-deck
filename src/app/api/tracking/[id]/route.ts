@@ -22,6 +22,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ error: '잘못된 요청이에요' }, { status: 400 });
   }
 
+  // draftId의 형식 오류는 FK 위반이 아니라 uuid 캐스팅 오류(22P02)로 떨어져 catch를 비껴간다.
+  if (draftId !== null && !isUuidLike(draftId)) {
+    return NextResponse.json({ error: '연결하려는 원고를 찾을 수 없어요' }, { status: 400 });
+  }
+
   const sql = getSql();
   if (!(await findTrackedPostById(sql, id))) return notFound();
 

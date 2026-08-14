@@ -46,9 +46,9 @@ export type FetchPostResult =
 // 트윗 하나의 최신 지표를 수집한다. unavailable과 error를 절대 섞지 않는 것이 핵심:
 // unavailable은 "삭제/비공개로 확정"이라 트래킹을 멈춰도 되고, error는 "몰라서" 못 멈춘다.
 export async function fetchPost(tweetId: string, client?: GetxapiClient): Promise<FetchPostResult> {
-  const c = client ?? makeClient();
   let raw: RawTweet | null;
   try {
+    const c = client ?? makeClient(); // makeClient()도 try 안 — 키 누락 같은 생성 실패도 error로 보고한다(api/influencers/route.ts와 동일 계약)
     raw = await c.getTweetDetail(tweetId);
   } catch (e) {
     // GetxapiAuthError를 포함해 모든 예외는 error — 인증 실패를 "게시물 없음"으로 격하하지 않는다.
@@ -57,26 +57,31 @@ export async function fetchPost(tweetId: string, client?: GetxapiClient): Promis
   }
   if (raw === null) return { kind: 'unavailable' }; // getTweetDetail의 404/400 → null 관례
 
-  const id = str(raw.id);
+  // 리포스트 링크는 원본으로 — addByLink.ts의 확립된 정책(mappers.ts의 순수 RT 배제와 일관)과 동일하게,
+  // 여기서도 raw가 리포스트 래퍼면 원본 트윗으로 갈아탄다. tweetId가 요청한 값과 달라질 수 있는데,
+  // 그 흡수는 addTrackedPost의 유니크 제약 폴백("이미 추적 중이에요")이 이미 처리한다.
+  const t = (raw.retweeted_tweet as RawTweet | undefined) ?? raw;
+
+  const id = str(t.id);
   if (!id) return { kind: 'error' }; // 응답은 왔는데 기형 — 삭제 확정이 아니라 판단 불가
 
-  const author = raw.author as Record<string, unknown> | undefined;
+  const author = t.author as Record<string, unknown> | undefined;
   return {
     kind: 'ok',
     post: {
       tweetId: id,
       authorHandle: str(author?.userName),
-      text: str(raw.text) ?? '',
-      postedAt: toIso(raw.createdAt),
+      text: str(t.text) ?? '',
+      postedAt: toIso(t.createdAt),
       metrics: {
-        views: num(raw.viewCount),
-        likes: num(raw.likeCount),
-        retweets: num(raw.retweetCount),
-        replies: num(raw.replyCount),
-        bookmarks: num(raw.bookmarkCount),
-        quotes: num(raw.quoteCount),
+        views: num(t.viewCount),
+        likes: num(t.likeCount),
+        retweets: num(t.retweetCount),
+        replies: num(t.replyCount),
+        bookmarks: num(t.bookmarkCount),
+        quotes: num(t.quoteCount),
       },
-      raw,
+      raw: t, // 저장 payload는 실제 지표를 낸 트윗(t)과 일치시킨다 — 래퍼(raw)를 저장하면 나중에 봤을 때 지표와 안 맞는다
     },
   };
 }

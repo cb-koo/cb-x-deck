@@ -47,3 +47,19 @@ test('error: id 없는 기형 응답은 판단 불가', async () => {
   const r = await fetchPost('123', mk(async () => new Response(JSON.stringify({ data: raw }), { status: 200 })));
   assert.equal(r.kind, 'error');
 });
+
+test('ok: 리포스트 링크는 원본 트윗의 id·본문·지표로 — addByLink.ts와 동일 정책', async () => {
+  const wrapper = {
+    id: '999', text: '', createdAt: 'Mon Jan 05 00:00:00 +0000 2026',
+    author: { userName: 'reposter' },
+    viewCount: 1, likeCount: 0, retweetCount: 0, replyCount: 0, quoteCount: 0, bookmarkCount: 0,
+    retweeted_tweet: RAW,
+  };
+  const r = await fetchPost('999', mk(async () => new Response(JSON.stringify({ data: wrapper }), { status: 200 })));
+  assert.equal(r.kind, 'ok');
+  if (r.kind !== 'ok') return;
+  assert.equal(r.post.tweetId, '123');
+  assert.equal(r.post.authorHandle, 'someone');
+  assert.equal(r.post.text, '테스트 본문');
+  assert.deepEqual(r.post.metrics, { views: 1000, likes: 10, retweets: 2, replies: 1, bookmarks: 5, quotes: 0 });
+});

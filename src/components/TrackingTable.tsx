@@ -1,7 +1,7 @@
 'use client';
 import { Button } from '@/components/ui';
 import { formatFull } from '@/lib/format';
-import { relTime } from '@/lib/relTime';
+import { relTime, relTimeFine } from '@/lib/relTime';
 import { kstMonthDayKo } from '@/lib/datetime';
 import { tweetPermalink } from '@/lib/tweetLink';
 import type { TrackedPostRow } from '@/lib/trackingStore';
@@ -91,8 +91,10 @@ export function TrackingTable({
                     {formatFull(r.metrics?.[m.key] ?? null)}
                   </td>
                 ))}
+                {/* 측정 열은 시간 단위 신선도가 필요하다 — 사용자가 이 값을 보고 API 호출(새로고침)을 결정한다.
+                    게시 열은 하루 단위(relTime)로 충분: 게시 시각은 다시 확인할 이유가 없다. */}
                 <td className="whitespace-nowrap px-3 py-2 text-caption text-x-muted">
-                  {r.capturedAt ? relTime(r.capturedAt, '측정') : '–'}
+                  {r.capturedAt ? relTimeFine(r.capturedAt, '측정') : '–'}
                 </td>
                 <td className="px-3 py-2">
                   <DraftCell row={r} open={pickerFor === r.id} drafts={drafts} draftsState={draftsState}

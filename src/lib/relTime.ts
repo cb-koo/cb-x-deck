@@ -11,3 +11,16 @@ export function relTime(iso: string, suffix: string, now: number = Date.now()): 
   if (d < 30) return `${Math.floor(d / 7)}주 전 ${suffix}`;
   return `${Math.floor(d / 30)}달 전 ${suffix}`;
 }
+
+// relTime과 같은 목적이지만 하루 이내를 시/분 단위까지 쪼갠다("방금", "5분 전", "3시간 전") —
+// 추적 표의 '측정' 열처럼 사용자가 "얼마나 최신인지"를 보고 API 호출(새로고침) 여부를 판단하는
+// 화면엔 하루 단위(relTime)가 너무 뭉툭하다. 원래 Column.tsx의 lastRefreshedLabel을 그대로 옮긴 것.
+export function relTimeFine(iso: string, suffix: string, now: number = Date.now()): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '';
+  const min = Math.floor((now - t) / 60000);
+  if (min < 1) return `방금 ${suffix}`;
+  if (min < 60) return `${min}분 전 ${suffix}`;
+  if (min < 1440) return `${Math.floor(min / 60)}시간 전 ${suffix}`;
+  return `${Math.floor(min / 1440)}일 전 ${suffix}`;
+}

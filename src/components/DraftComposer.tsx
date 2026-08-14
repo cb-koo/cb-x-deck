@@ -68,10 +68,11 @@ function bannedPhraseCount(
 // 좌 생성 패널의 섹션부 — 사용 흐름 순: 누구 것인지 → 무엇을 참고할지 → 무엇을 말할지 → 어떤 모양·몇 개로.
 // 서술형 설명은 두지 않는다: 이름만으로 알 수 있으면 이름만, 알 수 없으면 ⓘ, 선택 사항은 '선택' 한 단어.
 // (이전엔 설명 문장 9개가 전부 11px로 깔려 있어 "투머치"·"빽빽하다"는 피드백을 받았다.)
-export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker, onRemoveRef, onClearRefs }: {
+export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker, onOpenAddLink, onRemoveRef, onClearRefs }: {
   clients: Array<{ client: ClientRow; procedures: ProcedureRow[] }>;
   value: ComposerState; onChange: (v: ComposerState) => void;
-  refRows: ReferenceRow[]; onOpenPicker: () => void; onRemoveRef: (tweetId: string) => void; onClearRefs: () => void;
+  refRows: ReferenceRow[]; onOpenPicker: () => void; onOpenAddLink: () => void;
+  onRemoveRef: (tweetId: string) => void; onClearRefs: () => void;
 }) {
   const cur = clients.find((c) => c.client.id === value.clientId) ?? null;
   const hasRefs = refRows.length > 0;
@@ -126,6 +127,11 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
                     className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-x-border-strong bg-white text-ui text-x-blue-text hover:bg-x-hover">
               ＋ 레퍼런스 더 고르기
             </button>
+            {/* 시트 안에만 있던 링크 추가를 패널로도 — X에서 방금 본 트윗을 시트를 거치지 않고 바로 (스펙 §A) */}
+            <button onClick={onOpenAddLink}
+                    className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-x-border-strong bg-white text-ui text-x-blue-text hover:bg-x-hover">
+              🔗 링크로 추가
+            </button>
             {/* 참고 방식은 레퍼런스가 있을 때만 나타난다 — 예전엔 레퍼런스보다 '위'에서 비활성으로 먼저 보였다.
                 못 누르는 버튼을 먼저 보여주고 그걸 켜는 스위치를 아래에 두는 구조였다. */}
             <div className="border-t border-x-border pt-3">
@@ -145,11 +151,18 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
         ) : (
           // 텍스트 링크였던 것을 실제 버튼으로 — 레퍼런스 기반 생성이 이 도구의 차별점인데
           // 진입점이 11px 파란 밑줄이라 각주처럼 보였다.
-          <button onClick={onOpenPicker}
-                  className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-x-blue bg-x-blue/5 text-ui font-bold text-x-blue-text hover:bg-x-blue/10">
-            <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-current" aria-hidden><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z" /></svg>
-            보관함에서 고르기
-          </button>
+          <>
+            <button onClick={onOpenPicker}
+                    className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-x-blue bg-x-blue/5 text-ui font-bold text-x-blue-text hover:bg-x-blue/10">
+              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-current" aria-hidden><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z" /></svg>
+              보관함에서 고르기
+            </button>
+            {/* 보조 진입점 — 주 진입점(보관함)보다 낮은 위계의 흰 배경. 도움말은 모달 안에 이미 있다(스펙 §A) */}
+            <button onClick={onOpenAddLink}
+                    className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-x-border-strong bg-white text-ui text-x-blue-text hover:bg-x-hover">
+              🔗 링크로 추가
+            </button>
+          </>
         )}
       </Section>
 

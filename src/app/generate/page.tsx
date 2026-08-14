@@ -12,7 +12,8 @@ import { BulkActionBar } from '@/components/BulkActionBar';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
 import { DraftWriteModal } from '@/components/DraftWriteModal';
-import { RefPickerSheet } from '@/components/RefPickerSheet';
+import { RefPickerSheet, MAX_REFS_UI } from '@/components/RefPickerSheet';
+import { AddByLinkModal, type AddedByLink } from '@/components/AddByLinkModal';
 import { DraftFilterBar } from '@/components/DraftFilterBar';
 import { PeriodPicker } from '@/components/PeriodPicker';
 import { DraftTable } from '@/components/DraftTable';
@@ -53,6 +54,7 @@ function Workbench() {
   const [composer, setComposer] = useState<ComposerState>(DEFAULT_COMPOSER);
   const [refRows, setRefRows] = useState<ReferenceRow[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [addLinkOpen, setAddLinkOpen] = useState(false); // 진입점 C: 패널의 '링크로 추가' (스펙 §B)
   const [filter, setFilter] = useState<DraftListFilter>({ status: 'all', clientId: '' });
   // 신규 렌즈 3축 — 기존 필터와 동일하게 세션 한정(저장 안 함) (6차 스펙)
   const [query, setQuery] = useState('');
@@ -142,13 +144,13 @@ function Workbench() {
 
   // drafts에서 파생 — 원본이 사라지면(삭제 확정 등) 오버레이도 자연 소멸
   const peeked = peekId ? drafts.find((d) => d.id === peekId) ?? null : null;
-  // Esc로 피크 닫기 — DraftEditModal 선례. 편집 모달이 위에 열려 있으면 그쪽 Esc가 우선이라 여기선 무시.
+  // Esc로 피크 닫기 — DraftEditModal 선례. 편집 모달·링크 추가 모달이 위에 열려 있으면 그쪽 Esc가 우선이라 여기선 무시.
   useEffect(() => {
-    if (!peekId || editing) return;
+    if (!peekId || editing || addLinkOpen) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) setPeekId(null); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [peekId, editing]);
+  }, [peekId, editing, addLinkOpen]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로컬 저장값 복원(기존 코드베이스 관례, RefPickerSheet 선례)
@@ -197,6 +199,23 @@ function Workbench() {
       } else setToast('이 트윗은 보관함에 없어요 — 덱에서 ☆ 저장한 뒤 다시 시도해주세요');
     });
   }, [searchParams]);
+
+  // 진입점 C의 후처리 — 저장은 모달(/api/library/from-link)이 이미 끝냈고 여기선 '선택'만 한다.
+  // 진입점 A(?ref=)와 같은 패턴: 전량 조회에서 방금 트윗의 row를 찾아 refRows에 붙인다(단건 API 없음, 스펙 §B).
+  async function handleAddedByLink(r: AddedByLink) {
+    const saved = r.alreadyInLibrary ? '이미 보관함에 있어요' : '보관함에 추가했어요';
+    if (refRows.some((x) => x.tweetId === r.tweetId)) { setToast(`${saved} — 이미 레퍼런스로 선택돼 있어요`); return; }
+    if (refRows.length >= MAX_REFS_UI) { setToast(`${saved} — 레퍼런스가 ${MAX_REFS_UI}건이라 자동 선택은 안 했어요. '보관함에서 고르기'에서 조정해주세요`); return; }
+    try {
+      const rows: ReferenceRow[] = await apiFetch('/api/references?scope=all').then((res) => res.json());
+      const found = rows.find((x) => x.tweetId === r.tweetId);
+      if (!found) { setToast(`${saved} — 목록을 갱신하지 못했어요. '보관함에서 고르기'에서 선택해주세요`); return; }
+      setRefRows((cur) => (cur.some((x) => x.tweetId === r.tweetId) ? cur : [...cur, found]));
+      setToast(`${saved} — 레퍼런스로 선택했어요`);
+    } catch {
+      setToast(`${saved} — 목록을 갱신하지 못했어요. '보관함에서 고르기'에서 선택해주세요`);
+    }
+  }
 
   // 진입점 B: /generate?draft=<id> — 인플루언서 프로필의 원고 롤업·로그에서 진입, 확대 보기로 연다.
   // 필터가 숨겨도 열린다 — peeked 파생이 필터 전 drafts를 보기 때문(101행).
@@ -611,6 +630,7 @@ function Workbench() {
           )}
           <DraftComposer clients={clients} value={composer} onChange={updateComposer}
                          refRows={refRows} onOpenPicker={() => setPickerOpen(true)}
+                         onOpenAddLink={() => setAddLinkOpen(true)}
                          onRemoveRef={(id) => setRefRows((cur) => cur.filter((x) => x.tweetId !== id))}
                          onClearRefs={() => setRefRows([])} />
         </div>
@@ -830,6 +850,9 @@ function Workbench() {
       )}
       <RefPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} lastWsId={lastWsId}
                       selectedIds={selectedRefIds} seedRows={refRows} onApply={setRefRows} />
+      {/* 진입점 C — 시트 내부 인스턴스와 별개(각자 open 상태). 시트가 열리면 패널이 오버레이에 덮여 동시 오픈 불가 */}
+      <AddByLinkModal open={addLinkOpen} onClose={() => setAddLinkOpen(false)} defaultWsId={lastWsId}
+                      onAdded={(r) => { void handleAddedByLink(r); }} />
       {pendingRemove.length > 0 && (
         <Toast message={pendingRemove.length === 1 ? '초안을 삭제했어요' : `원고 ${pendingRemove.length}개를 삭제했어요`}
                actionLabel="실행 취소" onAction={undoRemove} />

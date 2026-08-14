@@ -2,8 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui';
 import { formatFull } from '@/lib/format';
-import { relTime, relTimeFine } from '@/lib/relTime';
-import { kstMonthDayKo } from '@/lib/datetime';
+import { kstDateTime, kstMonthDayKo } from '@/lib/datetime';
 import { tweetPermalink } from '@/lib/tweetLink';
 import type { TrackedPostRow } from '@/lib/trackingStore';
 import type { PostMetrics } from '@/lib/postMetrics';
@@ -22,20 +21,53 @@ const METRICS: Array<{ key: keyof PostMetrics; label: string }> = [
 export interface DraftOption { id: string; label: string }
 export type DraftsState = 'idle' | 'loading' | 'ready' | 'error';
 
+// 정렬 키 — 정렬은 페이지가 소유한다(DraftTable·TweetTable 관례). 이 표는 받은 순서를 그대로 그린다.
+export type TrackSortKey = 'created' | 'posted' | 'captured' | keyof PostMetrics;
+export type TrackSortDir = 'asc' | 'desc';
+
+const SORT_LABEL: Record<TrackSortKey, string> = {
+  created: '등록순', posted: '게시 시각', captured: '측정 시각',
+  views: '조회', likes: '좋아요', retweets: '리포스트', replies: '답글', bookmarks: '북마크', quotes: '인용',
+};
+
+// 정렬 가능한 헤더 칸 — TweetTable의 헤더 버튼 마크업을 이 표에 맞게 줄인 것(aria-sort·방향 화살표 동일)
+function SortTh({ k, label, sort, dir, onSort, numeric }: {
+  k: TrackSortKey; label: string; sort: TrackSortKey; dir: TrackSortDir;
+  onSort: (k: TrackSortKey) => void; numeric?: boolean;
+}) {
+  const active = k === sort;
+  return (
+    <th scope="col"
+        aria-sort={active ? (dir === 'desc' ? 'descending' : 'ascending') : 'none'}
+        className={`whitespace-nowrap px-2 py-2 font-normal ${numeric ? 'text-right' : 'text-left'} ${active ? 'text-x-text' : ''}`}>
+      <button type="button" onClick={() => onSort(k)}
+              title={active ? `${SORT_LABEL[k]} ${dir === 'desc' ? '내림차순' : '오름차순'} — 다시 누르면 순서가 바뀝니다`
+                            : `${SORT_LABEL[k]} 기준으로 정렬`}
+              className="rounded px-1 py-0.5 hover:bg-x-text/5">
+        {label}{active && <span aria-hidden> {dir === 'desc' ? '↓' : '↑'}</span>}
+      </button>
+    </th>
+  );
+}
+
 export function TrackingTable({
   rows, highlightId, refreshingIds,
   selectedIds, onToggleSelect, allSelected, onToggleAll,
+  sort, dir, onSort,
   drafts, draftsState, onLoadDrafts,
   pickerFor, onOpenPicker, onLinkDraft,
   onRefresh, onRemove,
 }: {
-  rows: TrackedPostRow[];          // 이미 정렬(최신 등록순)·숨김 처리가 끝난 배열 — 여기서 순서를 바꾸지 않는다
+  rows: TrackedPostRow[];          // 이미 정렬·절단이 끝난 배열 — 여기서 순서를 바꾸지 않는다
   highlightId: string | null;      // 방금 등록/이미 추적 중이던 행 — 2초 강조(페이지가 타이머를 소유)
   refreshingIds: ReadonlySet<string>;
   selectedIds: ReadonlySet<string>; // 표시 전용 — 판단(확인·실행취소)과 삭제는 전부 페이지가 한다(BulkActionBar 관례)
   onToggleSelect: (id: string) => void;
   allSelected: boolean;
   onToggleAll: () => void;
+  sort: TrackSortKey;
+  dir: TrackSortDir;
+  onSort: (k: TrackSortKey) => void;
   drafts: DraftOption[];
   draftsState: DraftsState;
   onLoadDrafts: () => void;
@@ -46,20 +78,23 @@ export function TrackingTable({
   onRemove: (row: TrackedPostRow) => void;
 }) {
   return (
-    <div className="w-full overflow-x-auto">
+    // 가로·세로 스크롤을 담당하는 컨테이너는 이 하나뿐이다 — sticky thead는 이 div를 기준으로 고정된다
+    // (TweetTableView와 같은 구조). '더 보기'는 표 스크롤과 무관하게 항상 보이도록 페이지가 이 밖에 둔다.
+    <div className="max-h-[70vh] w-full overflow-auto">
       <table className="w-full text-ui">
-        <thead>
+        <thead className="sticky top-0 z-10 bg-white">
           <tr className="border-b border-x-border text-left text-caption text-x-muted">
             <th className="w-8 px-3 py-2">
               <input type="checkbox" checked={allSelected} onChange={onToggleAll}
                      aria-label="표시된 게시물 전체 선택" className="align-middle accent-x-blue" />
             </th>
-            <th className="px-3 py-2 font-normal">게시물</th>
-            <th className="whitespace-nowrap px-3 py-2 font-normal">게시</th>
+            {/* 게시물 열의 정렬 키는 '등록순' — 목록의 기본 순서라 이 열이 그 자리를 맡는다 */}
+            <SortTh k="created" label="게시물" sort={sort} dir={dir} onSort={onSort} />
+            <SortTh k="posted" label="게시" sort={sort} dir={dir} onSort={onSort} />
             {METRICS.map((m) => (
-              <th key={m.key} className="whitespace-nowrap px-3 py-2 text-right font-normal">{m.label}</th>
+              <SortTh key={m.key} k={m.key} label={m.label} sort={sort} dir={dir} onSort={onSort} numeric />
             ))}
-            <th className="whitespace-nowrap px-3 py-2 font-normal">측정</th>
+            <SortTh k="captured" label="측정" sort={sort} dir={dir} onSort={onSort} />
             <th className="whitespace-nowrap px-3 py-2 font-normal">원고</th>
             <th className="whitespace-nowrap px-3 py-2 font-normal">동작</th>
           </tr>
@@ -96,8 +131,10 @@ export function TrackingTable({
                     </span>
                   )}
                 </td>
+                {/* 시각은 '4달 전' 같은 상대 표기 대신 정확한 값을 표 안에 그대로(사용자 결정 08-15).
+                    서울 기준, kstDateTime은 '최종 수집 시간' 표기의 기존 관례다(datetime.ts) */}
                 <td className="whitespace-nowrap px-3 py-2 text-caption text-x-muted">
-                  {r.postedAt ? relTime(r.postedAt, '게시') : '–'}
+                  {r.postedAt ? kstDateTime(r.postedAt) : '–'}
                 </td>
                 {/* 볼 수 없는 게시물의 지표는 지우지 않고 마지막 측정값을 흐리게 남긴다 — 지운 값이 0으로 보이면 거짓말이 된다 */}
                 {METRICS.map((m) => (
@@ -106,10 +143,8 @@ export function TrackingTable({
                     {formatFull(r.metrics?.[m.key] ?? null)}
                   </td>
                 ))}
-                {/* 측정 열은 시간 단위 신선도가 필요하다 — 사용자가 이 값을 보고 API 호출(새로고침)을 결정한다.
-                    게시 열은 하루 단위(relTime)로 충분: 게시 시각은 다시 확인할 이유가 없다. */}
                 <td className="whitespace-nowrap px-3 py-2 text-caption text-x-muted">
-                  {r.capturedAt ? relTimeFine(r.capturedAt, '측정') : '–'}
+                  {r.capturedAt ? kstDateTime(r.capturedAt) : '–'}
                 </td>
                 {/* nowrap: 표가 좁아지면 '연결 안 됨'이 글자 단위로 세로로 꺾인다(QA 08-15) — 상태 글자는 한 줄이 정체성 */}
                 <td className="whitespace-nowrap px-3 py-2">

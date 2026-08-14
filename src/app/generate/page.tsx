@@ -14,6 +14,7 @@ import { DraftEditModal } from '@/components/DraftEditModal';
 import { DraftWriteModal } from '@/components/DraftWriteModal';
 import { RefPickerSheet, MAX_REFS_UI } from '@/components/RefPickerSheet';
 import { AddByLinkModal, type AddedByLink } from '@/components/AddByLinkModal';
+import { RefPreviewModal } from '@/components/RefPreviewModal';
 import { DraftFilterBar } from '@/components/DraftFilterBar';
 import { PeriodPicker } from '@/components/PeriodPicker';
 import { DraftTable } from '@/components/DraftTable';
@@ -55,6 +56,7 @@ function Workbench() {
   const [refRows, setRefRows] = useState<ReferenceRow[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [addLinkOpen, setAddLinkOpen] = useState(false); // 진입점 C: 패널의 '링크로 추가' (스펙 §B)
+  const [previewRefId, setPreviewRefId] = useState<string | null>(null); // 칩 미리보기 — row는 refRows에서 파생(스펙 §D)
   const [filter, setFilter] = useState<DraftListFilter>({ status: 'all', clientId: '' });
   // 신규 렌즈 3축 — 기존 필터와 동일하게 세션 한정(저장 안 함) (6차 스펙)
   const [query, setQuery] = useState('');
@@ -144,13 +146,15 @@ function Workbench() {
 
   // drafts에서 파생 — 원본이 사라지면(삭제 확정 등) 오버레이도 자연 소멸
   const peeked = peekId ? drafts.find((d) => d.id === peekId) ?? null : null;
+  // 칩 미리보기 대상 — 원본이 refRows에서 빠지면 모달도 자연 소멸(peeked와 같은 파생 패턴)
+  const previewRefRow = previewRefId ? refRows.find((x) => x.tweetId === previewRefId) ?? null : null;
   // Esc로 피크 닫기 — DraftEditModal 선례. 편집 모달·링크 추가 모달이 위에 열려 있으면 그쪽 Esc가 우선이라 여기선 무시.
   useEffect(() => {
-    if (!peekId || editing || addLinkOpen) return;
+    if (!peekId || editing || addLinkOpen || previewRefId) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) setPeekId(null); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [peekId, editing, addLinkOpen]);
+  }, [peekId, editing, addLinkOpen, previewRefId]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로컬 저장값 복원(기존 코드베이스 관례, RefPickerSheet 선례)
@@ -635,6 +639,7 @@ function Workbench() {
           <DraftComposer clients={clients} value={composer} onChange={updateComposer}
                          refRows={refRows} onOpenPicker={() => setPickerOpen(true)}
                          onOpenAddLink={() => setAddLinkOpen(true)}
+                         onPreviewRef={setPreviewRefId}
                          onRemoveRef={(id) => setRefRows((cur) => cur.filter((x) => x.tweetId !== id))}
                          onClearRefs={() => setRefRows([])} />
         </div>
@@ -857,6 +862,8 @@ function Workbench() {
       {/* 진입점 C — 시트 내부 인스턴스와 별개(각자 open 상태). 시트가 열리면 패널이 오버레이에 덮여 동시 오픈 불가 */}
       <AddByLinkModal open={addLinkOpen} onClose={() => setAddLinkOpen(false)} defaultWsId={lastWsId}
                       onAdded={(r) => { void handleAddedByLink(r); }} />
+      <RefPreviewModal row={previewRefRow} onClose={() => setPreviewRefId(null)}
+                       onRemove={(id) => setRefRows((cur) => cur.filter((x) => x.tweetId !== id))} />
       {pendingRemove.length > 0 && (
         <Toast message={pendingRemove.length === 1 ? '초안을 삭제했어요' : `원고 ${pendingRemove.length}개를 삭제했어요`}
                actionLabel="실행 취소" onAction={undoRemove} />

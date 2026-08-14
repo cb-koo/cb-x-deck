@@ -78,10 +78,11 @@ function AddLinkButton({ onClick }: { onClick: () => void }) {
 // 좌 생성 패널의 섹션부 — 사용 흐름 순: 누구 것인지 → 무엇을 참고할지 → 무엇을 말할지 → 어떤 모양·몇 개로.
 // 서술형 설명은 두지 않는다: 이름만으로 알 수 있으면 이름만, 알 수 없으면 ⓘ, 선택 사항은 '선택' 한 단어.
 // (이전엔 설명 문장 9개가 전부 11px로 깔려 있어 "투머치"·"빽빽하다"는 피드백을 받았다.)
-export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker, onOpenAddLink, onRemoveRef, onClearRefs }: {
+export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker, onOpenAddLink, onPreviewRef, onRemoveRef, onClearRefs }: {
   clients: Array<{ client: ClientRow; procedures: ProcedureRow[] }>;
   value: ComposerState; onChange: (v: ComposerState) => void;
   refRows: ReferenceRow[]; onOpenPicker: () => void; onOpenAddLink: () => void;
+  onPreviewRef: (tweetId: string) => void;
   onRemoveRef: (tweetId: string) => void; onClearRefs: () => void;
 }) {
   const cur = clients.find((c) => c.client.id === value.clientId) ?? null;
@@ -125,7 +126,10 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
             <div className="flex flex-wrap items-center gap-1.5">
               {refRows.map((r) => (
                 <span key={r.tweetId} className="inline-flex h-7 items-center gap-1 rounded-full border border-x-border-strong bg-white px-2.5 text-ui">
-                  @{r.authorHandle}
+                  {/* 본문 클릭=미리보기, ✕=빼기 — 링크+닫기 조합이라 타깃 둘이어도 관례적(스펙 §C) */}
+                  <button onClick={() => onPreviewRef(r.tweetId)} title="클릭해서 내용 보기" className="hover:underline">
+                    @{r.authorHandle}
+                  </button>
                   <button onClick={() => onRemoveRef(r.tweetId)} aria-label={`@${r.authorHandle} 레퍼런스 빼기`} className="text-x-muted hover:text-red-500">✕</button>
                 </span>
               ))}

@@ -132,8 +132,11 @@ export function TrackingTable({
                   )}
                 </td>
                 {/* 시각은 '4달 전' 같은 상대 표기 대신 정확한 값을 표 안에 그대로(사용자 결정 08-15).
-                    서울 기준, kstDateTime은 '최종 수집 시간' 표기의 기존 관례다(datetime.ts) */}
-                <td className="whitespace-nowrap px-3 py-2 text-caption text-x-muted">
+                    서울 기준, kstDateTime은 '최종 수집 시간' 표기의 기존 관례다(datetime.ts).
+                    글자 규격은 지표 숫자와 동일(text-ui·tabular-nums) — 시각도 데이터 값이라 caption으로
+                    줄이면 같은 행 안에서 크기가 어긋난다(QA 08-15). 색만 secondary로 한 단계 옅게 —
+                    행의 주인공(지표)과의 위계는 크기가 아니라 색이 나른다 */}
+                <td className="whitespace-nowrap px-3 py-2 text-x-secondary tabular-nums">
                   {r.postedAt ? kstDateTime(r.postedAt) : '–'}
                 </td>
                 {/* 볼 수 없는 게시물의 지표는 지우지 않고 마지막 측정값을 흐리게 남긴다 — 지운 값이 0으로 보이면 거짓말이 된다 */}
@@ -143,7 +146,7 @@ export function TrackingTable({
                     {formatFull(r.metrics?.[m.key] ?? null)}
                   </td>
                 ))}
-                <td className="whitespace-nowrap px-3 py-2 text-caption text-x-muted">
+                <td className="whitespace-nowrap px-3 py-2 text-x-secondary tabular-nums">
                   {r.capturedAt ? kstDateTime(r.capturedAt) : '–'}
                 </td>
                 {/* nowrap: 표가 좁아지면 '연결 안 됨'이 글자 단위로 세로로 꺾인다(QA 08-15) — 상태 글자는 한 줄이 정체성 */}

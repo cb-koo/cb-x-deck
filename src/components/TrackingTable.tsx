@@ -8,11 +8,11 @@ import type { TrackedPostRow } from '@/lib/trackingStore';
 import type { PostMetrics } from '@/lib/postMetrics';
 
 // 표는 숫자를 나란히 놓고 비교하는 화면이라 축약(23.7M)하지 않는다 — format.ts의 formatFull 주석 참조.
-// 열 이름은 X 화면과 같은 말로 둔다: 'RT' 같은 줄임말 대신 우리 사용자가 X에서 보는 단어(리트윗).
+// 열 이름은 X 화면과 같은 말로 둔다: 'RT' 같은 줄임말 대신 우리 사용자가 X에서 보는 단어(리포스트).
 const METRICS: Array<{ key: keyof PostMetrics; label: string }> = [
   { key: 'views', label: '조회' },
   { key: 'likes', label: '좋아요' },
-  { key: 'retweets', label: '리트윗' },
+  { key: 'retweets', label: '리포스트' },
   { key: 'replies', label: '답글' },
   { key: 'bookmarks', label: '북마크' },
   { key: 'quotes', label: '인용' },

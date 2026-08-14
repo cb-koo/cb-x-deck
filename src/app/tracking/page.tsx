@@ -27,6 +27,9 @@ export default function TrackingPage() {
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 대기 중 id를 ref로 추적(비동기 콜백 재개 시 최신값 참조용) — pendingRemove를 그대로 클로저로 읽으면
+  // addTracked가 네트워크 응답을 기다리는 동안 다른 건이 대신 커밋되어도 옛 값을 들고 있게 된다(아래 addTracked 참조).
+  const pendingRef = useRef<string | null>(null);
 
   // setState는 전부 await 뒤에 둔다 — 동기 setState를 앞에 넣으면 set-state-in-effect에 걸린다(influencers 관례)
   const load = useCallback(async () => {
@@ -73,7 +76,17 @@ export default function TrackingPage() {
       setRows((cur) => (cur.some((r) => r.id === row.id)
         ? cur.map((r) => (r.id === row.id ? row : r))
         : [row, ...cur]));
-      if (pendingRemove === row.id) setPendingRemove(null); // 중단 대기 중이던 게시물을 다시 등록 — 숨김 해제
+      // 재등록은 취소 의사 표시이므로 예약된 삭제를 철회한다.
+      // pendingRemove를 클로저로 그냥 읽지 않는다: addTracked가 응답을 기다리는 사이
+      // 다른 건의 중단 요청이 들어오면 그 건이 즉시 커밋되며 pendingRemove가 바뀐다(requestRemove 참조) —
+      // 이 클로저는 그 변화를 모르는 옛 값을 들고 있어 남의 타이머를 잘못 건드릴 수 있다. ref로 최신값을 읽는다.
+      if (pendingRef.current === row.id) {
+        if (removeTimer.current) clearTimeout(removeTimer.current);
+        removeTimer.current = null;
+        setUndoId(null);
+        hide(); // commitRemove가 토스트를 내리는 시점과 맞춘다 — 삭제를 철회했으니 실행취소 토스트도 그대로 둘 이유가 없다
+        setPendingRemove((cur) => (cur === row.id ? null : cur));
+      }
       show(data.created === false ? '이미 추적 중이에요' : '추적을 시작했어요 — 지금 지표를 담아뒀어요');
       flash(row.id);
       return 'ok';
@@ -83,7 +96,7 @@ export default function TrackingPage() {
     } finally {
       setAdding(false);
     }
-  }, [show, flash, pendingRemove]);
+  }, [show, hide, flash]);
 
   // 한 건 새로고침. 실패(502)면 행을 건드리지 않는다 — 못 가져온 것은 게시물의 상태가 아니라 우리 사정이다.
   // quiet: 전체 새로고침은 건마다 토스트를 띄우지 않고 끝나고 한 번 집계한다.
@@ -166,9 +179,9 @@ export default function TrackingPage() {
     }, 5000);
   }, [undoId, commitRemove, pickerFor, show, hide, undoRemove]);
 
-  // 대기 중 id를 ref로 추적(언마운트 시 최신값 참조용) — pendingRemove를 deps로 쓰면
-  // undo/타임아웃마다 cleanup이 돌아 삭제가 잘못 커밋된다(library/page.tsx와 동일 이유).
-  const pendingRef = useRef<string | null>(null);
+  // pendingRef 최신화: pendingRemove가 바뀔 때마다 ref에 반영한다.
+  // (언마운트 cleanup은 이 ref를 deps 없이 참조해야 한다 — pendingRemove를 deps로 쓰면
+  // undo/타임아웃마다 cleanup이 돌아 삭제가 잘못 커밋된다. library/page.tsx와 동일 이유.)
   useEffect(() => { pendingRef.current = pendingRemove; }, [pendingRemove]);
   useEffect(() => () => {
     if (removeTimer.current) clearTimeout(removeTimer.current);

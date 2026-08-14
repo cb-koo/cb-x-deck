@@ -40,10 +40,12 @@ export function TrackAddForm({ progress, onSubmit }: {
       <label htmlFor={inputId} className="block text-caption text-x-muted">게시물 링크</label>
       <div className="mt-0.5 flex items-start gap-2">
         {/* textarea: 여러 링크는 줄로 나눠 붙는 게 자연스럽다. Enter는 줄바꿈 — 제출은 버튼으로만
-            (한 줄 입력이던 시절의 Enter 제출을 유지하면 두 번째 링크를 붙이려던 Enter가 제출로 샌다) */}
+            (한 줄 입력이던 시절의 Enter 제출을 유지하면 두 번째 링크를 붙이려던 Enter가 제출로 샌다).
+            기본 2줄 + 예시 두 줄 자리표시: 한 줄짜리 칸은 '하나만 넣는 곳'으로 읽힌다(QA 08-15) —
+            여러 개를 받는다는 사실은 설명이 아니라 생김새가 먼저 말해야 한다. */}
         <textarea id={inputId} value={text} onChange={(e) => setText(e.target.value)}
-                  rows={Math.min(Math.max(text.split('\n').length, 1), 6)}
-                  placeholder={'https://x.com/계정/status/…\n여러 개는 한 줄에 하나씩'}
+                  rows={Math.min(Math.max(text.split('\n').length + 1, 2), 8)}
+                  placeholder={'https://x.com/계정/status/…\nhttps://x.com/계정/status/…  ← 여러 개는 한 줄에 하나씩'}
                   autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                   aria-invalid={showParseErr ? true : undefined}
                   aria-describedby={showParseErr ? `${helpId} ${errId}` : helpId}
@@ -58,6 +60,12 @@ export function TrackAddForm({ progress, onSubmit }: {
       <p id={helpId} className="mt-1 text-caption text-x-muted">
         X 게시물 링크를 붙여넣으면 현재 지표를 가져와 아래 목록에 추가해요 — 여러 개는 한 줄에 하나씩
       </p>
+      {/* 여러 개를 붙였을 때 즉시 응답: 몇 개로 읽었는지 칸이 말해준다 — 버튼 라벨(N건)과 같은 수 */}
+      {tokens.length > 1 && invalid.length === 0 && (
+        <p className="mt-1 text-caption text-x-secondary" aria-live="polite">
+          링크 {tokens.length}개 인식됨 — 위에서부터 순서대로 등록해요
+        </p>
+      )}
       {/* 뜻은 색이 아니라 글자가 나른다 — 몇 개가 왜 걸렸고 어떻게 고치는지까지 말한다(tweetLink.ts) */}
       {showParseErr && (
         <p id={errId} className="mt-1 text-caption text-red-600">

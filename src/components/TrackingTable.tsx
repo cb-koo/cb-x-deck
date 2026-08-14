@@ -1,4 +1,5 @@
 'use client';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui';
 import { formatFull } from '@/lib/format';
 import { relTime, relTimeFine } from '@/lib/relTime';
@@ -96,7 +97,8 @@ export function TrackingTable({
                 <td className="whitespace-nowrap px-3 py-2 text-caption text-x-muted">
                   {r.capturedAt ? relTimeFine(r.capturedAt, '측정') : '–'}
                 </td>
-                <td className="px-3 py-2">
+                {/* nowrap: 표가 좁아지면 '연결 안 됨'이 글자 단위로 세로로 꺾인다(QA 08-15) — 상태 글자는 한 줄이 정체성 */}
+                <td className="whitespace-nowrap px-3 py-2">
                   <DraftCell row={r} open={pickerFor === r.id} drafts={drafts} draftsState={draftsState}
                              onLoadDrafts={onLoadDrafts} onOpenPicker={onOpenPicker} onLinkDraft={onLinkDraft} />
                 </td>
@@ -121,7 +123,9 @@ export function TrackingTable({
   );
 }
 
-// 원고 연결 — 이 앱에서 '목록에서 하나 고르기'의 가장 단순한 관례는 select다(AddByLinkModal의 워크스페이스 칸).
+// 원고 연결 — 처음엔 셀 안 네이티브 select였으나, 원고 수십 건이 OS 팝업으로 통째로 쏟아져
+// 검색도 미리보기도 없는 경험이었다(QA 08-15). 이 앱의 '많은 것 중 하나 고르기' 관례인
+// 검색 달린 모달(RefPickerSheet·AddByLinkModal 골격)로 교체.
 // 목록은 열 때 처음 한 번만 불러온다(onLoadDrafts) — 표를 그릴 때마다 원고 전량을 받아오지 않기 위해서다.
 function DraftCell({ row, open, drafts, draftsState, onLoadDrafts, onOpenPicker, onLinkDraft }: {
   row: TrackedPostRow; open: boolean;
@@ -131,28 +135,9 @@ function DraftCell({ row, open, drafts, draftsState, onLoadDrafts, onOpenPicker,
 }) {
   if (open) {
     return (
-      <div className="flex items-center gap-1.5">
-        {/* idle도 '불러오는 중'으로 — 여는 순간 페이지가 조회를 시작하므로 사용자에게 둘은 같은 시점이다 */}
-        {(draftsState === 'idle' || draftsState === 'loading') && (
-          <span className="text-caption text-x-muted">원고 목록 불러오는 중…</span>
-        )}
-        {draftsState === 'error' && (
-          <>
-            <span className="text-caption text-red-600">원고 목록을 불러오지 못했어요</span>
-            <button onClick={onLoadDrafts} className="text-caption text-x-blue-text hover:underline">다시 시도</button>
-          </>
-        )}
-        {draftsState === 'ready' && (
-          <select autoFocus value={row.draftId ?? ''}
-                  onChange={(e) => onLinkDraft(row, e.target.value || null)}
-                  aria-label="이 게시물의 원고 고르기"
-                  className="max-w-[220px] rounded-md border border-x-border-strong bg-white px-2 py-1 text-ui outline-none focus:border-x-blue">
-            <option value="">고르지 않음</option>
-            {drafts.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-          </select>
-        )}
-        <button onClick={() => onOpenPicker(null)} className="text-caption text-x-muted hover:text-x-secondary">취소</button>
-      </div>
+      <DraftPickerModal row={row} drafts={drafts} draftsState={draftsState}
+                        onLoadDrafts={onLoadDrafts} onLinkDraft={onLinkDraft}
+                        onClose={() => onOpenPicker(null)} />
     );
   }
   if (row.draftId) {
@@ -173,6 +158,79 @@ function DraftCell({ row, open, drafts, draftsState, onLoadDrafts, onOpenPicker,
     <div className="flex items-center gap-1.5">
       <span className="text-x-muted">연결 안 됨</span>
       <button onClick={() => onOpenPicker(row.id)} className="text-x-blue-text hover:underline">연결</button>
+    </div>
+  );
+}
+
+// 검색 달린 원고 선택 모달 — 골격은 AddByLinkModal(백드롭 클릭·Esc 닫기·dialog 시맨틱)과 동일.
+// '연결 해제'는 이미 연결된 행에서만 보인다 — 미연결 행에 '고르지 않음'을 두면 눌러도 아무 일도
+// 없는 데드엔드가 된다(최종 리뷰 지적).
+function DraftPickerModal({ row, drafts, draftsState, onLoadDrafts, onLinkDraft, onClose }: {
+  row: TrackedPostRow;
+  drafts: DraftOption[]; draftsState: DraftsState; onLoadDrafts: () => void;
+  onLinkDraft: (row: TrackedPostRow, draftId: string | null) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) onClose(); }; // IME 조합 중 Esc 무시
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q ? drafts.filter((d) => d.label.toLowerCase().includes(q)) : drafts;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6" onClick={onClose}>
+      <div className="flex max-h-[70vh] w-full max-w-[480px] flex-col rounded-2xl bg-white p-4"
+           role="dialog" aria-modal="true" aria-label="원고 연결" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-2 flex items-baseline justify-between">
+          <p className="text-ui font-medium">원고 연결</p>
+          <button onClick={onClose} className="text-caption text-x-muted hover:text-x-secondary">취소</button>
+        </div>
+        <p className="mb-2 text-caption text-x-muted">
+          {row.authorHandle ? `@${row.authorHandle}` : '이'} 게시물에 연결할 원고를 고르세요
+        </p>
+
+        {/* idle도 '불러오는 중'으로 — 여는 순간 페이지가 조회를 시작하므로 사용자에게 둘은 같은 시점이다 */}
+        {(draftsState === 'idle' || draftsState === 'loading') && (
+          <p className="py-6 text-center text-ui text-x-muted">원고 목록 불러오는 중…</p>
+        )}
+        {draftsState === 'error' && (
+          <p className="py-6 text-center text-ui text-x-secondary">
+            원고 목록을 불러오지 못했어요{' '}
+            <button onClick={onLoadDrafts} className="text-x-blue-text hover:underline">다시 시도</button>
+          </p>
+        )}
+        {draftsState === 'ready' && (
+          <>
+            <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
+                   placeholder="원고 제목 검색"
+                   aria-label="원고 제목 검색"
+                   className="mb-2 w-full rounded-md border border-x-border-strong px-3 py-1.5 text-ui outline-none focus:border-x-blue" />
+            {row.draftId && (
+              <button onClick={() => onLinkDraft(row, null)}
+                      className="mb-1 w-full rounded-md px-3 py-1.5 text-left text-ui text-x-secondary hover:bg-x-hover">
+                연결 해제
+              </button>
+            )}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {filtered.length === 0 && (
+                <p className="py-6 text-center text-ui text-x-muted">검색과 일치하는 원고가 없어요</p>
+              )}
+              {filtered.map((d) => (
+                <button key={d.id} onClick={() => onLinkDraft(row, d.id)}
+                        className={`block w-full truncate rounded-md px-3 py-1.5 text-left text-ui hover:bg-x-hover ${
+                          d.id === row.draftId ? 'font-bold text-x-text' : 'text-x-text'
+                        }`}>
+                  {d.label}{d.id === row.draftId ? ' · 연결됨' : ''}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

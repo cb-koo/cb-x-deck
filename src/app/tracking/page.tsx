@@ -11,25 +11,35 @@ import type { DraftRow } from '@/lib/draftStore';
 
 const FETCH_FAILED = '지표를 가져오지 못했어요 — 잠시 후 다시 시도해 주세요';
 
+// addOne의 결과 — 토스트·플래시·입력 보존의 판단은 호출자(addMany)가 한다.
+type AddOutcome =
+  | { kind: 'added' | 'dup'; row: TrackedPostRow }
+  | { kind: 'fail'; msg: string };
+
 export default function TrackingPage() {
   const { show, hide } = useToast();
   const [rows, setRows] = useState<TrackedPostRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
-  const [adding, setAdding] = useState(false);
+  const [addProgress, setAddProgress] = useState<{ done: number; total: number } | null>(null);
   const [refreshingIds, setRefreshingIds] = useState<ReadonlySet<string>>(new Set());
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
-  const [pendingRemove, setPendingRemove] = useState<string | null>(null); // 목록에서 숨김(커밋 완료까지)
-  const [undoId, setUndoId] = useState<string | null>(null);               // 실행취소 토스트 노출(커밋 시작 전까지)
+  // 추적 중단은 배치 단위다(한 건 = 크기 1 배치): pendingRemove = 숨김(커밋 완료까지),
+  // undoActive = 실행취소 토스트 노출(커밋 시작 전까지). 배치는 한 번에 하나 — 새 요청이 오면 앞 배치를 즉시 커밋.
+  const [pendingRemove, setPendingRemove] = useState<ReadonlySet<string>>(new Set());
+  const [undoActive, setUndoActive] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   const [drafts, setDrafts] = useState<DraftOption[]>([]);
   const [draftsState, setDraftsState] = useState<DraftsState>('idle');
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 대기 중 id를 ref로 추적(비동기 콜백 재개 시 최신값 참조용) — pendingRemove를 그대로 클로저로 읽으면
-  // addTracked가 네트워크 응답을 기다리는 동안 다른 건이 대신 커밋되어도 옛 값을 들고 있게 된다(아래 addTracked 참조).
-  const pendingRef = useRef<string | null>(null);
+  // 대기 중 id들을 ref로 추적(비동기 콜백 재개 시 최신값 참조용) — pendingRemove를 그대로 클로저로 읽으면
+  // addOne이 네트워크 응답을 기다리는 동안 배치가 바뀌어도 옛 값을 들고 있게 된다(아래 addOne 참조).
+  // 커밋 타이머도 예약 시점의 id 목록이 아니라 발화 시점의 이 ref를 읽는다 — 재등록으로 일부가
+  // 철회된 배치에서 철회된 행까지 지우면 안 되기 때문이다.
+  const pendingRef = useRef<ReadonlySet<string>>(new Set());
 
   // setState는 전부 await 뒤에 둔다 — 동기 setState를 앞에 넣으면 set-state-in-effect에 걸린다(influencers 관례)
   const load = useCallback(async () => {
@@ -59,44 +69,72 @@ export default function TrackingPage() {
     flashTimer.current = setTimeout(() => setHighlightId(null), 2000);
   }, []);
 
-  // 등록 = 첫 측정(서버). created:false는 오류가 아니라 정보라 입력을 비우고 그 행을 짚어준다.
-  const addTracked = useCallback(async (url: string): Promise<'ok' | 'keep'> => {
-    setAdding(true);
+  // 등록 한 건 = 첫 측정(서버). created:false는 오류가 아니라 정보다.
+  const addOne = useCallback(async (url: string): Promise<AddOutcome> => {
     try {
       const res = await apiFetch('/api/tracking', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }),
       });
       const data = (await res.json().catch(() => ({}))) as { created?: boolean; row?: TrackedPostRow; error?: string };
       if (!res.ok || !data.row) {
-        show(data.error ?? '추적을 시작하지 못했어요 — 잠시 후 다시 시도해 주세요'); // 실패 시 입력 보존
-        return 'keep';
+        return { kind: 'fail', msg: data.error ?? '추적을 시작하지 못했어요 — 잠시 후 다시 시도해 주세요' };
       }
       const row = data.row;
       // 같은 id가 이미 있으면 자리(등록순)를 흔들지 않고 값만 갱신한다 — 맨 위로 끌어올리면 등록순이 거짓이 된다
       setRows((cur) => (cur.some((r) => r.id === row.id)
         ? cur.map((r) => (r.id === row.id ? row : r))
         : [row, ...cur]));
-      // 재등록은 취소 의사 표시이므로 예약된 삭제를 철회한다.
-      // pendingRemove를 클로저로 그냥 읽지 않는다: addTracked가 응답을 기다리는 사이
-      // 다른 건의 중단 요청이 들어오면 그 건이 즉시 커밋되며 pendingRemove가 바뀐다(requestRemove 참조) —
-      // 이 클로저는 그 변화를 모르는 옛 값을 들고 있어 남의 타이머를 잘못 건드릴 수 있다. ref로 최신값을 읽는다.
-      if (pendingRef.current === row.id) {
-        if (removeTimer.current) clearTimeout(removeTimer.current);
-        removeTimer.current = null;
-        setUndoId(null);
-        hide(); // commitRemove가 토스트를 내리는 시점과 맞춘다 — 삭제를 철회했으니 실행취소 토스트도 그대로 둘 이유가 없다
-        setPendingRemove((cur) => (cur === row.id ? null : cur));
+      // 재등록은 취소 의사 표시이므로 예약된 삭제에서 이 행을 철회한다.
+      // pendingRemove를 클로저로 그냥 읽지 않는다: addOne이 응답을 기다리는 사이 배치가 바뀔 수 있다 — ref로 최신값을.
+      if (pendingRef.current.has(row.id)) {
+        const next = new Set(pendingRef.current);
+        next.delete(row.id);
+        setPendingRemove(next);
+        if (next.size === 0) { // 배치가 비면 커밋할 것도 없다 — 타이머·토스트까지 거둔다
+          if (removeTimer.current) clearTimeout(removeTimer.current);
+          removeTimer.current = null;
+          setUndoActive(false);
+          hide();
+        }
       }
-      show(data.created === false ? '이미 추적 중이에요' : '추적을 시작했어요 — 지금 지표를 담아뒀어요');
-      flash(row.id);
-      return 'ok';
+      return { kind: data.created === false ? 'dup' : 'added', row };
     } catch {
-      show('추적을 시작하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
-      return 'keep';
-    } finally {
-      setAdding(false);
+      return { kind: 'fail', msg: '추적을 시작하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요' };
     }
-  }, [show, hide, flash]);
+  }, [hide]);
+
+  // 여러 링크는 위에서부터 순차로(서버 계약: 한 요청 = 링크 하나. 인플루언서 등록과 같은 규칙).
+  // 실패한 링크만 입력칸에 돌려준다 — 성공분을 다시 붙여넣게 만들지 않기 위해서다.
+  const addMany = useCallback(async (urls: string[]): Promise<{ ok: true } | { ok: false; keep: string }> => {
+    setAddProgress({ done: 0, total: urls.length });
+    const failedUrls: string[] = [];
+    let added = 0, dup = 0, lastRow: TrackedPostRow | null = null, lastFailMsg = '';
+    try {
+      for (const url of urls) {
+        const r = await addOne(url);
+        if (r.kind === 'fail') { failedUrls.push(url); lastFailMsg = r.msg; }
+        else { lastRow = r.row; if (r.kind === 'added') added += 1; else dup += 1; }
+        setAddProgress((cur) => (cur ? { ...cur, done: cur.done + 1 } : cur));
+      }
+    } finally {
+      setAddProgress(null);
+    }
+
+    if (urls.length === 1) { // 한 건은 결과를 그 건의 말로 — 집계 문구로 뭉개지 않는다
+      if (failedUrls.length > 0) { show(lastFailMsg); return { ok: false, keep: failedUrls[0] }; }
+      show(dup > 0 ? '이미 추적 중이에요' : '추적을 시작했어요 — 지금 지표를 담아뒀어요');
+      if (lastRow) flash(lastRow.id);
+      return { ok: true };
+    }
+    // 여러 건은 집계로 — 몇 건이 어떻게 됐고 다음에 뭘 하면 되는지까지(UX 원칙 3)
+    const parts: string[] = [];
+    if (added > 0) parts.push(`${added}건 추적 시작`);
+    if (dup > 0) parts.push(`${dup}건은 이미 추적 중`);
+    if (failedUrls.length > 0) parts.push(`${failedUrls.length}건 실패 — 실패한 링크는 입력칸에 남겨뒀어요`);
+    show(parts.join(' · '));
+    if (lastRow) flash(lastRow.id);
+    return failedUrls.length > 0 ? { ok: false, keep: failedUrls.join('\n') } : { ok: true };
+  }, [addOne, show, flash]);
 
   // 한 건 새로고침. 실패(502)면 행을 건드리지 않는다 — 못 가져온 것은 게시물의 상태가 아니라 우리 사정이다.
   // quiet: 전체 새로고침은 건마다 토스트를 띄우지 않고 끝나고 한 번 집계한다.
@@ -128,7 +166,7 @@ export default function TrackingPage() {
   // '볼 수 없음' 행도 포함한다: 다시 보이게 됐다면 그 사실을 알아야 하고, appendSnapshot이 복귀를 수용한다.
   const refreshAll = useCallback(async () => {
     if (bulk) return;
-    const targets = rows.filter((r) => r.id !== pendingRemove).map((r) => r.id);
+    const targets = rows.filter((r) => !pendingRemove.has(r.id)).map((r) => r.id);
     if (targets.length === 0) return;
     setBulk({ done: 0, total: targets.length });
     let failed = 0;
@@ -143,41 +181,57 @@ export default function TrackingPage() {
       : `${targets.length}건 중 ${failed}건은 지표를 가져오지 못했어요 — 잠시 후 다시 시도해 주세요`);
   }, [bulk, rows, pendingRemove, refreshOne, show]);
 
-  // 추적 중단: 즉시 DELETE하지 않고 낙관적으로 숨긴 뒤 ~5초 실행취소 토스트.
-  // pendingRemove=목록 숨김(커밋 완료까지), undoId=토스트/실행취소(커밋 시작 전까지).
-  // 토스트는 DELETE 시작 순간 내린다 — 삭제가 이미 나간 뒤 실행취소를 눌러 측정 기록이 소실되는 레이스 방지.
-  const commitRemove = useCallback(async (id: string) => {
-    await apiFetch(`/api/tracking/${id}`, { method: 'DELETE' });
-    await load(); // 서버 상태로 다시 맞춘다 — 삭제가 실패했다면 행이 되돌아와야 정직하다
-    setPendingRemove((cur) => (cur === id ? null : cur));
+  // 배치 커밋: 발화 시점의 pendingRef를 지운다 — 예약 시점 목록을 쓰면 그 사이 재등록으로
+  // 철회된 행까지 지운다(위 pendingRef 주석). 순차 DELETE 후 서버 상태로 다시 맞춘다 —
+  // 일부가 실패했다면 그 행이 되돌아와야 정직하다.
+  const commitRemove = useCallback(async (ids: string[]) => {
+    for (const id of ids) {
+      await apiFetch(`/api/tracking/${id}`, { method: 'DELETE' });
+    }
+    await load();
+    setPendingRemove((cur) => {
+      const next = new Set(cur);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
   }, [load]);
 
   const undoRemove = useCallback(() => {
     if (removeTimer.current) clearTimeout(removeTimer.current);
-    setUndoId(null);
+    removeTimer.current = null;
+    setUndoActive(false);
     hide();
-    setPendingRemove(null); // 행 복원, 아무것도 삭제 안 함
+    setPendingRemove(new Set()); // 행 복원, 아무것도 삭제 안 함
   }, [hide]);
 
-  // 토스트 노출 ⟺ undoId !== null 을 유지한다. undoId가 바뀌는 지점마다 show/hide를 짝지어 부른다
+  // 토스트 노출 ⟺ undoActive 를 유지한다. undoActive가 바뀌는 지점마다 show/hide를 짝지어 부른다
   // (effect로 배선하면 react-hooks/set-state-in-effect 위반).
-  const requestRemove = useCallback((row: TrackedPostRow) => {
+  // 여러 건은 확인을 먼저 받는다 — 5초 실행취소만으로는 "어? 방금 뭐였지"를 알아차리기에 짧다는
+  // 원고 표의 실사용 피드백(2026-08-13)을 그대로 따른다. 한 건은 기존대로 실행취소만.
+  const requestRemove = useCallback((rowsToRemove: TrackedPostRow[]) => {
+    if (rowsToRemove.length === 0) return;
+    if (rowsToRemove.length > 1 &&
+        !window.confirm(`고른 게시물 ${rowsToRemove.length}건의 추적을 중단할까요?\n\n중단 후 5초 안에는 실행 취소할 수 있어요. 쌓인 측정 기록도 함께 지워져요.`)) return;
     if (removeTimer.current) clearTimeout(removeTimer.current);
-    if (undoId && undoId !== row.id) void commitRemove(undoId); // 대기 중 다른 건 즉시 커밋
-    setPendingRemove(row.id);
-    setUndoId(row.id);
-    if (pickerFor === row.id) setPickerFor(null);
+    if (undoActive && pendingRef.current.size > 0) void commitRemove([...pendingRef.current]); // 대기 중 앞 배치는 즉시 커밋
+    const ids = new Set(rowsToRemove.map((r) => r.id));
+    setPendingRemove(ids);
+    setUndoActive(true);
+    setSelectedIds(new Set()); // 지운 것을 고른 채로 두지 않는다 (원고 표와 같은 규칙)
+    if (pickerFor !== null && ids.has(pickerFor)) setPickerFor(null);
     // duration:null = 자동 소멸 없음, dismissible:false = ✕ 없음.
     // 5초 뒤 삭제가 커밋되므로 토스트가 먼저 사라지거나 사용자가 닫아 실행취소 기회를 잃으면 안 된다.
-    show('추적을 중단했어요 — 쌓인 측정 기록도 함께 지워져요', {
+    show(rowsToRemove.length === 1
+      ? '추적을 중단했어요 — 쌓인 측정 기록도 함께 지워져요'
+      : `${rowsToRemove.length}건 추적을 중단했어요 — 쌓인 측정 기록도 함께 지워져요`, {
       actionLabel: '실행취소', onAction: undoRemove, duration: null, dismissible: false,
     });
     removeTimer.current = setTimeout(() => {
-      setUndoId((cur) => (cur === row.id ? null : cur)); // 실행취소 불가 시점 → 토스트 내림
+      setUndoActive(false); // 실행취소 불가 시점 → 토스트 내림
       hide();
-      void commitRemove(row.id);
+      void commitRemove([...pendingRef.current]);
     }, 5000);
-  }, [undoId, commitRemove, pickerFor, show, hide, undoRemove]);
+  }, [undoActive, commitRemove, pickerFor, show, hide, undoRemove]);
 
   // pendingRef 최신화: pendingRemove가 바뀔 때마다 ref에 반영한다.
   // (언마운트 cleanup은 이 ref를 deps 없이 참조해야 한다 — pendingRemove를 deps로 쓰면
@@ -187,7 +241,7 @@ export default function TrackingPage() {
     if (removeTimer.current) clearTimeout(removeTimer.current);
     if (flashTimer.current) clearTimeout(flashTimer.current);
     hide();   // 프로바이더는 레이아웃에 있어 페이지를 떠나도 살아있다 — 지속 토스트를 남기지 않는다
-    if (pendingRef.current) void apiFetch(`/api/tracking/${pendingRef.current}`, { method: 'DELETE' });
+    pendingRef.current.forEach((id) => { void apiFetch(`/api/tracking/${id}`, { method: 'DELETE' }); });
   }, [hide]);
 
   // 원고 목록은 연결 UI를 처음 열 때만 받아온다(비용 없는 조회지만 표 진입마다 전량 받을 이유는 없다).
@@ -230,7 +284,22 @@ export default function TrackingPage() {
     }
   }, [show]);
 
-  const visible = rows.filter((r) => r.id !== pendingRemove);
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const visible = rows.filter((r) => !pendingRemove.has(r.id));
+  // 선택의 '보이는 것'은 실제로 그려진 것이다 — 화면에 없는 행이 카운트·삭제에 끼면 안 된다(generate 관례)
+  const selectedVisible = visible.filter((r) => selectedIds.has(r.id));
+  const allSelected = visible.length > 0 && selectedVisible.length === visible.length;
+
+  const toggleAll = useCallback(() => {
+    setSelectedIds(allSelected ? new Set() : new Set(visible.map((r) => r.id)));
+  }, [allSelected, visible]);
 
   return (
     <main className="mx-auto max-w-[1100px] px-6 py-8">
@@ -245,7 +314,7 @@ export default function TrackingPage() {
       </p>
 
       <div className="mb-5 rounded-xl border border-x-border p-3">
-        <TrackAddForm busy={adding} onSubmit={addTracked} />
+        <TrackAddForm progress={addProgress} onSubmit={addMany} />
       </div>
 
       {!loaded && <p className="py-8 text-center text-ui text-x-muted">불러오는 중…</p>}
@@ -273,10 +342,26 @@ export default function TrackingPage() {
             </Button>
           </div>
           <TrackingTable rows={visible} highlightId={highlightId} refreshingIds={refreshingIds}
+                         selectedIds={selectedIds} onToggleSelect={toggleSelect}
+                         allSelected={allSelected} onToggleAll={toggleAll}
                          drafts={drafts} draftsState={draftsState} onLoadDrafts={() => void loadDrafts()}
                          pickerFor={pickerFor} onOpenPicker={openPicker}
                          onLinkDraft={(row, draftId) => void linkDraft(row, draftId)}
-                         onRefresh={(row) => void refreshOne(row.id)} onRemove={requestRemove} />
+                         onRefresh={(row) => void refreshOne(row.id)} onRemove={(row) => requestRemove([row])} />
+          {/* 여러 건을 고르면 뜨는 바 — 결과를 내려가 고른 뒤 액션을 찾아 되올라오지 않게 하단 sticky(BulkActionBar 규격) */}
+          {selectedVisible.length > 0 && (
+            <div className="sticky bottom-0 z-10 -mx-4 mt-2 flex flex-wrap items-center gap-3 border-t border-x-border bg-white px-4 py-2.5 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
+              <span className="text-ui font-bold">{selectedVisible.length}개 선택됨</span>
+              <Button onClick={() => requestRemove(selectedVisible)} className="whitespace-nowrap"
+                      title="고른 게시물을 목록에서 빼고 쌓인 측정 기록도 지워요">
+                추적 중단 ({selectedVisible.length}건)
+              </Button>
+              <button onClick={() => setSelectedIds(new Set())}
+                      className="text-ui text-x-muted hover:text-x-secondary">
+                선택 해제
+              </button>
+            </div>
+          )}
         </>
       )}
     </main>

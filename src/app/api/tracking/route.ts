@@ -5,7 +5,10 @@ import { parseTweetLink, tweetLinkParseMessage } from '@/lib/tweetLink';
 import { fetchPost } from '@/lib/postMetrics';
 import { addTrackedPost, findByTweetId, listTrackedPosts } from '@/lib/trackingStore';
 
-const UNAVAILABLE = '볼 수 없는 게시물이에요 — 삭제됐거나 비공개일 수 있어요';
+// 등록 시점의 '없음'은 삭제·비공개 외에 주소 오타일 수도 있다(QA 08-15 — 주소 일부를 바꿔 넣은 사례).
+// 사용자가 가장 먼저 고칠 수 있는 원인(주소)을 앞에 말한다. 이미 추적 중인 행의 배지 문구와는 다르다 —
+// 그쪽은 등록이 성공했던 주소라 '주소가 잘못됐다'는 가설이 성립하지 않는다.
+const UNAVAILABLE = '게시물을 찾을 수 없어요 — 주소가 잘못됐거나 삭제·비공개일 수 있어요';
 const FETCH_FAILED = '지표를 가져오지 못했어요 — 잠시 후 다시 시도해 주세요';
 
 export async function GET() {

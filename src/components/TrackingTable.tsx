@@ -24,6 +24,7 @@ export type DraftsState = 'idle' | 'loading' | 'ready' | 'error';
 
 export function TrackingTable({
   rows, highlightId, refreshingIds,
+  selectedIds, onToggleSelect, allSelected, onToggleAll,
   drafts, draftsState, onLoadDrafts,
   pickerFor, onOpenPicker, onLinkDraft,
   onRefresh, onRemove,
@@ -31,6 +32,10 @@ export function TrackingTable({
   rows: TrackedPostRow[];          // 이미 정렬(최신 등록순)·숨김 처리가 끝난 배열 — 여기서 순서를 바꾸지 않는다
   highlightId: string | null;      // 방금 등록/이미 추적 중이던 행 — 2초 강조(페이지가 타이머를 소유)
   refreshingIds: ReadonlySet<string>;
+  selectedIds: ReadonlySet<string>; // 표시 전용 — 판단(확인·실행취소)과 삭제는 전부 페이지가 한다(BulkActionBar 관례)
+  onToggleSelect: (id: string) => void;
+  allSelected: boolean;
+  onToggleAll: () => void;
   drafts: DraftOption[];
   draftsState: DraftsState;
   onLoadDrafts: () => void;
@@ -45,6 +50,10 @@ export function TrackingTable({
       <table className="w-full text-ui">
         <thead>
           <tr className="border-b border-x-border text-left text-caption text-x-muted">
+            <th className="w-8 px-3 py-2">
+              <input type="checkbox" checked={allSelected} onChange={onToggleAll}
+                     aria-label="표시된 게시물 전체 선택" className="align-middle accent-x-blue" />
+            </th>
             <th className="px-3 py-2 font-normal">게시물</th>
             <th className="whitespace-nowrap px-3 py-2 font-normal">게시</th>
             {METRICS.map((m) => (
@@ -67,6 +76,11 @@ export function TrackingTable({
                   className={`border-b border-x-border transition-colors ${
                     r.id === highlightId ? 'bg-x-blue/10' : 'hover:bg-x-hover'
                   }`}>
+                <td className="w-8 px-3 py-2">
+                  <input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => onToggleSelect(r.id)}
+                         aria-label={`${r.authorHandle ? `@${r.authorHandle} ` : ''}게시물 선택`}
+                         className="align-middle accent-x-blue" />
+                </td>
                 <td className="max-w-[320px] px-3 py-2">
                   <a href={tweetPermalink(r.authorHandle, r.tweetId)} target="_blank" rel="noreferrer"
                      className="block min-w-0 hover:underline">

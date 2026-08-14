@@ -96,17 +96,21 @@ export async function insertDraft(sql: postgres.Sql, input: {
   batchId?: string | null; variantIndex?: number | null;
   translation?: DraftTranslation | null; // 생성 시점에 함께 마련된 한국어 대역 캐시 — 없으면 null(부가물 실패 허용)
   koTitle?: string | null; koTitleHash?: string | null; // 생성 시점에 함께 마련된 한국어 제목 — 둘은 항상 쌍
+  // 사람이 붙인 제목 — 지금까지는 삽입 후 PATCH로만 들어왔다(updateDraft.title). 직접 쓰기는 저장
+  // 한 번에 제목까지 함께 넣어야 하므로 여기서 받는다. 생략(undefined)하면 기존 호출부(generate.ts)
+  // 그대로 null — DEFAULT null 컬럼이라 무변경으로 통과한다.
+  title?: string | null;
 }): Promise<string> {
   const rows = await sql<Array<{ id: string }>>`
     insert into draft (client_id, client_name, procedure_names, direction, format,
                        reference_mode, refs, content, model, created_by, batch_id, variant_index, translation,
-                       ko_title, ko_title_hash)
+                       ko_title, ko_title_hash, title)
     values (${input.clientId}, ${input.clientName}, ${sql.json(input.procedureNames)},
             ${input.direction}, ${input.format}, ${input.referenceMode},
             ${sql.json(input.refs as never)}, ${sql.json(input.content as never)},
             ${input.model}, ${input.memberId}, ${input.batchId ?? null}, ${input.variantIndex ?? null},
             ${input.translation ? sql.json(input.translation as never) : null},
-            ${input.koTitle ?? null}, ${input.koTitleHash ?? null})
+            ${input.koTitle ?? null}, ${input.koTitleHash ?? null}, ${input.title ?? null})
     returning id`;
   return rows[0].id;
 }

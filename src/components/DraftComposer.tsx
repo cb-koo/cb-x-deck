@@ -203,10 +203,11 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
 }
 
 // 좌 패널 하단 고정부 — 무엇으로 생성되는지(파생 요약)와 비용을 버튼 옆에 (원칙 2·4·6)
-export function ComposerFooter({ clients, value, refRows, generating, onGenerate, onCancel }: {
+export function ComposerFooter({ clients, value, refRows, generating, onGenerate, onCancel, onWrite }: {
   clients: Array<{ client: ClientRow; procedures: ProcedureRow[] }>;
   value: ComposerState; refRows: ReferenceRow[];
   generating: boolean; onGenerate: () => void; onCancel: () => void;
+  onWrite: () => void; // 직접 쓰기 — LLM 없는 두 번째 입구 (설계 §C)
 }) {
   const cur = clients.find((c) => c.client.id === value.clientId) ?? null;
   const ok = canGenerate(value, refRows.length);
@@ -246,6 +247,13 @@ export function ComposerFooter({ clients, value, refRows, generating, onGenerate
           원고 만들기
         </button>
       )}
+      {/* 직접 쓰기 — canGenerate 게이트를 타지 않는다(백지 허용). generating 중에도 누를 수 있다:
+          생성을 기다리는 동안 직접 쓰는 걸 막을 이유가 없다(설계 §C). 위 버튼과 같은 크기·다른 무게 —
+          같은 결과물(초안 한 건)을 만드는 두 번째 길이지 부차적인 부속 동작이 아니다. */}
+      <button onClick={onWrite}
+              className="mt-2 h-11 w-full rounded-full border border-x-border-strong bg-white px-[17px] text-[15px] font-bold text-x-secondary hover:bg-x-hover">
+        직접 쓰기
+      </button>
     </div>
   );
 }

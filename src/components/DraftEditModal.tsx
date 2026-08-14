@@ -36,6 +36,12 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
   // 제목이 비었을 때 보여줄 것 — 지금 목록·보드에 실제로 나오고 있는 라벨이다.
   // 이 값이 어디에 쓰이는지 보여주지 않으면 사용자는 뭘 적어야 할지 알 수 없다(AGENTS 원칙 2).
   const currentLabel = draftLabel(draft).text;
+  // 비교 뷰의 왼쪽은 draft.content — AI가 만든 원고에선 '생성 원본'이지만, 직접 쓴 원고(model === null)의
+  // content는 사람이 처음 저장한 본문이다. 같은 자리에 '생성 원본'이라 쓰면 있지도 않은 생성 단계를
+  // 있었던 것처럼 말하게 된다(설계 §E). 뜻은 이미 맞고 라벨만 어긋난 경우다.
+  const manual = draft.model === null;
+  const originLabel = manual ? '처음 쓴 글' : '생성 원본';
+  const originEmpty = manual ? '나중에 추가한 칸 — 처음 쓴 글에는 없던 칸이에요' : '새로 추가한 칸 — 생성 원본 없음';
   const [compare, setCompare] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -250,10 +256,10 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
                   {compare ? (
                     <div className="space-y-4">
                       <div>
-                        <p className="mb-1 text-[13px] font-bold text-x-muted">생성 원본</p>
-                        {/* 손으로 늘린 칸은 생성 원본이 없다 — 빈 칸으로 두면 원본이 사라진 것처럼 보인다 */}
+                        <p className="mb-1 text-[13px] font-bold text-x-muted">{originLabel}</p>
+                        {/* 손으로 늘린 칸은 비교 대상이 없다 — 빈 칸으로 두면 원본이 사라진 것처럼 보인다 */}
                         <p className="whitespace-pre-wrap rounded-lg bg-x-surface p-3 text-[17px] leading-normal text-x-secondary">
-                          {draft.content.posts[i]?.text ?? '새로 추가한 칸 — 생성 원본 없음'}
+                          {draft.content.posts[i]?.text ?? originEmpty}
                         </p>
                       </div>
                       <div>

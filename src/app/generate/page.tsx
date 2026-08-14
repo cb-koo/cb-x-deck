@@ -11,6 +11,7 @@ import { Toast } from '@/components/Toast';
 import { BulkActionBar } from '@/components/BulkActionBar';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
+import { DraftWriteModal } from '@/components/DraftWriteModal';
 import { RefPickerSheet } from '@/components/RefPickerSheet';
 import { DraftFilterBar } from '@/components/DraftFilterBar';
 import { PeriodPicker } from '@/components/PeriodPicker';
@@ -58,6 +59,8 @@ function Workbench() {
   const [procFilter, setProcFilter] = useState(''); // 시술명, '' = 전체
   const [period, setPeriod] = useState<PeriodValue>({ kind: 'preset', preset: 'all' });
   const [editing, setEditing] = useState<DraftRow | null>(null);
+  // 직접 쓰기 모달 — 저장 전엔 서버를 부르지 않으므로(설계 §B) 열림 여부 외에 페이지가 들 상태가 없다
+  const [writeOpen, setWriteOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [rewritingId, setRewritingId] = useState<string | null>(null);
   const [regenBusy, setRegenBusy] = useState<{ draftId: string; index: number } | null>(null);
@@ -127,6 +130,15 @@ function Workbench() {
   const clientNameOf = useCallback(
     (id: string | null) => (id ? (clients.find((c) => c.client.id === id)?.client.name ?? '—') : '—'),
     [clients]);
+  // 직접 쓰기 모달에 넘길 표시용 이름 — 모달이 clients 배열 전체를 받아 뒤지게 하지 않는다.
+  // 이름 해석은 컴포저 상태를 쥔 이 페이지의 몫이다(ComposerFooter의 요약과 같은 계산).
+  const writeScope = useMemo(() => {
+    const cur = clients.find((c) => c.client.id === composer.clientId) ?? null;
+    return {
+      clientName: cur?.client.name ?? null,
+      procedureNames: cur ? cur.procedures.filter((p) => composer.procedureIds.includes(p.id)).map((p) => p.name) : [],
+    };
+  }, [clients, composer.clientId, composer.procedureIds]);
 
   // drafts에서 파생 — 원본이 사라지면(삭제 확정 등) 오버레이도 자연 소멸
   const peeked = peekId ? drafts.find((d) => d.id === peekId) ?? null : null;
@@ -603,7 +615,8 @@ function Workbench() {
                          onClearRefs={() => setRefRows([])} />
         </div>
         <ComposerFooter clients={clients} value={composer} refRows={refRows}
-                        generating={generating} onGenerate={() => generate()} onCancel={cancelGenerate} />
+                        generating={generating} onGenerate={() => generate()} onCancel={cancelGenerate}
+                        onWrite={() => setWriteOpen(true)} />
       </div>
       {!panelOpen && (
         <div className="hidden w-12 shrink-0 flex-col items-center gap-1.5 border-r border-x-border bg-x-surface py-3 lg:flex">
@@ -801,6 +814,19 @@ function Workbench() {
         <DraftEditModal draft={editing} onClose={() => setEditing(null)}
                         onSaved={(u) => { setDrafts((cur) => cur.map((d) => (d.id === u.id ? u : d))); setEditing(null); }}
                         onMediaSaved={(u) => setDrafts((cur) => cur.map((d) => (d.id === u.id ? u : d)))} />
+      )}
+      {/* 직접 쓰기 — 저장 성공 경로는 생성과 완전히 같다(목록 맨 위 삽입 + 렌즈에 가려지면 리셋).
+          저장 이후의 초안은 출처를 구분하지 않는다는 원칙이 배선에서도 그대로다(설계 §D). */}
+      {writeOpen && (
+        <DraftWriteModal clientId={composer.clientId} procedureIds={composer.procedureIds}
+                         clientName={writeScope.clientName} procedureNames={writeScope.procedureNames}
+                         onClose={() => setWriteOpen(false)}
+                         onSaved={(row) => {
+                           setDrafts((cur) => [row, ...cur]);
+                           revealIfHidden([row]);
+                           setWriteOpen(false);
+                           resultsRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                         }} />
       )}
       <RefPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} lastWsId={lastWsId}
                       selectedIds={selectedRefIds} seedRows={refRows} onApply={setRefRows} />

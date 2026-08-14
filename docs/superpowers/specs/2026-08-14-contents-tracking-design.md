@@ -92,7 +92,7 @@ create index on post_metric_snapshot (tracked_post_id, captured_at desc);  -- "�
 |---|---|
 | 게시물 | 핸들 + 본문 앞부분, 클릭 → X 원문(`tweetPermalink`) |
 | 게시 | "3일 전" 경과(relTime) — 지표 해석의 기준점 |
-| 지표 6종 | 조회·좋아요·RT·답글·북마크·인용 (최신 측정값) |
+| 지표 6종 | 조회·좋아요·리포스트·답글·북마크·인용 (최신 측정값 — 리포스트 표기는 TweetCard 등 기존 화면과 통일) |
 | 측정 | "마지막 측정 2시간 전" — 숫자 신선도. 갱신 실패가 지속되면 이 시각이 낡는 게 보임 |
 | 원고 | 연결 원고 제목. 행에서 [원고 연결]로 연결·변경 (등록 시가 아니라 — 등록 마찰 최소화) |
 | 동작 | 행별 [새로고침] · [추적 중단] |
@@ -114,7 +114,7 @@ create index on post_metric_snapshot (tracked_post_id, captured_at desc);  -- "�
 | 원고 연결 | `PATCH /api/tracking/[id]` | 연결·해제·변경 |
 | 추적 중단 | `DELETE /api/tracking/[id]` | cascade |
 
-- 인증: 기존 `requireMember`
+- 인증: 읽기(GET)는 `requireAllowedUser`, 쓰기(POST/PATCH/DELETE/refresh)는 `requireMember` — 읽기 라우트 기존 관례(api/drafts GET)와 동일
 - 일괄 새로고침 서버 엔드포인트 없음 — Vercel 함수 시간 제한 회피 + 진행 가시성. 자동화 단계 cron은 별도 구조라 이 결정에 안 묶임
 - DB 풀: 순차 호출이라 동시 커넥션 부담 없음(과거 고갈 사고 재발 방지 관점 확인됨)
 

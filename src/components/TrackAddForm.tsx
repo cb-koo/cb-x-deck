@@ -30,7 +30,10 @@ export function TrackAddForm({ busy, onSubmit, onOpenMany }: {
   return (
     <div>
       <label htmlFor={inputId} className="block text-caption text-x-muted">게시물 링크</label>
-      <div className="mt-0.5 flex items-center gap-2">
+      {/* 입력칸과 버튼 두 개를 같은 높이(h-10)로 한 줄에 — 복수 등록 진입점은 도움말 속 링크가
+          아니라 정식 버튼이다(QA 08-15: 회색 문장 꼬리의 파란 글자는 각주처럼 읽혀 발견이 안 됐다).
+          primary(추적 시작)/subtle(여러 개 등록)의 스타일 차이가 주·부 동작의 위계를 나른다 */}
+      <div className="mt-1 flex items-center gap-2">
         <input id={inputId} value={url} onChange={(e) => setUrl(e.target.value)}
                // 한국어 입력에서 조합을 확정하는 Enter가 제출로 새면 안 된다(저장소 관례)
                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void submit(); }}
@@ -38,18 +41,17 @@ export function TrackAddForm({ busy, onSubmit, onOpenMany }: {
                autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                aria-invalid={showParseErr ? true : undefined}
                aria-describedby={showParseErr ? `${helpId} ${errId}` : helpId}
-               className="w-full max-w-[520px] rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue" />
-        <Button variant="primary" className="shrink-0 whitespace-nowrap"
+               className="h-10 w-full max-w-[640px] rounded-lg border border-x-border-strong bg-white px-3 text-ui outline-none focus:border-x-blue" />
+        <Button variant="primary" className="h-10 shrink-0 whitespace-nowrap px-4"
                 onClick={() => void submit()} disabled={!parsed.ok || busy}>
           {busy ? '가져오는 중…' : '추적 시작'}
         </Button>
+        <Button variant="subtle" className="h-10 shrink-0 whitespace-nowrap px-4" onClick={onOpenMany}>
+          여러 개 등록
+        </Button>
       </div>
       <p id={helpId} className="mt-1 text-caption text-x-muted">
-        X 게시물 링크를 붙여넣으면 현재 지표를 가져와 아래 목록에 추가해요 ·{' '}
-        {/* 복수 등록 진입점 — 라벨이 무엇이 열리는지 말한다(내부 개념어 없이) */}
-        <button onClick={onOpenMany} className="text-x-blue-text hover:underline">
-          여러 개 한꺼번에 등록
-        </button>
+        붙여넣으면 현재 지표를 가져와 아래 목록에 추가해요
       </p>
       {/* 뜻은 색이 아니라 글자가 나른다 — 문구가 무엇이 틀렸고 어떻게 고치는지까지 말한다(tweetLink.ts) */}
       {showParseErr && (

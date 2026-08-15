@@ -13,14 +13,13 @@ import { ChevronDownIcon, RefreshIcon, SearchIcon, SettingsIcon, TrashIcon, User
 import { Button } from './ui';
 import { ColumnGrip } from './ColumnGrip';
 import { SORT_LABEL, DECK_SORTS, dirText, dirLabel } from '@/lib/sortKeys';
+import { relTimeFine } from '@/lib/relTime';
 
+// relTime.ts로 옮긴 시/분 단위 포맷터 재사용 — suffix 없이 쓰는 관례는 InfluencerProfile.tsx의
+// relTime(x, '').trim()과 동일하다.
 function lastRefreshedLabel(iso: string | null): string {
   if (!iso) return '미조회';
-  const min = Math.floor((Date.now() - Date.parse(iso)) / 60000);
-  if (min < 1) return '방금';
-  if (min < 60) return `${min}분 전`;
-  if (min < 1440) return `${Math.floor(min / 60)}시간 전`;
-  return `${Math.floor(min / 1440)}일 전`;
+  return relTimeFine(iso, '').trim();
 }
 
 export function Column({ column, isNew, index, total, onEdit, onDelete, onPickTag, onGripPointerDown, onKeyboardMove, tourAnchor }: {

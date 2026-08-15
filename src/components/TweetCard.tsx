@@ -8,6 +8,7 @@ import { flagYakkiho } from '@/lib/complianceFlags';
 import { MediaGrid } from './MediaGrid';
 import { QuotedCard } from './QuotedCard';
 import { TweetText } from './TweetText';
+import { ClampedText } from './ClampedText';
 import { TweetExpansion } from './TweetExpansion';
 import { Button } from './ui';
 import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon, ShareIcon, PenIcon } from './XIcons';
@@ -38,13 +39,14 @@ export interface TweetCardProps {
   onTranslate?: (tweetId: string) => void;
   translating?: boolean;                  // 이 카드 번역 진행 중
   showCollectedAt?: boolean;              // 기본 true. 표 보기 팝업은 이 정보를 모달 헤더로 올려서 false를 넘긴다
+  dense?: boolean;                        // 보관함 밀도 모드 — 본문·번역 6줄 클램프, 단일 이미지 상한, 인용 접기
 }
 
 // hover: Reply·View·Bookmark 파랑, Repost 초록, Like 핑크 (실제 X 동작)
 const metricBase = 'group flex items-center gap-1 text-ui text-x-secondary transition-colors';
 
 export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, libraryHref, onDismiss, onUndismiss, dismissedView, tourAnchor,
-                            translation, showTranslation, onTranslate, translating, showCollectedAt = true }: TweetCardProps) {
+                            translation, showTranslation, onTranslate, translating, showCollectedAt = true, dense }: TweetCardProps) {
   const [showOverride, setShowOverride] = useState<boolean | null>(null);
   const { show } = useToast();
   const showTr = showOverride ?? showTranslation ?? false;
@@ -120,7 +122,7 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, librar
                    className="text-x-secondary hover:underline">· {timeAgo(t.tweetCreatedAt)}</a>
               : <span className="text-x-secondary">· {timeAgo(t.tweetCreatedAt)}</span>}
           </div>
-          <TweetText text={t.text} className="mt-0.5" />
+          {dense ? <ClampedText text={t.text} className="mt-0.5" /> : <TweetText text={t.text} className="mt-0.5" />}
           {translation ? (
             showTr ? (
               <div className="mt-1 rounded-lg border border-x-border bg-x-blue/[0.03] px-2.5 py-2">
@@ -128,7 +130,7 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, librar
                   <span className="text-[10px] font-bold text-x-blue-text" title="AI 자동 번역입니다 — 원문을 함께 확인하세요">🌐 AI 번역</span>
                   <button onClick={() => setShowOverride(false)} className="text-caption text-x-muted hover:underline">원문만 보기</button>
                 </div>
-                <TweetText text={translation.content} />
+                {dense ? <ClampedText text={translation.content} /> : <TweetText text={translation.content} />}
               </div>
             ) : (
               <button onClick={() => setShowOverride(true)} className="mt-1 text-caption text-x-blue-text hover:underline">🌐 번역 보기</button>
@@ -141,8 +143,8 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, librar
               </button>
             )
           )}
-          <MediaGrid media={t.media} />
-          {t.quoted && <QuotedCard quoted={t.quoted} translation={showTr ? (translation?.quotedContent ?? null) : null} />}
+          <MediaGrid media={t.media} compact={dense} />
+          {t.quoted && <QuotedCard quoted={t.quoted} translation={showTr ? (translation?.quotedContent ?? null) : null} collapsible={dense} />}
           {/* 엔게이지먼트 바 — 실제 X 순서: Reply · Repost · Like · View · Bookmark */}
           <div className="mt-3 flex max-w-[425px] items-center justify-between">
             <span title="답글 (Reply)" className={`${metricBase} hover:text-x-blue-text`}>

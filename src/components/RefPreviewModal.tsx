@@ -13,11 +13,14 @@ export function RefPreviewModal({ row, onClose, onRemove }: {
   // 번역 — 덱/시트와 같은 훅·같은 전역 캐시(tweet_translation). 어디서 번역했든 무과금 재사용(스펙 §B).
   const { translations, translatingIds, translateErr, loadCached, translateOne } = useTranslations();
   const [showTranslation, setShowTranslation] = useState(false);
+  // 훅의 translateErr는 성공 때만 지워져 세션 내내 남는다 — 어느 트윗의 오류인지 함께 기록해
+  // 다른 트윗 미리보기에 이전 오류가 보이는 일을 막는다(리뷰 Important, UX 원칙 4).
+  const [errFor, setErrFor] = useState<string | null>(null);
   const tweetId = row?.tweetId ?? null;
   useEffect(() => {
     if (!tweetId) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 대상이 바뀔 때마다 표시 초기화(모달 재사용, AddByLinkModal 관례)
-    setShowTranslation(false);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 대상이 바뀔 때마다 표시·오류 귀속 초기화(모달 재사용, AddByLinkModal 관례)
+    setShowTranslation(false); setErrFor(null);
     void loadCached([tweetId]); // 기번역분 조용히 로드(과금 없음)
   }, [tweetId, loadCached]);
 
@@ -42,7 +45,7 @@ export function RefPreviewModal({ row, onClose, onRemove }: {
         <div className="relative flex gap-3 px-4 pb-3.5 pt-3">
           <RefTweetCard row={row} translation={showTranslation ? translation : undefined} />
         </div>
-        {translateErr && (
+        {translateErr && errFor === row.tweetId && (
           <p className="border-t border-x-border bg-red-50 px-4 py-1.5 text-caption text-red-700">{translateErr}</p>
         )}
         {/* 확인 후의 다음 행동을 그 자리에 — 빼기(이건 아니네) / 번역(뜻 모르겠네) / 원문(맥락 더 볼래) (스펙 의도) */}
@@ -54,6 +57,7 @@ export function RefPreviewModal({ row, onClose, onRemove }: {
           <button onClick={() => {
                     if (translation) { setShowTranslation((v) => !v); return; }
                     setShowTranslation(true); // 도착하는 대로 바로 보이게 먼저 켠다(시트 관례)
+                    setErrFor(row.tweetId); // 실패 시 오류가 이 트윗의 것임을 표시
                     void translateOne(row.tweetId);
                   }}
                   disabled={translating}

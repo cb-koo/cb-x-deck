@@ -131,15 +131,22 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
         {hasRefs ? (
           <>
             <div className="flex flex-wrap items-center gap-1.5">
-              {refRows.map((r) => (
-                <span key={r.tweetId} className="inline-flex h-7 items-center gap-1 rounded-full border border-x-border-strong bg-white px-2.5 text-ui">
-                  {/* 본문 클릭=미리보기, ✕=빼기 — 링크+닫기 조합이라 타깃 둘이어도 관례적(스펙 §C) */}
-                  <button onClick={() => onPreviewRef(r.tweetId)} title="클릭해서 내용 보기" aria-label={`@${r.authorHandle} 레퍼런스 내용 보기`} className="hover:underline">
-                    @{r.authorHandle} <span className="text-x-muted">· {refSnippet(r.text)}</span>
-                  </button>
-                  <button onClick={() => onRemoveRef(r.tweetId)} aria-label={`@${r.authorHandle} 레퍼런스 빼기`} className="text-x-muted hover:text-red-500">✕</button>
-                </span>
-              ))}
+              {refRows.map((r) => {
+                const snippet = refSnippet(r.text); // 이미지만 있는 트윗은 본문이 '' — 그땐 구분점도 안 붙인다
+                return (
+                  // max-w-full + min-w-0 truncate: CJK 12자 칩(≈280px)이 패널 하한(260px)을 넘어
+                  // 가로 스크롤을 만들던 것을 말줄임으로 흡수(리뷰 Important)
+                  <span key={r.tweetId} className="inline-flex h-7 max-w-full items-center gap-1 rounded-full border border-x-border-strong bg-white px-2.5 text-ui">
+                    {/* 본문 클릭=미리보기, ✕=빼기 — 링크+닫기 조합이라 타깃 둘이어도 관례적(스펙 §C) */}
+                    <button onClick={() => onPreviewRef(r.tweetId)} title="클릭해서 내용 보기"
+                            aria-label={`@${r.authorHandle}${snippet ? ` · ${snippet}` : ''} 내용 보기`}
+                            className="min-w-0 truncate hover:underline">
+                      @{r.authorHandle}{snippet && <span className="text-x-muted"> · {snippet}</span>}
+                    </button>
+                    <button onClick={() => onRemoveRef(r.tweetId)} aria-label={`@${r.authorHandle} 레퍼런스 빼기`} className="shrink-0 text-x-muted hover:text-red-500">✕</button>
+                  </span>
+                );
+              })}
               {refRows.length >= 2 && (
                 <button onClick={onClearRefs} className="shrink-0 text-caption text-x-muted hover:text-red-500 hover:underline">모두 빼기</button>
               )}

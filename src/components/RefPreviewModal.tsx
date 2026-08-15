@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import { RefTweetCard } from '@/components/RefTweetCard';
 import { useTranslations } from '@/components/useTranslations';
+import { Tooltip } from '@/components/Tooltip';
+import { GlobeIcon } from '@/components/XIcons';
 import { tweetPermalink } from '@/lib/tweetLink';
 import type { ReferenceRow } from '@/lib/referenceStore';
 
@@ -36,7 +38,8 @@ export function RefPreviewModal({ row, onClose, onRemove }: {
   const translating = translatingIds.has(row.tweetId);
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6" onClick={onClose}>
-      <div className="max-h-full w-full max-w-[480px] overflow-y-auto rounded-2xl bg-white" role="dialog" aria-modal="true"
+      {/* max-w-640: '참고할 레퍼런스' 시트와 같은 폭 — 같은 카드를 다른 폭으로 보여주면 다른 화면처럼 읽힌다(koo 확정) */}
+      <div className="max-h-full w-full max-w-[640px] overflow-y-auto rounded-2xl bg-white" role="dialog" aria-modal="true"
            aria-label="참고할 레퍼런스" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 flex items-center border-b border-x-border bg-white px-4 py-3">
           <h2 className="text-[15px] font-bold">참고할 레퍼런스</h2>
@@ -54,17 +57,21 @@ export function RefPreviewModal({ row, onClose, onRemove }: {
                   className="text-ui text-x-secondary hover:text-red-500 hover:underline">
             이 레퍼런스 빼기
           </button>
-          <button onClick={() => {
-                    if (translation) { setShowTranslation((v) => !v); return; }
-                    setShowTranslation(true); // 도착하는 대로 바로 보이게 먼저 켠다(시트 관례)
-                    setErrFor(row.tweetId); // 실패 시 오류가 이 트윗의 것임을 표시
-                    void translateOne(row.tweetId);
-                  }}
-                  disabled={translating}
-                  title="한국어로 번역해요 — 덱/보관함에서 이미 번역한 트윗은 무료로 바로 표시돼요"
-                  className="text-ui text-x-blue-text hover:underline disabled:opacity-50">
-            {translating ? '번역 중…' : translation && showTranslation ? '번역 숨기기' : '🌐 한국어로 번역'}
-          </button>
+          {/* 콘텐츠 카드(DraftCard)의 번역 버튼과 같은 모습 — 지구본 아이콘·같은 툴팁 문구·켜짐은 파란색(koo 확정) */}
+          <Tooltip text={translating ? '번역 중…' : translation && showTranslation ? '원문만 보기' : '한국어로 번역'}>
+            <button onClick={() => {
+                      if (translation) { setShowTranslation((v) => !v); return; }
+                      setShowTranslation(true); // 도착하는 대로 바로 보이게 먼저 켠다(시트 관례)
+                      setErrFor(row.tweetId); // 실패 시 오류가 이 트윗의 것임을 표시
+                      void translateOne(row.tweetId);
+                    }}
+                    disabled={translating}
+                    aria-label={translation && showTranslation ? '원문만 보기' : '한국어로 번역'}
+                    aria-pressed={!!translation && showTranslation}
+                    className={`flex items-center rounded-full p-2 hover:bg-x-blue/10 hover:text-x-blue-text disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-current ${translation && showTranslation ? 'text-x-blue-text' : 'text-x-secondary'}`}>
+              <GlobeIcon className="h-[19px] w-[19px]" />
+            </button>
+          </Tooltip>
           <a href={tweetPermalink(row.authorHandle, row.tweetId)} target="_blank" rel="noopener noreferrer"
              className="ml-auto text-ui text-x-blue-text hover:underline">
             X에서 원문 보기 ↗

@@ -1,6 +1,7 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui';
+import { RefreshIcon, TrashIcon } from '@/components/XIcons';
 import { formatFull } from '@/lib/format';
 import { kstDateTime, kstMonthDayKo, kstShort } from '@/lib/datetime';
 import { tweetPermalink } from '@/lib/tweetLink';
@@ -32,24 +33,46 @@ const SORT_LABEL: Record<TrackSortKey, string> = {
   views: '조회', likes: '좋아요', retweets: '리포스트', replies: '답글', bookmarks: '북마크', quotes: '인용',
 };
 
-// 정렬 가능한 헤더 칸 — TweetTable의 헤더 버튼 마크업을 이 표에 맞게 줄인 것(aria-sort·방향 화살표 동일)
-function SortTh({ k, label, sort, dir, onSort, numeric }: {
-  k: TrackSortKey; label: string; sort: TrackSortKey; dir: TrackSortDir;
-  onSort: (k: TrackSortKey) => void; numeric?: boolean;
-}) {
-  const active = k === sort;
-  return (
-    <th scope="col"
-        aria-sort={active ? (dir === 'desc' ? 'descending' : 'ascending') : 'none'}
-        className={`whitespace-nowrap px-2 py-2 font-normal ${numeric ? 'text-right' : 'text-left'} ${active ? 'text-x-text' : ''}`}>
-      <button type="button" onClick={() => onSort(k)}
-              title={active ? `${SORT_LABEL[k]} ${dir === 'desc' ? '내림차순' : '오름차순'} — 다시 누르면 순서가 바뀝니다`
-                            : `${SORT_LABEL[k]} 기준으로 정렬`}
-              className="rounded px-1 py-0.5 hover:bg-x-text/5">
-        {label}{active && <span aria-hidden> {dir === 'desc' ? '↓' : '↑'}</span>}
-      </button>
-    </th>
-  );
+// ── 열 정의 · 폭 조절 — 전부 TweetTable에서 옮겨온 방식(드래그는 <col> DOM 직접 쓰기,
+//    커밋은 mouseup에 1회, localStorage 저장, role="slider" 접근성) ─────────────────
+const WIDTHS_KEY = 'tracking-col-widths';  // TweetTable(table-col-widths)과 키 분리 — 표가 다르면 취향도 다르다
+const MIN_COL_WIDTH = 48;
+const MAX_COL_WIDTH = 720;
+const WIDTH_STEP = 24;
+
+type ColKey = 'select' | 'account' | 'post' | 'draft' | 'posted' | keyof PostMetrics | 'captured' | 'actions';
+interface ColDef { key: ColKey; label: string; sort?: TrackSortKey; numeric?: boolean; resizable: boolean; width: number }
+
+// 열 순서 = 읽기 동선: 정체(계정·게시물·원고) → 맥락(게시) → 숫자(지표) → 신선도(측정) → 행동.
+// 원고는 시간·숫자 축이 아니라 "무엇" 축이라 게시물 옆이 제자리고, 측정·동작을 인접시켜
+// "오래됐네 → 새로고침"의 동선을 끊지 않는다(koo 결정 08-15).
+// 게시물 열의 정렬 키는 '등록순' — 목록의 기본 순서라 이 열이 그 자리를 맡는다.
+const COLS: ColDef[] = [
+  { key: 'select', label: '', resizable: false, width: 40 },
+  { key: 'account', label: '계정', resizable: true, width: 150 },
+  { key: 'post', label: '게시물', sort: 'created', resizable: true, width: 340 },
+  { key: 'draft', label: '원고', resizable: true, width: 120 },
+  { key: 'posted', label: '게시', sort: 'posted', resizable: true, width: 150 },
+  ...METRICS.map((m): ColDef => ({ key: m.key, label: m.label, sort: m.key, numeric: true, resizable: true, width: 92 })),
+  { key: 'captured', label: '측정', sort: 'captured', resizable: true, width: 150 },
+  { key: 'actions', label: '동작', resizable: false, width: 84 },
+];
+const DEFAULT_WIDTH: Record<string, number> = Object.fromEntries(COLS.map((c) => [c.key, c.width]));
+
+function loadStoredWidths(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(WIDTHS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, number> : {};
+  } catch { return {}; }   // 접근 거부·손상된 값이면 기본 폭으로
+}
+function saveWidths(map: Record<string, number>) {
+  try { localStorage.setItem(WIDTHS_KEY, JSON.stringify(map)); } catch { /* 저장 못 해도 화면은 동작 */ }
+}
+function resolveWidth(map: Record<string, number>, key: string): number {
+  const v = map[key];
+  return typeof v === 'number' && v > 0 ? v : (DEFAULT_WIDTH[key] ?? 120);
 }
 
 export function TrackingTable({
@@ -79,26 +102,126 @@ export function TrackingTable({
   onRefresh: (row: TrackedPostRow) => void;
   onRemove: (row: TrackedPostRow) => void;
 }) {
+  // 마운트 시 1회만 읽는다 — 이 컴포넌트는 목록이 실제로 그려질 때만 나타나(페이지의 로딩 갈래)
+  // 서버 렌더를 탄 적이 없다. lazy initializer라 이펙트도 필요 없다(TweetTable과 동일).
+  const [widths, setWidths] = useState<Record<string, number>>(() => loadStoredWidths());
+  // 드래그 중 <col>에 직접 쓰기 위한 DOM 참조 — React state를 거치면 표 전체가 매 mousemove마다
+  // 다시 렌더링된다(TweetTable에서 실제로 겪은 문제, 그쪽 startResize 주석 참조).
+  const colRefs = useRef<Record<string, HTMLTableColElement | null>>({});
+
+  const widthFor = (key: string) => resolveWidth(widths, key);
+
+  function commitWidth(key: string, w: number) {
+    setWidths((cur) => { const next = { ...cur, [key]: w }; saveWidths(next); return next; });
+  }
+  function resetWidth(key: string) {
+    setWidths((cur) => { const next = { ...cur }; delete next[key]; saveWidths(next); return next; });
+  }
+  function nudgeWidth(key: string, delta: number) {
+    setWidths((cur) => {
+      const w = Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, resolveWidth(cur, key) + delta));
+      const next = { ...cur, [key]: w };
+      saveWidths(next);
+      return next;
+    });
+  }
+  function startResize(key: string, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();   // 정렬 버튼은 형제 요소라 원래도 안 타지만, 방어적으로 한 번 더 막는다
+    const startX = e.clientX;
+    const startW = widthFor(key);
+    let w = startW;
+    let raf: number | null = null;
+    const col = colRefs.current[key];
+    const writeWidth = () => { raf = null; if (col) col.style.width = `${w}px`; };
+    const move = (ev: MouseEvent) => {
+      w = Math.min(MAX_COL_WIDTH, Math.max(MIN_COL_WIDTH, startW + ev.clientX - startX));
+      if (raf === null) raf = requestAnimationFrame(writeWidth);   // 프레임당 최대 1회만 DOM에 쓴다
+    };
+    const up = () => {
+      if (raf !== null) cancelAnimationFrame(raf);
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      document.body.style.cursor = '';
+      if (col) col.style.width = `${w}px`;   // 마지막 rAF 미실행분까지 확실히 반영(TweetTable과 동일)
+      if (w !== startW) commitWidth(key, w);
+    };
+    document.body.style.cursor = 'col-resize';
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  }
+
+  // table-fixed는 표 자신의 width가 auto가 아닐 때만 적용된다(TweetTable 주석 참조) — colgroup으로
+  // 칸 폭을 명시하고 표에도 width를 준다. 남는 폭은 맨 끝 이름 없는 채움 칸이 전부 가져가 —
+  // 사용자가 좁혀둔 칸이 넓은 화면에서 도로 넓어지지 않는다.
+  const totalWidth = COLS.reduce((sum, c) => sum + widthFor(c.key), 0);
+
   return (
     // 가로·세로 스크롤을 담당하는 컨테이너는 이 하나뿐이다 — sticky thead는 이 div를 기준으로 고정된다
     // (TweetTableView와 같은 구조). '더 보기'는 표 스크롤과 무관하게 항상 보이도록 페이지가 이 밖에 둔다.
     <div className="max-h-[70vh] w-full overflow-auto">
-      <table className="w-full text-ui">
+      <table className="table-fixed border-collapse text-ui" style={{ width: `max(${totalWidth}px, 100%)` }}>
+        <colgroup>
+          {COLS.map((c) => (
+            <col key={c.key} ref={(el) => { colRefs.current[c.key] = el; }} style={{ width: widthFor(c.key) }} />
+          ))}
+          {/* 채움 칸 — 폭 미지정이라 표의 남는 공간을 전부 떠안는다(TweetTable과 동일) */}
+          <col />
+        </colgroup>
         <thead className="sticky top-0 z-10 bg-white">
           <tr className="border-b border-x-border text-left text-caption text-x-muted">
-            <th className="w-8 px-3 py-2">
-              <input type="checkbox" checked={allSelected} onChange={onToggleAll}
-                     aria-label="표시된 게시물 전체 선택" className="align-middle accent-x-blue" />
-            </th>
-            {/* 게시물 열의 정렬 키는 '등록순' — 목록의 기본 순서라 이 열이 그 자리를 맡는다 */}
-            <SortTh k="created" label="게시물" sort={sort} dir={dir} onSort={onSort} />
-            <SortTh k="posted" label="게시" sort={sort} dir={dir} onSort={onSort} />
-            {METRICS.map((m) => (
-              <SortTh key={m.key} k={m.key} label={m.label} sort={sort} dir={dir} onSort={onSort} numeric />
-            ))}
-            <SortTh k="captured" label="측정" sort={sort} dir={dir} onSort={onSort} />
-            <th className="whitespace-nowrap px-3 py-2 font-normal">원고</th>
-            <th className="whitespace-nowrap px-3 py-2 font-normal">동작</th>
+            {COLS.map((c) => {
+              if (c.key === 'select') {
+                return (
+                  <th key={c.key} className="px-3 py-2">
+                    <input type="checkbox" checked={allSelected} onChange={onToggleAll}
+                           aria-label="표시된 게시물 전체 선택" className="align-middle accent-x-blue" />
+                  </th>
+                );
+              }
+              const active = !!c.sort && c.sort === sort;
+              const w = widthFor(c.key);
+              return (
+                <th key={c.key} scope="col"
+                    aria-sort={c.sort ? (active ? (dir === 'desc' ? 'descending' : 'ascending') : 'none') : undefined}
+                    className={`relative overflow-hidden whitespace-nowrap px-2 py-2 font-normal ${
+                      c.numeric ? 'text-right' : 'text-left'} ${active ? 'text-x-text' : ''}`}>
+                  {c.sort ? (
+                    <button type="button" onClick={() => onSort(c.sort!)}
+                            title={active ? `${SORT_LABEL[c.sort]} ${dir === 'desc' ? '내림차순' : '오름차순'} — 다시 누르면 순서가 바뀝니다`
+                                          : `${SORT_LABEL[c.sort]} 기준으로 정렬`}
+                            className="rounded px-1 py-0.5 hover:bg-x-text/5">
+                      {c.label}{active && <span aria-hidden> {dir === 'desc' ? '↓' : '↑'}</span>}
+                    </button>
+                  ) : <span className="px-1 py-0.5">{c.label}</span>}
+                  {c.resizable && (
+                    // 폭 조절 손잡이 — 접근성·시각 처리 전부 TweetTable의 것 그대로(그쪽 주석 참조)
+                    <span
+                      role="slider"
+                      aria-roledescription="칸 폭 조절 손잡이"
+                      aria-label={`${c.label} 칸 폭 조절 — 끌어서 넓히거나 화살표 키를 누르세요`}
+                      aria-valuemin={MIN_COL_WIDTH}
+                      aria-valuemax={MAX_COL_WIDTH}
+                      aria-valuenow={w}
+                      aria-valuetext={`폭 ${w}픽셀`}
+                      tabIndex={0}
+                      title="끌어서 폭을 조절해요 — 더블클릭하면 기본 폭으로 돌아가요"
+                      onMouseDown={(e) => startResize(c.key, e)}
+                      onDoubleClick={(e) => { e.stopPropagation(); resetWidth(c.key); }}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowLeft') { e.preventDefault(); nudgeWidth(c.key, -WIDTH_STEP); }
+                        else if (e.key === 'ArrowRight') { e.preventDefault(); nudgeWidth(c.key, WIDTH_STEP); }
+                        else if (e.key === ' ') e.preventDefault();   // 스페이스로 페이지가 스크롤되는 것만 막는다
+                      }}
+                      className="absolute right-0 top-0 z-10 h-full w-1.5 touch-none cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-x-border-strong after:content-[''] hover:bg-x-hover hover:after:bg-x-secondary focus-visible:bg-x-hover focus-visible:after:bg-x-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-x-blue active:bg-x-hover active:after:bg-x-secondary"
+                    />
+                  )}
+                </th>
+              );
+            })}
+            {/* colgroup의 채움 칸과 짝을 이루는 빈 헤더 칸 — 데이터가 없어 보조기술 트리에서 뺀다 */}
+            <th aria-hidden="true" />
           </tr>
         </thead>
         <tbody>
@@ -113,61 +236,67 @@ export function TrackingTable({
                   className={`border-b border-x-border transition-colors ${
                     r.id === highlightId ? 'bg-x-blue/10' : 'hover:bg-x-hover'
                   }`}>
-                <td className="w-8 px-3 py-2">
+                <td className="px-3 py-2">
                   <input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => onToggleSelect(r.id)}
                          aria-label={`${r.authorHandle ? `@${r.authorHandle} ` : ''}게시물 선택`}
                          className="align-middle accent-x-blue" />
                 </td>
-                <td className="max-w-[320px] px-3 py-2">
+                {/* 계정(누가)과 게시물(무엇)은 다른 속성이라 열을 나눈다(QA 08-15) — 계정 열을 훑으면
+                    누구 게시물들이 있는지 세로로 보인다 */}
+                <td className="truncate whitespace-nowrap px-3 py-2 text-x-secondary">
+                  {r.authorHandle ? `@${r.authorHandle}` : '미확인'}
+                </td>
+                <td className="overflow-hidden px-3 py-2">
                   <a href={tweetPermalink(r.authorHandle, r.tweetId)} target="_blank" rel="noreferrer"
-                     className="block min-w-0 hover:underline">
-                    <span className="block text-caption text-x-muted">
-                      {r.authorHandle ? `@${r.authorHandle}` : '작성자 미확인'}
-                    </span>
-                    <span className="block truncate">{line || '(본문 없음)'}</span>
+                     className="block min-w-0 truncate hover:underline">
+                    {line || '(본문 없음)'}
                   </a>
                   {/* 볼 수 없음은 색이 아니라 글자로 말한다 — 왜(삭제·비공개)와 언제 확인했는지까지 (I축) */}
                   {gone && (
-                    <span className="mt-1 inline-block rounded-full bg-x-surface px-2 py-0.5 text-caption text-x-secondary">
+                    <span className="mt-1 inline-block max-w-full truncate rounded-full bg-x-surface px-2 py-0.5 text-caption text-x-secondary">
                       볼 수 없음(삭제·비공개 등) · {kstMonthDayKo(r.unavailableAt)} 확인
                     </span>
                   )}
+                </td>
+                {/* nowrap: 표가 좁아지면 '연결 안 됨'이 글자 단위로 세로로 꺾인다(QA 08-15) — 상태 글자는 한 줄이 정체성 */}
+                <td className="overflow-hidden whitespace-nowrap px-3 py-2">
+                  <DraftCell row={r} open={pickerFor === r.id} drafts={drafts} draftsState={draftsState}
+                             onLoadDrafts={onLoadDrafts} onOpenPicker={onOpenPicker} onLinkDraft={onLinkDraft} />
                 </td>
                 {/* 시각은 '4달 전' 같은 상대 표기 대신 정확한 값을 표 안에 그대로(사용자 결정 08-15).
                     서울 기준, kstDateTime은 '최종 수집 시간' 표기의 기존 관례다(datetime.ts).
                     글자 규격은 지표 숫자와 동일(text-ui·tabular-nums) — 시각도 데이터 값이라 caption으로
                     줄이면 같은 행 안에서 크기가 어긋난다(QA 08-15). 색만 secondary로 한 단계 옅게 —
                     행의 주인공(지표)과의 위계는 크기가 아니라 색이 나른다 */}
-                <td className="whitespace-nowrap px-3 py-2 text-x-secondary tabular-nums">
+                <td className="truncate whitespace-nowrap px-3 py-2 text-x-secondary tabular-nums">
                   {r.postedAt ? kstDateTime(r.postedAt) : '–'}
                 </td>
                 {/* 볼 수 없는 게시물의 지표는 지우지 않고 마지막 측정값을 흐리게 남긴다 — 지운 값이 0으로 보이면 거짓말이 된다 */}
                 {METRICS.map((m) => (
                   <td key={m.key}
-                      className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${gone ? 'text-x-muted opacity-60' : 'text-x-text'}`}>
+                      className={`truncate whitespace-nowrap px-3 py-2 text-right tabular-nums ${gone ? 'text-x-muted opacity-60' : 'text-x-text'}`}>
                     {formatFull(r.metrics?.[m.key] ?? null)}
                   </td>
                 ))}
-                <td className="whitespace-nowrap px-3 py-2 text-x-secondary tabular-nums">
+                <td className="truncate whitespace-nowrap px-3 py-2 text-x-secondary tabular-nums">
                   {r.capturedAt ? kstDateTime(r.capturedAt) : '–'}
                 </td>
-                {/* nowrap: 표가 좁아지면 '연결 안 됨'이 글자 단위로 세로로 꺾인다(QA 08-15) — 상태 글자는 한 줄이 정체성 */}
+                {/* 행마다 반복되는 액션은 글자 대신 아이콘(QA 08-15) — 새로고침은 덱 컬럼과 같은
+                    회전 문법(Column.tsx), 중단은 데이터를 지우므로 ✕가 아니라 휴지통이 정직하다.
+                    뜻은 title이 지금까지의 문구 그대로 나른다 */}
                 <td className="whitespace-nowrap px-3 py-2">
-                  <DraftCell row={r} open={pickerFor === r.id} drafts={drafts} draftsState={draftsState}
-                             onLoadDrafts={onLoadDrafts} onOpenPicker={onOpenPicker} onLinkDraft={onLinkDraft} />
-                </td>
-                <td className="whitespace-nowrap px-3 py-2">
-                  <div className="flex items-center gap-1">
-                    <Button onClick={() => onRefresh(r)} disabled={busy} className="whitespace-nowrap"
-                            title="지금 지표를 다시 가져와요 (API 호출 1회)">
-                      {busy ? '가져오는 중…' : '새로고침'}
+                  <div className="flex items-center gap-0.5">
+                    <Button variant="icon" onClick={() => onRefresh(r)} disabled={busy}
+                            title="지금 지표를 다시 가져와요 (API 호출 1회)" aria-label="새로고침">
+                      <RefreshIcon className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
                     </Button>
-                    <Button variant="ghost" onClick={() => onRemove(r)} className="whitespace-nowrap"
-                            title="목록에서 빼고 쌓인 측정 기록도 지워요">
-                      추적 중단
+                    <Button variant="icon" onClick={() => onRemove(r)}
+                            title="추적 중단 — 목록에서 빼고 쌓인 측정 기록도 지워요" aria-label="추적 중단">
+                      <TrashIcon className="h-4 w-4" />
                     </Button>
                   </div>
                 </td>
+                <td aria-hidden="true" />
               </tr>
             );
           })}
@@ -202,7 +331,7 @@ function DraftCell({ row, open, drafts, draftsState, onLoadDrafts, onOpenPicker,
       // 제목은 앞부분만 — 이 열의 역할은 식별이 아니라 "연결돼 있고 뭔지 대충 알아보기"(QA 08-15).
       // 전체 제목은 호버(title)와 모달이 보여준다.
       <button onClick={() => onOpenPicker(row.id)} title={`${label} — 원고 연결 바꾸기·해제`}
-              className="block max-w-[9em] truncate text-x-blue-text hover:underline">
+              className="block max-w-full truncate text-x-blue-text hover:underline">
         {label}
       </button>
     );

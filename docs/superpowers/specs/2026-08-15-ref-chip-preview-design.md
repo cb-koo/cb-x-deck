@@ -11,16 +11,18 @@
 - **카드는 단일 표면**: RefPickerSheet의 트윗 카드 마크업을 `RefTweetCard`로 추출해 시트·미리보기가 공유
   (DraftCard 선례 — 복제하면 이후 카드 수정이 한쪽만 반영된다).
 - **오버레이 선택 근거**: 패널 폭이 260~480px라 인라인 펼침은 최소 폭에서 카드가 찌그러진다.
-  AddByLinkModal과 같은 480px 오버레이 패턴을 따른다. (사용자 확정: 미리보기 오버레이)
+  AddByLinkModal과 같은 오버레이 패턴을 따르되 폭은 640px(§B — 시트와 통일). (사용자 확정: 미리보기 오버레이)
 
 ## A. `RefTweetCard` (신규, `src/components/RefTweetCard.tsx`)
 
-- RefPickerSheet 카드의 내용부(아바타·헤더·본문·MediaGrid·지표 행·번역 블록·메모/태그 도구층)를 그대로 추출.
+- RefPickerSheet 카드의 내용부(아바타·헤더·본문·번역 블록·MediaGrid·지표 행·메모/태그 도구층)를 추출.
+  (번역 블록 순서는 확정 3차로 본문 아래가 됨 — 최초 추출 시점엔 지표 행 뒤였다)
 - props: `{ row: ReferenceRow; translation?: string }`. 번역 블록은 `translation`이 있을 때만.
 - 선택 체크 원(absolute)은 시트 전용이라 카드에 넣지 않는다 — 시트가 버튼의 직계 자식으로 유지
   (absolute 기준이 버튼(relative)이므로 위치 변화 없음).
 - 전부 `<span>`: 시트에서 `<button>` 안에 들어가므로 block 요소 불가 — 기존 마크업 그대로.
-- **순수 추출**: 시각·동작 변화 0. 시트의 MediaGrid·formatCount·아이콘 임포트는 카드로 이동.
+- **순수 추출**: 시각·동작 변화 0 (단, 번역 밴드 위치·스타일은 이후 §B 확정 3차로 의도적으로 변경됨).
+  시트의 MediaGrid·formatCount·아이콘 임포트는 카드로 이동.
 
 ## B. `RefPreviewModal` (신규, `src/components/RefPreviewModal.tsx`)
 
@@ -59,7 +61,8 @@
 ## 검증
 
 - 서버 로직 무변경 — `npx tsc --noEmit` + `npm run build` + lint 기준선(24개) 유지.
-- 시트 회귀 확인 포인트: 추출 후 카드 시각 동일(체크 원 위치 포함), 번역 표시 동작 유지. 화면은 koo QA.
+- 시트 회귀 확인 포인트: 번역 밴드는 **본문 아래·TweetCard 스타일로 이동한 것이 의도**(확정 3차 — 회귀 아님),
+  그 외(체크 원 위치·지표·도구층)는 시각 동일해야 함. '전체 번역' 토글 동작 유지. 화면은 koo QA.
 
 ## 하지 않는 것
 

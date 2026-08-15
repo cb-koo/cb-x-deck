@@ -54,7 +54,7 @@ export function QuotedCard({ quoted, translation, collapsible = false }: { quote
       </div>
       {!collapsed && e && e.media.length > 0 && (
         <div className="px-3 pb-3 [&>div]:mt-0">
-          <MediaGrid media={e.media} />
+          <MediaGrid media={e.media} compact={collapsible} />
         </div>
       )}
     </div>

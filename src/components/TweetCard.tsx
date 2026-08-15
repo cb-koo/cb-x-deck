@@ -143,7 +143,7 @@ export function TweetCard({ tweet: t, meId, onSave, onUnsave, onSaveMemo, librar
               </button>
             )
           )}
-          <MediaGrid media={t.media} compactSingle={dense} />
+          <MediaGrid media={t.media} compact={dense} />
           {t.quoted && <QuotedCard quoted={t.quoted} translation={showTr ? (translation?.quotedContent ?? null) : null} collapsible={dense} />}
           {/* 엔게이지먼트 바 — 실제 X 순서: Reply · Repost · Like · View · Bookmark */}
           <div className="mt-3 flex max-w-[425px] items-center justify-between">

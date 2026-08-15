@@ -1,6 +1,6 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useParams } from 'next/navigation';
 import type { LibraryEntry } from '@/lib/candidateStore';
 import { filterLibrary } from '@/lib/candidateGroups';
@@ -13,6 +13,14 @@ import { useToast } from '@/lib/toastContext';
 import { AddByLinkModal, type AddedByLink } from '@/components/AddByLinkModal';
 
 type View = 'tweets' | 'scouts';
+
+// 열 개수: 기존 그리드 브레이크포인트(md 768 / xl 1280)를 그대로 따른다. SSR 스냅샷은 3.
+const subscribeResize = (cb: () => void) => {
+  window.addEventListener('resize', cb);
+  return () => window.removeEventListener('resize', cb);
+};
+const getCols = () =>
+  window.matchMedia('(min-width: 1280px)').matches ? 3 : window.matchMedia('(min-width: 768px)').matches ? 2 : 1;
 
 export default function LibraryPage() {
   const { wsId } = useParams<{ wsId: string }>();
@@ -100,6 +108,16 @@ export default function LibraryPage() {
     [entries, activeMember, pendingRemove],
   );
 
+  // 열 분배(masonry-lite): 인덱스 라운드로빈으로 나눠 각 열이 독립적으로 쌓인다.
+  // 행 정렬 그리드는 행마다 최장 카드 아래에 빈 공간이 남았음(08-15 QA). 높이 측정 없이 인덱스로만
+  // 배정하므로 카드 펼침·편집은 같은 열 아래쪽만 밀어내고 열 간 점프가 없다 — masonry 반려 사유 회피.
+  const cols = useSyncExternalStore(subscribeResize, getCols, () => 3);
+  const columns = useMemo(() => {
+    const out: (typeof groups)[] = Array.from({ length: cols }, () => []);
+    groups.forEach((g, i) => out[i % cols].push(g));
+    return out;
+  }, [groups, cols]);
+
   // 진입/갱신 시 덱에서 번역해둔 트윗을 캐시에서 조용히 불러온다(과금 없음). 미번역분은 카드 버튼으로 opt-in.
   const savedIds = useMemo(() => entries.map((e) => e.tweet.tweetId), [entries]);
   useEffect(() => { if (savedIds.length > 0) loadCached(savedIds); }, [savedIds, loadCached]);
@@ -152,15 +170,18 @@ export default function LibraryPage() {
               <button onClick={() => setActiveMember(null)} className="underline">필터 초기화</button>
             </p>
           ) : (
-            <main className="grid grid-cols-1 items-start gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
-              {/* items-start: 그리드 기본 stretch가 짧은 카드를 행 높이만큼 늘려 안쪽 빈 공간을 만들던 것 제거 (밀도 개선 spec §1) */}
-              {groups.map((g) => (
-                <CandidateCard key={g.tweet.tweetId} entry={g} meId={meId} wsId={wsId} onChanged={load}
-                               onRemoveTeam={requestRemoveTeam}
-                               translation={translations[g.tweet.tweetId] ?? null}
-                               showTranslation={showTranslations}
-                               onTranslate={translateOne}
-                               translating={translatingIds.has(g.tweet.tweetId)} />
+            <main className="flex items-start gap-3 p-4">
+              {columns.map((column, ci) => (
+                <div key={ci} className="flex min-w-0 flex-1 flex-col gap-3">
+                  {column.map((g) => (
+                    <CandidateCard key={g.tweet.tweetId} entry={g} meId={meId} wsId={wsId} onChanged={load}
+                                   onRemoveTeam={requestRemoveTeam}
+                                   translation={translations[g.tweet.tweetId] ?? null}
+                                   showTranslation={showTranslations}
+                                   onTranslate={translateOne}
+                                   translating={translatingIds.has(g.tweet.tweetId)} />
+                  ))}
+                </div>
               ))}
             </main>
           )}

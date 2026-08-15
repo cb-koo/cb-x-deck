@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui';
+import { RefreshIcon, TrashIcon } from '@/components/XIcons';
 import { formatFull } from '@/lib/format';
 import { kstDateTime, kstMonthDayKo, kstShort } from '@/lib/datetime';
 import { tweetPermalink } from '@/lib/tweetLink';
@@ -90,6 +91,9 @@ export function TrackingTable({
               <input type="checkbox" checked={allSelected} onChange={onToggleAll}
                      aria-label="표시된 게시물 전체 선택" className="align-middle accent-x-blue" />
             </th>
+            {/* 계정(누가)과 게시물(무엇)은 다른 속성이라 열을 나눈다(QA 08-15) — 계정 열을 훑으면
+                누구 게시물들이 있는지 세로로 보인다 */}
+            <th className="whitespace-nowrap px-3 py-2 font-normal">계정</th>
             {/* 게시물 열의 정렬 키는 '등록순' — 목록의 기본 순서라 이 열이 그 자리를 맡는다 */}
             <SortTh k="created" label="게시물" sort={sort} dir={dir} onSort={onSort} />
             <SortTh k="posted" label="게시" sort={sort} dir={dir} onSort={onSort} />
@@ -118,13 +122,13 @@ export function TrackingTable({
                          aria-label={`${r.authorHandle ? `@${r.authorHandle} ` : ''}게시물 선택`}
                          className="align-middle accent-x-blue" />
                 </td>
-                <td className="max-w-[320px] px-3 py-2">
+                <td className="whitespace-nowrap px-3 py-2 text-x-secondary">
+                  {r.authorHandle ? `@${r.authorHandle}` : '미확인'}
+                </td>
+                <td className="max-w-[420px] px-3 py-2">
                   <a href={tweetPermalink(r.authorHandle, r.tweetId)} target="_blank" rel="noreferrer"
-                     className="block min-w-0 hover:underline">
-                    <span className="block text-caption text-x-muted">
-                      {r.authorHandle ? `@${r.authorHandle}` : '작성자 미확인'}
-                    </span>
-                    <span className="block truncate">{line || '(본문 없음)'}</span>
+                     className="block min-w-0 truncate hover:underline">
+                    {line || '(본문 없음)'}
                   </a>
                   {/* 볼 수 없음은 색이 아니라 글자로 말한다 — 왜(삭제·비공개)와 언제 확인했는지까지 (I축) */}
                   {gone && (
@@ -156,15 +160,18 @@ export function TrackingTable({
                   <DraftCell row={r} open={pickerFor === r.id} drafts={drafts} draftsState={draftsState}
                              onLoadDrafts={onLoadDrafts} onOpenPicker={onOpenPicker} onLinkDraft={onLinkDraft} />
                 </td>
+                {/* 행마다 반복되는 액션은 글자 대신 아이콘(QA 08-15) — 새로고침은 덱 컬럼과 같은
+                    회전 문법(Column.tsx), 중단은 데이터를 지우므로 ✕가 아니라 휴지통이 정직하다.
+                    뜻은 title이 지금까지의 문구 그대로 나른다 */}
                 <td className="whitespace-nowrap px-3 py-2">
-                  <div className="flex items-center gap-1">
-                    <Button onClick={() => onRefresh(r)} disabled={busy} className="whitespace-nowrap"
-                            title="지금 지표를 다시 가져와요 (API 호출 1회)">
-                      {busy ? '가져오는 중…' : '새로고침'}
+                  <div className="flex items-center gap-0.5">
+                    <Button variant="icon" onClick={() => onRefresh(r)} disabled={busy}
+                            title="지금 지표를 다시 가져와요 (API 호출 1회)" aria-label="새로고침">
+                      <RefreshIcon className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />
                     </Button>
-                    <Button variant="ghost" onClick={() => onRemove(r)} className="whitespace-nowrap"
-                            title="목록에서 빼고 쌓인 측정 기록도 지워요">
-                      추적 중단
+                    <Button variant="icon" onClick={() => onRemove(r)}
+                            title="추적 중단 — 목록에서 빼고 쌓인 측정 기록도 지워요" aria-label="추적 중단">
+                      <TrashIcon className="h-4 w-4" />
                     </Button>
                   </div>
                 </td>

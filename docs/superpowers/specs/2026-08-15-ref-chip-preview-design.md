@@ -32,8 +32,9 @@
 - **번역 버튼** (koo QA 요청으로 승격, 08-15): useTranslations 재사용 — 열 때 `loadCached([tweetId])`로
   기번역분 무과금 로드, 버튼은 `translateOne` opt-in(UX 원칙 6, 시트의 🌐과 같은 캐시라 상호 재사용).
   번역 있으면 버튼이 보기/숨기기 토글, 번역문은 RefTweetCard의 translation prop으로 표시.
-  모습은 **콘텐츠 카드(DraftCard)의 번역 버튼과 동일**(koo 확정, 08-15): GlobeIcon 19px + 원형 히트,
-  툴팁 '한국어로 번역'/'원문만 보기', 켜짐 상태는 파란색(aria-pressed).
+  자리와 모습은 **덱 트윗 카드(TweetCard)와 동일**(koo 확정 2차, 08-15 — DraftCard 아이콘을 풋터에 뒀더니
+  텍스트 링크 사이에 혼자 떠서 어색): 본문 바로 아래 `🌐 번역` 캡션 링크 → '번역 중…' → 번역 밴드+'원문만 보기'.
+  구현은 RefTweetCard의 `translateSlot`(미리보기 전용 — 시트에선 카드가 선택 버튼 안이라 중첩 인터랙티브 불가).
 - 시트(z-40)와 동시 오픈 불가 — 시트가 열리면 패널이 오버레이에 덮여 칩을 누를 수 없다.
 
 ## C. DraftComposer — 칩을 진입점으로

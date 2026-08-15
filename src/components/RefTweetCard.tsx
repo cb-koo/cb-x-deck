@@ -1,4 +1,5 @@
 'use client';
+import type { ReactNode } from 'react';
 import { MediaGrid } from '@/components/MediaGrid';
 import { formatCount } from '@/lib/format';
 import { ReplyIcon, RepostIcon, LikeIcon, ViewIcon, BookmarkIcon } from '@/components/XIcons';
@@ -7,7 +8,11 @@ import type { ReferenceRow } from '@/lib/referenceStore';
 // X 실측 트윗 카드(시안 A)의 내용부 — RefPickerSheet(선택 버튼으로 감쌈)와 RefPreviewModal(맨몸)이 공유한다.
 // 카드는 단일 표면: 여기 고치면 두 화면에 함께 반영된다(DraftCard 선례). 선택 체크 원은 시트 전용이라 여기 없다.
 // 거의 전부 span인 이유: 시트에서 <button> 안에 들어가기 때문(기존 마크업 그대로 — MediaGrid의 div는 추출 전부터 있던 예외).
-export function RefTweetCard({ row: r, translation }: { row: ReferenceRow; translation?: string }) {
+// translateSlot: 본문 바로 아래 자리(덱 TweetCard의 번역 UI 위치) — 미리보기 전용. 시트에서는 카드가
+// 선택 <button> 안이라 버튼을 넣을 수 없어(중첩 인터랙티브) 슬롯을 비워 둔다.
+export function RefTweetCard({ row: r, translation, translateSlot }: {
+  row: ReferenceRow; translation?: string; translateSlot?: ReactNode;
+}) {
   return (
     <>
       {r.authorAvatarUrl ? (
@@ -21,6 +26,7 @@ export function RefTweetCard({ row: r, translation }: { row: ReferenceRow; trans
       <span className="min-w-0 flex-1 pr-8">
         <span className="block text-[15px] leading-5"><b>{r.authorName ?? r.authorHandle}</b> <span className="text-x-muted">@{r.authorHandle}</span></span>
         <span className="block whitespace-pre-wrap text-[15px] leading-5">{r.text}</span>
+        {translateSlot}
         <MediaGrid media={r.media} />
         {/* X 액션 행 자리에 성과 지표 — 덱 카드와 같은 배치(19px 아이콘 + 13px 수치 분산) */}
         <span className="mt-3 flex max-w-[440px] items-center justify-between text-[13px] tabular-nums text-x-muted">

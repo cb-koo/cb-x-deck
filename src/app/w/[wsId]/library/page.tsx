@@ -1,11 +1,14 @@
 'use client';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { LibraryEntry } from '@/lib/candidateStore';
 import { filterLibrary } from '@/lib/candidateGroups';
 import { CandidateCard } from '@/components/CandidateCard';
 import { ScoutList } from '@/components/ScoutList';
+import { LibraryTable } from '@/components/LibraryTable';
+import { LibraryCardModal } from '@/components/LibraryCardModal';
+import { sortLibraryEntries, type LibrarySort } from '@/lib/libraryTable';
 import { useTranslations } from '@/components/useTranslations';
 import { Button } from '@/components/ui';
 import { useMember } from '@/lib/memberContext';
@@ -24,6 +27,17 @@ const getCols = () =>
 
 export default function LibraryPage() {
   const { wsId } = useParams<{ wsId: string }>();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const tweetView = searchParams.get('view') === 'table' ? 'table' : 'cards';
+  // 주소에 보기 모드를 남긴다 — 새로고침·링크 공유로 유지 (덱과 같은 패턴)
+  function setTweetView(next: 'cards' | 'table') {
+    const p = new URLSearchParams(searchParams.toString());
+    if (next === 'table') p.set('view', 'table'); else p.delete('view');
+    const q = p.toString();
+    router.replace(q ? `${pathname}?${q}` : pathname);
+  }
   const { members, member } = useMember();
   const { show, hide } = useToast();
   const meId = member?.id ?? null;
@@ -35,6 +49,8 @@ export default function LibraryPage() {
   const [pendingRemove, setPendingRemove] = useState<string | null>(null); // 리스트에서 숨김(커밋 완료까지)
   const [undoTweet, setUndoTweet] = useState<string | null>(null); // 실행취소 토스트 노출(커밋 시작 전까지)
   const [addOpen, setAddOpen] = useState(false);
+  const [tableSort, setTableSort] = useState<LibrarySort>({ key: 'addedAt', dir: 'desc' });
+  const [openTweetId, setOpenTweetId] = useState<string | null>(null);
   const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { translations, showTranslations, translatingAll, translateProgress, translatingIds, translateErr,
           loadCached, translateAll, translateOne } = useTranslations();
@@ -108,6 +124,23 @@ export default function LibraryPage() {
     [entries, activeMember, pendingRemove],
   );
 
+  // 표는 정렬해서 그린다 — 전량이 메모리에 있어 절단이 없으므로 순수 정렬만으로 안전
+  const sortedGroups = useMemo(
+    () => (tweetView === 'table' ? sortLibraryEntries(groups, tableSort) : groups),
+    [tweetView, groups, tableSort],
+  );
+  // 팝업 엔트리는 파생 — 목록 갱신으로 사라지면(팀에서 빼기 등) 모달도 자연히 언마운트된다(effect 없이)
+  const openEntry = openTweetId ? groups.find((g) => g.tweet.tweetId === openTweetId) ?? null : null;
+  // 닫을 때 포커스를 눌렀던 행으로 복귀 (TweetTableView와 같은 패턴)
+  const closeCard = useCallback(() => {
+    const id = openTweetId;
+    setOpenTweetId(null);
+    if (!id) return;
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLTableRowElement>(`tr[data-tweet-id="${CSS.escape(id)}"]`)?.focus();
+    });
+  }, [openTweetId]);
+
   // 열 분배(masonry-lite): 인덱스 라운드로빈으로 나눠 각 열이 독립적으로 쌓인다.
   // 행 정렬 그리드는 행마다 최장 카드 아래에 빈 공간이 남았음(08-15 QA). 높이 측정 없이 인덱스로만
   // 배정하므로 카드 펼침·편집은 같은 열 아래쪽만 밀어내고 열 간 점프가 없다 — masonry 반려 사유 회피.
@@ -145,13 +178,19 @@ export default function LibraryPage() {
                 <span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: m.color }} />{m.name}
               </button>
             ))}
-            <Button variant="ghost" onClick={() => translateAll(groups.map((g) => g.tweet.tweetId))} disabled={translatingAll}
-                    className={`ml-auto ${showTranslations ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}`}
-                    title="지금 보이는 트윗을 한국어로 — 덱에서 이미 번역한 건 무료로 바로 표시돼요 (새로 번역하면 저장돼 재사용돼요)">
-              {translatingAll
-                ? `번역 중… ${translateProgress ? `${translateProgress.done}/${translateProgress.total}` : ''}`
-                : showTranslations ? '번역 숨기기' : '전체 번역'}
-            </Button>
+            <span className="ml-auto flex items-center gap-1">
+              <button onClick={() => setTweetView('cards')} aria-pressed={tweetView === 'cards'} className={`${chip} ${tweetView === 'cards' ? on : off}`}>카드</button>
+              <button onClick={() => setTweetView('table')} aria-pressed={tweetView === 'table'} className={`${chip} ${tweetView === 'table' ? on : off}`}>표</button>
+              {tweetView === 'cards' && (
+                <Button variant="ghost" onClick={() => translateAll(groups.map((g) => g.tweet.tweetId))} disabled={translatingAll}
+                        className={showTranslations ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}
+                        title="지금 보이는 트윗을 한국어로 — 덱에서 이미 번역한 건 무료로 바로 표시돼요 (새로 번역하면 저장돼 재사용돼요)">
+                  {translatingAll
+                    ? `번역 중… ${translateProgress ? `${translateProgress.done}/${translateProgress.total}` : ''}`
+                    : showTranslations ? '번역 숨기기' : '전체 번역'}
+                </Button>
+              )}
+            </span>
           </div>
           {translateErr && (
             <p className="border-b border-x-border px-4 py-1 text-caption text-red-500">
@@ -169,6 +208,10 @@ export default function LibraryPage() {
               조건에 맞는 저장물이 없어요 — 필터를 바꾸거나{' '}
               <button onClick={() => setActiveMember(null)} className="underline">필터 초기화</button>
             </p>
+          ) : tweetView === 'table' ? (
+            <div className="p-4">
+              <LibraryTable entries={sortedGroups} sort={tableSort} onSortChange={setTableSort} onOpenTweet={setOpenTweetId} />
+            </div>
           ) : (
             <main className="flex items-start gap-3 p-4">
               {columns.map((column, ci) => (
@@ -189,6 +232,16 @@ export default function LibraryPage() {
       )}
       {view === 'scouts' && <ScoutList wsId={wsId} />}
       <AddByLinkModal open={addOpen} onClose={() => setAddOpen(false)} fixedWsId={wsId} onAdded={handleAdded} />
+      {openEntry && (
+        <LibraryCardModal key={openEntry.tweet.tweetId} entry={openEntry} meId={meId} wsId={wsId}
+                          onChanged={load}
+                          onRemoveTeam={(id) => { setOpenTweetId(null); requestRemoveTeam(id); }}
+                          translation={translations[openEntry.tweet.tweetId] ?? null}
+                          showTranslation={showTranslations}
+                          onTranslate={translateOne}
+                          translating={translatingIds.has(openEntry.tweet.tweetId)}
+                          onClose={closeCard} />
+      )}
     </div>
   );
 }

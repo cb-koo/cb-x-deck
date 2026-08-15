@@ -28,7 +28,7 @@
   폭은 **max-w-[640px]** — '참고할 레퍼런스' 시트와 동일(koo 확정, 08-15: 같은 카드는 같은 폭으로).
 - props: `{ row: ReferenceRow | null; onClose; onRemove(tweetId) }` — row가 null이면 렌더 안 함(peeked 파생 선례).
 - 내용: 헤더("참고할 레퍼런스" + ✕) → RefTweetCard →
-  풋터: `이 레퍼런스 빼기`(onRemove 후 닫힘) · `🌐 한국어로 번역` · `X에서 원문 보기 ↗`(tweetPermalink, 새 탭).
+  풋터: `이 레퍼런스 빼기`(onRemove 후 닫힘) · 번역 아이콘(아래 상세) · `X에서 원문 보기 ↗`(tweetPermalink, 새 탭).
 - **번역 버튼** (koo QA 요청으로 승격, 08-15): useTranslations 재사용 — 열 때 `loadCached([tweetId])`로
   기번역분 무과금 로드, 버튼은 `translateOne` opt-in(UX 원칙 6, 시트의 🌐과 같은 캐시라 상호 재사용).
   번역 있으면 버튼이 보기/숨기기 토글, 번역문은 RefTweetCard의 translation prop으로 표시.

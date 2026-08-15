@@ -192,25 +192,23 @@ function DraftCell({ row, open, drafts, draftsState, onLoadDrafts, onOpenPicker,
                         onClose={() => onOpenPicker(null)} />
     );
   }
+  // 셀은 두 상태 모두 요소 하나만 둔다(QA 08-15 — 행마다 2요소 조합이 반복되면 열 전체가 복잡해 보인다).
+  // 바꾸기·해제는 전부 클릭이 여는 연결 모달 안에 있어 기능 손실이 없다.
   if (row.draftId) {
+    const label = row.draftLabel ?? '제목 없는 원고';
     return (
-      <div className="flex items-center gap-1.5">
-        <button onClick={() => onOpenPicker(row.id)} title="다른 원고로 바꾸기"
-                className="max-w-[180px] truncate text-x-blue-text hover:underline">
-          {row.draftLabel ?? '제목 없는 원고'}
-        </button>
-        <button onClick={() => onLinkDraft(row, null)} className="shrink-0 text-caption text-x-muted hover:text-x-secondary">
-          해제
-        </button>
-      </div>
+      // 제목은 앞부분만 — 이 열의 역할은 식별이 아니라 "연결돼 있고 뭔지 대충 알아보기"(QA 08-15).
+      // 전체 제목은 호버(title)와 모달이 보여준다.
+      <button onClick={() => onOpenPicker(row.id)} title={`${label} — 원고 연결 바꾸기·해제`}
+              className="block max-w-[9em] truncate text-x-blue-text hover:underline">
+        {label}
+      </button>
     );
   }
-  // '연결 안 됨'은 상태라서 그것만으로는 눌러도 되는지 알 수 없다 — 상태(글자)와 행동(버튼)을 나눠 둔다
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-x-muted">연결 안 됨</span>
-      <button onClick={() => onOpenPicker(row.id)} className="text-x-blue-text hover:underline">연결</button>
-    </div>
+    <button onClick={() => onOpenPicker(row.id)} className="whitespace-nowrap text-x-blue-text hover:underline">
+      + 연결
+    </button>
   );
 }
 

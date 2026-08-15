@@ -171,6 +171,18 @@ export default function LibraryPage() {
       {view === 'tweets' && (
         <>
           <div className="flex flex-wrap items-center gap-1 border-b border-x-border px-4 py-2">
+            {/* 뷰 전환은 줄 맨 왼쪽의 채움형 세그먼트 — 배타적 모드 전환기라 필터 알약(멤버 칩)과 다른
+                시각 문법을 쓴다. generate 툴바·덱 헤더와 같은 "모드 왼쪽, 필터 다음, 액션 오른쪽" 관례. */}
+            <div role="group" aria-label="보기 방식" className="flex h-7 shrink-0 overflow-hidden rounded-lg border border-x-border-strong">
+              {(['cards', 'table'] as const).map((v, i) => (
+                <button key={v} onClick={() => setTweetView(v)} aria-pressed={tweetView === v}
+                        title={v === 'cards' ? 'X와 같은 카드로 봐요' : '지표·코멘트를 나란히 놓고 비교해요'}
+                        className={`h-full px-3 text-[13px] ${i > 0 ? 'border-l border-x-border-strong' : ''} ${tweetView === v ? 'bg-x-blue font-bold text-white' : 'bg-white text-x-secondary hover:bg-x-hover'}`}>
+                  {v === 'cards' ? '카드' : '표'}
+                </button>
+              ))}
+            </div>
+            <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-x-border-strong" />
             <span className="mr-1 text-caption text-x-muted">멤버</span>
             <button onClick={() => setActiveMember(null)} aria-pressed={activeMember === null} className={`${chip} ${activeMember === null ? on : off}`}>전체</button>
             {members.map((m) => (
@@ -179,8 +191,6 @@ export default function LibraryPage() {
               </button>
             ))}
             <span className="ml-auto flex items-center gap-1">
-              <button onClick={() => setTweetView('cards')} aria-pressed={tweetView === 'cards'} className={`${chip} ${tweetView === 'cards' ? on : off}`}>카드</button>
-              <button onClick={() => setTweetView('table')} aria-pressed={tweetView === 'table'} className={`${chip} ${tweetView === 'table' ? on : off}`}>표</button>
               {tweetView === 'cards' && (
                 <Button variant="ghost" onClick={() => translateAll(groups.map((g) => g.tweet.tweetId))} disabled={translatingAll}
                         className={showTranslations ? 'border border-x-border-strong bg-white font-medium text-x-text' : ''}

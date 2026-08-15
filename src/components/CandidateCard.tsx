@@ -19,6 +19,10 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
   const hasMyNote = !!mine && !!mine.memo?.trim();
   const [confirming, setConfirming] = useState(false);         // 저장 취소 확인(메모 있을 때만)
   const [removingTeam, setRemovingTeam] = useState(false);      // 팀에서 빼기 확인
+  // 코멘트 접기(밀도 개선 spec §5): 2개 이상이면 최신 1개만 먼저. candidates는 savedAt 오름차순 → 최신 = 마지막.
+  // 표시 순서는 오름차순 유지 — 펼치면 이전 코멘트가 위로 드러나 이미 보이던 최신 코멘트 위치가 안 튄다.
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const visibleComments = commentsOpen ? entry.candidates : entry.candidates.slice(-1);
 
   // 저장 취소 요청 → 메모가 있을 때만 인라인 확인, 없으면 즉시 취소(마찰 최소화)
   const requestUnsave = () => { if (mine) { if (hasMyNote) setConfirming(true); else doUnsave(); } };
@@ -31,7 +35,7 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
     <div className="overflow-hidden rounded-xl border border-x-border">
       {/* 보관함 카드엔 ★저장 토글을 두지 않는다 — 별은 덱(피드에서 담는 입구)의 개념.
           내 참여 취소는 코멘트의 '제거', 합류는 '코멘트 달기', 트윗 제거는 '팀 보관함에서 빼기'로 일원화. */}
-      <TweetCard tweet={{ ...entry.tweet, isNew: false }} meId={meId}
+      <TweetCard tweet={{ ...entry.tweet, isNew: false }} dense meId={meId}
                  translation={translation} showTranslation={showTranslation}
                  onTranslate={onTranslate} translating={translating} />
 
@@ -46,7 +50,14 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
       )}
 
       <div className="divide-y divide-x-border border-t border-x-border">
-        {entry.candidates.map((e) =>
+        {entry.candidates.length >= 2 && (
+          <div className="px-2 py-1.5">
+            <button onClick={() => setCommentsOpen((v) => !v)} className="text-caption text-x-blue-text hover:underline">
+              {commentsOpen ? '코멘트 접기 ▴' : `코멘트 ${entry.candidates.length - 1}개 더 보기 ▾`}
+            </button>
+          </div>
+        )}
+        {visibleComments.map((e) =>
           e.member.id === meId
             ? <MyComment key={e.id} entry={e} onChanged={onChanged} onUnsave={requestUnsave} />
             : <TheirComment key={e.id} entry={e} />)}

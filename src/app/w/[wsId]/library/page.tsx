@@ -152,7 +152,8 @@ export default function LibraryPage() {
               <button onClick={() => setActiveMember(null)} className="underline">필터 초기화</button>
             </p>
           ) : (
-            <main className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+            <main className="grid grid-cols-1 items-start gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+              {/* items-start: 그리드 기본 stretch가 짧은 카드를 행 높이만큼 늘려 안쪽 빈 공간을 만들던 것 제거 (밀도 개선 spec §1) */}
               {groups.map((g) => (
                 <CandidateCard key={g.tweet.tweetId} entry={g} meId={meId} wsId={wsId} onChanged={load}
                                onRemoveTeam={requestRemoveTeam}

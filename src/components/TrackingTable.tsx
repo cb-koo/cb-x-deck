@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui';
 import { formatFull } from '@/lib/format';
-import { kstDateTime, kstMonthDayKo } from '@/lib/datetime';
+import { kstDateTime, kstMonthDayKo, kstShort } from '@/lib/datetime';
 import { tweetPermalink } from '@/lib/tweetLink';
 import type { TrackedPostRow } from '@/lib/trackingStore';
 import type { PostMetrics } from '@/lib/postMetrics';
@@ -18,7 +18,9 @@ const METRICS: Array<{ key: keyof PostMetrics; label: string }> = [
   { key: 'quotes', label: '인용' },
 ];
 
-export interface DraftOption { id: string; label: string }
+// 모달 목록의 원고 표현 = 제목 + 보조줄(생성일·배정 핸들) — 동명 원고는 번호가 아니라 맥락으로
+// 구분한다(koo 결정 08-15: 번호는 고유하지만 의미를 실어 나르지 않아 판단에 못 쓴다. 일련번호는 보류).
+export interface DraftOption { id: string; label: string; createdAt: string; influencerHandle: string | null }
 export type DraftsState = 'idle' | 'loading' | 'ready' | 'error';
 
 // 정렬 키 — 정렬은 페이지가 소유한다(DraftTable·TweetTable 관례). 이 표는 받은 순서를 그대로 그린다.
@@ -229,7 +231,10 @@ function DraftPickerModal({ row, drafts, draftsState, onLoadDrafts, onLinkDraft,
   }, [onClose]);
 
   const q = query.trim().toLowerCase();
-  const filtered = q ? drafts.filter((d) => d.label.toLowerCase().includes(q)) : drafts;
+  // 핸들도 검색 대상 — "mochi에게 준 원고"처럼 사람 기준으로 찾는 경우가 실제 사용 패턴이다
+  const filtered = q
+    ? drafts.filter((d) => d.label.toLowerCase().includes(q) || (d.influencerHandle ?? '').toLowerCase().includes(q))
+    : drafts;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6" onClick={onClose}>
@@ -256,8 +261,8 @@ function DraftPickerModal({ row, drafts, draftsState, onLoadDrafts, onLinkDraft,
         {draftsState === 'ready' && (
           <>
             <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
-                   placeholder="원고 제목 검색"
-                   aria-label="원고 제목 검색"
+                   placeholder="원고 제목·인플루언서 핸들 검색"
+                   aria-label="원고 제목·인플루언서 핸들 검색"
                    className="mb-2 w-full rounded-md border border-x-border-strong px-3 py-1.5 text-ui outline-none focus:border-x-blue" />
             {row.draftId && (
               <button onClick={() => onLinkDraft(row, null)}
@@ -271,10 +276,14 @@ function DraftPickerModal({ row, drafts, draftsState, onLoadDrafts, onLinkDraft,
               )}
               {filtered.map((d) => (
                 <button key={d.id} onClick={() => onLinkDraft(row, d.id)}
-                        className={`block w-full truncate rounded-md px-3 py-1.5 text-left text-ui hover:bg-x-hover ${
-                          d.id === row.draftId ? 'font-bold text-x-text' : 'text-x-text'
-                        }`}>
-                  {d.label}{d.id === row.draftId ? ' · 연결됨' : ''}
+                        className="block w-full rounded-md px-3 py-1.5 text-left text-ui hover:bg-x-hover">
+                  <span className={`block truncate ${d.id === row.draftId ? 'font-bold' : ''}`}>
+                    {d.label}{d.id === row.draftId ? ' · 연결됨' : ''}
+                  </span>
+                  {/* 보조줄: 생성일 · 배정 핸들 — 동명 원고를 사람이 판단할 수 있는 맥락으로 구분 */}
+                  <span className="block truncate text-caption text-x-muted">
+                    {kstShort(d.createdAt)}{d.influencerHandle ? ` · @${d.influencerHandle}` : ''}
+                  </span>
                 </button>
               ))}
             </div>

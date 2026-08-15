@@ -242,7 +242,10 @@ export default function TrackingPage() {
       if (!r.ok) throw new Error(String(r.status));
       const list = (await r.json()) as DraftRow[];
       // 라벨은 원고 화면과 같은 폴백 체인을 쓴다 — 표와 목록이 같은 원고를 다르게 부르면 안 된다
-      setDrafts(list.map((d) => ({ id: d.id, label: draftLabel(d).text })));
+      setDrafts(list.map((d) => ({
+        id: d.id, label: draftLabel(d).text,
+        createdAt: d.createdAt, influencerHandle: d.influencerHandle,
+      })));
       setDraftsState('ready');
     } catch {
       setDraftsState('error');

@@ -242,7 +242,10 @@ export default function TrackingPage() {
       if (!r.ok) throw new Error(String(r.status));
       const list = (await r.json()) as DraftRow[];
       // 라벨은 원고 화면과 같은 폴백 체인을 쓴다 — 표와 목록이 같은 원고를 다르게 부르면 안 된다
-      setDrafts(list.map((d) => ({ id: d.id, label: draftLabel(d).text })));
+      setDrafts(list.map((d) => ({
+        id: d.id, label: draftLabel(d).text,
+        createdAt: d.createdAt, influencerHandle: d.influencerHandle,
+      })));
       setDraftsState('ready');
     } catch {
       setDraftsState('error');
@@ -321,7 +324,10 @@ export default function TrackingPage() {
   }, [allSelected, shown]);
 
   return (
-    <main className="mx-auto max-w-[1100px] px-6 py-8">
+    // 1600: 데이터 표는 폭이 정보 용량이라 읽기 폭(1100)보다 넓게 — 단 무제한 전폭은 초광폭에서
+    // 행 추적(왼쪽 게시물 ↔ 오른쪽 동작)이 무너지므로 상한은 남긴다(koo 결정 08-15).
+    // 등록 폼은 자체 캡(520px)이 있어 같이 넓어지지 않는다.
+    <main className="mx-auto max-w-[1600px] px-6 py-8">
       <div className="mb-1 flex items-baseline gap-2">
         <h1 className="text-[20px] font-bold">트래킹</h1>
         {loaded && !loadErr && visible.length > 0 && (

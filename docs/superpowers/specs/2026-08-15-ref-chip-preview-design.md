@@ -26,8 +26,11 @@
 
 - AddByLinkModal 패턴: z-50, `bg-black/40` 오버레이, max-w-[480px], 바깥 클릭·Esc 닫기(IME 조합 중 무시).
 - props: `{ row: ReferenceRow | null; onClose; onRemove(tweetId) }` — row가 null이면 렌더 안 함(peeked 파생 선례).
-- 내용: 헤더("참고할 레퍼런스" + ✕) → RefTweetCard(번역 없음 — YAGNI, 시트에 있음) →
-  풋터: `이 레퍼런스 빼기`(onRemove 후 닫힘) · `X에서 원문 보기 ↗`(`https://x.com/<핸들>/status/<tweetId>` 새 탭).
+- 내용: 헤더("참고할 레퍼런스" + ✕) → RefTweetCard →
+  풋터: `이 레퍼런스 빼기`(onRemove 후 닫힘) · `🌐 한국어로 번역` · `X에서 원문 보기 ↗`(tweetPermalink, 새 탭).
+- **번역 버튼** (koo QA 요청으로 승격, 08-15): useTranslations 재사용 — 열 때 `loadCached([tweetId])`로
+  기번역분 무과금 로드, 버튼은 `translateOne` opt-in(UX 원칙 6, 시트의 🌐과 같은 캐시라 상호 재사용).
+  번역 있으면 버튼이 보기/숨기기 토글, 번역문은 RefTweetCard의 translation prop으로 표시.
 - 시트(z-40)와 동시 오픈 불가 — 시트가 열리면 패널이 오버레이에 덮여 칩을 누를 수 없다.
 
 ## C. DraftComposer — 칩을 진입점으로
@@ -35,6 +38,9 @@
 - prop `onPreviewRef: (tweetId: string) => void` 추가.
 - 칩의 `@handle` 텍스트를 버튼으로: 클릭=미리보기, 호버 밑줄, `title="클릭해서 내용 보기"`.
   ✕는 지금처럼 빼기 전용(한 칩에 두 타깃 — 링크+닫기 조합은 관례적).
+- **칩 라벨 = `@핸들 · 본문 앞 12자…`** (koo QA 확정, 08-15): 핸들만으로는 같은 작성자 트윗 2개가
+  구분 불가. 본문은 코드포인트 단위로 자른다 — `slice`는 이모지 서로게이트를 반토막 낸다
+  (브리핑 502 사고와 같은 부류).
 
 ## D. `generate/page.tsx` — 배선
 
@@ -50,5 +56,5 @@
 
 ## 하지 않는 것
 
-- 미리보기 안 번역 표시(필요해지면 useTranslations 재사용으로 후속), 칩 호버 미리보기,
+- 칩 호버 미리보기,
   미리보기에서 메모 편집·태그 편집(시트·보관함의 역할), 서버·API 변경.

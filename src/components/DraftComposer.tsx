@@ -75,6 +75,13 @@ function AddLinkButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+// 칩 라벨용 본문 앞부분 — 핸들만으로는 같은 작성자 트윗 2개가 구분되지 않는다(koo 확정: @핸들 + 본문).
+// 코드포인트 단위로 자른다: slice는 이모지 서로게이트를 반토막 낸다(브리핑 502 사고와 같은 부류).
+function refSnippet(text: string): string {
+  const cp = [...text.replace(/\s+/g, ' ').trim()];
+  return cp.length > 12 ? `${cp.slice(0, 12).join('')}…` : cp.join('');
+}
+
 // 좌 생성 패널의 섹션부 — 사용 흐름 순: 누구 것인지 → 무엇을 참고할지 → 무엇을 말할지 → 어떤 모양·몇 개로.
 // 서술형 설명은 두지 않는다: 이름만으로 알 수 있으면 이름만, 알 수 없으면 ⓘ, 선택 사항은 '선택' 한 단어.
 // (이전엔 설명 문장 9개가 전부 11px로 깔려 있어 "투머치"·"빽빽하다"는 피드백을 받았다.)
@@ -128,7 +135,7 @@ export function DraftComposer({ clients, value, onChange, refRows, onOpenPicker,
                 <span key={r.tweetId} className="inline-flex h-7 items-center gap-1 rounded-full border border-x-border-strong bg-white px-2.5 text-ui">
                   {/* 본문 클릭=미리보기, ✕=빼기 — 링크+닫기 조합이라 타깃 둘이어도 관례적(스펙 §C) */}
                   <button onClick={() => onPreviewRef(r.tweetId)} title="클릭해서 내용 보기" aria-label={`@${r.authorHandle} 레퍼런스 내용 보기`} className="hover:underline">
-                    @{r.authorHandle}
+                    @{r.authorHandle} <span className="text-x-muted">· {refSnippet(r.text)}</span>
                   </button>
                   <button onClick={() => onRemoveRef(r.tweetId)} aria-label={`@${r.authorHandle} 레퍼런스 빼기`} className="text-x-muted hover:text-red-500">✕</button>
                 </span>

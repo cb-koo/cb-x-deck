@@ -9,10 +9,11 @@ import { PenIcon } from './XIcons';
 
 // 콘텐츠당 카드 1장 + 멤버별 코멘트(=candidate.memo). 내 행만 편집 가능.
 // 번역 prop은 페이지가 공유 훅(useTranslations)에서 내려주는 것을 TweetCard로 그대로 전달.
-export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, translation, showTranslation, onTranslate, translating }: {
+export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, translation, showTranslation, onTranslate, translating, dense = true }: {
   entry: LibraryEntry; meId: string | null; wsId: string; onChanged: () => void; onRemoveTeam: (tweetId: string) => void;
   translation?: import('@/lib/types').TweetTranslation | null; showTranslation?: boolean;
   onTranslate?: (tweetId: string) => void; translating?: boolean;
+  dense?: boolean;   // 기본 true(카드 그리드용). 표 팝업은 정독 표면이라 false — 클램프·접기 없이 전체 표시
 }) {
   const mine = entry.candidates.find((e) => e.member.id === meId) ?? null;
   // 저장만 하고 코멘트를 안 단 경우가 흔함(저장=메모 없는 후보행 생성) → 메모가 있을 때만 "함께 삭제" 경고
@@ -22,7 +23,7 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
   // 코멘트 접기(밀도 개선 spec §5): 2개 이상이면 최신 1개만 먼저. candidates는 savedAt 오름차순 → 최신 = 마지막.
   // 표시 순서는 오름차순 유지 — 펼치면 이전 코멘트가 위로 드러나 이미 보이던 최신 코멘트 위치가 안 튄다.
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const visibleComments = commentsOpen ? entry.candidates : entry.candidates.slice(-1);
+  const visibleComments = !dense || commentsOpen ? entry.candidates : entry.candidates.slice(-1);
 
   // 저장 취소 요청 → 메모가 있을 때만 인라인 확인, 없으면 즉시 취소(마찰 최소화)
   const requestUnsave = () => { if (mine) { if (hasMyNote) setConfirming(true); else doUnsave(); } };
@@ -35,7 +36,7 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
     <div className="overflow-hidden rounded-xl border border-x-border">
       {/* 보관함 카드엔 ★저장 토글을 두지 않는다 — 별은 덱(피드에서 담는 입구)의 개념.
           내 참여 취소는 코멘트의 '제거', 합류는 '코멘트 달기', 트윗 제거는 '팀 보관함에서 빼기'로 일원화. */}
-      <TweetCard tweet={{ ...entry.tweet, isNew: false }} dense meId={meId}
+      <TweetCard tweet={{ ...entry.tweet, isNew: false }} dense={dense} meId={meId}
                  translation={translation} showTranslation={showTranslation}
                  onTranslate={onTranslate} translating={translating} />
 
@@ -50,7 +51,7 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
       )}
 
       <div className="divide-y divide-x-border border-t border-x-border">
-        {entry.candidates.length >= 2 && (
+        {dense && entry.candidates.length >= 2 && (
           <div className="px-2 py-1.5">
             <button onClick={() => setCommentsOpen((v) => !v)} className="text-caption text-x-blue-text hover:underline">
               {commentsOpen ? '코멘트 접기 ▴' : `코멘트 ${entry.candidates.length - 1}개 더 보기 ▾`}

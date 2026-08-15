@@ -11,7 +11,8 @@ function entry(over: {
   return {
     tweet: {
       tweetId: over.tweetId ?? 't1',
-      tweetCreatedAt: over.tweetCreatedAt ?? '2026-08-01T00:00:00Z',
+      // ??가 아니라 undefined 검사 — null을 넘기면 null이 그대로 남아야 'null은 뒤로' 정렬을 검증할 수 있다
+      tweetCreatedAt: over.tweetCreatedAt !== undefined ? over.tweetCreatedAt : '2026-08-01T00:00:00Z',
       authorFollowers: over.followers ?? null,
       metrics: { views: over.views ?? null, likes: null, retweets: null, replies: null, quotes: null, bookmarks: null },
     },
@@ -38,6 +39,15 @@ test('담은 시각·게시일 문자열 정렬', () => {
 test('코멘트 수 정렬 — 메모 있는 행만 센다', () => {
   const rows = [entry({ tweetId: 'a', memos: ['x', ' '] }), entry({ tweetId: 'b', memos: ['x', 'y'] })];
   assert.deepEqual(sortLibraryEntries(rows, { key: 'comments', dir: 'desc' }).map((e) => e.tweet.tweetId), ['b', 'a']);
+});
+
+test('게시일 정렬 — null 게시일은 뒤로', () => {
+  const rows = [
+    entry({ tweetId: 'a', tweetCreatedAt: '2026-07-01T00:00:00Z' }),
+    entry({ tweetId: 'n', tweetCreatedAt: null }),
+    entry({ tweetId: 'b', tweetCreatedAt: '2026-08-01T00:00:00Z' }),
+  ];
+  assert.deepEqual(sortLibraryEntries(rows, { key: 'date', dir: 'desc' }).map((e) => e.tweet.tweetId), ['b', 'a', 'n']);
 });
 
 test('sortLibraryEntries는 원본을 바꾸지 않는다', () => {

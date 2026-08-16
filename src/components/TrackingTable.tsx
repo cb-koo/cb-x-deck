@@ -317,14 +317,7 @@ export function TrackingTable({
                 </td>
                 <td aria-hidden="true" />
               </tr>
-              {open && (
-                <tr className="border-b border-x-border bg-x-surface/60">
-                  {/* colSpan: 열 수 + 채움 칸 1. 들여쓰기(pl-14)로 펼침 버튼 아래에서 시작하게 — 어느 행의 이력인지 보이게 */}
-                  <td colSpan={COLS.length + 1} className="py-2.5 pl-14 pr-4">
-                    <MetricHistory rows={history} state={historyState} />
-                  </td>
-                </tr>
-              )}
+              {open && <MetricHistory rows={history} state={historyState} />}
               </Fragment>
             );
           })}
@@ -334,48 +327,55 @@ export function TrackingTable({
   );
 }
 
-// 측정 이력 — 펼친 행 아래에 열리는 작은 표(최신이 위). 그래프가 아니라 표인 이유:
-// 수동 새로고침이라 측정 간격이 불규칙해 점 두세 개짜리 곡선은 오해를 부른다. 정확한 값과
-// "그동안 얼마나 늘었나"가 지금 단계의 질문이고, 추이 그래프는 자동 수집이 붙은 뒤의 몫이다.
+// 측정 이력 — 펼친 행 바로 아래에 부모 표의 열 그대로 이어 그린다(최신이 위).
+// 부모와 같은 <tr>/<td> 구조를 쓰는 이유(QA 08-16): 지표가 부모 열 바로 아래 세로로 정렬돼야
+// "이 숫자가 어떻게 변해왔나"가 읽힌다. table-fixed + colgroup 덕에 폭 조절도 자동으로 따라온다.
+// 왼쪽(계정·게시물·원고·게시)은 비운다 — 부모와 같은 값을 반복하면 표가 두 벌로 보인다.
+// 헤더도 없다: 부모 헤더가 위에 고정돼 있어 그 자리가 곧 이 값의 이름이다.
+// 그래프가 아니라 숫자인 이유: 수동 새로고침이라 간격이 불규칙해 점 두세 개짜리 곡선은 오해를 부른다.
 function MetricHistory({ rows, state }: { rows: MetricSnapshotRow[]; state: HistoryState }) {
-  if (state === 'loading') return <p className="py-2 text-caption text-x-muted">측정 이력 불러오는 중…</p>;
-  if (state === 'error') return <p className="py-2 text-caption text-x-secondary">측정 이력을 불러오지 못했어요 — 접었다 다시 열어보세요</p>;
-  if (rows.length === 0) return <p className="py-2 text-caption text-x-muted">아직 측정 기록이 없어요</p>;
+  const note = (text: string) => (
+    <tr className="border-b border-x-border bg-x-surface/60">
+      <td colSpan={COLS.length + 1} className="py-2 pl-14 text-caption text-x-muted">{text}</td>
+    </tr>
+  );
+  if (state === 'loading') return note('측정 이력 불러오는 중…');
+  if (state === 'error') return note('측정 이력을 불러오지 못했어요 — 접었다 다시 열어보세요');
+  if (rows.length === 0) return note('아직 측정 기록이 없어요');
 
   return (
-    // 표가 아니라 줄 나열이다: 표로 그리면 본 표와 열이 어긋나 두 벌이 겹쳐 보인다(QA 08-16).
-    // 이력은 훑는 값이 아니라 몇 줄 읽는 값이라 라벨을 붙인 나열이 더 잘 읽힌다.
-    // 왼쪽 세로선 + 들여쓰기 = 위 행에 속한 내용이라는 표시.
-    <div className="border-l-2 border-x-border pl-3">
-      <p className="mb-1 text-caption text-x-muted">
-        측정 이력 {rows.length}건 · 새로고침할 때마다 쌓여요{rows.length >= 50 ? ' (최근 50건)' : ''}
-      </p>
-      <ul className="space-y-0.5">
-        {rows.map((s, i) => {
-          // rows는 최신순이라 '직전 측정'은 다음 인덱스(i+1)다. 맨 아래(가장 오래된)는 비교 대상이 없다.
-          const prev = rows[i + 1];
-          const cur = s.metrics.views;
-          const delta = prev && cur !== null && prev.metrics.views !== null ? cur - prev.metrics.views : null;
-          return (
-            <li key={s.capturedAt} className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 text-ui">
-              <span className="whitespace-nowrap text-x-secondary tabular-nums">{kstDateTime(s.capturedAt)}</span>
-              {METRICS.map((m) => (
-                <span key={m.key} className="whitespace-nowrap">
-                  <span className="text-caption text-x-muted">{m.label} </span>
-                  <span className="tabular-nums">{formatFull(s.metrics[m.key])}</span>
-                  {/* 증감은 조회수 옆 괄호로 — 별도 열을 만들면 이 나열이 다시 표가 된다 */}
-                  {m.key === 'views' && (
-                    <span className="text-caption text-x-muted">
-                      {delta === null ? (prev ? '' : ' (첫 측정)') : ` (+${formatFull(delta)})`}
-                    </span>
-                  )}
-                </span>
-              ))}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+    <>
+      {rows.map((s, i) => {
+        // rows는 최신순이라 '직전 측정'은 다음 인덱스(i+1)다. 맨 아래(가장 오래된)는 비교 대상이 없다.
+        const prev = rows[i + 1];
+        const cur = s.metrics.views;
+        const delta = prev && cur !== null && prev.metrics.views !== null ? cur - prev.metrics.views : null;
+        const last = i === rows.length - 1;
+        return (
+          <tr key={s.capturedAt} className={`bg-x-surface/60 ${last ? 'border-b border-x-border' : ''}`}>
+            <td /><td />
+            {/* 계정 자리: 이 줄들이 위 행의 이력임을 말하는 표시 — 첫 줄에만 적어 반복을 줄인다 */}
+            <td className="whitespace-nowrap py-1 pl-3 text-caption text-x-muted">
+              {i === 0 && `측정 이력 ${rows.length}건${rows.length >= 50 ? ' (최근 50)' : ''}`}
+            </td>
+            <td /><td /><td />
+            {METRICS.map((m) => (
+              <td key={m.key} className="whitespace-nowrap px-3 py-1 text-right text-x-secondary tabular-nums">
+                {formatFull(s.metrics[m.key])}
+                {/* 증감은 조회수 아래 괄호로 — 별도 열을 만들면 부모와 열 수가 어긋난다 */}
+                {m.key === 'views' && (
+                  <span className="ml-1 text-caption text-x-muted">
+                    {delta === null ? (prev ? '' : '(첫 측정)') : `(+${formatFull(delta)})`}
+                  </span>
+                )}
+              </td>
+            ))}
+            <td className="whitespace-nowrap px-3 py-1 text-x-secondary tabular-nums">{kstDateTime(s.capturedAt)}</td>
+            <td /><td />
+          </tr>
+        );
+      })}
+    </>
   );
 }
 

@@ -346,10 +346,7 @@ function MetricHistory({ rows, state }: { rows: MetricSnapshotRow[]; state: Hist
   return (
     <>
       {rows.map((s, i) => {
-        // rows는 최신순이라 '직전 측정'은 다음 인덱스(i+1)다. 맨 아래(가장 오래된)는 비교 대상이 없다.
-        const prev = rows[i + 1];
-        const cur = s.metrics.views;
-        const delta = prev && cur !== null && prev.metrics.views !== null ? cur - prev.metrics.views : null;
+        // 증감(+N)은 넣었다가 뺐다(koo 08-16) — 값이 세로로 정렬돼 있으면 변화는 눈이 직접 읽는다.
         const last = i === rows.length - 1;
         return (
           <tr key={s.capturedAt} className={`bg-x-surface/60 ${last ? 'border-b border-x-border' : ''}`}>
@@ -362,12 +359,6 @@ function MetricHistory({ rows, state }: { rows: MetricSnapshotRow[]; state: Hist
             {METRICS.map((m) => (
               <td key={m.key} className="whitespace-nowrap px-3 py-1 text-right text-x-secondary tabular-nums">
                 {formatFull(s.metrics[m.key])}
-                {/* 증감은 조회수 아래 괄호로 — 별도 열을 만들면 부모와 열 수가 어긋난다 */}
-                {m.key === 'views' && (
-                  <span className="ml-1 text-caption text-x-muted">
-                    {delta === null ? (prev ? '' : '(첫 측정)') : `(+${formatFull(delta)})`}
-                  </span>
-                )}
               </td>
             ))}
             <td className="whitespace-nowrap px-3 py-1 text-x-secondary tabular-nums">{kstDateTime(s.capturedAt)}</td>

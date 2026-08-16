@@ -318,9 +318,9 @@ export function TrackingTable({
                 <td aria-hidden="true" />
               </tr>
               {open && (
-                <tr className="border-b border-x-border bg-x-surface">
-                  {/* colSpan: 열 수 + 채움 칸 1 */}
-                  <td colSpan={COLS.length + 1} className="px-4 py-3">
+                <tr className="border-b border-x-border bg-x-surface/60">
+                  {/* colSpan: 열 수 + 채움 칸 1. 들여쓰기(pl-14)로 펼침 버튼 아래에서 시작하게 — 어느 행의 이력인지 보이게 */}
+                  <td colSpan={COLS.length + 1} className="py-2.5 pl-14 pr-4">
                     <MetricHistory rows={history} state={historyState} />
                   </td>
                 </tr>
@@ -343,44 +343,39 @@ function MetricHistory({ rows, state }: { rows: MetricSnapshotRow[]; state: Hist
   if (rows.length === 0) return <p className="py-2 text-caption text-x-muted">아직 측정 기록이 없어요</p>;
 
   return (
-    <>
-      <p className="mb-1.5 text-caption text-x-muted">
-        측정 이력 {rows.length}건 — 새로고침할 때마다 한 줄씩 쌓여요{rows.length >= 50 ? ' (최근 50건)' : ''}
+    // 표가 아니라 줄 나열이다: 표로 그리면 본 표와 열이 어긋나 두 벌이 겹쳐 보인다(QA 08-16).
+    // 이력은 훑는 값이 아니라 몇 줄 읽는 값이라 라벨을 붙인 나열이 더 잘 읽힌다.
+    // 왼쪽 세로선 + 들여쓰기 = 위 행에 속한 내용이라는 표시.
+    <div className="border-l-2 border-x-border pl-3">
+      <p className="mb-1 text-caption text-x-muted">
+        측정 이력 {rows.length}건 · 새로고침할 때마다 쌓여요{rows.length >= 50 ? ' (최근 50건)' : ''}
       </p>
-      <table className="text-ui">
-        <thead>
-          <tr className="text-left text-caption text-x-muted">
-            <th className="whitespace-nowrap py-1 pr-6 font-normal">측정 시각</th>
-            {METRICS.map((m) => (
-              <th key={m.key} className="whitespace-nowrap py-1 pr-6 text-right font-normal">{m.label}</th>
-            ))}
-            {/* 증감은 조회수 기준 한 열만 — 6종 전부 붙이면 이 작은 표가 다시 12열이 된다 */}
-            <th className="whitespace-nowrap py-1 text-right font-normal">조회 증감</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((s, i) => {
-            // rows는 최신순이라 '직전 측정'은 다음 인덱스(i+1)다. 맨 아래(가장 오래된)는 비교 대상이 없다.
-            const prev = rows[i + 1];
-            const cur = s.metrics.views;
-            const delta = prev && cur !== null && prev.metrics.views !== null ? cur - prev.metrics.views : null;
-            return (
-              <tr key={s.capturedAt} className="border-t border-x-border/60">
-                <td className="whitespace-nowrap py-1 pr-6 text-x-secondary tabular-nums">{kstDateTime(s.capturedAt)}</td>
-                {METRICS.map((m) => (
-                  <td key={m.key} className="whitespace-nowrap py-1 pr-6 text-right tabular-nums">
-                    {formatFull(s.metrics[m.key])}
-                  </td>
-                ))}
-                <td className="whitespace-nowrap py-1 text-right text-x-secondary tabular-nums">
-                  {delta === null ? (prev ? '–' : '첫 측정') : `+${formatFull(delta)}`}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </>
+      <ul className="space-y-0.5">
+        {rows.map((s, i) => {
+          // rows는 최신순이라 '직전 측정'은 다음 인덱스(i+1)다. 맨 아래(가장 오래된)는 비교 대상이 없다.
+          const prev = rows[i + 1];
+          const cur = s.metrics.views;
+          const delta = prev && cur !== null && prev.metrics.views !== null ? cur - prev.metrics.views : null;
+          return (
+            <li key={s.capturedAt} className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 text-ui">
+              <span className="whitespace-nowrap text-x-secondary tabular-nums">{kstDateTime(s.capturedAt)}</span>
+              {METRICS.map((m) => (
+                <span key={m.key} className="whitespace-nowrap">
+                  <span className="text-caption text-x-muted">{m.label} </span>
+                  <span className="tabular-nums">{formatFull(s.metrics[m.key])}</span>
+                  {/* 증감은 조회수 옆 괄호로 — 별도 열을 만들면 이 나열이 다시 표가 된다 */}
+                  {m.key === 'views' && (
+                    <span className="text-caption text-x-muted">
+                      {delta === null ? (prev ? '' : ' (첫 측정)') : ` (+${formatFull(delta)})`}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

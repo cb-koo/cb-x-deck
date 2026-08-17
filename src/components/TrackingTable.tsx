@@ -1,11 +1,11 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui';
 import { RefreshIcon, TrashIcon } from '@/components/XIcons';
 import { formatFull } from '@/lib/format';
 import { kstDateTime, kstMonthDayKo, kstShort } from '@/lib/datetime';
 import { tweetPermalink } from '@/lib/tweetLink';
-import type { TrackedPostRow } from '@/lib/trackingStore';
+import type { TrackedPostRow, MetricSnapshotRow } from '@/lib/trackingStore';
 import type { PostMetrics } from '@/lib/postMetrics';
 
 // 표는 숫자를 나란히 놓고 비교하는 화면이라 축약(23.7M)하지 않는다 — format.ts의 formatFull 주석 참조.
@@ -23,6 +23,7 @@ const METRICS: Array<{ key: keyof PostMetrics; label: string }> = [
 // 구분한다(koo 결정 08-15: 번호는 고유하지만 의미를 실어 나르지 않아 판단에 못 쓴다. 일련번호는 보류).
 export interface DraftOption { id: string; label: string; createdAt: string; influencerHandle: string | null }
 export type DraftsState = 'idle' | 'loading' | 'ready' | 'error';
+export type HistoryState = 'loading' | 'ready' | 'error';
 
 // 정렬 키 — 정렬은 페이지가 소유한다(DraftTable·TweetTable 관례). 이 표는 받은 순서를 그대로 그린다.
 export type TrackSortKey = 'created' | 'posted' | 'captured' | keyof PostMetrics;
@@ -40,7 +41,7 @@ const MIN_COL_WIDTH = 48;
 const MAX_COL_WIDTH = 720;
 const WIDTH_STEP = 24;
 
-type ColKey = 'select' | 'account' | 'post' | 'draft' | 'posted' | keyof PostMetrics | 'captured' | 'actions';
+type ColKey = 'select' | 'expand' | 'account' | 'post' | 'draft' | 'posted' | keyof PostMetrics | 'captured' | 'actions';
 interface ColDef { key: ColKey; label: string; sort?: TrackSortKey; numeric?: boolean; resizable: boolean; width: number }
 
 // 열 순서 = 읽기 동선: 정체(계정·게시물·원고) → 맥락(게시) → 숫자(지표) → 신선도(측정) → 행동.
@@ -49,6 +50,7 @@ interface ColDef { key: ColKey; label: string; sort?: TrackSortKey; numeric?: bo
 // 게시물 열의 정렬 키는 '등록순' — 목록의 기본 순서라 이 열이 그 자리를 맡는다.
 const COLS: ColDef[] = [
   { key: 'select', label: '', resizable: false, width: 40 },
+  { key: 'expand', label: '', resizable: false, width: 32 },
   { key: 'account', label: '계정', resizable: true, width: 150 },
   { key: 'post', label: '게시물', sort: 'created', resizable: true, width: 340 },
   { key: 'draft', label: '원고', resizable: true, width: 120 },
@@ -79,6 +81,7 @@ export function TrackingTable({
   rows, highlightId, refreshingIds,
   selectedIds, onToggleSelect, allSelected, onToggleAll,
   sort, dir, onSort,
+  expandedId, onToggleExpand, history, historyState,
   drafts, draftsState, onLoadDrafts,
   pickerFor, onOpenPicker, onLinkDraft,
   onRefresh, onRemove,
@@ -93,6 +96,10 @@ export function TrackingTable({
   sort: TrackSortKey;
   dir: TrackSortDir;
   onSort: (k: TrackSortKey) => void;
+  expandedId: string | null;             // 펼친 행 — 한 번에 하나(표 안의 표가 여럿이면 되레 못 읽는다)
+  onToggleExpand: (id: string) => void;
+  history: MetricSnapshotRow[];          // 펼친 행의 측정 이력(페이지가 소유·조회)
+  historyState: HistoryState;
   drafts: DraftOption[];
   draftsState: DraftsState;
   onLoadDrafts: () => void;
@@ -179,6 +186,7 @@ export function TrackingTable({
                   </th>
                 );
               }
+              if (c.key === 'expand') return <th key={c.key} aria-hidden="true" />;
               const active = !!c.sort && c.sort === sort;
               const w = widthFor(c.key);
               return (
@@ -229,10 +237,12 @@ export function TrackingTable({
             const busy = refreshingIds.has(r.id);
             const gone = r.unavailableAt !== null;
             const line = (r.text.split('\n')[0] ?? '').trim();
+            const open = expandedId === r.id;
             return (
-              // id: 등록 직후 그 행으로 스크롤하기 위한 손잡이(페이지의 flash) — 행 자체는 클릭 대상이 아니다.
-              // 이 표의 행에는 '열기'가 없다: 게시물은 X로, 원고는 연결 UI로 각각 자기 셀에서 간다.
-              <tr key={r.id} id={`tracked-${r.id}`}
+              <Fragment key={r.id}>
+              {/* id: 등록 직후 그 행으로 스크롤하기 위한 손잡이(페이지의 flash) — 행 자체는 클릭 대상이 아니다.
+                  이 표의 행에는 '열기'가 없다: 게시물은 X로, 원고는 연결 UI로, 측정 이력은 펼침으로 간다. */}
+              <tr id={`tracked-${r.id}`}
                   className={`border-b border-x-border transition-colors ${
                     r.id === highlightId ? 'bg-x-blue/10' : 'hover:bg-x-hover'
                   }`}>
@@ -240,6 +250,15 @@ export function TrackingTable({
                   <input type="checkbox" checked={selectedIds.has(r.id)} onChange={() => onToggleSelect(r.id)}
                          aria-label={`${r.authorHandle ? `@${r.authorHandle} ` : ''}게시물 선택`}
                          className="align-middle accent-x-blue" />
+                </td>
+                {/* 펼침 — 이 게시물의 측정 이력을 바로 아래 행에 연다. 표를 떠나지 않고 과거 값을 본다 */}
+                <td className="px-1 py-2">
+                  <button onClick={() => onToggleExpand(r.id)} aria-expanded={open}
+                          title={open ? '측정 이력 접기' : '측정 이력 보기 — 그동안 쌓인 값들'}
+                          aria-label={open ? '측정 이력 접기' : '측정 이력 보기'}
+                          className="rounded p-1 text-x-muted hover:bg-x-text/5 hover:text-x-secondary">
+                    <span aria-hidden className="inline-block text-[11px] leading-none">{open ? '▼' : '▶'}</span>
+                  </button>
                 </td>
                 {/* 계정(누가)과 게시물(무엇)은 다른 속성이라 열을 나눈다(QA 08-15) — 계정 열을 훑으면
                     누구 게시물들이 있는지 세로로 보인다 */}
@@ -298,11 +317,56 @@ export function TrackingTable({
                 </td>
                 <td aria-hidden="true" />
               </tr>
+              {open && <MetricHistory rows={history} state={historyState} />}
+              </Fragment>
             );
           })}
         </tbody>
       </table>
     </div>
+  );
+}
+
+// 측정 이력 — 펼친 행 바로 아래에 부모 표의 열 그대로 이어 그린다(최신이 위).
+// 부모와 같은 <tr>/<td> 구조를 쓰는 이유(QA 08-16): 지표가 부모 열 바로 아래 세로로 정렬돼야
+// "이 숫자가 어떻게 변해왔나"가 읽힌다. table-fixed + colgroup 덕에 폭 조절도 자동으로 따라온다.
+// 왼쪽(계정·게시물·원고·게시)은 비운다 — 부모와 같은 값을 반복하면 표가 두 벌로 보인다.
+// 헤더도 없다: 부모 헤더가 위에 고정돼 있어 그 자리가 곧 이 값의 이름이다.
+// 그래프가 아니라 숫자인 이유: 수동 새로고침이라 간격이 불규칙해 점 두세 개짜리 곡선은 오해를 부른다.
+function MetricHistory({ rows, state }: { rows: MetricSnapshotRow[]; state: HistoryState }) {
+  const note = (text: string) => (
+    <tr className="border-b border-x-border bg-x-surface/60">
+      <td colSpan={COLS.length + 1} className="py-2 pl-14 text-caption text-x-muted">{text}</td>
+    </tr>
+  );
+  if (state === 'loading') return note('측정 이력 불러오는 중…');
+  if (state === 'error') return note('측정 이력을 불러오지 못했어요 — 접었다 다시 열어보세요');
+  if (rows.length === 0) return note('아직 측정 기록이 없어요');
+
+  return (
+    <>
+      {rows.map((s, i) => {
+        // 증감(+N)은 넣었다가 뺐다(koo 08-16) — 값이 세로로 정렬돼 있으면 변화는 눈이 직접 읽는다.
+        const last = i === rows.length - 1;
+        return (
+          <tr key={s.capturedAt} className={`bg-x-surface/60 ${last ? 'border-b border-x-border' : ''}`}>
+            <td /><td />
+            {/* 계정 자리: 이 줄들이 위 행의 이력임을 말하는 표시 — 첫 줄에만 적어 반복을 줄인다 */}
+            <td className="whitespace-nowrap py-1 pl-3 text-caption text-x-muted">
+              {i === 0 && `측정 이력 ${rows.length}건${rows.length >= 50 ? ' (최근 50)' : ''}`}
+            </td>
+            <td /><td /><td />
+            {METRICS.map((m) => (
+              <td key={m.key} className="whitespace-nowrap px-3 py-1 text-right text-x-secondary tabular-nums">
+                {formatFull(s.metrics[m.key])}
+              </td>
+            ))}
+            <td className="whitespace-nowrap px-3 py-1 text-x-secondary tabular-nums">{kstDateTime(s.capturedAt)}</td>
+            <td /><td />
+          </tr>
+        );
+      })}
+    </>
   );
 }
 

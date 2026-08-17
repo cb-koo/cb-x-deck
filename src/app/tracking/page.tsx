@@ -6,10 +6,10 @@ import { useToast } from '@/lib/toastContext';
 import { draftLabel } from '@/lib/draftViews';
 import { TrackAddForm } from '@/components/TrackAddForm';
 import { TrackAddManyDialog } from '@/components/TrackAddManyDialog';
-import { TrackingTable, type DraftOption, type DraftsState, type TrackSortKey, type TrackSortDir } from '@/components/TrackingTable';
+import { TrackingTable, type DraftOption, type DraftsState, type HistoryState, type TrackSortKey, type TrackSortDir } from '@/components/TrackingTable';
 import { ShowMoreButton } from '@/components/ShowMoreButton';
 import { PAGE_STEP } from '@/lib/draftPaging';
-import type { TrackedPostRow } from '@/lib/trackingStore';
+import type { TrackedPostRow, MetricSnapshotRow } from '@/lib/trackingStore';
 import type { DraftRow } from '@/lib/draftStore';
 
 const FETCH_FAILED = '지표를 가져오지 못했어요 — 잠시 후 다시 시도해 주세요';
@@ -41,6 +41,13 @@ export default function TrackingPage() {
   const [drafts, setDrafts] = useState<DraftOption[]>([]);
   const [draftsState, setDraftsState] = useState<DraftsState>('idle');
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  // 측정 이력 — 펼친 행 하나만 들고 있는다(표 안의 표가 여럿이면 되레 못 읽는다).
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [history, setHistory] = useState<MetricSnapshotRow[]>([]);
+  const [historyState, setHistoryState] = useState<HistoryState>('loading');
+  // 펼친 행 id의 최신값 참조 — 이력 조회 콜백이 재개될 때 클로저의 옛 값을 보지 않게(pendingRef와 같은 이유).
+  // 동기화는 아래 effect가 한다(렌더 중 ref 대입은 이 저장소 린트 규칙이 막는다).
+  const expandedRef = useRef<string | null>(null);
   const removeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 대기 중 id들을 ref로 추적(비동기 콜백 재개 시 최신값 참조용) — pendingRemove를 그대로 클로저로 읽으면
@@ -227,6 +234,7 @@ export default function TrackingPage() {
   // (언마운트 cleanup은 이 ref를 deps 없이 참조해야 한다 — pendingRemove를 deps로 쓰면
   // undo/타임아웃마다 cleanup이 돌아 삭제가 잘못 커밋된다. library/page.tsx와 동일 이유.)
   useEffect(() => { pendingRef.current = pendingRemove; }, [pendingRemove]);
+  useEffect(() => { expandedRef.current = expandedId; }, [expandedId]);
   useEffect(() => () => {
     if (removeTimer.current) clearTimeout(removeTimer.current);
     if (flashTimer.current) clearTimeout(flashTimer.current);
@@ -276,6 +284,26 @@ export default function TrackingPage() {
       show('원고를 연결하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
     }
   }, [show]);
+
+  // 펼침 = 그 행의 측정 이력을 그때 조회한다(목록 응답에 전부 실어 보내지 않기 위해).
+  // 다시 누르면 접고, 다른 행을 누르면 그 행으로 옮겨간다.
+  const toggleExpand = useCallback(async (id: string) => {
+    if (expandedId === id) { setExpandedId(null); return; }
+    setExpandedId(id);
+    setHistoryState('loading');
+    setHistory([]);
+    try {
+      const r = await apiFetch(`/api/tracking/${id}/snapshots`);
+      if (!r.ok) throw new Error(String(r.status));
+      const list = (await r.json()) as MetricSnapshotRow[];
+      // 늦게 도착한 응답이 이미 다른 행으로 옮겨간 화면을 덮어쓰지 않게 — 요청 시점의 id로 확인
+      if (id !== expandedRef.current) return;
+      setHistory(list);
+      setHistoryState('ready');
+    } catch {
+      if (id === expandedRef.current) setHistoryState('error'); // 실패를 빈 이력으로 위장하지 않는다
+    }
+  }, [expandedId]);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((cur) => {
@@ -373,6 +401,8 @@ export default function TrackingPage() {
                          selectedIds={selectedIds} onToggleSelect={toggleSelect}
                          allSelected={allSelected} onToggleAll={toggleAll}
                          sort={sort} dir={dir} onSort={onSort}
+                         expandedId={expandedId} onToggleExpand={(id) => void toggleExpand(id)}
+                         history={history} historyState={historyState}
                          drafts={drafts} draftsState={draftsState} onLoadDrafts={() => void loadDrafts()}
                          pickerFor={pickerFor} onOpenPicker={openPicker}
                          onLinkDraft={(row, draftId) => void linkDraft(row, draftId)}

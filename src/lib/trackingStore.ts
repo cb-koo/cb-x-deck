@@ -55,6 +55,40 @@ function toRow(r: Row): TrackedPostRow {
   };
 }
 
+// 한 게시물의 측정 이력 — 표에서 행을 펼치면 보이는 값들(최신이 위).
+// raw(원본 응답)는 내보내지 않는다: 목록 SELECT와 같은 이유로 서버 밖으로 나갈 값이 아니다.
+export interface MetricSnapshotRow {
+  capturedAt: string;      // ISO
+  metrics: PostMetrics;
+}
+
+type SnapRow = {
+  captured_at: Date;
+  views: string | number | null; likes: number | null; retweets: number | null;
+  replies: number | null; bookmarks: number | null; quotes: number | null;
+};
+
+// limit: 이력이 길어져도 한 번에 다 그리지 않는다(자동 수집이 붙으면 게시물당 수백 건이 된다).
+// 인덱스 (tracked_post_id, captured_at desc)를 그대로 타므로 얼마나 쌓이든 조회 비용은 일정하다.
+export async function listSnapshots(
+  sql: postgres.Sql, trackedPostId: string, limit = 50,
+): Promise<MetricSnapshotRow[]> {
+  const rows = await sql<SnapRow[]>`
+    select captured_at, views, likes, retweets, replies, bookmarks, quotes
+    from post_metric_snapshot
+    where tracked_post_id = ${trackedPostId}
+    order by captured_at desc
+    limit ${limit}`;
+  return rows.map((r) => ({
+    capturedAt: new Date(r.captured_at).toISOString(),
+    metrics: {
+      views: r.views === null ? null : Number(r.views), // bigint는 postgres.js가 문자열로 준다
+      likes: r.likes, retweets: r.retweets, replies: r.replies,
+      bookmarks: r.bookmarks, quotes: r.quotes,
+    },
+  }));
+}
+
 export async function listTrackedPosts(sql: postgres.Sql): Promise<TrackedPostRow[]> {
   const rows = await sql<Row[]>`${SELECT(sql)} order by tp.created_at desc`;
   return rows.map(toRow);

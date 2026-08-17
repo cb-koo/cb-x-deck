@@ -5,7 +5,7 @@ import { insertDraft, updateDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
 import {
   addTrackedPost, listTrackedPosts, findByTweetId, findTrackedPostById,
-  appendSnapshot, markUnavailable, setDraftLink, deleteTrackedPost,
+  appendSnapshot, markUnavailable, setDraftLink, deleteTrackedPost, listSnapshots,
 } from './trackingStore.ts';
 
 const sql = getSql();
@@ -90,4 +90,24 @@ test('5) 원고 연결 후 목록에서 draftLabel(title 우선)이 보인다', 
   const unlinked = await findTrackedPostById(sql, row.id);
   assert.equal(unlinked!.draftId, null);
   assert.equal(unlinked!.draftLabel, null);
+});
+
+test('6) 측정 이력: 최신순 반환 · limit 적용 · 삭제 시 함께 사라진다', async () => {
+  const { row } = await addTrackedPost(sql, {
+    tweetId: P + '6', authorHandle: null, text: '', postedAt: null, createdBy: null, metrics: M, raw: null,
+  });
+  // 등록이 첫 측정이므로 이미 1건. 두 건 더 쌓아 순서를 확인한다.
+  await appendSnapshot(sql, row.id, { ...M, views: 200 }, null);
+  await appendSnapshot(sql, row.id, { ...M, views: 300 }, null);
+
+  const hist = await listSnapshots(sql, row.id);
+  assert.equal(hist.length, 3);
+  assert.equal(hist[0].metrics.views, 300);          // 최신이 위
+  assert.equal(hist[2].metrics.views, M.views);      // 등록 시 첫 측정이 맨 아래
+  assert.ok(hist[0].capturedAt >= hist[1].capturedAt); // ISO 문자열은 사전순 = 시간순
+
+  assert.equal((await listSnapshots(sql, row.id, 2)).length, 2);
+
+  await deleteTrackedPost(sql, row.id);
+  assert.deepEqual(await listSnapshots(sql, row.id), []); // cascade
 });

@@ -21,10 +21,15 @@ function Delta({ cur, prev, label }: { cur: number | null | undefined; prev: num
     {d >= 0 ? '▲' : '▼'} {Math.abs(d).toLocaleString('ko-KR')} {label}</span>;
 }
 
-export function ReportSummary({ report, isCalendarMonth }: { report: ReportResponse; isCalendarMonth: boolean }) {
+export function ReportSummary({ report, isCalendarMonth, cachedMinutesAgo }: {
+  report: ReportResponse; isCalendarMonth: boolean; cachedMinutesAgo?: number | null;
+}) {
   const [basis, setBasis] = useState<'created_at' | 'reservation_date'>('created_at');
   const [showXViews, setShowXViews] = useState(false);
   const cur = report.current, prev = report.previous;
+  // 캐시로 응답됐으면(외부 API를 다시 부르지 않고 재사용) 몇 분 전 조회인지 밝힌다 — "방금 조회"라고 잘못 말하지 않게.
+  // 경과 시간은 응답을 받은 시점(page.tsx)에서 한 번 계산해 내려온다 — 렌더 중 Date.now() 호출은 순수성 규칙 위반.
+  const freshness = cachedMinutesAgo == null ? '방금 조회' : `${cachedMinutesAgo}분 전 조회(캐시)`;
   const res: ReservationsBlock | null = cur.reservations?.[basis] ?? null;
   const prevRes = prev?.reservations?.[basis] ?? null;
   const compareLabel = isCalendarMonth ? '전월 대비' : '직전 기간 대비';
@@ -38,7 +43,7 @@ export function ReportSummary({ report, isCalendarMonth }: { report: ReportRespo
 
   return (
     <section className="mt-6">
-      <h2 className="text-base font-bold">① 기간 요약 <span className="text-caption font-normal text-x-muted">({compareLabel} · 방금 조회)</span></h2>
+      <h2 className="text-base font-bold">① 기간 요약 <span className="text-caption font-normal text-x-muted">({compareLabel} · {freshness})</span></h2>
       <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
         <Tile label="인입 고객" value={num(cur.funnel?.active_customers)}
               sub={<Delta cur={cur.funnel?.active_customers} prev={prev?.funnel?.active_customers} label={compareLabel} />} />

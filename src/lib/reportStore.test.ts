@@ -1,13 +1,17 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { upsertSnapshot, getSnapshots, getStoredFetchedAt, planSyncTasks, taskKey } from './reportStore.ts';
-import type { ReportBundles } from './reportApi.ts';
+import {
+  upsertSnapshot, getSnapshots, getStoredFetchedAt, planSyncTasks, taskKey,
+  getSummaryCache, putSummaryCache,
+} from './reportStore.ts';
+import type { ReportBundles, ReportResponse } from './reportApi.ts';
 
 const sql = getSql();
 const C = 'trpt' + process.pid;
 after(async () => {
   await sql`delete from report_snapshot where clinic_code like ${C + '%'}`;
+  await sql`delete from report_summary_cache where clinic_code like ${C + '%'}`;
   await sql.end();
 });
 
@@ -57,4 +61,34 @@ test('date 컬럼이 ISO 문자열로 돌아온다 + getStoredFetchedAt 키 매�
   const stored = await getStoredFetchedAt(sql, [C + 'd'], '2026-06-01');
   assert.ok(stored.has(taskKey({ clinicCode: C + 'd', granularity: 'day', start: '2026-07-01' })));
   assert.equal((await getStoredFetchedAt(sql, [C + 'd'], '2026-08-01')).size, 0);
+});
+
+test('요약 캐시 — 왕복 + upsert 갱신 + TTL 판정은 호출부 몫(fetched_at 그대로 반환)', async () => {
+  const cc = C + 's';
+  const report = { meta: { clinic: { name: 'Test' }, period: { start: '2026-07-01', end: '2026-07-31', days: 31 },
+    generated_at: '2026-08-01T00:00:00Z' }, current: {} } as ReportResponse;
+  assert.equal(await getSummaryCache(sql, cc, '2026-07-01', '2026-07-31'), null); // 미저장
+
+  await putSummaryCache(sql, { clinicCode: cc, periodStart: '2026-07-01', periodEnd: '2026-07-31', payload: report });
+  const first = await getSummaryCache(sql, cc, '2026-07-01', '2026-07-31');
+  assert.ok(first);
+  assert.equal(first!.payload.meta.clinic.name, 'Test');
+  const fetchedAtMs = new Date(first!.fetchedAt).getTime();
+  assert.ok(Date.now() - fetchedAtMs < 5000); // 방금 저장 — TTL(10분) 안
+
+  // fetched_at을 11분 전으로 되돌려 만료 상태를 재현 — 만료 판정은 route.ts(호출부)가 now()와 비교해서 하므로,
+  // getSummaryCache 자신은 필터링 없이 그대로 돌려줘야 이 시나리오를 테스트로 확인할 수 있다.
+  await sql`update report_summary_cache set fetched_at = now() - interval '11 minutes'
+    where clinic_code = ${cc} and period_start = '2026-07-01' and period_end = '2026-07-31'`;
+  const stale = await getSummaryCache(sql, cc, '2026-07-01', '2026-07-31');
+  assert.ok(Date.now() - new Date(stale!.fetchedAt).getTime() >= 10 * 60 * 1000); // TTL 초과 — 호출부가 만료로 판단할 값
+
+  // 재조회(upsert)하면 같은 키가 갱신된다 — 새 행이 생기지 않음.
+  const updated = { ...report, meta: { ...report.meta, generated_at: '2026-08-02T00:00:00Z' } };
+  await putSummaryCache(sql, { clinicCode: cc, periodStart: '2026-07-01', periodEnd: '2026-07-31', payload: updated });
+  const rows = await sql`select count(*)::int as n from report_summary_cache where clinic_code = ${cc}`;
+  assert.equal(rows[0].n, 1);
+  const fresh = await getSummaryCache(sql, cc, '2026-07-01', '2026-07-31');
+  assert.equal(fresh!.payload.meta.generated_at, '2026-08-02T00:00:00Z');
+  assert.ok(Date.now() - new Date(fresh!.fetchedAt).getTime() < 5000); // upsert가 fetched_at도 갱신
 });

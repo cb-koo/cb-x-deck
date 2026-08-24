@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import type { ReportBundles, ReportUnit } from './reportApi.ts';
+import type { ReportBundles, ReportResponse, ReportUnit } from './reportApi.ts';
 import { addDays, bucketRanges } from './reportSeries.ts';
 
 export interface SnapshotRow {
@@ -81,4 +81,28 @@ export function planSyncTasks(opts: {
     .map((t) => ({ t, r: rank(t) }))
     .sort((a, b) => (a.r[0] - b.r[0]) || a.r[1].localeCompare(b.r[1]) || (clinicIdx.get(a.t.clinicCode)! - clinicIdx.get(b.t.clinicCode)!))
     .map((x) => x.t);
+}
+
+// 요약(/api/reports/summary) 조회 캐시 — 외부 API 콜당 ~7초라 같은 (클리닉·기간)을 10분 재사용한다.
+// 만료 판정(TTL)은 여기서 하지 않는다 — fetched_at을 그대로 돌려주고 호출부(route.ts)가 now()와 비교한다.
+// 그래야 테스트에서 fetched_at을 과거로 UPDATE해 만료 상태를 직접 재현할 수 있다.
+export interface SummaryCacheRow { payload: ReportResponse; fetchedAt: string }
+
+export async function getSummaryCache(
+  sql: postgres.Sql, clinicCode: string, periodStart: string, periodEnd: string,
+): Promise<SummaryCacheRow | null> {
+  const rows = await sql<{ payload: ReportResponse; fetched_at: Date }[]>`
+    select payload, fetched_at from report_summary_cache
+    where clinic_code = ${clinicCode} and period_start = ${periodStart} and period_end = ${periodEnd}`;
+  if (!rows[0]) return null;
+  return { payload: rows[0].payload, fetchedAt: new Date(rows[0].fetched_at).toISOString() };
+}
+
+export async function putSummaryCache(
+  sql: postgres.Sql, row: { clinicCode: string; periodStart: string; periodEnd: string; payload: ReportResponse },
+): Promise<void> {
+  await sql`insert into report_summary_cache (clinic_code, period_start, period_end, payload, fetched_at)
+    values (${row.clinicCode}, ${row.periodStart}, ${row.periodEnd}, ${sql.json(row.payload as never)}, now())
+    on conflict (clinic_code, period_start, period_end)
+    do update set payload = excluded.payload, fetched_at = now()`;
 }

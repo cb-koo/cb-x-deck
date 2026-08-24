@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeAccount, AnalysisFormatError, type AnalysisChat } from './influencerAnalysis.ts';
+import { analyzeAccount, makeAnthropicChat, AnalysisFormatError, type AnalysisChat } from './influencerAnalysis.ts';
 import type { TweetSource } from './tweetSource.ts';
 import type { AnalysisTweet } from './analysisStats.ts';
+import type { AnthropicLike, LLMResponse } from './llm.ts';
 
 const NOW = new Date('2026-08-24T00:00:00.000Z');
 const tw = (over: Partial<AnalysisTweet>): AnalysisTweet => ({
@@ -93,4 +94,54 @@ test('종합 JSON 불량이면 AnalysisFormatError (반쪽 저장 방지 — 라
     analyzeAccount({ source: sourceOf([tw({ id: 'a' })]), chat }, 'u1', { now: NOW }),
     AnalysisFormatError,
   );
+});
+
+// makeAnthropicChat: 페이크 AnthropicLike로 주입해 전송 params와 반환값을 검증
+function capturingClient(): { client: AnthropicLike; seen: () => Record<string, unknown> | null } {
+  let captured: Record<string, unknown> | null = null;
+  const client: AnthropicLike = {
+    messages: {
+      async create(p: object): Promise<LLMResponse> {
+        captured = p as Record<string, unknown>;
+        return { content: [{ type: 'text', text: '{"ok":true}' }] };
+      },
+    },
+  };
+  return { client, seen: () => captured };
+}
+
+test('makeAnthropicChat: sampling 파라미터를 보내지 않는다', async () => {
+  const { client, seen } = capturingClient();
+  await makeAnthropicChat(client).complete({
+    operation: 'test.op', model: 'm', system: 'S', user: 'U', maxTokens: 10,
+  });
+  const sent = seen()!;
+  assert.equal('temperature' in sent, false);
+  assert.equal('top_p' in sent, false);
+  assert.equal('top_k' in sent, false);
+});
+
+test('makeAnthropicChat: schema를 주면 output_config에 json_schema 형태로 실린다', async () => {
+  const { client, seen } = capturingClient();
+  const schema = { type: 'object', properties: {} };
+  await makeAnthropicChat(client).complete({
+    operation: 'test.op', model: 'm', system: 'S', user: 'U', maxTokens: 10, schema,
+  });
+  assert.deepEqual(seen()!.output_config, { format: { type: 'json_schema', schema } });
+});
+
+test('makeAnthropicChat: schema가 없으면 output_config 자체가 없다', async () => {
+  const { client, seen } = capturingClient();
+  await makeAnthropicChat(client).complete({
+    operation: 'test.op', model: 'm', system: 'S', user: 'U', maxTokens: 10,
+  });
+  assert.equal('output_config' in seen()!, false);
+});
+
+test('makeAnthropicChat: 반환값은 content의 text 블록 문자열이다', async () => {
+  const { client } = capturingClient();
+  const result = await makeAnthropicChat(client).complete({
+    operation: 'test.op', model: 'm', system: 'S', user: 'U', maxTokens: 10,
+  });
+  assert.equal(result, '{"ok":true}');
 });

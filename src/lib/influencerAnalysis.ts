@@ -1,6 +1,7 @@
 // 계정 분석 오케스트레이션(스펙 §3) — 숫자는 analysisStats(코드)가, 해석만 LLM이.
 // TweetSource·AnalysisChat 두 경계만 의존(교체 가능, 스펙 §4). DB 접근 없음 — 저장은 라우트가.
 import { callLLM } from './llm.ts';
+import type { AnthropicLike } from './llm.ts';
 import {
   chunk, computeStats, missingIds, sponsoredCount, topByViews, topicStats, typeDist,
   CONTENT_TYPE_LABEL,
@@ -26,14 +27,14 @@ export interface AnalysisChat {
 
 // 구현 1호 — callLLM 경유(usage 기록·lone surrogate 제거·거절 승격이 그 안에 있다).
 // sampling 파라미터는 보내지 않는다(최신 모델 400) — 결정성은 스키마·프롬프트로.
-export function makeAnthropicChat(): AnalysisChat {
+export function makeAnthropicChat(client?: AnthropicLike): AnalysisChat {
   return {
     async complete({ operation, model, system, user, maxTokens, schema }) {
       const res = await callLLM(operation, {
         model, max_tokens: maxTokens, system,
         messages: [{ role: 'user', content: user }],
         ...(schema ? { output_config: { format: { type: 'json_schema', schema } } } : {}),
-      });
+      }, client);
       return res.content.find((b) => b.type === 'text')?.text ?? '';
     },
   };
@@ -87,7 +88,11 @@ function parseClassified(text: string): ClassifiedTweet[] {
       ['info', 'review', 'daily', 'promo', 'other'].includes((it as ClassifiedTweet).contentType) &&
       typeof (it as ClassifiedTweet).sponsored === 'boolean' &&
       Array.isArray((it as ClassifiedTweet).topics),
-    ).map((it) => ({ ...it, evidence: typeof it.evidence === 'string' ? it.evidence : null }));
+    ).map((it) => ({
+      ...it,
+      evidence: typeof it.evidence === 'string' ? it.evidence : null,
+      topics: it.topics.filter((t): t is string => typeof t === 'string'),
+    }));
   } catch { return []; }
 }
 

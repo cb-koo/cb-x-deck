@@ -11,6 +11,7 @@ import { isProfileStale, judgeContact, summarizeDraftStatuses } from '@/lib/infl
 import { STATUS_LABEL, type DraftStatus } from '@/lib/draftStatus';
 import { PRICE_TYPE_LABEL, formatMoney, type PricingChange } from '@/lib/influencerPricing';
 import { PricingSection } from './PricingSection';
+import { AnalysisSection } from './AnalysisSection';
 import type {
   DraftRollupItem, InfluencerAutoEvent, InfluencerChannel, InfluencerDetail, InfluencerLogRow,
 } from '@/lib/influencerStore';
@@ -184,6 +185,13 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
         {/* 원고 상태 요약은 전체 카운트 기준 — 아래 '넘긴 원고' 목록(최근 50건)과 세는 범위가 다르다 */}
         {draftLine && <p className="mt-1 text-ui text-x-secondary">원고 {draftLine}</p>}
       </div>
+
+      {/* 계정 분석 — 현황 다음, 사람이 붙이는 태그·메모 앞. X 수집+LLM은 버튼을 누를 때만 돈다. */}
+      <AnalysisSection id={id} analysis={data.analysis} analyzedAt={data.analyzedAt}
+                       followers={inf.followersCount}
+                       onAnalyzed={(analysis, analyzedAt) => {
+                         setData((d) => (d ? { ...d, analysis, analyzedAt } : d));
+                       }} />
 
       {msg && <p role="alert" className={`mt-3 rounded-lg px-3 py-2 text-ui ${MSG_STYLE[msg.tone]}`}>{msg.text}</p>}
 

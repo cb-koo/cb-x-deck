@@ -182,13 +182,14 @@ function BasicInfoEditor({ client, register, onSaved }: {
   const [info, setInfo] = useState(client.info);
   const [banned, setBanned] = useState(toLines(client.bannedPhrases));
   const [landingUrl, setLandingUrl] = useState(client.landingUrl);
+  const [nameEn, setNameEn] = useState(client.nameEn);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
-  const baseline = useRef({ info: client.info, banned: toLines(client.bannedPhrases), landingUrl: client.landingUrl });
-  const cur = useRef({ info, banned, landingUrl });
+  const baseline = useRef({ info: client.info, banned: toLines(client.bannedPhrases), landingUrl: client.landingUrl, nameEn: client.nameEn });
+  const cur = useRef({ info, banned, landingUrl, nameEn });
   // 렌더 중 ref 쓰기는 금지(react-hooks/refs) — isDirty/save는 이벤트 핸들러에서만 읽으므로 커밋 후 갱신이면 충분
-  useEffect(() => { cur.current = { info, banned, landingUrl }; }, [info, banned, landingUrl]);
+  useEffect(() => { cur.current = { info, banned, landingUrl, nameEn }; }, [info, banned, landingUrl, nameEn]);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current); }, []);
 
@@ -199,7 +200,7 @@ function BasicInfoEditor({ client, register, onSaved }: {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           info: cur.current.info, bannedPhrases: fromLines(cur.current.banned),
-          landingUrl: cur.current.landingUrl,
+          landingUrl: cur.current.landingUrl, nameEn: cur.current.nameEn,
         }),
       });
       if (!r.ok) { setErr(await errOf(r)); return false; }
@@ -215,7 +216,7 @@ function BasicInfoEditor({ client, register, onSaved }: {
   useEffect(() => register('info', {
     isDirty: () =>
       cur.current.info !== baseline.current.info || cur.current.banned !== baseline.current.banned ||
-      cur.current.landingUrl !== baseline.current.landingUrl,
+      cur.current.landingUrl !== baseline.current.landingUrl || cur.current.nameEn !== baseline.current.nameEn,
     save,
   }), [register, save]);
 
@@ -227,6 +228,13 @@ function BasicInfoEditor({ client, register, onSaved }: {
         <p className="text-caption text-x-muted">트래킹 링크를 만들 때 이 주소가 자동으로 채워져요. (만들 때 바꿀 수도 있어요)</p>
         <input type="url" value={landingUrl} onChange={(e) => { setLandingUrl(e.target.value); setSaved(false); }}
                placeholder="https://…" autoComplete="off" spellCheck={false}
+               className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui outline-none focus:border-x-blue" />
+      </label>
+      <label className="mt-3 block">
+        <span className="text-ui font-bold">영문 이름 <span className="font-normal text-x-muted">선택</span></span>
+        <p className="text-caption text-x-muted">트래킹 링크의 캠페인명에 쓰여요 — 영어·숫자로. (예: yonsei-clinic)</p>
+        <input value={nameEn} onChange={(e) => { setNameEn(e.target.value); setSaved(false); }}
+               placeholder="yonsei-clinic" autoComplete="off" autoCapitalize="none" spellCheck={false}
                className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui outline-none focus:border-x-blue" />
       </label>
       <label className="mt-3 block">

@@ -90,3 +90,12 @@ test('landing_url — 저장·조회 왕복, 기본값은 빈 문자열', async 
   await updateClient(sql, c.id, { info: '정보' });
   assert.equal((await getClientWithProcedures(sql, c.id))!.client.landingUrl, 'https://clinic.example.com/event');
 });
+
+test('name_en — 저장·조회 왕복, 기본값은 빈 문자열, 다른 patch가 지우지 않는다', async () => {
+  const c = await createClient(sql, P + '영문');
+  assert.equal(c.nameEn, '');
+  await updateClient(sql, c.id, { nameEn: 'yonsei-clinic' });
+  assert.equal((await getClientWithProcedures(sql, c.id))!.client.nameEn, 'yonsei-clinic');
+  await updateClient(sql, c.id, { info: '정보' }); // coalesce 보존
+  assert.equal((await getClientWithProcedures(sql, c.id))!.client.nameEn, 'yonsei-clinic');
+});

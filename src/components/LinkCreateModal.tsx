@@ -55,7 +55,7 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
           const c = list.find((x) => x.id === prefill.clientId);
           if (c) {
             if (!landingTouchedRef.current) setLandingUrl(c.landingUrl);
-            if (!campaignTouchedRef.current) setCampaign(suggestCampaign(c.name));
+            if (!campaignTouchedRef.current) setCampaign(suggestCampaign(c.nameEn || c.name));
           }
         }
       })
@@ -126,7 +126,7 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
     setClientId(id);
     const c = clients.find((x) => x.id === id);
     if (!landingTouched) setLandingUrl(c ? c.landingUrl : '');
-    if (!campaignTouched) setCampaign(suggestCampaign(c ? c.name : null));
+    if (!campaignTouched) setCampaign(suggestCampaign(c ? (c.nameEn || c.name) : null));
   }, [clients, landingTouched, campaignTouched]);
 
   if (!open) return null;

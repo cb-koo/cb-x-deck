@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
-import { makeClient } from '@/lib/getxapi';
+import Anthropic from '@anthropic-ai/sdk';
+import { makeClient, GetxapiAuthError } from '@/lib/getxapi';
 import { LLMRefusalError } from '@/lib/llm';
 import { applyProfileSnapshot, findInfluencerById, saveAnalysis } from '@/lib/influencerStore';
 import { resolveAccount, type AccountResolution } from '@/lib/influencerAccount';
@@ -65,7 +66,23 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     if (e instanceof AnalysisFormatError) {
       return NextResponse.json({ error: 'AI가 이번엔 형식을 맞추지 못했어요 — 다시 시도해 주세요' }, { status: 502 });
     }
-    console.error('[influencer] 계정 분석 실패', {
+    // analyzeAccount 안에서 수집·LLM이 이어 붙어 있어 단계를 오류 종류로 가른다(스펙 §7 문구 귀속).
+    // 키 문제는 다시 눌러도 그대로다 — 재시도를 권하지 않는다.
+    if (e instanceof GetxapiAuthError) {
+      console.error('[influencer] 수집 실패(X 인증)', {
+        handle: inf.handle, err: e.message,
+      });
+      return NextResponse.json(
+        { error: 'X 연결에 문제가 있어요 — 관리자에게 알려 주세요' }, { status: 502 });
+    }
+    if (e instanceof Anthropic.APIError) {
+      console.error('[influencer] 분석 실패(LLM API)', {
+        handle: inf.handle, status: e.status, err: e.message,
+      });
+      return NextResponse.json(
+        { error: '분석 도중 문제가 생겼어요 — 잠시 후 다시 시도해 주세요' }, { status: 502 });
+    }
+    console.error('[influencer] 수집 실패(그 외)', {
       handle: inf.handle, err: e instanceof Error ? e.message : String(e),
     });
     return NextResponse.json(

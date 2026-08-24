@@ -7,7 +7,7 @@ import type { InfluencerOption } from '@/lib/draftTypes';
 import type { ClientRow } from '@/lib/clientStore';
 import type { InfluencerRow } from '@/lib/influencerStore';
 import type { TrackingLinkRow } from '@/lib/linkStore';
-import { checkLandingUrl, landingUrlMessage, buildTrackedUrl, suggestCampaign } from '@/lib/trackingLink';
+import { checkLandingUrl, landingUrlMessage, buildTrackedUrl, suggestCampaign, checkCampaign, campaignMessage } from '@/lib/trackingLink';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
 
 // 트래킹 링크 생성 모달 — 원고 카드(자동 채움)와 트래킹 페이지(직접 입력) 양쪽이 공유한다(스펙 §화면).
@@ -78,7 +78,8 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
   // 미리보기·제출 판단 모두 서버와 같은 정규화(parseXHandle)를 거친 값을 쓴다 — 프로필 링크를 붙여넣었을 때
   // 미리보기가 원시 입력(도메인이 섞인 문자열)을 그대로 보여주면 실제 생성값과 어긋난다(UX 원칙 4).
   const handleParse = parseXHandle(handle);
-  const canSubmit = configured && landing.ok && handleParse.ok && campaign.trim() !== '' && !busy;
+  const campaignCheck = checkCampaign(campaign); // 서버와 같은 검사·정규화(공백→하이픈) — 영문 규칙(koo QA 08-24)
+  const canSubmit = configured && landing.ok && handleParse.ok && campaignCheck.ok && !busy;
   // 랜딩 URL 문제는 위 인라인 오류(또는 안내문)가 이미 있으니 중복 표시하지 않는다 — 그 다음 미충족 사유만.
   const disabledReason = !landing.ok
     ? ''
@@ -86,21 +87,21 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
     ? '게시할 인플루언서를 입력해 주세요'
     : !handleParse.ok
     ? handleParseMessage(handleParse.reason) // 사유별 문구 — 클라이언트 표면 관례(InfluencerChip 등)와 통일
-    : campaign.trim() === ''
-    ? '캠페인명을 입력해 주세요'
+    : !campaignCheck.ok
+    ? campaignMessage(campaignCheck.reason)
     : '';
-  const preview = landing.ok && handleParse.ok
-    ? buildTrackedUrl({ landingUrl: landing.url, campaign: campaign.trim(), handle: handleParse.handle, code: 'xxxxxx' })
+  const preview = landing.ok && handleParse.ok && campaignCheck.ok
+    ? buildTrackedUrl({ landingUrl: landing.url, campaign: campaignCheck.campaign, handle: handleParse.handle, code: 'xxxxxx' })
     : null;
 
   const submit = useCallback(async () => {
-    if (!canSubmit || !landing.ok || !handleParse.ok) return;
+    if (!canSubmit || !landing.ok || !handleParse.ok || !campaignCheck.ok) return;
     setBusy(true); setErr('');
     try {
       const r = await apiFetch('/api/links', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          landingUrl: landing.url, influencerHandle: handleParse.handle, utmCampaign: campaign.trim(),
+          landingUrl: landing.url, influencerHandle: handleParse.handle, utmCampaign: campaignCheck.campaign,
           draftId: prefill?.draftId, clientId: clientId || undefined,
         }),
       });
@@ -111,7 +112,7 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
     } catch {
       setErr('링크를 만들지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
     } finally { setBusy(false); }
-  }, [canSubmit, landing, handleParse, campaign, clientId, prefill, onCreated]);
+  }, [canSubmit, landing, handleParse, campaignCheck, clientId, prefill, onCreated]);
 
   const copy = useCallback(() => {
     if (!done) return;
@@ -193,7 +194,7 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
             <input id="link-create-campaign" value={campaign}
                    onChange={(e) => { setCampaign(e.target.value); setCampaignTouched(true); }}
                    className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue" />
-            <p className="mt-1 text-caption text-x-muted">랜딩 쪽 분석 도구에서 이 캠페인 이름으로 모아 볼 수 있어요</p>
+            <p className="mt-1 text-caption text-x-muted">랜딩 쪽 분석 도구에서 이 캠페인 이름으로 모아 볼 수 있어요 — 영어·숫자로 적어 주세요</p>
 
             {preview && (
               <div className="mt-3">

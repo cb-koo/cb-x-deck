@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CODE_LEN, generateLinkCode, checkLandingUrl, landingUrlMessage,
-  buildTrackedUrl, suggestCampaign,
+  buildTrackedUrl, suggestCampaign, checkCampaign, campaignMessage,
 } from './trackingLink.ts';
 
 test('1) 코드 — 6자 소문자 영숫자, 연속 생성이 겹치지 않는다', () => {
@@ -47,12 +47,23 @@ test('4) UTM 조립 — 기존 utm_*는 교체, fragment는 유지', () => {
   assert.equal(u.hash, '#section');                           // fragment 유지
 });
 
-test('5) 캠페인 제안 — 클라명 공백→하이픈 + KST YYYYMM, 클라 없으면 YYYYMM만', () => {
+test('5) 캠페인 제안 — 영문만 남기고 공백→하이픈 + KST YYYYMM, 남는 게 없으면 YYYYMM만', () => {
   // 2026-08-31 23:00 KST(= 14:00 UTC) — UTC로 계산하면 202608, KST 경계 검증은 아래에서
   const t = Date.parse('2026-08-31T14:00:00Z');
-  assert.equal(suggestCampaign('연세 밝은 클리닉', t), '연세-밝은-클리닉-202608');
+  assert.equal(suggestCampaign('Clinic A', t), 'Clinic-A-202608');
+  assert.equal(suggestCampaign('연세 밝은 클리닉', t), '202608');   // 한글은 제안에 싣지 않는다(캠페인 영문 규칙)
+  assert.equal(suggestCampaign('클리닉A', t), 'A-202608');          // 영문 부분만 남긴다
   assert.equal(suggestCampaign(null, t), '202608');
   assert.equal(suggestCampaign('  ', t), '202608');
   // KST 월 경계: 8/31 16:00 UTC = 9/1 01:00 KST → 202609
   assert.equal(suggestCampaign(null, Date.parse('2026-08-31T16:00:00Z')), '202609');
+});
+
+test('6) 캠페인 검사 — 영어·숫자·하이픈만 허용, 공백은 하이픈으로 정규화', () => {
+  assert.deepEqual(checkCampaign('  '), { ok: false, reason: 'empty' });
+  assert.deepEqual(checkCampaign('연세클리닉-202608'), { ok: false, reason: 'not-ascii' });
+  assert.deepEqual(checkCampaign('clinic a 202608'), { ok: true, campaign: 'clinic-a-202608' }); // 공백 정규화
+  assert.deepEqual(checkCampaign('Clinic_A.v2-202608'), { ok: true, campaign: 'Clinic_A.v2-202608' });
+  // 사유별 안내 문구가 비어 있지 않다(UX 원칙 2)
+  for (const r of ['empty', 'not-ascii'] as const) assert.ok(campaignMessage(r).length > 0);
 });

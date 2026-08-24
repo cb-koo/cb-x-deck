@@ -52,11 +52,31 @@ export function buildTrackedUrl(args: {
   return u.toString();
 }
 
+// 캠페인명은 영어·숫자·하이픈(및 ._)만 — 팀 표기 규칙(koo QA 2026-08-24). GA가 한글을 못 다뤄서가
+// 아니라, 캠페인 표기를 영문으로 통일하기 위한 규칙이다. 공백은 제안 규칙과 같게 하이픈으로 정규화.
+export type CampaignCheck =
+  | { ok: true; campaign: string }
+  | { ok: false; reason: 'empty' | 'not-ascii' };
+
+export function checkCampaign(input: string): CampaignCheck {
+  const raw = (input ?? '').trim().replace(/\s+/g, '-');
+  if (!raw) return { ok: false, reason: 'empty' };
+  if (!/^[A-Za-z0-9._-]+$/.test(raw)) return { ok: false, reason: 'not-ascii' };
+  return { ok: true, campaign: raw };
+}
+
+export function campaignMessage(reason: 'empty' | 'not-ascii'): string {
+  if (reason === 'empty') return '캠페인명을 입력해 주세요';
+  return '캠페인명은 영어·숫자·하이픈으로 입력해 주세요 (예: clinic-a-202608)';
+}
+
 // 제안값일 뿐 확정이 아니다 — 입력란에서 수정 가능(반자동의 '반').
-// 한글 그대로 둔다(GA4 정상 표시), 공백만 하이픈으로. 월은 KST 기준(리포 시간대 관례).
+// 클라명에서 영문 규칙에 맞는 글자만 남긴다(한글 클라는 YYYYMM만 제안 — 영문 접두는 사람이 붙인다).
+// 월은 KST 기준(리포 시간대 관례).
 export function suggestCampaign(clientName: string | null, now: number = Date.now()): string {
   const kst = new Date(now + 9 * 3600 * 1000);
   const ym = `${kst.getUTCFullYear()}${String(kst.getUTCMonth() + 1).padStart(2, '0')}`;
-  const name = (clientName ?? '').trim().replace(/\s+/g, '-');
+  const name = (clientName ?? '').trim().replace(/\s+/g, '-')
+    .replace(/[^A-Za-z0-9._-]/g, '').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
   return name ? `${name}-${ym}` : ym;
 }

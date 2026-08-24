@@ -3,7 +3,7 @@ import { getSql } from '@/lib/db';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { parseXHandle } from '@/lib/xHandle';
-import { generateLinkCode, checkLandingUrl, landingUrlMessage, buildTrackedUrl } from '@/lib/trackingLink';
+import { generateLinkCode, checkLandingUrl, landingUrlMessage, buildTrackedUrl, checkCampaign, campaignMessage } from '@/lib/trackingLink';
 import { isShortioConfigured, makeShortioClient } from '@/lib/shortio';
 import { insertLink, listLinks } from '@/lib/linkStore';
 
@@ -35,8 +35,9 @@ export async function POST(req: Request) {
   if (!landing.ok) return NextResponse.json({ error: landingUrlMessage(landing.reason) }, { status: 400 });
   const handle = parseXHandle(String(body.influencerHandle ?? ''));
   if (!handle.ok) return NextResponse.json({ error: '인플루언서 핸들을 확인해 주세요 — @핸들 또는 프로필 링크' }, { status: 400 });
-  const campaign = String(body.utmCampaign ?? '').trim();
-  if (!campaign) return NextResponse.json({ error: '캠페인명을 입력해 주세요' }, { status: 400 });
+  const campaignCheck = checkCampaign(String(body.utmCampaign ?? ''));
+  if (!campaignCheck.ok) return NextResponse.json({ error: campaignMessage(campaignCheck.reason) }, { status: 400 });
+  const campaign = campaignCheck.campaign; // 정규화(공백→하이픈)된 영문 캠페인 — 클라이언트와 같은 함수
 
   // 연결 대상은 존재할 때만 잇는다 — 죽은 id로 FK 오류(500)를 내느니 조용히 연결 없이 만든다
   let draftId: string | null = null;

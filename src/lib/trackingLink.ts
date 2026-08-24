@@ -21,11 +21,20 @@ export function slugMessage(reason: 'empty' | 'invalid'): string {
   return '링크 주소는 영어·숫자·하이픈으로 입력해 주세요 (예: yonsei-clinic-202608-hana_kim)';
 }
 
-// 제안 = {캠페인}-{핸들} 소문자. 허용 밖 글자(한글 등)는 지우고 하이픈·점 잔여물을 정리한다.
-export function suggestSlug(campaign: string, handle: string): string {
-  return [campaign, handle].filter(Boolean).join('-')
-    .trim().replace(/\s+/g, '-').toLowerCase()
-    .replace(/[^a-z0-9._-]/g, '').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '');
+// 자동 제안 = 단어처럼 읽히는 무의미 코드(koo QA 08-25 2차) — 자음·모음을 교대로 배열해
+// 발음이 되면 이름처럼 보이고(스팸 인상 없음), 뜻이 없어 규칙·추측 여지도 없다.
+// 3음절 6자 = 12*5 조합^3 ≈ 21.6만 — 이 규모(수백 링크)에 충분, 충돌은 라우트의 순번 폴백이 처리.
+const WORD_CONSONANTS = 'bdgkmnprstvz'; // 발음 애매하거나(c,q,x) 혼동되는(l↔1) 자음 제외
+const WORD_VOWELS = 'aeiou';
+export function generateWordCode(): string {
+  const buf = new Uint32Array(6);
+  globalThis.crypto.getRandomValues(buf);
+  let out = '';
+  for (let i = 0; i < 6; i += 2) {
+    out += WORD_CONSONANTS[buf[i] % WORD_CONSONANTS.length];
+    out += WORD_VOWELS[buf[i + 1] % WORD_VOWELS.length];
+  }
+  return out;
 }
 
 export type LandingUrlCheck =

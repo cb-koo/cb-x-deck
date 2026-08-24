@@ -7,7 +7,7 @@ import type { InfluencerOption } from '@/lib/draftTypes';
 import type { ClientRow } from '@/lib/clientStore';
 import type { InfluencerRow } from '@/lib/influencerStore';
 import type { TrackingLinkRow } from '@/lib/linkStore';
-import { checkLandingUrl, landingUrlMessage, buildTrackedUrl, suggestCampaign, checkCampaign, campaignMessage, suggestSlug, checkSlug, slugMessage } from '@/lib/trackingLink';
+import { checkLandingUrl, landingUrlMessage, buildTrackedUrl, suggestCampaign, checkCampaign, campaignMessage, generateWordCode, checkSlug, slugMessage } from '@/lib/trackingLink';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
 
 // 트래킹 링크 생성 모달 — 원고 카드(자동 채움)와 트래킹 페이지(직접 입력) 양쪽이 공유한다(스펙 §화면).
@@ -24,8 +24,7 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
   const [handle, setHandle] = useState(prefill?.influencerHandle ?? '');
   const [campaign, setCampaign] = useState(suggestCampaign(prefill?.clientName ?? null));
   const [campaignTouched, setCampaignTouched] = useState(false);
-  const [slug, setSlug] = useState('');
-  const [slugTouched, setSlugTouched] = useState(false);
+  const [slug, setSlug] = useState(generateWordCode());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [done, setDone] = useState<TrackingLinkRow | null>(null); // 성공 화면
@@ -42,7 +41,7 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
   // 모달이 열린 채로 재발화되고, 입력 중인 값이 기본값으로 되돌아간다 — 프리미티브만 의존한다
   // (clients-load effect의 `prefill?.clientId` 단독 의존 관례를 따름).
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 열 때마다 초기화(모달 재사용, ColumnSettings 관례)
-  useEffect(() => { if (!open) return; setClientId(prefill?.clientId ?? ''); setLandingUrl(''); setLandingTouched(false); setHandle(prefill?.influencerHandle ?? ''); setCampaign(suggestCampaign(prefill?.clientName ?? null)); setCampaignTouched(false); setSlug(''); setSlugTouched(false); setBusy(false); setErr(''); setDone(null); setCopied(false); }, [open, prefill?.clientId, prefill?.influencerHandle, prefill?.clientName, prefill?.draftId]);
+  useEffect(() => { if (!open) return; setClientId(prefill?.clientId ?? ''); setLandingUrl(''); setLandingTouched(false); setHandle(prefill?.influencerHandle ?? ''); setCampaign(suggestCampaign(prefill?.clientName ?? null)); setCampaignTouched(false); setSlug(generateWordCode()); setBusy(false); setErr(''); setDone(null); setCopied(false); }, [open, prefill?.clientId, prefill?.influencerHandle, prefill?.clientName, prefill?.draftId]);
 
   // 클라이언트·인플루언서 목록 — 자동 채움·자동완성 소스일 뿐, 실패해도 모달은 그대로 동작한다.
   useEffect(() => {
@@ -81,11 +80,9 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
   // 미리보기가 원시 입력(도메인이 섞인 문자열)을 그대로 보여주면 실제 생성값과 어긋난다(UX 원칙 4).
   const handleParse = parseXHandle(handle);
   const campaignCheck = checkCampaign(campaign); // 서버와 같은 검사·정규화(공백→하이픈) — 영문 규칙(koo QA 08-24)
-  // 링크 주소 = 사람이 읽는 조합 {캠페인}-{핸들}, 랜덤 없음(koo QA 08-25). 손대기 전엔 입력을 따라간다.
-  const effectiveSlug = slugTouched
-    ? slug
-    : suggestSlug(campaignCheck.ok ? campaignCheck.campaign : campaign, handleParse.ok ? handleParse.handle : '');
-  const slugCheck = checkSlug(effectiveSlug);
+  // 링크 주소 기본값 = 단어형 무의미 코드(열 때마다 새로 뽑음) — 읽히지만 규칙이 없다(koo QA 08-25 2차).
+  // 의미 있는 주소를 원하면 이 칸에서 직접 짓는다(두 방식 공존).
+  const slugCheck = checkSlug(slug);
   const canSubmit = configured && landing.ok && handleParse.ok && campaignCheck.ok && slugCheck.ok && !busy;
   // 랜딩 URL 문제는 위 인라인 오류(또는 안내문)가 이미 있으니 중복 표시하지 않는다 — 그 다음 미충족 사유만.
   const disabledReason = !landing.ok
@@ -205,12 +202,16 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
                    className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue" />
             <p className="mt-1 text-caption text-x-muted">랜딩 쪽 분석 도구에서 이 캠페인 이름으로 모아 볼 수 있어요 — 영어·숫자로 적어 주세요</p>
 
-            <label htmlFor="link-create-slug" className="mt-3 block text-caption text-x-muted">링크 주소</label>
-            <input id="link-create-slug" value={effectiveSlug}
-                   onChange={(e) => { setSlug(e.target.value); setSlugTouched(true); }}
+            <div className="mt-3 flex items-baseline justify-between">
+              <label htmlFor="link-create-slug" className="text-caption text-x-muted">링크 주소</label>
+              <button type="button" onClick={() => setSlug(generateWordCode())}
+                      className="text-caption text-x-blue-text hover:underline">다른 주소 뽑기</button>
+            </div>
+            <input id="link-create-slug" value={slug}
+                   onChange={(e) => setSlug(e.target.value)}
                    autoComplete="off" autoCapitalize="none" spellCheck={false}
                    className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue" />
-            <p className="mt-1 text-caption text-x-muted">단축 도메인 뒤에 붙어요 — 캠페인·인플루언서 이름으로 자동으로 지어져요. 이미 쓰인 주소면 뒤에 -2가 붙어요</p>
+            <p className="mt-1 text-caption text-x-muted">단축 도메인 뒤에 붙어요 — 단어처럼 읽히는 주소가 자동으로 만들어져요. 직접 지어도 돼요(영어·숫자·하이픈)</p>
 
             {preview && (
               <div className="mt-3">

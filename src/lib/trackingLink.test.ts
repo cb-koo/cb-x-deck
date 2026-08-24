@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import {
   checkLandingUrl, landingUrlMessage,
   buildTrackedUrl, suggestCampaign, checkCampaign, campaignMessage,
-  suggestSlug, checkSlug, slugMessage,
+  generateWordCode, checkSlug, slugMessage,
 } from './trackingLink.ts';
 
-test('1) 링크 주소 — 캠페인·핸들 조합 제안(소문자·영문만), 검사·정규화', () => {
-  // 랜덤 없음(koo QA 08-25: 무작위 꾸미는 스팸 인상) — 사람이 지은 것처럼 읽히는 조합만
-  assert.equal(suggestSlug('yonsei-clinic-202608', 'Hana_Kim'), 'yonsei-clinic-202608-hana_kim');
-  assert.equal(suggestSlug('202608', ''), '202608');           // 핸들 미정이면 캠페인만
-  assert.equal(suggestSlug('클리닉-202608', 'h'), '-202608-h'.replace(/^[-.]+/, '')); // 한글 탈락 후 앞 하이픈 정리
+test('1) 링크 주소 — 단어형 코드 제안(자음·모음 교대·글자만), 수동 입력 검사·정규화', () => {
+  // 숫자·자음 뒤섞임(a3k9x2)은 스팸 인상, 의미 조합은 규칙 노출 — 단어처럼 읽히되 뜻 없는 코드(koo QA 08-25)
+  const codes = Array.from({ length: 200 }, () => generateWordCode());
+  for (const c of codes) assert.match(c, /^([bdgkmnprstvz][aeiou]){3}$/); // 6자, 발음 가능 배열, 숫자 없음
+  assert.ok(new Set(codes).size >= 199); // 21.6만 조합에서 200개가 대부분 달라야 정상(우연 1쌍까지 허용)
   assert.deepEqual(checkSlug('  '), { ok: false, reason: 'empty' });
   assert.deepEqual(checkSlug('한글주소'), { ok: false, reason: 'invalid' });
   assert.deepEqual(checkSlug(' Yonsei Event 2 '), { ok: true, slug: 'yonsei-event-2' }); // 소문자·공백 정규화

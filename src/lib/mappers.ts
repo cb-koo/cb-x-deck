@@ -1,14 +1,14 @@
 import type { RawTweet } from './getxapi.ts';
 import type { DeckMedia, DeckQuoted, DeckTweet } from './types.ts';
 
-function num(v: unknown): number | null {
+export function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
-function str(v: unknown): string | null {
+export function str(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
-function toIso(v: unknown): string | null {
+export function toIso(v: unknown): string | null {
   if (typeof v !== 'string') return null;
   const ms = Date.parse(v); // 레거시 "Mon Jul 06 ..." 포맷도 파싱됨
   return Number.isNaN(ms) ? null : new Date(ms).toISOString();

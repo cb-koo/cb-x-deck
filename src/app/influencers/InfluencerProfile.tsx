@@ -9,6 +9,8 @@ import { relTime } from '@/lib/relTime';
 import { kstMonthDay } from '@/lib/datetime';
 import { isProfileStale, judgeContact, summarizeDraftStatuses } from '@/lib/influencerJudgment';
 import { STATUS_LABEL, type DraftStatus } from '@/lib/draftStatus';
+import { PRICE_TYPE_LABEL, formatMoney, type PricingChange } from '@/lib/influencerPricing';
+import { PricingSection } from './PricingSection';
 import type {
   DraftRollupItem, InfluencerAutoEvent, InfluencerChannel, InfluencerDetail, InfluencerLogRow,
 } from '@/lib/influencerStore';
@@ -188,6 +190,12 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
       <TagEditor id={id} tags={inf.tags} onSaved={onChanged} />
       <NoteEditor id={id} note={inf.note} />
 
+      {/* 단가 변경은 서버가 자동 로그를 남긴다 — 새 로그를 타임라인 맨 앞에 그대로 붙여 다시 부르지 않는다 */}
+      <PricingSection id={id} pricing={data.pricing} logs={data.logs}
+                      onSaved={(pricing, newLogs) => {
+                        setData((d) => (d ? { ...d, pricing, logs: [...newLogs, ...d.logs] } : d));
+                      }} />
+
       <Timeline id={id} logs={data.logs}
                 onAdded={(row) => { setData((d) => (d ? { ...d, logs: [row, ...d.logs] } : d)); onChanged(); }}
                 onRemoved={(logId) => {
@@ -311,6 +319,15 @@ function autoText(l: InfluencerLogRow): ReactNode {
     case 'draft_unassigned': return <>배정 해제 — {draft}</>;
     case 'draft_delivered': return <>원고 전달됨 — {draft}</>;
     case 'handle_changed': return <>핸들 변경 @{l.payload?.from ?? '?'} → @{l.payload?.to ?? '?'}</>;
+    case 'pricing_changed': {
+      const p = l.payload as PricingChange | null;
+      if (!p) return <>단가 변경</>;
+      if (p.priceType === 'currency') {
+        return <>단가 통화 {p.from === 'JPY' ? '엔화' : '원화'} → {p.to === 'JPY' ? '엔화' : '원화'}</>;
+      }
+      const fmt = (v: number | string | null) => (v === null ? '미정' : formatMoney(v as number, p.currency));
+      return <>{PRICE_TYPE_LABEL[p.priceType]} 단가 {fmt(p.from)} → {fmt(p.to)}</>;
+    }
     default: return <>활동 기록</>;
   }
 }
@@ -322,6 +339,7 @@ function groupText(eventType: InfluencerAutoEvent | null, n: number): string {
     case 'draft_unassigned': return `배정 해제 ${n}건`;
     case 'draft_delivered': return `원고 ${n}건 전달됨`;
     case 'handle_changed': return `핸들 변경 ${n}건`;
+    case 'pricing_changed': return `단가 변경 ${n}건`;
     default: return `활동 기록 ${n}건`;
   }
 }

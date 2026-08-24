@@ -62,7 +62,9 @@ test('5) getLinkStats — 성공/404/5xx 3분기가 절대 섞이지 않는다',
     assert.equal(ok.humanClicks, 120);
     assert.deepEqual(ok.raw, { totalClicks: 128, humanClicks: 120 });
   }
-  assert.equal(a.calls[0].url, 'https://api-v2.short.io/statistics/link/lnk_1?period=total');
+  // period=total은 실계약에서 0을 돌려줘 못 쓴다 — 전체 기간을 명시적 범위로(2020-01-01 ~ 오늘+2일)
+  assert.match(a.calls[0].url,
+    /^https:\/\/api-v2\.short\.io\/statistics\/link\/lnk_1\?startDate=2020-01-01&endDate=\d{4}-\d{2}-\d{2}$/);
   const b = make([json(404, {})]);
   assert.deepEqual(await b.client.getLinkStats('gone'), { kind: 'unavailable' });
   const c = make([json(500, {}), json(500, {}), json(500, {})]);

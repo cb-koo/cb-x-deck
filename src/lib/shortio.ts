@@ -65,7 +65,10 @@ export class ShortioClient {
 
   async getLinkStats(linkId: string): Promise<LinkStatsResult> {
     const res = await this.request(
-      `${STATS_BASE}/statistics/link/${encodeURIComponent(linkId)}?period=total`,
+      // 실계약(2026-08-25): 이 플랜에서 period=total은 빈 구간(0)을 돌려준다 — 파라미터 없음은 최근 30일로
+      // 잘린다. 명시적 startDate/endDate만 전체 기간을 정확히 집계하므로, 서비스 개시 이전(2020)부터
+      // 모레(시간대 경계 여유)까지를 항상 명시한다.
+      `${STATS_BASE}/statistics/link/${encodeURIComponent(linkId)}?startDate=2020-01-01&endDate=${new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10)}`,
       { method: 'GET', headers: { authorization: this.opts.apiKey } },
     );
     if (!res) return { kind: 'error' };

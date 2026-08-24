@@ -5,7 +5,7 @@ import type { ClientRow, ProcedureRow } from './clientStore.ts';
 
 function client(over: Partial<ClientRow> = {}): ClientRow {
   return { id: 'c1', name: '가온피부과', info: '강남역 3번 출구', bannedPhrases: [], position: 0,
-           updatedAt: '2026-08-09T00:00:00.000Z', ...over };
+           updatedAt: '2026-08-09T00:00:00.000Z', landingUrl: '', ...over };
 }
 function proc(over: Partial<ProcedureRow> = {}): ProcedureRow {
   return { id: 'p1', clientId: 'c1', name: '보톡스', description: '', effectPhrases: '', bannedPhrases: [], position: 0, ...over };

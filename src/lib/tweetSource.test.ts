@@ -38,6 +38,21 @@ test('fetchRecent: since보다 오래된 트윗을 만나면 그 페이지에서
   assert.equal(r.truncatedByCount, false);
 });
 
+test('fetchRecent: 오래된 고정글이 첫 페이지 맨 앞에 있어도 수집을 멈추지 않는다', async () => {
+  // getxapi는 isPinned 글을 최신순과 무관하게 1페이지 맨 앞에 끼워 준다(실호출 확인).
+  const pages: SearchPage[] = [
+    { tweets: [raw({ id: 'pinned', createdAt: '2024-01-01T00:00:00.000Z', isPinned: true }),
+               raw({ id: 'a', createdAt: '2026-08-20T00:00:00.000Z' })],
+      has_more: true, next_cursor: 'c1' },
+    { tweets: [raw({ id: 'b', createdAt: '2026-08-19T00:00:00.000Z' })], has_more: false, next_cursor: null },
+  ];
+  let calls = 0;
+  const source = makeGetxapiTweetSource({ getUserTweets: async () => pages[calls++] });
+  const r = await source.fetchRecent('u1', { maxCount: 100, since: '2026-05-24T00:00:00.000Z' });
+  assert.deepEqual(r.tweets.map((t) => t.id), ['a', 'b']);   // 고정글은 빠지고 2페이지까지 이어진다
+  assert.equal(calls, 2);
+});
+
 test('fetchRecent: maxCount에서 중단하고 truncatedByCount=true', async () => {
   const page = (ids: string[], more: boolean): SearchPage => ({
     tweets: ids.map((id) => raw({ id })), has_more: more, next_cursor: more ? 'c' : null,

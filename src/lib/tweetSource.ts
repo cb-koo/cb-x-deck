@@ -36,6 +36,11 @@ export function makeGetxapiTweetSource(client: Pick<GetxapiClient, 'getUserTweet
         const page = await client.getUserTweets(userId, cursor);
         let sawOld = false;
         for (const raw of page.tweets) {
+          // 고정글은 최신순과 무관하게 1페이지 맨 앞에 실려 온다 — 실호출로 확인(2026-08-25, elonmusk:
+          // idx0 = isPinned:true / Aug 22, idx1 = Aug 24). 그대로 두면 3개월보다 오래된 고정글 하나가
+          // sawOld를 켜 1페이지에서 수집이 끊긴다(빈도 과소평가). 시간순 신호가 아니므로 아예 건너뛴다
+          // — 창 안의 고정글 1건을 표본에서 잃을 수 있지만, 앞머리 중복 계수도 함께 막는다.
+          if (raw.isPinned === true) continue;
           const t = mapRawAnalysisTweet(raw);
           if (!t) continue;
           if (t.createdAt < since) { sawOld = true; continue; } // 페이지가 최신순이라 이후는 전부 과거

@@ -91,20 +91,27 @@ export function TrackingLinkSection({ draftId, influencerHandle, clientId, clien
           <p className="text-x-muted">아직 만든 링크가 없어요 — 게시 요청에 함께 보낼 랜딩페이지 링크를 만들면 클릭이 추적돼요.</p>
         )}
         {state === 'ready' && rows.map((r) => (
-          <p key={r.id} className="flex items-baseline gap-2 py-0.5">
-            <a href={r.shortUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline">
-              {r.shortUrl.replace(/^https?:\/\//, '')}
-            </a>
-            <button onClick={() => void copy(r)} className="text-x-blue-text hover:underline">
+          // 행 카드: 주소가 주인공(윗줄·말줄임), 상태는 아랫줄 — 좁은 카드에서도 버튼과 겹치지 않는다.
+          // 복사 = 이 행의 제1 행동이라 알약 버튼, 삭제 = 파괴 행동이라 눈에 덜 띄는 ✕ 아이콘(hover에서만 빨강).
+          <div key={r.id} className="mt-1 flex items-center gap-1.5 rounded-md border border-x-border bg-x-surface px-2.5 py-1.5">
+            <div className="min-w-0 flex-1">
+              <a href={r.shortUrl} target="_blank" rel="noreferrer" title={r.shortUrl}
+                 className="block truncate text-ui text-x-blue-text hover:underline">
+                {r.shortUrl.replace(/^https?:\/\//, '')}
+              </a>
+              <p className="text-caption text-x-muted">
+                {r.clicks === null ? '클릭 측정 전' : `클릭 ${r.clicks.totalClicks ?? '—'}`}
+                {r.capturedAt ? ` · ${relTimeFine(r.capturedAt, '측정')}` : ''}
+              </p>
+            </div>
+            <button onClick={() => void copy(r)}
+                    className="shrink-0 rounded-full border border-x-border-strong px-2.5 py-1 text-[13px] text-x-secondary transition-colors hover:bg-x-hover">
               {copiedId === r.id ? '복사됨 ✓' : '복사'}
             </button>
-            <button onClick={() => void remove(r)} title="목록에서 빼고 클릭 기록도 지워요 — 짧은 링크 자체는 계속 열려요"
-                    className="text-x-muted hover:text-red-600 hover:underline">삭제</button>
-            <span className="ml-auto shrink-0 text-x-muted">
-              {r.clicks === null ? '측정 전' : `클릭 ${r.clicks.totalClicks ?? '—'}`}
-              {r.capturedAt ? ` · ${relTimeFine(r.capturedAt, '측정')}` : ''}
-            </span>
-          </p>
+            <button onClick={() => void remove(r)} aria-label="링크 빼기"
+                    title="목록에서 빼고 클릭 기록도 지워요 — 짧은 링크 자체는 계속 열려요"
+                    className="shrink-0 rounded-full p-1.5 text-x-muted transition-colors hover:bg-red-50 hover:text-red-600">✕</button>
+          </div>
         ))}
       </div>
       {createOpen && (

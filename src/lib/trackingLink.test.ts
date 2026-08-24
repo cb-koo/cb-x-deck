@@ -17,11 +17,13 @@ test('1) 링크 주소 — 단어형 코드 제안(자음·모음 교대·글자
   for (const r of ['empty', 'invalid'] as const) assert.ok(slugMessage(r).length > 0);
 });
 
-test('2) 랜딩 URL 검사 — 빈 값·http·형식 오류를 구분한다', () => {
+test('2) 랜딩 URL 검사 — 빈 값·http·형식 오류 구분, https:// 생략은 자동 보정', () => {
   assert.deepEqual(checkLandingUrl('  '), { ok: false, reason: 'empty' });
   assert.deepEqual(checkLandingUrl('http://example.com'), { ok: false, reason: 'not-https' });
-  assert.deepEqual(checkLandingUrl('example.com/page'), { ok: false, reason: 'invalid' }); // 프로토콜 없음
+  // https:// 없이 붙여넣는 게 자연스러운 입력이다(koo QA 08-25) — 자동으로 붙여 해석한다
+  assert.deepEqual(checkLandingUrl('clinic.example.com/page'), { ok: true, url: 'https://clinic.example.com/page' });
   assert.deepEqual(checkLandingUrl('https://localhost'), { ok: false, reason: 'invalid' }); // 점 없는 호스트
+  assert.deepEqual(checkLandingUrl('그냥글자'), { ok: false, reason: 'invalid' }); // 보정해도 주소가 아님
   const ok = checkLandingUrl(' https://clinic.example.com/event?ref=a ');
   assert.equal(ok.ok, true);
   // 사유별 안내 문구가 비어 있지 않다 — 버튼 비활성의 이유를 항상 말한다(UX 원칙 2)

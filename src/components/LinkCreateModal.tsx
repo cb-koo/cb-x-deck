@@ -184,13 +184,14 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
             <p className="mt-1 text-caption text-x-muted">고르면 랜딩 주소·캠페인명이 자동으로 채워져요(직접 고친 값은 그대로 유지돼요)</p>
 
             <label htmlFor="link-create-landing" className="mt-3 block text-caption text-x-muted">랜딩 페이지 주소</label>
-            <input id="link-create-landing" type="url" value={landingUrl}
+            <input id="link-create-landing" type="text" inputMode="url" value={landingUrl}
                    onChange={(e) => { setLandingUrl(e.target.value); setLandingTouched(true); }}
-                   placeholder="https://example.com/이벤트"
+                   placeholder="example.com/이벤트"
+                   autoComplete="off" autoCapitalize="none" spellCheck={false}
                    className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue" />
             {showLandingErr && !landing.ok
               ? <p className="mt-1 text-caption text-red-600">{landingUrlMessage(landing.reason)}</p>
-              : <p className="mt-1 text-caption text-x-muted">인플루언서가 클릭했을 때 도착할 실제 주소예요</p>}
+              : <p className="mt-1 text-caption text-x-muted">인플루언서가 클릭했을 때 도착할 실제 주소예요 — https://는 생략해도 돼요</p>}
 
             <div className="mt-3">
               <InfluencerField value={handle} options={influencers} onChange={setHandle} error={null} />

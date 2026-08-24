@@ -44,8 +44,11 @@ export type LandingUrlCheck =
 // 잘못된 링크가 인플루언서에게 나가는 사고를 막는 관문 — 클라이언트(즉시 피드백)와
 // 서버(저장 근거)가 같은 함수를 쓴다(parseTweetLink 재검증 관례).
 export function checkLandingUrl(input: string): LandingUrlCheck {
-  const raw = (input ?? '').trim();
+  let raw = (input ?? '').trim();
   if (!raw) return { ok: false, reason: 'empty' };
+  // 스킴 없이 붙여넣는 게 자연스러운 입력(koo QA 08-25) — https://를 자동으로 붙여 해석한다.
+  // http://를 명시한 경우는 보정하지 않고 거부한다: http 전용 사이트를 https로 바꿔치기하면 죽은 링크가 나간다.
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) raw = `https://${raw}`;
   let u: URL;
   try { u = new URL(raw); } catch { return { ok: false, reason: 'invalid' }; }
   if (u.protocol !== 'https:') return { ok: false, reason: 'not-https' };

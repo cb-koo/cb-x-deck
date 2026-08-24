@@ -35,8 +35,11 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
   useEffect(() => { campaignTouchedRef.current = campaignTouched; }, [campaignTouched]);
 
   // 열 때마다 초기화(모달 재사용, ColumnSettings 관례) — prefill은 그 시점 값을 스냅샷한다.
+  // prefill을 통째로 의존하면 호출부가 인라인 객체(`prefill={{...}}`)를 넘길 때마다 새 참조가 되어
+  // 모달이 열린 채로 재발화되고, 입력 중인 값이 기본값으로 되돌아간다 — 프리미티브만 의존한다
+  // (clients-load effect의 `prefill?.clientId` 단독 의존 관례를 따름).
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 열 때마다 초기화(모달 재사용, ColumnSettings 관례)
-  useEffect(() => { if (!open) return; setClientId(prefill?.clientId ?? ''); setLandingUrl(''); setLandingTouched(false); setHandle(prefill?.influencerHandle ?? ''); setCampaign(suggestCampaign(prefill?.clientName ?? null)); setCampaignTouched(false); setBusy(false); setErr(''); setDone(null); setCopied(false); }, [open, prefill]);
+  useEffect(() => { if (!open) return; setClientId(prefill?.clientId ?? ''); setLandingUrl(''); setLandingTouched(false); setHandle(prefill?.influencerHandle ?? ''); setCampaign(suggestCampaign(prefill?.clientName ?? null)); setCampaignTouched(false); setBusy(false); setErr(''); setDone(null); setCopied(false); }, [open, prefill?.clientId, prefill?.influencerHandle, prefill?.clientName, prefill?.draftId]);
 
   // 클라이언트·인플루언서 목록 — 자동 채움·자동완성 소스일 뿐, 실패해도 모달은 그대로 동작한다.
   useEffect(() => {
@@ -71,6 +74,14 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
 
   const landing = checkLandingUrl(landingUrl);
   const canSubmit = configured && landing.ok && handle.trim() !== '' && campaign.trim() !== '' && !busy;
+  // 랜딩 URL 문제는 위 인라인 오류(또는 안내문)가 이미 있으니 중복 표시하지 않는다 — 그 다음 미충족 사유만.
+  const disabledReason = !landing.ok
+    ? ''
+    : handle.trim() === ''
+    ? '게시할 인플루언서를 입력해 주세요'
+    : campaign.trim() === ''
+    ? '캠페인명을 입력해 주세요'
+    : '';
   const preview = landing.ok
     ? buildTrackedUrl({ landingUrl: landing.url, campaign: campaign.trim(), handle: handle.trim().replace(/^@/, ''), code: 'xxxxxx' })
     : null;
@@ -163,8 +174,8 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
                    onChange={(e) => { setLandingUrl(e.target.value); setLandingTouched(true); }}
                    placeholder="https://example.com/이벤트"
                    className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue" />
-            {showLandingErr
-              ? <p className="mt-1 text-caption text-red-600">{landingUrlMessage(landing.ok ? 'invalid' : landing.reason)}</p>
+            {showLandingErr && !landing.ok
+              ? <p className="mt-1 text-caption text-red-600">{landingUrlMessage(landing.reason)}</p>
               : <p className="mt-1 text-caption text-x-muted">인플루언서가 클릭했을 때 도착할 실제 주소예요</p>}
 
             <div className="mt-3">
@@ -195,6 +206,9 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
               </Button>
               <button onClick={onClose} className="text-ui text-x-secondary">취소</button>
             </div>
+            {!canSubmit && !busy && disabledReason && (
+              <p className="mt-1.5 text-caption text-x-muted">{disabledReason}</p>
+            )}
           </>
         )}
       </div>

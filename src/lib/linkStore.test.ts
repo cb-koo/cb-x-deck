@@ -9,7 +9,7 @@ import {
 } from './linkStore.ts';
 
 const sql = getSql();
-const P = 'tlnk' + process.pid;
+const P = 'tlnk' + process.pid.toString(36) + Date.now().toString(36);
 const base = (code: string) => ({
   code, landingUrl: 'https://c.example.com/', longUrl: `https://c.example.com/?utm_content=h-${code}`,
   shortUrl: `https://cb.link/${code}`, shortioLinkId: 'lnk_' + code, utmCampaign: P + '캠',
@@ -23,7 +23,7 @@ after(async () => {
 });
 
 test('1) 생성 → 목록 — 클릭 측정 전에는 clicks가 null', async () => {
-  const row = await insertLink(sql, base(P.slice(0, 2) + '0001'));
+  const row = await insertLink(sql, base(P + '1'));
   assert.equal(row.clicks, null);
   assert.equal(row.capturedAt, null);
   assert.equal(row.unavailableAt, null);
@@ -33,12 +33,12 @@ test('1) 생성 → 목록 — 클릭 측정 전에는 clicks가 null', async ()
 });
 
 test('2) code unique — 같은 코드 재삽입은 던진다(호출부 재생성의 근거)', async () => {
-  await insertLink(sql, base(P.slice(0, 2) + '0002'));
-  await assert.rejects(() => insertLink(sql, base(P.slice(0, 2) + '0002')));
+  await insertLink(sql, base(P + '2'));
+  await assert.rejects(() => insertLink(sql, base(P + '2')));
 });
 
 test('3) 클릭 스냅샷 append — 최신값이 목록에 붙고 이력이 쌓인다·복귀 수용', async () => {
-  const row = await insertLink(sql, base(P.slice(0, 2) + '0003'));
+  const row = await insertLink(sql, base(P + '3'));
   await appendClickSnapshot(sql, row.id, { totalClicks: 10, humanClicks: 9 }, { totalClicks: 10 });
   await markLinkUnavailable(sql, row.id);
   const dead = await findLinkById(sql, row.id);
@@ -63,7 +63,7 @@ test('4) draft 연결 — draftLabel(title 우선), draft 삭제 시 링크는 �
     content, model: null, memberId: null,
   });
   await updateDraft(sql, draftId, { title: P + '제목' });
-  const row = await insertLink(sql, { ...base(P.slice(0, 2) + '0004'), draftId });
+  const row = await insertLink(sql, { ...base(P + '4'), draftId });
   assert.equal((await findLinkById(sql, row.id))!.draftLabel, P + '제목');
   const byDraft = await listLinks(sql, { draftId });
   assert.equal(byDraft.length, 1);
@@ -74,7 +74,7 @@ test('4) draft 연결 — draftLabel(title 우선), draft 삭제 시 링크는 �
 });
 
 test('5) 삭제 — 행과 스냅샷만 지워진다(shortio_link_id 관련 동작 없음은 라우트 몫)', async () => {
-  const row = await insertLink(sql, base(P.slice(0, 2) + '0005'));
+  const row = await insertLink(sql, base(P + '5'));
   await appendClickSnapshot(sql, row.id, { totalClicks: 1, humanClicks: 1 }, null);
   assert.equal(await deleteLink(sql, row.id), true);
   assert.equal(await findLinkById(sql, row.id), null);

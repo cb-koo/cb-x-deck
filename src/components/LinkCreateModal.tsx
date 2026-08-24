@@ -1,0 +1,203 @@
+'use client';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { apiFetch } from '@/lib/apiFetch';
+import { Button } from '@/components/ui';
+import { InfluencerField } from '@/components/InfluencerField';
+import type { InfluencerOption } from '@/lib/draftTypes';
+import type { ClientRow } from '@/lib/clientStore';
+import type { InfluencerRow } from '@/lib/influencerStore';
+import type { TrackingLinkRow } from '@/lib/linkStore';
+import { checkLandingUrl, landingUrlMessage, buildTrackedUrl, suggestCampaign } from '@/lib/trackingLink';
+
+// 트래킹 링크 생성 모달 — 원고 카드(자동 채움)와 트래킹 페이지(직접 입력) 양쪽이 공유한다(스펙 §화면).
+export function LinkCreateModal({ open, onClose, onCreated, configured, prefill }: {
+  open: boolean; onClose: () => void; onCreated: (row: TrackingLinkRow) => void;
+  configured: boolean;
+  prefill?: { draftId?: string; influencerHandle?: string; clientId?: string; clientName?: string };
+}) {
+  const [clients, setClients] = useState<ClientRow[]>([]);
+  const [influencers, setInfluencers] = useState<InfluencerOption[]>([]);
+  const [clientId, setClientId] = useState(prefill?.clientId ?? '');
+  const [landingUrl, setLandingUrl] = useState('');
+  const [landingTouched, setLandingTouched] = useState(false);
+  const [handle, setHandle] = useState(prefill?.influencerHandle ?? '');
+  const [campaign, setCampaign] = useState(suggestCampaign(prefill?.clientName ?? null));
+  const [campaignTouched, setCampaignTouched] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [done, setDone] = useState<TrackingLinkRow | null>(null); // 성공 화면
+  const [copied, setCopied] = useState(false);
+  // 클라 목록 로드(비동기)가 끝난 시점의 touched 여부를 봐야 하는데, 그 로드 이펙트의 의존성에
+  // touched를 넣으면 타이핑할 때마다 다시 조회하게 된다 — ref로 최신값만 곁눈질한다.
+  const landingTouchedRef = useRef(landingTouched);
+  const campaignTouchedRef = useRef(campaignTouched);
+  useEffect(() => { landingTouchedRef.current = landingTouched; }, [landingTouched]);
+  useEffect(() => { campaignTouchedRef.current = campaignTouched; }, [campaignTouched]);
+
+  // 열 때마다 초기화(모달 재사용, ColumnSettings 관례) — prefill은 그 시점 값을 스냅샷한다.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- 열 때마다 초기화(모달 재사용, ColumnSettings 관례)
+  useEffect(() => { if (!open) return; setClientId(prefill?.clientId ?? ''); setLandingUrl(''); setLandingTouched(false); setHandle(prefill?.influencerHandle ?? ''); setCampaign(suggestCampaign(prefill?.clientName ?? null)); setCampaignTouched(false); setBusy(false); setErr(''); setDone(null); setCopied(false); }, [open, prefill]);
+
+  // 클라이언트·인플루언서 목록 — 자동 채움·자동완성 소스일 뿐, 실패해도 모달은 그대로 동작한다.
+  useEffect(() => {
+    if (!open) return;
+    apiFetch('/api/clients')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((rows: Array<{ client: ClientRow }>) => {
+        const list = rows.map((r) => r.client);
+        setClients(list);
+        // prefill.clientId는 목록이 로드된 뒤에야 그 클라의 landingUrl을 알 수 있다 — 같은 채움 규칙 적용.
+        if (prefill?.clientId) {
+          const c = list.find((x) => x.id === prefill.clientId);
+          if (c) {
+            if (!landingTouchedRef.current) setLandingUrl(c.landingUrl);
+            if (!campaignTouchedRef.current) setCampaign(suggestCampaign(c.name));
+          }
+        }
+      })
+      .catch(() => setClients([]));
+    apiFetch('/api/influencers')
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((rows: InfluencerRow[]) => setInfluencers(rows.map((r) => ({ handle: r.handle, name: r.displayName ?? undefined }))))
+      .catch(() => setInfluencers([]));
+  }, [open, prefill?.clientId]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) onClose(); }; // IME 조합 중 Esc 무시
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  const landing = checkLandingUrl(landingUrl);
+  const canSubmit = configured && landing.ok && handle.trim() !== '' && campaign.trim() !== '' && !busy;
+  const preview = landing.ok
+    ? buildTrackedUrl({ landingUrl: landing.url, campaign: campaign.trim(), handle: handle.trim().replace(/^@/, ''), code: 'xxxxxx' })
+    : null;
+
+  const submit = useCallback(async () => {
+    if (!canSubmit || !landing.ok) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await apiFetch('/api/links', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          landingUrl: landing.url, influencerHandle: handle, utmCampaign: campaign.trim(),
+          draftId: prefill?.draftId, clientId: clientId || undefined,
+        }),
+      });
+      const data = (await r.json().catch(() => ({}))) as { row?: TrackingLinkRow; error?: string };
+      if (!r.ok || !data.row) { setErr(data.error ?? '링크를 만들지 못했어요 — 잠시 후 다시 시도해 주세요'); return; }
+      setDone(data.row);
+      onCreated(data.row);
+    } catch {
+      setErr('링크를 만들지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
+    } finally { setBusy(false); }
+  }, [canSubmit, landing, handle, campaign, clientId, prefill, onCreated]);
+
+  const copy = useCallback(() => {
+    if (!done) return;
+    navigator.clipboard.writeText(done.shortUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }, [done]);
+
+  const onClientChange = useCallback((id: string) => {
+    setClientId(id);
+    const c = clients.find((x) => x.id === id);
+    if (!landingTouched) setLandingUrl(c ? c.landingUrl : '');
+    if (!campaignTouched) setCampaign(suggestCampaign(c ? c.name : null));
+  }, [clients, landingTouched, campaignTouched]);
+
+  if (!open) return null;
+
+  const showLandingErr = landingUrl.trim().length > 0 && !landing.ok;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6" onClick={onClose}>
+      <div className="w-full max-w-[480px] rounded-2xl bg-white p-4" role="dialog" aria-modal="true"
+           aria-label="트래킹 링크 만들기" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center">
+          <h2 className="text-[15px] font-bold">트래킹 링크 만들기</h2>
+          <button onClick={onClose} aria-label="닫기" className="ml-auto rounded px-1.5 text-x-secondary hover:bg-x-border">✕</button>
+        </div>
+
+        {done ? (
+          <div className="mt-3">
+            <p className="text-caption text-x-muted">단축 링크가 만들어졌어요</p>
+            <code className="mt-1 block break-all rounded-md border border-x-border-strong bg-x-hover px-2 py-1.5 text-[15px] font-bold">
+              {done.shortUrl}
+            </code>
+            <div className="mt-2 flex items-center gap-3">
+              <Button variant="subtle" onClick={copy}>{copied ? '복사됨 ✓' : '복사'}</Button>
+            </div>
+            <p className="mt-3 text-caption text-x-muted">
+              인플루언서에게 이 링크를 전달해 게시할 때 함께 올려달라고 요청하세요.
+            </p>
+            <div className="mt-4 flex items-center gap-3">
+              <Button variant="primary" onClick={onClose}>닫기</Button>
+            </div>
+          </div>
+        ) : configured === false ? (
+          <div className="mt-3">
+            <p className="text-caption text-red-600">
+              short.io 연결이 아직 설정되지 않았어요 — 관리자에게 요청해 주세요
+            </p>
+            <div className="mt-4 flex items-center gap-3">
+              <Button variant="subtle" onClick={onClose}>닫기</Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <label htmlFor="link-create-client" className="mt-3 block text-caption text-x-muted">클라이언트</label>
+            <select id="link-create-client" value={clientId} onChange={(e) => onClientChange(e.target.value)}
+                    className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue">
+              <option value="">(없음)</option>
+              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <p className="mt-1 text-caption text-x-muted">고르면 랜딩 주소·캠페인명이 자동으로 채워져요(직접 고친 값은 그대로 유지돼요)</p>
+
+            <label htmlFor="link-create-landing" className="mt-3 block text-caption text-x-muted">랜딩 페이지 주소</label>
+            <input id="link-create-landing" type="url" value={landingUrl}
+                   onChange={(e) => { setLandingUrl(e.target.value); setLandingTouched(true); }}
+                   placeholder="https://example.com/이벤트"
+                   className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue" />
+            {showLandingErr
+              ? <p className="mt-1 text-caption text-red-600">{landingUrlMessage(landing.ok ? 'invalid' : landing.reason)}</p>
+              : <p className="mt-1 text-caption text-x-muted">인플루언서가 클릭했을 때 도착할 실제 주소예요</p>}
+
+            <div className="mt-3">
+              <InfluencerField value={handle} options={influencers} onChange={setHandle} error={null} />
+            </div>
+
+            <label htmlFor="link-create-campaign" className="mt-3 block text-caption text-x-muted">캠페인명</label>
+            <input id="link-create-campaign" value={campaign}
+                   onChange={(e) => { setCampaign(e.target.value); setCampaignTouched(true); }}
+                   className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue" />
+            <p className="mt-1 text-caption text-x-muted">랜딩 쪽 분석 도구에서 이 캠페인 이름으로 모아 볼 수 있어요</p>
+
+            {preview && (
+              <div className="mt-3">
+                <p className="text-caption text-x-muted">이렇게 만들어져요</p>
+                <code className="mt-0.5 block break-all rounded-md border border-x-border-strong bg-x-hover px-2 py-1.5 text-caption">
+                  {preview}
+                </code>
+                <p className="mt-1 text-caption text-x-muted">xxxxxx 자리는 만들 때 정해지는 6자리 코드예요</p>
+              </div>
+            )}
+
+            {err && <p className="mt-2 text-caption text-red-600">{err}</p>}
+
+            <div className="mt-4 flex items-center gap-3">
+              <Button variant="primary" onClick={() => void submit()} disabled={!canSubmit}>
+                {busy ? '만드는 중…' : '짧은 링크 만들기'}
+              </Button>
+              <button onClick={onClose} className="text-ui text-x-secondary">취소</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

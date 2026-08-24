@@ -48,6 +48,21 @@ test('bucketRanges month — 달력 월로 스냅', () => {
   ]);
 });
 
+test('bucketRanges month — 연말 경계(12월→1월)와 윤년 2월', () => {
+  assert.deepEqual(bucketRanges('2027-12-15', '2028-01-10', 'month'), [
+    { start: '2027-12-01', end: '2027-12-31' },
+    { start: '2028-01-01', end: '2028-01-31' },
+  ]);
+  assert.deepEqual(bucketRanges('2024-02-10', '2024-02-10', 'month'),
+    [{ start: '2024-02-01', end: '2024-02-29' }]);
+});
+
+test('bucketRanges week — 일요일 시작 날짜도 직전 월요일로 스냅', () => {
+  // 2026-07-19는 일요일 → 그 주는 7/13(월)~7/19(일)
+  assert.deepEqual(bucketRanges('2026-07-19', '2026-07-19', 'week'),
+    [{ start: '2026-07-13', end: '2026-07-19' }]);
+});
+
 test('ratio — 분모 0·null이면 null (0 아님)', () => {
   assert.equal(ratio(5, 10), 0.5);
   assert.equal(ratio(5, 0), null);

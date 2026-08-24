@@ -23,8 +23,7 @@ function weekStart(date: string): string { // 월요일 시작
 }
 function monthStart(date: string): string { return date.slice(0, 8) + '01'; }
 function monthEnd(date: string): string {
-  const next = date.slice(0, 7) === '2026-12' ? `${+date.slice(0, 4) + 1}-01-01` : monthStart(addDays(monthStart(date), 45));
-  return addDays(next, -1);
+  return addDays(monthStart(addDays(monthStart(date), 45)), -1);
 }
 
 export function bucketRanges(start: string, end: string, unit: ReportUnit): BucketRange[] {

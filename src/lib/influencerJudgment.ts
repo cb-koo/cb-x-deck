@@ -1,6 +1,7 @@
 // 판단 파생 함수 — 리스트/프로필이 같은 배지 상태·문구를 계산하도록 UI 밖으로 뺀 순수 함수들.
 // (스펙 §① 현황 스트립 §④ 갱신 넛지) DB 접근 없음 — now?를 받아 테스트에서 결정적으로 검증한다.
 import { DRAFT_STATUSES, STATUS_LABEL, type DraftStatus } from './draftStatus.ts';
+import { formatCount } from './format.ts';
 
 export const FOLLOWUP_DAYS = 14;
 export const PROFILE_STALE_DAYS = 30;
@@ -43,4 +44,34 @@ export function summarizeDraftStatuses(counts: Partial<Record<DraftStatus, numbe
     .filter((s) => (counts[s] ?? 0) > 0)
     .map((s) => `${STATUS_LABEL[s]} ${counts[s]}`)
     .join(' · ');
+}
+
+// ---- 계정 분석 판단 (스펙 §3 결과 UI) — 숫자만 던지지 않고 판단까지 서술(UX 원칙 3) ----
+
+export interface CadenceJudgment { label: string; caution: boolean }
+
+// 표본이 얇은 것은 오류가 아니라 판단 재료다(스펙 §3 표본): 주 1회 미만 = 확산용 주의.
+export function judgeCadence(perWeek: number, sampleCount: number): CadenceJudgment {
+  if (sampleCount === 0) {
+    return { label: '최근 3개월 게시물이 없어요 — 활동이 없는 계정일 수 있어요', caution: true };
+  }
+  if (perWeek < 1) {
+    return { label: '주 1회 미만 — 활동이 적은 편이에요. 확산용 계정으로는 신중히 볼 필요가 있어요', caution: true };
+  }
+  const n = Number.isInteger(perWeek) ? String(perWeek) : perWeek.toFixed(1);
+  return perWeek > 3
+    ? { label: `주 ${n}건 — 활발한 편`, caution: false }
+    : { label: `주 ${n}건 — 보통`, caution: false };
+}
+
+// 조회 중앙값을 팔로워 규모에 대 보고 판단한다 — 절대값만으론 계정 크기에 따라 의미가 다르다.
+// 축약 표기는 formatCount(X식 K/M 축약)와 동일 규칙을 쓰기 위해 그쪽을 재사용한다.
+export function judgeEngagement(medianViews: number | null, followers: number | null): string {
+  if (medianViews === null) return '조회수를 확인할 수 없었어요';
+  const v = `조회 중앙값 ${formatCount(medianViews)}`;
+  if (followers === null || followers === 0) return v;
+  const r = medianViews / followers;
+  if (r >= 0.5) return `${v} — 팔로워 규모 대비 활발한 편`;
+  if (r >= 0.1) return `${v} — 팔로워 규모 대비 보통`;
+  return `${v} — 팔로워 규모 대비 드문 편`;
 }

@@ -80,7 +80,7 @@ function Bars({ points, get, color = '#4a72b8', stackGet }: {
       const base = get(p), top = stackGet?.(p) ?? null;
       const baseVal = base ?? 0, topVal = top ?? 0;
       const valueLabel = base === null ? '값 없음(0 아님)' : fmt(base) + (top !== null ? ` (+${fmt(top)})` : '');
-      return <div key={i} className="flex flex-1 flex-col justify-end gap-[1px]" title={`${p.start}${p.inProgress ? ' (진행 중)' : ''} · ${valueLabel}`}>
+      return <div key={i} className="flex h-full flex-1 flex-col justify-end gap-[1px]" title={`${p.start}${p.inProgress ? ' (진행 중)' : ''} · ${valueLabel}`}>
         {top !== null && <div style={{ height: `${max ? (topVal / max) * 100 : 0}%`, background: color, opacity: p.inProgress ? 0.25 : 0.45 }} className="rounded-t-sm" />}
         <div style={{ height: `${max ? (baseVal / max) * 100 : 0}%`, background: color, opacity: p.inProgress ? 0.35 : 1 }} className={top === null ? 'rounded-t-sm' : ''} />
       </div>;

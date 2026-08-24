@@ -16,10 +16,11 @@ const CHIPS: Array<{ label: string; range: () => { start: string; end: string } 
   { label: '최근 6개월', range: () => ({ start: addDays(kstToday(), -182), end: addDays(kstToday(), -1) }) },
 ];
 
-// 클리닉·기간·단위를 고르고 "리포트 불러오기"로 명시적 조회(외부 API 콜 — opt-in 버튼, AGENTS.md UX 원칙 §6).
-export function ReportControls({ clients, value, onChange, onLoad, loading }: {
+// 클리닉·기간·단위를 고르면 400ms 디바운스 후 자동 조회(page.tsx) — 반복 마찰이 실사용 피드백으로
+// 확인돼 opt-in 버튼에서 자동화로 승격(AGENTS.md UX 원칙 §6). 여기서는 선택 UI와 로딩 표시만 맡는다.
+export function ReportControls({ clients, value, onChange, loading }: {
   clients: ClientRow[]; value: ReportQuery; onChange: (q: ReportQuery) => void;
-  onLoad: () => void; loading: boolean;
+  loading: boolean;
 }) {
   const setRange = (start: string, end: string) => onChange({ ...value, start, end, unit: recommendUnit(start, end) });
   const buckets = value.start <= value.end ? bucketRanges(value.start, value.end, value.unit).length : 0;
@@ -48,10 +49,7 @@ export function ReportControls({ clients, value, onChange, onLoad, loading }: {
             </button>
           ))}
         </div>
-        <button onClick={onLoad} disabled={loading || tooMany || inverted || !value.clientId}
-                className="h-8 rounded-md bg-x-blue px-3 text-[13px] font-bold text-white disabled:opacity-40">
-          {loading ? '불러오는 중…' : '리포트 불러오기'}
-        </button>
+        {loading && <span className="text-caption text-x-muted">불러오는 중…</span>}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <span className="text-caption text-x-muted">자주 쓰는 기간:</span>

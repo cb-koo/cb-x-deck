@@ -1,0 +1,1426 @@
+{
+  "meta": {
+    "clinic": {
+      "line_channel_id": "velybjp",
+      "uuid": "79dee767-0734-4881-af75-32b3767da0a9",
+      "name": "블리비의원"
+    },
+    "period": {
+      "start": "2026-07-01",
+      "end": "2026-07-31",
+      "days": 31,
+      "timezone": "Asia/Seoul"
+    },
+    "date_basis": "both",
+    "compare": "calendar",
+    "currency": "KRW",
+    "generated_at": "2026-08-24T12:50:55.402Z",
+    "cached_at": "2026-08-24T12:50:55.402Z",
+    "schema_url": "https://linemessagedashboard.vercel.app/api/reports/v1/openapi.yaml"
+  },
+  "current": {
+    "clinic": {
+      "name_ko": "블리비의원",
+      "line_channel_id": "velybjp",
+      "branches": [
+        {
+          "id": "04ce46c5-7f5c-4f67-b59f-2d728b82ccaf",
+          "name": "강남",
+          "is_active": true
+        },
+        {
+          "id": "f609339b-42c4-4017-a42d-b7d2511f9075",
+          "name": "명동",
+          "is_active": true
+        },
+        {
+          "id": "e12f5687-e6e5-4055-b07d-6c2b6e68469c",
+          "name": "홍대",
+          "is_active": true
+        },
+        {
+          "id": "99394e00-ef44-476e-b34d-7e8f5cafd544",
+          "name": "부산서면",
+          "is_active": true
+        },
+        {
+          "id": "b7c465ee-772c-4b83-9bfb-ec1f40aa321d",
+          "name": "부산남포",
+          "is_active": true
+        },
+        {
+          "id": "2fce1a4e-0aec-4707-8e1a-1960cb22064a",
+          "name": "발산",
+          "is_active": true
+        }
+      ],
+      "business_hours": [
+        {
+          "branch_id": "f609339b-42c4-4017-a42d-b7d2511f9075",
+          "weekday": 1,
+          "open": "10:30",
+          "close": "20:30",
+          "break": {
+            "start": "14:00",
+            "end": "15:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "f609339b-42c4-4017-a42d-b7d2511f9075",
+          "weekday": 2,
+          "open": "10:30",
+          "close": "20:30",
+          "break": {
+            "start": "14:00",
+            "end": "15:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "f609339b-42c4-4017-a42d-b7d2511f9075",
+          "weekday": 3,
+          "open": "10:30",
+          "close": "20:30",
+          "break": {
+            "start": "14:00",
+            "end": "15:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "f609339b-42c4-4017-a42d-b7d2511f9075",
+          "weekday": 4,
+          "open": "10:30",
+          "close": "20:30",
+          "break": {
+            "start": "14:00",
+            "end": "15:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "f609339b-42c4-4017-a42d-b7d2511f9075",
+          "weekday": 5,
+          "open": "10:30",
+          "close": "20:30",
+          "break": {
+            "start": "14:00",
+            "end": "15:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "f609339b-42c4-4017-a42d-b7d2511f9075",
+          "weekday": 6,
+          "open": "10:00",
+          "close": "16:30",
+          "break": null,
+          "is_closed": false
+        },
+        {
+          "branch_id": "f609339b-42c4-4017-a42d-b7d2511f9075",
+          "weekday": 0,
+          "open": "10:00",
+          "close": "16:30",
+          "break": null,
+          "is_closed": false
+        },
+        {
+          "branch_id": "04ce46c5-7f5c-4f67-b59f-2d728b82ccaf",
+          "weekday": 1,
+          "open": "11:00",
+          "close": "21:00",
+          "break": null,
+          "is_closed": false
+        },
+        {
+          "branch_id": "04ce46c5-7f5c-4f67-b59f-2d728b82ccaf",
+          "weekday": 5,
+          "open": "11:00",
+          "close": "21:00",
+          "break": null,
+          "is_closed": false
+        },
+        {
+          "branch_id": "04ce46c5-7f5c-4f67-b59f-2d728b82ccaf",
+          "weekday": 3,
+          "open": "11:00",
+          "close": "21:00",
+          "break": null,
+          "is_closed": false
+        },
+        {
+          "branch_id": "04ce46c5-7f5c-4f67-b59f-2d728b82ccaf",
+          "weekday": 2,
+          "open": "11:00",
+          "close": "20:00",
+          "break": null,
+          "is_closed": false
+        },
+        {
+          "branch_id": "04ce46c5-7f5c-4f67-b59f-2d728b82ccaf",
+          "weekday": 4,
+          "open": "11:00",
+          "close": "20:00",
+          "break": null,
+          "is_closed": false
+        },
+        {
+          "branch_id": "04ce46c5-7f5c-4f67-b59f-2d728b82ccaf",
+          "weekday": 6,
+          "open": "10:00",
+          "close": "16:00",
+          "break": null,
+          "is_closed": false
+        },
+        {
+          "branch_id": "04ce46c5-7f5c-4f67-b59f-2d728b82ccaf",
+          "weekday": 0,
+          "open": null,
+          "close": null,
+          "break": null,
+          "is_closed": true
+        },
+        {
+          "branch_id": "e12f5687-e6e5-4055-b07d-6c2b6e68469c",
+          "weekday": 1,
+          "open": "11:00",
+          "close": "21:00",
+          "break": {
+            "start": "14:00",
+            "end": "15:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "e12f5687-e6e5-4055-b07d-6c2b6e68469c",
+          "weekday": 5,
+          "open": "11:00",
+          "close": "21:00",
+          "break": {
+            "start": "14:00",
+            "end": "15:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "e12f5687-e6e5-4055-b07d-6c2b6e68469c",
+          "weekday": 2,
+          "open": "10:30",
+          "close": "20:30",
+          "break": {
+            "start": "14:00",
+            "end": "15:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "e12f5687-e6e5-4055-b07d-6c2b6e68469c",
+          "weekday": 3,
+          "open": "10:30",
+          "close": "20:30",
+          "break": {
+            "start": "14:00",
+            "end": "15:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "e12f5687-e6e5-4055-b07d-6c2b6e68469c",
+          "weekday": 4,
+          "open": "10:30",
+          "close": "20:30",
+          "break": {
+            "start": "14:00",
+            "end": "15:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "e12f5687-e6e5-4055-b07d-6c2b6e68469c",
+          "weekday": 6,
+          "open": "10:00",
+          "close": "16:30",
+          "break": null,
+          "is_closed": false
+        },
+        {
+          "branch_id": "e12f5687-e6e5-4055-b07d-6c2b6e68469c",
+          "weekday": 0,
+          "open": null,
+          "close": null,
+          "break": null,
+          "is_closed": true
+        },
+        {
+          "branch_id": "99394e00-ef44-476e-b34d-7e8f5cafd544",
+          "weekday": 1,
+          "open": "10:30",
+          "close": "21:00",
+          "break": {
+            "start": "13:00",
+            "end": "14:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "99394e00-ef44-476e-b34d-7e8f5cafd544",
+          "weekday": 2,
+          "open": "10:30",
+          "close": "20:00",
+          "break": {
+            "start": "13:00",
+            "end": "14:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "99394e00-ef44-476e-b34d-7e8f5cafd544",
+          "weekday": 3,
+          "open": "10:30",
+          "close": "20:00",
+          "break": {
+            "start": "13:00",
+            "end": "14:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "99394e00-ef44-476e-b34d-7e8f5cafd544",
+          "weekday": 4,
+          "open": "10:30",
+          "close": "20:00",
+          "break": {
+            "start": "13:00",
+            "end": "14:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "99394e00-ef44-476e-b34d-7e8f5cafd544",
+          "weekday": 6,
+          "open": "10:30",
+          "close": "16:00",
+          "break": null,
+          "is_closed": false
+        },
+        {
+          "branch_id": "99394e00-ef44-476e-b34d-7e8f5cafd544",
+          "weekday": 0,
+          "open": null,
+          "close": null,
+          "break": null,
+          "is_closed": true
+        }
+      ],
+      "holidays": [],
+      "business_days_in_period": 31
+    },
+    "followers": {
+      "total_at_end": 29315,
+      "snapshot_date": "2026-07-31",
+      "total_at_baseline": 28965,
+      "baseline_date": "2026-06-30",
+      "change": 350,
+      "blocked": 10049,
+      "reachable": 18818
+    },
+    "funnel": {
+      "active_customers": 1178,
+      "new_customers": 635,
+      "consulted_customers": 516,
+      "reservers": {
+        "by_line_id": 189,
+        "by_name": 280
+      },
+      "visitors": {
+        "by_line_id": 156,
+        "by_name": 240
+      }
+    },
+    "reservations": {
+      "created_at": {
+        "reservation_count": 291,
+        "revenue": {
+          "total": 44428000,
+          "first_visit": 36031000,
+          "repeat_visit": 8397000
+        },
+        "visit_type_counts": {
+          "first_visit": 237,
+          "repeat_visit": 54
+        },
+        "reservers": {
+          "by_line_id": 189,
+          "by_name": 280
+        },
+        "visitors": {
+          "by_line_id": 156,
+          "by_name": 240
+        },
+        "status_counts": {
+          "reviewing": 56,
+          "confirmed": 43,
+          "visited": 248,
+          "cancelled": 5,
+          "lost": 2,
+          "noshow": 0
+        },
+        "by_branch": [
+          {
+            "branch_name": "강남",
+            "branch_id": "04ce46c5-7f5c-4f67-b59f-2d728b82ccaf",
+            "in_master": true,
+            "source_values": [
+              "강남"
+            ],
+            "reservation_count": 50,
+            "revenue": {
+              "total": 9192500,
+              "first_visit": 7820000,
+              "repeat_visit": 1372500
+            },
+            "visit_type_counts": {
+              "first_visit": 41,
+              "repeat_visit": 9
+            },
+            "reservers": {
+              "by_line_id": 38,
+              "by_name": 48
+            },
+            "visitors": {
+              "by_line_id": 33,
+              "by_name": 42
+            },
+            "status_counts": {
+              "reviewing": 15,
+              "confirmed": 6,
+              "visited": 44,
+              "cancelled": 2,
+              "lost": 2,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "명동",
+            "branch_id": "f609339b-42c4-4017-a42d-b7d2511f9075",
+            "in_master": true,
+            "source_values": [
+              "명동"
+            ],
+            "reservation_count": 188,
+            "revenue": {
+              "total": 27901000,
+              "first_visit": 21941500,
+              "repeat_visit": 5959500
+            },
+            "visit_type_counts": {
+              "first_visit": 150,
+              "repeat_visit": 38
+            },
+            "reservers": {
+              "by_line_id": 116,
+              "by_name": 182
+            },
+            "visitors": {
+              "by_line_id": 93,
+              "by_name": 153
+            },
+            "status_counts": {
+              "reviewing": 37,
+              "confirmed": 31,
+              "visited": 157,
+              "cancelled": 3,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "홍대",
+            "branch_id": "e12f5687-e6e5-4055-b07d-6c2b6e68469c",
+            "in_master": true,
+            "source_values": [
+              "홍대"
+            ],
+            "reservation_count": 35,
+            "revenue": {
+              "total": 2855500,
+              "first_visit": 2031500,
+              "repeat_visit": 824000
+            },
+            "visit_type_counts": {
+              "first_visit": 30,
+              "repeat_visit": 5
+            },
+            "reservers": {
+              "by_line_id": 24,
+              "by_name": 34
+            },
+            "visitors": {
+              "by_line_id": 22,
+              "by_name": 31
+            },
+            "status_counts": {
+              "reviewing": 1,
+              "confirmed": 3,
+              "visited": 32,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "부산서면",
+            "branch_id": "99394e00-ef44-476e-b34d-7e8f5cafd544",
+            "in_master": true,
+            "source_values": [
+              "부산 서면",
+              "부산 서면점",
+              "부산서면"
+            ],
+            "reservation_count": 8,
+            "revenue": {
+              "total": 2401000,
+              "first_visit": 2193000,
+              "repeat_visit": 208000
+            },
+            "visit_type_counts": {
+              "first_visit": 7,
+              "repeat_visit": 1
+            },
+            "reservers": {
+              "by_line_id": 5,
+              "by_name": 8
+            },
+            "visitors": {
+              "by_line_id": 5,
+              "by_name": 8
+            },
+            "status_counts": {
+              "reviewing": 3,
+              "confirmed": 0,
+              "visited": 8,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "남포",
+            "branch_id": null,
+            "in_master": false,
+            "source_values": [
+              "남포"
+            ],
+            "reservation_count": 1,
+            "revenue": {
+              "total": 33000,
+              "first_visit": 0,
+              "repeat_visit": 33000
+            },
+            "visit_type_counts": {
+              "first_visit": 0,
+              "repeat_visit": 1
+            },
+            "reservers": {
+              "by_line_id": 1,
+              "by_name": 1
+            },
+            "visitors": {
+              "by_line_id": 0,
+              "by_name": 0
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 1,
+              "visited": 0,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "제주",
+            "branch_id": null,
+            "in_master": false,
+            "source_values": [
+              "제주"
+            ],
+            "reservation_count": 4,
+            "revenue": {
+              "total": 1382000,
+              "first_visit": 1382000,
+              "repeat_visit": 0
+            },
+            "visit_type_counts": {
+              "first_visit": 4,
+              "repeat_visit": 0
+            },
+            "reservers": {
+              "by_line_id": 2,
+              "by_name": 4
+            },
+            "visitors": {
+              "by_line_id": 2,
+              "by_name": 4
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 0,
+              "visited": 4,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": null,
+            "branch_id": null,
+            "in_master": false,
+            "source_values": [
+              "강남 또는 명동",
+              "명동, 홍대, 강남",
+              "홍대 or 명동",
+              null
+            ],
+            "reservation_count": 5,
+            "revenue": {
+              "total": 663000,
+              "first_visit": 663000,
+              "repeat_visit": 0
+            },
+            "visit_type_counts": {
+              "first_visit": 5,
+              "repeat_visit": 0
+            },
+            "reservers": {
+              "by_line_id": 4,
+              "by_name": 4
+            },
+            "visitors": {
+              "by_line_id": 2,
+              "by_name": 3
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 2,
+              "visited": 3,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          }
+        ]
+      },
+      "reservation_date": {
+        "reservation_count": 364,
+        "revenue": {
+          "total": 63939000,
+          "first_visit": 50354500,
+          "repeat_visit": 13584500
+        },
+        "visit_type_counts": {
+          "first_visit": 291,
+          "repeat_visit": 73
+        },
+        "reservers": {
+          "by_line_id": 230,
+          "by_name": 350
+        },
+        "visitors": {
+          "by_line_id": 230,
+          "by_name": 350
+        },
+        "status_counts": {
+          "reviewing": 33,
+          "confirmed": 0,
+          "visited": 364,
+          "cancelled": 3,
+          "lost": 0,
+          "noshow": 0
+        },
+        "by_branch": [
+          {
+            "branch_name": "강남",
+            "branch_id": "04ce46c5-7f5c-4f67-b59f-2d728b82ccaf",
+            "in_master": true,
+            "source_values": [
+              "강남"
+            ],
+            "reservation_count": 70,
+            "revenue": {
+              "total": 13516000,
+              "first_visit": 11322000,
+              "repeat_visit": 2194000
+            },
+            "visit_type_counts": {
+              "first_visit": 59,
+              "repeat_visit": 11
+            },
+            "reservers": {
+              "by_line_id": 49,
+              "by_name": 66
+            },
+            "visitors": {
+              "by_line_id": 49,
+              "by_name": 66
+            },
+            "status_counts": {
+              "reviewing": 7,
+              "confirmed": 0,
+              "visited": 70,
+              "cancelled": 2,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "명동",
+            "branch_id": "f609339b-42c4-4017-a42d-b7d2511f9075",
+            "in_master": true,
+            "source_values": [
+              "명동"
+            ],
+            "reservation_count": 243,
+            "revenue": {
+              "total": 43621500,
+              "first_visit": 33498000,
+              "repeat_visit": 10123500
+            },
+            "visit_type_counts": {
+              "first_visit": 189,
+              "repeat_visit": 54
+            },
+            "reservers": {
+              "by_line_id": 149,
+              "by_name": 238
+            },
+            "visitors": {
+              "by_line_id": 149,
+              "by_name": 238
+            },
+            "status_counts": {
+              "reviewing": 23,
+              "confirmed": 0,
+              "visited": 243,
+              "cancelled": 1,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "홍대",
+            "branch_id": "e12f5687-e6e5-4055-b07d-6c2b6e68469c",
+            "in_master": true,
+            "source_values": [
+              "홍대"
+            ],
+            "reservation_count": 29,
+            "revenue": {
+              "total": 2320500,
+              "first_visit": 1676500,
+              "repeat_visit": 644000
+            },
+            "visit_type_counts": {
+              "first_visit": 23,
+              "repeat_visit": 6
+            },
+            "reservers": {
+              "by_line_id": 21,
+              "by_name": 27
+            },
+            "visitors": {
+              "by_line_id": 21,
+              "by_name": 27
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 0,
+              "visited": 29,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "부산서면",
+            "branch_id": "99394e00-ef44-476e-b34d-7e8f5cafd544",
+            "in_master": true,
+            "source_values": [
+              "부산 서면",
+              "부산서면"
+            ],
+            "reservation_count": 16,
+            "revenue": {
+              "total": 2799000,
+              "first_visit": 2176000,
+              "repeat_visit": 623000
+            },
+            "visit_type_counts": {
+              "first_visit": 14,
+              "repeat_visit": 2
+            },
+            "reservers": {
+              "by_line_id": 10,
+              "by_name": 16
+            },
+            "visitors": {
+              "by_line_id": 10,
+              "by_name": 16
+            },
+            "status_counts": {
+              "reviewing": 3,
+              "confirmed": 0,
+              "visited": 16,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "제주",
+            "branch_id": null,
+            "in_master": false,
+            "source_values": [
+              "제주"
+            ],
+            "reservation_count": 4,
+            "revenue": {
+              "total": 1382000,
+              "first_visit": 1382000,
+              "repeat_visit": 0
+            },
+            "visit_type_counts": {
+              "first_visit": 4,
+              "repeat_visit": 0
+            },
+            "reservers": {
+              "by_line_id": 2,
+              "by_name": 4
+            },
+            "visitors": {
+              "by_line_id": 2,
+              "by_name": 4
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 0,
+              "visited": 4,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": null,
+            "branch_id": null,
+            "in_master": false,
+            "source_values": [
+              null
+            ],
+            "reservation_count": 2,
+            "revenue": {
+              "total": 300000,
+              "first_visit": 300000,
+              "repeat_visit": 0
+            },
+            "visit_type_counts": {
+              "first_visit": 2,
+              "repeat_visit": 0
+            },
+            "reservers": {
+              "by_line_id": 1,
+              "by_name": 2
+            },
+            "visitors": {
+              "by_line_id": 1,
+              "by_name": 2
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 0,
+              "visited": 2,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          }
+        ]
+      },
+      "upcoming_confirmed": 179
+    },
+    "costs": {
+      "marketing_cost": {
+        "total": 0,
+        "by_media": []
+      },
+      "x_views": null,
+      "roas": null,
+      "cpa": {
+        "by_line_id": null,
+        "by_name": null
+      }
+    }
+  },
+  "previous": {
+    "period": {
+      "start": "2026-06-01",
+      "end": "2026-06-30",
+      "days": 30
+    },
+    "followers": {
+      "total_at_end": 28965,
+      "snapshot_date": "2026-06-30",
+      "total_at_baseline": null,
+      "baseline_date": "2026-05-31",
+      "change": null,
+      "blocked": 9757,
+      "reachable": 18778
+    },
+    "funnel": {
+      "active_customers": 1681,
+      "new_customers": 1054,
+      "consulted_customers": 548,
+      "reservers": {
+        "by_line_id": 318,
+        "by_name": 464
+      },
+      "visitors": {
+        "by_line_id": 303,
+        "by_name": 438
+      }
+    },
+    "reservations": {
+      "created_at": {
+        "reservation_count": 477,
+        "revenue": {
+          "total": 89290000,
+          "first_visit": 66716000,
+          "repeat_visit": 22574000
+        },
+        "visit_type_counts": {
+          "first_visit": 376,
+          "repeat_visit": 101
+        },
+        "reservers": {
+          "by_line_id": 318,
+          "by_name": 464
+        },
+        "visitors": {
+          "by_line_id": 303,
+          "by_name": 438
+        },
+        "status_counts": {
+          "reviewing": 8,
+          "confirmed": 26,
+          "visited": 451,
+          "cancelled": 8,
+          "lost": 0,
+          "noshow": 0
+        },
+        "by_branch": [
+          {
+            "branch_name": "강남",
+            "branch_id": "04ce46c5-7f5c-4f67-b59f-2d728b82ccaf",
+            "in_master": true,
+            "source_values": [
+              "강남"
+            ],
+            "reservation_count": 100,
+            "revenue": {
+              "total": 19603000,
+              "first_visit": 13483500,
+              "repeat_visit": 6119500
+            },
+            "visit_type_counts": {
+              "first_visit": 79,
+              "repeat_visit": 21
+            },
+            "reservers": {
+              "by_line_id": 71,
+              "by_name": 95
+            },
+            "visitors": {
+              "by_line_id": 67,
+              "by_name": 90
+            },
+            "status_counts": {
+              "reviewing": 2,
+              "confirmed": 5,
+              "visited": 95,
+              "cancelled": 2,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "명동",
+            "branch_id": "f609339b-42c4-4017-a42d-b7d2511f9075",
+            "in_master": true,
+            "source_values": [
+              "명동"
+            ],
+            "reservation_count": 317,
+            "revenue": {
+              "total": 60552500,
+              "first_visit": 46366000,
+              "repeat_visit": 14186500
+            },
+            "visit_type_counts": {
+              "first_visit": 252,
+              "repeat_visit": 65
+            },
+            "reservers": {
+              "by_line_id": 201,
+              "by_name": 312
+            },
+            "visitors": {
+              "by_line_id": 192,
+              "by_name": 293
+            },
+            "status_counts": {
+              "reviewing": 5,
+              "confirmed": 19,
+              "visited": 298,
+              "cancelled": 6,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "홍대",
+            "branch_id": "e12f5687-e6e5-4055-b07d-6c2b6e68469c",
+            "in_master": true,
+            "source_values": [
+              "홍대"
+            ],
+            "reservation_count": 36,
+            "revenue": {
+              "total": 5064500,
+              "first_visit": 3419500,
+              "repeat_visit": 1645000
+            },
+            "visit_type_counts": {
+              "first_visit": 23,
+              "repeat_visit": 13
+            },
+            "reservers": {
+              "by_line_id": 30,
+              "by_name": 33
+            },
+            "visitors": {
+              "by_line_id": 28,
+              "by_name": 31
+            },
+            "status_counts": {
+              "reviewing": 1,
+              "confirmed": 2,
+              "visited": 34,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "부산서면",
+            "branch_id": "99394e00-ef44-476e-b34d-7e8f5cafd544",
+            "in_master": true,
+            "source_values": [
+              "부산서면"
+            ],
+            "reservation_count": 21,
+            "revenue": {
+              "total": 3870000,
+              "first_visit": 3247000,
+              "repeat_visit": 623000
+            },
+            "visit_type_counts": {
+              "first_visit": 19,
+              "repeat_visit": 2
+            },
+            "reservers": {
+              "by_line_id": 14,
+              "by_name": 21
+            },
+            "visitors": {
+              "by_line_id": 14,
+              "by_name": 21
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 0,
+              "visited": 21,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "제주",
+            "branch_id": null,
+            "in_master": false,
+            "source_values": [
+              "제주"
+            ],
+            "reservation_count": 2,
+            "revenue": {
+              "total": 105000,
+              "first_visit": 105000,
+              "repeat_visit": 0
+            },
+            "visit_type_counts": {
+              "first_visit": 2,
+              "repeat_visit": 0
+            },
+            "reservers": {
+              "by_line_id": 1,
+              "by_name": 2
+            },
+            "visitors": {
+              "by_line_id": 1,
+              "by_name": 2
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 0,
+              "visited": 2,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": null,
+            "branch_id": null,
+            "in_master": false,
+            "source_values": [
+              null
+            ],
+            "reservation_count": 1,
+            "revenue": {
+              "total": 95000,
+              "first_visit": 95000,
+              "repeat_visit": 0
+            },
+            "visit_type_counts": {
+              "first_visit": 1,
+              "repeat_visit": 0
+            },
+            "reservers": {
+              "by_line_id": 1,
+              "by_name": 1
+            },
+            "visitors": {
+              "by_line_id": 1,
+              "by_name": 1
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 0,
+              "visited": 1,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          }
+        ]
+      },
+      "reservation_date": {
+        "reservation_count": 458,
+        "revenue": {
+          "total": 80673000,
+          "first_visit": 61739500,
+          "repeat_visit": 18933500
+        },
+        "visit_type_counts": {
+          "first_visit": 364,
+          "repeat_visit": 94
+        },
+        "reservers": {
+          "by_line_id": 317,
+          "by_name": 449
+        },
+        "visitors": {
+          "by_line_id": 317,
+          "by_name": 449
+        },
+        "status_counts": {
+          "reviewing": 16,
+          "confirmed": 0,
+          "visited": 458,
+          "cancelled": 9,
+          "lost": 0,
+          "noshow": 0
+        },
+        "by_branch": [
+          {
+            "branch_name": "강남",
+            "branch_id": "04ce46c5-7f5c-4f67-b59f-2d728b82ccaf",
+            "in_master": true,
+            "source_values": [
+              "강남"
+            ],
+            "reservation_count": 95,
+            "revenue": {
+              "total": 14869500,
+              "first_visit": 10833000,
+              "repeat_visit": 4036500
+            },
+            "visit_type_counts": {
+              "first_visit": 80,
+              "repeat_visit": 15
+            },
+            "reservers": {
+              "by_line_id": 69,
+              "by_name": 93
+            },
+            "visitors": {
+              "by_line_id": 69,
+              "by_name": 93
+            },
+            "status_counts": {
+              "reviewing": 2,
+              "confirmed": 0,
+              "visited": 95,
+              "cancelled": 4,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "명동",
+            "branch_id": "f609339b-42c4-4017-a42d-b7d2511f9075",
+            "in_master": true,
+            "source_values": [
+              "명동"
+            ],
+            "reservation_count": 309,
+            "revenue": {
+              "total": 56202000,
+              "first_visit": 43008000,
+              "repeat_visit": 13194000
+            },
+            "visit_type_counts": {
+              "first_visit": 242,
+              "repeat_visit": 67
+            },
+            "reservers": {
+              "by_line_id": 208,
+              "by_name": 304
+            },
+            "visitors": {
+              "by_line_id": 208,
+              "by_name": 304
+            },
+            "status_counts": {
+              "reviewing": 9,
+              "confirmed": 0,
+              "visited": 309,
+              "cancelled": 5,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "홍대",
+            "branch_id": "e12f5687-e6e5-4055-b07d-6c2b6e68469c",
+            "in_master": true,
+            "source_values": [
+              "홍대"
+            ],
+            "reservation_count": 36,
+            "revenue": {
+              "total": 5911500,
+              "first_visit": 4387500,
+              "repeat_visit": 1524000
+            },
+            "visit_type_counts": {
+              "first_visit": 25,
+              "repeat_visit": 11
+            },
+            "reservers": {
+              "by_line_id": 28,
+              "by_name": 34
+            },
+            "visitors": {
+              "by_line_id": 28,
+              "by_name": 34
+            },
+            "status_counts": {
+              "reviewing": 5,
+              "confirmed": 0,
+              "visited": 36,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "부산서면",
+            "branch_id": "99394e00-ef44-476e-b34d-7e8f5cafd544",
+            "in_master": true,
+            "source_values": [
+              "부산서면"
+            ],
+            "reservation_count": 14,
+            "revenue": {
+              "total": 3311000,
+              "first_visit": 3311000,
+              "repeat_visit": 0
+            },
+            "visit_type_counts": {
+              "first_visit": 14,
+              "repeat_visit": 0
+            },
+            "reservers": {
+              "by_line_id": 9,
+              "by_name": 14
+            },
+            "visitors": {
+              "by_line_id": 9,
+              "by_name": 14
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 0,
+              "visited": 14,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "부산남포",
+            "branch_id": "b7c465ee-772c-4b83-9bfb-ec1f40aa321d",
+            "in_master": true,
+            "source_values": [
+              "부산남포"
+            ],
+            "reservation_count": 1,
+            "revenue": {
+              "total": 179000,
+              "first_visit": 0,
+              "repeat_visit": 179000
+            },
+            "visit_type_counts": {
+              "first_visit": 0,
+              "repeat_visit": 1
+            },
+            "reservers": {
+              "by_line_id": 1,
+              "by_name": 1
+            },
+            "visitors": {
+              "by_line_id": 1,
+              "by_name": 1
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 0,
+              "visited": 1,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": "제주",
+            "branch_id": null,
+            "in_master": false,
+            "source_values": [
+              "제주"
+            ],
+            "reservation_count": 2,
+            "revenue": {
+              "total": 105000,
+              "first_visit": 105000,
+              "repeat_visit": 0
+            },
+            "visit_type_counts": {
+              "first_visit": 2,
+              "repeat_visit": 0
+            },
+            "reservers": {
+              "by_line_id": 1,
+              "by_name": 2
+            },
+            "visitors": {
+              "by_line_id": 1,
+              "by_name": 2
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 0,
+              "visited": 2,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          },
+          {
+            "branch_name": null,
+            "branch_id": null,
+            "in_master": false,
+            "source_values": [
+              null
+            ],
+            "reservation_count": 1,
+            "revenue": {
+              "total": 95000,
+              "first_visit": 95000,
+              "repeat_visit": 0
+            },
+            "visit_type_counts": {
+              "first_visit": 1,
+              "repeat_visit": 0
+            },
+            "reservers": {
+              "by_line_id": 1,
+              "by_name": 1
+            },
+            "visitors": {
+              "by_line_id": 1,
+              "by_name": 1
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 0,
+              "visited": 1,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          }
+        ]
+      },
+      "upcoming_confirmed": 179
+    },
+    "costs": {
+      "marketing_cost": {
+        "total": 157831,
+        "by_media": [
+          {
+            "media": "인스타그램 협찬 비용",
+            "amount": 130440
+          },
+          {
+            "media": "X RT 바이럴 비용",
+            "amount": 17392
+          },
+          {
+            "media": "X 정보성 콘텐츠 바이럴 비용",
+            "amount": 9999
+          }
+        ]
+      },
+      "x_views": null,
+      "roas": 565.7317003630466,
+      "cpa": {
+        "by_line_id": 496,
+        "by_name": 340
+      }
+    },
+    "clinic": null
+  }
+}

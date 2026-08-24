@@ -1,0 +1,285 @@
+{
+  "meta": {
+    "clinic": {
+      "line_channel_id": "sonyounajp",
+      "uuid": "45aa487f-3ca1-4043-be48-ec6758c3fb4f",
+      "name": "손유나클리닉"
+    },
+    "period": {
+      "start": "2026-07-06",
+      "end": "2026-07-12",
+      "days": 7,
+      "timezone": "Asia/Seoul"
+    },
+    "date_basis": "both",
+    "compare": "none",
+    "currency": "KRW",
+    "generated_at": "2026-08-24T12:51:09.789Z",
+    "cached_at": "2026-08-24T12:51:09.789Z",
+    "schema_url": "https://linemessagedashboard.vercel.app/api/reports/v1/openapi.yaml"
+  },
+  "current": {
+    "clinic": {
+      "name_ko": "손유나클리닉",
+      "line_channel_id": "sonyounajp",
+      "branches": [
+        {
+          "id": "18db7e3e-24f6-490b-b929-70b278936552",
+          "name": "본점",
+          "is_active": true
+        }
+      ],
+      "business_hours": [
+        {
+          "branch_id": "18db7e3e-24f6-490b-b929-70b278936552",
+          "weekday": 1,
+          "open": "10:00",
+          "close": "19:00",
+          "break": {
+            "start": "13:00",
+            "end": "14:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "18db7e3e-24f6-490b-b929-70b278936552",
+          "weekday": 4,
+          "open": "10:00",
+          "close": "19:00",
+          "break": {
+            "start": "13:00",
+            "end": "14:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "18db7e3e-24f6-490b-b929-70b278936552",
+          "weekday": 2,
+          "open": "10:00",
+          "close": "21:00",
+          "break": {
+            "start": "13:00",
+            "end": "14:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "18db7e3e-24f6-490b-b929-70b278936552",
+          "weekday": 5,
+          "open": "10:00",
+          "close": "21:00",
+          "break": {
+            "start": "13:00",
+            "end": "14:00"
+          },
+          "is_closed": false
+        },
+        {
+          "branch_id": "18db7e3e-24f6-490b-b929-70b278936552",
+          "weekday": 6,
+          "open": "10:00",
+          "close": "15:00",
+          "break": null,
+          "is_closed": false
+        },
+        {
+          "branch_id": "18db7e3e-24f6-490b-b929-70b278936552",
+          "weekday": 0,
+          "open": null,
+          "close": null,
+          "break": null,
+          "is_closed": true
+        },
+        {
+          "branch_id": "18db7e3e-24f6-490b-b929-70b278936552",
+          "weekday": 3,
+          "open": null,
+          "close": null,
+          "break": null,
+          "is_closed": true
+        }
+      ],
+      "holidays": [],
+      "business_days_in_period": 5
+    },
+    "followers": null,
+    "funnel": {
+      "active_customers": 34,
+      "new_customers": 28,
+      "consulted_customers": 6,
+      "reservers": {
+        "by_line_id": 3,
+        "by_name": 3
+      },
+      "visitors": {
+        "by_line_id": 2,
+        "by_name": 2
+      }
+    },
+    "reservations": {
+      "created_at": {
+        "reservation_count": 3,
+        "revenue": {
+          "total": 10000000,
+          "first_visit": 10000000,
+          "repeat_visit": 0
+        },
+        "visit_type_counts": {
+          "first_visit": 3,
+          "repeat_visit": 0
+        },
+        "reservers": {
+          "by_line_id": 3,
+          "by_name": 3
+        },
+        "visitors": {
+          "by_line_id": 2,
+          "by_name": 2
+        },
+        "status_counts": {
+          "reviewing": 0,
+          "confirmed": 1,
+          "visited": 2,
+          "cancelled": 0,
+          "lost": 0,
+          "noshow": 0
+        },
+        "by_branch": [
+          {
+            "branch_name": null,
+            "branch_id": null,
+            "in_master": false,
+            "source_values": [
+              null
+            ],
+            "reservation_count": 3,
+            "revenue": {
+              "total": 10000000,
+              "first_visit": 10000000,
+              "repeat_visit": 0
+            },
+            "visit_type_counts": {
+              "first_visit": 3,
+              "repeat_visit": 0
+            },
+            "reservers": {
+              "by_line_id": 3,
+              "by_name": 3
+            },
+            "visitors": {
+              "by_line_id": 2,
+              "by_name": 2
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 1,
+              "visited": 2,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          }
+        ]
+      },
+      "reservation_date": {
+        "reservation_count": 1,
+        "revenue": {
+          "total": 6300000,
+          "first_visit": 6300000,
+          "repeat_visit": 0
+        },
+        "visit_type_counts": {
+          "first_visit": 1,
+          "repeat_visit": 0
+        },
+        "reservers": {
+          "by_line_id": 1,
+          "by_name": 1
+        },
+        "visitors": {
+          "by_line_id": 1,
+          "by_name": 1
+        },
+        "status_counts": {
+          "reviewing": 0,
+          "confirmed": 0,
+          "visited": 1,
+          "cancelled": 0,
+          "lost": 0,
+          "noshow": 0
+        },
+        "by_branch": [
+          {
+            "branch_name": null,
+            "branch_id": null,
+            "in_master": false,
+            "source_values": [
+              null
+            ],
+            "reservation_count": 1,
+            "revenue": {
+              "total": 6300000,
+              "first_visit": 6300000,
+              "repeat_visit": 0
+            },
+            "visit_type_counts": {
+              "first_visit": 1,
+              "repeat_visit": 0
+            },
+            "reservers": {
+              "by_line_id": 1,
+              "by_name": 1
+            },
+            "visitors": {
+              "by_line_id": 1,
+              "by_name": 1
+            },
+            "status_counts": {
+              "reviewing": 0,
+              "confirmed": 0,
+              "visited": 1,
+              "cancelled": 0,
+              "lost": 0,
+              "noshow": 0
+            }
+          }
+        ]
+      },
+      "upcoming_confirmed": 2
+    },
+    "costs": {
+      "marketing_cost": {
+        "total": 626112,
+        "by_media": [
+          {
+            "media": "X RT 바이럴 비용",
+            "amount": 373928
+          },
+          {
+            "media": "X 정보성 콘텐츠 바이럴 비용",
+            "amount": 165224
+          },
+          {
+            "media": "기타 마케팅 비용",
+            "amount": 86960
+          }
+        ]
+      },
+      "x_views": {
+        "cumulative_at_end": 7546063,
+        "change": 29447
+      },
+      "roas": 15.971583358887866,
+      "cpa": {
+        "by_line_id": 208704,
+        "by_name": 208704
+      }
+    }
+  },
+  "unavailable": {
+    "followers": {
+      "code": "SNAPSHOT_MISSING",
+      "message": "2026-07-12 친구 수 스냅샷이 없습니다. 해당 일자 수집이 실패했을 수 있습니다."
+    }
+  }
+}

@@ -22,7 +22,7 @@ export function PricingSection({ id, pricing, logs, onSaved }: {
   id: string;
   pricing: Pricing;
   logs: InfluencerLogRow[];
-  onSaved: (pricing: Pricing, newLogs: InfluencerLogRow[]) => void;
+  onSaved: (patch: Partial<Pricing>, newLogs: InfluencerLogRow[]) => void;
 }) {
   const currency = normalizeCurrency(pricing);
   // 입력 중 텍스트는 로컬, 확정값은 부모 pricing이 단일 출처 — blur 저장 성공 시 부모가 갱신한다.
@@ -51,7 +51,14 @@ export function PricingSection({ id, pricing, logs, onSaved }: {
       }
       const body = (await r.json()) as { pricing: Pricing; pricingLogs: InfluencerLogRow[] };
       setErr((e) => { const n = { ...e }; delete n[key]; return n; });
-      onSaved(body.pricing, body.pricingLogs);
+      // 응답은 서버의 pricing 전체 스냅샷이지만, 여기서 그대로 부모에 덮어쓰면 서로 다른 행의 병행
+      // PATCH 중 나중에 커밋된 요청의 응답이 먼저 도착했을 때 그 값을 되돌려버린다(행 잠금은 커밋
+      // 순서만 보장하지 HTTP 응답 도착 순서는 보장하지 않는다). 그래서 내가 보낸 patch의 키만 뽑아
+      // 넘긴다 — 다른 키(다른 행)는 건드리지 않으니 도착 순서와 무관하게 각자 수렴한다.
+      const applied = Object.fromEntries(
+        Object.keys(patch).map((k) => [k, body.pricing[k as keyof Pricing]]),
+      ) as Partial<Pricing>;
+      onSaved(applied, body.pricingLogs);
       return true;
     } catch {
       setErr((e) => ({ ...e, [key]: '단가를 저장하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요' }));

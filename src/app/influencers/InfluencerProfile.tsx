@@ -198,10 +198,14 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
       <TagEditor id={id} tags={inf.tags} onSaved={onChanged} />
       <NoteEditor id={id} note={inf.note} />
 
-      {/* 단가 변경은 서버가 자동 로그를 남긴다 — 새 로그를 타임라인 맨 앞에 그대로 붙여 다시 부르지 않는다 */}
+      {/* 단가 변경은 서버가 자동 로그를 남긴다 — 새 로그를 타임라인 맨 앞에 그대로 붙여 다시 부르지 않는다.
+          patch는 그 요청이 실제로 바꾼 키만 담고 있으므로(PricingSection.save 참고) 다른 행의 병행
+          PATCH 응답이 뒤섞여 도착해도 서로 다른 키끼리는 덮어쓰지 않고 병합만 된다 — 같은 키는
+          busyKeys가 동시 전송 자체를 막아 직렬화한다. 로그 prepend는 도착 순서대로라 병행 저장 시
+          몇 ms 정도 시간순과 어긋나 보일 수 있으나(일시적 표시 문제) 감수한다. */}
       <PricingSection id={id} pricing={data.pricing} logs={data.logs}
-                      onSaved={(pricing, newLogs) => {
-                        setData((d) => (d ? { ...d, pricing, logs: [...newLogs, ...d.logs] } : d));
+                      onSaved={(patch, newLogs) => {
+                        setData((d) => (d ? { ...d, pricing: { ...d.pricing, ...patch }, logs: [...newLogs, ...d.logs] } : d));
                         // 단가 저장은 auto 로그를 남겨 last_log_at이 바뀐다 — 명부(왼쪽)도 같이 움직여야 한다.
                         // 무변경 no-op(newLogs 0건)까지 명부를 새로고침할 필요는 없다.
                         if (newLogs.length > 0) onChanged();

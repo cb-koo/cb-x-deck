@@ -48,6 +48,8 @@ create table if not exists tracking_link (
   draft_id         uuid references draft(id) on delete set null,   -- 선택 연결(원고 삭제돼도 링크·클릭 기록 유지)
   client_id        uuid references client(id) on delete set null,
   client_name      text,                  -- 스냅샷 관례(014 선례)
+  unavailable_at   timestamptz,           -- short.io 쪽에서 링크가 지워진 것을 확인한 시각. null = 정상
+                                          -- (tracked_post.unavailable_at 관례 — 아는 만큼만 말한다)
   created_by       uuid references member(id) on delete set null,
   created_at       timestamptz not null default now()
 );

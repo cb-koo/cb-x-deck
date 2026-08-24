@@ -8,7 +8,7 @@ import type { ClientRow } from '@/lib/clientStore';
 import type { InfluencerRow } from '@/lib/influencerStore';
 import type { TrackingLinkRow } from '@/lib/linkStore';
 import { checkLandingUrl, landingUrlMessage, buildTrackedUrl, suggestCampaign } from '@/lib/trackingLink';
-import { parseXHandle } from '@/lib/xHandle';
+import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
 
 // 트래킹 링크 생성 모달 — 원고 카드(자동 채움)와 트래킹 페이지(직접 입력) 양쪽이 공유한다(스펙 §화면).
 export function LinkCreateModal({ open, onClose, onCreated, configured, prefill }: {
@@ -85,7 +85,7 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
     : handle.trim() === ''
     ? '게시할 인플루언서를 입력해 주세요'
     : !handleParse.ok
-    ? '인플루언서 핸들을 확인해 주세요 — @핸들 또는 프로필 링크' // 서버 400 문구와 톤 통일
+    ? handleParseMessage(handleParse.reason) // 사유별 문구 — 클라이언트 표면 관례(InfluencerChip 등)와 통일
     : campaign.trim() === ''
     ? '캠페인명을 입력해 주세요'
     : '';

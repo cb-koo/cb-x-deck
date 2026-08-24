@@ -202,6 +202,9 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
       <PricingSection id={id} pricing={data.pricing} logs={data.logs}
                       onSaved={(pricing, newLogs) => {
                         setData((d) => (d ? { ...d, pricing, logs: [...newLogs, ...d.logs] } : d));
+                        // 단가 저장은 auto 로그를 남겨 last_log_at이 바뀐다 — 명부(왼쪽)도 같이 움직여야 한다.
+                        // 무변경 no-op(newLogs 0건)까지 명부를 새로고침할 필요는 없다.
+                        if (newLogs.length > 0) onChanged();
                       }} />
 
       <Timeline id={id} logs={data.logs}

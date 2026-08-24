@@ -27,34 +27,38 @@ export function PricingSection({ id, pricing, logs, onSaved }: {
   const currency = normalizeCurrency(pricing);
   // 입력 중 텍스트는 로컬, 확정값은 부모 pricing이 단일 출처 — blur 저장 성공 시 부모가 갱신한다.
   const [drafts, setDrafts] = useState<Partial<Record<PriceType, string>>>({});
-  const [err, setErr] = useState('');
-  const [saving, setSaving] = useState(false);
-  const busy = useRef(false);
+  // 행(유형 또는 통화)별로 독립된 에러 슬롯 — A행 실패 안내를 B행 성공이 지우지 않게.
+  type Key = PriceType | 'currency';
+  const [err, setErr] = useState<Partial<Record<Key, string>>>({});
+  const [savingCount, setSavingCount] = useState(0);
+  // 행 단위 busy — 서로 다른 키(다른 행)의 동시 PATCH는 서버가 행 잠금하므로 안전, 같은 키만 중복 차단.
+  const busyKeys = useRef(new Set<Key>());
 
   // 성공 여부를 돌려준다 — 실패했는데 입력칸을 되돌리면 "저장된 값"처럼 보인다(거짓 성공 방지).
-  async function save(patch: Pricing): Promise<boolean> {
-    if (busy.current) return false;
-    busy.current = true;
-    setSaving(true);
+  async function save(key: Key, patch: Pricing): Promise<boolean> {
+    if (busyKeys.current.has(key)) return false;
+    busyKeys.current.add(key);
+    setSavingCount((n) => n + 1);
     try {
       const r = await apiFetch(`/api/influencers/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pricing: patch }),
       });
       if (!r.ok) {
-        setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`);
+        const msg = ((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`;
+        setErr((e) => ({ ...e, [key]: msg }));
         return false;
       }
       const body = (await r.json()) as { pricing: Pricing; pricingLogs: InfluencerLogRow[] };
-      setErr('');
+      setErr((e) => { const n = { ...e }; delete n[key]; return n; });
       onSaved(body.pricing, body.pricingLogs);
       return true;
     } catch {
-      setErr('단가를 저장하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
+      setErr((e) => ({ ...e, [key]: '단가를 저장하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요' }));
       return false;
     } finally {
-      busy.current = false;
-      setSaving(false);
+      busyKeys.current.delete(key);
+      setSavingCount((n) => n - 1);
     }
   }
 
@@ -64,11 +68,11 @@ export function PricingSection({ id, pricing, logs, onSaved }: {
     const raw = drafts[t];
     if (raw === undefined) return;                 // 만진 적 없음
     const amount = parseAmount(raw);
-    if (amount === undefined) { setErr(NUM_ERR); return; }
-    if (err === NUM_ERR) setErr('');               // 숫자로 고쳤으니 안내는 내린다(저장 실패 안내는 건드리지 않는다)
+    if (amount === undefined) { setErr((e) => ({ ...e, [t]: NUM_ERR })); return; }
+    if (err[t] === NUM_ERR) setErr((e) => { const n = { ...e }; delete n[t]; return n; }); // 숫자로 고쳤으니 안내는 내린다(저장 실패 안내는 건드리지 않는다)
     const clear = () => setDrafts((d) => { const n = { ...d }; delete n[t]; return n; });
     if (amount === (pricing[t] ?? null)) { clear(); return; }  // 값이 안 바뀌면 보내지 않는다
-    if (await save({ [t]: amount })) clear();
+    if (await save(t, { [t]: amount })) clear();
   }
 
   return (
@@ -76,33 +80,34 @@ export function PricingSection({ id, pricing, logs, onSaved }: {
       <div className="flex items-center gap-2">
         <h2 className="text-ui font-bold">협찬 단가</h2>
         <select value={currency} aria-label="통화"
-                onChange={(e) => { const c = e.target.value as Currency; if (c !== currency) save({ currency: c }); }}
+                onChange={(e) => { const c = e.target.value as Currency; if (c !== currency) save('currency', { currency: c }); }}
                 className="rounded-lg border border-x-border-strong bg-white px-1.5 py-0.5 text-caption outline-none focus:border-x-blue">
           {(Object.keys(CURRENCY_LABEL) as Currency[]).map((c) => (
             <option key={c} value={c}>{c === 'JPY' ? '¥ 엔화' : '₩ 원화'}</option>
           ))}
         </select>
-        {saving && <span className="text-caption text-x-muted">저장 중…</span>}
+        {savingCount > 0 && <span className="text-caption text-x-muted">저장 중…</span>}
       </div>
       <p className="text-caption text-x-muted">유형별 1건당 단가예요. 바꾸면 아래 기록에 변경 이력이 남아요.</p>
+      {err.currency && <p role="alert" className="mt-1 text-caption text-red-500">{err.currency}</p>}
       <ul className="mt-1.5 space-y-1">
         {PRICE_TYPES.map((t) => (
           <PriceRow key={t} type={t} currency={currency}
                     value={drafts[t] ?? (pricing[t] != null ? String(pricing[t]) : '')}
                     history={logs.filter((l) => l.eventType === 'pricing_changed'
                       && (l.payload as PricingChange | null)?.priceType === t)}
+                    error={err[t]}
                     onChange={(v) => setDrafts((d) => ({ ...d, [t]: v }))}
                     onBlur={() => onBlur(t)} />
         ))}
       </ul>
-      {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
     </section>
   );
 }
 
-function PriceRow({ type, currency, value, history, onChange, onBlur }: {
+function PriceRow({ type, currency, value, history, error, onChange, onBlur }: {
   type: PriceType; currency: Currency; value: string;
-  history: InfluencerLogRow[];
+  history: InfluencerLogRow[]; error?: string;
   onChange: (v: string) => void; onBlur: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -124,6 +129,7 @@ function PriceRow({ type, currency, value, history, onChange, onBlur }: {
           </button>
         )}
       </div>
+      {error && <p role="alert" className="mt-0.5 pl-[72px] text-caption text-red-500">{error}</p>}
       {open && (
         <ul className="mt-0.5 pl-[72px]">
           {history.map((l) => {

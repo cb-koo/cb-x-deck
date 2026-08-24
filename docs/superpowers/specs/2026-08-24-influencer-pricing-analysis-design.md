@@ -50,8 +50,9 @@
 
 ### API
 
-- `PATCH /api/influencers/[id]` 확장: body에 `pricing` 수용(zod-style 검증: 알려진 키만, 금액은 0 이상 정수 또는 null).
-- 같은 트랜잭션에서: 현재 pricing 읽기(행 잠금) → diff 계산 → 변경분만 로그 insert → pricing 저장. diff 계산은 순수 함수(`diffPricing`)로 분리해 단위 테스트.
+- `PATCH /api/influencers/[id]` 확장: body에 `pricing` 수용(검증: 알려진 키만, 금액은 0 이상 정수 또는 null).
+- **부분 병합 방식**: 클라이언트는 바뀐 키만 보내고 서버가 기존 pricing에 병합한다 — 전체 객체 교체는 두 곳에서 다른 유형을 고칠 때 스테일 payload가 앞의 변경을 되돌리는 여지가 있다(태그 전체 덮어쓰기의 알려진 약점을 답습하지 않기).
+- 같은 트랜잭션에서: 현재 pricing 읽기(행 잠금) → diff 계산 → 변경분만 로그 insert → 병합 저장. diff 계산은 순수 함수(`diffPricing`)로 분리해 단위 테스트.
 
 ## 3. 계정 분석 섹션
 
@@ -72,7 +73,7 @@
 
 1. **수집** — `TweetSource.fetchRecent(userId, {maxCount: 100, since})`. getxapi 구현은 `getUserTweets` 커서 페이지네이션(최대 10페이지 가드).
 2. **코드 집계** — 원글/RT/인용 구성비, 업로드 빈도(주당 건수), 반응 중앙값(조회·좋아요; **원글+인용만, 순수 RT 제외** — RT의 지표는 원작자 것).
-3. **트윗 단위 분류** (분류 모델, 25건 청크, temperature 0) — 원글+인용만 대상. 축 분리:
+3. **트윗 단위 분류** (분류 모델, 25건 청크) — 원글+인용만 대상. 결정성은 프롬프트·스키마로 확보하고 **temperature는 보내지 않는다**(Sonnet 5 등 최신 모델은 sampling 파라미터 전송 시 400 — env로 모델을 바꾸는 순간 깨지므로 아예 생략). 축 분리:
    - `contentType`: 닫힌 enum — `info`(정보) | `review`(후기·체험) | `daily`(일상·잡담) | `promo`(홍보·협찬) | `other`
    - `sponsored`: boolean + **근거 문구 인용 필수**(`evidence`: #PR·광고 표기·제품 언급 원문 조각; sponsored=false면 null)
    - `topics`: 자유 태그 1~3개
@@ -102,7 +103,8 @@
   }
   ```
 - **저장은 파이프라인 전체 성공 시 1회(all-or-nothing)** — 수집·LLM 동안 DB 커넥션·트랜잭션을 잡지 않는다(풀 고갈 전례).
-- 실행 시간 대비: 라우트에 `export const maxDuration = 300`.
+- 라우트는 형제 라우트와 동일하게 `requireMember()` 가드.
+- 실행 시간 대비: 라우트에 `export const maxDuration = 300`(코드베이스 첫 사용 — Vercel 플랜별 상한이 다르므로 배포 전 플랜 확인 항목).
 - 동시 실행: 클라이언트 버튼 잠금으로 충분(소수 사용자 도구). 서버는 마지막 저장이 이긴다.
 
 ### 결과 UI (읽기 전용)
@@ -116,7 +118,7 @@
 ## 4. 교체 가능 경계 (요구사항)
 
 - **`TweetSource`** (수집): `fetchRecent(userId, opts) → AnalysisTweet[]`. 구현 1호 getxapi. `AnalysisTweet` = `{ id, text, createdAt, kind: 'original'|'retweet'|'quote', views, likes, hasMedia }`.
-  - **주의: `mapRawTweet` 재사용 불가** — 순수 RT를 버린다(`retweeted_tweet → null`). 분석용 매핑을 별도로 두되 필드 파싱 헬퍼는 공유. RT는 `kind`만 필요(빈도·구성비용), 본문·지표는 쓰지 않는다.
+  - **주의: `mapRawTweet` 재사용 불가** — 순수 RT를 버린다(`retweeted_tweet → null`). 분석용 매핑을 별도로 두되 필드 파싱 헬퍼(`num`/`str`/`toIso`, 현재 모듈 프라이빗)는 **export해서** 공유. RT는 `kind`만 필요(빈도·구성비용), 본문·지표는 쓰지 않는다 — `views`/`likes`는 `number | null`.
 - **`AnalysisChat`** (LLM): `complete({system, user, maxTokens, temperature}) → string`. 구현 1호는 기존 `callLLM` 래핑(Anthropic, 사용량 기록 포함). OpenRouter 등은 이 인터페이스 층에서 교체(OpenAI 호환 스키마라 SDK 아래 교체 불가).
 - 모델 env: `ANALYSIS_CLASSIFY_MODEL`(기본 `claude-haiku-4-5`), `ANALYSIS_SYNTH_MODEL`(기본 `claude-sonnet-5`).
 - 파이프라인 본체는 두 인터페이스만 의존하는 순수 오케스트레이션 함수 — 페이크 주입으로 단위 테스트.
@@ -124,22 +126,25 @@
 ## 5. 마이그레이션 (028)
 
 ```sql
-alter table influencer add column pricing jsonb not null default '{}';
-alter table influencer add column analysis jsonb;
-alter table influencer add column analyzed_at timestamptz;
+-- apply-migrations.sh는 매번 전 파일을 재적용(ON_ERROR_STOP=1)하므로 재실행 안전 필수(016·023 관례).
+alter table influencer add column if not exists pricing jsonb not null default '{}';
+alter table influencer add column if not exists analysis jsonb;
+alter table influencer add column if not exists analyzed_at timestamptz;
 -- 024에서 인라인 check로 만든 제약 — 자동 명명 규칙상 influencer_log_event_type_check.
 -- 마이그레이션 작성 시 실제 이름을 프로덕션에서 확인 후 반영한다.
-alter table influencer_log drop constraint influencer_log_event_type_check;
+alter table influencer_log drop constraint if exists influencer_log_event_type_check;
 alter table influencer_log add constraint influencer_log_event_type_check
   check (event_type in ('draft_assigned','draft_unassigned','draft_delivered','handle_changed','pricing_changed'));
 ```
+
+번호 참고: main의 최신은 027. 026(influencer_metrics)은 폐기된 게시물 추적 브랜치에서 소모됐고 **프로덕션 DB에는 적용된 채 남아 있다**(무해한 빈 테이블) — 그래서 028이 맞다.
 
 ## 6. 기존 코드 접점
 
 - `influencerStore.ts`: `InfluencerRow`에 pricing/analysis/analyzedAt 추가(SELECT·toRow), `InfluencerLogRow.payload` 타입 확장, `updateInfluencer`에 pricing 경로, `pricing_changed` 로그 insert 함수.
 - `InfluencerProfile.tsx`: 섹션 2개 추가, `autoText`/`groupText`에 pricing_changed 케이스.
 - `influencerJudgment.ts`: 빈도·반응 수준 판단 순수 함수 추가.
-- `usageFeatures.ts`: anthropic 신규 operation 라벨 추가(예: `influencer.classify`/`influencer.synth` → "계정 분석"). getxapi `userTweets`는 기존 "인플루언서 갱신" 라벨 공유(수용 — 과금 구분 필수 아님).
+- `usageFeatures.ts`: anthropic 신규 operation 라벨 추가 — 기존 `anthropic.*` 접두 관례를 따라 `anthropic.influencerClassify`/`anthropic.influencerSynth` → "계정 분석". getxapi `userTweets`는 기존 "인플루언서 갱신" 라벨 공유(수용 — 과금 구분 필수 아님).
 - refresh 라우트: 3분기(정상/handle_taken/not_found) 판정을 lib 함수로 추출, refresh·analyze가 공유.
 
 ## 7. 오류 처리 요약

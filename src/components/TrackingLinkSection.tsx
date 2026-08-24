@@ -10,14 +10,14 @@ import type { TrackingLinkRow } from '@/lib/linkStore';
 // 자급식: 호스트 3표면(카드·표팝업·칸반팝업)에 props를 배선하지 않는다(단일 표면 원칙).
 // 도구층 안의 흰색 인셋 박스(레퍼런스 펼침 카드와 같은 문법)로 전용 공간을 확보한다 —
 // 13px 텍스트 줄로는 '여기서 링크를 만든다'는 행동 어포던스가 안 보인다(koo QA 08-25).
-// 카드가 목록에 수십 장 떠도 조용하도록, 목록 조회는 펼칠 때 처음 한다(refsOpen 문법).
+// 목록은 토글 없이 상시 표시(koo QA 2차) — 없으면 '없다'가 보이는 것도 정보다.
+// 조회는 마운트 시 1회, draft_id 인덱스를 타는 가벼운 쿼리라 카드 수십 장에도 부담이 작다.
 export function TrackingLinkSection({ draftId, influencerHandle, clientId, clientName }: {
   draftId: string;
   influencerHandle: string | null;
   clientId: string | null;
   clientName: string | null;
 }) {
-  const [open, setOpen] = useState(false);
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [rows, setRows] = useState<TrackingLinkRow[]>([]);
   const [configured, setConfigured] = useState(true);
@@ -41,19 +41,12 @@ export function TrackingLinkSection({ draftId, influencerHandle, clientId, clien
     }
   }, [draftId]);
 
-  const toggle = useCallback(() => {
-    const opening = !open;
-    setOpen(opening);
-    if (opening && state === 'idle') void load();
-  }, [open, state, load]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로드, setState는 전부 비동기 콜백(tracking 페이지 관례)
+  useEffect(() => { void load(); }, [load]);
 
-  // 만들기 성공 → 목록을 펼쳐 방금 만든 링크가 바로 보이게(다음 행동 = 복사·전달).
-  // 아직 조회 전(idle)이었다면 서버에서 전체를 받아온다 — 새 행만 보이고 기존 링크가 숨는 상태를 막는다.
   const onCreated = useCallback((row: TrackingLinkRow) => {
-    setRows((cur) => [row, ...cur]);
-    setOpen(true);
-    if (state === 'idle') void load();
-  }, [state, load]);
+    setRows((cur) => [row, ...cur]); // 방금 만든 링크가 바로 보인다(다음 행동 = 복사·전달)
+  }, []);
 
   const copy = useCallback(async (row: TrackingLinkRow) => {
     try {
@@ -67,43 +60,35 @@ export function TrackingLinkSection({ draftId, influencerHandle, clientId, clien
   return (
     <div className="mb-1.5 rounded-lg border border-x-border bg-white px-3 py-2">
       <div className="flex items-center gap-2.5">
-        <span className="text-ui font-bold">🔗 트래킹 링크</span>
-        {/* 접힌 상태에선 건수를 모른다(지연 조회) — '보기'가 열어보는 행동임을 라벨이 말한다 */}
-        <button onClick={toggle} className="text-[13px] text-x-blue-text hover:underline">
-          {open ? '접기 ⌃' : rows.length > 0 ? `${rows.length}건 보기 ⌄` : '만든 링크 보기 ⌄'}
-        </button>
+        <span className="text-ui font-bold">🔗 트래킹 링크{rows.length > 0 ? ` ${rows.length}건` : ''}</span>
         <Button onClick={() => setCreateOpen(true)} className="ml-auto shrink-0 whitespace-nowrap">
           + 링크 만들기
         </Button>
       </div>
-      <p className="mt-0.5 text-caption text-x-muted">
-        게시 요청에 함께 보낼 랜딩페이지 링크를 만들어요 — 누가 얼마나 클릭했는지 추적돼요
-      </p>
-      {open && (
-        <div className="mt-1.5 border-t border-x-border pt-1.5 text-[13px]">
-          {state === 'loading' && <p className="text-x-muted">불러오는 중…</p>}
-          {state === 'error' && (
-            <p className="text-x-secondary">링크 목록을 불러오지 못했어요 <button onClick={() => void load()} className="text-x-blue-text hover:underline">다시 시도</button></p>
-          )}
-          {state === 'ready' && rows.length === 0 && (
-            <p className="text-x-muted">아직 만든 링크가 없어요 — 오른쪽 위 버튼으로 시작하세요.</p>
-          )}
-          {state === 'ready' && rows.map((r) => (
-            <p key={r.id} className="flex items-baseline gap-2 py-0.5">
-              <a href={r.shortUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline">
-                {r.shortUrl.replace(/^https?:\/\//, '')}
-              </a>
-              <button onClick={() => void copy(r)} className="text-x-blue-text hover:underline">
-                {copiedId === r.id ? '복사됨 ✓' : '복사'}
-              </button>
-              <span className="ml-auto shrink-0 text-x-muted">
-                {r.clicks === null ? '측정 전' : `클릭 ${r.clicks.totalClicks ?? '—'}`}
-                {r.capturedAt ? ` · ${relTimeFine(r.capturedAt, '측정')}` : ''}
-              </span>
-            </p>
-          ))}
-        </div>
-      )}
+      <div className="mt-1 text-[13px]">
+        {state === 'loading' && <p className="text-x-muted">불러오는 중…</p>}
+        {state === 'error' && (
+          <p className="text-x-secondary">링크 목록을 불러오지 못했어요 <button onClick={() => void load()} className="text-x-blue-text hover:underline">다시 시도</button></p>
+        )}
+        {state === 'ready' && rows.length === 0 && (
+          // 공란이되 '없음'이 읽히는 형태 — 기능 설명을 겸해 다음 행동(만들기)까지 안내(UX 원칙 2)
+          <p className="text-x-muted">아직 만든 링크가 없어요 — 게시 요청에 함께 보낼 랜딩페이지 링크를 만들면 클릭이 추적돼요.</p>
+        )}
+        {state === 'ready' && rows.map((r) => (
+          <p key={r.id} className="flex items-baseline gap-2 py-0.5">
+            <a href={r.shortUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline">
+              {r.shortUrl.replace(/^https?:\/\//, '')}
+            </a>
+            <button onClick={() => void copy(r)} className="text-x-blue-text hover:underline">
+              {copiedId === r.id ? '복사됨 ✓' : '복사'}
+            </button>
+            <span className="ml-auto shrink-0 text-x-muted">
+              {r.clicks === null ? '측정 전' : `클릭 ${r.clicks.totalClicks ?? '—'}`}
+              {r.capturedAt ? ` · ${relTimeFine(r.capturedAt, '측정')}` : ''}
+            </span>
+          </p>
+        ))}
+      </div>
       {createOpen && (
         <LinkCreateModal open={createOpen} onClose={() => setCreateOpen(false)} configured={configured}
                          onCreated={onCreated}

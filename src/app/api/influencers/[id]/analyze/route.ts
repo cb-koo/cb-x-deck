@@ -54,11 +54,10 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   // 수집·LLM 동안 DB 커넥션을 잡지 않는다(풀 고갈 전례) — 저장은 성공 시 마지막 1회.
+  let analysis;
   try {
-    const analysis = await analyzeAccount(
-      { source: makeGetxapiTweetSource(client), chat: makeAnthropicChat() }, userId as string);
-    await saveAnalysis(sql, id, analysis);
-    return NextResponse.json({ analysis, analyzedAt: new Date().toISOString() });
+    analysis = await analyzeAccount(
+      { source: makeGetxapiTweetSource(client), chat: makeAnthropicChat() }, userId);
   } catch (e) {
     if (e instanceof LLMRefusalError) {
       return NextResponse.json({ error: '분석 요청이 거절됐어요 — 내용을 바꿔 다시 시도해 주세요' }, { status: 400 });
@@ -72,4 +71,16 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json(
       { error: 'X에서 글을 가져오지 못했어요 — 잠시 후 다시 시도해 주세요' }, { status: 502 });
   }
+
+  // 저장 실패는 수집·LLM과 구분한다 — 분석은 끝났으니 재시도 시 LLM 비용을 다시 쓰게 만들지 않는다.
+  try {
+    await saveAnalysis(sql, id, analysis);
+  } catch (e) {
+    console.error('[influencer] 분석 저장 실패', {
+      handle: inf.handle, err: e instanceof Error ? e.message : String(e),
+    });
+    return NextResponse.json(
+      { error: '분석은 끝났는데 저장하지 못했어요 — 잠시 후 다시 시도해 주세요' }, { status: 502 });
+  }
+  return NextResponse.json({ analysis, analyzedAt: new Date().toISOString() });
 }

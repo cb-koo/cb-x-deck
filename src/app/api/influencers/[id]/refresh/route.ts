@@ -19,6 +19,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   if (!inf) return NextResponse.json({ error: '인플루언서를 찾을 수 없어요' }, { status: 404 });
 
   // 판정은 analyze와 같은 규칙을 쓴다(influencerAccount.resolveAccount).
+  // resolveAccount는 중복 조회(DB)까지 포함 — 그 실패도 여기서 502로 수렴한다(기존엔 500, 의도된 개선).
   let resolution: AccountResolution;
   try {
     resolution = await resolveAccount(sql, inf, makeClient());

@@ -58,7 +58,8 @@ export interface SeriesPoint {
   inflow: number | null; newCustomers: number | null; consulted: number | null; reserversByLineId: number | null;
   convInflowToConsult: number | null; convConsultToReserve: number | null;
   reservationCount: number | null; revenueTotal: number | null; revenueFirst: number | null; revenueRepeat: number | null;
-  cancelNoshowRate: number | null; followersTotal: number | null; followersChange: number | null;
+  cancelNoshowRate: number | null; cancelNoshowCount: number | null; statusTotal: number | null;
+  followersTotal: number | null; followersChange: number | null;
   marketingCost: number | null; costByMedia: Array<{ media: string; amount: number }> | null;
   roas: number | null; xViewsChange: number | null;
 }
@@ -86,6 +87,8 @@ export function toSeriesPoint(
     revenueTotal: cr?.revenue.total ?? null, revenueFirst: cr?.revenue.first_visit ?? null,
     revenueRepeat: cr?.revenue.repeat_visit ?? null,
     cancelNoshowRate: cr ? ratio(cr.status_counts.cancelled + cr.status_counts.noshow, statusTotal) : null,
+    cancelNoshowCount: cr ? cr.status_counts.cancelled + cr.status_counts.noshow : null,
+    statusTotal,
     followersTotal: fo?.total_at_end ?? null, followersChange: fo?.change ?? null,
     marketingCost: co?.marketing_cost.total ?? null,
     costByMedia: co?.marketing_cost.by_media ?? null,

@@ -121,6 +121,16 @@ test('toSeriesPoint — 결손 규칙: missing / followers null / 광고비 0이
   assert.equal(p.roas, null);
 });
 
+test('toSeriesPoint — 취소·노쇼 분모 원값(cancelNoshowCount·statusTotal) 노출', () => {
+  const p = toSeriesPoint({ start: '2026-07-15', end: '2026-07-15' },
+    { payload: PAYLOAD, fetchedAt: '2026-07-16T00:00:00Z' }, '2026-08-24');
+  assert.equal(p.cancelNoshowCount, 3); // cancelled 2 + noshow 1
+  assert.equal(p.statusTotal, 20);      // status_counts 6종 합
+  const missing = toSeriesPoint({ start: '2026-07-01', end: '2026-07-01' }, null, '2026-08-24');
+  assert.equal(missing.cancelNoshowCount, null);
+  assert.equal(missing.statusTotal, null);
+});
+
 test('toSeriesPoint — 진행 중 버킷 판정 (end ≥ 오늘)', () => {
   const p = toSeriesPoint({ start: '2026-08-24', end: '2026-08-30' }, null, '2026-08-24');
   assert.equal(p.inProgress, true);

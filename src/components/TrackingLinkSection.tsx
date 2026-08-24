@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useToast } from '@/lib/toastContext';
-import { relTimeFine } from '@/lib/relTime';
 import { Button } from '@/components/ui';
 import { LinkCreateModal } from '@/components/LinkCreateModal';
 import type { TrackingLinkRow } from '@/lib/linkStore';
@@ -91,19 +90,13 @@ export function TrackingLinkSection({ draftId, influencerHandle, clientId, clien
           <p className="text-x-muted">아직 만든 링크가 없어요 — 게시 요청에 함께 보낼 랜딩페이지 링크를 만들면 클릭이 추적돼요.</p>
         )}
         {state === 'ready' && rows.map((r) => (
-          // 행 카드: 주소가 주인공(윗줄·말줄임), 상태는 아랫줄 — 좁은 카드에서도 버튼과 겹치지 않는다.
+          // 카드의 역할은 '만들어서 전달' — 클릭 수는 여기 두지 않는다(성과 확인은 트래킹 페이지 몫, koo QA).
           // 복사 = 이 행의 제1 행동이라 알약 버튼, 삭제 = 파괴 행동이라 눈에 덜 띄는 ✕ 아이콘(hover에서만 빨강).
           <div key={r.id} className="mt-1 flex items-center gap-1.5 rounded-md border border-x-border bg-x-surface px-2.5 py-1.5">
-            <div className="min-w-0 flex-1">
-              <a href={r.shortUrl} target="_blank" rel="noreferrer" title={r.shortUrl}
-                 className="block truncate text-ui text-x-blue-text hover:underline">
-                {r.shortUrl.replace(/^https?:\/\//, '')}
-              </a>
-              <p className="text-caption text-x-muted">
-                {r.clicks === null ? '클릭 측정 전' : `클릭 ${r.clicks.totalClicks ?? '—'}`}
-                {r.capturedAt ? ` · ${relTimeFine(r.capturedAt, '측정')}` : ''}
-              </p>
-            </div>
+            <a href={r.shortUrl} target="_blank" rel="noreferrer" title={r.shortUrl}
+               className="min-w-0 flex-1 truncate text-ui text-x-blue-text hover:underline">
+              {r.shortUrl.replace(/^https?:\/\//, '')}
+            </a>
             <button onClick={() => void copy(r)}
                     className="shrink-0 rounded-full border border-x-border-strong px-2.5 py-1 text-[13px] text-x-secondary transition-colors hover:bg-x-hover">
               {copiedId === r.id ? '복사됨 ✓' : '복사'}

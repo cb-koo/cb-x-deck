@@ -71,7 +71,11 @@ export class ShortioClient {
     if (!res) return { kind: 'error' };
     if (res.status === 404) return { kind: 'unavailable' };
     if (!res.ok) {
-      console.error(`shortio getLinkStats ${res.status}:`, await res.text().catch(() => ''));
+      const txt = await res.text().catch(() => '');
+      // 실계약(스모크 2026-08-24): 모르는 링크에 404가 아니라 500 + "not found" 본문이 온다.
+      // 참고: 지워진 링크는 통계가 200으로 계속 오므로(보존) unavailable은 실제로 드물게만 발생.
+      if (/not found/i.test(txt)) return { kind: 'unavailable' };
+      console.error(`shortio getLinkStats ${res.status}:`, txt);
       return { kind: 'error' };
     }
     const d = (await res.json().catch(() => null)) as Record<string, unknown> | null;

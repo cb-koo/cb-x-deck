@@ -67,6 +67,10 @@ test('5) getLinkStats — 성공/404/5xx 3분기가 절대 섞이지 않는다',
   assert.deepEqual(await b.client.getLinkStats('gone'), { kind: 'unavailable' });
   const c = make([json(500, {}), json(500, {}), json(500, {})]);
   assert.deepEqual(await c.client.getLinkStats('x'), { kind: 'error' });
+  // 실계약(스모크 2026-08-24): 모르는 링크는 404가 아니라 500 + "not found" 본문 — unavailable로 분류
+  const nf = { error: 'Upstream client error: Link lnk_missing_0000 not found' };
+  const d = make([json(500, nf), json(500, nf), json(500, nf)]);
+  assert.deepEqual(await d.client.getLinkStats('lnk_missing_0000'), { kind: 'unavailable' });
 });
 
 test('6) getLinkStats — 클릭 필드가 숫자가 아니면 null (결손 허용, 오류 아님)', async () => {

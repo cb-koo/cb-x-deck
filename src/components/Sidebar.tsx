@@ -10,6 +10,14 @@ import { interceptNav } from '@/lib/navGuard';
 import { createClient } from '@/lib/supabase/client';
 import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, PromptIcon, UserIcon, ViewIcon } from './XIcons';
 
+// 리포트(막대 그래프) — 다른 XIcons는 채움(fill) 단일 path인데 막대 그래프는 선(stroke) 3개가
+// 자연스러워 여기만 로컬로 둔다. props 시그니처는 XIcons의 다른 아이콘들과 동일.
+const ReportIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className} aria-hidden="true">
+    <path d="M4 20V10M10 20V4M16 20v-7" strokeLinecap="round" /><path d="M3 20h18" strokeLinecap="round" />
+  </svg>
+);
+
 // SPA 이동 가드 — /clients 등이 등록한 편집 유실 방지(navGuard)에 걸리면 이동을 중단한다.
 // <a> 시절엔 beforeunload가 잡았지만 Link(클라이언트 라우팅)는 우회하므로 onNavigate에 연결.
 const guardedNavigate = (href: string) => (e: { preventDefault: () => void }) => {
@@ -58,6 +66,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     // 트래킹도 워크스페이스 밖 — 게시된 게시물의 반응은 리서치 덱이 아니라 우리가 낸 원고에 딸린 결과다.
     // 인플루언서 다음: 원고를 누구에게 줬는지 → 그게 어떻게 됐는지 순서로 읽힌다.
     { href: '/tracking', label: '트래킹', Ic: ViewIcon },
+    // 캠페인 성과 리포트 — 트래킹(개별 게시물) 다음, 전체 성과로 시야가 넓어지는 순서
+    { href: '/reports', label: '리포트', Ic: ReportIcon },
   ];
 
   // 설정 성격 화면(가끔 들어가 재료·규칙을 손보는 곳) — 매일 쓰는 작업 메뉴와 분리 (사이드바 개선 스펙)

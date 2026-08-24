@@ -141,7 +141,7 @@ alter table influencer_log add constraint influencer_log_event_type_check
 
 ## 6. 기존 코드 접점
 
-- `influencerStore.ts`: `InfluencerRow`에 pricing/analysis/analyzedAt 추가(SELECT·toRow), `InfluencerLogRow.payload` 타입 확장, `updateInfluencer`에 pricing 경로, `pricing_changed` 로그 insert 함수.
+- `influencerStore.ts`: pricing/analysis/analyzedAt은 **`InfluencerDetail`에만** 싣는다(목록 SELECT·`InfluencerRow`는 불변 — 명부 목록 payload에 분석 blob을 실어 나르지 않기). `InfluencerLogRow.payload` 타입 확장, `updatePricing`(잠금·diff·병합·로그)·`saveAnalysis` 신설.
 - `InfluencerProfile.tsx`: 섹션 2개 추가, `autoText`/`groupText`에 pricing_changed 케이스.
 - `influencerJudgment.ts`: 빈도·반응 수준 판단 순수 함수 추가.
 - `usageFeatures.ts`: anthropic 신규 operation 라벨 추가 — 기존 `anthropic.*` 접두 관례를 따라 `anthropic.influencerClassify`/`anthropic.influencerSynth` → "계정 분석". getxapi `userTweets`는 기존 "인플루언서 갱신" 라벨 공유(수용 — 과금 구분 필수 아님).

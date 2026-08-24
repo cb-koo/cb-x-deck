@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { useToast } from '@/lib/toastContext';
 import { relTimeFine } from '@/lib/relTime';
 import { Button } from '@/components/ui';
 import { LinkCreateModal } from '@/components/LinkCreateModal';
@@ -23,6 +24,7 @@ export function TrackingLinkSection({ draftId, influencerHandle, clientId, clien
   const [configured, setConfigured] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const { show } = useToast();
   // 언마운트 후 setTimeout 콜백이 죽은 컴포넌트에 setState하지 않도록(LinkTable.tsx 관례) 타이머를 ref로 들고 정리한다.
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
@@ -47,6 +49,20 @@ export function TrackingLinkSection({ draftId, influencerHandle, clientId, clien
   const onCreated = useCallback((row: TrackingLinkRow) => {
     setRows((cur) => [row, ...cur]); // 방금 만든 링크가 바로 보인다(다음 행동 = 복사·전달)
   }, []);
+
+  // 카드에서는 확인 창 + 즉시 삭제(가벼운 관리 표면) — 5초 실행취소는 트래킹 페이지의 문법.
+  // 잘못 만든 링크의 정리 용도: 수정은 스펙대로 불가, 지우고 새로 만든다. short.io 링크는 살려둔다.
+  const remove = useCallback(async (row: TrackingLinkRow) => {
+    if (!window.confirm(`이 링크를 뺄까요?\n\n${row.shortUrl.replace(/^https?:\/\//, '')}\n쌓인 클릭 기록도 함께 지워져요. 짧은 링크 자체는 계속 열려 있어요.`)) return;
+    try {
+      const r = await apiFetch(`/api/links/${row.id}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error(String(r.status));
+      setRows((cur) => cur.filter((x) => x.id !== row.id));
+      show('링크를 뺐어요 — 짧은 링크 자체는 계속 열려 있어요');
+    } catch {
+      show('링크를 빼지 못했어요 — 잠시 후 다시 시도해 주세요');
+    }
+  }, [show]);
 
   const copy = useCallback(async (row: TrackingLinkRow) => {
     try {
@@ -82,6 +98,8 @@ export function TrackingLinkSection({ draftId, influencerHandle, clientId, clien
             <button onClick={() => void copy(r)} className="text-x-blue-text hover:underline">
               {copiedId === r.id ? '복사됨 ✓' : '복사'}
             </button>
+            <button onClick={() => void remove(r)} title="목록에서 빼고 클릭 기록도 지워요 — 짧은 링크 자체는 계속 열려요"
+                    className="text-x-muted hover:text-red-600 hover:underline">삭제</button>
             <span className="ml-auto shrink-0 text-x-muted">
               {r.clicks === null ? '측정 전' : `클릭 ${r.clicks.totalClicks ?? '—'}`}
               {r.capturedAt ? ` · ${relTimeFine(r.capturedAt, '측정')}` : ''}

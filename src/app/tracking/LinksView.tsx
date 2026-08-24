@@ -19,6 +19,7 @@ export function LinksView() {
   const [loadErr, setLoadErr] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [refreshingIds, setRefreshingIds] = useState<ReadonlySet<string>>(new Set());
+  const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   // 클릭 이력 — 펼친 행 하나만 들고 있는다(표 안의 표가 여럿이면 되레 못 읽는다)
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [history, setHistory] = useState<LinkClickSnapshotRow[]>([]);
@@ -51,16 +52,22 @@ export function LinksView() {
   useEffect(() => { load(); }, [load]);
 
   // 한 건 새로고침. 실패(502)면 행을 건드리지 않는다 — 못 가져온 것은 링크의 상태가 아니라 우리 사정이다.
-  const refreshOne = useCallback(async (id: string) => {
+  // quiet: 전체 새로고침은 건마다 토스트를 띄우지 않고 끝나고 한 번 집계한다(tracking page.tsx 관례).
+  const refreshOne = useCallback(async (id: string, quiet = false): Promise<boolean> => {
     setRefreshingIds((cur) => new Set(cur).add(id));
     try {
       const res = await apiFetch(`/api/links/${id}/refresh`, { method: 'POST' });
       const data = (await res.json().catch(() => ({}))) as { row?: TrackingLinkRow; error?: string };
-      if (!res.ok || !data.row) { show(data.error ?? FETCH_FAILED); return; }
+      if (!res.ok || !data.row) {
+        if (!quiet) show(data.error ?? FETCH_FAILED);
+        return false;
+      }
       const row = data.row;
       setRows((cur) => cur.map((r) => (r.id === row.id ? row : r)));
+      return true;
     } catch {
-      show(FETCH_FAILED);
+      if (!quiet) show(FETCH_FAILED);
+      return false;
     } finally {
       setRefreshingIds((cur) => {
         const next = new Set(cur);
@@ -69,6 +76,25 @@ export function LinksView() {
       });
     }
   }, [show]);
+
+  // 전체 새로고침 — 순차 호출(동시 호출은 short.io에 부담이고 진행률도 못 보여준다).
+  // 서버 일괄 엔드포인트 없음(스펙 §API) — 행별 순차 호출 + 진행 표시가 트래킹 탭의 관례다.
+  const refreshAll = useCallback(async () => {
+    if (bulk) return;
+    const targets = rows.filter((r) => !pendingRemove.has(r.id)).map((r) => r.id);
+    if (targets.length === 0) return;
+    setBulk({ done: 0, total: targets.length });
+    let failed = 0;
+    for (const id of targets) {
+      if (!(await refreshOne(id, true))) failed += 1;
+      setBulk((cur) => (cur ? { ...cur, done: cur.done + 1 } : cur));
+    }
+    setBulk(null);
+    // 숫자만 던지지 않는다 — 몇 건이 왜 비었는지, 다음에 무엇을 하면 되는지까지 말한다(UX 원칙 3)
+    show(failed === 0
+      ? `${targets.length}건 모두 클릭 수를 새로 가져왔어요`
+      : `${targets.length}건 중 ${failed}건은 클릭 수를 가져오지 못했어요 — 잠시 후 다시 시도해 주세요`);
+  }, [bulk, rows, pendingRemove, refreshOne, show]);
 
   // 펼침 = 그 행의 클릭 이력을 그때 조회한다(목록 응답에 전부 실어 보내지 않기 위해).
   // 다시 누르면 접고, 다른 행을 누르면 그 행으로 옮겨간다.
@@ -143,7 +169,9 @@ export function LinksView() {
   useEffect(() => { expandedRef.current = expandedId; }, [expandedId]);
   useEffect(() => () => {
     if (removeTimer.current) clearTimeout(removeTimer.current);
-    hide();   // 프로바이더는 레이아웃에 있어 화면을 떠나도 살아있다 — 지속 토스트를 남기지 않는다
+    // 프로바이더는 레이아웃에 있어 화면을 떠나도 살아있다 — 우리 배치가 있을 때만 내린다.
+    // 무조건 hide()하면 마침 게시물 탭이 띄운 토스트(무관한 배치)까지 걷어간다.
+    if (pendingRef.current.size > 0) hide();
     pendingRef.current.forEach((id) => { void apiFetch(`/api/links/${id}`, { method: 'DELETE' }); });
   }, [hide]);
 
@@ -152,7 +180,16 @@ export function LinksView() {
   return (
     <>
       {/* 만들기는 항상 진입 가능하다 — short.io 설정이 없으면 모달이 그 이유를 말한다(거짓 어포던스 회피) */}
-      <div className="mb-2 flex items-center justify-end">
+      <div className="mb-2 flex items-center justify-end gap-2">
+        {loaded && !loadErr && visible.length > 0 && (
+          // 비용 유발 액션은 버튼에 값을 적어 opt-in으로 둔다(UX 원칙 6) — 몇 건이면 몇 번 호출인지 라벨이 말한다
+          <Button onClick={() => void refreshAll()} disabled={bulk !== null} className="whitespace-nowrap"
+                  aria-live="polite">
+            {bulk
+              ? `새로고침 중… ${bulk.done}/${bulk.total}`
+              : `전체 새로고침 (${visible.length}건 — API 호출 ${visible.length}회)`}
+          </Button>
+        )}
         <Button variant="primary" onClick={() => setCreateOpen(true)} className="whitespace-nowrap"
                 title="인플루언서·캠페인 꼬리표가 붙은 짧은 링크를 만들어요">
           + 링크 만들기

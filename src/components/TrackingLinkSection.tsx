@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { relTimeFine } from '@/lib/relTime';
 import { LinkCreateModal } from '@/components/LinkCreateModal';
@@ -20,6 +20,9 @@ export function TrackingLinkSection({ draftId, influencerHandle, clientId, clien
   const [configured, setConfigured] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // 언마운트 후 setTimeout 콜백이 죽은 컴포넌트에 setState하지 않도록(LinkTable.tsx 관례) 타이머를 ref로 들고 정리한다.
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
 
   const load = useCallback(async () => {
     setState('loading');
@@ -45,7 +48,8 @@ export function TrackingLinkSection({ draftId, influencerHandle, clientId, clien
     try {
       await navigator.clipboard.writeText(row.shortUrl);
       setCopiedId(row.id);
-      setTimeout(() => setCopiedId(null), 2000);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopiedId(null), 2000);
     } catch { /* 클립보드 거부 — 링크가 화면에 있으니 수동 복사 가능 */ }
   }, []);
 

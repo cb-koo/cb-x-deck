@@ -23,7 +23,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (!body.name) return NextResponse.json({ error: '클라이언트 이름은 비울 수 없어요' }, { status: 400 });
   }
   if (body.landingUrl !== undefined) {
-    body.landingUrl = body.landingUrl.trim();
+    body.landingUrl = body.landingUrl?.trim();
     // 빈 값은 '기본 랜딩 없음'으로 허용 — 값이 있을 때만 형식을 지킨다(잘못된 기본값이 생성 폼에 흘러들지 않게)
     if (body.landingUrl !== '') {
       const check = checkLandingUrl(body.landingUrl);

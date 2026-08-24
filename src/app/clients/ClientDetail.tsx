@@ -19,6 +19,13 @@ async function errOf(r: Response): Promise<string> {
   return ((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`;
 }
 
+// 리포트 페이지와 연결할 수 있는 클리닉 코드 — 고정 6개 (자유 입력이 아니라 select)
+const CLINIC_CODES = [
+  { code: 'velybjp', label: '블리비의원' }, { code: 'mimodreamjp', label: '미모드림의원' },
+  { code: 'maindskinjp', label: '마인드피부과' }, { code: 'sonyounajp', label: '손유나클리닉' },
+  { code: 'brightskinjp', label: '브라이트피부과' }, { code: 'triomphejp', label: '트리옹프닥터' },
+];
+
 export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
   data: { client: ClientRow; procedures: ProcedureRow[] };
   handleRef: React.RefObject<DetailHandle | null>;
@@ -213,10 +220,35 @@ function BasicInfoEditor({ client, register, onSaved }: {
     save,
   }), [register, save]);
 
+  // 리포트 연결(clinic_code) — select라 즉시 저장, 디바운스/dirty 추적 불필요
+  const savingCode = useRef(false);
+  async function saveClinicCode(value: string | null) {
+    if (savingCode.current) return;
+    savingCode.current = true;
+    try {
+      const r = await apiFetch(`/api/clients/${client.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clinicCode: value }),
+      });
+      if (!r.ok) { setErr(await errOf(r)); return; }
+      setErr('');
+      await onSaved();
+    } finally { savingCode.current = false; }
+  }
+
   return (
     <div className="mt-4 rounded-2xl border border-x-border-strong px-4 py-4">
       {err && <p className="mb-2 text-ui text-red-500">{err}</p>}
       <label className="block">
+        <span className="text-ui font-bold">월간 리포트 연결</span>
+        <p className="text-caption text-x-muted">연결하면 리포트 페이지에서 이 클라이언트의 마케팅 성과를 볼 수 있어요</p>
+        <select value={client.clinicCode ?? ''} onChange={(e) => saveClinicCode(e.target.value || null)}
+                className="mt-1 block h-8 w-56 rounded-md border border-x-border-strong bg-white px-2 text-ui outline-none focus:border-x-blue">
+          <option value="">연결 안 함</option>
+          {CLINIC_CODES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+        </select>
+      </label>
+      <label className="mt-3 block">
         <span className="text-ui font-bold">클리닉·의사 정보</span>
         <p className="text-caption text-x-muted">원고를 만드는 재료예요. 기존 소개 문서를 붙여넣어도 좋아요.</p>
         <textarea value={info} onChange={(e) => { setInfo(e.target.value); setSaved(false); }} rows={6}

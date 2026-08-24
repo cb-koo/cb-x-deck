@@ -1,14 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CODE_LEN, generateLinkCode, checkLandingUrl, landingUrlMessage,
+  checkLandingUrl, landingUrlMessage,
   buildTrackedUrl, suggestCampaign, checkCampaign, campaignMessage,
+  suggestSlug, checkSlug, slugMessage,
 } from './trackingLink.ts';
 
-test('1) 코드 — 6자 소문자 영숫자, 연속 생성이 겹치지 않는다', () => {
-  const codes = new Set(Array.from({ length: 200 }, () => generateLinkCode()));
-  for (const c of codes) assert.match(c, new RegExp(`^[a-z0-9]{${CODE_LEN}}$`));
-  assert.equal(codes.size, 200); // 21억 조합에서 200개 충돌 확률은 사실상 0 — 겹치면 생성기가 고장난 것
+test('1) 링크 주소 — 캠페인·핸들 조합 제안(소문자·영문만), 검사·정규화', () => {
+  // 랜덤 없음(koo QA 08-25: 무작위 꾸미는 스팸 인상) — 사람이 지은 것처럼 읽히는 조합만
+  assert.equal(suggestSlug('yonsei-clinic-202608', 'Hana_Kim'), 'yonsei-clinic-202608-hana_kim');
+  assert.equal(suggestSlug('202608', ''), '202608');           // 핸들 미정이면 캠페인만
+  assert.equal(suggestSlug('클리닉-202608', 'h'), '-202608-h'.replace(/^[-.]+/, '')); // 한글 탈락 후 앞 하이픈 정리
+  assert.deepEqual(checkSlug('  '), { ok: false, reason: 'empty' });
+  assert.deepEqual(checkSlug('한글주소'), { ok: false, reason: 'invalid' });
+  assert.deepEqual(checkSlug(' Yonsei Event 2 '), { ok: true, slug: 'yonsei-event-2' }); // 소문자·공백 정규화
+  for (const r of ['empty', 'invalid'] as const) assert.ok(slugMessage(r).length > 0);
 });
 
 test('2) 랜딩 URL 검사 — 빈 값·http·형식 오류를 구분한다', () => {
@@ -25,19 +31,19 @@ test('2) 랜딩 URL 검사 — 빈 값·http·형식 오류를 구분한다', ()
 test('3) UTM 조립 — 표준형 4개 파라미터, 기존 쿼리 보존', () => {
   const u = new URL(buildTrackedUrl({
     landingUrl: 'https://clinic.example.com/event?ref=abc',
-    campaign: '클리닉A-202608', handle: 'hana_kim', code: 'a3k9x2',
+    campaign: '클리닉A-202608', content: 'yonsei-clinic-202608-hana_kim',
   }));
   assert.equal(u.searchParams.get('ref'), 'abc');            // 기존 쿼리 보존
   assert.equal(u.searchParams.get('utm_source'), 'x');
   assert.equal(u.searchParams.get('utm_medium'), 'influencer');
   assert.equal(u.searchParams.get('utm_campaign'), '클리닉A-202608'); // 한글 캠페인 왕복
-  assert.equal(u.searchParams.get('utm_content'), 'hana_kim-a3k9x2');
+  assert.equal(u.searchParams.get('utm_content'), 'yonsei-clinic-202608-hana_kim');
 });
 
 test('4) UTM 조립 — 기존 utm_*는 교체, fragment는 유지', () => {
   const out = buildTrackedUrl({
     landingUrl: 'https://c.example.com/p?utm_source=old&UTM_Campaign=stale&keep=1#section',
-    campaign: 'camp', handle: 'h', code: 'c0de00',
+    campaign: 'camp', content: 'camp-h',
   });
   const u = new URL(out);
   assert.equal(u.searchParams.get('keep'), '1');

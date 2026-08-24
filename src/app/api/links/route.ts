@@ -3,7 +3,7 @@ import { getSql } from '@/lib/db';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { parseXHandle } from '@/lib/xHandle';
-import { generateLinkCode, checkLandingUrl, landingUrlMessage, buildTrackedUrl, checkCampaign, campaignMessage } from '@/lib/trackingLink';
+import { checkLandingUrl, landingUrlMessage, buildTrackedUrl, checkCampaign, campaignMessage, checkSlug, slugMessage } from '@/lib/trackingLink';
 import { isShortioConfigured, makeShortioClient } from '@/lib/shortio';
 import { insertLink, listLinks } from '@/lib/linkStore';
 
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   if (!isShortioConfigured()) return NextResponse.json({ error: NOT_CONFIGURED }, { status: 503 });
   const sql = getSql();
   const body = (await req.json().catch(() => ({}))) as {
-    landingUrl?: unknown; influencerHandle?: unknown; utmCampaign?: unknown;
+    landingUrl?: unknown; influencerHandle?: unknown; utmCampaign?: unknown; slug?: unknown;
     draftId?: unknown; clientId?: unknown;
   };
 
@@ -38,6 +38,8 @@ export async function POST(req: Request) {
   const campaignCheck = checkCampaign(String(body.utmCampaign ?? ''));
   if (!campaignCheck.ok) return NextResponse.json({ error: campaignMessage(campaignCheck.reason) }, { status: 400 });
   const campaign = campaignCheck.campaign; // 정규화(공백→하이픈)된 영문 캠페인 — 클라이언트와 같은 함수
+  const slugCheck = checkSlug(String(body.slug ?? ''));
+  if (!slugCheck.ok) return NextResponse.json({ error: slugMessage(slugCheck.reason) }, { status: 400 });
 
   // 연결 대상은 존재할 때만 잇는다 — 죽은 id로 FK 오류(500)를 내느니 조용히 연결 없이 만든다
   let draftId: string | null = null;
@@ -53,22 +55,26 @@ export async function POST(req: Request) {
   }
 
   const shortio = makeShortioClient();
-  // 코드 충돌(short.io 409)이면 다시 뽑는다 — 21억 조합이라 3회면 충분(스펙 §데이터 모델)
-  for (let i = 0; i < 3; i++) {
-    const code = generateLinkCode();
-    const longUrl = buildTrackedUrl({ landingUrl: landing.url, campaign, handle: handle.handle, code });
+  // 주소 충돌(같은 캠페인·인플에 두 번째 링크 등)은 -2, -3 순번으로 푼다 — 랜덤 없음(koo QA 08-25).
+  // DB 선확인은 우리 쪽 재사용을 싸게 거르는 것이고, 최종 판정은 short.io 409(타 링크와의 충돌 포함).
+  for (let n = 0; n < 10; n++) {
+    const slug = n === 0 ? slugCheck.slug : `${slugCheck.slug}-${n + 1}`;
+    const dup = await sql`select 1 from tracking_link where code = ${slug}`;
+    if (dup.length) continue;
+    const longUrl = buildTrackedUrl({ landingUrl: landing.url, campaign, content: slug });
     const created = await shortio.createLink({
-      originalUrl: longUrl, path: code,
+      originalUrl: longUrl, path: slug,
       title: `${handle.handle} · ${campaign}`, // short.io 대시보드에서 사람이 알아보는 이름
     });
     if (created.kind === 'conflict') continue;
     if (created.kind === 'error') return NextResponse.json({ error: CREATE_FAILED }, { status: 502 });
     const row = await insertLink(sql, {
-      code, landingUrl: landing.url, longUrl, shortUrl: created.shortUrl,
+      code: slug, landingUrl: landing.url, longUrl, shortUrl: created.shortUrl,
       shortioLinkId: created.linkId, utmCampaign: campaign, influencerHandle: handle.handle,
       draftId, clientId, clientName, createdBy: gate.member.id,
     });
     return NextResponse.json({ row });
   }
-  return NextResponse.json({ error: CREATE_FAILED }, { status: 502 });
+  // 10개가 전부 차 있다 — 사람이 주소를 바꾸는 게 맞는 상황(같은 이름을 무한정 늘리지 않는다)
+  return NextResponse.json({ error: '이미 같은 주소가 여러 번 쓰였어요 — 링크 주소를 바꿔 다시 시도해 주세요' }, { status: 400 });
 }

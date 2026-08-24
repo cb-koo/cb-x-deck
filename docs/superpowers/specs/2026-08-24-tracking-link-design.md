@@ -15,7 +15,8 @@ short.io로 단축돼 전달하기 좋은 형태가 되며, 클릭 수는 앱 �
 | 결정 | 내용 |
 |---|---|
 | 생성 진입점 | **둘 다** — 원고(DraftCard)에서 자동 채움 생성 + 트래킹 페이지에서 독립 생성 |
-| UTM 구성 | **표준형** — `utm_source=x` · `utm_medium=influencer` · `utm_campaign`(자동 제안+수정) · `utm_content={핸들}-{code}` |
+| UTM 구성 | **표준형** — `utm_source=x` · `utm_medium=influencer` · `utm_campaign`(자동 제안+수정) · `utm_content={링크 주소 slug}` |
+| 링크 주소(경로) | **랜덤 없음**(koo QA 08-25 — 무작위 꾸미는 스팸 인상) — `{캠페인}-{핸들}` 자동 제안 + 수정 가능한 칸, 충돌 시 `-2` 순번. 맞바꿈: 주소 추측 가능(내부 추적 용도라 수용) |
 | short.io | 계정·도메인 보유. **REST API 직접 호출**(SDK 안 씀 — 아래 근거) |
 | 클릭 통계 | **앱 안에서, append-only 스냅샷**(C안) — 새로고침마다 이력 한 줄 추가, 게시물 지표와 대칭 |
 | 캠페인명 | **영어·숫자·하이픈만**(koo QA 08-24) — 클라명의 영문 부분+월로 자동 제안(예: `clinicA-202609`, 한글 클라는 `202609`만), 입력란에서 수정 가능 |
@@ -36,8 +37,8 @@ short.io로 단축돼 전달하기 좋은 형태가 되며, 클릭 수는 앱 �
 ```sql
 create table if not exists tracking_link (
   id               uuid primary key default gen_random_uuid(),
-  code             text not null unique,  -- 6자 소문자 영숫자. 세 곳을 잇는 축:
-                                          -- 단축 경로(cb.link/{code}) = utm_content 꼬리 = 이 행.
+  code             text not null unique,  -- 링크 주소(slug) — {캠페인}-{핸들}(-순번), 랜덤 없음(QA 08-25 변경).
+                                          -- 세 곳을 잇는 축: 단축 경로({도메인}/{code}) = utm_content = 이 행.
                                           -- GA에서 본 utm_content로 앱의 링크·원고 역추적 가능
   landing_url      text not null,         -- UTM 붙기 전 원본
   long_url         text not null,         -- UTM 붙은 최종 URL 스냅샷 — 조립 규칙이 바뀌어도 과거 링크 재현
@@ -77,7 +78,7 @@ alter table client add column if not exists landing_url text not null default ''
 
 - **워크스페이스 컬럼 없음** — draft·influencer·tracked_post와 같은 전역 공유 관례.
 - **생성 시 스냅샷을 만들지 않는다** — 링크 생성은 측정이 아니고 클릭은 0에서 시작. 첫 새로고침 전에는 "측정 전" 표시. (게시물 트래킹의 "등록=첫 측정"과 다른 이유: 게시물은 등록 시점에 이미 지표가 존재하지만 링크는 존재하지 않음)
-- **code 충돌**: 앱에서 생성(`crypto` 기반 6자 = 21억 조합) 후 unique 충돌 시 재생성 재시도. short.io 쪽 경로 충돌(동일 도메인 타 링크)은 생성 API가 409로 알려주므로 같은 재시도 경로.
+- **주소 충돌**: `-2`, `-3` 순번(사람이 붙인 것처럼 읽힘). short.io 쪽 경로 충돌(동일 도메인 타 링크)은 생성 API가 409로 알려주므로 같은 순번 경로. (당초 랜덤 6자였으나 QA 08-25에서 스팸 인상 문제로 폐기)
 
 ## UTM 조립 규칙 — `src/lib/trackingLink.ts` (순수 함수)
 
@@ -86,7 +87,7 @@ alter table client add column if not exists landing_url text not null default ''
   ?utm_source=x
   &utm_medium=influencer
   &utm_campaign={캠페인}          ← 제안: {클라이언트명 공백→하이픈}-{YYYYMM}, 수정 가능
-  &utm_content={인플핸들}-{code}
+  &utm_content={링크 주소 slug}      ← 경로와 같은 값 — {캠페인}-{핸들}(-순번)
 ```
 
 - 랜딩 URL에 기존 쿼리스트링이 있으면 보존하고 이어붙인다. 단 **기존 `utm_*` 파라미터는 제거 후 교체**(이중 UTM은 분석을 오염시킴).
@@ -112,9 +113,9 @@ alter table client add column if not exists landing_url text not null default ''
 
 ## 생성 흐름 — 원자성
 
-1. 입력 검증(랜딩 URL·인플 핸들·캠페인) → code 생성 → UTM 조립(long_url)
+1. 입력 검증(랜딩 URL·인플 핸들·캠페인·링크 주소) → UTM 조립(long_url) — 주소는 {캠페인}-{핸들} 제안+수정 가능
 2. short.io 생성 호출 — **성공한 뒤에만** DB insert (실패 시 반쪽 행 없이 에러 토스트+재시도)
-3. insert가 code unique 충돌로 실패하는 극단 경합: short.io 링크가 고아로 남지만 리다이렉트만 낭비될 뿐 무해 — 보상 삭제 로직은 넣지 않는다(YAGNI)
+3. 주소 충돌은 DB 선확인 + short.io 409 → `-2`, `-3` 순번으로 최대 10회(QA 08-25: 랜덤 재생성 폐기). insert unique 충돌의 극단 경합은 고아 링크만 남아 무해 — 보상 삭제 없음(YAGNI)
 4. 응답에 행 전체 반환 → 모달이 성공 화면으로 전환, **단축 링크 복사 버튼이 바로 보이게**(다음 행동 = 인플에게 전달)
 
 ## API — 로직은 lib, 라우트는 얇게 (기존 관례)

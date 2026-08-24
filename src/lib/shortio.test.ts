@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ShortioClient } from './shortio.ts';
+import { ShortioClient, isShortioConfigured, makeShortioClient } from './shortio.ts';
 
 // 가짜 fetch — 호출 순서대로 응답을 소비한다(postMetrics.test 관례)
 function fakeFetch(responses: Array<Response | Error>): { fn: typeof fetch; calls: Array<{ url: string; init?: RequestInit }> } {
@@ -43,6 +43,9 @@ test('3) createLink — 5xx는 재시도 후 소진되면 error, 네트워크 �
   assert.equal(a.calls.length, 3);
   const b = make([new Error('ECONNRESET'), json(200, { idString: 'lnk_2', shortURL: 'https://cb.link/y' })]);
   assert.equal((await b.client.createLink({ originalUrl: 'https://a.b/', path: 'y' })).kind, 'ok'); // 재시도로 회복
+  const c = make([new Error('ECONNRESET'), new Error('ECONNRESET'), new Error('ECONNRESET')]);
+  assert.deepEqual(await c.client.createLink({ originalUrl: 'https://a.b/', path: 'z2' }), { kind: 'error' });
+  assert.equal(c.calls.length, 3);
 });
 
 test('4) createLink — 200인데 필수 필드가 없으면 error (성공 위장 금지)', async () => {
@@ -71,4 +74,18 @@ test('6) getLinkStats — 클릭 필드가 숫자가 아니면 null (결손 허�
   const r = await client.getLinkStats('lnk_1');
   assert.equal(r.kind, 'ok');
   if (r.kind === 'ok') { assert.equal(r.totalClicks, null); assert.equal(r.humanClicks, null); }
+});
+
+test('7) 설정 판정 — env 둘 다 있어야 configured, 누락 시 makeShortioClient는 던진다', () => {
+  const saved = { key: process.env.SHORTIO_API_KEY, domain: process.env.SHORTIO_DOMAIN };
+  try {
+    process.env.SHORTIO_API_KEY = 'k'; process.env.SHORTIO_DOMAIN = 'cb.link';
+    assert.equal(isShortioConfigured(), true);
+    delete process.env.SHORTIO_DOMAIN;
+    assert.equal(isShortioConfigured(), false);
+    assert.throws(() => makeShortioClient());
+  } finally {
+    if (saved.key === undefined) delete process.env.SHORTIO_API_KEY; else process.env.SHORTIO_API_KEY = saved.key;
+    if (saved.domain === undefined) delete process.env.SHORTIO_DOMAIN; else process.env.SHORTIO_DOMAIN = saved.domain;
+  }
 });

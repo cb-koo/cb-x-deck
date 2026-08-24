@@ -55,7 +55,7 @@ export class ShortioClient {
       return { kind: 'error' };
     }
     const d = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-    // 실계약 확인(scripts/smoke-shortio.ts): 링크 ID는 idString(문자열) — 숫자 id는 폴백
+    // 링크 ID는 idString(문자열) 우선, 숫자 id 폴백 — 실계약 확정은 scripts/smoke-shortio.ts(스모크)가 담당
     const linkId = typeof d?.idString === 'string' && d.idString ? d.idString
       : d?.id != null ? String(d.id) : null;
     const shortUrl = typeof d?.shortURL === 'string' && d.shortURL ? d.shortURL : null;

@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { upsertSnapshot, getSnapshots, planSyncTasks, taskKey } from './reportStore.ts';
+import { upsertSnapshot, getSnapshots, getStoredFetchedAt, planSyncTasks, taskKey } from './reportStore.ts';
 import type { ReportBundles } from './reportApi.ts';
 
 const sql = getSql();
@@ -47,4 +47,14 @@ test('planSyncTasks — 클리닉 여러 개면 같은 우선순위끼리 교차
   const tasks = planSyncTasks({ clinicCodes: ['a', 'b'], todayKst: '2026-08-24', windowDays: 2, stored: new Map() });
   const firstTwo = tasks.slice(0, 2).map((t) => t.clinicCode).sort();
   assert.deepEqual(firstTwo, ['a', 'b']); // 한 클리닉이 예산을 독식하지 않게
+});
+
+test('date 컬럼이 ISO 문자열로 돌아온다 + getStoredFetchedAt 키 매칭·since 필터', async () => {
+  await upsertSnapshot(sql, { clinicCode: C + 'd', granularity: 'day', periodStart: '2026-07-01', periodEnd: '2026-07-01', payload: PAYLOAD });
+  const rows = await getSnapshots(sql, C + 'd', 'day', '2026-07-01', '2026-07-01');
+  assert.equal(rows[0].periodStart, '2026-07-01');
+  assert.equal(rows[0].periodEnd, '2026-07-01');
+  const stored = await getStoredFetchedAt(sql, [C + 'd'], '2026-06-01');
+  assert.ok(stored.has(taskKey({ clinicCode: C + 'd', granularity: 'day', start: '2026-07-01' })));
+  assert.equal((await getStoredFetchedAt(sql, [C + 'd'], '2026-08-01')).size, 0);
 });

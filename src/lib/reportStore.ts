@@ -7,9 +7,13 @@ export interface SnapshotRow {
   payload: ReportBundles; fetchedAt: string;
 }
 type SRow = { clinic_code: string; granularity: ReportUnit; period_start: string; period_end: string; payload: ReportBundles; fetched_at: Date };
+
+// postgres.js는 date 컬럼을 Date(UTC 자정)로 파싱한다 — toString()은 로컬 표기라 못 쓴다.
+const isoDate = (v: Date | string) => (v instanceof Date ? v : new Date(v)).toISOString().slice(0, 10);
+
 const toRow = (r: SRow): SnapshotRow => ({
   clinicCode: r.clinic_code, granularity: r.granularity,
-  periodStart: String(r.period_start).slice(0, 10), periodEnd: String(r.period_end).slice(0, 10),
+  periodStart: isoDate(r.period_start), periodEnd: isoDate(r.period_end),
   payload: r.payload, fetchedAt: new Date(r.fetched_at).toISOString(),
 });
 
@@ -43,7 +47,7 @@ export async function getStoredFetchedAt(
     select clinic_code, granularity, period_start, fetched_at from report_snapshot
     where clinic_code = any(${clinicCodes}) and period_end >= ${since}`;
   return new Map(rows.map((r) => [
-    taskKey({ clinicCode: r.clinic_code, granularity: r.granularity, start: String(r.period_start).slice(0, 10) }),
+    taskKey({ clinicCode: r.clinic_code, granularity: r.granularity, start: isoDate(r.period_start) }),
     new Date(r.fetched_at).toISOString(),
   ]));
 }

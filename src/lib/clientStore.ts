@@ -1,12 +1,12 @@
 import type postgres from 'postgres';
 
-export interface ClientRow { id: string; name: string; info: string; bannedPhrases: string[]; position: number; updatedAt: string }
+export interface ClientRow { id: string; name: string; info: string; bannedPhrases: string[]; position: number; updatedAt: string; clinicCode: string | null }
 export interface ProcedureRow {
   id: string; clientId: string; name: string; description: string;
   effectPhrases: string; bannedPhrases: string[]; position: number;
 }
 
-type CRow = { id: string; name: string; info: string; banned_phrases: string[]; position: number; updated_at: Date };
+type CRow = { id: string; name: string; info: string; banned_phrases: string[]; position: number; updated_at: Date; clinic_code: string | null };
 type PRow = { id: string; client_id: string; name: string; description: string; effect_phrases: string; banned_phrases: string[]; position: number };
 
 // updated_at이 Date로 해석되지 않으면 toISOString()이 RangeError를 던진다. 그러면 그 한 값 때문에
@@ -21,7 +21,7 @@ function toIsoOrEmpty(v: Date | string): string {
 
 const toClient = (r: CRow): ClientRow =>
   ({ id: r.id, name: r.name, info: r.info, bannedPhrases: r.banned_phrases, position: r.position,
-     updatedAt: toIsoOrEmpty(r.updated_at) });
+     updatedAt: toIsoOrEmpty(r.updated_at), clinicCode: r.clinic_code });
 const toProcedure = (r: PRow): ProcedureRow =>
   ({ id: r.id, clientId: r.client_id, name: r.name, description: r.description,
      effectPhrases: r.effect_phrases, bannedPhrases: r.banned_phrases, position: r.position });
@@ -29,13 +29,13 @@ const toProcedure = (r: PRow): ProcedureRow =>
 export async function createClient(sql: postgres.Sql, name: string): Promise<ClientRow> {
   const rows = await sql<CRow[]>`
     insert into client (name) values (${name})
-    returning id, name, info, banned_phrases, position, updated_at`;
+    returning id, name, info, banned_phrases, position, updated_at, clinic_code`;
   return toClient(rows[0]);
 }
 
 export async function listClients(sql: postgres.Sql): Promise<ClientRow[]> {
   const rows = await sql<CRow[]>`
-    select id, name, info, banned_phrases, position, updated_at from client order by position, created_at`;
+    select id, name, info, banned_phrases, position, updated_at, clinic_code from client order by position, created_at`;
   return rows.map(toClient);
 }
 
@@ -43,7 +43,7 @@ export async function getClientWithProcedures(
   sql: postgres.Sql, id: string,
 ): Promise<{ client: ClientRow; procedures: ProcedureRow[] } | null> {
   const rows = await sql<CRow[]>`
-    select id, name, info, banned_phrases, position, updated_at from client where id = ${id}`;
+    select id, name, info, banned_phrases, position, updated_at, clinic_code from client where id = ${id}`;
   if (rows.length === 0) return null;
   const procs = await sql<PRow[]>`
     select id, client_id, name, description, effect_phrases, banned_phrases, position
@@ -53,7 +53,7 @@ export async function getClientWithProcedures(
 
 export async function updateClient(
   sql: postgres.Sql, id: string,
-  patch: { name?: string; info?: string; bannedPhrases?: string[] },
+  patch: { name?: string; info?: string; bannedPhrases?: string[]; clinicCode?: string | null },
 ): Promise<void> {
   await sql`update client set
       name = coalesce(${patch.name ?? null}, name),
@@ -61,6 +61,10 @@ export async function updateClient(
       banned_phrases = coalesce(${patch.bannedPhrases ? sql.json(patch.bannedPhrases) : null}, banned_phrases),
       updated_at = now()
     where id = ${id}`;
+  // clinic_code는 "null로 되돌리기"를 표현해야 해서 coalesce 패턴을 못 쓴다 — undefined(미지정)일 때만 건드리지 않는다.
+  if (patch.clinicCode !== undefined) {
+    await sql`update client set clinic_code = ${patch.clinicCode} where id = ${id}`;
+  }
 }
 
 export async function deleteClient(sql: postgres.Sql, id: string): Promise<void> {

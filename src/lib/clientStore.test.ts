@@ -79,3 +79,15 @@ test('updated_at: 시술 추가·수정·삭제가 클라이언트 수정 시각
 
   await deleteClient(sql, c.id);
 });
+
+test('clinic_code 왕복 — 설정·해제·목록 노출', async () => {
+  const c = await createClient(sql, P + 'C클리닉');
+  assert.equal(c.clinicCode, null);
+  await updateClient(sql, c.id, { clinicCode: P + 'code' });
+  const got = await getClientWithProcedures(sql, c.id);
+  assert.equal(got!.client.clinicCode, P + 'code');
+  assert.ok((await listClients(sql)).some((x) => x.id === c.id && x.clinicCode === P + 'code'));
+  await updateClient(sql, c.id, { clinicCode: null });
+  assert.equal((await getClientWithProcedures(sql, c.id))!.client.clinicCode, null);
+  await deleteClient(sql, c.id);
+});

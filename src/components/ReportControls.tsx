@@ -2,11 +2,11 @@
 import type { ClientRow } from '@/lib/clientStore';
 import type { ReportUnit } from '@/lib/reportApi';
 import { addDays, bucketRanges, recommendUnit } from '@/lib/reportSeries';
+import { kstToday } from '@/lib/datetime';
 
 export interface ReportQuery { clientId: string; start: string; end: string; unit: ReportUnit }
 const UNIT_LABEL: Record<ReportUnit, string> = { day: '일간', week: '주간', month: '월간' };
 
-function kstToday(): string { return new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10); }
 const CHIPS: Array<{ label: string; range: () => { start: string; end: string } }> = [
   { label: '지난달 (보고서용)', range: () => { const t = kstToday(); const first = t.slice(0, 8) + '01';
       return { start: addDays(first, -1).slice(0, 8) + '01', end: addDays(first, -1) }; } },

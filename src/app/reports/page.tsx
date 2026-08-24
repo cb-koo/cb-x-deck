@@ -4,16 +4,16 @@ import { apiFetch } from '@/lib/apiFetch';
 import type { ClientRow } from '@/lib/clientStore';
 import type { ReportResponse, ReportUnit } from '@/lib/reportApi';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- inclusiveDays는 Task 10의 ReportTrends periodDays 계산용(주석 처리된 렌더에서 소비 예정)
-import { inclusiveDays, isCalendarMonth, type SeriesPoint } from '@/lib/reportSeries';
+import { addDays, inclusiveDays, isCalendarMonth, type SeriesPoint } from '@/lib/reportSeries';
+import { kstToday } from '@/lib/datetime';
 import { ReportControls, type ReportQuery } from '@/components/ReportControls';
 import { ReportSummary } from '@/components/ReportSummary';
 // import { ReportTrends } from '@/components/ReportTrends'; // Task 10에서 생성 — 그 전까지는 주석 처리
 
 function lastMonthRange(): { start: string; end: string } {
-  const now = new Date(Date.now() + 9 * 3600_000); // KST
-  const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-  const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
-  return { start: first.toISOString().slice(0, 10), end: last.toISOString().slice(0, 10) };
+  const thisMonthFirst = kstToday().slice(0, 8) + '01';
+  const end = addDays(thisMonthFirst, -1); // 지난달 말일
+  return { start: end.slice(0, 8) + '01', end };
 }
 
 export default function ReportsPage() {

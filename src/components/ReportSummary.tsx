@@ -13,6 +13,7 @@ function Delta({ cur, prev, label }: { cur: number | null | undefined; prev: num
   if (cur === null || cur === undefined || prev === null || prev === undefined)
     return <span className="text-caption text-x-muted">비교 불가</span>;
   const d = cur - prev;
+  if (d === 0) return <span className="text-caption text-x-muted">변화 없음 ({label})</span>;
   return <span className={`text-caption ${d >= 0 ? 'text-green-700' : 'text-amber-700'}`}>
     {d >= 0 ? '▲' : '▼'} {Math.abs(d).toLocaleString('ko-KR')} {label}</span>;
 }
@@ -54,6 +55,11 @@ export function ReportSummary({ report, isCalendarMonth }: { report: ReportRespo
         ))}
         <span className="text-x-muted">— 어느 기준인지 보고서에 함께 적어 주세요</span>
       </div>
+      {cur.reservations && !res && (
+        <p className="mt-2 text-caption text-x-muted">
+          {basis === 'reservation_date' ? '방문일' : '접수일'} 기준 집계가 이 응답에 없어요 — 기준을 바꿔 보세요
+        </p>
+      )}
 
       <h2 className="mt-6 text-base font-bold">② 기간 구성</h2>
       <div className="mt-2 grid gap-3 md:grid-cols-2">

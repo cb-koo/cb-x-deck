@@ -83,9 +83,9 @@ export function PricingSection({ id, pricing, logs, onSaved }: {
   }
 
   return (
-    <section className="mt-5">
+    <section className="mt-7 border-t border-x-border pt-5">
       <div className="flex items-center gap-2">
-        <h2 className="text-ui font-bold">협찬 단가</h2>
+        <h2 className="text-content font-bold">협찬 단가</h2>
         <select value={currency} aria-label="통화"
                 onChange={(e) => { const c = e.target.value as Currency; if (c !== currency) save('currency', { currency: c }); }}
                 className="rounded-lg border border-x-border-strong bg-white px-1.5 py-0.5 text-caption outline-none focus:border-x-blue">
@@ -95,9 +95,9 @@ export function PricingSection({ id, pricing, logs, onSaved }: {
         </select>
         {savingCount > 0 && <span className="text-caption text-x-muted">저장 중…</span>}
       </div>
-      <p className="text-caption text-x-muted">유형별 1건당 단가예요. 바꾸면 아래 기록에 변경 이력이 남아요.</p>
+      <p className="text-caption leading-relaxed text-x-muted">유형별 1건당 단가예요. 바꾸면 아래 기록에 변경 이력이 남아요.</p>
       {err.currency && <p role="alert" className="mt-1 text-caption text-red-500">{err.currency}</p>}
-      <ul className="mt-1.5 space-y-1">
+      <ul className="mt-1.5 space-y-2">
         {PRICE_TYPES.map((t) => (
           <PriceRow key={t} type={t} currency={currency}
                     value={drafts[t] ?? (pricing[t] != null ? String(pricing[t]) : '')}
@@ -121,7 +121,8 @@ function PriceRow({ type, currency, value, history, error, onChange, onBlur }: {
   return (
     <li>
       <div className="flex items-center gap-2">
-        <span className="w-16 shrink-0 text-ui text-x-secondary">{PRICE_TYPE_LABEL[type]}</span>
+        {/* 라벨 폭(w-20=80px) + gap-2(8px) = 88px — 아래 들여쓰기 pl-[88px]가 이 합계에 맞물려 있다 */}
+        <span className="w-20 shrink-0 text-ui text-x-secondary">{PRICE_TYPE_LABEL[type]}</span>
         <input value={value} inputMode="numeric" placeholder="미정"
                aria-label={`${PRICE_TYPE_LABEL[type]} 단가`}
                onChange={(e) => onChange(e.target.value)} onBlur={onBlur}
@@ -136,9 +137,9 @@ function PriceRow({ type, currency, value, history, error, onChange, onBlur }: {
           </button>
         )}
       </div>
-      {error && <p role="alert" className="mt-0.5 pl-[72px] text-caption text-red-500">{error}</p>}
+      {error && <p role="alert" className="mt-0.5 pl-[88px] text-caption text-red-500">{error}</p>}
       {open && (
-        <ul className="mt-0.5 pl-[72px]">
+        <ul className="mt-0.5 pl-[88px]">
           {history.map((l) => {
             const p = l.payload as PricingChange;
             const fmt = (v: number | string | null) =>

@@ -162,7 +162,7 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
                 읽히면 안 되고, 지금 보이는 값이 언제 것인지만 알려주면 된다. */}
             {stale && <span className="text-caption text-x-secondary">오래된 정보예요 — 갱신 권장</span>}
           </p>
-          {inf.bio && <p className="mt-1 whitespace-pre-wrap text-ui text-x-secondary">{inf.bio}</p>}
+          {inf.bio && <p className="mt-1 whitespace-pre-wrap text-ui leading-relaxed text-x-secondary">{inf.bio}</p>}
         </div>
         <div className="shrink-0 text-right">
           <Button variant={unfetched ? 'primary' : 'subtle'} onClick={refresh} disabled={refreshing}>
@@ -260,12 +260,12 @@ function TagEditor({ id, tags, onSaved }: { id: string; tags: string[]; onSaved:
   }
 
   return (
-    <section className="mt-5">
+    <section className="mt-7 border-t border-x-border pt-5">
       <div className="flex items-center gap-2">
-        <h2 className="text-ui font-bold">태그</h2>
+        <h2 className="text-content font-bold">태그</h2>
         {saving && <span className="text-caption text-x-muted">저장 중…</span>}
       </div>
-      <p className="text-caption text-x-muted">분야·등급처럼 나중에 이 사람을 다시 찾을 말을 붙여두세요. 명부에서 태그로 골라볼 수 있어요.</p>
+      <p className="text-caption leading-relaxed text-x-muted">분야·등급처럼 나중에 이 사람을 다시 찾을 말을 붙여두세요. 명부에서 태그로 골라볼 수 있어요.</p>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
         {list.map((t) => (
           <span key={t} className="inline-flex items-center gap-1 rounded-full border border-x-border-strong px-2 py-0.5 text-ui">
@@ -310,12 +310,12 @@ function NoteEditor({ id, note }: { id: string; note: string }) {
   }
 
   return (
-    <section className="mt-5">
+    <section className="mt-7 border-t border-x-border pt-5">
       <div className="flex items-center gap-2">
-        <h2 className="text-ui font-bold">고정 메모</h2>
+        <h2 className="text-content font-bold">고정 메모</h2>
         {saved && <span className="text-caption font-medium text-x-green">저장됨 ✓</span>}
       </div>
-      <p className="text-caption text-x-muted">단가·정산 방식처럼 매번 확인하는 내용을 적어두세요. 칸 밖을 클릭하면 저장돼요.</p>
+      <p className="text-caption leading-relaxed text-x-muted">단가·정산 방식처럼 매번 확인하는 내용을 적어두세요. 칸 밖을 클릭하면 저장돼요.</p>
       <textarea value={text} onChange={(e) => { setText(e.target.value); setSaved(false); }} onBlur={saveOnBlur} rows={3}
                 className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
       {err && <p role="alert" className="text-caption text-red-500">{err}</p>}
@@ -410,9 +410,9 @@ function Timeline({ id, logs, onAdded, onRemoved }: {
   }
 
   return (
-    <section className="mt-6">
-      <h2 className="text-ui font-bold">주고받은 기록</h2>
-      <p className="text-caption text-x-muted">DM·통화에서 오간 이야기를 한 줄로 남겨두면, 나중에 누가 봐도 어디까지 이야기했는지 알 수 있어요.</p>
+    <section className="mt-7 border-t border-x-border pt-5">
+      <h2 className="text-content font-bold">주고받은 기록</h2>
+      <p className="text-caption leading-relaxed text-x-muted">DM·통화에서 오간 이야기를 한 줄로 남겨두면, 나중에 누가 봐도 어디까지 이야기했는지 알 수 있어요.</p>
       <div className="mt-1.5 flex gap-1.5">
         <input value={body} onChange={(e) => setBody(e.target.value)}
                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) add(); }}
@@ -431,7 +431,7 @@ function Timeline({ id, logs, onAdded, onRemoved }: {
       {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
 
       {logs.length === 0 ? (
-        <p className="mt-3 text-ui text-x-muted">아직 기록이 없어요 — 위에 한 줄 남기면 여기 쌓여요.</p>
+        <p className="mt-3 text-ui leading-relaxed text-x-muted">아직 기록이 없어요 — 위에 한 줄 남기면 여기 쌓여요.</p>
       ) : (
         <ul className="mt-3 space-y-1.5">
           {groupAuto(logs).map((g) => {
@@ -525,16 +525,16 @@ function LogItem({ id, log, onRemoved }: { id: string; log: InfluencerLogRow; on
 // (v1에서 "넘긴 원고 62"라 써놓고 50건만 나오던 자기모순을 여기서 해소한다)
 function DraftRollup({ drafts, draftCount }: { drafts: DraftRollupItem[]; draftCount: number }) {
   return (
-    <section className="mt-6">
+    <section className="mt-7 border-t border-x-border pt-5">
       <div className="flex flex-wrap items-center gap-1.5">
-        <h2 className="text-ui font-bold">넘긴 원고 <span className="font-normal text-x-secondary">{draftCount}</span></h2>
+        <h2 className="text-content font-bold">넘긴 원고 <span className="font-normal text-x-secondary">{draftCount}</span></h2>
         <InfoTip text="이 계정으로 배정한 원고를 모아 보여줘요. 원고를 누르면 콘텐츠 생성 화면에서 그 원고가 열려요." />
         {draftCount > drafts.length && (
           <span className="text-caption text-x-muted">· 최근 {drafts.length}건 표시</span>
         )}
       </div>
       {drafts.length === 0 ? (
-        <p className="mt-1 text-ui text-x-muted">아직 배정한 원고가 없어요 — 콘텐츠 생성에서 원고를 만들고 이 계정을 배정하면 여기 모여요.</p>
+        <p className="mt-1 text-ui leading-relaxed text-x-muted">아직 배정한 원고가 없어요 — 콘텐츠 생성에서 원고를 만들고 이 계정을 배정하면 여기 모여요.</p>
       ) : (
         <ul className="mt-1.5 space-y-1">
           {drafts.map((d) => (
@@ -574,7 +574,7 @@ function DangerZone({ id, logCount, onDeleted }: { id: string; logCount: number;
   }
 
   return (
-    <section className="mt-8 border-t border-x-border pt-4">
+    <section className="mt-7 border-t border-x-border pt-5">
       {confirming ? (
         <div>
           <p className="text-ui">기록 {logCount}건도 함께 지워져요. 원고의 배정 표기는 남아요.</p>

@@ -103,8 +103,18 @@ function AnalysisResult({ analysis, followers }: { analysis: InfluencerAnalysis;
           </p>
           <p className="text-ui text-x-secondary">
             구성: 원글 {stats.mix.original} · RT {stats.mix.retweet} · 인용 {stats.mix.quote}
-            {types.length > 0 && <> · 유형: {types.map(([k, v]) => `${CONTENT_TYPE_LABEL[k]} ${v}`).join(' · ')}</>}
           </p>
+          {types.length > 0 && (
+            <p className="text-ui text-x-secondary">
+              유형: {types.map(([k, v]) => `${CONTENT_TYPE_LABEL[k]} ${v}`).join(' · ')}
+            </p>
+          )}
+          {/* 원글·인용이 0건(전부 RT)이면 서버가 summary/topics를 비워 보낸다 — 조용히 비는 대신 이유를 적는다 */}
+          {summary === null && (
+            <p className="text-ui text-x-secondary">
+              리트윗만 있어 글 내용은 분석하지 못했어요 — 직접 쓴 글이 없는 계정이에요
+            </p>
+          )}
         </>
       )}
 

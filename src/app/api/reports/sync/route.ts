@@ -14,6 +14,8 @@ const DEADLINE_MS = 240_000;
 // Vercel Cron은 GET으로 호출하고, CRON_SECRET 환경변수가 있으면 Authorization: Bearer <값>을 실어 보낸다.
 // 수동/재개 트리거를 위해 POST도 같은 본문을 그대로 노출한다.
 async function handleSync(req: Request): Promise<NextResponse> {
+  // CRON_SECRET 미설정이면 전부 거부 — "Bearer undefined" 문자열 비교로 뚫리는 fail-open 방지
+  if (!process.env.CRON_SECRET) return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 401 });
   if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`)
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
@@ -37,7 +39,9 @@ async function handleSync(req: Request): Promise<NextResponse> {
         periodStart: t.start, periodEnd: t.end, payload: r.report.current });
       saved++;
     } else if (r.kind === 'rate_limited') {
-      await new Promise((res) => setTimeout(res, 60_000)); // 1분 쉬고 다음 태스크로
+      // 1분 쉬고 즉시 데드라인 재확인 — 추가 gap 없이. 이 태스크는 저장 안 됐고 다음 실행이 이어서 한다.
+      await new Promise((res) => setTimeout(res, 60_000));
+      continue;
     } else {
       failed.push({ task: `${t.clinicCode} ${t.granularity} ${t.start}`, message: r.message });
     }

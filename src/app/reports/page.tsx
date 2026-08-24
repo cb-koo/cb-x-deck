@@ -3,12 +3,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { ClientRow } from '@/lib/clientStore';
 import type { ReportResponse, ReportUnit } from '@/lib/reportApi';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- inclusiveDays는 Task 10의 ReportTrends periodDays 계산용(주석 처리된 렌더에서 소비 예정)
-import { addDays, inclusiveDays, isCalendarMonth, type SeriesPoint } from '@/lib/reportSeries';
+import { addDays, isCalendarMonth, type SeriesPoint } from '@/lib/reportSeries';
 import { kstToday } from '@/lib/datetime';
 import { ReportControls, type ReportQuery } from '@/components/ReportControls';
 import { ReportSummary } from '@/components/ReportSummary';
-// import { ReportTrends } from '@/components/ReportTrends'; // Task 10에서 생성 — 그 전까지는 주석 처리
+import { ReportTrends } from '@/components/ReportTrends';
 
 function lastMonthRange(): { start: string; end: string } {
   const thisMonthFirst = kstToday().slice(0, 8) + '01';
@@ -22,7 +21,6 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<ReportResponse | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- series는 Task 10의 ReportTrends가 소비 예정(요약과 함께 미리 받아둠, load() 참고)
   const [series, setSeries] = useState<{ unit: ReportUnit; points: SeriesPoint[] } | null>(null);
 
   useEffect(() => {
@@ -71,7 +69,7 @@ export default function ReportsPage() {
       <ReportControls clients={clients} value={q} onChange={setQ} onLoad={load} loading={loading} />
       {error && <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</p>}
       {report && <ReportSummary report={report} isCalendarMonth={calMonth} />}
-      {/* Task 10: <ReportTrends unit={series.unit} points={series.points} periodDays={inclusiveDays(q.start, q.end)} /> — 아직 미구현 */}
+      {series && <ReportTrends unit={series.unit} points={series.points} />}
     </main>
   );
 }

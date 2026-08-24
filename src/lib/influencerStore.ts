@@ -4,11 +4,30 @@ import type { DraftContent, InfluencerOption } from './draftTypes.ts';
 import type { DraftStatus } from './draftStatus.ts';
 import type { UserInfo } from './getxapi.ts';
 import { draftVersionHash } from './draftStore.ts';
+import { diffPricing, mergePricing, type Pricing, type PricingChange } from './influencerPricing.ts';
+import type { ContentType, TopicStat } from './analysisStats.ts';
 
 // 기록 채널 — 수동 한 줄 기록이 "어디서 오간 이야기인지" (스펙 §2)
 export type InfluencerChannel = 'dm' | 'line' | 'email' | 'other';
 // 앱이 스스로 남기는 이벤트 — 표시 문구는 UI가 만든다(로그에는 사실만 저장)
-export type InfluencerAutoEvent = 'draft_assigned' | 'draft_unassigned' | 'draft_delivered' | 'handle_changed';
+export type InfluencerAutoEvent =
+  'draft_assigned' | 'draft_unassigned' | 'draft_delivered' | 'handle_changed' | 'pricing_changed';
+
+// 로그 payload는 이벤트마다 모양이 다르다 — 읽는 쪽이 eventType으로 좁힌다.
+export type LogPayload = { from?: string; to?: string } | PricingChange;
+
+// 계정 분석 저장 형태 (스펙 §3) — 분석 실행(T7)이 만들고 프로필 화면(T11)이 읽는다.
+export interface InfluencerAnalysis {
+  sample: { count: number; classified: number; since: string; until: string; months: number };
+  stats: {
+    perWeek: number; medianViews: number | null; medianLikes: number | null;
+    mix: { original: number; retweet: number; quote: number };
+    typeDist: Partial<Record<ContentType, number>>; sponsoredCount: number;
+  };
+  topics: TopicStat[];
+  summary: { tone: string; patterns: string; sponsorship: string } | null;  // 표본 0건이면 null
+  models: { classify: string; synth: string };
+}
 
 export interface InfluencerRow {
   id: string; handle: string; xUserId: string | null;
@@ -24,7 +43,7 @@ export interface InfluencerLogRow {
   id: string; kind: 'manual' | 'auto'; eventType: InfluencerAutoEvent | null;
   body: string | null; channel: InfluencerChannel | null;
   draftId: string | null; draftTitle: string | null;
-  payload: { from?: string; to?: string } | null;
+  payload: LogPayload | null;
   member: Member | null; createdAt: string;
 }
 
@@ -33,6 +52,8 @@ export interface DraftRollupItem { id: string; title: string; status: DraftStatu
 export interface InfluencerDetail {
   influencer: InfluencerRow; logs: InfluencerLogRow[]; drafts: DraftRollupItem[];
   draftStatusCounts: Partial<Record<DraftStatus, number>>;  // 파생: lower 조인 group by status, 전체 기준(50건 롤업과 별개)
+  // 단가·분석은 상세에만 싣는다 — 목록(InfluencerRow)까지 실으면 payload가 불필요하게 커진다.
+  pricing: Pricing; analysis: InfluencerAnalysis | null; analyzedAt: string | null;
 }
 
 type IRow = {
@@ -48,7 +69,7 @@ type LRow = {
   id: string; kind: 'manual' | 'auto'; event_type: InfluencerAutoEvent | null;
   body: string | null; channel: InfluencerChannel | null;
   draft_id: string | null; draft_title: string | null;
-  payload: { from?: string; to?: string } | null; created_at: Date;
+  payload: LogPayload | null; created_at: Date;
   member_id: string | null; member_name: string | null; member_color: string | null;
 };
 
@@ -167,6 +188,9 @@ export async function getInfluencerDetail(sql: postgres.Sql, id: string): Promis
   const draftStatusCounts: Partial<Record<DraftStatus, number>> = {};
   for (const r of statusRows) draftStatusCounts[r.status] = Number(r.count);
 
+  const extra = await sql<Array<{ pricing: Pricing; analysis: InfluencerAnalysis | null; analyzed_at: Date | null }>>`
+    select pricing, analysis, analyzed_at from influencer where id = ${id}`;
+
   return {
     influencer,
     logs: logs.map(toLog),
@@ -174,6 +198,10 @@ export async function getInfluencerDetail(sql: postgres.Sql, id: string): Promis
       id: d.id, title: rollupTitle(d), status: d.status, createdAt: new Date(d.created_at).toISOString(),
     })),
     draftStatusCounts,
+    // 위 findInfluencerById와 이 select 사이에 삭제됐을 수 있다 — 빈 값으로 떨어뜨린다(예외 대신).
+    pricing: extra[0]?.pricing ?? {},
+    analysis: extra[0]?.analysis ?? null,
+    analyzedAt: extra[0]?.analyzed_at ? new Date(extra[0].analyzed_at).toISOString() : null,
   };
 }
 
@@ -250,14 +278,17 @@ export async function deleteManualLog(
   return del.length > 0;
 }
 
+// jsonb 파라미터 — 인터페이스 타입은 인덱스 시그니처가 없어 JSONValue에 그대로 붙지 않는다(값은 순수 JSON).
+const asJson = (v: object): postgres.JSONValue => v as unknown as postgres.JSONValue;
+
 export async function insertAutoLog(sql: postgres.Sql, input: {
   influencerId: string; eventType: InfluencerAutoEvent;
   draftId: string | null; draftTitle: string | null;
-  payload?: { from: string; to: string }; authorId: string | null;
+  payload?: LogPayload; authorId: string | null;
 }): Promise<void> {
   await sql`insert into influencer_log (influencer_id, kind, event_type, draft_id, draft_title, payload, author_id)
     values (${input.influencerId}, 'auto', ${input.eventType}, ${input.draftId}, ${input.draftTitle},
-            ${input.payload ? sql.json(input.payload) : null}, ${input.authorId})`;
+            ${input.payload ? sql.json(asJson(input.payload)) : null}, ${input.authorId})`;
 }
 
 // 배정 자동완성 후보 — 명부가 기준이다(과거 배정 이력에서 긁어모으던 listInfluencerHandles의 후신).
@@ -265,4 +296,42 @@ export async function listOptions(sql: postgres.Sql): Promise<InfluencerOption[]
   const rows = await sql<Array<{ handle: string; display_name: string | null }>>`
     select handle, display_name from influencer order by lower(handle)`;
   return rows.map((r) => ({ handle: r.handle, name: r.display_name ?? undefined }));
+}
+
+// 단가 병합 저장 — 행 잠금 후 diff라 동시 blur가 겹쳐도 로그·값이 어긋나지 않는다(스펙 §2).
+// 로그는 유형별 한 줄씩: 단가 칸 옆 이력 펼침이 priceType 단위로 필터하기 때문.
+export async function updatePricing(
+  sql: postgres.Sql, id: string, patch: Pricing, actorId: string | null,
+): Promise<{ pricing: Pricing; logs: InfluencerLogRow[] }> {
+  return await sql.begin(async (tx) => {
+    const rows = await tx<Array<{ pricing: Pricing }>>`
+      select pricing from influencer where id = ${id} for update`;
+    if (rows.length === 0) throw new Error(`influencer not found: ${id}`);
+    const base = rows[0].pricing ?? {};
+    const changes = diffPricing(base, patch);
+    const merged = mergePricing(base, patch);
+    // 헬퍼(LOG_SELECT)에 트랜잭션 핸들을 넘길 때의 관례 — 라우트의 renameInfluencer 호출과 같은 캐스팅.
+    const tsql = tx as unknown as postgres.Sql;
+    await tx`update influencer set pricing = ${tx.json(asJson(merged))} where id = ${id}`;
+    const logIds: string[] = [];
+    for (const c of changes) {
+      const ins = await tx<Array<{ id: string }>>`
+        insert into influencer_log (influencer_id, kind, event_type, payload, author_id)
+        values (${id}, 'auto', 'pricing_changed', ${tx.json(asJson(c))}, ${actorId})
+        returning id`;
+      logIds.push(ins[0].id);
+    }
+    const logs = logIds.length
+      ? (await tx<LRow[]>`${LOG_SELECT(tsql)} where l.id in ${tx(logIds)} order by l.created_at desc, l.id desc`).map(toLog)
+      : [];
+    return { pricing: merged, logs };
+  });
+}
+
+// 분석 결과 박제 — analyzed_at이 "언제 기준"인지를 화면이 말할 근거다.
+export async function saveAnalysis(
+  sql: postgres.Sql, id: string, analysis: InfluencerAnalysis,
+): Promise<void> {
+  await sql`update influencer set analysis = ${sql.json(asJson(analysis))}, analyzed_at = now()
+    where id = ${id}`;
 }

@@ -25,8 +25,9 @@ export default function ReportsPage() {
 
   useEffect(() => {
     apiFetch('/api/clients').then(async (r) => {
-      const all = (await r.json()) as ClientRow[];
-      const linked = all.filter((c) => c.clinicCode);
+      // /api/clients는 {client, procedures}[] 형태 — client만 뽑는다
+      const all = (await r.json()) as Array<{ client: ClientRow }>;
+      const linked = all.map((x) => x.client).filter((c) => c.clinicCode);
       setClients(linked);
       setQ((prev) => ({ ...prev, clientId: linked[0]?.id ?? '' }));
     }).catch(() => setClients([]));

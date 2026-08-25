@@ -163,7 +163,7 @@ export function LinkTable({
                   </td>
                   <td aria-hidden="true" />
                 </tr>
-                {open && <ClickHistory rows={history} state={historyState} />}
+                {open && <ClickHistory link={r} rows={history} state={historyState} />}
               </Fragment>
             );
           })}
@@ -179,18 +179,47 @@ export function LinkTable({
 // 헤더도 없다: 부모 헤더가 위에 고정돼 있어 그 자리가 곧 이 값의 이름이다.
 // 봇 제외 값은 총 클릭 아래에 붙인다 — 같은 지표의 두 번째 값이라 옆 칸(다른 열)으로 보내면 뜻이 어긋난다.
 // 그래프가 아니라 숫자인 이유: 수동 새로고침이라 간격이 불규칙해 점 두세 개짜리 곡선은 오해를 부른다.
-function ClickHistory({ rows, state }: { rows: LinkClickSnapshotRow[]; state: LinkHistoryState }) {
+function ClickHistory({ link, rows, state }: { link: TrackingLinkRow; rows: LinkClickSnapshotRow[]; state: LinkHistoryState }) {
+  // 원본 링크 확인(koo QA 08-25): 단축 링크가 실제로 어디로 가는지 — 랜딩 원본과 UTM 붙은 최종 주소.
+  // 검수·공유 양쪽에 쓰이므로 복사 버튼을 각각 둔다.
+  const [copied, setCopied] = useState<'landing' | 'long' | null>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
+  const copyUrl = (kind: 'landing' | 'long', url: string) => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(kind);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(null), 2000);
+    }).catch(() => {});
+  };
+  const urls = (
+    <tr className="bg-x-surface/60">
+      <td />
+      <td colSpan={COLS.length} className="py-1.5 pl-3 pr-3 text-caption">
+        {([['landing', '랜딩 원본', link.landingUrl], ['long', 'UTM 포함 최종', link.longUrl]] as const).map(([kind, label, url]) => (
+          <p key={kind} className="flex items-baseline gap-2 py-0.5">
+            <span className="w-[86px] shrink-0 text-x-muted">{label}</span>
+            <a href={url} target="_blank" rel="noreferrer" className="min-w-0 break-all text-x-blue-text hover:underline">{url}</a>
+            <button onClick={() => copyUrl(kind, url)} className="shrink-0 text-x-blue-text hover:underline">
+              {copied === kind ? '복사됨 ✓' : '복사'}
+            </button>
+          </p>
+        ))}
+      </td>
+    </tr>
+  );
   const note = (text: string) => (
     <tr className="border-b border-x-border bg-x-surface/60">
       <td colSpan={COLS.length + 1} className="py-2 pl-14 text-caption text-x-muted">{text}</td>
     </tr>
   );
-  if (state === 'loading') return note('클릭 이력 불러오는 중…');
-  if (state === 'error') return note('클릭 이력을 불러오지 못했어요 — 접었다 다시 열어보세요');
-  if (rows.length === 0) return note('아직 클릭 기록이 없어요 — 새로고침을 누르면 지금 값이 기록돼요');
+  if (state === 'loading') return <>{urls}{note('클릭 이력 불러오는 중…')}</>;
+  if (state === 'error') return <>{urls}{note('클릭 이력을 불러오지 못했어요 — 접었다 다시 열어보세요')}</>;
+  if (rows.length === 0) return <>{urls}{note('아직 클릭 기록이 없어요 — 새로고침을 누르면 지금 값이 기록돼요')}</>;
 
   return (
     <>
+      {urls}
       {rows.map((s, i) => {
         const last = i === rows.length - 1;
         return (

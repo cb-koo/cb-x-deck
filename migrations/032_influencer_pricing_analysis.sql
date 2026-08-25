@@ -1,4 +1,4 @@
--- 028: 인플루언서 협찬 단가 + 계정 분석 (스펙 2026-08-24-influencer-pricing-analysis)
+-- 032(원래 028 — main의 트래킹 링크 028~031과 번호 충돌로 머지 시 rename, SQL은 동일·프로덕션 적용 완료): 인플루언서 협찬 단가 + 계정 분석 (스펙 2026-08-24-influencer-pricing-analysis)
 -- 026(influencer_metrics)은 폐기된 게시물 추적 브랜치에서 소모됐고 프로덕션 DB에 적용된 채 남아 있다 — 그래서 028.
 -- apply-migrations.sh가 매번 전 파일을 재적용하므로 재실행 안전(016·023 관례).
 

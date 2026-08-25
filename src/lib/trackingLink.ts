@@ -96,6 +96,34 @@ export function campaignMessage(reason: 'empty' | 'not-ascii'): string {
   return '캠페인명은 영어·숫자·하이픈으로 입력해 주세요 (예: clinic-a-202608)';
 }
 
+// 콘텐츠 구분 — utm_content의 뒷부분(koo 확정 08-25): 링크 주소(짧고 무의미)와 달리 분석하는 사람이 읽는 값이라
+// 의미가 우선. 기본값은 만든 날 MMDD(월은 캠페인에 이미 있음), 모달에서 lifting처럼 영문으로 고쳐 쓸 수 있다.
+export type ContentLabelCheck =
+  | { ok: true; label: string }
+  | { ok: false; reason: 'empty' | 'not-ascii' };
+
+export function checkContentLabel(input: string): ContentLabelCheck {
+  const raw = (input ?? '').trim().replace(/\s+/g, '-');
+  if (!raw) return { ok: false, reason: 'empty' };
+  if (!/^[A-Za-z0-9._-]+$/.test(raw)) return { ok: false, reason: 'not-ascii' };
+  return { ok: true, label: raw };
+}
+
+export function contentLabelMessage(reason: 'empty' | 'not-ascii'): string {
+  if (reason === 'empty') return '콘텐츠 구분을 입력해 주세요';
+  return '콘텐츠 구분은 영어·숫자·하이픈으로 입력해 주세요 (예: lifting, before-after)';
+}
+
+export function suggestContentLabel(now: number = Date.now()): string {
+  const kst = new Date(now + 9 * 3600 * 1000);
+  return `${String(kst.getUTCMonth() + 1).padStart(2, '0')}${String(kst.getUTCDate()).padStart(2, '0')}`;
+}
+
+// utm_content = {핸들}-{콘텐츠 구분} — GA에서 '누가 · 무엇/언제'가 한 값에 읽힌다
+export function utmContentOf(handle: string, label: string): string {
+  return `${handle}-${label}`;
+}
+
 // 제안값일 뿐 확정이 아니다 — 입력란에서 수정 가능(반자동의 '반').
 // 클라명에서 영문 규칙에 맞는 글자만 남긴다(한글 클라는 YYYYMM만 제안 — 영문 접두는 사람이 붙인다).
 // 월은 KST 기준(리포 시간대 관례).

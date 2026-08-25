@@ -15,7 +15,7 @@ short.io로 단축돼 전달하기 좋은 형태가 되며, 클릭 수는 앱 �
 | 결정 | 내용 |
 |---|---|
 | 생성 진입점 | **둘 다** — 원고(DraftCard)에서 자동 채움 생성 + 트래킹 페이지에서 독립 생성 |
-| UTM 구성 | **표준형** — `utm_source=x` · `utm_medium=influencer` · `utm_campaign`(자동 제안+수정) · `utm_content={링크 주소 slug}` |
+| UTM 구성 | **표준형** — `utm_source=x` · `utm_medium=influencer` · `utm_campaign`(자동 제안+수정) · `utm_content={핸들}-{콘텐츠 구분}`(031, koo 확정 08-25 — 구분 기본값 MMDD, 영문 수정 가능, 중복 -2) |
 | 링크 주소(경로) | **단어형 무의미 코드**(koo QA 08-25 2차) — 자음·모음 교대 6자(예: `tavemo`)라 읽히지만 뜻·규칙이 없다: 스팸 인상 없음 + 추측 불가 + 압축. '다른 주소 뽑기'로 재추첨, 수정 칸에서 의미 주소도 가능, 충돌 시 `-2` 순번 |
 | short.io | 계정·도메인 보유. **REST API 직접 호출**(SDK 안 씀 — 아래 근거) |
 | 클릭 통계 | **앱 안에서, append-only 스냅샷**(C안) — 새로고침마다 이력 한 줄 추가, 게시물 지표와 대칭. **새로고침 1회 = 합계 + 생성일부터 오늘까지 일별 추이**(030, koo 확정 08-25; short.io가 31일 초과 구간을 주·월로 뭉쳐 31일 창 분할 조회) → 클릭 열 스파크라인(최근 7일)과 펼침의 날짜별 클릭 목록이 외부 호출 없이 같은 시점 데이터로 그려짐 |
@@ -89,7 +89,7 @@ alter table client add column if not exists landing_url text not null default ''
   ?utm_source=x
   &utm_medium=influencer
   &utm_campaign={캠페인}          ← 제안: {클라이언트명 공백→하이픈}-{YYYYMM}, 수정 가능
-  &utm_content={링크 주소 slug}      ← 경로와 같은 값 — 기본 단어형 코드(예: tavemo), 직접 지은 주소도 가능
+  &utm_content={핸들}-{콘텐츠 구분}  ← 예: hana_kim-0824 / hana_kim-lifting — GA에서 '누가·무엇'이 한 값에 읽힘. 링크 주소(단어형 코드)와 분리
 ```
 
 - 랜딩 URL에 기존 쿼리스트링이 있으면 보존하고 이어붙인다. 단 **기존 `utm_*` 파라미터는 제거 후 교체**(이중 UTM은 분석을 오염시킴).

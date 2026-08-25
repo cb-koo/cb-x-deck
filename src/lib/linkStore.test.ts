@@ -5,7 +5,7 @@ import { insertDraft, updateDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
 import {
   listLinks, findLinkById, insertLink, appendClickSnapshot,
-  markLinkUnavailable, deleteLink, listClickSnapshots,
+  markLinkUnavailable, deleteLink, listClickSnapshots, utmContentExists,
 } from './linkStore.ts';
 
 const sql = getSql();
@@ -13,7 +13,7 @@ const P = 'tlnk' + process.pid.toString(36) + Date.now().toString(36);
 const base = (code: string) => ({
   code, landingUrl: 'https://c.example.com/', longUrl: `https://c.example.com/?utm_content=h-${code}`,
   shortUrl: `https://cb.link/${code}`, shortioLinkId: 'lnk_' + code, utmCampaign: P + '캠',
-  influencerHandle: 'hana_kim', draftId: null as string | null, clientId: null, clientName: null, createdBy: null,
+  influencerHandle: 'hana_kim', utmContent: `hana_kim-${code}`, draftId: null as string | null, clientId: null, clientName: null, createdBy: null,
 });
 
 after(async () => {
@@ -32,8 +32,11 @@ test('1) 생성 → 목록 — 클릭 측정 전에는 clicks가 null', async ()
   assert.equal(listed!.shortUrl, row.shortUrl);
 });
 
-test('2) code unique — 같은 코드 재삽입은 던진다(호출부 재생성의 근거)', async () => {
-  await insertLink(sql, base(P + '2'));
+test('2) code unique — 같은 코드 재삽입은 던진다(호출부 재생성의 근거), utm_content 존재 확인', async () => {
+  const row = await insertLink(sql, base(P + '2'));
+  assert.equal(row.utmContent, `hana_kim-${P}2`);
+  assert.equal(await utmContentExists(sql, `hana_kim-${P}2`), true);
+  assert.equal(await utmContentExists(sql, `hana_kim-${P}2-none`), false);
   await assert.rejects(() => insertLink(sql, base(P + '2')));
 });
 

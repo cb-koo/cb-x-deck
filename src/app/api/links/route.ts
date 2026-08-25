@@ -3,9 +3,9 @@ import { getSql } from '@/lib/db';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { parseXHandle } from '@/lib/xHandle';
-import { checkLandingUrl, landingUrlMessage, buildTrackedUrl, checkCampaign, campaignMessage, checkSlug, slugMessage } from '@/lib/trackingLink';
+import { checkLandingUrl, landingUrlMessage, buildTrackedUrl, checkCampaign, campaignMessage, checkSlug, slugMessage, checkContentLabel, contentLabelMessage, utmContentOf } from '@/lib/trackingLink';
 import { isShortioConfigured, makeShortioClient } from '@/lib/shortio';
-import { insertLink, listLinks } from '@/lib/linkStore';
+import { insertLink, listLinks, utmContentExists } from '@/lib/linkStore';
 
 const NOT_CONFIGURED = 'short.io 연결이 아직 설정되지 않았어요 — 관리자에게 SHORTIO_API_KEY·SHORTIO_DOMAIN 설정을 요청해 주세요';
 const CREATE_FAILED = '짧은 링크를 만들지 못했어요 — 잠시 후 다시 시도해 주세요';
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   if (!isShortioConfigured()) return NextResponse.json({ error: NOT_CONFIGURED }, { status: 503 });
   const sql = getSql();
   const body = (await req.json().catch(() => ({}))) as {
-    landingUrl?: unknown; influencerHandle?: unknown; utmCampaign?: unknown; slug?: unknown;
+    landingUrl?: unknown; influencerHandle?: unknown; utmCampaign?: unknown; slug?: unknown; contentLabel?: unknown;
     draftId?: unknown; clientId?: unknown;
   };
 
@@ -40,6 +40,8 @@ export async function POST(req: Request) {
   const campaign = campaignCheck.campaign; // 정규화(공백→하이픈)된 영문 캠페인 — 클라이언트와 같은 함수
   const slugCheck = checkSlug(String(body.slug ?? ''));
   if (!slugCheck.ok) return NextResponse.json({ error: slugMessage(slugCheck.reason) }, { status: 400 });
+  const labelCheck = checkContentLabel(String(body.contentLabel ?? ''));
+  if (!labelCheck.ok) return NextResponse.json({ error: contentLabelMessage(labelCheck.reason) }, { status: 400 });
 
   // 연결 대상은 존재할 때만 잇는다 — 죽은 id로 FK 오류(500)를 내느니 조용히 연결 없이 만든다
   let draftId: string | null = null;
@@ -54,6 +56,12 @@ export async function POST(req: Request) {
     if (c.length) { clientId = c[0].id; clientName = c[0].name; } // 이름은 서버가 스냅샷(클라 삭제 대비)
   }
 
+  // utm_content = {핸들}-{콘텐츠 구분}(031) — 같은 값이 이미 있으면 -2, -3(GA에서 두 링크가 한 값으로 뭉치지 않게)
+  let utmContent = utmContentOf(handle.handle, labelCheck.label);
+  for (let n = 2; await utmContentExists(sql, utmContent) && n < 20; n++) {
+    utmContent = `${utmContentOf(handle.handle, labelCheck.label)}-${n}`;
+  }
+
   const shortio = makeShortioClient();
   // 주소 충돌(같은 캠페인·인플에 두 번째 링크 등)은 -2, -3 순번으로 푼다 — 랜덤 없음(koo QA 08-25).
   // DB 선확인은 우리 쪽 재사용을 싸게 거르는 것이고, 최종 판정은 short.io 409(타 링크와의 충돌 포함).
@@ -61,7 +69,7 @@ export async function POST(req: Request) {
     const slug = n === 0 ? slugCheck.slug : `${slugCheck.slug}-${n + 1}`;
     const dup = await sql`select 1 from tracking_link where code = ${slug}`;
     if (dup.length) continue;
-    const longUrl = buildTrackedUrl({ landingUrl: landing.url, campaign, content: slug });
+    const longUrl = buildTrackedUrl({ landingUrl: landing.url, campaign, content: utmContent });
     const created = await shortio.createLink({
       originalUrl: longUrl, path: slug,
       title: `${handle.handle} · ${campaign}`, // short.io 대시보드에서 사람이 알아보는 이름
@@ -70,7 +78,7 @@ export async function POST(req: Request) {
     if (created.kind === 'error') return NextResponse.json({ error: CREATE_FAILED }, { status: 502 });
     const row = await insertLink(sql, {
       code: slug, landingUrl: landing.url, longUrl, shortUrl: created.shortUrl,
-      shortioLinkId: created.linkId, utmCampaign: campaign, influencerHandle: handle.handle,
+      shortioLinkId: created.linkId, utmCampaign: campaign, influencerHandle: handle.handle, utmContent,
       draftId, clientId, clientName, createdBy: gate.member.id,
     });
     return NextResponse.json({ row });

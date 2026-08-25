@@ -1,6 +1,6 @@
 # 캠페인 관리 — 설계 스펙
 
-작성: 2026-08-25 · 브랜치 `cb-koo/campaign-management` · 상태: koo 검토 대기
+작성: 2026-08-25 · 브랜치 `cb-koo/campaign-management` · 상태: 리뷰(Opus, Blocking 6·Should 5) 반영 완료 — 구현 계획 단계
 리서치: `docs/research/campaign-dashboard-ux-research-20260825.md` (표 vs 달력·예외 우선·통화 분리 근거)
 시안: `.superpowers/brainstorm/22867-1787648782/content/{hybrid1,calendar-v1-v2}.html` (로컬, 미커밋)
 
@@ -18,9 +18,9 @@
   4. **계획** — 원고 추가·배정·예정일 조정. 별도 계획판 없이 화면 안의 동작.
 - 규모: 캠페인당 콘텐츠 5~20개, 인플 2~6명. 필터·집계보다 "한눈에 전부"가 맞는 크기.
 
-## 2. 데이터 모델 (마이그레이션 032)
+## 2. 데이터 모델 (마이그레이션 033)
 
-main은 031까지 진행됨. 미머지 브랜치 `cb-koo/influencer-profile`의 028 파일은 그쪽 머지 시 재번호(DB에는 이미 적용돼 있어 무충돌).
+main은 031까지. 미머지 브랜치 `cb-koo/influencer-profile`이 **032**를 이미 사용(028→032 재번호됨) → 캠페인은 **033**. 033에는 `alter table influencer add column if not exists pricing jsonb not null default '{}';` 한 줄을 멱등으로 포함한다 — 그 컬럼의 DDL은 미머지 032에만 있어 새 DB에서 비용 제안 쿼리가 깨진다(리뷰 Blocking 2). 프로덕션 DB에는 이미 있어 무해.
 
 ### 2-1. `campaign` (신설)
 
@@ -35,7 +35,7 @@ main은 031까지 진행됨. 미머지 브랜치 `cb-koo/influencer-profile`의 
 | `kind` | text null | `content`(콘텐츠 의뢰) · `visit`(방문협찬) · `seeding`(시딩) · null. 표시·필터용, 로직 분기 없음 |
 | `note` | text not null default '' | |
 | `created_by` | uuid → member, set null | |
-| `created_at` | timestamptz | |
+| `created_at` / `updated_at` | timestamptz not null default now() | 트리거 없음 — 스토어가 `updated_at = now()` 수동 갱신(clientStore 관례) |
 
 인덱스: `(client_id)`, `(starts_on desc)`.
 
@@ -50,7 +50,7 @@ main은 031까지 진행됨. 미머지 브랜치 `cb-koo/influencer-profile`의 
 | `influencer_handle` | text not null | 핸들 자연키(023 관례). `unique (campaign_id, lower(influencer_handle))` |
 | `extra_costs` | jsonb not null default '[]' | `[{label: string, amount: int ≥ 0, currency: 'KRW'|'JPY'}]` |
 | `note` | text not null default '' | 이 캠페인에서 이 사람에 대한 한 줄 |
-| `updated_at` | timestamptz | |
+| `created_at` / `updated_at` | timestamptz not null default now() | updated_at은 upsert 시 수동 갱신 |
 
 ### 2-3. `draft` 컬럼 3개 추가
 
@@ -58,11 +58,11 @@ main은 031까지 진행됨. 미머지 브랜치 `cb-koo/influencer-profile`의 
 |---|---|---|
 | `campaign_id` | uuid → campaign, on delete set null | 소속 캠페인. null = 없음. 원고는 캠페인보다 오래 산다 |
 | `scheduled_on` | date null | 게시 예정일(서울 기준). null = 미정 |
-| `cost` | jsonb null | `{type: 'rt'|'quoteRt'|'post'|'visit', amount: int ≥ 0, currency: 'KRW'|'JPY'}`. 유형·통화 코드는 `influencerPricing.ts`(influencer-profile 브랜치)와 동일 문자열 — 머지 시 타입을 공유한다 |
+| `cost` | jsonb null | `{type: 'rt'|'quoteRt'|'post'|'visit', amount: int ≥ 0, currency: 'KRW'|'JPY'}`. 유형·통화 리터럴은 `src/lib/campaignCost.ts`에 지역 정의(문자열은 influencer-profile 브랜치의 `influencerPricing.ts`와 동일 — 그 파일은 이 브랜치에 없어 import 불가, 통합은 머지 후 별건) |
 
 인덱스: `(campaign_id)`.
 
-**`updateDraft` 패치 규칙**: 세 필드는 `influencer_handle`과 같은 `case when {patch.x !== undefined} then {value} else x end` 패턴을 쓴다. `coalesce`는 "null이면 유지"라 예정일 지움·캠페인에서 빼기·비용 지움을 표현할 수 없다(현 코드 `draftStore.ts` updateDraft 주석 참조). `undefined` = 건드리지 않음 · `null` = 지움 · 값 = 설정.
+**`updateDraft`·`updateDraftsBulk` 패치 규칙**: 세 필드는 `influencer_handle`과 같은 `case when {patch.x !== undefined} then {value} else x end` 패턴을 쓴다. `coalesce`는 "null이면 유지"라 예정일 지움·캠페인에서 빼기·비용 지움을 표현할 수 없다(현 코드 `draftStore.ts` updateDraft 주석 참조). `undefined` = 건드리지 않음 · `null` = 지움 · 값 = 설정. `updateDraftsBulk`에도 `campaignId?: string | null`을 같은 패턴으로 추가하고, bulk 라우트(`api/drafts/route.ts`)의 "바꿀 내용이 없어요" 400 가드 조건에 `campaignId === undefined`를 포함한다(현재 status·influencerHandle만 검사 — campaignId만 보낸 요청이 거절됨, 리뷰 Blocking 4).
 
 ### 2-4. 파생값(저장하지 않는다)
 
@@ -70,6 +70,8 @@ main은 031까지 진행됨. 미머지 브랜치 `cb-koo/influencer-profile`의 
 |---|---|
 | 콘텐츠 단계 | `draft.status` 5종 + **게시됨** = `exists(tracked_post where draft_id = draft.id)`. 게시됨이면 status와 무관하게 "게시됨"으로 표시(status 값 자체는 바꾸지 않는다) |
 | 밀림 | `scheduled_on < 오늘(서울)` and not 게시됨 and status ≠ `unused` |
+| 준비 중 | 합성 라벨 = `draft` + `review` + `approved` (초안·검수 대기·사용 확정). `STATUS_LABEL`에 없는 라벨이므로 이 정의를 `campaignJudgment`에 두고 칩·카드가 같은 함수를 쓴다 |
+| 게시됨 n / N | N = 캠페인 원고 수 **미사용(`unused`) 제외** — 밀림 판정과 같은 모집단(라벨-값 일치). 미사용은 표에 흐리게 표시, 요약에서 제외 |
 | 기간 밖 | `scheduled_on`이 `[starts_on, ends_on]` 밖 — 경고 표시만, 저장 차단 없음 |
 | 캠페인 상태 | 오늘 < starts_on → **예정** · 안 → **진행 중** · 오늘 > ends_on → **종료**. 수동 상태 없음 |
 | 인플 목록 | 캠페인 원고의 `influencer_handle` 집합(소문자 기준 중복 제거) ∪ `campaign_influencer_cost`에 행이 있는 핸들. 후자만 있고 원고 0이면 "배정 원고 없음" 표시 — 돈이 붙었는데 안 보이는 일을 막는다 |
@@ -82,7 +84,7 @@ main은 031까지 진행됨. 미머지 브랜치 `cb-koo/influencer-profile`의 
 ### 2-5. 값은 하나 — 동기화 규칙
 
 - 인플 배정은 `draft.influencer_handle` 하나. 캠페인 화면에서 바꾸면 기존 `PATCH /api/drafts/[id]`를 그대로 호출 → `syncInfluencerOnDraftUpdate`(인플 프로필 자동 로그)가 그대로 돈다. 캠페인 전용 배정 경로를 만들지 않는다.
-- 인플 핸들 변경(`influencerStore.ts` handle_changed): `draft.influencer_handle` 일괄 갱신과 **같은 트랜잭션에서 `campaign_influencer_cost.influencer_handle`도 갱신**한다. 빠지면 추가 비용이 옛 핸들에 고아로 남는다.
+- 인플 핸들 변경(`influencerStore.ts` renameInfluencer — sql 인자를 받고 트랜잭션은 호출자 소관): `draft.influencer_handle` 일괄 갱신과 **같은 트랜잭션에서 `campaign_influencer_cost.influencer_handle`도 갱신**한다. 빠지면 추가 비용이 옛 핸들에 고아로 남는다. **충돌 규칙**: 같은 캠페인에 옛·새 핸들 행이 둘 다 있으면 unique 위반이 나므로 — 옛 행의 `extra_costs`를 새 행 뒤에 이어붙이고 `note`는 새 행이 비어 있을 때만 옛 값을 쓰고, 옛 행을 삭제한다(리뷰 Blocking 5).
 - 클라이언트 삭제: `campaign.client_id` null, `client_name` 스냅샷으로 표시 유지(원고와 동일).
 - 캠페인 삭제: 원고는 지우지 않는다(`campaign_id` set null). 예정일·비용은 원고에 남는다. 확인 다이얼로그 필수.
 
@@ -113,17 +115,17 @@ main은 031까지 진행됨. 미머지 브랜치 `cb-koo/influencer-profile`의 
 **요약 카드**(예외 우선 순서): ① ⚠ 밀림 N — 보조 "예정일 지났는데 아직 안 올라감" ② 게시됨 n / N — 보조 "전달됨 a · 준비 중 b" ③ 비용 합계 — 통화별 두 숫자, 각주 "통화별로 따로 계산" ④ 조회 합계 — 보조 "게시 n건 · 좋아요 · 링크 클릭". 숫자 24~26px, 라벨은 아래 13px.
 
 **콘텐츠 표** — 열 6개 고정: 예정일(120) · 콘텐츠(남는 폭 전부) · 인플루언서(200) · 비용(130) · 단계(130) · 성과(190).
-- 기본 정렬 "밀린 것 먼저" → 예정일 오름차순 → 예정일 없음 마지막. 정렬 드롭다운(예정일·단계·인플). 필터 칩: 전체·준비 중·전달됨·게시됨.
+- 기본 정렬 "밀린 것 먼저" → 예정일 오름차순 → 예정일 없음 마지막 → 미사용 맨 아래(흐리게). 정렬 드롭다운(예정일·단계·인플). 필터 칩: 전체·준비 중(§2-4 정의)·전달됨·게시됨.
 - 밀린 행: 연한 빨강 배경 + 왼쪽 3px 빨간 막대 + "8/26 수 · 1일 지남".
 - 콘텐츠 셀: 제목(`title → koTitle → 첫 줄` 폴백, 기존 규칙) + 보조줄 "유형 · 단일/스레드". 클릭 → DraftCard 모달(단일 표면).
 - 인플루언서 셀: 아바타 이니셜 + @핸들 + "변경" 텍스트 링크(InfluencerField 재사용, 명부 자동완성).
-- 비용 셀: 클릭 → 유형·금액·통화 팝오버. 인플 배정·변경 시 그 인플 `pricing[type]`이 있으면 **제안**(비어 있을 때만 자동 채움, 사람이 적은 값은 덮지 않음). `pricing`이 `{}`면 빈칸.
+- 비용 셀: 클릭 → 유형·금액·통화 팝오버. 인플 배정·변경 시 **제안**: 금액 = `influencer.pricing[type]`, 통화 = `pricing.currency ?? 'KRW'`(통화는 유형별이 아니라 pricing 레벨 1개, 리뷰 Blocking 3). 비어 있을 때만 자동 채움 — 사람이 적은 값은 덮지 않음. `pricing`이 `{}`거나 그 유형 금액이 없으면 빈칸.
 - 단계 셀: `DraftStatusChip` + 게시됨(초록 ✓). 클릭 → 상태 변경(기존 칩 동작). 옆에 "게시물 연결" 진입점(트래킹 등록 모달, `draft_id` 자동) — 소수 케이스용, 자동 매칭은 백로그.
 - 성과 셀: 게시됨 행만 "조회 12,400 · 링크 96" 한 줄(koo 선택: 열 한 줄, 자세한 건 원고 카드). 나머지 "—".
 - 행 메뉴(···): 캠페인에서 빼기 · 원고 열기.
 - 표 규격: 행 ≥ 48px, 본문 15px, 보조 13px, 12px 이하 금지(단위 라벨 제외). **가독성 기준은 구현 체크리스트**(koo 08-25: "맨날 빽빽해서 보기 힘들다").
 
-**주간 달력** — 캠페인 기간을 주 단위로: 7일 이하면 한 주, 넘으면 ◀ 8/24 주 ▶ 넘김(기본은 오늘이 든 주, 기간 밖이면 시작 주). 열 = 월~일 + "예정일 없음"(오른쪽, 점선). 카드 = 제목(2줄 말줄임) · @핸들 · 단계 칩. 밀린 카드 빨간 막대 + "n일 지남". 오늘 헤더 파란 강조. **카드 드래그 → 예정일 변경**(요일 ↔ 예정일 없음 포함, `PATCH scheduled_on`). 기간 밖 카드는 "기간 밖" 배지. 달력에서 새 원고 만들기는 백로그.
+**주간 달력**(구현 순서상 마지막 — 표·연결점이 동작한 뒤 붙인다. koo가 V2로 확정한 범위이므로 후속 릴리스로 미루지는 않는다) — 캠페인 기간을 주 단위로: 7일 이하면 한 주, 넘으면 ◀ 8/24 주 ▶ 넘김(기본은 오늘이 든 주, 기간 밖이면 시작 주). 열 = 월~일 + "예정일 없음"(오른쪽, 점선). 카드 = 제목(2줄 말줄임) · @핸들 · 단계 칩. 밀린 카드 빨간 막대 + "n일 지남". 오늘 헤더 파란 강조. **카드 드래그 → 예정일 변경**(요일 ↔ 예정일 없음 포함, `PATCH scheduled_on`). 기간 밖 카드는 "기간 밖" 배지. 달력에서 새 원고 만들기는 백로그.
 
 **인플루언서별 비용 표**(두 보기 공통, 하단) — 열 5: 인플루언서(+메모 보조줄) · 콘텐츠 n · 콘텐츠 비용 · 추가 비용(항목 나열 + [+ 추가]) · 소계. 하단 합계 통화별. 도움말 한 줄 "콘텐츠 비용 + 추가 비용을 사람별로 모았어요. 통화가 다르면 따로 보여요." 추가 비용 [+ 추가] → 항목명·금액·통화 팝오버, 항목 클릭으로 수정·삭제. 메모 클릭 인라인 편집.
 
@@ -141,16 +143,16 @@ main은 031까지 진행됨. 미머지 브랜치 `cb-koo/influencer-profile`의 
 2. **DraftCard 캠페인 칸** — 인플루언서 칸 옆 "캠페인: 없음 ▾". 목록 = 그 원고 클라이언트의 진행 중·예정 캠페인(종료는 "종료 캠페인 보기"로 펼침). 클라이언트 없는 원고는 전체 캠페인. 여기서 바꾸면 캠페인 화면 즉시 반영. 예정일·비용 칸도 캠페인 소속일 때 카드에 함께 표시(값은 하나).
 3. **/generate 표 보기 캠페인 열 + 필터 칩** — 새 화면 없이 축 추가.
 
-**DraftRow 확장**: `campaignId · campaignName · campaignCode(name_en) · scheduledOn · cost` — 목록 select에 `left join campaign` 한 번. `campaignName/Code`는 표시·트래킹 링크 제안용 파생 필드.
+**DraftRow 확장**: `campaignId · campaignName · campaignCode(name_en) · scheduledOn · cost` — draft select는 `draftStore.ts`의 `SELECT()` 한 곳이므로 `left join campaign` 1회로 전 경로 충족. `campaignName/Code`는 표시·트래킹 링크 제안용 파생 필드. **DraftCard prop**: 이미 18개 — 캠페인 관련(옵션 목록·onChange·예정일·비용)은 `campaign={{...}}` 객체 하나로 묶어 넘긴다(리뷰 Should 4).
 
 ## 5. 다른 기능과의 연결 (스키마 변경 없음)
 
 | 기능 | 연결 |
 |---|---|
-| 트래킹 링크 | `TrackingLinkSection` prefill에 `campaignCode` 추가 → `LinkCreateModal`의 `utm_campaign` 기본값이 캠페인 코드(있으면) → 없으면 현행 `suggestCampaign(클라)`. 캠페인 요약의 링크 클릭 = 그 캠페인 원고들의 `tracking_link` 최신 스냅샷 합 |
+| 트래킹 링크 | `TrackingLinkSection` prefill에 `campaignCode` 추가(DraftCard → 페이지까지 prop 배선) → `LinkCreateModal`의 `utm_campaign` 기본값 = 캠페인 코드(있으면), 없으면 현행 `suggestCampaign(클라)`. **모달 안 세팅 지점이 두 곳**(open 리셋 `useEffect`, 클라 로드 후 `suggestCampaign(c.nameEn\|\|c.name)`) — 둘 다 `campaignCode` 우선 규칙을 적용해야 조용히 덮이지 않는다(리뷰 Should 2). 캠페인 요약의 링크 클릭 = 그 캠페인 원고들의 `tracking_link` 최신 스냅샷 합 |
 | 게시물 트래킹 | 게시됨 판정·조회수 = `tracked_post.draft_id`. 연결 안 된 게시물은 캠페인이 모른다 — 단계 셀 옆 "게시물 연결" 진입점으로 보완, 자동 매칭은 백로그 |
 | 인플루언서 프로필 | "참여 캠페인" 섹션: 캠페인명·기간·배정 콘텐츠 n·비용 소계(통화별). 조회만, 새 로그 이벤트 없음. 캠페인명 클릭 → `/campaigns?id=` |
-| 인플루언서 단가 | `influencer.pricing[type]`을 비용 제안에 사용. 컬럼은 프로덕션에 존재(028 적용됨), 코드는 influencer-profile 브랜치 — 캠페인 브랜치는 컬럼을 직접 읽고 없거나 `{}`면 제안 없음. 머지 순서에 무관 |
+| 인플루언서 단가 | `influencer.pricing[type]`을 비용 제안에 사용. 컬럼은 프로덕션에 존재(그쪽 032 적용됨)·033이 멱등 DDL로 보장, 코드는 influencer-profile 브랜치 — 캠페인 브랜치는 컬럼을 직접 읽고 `{}`거나 유형 금액이 없으면 제안 없음. 머지 순서에 무관 |
 
 ## 6. API
 
@@ -163,7 +165,7 @@ main은 031까지 진행됨. 미머지 브랜치 `cb-koo/influencer-profile`의 
 | `DELETE /api/campaigns/[id]` | 삭제(원고 `campaign_id` null은 FK set null) |
 | `PUT /api/campaigns/[id]/influencers/[handle]` | 추가 비용·메모 upsert(`campaign_influencer_cost`) |
 | `PATCH /api/drafts/[id]` (기존) | `campaignId · scheduledOn · cost` 필드 추가. 인플 변경도 이 라우트 |
-| `PATCH /api/drafts` bulk (기존) | `campaignId` 일괄 설정·해제 추가 |
+| `PATCH /api/drafts` bulk (기존) | `campaignId` 일괄 설정·해제 추가(400 가드 조건 확장, §2-3) |
 
 인증·멤버 해석은 기존 `requireMember` 관례. 워크스페이스 FK 없음(클라이언트·원고와 동일 — 전 워크스페이스 공유 설계).
 
@@ -180,7 +182,7 @@ main은 031까지 진행됨. 미머지 브랜치 `cb-koo/influencer-profile`의 
 
 - 순수 함수: `campaignJudgment`(단계 승격·밀림·기간 밖·상태·통화별 합계·인플 목록 파생) · 이름/코드 제안 · 주 범위 계산(`weekRangeLabel` 연계).
 - 스토어(실 DB, npm test 관례): 생성·목록 그룹·상세 조인(게시됨·성과 lateral)·추가 비용 upsert·핸들 변경 전파·클라 삭제 시 스냅샷·캠페인 삭제 시 원고 보존·`updateDraft` 새 필드 null=지움.
-- 라우트 없음(리포 관례) → 라우트 검증은 스토어 테스트 + 스모크(`scripts/`) + koo 화면 QA.
+- 라우트 하네스 없음(리포 관례) → 라우트 검증은 스토어 테스트 + koo 화면 QA. (`scripts/smoke-*`는 외부 API 전용 — 캠페인엔 해당 없음.) `npm test` = `src/**/*.test.ts`, `--test-concurrency=1`, 실 DB.
 - 화면 확인은 `build + start -p 3001 + 127.0.0.1`.
 
 ## 9. 범위 밖 (백로그)

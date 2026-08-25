@@ -16,7 +16,7 @@ const STATUS_BADGE: Record<DraftStatus, string> = {
   unused: 'border-x-border-strong bg-x-border/40 text-x-muted',
 };
 
-// 헤더 숫자는 전체 배정 수(draftCount), 아래 목록은 최근 것만 온다 — 두 숫자가 다르면 그 사실을 적는다.
+// 전체 배정 수(draftCount)는 탭 배지가 말하고, 여기 목록은 최근 것만 온다 — 두 수가 다르면 그 사실을 적는다.
 // (v1에서 "넘긴 원고 62"라 써놓고 50건만 나오던 자기모순을 여기서 해소한다)
 export function ContentTab({ drafts, draftCount }: { drafts: DraftRollupItem[]; draftCount: number }) {
   return (

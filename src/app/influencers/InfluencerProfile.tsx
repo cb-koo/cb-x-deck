@@ -1,15 +1,15 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { formatCount } from '@/lib/format';
 import { relTime } from '@/lib/relTime';
 import { isProfileStale, judgeContact, summarizeDraftStatuses } from '@/lib/influencerJudgment';
-import { PricingSection } from './PricingSection';
-import { AnalysisSection } from './AnalysisSection';
-import { Timeline } from './Timeline';
+import { DEFAULT_TAB, type TabKey } from '@/lib/profileTabs';
+import { ProfileTabs } from './ProfileTabs';
+import { AccountTab } from './AccountTab';
 import { ContentTab } from './ContentTab';
-import { errOf } from './profileShared';
+import { DealTab } from './DealTab';
 import type { InfluencerDetail } from '@/lib/influencerStore';
 
 // 아바타 — 없으면 이니셜 원. 프로필 사진은 X CDN 원본이라 next/image 최적화 대상이 아니다.
@@ -36,16 +36,31 @@ const MSG_STYLE: Record<Msg['tone'], string> = {
   err: 'bg-red-50 text-red-700',
 };
 
-export function InfluencerProfile({ id, onChanged, onDeleted }: {
+export function InfluencerProfile({ id, onChanged, onDeleted, tab = DEFAULT_TAB, onTabChange = () => {} }: {
   id: string;
   onChanged: () => Promise<void>;   // 명부(왼쪽) 새로고침 — 태그·마지막 기록이 바뀌면 목록도 같이 움직여야 한다
   onDeleted: () => void;
+  // 탭 상태는 부모(page)가 URL에서 준다 — 화면이 아니라 주소가 단일 출처(스펙 §2)
+  tab?: TabKey;
+  onTabChange?: (t: TabKey) => void;
 }) {
   const [data, setData] = useState<InfluencerDetail | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [msg, setMsg] = useState<Msg | null>(null);
+
+  // 숨은 탭의 저장 실패를 탭 라벨에 표식으로(스펙 §3). 키 = '탭:출처'. 멤버십이 안 바뀌면 같은 Set을 돌려
+  // 재렌더·effect 연쇄를 끊는다 — 없으면 useErrorReport → setState → 재렌더 → 새 콜백 … 무한 루프.
+  const [errorKeys, setErrorKeys] = useState<Set<string>>(() => new Set());
+  const reportError = useCallback((t: TabKey) => (source: string, hasError: boolean) => {
+    const k = `${t}:${source}`;
+    setErrorKeys((prev) => {
+      if (prev.has(k) === hasError) return prev;
+      const n = new Set(prev); if (hasError) n.add(k); else n.delete(k); return n;
+    });
+  }, []);
+  const errorTabs = useMemo(() => new Set([...errorKeys].map((k) => k.split(':')[0] as TabKey)), [errorKeys]);
 
   // setState는 전부 await 뒤 — 동기 setState가 앞에 있으면 set-state-in-effect에 걸린다(GlobalShell 관례)
   const load = useCallback(async () => {
@@ -159,182 +174,32 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
         }`}>
           {contact.label}{contact.needsFollowup && ' → 팔로업 필요'}
         </span>
-        {/* 원고 상태 요약은 전체 카운트 기준 — 아래 '넘긴 원고' 목록(최근 50건)과 세는 범위가 다르다 */}
+        {/* 원고 상태 요약은 전체 카운트 기준 — '협업 콘텐츠' 탭의 목록(최근 50건)과 세는 범위가 다르다 */}
         {draftLine && <p className="mt-1 text-ui text-x-secondary">원고 {draftLine}</p>}
       </div>
 
-      {/* 계정 분석 — 현황 다음, 사람이 붙이는 태그·메모 앞. X 수집+LLM은 버튼을 누를 때만 돈다. */}
-      <AnalysisSection id={id} analysis={data.analysis} analyzedAt={data.analyzedAt}
-                       followers={inf.followersCount}
-                       onAnalyzed={(analysis, analyzedAt) => {
-                         setData((d) => (d ? { ...d, analysis, analyzedAt } : d));
-                       }} />
-
+      {/* 알림띠는 탭 바 위에 — 프로필 갱신 결과는 어느 탭을 보고 있든 이 사람 전체에 대한 말이다 */}
       {msg && <p role="alert" className={`mt-3 rounded-lg px-3 py-2 text-ui ${MSG_STYLE[msg.tone]}`}>{msg.text}</p>}
 
-      <TagEditor id={id} tags={inf.tags} onSaved={onChanged} />
-      <NoteEditor id={id} note={inf.note} />
-
-      {/* 단가 변경은 서버가 자동 로그를 남긴다 — 새 로그를 타임라인 맨 앞에 그대로 붙여 다시 부르지 않는다.
-          patch는 그 요청이 실제로 바꾼 키만 담고 있으므로(PricingSection.save 참고) 다른 행의 병행
-          PATCH 응답이 뒤섞여 도착해도 서로 다른 키끼리는 덮어쓰지 않고 병합만 된다 — 같은 키는
-          busyKeys가 동시 전송 자체를 막아 직렬화한다. 로그 prepend는 도착 순서대로라 병행 저장 시
-          몇 ms 정도 시간순과 어긋나 보일 수 있으나(일시적 표시 문제) 감수한다. */}
-      <PricingSection id={id} pricing={data.pricing} logs={data.logs}
-                      onSaved={(patch, newLogs) => {
-                        setData((d) => (d ? { ...d, pricing: { ...d.pricing, ...patch }, logs: [...newLogs, ...d.logs] } : d));
-                        // 단가 저장은 auto 로그를 남겨 last_log_at이 바뀐다 — 명부(왼쪽)도 같이 움직여야 한다.
-                        // 무변경 no-op(newLogs 0건)까지 명부를 새로고침할 필요는 없다.
-                        if (newLogs.length > 0) onChanged();
-                      }} />
-
-      <Timeline id={id} logs={data.logs}
-                onAdded={(row) => { setData((d) => (d ? { ...d, logs: [row, ...d.logs] } : d)); onChanged(); }}
-                onRemoved={(logId) => {
-                  setData((d) => (d ? { ...d, logs: d.logs.filter((l) => l.id !== logId) } : d));
-                  onChanged();
-                }} />
-
-      <ContentTab drafts={data.drafts} draftCount={inf.draftCount} />
-
-      <DangerZone id={id} logCount={data.logs.length} onDeleted={onDeleted} />
+      <ProfileTabs active={tab} onChange={onTabChange}
+                   badges={{ content: inf.draftCount }}
+                   errorTabs={errorTabs}
+                   panels={{
+                     account: (
+                       <AccountTab id={id} data={data} onChanged={onChanged} onDeleted={onDeleted}
+                                   setData={setData} reportError={reportError('account')} />
+                     ),
+                     // 세 탭의 첫 섹션이 탭 바에서 같은 거리에 서도록 위 여백만 맞춘다(ContentTab 자체는 불변)
+                     content: (
+                       <div className="[&>section:first-child]:mt-2">
+                         <ContentTab drafts={data.drafts} draftCount={inf.draftCount} />
+                       </div>
+                     ),
+                     deal: (
+                       <DealTab id={id} data={data} onChanged={onChanged}
+                                setData={setData} reportError={reportError('deal')} />
+                     ),
+                   }} />
     </div>
-  );
-}
-
-// 태그 — 칩 + 입력. 어떤 조건으로 이 사람을 다시 찾을지(분야·등급 등)를 사용자가 직접 정한다.
-function TagEditor({ id, tags, onSaved }: { id: string; tags: string[]; onSaved: () => Promise<void> }) {
-  const [list, setList] = useState<string[]>(tags);
-  const [input, setInput] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
-
-  // 저장 중에는 칩 버튼을 잠근다 — PATCH가 태그 배열 전체를 덮어쓰기 때문에, 겹쳐 보내면
-  // 나중 요청이 앞 요청의 변경을 되돌린다(사용자에겐 "지운 태그가 되살아남"으로 보인다).
-  async function save(next: string[]): Promise<boolean> {
-    if (saving) return false;
-    setSaving(true);
-    try {
-      const r = await apiFetch(`/api/influencers/${id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: next }),
-      });
-      if (!r.ok) { setErr(await errOf(r)); return false; }
-      setList(next); setErr('');
-      await onSaved();
-      return true;
-    } catch {
-      setErr('태그를 저장하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
-      return false;
-    } finally { setSaving(false); }
-  }
-
-  // 입력칸은 저장에 성공했을 때만 비운다 — 실패했는데 비우면 저장된 것처럼 보인다(거짓 성공 방지)
-  async function add() {
-    const t = input.trim();
-    if (!t) return;
-    if (list.some((x) => x.toLowerCase() === t.toLowerCase())) { setInput(''); return; } // 같은 태그 중복 금지
-    if (await save([...list, t])) setInput('');
-  }
-
-  return (
-    <section className="mt-7 border-t border-x-border pt-5">
-      <div className="flex items-center gap-2">
-        <h2 className="text-content font-bold">태그</h2>
-        {saving && <span className="text-caption text-x-muted">저장 중…</span>}
-      </div>
-      <p className="text-caption leading-relaxed text-x-muted">분야·등급처럼 나중에 이 사람을 다시 찾을 말을 붙여두세요. 명부에서 태그로 골라볼 수 있어요.</p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-        {list.map((t) => (
-          <span key={t} className="inline-flex items-center gap-1 rounded-full border border-x-border-strong px-2 py-0.5 text-ui">
-            {t}
-            <button onClick={() => save(list.filter((x) => x !== t))} disabled={saving} aria-label={`${t} 태그 빼기`}
-                    className="text-x-muted hover:text-red-500 disabled:opacity-50">✕</button>
-          </span>
-        ))}
-        <input value={input} onChange={(e) => setInput(e.target.value)}
-               onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) add(); }}
-               placeholder="태그 입력 후 Enter" aria-label="태그 추가"
-               className="w-40 rounded-lg border border-x-border-strong px-2 py-0.5 text-ui outline-none focus:border-x-blue" />
-      </div>
-      {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
-    </section>
-  );
-}
-
-// 고정 메모 — 타임라인이 "언제 무슨 일이 있었나"라면 여기는 "항상 기억해야 할 것"이다.
-function NoteEditor({ id, note }: { id: string; note: string }) {
-  const [text, setText] = useState(note);
-  const [saved, setSaved] = useState(false);
-  const [err, setErr] = useState('');
-  const baseline = useRef(note);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-
-  async function saveOnBlur() {
-    if (text === baseline.current) return;
-    try {
-      const r = await apiFetch(`/api/influencers/${id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: text }),
-      });
-      if (!r.ok) { setErr(await errOf(r)); return; }
-      baseline.current = text;
-      setErr(''); setSaved(true);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setSaved(false), 2500);
-    } catch {
-      setErr('메모를 저장하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
-    }
-  }
-
-  return (
-    <section className="mt-7 border-t border-x-border pt-5">
-      <div className="flex items-center gap-2">
-        <h2 className="text-content font-bold">고정 메모</h2>
-        {saved && <span className="text-caption font-medium text-x-green">저장됨 ✓</span>}
-      </div>
-      <p className="text-caption leading-relaxed text-x-muted">단가·정산 방식처럼 매번 확인하는 내용을 적어두세요. 칸 밖을 클릭하면 저장돼요.</p>
-      <textarea value={text} onChange={(e) => { setText(e.target.value); setSaved(false); }} onBlur={saveOnBlur} rows={3}
-                className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
-      {err && <p role="alert" className="text-caption text-red-500">{err}</p>}
-    </section>
-  );
-}
-
-// 명부에서 제거 — 인라인 확인(브라우저 confirm 금지). 무엇이 사라지고 무엇이 남는지 먼저 말한다.
-function DangerZone({ id, logCount, onDeleted }: { id: string; logCount: number; onDeleted: () => void }) {
-  const [confirming, setConfirming] = useState(false);
-  const [err, setErr] = useState('');
-  const busy = useRef(false);
-
-  async function remove() {
-    if (busy.current) return;
-    busy.current = true;
-    try {
-      const r = await apiFetch(`/api/influencers/${id}`, { method: 'DELETE' });
-      if (!r.ok) { setErr(await errOf(r)); return; }
-      onDeleted();
-    } catch {
-      setErr('제거하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
-    } finally { busy.current = false; }
-  }
-
-  return (
-    <section className="mt-7 border-t border-x-border pt-5">
-      {confirming ? (
-        <div>
-          <p className="text-ui">기록 {logCount}건도 함께 지워져요. 원고의 배정 표기는 남아요.</p>
-          <div className="mt-2 flex items-center gap-2">
-            <button onClick={remove} className="rounded-full bg-x-pink px-3 py-1 text-ui font-medium text-white hover:opacity-90">
-              명부에서 제거
-            </button>
-            <Button variant="ghost" onClick={() => setConfirming(false)}>취소</Button>
-          </div>
-        </div>
-      ) : (
-        <button onClick={() => { setConfirming(true); setErr(''); }}
-                className="text-ui text-x-secondary hover:text-red-500">명부에서 제거</button>
-      )}
-      {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
-    </section>
   );
 }

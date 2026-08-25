@@ -6,6 +6,7 @@ import {
   CURRENCY_LABEL, PRICE_TYPES, PRICE_TYPE_LABEL, formatMoney, normalizeCurrency,
   type Currency, type Pricing, type PriceType, type PricingChange,
 } from '@/lib/influencerPricing';
+import { useErrorReport } from './profileShared';
 import type { InfluencerLogRow } from '@/lib/influencerStore';
 
 const NUM_ERR = '숫자만 입력해 주세요';
@@ -18,11 +19,12 @@ function parseAmount(s: string): number | null | undefined {
   return Number(t);
 }
 
-export function PricingSection({ id, pricing, logs, onSaved }: {
+export function PricingSection({ id, pricing, logs, onSaved, onErrorChange }: {
   id: string;
   pricing: Pricing;
   logs: InfluencerLogRow[];
   onSaved: (patch: Partial<Pricing>, newLogs: InfluencerLogRow[]) => void;
+  onErrorChange?: (v: boolean) => void;   // 이 탭이 숨어 있을 때 저장 실패를 탭 라벨이 대신 알린다
 }) {
   const currency = normalizeCurrency(pricing);
   // 입력 중 텍스트는 로컬, 확정값은 부모 pricing이 단일 출처 — blur 저장 성공 시 부모가 갱신한다.
@@ -31,6 +33,7 @@ export function PricingSection({ id, pricing, logs, onSaved }: {
   type Key = PriceType | 'currency';
   const [err, setErr] = useState<Partial<Record<Key, string>>>({});
   const [savingCount, setSavingCount] = useState(0);
+  useErrorReport(Object.keys(err).length > 0, onErrorChange);
   // 행 단위 busy — 서로 다른 키(다른 행)의 동시 PATCH는 서버가 행 잠금하므로 안전, 같은 키만 중복 차단.
   const busyKeys = useRef(new Set<Key>());
 

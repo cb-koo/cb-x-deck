@@ -186,14 +186,14 @@ function ClickHistory({ link, rows, state, daily, dailyState }: {
   link: TrackingLinkRow; rows: LinkClickSnapshotRow[]; state: LinkHistoryState;
   daily: DailyClickPoint[]; dailyState: LinkHistoryState;
 }) {
-  // 펼침의 정보 위계(koo QA 08-25): ① 날짜별 클릭(펼치는 목적) ② 원본 링크(검수) ③ 측정 이력(우리가 잰 기록)
+  // 펼침의 정보 위계(koo QA 08-25 확정): ① 원본 링크(무슨 링크인지) ② 최근 7일 클릭(어떻게 반응했는지) ③ 측정 이력(우리가 잰 기록)
   const total30 = daily.reduce((a, p) => a + p.clicks, 0);
   const chart = (
     <tr className="bg-x-surface/60">
       <td />
       <td colSpan={COLS.length} className="py-2 pl-3 pr-3">
         <p className="text-caption text-x-muted">
-          최근 30일 클릭{dailyState === 'ready' && <b className="ml-1.5 text-x-secondary">합계 {total30}</b>}
+          최근 7일 클릭{dailyState === 'ready' && <b className="ml-1.5 text-x-secondary">합계 {total30}</b>}
         </p>
         {dailyState === 'loading' && <p className="mt-1 text-caption text-x-muted">클릭 추이 불러오는 중…</p>}
         {dailyState === 'error' && <p className="mt-1 text-caption text-x-secondary">클릭 추이를 가져오지 못했어요 — 접었다 다시 열어보세요</p>}
@@ -239,14 +239,14 @@ function ClickHistory({ link, rows, state, daily, dailyState }: {
       <td colSpan={COLS.length + 1} className="py-2 pl-14 text-caption text-x-muted">{text}</td>
     </tr>
   );
-  if (state === 'loading') return <>{chart}{urls}{note('클릭 이력 불러오는 중…')}</>;
-  if (state === 'error') return <>{chart}{urls}{note('클릭 이력을 불러오지 못했어요 — 접었다 다시 열어보세요')}</>;
-  if (rows.length === 0) return <>{chart}{urls}{note('아직 클릭 기록이 없어요 — 새로고침을 누르면 지금 값이 기록돼요')}</>;
+  if (state === 'loading') return <>{urls}{chart}{note('클릭 이력 불러오는 중…')}</>;
+  if (state === 'error') return <>{urls}{chart}{note('클릭 이력을 불러오지 못했어요 — 접었다 다시 열어보세요')}</>;
+  if (rows.length === 0) return <>{urls}{chart}{note('아직 클릭 기록이 없어요 — 새로고침을 누르면 지금 값이 기록돼요')}</>;
 
   return (
     <>
-      {chart}
       {urls}
+      {chart}
       {rows.map((s, i) => {
         const last = i === rows.length - 1;
         return (

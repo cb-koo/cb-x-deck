@@ -216,15 +216,20 @@ function ClickHistory({ link, rows, state, daily, dailyState }: {
   const urls = (
     <tr className="bg-x-surface/60">
       <td />
-      <td colSpan={COLS.length} className="py-1.5 pl-3 pr-3 text-caption">
+      <td colSpan={COLS.length} className="py-1.5 pl-3 pr-3">
+        <p className="text-caption text-x-muted">원본 링크</p>
+        {/* 행 카드(원고 카드 섹션과 같은 문법): 긴 UTM 주소는 한 줄 말줄임 — 전체는 hover(title)와 복사로.
+            break-all로 두세 줄 꺾이면 파라미터 덩어리가 화면을 채워 정작 '어디로 가는지'를 못 읽는다. */}
         {([['landing', '랜딩 원본', link.landingUrl], ['long', 'UTM 포함 최종', link.longUrl]] as const).map(([kind, label, url]) => (
-          <p key={kind} className="flex items-baseline gap-2 py-0.5">
-            <span className="w-[86px] shrink-0 text-x-muted">{label}</span>
-            <a href={url} target="_blank" rel="noreferrer" className="min-w-0 break-all text-x-blue-text hover:underline">{url}</a>
-            <button onClick={() => copyUrl(kind, url)} className="shrink-0 text-x-blue-text hover:underline">
+          <div key={kind} className="mt-1 flex items-center gap-2 rounded-md border border-x-border bg-white px-2.5 py-1.5">
+            <span className="w-[92px] shrink-0 text-caption text-x-muted">{label}</span>
+            <a href={url} target="_blank" rel="noreferrer" title={url}
+               className="min-w-0 flex-1 truncate text-[13px] text-x-blue-text hover:underline">{url}</a>
+            <button onClick={() => copyUrl(kind, url)}
+                    className="shrink-0 rounded-full border border-x-border-strong px-2.5 py-0.5 text-caption text-x-secondary transition-colors hover:bg-x-hover">
               {copied === kind ? '복사됨 ✓' : '복사'}
             </button>
-          </p>
+          </div>
         ))}
       </td>
     </tr>

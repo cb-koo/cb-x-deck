@@ -114,3 +114,22 @@ test('8) getLinkSeries — 일별 시계열 파싱(y 문자열→숫자), 기간
   const c = make([json(500, nf), json(500, nf), json(500, nf)]);
   assert.deepEqual(await c.client.getLinkSeries('x', '2026-01-01', '2026-01-02'), { kind: 'unavailable' });
 });
+
+test('9) getDailySince — 31일 창으로 나눠 조회해 이어붙인다(short.io는 31일 초과 구간을 주·월 단위로 뭉침)', async () => {
+  const day = (d: string, y: number) => ({ x: `${d}T00:00:00.000Z`, y: String(y) });
+  const win1 = { clickStatistics: { datasets: [{ data: [day('2026-07-01', 1), day('2026-07-31', 2)] }] } };
+  const win2 = { clickStatistics: { datasets: [{ data: [day('2026-08-01', 3), day('2026-08-10', 4), day('2026-08-11', 9)] }] } };
+  const a = make([json(200, win1), json(200, win2)]);
+  const r = await a.client.getDailySince('lnk_1', '2026-07-01', '2026-08-10');
+  assert.equal(r.kind, 'ok');
+  if (r.kind === 'ok') {
+    // 오늘(08-10) 이후 점은 걷어낸다, 창 경계에서 중복 없음
+    assert.deepEqual(r.points.map((p) => `${p.date}:${p.clicks}`), ['2026-07-01:1', '2026-07-31:2', '2026-08-01:3', '2026-08-10:4']);
+  }
+  assert.equal(a.calls.length, 2);
+  assert.match(a.calls[0].url, /startDate=2026-07-01&endDate=2026-07-31$/);
+  assert.match(a.calls[1].url, /startDate=2026-08-01&endDate=2026-08-11$/); // 마지막 창은 today+1(시간대 여유)
+  // 한 창이라도 실패하면 error — 반쪽 추이를 정상처럼 저장하지 않는다
+  const b = make([json(200, win1), json(500, {}), json(500, {}), json(500, {})]);
+  assert.deepEqual(await b.client.getDailySince('lnk_1', '2026-07-01', '2026-08-10'), { kind: 'error' });
+});

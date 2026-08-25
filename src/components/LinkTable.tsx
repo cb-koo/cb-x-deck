@@ -5,10 +5,9 @@ import { RefreshIcon, TrashIcon } from '@/components/XIcons';
 import { formatFull } from '@/lib/format';
 import { kstDateTime } from '@/lib/datetime';
 import { relTimeFine } from '@/lib/relTime';
-import type { TrackingLinkRow, LinkClickSnapshotRow } from '@/lib/linkStore';
-import { LinkClicksChart, LinkSparkline } from '@/components/LinkClicksChart';
+import type { TrackingLinkRow } from '@/lib/linkStore';
+import { LinkSparkline } from '@/components/LinkSparkline';
 
-export type LinkHistoryState = 'loading' | 'ready' | 'error';
 
 // 표시 전용 표 — 정렬은 없다(최신 생성순 고정). 열 순서 = 읽기 동선:
 // 누구에게(인플루언서) → 무엇으로(원고·캠페인) → 무엇을 줬나(단축 링크, 이 표의 제1 행동인 복사) →
@@ -30,14 +29,12 @@ const COLS: ColDef[] = [
 const TOTAL_WIDTH = COLS.reduce((sum, c) => sum + c.width, 0);
 
 export function LinkTable({
-  rows, refreshingIds, expandedId, onToggleExpand, history, historyState, onRefresh, onRemove,
+  rows, refreshingIds, expandedId, onToggleExpand, onRefresh, onRemove,
 }: {
   rows: TrackingLinkRow[];              // 이미 정렬·필터가 끝난 배열 — 여기서 순서를 바꾸지 않는다
   refreshingIds: ReadonlySet<string>;
   expandedId: string | null;            // 펼친 행 — 한 번에 하나(TrackingTable과 같은 이유)
   onToggleExpand: (id: string) => void;
-  history: LinkClickSnapshotRow[];      // 펼친 행의 클릭 이력(뷰가 소유·조회 — TrackingTable 관례)
-  historyState: LinkHistoryState;
   onRefresh: (row: TrackingLinkRow) => void;
   onRemove: (row: TrackingLinkRow) => void;
 }) {
@@ -94,8 +91,8 @@ export function LinkTable({
                   {/* 펼침 — 이 링크의 클릭 이력을 바로 아래 행에 연다. 표를 떠나지 않고 과거 값을 본다 */}
                   <td className="px-1 py-2">
                     <button onClick={() => onToggleExpand(r.id)} aria-expanded={open}
-                            title={open ? '클릭 이력 접기' : '클릭 이력 보기 — 그동안 쌓인 클릭 수'}
-                            aria-label={open ? '클릭 이력 접기' : '클릭 이력 보기'}
+                            title={open ? '접기' : '자세히 — 원본 링크와 날짜별 클릭'}
+                            aria-label={open ? '접기' : '자세히 보기'}
                             className="rounded p-1 text-x-muted hover:bg-x-text/5 hover:text-x-secondary">
                       <span aria-hidden className="inline-block text-[11px] leading-none">{open ? '▼' : '▶'}</span>
                     </button>
@@ -170,7 +167,7 @@ export function LinkTable({
                   </td>
                   <td aria-hidden="true" />
                 </tr>
-                {open && <ClickHistory link={r} rows={history} state={historyState} />}
+                {open && <LinkDetail link={r} />}
               </Fragment>
             );
           })}
@@ -186,32 +183,10 @@ export function LinkTable({
 // 헤더도 없다: 부모 헤더가 위에 고정돼 있어 그 자리가 곧 이 값의 이름이다.
 // 봇 제외 값은 총 클릭 아래에 붙인다 — 같은 지표의 두 번째 값이라 옆 칸(다른 열)으로 보내면 뜻이 어긋난다.
 // 그래프가 아니라 숫자인 이유: 수동 새로고침이라 간격이 불규칙해 점 두세 개짜리 곡선은 오해를 부른다.
-function ClickHistory({ link, rows, state }: {
-  link: TrackingLinkRow; rows: LinkClickSnapshotRow[]; state: LinkHistoryState;
-}) {
-  // 펼침의 정보 위계(koo QA 08-25 확정): ① 원본 링크(무슨 링크인지) ② 최근 7일 클릭(어떻게 반응했는지) ③ 측정 이력(우리가 잰 기록)
-  const daily = link.daily; // 마지막 새로고침 때 저장한 7일 추이 — 클릭 열과 같은 시점(030)
-  const total7 = daily ? daily.reduce((a, p) => a + p.clicks, 0) : 0;
-  const chart = (
-    <tr className="bg-x-surface/60">
-      <td />
-      <td colSpan={COLS.length} className="py-2 pl-3 pr-3">
-        {/* 펼침 콘텐츠 폭 = 부모 행의 내용 폭(단축 링크 열 끝, 32+140+200+150+280−패딩 ≈ 746px) —
-            초광폭에서 표 전체로 늘어나면 원본 링크·차트가 행과 따로 노는 것처럼 읽힌다(koo QA) */}
-        <div className="max-w-[746px]">
-        <p className="text-caption text-x-muted">
-          최근 7일 클릭{daily && <b className="ml-1.5 text-x-secondary">합계 {total7}</b>}
-          {link.capturedAt && <span className="ml-1.5">· {relTimeFine(link.capturedAt, '새로고침')} 기준</span>}
-        </p>
-        {daily
-          ? <LinkClicksChart points={daily} />
-          : <p className="mt-1 text-caption text-x-muted">아직 추이가 없어요 — 새로고침을 누르면 최근 7일 클릭이 함께 기록돼요</p>}
-        </div>
-      </td>
-    </tr>
-  );
-  // 원본 링크 확인(koo QA 08-25): 단축 링크가 실제로 어디로 가는지 — 랜딩 원본과 UTM 붙은 최종 주소.
-  // 검수·공유 양쪽에 쓰이므로 복사 버튼을 각각 둔다.
+function LinkDetail({ link }: { link: TrackingLinkRow }) {
+  // 펼침의 정보 위계(koo QA 08-25 확정): ① 원본 링크(무슨 링크인지) ② 날짜별 클릭(생성일부터 — 우리가 잰 시각이 아니라
+  // 클릭이 일어난 날 기준). 7일 추이 그림은 부모 행 스파크라인이 맡아 여기서 반복하지 않는다.
+  // 원본 링크: 단축 링크가 실제로 어디로 가는지 — 랜딩 원본과 UTM 붙은 최종 주소. 검수·공유 양쪽에 쓰이므로 복사 버튼을 각각 둔다.
   const [copied, setCopied] = useState<'landing' | 'long' | null>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
@@ -226,7 +201,8 @@ function ClickHistory({ link, rows, state }: {
     <tr className="bg-x-surface/60">
       <td />
       <td colSpan={COLS.length} className="py-1.5 pl-3 pr-3">
-        <div className="max-w-[746px]">
+        {/* 펼침 콘텐츠 폭 = 부모 행의 동작 열 끝(전체 열 합 1156 − 펼침 열 32 − 패딩 ≈ 1100px) — koo QA */}
+        <div className="max-w-[1100px]">
         <p className="text-caption text-x-muted">원본 링크</p>
         {/* 행 카드(원고 카드 섹션과 같은 문법): 긴 UTM 주소는 한 줄 말줄임 — 전체는 hover(title)와 복사로.
             break-all로 두세 줄 꺾이면 파라미터 덩어리가 화면을 채워 정작 '어디로 가는지'를 못 읽는다. */}
@@ -250,31 +226,26 @@ function ClickHistory({ link, rows, state }: {
       <td colSpan={COLS.length + 1} className="py-2 pl-14 text-caption text-x-muted">{text}</td>
     </tr>
   );
-  if (state === 'loading') return <>{urls}{chart}{note('클릭 이력 불러오는 중…')}</>;
-  if (state === 'error') return <>{urls}{chart}{note('클릭 이력을 불러오지 못했어요 — 접었다 다시 열어보세요')}</>;
-  if (rows.length === 0) return <>{urls}{chart}{note('아직 클릭 기록이 없어요 — 새로고침을 누르면 지금 값이 기록돼요')}</>;
+  // 저장 추이는 오래된 날 → 오늘 순. 목록은 최신이 위(이력 읽기 관례).
+  const days = link.daily ? [...link.daily].reverse() : null;
+  if (!days) return <>{urls}{note('아직 날짜별 클릭이 없어요 — 새로고침을 누르면 만든 날부터 오늘까지 날짜별로 기록돼요')}</>;
 
   return (
     <>
       {urls}
-      {chart}
-      {rows.map((s, i) => {
-        const last = i === rows.length - 1;
+      {days.map((d, i) => {
+        const last = i === days.length - 1;
         return (
-          <tr key={s.capturedAt} className={`bg-x-surface/60 ${last ? 'border-b border-x-border' : ''}`}>
+          <tr key={d.date} className={`bg-x-surface/60 ${last ? 'border-b border-x-border' : ''}`}>
             <td />
-            {/* 인플루언서 자리: 이 줄들이 위 행의 이력임을 말하는 표시 — 첫 줄에만 적어 반복을 줄인다 */}
+            {/* 인플루언서 자리: 이 줄들이 위 행의 날짜별 클릭임을 말하는 표시 — 첫 줄에만 적어 반복을 줄인다 */}
             <td className="whitespace-nowrap py-1 pl-3 text-caption text-x-muted">
-              {i === 0 && `클릭 이력 ${rows.length}건${rows.length >= 50 ? ' (최근 50)' : ''}`}
+              {i === 0 && `날짜별 클릭 ${days.length}일 · ${link.capturedAt ? relTimeFine(link.capturedAt, '새로고침') : ''} 기준`}
             </td>
             <td /><td /><td />
-            <td className="whitespace-nowrap px-3 py-1 text-right text-x-secondary tabular-nums">
-              {formatFull(s.totalClicks)}
-              {s.humanClicks !== null && (
-                <span className="block text-caption text-x-muted">봇 제외 {formatFull(s.humanClicks)}</span>
-              )}
-            </td>
-            <td className="whitespace-nowrap px-3 py-1 text-x-secondary tabular-nums">{kstDateTime(s.capturedAt)}</td>
+            {/* 클릭·측정(날짜) 열에 맞춰 세로로 이어 읽히게 — 부모 열 정렬 관례 */}
+            <td className="whitespace-nowrap px-3 py-1 text-right text-x-secondary tabular-nums">{formatFull(d.clicks)}</td>
+            <td className="whitespace-nowrap px-3 py-1 text-x-secondary tabular-nums">{d.date}</td>
             <td /><td />
           </tr>
         );

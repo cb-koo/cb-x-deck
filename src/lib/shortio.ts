@@ -92,6 +92,30 @@ export class ShortioClient {
     return { kind: 'ok', points };
   }
 
+  // 생성일부터 오늘까지 일별 추이 — 실계약(08-25): short.io는 31일 초과 구간을 주(≤120일)·월 단위로 뭉치므로
+  // 31일 창으로 나눠 조회해 이어붙인다(1년 링크 = 12회, 정액이라 비용 0). 한 창이라도 실패하면 error —
+  // 반쪽 추이를 정상처럼 저장하지 않는다. 오늘 초과 점(시간대 여유로 붙는 내일)은 걷어낸다.
+  async getDailySince(linkId: string, startDate: string, today: string): Promise<LinkSeriesResult> {
+    const DAY = 86400000;
+    const toT = (d: string) => new Date(`${d}T00:00:00Z`).getTime();
+    const fmt = (t: number) => new Date(t).toISOString().slice(0, 10);
+    const todayT = toT(today);
+    const points: Array<{ date: string; clicks: number }> = [];
+    const seen = new Set<string>();
+    for (let cur = toT(startDate); cur <= todayT; ) {
+      const winEnd = Math.min(cur + 30 * DAY, todayT + DAY); // 31일 창(양끝 포함) — 마지막 창만 today+1
+      const r = await this.getLinkSeries(linkId, fmt(cur), fmt(winEnd));
+      if (r.kind !== 'ok') return r;
+      for (const pt of r.points) {
+        if (pt.date < startDate || pt.date > today || seen.has(pt.date)) continue;
+        seen.add(pt.date);
+        points.push(pt);
+      }
+      cur = winEnd + DAY;
+    }
+    return { kind: 'ok', points };
+  }
+
   // 통계 API 공통 — 404와 "500 + not found 본문"(실계약)을 unavailable로 묶어 판정한다.
   private async statsBody(linkId: string, query: string):
     Promise<{ kind: 'ok'; body: Record<string, unknown> } | { kind: 'unavailable' } | { kind: 'error' }> {
@@ -132,16 +156,6 @@ export class ShortioClient {
       return res;
     }
   }
-}
-
-// 최근 n일 조회 창(UTC 날짜 문자열). end는 시간대 경계 여유로 내일 — 호출부가 today 초과 점을 걷어낸다.
-export function recentWindow(days: number): { start: string; end: string; today: string } {
-  const day = 86400000;
-  return {
-    start: new Date(Date.now() - (days - 1) * day).toISOString().slice(0, 10),
-    end: new Date(Date.now() + day).toISOString().slice(0, 10),
-    today: new Date().toISOString().slice(0, 10),
-  };
 }
 
 export function isShortioConfigured(): boolean {

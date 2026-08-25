@@ -3,9 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { useToast } from '@/lib/toastContext';
-import { LinkTable, type LinkHistoryState } from '@/components/LinkTable';
+import { LinkTable } from '@/components/LinkTable';
 import { LinkCreateModal } from '@/components/LinkCreateModal';
-import type { TrackingLinkRow, LinkClickSnapshotRow } from '@/lib/linkStore';
+import type { TrackingLinkRow } from '@/lib/linkStore';
 
 const FETCH_FAILED = '클릭 수를 가져오지 못했어요 — 잠시 후 다시 시도해 주세요';
 
@@ -22,8 +22,6 @@ export function LinksView() {
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   // 클릭 이력 — 펼친 행 하나만 들고 있는다(표 안의 표가 여럿이면 되레 못 읽는다)
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [history, setHistory] = useState<LinkClickSnapshotRow[]>([]);
-  const [historyState, setHistoryState] = useState<LinkHistoryState>('loading');
   // 목록에서 빼기는 5초 실행취소 뒤에 커밋된다: pendingRemove = 숨김(커밋 완료까지).
   // 한 번에 하나 — 새 요청이 오면 앞 건을 즉시 커밋한다(library/tracking과 같은 규칙).
   const [pendingRemove, setPendingRemove] = useState<ReadonlySet<string>>(new Set());
@@ -98,23 +96,10 @@ export function LinksView() {
 
   // 펼침 = 그 행의 클릭 이력을 그때 조회한다(목록 응답에 전부 실어 보내지 않기 위해).
   // 다시 누르면 접고, 다른 행을 누르면 그 행으로 옮겨간다.
-  const toggleExpand = useCallback(async (id: string) => {
-    if (expandedId === id) { setExpandedId(null); return; }
-    setExpandedId(id);
-    setHistoryState('loading');
-    setHistory([]);
-    try {
-      const r = await apiFetch(`/api/links/${id}/snapshots`);
-      if (!r.ok) throw new Error(String(r.status));
-      const list = (await r.json()) as LinkClickSnapshotRow[];
-      // 늦게 도착한 응답이 이미 다른 행으로 옮겨간 화면을 덮어쓰지 않게 — 요청 시점의 id로 확인
-      if (id !== expandedRef.current) return;
-      setHistory(list);
-      setHistoryState('ready');
-    } catch {
-      if (id === expandedRef.current) setHistoryState('error'); // 실패를 빈 이력으로 위장하지 않는다
-    }
-  }, [expandedId]);
+  // 펼침은 저장된 행 데이터(원본 링크·날짜별 클릭)만 쓴다 — 조회 없음. 다시 누르면 접고, 다른 행을 누르면 옮겨간다.
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedId((cur) => (cur === id ? null : id));
+  }, []);
 
   // 커밋: 발화 시점의 pendingRef를 지운다 — 예약 시점 목록을 쓰면 그 사이 철회된 행까지 지운다.
   // DELETE 후 서버 상태로 다시 맞춘다 — 실패했다면 그 행이 되돌아와야 정직하다.
@@ -210,8 +195,7 @@ export function LinksView() {
       )}
       {loaded && !loadErr && visible.length > 0 && (
         <LinkTable rows={visible} refreshingIds={refreshingIds}
-                   expandedId={expandedId} onToggleExpand={(id) => void toggleExpand(id)}
-                   history={history} historyState={historyState}
+                   expandedId={expandedId} onToggleExpand={toggleExpand}
                    onRefresh={(row) => void refreshOne(row.id)} onRemove={requestRemove} />
       )}
 

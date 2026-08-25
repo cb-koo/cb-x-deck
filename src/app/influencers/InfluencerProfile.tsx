@@ -1,36 +1,16 @@
 'use client';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
-import { InfoTip } from '@/components/InfoTip';
 import { formatCount } from '@/lib/format';
 import { relTime } from '@/lib/relTime';
-import { kstMonthDay } from '@/lib/datetime';
 import { isProfileStale, judgeContact, summarizeDraftStatuses } from '@/lib/influencerJudgment';
-import { STATUS_LABEL, type DraftStatus } from '@/lib/draftStatus';
-import type {
-  DraftRollupItem, InfluencerAutoEvent, InfluencerChannel, InfluencerDetail, InfluencerLogRow,
-} from '@/lib/influencerStore';
-
-const CHANNEL_LABEL: Record<InfluencerChannel, string> = {
-  dm: 'DM', line: '라인', email: '이메일', other: '기타',
-};
-
-// 읽기 전용 상태 뱃지. 라벨·키는 lib(draftStatus)에서 오고 색만 여기서 정한다 — 색 규칙은
-// DraftStatusChip과 같은 계열을 쓰되, 이 화면의 원고는 "고르는 것"이 아니라 "지나간 사실"이라
-// 누를 수 있는 칩(select)으로 만들지 않는다(거짓 어포던스 방지).
-const STATUS_BADGE: Record<DraftStatus, string> = {
-  draft: 'border-x-border-strong bg-white text-x-secondary',
-  review: 'border-amber-300 bg-amber-100 text-amber-800',
-  approved: 'border-x-blue/40 bg-x-blue/10 text-x-blue-text',
-  delivered: 'border-green-300 bg-green-100 text-green-800',
-  unused: 'border-x-border-strong bg-x-border/40 text-x-muted',
-};
-
-async function errOf(r: Response): Promise<string> {
-  return ((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`;
-}
+import type { TabKey } from '@/lib/profileTabs';
+import { ProfileTabs } from './ProfileTabs';
+import { AccountTab } from './AccountTab';
+import { ContentTab } from './ContentTab';
+import { DealTab } from './DealTab';
+import type { InfluencerDetail } from '@/lib/influencerStore';
 
 // 아바타 — 없으면 이니셜 원. 프로필 사진은 X CDN 원본이라 next/image 최적화 대상이 아니다.
 export function Avatar({ url, name, size }: { url: string | null; name: string; size: number }) {
@@ -56,16 +36,31 @@ const MSG_STYLE: Record<Msg['tone'], string> = {
   err: 'bg-red-50 text-red-700',
 };
 
-export function InfluencerProfile({ id, onChanged, onDeleted }: {
+export function InfluencerProfile({ id, onChanged, onDeleted, tab, onTabChange }: {
   id: string;
   onChanged: () => Promise<void>;   // 명부(왼쪽) 새로고침 — 태그·마지막 기록이 바뀌면 목록도 같이 움직여야 한다
   onDeleted: () => void;
+  // 탭 상태는 부모(page)가 URL에서 준다 — 화면이 아니라 주소가 단일 출처(스펙 §2)
+  tab: TabKey;
+  onTabChange: (t: TabKey) => void;
 }) {
   const [data, setData] = useState<InfluencerDetail | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [msg, setMsg] = useState<Msg | null>(null);
+
+  // 숨은 탭의 저장 실패를 탭 라벨에 표식으로(스펙 §3). 키 = '탭:출처'. 멤버십이 안 바뀌면 같은 Set을 돌려
+  // 재렌더·effect 연쇄를 끊는다 — 없으면 useErrorReport → setState → 재렌더 → 새 콜백 … 무한 루프.
+  const [errorKeys, setErrorKeys] = useState<Set<string>>(() => new Set());
+  const reportError = useCallback((t: TabKey) => (source: string, hasError: boolean) => {
+    const k = `${t}:${source}`;
+    setErrorKeys((prev) => {
+      if (prev.has(k) === hasError) return prev;
+      const n = new Set(prev); if (hasError) n.add(k); else n.delete(k); return n;
+    });
+  }, []);
+  const errorTabs = useMemo(() => new Set([...errorKeys].map((k) => k.split(':')[0] as TabKey)), [errorKeys]);
 
   // setState는 전부 await 뒤 — 동기 setState가 앞에 있으면 set-state-in-effect에 걸린다(GlobalShell 관례)
   const load = useCallback(async () => {
@@ -159,7 +154,7 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
                 읽히면 안 되고, 지금 보이는 값이 언제 것인지만 알려주면 된다. */}
             {stale && <span className="text-caption text-x-secondary">오래된 정보예요 — 갱신 권장</span>}
           </p>
-          {inf.bio && <p className="mt-1 whitespace-pre-wrap text-ui text-x-secondary">{inf.bio}</p>}
+          {inf.bio && <p className="mt-1 whitespace-pre-wrap text-ui leading-relaxed text-x-secondary">{inf.bio}</p>}
         </div>
         <div className="shrink-0 text-right">
           <Button variant={unfetched ? 'primary' : 'subtle'} onClick={refresh} disabled={refreshing}>
@@ -179,384 +174,32 @@ export function InfluencerProfile({ id, onChanged, onDeleted }: {
         }`}>
           {contact.label}{contact.needsFollowup && ' → 팔로업 필요'}
         </span>
-        {/* 원고 상태 요약은 전체 카운트 기준 — 아래 '넘긴 원고' 목록(최근 50건)과 세는 범위가 다르다 */}
+        {/* 원고 상태 요약은 전체 카운트 기준 — '협업 콘텐츠' 탭의 목록(최근 50건)과 세는 범위가 다르다 */}
         {draftLine && <p className="mt-1 text-ui text-x-secondary">원고 {draftLine}</p>}
       </div>
 
+      {/* 알림띠는 탭 바 위에 — 프로필 갱신 결과는 어느 탭을 보고 있든 이 사람 전체에 대한 말이다 */}
       {msg && <p role="alert" className={`mt-3 rounded-lg px-3 py-2 text-ui ${MSG_STYLE[msg.tone]}`}>{msg.text}</p>}
 
-      <TagEditor id={id} tags={inf.tags} onSaved={onChanged} />
-      <NoteEditor id={id} note={inf.note} />
-
-      <Timeline id={id} logs={data.logs}
-                onAdded={(row) => { setData((d) => (d ? { ...d, logs: [row, ...d.logs] } : d)); onChanged(); }}
-                onRemoved={(logId) => {
-                  setData((d) => (d ? { ...d, logs: d.logs.filter((l) => l.id !== logId) } : d));
-                  onChanged();
-                }} />
-
-      <DraftRollup drafts={data.drafts} draftCount={inf.draftCount} />
-
-      <DangerZone id={id} logCount={data.logs.length} onDeleted={onDeleted} />
+      <ProfileTabs active={tab} onChange={onTabChange}
+                   badges={{ content: inf.draftCount }}
+                   errorTabs={errorTabs}
+                   panels={{
+                     account: (
+                       <AccountTab id={id} data={data} onChanged={onChanged} onDeleted={onDeleted}
+                                   setData={setData} reportError={reportError('account')} />
+                     ),
+                     // 세 탭의 첫 섹션이 탭 바에서 같은 거리에 서도록 위 여백만 맞춘다(ContentTab 자체는 불변)
+                     content: (
+                       <div className="[&>section:first-child]:mt-2">
+                         <ContentTab drafts={data.drafts} draftCount={inf.draftCount} />
+                       </div>
+                     ),
+                     deal: (
+                       <DealTab id={id} data={data} onChanged={onChanged}
+                                setData={setData} reportError={reportError('deal')} />
+                     ),
+                   }} />
     </div>
-  );
-}
-
-// 태그 — 칩 + 입력. 어떤 조건으로 이 사람을 다시 찾을지(분야·등급 등)를 사용자가 직접 정한다.
-function TagEditor({ id, tags, onSaved }: { id: string; tags: string[]; onSaved: () => Promise<void> }) {
-  const [list, setList] = useState<string[]>(tags);
-  const [input, setInput] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
-
-  // 저장 중에는 칩 버튼을 잠근다 — PATCH가 태그 배열 전체를 덮어쓰기 때문에, 겹쳐 보내면
-  // 나중 요청이 앞 요청의 변경을 되돌린다(사용자에겐 "지운 태그가 되살아남"으로 보인다).
-  async function save(next: string[]): Promise<boolean> {
-    if (saving) return false;
-    setSaving(true);
-    try {
-      const r = await apiFetch(`/api/influencers/${id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags: next }),
-      });
-      if (!r.ok) { setErr(await errOf(r)); return false; }
-      setList(next); setErr('');
-      await onSaved();
-      return true;
-    } catch {
-      setErr('태그를 저장하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
-      return false;
-    } finally { setSaving(false); }
-  }
-
-  // 입력칸은 저장에 성공했을 때만 비운다 — 실패했는데 비우면 저장된 것처럼 보인다(거짓 성공 방지)
-  async function add() {
-    const t = input.trim();
-    if (!t) return;
-    if (list.some((x) => x.toLowerCase() === t.toLowerCase())) { setInput(''); return; } // 같은 태그 중복 금지
-    if (await save([...list, t])) setInput('');
-  }
-
-  return (
-    <section className="mt-5">
-      <div className="flex items-center gap-2">
-        <h2 className="text-ui font-bold">태그</h2>
-        {saving && <span className="text-caption text-x-muted">저장 중…</span>}
-      </div>
-      <p className="text-caption text-x-muted">분야·등급처럼 나중에 이 사람을 다시 찾을 말을 붙여두세요. 명부에서 태그로 골라볼 수 있어요.</p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-        {list.map((t) => (
-          <span key={t} className="inline-flex items-center gap-1 rounded-full border border-x-border-strong px-2 py-0.5 text-ui">
-            {t}
-            <button onClick={() => save(list.filter((x) => x !== t))} disabled={saving} aria-label={`${t} 태그 빼기`}
-                    className="text-x-muted hover:text-red-500 disabled:opacity-50">✕</button>
-          </span>
-        ))}
-        <input value={input} onChange={(e) => setInput(e.target.value)}
-               onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) add(); }}
-               placeholder="태그 입력 후 Enter" aria-label="태그 추가"
-               className="w-40 rounded-lg border border-x-border-strong px-2 py-0.5 text-ui outline-none focus:border-x-blue" />
-      </div>
-      {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
-    </section>
-  );
-}
-
-// 고정 메모 — 타임라인이 "언제 무슨 일이 있었나"라면 여기는 "항상 기억해야 할 것"이다.
-function NoteEditor({ id, note }: { id: string; note: string }) {
-  const [text, setText] = useState(note);
-  const [saved, setSaved] = useState(false);
-  const [err, setErr] = useState('');
-  const baseline = useRef(note);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-
-  async function saveOnBlur() {
-    if (text === baseline.current) return;
-    try {
-      const r = await apiFetch(`/api/influencers/${id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: text }),
-      });
-      if (!r.ok) { setErr(await errOf(r)); return; }
-      baseline.current = text;
-      setErr(''); setSaved(true);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setSaved(false), 2500);
-    } catch {
-      setErr('메모를 저장하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
-    }
-  }
-
-  return (
-    <section className="mt-5">
-      <div className="flex items-center gap-2">
-        <h2 className="text-ui font-bold">고정 메모</h2>
-        {saved && <span className="text-caption font-medium text-x-green">저장됨 ✓</span>}
-      </div>
-      <p className="text-caption text-x-muted">단가·정산 방식처럼 매번 확인하는 내용을 적어두세요. 칸 밖을 클릭하면 저장돼요.</p>
-      <textarea value={text} onChange={(e) => { setText(e.target.value); setSaved(false); }} onBlur={saveOnBlur} rows={3}
-                className="mt-1 w-full rounded-md border border-x-border-strong p-2 text-ui leading-normal outline-none focus:border-x-blue" />
-      {err && <p role="alert" className="text-caption text-red-500">{err}</p>}
-    </section>
-  );
-}
-
-// 자동 이벤트 문구 — 로그에는 사실만 저장되고 표현은 여기서 만든다(스펙 §2).
-function autoText(l: InfluencerLogRow): ReactNode {
-  const title = l.draftTitle?.trim() || '제목 없는 원고';
-  const draft = l.draftId
-    ? <Link href={`/generate?draft=${l.draftId}`} className="text-x-blue-text hover:underline">{title}</Link>
-    : <span>{title}</span>;   // 원고가 지워졌으면 링크 없이 제목만 (누를 수 없는 것은 링크로 보이지 않게)
-  switch (l.eventType) {
-    case 'draft_assigned': return <>원고 배정 — {draft}</>;
-    case 'draft_unassigned': return <>배정 해제 — {draft}</>;
-    case 'draft_delivered': return <>원고 전달됨 — {draft}</>;
-    case 'handle_changed': return <>핸들 변경 @{l.payload?.from ?? '?'} → @{l.payload?.to ?? '?'}</>;
-    default: return <>활동 기록</>;
-  }
-}
-
-// 묶음 한 줄 문구 — 개별 행의 동사(autoText)를 그대로 이어 쓴다. 같은 사실을 두 가지 말로 부르지 않는다.
-function groupText(eventType: InfluencerAutoEvent | null, n: number): string {
-  switch (eventType) {
-    case 'draft_assigned': return `원고 ${n}건 배정`;
-    case 'draft_unassigned': return `배정 해제 ${n}건`;
-    case 'draft_delivered': return `원고 ${n}건 전달됨`;
-    case 'handle_changed': return `핸들 변경 ${n}건`;
-    default: return `활동 기록 ${n}건`;
-  }
-}
-
-// 인접한 같은 event_type의 auto 항목을 한 덩어리로 (스펙 §②). manual이 사이에 끼면 묶지 않는다 —
-// 묶으면 시간 순서가 왜곡된다. 렌더 시점 파생일 뿐 원본 logs는 그대로 둔다.
-function groupAuto(logs: InfluencerLogRow[]): InfluencerLogRow[][] {
-  const out: InfluencerLogRow[][] = [];
-  for (const l of logs) {
-    const prev = out[out.length - 1];
-    const head = prev?.[0];
-    if (prev && head && head.kind === 'auto' && l.kind === 'auto' && head.eventType === l.eventType) prev.push(l);
-    else out.push([l]);
-  }
-  return out;
-}
-
-// 묶음 기간 — 목록이 최신순이므로 마지막 항목이 가장 오래된 것. 하루 안에 몰렸으면 날짜 하나만 적는다.
-function groupRange(logs: InfluencerLogRow[]): string {
-  const from = kstMonthDay(logs[logs.length - 1].createdAt);
-  const to = kstMonthDay(logs[0].createdAt);
-  return from === to ? from : `${from}~${to}`;
-}
-
-function Timeline({ id, logs, onAdded, onRemoved }: {
-  id: string; logs: InfluencerLogRow[];
-  onAdded: (row: InfluencerLogRow) => void;
-  onRemoved: (logId: string) => void;
-}) {
-  const [body, setBody] = useState('');
-  // 채널 기본값 = 가장 최근 manual 로그의 채널(스펙 §③). 상태에는 "사용자가 고른 값"만 담고 기본값은
-  // 렌더에서 파생한다 — 한 번 직접 고르면 기록을 남긴 뒤에도 그 선택이 그대로 남는다.
-  const [picked, setPicked] = useState<'' | InfluencerChannel | null>(null);
-  const channel = picked ?? logs.find((l) => l.kind === 'manual')?.channel ?? '';
-  const [err, setErr] = useState('');
-  const busy = useRef(false);
-
-  async function add() {
-    const text = body.trim();
-    if (!text || busy.current) return;
-    busy.current = true;
-    try {
-      const r = await apiFetch(`/api/influencers/${id}/logs`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: text, ...(channel ? { channel } : {}) }),
-      });
-      if (!r.ok) { setErr(await errOf(r)); return; }
-      setBody(''); setErr('');
-      onAdded((await r.json()) as InfluencerLogRow);
-    } catch {
-      setErr('기록을 남기지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
-    } finally { busy.current = false; }
-  }
-
-  return (
-    <section className="mt-6">
-      <h2 className="text-ui font-bold">주고받은 기록</h2>
-      <p className="text-caption text-x-muted">DM·통화에서 오간 이야기를 한 줄로 남겨두면, 나중에 누가 봐도 어디까지 이야기했는지 알 수 있어요.</p>
-      <div className="mt-1.5 flex gap-1.5">
-        <input value={body} onChange={(e) => setBody(e.target.value)}
-               onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) add(); }}
-               placeholder="예: 단가 협의 완료, 다음 주 원고 전달 예정" aria-label="기록 내용"
-               className="min-w-0 flex-1 rounded-lg border border-x-border-strong px-2.5 py-1.5 text-ui outline-none focus:border-x-blue" />
-        <select value={channel} onChange={(e) => setPicked(e.target.value as '' | InfluencerChannel)}
-                aria-label="이야기가 오간 곳"
-                className="shrink-0 rounded-lg border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue">
-          <option value="">어디서 (선택)</option>
-          {(Object.keys(CHANNEL_LABEL) as InfluencerChannel[]).map((c) => (
-            <option key={c} value={c}>{CHANNEL_LABEL[c]}</option>
-          ))}
-        </select>
-        <Button variant="primary" className="shrink-0 whitespace-nowrap" onClick={add}>기록</Button>
-      </div>
-      {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
-
-      {logs.length === 0 ? (
-        <p className="mt-3 text-ui text-x-muted">아직 기록이 없어요 — 위에 한 줄 남기면 여기 쌓여요.</p>
-      ) : (
-        <ul className="mt-3 space-y-1.5">
-          {groupAuto(logs).map((g) => {
-            if (g.length > 1) return <AutoGroup key={g[g.length - 1].id} logs={g} />;
-            const l = g[0];
-            return l.kind === 'auto'
-              ? <AutoLine key={l.id} log={l} />
-              : <LogItem key={l.id} id={id} log={l} onRemoved={onRemoved} />;
-          })}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-// 자동 이벤트 한 줄 — 카드도 아이콘도 없는 회색 텍스트. 사람이 남긴 기록이 스캔에서 먼저 보이도록
-// 일부러 약하게 둔다(스펙 §②). 지우기 버튼이 없는 것도 그대로다 — 자동 기록은 지나간 사실이다.
-function AutoLine({ log }: { log: InfluencerLogRow }) {
-  return (
-    <li className="flex flex-wrap items-baseline gap-x-1.5 px-3 py-0.5 text-ui text-x-secondary">
-      {/* 카드·아이콘을 걷어내면 화면에서는 위계로 구분되지만 스크린리더에는 아무 단서도 남지 않는다 —
-          '자동 기록'이라는 사실은 눈에 보이지 않게라도 반드시 읽혀야 한다(기존 sr-only 관례). */}
-      <span><span className="sr-only">자동 기록: </span>{autoText(log)}</span>
-      {log.member && <span className="text-caption text-x-muted">{log.member.name}</span>}
-      <span className="text-caption text-x-muted">{relTime(log.createdAt, '').trim()}</span>
-    </li>
-  );
-}
-
-// 같은 일이 연달아 일어난 구간은 한 줄로 접는다 — 펼치면 개별 행(원고 제목 링크 포함)이 그대로 나온다.
-function AutoGroup({ logs }: { logs: InfluencerLogRow[] }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <li>
-      <button onClick={() => setOpen((o) => !o)} aria-expanded={open}
-              className="flex w-full flex-wrap items-baseline gap-x-1.5 rounded-lg px-3 py-0.5 text-left text-ui text-x-secondary hover:bg-x-hover">
-        <span aria-hidden className="text-caption text-x-muted">{open ? '▾' : '▸'}</span>
-        <span><span className="sr-only">자동 기록: </span>{groupText(logs[0].eventType, logs.length)}</span>
-        <span className="text-caption text-x-muted">({groupRange(logs)})</span>
-      </button>
-      {open && <ul className="pl-4">{logs.map((l) => <AutoLine key={l.id} log={l} />)}</ul>}
-    </li>
-  );
-}
-
-function LogItem({ id, log, onRemoved }: { id: string; log: InfluencerLogRow; onRemoved: (logId: string) => void }) {
-  const [confirming, setConfirming] = useState(false);
-  const [err, setErr] = useState('');
-
-  async function remove() {
-    try {
-      const r = await apiFetch(`/api/influencers/${id}/logs/${log.id}`, { method: 'DELETE' });
-      if (!r.ok) { setErr(await errOf(r)); return; }
-      onRemoved(log.id);
-    } catch {
-      setErr('지우지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
-    }
-  }
-
-  // 사람이 남긴 기록만 이 카드로 온다(자동 이벤트는 AutoLine) — 배경·채널칩·작성자를 그대로 유지한다.
-  return (
-    <li className="rounded-lg border border-x-border px-3 py-2">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1 text-ui">
-          <span className="whitespace-pre-wrap">{log.body}</span>
-          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-caption text-x-muted">
-            {log.channel && (
-              <span className="rounded-full bg-x-border/50 px-1.5 py-0.5 text-x-secondary">{CHANNEL_LABEL[log.channel]}</span>
-            )}
-            {log.member && <span>{log.member.name}</span>}
-            <span>{relTime(log.createdAt, '').trim()}</span>
-          </p>
-        </div>
-        {/* 지울 수 있는 건 사람이 쓴 기록뿐 — 자동 기록은 사실이라 버튼 자체를 두지 않는다 */}
-        {confirming ? (
-          <span className="flex shrink-0 items-center gap-1.5 text-caption">
-            <button onClick={remove} className="rounded bg-red-600 px-2 py-0.5 text-white">지우기</button>
-            <button onClick={() => setConfirming(false)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
-          </span>
-        ) : (
-          <button onClick={() => setConfirming(true)} aria-label="이 기록 지우기"
-                  className="shrink-0 text-caption text-x-muted hover:text-red-500">✕</button>
-        )}
-      </div>
-      {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
-    </li>
-  );
-}
-
-// 헤더 숫자는 전체 배정 수(draftCount), 아래 목록은 최근 것만 온다 — 두 숫자가 다르면 그 사실을 적는다.
-// (v1에서 "넘긴 원고 62"라 써놓고 50건만 나오던 자기모순을 여기서 해소한다)
-function DraftRollup({ drafts, draftCount }: { drafts: DraftRollupItem[]; draftCount: number }) {
-  return (
-    <section className="mt-6">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <h2 className="text-ui font-bold">넘긴 원고 <span className="font-normal text-x-secondary">{draftCount}</span></h2>
-        <InfoTip text="이 계정으로 배정한 원고를 모아 보여줘요. 원고를 누르면 콘텐츠 생성 화면에서 그 원고가 열려요." />
-        {draftCount > drafts.length && (
-          <span className="text-caption text-x-muted">· 최근 {drafts.length}건 표시</span>
-        )}
-      </div>
-      {drafts.length === 0 ? (
-        <p className="mt-1 text-ui text-x-muted">아직 배정한 원고가 없어요 — 콘텐츠 생성에서 원고를 만들고 이 계정을 배정하면 여기 모여요.</p>
-      ) : (
-        <ul className="mt-1.5 space-y-1">
-          {drafts.map((d) => (
-            <li key={d.id}>
-              <Link href={`/generate?draft=${d.id}`}
-                    className="flex items-center gap-2 rounded-lg border border-x-border px-3 py-2 hover:bg-x-hover">
-                <span className="min-w-0 flex-1 truncate text-ui">{d.title || '제목 없는 원고'}</span>
-                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-caption font-bold ${STATUS_BADGE[d.status]}`}>
-                  {STATUS_LABEL[d.status]}
-                </span>
-                <span className="shrink-0 text-caption text-x-muted">{relTime(d.createdAt, '생성')}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-// 명부에서 제거 — 인라인 확인(브라우저 confirm 금지). 무엇이 사라지고 무엇이 남는지 먼저 말한다.
-function DangerZone({ id, logCount, onDeleted }: { id: string; logCount: number; onDeleted: () => void }) {
-  const [confirming, setConfirming] = useState(false);
-  const [err, setErr] = useState('');
-  const busy = useRef(false);
-
-  async function remove() {
-    if (busy.current) return;
-    busy.current = true;
-    try {
-      const r = await apiFetch(`/api/influencers/${id}`, { method: 'DELETE' });
-      if (!r.ok) { setErr(await errOf(r)); return; }
-      onDeleted();
-    } catch {
-      setErr('제거하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
-    } finally { busy.current = false; }
-  }
-
-  return (
-    <section className="mt-8 border-t border-x-border pt-4">
-      {confirming ? (
-        <div>
-          <p className="text-ui">기록 {logCount}건도 함께 지워져요. 원고의 배정 표기는 남아요.</p>
-          <div className="mt-2 flex items-center gap-2">
-            <button onClick={remove} className="rounded-full bg-x-pink px-3 py-1 text-ui font-medium text-white hover:opacity-90">
-              명부에서 제거
-            </button>
-            <Button variant="ghost" onClick={() => setConfirming(false)}>취소</Button>
-          </div>
-        </div>
-      ) : (
-        <button onClick={() => { setConfirming(true); setErr(''); }}
-                className="text-ui text-x-secondary hover:text-red-500">명부에서 제거</button>
-      )}
-      {err && <p role="alert" className="mt-1 text-caption text-red-500">{err}</p>}
-    </section>
   );
 }

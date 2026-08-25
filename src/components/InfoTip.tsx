@@ -18,7 +18,9 @@ export function InfoTip({ text, label = '설명 보기' }: { text: string; label
 
   const place = useCallback(() => {
     const r = btnRef.current?.getBoundingClientRect();
-    if (!r) return;
+    // 앵커가 hidden 패널 안으로 들어가면 rect가 전부 0이다 — 그 좌표로 배치하면 좌상단으로 튄다.
+    // 숨은 앵커의 툴팁은 열려 있을 이유가 없으니 닫는다(프로필 탭 전환, 스펙 §3).
+    if (!r || (r.width === 0 && r.height === 0)) { setOpen(false); return; }
     // 좌측 정렬 후 화면 경계로 클램프 — 패널이 화면 왼쪽 끝에 붙어 있어도 잘리지 않는다
     const left = Math.min(Math.max(8, r.left), Math.max(8, window.innerWidth - W - 8));
     const below = r.bottom + 6;

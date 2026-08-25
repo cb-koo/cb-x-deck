@@ -8,6 +8,7 @@ import {
   createInfluencer, listInfluencers, findInfluencerById, findByHandle, findDuplicateByXUserId,
   getInfluencerDetail, updateInfluencer, deleteInfluencer, applyProfileSnapshot, ensureInfluencer,
   renameInfluencer, addManualLog, deleteManualLog, insertAutoLog, listOptions,
+  updatePricing, saveAnalysis,
 } from './influencerStore.ts';
 
 const sql = getSql();
@@ -270,4 +271,44 @@ test('9) listOptions: 표시 이름은 있으면 name, 없으면 undefined', asy
   assert.deepEqual(ours.map((o) => o.handle), sorted.map((o) => o.handle), 'lower(handle) 사전순');
 
   await deleteInfluencer(sql, noName.row.id);
+});
+
+test('9) updatePricing: 병합 저장 + 변경분만 auto 로그', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'price', createdBy: null });
+
+  const r1 = await updatePricing(sql, row.id, { rt: 100000, post: 300000 }, null);
+  assert.deepEqual(r1.pricing, { rt: 100000, post: 300000 });
+  assert.equal(r1.logs.length, 2);
+  assert.ok(r1.logs.every((l) => l.kind === 'auto' && l.eventType === 'pricing_changed'));
+
+  // 부분 패치: post만 변경 — rt는 보존, 로그는 1건만
+  const r2 = await updatePricing(sql, row.id, { post: 350000 }, null);
+  assert.deepEqual(r2.pricing, { rt: 100000, post: 350000 });
+  assert.equal(r2.logs.length, 1);
+  assert.deepEqual(r2.logs[0].payload, { priceType: 'post', from: 300000, to: 350000, currency: 'KRW' });
+
+  // 같은 값 재전송 = 로그 없음
+  const r3 = await updatePricing(sql, row.id, { post: 350000 }, null);
+  assert.equal(r3.logs.length, 0);
+
+  // 상세에 pricing이 실려 온다
+  const detail = await getInfluencerDetail(sql, row.id);
+  assert.deepEqual(detail!.pricing, { rt: 100000, post: 350000 });
+  assert.equal(detail!.logs.filter((l) => l.eventType === 'pricing_changed').length, 3);
+});
+
+test('10) saveAnalysis: 저장·조회 왕복', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'anal', createdBy: null });
+  const analysis = {
+    sample: { count: 2, classified: 2, since: '2026-05-24T00:00:00.000Z', until: '2026-08-24T00:00:00.000Z', months: 3 },
+    stats: { perWeek: 0.2, medianViews: 200, medianLikes: 20,
+             mix: { original: 1, retweet: 0, quote: 1 }, typeDist: { info: 2 }, sponsoredCount: 0 },
+    topics: [{ tag: '미용의료', count: 2, medianViews: 200 }],
+    summary: { tone: '톤', patterns: '패턴', sponsorship: '관찰되지 않음' },
+    models: { classify: 'claude-haiku-4-5', synth: 'claude-sonnet-5' },
+  };
+  await saveAnalysis(sql, row.id, analysis);
+  const detail = await getInfluencerDetail(sql, row.id);
+  assert.deepEqual(detail!.analysis, analysis);
+  assert.ok(detail!.analyzedAt);
 });

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FOLLOWUP_DAYS, PROFILE_STALE_DAYS, judgeContact, isProfileStale, summarizeDraftStatuses,
+  judgeCadence, judgeEngagement,
 } from './influencerJudgment.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -68,4 +69,34 @@ test('summarizeDraftStatuses: 상태 라벨은 draftStatus.ts의 STATUS_LABEL을
   assert.equal(summarizeDraftStatuses({ approved: 3 }), '사용 확정 3');
   assert.equal(summarizeDraftStatuses({ unused: 1, draft: 1, review: 1, approved: 1, delivered: 1 }),
     '초안 1 · 검수 대기 1 · 사용 확정 1 · 전달됨 1 · 미사용 1');
+});
+
+test('judgeCadence: 주 1회 미만은 확산용 주의 문구', () => {
+  const j = judgeCadence(0.6, 8);
+  assert.equal(j.caution, true);
+  assert.equal(j.label, '주 1회 미만 — 활동이 적은 편이에요. 확산용 계정으로는 신중히 볼 필요가 있어요');
+});
+
+test('judgeCadence: 구간별 문구', () => {
+  assert.deepEqual(judgeCadence(2, 26), { label: '주 2건 — 보통', caution: false });
+  assert.deepEqual(judgeCadence(6.7, 87), { label: '주 6.7건 — 활발한 편', caution: false });
+});
+
+test('judgeCadence: 0건', () => {
+  const j = judgeCadence(0, 0);
+  assert.equal(j.caution, true);
+  assert.equal(j.label, '최근 3개월 게시물이 없어요 — 활동이 없는 계정일 수 있어요');
+});
+
+// formatCount 실제 출력(X식 K/M 축약, 1만 미만은 콤마)에 맞춰 기대값을 조정함 — 브리핑의 '만/천' 표기가 아님.
+// 확인: formatCount(12000)='12K', formatCount(3000)='3,000', formatCount(1000)='1,000'
+test('judgeEngagement: 팔로워 대비 비율 판단', () => {
+  assert.equal(judgeEngagement(12000, 24000), '조회 중앙값 12K — 팔로워 규모 대비 활발한 편');
+  assert.equal(judgeEngagement(3000, 24000), '조회 중앙값 3,000 — 팔로워 규모 대비 보통');
+  assert.equal(judgeEngagement(1000, 24000), '조회 중앙값 1,000 — 팔로워 규모 대비 드문 편');
+});
+
+test('judgeEngagement: 기준 불명 폴백', () => {
+  assert.equal(judgeEngagement(null, 24000), '조회수를 확인할 수 없었어요');
+  assert.equal(judgeEngagement(12000, null), '조회 중앙값 12K');
 });

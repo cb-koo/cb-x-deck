@@ -19,6 +19,7 @@ import { useTranslations } from '@/components/useTranslations';
 import { DraftStatusChip } from '@/components/DraftStatusChip';
 import { InfluencerChip } from '@/components/InfluencerChip';
 import { DraftTitleField } from '@/components/DraftTitleField';
+import { TrackingLinkSection } from '@/components/TrackingLinkSection';
 import { draftLabel } from '@/lib/draftViews';
 import { draftShareUrl } from '@/lib/draftShare';
 import type { DraftStatus } from '@/lib/draftStatus';
@@ -717,6 +718,8 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
         {/* PR 표기 안내가 여기 상시로 있었다 — 매 카드 같은 문구라 며칠이면 아무도 안 읽는다.
             복사·받기 직후(원고가 실제로 나가는 순간)로 옮겼다. 검수 표식이 없으면 이 회색 층은
             근거 풋터 한 줄만 남으므로 위쪽 구분선도 필요 없어졌다. */}
+        <TrackingLinkSection draftId={draft.id} influencerHandle={draft.influencerHandle}
+                             clientId={draft.clientId} clientName={draft.clientName} />
         <div className={`flex items-baseline justify-between gap-3 text-[13px] ${active.length > 0 || dismissedCount > 0 ? 'mt-1 border-t border-x-border pt-1.5' : ''}`}>
           <button onClick={() => { const opening = !refsOpen; setRefsOpen(opening); if (opening) void refTr.loadCached(draft.refs.map((r) => r.tweetId)); }}
                   disabled={draft.refs.length === 0}

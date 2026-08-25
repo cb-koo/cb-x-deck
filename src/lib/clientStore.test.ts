@@ -79,3 +79,23 @@ test('updated_at: 시술 추가·수정·삭제가 클라이언트 수정 시각
 
   await deleteClient(sql, c.id);
 });
+
+test('landing_url — 저장·조회 왕복, 기본값은 빈 문자열', async () => {
+  const c = await createClient(sql, P + '랜딩');
+  assert.equal(c.landingUrl, '');
+  await updateClient(sql, c.id, { landingUrl: 'https://clinic.example.com/event' });
+  const got = await getClientWithProcedures(sql, c.id);
+  assert.equal(got!.client.landingUrl, 'https://clinic.example.com/event');
+  // 다른 필드 patch가 landing_url을 지우지 않는다(coalesce)
+  await updateClient(sql, c.id, { info: '정보' });
+  assert.equal((await getClientWithProcedures(sql, c.id))!.client.landingUrl, 'https://clinic.example.com/event');
+});
+
+test('name_en — 저장·조회 왕복, 기본값은 빈 문자열, 다른 patch가 지우지 않는다', async () => {
+  const c = await createClient(sql, P + '영문');
+  assert.equal(c.nameEn, '');
+  await updateClient(sql, c.id, { nameEn: 'yonsei-clinic' });
+  assert.equal((await getClientWithProcedures(sql, c.id))!.client.nameEn, 'yonsei-clinic');
+  await updateClient(sql, c.id, { info: '정보' }); // coalesce 보존
+  assert.equal((await getClientWithProcedures(sql, c.id))!.client.nameEn, 'yonsei-clinic');
+});

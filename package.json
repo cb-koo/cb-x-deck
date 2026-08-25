@@ -14,6 +14,7 @@
     "smoke:exa": "node --import tsx --env-file-if-exists=.env scripts/smoke-exa.ts",
     "smoke:translate": "node --import tsx --env-file-if-exists=.env scripts/smoke-translate.ts",
     "smoke:generate": "node --import tsx --env-file-if-exists=.env scripts/smoke-generate.ts",
+    "smoke:shortio": "node --import tsx --env-file-if-exists=.env scripts/smoke-shortio.ts",
     "backfill:quoted": "node --import tsx --env-file-if-exists=.env scripts/backfill-quoted.ts"
   },
   "dependencies": {

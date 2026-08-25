@@ -236,17 +236,27 @@ function PostingHeatmap({ daily, since, until, count }: {
           aria-label={`발행 히트맵: 최근 ${count}건, 일별 게시 분포`}
           className="grid"
           style={{
-            gridTemplateColumns: `repeat(${cols}, 1fr)`,
+            gridTemplateColumns: `auto repeat(${cols}, 1fr)`,   // 1열은 요일 라벨
             gridTemplateRows: 'auto repeat(7, auto)',
             gap: `${GAP}px`,
           }}
           onMouseLeave={() => setTip(null)}
         >
+          {/* 세로축이 요일이라는 건 라벨 없이는 스스로 설명되지 않는다("이게 왜 7칸이지?"라는
+              질문을 실제로 받았다). GitHub처럼 격줄(월·수·금)만 적는다 — 7개를 다 적으면
+              라벨이 격자만큼 시끄러워진다. */}
+          {([['월', 3], ['수', 5], ['금', 7]] as const).map(([label, row]) => (
+            <span key={label}
+              className="self-center pr-1 text-caption leading-none text-x-muted"
+              style={{ gridColumnStart: 1, gridRowStart: row }}
+              onMouseEnter={() => setTip(null)}
+            >{label}</span>
+          ))}
           {monthMarks.map((m) => (
             <span
               key={m.col}
               className="whitespace-nowrap text-caption leading-none text-x-muted"
-              style={{ gridColumnStart: m.col + 1, gridRowStart: 1 }}
+              style={{ gridColumnStart: m.col + 2, gridRowStart: 1 }}
               /* 라벨 줄로 올라가면 방금 보던 셀의 툴팁은 이미 거짓말이다 — 격자를 벗어나기 전에 걷는다 */
               onMouseEnter={() => setTip(null)}
             >{m.label}</span>
@@ -258,8 +268,8 @@ function PostingHeatmap({ daily, since, until, count }: {
                 key={d}
                 className="aspect-square rounded-[3px]"
                 style={{
-                  gridColumnStart: colOf(i) + 1,
-                  gridRowStart: ((i + firstDow) % 7) + 2,   // 1행은 달 라벨
+                  gridColumnStart: colOf(i) + 2,              // 1열은 요일 라벨
+                  gridRowStart: ((i + firstDow) % 7) + 2,     // 1행은 달 라벨
                   background: HEAT_STEPS[heatStep(n)],
                 }}
                 onMouseEnter={(e) => showTip(e.currentTarget, cellLabel(d, n))}

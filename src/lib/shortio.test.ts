@@ -95,3 +95,22 @@ test('7) 설정 판정 — env 둘 다 있어야 configured, 누락 시 makeShor
     if (saved.domain === undefined) delete process.env.SHORTIO_DOMAIN; else process.env.SHORTIO_DOMAIN = saved.domain;
   }
 });
+
+test('8) getLinkSeries — 일별 시계열 파싱(y 문자열→숫자), 기간 파라미터, 기형은 error', async () => {
+  const body = { clickStatistics: { datasets: [{ data: [
+    { x: '2026-08-23T00:00:00.000Z', y: '0' },
+    { x: '2026-08-24T00:00:00.000Z', y: '2' },
+  ] }] } };
+  const a = make([json(200, body)]);
+  const r = await a.client.getLinkSeries('lnk_1', '2026-07-27', '2026-08-26');
+  assert.deepEqual(r, { kind: 'ok', points: [
+    { date: '2026-08-23', clicks: 0 }, { date: '2026-08-24', clicks: 2 },
+  ] });
+  assert.equal(a.calls[0].url,
+    'https://api-v2.short.io/statistics/link/lnk_1?startDate=2026-07-27&endDate=2026-08-26');
+  const b = make([json(200, { ok: true })]); // 시계열 없음 — 성공 위장 금지
+  assert.deepEqual(await b.client.getLinkSeries('x', '2026-01-01', '2026-01-02'), { kind: 'error' });
+  const nf = { error: 'Upstream client error: Link x not found' };
+  const c = make([json(500, nf), json(500, nf), json(500, nf)]);
+  assert.deepEqual(await c.client.getLinkSeries('x', '2026-01-01', '2026-01-02'), { kind: 'unavailable' });
+});

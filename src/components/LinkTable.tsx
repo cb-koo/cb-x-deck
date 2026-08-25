@@ -6,6 +6,7 @@ import { formatFull } from '@/lib/format';
 import { kstDateTime } from '@/lib/datetime';
 import { relTimeFine } from '@/lib/relTime';
 import type { TrackingLinkRow, LinkClickSnapshotRow } from '@/lib/linkStore';
+import { LinkClicksChart, type DailyClickPoint } from '@/components/LinkClicksChart';
 
 export type LinkHistoryState = 'loading' | 'ready' | 'error';
 
@@ -29,13 +30,15 @@ const COLS: ColDef[] = [
 const TOTAL_WIDTH = COLS.reduce((sum, c) => sum + c.width, 0);
 
 export function LinkTable({
-  rows, refreshingIds, expandedId, onToggleExpand, history, historyState, onRefresh, onRemove,
+  rows, refreshingIds, expandedId, onToggleExpand, history, historyState, daily, dailyState, onRefresh, onRemove,
 }: {
   rows: TrackingLinkRow[];              // 이미 정렬·필터가 끝난 배열 — 여기서 순서를 바꾸지 않는다
   refreshingIds: ReadonlySet<string>;
   expandedId: string | null;            // 펼친 행 — 한 번에 하나(TrackingTable과 같은 이유)
   onToggleExpand: (id: string) => void;
-  history: LinkClickSnapshotRow[];      // 펼친 행의 클릭 이력(뷰가 소유·조회 — TrackingTable 관례)
+  history: LinkClickSnapshotRow[];
+  daily: DailyClickPoint[];              // 펼친 행의 최근 30일 일별 클릭(뷰가 소유·조회)
+  dailyState: LinkHistoryState;      // 펼친 행의 클릭 이력(뷰가 소유·조회 — TrackingTable 관례)
   historyState: LinkHistoryState;
   onRefresh: (row: TrackingLinkRow) => void;
   onRemove: (row: TrackingLinkRow) => void;
@@ -163,7 +166,7 @@ export function LinkTable({
                   </td>
                   <td aria-hidden="true" />
                 </tr>
-                {open && <ClickHistory link={r} rows={history} state={historyState} />}
+                {open && <ClickHistory link={r} rows={history} state={historyState} daily={daily} dailyState={dailyState} />}
               </Fragment>
             );
           })}
@@ -179,7 +182,25 @@ export function LinkTable({
 // 헤더도 없다: 부모 헤더가 위에 고정돼 있어 그 자리가 곧 이 값의 이름이다.
 // 봇 제외 값은 총 클릭 아래에 붙인다 — 같은 지표의 두 번째 값이라 옆 칸(다른 열)으로 보내면 뜻이 어긋난다.
 // 그래프가 아니라 숫자인 이유: 수동 새로고침이라 간격이 불규칙해 점 두세 개짜리 곡선은 오해를 부른다.
-function ClickHistory({ link, rows, state }: { link: TrackingLinkRow; rows: LinkClickSnapshotRow[]; state: LinkHistoryState }) {
+function ClickHistory({ link, rows, state, daily, dailyState }: {
+  link: TrackingLinkRow; rows: LinkClickSnapshotRow[]; state: LinkHistoryState;
+  daily: DailyClickPoint[]; dailyState: LinkHistoryState;
+}) {
+  // 펼침의 정보 위계(koo QA 08-25): ① 날짜별 클릭(펼치는 목적) ② 원본 링크(검수) ③ 측정 이력(우리가 잰 기록)
+  const total30 = daily.reduce((a, p) => a + p.clicks, 0);
+  const chart = (
+    <tr className="bg-x-surface/60">
+      <td />
+      <td colSpan={COLS.length} className="py-2 pl-3 pr-3">
+        <p className="text-caption text-x-muted">
+          최근 30일 클릭{dailyState === 'ready' && <b className="ml-1.5 text-x-secondary">합계 {total30}</b>}
+        </p>
+        {dailyState === 'loading' && <p className="mt-1 text-caption text-x-muted">클릭 추이 불러오는 중…</p>}
+        {dailyState === 'error' && <p className="mt-1 text-caption text-x-secondary">클릭 추이를 가져오지 못했어요 — 접었다 다시 열어보세요</p>}
+        {dailyState === 'ready' && <LinkClicksChart points={daily} />}
+      </td>
+    </tr>
+  );
   // 원본 링크 확인(koo QA 08-25): 단축 링크가 실제로 어디로 가는지 — 랜딩 원본과 UTM 붙은 최종 주소.
   // 검수·공유 양쪽에 쓰이므로 복사 버튼을 각각 둔다.
   const [copied, setCopied] = useState<'landing' | 'long' | null>(null);
@@ -213,12 +234,13 @@ function ClickHistory({ link, rows, state }: { link: TrackingLinkRow; rows: Link
       <td colSpan={COLS.length + 1} className="py-2 pl-14 text-caption text-x-muted">{text}</td>
     </tr>
   );
-  if (state === 'loading') return <>{urls}{note('클릭 이력 불러오는 중…')}</>;
-  if (state === 'error') return <>{urls}{note('클릭 이력을 불러오지 못했어요 — 접었다 다시 열어보세요')}</>;
-  if (rows.length === 0) return <>{urls}{note('아직 클릭 기록이 없어요 — 새로고침을 누르면 지금 값이 기록돼요')}</>;
+  if (state === 'loading') return <>{chart}{urls}{note('클릭 이력 불러오는 중…')}</>;
+  if (state === 'error') return <>{chart}{urls}{note('클릭 이력을 불러오지 못했어요 — 접었다 다시 열어보세요')}</>;
+  if (rows.length === 0) return <>{chart}{urls}{note('아직 클릭 기록이 없어요 — 새로고침을 누르면 지금 값이 기록돼요')}</>;
 
   return (
     <>
+      {chart}
       {urls}
       {rows.map((s, i) => {
         const last = i === rows.length - 1;

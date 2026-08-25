@@ -16,6 +16,11 @@ export type LinkStatsResult =
   | { kind: 'unavailable' } // 404 — short.io 쪽에서 링크가 지워짐(대시보드 수동 삭제 등)
   | { kind: 'error' };
 
+export type LinkSeriesResult =
+  | { kind: 'ok'; points: Array<{ date: string; clicks: number }> } // date = YYYY-MM-DD
+  | { kind: 'unavailable' }
+  | { kind: 'error' };
+
 export interface ShortioClientOptions {
   apiKey: string;
   domain: string;
@@ -64,26 +69,47 @@ export class ShortioClient {
   }
 
   async getLinkStats(linkId: string): Promise<LinkStatsResult> {
+    // 실계약(2026-08-25): 이 플랜에서 period=total은 빈 구간(0)을 돌려준다 — 파라미터 없음은 최근 30일로
+    // 잘린다. 명시적 startDate/endDate만 전체 기간을 정확히 집계하므로, 서비스 개시 이전(2020)부터
+    // 모레(시간대 경계 여유)까지를 항상 명시한다.
+    const end = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+    const got = await this.statsBody(linkId, `startDate=2020-01-01&endDate=${end}`);
+    if (got.kind !== 'ok') return got;
+    const d = got.body;
+    return { kind: 'ok', totalClicks: num(d.totalClicks), humanClicks: num(d.humanClicks), raw: d };
+  }
+
+  // 일별 클릭 시계열 — 요청 구간이 한 달 안팎이면 short.io가 일 단위 점을 준다(실계약 확인 08-25).
+  async getLinkSeries(linkId: string, startDate: string, endDate: string): Promise<LinkSeriesResult> {
+    const got = await this.statsBody(linkId, `startDate=${startDate}&endDate=${endDate}`);
+    if (got.kind !== 'ok') return got;
+    const stats = got.body.clickStatistics as { datasets?: Array<{ data?: unknown }> } | undefined;
+    const data = stats?.datasets?.[0]?.data;
+    if (!Array.isArray(data)) return { kind: 'error' }; // 200인데 시계열 없음 — 성공으로 위장하지 않는다
+    const points = (data as Array<Record<string, unknown>>)
+      .map((pt) => ({ date: String(pt?.x ?? '').slice(0, 10), clicks: Number(pt?.y) || 0 }))
+      .filter((pt) => /^\d{4}-\d{2}-\d{2}$/.test(pt.date));
+    return { kind: 'ok', points };
+  }
+
+  // 통계 API 공통 — 404와 "500 + not found 본문"(실계약)을 unavailable로 묶어 판정한다.
+  private async statsBody(linkId: string, query: string):
+    Promise<{ kind: 'ok'; body: Record<string, unknown> } | { kind: 'unavailable' } | { kind: 'error' }> {
     const res = await this.request(
-      // 실계약(2026-08-25): 이 플랜에서 period=total은 빈 구간(0)을 돌려준다 — 파라미터 없음은 최근 30일로
-      // 잘린다. 명시적 startDate/endDate만 전체 기간을 정확히 집계하므로, 서비스 개시 이전(2020)부터
-      // 모레(시간대 경계 여유)까지를 항상 명시한다.
-      `${STATS_BASE}/statistics/link/${encodeURIComponent(linkId)}?startDate=2020-01-01&endDate=${new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10)}`,
+      `${STATS_BASE}/statistics/link/${encodeURIComponent(linkId)}?${query}`,
       { method: 'GET', headers: { authorization: this.opts.apiKey } },
     );
     if (!res) return { kind: 'error' };
     if (res.status === 404) return { kind: 'unavailable' };
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
-      // 실계약(스모크 2026-08-24): 모르는 링크에 404가 아니라 500 + "not found" 본문이 온다.
-      // 참고: 지워진 링크는 통계가 200으로 계속 오므로(보존) unavailable은 실제로 드물게만 발생.
       if (/not found/i.test(txt)) return { kind: 'unavailable' };
-      console.error(`shortio getLinkStats ${res.status}:`, txt);
+      console.error(`shortio stats ${res.status}:`, txt);
       return { kind: 'error' };
     }
-    const d = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!d) return { kind: 'error' };
-    return { kind: 'ok', totalClicks: num(d.totalClicks), humanClicks: num(d.humanClicks), raw: d };
+    const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body) return { kind: 'error' };
+    return { kind: 'ok', body };
   }
 
   // 공통 전송 — 네트워크 예외·429·5xx만 재시도, 그 외 상태 판정은 호출부 몫. 소진되면 null.

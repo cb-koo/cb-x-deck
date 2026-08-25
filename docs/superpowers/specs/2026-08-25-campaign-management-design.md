@@ -20,7 +20,7 @@
 
 ## 2. 데이터 모델 (마이그레이션 033)
 
-main은 031까지. 미머지 브랜치 `cb-koo/influencer-profile`이 **032**를 이미 사용(028→032 재번호됨) → 캠페인은 **033**. 033에는 `alter table influencer add column if not exists pricing jsonb not null default '{}';` 한 줄을 멱등으로 포함한다 — 그 컬럼의 DDL은 미머지 032에만 있어 새 DB에서 비용 제안 쿼리가 깨진다(리뷰 Blocking 2). 프로덕션 DB에는 이미 있어 무해.
+main은 032까지(032 = 인플루언서 협찬 단가·계정 분석, 08-25 main 095b13f 머지됨 — 이 브랜치에 머지 완료) → 캠페인은 **033**. `influencer.pricing` 컬럼은 032가 만든다(당초 033에 멱등 DDL을 넣기로 했으나 머지로 불필요).
 
 ### 2-1. `campaign` (신설)
 
@@ -58,7 +58,7 @@ main은 031까지. 미머지 브랜치 `cb-koo/influencer-profile`이 **032**를
 |---|---|---|
 | `campaign_id` | uuid → campaign, on delete set null | 소속 캠페인. null = 없음. 원고는 캠페인보다 오래 산다 |
 | `scheduled_on` | date null | 게시 예정일(서울 기준). null = 미정 |
-| `cost` | jsonb null | `{type: 'rt'|'quoteRt'|'post'|'visit', amount: int ≥ 0, currency: 'KRW'|'JPY'}`. 유형·통화 리터럴은 `src/lib/campaignCost.ts`에 지역 정의(문자열은 influencer-profile 브랜치의 `influencerPricing.ts`와 동일 — 그 파일은 이 브랜치에 없어 import 불가, 통합은 머지 후 별건) |
+| `cost` | jsonb null | `{type: 'rt'|'quoteRt'|'post'|'visit', amount: int ≥ 0, currency: 'KRW'|'JPY'}`. 유형·통화 타입은 `src/lib/influencerPricing.ts`의 `PriceType`·`Currency`를 **import**(main 머지로 사용 가능 — 지역 정의 안 함). `campaignCost.ts`는 cost/extra_costs 검증·통화별 합계·`formatMoney` 재사용만 담당 |
 
 인덱스: `(campaign_id)`.
 
@@ -152,7 +152,7 @@ main은 031까지. 미머지 브랜치 `cb-koo/influencer-profile`이 **032**를
 | 트래킹 링크 | `TrackingLinkSection` prefill에 `campaignCode` 추가(DraftCard → 페이지까지 prop 배선) → `LinkCreateModal`의 `utm_campaign` 기본값 = 캠페인 코드(있으면), 없으면 현행 `suggestCampaign(클라)`. **모달 안 세팅 지점이 두 곳**(open 리셋 `useEffect`, 클라 로드 후 `suggestCampaign(c.nameEn\|\|c.name)`) — 둘 다 `campaignCode` 우선 규칙을 적용해야 조용히 덮이지 않는다(리뷰 Should 2). 캠페인 요약의 링크 클릭 = 그 캠페인 원고들의 `tracking_link` 최신 스냅샷 합 |
 | 게시물 트래킹 | 게시됨 판정·조회수 = `tracked_post.draft_id`. 연결 안 된 게시물은 캠페인이 모른다 — 단계 셀 옆 "게시물 연결" 진입점으로 보완, 자동 매칭은 백로그 |
 | 인플루언서 프로필 | "참여 캠페인" 섹션: 캠페인명·기간·배정 콘텐츠 n·비용 소계(통화별). 조회만, 새 로그 이벤트 없음. 캠페인명 클릭 → `/campaigns?id=` |
-| 인플루언서 단가 | `influencer.pricing[type]`을 비용 제안에 사용. 컬럼은 프로덕션에 존재(그쪽 032 적용됨)·033이 멱등 DDL로 보장, 코드는 influencer-profile 브랜치 — 캠페인 브랜치는 컬럼을 직접 읽고 `{}`거나 유형 금액이 없으면 제안 없음. 머지 순서에 무관 |
+| 인플루언서 단가 | `influencer.pricing[type]`을 비용 제안에 사용. 032가 만든 컬럼·`influencerPricing.ts`(`Pricing`, `normalizeCurrency`)를 그대로 사용. `{}`거나 유형 금액이 없으면 제안 없음 |
 
 ## 6. API
 

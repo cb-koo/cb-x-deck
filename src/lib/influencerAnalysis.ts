@@ -3,7 +3,7 @@
 import { callLLM } from './llm.ts';
 import type { AnthropicLike } from './llm.ts';
 import {
-  chunk, computeStats, missingIds, sponsoredCount, topByViews, topicStats, typeDist,
+  chunk, computeStats, dailyCounts, missingIds, sponsoredCount, topByViews, topicStats, typeDist,
   CONTENT_TYPE_LABEL,
   type AnalysisTweet, type ClassifiedTweet, type ContentType,
 } from './analysisStats.ts';
@@ -224,6 +224,7 @@ export async function analyzeAccount(
         : since,
       until, months: ANALYSIS_MONTHS,
     },
+    daily: dailyCounts(tweets),   // 표본 0건이면 {} — 히트맵은 표본과 같은 구간을 그린다
     models,
   };
 

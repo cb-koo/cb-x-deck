@@ -25,6 +25,9 @@ export interface InfluencerAnalysis {
     typeDist: Partial<Record<ContentType, number>>; sponsoredCount: number;
   };
   topics: TopicStat[];
+  // 한국 날짜별 게시 건수(발행 히트맵). 옵셔널: 이 필드가 생기기 전에 저장된 분석엔 없다 —
+  // 없으면 히트맵을 아예 그리지 않는다(빈 격자는 '0건'이라는 거짓말이다). 다시 분석하면 생긴다.
+  daily?: Record<string, number>;
   summary: { tone: string; patterns: string; sponsorship: string } | null;  // 표본 0건이면 null
   models: { classify: string; synth: string };
 }

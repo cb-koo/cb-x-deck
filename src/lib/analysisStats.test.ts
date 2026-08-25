@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   median, computeStats, chunk, missingIds, topicStats, typeDist, sponsoredCount, topByViews,
+  dailyCounts,
   type AnalysisTweet, type ClassifiedTweet,
 } from './analysisStats.ts';
 
@@ -49,6 +50,25 @@ test('computeStats: views 전부 null이면 중앙값 null', () => {
   });
   assert.equal(s.medianViews, null);
   assert.equal(s.medianLikes, null);
+});
+
+test('dailyCounts: 한국 자정(UTC 15:00)이 날짜를 가른다', () => {
+  const counts = dailyCounts([
+    tw({ id: 'a', createdAt: '2026-08-23T14:59:59Z' }),  // 한국 8/23 23:59
+    tw({ id: 'b', createdAt: '2026-08-23T15:00:00Z' }),  // 한국 8/24 00:00 — 다음 날
+    tw({ id: 'c', createdAt: '2026-08-23T23:00:00Z' }),  // 한국 8/24 08:00
+  ]);
+  assert.deepEqual(counts, { '2026-08-23': 1, '2026-08-24': 2 });
+});
+
+test('dailyCounts: 모든 kind를 센다(RT도 계정 활동) · 게시 없는 날은 키 없음 · 빈 입력은 {}', () => {
+  const counts = dailyCounts([
+    tw({ id: 'a', createdAt: '2026-08-01T03:00:00Z' }),
+    tw({ id: 'r', kind: 'retweet', createdAt: '2026-08-01T04:00:00Z' }),
+    tw({ id: 'q', kind: 'quote', createdAt: '2026-08-03T04:00:00Z' }),
+  ]);
+  assert.deepEqual(counts, { '2026-08-01': 2, '2026-08-03': 1 });   // 8/02는 키 자체가 없다
+  assert.deepEqual(dailyCounts([]), {});
 });
 
 test('chunk / missingIds', () => {

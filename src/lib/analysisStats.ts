@@ -55,6 +55,23 @@ export function computeStats(
   return { perWeek, medianViews, medianLikes, mix };
 }
 
+// 발행 히트맵의 재료 — 한국 날짜별 게시 건수('YYYY-MM-DD' → 건수). 게시가 없는 날은 키가 없다.
+// 모든 kind를 센다: RT도 계정의 활동이고, perWeek(빈도 타일)와 분모가 같아야 두 수치가 어긋나 보이지 않는다.
+// 고정 +9 — 한국은 1988년 이후 서머타임이 없다(datetime.ts와 같은 관례). Intl에 맡기면 런타임 시간대
+// 데이터에 의존해 테스트가 환경에 흔들린다. 파싱 불가한 createdAt은 건너뛴다 — 'NaN' 키를 만들지 않는다.
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+export function dailyCounts(tweets: AnalysisTweet[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const t of tweets) {
+    const ms = Date.parse(t.createdAt);
+    if (Number.isNaN(ms)) continue;
+    const day = new Date(ms + KST_OFFSET_MS).toISOString().slice(0, 10);
+    out[day] = (out[day] ?? 0) + 1;
+  }
+  return out;
+}
+
 export function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));

@@ -54,6 +54,7 @@ test('전체 흐름: 분류→정규화→통계→종합', async () => {
   assert.equal(a.stats.sponsoredCount, 1);
   assert.deepEqual(a.stats.typeDist, { review: 2 });
   assert.deepEqual(a.topics, [{ tag: '미용의료', count: 2, medianViews: 200 }]);
+  assert.deepEqual(a.daily, { '2026-08-20': 3 });     // 히트맵 재료 — RT 포함 3건이 같은 한국 날짜
   assert.equal(a.summary!.tone, '친근한 후기 톤');
   assert.deepEqual(chat.calls, ['anthropic.influencerClassify', 'anthropic.influencerNormalize', 'anthropic.influencerSynth']);
 });

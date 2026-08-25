@@ -192,12 +192,16 @@ function ClickHistory({ link, rows, state, daily, dailyState }: {
     <tr className="bg-x-surface/60">
       <td />
       <td colSpan={COLS.length} className="py-2 pl-3 pr-3">
+        {/* 펼침 콘텐츠 폭 = 부모 행의 내용 폭(단축 링크 열 끝, 32+140+200+150+280−패딩 ≈ 746px) —
+            초광폭에서 표 전체로 늘어나면 원본 링크·차트가 행과 따로 노는 것처럼 읽힌다(koo QA) */}
+        <div className="max-w-[746px]">
         <p className="text-caption text-x-muted">
           최근 7일 클릭{dailyState === 'ready' && <b className="ml-1.5 text-x-secondary">합계 {total30}</b>}
         </p>
         {dailyState === 'loading' && <p className="mt-1 text-caption text-x-muted">클릭 추이 불러오는 중…</p>}
         {dailyState === 'error' && <p className="mt-1 text-caption text-x-secondary">클릭 추이를 가져오지 못했어요 — 접었다 다시 열어보세요</p>}
         {dailyState === 'ready' && <LinkClicksChart points={daily} />}
+        </div>
       </td>
     </tr>
   );
@@ -217,6 +221,7 @@ function ClickHistory({ link, rows, state, daily, dailyState }: {
     <tr className="bg-x-surface/60">
       <td />
       <td colSpan={COLS.length} className="py-1.5 pl-3 pr-3">
+        <div className="max-w-[746px]">
         <p className="text-caption text-x-muted">원본 링크</p>
         {/* 행 카드(원고 카드 섹션과 같은 문법): 긴 UTM 주소는 한 줄 말줄임 — 전체는 hover(title)와 복사로.
             break-all로 두세 줄 꺾이면 파라미터 덩어리가 화면을 채워 정작 '어디로 가는지'를 못 읽는다. */}
@@ -231,6 +236,7 @@ function ClickHistory({ link, rows, state, daily, dailyState }: {
             </button>
           </div>
         ))}
+        </div>
       </td>
     </tr>
   );

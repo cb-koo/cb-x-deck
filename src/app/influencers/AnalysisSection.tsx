@@ -1,13 +1,45 @@
 'use client';
-import { useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { formatCount } from '@/lib/format';
-import { kstMonthDay, kstDayRange, dateOnlyMonthDay, asDateOnly } from '@/lib/datetime';
+import { kstMonthDay, kstDayRange, asDateOnly } from '@/lib/datetime';
 import { relTime } from '@/lib/relTime';
 import { judgeCadence, judgeEngagement } from '@/lib/influencerJudgment';
 import { CONTENT_TYPE_LABEL, type ContentType } from '@/lib/analysisStats';
 import type { InfluencerAnalysis } from '@/lib/influencerStore';
+
+type AnalyzeResult = { analysis: InfluencerAnalysis; analyzedAt: string };
+
+// 진행 중인 분석 레지스트리(모듈 스코프 — 컴포넌트보다 오래 산다).
+//
+// 계약: 서버는 이탈과 무관하게 끝까지 돌아 저장한다 — 이 레지스트리는 표시 복원용이다.
+// 다른 인플루언서를 보다 돌아와도 '분석 중…'과 완료 반영이 이어지고, 진행 중 재클릭은
+// 새 요청 대신 같은 프로미스에 붙는다(비용 2배 방지). 새로고침하면 표시는 잃지만
+// 결과는 이미 저장돼 있다 — 다음 조회에서 그대로 보인다.
+const inflight = new Map<string, Promise<AnalyzeResult>>();
+
+// 서버가 말해 준 실패 — 네트워크 실패와 문구를 갈라 쓰려고 종류를 구분한다
+class AnalyzeError extends Error {}
+
+// X 수집 + LLM 분석 = 비용 액션 — 버튼으로만(AGENTS.md ⑥). 실패해도 기존 결과는 지우지 않는다.
+function startAnalysis(id: string): Promise<AnalyzeResult> {
+  const p = (async () => {
+    const r = await apiFetch(`/api/influencers/${id}/analyze`, { method: 'POST' });
+    const body = (await r.json().catch(() => ({}))) as {
+      analysis?: InfluencerAnalysis; analyzedAt?: string; error?: string;
+    };
+    // 서버 문구를 그대로 쓴다 — 원인을 넘겨짚지 않는다(프로필 갱신과 같은 관례)
+    if (!r.ok || !body.analysis) throw new AnalyzeError(body.error ?? `분석하지 못했어요 (오류 ${r.status})`);
+    return { analysis: body.analysis, analyzedAt: body.analyzedAt ?? new Date().toISOString() };
+  })();
+  inflight.set(id, p);
+  // catch를 먼저 물려 원본 프로미스에 핸들러를 남긴다 — 구독자가 없는 순간에 실패해도
+  // unhandled rejection이 되지 않는다. 정리는 자기 프로미스일 때만(뒤 실행을 지우지 않게).
+  p.catch(() => {}).finally(() => { if (inflight.get(id) === p) inflight.delete(id); });
+  return p;
+}
 
 export function AnalysisSection({ id, analysis, analyzedAt, followers, onAnalyzed }: {
   id: string;
@@ -16,30 +48,45 @@ export function AnalysisSection({ id, analysis, analyzedAt, followers, onAnalyze
   followers: number | null;
   onAnalyzed: (analysis: InfluencerAnalysis, analyzedAt: string) => void;
 }) {
-  const [running, setRunning] = useState(false);
-  const [err, setErr] = useState('');
+  // 진행·오류 모두 id를 달고 다닌다 — 다른 계정으로 갈아타도 남의 상태를 물려받지 않는다.
+  // 진행 표시는 레지스트리에서도 읽는다: 화면을 벗어났다 돌아온 첫 렌더에서 '분석 중…'이 그대로 서 있어야 한다.
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [err, setErr] = useState<{ id: string; text: string } | null>(null);
+  const running = busyId === id || inflight.has(id);
+  const errText = err?.id === id ? err.text : '';
 
-  // X 수집 + LLM 분석 = 비용 액션 — 버튼으로만(AGENTS.md ⑥). 실패해도 기존 결과는 지우지 않는다.
-  async function run() {
-    if (running) return;
-    setRunning(true);
-    setErr('');
-    try {
-      const r = await apiFetch(`/api/influencers/${id}/analyze`, { method: 'POST' });
-      const body = (await r.json().catch(() => ({}))) as {
-        analysis?: InfluencerAnalysis; analyzedAt?: string; error?: string;
-      };
-      // 서버 문구를 그대로 쓴다 — 원인을 넘겨짚지 않는다(프로필 갱신과 같은 관례)
-      if (!r.ok || !body.analysis) {
-        setErr(body.error ?? `분석하지 못했어요 (오류 ${r.status})`);
-        return;
-      }
-      onAnalyzed(body.analysis, body.analyzedAt ?? new Date().toISOString());
-    } catch {
-      setErr('분석하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
-    } finally {
-      setRunning(false);
-    }
+  // 부모가 인라인 화살표로 넘기는 콜백 — ref로 받아야 effect가 매 렌더 다시 붙지 않는다
+  const onAnalyzedRef = useRef(onAnalyzed);
+  useEffect(() => { onAnalyzedRef.current = onAnalyzed; });
+
+  // live.ok = '아직 이 id로 마운트돼 있다'. unmount 후 setState와 id가 바뀐 뒤의 잘못된 반영을 함께 막는다.
+  const liveRef = useRef({ ok: true });
+  const attach = useCallback((p: Promise<AnalyzeResult>, forId: string, live: { ok: boolean }) => {
+    p.then(
+      (res) => { if (!live.ok) return; setBusyId(null); onAnalyzedRef.current(res.analysis, res.analyzedAt); },
+      (e: unknown) => {
+        if (!live.ok) return;
+        setBusyId(null);
+        setErr({ id: forId, text: e instanceof AnalyzeError ? e.message
+          : '분석하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요' });
+      },
+    );
+  }, []);
+
+  // 마운트(또는 id 교체) 시 진행 중인 분석이 있으면 그 결과에 다시 붙는다 — 표시는 위 running이 이미 되살렸다
+  useEffect(() => {
+    const live = { ok: true };
+    liveRef.current = live;
+    const p = inflight.get(id);
+    if (p) attach(p, id, live);
+    return () => { live.ok = false; };
+  }, [id, attach]);
+
+  function run() {
+    setErr(null);
+    setBusyId(id);
+    // 이미 돌고 있으면 붙기만 한다 — 새 요청을 보내지 않는다(중복 실행 = 비용 2배)
+    attach(inflight.get(id) ?? startAnalysis(id), id, liveRef.current);
   }
 
   return (
@@ -73,7 +120,7 @@ export function AnalysisSection({ id, analysis, analyzedAt, followers, onAnalyze
         </div>
       )}
 
-      {err && <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-ui text-red-700">{err}</p>}
+      {errText && <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-ui text-red-700">{errText}</p>}
 
       {analysis && <AnalysisResult analysis={analysis} followers={followers} />}
     </section>
@@ -104,18 +151,28 @@ function StatTile({ value, caution = false, children }: {
 // ── 발행 히트맵 ──────────────────────────────────────────────────────────────
 // 주당 몇 건(타일)은 평균이라 "몰아 쓰고 2주 쉬는" 계정과 "매일 한 건"을 구분하지 못한다.
 // 히트맵은 그 분포를 그대로 보여준다 — 열=주, 행=요일.
-const CELL = 11;   // px. 13~14주 × (11+2)px ≈ 180px — 패널 폭에 들어간다
-const GAP = 2;     // 칸 사이 여백은 배경색이 만든다(면과 면을 붙이지 않는다)
+// 셀은 고정 px가 아니라 패널 폭을 나눠 갖는다(1fr) — 11px 격자는 "너무 작아 못 읽겠다"는
+// 피드백을 받았다. 3개월 14주 기준 셀 ≈ 27px로, 예전의 두 배쯤 된다.
+const GRID_MAX = 440; // px. 격자가 가져갈 최대 폭 — 넓은 화면에서 끝없이 커지지 않게
+const GAP = 3;        // 칸 사이 여백은 배경색이 만든다(면과 면을 붙이지 않는다)
 
 // 시퀀셜 단일 색상(x-blue 계열, 옅음→진함)과 고정 임계값. 분위수로 나누면 같은 색이 계정마다
 // 다른 뜻이 돼 두 계정을 나란히 읽을 수 없다 — 여기서 색 하나는 언제나 같은 건수다.
 // 0건은 x-border(#eff3f4)와 같은 회색: 데이터가 아니라 바탕이라는 뜻. 4·5단계는 x-blue/x-blue-text.
 const HEAT_STEPS = ['#eff3f4', '#cfe9fb', '#8ecdf6', '#1d9bf0', '#1573ad'];
-const HEAT_LABELS = ['0건', '1건', '2건', '3~4건', '5건 이상'];
 function heatStep(n: number): number {
   if (n <= 0) return 0;
   if (n <= 2) return n;
   return n <= 4 ? 3 : 4;
+}
+
+const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+
+// 셀 하나가 말하는 것: 언제 · 몇 건. daily 키는 이미 KST date-only라 시간대 시프트 없이 읽는다.
+function cellLabel(key: string, n: number): string {
+  const d = asDateOnly(key);
+  const dow = DOW[new Date(d + 'T00:00:00Z').getUTCDay()];
+  return `${Number(d.slice(5, 7))}월 ${Number(d.slice(8, 10))}일 (${dow}) · ${n > 0 ? `게시 ${n}건` : '게시 없음'}`;
 }
 
 // daily는 게시가 있었던 날만 담는다. 격자는 표본 구간(sample.since~until)을 그대로 깐다 —
@@ -124,6 +181,32 @@ function heatStep(n: number): number {
 function PostingHeatmap({ daily, since, until, count }: {
   daily: Record<string, number>; since: string; until: string; count: number;
 }) {
+  // 셀 90개를 Tooltip으로 감싸면 포털이 90개 뜬다 — 대신 격자 하나가 툴팁 하나를 공유한다.
+  // (배치·포털 방식은 components/Tooltip.tsx와 같다. 왜 브라우저 기본 title이 아닌지도 거기 적혀 있다:
+  //  뜨기까지 1초 가까이 걸리고, 조건에 따라 아예 안 뜬다 — 이 저장소가 이미 겪은 문제다.)
+  const [tip, setTip] = useState<{ text: string; top: number; left: number; below: boolean } | null>(null);
+  const showTip = (el: HTMLElement, text: string) => {
+    const r = el.getBoundingClientRect();
+    const below = r.top - 8 < 40;   // 화면 위로 넘치면 아래로 뒤집는다
+    setTip({
+      text,
+      top: below ? r.bottom + 8 : r.top - 8,
+      left: Math.max(8, Math.min(r.left + r.width / 2, window.innerWidth - 8)),
+      below,
+    });
+  };
+  // 스크롤·리사이즈로 앵커가 움직이면 좌표가 거짓이 된다 — 따라다니는 대신 닫는다(마우스는 이미 떠났다)
+  useEffect(() => {
+    if (!tip) return;
+    const close = () => setTip(null);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [tip]);
+
   const days = kstDayRange(new Date(since), new Date(until));
   if (days.length === 0) return null;
 
@@ -139,55 +222,73 @@ function PostingHeatmap({ daily, since, until, count }: {
     d.slice(8) === '01' ? [{ col: colOf(i), label: `${Number(d.slice(5, 7))}월` }] : []
   ));
 
+  // 범례 스와치는 셀과 같은 크기로 본다 — 폭이 유동이라 격자가 최대 폭일 때의 값으로 잡는다
+  // (패널이 그보다 좁으면 몇 px 차이가 나지만, 범례는 색을 읽는 자리지 크기를 재는 자리가 아니다)
+  const swatch = Math.round((GRID_MAX - (cols - 1) * GAP) / cols);
+
   return (
     <div>
       <p className="text-caption text-x-muted">발행 활동</p>
-      <div className="mt-1 overflow-x-auto">
+      <div className="mt-1 w-full" style={{ maxWidth: `${GRID_MAX}px` }}>
         <div
           role="img"
+          /* 셀은 탭 대상이 아니다 — 90개 탭스톱은 지나치다. 스크린리더에는 이 요약 한 줄로 준다. */
           aria-label={`발행 히트맵: 최근 ${count}건, 일별 게시 분포`}
-          className="grid w-max"
+          className="grid"
           style={{
-            gridTemplateColumns: `repeat(${cols}, ${CELL}px)`,
-            gridTemplateRows: `auto repeat(7, ${CELL}px)`,
+            gridTemplateColumns: `repeat(${cols}, 1fr)`,
+            gridTemplateRows: 'auto repeat(7, auto)',
             gap: `${GAP}px`,
           }}
+          onMouseLeave={() => setTip(null)}
         >
           {monthMarks.map((m) => (
             <span
               key={m.col}
               className="whitespace-nowrap text-caption leading-none text-x-muted"
               style={{ gridColumnStart: m.col + 1, gridRowStart: 1 }}
+              /* 라벨 줄로 올라가면 방금 보던 셀의 툴팁은 이미 거짓말이다 — 격자를 벗어나기 전에 걷는다 */
+              onMouseEnter={() => setTip(null)}
             >{m.label}</span>
           ))}
-          {/* 칸이 작아 hover 타깃이 곧 title이다 — 마우스를 올리면 날짜와 건수가 그대로 나온다 */}
           {days.map((d, i) => {
             const n = daily[d] ?? 0;
             return (
               <div
                 key={d}
-                title={`${dateOnlyMonthDay(asDateOnly(d))} · ${n}건`}
-                className="rounded-[2px]"
+                className="aspect-square rounded-[3px]"
                 style={{
                   gridColumnStart: colOf(i) + 1,
                   gridRowStart: ((i + firstDow) % 7) + 2,   // 1행은 달 라벨
                   background: HEAT_STEPS[heatStep(n)],
                 }}
+                onMouseEnter={(e) => showTip(e.currentTarget, cellLabel(d, n))}
               />
             );
           })}
         </div>
       </div>
-      <div className="mt-1 flex items-center gap-1.5 text-caption text-x-muted">
-        <span>적음</span>
-        <span className="flex" style={{ gap: `${GAP}px` }}>
-          {HEAT_STEPS.map((c, i) => (
-            <span key={c} title={HEAT_LABELS[i]} className="rounded-[2px]"
-              style={{ width: CELL, height: CELL, background: c }} />
-          ))}
-        </span>
-        <span>많음</span>
+      <div className="mt-1.5 text-caption text-x-muted">
+        <div className="flex items-center gap-1.5">
+          <span>적음</span>
+          <span className="flex" style={{ gap: `${GAP}px` }}>
+            {HEAT_STEPS.map((c) => (
+              <span key={c} className="rounded-[3px]"
+                style={{ width: swatch, height: swatch, background: c }} />
+            ))}
+          </span>
+          <span>많음</span>
+        </div>
+        {/* 색이 몇 건인지는 hover가 아니라 글로 적는다 — 범례에 title을 달면 아무도 못 본다 */}
+        <p className="mt-1">회색은 게시 없음 · 진해질수록 1건 · 2건 · 3~4건 · 5건 이상</p>
       </div>
+      {tip && createPortal(
+        <div role="tooltip" style={{ top: tip.top, left: tip.left }}
+             className={`pointer-events-none fixed z-[60] -translate-x-1/2 whitespace-nowrap rounded-md bg-x-text px-2 py-1 text-[12px] leading-none text-white shadow-lg ${tip.below ? '' : '-translate-y-full'}`}>
+          {tip.text}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

@@ -187,6 +187,8 @@ function PostingHeatmap({ daily, since, until, count }: {
   const [tip, setTip] = useState<{ text: string; top: number; left: number; below: boolean } | null>(null);
   const showTip = (el: HTMLElement, text: string) => {
     const r = el.getBoundingClientRect();
+    // 앵커가 hidden 패널 안으로 들어가면 rect가 전부 0이다 — 좌상단으로 튀는 대신 닫는다.
+    if (r.width === 0 && r.height === 0) { setTip(null); return; }
     const below = r.top - 8 < 40;   // 화면 위로 넘치면 아래로 뒤집는다
     setTip({
       text,
@@ -201,9 +203,13 @@ function PostingHeatmap({ daily, since, until, count }: {
     const close = () => setTip(null);
     window.addEventListener('scroll', close, true);
     window.addEventListener('resize', close);
+    window.addEventListener('keydown', close);     // 키보드로 탭을 바꾸면 마우스 툴팁은 남을 이유가 없다
+    window.addEventListener('popstate', close);    // 뒤로가기/?tab 링크로 패널이 바뀌어도 같다
     return () => {
       window.removeEventListener('scroll', close, true);
       window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', close);
+      window.removeEventListener('popstate', close);
     };
   }, [tip]);
 

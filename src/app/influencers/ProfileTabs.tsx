@@ -20,7 +20,7 @@ export function ProfileTabs({ active, onChange, badges, errorTabs, panels }: {
   }
   return (
     <>
-      <div role="tablist" aria-label="프로필 구역" className="mt-5 flex border-b border-x-border">
+      <div role="tablist" aria-label="프로필 구역" className="mt-5 flex flex-wrap border-b border-x-border">
         {TAB_KEYS.map((k, i) => {
           const on = k === active;
           const badge = badges[k];
@@ -39,7 +39,7 @@ export function ProfileTabs({ active, onChange, badges, errorTabs, panels }: {
               {errorTabs.has(k) && (
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden />
               )}
-              {errorTabs.has(k) && <span className="sr-only">저장 실패 있음</span>}
+              {errorTabs.has(k) && <span className="sr-only">저장되지 않은 항목 있음</span>}
             </button>
           );
         })}

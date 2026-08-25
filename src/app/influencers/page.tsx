@@ -8,6 +8,7 @@ import { relTime } from '@/lib/relTime';
 import { judgeContact } from '@/lib/influencerJudgment';
 import { AddInfluencersDialog } from './AddInfluencersDialog';
 import { Avatar, InfluencerProfile } from './InfluencerProfile';
+import { mergeQuery, parseTab, tabQuery, type TabKey } from '@/lib/profileTabs';
 import type { InfluencerRow } from '@/lib/influencerStore';
 
 export default function InfluencersPage() {
@@ -20,6 +21,7 @@ function InfluencersSplit() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const urlId = searchParams.get('i');
+  const tab = parseTab(searchParams.get('tab'));
 
   const [rows, setRows] = useState<InfluencerRow[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -68,9 +70,17 @@ function InfluencersSplit() {
   // 리스트의 모든 행이 같은 순간을 기준으로 판단하도록 한 번만 계산해 공유한다.
   const now = new Date();
 
-  const select = useCallback((id: string) => {
-    router.replace(`${pathname}?i=${id}`);
+  // 선택·탭은 한 URL에 공존한다 — 한쪽을 쓸 때 다른 쪽을 지우면 안 된다(스펙 §2).
+  // scroll:false — 탭·선택마다 상단으로 튀지 않게(선례 없이 기본값 true였음).
+  const replaceQuery = useCallback((q: string) => {
+    router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
   }, [router, pathname]);
+  const select = useCallback((id: string) => {
+    replaceQuery(mergeQuery(searchParams.toString(), { i: id }));
+  }, [replaceQuery, searchParams]);
+  const setTab = useCallback((t: TabKey) => {
+    replaceQuery(tabQuery(searchParams.toString(), t));
+  }, [replaceQuery, searchParams]);
 
   // 삭제 후: 쿼리를 비워 "고르세요" 안내로 돌아간다
   function handleDeleted() {
@@ -154,7 +164,8 @@ function InfluencersSplit() {
           </p>
         )}
         {selected && (
-          <InfluencerProfile key={selected.id} id={selected.id} onChanged={load} onDeleted={handleDeleted} />
+          <InfluencerProfile key={selected.id} id={selected.id} onChanged={load} onDeleted={handleDeleted}
+                             tab={tab} onTabChange={setTab} />
         )}
       </main>
 

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui';
 import { formatCount } from '@/lib/format';
 import { relTime } from '@/lib/relTime';
 import { isProfileStale, judgeContact, summarizeDraftStatuses } from '@/lib/influencerJudgment';
-import { DEFAULT_TAB, type TabKey } from '@/lib/profileTabs';
+import type { TabKey } from '@/lib/profileTabs';
 import { ProfileTabs } from './ProfileTabs';
 import { AccountTab } from './AccountTab';
 import { ContentTab } from './ContentTab';
@@ -36,13 +36,13 @@ const MSG_STYLE: Record<Msg['tone'], string> = {
   err: 'bg-red-50 text-red-700',
 };
 
-export function InfluencerProfile({ id, onChanged, onDeleted, tab = DEFAULT_TAB, onTabChange = () => {} }: {
+export function InfluencerProfile({ id, onChanged, onDeleted, tab, onTabChange }: {
   id: string;
   onChanged: () => Promise<void>;   // 명부(왼쪽) 새로고침 — 태그·마지막 기록이 바뀌면 목록도 같이 움직여야 한다
   onDeleted: () => void;
   // 탭 상태는 부모(page)가 URL에서 준다 — 화면이 아니라 주소가 단일 출처(스펙 §2)
-  tab?: TabKey;
-  onTabChange?: (t: TabKey) => void;
+  tab: TabKey;
+  onTabChange: (t: TabKey) => void;
 }) {
   const [data, setData] = useState<InfluencerDetail | null>(null);
   const [loaded, setLoaded] = useState(false);

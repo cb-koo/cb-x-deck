@@ -14,7 +14,8 @@ export function DealTab({ id, data, onChanged, setData, reportError }: {
       {/* 단가 변경은 서버가 자동 로그를 남긴다 — 새 로그를 타임라인(계정 정보 탭) 맨 앞에 붙여 다시 부르지 않는다.
           patch는 그 요청이 실제로 바꾼 키만 담고 있으므로(PricingSection.save 참고) 다른 행의 병행
           PATCH 응답이 뒤섞여 도착해도 서로 다른 키끼리는 덮어쓰지 않고 병합만 된다 — 같은 키는
-          busyKeys가 동시 전송 자체를 막아 직렬화한다. */}
+          busyKeys가 동시 전송 자체를 막아 직렬화한다. 다만 로그 prepend는 도착 순서대로라 병행 저장 시
+          몇 ms 정도 시간순과 어긋나 보일 수 있으나(일시적 표시 문제) 감수한다. */}
       <PricingSection id={id} pricing={data.pricing} logs={data.logs}
                       onSaved={(patch, newLogs) => {
                         setData((d) => (d ? { ...d, pricing: { ...d.pricing, ...patch }, logs: [...newLogs, ...d.logs] } : d));

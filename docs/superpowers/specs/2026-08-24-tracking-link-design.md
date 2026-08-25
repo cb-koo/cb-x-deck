@@ -15,10 +15,10 @@ short.io로 단축돼 전달하기 좋은 형태가 되며, 클릭 수는 앱 �
 | 결정 | 내용 |
 |---|---|
 | 생성 진입점 | **둘 다** — 원고(DraftCard)에서 자동 채움 생성 + 트래킹 페이지에서 독립 생성 |
-| UTM 구성 | **표준형** — `utm_source=x` · `utm_medium=influencer` · `utm_campaign`(자동 제안+수정) · `utm_content={링크 주소 slug}` |
+| UTM 구성 | **표준형** — `utm_source=x` · `utm_medium=influencer` · `utm_campaign`(자동 제안+수정) · `utm_content={핸들}-{콘텐츠 구분}`(031, koo 확정 08-25 — 구분 기본값 MMDD, 영문 수정 가능, 중복 -2) |
 | 링크 주소(경로) | **단어형 무의미 코드**(koo QA 08-25 2차) — 자음·모음 교대 6자(예: `tavemo`)라 읽히지만 뜻·규칙이 없다: 스팸 인상 없음 + 추측 불가 + 압축. '다른 주소 뽑기'로 재추첨, 수정 칸에서 의미 주소도 가능, 충돌 시 `-2` 순번 |
 | short.io | 계정·도메인 보유. **REST API 직접 호출**(SDK 안 씀 — 아래 근거) |
-| 클릭 통계 | **앱 안에서, append-only 스냅샷**(C안) — 새로고침마다 이력 한 줄 추가, 게시물 지표와 대칭 |
+| 클릭 통계 | **앱 안에서, append-only 스냅샷**(C안) — 새로고침마다 이력 한 줄 추가, 게시물 지표와 대칭. **새로고침 1회 = 합계 + 생성일부터 오늘까지 일별 추이**(030, koo 확정 08-25; short.io가 31일 초과 구간을 주·월로 뭉쳐 31일 창 분할 조회) → 클릭 열 스파크라인(최근 7일)과 펼침의 날짜별 클릭 목록이 외부 호출 없이 같은 시점 데이터로 그려짐 |
 | 캠페인명 | **영어·숫자·하이픈만**(koo QA 08-24) — 클라명의 영문 부분+월로 자동 제안(예: `clinicA-202609`, 한글 클라는 `202609`만), 입력란에서 수정 가능 |
 | 랜딩 URL | **둘 다** — client에 기본 URL 저장 + 생성 시 덮어쓰기 가능 |
 | 화면 위치 | **/tracking 안 세그먼트** `[게시물 | 링크]` — 성과 추적이라는 한 주제, 사이드바 항목 추가 없음 |
@@ -66,6 +66,7 @@ create table if not exists link_click_snapshot (
   total_clicks     int,                   -- nullable — 출처 결손 허용(지표 스냅샷 관례)
   human_clicks     int,                   -- 봇 제외 클릭(short.io 제공 시)
   raw              jsonb,                 -- 원본 API 응답 — 재수집 없이 재처리(관례)
+  daily            jsonb,                 -- 030: 생성일~오늘 일별 [{date, clicks}] — 스파크라인(최근 7일)·펼침 날짜별 목록 소스. null = 미수집
   captured_at      timestamptz not null default now()
 );
 create index if not exists idx_link_click_snapshot_latest
@@ -88,7 +89,7 @@ alter table client add column if not exists landing_url text not null default ''
   ?utm_source=x
   &utm_medium=influencer
   &utm_campaign={캠페인}          ← 제안: {클라이언트명 공백→하이픈}-{YYYYMM}, 수정 가능
-  &utm_content={링크 주소 slug}      ← 경로와 같은 값 — 기본 단어형 코드(예: tavemo), 직접 지은 주소도 가능
+  &utm_content={핸들}-{콘텐츠 구분}  ← 예: hana_kim-0824 / hana_kim-lifting — GA에서 '누가·무엇'이 한 값에 읽힘. 링크 주소(단어형 코드)와 분리
 ```
 
 - 랜딩 URL에 기존 쿼리스트링이 있으면 보존하고 이어붙인다. 단 **기존 `utm_*` 파라미터는 제거 후 교체**(이중 UTM은 분석을 오염시킴).
@@ -126,7 +127,6 @@ alter table client add column if not exists landing_url text not null default ''
 | 목록 | `GET /api/links` | 링크+최신 클릭 스냅샷+원고 제목 한 번에 (트래킹 GET 관례) |
 | 생성 | `POST /api/links` | 서버 재검증 → short.io → insert |
 | 클릭 새로고침 | `POST /api/links/[id]/refresh` | 성공→스냅샷 추가 / 404→"링크 없음" / error→저장 없이 오류 |
-| 클릭 이력 | `GET /api/links/[id]/snapshots` | 행 펼침 시 조회(목록 응답에 전부 싣지 않음 — 트래킹 관례) |
 | 삭제 | `DELETE /api/links/[id]` | DB만 삭제(cascade). **short.io 링크는 살려둠** — 응답·토스트에 명시 |
 
 - 인증: GET `requireAllowedUser`, 쓰기 `requireMember` (트래킹 라우트와 동일).
@@ -151,7 +151,7 @@ alter table client add column if not exists landing_url text not null default ''
 | 측정 | "10분 전" (relTime — 신선도) |
 | 동작 | [새로고침] · [삭제] |
 
-- 행 펼침 = 클릭 측정 이력(게시물 표의 행 펼침과 동일한 문법·부모 열 정렬).
+- 행 펼침 = 원본 링크(랜딩·UTM 최종, 행 카드) + 날짜별 클릭 목록(생성일부터, 부모 열 정렬 — 게시물 표의 이력 펼침 문법). 조회 없이 저장값(daily)만 사용. (측정 시각 기준 이력은 DB에 append-only로 계속 쌓이되 v1 화면엔 노출 안 함 — QA 08-25)
 - [+ 링크 만들기] 버튼 + 한 줄 도움말("랜딩페이지 주소에 인플·콘텐츠 추적용 꼬리표를 붙이고 짧은 링크로 만들어요").
 - 삭제 = 실행취소 토스트(기존 패턴) + "짧은 링크 자체는 계속 열려요" 명시.
 - 빈 목록: 용도 한 문단 안내.

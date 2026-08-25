@@ -1,36 +1,39 @@
 import type postgres from 'postgres';
 
 export interface LinkClicks { totalClicks: number | null; humanClicks: number | null }
+export interface DailyClickPoint { date: string; clicks: number } // date = YYYY-MM-DD — 최근 7일 추이의 한 점
 
 export interface TrackingLinkRow {
   id: string; code: string;
   landingUrl: string; longUrl: string; shortUrl: string; shortioLinkId: string;
   utmCampaign: string; influencerHandle: string;
+  utmContent: string | null;      // {핸들}-{콘텐츠 구분}(031). null = 분리 이전 링크(code가 utm_content였음)
   draftId: string | null;
   draftLabel: string | null;      // coalesce(draft.title, draft.ko_title) — 목록 표시용(trackingStore 관례)
   clientId: string | null; clientName: string | null;
   unavailableAt: string | null;   // short.io 쪽 링크 소실 확인 시각(ISO). null = 정상
   createdAt: string;              // ISO
   clicks: LinkClicks | null;      // 최신 스냅샷 (없으면 null — 링크는 클릭 0에서 시작하므로 '측정 전'이 실재한다)
+  daily: DailyClickPoint[] | null; // 최신 스냅샷의 최근 7일 추이(스파크라인·펼침 차트). null = 미수집(옛 스냅샷·조회 실패)
   capturedAt: string | null;      // 최신 스냅샷 시각(ISO)
 }
 
 type Row = {
   id: string; code: string; landing_url: string; long_url: string; short_url: string;
-  shortio_link_id: string; utm_campaign: string; influencer_handle: string;
+  shortio_link_id: string; utm_campaign: string; influencer_handle: string; utm_content: string | null;
   draft_id: string | null; draft_title: string | null; draft_ko_title: string | null;
   client_id: string | null; client_name: string | null;
   unavailable_at: Date | null; created_at: Date;
-  total_clicks: number | null; human_clicks: number | null; captured_at: Date | null;
+  total_clicks: number | null; human_clicks: number | null; daily: unknown; captured_at: Date | null;
 };
 
 // 목록·단건이 같은 정의를 쓴다(드리프트 방지) — lateral join으로 최신 스냅샷 1건만 붙인다(trackingStore 관례).
 const SELECT = (sql: postgres.Sql) => sql`
   select l.id, l.code, l.landing_url, l.long_url, l.short_url, l.shortio_link_id,
-         l.utm_campaign, l.influencer_handle, l.draft_id,
+         l.utm_campaign, l.influencer_handle, l.utm_content, l.draft_id,
          d.title as draft_title, d.ko_title as draft_ko_title,
          l.client_id, l.client_name, l.unavailable_at, l.created_at,
-         s.total_clicks, s.human_clicks, s.captured_at
+         s.total_clicks, s.human_clicks, s.daily, s.captured_at
     from tracking_link l
     left join draft d on d.id = l.draft_id
     left join lateral (
@@ -38,17 +41,26 @@ const SELECT = (sql: postgres.Sql) => sql`
       order by captured_at desc limit 1
     ) s on true`;
 
+// jsonb는 모양을 보증하지 않는다 — 점 형태가 맞는 것만 남기고 아니면 미수집(null)로 읽는다
+function toDaily(v: unknown): DailyClickPoint[] | null {
+  if (!Array.isArray(v)) return null;
+  const pts = v.filter((p): p is DailyClickPoint =>
+    typeof p === 'object' && p !== null && typeof (p as DailyClickPoint).date === 'string' && typeof (p as DailyClickPoint).clicks === 'number');
+  return pts.length ? pts : null;
+}
+
 function toRow(r: Row): TrackingLinkRow {
   return {
     id: r.id, code: r.code,
     landingUrl: r.landing_url, longUrl: r.long_url, shortUrl: r.short_url,
     shortioLinkId: r.shortio_link_id, utmCampaign: r.utm_campaign,
-    influencerHandle: r.influencer_handle,
+    influencerHandle: r.influencer_handle, utmContent: r.utm_content,
     draftId: r.draft_id, draftLabel: r.draft_title ?? r.draft_ko_title ?? null,
     clientId: r.client_id, clientName: r.client_name,
     unavailableAt: r.unavailable_at ? new Date(r.unavailable_at).toISOString() : null,
     createdAt: new Date(r.created_at).toISOString(),
     clicks: r.captured_at !== null ? { totalClicks: r.total_clicks, humanClicks: r.human_clicks } : null,
+    daily: toDaily(r.daily),
     capturedAt: r.captured_at ? new Date(r.captured_at).toISOString() : null,
   };
 }
@@ -69,14 +81,14 @@ export async function findLinkById(sql: postgres.Sql, id: string): Promise<Track
 // code unique 충돌은 그대로 던진다: short.io 409를 먼저 통과했다면 사실상 도달 불가(스펙 §생성 흐름).
 export async function insertLink(sql: postgres.Sql, args: {
   code: string; landingUrl: string; longUrl: string; shortUrl: string; shortioLinkId: string;
-  utmCampaign: string; influencerHandle: string;
+  utmCampaign: string; influencerHandle: string; utmContent: string; // {핸들}-{콘텐츠 구분}(031)
   draftId: string | null; clientId: string | null; clientName: string | null; createdBy: string | null;
 }): Promise<TrackingLinkRow> {
   const ins = await sql<Array<{ id: string }>>`
     insert into tracking_link (code, landing_url, long_url, short_url, shortio_link_id,
-                               utm_campaign, influencer_handle, draft_id, client_id, client_name, created_by)
+                               utm_campaign, influencer_handle, utm_content, draft_id, client_id, client_name, created_by)
     values (${args.code}, ${args.landingUrl}, ${args.longUrl}, ${args.shortUrl}, ${args.shortioLinkId},
-            ${args.utmCampaign}, ${args.influencerHandle}, ${args.draftId}, ${args.clientId},
+            ${args.utmCampaign}, ${args.influencerHandle}, ${args.utmContent}, ${args.draftId}, ${args.clientId},
             ${args.clientName}, ${args.createdBy})
     returning id`;
   return (await findLinkById(sql, ins[0].id)) as TrackingLinkRow;
@@ -85,11 +97,12 @@ export async function insertLink(sql: postgres.Sql, args: {
 // 스냅샷 추가 + unavailable_at 복귀 수용(appendSnapshot 관례) — 다시 측정됐다는 것 자체가 복귀 증거다.
 export async function appendClickSnapshot(
   sql: postgres.Sql, trackingLinkId: string, clicks: LinkClicks, raw: unknown,
+  daily: DailyClickPoint[] | null = null, // 최근 7일 추이 — 같은 시점에 함께 기록(030). 조회 실패면 null
 ): Promise<void> {
   await sql.begin(async (tx) => {
-    await tx`insert into link_click_snapshot (tracking_link_id, total_clicks, human_clicks, raw)
+    await tx`insert into link_click_snapshot (tracking_link_id, total_clicks, human_clicks, raw, daily)
       values (${trackingLinkId}, ${clicks.totalClicks}, ${clicks.humanClicks},
-              ${raw ? tx.json(raw as never) : null})`;
+              ${raw ? tx.json(raw as never) : null}, ${daily ? tx.json(daily as never) : null})`;
     await tx`update tracking_link set unavailable_at = null where id = ${trackingLinkId}`;
   });
 }
@@ -97,6 +110,12 @@ export async function appendClickSnapshot(
 // 이미 기록돼 있으면 시각 유지(최초 확인 시각 보존) — markUnavailable 관례.
 export async function markLinkUnavailable(sql: postgres.Sql, trackingLinkId: string): Promise<void> {
   await sql`update tracking_link set unavailable_at = coalesce(unavailable_at, now()) where id = ${trackingLinkId}`;
+}
+
+// utm_content 중복 여부 — 같은 값이면 호출부가 -2 순번을 붙인다(GA에서 두 링크가 한 값으로 뭉치지 않게)
+export async function utmContentExists(sql: postgres.Sql, utmContent: string): Promise<boolean> {
+  const rows = await sql`select 1 from tracking_link where utm_content = ${utmContent} limit 1`;
+  return rows.length > 0;
 }
 
 export async function deleteLink(sql: postgres.Sql, trackingLinkId: string): Promise<boolean> {

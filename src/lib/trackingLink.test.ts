@@ -4,6 +4,7 @@ import {
   checkLandingUrl, landingUrlMessage,
   buildTrackedUrl, suggestCampaign, checkCampaign, campaignMessage,
   generateWordCode, checkSlug, slugMessage,
+  suggestContentLabel, checkContentLabel, contentLabelMessage, utmContentOf,
 } from './trackingLink.ts';
 
 test('1) 링크 주소 — 단어형 코드 제안(자음·모음 교대·글자만), 수동 입력 검사·정규화', () => {
@@ -74,4 +75,15 @@ test('6) 캠페인 검사 — 영어·숫자·하이픈만 허용, 공백은 하
   assert.deepEqual(checkCampaign('Clinic_A.v2-202608'), { ok: true, campaign: 'Clinic_A.v2-202608' });
   // 사유별 안내 문구가 비어 있지 않다(UX 원칙 2)
   for (const r of ['empty', 'not-ascii'] as const) assert.ok(campaignMessage(r).length > 0);
+});
+
+test('7) 콘텐츠 구분 — 기본값은 만든 날 MMDD(KST), 검사·정규화는 캠페인과 같은 규칙, 핸들과 합쳐 utm_content', () => {
+  // 2026-08-31 23:00 KST(= 14:00 UTC) → 0831 / 16:00 UTC = 9/1 01:00 KST → 0901
+  assert.equal(suggestContentLabel(Date.parse('2026-08-31T14:00:00Z')), '0831');
+  assert.equal(suggestContentLabel(Date.parse('2026-08-31T16:00:00Z')), '0901');
+  assert.deepEqual(checkContentLabel('  '), { ok: false, reason: 'empty' });
+  assert.deepEqual(checkContentLabel('리프팅'), { ok: false, reason: 'not-ascii' });
+  assert.deepEqual(checkContentLabel(' Before After '), { ok: true, label: 'Before-After' });
+  for (const r of ['empty', 'not-ascii'] as const) assert.ok(contentLabelMessage(r).length > 0);
+  assert.equal(utmContentOf('hana_kim', 'lifting'), 'hana_kim-lifting');
 });

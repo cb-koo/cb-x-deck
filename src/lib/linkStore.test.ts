@@ -5,7 +5,7 @@ import { insertDraft, updateDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
 import {
   listLinks, findLinkById, insertLink, appendClickSnapshot,
-  markLinkUnavailable, deleteLink, listClickSnapshots,
+  markLinkUnavailable, deleteLink, listClickSnapshots, utmContentExists,
 } from './linkStore.ts';
 
 const sql = getSql();
@@ -13,7 +13,7 @@ const P = 'tlnk' + process.pid.toString(36) + Date.now().toString(36);
 const base = (code: string) => ({
   code, landingUrl: 'https://c.example.com/', longUrl: `https://c.example.com/?utm_content=h-${code}`,
   shortUrl: `https://cb.link/${code}`, shortioLinkId: 'lnk_' + code, utmCampaign: P + '캠',
-  influencerHandle: 'hana_kim', draftId: null as string | null, clientId: null, clientName: null, createdBy: null,
+  influencerHandle: 'hana_kim', utmContent: `hana_kim-${code}`, draftId: null as string | null, clientId: null, clientName: null, createdBy: null,
 });
 
 after(async () => {
@@ -32,8 +32,11 @@ test('1) 생성 → 목록 — 클릭 측정 전에는 clicks가 null', async ()
   assert.equal(listed!.shortUrl, row.shortUrl);
 });
 
-test('2) code unique — 같은 코드 재삽입은 던진다(호출부 재생성의 근거)', async () => {
-  await insertLink(sql, base(P + '2'));
+test('2) code unique — 같은 코드 재삽입은 던진다(호출부 재생성의 근거), utm_content 존재 확인', async () => {
+  const row = await insertLink(sql, base(P + '2'));
+  assert.equal(row.utmContent, `hana_kim-${P}2`);
+  assert.equal(await utmContentExists(sql, `hana_kim-${P}2`), true);
+  assert.equal(await utmContentExists(sql, `hana_kim-${P}2-none`), false);
   await assert.rejects(() => insertLink(sql, base(P + '2')));
 });
 
@@ -45,11 +48,14 @@ test('3) 클릭 스냅샷 append — 최신값이 목록에 붙고 이력이 쌓
   assert.ok(dead!.unavailableAt);
   await markLinkUnavailable(sql, row.id); // 두 번째 호출이 시각을 덮어쓰지 않는다
   assert.equal((await findLinkById(sql, row.id))!.unavailableAt, dead!.unavailableAt);
-  await appendClickSnapshot(sql, row.id, { totalClicks: 25, humanClicks: null }, null); // 복귀
+  assert.equal((await findLinkById(sql, row.id))!.daily, null); // 추이 없이 기록한 스냅샷 = 미수집
+  const daily = [{ date: '2026-08-24', clicks: 2 }, { date: '2026-08-25', clicks: 0 }];
+  await appendClickSnapshot(sql, row.id, { totalClicks: 25, humanClicks: null }, null, daily); // 복귀 + 7일 추이
   const back = await findLinkById(sql, row.id);
   assert.equal(back!.clicks!.totalClicks, 25);
   assert.equal(back!.clicks!.humanClicks, null);
   assert.equal(back!.unavailableAt, null);
+  assert.deepEqual(back!.daily, daily); // 최신 스냅샷의 추이가 행에 실린다(스파크라인 소스)
   const history = await listClickSnapshots(sql, row.id);
   assert.equal(history.length, 2);
   assert.equal(history[0].totalClicks, 25); // 최신이 먼저

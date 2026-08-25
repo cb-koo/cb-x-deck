@@ -20,9 +20,17 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const row = await findLinkById(sql, id);
   if (!row) return NextResponse.json({ error: '링크를 찾을 수 없어요' }, { status: 404 });
 
-  const result = await makeShortioClient().getLinkStats(row.shortioLinkId);
+  const shortio = makeShortioClient();
+  const result = await shortio.getLinkStats(row.shortioLinkId);
   if (result.kind === 'error') return NextResponse.json({ error: FETCH_FAILED }, { status: 502 });
   if (result.kind === 'unavailable') await markLinkUnavailable(sql, id);
-  else await appendClickSnapshot(sql, id, { totalClicks: result.totalClicks, humanClicks: result.humanClicks }, result.raw);
+  else {
+    // 생성일부터 오늘까지 일별 추이도 같은 시점에 기록(030, koo 확정) — 스파크라인(최근 7일)과 펼침의
+    // 날짜별 클릭 목록의 소스. 추이 조회가 실패해도 합계 기록은 살린다(추이는 null = 미수집으로 정직하게 표시).
+    const today = new Date().toISOString().slice(0, 10);
+    const series = await shortio.getDailySince(row.shortioLinkId, row.createdAt.slice(0, 10), today);
+    const daily = series.kind === 'ok' ? series.points : null;
+    await appendClickSnapshot(sql, id, { totalClicks: result.totalClicks, humanClicks: result.humanClicks }, result.raw, daily);
+  }
   return NextResponse.json({ row: await findLinkById(sql, id) });
 }

@@ -1,6 +1,7 @@
 import type postgres from 'postgres';
 
 export interface LinkClicks { totalClicks: number | null; humanClicks: number | null }
+export interface DailyClickPoint { date: string; clicks: number } // date = YYYY-MM-DD — 최근 7일 추이의 한 점
 
 export interface TrackingLinkRow {
   id: string; code: string;
@@ -12,6 +13,7 @@ export interface TrackingLinkRow {
   unavailableAt: string | null;   // short.io 쪽 링크 소실 확인 시각(ISO). null = 정상
   createdAt: string;              // ISO
   clicks: LinkClicks | null;      // 최신 스냅샷 (없으면 null — 링크는 클릭 0에서 시작하므로 '측정 전'이 실재한다)
+  daily: DailyClickPoint[] | null; // 최신 스냅샷의 최근 7일 추이(스파크라인·펼침 차트). null = 미수집(옛 스냅샷·조회 실패)
   capturedAt: string | null;      // 최신 스냅샷 시각(ISO)
 }
 
@@ -21,7 +23,7 @@ type Row = {
   draft_id: string | null; draft_title: string | null; draft_ko_title: string | null;
   client_id: string | null; client_name: string | null;
   unavailable_at: Date | null; created_at: Date;
-  total_clicks: number | null; human_clicks: number | null; captured_at: Date | null;
+  total_clicks: number | null; human_clicks: number | null; daily: unknown; captured_at: Date | null;
 };
 
 // 목록·단건이 같은 정의를 쓴다(드리프트 방지) — lateral join으로 최신 스냅샷 1건만 붙인다(trackingStore 관례).
@@ -30,13 +32,21 @@ const SELECT = (sql: postgres.Sql) => sql`
          l.utm_campaign, l.influencer_handle, l.draft_id,
          d.title as draft_title, d.ko_title as draft_ko_title,
          l.client_id, l.client_name, l.unavailable_at, l.created_at,
-         s.total_clicks, s.human_clicks, s.captured_at
+         s.total_clicks, s.human_clicks, s.daily, s.captured_at
     from tracking_link l
     left join draft d on d.id = l.draft_id
     left join lateral (
       select * from link_click_snapshot where tracking_link_id = l.id
       order by captured_at desc limit 1
     ) s on true`;
+
+// jsonb는 모양을 보증하지 않는다 — 점 형태가 맞는 것만 남기고 아니면 미수집(null)로 읽는다
+function toDaily(v: unknown): DailyClickPoint[] | null {
+  if (!Array.isArray(v)) return null;
+  const pts = v.filter((p): p is DailyClickPoint =>
+    typeof p === 'object' && p !== null && typeof (p as DailyClickPoint).date === 'string' && typeof (p as DailyClickPoint).clicks === 'number');
+  return pts.length ? pts : null;
+}
 
 function toRow(r: Row): TrackingLinkRow {
   return {
@@ -49,6 +59,7 @@ function toRow(r: Row): TrackingLinkRow {
     unavailableAt: r.unavailable_at ? new Date(r.unavailable_at).toISOString() : null,
     createdAt: new Date(r.created_at).toISOString(),
     clicks: r.captured_at !== null ? { totalClicks: r.total_clicks, humanClicks: r.human_clicks } : null,
+    daily: toDaily(r.daily),
     capturedAt: r.captured_at ? new Date(r.captured_at).toISOString() : null,
   };
 }
@@ -85,11 +96,12 @@ export async function insertLink(sql: postgres.Sql, args: {
 // 스냅샷 추가 + unavailable_at 복귀 수용(appendSnapshot 관례) — 다시 측정됐다는 것 자체가 복귀 증거다.
 export async function appendClickSnapshot(
   sql: postgres.Sql, trackingLinkId: string, clicks: LinkClicks, raw: unknown,
+  daily: DailyClickPoint[] | null = null, // 최근 7일 추이 — 같은 시점에 함께 기록(030). 조회 실패면 null
 ): Promise<void> {
   await sql.begin(async (tx) => {
-    await tx`insert into link_click_snapshot (tracking_link_id, total_clicks, human_clicks, raw)
+    await tx`insert into link_click_snapshot (tracking_link_id, total_clicks, human_clicks, raw, daily)
       values (${trackingLinkId}, ${clicks.totalClicks}, ${clicks.humanClicks},
-              ${raw ? tx.json(raw as never) : null})`;
+              ${raw ? tx.json(raw as never) : null}, ${daily ? tx.json(daily as never) : null})`;
     await tx`update tracking_link set unavailable_at = null where id = ${trackingLinkId}`;
   });
 }

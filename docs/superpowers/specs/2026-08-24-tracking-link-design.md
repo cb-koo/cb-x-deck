@@ -18,7 +18,7 @@ short.io로 단축돼 전달하기 좋은 형태가 되며, 클릭 수는 앱 �
 | UTM 구성 | **표준형** — `utm_source=x` · `utm_medium=influencer` · `utm_campaign`(자동 제안+수정) · `utm_content={링크 주소 slug}` |
 | 링크 주소(경로) | **단어형 무의미 코드**(koo QA 08-25 2차) — 자음·모음 교대 6자(예: `tavemo`)라 읽히지만 뜻·규칙이 없다: 스팸 인상 없음 + 추측 불가 + 압축. '다른 주소 뽑기'로 재추첨, 수정 칸에서 의미 주소도 가능, 충돌 시 `-2` 순번 |
 | short.io | 계정·도메인 보유. **REST API 직접 호출**(SDK 안 씀 — 아래 근거) |
-| 클릭 통계 | **앱 안에서, append-only 스냅샷**(C안) — 새로고침마다 이력 한 줄 추가, 게시물 지표와 대칭 |
+| 클릭 통계 | **앱 안에서, append-only 스냅샷**(C안) — 새로고침마다 이력 한 줄 추가, 게시물 지표와 대칭. **새로고침 1회 = 합계 + 최근 7일 일별 추이**(030, koo A안 08-25) → 표의 클릭 열 스파크라인·펼침 차트가 외부 호출 없이 같은 시점 데이터로 그려짐 |
 | 캠페인명 | **영어·숫자·하이픈만**(koo QA 08-24) — 클라명의 영문 부분+월로 자동 제안(예: `clinicA-202609`, 한글 클라는 `202609`만), 입력란에서 수정 가능 |
 | 랜딩 URL | **둘 다** — client에 기본 URL 저장 + 생성 시 덮어쓰기 가능 |
 | 화면 위치 | **/tracking 안 세그먼트** `[게시물 | 링크]` — 성과 추적이라는 한 주제, 사이드바 항목 추가 없음 |
@@ -66,6 +66,7 @@ create table if not exists link_click_snapshot (
   total_clicks     int,                   -- nullable — 출처 결손 허용(지표 스냅샷 관례)
   human_clicks     int,                   -- 봇 제외 클릭(short.io 제공 시)
   raw              jsonb,                 -- 원본 API 응답 — 재수집 없이 재처리(관례)
+  daily            jsonb,                 -- 030: 최근 7일 [{date, clicks}] — 스파크라인·펼침 차트 소스. null = 미수집
   captured_at      timestamptz not null default now()
 );
 create index if not exists idx_link_click_snapshot_latest

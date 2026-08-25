@@ -134,6 +134,16 @@ export class ShortioClient {
   }
 }
 
+// 최근 n일 조회 창(UTC 날짜 문자열). end는 시간대 경계 여유로 내일 — 호출부가 today 초과 점을 걷어낸다.
+export function recentWindow(days: number): { start: string; end: string; today: string } {
+  const day = 86400000;
+  return {
+    start: new Date(Date.now() - (days - 1) * day).toISOString().slice(0, 10),
+    end: new Date(Date.now() + day).toISOString().slice(0, 10),
+    today: new Date().toISOString().slice(0, 10),
+  };
+}
+
 export function isShortioConfigured(): boolean {
   return Boolean(process.env.SHORTIO_API_KEY && process.env.SHORTIO_DOMAIN);
 }

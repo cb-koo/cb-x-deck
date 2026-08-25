@@ -6,7 +6,7 @@ import { formatFull } from '@/lib/format';
 import { kstDateTime } from '@/lib/datetime';
 import { relTimeFine } from '@/lib/relTime';
 import type { TrackingLinkRow, LinkClickSnapshotRow } from '@/lib/linkStore';
-import { LinkClicksChart, type DailyClickPoint } from '@/components/LinkClicksChart';
+import { LinkClicksChart, LinkSparkline } from '@/components/LinkClicksChart';
 
 export type LinkHistoryState = 'loading' | 'ready' | 'error';
 
@@ -30,15 +30,13 @@ const COLS: ColDef[] = [
 const TOTAL_WIDTH = COLS.reduce((sum, c) => sum + c.width, 0);
 
 export function LinkTable({
-  rows, refreshingIds, expandedId, onToggleExpand, history, historyState, daily, dailyState, onRefresh, onRemove,
+  rows, refreshingIds, expandedId, onToggleExpand, history, historyState, onRefresh, onRemove,
 }: {
   rows: TrackingLinkRow[];              // 이미 정렬·필터가 끝난 배열 — 여기서 순서를 바꾸지 않는다
   refreshingIds: ReadonlySet<string>;
   expandedId: string | null;            // 펼친 행 — 한 번에 하나(TrackingTable과 같은 이유)
   onToggleExpand: (id: string) => void;
-  history: LinkClickSnapshotRow[];
-  daily: DailyClickPoint[];              // 펼친 행의 최근 30일 일별 클릭(뷰가 소유·조회)
-  dailyState: LinkHistoryState;      // 펼친 행의 클릭 이력(뷰가 소유·조회 — TrackingTable 관례)
+  history: LinkClickSnapshotRow[];      // 펼친 행의 클릭 이력(뷰가 소유·조회 — TrackingTable 관례)
   historyState: LinkHistoryState;
   onRefresh: (row: TrackingLinkRow) => void;
   onRemove: (row: TrackingLinkRow) => void;
@@ -134,7 +132,13 @@ export function LinkTable({
                   <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${gone ? 'text-x-muted opacity-60' : 'text-x-text'}`}>
                     {r.clicks === null
                       ? <span className="text-caption text-x-muted">측정 전</span>
-                      : <span title={human !== null ? `봇 제외 ${formatFull(human)}` : undefined}>{formatFull(total)}</span>}
+                      : (
+                        // 숫자 + 7일 스파크라인(A안): 같은 새로고침 시점의 값이라 나란히 두어도 어긋나지 않는다
+                        <span className="inline-flex items-center justify-end gap-2">
+                          <span title={human !== null ? `봇 제외 ${formatFull(human)}` : undefined}>{formatFull(total)}</span>
+                          {r.daily && <span className="inline-block leading-none" aria-hidden><LinkSparkline points={r.daily} /></span>}
+                        </span>
+                      )}
                     {/* 링크 소실은 색이 아니라 글자로 말한다 — 무엇이 어긋났고 언제 확인했는지까지 */}
                     {goneAt !== null && (
                       // 좁은 칸이라 줄바꿈을 허용한다 — truncate로 잘리면 '언제 확인했는지'가 사라진다
@@ -166,7 +170,7 @@ export function LinkTable({
                   </td>
                   <td aria-hidden="true" />
                 </tr>
-                {open && <ClickHistory link={r} rows={history} state={historyState} daily={daily} dailyState={dailyState} />}
+                {open && <ClickHistory link={r} rows={history} state={historyState} />}
               </Fragment>
             );
           })}
@@ -182,12 +186,12 @@ export function LinkTable({
 // 헤더도 없다: 부모 헤더가 위에 고정돼 있어 그 자리가 곧 이 값의 이름이다.
 // 봇 제외 값은 총 클릭 아래에 붙인다 — 같은 지표의 두 번째 값이라 옆 칸(다른 열)으로 보내면 뜻이 어긋난다.
 // 그래프가 아니라 숫자인 이유: 수동 새로고침이라 간격이 불규칙해 점 두세 개짜리 곡선은 오해를 부른다.
-function ClickHistory({ link, rows, state, daily, dailyState }: {
+function ClickHistory({ link, rows, state }: {
   link: TrackingLinkRow; rows: LinkClickSnapshotRow[]; state: LinkHistoryState;
-  daily: DailyClickPoint[]; dailyState: LinkHistoryState;
 }) {
   // 펼침의 정보 위계(koo QA 08-25 확정): ① 원본 링크(무슨 링크인지) ② 최근 7일 클릭(어떻게 반응했는지) ③ 측정 이력(우리가 잰 기록)
-  const total30 = daily.reduce((a, p) => a + p.clicks, 0);
+  const daily = link.daily; // 마지막 새로고침 때 저장한 7일 추이 — 클릭 열과 같은 시점(030)
+  const total7 = daily ? daily.reduce((a, p) => a + p.clicks, 0) : 0;
   const chart = (
     <tr className="bg-x-surface/60">
       <td />
@@ -196,11 +200,12 @@ function ClickHistory({ link, rows, state, daily, dailyState }: {
             초광폭에서 표 전체로 늘어나면 원본 링크·차트가 행과 따로 노는 것처럼 읽힌다(koo QA) */}
         <div className="max-w-[746px]">
         <p className="text-caption text-x-muted">
-          최근 7일 클릭{dailyState === 'ready' && <b className="ml-1.5 text-x-secondary">합계 {total30}</b>}
+          최근 7일 클릭{daily && <b className="ml-1.5 text-x-secondary">합계 {total7}</b>}
+          {link.capturedAt && <span className="ml-1.5">· {relTimeFine(link.capturedAt, '새로고침')} 기준</span>}
         </p>
-        {dailyState === 'loading' && <p className="mt-1 text-caption text-x-muted">클릭 추이 불러오는 중…</p>}
-        {dailyState === 'error' && <p className="mt-1 text-caption text-x-secondary">클릭 추이를 가져오지 못했어요 — 접었다 다시 열어보세요</p>}
-        {dailyState === 'ready' && <LinkClicksChart points={daily} />}
+        {daily
+          ? <LinkClicksChart points={daily} />
+          : <p className="mt-1 text-caption text-x-muted">아직 추이가 없어요 — 새로고침을 누르면 최근 7일 클릭이 함께 기록돼요</p>}
         </div>
       </td>
     </tr>

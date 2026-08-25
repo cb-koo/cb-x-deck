@@ -4,7 +4,6 @@ import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { useToast } from '@/lib/toastContext';
 import { LinkTable, type LinkHistoryState } from '@/components/LinkTable';
-import type { DailyClickPoint } from '@/components/LinkClicksChart';
 import { LinkCreateModal } from '@/components/LinkCreateModal';
 import type { TrackingLinkRow, LinkClickSnapshotRow } from '@/lib/linkStore';
 
@@ -25,8 +24,6 @@ export function LinksView() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [history, setHistory] = useState<LinkClickSnapshotRow[]>([]);
   const [historyState, setHistoryState] = useState<LinkHistoryState>('loading');
-  const [daily, setDaily] = useState<DailyClickPoint[]>([]);
-  const [dailyState, setDailyState] = useState<LinkHistoryState>('loading');
   // 목록에서 빼기는 5초 실행취소 뒤에 커밋된다: pendingRemove = 숨김(커밋 완료까지).
   // 한 번에 하나 — 새 요청이 오면 앞 건을 즉시 커밋한다(library/tracking과 같은 규칙).
   const [pendingRemove, setPendingRemove] = useState<ReadonlySet<string>>(new Set());
@@ -106,21 +103,6 @@ export function LinksView() {
     setExpandedId(id);
     setHistoryState('loading');
     setHistory([]);
-    setDailyState('loading');
-    setDaily([]);
-    // 일별 클릭 추이 — 이력과 병렬 조회(정액 플랜이라 비용 0, 펼침이 곧 명시적 행동)
-    void (async () => {
-      try {
-        const r = await apiFetch(`/api/links/${id}/daily`);
-        if (!r.ok) throw new Error(String(r.status));
-        const d = (await r.json()) as { days: DailyClickPoint[] };
-        if (id !== expandedRef.current) return;
-        setDaily(d.days);
-        setDailyState('ready');
-      } catch {
-        if (id === expandedRef.current) setDailyState('error');
-      }
-    })();
     try {
       const r = await apiFetch(`/api/links/${id}/snapshots`);
       if (!r.ok) throw new Error(String(r.status));
@@ -230,7 +212,6 @@ export function LinksView() {
         <LinkTable rows={visible} refreshingIds={refreshingIds}
                    expandedId={expandedId} onToggleExpand={(id) => void toggleExpand(id)}
                    history={history} historyState={historyState}
-                   daily={daily} dailyState={dailyState}
                    onRefresh={(row) => void refreshOne(row.id)} onRemove={requestRemove} />
       )}
 

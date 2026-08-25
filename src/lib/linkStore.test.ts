@@ -45,11 +45,14 @@ test('3) 클릭 스냅샷 append — 최신값이 목록에 붙고 이력이 쌓
   assert.ok(dead!.unavailableAt);
   await markLinkUnavailable(sql, row.id); // 두 번째 호출이 시각을 덮어쓰지 않는다
   assert.equal((await findLinkById(sql, row.id))!.unavailableAt, dead!.unavailableAt);
-  await appendClickSnapshot(sql, row.id, { totalClicks: 25, humanClicks: null }, null); // 복귀
+  assert.equal((await findLinkById(sql, row.id))!.daily, null); // 추이 없이 기록한 스냅샷 = 미수집
+  const daily = [{ date: '2026-08-24', clicks: 2 }, { date: '2026-08-25', clicks: 0 }];
+  await appendClickSnapshot(sql, row.id, { totalClicks: 25, humanClicks: null }, null, daily); // 복귀 + 7일 추이
   const back = await findLinkById(sql, row.id);
   assert.equal(back!.clicks!.totalClicks, 25);
   assert.equal(back!.clicks!.humanClicks, null);
   assert.equal(back!.unavailableAt, null);
+  assert.deepEqual(back!.daily, daily); // 최신 스냅샷의 추이가 행에 실린다(스파크라인 소스)
   const history = await listClickSnapshots(sql, row.id);
   assert.equal(history.length, 2);
   assert.equal(history[0].totalClicks, 25); // 최신이 먼저

@@ -3,10 +3,10 @@ import { getSql } from '@/lib/db';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { getCampaign, getCampaignDetail, updateCampaign, deleteCampaign } from '@/lib/campaignStore';
-import { parseCampaignPatch, checkPeriod } from '@/lib/campaignInput';
+import { parseCampaignPatch, checkPeriod, CAMPAIGN_NOT_FOUND_MESSAGE } from '@/lib/campaignInput';
 
 // campaign.id는 uuid — 형식 아닌 값은 "없음"이 아니라 캐스팅 오류(22P02 → 500)라 조회 전에 404로 끊는다(influencers/[id] 관례)
-const notFound = () => NextResponse.json({ error: '캠페인을 찾을 수 없어요' }, { status: 404 });
+const notFound = () => NextResponse.json({ error: CAMPAIGN_NOT_FOUND_MESSAGE }, { status: 404 });
 
 // 상세 = 캠페인 + 원고(게시됨·성과) + 비용 행 + 요약 + 인플 목록 + today(스펙 §6) — 판정 기준 '오늘'을 함께 내려
 // 클라가 같은 기준으로 다시 그린다(캠페인 화면의 낙관적 갱신이 서버와 다른 날짜로 밀림을 판정하면 안 된다).
@@ -35,7 +35,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const period = checkPeriod(parsed.value.startsOn ?? cur.startsOn, parsed.value.endsOn ?? cur.endsOn);
   if (period) return NextResponse.json({ error: period }, { status: 400 });
   await updateCampaign(sql, id, parsed.value);
-  return NextResponse.json(await getCampaign(sql, id));
+  // update 이후 재조회 — 그 사이 지워졌으면(경합) null을 그대로 200에 실어 보내지 않고 GET과 같은 404로.
+  const updated = await getCampaign(sql, id);
+  if (!updated) return notFound();
+  return NextResponse.json(updated);
 }
 
 // 원고는 지우지 않는다(FK set null, 예정일·비용은 원고에 남는다) — 확인 다이얼로그는 클라 몫(스펙 §3-3).

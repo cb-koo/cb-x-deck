@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseCampaignCreate, parseCampaignPatch, checkPeriod,
-  PERIOD_MESSAGE, NAME_MESSAGE, CLIENT_MESSAGE, DATE_MESSAGE, KIND_MESSAGE, NOTE_MESSAGE, NAME_MAX,
+  PERIOD_MESSAGE, NAME_MESSAGE, CLIENT_MESSAGE, DATE_MESSAGE, KIND_MESSAGE, NOTE_MESSAGE, NAME_MAX, NOTE_MAX,
+  NAME_EN_EMPTY_MESSAGE, NAME_EN_FORMAT_MESSAGE,
 } from './campaignInput.ts';
-import { campaignMessage } from './trackingLink.ts';
 
 const CLIENT = '11111111-2222-4333-8444-555555555555';
 const ok = {
@@ -29,13 +29,14 @@ test('2) 생성 — 필수·형식 위반은 사용자 문구로(첫 위반 하�
   assert.equal(msg(parseCampaignCreate({ ...ok, clientId: 'abc' })), CLIENT_MESSAGE);
   assert.equal(msg(parseCampaignCreate({ ...ok, name: '  ' })), NAME_MESSAGE);
   assert.equal(msg(parseCampaignCreate({ ...ok, name: 'x'.repeat(NAME_MAX + 1) })), `캠페인 이름은 ${NAME_MAX}자까지 쓸 수 있어요`);
-  assert.equal(msg(parseCampaignCreate({ ...ok, nameEn: '리프팅' })), campaignMessage('not-ascii'));
-  assert.equal(msg(parseCampaignCreate({ ...ok, nameEn: '' })), campaignMessage('empty'));
+  assert.equal(msg(parseCampaignCreate({ ...ok, nameEn: '리프팅' })), NAME_EN_FORMAT_MESSAGE); // 영문 코드 전용 문구(campaignMessage 아님) — 같은 폼의 이름 필드와 헷갈리지 않게
+  assert.equal(msg(parseCampaignCreate({ ...ok, nameEn: '' })), NAME_EN_EMPTY_MESSAGE);
   assert.equal(msg(parseCampaignCreate({ ...ok, startsOn: '2026-08-24T00:00:00Z' })), DATE_MESSAGE);
   assert.equal(msg(parseCampaignCreate({ ...ok, endsOn: '2026-8-30' })), DATE_MESSAGE);
   assert.equal(msg(parseCampaignCreate({ ...ok, startsOn: '2026-08-31' })), PERIOD_MESSAGE); // 종료 < 시작
   assert.equal(msg(parseCampaignCreate({ ...ok, kind: 'party' })), KIND_MESSAGE);
   assert.equal(msg(parseCampaignCreate({ ...ok, note: 3 })), NOTE_MESSAGE);
+  assert.equal(msg(parseCampaignCreate({ ...ok, note: 'x'.repeat(NOTE_MAX + 1) })), `메모는 ${NOTE_MAX}자까지 쓸 수 있어요`); // 상한 초과(리뷰 반영)
   assert.equal(msg(parseCampaignCreate(null)), CLIENT_MESSAGE);                          // 빈 body는 첫 필수 항목부터
   assert.equal(checkPeriod('2026-08-24', '2026-08-24'), null);                            // 같은 날 = 하루짜리, DB check와 같은 경계
   assert.equal(checkPeriod('2026-08-25', '2026-08-24'), PERIOD_MESSAGE);

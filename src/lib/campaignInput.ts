@@ -1,7 +1,7 @@
 // 캠페인 라우트 입력 검증 — 순수(DB 없음). 생성·수정이 같은 규칙을 쓴다: 이름 필수·영문 코드는 트래킹 링크의
 // checkCampaign(공백→하이픈, 영어·숫자·._-)·기간은 달력일 문자열·유형은 화이트리스트. 서버가 최종 근거이고,
 // 생성 모달·헤더 인라인 수정(Task 10·11)은 같은 함수로 즉시 피드백을 만든다 — 문구가 두 벌이 되지 않게.
-import { checkCampaign, campaignMessage } from './trackingLink.ts';
+import { checkCampaign } from './trackingLink.ts';
 import { isCampaignKind, isDateOnlyString, type CampaignKind } from './campaignJudgment.ts';
 import { isUuidLike } from './uuid.ts';
 import type { Parsed } from './campaignCost.ts';
@@ -22,6 +22,13 @@ export const CLIENT_MESSAGE = '클라이언트를 골라 주세요';
 export const DATE_MESSAGE = '기간은 YYYY-MM-DD 날짜로 입력해 주세요';
 export const KIND_MESSAGE = '유형 값이 올바르지 않아요';
 export const NOTE_MESSAGE = '메모 형식이 올바르지 않아요';
+// campaignMessage는 "캠페인명…"이라 이 폼 문구로 못 쓴다 — 같은 폼에 이름·영문 코드 두 필드가 있어
+// 문구가 어느 칸 얘기인지 가리켜야 한다(라벨-값 일치, 리뷰 반영).
+export const NAME_EN_EMPTY_MESSAGE = '영문 코드를 입력해 주세요';
+export const NAME_EN_FORMAT_MESSAGE = '영문 코드는 영어·숫자·하이픈으로 입력해 주세요 (예: lifting-20260824)';
+// draftFieldPatch.ts(Task 5)도 캠페인 미존재에 같은 문구를 쓴다(그쪽은 카피 보관, 이쪽은 이 상수) — 통합은 최종 리뷰에서.
+export const CAMPAIGN_NOT_FOUND_MESSAGE = '캠페인을 찾을 수 없어요 — 삭제됐을 수 있어요. 목록을 새로고침해 주세요';
+export const CLIENT_NOT_FOUND_MESSAGE = '클라이언트를 찾을 수 없어요 — 목록을 새로고침해 주세요';
 
 function fail<T>(message: string): Parsed<T> { return { ok: false, message }; }
 
@@ -36,10 +43,13 @@ function parseName(v: unknown): Parsed<string> {
   if (name.length > NAME_MAX) return fail(`캠페인 이름은 ${NAME_MAX}자까지 쓸 수 있어요`);
   return { ok: true, value: name };
 }
-// 영문 코드 = 트래킹 링크 utm_campaign 기본값이 되므로 그쪽 규칙 그대로(문구도 campaignMessage 재사용)
+// 영문 코드 = 트래킹 링크 utm_campaign 기본값이 되므로 checkCampaign 규칙은 그대로 쓰되,
+// 문구는 이 필드 전용(NAME_EN_*)을 쓴다 — campaignMessage는 "캠페인명…"이라 이름·영문 코드 두 필드가
+// 있는 이 폼에서는 어느 칸 얘기인지 안 가리킨다.
 function parseNameEn(v: unknown): Parsed<string> {
   const c = checkCampaign(typeof v === 'string' ? v : '');
-  return c.ok ? { ok: true, value: c.campaign } : fail(campaignMessage(c.reason));
+  if (c.ok) return { ok: true, value: c.campaign };
+  return fail(c.reason === 'empty' ? NAME_EN_EMPTY_MESSAGE : NAME_EN_FORMAT_MESSAGE);
 }
 function parseDate(v: unknown): Parsed<string> {
   return isDateOnlyString(v) ? { ok: true, value: v } : fail(DATE_MESSAGE);

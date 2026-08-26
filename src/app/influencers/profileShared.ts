@@ -13,3 +13,10 @@ export function useErrorReport(hasError: boolean, onErrorChange?: (v: boolean) =
   useEffect(() => { ref.current?.(hasError); }, [hasError]);
   useEffect(() => () => { ref.current?.(false); }, []);   // 사라지면 표식도 걷는다
 }
+
+// 프로필 오른쪽 영역의 면 문법 — 연회색 바닥(bg-x-surface, page.tsx) 위 흰 패널. 캠페인 상세(CampaignDetail.PANEL)와
+// 같은 값이다: 간격·구분선만으로 나누던 섹션을 "공통 영역"으로 묶으면 처음 보는 사람도 어디까지가 한 덩어리인지
+// 스크롤만으로 안다(koo 피드백: 캠페인 페이지의 이 문법이 가독성에 도움이 됐다). 패널 사이 간격은 부모의
+// space-y-5 하나가 단일 출처 — 섹션이 각자 mt-7/border-t를 두지 않는다.
+export const PANEL = 'rounded-xl border border-x-border bg-white p-5';
+export const PANEL_TITLE = 'text-[16px] font-semibold';

@@ -221,7 +221,6 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
             </button>
           ))}
         </div>
-        <span className="text-ui text-x-muted">표는 밀린 것부터 한눈에, 달력은 요일별로 — 마지막에 고른 보기를 기억해요</span>
       </div>
       {/* [&>section]으로 ContentTable/WeekCalendar 자체의 mt-8을 세그먼트 아래 12px로 줄인다(두 컴포넌트는 손대지 않는다) */}
       <div className="[&>section]:mt-3">

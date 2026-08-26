@@ -1,4 +1,6 @@
 'use client';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { CampaignDraftItem, CampaignRow } from '@/lib/campaignStore';
 import type { DraftStatus } from '@/lib/draftStatus';
 import type { InfluencerOption } from '@/lib/draftTypes';
@@ -21,6 +23,79 @@ import { overdueDays, contentSubline, perfLabel, handleInitial } from '@/lib/cam
 const SORT_KEYS: ContentSortKey[] = ['default', 'scheduled', 'stage', 'influencer'];
 const TH = 'px-3 py-2 font-normal';
 const TD = 'px-3 py-3 align-top';
+// 표 최소 폭 — 고정 열 합(120+200+130+130+190, 나머지 콘텐츠 열 몫 제외)이 좁은 화면에서도 눌리지 않게(TweetTable·TrackingTable 관례)
+const MIN_TABLE_WIDTH = 770;
+const MENU_W = 176; // w-44
+const MENU_H = 96;  // 항목 2개 + 패딩 근사 — flip 판단에만 쓰므로 근사치로 충분하다(CostPopover 관례)
+
+// 행 메뉴 — overflow-x-auto 컨테이너 안에서는 z-index로 클리핑을 넘을 수 없다(마지막 행에서 잘림, 리뷰 반영).
+// CostPopover·InfluencerChip과 같은 골격: body 포털 + 화면 좌표 고정 + 바깥 클릭/Esc/스크롤로 닫힘.
+function RowMenu({ onOpenDraft, onRemoveFromCampaign }: { onOpenDraft: () => void; onRemoveFromCampaign: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const place = useCallback(() => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    // 오른쪽 맞춤(버튼이 열의 오른쪽 끝) + 화면 경계 클램프. 아래 공간이 없으면 위로 뒤집는다.
+    const left = Math.min(Math.max(8, r.right - MENU_W), Math.max(8, window.innerWidth - MENU_W - 8));
+    const below = r.bottom + 4;
+    const flip = below + MENU_H > window.innerHeight && r.top - MENU_H - 4 > 0;
+    setPos({ top: flip ? r.top - MENU_H - 4 : below, left });
+  }, []);
+  const close = useCallback(() => {
+    if (menuRef.current?.contains(document.activeElement)) btnRef.current?.focus();
+    setOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node | null;
+      if (!t || menuRef.current?.contains(t) || btnRef.current?.contains(t)) return;
+      close();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key !== 'Escape' || e.isComposing) return; e.stopPropagation(); close(); };
+    const onMove = () => place();
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+  }, [open, close, place]);
+
+  function toggle() {
+    if (open) { close(); return; }
+    place();
+    setOpen(true);
+  }
+
+  return (
+    <>
+      <button ref={btnRef} type="button" onClick={toggle}
+              aria-haspopup="menu" aria-expanded={open} aria-label="행 메뉴"
+              className="cursor-pointer rounded px-1.5 text-x-muted hover:bg-x-border hover:text-x-text">···</button>
+      {open && createPortal(
+        <div ref={menuRef} role="menu" style={{ top: pos.top, left: pos.left, width: MENU_W }}
+             onClick={(e) => e.stopPropagation()}
+             className="fixed z-50 rounded-lg border border-x-border-strong bg-white p-1 shadow-lg">
+          <button type="button" role="menuitem" onClick={() => { close(); onOpenDraft(); }}
+                  className="block w-full rounded px-2.5 py-1.5 text-left text-ui hover:bg-x-hover">원고 열기</button>
+          <button type="button" role="menuitem" onClick={() => { close(); onRemoveFromCampaign(); }}
+                  className="block w-full rounded px-2.5 py-1.5 text-left text-ui text-red-700 hover:bg-red-50">캠페인에서 빼기</button>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
 
 export function ContentTable({
   rows, campaign, today, influencerOptions, sort, onSortChange, filter, onFilterChange,
@@ -48,7 +123,7 @@ export function ContentTable({
 
   // 행 클릭 = 원고 열기. 셀 안의 컨트롤(칩·팝오버·날짜 입력·메뉴)과 글자 드래그는 열지 않는다(DraftTable.opensCard 관례).
   function opensCard(e: React.MouseEvent): boolean {
-    if (e.target instanceof Element && e.target.closest('a, button, label, input, select, details')) return false;
+    if (e.target instanceof Element && e.target.closest('a, button, label, input, select')) return false;
     const sel = window.getSelection();
     return !(sel && !sel.isCollapsed && sel.toString().trim() !== '');
   }
@@ -81,7 +156,7 @@ export function ContentTable({
        : shown.length === 0 ? empty(`'${STAGE_FILTER_LABEL[filter]}'에 해당하는 콘텐츠가 없어요.`)
        : (
         <div className="mt-3 w-full overflow-x-auto">
-          <table className="w-full table-fixed text-content">
+          <table className="table-fixed text-content" style={{ width: `max(${MIN_TABLE_WIDTH}px, 100%)` }}>
             <colgroup>
               <col style={{ width: 120 }} /><col /><col style={{ width: 200 }} />
               <col style={{ width: 130 }} /><col style={{ width: 130 }} /><col style={{ width: 190 }} />
@@ -107,7 +182,7 @@ export function ContentTable({
                         e.preventDefault(); onOpenDraft(d.id);
                       }}
                       className={`relative cursor-pointer border-b border-x-border focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-x-blue ${
-                        od !== null ? 'bg-red-50 shadow-[inset_3px_0_0_0_#dc2626]' : 'hover:bg-x-hover'} ${unused ? 'opacity-60' : ''}`}>
+                        od !== null ? 'bg-red-50 shadow-[inset_3px_0_0_0_#dc2626] hover:bg-red-100' : 'hover:bg-x-hover'} ${unused ? 'opacity-60' : ''}`}>
                     <td className={TD}>
                       <ScheduledOnField value={d.scheduledOn} overdueDays={od}
                                         outOfRange={isOutOfRange(d.scheduledOn, campaign.startsOn, campaign.endsOn)}
@@ -146,14 +221,9 @@ export function ContentTable({
                     <td className={TD}>
                       <span className="flex items-start justify-between gap-1">
                         <span className={`tabular-nums ${d.published ? '' : 'text-x-muted'}`}>{perfLabel(d)}</span>
-                        {/* 행 메뉴 — 네이티브 details: 상태 없이 열고 닫히고, 바깥 클릭엔 닫히지 않지만 항목 2개라 감수 */}
-                        <details className="relative shrink-0">
-                          <summary aria-label="행 메뉴" className="cursor-pointer list-none rounded px-1.5 text-x-muted hover:bg-x-border hover:text-x-text">···</summary>
-                          <div className="absolute right-0 z-10 mt-1 w-44 rounded-lg border border-x-border-strong bg-white p-1 shadow-lg">
-                            <button type="button" onClick={() => onOpenDraft(d.id)} className="block w-full rounded px-2.5 py-1.5 text-left text-ui hover:bg-x-hover">원고 열기</button>
-                            <button type="button" onClick={() => onRemoveFromCampaign(d)} className="block w-full rounded px-2.5 py-1.5 text-left text-ui text-red-700 hover:bg-red-50">캠페인에서 빼기</button>
-                          </div>
-                        </details>
+                        <span className="shrink-0">
+                          <RowMenu onOpenDraft={() => onOpenDraft(d.id)} onRemoveFromCampaign={() => onRemoveFromCampaign(d)} />
+                        </span>
                       </span>
                     </td>
                   </tr>

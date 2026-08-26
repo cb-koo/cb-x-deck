@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   overdueDays, scheduledOnLabel, contentSubline, perfLabel, handleInitial, overdueJudgment, publishedSub, perfSub,
+  overdueSuffix, NO_SCHEDULE_LABEL,
 } from './campaignTableView.ts';
+import { formatDateKo } from './campaignJudgment.ts';
 
 const T = '2026-08-27';
 
@@ -28,6 +30,17 @@ test('2) 보조줄·성과·이니셜', () => {
   assert.equal(perfLabel({ published: false, perf: null, linkClicks: 4 }), '—');                    // 미게시는 링크 클릭이 있어도 — (성과 열은 게시된 것의 것)
   assert.equal(handleInitial('@hana_kim'), 'H');
   assert.equal(handleInitial('yuki'), 'Y');
+});
+
+test('4) scheduledOnLabel 조립이 overdueSuffix·NO_SCHEDULE_LABEL과 어긋나지 않는다(두 경로 문구 단일 소스, 리뷰 반영)', () => {
+  const scheduledOn = '2026-08-26';
+  const n = overdueDays({ status: 'draft', published: false, scheduledOn }, T);
+  assert.notEqual(n, null);
+  assert.equal(
+    scheduledOnLabel({ status: 'draft', published: false, scheduledOn }, T),
+    `${formatDateKo(scheduledOn)} · ${overdueSuffix(n as number)}`,
+  );
+  assert.equal(scheduledOnLabel({ status: 'draft', published: false, scheduledOn: null }, T), NO_SCHEDULE_LABEL);
 });
 
 test('3) 요약 카드 보조 문구 — 숫자에 판단을 붙인다(UX 원칙 3), 값 없음은 —', () => {

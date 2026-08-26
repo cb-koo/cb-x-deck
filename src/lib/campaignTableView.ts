@@ -11,11 +11,19 @@ export function overdueDays(d: StageInput, today: string): number | null {
   return isOverdue(d, today) ? daysBetweenDates(d.scheduledOn as string, today) : null;
 }
 
+/** 예정일이 없을 때 표시하는 문구 — 표 셀·ScheduledOnField(compact)가 같은 상수를 쓴다(리뷰 반영: 두 경로 중복 제거) */
+export const NO_SCHEDULE_LABEL = '예정일 없음';
+
+/** '1일 지남' — 밀림 접미사. scheduledOnLabel과 ScheduledOnField가 같은 문구를 조립한다 */
+export function overdueSuffix(days: number): string {
+  return `${days}일 지남`;
+}
+
 /** '8/26 수 · 1일 지남' | '8/29 토' | '예정일 없음' — 표 셀·달력 카드가 같은 문구 */
 export function scheduledOnLabel(d: StageInput, today: string): string {
-  if (!d.scheduledOn) return '예정일 없음';
+  if (!d.scheduledOn) return NO_SCHEDULE_LABEL;
   const od = overdueDays(d, today);
-  return od ? `${formatDateKo(d.scheduledOn)} · ${od}일 지남` : formatDateKo(d.scheduledOn);
+  return od !== null ? `${formatDateKo(d.scheduledOn)} · ${overdueSuffix(od)}` : formatDateKo(d.scheduledOn);
 }
 
 /** 콘텐츠 셀 보조줄 '투고 · 단문' — 유형은 비용 유형(없으면 생략). 캠페인 유형은 헤더에 있어 행마다 반복하지 않는다. */

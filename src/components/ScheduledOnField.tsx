@@ -1,6 +1,7 @@
 'use client';
 import { useId } from 'react';
 import { formatDateKo } from '@/lib/campaignJudgment';
+import { NO_SCHEDULE_LABEL, overdueSuffix } from '@/lib/campaignTableView';
 
 // 예정일 한 칸 — '8/26 수 · 1일 지남'을 보여주고, 누르면 그 자리에서 날짜를 고른다. DraftStatusChip의 '보이는 칩 + 투명 select'와
 // 같은 골격으로 네이티브 date 입력을 투명하게 덮어 클릭 한 번에 달력이 뜬다. 지움은 옆의 ✕(null 저장, 스펙 §2-3 null=지움).
@@ -13,7 +14,7 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
   compact?: boolean;             // 표 셀 = 글자(15px), 카드 도구층 = 칩(32px, 13px)
 }) {
   const id = useId();
-  const tone = overdueDays ? 'font-bold text-red-700' : value ? 'text-x-text' : 'text-x-muted';
+  const tone = overdueDays !== null ? 'font-bold text-red-700' : value ? 'text-x-text' : 'text-x-muted';
   // 표 셀 안(compact)의 트리거는 행 높이 48px가 이미 터치 타깃을 보장하므로 h-10 규칙에서 예외로 둔다 — 나머지(카드 도구층 등)는 h-10.
   const box = compact
     ? `text-content ${tone}`
@@ -23,8 +24,8 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
       {/* 실제 입력(date)은 opacity-0로 숨어 있어 자체 포커스 링이 안 보인다 — focus-within으로 label에 대신 링을 그린다 */}
       <label htmlFor={id} title={value ? '게시 예정일 — 눌러서 바꾸기' : '게시 예정일을 정하면 밀림 여부를 알려줘요'}
              className={`relative inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 hover:bg-x-hover focus-within:outline-none focus-within:ring-2 focus-within:ring-x-blue ${box}`}>
-        <span className="tabular-nums">{value ? formatDateKo(value) : (compact ? '예정일 없음' : '+ 예정일')}</span>
-        {overdueDays ? <span className="font-normal">· {overdueDays}일 지남</span> : null}
+        <span className="tabular-nums">{value ? formatDateKo(value) : (compact ? NO_SCHEDULE_LABEL : '+ 예정일')}</span>
+        {overdueDays !== null ? <span className="font-normal">· {overdueSuffix(overdueDays)}</span> : null}
         {outOfRange && <span className="rounded bg-amber-100 px-1 text-ui font-normal text-amber-800" title="캠페인 기간 밖 날짜예요 — 저장은 되지만 표시로 알려요">기간 밖</span>}
         <input id={id} type="date" value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}
                aria-label="게시 예정일" className="absolute inset-0 w-full cursor-pointer opacity-0" />

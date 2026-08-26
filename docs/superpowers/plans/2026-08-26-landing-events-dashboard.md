@@ -1240,10 +1240,10 @@ test('콘텐츠 행 — 링크+원고+게시물(main·link)+클릭 스냅샷+이
     clientId: null, clientName: null, procedureNames: [], direction: P + 'd1', format: 'thread', referenceMode: 'off', refs: [],
     content: { posts: [{ text: '1/', media: [] }, { text: '2/', media: [] }, { text: '3/', media: [] }] }, model: null, memberId: null,
   });
-  await updateDraft(sql, d.id, { title: '리프팅 다운타임 후기' });
+  await updateDraft(sql, d, { title: '리프팅 다운타임 후기' }); // insertDraft는 id(string)를 돌려준다
   const link = await insertLink(sql, {
     code: P + 'a', landingUrl: 'https://c.example.com/', longUrl: 'https://c.example.com/?utm_content=x', shortUrl: `https://cb.link/${P}a`,
-    shortioLinkId: 'l' + P, utmCampaign: CAMP, influencerHandle: 'hana_kim', utmContent: `hana_kim-${P}`, draftId: d.id,
+    shortioLinkId: 'l' + P, utmCampaign: CAMP, influencerHandle: 'hana_kim', utmContent: `hana_kim-${P}`, draftId: d,
     clientId: null, clientName: null, createdBy: null,
   });
   await appendClickSnapshot(sql, link.id, { totalClicks: 720, humanClicks: 700 }, null);
@@ -1251,7 +1251,7 @@ test('콘텐츠 행 — 링크+원고+게시물(main·link)+클릭 스냅샷+이
     createdBy: null, metrics: { ...M, views: 12400 }, raw: { isReply: false, entities: { urls: [] } } });
   const lnk = await addTrackedPost(sql, { tweetId: P + 'l', authorHandle: 'hana_kim', text: '링크', postedAt: '2026-08-24T01:10:00.000Z',
     createdBy: null, metrics: { ...M, views: 3100 }, raw: { isReply: true, entities: { urls: [{ expanded_url: link.shortUrl }] } } });
-  await setDraftLink(sql, main.row.id, d.id); await setDraftLink(sql, lnk.row.id, d.id);
+  await setDraftLink(sql, main.row.id, d); await setDraftLink(sql, lnk.row.id, d);
   await insertLandingEvents(sql, [
     ev('v1', 'arrival', `hana_kim-${P}`), ev('v1', 'view', `hana_kim-${P}`), ev('v1', 'tap', `hana_kim-${P}`),
     ev('v2', 'view', `hana_kim-${P}`), ev('v3', 'arrival', `hana_kim-${P}`),

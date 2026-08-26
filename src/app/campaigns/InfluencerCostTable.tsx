@@ -6,6 +6,7 @@ import {
   type ExtraCost, type Currency, type MoneyByCurrency,
 } from '@/lib/campaignCost';
 import { upsertExtraCost, removeExtraCost, extraCostLabel } from '@/lib/campaignCostEdit';
+import { Button } from '@/components/ui';
 
 // 인플루언서별 비용 표(스펙 §3-2 하단, 표·달력 두 보기 공통) — 열 5: 인플루언서(+메모) · 콘텐츠 n · 콘텐츠 비용 · 추가 비용 · 소계.
 // 줄은 deriveInfluencers 결과 그대로(원고 핸들 ∪ 비용 행 핸들, 미배정 묶음 맨 아래) — 여기서 다시 세지 않는다.
@@ -216,10 +217,10 @@ function ExtraCostDialog({ handle, initial, onClose, onSave, onDelete }: {
         {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
         <div className="mt-3 flex items-center gap-2">
           {onDelete && (
-            <button type="button" disabled={busy} onClick={() => void del()} className="text-ui text-x-secondary hover:text-red-600 disabled:opacity-40">이 항목 지우기</button>
+            <button type="button" disabled={busy} onClick={() => void del()} className="flex h-10 items-center text-content text-x-secondary hover:text-red-600 disabled:opacity-40">이 항목 지우기</button>
           )}
-          <button type="button" onClick={onClose} disabled={busy} className="ml-auto rounded-full px-3 py-1 text-ui text-x-secondary hover:bg-x-text/5 disabled:opacity-40">취소</button>
-          <button type="button" disabled={busy} onClick={() => void save()} className="rounded-full bg-x-blue px-3 py-1 text-ui font-bold text-white hover:bg-x-blue-hover disabled:opacity-50">
+          <Button type="button" variant="subtle" onClick={onClose} disabled={busy} className="ml-auto flex h-10 items-center text-content text-x-secondary">취소</Button>
+          <button type="button" disabled={busy} onClick={() => void save()} className="flex h-10 items-center rounded-full bg-x-blue px-3 text-content font-bold text-white hover:bg-x-blue-hover disabled:opacity-50">
             {busy ? '저장 중…' : '저장'}
           </button>
         </div>

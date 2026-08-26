@@ -116,7 +116,7 @@ export function AddDraftsModal({ campaign, onClose, onAdded }: {
             <div className="mt-3 flex items-center gap-3 border-t border-x-border pt-3">
               <span className="text-ui text-x-secondary">{ids.length > 0 ? `${ids.length}개 선택` : '넣을 원고를 골라 주세요'}</span>
               <Button type="button" variant="subtle" onClick={onClose} disabled={busy} className="ml-auto flex h-10 items-center text-x-secondary">취소</Button>
-              <Button variant="primary" onClick={() => void submit()} disabled={ids.length === 0 || busy} className="text-content">
+              <Button variant="primary" onClick={() => void submit()} disabled={ids.length === 0 || busy} className="h-10 px-4 text-content">
                 {busy ? '넣는 중…' : ids.length === 0 ? '원고 넣기' : `${ids.length}개 넣기`}
               </Button>
             </div>

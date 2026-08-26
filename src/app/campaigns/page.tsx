@@ -21,6 +21,16 @@ function saveDetailView(v: DetailView) {
   try { localStorage.setItem(DETAIL_VIEW_KEY, v); } catch { /* 저장 못 해도 화면은 동작 */ }
 }
 
+// 좌측 목록 접기/펼치기 — 상세(콘텐츠 표 8열·달력 7열)가 폭을 더 쓸 수 있게 목록을 접는다(koo QA).
+// readDetailView와 같은 관례: try/catch, 기본은 펼침(false).
+const LIST_COLLAPSED_KEY = 'campaigns-list-collapsed';
+function readListCollapsed(): boolean {
+  try { return localStorage.getItem(LIST_COLLAPSED_KEY) === '1'; } catch { return false; }
+}
+function saveListCollapsed(v: boolean) {
+  try { localStorage.setItem(LIST_COLLAPSED_KEY, v ? '1' : '0'); } catch { /* 저장 못 해도 화면은 동작 */ }
+}
+
 export default function CampaignsPage() {
   // useSearchParams는 Suspense 경계 필수(clients/page.tsx·generate/page.tsx 선례)
   return <Suspense><CampaignsSplit /></Suspense>;
@@ -40,6 +50,10 @@ function CampaignsSplit() {
   const [today] = useState(() => kstToday());
   const [view, setView] = useState<DetailView>(() => readDetailView());
   const changeView = useCallback((v: DetailView) => { setView(v); saveDetailView(v); }, []);
+  const [listCollapsed, setListCollapsed] = useState<boolean>(() => readListCollapsed());
+  const toggleListCollapsed = useCallback(() => {
+    setListCollapsed((v) => { const next = !v; saveListCollapsed(next); return next; });
+  }, []);
   // 방금 내가 지운 캠페인 id — router.replace(URL에서 ?id= 제거)와 load()의 재조회가 어느 쪽이 먼저 반영될지는
   // 보장되지 않는다(Next 라우터 전환은 비동기). load()가 먼저 rows를 갈아치우면 urlId는 아직 지운 id를 들고 있어
   // picked.missing이 true가 되어 "찾을 수 없어요" 토스트가 뜬다 — 방금 지운 사람에게는 오경보다. 순서를 맞추는 대신
@@ -73,9 +87,26 @@ function CampaignsSplit() {
     // 상세는 연회색 바닥(bg-x-surface) 위 흰 패널들(CampaignDetail) — 왼쪽 목록은 흰 배경 + 세로 구분선 그대로다(QA 7라운드 결정 B).
     // min-h-full: 내용이 짧아도 회색이 화면 아래까지 내려가야 한다(GlobalShell의 스크롤 컨테이너 높이를 채운다).
     <div className="flex min-h-full">
-      <aside className="sticky top-0 max-h-screen w-[280px] shrink-0 self-start overflow-y-auto border-r border-x-border bg-white px-3 py-5">
-        <CampaignList rows={rows} selectedId={picked.id} today={today} loaded={loaded} loadErr={loadErr}
-                      onSelect={select} onCreate={() => setCreating(true)} onRetry={() => void load()} />
+      <aside className={`sticky top-0 max-h-screen shrink-0 self-start overflow-y-auto border-r border-x-border bg-white transition-[width] ${listCollapsed ? 'w-11 px-1 py-4' : 'w-[280px] px-3 py-5'}`}>
+        {listCollapsed ? (
+          // 접힘 = 펼치기 버튼만 있는 얇은 레일(~44px) — 목록 대신 상세가 폭을 가져간다.
+          <div className="flex flex-col items-center gap-2">
+            <button onClick={toggleListCollapsed} aria-label="목록 펼치기" title="목록 펼치기"
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-x-secondary hover:bg-x-hover">»</button>
+            {rows.length > 0 && (
+              <span className="rounded-full bg-x-hover px-1.5 py-0.5 text-caption text-x-muted">{rows.length}</span>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="mb-1 flex justify-end">
+              <button onClick={toggleListCollapsed} aria-label="목록 접기" title="목록 접기"
+                      className="flex h-8 w-8 items-center justify-center rounded-md text-x-muted hover:bg-x-hover">«</button>
+            </div>
+            <CampaignList rows={rows} selectedId={picked.id} today={today} loaded={loaded} loadErr={loadErr}
+                          onSelect={select} onCreate={() => setCreating(true)} onRetry={() => void load()} />
+          </>
+        )}
       </aside>
       <main className="min-w-0 flex-1 bg-x-surface">
         {loaded && !loadErr && rows.length === 0 && (

@@ -168,7 +168,7 @@ const TYPE_COLOR: Record<ContentType, string> = {
   review: '#2a78d6',   // 후기·체험
   daily: '#eb6834',    // 일상·잡담
   promo: '#1baf7a',    // 홍보·협찬
-  info: '#eda100',     // 정보
+  info: '#caa500',     // 정보 — 전체 쌍 검증(일상 주황과 ΔE≥15)을 위해 #eda100에서 조정
   other: '#cfd9de',    // 기타 — 중립 회색(항상)
 };
 

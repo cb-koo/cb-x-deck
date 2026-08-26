@@ -3,7 +3,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
-import { formatCount } from '@/lib/format';
+import { formatKoCount } from '@/lib/formatKo';
 import { relTime } from '@/lib/relTime';
 import { judgeContact } from '@/lib/influencerJudgment';
 import { AddInfluencersDialog } from './AddInfluencersDialog';
@@ -89,7 +89,9 @@ function InfluencersSplit() {
   }
 
   return (
-    <div className="flex">
+    // min-h-full: GlobalShell의 스크롤 래퍼가 definite height를 주는 지점 — 여기 둬야 내용이
+    // 짧아도 회색 바닥(main의 bg-x-surface)이 화면 아래까지 내려간다(캠페인 page.tsx와 같은 방식).
+    <div className="flex min-h-full">
       <aside className="sticky top-0 max-h-screen w-[300px] shrink-0 self-start overflow-y-auto border-r border-x-border px-3 py-5">
         <div className="mb-1 flex items-center justify-between px-2">
           <h2 className="text-content font-bold">
@@ -144,8 +146,8 @@ function InfluencersSplit() {
       </aside>
 
       {/* 프로필은 연회색 바닥(bg-x-surface) 위 흰 패널들(InfluencerProfile) — 왼쪽 명부는 흰 배경 그대로다(캠페인 상세와 같은 결정).
-          min-h-full: 내용이 짧아도 회색이 화면 아래까지 내려가야 한다. */}
-      <main className="min-w-0 flex-1 bg-x-surface min-h-full">
+          바닥 높이는 위 루트 div의 min-h-full이 준다. */}
+      <main className="min-w-0 flex-1 bg-x-surface">
         {deadLink && (
           // 바닥이 회색이 됐으므로 안내띠는 흰 면 + 테두리로 — 같은 회색이면 띠가 바닥에 묻힌다
           <p className="mx-6 mt-4 rounded-lg border border-x-border bg-white px-3 py-2 text-ui text-x-secondary">
@@ -185,7 +187,7 @@ function InfluencersSplit() {
 // 프로필을 아직 조회하지 않은 계정도 1급 시민이다: 이름 자리에 핸들을 세우고 미조회임을 메타에 적는다.
 function RosterRow({ row, active, onSelect, now }: { row: InfluencerRow; active: boolean; onSelect: () => void; now: Date }) {
   const meta: string[] = [];
-  if (row.followersCount !== null) meta.push(`팔로워 ${formatCount(row.followersCount)}`);
+  if (row.followersCount !== null) meta.push(`팔로워 ${formatKoCount(row.followersCount)}`);
   else if (row.profileRefreshedAt === null) meta.push('프로필 미조회');
   meta.push(row.lastLogAt ? relTime(row.lastLogAt, '기록') : '기록 없음');
   if (row.draftCount > 0) meta.push(`원고 ${row.draftCount}`);

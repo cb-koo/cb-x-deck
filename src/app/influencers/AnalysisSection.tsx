@@ -152,8 +152,9 @@ function StatTile({ value, caution = false, children }: {
 }
 
 // 블록 소제목 — 무엇을 알 수 있는 자리인지 사용자 언어로(AGENTS.md 원칙 1·2)
+// h3: 시각은 그대로 두고 스크린리더 heading 탐색에 걸리게 한다(계정 분석 h2 아래 소제목 레벨)
 function BlockTitle({ children }: { children: ReactNode }) {
-  return <p className="text-ui font-bold">{children}</p>;
+  return <h3 className="text-ui font-bold">{children}</h3>;
 }
 
 // ── 유형 분포 ────────────────────────────────────────────────────────────────
@@ -229,7 +230,7 @@ function TopicTable({ topics, accountMedianViews }: {
               <th className="py-1 pr-3 text-left font-normal">주제</th>
               <th className="py-1 pr-3 text-right font-normal">건수</th>
               <th className="py-1 pr-3 text-right font-normal">조회 중앙값</th>
-              <th className="py-1 text-right font-normal">계정 평균 대비</th>
+              <th className="py-1 text-right font-normal">계정 중앙값 대비</th>
             </tr>
           </thead>
           <tbody>
@@ -273,7 +274,7 @@ function TopicTable({ topics, accountMedianViews }: {
 const CELL = 20;      // px — 계정이 달라도 셀 크기는 같다
 const GAP = 3;        // 칸 사이 여백은 배경색이 만든다(면과 면을 붙이지 않는다)
 const MIN_WEEKS = 4;  // 그보다 좁으면 격자로 안 보인다
-const MAX_WEEKS = 14; // 3개월 창의 폭 — 그보다 길면 최근 쪽을 자른다
+const MAX_WEEKS = 14; // 3개월 창의 폭 — 그보다 길면 오래된 쪽을 잘라 최근 14주만 남긴다
 
 // 시퀀셜 단일 색상(x-blue 계열, 옅음→진함)과 고정 임계값. 분위수로 나누면 같은 색이 계정마다
 // 다른 뜻이 돼 두 계정을 나란히 읽을 수 없다 — 여기서 색 하나는 언제나 같은 건수다.
@@ -371,11 +372,13 @@ function PostingHeatmap({ daily, since, until, months, count }: {
 
   // 표본이 분석 창(months개월)보다 짧으면 그 사실을 제목 줄에 적는다 — 격자가 짧은 이유가
   // '활동이 없어서'가 아니라 '100건 상한에 먼저 걸려서'라는 걸 여기서만 말할 수 있다.
+  // 기간은 실제 표본 폭(since~until)을 그대로 적는다 — 격자 열 수(weeks, 4주 클램프)는
+  // 격자 폭 계산에만 쓰고 문구에는 섞지 않는다(클램프된 열 수와 표본 폭이 어긋날 수 있다).
   const winStart = new Date(until);
   winStart.setMonth(winStart.getMonth() - months);
   const shortSample = sinceDay > kstDate(winStart.toISOString());
   const heading = shortSample
-    ? `${kstMonthDay(since)}부터 ${count}건이 찼어요 — 최근 ${weeks}주 기준`
+    ? `${kstMonthDay(since)}~${kstMonthDay(until)}에 ${count}건이 찼어요`
     : '발행 활동';
 
   return (

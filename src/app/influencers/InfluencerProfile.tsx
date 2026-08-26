@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
-import { formatCount } from '@/lib/format';
+import { formatKoCount } from '@/lib/formatKo';
 import { relTime } from '@/lib/relTime';
 import { isProfileStale, judgeContact, summarizeDraftStatuses } from '@/lib/influencerJudgment';
 import type { TabKey } from '@/lib/profileTabs';
@@ -152,7 +152,7 @@ export function InfluencerProfile({ id, onChanged, onDeleted, tab, onTabChange }
             <p className="flex flex-wrap items-baseline gap-x-2 text-ui text-x-secondary">
               <a href={`https://x.com/${inf.handle}`} target="_blank" rel="noopener noreferrer"
                  className="text-x-blue-text hover:underline">@{inf.handle} ↗</a>
-              {inf.followersCount !== null && <span>팔로워 {formatCount(inf.followersCount)}</span>}
+              {inf.followersCount !== null && <span>팔로워 {formatKoCount(inf.followersCount)}</span>}
               <span className="text-caption text-x-muted">
                 {inf.profileRefreshedAt ? relTime(inf.profileRefreshedAt, '기준') : '프로필 미조회'}
               </span>

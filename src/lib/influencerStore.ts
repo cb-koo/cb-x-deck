@@ -270,7 +270,8 @@ export async function renameInfluencer(
 
 // 캠페인 추가 비용 행(campaign_influencer_cost)의 핸들 이관. 같은 캠페인에 옛·새 핸들 행이 둘 다 있으면
 // unique(campaign_id, lower(handle)) 위반이 나므로 병합한다(리뷰 Blocking 5): extra_costs는 새 행 뒤에 옛 것을 이어붙이고
-// (jsonb 배열 ||), note는 새 행이 비어 있을 때만 옛 값, 옛 행은 삭제. 나머지 옛 행은 표기만 새 핸들로.
+// (jsonb 배열 ||), note는 새 행이 비어 있을 때만 옛 값, 옛 행은 삭제. 살아남는 새 행의 표기도 이 UPDATE에서 바로
+// to로 맞춘다(리뷰 Minor 2) — 그래야 아래 마지막 UPDATE(단순 이동 경로)와 표기 규칙이 갈리지 않는다.
 // from·to가 소문자 기준 같으면(표기만 바뀜) 병합 조인이 자기 자신과 맞아 extra_costs가 두 배가 된다 — 그 경우는 표기만 바꾼다.
 async function moveCampaignCostRows(sql: postgres.Sql, from: string, to: string): Promise<void> {
   const fromLower = from.toLowerCase();
@@ -280,6 +281,7 @@ async function moveCampaignCostRows(sql: postgres.Sql, from: string, to: string)
       update campaign_influencer_cost n
          set extra_costs = n.extra_costs || o.extra_costs,
              note = case when n.note = '' then o.note else n.note end,
+             influencer_handle = ${to},
              updated_at = now()
         from campaign_influencer_cost o
        where o.campaign_id = n.campaign_id

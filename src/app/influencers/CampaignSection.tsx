@@ -22,7 +22,8 @@ export function CampaignSection({ campaigns }: { campaigns: InfluencerCampaignIt
     <section className="mt-7 pt-1">
       <div className="flex flex-wrap items-center gap-1.5">
         <h2 className="text-content font-bold">참여 캠페인</h2>
-        <InfoTip text="이 계정에 원고가 배정됐거나 추가 비용이 적힌 캠페인을 모아 보여줘요. 캠페인을 누르면 캠페인 화면이 열려요." />
+        {/* 우측 금액에 있던 native title을 여기로 접었다 — 이 저장소는 native title을 쓰지 않는다(InfoTip.tsx 상단 설명) */}
+        <InfoTip text="이 계정에 원고가 배정됐거나 추가 비용이 적힌 캠페인을 모아 보여줘요. 오른쪽 금액은 이 캠페인에서 이 사람의 콘텐츠 비용 + 추가 비용이에요(통화가 다르면 따로 보여요). 캠페인을 누르면 캠페인 화면이 열려요." />
         {campaigns.length > 0 && <span className="text-ui text-x-muted">· {campaigns.length}개</span>}
       </div>
       {campaigns.length === 0 ? (
@@ -39,12 +40,21 @@ export function CampaignSection({ campaigns }: { campaigns: InfluencerCampaignIt
                     <span className="block truncate text-content font-medium">{c.name}</span>
                     <span className="block text-ui text-x-muted">
                       {formatDateKo(c.startsOn)} ~ {formatDateKo(c.endsOn)} · 콘텐츠 {c.contentCount}개
-                      {/* 돈이 붙었는데 원고가 없는 경우를 말로 드러낸다(캠페인 스펙 §2-4) */}
-                      {c.contentCount === 0 && <span className="text-amber-800"> · 배정 원고 없음 — 추가 비용만</span>}
+                      {/* 돈이 붙었는데 원고가 없는 경우를 말로 드러낸다(캠페인 스펙 §2-4). 단, listInfluencerCampaigns는
+                          contentCount를 셀 때 status='unused' 원고를 뺀다 — 이 캠페인에 배정된 원고가 전부 미사용이고
+                          추가 비용 행도 없으면 contentCount·subtotal이 둘 다 비어 "추가 비용만"이라 하면 거짓말이 된다.
+                          그래서 비용이 실제로 있을 때만 "추가 비용만"이라 하고, 없으면 미사용 사실을 그대로 밝힌다. */}
+                      {c.contentCount === 0 && (
+                        formatMoneyBy(c.subtotal) !== '—' ? (
+                          <span className="text-amber-800"> · 배정 원고 없음 — 추가 비용만</span>
+                        ) : (
+                          <span className="text-x-muted"> · 배정 원고 없음(미사용만)</span>
+                        )
+                      )}
                     </span>
                   </span>
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-ui font-bold ${STATUS_STYLE[status]}`}>{CAMPAIGN_STATUS_LABEL[status]}</span>
-                  <span className="shrink-0 text-content tabular-nums" title="이 캠페인에서 이 사람의 콘텐츠 비용 + 추가 비용 — 통화가 다르면 따로 보여요">
+                  <span className="shrink-0 text-content tabular-nums">
                     {formatMoneyBy(c.subtotal)}
                   </span>
                 </Link>

@@ -370,6 +370,11 @@ test('13) renameInfluencer: 같은 캠페인에 옛·새 핸들 행이 둘 다 �
   await upsertInfluencerCost(sql, campB.id, to, { note: '새 메모' });
   // C: 옛 행만 → 단순 이관(병합 로직이 이걸 건드리면 안 된다)
   await upsertInfluencerCost(sql, campC.id, from, { note: 'C만' });
+  // D: 둘 다 있음 · 새 행이 to와 다른 대소문자로 저장돼 있어도 병합 UPDATE가 살아남는 행의 표기를
+  //    canonical to로 맞춘다(리뷰 Minor 2 — 병합 경로도 단순 이동 경로와 표기 규칙이 같아야 한다)
+  const campD = await mkCampaign(c.id, c.name, 'f');
+  await upsertInfluencerCost(sql, campD.id, from, { note: 'D옛' });
+  await upsertInfluencerCost(sql, campD.id, to.toUpperCase(), { note: 'D새' });
 
   await renameInfluencer(sql, { influencerId: row.id, from, to, actorId: null });   // unique 위반 없이 끝나야 한다
 
@@ -392,10 +397,15 @@ test('13) renameInfluencer: 같은 캠페인에 옛·새 핸들 행이 둘 다 �
   assert.equal(cc[0].influencer_handle, to);
   assert.equal(cc[0].note, 'C만');
 
+  const d = await cicOf(campD.id);
+  assert.equal(d.length, 1);
+  assert.equal(d[0].influencer_handle, to, '병합 경로도 살아남는 행의 표기를 canonical to로 맞춘다');
+  assert.equal(d[0].note, 'D새');
+
   assert.equal((await sql`select id from campaign_influencer_cost where lower(influencer_handle) = ${from.toLowerCase()}`).length, 0);
-  // 참여 캠페인은 3개, 소계는 병합 후 값
+  // 참여 캠페인은 4개, 소계는 병합 후 값
   const detail = await getInfluencerDetail(sql, row.id);
-  assert.equal(detail!.campaigns.length, 3);
+  assert.equal(detail!.campaigns.length, 4);
   assert.deepEqual(detail!.campaigns.find((x) => x.id === campA.id)!.subtotal, { KRW: 1000, JPY: 2000 });
 });
 

@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import type { CampaignDraftItem, CampaignRow } from '@/lib/campaignStore';
 import {
   isOutOfRange, formatDateKo, contentStage, matchesStageFilter, STAGE_LABEL,
@@ -61,6 +61,9 @@ export function WeekCalendar({ rows, campaign, today, filter, onOpenDraft, onCha
   onChangeScheduledOn: (d: CampaignDraftItem, next: string | null) => void;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
+  // 드래그 진행 중 여부 — 드롭으로 카드가 다른 칸(다른 부모)으로 옮겨지면 원본 노드가 재마운트되어 dragend가 오지 않으므로
+  // drop에서 직접 끝을 알린다. dragstart의 지연 setState는 이 ref가 켜져 있을 때만 반영한다(빠른 드래그에서 순서가 뒤집히지 않게).
+  const draggingRef = useRef(false);
   const [overKey, setOverKey] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string[]>([]);          // '+N개'를 눌러 다 펼친 날짜들
   const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsed());
@@ -86,7 +89,8 @@ export function WeekCalendar({ rows, campaign, today, filter, onOpenDraft, onCha
     onDragOver: (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (overKey !== key) setOverKey(key); },
     // 안의 카드로 옮겨간 것뿐인데 강조가 꺼지면 깜빡인다 — 영역 밖으로 나갔을 때만 끈다
     onDragLeave: (e: React.DragEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOverKey((k) => (k === key ? null : k)); },
-    onDrop: (e: React.DragEvent) => drop(e, target),
+    // ref 정리는 핸들러 안에서만(react-hooks/refs) — drop()은 렌더에서 만들어지는 함수라 ref를 건드리지 않는다
+    onDrop: (e: React.DragEvent) => { draggingRef.current = false; drop(e, target); },
   });
 
   // 카드 — 흰 카드 + 좌측 4px 단계색 바. 단계 칩은 넣지 않는다(색 바 + 범례가 같은 말을 하고, 2줄 제목의 가독성을 지킨다).
@@ -98,8 +102,14 @@ export function WeekCalendar({ rows, campaign, today, filter, onOpenDraft, onCha
       // div(role=button)이 draggable — <button draggable>은 실제 마우스로는 브라우저가 드래그를 시작하지 않아(koo QA 08-26,
       // 이벤트를 프로그램으로 쏘면 동작) 프로덕션 칸반(DraftKanban)과 같은 div 방식으로 둔다. 클릭/Enter/Space는 원고 열기, 끌기는 예정일 변경.
       <div key={d.id} role="button" tabIndex={0} draggable
-              onDragStart={(e) => { e.dataTransfer.setData('text/plain', d.id); e.dataTransfer.effectAllowed = 'move'; setDragId(d.id); }}
-              onDragEnd={() => { setDragId(null); setOverKey(null); }}
+              onDragStart={(e) => {
+                e.dataTransfer.setData('text/plain', d.id); e.dataTransfer.effectAllowed = 'move';
+                // dragstart 틱 안에서 상태를 바꾸면 리렌더로 원본 카드가 바뀌고(opacity·미정 띠 삽입으로 레이아웃 이동)
+                // Chrome이 네이티브 드래그를 취소한다 — 칸반(DraftKanban)은 dragstart에서 상태를 안 바꾼다. 다음 틱으로 미룬다.
+                draggingRef.current = true;
+                window.setTimeout(() => { if (draggingRef.current) setDragId(d.id); }, 0);
+              }}
+              onDragEnd={() => { draggingRef.current = false; setDragId(null); setOverKey(null); }}
               onClick={() => onOpenDraft(d.id)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDraft(d.id); } }}
               title="누르면 원고가 열려요 · 끌어서 다른 날에 놓으면 예정일이 바뀌어요"

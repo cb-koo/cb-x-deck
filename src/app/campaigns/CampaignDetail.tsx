@@ -211,7 +211,7 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
   if (!data || !summary || !perf) return null;
 
   return (
-    <div className="min-w-0 space-y-5 p-5 pb-12">
+    <div className="min-w-0 space-y-5 p-5 pb-24">
       {loadErr && (
         <div role="alert" className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-ui text-red-700">
           <span>새로고침에 실패했어요 — 표시된 정보가 최신이 아닐 수 있어요</span>

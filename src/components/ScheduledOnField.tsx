@@ -14,13 +14,15 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
 }) {
   const id = useId();
   const tone = overdueDays ? 'font-bold text-red-700' : value ? 'text-x-text' : 'text-x-muted';
+  // 표 셀 안(compact)의 트리거는 행 높이 48px가 이미 터치 타깃을 보장하므로 h-10 규칙에서 예외로 둔다 — 나머지(카드 도구층 등)는 h-10.
   const box = compact
     ? `text-content ${tone}`
-    : `h-8 rounded-lg border bg-white px-2.5 text-ui ${value ? 'border-x-border-strong' : 'border-dashed border-x-border-strong'} ${tone}`;
+    : `h-10 rounded-lg border bg-white px-2.5 text-ui ${value ? 'border-x-border-strong' : 'border-dashed border-x-border-strong'} ${tone}`;
   return (
     <span className="inline-flex items-center gap-1">
+      {/* 실제 입력(date)은 opacity-0로 숨어 있어 자체 포커스 링이 안 보인다 — focus-within으로 label에 대신 링을 그린다 */}
       <label htmlFor={id} title={value ? '게시 예정일 — 눌러서 바꾸기' : '게시 예정일을 정하면 밀림 여부를 알려줘요'}
-             className={`relative inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 hover:bg-x-hover ${box}`}>
+             className={`relative inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 hover:bg-x-hover focus-within:outline-none focus-within:ring-2 focus-within:ring-x-blue ${box}`}>
         <span className="tabular-nums">{value ? formatDateKo(value) : (compact ? '예정일 없음' : '+ 예정일')}</span>
         {overdueDays ? <span className="font-normal">· {overdueDays}일 지남</span> : null}
         {outOfRange && <span className="rounded bg-amber-100 px-1 text-ui font-normal text-amber-800" title="캠페인 기간 밖 날짜예요 — 저장은 되지만 표시로 알려요">기간 밖</span>}

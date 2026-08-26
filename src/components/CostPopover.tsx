@@ -10,7 +10,7 @@ import {
 // InfluencerChip과 같은 골격(body 포털·좌표 고정·바깥 클릭/Esc 닫기) — 표 셀·카드 도구층 어디서 열려도 overflow에 잘리지 않는다.
 // 단가 제안(suggestion)은 '비어 있을 때 열면 그 값으로 시작'만 한다 — 사람이 적은 값을 덮지 않는다(§3-2).
 const POP_W = 300;
-const POP_H = 250;
+const POP_H = 300; // 실측(제목·설명·유형/통화 2열·금액·안내문·버튼줄) 근사 — 250은 낮아서 아래 공간 판정(flip)이 자주 틀렸다
 
 export function CostPopover({ value, suggestion, defaultType, onChange, compact }: {
   value: DraftCost | null;
@@ -92,13 +92,19 @@ export function CostPopover({ value, suggestion, defaultType, onChange, compact 
     <>
       <button ref={btnRef} type="button" onClick={() => (open ? close() : openPop())}
               aria-haspopup="dialog" aria-expanded={open}
-              aria-label={value ? `비용 ${label} — 바꾸기` : '비용 입력하기'}
+              // 보이는 글자(trigger)와 aria-label을 늘 맞춘다 — 제안 상태에서 스크린리더가 "비용 입력하기"만 읽으면
+              // 화면에 보이는 "제안 300,000원"과 어긋나 무엇이 있는지 모른다.
+              aria-label={
+                value ? `비용 ${label} — 바꾸기`
+                : suggestion ? `제안 ${formatAmount(suggestion.amount, suggestion.currency)} — 비용 입력하기`
+                : '비용 입력하기'
+              }
               title={value ? '이 원고의 콘텐츠 비용 — 눌러서 바꾸기'
                            : suggestion ? '배정된 인플루언서의 단가에서 제안한 값이에요 — 눌러서 확인하고 저장'
                            : '이 원고 하나의 콘텐츠 비용을 적어요'}
               className={compact
-                ? 'text-content tabular-nums hover:underline'
-                : `inline-flex h-8 items-center gap-1.5 rounded-lg border bg-white px-2.5 text-ui ${
+                ? 'text-content tabular-nums hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-x-blue'
+                : `inline-flex h-10 items-center gap-1.5 rounded-lg border bg-white px-2.5 text-ui focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-x-blue ${
                     value ? 'border-x-border-strong text-x-text hover:bg-x-hover'
                           : 'border-dashed border-x-border-strong text-x-muted hover:bg-x-hover hover:text-x-secondary'}`}>
         {trigger}
@@ -112,13 +118,13 @@ export function CostPopover({ value, suggestion, defaultType, onChange, compact 
           <div className="mt-2 grid grid-cols-2 gap-2">
             <label className="block text-ui text-x-secondary">유형
               <select value={type} onChange={(e) => setType(e.target.value as CostType)}
-                      className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-content outline-none focus:border-x-blue">
+                      className="mt-0.5 h-10 w-full rounded-md border border-x-border-strong bg-white px-2 text-content outline-none focus:border-x-blue">
                 {COST_TYPES.map((t) => <option key={t} value={t}>{COST_TYPE_LABEL[t]}</option>)}
               </select>
             </label>
             <label className="block text-ui text-x-secondary">통화
               <select value={currency} onChange={(e) => setCurrency(e.target.value as Currency)}
-                      className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-content outline-none focus:border-x-blue">
+                      className="mt-0.5 h-10 w-full rounded-md border border-x-border-strong bg-white px-2 text-content outline-none focus:border-x-blue">
                 {CURRENCIES.map((c) => <option key={c} value={c}>{CURRENCY_LABEL[c]} ({c})</option>)}
               </select>
             </label>
@@ -128,7 +134,7 @@ export function CostPopover({ value, suggestion, defaultType, onChange, compact 
                    onChange={(e) => { setAmount(e.target.value); setErr(null); }}
                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) save(); }}
                    placeholder="300000"
-                   className="mt-0.5 w-full rounded-md border border-x-border-strong px-2 py-1.5 text-content tabular-nums outline-none focus:border-x-blue" />
+                   className="mt-0.5 h-10 w-full rounded-md border border-x-border-strong px-2 text-content tabular-nums outline-none focus:border-x-blue" />
           </label>
           <p className="mt-1 text-ui text-x-muted">통화를 바꿔도 금액은 그대로예요 — 환산하지 않아요</p>
           {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}

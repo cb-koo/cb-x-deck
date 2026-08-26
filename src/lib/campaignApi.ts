@@ -22,11 +22,14 @@ export async function toApiResult<T>(r: Response): Promise<ApiResult<T>> {
 const json = (method: string, body: unknown): RequestInit =>
   ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-// 네트워크 예외도 같은 모양으로 — status 0. 401은 apiFetch가 /login으로 보내고 throw하므로 여기까지 오지 않는다.
+// 네트워크 예외도 같은 모양으로 — status 0. 401은 apiFetch가 /login으로 리다이렉트하며 Error('unauthorized')를 던진다 —
+// 그걸 여기서 네트워크 오류로 뭉개면 리다이렉트는 이미 걸렸는데 화면엔 "연결을 확인하세요"가 뜨는 모순이 생긴다.
+// 그래서 그 경우만 다시 던져 호출부(또는 전역 경계)가 리다이렉트 진행 중임을 알 수 있게 한다.
 async function call<T>(input: string, init?: RequestInit): Promise<ApiResult<T>> {
   try {
     return await toApiResult<T>(await apiFetch(input, init));
-  } catch {
+  } catch (e) {
+    if (e instanceof Error && e.message === 'unauthorized') throw e;
     return { ok: false, error: '네트워크 오류가 났어요 — 연결을 확인하고 다시 시도해 주세요', status: 0 };
   }
 }
@@ -57,5 +60,7 @@ export const regenPostApi = (id: string, index: number) => call<DraftRow>(`/api/
 
 // ── 게시물 연결(스펙 §3-2 단계 셀 옆) — 등록 POST(url만 받는다) 뒤 PATCH로 draft_id를 붙인다. 두 라우트 다 기존.
 export const registerTrackedPostApi = (url: string) => call<{ created: boolean; row: TrackedPostRow }>('/api/tracking', json('POST', { url }));
+// 라우트가 재조회 결과를 { row }로 감싸 돌려준다 — 무검사 캐스팅이라 타입이 어긋나면 tsc가 못 잡는다.
+// row는 findTrackedPostById 재조회이므로 대상이 그 사이 지워졌으면 null일 수 있다(호출부가 null도 다뤄야 한다).
 export const linkTrackedPostDraftApi = (trackedPostId: string, draftId: string | null) =>
-  call<TrackedPostRow>(`/api/tracking/${trackedPostId}`, json('PATCH', { draftId }));
+  call<{ row: TrackedPostRow | null }>(`/api/tracking/${trackedPostId}`, json('PATCH', { draftId }));

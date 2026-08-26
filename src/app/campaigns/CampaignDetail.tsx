@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { useToast } from '@/lib/toastContext';
 import { apiFetch } from '@/lib/apiFetch';
 import type { CampaignRow, CampaignDraftItem, InfluencerCostRow } from '@/lib/campaignStore';
@@ -54,9 +54,13 @@ export function CampaignDetail({ id, onChanged, onDeleted }: {
   const [regenBusy, setRegenBusy] = useState<{ draftId: string; index: number } | null>(null);
   const [mediaDrop, setMediaDrop] = useState<{ draftId: string; notice: MediaDropNotice } | null>(null);
 
-  // setState는 전부 await 뒤 — 동기 setState가 앞에 있으면 set-state-in-effect에 걸린다(InfluencerProfile 관례)
+  // 요청 토큰 — 캠페인을 빠르게 갈아타면 앞 캠페인의 응답이 뒤에 도착할 수 있다. 그때 화면에는 이미 다른 캠페인이
+  // 떠 있으므로 옛 응답은 성공이든 실패든 버린다(남의 캠페인 데이터·오류 배너가 붙는 것을 막는다).
+  const reqRef = useRef(0);
   const load = useCallback(async () => {
+    const token = ++reqRef.current;
     const r = await fetchCampaignDetail(id);
+    if (token !== reqRef.current) return;   // 그 사이 다른 캠페인(또는 새 로드)이 시작됐다 — 이 응답은 화면의 것이 아니다
     if (r.ok) {
       const { campaign, drafts, costRows, today } = r.data;   // summary·influencers는 아래 useMemo가 같은 함수로 다시 만든다
       setData({ campaign, drafts, costRows, today });
@@ -66,8 +70,13 @@ export function CampaignDetail({ id, onChanged, onDeleted }: {
     }
     setLoaded(true);
   }, [id]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- id 바뀔 때 1회 로드, setState는 전부 비동기 콜백(InfluencerProfile·tracking 관례)
-  useEffect(() => { void load(); }, [load]);
+  // id가 바뀌면 이전 캠페인의 data를 먼저 지우고 로딩 상태로 돌아간다 — 안 지우면 새 캠페인을 불러오는 동안
+  // 앞 캠페인의 헤더·표·합계가 새 id의 화면인 척 남아 있고, '최신이 아닐 수 있어요' 배너도 남의 데이터에 붙는다.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- id 전환 시의 리셋이 목적이라 동기 setState가 맞다(그 뒤 로드는 비동기 콜백)
+    setData(null); setLoaded(false); setLoadErr(false);
+    void load();
+  }, [load]);
 
   // 배정 자동완성 후보(+단가) — 실패해도 빈 목록(자유 입력은 그대로 동작, generate 관례)
   useEffect(() => {
@@ -117,7 +126,8 @@ export function CampaignDetail({ id, onChanged, onDeleted }: {
   async function removeCampaign() {
     const r = await deleteCampaignApi(id);
     if (!r.ok) { show(r.error); return; }
-    show('캠페인을 삭제했어요 — 원고는 콘텐츠 생성 목록에 그대로 있어요');
+    // deleted:false = 이미 없는 캠페인(다른 사람이 지웠거나 내 화면이 오래됐다) — 지웠다고 말하지 않되 화면은 똑같이 목록으로 빠진다
+    show(r.data.deleted ? '캠페인을 삭제했어요 — 원고는 콘텐츠 생성 목록에 그대로 있어요' : '이미 삭제된 캠페인이에요');
     onDeleted();
   }
 
@@ -190,7 +200,8 @@ export function CampaignDetail({ id, onChanged, onDeleted }: {
           <Button variant="subtle" className="ml-auto shrink-0 bg-white" onClick={() => void load()}>다시 시도</Button>
         </div>
       )}
-      <CampaignHeader campaign={data.campaign} today={data.today} onPatch={patchCampaign}
+      {/* draftCount는 목록용 파생값(미사용 제외 + 이 세션의 변경이 반영 안 됨)이라 삭제 안내에 쓰면 거짓이 된다 — 화면에 실린 원고 수를 넘긴다 */}
+      <CampaignHeader campaign={data.campaign} draftCount={data.drafts.length} today={data.today} onPatch={patchCampaign}
                       onDelete={() => void removeCampaign()} onAddDrafts={() => setAddOpen(true)} />
       <div className="mt-7">
         <SummaryCards summary={summary} perf={perf} total={total} />

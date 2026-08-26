@@ -22,18 +22,21 @@ export function useCampaignDraftActions({ campaign, setDrafts, influencerOptions
 }) {
   const apply = useCallback(async (d: Item, optimistic: Optimistic, body: DraftPatchBody): Promise<boolean> => {
     const keys = Object.keys(optimistic) as Array<keyof Optimistic>;
+    // 이 요청이 쓴 칸이 아직 내가 세팅한 값 그대로인가 — 성공·실패가 같은 기준을 쓴다
+    const stillMine = (x: Item) => keys.every((k) => JSON.stringify(x[k]) === JSON.stringify(optimistic[k]));
     setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, ...optimistic } : x)));
     const r = await patchDraftApi(d.id, body);
     if (r.ok) {
-      // 응답은 DraftRow — 게시됨·성과(published·perf·linkClicks)는 이 PATCH로 바뀌지 않으니 기존 값을 유지한 채 덮는다
-      setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, ...r.data } : x)));
+      // 응답은 DraftRow — 게시됨·성과(published·perf·linkClicks)는 이 PATCH로 바뀌지 않으니 기존 값을 유지한 채 덮는다.
+      // 성공에도 롤백과 같은 가드가 필요하다 — 응답은 보낸 순서대로 오지 않는다(먼저 보낸 PATCH가 늦게 도착할 수 있다).
+      // 가드가 없으면 늦게 온 옛 응답이 그 사이 사용자가 바꾼 값을 서버의 옛 값으로 되돌려버린다.
+      setDrafts((cur) => cur.map((x) => (x.id === d.id && stillMine(x) ? { ...x, ...r.data } : x)));
       return true;
     }
     setDrafts((cur) => cur.map((x) => {
       if (x.id !== d.id) return x;
       // 내가 세팅한 값이 아직 그대로일 때만 되돌린다 — 그 사이 사용자가 또 바꿨으면 뒤 갱신이 이긴다
-      const stillMine = keys.every((k) => JSON.stringify(x[k]) === JSON.stringify(optimistic[k]));
-      if (!stillMine) return x;
+      if (!stillMine(x)) return x;
       const back: Item = { ...x };
       for (const k of keys) Object.assign(back, { [k]: d[k] });   // 요청 전 값(d)으로 되돌린다 — 건드린 칸만
       return back;

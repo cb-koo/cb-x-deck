@@ -37,6 +37,8 @@ export function LinkPostModal({ draft, onClose, onLinked }: {
     const link = await linkTrackedPostDraftApi(row.id, draft.id);
     setBusy(false);
     if (!link.ok) { setErr(link.error); return; }
+    // 라우트는 연결 뒤 다시 조회한 행을 준다 — null이면 그 사이 게시물이 지워진 것이라 연결이 남지 않았다(거짓 성공 방지)
+    if (!link.data.row) { setErr('게시물을 찾을 수 없어요 — 삭제됐을 수 있어요'); return; }
     onLinked();
   }
 

@@ -23,6 +23,12 @@ import { TrackingLinkSection } from '@/components/TrackingLinkSection';
 import { draftLabel } from '@/lib/draftViews';
 import { draftShareUrl } from '@/lib/draftShare';
 import type { DraftStatus } from '@/lib/draftStatus';
+import type { CampaignRow } from '@/lib/campaignStore';
+import { suggestDraftCost, type DraftCost } from '@/lib/campaignCost';
+import { isOverdue, isOutOfRange, daysBetweenDates, defaultCostType } from '@/lib/campaignJudgment';
+import { DraftCampaignField } from '@/components/DraftCampaignField';
+import { ScheduledOnField } from '@/components/ScheduledOnField';
+import { CostPopover } from '@/components/CostPopover';
 
 const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
   off: '참고 없음', form: '형식만', angle: '앵글만', both: '형식 + 앵글',
@@ -162,7 +168,7 @@ function MediaOverlayActions({ canDetach, isGif, onDetach, onDownload, onCopy, o
 }
 
 // 초안 카드 — X 실측(600px·radius16·아바타40·본문 15/20). 지표·배지·이미지 자리 없음(없는 데이터는 자리도 안 만듦)
-export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, onChangeTitle, siblingTotal, influencerOptions, onAssignInfluencer, onSaveMedia, mediaDropNotice, onDismissMediaDrop }: {
+export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, onChangeTitle, siblingTotal, influencerOptions, onAssignInfluencer, onSaveMedia, mediaDropNotice, onDismissMediaDrop, campaign }: {
   draft: DraftRow; banned: string[];
   onEdit: () => void; onRewrite: (feedback: string, baseIndex: number) => void; rewriteBusy: boolean;
   onDelete: () => void; onRegenPost: (index: number) => void; regenBusyIndex: number | null;
@@ -181,7 +187,27 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   // 다시 쓰기를 실행한 페이지가 응답을 받는 순간 계산해 내려준다. null이면 안내 없음.
   mediaDropNotice: MediaDropNotice | null;
   onDismissMediaDrop: () => void;
+  // 캠페인 관련은 객체 하나로(리뷰 Should 4 — prop 18개 위에 4개를 더 얹지 않는다). undefined면 캠페인 칸을 그리지 않는다:
+  // 캠페인 화면(Task 15)·/generate(Task 13)가 배선하고, 그 밖의 호스트는 그대로 컴파일·동작한다. 값은 전부 draft에서 읽고(값은 하나),
+  // 저장은 호스트가 PATCH /api/drafts/[id]로 — 카드는 fetch하지 않는다(TrackingLinkSection의 자급식과 다른 이유: 낙관적 갱신·롤백이 목록 소유자의 몫).
+  campaign?: {
+    options: CampaignRow[];          // 전 캠페인 — 후보 필터(클라·상태)는 DraftCampaignField가 한다
+    today: string;                   // 밀림·기간 밖 판정 기준(서울) — 호스트가 서버 today 또는 kstToday()를 준다
+    onChange: (campaignId: string | null) => void;
+    onChangeScheduledOn: (next: string | null) => void;
+    onChangeCost: (next: DraftCost | null) => void;
+  };
 }) {
+  // 캠페인 칸 파생값 — 카드는 게시됨(tracked_post)을 모르므로 published:false로 판정한다. 캠페인 화면 표는 게시됨을 알고
+  // 판정하므로 그쪽이 정확하고, 카드는 "예정일 지났고 아직 상태가 미사용이 아니다"까지만 말한다.
+  const camp = campaign ? (campaign.options.find((c) => c.id === draft.campaignId) ?? null) : null;
+  const overdue = campaign && isOverdue({ status: draft.status, published: false, scheduledOn: draft.scheduledOn }, campaign.today)
+    ? daysBetweenDates(draft.scheduledOn as string, campaign.today) : null;
+  const outOfRange = camp ? isOutOfRange(draft.scheduledOn, camp.startsOn, camp.endsOn) : false;
+  const costSuggestion = campaign && draft.influencerHandle
+    ? suggestDraftCost(influencerOptions.find((o) => o.handle.toLowerCase() === (draft.influencerHandle as string).toLowerCase())?.pricing,
+                       defaultCostType(camp?.kind ?? null))
+    : null;
   const [refsOpen, setRefsOpen] = useState(false);
   // 레퍼런스 번역 — 덱/보관함과 같은 훅·같은 캐시(tweet_translation, tweet_id 단위 전역).
   // 덱에서 이미 번역한 트윗은 여기서 과금 없이 재사용되고, 여기서 번역한 것도 덱에서 재사용된다.
@@ -428,6 +454,11 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
         <DraftStatusChip status={draft.status} onChange={onChangeStatus} />
         {/* 인플루언서 배정 — 상태와 나란히 "누구에게·어디까지"를 한 자리에서 (스펙 §F). 편집 모달을 열지 않고 카드에서 바로 배정 — 미배정 표시도 칩이 알아서 그린다 */}
         <InfluencerChip handle={draft.influencerHandle} options={influencerOptions} onChange={onAssignInfluencer} />
+        {/* 캠페인 소속(스펙 §4-2) — 인플루언서 칸 옆 "누구에게 · 어느 캠페인에". 배선한 호스트에서만 보인다 */}
+        {campaign && (
+          <DraftCampaignField campaignId={draft.campaignId} campaignName={draft.campaignName} clientId={draft.clientId}
+                              options={campaign.options} today={campaign.today} onChange={campaign.onChange} />
+        )}
         {draft.batchId !== null && siblingTotal !== null && (
           <span className="text-caption text-x-muted">
             시안 {variantLabel(draft.variantIndex ?? 0)} · 같은 조건 {siblingTotal}개 중
@@ -439,6 +470,13 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
           {draft.format === 'thread' ? '스레드' : '단문'}
         </span>
       </div>
+      {/* 예정일·비용 — 캠페인 소속일 때만(§4-2 "값은 하나"). 표에서 고친 값이 여기, 여기서 고친 값이 표에 그대로 보인다 */}
+      {campaign && draft.campaignId && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-x-border bg-x-surface px-4 pb-2">
+          <ScheduledOnField value={draft.scheduledOn} overdueDays={overdue} outOfRange={outOfRange} onChange={campaign.onChangeScheduledOn} />
+          <CostPopover value={draft.cost} suggestion={costSuggestion} defaultType={defaultCostType(camp?.kind ?? null)} onChange={campaign.onChangeCost} />
+        </div>
+      )}
       {/* 원고 이름 — 도구층의 둘째 줄. 칩과 같은 줄에 두지 않는 이유는 제목이 최대 80자라
           한 줄에 섞으면 상태·인플루언서 칩을 밀어내기 때문이다. X 콘텐츠층(아래 흰 영역) 밖에
           두어 본문 미러링은 그대로 둔다 — 제목은 X에 없는, 우리 목록에만 있는 개념이다. */}
@@ -719,7 +757,8 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
             복사·받기 직후(원고가 실제로 나가는 순간)로 옮겼다. 검수 표식이 없으면 이 회색 층은
             근거 풋터 한 줄만 남으므로 위쪽 구분선도 필요 없어졌다. */}
         <TrackingLinkSection draftId={draft.id} influencerHandle={draft.influencerHandle}
-                             clientId={draft.clientId} clientName={draft.clientName} />
+                             clientId={draft.clientId} clientName={draft.clientName}
+                             campaignCode={draft.campaignCode} />
         <div className={`flex items-baseline justify-between gap-3 text-[13px] ${active.length > 0 || dismissedCount > 0 ? 'mt-1 border-t border-x-border pt-1.5' : ''}`}>
           <button onClick={() => { const opening = !refsOpen; setRefsOpen(opening); if (opening) void refTr.loadCached(draft.refs.map((r) => r.tweetId)); }}
                   disabled={draft.refs.length === 0}

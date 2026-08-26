@@ -14,7 +14,7 @@ import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
 export function LinkCreateModal({ open, onClose, onCreated, configured, prefill }: {
   open: boolean; onClose: () => void; onCreated: (row: TrackingLinkRow) => void;
   configured: boolean;
-  prefill?: { draftId?: string; influencerHandle?: string; clientId?: string; clientName?: string };
+  prefill?: { draftId?: string; influencerHandle?: string; clientId?: string; clientName?: string; campaignCode?: string };
 }) {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [influencers, setInfluencers] = useState<InfluencerOption[]>([]);
@@ -22,7 +22,8 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
   const [landingUrl, setLandingUrl] = useState('');
   const [landingTouched, setLandingTouched] = useState(false);
   const [handle, setHandle] = useState(prefill?.influencerHandle ?? '');
-  const [campaign, setCampaign] = useState(suggestCampaign(prefill?.clientName ?? null));
+  // 캠페인 코드(campaign.name_en)가 있으면 그것이 utm_campaign — 클라명 제안(suggestCampaign)은 캠페인 없는 원고의 폴백(스펙 §5)
+  const [campaign, setCampaign] = useState(prefill?.campaignCode ?? suggestCampaign(prefill?.clientName ?? null));
   const [campaignTouched, setCampaignTouched] = useState(false);
   const [slug, setSlug] = useState(generateWordCode());
   const [contentLabel, setContentLabel] = useState(suggestContentLabel()); // utm_content 뒷부분 — 기본 MMDD, 영문 수정 가능
@@ -42,7 +43,7 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
   // 모달이 열린 채로 재발화되고, 입력 중인 값이 기본값으로 되돌아간다 — 프리미티브만 의존한다
   // (clients-load effect의 `prefill?.clientId` 단독 의존 관례를 따름).
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 열 때마다 초기화(모달 재사용, ColumnSettings 관례)
-  useEffect(() => { if (!open) return; setClientId(prefill?.clientId ?? ''); setLandingUrl(''); setLandingTouched(false); setHandle(prefill?.influencerHandle ?? ''); setCampaign(suggestCampaign(prefill?.clientName ?? null)); setCampaignTouched(false); setSlug(generateWordCode()); setContentLabel(suggestContentLabel()); setBusy(false); setErr(''); setDone(null); setCopied(false); }, [open, prefill?.clientId, prefill?.influencerHandle, prefill?.clientName, prefill?.draftId]);
+  useEffect(() => { if (!open) return; setClientId(prefill?.clientId ?? ''); setLandingUrl(''); setLandingTouched(false); setHandle(prefill?.influencerHandle ?? ''); setCampaign(prefill?.campaignCode ?? suggestCampaign(prefill?.clientName ?? null)); setCampaignTouched(false); setSlug(generateWordCode()); setContentLabel(suggestContentLabel()); setBusy(false); setErr(''); setDone(null); setCopied(false); }, [open, prefill?.clientId, prefill?.influencerHandle, prefill?.clientName, prefill?.campaignCode, prefill?.draftId]);
 
   // 클라이언트·인플루언서 목록 — 자동 채움·자동완성 소스일 뿐, 실패해도 모달은 그대로 동작한다.
   useEffect(() => {
@@ -57,7 +58,8 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
           const c = list.find((x) => x.id === prefill.clientId);
           if (c) {
             if (!landingTouchedRef.current) setLandingUrl(c.landingUrl);
-            if (!campaignTouchedRef.current) setCampaign(suggestCampaign(c.nameEn || c.name));
+            // 캠페인 코드가 prefill로 왔으면 클라명 제안으로 조용히 덮지 않는다(리뷰 Should 2 — 세팅 지점이 둘이라 한쪽만 고치면 덮인다)
+            if (!campaignTouchedRef.current && !prefill.campaignCode) setCampaign(suggestCampaign(c.nameEn || c.name));
           }
         }
       })
@@ -66,7 +68,7 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((rows: InfluencerRow[]) => setInfluencers(rows.map((r) => ({ handle: r.handle, name: r.displayName ?? undefined }))))
       .catch(() => setInfluencers([]));
-  }, [open, prefill?.clientId]);
+  }, [open, prefill?.clientId, prefill?.campaignCode]);
 
   useEffect(() => {
     if (!open) return;
@@ -137,8 +139,9 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
     setClientId(id);
     const c = clients.find((x) => x.id === id);
     if (!landingTouched) setLandingUrl(c ? c.landingUrl : '');
-    if (!campaignTouched) setCampaign(suggestCampaign(c ? (c.nameEn || c.name) : null));
-  }, [clients, landingTouched, campaignTouched]);
+    // 모달 안에서 클라를 바꿔도 캠페인 코드는 유지 — 코드는 캠페인의 것이지 클라의 것이 아니다
+    if (!campaignTouched && !prefill?.campaignCode) setCampaign(suggestCampaign(c ? (c.nameEn || c.name) : null));
+  }, [clients, landingTouched, campaignTouched, prefill?.campaignCode]);
 
   if (!open) return null;
 
@@ -206,7 +209,9 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
             <input id="link-create-campaign" value={campaign}
                    onChange={(e) => { setCampaign(e.target.value); setCampaignTouched(true); }}
                    className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue" />
-            <p className="mt-1 text-caption text-x-muted">랜딩 쪽 분석 도구에서 이 캠페인 이름으로 모아 볼 수 있어요 — 영어·숫자로 적어 주세요</p>
+            <p className="mt-1 text-caption text-x-muted">
+              {prefill?.campaignCode ? '소속 캠페인의 영문 코드가 들어갔어요 — 랜딩 쪽 분석 도구에서 이 이름으로 모아 봐요' : '랜딩 쪽 분석 도구에서 이 캠페인 이름으로 모아 볼 수 있어요 — 영어·숫자로 적어 주세요'}
+            </p>
 
             <label htmlFor="link-create-content" className="mt-3 block text-caption text-x-muted">콘텐츠 구분</label>
             <input id="link-create-content" value={contentLabel}

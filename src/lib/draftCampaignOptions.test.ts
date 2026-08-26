@@ -27,3 +27,13 @@ test('3) 클라이언트 없는 원고는 전체 캠페인(스펙 §4-2)', () =>
   assert.deepEqual(r.open.map((c) => c.id), ['a', 'u', 'o', 'n']);
   assert.deepEqual(r.ended.map((c) => c.id), ['e']);
 });
+
+test('4) 현재 소속 캠페인이 "다른 클라의 종료 캠페인"이어도 ended에 남는다 — 필드의 강제 펼침(§7)이 이 값에 의존', () => {
+  const all2 = [
+    { id: 'a', clientId: 'c1', startsOn: '2026-08-24', endsOn: '2026-08-30' },  // c1 진행 중
+    { id: 'x', clientId: 'c2', startsOn: '2026-08-01', endsOn: '2026-08-07' },  // c2 종료, 이 원고의 현재 소속
+  ];
+  const r = campaignOptionsFor(all2, 'c1', T, 'x');
+  assert.deepEqual(r.open.map((c) => c.id), ['a']);
+  assert.deepEqual(r.ended.map((c) => c.id), ['x']);
+});

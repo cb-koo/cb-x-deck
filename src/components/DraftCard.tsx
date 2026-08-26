@@ -196,12 +196,16 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
     onChange: (campaignId: string | null) => void;
     onChangeScheduledOn: (next: string | null) => void;
     onChangeCost: (next: DraftCost | null) => void;
+    // 게시 여부(tracked_post 존재) — 캠페인 상세(Task 15)는 그 표에서 이미 알고 있어 넘겨준다.
+    // /generate(Task 13)는 모르므로 생략하고, 그때는 기본 false로 판정한다(리뷰 Important).
+    published?: boolean;
   };
 }) {
-  // 캠페인 칸 파생값 — 카드는 게시됨(tracked_post)을 모르므로 published:false로 판정한다. 캠페인 화면 표는 게시됨을 알고
-  // 판정하므로 그쪽이 정확하고, 카드는 "예정일 지났고 아직 상태가 미사용이 아니다"까지만 말한다.
+  // 캠페인 칸 파생값 — campaign.published를 받으면 그 값으로, 못 받으면(=/generate처럼 모르는 호스트) false로
+  // 판정한다. 캠페인 화면 표는 published를 넘겨주므로 그쪽이 더 정확하고, 카드는 "예정일 지났고 아직
+  // 상태가 미사용이 아니다"까지만 말한다.
   const camp = campaign ? (campaign.options.find((c) => c.id === draft.campaignId) ?? null) : null;
-  const overdue = campaign && isOverdue({ status: draft.status, published: false, scheduledOn: draft.scheduledOn }, campaign.today)
+  const overdue = campaign && isOverdue({ status: draft.status, published: campaign.published ?? false, scheduledOn: draft.scheduledOn }, campaign.today)
     ? daysBetweenDates(draft.scheduledOn as string, campaign.today) : null;
   const outOfRange = camp ? isOutOfRange(draft.scheduledOn, camp.startsOn, camp.endsOn) : false;
   const costSuggestion = campaign && draft.influencerHandle

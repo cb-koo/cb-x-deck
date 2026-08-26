@@ -203,7 +203,7 @@ interface ContentRow {
 
 ### 성능
 
-행 수 = 캠페인의 링크 수(5~20). 쿼리 3~4개(행 기본 + 게시물/스냅샷 + 이벤트 집계 GROUP BY utm_content + 미연결·제외). 인덱스 `(utm_content, occurred_at desc)`로 이벤트 집계는 캠페인 크기에 비례. 캐시 없음.
+행 수 = 캠페인의 링크 수(5~20). 쿼리 6개 고정(캠페인 목록 · 링크+원고+클릭 · 게시물+스냅샷 · 원고의 전체 링크(역할 판정용) · 이벤트 집계 GROUP BY utm_content · 미연결) — 행 수와 무관한 상수(구현 실측, 08-26). 인덱스 `(utm_content, occurred_at desc)`로 이벤트 집계는 캠페인 크기에 비례. 캐시 없음.
 
 ## 화면 — `/performance`
 

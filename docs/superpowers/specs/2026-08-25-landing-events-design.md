@@ -116,6 +116,7 @@ type LandingEvent = {
 };
 ```
 
+- `src/proxy.ts`는 `/api/*`를 리다이렉트 없이 통과시키지만 그 판정 앞에서 `supabase.auth.getUser()`를 먼저 부른다 → 이벤트마다 인증 서버 왕복이 생기므로 `/api/landing-events`는 getUser 앞에서 바로 `NextResponse.next()`로 통과시킨다(브릿지 요청에는 세션 쿠키가 없어 갱신할 것도 없다).
 - 이 API는 사람이 아니라 브릿지 서버가 호출한다 → `requireMember`가 아니라 시크릿 비교(`crypto.timingSafeEqual`, 길이 다르면 즉시 401). `LANDING_EVENTS_SECRET` 미설정이면 전부 401(열려 있는 상태를 만들지 않는다).
 - 검증은 `src/lib/landingEvent.ts` 순수 함수 `parseLandingEvents(body) → {ok, events} | {ok:false, index, field, reason}`. 문자열 길이 상한(각 2,000자)·`ts` 파싱 가능·`kind` 3종. 알 수 없는 필드는 무시(브릿지가 앞서가도 깨지지 않게).
 - 저장은 `landingEventStore.insertEvents(sql, events)` — 한 문장 multi-row insert, 반환 건수로 `accepted` 계산.
@@ -130,7 +131,7 @@ type LandingEvent = {
 | 탭 | `distinct visit_id where kind='tap' and not is_bot_ua` |
 | 제외한 방문 | `distinct visit_id` 전체 − 사람 도착 (프리페치·봇으로 보이는 방문) |
 | 기간 | `occurred_at`을 **Asia/Seoul** 경계로 자른다(`kstDaysAgoStart`, 시간대 통일 결정 2026-08-08). `all`은 경계 없음 |
-| 콘텐츠 매칭 | `landing_event.utm_content = tracking_link.utm_content` |
+| 콘텐츠 매칭 | `landing_event.utm_content = coalesce(tracking_link.utm_content, tracking_link.code)` — 031 이전 링크는 utm_content가 null이고 code가 그 자리를 했다 |
 | 미연결 | `utm_content`가 null이거나 어느 `tracking_link`에도 없는 이벤트. 캠페인 필터는 이벤트의 `utm_campaign`으로 적용(선택 캠페인과 같거나 null) |
 
 한 방문이 두 콘텐츠의 utm_content를 가질 수는 없다(쿠키 1시간, 링크 하나로 들어옴). 같은 방문이 arrival·view·tap을 여러 번 보내도 distinct로 1이다.
@@ -147,7 +148,7 @@ type LandingEvent = {
 - 픽스처(`fixtures/user-tweets-response.json`)로 `entities.urls`·`isReply`·`inReplyToId`·`conversationId`·`createdAt` 존재 확인됨. `raw`는 `post_metric_snapshot.raw`(스냅샷마다 저장) — 최신 스냅샷의 것을 쓴다.
 - 저장 시점: `POST /api/tracking`(등록)과 `refresh`에서 `role`이 null이면 자동 판정값을 **저장하지 않고** 그대로 둔다 — 읽기 시점 판정 하나로 통일해 등록 순서(링크보다 게시물이 먼저 등록된 경우)에 좌우되지 않게. 사람이 고칠 때만 값이 생긴다.
 - 원고에 링크가 없으면 `link` 판정은 불가 → main/thread만.
-- 스레드 개수: `draft.content.posts.length`(형식 `thread`일 때) — "스레드 4개 중 2개 등록" 표시에 쓴다.
+- 스레드 개수: `(draft.edited ?? draft.content).posts.length`(형식 `thread`일 때, 편집본 우선) — "스레드 4개 중 2개 등록" 표시에 쓴다.
 
 ## 읽기 모델 — `src/lib/performanceStore.ts` + `src/lib/performanceJudgment.ts`
 
@@ -226,7 +227,7 @@ interface ContentRow {
 |---|---|
 | ▶ | 펼침(한 번에 하나, TrackingTable 관례). title "자세히 — 스레드 읽기 흐름(트윗별 조회)" |
 | 콘텐츠 | 제목(말줄임). title 툴팁 "utm_content: {code} · 스레드 {n}개/단일 게시물" |
-| 인플루언서 | 이니셜 아바타 + @핸들 |
+| 인플루언서 | 이니셜 아바타 + @핸들. 클릭 → `/influencers?i={핸들}`(재기용 판단은 프로필에서 — 단가·계정 분석·참여 이력이 거기 있다) |
 | 게시 | main `posted_at` → `M/D`. 없으면 "—" |
 | 조회 · 클릭 · 도착 · 탭 | 우측 정렬 tabular. 위에 얇은 그룹 헤더 "퍼널 · 조회 → 클릭 → 도착 → 탭". 조회 없음 = 링크 텍스트 **"게시물 연결 전"**(→ `/tracking`, 0으로 보이지 않게). 클릭 없음 = "측정 전" |
 | 클릭률 | `5.8%`. title "클릭 ÷ 본문 조회" |
@@ -268,6 +269,7 @@ UX 원칙 체크(AGENTS.md): 라벨은 이득 언어("아직 판단 이르어요
 - 원고에 게시물이 있는데 링크 URL이 어느 게시물에도 없음(인플이 다른 링크를 씀) → `link` 없음, 스레드 읽기 흐름에 링크 줄 없음. 클릭은 그대로(short.io 기준).
 - main 게시물의 스냅샷이 `unavailable`(삭제·비공개) → 마지막 views 유지 + 툴팁 "게시물을 볼 수 없어요(삭제·비공개) · {확인 시각}"(tracked_post.unavailable_at 관례).
 - 같은 인플이 같은 콘텐츠 라벨로 링크 둘(`-2`) → 행 둘. 1:1:1 운영 방침의 예외지만 표는 정직하게 둘 다 보인다.
+- `utm_content`는 DB 유니크가 아니다(`-2` 규칙은 앱 로직) → 같은 값을 쓰는 링크가 둘이면 이벤트가 양쪽 행에 붙는다. **요약·탭 기여 분모는 utm_content 단위 집계**(중복 없음)에서 계산하고, 해당 행에는 툴팁 "같은 utm_content를 쓰는 링크 2개 — 방문이 양쪽에 같이 보여요"를 붙인다.
 - 기간 7d/30d에서 도착 0인 콘텐츠도 행 유지(0은 사실).
 - 탭 > 도착(뷰 핑 전에 탭한 방문은 tap만 있어도 사람 도착으로 세므로 이론상 불가). 만약 데이터 오류로 발생하면 탭률 100% 상한 없이 그대로 표시하고 툴팁 "기록이 어긋나 있어요".
 
@@ -303,6 +305,7 @@ UX 원칙 체크(AGENTS.md): 라벨은 이득 언어("아직 판단 이르어요
 
 수정:
 - `src/components/Sidebar.tsx` — "성과" 항목
+- `src/proxy.ts` — `/api/landing-events` 조기 통과
 - `src/lib/trackingStore.ts` — `role` 읽기·쓰기(`setRole`), 목록에 role 포함
 - `src/app/api/tracking/[id]/route.ts` — PATCH `role`
 - `src/components/TrackingTable.tsx` — 역할 칩

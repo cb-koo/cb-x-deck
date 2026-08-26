@@ -33,9 +33,11 @@ export function isCostType(v: unknown): v is CostType {
 }
 
 // 0 이상 정수만(단가 검증 parsePricingPatch 규칙과 동일, 스펙 §7). 문자열('30,000')도 받는다 — 입력칸 값은 문자열이다.
+// isSafeInteger(정수이면서 2^53 미만)를 쓴다 — isInteger만으로는 1e300처럼 '정수처럼 보이는' 거대한 값이
+// 통과해 campaignStore.totalsFor의 SQL ::bigint 캐스팅에서 터진다(/campaigns가 500이 됨, 최종 리뷰 Critical).
 export function parseAmount(v: unknown): number | null {
   const n = typeof v === 'string' && v.trim() !== '' ? Number(v.replace(/,/g, '')) : v;
-  if (typeof n !== 'number' || !Number.isInteger(n) || n < 0) return null;
+  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) return null;
   return n;
 }
 

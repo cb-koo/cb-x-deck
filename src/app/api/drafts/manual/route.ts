@@ -6,6 +6,7 @@ import { insertDraft, getDraft } from '@/lib/draftStore';
 import { formatForPosts } from '@/lib/draftFormat';
 import { parseDraftFieldPatch, CAMPAIGN_NOT_FOUND_MESSAGE } from '@/lib/draftFieldPatch';
 import { getCampaign } from '@/lib/campaignStore';
+import { CLIENT_NOT_FOUND_MESSAGE } from '@/lib/campaignInput';
 
 // LLM 없이 초안을 만드는 두 번째 입구(설계 §A) — generate.ts·llm.ts·translateDraft를 일절
 // import하지 않는다. model: null이 직접 작성의 표식이고, 대역·자동 제목도 함께 비운다.
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
   const procedureIds = Array.isArray(body.procedureIds) ? (body.procedureIds as string[]) : [];
   const clientData = clientId ? await getClientWithProcedures(sql, clientId) : null;
   if (clientId && !clientData) {
-    return NextResponse.json({ error: '클라이언트를 찾을 수 없어요 — 목록을 새로고침해 주세요' }, { status: 400 });
+    return NextResponse.json({ error: CLIENT_NOT_FOUND_MESSAGE }, { status: 400 });
   }
   const procedures = (clientData?.procedures ?? []).filter((p) => procedureIds.includes(p.id));
 

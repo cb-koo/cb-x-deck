@@ -4,13 +4,14 @@
 import { parseDraftCost, type DraftCost, type Parsed } from './campaignCost.ts';
 import { isDateOnlyString } from './campaignJudgment.ts';
 import { isUuidLike } from './uuid.ts';
+// 캠페인 미존재 문구는 campaignInput.ts가 단일 소스 — 여기 자체 상수로 두면 카피가 두 벌이 되어
+// 한쪽만 고쳐지는 드리프트가 난다(최종 리뷰 Minor 5). export 이름은 유지해 라우트 import를 안 건드린다.
+export { CAMPAIGN_NOT_FOUND_MESSAGE } from './campaignInput.ts';
 
 export interface DraftFieldPatch { campaignId?: string | null; scheduledOn?: string | null; cost?: DraftCost | null }
 
 export const CAMPAIGN_ID_MESSAGE = '캠페인 값이 올바르지 않아요';
 export const SCHEDULED_ON_MESSAGE = '예정일은 YYYY-MM-DD 날짜여야 해요';
-// 라우트가 존재 확인(getCampaign) 실패 시 쓰는 문구 — FK 위반(23503)을 500으로 흘리지 않는다
-export const CAMPAIGN_NOT_FOUND_MESSAGE = '캠페인을 찾을 수 없어요 — 삭제됐을 수 있어요. 목록을 새로고침해 주세요';
 
 export function parseDraftFieldPatch(body: unknown): Parsed<DraftFieldPatch> {
   const out: DraftFieldPatch = {};

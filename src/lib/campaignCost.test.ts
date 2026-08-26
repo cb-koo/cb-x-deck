@@ -24,6 +24,10 @@ test('2) parseAmount — 0 이상 정수만, 콤마 문자열은 받고 소수·
   assert.equal(parseAmount(''), null);
   assert.equal(parseAmount(null), null);
   assert.equal(parseAmount(undefined), null);
+  // 2^53 이상·1e300류의 '정수처럼 보이는' 거대한 값 — SQL ::bigint 캐스팅을 터뜨리니 여기서 막는다(최종 리뷰 Critical)
+  assert.equal(parseAmount('1e20'), null);
+  assert.equal(parseAmount(1e300), null);
+  assert.equal(parseAmount('100000000000000000000'), null);
 });
 
 test('3) parseDraftCost — null은 지움, 세 필드 검증, 오류 문구가 비어 있지 않다', () => {

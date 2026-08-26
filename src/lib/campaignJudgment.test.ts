@@ -83,13 +83,18 @@ test('5) 요약 — N은 미사용 제외, 게시됨/전달됨/준비 중/밀림
 
 test('6) 성과 합계 — 스냅샷 없으면 null 유지(0으로 위장 금지), 링크 클릭은 미게시 원고 것도 합산', () => {
   const p = summarizePerf([
-    { published: true, perf: { views: 12400, likes: 300 }, linkClicks: 96 },
-    { published: true, perf: { views: null, likes: null }, linkClicks: null },
-    { published: false, perf: null, linkClicks: 4 },
+    { status: 'delivered', published: true, perf: { views: 12400, likes: 300 }, linkClicks: 96 },
+    { status: 'delivered', published: true, perf: { views: null, likes: null }, linkClicks: null },
+    { status: 'draft', published: false, perf: null, linkClicks: 4 },
   ]);
   assert.deepEqual(p, { publishedCount: 2, views: 12400, likes: 300, linkClicks: 100 });
-  assert.deepEqual(summarizePerf([{ published: true, perf: { views: null, likes: null }, linkClicks: null }]),
+  assert.deepEqual(summarizePerf([{ status: 'delivered', published: true, perf: { views: null, likes: null }, linkClicks: null }]),
     { publishedCount: 1, views: null, likes: null, linkClicks: null });
+  // 미사용은 게시됐어도 제외 — summarizeStages(카드 ②)와 같은 모집단이어야 라벨-값이 일치한다(최종 리뷰)
+  assert.deepEqual(summarizePerf([
+    { status: 'delivered', published: true, perf: { views: 100, likes: 10 }, linkClicks: 5 },
+    { status: 'unused', published: true, perf: { views: 99999, likes: 99999 }, linkClicks: 99999 },
+  ]), { publishedCount: 1, views: 100, likes: 10, linkClicks: 5 });
 });
 
 const s = (o: Partial<SortInput>): SortInput => ({ status: 'draft', published: false, scheduledOn: null, influencerHandle: null, createdAt: '2026-08-20T00:00:00Z', ...o });

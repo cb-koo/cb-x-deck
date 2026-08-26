@@ -7,6 +7,7 @@ import { getPromptOverrides } from './promptSettings.ts';
 import { insertDraft, getDraft, updateDraft, draftVersionHash, type DraftRow, type DraftTranslation } from './draftStore.ts';
 import { translateDraftPosts } from './translateDraft.ts';
 import { X_MAX_WEIGHTED } from './xLength.ts';
+import { CLIENT_NOT_FOUND_MESSAGE } from './campaignInput.ts';
 import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
 
 export const CONTENT_MODEL = () => process.env.CONTENT_MODEL ?? 'claude-opus-5';
@@ -49,7 +50,7 @@ export async function generateDraft(
 
   // 재료 로드
   const clientData = req.clientId ? await getClientWithProcedures(sql, req.clientId) : null;
-  if (req.clientId && !clientData) throw new GenerateInputError('클라이언트를 찾을 수 없어요 — 목록을 새로고침해 주세요');
+  if (req.clientId && !clientData) throw new GenerateInputError(CLIENT_NOT_FOUND_MESSAGE);
   const procedures = (clientData?.procedures ?? []).filter((p) => req.procedureIds.includes(p.id));
   const refRows = hasRefs ? await getReferencesByIds(sql, req.refTweetIds) : [];
   const refs: RefSnapshot[] = refRows.map((r) => ({

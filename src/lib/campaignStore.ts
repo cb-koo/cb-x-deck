@@ -4,7 +4,7 @@ import { listDraftsByCampaign } from './draftStore.ts';
 import { kstToday } from './datetime.ts';
 import { isUuidLike } from './uuid.ts';
 import {
-  parseExtraCosts, sumMoney, mergeMoney, isCurrency, type ExtraCost, type MoneyByCurrency,
+  parseExtraCosts, parseDraftCost, sumMoney, mergeMoney, isCurrency, type ExtraCost, type MoneyByCurrency,
 } from './campaignCost.ts';
 import {
   summarizeStages, deriveInfluencers, type CampaignKind, type CampaignSummary, type InfluencerLine,
@@ -255,9 +255,11 @@ export async function listInfluencerCampaigns(sql: postgres.Sql, handle: string)
       from campaign where id = any(${ids}::uuid[]) order by starts_on desc, created_at desc`;
   return camps.map((c) => {
     const mine = drafts.filter((d) => d.campaign_id === c.id && d.status !== 'unused');
+    // draftStore.costOf와 같은 검증(parseDraftCost) — jsonb 모양을 다르게 믿으면 롤업 합계와 캠페인 상세 합계가
+    // 서로 다른 값을 보여줄 수 있다(최종 리뷰). amount는 이미 parseAmount(안전 정수)를 통과한 값만 남는다.
     const costs = mine.flatMap((d) => {
-      const o = d.cost as { amount?: unknown; currency?: unknown } | null;
-      return o && typeof o.amount === 'number' && isCurrency(o.currency) ? [{ amount: o.amount, currency: o.currency }] : [];
+      const p = parseDraftCost(d.cost ?? null);
+      return p.ok && p.value ? [{ amount: p.value.amount, currency: p.value.currency }] : [];
     });
     const extra = cic.filter((x) => x.campaign_id === c.id).flatMap((x) => extraCostsOf(x.extra_costs));
     return {

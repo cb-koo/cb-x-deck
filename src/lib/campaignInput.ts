@@ -26,7 +26,7 @@ export const NOTE_MESSAGE = '메모 형식이 올바르지 않아요';
 // 문구가 어느 칸 얘기인지 가리켜야 한다(라벨-값 일치, 리뷰 반영).
 export const NAME_EN_EMPTY_MESSAGE = '영문 코드를 입력해 주세요';
 export const NAME_EN_FORMAT_MESSAGE = '영문 코드는 영어·숫자·하이픈으로 입력해 주세요 (예: lifting-20260824)';
-// draftFieldPatch.ts(Task 5)도 캠페인 미존재에 같은 문구를 쓴다(그쪽은 카피 보관, 이쪽은 이 상수) — 통합은 최종 리뷰에서.
+// draftFieldPatch.ts는 이 상수를 그대로 재수출한다(최종 리뷰 Minor 5로 통합) — 카피 두 벌 금지.
 export const CAMPAIGN_NOT_FOUND_MESSAGE = '캠페인을 찾을 수 없어요 — 삭제됐을 수 있어요. 목록을 새로고침해 주세요';
 export const CLIENT_NOT_FOUND_MESSAGE = '클라이언트를 찾을 수 없어요 — 목록을 새로고침해 주세요';
 

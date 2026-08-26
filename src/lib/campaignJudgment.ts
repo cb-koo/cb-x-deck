@@ -137,12 +137,15 @@ export function summarizeStages(items: StageInput[], today: string): CampaignSum
 
 // 성과 합계 — 스냅샷이 하나도 없으면 null(0으로 위장하지 않는다, 스펙 §7 "성과 스냅샷 없음 → —").
 // 링크 클릭은 게시 여부와 무관하게 캠페인 원고들의 tracking_link 합(§5).
-export interface PerfInput { published: boolean; perf: { views: number | null; likes: number | null } | null; linkClicks: number | null }
+// status — 미사용은 여기서도 건너뛴다. 카드 ②(summarizeStages)와 같은 모집단이어야 라벨-값이 일치한다
+// (요약 카드 옆에 나란히 놓인 두 숫자가 서로 다른 원고 집합을 세면 사용자가 모순으로 읽는다, 최종 리뷰).
+export interface PerfInput { status: DraftStatus; published: boolean; perf: { views: number | null; likes: number | null } | null; linkClicks: number | null }
 export interface PerfSummary { publishedCount: number; views: number | null; likes: number | null; linkClicks: number | null }
 export function summarizePerf(items: PerfInput[]): PerfSummary {
   const out: PerfSummary = { publishedCount: 0, views: null, likes: null, linkClicks: null };
   const add = (k: 'views' | 'likes' | 'linkClicks', v: number | null) => { if (v !== null) out[k] = (out[k] ?? 0) + v; };
   for (const it of items) {
+    if (it.status === 'unused') continue; // summarizeStages와 같은 모집단(§2-4)
     if (it.published) out.publishedCount += 1;
     add('views', it.perf?.views ?? null);
     add('likes', it.perf?.likes ?? null);

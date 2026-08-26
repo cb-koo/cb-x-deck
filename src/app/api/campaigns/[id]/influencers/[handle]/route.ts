@@ -5,8 +5,9 @@ import { isUuidLike } from '@/lib/uuid';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
 import { parseExtraCosts, type ExtraCost } from '@/lib/campaignCost';
 import { getCampaign, upsertInfluencerCost } from '@/lib/campaignStore';
+import { CAMPAIGN_NOT_FOUND_MESSAGE } from '@/lib/campaignInput';
 
-const notFound = () => NextResponse.json({ error: '캠페인을 찾을 수 없어요' }, { status: 404 });
+const notFound = () => NextResponse.json({ error: CAMPAIGN_NOT_FOUND_MESSAGE }, { status: 404 });
 
 // 캠페인×핸들의 추가 비용·메모 upsert(스펙 §2-2 — 행은 처음 적을 때 생긴다). 인플 목록 자체는 원고에서 파생되므로
 // 이 라우트는 '명단에 추가'가 아니다 — 원고 0인 핸들에 비용을 적으면 표에 "배정 원고 없음"으로 드러난다(§2-4).

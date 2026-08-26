@@ -41,3 +41,14 @@ test('링크가 없는 원고(shortUrls 빈 배열)는 main/thread만 나온다 
   assert.equal(r[0].role, 'main');
   assert.deepEqual(assignRoles([], [SHORT]), []);
 });
+
+test('normalizeUrl: 쿼리·해시는 무시한다 — X가 붙인 ?ref= 꼬리가 링크 매칭을 막지 않게', () => {
+  assert.equal(normalizeUrl('https://cb.link/tavemo?ref=x#top'), normalizeUrl('https://cb.link/tavemo'));
+  const r = assignRoles([p('1', '2026-08-24T00:00:00Z'), p('2', '2026-08-24T00:05:00Z', { rawUrls: [{ expanded_url: `${SHORT}?utm_source=x` }] })], [SHORT]);
+  assert.deepEqual(r.map((x) => [x.tweetId, x.role]), [['1', 'main'], ['2', 'link']]);
+});
+
+test('postedAt이 없는 게시물은 main이 되지 않고 맨 뒤로 간다', () => {
+  const r = assignRoles([p('n', null), p('a', '2026-08-24T00:00:00Z'), p('b', '2026-08-24T00:01:00Z')], []);
+  assert.deepEqual(r.map((x) => [x.tweetId, x.role]), [['a', 'main'], ['b', 'thread'], ['n', 'thread']]);
+});

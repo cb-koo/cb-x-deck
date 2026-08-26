@@ -13,9 +13,10 @@ export interface RolePostInput {
   isReply: boolean | null;   // raw.isReply
 }
 
-// 비교용 정규형: 스킴·후행 슬래시·호스트 대소문자 차이는 같은 링크다(X가 t.co를 풀어 준 expanded_url과 우리 short_url 비교).
+// 비교용 정규형: 스킴·후행 슬래시·호스트 대소문자·쿼리스트링·해시 차이는 같은 링크다
+// (X가 t.co를 풀어 준 expanded_url엔 ?ref= 등이 붙지만 우리 short_url엔 없다).
 export function normalizeUrl(u: string): string {
-  const s = u.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  const s = u.trim().replace(/^https?:\/\//i, '').replace(/[?#].*$/, '').replace(/\/+$/, '');
   const slash = s.indexOf('/');
   return slash === -1 ? s.toLowerCase() : s.slice(0, slash).toLowerCase() + s.slice(slash);
 }

@@ -101,6 +101,7 @@ function Workbench() {
   // 캠페인 — 목록은 카드 캠페인 칸·표 열·필터의 소스, campaignCtx는 ?campaign= 진입 시 "이 캠페인에 추가 중" 컨텍스트(캠페인 스펙 §4-1)
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [campaignsLoaded, setCampaignsLoaded] = useState(false);
+  const [campaignsError, setCampaignsError] = useState<string | null>(null); // 로드 실패 원인 — 딥링크가 이걸 '삭제됨'과 구분한다
   const [campaignCtx, setCampaignCtx] = useState<CampaignRow | null>(null);
   const campaignLinkDone = useRef(false); // ?campaign= 소비 표시 — 클라·캠페인 목록이 다 온 뒤 1회만
   // '오늘'(서울)은 마운트 시 한 번 — 카드의 밀림 판정 기준. 렌더마다 시계를 읽지 않는다(react-hooks/purity)
@@ -195,7 +196,12 @@ function Workbench() {
       .then((inf) => setInfluencerOptions(Array.isArray(inf) ? inf : []));
 
     // 캠페인 목록 — 카드 캠페인 칸·표 열·필터의 소스. 실패해도 원고 열람은 막지 않는다(캠페인 칸이 '없음'만 보인다).
-    fetchCampaigns().then((r) => { if (r.ok) setCampaigns(r.data); setCampaignsLoaded(true); });
+    fetchCampaigns().then((r) => {
+      // 로드 실패도 '완료'로 쳐서 딥링크가 영원히 대기하지 않게 한다 — !ok를 '완료' 밖에 두면
+      // ?campaign= 진입이 campaignsLoaded를 영원히 기다리다 아무 반응도 없이 멈춘다.
+      if (r.ok) setCampaigns(r.data); else setCampaignsError(r.error);
+      setCampaignsLoaded(true);
+    }).catch(() => {}); // unauthorized는 apiFetch가 이미 /login으로 리다이렉트한다 — 여기선 더 할 일이 없다
   }, []);
   useEffect(() => () => { if (pollTimer.current) clearInterval(pollTimer.current); }, []);
   const updateComposer = useCallback((v: ComposerState) => {
@@ -292,15 +298,25 @@ function Workbench() {
     if (!target) return;
     campaignLinkDone.current = true;
     const row = campaigns.find((c) => c.id === target);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 딥링크 소비, 두 로드가 끝난 뒤 1회
-    if (!row) { setToast('링크가 가리키는 캠페인을 찾을 수 없어요 — 삭제됐을 수 있어요'); return; }
+    if (!row) {
+      // 로드 자체가 실패했으면 '삭제됐을 수 있어요'로 오진하지 않는다 — 원인은 목록을 못 받은 것이다(리뷰 Important)
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 이 이펙트의 setState 일괄(효과 안 첫 호출만 검사) — 두 로드가 끝난 뒤 1회
+      if (campaignsError) { setToast(`캠페인 목록을 불러오지 못했어요 — ${campaignsError}`); return; }
+      setToast('링크가 가리키는 캠페인을 찾을 수 없어요 — 삭제됐을 수 있어요');
+      // 없는 id로 남으면 새로고침마다 같은 토스트가 뜬다 — 주소에서 지운다(?draft= replaceState와 같은 관례).
+      // 컨텍스트가 성공적으로 걸린 경우는 주소를 그대로 둔다(?ref= 관례 — 성공한 딥링크는 주소를 지우지 않는다).
+      const url = new URL(window.location.href);
+      url.searchParams.delete('campaign');
+      window.history.replaceState(null, '', url);
+      return;
+    }
     setCampaignCtx(row);
     setFilter((f) => ({ ...f, campaignId: row.id }));
     if (row.clientId && clients.some((c) => c.client.id === row.clientId)) {
       setComposer((cur) => (cur.clientId === row.clientId ? cur : { ...cur, clientId: row.clientId, procedureIds: [] }));
     }
     if (!panelOpenRef.current) setPanelPref('open');   // 만들러 왔으니 생성 패널을 펼친다(?ref=와 같은 규칙)
-  }, [searchParams, clientsLoaded, campaignsLoaded, campaigns, clients]);
+  }, [searchParams, clientsLoaded, campaignsLoaded, campaigns, clients, campaignsError]);
 
   // 배너 [해제] — 컨텍스트와 필터를 풀고 주소에서도 지운다(?draft= 동기화와 같은 replaceState 관례 — 라우터 리렌더 없이 주소만).
   function clearCampaignCtx() {
@@ -377,10 +393,12 @@ function Workbench() {
       filterByProcedure(searchDrafts(filterDrafts(created, L.filter), L.query), L.procFilter),
       L.period, Date.now()).length > 0;
     if (!visible) {
-      setFilter({ status: 'all', clientId: '', campaignId: '' });
+      // 배너(campaignCtx)가 켜져 있으면 표 축도 그 캠페인에 묶어 둔다 — 배너가 "이 캠페인에 추가 중"인데
+      // 표 필터가 전체로 풀리면 방금 만든 원고가 뒤섞여 어디 갔는지 헷갈린다(배너-표 축 결합, 캠페인 스펙 §4-3).
+      setFilter({ status: 'all', clientId: '', campaignId: campaignCtx ? campaignCtx.id : '' });
       setQuery(''); setProcFilter(''); setPeriod({ kind: 'preset', preset: 'all' });
     }
-  }, []);
+  }, [campaignCtx]);
 
   async function generate() {
     if (generating) return;
@@ -788,6 +806,10 @@ function Workbench() {
                                 onChange={setFilter} showStatusTabs={view !== 'kanban'} />
               </div>
             </div>
+            {campaignsError && (
+              // 캠페인 select가 비어 보이는 이유를 알려준다 — 안 그러면 "캠페인이 하나도 없나?"로 오해한다(리뷰 Important)
+              <p className="mt-1 text-[13px] text-x-secondary">캠페인 목록을 못 불러왔어요 — 새로고침해 주세요</p>
+            )}
             {/* 2행 — 어떻게 좁히나: 검색(최광폭)·시술·기간 (필터 초과분은 둘째 줄+구분선 — GitLab) */}
             <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-x-border pt-2">
               <input type="search" value={query} onChange={(e) => setQuery(e.target.value)}

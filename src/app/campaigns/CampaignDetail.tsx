@@ -217,12 +217,15 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
       <div className="mt-7">
         <SummaryCards summary={summary} perf={perf} total={total} />
       </div>
-      {/* 콘텐츠 툴바 한 줄(QA 4라운드) — 왼쪽 제목 '콘텐츠 N', 오른쪽 [표 | 주간 달력] + 단계 필터 칩.
-          N은 이 캠페인의 원고 전부(= 표의 '전체' 행 수)라 제목과 표가 같은 숫자를 말한다 — 미사용을 빼면 표와 어긋난다.
-          칩은 표·달력 공용으로 올려 두 보기에서 뜻이 같다. 칩·버튼 높이는 32px(툴바 기준), 글자는 13px. */}
-      <div className="mt-8 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h2 className="text-content font-semibold">콘텐츠 <span className="tabular-nums">{data.drafts.length}</span></h2>
-        <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-2">
+      {/* 콘텐츠 툴바 두 줄(QA 5라운드) — 오너 피드백: 제목이 뜻을 담아야 한다('콘텐츠 N' → '콘텐츠 진행 현황').
+          첫 줄은 제목+건수만. 둘째 줄은 왼쪽 정렬로 [표 | 주간 달력] + 단계 필터 칩 — 오른쪽에는 아무것도 두지 않는다.
+          건수(N건)는 이 캠페인의 원고 전부(= 표의 '전체' 행 수)라 제목과 표가 같은 숫자를 말한다 — 미사용을 빼면 표와 어긋난다.
+          칩은 표·달력 공용으로 올려 두 보기에서 뜻이 같다. 칩·버튼 높이는 32px, 글자는 13px. */}
+      <div className="mt-8">
+        <h2 className="text-content font-semibold">
+          콘텐츠 진행 현황 <span className="text-ui font-normal text-x-muted tabular-nums">{data.drafts.length}건</span>
+        </h2>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
           <div role="group" aria-label="콘텐츠 보기" className="inline-flex rounded-full border border-x-border-strong p-0.5">
             {(['table', 'calendar'] as DetailView[]).map((v) => (
               <button key={v} type="button" onClick={() => onViewChange(v)} aria-pressed={view === v}

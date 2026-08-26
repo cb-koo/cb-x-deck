@@ -8,6 +8,7 @@ import { DraftStatusChip, PUBLISHED_STYLE } from '@/components/DraftStatusChip';
 import { InfluencerChip } from '@/components/InfluencerChip';
 import { CostPopover } from '@/components/CostPopover';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
+import { Button } from '@/components/ui';
 import { draftLabel } from '@/lib/draftViews';
 import { suggestDraftCost, type DraftCost } from '@/lib/campaignCost';
 import {
@@ -16,16 +17,18 @@ import {
 } from '@/lib/campaignJudgment';
 import { overdueDays, contentTypeLabel, perfLabel, handleInitial } from '@/lib/campaignTableView';
 
-// 콘텐츠 표 — 열 7개 고정(예정일 110 · 콘텐츠 나머지 · 유형 120 · 인플 190 · 비용 120 · 단계 130 · 성과 180, 스펙 §3-2 + QA 1라운드).
+// 콘텐츠 표 — 열 8개 고정(예정일 110 · 콘텐츠 나머지 · 유형 110 · 인플 180 · 비용 120 · 단계 120 · 게시물 120 · 성과 170, QA 5라운드).
 // 유형은 콘텐츠 칸의 13px 보조줄에서 전용 열로 올렸다 — 보조줄에 유형·형식이 섞여 있어 어느 쪽으로도 훑을 수 없었다.
+// '게시물 연결' 입구는 QA 5라운드에서 단계 칸 → 전용 게시물 칸으로 옮겼다 — 단계(준비 상태)와 게시물 연결(외부 링크)은 다른 축이라
+// 한 칸에 섞이면 무엇을 눌러야 하는지 헷갈렸다. 단계 칸은 상태 칩 + (게시됨이면) 파생 '✓ 게시됨' 칩만 그대로 둔다.
 // 행 ≥48px(py-3)·본문 15px(text-content)·보조 13px(text-ui) — "맨날 빽빽해서 보기 힘들다"(koo 08-25)가 이 표의 첫 요구사항.
 // text-caption(11px)은 쓰지 않는다. 정렬·필터·밀림·기간 밖 판정은 전부 campaignJudgment — 이 파일은 결과를 그릴 뿐이다.
 // 저장은 전부 콜백(부모 훅이 PATCH /api/drafts/[id]) — 캠페인 전용 경로 없음(§2-5).
 const SORT_KEYS: ContentSortKey[] = ['default', 'scheduled', 'stage', 'influencer'];
 const TH = 'px-3 py-2 font-normal';
 const TD = 'px-3 py-3 align-top';
-// 표 최소 폭 — 고정 열 합(110+120+190+120+130+180)에 콘텐츠 열 몫을 더한 값이 좁은 화면에서도 눌리지 않게(TweetTable·TrackingTable 관례)
-const MIN_TABLE_WIDTH = 1010;
+// 표 최소 폭 — 고정 열 합(110+110+180+120+120+120+170=930)에 콘텐츠 열 몫을 더한 값이 좁은 화면에서도 눌리지 않게(TweetTable·TrackingTable 관례)
+const MIN_TABLE_WIDTH = 1050;
 const MENU_W = 176; // w-44
 const MENU_H = 96;  // 항목 2개 + 패딩 근사 — flip 판단에만 쓰므로 근사치로 충분하다(CostPopover 관례)
 
@@ -133,10 +136,9 @@ export function ContentTable({
   return (
     <section className="mt-8">
       {/* 표 자신의 머리줄 — 단계 필터 칩이 상위 툴바로 올라가면서(QA 4라운드) 정렬만 여기 남았다.
-          도움말과 같은 줄에 두어 표 위에 줄이 하나 더 늘지 않게 한다. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <p className="text-ui text-x-muted">밀린 콘텐츠가 맨 위에 와요 — 예정일·인플루언서·비용·단계는 칸을 눌러 바로 고칠 수 있어요. 행을 누르면 원고가 열려요.</p>
-        <label className="ml-auto flex shrink-0 items-center gap-1.5 text-ui text-x-secondary">
+          도움말 문장은 QA 5라운드에서 없앴다(오너 판단: 표를 몇 번 쓰면 저절로 알게 되는 것을 매번 보여줄 필요가 없다). */}
+      <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
+        <label className="flex shrink-0 items-center gap-1.5 text-ui text-x-secondary">
           정렬
           <select value={sort} onChange={(e) => onSortChange(e.target.value as ContentSortKey)} aria-label="콘텐츠 정렬"
                   className="h-8 rounded-md border border-x-border-strong bg-white px-2 text-ui outline-none focus:border-x-blue">
@@ -151,13 +153,13 @@ export function ContentTable({
         <div className="mt-3 w-full overflow-x-auto">
           <table className="table-fixed text-content" style={{ width: `max(${MIN_TABLE_WIDTH}px, 100%)` }}>
             <colgroup>
-              <col style={{ width: 110 }} /><col /><col style={{ width: 120 }} /><col style={{ width: 190 }} />
-              <col style={{ width: 120 }} /><col style={{ width: 130 }} /><col style={{ width: 180 }} />
+              <col style={{ width: 110 }} /><col /><col style={{ width: 110 }} /><col style={{ width: 180 }} />
+              <col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 170 }} />
             </colgroup>
             <thead>
               <tr className="border-b border-x-border text-left text-ui text-x-muted">
                 <th className={TH}>예정일</th><th className={TH}>콘텐츠</th><th className={TH}>유형</th><th className={TH}>인플루언서</th>
-                <th className={TH}>비용</th><th className={TH}>단계</th><th className={TH}>성과</th>
+                <th className={TH}>비용</th><th className={TH}>단계</th><th className={TH}>게시물</th><th className={TH}>성과</th>
               </tr>
             </thead>
             <tbody>
@@ -206,14 +208,20 @@ export function ContentTable({
                     <td className={TD}>
                       <span className="flex flex-col items-start gap-1">
                         <DraftStatusChip status={d.status} onChange={(s) => onChangeStatus(d, s)} />
-                        {d.published ? (
+                        {d.published && (
                           // 색은 PUBLISHED_STYLE(DraftStatusChip) 하나만 — 표·달력이 각자 색을 두면 같은 단계가 다르게 보인다(리뷰 반영).
                           <span className={`rounded-full border px-2 py-0.5 text-ui font-bold ${PUBLISHED_STYLE}`} title="연결된 게시물이 있어요 — 상태 값과 무관하게 게시됨으로 봐요">✓ 게시됨</span>
-                        ) : (
-                          <button type="button" onClick={() => onLinkPost(d)} className="text-ui text-x-blue-text hover:underline"
-                                  title="올라간 게시물 링크를 붙이면 게시됨으로 바뀌고 조회·좋아요가 잡혀요">게시물 연결</button>
                         )}
                       </span>
+                    </td>
+                    <td className={TD}>
+                      {/* '게시물 연결' 입구 — QA 5라운드에서 단계 칸에서 이 전용 칸으로 옮겼다(단계≠게시물 연결). */}
+                      {d.published ? (
+                        <span className="text-ui font-medium text-green-700">✓ 연결됨</span>
+                      ) : (
+                        <Button variant="subtle" onClick={() => onLinkPost(d)} className="inline-flex h-8 items-center px-3"
+                                title="올라간 게시물 링크를 붙이면 게시됨으로 바뀌고 조회·좋아요가 잡혀요">게시물 연결</Button>
+                      )}
                     </td>
                     <td className={TD}>
                       <span className="flex items-start justify-between gap-1">

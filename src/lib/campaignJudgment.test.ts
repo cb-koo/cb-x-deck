@@ -23,6 +23,7 @@ test('1) 날짜 산술 — 시간대 시프트 없음, 월요일 시작 주, 월
   assert.equal(weekStartOf(T), '2026-08-24');            // 목 → 월
   assert.equal(weekStartOf('2026-08-30'), '2026-08-24'); // 일 → 그 주 월(다음 주 아님)
   assert.equal(weekStartOf('2026-08-24'), '2026-08-24');
+  assert.equal(weekStartOf('2026-01-01'), '2025-12-29'); // 연 경계 — 새해 첫날이 목요일이라 월요일은 작년으로 넘어간다
   assert.deepEqual(weekDays('2026-08-24').at(-1), '2026-08-30');
   assert.equal(weekDays('2026-08-24').length, 7);
   assert.deepEqual(nextWeekRange(T), { startsOn: '2026-08-31', endsOn: '2026-09-06' });
@@ -64,6 +65,7 @@ test('4) 단계·밀림·기간 밖·준비 중 — 게시됨이 status를 이�
   assert.equal(matchesStageFilter(d({ status: 'delivered', published: true }), 'delivered'), false); // 게시됨은 전달됨 필터에 안 걸림
   assert.equal(matchesStageFilter(d({ status: 'delivered', published: true }), 'published'), true);
   assert.equal(matchesStageFilter(d({ status: 'unused' }), 'all'), true);
+  assert.equal(matchesStageFilter(d({ status: 'unused', published: true }), 'published'), false); // 미사용은 게시됨이어도 '게시됨' 필터에 안 걸림 — 요약과 같은 모집단
 });
 
 test('5) 요약 — N은 미사용 제외, 게시됨/전달됨/준비 중/밀림이 같은 모집단', () => {
@@ -73,6 +75,7 @@ test('5) 요약 — N은 미사용 제외, 게시됨/전달됨/준비 중/밀림
     d({ status: 'delivered', scheduledOn: '2026-08-26' }),        // 전달됨 + 밀림
     d({ status: 'delivered', published: true, scheduledOn: '2026-08-25' }), // 게시됨(밀림 아님)
     d({ status: 'unused', scheduledOn: '2026-08-20' }),           // 제외
+    d({ status: 'unused', published: true, scheduledOn: '2026-08-20' }), // 게시됐어도 미사용이면 제외
   ], T);
   assert.deepEqual(s, { total: 4, published: 1, delivered: 1, preparing: 2, overdue: 2 });
   assert.deepEqual(summarizeStages([], T), { total: 0, published: 0, delivered: 0, preparing: 0, overdue: 0 });
@@ -96,12 +99,13 @@ test('7) 기본 정렬 — 밀린 것 → 예정일 오름차순 → 예정일 �
     s({ status: 'unused', scheduledOn: '2026-08-01', createdAt: 'a' }),
     s({ scheduledOn: null, createdAt: 'b' }),
     s({ scheduledOn: '2026-08-29', createdAt: 'c' }),
-    s({ scheduledOn: '2026-08-25', createdAt: 'd' }),                 // 밀림
+    s({ scheduledOn: '2026-08-26', createdAt: 'd' }),                 // 밀림 — 예정일은 f보다 늦다(오름차순이면 f가 앞)
     s({ scheduledOn: '2026-08-28', createdAt: 'e' }),
-    s({ scheduledOn: '2026-08-26', published: true, createdAt: 'f' }), // 게시됨 — 밀림 아님, 예정일 순
+    s({ scheduledOn: '2026-08-20', published: true, createdAt: 'f' }), // 게시됨 — 밀림 아님, d보다 이른 예정일
   ];
+  // default(밀림 우선)와 scheduled(예정일 순수 오름차순)가 실제로 다른 순서를 낸다 — d와 f의 순서가 뒤바뀐다.
   assert.deepEqual(sortContent(rows, 'default', T).map((r) => r.createdAt), ['d', 'f', 'e', 'c', 'b', 'a']);
-  assert.deepEqual(sortContent(rows, 'scheduled', T).map((r) => r.createdAt), ['d', 'f', 'e', 'c', 'b', 'a']);
+  assert.deepEqual(sortContent(rows, 'scheduled', T).map((r) => r.createdAt), ['f', 'd', 'e', 'c', 'b', 'a']);
   const byInf = sortContent([s({ influencerHandle: 'Zed', createdAt: 'z' }), s({ influencerHandle: 'amy', createdAt: 'y' }), s({ createdAt: 'x' })], 'influencer', T);
   assert.deepEqual(byInf.map((r) => r.createdAt), ['y', 'z', 'x']); // 미배정은 뒤
   const byStage = sortContent([s({ status: 'delivered', createdAt: 'p' }), s({ status: 'draft', createdAt: 'q' }), s({ published: true, createdAt: 'r' })], 'stage', T);
@@ -135,13 +139,17 @@ test('8) 인플 목록 파생 — 소문자 합집합, 비용 행만 있어도 �
   assert.equal(lines[3].contentCount, 1);
   assert.deepEqual(campaignTotal(lines), { KRW: 381000, JPY: 100000 });
   assert.deepEqual(deriveInfluencers([{ influencerHandle: null, status: 'unused', cost: null }], []), []); // 미배정+미사용만이면 줄 없음
+  assert.deepEqual(campaignTotal([]), {});
+  assert.deepEqual(deriveInfluencers([], []), []);
 });
 
-test('9) 이름·코드 제안 — {클라} {M월 N주}, {영문 소문자}-{YYYYMMDD}, 영문 없으면 날짜만, 규칙 위반 문자 제거', () => {
-  assert.equal(suggestCampaignName('리프팅클리닉', '2026-08-24'), '리프팅클리닉 8월 4주');
+test('9) 이름·코드 제안 — {클라} {M월 N주}(그 주의 목요일 기준), {영문 소문자}-{YYYYMMDD}, 영문 없으면 날짜만, 규칙 위반 문자 제거', () => {
+  assert.equal(suggestCampaignName('리프팅클리닉', '2026-08-24'), '리프팅클리닉 8월 4주'); // 월, 그 주 목요일=8/27
   assert.equal(suggestCampaignName('  ', '2026-09-01'), '9월 1주');
   assert.equal(suggestCampaignName('A', '2026-08-07'), 'A 8월 1주');
-  assert.equal(suggestCampaignName('A', '2026-08-08'), 'A 8월 2주');
+  assert.equal(suggestCampaignName('A', '2026-08-08'), 'A 8월 1주'); // 토 — 8/7과 같은 주(목=8/6)라 주차도 같다
+  assert.equal(suggestCampaignName('A', '2026-08-31'), 'A 9월 1주'); // 월, 그 주 목요일=9/3 — 달이 넘어간다
+  assert.equal(suggestCampaignName('A', '2026-08-27'), 'A 8월 4주'); // 목요일 그 자체
   assert.equal(suggestCampaignCode('Lifting Clinic', '2026-08-24'), 'lifting-clinic-20260824');
   assert.equal(suggestCampaignCode('', '2026-08-24'), '20260824');
   assert.equal(suggestCampaignCode('클리닉', '2026-08-24'), '20260824'); // 비영문만이면 날짜만

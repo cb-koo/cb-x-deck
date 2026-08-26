@@ -2,7 +2,7 @@
 // 서버 요약(campaignStore)과 클라 표시(/campaigns·DraftCard)가 같은 함수를 쓴다(influencerJudgment 선례) —
 // 드리프트 = 카드마다 다른 숫자. DB 접근 없음. '오늘'은 인자(kstToday())로 받아 테스트가 결정적으로 검증한다.
 // 날짜는 전부 'YYYY-MM-DD'(datetime.ts의 date-only 계열) — 시간대 시프트를 하지 않는다.
-import { asDateOnly, dateOnlyMonthDay } from './datetime.ts';
+import { asDateOnly, dateOnlyMonthDay, type DateOnly } from './datetime.ts';
 import { STATUS_LABEL, type DraftStatus } from './draftStatus.ts';
 import { checkCampaign } from './trackingLink.ts';
 import { sumMoney, mergeMoney, type CostType, type DraftCost, type ExtraCost, type MoneyByCurrency } from './campaignCost.ts';
@@ -18,33 +18,42 @@ export function isDateOnlyString(v: unknown): v is string {
   return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === v;
 }
 // 'YYYY-MM-DD'를 UTC 자정으로 읽어 일수만 더한다 — 달력일 문자열의 산술일 뿐, 시간대 변환이 아니다(kstDayRange 관례).
-export function addDays(date: string, n: number): string {
-  return new Date(Date.parse(date + 'T00:00:00Z') + n * DAY_MS).toISOString().slice(0, 10);
+// 반환은 DateOnly — 이후 주 계산이 이 값을 다시 date-only 함수(weekRangeLabel 등)에 넘겨도 타입이 막아준다.
+export function addDays(date: string, n: number): DateOnly {
+  const t = Date.parse(date + 'T00:00:00Z');
+  // 파싱 불가한 입력이면 던지지 않고 빈 문자열로 — datetime.ts 규칙과 동일하게, 표의 셀마다 불리므로
+  // 던지면 표 전체 렌더가 죽는다. 셀 하나가 비는 것보다 나쁘다.
+  if (Number.isNaN(t)) return '' as DateOnly;
+  return asDateOnly(new Date(t + n * DAY_MS).toISOString().slice(0, 10));
 }
 export function daysBetweenDates(from: string, to: string): number {
   return Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / DAY_MS);
 }
 // 월요일 시작(한국 업무 주). getUTCDay는 일=0이라 (dow+6)%7이 월요일까지의 거리다.
-export function weekStartOf(date: string): string {
+export function weekStartOf(date: string): DateOnly {
   const dow = new Date(date + 'T00:00:00Z').getUTCDay();
   return addDays(date, -((dow + 6) % 7));
 }
-export function weekDays(weekStart: string): string[] {
+export function weekDays(weekStart: string): DateOnly[] {
   return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 }
 // 달력 초기 주 — 오늘이 기간 안이면 오늘의 주, 아니면 시작 주(스펙 §3-2 주간 달력)
-export function initialWeekStart(startsOn: string, endsOn: string, today: string): string {
+export function initialWeekStart(startsOn: string, endsOn: string, today: string): DateOnly {
   return weekStartOf(today >= startsOn && today <= endsOn ? today : startsOn);
 }
 // 새 캠페인 기본 기간 = 다음 월~일(스펙 §3-3)
-export function nextWeekRange(today: string): { startsOn: string; endsOn: string } {
+export function nextWeekRange(today: string): { startsOn: DateOnly; endsOn: DateOnly } {
   const startsOn = addDays(weekStartOf(today), 7);
   return { startsOn, endsOn: addDays(startsOn, 6) };
 }
 const DOW_KO = ['일', '월', '화', '수', '목', '금', '토'];
 /** '8/26 수' — 표 예정일 칸·달력 헤더·밀림 문구. M/D는 datetime.ts의 date-only 표기를 그대로 쓴다. */
 export function formatDateKo(date: string): string {
-  const dow = new Date(date + 'T00:00:00Z').getUTCDay();
+  // 단 한 번만 파싱해서 요일까지 뽑는다 — 두 번 파싱하면 하나는 성공하고 하나는 실패하는 경우
+  // '8/26 undefined'처럼 절반만 깨진 문구가 나올 수 있다.
+  const t = Date.parse(date + 'T00:00:00Z');
+  if (Number.isNaN(t)) return '';
+  const dow = new Date(t).getUTCDay();
   return `${dateOnlyMonthDay(asDateOnly(date))} ${DOW_KO[dow]}`;
 }
 
@@ -104,7 +113,9 @@ export const STAGE_FILTER_LABEL: Record<StageFilter, string> = {
 export function matchesStageFilter(d: StageInput, f: StageFilter): boolean {
   if (f === 'all') return true;
   if (f === 'preparing') return isPreparing(d);
-  if (f === 'published') return d.published;
+  // 미사용도 제외 — summarizeStages()의 published는 미사용을 아예 건너뛰고 센다.
+  // 요약 숫자와 필터 행 수가 같아야 한다(라벨-값 일치, §4 원칙).
+  if (f === 'published') return d.published && d.status !== 'unused';
   return !d.published && d.status === 'delivered';
 }
 
@@ -205,6 +216,8 @@ export function deriveInfluencers(drafts: CostInput[], costRows: CostRowInput[])
     b.row = r;
     byKey.set(k, b);
   }
+  // 전제: drafts·costRows는 같은 캠페인 소속(다른 캠페인이 섞이면 소계가 틀린다),
+  // 비용 행은 lower(handle)에 DB unique라 같은 핸들이 두 행으로 쪼개져 들어올 일이 없다.
   const lines: InfluencerLine[] = [];
   for (const [k, b] of byKey) {
     if (k === '' && b.drafts.length === 0) continue;
@@ -229,10 +242,14 @@ export function campaignTotal(lines: InfluencerLine[]): MoneyByCurrency {
 }
 
 // ─────────────────────────── 이름·코드 제안(§2-1) ───────────────────────────
-// '{클라} {M월 N주}' — N주 = 시작일이 그 달의 몇 번째 7일 구간인지(1~5). 제안일 뿐, 모달에서 수정한다.
+// '{클라} {M월 N주}' — 캠페인 첫 주(월~일, startsOn을 포함하는 주)의 목요일로 월/주차를 정한다.
+// 시작일(또는 그 주의 월요일) 자체를 기준으로 삼으면, 다음 주 월요일이 그 달 29~31일에
+// 떨어지는 달이 잦아 달력일 기준이 실무에서 부르는 주차 표기와 어긋난다 — 그 주의 '무게 중심'인
+// 목요일을 쓰면 어느 요일에 시작해도 같은 주는 항상 같은 라벨을 받는다.
 export function suggestCampaignName(clientName: string, startsOn: string): string {
-  const month = Number(startsOn.slice(5, 7));
-  const week = Math.floor((Number(startsOn.slice(8, 10)) - 1) / 7) + 1;
+  const thursday = addDays(weekStartOf(startsOn), 3);
+  const month = Number(thursday.slice(5, 7));
+  const week = Math.floor((Number(thursday.slice(8, 10)) - 1) / 7) + 1;
   const base = `${month}월 ${week}주`;
   const name = clientName.trim();
   return name ? `${name} ${base}` : base;

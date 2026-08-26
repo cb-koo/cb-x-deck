@@ -10,6 +10,8 @@ import {
   renameInfluencer, addManualLog, deleteManualLog, insertAutoLog, listOptions,
   updatePricing, saveAnalysis,
 } from './influencerStore.ts';
+import { createClient } from './clientStore.ts';
+import { createCampaign, upsertInfluencerCost } from './campaignStore.ts';
 
 const sql = getSql();
 // 핸들 접두어 — 병렬 실행/실 DB 오염 방지. 소문자로 시작해야 lower 정리 쿼리가 맞아떨어진다.
@@ -19,6 +21,8 @@ const content: DraftContent = { posts: [{ text: '正直迷ってた。\n\nでも
 after(async () => {
   await sql`delete from draft where lower(influencer_handle) like ${P.toLowerCase() + '%'}`;
   await sql`delete from draft where direction like ${P + '%'}`;
+  await sql`delete from campaign where name like ${P + '%'}`;                   // 비용 행(campaign_influencer_cost)은 cascade
+  await sql`delete from client where name like ${P + '%'}`;
   await sql`delete from influencer where lower(handle) like ${P.toLowerCase() + '%'}`; // 로그는 cascade
   await sql.end();
 });
@@ -311,4 +315,110 @@ test('10) saveAnalysis: 저장·조회 왕복', async () => {
   const detail = await getInfluencerDetail(sql, row.id);
   assert.deepEqual(detail!.analysis, analysis);
   assert.ok(detail!.analyzedAt);
+});
+
+// ── 캠페인 연결(캠페인 스펙 §2-5·§5) ──
+const mkCampaign = (clientId: string, clientName: string, suffix: string) => createCampaign(sql, {
+  clientId, clientName, name: P + '캠페인' + suffix, nameEn: `${P.toLowerCase()}-${suffix}`,
+  startsOn: '2026-08-24', endsOn: '2026-08-30', kind: null, note: '', createdBy: null,
+});
+type CicRow = { influencer_handle: string; extra_costs: unknown; note: string };
+const cicOf = (campaignId: string) => sql<CicRow[]>`
+  select influencer_handle, extra_costs, note from campaign_influencer_cost where campaign_id = ${campaignId}`;
+
+test('12) renameInfluencer: 캠페인 추가 비용 행도 새 핸들로 이관(단순 이동) + 참여 캠페인 조회가 새 핸들로 이어진다', async () => {
+  const from = P + 'CostOld';
+  const to = P + 'CostNew';
+  const { row } = await createInfluencer(sql, { handle: from, createdBy: null });
+  assert.deepEqual((await getInfluencerDetail(sql, row.id))!.campaigns, []);   // 참여 전엔 빈 배열(null 아님)
+
+  const c = await createClient(sql, P + '클라a');
+  const camp = await mkCampaign(c.id, c.name, 'a');
+  // 표기가 달라도(대문자) lower 기준으로 같은 사람의 행이다
+  await upsertInfluencerCost(sql, camp.id, from.toUpperCase(), {
+    extraCosts: [{ label: '교통비', amount: 20000, currency: 'KRW' }], note: '옛 메모',
+  });
+
+  await renameInfluencer(sql, { influencerId: row.id, from, to, actorId: null });
+
+  const rows = await cicOf(camp.id);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].influencer_handle, to);                                   // 표기는 새 핸들 그대로
+  assert.deepEqual(rows[0].extra_costs, [{ label: '교통비', amount: 20000, currency: 'KRW' }]);
+  assert.equal(rows[0].note, '옛 메모');
+  assert.equal((await sql`select id from campaign_influencer_cost where lower(influencer_handle) = ${from.toLowerCase()}`).length, 0);
+
+  const detail = await getInfluencerDetail(sql, row.id);
+  assert.deepEqual(detail!.campaigns.map((x) => x.id), [camp.id]);
+  assert.equal(detail!.campaigns[0].contentCount, 0);                            // 원고 없이 비용만 — "배정 원고 없음"
+  assert.deepEqual(detail!.campaigns[0].subtotal, { KRW: 20000 });
+});
+
+test('13) renameInfluencer: 같은 캠페인에 옛·새 핸들 행이 둘 다 있으면 병합 — extra_costs는 새 뒤에 옛, note는 새가 비었을 때만 옛, 옛 행 삭제', async () => {
+  const from = P + 'MergeOld';
+  const to = P + 'MergeNew';
+  const { row } = await createInfluencer(sql, { handle: from, createdBy: null });
+  const c = await createClient(sql, P + '클라b');
+  const campA = await mkCampaign(c.id, c.name, 'b');
+  const campB = await mkCampaign(c.id, c.name, 'c');
+  const campC = await mkCampaign(c.id, c.name, 'd');
+  // A: 둘 다 있음 · 새 행 note 비어 있음 → 옛 note 승계
+  await upsertInfluencerCost(sql, campA.id, from, { extraCosts: [{ label: '옛항목', amount: 1000, currency: 'KRW' }], note: '옛 메모' });
+  await upsertInfluencerCost(sql, campA.id, to, { extraCosts: [{ label: '새항목', amount: 2000, currency: 'JPY' }] });
+  // B: 둘 다 있음 · 새 행 note 있음 → 새 note 유지
+  await upsertInfluencerCost(sql, campB.id, from, { note: '옛 메모', extraCosts: [{ label: '선물', amount: 300, currency: 'KRW' }] });
+  await upsertInfluencerCost(sql, campB.id, to, { note: '새 메모' });
+  // C: 옛 행만 → 단순 이관(병합 로직이 이걸 건드리면 안 된다)
+  await upsertInfluencerCost(sql, campC.id, from, { note: 'C만' });
+  // D: 둘 다 있음 · 새 행이 to와 다른 대소문자로 저장돼 있어도 병합 UPDATE가 살아남는 행의 표기를
+  //    canonical to로 맞춘다(리뷰 Minor 2 — 병합 경로도 단순 이동 경로와 표기 규칙이 같아야 한다)
+  const campD = await mkCampaign(c.id, c.name, 'f');
+  await upsertInfluencerCost(sql, campD.id, from, { note: 'D옛' });
+  await upsertInfluencerCost(sql, campD.id, to.toUpperCase(), { note: 'D새' });
+
+  await renameInfluencer(sql, { influencerId: row.id, from, to, actorId: null });   // unique 위반 없이 끝나야 한다
+
+  const a = await cicOf(campA.id);
+  assert.equal(a.length, 1);
+  assert.equal(a[0].influencer_handle, to);
+  assert.deepEqual(a[0].extra_costs, [
+    { label: '새항목', amount: 2000, currency: 'JPY' }, { label: '옛항목', amount: 1000, currency: 'KRW' },
+  ]);
+  assert.equal(a[0].note, '옛 메모');
+
+  const b = await cicOf(campB.id);
+  assert.equal(b.length, 1);
+  assert.equal(b[0].influencer_handle, to);
+  assert.deepEqual(b[0].extra_costs, [{ label: '선물', amount: 300, currency: 'KRW' }]);   // 새 행 [] 뒤에 옛 것
+  assert.equal(b[0].note, '새 메모');
+
+  const cc = await cicOf(campC.id);
+  assert.equal(cc.length, 1);
+  assert.equal(cc[0].influencer_handle, to);
+  assert.equal(cc[0].note, 'C만');
+
+  const d = await cicOf(campD.id);
+  assert.equal(d.length, 1);
+  assert.equal(d[0].influencer_handle, to, '병합 경로도 살아남는 행의 표기를 canonical to로 맞춘다');
+  assert.equal(d[0].note, 'D새');
+
+  assert.equal((await sql`select id from campaign_influencer_cost where lower(influencer_handle) = ${from.toLowerCase()}`).length, 0);
+  // 참여 캠페인은 4개, 소계는 병합 후 값
+  const detail = await getInfluencerDetail(sql, row.id);
+  assert.equal(detail!.campaigns.length, 4);
+  assert.deepEqual(detail!.campaigns.find((x) => x.id === campA.id)!.subtotal, { KRW: 1000, JPY: 2000 });
+});
+
+test('14) renameInfluencer: 표기만 바뀌면(소문자 기준 같음) 병합 없이 표기만 — extra_costs가 두 배가 되지 않는다', async () => {
+  const from = P + 'casehandle';
+  const to = P + 'CaseHandle';
+  const { row } = await createInfluencer(sql, { handle: from, createdBy: null });
+  const c = await createClient(sql, P + '클라c');
+  const camp = await mkCampaign(c.id, c.name, 'e');
+  await upsertInfluencerCost(sql, camp.id, from, { extraCosts: [{ label: '교통비', amount: 1, currency: 'KRW' }] });
+  await renameInfluencer(sql, { influencerId: row.id, from, to, actorId: null });
+  const rows = await cicOf(camp.id);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].influencer_handle, to);
+  assert.deepEqual(rows[0].extra_costs, [{ label: '교통비', amount: 1, currency: 'KRW' }]);
 });

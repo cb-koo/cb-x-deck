@@ -73,6 +73,11 @@ export function kstDaysAgo(n: number, now: () => number = Date.now): string {
   return toKstIso(new Date(now() - n * 86_400_000).toISOString()).slice(0, 10);
 }
 
+/** 주어진 한국 날짜(YYYY-MM-DD)의 00:00이 가리키는 순간 — 사용자가 고른 기간을 SQL 경계로 넘길 때 쓴다. */
+export function kstDayStart(kstYmd: string): Date {
+  return kstMidnightInstant(kstYmd);
+}
+
 /** 오늘 00:00(한국)이 가리키는 순간. SQL 경계로 넘길 때 쓴다. */
 export function kstTodayStart(now: () => number = Date.now): Date {
   return kstMidnightInstant(kstToday(now));

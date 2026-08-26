@@ -13,11 +13,13 @@ import { addSlot, removeSlot } from '@/lib/draftFormat';
 // 편집 모달의 칸 추가·삭제·이미지는 전부 기존 draft.id로 즉시 PATCH하는 구조인데, 여기엔 아직
 // 초안이 없다. 그래서 칸 구조는 순수 로컬 상태이고(addSlot/removeSlot 재사용), 이미지는 아예 없다
 // (업로드가 draft.id를 요구한다 — 저장 후 카드에서 붙인다). 닫으면 아무것도 남지 않는다.
-export function DraftWriteModal({ clientId, clientName, procedureNames, procedureIds, onClose, onSaved }: {
+export function DraftWriteModal({ clientId, clientName, procedureNames, procedureIds, campaignId, campaignName, onClose, onSaved }: {
   clientId: string | null;
   clientName: string | null;      // 표시용 — 모달이 clients 배열을 뒤지지 않게 이름만 받는다
   procedureNames: string[];       // 표시용
   procedureIds: string[];         // 저장용
+  campaignId: string | null;      // /generate?campaign= 배너가 켜져 있으면 그 캠페인 소속으로 저장(캠페인 스펙 §4-1)
+  campaignName: string | null;    // 표시용 — 승계 조건 줄에 "어느 캠페인에 들어가는지"가 저장 전에 보여야 한다
   onClose: () => void;
   onSaved: (created: DraftRow) => void;
 }) {
@@ -30,8 +32,8 @@ export function DraftWriteModal({ clientId, clientName, procedureNames, procedur
   // 저장된 적이 없으므로 dirty = "무언가 쓰여 있다". 빈 칸만 늘린 상태는 잃을 것이 없어 확인하지 않는다.
   const dirty = texts.some((t) => t.trim().length > 0) || title.trim().length > 0;
   // 컴포저에서 승계한 조건 — 어디 소속으로 저장되는지 저장 전에 보여야 한다(설계 §B, AGENTS 원칙 2).
-  // 클라이언트가 없으면 아무것도 그리지 않는다: '연결 없음'을 말해봐야 지금 할 일이 달라지지 않는다.
-  const scope = clientName ? [clientName, ...procedureNames].join(' · ') : null;
+  // 클라이언트도 캠페인도 없으면 아무것도 그리지 않는다: '연결 없음'을 말해봐야 지금 할 일이 달라지지 않는다.
+  const scope = [campaignName ? `${campaignName} 캠페인` : null, clientName, ...procedureNames].filter(Boolean).join(' · ') || null;
 
   // 편집 모달과 같은 관례(✕·Esc·배경 클릭 모두 확인 대상)지만 문구는 다르다 —
   // 여기서 닫으면 '저장 안 된 수정'이 아니라 원고 자체가 사라진다.
@@ -59,6 +61,7 @@ export function DraftWriteModal({ clientId, clientName, procedureNames, procedur
         // 빈 제목은 아예 싣지 않는다 — 목록 라벨은 본문 첫 줄로 폴백한다(draftLabel)
         ...(title.trim() ? { title: title.trim() } : {}),
         clientId, procedureIds,
+        ...(campaignId ? { campaignId } : {}),   // 없으면 키 자체를 싣지 않는다(undefined = 소속 없음)
       }),
     });
     setSaving(false);

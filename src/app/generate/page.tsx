@@ -28,6 +28,10 @@ import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { ReferenceRow } from '@/lib/referenceStore';
 import type { DraftStatus } from '@/lib/draftStatus';
 import type { InfluencerOption, DraftContent } from '@/lib/draftTypes';
+import type { CampaignRow } from '@/lib/campaignStore';
+import { fetchCampaigns } from '@/lib/campaignApi';
+import type { DraftCost } from '@/lib/campaignCost';
+import { kstToday } from '@/lib/datetime';
 
 const COMPOSER_KEY = 'cbx-composer'; // 직전 설정 유지 (스펙 §4 "바꾸기 — 직전 값 유지")
 // 보기 방식 — 렌즈(필터)와 달리 작업 방식 선호라 저장한다 (스펙 2차 §확정 결정)
@@ -57,7 +61,7 @@ function Workbench() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [addLinkOpen, setAddLinkOpen] = useState(false); // 진입점 C: 패널의 '링크로 추가' (스펙 §B)
   const [previewRefId, setPreviewRefId] = useState<string | null>(null); // 칩 미리보기 — row는 refRows에서 파생(스펙 §D)
-  const [filter, setFilter] = useState<DraftListFilter>({ status: 'all', clientId: '' });
+  const [filter, setFilter] = useState<DraftListFilter>({ status: 'all', clientId: '', campaignId: '' });
   // 신규 렌즈 3축 — 기존 필터와 동일하게 세션 한정(저장 안 함) (6차 스펙)
   const [query, setQuery] = useState('');
   const [procFilter, setProcFilter] = useState(''); // 시술명, '' = 전체
@@ -94,6 +98,14 @@ function Workbench() {
   // 칸반에서 방금 옮긴 카드 — 세션 한정. 열은 최신순 정렬 + 상위 N장만 그리므로, 오래된 원고를
   // 옮기면 정렬에 밀려 화면에서 사라진다. 그 카드를 열 맨 위에 세워 "옮겼는데 없어졌다"를 막는다(설계 §H).
   const [pinnedIds, setPinnedIds] = useState<ReadonlySet<string>>(new Set());
+  // 캠페인 — 목록은 카드 캠페인 칸·표 열·필터의 소스, campaignCtx는 ?campaign= 진입 시 "이 캠페인에 추가 중" 컨텍스트(캠페인 스펙 §4-1)
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [campaignsLoaded, setCampaignsLoaded] = useState(false);
+  const [campaignsError, setCampaignsError] = useState<string | null>(null); // 로드 실패 원인 — 딥링크가 이걸 '삭제됨'과 구분한다
+  const [campaignCtx, setCampaignCtx] = useState<CampaignRow | null>(null);
+  const campaignLinkDone = useRef(false); // ?campaign= 소비 표시 — 클라·캠페인 목록이 다 온 뒤 1회만
+  // '오늘'(서울)은 마운트 시 한 번 — 카드의 밀림 판정 기준. 렌더마다 시계를 읽지 않는다(react-hooks/purity)
+  const [today] = useState(() => kstToday());
   const rootRef = useRef<HTMLDivElement | null>(null);
   // 좌패널 풋터에서 생성하면 우측이 스크롤된 상태일 수 있어 결과가 소리 없이 화면 밖에 놓이지 않게 하기 위함(T11 계열)
   const resultsRef = useRef<HTMLDivElement | null>(null);
@@ -182,6 +194,14 @@ function Workbench() {
     // 여기서 토스트를 띄우면, 쓸 수 있는 걸 못 쓰는 것처럼 보이게 만든다 (스펙 §G).
     apiFetch('/api/drafts/influencers').then((r) => (r.ok ? r.json() : [])).catch(() => [])
       .then((inf) => setInfluencerOptions(Array.isArray(inf) ? inf : []));
+
+    // 캠페인 목록 — 카드 캠페인 칸·표 열·필터의 소스. 실패해도 원고 열람은 막지 않는다(캠페인 칸이 '없음'만 보인다).
+    fetchCampaigns().then((r) => {
+      // 로드 실패도 '완료'로 쳐서 딥링크가 영원히 대기하지 않게 한다 — !ok를 '완료' 밖에 두면
+      // ?campaign= 진입이 campaignsLoaded를 영원히 기다리다 아무 반응도 없이 멈춘다.
+      if (r.ok) setCampaigns(r.data); else setCampaignsError(r.error);
+      setCampaignsLoaded(true);
+    }).catch(() => {}); // unauthorized는 apiFetch가 이미 /login으로 리다이렉트한다 — 여기선 더 할 일이 없다
   }, []);
   useEffect(() => () => { if (pollTimer.current) clearInterval(pollTimer.current); }, []);
   const updateComposer = useCallback((v: ComposerState) => {
@@ -269,22 +289,61 @@ function Workbench() {
     if (url.toString() !== window.location.href) window.history.replaceState(null, '', url);
   }, [peekId, deeplinkDone]);
 
+  // 진입점 D: /generate?campaign=<id> — 캠페인 화면 [+ 원고 추가 → 새로 만들기]에서 진입(캠페인 스펙 §4-1).
+  // 클라를 자동 선택하고 배너를 켠다; 이 상태에서 만든 원고(생성·직접 쓰기)는 campaignId가 실려 그 캠페인 소속으로 저장된다.
+  // 클라·캠페인 목록이 둘 다 온 뒤 1회만 — composer.clientId를 세팅하려면 그 클라가 목록에 있어야 한다(유령 클라 정리 이펙트와 순서 충돌 방지).
+  useEffect(() => {
+    if (campaignLinkDone.current || !clientsLoaded || !campaignsLoaded) return;
+    const target = searchParams.get('campaign');
+    if (!target) return;
+    campaignLinkDone.current = true;
+    const row = campaigns.find((c) => c.id === target);
+    if (!row) {
+      // 로드 자체가 실패했으면 '삭제됐을 수 있어요'로 오진하지 않는다 — 원인은 목록을 못 받은 것이다(리뷰 Important)
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 이 이펙트의 setState 일괄(효과 안 첫 호출만 검사) — 두 로드가 끝난 뒤 1회
+      if (campaignsError) { setToast(`캠페인 목록을 불러오지 못했어요 — ${campaignsError}`); return; }
+      setToast('링크가 가리키는 캠페인을 찾을 수 없어요 — 삭제됐을 수 있어요');
+      // 없는 id로 남으면 새로고침마다 같은 토스트가 뜬다 — 주소에서 지운다(?draft= replaceState와 같은 관례).
+      // 컨텍스트가 성공적으로 걸린 경우는 주소를 그대로 둔다(?ref= 관례 — 성공한 딥링크는 주소를 지우지 않는다).
+      const url = new URL(window.location.href);
+      url.searchParams.delete('campaign');
+      window.history.replaceState(null, '', url);
+      return;
+    }
+    setCampaignCtx(row);
+    setFilter((f) => ({ ...f, campaignId: row.id }));
+    if (row.clientId && clients.some((c) => c.client.id === row.clientId)) {
+      setComposer((cur) => (cur.clientId === row.clientId ? cur : { ...cur, clientId: row.clientId, procedureIds: [] }));
+    }
+    if (!panelOpenRef.current) setPanelPref('open');   // 만들러 왔으니 생성 패널을 펼친다(?ref=와 같은 규칙)
+  }, [searchParams, clientsLoaded, campaignsLoaded, campaigns, clients, campaignsError]);
+
+  // 배너 [해제] — 컨텍스트와 필터를 풀고 주소에서도 지운다(?draft= 동기화와 같은 replaceState 관례 — 라우터 리렌더 없이 주소만).
+  function clearCampaignCtx() {
+    setCampaignCtx(null);
+    setFilter((f) => ({ ...f, campaignId: '' }));
+    const url = new URL(window.location.href);
+    url.searchParams.delete('campaign');
+    window.history.replaceState(null, '', url);
+  }
+
   const selectedRefIds = useMemo(() => refRows.map((x) => x.tweetId), [refRows]);
 
   const clientScoped = useMemo(
-    () => filterDrafts(drafts, { status: 'all', clientId: filter.clientId }), [drafts, filter.clientId]);
+    () => filterDrafts(drafts, { status: 'all', clientId: filter.clientId, campaignId: filter.campaignId }),
+    [drafts, filter.clientId, filter.campaignId]);
   // 클라이언트 → (시술·기간·검색) → 상태 탭 순으로 좁힌다. 칸반은 상태만 무시하므로 scoped를 쓴다.
   const scoped = useMemo(
     () => applyPeriod(filterByProcedure(searchDrafts(clientScoped, query), procFilter), period, Date.now()),
     [clientScoped, query, procFilter, period]);
   const visibleDrafts = useMemo(
-    () => filterDrafts(scoped, { status: filter.status, clientId: '' }), [scoped, filter.status]);
+    () => filterDrafts(scoped, { status: filter.status, clientId: '', campaignId: '' }), [scoped, filter.status]);
   // 조건(필터·검색·시술·기간·뷰)이 바뀌면 표시 개수를 처음으로 되돌린다. 새 조건에서 이전에
   // 늘려둔 개수가 남으면 "왜 이만큼 보이지"가 설명되지 않는다(설계 §C).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 조건 변경 시 1회 리셋(옵션-선택 리셋과 같은 관례)
     setShownCount(PAGE_STEP);
-  }, [filter.status, filter.clientId, query, procFilter, period, view]);
+  }, [filter.status, filter.clientId, filter.campaignId, query, procFilter, period, view]);
   // 표는 정렬한 뒤에 자른다 — 순서가 뒤바뀌면 "최근 50건만 정렬한 결과"를 전체 정렬로 읽게 된다(설계 §D).
   // 카드 뷰는 정렬 개념이 없어 목록 순서(최신순) 그대로 자른다.
   const orderedDrafts = useMemo(
@@ -334,10 +393,12 @@ function Workbench() {
       filterByProcedure(searchDrafts(filterDrafts(created, L.filter), L.query), L.procFilter),
       L.period, Date.now()).length > 0;
     if (!visible) {
-      setFilter({ status: 'all', clientId: '' });
+      // 배너(campaignCtx)가 켜져 있으면 표 축도 그 캠페인에 묶어 둔다 — 배너가 "이 캠페인에 추가 중"인데
+      // 표 필터가 전체로 풀리면 방금 만든 원고가 뒤섞여 어디 갔는지 헷갈린다(배너-표 축 결합, 캠페인 스펙 §4-3).
+      setFilter({ status: 'all', clientId: '', campaignId: campaignCtx ? campaignCtx.id : '' });
       setQuery(''); setProcFilter(''); setPeriod({ kind: 'preset', preset: 'all' });
     }
-  }, []);
+  }, [campaignCtx]);
 
   async function generate() {
     if (generating) return;
@@ -355,6 +416,7 @@ function Workbench() {
         mode: refRows.length > 0 ? composer.mode : 'off',
         direction: composer.direction, format: composer.format,
         count: composer.count,
+        ...(campaignCtx ? { campaignId: campaignCtx.id } : {}),   // 배너가 켜져 있으면 그 캠페인 소속으로
       };
       const r = await apiFetch('/api/drafts', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ac.signal,
@@ -546,6 +608,40 @@ function Workbench() {
     });
   }
 
+  // 캠페인 소속·예정일·비용 — 카드 캠페인 칸(DraftCard campaign prop)에서. assignInfluencer와 같은 모양.
+  // 값은 하나(§2-5): 캠페인 화면이 같은 컬럼을 보므로 여기서 바꾼 것이 그대로 그쪽에 나타난다.
+  function changeCampaign(d: DraftRow, campaignId: string | null) {
+    const camp = campaignId ? campaigns.find((c) => c.id === campaignId) ?? null : null;
+    const prev = { campaignId: d.campaignId, campaignName: d.campaignName, campaignCode: d.campaignCode };
+    const next = { campaignId, campaignName: camp?.name ?? null, campaignCode: camp?.nameEn ?? null };
+    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, ...next } : x)));
+    void patchDraft(d.id, { campaignId }).then((updated) => {
+      // 이 요청이 세팅한 값이 아직 표시 중일 때만 되돌린다 — 연속 변경 시 뒤 갱신을 덮지 않도록
+      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.campaignId === campaignId ? { ...x, ...prev } : x)));
+    });
+  }
+  function changeScheduledOn(d: DraftRow, scheduledOn: string | null) {
+    const prev = d.scheduledOn;
+    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, scheduledOn } : x)));
+    void patchDraft(d.id, { scheduledOn }).then((updated) => {
+      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.scheduledOn === scheduledOn ? { ...x, scheduledOn: prev } : x)));
+    });
+  }
+  function changeCost(d: DraftRow, cost: DraftCost | null) {
+    const prev = d.cost;
+    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, cost } : x)));
+    void patchDraft(d.id, { cost }).then((updated) => {
+      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.cost === cost ? { ...x, cost: prev } : x)));
+    });
+  }
+  // 두 DraftCard 호출부(카드 뷰·피크)가 같은 객체 모양을 넘긴다 — 한 곳에서 만든다
+  const cardCampaign = (d: DraftRow) => ({
+    options: campaigns, today,
+    onChange: (id: string | null) => changeCampaign(d, id),
+    onChangeScheduledOn: (next: string | null) => changeScheduledOn(d, next),
+    onChangeCost: (next: DraftCost | null) => changeCost(d, next),
+  });
+
   // 일괄 변경 — 개별 patchDraft를 N번 부르지 않는다(설계 §B). 50건을 고르면 커넥션 50개가 동시에
   // 붙는데, 이 저장소는 이미 커넥션 고갈로 목록이 비는 회귀를 겪었다. 컬렉션 PATCH 한 번으로 끝낸다.
   // 롤백은 changeStatus·assignInfluencer와 같은 계열의 조건부 롤백이다(설계 §화면). 전체 스냅샷으로
@@ -680,6 +776,13 @@ function Workbench() {
 
       {/* 우: 결과 영역 — 필터 헤더는 스크롤 밖 고정 행 (Dense Scan List) */}
       <div className="flex min-w-0 flex-1 flex-col lg:min-h-0">
+        {/* 원고가 0건이어도 보여야 한다 — 만들러 온 상태라 "지금 만드는 것이 어디로 가는지"가 먼저다 */}
+        {campaignCtx && (
+          <div role="status" className="flex flex-wrap items-center gap-2 border-b border-x-blue/30 bg-x-blue/5 px-4 py-2 text-ui text-x-blue-text">
+            <span><b>{campaignCtx.name}</b> 캠페인에 추가 중 — 지금 만드는 원고(생성·직접 쓰기)는 이 캠페인에 들어가요</span>
+            <button onClick={clearCampaignCtx} className="ml-auto rounded-full border border-x-blue/40 px-2.5 py-0.5 text-ui hover:bg-white">해제</button>
+          </div>
+        )}
         {loaded && drafts.length > 0 && (
           <div className="border-b border-x-border bg-x-surface px-4 py-2">
             {/* 1행 — 무엇을 보나: 뷰 | 상태 | 클라이언트 (GitLab·Notion 관례: 모드와 필터의 레이어 분리) */}
@@ -699,9 +802,14 @@ function Workbench() {
                 {/* 전체 탭 건수도 검색·시술·기간 반영 — counts와 같은 집합이어야 라벨-값 일치(6차 리뷰 High) */}
                 <DraftFilterBar counts={counts} total={scoped.length} filter={filter}
                                 clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
+                                campaigns={campaigns.map((c) => ({ id: c.id, name: c.name }))}
                                 onChange={setFilter} showStatusTabs={view !== 'kanban'} />
               </div>
             </div>
+            {campaignsError && (
+              // 캠페인 select가 비어 보이는 이유를 알려준다 — 안 그러면 "캠페인이 하나도 없나?"로 오해한다(리뷰 Important)
+              <p className="mt-1 text-[13px] text-x-secondary">캠페인 목록을 못 불러왔어요 — 새로고침해 주세요</p>
+            )}
             {/* 2행 — 어떻게 좁히나: 검색(최광폭)·시술·기간 (필터 초과분은 둘째 줄+구분선 — GitLab) */}
             <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-x-border pt-2">
               <input type="search" value={query} onChange={(e) => setQuery(e.target.value)}
@@ -777,7 +885,8 @@ function Workbench() {
                        onAssignInfluencer={(next) => assignInfluencer(d, next)}
                        onSaveMedia={(next) => saveDraftMedia(d, next)}
                        mediaDropNotice={mediaDrop?.draftId === d.id ? mediaDrop.notice : null}
-                       onDismissMediaDrop={() => setMediaDrop(null)} />
+                       onDismissMediaDrop={() => setMediaDrop(null)}
+                       campaign={cardCampaign(d)} />
           ))}
           {view === 'cards' && (
             <div className="w-full max-w-[600px]">
@@ -840,7 +949,8 @@ function Workbench() {
                        onAssignInfluencer={(next) => assignInfluencer(peeked, next)}
                        onSaveMedia={(next) => saveDraftMedia(peeked, next)}
                        mediaDropNotice={mediaDrop?.draftId === peeked.id ? mediaDrop.notice : null}
-                       onDismissMediaDrop={() => setMediaDrop(null)} />
+                       onDismissMediaDrop={() => setMediaDrop(null)}
+                       campaign={cardCampaign(peeked)} />
           </div>
         </div>
       )}
@@ -856,6 +966,7 @@ function Workbench() {
       {writeOpen && (
         <DraftWriteModal clientId={composer.clientId} procedureIds={composer.procedureIds}
                          clientName={writeScope.clientName} procedureNames={writeScope.procedureNames}
+                         campaignId={campaignCtx?.id ?? null} campaignName={campaignCtx?.name ?? null}
                          onClose={() => setWriteOpen(false)}
                          onSaved={(row) => {
                            setDrafts((cur) => [row, ...cur]);

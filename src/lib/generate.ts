@@ -7,6 +7,7 @@ import { getPromptOverrides } from './promptSettings.ts';
 import { insertDraft, getDraft, updateDraft, draftVersionHash, type DraftRow, type DraftTranslation } from './draftStore.ts';
 import { translateDraftPosts } from './translateDraft.ts';
 import { X_MAX_WEIGHTED } from './xLength.ts';
+import { CLIENT_NOT_FOUND_MESSAGE } from './campaignInput.ts';
 import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
 
 export const CONTENT_MODEL = () => process.env.CONTENT_MODEL ?? 'claude-opus-5';
@@ -27,6 +28,7 @@ export interface GenerateRequest {
   mode: ReferenceMode; direction: string; format: DraftFormat;
   constraintsOn: boolean; memberId: string | null;
   count?: number; // 시안 수 (1~5, 기본 1) — 라우트가 범위 검증
+  campaignId?: string | null; // /generate?campaign= 경로 — 만든 시안 전부 그 캠페인 소속(스펙 §4-1). 라우트가 존재까지 검증한 값
 }
 
 export async function generateDraft(
@@ -48,7 +50,7 @@ export async function generateDraft(
 
   // 재료 로드
   const clientData = req.clientId ? await getClientWithProcedures(sql, req.clientId) : null;
-  if (req.clientId && !clientData) throw new GenerateInputError('클라이언트를 찾을 수 없어요 — 목록을 새로고침해 주세요');
+  if (req.clientId && !clientData) throw new GenerateInputError(CLIENT_NOT_FOUND_MESSAGE);
   const procedures = (clientData?.procedures ?? []).filter((p) => req.procedureIds.includes(p.id));
   const refRows = hasRefs ? await getReferencesByIds(sql, req.refTweetIds) : [];
   const refs: RefSnapshot[] = refRows.map((r) => ({
@@ -121,6 +123,7 @@ export async function generateDraft(
     translation: glossOf(i),
     koTitle: glosses[i]?.title ?? null,
     koTitleHash: glosses[i]?.title ? draftVersionHash(variants[i].posts) : null,
+    campaignId: req.campaignId ?? null,
   });
   // 배치는 한 단위 — 중간 실패 시 고아 부분 배치가 남지 않게 트랜잭션. 단일 생성은 기존 경로 그대로.
   if (!batchId) return [await insertOne(sql, 0)];

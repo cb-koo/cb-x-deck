@@ -6,6 +6,7 @@ import type { UserInfo } from './getxapi.ts';
 import { draftVersionHash } from './draftStore.ts';
 import { diffPricing, mergePricing, type Pricing, type PricingChange } from './influencerPricing.ts';
 import type { ContentType, TopicStat } from './analysisStats.ts';
+import { listInfluencerCampaigns, type InfluencerCampaignItem } from './campaignStore.ts';
 
 // 기록 채널 — 수동 한 줄 기록이 "어디서 오간 이야기인지" (스펙 §2)
 export type InfluencerChannel = 'dm' | 'line' | 'email' | 'other';
@@ -57,6 +58,9 @@ export interface InfluencerDetail {
   draftStatusCounts: Partial<Record<DraftStatus, number>>;  // 파생: lower 조인 group by status, 전체 기준(50건 롤업과 별개)
   // 단가·분석은 상세에만 싣는다 — 목록(InfluencerRow)까지 실으면 payload가 불필요하게 커진다.
   pricing: Pricing; analysis: InfluencerAnalysis | null; analyzedAt: string | null;
+  // 참여 캠페인(캠페인 스펙 §5) — 원고가 배정됐거나 추가 비용 행이 있는 캠페인, 시작일 내림차순. 조회만, 로그 없음.
+  // 상세에 싣는 이유: 프로필이 한 번의 GET으로 그려지고(탭 3개가 같은 data), 새 라우트·fetch를 만들 필요가 없다.
+  campaigns: InfluencerCampaignItem[];
 }
 
 type IRow = {
@@ -193,6 +197,7 @@ export async function getInfluencerDetail(sql: postgres.Sql, id: string): Promis
 
   const extra = await sql<Array<{ pricing: Pricing; analysis: InfluencerAnalysis | null; analyzed_at: Date | null }>>`
     select pricing, analysis, analyzed_at from influencer where id = ${id}`;
+  const campaigns = await listInfluencerCampaigns(sql, influencer.handle);   // lower 기준 — 표기가 달라도 같은 사람
 
   return {
     influencer,
@@ -205,6 +210,7 @@ export async function getInfluencerDetail(sql: postgres.Sql, id: string): Promis
     pricing: extra[0]?.pricing ?? {},
     analysis: extra[0]?.analysis ?? null,
     analyzedAt: extra[0]?.analyzed_at ? new Date(extra[0].analyzed_at).toISOString() : null,
+    campaigns,
   };
 }
 
@@ -247,17 +253,48 @@ export async function ensureInfluencer(
 }
 
 // 개명 — 같은 사람이므로 이미 준 원고의 배정 사실은 그대로 따라간다 (스펙 §5).
-// 트랜잭션으로 묶을지는 호출자가 정한다(라우트는 sql.begin 안에서 부른다).
+// 트랜잭션으로 묶을지는 호출자가 정한다(라우트는 sql.begin 안에서 부른다) — 아래 세 UPDATE는 반드시 한 트랜잭션이어야 한다:
+// 원고만 옮기고 비용 행이 남으면 캠페인 인플 목록에 옛 핸들 유령 줄("배정 원고 없음")이 생긴다(캠페인 스펙 §2-5).
 export async function renameInfluencer(
   sql: postgres.Sql, args: { influencerId: string; from: string; to: string; actorId: string | null },
 ): Promise<void> {
   const { influencerId, from, to, actorId } = args;
   await sql`update influencer set handle = ${to} where id = ${influencerId}`;
   await sql`update draft set influencer_handle = ${to} where lower(influencer_handle) = ${from.toLowerCase()}`;
+  await moveCampaignCostRows(sql, from, to);
   await insertAutoLog(sql, {
     influencerId, eventType: 'handle_changed', draftId: null, draftTitle: null,
     payload: { from, to }, authorId: actorId,
   });
+}
+
+// 캠페인 추가 비용 행(campaign_influencer_cost)의 핸들 이관. 같은 캠페인에 옛·새 핸들 행이 둘 다 있으면
+// unique(campaign_id, lower(handle)) 위반이 나므로 병합한다(리뷰 Blocking 5): extra_costs는 새 행 뒤에 옛 것을 이어붙이고
+// (jsonb 배열 ||), note는 새 행이 비어 있을 때만 옛 값, 옛 행은 삭제. 나머지 옛 행은 표기만 새 핸들로.
+// from·to가 소문자 기준 같으면(표기만 바뀜) 병합 조인이 자기 자신과 맞아 extra_costs가 두 배가 된다 — 그 경우는 표기만 바꾼다.
+async function moveCampaignCostRows(sql: postgres.Sql, from: string, to: string): Promise<void> {
+  const fromLower = from.toLowerCase();
+  const toLower = to.toLowerCase();
+  if (fromLower !== toLower) {
+    await sql`
+      update campaign_influencer_cost n
+         set extra_costs = n.extra_costs || o.extra_costs,
+             note = case when n.note = '' then o.note else n.note end,
+             updated_at = now()
+        from campaign_influencer_cost o
+       where o.campaign_id = n.campaign_id
+         and lower(o.influencer_handle) = ${fromLower}
+         and lower(n.influencer_handle) = ${toLower}`;
+    await sql`
+      delete from campaign_influencer_cost o
+       where lower(o.influencer_handle) = ${fromLower}
+         and exists (select 1 from campaign_influencer_cost n
+                      where n.campaign_id = o.campaign_id and lower(n.influencer_handle) = ${toLower})`;
+  }
+  // 충돌이 없던(또는 병합으로 옛 행이 지워진 뒤 남은) 행은 표기만 새 핸들로
+  await sql`
+    update campaign_influencer_cost set influencer_handle = ${to}, updated_at = now()
+     where lower(influencer_handle) = ${fromLower}`;
 }
 
 export async function addManualLog(

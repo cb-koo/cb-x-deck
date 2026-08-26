@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { hookBoundary, draftCopyText, draftTimeLabel, collectDraftFlags, textsChanged, idSetChanged, newDraftsSince, filterDrafts, statusCounts, variantLabel, siblingCount } from './draftUi.ts';
 import type { DraftContent } from './draftTypes.ts';
+import type { DraftStatus } from './draftStatus.ts';
 
 test('hookBoundary: 첫 빈 줄에서 분리, 없으면 null', () => {
   const b = hookBoundary('正直迷ってた。\n\nでも良かった。');
@@ -72,16 +73,19 @@ test('newDraftsSince — 모르는 id이면서 기준 시각 이후인 것만', 
   assert.deepEqual(newDraftsSince(cur, fetched, since).map((d) => d.id), ['b', 'd']);
 });
 
-test('filterDrafts — 상태·클라이언트 AND 조합', () => {
+test('filterDrafts — 상태·클라이언트·캠페인 AND 조합', () => {
   const drafts = [
-    { status: 'draft' as const, clientId: 'c1' },
-    { status: 'review' as const, clientId: 'c1' },
-    { status: 'review' as const, clientId: null },
+    { status: 'review' as DraftStatus, clientId: 'c1', campaignId: 'k1' },
+    { status: 'review' as DraftStatus, clientId: 'c2', campaignId: null },
+    { status: 'draft' as DraftStatus, clientId: null, campaignId: 'k1' },
   ];
-  assert.equal(filterDrafts(drafts, { status: 'all', clientId: '' }).length, 3);
-  assert.equal(filterDrafts(drafts, { status: 'review', clientId: '' }).length, 2);
-  assert.equal(filterDrafts(drafts, { status: 'review', clientId: 'c1' }).length, 1);
-  assert.equal(filterDrafts(drafts, { status: 'all', clientId: 'none' }).length, 1); // 클라이언트 없음
+  assert.equal(filterDrafts(drafts, { status: 'all', clientId: '', campaignId: '' }).length, 3);
+  assert.equal(filterDrafts(drafts, { status: 'review', clientId: '', campaignId: '' }).length, 2);
+  assert.equal(filterDrafts(drafts, { status: 'review', clientId: 'c1', campaignId: '' }).length, 1);
+  assert.equal(filterDrafts(drafts, { status: 'all', clientId: 'none', campaignId: '' }).length, 1); // 클라이언트 없음
+  assert.equal(filterDrafts(drafts, { status: 'all', clientId: '', campaignId: 'k1' }).length, 2);
+  assert.equal(filterDrafts(drafts, { status: 'all', clientId: '', campaignId: 'none' }).length, 1);  // 캠페인 없음
+  assert.equal(filterDrafts(drafts, { status: 'review', clientId: 'c1', campaignId: 'none' }).length, 0);
 });
 
 test('statusCounts — 상태별 건수', () => {

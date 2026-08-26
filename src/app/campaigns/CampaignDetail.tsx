@@ -12,7 +12,7 @@ import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, putInfluencerCostApi, deleteDraftApi, rewriteDraftApi, regenPostApi,
 } from '@/lib/campaignApi';
 import {
-  summarizeStages, summarizePerf, deriveInfluencers, campaignTotal, initialWeekStart, matchesStageFilter,
+  summarizeStages, summarizePerf, deriveInfluencers, campaignTotal, matchesStageFilter,
   STAGE_FILTERS, STAGE_FILTER_LABEL, type ContentSortKey, type StageFilter,
 } from '@/lib/campaignJudgment';
 import type { DetailView } from '@/lib/campaignView';
@@ -51,8 +51,6 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
   const [clientData, setClientData] = useState<ClientData | null>(null);
   const [sort, setSort] = useState<ContentSortKey>('default');
   const [filter, setFilter] = useState<StageFilter>('all');
-  // 달력의 주 — null이면 initialWeekStart(오늘이 기간 안이면 오늘의 주, 아니면 시작 주). 넘기면 값이 생긴다.
-  const [weekStart, setWeekStart] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [peekId, setPeekId] = useState<string | null>(null);
   const [editing, setEditing] = useState<DraftRow | null>(null);
@@ -262,8 +260,7 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
         ) : (
           // 드래그 저장 = 표와 같은 changeScheduledOn — 실패하면 apply가 카드를 원위치로 되돌리고 서버 문구를 토스트로 띄운다(§7)
           <WeekCalendar rows={data.drafts} campaign={data.campaign} today={data.today} filter={filter}
-                        weekStart={weekStart ?? initialWeekStart(data.campaign.startsOn, data.campaign.endsOn, data.today)}
-                        onWeekChange={setWeekStart} onOpenDraft={setPeekId}
+                        onOpenDraft={setPeekId}
                         onChangeScheduledOn={(d, next) => void actions.changeScheduledOn(d, next)} />
         )}
       </div>

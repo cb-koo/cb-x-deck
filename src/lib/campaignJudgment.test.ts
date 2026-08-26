@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isDateOnlyString, addDays, daysBetweenDates, weekStartOf, weekDays, initialWeekStart, nextWeekRange, formatDateKo,
+  isDateOnlyString, addDays, daysBetweenDates, weekStartOf, weekDays, nextWeekRange, formatDateKo,
   campaignStatus, defaultCostType,
   contentStage, isOverdue, isOutOfRange, isPreparing, matchesStageFilter, summarizeStages, summarizePerf,
   sortContent, deriveInfluencers, campaignTotal, suggestCampaignName, suggestCampaignCode,
@@ -30,13 +30,7 @@ test('1) 날짜 산술 — 시간대 시프트 없음, 월요일 시작 주, 월
   assert.equal(formatDateKo('2026-08-26'), '8/26 수');
 });
 
-test('2) 달력 초기 주 — 오늘이 기간 안이면 오늘의 주, 밖이면 시작일의 주', () => {
-  assert.equal(initialWeekStart('2026-08-24', '2026-09-06', T), '2026-08-24');
-  assert.equal(initialWeekStart('2026-09-07', '2026-09-13', T), '2026-09-07');
-  assert.equal(initialWeekStart('2026-08-03', '2026-08-09', T), '2026-08-03'); // 종료된 캠페인
-});
-
-test('3) 캠페인 상태 — 기간에서만 파생(경계 포함)', () => {
+test('2) 캠페인 상태 — 기간에서만 파생(경계 포함)', () => {
   assert.equal(campaignStatus('2026-08-28', '2026-09-03', T), 'upcoming');
   assert.equal(campaignStatus('2026-08-27', '2026-08-27', T), 'active');  // 하루짜리, 오늘
   assert.equal(campaignStatus('2026-08-20', '2026-08-26', T), 'ended');
@@ -47,7 +41,7 @@ test('3) 캠페인 상태 — 기간에서만 파생(경계 포함)', () => {
 
 const d = (o: Partial<StageInput>): StageInput => ({ status: 'draft', published: false, scheduledOn: null, ...o });
 
-test('4) 단계·밀림·기간 밖·준비 중 — 게시됨이 status를 이긴다, 미사용은 밀림이 아니다', () => {
+test('3) 단계·밀림·기간 밖·준비 중 — 게시됨이 status를 이긴다, 미사용은 밀림이 아니다', () => {
   assert.equal(contentStage(d({ status: 'draft', published: true })), 'published');
   assert.equal(contentStage(d({ status: 'delivered' })), 'delivered');
   assert.equal(isOverdue(d({ scheduledOn: '2026-08-26' }), T), true);
@@ -68,7 +62,7 @@ test('4) 단계·밀림·기간 밖·준비 중 — 게시됨이 status를 이�
   assert.equal(matchesStageFilter(d({ status: 'unused', published: true }), 'published'), false); // 미사용은 게시됨이어도 '게시됨' 필터에 안 걸림 — 요약과 같은 모집단
 });
 
-test('5) 요약 — N은 미사용 제외, 게시됨/전달됨/준비 중/밀림이 같은 모집단', () => {
+test('4) 요약 — N은 미사용 제외, 게시됨/전달됨/준비 중/밀림이 같은 모집단', () => {
   const s = summarizeStages([
     d({ status: 'draft', scheduledOn: '2026-08-25' }),            // 준비 중 + 밀림
     d({ status: 'review' }),                                      // 준비 중
@@ -81,7 +75,7 @@ test('5) 요약 — N은 미사용 제외, 게시됨/전달됨/준비 중/밀림
   assert.deepEqual(summarizeStages([], T), { total: 0, published: 0, delivered: 0, preparing: 0, overdue: 0 });
 });
 
-test('6) 성과 합계 — 스냅샷 없으면 null 유지(0으로 위장 금지), 링크 클릭은 미게시 원고 것도 합산', () => {
+test('5) 성과 합계 — 스냅샷 없으면 null 유지(0으로 위장 금지), 링크 클릭은 미게시 원고 것도 합산', () => {
   const p = summarizePerf([
     { status: 'delivered', published: true, perf: { views: 12400, likes: 300 }, linkClicks: 96 },
     { status: 'delivered', published: true, perf: { views: null, likes: null }, linkClicks: null },
@@ -99,7 +93,7 @@ test('6) 성과 합계 — 스냅샷 없으면 null 유지(0으로 위장 금지
 
 const s = (o: Partial<SortInput>): SortInput => ({ status: 'draft', published: false, scheduledOn: null, influencerHandle: null, createdAt: '2026-08-20T00:00:00Z', ...o });
 
-test('7) 기본 정렬 — 밀린 것 → 예정일 오름차순 → 예정일 없음 → 미사용 맨 아래', () => {
+test('6) 기본 정렬 — 밀린 것 → 예정일 오름차순 → 예정일 없음 → 미사용 맨 아래', () => {
   const rows = [
     s({ status: 'unused', scheduledOn: '2026-08-01', createdAt: 'a' }),
     s({ scheduledOn: null, createdAt: 'b' }),
@@ -118,7 +112,7 @@ test('7) 기본 정렬 — 밀린 것 → 예정일 오름차순 → 예정일 �
   assert.notEqual(sortContent(rows, 'default', T), rows); // 원본 불변(새 배열)
 });
 
-test('8) 인플 목록 파생 — 소문자 합집합, 비용 행만 있어도 나옴, 미배정 묶음, 통화별 소계·합계', () => {
+test('7) 인플 목록 파생 — 소문자 합집합, 비용 행만 있어도 나옴, 미배정 묶음, 통화별 소계·합계', () => {
   const lines = deriveInfluencers([
     { influencerHandle: 'Hana', status: 'delivered', cost: { type: 'post', amount: 300000, currency: 'KRW' } },
     { influencerHandle: 'hana', status: 'draft', cost: { type: 'rt', amount: 60000, currency: 'KRW' } },
@@ -148,7 +142,7 @@ test('8) 인플 목록 파생 — 소문자 합집합, 비용 행만 있어도 �
   assert.deepEqual(deriveInfluencers([], []), []);
 });
 
-test('9) 이름·코드 제안 — {클라} {M월 N주}(그 주의 목요일 기준), {영문 소문자}-{YYYYMMDD}, 영문 없으면 날짜만, 규칙 위반 문자 제거', () => {
+test('8) 이름·코드 제안 — {클라} {M월 N주}(그 주의 목요일 기준), {영문 소문자}-{YYYYMMDD}, 영문 없으면 날짜만, 규칙 위반 문자 제거', () => {
   assert.equal(suggestCampaignName('리프팅클리닉', '2026-08-24'), '리프팅클리닉 8월 4주'); // 월, 그 주 목요일=8/27
   assert.equal(suggestCampaignName('  ', '2026-09-01'), '9월 1주');
   assert.equal(suggestCampaignName('A', '2026-08-07'), 'A 8월 1주');

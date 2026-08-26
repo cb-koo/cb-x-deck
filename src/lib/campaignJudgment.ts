@@ -37,10 +37,6 @@ export function weekStartOf(date: string): DateOnly {
 export function weekDays(weekStart: string): DateOnly[] {
   return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 }
-// 달력 초기 주 — 오늘이 기간 안이면 오늘의 주, 아니면 시작 주(스펙 §3-2 주간 달력)
-export function initialWeekStart(startsOn: string, endsOn: string, today: string): DateOnly {
-  return weekStartOf(today >= startsOn && today <= endsOn ? today : startsOn);
-}
 // 새 캠페인 기본 기간 = 다음 월~일(스펙 §3-3)
 export function nextWeekRange(today: string): { startsOn: DateOnly; endsOn: DateOnly } {
   const startsOn = addDays(weekStartOf(today), 7);

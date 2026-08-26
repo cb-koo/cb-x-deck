@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { formatCount } from '@/lib/format';
-import { kstMonthDay, kstDayRange, asDateOnly } from '@/lib/datetime';
+import { kstMonthDay, kstDayRange, kstDate, asDateOnly } from '@/lib/datetime';
 import { relTime } from '@/lib/relTime';
 import { judgeCadence, judgeEngagement } from '@/lib/influencerJudgment';
 import { CONTENT_TYPE_LABEL, type ContentType } from '@/lib/analysisStats';
@@ -175,11 +175,13 @@ function cellLabel(key: string, n: number): string {
   return `${Number(d.slice(5, 7))}월 ${Number(d.slice(8, 10))}일 (${dow}) · ${n > 0 ? `게시 ${n}건` : '게시 없음'}`;
 }
 
-// daily는 게시가 있었던 날만 담는다. 격자는 표본 구간(sample.since~until)을 그대로 깐다 —
-// 캡션이 말하는 기간과 그림의 기간이 다르면 둘 중 하나는 거짓말이 된다.
-// 구간 첫날이 주 중간이면 그 앞 칸은 아예 렌더하지 않는다(0건 회색으로 채우면 '안 썼다'는 거짓말).
-function PostingHeatmap({ daily, since, until, count }: {
-  daily: Record<string, number>; since: string; until: string; count: number;
+// daily는 게시가 있었던 날만 담는다. 격자는 **분석 창(until 기준 months개월)** 을 항상 그대로 깐다 —
+// 표본 구간(since~until)으로 깔면 100건 상한에 걸린 다작 계정은 2~3주짜리 격자가 되고, 셀이 1fr이라
+// 열 2~3개가 패널 폭을 나눠 셀 하나가 200px로 부풀어 7행이 화면을 넘친다(실제 피드백). 창을 고정하면
+// 계정이 달라도 격자 크기·셀 크기가 같다. 표본 시작(since) 전 날짜는 아예 렌더하지 않는다 —
+// 0건 회색으로 채우면 '안 썼다'는 거짓말이 되고, 빈칸은 "여기부터 100건이 찼다"를 그대로 보여준다.
+function PostingHeatmap({ daily, since, until, months, count }: {
+  daily: Record<string, number>; since: string; until: string; months: number; count: number;
 }) {
   // 셀 90개를 Tooltip으로 감싸면 포털이 90개 뜬다 — 대신 격자 하나가 툴팁 하나를 공유한다.
   // (배치·포털 방식은 components/Tooltip.tsx와 같다. 왜 브라우저 기본 title이 아닌지도 거기 적혀 있다:
@@ -213,8 +215,11 @@ function PostingHeatmap({ daily, since, until, count }: {
     };
   }, [tip]);
 
-  const days = kstDayRange(new Date(since), new Date(until));
+  const windowStart = new Date(until);
+  windowStart.setMonth(windowStart.getMonth() - months);
+  const days = kstDayRange(windowStart, new Date(until));
   if (days.length === 0) return null;
+  const sinceDay = kstDate(since);   // 이 날 이전 칸은 표본 밖 — 그리지 않는다
 
   // 날짜 문자열의 요일 — 시간대 시프트 없이 읽는다(0=일요일, 열은 일요일에 바뀐다)
   const dowOf = (d: string) => new Date(d + 'T00:00:00Z').getUTCDay();
@@ -268,6 +273,7 @@ function PostingHeatmap({ daily, since, until, count }: {
             >{m.label}</span>
           ))}
           {days.map((d, i) => {
+            if (d < sinceDay) return null;   // 표본 시작 전: 데이터 없음 ≠ 0건 — 빈칸으로 둔다
             const n = daily[d] ?? 0;
             return (
               <div
@@ -364,7 +370,7 @@ function AnalysisResult({ analysis, followers }: { analysis: InfluencerAnalysis;
               빈 격자·안내문을 두면 "이 계정은 안 썼다"로 읽히거나, 없는 기능을 있는 척하게 된다. */}
           {analysis.daily && (
             <PostingHeatmap daily={analysis.daily} since={sample.since} until={sample.until}
-              count={sample.count} />
+              months={sample.months} count={sample.count} />
           )}
         </>
       )}

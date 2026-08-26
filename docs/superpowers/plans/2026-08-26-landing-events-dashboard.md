@@ -794,7 +794,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
   export const SAMPLE_EARLY = 20; export const SAMPLE_REF = 50;
   export type SampleState = 'early' | 'ref' | 'ok';
   export function sampleState(arrivals: number): SampleState;
-  export const SAMPLE_LABEL: Record<SampleState, string | null>;  // early '아직 판단 이르어요' · ref '참고용' · ok null
+  export const SAMPLE_LABEL: Record<SampleState, string | null>;  // early '아직 판단하기 일러요' · ref '참고용' · ok null
   export function wilsonLower(successes: number, n: number, z?: number): number;  // n=0 → -1
   export function rate(num: number | null, den: number | null): number | null;    // den 0/null → null
   export function formatPct(r: number | null, digits?: number): string;          // null → '—'
@@ -890,7 +890,7 @@ export type SampleState = 'early' | 'ref' | 'ok';
 export function sampleState(arrivals: number): SampleState {
   return arrivals < SAMPLE_EARLY ? 'early' : arrivals < SAMPLE_REF ? 'ref' : 'ok';
 }
-export const SAMPLE_LABEL: Record<SampleState, string | null> = { early: '아직 판단 이르어요', ref: '참고용', ok: null };
+export const SAMPLE_LABEL: Record<SampleState, string | null> = { early: '아직 판단하기 일러요', ref: '참고용', ok: null };
 
 // Wilson score 95% 신뢰구간 하한 — 단순 비율로 정렬하면 "2건 중 2건(100%)"이 "80건 중 8건" 위로 올라간다(Evan Miller).
 // 화면에 보이는 값은 단순 비율 그대로 두고, 정렬 키로만 쓴다.

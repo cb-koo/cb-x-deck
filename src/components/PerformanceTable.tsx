@@ -174,22 +174,20 @@ function ThreadFlow({ row, colCount }: { row: TableRow; colCount: number }) {
       </tr>
       {posts.map((p, i) => {
         const pct = p.role !== 'main' && main?.views && p.views !== null ? formatPct(p.views / main.views) : '';
-        const last = i === posts.length - 1;
-        const b = last ? 'border-b border-x-border-strong' : '';
         return (
           <tr key={p.tweetId}>
-            <td className={`${edge} ${cell} ${b}`} />
-            <td className={`${cell} ${b} pl-10 text-x-secondary`}>{label(p, i)}</td>
-            <td className={`${cell} ${b}`} /><td className={`${cell} ${b}`} />
-            <td className={`${cell} ${b} px-4 text-right`}>
+            <td className={`${edge} ${cell}`} />
+            <td className={`${cell} pl-10 text-x-secondary`}>{label(p, i)}</td>
+            <td className={cell} /><td className={cell} />
+            <td className={`${cell} px-4 text-right`}>
               <span className="inline-flex w-full justify-end gap-1.5"><span className="w-11 text-left text-[12px] text-x-muted">{pct}</span><span>{p.views === null ? '—' : formatFull(p.views)}</span></span>
             </td>
-            <td className={`${cell} ${b} px-4 text-right`}>{p.role === 'link' && row.clicks !== null ? formatFull(row.clicks) : ''}</td>
-            {Array.from({ length: colCount - 6 }, (_, k) => <td key={k} className={`${cell} ${b}`} />)}
+            <td className={`${cell} px-4 text-right`}>{p.role === 'link' && row.clicks !== null ? formatFull(row.clicks) : ''}</td>
+            {Array.from({ length: colCount - 6 }, (_, k) => <td key={k} className={cell} />)}
           </tr>
         );
       })}
-      <tr><td className={edge} /><td colSpan={colCount - 1} className="h-8 bg-x-surface px-4 text-[12px] text-x-muted">조회·클릭은 마지막 새로고침 시점 값이에요.</td></tr>
+      <tr><td className={`${edge} border-b border-x-border-strong`} /><td colSpan={colCount - 1} className="h-8 border-b border-x-border-strong bg-x-surface px-4 text-[12px] text-x-muted">조회·클릭은 마지막 새로고침 시점 값이에요.</td></tr>
     </>
   );
 }

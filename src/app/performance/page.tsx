@@ -146,12 +146,12 @@ function PerformanceView() {
         {/* 미연결 유입 — 버리지 않고 접힌 줄로(아는 만큼만 말한다) */}
         {data.unlinked.total > 0 && (
           <details className="mt-3 text-ui text-x-muted">
-            <summary className="cursor-pointer">
-              링크와 연결되지 않은 랜딩 방문 {formatFull(data.unlinked.total)}건 — utm_content 없음 {formatFull(data.unlinked.byContent.find((b) => b.utmContent === null)?.arrivals ?? 0)} · 모르는 값 {formatFull(data.unlinked.byContent.filter((b) => b.utmContent !== null).reduce((s, b) => s + b.arrivals, 0))}
+            <summary className="cursor-pointer" title="꼬리표 = 링크에 붙는 utm_content 값이에요. 생성기로 만든 링크와 맞지 않는 값이면 여기 모여요">
+              링크와 연결되지 않은 랜딩 방문 {formatFull(data.unlinked.total)}건 — 꼬리표 없음 {formatFull(data.unlinked.byContent.find((b) => b.utmContent === null)?.arrivals ?? 0)} · 모르는 꼬리표 {formatFull(data.unlinked.byContent.filter((b) => b.utmContent !== null).reduce((s, b) => s + b.arrivals, 0))}
             </summary>
             <table className="mt-2 text-ui"><tbody>
               {data.unlinked.byContent.slice(0, 5).map((b) => (
-                <tr key={b.utmContent ?? '(없음)'}><td className="pr-6 py-1">{b.utmContent ?? '(utm_content 없음)'}</td><td className="pr-6 text-right tabular-nums">도착 {formatFull(b.arrivals)}</td><td className="text-right tabular-nums">탭 {formatFull(b.taps)}</td></tr>
+                <tr key={b.utmContent ?? '(없음)'}><td className="pr-6 py-1">{b.utmContent !== null ? <code className="text-ui">{b.utmContent}</code> : '(꼬리표 없음)'}</td><td className="pr-6 text-right tabular-nums">도착 {formatFull(b.arrivals)}</td><td className="text-right tabular-nums">탭 {formatFull(b.taps)}</td></tr>
               ))}
               {data.unlinked.byContent.length > 5 && <tr><td colSpan={3} className="py-1 text-x-muted">그 외 {data.unlinked.byContent.length - 5}종</td></tr>}
             </tbody></table>

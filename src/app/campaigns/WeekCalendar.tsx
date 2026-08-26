@@ -95,11 +95,13 @@ export function WeekCalendar({ rows, campaign, today, filter, onOpenDraft, onCha
     const overdue = od !== null;
     const unused = d.status === 'unused';
     return (
-      // button이 draggable — 클릭은 원고 열기, 끌기는 예정일 변경. 텍스트 선택은 draggable이 막는다.
-      <button key={d.id} type="button" draggable
+      // div(role=button)이 draggable — <button draggable>은 실제 마우스로는 브라우저가 드래그를 시작하지 않아(koo QA 08-26,
+      // 이벤트를 프로그램으로 쏘면 동작) 프로덕션 칸반(DraftKanban)과 같은 div 방식으로 둔다. 클릭/Enter/Space는 원고 열기, 끌기는 예정일 변경.
+      <div key={d.id} role="button" tabIndex={0} draggable
               onDragStart={(e) => { e.dataTransfer.setData('text/plain', d.id); e.dataTransfer.effectAllowed = 'move'; setDragId(d.id); }}
               onDragEnd={() => { setDragId(null); setOverKey(null); }}
               onClick={() => onOpenDraft(d.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDraft(d.id); } }}
               title="누르면 원고가 열려요 · 끌어서 다른 날에 놓으면 예정일이 바뀌어요"
               style={{ borderLeftColor: barColor(contentStage(d), overdue) }}
               className={`block cursor-grab rounded-md border border-l-4 px-2 py-1.5 text-left active:cursor-grabbing ${
@@ -114,7 +116,7 @@ export function WeekCalendar({ rows, campaign, today, filter, onOpenDraft, onCha
             <span className="rounded bg-amber-100 px-1 text-amber-800" title="캠페인 기간 밖 날짜예요 — 저장은 되지만 표시로 알려요">기간 밖</span>
           )}
         </span>
-      </button>
+      </div>
     );
   };
 

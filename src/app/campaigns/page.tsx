@@ -1,5 +1,5 @@
 'use client';
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/lib/toastContext';
 import { kstToday } from '@/lib/datetime';
@@ -40,6 +40,11 @@ function CampaignsSplit() {
   const [today] = useState(() => kstToday());
   const [view, setView] = useState<DetailView>(() => readDetailView());
   const changeView = useCallback((v: DetailView) => { setView(v); saveDetailView(v); }, []);
+  // 방금 내가 지운 캠페인 id — router.replace(URL에서 ?id= 제거)와 load()의 재조회가 어느 쪽이 먼저 반영될지는
+  // 보장되지 않는다(Next 라우터 전환은 비동기). load()가 먼저 rows를 갈아치우면 urlId는 아직 지운 id를 들고 있어
+  // picked.missing이 true가 되어 "찾을 수 없어요" 토스트가 뜬다 — 방금 지운 사람에게는 오경보다. 순서를 맞추는 대신
+  // "이 id는 내가 막 지웠다"를 기억해 그 한 번만 토스트를 건너뛴다(정말 낯선 ?id=는 그대로 토스트).
+  const justDeletedRef = useRef<string | null>(null);
 
   // setState는 전부 await 뒤 — 동기 setState가 앞에 있으면 set-state-in-effect에 걸린다(CampaignDetail 관례)
   const load = useCallback(async () => {
@@ -54,7 +59,10 @@ function CampaignsSplit() {
   // 무효 ?id= → 토스트 + 첫 캠페인(스펙 §7). URL도 고쳐 새로고침해도 같은 화면(clients 폴백 관례).
   useEffect(() => {
     if (!loaded || loadErr) return;
-    if (picked.missing) show('링크가 가리키는 캠페인을 찾을 수 없어요 — 삭제됐을 수 있어요. 첫 캠페인을 열었어요');
+    if (picked.missing) {
+      if (urlId === justDeletedRef.current) justDeletedRef.current = null;   // 방금 지운 id라 오경보 — 소모하고 넘어간다
+      else show('링크가 가리키는 캠페인을 찾을 수 없어요 — 삭제됐을 수 있어요. 첫 캠페인을 열었어요');
+    }
     if (picked.id && picked.id !== urlId) router.replace(`${pathname}?id=${picked.id}`, { scroll: false });
     else if (!picked.id && urlId) router.replace(pathname, { scroll: false });
   }, [loaded, loadErr, picked, urlId, pathname, router, show]);
@@ -78,7 +86,11 @@ function CampaignsSplit() {
         {picked.id && (
           <CampaignDetail key={picked.id} id={picked.id} campaigns={rows} view={view} onViewChange={changeView}
                           onChanged={() => void load()}
-                          onDeleted={() => { router.replace(pathname, { scroll: false }); void load(); }} />
+                          onDeleted={() => {
+                            justDeletedRef.current = picked.id;   // load()가 router.replace보다 먼저 반영돼도 이 id는 오경보 대상에서 뺀다
+                            router.replace(pathname, { scroll: false });
+                            void load();
+                          }} />
         )}
       </main>
       {creating && (

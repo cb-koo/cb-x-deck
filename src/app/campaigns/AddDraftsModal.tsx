@@ -89,7 +89,7 @@ export function AddDraftsModal({ campaign, onClose, onAdded }: {
           <>
             <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
                    placeholder="제목·내용·방향성으로 찾기" aria-label="원고 검색"
-                   className="mt-2 w-full rounded-md border border-x-border-strong px-3 py-1.5 text-content outline-none focus:border-x-blue" />
+                   className="mt-2 h-10 w-full rounded-md border border-x-border-strong px-3 text-content outline-none focus:border-x-blue" />
             <div className="mt-1 min-h-0 flex-1 overflow-y-auto">
               {rows.length === 0 && <p className="py-6 text-center text-content text-x-muted">넣을 수 있는 원고가 없어요 — 전부 이미 캠페인에 속해 있거나, 아직 만든 원고가 없어요.</p>}
               {rows.length > 0 && filtered.length === 0 && <p className="py-6 text-center text-content text-x-muted">검색과 일치하는 원고가 없어요</p>}
@@ -115,9 +115,9 @@ export function AddDraftsModal({ campaign, onClose, onAdded }: {
             {err && <p role="alert" className="mt-2 text-ui text-red-600">{err}</p>}
             <div className="mt-3 flex items-center gap-3 border-t border-x-border pt-3">
               <span className="text-ui text-x-secondary">{ids.length > 0 ? `${ids.length}개 선택` : '넣을 원고를 골라 주세요'}</span>
-              <button onClick={onClose} disabled={busy} className="ml-auto text-ui text-x-secondary disabled:opacity-40">취소</button>
+              <Button type="button" variant="subtle" onClick={onClose} disabled={busy} className="ml-auto flex h-10 items-center text-x-secondary">취소</Button>
               <Button variant="primary" onClick={() => void submit()} disabled={ids.length === 0 || busy} className="text-content">
-                {busy ? '넣는 중…' : `${ids.length || ''}개 넣기`.trim()}
+                {busy ? '넣는 중…' : ids.length === 0 ? '원고 넣기' : `${ids.length}개 넣기`}
               </Button>
             </div>
           </>

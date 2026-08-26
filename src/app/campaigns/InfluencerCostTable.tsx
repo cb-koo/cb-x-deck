@@ -12,6 +12,8 @@ import { upsertExtraCost, removeExtraCost, extraCostLabel } from '@/lib/campaign
 // 저장은 부모가 PUT하고 boolean으로 알려준다 — 실패하면 입력을 남긴다(닫으면 안 저장된 게 저장된 것처럼 보인다).
 type Editing = { handle: string; index: number | null } | null;
 const TD = 'px-3 py-3 align-top';
+// 한 줄뿐인 행(미배정·합계)은 py-3만으로 48px에 못 미친다 — py-3.5로 올려 보장한다
+const TD_SINGLE = 'px-3 py-3.5 align-top';
 
 export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote }: {
   lines: InfluencerLine[]; total: MoneyByCurrency;
@@ -21,14 +23,21 @@ export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote
   const [editing, setEditing] = useState<Editing>(null);
   const [noteFor, setNoteFor] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
+  const [noteErr, setNoteErr] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
   const editingLine = editing
     ? lines.find((l) => l.handle !== null && l.handle.toLowerCase() === editing.handle.toLowerCase()) ?? null
     : null;
 
   async function saveNote(handle: string, current: string) {
+    if (savingNote) return;   // Enter가 이미 저장을 보냈으면 뒤따르는 blur가 다시 보내지 않는다
     const next = noteDraft.trim();
     if (next === current) { setNoteFor(null); return; }   // 바뀐 게 없으면 PUT하지 않는다
-    if (await onSaveNote(handle, next)) setNoteFor(null);
+    setSavingNote(true);
+    const ok = await onSaveNote(handle, next);
+    setSavingNote(false);
+    // 실패하면 입력을 열어 둔다 — 닫으면 안 저장된 메모가 저장된 것처럼 보인다
+    if (ok) { setNoteFor(null); setNoteErr(''); } else { setNoteErr('메모를 저장하지 못했어요 — 잠시 후 다시 시도해 주세요'); }
   }
 
   return (
@@ -52,25 +61,31 @@ export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote
               </tr>
             </thead>
             <tbody>
-              {lines.map((l) => (
+              {lines.map((l) => {
+                const td = l.handle === null ? TD_SINGLE : TD;   // 미배정 행은 한 줄뿐이라 48px 보장이 필요
+                return (
                 <tr key={l.handle ?? '__unassigned'} className="border-b border-x-border">
-                  <td className={TD}>
+                  <td className={td}>
                     {l.handle === null ? (
                       <p className="text-x-secondary" title="인플루언서가 아직 배정되지 않은 원고들의 비용 — 배정하면 그 사람 줄로 옮겨가요">미배정 원고</p>
                     ) : (
                       <>
                         <p className="font-medium">@{l.handle}</p>
                         {noteFor === l.handle ? (
-                          <input autoFocus value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)}
-                                 onBlur={() => void saveNote(l.handle as string, l.note)}
-                                 onKeyDown={(e) => {
-                                   if (e.key === 'Enter' && !e.nativeEvent.isComposing) void saveNote(l.handle as string, l.note);
-                                   if (e.key === 'Escape') setNoteFor(null);
-                                 }}
-                                 aria-label={`@${l.handle} 메모`} placeholder="이 캠페인에서 이 사람에 대한 한 줄"
-                                 className="mt-1 w-full rounded-md border border-x-border-strong px-2 py-1 text-ui outline-none focus:border-x-blue" />
+                          <>
+                            <input autoFocus value={noteDraft}
+                                   onChange={(e) => { setNoteDraft(e.target.value); setNoteErr(''); }}
+                                   onBlur={() => void saveNote(l.handle as string, l.note)}
+                                   onKeyDown={(e) => {
+                                     if (e.key === 'Enter' && !e.nativeEvent.isComposing) void saveNote(l.handle as string, l.note);
+                                     if (e.key === 'Escape') { setNoteFor(null); setNoteErr(''); }
+                                   }}
+                                   aria-label={`@${l.handle} 메모`} placeholder="이 캠페인에서 이 사람에 대한 한 줄"
+                                   className="mt-1 h-10 w-full rounded-md border border-x-border-strong px-3 text-content outline-none focus:border-x-blue" />
+                            {noteErr && <p role="alert" className="mt-1 text-ui text-red-600">{noteErr}</p>}
+                          </>
                         ) : (
-                          <button type="button" onClick={() => { setNoteFor(l.handle); setNoteDraft(l.note); }}
+                          <button type="button" onClick={() => { setNoteFor(l.handle); setNoteDraft(l.note); setNoteErr(''); }}
                                   className={`mt-0.5 block text-left text-ui hover:underline ${l.note ? 'text-x-secondary' : 'text-x-muted'}`}>
                             {l.note || '+ 메모'}
                           </button>
@@ -78,15 +93,15 @@ export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote
                       </>
                     )}
                   </td>
-                  <td className={`${TD} tabular-nums`}>
+                  <td className={`${td} tabular-nums`}>
                     {l.contentCount > 0 ? `${l.contentCount}개` : (
                       // 돈이 붙었는데 원고가 안 보이는 일을 막는다(§2-4) — 색만 아니라 말로
                       <span className="rounded bg-amber-100 px-1.5 py-0.5 text-ui text-amber-800"
                             title="추가 비용은 적혀 있는데 배정된 원고가 없어요 — 원고를 배정하거나 비용 항목을 정리하세요">배정 원고 없음</span>
                     )}
                   </td>
-                  <td className={`${TD} tabular-nums`}>{formatMoneyBy(l.contentCost)}</td>
-                  <td className={TD}>
+                  <td className={`${td} tabular-nums`}>{formatMoneyBy(l.contentCost)}</td>
+                  <td className={td}>
                     {l.handle === null ? (
                       <span className="text-x-muted" title="인플루언서를 배정하면 추가 비용을 적을 수 있어요">—</span>
                     ) : (
@@ -105,16 +120,16 @@ export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote
                       </span>
                     )}
                   </td>
-                  <td className={`${TD} font-medium tabular-nums`}>{formatMoneyBy(l.subtotal)}</td>
+                  <td className={`${td} font-medium tabular-nums`}>{formatMoneyBy(l.subtotal)}</td>
                 </tr>
-              ))}
+              );})}
             </tbody>
             <tfoot>
               <tr>
-                <td className="px-3 py-3 font-bold" colSpan={4}>
+                <td className="px-3 py-3.5 font-bold" colSpan={4}>
                   캠페인 합계 <span className="text-ui font-normal text-x-muted">— 통화별로 따로 계산, 원과 엔은 합치지 않아요</span>
                 </td>
-                <td className="px-3 py-3 font-bold tabular-nums">{formatMoneyBy(total)}</td>
+                <td className="px-3 py-3.5 font-bold tabular-nums">{formatMoneyBy(total)}</td>
               </tr>
             </tfoot>
           </table>
@@ -167,7 +182,15 @@ function ExtraCostDialog({ handle, initial, onClose, onSave, onDelete }: {
     setBusy(false);
     if (!ok) setErr('저장하지 못했어요 — 잠시 후 다시 시도해 주세요');
   }
-  const input = 'mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-content outline-none focus:border-x-blue';
+  // 삭제도 저장과 대칭 — busy를 세워 바깥 클릭/Esc를 막고, 실패하면 같은 스타일로 알린다
+  async function del() {
+    if (!onDelete) return;
+    setBusy(true); setErr('');
+    const ok = await onDelete();
+    setBusy(false);
+    if (!ok) setErr('지우지 못했어요 — 잠시 후 다시 시도해 주세요');
+  }
+  const input = 'mt-0.5 h-10 w-full rounded-md border border-x-border-strong bg-white px-3 text-content outline-none focus:border-x-blue';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6" onClick={() => { if (!busy) onClose(); }}>
@@ -193,7 +216,7 @@ function ExtraCostDialog({ handle, initial, onClose, onSave, onDelete }: {
         {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
         <div className="mt-3 flex items-center gap-2">
           {onDelete && (
-            <button type="button" disabled={busy} onClick={() => void onDelete()} className="text-ui text-x-secondary hover:text-red-600 disabled:opacity-40">이 항목 지우기</button>
+            <button type="button" disabled={busy} onClick={() => void del()} className="text-ui text-x-secondary hover:text-red-600 disabled:opacity-40">이 항목 지우기</button>
           )}
           <button type="button" onClick={onClose} disabled={busy} className="ml-auto rounded-full px-3 py-1 text-ui text-x-secondary hover:bg-x-text/5 disabled:opacity-40">취소</button>
           <button type="button" disabled={busy} onClick={() => void save()} className="rounded-full bg-x-blue px-3 py-1 text-ui font-bold text-white hover:bg-x-blue-hover disabled:opacity-50">

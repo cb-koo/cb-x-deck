@@ -6,6 +6,7 @@ import { Sidebar } from '@/components/Sidebar';
 import type { Workspace } from '@/lib/types';
 
 export const LAST_WS_KEY = 'cbx-last-ws';
+export const LAST_WS_CHANGED_EVENT = 'cbx-last-ws-changed';
 
 // 최상위 페이지(/generate·/clients 등)용 셸 — 사이드바는 wsId가 필요하므로
 // 마지막 방문 워크스페이스(localStorage)로, 없으면 첫 워크스페이스로 렌더한다 (스펙 통합 이슈 1)
@@ -27,6 +28,8 @@ export function GlobalShell({ children }: { children: React.ReactNode }) {
       if (target) {
         setWsId(target.id);
         localStorage.setItem(LAST_WS_KEY, target.id);
+        // 같은 탭의 구독자(예: /updates의 {ws} 바로가기)가 바로 반영할 수 있게 — storage 이벤트는 같은 탭엔 안 온다
+        window.dispatchEvent(new Event(LAST_WS_CHANGED_EVENT));
       } else {
         setWsId(null); // 워크스페이스 0개 — 전역 메뉴만이라도 쓰도록 사이드바는 그린다
       }

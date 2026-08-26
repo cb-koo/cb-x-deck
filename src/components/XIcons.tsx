@@ -127,3 +127,8 @@ export const ClinicIcon = ({ className }: { className?: string }) => (
 export const CampaignIcon = ({ className }: { className?: string }) => (
   <Icon className={className} d="M5 2h2v20H5V2zm3 1h12.6l-2.7 5 2.7 5H8V3zm2 2v6h7.3l-1.6-3 1.6-3H10z" />
 );
+
+// 성과(추이) — Material trending_up 형태, 다른 아이콘과 같은 24 viewBox·fill
+export const TrendIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z" />
+);

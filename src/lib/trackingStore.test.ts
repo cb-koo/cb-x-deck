@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { insertDraft, updateDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
+import { insertLink } from './linkStore.ts';
 import {
   addTrackedPost, listTrackedPosts, findByTweetId, findTrackedPostById,
-  appendSnapshot, markUnavailable, setDraftLink, deleteTrackedPost, listSnapshots,
+  appendSnapshot, markUnavailable, setDraftLink, deleteTrackedPost, listSnapshots, setRole,
 } from './trackingStore.ts';
 
 const sql = getSql();
@@ -13,6 +14,7 @@ const P = 'ttrk' + process.pid;
 const M = { views: 100, likes: 5, retweets: 2, replies: 1, bookmarks: 3, quotes: 0 };
 
 after(async () => {
+  await sql`delete from tracking_link where utm_campaign like ${P + '%'}`;
   await sql`delete from tracked_post where tweet_id like ${P + '%'}`; // 스냅샷은 cascade
   await sql`delete from draft where direction like ${P + '%'}`;
   await sql.end();
@@ -110,4 +112,41 @@ test('6) 측정 이력: 최신순 반환 · limit 적용 · 삭제 시 함께 �
 
   await deleteTrackedPost(sql, row.id);
   assert.deepEqual(await listSnapshots(sql, row.id), []); // cascade
+});
+
+test('7) 역할 — 원고의 링크 URL이 든 게시물은 link, 가장 이른 것 main, 저장값이 우선', async () => {
+  const d = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [], direction: P + 'role', format: 'thread',
+    referenceMode: 'off', refs: [], content: { posts: [{ text: '1/', media: [] }, { text: '2/', media: [] }] },
+    model: null, memberId: null,
+  });
+  const link = await insertLink(sql, {
+    code: P + 'rl', landingUrl: 'https://c.example.com/', longUrl: 'https://c.example.com/?utm_content=x',
+    shortUrl: `https://cb.link/${P}rl`, shortioLinkId: 'lnk_' + P, utmCampaign: P + 'camp',
+    influencerHandle: 'hana_kim', utmContent: `hana_kim-${P}`, draftId: d, clientId: null, clientName: null, createdBy: null,
+  });
+  const main = await addTrackedPost(sql, {
+    tweetId: P + '71', authorHandle: 'hana_kim', text: '1/', postedAt: '2026-08-24T01:00:00.000Z',
+    createdBy: null, metrics: M, raw: { isReply: false, entities: { urls: [] } },
+  });
+  const reply = await addTrackedPost(sql, {
+    tweetId: P + '72', authorHandle: 'hana_kim', text: '링크', postedAt: '2026-08-24T01:10:00.000Z',
+    createdBy: null, metrics: M, raw: { isReply: true, entities: { urls: [{ expanded_url: link.shortUrl }] } },
+  });
+  await setDraftLink(sql, main.row.id, d);
+  await setDraftLink(sql, reply.row.id, d);
+
+  const list = await listTrackedPosts(sql);
+  assert.equal(list.find((r) => r.id === main.row.id)!.derivedRole, 'main');
+  assert.equal(list.find((r) => r.id === reply.row.id)!.derivedRole, 'link');
+  assert.equal(list.find((r) => r.id === reply.row.id)!.role, null);
+
+  assert.equal(await setRole(sql, reply.row.id, 'thread'), true);
+  const one = await findTrackedPostById(sql, reply.row.id);
+  assert.equal(one!.role, 'thread');
+  assert.equal(one!.derivedRole, 'thread'); // 저장값이 판정을 덮는다
+  await setRole(sql, reply.row.id, null);
+  assert.equal((await findTrackedPostById(sql, reply.row.id))!.derivedRole, 'link');
+
+  await sql`delete from tracking_link where id = ${link.id}`;
 });

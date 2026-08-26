@@ -11,7 +11,8 @@ npm run dev   # http://localhost:3000
 
 `.env` 필요 키: `PGHOST/PGPORT/PGUSER/PGDATABASE/PGPASSWORD`(Supabase Transaction pooler, PGPORT 6543),
 `NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_ANON_KEY`(Google OAuth 로그인),
-`GETXAPI_KEY`, `ANTHROPIC_API_KEY`, `EXA_API_KEY`(리서치).
+`GETXAPI_KEY`, `ANTHROPIC_API_KEY`, `EXA_API_KEY`(리서치),
+`LANDING_EVENTS_SECRET`(브릿지 랜딩 이벤트 수집 — 브릿지 프로젝트와 같은 값, 없으면 수집 API가 전부 401).
 선택: `CONTENT_MODEL`(원고 생성 모델 오버라이드 — 프로덕션은 `claude-sonnet-5`, 미설정 시 opus-5).
 
 ## URL 체계 및 워크스페이스·멤버

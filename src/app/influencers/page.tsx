@@ -143,9 +143,12 @@ function InfluencersSplit() {
         ))}
       </aside>
 
-      <main className="min-w-0 flex-1">
+      {/* 프로필은 연회색 바닥(bg-x-surface) 위 흰 패널들(InfluencerProfile) — 왼쪽 명부는 흰 배경 그대로다(캠페인 상세와 같은 결정).
+          min-h-full: 내용이 짧아도 회색이 화면 아래까지 내려가야 한다. */}
+      <main className="min-w-0 flex-1 bg-x-surface min-h-full">
         {deadLink && (
-          <p className="mx-6 mt-4 rounded-lg bg-x-surface px-3 py-2 text-ui text-x-secondary">
+          // 바닥이 회색이 됐으므로 안내띠는 흰 면 + 테두리로 — 같은 회색이면 띠가 바닥에 묻힌다
+          <p className="mx-6 mt-4 rounded-lg border border-x-border bg-white px-3 py-2 text-ui text-x-secondary">
             링크가 가리키는 인플루언서를 찾을 수 없어요 — 명부에서 지워졌거나 링크가 잘못됐어요.
           </p>
         )}

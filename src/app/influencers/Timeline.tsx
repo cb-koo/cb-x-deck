@@ -7,7 +7,7 @@ import { relTime } from '@/lib/relTime';
 import { kstMonthDay } from '@/lib/datetime';
 import { PRICE_TYPE_LABEL, formatMoney, type PricingChange } from '@/lib/influencerPricing';
 import type { InfluencerAutoEvent, InfluencerChannel, InfluencerLogRow } from '@/lib/influencerStore';
-import { errOf, useErrorReport } from './profileShared';
+import { errOf, PANEL, PANEL_TITLE, useErrorReport } from './profileShared';
 
 export const CHANNEL_LABEL: Record<InfluencerChannel, string> = {
   dm: 'DM', line: '라인', email: '이메일', other: '기타',
@@ -102,8 +102,9 @@ export function Timeline({ id, logs, onAdded, onRemoved, onErrorChange }: {
   }
 
   return (
-    <section className="mt-7 border-t border-x-border pt-5">
-      <h2 className="text-content font-bold">주고받은 기록</h2>
+    // 회색 바닥 위 흰 패널 1장(스펙 §7) — 위 여백·구분선은 부모의 space-y-5가 대신한다
+    <section className={PANEL}>
+      <h2 className={PANEL_TITLE}>주고받은 기록</h2>
       <p className="text-caption leading-relaxed text-x-muted">DM·통화에서 오간 이야기를 한 줄로 남겨두면, 나중에 누가 봐도 어디까지 이야기했는지 알 수 있어요.</p>
       <div className="mt-1.5 flex gap-1.5">
         <input value={body} onChange={(e) => setBody(e.target.value)}

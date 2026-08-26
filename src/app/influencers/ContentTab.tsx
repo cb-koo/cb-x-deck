@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { InfoTip } from '@/components/InfoTip';
 import { relTime } from '@/lib/relTime';
 import { STATUS_LABEL, type DraftStatus } from '@/lib/draftStatus';
+import { PANEL, PANEL_TITLE } from './profileShared';
 import type { DraftRollupItem } from '@/lib/influencerStore';
 
 // 읽기 전용 상태 뱃지. 라벨·키는 lib(draftStatus)에서 오고 색만 여기서 정한다 — 색 규칙은
@@ -20,9 +21,10 @@ const STATUS_BADGE: Record<DraftStatus, string> = {
 // (v1에서 "넘긴 원고 62"라 써놓고 50건만 나오던 자기모순을 여기서 해소한다)
 export function ContentTab({ drafts, draftCount }: { drafts: DraftRollupItem[]; draftCount: number }) {
   return (
-    <section className="mt-7 pt-1">
+    // 회색 바닥 위 흰 패널 1장(스펙 §7) — 위 여백은 부모(tabpanel)의 space-y-5가 준다
+    <section className={PANEL}>
       <div className="flex flex-wrap items-center gap-1.5">
-        <h2 className="text-content font-bold">넘긴 원고</h2>
+        <h2 className={PANEL_TITLE}>넘긴 원고</h2>
         <InfoTip text="이 계정으로 배정한 원고를 모아 보여줘요. 원고를 누르면 콘텐츠 생성 화면에서 그 원고가 열려요." />
         {draftCount > drafts.length && (
           <span className="text-caption text-x-muted">· 최근 {drafts.length}건 표시</span>

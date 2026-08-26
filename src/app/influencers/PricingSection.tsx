@@ -6,7 +6,7 @@ import {
   CURRENCY_LABEL, PRICE_TYPES, PRICE_TYPE_LABEL, formatMoney, normalizeCurrency,
   type Currency, type Pricing, type PriceType, type PricingChange,
 } from '@/lib/influencerPricing';
-import { useErrorReport } from './profileShared';
+import { PANEL, PANEL_TITLE, useErrorReport } from './profileShared';
 import type { InfluencerLogRow } from '@/lib/influencerStore';
 
 const NUM_ERR = '숫자만 입력해 주세요';
@@ -86,9 +86,10 @@ export function PricingSection({ id, pricing, logs, onSaved, onErrorChange }: {
   }
 
   return (
-    <section className="mt-7 border-t border-x-border pt-5">
+    // 회색 바닥 위 흰 패널 1장(스펙 §7) — 위 여백·구분선은 부모의 space-y-5가 대신한다
+    <section className={PANEL}>
       <div className="flex items-center gap-2">
-        <h2 className="text-content font-bold">협찬 단가</h2>
+        <h2 className={PANEL_TITLE}>협찬 단가</h2>
         <select value={currency} aria-label="통화"
                 onChange={(e) => { const c = e.target.value as Currency; if (c !== currency) save('currency', { currency: c }); }}
                 className="rounded-lg border border-x-border-strong bg-white px-1.5 py-0.5 text-caption outline-none focus:border-x-blue">

@@ -11,6 +11,7 @@ import { AccountTab } from './AccountTab';
 import { ContentTab } from './ContentTab';
 import { DealTab } from './DealTab';
 import { CampaignSection } from './CampaignSection';
+import { PANEL } from './profileShared';
 import type { InfluencerDetail } from '@/lib/influencerStore';
 
 // 아바타 — 없으면 이니셜 원. 프로필 사진은 X CDN 원본이라 next/image 최적화 대상이 아니다.
@@ -133,55 +134,61 @@ export function InfluencerProfile({ id, onChanged, onDeleted, tab, onTabChange }
   const stale = isProfileStale(inf.profileRefreshedAt);
 
   return (
-    <div className="min-w-0 px-6 py-6">
-      {loadErr && (
-        <div role="alert" className="mb-3 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-ui text-red-700">
-          <span>새로고침에 실패했어요 — 표시된 정보가 최신이 아닐 수 있어요</span>
-          <Button variant="subtle" className="ml-auto shrink-0 bg-white" onClick={load}>다시 시도</Button>
+    // 연회색 바닥(page.tsx의 bg-x-surface) 위 흰 패널 — 패널 사이 간격은 이 space-y-5 하나가 단일 출처다.
+    <div className="min-w-0 space-y-5 px-6 py-6">
+      {/* 패널 1 = 누구인가(헤더) + 지금 어떤 상태인가(현황 스트립) + 방금 무슨 일이 있었나(알림띠).
+          셋은 탭과 무관하게 이 사람 전체에 대한 말이라 한 장으로 묶는다. */}
+      <div className={PANEL}>
+        {loadErr && (
+          <div role="alert" className="mb-3 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-ui text-red-700">
+            <span>새로고침에 실패했어요 — 표시된 정보가 최신이 아닐 수 있어요</span>
+            <Button variant="subtle" className="ml-auto shrink-0 bg-white" onClick={load}>다시 시도</Button>
+          </div>
+        )}
+        <div className="flex items-start gap-3">
+          <Avatar url={inf.avatarUrl} name={inf.displayName ?? inf.handle} size={48} />
+          <div className="min-w-0 flex-1">
+            <h1 className="min-w-0 truncate text-[20px] font-bold">{inf.displayName ?? `@${inf.handle}`}</h1>
+            <p className="flex flex-wrap items-baseline gap-x-2 text-ui text-x-secondary">
+              <a href={`https://x.com/${inf.handle}`} target="_blank" rel="noopener noreferrer"
+                 className="text-x-blue-text hover:underline">@{inf.handle} ↗</a>
+              {inf.followersCount !== null && <span>팔로워 {formatCount(inf.followersCount)}</span>}
+              <span className="text-caption text-x-muted">
+                {inf.profileRefreshedAt ? relTime(inf.profileRefreshedAt, '기준') : '프로필 미조회'}
+              </span>
+              {/* 갱신 넛지(스펙 §④) — 경고색을 쓰지 않는다. 비용 유발 액션(X 1회 조회)을 재촉하는 것처럼
+                  읽히면 안 되고, 지금 보이는 값이 언제 것인지만 알려주면 된다. */}
+              {stale && <span className="text-caption text-x-secondary">오래된 정보예요 — 갱신 권장</span>}
+            </p>
+            {inf.bio && <p className="mt-1 whitespace-pre-wrap text-ui leading-relaxed text-x-secondary">{inf.bio}</p>}
+          </div>
+          <div className="shrink-0 text-right">
+            <Button variant={unfetched ? 'primary' : 'subtle'} onClick={refresh} disabled={refreshing}>
+              {refreshing ? '가져오는 중…' : unfetched ? '프로필 가져오기' : '프로필 갱신'}
+            </Button>
+            <p className="mt-1 max-w-[180px] text-caption text-x-muted">
+              누를 때만 X에 1번 물어 이름·프로필 사진·팔로워를 새로 받아와요.
+            </p>
+          </div>
         </div>
-      )}
-      <div className="flex items-start gap-3">
-        <Avatar url={inf.avatarUrl} name={inf.displayName ?? inf.handle} size={48} />
-        <div className="min-w-0 flex-1">
-          <h1 className="min-w-0 truncate text-[20px] font-bold">{inf.displayName ?? `@${inf.handle}`}</h1>
-          <p className="flex flex-wrap items-baseline gap-x-2 text-ui text-x-secondary">
-            <a href={`https://x.com/${inf.handle}`} target="_blank" rel="noopener noreferrer"
-               className="text-x-blue-text hover:underline">@{inf.handle} ↗</a>
-            {inf.followersCount !== null && <span>팔로워 {formatCount(inf.followersCount)}</span>}
-            <span className="text-caption text-x-muted">
-              {inf.profileRefreshedAt ? relTime(inf.profileRefreshedAt, '기준') : '프로필 미조회'}
-            </span>
-            {/* 갱신 넛지(스펙 §④) — 경고색을 쓰지 않는다. 비용 유발 액션(X 1회 조회)을 재촉하는 것처럼
-                읽히면 안 되고, 지금 보이는 값이 언제 것인지만 알려주면 된다. */}
-            {stale && <span className="text-caption text-x-secondary">오래된 정보예요 — 갱신 권장</span>}
-          </p>
-          {inf.bio && <p className="mt-1 whitespace-pre-wrap text-ui leading-relaxed text-x-secondary">{inf.bio}</p>}
+
+        {/* 현황 스트립(스펙 §①) — "이 사람 지금 어떤 상태인가"를 스크롤 없이 답한다.
+            경고를 색으로만 전하지 않는다: 넘겼으면 '팔로업 필요'라는 말이 항상 함께 붙는다. */}
+        <div className="mt-3">
+          <span className={`inline-block rounded-full px-2.5 py-0.5 text-ui ${
+            contact.needsFollowup ? 'bg-red-50 font-medium text-red-700' : 'bg-x-surface text-x-secondary'
+          }`}>
+            {contact.label}{contact.needsFollowup && ' → 팔로업 필요'}
+          </span>
+          {/* 원고 상태 요약은 전체 카운트 기준 — '협업 콘텐츠' 탭의 목록(최근 50건)과 세는 범위가 다르다 */}
+          {draftLine && <p className="mt-1 text-ui text-x-secondary">원고 {draftLine}</p>}
         </div>
-        <div className="shrink-0 text-right">
-          <Button variant={unfetched ? 'primary' : 'subtle'} onClick={refresh} disabled={refreshing}>
-            {refreshing ? '가져오는 중…' : unfetched ? '프로필 가져오기' : '프로필 갱신'}
-          </Button>
-          <p className="mt-1 max-w-[180px] text-caption text-x-muted">
-            누를 때만 X에 1번 물어 이름·프로필 사진·팔로워를 새로 받아와요.
-          </p>
-        </div>
+
+        {/* 알림띠는 탭 바 위에 — 프로필 갱신 결과는 어느 탭을 보고 있든 이 사람 전체에 대한 말이다 */}
+        {msg && <p role="alert" className={`mt-3 rounded-lg px-3 py-2 text-ui ${MSG_STYLE[msg.tone]}`}>{msg.text}</p>}
       </div>
 
-      {/* 현황 스트립(스펙 §①) — "이 사람 지금 어떤 상태인가"를 스크롤 없이 답한다.
-          경고를 색으로만 전하지 않는다: 넘겼으면 '팔로업 필요'라는 말이 항상 함께 붙는다. */}
-      <div className="mt-3">
-        <span className={`inline-block rounded-full px-2.5 py-0.5 text-ui ${
-          contact.needsFollowup ? 'bg-red-50 font-medium text-red-700' : 'bg-x-surface text-x-secondary'
-        }`}>
-          {contact.label}{contact.needsFollowup && ' → 팔로업 필요'}
-        </span>
-        {/* 원고 상태 요약은 전체 카운트 기준 — '협업 콘텐츠' 탭의 목록(최근 50건)과 세는 범위가 다르다 */}
-        {draftLine && <p className="mt-1 text-ui text-x-secondary">원고 {draftLine}</p>}
-      </div>
-
-      {/* 알림띠는 탭 바 위에 — 프로필 갱신 결과는 어느 탭을 보고 있든 이 사람 전체에 대한 말이다 */}
-      {msg && <p role="alert" className={`mt-3 rounded-lg px-3 py-2 text-ui ${MSG_STYLE[msg.tone]}`}>{msg.text}</p>}
-
+      {/* 탭 바는 패널 밖 바닥 위 — 아래 패널들이 이 탭에 속한다는 걸 면 대신 위치로 말한다 */}
       <ProfileTabs active={tab} onChange={onTabChange}
                    badges={{ content: inf.draftCount }}
                    errorTabs={errorTabs}
@@ -190,13 +197,13 @@ export function InfluencerProfile({ id, onChanged, onDeleted, tab, onTabChange }
                        <AccountTab id={id} data={data} onChanged={onChanged} onDeleted={onDeleted}
                                    setData={setData} reportError={reportError('account')} />
                      ),
-                     // 세 탭의 첫 섹션이 탭 바에서 같은 거리에 서도록 위 여백만 맞춘다(ContentTab 자체는 불변).
-                     // 참여 캠페인이 넘긴 원고 위 — 캠페인은 넘긴 콘텐츠의 묶음이라 큰 단위부터(캠페인 스펙 §5)
+                     // 참여 캠페인이 넘긴 원고 위 — 캠페인은 넘긴 콘텐츠의 묶음이라 큰 단위부터(캠페인 스펙 §5).
+                     // 패널 사이 간격은 ProfileTabs의 tabpanel space-y-5가 준다 — 여기서 따로 여백을 두지 않는다.
                      content: (
-                       <div className="[&>section:first-child]:mt-2">
+                       <>
                          <CampaignSection campaigns={data.campaigns} />
                          <ContentTab drafts={data.drafts} draftCount={inf.draftCount} />
-                       </div>
+                       </>
                      ),
                      deal: (
                        <DealTab id={id} data={data} onChanged={onChanged}

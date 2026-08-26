@@ -20,7 +20,9 @@ export function ProfileTabs({ active, onChange, badges, errorTabs, panels }: {
   }
   return (
     <>
-      <div role="tablist" aria-label="프로필 구역" className="mt-5 flex flex-wrap border-b border-x-border">
+      {/* 탭 바는 회색 바닥 위(패널 밖) — 밑줄만으로 서므로 구분선을 진한 쪽(border-x-border-strong)으로 둔다.
+          위 여백은 부모(InfluencerProfile)의 space-y-5가 준다: 여기서 mt를 더하면 간격이 두 벌이 된다. */}
+      <div role="tablist" aria-label="프로필 구역" className="flex flex-wrap border-b border-x-border-strong">
         {TAB_KEYS.map((k, i) => {
           const on = k === active;
           const badge = badges[k];
@@ -33,7 +35,8 @@ export function ProfileTabs({ active, onChange, badges, errorTabs, panels }: {
                     }`}>
               {TAB_LABEL[k]}
               {badge !== undefined && badge > 0 && (
-                <span className="rounded-full bg-x-surface px-1.5 text-caption tabular-nums text-x-secondary">{badge}</span>
+                // 회색 바닥 위라 bg-x-surface 배지는 바닥에 묻힌다 — 흰 면 + 테두리로 세운다
+                <span className="rounded-full border border-x-border bg-white px-1.5 text-caption tabular-nums text-x-secondary">{badge}</span>
               )}
               {/* 저장 실패가 숨은 탭 안에 있다 — 색(빨간 점)과 말(sr-only)로 함께 알린다 */}
               {errorTabs.has(k) && (
@@ -45,7 +48,10 @@ export function ProfileTabs({ active, onChange, badges, errorTabs, panels }: {
         })}
       </div>
       {TAB_KEYS.map((k) => (
-        <div key={k} role="tabpanel" id={`ppanel-${k}`} aria-labelledby={`ptab-${k}`} hidden={k !== active}>
+        // 패널(섹션) 사이 간격의 단일 출처 — 섹션 컴포넌트는 자기 위 여백을 두지 않는다.
+        // hidden 패널에도 붙지만 hidden이 display:none이라 레이아웃에 영향이 없다.
+        <div key={k} role="tabpanel" id={`ppanel-${k}`} aria-labelledby={`ptab-${k}`} hidden={k !== active}
+             className="space-y-5">
           {panels[k]}
         </div>
       ))}

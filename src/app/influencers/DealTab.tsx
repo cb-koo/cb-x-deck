@@ -10,7 +10,7 @@ export function DealTab({ id, data, onChanged, setData, reportError }: {
   reportError: (source: string, hasError: boolean) => void;
 }) {
   return (
-    <div className="[&>section:first-child]:mt-2 [&>section:first-child]:border-t-0 [&>section:first-child]:pt-0">
+    <>
       {/* 단가 변경은 서버가 자동 로그를 남긴다 — 새 로그를 타임라인(계정 정보 탭) 맨 앞에 붙여 다시 부르지 않는다.
           patch는 그 요청이 실제로 바꾼 키만 담고 있으므로(PricingSection.save 참고) 다른 행의 병행
           PATCH 응답이 뒤섞여 도착해도 서로 다른 키끼리는 덮어쓰지 않고 병합만 된다 — 같은 키는
@@ -24,6 +24,6 @@ export function DealTab({ id, data, onChanged, setData, reportError }: {
                         if (newLogs.length > 0) onChanged();
                       }}
                       onErrorChange={(v) => reportError('pricing', v)} />
-    </div>
+    </>
   );
 }

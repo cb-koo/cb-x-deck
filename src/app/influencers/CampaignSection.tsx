@@ -6,6 +6,7 @@ import type { InfluencerCampaignItem } from '@/lib/campaignStore';
 import { campaignStatus, CAMPAIGN_STATUS_LABEL, formatDateKo, type CampaignStatus } from '@/lib/campaignJudgment';
 import { formatMoneyBy } from '@/lib/campaignCost';
 import { kstToday } from '@/lib/datetime';
+import { PANEL, PANEL_TITLE } from './profileShared';
 
 // 인플 프로필 "참여 캠페인"(캠페인 스펙 §5) — 원고가 배정됐거나 추가 비용이 적힌 캠페인. 캠페인명·기간·배정 콘텐츠 n·비용 소계(통화별).
 // 조회만: 값은 전부 서버 롤업(listInfluencerCampaigns)이고 여기서 다시 세지 않는다. 캠페인 클릭 → /campaigns?id=(Task 11 라우트 형식).
@@ -19,9 +20,10 @@ export function CampaignSection({ campaigns }: { campaigns: InfluencerCampaignIt
   // '오늘'(서울)은 마운트 시 한 번 — 렌더마다 시계를 읽지 않는다(react-hooks/purity, /campaigns page 관례)
   const [today] = useState(() => kstToday());
   return (
-    <section className="mt-7 pt-1">
+    // 회색 바닥 위 흰 패널 1장(스펙 §7) — 위 여백은 부모(tabpanel)의 space-y-5가 준다
+    <section className={PANEL}>
       <div className="flex flex-wrap items-center gap-1.5">
-        <h2 className="text-content font-bold">참여 캠페인</h2>
+        <h2 className={PANEL_TITLE}>참여 캠페인</h2>
         {/* 우측 금액에 있던 native title을 여기로 접었다 — 이 저장소는 native title을 쓰지 않는다(InfoTip.tsx 상단 설명) */}
         <InfoTip text="이 계정에 원고가 배정됐거나 추가 비용이 적힌 캠페인을 모아 보여줘요. 오른쪽 금액은 이 캠페인에서 이 사람의 콘텐츠 비용 + 추가 비용이에요(통화가 다르면 따로 보여요). 캠페인을 누르면 캠페인 화면이 열려요." />
         {campaigns.length > 0 && <span className="text-ui text-x-muted">· {campaigns.length}개</span>}

@@ -1,7 +1,7 @@
 // 판단 파생 함수 — 리스트/프로필이 같은 배지 상태·문구를 계산하도록 UI 밖으로 뺀 순수 함수들.
 // (스펙 §① 현황 스트립 §④ 갱신 넛지) DB 접근 없음 — now?를 받아 테스트에서 결정적으로 검증한다.
 import { DRAFT_STATUSES, STATUS_LABEL, type DraftStatus } from './draftStatus.ts';
-import { formatCount } from './format.ts';
+import { formatKoCount } from './formatKo.ts';
 
 export const FOLLOWUP_DAYS = 14;
 export const PROFILE_STALE_DAYS = 30;
@@ -65,10 +65,10 @@ export function judgeCadence(perWeek: number, sampleCount: number): CadenceJudgm
 }
 
 // 조회 중앙값을 팔로워 규모에 대 보고 판단한다 — 절대값만으론 계정 크기에 따라 의미가 다르다.
-// 축약 표기는 formatCount(X식 K/M 축약)와 동일 규칙을 쓰기 위해 그쪽을 재사용한다.
+// 축약 표기는 formatKoCount(천·만·억) — 분석은 읽는 화면이라 X식 K/M보다 한국어 단위가 빨리 읽힌다(스펙 §3).
 export function judgeEngagement(medianViews: number | null, followers: number | null): string {
   if (medianViews === null) return '조회수를 확인할 수 없었어요';
-  const v = `조회 중앙값 ${formatCount(medianViews)}`;
+  const v = `조회 중앙값 ${formatKoCount(medianViews)}`;
   if (followers === null || followers === 0) return v;
   const r = medianViews / followers;
   if (r >= 0.5) return `${v} — 팔로워 규모 대비 활발한 편`;

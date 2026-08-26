@@ -44,7 +44,6 @@ export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote
   return (
     <section className="mt-8">
       <h2 className="text-content font-bold">인플루언서별 비용</h2>
-      <p className="mt-1 text-ui text-x-muted">콘텐츠 비용 + 추가 비용을 사람별로 모았어요. 통화가 다르면 따로 보여요. 메모를 누르면 바로 고칠 수 있어요.</p>
       {lines.length === 0 ? (
         <p className="mt-3 rounded-xl border border-x-border bg-x-surface px-4 py-6 text-center text-content text-x-secondary">
           원고에 인플루언서를 배정하면 사람별 비용이 여기 모여요.
@@ -128,7 +127,7 @@ export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote
             <tfoot>
               <tr>
                 <td className="px-3 py-3.5 font-bold" colSpan={4}>
-                  캠페인 합계 <span className="text-ui font-normal text-x-muted">— 통화별로 따로 계산, 원과 엔은 합치지 않아요</span>
+                  캠페인 합계
                 </td>
                 <td className="px-3 py-3.5 font-bold tabular-nums">{formatMoneyBy(total)}</td>
               </tr>

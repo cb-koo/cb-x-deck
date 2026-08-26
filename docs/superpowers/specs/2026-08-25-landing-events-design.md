@@ -302,7 +302,7 @@ UX 원칙 체크(AGENTS.md): 라벨은 이득 언어("아직 판단하기 일러
 - `src/lib/performanceJudgment.ts`(+test) — 비율·배지·Wilson·결정 문장·인플 묶기
 - `src/lib/performanceStore.ts`(+test) — ContentRow 조립·캠페인 목록
 - `src/app/api/landing-events/route.ts`, `src/app/api/performance/route.ts`
-- `src/app/performance/page.tsx`, `src/components/PerformanceCards.tsx`, `src/components/PerformanceTable.tsx`
+- `src/app/performance/layout.tsx`(GlobalShell — 사이드바; koo QA 08-26에서 누락 발견), `src/app/performance/page.tsx`, `src/components/PerformanceCards.tsx`, `src/components/PerformanceTable.tsx`
 
 수정:
 - `src/components/Sidebar.tsx` — "성과" 항목

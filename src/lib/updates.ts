@@ -56,3 +56,22 @@ export function resolveHref(href: string, wsId: string | null): string | null {
   if (!wsId) return null;
   return href.split(WS_TOKEN).join(wsId);
 }
+
+/**
+ * 데이터 검사를 빌드에 태운다 — 타입이 못 잡는 것(날짜 형식·달력에 없는 날·빈 문자열·앱 밖 링크)이
+ * 있으면 throw. 페이지 모듈 최상위에서 호출하므로 정적 렌더 시점(= next build)에 실패한다.
+ * 잘못된 글이 배포되지 않는다는 스펙의 약속을 테스트 실행 여부와 무관하게 지키기 위함.
+ */
+export function assertValidUpdates(entries: readonly UpdateEntry[]): void {
+  for (const u of entries) {
+    const where = `업데이트 소식 항목 "${u.title}" (${u.date})`;
+    if (!isValidDate(u.date)) throw new Error(`${where}: 날짜는 YYYY-MM-DD 형식의 실제 날짜여야 합니다`);
+    if (!u.title.trim()) throw new Error(`업데이트 소식 항목 (${u.date}): 제목이 비어 있습니다`);
+    if (!u.summary.trim()) throw new Error(`${where}: 요약이 비어 있습니다`);
+    for (const b of u.bullets ?? []) if (!b.trim()) throw new Error(`${where}: 빈 불릿이 있습니다`);
+    if (u.link) {
+      if (!u.link.label.trim()) throw new Error(`${where}: 링크 라벨이 비어 있습니다`);
+      if (!u.link.href.startsWith('/')) throw new Error(`${where}: 링크는 앱 안 경로(/로 시작)여야 합니다 — ${u.link.href}`);
+    }
+  }
+}

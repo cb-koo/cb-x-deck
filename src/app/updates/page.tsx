@@ -1,5 +1,5 @@
 import { UPDATES, type UpdateType } from '@/content/updates';
-import { groupByMonth, isMonthOpen, formatDay } from '@/lib/updates';
+import { groupByMonth, isMonthOpen, formatDay, assertValidUpdates } from '@/lib/updates';
 import { UpdateLink } from './UpdateLink';
 
 // 정적 렌더 — 데이터가 빌드 시점 상수라 force-dynamic 없음, DB 조회 0 (스펙 §3).
@@ -12,6 +12,9 @@ const TYPE_STYLE: Record<UpdateType, { badge: string; node: string }> = {
   '수정':   { badge: 'bg-[#fff4e0] text-[#9a5b00]',   node: 'bg-[#f59e0b]' },
   '내부':   { badge: 'bg-[#f1f3f4] text-x-secondary', node: 'bg-white border-2 border-x-border-strong' },
 };
+
+// 빌드 시 데이터 검사 — 잘못된 항목이 있으면 next build가 실패한다 (스펙 §1의 약속)
+assertValidUpdates(UPDATES);
 
 export default function UpdatesPage() {
   const groups = groupByMonth(UPDATES);

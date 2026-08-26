@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   sortUpdates, groupByMonth, isMonthOpen, OPEN_MONTHS, monthLabel, formatDay, isValidDate,
-  resolveHref, WS_TOKEN,
+  resolveHref, WS_TOKEN, assertValidUpdates,
 } from './updates.ts';
 import { UPDATES, type UpdateEntry } from '../content/updates.ts';
 
@@ -60,15 +60,15 @@ test('resolveHref: {ws} 토큰은 마지막 워크스페이스로, 없으면 nul
 });
 
 // ---- 데이터 검사: 타입으로 못 잡는 것(형식·빈 문자열·링크 모양)을 UPDATES 전체에 대해 확인 ----
-test('UPDATES: 날짜 형식·빈 문자열·링크 모양', () => {
-  for (const u of UPDATES) {
-    assert.ok(isValidDate(u.date), `날짜 형식: ${u.date} (${u.title})`);
-    assert.ok(u.title.trim().length > 0, `제목 비어 있음: ${u.date}`);
-    assert.ok(u.summary.trim().length > 0, `요약 비어 있음: ${u.title}`);
-    for (const b of u.bullets ?? []) assert.ok(b.trim().length > 0, `빈 불릿: ${u.title}`);
-    if (u.link) {
-      assert.ok(u.link.label.trim().length > 0, `링크 라벨 비어 있음: ${u.title}`);
-      assert.ok(u.link.href.startsWith('/'), `링크는 앱 안 경로(/로 시작): ${u.title} → ${u.link.href}`);
-    }
-  }
+test('assertValidUpdates: 잘못된 항목은 throw, 실데이터는 통과', () => {
+  const ok: UpdateEntry = { date: '2026-08-26', type: '개선', title: 't', summary: 's' };
+  assert.doesNotThrow(() => assertValidUpdates([ok]));
+  assert.throws(() => assertValidUpdates([{ ...ok, date: '20260826' }]), /YYYY-MM-DD/);
+  assert.throws(() => assertValidUpdates([{ ...ok, date: '2026-02-30' }]), /YYYY-MM-DD/);
+  assert.throws(() => assertValidUpdates([{ ...ok, title: '  ' }]), /제목/);
+  assert.throws(() => assertValidUpdates([{ ...ok, summary: '' }]), /요약/);
+  assert.throws(() => assertValidUpdates([{ ...ok, bullets: ['a', ''] }]), /불릿/);
+  assert.throws(() => assertValidUpdates([{ ...ok, link: { label: 'x', href: 'https://x.com' } }]), /앱 안 경로/);
+  // 실데이터 — 여기서 실패하면 메시지에 어느 항목인지 나온다
+  assert.doesNotThrow(() => assertValidUpdates(UPDATES));
 });

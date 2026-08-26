@@ -132,8 +132,8 @@ export function WeekCalendar({ rows, campaign, today, filter, onOpenDraft, onCha
 
   if (rows.length === 0) {
     return (
-      <section className="mt-8">
-        <p className="rounded-xl border border-x-border bg-x-surface px-4 py-6 text-center text-content text-x-secondary">
+      <section className="mt-3">
+        <p className="rounded-xl bg-x-surface px-4 py-6 text-center text-content text-x-secondary">
           아직 이 캠페인에 원고가 없어요 — 위의 [+ 원고 추가]로 기존 원고를 넣거나 새로 만들어요.
         </p>
       </section>
@@ -141,7 +141,8 @@ export function WeekCalendar({ rows, campaign, today, filter, onOpenDraft, onCha
   }
 
   return (
-    <section className="mt-8">
+    // mt-3 = 상위 툴바(세그먼트·칩)와의 간격만 — 섹션 간 간격은 CampaignDetail의 패널 사이 space-y-5가 쥔다(QA 7라운드)
+    <section className="mt-3">
       {/* 예정일 미정 — 격자 위 카드 섹션(오너 결정). 요일 칸과 다른 모양(점선·가로 흐름)이라 "날짜 없는 것들의 자리"로 읽힌다.
           접어두면 다음에도 접힌 채로 열린다. 접혀 있어도 이 영역에 놓으면 예정일이 지워진다(제목 줄이 그대로 drop 대상). */}
       {showUnscheduled && (

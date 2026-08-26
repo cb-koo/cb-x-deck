@@ -129,12 +129,14 @@ export function ContentTable({
     const sel = window.getSelection();
     return !(sel && !sel.isCollapsed && sel.toString().trim() !== '');
   }
+  // 빈 상태 — 섹션 패널 안이라 테두리를 두지 않는다(패널 테두리와 겹쳐 상자 안 상자로 읽힌다, QA 7라운드). 연회색 면으로만 구분한다.
   const empty = (text: string) => (
-    <p className="mt-4 rounded-xl border border-x-border bg-x-surface px-4 py-6 text-center text-content text-x-secondary">{text}</p>
+    <p className="mt-4 rounded-xl bg-x-surface px-4 py-6 text-center text-content text-x-secondary">{text}</p>
   );
 
   return (
-    <section className="mt-8">
+    // mt-3 = 상위 툴바(세그먼트·칩)와의 간격만 — 섹션 간 간격은 CampaignDetail의 패널 사이 space-y-5가 쥔다(QA 7라운드)
+    <section className="mt-3">
       {/* 표 자신의 머리줄 — 단계 필터 칩이 상위 툴바로 올라가면서(QA 4라운드) 정렬만 여기 남았다.
           도움말 문장은 QA 5라운드에서 없앴다(오너 판단: 표를 몇 번 쓰면 저절로 알게 되는 것을 매번 보여줄 필요가 없다). */}
       <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">

@@ -32,6 +32,15 @@ import { useCampaignDraftActions } from './useCampaignDraftActions';
 // 캠페인 상세 컨테이너 — 로드·낙관적 갱신·모달을 쥔다. 요약·인플 목록·합계·성과는 서버 응답을 그대로 쓰지 않고
 // 같은 판정 함수(campaignJudgment)로 여기서 다시 계산한다 — 표에서 값을 고친 즉시 카드 숫자가 따라가야 하고,
 // 서버와 같은 함수라 새로고침해도 숫자가 바뀌지 않는다. '오늘'은 서버가 준 today(서울) — 브라우저 시계를 쓰지 않는다.
+
+// 섹션 패널(QA 7라운드 결정 B) — 오너 피드백: 전부 같은 흰 배경이라 헤더·요약·표가 "경계 없이 붙어 보인다".
+// 간격만으로 나누던 것을 연회색 바닥(page.tsx의 bg-x-surface) 위 흰 패널 4장으로 바꿨다: 헤더 / 요약 / 콘텐츠 진행 현황 / 인플루언서별 비용.
+// 데이터 중심 대시보드의 관례(리서치 §3)라 처음 보는 사람도 어디까지가 한 섹션인지 스크롤만 해도 알 수 있다.
+// 패널 사이 간격(space-y-5 = 20px)이 섹션 간 여백의 단일 소스다 — 안쪽 컴포넌트가 각자 mt-8을 두면 간격이 두 벌이 된다.
+const PANEL = 'rounded-xl border border-x-border bg-white p-5';
+// 패널 제목 — 16px semibold(가독성 기준: 본문 15px보다 한 단 위, text-caption은 쓰지 않는다)
+const PANEL_TITLE = 'text-[16px] font-semibold';
+
 interface DetailState { campaign: CampaignRow; drafts: CampaignDraftItem[]; costRows: InfluencerCostRow[]; today: string }
 type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 
@@ -202,28 +211,33 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
   if (!data || !summary || !perf) return null;
 
   return (
-    <div className="min-w-0 px-6 py-6">
+    <div className="min-w-0 space-y-5 p-5">
       {loadErr && (
-        <div role="alert" className="mb-3 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-ui text-red-700">
+        <div role="alert" className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-ui text-red-700">
           <span>새로고침에 실패했어요 — 표시된 정보가 최신이 아닐 수 있어요</span>
           <Button variant="subtle" className="ml-auto shrink-0 bg-white" onClick={() => void load()}>다시 시도</Button>
         </div>
       )}
       {/* draftCount는 목록용 파생값(미사용 제외 + 이 세션의 변경이 반영 안 됨)이라 삭제 안내에 쓰면 거짓이 된다 — 화면에 실린 원고 수를 넘긴다 */}
-      <CampaignHeader campaign={data.campaign} draftCount={data.drafts.length} today={data.today} onPatch={patchCampaign}
-                      onDelete={() => void removeCampaign()} onAddDrafts={() => setAddOpen(true)} />
-      <div className="mt-7">
-        <SummaryCards summary={summary} perf={perf} total={total} />
+      <div className={PANEL}>
+        <CampaignHeader campaign={data.campaign} draftCount={data.drafts.length} today={data.today} onPatch={patchCampaign}
+                        onDelete={() => void removeCampaign()} onAddDrafts={() => setAddOpen(true)} />
+      </div>
+      <div className={PANEL}>
+        <h2 className={PANEL_TITLE}>캠페인 요약</h2>
+        <div className="mt-3.5">
+          <SummaryCards summary={summary} perf={perf} total={total} />
+        </div>
       </div>
       {/* 콘텐츠 툴바 두 줄(QA 5라운드) — 오너 피드백: 제목이 뜻을 담아야 한다('콘텐츠 N' → '콘텐츠 진행 현황').
           첫 줄은 제목+건수만. 둘째 줄은 왼쪽 정렬로 [표 | 주간 달력] + 단계 필터 칩 — 오른쪽에는 아무것도 두지 않는다.
           건수(N건)는 이 캠페인의 원고 전부(= 표의 '전체' 행 수)라 제목과 표가 같은 숫자를 말한다 — 미사용을 빼면 표와 어긋난다.
           칩은 표·달력 공용으로 올려 두 보기에서 뜻이 같다. 칩·버튼 높이는 32px, 글자는 13px. */}
-      <div className="mt-8">
-        <h2 className="text-content font-semibold">
+      <div className={PANEL}>
+        <h2 className={PANEL_TITLE}>
           콘텐츠 진행 현황 <span className="text-ui font-normal text-x-muted tabular-nums">{data.drafts.length}건</span>
         </h2>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
+        <div className="mt-3.5 flex flex-wrap items-center gap-3">
           <div role="group" aria-label="콘텐츠 보기" className="inline-flex rounded-full border border-x-border-strong p-0.5">
             {(['table', 'calendar'] as DetailView[]).map((v) => (
               <button key={v} type="button" onClick={() => onViewChange(v)} aria-pressed={view === v}
@@ -242,9 +256,7 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
             ))}
           </div>
         </div>
-      </div>
-      {/* [&>section]으로 ContentTable/WeekCalendar 자체의 mt-8을 세그먼트 아래 12px로 줄인다(두 컴포넌트는 손대지 않는다) */}
-      <div className="[&>section]:mt-3">
+        {/* 표·달력은 이 패널 안에 들어간다 — 세그먼트 아래 간격은 두 컴포넌트의 <section className="mt-3">이 쥔다 */}
         {view === 'table' ? (
           <ContentTable rows={data.drafts} campaign={data.campaign} today={data.today} influencerOptions={influencerOptions}
                         sort={sort} onSortChange={setSort} filter={filter}
@@ -264,9 +276,11 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
                         onChangeScheduledOn={(d, next) => void actions.changeScheduledOn(d, next)} />
         )}
       </div>
-      <InfluencerCostTable lines={influencers} total={total}
-                           onSaveExtraCosts={(h, next) => saveCostRow(h, { extraCosts: next })}
-                           onSaveNote={(h, note) => saveCostRow(h, { note })} />
+      <div className={PANEL}>
+        <InfluencerCostTable lines={influencers} total={total}
+                             onSaveExtraCosts={(h, next) => saveCostRow(h, { extraCosts: next })}
+                             onSaveNote={(h, note) => saveCostRow(h, { note })} />
+      </div>
 
       {addOpen && (
         <AddDraftsModal campaign={data.campaign} onClose={() => setAddOpen(false)}

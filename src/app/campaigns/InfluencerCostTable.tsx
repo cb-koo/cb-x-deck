@@ -42,10 +42,12 @@ export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote
   }
 
   return (
-    <section className="mt-8">
-      <h2 className="text-content font-bold">인플루언서별 비용</h2>
+    // 섹션 패널 안(CampaignDetail의 PANEL) — 바깥 여백은 패널 사이 space-y-5가 쥔다(mt-8 없음, QA 7라운드).
+    // 제목 16px semibold·빈 상태는 테두리 없이 연회색 면만 — 패널 테두리와 겹치지 않게(QA 7라운드).
+    <section>
+      <h2 className="text-[16px] font-semibold">인플루언서별 비용</h2>
       {lines.length === 0 ? (
-        <p className="mt-3 rounded-xl border border-x-border bg-x-surface px-4 py-6 text-center text-content text-x-secondary">
+        <p className="mt-3 rounded-xl bg-x-surface px-4 py-6 text-center text-content text-x-secondary">
           원고에 인플루언서를 배정하면 사람별 비용이 여기 모여요.
         </p>
       ) : (

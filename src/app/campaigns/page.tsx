@@ -70,12 +70,14 @@ function CampaignsSplit() {
   const select = useCallback((id: string) => router.replace(`${pathname}?id=${id}`, { scroll: false }), [router, pathname]);
 
   return (
-    <div className="flex">
-      <aside className="sticky top-0 max-h-screen w-[280px] shrink-0 self-start overflow-y-auto border-r border-x-border px-3 py-5">
+    // 상세는 연회색 바닥(bg-x-surface) 위 흰 패널들(CampaignDetail) — 왼쪽 목록은 흰 배경 + 세로 구분선 그대로다(QA 7라운드 결정 B).
+    // min-h-full: 내용이 짧아도 회색이 화면 아래까지 내려가야 한다(GlobalShell의 스크롤 컨테이너 높이를 채운다).
+    <div className="flex min-h-full">
+      <aside className="sticky top-0 max-h-screen w-[280px] shrink-0 self-start overflow-y-auto border-r border-x-border bg-white px-3 py-5">
         <CampaignList rows={rows} selectedId={picked.id} today={today} loaded={loaded} loadErr={loadErr}
                       onSelect={select} onCreate={() => setCreating(true)} onRetry={() => void load()} />
       </aside>
-      <main className="min-w-0 flex-1">
+      <main className="min-w-0 flex-1 bg-x-surface">
         {loaded && !loadErr && rows.length === 0 && (
           <div className="px-6 py-16 text-center">
             <p className="mb-1 text-content font-bold">아직 캠페인이 없어요</p>

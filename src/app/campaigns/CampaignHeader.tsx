@@ -3,13 +3,13 @@ import { useRef, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import { checkPeriod, parseCampaignPatch, NAME_MAX, type CampaignPatchInput } from '@/lib/campaignInput';
 import {
-  campaignStatus, CAMPAIGN_STATUS_LABEL, CAMPAIGN_KINDS, CAMPAIGN_KIND_LABEL,
-  formatDateKo, daysBetweenDates, type CampaignKind,
+  campaignStatus, CAMPAIGN_STATUS_LABEL,
+  formatDateKo, daysBetweenDates,
 } from '@/lib/campaignJudgment';
 import { Button } from '@/components/ui';
 import { InfoTip } from '@/components/InfoTip';
 
-// 상세 헤더 — 이름·기간·유형·코드·메모를 그 자리에서 고친다(스펙 §3-3). 상태 pill은 기간에서 파생(수동 상태 없음, §10).
+// 상세 헤더 — 이름·기간·코드·메모를 그 자리에서 고친다(스펙 §3-3). 상태 pill은 기간에서 파생(수동 상태 없음, §10).
 //
 // QA 1라운드: 상시 폼 입력(테두리 있는 date·select·text) → 라벨-값 정의형 목록 + 클릭 편집(Atlassian Inline Edit).
 // 읽는 화면인데 폼처럼 보였고, 편집 어포던스는 hover 배경 + 연필로 충분하다는 리서치 결론(§6-(1) 옵션 A).
@@ -23,7 +23,7 @@ const STATUS_STYLE = {
 // 편집 상태의 입력 — 읽기 상태에는 테두리가 없다(폼처럼 보이지 않게). 높이는 40px(h-10) 이상(가독성 기준).
 const INPUT = 'h-10 rounded-md border border-x-border-strong bg-white px-2.5 text-content outline-none focus:border-x-blue';
 // 편집 중인 항목 = 오류가 붙을 항목. 한 번에 하나만 연다 — 어느 칸 얘기인지 오류 줄이 가리켜야 한다.
-type Field = 'name' | 'period' | 'kind' | 'code' | 'note';
+type Field = 'name' | 'period' | 'code' | 'note';
 const PERIOD_TIP = "기간을 줄여 예정일이 밖으로 나가도 막지 않고 '기간 밖'으로만 표시해요";
 
 // 읽기 상태의 값 — 클릭이 곧 편집이라 hover 배경 + 연필로 '누를 수 있음'을 알린다(버튼이라 Tab·Enter로도 열린다).
@@ -115,8 +115,7 @@ export function CampaignHeader({ campaign, draftCount, today, onPatch, onDelete,
     if (v.note === campaign.note) { setEdit(null); return; }
     if (await patchOnce(v)) setEdit(null);
   }
-  // 기간·유형은 고른 즉시 저장한다. 예외는 기간뿐이다 — 두 날짜를 이어서 고르는 일이 잦아 저장 후에도 칸을 열어 둔다.
-  // 유형은 고르는 동작이 한 번뿐이라 저장되면 읽기 상태로 돌아간다(ScheduledOnField와 같은 커밋-후-닫힘).
+  // 기간은 고른 즉시 저장한다 — 두 날짜를 이어서 고르는 일이 잦아 저장 후에도 칸을 열어 둔다.
   async function savePatch(patch: CampaignPatchInput, field: Field) {
     const v = validate(patch, field);
     if (!v) return;
@@ -180,26 +179,7 @@ export function CampaignHeader({ campaign, draftCount, today, onPatch, onDelete,
               {errLine('period')}
             </div>
 
-            <span aria-hidden className="h-7 w-px shrink-0 self-center bg-x-border" />
-
-            <div className="flex min-h-[52px] flex-col justify-center gap-0.5 py-1 px-5">
-              <span className="text-[13px] text-x-secondary">유형</span>
-              {edit === 'kind' ? (
-                <select autoFocus value={campaign.kind ?? ''} aria-label="캠페인 유형" className={INPUT} onBlur={closeOnLeave}
-                        onKeyDown={(e) => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) cancel(); }}
-                        onChange={(e) => void savePatch({ kind: (e.target.value || null) as CampaignKind | null }, 'kind')}>
-                  <option value="">미지정</option>
-                  {CAMPAIGN_KINDS.map((k) => <option key={k} value={k}>{CAMPAIGN_KIND_LABEL[k]}</option>)}
-                </select>
-              ) : (
-                <ReadValue onEdit={() => open('kind')} title="캠페인 유형 — 눌러서 바꾸기">
-                  <span className="text-[16px] font-semibold">
-                    {campaign.kind ? CAMPAIGN_KIND_LABEL[campaign.kind] : <span className="text-x-muted">미지정</span>}
-                  </span>
-                </ReadValue>
-              )}
-              {errLine('kind')}
-            </div>
+            {/* 캠페인 유형은 아래 콘텐츠 표의 유형 열로 판단(koo 결정 08-26) — 시딩 등 성격은 캠페인명으로 표현 */}
 
             <span aria-hidden className="h-7 w-px shrink-0 self-center bg-x-border" />
 

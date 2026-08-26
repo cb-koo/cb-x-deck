@@ -8,13 +8,11 @@ import {
   checkPeriod, parseCampaignCreate, NAME_MAX,
   NAME_MESSAGE, CLIENT_MESSAGE, NAME_EN_EMPTY_MESSAGE, NAME_EN_FORMAT_MESSAGE,
 } from '@/lib/campaignInput';
-import {
-  nextWeekRange, suggestCampaignName, suggestCampaignCode, CAMPAIGN_KINDS, CAMPAIGN_KIND_LABEL, type CampaignKind,
-} from '@/lib/campaignJudgment';
+import { nextWeekRange, suggestCampaignName, suggestCampaignCode } from '@/lib/campaignJudgment';
 import { checkCampaign } from '@/lib/trackingLink';
 import { Button } from '@/components/ui';
 
-// [+ 새 캠페인](스펙 §3-3) — 클라이언트(필수) → 기간(기본 다음 월~일) → 이름(자동 제안, 수정) → 영문 코드(자동 제안, 트래킹 링크 규칙) → 유형 → 메모.
+// [+ 새 캠페인](스펙 §3-3) — 클라이언트(필수) → 기간(기본 다음 월~일) → 이름(자동 제안, 수정) → 영문 코드(자동 제안, 트래킹 링크 규칙) → 메모.
 // 제안값은 손대기 전까지만 따라간다(LinkCreateModal의 touched 관례) — 클라·시작일을 바꾸면 제안이 다시 계산되지만, 사람이 고친 값은 덮지 않는다.
 // 검증은 서버와 같은 함수(checkCampaign·checkPeriod)로 즉시 피드백 — 문구가 두 벌이 되지 않는다.
 // 입력은 40px(h-10) 이상(가독성 기준, CampaignHeader 관례) — text-caption(11px)은 쓰지 않는다.
@@ -35,7 +33,6 @@ export function CampaignCreateModal({ today, onClose, onCreated }: {
   const [nameTouched, setNameTouched] = useState(false);
   const [code, setCode] = useState('');
   const [codeTouched, setCodeTouched] = useState(false);
-  const [kind, setKind] = useState<CampaignKind | ''>('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -79,8 +76,9 @@ export function CampaignCreateModal({ today, onClose, onCreated }: {
 
   async function submit() {
     if (!canSubmit || !codeCheck.ok) return;
+    // kind는 UI에서 뺐다(유형은 콘텐츠 표의 유형 열로 판단, koo 결정) — CampaignCreateInput 타입만 맞추려고 null 고정.
     const body = {
-      clientId, name: nameValue.trim(), nameEn: codeCheck.campaign, startsOn, endsOn, kind: kind || null, note: note.trim(),
+      clientId, name: nameValue.trim(), nameEn: codeCheck.campaign, startsOn, endsOn, kind: null, note: note.trim(),
     };
     // 클라이언트 쪽 판단이 서버(parseCampaignCreate)와 갈릴 수 있으니, 보내기 전 같은 함수로 마지막 관문을 한 번 더 통과시킨다.
     const parsed = parseCampaignCreate(body);
@@ -142,13 +140,6 @@ export function CampaignCreateModal({ today, onClose, onCreated }: {
             ? (codeCheck.reason === 'empty' ? NAME_EN_EMPTY_MESSAGE : NAME_EN_FORMAT_MESSAGE)
             : '이 캠페인 원고로 트래킹 링크를 만들 때 캠페인명(utm_campaign)으로 들어가요 — 영어·숫자·하이픈'}
         </p>
-
-        <label htmlFor="cc-kind" className={LABEL}>유형 <span className="text-x-muted">(선택)</span></label>
-        <select id="cc-kind" value={kind} onChange={(e) => setKind(e.target.value as CampaignKind | '')} className={INPUT}>
-          <option value="">없음</option>
-          {CAMPAIGN_KINDS.map((k) => <option key={k} value={k}>{CAMPAIGN_KIND_LABEL[k]}</option>)}
-        </select>
-        <p className={HELP}>표시용이에요 — 방문 협찬이면 비용 제안이 방문 단가를 봐요</p>
 
         <label htmlFor="cc-note" className={LABEL}>메모 <span className="text-x-muted">(선택)</span></label>
         <textarea id="cc-note" value={note} rows={2} onChange={(e) => setNote(e.target.value)}

@@ -12,8 +12,9 @@ import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, putInfluencerCostApi, deleteDraftApi, rewriteDraftApi, regenPostApi,
 } from '@/lib/campaignApi';
 import {
-  summarizeStages, summarizePerf, deriveInfluencers, campaignTotal, type ContentSortKey, type StageFilter,
+  summarizeStages, summarizePerf, deriveInfluencers, campaignTotal, initialWeekStart, type ContentSortKey, type StageFilter,
 } from '@/lib/campaignJudgment';
+import type { DetailView } from '@/lib/campaignView';
 import { draftLabel } from '@/lib/draftViews';
 import { Button } from '@/components/ui';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
@@ -21,6 +22,7 @@ import { DraftEditModal } from '@/components/DraftEditModal';
 import { CampaignHeader } from './CampaignHeader';
 import { SummaryCards } from './SummaryCards';
 import { ContentTable } from './ContentTable';
+import { WeekCalendar } from './WeekCalendar';
 import { InfluencerCostTable } from './InfluencerCostTable';
 import { AddDraftsModal } from './AddDraftsModal';
 import { LinkPostModal } from './LinkPostModal';
@@ -32,9 +34,11 @@ import { useCampaignDraftActions } from './useCampaignDraftActions';
 interface DetailState { campaign: CampaignRow; drafts: CampaignDraftItem[]; costRows: InfluencerCostRow[]; today: string }
 type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 
-export function CampaignDetail({ id, onChanged, onDeleted }: {
+export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, onDeleted }: {
   id: string;
-  campaigns: CampaignRow[];   // 전 캠페인 목록 — Task 15가 DraftCard `campaign` prop(다른 캠페인으로 옮기기)에 쓴다. 이 태스크에선 아직 안 읽는다.
+  campaigns: CampaignRow[];   // 전 캠페인 목록 — DraftCard `campaign` prop(다른 캠페인으로 옮기기)의 후보
+  view: DetailView;           // [표 | 주간 달력] — page가 쥐고 localStorage에 기억한다(캠페인을 바꿔도 유지)
+  onViewChange: (v: DetailView) => void;
   onChanged: () => void;      // 목록(왼쪽) 새로고침 — 이름·콘텐츠 수·합계가 바뀌면 목록 보조줄도 움직여야 한다
   onDeleted: () => void;
 }) {
@@ -46,6 +50,8 @@ export function CampaignDetail({ id, onChanged, onDeleted }: {
   const [clientData, setClientData] = useState<ClientData | null>(null);
   const [sort, setSort] = useState<ContentSortKey>('default');
   const [filter, setFilter] = useState<StageFilter>('all');
+  // 달력의 주 — null이면 initialWeekStart(오늘이 기간 안이면 오늘의 주, 아니면 시작 주). 넘기면 값이 생긴다.
+  const [weekStart, setWeekStart] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [peekId, setPeekId] = useState<string | null>(null);
   const [editing, setEditing] = useState<DraftRow | null>(null);
@@ -206,17 +212,39 @@ export function CampaignDetail({ id, onChanged, onDeleted }: {
       <div className="mt-7">
         <SummaryCards summary={summary} perf={perf} total={total} />
       </div>
-      <ContentTable rows={data.drafts} campaign={data.campaign} today={data.today} influencerOptions={influencerOptions}
-                    sort={sort} onSortChange={setSort} filter={filter} onFilterChange={setFilter}
-                    onOpenDraft={setPeekId}
-                    onChangeStatus={(d, s) => void actions.changeStatus(d, s)}
-                    onAssignInfluencer={(d, h) => void actions.assignInfluencer(d, h)}
-                    onChangeScheduledOn={(d, next) => void actions.changeScheduledOn(d, next)}
-                    onChangeCost={(d, next) => void actions.changeCost(d, next)}
-                    onRemoveFromCampaign={(d) => {
-                      if (window.confirm(`'${draftLabel(d).text}'을(를) 캠페인에서 뺄까요?\n\n원고는 남고 소속만 풀려요. 예정일·비용도 원고에 남아요.`)) void actions.removeFromCampaign(d);
-                    }}
-                    onLinkPost={setLinkFor} />
+      <div className="mt-8 flex flex-wrap items-center gap-3">
+        <div role="group" aria-label="콘텐츠 보기" className="inline-flex rounded-full border border-x-border-strong p-0.5">
+          {(['table', 'calendar'] as DetailView[]).map((v) => (
+            <button key={v} type="button" onClick={() => onViewChange(v)} aria-pressed={view === v}
+                    className={`h-8 rounded-full px-3.5 text-ui ${view === v ? 'bg-x-text font-bold text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
+              {v === 'table' ? '표' : '주간 달력'}
+            </button>
+          ))}
+        </div>
+        <span className="text-ui text-x-muted">표는 밀린 것부터 한눈에, 달력은 요일별로 — 마지막에 고른 보기를 기억해요</span>
+      </div>
+      {/* [&>section]으로 ContentTable/WeekCalendar 자체의 mt-8을 세그먼트 아래 12px로 줄인다(두 컴포넌트는 손대지 않는다) */}
+      <div className="[&>section]:mt-3">
+        {view === 'table' ? (
+          <ContentTable rows={data.drafts} campaign={data.campaign} today={data.today} influencerOptions={influencerOptions}
+                        sort={sort} onSortChange={setSort} filter={filter} onFilterChange={setFilter}
+                        onOpenDraft={setPeekId}
+                        onChangeStatus={(d, s) => void actions.changeStatus(d, s)}
+                        onAssignInfluencer={(d, h) => void actions.assignInfluencer(d, h)}
+                        onChangeScheduledOn={(d, next) => void actions.changeScheduledOn(d, next)}
+                        onChangeCost={(d, next) => void actions.changeCost(d, next)}
+                        onRemoveFromCampaign={(d) => {
+                          if (window.confirm(`'${draftLabel(d).text}'을(를) 캠페인에서 뺄까요?\n\n원고는 남고 소속만 풀려요. 예정일·비용도 원고에 남아요.`)) void actions.removeFromCampaign(d);
+                        }}
+                        onLinkPost={setLinkFor} />
+        ) : (
+          // 드래그 저장 = 표와 같은 changeScheduledOn — 실패하면 apply가 카드를 원위치로 되돌리고 서버 문구를 토스트로 띄운다(§7)
+          <WeekCalendar rows={data.drafts} campaign={data.campaign} today={data.today}
+                        weekStart={weekStart ?? initialWeekStart(data.campaign.startsOn, data.campaign.endsOn, data.today)}
+                        onWeekChange={setWeekStart} onOpenDraft={setPeekId}
+                        onChangeScheduledOn={(d, next) => void actions.changeScheduledOn(d, next)} />
+        )}
+      </div>
       <InfluencerCostTable lines={influencers} total={total}
                            onSaveExtraCosts={(h, next) => saveCostRow(h, { extraCosts: next })}
                            onSaveNote={(h, note) => saveCostRow(h, { note })} />
@@ -252,7 +280,16 @@ export function CampaignDetail({ id, onChanged, onDeleted }: {
                        onAssignInfluencer={(next) => void actions.assignInfluencer(peeked, next)}
                        onSaveMedia={(next) => void actions.saveMedia(peeked, next)}
                        mediaDropNotice={mediaDrop?.draftId === peeked.id ? mediaDrop.notice : null}
-                       onDismissMediaDrop={() => setMediaDrop(null)} />
+                       onDismissMediaDrop={() => setMediaDrop(null)}
+                       campaign={{
+                         options: campaigns, today: data.today,
+                         // 표가 이미 아는 게시 여부를 넘겨야 카드의 밀림 판정이 표와 같은 말을 한다(Task 12 published prop)
+                         published: peeked.published,
+                         // 다른 캠페인으로 옮기면(또는 없음) 이 화면에서 사라진다 — 카드를 먼저 닫는다. 같은 캠페인이면 moveToCampaign이 no-op.
+                         onChange: (campaignId) => { if (campaignId !== data.campaign.id) setPeekId(null); void actions.moveToCampaign(peeked, campaignId); },
+                         onChangeScheduledOn: (next) => void actions.changeScheduledOn(peeked, next),
+                         onChangeCost: (next) => void actions.changeCost(peeked, next),
+                       }} />
           </div>
         </div>
       )}

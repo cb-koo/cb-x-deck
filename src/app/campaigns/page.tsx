@@ -5,11 +5,21 @@ import { useToast } from '@/lib/toastContext';
 import { kstToday } from '@/lib/datetime';
 import type { CampaignRow } from '@/lib/campaignStore';
 import { fetchCampaigns } from '@/lib/campaignApi';
-import { pickCampaignId } from '@/lib/campaignView';
+import { pickCampaignId, parseDetailView, DETAIL_VIEW_KEY, type DetailView } from '@/lib/campaignView';
 import { Button } from '@/components/ui';
 import { CampaignList } from './CampaignList';
 import { CampaignCreateModal } from './CampaignCreateModal';
 import { CampaignDetail } from './CampaignDetail';
+
+// [표 | 주간 달력] 마지막 선택(스펙 §3-2) — 작업 방식 선호라 기억한다(TrackingTable 열 폭 저장 관례). 서버 렌더(localStorage 없음)·
+// 접근 거부·손상 값은 전부 기본 '표'. 서버와 첫 클라 렌더가 달라도 hydration 불일치는 없다 — 이 값으로 그리는 CampaignDetail은
+// 목록 fetch 뒤(loaded)에만 마운트된다.
+function readDetailView(): DetailView {
+  try { return parseDetailView(localStorage.getItem(DETAIL_VIEW_KEY)); } catch { return 'table'; }
+}
+function saveDetailView(v: DetailView) {
+  try { localStorage.setItem(DETAIL_VIEW_KEY, v); } catch { /* 저장 못 해도 화면은 동작 */ }
+}
 
 export default function CampaignsPage() {
   // useSearchParams는 Suspense 경계 필수(clients/page.tsx·generate/page.tsx 선례)
@@ -28,6 +38,8 @@ function CampaignsSplit() {
   const [creating, setCreating] = useState(false);
   // '오늘'(서울)은 마운트 시 한 번 — 렌더마다 시계를 읽지 않는다(react-hooks/purity). 자정을 넘기면 새로고침이 기준을 갱신한다.
   const [today] = useState(() => kstToday());
+  const [view, setView] = useState<DetailView>(() => readDetailView());
+  const changeView = useCallback((v: DetailView) => { setView(v); saveDetailView(v); }, []);
 
   // setState는 전부 await 뒤 — 동기 setState가 앞에 있으면 set-state-in-effect에 걸린다(CampaignDetail 관례)
   const load = useCallback(async () => {
@@ -64,7 +76,8 @@ function CampaignsSplit() {
           </div>
         )}
         {picked.id && (
-          <CampaignDetail key={picked.id} id={picked.id} campaigns={rows} onChanged={() => void load()}
+          <CampaignDetail key={picked.id} id={picked.id} campaigns={rows} view={view} onViewChange={changeView}
+                          onChanged={() => void load()}
                           onDeleted={() => { router.replace(pathname, { scroll: false }); void load(); }} />
         )}
       </main>

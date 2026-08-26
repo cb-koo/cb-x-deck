@@ -25,6 +25,15 @@ export default function UpdatesPage() {
       <p className="mt-2.5 text-[16px] leading-[1.65] text-x-secondary">
         기능이 추가되거나 바뀌면 여기에 올립니다. 눈에 보이지 않는 변화도 모두 적어요.
       </p>
+      {/* 범례 — 축선의 점 색이 무슨 뜻인지 처음 보는 사람도 알 수 있게 (koo 질문에서 확인된 빈틈, UX 원칙 2) */}
+      <ul aria-label="점 색깔 뜻" className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-x-secondary">
+        {(Object.keys(TYPE_STYLE) as UpdateType[]).map((t) => (
+          <li key={t} className="flex items-center gap-1.5">
+            <span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-full ${TYPE_STYLE[t].node}`} />
+            <span>{t}{t === '내부' && <span className="text-x-muted"> — 화면 변화 없는 성능·안정성 작업</span>}</span>
+          </li>
+        ))}
+      </ul>
 
       {groups.length === 0 ? (
         <p className="mt-10 text-[16px] text-x-secondary">아직 올라온 소식이 없어요</p>

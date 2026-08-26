@@ -3,7 +3,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import type { LandingEventInput } from './landingEvent.ts';
-import { insertLandingEvents, statsByUtmContent, unlinkedStats, rangeStart } from './landingEventStore.ts';
+import { insertLandingEvents, statsByUtmContent, unlinkedStats, rangeStart, rangeWindow, OPEN_WINDOW } from './landingEventStore.ts';
 
 const sql = getSql();
 const P = 'tlev' + process.pid.toString(36) + Date.now().toString(36);
@@ -37,7 +37,7 @@ test('2) 사람 판정은 방문 단위 — arrival만은 제외, view/tap이 �
     ev({ visitId: `${P}-D`, kind: 'view', utmContent: C2, isBotUa: true }), ev({ visitId: `${P}-D`, kind: 'tap', utmContent: C2, isBotUa: true }), // 봇: 제외
     ev({ visitId: `${P}-B`, kind: 'view', utmContent: C2 }),                           // 같은 방문 중복 핑: 여전히 1
   ]);
-  const m = await statsByUtmContent(sql, [C2], null);
+  const m = await statsByUtmContent(sql, [C2], OPEN_WINDOW);
   assert.deepEqual(m.get(C2), { utmContent: C2, visits: 4, arrivals: 2, taps: 1 });
   assert.equal(m.has(`${P}-none`), false); // 이벤트 없는 키는 항목 없음(호출부가 0으로 채운다)
 });
@@ -45,15 +45,26 @@ test('2) 사람 판정은 방문 단위 — arrival만은 제외, view/tap이 �
 test('3) 기간은 서울 경계 — since 이전 이벤트는 빠진다', async () => {
   const old = '2026-08-01T00:00:00.000Z';
   await insertLandingEvents(sql, [ev({ visitId: `${P}-old`, occurredAt: old, utmContent: C1 })]);
-  const all = await statsByUtmContent(sql, [C1], null);
-  const recent = await statsByUtmContent(sql, [C1], new Date('2026-08-10T15:00:00.000Z')); // = 8/11 00:00 KST
+  const all = await statsByUtmContent(sql, [C1], OPEN_WINDOW);
+  const cut = new Date('2026-08-10T15:00:00.000Z'); // = 8/11 00:00 KST
+  const recent = await statsByUtmContent(sql, [C1], { since: cut, until: null });
+  const older = await statsByUtmContent(sql, [C1], { since: null, until: cut });
   assert.equal((all.get(C1)?.arrivals ?? 0) - (recent.get(C1)?.arrivals ?? 0), 1);
+  assert.equal(older.get(C1)?.arrivals, 1); // until은 미포함 경계 — 8/1 이벤트만
   assert.equal(rangeStart('all'), null);
   assert.ok(rangeStart('7d') instanceof Date);
+  // 직접 지정: 서울 날짜 → since 포함·until 다음 날 00:00 미포함. 반쪽·역순은 열린 창
+  const w = rangeWindow('custom', '2026-08-01', '2026-08-01');
+  assert.equal(w.since!.toISOString(), '2026-07-31T15:00:00.000Z');
+  assert.equal(w.until!.toISOString(), '2026-08-01T15:00:00.000Z');
+  const oneDay = await statsByUtmContent(sql, [C1], w);
+  assert.equal(oneDay.get(C1)?.arrivals, 1);
+  assert.deepEqual(rangeWindow('custom', '2026-08-01', null), OPEN_WINDOW);
+  assert.deepEqual(rangeWindow('custom', '2026-08-02', '2026-08-01'), OPEN_WINDOW);
 });
 
 test('4) 미연결 — 아는 utm_content가 아닌 것과 null만, 캠페인은 같거나 null', async () => {
-  const before = await unlinkedStats(sql, [C1, C2], CAMP, null);
+  const before = await unlinkedStats(sql, [C1, C2], CAMP, OPEN_WINDOW);
   await insertLandingEvents(sql, [
     ev({ visitId: `${P}-u1`, utmContent: `${P}-unknown` }),
     ev({ visitId: `${P}-u2`, utmContent: null }),
@@ -61,7 +72,7 @@ test('4) 미연결 — 아는 utm_content가 아닌 것과 null만, 캠페인은
     ev({ visitId: `${P}-u4`, utmContent: null, utmCampaign: `${P}-other` }), // 다른 캠페인: 빠짐
     ev({ visitId: `${P}-u5`, utmContent: `${P}-unknown`, kind: 'tap' }),
   ]);
-  const u = await unlinkedStats(sql, [C1, C2], CAMP, null);
+  const u = await unlinkedStats(sql, [C1, C2], CAMP, OPEN_WINDOW);
   assert.equal(u.total - before.total, 4);
   const unknown = u.byContent.find((b) => b.utmContent === `${P}-unknown`);
   assert.deepEqual(unknown, { utmContent: `${P}-unknown`, arrivals: 2, taps: 1 });

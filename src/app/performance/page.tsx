@@ -6,7 +6,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { formatFull } from '@/lib/format';
 import { kstDateTime, kstDate, kstToday, kstDaysAgo } from '@/lib/datetime';
-import type { PerformanceData, ContentRow } from '@/lib/performanceStore';
+import { ALL_CAMPAIGNS, type PerformanceData, type ContentRow } from '@/lib/performanceStore';
 import type { Range } from '@/lib/landingEventStore';
 import { groupByInfluencer, sortRows, topShare, type PerfSortKey } from '@/lib/performanceJudgment';
 import { PerformanceCards } from '@/components/PerformanceCards';
@@ -17,16 +17,25 @@ export default function PerformancePage() {
   return <Suspense><PerformanceView /></Suspense>;
 }
 
-const RANGES: Array<[Range, string]> = [['all', '캠페인 전체'], ['7d', '최근 7일'], ['30d', '최근 30일']];
+// 프리셋 이름은 '전체 기간' — '캠페인 전체'는 캠페인 select의 '모든 캠페인'과 헷갈렸다(koo QA 08-26)
+const RANGES: Array<[Exclude<Range, 'custom'>, string]> = [['all', '전체 기간'], ['7d', '최근 7일'], ['30d', '최근 30일']];
+const md = (ymd: string) => ymd.slice(5).replace('-', '/');
 
 function PerformanceView() {
   const router = useRouter(); const pathname = usePathname(); const sp = useSearchParams();
   const campaign = sp.get('campaign');
-  const range: Range = (['all', '7d', '30d'] as Range[]).includes(sp.get('range') as Range) ? (sp.get('range') as Range) : 'all';
-  const setParams = useCallback((next: { campaign?: string | null; range?: Range }) => {
+  const range: Range = (['all', '7d', '30d', 'custom'] as Range[]).includes(sp.get('range') as Range) ? (sp.get('range') as Range) : 'all';
+  const from = sp.get('from'); const to = sp.get('to');
+  // 주소가 상태다 — 캠페인·기간 프리셋·직접 지정 날짜 전부 URL에(새로고침·공유 유지). 프리셋을 고르면 날짜는 지운다.
+  const setParams = useCallback((next: { campaign?: string | null; range?: Range; from?: string | null; to?: string | null }) => {
     const p = new URLSearchParams(sp.toString());
     if (next.campaign !== undefined) { if (next.campaign) p.set('campaign', next.campaign); else p.delete('campaign'); }
-    if (next.range !== undefined) { if (next.range === 'all') p.delete('range'); else p.set('range', next.range); }
+    if (next.range !== undefined) {
+      if (next.range === 'all') p.delete('range'); else p.set('range', next.range);
+      if (next.range !== 'custom') { p.delete('from'); p.delete('to'); }
+    }
+    if (next.from !== undefined) { if (next.from) p.set('from', next.from); else p.delete('from'); }
+    if (next.to !== undefined) { if (next.to) p.set('to', next.to); else p.delete('to'); }
     const q = p.toString();
     router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
   }, [sp, router, pathname]);
@@ -42,6 +51,7 @@ function PerformanceView() {
   const load = useCallback(async () => {
     try {
       const q = new URLSearchParams(); if (campaign) q.set('campaign', campaign); q.set('range', range);
+      if (range === 'custom') { if (from) q.set('from', from); if (to) q.set('to', to); }
       const r = await apiFetch(`/api/performance?${q}`);
       if (!r.ok) throw new Error(String(r.status));
       setData((await r.json()) as PerformanceData);
@@ -49,7 +59,7 @@ function PerformanceView() {
     } catch {
       setLoadErr(true); // 실패를 빈 상태로 위장하지 않는다
     }
-  }, [campaign, range]);
+  }, [campaign, range, from, to]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 필터가 바뀔 때 다시 읽는다, setState는 전부 비동기 콜백
   useEffect(() => { load(); }, [load]);
 
@@ -78,10 +88,19 @@ function PerformanceView() {
   }, [data, grouping, sort, dir]);
 
   const top3 = topShare(uniqueRows);
+  const allCampaigns = data?.selected === ALL_CAMPAIGNS;
   const selected = data?.campaigns.find((c) => c.code === data.selected) ?? null;
-  const periodLabel = range === 'all'
-    ? `${selected ? kstDate(selected.firstAt).slice(5).replace('-', '/') : ''} ~ ${kstToday().slice(5).replace('-', '/')} · 서울 기준`
-    : `${kstDaysAgo(range === '7d' ? 6 : 29).slice(5).replace('-', '/')} ~ ${kstToday().slice(5).replace('-', '/')} · 서울 기준`;
+  // 기간 라벨은 서버가 실제로 적용한 기간(data.range)으로 — custom인데 날짜가 반쪽이면 all로 돌아온다
+  const applied = data?.range ?? 'all';
+  const firstAt = allCampaigns
+    ? [...(data?.campaigns ?? [])].map((c) => c.firstAt).sort()[0] ?? null
+    : selected?.firstAt ?? null;
+  const periodLabel = applied === 'custom' && data?.from && data?.to
+    ? `${md(data.from)} ~ ${md(data.to)} · 서울 기준`
+    : applied === 'all'
+      ? `${firstAt ? md(kstDate(firstAt)) : ''} ~ ${md(kstToday())} · 서울 기준`
+      : `${md(kstDaysAgo(applied === '7d' ? 6 : 29))} ~ ${md(kstToday())} · 서울 기준`;
+  const customPending = range === 'custom' && applied !== 'custom';
 
   return (
     <main className="mx-auto max-w-[1280px] px-6 py-8">
@@ -105,17 +124,32 @@ function PerformanceView() {
         <div className="mb-6 flex flex-wrap items-center gap-4 rounded-xl border border-x-border px-4 py-3">
           <select value={data.selected ?? ''} onChange={(e) => setParams({ campaign: e.target.value })} aria-label="캠페인"
                   className="rounded-lg border border-x-border-strong bg-white px-3 py-1.5 text-ui font-semibold">
+            {/* 모든 캠페인 = 링크 전부 합산 — 캠페인끼리 비교하려면 여기서 본다(koo QA 08-26) */}
+            <option value={ALL_CAMPAIGNS}>모든 캠페인</option>
             {data.campaigns.map((c) => <option key={c.code} value={c.code}>{c.code}{c.clientName ? ` · ${c.clientName}` : ''}</option>)}
           </select>
           <div role="group" aria-label="기간" className="flex h-7 w-fit overflow-hidden rounded-lg border border-x-border-strong">
             {RANGES.map(([v, label], i) => (
-              <button key={v} onClick={() => setParams({ range: v })} aria-pressed={range === v}
+              <button key={v} onClick={() => setParams({ range: v })} aria-pressed={range === v && !customPending && applied === v}
                       className={`h-full px-3 text-[13px] ${i > 0 ? 'border-l border-x-border-strong' : ''} ${range === v ? 'bg-x-blue font-bold text-white' : 'bg-white text-x-secondary hover:bg-x-hover'}`}>
                 {label}
               </button>
             ))}
           </div>
-          <span className="ml-auto text-ui text-x-muted">{periodLabel}</span>
+          {/* 직접 지정 — 둘 다 고르면 적용된다(반쪽이면 전체 기간 그대로, 힌트로 말한다). 날짜는 서울 기준 */}
+          <label className={`flex items-center gap-1.5 text-ui ${range === 'custom' ? 'text-x-text' : 'text-x-secondary'}`}>
+            직접 지정
+            <input type="date" value={from ?? ''} max={to ?? undefined} aria-label="시작일"
+                   onChange={(e) => setParams({ range: 'custom', from: e.target.value || null })}
+                   className="rounded-lg border border-x-border-strong bg-white px-2 py-1 text-ui" />
+            <span className="text-x-muted">~</span>
+            <input type="date" value={to ?? ''} min={from ?? undefined} aria-label="종료일"
+                   onChange={(e) => setParams({ range: 'custom', to: e.target.value || null })}
+                   className="rounded-lg border border-x-border-strong bg-white px-2 py-1 text-ui" />
+          </label>
+          <span className="ml-auto text-ui text-x-muted">
+            {customPending ? '시작일과 종료일을 모두 고르면 그 기간으로 바뀌어요 · 지금은 전체 기간' : periodLabel}
+          </span>
         </div>
 
         <PerformanceCards taps={totalTaps} arrivals={totalArrivals} clicks={totalClicks} views={totalViews} top3={top3} />

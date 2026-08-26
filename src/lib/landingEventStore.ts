@@ -3,16 +3,35 @@
 // 규칙이 바뀌어도 과거 데이터가 새 규칙으로 다시 읽힌다(스펙 §집계 규칙).
 import type postgres from 'postgres';
 import type { LandingEventInput } from './landingEvent.ts';
-import { kstDaysAgoStart } from './datetime.ts';
+import { kstDaysAgoStart, kstDayStart } from './datetime.ts';
 
-export type Range = 'all' | '7d' | '30d';
+export type Range = 'all' | '7d' | '30d' | 'custom';
 
-// 기간 시작 순간(서울 00:00). all은 경계 없음. 시계 주입은 datetime.ts 관례(테스트용).
-export function rangeStart(range: Range, now: () => number = Date.now): Date | null {
-  if (range === '7d') return kstDaysAgoStart(6, now);   // 오늘 포함 7일
-  if (range === '30d') return kstDaysAgoStart(29, now);
-  return null;
+// 기간 창 — since 포함, until 미포함(다음 날 00:00). null = 그쪽 경계 없음. 전부 서울 00:00 순간이다.
+export interface Window { since: Date | null; until: Date | null }
+export const OPEN_WINDOW: Window = { since: null, until: null };
+
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+// 기간 프리셋(또는 직접 지정 from~to, YYYY-MM-DD 서울 날짜)을 SQL 경계 두 개로. 시계 주입은 datetime.ts 관례(테스트용).
+// custom인데 날짜가 둘 다 유효하지 않으면 경계 없음(all)으로 — 반쪽 입력으로 표가 비는 일을 막는다.
+export function rangeWindow(range: Range, from: string | null = null, to: string | null = null, now: () => number = Date.now): Window {
+  if (range === '7d') return { since: kstDaysAgoStart(6, now), until: null };   // 오늘 포함 7일
+  if (range === '30d') return { since: kstDaysAgoStart(29, now), until: null };
+  if (range === 'custom' && from && to && YMD.test(from) && YMD.test(to) && from <= to) {
+    return { since: kstDayStart(from), until: new Date(kstDayStart(to).getTime() + 86_400_000) };
+  }
+  return OPEN_WINDOW;
 }
+
+// 기간 시작 순간만 필요한 호출부용(프리셋 전용).
+export function rangeStart(range: Range, now: () => number = Date.now): Date | null {
+  return rangeWindow(range, null, null, now).since;
+}
+
+const windowSql = (sql: postgres.Sql, w: Window) => sql`
+  ${w.since ? sql`and occurred_at >= ${w.since}` : sql``}
+  ${w.until ? sql`and occurred_at < ${w.until}` : sql``}`;
 
 // 멱등 insert — event_id unique에 걸린 건은 조용히 넘기고 개수만 알려준다(브릿지 재시도가 중복을 만들지 않게).
 export async function insertLandingEvents(
@@ -44,9 +63,9 @@ export interface ContentStats {
   taps: number;      // not bot and tap
 }
 
-// 방문(visit_id) 단위로 먼저 접고 콘텐츠별로 센다. since가 null이면 기간 경계 없음.
+// 방문(visit_id) 단위로 먼저 접고 콘텐츠별로 센다. window 경계가 null이면 그쪽은 열려 있다.
 export async function statsByUtmContent(
-  sql: postgres.Sql, utmContents: string[], since: Date | null,
+  sql: postgres.Sql, utmContents: string[], window: Window,
 ): Promise<Map<string, ContentStats>> {
   if (utmContents.length === 0) return new Map();
   const rows = await sql<Array<{ utm_content: string; visits: number; arrivals: number; taps: number }>>`
@@ -55,7 +74,7 @@ export async function statsByUtmContent(
              ${visitFlags(sql)}
         from landing_event
        where utm_content = any(${utmContents}::text[])
-         ${since ? sql`and occurred_at >= ${since}` : sql``}
+         ${windowSql(sql, window)}
        group by utm_content, visit_id)
     select utm_content,
            count(*)::int as visits,
@@ -75,7 +94,7 @@ export interface UnlinkedStats {
 // 어느 링크에도 안 맞는 유입 — 버리지 않고 따로 센다(아는 만큼만 말한다).
 // 캠페인 필터는 이벤트 자신의 utm_campaign으로(선택 캠페인과 같거나 null). campaign이 null이면 캠페인 조건 없음.
 export async function unlinkedStats(
-  sql: postgres.Sql, knownUtmContents: string[], campaign: string | null, since: Date | null,
+  sql: postgres.Sql, knownUtmContents: string[], campaign: string | null, window: Window,
 ): Promise<UnlinkedStats> {
   const rows = await sql<Array<{ utm_content: string | null; arrivals: number; taps: number }>>`
     with v as (
@@ -84,7 +103,7 @@ export async function unlinkedStats(
         from landing_event
        where (utm_content is null or not (utm_content = any(${knownUtmContents}::text[])))
          ${campaign ? sql`and (utm_campaign = ${campaign} or utm_campaign is null)` : sql``}
-         ${since ? sql`and occurred_at >= ${since}` : sql``}
+         ${windowSql(sql, window)}
        group by utm_content, visit_id)
     select utm_content,
            count(*) filter (where human)::int as arrivals,

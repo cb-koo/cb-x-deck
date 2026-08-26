@@ -3,7 +3,10 @@
 // 설계: docs/superpowers/specs/2026-08-25-landing-events-design.md §읽기 모델
 import type postgres from 'postgres';
 import { assignRoles, type PostRole } from './postRole.ts';
-import { rangeStart, statsByUtmContent, unlinkedStats, type Range, type UnlinkedStats } from './landingEventStore.ts';
+import { rangeWindow, statsByUtmContent, unlinkedStats, type Range, type UnlinkedStats, type Window } from './landingEventStore.ts';
+
+// 캠페인 select의 '모든 캠페인' 값 — utm_campaign에 이 문자열을 쓰는 캠페인은 없다(checkCampaign이 영문·숫자·하이픈만 허용해도 'all'은 가능하므로, 충돌 시 그 캠페인은 목록에서 개별 선택이 안 된다는 한계는 받아들인다).
+export const ALL_CAMPAIGNS = 'all';
 
 export interface CampaignOption { code: string; clientName: string | null; latestAt: string; firstAt: string }
 
@@ -45,7 +48,8 @@ type PostRow = {
   views: string | number | null; captured_at: Date | null; is_reply: boolean | null; raw_urls: unknown;
 };
 
-export async function listContentRows(sql: postgres.Sql, campaign: string, since: Date | null): Promise<ContentRow[]> {
+// campaign이 null이면 모든 캠페인의 링크(전체 합산 보기).
+export async function listContentRows(sql: postgres.Sql, campaign: string | null, window: Window): Promise<ContentRow[]> {
   const links = await sql<LinkRow[]>`
     select l.id, coalesce(l.utm_content, l.code) as utm_key, l.utm_campaign, l.draft_id, l.influencer_handle, l.short_url,
            d.title, d.ko_title, d.format,
@@ -54,7 +58,7 @@ export async function listContentRows(sql: postgres.Sql, campaign: string, since
       from tracking_link l
       left join draft d on d.id = l.draft_id
       left join lateral (select total_clicks, captured_at from link_click_snapshot where tracking_link_id = l.id order by captured_at desc limit 1) s on true
-     where l.utm_campaign = ${campaign}
+     ${campaign === null ? sql`` : sql`where l.utm_campaign = ${campaign}`}
      order by l.created_at desc`;
   if (links.length === 0) return [];
 
@@ -69,7 +73,7 @@ export async function listContentRows(sql: postgres.Sql, campaign: string, since
   const allLinks = draftIds.length === 0 ? [] : await sql<Array<{ draft_id: string; short_url: string }>>`
     select draft_id, short_url from tracking_link where draft_id = any(${draftIds}::uuid[])`;
 
-  const stats = await statsByUtmContent(sql, links.map((l) => l.utm_key), since);
+  const stats = await statsByUtmContent(sql, links.map((l) => l.utm_key), window);
   const keyCount = new Map<string, number>();
   for (const l of links) keyCount.set(l.utm_key, (keyCount.get(l.utm_key) ?? 0) + 1);
 
@@ -101,27 +105,38 @@ export async function listContentRows(sql: postgres.Sql, campaign: string, since
 }
 
 export interface PerformanceData {
-  campaigns: CampaignOption[]; selected: string | null; range: Range;
+  campaigns: CampaignOption[];
+  selected: string | null;      // 캠페인 코드 또는 ALL_CAMPAIGNS('all'). null = 캠페인이 하나도 없음
+  range: Range; from: string | null; to: string | null; // 실제 적용된 기간(custom이 무효면 all로 돌아온다)
   rows: ContentRow[]; unlinked: UnlinkedStats;
   excluded: number;            // 프리페치·봇으로 보이는 방문(utm_content 단위 중복 없이)
   snapshotAt: string | null;   // 행들의 capturedAt 중 가장 이른 것 — "마지막 새로고침 기준" 표기
 }
 
 // 없는 캠페인을 요청하면 최근 캠페인으로 대체하고 selected로 알려준다(캠페인 관리의 ?id= 관례).
+// campaign === ALL_CAMPAIGNS면 모든 캠페인 합산 — 링크 전부 + 캠페인 조건 없는 미연결.
 export async function loadPerformance(
-  sql: postgres.Sql, campaign: string | null, range: Range, now: () => number = Date.now,
+  sql: postgres.Sql, campaign: string | null, range: Range,
+  from: string | null = null, to: string | null = null, now: () => number = Date.now,
 ): Promise<PerformanceData> {
   const campaigns = await listCampaigns(sql);
-  const selected = campaigns.find((c) => c.code === campaign)?.code ?? campaigns[0]?.code ?? null;
-  const since = rangeStart(range, now);
+  const selected = campaign === ALL_CAMPAIGNS ? ALL_CAMPAIGNS
+    : campaigns.find((c) => c.code === campaign)?.code ?? campaigns[0]?.code ?? null;
+  const window = rangeWindow(range, from, to, now);
+  // custom인데 날짜가 무효면 rangeWindow가 열린 창을 돌려준다 — 화면에는 실제 적용된 기간(all)을 알려준다
+  const customApplied = range === 'custom' && window.since !== null;
+  const applied = range === 'custom' && !customApplied
+    ? { range: 'all' as Range, from: null, to: null }
+    : { range, from: customApplied ? from : null, to: customApplied ? to : null };
   if (selected === null) {
-    return { campaigns, selected: null, range, rows: [], unlinked: { total: 0, byContent: [] }, excluded: 0, snapshotAt: null };
+    return { campaigns, selected: null, ...applied, rows: [], unlinked: { total: 0, byContent: [] }, excluded: 0, snapshotAt: null };
   }
-  const rows = await listContentRows(sql, selected, since);
+  const campaignFilter = selected === ALL_CAMPAIGNS ? null : selected;
+  const rows = await listContentRows(sql, campaignFilter, window);
   const keys = [...new Set(rows.map((r) => r.utmContent))];
   const byKey = new Map(rows.map((r) => [r.utmContent, r]));
   const excluded = keys.reduce((s, k) => { const r = byKey.get(k)!; return s + (r.visits - r.arrivals); }, 0);
-  const unlinked = await unlinkedStats(sql, keys, selected, since);
+  const unlinked = await unlinkedStats(sql, keys, campaignFilter, window);
   const snapshotAt = rows.map((r) => r.capturedAt).filter((v): v is string => v !== null).sort()[0] ?? null;
-  return { campaigns, selected, range, rows, unlinked, excluded, snapshotAt };
+  return { campaigns, selected, ...applied, rows, unlinked, excluded, snapshotAt };
 }

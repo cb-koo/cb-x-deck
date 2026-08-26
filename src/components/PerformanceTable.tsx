@@ -177,7 +177,8 @@ function ThreadFlow({ row, colCount }: { row: TableRow; colCount: number }) {
         return (
           <tr key={p.tweetId}>
             <td className={`${edge} ${cell}`} />
-            <td className={`${cell} pl-10 text-x-secondary`}>{label(p, i)}</td>
+            {/* 부모 제목과 같은 좌측선 — 계층은 왼쪽 파란 경계선이 말하고, 들여쓰기는 빈 여백으로만 보였다(koo QA 08-26) */}
+            <td className={`${cell} px-4 text-x-secondary`}>{label(p, i)}</td>
             <td className={cell} /><td className={cell} />
             <td className={`${cell} px-4 text-right`}>
               <span className="inline-flex w-full justify-end gap-1.5"><span className="w-11 text-left text-[12px] text-x-muted">{pct}</span><span>{p.views === null ? '—' : formatFull(p.views)}</span></span>

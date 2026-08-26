@@ -12,11 +12,12 @@ import type { TrackingLinkRow } from '@/lib/linkStore';
 // 13px 텍스트 줄로는 '여기서 링크를 만든다'는 행동 어포던스가 안 보인다(koo QA 08-25).
 // 목록은 토글 없이 상시 표시(koo QA 2차) — 없으면 '없다'가 보이는 것도 정보다.
 // 조회는 마운트 시 1회, draft_id 인덱스를 타는 가벼운 쿼리라 카드 수십 장에도 부담이 작다.
-export function TrackingLinkSection({ draftId, influencerHandle, clientId, clientName }: {
+export function TrackingLinkSection({ draftId, influencerHandle, clientId, clientName, campaignCode }: {
   draftId: string;
   influencerHandle: string | null;
   clientId: string | null;
   clientName: string | null;
+  campaignCode: string | null;   // 소속 캠페인의 영문 코드(campaign.name_en) — 있으면 utm_campaign 기본값(스펙 §5)
 }) {
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [rows, setRows] = useState<TrackingLinkRow[]>([]);
@@ -111,7 +112,8 @@ export function TrackingLinkSection({ draftId, influencerHandle, clientId, clien
         <LinkCreateModal open={createOpen} onClose={() => setCreateOpen(false)} configured={configured}
                          onCreated={onCreated}
                          prefill={{ draftId, influencerHandle: influencerHandle ?? undefined,
-                                    clientId: clientId ?? undefined, clientName: clientName ?? undefined }} />
+                                    clientId: clientId ?? undefined, clientName: clientName ?? undefined,
+                                    campaignCode: campaignCode ?? undefined }} />
       )}
     </div>
   );

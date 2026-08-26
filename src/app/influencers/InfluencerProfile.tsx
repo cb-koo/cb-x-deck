@@ -10,6 +10,7 @@ import { ProfileTabs } from './ProfileTabs';
 import { AccountTab } from './AccountTab';
 import { ContentTab } from './ContentTab';
 import { DealTab } from './DealTab';
+import { CampaignSection } from './CampaignSection';
 import type { InfluencerDetail } from '@/lib/influencerStore';
 
 // 아바타 — 없으면 이니셜 원. 프로필 사진은 X CDN 원본이라 next/image 최적화 대상이 아니다.
@@ -189,9 +190,11 @@ export function InfluencerProfile({ id, onChanged, onDeleted, tab, onTabChange }
                        <AccountTab id={id} data={data} onChanged={onChanged} onDeleted={onDeleted}
                                    setData={setData} reportError={reportError('account')} />
                      ),
-                     // 세 탭의 첫 섹션이 탭 바에서 같은 거리에 서도록 위 여백만 맞춘다(ContentTab 자체는 불변)
+                     // 세 탭의 첫 섹션이 탭 바에서 같은 거리에 서도록 위 여백만 맞춘다(ContentTab 자체는 불변).
+                     // 참여 캠페인이 넘긴 원고 위 — 캠페인은 넘긴 콘텐츠의 묶음이라 큰 단위부터(캠페인 스펙 §5)
                      content: (
                        <div className="[&>section:first-child]:mt-2">
+                         <CampaignSection campaigns={data.campaigns} />
                          <ContentTab drafts={data.drafts} draftCount={inf.draftCount} />
                        </div>
                      ),

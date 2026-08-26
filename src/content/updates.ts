@@ -13,6 +13,14 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
+    date: '2026-08-26',
+    type: '새 기능',
+    title: "'업데이트 소식' 페이지가 생겼어요",
+    summary: '기능이 추가되거나 바뀔 때마다 여기에 적습니다. 눈에 보이지 않는 성능·안정성 변화도 함께 올려요. 지난 7월 19일 이후 변화를 소급해서 채워 두었습니다.',
+    bullets: ['사이드바 맨 아래, API 사용량 위', '월별로 묶여 있고, 오래된 월은 접혀 있어요'],
+    link: { label: '업데이트 소식 보기', href: '/updates' },
+  },
+  {
     date: '2026-08-25',
     type: '새 기능',
     title: '트래킹 링크를 앱 안에서 만들 수 있어요',

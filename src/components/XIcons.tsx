@@ -122,3 +122,8 @@ export const CheckIcon = ({ className }: { className?: string }) => (
 export const ClinicIcon = ({ className }: { className?: string }) => (
   <Icon className={className} d="M3 21h18v-2h-1V4c0-1.1-.9-2-2-2H6C4.9 2 4 2.9 4 4v15H3v2zM6 4h12v15h-3v-4H9v4H6V4zm2 2h2v2H8V6zm4 0h2v2h-2V6zM8 10h2v2H8v-2zm4 0h2v2h-2v-2z" />
 );
+
+// 캠페인(사이드바) — 깃발. 콘텐츠 생성·인플루언서·트래킹을 묶는 상위 개념이라 그 그룹 맨 위에 선다(스펙 §3-1).
+export const CampaignIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M5 2h2v20H5V2zm3 1h12.6l-2.7 5 2.7 5H8V3zm2 2v6h7.3l-1.6-3 1.6-3H10z" />
+);

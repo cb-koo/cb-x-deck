@@ -9,20 +9,21 @@ import {
   type Currency, type DraftCost, type MoneyByCurrency,
 } from './campaignCost.ts';
 
-/** 밀림이면 며칠 지났는지, 아니면 null — 게시됨·미사용·예정일 없음·오늘 이후는 전부 null(isOverdue와 같은 모집단) */
+/** 밀림이면 며칠 지났는지, 아니면 null — 게시됨·미사용·예정일 미정·오늘 이후는 전부 null(isOverdue와 같은 모집단) */
 export function overdueDays(d: StageInput, today: string): number | null {
   return isOverdue(d, today) ? daysBetweenDates(d.scheduledOn as string, today) : null;
 }
 
-/** 예정일이 없을 때 표시하는 문구 — 표 셀·ScheduledOnField(compact)가 같은 상수를 쓴다(리뷰 반영: 두 경로 중복 제거) */
-export const NO_SCHEDULE_LABEL = '예정일 없음';
+/** 예정일이 없을 때 표시하는 문구 — 표 셀·달력 열·ScheduledOnField(compact)가 같은 상수를 쓴다(리뷰 반영: 경로별 중복 제거).
+ *  QA 4라운드: '없음'은 "정할 수 없다"로 읽혀서 '미정'으로 바꿨다 — 문구를 바꿀 때 여기만 고치면 모든 화면이 따라온다. */
+export const NO_SCHEDULE_LABEL = '예정일 미정';
 
 /** '1일 지남' — 밀림 접미사. scheduledOnLabel과 ScheduledOnField가 같은 문구를 조립한다 */
 export function overdueSuffix(days: number): string {
   return `${days}일 지남`;
 }
 
-/** '8/26 수 · 1일 지남' | '8/29 토' | '예정일 없음' — 표 셀·달력 카드가 같은 문구 */
+/** '8/26 수 · 1일 지남' | '8/29 토' | '예정일 미정' — 표 셀·달력 카드가 같은 문구 */
 export function scheduledOnLabel(d: StageInput, today: string): string {
   if (!d.scheduledOn) return NO_SCHEDULE_LABEL;
   const od = overdueDays(d, today);

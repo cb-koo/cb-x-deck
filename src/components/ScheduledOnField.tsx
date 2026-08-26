@@ -45,7 +45,7 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
           // mouseDown 기본동작(포커스 이동)을 막아야 blur → 편집 닫힘이 클릭보다 먼저 일어나지 않는다
           <button type="button" onMouseDown={(e) => e.preventDefault()}
                   onClick={() => { onChange(null); setEditing(false); }}
-                  title="예정일을 지우면 달력의 '예정일 없음' 열로 가요"
+                  title={`예정일을 지우면 달력의 '${NO_SCHEDULE_LABEL}' 열로 가요`}
                   className="flex h-10 shrink-0 items-center justify-center rounded-full px-3 text-content text-x-secondary hover:bg-red-50 hover:text-red-700">지우기</button>
         )}
       </span>

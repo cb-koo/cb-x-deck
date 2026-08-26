@@ -12,7 +12,7 @@ import { draftLabel } from '@/lib/draftViews';
 import { suggestDraftCost, type DraftCost } from '@/lib/campaignCost';
 import {
   sortContent, matchesStageFilter, isOutOfRange, defaultCostType,
-  STAGE_FILTERS, STAGE_FILTER_LABEL, CONTENT_SORT_LABEL, type ContentSortKey, type StageFilter,
+  STAGE_FILTER_LABEL, CONTENT_SORT_LABEL, type ContentSortKey, type StageFilter,
 } from '@/lib/campaignJudgment';
 import { overdueDays, contentTypeLabel, perfLabel, handleInitial } from '@/lib/campaignTableView';
 
@@ -99,14 +99,15 @@ function RowMenu({ onOpenDraft, onRemoveFromCampaign }: { onOpenDraft: () => voi
 }
 
 export function ContentTable({
-  rows, campaign, today, influencerOptions, sort, onSortChange, filter, onFilterChange,
+  rows, campaign, today, influencerOptions, sort, onSortChange, filter,
   onOpenDraft, onChangeStatus, onAssignInfluencer, onChangeScheduledOn, onChangeCost, onRemoveFromCampaign, onLinkPost,
 }: {
   rows: CampaignDraftItem[];                 // 정렬·필터 전 — 여기서 sortContent·matchesStageFilter를 적용한다
   campaign: CampaignRow; today: string;      // today = 서버 detail.today(서울) — 브라우저 시계로 밀림을 판정하지 않는다
   influencerOptions: InfluencerOption[];
   sort: ContentSortKey; onSortChange: (k: ContentSortKey) => void;
-  filter: StageFilter; onFilterChange: (f: StageFilter) => void;
+  // 단계 필터 값만 받는다 — 칩은 상위 툴바(제목·보기 전환과 한 줄)에 있고 표·달력이 같은 값을 쓴다(QA 4라운드)
+  filter: StageFilter;
   onOpenDraft: (id: string) => void;
   onChangeStatus: (d: CampaignDraftItem, s: DraftStatus) => void;
   onAssignInfluencer: (d: CampaignDraftItem, handle: string | null) => void;
@@ -115,9 +116,6 @@ export function ContentTable({
   onRemoveFromCampaign: (d: CampaignDraftItem) => void;
   onLinkPost: (d: CampaignDraftItem) => void;
 }) {
-  const counts = Object.fromEntries(
-    STAGE_FILTERS.map((f) => [f, rows.filter((d) => matchesStageFilter(d, f)).length]),
-  ) as Record<StageFilter, number>;
   const shown = sortContent(rows.filter((d) => matchesStageFilter(d, filter)), sort, today);
   const optionFor = (handle: string | null) =>
     (handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined);
@@ -128,22 +126,17 @@ export function ContentTable({
     const sel = window.getSelection();
     return !(sel && !sel.isCollapsed && sel.toString().trim() !== '');
   }
-  const chip = (on: boolean) =>
-    `inline-flex h-8 items-center rounded-full border px-3 text-ui tabular-nums ${on ? 'border-x-blue bg-x-blue/10 font-bold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`;
-
   const empty = (text: string) => (
     <p className="mt-4 rounded-xl border border-x-border bg-x-surface px-4 py-6 text-center text-content text-x-secondary">{text}</p>
   );
 
   return (
     <section className="mt-8">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {STAGE_FILTERS.map((f) => (
-          <button key={f} type="button" onClick={() => onFilterChange(f)} aria-pressed={filter === f} className={chip(filter === f)}>
-            {STAGE_FILTER_LABEL[f]} {counts[f]}
-          </button>
-        ))}
-        <label className="ml-auto flex items-center gap-1.5 text-ui text-x-secondary">
+      {/* 표 자신의 머리줄 — 단계 필터 칩이 상위 툴바로 올라가면서(QA 4라운드) 정렬만 여기 남았다.
+          도움말과 같은 줄에 두어 표 위에 줄이 하나 더 늘지 않게 한다. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <p className="text-ui text-x-muted">밀린 콘텐츠가 맨 위에 와요 — 예정일·인플루언서·비용·단계는 칸을 눌러 바로 고칠 수 있어요. 행을 누르면 원고가 열려요.</p>
+        <label className="ml-auto flex shrink-0 items-center gap-1.5 text-ui text-x-secondary">
           정렬
           <select value={sort} onChange={(e) => onSortChange(e.target.value as ContentSortKey)} aria-label="콘텐츠 정렬"
                   className="h-8 rounded-md border border-x-border-strong bg-white px-2 text-ui outline-none focus:border-x-blue">
@@ -151,7 +144,6 @@ export function ContentTable({
           </select>
         </label>
       </div>
-      <p className="mt-1.5 text-ui text-x-muted">밀린 콘텐츠가 맨 위에 와요 — 예정일·인플루언서·비용·단계는 칸을 눌러 바로 고칠 수 있어요. 행을 누르면 원고가 열려요.</p>
 
       {rows.length === 0 ? empty('아직 이 캠페인에 원고가 없어요 — 위의 [+ 원고 추가]로 기존 원고를 넣거나 새로 만들어요.')
        : shown.length === 0 ? empty(`'${STAGE_FILTER_LABEL[filter]}'에 해당하는 콘텐츠가 없어요.`)

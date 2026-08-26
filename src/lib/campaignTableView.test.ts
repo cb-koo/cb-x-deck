@@ -17,7 +17,7 @@ test('1) 밀림 일수·예정일 문구 — 게시됨·미사용·오늘·없�
   assert.equal(overdueDays({ status: 'draft', published: false, scheduledOn: null }, T), null);
   assert.equal(scheduledOnLabel({ status: 'draft', published: false, scheduledOn: '2026-08-26' }, T), '8/26 수 · 1일 지남');
   assert.equal(scheduledOnLabel({ status: 'draft', published: false, scheduledOn: '2026-08-29' }, T), '8/29 토');
-  assert.equal(scheduledOnLabel({ status: 'draft', published: false, scheduledOn: null }, T), '예정일 없음');
+  assert.equal(scheduledOnLabel({ status: 'draft', published: false, scheduledOn: null }, T), '예정일 미정');   // QA 4라운드 문구
 });
 
 test('2) 유형 열·성과·이니셜', () => {

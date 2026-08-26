@@ -12,7 +12,8 @@ import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, putInfluencerCostApi, deleteDraftApi, rewriteDraftApi, regenPostApi,
 } from '@/lib/campaignApi';
 import {
-  summarizeStages, summarizePerf, deriveInfluencers, campaignTotal, initialWeekStart, type ContentSortKey, type StageFilter,
+  summarizeStages, summarizePerf, deriveInfluencers, campaignTotal, initialWeekStart, matchesStageFilter,
+  STAGE_FILTERS, STAGE_FILTER_LABEL, type ContentSortKey, type StageFilter,
 } from '@/lib/campaignJudgment';
 import type { DetailView } from '@/lib/campaignView';
 import { draftLabel } from '@/lib/draftViews';
@@ -106,6 +107,10 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
   const summary = useMemo(() => (data ? summarizeStages(data.drafts, data.today) : null), [data]);
   const perf = useMemo(() => (data ? summarizePerf(data.drafts) : null), [data]);
   const influencers = useMemo(() => (data ? deriveInfluencers(data.drafts, data.costRows) : []), [data]);
+  // 툴바 칩의 숫자 — 표·달력이 쓰는 matchesStageFilter 그대로라 '전달됨 2'를 눌렀을 때 나오는 행 수와 항상 같다
+  const stageCounts = useMemo(() => Object.fromEntries(
+    STAGE_FILTERS.map((f) => [f, (data?.drafts ?? []).filter((d) => matchesStageFilter(d, f)).length]),
+  ) as Record<StageFilter, number>, [data]);
   const total = useMemo(() => campaignTotal(influencers), [influencers]);
   const peeked = peekId && data ? data.drafts.find((d) => d.id === peekId) ?? null : null;
   const bannedFor = useCallback((d: DraftRow) => (clientData
@@ -212,21 +217,36 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
       <div className="mt-7">
         <SummaryCards summary={summary} perf={perf} total={total} />
       </div>
-      <div className="mt-8 flex flex-wrap items-center gap-3">
-        <div role="group" aria-label="콘텐츠 보기" className="inline-flex rounded-full border border-x-border-strong p-0.5">
-          {(['table', 'calendar'] as DetailView[]).map((v) => (
-            <button key={v} type="button" onClick={() => onViewChange(v)} aria-pressed={view === v}
-                    className={`h-8 rounded-full px-3.5 text-ui ${view === v ? 'bg-x-text font-bold text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
-              {v === 'table' ? '표' : '주간 달력'}
-            </button>
-          ))}
+      {/* 콘텐츠 툴바 한 줄(QA 4라운드) — 왼쪽 제목 '콘텐츠 N', 오른쪽 [표 | 주간 달력] + 단계 필터 칩.
+          N은 이 캠페인의 원고 전부(= 표의 '전체' 행 수)라 제목과 표가 같은 숫자를 말한다 — 미사용을 빼면 표와 어긋난다.
+          칩은 표·달력 공용으로 올려 두 보기에서 뜻이 같다. 칩·버튼 높이는 32px(툴바 기준), 글자는 13px. */}
+      <div className="mt-8 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h2 className="text-content font-semibold">콘텐츠 <span className="tabular-nums">{data.drafts.length}</span></h2>
+        <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div role="group" aria-label="콘텐츠 보기" className="inline-flex rounded-full border border-x-border-strong p-0.5">
+            {(['table', 'calendar'] as DetailView[]).map((v) => (
+              <button key={v} type="button" onClick={() => onViewChange(v)} aria-pressed={view === v}
+                      className={`h-8 rounded-full px-3.5 text-ui ${view === v ? 'bg-x-text font-bold text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
+                {v === 'table' ? '표' : '주간 달력'}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {STAGE_FILTERS.map((f) => (
+              <button key={f} type="button" onClick={() => setFilter(f)} aria-pressed={filter === f}
+                      className={`inline-flex h-8 items-center rounded-full border px-3 text-ui tabular-nums ${
+                        filter === f ? 'border-x-blue bg-x-blue/10 font-bold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
+                {STAGE_FILTER_LABEL[f]} {stageCounts[f]}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       {/* [&>section]으로 ContentTable/WeekCalendar 자체의 mt-8을 세그먼트 아래 12px로 줄인다(두 컴포넌트는 손대지 않는다) */}
       <div className="[&>section]:mt-3">
         {view === 'table' ? (
           <ContentTable rows={data.drafts} campaign={data.campaign} today={data.today} influencerOptions={influencerOptions}
-                        sort={sort} onSortChange={setSort} filter={filter} onFilterChange={setFilter}
+                        sort={sort} onSortChange={setSort} filter={filter}
                         onOpenDraft={setPeekId}
                         onChangeStatus={(d, s) => void actions.changeStatus(d, s)}
                         onAssignInfluencer={(d, h) => void actions.assignInfluencer(d, h)}
@@ -238,7 +258,7 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
                         onLinkPost={setLinkFor} />
         ) : (
           // 드래그 저장 = 표와 같은 changeScheduledOn — 실패하면 apply가 카드를 원위치로 되돌리고 서버 문구를 토스트로 띄운다(§7)
-          <WeekCalendar rows={data.drafts} campaign={data.campaign} today={data.today}
+          <WeekCalendar rows={data.drafts} campaign={data.campaign} today={data.today} filter={filter}
                         weekStart={weekStart ?? initialWeekStart(data.campaign.startsOn, data.campaign.endsOn, data.today)}
                         onWeekChange={setWeekStart} onOpenDraft={setPeekId}
                         onChangeScheduledOn={(d, next) => void actions.changeScheduledOn(d, next)} />

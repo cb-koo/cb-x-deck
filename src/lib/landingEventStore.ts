@@ -32,6 +32,11 @@ export async function insertLandingEvents(
   return { accepted: ins.length, duplicates: events.length - ins.length };
 }
 
+// 방문 단위 사람·탭 판정 — 두 집계 쿼리가 같은 규칙을 써야 한다(한쪽만 바뀌면 숫자가 어긋난다)
+const visitFlags = (sql: postgres.Sql) => sql`
+  bool_or(not is_bot_ua and kind in ('view','tap')) as human,
+  bool_or(not is_bot_ua and kind = 'tap') as tapped`;
+
 export interface ContentStats {
   utmContent: string;
   visits: number;    // distinct visit_id 전체(봇·프리페치 포함)
@@ -47,8 +52,7 @@ export async function statsByUtmContent(
   const rows = await sql<Array<{ utm_content: string; visits: number; arrivals: number; taps: number }>>`
     with v as (
       select utm_content, visit_id,
-             bool_or(not is_bot_ua and kind in ('view','tap')) as human,
-             bool_or(not is_bot_ua and kind = 'tap') as tapped
+             ${visitFlags(sql)}
         from landing_event
        where utm_content = any(${utmContents}::text[])
          ${since ? sql`and occurred_at >= ${since}` : sql``}
@@ -76,8 +80,7 @@ export async function unlinkedStats(
   const rows = await sql<Array<{ utm_content: string | null; arrivals: number; taps: number }>>`
     with v as (
       select utm_content, visit_id,
-             bool_or(not is_bot_ua and kind in ('view','tap')) as human,
-             bool_or(not is_bot_ua and kind = 'tap') as tapped
+             ${visitFlags(sql)}
         from landing_event
        where (utm_content is null or not (utm_content = any(${knownUtmContents}::text[])))
          ${campaign ? sql`and (utm_campaign = ${campaign} or utm_campaign is null)` : sql``}

@@ -159,16 +159,16 @@ function ThreadFlow({ row, colCount }: { row: TableRow; colCount: number }) {
     p.role === 'link' ? '🔗 링크 댓글' : p.role === 'main' ? '1/ 본문' : `${i + 1}/`;
   if (posts.length === 0) {
     return (
-      <tr><td className={edge} /><td colSpan={colCount - 1} className={`${cell} border-b border-x-border-strong px-4 text-x-muted`}>
+      <tr><td colSpan={colCount} className={`${edge} ${cell} border-b border-x-border-strong pl-3 pr-4 text-x-muted`}>
         등록된 게시물이 없어요 — 트래킹에서 게시물을 등록하면 여기 채워져요
       </td></tr>
     );
   }
   return (
     <>
+      {/* 자식 행은 펼침 칸(32px)을 따로 두지 않는다 — 라벨이 ▼ 자리부터 시작해야 좌측 여백으로 보이지 않는다(koo QA 08-26 2차) */}
       <tr>
-        <td className={edge} />
-        <td colSpan={colCount - 1} className="h-8 bg-x-surface px-4 text-ui text-x-muted">
+        <td colSpan={colCount - 1} className={`${edge} h-8 bg-x-surface pl-3 pr-4 text-ui text-x-muted`}>
           스레드 읽기 흐름 · {posts.length}개 등록{row.threadTotal ? ` / 스레드 ${row.threadTotal}개` : ''} · %는 1/ 본문 조회 대비
         </td>
       </tr>
@@ -176,9 +176,7 @@ function ThreadFlow({ row, colCount }: { row: TableRow; colCount: number }) {
         const pct = p.role !== 'main' && main?.views && p.views !== null ? formatPct(p.views / main.views) : '';
         return (
           <tr key={p.tweetId}>
-            <td className={`${edge} ${cell}`} />
-            {/* 부모 제목과 같은 좌측선 — 계층은 왼쪽 파란 경계선이 말하고, 들여쓰기는 빈 여백으로만 보였다(koo QA 08-26) */}
-            <td className={`${cell} px-4 text-x-secondary`}>{label(p, i)}</td>
+            <td colSpan={2} className={`${edge} ${cell} pl-3 pr-4 text-x-secondary`}>{label(p, i)}</td>
             <td className={cell} /><td className={cell} />
             <td className={`${cell} px-4 text-right`}>
               <span className="inline-flex w-full justify-end gap-1.5"><span className="w-11 text-left text-[12px] text-x-muted">{pct}</span><span>{p.views === null ? '—' : formatFull(p.views)}</span></span>
@@ -188,7 +186,7 @@ function ThreadFlow({ row, colCount }: { row: TableRow; colCount: number }) {
           </tr>
         );
       })}
-      <tr><td className={`${edge} border-b border-x-border-strong`} /><td colSpan={colCount - 1} className="h-8 border-b border-x-border-strong bg-x-surface px-4 text-[12px] text-x-muted">조회·클릭은 마지막 새로고침 시점 값이에요.</td></tr>
+      <tr><td colSpan={colCount} className={`${edge} h-8 border-b border-x-border-strong bg-x-surface pl-3 pr-4 text-[12px] text-x-muted`}>조회·클릭은 마지막 새로고침 시점 값이에요.</td></tr>
     </>
   );
 }

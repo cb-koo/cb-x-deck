@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { formatFull } from '@/lib/format';
-import { kstDateTime, kstDate, kstToday, kstDaysAgo } from '@/lib/datetime';
+import { kstDate, kstToday, kstDaysAgo } from '@/lib/datetime';
 import { ALL_CAMPAIGNS, type PerformanceData, type ContentRow } from '@/lib/performanceStore';
 import type { Range } from '@/lib/landingEventStore';
 import { groupByInfluencer, sortRows, topShare, type PerfSortKey } from '@/lib/performanceJudgment';
@@ -148,7 +148,7 @@ function PerformanceView() {
                    className="rounded-lg border border-x-border-strong bg-white px-2 py-1 text-ui" />
           </label>
           <span className="ml-auto text-ui text-x-muted">
-            {customPending ? '시작일과 종료일을 모두 고르면 그 기간으로 바뀌어요 · 지금은 전체 기간' : periodLabel}
+            {periodLabel}
           </span>
         </div>
 
@@ -164,15 +164,8 @@ function PerformanceView() {
               </button>
             ))}
           </div>
-          <span className="text-ui text-x-muted">{grouping === 'content' ? '콘텐츠 = 원고 하나 = 고유 링크 하나예요' : '같은 사람의 콘텐츠를 합쳐 보여요'}</span>
           <span className="ml-auto text-[12px] text-x-muted">정렬: {sort === 'tapRate' ? '탭률 — 방문이 적은 건 뒤로 보내요' : '헤더를 눌러 바꿀 수 있어요'}</span>
         </div>
-        {/* 투명 표기(Fathom식): 무엇을 세지 않았는지, 조회·클릭이 어느 시점 값인지 한 줄 */}
-        <p className="mb-2 text-ui text-x-muted">
-          {data.rows.length > 0 && totalArrivals === 0 && '아직 들어온 방문이 없어요 — 브릿지가 연결되면 바로 채워져요 · '}
-          프리페치·봇으로 보이는 방문 {formatFull(data.excluded)}건은 세지 않았어요
-          {data.snapshotAt && ` · 조회·클릭은 마지막 새로고침(${kstDateTime(data.snapshotAt)}) 기준이라 기간과 무관해요`}
-        </p>
 
         <PerformanceTable rows={tableRows} grouping={grouping} totalTaps={totalTaps} sort={sort} dir={dir} onSort={onSort}
                           expandedKey={expandedKey} onToggleExpand={(k) => setExpandedKey((cur) => (cur === k ? null : k))} />

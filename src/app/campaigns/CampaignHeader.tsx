@@ -30,7 +30,7 @@ const PERIOD_TIP = "기간을 줄여 예정일이 밖으로 나가도 막지 않
 function DefRow({ label, tip, children, error }: { label: string; tip?: string; children: ReactNode; error: ReactNode }) {
   return (
     <div className="py-0.5">
-      <div className="flex min-h-[36px] items-center gap-2.5">
+      <div className="flex min-h-[44px] items-center gap-2.5">
         <span className="flex w-[52px] shrink-0 items-center gap-1 text-ui text-x-secondary">
           {label}
           {tip ? <InfoTip text={tip} label={`${label} 설명 보기`} /> : null}
@@ -102,8 +102,9 @@ export function CampaignHeader({ campaign, draftCount, today, onPatch, onDelete,
   }
   function cancel() { setErr(null); setEdit(null); }
   // 포커스가 그 항목 밖(다른 칸·바깥)으로 나갈 때만 닫는다 — 기간의 두 입력을 오갈 때 닫히면 종료일을 못 고친다
+  // 닫을 때 오류도 같이 지운다 — 안 그러면 되돌린(저장된) 값 밑에 방금 전 오류 줄이 남아 라벨-값이 안 맞는다
   function closeOnLeave(e: React.FocusEvent<HTMLElement>) {
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setEdit(null);
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) { setEdit(null); setErr(null); }
   }
 
   async function saveName() {
@@ -126,10 +127,12 @@ export function CampaignHeader({ campaign, draftCount, today, onPatch, onDelete,
     if (v.note === campaign.note) { setEdit(null); return; }
     if (await patchOnce(v)) setEdit(null);
   }
-  // 기간·유형은 고른 즉시 저장한다 — 값이 저장된 뒤에도 칸은 열어 둔다(기간은 두 날짜를 이어서 고르는 일이 잦다)
+  // 기간·유형은 고른 즉시 저장한다. 예외는 기간뿐이다 — 두 날짜를 이어서 고르는 일이 잦아 저장 후에도 칸을 열어 둔다.
+  // 유형은 고르는 동작이 한 번뿐이라 저장되면 읽기 상태로 돌아간다(ScheduledOnField와 같은 커밋-후-닫힘).
   async function savePatch(patch: CampaignPatchInput, field: Field) {
     const v = validate(patch, field);
-    if (v) await patchOnce(v);
+    if (!v) return;
+    if (await patchOnce(v) && field !== 'period') setEdit(null);
   }
   function copyCode() {
     navigator.clipboard.writeText(campaign.nameEn)

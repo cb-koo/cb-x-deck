@@ -31,7 +31,8 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
   if (editing) {
     return (
       // 포커스가 이 묶음(입력 ↔ '지우기') 밖으로 나갈 때만 편집을 닫는다 — 입력에서 버튼으로 옮기다 닫히면 지우기를 못 누른다
-      <span className="inline-flex items-center gap-1.5"
+      // compact(표 셀)는 py-1로 여유를 둬 h-10 입력이 들어가도 행이 48px 밑을 유지한다(표 자체 높이는 여기서 손대지 않는다)
+      <span className={`inline-flex items-center gap-1.5 ${compact ? 'py-1' : ''}`}
             onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setEditing(false); }}>
         <input ref={inputRef} type="date" value={value ?? ''} aria-label="게시 예정일"
                onChange={(e) => { onChange(e.target.value || null); setEditing(false); }}
@@ -39,14 +40,13 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
                  if (e.key === 'Escape' && !e.nativeEvent.isComposing) { e.stopPropagation(); setEditing(false); }   // 취소 — 모달까지 닫지 않는다
                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) setEditing(false);
                }}
-               className={`rounded-md border border-x-border-strong bg-white px-2 outline-none focus:border-x-blue ${
-                 compact ? 'h-9 text-ui' : 'h-10 text-ui'}`} />
+               className="h-10 rounded-md border border-x-border-strong bg-white px-2 text-ui outline-none focus:border-x-blue" />
         {value && (
           // mouseDown 기본동작(포커스 이동)을 막아야 blur → 편집 닫힘이 클릭보다 먼저 일어나지 않는다
           <button type="button" onMouseDown={(e) => e.preventDefault()}
                   onClick={() => { onChange(null); setEditing(false); }}
                   title="예정일을 지우면 달력의 '예정일 없음' 열로 가요"
-                  className="shrink-0 rounded-full px-2 py-1 text-ui text-x-secondary hover:bg-red-50 hover:text-red-700">지우기</button>
+                  className="flex h-10 shrink-0 items-center justify-center rounded-full px-3 text-content text-x-secondary hover:bg-red-50 hover:text-red-700">지우기</button>
         )}
       </span>
     );

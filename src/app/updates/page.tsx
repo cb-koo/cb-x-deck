@@ -35,9 +35,10 @@ export default function UpdatesPage() {
           {groups.map((g, i) => (
             <details key={g.ym} open={isMonthOpen(i)} className="group pb-2">
               <summary className="flex cursor-pointer list-none items-baseline gap-2 pl-7 text-[14px] font-bold tracking-[0.02em] text-x-secondary [&::-webkit-details-marker]:hidden">
+                <span aria-hidden className="inline-block text-x-muted transition-transform group-open:rotate-90">▸</span>
                 <span>{g.label}</span>
                 {/* 접힌 월만 건수 — 펼치면 항목이 보여 숫자가 중복 신호가 된다 */}
-                <span className="font-normal text-x-muted group-open:hidden">· {g.entries.length}건 ▸</span>
+                <span className="font-normal text-x-muted group-open:hidden">· {g.entries.length}건</span>
               </summary>
               <ol className="mt-3 list-none p-0">
                 {g.entries.map((e, j) => {

@@ -1,6 +1,6 @@
 # 캠페인 관리 — 설계 스펙
 
-작성: 2026-08-25 · 브랜치 `cb-koo/campaign-management` · 상태: 리뷰(Opus, Blocking 6·Should 5) 반영 완료 — 구현 계획 단계
+작성: 2026-08-25 · 브랜치 `cb-koo/campaign-management` · 상태: 구현 완료(08-26, Task 1~15 리뷰 승인·최종 브랜치 리뷰 With fixes 반영) — koo QA·머지 대기
 리서치: `docs/research/campaign-dashboard-ux-research-20260825.md` (표 vs 달력·예외 우선·통화 분리 근거)
 시안: `.superpowers/brainstorm/22867-1787648782/content/{hybrid1,calendar-v1-v2}.html` (로컬, 미커밋)
 
@@ -29,7 +29,7 @@ main은 032까지(032 = 인플루언서 협찬 단가·계정 분석, 08-25 main
 | `id` | uuid pk | |
 | `client_id` | uuid → client, on delete set null | |
 | `client_name` | text | 스냅샷(014 관례) |
-| `name` | text not null | 화면 이름. 생성 시 기본 제안 `{클라} {M월 N주}`, 수정 가능 |
+| `name` | text not null | 화면 이름. 생성 시 기본 제안 `{클라} {M월 N주}`, 수정 가능. **N주 = 시작일이 든 주(월~일)의 목요일 기준**(구현 결정 08-26: 달력일 기준은 8/31 시작을 '8월 5주'로 제안해 실무 표기 '9월 1주'와 어긋남) |
 | `name_en` | text not null | 영문 코드. `checkCampaign` 규칙(영어·숫자·하이픈·._). 기본 제안 `{클라 영문(name_en) 소문자}-{시작일 YYYYMMDD}`, 클라 영문명이 없으면 `{시작일}`. 트래킹 링크 `utm_campaign` 기본값으로 이어짐 |
 | `starts_on` / `ends_on` | date not null | 서울 기준 날짜(`DateOnly`). `ends_on >= starts_on` check |
 | `kind` | text null | `content`(콘텐츠 의뢰) · `visit`(방문협찬) · `seeding`(시딩) · null. 표시·필터용, 로직 분기 없음 |
@@ -171,7 +171,7 @@ main은 032까지(032 = 인플루언서 협찬 단가·계정 분석, 08-25 main
 
 ## 7. 오류·경계
 
-- 기간 역순 → 400 + "종료일이 시작일보다 앞이에요". 영문 코드 위반 → `campaignMessage` 재사용.
+- 기간 역순 → 400 + "종료일이 시작일보다 앞이에요". 영문 코드 위반 → 규칙은 `checkCampaign` 재사용, **문구는 캠페인 전용 `NAME_EN_EMPTY_MESSAGE`/`NAME_EN_FORMAT_MESSAGE`**(구현 결정 08-26: 한 폼에 이름·영문 코드 두 칸이 있어 `campaignMessage`의 "캠페인명…"은 어느 칸인지 가리키지 못함).
 - 캠페인 미존재 `?id=` → 토스트 + 첫 캠페인 선택.
 - 비용 금액은 0 이상 정수만(단가 검증 `parsePricingPatch` 규칙과 동일). 통화 바꿔도 금액 변환 안 함(도움말 한 줄).
 - 달력 드래그 실패(네트워크) → 카드 원위치 + 토스트.

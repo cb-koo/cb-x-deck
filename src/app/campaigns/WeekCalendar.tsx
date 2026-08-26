@@ -5,6 +5,7 @@ import { isOutOfRange, formatDateKo, contentStage, STAGE_LABEL, type ContentStag
 import { overdueDays, overdueSuffix, NO_SCHEDULE_LABEL } from '@/lib/campaignTableView';
 import { weekColumns, weekBounds, isSingleWeek, prevWeek, nextWeek, clampWeek, weekLabel } from '@/lib/campaignCalendar';
 import { draftLabel } from '@/lib/draftViews';
+import { STATUS_STYLE, PUBLISHED_STYLE } from '@/components/DraftStatusChip';
 
 // 주간 달력(스펙 §3-2) — 월~일 7열 + "예정일 없음"(오른쪽, 점선). 카드 = 제목(2줄 말줄임) · @핸들 · 단계 배지. 밀린 카드 빨간 막대 + "n일 지남",
 // 오늘 헤더 파란 강조, 기간 밖 카드 "기간 밖" 배지. 카드를 끌어 열에 놓으면 예정일이 바뀐다(요일 ↔ 예정일 없음 포함) —
@@ -12,16 +13,10 @@ import { draftLabel } from '@/lib/draftViews';
 // 판정(밀림·기간 밖·단계)은 표와 같은 함수, 문구는 campaignTableView — 표와 달력이 다른 말을 하면 안 된다.
 // 가독성: 날짜 헤더 18px·제목 15px(text-content)·보조 13px(text-ui)·카드 ≥48px(min-h-12)·열 간격 12px. text-caption(11px)은 쓰지 않는다.
 const NONE = '__none__';   // 예정일 없음 열의 drop 키
-// 단계 배지 색 — DraftStatusChip의 STATUS_STYLE과 같은 계열 + 게시됨. 여기 배지는 '누를 수 없는' 읽기 전용이라
-// ⌄(펼침) 표시를 달지 않는다: 카드를 누르면 원고가 열리므로 칩까지 눌리는 것처럼 보이면 두 동작이 겹친다(거짓 어포던스).
-const STAGE_STYLE: Record<ContentStage, string> = {
-  draft: 'border-x-border-strong bg-white text-x-secondary',
-  review: 'border-amber-300 bg-amber-100 text-amber-800',
-  approved: 'border-x-blue/40 bg-x-blue/10 text-x-blue-text',
-  delivered: 'border-green-300 bg-green-100 text-green-800',
-  unused: 'border-x-border-strong bg-x-border/40 text-x-muted',
-  published: 'border-green-600 bg-green-600 text-white',
-};
+// 단계 배지 색 — DraftStatusChip의 STATUS_STYLE/PUBLISHED_STYLE을 그대로 쓴다(표와 같은 소스, 리뷰 반영).
+// 여기 배지는 '누를 수 없는' 읽기 전용이라 ⌄(펼침) 표시를 달지 않는다: 카드를 누르면 원고가 열리므로
+// 칩까지 눌리는 것처럼 보이면 두 동작이 겹친다(거짓 어포던스).
+const stageStyle = (stage: ContentStage) => (stage === 'published' ? PUBLISHED_STYLE : STATUS_STYLE[stage]);
 
 export function WeekCalendar({ rows, campaign, today, weekStart, onWeekChange, onOpenDraft, onChangeScheduledOn }: {
   rows: CampaignDraftItem[];
@@ -73,7 +68,7 @@ export function WeekCalendar({ rows, campaign, today, weekStart, onWeekChange, o
         <span className="line-clamp-2 text-content font-medium">{draftLabel(d).text}</span>
         <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-ui text-x-muted">
           <span>{d.influencerHandle ? `@${d.influencerHandle}` : '미배정'}</span>
-          <span className={`rounded-full border px-2 py-0.5 font-bold ${STAGE_STYLE[stage]}`}>{STAGE_LABEL[stage]}</span>
+          <span className={`rounded-full border px-2 py-0.5 font-bold ${stageStyle(stage)}`}>{STAGE_LABEL[stage]}</span>
           {od !== null && <span className="font-bold text-red-700">{overdueSuffix(od)}</span>}
           {isOutOfRange(d.scheduledOn, campaign.startsOn, campaign.endsOn) && (
             <span className="rounded bg-amber-100 px-1 text-amber-800" title="캠페인 기간 밖 날짜예요 — 저장은 되지만 표시로 알려요">기간 밖</span>
@@ -96,15 +91,18 @@ export function WeekCalendar({ rows, campaign, today, weekStart, onWeekChange, o
         ) : (
           <>
             <button type="button" onClick={() => prev && onWeekChange(prev)} disabled={!prev} aria-label="이전 주"
-                    className="h-8 w-8 rounded-full border border-x-border-strong text-ui hover:bg-x-hover disabled:opacity-30">◀</button>
+                    className="h-8 w-8 rounded-full border border-x-border-strong text-ui hover:bg-x-hover disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent">◀</button>
             <span className="text-content font-bold tabular-nums">{weekLabel(ws)}</span>
             <button type="button" onClick={() => next && onWeekChange(next)} disabled={!next} aria-label="다음 주"
-                    className="h-8 w-8 rounded-full border border-x-border-strong text-ui hover:bg-x-hover disabled:opacity-30">▶</button>
+                    className="h-8 w-8 rounded-full border border-x-border-strong text-ui hover:bg-x-hover disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent">▶</button>
           </>
         )}
       </div>
-      {/* 드래그가 안 되는 환경(터치·키보드)의 대체 경로를 같은 줄에서 알린다 — 끌기밖에 없는 것처럼 보이면 못 쓰는 사람이 생긴다 */}
-      <p className="mt-1.5 text-ui text-x-muted">카드를 끌어 요일에 놓으면 예정일이 바뀌어요(오른쪽 &apos;{NO_SCHEDULE_LABEL}&apos;으로도). 카드를 누르면 원고가 열리고, 거기서도 예정일을 고칠 수 있어요.</p>
+      {/* 드래그가 안 되는 환경(터치·키보드)의 대체 경로를 같은 줄에서 알린다 — 끌기밖에 없는 것처럼 보이면 못 쓰는 사람이 생긴다.
+          단, 원고가 0건이면 끌 카드 자체가 없으니 이 도움말은 숨긴다 — 주 이동·라벨은 그대로 둔다(리뷰 반영). */}
+      {rows.length > 0 && (
+        <p className="mt-1.5 text-ui text-x-muted">카드를 끌어 요일에 놓으면 예정일이 바뀌어요(오른쪽 &apos;{NO_SCHEDULE_LABEL}&apos;으로도). 카드를 누르면 원고가 열리고, 거기서도 예정일을 고칠 수 있어요.</p>
+      )}
 
       {rows.length === 0 ? (
         <p className="mt-4 rounded-xl border border-x-border bg-x-surface px-4 py-6 text-center text-content text-x-secondary">

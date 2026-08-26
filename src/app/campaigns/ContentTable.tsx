@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import type { CampaignDraftItem, CampaignRow } from '@/lib/campaignStore';
 import type { DraftStatus } from '@/lib/draftStatus';
 import type { InfluencerOption } from '@/lib/draftTypes';
-import { DraftStatusChip } from '@/components/DraftStatusChip';
+import { DraftStatusChip, PUBLISHED_STYLE } from '@/components/DraftStatusChip';
 import { InfluencerChip } from '@/components/InfluencerChip';
 import { CostPopover } from '@/components/CostPopover';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
@@ -211,7 +211,8 @@ export function ContentTable({
                       <span className="flex flex-col items-start gap-1">
                         <DraftStatusChip status={d.status} onChange={(s) => onChangeStatus(d, s)} />
                         {d.published ? (
-                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-ui font-bold text-green-800" title="연결된 게시물이 있어요 — 상태 값과 무관하게 게시됨으로 봐요">✓ 게시됨</span>
+                          // 색은 PUBLISHED_STYLE(DraftStatusChip) 하나만 — 표·달력이 각자 색을 두면 같은 단계가 다르게 보인다(리뷰 반영).
+                          <span className={`rounded-full border px-2 py-0.5 text-ui font-bold ${PUBLISHED_STYLE}`} title="연결된 게시물이 있어요 — 상태 값과 무관하게 게시됨으로 봐요">✓ 게시됨</span>
                         ) : (
                           <button type="button" onClick={() => onLinkPost(d)} className="text-ui text-x-blue-text hover:underline"
                                   title="올라간 게시물 링크를 붙이면 게시됨으로 바뀌고 조회·좋아요가 잡혀요">게시물 연결</button>

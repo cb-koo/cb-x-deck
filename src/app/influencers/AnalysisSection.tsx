@@ -158,43 +158,99 @@ function BlockTitle({ children }: { children: ReactNode }) {
 }
 
 // ── 유형 분포 ────────────────────────────────────────────────────────────────
-// 'info 12 · daily 9 · …' 한 줄은 큰 순서도 비중도 눈으로 안 읽힌다. 공통 기준선에서
-// 출발하는 정렬 수평 막대는 길이 비교가 가장 정확한 형태다(Cleveland&McGill).
-// 색은 하나(x-blue) — 유형은 순서가 없는 범주라 색을 나누면 뜻 없는 무지개가 된다.
-const BAR_BLUE = '#1d9bf0';
-const BAR_GRAY = '#cfd9de';   // '기타'가 1위일 때: 그건 성과가 아니라 분류 실패에 가깝다
+// 묻는 것이 "전체 중 얼마"(부분-전체)라 도넛을 쓴다. 조각 다섯 개 이하이고, 값은
+// 전부 범례에 글자로 적히므로 각도 비교의 약점(작은 조각끼리 순위가 안 읽힌다)이 사라진다.
+//
+// 색은 **범주에 고정**한다 — 순위가 아니라 정체성을 따른다(dataviz 비협상 규칙).
+// 계정이 달라져 순서가 바뀌어도 '홍보·협찬'은 언제나 같은 초록이라 두 계정을 나란히 읽을 수 있다.
+// '기타'만 중립 회색: 성과가 아니라 분류에 안 잡혔다는 뜻이라 색을 주면 다섯 번째 범주처럼 보인다.
+const TYPE_COLOR: Record<ContentType, string> = {
+  review: '#2a78d6',   // 후기·체험
+  daily: '#eb6834',    // 일상·잡담
+  promo: '#1baf7a',    // 홍보·협찬
+  info: '#eda100',     // 정보
+  other: '#cfd9de',    // 기타 — 중립 회색(항상)
+};
 
-function TypeBars({ types, classified }: {
+const DONUT_PX = 140;   // 실제 렌더 크기(viewBox는 120 좌표계)
+const DONUT_R = 42;     // 스트로크 중심 반지름 — 두께 18이면 바깥 51·안쪽 33, 120 안에 9px 여백
+const DONUT_W = 18;
+const DONUT_C = 2 * Math.PI * DONUT_R;
+const SLICE_GAP = 2;    // 조각 사이 흰 간격(px, viewBox 좌표) — 면과 면을 붙이지 않는다
+
+function TypeDonut({ types, classified }: {
   types: Array<[ContentType, number]>; classified: number;
 }) {
   if (types.length === 0 || classified <= 0) return null;
-  // 분모는 분류된 글 수 — 위 타일(표본 전체)과 분모가 다르다는 걸 캡션으로 적는다
+  // 분모는 분류된 글 수 — 위 타일(표본 전체)과 분모가 다르다. 그 사실은 도넛 가운데 총건수와 '분류 기준' 캡션이 말한다.
   const otherLeads = types[0][0] === 'other';
+
+  // 12시에서 시계 방향, 건수 내림차순(types가 이미 정렬돼 온다). 길이를 gap만큼 깎아 흰 간격을 만든다 —
+  // 흰 선을 덧그리는 대신 조각 자체를 줄여야 안쪽·바깥쪽 모서리에 덧칠 자국이 남지 않는다.
+  // 시작점 = 앞선 조각 길이의 합. 유형은 많아야 다섯이라 매번 앞을 훑어도 값이 싸다 —
+  // 대신 렌더 중에 바깥 변수를 고쳐 쓰지 않는다(React Compiler 규칙).
+  const lens = types.map(([, v]) => (v / classified) * DONUT_C);
+  const slices = types.map(([k, v], i) => {
+    const len = lens[i];
+    const start = lens.slice(0, i).reduce((a, b) => a + b, 0);
+    return {
+      k, v,
+      pct: Math.round((v / classified) * 100),
+      start,
+      // 조각이 하나뿐이면 간격을 낼 상대가 없다(고리에 이 빠진 자국만 남는다).
+      // 아주 작은 조각도 1px는 남겨 범례의 색 점과 이어 보이게 한다.
+      dash: types.length > 1 ? Math.max(len - SLICE_GAP, 1) : len,
+    };
+  });
+
+  // 조각에 hover 툴팁을 두지 않는 대신, 스크린리더에는 이 한 줄이 값 전부를 준다(범례가 이미 눈에 보인다)
+  const label = `글 유형 분포: ${slices.map((s) => `${CONTENT_TYPE_LABEL[s.k]} ${s.pct}%`).join(', ')}`;
 
   return (
     <div>
       <BlockTitle>어떤 유형의 글을 쓰나</BlockTitle>
-      <p className="mt-0.5 text-caption text-x-muted">분류 {classified}건 기준</p>
-      <div className="mt-2 grid grid-cols-[max-content_1fr_max-content] items-center gap-x-3 gap-y-2">
-        {types.map(([k, v]) => {
-          const pct = Math.round((v / classified) * 100);
-          const gray = otherLeads && k === 'other';
-          return (
-            <div key={k} className="contents">
-              <span className="text-ui">{CONTENT_TYPE_LABEL[k]}</span>
-              {/* 트랙(회색 바탕)은 100%가 어디인지 보여 준다 — 막대만 있으면 비중이 아니라 절대량처럼 읽힌다 */}
-              <span className="block h-2 w-full rounded-full bg-x-border">
-                <span className="block h-2 rounded-full"
-                  style={{ width: `${pct}%`, minWidth: v > 0 ? 3 : 0, background: gray ? BAR_GRAY : BAR_BLUE }} />
+      <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-4">
+        <div className="relative shrink-0" style={{ width: DONUT_PX, height: DONUT_PX }}>
+          <svg viewBox="0 0 120 120" width={DONUT_PX} height={DONUT_PX} role="img" aria-label={label}>
+            {/* -90° 회전 = 12시 시작. circle의 진행 방향이 시계 방향이라 그대로 내림차순이 된다 */}
+            <g transform="rotate(-90 60 60)">
+              {slices.map((s) => (
+                <circle
+                  key={s.k}
+                  cx="60" cy="60" r={DONUT_R}
+                  fill="none"
+                  stroke={TYPE_COLOR[s.k]}
+                  strokeWidth={DONUT_W}
+                  strokeDasharray={`${s.dash} ${DONUT_C - s.dash}`}
+                  strokeDashoffset={-s.start}
+                />
+              ))}
+            </g>
+          </svg>
+          {/* 가운데 값은 SVG <text> 대신 HTML — 타이포 토큰(text-content/text-caption)을 그대로 쓴다 */}
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-content font-bold tabular-nums">{classified}건</span>
+            <span className="text-caption text-x-muted">분류 기준</span>
+          </div>
+        </div>
+
+        {/* 범례 = 값 표시. 색만으로 읽게 두지 않는다 — 라벨과 숫자가 곧 정보고, 색은 조각과 잇는 실이다.
+            순서는 조각과 같다(12시부터 시계 방향). */}
+        <ul className="min-w-[130px] flex-1 space-y-1.5">
+          {slices.map((s) => (
+            <li key={s.k} className="flex items-center gap-2">
+              <span className="size-2.5 shrink-0 rounded-full" style={{ background: TYPE_COLOR[s.k] }} />
+              <span className="text-ui">{CONTENT_TYPE_LABEL[s.k]}</span>
+              <span className="ml-auto whitespace-nowrap text-ui tabular-nums text-x-secondary">
+                {s.v}건 · {s.pct}%
               </span>
-              <span className="text-ui tabular-nums text-x-secondary">{v}건 · {pct}%</span>
-            </div>
-          );
-        })}
+            </li>
+          ))}
+        </ul>
       </div>
-      {/* 색만으로 뜻을 전하지 않는다 — 회색이 무슨 뜻인지 판단문으로 적는다 */}
+      {/* 회색이 무슨 뜻인지는 색이 아니라 글로 적는다 */}
       {otherLeads && (
-        <p className="mt-2 text-ui leading-relaxed text-x-secondary">
+        <p className="mt-3 text-ui leading-relaxed text-x-secondary">
           분류에 안 잡히는 글이 가장 많아요 — 잡담·짧은 반응이 많은 계정일 수 있어요
         </p>
       )}
@@ -224,7 +280,9 @@ function TopicTable({ topics, accountMedianViews }: {
     <div>
       <BlockTitle>어떤 주제가 통하나</BlockTitle>
       <div className="mt-2 overflow-x-auto">
-        <table className="w-full min-w-[380px] text-ui">
+        {/* 2열 배치라 이 표가 갖는 폭은 패널의 절반이다 — 열 넷이 들어갈 최소치까지 낮추고,
+            그보다 좁아지면 표만 가로 스크롤한다(패널 전체가 밀리지 않게) */}
+        <table className="w-full min-w-[320px] text-ui">
           <thead>
             <tr className="text-caption text-x-muted">
               <th className="py-1 pr-3 text-left font-normal">주제</th>
@@ -507,18 +565,25 @@ function AnalysisResult({ analysis, followers }: { analysis: InfluencerAnalysis;
             </StatTile>
           </div>
 
-          {/* 유형은 분류된 글만 세므로 위 타일(표본 전체)과 분모가 다르다 — 캡션으로 분모를 적는다 */}
-          <TypeBars types={types} classified={sample.classified} />
+          {/* '무엇을 쓰나'(유형)와 '무엇이 통하나'(주제)는 같은 질문의 두 면이라 나란히 세운다.
+              접힘 기준은 화면 폭이 아니라 이 블록이 실제로 가진 폭(@container) — 사이드바·패널 폭이
+              달라져도 표가 눌리지 않는다. 접히는 지점은 @2xl(672px) — 그 폭에서 한 열이 (672-24)/2 = 324px라
+              표의 최소 폭(320px)이 딱 들어간다. 더 이른 @xl(576px)에서 나누면 나누자마자 표가 스크롤한다. */}
+          <div className="@container">
+            <div className="grid grid-cols-1 gap-6 @2xl:grid-cols-2">
+              {/* 유형은 분류된 글만 세므로 위 타일(표본 전체)과 분모가 다르다 — 도넛 가운데가 그 분모를 적는다 */}
+              <TypeDonut types={types} classified={sample.classified} />
+              {topics.length > 0 && (
+                <TopicTable topics={topics} accountMedianViews={stats.medianViews} />
+              )}
+            </div>
+          </div>
 
           {/* 원글·인용이 0건(전부 RT)이면 서버가 summary/topics를 비워 보낸다 — 조용히 비는 대신 이유를 적는다 */}
           {summary === null && (
             <p className="text-ui leading-relaxed text-x-secondary">
               리트윗만 있어 글 내용은 분석하지 못했어요 — 직접 쓴 글이 없는 계정이에요
             </p>
-          )}
-
-          {topics.length > 0 && (
-            <TopicTable topics={topics} accountMedianViews={stats.medianViews} />
           )}
 
           {/* 이 필드가 생기기 전에 저장된 분석엔 daily가 없다 — 그럴 땐 히트맵을 통째로 감춘다.

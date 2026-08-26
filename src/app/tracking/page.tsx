@@ -13,6 +13,7 @@ import { LinksView } from './LinksView';
 import { PAGE_STEP } from '@/lib/draftPaging';
 import type { TrackedPostRow, MetricSnapshotRow } from '@/lib/trackingStore';
 import type { DraftRow } from '@/lib/draftStore';
+import type { PostRole } from '@/lib/postRole';
 
 const FETCH_FAILED = '지표를 가져오지 못했어요 — 잠시 후 다시 시도해 주세요';
 
@@ -304,6 +305,21 @@ function TrackingTabs() {
     }
   }, [show]);
 
+  // 역할 변경 — 성과 화면이 '조회'로 쓸 게시물을 사람이 바로잡는다. null = 자동으로 되돌리기.
+  const setRole = useCallback(async (row: TrackedPostRow, role: PostRole | null) => {
+    try {
+      const res = await apiFetch(`/api/tracking/${row.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { row?: TrackedPostRow; error?: string };
+      if (!res.ok || !data.row) { show(data.error ?? '역할을 바꾸지 못했어요 — 잠시 후 다시 시도해 주세요'); return; }
+      const next = data.row;
+      setRows((cur) => cur.map((r) => (r.id === next.id ? next : r)));
+    } catch {
+      show('역할을 바꾸지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
+    }
+  }, [show]);
+
   // 펼침 = 그 행의 측정 이력을 그때 조회한다(목록 응답에 전부 실어 보내지 않기 위해).
   // 다시 누르면 접고, 다른 행을 누르면 그 행으로 옮겨간다.
   const toggleExpand = useCallback(async (id: string) => {
@@ -442,6 +458,7 @@ function TrackingTabs() {
                          drafts={drafts} draftsState={draftsState} onLoadDrafts={() => void loadDrafts()}
                          pickerFor={pickerFor} onOpenPicker={openPicker}
                          onLinkDraft={(row, draftId) => void linkDraft(row, draftId)}
+                         onSetRole={(row, role) => void setRole(row, role)}
                          onRefresh={(row) => void refreshOne(row.id)} onRemove={(row) => requestRemove([row])} />
           {/* '더 보기'는 표 스크롤 컨테이너 밖 — 표를 끝까지 내리지 않아도 잘렸다는 사실이 보인다(TweetTableView 관례) */}
           <ShowMoreButton total={sorted.length} shown={shown.length}

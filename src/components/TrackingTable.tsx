@@ -7,6 +7,7 @@ import { kstDateTime, kstMonthDayKo, kstShort } from '@/lib/datetime';
 import { tweetPermalink } from '@/lib/tweetLink';
 import type { TrackedPostRow, MetricSnapshotRow } from '@/lib/trackingStore';
 import type { PostMetrics } from '@/lib/postMetrics';
+import { POST_ROLES, type PostRole } from '@/lib/postRole';
 
 // 표는 숫자를 나란히 놓고 비교하는 화면이라 축약(23.7M)하지 않는다 — format.ts의 formatFull 주석 참조.
 // 열 이름은 X 화면과 같은 말로 둔다: 'RT' 같은 줄임말 대신 우리 사용자가 X에서 보는 단어(리포스트).
@@ -33,6 +34,8 @@ const SORT_LABEL: Record<TrackSortKey, string> = {
   created: '등록순', posted: '게시 시각', captured: '측정 시각',
   views: '조회', likes: '좋아요', retweets: '리포스트', replies: '답글', bookmarks: '북마크', quotes: '인용',
 };
+
+const ROLE_LABEL: Record<PostRole, string> = { main: '본문', thread: '이어지는 본문', link: '링크 댓글' };
 
 // ── 열 정의 · 폭 조절 — 전부 TweetTable에서 옮겨온 방식(드래그는 <col> DOM 직접 쓰기,
 //    커밋은 mouseup에 1회, localStorage 저장, role="slider" 접근성) ─────────────────
@@ -83,7 +86,7 @@ export function TrackingTable({
   sort, dir, onSort,
   expandedId, onToggleExpand, history, historyState,
   drafts, draftsState, onLoadDrafts,
-  pickerFor, onOpenPicker, onLinkDraft,
+  pickerFor, onOpenPicker, onLinkDraft, onSetRole,
   onRefresh, onRemove,
 }: {
   rows: TrackedPostRow[];          // 이미 정렬·절단이 끝난 배열 — 여기서 순서를 바꾸지 않는다
@@ -106,6 +109,7 @@ export function TrackingTable({
   pickerFor: string | null;
   onOpenPicker: (id: string | null) => void;
   onLinkDraft: (row: TrackedPostRow, draftId: string | null) => void;
+  onSetRole: (row: TrackedPostRow, role: PostRole | null) => void;
   onRefresh: (row: TrackedPostRow) => void;
   onRemove: (row: TrackedPostRow) => void;
 }) {
@@ -280,7 +284,8 @@ export function TrackingTable({
                 {/* nowrap: 표가 좁아지면 '연결 안 됨'이 글자 단위로 세로로 꺾인다(QA 08-15) — 상태 글자는 한 줄이 정체성 */}
                 <td className="overflow-hidden whitespace-nowrap px-3 py-2">
                   <DraftCell row={r} open={pickerFor === r.id} drafts={drafts} draftsState={draftsState}
-                             onLoadDrafts={onLoadDrafts} onOpenPicker={onOpenPicker} onLinkDraft={onLinkDraft} />
+                             onLoadDrafts={onLoadDrafts} onOpenPicker={onOpenPicker} onLinkDraft={onLinkDraft}
+                             onSetRole={onSetRole} />
                 </td>
                 {/* 시각은 '4달 전' 같은 상대 표기 대신 정확한 값을 표 안에 그대로(사용자 결정 08-15).
                     서울 기준, kstDateTime은 '최종 수집 시간' 표기의 기존 관례다(datetime.ts).
@@ -374,11 +379,12 @@ function MetricHistory({ rows, state }: { rows: MetricSnapshotRow[]; state: Hist
 // 검색도 미리보기도 없는 경험이었다(QA 08-15). 이 앱의 '많은 것 중 하나 고르기' 관례인
 // 검색 달린 모달(RefPickerSheet·AddByLinkModal 골격)로 교체.
 // 목록은 열 때 처음 한 번만 불러온다(onLoadDrafts) — 표를 그릴 때마다 원고 전량을 받아오지 않기 위해서다.
-function DraftCell({ row, open, drafts, draftsState, onLoadDrafts, onOpenPicker, onLinkDraft }: {
+function DraftCell({ row, open, drafts, draftsState, onLoadDrafts, onOpenPicker, onLinkDraft, onSetRole }: {
   row: TrackedPostRow; open: boolean;
   drafts: DraftOption[]; draftsState: DraftsState; onLoadDrafts: () => void;
   onOpenPicker: (id: string | null) => void;
   onLinkDraft: (row: TrackedPostRow, draftId: string | null) => void;
+  onSetRole: (row: TrackedPostRow, role: PostRole | null) => void;
 }) {
   if (open) {
     return (
@@ -391,13 +397,23 @@ function DraftCell({ row, open, drafts, draftsState, onLoadDrafts, onOpenPicker,
   // 바꾸기·해제는 전부 클릭이 여는 연결 모달 안에 있어 기능 손실이 없다.
   if (row.draftId) {
     const label = row.draftLabel ?? '제목 없는 원고';
+    const shown = row.role ?? row.derivedRole;
     return (
-      // 제목은 앞부분만 — 이 열의 역할은 식별이 아니라 "연결돼 있고 뭔지 대충 알아보기"(QA 08-15).
-      // 전체 제목은 호버(title)와 모달이 보여준다.
-      <button onClick={() => onOpenPicker(row.id)} title={`${label} — 원고 연결 바꾸기·해제`}
-              className="block max-w-full truncate text-x-blue-text hover:underline">
-        {label}
-      </button>
+      <div className="min-w-0">
+        <button onClick={() => onOpenPicker(row.id)} title={`${label} — 원고 연결 바꾸기·해제`}
+                className="block max-w-full truncate text-x-blue-text hover:underline">
+          {label}
+        </button>
+        {/* 역할 — 성과 화면의 '조회'가 어느 게시물인지 정한다. 자동 판정(role null)은 흐리게, 사람이 고치면 진하게.
+            선택지 4개라 네이티브 select로 충분하다(원고 고르기와 달리 목록이 길지 않다). */}
+        <select value={row.role ?? ''} onChange={(e) => onSetRole(row, (e.target.value || null) as PostRole | null)}
+                aria-label="게시물 역할"
+                title={row.role ? '사람이 정한 역할이에요 — 자동으로 되돌릴 수 있어요' : `자동으로 판정했어요(${ROLE_LABEL[shown ?? 'main']}) — 눌러서 바꿀 수 있어요`}
+                className={`mt-0.5 max-w-full rounded border border-transparent bg-transparent text-caption hover:border-x-border-strong ${row.role ? 'text-x-secondary' : 'text-x-muted'}`}>
+          <option value="">{shown ? `자동 · ${ROLE_LABEL[shown]}` : '자동'}</option>
+          {POST_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+        </select>
+      </div>
     );
   }
   return (

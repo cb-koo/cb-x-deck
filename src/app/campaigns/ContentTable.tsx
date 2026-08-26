@@ -14,17 +14,18 @@ import {
   sortContent, matchesStageFilter, isOutOfRange, defaultCostType,
   STAGE_FILTERS, STAGE_FILTER_LABEL, CONTENT_SORT_LABEL, type ContentSortKey, type StageFilter,
 } from '@/lib/campaignJudgment';
-import { overdueDays, contentSubline, perfLabel, handleInitial } from '@/lib/campaignTableView';
+import { overdueDays, contentTypeLabel, perfLabel, handleInitial } from '@/lib/campaignTableView';
 
-// 콘텐츠 표 — 열 6개 고정(예정일 120 · 콘텐츠 나머지 · 인플 200 · 비용 130 · 단계 130 · 성과 190, 스펙 §3-2).
+// 콘텐츠 표 — 열 7개 고정(예정일 110 · 콘텐츠 나머지 · 유형 120 · 인플 190 · 비용 120 · 단계 130 · 성과 180, 스펙 §3-2 + QA 1라운드).
+// 유형은 콘텐츠 칸의 13px 보조줄에서 전용 열로 올렸다 — 보조줄에 유형·형식이 섞여 있어 어느 쪽으로도 훑을 수 없었다.
 // 행 ≥48px(py-3)·본문 15px(text-content)·보조 13px(text-ui) — "맨날 빽빽해서 보기 힘들다"(koo 08-25)가 이 표의 첫 요구사항.
 // text-caption(11px)은 쓰지 않는다. 정렬·필터·밀림·기간 밖 판정은 전부 campaignJudgment — 이 파일은 결과를 그릴 뿐이다.
 // 저장은 전부 콜백(부모 훅이 PATCH /api/drafts/[id]) — 캠페인 전용 경로 없음(§2-5).
 const SORT_KEYS: ContentSortKey[] = ['default', 'scheduled', 'stage', 'influencer'];
 const TH = 'px-3 py-2 font-normal';
 const TD = 'px-3 py-3 align-top';
-// 표 최소 폭 — 고정 열 합(120+200+130+130+190, 나머지 콘텐츠 열 몫 제외)이 좁은 화면에서도 눌리지 않게(TweetTable·TrackingTable 관례)
-const MIN_TABLE_WIDTH = 770;
+// 표 최소 폭 — 고정 열 합(110+120+190+120+130+180)에 콘텐츠 열 몫을 더한 값이 좁은 화면에서도 눌리지 않게(TweetTable·TrackingTable 관례)
+const MIN_TABLE_WIDTH = 1010;
 const MENU_W = 176; // w-44
 const MENU_H = 96;  // 항목 2개 + 패딩 근사 — flip 판단에만 쓰므로 근사치로 충분하다(CostPopover 관례)
 
@@ -158,12 +159,12 @@ export function ContentTable({
         <div className="mt-3 w-full overflow-x-auto">
           <table className="table-fixed text-content" style={{ width: `max(${MIN_TABLE_WIDTH}px, 100%)` }}>
             <colgroup>
-              <col style={{ width: 120 }} /><col /><col style={{ width: 200 }} />
-              <col style={{ width: 130 }} /><col style={{ width: 130 }} /><col style={{ width: 190 }} />
+              <col style={{ width: 110 }} /><col /><col style={{ width: 120 }} /><col style={{ width: 190 }} />
+              <col style={{ width: 120 }} /><col style={{ width: 130 }} /><col style={{ width: 180 }} />
             </colgroup>
             <thead>
               <tr className="border-b border-x-border text-left text-ui text-x-muted">
-                <th className={TH}>예정일</th><th className={TH}>콘텐츠</th><th className={TH}>인플루언서</th>
+                <th className={TH}>예정일</th><th className={TH}>콘텐츠</th><th className={TH}>유형</th><th className={TH}>인플루언서</th>
                 <th className={TH}>비용</th><th className={TH}>단계</th><th className={TH}>성과</th>
               </tr>
             </thead>
@@ -189,8 +190,11 @@ export function ContentTable({
                                         onChange={(next) => onChangeScheduledOn(d, next)} compact />
                     </td>
                     <td className={TD}>
-                      <p className="truncate font-medium" title={label.text}>{label.text}</p>
-                      <p className="mt-0.5 text-ui text-x-muted">{contentSubline(d)}</p>
+                      {/* 제목만 — 좁은 열에서 한 줄로 자르면 뒤가 다 날아가서 두 줄까지 보여주고 자른다 */}
+                      <p className="line-clamp-2 font-medium" title={label.text}>{label.text}</p>
+                    </td>
+                    <td className={TD}>
+                      <span className={d.cost ? 'text-x-secondary' : 'text-x-muted'}>{contentTypeLabel(d)}</span>
                     </td>
                     <td className={TD}>
                       <span className="flex items-center gap-2">

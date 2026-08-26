@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  overdueDays, scheduledOnLabel, contentSubline, perfLabel, handleInitial, overdueJudgment, publishedSub, perfSub,
+  overdueDays, scheduledOnLabel, contentTypeLabel, perfLabel, handleInitial, overdueJudgment, publishedSub, costSub, perfSub,
   overdueSuffix, NO_SCHEDULE_LABEL,
 } from './campaignTableView.ts';
 import { formatDateKo } from './campaignJudgment.ts';
@@ -20,10 +20,11 @@ test('1) 밀림 일수·예정일 문구 — 게시됨·미사용·오늘·없�
   assert.equal(scheduledOnLabel({ status: 'draft', published: false, scheduledOn: null }, T), '예정일 없음');
 });
 
-test('2) 보조줄·성과·이니셜', () => {
-  assert.equal(contentSubline({ cost: { type: 'post', amount: 1, currency: 'KRW' }, format: 'single' }), '투고 · 단문');
-  assert.equal(contentSubline({ cost: { type: 'quoteRt', amount: 1, currency: 'JPY' }, format: 'thread' }), '인용RT · 스레드');
-  assert.equal(contentSubline({ cost: null, format: 'thread' }), '스레드');
+test('2) 유형 열·성과·이니셜', () => {
+  // QA 1라운드: 콘텐츠 칸 보조줄 → 유형 전용 열(단문/스레드 표기는 뺀다)
+  assert.equal(contentTypeLabel({ cost: { type: 'post', amount: 1, currency: 'KRW' } }), '투고');
+  assert.equal(contentTypeLabel({ cost: { type: 'quoteRt', amount: 1, currency: 'JPY' } }), '인용RT');
+  assert.equal(contentTypeLabel({ cost: null }), '—');
   assert.equal(perfLabel({ published: true, perf: { views: 12400 }, linkClicks: 96 }), '조회 12,400 · 링크 96');
   assert.equal(perfLabel({ published: true, perf: { views: 12400 }, linkClicks: null }), '조회 12,400');
   assert.equal(perfLabel({ published: true, perf: { views: null }, linkClicks: null }), '조회 —');   // 스냅샷 없음 → —(0으로 위장 금지, §7)
@@ -43,10 +44,22 @@ test('4) scheduledOnLabel 조립이 overdueSuffix·NO_SCHEDULE_LABEL과 어긋�
   assert.equal(scheduledOnLabel({ status: 'draft', published: false, scheduledOn: null }, T), NO_SCHEDULE_LABEL);
 });
 
-test('3) 요약 카드 보조 문구 — 숫자에 판단을 붙인다(UX 원칙 3), 값 없음은 —', () => {
-  assert.equal(overdueJudgment(0), '밀린 콘텐츠가 없어요');
+test('3) 요약 카드 보조 문구 — 판단 한 줄(QA 1라운드), 0인 항목은 빼고 값 없음은 —', () => {
+  assert.equal(overdueJudgment(0), '없음 — 예정대로');
   assert.equal(overdueJudgment(2), '예정일 지났는데 아직 안 올라감');
   assert.equal(publishedSub({ total: 4, published: 1, delivered: 1, preparing: 2, overdue: 0 }), '전달됨 1 · 준비 중 2');
+  assert.equal(publishedSub({ total: 1, published: 0, delivered: 0, preparing: 1, overdue: 0 }), '준비 중 1');   // 0인 '전달됨'은 뺀다
+  assert.equal(publishedSub({ total: 2, published: 2, delivered: 0, preparing: 0, overdue: 0 }), '모두 게시됨');
+  assert.equal(publishedSub({ total: 0, published: 0, delivered: 0, preparing: 0, overdue: 0 }), '콘텐츠 없음');
   assert.equal(perfSub({ publishedCount: 2, views: 12400, likes: 300, linkClicks: 100 }), '게시 2건 · 좋아요 300 · 링크 클릭 100');
-  assert.equal(perfSub({ publishedCount: 0, views: null, likes: null, linkClicks: null }), '게시 0건 · 좋아요 — · 링크 클릭 —');
+  assert.equal(perfSub({ publishedCount: 0, views: null, likes: null, linkClicks: 2 }), '게시된 콘텐츠 없음 · 링크 클릭 2');
+  assert.equal(perfSub({ publishedCount: 0, views: null, likes: null, linkClicks: null }), '게시된 콘텐츠 없음');
+  assert.equal(perfSub({ publishedCount: 0, views: null, likes: null, linkClicks: 0 }), '게시된 콘텐츠 없음');  // 0은 붙이지 않는다
+});
+
+test('5) 비용 카드 보조 줄 — 통화는 합치지 않고, 한쪽만 있으면 없는 쪽을 말해 준다(오너 문구: 원화/엔화)', () => {
+  assert.equal(costSub({ KRW: 30000 }), '원화 기준 · 엔화 없음');
+  assert.equal(costSub({ JPY: 5000 }), '엔화 기준 · 원화 없음');
+  assert.equal(costSub({ KRW: 30000, JPY: 5000 }), '');   // 숫자 두 줄이 스스로 말한다 — 보조 줄 없음
+  assert.equal(costSub({}), '비용 입력 없음');
 });

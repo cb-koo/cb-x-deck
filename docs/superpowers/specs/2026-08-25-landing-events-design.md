@@ -179,7 +179,7 @@ interface ContentRow {
 | 탭률 | `taps / arrivals` (arrivals>0). 정수 % + `(taps/arrivals)` 병기 |
 | 탭 기여 | `taps / Σtaps(현재 필터)`. 정수 % |
 | 표본 상태 | arrivals <20 → `early`("아직 판단 이르어요", 탭률 흐리게) / 20~49 → `ref`("참고용") / 50+ → `ok`. 상수 `SAMPLE_EARLY=20`, `SAMPLE_REF=50` |
-| 탭률 정렬키 | Wilson 95% 하한 `wilsonLower(taps, arrivals)`; arrivals=0이면 −1(맨 뒤) |
+| 탭률 정렬키 | Wilson 95% 하한 `wilsonLower(taps, arrivals)`; **표본 부족(`early`) 행은 방향과 무관하게 뒤**(그 안에서 하한 순); arrivals=0이면 맨 뒤. Wilson만으로는 2/2(하한 34%)가 8/80(5%) 위에 오는 게 통계적으로 옳아 화면 약속("방문이 적은 건 뒤로")을 못 지키므로 배지 기준을 정렬에도 쓴다(08-26 구현 중 확정) |
 | 결정 문장 | 탭 내림차순 상위 3개의 기여 합 → "탭 상위 3개 콘텐츠가 전체 탭의 n%" + 제목 3개. Σtaps=0이면 "아직 탭이 없어요" |
 | 스레드 % | `post.views / main.views` (main.views>0) |
 

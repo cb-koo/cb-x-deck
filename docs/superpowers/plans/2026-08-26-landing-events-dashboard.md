@@ -827,9 +827,10 @@ test('표본 상태: 19 early · 20 ref · 49 ref · 50 ok', () => {
   assert.equal(sampleState(SAMPLE_REF), 'ok');
 });
 
-test('Wilson 하한: 2/2가 8/80보다 아래, n=0은 -1', () => {
-  assert.ok(wilsonLower(2, 2) < wilsonLower(8, 80));
+test('Wilson 하한: 1/1이 100/101보다 아래(Miller 예), 표본이 클수록 관측치에 가깝다, n=0은 -1', () => {
+  assert.ok(wilsonLower(1, 1) < wilsonLower(100, 101));
   assert.ok(wilsonLower(61, 412) > wilsonLower(8, 80));
+  assert.ok(wilsonLower(2, 2) > wilsonLower(8, 80)); // 통계적으로는 2/2가 위 — 그래서 정렬은 표본 배지로 한 번 더 걸러야 한다(아래 정렬 테스트)
   assert.equal(wilsonLower(0, 0), -1);
   assert.ok(wilsonLower(0, 10) >= 0);
 });
@@ -842,12 +843,13 @@ test('rate·formatPct: 분모 0/null은 null → "—", 정수%·소수 1자리'
   assert.equal(formatPct(null), '—');
 });
 
-test('정렬: 기본 탭 desc, 탭률은 Wilson 하한, 값 없는 행은 방향 무관 맨 뒤', () => {
-  const rows = [row('a', 2, 2), row('b', 8, 80), row('c', 0, 0), row('d', 61, 412, { views: null, clicks: null })];
-  assert.deepEqual(sortRows(rows, 'taps', 'desc').map((r) => r.key), ['d', 'b', 'a', 'c']);
-  assert.deepEqual(sortRows(rows, 'tapRate', 'desc').map((r) => r.key), ['d', 'b', 'a', 'c']); // a(100%)가 b(10%) 아래
-  assert.deepEqual(sortRows(rows, 'clickRate', 'desc').map((r) => r.key).at(-1), 'd');       // 조회 없음은 맨 뒤
-  assert.deepEqual(sortRows(rows, 'clickRate', 'asc').map((r) => r.key).at(-1), 'd');
+test('정렬: 기본 탭 desc · 탭률은 표본 부족(도착<20) 행을 방향 무관하게 뒤로, 그 안에서 Wilson 하한 · 값 없는 행은 맨 뒤', () => {
+  const rows = [row('a', 2, 2), row('b', 8, 80), row('c', 0, 0), row('d', 61, 412, { views: null, clicks: null }), row('e', 3, 10)];
+  assert.deepEqual(sortRows(rows, 'taps', 'desc').map((r) => r.key), ['d', 'b', 'e', 'a', 'c']);
+  assert.deepEqual(sortRows(rows, 'tapRate', 'desc').map((r) => r.key), ['d', 'b', 'a', 'e', 'c']); // 충분한 표본 → 부족한 표본 → 도착 0
+  assert.deepEqual(sortRows(rows, 'tapRate', 'asc').map((r) => r.key), ['b', 'd', 'e', 'a', 'c']);  // 방향이 바뀌어도 부족한 표본은 뒤
+  assert.equal(sortRows(rows, 'clickRate', 'desc').map((r) => r.key).at(-1), 'd');  // 조회 없음은 맨 뒤
+  assert.equal(sortRows(rows, 'clickRate', 'asc').map((r) => r.key).at(-1), 'd');
 });
 
 test('결정 문장: 상위 3개 기여 합, 탭 0이면 share null', () => {
@@ -959,11 +961,16 @@ export function sortRows<T extends PerfRow>(rows: T[], key: PerfSortKey, dir: 'a
       case 'postedAt': return r.postedAt ? Date.parse(r.postedAt) : null;
     }
   };
+  // 탭률만 표본 부족 행을 뒤로 보낸다 — Wilson 하한은 "2/2가 8/80보다 높다"고 (통계적으로 옳게) 말하지만,
+  // 화면의 약속은 "방문이 적은 건 뒤로"다. 방향과 무관하게 뒤, 그 안에서는 하한 순.
+  const group = (r: T): number => (key === 'tapRate' && r.arrivals > 0 && sampleState(r.arrivals) === 'early' ? 1 : 0);
   return [...rows].sort((a, b) => {
     const va = val(a), vb = val(b);
     if (va === null && vb === null) return 0;
     if (va === null) return 1;
     if (vb === null) return -1;
+    const g = group(a) - group(b);
+    if (g !== 0) return g;
     const cmp = va - vb;
     return dir === 'desc' ? -cmp : cmp;
   });

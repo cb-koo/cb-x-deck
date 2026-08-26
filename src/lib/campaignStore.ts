@@ -2,6 +2,7 @@ import type postgres from 'postgres';
 import type { DraftRow } from './draftStore.ts';
 import { listDraftsByCampaign } from './draftStore.ts';
 import { kstToday } from './datetime.ts';
+import { isUuidLike } from './uuid.ts';
 import {
   parseExtraCosts, sumMoney, mergeMoney, isCurrency, type ExtraCost, type MoneyByCurrency,
 } from './campaignCost.ts';
@@ -121,7 +122,9 @@ export async function createCampaign(sql: postgres.Sql, input: {
     values (${input.clientId}, ${input.clientName}, ${input.name}, ${input.nameEn},
             ${input.startsOn}::date, ${input.endsOn}::date, ${input.kind}, ${input.note}, ${input.createdBy})
     returning id`;
-  return (await getCampaign(sql, ins[0].id)) as CampaignRow;
+  const row = await getCampaign(sql, ins[0].id);
+  if (!row) throw new Error('campaign insert 직후 재조회 실패'); // 단언은 경합 시 null을 통과시킨다
+  return row;
 }
 
 export async function listCampaigns(sql: postgres.Sql): Promise<CampaignRow[]> {
@@ -131,6 +134,7 @@ export async function listCampaigns(sql: postgres.Sql): Promise<CampaignRow[]> {
 }
 
 export async function getCampaign(sql: postgres.Sql, id: string): Promise<CampaignRow | null> {
+  if (!isUuidLike(id)) return null; // 형식이 아니면 DB까지 가기 전에 끊는다(22P02 방지) — 라우트가 404로 처리
   const rows = await sql<CRow[]>`${SELECT(sql)} where c.id = ${id}`;
   return rows.length ? (await toRows(sql, rows))[0] : null;
 }
@@ -139,6 +143,7 @@ export async function updateCampaign(
   sql: postgres.Sql, id: string,
   patch: { name?: string; nameEn?: string; startsOn?: string; endsOn?: string; kind?: CampaignKind | null; note?: string },
 ): Promise<void> {
+  if (!isUuidLike(id)) return; // 형식이 아니면 DB까지 가기 전에 끊는다(22P02 방지) — 라우트가 404로 처리
   // kind만 case when — null이 '유형 없음'이라는 뜻을 갖는 유일한 필드(draftStore.influencer_handle과 같은 구조)
   await sql`update campaign set
       name = coalesce(${patch.name ?? null}, name),
@@ -153,6 +158,7 @@ export async function updateCampaign(
 
 // 원고는 지우지 않는다 — draft.campaign_id는 FK set null, 비용 행은 cascade(스펙 §2-5)
 export async function deleteCampaign(sql: postgres.Sql, id: string): Promise<boolean> {
+  if (!isUuidLike(id)) return false; // 형식이 아니면 DB까지 가기 전에 끊는다(22P02 방지) — 라우트가 404로 처리
   const del = await sql`delete from campaign where id = ${id} returning id`;
   return del.length > 0;
 }
@@ -163,6 +169,7 @@ type ClickRow = { draft_id: string; clicks: string | number | null };
 export async function getCampaignDetail(
   sql: postgres.Sql, id: string, today: string = kstToday(),
 ): Promise<CampaignDetail | null> {
+  if (!isUuidLike(id)) return null; // 형식이 아니면 DB까지 가기 전에 끊는다(22P02 방지) — 라우트가 404로 처리
   const campaign = await getCampaign(sql, id);
   if (!campaign) return null;
   const drafts = await listDraftsByCampaign(sql, id);

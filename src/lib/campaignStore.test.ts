@@ -8,6 +8,7 @@ import {
   createCampaign, listCampaigns, getCampaign, updateCampaign, deleteCampaign,
   getCampaignDetail, upsertInfluencerCost, listInfluencerCampaigns,
 } from './campaignStore.ts';
+import { campaignTotal, deriveInfluencers } from './campaignJudgment.ts';
 
 const sql = getSql();
 const P = 'tcmp' + process.pid;
@@ -48,9 +49,18 @@ test('1) 생성 → 조회 — 날짜 문자열 왕복·기본값·목록 포함
   assert.equal(await getCampaign(sql, '00000000-0000-0000-0000-000000000000'), null);
 });
 
+test('1b) 비uuid id는 던지지 않고 조회는 null·삭제는 false(라우트가 404로 처리)', async () => {
+  assert.equal(await getCampaign(sql, 'not-a-uuid'), null);
+  assert.equal(await deleteCampaign(sql, 'nope'), false);
+});
+
 test('2) 기간 역순은 DB check가 막는다(라우트 검증의 최후 방어)', async () => {
   const c = await createClient(sql, P + '클라2');
-  await assert.rejects(() => createCampaign(sql, { ...base(c.id, c.name, 'b'), startsOn: '2026-08-30', endsOn: '2026-08-24' }));
+  // 매처로 제약 이름까지 확인 — 오타로 다른 컬럼 체크가 걸려도 통과해버리는 걸 막는다
+  await assert.rejects(
+    () => createCampaign(sql, { ...base(c.id, c.name, 'b'), startsOn: '2026-08-30', endsOn: '2026-08-24' }),
+    /campaign_period_check/,
+  );
 });
 
 test('3) 수정 — 부분 패치, kind null=지움, updated_at 갱신', async () => {
@@ -82,6 +92,9 @@ test('4) 목록 파생 — 콘텐츠 수(미사용 제외)·통화별 합계(콘
   assert.deepEqual(got!.total, { KRW: 320000, JPY: 95000 });
   const listed = (await listCampaigns(sql)).find((x) => x.id === row.id);
   assert.deepEqual(listed!.total, got!.total);              // 목록·단건이 같은 정의
+  // 두 합산 경로(SQL·순수 함수)가 갈라지면 목록 카드와 상세 소계가 다른 숫자를 보인다 — 혼합 통화(KRW+JPY) + 추가 비용으로 잠근다
+  const detail = await getCampaignDetail(sql, row.id);
+  assert.deepEqual(detail!.campaign.total, campaignTotal(deriveInfluencers(detail!.drafts, detail!.costRows)));
 });
 
 test('5) 상세 — 게시됨(tracked_post)·성과 lateral 합(게시물 여러 개 SUM)·링크 클릭 합·요약·인플 목록', async () => {
@@ -132,6 +145,9 @@ test('6) 추가 비용 upsert — 처음엔 insert, 다음엔 부분 갱신(대�
   assert.equal(second.influencerHandle, 'Ghost');         // 표기는 처음 것 보존
   assert.equal(second.note, '아직 원고 없음');            // undefined = 유지
   assert.deepEqual(second.extraCosts, [{ label: '선물', amount: 5000, currency: 'JPY' }]);
+  const third = await upsertInfluencerCost(sql, row.id, 'ghost', { note: '수정' });
+  assert.deepEqual(third.extraCosts, [{ label: '선물', amount: 5000, currency: 'JPY' }]); // note-only 패치는 extraCosts를 보존
+  assert.equal(third.note, '수정');
   const detail = await getCampaignDetail(sql, row.id, T);
   const line = detail!.influencers.find((l) => l.handle === 'Ghost')!;
   assert.equal(line.contentCount, 0);

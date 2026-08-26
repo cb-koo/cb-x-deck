@@ -53,6 +53,7 @@ test('3) 기간은 서울 경계 — since 이전 이벤트는 빠진다', async
 });
 
 test('4) 미연결 — 아는 utm_content가 아닌 것과 null만, 캠페인은 같거나 null', async () => {
+  const before = await unlinkedStats(sql, [C1, C2], CAMP, null);
   await insertLandingEvents(sql, [
     ev({ visitId: `${P}-u1`, utmContent: `${P}-unknown` }),
     ev({ visitId: `${P}-u2`, utmContent: null }),
@@ -61,8 +62,8 @@ test('4) 미연결 — 아는 utm_content가 아닌 것과 null만, 캠페인은
     ev({ visitId: `${P}-u5`, utmContent: `${P}-unknown`, kind: 'tap' }),
   ]);
   const u = await unlinkedStats(sql, [C1, C2], CAMP, null);
-  assert.equal(u.total, 4);
+  assert.equal(u.total - before.total, 4);
   const unknown = u.byContent.find((b) => b.utmContent === `${P}-unknown`);
   assert.deepEqual(unknown, { utmContent: `${P}-unknown`, arrivals: 2, taps: 1 });
-  assert.equal(u.byContent.find((b) => b.utmContent === null)?.arrivals, 2);
+  assert.equal((u.byContent.find((b) => b.utmContent === null)?.arrivals ?? 0) - (before.byContent.find((b) => b.utmContent === null)?.arrivals ?? 0), 2);
 });

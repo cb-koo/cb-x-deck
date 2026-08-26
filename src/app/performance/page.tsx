@@ -80,7 +80,7 @@ function PerformanceView() {
   const top3 = topShare(uniqueRows);
   const selected = data?.campaigns.find((c) => c.code === data.selected) ?? null;
   const periodLabel = range === 'all'
-    ? `${selected ? kstDate(selected.latestAt).slice(5).replace('-', '/') : ''} ~ ${kstToday().slice(5).replace('-', '/')} · 서울 기준`
+    ? `${selected ? kstDate(selected.firstAt).slice(5).replace('-', '/') : ''} ~ ${kstToday().slice(5).replace('-', '/')} · 서울 기준`
     : `${kstDaysAgo(range === '7d' ? 6 : 29).slice(5).replace('-', '/')} ~ ${kstToday().slice(5).replace('-', '/')} · 서울 기준`;
 
   return (

@@ -5,16 +5,19 @@ import type postgres from 'postgres';
 import { assignRoles, type PostRole } from './postRole.ts';
 import { rangeStart, statsByUtmContent, unlinkedStats, type Range, type UnlinkedStats } from './landingEventStore.ts';
 
-export interface CampaignOption { code: string; clientName: string | null; latestAt: string }
+export interface CampaignOption { code: string; clientName: string | null; latestAt: string; firstAt: string }
 
 // 캠페인 = tracking_link.utm_campaign(캠페인 관리의 name_en과 같은 값). 최근 링크가 만들어진 순.
 export async function listCampaigns(sql: postgres.Sql): Promise<CampaignOption[]> {
-  const rows = await sql<Array<{ utm_campaign: string; client_name: string | null; latest_at: Date }>>`
+  const rows = await sql<Array<{ utm_campaign: string; client_name: string | null; latest_at: Date; first_at: Date }>>`
     select utm_campaign,
            (array_agg(client_name order by created_at desc) filter (where client_name is not null))[1] as client_name,
-           max(created_at) as latest_at
+           max(created_at) as latest_at, min(created_at) as first_at
       from tracking_link group by utm_campaign order by latest_at desc`;
-  return rows.map((r) => ({ code: r.utm_campaign, clientName: r.client_name, latestAt: new Date(r.latest_at).toISOString() }));
+  return rows.map((r) => ({
+    code: r.utm_campaign, clientName: r.client_name,
+    latestAt: new Date(r.latest_at).toISOString(), firstAt: new Date(r.first_at).toISOString(),
+  }));
 }
 
 export interface ContentPost { tweetId: string; authorHandle: string | null; role: PostRole; views: number | null; postedAt: string | null }

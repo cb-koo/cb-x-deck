@@ -409,7 +409,7 @@ function DraftCell({ row, open, drafts, draftsState, onLoadDrafts, onOpenPicker,
         <select value={row.role ?? ''} onChange={(e) => onSetRole(row, (e.target.value || null) as PostRole | null)}
                 aria-label="게시물 역할"
                 title={row.role ? '사람이 정한 역할이에요 — 자동으로 되돌릴 수 있어요' : `자동으로 판정했어요(${ROLE_LABEL[shown ?? 'main']}) — 눌러서 바꿀 수 있어요`}
-                className={`mt-0.5 max-w-full rounded border border-transparent bg-transparent text-caption hover:border-x-border-strong ${row.role ? 'text-x-secondary' : 'text-x-muted'}`}>
+                className={`mt-0.5 max-w-full rounded border border-transparent bg-transparent text-ui hover:border-x-border-strong ${row.role ? 'text-x-secondary' : 'text-x-muted'}`}>
           <option value="">{shown ? `자동 · ${ROLE_LABEL[shown]}` : '자동'}</option>
           {POST_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
         </select>

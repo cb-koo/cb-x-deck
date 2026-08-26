@@ -123,7 +123,7 @@ export function PerformanceTable({ rows, grouping, totalTaps, sort, dir, onSort,
                   {/* 분모 병기 — 퍼센트 단독은 표본 크기를 감춘다. 표본이 적으면 값 자체를 흐리게(문구만 있으면 곧 무시된다) */}
                   <td className="whitespace-nowrap px-4 text-right tabular-nums">
                     <span className={state === 'early' ? 'opacity-40' : 'font-semibold'}>{formatPct(tapRate)}</span>
-                    {tapRate !== null && <span className="ml-1 text-ui text-x-muted">({r.taps}/{r.arrivals})</span>}
+                    {tapRate !== null && <span className="ml-1 text-ui text-x-muted">({formatFull(r.taps)}/{formatFull(r.arrivals)})</span>}
                     {badge && (
                       <span className={`ml-2 rounded-full px-2 py-0.5 text-[12px] ${state === 'ref' ? 'bg-amber-50 text-amber-800' : 'bg-x-surface text-x-muted'}`}>{badge}</span>
                     )}

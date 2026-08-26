@@ -399,6 +399,7 @@ test('3) 기간은 서울 경계 — since 이전 이벤트는 빠진다', async
 });
 
 test('4) 미연결 — 아는 utm_content가 아닌 것과 null만, 캠페인은 같거나 null', async () => {
+  const before = await unlinkedStats(sql, [C1, C2], CAMP, null);
   await insertLandingEvents(sql, [
     ev({ visitId: `${P}-u1`, utmContent: `${P}-unknown` }),
     ev({ visitId: `${P}-u2`, utmContent: null }),
@@ -407,10 +408,10 @@ test('4) 미연결 — 아는 utm_content가 아닌 것과 null만, 캠페인은
     ev({ visitId: `${P}-u5`, utmContent: `${P}-unknown`, kind: 'tap' }),
   ]);
   const u = await unlinkedStats(sql, [C1, C2], CAMP, null);
-  assert.equal(u.total, 4);
+  assert.equal(u.total - before.total, 4);
   const unknown = u.byContent.find((b) => b.utmContent === `${P}-unknown`);
   assert.deepEqual(unknown, { utmContent: `${P}-unknown`, arrivals: 2, taps: 1 });
-  assert.equal(u.byContent.find((b) => b.utmContent === null)?.arrivals, 2);
+  assert.equal((u.byContent.find((b) => b.utmContent === null)?.arrivals ?? 0) - (before.byContent.find((b) => b.utmContent === null)?.arrivals ?? 0), 2);
 });
 ```
 
@@ -1184,7 +1185,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Consumes: `statsByUtmContent`, `unlinkedStats`, `rangeStart`, `Range` (Task 3); `assignRoles`, `PostRole` (Task 5); `insertLink`(linkStore), `insertDraft`(draftStore), `addTrackedPost`·`setDraftLink`(trackingStore) — 테스트용.
 - Produces:
   ```ts
-  export interface CampaignOption { code: string; clientName: string | null; latestAt: string }
+  export interface CampaignOption { code: string; clientName: string | null; latestAt: string; firstAt: string }
   export async function listCampaigns(sql): Promise<CampaignOption[]>;
   export interface ContentPost { tweetId: string; authorHandle: string | null; role: PostRole; views: number | null; postedAt: string | null }
   export interface ContentRow {
@@ -1283,13 +1284,15 @@ test('원고 없는 링크 — 제목은 utm_content, 조회 null, 게시물 없
 });
 
 test('loadPerformance — 캠페인 목록·기본 선택·제외 방문·미연결·없는 캠페인은 최근으로 대체', async () => {
+  const before = await loadPerformance(sql, CAMP, 'all');
   await insertLandingEvents(sql, [ev('u1', 'view', null)]);
   const camps = await listCampaigns(sql);
   assert.ok(camps.some((c) => c.code === CAMP));
+  assert.ok(camps.find((c) => c.code === CAMP)!.firstAt <= camps.find((c) => c.code === CAMP)!.latestAt);
   const data = await loadPerformance(sql, CAMP, 'all');
   assert.equal(data.selected, CAMP);
-  assert.equal(data.excluded, 1);        // v3(arrival만) 1건
-  assert.equal(data.unlinked.total, 1);  // u1(utm_content null)
+  assert.equal(data.excluded, 1);        // v3(arrival만) 1건 — 이 캠페인의 utm 키만이라 절대값 고정
+  assert.equal(data.unlinked.total - before.unlinked.total, 1);  // u1(utm_content null)
   const fallback = await loadPerformance(sql, `${P}-nope`, 'all');
   assert.equal(fallback.selected, camps[0].code);
 });
@@ -1310,16 +1313,19 @@ import type postgres from 'postgres';
 import { assignRoles, type PostRole } from './postRole.ts';
 import { rangeStart, statsByUtmContent, unlinkedStats, type Range, type UnlinkedStats } from './landingEventStore.ts';
 
-export interface CampaignOption { code: string; clientName: string | null; latestAt: string }
+export interface CampaignOption { code: string; clientName: string | null; latestAt: string; firstAt: string }
 
 // 캠페인 = tracking_link.utm_campaign(캠페인 관리의 name_en과 같은 값). 최근 링크가 만들어진 순.
 export async function listCampaigns(sql: postgres.Sql): Promise<CampaignOption[]> {
-  const rows = await sql<Array<{ utm_campaign: string; client_name: string | null; latest_at: Date }>>`
+  const rows = await sql<Array<{ utm_campaign: string; client_name: string | null; latest_at: Date; first_at: Date }>>`
     select utm_campaign,
            (array_agg(client_name order by created_at desc) filter (where client_name is not null))[1] as client_name,
-           max(created_at) as latest_at
+           max(created_at) as latest_at, min(created_at) as first_at
       from tracking_link group by utm_campaign order by latest_at desc`;
-  return rows.map((r) => ({ code: r.utm_campaign, clientName: r.client_name, latestAt: new Date(r.latest_at).toISOString() }));
+  return rows.map((r) => ({
+    code: r.utm_campaign, clientName: r.client_name,
+    latestAt: new Date(r.latest_at).toISOString(), firstAt: new Date(r.first_at).toISOString(),
+  }));
 }
 
 export interface ContentPost { tweetId: string; authorHandle: string | null; role: PostRole; views: number | null; postedAt: string | null }
@@ -1857,7 +1863,7 @@ function PerformanceView() {
   const top3 = topShare(uniqueRows);
   const selected = data?.campaigns.find((c) => c.code === data.selected) ?? null;
   const periodLabel = range === 'all'
-    ? `${selected ? kstDate(selected.latestAt).slice(5).replace('-', '/') : ''} ~ ${kstToday().slice(5).replace('-', '/')} · 서울 기준`
+    ? `${selected ? kstDate(selected.firstAt).slice(5).replace('-', '/') : ''} ~ ${kstToday().slice(5).replace('-', '/')} · 서울 기준`
     : `${kstDaysAgo(range === '7d' ? 6 : 29).slice(5).replace('-', '/')} ~ ${kstToday().slice(5).replace('-', '/')} · 서울 기준`;
 
   return (
@@ -1992,7 +1998,7 @@ props 타입에 `onSetRole: (row: TrackedPostRow, role: PostRole | null) => void
         <select value={row.role ?? ''} onChange={(e) => onSetRole(row, (e.target.value || null) as PostRole | null)}
                 aria-label="게시물 역할"
                 title={row.role ? '사람이 정한 역할이에요 — 자동으로 되돌릴 수 있어요' : `자동으로 판정했어요(${ROLE_LABEL[shown ?? 'main']}) — 눌러서 바꿀 수 있어요`}
-                className={`mt-0.5 max-w-full rounded border border-transparent bg-transparent text-caption hover:border-x-border-strong ${row.role ? 'text-x-secondary' : 'text-x-muted'}`}>
+                className={`mt-0.5 max-w-full rounded border border-transparent bg-transparent text-ui hover:border-x-border-strong ${row.role ? 'text-x-secondary' : 'text-x-muted'}`}>
           <option value="">{shown ? `자동 · ${ROLE_LABEL[shown]}` : '자동'}</option>
           {POST_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
         </select>

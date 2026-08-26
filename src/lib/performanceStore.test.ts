@@ -75,13 +75,15 @@ test('원고 없는 링크 — 제목은 utm_content, 조회 null, 게시물 없
 });
 
 test('loadPerformance — 캠페인 목록·기본 선택·제외 방문·미연결·없는 캠페인은 최근으로 대체', async () => {
+  const before = await loadPerformance(sql, CAMP, 'all');
   await insertLandingEvents(sql, [ev('u1', 'view', null)]);
   const camps = await listCampaigns(sql);
   assert.ok(camps.some((c) => c.code === CAMP));
+  assert.ok(camps.find((c) => c.code === CAMP)!.firstAt <= camps.find((c) => c.code === CAMP)!.latestAt);
   const data = await loadPerformance(sql, CAMP, 'all');
   assert.equal(data.selected, CAMP);
-  assert.equal(data.excluded, 1);        // v3(arrival만) 1건
-  assert.equal(data.unlinked.total, 1);  // u1(utm_content null)
+  assert.equal(data.excluded, 1);        // v3(arrival만) 1건 — 이 캠페인의 utm 키만이라 절대값 고정
+  assert.equal(data.unlinked.total - before.unlinked.total, 1);  // u1(utm_content null)
   const fallback = await loadPerformance(sql, `${P}-nope`, 'all');
   assert.equal(fallback.selected, camps[0].code);
 });

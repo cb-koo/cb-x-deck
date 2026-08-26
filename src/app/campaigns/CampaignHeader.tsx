@@ -83,10 +83,6 @@ export function CampaignHeader({ campaign, draftCount, today, onPatch, onDelete,
   function errLine(field: Field) {
     return err?.field === field ? <p role="alert" className="mt-1 text-ui text-red-600">{err.message}</p> : null;
   }
-  // 속성 한 줄에는 세 칸(기간·유형·코드)이 나란히 있지만 편집은 한 번에 하나뿐이라 오류도 한 줄이면 된다
-  function errLineAny(fields: Field[]) {
-    return err && fields.includes(err.field) ? <p role="alert" className="mt-1 text-ui text-red-600">{err.message}</p> : null;
-  }
   // 편집 열기 — 열 때마다 입력값을 저장된 값으로 되돌린다(직전 편집에서 취소한 글자가 남지 않게)
   function open(field: Field) {
     setName(campaign.name); setCode(campaign.nameEn); setNote(campaign.note);
@@ -159,10 +155,10 @@ export function CampaignHeader({ campaign, draftCount, today, onPatch, onDelete,
           </div>
           {errLine('name')}
 
-          {/* 속성 한 줄(Linear식) — 기간·유형·코드를 나란히, 줄이 좁으면 다음 줄로 흐른다(flex-wrap) */}
-          <div className="mt-3 flex min-h-[40px] flex-wrap items-center gap-x-6 gap-y-1 border-t border-x-border pt-2">
-            <span className="flex items-center gap-1.5">
-              <span className="flex items-center gap-1 text-ui text-x-secondary">
+          {/* 라벨 위·값 아래 블록형(QA 3라운드 결정 A) — 글자만 한 줄이면 값 시작점을 눈이 못 찾는다 */}
+          <div className="mt-3 flex flex-wrap items-center border-t border-x-border pt-2">
+            <div className="flex min-h-[52px] flex-col justify-center gap-0.5 py-1 pl-0 pr-5">
+              <span className="flex items-center gap-1 text-[13px] text-x-secondary">
                 기간
                 <InfoTip text={PERIOD_TIP} label="기간 설명 보기" />
               </span>
@@ -177,15 +173,17 @@ export function CampaignHeader({ campaign, draftCount, today, onPatch, onDelete,
                 </span>
               ) : (
                 <ReadValue onEdit={() => open('period')} title="캠페인 기간 — 눌러서 바꾸기">
-                  {formatDateKo(campaign.startsOn)} ~ {formatDateKo(campaign.endsOn)} · {days}일
+                  <span className="text-[16px] font-semibold">{formatDateKo(campaign.startsOn)} ~ {formatDateKo(campaign.endsOn)}</span>
+                  <span className="ml-1.5 text-[13px] font-normal text-x-secondary">· {days}일</span>
                 </ReadValue>
               )}
-            </span>
+              {errLine('period')}
+            </div>
 
-            <span aria-hidden className="text-x-border">·</span>
+            <span aria-hidden className="h-7 w-px shrink-0 self-center bg-x-border" />
 
-            <span className="flex items-center gap-1.5">
-              <span className="text-ui text-x-secondary">유형</span>
+            <div className="flex min-h-[52px] flex-col justify-center gap-0.5 py-1 px-5">
+              <span className="text-[13px] text-x-secondary">유형</span>
               {edit === 'kind' ? (
                 <select autoFocus value={campaign.kind ?? ''} aria-label="캠페인 유형" className={INPUT} onBlur={closeOnLeave}
                         onKeyDown={(e) => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) cancel(); }}
@@ -195,15 +193,18 @@ export function CampaignHeader({ campaign, draftCount, today, onPatch, onDelete,
                 </select>
               ) : (
                 <ReadValue onEdit={() => open('kind')} title="캠페인 유형 — 눌러서 바꾸기">
-                  {campaign.kind ? CAMPAIGN_KIND_LABEL[campaign.kind] : <span className="text-x-muted">미지정</span>}
+                  <span className="text-[16px] font-semibold">
+                    {campaign.kind ? CAMPAIGN_KIND_LABEL[campaign.kind] : <span className="text-x-muted">미지정</span>}
+                  </span>
                 </ReadValue>
               )}
-            </span>
+              {errLine('kind')}
+            </div>
 
-            <span aria-hidden className="text-x-border">·</span>
+            <span aria-hidden className="h-7 w-px shrink-0 self-center bg-x-border" />
 
-            <span className="flex items-center gap-1.5">
-              <span className="text-ui text-x-secondary">코드</span>
+            <div className="flex min-h-[52px] flex-col justify-center gap-0.5 py-1 pl-5">
+              <span className="text-[13px] text-x-secondary">코드</span>
               {edit === 'code' ? (
                 <input autoFocus value={code} onChange={(e) => { setCode(e.target.value); setErr(null); }}
                        onBlur={() => void saveCode()}
@@ -213,19 +214,21 @@ export function CampaignHeader({ campaign, draftCount, today, onPatch, onDelete,
                        }}
                        aria-label="영문 코드" autoCapitalize="none" spellCheck={false} className={`${INPUT} w-[240px] font-mono`} />
               ) : (
-                <>
+                <span className="flex items-center gap-1.5">
                   <ReadValue mono onEdit={() => open('code')}
-                             title="트래킹 링크의 캠페인명(utm_campaign) 기본값이에요 — 눌러서 바꾸기">{campaign.nameEn}</ReadValue>
+                             title="트래킹 링크의 캠페인명(utm_campaign) 기본값이에요 — 눌러서 바꾸기">
+                    <span className="text-[15px] font-semibold tabular-nums">{campaign.nameEn}</span>
+                  </ReadValue>
                   <button type="button" onClick={copyCode} aria-label={copied ? '복사됨' : '복사'}
                           title={copied ? '복사됨' : '영문 코드 복사'}
                           className="shrink-0 rounded-md px-1.5 py-1 text-ui text-x-muted hover:bg-x-hover hover:text-x-text">
                     {copied ? '✓' : '⧉'}
                   </button>
-                </>
+                </span>
               )}
-            </span>
+              {errLine('code')}
+            </div>
           </div>
-          {errLineAny(['period', 'kind', 'code'])}
 
           {/* 메모 — 값이 있을 때만 보인다. 빈 칸을 상시 노출하면 채워야 할 것처럼 보이고 높이를 먹는다(QA 2라운드 결정 A). 없으면 [···] 메뉴의 '메모 추가'로 연다 */}
           {showNote ? (

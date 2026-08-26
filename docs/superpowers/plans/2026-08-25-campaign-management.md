@@ -540,7 +540,8 @@ test('9) 이름·코드 제안 — {클라} {M월 N주}, {영문 소문자}-{YYY
   assert.equal(suggestCampaignName('리프팅클리닉', '2026-08-24'), '리프팅클리닉 8월 4주');
   assert.equal(suggestCampaignName('  ', '2026-09-01'), '9월 1주');
   assert.equal(suggestCampaignName('A', '2026-08-07'), 'A 8월 1주');
-  assert.equal(suggestCampaignName('A', '2026-08-08'), 'A 8월 2주');
+  assert.equal(suggestCampaignName('A', '2026-08-08'), 'A 8월 1주'); // 8/8(토)은 목요일 8/6이 든 주
+  assert.equal(suggestCampaignName('A', '2026-08-31'), 'A 9월 1주'); // 목요일 9/3 → 9월 1주 (달력일 기준이면 '8월 5주')
   assert.equal(suggestCampaignCode('Lifting Clinic', '2026-08-24'), 'lifting-clinic-20260824');
   assert.equal(suggestCampaignCode('', '2026-08-24'), '20260824');
   assert.equal(suggestCampaignCode('클리닉', '2026-08-24'), '20260824'); // 비영문만이면 날짜만
@@ -785,10 +786,12 @@ export function campaignTotal(lines: InfluencerLine[]): MoneyByCurrency {
 }
 
 // ─────────────────────────── 이름·코드 제안(§2-1) ───────────────────────────
-// '{클라} {M월 N주}' — N주 = 시작일이 그 달의 몇 번째 7일 구간인지(1~5). 제안일 뿐, 모달에서 수정한다.
+// '{클라} {M월 N주}' — 월·N주는 **시작일이 든 주(월~일)의 목요일** 기준(리뷰 반영 2026-08-26: 달력일 기준은
+// 8/31(월) 시작 캠페인을 '8월 5주'로 제안해 실무 표기 '9월 1주'와 어긋났다). 제안일 뿐, 모달에서 수정한다.
 export function suggestCampaignName(clientName: string, startsOn: string): string {
-  const month = Number(startsOn.slice(5, 7));
-  const week = Math.floor((Number(startsOn.slice(8, 10)) - 1) / 7) + 1;
+  const thursday = addDays(weekStartOf(startsOn), 3);
+  const month = Number(thursday.slice(5, 7));
+  const week = Math.floor((Number(thursday.slice(8, 10)) - 1) / 7) + 1;
   const base = `${month}월 ${week}주`;
   const name = clientName.trim();
   return name ? `${name} ${base}` : base;

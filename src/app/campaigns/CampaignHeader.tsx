@@ -30,7 +30,7 @@ const PERIOD_TIP = "기간을 줄여 예정일이 밖으로 나가도 막지 않
 function DefRow({ label, tip, children, error }: { label: string; tip?: string; children: ReactNode; error: ReactNode }) {
   return (
     <div className="py-0.5">
-      <div className="flex min-h-[44px] items-center gap-2.5">
+      <div className="flex min-h-[40px] items-center gap-2.5">
         <span className="flex w-[52px] shrink-0 items-center gap-1 text-ui text-x-secondary">
           {label}
           {tip ? <InfoTip text={tip} label={`${label} 설명 보기`} /> : null}
@@ -167,77 +167,80 @@ export function CampaignHeader({ campaign, draftCount, today, onPatch, onDelete,
           </div>
           {errLine('name')}
 
-          <div className="mt-3 max-w-[640px] border-t border-x-border pt-1.5">
-            <DefRow label="기간" tip={PERIOD_TIP} error={errLine('period')}>
-              {edit === 'period' ? (
-                <span className="flex flex-wrap items-center gap-1.5" onBlur={closeOnLeave}
-                      onKeyDown={(e) => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) cancel(); }}>
-                  <input autoFocus type="date" value={campaign.startsOn} aria-label="시작일" className={INPUT}
-                         onChange={(e) => { if (e.target.value) void savePatch({ startsOn: e.target.value }, 'period'); }} />
-                  <span className="text-x-secondary">~</span>
-                  <input type="date" value={campaign.endsOn} aria-label="종료일" className={INPUT}
-                         onChange={(e) => { if (e.target.value) void savePatch({ endsOn: e.target.value }, 'period'); }} />
-                </span>
-              ) : (
-                <ReadValue onEdit={() => open('period')} title="캠페인 기간 — 눌러서 바꾸기">
-                  {formatDateKo(campaign.startsOn)} ~ {formatDateKo(campaign.endsOn)} · {days}일
-                </ReadValue>
-              )}
-            </DefRow>
+          {/* 2열 배치 이유 = 헤더가 화면을 너무 차지한다는 QA 2라운드 피드백 — 기간·유형·코드는 좌측에 쌓고, 메모는 우측에서 그 높이만큼 채운다 */}
+          <div className="mt-3 grid max-w-[640px] grid-cols-1 gap-x-8 gap-y-0 border-t border-x-border pt-1.5 md:grid-cols-2">
+            <div>
+              <DefRow label="기간" tip={PERIOD_TIP} error={errLine('period')}>
+                {edit === 'period' ? (
+                  <span className="flex flex-wrap items-center gap-1.5" onBlur={closeOnLeave}
+                        onKeyDown={(e) => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) cancel(); }}>
+                    <input autoFocus type="date" value={campaign.startsOn} aria-label="시작일" className={INPUT}
+                           onChange={(e) => { if (e.target.value) void savePatch({ startsOn: e.target.value }, 'period'); }} />
+                    <span className="text-x-secondary">~</span>
+                    <input type="date" value={campaign.endsOn} aria-label="종료일" className={INPUT}
+                           onChange={(e) => { if (e.target.value) void savePatch({ endsOn: e.target.value }, 'period'); }} />
+                  </span>
+                ) : (
+                  <ReadValue onEdit={() => open('period')} title="캠페인 기간 — 눌러서 바꾸기">
+                    {formatDateKo(campaign.startsOn)} ~ {formatDateKo(campaign.endsOn)} · {days}일
+                  </ReadValue>
+                )}
+              </DefRow>
 
-            <DefRow label="유형" error={errLine('kind')}>
-              {edit === 'kind' ? (
-                <select autoFocus value={campaign.kind ?? ''} aria-label="캠페인 유형" className={INPUT} onBlur={closeOnLeave}
-                        onKeyDown={(e) => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) cancel(); }}
-                        onChange={(e) => void savePatch({ kind: (e.target.value || null) as CampaignKind | null }, 'kind')}>
-                  <option value="">미지정</option>
-                  {CAMPAIGN_KINDS.map((k) => <option key={k} value={k}>{CAMPAIGN_KIND_LABEL[k]}</option>)}
-                </select>
-              ) : (
-                <ReadValue onEdit={() => open('kind')} title="캠페인 유형 — 눌러서 바꾸기">
-                  {campaign.kind ? CAMPAIGN_KIND_LABEL[campaign.kind] : <span className="text-x-muted">미지정</span>}
-                </ReadValue>
-              )}
-            </DefRow>
+              <DefRow label="유형" error={errLine('kind')}>
+                {edit === 'kind' ? (
+                  <select autoFocus value={campaign.kind ?? ''} aria-label="캠페인 유형" className={INPUT} onBlur={closeOnLeave}
+                          onKeyDown={(e) => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) cancel(); }}
+                          onChange={(e) => void savePatch({ kind: (e.target.value || null) as CampaignKind | null }, 'kind')}>
+                    <option value="">미지정</option>
+                    {CAMPAIGN_KINDS.map((k) => <option key={k} value={k}>{CAMPAIGN_KIND_LABEL[k]}</option>)}
+                  </select>
+                ) : (
+                  <ReadValue onEdit={() => open('kind')} title="캠페인 유형 — 눌러서 바꾸기">
+                    {campaign.kind ? CAMPAIGN_KIND_LABEL[campaign.kind] : <span className="text-x-muted">미지정</span>}
+                  </ReadValue>
+                )}
+              </DefRow>
 
-            <DefRow label="코드" error={errLine('code')}>
-              {edit === 'code' ? (
-                <input autoFocus value={code} onChange={(e) => { setCode(e.target.value); setErr(null); }}
-                       onBlur={() => void saveCode()}
-                       onKeyDown={(e) => {
-                         if (e.key === 'Enter' && !e.nativeEvent.isComposing) void saveCode();
-                         if (e.key === 'Escape') { setCode(campaign.nameEn); cancel(); }
-                       }}
-                       aria-label="영문 코드" autoCapitalize="none" spellCheck={false} className={`${INPUT} w-[240px] font-mono`} />
-              ) : (
-                <>
-                  <ReadValue mono onEdit={() => open('code')}
-                             title="트래킹 링크의 캠페인명(utm_campaign) 기본값이에요 — 눌러서 바꾸기">{campaign.nameEn}</ReadValue>
-                  <button type="button" onClick={copyCode} aria-label={copied ? '복사됨' : '복사'}
-                          title={copied ? '복사됨' : '영문 코드 복사'}
-                          className="shrink-0 rounded-md px-1.5 py-1 text-ui text-x-muted hover:bg-x-hover hover:text-x-text">
-                    {copied ? '✓' : '⧉'}
-                  </button>
-                </>
-              )}
-            </DefRow>
-          </div>
+              <DefRow label="코드" error={errLine('code')}>
+                {edit === 'code' ? (
+                  <input autoFocus value={code} onChange={(e) => { setCode(e.target.value); setErr(null); }}
+                         onBlur={() => void saveCode()}
+                         onKeyDown={(e) => {
+                           if (e.key === 'Enter' && !e.nativeEvent.isComposing) void saveCode();
+                           if (e.key === 'Escape') { setCode(campaign.nameEn); cancel(); }
+                         }}
+                         aria-label="영문 코드" autoCapitalize="none" spellCheck={false} className={`${INPUT} w-[240px] font-mono`} />
+                ) : (
+                  <>
+                    <ReadValue mono onEdit={() => open('code')}
+                               title="트래킹 링크의 캠페인명(utm_campaign) 기본값이에요 — 눌러서 바꾸기">{campaign.nameEn}</ReadValue>
+                    <button type="button" onClick={copyCode} aria-label={copied ? '복사됨' : '복사'}
+                            title={copied ? '복사됨' : '영문 코드 복사'}
+                            className="shrink-0 rounded-md px-1.5 py-1 text-ui text-x-muted hover:bg-x-hover hover:text-x-text">
+                      {copied ? '✓' : '⧉'}
+                    </button>
+                  </>
+                )}
+              </DefRow>
+            </div>
 
-          <div className="mt-4 max-w-[640px]">
-            <p className="mb-1.5 text-ui font-bold text-x-secondary">메모</p>
-            {edit === 'note' ? (
-              <textarea autoFocus value={note} rows={3} onChange={(e) => setNote(e.target.value)}
-                        onBlur={() => void saveNote()}
-                        onKeyDown={(e) => { if (e.key === 'Escape') { setNote(campaign.note); cancel(); } }}
-                        aria-label="캠페인 메모" placeholder="메모를 적어 두세요"
-                        className="w-full resize-y rounded-xl border border-x-border-strong bg-white px-4 py-3 text-content outline-none focus:border-x-blue" />
-            ) : (
-              <button type="button" onClick={() => open('note')} title="눌러서 메모 편집"
-                      className={`block w-full whitespace-pre-wrap rounded-xl bg-x-surface px-4 py-3 text-left text-content hover:bg-x-border/60 ${campaign.note ? '' : 'text-x-muted'}`}>
-                {campaign.note || '메모를 적어 두세요 — 클릭해서 편집'}
-              </button>
-            )}
-            {errLine('note')}
+            <div className="flex h-full flex-col">
+              <p className="mb-1.5 text-ui font-bold text-x-secondary">메모</p>
+              {edit === 'note' ? (
+                <textarea autoFocus value={note} rows={3} onChange={(e) => setNote(e.target.value)}
+                          onBlur={() => void saveNote()}
+                          onKeyDown={(e) => { if (e.key === 'Escape') { setNote(campaign.note); cancel(); } }}
+                          aria-label="캠페인 메모" placeholder="메모를 적어 두세요"
+                          className="w-full flex-1 resize-y rounded-xl border border-x-border-strong bg-white px-4 py-3 text-content outline-none focus:border-x-blue" />
+              ) : (
+                <button type="button" onClick={() => open('note')} title="눌러서 메모 편집"
+                        className={`block w-full flex-1 whitespace-pre-wrap rounded-xl bg-x-surface px-4 py-3 text-left text-content hover:bg-x-border/60 ${campaign.note ? '' : 'text-x-muted'}`}>
+                  {campaign.note || '메모를 적어 두세요 — 클릭해서 편집'}
+                </button>
+              )}
+              {errLine('note')}
+            </div>
           </div>
         </div>
 

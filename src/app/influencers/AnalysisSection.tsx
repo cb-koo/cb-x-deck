@@ -282,13 +282,15 @@ function TopicTable({ topics, accountMedianViews }: {
       <div className="mt-2 overflow-x-auto">
         {/* 2열 배치라 이 표가 갖는 폭은 패널의 절반이다 — 열 넷이 들어갈 최소치까지 낮추고,
             그보다 좁아지면 표만 가로 스크롤한다(패널 전체가 밀리지 않게) */}
+        {/* 숫자 열은 내용 폭(w-0 + nowrap)으로 좁혀 오른쪽에 모이고, 주제 열이 남는 폭을 다 갖는다 —
+            열을 균등 분배하면 숫자 사이가 벌어져 같은 행으로 읽기 어렵다(피드백). 열 간격은 pl-5 하나로. */}
         <table className="w-full min-w-[320px] text-ui">
           <thead>
             <tr className="text-caption text-x-muted">
-              <th className="py-1 pr-3 text-left font-normal">주제</th>
-              <th className="py-1 pr-3 text-right font-normal">건수</th>
-              <th className="py-1 pr-3 text-right font-normal">조회 중앙값</th>
-              <th className="py-1 text-right font-normal">계정 중앙값 대비</th>
+              <th className="py-1 text-left font-normal">주제</th>
+              <th className="w-0 whitespace-nowrap py-1 pl-5 text-right font-normal">건수</th>
+              <th className="w-0 whitespace-nowrap py-1 pl-5 text-right font-normal">조회 중앙값</th>
+              <th className="w-0 whitespace-nowrap py-1 pl-5 text-right font-normal">계정 중앙값 대비</th>
             </tr>
           </thead>
           <tbody>
@@ -297,12 +299,12 @@ function TopicTable({ topics, accountMedianViews }: {
               const v = ratio !== null ? ratioVerdict(ratio) : null;
               return (
                 <tr key={t.tag} className="border-t border-x-border">
-                  <td className="py-2 pr-3">{t.tag}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-x-secondary">{t.count}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-x-secondary">
+                  <td className="py-2">{t.tag}</td>
+                  <td className="whitespace-nowrap py-2 pl-5 text-right tabular-nums text-x-secondary">{t.count}</td>
+                  <td className="whitespace-nowrap py-2 pl-5 text-right tabular-nums text-x-secondary">
                     {t.medianViews !== null ? formatKoCount(t.medianViews) : '—'}
                   </td>
-                  <td className="py-2 text-right">
+                  <td className="whitespace-nowrap py-2 pl-5 text-right">
                     {t.count < MIN_TOPIC_N ? (
                       <span className="text-x-muted">표본 부족</span>
                     ) : ratio !== null && v !== null ? (
@@ -570,7 +572,9 @@ function AnalysisResult({ analysis, followers }: { analysis: InfluencerAnalysis;
               달라져도 표가 눌리지 않는다. 접히는 지점은 @2xl(672px) — 그 폭에서 한 열이 (672-24)/2 = 324px라
               표의 최소 폭(320px)이 딱 들어간다. 더 이른 @xl(576px)에서 나누면 나누자마자 표가 스크롤한다. */}
           <div className="@container">
-            <div className="grid grid-cols-1 gap-6 @2xl:grid-cols-2">
+            {/* 나란히 놓이면 두 열의 경계가 보여야 한다(피드백: "유형·주제 구분이 잘 안 된다") — 간격 대신
+                세로 구분선 + 좌우 패딩으로 나눈다. 접힌(1열) 상태에서는 구분선 없이 세로 간격만. */}
+            <div className="grid grid-cols-1 gap-6 @2xl:grid-cols-2 @2xl:gap-0 @2xl:divide-x @2xl:divide-x-border @2xl:[&>*+*]:pl-6 @2xl:[&>*:first-child]:pr-6">
               {/* 유형은 분류된 글만 세므로 위 타일(표본 전체)과 분모가 다르다 — 도넛 가운데가 그 분모를 적는다 */}
               <TypeDonut types={types} classified={sample.classified} />
               {topics.length > 0 && (

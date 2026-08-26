@@ -129,6 +129,12 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
       </nav>
 
       <div className="mb-2 border-t border-x-border pt-2">
+        {/* 업데이트 소식 — 가끔 들어와 읽는 곳이라 매일 쓰는 메뉴·설정과 분리해 하단에 (업데이트 피드 스펙 §4) */}
+        <Link href="/updates" onNavigate={guardedNavigate('/updates')}
+              aria-current={pathname === '/updates' ? 'page' : undefined}
+              className={`flex items-center gap-2.5 rounded-full px-3 py-1.5 text-caption hover:bg-x-text/5 ${pathname === '/updates' ? 'text-x-text' : 'text-x-muted'}`}>
+          업데이트 소식
+        </Link>
         <Link href="/usage" onNavigate={guardedNavigate('/usage')}
               aria-current={pathname === '/usage' ? 'page' : undefined}
               className={`flex items-center gap-2.5 rounded-full px-3 py-1.5 text-caption hover:bg-x-text/5 ${pathname === '/usage' ? 'text-x-text' : 'text-x-muted'}`}>

@@ -1,21 +1,26 @@
 // 계정 분석 오케스트레이션(스펙 §3) — 숫자는 analysisStats(코드)가, 해석만 LLM이.
 // TweetSource·AnalysisChat 두 경계만 의존(교체 가능, 스펙 §4). DB 접근 없음 — 저장은 라우트가.
 //
-// v2의 축 분리: **활동**(얼마나·언제)은 최근 28일 고정 창, **내용**(무엇을·어떻게)은 직접 쓴 글 최근 60건.
+// v2의 축 분리: **활동**(얼마나·언제)은 최근 ACTIVITY_DAYS일(8주) 고정 창, **내용**(무엇을·어떻게)은 직접 쓴 글 최근 60건.
 // 한 창으로 둘을 채우면 RT 기계는 표본이 폭발하고 저빈도 계정은 텅 빈다(스펙 §0).
 // RT가 **무엇을** 퍼나르는지는 별도 축(퍼나르는 주제) — 확산 채널의 정체성이다.
 import { callLLM } from './llm.ts';
 import type { AnthropicLike } from './llm.ts';
 import {
   chunk, computeActivity, medianEngagement, missingIds, sponsoredCount, topByViews, topicStats, typeDist,
-  CONTENT_TYPE_LABEL,
+  CONTENT_TYPE_LABEL, ACTIVITY_DAYS, ACTIVITY_WEEKS,
   type AnalysisTweet, type ClassifiedTweet, type ContentType,
 } from './analysisStats.ts';
 import type { TweetSource } from './tweetSource.ts';
 import type { InfluencerAnalysis } from './influencerStore.ts';
 
+// 재수출 — 이 모듈이 v2 수집·표본 상수의 개념적 출처(스펙 §1)다. 값 자체는 analysisStats.ts에 있다
+// (client-safe 이유는 그쪽 주석 참고 — 이 파일은 llm.ts를 물고 있어 클라이언트 번들에 넣으면 안 된다).
+// route.ts 등 서버 쪽 호출부는 여기서 그대로 가져다 쓴다. 클라이언트 쪽(AnalysisSection.tsx·
+// influencerJudgment.ts)은 이 재수출이 아니라 analysisStats.ts에서 직접 가져온다.
+export { ACTIVITY_DAYS, ACTIVITY_WEEKS };
+
 // 수집·표본 상수(스펙 §1). 라우트 300초 안에 저장까지 끝나야 하므로 수집 단계에 데드라인을 둔다.
-export const ACTIVITY_DAYS = 28;
 export const DIRECT_TARGET = 60;
 export const LOOKBACK_MONTHS = 6;
 export const MAX_PAGES = 60;
@@ -355,9 +360,11 @@ export async function analyzeAccount(
       deadlineAt: now.getTime() + COLLECT_DEADLINE_MS,
     });
 
-  // 활동 축 = 28일 창 안 전부(RT 포함). 내용 축 = 직접 글 최신 60건(창 밖이라도 채운다).
+  // 활동 축 = ACTIVITY_DAYS일 창 안 전부(RT 포함). 내용 축 = 직접 글 최신 60건(창 밖이라도 채운다).
   const inWindow = tweets.filter((t) => t.createdAt >= activitySince);
-  const activity = computeActivity(inWindow, { since: activitySince, until, truncated, reachedActivitySince });
+  const activity = computeActivity(inWindow, {
+    since: activitySince, until, truncated, reachedActivitySince, days: ACTIVITY_DAYS,
+  });
   // 수집 결과는 완전한 최신순이 아니다 — 고정글(오래된 글)이 1페이지 맨 앞에 온다.
   // 표본은 createdAt 내림차순으로 다시 정렬한 뒤 자른다: "최신 N건" 슬롯도, 표본 최고령(…Since)도 이걸로 맞다.
   const byNewest = (a: AnalysisTweet, b: AnalysisTweet) =>
@@ -408,7 +415,7 @@ export async function analyzeAccount(
       '집계 통계(코드가 계산한 사실):',
       JSON.stringify({
         표본: `직접 쓴 글 ${directSample.length}건(분류 ${directClassified.length}건)`
-          + ` · 최근 4주 RT ${rtClassified.length}건 분류(창 안 전체 ${rtInWindow.length}건)`,
+          + ` · 최근 ${ACTIVITY_WEEKS}주 RT ${rtClassified.length}건 분류(창 안 전체 ${rtInWindow.length}건)`,
         활동: {
           직접_하루: activity.directPerDay, RT_하루: activity.rtPerDay,
           RT_비중: activity.rtShare, 인용_비중: activity.quoteShare,

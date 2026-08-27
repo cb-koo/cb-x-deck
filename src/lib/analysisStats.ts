@@ -8,6 +8,12 @@ export interface AnalysisTweet {
   rtText?: string;
 }
 
+// 활동 창 상수 — 여기(순수 계산 모듈, 서버 전용 의존 없음)에 두는 이유: influencerAnalysis.ts는
+// llm.ts(Anthropic SDK)·usageStore.ts(postgres)를 물고 있어, 'use client' 컴포넌트(AnalysisSection.tsx·
+// influencerJudgment.ts를 쓰는 화면들)가 거기서 상수를 가져오면 서버 전용 코드가 클라이언트 번들에 섞인다.
+export const ACTIVITY_DAYS = 56;
+export const ACTIVITY_WEEKS = ACTIVITY_DAYS / 7;
+
 export type ContentType = 'info' | 'review' | 'daily' | 'promo' | 'other';
 export const CONTENT_TYPE_LABEL: Record<ContentType, string> = {
   info: '정보', review: '후기·체험', daily: '일상·잡담', promo: '홍보·협찬', other: '기타',
@@ -93,24 +99,24 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export interface Activity {
   since: string; until: string; days: number; truncated: boolean; coveredDays: number;
-  // 28일 창을 끝까지 거슬러 갔나 — coveredDays<28의 이유(상한/글 소진)를 캡션이 가르는 근거라 저장해 둔다.
+  // 활동 창(opts.days)을 끝까지 거슬러 갔나 — coveredDays<days의 이유(상한/글 소진)를 캡션이 가르는 근거라 저장해 둔다.
   reachedActivitySince: boolean;
   directPerDay: number; rtPerDay: number; rtShare: number; quoteShare: number; activeDays: number;
   dailyDirect: Record<string, number>; dailyRt: Record<string, number>;
 }
 
-// 28일 창의 활동 지표 — 호출자가 이미 창 안으로 걸러낸 트윗만 넣는다(스펙 §3-7).
-// 분모(coveredDays): 28일까지 거슬러 갔으면 28, 못 갔으면 최고령~until(최소 1),
-// 0건이면 28 — "4주 내내 0건"이 사실이다(0/0 방지).
+// 활동 창(opts.days, 호출자가 ACTIVITY_DAYS를 넘긴다)의 활동 지표 — 호출자가 이미 창 안으로 걸러낸 트윗만 넣는다(스펙 §3-7).
+// 분모(coveredDays): 창을 끝까지 거슬러 갔으면 opts.days, 못 갔으면 최고령~until(최소 1),
+// 0건이면 opts.days — "창 내내 0건"이 사실이다(0/0 방지).
 export function computeActivity(
   tweets: AnalysisTweet[],
-  opts: { since: string; until: string; truncated: boolean; reachedActivitySince: boolean },
+  opts: { since: string; until: string; truncated: boolean; reachedActivitySince: boolean; days: number },
 ): Activity {
   const direct = tweets.filter((t) => t.kind !== 'retweet');
   const rts = tweets.filter((t) => t.kind === 'retweet');
   const quotes = tweets.filter((t) => t.kind === 'quote');
 
-  let coveredDays = 28;
+  let coveredDays = opts.days;
   if (!opts.reachedActivitySince && tweets.length > 0) {
     const oldest = tweets.reduce((m, t) => (t.createdAt < m ? t.createdAt : m), tweets[0].createdAt);
     coveredDays = Math.max(1, Math.round((Date.parse(opts.until) - Date.parse(oldest)) / DAY_MS));
@@ -120,7 +126,7 @@ export function computeActivity(
   const dailyRt = dailyCountsBy(tweets, (t) => t.kind === 'retweet');
 
   return {
-    since: opts.since, until: opts.until, days: 28, truncated: opts.truncated, coveredDays,
+    since: opts.since, until: opts.until, days: opts.days, truncated: opts.truncated, coveredDays,
     reachedActivitySince: opts.reachedActivitySince,
     directPerDay: r1(direct.length / coveredDays),
     rtPerDay: r1(rts.length / coveredDays),

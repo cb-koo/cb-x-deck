@@ -84,7 +84,7 @@ test('judgeEngagement: 기준 불명 폴백', () => {
 });
 
 test('judgeDirectCadence', () => {
-  assert.deepEqual(judgeDirectCadence(0, 28, 0), { label: '최근 4주 게시 없음 — 활동이 멈춘 계정일 수 있어요', caution: true });
+  assert.deepEqual(judgeDirectCadence(0, 28, 0), { label: '최근 8주 게시 없음 — 활동이 멈춘 계정일 수 있어요', caution: true });
   // 28일 3건 = 주 0.75 → 0.8 (하루 평균을 먼저 반올림했다면 0.1×7=0.7로 어긋났을 값)
   assert.deepEqual(judgeDirectCadence(3, 28, 40), { label: '주 0.8건 — 직접 쓰는 글이 드물어요', caution: true });
   assert.deepEqual(judgeDirectCadence(4, 28, 40), { label: '주 1건 — 보통', caution: false });   // 경계: 주 1건은 '보통'

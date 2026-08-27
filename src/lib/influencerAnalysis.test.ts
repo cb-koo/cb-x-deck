@@ -8,7 +8,7 @@ import type { TweetSource, FetchResult } from './tweetSource.ts';
 import type { AnalysisTweet } from './analysisStats.ts';
 import type { AnthropicLike, LLMResponse } from './llm.ts';
 
-const NOW = new Date('2026-08-24T00:00:00.000Z');   // 창(28일) = 2026-07-27 ~ 08-24
+const NOW = new Date('2026-08-24T00:00:00.000Z');   // 창(56일) = 2026-06-29 ~ 08-24
 const tw = (over: Partial<AnalysisTweet>): AnalysisTweet => ({
   id: 't1', text: '本文', createdAt: '2026-08-20T00:00:00.000Z', kind: 'original',
   views: 100, likes: 10, hasMedia: false, ...over,
@@ -40,7 +40,7 @@ function chatOf(handlers: Record<string, (user: string) => string>): AnalysisCha
 // '…:\n{JSON}' 형태의 사용자 메시지에서 JSON 본문만 떼어낸다
 const jsonOf = (user: string): unknown => JSON.parse(user.slice(user.indexOf('{')));
 
-test('일반 계정: 활동은 28일 창, 내용은 직접 글 표본 — 두 축이 따로 계산된다', async () => {
+test('일반 계정: 활동은 56일 창, 내용은 직접 글 표본 — 두 축이 따로 계산된다', async () => {
   const tweets = [
     tw({ id: 'a', views: 100 }),                                   // 창 안 직접
     tw({ id: 'b', views: 300, kind: 'quote' }),                    // 창 안 직접(인용)
@@ -73,7 +73,7 @@ test('일반 계정: 활동은 28일 창, 내용은 직접 글 표본 — 두 �
 
   // 활동 = 창 안 4건(직접 2·RT 2)
   assert.equal(a.activity!.rtShare, 0.5);
-  assert.equal(a.activity!.days, 28);
+  assert.equal(a.activity!.days, 56);
   // 내용 = 직접 글 표본 3건(창 밖 것도 포함 — 60건까지 거슬러 간다)
   assert.equal(a.sample.direct, 3);
   assert.equal(a.sample.collected, 5);
@@ -157,7 +157,7 @@ test('완전 0건: LLM 안 부르고 summary null', async () => {
   assert.deepEqual(a.rtTopics, []);
   assert.equal(a.sample.collected, 0);
   assert.equal(a.activity!.directPerDay, 0);
-  assert.equal(a.activity!.coveredDays, 28);   // "4주 내내 0건"이 사실이다
+  assert.equal(a.activity!.coveredDays, 56);   // "8주 내내 0건"이 사실이다
 });
 
 test('종합 JSON 불량이면 AnalysisFormatError (반쪽 저장 방지 — 라우트가 실패 처리)', async () => {
@@ -275,7 +275,7 @@ test('고정글이 최신 DIRECT_TARGET 슬롯을 밀어내지 않는다', async
   assert.equal(a.sample.directSince, recent.at(-1)!.createdAt);
 });
 
-test('창 밖 RT는 rtSample에 들어가지 않는다(RT는 28일 창 안에서만)', async () => {
+test('창 밖 RT는 rtSample에 들어가지 않는다(RT는 56일 창 안에서만)', async () => {
   const tweets = [
     tw({ id: 'rIn', kind: 'retweet', createdAt: '2026-08-20T00:00:00.000Z', rtText: '여행 원문' }),
     tw({ id: 'rOut', kind: 'retweet', createdAt: '2026-06-01T00:00:00.000Z', rtText: '옛 원문' }),

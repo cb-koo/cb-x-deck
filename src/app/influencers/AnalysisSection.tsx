@@ -6,7 +6,7 @@ import { formatKoCount } from '@/lib/formatKo';
 import { kstMonthDay, kstDayRange, kstDate, asDateOnly } from '@/lib/datetime';
 import { relTime } from '@/lib/relTime';
 import { judgeDirectCadence, judgeEngagement, judgeRt } from '@/lib/influencerJudgment';
-import { CONTENT_TYPE_LABEL, type ContentType, type Activity } from '@/lib/analysisStats';
+import { CONTENT_TYPE_LABEL, ACTIVITY_DAYS, ACTIVITY_WEEKS, type ContentType, type Activity } from '@/lib/analysisStats';
 import type { InfluencerAnalysis } from '@/lib/influencerStore';
 import { PANEL, PANEL_TITLE } from './profileShared';
 import { start as startRun, useRunState, getError } from './analysisRun';
@@ -46,7 +46,7 @@ export function AnalysisSection({ id, analysis, analyzedAt, followers, onAnalyze
   // 결과를 여기서 받지 않는 이유: start가 상태를 'running'으로 올리면 위 effect가 같은 프로미스에 붙는다.
   function run() { void startRun(id).catch(() => {}); }
 
-  // 캡션은 두 표본(활동 4주 / 직접 쓴 글)을 따로 적는다 — 한 숫자로 뭉치면 라벨과 값이 어긋난다(UX 원칙 4).
+  // 캡션은 두 표본(활동 ACTIVITY_WEEKS주 / 직접 쓴 글)을 따로 적는다 — 한 숫자로 뭉치면 라벨과 값이 어긋난다(UX 원칙 4).
   const v2 = analysis?.activity;
   const caption: string[] = [];
   if (analysis && v2) {
@@ -61,14 +61,14 @@ export function AnalysisSection({ id, analysis, analyzedAt, followers, onAnalyze
       // 상한에 걸리지 않고 60건을 못 채웠다 = 6개월 안에 있는 글이 그게 전부다.
       caption.push(`직접 쓴 글 ${n}건(6개월 안 전부)`);
     }
-    // 4주를 다 덮었으면 단서를 붙이지 않는다. 못 덮었으면 이유까지 적는다 —
+    // ACTIVITY_WEEKS주를 다 덮었으면 단서를 붙이지 않는다. 못 덮었으면 이유까지 적는다 —
     // 상한 때문인지(수집이 끊김) 계정 글이 그만큼뿐인지가 읽는 뜻을 바꾼다(스펙 §0).
-    if (v2.coveredDays < 28) {
+    if (v2.coveredDays < ACTIVITY_DAYS) {
       caption.push(v2.truncated
-        ? `활동 최근 4주(수집 상한으로 최근 ${v2.coveredDays}일치)`
-        : `활동 최근 4주(최근 ${v2.coveredDays}일치 — 계정 글이 그만큼)`);
+        ? `활동 최근 ${ACTIVITY_WEEKS}주(수집 상한으로 최근 ${v2.coveredDays}일치)`
+        : `활동 최근 ${ACTIVITY_WEEKS}주(최근 ${v2.coveredDays}일치 — 계정 글이 그만큼)`);
     } else {
-      caption.push('활동 최근 4주');
+      caption.push(`활동 최근 ${ACTIVITY_WEEKS}주`);
     }
   }
   if (analysis && analyzedAt) caption.push(relTime(analyzedAt, '분석'));
@@ -92,7 +92,7 @@ export function AnalysisSection({ id, analysis, analyzedAt, followers, onAnalyze
       {!analysis && (
         <div className="mt-1">
           <p className="text-caption leading-relaxed text-x-muted">
-            최근 4주 활동과 직접 쓴 글 최근 60건을 X에서 받아와 주제·반응 수준을 분석해요 — 1~2분 걸려요.
+            최근 {ACTIVITY_WEEKS}주 활동과 직접 쓴 글 최근 60건을 X에서 받아와 주제·반응 수준을 분석해요 — 1~2분 걸려요.
           </p>
           <Button variant="primary" className="mt-1.5" onClick={run} disabled={running}>
             {running ? '분석 중… (1~2분)' : '계정 분석'}
@@ -159,7 +159,7 @@ function TypeDonut({ types, classified }: {
   types: Array<[ContentType, number]>; classified: number;
 }) {
   if (types.length === 0 || classified <= 0) return null;
-  // 분모는 분류된 직접 글 수 — 위 타일(활동 4주)과 표본이 다르다. 그 사실은 도넛 가운데 총건수와 '분류 기준' 캡션이 말한다.
+  // 분모는 분류된 직접 글 수 — 위 타일(활동 ACTIVITY_WEEKS주)과 표본이 다르다. 그 사실은 도넛 가운데 총건수와 '분류 기준' 캡션이 말한다.
   const otherLeads = types[0][0] === 'other';
 
   // 12시에서 시계 방향, 건수 내림차순(types가 이미 정렬돼 온다). 길이를 gap만큼 깎아 흰 간격을 만든다 —
@@ -375,7 +375,7 @@ function cellLabel(key: string, n: number, noun: string): string {
   return `${Number(d.slice(5, 7))}월 ${Number(d.slice(8, 10))}일 (${dow}) · ${n > 0 ? `${noun} ${n}건` : `${noun} 없음`}`;
 }
 
-// daily는 게시가 있었던 날만 담는다. 창은 activity의 since~until 그대로 — 활동 창이 28일 고정이라
+// daily는 게시가 있었던 날만 담는다. 창은 activity의 since~until 그대로 — 활동 창이 ACTIVITY_DAYS일 고정이라
 // 계정이 달라도 격자 크기가 같고, 두 계정을 나란히 읽을 수 있다.
 // since 이전 칸(첫 열의 위쪽)·until 이후 칸(마지막 열의 아래쪽)은 그리지 않는다 —
 // 0건 회색으로 채우면 '안 썼다'는 거짓말이 된다.
@@ -425,8 +425,8 @@ function PostingHeatmap({ activity }: { activity: Activity }) {
   const noun = rtView ? 'RT' : '게시';
   const win = `${kstMonthDay(activity.since)}~${kstMonthDay(activity.until)}`;
   const ariaLabel = rtView
-    ? `RT 히트맵: 최근 4주(${win}) 일별 RT 건수`
-    : `직접 쓴 글 히트맵: 최근 4주(${win}) 일별 게시 건수`;
+    ? `RT 히트맵: 최근 ${ACTIVITY_WEEKS}주(${win}) 일별 RT 건수`
+    : `직접 쓴 글 히트맵: 최근 ${ACTIVITY_WEEKS}주(${win}) 일별 게시 건수`;
   const legend = rtView
     ? '회색은 RT 없음 · 진해질수록 1~4건 · 5~9건 · 10~19건 · 20건 이상'
     : '회색은 게시 없음 · 진해질수록 1건 · 2건 · 3~4건 · 5건 이상';
@@ -435,8 +435,8 @@ function PostingHeatmap({ activity }: { activity: Activity }) {
   const sinceDay = kstDate(activity.since);   // 이 날 이전 칸은 창 밖 — 그리지 않는다
   if (!untilDay || !sinceDay) return null;
 
-  // 창 시작이 든 주의 일요일에서 시작한다(열 = 달력 주). 28일 창이면 열은 4개 또는 5개 —
-  // 창 시작이 일요일일 때만 4개고, 나머지 여섯 요일에서는 양끝이 반쪽 열로 잘려 5개다.
+  // 창 시작이 든 주의 일요일에서 시작한다(열 = 달력 주). 56일 창이면 열은 8개 또는 9개 —
+  // 창 시작이 일요일일 때만 8개고, 나머지 여섯 요일에서는 양끝이 반쪽 열로 잘려 9개다.
   // gridStart가 일요일이라 firstDow는 0이지만, 계산식은 그 가정에 기대지 않고 실제 요일을 쓴다.
   const gridStart = addDays(sinceDay, -dowOf(sinceDay));
   const days = kstDayRange(new Date(gridStart + 'T00:00:00Z'), new Date(untilDay + 'T00:00:00Z'));
@@ -455,7 +455,7 @@ function PostingHeatmap({ activity }: { activity: Activity }) {
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <BlockTitle>{rtView ? 'RT · 최근 4주' : '직접 쓴 글 · 최근 4주'}</BlockTitle>
+        <BlockTitle>{rtView ? `RT · 최근 ${ACTIVITY_WEEKS}주` : `직접 쓴 글 · 최근 ${ACTIVITY_WEEKS}주`}</BlockTitle>
         {hasRt && (
           /* 배타적 모드 전환기 — /generate 툴바의 세그먼티드 컨트롤과 같은 시각 문법(채움형) */
           <div role="group" aria-label="히트맵 기준"
@@ -572,7 +572,7 @@ function AnalysisResult({ analysis, followers }: { analysis: InfluencerAnalysis;
         ? <ActivityResult analysis={analysis} activity={activity} followers={followers} />
         : (
           <p className="text-ui leading-relaxed text-x-secondary">
-            이전 방식으로 분석된 결과예요 — 다시 분석하면 4주 활동·직접 글 기준 지표로 바뀌어요
+            이전 방식으로 분석된 결과예요 — 다시 분석하면 {ACTIVITY_WEEKS}주 활동·직접 글 기준 지표로 바뀌어요
           </p>
         )}
 
@@ -590,14 +590,14 @@ function AnalysisResult({ analysis, followers }: { analysis: InfluencerAnalysis;
 
 const sumCounts = (r: Record<string, number>) => Object.values(r).reduce((a, b) => a + b, 0);
 
-// v2 본문 — 활동(4주 창)과 내용(직접 글 표본)은 표본이 다르다. 어느 숫자가 어느 표본인지는
+// v2 본문 — 활동(ACTIVITY_WEEKS주 창)과 내용(직접 글 표본)은 표본이 다르다. 어느 숫자가 어느 표본인지는
 // 각 블록의 제목·캡션이 말한다(라벨-값 일치).
 function ActivityResult({ analysis, activity, followers }: {
   analysis: InfluencerAnalysis; activity: Activity; followers: number | null;
 }) {
   const { stats, sample, topics, summary } = analysis;
 
-  // 창 안 수집 수 = 직접 + RT. 0이면 '4주 내내 아무것도 없었다'는 뜻이라 판단이 갈린다(judgeDirectCadence).
+  // 창 안 수집 수 = 직접 + RT. 0이면 'ACTIVITY_WEEKS주 내내 아무것도 없었다'는 뜻이라 판단이 갈린다(judgeDirectCadence).
   const collectedInWindow = sumCounts(activity.dailyDirect) + sumCounts(activity.dailyRt);
   // 건수·분모를 그대로 넘긴다(directPerDay는 이미 반올림된 값 — 다시 7배하면 오차가 두 번 쌓인다).
   const cadence = judgeDirectCadence(sumCounts(activity.dailyDirect), activity.coveredDays, collectedInWindow);
@@ -619,7 +619,7 @@ function ActivityResult({ analysis, activity, followers }: {
               cadence.caution ? 'text-amber-800' : 'text-x-secondary'
             }`}>{cad.verdict}</p>
           )}
-          <p className="mt-0.5 text-caption text-x-secondary">{activity.coveredDays < 28 ? `직접 쓴 글 · 최근 ${activity.coveredDays}일` : '직접 쓴 글 · 최근 4주'}</p>
+          <p className="mt-0.5 text-caption text-x-secondary">{activity.coveredDays < ACTIVITY_DAYS ? `직접 쓴 글 · 최근 ${activity.coveredDays}일` : `직접 쓴 글 · 최근 ${ACTIVITY_WEEKS}주`}</p>
         </StatTile>
         <StatTile value={rt.value}>
           {/* RT는 많고 적음이 좋고 나쁨이 아니다 — 판단문도 서술로만 적는다(주의 색 없음) */}
@@ -654,7 +654,7 @@ function ActivityResult({ analysis, activity, followers }: {
           {/* 직접 쓴 글이 0건이면 유형·주제는 셀 것이 없다 — 열 자체를 두지 않는다(빈 열은 거짓 어포던스) */}
           {direct > 0 && (
             <>
-              {/* 유형·주제는 분류된 직접 글만 센다 — 위 타일(4주 활동)과 표본이 다르다는 건 도넛 가운데가 적는다 */}
+              {/* 유형·주제는 분류된 직접 글만 센다 — 위 타일(ACTIVITY_WEEKS주 활동)과 표본이 다르다는 건 도넛 가운데가 적는다 */}
               <div className="@2xl:border-l @2xl:border-x-border @2xl:pl-6 @4xl:pr-6">
                 <TypeDonut types={types} classified={sample.directClassified ?? 0} />
               </div>
@@ -686,7 +686,7 @@ function ActivityResult({ analysis, activity, followers }: {
       {/* 직접 글도 RT도 없으면 서버가 summary를 비워 보낸다 — 조용히 비는 대신 이유를 적는다 */}
       {summary === null && (
         <p className="text-ui leading-relaxed text-x-secondary">
-          최근 6개월 직접 쓴 글도, 최근 4주 RT도 없어 글 내용은 분석하지 못했어요
+          최근 6개월 직접 쓴 글도, 최근 {ACTIVITY_WEEKS}주 RT도 없어 글 내용은 분석하지 못했어요
         </p>
       )}
     </>

@@ -2,6 +2,10 @@
 // (스펙 §① 현황 스트립 §④ 갱신 넛지) DB 접근 없음 — now?를 받아 테스트에서 결정적으로 검증한다.
 import { DRAFT_STATUSES, STATUS_LABEL, type DraftStatus } from './draftStatus.ts';
 import { formatKoCount } from './formatKo.ts';
+// influencerAnalysis.ts가 아니라 analysisStats.ts에서 가져온다 — influencerAnalysis.ts는 llm.ts(Anthropic
+// SDK)·usageStore.ts(postgres)를 물고 있어, 이 파일을 쓰는 'use client' 화면(명부·프로필)의 번들에
+// 서버 전용 코드가 섞이게 된다. analysisStats.ts는 순수 계산만 있어 이미 클라이언트에서 안전하게 쓰인다.
+import { ACTIVITY_WEEKS } from './analysisStats.ts';
 
 export const FOLLOWUP_DAYS = 14;
 export const PROFILE_STALE_DAYS = 30;
@@ -67,7 +71,7 @@ export function judgeEngagement(medianViews: number | null, followers: number | 
 export function judgeDirectCadence(
   directCount: number, coveredDays: number, collectedInWindow: number,
 ): CadenceJudgment {
-  if (collectedInWindow === 0) return { label: '최근 4주 게시 없음 — 활동이 멈춘 계정일 수 있어요', caution: true };
+  if (collectedInWindow === 0) return { label: `최근 ${ACTIVITY_WEEKS}주 게시 없음 — 활동이 멈춘 계정일 수 있어요`, caution: true };
   const perWeek = Math.round((directCount / Math.max(1, coveredDays)) * 7 * 10) / 10;
   const n = Number.isInteger(perWeek) ? String(perWeek) : perWeek.toFixed(1);
   if (perWeek < 1) return { label: `주 ${n}건 — 직접 쓰는 글이 드물어요`, caution: true };

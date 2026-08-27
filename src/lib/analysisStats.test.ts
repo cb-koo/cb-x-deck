@@ -96,7 +96,10 @@ test('topicStats: 정규화 매핑 적용 + 태그별 조회 중앙값 + count �
   ]);
 });
 
-const W = { since: '2026-07-30T00:00:00.000Z', until: '2026-08-27T00:00:00.000Z', truncated: false, reachedActivitySince: true };
+const W = {
+  since: '2026-07-30T00:00:00.000Z', until: '2026-08-27T00:00:00.000Z',
+  truncated: false, reachedActivitySince: true, days: 28,
+};
 
 test('computeActivity: 직접/RT 하루 평균·비중·활동일', () => {
   const tweets = [
@@ -118,6 +121,12 @@ test('computeActivity: 0건이면 분모 28·비중 0, NaN 없음', () => {
   const a = computeActivity([], W);
   assert.equal(a.coveredDays, 28);
   assert.equal(a.directPerDay, 0); assert.equal(a.rtPerDay, 0); assert.equal(a.rtShare, 0); assert.equal(a.quoteShare, 0);
+});
+
+test('computeActivity: opts.days=56이면 분모(coveredDays) 기본값도 56 — 실제 활동 창(ACTIVITY_DAYS)과 일치', () => {
+  const a = computeActivity([], { ...W, days: 56 });
+  assert.equal(a.coveredDays, 56);
+  assert.equal(a.days, 56);
 });
 
 test('computeActivity: 28일까지 못 갔으면 분모 = 최고령~until 일수(최소 1)', () => {

@@ -14,7 +14,7 @@ import {
 } from '@/lib/campaignApi';
 import {
   summarizeTasks, summarizeTaskPerf, deriveTaskInfluencers, taskCampaignTotal, matchesTaskFilter, subtotalsByType,
-  STAGE_FILTERS, STAGE_FILTER_LABEL, type StageFilter, type TaskSortKey,
+  STAGE_FILTERS, STAGE_FILTER_LABEL, TASK_TYPE_LABEL, type StageFilter, type TaskSortKey,
 } from '@/lib/campaignJudgment';
 import type { DetailView } from '@/lib/campaignView';
 import { draftLabel } from '@/lib/draftViews';
@@ -26,6 +26,9 @@ import { SummaryCards } from './SummaryCards';
 import { TaskTable } from './TaskTable';
 import { InfluencerCostTable } from './InfluencerCostTable';
 import { useCampaignTaskActions } from './useCampaignTaskActions';
+import { TaskAddModal } from './TaskAddModal';
+import { AttachDraftModal } from './AttachDraftModal';
+import { TargetPicker, type TargetValue } from './TargetPicker';
 
 // 캠페인 상세 컨테이너 — 로드·낙관적 갱신·모달을 쥔다. 요약·인플 목록·합계·성과는 서버 응답을 그대로 쓰지 않고
 // 같은 판정 함수(campaignJudgment)로 여기서 다시 계산한다 — 표에서 값을 고친 즉시 카드 숫자가 따라가야 하고,
@@ -73,9 +76,10 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
   const [rewritingId, setRewritingId] = useState<string | null>(null);
   const [regenBusy, setRegenBusy] = useState<{ draftId: string; index: number } | null>(null);
   const [mediaDrop, setMediaDrop] = useState<{ draftId: string; notice: MediaDropNotice } | null>(null);
-  // 모달은 Task 12에서 붙인다 — 지금은 표의 입구(원고 붙이기·대상 고르기)가 가리킨 작업만 쥔다(값을 읽는 쪽이 아직 없어 setter만 꺼낸다)
-  const [, setAttachFor] = useState<CampaignTaskItem | null>(null);
-  const [, setTargetFor] = useState<CampaignTaskItem | null>(null);
+  // 작업 추가·원고 붙이기·대상 고르기 — 표와 헤더의 입구가 가리킨 작업(또는 캠페인)을 쥔다
+  const [addOpen, setAddOpen] = useState(false);
+  const [attachFor, setAttachFor] = useState<CampaignTaskItem | null>(null);
+  const [targetFor, setTargetFor] = useState<CampaignTaskItem | null>(null);
 
   // 요청 토큰 — 캠페인을 빠르게 갈아타면 앞 캠페인의 응답이 뒤에 도착할 수 있다. 그때 화면에는 이미 다른 캠페인이
   // 떠 있으므로 옛 응답은 성공이든 실패든 버린다(남의 캠페인 데이터·오류 배너가 붙는 것을 막는다).
@@ -250,7 +254,7 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
       <div className={PANEL}>
         <CampaignHeader campaign={data.campaign} deleteInfo={data.deleteInfo} today={data.today} onPatch={patchCampaign}
                         onDelete={() => void removeCampaign()}
-                        onAddDrafts={() => show('작업 추가로 바꾸는 중이에요 — 곧 여기서 작업을 추가할 수 있어요')} />
+                        onAddDrafts={() => setAddOpen(true)} />
       </div>
       <div className={PANEL}>
         <h2 className={PANEL_TITLE}>캠페인 요약</h2>
@@ -290,8 +294,8 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
                      byType={byType} total={total} summary={summary}
                      actions={actions}
                      onOpenDraft={setPeekId}
-                     onAttachDraft={(t) => { setAttachFor(t); show('원고 붙이기 화면을 만드는 중이에요 — 곧 여기서 원고를 고를 수 있어요'); }}
-                     onPickTarget={(t) => { setTargetFor(t); show('대상 고르기 화면을 만드는 중이에요 — 곧 여기서 RT·인용RT 대상을 고를 수 있어요'); }}
+                     onAttachDraft={setAttachFor}
+                     onPickTarget={setTargetFor}
                      onDelete={(t) => {
                        if (window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}`)) void actions.remove(t);
                      }} />
@@ -355,6 +359,75 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
                         onSaved={(u) => { mergeRow(u); setEditing(null); }}
                         onMediaSaved={mergeRow} />
       )}
+      {addOpen && (
+        <TaskAddModal campaign={data.campaign} influencerOptions={influencerOptions} onClose={() => setAddOpen(false)}
+                      onCreated={({ count, firstTaskId, goToGenerate }) => {
+                        setAddOpen(false);
+                        // '새로 만들기' — 작업이 먼저 생겼으니 원고 생성 화면으로 넘긴다(거기서 만든 원고가 이 작업에 붙는다)
+                        if (goToGenerate) { window.location.assign(`/generate?task=${firstTaskId}&campaign=${data.campaign.id}`); return; }
+                        show(count > 1 ? `작업 ${count}개를 만들었어요` : '작업을 만들었어요');
+                        void load(); onChanged();
+                      }} />
+      )}
+      {attachFor && (
+        <AttachDraftModal clientId={data.campaign.clientId} title="이 작업에 붙일 원고 고르기" onClose={() => setAttachFor(null)}
+                          onPick={async (d) => {
+                            const r = await patchDraftApi(d.id, { taskId: attachFor.id });
+                            if (!r.ok) { show(r.error); return; }
+                            setAttachFor(null);
+                            show('원고를 붙였어요');
+                            void load();
+                          }} />
+      )}
+      {targetFor && (
+        <TargetDialog task={targetFor} campaign={data.campaign} onClose={() => setTargetFor(null)}
+                      onPick={(next) => { void actions.changeTarget(targetFor, next); setTargetFor(null); }}
+                      onClear={() => { void actions.changeTarget(targetFor, null); setTargetFor(null); }} />
+      )}
+    </div>
+  );
+}
+
+// 대상 고르기 다이얼로그(§4-1 '대상' 열에서 연다) — TargetPicker 하나를 담은 작은 창.
+// 고른 값은 로컬 state로 쥔다: 카드의 '바꾸기'는 다시 고르려는 것이지 대상을 지우려는 것이 아니라,
+// 그때마다 서버에 null을 보내면 안 된다. 실제로 지우는 입구는 아래 '대상 비우기' 하나뿐이다.
+function TargetDialog({ task, campaign, onClose, onPick, onClear }: {
+  task: CampaignTaskItem; campaign: CampaignRow;
+  onClose: () => void;
+  onPick: (next: { taskId: string } | { url: string }) => void;
+  onClear: () => void;
+}) {
+  const [value, setValue] = useState<TargetValue>(() => (task.target
+    ? {
+        taskId: task.target.taskId,
+        label: `${task.target.influencerHandle ? `@${task.target.influencerHandle}` : '미배정'} · ${TASK_TYPE_LABEL[task.target.type]}`,
+        sub: task.target.campaignId !== campaign.id ? task.target.campaignName : null,
+        posted: task.target.postUrl !== null,
+      }
+    : task.targetTweetUrl ? { url: task.targetTweetUrl } : null));
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const hasTarget = task.targetTaskId !== null || task.targetTweetUrl !== null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-6" onClick={onClose}>
+      <div className="mt-[12vh] w-full max-w-[520px] rounded-[14px] bg-white p-5" role="dialog" aria-modal="true"
+           aria-label={`${TASK_TYPE_LABEL[task.type]} 대상 고르기`} onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-[17px] font-bold">{TASK_TYPE_LABEL[task.type]} 대상 고르기</h2>
+        <p className="mt-0.5 text-ui text-x-muted">이 작업이 어떤 게시물을 {TASK_TYPE_LABEL[task.type]}할지 정해요 — 나중에 정해도 돼요.</p>
+        <div className="mt-3">
+          <TargetPicker value={value} clientId={campaign.clientId} campaignId={campaign.id} excludeTaskId={task.id} autoFocus
+                        onChange={(next) => { if (next === null) { setValue(null); return; } onPick(next); }} />
+        </div>
+        <div className="mt-4 flex items-center justify-between">
+          {hasTarget
+            ? <button type="button" onClick={onClear} className="text-ui text-x-secondary hover:underline">대상 비우기</button>
+            : <span />}
+          <Button onClick={onClose} className="h-10 px-4 text-content">닫기</Button>
+        </div>
+      </div>
     </div>
   );
 }

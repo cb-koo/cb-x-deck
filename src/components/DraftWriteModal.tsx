@@ -13,13 +13,14 @@ import { addSlot, removeSlot } from '@/lib/draftFormat';
 // 편집 모달의 칸 추가·삭제·이미지는 전부 기존 draft.id로 즉시 PATCH하는 구조인데, 여기엔 아직
 // 초안이 없다. 그래서 칸 구조는 순수 로컬 상태이고(addSlot/removeSlot 재사용), 이미지는 아예 없다
 // (업로드가 draft.id를 요구한다 — 저장 후 카드에서 붙인다). 닫으면 아무것도 남지 않는다.
-export function DraftWriteModal({ clientId, clientName, procedureNames, procedureIds, taskId, taskLabel, onClose, onSaved }: {
+export function DraftWriteModal({ clientId, clientName, procedureNames, procedureIds, taskId, taskLabel, onTaskConflict, onClose, onSaved }: {
   clientId: string | null;
   clientName: string | null;      // 표시용 — 모달이 clients 배열을 뒤지지 않게 이름만 받는다
   procedureNames: string[];       // 표시용
   procedureIds: string[];         // 저장용
   taskId: string | null;          // /generate?task= 배너가 켜져 있으면 그 작업에 붙여 저장(스펙 §5)
   taskLabel: string | null;       // 표시용('마인드스킨 9월 1주 · 투고 @mika') — 승계 조건 줄에 "어느 작업에 붙는지"가 저장 전에 보여야 한다
+  onTaskConflict?: () => void;    // 그 작업에 이미 원고가 붙어 있었을 때(409) — 부모가 배너를 '붙었어요'로 넘겨 taskId={null}로 다시 그린다
   onClose: () => void;
   onSaved: (created: DraftRow) => void;
 }) {
@@ -65,7 +66,17 @@ export function DraftWriteModal({ clientId, clientName, procedureNames, procedur
       }),
     });
     setSaving(false);
-    if (!r.ok) { setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`); return; }
+    if (!r.ok) {
+      // 409 = 이 작업엔 이미 원고가 붙어 있다(다른 탭에서 먼저 붙였을 수 있다). 모달은 쓴 글을 쥔 채로 열어
+      // 두고 부모에게만 알린다 — 부모가 배너를 '붙었어요'로 넘기면서 taskId={null}로 다시 그리므로,
+      // 사용자가 저장을 한 번 더 누르면 작업 없이 그대로 저장된다. 닫아버리면 쓴 글이 통째로 사라진다.
+      if (r.status === 409) {
+        onTaskConflict?.();
+        setErr('이 작업엔 이미 원고가 붙어 있어요 — 다시 저장하면 작업 없이 저장돼요');
+        return;
+      }
+      setErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`); return;
+    }
     // 생성 POST와 같은 모양(한 건짜리 배열)이라 페이지의 삽입 배선을 그대로 쓴다.
     const rows = (await r.json().catch(() => null)) as Array<DraftRow | null> | null;
     const created = Array.isArray(rows) ? rows[0] : null;

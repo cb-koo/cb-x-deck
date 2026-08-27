@@ -5,10 +5,11 @@ import type { DraftListFilter } from '@/lib/draftUi';
 // 상태 탭 + 캠페인·클라이언트 필터 (스펙 3-1) — 작업 세션용 렌즈라 저장하지 않는다
 // showStatusTabs=false: 칸반 뷰는 열 위치가 곧 상태라 탭이 중복 — 셀렉트만 노출(T4)
 // 캠페인은 칩이 아니라 select — 클라별로 늘어나 칩 줄이 넘친다(상태 5개는 고정 집합이라 칩). 캠페인 스펙 §4-3.
-export function DraftFilterBar({ counts, total, filter, clients, campaigns, onChange, showStatusTabs = true }: {
+export function DraftFilterBar({ counts, total, filter, clients, campaigns, currentCampaignName, onChange, showStatusTabs = true }: {
   counts: Record<DraftStatus, number>; total: number;
   filter: DraftListFilter; clients: Array<{ id: string; name: string }>;
   campaigns: Array<{ id: string; name: string }>;
+  currentCampaignName?: string;   // 걸려 있는 캠페인의 이름 — 목록에 아직 없을 때 옵션 라벨로 쓴다
   onChange: (f: DraftListFilter) => void;
   showStatusTabs?: boolean;
 }) {
@@ -33,6 +34,11 @@ export function DraftFilterBar({ counts, total, filter, clients, campaigns, onCh
       <select value={filter.campaignId} onChange={(e) => onChange({ ...filter, campaignId: e.target.value })}
               aria-label="캠페인으로 거르기" className={`ml-auto ${select}`}>
         <option value="">모든 캠페인</option>
+        {/* 값은 걸렸는데 목록에 그 캠페인이 아직(또는 영영) 없는 경우 — ?task= 딥링크가 목록보다 먼저 필터를
+            채울 수 있다. 옵션이 없으면 셀렉트가 '모든 캠페인'으로 보여 거르는 중이라는 사실이 사라진다(라벨-값 일치). */}
+        {filter.campaignId && filter.campaignId !== 'none' && !campaigns.some((c) => c.id === filter.campaignId) && (
+          <option value={filter.campaignId}>{currentCampaignName ?? '현재 캠페인'}</option>
+        )}
         {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         <option value="none">캠페인 없음</option>
       </select>

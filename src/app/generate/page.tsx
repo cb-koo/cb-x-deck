@@ -403,13 +403,18 @@ function Workbench() {
   // 새 초안이 현재 렌즈(상태·클라이언트·검색·시술·기간)에 가려 있으면 전부 리셋 — T11의 6차 확장
   const revealIfHidden = useCallback((created: DraftRow[]) => {
     const L = lensRef.current;
-    const visible = applyPeriod(
+    // 판정 기준은 '한 건이라도 보이나'가 아니라 '방금 만든 것이 전부 보이나'다 — 작업에 원고가 붙은 뒤에
+    // 만든 원고나 2번째 시안처럼 일부만 렌즈에 걸리면, 나머지는 소리 없이 화면 밖에 남는다(리뷰 Important).
+    const shown = applyPeriod(
       filterByProcedure(searchDrafts(filterDrafts(created, L.filter), L.query), L.procFilter),
-      L.period, Date.now()).length > 0;
-    if (!visible) {
+      L.period, Date.now());
+    if (shown.length < created.length) {
       // 배너(taskCtx)가 켜져 있으면 표 축도 그 캠페인에 묶어 둔다 — 배너가 "이 작업에 붙이는 중"인데
       // 표 필터가 전체로 풀리면 방금 만든 원고가 뒤섞여 어디 갔는지 헷갈린다(배너-표 축 결합, 캠페인 스펙 §4-3).
-      setFilter({ status: 'all', clientId: '', campaignId: taskCtx ? taskCtx.campaign.id : '' });
+      // 다만 묶는 것은 방금 만든 것이 전부 그 캠페인 소속일 때뿐이다: 한 건이라도 소속이 다르면
+      // 캠페인에 묶는 순간 그 원고가 도로 숨어, 숨은 것을 드러내려는 이 함수가 스스로를 배반한다.
+      const pin = taskCtx && created.every((d) => d.campaignId === taskCtx.campaign.id) ? taskCtx.campaign.id : '';
+      setFilter({ status: 'all', clientId: '', campaignId: pin });
       setQuery(''); setProcFilter(''); setPeriod({ kind: 'preset', preset: 'all' });
     }
   }, [taskCtx]);
@@ -439,7 +444,12 @@ function Workbench() {
         body: JSON.stringify({ ...src, constraintsOn: composer.constraintsOn }),
       });
       const body = await r.json().catch(() => ({}));
-      if (!r.ok) { setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
+      if (!r.ok) {
+        // 409 = 이 작업엔 이미 원고가 붙어 있다(다른 탭에서 먼저 붙였을 수 있다). 배너를 '붙었어요'로
+        // 넘겨야 다음 시도가 taskId 없이 저장된다 — 안 그러면 같은 요청이 계속 409로 막히는 막다른 길이 된다.
+        if (r.status === 409) markTaskAttached();
+        setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return;
+      }
       const created = body as DraftRow[];
       setDrafts((cur) => [...created, ...cur]);
       // 실제로 붙었을 때만 배너를 '붙었어요'로 바꾼다 — 응답이 말해주는 사실을 그대로 읽는다(추측하지 않는다)
@@ -828,6 +838,7 @@ function Workbench() {
                 <DraftFilterBar counts={counts} total={scoped.length} filter={filter}
                                 clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
                                 campaigns={campaigns.map((c) => ({ id: c.id, name: c.name }))}
+                                currentCampaignName={taskCtx?.campaign.name}
                                 onChange={setFilter} showStatusTabs={view !== 'kanban'} />
               </div>
             </div>
@@ -993,6 +1004,7 @@ function Workbench() {
                          clientName={writeScope.clientName} procedureNames={writeScope.procedureNames}
                          taskId={taskCtx && !taskCtx.attached ? taskCtx.taskId : null}
                          taskLabel={taskCtx && !taskCtx.attached ? taskCtxLabel : null}
+                         onTaskConflict={markTaskAttached}
                          onClose={() => setWriteOpen(false)}
                          onSaved={(row) => {
                            setDrafts((cur) => [row, ...cur]);

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { Button } from '@/components/ui';
 import { runQueue } from '@/lib/runQueue';
-import { start } from './analysisRun';
+import { getError, start } from './analysisRun';
 import type { InfluencerRow } from '@/lib/influencerStore';
 
 // 일괄 분석 진행 상태는 **모듈 스코프**다(스펙 §6). 다이얼로그 state에 두면 창을 닫는 순간
@@ -100,6 +100,8 @@ export function BulkAnalyzeDialog({ rows, onClose, onFinished }: {
 
         {!showProgress ? (
           <>
+            {/* 진행 화면에서 넘어와도 첫 갱신을 놓치지 않도록 확인 화면에도 같은 리전을 상주시킨다 */}
+            <p aria-live="polite" className="sr-only" />
             <p className="mt-3 text-ui">
               아직 분석하지 않았거나 이전 방식으로 분석된 계정을 한 번에 분석해요.
             </p>
@@ -124,13 +126,21 @@ export function BulkAnalyzeDialog({ rows, onClose, onFinished }: {
 
             <div className="mt-4 flex items-center gap-3">
               {/* 비용이 드는 액션이라 사용자가 대상·비용·시간을 본 뒤에만 시작한다(opt-in) */}
-              <Button variant="primary" autoFocus disabled={n === 0} onClick={() => { runBulk(targets, onFinished); }}>
+              <Button variant="primary" autoFocus disabled={n === 0}
+                      onClick={() => { void runBulk(targets, onFinished).catch(() => {}); }}>
                 시작
               </Button>
               <button onClick={close} className="text-ui text-x-secondary">취소</button>
               {n === 0 && (
                 <span className="text-caption text-x-muted">
-                  분석할 계정이 없어요 — 다시 분석하려면 &lsquo;최근 분석도 포함&rsquo;을 켜세요
+                  {/* 라벨-값 일치: 대상 0의 원인 3분기 — 명부 자체가 빔 / 포함 켜도 없음 / 꺼서 없음 */}
+                  {rows.length === 0 ? (
+                    '명부에 계정이 없어요'
+                  ) : includeRecent ? (
+                    '분석할 계정이 없어요'
+                  ) : (
+                    <>분석할 계정이 없어요 — 다시 분석하려면 &lsquo;최근 분석도 포함&rsquo;을 켜세요</>
+                  )}
                 </span>
               )}
             </div>
@@ -154,7 +164,11 @@ export function BulkAnalyzeDialog({ rows, onClose, onFinished }: {
                 <p className="mt-3 text-caption text-x-secondary">분석하지 못한 계정</p>
                 <ul className="mt-1 max-h-[30vh] space-y-1 overflow-y-auto">
                   {bulk.failed.map((t) => (
-                    <li key={t.id} className="rounded-lg border border-x-border px-3 py-1.5 text-ui">@{t.handle}</li>
+                    <li key={t.id} className="rounded-lg border border-x-border px-3 py-1.5 text-ui">
+                      @{t.handle}
+                      {/* 무엇이 실패했는지까지 — analysisRun의 단일 출처 오류 문구를 그대로 병기 */}
+                      {getError(t.id) && <span className="block text-caption text-x-muted">{getError(t.id)}</span>}
+                    </li>
                   ))}
                 </ul>
               </>
@@ -162,9 +176,15 @@ export function BulkAnalyzeDialog({ rows, onClose, onFinished }: {
 
             <div className="mt-4 flex items-center gap-3">
               {!bulk.running && bulk.failed.length > 0 && (
-                <Button variant="primary" onClick={() => { runBulk(bulk.failed, onFinished); }}>
+                <Button variant="primary" onClick={() => { void runBulk(bulk.failed, onFinished).catch(() => {}); }}>
                   재시도 ({bulk.failed.length}계정)
                 </Button>
+              )}
+              {/* 완료 후 다음 회차로 — 확인 화면으로 돌아간다(재시도와 별개로 항상 노출) */}
+              {!bulk.running && (
+                <button onClick={resetBulk} className="text-ui text-x-secondary hover:underline">
+                  새로 시작
+                </button>
               )}
               <Button variant={!bulk.running && bulk.failed.length > 0 ? 'subtle' : 'primary'} onClick={close}>
                 {bulk.running ? '닫아두고 계속하기' : '닫기'}

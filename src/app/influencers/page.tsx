@@ -119,12 +119,15 @@ function InfluencersSplit() {
             </button>
           </span>
         </div>
-        {bulk.running && (
+        {(bulk.running || bulk.failed.length > 0) && (
           // 다이얼로그를 닫아도 진행 중임을 알린다(뜻은 글자가 나른다 — 색만으로 전달하지 않는다)
+          // 실패가 있으면 닫힌 채 끝나도 배지가 남는다 — 성공만이면 조용히 사라진다.
+          // 새 회차 시작·다이얼로그의 '새로 시작'이 failed를 비워 리셋한다.
           <p className="mb-2 px-2">
             <span className="rounded-full bg-x-blue/10 px-2 py-0.5 text-caption text-x-blue-text">
-              분석 {bulk.done}/{bulk.total}
-              {bulk.failed.length > 0 && ` · 실패 ${bulk.failed.length}`}
+              {bulk.running
+                ? `분석 ${bulk.done}/${bulk.total}${bulk.failed.length > 0 ? ` · 실패 ${bulk.failed.length}` : ''}`
+                : `분석 완료 · 실패 ${bulk.failed.length}`}
             </span>
           </p>
         )}
@@ -222,13 +225,13 @@ function RosterRow({ row, active, onSelect, now }: { row: InfluencerRow; active:
   else if (row.profileRefreshedAt === null) meta.push('프로필 미조회');
   meta.push(row.lastLogAt ? relTime(row.lastLogAt, '기록') : '기록 없음');
   if (row.draftCount > 0) meta.push(`원고 ${row.draftCount}`);
-  // 분석 상태 세 가지(스펙 §7). relTime은 '3일 전 분석' 어순이라 접미사를 비워 '3일 전'만 받고 앞에 '분석'을 붙인다
-  // — 하루 이내는 relTime이 '오늘'을 주므로 그때만 '오늘 분석'으로 뒤집는다.
+  // 분석 상태 세 가지(스펙 §7). 프로필 캡션(AnalysisSection)과 같은 relTime 어순 — '3일 전 분석'.
+  // relTime이 해석 불가로 ''를 돌려주면 캡션 자체를 생략한다(뜻 없는 '분석' 칩 방지).
   if (!row.analyzedAt) meta.push('미분석');
   else if (!row.analysisV2) meta.push('이전 방식');
   else {
-    const ago = relTime(row.analyzedAt, '', now.getTime()).trim();
-    meta.push(ago === '오늘' ? '오늘 분석' : `분석 ${ago}`);
+    const analyzedCaption = relTime(row.analyzedAt, '분석', now.getTime());
+    if (analyzedCaption) meta.push(analyzedCaption);
   }
   // 프로필과 같은 판단 함수를 쓴다 — 명부와 프로필이 서로 다른 말을 하면 안 된다.
   // 점은 거들 뿐이고 뜻은 글자가 나른다(색·모양만으로 전달 금지).

@@ -9,7 +9,7 @@ import { NO_SCHEDULE_LABEL, overdueSuffix } from '@/lib/campaignTableView';
 // 밀림(overdueDays)·기간 밖(outOfRange) 판정은 호출부가 campaignJudgment로 계산해 넘긴다 — 이 칸은 게시됨 여부를 모른다.
 export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, compact, emptyLabel, ariaLabel }: {
   value: string | null;          // 'YYYY-MM-DD' | null
-  overdueDays: number | null;    // isOverdue면 daysBetweenDates(value, today), 아니면 null
+  overdueDays: number | null;    // 호출부가 taskOverdueDays()로 계산해 넘긴다(밀림 아니면 null)
   outOfRange: boolean;           // 캠페인 기간 밖 — 경고 표시만, 저장 차단 없음(§2-4)
   onChange: (next: string | null) => void;
   compact?: boolean;             // 표 셀 = 글자(15px), 카드 도구층 = 칩(32px, 13px)

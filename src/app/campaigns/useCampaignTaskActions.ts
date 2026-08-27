@@ -6,7 +6,7 @@ import { suggestTaskCost, type TaskCost } from '@/lib/campaignCost';
 import { patchTaskApi, deleteTaskApi, type TaskPatchRequest } from '@/lib/campaignApi';
 
 // 작업 편집은 전부 PATCH /api/campaigns/[id]/tasks/[taskId] 하나로 간다(스펙 §6). 낙관적 갱신 + "이 요청이 세팅한 값이
-// 아직 표시 중일 때만" 롤백/덮어쓰기(useCampaignDraftActions 골격) — 응답은 보낸 순서대로 오지 않는다.
+// 아직 표시 중일 때만" 롤백/덮어쓰기 — 응답은 보낸 순서대로 오지 않는다.
 type Item = CampaignTaskItem;
 type Optimistic = Partial<Item>;
 

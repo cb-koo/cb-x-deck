@@ -50,7 +50,7 @@ function saveCollapsed(v: boolean) {
 // 카드 좌측 바 색 = 단계색(밀림이면 빨강이 덮는다). 색의 단일 소스는 DraftStatusChip — 표의 칩과 갈라질 수 없다.
 const barColor = (stage: TaskStage, overdue: boolean) => (overdue ? OVERDUE_BAR_HEX : TASK_STAGE_BAR_HEX[stage]);
 // 범례 — 색만으로 단계를 말하지 않기 위해(색맹 접근성) 격자 아래에 점+이름을 함께 둔다.
-// 작업의 단계는 원고 상태(작성 중·검토·승인·전달됨)에 예정·방문 전·방문 완료·게시됨·내려짐이 더해진다(taskStage).
+// 작업의 단계는 원고 상태(초안·검수 대기·사용 확정·전달됨 — STATUS_LABEL)에 예정·방문 전·방문 완료·게시됨·내려짐이 더해진다(taskStage).
 const LEGEND_STAGES: TaskStage[] = ['planned', 'visitPending', 'visited', 'draft', 'review', 'approved', 'delivered', 'published', 'removed'];
 const LEGEND: Array<{ hex: string; label: string }> = [
   ...LEGEND_STAGES.map((s) => ({ hex: TASK_STAGE_BAR_HEX[s], label: TASK_STAGE_LABEL[s] })),

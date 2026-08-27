@@ -11,7 +11,7 @@ export type ReferenceMode = 'off' | 'form' | 'angle' | 'both';
 // 배정 후보 한 건. 문자열이 아니라 객체인 이유는 하나 — 나중에 목록이 `하다칸 (@hadakan__)`처럼
 // 이름을 병기할 때 타입도 호출부도 바뀌지 않게 하기 위해서다. name은 지금 항상 비어 있고,
 // 인플루언서 목록 DB가 생기면 그쪽이 채운다.
-// pricing: 인플 단가(influencer.pricing, 032) — 캠페인 비용 제안 소스(campaignCost.suggestDraftCost).
+// pricing: 인플 단가(influencer.pricing, 032) — 캠페인 작업 비용 제안 소스(campaignCost.suggestTaskCost).
 // 자동완성 후보를 받는 화면이 배정 직후 그대로 제안에 쓴다. 없으면(명부에 없는 핸들) 제안 없음.
 export interface InfluencerOption { handle: string; name?: string; pricing?: Pricing }
 

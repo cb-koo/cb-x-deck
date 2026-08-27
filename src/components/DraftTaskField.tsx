@@ -8,7 +8,7 @@ import { fetchCampaignDetail } from '@/lib/campaignApi';
 import { TASK_TYPE_LABEL, TARGETABLE_TYPES, campaignStatus, formatDateKo, type TaskType } from '@/lib/campaignJudgment';
 
 // 원고가 붙은 '작업' 한 칸(스펙 2026-08-28 §5) — 캠페인의 단위가 원고에서 작업(campaign_task)으로 옮겨가면서
-// 옛 '캠페인: ○○ ▾'(DraftCampaignField)를 대체한다. 원고는 캠페인에 직접 속하지 않는다: 작업에 붙으면
+// 옛 '캠페인: ○○ ▾' 칸을 대체한다. 원고는 캠페인에 직접 속하지 않는다: 작업에 붙으면
 // 그 작업의 캠페인·예정일·비용을 따라간다(값은 하나 — 카드에 보이는 건 전부 작업에서 읽은 파생값).
 //
 // 그래서 이 칸이 하는 일은 딱 둘이다 — 붙이기 / 떼기. 예정일·비용은 여기서 고치지 않는다(카드의 읽기 줄이
@@ -20,7 +20,7 @@ const POP_H = 380; // 실측 근사 — 아래 공간 판정(flip)에만 쓴다
 const ATTACHABLE_TYPES = TARGETABLE_TYPES;
 
 // 후보 캠페인 = 그 원고 클라이언트의 진행 중·예정이 기본, 종료는 접힘. 클라가 없는 원고는 전체.
-// draftCampaignOptions.ts의 같은 규칙을 옮겨 왔다 — 그 파일은 옛 캠페인 칸과 함께 사라진다(Task 17).
+// 후보 정렬 규칙(진행 중 먼저 → 시작일 내림차순)은 옛 캠페인 칸에서 그대로 옮겨 왔다.
 function campaignOptionsFor(all: CampaignRow[], clientId: string | null, today: string): { open: CampaignRow[]; ended: CampaignRow[] } {
   const mine = clientId === null ? all : all.filter((c) => c.clientId === clientId);
   return {

@@ -1,5 +1,4 @@
 import type postgres from 'postgres';
-import type { DraftRow } from './draftStore.ts';
 import { kstToday } from './datetime.ts';
 import { isUuidLike } from './uuid.ts';
 import {
@@ -32,14 +31,6 @@ export interface CampaignTaskItem extends TaskRow {
   perf: CampaignPerf | null;       // tracked_post.task_id 최신 스냅샷(lateral) 합. 스냅샷 없으면 views/likes null
   linkClicks: number | null;       // 붙은 원고의 tracking_link 최신 스냅샷 합 — 게시 여부와 무관(요약 카드 합계용, §5)
 }
-// Task 17에서 제거 — 옛 표 컴포넌트(ContentTable·WeekCalendar·LinkPostModal·useCampaignDraftActions) 컴파일용.
-// 새 코드는 CampaignTaskItem만 쓴다(이 타입을 반환하는 함수는 이제 없다).
-export interface CampaignDraftItem extends DraftRow {
-  published: boolean;
-  perf: CampaignPerf | null;
-  linkClicks: number | null;
-}
-
 export interface InfluencerCostRow {
   id: string; campaignId: string; influencerHandle: string;
   extraCosts: ExtraCost[]; note: string; updatedAt: string;

@@ -1,51 +1,25 @@
-// 콘텐츠 표·요약 카드·달력 카드가 쓰는 표시 문자열 — 컴포넌트가 아니라 여기 두어 테스트로 고정한다.
+// 작업 표·요약 카드·달력 카드가 쓰는 표시 문자열 — 컴포넌트가 아니라 여기 두어 테스트로 고정한다.
 // 라벨-값 일치(AGENTS 원칙 4)는 대개 문구에서 깨진다: 판정은 campaignJudgment, 문구는 여기, 그리기는 컴포넌트.
 import {
-  isOverdue, isTaskOverdue, daysBetweenDates, formatDateKo, TASK_TYPE_LABEL,
-  type StageInput, type TaskStageInput, type TypeSubtotal, type TaskSummary, type PerfSummary,
+  isTaskOverdue, daysBetweenDates, TASK_TYPE_LABEL,
+  type TaskStageInput, type TypeSubtotal, type TaskSummary, type PerfSummary,
 } from './campaignJudgment.ts';
 import type { TaskRow } from './campaignTaskStore.ts';
 import {
-  COST_TYPE_LABEL, CURRENCIES, moneyParts,
-  type Currency, type DraftCost, type MoneyByCurrency,
+  CURRENCIES, moneyParts,
+  type Currency, type MoneyByCurrency,
 } from './campaignCost.ts';
-
-/** 밀림이면 며칠 지났는지, 아니면 null — 게시됨·미사용·예정일 미정·오늘 이후는 전부 null(isOverdue와 같은 모집단) */
-export function overdueDays(d: StageInput, today: string): number | null {
-  return isOverdue(d, today) ? daysBetweenDates(d.scheduledOn as string, today) : null;
-}
 
 /** 예정일이 없을 때 표시하는 문구 — 표 셀·달력 열·ScheduledOnField(compact)가 같은 상수를 쓴다(리뷰 반영: 경로별 중복 제거).
  *  QA 4라운드: '없음'은 "정할 수 없다"로 읽혀서 '미정'으로 바꿨다 — 문구를 바꿀 때 여기만 고치면 모든 화면이 따라온다. */
 export const NO_SCHEDULE_LABEL = '예정일 미정';
 
-/** '1일 지남' — 밀림 접미사. scheduledOnLabel과 ScheduledOnField가 같은 문구를 조립한다 */
+/** '1일 지남' — 밀림 접미사. 표 예정일 칸(ScheduledOnField)과 달력 카드가 같은 문구를 조립한다 */
 export function overdueSuffix(days: number): string {
   return `${days}일 지남`;
 }
 
-/** '8/26 수 · 1일 지남' | '8/29 토' | '예정일 미정' — 표 셀·달력 카드가 같은 문구 */
-export function scheduledOnLabel(d: StageInput, today: string): string {
-  if (!d.scheduledOn) return NO_SCHEDULE_LABEL;
-  const od = overdueDays(d, today);
-  return od !== null ? `${formatDateKo(d.scheduledOn)} · ${overdueSuffix(od)}` : formatDateKo(d.scheduledOn);
-}
-
-/** 콘텐츠 유형 셀 '투고' — 비용 유형이 곧 콘텐츠 유형. 없으면 '—'(QA 1라운드: 콘텐츠 칸 13px 보조줄 → 전용 열).
- *  단문/스레드 구분은 열에서 뺐다 — 표에서 판단에 쓰이지 않는다는 오너 결정(QA 1라운드). */
-export function contentTypeLabel(d: { cost: DraftCost | null }): string {
-  return d.cost ? COST_TYPE_LABEL[d.cost.type] : '—';
-}
-
 const num = (n: number | null) => (n === null ? '—' : n.toLocaleString('ko-KR'));
-
-/** 성과 셀 — 게시됨 행만 '조회 12,400 · 링크 96'. 스냅샷 없으면 '조회 —'(0으로 위장하지 않는다, 스펙 §7). 미게시는 '—'. */
-export function perfLabel(d: { published: boolean; perf: { views: number | null } | null; linkClicks: number | null }): string {
-  if (!d.published) return '—';
-  const parts = [`조회 ${num(d.perf?.views ?? null)}`];
-  if (d.linkClicks !== null) parts.push(`링크 ${num(d.linkClicks)}`);
-  return parts.join(' · ');
-}
 
 /** 인플 아바타 이니셜(InfluencerProfile.Avatar와 같은 규칙 — 프로필 사진은 여기까지 안 내려온다) */
 export function handleInitial(handle: string): string {
@@ -90,21 +64,11 @@ export function perfSub(p: PerfSummary): string {
 }
 
 // ─────────────────────────── 작업(campaign_task) 표시 문구 — 스펙 2026-08-28 §4-1 ───────────────────────────
-// 원고 기준 문구(위)와 나란히 둔다: 판정은 campaignJudgment, 문구는 여기, 그리기는 TaskTable.
+// 판정은 campaignJudgment, 문구는 여기, 그리기는 TaskTable.
 
 /** 밀림이면 며칠 지났는지, 아니면 null — isTaskOverdue와 같은 모집단(게시됨·미사용·예정일 미정·오늘 이후는 null) */
 export function taskOverdueDays(t: TaskStageInput, today: string): number | null {
   return isTaskOverdue(t, today) ? daysBetweenDates(t.scheduledOn as string, today) : null;
-}
-
-/** 예정일 셀 한 줄(§4-1). 방문협찬은 '방문 M/D 요일 · 게시 M/D 요일'(각각 없으면 '미정'), 그 외는 게시 예정일 하나. */
-export function taskScheduleLabel(t: TaskStageInput, today: string): string {
-  const od = taskOverdueDays(t, today);
-  const sched = t.scheduledOn
-    ? (od !== null ? `${formatDateKo(t.scheduledOn)} · ${overdueSuffix(od)}` : formatDateKo(t.scheduledOn))
-    : null;
-  if (t.type !== 'visit') return sched ?? '미정';
-  return `방문 ${t.visitOn ? formatDateKo(t.visitOn) : '미정'} · 게시 ${sched ?? '미정'}`;
 }
 
 /** 'RT/인용RT 대상' 셀 — 작업 참조는 '@핸들 유형'(다른 캠페인이면 sub에 캠페인명), 링크는 스킴·www를 뗀 주소.

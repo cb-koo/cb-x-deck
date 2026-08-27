@@ -4,7 +4,7 @@ import type { TaskStage } from '@/lib/campaignJudgment';
 
 // 색은 여기(UI)에만, 키·라벨은 lib에. 채움은 옅게 유지하되 같은 계열 테두리를 함께 둔다 —
 // 채움만 있으면 옆의 읽기용 메타 글자와 구분이 안 돼 "누르는 것"으로 안 읽힌다(11px 시절의 실패 원인).
-// export: 표(ContentTable)와 달력(WeekCalendar)이 같은 단계를 각자 색을 베껴 쓰면 하나만 고쳤을 때 어긋난다 —
+// export: 표(TaskTable)와 달력(WeekCalendar)이 같은 단계를 각자 색을 베껴 쓰면 하나만 고쳤을 때 어긋난다 —
 // 단일 소스를 여기 두고 양쪽이 그대로 가져다 쓴다.
 export const STATUS_STYLE: Record<DraftStatus, string> = {
   draft: 'border-x-border-strong bg-white text-x-secondary',
@@ -14,7 +14,7 @@ export const STATUS_STYLE: Record<DraftStatus, string> = {
   unused: 'border-x-border-strong bg-x-border/40 text-x-muted',
 };
 
-// '게시됨'은 DraftStatus가 아니라 파생 단계(contentStage)라 위 맵에 없다 — 색은 하나만 정해 표·달력이 같이 쓴다.
+// '게시됨'은 DraftStatus가 아니라 파생 단계(taskStage)라 위 맵에 없다 — 색은 하나만 정해 표·달력이 같이 쓴다.
 export const PUBLISHED_STYLE = 'border-green-300 bg-green-100 text-green-800';
 
 // 달력 카드의 좌측 4px 색 바 + 범례 점이 쓰는 단계색(HEX) — 위 칩 색과 같은 계열의 '진한 쪽' 한 톤이다.
@@ -44,7 +44,7 @@ export const TASK_STAGE_BAR_HEX: Record<TaskStage, string> = {
   ...STAGE_BAR_HEX, planned: '#94a3ab', visitPending: '#f59e0b', visited: '#1d9bf0', removed: '#64748b',
 };
 
-// 밀림은 단계가 아니라 상태 위에 얹히는 경고다(isOverdue) — 단계색을 덮어쓴다. 표의 빨간 신호와 같은 색.
+// 밀림은 단계가 아니라 상태 위에 얹히는 경고다(isTaskOverdue) — 단계색을 덮어쓴다. 표의 빨간 신호와 같은 색.
 export const OVERDUE_BAR_HEX = '#dc2626';
 
 // 칩처럼 보이는 select — 클릭 시 5개 상태 중 선택, 즉시 저장은 부모 몫.

@@ -5,7 +5,7 @@
 - 1단계 범위: 수집 기준 변경 · 활동/내용 지표 분리 · "퍼나르는 주제" 축 · UI 반영 · 전체 분석(일괄) · 명부에 분석 시점. **유형 라벨·필터·갱신 넛지는 2단계.** 마이그레이션 없음(jsonb).
 
 ## 0. 원칙
-- **활동**(얼마나·언제)은 **최근 28일 고정 창**, **내용**(무엇을·어떻게)은 **직접 쓴 글(원글+인용) 최근 60건** — 한 창으로 둘을 채우면 RT 기계는 폭발하고 저빈도 계정은 빈다.
+- **활동**(얼마나·언제)은 **최근 56일(8주) 고정 창**, **내용**(무엇을·어떻게)은 **직접 쓴 글(원글+인용) 최근 60건** — 한 창으로 둘을 채우면 RT 기계는 폭발하고 저빈도 계정은 빈다.
 - RT는 활동으로 세되 색·분류의 기준은 직접 쓴 글. RT가 **무엇을** 퍼나르는지는 별도 축(퍼나르는 주제) — 확산 채널의 정체성.
 - 숫자마다 판단문. 수집이 **상한에 걸린 경우에만** 캡션(계정 트윗이 소진돼 끝난 건 상한이 아니다 — 라벨-값 일치).
 - 시간 예산: 라우트 300초 안에 **저장까지** 끝나야 한다 — 수집 단계 데드라인을 둔다.
@@ -13,7 +13,7 @@
 ## 1. 수집 (`src/lib/tweetSource.ts`)
 ```ts
 export interface FetchOpts {
-  activitySince: string;   // 28일 전
+  activitySince: string;   // 56일 전(8주)
   directTarget: number;    // 60
   lookbackSince: string;   // 6개월 전 — 이보다 오래된 트윗은 push하지 않는다
   maxPages: number;        // 60
@@ -32,14 +32,14 @@ fetchRecent(userId, opts): Promise<FetchResult>
 - 페이지 최신순. **정상 종료**: `(가장 오래된 트윗 < activitySince) && (directCount ≥ directTarget || 가장 오래된 트윗 < lookbackSince)` 또는 `!has_more`. **상한 종료(truncated)**: `pagesUsed ≥ maxPages || tweets ≥ maxTweets || now ≥ deadlineAt`.
 - 고정글(`isPinned`): **시간순 판정(sawOld)에서만 제외하고 수집에는 포함**, id Set으로 중복 제거 — 4주 창에서 1건의 비중이 커져 버리지 않는다.
 - `AnalysisTweet`에 `rtText?: string` — RT면 `raw.retweeted_tweet.text`(없으면 `raw.text`).
-- 상수(`influencerAnalysis.ts`): `ACTIVITY_DAYS=28`, `DIRECT_TARGET=60`, `LOOKBACK_MONTHS=6`, `MAX_PAGES=60`, `MAX_TWEETS=2000`, `RT_CLASSIFY_MAX=100`, `COLLECT_DEADLINE_MS=120_000`.
+- 상수(`influencerAnalysis.ts`): `ACTIVITY_DAYS=56`, `DIRECT_TARGET=60`, `LOOKBACK_MONTHS=6`, `MAX_PAGES=60`, `MAX_TWEETS=2000`, `RT_CLASSIFY_MAX=100`, `COLLECT_DEADLINE_MS=120_000`.
 
 ## 2. 활동 통계 (`src/lib/analysisStats.ts`)
 ```ts
 export interface Activity {
-  since: string; until: string; days: 28;
+  since: string; until: string; days: number;             // 56
   truncated: boolean;            // FetchResult.truncated (캡션은 이때만)
-  coveredDays: number;           // reachedActivitySince면 28, 아니면 max(1, 가장 오래된 수집~until 일수); 수집 0건이면 28(4주 내내 0건이 사실)
+  coveredDays: number;           // reachedActivitySince면 56, 아니면 max(1, 가장 오래된 수집~until 일수); 수집 0건이면 56(8주 내내 0건이 사실)
   directPerDay: number; rtPerDay: number;  // 소수 1자리, 분모 coveredDays
   rtShare: number;               // 창 안 RT / 창 안 전체 (0~1, 소수 2자리; 전체 0이면 0)
   quoteShare: number;            // 창 안 인용 / 창 안 직접 글 (2단계 "인용 위주 확산" 판별용; 직접 0이면 0)
@@ -66,14 +66,14 @@ models
 - `InfluencerAnalysis` 타입: v1 필드(`sample.count/classified/since/months`, `stats.perWeek/mix`, `daily`) 옵셔널화 + v2 필드 추가. **UI는 `activity` 유무로 분기**하며, v1 경로는 §5의 한 줄 안내만 그리므로 v1 값을 읽는 코드는 제거한다(`judgeCadence`는 v2에서 `judgeDirectCadence`로 대체 — 기존 함수·테스트는 삭제).
 
 ## 4. 판단 (`influencerJudgment.ts`)
-- `judgeDirectCadence(directPerDay, collectedInWindow)`: 창 안 수집 0건 → `최근 4주 게시 없음 — 활동이 멈춘 계정일 수 있어요`(주의); 주당(=×7) <1 → `주 N건 — 직접 쓰는 글이 드물어요`(주의) / ≤3 `보통` / >3 `활발한 편`. (임계는 2단계에서 분포 보고 조정.)
+- `judgeDirectCadence(directPerDay, collectedInWindow)`: 창 안 수집 0건 → `최근 8주 게시 없음 — 활동이 멈춘 계정일 수 있어요`(주의); 주당(=×7) <1 → `주 N건 — 직접 쓰는 글이 드물어요`(주의) / ≤3 `보통` / >3 `활발한 편`. (임계는 2단계에서 분포 보고 조정.)
 - `judgeRt(rtPerDay, rtShare)`: 하루 <1 `확산 활동이 거의 없어요` / <10 `확산 활동이 있어요` / ≥10 `확산 활동이 매우 활발해요`, 값 표기 `RT 하루 N건 · 글의 N%`.
 - `judgeEngagement` 유지.
 
 ## 5. UI (`AnalysisSection.tsx`)
-- 캡션: `직접 쓴 글 60건(6/12~8/26) · 활동 최근 4주 · 오늘 분석`. `directComplete=false` → `직접 쓴 글 23건(6개월 안 전부)`. `activity.truncated` → `(수집 상한으로 최근 N일치)`.
+- 캡션: `직접 쓴 글 60건(6/12~8/26) · 활동 최근 8주 · 오늘 분석`. `directComplete=false` → `직접 쓴 글 23건(6개월 안 전부)`. `activity.truncated` → `(수집 상한으로 최근 N일치)`.
 - 타일 3: ① 직접 발행 `주 N건`+판단 ② RT `하루 N건 · 글의 N%`+판단 ③ 반응 중앙값+판단.
-- **히트맵 2줄**: 위 `직접 쓴 글`(색=`dailyDirect`, 임계 1/2/3~4/5+), 아래 `RT`(색=`dailyRt`, **RT 전용 임계 1~4/5~9/10~19/20+**, 범례 별도 표기) — RT 확산형 계정이 "활동 없음"으로 보이지 않게. 창 = **최근 28일**, 열 = 달력 주(일요일 시작)라 **최대 5열(양끝 부분 열)** — 캡션은 "최근 4주". 셀 20px 고정. 각 격자 `role="img"` aria-label에 기준 명시.
+- **히트맵 2줄**: 위 `직접 쓴 글`(색=`dailyDirect`, 임계 1/2/3~4/5+), 아래 `RT`(색=`dailyRt`, **RT 전용 임계 1~4/5~9/10~19/20+**, 범례 별도 표기) — RT 확산형 계정이 "활동 없음"으로 보이지 않게. 창 = **최근 56일**, 열 = 달력 주(일요일 시작)라 **최대 10열(양끝 부분 열)** — 캡션은 "최근 8주". 셀 20px 고정. 각 격자 `role="img"` aria-label에 기준 명시.
 - 유형 도넛(직접 글) + 주제 표(직접 글) 2열 유지. 표 아래 **`퍼나르는 주제`** `ul/li` 칩 `여행 21건 · …`(rtTopics 상위 5) + 캡션 `최근 N일 RT 100건 기준`(rtSince~until). RT 0건이면 생략.
 - 서술 3단락 + 헤드라인 유지. RT-only 문구: `직접 쓴 글이 없어 퍼나르는 주제로만 봤어요`(도넛·직접 주제 표 생략).
 - **구버전 분석(`activity` 없음)**: 헤드라인·서술은 그대로, 수치·히트맵 자리에 한 줄 `이전 방식으로 분석된 결과예요 — 다시 분석하면 4주 활동·직접 글 기준 지표로 바뀌어요`. v1 값(perWeek·mix·daily)을 읽는 코드는 남기지 않는다.
@@ -95,3 +95,6 @@ models
 
 ## 9. 2단계(별도)
 유형 판정(분포 보고 임계값) · 명부 라벨·필터 · 갱신 넛지(유형별 차등) · 수동 덮어쓰기 여부 · 비용 상수 실측 보정.
+
+## 변경 이력
+- 2026-08-27 QA 반영: 활동 창 **4주 → 8주**(koo: 4주는 너무 짧음 — 요일 패턴이 두 배로 반복돼 뚜렷해지고 GitHub 배치가 9~10열로 넓어짐). 히트맵은 **직접/RT 두 줄 → 한 격자 + 토글**(RT 비중 10% 미만이면 토글 숨김), 배치는 GitHub식 유지, 히트맵·유형 도넛·주제 표는 **한 행 3열**(패널 ≥896px). RT 전문 계정은 60페이지 상한 때문에 8주를 못 채우고 "수집 상한으로 최근 N일치" 캡션 — 의도된 동작.

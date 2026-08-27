@@ -43,6 +43,7 @@ export function makeGetxapiTweetSource(
       let directCount = 0;
       let pagesUsed = 0;
       let truncated = false;
+      let exhausted = false;   // 계정 트윗이 소진돼 정상 종료(상한과 구분 — 라벨-값 일치)
 
       const done = () =>
         oldest !== null && oldest < opts.activitySince &&
@@ -51,23 +52,31 @@ export function makeGetxapiTweetSource(
       while (pagesUsed < opts.maxPages) {
         const page = await client.getUserTweets(userId, cursor);
         pagesUsed += 1;
-        for (const raw of page.tweets) {
+        for (let i = 0; i < page.tweets.length; i++) {
+          const raw = page.tweets[i];
           const t = mapRawAnalysisTweet(raw);
           if (!t || seen.has(t.id)) continue;
           // 고정글은 1페이지 맨 앞에 시간순과 무관하게 실려 온다(실호출 확인) — 시간순 신호로 쓰지 않되 수집엔 포함.
           if (raw.isPinned !== true && (oldest === null || t.createdAt < oldest)) oldest = t.createdAt;
-          if (t.createdAt < opts.lookbackSince) continue;   // 6개월 밖은 담지 않는다
+          // 6개월 밖은 담지 않는다 — 고정글도 예외 없음(시간순 신호에서만 빼는 것과는 별개, 의도된 동작).
+          if (t.createdAt < opts.lookbackSince) continue;
           seen.add(t.id);
           out.push(t);
           if (t.kind !== 'retweet') directCount += 1;
-          if (out.length >= opts.maxTweets) { truncated = true; break; }
+          if (out.length >= opts.maxTweets) {
+            // 이 트윗이 페이지의 마지막이고 더 없으면 상한이 아니라 소진이다.
+            if (i === page.tweets.length - 1 && !page.has_more) exhausted = true;
+            else truncated = true;
+            break;
+          }
         }
-        if (truncated) break;
-        if (done() || !page.has_more || !page.next_cursor) break;
+        if (truncated || exhausted) break;
+        if (done()) break;
+        if (!page.has_more || !page.next_cursor) { exhausted = true; break; }
         if (opts.deadlineAt !== undefined && now() >= opts.deadlineAt) { truncated = true; break; }
         cursor = page.next_cursor;
       }
-      if (!truncated && pagesUsed >= opts.maxPages && !done()) truncated = true;
+      if (!truncated && !exhausted && pagesUsed >= opts.maxPages && !done()) truncated = true;
       const reachedActivitySince = oldest !== null && oldest < opts.activitySince;
       return { tweets: out, truncated, reachedActivitySince, directCount, pagesUsed };
     },

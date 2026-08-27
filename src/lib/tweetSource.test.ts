@@ -21,6 +21,12 @@ test('mapRawAnalysisTweet: RT는 rtText에 원문(retweeted_tweet.text 우선)',
   assert.equal(t.kind, 'retweet');
   assert.equal(t.rtText, '原文');
   assert.equal(mapRawAnalysisTweet(raw({}))!.rtText, undefined);
+  assert.equal(mapRawAnalysisTweet(raw({ id: undefined })), null);
+  assert.equal(mapRawAnalysisTweet(raw({ createdAt: undefined })), null);
+  const bare = mapRawAnalysisTweet(raw({ viewCount: undefined, likeCount: undefined }))!;
+  assert.deepEqual([bare.views, bare.likes], [null, null]);
+  assert.equal(mapRawAnalysisTweet(raw({ media: [{ url: 'x' }] }))!.hasMedia, true);
+  assert.equal(mapRawAnalysisTweet(raw({ quoted_tweet: { id: 'q' } }))!.kind, 'quote');
 });
 
 test('정상 종료: activitySince를 지났고 직접 글 목표를 채우면 더 안 넘긴다', async () => {
@@ -38,7 +44,7 @@ test('정상 종료: activitySince를 지났고 직접 글 목표를 채우면 �
 
 test('activitySince를 지났어도 직접 글이 부족하면 lookbackSince까지 계속 넘긴다', async () => {
   const { source, calls } = src([
-    page([raw({ id: 'rt1', kind: 'x', retweeted_tweet: { text: 'o' }, createdAt: '2026-07-20T00:00:00.000Z' })], true),
+    page([raw({ id: 'rt1', retweeted_tweet: { text: 'o' }, createdAt: '2026-07-20T00:00:00.000Z' })], true),
     page([raw({ id: 'd1', createdAt: '2026-06-01T00:00:00.000Z' }), raw({ id: 'd2', createdAt: '2026-05-01T00:00:00.000Z' })], true),
     page([raw({ id: 'never' })], false),
   ]);
@@ -94,4 +100,37 @@ test('고정글은 시간순 판정에서만 빼고 수집엔 포함, 중복 제
   const r = await source.fetchRecent('u', { ...OPTS, directTarget: 10 });
   assert.deepEqual([...r.tweets.map((t) => t.id)].sort(), ['a', 'b', 'pin']);   // pin 1번만
   assert.ok(calls() >= 1);
+});
+
+test('lookbackSince 밖 고정글은 수집에서 빠진다(의도)', async () => {
+  const { source } = src([
+    page([
+      raw({ id: 'pin', isPinned: true, createdAt: '2026-01-01T00:00:00.000Z' }),   // lookbackSince(2026-03-01)보다 오래됨
+      raw({ id: 'a', createdAt: '2026-08-20T00:00:00.000Z' }),
+      raw({ id: 'b', createdAt: '2026-07-30T00:00:00.000Z' }),
+    ], false),
+  ]);
+  const r = await source.fetchRecent('u', { ...OPTS, directTarget: 10 });
+  assert.deepEqual(r.tweets.map((t) => t.id), ['a', 'b']);
+});
+
+test('소진이 maxPages번째 페이지에서 일어나면 truncated 오보 아님', async () => {
+  const { source } = src([
+    page([raw({ id: '1', retweeted_tweet: { text: 'o' } })], true),
+    page([raw({ id: '2', retweeted_tweet: { text: 'o' } })], true),
+    page([raw({ id: '3', retweeted_tweet: { text: 'o' } })], false),   // directTarget 미달인 채로 3페이지째 소진
+  ]);
+  const r = await source.fetchRecent('u', { ...OPTS, maxPages: 3 });
+  assert.equal(r.pagesUsed, 3);
+  assert.equal(r.truncated, false);
+});
+
+test('maxPages 마지막 페이지에서 done()도 충족되면 truncated=false', async () => {
+  const { source } = src([
+    page([raw({ id: 'a', createdAt: '2026-08-20T00:00:00.000Z' }), raw({ id: 'b', createdAt: '2026-07-30T00:00:00.000Z' })], true),
+  ]);
+  const r = await source.fetchRecent('u', { ...OPTS, maxPages: 1 });
+  assert.equal(r.pagesUsed, 1);
+  assert.equal(r.directCount, 2);
+  assert.equal(r.truncated, false);
 });

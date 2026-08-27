@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   median, computeStats, chunk, missingIds, topicStats, typeDist, sponsoredCount, topByViews,
-  dailyCounts, computeActivity, dailyCountsBy, medianEngagement,
+  dailyCounts, computeActivity, medianEngagement,
   type AnalysisTweet, type ClassifiedTweet,
 } from './analysisStats.ts';
 

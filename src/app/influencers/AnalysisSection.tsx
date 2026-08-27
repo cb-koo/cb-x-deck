@@ -51,12 +51,25 @@ export function AnalysisSection({ id, analysis, analyzedAt, followers, onAnalyze
   const caption: string[] = [];
   if (analysis && v2) {
     const s = analysis.sample;
-    caption.push(s.directComplete && s.directSince
-      ? `직접 쓴 글 ${s.direct ?? 0}건(${kstMonthDay(s.directSince)}~${kstMonthDay(s.until)})`
-      // 60건을 못 채웠다 = 6개월 안에 있는 글이 그게 전부다. 기간을 적으면 "이 기간만 봤다"로 읽힌다.
-      : `직접 쓴 글 ${s.direct ?? 0}건(6개월 안 전부)`);
-    // 상한에 걸렸을 때만 적는다 — 계정 트윗이 소진돼 끝난 건 상한이 아니다(스펙 §0)
-    caption.push(v2.truncated ? `활동 최근 4주(수집 상한으로 최근 ${v2.coveredDays}일치)` : '활동 최근 4주');
+    const n = s.direct ?? 0;
+    if (s.directComplete && s.directSince) {
+      caption.push(`직접 쓴 글 ${n}건(${kstMonthDay(s.directSince)}~${kstMonthDay(s.until)})`);
+    } else if (v2.truncated) {
+      // 60건을 못 채운 채 수집이 상한에서 끊겼다 = "6개월 안 전부"라고 말하면 거짓이다.
+      caption.push(`직접 쓴 글 ${n}건(수집 상한까지)`);
+    } else {
+      // 상한에 걸리지 않고 60건을 못 채웠다 = 6개월 안에 있는 글이 그게 전부다.
+      caption.push(`직접 쓴 글 ${n}건(6개월 안 전부)`);
+    }
+    // 4주를 다 덮었으면 단서를 붙이지 않는다. 못 덮었으면 이유까지 적는다 —
+    // 상한 때문인지(수집이 끊김) 계정 글이 그만큼뿐인지가 읽는 뜻을 바꾼다(스펙 §0).
+    if (v2.coveredDays < 28) {
+      caption.push(v2.truncated
+        ? `활동 최근 4주(수집 상한으로 최근 ${v2.coveredDays}일치)`
+        : `활동 최근 4주(최근 ${v2.coveredDays}일치 — 계정 글이 그만큼)`);
+    } else {
+      caption.push('활동 최근 4주');
+    }
   }
   if (analysis && analyzedAt) caption.push(relTime(analyzedAt, '분석'));
 
@@ -543,7 +556,8 @@ function ActivityResult({ analysis, activity, followers }: {
 
   // 창 안 수집 수 = 직접 + RT. 0이면 '4주 내내 아무것도 없었다'는 뜻이라 판단이 갈린다(judgeDirectCadence).
   const collectedInWindow = sumCounts(activity.dailyDirect) + sumCounts(activity.dailyRt);
-  const cadence = judgeDirectCadence(activity.directPerDay, collectedInWindow);
+  // 건수·분모를 그대로 넘긴다(directPerDay는 이미 반올림된 값 — 다시 7배하면 오차가 두 번 쌓인다).
+  const cadence = judgeDirectCadence(sumCounts(activity.dailyDirect), activity.coveredDays, collectedInWindow);
   const cad = splitJudgment(cadence.label);
   const rt = judgeRt(activity.rtPerDay, activity.rtShare);
   const eng = splitJudgment(judgeEngagement(stats.medianViews, followers));

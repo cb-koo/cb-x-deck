@@ -63,9 +63,12 @@ export function judgeEngagement(medianViews: number | null, followers: number | 
 }
 
 // v2(스펙 §4): 직접 쓴 글 기준 빈도. 임계(주 1·3건)는 2단계에서 분포를 보고 조정한다.
-export function judgeDirectCadence(directPerDay: number, collectedInWindow: number): CadenceJudgment {
+// 건수·분모를 그대로 받는다 — 이미 반올림된 하루 평균을 다시 7배해 반올림하면 오차가 두 번 쌓인다.
+export function judgeDirectCadence(
+  directCount: number, coveredDays: number, collectedInWindow: number,
+): CadenceJudgment {
   if (collectedInWindow === 0) return { label: '최근 4주 게시 없음 — 활동이 멈춘 계정일 수 있어요', caution: true };
-  const perWeek = Math.round(directPerDay * 7 * 10) / 10;
+  const perWeek = Math.round((directCount / Math.max(1, coveredDays)) * 7 * 10) / 10;
   const n = Number.isInteger(perWeek) ? String(perWeek) : perWeek.toFixed(1);
   if (perWeek < 1) return { label: `주 ${n}건 — 직접 쓰는 글이 드물어요`, caution: true };
   return perWeek > 3 ? { label: `주 ${n}건 — 활발한 편`, caution: false } : { label: `주 ${n}건 — 보통`, caution: false };

@@ -228,7 +228,7 @@ function RosterRow({ row, active, onSelect, now }: { row: InfluencerRow; active:
   // 분석 상태 세 가지(스펙 §7). 프로필 캡션(AnalysisSection)과 같은 relTime 어순 — '3일 전 분석'.
   // relTime이 해석 불가로 ''를 돌려주면 캡션 자체를 생략한다(뜻 없는 '분석' 칩 방지).
   if (!row.analyzedAt) meta.push('미분석');
-  else if (!row.analysisV2) meta.push('이전 방식');
+  else if (!row.analysisV2) meta.push('다시 분석 필요 (이전 방식)');
   else {
     const analyzedCaption = relTime(row.analyzedAt, '분석', now.getTime());
     if (analyzedCaption) meta.push(analyzedCaption);

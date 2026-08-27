@@ -126,6 +126,7 @@ test('computeActivity: 28일까지 못 갔으면 분모 = 최고령~until 일수
   assert.equal(a.coveredDays, 2);
   assert.equal(a.directPerDay, 1);
   assert.equal(a.truncated, true);
+  assert.equal(a.reachedActivitySince, false);  // 캡션이 '상한' / '글이 그만큼'을 가르는 근거
 });
 
 test('medianEngagement: 직접 글만 넣는 함수 — null 지표 제외', () => {

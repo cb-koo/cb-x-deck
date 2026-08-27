@@ -408,7 +408,7 @@ export async function analyzeAccount(
       '집계 통계(코드가 계산한 사실):',
       JSON.stringify({
         표본: `직접 쓴 글 ${directSample.length}건(분류 ${directClassified.length}건)`
-          + ` · 최근 4주 RT ${rtSample.length}건 분류(창 안 전체 ${rtInWindow.length}건)`,
+          + ` · 최근 4주 RT ${rtClassified.length}건 분류(창 안 전체 ${rtInWindow.length}건)`,
         활동: {
           직접_하루: activity.directPerDay, RT_하루: activity.rtPerDay,
           RT_비중: activity.rtShare, 인용_비중: activity.quoteShare,

@@ -93,6 +93,8 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export interface Activity {
   since: string; until: string; days: number; truncated: boolean; coveredDays: number;
+  // 28일 창을 끝까지 거슬러 갔나 — coveredDays<28의 이유(상한/글 소진)를 캡션이 가르는 근거라 저장해 둔다.
+  reachedActivitySince: boolean;
   directPerDay: number; rtPerDay: number; rtShare: number; quoteShare: number; activeDays: number;
   dailyDirect: Record<string, number>; dailyRt: Record<string, number>;
 }
@@ -119,6 +121,7 @@ export function computeActivity(
 
   return {
     since: opts.since, until: opts.until, days: 28, truncated: opts.truncated, coveredDays,
+    reachedActivitySince: opts.reachedActivitySince,
     directPerDay: r1(direct.length / coveredDays),
     rtPerDay: r1(rts.length / coveredDays),
     rtShare: tweets.length ? r2(rts.length / tweets.length) : 0,

@@ -118,26 +118,27 @@ function classifyInput(tweets: AnalysisTweet[]): string {
 
 // 청크마다 "본 호출 + 누락분 1회 재시도" — 배치 분류의 알려진 실패 모드(스펙 §3-3).
 // 직접 글/RT 두 경로가 같은 규칙을 쓰므로 파서·입력만 갈아 끼운다.
+// 청크끼리는 병렬(라우트 300초 예산 방어), 한 청크 안의 재시도는 순차 — 누락분을 알아야 재요청할 수 있다.
+// Promise.all이 입력 순서를 보존하므로 병합 결과 순서는 순차 루프 때와 같다.
 async function classifyChunks<T extends { id: string }>(
   chat: AnalysisChat,
   targets: AnalysisTweet[],
   cfg: { operation: string; system: string; schema: object; input: (t: AnalysisTweet[]) => string; parse: (s: string) => T[] },
 ): Promise<T[]> {
-  const out: T[] = [];
-  for (const c of chunk(targets, CHUNK_SIZE)) {
-    const call = async (batch: AnalysisTweet[]) => cfg.parse(await chat.complete({
-      operation: cfg.operation, model: CLASSIFY_MODEL(),
-      system: cfg.system, user: cfg.input(batch), maxTokens: 8000, schema: cfg.schema,
-    }));
+  const call = async (batch: AnalysisTweet[]) => cfg.parse(await chat.complete({
+    operation: cfg.operation, model: CLASSIFY_MODEL(),
+    system: cfg.system, user: cfg.input(batch), maxTokens: 8000, schema: cfg.schema,
+  }));
+  const perChunk = await Promise.all(chunk(targets, CHUNK_SIZE).map(async (c) => {
     let got = await call(c);
     const missing = missingIds(c, got);
     if (missing.length > 0) got = [...got, ...await call(c.filter((t) => missing.includes(t.id)))];
     const ids = new Set(c.map((t) => t.id));
-    out.push(...got.filter((g) => ids.has(g.id)));   // 지어낸 id 방어
-  }
+    return got.filter((g) => ids.has(g.id));   // 지어낸 id 방어
+  }));
   // 같은 id가 두 번 오면 첫 번째만
   const seen = new Set<string>();
-  return out.filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
+  return perChunk.flat().filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
 }
 
 const classifyAll = (chat: AnalysisChat, targets: AnalysisTweet[]) =>
@@ -255,18 +256,31 @@ async function normalizeTags(
   const dCounts = tagCounts(direct);
   const rCounts = tagCounts(rt);
   if (dCounts.length === 0 && rCounts.length === 0) return { direct: {}, rt: {} };
-  const text = await chat.complete({
-    operation: 'anthropic.influencerNormalize', model: CLASSIFY_MODEL(),
-    system: NORMALIZE_SYSTEM,
-    user: '태그 목록:\n' + JSON.stringify({ direct: dCounts, rt: rCounts }),
-    maxTokens: 2000, schema: normalizeSchema,
-  });
   try {
+    // 호출까지 try 안에 둔다 — 네트워크·API 예외도 파싱 실패와 같이 "태그 없음"으로 강등한다.
+    const text = await chat.complete({
+      operation: 'anthropic.influencerNormalize', model: CLASSIFY_MODEL(),
+      system: NORMALIZE_SYSTEM,
+      user: '태그 목록:\n' + JSON.stringify({ direct: dCounts, rt: rCounts }),
+      maxTokens: 2000, schema: normalizeSchema,
+    });
     const j = JSON.parse(text) as { direct?: unknown; rt?: unknown };
     return { direct: canonicalMap(j.direct), rt: canonicalMap(j.rt) };
   } catch {
     return { direct: {}, rt: {} };   // 정규화 실패는 태그 없음으로 강등 — 분석 전체를 죽이지 않는다
   }
+}
+
+// 정규화 폴백 — 원태그를 자기 자신으로 매핑(trim·소문자 키). 정규화가 rt 축을 비워 오거나
+// 파싱·호출이 실패해도 "퍼나르는 주제"가 빈 화면이 되지 않게 한다(RT-only 계정은 이게 정체성이다).
+function identityMap(tagged: ReadonlyArray<{ topics: string[] }>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const t of tagged) for (const raw of t.topics) {
+    const tag = raw.trim();
+    const key = tag.toLowerCase();
+    if (tag && !(key in out)) out[key] = tag;
+  }
+  return out;
 }
 
 // 퍼나르는 주제 — 조회수는 원작자 것이라 세지 않는다. 건수만, 내림차순 상위 N(스펙 §3-5).
@@ -344,8 +358,13 @@ export async function analyzeAccount(
   // 활동 축 = 28일 창 안 전부(RT 포함). 내용 축 = 직접 글 최신 60건(창 밖이라도 채운다).
   const inWindow = tweets.filter((t) => t.createdAt >= activitySince);
   const activity = computeActivity(inWindow, { since: activitySince, until, truncated, reachedActivitySince });
-  const directSample = tweets.filter((t) => t.kind !== 'retweet').slice(0, DIRECT_TARGET);
-  const rtSample = inWindow.filter((t) => t.kind === 'retweet').slice(0, RT_CLASSIFY_MAX);
+  // 수집 결과는 완전한 최신순이 아니다 — 고정글(오래된 글)이 1페이지 맨 앞에 온다.
+  // 표본은 createdAt 내림차순으로 다시 정렬한 뒤 자른다: "최신 N건" 슬롯도, 표본 최고령(…Since)도 이걸로 맞다.
+  const byNewest = (a: AnalysisTweet, b: AnalysisTweet) =>
+    (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0);
+  const directSample = tweets.filter((t) => t.kind !== 'retweet').sort(byNewest).slice(0, DIRECT_TARGET);
+  const rtInWindow = inWindow.filter((t) => t.kind === 'retweet').sort(byNewest);
+  const rtSample = rtInWindow.slice(0, RT_CLASSIFY_MAX);
 
   const models = { classify: CLASSIFY_MODEL(), synth: SYNTH_MODEL() };
   const sampleBase = {
@@ -366,11 +385,17 @@ export async function analyzeAccount(
     };
   }
 
-  const directClassified = directSample.length ? await classifyAll(deps.chat, directSample) : [];
-  const rtClassified = rtSample.length ? await classifyRt(deps.chat, rtSample) : [];
+  // 직접/RT 두 분류 경로는 서로 독립이라 동시에 돈다(라우트 300초 예산 방어).
+  const [directClassified, rtClassified] = await Promise.all([
+    directSample.length ? classifyAll(deps.chat, directSample) : Promise.resolve<ClassifiedTweet[]>([]),
+    rtSample.length ? classifyRt(deps.chat, rtSample) : Promise.resolve<TopicTagged[]>([]),
+  ]);
   const canon = await normalizeTags(deps.chat, directClassified, rtClassified);
   const topics = topicStats(directClassified, directSample, canon.direct);
-  const rtTopics = rtTopicStats(rtClassified, canon.rt);
+  // rt 축 정규화가 비었으면 원태그 그대로 집계 — 퍼나르는 주제가 통째로 사라지는 것보다 낫다.
+  // direct 축은 폴백하지 않는다(정규화된 태그만 표에 올리는 topicStats 규칙 유지, 스펙 §3-5).
+  const rtCanon = Object.keys(canon.rt).length > 0 ? canon.rt : identityMap(rtClassified);
+  const rtTopics = rtTopicStats(rtClassified, rtCanon);
 
   const top = topByViews(directSample, TOP_SAMPLE);
   // 배율(주제 조회 중앙값 ÷ 계정 조회 중앙값)은 코드가 계산해 넘긴다 — LLM은 인용만(스펙 §2).
@@ -382,7 +407,8 @@ export async function analyzeAccount(
     user: [
       '집계 통계(코드가 계산한 사실):',
       JSON.stringify({
-        표본: `직접 쓴 글 ${directSample.length}건(분류 ${directClassified.length}건) · 최근 4주 RT ${rtSample.length}건`,
+        표본: `직접 쓴 글 ${directSample.length}건(분류 ${directClassified.length}건)`
+          + ` · 최근 4주 RT ${rtSample.length}건 분류(창 안 전체 ${rtInWindow.length}건)`,
         활동: {
           직접_하루: activity.directPerDay, RT_하루: activity.rtPerDay,
           RT_비중: activity.rtShare, 인용_비중: activity.quoteShare,

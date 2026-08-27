@@ -10,7 +10,7 @@ import { resolveAccount, type AccountResolution } from '@/lib/influencerAccount'
 import { makeGetxapiTweetSource } from '@/lib/tweetSource';
 import { analyzeAccount, makeAnthropicChat, AnalysisFormatError } from '@/lib/influencerAnalysis';
 
-// 수집(최대 ~10콜) + LLM 6콜이라 1~2분 걸릴 수 있다 — 코드베이스 첫 maxDuration 사용.
+// 수집 최대 60페이지(120초 데드라인) + LLM 최대 16콜(청크 병렬)이라 1~2분 걸릴 수 있다 — 코드베이스 첫 maxDuration 사용.
 // Vercel 플랜별 상한이 다르므로 배포 전 플랜 확인(스펙 §3 저장).
 export const maxDuration = 300;
 

@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  analyzeAccount, makeAnthropicChat, AnalysisFormatError, DIRECT_TARGET, type AnalysisChat,
+  analyzeAccount, makeAnthropicChat, AnalysisFormatError, DIRECT_TARGET, RT_CLASSIFY_MAX,
+  type AnalysisChat,
 } from './influencerAnalysis.ts';
 import type { TweetSource, FetchResult } from './tweetSource.ts';
 import type { AnalysisTweet } from './analysisStats.ts';
@@ -88,10 +89,12 @@ test('일반 계정: 활동은 28일 창, 내용은 직접 글 표본 — 두 �
   assert.deepEqual(a.topics, [{ tag: '미용의료', count: 3, medianViews: 200 }]);
   assert.deepEqual(a.rtTopics, [{ tag: '여행', count: 2 }]);
   assert.equal(a.summary!.headline, '시술 후기를 꾸준히 올리는 계정이에요.');
-  assert.deepEqual(chat.calls, [
+  // 직접/RT 분류는 병렬이라 호출 순서에 의존하지 않는다 — 어떤 단계가 돌았는지만 본다
+  assert.deepEqual(new Set(chat.calls), new Set([
     'anthropic.influencerClassify', 'anthropic.influencerClassifyRt',
     'anthropic.influencerNormalize', 'anthropic.influencerSynth',
-  ]);
+  ]));
+  assert.equal(chat.calls.length, 4);
 
   // 정규화는 두 축을 한 콜에 보낸다 — 어휘는 공유하되 각 축이 자기 슬롯을 갖는다(스펙 §3-5)
   const norm = jsonOf(normUser) as { direct: unknown[]; rt: unknown[] };
@@ -131,10 +134,11 @@ test('RT-only 계정: 직접 글이 없어도 퍼나르는 주제로 종합을 �
   });
   const a = await analyzeAccount({ source: sourceOf(tweets), chat }, 'u1', { now: NOW });
 
-  // 직접 글 분류 콜은 아예 없다 — RT용 1회만
-  assert.deepEqual(chat.calls, [
+  // 직접 글 분류 콜은 아예 없다 — RT용 1회만 (분류는 병렬이라 순서 대신 집합으로 본다)
+  assert.deepEqual(new Set(chat.calls), new Set([
     'anthropic.influencerClassifyRt', 'anthropic.influencerNormalize', 'anthropic.influencerSynth',
-  ]);
+  ]));
+  assert.equal(chat.calls.length, 3);
   assert.equal(a.summary!.headline, '여행 소식을 퍼나르는 확산형 계정이에요.');
   assert.deepEqual(a.topics, []);
   assert.deepEqual(a.rtTopics, [{ tag: '여행', count: 2 }, { tag: '맛집', count: 1 }]);
@@ -211,6 +215,124 @@ test('직접 글 표본은 최신 DIRECT_TARGET건까지만 — 창 밖이라도
     { source: sourceOf(many, { directCount: DIRECT_TARGET + 5 }), chat }, 'u1', { now: NOW });
   assert.equal(a.sample.direct, DIRECT_TARGET);
   assert.equal(a.sample.directComplete, true);
+});
+
+// 분류·종합은 그대로 통과시키고 정규화 응답만 갈아 끼우는 기본 페이크
+const idsIn = (user: string) => JSON.parse(user.slice(user.indexOf('['))) as Array<{ id: string }>;
+const baseHandlers = (normalize: (user: string) => string) => ({
+  'anthropic.influencerClassify': (user: string) => JSON.stringify({
+    items: idsIn(user).map(({ id }) => (
+      { id, contentType: 'daily', sponsored: false, evidence: null, topics: ['일상'] })),
+  }),
+  'anthropic.influencerClassifyRt': (user: string) => JSON.stringify({
+    items: idsIn(user).map(({ id }) => ({ id, topics: ['여행'] })),
+  }),
+  'anthropic.influencerNormalize': normalize,
+  'anthropic.influencerSynth': () => JSON.stringify(
+    { headline: 'h', tone: 't', patterns: 'p', sponsorship: 's' }),
+});
+const normalizeBoth = () => JSON.stringify({
+  direct: [{ tag: '일상', absorbs: ['일상'] }], rt: [{ tag: '여행', absorbs: ['여행'] }],
+});
+
+test('고정글: 수집 순서가 아니라 createdAt 내림차순으로 표본을 뽑는다(…Since = 진짜 최고령)', async () => {
+  const tweets = [
+    tw({ id: 'pinned', createdAt: '2026-01-05T00:00:00.000Z' }),          // 고정글 — 1페이지 맨 앞
+    tw({ id: 'a', createdAt: '2026-08-20T00:00:00.000Z' }),
+    tw({ id: 'b', createdAt: '2026-08-18T00:00:00.000Z' }),
+    tw({ id: 'r1', kind: 'retweet', createdAt: '2026-07-28T00:00:00.000Z', rtText: '여행 원문1' }),
+    tw({ id: 'r2', kind: 'retweet', createdAt: '2026-08-19T00:00:00.000Z', rtText: '여행 원문2' }),
+  ];
+  const chat = chatOf(baseHandlers(normalizeBoth));
+  const a = await analyzeAccount({ source: sourceOf(tweets), chat }, 'u1', { now: NOW });
+
+  assert.equal(a.sample.direct, 3);
+  assert.equal(a.sample.directSince, '2026-01-05T00:00:00.000Z');   // 배열 끝(b)이 아니라 고정글이 최고령
+  assert.equal(a.sample.rtSince, '2026-07-28T00:00:00.000Z');       // RT도 정렬 후 최고령
+});
+
+test('고정글이 최신 DIRECT_TARGET 슬롯을 밀어내지 않는다', async () => {
+  const recent = Array.from({ length: DIRECT_TARGET }, (_, i) => tw({
+    id: `d${i}`, createdAt: new Date(NOW.getTime() - (i + 1) * 3_600_000).toISOString(),
+  }));
+  const tweets = [tw({ id: 'pinned', createdAt: '2026-01-05T00:00:00.000Z' }), ...recent];
+  const seen = new Set<string>();
+  const chat = chatOf({
+    ...baseHandlers(normalizeBoth),
+    'anthropic.influencerClassify': (user: string) => {
+      for (const { id } of idsIn(user)) seen.add(id);
+      return JSON.stringify({
+        items: idsIn(user).map(({ id }) => (
+          { id, contentType: 'daily', sponsored: false, evidence: null, topics: ['일상'] })),
+      });
+    },
+  });
+  const a = await analyzeAccount(
+    { source: sourceOf(tweets, { directCount: DIRECT_TARGET + 1 }), chat }, 'u1', { now: NOW });
+
+  assert.equal(a.sample.direct, DIRECT_TARGET);
+  assert.equal(seen.has('pinned'), false);                      // 고정글이 아니라 가장 오래된 최신글이 밀린다
+  assert.equal(a.sample.directSince, recent.at(-1)!.createdAt);
+});
+
+test('창 밖 RT는 rtSample에 들어가지 않는다(RT는 28일 창 안에서만)', async () => {
+  const tweets = [
+    tw({ id: 'rIn', kind: 'retweet', createdAt: '2026-08-20T00:00:00.000Z', rtText: '여행 원문' }),
+    tw({ id: 'rOut', kind: 'retweet', createdAt: '2026-06-01T00:00:00.000Z', rtText: '옛 원문' }),
+  ];
+  const chat = chatOf(baseHandlers(normalizeBoth));
+  const a = await analyzeAccount({ source: sourceOf(tweets), chat }, 'u1', { now: NOW });
+
+  assert.equal(a.sample.collected, 2);
+  assert.equal(a.sample.rtClassified, 1);
+  assert.equal(a.sample.rtSince, '2026-08-20T00:00:00.000Z');
+  assert.deepEqual(a.rtTopics, [{ tag: '여행', count: 1 }]);
+});
+
+test('RT 분류는 RT_CLASSIFY_MAX 상한 — 창 안 101건이어도 100건만 분류한다', async () => {
+  const tweets = Array.from({ length: RT_CLASSIFY_MAX + 1 }, (_, i) => tw({
+    id: `r${i}`, kind: 'retweet',
+    createdAt: new Date(NOW.getTime() - (i + 1) * 3_600_000).toISOString(),
+    rtText: '여행 원문',
+  }));
+  let synthUser = '';
+  const chat = chatOf({
+    ...baseHandlers(normalizeBoth),
+    'anthropic.influencerSynth': (user: string) => (synthUser = user, JSON.stringify(
+      { headline: 'h', tone: 't', patterns: 'p', sponsorship: 's' })),
+  });
+  const a = await analyzeAccount({ source: sourceOf(tweets), chat }, 'u1', { now: NOW });
+
+  assert.equal(a.sample.collected, RT_CLASSIFY_MAX + 1);
+  assert.equal(a.sample.rtClassified, RT_CLASSIFY_MAX);
+  // 종합 입력은 분류 표본과 창 안 전체를 함께 알린다 — 100이 전부인 것처럼 읽히지 않게
+  assert.match(synthUser, /RT 100건 분류\(창 안 전체 101건\)/);
+});
+
+test('RT-only: 정규화가 rt 축을 빈 배열로 답해도 rtTopics가 비지 않는다(원태그 폴백)', async () => {
+  const tweets = [
+    tw({ id: 'r1', kind: 'retweet', rtText: '여행 원문1' }),
+    tw({ id: 'r2', kind: 'retweet', rtText: '여행 원문2' }),
+  ];
+  const chat = chatOf(baseHandlers(() => JSON.stringify({ direct: [], rt: [] })));
+  const a = await analyzeAccount({ source: sourceOf(tweets), chat }, 'u1', { now: NOW });
+
+  assert.deepEqual(a.rtTopics, [{ tag: '여행', count: 2 }]);
+  assert.equal(a.summary!.headline, 'h');
+});
+
+test('정규화 콜이 예외를 던져도 분석은 산다 — 태그 없음으로 강등, rtTopics는 원태그 폴백', async () => {
+  const tweets = [
+    tw({ id: 'a' }),
+    tw({ id: 'r1', kind: 'retweet', rtText: '여행 원문' }),
+  ];
+  const chat = chatOf(baseHandlers(() => { throw new Error('network'); }));
+  const a = await analyzeAccount({ source: sourceOf(tweets), chat }, 'u1', { now: NOW });
+
+  assert.deepEqual(a.topics, []);                              // direct 축은 폴백하지 않는다(스펙 규칙 유지)
+  assert.deepEqual(a.rtTopics, [{ tag: '여행', count: 1 }]);
+  assert.equal(a.summary!.headline, 'h');
+  assert.equal(a.sample.directClassified, 1);
 });
 
 // makeAnthropicChat: 페이크 AnthropicLike로 주입해 전송 params와 반환값을 검증

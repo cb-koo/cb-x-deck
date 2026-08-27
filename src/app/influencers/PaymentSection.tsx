@@ -46,10 +46,11 @@ interface Draft {
 
 function draftOf(m: PaymentMethod | null): Draft {
   return {
-    // 새 수단의 기본값: 유형은 목록 첫 번째, 통화는 앱 공통 기본(단가의 normalizeCurrency와 같은 KRW).
+    // 새 수단의 기본값: 유형은 목록 첫 번째, 통화는 ¥ — 이 통화는 '인플이 받는 돈의 통화(지급 통화)'라
+    // 단가(₩ 기본, 캠페인 관리 기준)와 다른 질문이다. 실데이터 91건 중 84건이 엔화(koo 결정 08-27).
     type: m?.type ?? PAYMENT_TYPES[0],
     holder: m?.holder ?? '',
-    currency: m?.currency ?? 'KRW',
+    currency: m?.currency ?? 'JPY',
     email: m?.email ?? '',
     paypalId: m?.paypalId ?? '',
     identifier: m?.identifier ?? '',
@@ -326,7 +327,7 @@ function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, o
                  onChange={(e) => set('holder', e.target.value)} className={FIELD} />
         </div>
         <div className="w-36">
-          <label className={FIELD_LABEL} htmlFor={`${uid}-currency`}>통화</label>
+          <label className={FIELD_LABEL} htmlFor={`${uid}-currency`}>지급 통화</label>
           <select id={`${uid}-currency`} value={currency} disabled={busy || draft.type === 'paypay'}
                   onChange={(e) => set('currency', e.target.value as Currency)}
                   className={`${FIELD} bg-white disabled:bg-x-surface disabled:text-x-secondary`}>
@@ -337,6 +338,10 @@ function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, o
           {draft.type === 'paypay' && <p className="mt-0.5 text-caption text-x-muted">PayPay는 엔화로만 보내요</p>}
         </div>
       </div>
+      {/* 단가·캠페인은 원화 기준인데 여기만 ¥가 기본이라 "왜 다르지?"가 된다 — 환산 규칙까지 한 줄로(UX 원칙 2·5) */}
+      <p className="mt-1 text-caption text-x-muted">
+        인플이 받는 통화예요. 캠페인 비용은 원화로 관리하고, 정산 때 10원 = 1엔으로 환산해요.
+      </p>
 
       {draft.type === 'paypal' && (
         <div className="mt-2.5">

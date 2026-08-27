@@ -110,7 +110,7 @@ interface MonthRow {
 
 ### 6-2. 캠페인 상세 요약 (`src/app/campaigns/SummaryCards.tsx`) — 4칸 → 5칸
 
-기존 밀림 · 게시됨 · 비용 합계 · 조회 뒤에 **월 예산 잔액** 칸. `grid-cols-4` → `grid-cols-5`(`budget`이 null이면 칸을 그리지 않고 4칸 유지).
+**칸 순서는 조회 · 게시됨 · 밀림 · 비용 합계 · 월 예산 잔액**(koo 결정 08-28, 로컬 확인 후 — 돈 두 칸을 나란히. 캠페인 스펙 §3-2의 예외 우선 순서를 대체). `grid-cols-4` → `grid-cols-5`(`budget`이 null이면 칸을 그리지 않고 4칸 유지).
 
 ```
 1,150,000원                                  ← remaining. 초과면 빨간 "−350,000원", alert

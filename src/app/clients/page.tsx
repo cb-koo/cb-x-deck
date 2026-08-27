@@ -134,8 +134,8 @@ function ClientsSplit() {
   }
 
   return (
-    <div className="flex">
-      <aside className="sticky top-0 max-h-screen w-[236px] shrink-0 self-start overflow-y-auto border-r border-x-border px-3 py-5">
+    <div className="flex min-h-full">
+      <aside className="sticky top-0 max-h-screen w-[236px] shrink-0 self-start overflow-y-auto border-r border-x-border bg-white px-3 py-5">
         <div className="mb-3 flex items-center justify-between px-2">
           <h2 className="text-content font-bold">클라이언트</h2>
           <button onClick={() => setAdding(true)} className="text-ui font-medium text-x-blue-text hover:underline">+ 추가</button>
@@ -187,9 +187,9 @@ function ClientsSplit() {
         })}
       </aside>
 
-      <main className="min-w-0 flex-1">
+      <main className="min-w-0 flex-1 bg-x-surface">
         {notice && (
-          <p className="mx-6 mt-4 rounded-lg bg-x-surface px-3 py-2 text-ui text-x-secondary">{notice}</p>
+          <p className="mx-5 mt-5 rounded-lg border border-x-border bg-white px-3 py-2 text-ui text-x-secondary">{notice}</p>
         )}
         {loaded && !loadErr && rows.length === 0 && !adding && (
           <div className="px-6 py-16 text-center">

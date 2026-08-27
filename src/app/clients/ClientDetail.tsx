@@ -1,15 +1,16 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
-import { Button } from '@/components/ui';
+import { Button, PANEL, PANEL_SPLIT, PANEL_TITLE } from '@/components/ui';
 import { procedureSummary } from '@/lib/clientSummary';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
+import { BudgetPanel } from './BudgetPanel';
 
 // 부모(page)가 미저장 확인·일괄 저장에 쓰는 핸들
 export interface DetailHandle { isDirty: () => boolean; saveAll: () => Promise<boolean> }
 // 내부 편집기(기본 정보/펼친 시술)가 레지스트리에 등록하는 인터페이스
-type Editor = { isDirty: () => boolean; save: () => Promise<boolean> };
-type Register = (key: string, editor: Editor) => () => void;
+export type Editor = { isDirty: () => boolean; save: () => Promise<boolean> };
+export type Register = (key: string, editor: Editor) => () => void;
 
 // 줄바꿈 textarea ↔ string[] (금지 표현 입력)
 const toLines = (arr: string[]) => arr.join('\n');
@@ -95,7 +96,9 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
   }
 
   return (
-    <div className="min-w-0 flex-1 px-6 py-6">
+    // 연회색 바닥(page.tsx의 bg-x-surface) 위 흰 패널 4장: 헤더 / 기본 정보 / 시술 / 월 마케팅 예산 — 캠페인 상세와 같은 구조
+    <div className="min-w-0 flex-1 space-y-5 p-5 pb-24">
+      <div className={PANEL}>
       <div className="flex items-baseline justify-between gap-3">
         {editingName ? (
           <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -121,15 +124,16 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
         )}
       </div>
       {err && <p className="mt-2 text-ui text-red-500">{err}</p>}
+      </div>
 
       <BasicInfoEditor key={client.id} client={client} register={register} onSaved={onChanged} />
 
-      <div className="mt-4 rounded-2xl border border-x-border-strong">
-        <div className="px-4 py-3">
-          <h3 className="text-content font-bold">시술 <span className="text-ui font-normal text-x-secondary">{procedures.length}개</span></h3>
+      <div className={PANEL_SPLIT}>
+        <div className="px-5 py-4">
+          <h2 className={PANEL_TITLE}>시술 <span className="text-ui font-normal text-x-secondary">{procedures.length}개</span></h2>
           <p className="text-caption text-x-muted">원고를 만들 때 이번 건에 해당하는 시술만 골라 반영해요.</p>
         </div>
-        <div className="border-t border-x-border px-4 py-4">
+        <div className="border-t border-x-border px-5 py-5">
           <div className="space-y-2">
             {procedures.map((p) => (
               <ProcedureCard key={p.id} proc={p} register={register} onChanged={onChanged} />
@@ -144,6 +148,8 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
           </div>
         </div>
       </div>
+
+      <BudgetPanel client={client} register={register} onChanged={onChanged} />
 
       {deleting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setDeleting(false); setDeleteErr(''); }}>
@@ -221,7 +227,8 @@ function BasicInfoEditor({ client, register, onSaved }: {
   }), [register, save]);
 
   return (
-    <div className="mt-4 rounded-2xl border border-x-border-strong px-4 py-4">
+    <div className={PANEL}>
+      <h2 className={`${PANEL_TITLE} mb-3`}>기본 정보</h2>
       {err && <p className="mb-2 text-ui text-red-500">{err}</p>}
       <label className="block">
         <span className="text-ui font-bold">기본 랜딩페이지 주소 <span className="font-normal text-x-muted">선택</span></span>

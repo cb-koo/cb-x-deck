@@ -8,6 +8,7 @@ import type { InfluencerOption } from '@/lib/draftTypes';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { DraftRow } from '@/lib/draftStore';
 import type { ExtraCost } from '@/lib/campaignCost';
+import type { CampaignMonthBudget } from '@/lib/clientBudget';
 import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, putInfluencerCostApi, deleteDraftApi, rewriteDraftApi, regenPostApi,
 } from '@/lib/campaignApi';
@@ -17,7 +18,7 @@ import {
 } from '@/lib/campaignJudgment';
 import type { DetailView } from '@/lib/campaignView';
 import { draftLabel } from '@/lib/draftViews';
-import { Button } from '@/components/ui';
+import { Button, PANEL, PANEL_TITLE } from '@/components/ui';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
 import { CampaignHeader } from './CampaignHeader';
@@ -37,11 +38,9 @@ import { useCampaignDraftActions } from './useCampaignDraftActions';
 // 간격만으로 나누던 것을 연회색 바닥(page.tsx의 bg-x-surface) 위 흰 패널 4장으로 바꿨다: 헤더 / 요약 / 콘텐츠 진행 현황 / 인플루언서별 비용.
 // 데이터 중심 대시보드의 관례(리서치 §3)라 처음 보는 사람도 어디까지가 한 섹션인지 스크롤만 해도 알 수 있다.
 // 패널 사이 간격(space-y-5 = 20px)이 섹션 간 여백의 단일 소스다 — 안쪽 컴포넌트가 각자 mt-8을 두면 간격이 두 벌이 된다.
-const PANEL = 'rounded-xl border border-x-border bg-white p-5';
-// 패널 제목 — 16px semibold(가독성 기준: 본문 15px보다 한 단 위, text-caption은 쓰지 않는다)
-const PANEL_TITLE = 'text-[16px] font-semibold';
+// PANEL·PANEL_TITLE은 components/ui.tsx 공용(클라이언트 상세와 같은 정의).
 
-interface DetailState { campaign: CampaignRow; drafts: CampaignDraftItem[]; costRows: InfluencerCostRow[]; today: string }
+interface DetailState { campaign: CampaignRow; drafts: CampaignDraftItem[]; costRows: InfluencerCostRow[]; today: string; budget: CampaignMonthBudget | null }
 type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 
 export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, onDeleted }: {
@@ -76,8 +75,8 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
     const r = await fetchCampaignDetail(id);
     if (token !== reqRef.current) return;   // 그 사이 다른 캠페인(또는 새 로드)이 시작됐다 — 이 응답은 화면의 것이 아니다
     if (r.ok) {
-      const { campaign, drafts, costRows, today } = r.data;   // summary·influencers는 아래 useMemo가 같은 함수로 다시 만든다
-      setData({ campaign, drafts, costRows, today });
+      const { campaign, drafts, costRows, today, budget } = r.data;   // summary·influencers는 아래 useMemo가 같은 함수로 다시 만든다
+      setData({ campaign, drafts, costRows, today, budget });
       setLoadErr(false);
     } else {
       setLoadErr(true);   // 실패를 빈 상태로 위장하지 않는다
@@ -226,7 +225,7 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
       <div className={PANEL}>
         <h2 className={PANEL_TITLE}>캠페인 요약</h2>
         <div className="mt-3.5">
-          <SummaryCards summary={summary} perf={perf} total={total} />
+          <SummaryCards summary={summary} perf={perf} total={total} budget={data.budget} clientId={data.campaign.clientId} />
         </div>
       </div>
       {/* 콘텐츠 툴바 두 줄(QA 5라운드) — 오너 피드백: 제목이 뜻을 담아야 한다('콘텐츠 N' → '콘텐츠 진행 현황').

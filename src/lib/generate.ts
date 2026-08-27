@@ -5,6 +5,7 @@ import { getReferencesByIds } from './referenceStore.ts';
 import { buildUserPrompt, draftOutputSchema, variantsOutputSchema, draftSystem } from './generatePrompt.ts';
 import { getPromptOverrides } from './promptSettings.ts';
 import { insertDraft, getDraft, updateDraft, draftVersionHash, type DraftRow, type DraftTranslation } from './draftStore.ts';
+import { syncInfluencerOnDraftUpdate } from './influencerSync.ts';
 import { translateDraftPosts } from './translateDraft.ts';
 import { X_MAX_WEIGHTED } from './xLength.ts';
 import { CLIENT_NOT_FOUND_MESSAGE } from './campaignInput.ts';
@@ -115,18 +116,33 @@ export async function generateDraft(
   const batchId = count > 1 ? crypto.randomUUID() : null;
   const toContent = (v: { posts: Array<{ text: string }> }): DraftContent =>
     ({ posts: v.posts.map((p) => ({ text: p.text, media: [] })) });
-  const insertOne = (tx: postgres.Sql, i: number) => insertDraft(tx, {
-    clientId: req.clientId, clientName: clientData?.client.name ?? null,
-    procedureNames: procedures.map((p) => p.name),
-    direction: req.direction, format: req.format,
-    referenceMode: hasRefs ? req.mode : 'off', refs,
-    content: toContent(variants[i]), model: CONTENT_MODEL(), memberId: req.memberId,
-    batchId, variantIndex: batchId ? i : null,
-    translation: glossOf(i),
-    koTitle: glosses[i]?.title ?? null,
-    koTitleHash: glosses[i]?.title ? draftVersionHash(variants[i].posts) : null,
-    taskId: i === 0 ? (req.taskId ?? null) : null,
-  });
+  const insertOne = async (tx: postgres.Sql, i: number): Promise<string> => {
+    const id = await insertDraft(tx, {
+      clientId: req.clientId, clientName: clientData?.client.name ?? null,
+      procedureNames: procedures.map((p) => p.name),
+      direction: req.direction, format: req.format,
+      referenceMode: hasRefs ? req.mode : 'off', refs,
+      content: toContent(variants[i]), model: CONTENT_MODEL(), memberId: req.memberId,
+      batchId, variantIndex: batchId ? i : null,
+      translation: glossOf(i),
+      koTitle: glosses[i]?.title ?? null,
+      koTitleHash: glosses[i]?.title ? draftVersionHash(variants[i].posts) : null,
+      taskId: i === 0 ? (req.taskId ?? null) : null,
+    });
+    // 작업에 붙여 만들면 insertDraft→attachDraft가 작업의 핸들을 원고에 채울 수 있다
+    // (campaignTaskStore.attachDraft, updateDraft를 거치지 않는 직접 update) — 재조회해 로그를 남긴다.
+    if (i === 0 && req.taskId) {
+      const created = await getDraft(tx, id);
+      if (created?.influencerHandle) {
+        await syncInfluencerOnDraftUpdate(tx, {
+          before: { ...created, influencerHandle: null },
+          influencerHandle: created.influencerHandle,
+          status: undefined, actorId: req.memberId,
+        });
+      }
+    }
+    return id;
+  };
   // 배치는 한 단위 — 중간 실패 시 고아 부분 배치가 남지 않게 트랜잭션. 단일 생성은 기존 경로 그대로 —
   // 단, 작업에 붙여 만들 때는 삽입+붙이기가 한 단위여야 한다(붙이기가 실패하면 주인 없는 원고가 남는다).
   if (!batchId) {

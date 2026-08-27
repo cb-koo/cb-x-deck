@@ -10,8 +10,8 @@ import { isDraftStatus, type DraftStatus } from '@/lib/draftStatus';
 import { normalizeInfluencerPatch } from '@/lib/influencerPatch';
 import { isUuidLike } from '@/lib/uuid';
 import { LIST_CAP } from '@/lib/draftPaging';
-import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, TASK_HAS_DRAFT_MESSAGE } from '@/lib/campaignTaskInput';
-import { getTask } from '@/lib/campaignTaskStore';
+import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, TASK_HAS_DRAFT_MESSAGE, DRAFT_ATTACHED_MESSAGE } from '@/lib/campaignTaskInput';
+import { getTask, TaskAttachError } from '@/lib/campaignTaskStore';
 
 export async function GET(req: Request) {
   const gate = await requireAllowedUser();
@@ -77,6 +77,12 @@ export async function POST(req: Request) {
     if (e instanceof LLMRefusalError) {
       return NextResponse.json(
         { error: '안전 분류기가 이번 생성을 거절했어요 — 방향성을 바꿔 다시 시도해주세요' }, { status: 502 });
+    }
+    // 생성 자체는 끝났는데 붙이기(insertDraft→attachDraft)가 경합으로 실패한 경우 — manual 라우트와 같은 매핑.
+    if (e instanceof TaskAttachError) {
+      const message = e.code === 'draft-attached' ? DRAFT_ATTACHED_MESSAGE
+        : e.code === 'task-has-draft' ? TASK_HAS_DRAFT_MESSAGE : TASK_NOT_FOUND_MESSAGE;
+      return NextResponse.json({ error: message }, { status: e.code === 'no-task' ? 400 : 409 });
     }
     // 원인을 삼키지 않는다(브리핑 라우트 관례)
     console.error('[draft] 생성 중 오류', { err: e instanceof Error ? e.message : String(e) });

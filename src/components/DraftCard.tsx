@@ -208,7 +208,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   const overdue = campaign && isOverdue({ status: draft.status, published: campaign.published ?? false, scheduledOn: draft.scheduledOn }, campaign.today)
     ? daysBetweenDates(draft.scheduledOn as string, campaign.today) : null;
   const outOfRange = camp ? isOutOfRange(draft.scheduledOn, camp.startsOn, camp.endsOn) : false;
-  // // Task 11/15에서 작업 기준으로 대체 — 임시 어댑터: 비용 유형은 작업(draft.taskType)으로 옮겼다 — CostPopover는 아직 옛 {type,...} 모양을 받는다
+  // Task 11/15에서 작업 기준으로 대체 — 임시 어댑터: 비용 유형은 작업(draft.taskType)으로 옮겼다 — CostPopover는 아직 옛 {type,...} 모양을 받는다
   const costSuggestion = campaign && draft.influencerHandle
     ? suggestDraftCost(influencerOptions.find((o) => o.handle.toLowerCase() === (draft.influencerHandle as string).toLowerCase())?.pricing,
                        defaultCostType(camp?.kind ?? null))

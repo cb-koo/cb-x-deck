@@ -5,6 +5,7 @@ import { requireMember } from '@/lib/authGuard';
 import { getClientWithProcedures } from '@/lib/clientStore';
 import { insertDraft, getDraft } from '@/lib/draftStore';
 import { formatForPosts } from '@/lib/draftFormat';
+import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, TASK_HAS_DRAFT_MESSAGE, DRAFT_ATTACHED_MESSAGE } from '@/lib/campaignTaskInput';
 import { getTask, TaskAttachError } from '@/lib/campaignTaskStore';
 import { CLIENT_NOT_FOUND_MESSAGE } from '@/lib/campaignInput';
@@ -50,16 +51,32 @@ export async function POST(req: Request) {
   // 트랜잭션이 아니면 그때 주인 없는 원고만 남는다.
   let id: string;
   try {
-    id = await sql.begin(async (tx0) => insertDraft(tx0 as unknown as postgres.Sql, {
-      clientId, clientName: clientData?.client.name ?? null,
-      procedureNames: procedures.map((p) => p.name),
-      direction: '', format: formatForPosts(posts.length),
-      referenceMode: 'off', refs: [],
-      content: { posts: posts.map((text) => ({ text, media: [] })) },
-      model: null, memberId: gate.member.id, // 클라이언트 body 무시 — 위조 차단(생성 POST와 동일)
-      title,
-      taskId: taskId.value ?? null,
-    })) as unknown as string;
+    id = await sql.begin(async (tx0) => {
+      const tx = tx0 as unknown as postgres.Sql;
+      const newId = await insertDraft(tx, {
+        clientId, clientName: clientData?.client.name ?? null,
+        procedureNames: procedures.map((p) => p.name),
+        direction: '', format: formatForPosts(posts.length),
+        referenceMode: 'off', refs: [],
+        content: { posts: posts.map((text) => ({ text, media: [] })) },
+        model: null, memberId: gate.member.id, // 클라이언트 body 무시 — 위조 차단(생성 POST와 동일)
+        title,
+        taskId: taskId.value ?? null,
+      });
+      // 작업에 붙여 만들면 insertDraft→attachDraft가 작업의 핸들을 원고에 채울 수 있다
+      // (campaignTaskStore.attachDraft, updateDraft를 거치지 않는 직접 update) — 재조회해 로그를 남긴다.
+      if (taskId.value) {
+        const created = await getDraft(tx, newId);
+        if (created?.influencerHandle) {
+          await syncInfluencerOnDraftUpdate(tx, {
+            before: { ...created, influencerHandle: null },
+            influencerHandle: created.influencerHandle,
+            status: undefined, actorId: gate.member.id,
+          });
+        }
+      }
+      return newId;
+    }) as unknown as string;
   } catch (e) {
     if (e instanceof TaskAttachError) {
       const message = e.code === 'draft-attached' ? DRAFT_ATTACHED_MESSAGE

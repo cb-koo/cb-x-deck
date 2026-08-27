@@ -416,6 +416,7 @@ function Workbench() {
         mode: refRows.length > 0 ? composer.mode : 'off',
         direction: composer.direction, format: composer.format,
         count: composer.count,
+        // Task 16에서 작업 기준으로 대체 — 임시: 서버가 campaignId를 무시한다
         ...(campaignCtx ? { campaignId: campaignCtx.id } : {}),   // 배너가 켜져 있으면 그 캠페인 소속으로
       };
       const r = await apiFetch('/api/drafts', {
@@ -615,6 +616,7 @@ function Workbench() {
     const prev = { campaignId: d.campaignId, campaignName: d.campaignName, campaignCode: d.campaignCode };
     const next = { campaignId, campaignName: camp?.name ?? null, campaignCode: camp?.nameEn ?? null };
     setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, ...next } : x)));
+    // Task 16에서 작업 기준으로 대체 — 임시: 서버가 campaignId를 무시한다
     void patchDraft(d.id, { campaignId }).then((updated) => {
       // 이 요청이 세팅한 값이 아직 표시 중일 때만 되돌린다 — 연속 변경 시 뒤 갱신을 덮지 않도록
       if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.campaignId === campaignId ? { ...x, ...prev } : x)));

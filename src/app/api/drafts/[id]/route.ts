@@ -78,10 +78,22 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (!before) return 'no-draft';
     // 붙이기/떼기를 updateDraft보다 먼저 — 실패 시 문자열 return이라 트랜잭션은 커밋된다(postgres.js).
     // 뒤에 두면 이 커밋이 updateDraft만 남긴 반쪽 변경이 된다.
+    let syncHandle = influencerHandle; // syncInfluencerOnDraftUpdate에 넘길 값 — 기본은 이 PATCH의 배정값
     if (taskId.value === null) await detachDraft(tx, id);
     else if (taskId.value !== undefined) {
       try { await attachDraft(tx, taskId.value, id); }
       catch (e) { if (e instanceof TaskAttachError) return e.code; throw e; }
+      // attachDraft가 작업의 핸들을 원고에 직접 update할 수 있다(campaignTaskStore, updateDraft를 거치지
+      // 않음) — 이 PATCH가 배정을 건드리지 않았다면(influencerHandle===undefined) 로그가 안 남는다.
+      // 붙이기 뒤 값을 다시 읽어 바뀌었으면 그 값으로 동기화 로그를 남긴다(리뷰 반영).
+      if (influencerHandle === undefined) {
+        const [row] = await tx<Array<{ influencer_handle: string | null }>>`
+          select influencer_handle from draft where id = ${id}`;
+        const after = row?.influencer_handle ?? null;
+        if ((after ?? '').toLowerCase() !== (before.influencerHandle ?? '').toLowerCase()) {
+          syncHandle = after;
+        }
+      }
     }
     // body를 통째로 펼치지 않는다. 그렇게 하면 요청 본문의 아무 키나 updateDraft의 patch로 흘러가
     // 클라이언트가 history·translation·koTitle 같은 서버 소관 필드를 직접 세팅할 수 있다. format이
@@ -95,7 +107,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       influencerHandle, // 정규화된 값으로 덮어쓴다 — body의 원문 그대로가 아니다(핸들만 저장 원칙)
       ...(derivedFormat ? { format: derivedFormat } : {}),
     });
-    await syncInfluencerOnDraftUpdate(tx, { before, influencerHandle, status: body.status as string | undefined, actorId: gate.member.id });
+    await syncInfluencerOnDraftUpdate(tx, { before, influencerHandle: syncHandle, status: body.status as string | undefined, actorId: gate.member.id });
     return 'ok';
   });
   if (result === 'no-task') return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 400 });

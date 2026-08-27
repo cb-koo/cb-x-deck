@@ -12,15 +12,16 @@ import { Button } from '@/components/ui';
 import { draftLabel } from '@/lib/draftViews';
 import { suggestDraftCost, type DraftCost, type TaskCost } from '@/lib/campaignCost';
 import type { TaskType } from '@/lib/campaignJudgment';
-// // Task 11/15에서 작업 기준으로 대체 — 임시 어댑터: 비용 유형이 작업으로 옮겨가(DraftRow.taskType) 원고 비용은 {amount,currency}만 남았다.
-// 이 화면(원고 기준 표)은 Task 11/15에서 작업 표로 바뀐다 — 그때까지 옛 모양으로 되맞춰 그린다.
-const asDraftCostRow = (d: { cost: TaskCost | null; taskType: TaskType | null }): { cost: DraftCost | null } =>
-  ({ cost: d.cost ? { type: d.taskType ?? 'post', ...d.cost } : null });
 import {
   sortContent, matchesStageFilter, isOutOfRange, defaultCostType,
   STAGE_FILTER_LABEL, CONTENT_SORT_LABEL, type ContentSortKey, type StageFilter,
 } from '@/lib/campaignJudgment';
 import { overdueDays, contentTypeLabel, perfLabel, handleInitial } from '@/lib/campaignTableView';
+
+// Task 11/15에서 작업 기준으로 대체 — 임시 어댑터: 비용 유형이 작업으로 옮겨가(DraftRow.taskType) 원고 비용은 {amount,currency}만 남았다.
+// 이 화면(원고 기준 표)은 Task 11/15에서 작업 표로 바뀐다 — 그때까지 옛 모양으로 되맞춰 그린다.
+const asDraftCostRow = (d: { cost: TaskCost | null; taskType: TaskType | null }): { cost: DraftCost | null } =>
+  ({ cost: d.cost ? { type: d.taskType ?? 'post', ...d.cost } : null });
 
 // 콘텐츠 표 — 열 8개 고정(예정일 110 · 콘텐츠 나머지 · 유형 110 · 인플 180 · 비용 120 · 단계 120 · 게시물 120 · 성과 170, QA 5라운드).
 // 유형은 콘텐츠 칸의 13px 보조줄에서 전용 열로 올렸다 — 보조줄에 유형·형식이 섞여 있어 어느 쪽으로도 훑을 수 없었다.

@@ -7,7 +7,8 @@ import { overdueJudgment, publishedSub, costSub, perfSub } from '@/lib/campaignT
 import { toKrw, remainingOf, monthShort, budgetTipText, type CampaignMonthBudget } from '@/lib/clientBudget';
 import { InfoTip } from '@/components/InfoTip';
 
-// 요약 4칸 — 예외 우선 순서(밀림 → 게시 → 비용 → 조회, 스펙 §3-2). 숫자 26px, 라벨은 아래 13px(가독성 기준).
+// 요약 칸 — 순서는 조회 → 게시됨 → 밀림 → 비용 합계 → 월 예산 잔액(koo 결정 08-28: 성과 → 진행 → 돈 순으로 읽히고,
+// 돈 두 칸이 나란히 붙는다. 이전의 예외 우선 순서(밀림 먼저, 캠페인 스펙 §3-2)를 대체). 숫자 26px, 라벨은 아래 13px(가독성 기준).
 // 값은 전부 판정 함수의 결과를 받는다 — 카드가 따로 세지 않는다(표와 다른 숫자가 나오면 안 된다).
 // 보조 줄은 '판단 한 줄'만 둔다(QA 1라운드) — "통화별로 따로 계산" 같은 방법 설명은 라벨 옆 ⓘ(InfoTip)로 옮겼다.
 //
@@ -43,16 +44,16 @@ export function SummaryCards({ summary, perf, total, budget, clientId }: {
   const remaining = budget ? remainingOf(budget.amount, spentKrw) : null;
   return (
     <div className={`grid ${budget ? 'grid-cols-5' : 'grid-cols-4'}`}>
-      <Card alert={summary.overdue > 0} value={summary.overdue > 0 ? `⚠ ${summary.overdue}` : '0'} label="밀림"
-            sub={overdueJudgment(summary.overdue)} good={summary.overdue === 0} />
+      <Card value={perf.views === null ? '—' : perf.views.toLocaleString('ko-KR')} label="조회" sub={perfSub(perf)} />
       <Card value={<>{summary.published} <span className="text-content font-normal text-x-muted">/ {summary.total}</span></>}
             label="게시됨" sub={publishedSub(summary)} />
+      <Card alert={summary.overdue > 0} value={summary.overdue > 0 ? `⚠ ${summary.overdue}` : '0'} label="밀림"
+            sub={overdueJudgment(summary.overdue)} good={summary.overdue === 0} />
       {/* 통화별 두 숫자 — 합치지 않는다(§2-4). 비어 있으면 — */}
       <Card value={money.length === 0 ? '—' : (
               <span className="flex flex-col">{money.map((m) => <span key={m.currency}>{formatAmount(m.amount, m.currency)}</span>)}</span>
             )}
             label="비용 합계" sub={costSub(total)} tip="통화가 다르면 합치지 않고 따로 보여요" />
-      <Card value={perf.views === null ? '—' : perf.views.toLocaleString('ko-KR')} label="조회" sub={perfSub(perf)} />
       {budget && (budget.amount === null ? (
         <Card value="—" label="월 예산"
               sub={clientId

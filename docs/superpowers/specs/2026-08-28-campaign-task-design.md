@@ -51,6 +51,8 @@ main 최신 036(인플루언서 결제 수단) → **037**. `scripts/apply-migra
 
 `campaign_id · scheduled_on · cost`를 작업으로 옮기고 **삭제**한다(되돌림은 배포 전 백업).
 
+**전환 순서(계획 단계에서 확정 — 테스트는 프로덕션 DB를 쓰므로 컬럼 삭제를 037에 넣으면 배포 전 main 코드가 즉시 500)**: ① **037 = 추가만**(`campaign_task` · `tracked_post.task_id`) — 옛 코드와 공존, 구현·테스트 중 적용. ② 이관은 SQL 파일이 아니라 스토어 함수 `cutoverDraftsToTasks(sql)`(재실행 안전, 테스트로 검증) + `scripts/cutover-campaign-task.ts` — 새 코드 배포 **직전**에 실행. ③ 새 코드 배포. ④ **038 = 3컬럼 drop** — 배포 후 적용. 새 코드는 `draft.campaign_id`를 읽지 않으므로 ③과 ④ 사이에 컬럼이 남아 있어도 무해.
+
 ```sql
 insert into campaign_task (campaign_id, influencer_handle, type, draft_id, scheduled_on, cost, created_by, created_at)
 select d.campaign_id, d.influencer_handle,
@@ -185,7 +187,7 @@ RT 요청은 항상 "대상 게시글 링크"를 인플에게 준다 → 그 트
 **DraftRow**: `campaignId · campaignName · campaignCode · scheduledOn · cost` 유지(이름 그대로, 값은 `left join campaign_task t on t.draft_id = d.id left join campaign c on c.id = t.campaign_id`) + **`taskId · taskType`** 추가. `draftStore.SELECT()` 한 곳.
 
 - **DraftCard 작업 칸**(기존 "캠페인: 없음 ▾" 자리): 붙어 있으면 `작업: 마인드스킨 9월 1주 · 투고 @mika_skin`(클릭 → `/campaigns?id=`) + "떼기". 안 붙어 있으면 **[작업에 붙이기]** → 캠페인 선택(그 원고 클라이언트의 진행 중·예정, 종료 펼침) → 그 캠페인의 **원고 없는 post·quoteRt·visit 작업** 목록 / "새 작업 만들기"(유형·인플만 물음, 원고 자동 붙음). 예정일·비용은 **읽기만** + "작업에서 고치기" 링크(koo 결정 08-28: 고치는 자리는 캠페인 화면 하나).
-- **`/generate?task={id}`**(기존 `?campaign=` 대체): 배너 "마인드스킨 9월 1주 · 투고 @mika_skin 작업에 붙이는 원고를 만들고 있어요 [해제]". 생성·직접 쓰기(`/api/drafts`, `/api/drafts/manual`)에 `taskId` → 트랜잭션으로 원고 insert + `campaign_task.draft_id` set(이미 원고가 붙어 있으면 409 "이 작업엔 이미 원고가 있어요"). 클라이언트 자동 선택은 작업의 캠페인에서.
+- **`/generate?task={id}&campaign={campaignId}`**(기존 `?campaign=` 대체 — 계획 단계 결정: 작업 단건 조회 라우트를 만들지 않고 캠페인 상세 응답에서 작업을 찾기 위해 캠페인 id를 함께 싣는다): 배너 "마인드스킨 9월 1주 · 투고 @mika_skin 작업에 붙이는 원고를 만들고 있어요 [해제]". 생성·직접 쓰기(`/api/drafts`, `/api/drafts/manual`)에 `taskId` → 트랜잭션으로 원고 insert + `campaign_task.draft_id` set(이미 원고가 붙어 있으면 409 "이 작업엔 이미 원고가 있어요"). 클라이언트 자동 선택은 작업의 캠페인에서.
 - **/generate 표 보기 캠페인 열·필터 칩**: 값 출처만 바뀜, 화면 동일.
 - **기존 "원고를 캠페인에 넣는" 경로 전부 제거**(리뷰 반영 — 남기면 컬럼 삭제로 500): `GET /api/campaigns/[id]/drafts`(`listUnassignedDrafts`) · `campaignApi.fetchCandidateDrafts/bulkCampaignApi` · `AddDraftsModal.tsx` · `useCampaignDraftActions`의 `patchDraft {campaignId}` 빼기/옮기기 · `updateDraftsBulk.campaignId`(bulk 라우트 400 가드는 `status·influencerHandle` 2필드로) · `draftFieldPatch`의 campaign 필드. 대체: 원고 고르기는 `GET /api/drafts?clientId=&unattached=1`(§6), 붙이기/떼기는 `PATCH /api/drafts/[id] {taskId}`, 캠페인에서 빼기는 작업 삭제 또는 원고 떼기. `DraftFilterBar`는 캠페인 **필터 select**만 있으므로 값 출처만 바뀜.
 - **`DraftRow.cost` 형 변경** `{type,amount,currency}` → `{amount,currency}`(type은 `taskType`): 소비자 `CostPopover`(defaultType 제거) · `campaignTableView.contentTypeLabel` · `campaignJudgment.defaultCostType`(삭제 — 단가 제안은 `taskType`으로) · `DraftCard` 비용 표시 · `parseDraftCost` → `parseTaskCost`(type 없음).

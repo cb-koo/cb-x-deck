@@ -56,7 +56,16 @@ export async function POST(req: Request) {
   }
 
   if (taskId) {
-    await sql.begin(async (tx0) => linkTrackedPost(tx0 as unknown as postgres.Sql, row!.id, { taskId }));
+    try {
+      await sql.begin(async (tx0) => linkTrackedPost(tx0 as unknown as postgres.Sql, row!.id, { taskId }));
+    } catch (e) {
+      // 존재하지 않는 작업 id를 연결하려 하면 FK 위반(23503, linkTrackedPost는 직접 같은 code로 던지기도 한다) — 사용자 잘못이니 400으로 알린다.
+      // 등록(첫 측정)은 이미 끝난 뒤라 그대로 두고, 연결만 실패한 것으로 처리한다([id] PATCH와 동일 매핑).
+      if ((e instanceof postgres.PostgresError && e.code === '23503') || (e as { code?: unknown })?.code === '23503') {
+        return NextResponse.json({ error: '연결하려는 원고나 작업을 찾을 수 없어요' }, { status: 400 });
+      }
+      throw e;
+    }
     row = await findTrackedPostById(sql, row!.id);
   }
   return NextResponse.json({ created, row });

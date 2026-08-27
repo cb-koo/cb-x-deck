@@ -104,9 +104,12 @@ test('4) 삭제 — 작업은 cascade, 원고는 남고, 다른 캠페인의 참
   const [post] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: 'mika', cost: null }] });
   const draftId = await mkDraft(c.id, c.name, post.id);
   const [rt] = await createTasks(sql, other.id, { ...tin, type: 'rt', targetTaskId: post.id, items: [{ handle: 'rio', cost: null }] });
+  assert.deepEqual(await deleteCampaign(sql, 'not-a-uuid'), { deleted: false, taskCount: 0, detachedTargets: 0 });   // 22P02 방지 경로
+  await upsertInfluencerCost(sql, camp.id, 'gone', { note: 'x' });   // 삭제 캠페인의 비용 행도 cascade로 사라져야 한다
   assert.deepEqual(await deleteCampaign(sql, camp.id), { deleted: true, taskCount: 1, detachedTargets: 1 });
   assert.equal((await sql`select id from draft where id = ${draftId}`).length, 1);
   assert.equal((await sql`select target_task_id from campaign_task where id = ${rt.id}`)[0].target_task_id, null);
+  assert.equal((await sql`select id from campaign_influencer_cost where campaign_id = ${camp.id}`).length, 0);
   assert.deepEqual(await deleteCampaign(sql, camp.id), { deleted: false, taskCount: 0, detachedTargets: 0 });
   await deleteClient(sql, c.id);
   assert.equal((await getCampaign(sql, other.id))!.clientName, c.name);   // 스냅샷 유지

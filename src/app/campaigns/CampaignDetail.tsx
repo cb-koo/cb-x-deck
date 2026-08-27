@@ -95,7 +95,7 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
     const r = await deleteCampaignApi(id);
     if (!r.ok) { show(r.error); return; }
     // deleted:false = 이미 없는 캠페인(다른 사람이 지웠거나 내 화면이 오래됐다) — 지웠다고 말하지 않되 화면은 똑같이 목록으로 빠진다
-    show(r.data.deleted ? '캠페인을 삭제했어요 — 원고는 콘텐츠 생성 목록에 그대로 있어요' : '이미 삭제된 캠페인이에요');
+    show(r.data.deleted ? `캠페인을 삭제했어요 — 작업 ${r.data.taskCount}개도 지워졌고 원고는 남아 있어요` : '이미 삭제된 캠페인이에요');
     onDeleted();
   }
 
@@ -132,8 +132,7 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
         </div>
       )}
       <div className={PANEL}>
-        {/* Task 11에서 작업 기준으로 대체 — 삭제 안내가 말하는 수는 실제로 지워질 작업 수(deleteInfo.taskCount), 문구는 Task 14에서 작업 말로 바꾼다 */}
-        <CampaignHeader campaign={data.campaign} draftCount={data.deleteInfo.taskCount} today={data.today} onPatch={patchCampaign}
+        <CampaignHeader campaign={data.campaign} deleteInfo={data.deleteInfo} today={data.today} onPatch={patchCampaign}
                         onDelete={() => void removeCampaign()}
                         onAddDrafts={() => show('작업 추가로 바꾸는 중이에요 — 곧 여기서 작업을 추가할 수 있어요')} />
       </div>

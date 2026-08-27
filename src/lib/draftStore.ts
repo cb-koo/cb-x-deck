@@ -154,7 +154,7 @@ export async function listDrafts(
 ): Promise<DraftRow[]> {
   const byClient = opts.clientId ? sql`and d.client_id = ${opts.clientId}` : sql``;
   const byStatus = opts.status ? sql`and d.status = ${opts.status}` : sql``;
-  // 작업에 안 붙은 원고만(listUnattachedDrafts와 같은 뜻) — '있는 원고 고르기'·미부착 필터가 쓴다
+  // 작업에 안 붙은 원고만 — '있는 원고 고르기'(스펙 §4-2)·미부착 필터가 쓴다
   const byAttach = opts.unattached ? sql`and not exists (select 1 from campaign_task t2 where t2.draft_id = d.id)` : sql``;
   // 배치 형제는 created_at이 동일 — variant_index로 A/B/C 순서 고정 (단일 초안 null은 앞)
   const rows = await sql<Row[]>`
@@ -231,16 +231,4 @@ export async function getDraftsByIdsForUpdate(sql: postgres.Sql, ids: string[]):
 
 export async function removeDraft(sql: postgres.Sql, id: string): Promise<void> {
   await sql`delete from draft where id = ${id}`;
-}
-
-// '있는 원고 고르기'(스펙 §4-2) — 그 클라이언트의 작업에 안 붙은 원고만. 클라이언트 없는 캠페인은 클라 없는 원고를 후보로.
-export async function listUnattachedDrafts(
-  sql: postgres.Sql, clientId: string | null, limit = 200,
-): Promise<DraftRow[]> {
-  const byClient = clientId === null ? sql`and d.client_id is null` : sql`and d.client_id = ${clientId}`;
-  const rows = await sql<Row[]>`
-    ${SELECT(sql)} where not exists (select 1 from campaign_task t2 where t2.draft_id = d.id) ${byClient}
-    order by d.created_at desc, d.variant_index asc nulls first
-    limit ${limit}`;
-  return rows.map(toRow);
 }

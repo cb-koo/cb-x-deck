@@ -232,7 +232,7 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete 
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {/* '+ 작업 추가'는 Task 13에서 아래 툴바로 옮겼다 — 여기 남는 건 메뉴(메모 추가·삭제)뿐 */}
+          {/* 헤더 오른쪽은 메뉴(메모 추가·삭제)뿐 — '+ 작업 추가'는 표 바로 위 툴바에 있다(작업을 보면서 누르는 버튼) */}
           <details ref={menuRef} className="relative">
             <summary aria-label="캠페인 메뉴" className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full border border-x-border-strong text-x-secondary hover:bg-x-hover">···</summary>
             <div className="absolute right-0 z-10 mt-1 w-44 rounded-lg border border-x-border-strong bg-white p-1 shadow-lg">

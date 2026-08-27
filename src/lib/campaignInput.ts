@@ -1,6 +1,6 @@
 // 캠페인 라우트 입력 검증 — 순수(DB 없음). 생성·수정이 같은 규칙을 쓴다: 이름 필수·영문 코드는 트래킹 링크의
 // checkCampaign(공백→하이픈, 영어·숫자·._-)·기간은 달력일 문자열·유형은 화이트리스트. 서버가 최종 근거이고,
-// 생성 모달·헤더 인라인 수정(Task 10·11)은 같은 함수로 즉시 피드백을 만든다 — 문구가 두 벌이 되지 않게.
+// 생성 모달과 헤더 인라인 수정은 같은 함수로 즉시 피드백을 만든다 — 문구가 두 벌이 되지 않게.
 import { checkCampaign } from './trackingLink.ts';
 import { isCampaignKind, isDateOnlyString, type CampaignKind } from './campaignJudgment.ts';
 import { isUuidLike } from './uuid.ts';

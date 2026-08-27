@@ -1,6 +1,6 @@
 # 캠페인 작업(campaign_task) — 설계 스펙
 
-작성: 2026-08-28 · 브랜치 `cb-koo/campaign-task`(origin/main 77eea95에서 분기) · 상태: 구현 완료(08-29, Task 1~17) — koo QA·이관·머지 대기
+작성: 2026-08-28 · 브랜치 `cb-koo/campaign-task`(origin/main 77eea95에서 분기) · 상태: 구현 완료(08-28, Task 1~18) — 최종 리뷰 반영 · koo QA·이관·머지 대기
 선행 스펙: `docs/superpowers/specs/2026-08-25-campaign-management-design.md`(캠페인 관리 — 이 문서가 §0·§2·§3·§4를 대체한다. 캠페인 표 자체·기간·이름 규칙·달력 격자·섹션 경계는 그대로)
 인계: `~/claude-outputs/20260827_campaign-task_인계.md` · 근거 분석: `~/claude-outputs/20260827_결제요청_분류패턴분석.md`
 시안(로컬, 미커밋): `.superpowers/brainstorm/30057-1787841572/content/{task-table-v4,task-add-v3}.html`
@@ -130,7 +130,7 @@ RT 요청은 항상 "대상 게시글 링크"를 인플에게 준다 → 그 트
 
 ### 4-1. 작업 표 (시안 `task-table-v4.html`, koo 확정 08-28)
 
-섹션 제목 "작업 진행 현황 · N건". 툴바: `[+ 작업 추가]` `[게시 확인하기]` │ 필터 칩(전체 · 준비 중 · 게시됨) │ 정렬(기본 **만든 순**, 예정일·단계·인플).
+섹션 제목 "작업 진행 현황 · N건". 툴바: `[+ 작업 추가]` `[게시 확인하기]` │ 필터 칩(전체 · 준비 중 · 전달됨 · 게시됨 — 4개, 기존 화면 계승) │ 정렬(기본 **만든 순**, 예정일·단계·인플).
 
 **표 하나, 열 7개 고정**(유형별로 2개는 항상 "—"라 실제 정보 5~6개):
 
@@ -204,7 +204,7 @@ RT 요청은 항상 "대상 게시글 링크"를 인플에게 준다 → 그 트
 | `GET /api/campaigns` | 목록 + 상태·**작업 수**·통화별 합계 |
 | `GET /api/campaigns/[id]` | 상세 = 캠페인 + **작업 목록**(TaskRow + 원고 요약 + 대상 요약 + 게시물·성과) + 인플 파생 + 추가 비용 행 + 요약 + 유형별 소계 |
 | `POST /api/campaigns/[id]/tasks` | 생성. body `{ type, targetTaskId?, targetTweetUrl?, influencers: [{handle, cost?}], draftId?, scheduledOn?, visitOn?, note? }` → 한 트랜잭션에 `max(1, influencers.length)`행(`[]`이면 미배정 1행, cost는 body 최상위 `cost?`). 검증: type · 대상 작업 존재·유형(post/quoteRt/visit) · 링크 `parseTweetLink` → permalink 정규화 · draftId는 `influencers.length ≤ 1`일 때만·미부착 원고만 · visitOn은 visit만 · 금액 규칙. 응답 `{ tasks: TaskRow[] }` |
-| `PATCH /api/campaigns/[id]/tasks/[taskId]` | `influencerHandle · targetTaskId · targetTweetUrl · draftId · postUrl · postedAt(+source) · removedAt · removedReason · scheduledOn · visitOn · cost · note`. `undefined`=유지 · `null`=지움 · 값=설정(case when 패턴). `postedAt: null`은 거절(§3-4) |
+| `PATCH /api/campaigns/[id]/tasks/[taskId]` | `influencerHandle · targetTaskId · targetTweetUrl · postUrl · postedAt(+source) · removedAt · removedReason · scheduledOn · visitOn · cost · note`. `undefined`=유지 · `null`=지움 · 값=설정(case when 패턴). `postedAt: null`은 거절(§3-4). 원고 붙이기/떼기는 `PATCH /api/drafts/[id] {taskId}` 하나로(구현 결정) — 이 라우트는 `draftId`를 받지 않는다 |
 | `DELETE /api/campaigns/[id]/tasks/[taskId]` | 삭제(원고 set null, 참조 작업 target set null, tracked_post.task_id set null) |
 | `POST /api/campaigns/[id]/check-posted` | §3-2 |
 | `GET /api/campaigns/tasks/targets?clientId=&q=&all=1` | 대상 고르기 목록(post·quoteRt·visit 작업, 캠페인명·게시 여부 포함, 최근 순, 50건) |

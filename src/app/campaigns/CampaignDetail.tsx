@@ -141,7 +141,17 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
   const setTasks: Dispatch<SetStateAction<CampaignTaskItem[]>> = useCallback((next) => {
     setData((cur) => (cur ? { ...cur, tasks: typeof next === 'function' ? next(cur.tasks) : next } : cur));
   }, []);
-  const actions = useCampaignTaskActions({ campaignId: id, setTasks, influencerOptions, show, onChanged });
+  const taskActions = useCampaignTaskActions({ campaignId: id, setTasks, influencerOptions, show, onChanged });
+  // 게시 확인에 링크를 함께 넣으면 트래킹 등록까지 일어난다 — 그 결과(성과 스냅샷·게시물 연결)는 서버에만 있으므로
+  // 낙관적 갱신으로는 못 채운다. 링크가 있었을 때만 상세를 다시 읽어 조회·좋아요가 표에 뜨게 한다.
+  const actions = useMemo(() => ({
+    ...taskActions,
+    markPosted: async (t: CampaignTaskItem, date: string, postUrl?: string) => {
+      const ok = await taskActions.markPosted(t, date, postUrl);
+      if (ok && postUrl) void load();
+      return ok;
+    },
+  }), [taskActions, load]);
 
   // 파생값 — 서버와 같은 함수(campaignJudgment). 작업 하나를 고치면 넷이 함께 바뀐다.
   const summary = useMemo(() => (data ? summarizeTasks(data.tasks, data.today) : null), [data]);
@@ -303,7 +313,7 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
         <h2 className={PANEL_TITLE}>
           작업 진행 현황 <span className="text-ui font-normal text-x-muted tabular-nums">{data.tasks.length}건</span>
         </h2>
-        {/* 툴바 첫 줄 — [+ 작업 추가](헤더에서 이곳으로 이동, Task 14)와 opt-in 비용 유발 액션 [게시 확인하기](UX 원칙 6).
+        {/* 툴바 첫 줄 — [+ 작업 추가](헤더가 아니라 표 바로 위, 작업을 보면서 누르는 자리)와 opt-in 비용 유발 액션 [게시 확인하기](UX 원칙 6).
             도움말은 같은 줄 오른쪽에 붙여 행동 전 기대를 세운다(원칙 2) — 비용을 숨기지 않는다. */}
         <div className="mt-3.5 flex flex-wrap items-center gap-2">
           <Button variant="primary" onClick={() => setAddOpen(true)} className="h-9 px-3.5 text-ui">+ 작업 추가</Button>
@@ -366,7 +376,7 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
                       className="rounded-full bg-white/90 px-2.5 py-1 text-[13px] font-bold text-x-secondary hover:bg-white">✕ 닫기</button>
             </div>
             {peeked ? (
-              // 카드도 작업의 인플을 보인다(값은 하나) — Task 15에서 task prop으로 정리
+              // 배정은 작업이 쥔다 — 카드에는 그 작업의 인플을 얹어 넘긴다(원고에 남아 있는 옛 값이 아니라 화면과 같은 값 하나)
               <DraftCard draft={{ ...peeked, influencerHandle: peekTask?.influencerHandle ?? peeked.influencerHandle }} banned={bannedFor(peeked)}
                          onEdit={() => setEditing(peeked)}
                          onRewrite={(feedback, baseIndex) => void rewrite(peeked, feedback, baseIndex)}

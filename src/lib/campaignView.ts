@@ -21,7 +21,7 @@ export function pickCampaignId<T extends { id: string; startsOn: string; endsOn:
   return { id: first?.id ?? null, missing: !!urlId };
 }
 
-/** '8/24 월 ~ 8/30 일' — 목록 보조줄. (인플 프로필 참여 캠페인(Task 14)은 G4와 병렬이라 이 파일을 import하지 않고 formatDateKo로 같은 모양을 조립한다) */
+/** '8/24 월 ~ 8/30 일' — 목록 보조줄. (인플 프로필의 참여 캠페인은 이 파일을 import하지 않고 formatDateKo로 같은 모양을 조립한다) */
 export function periodLabel(startsOn: string, endsOn: string): string {
   return `${formatDateKo(startsOn)} ~ ${formatDateKo(endsOn)}`;
 }

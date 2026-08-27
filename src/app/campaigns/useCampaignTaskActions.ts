@@ -3,7 +3,7 @@ import { useCallback, useMemo, type Dispatch, type SetStateAction } from 'react'
 import type { CampaignTaskItem } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { suggestTaskCost, type TaskCost } from '@/lib/campaignCost';
-import { patchTaskApi, deleteTaskApi, type TaskPatchRequest } from '@/lib/campaignApi';
+import { patchTaskApi, deleteTaskApi, registerTrackedPostApi, type TaskPatchRequest } from '@/lib/campaignApi';
 
 // 작업 편집은 전부 PATCH /api/campaigns/[id]/tasks/[taskId] 하나로 간다(스펙 §6). 낙관적 갱신 + "이 요청이 세팅한 값이
 // 아직 표시 중일 때만" 롤백/덮어쓰기 — 응답은 보낸 순서대로 오지 않는다.
@@ -65,12 +65,19 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
       return ok;
     },
     setNote: (t: Item, note: string) => patch(t, { note }, { note }),
-    // 게시 확인 — 사람이 찍은 것이라 postedSource는 'manual'(수집기가 찾은 것은 'auto', 표에 회색 태그로 구분)
+    // 게시 확인 — 사람이 찍은 것이라 postedSource는 'manual'(수집기가 찾은 것은 'auto', 표에 회색 태그로 구분).
+    // 링크를 함께 넣으면 [게시물 연결(트래킹)]과 같은 등록까지 한다(스펙 §3-4) — 서버가 task_id를 붙이고
+    // post_url·posted_at은 coalesce라 사람이 찍은 날짜가 이긴다. 등록만 실패해도 게시 확인은 이미 저장됐다.
     markPosted: async (t: Item, date: string, postUrl?: string) => {
       const ok = await patch(t, { postedAt: date, ...(postUrl ? { postUrl } : {}) },
                              { postedAt: date, postedSource: 'manual', published: true, ...(postUrl ? { postUrl } : {}) });
-      if (ok) onChanged();
-      return ok;
+      if (!ok) return false;
+      if (postUrl) {
+        const reg = await registerTrackedPostApi(postUrl, t.id);
+        if (!reg.ok) show('게시 확인은 저장됐어요 — 트래킹 등록은 실패했어요. 행 메뉴 [게시물 연결(트래킹)]로 다시 시도할 수 있어요');
+      }
+      onChanged();
+      return true;
     },
     markRemoved: (t: Item, date: string, reason: string) => patch(t, { removedAt: date, removedReason: reason }, { removedAt: date, removedReason: reason }),
     unmarkRemoved: (t: Item) => patch(t, { removedAt: null, removedReason: '' }, { removedAt: null, removedReason: '' }),

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTaskCreate, parseTaskPatch, normalizeTargetTweetUrl, parseTaskIdPatch, TASK_TYPE_MESSAGE, TARGET_MESSAGE, VISIT_ON_MESSAGE, DRAFT_MULTI_MESSAGE, POSTED_AT_NULL_MESSAGE, DATE_MESSAGE } from './campaignTaskInput.ts';
+import { parseTaskCreate, parseTaskPatch, normalizeTargetTweetUrl, parseTaskIdPatch, TASK_TYPE_MESSAGE, TARGET_MESSAGE, POST_URL_MESSAGE, VISIT_ON_MESSAGE, DRAFT_MULTI_MESSAGE, POSTED_AT_NULL_MESSAGE, DATE_MESSAGE } from './campaignTaskInput.ts';
 
 const U = '11111111-1111-1111-1111-111111111111';
 
@@ -31,6 +31,9 @@ test('패치 — 온 키만, null=지움, postedAt null 거절, removedReason tr
     assert.deepEqual(p.value, { scheduledOn: null, cost: { amount: 1, currency: 'KRW' }, removedAt: '2026-09-05', removedReason: '본인 요청', postUrl: 'https://x.com/a/status/9' });
     assert.equal('note' in p.value, false);
   }
+  // 같은 파서를 쓰지만 오류 문구는 사용자가 채운 칸을 가리킨다 — 게시물 링크는 'RT 대상'이라고 말하지 않는다
+  assert.deepEqual(parseTaskPatch({ postUrl: 'nope' }), { ok: false, message: POST_URL_MESSAGE });
+  assert.deepEqual(parseTaskPatch({ targetTweetUrl: 'nope' }), { ok: false, message: TARGET_MESSAGE });
   assert.deepEqual(parseTaskPatch({ postedAt: null }), { ok: false, message: POSTED_AT_NULL_MESSAGE });
   assert.ok(parseTaskPatch({ postedAt: '2026-09-01' }).ok);
   assert.ok(parseTaskPatch({ influencerHandle: null }).ok);

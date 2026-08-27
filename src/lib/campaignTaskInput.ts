@@ -22,6 +22,8 @@ export function parseTaskIdPatch(v: unknown): Parsed<string | null | undefined> 
 
 export const TASK_TYPE_MESSAGE = '작업 유형 값이 올바르지 않아요';
 export const TARGET_MESSAGE = 'RT 대상 링크가 X 게시물 주소가 아니에요';
+// 같은 파서를 쓰지만 사용자가 채운 칸이 다르다 — 게시물 링크 오류에 'RT 대상'이라고 말하면 어느 칸을 고칠지 알 수 없다
+export const POST_URL_MESSAGE = '게시물 링크가 X 게시물 주소가 아니에요';
 export const TARGET_TYPE_MESSAGE = 'RT 작업은 대상이 될 수 없어요 — 투고·인용RT·방문협찬 작업을 골라 주세요';
 export const TARGET_SELF_MESSAGE = '작업이 자기 자신을 대상으로 가질 수 없어요';
 export const VISIT_ON_MESSAGE = '방문일은 방문협찬 작업에만 있어요';
@@ -98,7 +100,7 @@ export function parseTaskPatch(body: unknown): Parsed<TaskPatch> {
   }
   if ('postUrl' in b) {
     if (b.postUrl === null || b.postUrl === '') out.postUrl = null;
-    else { const u = normalizeTargetTweetUrl(String(b.postUrl)); if (!u) return fail(TARGET_MESSAGE); out.postUrl = u; }
+    else { const u = normalizeTargetTweetUrl(String(b.postUrl)); if (!u) return fail(POST_URL_MESSAGE); out.postUrl = u; }
   }
   if ('postedAt' in b) {
     if (b.postedAt === null) return fail(POSTED_AT_NULL_MESSAGE);

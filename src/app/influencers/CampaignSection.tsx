@@ -9,7 +9,7 @@ import { kstToday } from '@/lib/datetime';
 import { PANEL, PANEL_TITLE } from './profileShared';
 
 // 인플 프로필 "참여 캠페인"(캠페인 스펙 §5) — 작업이 배정됐거나 추가 비용이 적힌 캠페인. 캠페인명·기간·배정 작업 n(유형별)·비용 소계(통화별).
-// 조회만: 값은 전부 서버 롤업(listInfluencerCampaigns)이고 여기서 다시 세지 않는다. 캠페인 클릭 → /campaigns?id=(Task 11 라우트 형식).
+// 조회만: 값은 전부 서버 롤업(listInfluencerCampaigns)이고 여기서 다시 세지 않는다. 캠페인 클릭 → /campaigns?id=(캠페인 상세 라우트 형식).
 // 협업 콘텐츠 탭 맨 위 — 캠페인은 이 사람에게 맡긴 작업(투고·RT·인용RT·방문협찬)의 묶음이다(거래 정보 탭은 단가·조건의 자리).
 // 가독성 기준(캠페인 스펙 §3-2): 본문 15px(text-content)·보조 13px(text-ui)·행 ≥48px(py-3) — text-caption(11px)은 쓰지 않는다.
 const STATUS_STYLE: Record<CampaignStatus, string> = {

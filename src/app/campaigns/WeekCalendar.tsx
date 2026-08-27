@@ -121,7 +121,9 @@ export function WeekCalendar({ rows, campaign, today, filter, onOpenDraft, onCha
   // 카드 — 흰 카드 + 좌측 4px 단계색 바. 단계 칩은 넣지 않는다(색 바 + 범례가 같은 말을 하고, 2줄 제목의 가독성을 지킨다).
   // 첫 줄: 유형 칩 + 원고 제목(없으면 @핸들). 둘째 줄: @핸들 · 방문 · 밀림 · 기간 밖.
   const card = (t: CampaignTaskItem, kind: CalendarKind, fixedWidth = false) => {
-    const od = taskOverdueDays(t, today);
+    // 밀림은 게시 예정일로만 판정한다(koo 결정) — 방문일 카드는 밀림을 말하지 않는다. taskOverdueDays가 보는 건
+    // scheduledOn이라 방문 칸에 그대로 쓰면 '방문이 밀렸다'로 읽히는 빨간 카드가 된다. 색·테두리도 od에서 따라온다.
+    const od = kind === 'visit' ? null : taskOverdueDays(t, today);
     const overdue = od !== null;
     const unused = isTaskUnused(t);
     const key = cardKey(t.id, kind);

@@ -103,6 +103,7 @@ export function PostedCell({ task, today, onMarkPosted, onMarkRemoved, onUnmarkR
               {task.type !== 'rt' && (
                 <label className="mt-2 block text-ui text-x-secondary">게시물 링크 <span className="text-x-muted">선택</span>
                   <input value={url} onChange={(e) => { setUrl(e.target.value); setErr(''); }} placeholder="https://x.com/계정/status/…" className={input} />
+                  <span className="mt-0.5 block text-ui text-x-muted">링크를 붙이면 트래킹에도 등록돼 조회·좋아요가 잡혀요</span>
                 </label>
               )}
               {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}

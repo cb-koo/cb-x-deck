@@ -28,6 +28,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const target = await getTask(sql, v.targetTaskId);
     if (!target) return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 400 });
     if (!TARGETABLE_TYPES.includes(target.type)) return NextResponse.json({ error: TARGET_TYPE_MESSAGE }, { status: 400 });
+    v.targetTweetUrl = null;   // 작업 참조와 링크는 둘 중 하나 — PATCH와 같은 규칙(둘 다 오면 작업 참조가 이긴다)
   }
   let before = null as Awaited<ReturnType<typeof getDraft>>;
   if (v.draftId) {

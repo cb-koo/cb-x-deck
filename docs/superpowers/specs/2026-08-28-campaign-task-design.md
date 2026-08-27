@@ -62,17 +62,23 @@ select d.campaign_id, d.influencer_handle,
 from draft d where d.campaign_id is not null
   and not exists (select 1 from campaign_task t where t.draft_id = d.id);   -- 재실행 안전
 ```
-프로덕션 대상 1건(마인드스킨 9월 1주 · quoteRt ₩30,000 · delivered). 이어서 `tracked_post.draft_id`가 그 원고를 가리키면 `tracked_post.task_id`로 옮기고(§2-4) 작업 `posted_at = tracked_post.posted_at::date(서울)`, `posted_source='manual'`, `post_url`을 채운다. 마지막에 `alter table draft drop column if exists campaign_id, drop column if exists scheduled_on, drop column if exists cost`.
+프로덕션 대상 1건(마인드스킨 9월 1주 · quoteRt ₩30,000 · delivered). 이어서 `tracked_post.draft_id`가 그 원고를 가리키면 `tracked_post.task_id`로 옮기고(§2-4) 작업 `posted_at = (tp.posted_at at time zone 'Asia/Seoul')::date`(timestamptz → 서울 날짜), `posted_source='manual'`, `post_url`을 채운다. 마지막에 `alter table draft drop column if exists campaign_id, drop column if exists scheduled_on, drop column if exists cost`. (033이 재실행 때 3컬럼을 다시 만들고 037이 끝에서 지우므로 전체 재실행도 안전. 프로덕션 확인 08-28: 캠페인 1 · 소속 원고 1(@minchannell quoteRt ₩30,000 delivered 9/9) · 연결된 tracked_post 0 · `campaign_influencer_cost` 1행(@aik_ooooo, extra_costs 비어 있음 → 인플 목록에 "배정 작업 없음"으로 남음).)
 
 ### 2-3. 그대로 두는 것
 
-`campaign_influencer_cost.extra_costs / note` — 작업이 아닌 비용(교통비 등)·인플 한 줄 메모. 핸들 변경 전파 규칙(캠페인 스펙 §2-5)도 그대로.
+`campaign_influencer_cost.extra_costs / note` — 작업이 아닌 비용(교통비 등)·인플 한 줄 메모. 핸들 변경 전파(`influencerStore.renameInfluencer`, 호출자 트랜잭션 안): 기존 `draft` → `campaign_influencer_cost` 병합 규칙에 **`update campaign_task set influencer_handle = 새 where lower(influencer_handle) = lower(옛)`를 같은 트랜잭션에 추가**한다(작업은 unique 제약이 없어 병합 불필요).
+
+`target_tweet_url` 저장 형식: 입력 URL을 `parseTweetLink`로 ID를 뽑아 검증하고 `tweetPermalink(handle|null, id)`로 **정규화한 permalink를 저장**(같은 트윗을 x.com/twitter.com 두 표기로 적어도 §3-2 묶음이 한 번에 잡히게). 조회 시 ID는 다시 `parseTweetLink`.
 
 ### 2-4. `tracked_post.task_id` 추가
 
 게시물 연결이 원고가 아니라 **작업**에 걸린다: `alter table tracked_post add column if not exists task_id uuid references campaign_task(id) on delete set null` + 인덱스. 기존 `draft_id`는 **남긴다**(트래킹·성과 화면이 원고 기준으로도 읽음 — 037에서 건드리지 않음). 이관: `update tracked_post tp set task_id = t.id from campaign_task t where t.draft_id = tp.draft_id and tp.task_id is null`.
 
-게시물을 작업에 연결하면(§4-3 단계 셀) 그 작업의 `posted_at`(비어 있을 때만)·`post_url`을 함께 채운다.
+**양방향 연결 규칙(리뷰 반영)** — 게시물 1건은 작업·원고 어느 쪽으로 연결하든 두 칸이 함께 맞춰진다. 스토어 함수 하나 `linkTrackedPost(tx, trackedPostId, { taskId } | { draftId })`가 담당하고 기존 `setDraftLink`는 이 함수로 대체:
+- 작업으로 연결(캠페인 단계 셀·`LinkPostModal`): `task_id = 작업`, `draft_id = 작업.draft_id`(있으면). 그 작업의 `post_url`을 게시물 permalink로, `posted_at`이 비어 있으면 `(tp.posted_at at time zone 'Asia/Seoul')::date`(없으면 오늘)로, `posted_source='manual'`.
+- 원고로 연결(트래킹 페이지 기존 `PATCH /api/tracking/[id] {draftId}`): `draft_id = 원고`, 그 원고가 붙은 작업이 있으면 `task_id`도 채우고 위와 같이 작업 `post_url/posted_at` 보충.
+- 연결 해제(null)는 두 칸 모두 null. 작업의 `posted_at`은 되돌리지 않는다(§3-4).
+- 라우트: `POST /api/tracking {url, taskId?}`(등록 + 연결) · `PATCH /api/tracking/[id] {taskId | draftId | role}`. 트래킹·성과 페이지(`src/app/tracking`, `src/app/performance`, `influencers/Timeline.tsx`)는 `draft_id`만 읽으므로 무변경.
 
 ### 2-5. 파생값 (저장하지 않는다) — `src/lib/campaignJudgment.ts`
 
@@ -100,7 +106,7 @@ RT 요청은 항상 "대상 게시글 링크"를 인플에게 준다 → 그 트
 ### 3-2. `POST /api/campaigns/[id]/check-posted`
 1. 대상: 이 캠페인의 `type='rt'` 작업 중 `posted_at is null` and 대상 확정 + **이미 확인된 RT 작업**(사라짐 감지용). 인플 없는 작업 제외.
 2. 대상 트윗 ID별로 묶어 **트윗당 1회 호출**, `has_more`면 최대 5쪽까지(그 이상 "목록이 길어 일부만 확인"). 다른 캠페인의 같은 트윗은 이 API 범위 밖(캠페인 단위 버튼).
-3. 판정: `lower(userName) === lower(influencer_handle)` → `posted_at = kstToday()`, `posted_source = 'auto'`. 일치 안 하면 변경 없음.
+3. 판정: 리포스터 raw user를 `mapRawUser`로 정규화한 뒤 `lower(user.handle) === lower(influencer_handle)`(`mappers.ts`가 `userName ?? screen_name`을 `handle`로 노출) → `posted_at = kstToday()`, `posted_source = 'auto'`. 일치 안 하면 변경 없음.
 4. 이미 확인된 작업의 인플이 목록에 없으면 **변경하지 않고** 결과에 `missing`으로 보고.
 5. 응답: `{ confirmed: [{taskId, handle}], pending: [...], skipped: [{taskId, handle, reason: 'no_target'|'target_not_posted'|'no_handle'}], missing: [...], unreadable: [{tweetId, reason}], partial: [tweetId] }`.
 6. 오류: `GetxapiAuthError` → 401 기존 문구. 트윗 삭제/비공개 → 그 트윗은 `unreadable`, 나머지 계속. 사용량은 기존 `getxapi.retweeters` 기능명으로 기록(비용 대시보드 그대로).
@@ -155,7 +161,7 @@ RT 요청은 항상 "대상 게시글 링크"를 인플에게 준다 → 그 트
 
 - **대상 칸(RT·인용RT)** — 입력 한 칸: @핸들/원고 제목을 치면 아래로 작업 목록(post·quoteRt·visit 유형, 기본 **같은 클라이언트**·최근 만든 순, "전체 클라이언트 보기"), **X 링크를 붙이면 자동 인식**해 `target_tweet_url`. 칸 아래 **빠른 선택 칩** = 이 캠페인의 게시된/예정 대상 작업 최근 3~5개 + "다른 게시물 찾기 / 링크 붙이기…". 게시 전 작업도 고를 수 있고 "게시 전" 표시. 선택되면 회색 카드로 접히고 "바꾸기". 비워둘 수 있음("나중에 정해도 돼요").
 - 대상이 정해지면 그 아래 한 줄: "이 게시물을 이미 RT하기로 한 사람: @kei_st · @hana_bt". 인플 칸에서 그 사람을 고르면 칩이 **주황 "이미 있음"** — 막지 않는다(같은 게시물 재요청이 실제 있음).
-- **인플루언서 칸** — RT·인용RT·투고·방문협찬 모두 **여러 명 허용**(칩). 여러 명이면 "사람 수만큼 작업이 생겨요" 도움말, 버튼 라벨 `작업 N개 만들기`. 원고 붙이기는 1명일 때만 활성(원고 1개 = 작업 1개) — 여러 명 + 원고 선택 시 "원고는 한 사람에게만 붙일 수 있어요".
+- **인플루언서 칸** — RT·인용RT·투고·방문협찬 모두 **여러 명 허용**(칩). 여러 명이면 "사람 수만큼 작업이 생겨요" 도움말, 버튼 라벨 `작업 N개 만들기`. **0명도 허용** — 미배정 작업 1개가 생긴다(원고만 먼저 준비하는 경우, 표에 "미배정"). 원고 붙이기는 **인플 0~1명일 때만** 활성(원고 1개 = 작업 1개) — 2명 이상 + 원고 선택 시 "원고는 한 사람에게만 붙일 수 있어요".
 - **비용 칸 — 사람별 금액 줄**: 인플을 고르는 순간 `influencer.pricing[type]`로 채운 금액 칸이 사람마다 한 줄, 옆에 근거 "단가 RT ¥3,000". 단가 없으면 빈 칸(점선) + 주황 "명부에 RT 단가 없음 — 비워두면 비용 없이 만들어요". 하단 "모두 같은 금액으로" · "통화 바꾸기(¥)". 사람이 적은 값은 덮지 않는다.
 - **원고 칸**(투고·인용RT·방문협찬): 라디오 없음(인플이 직접 씀) / 있는 원고 고르기(그 클라이언트의 **작업에 안 붙은** 원고 검색 모달, 형제 시안 A/B/C 표시, 하나만) / 새로 만들기(`/generate?task={id}` — 작업을 먼저 만들고 이동).
 - 만들기 → `POST /api/campaigns/[id]/tasks` 한 번(배열) → 표에 즉시 반영, 토스트 "작업 3개를 만들었어요".
@@ -181,7 +187,8 @@ RT 요청은 항상 "대상 게시글 링크"를 인플에게 준다 → 그 트
 - **DraftCard 작업 칸**(기존 "캠페인: 없음 ▾" 자리): 붙어 있으면 `작업: 마인드스킨 9월 1주 · 투고 @mika_skin`(클릭 → `/campaigns?id=`) + "떼기". 안 붙어 있으면 **[작업에 붙이기]** → 캠페인 선택(그 원고 클라이언트의 진행 중·예정, 종료 펼침) → 그 캠페인의 **원고 없는 post·quoteRt·visit 작업** 목록 / "새 작업 만들기"(유형·인플만 물음, 원고 자동 붙음). 예정일·비용은 **읽기만** + "작업에서 고치기" 링크(koo 결정 08-28: 고치는 자리는 캠페인 화면 하나).
 - **`/generate?task={id}`**(기존 `?campaign=` 대체): 배너 "마인드스킨 9월 1주 · 투고 @mika_skin 작업에 붙이는 원고를 만들고 있어요 [해제]". 생성·직접 쓰기(`/api/drafts`, `/api/drafts/manual`)에 `taskId` → 트랜잭션으로 원고 insert + `campaign_task.draft_id` set(이미 원고가 붙어 있으면 409 "이 작업엔 이미 원고가 있어요"). 클라이언트 자동 선택은 작업의 캠페인에서.
 - **/generate 표 보기 캠페인 열·필터 칩**: 값 출처만 바뀜, 화면 동일.
-- **일괄 처리의 캠페인 넣기/빼기 제거**(`updateDraftsBulk.campaignId`, `DraftFilterBar` 일괄 메뉴) — 원고는 작업에서 개별로 붙인다. 일괄 생성은 작업 추가의 "인플 여러 명"이 대신.
+- **기존 "원고를 캠페인에 넣는" 경로 전부 제거**(리뷰 반영 — 남기면 컬럼 삭제로 500): `GET /api/campaigns/[id]/drafts`(`listUnassignedDrafts`) · `campaignApi.fetchCandidateDrafts/bulkCampaignApi` · `AddDraftsModal.tsx` · `useCampaignDraftActions`의 `patchDraft {campaignId}` 빼기/옮기기 · `updateDraftsBulk.campaignId`(bulk 라우트 400 가드는 `status·influencerHandle` 2필드로) · `draftFieldPatch`의 campaign 필드. 대체: 원고 고르기는 `GET /api/drafts?clientId=&unattached=1`(§6), 붙이기/떼기는 `PATCH /api/drafts/[id] {taskId}`, 캠페인에서 빼기는 작업 삭제 또는 원고 떼기. `DraftFilterBar`는 캠페인 **필터 select**만 있으므로 값 출처만 바뀜.
+- **`DraftRow.cost` 형 변경** `{type,amount,currency}` → `{amount,currency}`(type은 `taskType`): 소비자 `CostPopover`(defaultType 제거) · `campaignTableView.contentTypeLabel` · `campaignJudgment.defaultCostType`(삭제 — 단가 제안은 `taskType`으로) · `DraftCard` 비용 표시 · `parseDraftCost` → `parseTaskCost`(type 없음).
 - **인플루언서 프로필 "참여 캠페인"**: 캠페인명 · 기간 · **작업 n(투고 1 · RT 3)** · 비용 소계(통화별). `listInfluencerCampaigns`가 작업 기준.
 - **트래킹 링크**: `campaignCode` prefill 출처만 바뀜.
 - **`syncInfluencerOnDraftUpdate`**(원고 인플 변경 → 프로필 로그): 작업에서 인플을 바꿔 원고가 따라 바뀔 때도 같은 함수가 돈다(기존 `PATCH /api/drafts/[id]` 경로를 서버 내부에서 호출하지 않고 스토어 함수 공유).
@@ -192,18 +199,19 @@ RT 요청은 항상 "대상 게시글 링크"를 인플에게 준다 → 그 트
 |---|---|
 | `GET /api/campaigns` | 목록 + 상태·**작업 수**·통화별 합계 |
 | `GET /api/campaigns/[id]` | 상세 = 캠페인 + **작업 목록**(TaskRow + 원고 요약 + 대상 요약 + 게시물·성과) + 인플 파생 + 추가 비용 행 + 요약 + 유형별 소계 |
-| `POST /api/campaigns/[id]/tasks` | 생성. body `{ type, targetTaskId?, targetTweetUrl?, influencers: [{handle, cost?}] \| [], draftId?, scheduledOn?, visitOn?, note? }` → 한 트랜잭션에 N행. 검증: type · 대상 작업 존재·유형(post/quoteRt/visit) · 링크 `parseTweetLink` · draftId는 인플 1명일 때만·미부착 원고만 · visitOn은 visit만 · 금액 규칙 |
+| `POST /api/campaigns/[id]/tasks` | 생성. body `{ type, targetTaskId?, targetTweetUrl?, influencers: [{handle, cost?}], draftId?, scheduledOn?, visitOn?, note? }` → 한 트랜잭션에 `max(1, influencers.length)`행(`[]`이면 미배정 1행, cost는 body 최상위 `cost?`). 검증: type · 대상 작업 존재·유형(post/quoteRt/visit) · 링크 `parseTweetLink` → permalink 정규화 · draftId는 `influencers.length ≤ 1`일 때만·미부착 원고만 · visitOn은 visit만 · 금액 규칙. 응답 `{ tasks: TaskRow[] }` |
 | `PATCH /api/campaigns/[id]/tasks/[taskId]` | `influencerHandle · targetTaskId · targetTweetUrl · draftId · postUrl · postedAt(+source) · removedAt · removedReason · scheduledOn · visitOn · cost · note`. `undefined`=유지 · `null`=지움 · 값=설정(case when 패턴). `postedAt: null`은 거절(§3-4) |
 | `DELETE /api/campaigns/[id]/tasks/[taskId]` | 삭제(원고 set null, 참조 작업 target set null, tracked_post.task_id set null) |
 | `POST /api/campaigns/[id]/check-posted` | §3-2 |
 | `GET /api/campaigns/tasks/targets?clientId=&q=&all=1` | 대상 고르기 목록(post·quoteRt·visit 작업, 캠페인명·게시 여부 포함, 최근 순, 50건) |
 | `GET /api/drafts?clientId=&unattached=1` (기존 라우트에 필터 추가) | 원고 고르기 — 작업에 안 붙은 원고만. 새 라우트를 만들지 않는다 |
-| `DELETE /api/campaigns/[id]` | 응답에 삭제된 작업 수·참조 풀린 작업 수 |
+| `DELETE /api/campaigns/[id]` | `deleteCampaign` 반환형을 `{ ok, deleted, taskCount, detachedTargets }`로 확장(삭제 전 count) — 확인 다이얼로그 문구(§4-4)는 `GET 상세`의 요약값으로 미리 표시 |
+| `GET /api/campaigns/[id]/drafts` | **삭제**(§5) |
 | `PUT /api/campaigns/[id]/influencers/[handle]` | 변경 없음 |
 | `PATCH /api/drafts/[id]` | `campaignId · scheduledOn · cost` **제거**. `taskId`(붙이기/떼기: 값=붙임(미부착 검증), null=떼기) 추가 |
 | `PATCH /api/drafts` bulk | `campaignId` 제거 |
 | `POST /api/drafts`, `/api/drafts/manual` | `taskId?` 추가 |
-| `POST /api/tracking/posts` 등 기존 트래킹 등록 | `taskId?` 추가(§2-4), 연결 시 작업 posted_at/post_url 채움 |
+| `POST /api/tracking {url, taskId?}` · `PATCH /api/tracking/[id] {taskId \| draftId \| role}` | 기존 트래킹 등록·연결 라우트에 `taskId` 추가. 연결은 `linkTrackedPost` 한 함수(§2-4 양방향 규칙) |
 
 인증·멤버 해석 `requireMember` 관례. 워크스페이스 FK 없음(전 워크스페이스 공유).
 

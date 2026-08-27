@@ -258,7 +258,7 @@ export async function getClientBudget(sql: postgres.Sql, id: string): Promise<Bu
 - [ ] **Step 7: 테스트 통과 확인**
 
 Run: `node --import tsx --env-file-if-exists=.env --test src/lib/clientStore.test.ts 2>&1 | tail -8`
-Expected: `# pass 4` (기존 3 + 새 1) `# fail 0`
+Expected: `# pass 6` (기존 5 + 새 1) `# fail 0`
 
 - [ ] **Step 8: 타입 검사 후 커밋**
 

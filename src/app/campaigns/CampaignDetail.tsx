@@ -313,7 +313,8 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
                       className="rounded-full bg-white/90 px-2.5 py-1 text-[13px] font-bold text-x-secondary hover:bg-white">✕ 닫기</button>
             </div>
             {peeked ? (
-              <DraftCard draft={peeked} banned={bannedFor(peeked)}
+              // 카드도 작업의 인플을 보인다(값은 하나) — Task 15에서 task prop으로 정리
+              <DraftCard draft={{ ...peeked, influencerHandle: peekTask?.influencerHandle ?? peeked.influencerHandle }} banned={bannedFor(peeked)}
                          onEdit={() => setEditing(peeked)}
                          onRewrite={(feedback, baseIndex) => void rewrite(peeked, feedback, baseIndex)}
                          rewriteBusy={rewritingId === peeked.id}

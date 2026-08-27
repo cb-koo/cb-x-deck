@@ -7,7 +7,7 @@ import { NO_SCHEDULE_LABEL, overdueSuffix } from '@/lib/campaignTableView';
 // Atlassian Inline Edit 골격(읽기 뷰 클릭 → 편집 뷰, 커밋하면 다시 읽기 뷰) — 상시 ✕는 없앴다(QA 1라운드):
 // 뜻이 안 보이는 아이콘이 모든 행에 떠 있었고, 지움은 편집 상태 안의 '지우기' 라벨 버튼(null 저장, §2-3 null=지움)으로 옮겼다.
 // 밀림(overdueDays)·기간 밖(outOfRange) 판정은 호출부가 campaignJudgment로 계산해 넘긴다 — 이 칸은 게시됨 여부를 모른다.
-export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, compact, emptyLabel }: {
+export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, compact, emptyLabel, ariaLabel }: {
   value: string | null;          // 'YYYY-MM-DD' | null
   overdueDays: number | null;    // isOverdue면 daysBetweenDates(value, today), 아니면 null
   outOfRange: boolean;           // 캠페인 기간 밖 — 경고 표시만, 저장 차단 없음(§2-4)
@@ -16,6 +16,8 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
   // 값이 없을 때 compact 자리에 쓰는 문구. 기본은 NO_SCHEDULE_LABEL('예정일 미정') — 방문협찬 칸처럼
   // 앞에 이미 '방문'·'게시'가 붙는 자리에서만 '미정'처럼 짧게 넘긴다(안 넘기면 '방문 예정일 미정 · 게시 예정일 미정'이 된다).
   emptyLabel?: string;
+  // 방문협찬 행처럼 같은 칸이 두 번(방문·게시) 나올 때 버튼의 aria-label/title을 구분한다. 기본은 기존 문구 그대로.
+  ariaLabel?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -56,13 +58,14 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
   }
 
   // 읽기 상태 — hover 배경 + 클릭이 곧 편집(이건 '동작'이라 hover 신호를 둔다). 표 셀 안(compact)의 트리거는
-  // 행 높이 48px가 이미 터치 타깃을 보장하므로 h-10 규칙에서 예외로 둔다 — 나머지(카드 도구층 등)는 h-10.
+  // 행 높이 52px가 이미 터치 타깃을 보장하므로 h-10 규칙에서 예외로 둔다 — 나머지(카드 도구층 등)는 h-10.
   const box = compact
     ? `rounded-md px-1.5 py-1 text-content ${tone}`
     : `h-10 rounded-lg border px-2.5 text-ui ${value ? 'border-x-border-strong bg-white' : 'border-dashed border-x-border-strong'} ${tone}`;
+  const label = ariaLabel ?? '게시 예정일';
   return (
-    <button type="button" onClick={() => setEditing(true)}
-            title={value ? '게시 예정일 — 눌러서 바꾸기' : '게시 예정일을 정하면 밀림 여부를 알려줘요'}
+    <button type="button" onClick={() => setEditing(true)} aria-label={label}
+            title={value ? `${label} — 눌러서 바꾸기` : `${label}을 정하면 밀림 여부를 알려줘요`}
             className={`inline-flex cursor-pointer items-center gap-1 text-left hover:bg-x-hover ${box}`}>
       <span className="tabular-nums">{value ? formatDateKo(value) : (compact ? (emptyLabel ?? NO_SCHEDULE_LABEL) : '+ 예정일')}</span>
       {overdueDays !== null ? <span className="font-normal">· {overdueSuffix(overdueDays)}</span> : null}

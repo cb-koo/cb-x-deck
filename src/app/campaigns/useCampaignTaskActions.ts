@@ -52,8 +52,9 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
     },
     changeTarget: (t: Item, next: { taskId: string } | { url: string } | null) => {
       if (next === null) return patch(t, { targetTaskId: null, targetTweetUrl: null }, { targetTaskId: null, targetTweetUrl: null, target: null });
-      // 작업 참조로 바꾸면 target 요약은 서버 응답이 채운다(낙관적으로는 '대상 게시 대기'로 보인다)
-      if ('taskId' in next) return patch(t, { targetTaskId: next.taskId }, { targetTaskId: next.taskId, targetTweetUrl: null });
+      // 작업 참조로 바꾸면 target 요약은 서버 응답이 채운다(낙관적으로는 '대상 게시 대기'로 보인다) —
+      // target: null도 같이 낙관 반영해야 응답 오기 전까지 직전 대상의 요약(옛 target)이 잘못 남지 않는다.
+      if ('taskId' in next) return patch(t, { targetTaskId: next.taskId }, { targetTaskId: next.taskId, targetTweetUrl: null, target: null });
       return patch(t, { targetTweetUrl: next.url }, { targetTweetUrl: next.url, targetTaskId: null, target: null });
     },
     changeScheduledOn: (t: Item, next: string | null) => patch(t, { scheduledOn: next }, { scheduledOn: next }),

@@ -233,7 +233,8 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete,
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="primary" onClick={onAddDrafts} className="h-10 px-4 text-content">+ 원고 추가</Button>
+          {/* 라벨은 '작업 추가'로 고정(Task 11) — Task 13에서 툴바로 옮기고 나서도 문구는 같아야 한다. 핸들러는 그대로(플레이스홀더 안내) */}
+          <Button variant="primary" onClick={onAddDrafts} className="h-10 px-4 text-content">+ 작업 추가</Button>
           <details ref={menuRef} className="relative">
             <summary aria-label="캠페인 메뉴" className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full border border-x-border-strong text-x-secondary hover:bg-x-hover">···</summary>
             <div className="absolute right-0 z-10 mt-1 w-44 rounded-lg border border-x-border-strong bg-white p-1 shadow-lg">

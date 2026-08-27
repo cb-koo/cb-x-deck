@@ -15,16 +15,18 @@ import {
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, targetLabel, typeFooterLabel, handleInitial } from '@/lib/campaignTableView';
 import type { useCampaignTaskActions } from './useCampaignTaskActions';
+import type { TaskType } from '@/lib/campaignJudgment';
 
 // 작업 표(스펙 §4-1, 시안 task-table-v4) — 표 하나·열 7개 고정·행은 만든 순(밀림도 자리를 바꾸지 않고 강조만 한다).
 // 판정은 campaignJudgment, 문구는 campaignTableView, 여기는 그리기만. 저장은 actions(PATCH tasks/[taskId]).
-// 행 ≥48px·본문 15px(text-content)·보조 13px(text-ui) — "빽빽해서 보기 힘들다"(koo)가 이 표의 첫 요구사항.
+// 행 ≥52px·본문 15px(text-content)·보조 13px(text-ui) — "빽빽해서 보기 힘들다"(koo)가 이 표의 첫 요구사항.
 // 연한 글씨 규칙(koo 08-28): 흐린 행 = 미사용 원고가 붙은 작업만 · 내려짐 행은 일반 진하기 · 값 없는 칸만 '—'를 연하게.
+// 열 너비(px, colgroup): 유형 110·인플루언서 180·원고 가변·RT/인용RT 대상 250·예정일 230(방문협찬은 '방문 · 게시' 한 줄, wrap 없음)·단계 190·비용 190.
 const SORT_KEYS: TaskSortKey[] = ['created', 'scheduled', 'stage', 'influencer'];
 const TH = 'px-3.5 py-2 font-normal';
 const TD = 'px-3.5 py-3.5 align-middle';
-const MIN_TABLE_WIDTH = 1200;
-const TYPE_CHIP: Record<string, string> = {
+const MIN_TABLE_WIDTH = 1260;
+const TYPE_CHIP: Record<TaskType, string> = {
   post: 'bg-[#e8f0fe] text-[#1d4ed8]', quoteRt: 'bg-[#f3e8ff] text-[#7e22ce]', rt: 'bg-[#e6f6ee] text-[#15803d]', visit: 'bg-[#fff4e5] text-[#b45309]',
 };
 const MENU_W = 176;
@@ -104,7 +106,7 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
           <table className="table-fixed text-content" style={{ width: `max(${MIN_TABLE_WIDTH}px, 100%)` }}>
             <colgroup>
               <col style={{ width: 110 }} /><col style={{ width: 180 }} /><col /><col style={{ width: 250 }} />
-              <col style={{ width: 170 }} /><col style={{ width: 190 }} /><col style={{ width: 190 }} />
+              <col style={{ width: 230 }} /><col style={{ width: 190 }} /><col style={{ width: 190 }} />
             </colgroup>
             <thead>
               <tr className="border-b border-x-border text-left text-ui text-x-muted">
@@ -142,11 +144,11 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                     </td>
                     <td className={TD}>
                       {t.type === 'visit' ? (
-                        <span className="flex flex-wrap items-center gap-1 whitespace-nowrap">
+                        <span className="flex items-center gap-1 whitespace-nowrap">
                           <span className="text-x-secondary">방문</span>
-                          <ScheduledOnField value={t.visitOn} overdueDays={null} outOfRange={false} emptyLabel="미정" onChange={(next) => void actions.changeVisitOn(t, next)} compact />
+                          <ScheduledOnField value={t.visitOn} overdueDays={null} outOfRange={isOutOfRange(t.visitOn, campaign.startsOn, campaign.endsOn)} emptyLabel="미정" ariaLabel="방문일" onChange={(next) => void actions.changeVisitOn(t, next)} compact />
                           <span className="text-x-muted">·</span><span className="text-x-secondary">게시</span>
-                          <ScheduledOnField value={t.scheduledOn} overdueDays={od} outOfRange={isOutOfRange(t.scheduledOn, campaign.startsOn, campaign.endsOn)} emptyLabel="미정" onChange={(next) => void actions.changeScheduledOn(t, next)} compact />
+                          <ScheduledOnField value={t.scheduledOn} overdueDays={od} outOfRange={isOutOfRange(t.scheduledOn, campaign.startsOn, campaign.endsOn)} emptyLabel="미정" ariaLabel="게시 예정일" onChange={(next) => void actions.changeScheduledOn(t, next)} compact />
                         </span>
                       ) : (
                         <ScheduledOnField value={t.scheduledOn} overdueDays={od} outOfRange={isOutOfRange(t.scheduledOn, campaign.startsOn, campaign.endsOn)} onChange={(next) => void actions.changeScheduledOn(t, next)} compact />

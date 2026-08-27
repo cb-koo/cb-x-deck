@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { CURRENCY_LABEL, type Currency } from '@/lib/influencerPricing';
@@ -17,17 +17,6 @@ const CURRENCIES: readonly Currency[] = ['KRW', 'JPY'];
 
 // 수취인 칸의 이름은 유형에 따라 바뀐다 — 계좌이체에서 '수취인명'은 정산 담당이 쓰는 말이 아니다.
 const holderLabel = (t: PaymentMethodType) => (t === 'bank' ? '예금주' : '수취인명');
-
-// 카드 셋째 줄에 놓는 "그대로 붙여 쓰는 값" — 복사 버튼이 집어가는 값이기도 하다.
-function identifyingValue(m: PaymentMethod): { field: string; value: string } | null {
-  if (m.type === 'paypal') {
-    // 이메일이 있으면 이메일, 없으면 PayPal.me 아이디 — 둘 중 정산 담당이 붙여 쓰는 값 하나
-    if (m.email) return { field: '이메일', value: m.email };
-    return m.paypalId ? { field: 'PayPal.me 아이디', value: `paypal.me/${m.paypalId}` } : null;
-  }
-  if (m.type === 'paypay') return m.identifier ? { field: '수취 식별 정보', value: m.identifier } : null;
-  return m.account ? { field: '계좌번호', value: m.account } : null;
-}
 
 type FeeMode = 'none' | 'grossUp' | 'fixed';
 const FEE_MODE_LABEL: Record<FeeMode, string> = {
@@ -102,7 +91,7 @@ export function PaymentSection({ id, methods, onSaved, onErrorChange }: {
   const [listErr, setListErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);   // `${수단 id}:${필드}` — 한 카드에 복사 값이 둘일 수 있다
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
 
@@ -161,11 +150,11 @@ export function PaymentSection({ id, methods, onSaved, onErrorChange }: {
     if (ok) setEditing(null);
   }
 
-  function copy(m: PaymentMethod, value: string) {
+  function copy(m: PaymentMethod, field: string, value: string) {
     navigator.clipboard.writeText(value).then(() => {
-      setCopiedId(m.id);
+      setCopiedKey(`${m.id}:${field}`);
       if (copyTimer.current) clearTimeout(copyTimer.current);
-      copyTimer.current = setTimeout(() => setCopiedId(null), 1500);
+      copyTimer.current = setTimeout(() => setCopiedKey(null), 1500);
     }).catch(() => { /* 클립보드 거부 — 값이 화면에 그대로 있으니 손으로 복사할 수 있다 */ });
   }
 
@@ -192,9 +181,9 @@ export function PaymentSection({ id, methods, onSaved, onErrorChange }: {
                           busy={busy} error={formErr}
                           onSubmit={() => submit({ id: m.id })} onCancel={() => { setEditing(null); setFormErr(null); }} />
             ) : (
-              <MethodCard m={m} busy={busy} copied={copiedId === m.id} confirming={confirmId === m.id}
+              <MethodCard m={m} busy={busy} copiedKey={copiedKey} confirming={confirmId === m.id}
                           fallbackLabel={m.isDefault ? (() => { const next = methods.find((o) => o.id !== m.id); return next ? describeMethod(next) : null; })() : null}
-                          onCopy={(v) => copy(m, v)}
+                          onCopy={(field, v) => copy(m, field, v)}
                           onSetDefault={() => send('PATCH', { id: m.id, setDefault: true }, setListErr)}
                           onEdit={() => openEdit(m)}
                           onAskDelete={() => { setListErr(null); setConfirmId(m.id); }}
@@ -220,22 +209,40 @@ export function PaymentSection({ id, methods, onSaved, onErrorChange }: {
   );
 }
 
-function MethodCard({ m, busy, copied, confirming, fallbackLabel, onCopy, onSetDefault, onEdit, onAskDelete, onCancelDelete, onDelete }: {
-  m: PaymentMethod; busy: boolean; copied: boolean; confirming: boolean;
+// 카드는 폼과 같은 라벨의 "항목: 값" 목록 — 저장 전(폼)과 저장 후(카드)가 같은 이름으로 읽혀야 한다(피드백:
+// 값만 나열하면 무엇이 무엇인지 안 보인다). 복사는 정산 양식에 그대로 붙이는 값(이메일·아이디·계좌번호)에만.
+function MethodCard({ m, busy, copiedKey, confirming, fallbackLabel, onCopy, onSetDefault, onEdit, onAskDelete, onCancelDelete, onDelete }: {
+  m: PaymentMethod; busy: boolean; copiedKey: string | null; confirming: boolean;
   fallbackLabel: string | null;   // 이 수단이 기본이고 뒤를 이을 수단이 있으면 그 이름 — 확인 단계 안내에 쓴다
-  onCopy: (value: string) => void;
+  onCopy: (field: string, value: string) => void;
   onSetDefault: () => void; onEdit: () => void;
   onAskDelete: () => void; onCancelDelete: () => void; onDelete: () => void;
 }) {
   const label = describeMethod(m);
-  const ident = identifyingValue(m);
   const fee = formatFee(m.fee, m.currency);
-  const bankLine = [m.bank, m.branch, m.account].filter(Boolean).join(' / ');
+
+  type Row = { key: string; label: string; value: ReactNode; copy?: string; muted?: boolean };
+  const rows: Row[] = [{ key: 'holder', label: holderLabel(m.type), value: m.holder }];
+  rows.push({ key: 'currency', label: '지급 통화', value: `${CURRENCY_SYMBOL[m.currency]} ${m.currency === 'JPY' ? '엔화' : '원화'}` });
+  if (m.type === 'paypal') {
+    if (m.email) rows.push({ key: 'email', label: '이메일', value: m.email, copy: m.email });
+    if (m.paypalId) rows.push({ key: 'paypalId', label: 'PayPal.me', value: `paypal.me/${m.paypalId}`, copy: m.paypalId });
+  } else if (m.type === 'paypay') {
+    rows.push(m.identifier
+      ? { key: 'identifier', label: '수취 식별 정보', value: m.identifier, copy: m.identifier }
+      : { key: 'identifier', label: '수취 식별 정보', value: '미입력 — 정산 쪽에서 확인되면 적어 두세요', muted: true });
+  } else {
+    rows.push({ key: 'bank', label: '은행', value: [m.bank, m.branch].filter(Boolean).join(' · ') });
+    if (m.account) rows.push({ key: 'account', label: '계좌번호', value: m.account, copy: m.account });
+  }
+  // 수수료는 '인플 부담'도 적는다 — 비어 있으면 "안 정했나?"로 읽힌다(라벨-값 일치)
+  rows.push({ key: 'fee', label: '송금 수수료', value: fee ? fee.replace(/^송금 수수료 /, '') : '인플 부담' });
+  if (m.memo) rows.push({ key: 'memo', label: '메모', value: m.memo });
 
   return (
-    <div className="rounded-lg border border-x-border bg-x-surface px-3 py-2.5">
+    <div className="rounded-lg border border-x-border bg-x-surface px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="text-ui font-medium">{PAYMENT_TYPE_LABEL[m.type]}</span>
+        <span className="text-ui font-semibold">{PAYMENT_TYPE_LABEL[m.type]}</span>
         {/* 배지는 서버 isDefault에서만 나온다 — 기본 카드에는 '기본으로' 버튼을 두지 않는다(누를 데가 없는 버튼 회피) */}
         {m.isDefault && <span className="rounded-full bg-x-blue px-2 py-0.5 text-caption font-medium text-white">기본</span>}
         <span className="ml-auto flex shrink-0 items-center gap-1">
@@ -252,33 +259,26 @@ function MethodCard({ m, busy, copied, confirming, fallbackLabel, onCopy, onSetD
         </span>
       </div>
 
-      <p className="mt-1 text-ui text-x-secondary">
-        {holderLabel(m.type)} <span className="text-x-text">{m.holder}</span>
-        <span className="text-x-muted"> · {CURRENCY_SYMBOL[m.currency]}</span>
-      </p>
-
-      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-        {m.type === 'bank' && <span className="text-ui">{bankLine}</span>}
-        {m.type !== 'bank' && ident && <span className="min-w-0 break-all text-ui">{ident.value}</span>}
-        {m.type === 'paypay' && !ident && (
-          <span className="text-ui text-x-muted">수취 정보 미입력 — PayPay 식별자는 정산 쪽 확인 후 적어 두세요</span>
-        )}
-        {ident && (
-          <button onClick={() => onCopy(ident.value)} aria-label={`${ident.field} ${ident.value} 복사`}
-                  className="shrink-0 rounded border border-x-border-strong bg-white px-1.5 py-0.5 text-caption text-x-secondary hover:bg-x-hover">
-            {copied ? '복사됨' : '복사'}
-          </button>
-        )}
-      </div>
-
-      {(fee || m.memo) && (
-        <p className="mt-0.5 text-caption text-x-secondary">
-          {[fee, m.memo].filter(Boolean).join(' · ')}
-        </p>
-      )}
+      {/* 라벨 열은 폼 라벨과 같은 회색·같은 순서. 값 열은 본문색 — 훑을 때 값만 튀어 보이게 */}
+      <dl className="mt-2 grid max-w-2xl grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-ui">
+        {rows.map((r) => (
+          <Fragment key={r.key}>
+            <dt className="whitespace-nowrap text-x-muted">{r.label}</dt>
+            <dd className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 ${r.muted ? 'text-x-muted' : ''}`}>
+              <span className="min-w-0 break-all">{r.value}</span>
+              {r.copy && (
+                <button onClick={() => onCopy(r.key, r.copy!)} aria-label={`${r.label} ${r.copy} 복사`}
+                        className="shrink-0 rounded border border-x-border-strong bg-white px-1.5 py-0.5 text-caption text-x-secondary hover:bg-x-hover">
+                  {copiedKey === `${m.id}:${r.key}` ? '복사됨' : '복사'}
+                </button>
+              )}
+            </dd>
+          </Fragment>
+        ))}
+      </dl>
 
       {confirming && (
-        <div className="mt-2 rounded-lg bg-white px-2.5 py-2">
+        <div className="mt-3 rounded-lg bg-white px-2.5 py-2">
           <p className="text-ui text-x-secondary">
             {`${label} — 지울까요?`}
             {fallbackLabel && <span className="text-x-muted">{` 기본 수단이라 지우면 다음 수단(${fallbackLabel})이 기본이 돼요.`}</span>}

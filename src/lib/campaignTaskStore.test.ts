@@ -133,7 +133,8 @@ test('4) 패치 3값 규칙(undefined=유지·null=지움·값=설정), 게시 �
   g = (await getTask(sql, t.id))!;
   assert.equal(g.removedAt, '2026-09-09'); assert.equal(g.removedReason, '본인 요청');
   await updateTask(sql, t.id, { removedAt: null, removedReason: '' });
-  assert.equal((await getTask(sql, t.id))!.removedAt, null);
+  g = (await getTask(sql, t.id))!;
+  assert.equal(g.removedAt, null); assert.equal(g.removedReason, '');
   assert.equal(await markPosted(sql, [t.id], '2026-09-10', 'auto'), 0);      // 이미 확인된 건 덮지 않는다
   const [t2] = await createTasks(sql, camp.id, { ...baseInput, type: 'rt', items: [{ handle: 'rio', cost: null }] });
   assert.equal(await markPosted(sql, [t2.id, t.id], '2026-09-10', 'auto'), 1);

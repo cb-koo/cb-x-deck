@@ -1,4 +1,4 @@
-import type postgres from 'postgres';
+import postgres from 'postgres';
 import type { DraftStatus } from './draftStatus.ts';
 import { parseTaskCost, type TaskCost } from './campaignCost.ts';
 import { TARGETABLE_TYPES, type TaskType } from './campaignJudgment.ts';
@@ -175,8 +175,15 @@ export async function attachDraft(sql: postgres.Sql, taskId: string, draftId: st
   if (d.length === 0) throw new TaskAttachError('no-task');
   const taskHandle = t[0].influencer_handle;
   const draftHandle = d[0].influencer_handle;
-  await sql`update campaign_task set draft_id = ${draftId},
-      influencer_handle = coalesce(influencer_handle, ${draftHandle}), updated_at = now() where id = ${taskId}`;
+  try {
+    await sql`update campaign_task set draft_id = ${draftId},
+        influencer_handle = coalesce(influencer_handle, ${draftHandle}), updated_at = now() where id = ${taskId}`;
+  } catch (e) {
+    // 위 taken 체크는 동시 요청 사이에서 경합을 완전히 막지 못한다(같은 원고를 두 작업이 동시에 붙이면
+    // 둘 다 통과할 수 있다) — unique partial index가 최후 방어선. 진 쪽은 23505를 문구 있는 오류로 바꿔 던진다.
+    if (e instanceof postgres.PostgresError && e.code === '23505') throw new TaskAttachError('draft-attached');
+    throw e;
+  }
   if (taskHandle && (draftHandle ?? '').toLowerCase() !== taskHandle.toLowerCase()) {
     await sql`update draft set influencer_handle = ${taskHandle} where id = ${draftId}`;
   }
@@ -269,7 +276,7 @@ export async function cutoverDraftsToTasks(sql: postgres.Sql): Promise<{ tasks: 
     update campaign_task t set
       posted_at = coalesce(t.posted_at, coalesce((tp.posted_at at time zone 'Asia/Seoul')::date, (now() at time zone 'Asia/Seoul')::date)),
       posted_source = coalesce(t.posted_source, 'manual'),
-      post_url = coalesce(t.post_url, 'https://x.com/' || coalesce(tp.author_handle, 'i') || '/status/' || tp.tweet_id),
+      post_url = coalesce(t.post_url, 'https://x.com/' || coalesce(nullif(tp.author_handle, ''), 'i') || '/status/' || tp.tweet_id),
       updated_at = now()
       from tracked_post tp
      where tp.task_id = t.id and t.posted_at is null`;

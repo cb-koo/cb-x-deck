@@ -53,4 +53,5 @@ test('run — 트윗당 1회(+페이지), 확인은 저장(auto), 사라짐은 �
   // 페이지 상한 — maxPages 1이면 partial에 트윗이 든다
   const r2 = await runCheckPosted(sql, camp.id, { source, today: '2026-09-03', maxPages: 1 });
   assert.deepEqual(r2.partial, ['1001']);
+  assert.deepEqual(r2.missing, []);   // partial(일부만 봄)이라 '사라짐'을 단정하지 않는다(rtDone의 1001)
 });

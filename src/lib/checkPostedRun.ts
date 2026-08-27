@@ -37,7 +37,8 @@ export async function runCheckPosted(
     const j = judgeRetweeters(group, handles);
     result.confirmed.push(...j.confirmed);
     result.pending.push(...j.pending);
-    result.missing.push(...j.missing);
+    // 목록을 끝까지 못 봤으면(partial) '없음'을 단정할 수 없다 — missing은 완전 조회한 트윗에서만
+    if (!result.partial.includes(tweetId)) result.missing.push(...j.missing);
   }
   if (result.confirmed.length) await markPosted(sql, result.confirmed.map((h) => h.taskId), deps.today, 'auto');
   return result;

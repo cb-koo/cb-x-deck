@@ -267,9 +267,9 @@ function TopicTable({ topics, accountMedianViews }: {
           <thead>
             <tr className="text-caption text-x-muted">
               <th className="py-1 text-left font-normal">주제</th>
-              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal @min-[800px]:@max-4xl:whitespace-normal @min-[800px]:@max-4xl:pl-3">건수</th>
-              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal @min-[800px]:@max-4xl:whitespace-normal @min-[800px]:@max-4xl:pl-3">조회 중앙값</th>
-              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal @min-[800px]:@max-4xl:whitespace-normal @min-[800px]:@max-4xl:pl-3">계정 중앙값 대비</th>
+              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal @3xl:@max-4xl:whitespace-normal @3xl:@max-4xl:pl-3">건수</th>
+              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal @3xl:@max-4xl:whitespace-normal @3xl:@max-4xl:pl-3">조회 중앙값</th>
+              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal @3xl:@max-4xl:whitespace-normal @3xl:@max-4xl:pl-3">계정 중앙값 대비</th>
             </tr>
           </thead>
           <tbody>
@@ -279,11 +279,11 @@ function TopicTable({ topics, accountMedianViews }: {
               return (
                 <tr key={t.tag} className="border-t border-x-border">
                   <td className="py-2">{t.tag}</td>
-                  <td className="whitespace-nowrap py-2 pl-4 text-right tabular-nums text-x-secondary @min-[800px]:@max-4xl:pl-3">{t.count}</td>
-                  <td className="whitespace-nowrap py-2 pl-4 text-right tabular-nums text-x-secondary @min-[800px]:@max-4xl:pl-3">
+                  <td className="whitespace-nowrap py-2 pl-4 text-right tabular-nums text-x-secondary @3xl:@max-4xl:pl-3">{t.count}</td>
+                  <td className="whitespace-nowrap py-2 pl-4 text-right tabular-nums text-x-secondary @3xl:@max-4xl:pl-3">
                     {t.medianViews !== null ? formatKoCount(t.medianViews) : '—'}
                   </td>
-                  <td className="whitespace-nowrap py-2 pl-4 text-right @min-[800px]:@max-4xl:pl-3">
+                  <td className="whitespace-nowrap py-2 pl-4 text-right @3xl:@max-4xl:pl-3">
                     {t.count < MIN_TOPIC_N ? (
                       <span className="text-x-muted">표본 부족</span>
                     ) : ratio !== null && v !== null ? (
@@ -336,9 +336,10 @@ function RtTopicChips({ items, rtSince, until, rtClassified }: {
 // 배치에서는 가로로 눕는 격자가 자리를 다 먹는다 — 세로로 선 5×7 격자(폭 ≈180px · 높이 ≈236px)가
 // 도넛과 키가 맞아 세 열이 나란히 읽힌다.
 // 셀은 고정 28px다. 폭을 나눠 갖게(1fr) 두면 칸 하나가 열 폭만큼 부푼다(실제 피드백).
-// 셀 크기·간격은 CSS 변수(--hm-cell/--hm-gap)로 — 기본 28/4px, 3열이 겨우 들어가는 좁은 패널(800~896px)에서는
-// 컨테이너 쿼리가 22/2px로 줄인다(JS는 컨테이너 폭을 모른다). 계정이 달라도 같은 폭에서는 같은 크기다.
-const HM_VARS = '[--hm-cell:28px] [--hm-gap:4px] @min-[800px]:@max-4xl:[--hm-cell:22px] @min-[800px]:@max-4xl:[--hm-gap:2px]';
+// 셀 크기·간격은 CSS 변수(--hm-cell/--hm-gap)로 — 기본 28/4px, 3열이 겨우 들어가는 좁은 패널(@3xl 768~896px)에서는
+// 컨테이너 쿼리가 20/2px로 줄인다(JS는 컨테이너 폭을 모른다). 계정이 달라도 같은 폭에서는 같은 크기다.
+// 임계값은 이름 있는 단계(@3xl)여야 한다 — 임의값 @min-[800px]은 생성 CSS에서 @2xl보다 앞에 놓여 2열 규칙에 덮였다.
+const HM_VARS = '[--hm-cell:28px] [--hm-gap:4px] @3xl:@max-4xl:[--hm-cell:20px] @3xl:@max-4xl:[--hm-gap:2px]';
 const LEGEND_CELL = 14;  // 범례는 색 견본일 뿐 — 격자 셀만 한 32px 견본은 눈금이 아니라 블록이 된다
 
 // 시퀀셜 단일 색상(x-blue 계열, 옅음→진함)과 고정 임계값. 분위수로 나누면 같은 색이 계정마다
@@ -645,10 +646,10 @@ function ActivityResult({ analysis, activity, followers }: {
           본 것이라 한 행에 나란히 세운다 — 세로로 쌓으면 셋을 견주려고 스크롤을 오르내리게 된다.
           접힘 기준은 화면 폭이 아니라 이 블록이 실제로 가진 폭(@container) — 사이드바·패널 폭이
           달라져도 표가 눌리지 않는다.
-          · 800px~: 3열 균등(grid-cols-3) — 위 타일 3장과 열 경계가 맞아 한 판으로 읽힌다(피드백: auto·1fr로
+          · @3xl(768px)~: 3열 균등(grid-cols-3) — 위 타일 3장과 열 경계가 맞아 한 판으로 읽힌다(피드백: auto·1fr로
             내용 폭에 맞추면 왼쪽으로 몰리고 오른쪽만 비어 균형이 깨진다). 임계값이 896(@4xl)이었을 때는
             사이드바 208 + 명부 300 + 여백 ≈ 600px를 빼면 창 1500px 미만(13~14인치 노트북)에서 2열로 떨어져
-            "3열 적용 안 됐나?"가 됐다(피드백). 800~896px 구간은 히트맵 셀을 22px로, 표 머리글은 줄바꿈으로
+            "3열 적용 안 됐나?"가 됐다(피드백). 768~896px 구간은 히트맵 셀을 20px로, 표 머리글은 줄바꿈으로
             좁혀 세 열이 들어간다. 도넛 범례는 flex-wrap으로 아래로 접힌다.
           · @2xl(672px)~@4xl: 2열(히트맵+도넛) + 표는 아래 전체 폭 — 그 폭에서 한 열이 (672-24)/2 = 324px라
             표의 최소 폭(320px)이 겨우 들어가는데, 표가 위 두 블록과 폭을 나눠 가지면 바로 스크롤한다.
@@ -656,10 +657,10 @@ function ActivityResult({ analysis, activity, followers }: {
           나란히 놓이면 열의 경계가 보여야 한다(피드백: "유형·주제 구분이 잘 안 된다") — 간격 대신
           세로 구분선 + 좌우 패딩으로 나눈다. 접힌 상태에서는 구분선 없이 세로 간격만. */}
       <div className="@container">
-        <div className="grid grid-cols-1 gap-6 @2xl:grid-cols-2 @2xl:gap-x-0 @min-[800px]:grid-cols-3 @min-[800px]:gap-y-0">
+        <div className="grid grid-cols-1 gap-6 @2xl:grid-cols-2 @2xl:gap-x-0 @3xl:grid-cols-3 @3xl:gap-y-0">
           {/* 격자는 하나 — 직접 글/RT는 토글이 고른다(RT로만 도는 확산형 계정도 '활동 없음'으로 보이지 않게).
               창·셀 크기가 고정이라 계정을 바꿔도 같은 자리에 같은 크기로 선다. */}
-          <div className={`@2xl:pr-6 @min-[800px]:pr-5 ${HM_VARS}`}>
+          <div className={`@2xl:pr-6 @3xl:pr-5 ${HM_VARS}`}>
             <PostingHeatmap activity={activity} />
           </div>
 
@@ -667,12 +668,12 @@ function ActivityResult({ analysis, activity, followers }: {
           {direct > 0 && (
             <>
               {/* 유형·주제는 분류된 직접 글만 센다 — 위 타일(ACTIVITY_WEEKS주 활동)과 표본이 다르다는 건 도넛 가운데가 적는다 */}
-              <div className="@2xl:border-l @2xl:border-x-border @2xl:pl-6 @min-[800px]:pr-5">
+              <div className="@2xl:border-l @2xl:border-x-border @2xl:pl-6 @3xl:pr-5">
                 <TypeDonut types={types} classified={sample.directClassified ?? 0} />
               </div>
               {topics.length > 0 && (
                 /* min-w-0: 표의 내용 폭이 열을 부풀리지 않게 — 좁으면 표만 가로 스크롤한다(열은 균등 유지). */
-                <div className="min-w-0 @2xl:col-span-2 @min-[800px]:col-span-1 @min-[800px]:border-l @min-[800px]:border-x-border @min-[800px]:pl-5">
+                <div className="min-w-0 @2xl:col-span-2 @3xl:col-span-1 @3xl:border-l @3xl:border-x-border @3xl:pl-5">
                   <TopicTable topics={topics} accountMedianViews={stats.medianViews} />
                 </div>
               )}

@@ -8,6 +8,10 @@ import { cutoverDraftsToTasks } from '../src/lib/campaignTaskStore.ts';
   const dry = process.argv.includes('--dry-run');
   const sql = getSql();
   try {
+    // 038 뒤(draft.campaign_id가 없음)에 다시 돌려도 컬럼 오류 대신 '이미 끝남'으로 — cutoverDraftsToTasks와 같은 가드
+    const has = await sql<Array<{ n: string | number }>>`
+      select count(*) as n from information_schema.columns where table_name = 'draft' and column_name = 'campaign_id'`;
+    if (Number(has[0].n) === 0) { console.log('draft.campaign_id 컬럼이 없어요 — 038이 적용된 뒤라 이관은 이미 끝났어요'); return; }
     const pending = await sql<Array<{ n: string | number }>>`
       select count(*) as n from draft d where d.campaign_id is not null and not exists (select 1 from campaign_task t where t.draft_id = d.id)`;
     console.log(`이관 대상 원고: ${pending[0].n}건`);

@@ -75,3 +75,19 @@ export function judgeEngagement(medianViews: number | null, followers: number | 
   if (r >= 0.1) return `${v} — 팔로워 규모 대비 보통`;
   return `${v} — 팔로워 규모 대비 드문 편`;
 }
+
+// v2(스펙 §4): 직접 쓴 글 기준 빈도. 임계(주 1·3건)는 2단계에서 분포를 보고 조정한다.
+export function judgeDirectCadence(directPerDay: number, collectedInWindow: number): CadenceJudgment {
+  if (collectedInWindow === 0) return { label: '최근 4주 게시 없음 — 활동이 멈춘 계정일 수 있어요', caution: true };
+  const perWeek = Math.round(directPerDay * 7 * 10) / 10;
+  const n = Number.isInteger(perWeek) ? String(perWeek) : perWeek.toFixed(1);
+  if (perWeek < 1) return { label: `주 ${n}건 — 직접 쓰는 글이 드물어요`, caution: true };
+  return perWeek > 3 ? { label: `주 ${n}건 — 활발한 편`, caution: false } : { label: `주 ${n}건 — 보통`, caution: false };
+}
+// RT는 "적으면 나쁜" 축이 아니다 — 확산 채널로서의 활동량을 서술만 한다(caution 없음).
+export function judgeRt(rtPerDay: number, rtShare: number): { value: string; verdict: string; caution: false } {
+  const n = Number.isInteger(rtPerDay) ? String(rtPerDay) : rtPerDay.toFixed(1);
+  const value = `RT 하루 ${n}건 · 글의 ${Math.round(rtShare * 100)}%`;
+  const verdict = rtPerDay < 1 ? '확산 활동이 거의 없어요' : rtPerDay < 10 ? '확산 활동이 있어요' : '확산 활동이 매우 활발해요';
+  return { value, verdict, caution: false };
+}

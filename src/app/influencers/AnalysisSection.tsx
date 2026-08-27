@@ -6,7 +6,7 @@ import { formatKoCount } from '@/lib/formatKo';
 import { kstMonthDay, kstDayRange, kstDate, asDateOnly } from '@/lib/datetime';
 import { relTime } from '@/lib/relTime';
 import { judgeDirectCadence, judgeEngagement, judgeRt } from '@/lib/influencerJudgment';
-import { CONTENT_TYPE_LABEL, ACTIVITY_DAYS, ACTIVITY_WEEKS, type ContentType, type Activity } from '@/lib/analysisStats';
+import { CONTENT_TYPE_LABEL, ACTIVITY_WEEKS, type ContentType, type Activity } from '@/lib/analysisStats';
 import type { InfluencerAnalysis } from '@/lib/influencerStore';
 import { PANEL, PANEL_TITLE } from './profileShared';
 import { start as startRun, useRunState, getError } from './analysisRun';
@@ -63,12 +63,13 @@ export function AnalysisSection({ id, analysis, analyzedAt, followers, onAnalyze
     }
     // ACTIVITY_WEEKS주를 다 덮었으면 단서를 붙이지 않는다. 못 덮었으면 이유까지 적는다 —
     // 상한 때문인지(수집이 끊김) 계정 글이 그만큼뿐인지가 읽는 뜻을 바꾼다(스펙 §0).
-    if (v2.coveredDays < ACTIVITY_DAYS) {
+    const v2Weeks = Math.round(v2.days / 7);   // 저장된 창 기준 — 상수(현재 설정)가 아니라 그 분석이 실제로 본 기간
+    if (v2.coveredDays < v2.days) {
       caption.push(v2.truncated
-        ? `활동 최근 ${ACTIVITY_WEEKS}주(수집 상한으로 최근 ${v2.coveredDays}일치)`
-        : `활동 최근 ${ACTIVITY_WEEKS}주(최근 ${v2.coveredDays}일치 — 계정 글이 그만큼)`);
+        ? `활동 최근 ${v2Weeks}주(수집 상한으로 최근 ${v2.coveredDays}일치)`
+        : `활동 최근 ${v2Weeks}주(최근 ${v2.coveredDays}일치 — 계정 글이 그만큼)`);
     } else {
-      caption.push(`활동 최근 ${ACTIVITY_WEEKS}주`);
+      caption.push(`활동 최근 ${v2Weeks}주`);
     }
   }
   if (analysis && analyzedAt) caption.push(relTime(analyzedAt, '분석'));
@@ -425,8 +426,8 @@ function PostingHeatmap({ activity }: { activity: Activity }) {
   const noun = rtView ? 'RT' : '게시';
   const win = `${kstMonthDay(activity.since)}~${kstMonthDay(activity.until)}`;
   const ariaLabel = rtView
-    ? `RT 히트맵: 최근 ${ACTIVITY_WEEKS}주(${win}) 일별 RT 건수`
-    : `직접 쓴 글 히트맵: 최근 ${ACTIVITY_WEEKS}주(${win}) 일별 게시 건수`;
+    ? `RT 히트맵: 최근 ${Math.round(activity.days / 7)}주(${win}) 일별 RT 건수`
+    : `직접 쓴 글 히트맵: 최근 ${Math.round(activity.days / 7)}주(${win}) 일별 게시 건수`;
   const legend = rtView
     ? '회색은 RT 없음 · 진해질수록 1~4건 · 5~9건 · 10~19건 · 20건 이상'
     : '회색은 게시 없음 · 진해질수록 1건 · 2건 · 3~4건 · 5건 이상';
@@ -455,7 +456,7 @@ function PostingHeatmap({ activity }: { activity: Activity }) {
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <BlockTitle>{rtView ? `RT · 최근 ${ACTIVITY_WEEKS}주` : `직접 쓴 글 · 최근 ${ACTIVITY_WEEKS}주`}</BlockTitle>
+        <BlockTitle>{rtView ? `RT · 최근 ${Math.round(activity.days / 7)}주` : `직접 쓴 글 · 최근 ${Math.round(activity.days / 7)}주`}</BlockTitle>
         {hasRt && (
           /* 배타적 모드 전환기 — /generate 툴바의 세그먼티드 컨트롤과 같은 시각 문법(채움형) */
           <div role="group" aria-label="히트맵 기준"
@@ -619,7 +620,7 @@ function ActivityResult({ analysis, activity, followers }: {
               cadence.caution ? 'text-amber-800' : 'text-x-secondary'
             }`}>{cad.verdict}</p>
           )}
-          <p className="mt-0.5 text-caption text-x-secondary">{activity.coveredDays < ACTIVITY_DAYS ? `직접 쓴 글 · 최근 ${activity.coveredDays}일` : `직접 쓴 글 · 최근 ${ACTIVITY_WEEKS}주`}</p>
+          <p className="mt-0.5 text-caption text-x-secondary">{activity.coveredDays < activity.days ? `직접 쓴 글 · 최근 ${activity.coveredDays}일` : `직접 쓴 글 · 최근 ${Math.round(activity.days / 7)}주`}</p>
         </StatTile>
         <StatTile value={rt.value}>
           {/* RT는 많고 적음이 좋고 나쁨이 아니다 — 판단문도 서술로만 적는다(주의 색 없음) */}
@@ -686,7 +687,7 @@ function ActivityResult({ analysis, activity, followers }: {
       {/* 직접 글도 RT도 없으면 서버가 summary를 비워 보낸다 — 조용히 비는 대신 이유를 적는다 */}
       {summary === null && (
         <p className="text-ui leading-relaxed text-x-secondary">
-          최근 6개월 직접 쓴 글도, 최근 {ACTIVITY_WEEKS}주 RT도 없어 글 내용은 분석하지 못했어요
+          최근 6개월 직접 쓴 글도, 최근 {Math.round(activity.days / 7)}주 RT도 없어 글 내용은 분석하지 못했어요
         </p>
       )}
     </>

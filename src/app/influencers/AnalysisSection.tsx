@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui';
 import { formatKoCount } from '@/lib/formatKo';
-import { kstMonthDay, kstDayRange, kstDate, asDateOnly } from '@/lib/datetime';
+import { kstMonthDay, kstDayRange, kstDate, asDateOnly, dateOnlyMonthDay } from '@/lib/datetime';
 import { relTime } from '@/lib/relTime';
 import { judgeDirectCadence, judgeEngagement, judgeRt } from '@/lib/influencerJudgment';
 import { CONTENT_TYPE_LABEL, type ContentType, type Activity } from '@/lib/analysisStats';
@@ -329,11 +329,13 @@ function RtTopicChips({ items, rtSince, until, rtClassified }: {
 
 // ── 발행 히트맵 ──────────────────────────────────────────────────────────────
 // 하루 몇 건(타일)은 평균이라 "몰아 쓰고 2주 쉬는" 계정과 "매일 한 건"을 구분하지 못한다.
-// 히트맵은 그 분포를 그대로 보여준다 — 열=주, 행=요일.
-// 셀은 고정 20px다. 폭을 나눠 갖게(1fr) 두면 열 두세 개가 패널 폭을 나눠 셀 하나가 200px로
-// 부풀었다(실제 피드백). 창은 활동 창(28일) 그대로 — 달력 주로 잘려 최대 5열(양끝 부분 열)이다.
-const CELL = 20;      // px — 계정이 달라도 셀 크기는 같다
-const GAP = 3;        // 칸 사이 여백은 배경색이 만든다(면과 면을 붙이지 않는다)
+// 히트맵은 그 분포를 그대로 보여준다 — 달력과 같은 배치로 가로=요일 7칸, 세로=주.
+// GitHub식 전치(열=주)는 28일 창에서 열이 5개뿐이라 격자가 손가락만큼 좁았다(피드백) — 4~5줄 ×
+// 7칸이면 폭 250px 남짓으로 패널을 제대로 쓴다.
+// 셀은 고정 32px다. 폭을 나눠 갖게(1fr) 두면 칸 하나가 패널 폭만큼 부푼다(실제 피드백).
+const CELL = 32;         // px — 계정이 달라도 셀 크기는 같다
+const GAP = 4;           // 칸 사이 여백은 배경색이 만든다(면과 면을 붙이지 않는다)
+const LEGEND_CELL = 14;  // 범례는 색 견본일 뿐 — 격자 셀만 한 32px 견본은 눈금이 아니라 블록이 된다
 
 // 시퀀셜 단일 색상(x-blue 계열, 옅음→진함)과 고정 임계값. 분위수로 나누면 같은 색이 계정마다
 // 다른 뜻이 돼 두 계정을 나란히 읽을 수 없다 — 여기서 색 하나는 언제나 같은 건수다.
@@ -372,17 +374,22 @@ function cellLabel(key: string, n: number, noun: string): string {
   return `${Number(d.slice(5, 7))}월 ${Number(d.slice(8, 10))}일 (${dow}) · ${n > 0 ? `${noun} ${n}건` : `${noun} 없음`}`;
 }
 
-// daily는 게시가 있었던 날만 담는다. 창은 호출자가 준 since~until 그대로 — 활동 창이 28일 고정이라
-// 계정이 달라도 격자 폭이 같고, 두 계정(그리고 위·아래 두 줄)을 나란히 읽을 수 있다.
-// since 이전 칸(첫 열의 앞부분)은 그리지 않는다 — 0건 회색으로 채우면 '안 썼다'는 거짓말이 된다.
-function PostingHeatmap({ daily, since, until, thresholds, legend, title, ariaLabel, noun }: {
-  daily: Record<string, number>; since: string; until: string;
-  thresholds: HeatThresholds; legend: string; title: string; ariaLabel: string; noun: string;
-}) {
+// daily는 게시가 있었던 날만 담는다. 창은 activity의 since~until 그대로 — 활동 창이 28일 고정이라
+// 계정이 달라도 격자 크기가 같고, 두 계정을 나란히 읽을 수 있다.
+// since 이전 칸(첫 줄의 앞부분)·until 이후 칸(마지막 줄의 뒷부분)은 그리지 않는다 —
+// 0건 회색으로 채우면 '안 썼다'는 거짓말이 된다.
+function PostingHeatmap({ activity }: { activity: Activity }) {
   // 셀 수십 개를 Tooltip으로 감싸면 포털이 그만큼 뜬다 — 대신 격자 하나가 툴팁 하나를 공유한다.
   // (배치·포털 방식은 components/Tooltip.tsx와 같다. 왜 브라우저 기본 title이 아닌지도 거기 적혀 있다:
   //  뜨기까지 1초 가까이 걸리고, 조건에 따라 아예 안 뜬다 — 이 저장소가 이미 겪은 문제다.)
   const [tip, setTip] = useState<{ text: string; top: number; left: number; below: boolean } | null>(null);
+  // 격자는 하나뿐이고 무엇을 그릴지는 토글이 정한다(피드백: 위아래 두 격자는 복잡하다).
+  const [mode, setMode] = useState<'direct' | 'rt'>('direct');
+  // RT가 거의 없는 계정에 RT 토글을 두면 눌러봐야 빈 격자다 — 볼 게 없으면 스위치를 두지 않는다
+  // (거짓 어포던스, UX 원칙). 기준은 RT 비중 10% — judgeRt가 '확산 활동이 거의 없다'고 보는 대역.
+  const hasRt = activity.rtShare >= 0.1;
+  const rtView = hasRt && mode === 'rt';
+
   const showTip = (el: HTMLElement, text: string) => {
     const r = el.getBoundingClientRect();
     // 앵커가 hidden 패널 안으로 들어가면 rect가 전부 0이다 — 좌상단으로 튀는 대신 닫는다.
@@ -411,28 +418,47 @@ function PostingHeatmap({ daily, since, until, thresholds, legend, title, ariaLa
     };
   }, [tip]);
 
-  const untilDay = kstDate(until);
-  const sinceDay = kstDate(since);   // 이 날 이전 칸은 창 밖 — 그리지 않는다
+  // 선택이 바꾸는 것: 데이터·임계·제목·범례·툴팁의 명사까지 한 벌로 간다(라벨-값 일치, UX 원칙 4).
+  const daily = rtView ? activity.dailyRt : activity.dailyDirect;
+  const thresholds = rtView ? RT_THRESHOLDS : DIRECT_THRESHOLDS;
+  const noun = rtView ? 'RT' : '게시';
+  const win = `${kstMonthDay(activity.since)}~${kstMonthDay(activity.until)}`;
+  const ariaLabel = rtView
+    ? `RT 히트맵: 최근 4주(${win}) 일별 RT 건수`
+    : `직접 쓴 글 히트맵: 최근 4주(${win}) 일별 게시 건수`;
+  const legend = rtView
+    ? '회색은 RT 없음 · 진해질수록 1~4건 · 5~9건 · 10~19건 · 20건 이상'
+    : '회색은 게시 없음 · 진해질수록 1건 · 2건 · 3~4건 · 5건 이상';
+
+  const untilDay = kstDate(activity.until);
+  const sinceDay = kstDate(activity.since);   // 이 날 이전 칸은 창 밖 — 그리지 않는다
   if (!untilDay || !sinceDay) return null;
 
-  // 창 시작이 든 주의 일요일에서 시작한다(열 = 달력 주). 28일 창이면 열은 4개 또는 5개.
+  // 창 시작이 든 주의 일요일에서 시작한다(줄 = 달력 주). 28일 창이면 줄은 4개 또는 5개.
+  // gridStart가 일요일이라 i % 7이 곧 요일(가로), i / 7이 곧 주(세로)다.
   const gridStart = addDays(sinceDay, -dowOf(sinceDay));
   const days = kstDayRange(new Date(gridStart + 'T00:00:00Z'), new Date(untilDay + 'T00:00:00Z'));
   if (days.length === 0) return null;
-
-  const firstDow = dowOf(days[0]);
-  const colOf = (i: number) => Math.floor((i + firstDow) / 7);
-  const cols = colOf(days.length - 1) + 1;
-
-  // 달 라벨은 '그 달 1일이 든 열' 위에만 — 달 시작은 최소 4열 간격이라 라벨끼리 겹칠 일이 없다.
-  // (모든 달 경계를 찍으면 앞쪽 반쪽 열에서 라벨 두 개가 13px 안에 겹친다.)
-  const monthMarks = days.flatMap((d, i) => (
-    d.slice(8) === '01' ? [{ col: colOf(i), label: `${Number(d.slice(5, 7))}월` }] : []
-  ));
+  const rows = Math.ceil(days.length / 7);
 
   return (
     <div>
-      <BlockTitle>{title}</BlockTitle>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <BlockTitle>{rtView ? 'RT · 최근 4주' : '직접 쓴 글 · 최근 4주'}</BlockTitle>
+        {hasRt && (
+          /* 배타적 모드 전환기 — /generate 툴바의 세그먼티드 컨트롤과 같은 시각 문법(채움형) */
+          <div role="group" aria-label="히트맵 기준"
+               className="flex h-7 shrink-0 overflow-hidden rounded-lg border border-x-border-strong">
+            {(['direct', 'rt'] as const).map((m, i) => (
+              <button key={m} onClick={() => setMode(m)} aria-pressed={mode === m}
+                      className={`h-full px-3 text-caption ${i > 0 ? 'border-l border-x-border-strong' : ''} ${
+                        mode === m ? 'bg-x-blue font-bold text-white' : 'bg-white text-x-secondary hover:bg-x-hover'}`}>
+                {m === 'direct' ? '직접 쓴 글' : 'RT'}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="mt-2 overflow-x-auto">
         <div
           role="img"
@@ -440,30 +466,29 @@ function PostingHeatmap({ daily, since, until, thresholds, legend, title, ariaLa
           aria-label={ariaLabel}
           className="grid w-max"
           style={{
-            gridTemplateColumns: `auto repeat(${cols}, ${CELL}px)`,   // 1열은 요일 라벨
-            gridTemplateRows: `auto repeat(7, ${CELL}px)`,
+            gridTemplateColumns: `auto repeat(7, ${CELL}px)`,      // 1열은 주(일요일) 날짜 라벨
+            gridTemplateRows: `auto repeat(${rows}, ${CELL}px)`,   // 1행은 요일 라벨
             gap: `${GAP}px`,
           }}
           onMouseLeave={() => setTip(null)}
         >
-          {/* 세로축이 요일이라는 건 라벨 없이는 스스로 설명되지 않는다("이게 왜 7칸이지?"라는
-              질문을 실제로 받았다). GitHub처럼 격줄(월·수·금)만 적는다 — 7개를 다 적으면
-              라벨이 격자만큼 시끄러워진다. */}
-          {([['월', 3], ['수', 5], ['금', 7]] as const).map(([label, row]) => (
+          {/* 가로축이 요일이라는 건 라벨 없이는 스스로 설명되지 않는다. 달력과 같은 배치라 7개를
+              다 적어도 시끄럽지 않다 — 오히려 '달력이구나'를 한눈에 말해준다. */}
+          {DOW.map((label, i) => (
             <span key={label}
-              className="self-center pr-1 text-caption leading-none text-x-muted"
-              style={{ gridColumnStart: 1, gridRowStart: row }}
+              className="justify-self-center text-caption leading-none text-x-muted"
+              style={{ gridColumnStart: i + 2, gridRowStart: 1 }}
               onMouseEnter={() => setTip(null)}
             >{label}</span>
           ))}
-          {monthMarks.map((m) => (
-            <span
-              key={m.col}
-              className="whitespace-nowrap text-caption leading-none text-x-muted"
-              style={{ gridColumnStart: m.col + 2, gridRowStart: 1 }}
-              /* 라벨 줄로 올라가면 방금 보던 셀의 툴팁은 이미 거짓말이다 — 격자를 벗어나기 전에 걷는다 */
+          {/* 줄마다 그 주 일요일 날짜 — 월 라벨을 대신한다(어느 주인지가 어느 달인지보다 쓸모 있다) */}
+          {Array.from({ length: rows }, (_, r) => (
+            <span key={days[r * 7]}
+              className="self-center whitespace-nowrap pr-1 text-caption leading-none text-x-muted"
+              style={{ gridColumnStart: 1, gridRowStart: r + 2 }}
+              /* 라벨로 올라가면 방금 보던 셀의 툴팁은 이미 거짓말이다 — 격자를 벗어나기 전에 걷는다 */
               onMouseEnter={() => setTip(null)}
-            >{m.label}</span>
+            >{dateOnlyMonthDay(asDateOnly(days[r * 7]))}</span>
           ))}
           {days.map((d, i) => {
             if (d < sinceDay) return null;   // 창 시작 전: 데이터 없음 ≠ 0건 — 빈칸으로 둔다
@@ -471,10 +496,10 @@ function PostingHeatmap({ daily, since, until, thresholds, legend, title, ariaLa
             return (
               <div
                 key={d}
-                className="rounded-[3px]"
+                className="rounded-[4px]"
                 style={{
-                  gridColumnStart: colOf(i) + 2,              // 1열은 요일 라벨
-                  gridRowStart: ((i + firstDow) % 7) + 2,     // 1행은 달 라벨
+                  gridColumnStart: (i % 7) + 2,          // 가로 = 요일(1열은 날짜 라벨)
+                  gridRowStart: Math.floor(i / 7) + 2,   // 세로 = 주(1행은 요일 라벨)
                   background: HEAT_STEPS[heatStep(n, thresholds)],
                 }}
                 onMouseEnter={(e) => showTip(e.currentTarget, cellLabel(d, n, noun))}
@@ -489,13 +514,19 @@ function PostingHeatmap({ daily, since, until, thresholds, legend, title, ariaLa
           <span className="flex" style={{ gap: `${GAP}px` }}>
             {HEAT_STEPS.map((c) => (
               <span key={c} className="rounded-[3px]"
-                style={{ width: CELL, height: CELL, background: c }} />
+                style={{ width: LEGEND_CELL, height: LEGEND_CELL, background: c }} />
             ))}
           </span>
           <span>많음</span>
         </div>
         {/* 색이 몇 건인지는 hover가 아니라 글로 적는다 — 범례에 title을 달면 아무도 못 본다 */}
         <p className="mt-1">{legend}</p>
+        {/* 토글이 있을 때만 — 없으면 가리키는 스위치가 없어 안내가 거짓이 된다 */}
+        {hasRt && (
+          <p className="mt-1">
+            RT는 하루 평균 {Number.isInteger(activity.rtPerDay) ? activity.rtPerDay : activity.rtPerDay.toFixed(1)}건 — 토글로 볼 수 있어요
+          </p>
+        )}
       </div>
       {tip && createPortal(
         <div role="tooltip" style={{ top: tip.top, left: tip.left }}
@@ -565,7 +596,6 @@ function ActivityResult({ analysis, activity, followers }: {
     .sort((a, b) => b[1] - a[1]);
   const direct = sample.direct ?? 0;
   const rtTopics = (analysis.rtTopics ?? []).slice(0, 5);
-  const win = `${kstMonthDay(activity.since)}~${kstMonthDay(activity.until)}`;
 
   return (
     <>
@@ -591,24 +621,9 @@ function ActivityResult({ analysis, activity, followers }: {
         </StatTile>
       </div>
 
-      {/* 두 줄로 나누는 이유: RT로만 도는 확산형 계정을 한 줄(직접 글)로만 그리면 '활동 없음'으로 보인다.
-          같은 창·같은 셀 크기라 위아래를 그대로 겹쳐 읽을 수 있다 — 임계만 축에 맞게 다르다. */}
-      <div className="space-y-4">
-        <PostingHeatmap
-          daily={activity.dailyDirect} since={activity.since} until={activity.until}
-          thresholds={DIRECT_THRESHOLDS} noun="게시"
-          title="직접 쓴 글 (최근 4주)"
-          ariaLabel={`직접 쓴 글 히트맵: 최근 4주(${win}) 일별 게시 건수`}
-          legend="회색은 게시 없음 · 진해질수록 1건 · 2건 · 3~4건 · 5건 이상"
-        />
-        <PostingHeatmap
-          daily={activity.dailyRt} since={activity.since} until={activity.until}
-          thresholds={RT_THRESHOLDS} noun="RT"
-          title="RT (최근 4주)"
-          ariaLabel={`RT 히트맵: 최근 4주(${win}) 일별 RT 건수`}
-          legend="회색은 RT 없음 · 진해질수록 1~4건 · 5~9건 · 10~19건 · 20건 이상"
-        />
-      </div>
+      {/* 격자는 하나 — 직접 글/RT는 토글이 고른다(RT로만 도는 확산형 계정도 '활동 없음'으로 보이지 않게).
+          창·셀 크기가 고정이라 계정을 바꿔도 같은 자리에 같은 크기로 선다. */}
+      <PostingHeatmap activity={activity} />
 
       {/* '무엇을 쓰나'(유형)와 '무엇이 통하나'(주제)는 같은 질문의 두 면이라 나란히 세운다.
           접힘 기준은 화면 폭이 아니라 이 블록이 실제로 가진 폭(@container) — 사이드바·패널 폭이

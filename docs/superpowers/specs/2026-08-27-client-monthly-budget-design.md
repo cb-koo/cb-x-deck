@@ -79,7 +79,7 @@ interface MonthRow {
 | `PATCH /api/clients/[id]` | body `monthlyBudget?: number \| null` 추가. 검증: null 또는 0 이상 정수, 아니면 400 `예산은 0 이상 숫자로 입력해 주세요`. `requireMember` |
 | `PUT /api/clients/[id]/budget/[month]` (신설) | body `{ amount: number \| null }`. `month`는 `/^\d{4}-(0[1-9]\|1[0-2])$/`, 아니면 400. amount 규칙 동일. 응답 = `getClientWithProcedures` 결과. `requireMember` |
 | `GET /api/clients/[id]/budget` (신설) | `{ rows: MonthRow[] }`. 클라이언트 로드와 분리 — 상세 첫 화면을 느리게 하지 않고 예산 패널이 자기 데이터를 따로 부른다. `requireAllowedUser` |
-| `GET /api/campaigns/[id]` | 응답에 `budget: { month, amount, source, spentKrw, jpyIncluded, campaignCount } \| null` 추가. `client_id`가 null이면 null |
+| `GET /api/campaigns/[id]` | 응답에 `budget: { month, amount, source, othersKrw, campaignCount } \| null` 추가. `client_id`가 null이면 null. `othersKrw` = 같은 달 **다른** 캠페인의 원화 환산 합 — 이 캠페인 몫은 화면이 자기 합계(`campaignTotal`)를 더해 잔액을 만든다. 비용 셀을 고친 순간 '비용 합계' 칸과 '예산 잔액' 칸이 같은 박자로 움직이게(UX 원칙 4) |
 
 ## 6. 화면
 
@@ -102,7 +102,7 @@ interface MonthRow {
 ```
 
 - **기본 월 예산 입력**: 숫자만(천 단위 콤마 표시는 화면에서만, 저장은 정수). 비우고 저장 = 미설정(null). 저장은 `PATCH /api/clients/[id]`. 기존 `BasicInfoEditor`와 같은 dirty/저장됨 패턴, 상세의 `register`에 등록해 미저장 확인·일괄 저장에 포함.
-- **예산 셀 클릭** → 팝오버: 금액 입력 + [저장] + **[기본값으로 되돌리기]**(예외가 있는 달만 표시). 즉시 저장(`PUT …/budget/[month]`), 성공 시 표 재조회. "기본"·"(수정)" 표기는 `source`에서.
+- **예산 셀 클릭** → 그 행이 인라인 편집으로 바뀜(포털 팝오버 아님 — 표 안이라 잘림 문제 없음): 금액 입력 + [저장] + [취소] + **[기본값으로 되돌리기]**(예외가 있는 달만 표시). 즉시 저장(`PUT …/budget/[month]`), 성공 시 표 재조회. "기본"·"(수정)" 표기는 `source`에서.
 - **집행 셀**: 원화 환산 합계 + 캠페인 수(숫자만, 링크 없음 — 캠페인 목록에 클라 필터가 없다). 엔화 포함 달만 보조줄.
 - **잔액 셀**: `budgetJudgment`. 초과는 숫자·문구 빨강(`text-red-700`, 요약 카드 밀림과 같은 방식 — 배경색 안 씀).
 - **예산 미설정 + 예외 없음**: 예산 "—", 잔액 "예산을 설정하면 잔액이 보여요". 집행은 그대로 보인다.

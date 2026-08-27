@@ -31,9 +31,9 @@ function identifyingValue(m: PaymentMethod): { field: string; value: string } | 
 
 type FeeMode = 'none' | 'grossUp' | 'fixed';
 const FEE_MODE_LABEL: Record<FeeMode, string> = {
-  none: '없음',
-  grossUp: '실수령 보장 — 수수료를 우리가 부담',
-  fixed: '고정 금액 추가',
+  none: '인플 부담',
+  grossUp: 'CB 부담 (비율)',
+  fixed: 'CB 부담 (고정액)',
 };
 
 interface Draft {
@@ -394,7 +394,7 @@ function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, o
         )}
 
         <div className={CELL}>
-          <label className={FIELD_LABEL} htmlFor={`${uid}-fee`}>송금 수수료 처리</label>
+          <label className={FIELD_LABEL} htmlFor={`${uid}-fee`}>송금 수수료</label>
           <select id={`${uid}-fee`} value={draft.feeMode} disabled={busy}
                   onChange={(e) => set('feeMode', e.target.value as FeeMode)}
                   className={`${FIELD} bg-white`}>
@@ -406,14 +406,14 @@ function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, o
         {/* 수수료 값 칸은 처리 방식이 있을 때만 — 없을 때는 옆 칸을 비워 격자 리듬을 지킨다 */}
         {draft.feeMode === 'grossUp' && (
           <div className={CELL}>
-            <label className={FIELD_LABEL} htmlFor={`${uid}-percent`}>수수료 비율 (%)</label>
+            <label className={FIELD_LABEL} htmlFor={`${uid}-percent`}>비율 (%)</label>
             <input id={`${uid}-percent`} value={draft.feePercent} disabled={busy} inputMode="decimal"
                    onChange={(e) => set('feePercent', e.target.value)} className={`${FIELD} text-right`} />
           </div>
         )}
         {draft.feeMode === 'fixed' && (
           <div className={CELL}>
-            <label className={FIELD_LABEL} htmlFor={`${uid}-amount`}>추가 금액 ({CURRENCY_LABEL[currency]})</label>
+            <label className={FIELD_LABEL} htmlFor={`${uid}-amount`}>고정액 ({CURRENCY_LABEL[currency]})</label>
             <input id={`${uid}-amount`} value={draft.feeAmount} disabled={busy} inputMode="numeric"
                    onChange={(e) => set('feeAmount', e.target.value)} className={`${FIELD} text-right`} />
           </div>

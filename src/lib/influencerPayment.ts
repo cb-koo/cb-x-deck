@@ -28,8 +28,8 @@ export const PAYMENT_FIELD_LABEL: Record<string, string> = {
 };
 
 export type PaymentFee =
-  | { mode: 'grossUp'; percent: number } // 실수령 보장 — 총액 = 순액 ÷ (1 - percent/100)
-  | { mode: 'fixed'; amount: number };   // 고정 금액 추가(통화는 수단 통화)
+  | { mode: 'grossUp'; percent: number } // CB 부담(비율) — 총액 = 순액 ÷ (1 - percent/100), 인플이 순액을 그대로 받는다
+  | { mode: 'fixed'; amount: number };   // CB 부담(고정액) — 총액 = 순액 + amount(통화는 수단 통화)
 
 export interface PaymentMethod {
   id: string;
@@ -157,8 +157,9 @@ export function describeMethod(m: PaymentMethod | PaymentMethodInput): string {
 
 export function formatFee(fee: PaymentFee | undefined, currency: Currency): string | null {
   if (!fee) return null;
-  if (fee.mode === 'grossUp') return `실수령 보장 — 수수료 ${fee.percent}%는 우리가 부담`;
-  return `송금 수수료 ${formatMoney(fee.amount, currency)} 추가`;
+  // 폼 옵션명(인플 부담 / CB 부담 (비율) / CB 부담 (고정액))과 같은 말 — 카드·타임라인이 다른 말을 쓰면 같은 값인지 헷갈린다
+  if (fee.mode === 'grossUp') return `송금 수수료 CB 부담 · ${fee.percent}%`;
+  return `송금 수수료 CB 부담 · ${formatMoney(fee.amount, currency)}`;
 }
 
 export function getDefaultPaymentMethod(list: PaymentMethod[]): PaymentMethod | null {

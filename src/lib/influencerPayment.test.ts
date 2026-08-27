@@ -293,8 +293,8 @@ test('describeMethod: 유형별 짧은 식별 표시', () => {
 
 test('formatFee: 부재는 null, grossUp/fixed 문구', () => {
   assert.equal(formatFee(undefined, 'KRW'), null);
-  assert.equal(formatFee({ mode: 'grossUp', percent: 5 }, 'KRW'), '실수령 보장 — 수수료 5%는 우리가 부담');
-  assert.equal(formatFee({ mode: 'fixed', amount: 165 }, 'JPY'), '송금 수수료 165엔 추가');
+  assert.equal(formatFee({ mode: 'grossUp', percent: 5 }, 'KRW'), '송금 수수료 CB 부담 · 5%');
+  assert.equal(formatFee({ mode: 'fixed', amount: 165 }, 'JPY'), '송금 수수료 CB 부담 · 165엔');
 });
 
 test('getDefaultPaymentMethod: 있으면 반환, 없으면 null', () => {

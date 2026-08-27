@@ -30,7 +30,7 @@ export interface FetchResult {
 fetchRecent(userId, opts): Promise<FetchResult>
 ```
 - 페이지 최신순. **정상 종료**: `(가장 오래된 트윗 < activitySince) && (directCount ≥ directTarget || 가장 오래된 트윗 < lookbackSince)` 또는 `!has_more`. **상한 종료(truncated)**: `pagesUsed ≥ maxPages || tweets ≥ maxTweets || now ≥ deadlineAt`.
-- 고정글(`isPinned`): **시간순 판정(sawOld)에서만 제외하고 수집에는 포함**, id Set으로 중복 제거 — 4주 창에서 1건의 비중이 커져 버리지 않는다.
+- 고정글(`isPinned`): **시간순 판정(sawOld)에서만 제외하고 수집에는 포함**, id Set으로 중복 제거 — 8주 창에서 1건의 비중이 커져 버리지 않는다.
 - `AnalysisTweet`에 `rtText?: string` — RT면 `raw.retweeted_tweet.text`(없으면 `raw.text`).
 - 상수(`influencerAnalysis.ts`): `ACTIVITY_DAYS=56`, `DIRECT_TARGET=60`, `LOOKBACK_MONTHS=6`, `MAX_PAGES=60`, `MAX_TWEETS=2000`, `RT_CLASSIFY_MAX=100`, `COLLECT_DEADLINE_MS=120_000`.
 
@@ -76,7 +76,7 @@ models
 - **히트맵 2줄**: 위 `직접 쓴 글`(색=`dailyDirect`, 임계 1/2/3~4/5+), 아래 `RT`(색=`dailyRt`, **RT 전용 임계 1~4/5~9/10~19/20+**, 범례 별도 표기) — RT 확산형 계정이 "활동 없음"으로 보이지 않게. 창 = **최근 56일**, 열 = 달력 주(일요일 시작)라 **최대 10열(양끝 부분 열)** — 캡션은 "최근 8주". 셀 20px 고정. 각 격자 `role="img"` aria-label에 기준 명시.
 - 유형 도넛(직접 글) + 주제 표(직접 글) 2열 유지. 표 아래 **`퍼나르는 주제`** `ul/li` 칩 `여행 21건 · …`(rtTopics 상위 5) + 캡션 `최근 N일 RT 100건 기준`(rtSince~until). RT 0건이면 생략.
 - 서술 3단락 + 헤드라인 유지. RT-only 문구: `직접 쓴 글이 없어 퍼나르는 주제로만 봤어요`(도넛·직접 주제 표 생략).
-- **구버전 분석(`activity` 없음)**: 헤드라인·서술은 그대로, 수치·히트맵 자리에 한 줄 `이전 방식으로 분석된 결과예요 — 다시 분석하면 4주 활동·직접 글 기준 지표로 바뀌어요`. v1 값(perWeek·mix·daily)을 읽는 코드는 남기지 않는다.
+- **구버전 분석(`activity` 없음)**: 헤드라인·서술은 그대로, 수치·히트맵 자리에 한 줄 `이전 방식으로 분석된 결과예요 — 다시 분석하면 8주 활동·직접 글 기준 지표로 바뀌어요`. v1 값(perWeek·mix·daily)을 읽는 코드는 남기지 않는다.
 
 ## 6. 분석 실행 스토어 (`src/app/influencers/analysisRun.ts`) + 전체 분석(일괄)
 - `AnalysisSection`의 `startAnalysis`/`inflight`를 **구독 가능한 스토어**로 추출: `start(id)`(진행 중이면 같은 프로미스 재사용) · `getState(id): 'idle'|'running'|'done'|'failed'` · `subscribe(id, cb)`(`useSyncExternalStore`용). 상태 변경 시 구독자 통지 — **이미 열려 있는 프로필**에서도 일괄 실행이 시작한 분석이 "분석 중…"→완료로 반영된다.

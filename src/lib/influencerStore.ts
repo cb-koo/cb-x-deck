@@ -5,7 +5,7 @@ import type { DraftStatus } from './draftStatus.ts';
 import type { UserInfo } from './getxapi.ts';
 import { draftVersionHash } from './draftStore.ts';
 import { diffPricing, mergePricing, type Pricing, type PricingChange } from './influencerPricing.ts';
-import type { ContentType, TopicStat } from './analysisStats.ts';
+import type { Activity, ContentType, TopicStat } from './analysisStats.ts';
 import { listInfluencerCampaigns, type InfluencerCampaignItem } from './campaignStore.ts';
 
 // 기록 채널 — 수동 한 줄 기록이 "어디서 오간 이야기인지" (스펙 §2)
@@ -17,19 +17,37 @@ export type InfluencerAutoEvent =
 // 로그 payload는 이벤트마다 모양이 다르다 — 읽는 쪽이 eventType으로 좁힌다.
 export type LogPayload = { from?: string; to?: string } | PricingChange;
 
-// 계정 분석 저장 형태 (스펙 §3) — 분석 실행(T7)이 만들고 프로필 화면(T11)이 읽는다.
+// 계정 분석 저장 형태 (계정 분석 v2 스펙 §3) — 분석 실행이 만들고 프로필 화면이 읽는다.
+// jsonb라 마이그레이션이 없다: v1로 저장된 행이 그대로 남아 있으므로 v1 필드는 전부 옵셔널이고,
+// UI는 `activity` 유무로 v1/v2를 가른다(v1 경로는 "다시 분석하세요" 한 줄만 그린다).
 export interface InfluencerAnalysis {
-  sample: { count: number; classified: number; since: string; until: string; months: number };
-  stats: {
-    perWeek: number; medianViews: number | null; medianLikes: number | null;
-    mix: { original: number; retweet: number; quote: number };
-    typeDist: Partial<Record<ContentType, number>>; sponsoredCount: number;
+  sample: {
+    // v2 — 활동(28일 창)과 내용(직접 글 60건)이 서로 다른 표본이라 둘을 따로 적는다.
+    collected?: number;          // 수집 총건수(RT 포함)
+    direct?: number;             // 직접 글 표본 건수(최대 60)
+    directClassified?: number; rtClassified?: number;
+    directSince?: string | null; // 직접 글 표본의 최고령 — 캡션의 기간 시작
+    directComplete?: boolean;    // 60건을 채웠나(false면 "6개월 안 전부")
+    pagesUsed?: number;
+    rtSince?: string | null;     // RT 표본의 최고령 — 퍼나르는 주제 캡션용
+    until: string;
+    // v1 — 구버전 분석에만 있다
+    count?: number; classified?: number; since?: string; months?: number;
   };
-  topics: TopicStat[];
-  // 한국 날짜별 게시 건수(발행 히트맵). 옵셔널: 이 필드가 생기기 전에 저장된 분석엔 없다 —
-  // 없으면 히트맵을 아예 그리지 않는다(빈 격자는 '0건'이라는 거짓말이다). 다시 분석하면 생긴다.
+  // v2에만 있다. 이 필드의 유무가 곧 분석 버전 판별식(명부 SELECT의 analysis_v2도 이 키를 본다).
+  activity?: Activity;
+  stats: {
+    // v2 기준: 직접 글 표본의 반응 중앙값·유형 분포·협찬 표기 수
+    medianViews: number | null; medianLikes: number | null;
+    typeDist: Partial<Record<ContentType, number>>; sponsoredCount: number;
+    // v1 — 구버전 분석에만 있다(읽는 코드 없음)
+    perWeek?: number; mix?: { original: number; retweet: number; quote: number };
+  };
+  topics: TopicStat[];                          // 직접 글 주제(조회 중앙값 포함)
+  rtTopics?: { tag: string; count: number }[];  // 퍼나르는 주제 — 조회수는 원작자 것이라 건수만
+  // v1의 발행 히트맵 재료. v2는 activity.dailyDirect/dailyRt 두 줄로 대체됐다.
   daily?: Record<string, number>;
-  // 표본 0건이면 null. headline은 옵셔널 — 이 필드가 생기기 전에 저장된 분석엔 없다(UI는 자리를 생략).
+  // 직접 글·RT 둘 다 0건이면 null. headline은 옵셔널 — 이 필드가 생기기 전 분석엔 없다(UI는 자리를 생략).
   summary: { headline?: string; tone: string; patterns: string; sponsorship: string } | null;
   models: { classify: string; synth: string };
 }

@@ -1,17 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeAccount, makeAnthropicChat, AnalysisFormatError, type AnalysisChat } from './influencerAnalysis.ts';
-import type { TweetSource } from './tweetSource.ts';
+import {
+  analyzeAccount, makeAnthropicChat, AnalysisFormatError, DIRECT_TARGET, type AnalysisChat,
+} from './influencerAnalysis.ts';
+import type { TweetSource, FetchResult } from './tweetSource.ts';
 import type { AnalysisTweet } from './analysisStats.ts';
 import type { AnthropicLike, LLMResponse } from './llm.ts';
 
-const NOW = new Date('2026-08-24T00:00:00.000Z');
+const NOW = new Date('2026-08-24T00:00:00.000Z');   // 창(28일) = 2026-07-27 ~ 08-24
 const tw = (over: Partial<AnalysisTweet>): AnalysisTweet => ({
   id: 't1', text: '本文', createdAt: '2026-08-20T00:00:00.000Z', kind: 'original',
   views: 100, likes: 10, hasMedia: false, ...over,
 });
-const sourceOf = (tweets: AnalysisTweet[], truncated = false): TweetSource => ({
-  fetchRecent: async () => ({ tweets, truncatedByCount: truncated }),
+// 페이크 수집기 — FetchResult 형태 그대로 돌려준다(v2 계약, 스펙 §1).
+const sourceOf = (tweets: AnalysisTweet[], over: Partial<FetchResult> = {}): TweetSource => ({
+  fetchRecent: async () => ({
+    tweets,
+    truncated: false,
+    reachedActivitySince: true,
+    directCount: tweets.filter((t) => t.kind !== 'retweet').length,
+    pagesUsed: 1,
+    ...over,
+  }),
 });
 
 // 페이크 chat: operation으로 단계를 구분해 답한다
@@ -26,11 +36,18 @@ function chatOf(handlers: Record<string, (user: string) => string>): AnalysisCha
   };
 }
 
-test('전체 흐름: 분류→정규화→통계→종합', async () => {
+// '…:\n{JSON}' 형태의 사용자 메시지에서 JSON 본문만 떼어낸다
+const jsonOf = (user: string): unknown => JSON.parse(user.slice(user.indexOf('{')));
+
+test('일반 계정: 활동은 28일 창, 내용은 직접 글 표본 — 두 축이 따로 계산된다', async () => {
   const tweets = [
-    tw({ id: 'a', views: 100 }), tw({ id: 'b', views: 300, kind: 'quote' }),
-    tw({ id: 'r', views: 900, kind: 'retweet' }),
+    tw({ id: 'a', views: 100 }),                                   // 창 안 직접
+    tw({ id: 'b', views: 300, kind: 'quote' }),                    // 창 안 직접(인용)
+    tw({ id: 'r1', kind: 'retweet', views: 900, rtText: '여행 원문1' }),
+    tw({ id: 'r2', kind: 'retweet', views: 800, rtText: '여행 원문2' }),
+    tw({ id: 'old', views: 200, createdAt: '2026-06-01T00:00:00.000Z' }),  // 창 밖 직접
   ];
+  let normUser = '';
   let synthUser = '';
   const chat = chatOf({
     'anthropic.influencerClassify': (user) => JSON.stringify({
@@ -38,9 +55,14 @@ test('전체 흐름: 분류→정규화→통계→종합', async () => {
         { id, contentType: 'review', sponsored: id === 'b', evidence: id === 'b' ? '#PR' : null, topics: ['미용 의료'] }
       )),
     }),
-    'anthropic.influencerNormalize': () => JSON.stringify({
-      topics: [{ tag: '미용의료', absorbs: ['미용 의료'] }],
+    'anthropic.influencerClassifyRt': (user) => JSON.stringify({
+      items: (JSON.parse(user.slice(user.indexOf('['))) as Array<{ id: string }>)
+        .map(({ id }) => ({ id, topics: ['여행'] })),
     }),
+    'anthropic.influencerNormalize': (user) => (normUser = user, JSON.stringify({
+      direct: [{ tag: '미용의료', absorbs: ['미용 의료'] }],
+      rt: [{ tag: '여행', absorbs: ['여행'] }],
+    })),
     'anthropic.influencerSynth': (user) => (synthUser = user, JSON.stringify({
       headline: '시술 후기를 꾸준히 올리는 계정이에요.',
       tone: '친근한 후기 톤', patterns: '후기 글 반응 좋음', sponsorship: '#PR 1건 관찰',
@@ -48,53 +70,96 @@ test('전체 흐름: 분류→정규화→통계→종합', async () => {
   });
   const a = await analyzeAccount({ source: sourceOf(tweets), chat }, 'u1', { now: NOW });
 
-  assert.equal(a.sample.count, 3);
-  assert.equal(a.sample.classified, 2);              // RT 제외 2건 분류
-  assert.equal(a.sample.months, 3);
-  assert.deepEqual(a.stats.mix, { original: 1, retweet: 1, quote: 1 });
-  assert.equal(a.stats.medianViews, 200);            // RT 900 제외
+  // 활동 = 창 안 4건(직접 2·RT 2)
+  assert.equal(a.activity!.rtShare, 0.5);
+  assert.equal(a.activity!.days, 28);
+  // 내용 = 직접 글 표본 3건(창 밖 것도 포함 — 60건까지 거슬러 간다)
+  assert.equal(a.sample.direct, 3);
+  assert.equal(a.sample.collected, 5);
+  assert.equal(a.sample.directClassified, 3);
+  assert.equal(a.sample.rtClassified, 2);
+  assert.equal(a.sample.directSince, '2026-06-01T00:00:00.000Z');
+  assert.equal(a.sample.rtSince, '2026-08-20T00:00:00.000Z');
+  assert.equal(a.sample.directComplete, false);      // directCount 3 < 60
+  assert.equal(a.sample.pagesUsed, 1);
+  assert.equal(a.stats.medianViews, 200);            // 직접 100·300·200 → 200 (RT 900/800 제외)
   assert.equal(a.stats.sponsoredCount, 1);
-  assert.deepEqual(a.stats.typeDist, { review: 2 });
-  assert.deepEqual(a.topics, [{ tag: '미용의료', count: 2, medianViews: 200 }]);
-  assert.deepEqual(a.daily, { '2026-08-20': 3 });     // 히트맵 재료 — RT 포함 3건이 같은 한국 날짜
-  assert.equal(a.summary!.tone, '친근한 후기 톤');
+  assert.deepEqual(a.stats.typeDist, { review: 3 });
+  assert.deepEqual(a.topics, [{ tag: '미용의료', count: 3, medianViews: 200 }]);
+  assert.deepEqual(a.rtTopics, [{ tag: '여행', count: 2 }]);
   assert.equal(a.summary!.headline, '시술 후기를 꾸준히 올리는 계정이에요.');
-  assert.deepEqual(chat.calls, ['anthropic.influencerClassify', 'anthropic.influencerNormalize', 'anthropic.influencerSynth']);
-  // 배율은 코드가 계산해 넘긴다 — LLM이 나눗셈하지 않게(스펙 §2). 200 ÷ 200 = 1
+  assert.deepEqual(chat.calls, [
+    'anthropic.influencerClassify', 'anthropic.influencerClassifyRt',
+    'anthropic.influencerNormalize', 'anthropic.influencerSynth',
+  ]);
+
+  // 정규화는 두 축을 한 콜에 보낸다 — 어휘는 공유하되 각 축이 자기 슬롯을 갖는다(스펙 §3-5)
+  const norm = jsonOf(normUser) as { direct: unknown[]; rt: unknown[] };
+  assert.equal('rt' in norm, true);
+  assert.deepEqual(norm.direct, [{ tag: '미용 의료', count: 3 }]);
+  assert.deepEqual(norm.rt, [{ tag: '여행', count: 2 }]);
+
+  // 종합 입력: v1의 주당_게시·구성은 빠지고 활동·퍼나르는_주제가 들어간다(스펙 §3-6)
+  assert.equal(synthUser.includes('주당_게시'), false);
+  assert.equal(synthUser.includes('구성'), false);
+  assert.match(synthUser, /"활동":/);
+  assert.match(synthUser, /"퍼나르는_주제":/);
+  assert.match(synthUser, /"RT_비중":0\.5/);
   assert.match(synthUser, /"계정_조회_중앙값":200/);
   assert.match(synthUser, /"배율":1[,}]/);
 });
 
-test('표본 0건: LLM 안 부르고 summary null', async () => {
-  const chat = chatOf({});
-  const a = await analyzeAccount({ source: sourceOf([]), chat }, 'u1', { now: NOW });
-  assert.equal(a.sample.count, 0);
-  assert.equal(a.summary, null);
-  assert.deepEqual(a.topics, []);
-  assert.deepEqual(chat.calls, []);
-});
-
-test('분류 누락: 1회 재시도, 그래도 빠지면 classified에 반영', async () => {
-  const tweets = [tw({ id: 'a' }), tw({ id: 'b' })];
-  let classifyCalls = 0;
+test('RT-only 계정: 직접 글이 없어도 퍼나르는 주제로 종합을 돈다', async () => {
+  const tweets = [
+    tw({ id: 'r1', kind: 'retweet', rtText: '여행 원문1' }),
+    tw({ id: 'r2', kind: 'retweet', rtText: '여행 원문2' }),
+    tw({ id: 'r3', kind: 'retweet', rtText: '맛집 원문' }),
+  ];
   const chat = chatOf({
-    'anthropic.influencerClassify': () => {
-      classifyCalls++;
-      // 항상 a만 답한다 → b는 재시도에도 누락
-      return JSON.stringify({ items: [{ id: 'a', contentType: 'info', sponsored: false, evidence: null, topics: [] }] });
-    },
-    'anthropic.influencerNormalize': () => JSON.stringify({ topics: [] }),
-    'anthropic.influencerSynth': () => JSON.stringify({ headline: 'h', tone: 't', patterns: 'p', sponsorship: 's' }),
+    'anthropic.influencerClassifyRt': (user) => JSON.stringify({
+      items: (JSON.parse(user.slice(user.indexOf('['))) as Array<{ id: string }>)
+        .map(({ id }) => ({ id, topics: [id === 'r3' ? '맛집' : '여행'] })),
+    }),
+    'anthropic.influencerNormalize': () => JSON.stringify({
+      direct: [], rt: [{ tag: '여행', absorbs: ['여행'] }, { tag: '맛집', absorbs: ['맛집'] }],
+    }),
+    'anthropic.influencerSynth': () => JSON.stringify({
+      headline: '여행 소식을 퍼나르는 확산형 계정이에요.',
+      tone: '담백한 확산 톤', patterns: '직접 쓴 글이 없어 반응 패턴은 볼 수 없어요',
+      sponsorship: '협찬 표기는 관찰되지 않았어요',
+    }),
   });
   const a = await analyzeAccount({ source: sourceOf(tweets), chat }, 'u1', { now: NOW });
-  assert.equal(classifyCalls, 2);          // 본 호출 + 누락 재시도 1회
-  assert.equal(a.sample.classified, 1);
+
+  // 직접 글 분류 콜은 아예 없다 — RT용 1회만
+  assert.deepEqual(chat.calls, [
+    'anthropic.influencerClassifyRt', 'anthropic.influencerNormalize', 'anthropic.influencerSynth',
+  ]);
+  assert.equal(a.summary!.headline, '여행 소식을 퍼나르는 확산형 계정이에요.');
+  assert.deepEqual(a.topics, []);
+  assert.deepEqual(a.rtTopics, [{ tag: '여행', count: 2 }, { tag: '맛집', count: 1 }]);
+  assert.equal(a.sample.direct, 0);
+  assert.equal(a.sample.directSince, null);
+  assert.equal(a.activity!.rtShare, 1);
+  assert.equal(a.activity!.directPerDay, 0);
+});
+
+test('완전 0건: LLM 안 부르고 summary null', async () => {
+  const chat = chatOf({});
+  const a = await analyzeAccount({ source: sourceOf([]), chat }, 'u1', { now: NOW });
+  assert.deepEqual(chat.calls, []);
+  assert.equal(a.summary, null);
+  assert.deepEqual(a.topics, []);
+  assert.deepEqual(a.rtTopics, []);
+  assert.equal(a.sample.collected, 0);
+  assert.equal(a.activity!.directPerDay, 0);
+  assert.equal(a.activity!.coveredDays, 28);   // "4주 내내 0건"이 사실이다
 });
 
 test('종합 JSON 불량이면 AnalysisFormatError (반쪽 저장 방지 — 라우트가 실패 처리)', async () => {
   const chat = chatOf({
     'anthropic.influencerClassify': () => JSON.stringify({ items: [{ id: 'a', contentType: 'info', sponsored: false, evidence: null, topics: [] }] }),
-    'anthropic.influencerNormalize': () => JSON.stringify({ topics: [] }),
+    'anthropic.influencerNormalize': () => JSON.stringify({ direct: [], rt: [] }),
     'anthropic.influencerSynth': () => 'JSON 아님',
   });
   await assert.rejects(
@@ -106,13 +171,46 @@ test('종합 JSON 불량이면 AnalysisFormatError (반쪽 저장 방지 — 라
 test('종합에 headline이 없으면 AnalysisFormatError — 헤드라인은 스키마 required다', async () => {
   const chat = chatOf({
     'anthropic.influencerClassify': () => JSON.stringify({ items: [{ id: 'a', contentType: 'info', sponsored: false, evidence: null, topics: [] }] }),
-    'anthropic.influencerNormalize': () => JSON.stringify({ topics: [] }),
+    'anthropic.influencerNormalize': () => JSON.stringify({ direct: [], rt: [] }),
     'anthropic.influencerSynth': () => JSON.stringify({ tone: 't', patterns: 'p', sponsorship: 's' }),
   });
   await assert.rejects(
     analyzeAccount({ source: sourceOf([tw({ id: 'a' })]), chat }, 'u1', { now: NOW }),
     AnalysisFormatError,
   );
+});
+
+test('분류 누락: 1회 재시도, 그래도 빠지면 directClassified에 반영', async () => {
+  const tweets = [tw({ id: 'a' }), tw({ id: 'b' })];
+  let classifyCalls = 0;
+  const chat = chatOf({
+    'anthropic.influencerClassify': () => {
+      classifyCalls++;
+      // 항상 a만 답한다 → b는 재시도에도 누락
+      return JSON.stringify({ items: [{ id: 'a', contentType: 'info', sponsored: false, evidence: null, topics: [] }] });
+    },
+    'anthropic.influencerNormalize': () => JSON.stringify({ direct: [], rt: [] }),
+    'anthropic.influencerSynth': () => JSON.stringify({ headline: 'h', tone: 't', patterns: 'p', sponsorship: 's' }),
+  });
+  const a = await analyzeAccount({ source: sourceOf(tweets), chat }, 'u1', { now: NOW });
+  assert.equal(classifyCalls, 2);          // 본 호출 + 누락 재시도 1회
+  assert.equal(a.sample.directClassified, 1);
+});
+
+test('직접 글 표본은 최신 DIRECT_TARGET건까지만 — 창 밖이라도 60건을 채운다', async () => {
+  const many = Array.from({ length: DIRECT_TARGET + 5 }, (_, i) => tw({ id: `d${i}` }));
+  const chat = chatOf({
+    'anthropic.influencerClassify': (user) => JSON.stringify({
+      items: (JSON.parse(user.slice(user.indexOf('['))) as Array<{ id: string }>)
+        .map(({ id }) => ({ id, contentType: 'daily', sponsored: false, evidence: null, topics: [] })),
+    }),
+    'anthropic.influencerNormalize': () => JSON.stringify({ direct: [], rt: [] }),
+    'anthropic.influencerSynth': () => JSON.stringify({ headline: 'h', tone: 't', patterns: 'p', sponsorship: 's' }),
+  });
+  const a = await analyzeAccount(
+    { source: sourceOf(many, { directCount: DIRECT_TARGET + 5 }), chat }, 'u1', { now: NOW });
+  assert.equal(a.sample.direct, DIRECT_TARGET);
+  assert.equal(a.sample.directComplete, true);
 });
 
 // makeAnthropicChat: 페이크 AnthropicLike로 주입해 전송 params와 반환값을 검증

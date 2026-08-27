@@ -644,14 +644,16 @@ function ActivityResult({ analysis, activity, followers }: {
           본 것이라 한 행에 나란히 세운다 — 세로로 쌓으면 셋을 견주려고 스크롤을 오르내리게 된다.
           접힘 기준은 화면 폭이 아니라 이 블록이 실제로 가진 폭(@container) — 사이드바·패널 폭이
           달라져도 표가 눌리지 않는다.
-          · @4xl(896px)~: 3열. 히트맵·도넛은 내용 폭(auto), 남는 폭은 전부 표에 준다(1fr).
+          · @4xl(896px)~: 3열 균등(grid-cols-3) — 위 타일 3장과 열 경계가 맞아 한 판으로 읽힌다(피드백: auto·1fr로
+            내용 폭에 맞추면 왼쪽으로 몰리고 오른쪽만 비어 균형이 깨진다). 히트맵은 고정 픽셀이라 열이 그보다
+            좁으면 자기 자리에서만 가로 스크롤하고, 도넛 범례는 flex-wrap으로 아래로 접힌다.
           · @2xl(672px)~@4xl: 2열(히트맵+도넛) + 표는 아래 전체 폭 — 그 폭에서 한 열이 (672-24)/2 = 324px라
             표의 최소 폭(320px)이 겨우 들어가는데, 표가 위 두 블록과 폭을 나눠 가지면 바로 스크롤한다.
           · 그 미만: 1열.
           나란히 놓이면 열의 경계가 보여야 한다(피드백: "유형·주제 구분이 잘 안 된다") — 간격 대신
           세로 구분선 + 좌우 패딩으로 나눈다. 접힌 상태에서는 구분선 없이 세로 간격만. */}
       <div className="@container">
-        <div className="grid grid-cols-1 gap-6 @2xl:grid-cols-2 @2xl:gap-x-0 @4xl:grid-cols-[auto_auto_1fr] @4xl:gap-y-0">
+        <div className="grid grid-cols-1 gap-6 @2xl:grid-cols-2 @2xl:gap-x-0 @4xl:grid-cols-3 @4xl:gap-y-0">
           {/* 격자는 하나 — 직접 글/RT는 토글이 고른다(RT로만 도는 확산형 계정도 '활동 없음'으로 보이지 않게).
               창·셀 크기가 고정이라 계정을 바꿔도 같은 자리에 같은 크기로 선다. */}
           <div className="@2xl:pr-6">
@@ -666,10 +668,8 @@ function ActivityResult({ analysis, activity, followers }: {
                 <TypeDonut types={types} classified={sample.directClassified ?? 0} />
               </div>
               {topics.length > 0 && (
-                /* min-w-0: 1열·2열일 때 표의 내용 폭이 열을 부풀리지 않게 — 좁으면 표만 가로 스크롤한다.
-                   3열에서는 반대로 320px를 바닥으로 깔아 준다. auto 두 열(히트맵·도넛)은 max-content까지
-                   부풀 권리가 있어서, 바닥이 없으면 남는 폭을 저 둘이 다 가져가고 표만 스크롤한다. */
-                <div className="min-w-0 @2xl:col-span-2 @4xl:col-span-1 @4xl:min-w-[320px] @4xl:border-l @4xl:border-x-border @4xl:pl-6">
+                /* min-w-0: 표의 내용 폭이 열을 부풀리지 않게 — 좁으면 표만 가로 스크롤한다(열은 균등 유지). */
+                <div className="min-w-0 @2xl:col-span-2 @4xl:col-span-1 @4xl:border-l @4xl:border-x-border @4xl:pl-6">
                   <TopicTable topics={topics} accountMedianViews={stats.medianViews} />
                 </div>
               )}

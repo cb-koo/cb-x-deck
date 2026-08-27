@@ -6,6 +6,7 @@ import { Button } from '@/components/ui';
 import { relTime } from '@/lib/relTime';
 import { kstMonthDay } from '@/lib/datetime';
 import { PRICE_TYPE_LABEL, formatMoney, type PricingChange } from '@/lib/influencerPricing';
+import { PAYMENT_FIELD_LABEL, type PaymentMethodChange } from '@/lib/influencerPayment';
 import type { InfluencerAutoEvent, InfluencerChannel, InfluencerLogRow } from '@/lib/influencerStore';
 import { errOf, PANEL, PANEL_TITLE, useErrorReport } from './profileShared';
 
@@ -23,7 +24,11 @@ function autoText(l: InfluencerLogRow): ReactNode {
     case 'draft_assigned': return <>원고 배정 — {draft}</>;
     case 'draft_unassigned': return <>배정 해제 — {draft}</>;
     case 'draft_delivered': return <>원고 전달됨 — {draft}</>;
-    case 'handle_changed': return <>핸들 변경 @{l.payload?.from ?? '?'} → @{l.payload?.to ?? '?'}</>;
+    case 'handle_changed': {
+      // LogPayload가 유니언으로 늘어나면서 이 분기에서는 { from?, to? } 모양만 온다 — 좁혀서 캐스팅(동작 변화 없음).
+      const p = l.payload as { from?: string; to?: string } | null;
+      return <>핸들 변경 @{p?.from ?? '?'} → @{p?.to ?? '?'}</>;
+    }
     case 'pricing_changed': {
       const p = l.payload as PricingChange | null;
       if (!p) return <>단가 변경</>;
@@ -32,6 +37,27 @@ function autoText(l: InfluencerLogRow): ReactNode {
       }
       const fmt = (v: number | string | null) => (v === null ? '미정' : formatMoney(v as number, p.currency));
       return <>{PRICE_TYPE_LABEL[p.priceType]} 단가 {fmt(p.from)} → {fmt(p.to)}</>;
+    }
+    case 'payment_method_changed': {
+      const p = l.payload as PaymentMethodChange | null;
+      if (!p) return <>결제 수단 변경</>;
+      // updated의 from/to는 표시용 문자열이지만 currency 필드만 예외로 'KRW'/'JPY' 원시 코드다(influencerPayment의 displayValue) —
+      // pricing_changed의 통화 표시와 같은 말로 바꿔 보여준다.
+      const fmtField = (field: string, v: string | null) =>
+        v === null ? '없음' : field === 'currency' ? (v === 'JPY' ? '엔화' : '원화') : v;
+      switch (p.action) {
+        case 'added': return <>결제 수단 추가 — {p.label}</>;
+        case 'removed': return <>결제 수단 삭제 — {p.label}</>;
+        case 'default_changed': return <>기본 결제 수단 → {p.label}</>;
+        case 'updated': {
+          const fields = p.fields ?? [];
+          if (fields.length === 0) return <>결제 수단 수정 — {p.label}</>;
+          const f = fields[0];
+          const extra = fields.length > 1 ? ` 외 ${fields.length - 1}건` : '';
+          return <>결제 수단 수정 — {p.label}: {PAYMENT_FIELD_LABEL[f.field]} {fmtField(f.field, f.from)} → {fmtField(f.field, f.to)}{extra}</>;
+        }
+        default: return <>결제 수단 변경</>;
+      }
     }
     default: return <>활동 기록</>;
   }
@@ -45,6 +71,7 @@ function groupText(eventType: InfluencerAutoEvent | null, n: number): string {
     case 'draft_delivered': return `원고 ${n}건 전달됨`;
     case 'handle_changed': return `핸들 변경 ${n}건`;
     case 'pricing_changed': return `단가 변경 ${n}건`;
+    case 'payment_method_changed': return `결제 수단 변경 ${n}건`;
     default: return `활동 기록 ${n}건`;
   }
 }
@@ -148,7 +175,9 @@ function AutoLine({ log }: { log: InfluencerLogRow }) {
       {/* 카드·아이콘을 걷어내면 화면에서는 위계로 구분되지만 스크린리더에는 아무 단서도 남지 않는다 —
           '자동 기록'이라는 사실은 눈에 보이지 않게라도 반드시 읽혀야 한다(기존 sr-only 관례). */}
       <span><span className="sr-only">자동 기록: </span>{autoText(log)}</span>
-      {log.member && <span className="text-caption text-x-muted">{log.member.name}</span>}
+      {/* member가 없는 auto 로그는 가져오기 스크립트(actorId null)가 남긴 것 — 이름 자리를 비워두면
+          "누가"가 빠진 것처럼 보여 '가져오기'로 밝힌다(T4 확인). */}
+      <span className="text-caption text-x-muted">{log.member?.name ?? '가져오기'}</span>
       <span className="text-caption text-x-muted">{relTime(log.createdAt, '').trim()}</span>
     </li>
   );

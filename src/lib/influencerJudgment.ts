@@ -50,20 +50,6 @@ export function summarizeDraftStatuses(counts: Partial<Record<DraftStatus, numbe
 
 export interface CadenceJudgment { label: string; caution: boolean }
 
-// 표본이 얇은 것은 오류가 아니라 판단 재료다(스펙 §3 표본): 주 1회 미만 = 확산용 주의.
-export function judgeCadence(perWeek: number, sampleCount: number): CadenceJudgment {
-  if (sampleCount === 0) {
-    return { label: '최근 3개월 게시물이 없어요 — 활동이 없는 계정일 수 있어요', caution: true };
-  }
-  if (perWeek < 1) {
-    return { label: '주 1회 미만 — 활동이 적은 편이에요. 확산용 계정으로는 신중히 볼 필요가 있어요', caution: true };
-  }
-  const n = Number.isInteger(perWeek) ? String(perWeek) : perWeek.toFixed(1);
-  return perWeek > 3
-    ? { label: `주 ${n}건 — 활발한 편`, caution: false }
-    : { label: `주 ${n}건 — 보통`, caution: false };
-}
-
 // 조회 중앙값을 팔로워 규모에 대 보고 판단한다 — 절대값만으론 계정 크기에 따라 의미가 다르다.
 // 축약 표기는 formatKoCount(천·만·억) — 분석은 읽는 화면이라 X식 K/M보다 한국어 단위가 빨리 읽힌다(스펙 §3).
 export function judgeEngagement(medianViews: number | null, followers: number | null): string {

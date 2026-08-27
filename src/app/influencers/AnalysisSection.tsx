@@ -1,46 +1,15 @@
 'use client';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { formatKoCount } from '@/lib/formatKo';
 import { kstMonthDay, kstDayRange, kstDate, asDateOnly } from '@/lib/datetime';
 import { relTime } from '@/lib/relTime';
-import { judgeCadence, judgeEngagement } from '@/lib/influencerJudgment';
-import { CONTENT_TYPE_LABEL, type ContentType } from '@/lib/analysisStats';
+import { judgeDirectCadence, judgeEngagement, judgeRt } from '@/lib/influencerJudgment';
+import { CONTENT_TYPE_LABEL, type ContentType, type Activity } from '@/lib/analysisStats';
 import type { InfluencerAnalysis } from '@/lib/influencerStore';
 import { PANEL, PANEL_TITLE } from './profileShared';
-
-type AnalyzeResult = { analysis: InfluencerAnalysis; analyzedAt: string };
-
-// 진행 중인 분석 레지스트리(모듈 스코프 — 컴포넌트보다 오래 산다).
-//
-// 계약: 서버는 이탈과 무관하게 끝까지 돌아 저장한다 — 이 레지스트리는 표시 복원용이다.
-// 다른 인플루언서를 보다 돌아와도 '분석 중…'과 완료 반영이 이어지고, 진행 중 재클릭은
-// 새 요청 대신 같은 프로미스에 붙는다(비용 2배 방지). 새로고침하면 표시는 잃지만
-// 결과는 이미 저장돼 있다 — 다음 조회에서 그대로 보인다.
-const inflight = new Map<string, Promise<AnalyzeResult>>();
-
-// 서버가 말해 준 실패 — 네트워크 실패와 문구를 갈라 쓰려고 종류를 구분한다
-class AnalyzeError extends Error {}
-
-// X 수집 + LLM 분석 = 비용 액션 — 버튼으로만(AGENTS.md ⑥). 실패해도 기존 결과는 지우지 않는다.
-function startAnalysis(id: string): Promise<AnalyzeResult> {
-  const p = (async () => {
-    const r = await apiFetch(`/api/influencers/${id}/analyze`, { method: 'POST' });
-    const body = (await r.json().catch(() => ({}))) as {
-      analysis?: InfluencerAnalysis; analyzedAt?: string; error?: string;
-    };
-    // 서버 문구를 그대로 쓴다 — 원인을 넘겨짚지 않는다(프로필 갱신과 같은 관례)
-    if (!r.ok || !body.analysis) throw new AnalyzeError(body.error ?? `분석하지 못했어요 (오류 ${r.status})`);
-    return { analysis: body.analysis, analyzedAt: body.analyzedAt ?? new Date().toISOString() };
-  })();
-  inflight.set(id, p);
-  // catch를 먼저 물려 원본 프로미스에 핸들러를 남긴다 — 구독자가 없는 순간에 실패해도
-  // unhandled rejection이 되지 않는다. 정리는 자기 프로미스일 때만(뒤 실행을 지우지 않게).
-  p.catch(() => {}).finally(() => { if (inflight.get(id) === p) inflight.delete(id); });
-  return p;
-}
+import { start as startRun, useRunState, getError } from './analysisRun';
 
 export function AnalysisSection({ id, analysis, analyzedAt, followers, onAnalyzed }: {
   id: string;
@@ -49,46 +18,47 @@ export function AnalysisSection({ id, analysis, analyzedAt, followers, onAnalyze
   followers: number | null;
   onAnalyzed: (analysis: InfluencerAnalysis, analyzedAt: string) => void;
 }) {
-  // 진행·오류 모두 id를 달고 다닌다 — 다른 계정으로 갈아타도 남의 상태를 물려받지 않는다.
-  // 진행 표시는 레지스트리에서도 읽는다: 화면을 벗어났다 돌아온 첫 렌더에서 '분석 중…'이 그대로 서 있어야 한다.
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [err, setErr] = useState<{ id: string; text: string } | null>(null);
-  const running = busyId === id || inflight.has(id);
-  const errText = err?.id === id ? err.text : '';
+  // 진행·오류의 단일 출처는 모듈 스코프 스토어(analysisRun) — 명부의 일괄 실행이 시작한 분석도
+  // 이미 열려 있는 이 화면에 그대로 반영된다. 화면을 벗어났다 돌아와도 '분석 중…'이 서 있고,
+  // 상태는 id를 달고 다니므로 다른 계정으로 갈아타도 남의 진행을 물려받지 않는다.
+  const running = useRunState(id) === 'running';
+  const errText = getError(id) ?? '';
 
   // 부모가 인라인 화살표로 넘기는 콜백 — ref로 받아야 effect가 매 렌더 다시 붙지 않는다
   const onAnalyzedRef = useRef(onAnalyzed);
   useEffect(() => { onAnalyzedRef.current = onAnalyzed; });
 
-  // live.ok = '아직 이 id로 마운트돼 있다'. unmount 후 setState와 id가 바뀐 뒤의 잘못된 반영을 함께 막는다.
-  const liveRef = useRef({ ok: true });
-  const attach = useCallback((p: Promise<AnalyzeResult>, forId: string, live: { ok: boolean }) => {
-    p.then(
-      (res) => { if (!live.ok) return; setBusyId(null); onAnalyzedRef.current(res.analysis, res.analyzedAt); },
-      (e: unknown) => {
-        if (!live.ok) return;
-        setBusyId(null);
-        setErr({ id: forId, text: e instanceof AnalyzeError ? e.message
-          : '분석하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요' });
-      },
-    );
-  }, []);
-
-  // 마운트(또는 id 교체) 시 진행 중인 분석이 있으면 그 결과에 다시 붙는다 — 표시는 위 running이 이미 되살렸다
+  // 진행 중이면(내가 눌렀든, 일괄 실행이 시작했든, 마운트 전에 시작됐든) 그 프로미스에 붙어 완료를 반영한다.
+  // start는 진행 중이면 같은 프로미스를 돌려주므로 새 요청이 나가지 않는다(비용 2배 방지).
+  // live는 unmount·id 교체 뒤의 잘못된 반영을 막는다. 실패 문구는 스토어(getError)가 갖는다 —
+  // 여기서 다시 붙잡으면 unhandled rejection만 남는다.
   useEffect(() => {
-    const live = { ok: true };
-    liveRef.current = live;
-    const p = inflight.get(id);
-    if (p) attach(p, id, live);
-    return () => { live.ok = false; };
-  }, [id, attach]);
+    if (!running) return;
+    let live = true;
+    startRun(id).then(
+      (res) => { if (live) onAnalyzedRef.current(res.analysis, res.analyzedAt); },
+      () => {},
+    );
+    return () => { live = false; };
+  }, [id, running]);
 
-  function run() {
-    setErr(null);
-    setBusyId(id);
-    // 이미 돌고 있으면 붙기만 한다 — 새 요청을 보내지 않는다(중복 실행 = 비용 2배)
-    attach(inflight.get(id) ?? startAnalysis(id), id, liveRef.current);
+  // X 수집 + LLM 분석 = 비용 액션 — 버튼으로만(AGENTS.md ⑥). 실패해도 기존 결과는 지우지 않는다.
+  // 결과를 여기서 받지 않는 이유: start가 상태를 'running'으로 올리면 위 effect가 같은 프로미스에 붙는다.
+  function run() { void startRun(id).catch(() => {}); }
+
+  // 캡션은 두 표본(활동 4주 / 직접 쓴 글)을 따로 적는다 — 한 숫자로 뭉치면 라벨과 값이 어긋난다(UX 원칙 4).
+  const v2 = analysis?.activity;
+  const caption: string[] = [];
+  if (analysis && v2) {
+    const s = analysis.sample;
+    caption.push(s.directComplete && s.directSince
+      ? `직접 쓴 글 ${s.direct ?? 0}건(${kstMonthDay(s.directSince)}~${kstMonthDay(s.until)})`
+      // 60건을 못 채웠다 = 6개월 안에 있는 글이 그게 전부다. 기간을 적으면 "이 기간만 봤다"로 읽힌다.
+      : `직접 쓴 글 ${s.direct ?? 0}건(6개월 안 전부)`);
+    // 상한에 걸렸을 때만 적는다 — 계정 트윗이 소진돼 끝난 건 상한이 아니다(스펙 §0)
+    caption.push(v2.truncated ? `활동 최근 4주(수집 상한으로 최근 ${v2.coveredDays}일치)` : '활동 최근 4주');
   }
+  if (analysis && analyzedAt) caption.push(relTime(analyzedAt, '분석'));
 
   // 면 문법: 회색 바닥 위 흰 패널 한 장(스펙 §7). 자체 상단 간격·구분선은 두지 않는다 —
   // 패널 사이 간격은 부모의 space-y-5 하나가 단일 출처다.
@@ -98,13 +68,7 @@ export function AnalysisSection({ id, analysis, analyzedAt, followers, onAnalyze
         <h2 className={PANEL_TITLE}>계정 분석</h2>
         {analysis && (
           <>
-            <span className="text-caption text-x-muted">
-              최근 {analysis.sample.count}건 · {kstMonthDay(analysis.sample.since)}~{kstMonthDay(analysis.sample.until)} 기준
-              {analyzedAt && <> · {relTime(analyzedAt, '분석')}</>}
-              {/* 받아온 글보다 분류한 글이 적을 때만 그 사실을 적는다 — 표본 0건이면 이 말도 나오지 않는다 */}
-              {analysis.sample.count > analysis.sample.classified &&
-                <> · 이 중 {analysis.sample.classified}건 분석됨</>}
-            </span>
+            <span className="text-caption text-x-muted">{caption.join(' · ')}</span>
             <Button variant="subtle" className="ml-auto shrink-0" onClick={run} disabled={running}>
               {running ? '분석 중… (1~2분)' : '다시 분석'}
             </Button>
@@ -115,7 +79,7 @@ export function AnalysisSection({ id, analysis, analyzedAt, followers, onAnalyze
       {!analysis && (
         <div className="mt-1">
           <p className="text-caption leading-relaxed text-x-muted">
-            최근 3개월 글(최대 100건)을 X에서 받아와 주제·반응 수준을 분석해요 — 1~2분 걸려요.
+            최근 4주 활동과 직접 쓴 글 최근 60건을 X에서 받아와 주제·반응 수준을 분석해요 — 1~2분 걸려요.
           </p>
           <Button variant="primary" className="mt-1.5" onClick={run} disabled={running}>
             {running ? '분석 중… (1~2분)' : '계정 분석'}
@@ -182,7 +146,7 @@ function TypeDonut({ types, classified }: {
   types: Array<[ContentType, number]>; classified: number;
 }) {
   if (types.length === 0 || classified <= 0) return null;
-  // 분모는 분류된 글 수 — 위 타일(표본 전체)과 분모가 다르다. 그 사실은 도넛 가운데 총건수와 '분류 기준' 캡션이 말한다.
+  // 분모는 분류된 직접 글 수 — 위 타일(활동 4주)과 표본이 다르다. 그 사실은 도넛 가운데 총건수와 '분류 기준' 캡션이 말한다.
   const otherLeads = types[0][0] === 'other';
 
   // 12시에서 시계 방향, 건수 내림차순(types가 이미 정렬돼 온다). 길이를 gap만큼 깎아 흰 간격을 만든다 —
@@ -192,11 +156,11 @@ function TypeDonut({ types, classified }: {
   const lens = types.map(([, v]) => (v / classified) * DONUT_C);
   const slices = types.map(([k, v], i) => {
     const len = lens[i];
-    const start = lens.slice(0, i).reduce((a, b) => a + b, 0);
+    const startAt = lens.slice(0, i).reduce((a, b) => a + b, 0);
     return {
       k, v,
       pct: Math.round((v / classified) * 100),
-      start,
+      start: startAt,
       // 조각이 하나뿐이면 간격을 낼 상대가 없다(고리에 이 빠진 자국만 남는다).
       // 아주 작은 조각도 1px는 남겨 범례의 색 점과 이어 보이게 한다.
       dash: types.length > 1 ? Math.max(len - SLICE_GAP, 1) : len,
@@ -326,24 +290,53 @@ function TopicTable({ topics, accountMedianViews }: {
   );
 }
 
+// ── 퍼나르는 주제 ────────────────────────────────────────────────────────────
+// RT가 무엇을 퍼나르는지는 확산 채널로서의 정체성이다(스펙 §0). 조회수는 원작자 것이라 건수만 적는다 —
+// 그래서 표(정렬·비교)가 아니라 칩이다. 무엇을 세었는지는 아래 캡션이 말한다(라벨-값 일치).
+function RtTopicChips({ items, rtSince, until, rtClassified }: {
+  items: { tag: string; count: number }[]; rtSince: string | null; until: string; rtClassified: number;
+}) {
+  const days = rtSince ? Math.max(1, Math.round((Date.parse(until) - Date.parse(rtSince)) / DAY_MS)) : null;
+  return (
+    <div>
+      <BlockTitle>퍼나르는 주제</BlockTitle>
+      <ul className="mt-2 flex flex-wrap gap-1.5">
+        {items.map((t) => (
+          <li key={t.tag} className="rounded-full bg-x-surface px-2.5 py-0.5 text-ui text-x-secondary">
+            {t.tag} <span className="tabular-nums">{t.count}건</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-caption text-x-muted">
+        {days !== null ? `최근 ${days}일 RT ${rtClassified}건 기준` : `RT ${rtClassified}건 기준`}
+      </p>
+    </div>
+  );
+}
+
 // ── 발행 히트맵 ──────────────────────────────────────────────────────────────
-// 주당 몇 건(타일)은 평균이라 "몰아 쓰고 2주 쉬는" 계정과 "매일 한 건"을 구분하지 못한다.
+// 하루 몇 건(타일)은 평균이라 "몰아 쓰고 2주 쉬는" 계정과 "매일 한 건"을 구분하지 못한다.
 // 히트맵은 그 분포를 그대로 보여준다 — 열=주, 행=요일.
-// 셀은 고정 20px다. 폭을 나눠 갖게(1fr) 두면 표본이 짧은 계정에서 열 두세 개가 패널 폭을
-// 나눠 셀 하나가 200px로 부풀었다(실제 피드백). 크기를 고정하고 대신 창을 데이터에 맞춘다.
+// 셀은 고정 20px다. 폭을 나눠 갖게(1fr) 두면 열 두세 개가 패널 폭을 나눠 셀 하나가 200px로
+// 부풀었다(실제 피드백). 창은 활동 창(28일) 그대로 — 달력 주로 잘려 최대 5열(양끝 부분 열)이다.
 const CELL = 20;      // px — 계정이 달라도 셀 크기는 같다
 const GAP = 3;        // 칸 사이 여백은 배경색이 만든다(면과 면을 붙이지 않는다)
-const MIN_WEEKS = 4;  // 그보다 좁으면 격자로 안 보인다
-const MAX_WEEKS = 14; // 3개월 창의 폭 — 그보다 길면 오래된 쪽을 잘라 최근 14주만 남긴다
 
 // 시퀀셜 단일 색상(x-blue 계열, 옅음→진함)과 고정 임계값. 분위수로 나누면 같은 색이 계정마다
 // 다른 뜻이 돼 두 계정을 나란히 읽을 수 없다 — 여기서 색 하나는 언제나 같은 건수다.
 // 0건은 x-border(#eff3f4)와 같은 회색: 데이터가 아니라 바탕이라는 뜻. 4·5단계는 x-blue/x-blue-text.
 const HEAT_STEPS = ['#eff3f4', '#cfe9fb', '#8ecdf6', '#1d9bf0', '#1573ad'];
-function heatStep(n: number): number {
-  if (n <= 0) return 0;
-  if (n <= 2) return n;
-  return n <= 4 ? 3 : 4;
+
+// 임계는 줄마다 다르다 — 직접 글 [1,2,3,5]와 RT [1,5,10,20]은 자릿수가 다른 축이라
+// 같은 눈금을 쓰면 RT 줄이 전부 최고 단계로 물든다(스펙 §5).
+type HeatThresholds = readonly [number, number, number, number];
+const DIRECT_THRESHOLDS: HeatThresholds = [1, 2, 3, 5];
+const RT_THRESHOLDS: HeatThresholds = [1, 5, 10, 20];
+
+function heatStep(n: number, th: HeatThresholds): number {
+  let s = 0;
+  for (const t of th) if (n >= t) s += 1;
+  return s;
 }
 
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
@@ -357,25 +350,23 @@ function addDays(d: string, n: number): string {
 }
 // 날짜 문자열의 요일 — 시간대 시프트 없이 읽는다(0=일요일, 열은 일요일에 바뀐다)
 const dowOf = (d: string) => new Date(d + 'T00:00:00Z').getUTCDay();
-const dayDiff = (a: string, b: string) =>
-  Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / DAY_MS);
 
 // 셀 하나가 말하는 것: 언제 · 몇 건. daily 키는 이미 KST date-only라 시간대 시프트 없이 읽는다.
-function cellLabel(key: string, n: number): string {
+// noun은 줄마다 다르다 — RT 줄에서 '게시 3건'이라 적으면 라벨과 값이 어긋난다(UX 원칙 4).
+function cellLabel(key: string, n: number, noun: string): string {
   const d = asDateOnly(key);
   const dow = DOW[new Date(d + 'T00:00:00Z').getUTCDay()];
-  return `${Number(d.slice(5, 7))}월 ${Number(d.slice(8, 10))}일 (${dow}) · ${n > 0 ? `게시 ${n}건` : '게시 없음'}`;
+  return `${Number(d.slice(5, 7))}월 ${Number(d.slice(8, 10))}일 (${dow}) · ${n > 0 ? `${noun} ${n}건` : `${noun} 없음`}`;
 }
 
-// daily는 게시가 있었던 날만 담는다. 창은 **표본 시작 주(일요일)~until** — 100건 상한에 걸린
-// 다작 계정에 3개월 격자를 깔면 대부분이 빈칸이라 "안 썼다"처럼 보인다. 대신 최소 4주(격자 꼴 유지)·
-// 최대 14주(3개월 폭)로 잘라 데이터가 있는 구간을 크게 보여 준다. 잘라서 창이 표본 시작보다
-// 앞서는 경우엔 since 전 날짜를 그리지 않는다 — 0건 회색으로 채우면 '안 썼다'는 거짓말이 되고,
-// 빈칸은 "여기부터 100건이 찼다"를 그대로 보여준다.
-function PostingHeatmap({ daily, since, until, months, count }: {
-  daily: Record<string, number>; since: string; until: string; months: number; count: number;
+// daily는 게시가 있었던 날만 담는다. 창은 호출자가 준 since~until 그대로 — 활동 창이 28일 고정이라
+// 계정이 달라도 격자 폭이 같고, 두 계정(그리고 위·아래 두 줄)을 나란히 읽을 수 있다.
+// since 이전 칸(첫 열의 앞부분)은 그리지 않는다 — 0건 회색으로 채우면 '안 썼다'는 거짓말이 된다.
+function PostingHeatmap({ daily, since, until, thresholds, legend, title, ariaLabel, noun }: {
+  daily: Record<string, number>; since: string; until: string;
+  thresholds: HeatThresholds; legend: string; title: string; ariaLabel: string; noun: string;
 }) {
-  // 셀 90개를 Tooltip으로 감싸면 포털이 90개 뜬다 — 대신 격자 하나가 툴팁 하나를 공유한다.
+  // 셀 수십 개를 Tooltip으로 감싸면 포털이 그만큼 뜬다 — 대신 격자 하나가 툴팁 하나를 공유한다.
   // (배치·포털 방식은 components/Tooltip.tsx와 같다. 왜 브라우저 기본 title이 아닌지도 거기 적혀 있다:
   //  뜨기까지 1초 가까이 걸리고, 조건에 따라 아예 안 뜬다 — 이 저장소가 이미 겪은 문제다.)
   const [tip, setTip] = useState<{ text: string; top: number; left: number; below: boolean } | null>(null);
@@ -408,16 +399,12 @@ function PostingHeatmap({ daily, since, until, months, count }: {
   }, [tip]);
 
   const untilDay = kstDate(until);
-  const sinceDay = kstDate(since);   // 이 날 이전 칸은 표본 밖 — 그리지 않는다
+  const sinceDay = kstDate(since);   // 이 날 이전 칸은 창 밖 — 그리지 않는다
   if (!untilDay || !sinceDay) return null;
 
-  // 표본 시작이 든 주의 일요일에서 시작해, 주 수를 4~14주로 가둔다
-  let start = addDays(sinceDay, -dowOf(sinceDay));
-  let weeks = Math.floor(dayDiff(start, untilDay) / 7) + 1;
-  if (weeks < MIN_WEEKS) { start = addDays(start, -(MIN_WEEKS - weeks) * 7); weeks = MIN_WEEKS; }
-  else if (weeks > MAX_WEEKS) { start = addDays(start, (weeks - MAX_WEEKS) * 7); weeks = MAX_WEEKS; }
-
-  const days = kstDayRange(new Date(start + 'T00:00:00Z'), new Date(untilDay + 'T00:00:00Z'));
+  // 창 시작이 든 주의 일요일에서 시작한다(열 = 달력 주). 28일 창이면 열은 4개 또는 5개.
+  const gridStart = addDays(sinceDay, -dowOf(sinceDay));
+  const days = kstDayRange(new Date(gridStart + 'T00:00:00Z'), new Date(untilDay + 'T00:00:00Z'));
   if (days.length === 0) return null;
 
   const firstDow = dowOf(days[0]);
@@ -430,25 +417,14 @@ function PostingHeatmap({ daily, since, until, months, count }: {
     d.slice(8) === '01' ? [{ col: colOf(i), label: `${Number(d.slice(5, 7))}월` }] : []
   ));
 
-  // 표본이 분석 창(months개월)보다 짧으면 그 사실을 제목 줄에 적는다 — 격자가 짧은 이유가
-  // '활동이 없어서'가 아니라 '100건 상한에 먼저 걸려서'라는 걸 여기서만 말할 수 있다.
-  // 기간은 실제 표본 폭(since~until)을 그대로 적는다 — 격자 열 수(weeks, 4주 클램프)는
-  // 격자 폭 계산에만 쓰고 문구에는 섞지 않는다(클램프된 열 수와 표본 폭이 어긋날 수 있다).
-  const winStart = new Date(until);
-  winStart.setMonth(winStart.getMonth() - months);
-  const shortSample = sinceDay > kstDate(winStart.toISOString());
-  const heading = shortSample
-    ? `${kstMonthDay(since)}~${kstMonthDay(until)}에 ${count}건이 찼어요`
-    : '발행 활동';
-
   return (
     <div>
-      <BlockTitle>{heading}</BlockTitle>
+      <BlockTitle>{title}</BlockTitle>
       <div className="mt-2 overflow-x-auto">
         <div
           role="img"
-          /* 셀은 탭 대상이 아니다 — 90개 탭스톱은 지나치다. 스크린리더에는 이 요약 한 줄로 준다. */
-          aria-label={`발행 히트맵: 최근 ${count}건, 일별 게시 분포`}
+          /* 셀은 탭 대상이 아니다 — 수십 개 탭스톱은 지나치다. 스크린리더에는 이 요약 한 줄로 준다. */
+          aria-label={ariaLabel}
           className="grid w-max"
           style={{
             gridTemplateColumns: `auto repeat(${cols}, ${CELL}px)`,   // 1열은 요일 라벨
@@ -477,7 +453,7 @@ function PostingHeatmap({ daily, since, until, months, count }: {
             >{m.label}</span>
           ))}
           {days.map((d, i) => {
-            if (d < sinceDay) return null;   // 표본 시작 전: 데이터 없음 ≠ 0건 — 빈칸으로 둔다
+            if (d < sinceDay) return null;   // 창 시작 전: 데이터 없음 ≠ 0건 — 빈칸으로 둔다
             const n = daily[d] ?? 0;
             return (
               <div
@@ -486,9 +462,9 @@ function PostingHeatmap({ daily, since, until, months, count }: {
                 style={{
                   gridColumnStart: colOf(i) + 2,              // 1열은 요일 라벨
                   gridRowStart: ((i + firstDow) % 7) + 2,     // 1행은 달 라벨
-                  background: HEAT_STEPS[heatStep(n)],
+                  background: HEAT_STEPS[heatStep(n, thresholds)],
                 }}
-                onMouseEnter={(e) => showTip(e.currentTarget, cellLabel(d, n))}
+                onMouseEnter={(e) => showTip(e.currentTarget, cellLabel(d, n, noun))}
               />
             );
           })}
@@ -506,7 +482,7 @@ function PostingHeatmap({ daily, since, until, months, count }: {
           <span>많음</span>
         </div>
         {/* 색이 몇 건인지는 hover가 아니라 글로 적는다 — 범례에 title을 달면 아무도 못 본다 */}
-        <p className="mt-1">회색은 게시 없음 · 진해질수록 1건 · 2건 · 3~4건 · 5건 이상</p>
+        <p className="mt-1">{legend}</p>
       </div>
       {tip && createPortal(
         <div role="tooltip" style={{ top: tip.top, left: tip.left }}
@@ -521,15 +497,13 @@ function PostingHeatmap({ daily, since, until, months, count }: {
 
 // 결과는 읽기 전용 — 사람의 판단은 태그·고정 메모에 남긴다(스펙 §3). 여기엔 수정 UI를 두지 않는다.
 //
-// 순서는 결론 → 근거(스펙 §1): 헤드라인 한두 문장이 먼저 서고, 그 아래로 수치·분포·주제·발행·서술이
+// 순서는 결론 → 근거(스펙 §1): 헤드라인 한두 문장이 먼저 서고, 그 아래로 수치·발행·유형·주제·서술이
 // 근거로 따라온다. 예전 순서(숫자부터)는 "내용이 눈에 안 들어온다"는 피드백을 받았다.
 function AnalysisResult({ analysis, followers }: { analysis: InfluencerAnalysis; followers: number | null }) {
-  const { stats, sample, topics, summary } = analysis;
-  const cadence = judgeCadence(stats.perWeek, sample.count);
-  const cad = splitJudgment(cadence.label);
-  const eng = splitJudgment(judgeEngagement(stats.medianViews, followers));
-  const types = (Object.entries(stats.typeDist) as Array<[ContentType, number]>)
-    .sort((a, b) => b[1] - a[1]);
+  const { summary } = analysis;
+  // activity의 유무가 곧 분석 버전이다(스펙 §3). 구버전은 지표의 기준(3개월·표본 100건)이 달라
+  // 새 지표와 나란히 읽으면 안 된다 — 값을 다시 계산하는 대신 다시 분석하라고 말한다.
+  const activity = analysis.activity;
 
   return (
     <div className="mt-4 space-y-5">
@@ -538,66 +512,13 @@ function AnalysisResult({ analysis, followers }: { analysis: InfluencerAnalysis;
         <p className="text-content font-medium leading-relaxed">{summary.headline}</p>
       )}
 
-      {/* 표본 0건이면 이 한 줄이 전부다 — 아무 글도 분류되지 않았는데 수치·유형을 적으면 라벨-값이 어긋난다.
-          숫자가 없으니 타일로 세우지 않고 기존 주의 칩 그대로 둔다. 주의는 색만으로 전하지 않는다 —
-          judgeCadence의 문구가 판단을 그대로 담고 있다. */}
-      {sample.count === 0 ? (
-        <p className={`inline-block rounded-full px-2.5 py-0.5 text-ui leading-relaxed ${
-          cadence.caution ? 'bg-amber-50 text-amber-800' : 'bg-x-surface text-x-secondary'
-        }`}>{cadence.label}</p>
-      ) : (
-        <>
-          {/* 좁은 패널에서는 타일이 저절로 줄바꿈된다 — 화면 폭이 아니라 이 그리드가 가진 폭 기준 */}
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
-            <StatTile value={cad.value} caution={cadence.caution}>
-              {cad.verdict && (
-                <p className={`mt-0.5 text-caption leading-relaxed ${
-                  cadence.caution ? 'text-amber-800' : 'text-x-secondary'
-                }`}>{cad.verdict}</p>
-              )}
-            </StatTile>
-            <StatTile value={eng.value}>
-              {eng.verdict && <p className="mt-0.5 text-caption leading-relaxed text-x-secondary">{eng.verdict}</p>}
-              {stats.medianLikes !== null && (
-                <p className="mt-0.5 text-caption text-x-secondary">좋아요 중앙값 {formatKoCount(stats.medianLikes)}</p>
-              )}
-            </StatTile>
-            <StatTile value={`원글 ${stats.mix.original} · RT ${stats.mix.retweet} · 인용 ${stats.mix.quote}`}>
-              <p className="mt-0.5 text-caption text-x-secondary">표본 구성(건수)</p>
-            </StatTile>
-          </div>
-
-          {/* '무엇을 쓰나'(유형)와 '무엇이 통하나'(주제)는 같은 질문의 두 면이라 나란히 세운다.
-              접힘 기준은 화면 폭이 아니라 이 블록이 실제로 가진 폭(@container) — 사이드바·패널 폭이
-              달라져도 표가 눌리지 않는다. 접히는 지점은 @2xl(672px) — 그 폭에서 한 열이 (672-24)/2 = 324px라
-              표의 최소 폭(320px)이 딱 들어간다. 더 이른 @xl(576px)에서 나누면 나누자마자 표가 스크롤한다. */}
-          <div className="@container">
-            {/* 나란히 놓이면 두 열의 경계가 보여야 한다(피드백: "유형·주제 구분이 잘 안 된다") — 간격 대신
-                세로 구분선 + 좌우 패딩으로 나눈다. 접힌(1열) 상태에서는 구분선 없이 세로 간격만. */}
-            <div className="grid grid-cols-1 gap-6 @2xl:grid-cols-2 @2xl:gap-0 @2xl:divide-x @2xl:divide-x-border @2xl:[&>*+*]:pl-6 @2xl:[&>*:first-child]:pr-6">
-              {/* 유형은 분류된 글만 세므로 위 타일(표본 전체)과 분모가 다르다 — 도넛 가운데가 그 분모를 적는다 */}
-              <TypeDonut types={types} classified={sample.classified} />
-              {topics.length > 0 && (
-                <TopicTable topics={topics} accountMedianViews={stats.medianViews} />
-              )}
-            </div>
-          </div>
-
-          {/* 원글·인용이 0건(전부 RT)이면 서버가 summary/topics를 비워 보낸다 — 조용히 비는 대신 이유를 적는다 */}
-          {summary === null && (
-            <p className="text-ui leading-relaxed text-x-secondary">
-              리트윗만 있어 글 내용은 분석하지 못했어요 — 직접 쓴 글이 없는 계정이에요
-            </p>
-          )}
-
-          {/* 이 필드가 생기기 전에 저장된 분석엔 daily가 없다 — 그럴 땐 히트맵을 통째로 감춘다.
-              빈 격자·안내문을 두면 "이 계정은 안 썼다"로 읽히거나, 없는 기능을 있는 척하게 된다. */}
-          {analysis.daily && (
-            <PostingHeatmap daily={analysis.daily} since={sample.since} until={sample.until}
-              months={sample.months} count={sample.count} />
-          )}
-        </>
-      )}
+      {activity
+        ? <ActivityResult analysis={analysis} activity={activity} followers={followers} />
+        : (
+          <p className="text-ui leading-relaxed text-x-secondary">
+            이전 방식으로 분석된 결과예요 — 다시 분석하면 4주 활동·직접 글 기준 지표로 바뀌어요
+          </p>
+        )}
 
       {/* 서술 제목은 질문형 — 읽는 사람이 던지는 질문을 그대로 적어 답을 찾아가게 한다(AGENTS.md 원칙 1) */}
       {summary && (
@@ -608,5 +529,109 @@ function AnalysisResult({ analysis, followers }: { analysis: InfluencerAnalysis;
         </dl>
       )}
     </div>
+  );
+}
+
+const sumCounts = (r: Record<string, number>) => Object.values(r).reduce((a, b) => a + b, 0);
+
+// v2 본문 — 활동(4주 창)과 내용(직접 글 표본)은 표본이 다르다. 어느 숫자가 어느 표본인지는
+// 각 블록의 제목·캡션이 말한다(라벨-값 일치).
+function ActivityResult({ analysis, activity, followers }: {
+  analysis: InfluencerAnalysis; activity: Activity; followers: number | null;
+}) {
+  const { stats, sample, topics, summary } = analysis;
+
+  // 창 안 수집 수 = 직접 + RT. 0이면 '4주 내내 아무것도 없었다'는 뜻이라 판단이 갈린다(judgeDirectCadence).
+  const collectedInWindow = sumCounts(activity.dailyDirect) + sumCounts(activity.dailyRt);
+  const cadence = judgeDirectCadence(activity.directPerDay, collectedInWindow);
+  const cad = splitJudgment(cadence.label);
+  const rt = judgeRt(activity.rtPerDay, activity.rtShare);
+  const eng = splitJudgment(judgeEngagement(stats.medianViews, followers));
+  const types = (Object.entries(stats.typeDist) as Array<[ContentType, number]>)
+    .sort((a, b) => b[1] - a[1]);
+  const direct = sample.direct ?? 0;
+  const rtTopics = (analysis.rtTopics ?? []).slice(0, 5);
+  const win = `${kstMonthDay(activity.since)}~${kstMonthDay(activity.until)}`;
+
+  return (
+    <>
+      {/* 좁은 패널에서는 타일이 저절로 줄바꿈된다 — 화면 폭이 아니라 이 그리드가 가진 폭 기준 */}
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
+        <StatTile value={cad.value} caution={cadence.caution}>
+          {cad.verdict && (
+            <p className={`mt-0.5 text-caption leading-relaxed ${
+              cadence.caution ? 'text-amber-800' : 'text-x-secondary'
+            }`}>{cad.verdict}</p>
+          )}
+          <p className="mt-0.5 text-caption text-x-secondary">직접 쓴 글 · 최근 4주</p>
+        </StatTile>
+        <StatTile value={rt.value}>
+          {/* RT는 많고 적음이 좋고 나쁨이 아니다 — 판단문도 서술로만 적는다(주의 색 없음) */}
+          <p className="mt-0.5 text-caption leading-relaxed text-x-secondary">{rt.verdict}</p>
+        </StatTile>
+        <StatTile value={eng.value}>
+          {eng.verdict && <p className="mt-0.5 text-caption leading-relaxed text-x-secondary">{eng.verdict}</p>}
+          {stats.medianLikes !== null && (
+            <p className="mt-0.5 text-caption text-x-secondary">좋아요 중앙값 {formatKoCount(stats.medianLikes)}</p>
+          )}
+        </StatTile>
+      </div>
+
+      {/* 두 줄로 나누는 이유: RT로만 도는 확산형 계정을 한 줄(직접 글)로만 그리면 '활동 없음'으로 보인다.
+          같은 창·같은 셀 크기라 위아래를 그대로 겹쳐 읽을 수 있다 — 임계만 축에 맞게 다르다. */}
+      <div className="space-y-4">
+        <PostingHeatmap
+          daily={activity.dailyDirect} since={activity.since} until={activity.until}
+          thresholds={DIRECT_THRESHOLDS} noun="게시"
+          title="직접 쓴 글 (최근 4주)"
+          ariaLabel={`직접 쓴 글 히트맵: 최근 4주(${win}) 일별 게시 건수`}
+          legend="회색은 게시 없음 · 진해질수록 1건 · 2건 · 3~4건 · 5건 이상"
+        />
+        <PostingHeatmap
+          daily={activity.dailyRt} since={activity.since} until={activity.until}
+          thresholds={RT_THRESHOLDS} noun="RT"
+          title="RT (최근 4주)"
+          ariaLabel={`RT 히트맵: 최근 4주(${win}) 일별 RT 건수`}
+          legend="회색은 RT 없음 · 진해질수록 1~4건 · 5~9건 · 10~19건 · 20건 이상"
+        />
+      </div>
+
+      {/* '무엇을 쓰나'(유형)와 '무엇이 통하나'(주제)는 같은 질문의 두 면이라 나란히 세운다.
+          접힘 기준은 화면 폭이 아니라 이 블록이 실제로 가진 폭(@container) — 사이드바·패널 폭이
+          달라져도 표가 눌리지 않는다. 접히는 지점은 @2xl(672px) — 그 폭에서 한 열이 (672-24)/2 = 324px라
+          표의 최소 폭(320px)이 딱 들어간다. 더 이른 @xl(576px)에서 나누면 나누자마자 표가 스크롤한다. */}
+      {direct > 0 && (
+        <div className="@container">
+          {/* 나란히 놓이면 두 열의 경계가 보여야 한다(피드백: "유형·주제 구분이 잘 안 된다") — 간격 대신
+              세로 구분선 + 좌우 패딩으로 나눈다. 접힌(1열) 상태에서는 구분선 없이 세로 간격만. */}
+          <div className="grid grid-cols-1 gap-6 @2xl:grid-cols-2 @2xl:gap-0 @2xl:divide-x @2xl:divide-x-border @2xl:[&>*+*]:pl-6 @2xl:[&>*:first-child]:pr-6">
+            {/* 유형·주제는 분류된 직접 글만 센다 — 위 타일(4주 활동)과 표본이 다르다는 건 도넛 가운데가 적는다 */}
+            <TypeDonut types={types} classified={sample.directClassified ?? 0} />
+            {topics.length > 0 && (
+              <TopicTable topics={topics} accountMedianViews={stats.medianViews} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 직접 쓴 글이 0건이면 유형·주제 표는 셀 것이 없다 — 조용히 비는 대신 무엇으로 봤는지 적는다 */}
+      {direct === 0 && rtTopics.length > 0 && (
+        <p className="text-ui leading-relaxed text-x-secondary">
+          직접 쓴 글이 없어 퍼나르는 주제로만 봤어요
+        </p>
+      )}
+
+      {rtTopics.length > 0 && (
+        <RtTopicChips items={rtTopics} rtSince={sample.rtSince ?? null}
+          until={sample.until} rtClassified={sample.rtClassified ?? 0} />
+      )}
+
+      {/* 직접 글도 RT도 없으면 서버가 summary를 비워 보낸다 — 조용히 비는 대신 이유를 적는다 */}
+      {summary === null && (
+        <p className="text-ui leading-relaxed text-x-secondary">
+          최근 6개월 직접 쓴 글도, 최근 4주 RT도 없어 글 내용은 분석하지 못했어요
+        </p>
+      )}
+    </>
   );
 }

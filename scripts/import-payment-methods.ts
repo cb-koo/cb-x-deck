@@ -47,7 +47,7 @@ function parseCsvText(raw: string): string[][] {
 function isDuplicate(existing: PaymentMethod, input: PaymentMethodInput): boolean {
   if (existing.type !== input.type) return false;
   if (input.type === 'bank') return existing.account === input.account;
-  if (input.type === 'paypal') return existing.email === input.email;
+  if (input.type === 'paypal') return (existing.email ?? existing.paypalId) === (input.email ?? input.paypalId);
   return existing.holder === input.holder; // paypay
 }
 
@@ -153,6 +153,7 @@ async function main() {
         holder: rec.holder ?? '',
         currency: (rec.currency ?? '').trim(),
         email: rec.email ?? '',
+        paypalId: rec.paypal_id ?? '',
         identifier: rec.identifier ?? '',
         bank: rec.bank ?? '',
         branch: rec.branch ?? '',

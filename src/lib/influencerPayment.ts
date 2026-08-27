@@ -18,6 +18,7 @@ export const PAYMENT_FIELD_LABEL: Record<string, string> = {
   holder: '수취인명',
   currency: '통화',
   email: '이메일',
+  paypalId: 'PayPal.me 아이디',
   identifier: '수취 식별 정보',
   bank: '은행',
   branch: '지점',
@@ -36,7 +37,8 @@ export interface PaymentMethod {
   isDefault: boolean;         // 배열이 비어 있지 않으면 정확히 1개가 true
   holder: string;              // 수취인명/예금주
   currency: Currency;          // paypay는 JPY 고정
-  email?: string;               // paypal 필수
+  email?: string;               // paypal: email 또는 paypalId 중 하나 필수
+  paypalId?: string;            // PayPal.me 아이디(paypal.me/<id>) — 이메일 대신 아이디로 받는 인플이 있다
   identifier?: string;          // paypay 수취 식별 정보 — 선택(미확정)
   bank?: string;
   branch?: string;
@@ -65,6 +67,7 @@ export interface PaymentMethodChange {
 export const PAYMENT_NOT_FOUND = '결제 수단을 찾을 수 없어요 — 화면을 새로고침해 주세요';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PAYPAL_ID_RE = /^[A-Za-z0-9._-]{3,50}$/;
 
 function trimmedString(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
@@ -92,9 +95,18 @@ export function parsePaymentMethodInput(v: unknown): PaymentMethodInput | string
   const out: PaymentMethodInput = { type, holder, currency };
 
   if (type === 'paypal') {
+    // 이메일과 PayPal.me 아이디 중 하나만 있어도 보낼 수 있다 — 둘 다 없으면 못 보낸다.
     const email = trimmedString(obj.email);
-    if (!EMAIL_RE.test(email)) return '이메일 형식을 확인해 주세요';
-    out.email = email;
+    const paypalId = trimmedString(obj.paypalId).replace(/^@/, '').replace(/^(https?:\/\/)?(www\.)?paypal\.me\//i, '');
+    if (!email && !paypalId) return '이메일 또는 PayPal.me 아이디를 입력해 주세요';
+    if (email) {
+      if (!EMAIL_RE.test(email)) return '이메일 형식을 확인해 주세요';
+      out.email = email;
+    }
+    if (paypalId) {
+      if (!PAYPAL_ID_RE.test(paypalId)) return 'PayPal.me 아이디는 영문·숫자·._- 3~50자예요';
+      out.paypalId = paypalId;
+    }
   } else if (type === 'paypay') {
     const identifier = trimmedString(obj.identifier);
     if (identifier) out.identifier = identifier; // 선택 — 미확정
@@ -154,7 +166,7 @@ export function getDefaultPaymentMethod(list: PaymentMethod[]): PaymentMethod | 
 }
 
 // updated 로그의 fields — 실제로 바뀐 항목만, 사람이 읽을 문자열로. fee는 formatFee 문구로 비교(pricing 관례 — 값 그대로 비교 대신 표시 문구 비교로 통일).
-const DIFF_FIELDS = ['type', 'holder', 'currency', 'email', 'identifier', 'bank', 'branch', 'account', 'fee', 'memo'] as const;
+const DIFF_FIELDS = ['type', 'holder', 'currency', 'email', 'paypalId', 'identifier', 'bank', 'branch', 'account', 'fee', 'memo'] as const;
 
 function displayValue(field: (typeof DIFF_FIELDS)[number], m: PaymentMethodInput): string | null {
   switch (field) {
@@ -162,6 +174,7 @@ function displayValue(field: (typeof DIFF_FIELDS)[number], m: PaymentMethodInput
     case 'holder': return m.holder ?? null;
     case 'currency': return m.currency ?? null;
     case 'email': return m.email ?? null;
+    case 'paypalId': return m.paypalId ?? null;
     case 'identifier': return m.identifier ?? null;
     case 'bank': return m.bank ?? null;
     case 'branch': return m.branch ?? null;

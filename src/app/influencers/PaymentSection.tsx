@@ -20,7 +20,11 @@ const holderLabel = (t: PaymentMethodType) => (t === 'bank' ? '예금주' : '수
 
 // 카드 셋째 줄에 놓는 "그대로 붙여 쓰는 값" — 복사 버튼이 집어가는 값이기도 하다.
 function identifyingValue(m: PaymentMethod): { field: string; value: string } | null {
-  if (m.type === 'paypal') return m.email ? { field: '이메일', value: m.email } : null;
+  if (m.type === 'paypal') {
+    // 이메일이 있으면 이메일, 없으면 PayPal.me 아이디 — 둘 중 정산 담당이 붙여 쓰는 값 하나
+    if (m.email) return { field: '이메일', value: m.email };
+    return m.paypalId ? { field: 'PayPal.me 아이디', value: `paypal.me/${m.paypalId}` } : null;
+  }
   if (m.type === 'paypay') return m.identifier ? { field: '수취 식별 정보', value: m.identifier } : null;
   return m.account ? { field: '계좌번호', value: m.account } : null;
 }
@@ -34,7 +38,7 @@ const FEE_MODE_LABEL: Record<FeeMode, string> = {
 
 interface Draft {
   type: PaymentMethodType; holder: string; currency: Currency;
-  email: string; identifier: string;
+  email: string; paypalId: string; identifier: string;
   bank: string; branch: string; account: string;
   feeMode: FeeMode; feePercent: string; feeAmount: string;
   memo: string; makeDefault: boolean;
@@ -47,6 +51,7 @@ function draftOf(m: PaymentMethod | null): Draft {
     holder: m?.holder ?? '',
     currency: m?.currency ?? 'KRW',
     email: m?.email ?? '',
+    paypalId: m?.paypalId ?? '',
     identifier: m?.identifier ?? '',
     bank: m?.bank ?? '',
     branch: m?.branch ?? '',
@@ -73,7 +78,7 @@ function inputOf(d: Draft): unknown {
       : undefined;
   return {
     type: d.type, holder: d.holder, currency: d.currency,
-    email: d.email, identifier: d.identifier,
+    email: d.email, paypalId: d.paypalId, identifier: d.identifier,
     bank: d.bank, branch: d.branch, account: d.account,
     fee, memo: d.memo,
   };
@@ -335,9 +340,19 @@ function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, o
 
       {draft.type === 'paypal' && (
         <div className="mt-2.5">
-          <label className={FIELD_LABEL} htmlFor={`${uid}-email`}>이메일</label>
-          <input id={`${uid}-email`} value={draft.email} disabled={busy} inputMode="email"
-                 onChange={(e) => set('email', e.target.value)} className={`${FIELD} max-w-sm`} />
+          <div className="flex flex-wrap gap-3">
+            <div className="min-w-[220px] flex-1">
+              <label className={FIELD_LABEL} htmlFor={`${uid}-email`}>이메일</label>
+              <input id={`${uid}-email`} value={draft.email} disabled={busy} inputMode="email"
+                     onChange={(e) => set('email', e.target.value)} className={`${FIELD} max-w-sm`} />
+            </div>
+            <div className="min-w-[180px] flex-1">
+              <label className={FIELD_LABEL} htmlFor={`${uid}-paypalId`}>PayPal.me 아이디</label>
+              <input id={`${uid}-paypalId`} value={draft.paypalId} disabled={busy} placeholder="paypal.me/ 뒤의 아이디"
+                     onChange={(e) => set('paypalId', e.target.value)} className={`${FIELD} max-w-xs`} />
+            </div>
+          </div>
+          <p className="mt-0.5 text-caption text-x-muted">둘 중 하나만 있어도 보낼 수 있어요 — 아는 쪽을 적어 주세요.</p>
         </div>
       )}
 

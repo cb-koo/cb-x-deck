@@ -43,7 +43,8 @@ interface PaymentMethod {
   isDefault: boolean;         // 배열이 비어 있지 않으면 정확히 1개가 true
   holder: string;             // 수취인명/예금주 — 필수, trim, 1~80자
   currency: Currency;         // paypay는 JPY 고정
-  email?: string;             // paypal 필수 — 형식 검사(간단한 a@b.c)
+  email?: string;             // paypal: email 또는 paypalId 중 하나 필수 — 형식 검사(간단한 a@b.c)
+  paypalId?: string;          // PayPal.me 아이디(영문·숫자·._- 3~50자, paypal.me/·@ 접두어는 벗김) — 노션 실데이터에 아이디로만 받는 인플이 있어 확장(08-27 koo 결정)
   identifier?: string;        // paypay 수취 식별 정보 — 선택(미확정)
   bank?: string; branch?: string; account?: string;   // bank: bank·account 필수, branch 선택
   fee?: PaymentFee;           // 부재 = 수수료 없음
@@ -142,3 +143,7 @@ koo가 파일로 제공한다(형식 미정). 우리가 요구하는 **표준 CS
 - **마이그레이션**: 036(033~035는 다른 브랜치가 소모). 멱등(`if not exists`, constraint drop+add). 프로덕션 적용은 배포 전 `apply-migrations.sh` 관례.
 - **회귀 위험**: `LogPayload` 유니언 확장 — Timeline의 `l.payload?.from` 접근(handle_changed)은 유니언에 `from`이 없는 멤버가 늘어 타입 오류 가능 → 캐스팅 정리 필요(tsc가 잡는다).
 - **범위 밖**(백로그): 명부 "결제 수단 없음" 필터·표시, 계좌 마스킹, 수단별 지급 이력, 정산 프로덕트 송신(payment-data).
+
+## 7. 변경 이력
+
+- 2026-08-27: PayPal에 `paypalId`(PayPal.me 아이디) 추가 — 이메일 또는 아이디 중 하나 필수. 노션 '결제 요청 관리' 데이터 검토에서 아이디로 받는 사례 발견, koo 결정으로 확장. CSV 템플릿에 `paypal_id` 열 추가.

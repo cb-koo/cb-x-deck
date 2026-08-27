@@ -49,7 +49,13 @@ test('parsePaymentMethodInput: 통화 필수(paypal/bank), paypay는 무시하�
 
 test('parsePaymentMethodInput: paypal 이메일 형식 검증', () => {
   assert.equal(parsePaymentMethodInput({ type: 'paypal', holder: 'h', currency: 'JPY', email: 'not-an-email' }), '이메일 형식을 확인해 주세요');
-  assert.equal(parsePaymentMethodInput({ type: 'paypal', holder: 'h', currency: 'JPY' }), '이메일 형식을 확인해 주세요');
+  assert.equal(parsePaymentMethodInput({ type: 'paypal', holder: 'h', currency: 'JPY' }), '이메일 또는 PayPal.me 아이디를 입력해 주세요');
+  // 이메일 대신 PayPal.me 아이디만으로도 등록된다(노션 데이터에 실제 사례) — 접두어 paypal.me/·@는 벗긴다
+  const byId = parsePaymentMethodInput({ type: 'paypal', holder: 'h', currency: 'JPY', paypalId: 'https://paypal.me/barbie_y' });
+  assert.deepEqual(byId, { type: 'paypal', holder: 'h', currency: 'JPY', paypalId: 'barbie_y' });
+  assert.equal(parsePaymentMethodInput({ type: 'paypal', holder: 'h', currency: 'JPY', paypalId: 'a b' }), 'PayPal.me 아이디는 영문·숫자·._- 3~50자예요');
+  const both = parsePaymentMethodInput({ type: 'paypal', holder: 'h', currency: 'JPY', email: 'a@b.co', paypalId: 'x_y' });
+  assert.deepEqual(both, { type: 'paypal', holder: 'h', currency: 'JPY', email: 'a@b.co', paypalId: 'x_y' });
   const ok = parsePaymentMethodInput({ type: 'paypal', holder: 'h', currency: 'JPY', email: 'a@b.co' });
   assert.equal((ok as PaymentMethodInput).email, 'a@b.co');
 });

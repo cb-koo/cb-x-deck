@@ -19,11 +19,13 @@ import { AttachDraftModal } from './AttachDraftModal';
 // 여러 명 = 사람 수만큼 작업. 0명 = 미배정 1개. 원고는 0~1명일 때만.
 type DraftChoice = { kind: 'none' } | { kind: 'existing'; draft: DraftRow } | { kind: 'new' };
 
-// 비용 블록의 통화는 하나(통화 select도 하나) — 명부 단가 통화가 사람마다 달라도 블록 통화로 맞춰 넣는다.
-// 옆의 근거는 명부 단가 그대로 보여준다(어디서 온 값인지가 보여야 하니까).
-const blockCurrency = (costs: Record<string, TaskCost | null>): Currency | null => Object.values(costs).find(Boolean)?.currency ?? null;
-const inCurrency = (cost: TaskCost | null, block: Currency | null): TaskCost | null =>
-  cost && block && cost.currency !== block ? { amount: cost.amount, currency: block } : cost;
+// 비용 블록의 통화는 하나(통화 select도 하나) — 명부 단가 통화가 블록 통화와 다르면 금액을 그 통화로 '바꿔 넣지'
+// 않는다(금액을 조작하는 셈이라 위험 — 결정 로그 참조). 그 사람 줄은 비워 두고 근거에 원래 단가·통화를 보여준다.
+// 통화가 같을 때만 그대로 쓴다.
+const suggestForRow = (pricing: Parameters<typeof suggestTaskCost>[0], type: TaskType, currency: Currency): TaskCost | null => {
+  const sug = suggestTaskCost(pricing, type);
+  return sug && sug.currency === currency ? sug : null;
+};
 
 export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }: {
   campaign: CampaignRow; influencerOptions: InfluencerOption[]; onClose: () => void;
@@ -36,6 +38,8 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
   const [handleInput, setHandleInput] = useState('');
   const [handleErr, setHandleErr] = useState<string | null>(null);
   const [costs, setCosts] = useState<Record<string, TaskCost | null>>({});
+  // 비용 블록의 통화 — 모달 전체 상태(CostRows의 로컬 state였다가 여기로 옮김, 유형이 바뀌어도 안 사라지게).
+  const [currency, setCurrency] = useState<Currency>('JPY');
   const [draft, setDraft] = useState<DraftChoice>({ kind: 'none' });
   const [attachOpen, setAttachOpen] = useState(false);
   const [scheduledOn, setScheduledOn] = useState('');
@@ -61,14 +65,13 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
     if (next === type) return;
     setCosts((cur) => {
       const out = { ...cur };
-      const block = blockCurrency(cur);
       for (const h of Object.keys(cur)) {
         if (!h) continue;   // 미배정 줄엔 명부 단가가 없다
         const was = cur[h];
-        if (was == null) continue;   // 지운 칸은 지운 대로 — 유형을 바꿨다고 되살아나면 안 된다
+        if (was == null) continue;   // 지운 칸(통화가 달라 비운 칸 포함)은 지운 대로 — 유형을 바꿨다고 되살아나면 안 된다
         const pricing = optionFor(h)?.pricing;
-        if (JSON.stringify(was) !== JSON.stringify(inCurrency(suggestTaskCost(pricing, type), block))) continue;   // 사람이 고친 값
-        out[h] = inCurrency(suggestTaskCost(pricing, next), block);
+        if (JSON.stringify(was) !== JSON.stringify(suggestForRow(pricing, type, currency))) continue;   // 사람이 고친 값
+        out[h] = suggestForRow(pricing, next, currency);
       }
       return out;
     });
@@ -81,11 +84,28 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
     const p = parseXHandle(raw);
     if (!p.ok) { setHandleErr('핸들 형식이 아니에요 — 영문·숫자·_ 1~15자'); return; }
     if (handles.some((h) => h.toLowerCase() === p.handle.toLowerCase())) { setHandleInput(''); return; }
+    const pricing = optionFor(p.handle)?.pricing;
+    const sug = suggestTaskCost(pricing, type);
+    // 블록 통화는 여기서 절대 건드리지 않는다 — 첫 인플의 단가 통화로 슬쩍 바뀌면, 그다음 사람 단가가
+    // 거꾸로 안 맞아 비게 되는 걸 사람이 왜 그런지 모른 채 보게 된다(Fix report 2 추적: @a(₩) 다음 @b(¥)
+    // 순서에서 이게 실제로 어긋난다는 걸 확인했다). 통화는 오직 통화 select(명시적 행동)로만 바뀐다.
     setHandles((cur) => [...cur, p.handle]);
-    setCosts((cur) => ({ ...cur, [p.handle]: cur[p.handle] ?? inCurrency(suggestTaskCost(optionFor(p.handle)?.pricing, type), blockCurrency(cur)) }));
+    setCosts((cur) => ({ ...cur, [p.handle]: sug && sug.currency === currency ? sug : null }));
     setHandleInput(''); setHandleErr(null);
   }
-  const removeHandle = (h: string) => setHandles((cur) => cur.filter((x) => x !== h));
+  const removeHandle = (h: string) => {
+    setHandles((cur) => cur.filter((x) => x !== h));
+    setCosts((cur) => { const out = { ...cur }; delete out[h]; return out; });
+  };
+  // 통화를 바꾸는 건 명시적 사용자 행동 — 이때는 금액을 그대로 두고 통화만 새로 붙인다(도움말이 이미 그렇게 말한다)
+  function changeCurrency(c: Currency) {
+    setCurrency(c);
+    setCosts((cur) => {
+      const out: Record<string, TaskCost | null> = {};
+      for (const h of Object.keys(cur)) { const v = cur[h]; out[h] = v == null ? null : { amount: v.amount, currency: c }; }
+      return out;
+    });
+  }
   const dup = useMemo(() => new Set(targeting.map((h) => h.toLowerCase())), [targeting]);
   const canAttachDraft = hasDraft && handles.length <= 1;
 
@@ -165,7 +185,7 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
     <div className={field}>
       <p className={label}>비용 <span className="text-x-muted">명부 단가로 채웠어요 — 금액을 눌러 고치세요</span></p>
       {/* key={type}: 유형을 바꾸면 비용 칸을 새로 그린다 — 치던 글자가 남아 새 단가를 가리는 일이 없게 */}
-      <div className="mt-1.5"><CostRows key={type} type={type} handles={handles} influencerOptions={influencerOptions} values={costs} onChange={changeCost} /></div>
+      <div className="mt-1.5"><CostRows key={type} type={type} handles={handles} influencerOptions={influencerOptions} values={costs} currency={currency} onChange={changeCost} onCurrencyChange={changeCurrency} /></div>
     </div>
   );
   const dateFields = (

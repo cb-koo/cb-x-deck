@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { CURRENCIES, CURRENCY_LABEL, parseAmount, suggestTaskCost, formatAmount, type TaskCost, type Currency } from '@/lib/campaignCost';
 import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
@@ -10,28 +10,22 @@ import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
 // 칸에 보이는 값은 '지금 치고 있는 한 칸'만 내가 쥐고(editing), 나머지는 언제나 부모가 쥔 values다 —
 // 손을 뗀 칸이 부모 값과 다른 말을 하면(유형을 바꿔 단가가 다시 채워졌는데 옛 글자가 남는 식) 보이는 금액과
 // 제출되는 금액이 갈라진다. 지운 칸(values = null)은 지운 대로 빈 칸이다.
-export function CostRows({ type, handles, influencerOptions, values, onChange }: {
+//
+// 통화는 이 컴포넌트가 쥐지 않는다 — 블록 전체의 통화라 부모(TaskAddModal) state다. 명부 단가 통화가 블록
+// 통화와 다르면 이 컴포넌트는 금액을 '바꿔 넣지' 않는다(그건 금액 조작) — 부모가 그 줄을 비워 주고, 여기서는
+// 근거 칸에 원래 단가·통화를 그대로 보여줄 뿐이다.
+export function CostRows({ type, handles, influencerOptions, values, currency, onChange, onCurrencyChange }: {
   type: TaskType; handles: string[]; influencerOptions: InfluencerOption[];
   values: Record<string, TaskCost | null>;
+  currency: Currency;
   onChange: (handle: string, next: TaskCost | null) => void;
+  onCurrencyChange: (next: Currency) => void;
 }) {
   const rows = handles.length ? handles : [''];
   // 지금 치고 있는 칸 하나만 글자를 따로 쥔다(잘못 친 값도 손을 뗄 때까지는 남아 있어야 고칠 수 있다).
   const [editing, setEditing] = useState<{ handle: string; text: string } | null>(null);
-  // 통화는 줄 전체가 하나 — 사람이 고르기 전에는 부모가 채운 값(명부 통화)을 따라간다
-  const [picked, setPicked] = useState<Currency | null>(null);
-  const currency = picked ?? rows.map((h) => values[h]).find(Boolean)?.currency ?? 'JPY';
   const shown = (h: string) => (editing && editing.handle === h ? editing.text : values[h] ? String(values[h]!.amount) : '');
   const optionFor = (h: string) => influencerOptions.find((o) => o.handle.toLowerCase() === h.toLowerCase());
-
-  // 통화가 다른 값이 섞여 들어오면(명부 단가 통화가 사람마다 다를 때) 앞의 기호 하나와 값들이 어긋난다 —
-  // 블록 통화로 맞춘다. 맞추고 나면 더 부를 일이 없어 한 번에 멎는다.
-  useEffect(() => {
-    for (const h of handles.length ? handles : ['']) {
-      const v = values[h];
-      if (v && v.currency !== currency) onChange(h, { amount: v.amount, currency });
-    }
-  }, [handles, values, currency, onChange]);
 
   function commit(h: string, raw: string) {
     setEditing({ handle: h, text: raw });
@@ -45,8 +39,7 @@ export function CostRows({ type, handles, influencerOptions, values, onChange }:
     for (const h of rows) commit(h, first);
   }
   function changeCurrency(c: Currency) {
-    setPicked(c);
-    for (const h of rows) { const n = parseAmount(shown(h)); if (n !== null) onChange(h, { amount: n, currency: c }); }
+    onCurrencyChange(c);   // 금액을 통화별로 바꿔 붙이는 건 부모(블록 통화 하나)가 한다 — 여기선 고른 값만 올린다
   }
   return (
     <div className="overflow-hidden rounded-[10px] border border-x-border">
@@ -66,8 +59,12 @@ export function CostRows({ type, handles, influencerOptions, values, onChange }:
                      onBlur={() => setEditing((cur) => (cur && cur.handle === h ? null : cur))}
                      className="w-full bg-transparent text-content outline-none placeholder:text-x-muted" />
             </label>
-            <span className={`truncate text-ui ${sug ? 'text-x-muted' : 'text-amber-700'}`}>
-              {sug ? `단가 ${TASK_TYPE_LABEL[type]} ${formatAmount(sug.amount, sug.currency)}` : h ? `명부에 ${TASK_TYPE_LABEL[type]} 단가 없음 — 비워두면 비용 없이 만들어요` : '비워두면 비용 없이 만들어요'}
+            <span className={`truncate text-ui ${sug && sug.currency === currency ? 'text-x-muted' : 'text-amber-700'}`}>
+              {sug && sug.currency === currency
+                ? `단가 ${TASK_TYPE_LABEL[type]} ${formatAmount(sug.amount, sug.currency)}`
+                : sug
+                ? `단가 ${TASK_TYPE_LABEL[type]} ${formatAmount(sug.amount, sug.currency)} — 통화가 달라 비워뒀어요`
+                : h ? `명부에 ${TASK_TYPE_LABEL[type]} 단가 없음 — 비워두면 비용 없이 만들어요` : '비워두면 비용 없이 만들어요'}
             </span>
           </div>
         );

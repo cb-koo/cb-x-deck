@@ -10,13 +10,17 @@ import type { InfluencerOption } from '@/lib/draftTypes';
 //
 // 정규화(parseXHandle)와 오류 판정도 여기서 하지 않는다. 저장되는 값의 근거는 서버 정규화이고,
 // 호출부(편집창)가 같은 함수로 즉시 피드백을 만든다 — 이 필드는 받은 error를 표시만 한다.
-export function InfluencerField({ value, options, onChange, error, autoFocus, onEnter }: {
+export function InfluencerField({ value, options, onChange, error, autoFocus, onEnter, hideLabel, hideHelp }: {
   value: string;                    // 핸들('@' 없음), '' = 미배정
   options: InfluencerOption[];
   onChange: (v: string) => void;
   error: string | null;
   autoFocus?: boolean;              // 팝오버처럼 이 칸 하나만 있는 자리에서 (편집창은 본문이 먼저 잡는다)
   onEnter?: (current: string) => void;  // 입력칸에서 Enter로 저장 — 저장 버튼이 팝오버 안에만 있어 손이 멀다
+  // 부르는 쪽이 이미 같은 말을 하는 자리(작업 추가 모달의 '인플루언서' 칸 = 칩 상자 안)에서 라벨·도움말이
+  // 두 번 나오지 않게 감춘다. 라벨은 화면에서만 감추고 스크린리더에는 남긴다. 오류 줄은 감추지 않는다.
+  hideLabel?: boolean;
+  hideHelp?: boolean;
 }) {
   // useId: 편집창은 열 때마다 새로 마운트되고 한 화면에 여러 번 뜰 수 있어, 고정 id면 label-input 연결이 깨진다.
   const inputId = useId();
@@ -26,7 +30,7 @@ export function InfluencerField({ value, options, onChange, error, autoFocus, on
 
   return (
     <div>
-      <label htmlFor={inputId} className="block text-caption text-x-muted">게시할 인플루언서</label>
+      <label htmlFor={inputId} className={hideLabel ? 'sr-only' : 'block text-caption text-x-muted'}>게시할 인플루언서</label>
       <input id={inputId} list={listId} value={value} onChange={(e) => onChange(e.target.value)}
              placeholder="@핸들 또는 프로필 링크 붙여넣기"
              autoFocus={autoFocus}
@@ -37,16 +41,18 @@ export function InfluencerField({ value, options, onChange, error, autoFocus, on
              // autoComplete="off": 브라우저 저장값(이름·주소) 팝업이 배정 후보 위에 겹쳐 뜨는 걸 막는다.
              autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
              aria-invalid={error ? true : undefined}
-             aria-describedby={error ? `${helpId} ${errId}` : helpId}
+             aria-describedby={[hideHelp ? null : helpId, error ? errId : null].filter(Boolean).join(' ') || undefined}
              className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue" />
       {/* datalist는 '고르는 목록'이 아니라 '좁혀주는 제안'이라 목록에 없는 값도 그대로 입력된다 —
           후보는 등록된 인플루언서 명단(인플루언서 DB)에서 오므로, 도움말이 그 사실을 그대로 말한다. */}
       <datalist id={listId}>
         {options.map((o) => <option key={o.handle} value={o.handle} label={o.name} />)}
       </datalist>
-      <p id={helpId} className="mt-1 text-caption text-x-muted">
-        X 프로필 주소를 그대로 붙여넣어도 돼요 — 등록된 인플루언서가 아래에 제안됩니다
-      </p>
+      {!hideHelp && (
+        <p id={helpId} className="mt-1 text-caption text-x-muted">
+          X 프로필 주소를 그대로 붙여넣어도 돼요 — 등록된 인플루언서가 아래에 제안됩니다
+        </p>
+      )}
       {/* role="alert": 이 오류는 저장 버튼을 눌렀을 때 뜬다 — 그때 포커스는 버튼에 있어
           입력칸에 걸어둔 aria-describedby만으로는 읽히지 않는다(ColumnSettings 선례). */}
       {error && <p id={errId} role="alert" className="mt-1 text-caption text-red-600">{error}</p>}

@@ -4,7 +4,7 @@ import type { CampaignRow } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import type { DraftRow } from '@/lib/draftStore';
 import { createTasksApi, fetchTasksTargets, type TaskCreateRequest } from '@/lib/campaignApi';
-import { suggestTaskCost, type TaskCost } from '@/lib/campaignCost';
+import { suggestTaskCost, type Currency, type TaskCost } from '@/lib/campaignCost';
 import { TASK_TYPES, TASK_TYPE_LABEL, TARGETING_TYPES, isDateOnlyString, type TaskType } from '@/lib/campaignJudgment';
 import { InfluencerField } from '@/components/InfluencerField';
 import { parseXHandle } from '@/lib/xHandle';
@@ -18,6 +18,12 @@ import { AttachDraftModal } from './AttachDraftModal';
 // RT·인용RT: 유형 → 대상 → 인플(여러 명) → (인용RT: 원고) → 비용(사람별) → 예정일·메모 / 투고·방문협찬: 유형 → 인플 → 원고 → 비용 → (방문일)·예정일 → 메모.
 // 여러 명 = 사람 수만큼 작업. 0명 = 미배정 1개. 원고는 0~1명일 때만.
 type DraftChoice = { kind: 'none' } | { kind: 'existing'; draft: DraftRow } | { kind: 'new' };
+
+// 비용 블록의 통화는 하나(통화 select도 하나) — 명부 단가 통화가 사람마다 달라도 블록 통화로 맞춰 넣는다.
+// 옆의 근거는 명부 단가 그대로 보여준다(어디서 온 값인지가 보여야 하니까).
+const blockCurrency = (costs: Record<string, TaskCost | null>): Currency | null => Object.values(costs).find(Boolean)?.currency ?? null;
+const inCurrency = (cost: TaskCost | null, block: Currency | null): TaskCost | null =>
+  cost && block && cost.currency !== block ? { amount: cost.amount, currency: block } : cost;
 
 export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }: {
   campaign: CampaignRow; influencerOptions: InfluencerOption[]; onClose: () => void;
@@ -40,6 +46,7 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
   const hasTarget = TARGETING_TYPES.includes(type);
   const hasDraft = type !== 'rt';
   const optionFor = useCallback((h: string) => influencerOptions.find((o) => o.handle.toLowerCase() === h.toLowerCase()), [influencerOptions]);
+  const changeCost = useCallback((h: string, next: TaskCost | null) => setCosts((cur) => ({ ...cur, [h]: next })), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing && !busy && !attachOpen) onClose(); };
@@ -47,22 +54,26 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose, busy, attachOpen]);
 
-  // 유형이 바뀌면 비용 제안도 그 유형 단가로 — 사람이 고친 값(직전 유형의 제안과 다른 값)은 덮지 않는다.
+  // 유형이 바뀌면 비용 제안도 그 유형 단가로 — 사람이 고친 값(직전 유형의 제안과 다른 값)과 사람이 지운 칸은 덮지 않는다.
   // 유형은 세그먼트 버튼에서만 바뀌므로 여기서 처리한다(effect + 직전 유형 ref보다 읽기 쉽고, 인플을 더할 때
   // 사람이 지운 금액이 되살아나는 일도 없다).
   function changeType(next: TaskType) {
     if (next === type) return;
     setCosts((cur) => {
       const out = { ...cur };
+      const block = blockCurrency(cur);
       for (const h of Object.keys(cur)) {
         if (!h) continue;   // 미배정 줄엔 명부 단가가 없다
-        const pricing = optionFor(h)?.pricing;
         const was = cur[h];
-        if (was == null || JSON.stringify(was) === JSON.stringify(suggestTaskCost(pricing, type))) out[h] = suggestTaskCost(pricing, next);
+        if (was == null) continue;   // 지운 칸은 지운 대로 — 유형을 바꿨다고 되살아나면 안 된다
+        const pricing = optionFor(h)?.pricing;
+        if (JSON.stringify(was) !== JSON.stringify(inCurrency(suggestTaskCost(pricing, type), block))) continue;   // 사람이 고친 값
+        out[h] = inCurrency(suggestTaskCost(pricing, next), block);
       }
       return out;
     });
     if (next === 'rt') setDraft({ kind: 'none' });   // RT엔 원고 칸이 없다 — 골라 둔 원고가 몰래 따라가면 안 된다
+    if (!TARGETING_TYPES.includes(next)) setTargeting([]);   // 대상 칸이 사라지면 '이미 있음' 주황 표시도 근거를 잃는다
     setType(next);
   }
 
@@ -71,7 +82,7 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
     if (!p.ok) { setHandleErr('핸들 형식이 아니에요 — 영문·숫자·_ 1~15자'); return; }
     if (handles.some((h) => h.toLowerCase() === p.handle.toLowerCase())) { setHandleInput(''); return; }
     setHandles((cur) => [...cur, p.handle]);
-    setCosts((cur) => ({ ...cur, [p.handle]: cur[p.handle] ?? suggestTaskCost(optionFor(p.handle)?.pricing, type) }));
+    setCosts((cur) => ({ ...cur, [p.handle]: cur[p.handle] ?? inCurrency(suggestTaskCost(optionFor(p.handle)?.pricing, type), blockCurrency(cur)) }));
     setHandleInput(''); setHandleErr(null);
   }
   const removeHandle = (h: string) => setHandles((cur) => cur.filter((x) => x !== h));
@@ -118,7 +129,7 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
           <label key={k} className={`flex items-center gap-1.5 ${!canAttachDraft && k !== 'none' ? 'text-x-muted' : ''}`}>
             <input type="radio" name="draft" checked={draft.kind === k} disabled={!canAttachDraft && k !== 'none'}
                    onChange={() => { if (k === 'existing') setAttachOpen(true); else setDraft({ kind: k }); }} />
-            {k === 'none' ? '없음 (인플이 직접 씀)' : k === 'existing' ? '있는 원고 고르기' : '새로 만들기'}
+            {k === 'none' ? '없음 (인플루언서가 직접 씀)' : k === 'existing' ? '있는 원고 고르기' : '새로 만들기'}
           </label>
         ))}
       </div>
@@ -142,7 +153,8 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
           </span>
         ))}
         <span className="min-w-[180px] flex-1">
-          <InfluencerField value={handleInput} options={influencerOptions} onChange={(v) => { setHandleInput(v); setHandleErr(null); }} error={handleErr} onEnter={(v) => { if (v.trim()) addHandle(v); }} />
+          {/* 라벨·도움말은 이 칸 위 '인플루언서' 줄이 이미 말한다 — 칩 상자 안에서 두 번 말하지 않는다(오류 줄은 남긴다) */}
+          <InfluencerField value={handleInput} options={influencerOptions} hideLabel hideHelp onChange={(v) => { setHandleInput(v); setHandleErr(null); }} error={handleErr} onEnter={(v) => { if (v.trim()) addHandle(v); }} />
         </span>
       </div>
       {targeting.length > 0 && hasTarget && <p className="mt-1.5 text-ui text-x-secondary">이 게시물을 이미 RT하기로 한 사람: {targeting.map((h) => `@${h}`).join(' · ')}</p>}
@@ -152,7 +164,8 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
   const costField = (
     <div className={field}>
       <p className={label}>비용 <span className="text-x-muted">명부 단가로 채웠어요 — 금액을 눌러 고치세요</span></p>
-      <div className="mt-1.5"><CostRows type={type} handles={handles} influencerOptions={influencerOptions} values={costs} onChange={(h, next) => setCosts((cur) => ({ ...cur, [h]: next }))} /></div>
+      {/* key={type}: 유형을 바꾸면 비용 칸을 새로 그린다 — 치던 글자가 남아 새 단가를 가리는 일이 없게 */}
+      <div className="mt-1.5"><CostRows key={type} type={type} handles={handles} influencerOptions={influencerOptions} values={costs} onChange={changeCost} /></div>
     </div>
   );
   const dateFields = (
@@ -164,6 +177,7 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
   );
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-6" onClick={() => { if (!busy) onClose(); }}>
       <div className="w-full max-w-[680px] rounded-[14px] bg-white" role="dialog" aria-modal="true" aria-label="작업 추가" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 pt-5 pb-1.5">
@@ -200,10 +214,12 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
           </Button>
         </div>
       </div>
-      {attachOpen && (
-        <AttachDraftModal clientId={campaign.clientId} onClose={() => { setAttachOpen(false); if (draft.kind !== 'existing') setDraft({ kind: 'none' }); }}
-                          onPick={(d) => { setDraft({ kind: 'existing', draft: d }); setAttachOpen(false); if (d.influencerHandle && handles.length === 0) addHandle(d.influencerHandle); }} />
-      )}
     </div>
+    {/* 원고 고르기 창은 이 오버레이 '밖'에 둔다 — 안에 두면 그 창을 누른 클릭이 오버레이까지 올라가 작업 추가 창이 닫힌다 */}
+    {attachOpen && (
+      <AttachDraftModal clientId={campaign.clientId} onClose={() => { setAttachOpen(false); if (draft.kind !== 'existing') setDraft({ kind: 'none' }); }}
+                        onPick={(d) => { setDraft({ kind: 'existing', draft: d }); setAttachOpen(false); if (d.influencerHandle && handles.length === 0) addHandle(d.influencerHandle); }} />
+    )}
+    </>
   );
 }

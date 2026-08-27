@@ -33,7 +33,9 @@ export function TargetPicker({ value, clientId, campaignId, excludeTaskId, onCha
   const key = `${clientId ?? ''}|${q}|${all ? '1' : ''}|${excludeTaskId ?? ''}`;
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const loading = loadedKey !== key;
+  const chosen = !!value;   // 대상이 정해지면 접힌 카드만 보인다 — 후보 목록은 그릴 자리가 없으니 부르지도 않는다
   useEffect(() => {
+    if (chosen) return;
     let alive = true;
     fetchTasksTargets({ clientId, q, all }).then((r) => {
       if (!alive) return;
@@ -41,7 +43,7 @@ export function TargetPicker({ value, clientId, campaignId, excludeTaskId, onCha
       setLoadedKey(key);
     });
     return () => { alive = false; };
-  }, [clientId, q, all, excludeTaskId, key]);
+  }, [clientId, q, all, excludeTaskId, key, chosen]);
   // "이미 RT하기로 한 사람" — 값이 정해질 때마다
   useEffect(() => {
     if (!value || !onTargetingLoaded) return;
@@ -98,7 +100,7 @@ export function TargetPicker({ value, clientId, campaignId, excludeTaskId, onCha
       )}
       {open && (
         <div className="absolute left-0 right-0 z-30 mt-1.5 max-h-[320px] overflow-y-auto rounded-[10px] border border-x-border bg-white shadow-lg">
-          <div className="flex items-center gap-3 px-3.5 py-2 text-[12px] text-x-muted">
+          <div className="flex items-center gap-3 px-3.5 py-2 text-ui text-x-muted">
             <span>{all ? '전체 클라이언트' : '같은 클라이언트'} · 최근 만든 순</span>
             <button type="button" onClick={() => setAll((v) => !v)} className="underline hover:text-x-secondary">{all ? '같은 클라이언트만' : '전체 클라이언트 보기'}</button>
             {loading && <span className="ml-auto">불러오는 중…</span>}
@@ -117,7 +119,7 @@ export function TargetPicker({ value, clientId, campaignId, excludeTaskId, onCha
               <span className="shrink-0 text-ui text-x-muted">{c.campaignName} · {c.postedAt ? <span className="text-green-700">게시됨 {formatDateKo(c.postedAt)}</span> : '게시 전'}</span>
             </button>
           ))}
-          <p className="border-t border-x-border px-3.5 py-2 text-[12px] text-x-muted">링크를 붙이면 바로 대상으로 들어가요 (x.com/…/status/…)</p>
+          <p className="border-t border-x-border px-3.5 py-2 text-ui text-x-muted">링크를 붙이면 바로 대상으로 들어가요 (x.com/…/status/…)</p>
         </div>
       )}
     </div>

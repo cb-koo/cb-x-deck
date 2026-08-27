@@ -376,7 +376,7 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
                             if (!r.ok) { show(r.error); return; }
                             setAttachFor(null);
                             show('원고를 붙였어요');
-                            void load();
+                            void load(); onChanged();   // 목록 보조줄의 '원고 없음' 수가 함께 움직인다
                           }} />
       )}
       {targetFor && (

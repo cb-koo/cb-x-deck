@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { CURRENCIES, CURRENCY_LABEL, parseAmount, suggestTaskCost, formatAmount, type TaskCost, type Currency } from '@/lib/campaignCost';
 import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
@@ -7,24 +7,34 @@ import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
 // 비용 — 사람별 금액 줄(스펙 §4-2). 인플을 고르는 순간 명부 단가(작업 유형)로 채워진 금액 칸이 사람마다 한 줄, 옆에 근거.
 // 단가 없으면 빈 칸(점선) + 주황 안내. 사람이 적은 값은 덮지 않는다. handles가 비면 미배정 한 줄(key '').
 //
-// 표시 값은 '내가 친 글자(text)'가 있으면 그것, 없으면 부모가 쥔 values다 — 부모가 인플을 추가하며 채워 넣은
-// 제안 금액이 곧바로 칸에 보여야 하고(state 초기화는 첫 렌더 한 번뿐이라 그것만으론 빈 칸이 된다),
-// 사람이 한 글자라도 치면 그때부터는 친 글자가 이긴다.
+// 칸에 보이는 값은 '지금 치고 있는 한 칸'만 내가 쥐고(editing), 나머지는 언제나 부모가 쥔 values다 —
+// 손을 뗀 칸이 부모 값과 다른 말을 하면(유형을 바꿔 단가가 다시 채워졌는데 옛 글자가 남는 식) 보이는 금액과
+// 제출되는 금액이 갈라진다. 지운 칸(values = null)은 지운 대로 빈 칸이다.
 export function CostRows({ type, handles, influencerOptions, values, onChange }: {
   type: TaskType; handles: string[]; influencerOptions: InfluencerOption[];
   values: Record<string, TaskCost | null>;
   onChange: (handle: string, next: TaskCost | null) => void;
 }) {
   const rows = handles.length ? handles : [''];
-  const [text, setText] = useState<Record<string, string>>({});
+  // 지금 치고 있는 칸 하나만 글자를 따로 쥔다(잘못 친 값도 손을 뗄 때까지는 남아 있어야 고칠 수 있다).
+  const [editing, setEditing] = useState<{ handle: string; text: string } | null>(null);
   // 통화는 줄 전체가 하나 — 사람이 고르기 전에는 부모가 채운 값(명부 통화)을 따라간다
   const [picked, setPicked] = useState<Currency | null>(null);
   const currency = picked ?? rows.map((h) => values[h]).find(Boolean)?.currency ?? 'JPY';
-  const shown = (h: string) => text[h] ?? (values[h] ? String(values[h]!.amount) : '');
+  const shown = (h: string) => (editing && editing.handle === h ? editing.text : values[h] ? String(values[h]!.amount) : '');
   const optionFor = (h: string) => influencerOptions.find((o) => o.handle.toLowerCase() === h.toLowerCase());
 
+  // 통화가 다른 값이 섞여 들어오면(명부 단가 통화가 사람마다 다를 때) 앞의 기호 하나와 값들이 어긋난다 —
+  // 블록 통화로 맞춘다. 맞추고 나면 더 부를 일이 없어 한 번에 멎는다.
+  useEffect(() => {
+    for (const h of handles.length ? handles : ['']) {
+      const v = values[h];
+      if (v && v.currency !== currency) onChange(h, { amount: v.amount, currency });
+    }
+  }, [handles, values, currency, onChange]);
+
   function commit(h: string, raw: string) {
-    setText((cur) => ({ ...cur, [h]: raw }));
+    setEditing({ handle: h, text: raw });
     const n = raw.trim() === '' ? null : parseAmount(raw);
     if (n === null && raw.trim() !== '') return;   // 잘못된 값은 저장하지 않고 입력만 남긴다(제출 시 검증)
     onChange(h, n === null ? null : { amount: n, currency });
@@ -52,6 +62,8 @@ export function CostRows({ type, handles, influencerOptions, values, onChange }:
             <label className={`flex h-9 items-center gap-1.5 rounded-lg border bg-white px-2.5 tabular-nums ${raw === '' ? 'border-dashed border-x-border-strong text-x-muted' : 'border-x-border-strong'} ${invalid ? 'border-red-400' : ''}`}>
               {currency === 'JPY' ? '¥' : '₩'}
               <input inputMode="numeric" value={raw} onChange={(e) => commit(h, e.target.value)} placeholder="금액" aria-label={`${h ? `@${h}` : '미배정'} 비용`}
+                     // 손을 떼면 이 칸도 부모 값으로 돌아간다 — 저장되지 않은 글자(잘못 친 값)가 남아 있지 않게
+                     onBlur={() => setEditing((cur) => (cur && cur.handle === h ? null : cur))}
                      className="w-full bg-transparent text-content outline-none placeholder:text-x-muted" />
             </label>
             <span className={`truncate text-ui ${sug ? 'text-x-muted' : 'text-amber-700'}`}>

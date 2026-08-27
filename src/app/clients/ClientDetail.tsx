@@ -4,12 +4,13 @@ import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { procedureSummary } from '@/lib/clientSummary';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
+import { BudgetPanel } from './BudgetPanel';
 
 // 부모(page)가 미저장 확인·일괄 저장에 쓰는 핸들
 export interface DetailHandle { isDirty: () => boolean; saveAll: () => Promise<boolean> }
 // 내부 편집기(기본 정보/펼친 시술)가 레지스트리에 등록하는 인터페이스
-type Editor = { isDirty: () => boolean; save: () => Promise<boolean> };
-type Register = (key: string, editor: Editor) => () => void;
+export type Editor = { isDirty: () => boolean; save: () => Promise<boolean> };
+export type Register = (key: string, editor: Editor) => () => void;
 
 // 줄바꿈 textarea ↔ string[] (금지 표현 입력)
 const toLines = (arr: string[]) => arr.join('\n');
@@ -144,6 +145,8 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
           </div>
         </div>
       </div>
+
+      <BudgetPanel client={client} register={register} onChanged={onChanged} />
 
       {deleting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setDeleting(false); setDeleteErr(''); }}>

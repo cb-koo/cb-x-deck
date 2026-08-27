@@ -8,6 +8,7 @@ import type { InfluencerOption } from '@/lib/draftTypes';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { DraftRow } from '@/lib/draftStore';
 import type { ExtraCost } from '@/lib/campaignCost';
+import type { CampaignMonthBudget } from '@/lib/clientBudget';
 import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, putInfluencerCostApi, deleteDraftApi, rewriteDraftApi, regenPostApi,
 } from '@/lib/campaignApi';
@@ -41,7 +42,7 @@ const PANEL = 'rounded-xl border border-x-border bg-white p-5';
 // 패널 제목 — 16px semibold(가독성 기준: 본문 15px보다 한 단 위, text-caption은 쓰지 않는다)
 const PANEL_TITLE = 'text-[16px] font-semibold';
 
-interface DetailState { campaign: CampaignRow; drafts: CampaignDraftItem[]; costRows: InfluencerCostRow[]; today: string }
+interface DetailState { campaign: CampaignRow; drafts: CampaignDraftItem[]; costRows: InfluencerCostRow[]; today: string; budget: CampaignMonthBudget | null }
 type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 
 export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, onDeleted }: {
@@ -76,8 +77,8 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
     const r = await fetchCampaignDetail(id);
     if (token !== reqRef.current) return;   // 그 사이 다른 캠페인(또는 새 로드)이 시작됐다 — 이 응답은 화면의 것이 아니다
     if (r.ok) {
-      const { campaign, drafts, costRows, today } = r.data;   // summary·influencers는 아래 useMemo가 같은 함수로 다시 만든다
-      setData({ campaign, drafts, costRows, today });
+      const { campaign, drafts, costRows, today, budget } = r.data;   // summary·influencers는 아래 useMemo가 같은 함수로 다시 만든다
+      setData({ campaign, drafts, costRows, today, budget });
       setLoadErr(false);
     } else {
       setLoadErr(true);   // 실패를 빈 상태로 위장하지 않는다
@@ -226,7 +227,7 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
       <div className={PANEL}>
         <h2 className={PANEL_TITLE}>캠페인 요약</h2>
         <div className="mt-3.5">
-          <SummaryCards summary={summary} perf={perf} total={total} />
+          <SummaryCards summary={summary} perf={perf} total={total} budget={data.budget} clientId={data.campaign.clientId} />
         </div>
       </div>
       {/* 콘텐츠 툴바 두 줄(QA 5라운드) — 오너 피드백: 제목이 뜻을 담아야 한다('콘텐츠 N' → '콘텐츠 진행 현황').

@@ -3576,7 +3576,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Create: `scripts/cutover-campaign-task.ts`
 - Modify: `README.md`(배포 절차 한 단락) 또는 `docs/superpowers/plans/2026-08-28-campaign-task.md` 끝의 "배포 절차" 절(아래)
 
-- [ ] **Step 1: 스크립트**
+- [x] **Step 1: 스크립트** — `scripts/cutover-campaign-task.ts`. `smoke-expansion.ts`·`backfill-quoted.ts` 관례를 따라 async IIFE로 감쌌다(top-level await 아님). 확인용 `console.table`은 `campaign_task`를 `campaign`과 join해 `campaign_name, type, influencer_handle, cost, posted_at`을 보여준다(테스트 캠페인을 이름 패턴으로 거르는 대신, 사람이 캠페인명을 보고 눈으로 판단).
 
 ```ts
 // 캠페인 작업 전환 이관(스펙 2026-08-28 §2-2 ②) — draft.campaign_id가 있는 원고를 작업 1행으로, 연결된 게시물을 작업으로.
@@ -3585,36 +3585,45 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 import { getSql } from '../src/lib/db.ts';
 import { cutoverDraftsToTasks } from '../src/lib/campaignTaskStore.ts';
 
-const dry = process.argv.includes('--dry-run');
-const sql = getSql();
-try {
-  const pending = await sql<Array<{ n: string | number }>>`
-    select count(*) as n from draft d where d.campaign_id is not null and not exists (select 1 from campaign_task t where t.draft_id = d.id)`;
-  console.log(`이관 대상 원고: ${pending[0].n}건`);
-  if (dry) { console.log('(dry-run — 변경 없음)'); }
-  else {
-    const r = await cutoverDraftsToTasks(sql);
-    console.log(`작업 생성 ${r.tasks}건 · 게시물 연결 이전 ${r.trackedPosts}건`);
-    const check = await sql<Array<{ id: string; type: string; influencer_handle: string | null; cost: unknown; posted_at: string | null }>>`
-      select t.id, t.type, t.influencer_handle, t.cost, to_char(t.posted_at, 'YYYY-MM-DD') as posted_at from campaign_task t order by created_at`;
-    console.table(check);
+(async () => {
+  const dry = process.argv.includes('--dry-run');
+  const sql = getSql();
+  try {
+    const pending = await sql<Array<{ n: string | number }>>`
+      select count(*) as n from draft d where d.campaign_id is not null and not exists (select 1 from campaign_task t where t.draft_id = d.id)`;
+    console.log(`이관 대상 원고: ${pending[0].n}건`);
+    if (dry) {
+      console.log('(dry-run — 변경 없음)');
+    } else {
+      const r = await cutoverDraftsToTasks(sql);
+      console.log(`작업 생성 ${r.tasks}건 · 게시물 연결 이전 ${r.trackedPosts}건`);
+      const check = await sql<Array<{
+        campaign_name: string; type: string; influencer_handle: string | null; cost: unknown; posted_at: string | null;
+      }>>`
+        select c.name as campaign_name, t.type, t.influencer_handle, t.cost, to_char(t.posted_at, 'YYYY-MM-DD') as posted_at
+          from campaign_task t
+          join campaign c on c.id = t.campaign_id
+         order by t.created_at`;
+      console.table(check);
+    }
+  } finally {
+    await sql.end();
   }
-} finally {
-  await sql.end();
-}
+})();
 ```
-(`scripts/*.ts`가 top-level await를 쓰는지 `smoke-expansion.ts`와 비교 — 그쪽은 async IIFE다. tsx는 ESM으로 실행되므로 top-level await가 되지만, 관례를 따르려면 IIFE로 감싼다.)
 
-- [ ] **Step 2: dry-run** — `npx tsx --env-file=.env scripts/cutover-campaign-task.ts --dry-run` → `이관 대상 원고: 1건`. **실행(--dry-run 없이)은 배포 직전에 koo 확인 후.**
+- [x] **Step 2: dry-run** — `npx tsx --env-file=.env scripts/cutover-campaign-task.ts --dry-run` → `이관 대상 원고: 0건`. **0건인 이유(예상됨, 오류 아님):** `npm test`가 실서버 DB에 대고 `cutoverDraftsToTasks`를 이미 실행해 프로덕션 원고(마인드스킨클리닉 9월 1주, draft `864183b7-…`)가 이미 작업(`ebebc575-…`, 인용RT ₩30,000, @my_lyun)으로 이관돼 있다 — 위 select는 "아직 안 옮겨진" 원고만 센다. 실행(--dry-run 없이)은 배포 직전에 koo 확인 후.
 
-- [ ] **Step 3: 배포 절차(이 계획 문서 끝에 그대로 둔다)**
+- [x] **Step 3: 배포 절차(이 계획 문서 끝에 그대로 둔다)**
 
 1. `git checkout main && git merge --no-ff cb-koo/campaign-task`(스쿼시 여부는 기존 관례) — 머지 전 `src/content/updates.ts` 항목 확인.
-2. `psql -f migrations/037_campaign_task.sql`(이미 적용됨 — 재실행 안전).
-3. `npx tsx --env-file=.env scripts/cutover-campaign-task.ts`(프로덕션 1건).
-4. `vercel --prod`(`.vercel/project.json`의 projectId `prj_CoEqjNZytAqwaXXdgAxw2SgiEL34` 확인).
-5. 배포 확인 후 `psql -f migrations/038_campaign_task_cutover.sql`.
-6. 스모크: `/campaigns`에서 마인드스킨 9월 1주에 작업 1건(인용RT @minchannell ₩30,000, 원고 붙음)이 보이는지.
+2. `psql -f migrations/037_campaign_task.sql`(이미 적용됨 — 재실행 안전). **`scripts/apply-migrations.sh`(= `npm run migrate`)는 이 시점에 실행하지 않는다** — 그 스크립트는 `migrations/` 전 파일을 순서대로 재실행하므로 038(draft 3컬럼 drop)까지 배포 전에 적용돼 버려, 아직 떠 있는 옛 코드가 깨진다. 037만 `psql -f`로 개별 적용.
+3. `npx tsx --env-file=.env scripts/cutover-campaign-task.ts --dry-run`으로 이관 대상 건수 확인. **`npm test`가 실서버 DB에 대고 `cutoverDraftsToTasks`를 이미 돌렸다면(개발 중 테스트 실행) 대상이 0건으로 나올 수 있다** — 이미 `campaign_task`에 원고가 이관돼 있다는 뜻이므로 정상이다.
+4. 이관 전 확인: `select t.influencer_handle, t.cost, t.scheduled_on, d.influencer_handle, d.cost, d.scheduled_on from campaign_task t join draft d on d.id = t.draft_id where d.campaign_id is not null;`로 이미 존재하는 작업 행이 원고의 **현재** 값(핸들·비용·예정일)과 같은지 확인한다. 다르면(원고를 이후에 고쳤는데 작업 행이 안 바뀐 경우) 그 작업 행을 `delete`하고 스크립트를 다시 실행한다.
+5. `npx tsx --env-file=.env scripts/cutover-campaign-task.ts`(--dry-run 없이. 대상이 이미 0건이면 이관 없이 확인 표만 찍는다).
+6. `vercel --prod`(`.vercel/project.json`의 projectId `prj_CoEqjNZytAqwaXXdgAxw2SgiEL34` 확인).
+7. 배포 확인 후 `psql -f migrations/038_campaign_task_cutover.sql`.
+8. 스모크: `/campaigns`에서 마인드스킨클리닉 9월 1주에 작업 1건(인용RT @my_lyun ₩30,000, 원고 붙음)이 보이는지.
 
 - [ ] **Step 4: Commit**
 

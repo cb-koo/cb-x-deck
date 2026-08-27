@@ -249,7 +249,7 @@ export async function countTasksForCampaignDelete(sql: postgres.Sql, campaignId:
 }
 
 // 이관(§2-2 ②) — draft.campaign_id가 있는 원고 → 작업 1행(유형 = 비용 유형, 없으면 투고), 연결된 tracked_post는 작업으로.
-// 재실행 안전: 이미 작업이 붙은 원고는 건너뛴다. 038(컬럼 drop) 전에만 의미가 있다 — 컬럼이 없으면 0건으로 끝난다.
+// 재실행 안전: 이미 작업이 붙은 원고는 건너뛴다. 039(컬럼 drop) 전에만 의미가 있다 — 컬럼이 없으면 0건으로 끝난다.
 export async function cutoverDraftsToTasks(sql: postgres.Sql): Promise<{ tasks: number; trackedPosts: number }> {
   const has = await sql<Array<{ n: string | number }>>`
     select count(*) as n from information_schema.columns where table_name = 'draft' and column_name = 'campaign_id'`;

@@ -144,12 +144,12 @@ test('4) 패치 3값 규칙(undefined=유지·null=지움·값=설정), 게시 �
 
 // 컨텍스트 인자 이름이 tc인 건 아래에서 t를 작업 변수로 쓰기 때문
 test('5) 이관 — draft 3컬럼 → 작업 1행(유형=비용 유형), tracked_post 연결 이전, 재실행 안전', async (tc) => {
-  // 037은 컬럼을 남겨두므로(038 전) 여기서 옛 컬럼에 직접 값을 넣어 이관을 검증한다.
-  // 038(옛 컬럼 삭제)이 적용된 뒤엔 넣을 컬럼도 이관할 것도 없다 — 실패가 아니라 건너뛴다.
+  // 038은 컬럼을 남겨두므로(039 전) 여기서 옛 컬럼에 직접 값을 넣어 이관을 검증한다.
+  // 039(옛 컬럼 삭제)이 적용된 뒤엔 넣을 컬럼도 이관할 것도 없다 — 실패가 아니라 건너뛴다.
   const [col] = await sql<Array<{ n: number }>>`
     select count(*)::int as n from information_schema.columns
      where table_name = 'draft' and column_name = 'campaign_id'`;
-  if (col.n === 0) { tc.skip('038 적용 후 — 이관 경로 없음'); return; }
+  if (col.n === 0) { tc.skip('039 적용 후 — 이관 경로 없음'); return; }
   const c = await createClient(sql, P + '클라5');
   const camp = await mkCampaign(c.id, c.name, 'e');
   const draftId = await mkDraft(c.id, c.name);

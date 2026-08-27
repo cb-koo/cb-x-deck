@@ -1,5 +1,6 @@
--- 037: 캠페인 작업(campaign_task) — 캠페인의 단위가 원고 → 작업으로 (스펙 docs/superpowers/specs/2026-08-28-campaign-task-design.md §2)
--- 추가만 한다. draft.campaign_id/scheduled_on/cost 삭제는 038(배포 후) — 이 파일은 main의 옛 코드와 공존해야 한다.
+-- 038: 캠페인 작업(campaign_task) — 캠페인의 단위가 원고 → 작업으로 (스펙 docs/superpowers/specs/2026-08-28-campaign-task-design.md §2)
+-- 037은 클라이언트 월 예산이 쓴다(main) → 이 파일은 038. 프로덕션에는 037 번호였을 때 이미 적용했다(추가만 하는 파일이라 재실행 안전).
+-- 추가만 한다. draft.campaign_id/scheduled_on/cost 삭제는 039(배포 후) — 이 파일은 main의 옛 코드와 공존해야 한다.
 -- scripts/apply-migrations.sh가 전 파일을 재실행하므로 모든 문장은 재실행 안전.
 
 create table if not exists campaign_task (

@@ -16,9 +16,9 @@
 - RT 참고자료 405건 중 350건 없음 → 리포스터 조회로 게시 근거가 생기면 지금보다 낫다.
 - 프로덕션에 캠페인 소속 원고 1건 → 지금이 가장 싼 전환 시점.
 
-## 2. 데이터 모델 (마이그레이션 037)
+## 2. 데이터 모델 (마이그레이션 038)
 
-main 최신 036(인플루언서 결제 수단) → **037**. `scripts/apply-migrations.sh`가 전 파일을 재실행하므로 모든 문장은 멱등.
+main 최신 037(클라이언트 월 예산, main 머지본) → **038**. (037 번호로 먼저 만들어 프로덕션에 적용했으나 main의 월 예산이 037을 쓰게 되어 038로 옮겼다 — 추가만 하는 파일이라 재적용해도 안전.) `scripts/apply-migrations.sh`가 전 파일을 재실행하므로 모든 문장은 멱등.
 
 ### 2-1. `campaign_task` (신설)
 
@@ -51,7 +51,7 @@ main 최신 036(인플루언서 결제 수단) → **037**. `scripts/apply-migra
 
 `campaign_id · scheduled_on · cost`를 작업으로 옮기고 **삭제**한다(되돌림은 배포 전 백업).
 
-**전환 순서(계획 단계에서 확정 — 테스트는 프로덕션 DB를 쓰므로 컬럼 삭제를 037에 넣으면 배포 전 main 코드가 즉시 500)**: ① **037 = 추가만**(`campaign_task` · `tracked_post.task_id`) — 옛 코드와 공존, 구현·테스트 중 적용. ② 이관은 SQL 파일이 아니라 스토어 함수 `cutoverDraftsToTasks(sql)`(재실행 안전, 테스트로 검증) + `scripts/cutover-campaign-task.ts` — 새 코드 배포 **직전**에 실행. ③ 새 코드 배포. ④ **038 = 3컬럼 drop** — 배포 후 적용. 새 코드는 `draft.campaign_id`를 읽지 않으므로 ③과 ④ 사이에 컬럼이 남아 있어도 무해.
+**전환 순서(계획 단계에서 확정 — 테스트는 프로덕션 DB를 쓰므로 컬럼 삭제를 038에 넣으면 배포 전 main 코드가 즉시 500)**: ① **038 = 추가만**(`campaign_task` · `tracked_post.task_id`) — 옛 코드와 공존, 구현·테스트 중 적용. ② 이관은 SQL 파일이 아니라 스토어 함수 `cutoverDraftsToTasks(sql)`(재실행 안전, 테스트로 검증) + `scripts/cutover-campaign-task.ts` — 새 코드 배포 **직전**에 실행. ③ 새 코드 배포. ④ **039 = 3컬럼 drop** — 배포 후 적용. 새 코드는 `draft.campaign_id`를 읽지 않으므로 ③과 ④ 사이에 컬럼이 남아 있어도 무해.
 
 ```sql
 insert into campaign_task (campaign_id, influencer_handle, type, draft_id, scheduled_on, cost, created_by, created_at)
@@ -64,7 +64,7 @@ select d.campaign_id, d.influencer_handle,
 from draft d where d.campaign_id is not null
   and not exists (select 1 from campaign_task t where t.draft_id = d.id);   -- 재실행 안전
 ```
-프로덕션 대상 1건(마인드스킨 9월 1주 · quoteRt ₩30,000 · delivered). 이어서 `tracked_post.draft_id`가 그 원고를 가리키면 `tracked_post.task_id`로 옮기고(§2-4) 작업 `posted_at = (tp.posted_at at time zone 'Asia/Seoul')::date`(timestamptz → 서울 날짜), `posted_source='manual'`, `post_url`을 채운다. 마지막에 `alter table draft drop column if exists campaign_id, drop column if exists scheduled_on, drop column if exists cost`. (033이 재실행 때 3컬럼을 다시 만들고 037이 끝에서 지우므로 전체 재실행도 안전. 프로덕션 확인 08-28: 캠페인 1 · 소속 원고 1(@minchannell quoteRt ₩30,000 delivered 9/9) · 연결된 tracked_post 0 · `campaign_influencer_cost` 1행(@aik_ooooo, extra_costs 비어 있음 → 인플 목록에 "배정 작업 없음"으로 남음).)
+프로덕션 대상 1건(마인드스킨 9월 1주 · quoteRt ₩30,000 · delivered). 이어서 `tracked_post.draft_id`가 그 원고를 가리키면 `tracked_post.task_id`로 옮기고(§2-4) 작업 `posted_at = (tp.posted_at at time zone 'Asia/Seoul')::date`(timestamptz → 서울 날짜), `posted_source='manual'`, `post_url`을 채운다. 마지막에 `alter table draft drop column if exists campaign_id, drop column if exists scheduled_on, drop column if exists cost`. (033이 재실행 때 3컬럼을 다시 만들고 039가 끝에서 지우므로 전체 재실행도 안전. 프로덕션 확인 08-28: 캠페인 1 · 소속 원고 1(@minchannell quoteRt ₩30,000 delivered 9/9) · 연결된 tracked_post 0 · `campaign_influencer_cost` 1행(@aik_ooooo, extra_costs 비어 있음 → 인플 목록에 "배정 작업 없음"으로 남음).)
 
 ### 2-3. 그대로 두는 것
 
@@ -74,7 +74,7 @@ from draft d where d.campaign_id is not null
 
 ### 2-4. `tracked_post.task_id` 추가
 
-게시물 연결이 원고가 아니라 **작업**에 걸린다: `alter table tracked_post add column if not exists task_id uuid references campaign_task(id) on delete set null` + 인덱스. 기존 `draft_id`는 **남긴다**(트래킹·성과 화면이 원고 기준으로도 읽음 — 037에서 건드리지 않음). 이관: `update tracked_post tp set task_id = t.id from campaign_task t where t.draft_id = tp.draft_id and tp.task_id is null`.
+게시물 연결이 원고가 아니라 **작업**에 걸린다: `alter table tracked_post add column if not exists task_id uuid references campaign_task(id) on delete set null` + 인덱스. 기존 `draft_id`는 **남긴다**(트래킹·성과 화면이 원고 기준으로도 읽음 — 038에서 건드리지 않음). 이관: `update tracked_post tp set task_id = t.id from campaign_task t where t.draft_id = tp.draft_id and tp.task_id is null`.
 
 **양방향 연결 규칙(리뷰 반영)** — 게시물 1건은 작업·원고 어느 쪽으로 연결하든 두 칸이 함께 맞춰진다. 스토어 함수 하나 `linkTrackedPost(tx, trackedPostId, { taskId } | { draftId })`가 담당하고 기존 `setDraftLink`는 이 함수로 대체:
 - 작업으로 연결(캠페인 단계 셀·`LinkPostModal`): `task_id = 작업`, `draft_id = 작업.draft_id`(있으면). 그 작업의 `post_url`을 게시물 permalink로, `posted_at`이 비어 있으면 `(tp.posted_at at time zone 'Asia/Seoul')::date`(없으면 오늘)로, `posted_source='manual'`.
@@ -275,4 +275,4 @@ RT 요청은 항상 "대상 게시글 링크"를 인플에게 준다 → 그 트
 | 작업 추가: RT는 대상 먼저, 비용은 사람별 줄, 대상 칸은 입력 하나+칩 | koo 08-28 "사용자 입장에서 대상 먼저" |
 | 예정일·비용 고치는 자리는 캠페인 화면만 | koo 08-28. 원고 카드는 읽기 + 링크 |
 | `tracked_post.task_id` 추가, `draft_id` 유지 | 트래킹 화면 무변경으로 범위 억제 |
-| `draft` 3컬럼 037에서 삭제 | 프로덕션 1건, 남기면 두 소스 |
+| `draft` 3컬럼 038에서 삭제 | 프로덕션 1건, 남기면 두 소스 |

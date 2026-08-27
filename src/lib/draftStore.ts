@@ -116,7 +116,7 @@ const SELECT = (sql: postgres.Sql) => sql`
     left join member m on m.id = d.created_by
     left join campaign_task t on t.draft_id = d.id
     left join campaign c on c.id = t.campaign_id`;
-// campaign_task(draft_id) unique partial index(037) 덕에 원고 1행에 작업은 최대 1행 — 이 조인으로 행이 불어나지 않는다.
+// campaign_task(draft_id) unique partial index(038) 덕에 원고 1행에 작업은 최대 1행 — 이 조인으로 행이 불어나지 않는다.
 
 export async function insertDraft(sql: postgres.Sql, input: {
   clientId: string | null; clientName: string | null; procedureNames: string[];

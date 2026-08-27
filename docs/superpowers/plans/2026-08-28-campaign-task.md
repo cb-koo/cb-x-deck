@@ -4,7 +4,7 @@
 
 **Goal:** 캠페인의 단위를 원고(draft)에서 작업(`campaign_task`: 투고·인용RT·RT·방문협찬)으로 바꾸고, RT 게시 확인을 대상 게시글 리포스터 조회로 채워, 작업 1행이 정산 후보 1건이 되게 한다.
 
-**Architecture:** 새 표 `campaign_task`(037, 추가만)가 캠페인·인플·유형·원고(≤1)·대상(다른 작업 또는 URL)·게시 확인/내림·예정일/방문일·비용을 갖는다. 파생값(단계·밀림·대상 상태·요약·유형별 소계·인플 목록)은 `campaignJudgment.ts` 순수 함수(서버·클라 공용). `draft`는 3컬럼(campaign_id/scheduled_on/cost)을 잃고 `campaign_task.draft_id`에서 소속을 읽는다(컬럼 drop은 038, 배포 후). `tracked_post.task_id`로 게시물이 작업에 붙고, 원고 연결과 양방향으로 맞춰진다. 게시 확인 자동화는 기존 `getTweetRetweeters`를 캠페인 툴바 버튼(opt-in)에서 트윗당 1회 호출.
+**Architecture:** 새 표 `campaign_task`(038, 추가만)가 캠페인·인플·유형·원고(≤1)·대상(다른 작업 또는 URL)·게시 확인/내림·예정일/방문일·비용을 갖는다. 파생값(단계·밀림·대상 상태·요약·유형별 소계·인플 목록)은 `campaignJudgment.ts` 순수 함수(서버·클라 공용). `draft`는 3컬럼(campaign_id/scheduled_on/cost)을 잃고 `campaign_task.draft_id`에서 소속을 읽는다(컬럼 drop은 039, 배포 후). `tracked_post.task_id`로 게시물이 작업에 붙고, 원고 연결과 양방향으로 맞춰진다. 게시 확인 자동화는 기존 `getTweetRetweeters`를 캠페인 툴바 버튼(opt-in)에서 트윗당 1회 호출.
 
 **Tech Stack:** Next.js(App Router, `node_modules/next/dist/docs/` 참조) · TypeScript · postgres.js(`sql` 태그) · node:test(`node --import tsx --env-file=.env --test <file>`) · Tailwind(x-* 토큰) · getxapi 클라이언트(`src/lib/getxapi.ts`).
 
@@ -12,8 +12,8 @@
 
 ## Global Constraints
 
-- 마이그레이션 번호 **037**(추가만: `campaign_task`·`tracked_post.task_id`) / **038**(draft 3컬럼 drop — 배포 후에만 적용, 이 계획에서는 파일만 만든다). 모든 문장 멱등(`if not exists`) — `scripts/apply-migrations.sh`가 전 파일을 재실행한다.
-- 테스트는 **실 DB(.env = 프로덕션 풀)** — 테스트 데이터는 반드시 `P = 'xxxx' + process.pid` 접두어로 만들고 `after()`에서 지운다. 037은 Task 1에서 실 DB에 적용한다(옛 코드와 공존 가능).
+- 마이그레이션 번호 **038**(추가만: `campaign_task`·`tracked_post.task_id`) / **039**(draft 3컬럼 drop — 배포 후에만 적용, 이 계획에서는 파일만 만든다). 모든 문장 멱등(`if not exists`) — `scripts/apply-migrations.sh`가 전 파일을 재실행한다.
+- 테스트는 **실 DB(.env = 프로덕션 풀)** — 테스트 데이터는 반드시 `P = 'xxxx' + process.pid` 접두어로 만들고 `after()`에서 지운다. 038은 Task 1에서 실 DB에 적용한다(옛 코드와 공존 가능).
 - 유형 리터럴 `'post' | 'quoteRt' | 'rt' | 'visit'`과 라벨(`투고·인용RT·RT·방문협찬`)은 `src/lib/influencerPricing.ts`의 `PriceType`/`PRICE_TYPE_LABEL` **재사용**(지역 정의 금지).
 - 날짜 컬럼은 `date`, 읽을 때 `to_char(x, 'YYYY-MM-DD')`, 쓸 때 `${v}::date`. '오늘' = `kstToday()`(서버) — 클라는 서버가 준 `today`를 쓴다.
 - 핸들은 표기 보존, 비교는 `lower()`.
@@ -30,8 +30,8 @@
 **신설**
 | 파일 | 책임 |
 |---|---|
-| `migrations/037_campaign_task.sql` | `campaign_task` 표·인덱스, `tracked_post.task_id` (추가만) |
-| `migrations/038_campaign_task_cutover.sql` | `draft` 3컬럼 drop (배포 후 적용) |
+| `migrations/038_campaign_task.sql` | `campaign_task` 표·인덱스, `tracked_post.task_id` (추가만) |
+| `migrations/039_campaign_task_cutover.sql` | `draft` 3컬럼 drop (배포 후 적용) |
 | `scripts/cutover-campaign-task.ts` | `cutoverDraftsToTasks` 실행 스크립트 |
 | `src/lib/campaignTaskStore.ts` (+`.test.ts`) | `campaign_task` CRUD·대상 후보·원고 붙이기/떼기·게시 확인 표시·이관 |
 | `src/lib/campaignTaskInput.ts` (+`.test.ts`) | 작업 API 입력 검증(순수) |
@@ -60,20 +60,20 @@
 
 ---
 
-### Task 1: 마이그레이션 037 (추가만) + 실 DB 적용
+### Task 1: 마이그레이션 038 (추가만) + 실 DB 적용
 
 **Files:**
-- Create: `migrations/037_campaign_task.sql`
-- Create: `migrations/038_campaign_task_cutover.sql`
+- Create: `migrations/038_campaign_task.sql`
+- Create: `migrations/039_campaign_task_cutover.sql`
 
 **Interfaces:**
 - Produces: 표 `campaign_task`(컬럼은 스펙 §2-1 그대로), `tracked_post.task_id uuid null`.
 
-- [ ] **Step 1: 037 작성**
+- [ ] **Step 1: 038 작성**
 
 ```sql
--- 037: 캠페인 작업(campaign_task) — 캠페인의 단위가 원고 → 작업으로 (스펙 docs/superpowers/specs/2026-08-28-campaign-task-design.md §2)
--- 추가만 한다. draft.campaign_id/scheduled_on/cost 삭제는 038(배포 후) — 이 파일은 main의 옛 코드와 공존해야 한다.
+-- 038: 캠페인 작업(campaign_task) — 캠페인의 단위가 원고 → 작업으로 (스펙 docs/superpowers/specs/2026-08-28-campaign-task-design.md §2)
+-- 추가만 한다. draft.campaign_id/scheduled_on/cost 삭제는 039(배포 후) — 이 파일은 main의 옛 코드와 공존해야 한다.
 -- scripts/apply-migrations.sh가 전 파일을 재실행하므로 모든 문장은 재실행 안전.
 
 create table if not exists campaign_task (
@@ -109,11 +109,11 @@ alter table tracked_post add column if not exists task_id uuid references campai
 create index if not exists idx_tracked_post_task on tracked_post (task_id);
 ```
 
-- [ ] **Step 2: 038 작성 (적용은 배포 후 — 이 계획에서 실행하지 않는다)**
+- [ ] **Step 2: 039 작성 (적용은 배포 후 — 이 계획에서 실행하지 않는다)**
 
 ```sql
--- 038: 캠페인 작업 전환 마무리 — draft의 캠페인 3컬럼 drop (스펙 §2-2 ④)
--- 반드시 (1) 037 적용 → (2) scripts/cutover-campaign-task.ts 실행 → (3) 새 코드 배포 → 뒤에 적용한다.
+-- 039: 캠페인 작업 전환 마무리 — draft의 캠페인 3컬럼 drop (스펙 §2-2 ④)
+-- 반드시 (1) 038 적용 → (2) scripts/cutover-campaign-task.ts 실행 → (3) 새 코드 배포 → 뒤에 적용한다.
 -- 새 코드는 이 컬럼들을 읽지 않으므로 늦게 적용해도 무해하고, 일찍 적용하면 옛 코드가 500이 난다.
 drop index if exists idx_draft_campaign;
 alter table draft drop column if exists campaign_id;
@@ -121,10 +121,10 @@ alter table draft drop column if exists scheduled_on;
 alter table draft drop column if exists cost;
 ```
 
-- [ ] **Step 3: 037만 실 DB에 적용**
+- [ ] **Step 3: 038만 실 DB에 적용**
 
-Run: `set -a; source .env; set +a; psql -v ON_ERROR_STOP=1 -f migrations/037_campaign_task.sql`
-Expected: `CREATE TABLE` … `ALTER TABLE` `CREATE INDEX` — 오류 없음. (`apply-migrations.sh`는 038까지 돌리므로 **쓰지 않는다**.)
+Run: `set -a; source .env; set +a; psql -v ON_ERROR_STOP=1 -f migrations/038_campaign_task.sql`
+Expected: `CREATE TABLE` … `ALTER TABLE` `CREATE INDEX` — 오류 없음. (`apply-migrations.sh`는 039까지 돌리므로 **쓰지 않는다**.)
 
 - [ ] **Step 4: 적용 확인**
 
@@ -134,8 +134,8 @@ Expected: 컬럼 20개 표시, `task_id` 1행.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add migrations/037_campaign_task.sql migrations/038_campaign_task_cutover.sql
-git commit -m "feat(campaign-task): 037 campaign_task 표·tracked_post.task_id(추가만) + 038 draft 3컬럼 drop(배포 후 적용)
+git add migrations/038_campaign_task.sql migrations/039_campaign_task_cutover.sql
+git commit -m "feat(campaign-task): 038 campaign_task 표·tracked_post.task_id(추가만) + 039 draft 3컬럼 drop(배포 후 적용)
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
@@ -736,7 +736,7 @@ test('4) 패치 3값 규칙(undefined=유지·null=지움·값=설정), 게시 �
 });
 
 test('5) 이관 — draft 3컬럼 → 작업 1행(유형=비용 유형), tracked_post 연결 이전, 재실행 안전', async () => {
-  // 037은 컬럼을 남겨두므로(038 전) 여기서 옛 컬럼에 직접 값을 넣어 이관을 검증한다
+  // 038은 컬럼을 남겨두므로(039 전) 여기서 옛 컬럼에 직접 값을 넣어 이관을 검증한다
   const c = await createClient(sql, P + '클라5');
   const camp = await mkCampaign(c.id, c.name, 'e');
   const draftId = await mkDraft(c.id, c.name);
@@ -1008,7 +1008,7 @@ export async function countTasksForCampaignDelete(sql: postgres.Sql, campaignId:
 }
 
 // 이관(§2-2 ②) — draft.campaign_id가 있는 원고 → 작업 1행(유형 = 비용 유형, 없으면 투고), 연결된 tracked_post는 작업으로.
-// 재실행 안전: 이미 작업이 붙은 원고는 건너뛴다. 038(컬럼 drop) 전에만 의미가 있다 — 컬럼이 없으면 0건으로 끝난다.
+// 재실행 안전: 이미 작업이 붙은 원고는 건너뛴다. 039(컬럼 drop) 전에만 의미가 있다 — 컬럼이 없으면 0건으로 끝난다.
 export async function cutoverDraftsToTasks(sql: postgres.Sql): Promise<{ tasks: number; trackedPosts: number }> {
   const has = await sql<Array<{ n: string | number }>>`
     select count(*) as n from information_schema.columns where table_name = 'draft' and column_name = 'campaign_id'`;
@@ -3581,7 +3581,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```ts
 // 캠페인 작업 전환 이관(스펙 2026-08-28 §2-2 ②) — draft.campaign_id가 있는 원고를 작업 1행으로, 연결된 게시물을 작업으로.
 // 사용: npx tsx --env-file=.env scripts/cutover-campaign-task.ts [--dry-run]
-// 순서: 037 적용 → (새 코드 배포 직전) 이 스크립트 → 새 코드 배포 → 038 적용(draft 3컬럼 drop). 재실행 안전.
+// 순서: 038 적용 → (새 코드 배포 직전) 이 스크립트 → 새 코드 배포 → 039 적용(draft 3컬럼 drop). 재실행 안전.
 import { getSql } from '../src/lib/db.ts';
 import { cutoverDraftsToTasks } from '../src/lib/campaignTaskStore.ts';
 
@@ -3617,12 +3617,12 @@ import { cutoverDraftsToTasks } from '../src/lib/campaignTaskStore.ts';
 - [x] **Step 3: 배포 절차(이 계획 문서 끝에 그대로 둔다)**
 
 1. `git checkout main && git merge --no-ff cb-koo/campaign-task`(스쿼시 여부는 기존 관례) — 머지 전 `src/content/updates.ts` 항목 확인.
-2. `psql -f migrations/037_campaign_task.sql`(이미 적용됨 — 재실행 안전). **`scripts/apply-migrations.sh`(= `npm run migrate`)는 이 시점에 실행하지 않는다** — 그 스크립트는 `migrations/` 전 파일을 순서대로 재실행하므로 038(draft 3컬럼 drop)까지 배포 전에 적용돼 버려, 아직 떠 있는 옛 코드가 깨진다. 037만 `psql -f`로 개별 적용.
+2. `psql -f migrations/038_campaign_task.sql`(이미 적용됨 — 재실행 안전). **`scripts/apply-migrations.sh`(= `npm run migrate`)는 이 시점에 실행하지 않는다** — 그 스크립트는 `migrations/` 전 파일을 순서대로 재실행하므로 039(draft 3컬럼 drop)까지 배포 전에 적용돼 버려, 아직 떠 있는 옛 코드가 깨진다. 038만 `psql -f`로 개별 적용.
 3. `npx tsx --env-file=.env scripts/cutover-campaign-task.ts --dry-run`으로 이관 대상 건수 확인. **`npm test`가 실서버 DB에 대고 `cutoverDraftsToTasks`를 이미 돌렸다면(개발 중 테스트 실행) 대상이 0건으로 나올 수 있다** — 이미 `campaign_task`에 원고가 이관돼 있다는 뜻이므로 정상이다.
 4. 이관 전 확인: `select t.influencer_handle, t.cost, t.scheduled_on, d.influencer_handle, d.cost, d.scheduled_on from campaign_task t join draft d on d.id = t.draft_id where d.campaign_id is not null;`로 이미 존재하는 작업 행이 원고의 **현재** 값(핸들·비용·예정일)과 같은지 확인한다. 다르면(원고를 이후에 고쳤는데 작업 행이 안 바뀐 경우) 그 작업 행을 `delete`하고 스크립트를 다시 실행한다.
 5. `npx tsx --env-file=.env scripts/cutover-campaign-task.ts`(--dry-run 없이. 대상이 이미 0건이면 이관 없이 확인 표만 찍는다).
 6. `vercel --prod`(`.vercel/project.json`의 projectId `prj_CoEqjNZytAqwaXXdgAxw2SgiEL34` 확인).
-7. 배포 확인 후 `psql -f migrations/038_campaign_task_cutover.sql`.
+7. 배포 확인 후 `psql -f migrations/039_campaign_task_cutover.sql`.
 8. 스모크: `/campaigns`에서 마인드스킨클리닉 9월 1주에 작업 1건(인용RT @my_lyun ₩30,000, 원고 붙음)이 보이는지.
 
 - [ ] **Step 4: Commit**

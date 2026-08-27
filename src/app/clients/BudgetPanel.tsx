@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
-import { Button } from '@/components/ui';
+import { Button, PANEL_SPLIT, PANEL_TITLE } from '@/components/ui';
 import { InfoTip } from '@/components/InfoTip';
 import { formatAmount, parseAmount } from '@/lib/campaignCost';
 import {
@@ -37,16 +37,16 @@ export function BudgetPanel({ client, register, onChanged }: {
   useEffect(() => { void loadRows(); }, [loadRows]);
 
   return (
-    <div className="mt-4 rounded-2xl border border-x-border-strong">
-      <div className="px-4 py-3">
-        <h3 className="text-content font-bold">월 마케팅 예산</h3>
+    <div className={PANEL_SPLIT}>
+      <div className="px-5 py-4">
+        <h2 className={PANEL_TITLE}>월 마케팅 예산</h2>
         <p className="text-caption text-x-muted">매달 이 금액을 기준으로 캠페인 비용을 대조해요. 특정 달만 다르면 아래 표에서 그 달을 고쳐요.</p>
       </div>
-      <div className="border-t border-x-border px-4 py-4">
+      <div className="border-t border-x-border px-5 py-5">
         <DefaultBudgetEditor key={client.id} client={client} register={register}
                              onSaved={async () => { await onChanged(); await loadRows(); }} />
       </div>
-      <div className="border-t border-x-border px-4 py-4">
+      <div className="border-t border-x-border px-5 py-5">
         <div className="mb-2 flex items-center gap-1.5">
           <span className="text-ui font-bold">월별 예산과 집행</span>
           <InfoTip text={budgetTipText()} label="집계 방식 설명 보기" />

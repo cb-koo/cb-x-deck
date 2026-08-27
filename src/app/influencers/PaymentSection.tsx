@@ -308,12 +308,16 @@ function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, o
   // PayPay는 통화를 고를 수 없다 — 화면 값도 서버 규칙(항상 JPY)에서 파생시켜 라벨과 값을 일치시킨다.
   const currency: Currency = draft.type === 'paypay' ? 'JPY' : draft.currency;
 
+  // 2열 격자 한 벌로 — 칸마다 폭이 달라 들쭉날쭉하던 배열(피드백)을 같은 폭의 칸으로 맞춘다.
+  // 폼 전체는 max-w-2xl: 넓은 화면에서 입력칸이 화면 끝까지 늘어나면 라벨과 값이 멀어져 읽기 어렵다.
+  const CELL = 'min-w-0';
+  const SPAN2 = 'min-w-0 sm:col-span-2';
   return (
-    <div className="rounded-lg border border-x-border-strong bg-white px-3 py-3">
+    <div className="rounded-lg border border-x-border-strong bg-white px-4 py-3">
       {error && <p role="alert" className="mb-2 text-ui text-red-600">{error}</p>}
 
-      <div className="flex flex-wrap gap-3">
-        <div className="w-36">
+      <div className="grid max-w-2xl grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
+        <div className={CELL}>
           <label className={FIELD_LABEL} htmlFor={`${uid}-type`}>결제 수단</label>
           <select id={`${uid}-type`} value={draft.type} disabled={busy}
                   onChange={(e) => set('type', e.target.value as PaymentMethodType)}
@@ -321,12 +325,7 @@ function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, o
             {PAYMENT_TYPES.map((t) => <option key={t} value={t}>{PAYMENT_TYPE_LABEL[t]}</option>)}
           </select>
         </div>
-        <div className="min-w-[200px] flex-1">
-          <label className={FIELD_LABEL} htmlFor={`${uid}-holder`}>{holderLabel(draft.type)}</label>
-          <input id={`${uid}-holder`} value={draft.holder} disabled={busy}
-                 onChange={(e) => set('holder', e.target.value)} className={FIELD} />
-        </div>
-        <div className="w-36">
+        <div className={CELL}>
           <label className={FIELD_LABEL} htmlFor={`${uid}-currency`}>지급 통화</label>
           <select id={`${uid}-currency`} value={currency} disabled={busy || draft.type === 'paypay'}
                   onChange={(e) => set('currency', e.target.value as Currency)}
@@ -335,65 +334,66 @@ function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, o
               <option key={c} value={c}>{`${CURRENCY_SYMBOL[c]} ${c === 'JPY' ? '엔화' : '원화'}`}</option>
             ))}
           </select>
-          {draft.type === 'paypay' && <p className="mt-0.5 text-caption text-x-muted">PayPay는 엔화로만 보내요</p>}
-        </div>
-      </div>
-      {/* 단가·캠페인은 원화 기준인데 여기만 ¥가 기본이라 "왜 다르지?"가 된다 — 환산 규칙까지 한 줄로(UX 원칙 2·5) */}
-      <p className="mt-1 text-caption text-x-muted">
-        인플이 받는 통화예요. 캠페인 비용은 원화로 관리하고, 정산 때 10원 = 1엔으로 환산해요.
-      </p>
-
-      {draft.type === 'paypal' && (
-        <div className="mt-2.5">
-          <div className="flex flex-wrap gap-3">
-            <div className="min-w-[220px] flex-1">
-              <label className={FIELD_LABEL} htmlFor={`${uid}-email`}>이메일</label>
-              <input id={`${uid}-email`} value={draft.email} disabled={busy} inputMode="email"
-                     onChange={(e) => set('email', e.target.value)} className={`${FIELD} max-w-sm`} />
-            </div>
-            <div className="min-w-[180px] flex-1">
-              <label className={FIELD_LABEL} htmlFor={`${uid}-paypalId`}>PayPal.me 아이디</label>
-              <input id={`${uid}-paypalId`} value={draft.paypalId} disabled={busy} placeholder="paypal.me/ 뒤의 아이디"
-                     onChange={(e) => set('paypalId', e.target.value)} className={`${FIELD} max-w-xs`} />
-            </div>
-          </div>
-          <p className="mt-0.5 text-caption text-x-muted">둘 중 하나만 있어도 보낼 수 있어요 — 아는 쪽을 적어 주세요.</p>
-        </div>
-      )}
-
-      {draft.type === 'paypay' && (
-        <div className="mt-2.5">
-          <label className={FIELD_LABEL} htmlFor={`${uid}-identifier`}>수취 식별 정보 (선택)</label>
-          <input id={`${uid}-identifier`} value={draft.identifier} disabled={busy}
-                 onChange={(e) => set('identifier', e.target.value)} className={`${FIELD} max-w-sm`} />
+          {/* 단가·캠페인은 원화 기준인데 여기만 ¥가 기본이라 "왜 다르지?"가 된다 — 환산 규칙까지 한 줄로(UX 원칙 2·5) */}
           <p className="mt-0.5 text-caption text-x-muted">
-            PayPay는 아직 무엇으로 받는지 확정되지 않았어요 — 정산 쪽에서 확인되면 그대로 적어 두세요.
+            {draft.type === 'paypay' ? 'PayPay는 엔화로만 보내요' : '인플이 받는 통화예요. 캠페인 비용은 원화로 관리하고, 정산 때 10원 = 1엔으로 환산해요.'}
           </p>
         </div>
-      )}
 
-      {draft.type === 'bank' && (
-        <div className="mt-2.5 flex flex-wrap gap-3">
-          <div className="min-w-[140px] flex-1">
-            <label className={FIELD_LABEL} htmlFor={`${uid}-bank`}>은행</label>
-            <input id={`${uid}-bank`} value={draft.bank} disabled={busy}
-                   onChange={(e) => set('bank', e.target.value)} className={FIELD} />
-          </div>
-          <div className="min-w-[140px] flex-1">
-            <label className={FIELD_LABEL} htmlFor={`${uid}-branch`}>지점 (선택)</label>
-            <input id={`${uid}-branch`} value={draft.branch} disabled={busy}
-                   onChange={(e) => set('branch', e.target.value)} className={FIELD} />
-          </div>
-          <div className="min-w-[160px] flex-1">
-            <label className={FIELD_LABEL} htmlFor={`${uid}-account`}>계좌번호</label>
-            <input id={`${uid}-account`} value={draft.account} disabled={busy}
-                   onChange={(e) => set('account', e.target.value)} className={FIELD} />
-          </div>
+        <div className={SPAN2}>
+          <label className={FIELD_LABEL} htmlFor={`${uid}-holder`}>{holderLabel(draft.type)}</label>
+          <input id={`${uid}-holder`} value={draft.holder} disabled={busy}
+                 onChange={(e) => set('holder', e.target.value)} className={FIELD} />
         </div>
-      )}
 
-      <div className="mt-2.5 flex flex-wrap items-end gap-3">
-        <div className="min-w-[240px]">
+        {draft.type === 'paypal' && (
+          <>
+            <div className={CELL}>
+              <label className={FIELD_LABEL} htmlFor={`${uid}-email`}>이메일</label>
+              <input id={`${uid}-email`} value={draft.email} disabled={busy} inputMode="email"
+                     onChange={(e) => set('email', e.target.value)} className={FIELD} />
+            </div>
+            <div className={CELL}>
+              <label className={FIELD_LABEL} htmlFor={`${uid}-paypalId`}>PayPal.me 아이디</label>
+              <input id={`${uid}-paypalId`} value={draft.paypalId} disabled={busy} placeholder="paypal.me/ 뒤의 아이디"
+                     onChange={(e) => set('paypalId', e.target.value)} className={FIELD} />
+              <p className="mt-0.5 text-caption text-x-muted">이메일과 아이디 중 하나만 있어도 보낼 수 있어요.</p>
+            </div>
+          </>
+        )}
+
+        {draft.type === 'paypay' && (
+          <div className={SPAN2}>
+            <label className={FIELD_LABEL} htmlFor={`${uid}-identifier`}>수취 식별 정보 (선택)</label>
+            <input id={`${uid}-identifier`} value={draft.identifier} disabled={busy}
+                   onChange={(e) => set('identifier', e.target.value)} className={FIELD} />
+            <p className="mt-0.5 text-caption text-x-muted">
+              PayPay는 아직 무엇으로 받는지 확정되지 않았어요 — 정산 쪽에서 확인되면 그대로 적어 두세요.
+            </p>
+          </div>
+        )}
+
+        {draft.type === 'bank' && (
+          <>
+            <div className={CELL}>
+              <label className={FIELD_LABEL} htmlFor={`${uid}-bank`}>은행</label>
+              <input id={`${uid}-bank`} value={draft.bank} disabled={busy}
+                     onChange={(e) => set('bank', e.target.value)} className={FIELD} />
+            </div>
+            <div className={CELL}>
+              <label className={FIELD_LABEL} htmlFor={`${uid}-branch`}>지점 (선택)</label>
+              <input id={`${uid}-branch`} value={draft.branch} disabled={busy}
+                     onChange={(e) => set('branch', e.target.value)} className={FIELD} />
+            </div>
+            <div className={SPAN2}>
+              <label className={FIELD_LABEL} htmlFor={`${uid}-account`}>계좌번호</label>
+              <input id={`${uid}-account`} value={draft.account} disabled={busy}
+                     onChange={(e) => set('account', e.target.value)} className={FIELD} />
+            </div>
+          </>
+        )}
+
+        <div className={CELL}>
           <label className={FIELD_LABEL} htmlFor={`${uid}-fee`}>송금 수수료 처리</label>
           <select id={`${uid}-fee`} value={draft.feeMode} disabled={busy}
                   onChange={(e) => set('feeMode', e.target.value as FeeMode)}
@@ -403,31 +403,33 @@ function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, o
             ))}
           </select>
         </div>
+        {/* 수수료 값 칸은 처리 방식이 있을 때만 — 없을 때는 옆 칸을 비워 격자 리듬을 지킨다 */}
         {draft.feeMode === 'grossUp' && (
-          <div className="w-32">
+          <div className={CELL}>
             <label className={FIELD_LABEL} htmlFor={`${uid}-percent`}>수수료 비율 (%)</label>
             <input id={`${uid}-percent`} value={draft.feePercent} disabled={busy} inputMode="decimal"
                    onChange={(e) => set('feePercent', e.target.value)} className={`${FIELD} text-right`} />
           </div>
         )}
         {draft.feeMode === 'fixed' && (
-          <div className="w-40">
+          <div className={CELL}>
             <label className={FIELD_LABEL} htmlFor={`${uid}-amount`}>추가 금액 ({CURRENCY_LABEL[currency]})</label>
             <input id={`${uid}-amount`} value={draft.feeAmount} disabled={busy} inputMode="numeric"
                    onChange={(e) => set('feeAmount', e.target.value)} className={`${FIELD} text-right`} />
           </div>
         )}
-      </div>
+        {draft.feeMode === 'none' && <div className="hidden sm:block" aria-hidden />}
 
-      <div className="mt-2.5">
-        <label className={FIELD_LABEL} htmlFor={`${uid}-memo`}>메모 (선택)</label>
-        <input id={`${uid}-memo`} value={draft.memo} disabled={busy} maxLength={200}
-               placeholder="예: 월말 정산 희망"
-               onChange={(e) => set('memo', e.target.value)} className={`${FIELD} max-w-md`} />
+        <div className={SPAN2}>
+          <label className={FIELD_LABEL} htmlFor={`${uid}-memo`}>메모 (선택)</label>
+          <input id={`${uid}-memo`} value={draft.memo} disabled={busy} maxLength={200}
+                 placeholder="예: 월말 정산 희망"
+                 onChange={(e) => set('memo', e.target.value)} className={FIELD} />
+        </div>
       </div>
 
       {showDefaultCheck && (
-        <label className="mt-2.5 flex items-center gap-2 text-ui text-x-secondary">
+        <label className="mt-3 flex items-center gap-2 text-ui text-x-secondary">
           <input type="checkbox" checked={isFirst || draft.makeDefault} disabled={busy || isFirst}
                  onChange={(e) => set('makeDefault', e.target.checked)} />
           기본 수단으로

@@ -5,6 +5,7 @@ import type { DraftStatus } from './draftStatus.ts';
 import type { UserInfo } from './getxapi.ts';
 import { draftVersionHash } from './draftStore.ts';
 import { diffPricing, mergePricing, type Pricing, type PricingChange } from './influencerPricing.ts';
+import { applyPaymentOp, type PaymentMethod, type PaymentMethodChange, type PaymentOp } from './influencerPayment.ts';
 import type { Activity, ContentType, TopicStat } from './analysisStats.ts';
 import { listInfluencerCampaigns, type InfluencerCampaignItem } from './campaignStore.ts';
 
@@ -12,10 +13,11 @@ import { listInfluencerCampaigns, type InfluencerCampaignItem } from './campaign
 export type InfluencerChannel = 'dm' | 'line' | 'email' | 'other';
 // 앱이 스스로 남기는 이벤트 — 표시 문구는 UI가 만든다(로그에는 사실만 저장)
 export type InfluencerAutoEvent =
-  'draft_assigned' | 'draft_unassigned' | 'draft_delivered' | 'handle_changed' | 'pricing_changed';
+  'draft_assigned' | 'draft_unassigned' | 'draft_delivered' | 'handle_changed' | 'pricing_changed'
+  | 'payment_method_changed';
 
 // 로그 payload는 이벤트마다 모양이 다르다 — 읽는 쪽이 eventType으로 좁힌다.
-export type LogPayload = { from?: string; to?: string } | PricingChange;
+export type LogPayload = { from?: string; to?: string } | PricingChange | PaymentMethodChange;
 
 // 계정 분석 저장 형태 (계정 분석 v2 스펙 §3) — 분석 실행이 만들고 프로필 화면이 읽는다.
 // jsonb라 마이그레이션이 없다: v1로 저장된 행이 그대로 남아 있으므로 v1 필드는 전부 옵셔널이고,
@@ -77,8 +79,9 @@ export interface DraftRollupItem { id: string; title: string; status: DraftStatu
 export interface InfluencerDetail {
   influencer: InfluencerRow; logs: InfluencerLogRow[]; drafts: DraftRollupItem[];
   draftStatusCounts: Partial<Record<DraftStatus, number>>;  // 파생: lower 조인 group by status, 전체 기준(50건 롤업과 별개)
-  // 단가·분석은 상세에만 싣는다 — 목록(InfluencerRow)까지 실으면 payload가 불필요하게 커진다.
+  // 단가·분석·결제 수단은 상세에만 싣는다 — 목록(InfluencerRow)까지 실으면 payload가 불필요하게 커진다.
   pricing: Pricing; analysis: InfluencerAnalysis | null; analyzedAt: string | null;
+  paymentMethods: PaymentMethod[];
   // 참여 캠페인(캠페인 스펙 §5) — 원고가 배정됐거나 추가 비용 행이 있는 캠페인, 시작일 내림차순. 조회만, 로그 없음.
   // 상세에 싣는 이유: 프로필이 한 번의 GET으로 그려지고(탭 3개가 같은 data), 새 라우트·fetch를 만들 필요가 없다.
   campaigns: InfluencerCampaignItem[];
@@ -220,8 +223,11 @@ export async function getInfluencerDetail(sql: postgres.Sql, id: string): Promis
   const draftStatusCounts: Partial<Record<DraftStatus, number>> = {};
   for (const r of statusRows) draftStatusCounts[r.status] = Number(r.count);
 
-  const extra = await sql<Array<{ pricing: Pricing; analysis: InfluencerAnalysis | null; analyzed_at: Date | null }>>`
-    select pricing, analysis, analyzed_at from influencer where id = ${id}`;
+  const extra = await sql<Array<{
+    pricing: Pricing; analysis: InfluencerAnalysis | null; analyzed_at: Date | null;
+    payment_methods: PaymentMethod[] | null;
+  }>>`
+    select pricing, analysis, analyzed_at, payment_methods from influencer where id = ${id}`;
   const campaigns = await listInfluencerCampaigns(sql, influencer.handle);   // lower 기준 — 표기가 달라도 같은 사람
 
   return {
@@ -235,6 +241,7 @@ export async function getInfluencerDetail(sql: postgres.Sql, id: string): Promis
     pricing: extra[0]?.pricing ?? {},
     analysis: extra[0]?.analysis ?? null,
     analyzedAt: extra[0]?.analyzed_at ? new Date(extra[0].analyzed_at).toISOString() : null,
+    paymentMethods: extra[0]?.payment_methods ?? [],
     campaigns,
   };
 }
@@ -393,6 +400,34 @@ export async function updatePricing(
       ? (await tx<LRow[]>`${LOG_SELECT(tsql)} where l.id in ${tx(logIds)} order by l.created_at desc, l.id desc`).map(toLog)
       : [];
     return { pricing: merged, logs };
+  });
+}
+
+// 결제 수단 연산 저장 — 행 잠금 후 applyPaymentOp가 배열 전체를 다시 만든다(updatePricing과 같은 구조).
+// PAYMENT_NOT_FOUND로 던지는 오류(모르는 id)는 그대로 전파 — 라우트가 404로 매핑한다.
+export async function updatePaymentMethods(
+  sql: postgres.Sql, id: string, op: PaymentOp, actorId: string | null,
+): Promise<{ paymentMethods: PaymentMethod[]; logs: InfluencerLogRow[] }> {
+  return await sql.begin(async (tx) => {
+    const rows = await tx<Array<{ payment_methods: PaymentMethod[] }>>`
+      select payment_methods from influencer where id = ${id} for update`;
+    if (rows.length === 0) throw new Error('influencer not found');
+    const base = rows[0].payment_methods ?? [];
+    const { list, changes } = applyPaymentOp(base, op, new Date().toISOString(), () => crypto.randomUUID());
+    const tsql = tx as unknown as postgres.Sql;
+    await tx`update influencer set payment_methods = ${tx.json(asJson(list))} where id = ${id}`;
+    const logIds: string[] = [];
+    for (const c of changes) {
+      const ins = await tx<Array<{ id: string }>>`
+        insert into influencer_log (influencer_id, kind, event_type, payload, author_id)
+        values (${id}, 'auto', 'payment_method_changed', ${tx.json(asJson(c))}, ${actorId})
+        returning id`;
+      logIds.push(ins[0].id);
+    }
+    const logs = logIds.length
+      ? (await tx<LRow[]>`${LOG_SELECT(tsql)} where l.id in ${tx(logIds)} order by l.created_at desc, l.id desc`).map(toLog)
+      : [];
+    return { paymentMethods: list, logs };
   });
 }
 

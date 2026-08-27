@@ -8,8 +8,9 @@ import {
   createInfluencer, listInfluencers, findInfluencerById, findByHandle, findDuplicateByXUserId,
   getInfluencerDetail, updateInfluencer, deleteInfluencer, applyProfileSnapshot, ensureInfluencer,
   renameInfluencer, addManualLog, deleteManualLog, insertAutoLog, listOptions,
-  updatePricing, saveAnalysis, type InfluencerAnalysis,
+  updatePricing, saveAnalysis, updatePaymentMethods, type InfluencerAnalysis,
 } from './influencerStore.ts';
+import { PAYMENT_NOT_FOUND, type PaymentMethodInput } from './influencerPayment.ts';
 import { createClient } from './clientStore.ts';
 import { createCampaign, upsertInfluencerCost } from './campaignStore.ts';
 
@@ -436,4 +437,87 @@ test('14) renameInfluencer: 표기만 바뀌면(소문자 기준 같음) 병합 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].influencer_handle, to);
   assert.deepEqual(rows[0].extra_costs, [{ label: '교통비', amount: 1, currency: 'KRW' }]);
+});
+
+// ── 결제 수단 (payment-method 스펙) ──
+const paypalInput = (holder: string): PaymentMethodInput =>
+  ({ type: 'paypal', holder, currency: 'JPY', email: 'a@b.c' });
+const bankInput = (holder: string): PaymentMethodInput =>
+  ({ type: 'bank', holder, currency: 'KRW', bank: '신한', account: '110543468512' });
+
+test('15) updatePaymentMethods: add — 첫 수단은 무조건 기본, 로그 1건(added)', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'pay1', createdBy: null });
+  const r = await updatePaymentMethods(sql, row.id, { kind: 'add', input: paypalInput('ゆい') }, null);
+  assert.equal(r.paymentMethods.length, 1);
+  assert.equal(r.paymentMethods[0].isDefault, true, '첫 수단은 기본');
+  assert.equal(r.paymentMethods[0].type, 'paypal');
+  assert.equal(r.logs.length, 1);
+  assert.equal(r.logs[0].kind, 'auto');
+  assert.equal(r.logs[0].eventType, 'payment_method_changed');
+  assert.equal((r.logs[0].payload as { action: string }).action, 'added');
+});
+
+test('16) updatePaymentMethods: add(makeDefault) — 기본 이동, 로그 2건(added+default_changed)', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'pay2', createdBy: null });
+  const r1 = await updatePaymentMethods(sql, row.id, { kind: 'add', input: paypalInput('ゆい') }, null);
+  const firstId = r1.paymentMethods[0].id;
+
+  const r2 = await updatePaymentMethods(
+    sql, row.id, { kind: 'add', input: bankInput('오오쿠보'), makeDefault: true }, null,
+  );
+  assert.equal(r2.paymentMethods.length, 2);
+  const first = r2.paymentMethods.find((m) => m.id === firstId)!;
+  const second = r2.paymentMethods.find((m) => m.id !== firstId)!;
+  assert.equal(first.isDefault, false, '옛 기본은 해제');
+  assert.equal(second.isDefault, true, '새로 추가한 게 기본');
+  assert.equal(r2.logs.length, 2);
+  assert.deepEqual(r2.logs.map((l) => (l.payload as { action: string }).action).sort(), ['added', 'default_changed']);
+});
+
+test('17) updatePaymentMethods: update — 같은 값 재전송은 로그 0건, 필드 변경은 fields 포함', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'pay3', createdBy: null });
+  const added = await updatePaymentMethods(sql, row.id, { kind: 'add', input: paypalInput('ゆい') }, null);
+  const id = added.paymentMethods[0].id;
+
+  const same = await updatePaymentMethods(sql, row.id, { kind: 'update', id, input: paypalInput('ゆい') }, null);
+  assert.equal(same.logs.length, 0, '변경 없음 = 로그 없음');
+
+  const changed = await updatePaymentMethods(
+    sql, row.id, { kind: 'update', id, input: paypalInput('みか') }, null,
+  );
+  assert.equal(changed.logs.length, 1);
+  assert.equal(changed.paymentMethods.find((m) => m.id === id)!.holder, 'みか');
+  const payload = changed.logs[0].payload as { action: string; fields?: Array<{ field: string; from: string | null; to: string | null }> };
+  assert.equal(payload.action, 'updated');
+  assert.ok(payload.fields?.some((f) => f.field === 'holder' && f.from === 'ゆい' && f.to === 'みか'));
+});
+
+test('18) updatePaymentMethods: remove 기본 — 남은 첫 번째가 승계, 로그 2건(removed+default_changed)', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'pay4', createdBy: null });
+  const r1 = await updatePaymentMethods(sql, row.id, { kind: 'add', input: paypalInput('ゆい') }, null);
+  const firstId = r1.paymentMethods[0].id;
+  const r2 = await updatePaymentMethods(sql, row.id, { kind: 'add', input: bankInput('오오쿠보') }, null);
+  const secondId = r2.paymentMethods.find((m) => m.id !== firstId)!.id;
+
+  const r3 = await updatePaymentMethods(sql, row.id, { kind: 'remove', id: firstId }, null);
+  assert.equal(r3.paymentMethods.length, 1);
+  assert.equal(r3.paymentMethods[0].id, secondId);
+  assert.equal(r3.paymentMethods[0].isDefault, true, '남은 것이 기본을 승계');
+  assert.equal(r3.logs.length, 2);
+  assert.deepEqual(r3.logs.map((l) => (l.payload as { action: string }).action).sort(), ['default_changed', 'removed']);
+});
+
+test('19) getInfluencerDetail().paymentMethods 반영 + 없는 id는 PAYMENT_NOT_FOUND', async () => {
+  const { row } = await createInfluencer(sql, { handle: P + 'pay5', createdBy: null });
+  assert.deepEqual((await getInfluencerDetail(sql, row.id))!.paymentMethods, [], '빈 인플은 빈 배열');
+
+  await updatePaymentMethods(sql, row.id, { kind: 'add', input: paypalInput('ゆい') }, null);
+  const detail = await getInfluencerDetail(sql, row.id);
+  assert.equal(detail!.paymentMethods.length, 1);
+  assert.equal(detail!.paymentMethods[0].holder, 'ゆい');
+
+  await assert.rejects(
+    updatePaymentMethods(sql, row.id, { kind: 'update', id: 'no-such-id', input: paypalInput('x') }, null),
+    (err: Error) => err.message === PAYMENT_NOT_FOUND,
+  );
 });

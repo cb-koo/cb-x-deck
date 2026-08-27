@@ -106,3 +106,22 @@ export function suggestDraftCost(pricing: Pricing | null | undefined, type: Cost
   if (amount === null) return null;
   return { type, amount, currency: normalizeCurrency(pricing) };
 }
+
+// 작업 비용(스펙 §2-1) — 유형은 작업 컬럼에 있으므로 금액·통화만. 옛 draft.cost 모양({type,...})이 와도 type은 무시한다(이관 SQL이 잘라낸다).
+export interface TaskCost { amount: number; currency: Currency }
+export function parseTaskCost(v: unknown): Parsed<TaskCost | null> {
+  if (v === null) return { ok: true, value: null };
+  if (!v || typeof v !== 'object') return { ok: false, message: '비용 형식이 올바르지 않아요' };
+  const o = v as { amount?: unknown; currency?: unknown };
+  const amount = parseAmount(o.amount);
+  if (amount === null) return { ok: false, message: AMOUNT_MESSAGE };
+  if (!isCurrency(o.currency)) return { ok: false, message: CURRENCY_MESSAGE };
+  return { ok: true, value: { amount, currency: o.currency } };
+}
+// 작업 추가·인플 변경 시 제안 — 금액 = pricing[type], 통화 = pricing 레벨(normalizeCurrency). 없으면 null(빈 칸, §4-2).
+export function suggestTaskCost(pricing: Pricing | null | undefined, type: PriceType): TaskCost | null {
+  if (!pricing) return null;
+  const amount = parseAmount(pricing[type]);
+  if (amount === null) return null;
+  return { amount, currency: normalizeCurrency(pricing) };
+}

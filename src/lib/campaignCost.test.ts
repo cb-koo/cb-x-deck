@@ -74,3 +74,20 @@ test('6) suggestDraftCost — pricing[type]이 있을 때만, 통화는 pricing 
   assert.equal(suggestDraftCost(undefined, 'post'), null);         // 명부에 없는 핸들(InfluencerOption 없음)
   assert.equal(suggestDraftCost({ post: 1.5 }, 'post'), null);     // jsonb는 모양을 보증하지 않는다 — 정수 아니면 제안 없음
 });
+
+import { parseTaskCost, suggestTaskCost } from './campaignCost.ts';
+
+test('parseTaskCost — type 없이 amount·currency만, null=지움, 문자열 금액 허용', () => {
+  assert.deepEqual(parseTaskCost(null), { ok: true, value: null });
+  assert.deepEqual(parseTaskCost({ amount: '3,000', currency: 'JPY' }), { ok: true, value: { amount: 3000, currency: 'JPY' } });
+  assert.equal(parseTaskCost({ amount: -1, currency: 'KRW' }).ok, false);
+  assert.equal(parseTaskCost({ amount: 1, currency: 'USD' }).ok, false);
+  assert.equal(parseTaskCost({ type: 'rt', amount: 1, currency: 'KRW' }).ok, true); // 옛 모양이 와도 type은 무시
+  assert.equal(parseTaskCost('x').ok, false);
+});
+test('suggestTaskCost — 단가[type]과 pricing 통화, 없으면 null', () => {
+  assert.deepEqual(suggestTaskCost({ rt: 3000, currency: 'JPY' }, 'rt'), { amount: 3000, currency: 'JPY' });
+  assert.deepEqual(suggestTaskCost({ post: 20000 }, 'post'), { amount: 20000, currency: 'KRW' });
+  assert.equal(suggestTaskCost({ post: 20000 }, 'rt'), null);
+  assert.equal(suggestTaskCost(null, 'rt'), null);
+});

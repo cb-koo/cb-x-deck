@@ -5,7 +5,8 @@
 import { asDateOnly, dateOnlyMonthDay, type DateOnly } from './datetime.ts';
 import { STATUS_LABEL, type DraftStatus } from './draftStatus.ts';
 import { checkCampaign } from './trackingLink.ts';
-import { sumMoney, mergeMoney, type CostType, type DraftCost, type ExtraCost, type MoneyByCurrency } from './campaignCost.ts';
+import { sumMoney, mergeMoney, type CostType, type DraftCost, type ExtraCost, type MoneyByCurrency, type TaskCost } from './campaignCost.ts';
+import { PRICE_TYPES, PRICE_TYPE_LABEL, type PriceType } from './influencerPricing.ts';
 
 const DAY_MS = 86_400_000;
 
@@ -262,4 +263,197 @@ export function suggestCampaignCode(clientNameEn: string, startsOn: string): str
   const code = en ? `${en}-${ymd}` : ymd;
   const check = checkCampaign(code);
   return check.ok ? check.campaign : ymd;
+}
+
+// ─────────────────────────── 작업(campaign_task) 파생 — 스펙 2026-08-28 §2-5 ───────────────────────────
+// 작업이 캠페인의 단위다. 아래 함수들은 서버(campaignStore)·클라(TaskTable·달력·요약)가 같이 쓴다.
+export type TaskType = PriceType;
+export const TASK_TYPES: readonly TaskType[] = PRICE_TYPES;
+export const TASK_TYPE_LABEL: Record<TaskType, string> = PRICE_TYPE_LABEL;
+export function isTaskType(v: unknown): v is TaskType {
+  return typeof v === 'string' && (TASK_TYPES as readonly string[]).includes(v);
+}
+// 게시물이 생기는 유형만 RT/인용RT의 대상이 될 수 있다. RT는 별도 게시물이 없다.
+export const TARGETABLE_TYPES: readonly TaskType[] = ['post', 'quoteRt', 'visit'];
+export const TARGETING_TYPES: readonly TaskType[] = ['rt', 'quoteRt'];
+
+export type TaskStage = 'planned' | 'visitPending' | 'visited' | DraftStatus | 'published' | 'removed';
+export const TASK_STAGE_LABEL: Record<TaskStage, string> = {
+  planned: '예정', visitPending: '방문 전', visited: '방문 완료', ...STATUS_LABEL, published: '게시됨', removed: '내려짐',
+};
+export interface TaskStageInput {
+  type: TaskType; draftStatus: DraftStatus | null;
+  postedAt: string | null; removedAt: string | null;
+  scheduledOn: string | null; visitOn: string | null;
+}
+// 우선순위: 내려짐 > 게시됨 > 원고 상태 > 방문(완료/전) > 예정. 게시 확인은 원고 status와 무관하게 이긴다(status 값은 바꾸지 않는다).
+export function taskStage(t: TaskStageInput, today: string): TaskStage {
+  if (t.postedAt && t.removedAt) return 'removed';
+  if (t.postedAt) return 'published';
+  if (t.draftStatus) return t.draftStatus;
+  if (t.type === 'visit') return t.visitOn !== null && t.visitOn < today ? 'visited' : 'visitPending';
+  return 'planned';
+}
+// 미사용 = 붙은 원고가 미사용이고 아직 게시하지 않은 작업 — 요약 N·합계·인플 건수에서 빠진다(흐린 행의 유일한 조건, §4-1)
+export function isTaskUnused(t: TaskStageInput): boolean {
+  return t.draftStatus === 'unused' && t.postedAt === null;
+}
+// 밀림 = 게시 예정일 < 오늘 · 게시 안 됨 · 미사용 아님. 방문일은 쓰지 않는다(방문→게시 사이가 긴 것이 정상).
+export function isTaskOverdue(t: TaskStageInput, today: string): boolean {
+  return t.scheduledOn !== null && t.scheduledOn < today && t.postedAt === null && !isTaskUnused(t);
+}
+const PREPARING_STAGES: readonly TaskStage[] = ['draft', 'review', 'approved', 'planned', 'visitPending', 'visited'];
+export function isTaskPreparing(t: TaskStageInput, today: string): boolean {
+  return PREPARING_STAGES.includes(taskStage(t, today));
+}
+export function matchesTaskFilter(t: TaskStageInput, f: StageFilter, today: string): boolean {
+  if (f === 'all') return true;
+  if (f === 'preparing') return isTaskPreparing(t, today);
+  if (f === 'published') return t.postedAt !== null && !isTaskUnused(t);   // 내려짐도 게시는 했다 — 게시 n과 같은 모집단
+  return taskStage(t, today) === 'delivered';
+}
+
+// 대상(RT/인용RT) — 가리킨 작업의 post_url이 있거나 링크가 직접 있으면 확정.
+export type TargetStatus = 'none' | 'pending' | 'ready';
+export interface TargetInput { targetTaskId: string | null; targetPostUrl: string | null; targetTweetUrl: string | null }
+export function targetUrlOf(t: TargetInput): string | null {
+  if (t.targetTaskId) return t.targetPostUrl;
+  return t.targetTweetUrl;
+}
+export function targetStatus(t: TargetInput): TargetStatus {
+  if (t.targetTaskId) return t.targetPostUrl ? 'ready' : 'pending';
+  return t.targetTweetUrl ? 'ready' : 'none';
+}
+
+export interface TaskSummary { total: number; published: number; delivered: number; preparing: number; overdue: number; removed: number }
+export function summarizeTasks(items: TaskStageInput[], today: string): TaskSummary {
+  const s: TaskSummary = { total: 0, published: 0, delivered: 0, preparing: 0, overdue: 0, removed: 0 };
+  for (const t of items) {
+    if (isTaskUnused(t)) continue;
+    s.total += 1;
+    const stage = taskStage(t, today);
+    if (t.postedAt) s.published += 1;
+    if (stage === 'removed') s.removed += 1;
+    else if (stage === 'delivered') s.delivered += 1;
+    else if (PREPARING_STAGES.includes(stage)) s.preparing += 1;
+    if (isTaskOverdue(t, today)) s.overdue += 1;
+  }
+  return s;
+}
+export interface TaskPerfInput extends TaskStageInput { perf: { views: number | null; likes: number | null } | null; linkClicks: number | null }
+export function summarizeTaskPerf(items: TaskPerfInput[]): PerfSummary {
+  const out: PerfSummary = { publishedCount: 0, views: null, likes: null, linkClicks: null };
+  const add = (k: 'views' | 'likes' | 'linkClicks', v: number | null) => { if (v !== null) out[k] = (out[k] ?? 0) + v; };
+  for (const it of items) {
+    if (isTaskUnused(it)) continue;
+    if (it.postedAt) out.publishedCount += 1;
+    add('views', it.perf?.views ?? null);
+    add('likes', it.perf?.likes ?? null);
+    add('linkClicks', it.linkClicks);
+  }
+  return out;
+}
+// 표 하단 한 줄·정산 검토용 — 있는 유형만, TASK_TYPES 순. 미사용 제외, 내려짐 포함(합계와 같은 모집단).
+export interface TypeSubtotal { type: TaskType; count: number; published: number; cost: MoneyByCurrency }
+export function subtotalsByType(items: Array<TaskStageInput & { cost: TaskCost | null }>): TypeSubtotal[] {
+  const out: TypeSubtotal[] = [];
+  for (const type of TASK_TYPES) {
+    const mine = items.filter((t) => t.type === type && !isTaskUnused(t));
+    if (mine.length === 0) continue;
+    out.push({
+      type, count: mine.length, published: mine.filter((t) => t.postedAt !== null).length,
+      cost: sumMoney(mine.flatMap((t) => (t.cost ? [t.cost] : []))),
+    });
+  }
+  return out;
+}
+
+export type TaskSortKey = 'created' | 'scheduled' | 'stage' | 'influencer';
+export const TASK_SORT_LABEL: Record<TaskSortKey, string> = { created: '만든 순', scheduled: '예정일', stage: '단계', influencer: '인플루언서' };
+export interface TaskSortInput extends TaskStageInput { influencerHandle: string | null; createdAt: string }
+const TASK_STAGE_ORDER: Record<TaskStage, number> = {
+  planned: 0, visitPending: 0, visited: 1, draft: 0, review: 1, approved: 2, delivered: 3, published: 4, removed: 5, unused: 6,
+};
+// 기본은 만든 순(koo 08-28) — 밀림도 자리를 바꾸지 않고 표시만 강조한다. 미사용은 어느 키든 맨 아래(흐린 행이 중간에 끼지 않게).
+export function sortTasks<T extends TaskSortInput>(items: T[], key: TaskSortKey, today: string): T[] {
+  const byCreated = (a: T, b: T) => a.createdAt.localeCompare(b.createdAt);
+  const bySchedule = (a: T, b: T): number => {
+    if (a.scheduledOn === b.scheduledOn) return byCreated(a, b);
+    if (a.scheduledOn === null) return 1;
+    if (b.scheduledOn === null) return -1;
+    return a.scheduledOn.localeCompare(b.scheduledOn);
+  };
+  return [...items].sort((a, b) => {
+    const u = Number(isTaskUnused(a)) - Number(isTaskUnused(b));
+    if (u !== 0) return u;
+    if (key === 'created') return byCreated(a, b);
+    if (key === 'scheduled') return bySchedule(a, b);
+    if (key === 'stage') return (TASK_STAGE_ORDER[taskStage(a, today)] - TASK_STAGE_ORDER[taskStage(b, today)]) || byCreated(a, b);
+    const ha = (a.influencerHandle ?? '').toLowerCase();
+    const hb = (b.influencerHandle ?? '').toLowerCase();
+    if (ha === hb) return byCreated(a, b);
+    if (!ha) return 1;
+    if (!hb) return -1;
+    return ha.localeCompare(hb);
+  });
+}
+
+export interface TaskCostInput extends TaskStageInput { influencerHandle: string | null; cost: TaskCost | null }
+export interface TaskInfluencerLine {
+  handle: string | null;                               // null = 미배정 작업 묶음(작업이 있을 때만 한 줄)
+  taskCount: number;                                   // 미사용 제외
+  countsByType: Partial<Record<TaskType, number>>;    // '투고 1 · RT 3'의 재료
+  taskCost: MoneyByCurrency;
+  extraCosts: ExtraCost[];
+  extraCost: MoneyByCurrency;
+  subtotal: MoneyByCurrency;
+  note: string;
+  hasCostRow: boolean;                                 // 비용 행만 있고 작업 0 → "배정 작업 없음"
+}
+export function deriveTaskInfluencers(tasks: TaskCostInput[], costRows: CostRowInput[]): TaskInfluencerLine[] {
+  type Bucket = { handle: string | null; tasks: TaskCostInput[]; row: CostRowInput | null };
+  const byKey = new Map<string, Bucket>();
+  const keyOf = (h: string | null) => (h ? h.toLowerCase() : '');
+  for (const t of tasks) {
+    if (isTaskUnused(t)) continue;
+    const k = keyOf(t.influencerHandle);
+    const b = byKey.get(k) ?? { handle: t.influencerHandle, tasks: [], row: null };
+    b.tasks.push(t);
+    byKey.set(k, b);
+  }
+  for (const r of costRows) {
+    const k = keyOf(r.influencerHandle);
+    const b = byKey.get(k) ?? { handle: r.influencerHandle, tasks: [], row: null };
+    b.row = r;
+    byKey.set(k, b);
+  }
+  const lines: TaskInfluencerLine[] = [];
+  for (const [k, b] of byKey) {
+    if (k === '' && b.tasks.length === 0) continue;
+    const countsByType: Partial<Record<TaskType, number>> = {};
+    for (const t of b.tasks) countsByType[t.type] = (countsByType[t.type] ?? 0) + 1;
+    const taskCost = sumMoney(b.tasks.flatMap((t) => (t.cost ? [t.cost] : [])));
+    const extraCosts = b.row?.extraCosts ?? [];
+    const extraCost = sumMoney(extraCosts);
+    lines.push({
+      handle: b.handle, taskCount: b.tasks.length, countsByType, taskCost, extraCosts, extraCost,
+      subtotal: mergeMoney(taskCost, extraCost), note: b.row?.note ?? '', hasCostRow: b.row !== null,
+    });
+  }
+  return lines.sort((a, b) => {
+    if (a.handle === null) return 1;
+    if (b.handle === null) return -1;
+    return (b.taskCount - a.taskCount) || a.handle.toLowerCase().localeCompare(b.handle.toLowerCase());
+  });
+}
+export function taskCampaignTotal(lines: TaskInfluencerLine[]): MoneyByCurrency {
+  return mergeMoney(...lines.map((l) => l.subtotal));
+}
+/** '투고 1 · RT 3' — TASK_TYPES 순, 0은 생략. 전부 0이면 '' */
+export function countsByTypeLabel(counts: Partial<Record<TaskType, number>>): string {
+  return TASK_TYPES.filter((t) => (counts[t] ?? 0) > 0).map((t) => `${TASK_TYPE_LABEL[t]} ${counts[t]}`).join(' · ');
+}
+// 정산 후보(§7) — 게시 확인 + 비용 + 인플. 내려짐(removed_at)은 판단 참고 정보라 조건에 넣지 않는다(koo 08-27).
+export function isSettlementCandidate(t: { postedAt: string | null; cost: TaskCost | null; influencerHandle: string | null; removedAt: string | null }): boolean {
+  return t.postedAt !== null && t.cost !== null && t.influencerHandle !== null;
 }

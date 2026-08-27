@@ -7,6 +7,7 @@ import { formatKoCount } from '@/lib/formatKo';
 import { relTime } from '@/lib/relTime';
 import { judgeContact } from '@/lib/influencerJudgment';
 import { AddInfluencersDialog } from './AddInfluencersDialog';
+import { BulkAnalyzeDialog, useBulkState } from './BulkAnalyzeDialog';
 import { Avatar, InfluencerProfile } from './InfluencerProfile';
 import { mergeQuery, parseTab, tabQuery, type TabKey } from '@/lib/profileTabs';
 import type { InfluencerRow } from '@/lib/influencerStore';
@@ -29,6 +30,8 @@ function InfluencersSplit() {
   const [q, setQ] = useState('');
   const [tag, setTag] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const bulk = useBulkState();   // 일괄 분석 진행 — 다이얼로그를 닫아도 이어지므로 모듈 스토어를 구독한다
 
   // setState는 전부 await 뒤에 둔다 — 동기 setState를 앞에 넣으면 set-state-in-effect에 걸린다(GlobalShell 관례)
   const load = useCallback(async () => {
@@ -45,6 +48,15 @@ function InfluencersSplit() {
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로드, setState는 전부 비동기 콜백(GlobalShell·clients 관례)
   useEffect(() => { load(); }, [load]);
+
+  // 일괄 분석은 이 탭이 열려 있는 동안만 진행된다 — 진행 중 새로고침·닫기는 남은 계정을 멈춘다.
+  // 그래서 경고는 진행 중일 때만 건다(평소에도 걸어두면 매번 물어보는 성가신 창이 된다).
+  useEffect(() => {
+    if (!bulk.running) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [bulk.running]);
 
   const selected = rows.find((r) => r.id === urlId) ?? null;
   // 삭제된 인플루언서를 가리키는 링크 — 첫 번째로 슬쩍 바꿔치기하지 않고 정직하게 알린다.
@@ -97,10 +109,25 @@ function InfluencersSplit() {
           <h2 className="text-content font-bold">
             인플루언서 {rows.length > 0 && <span className="text-ui font-normal text-x-secondary">{rows.length}</span>}
           </h2>
-          <button onClick={() => setAdding(true)} className="text-ui font-medium text-x-blue-text hover:underline">
-            + 추가
-          </button>
+          <span className="flex items-center gap-2">
+            {/* 비용이 드는 액션이라 바로 돌지 않는다 — 다이얼로그에서 대상·비용·시간을 보고 시작한다 */}
+            <button onClick={() => setBulkOpen(true)} className="text-ui text-x-secondary hover:underline">
+              전체 분석
+            </button>
+            <button onClick={() => setAdding(true)} className="text-ui font-medium text-x-blue-text hover:underline">
+              + 추가
+            </button>
+          </span>
         </div>
+        {bulk.running && (
+          // 다이얼로그를 닫아도 진행 중임을 알린다(뜻은 글자가 나른다 — 색만으로 전달하지 않는다)
+          <p className="mb-2 px-2">
+            <span className="rounded-full bg-x-blue/10 px-2 py-0.5 text-caption text-x-blue-text">
+              분석 {bulk.done}/{bulk.total}
+              {bulk.failed.length > 0 && ` · 실패 ${bulk.failed.length}`}
+            </span>
+          </p>
+        )}
         <p className="mb-3 px-2 text-caption text-x-muted">
           함께 일하는 계정을 모아두면 주고받은 이야기와 넘긴 원고를 한자리에서 볼 수 있어요.
         </p>
@@ -174,6 +201,10 @@ function InfluencersSplit() {
         )}
       </main>
 
+      {bulkOpen && (
+        <BulkAnalyzeDialog rows={rows} onClose={() => setBulkOpen(false)} onFinished={load} />
+      )}
+
       {adding && (
         <AddInfluencersDialog
           onClose={() => setAdding(false)}
@@ -191,6 +222,14 @@ function RosterRow({ row, active, onSelect, now }: { row: InfluencerRow; active:
   else if (row.profileRefreshedAt === null) meta.push('프로필 미조회');
   meta.push(row.lastLogAt ? relTime(row.lastLogAt, '기록') : '기록 없음');
   if (row.draftCount > 0) meta.push(`원고 ${row.draftCount}`);
+  // 분석 상태 세 가지(스펙 §7). relTime은 '3일 전 분석' 어순이라 접미사를 비워 '3일 전'만 받고 앞에 '분석'을 붙인다
+  // — 하루 이내는 relTime이 '오늘'을 주므로 그때만 '오늘 분석'으로 뒤집는다.
+  if (!row.analyzedAt) meta.push('미분석');
+  else if (!row.analysisV2) meta.push('이전 방식');
+  else {
+    const ago = relTime(row.analyzedAt, '', now.getTime()).trim();
+    meta.push(ago === '오늘' ? '오늘 분석' : `분석 ${ago}`);
+  }
   // 프로필과 같은 판단 함수를 쓴다 — 명부와 프로필이 서로 다른 말을 하면 안 된다.
   // 점은 거들 뿐이고 뜻은 글자가 나른다(색·모양만으로 전달 금지).
   const { needsFollowup, daysSince } = judgeContact(row.lastContactAt, row.createdAt, now);

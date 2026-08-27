@@ -29,8 +29,8 @@ import type { ReferenceRow } from '@/lib/referenceStore';
 import type { DraftStatus } from '@/lib/draftStatus';
 import type { InfluencerOption, DraftContent } from '@/lib/draftTypes';
 import type { CampaignRow } from '@/lib/campaignStore';
-import { fetchCampaigns } from '@/lib/campaignApi';
-import type { DraftCost } from '@/lib/campaignCost';
+import { fetchCampaigns, createTasksApi } from '@/lib/campaignApi';
+import type { TaskType } from '@/lib/campaignJudgment';
 import { kstToday } from '@/lib/datetime';
 
 const COMPOSER_KEY = 'cbx-composer'; // 직전 설정 유지 (스펙 §4 "바꾸기 — 직전 값 유지")
@@ -609,39 +609,27 @@ function Workbench() {
     });
   }
 
-  // 캠페인 소속·예정일·비용 — 카드 캠페인 칸(DraftCard campaign prop)에서. assignInfluencer와 같은 모양.
-  // 값은 하나(§2-5): 캠페인 화면이 같은 컬럼을 보므로 여기서 바꾼 것이 그대로 그쪽에 나타난다.
-  function changeCampaign(d: DraftRow, campaignId: string | null) {
-    const camp = campaignId ? campaigns.find((c) => c.id === campaignId) ?? null : null;
-    const prev = { campaignId: d.campaignId, campaignName: d.campaignName, campaignCode: d.campaignCode };
-    const next = { campaignId, campaignName: camp?.name ?? null, campaignCode: camp?.nameEn ?? null };
-    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, ...next } : x)));
-    // Task 16에서 작업 기준으로 대체 — 임시: 서버가 campaignId를 무시한다
-    void patchDraft(d.id, { campaignId }).then((updated) => {
-      // 이 요청이 세팅한 값이 아직 표시 중일 때만 되돌린다 — 연속 변경 시 뒤 갱신을 덮지 않도록
-      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.campaignId === campaignId ? { ...x, ...prev } : x)));
-    });
-  }
-  function changeScheduledOn(d: DraftRow, scheduledOn: string | null) {
-    const prev = d.scheduledOn;
-    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, scheduledOn } : x)));
-    void patchDraft(d.id, { scheduledOn }).then((updated) => {
-      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.scheduledOn === scheduledOn ? { ...x, scheduledOn: prev } : x)));
-    });
-  }
-  function changeCost(d: DraftRow, cost: DraftCost | null) {
-    const prev = d.cost;
-    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, cost } : x)));
-    void patchDraft(d.id, { cost }).then((updated) => {
-      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.cost === cost ? { ...x, cost: prev } : x)));
-    });
+  // 작업(campaign_task)에 붙이기·떼기 — 카드의 작업 칸(DraftCard task prop)에서. 캠페인 소속·예정일·비용은
+  // 이제 전부 붙은 작업에서 파생되므로, 이 페이지가 저장하는 값은 taskId 하나다(값은 하나 §2-5).
+  // Task 16에서 마무리 — 이 페이지의 필터·표·칸반이 아직 옛 캠페인 축을 쓰고 있어 그때 함께 정리한다.
+  function attachDraft(d: DraftRow, taskId: string | null) {
+    // 낙관적 갱신을 하지 않는다 — 붙이면 캠페인명·예정일·비용까지 한꺼번에 따라오는데 그 값들은 서버만 안다.
+    // 응답 행이 그대로 목록에 들어간다(patchDraft가 갈아끼운다).
+    void patchDraft(d.id, { taskId });
   }
   // 두 DraftCard 호출부(카드 뷰·피크)가 같은 객체 모양을 넘긴다 — 한 곳에서 만든다
-  const cardCampaign = (d: DraftRow) => ({
-    options: campaigns, today,
-    onChange: (id: string | null) => changeCampaign(d, id),
-    onChangeScheduledOn: (next: string | null) => changeScheduledOn(d, next),
-    onChangeCost: (next: DraftCost | null) => changeCost(d, next),
+  const cardTask = (d: DraftRow) => ({
+    campaigns, today, influencerOptions,
+    onAttach: (taskId: string) => attachDraft(d, taskId),
+    onDetach: () => attachDraft(d, null),
+    // 새 작업은 이 원고의 배정 인플루언서로 만든다 — 미배정이면 미배정 작업 한 건(items 비면 서버가 1행을 만든다)
+    onCreateTask: async (campaignId: string, type: TaskType) => {
+      const r = await createTasksApi(campaignId, {
+        type, influencers: d.influencerHandle ? [{ handle: d.influencerHandle }] : [],
+      });
+      if (!r.ok) { setToast(r.error); return null; }
+      return r.data.tasks[0]?.id ?? null;
+    },
   });
 
   // 일괄 변경 — 개별 patchDraft를 N번 부르지 않는다(설계 §B). 50건을 고르면 커넥션 50개가 동시에
@@ -888,7 +876,7 @@ function Workbench() {
                        onSaveMedia={(next) => saveDraftMedia(d, next)}
                        mediaDropNotice={mediaDrop?.draftId === d.id ? mediaDrop.notice : null}
                        onDismissMediaDrop={() => setMediaDrop(null)}
-                       campaign={cardCampaign(d)} />
+                       task={cardTask(d)} />
           ))}
           {view === 'cards' && (
             <div className="w-full max-w-[600px]">
@@ -952,7 +940,7 @@ function Workbench() {
                        onSaveMedia={(next) => saveDraftMedia(peeked, next)}
                        mediaDropNotice={mediaDrop?.draftId === peeked.id ? mediaDrop.notice : null}
                        onDismissMediaDrop={() => setMediaDrop(null)}
-                       campaign={cardCampaign(peeked)} />
+                       task={cardTask(peeked)} />
           </div>
         </div>
       )}

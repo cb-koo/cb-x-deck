@@ -10,12 +10,12 @@ import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { DraftRow } from '@/lib/draftStore';
 import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, putInfluencerCostApi,
-  patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, checkPostedApi, type DraftPatchBody,
+  patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, checkPostedApi, createTasksApi, type DraftPatchBody,
 } from '@/lib/campaignApi';
 import type { CheckPostedResult } from '@/lib/checkPosted';
 import {
   summarizeTasks, summarizeTaskPerf, deriveTaskInfluencers, taskCampaignTotal, matchesTaskFilter, subtotalsByType,
-  STAGE_FILTERS, STAGE_FILTER_LABEL, TASK_TYPE_LABEL, type StageFilter, type TaskSortKey,
+  STAGE_FILTERS, STAGE_FILTER_LABEL, TASK_TYPE_LABEL, type StageFilter, type TaskSortKey, type TaskType,
 } from '@/lib/campaignJudgment';
 import type { DetailView } from '@/lib/campaignView';
 import { draftLabel } from '@/lib/draftViews';
@@ -56,9 +56,9 @@ interface DetailState {
 }
 type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 
-export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }: {
+export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, onDeleted }: {
   id: string;
-  campaigns: CampaignRow[];   // 전 캠페인 목록 — 원고 카드의 '다른 캠페인으로 옮기기' 후보(Task 11에서 다시 쓴다)
+  campaigns: CampaignRow[];   // 전 캠페인 목록 — 원고 카드의 작업 칸이 '어느 캠페인의 작업에 붙일지' 고를 때 쓴다
   view: DetailView;           // [표 | 주간 달력] — page가 쥐고 localStorage에 기억한다(캠페인을 바꿔도 유지)
   onViewChange: (v: DetailView) => void;
   onChanged: () => void;      // 목록(왼쪽) 새로고침 — 이름·작업 수·합계가 바뀌면 목록 보조줄도 움직여야 한다
@@ -226,6 +226,17 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
     if (r.ok) mergeRow(r.data); else show(r.error);
     return r.ok;
   }
+  // 원고를 작업에 붙이기·떼기(§5) — 원고가 저장하는 캠페인 값은 taskId 하나다. 붙이면 캠페인·예정일·비용이
+  // 그 작업에서 따라오므로 낙관적 갱신을 하지 않고 응답 행으로 카드를 갈아끼운 뒤 표도 다시 불러온다
+  // (표의 '원고' 열은 작업 쪽 행이라 이 원고 한 건만 고쳐서는 맞출 수 없다).
+  async function attachPeek(draftId: string, taskId: string | null) {
+    const r = await patchDraftApi(draftId, { taskId });
+    if (!r.ok) { show(r.error); return; }
+    setPeekDraft((cur) => (cur?.id === r.data.id ? r.data : cur));
+    await load();
+    show(taskId ? '작업에 붙였어요' : '작업에서 뗐어요 — 작업도 원고도 남아 있어요');
+  }
+
   async function rewrite(d: DraftRow, feedback: string, baseIndex: number) {
     if (rewritingId) return;
     setMediaDrop((cur) => (cur?.draftId === d.id ? null : cur));   // 지난 안내는 걷는다 — 이번 결과로 대체된다
@@ -383,7 +394,22 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
                          }}
                          onSaveMedia={(next) => void patchDraft(peeked, { edited: next })}
                          mediaDropNotice={mediaDrop?.draftId === peeked.id ? mediaDrop.notice : null}
-                         onDismissMediaDrop={() => setMediaDrop(null)} />
+                         onDismissMediaDrop={() => setMediaDrop(null)}
+                         // 작업 칸 — 이 화면은 캠페인 하나를 보고 있지만 후보는 전 캠페인이다(다른 캠페인의 작업으로 옮길 수 있다)
+                         task={{
+                           campaigns, today: data.today, influencerOptions,
+                           onAttach: (taskId) => void attachPeek(peeked.id, taskId),
+                           onDetach: () => void attachPeek(peeked.id, null),
+                           onCreateTask: async (campaignId: string, type: TaskType) => {
+                             // 새 작업은 이 원고의 배정 인플루언서로 만든다 — 미배정이면 미배정 작업 한 건
+                             const r = await createTasksApi(campaignId, {
+                               type, influencers: peeked.influencerHandle ? [{ handle: peeked.influencerHandle }] : [],
+                             });
+                             if (!r.ok) { show(r.error); return null; }
+                             onChanged();   // 작업 수가 늘었다 — 왼쪽 목록의 보조줄도 따라가야 한다
+                             return r.data.tasks[0]?.id ?? null;
+                           },
+                         }} />
             ) : (
               <div className="rounded-2xl border border-x-border-strong bg-white px-4 py-6 text-content text-x-secondary" role={peekErr ? 'alert' : undefined}>
                 {peekErr ? '원고를 불러오지 못했어요 — 닫고 다시 눌러 주세요' : '원고를 불러오는 중…'}

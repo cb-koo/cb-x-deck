@@ -27,7 +27,7 @@
 
 ## 3. 데이터 모델 — 마이그레이션 `037_client_budget.sql`
 
-main은 035까지, `036`은 정산 결제 수단 브랜치가 쓴다 → 037. `scripts/apply-migrations.sh`가 전 파일을 다시 돌므로 재실행 안전.
+main은 035까지, `036`은 정산 결제 수단 브랜치(`cb-koo/influencer-profile`)가 쓴다 → 037(08-27 전 활성 브랜치 확인 — 다른 브랜치는 035까지). `scripts/apply-migrations.sh`가 전 파일을 다시 돌므로 재실행 안전.
 
 ```sql
 alter table client add column if not exists monthly_budget int;                       -- 기본 월 예산(원). null = 미설정
@@ -49,7 +49,7 @@ alter table client add column if not exists budget_overrides jsonb not null defa
 | `toKrw(total: MoneyByCurrency) → { krw: number; jpyIncluded: number }` | 통화별 합계를 원화 하나로. `jpyIncluded`는 엔화 원금(보조줄 "엔화 95,000엔 포함(950,000원으로 환산)"용). 알 수 없는 통화는 `totalsFor`가 이미 걸러 들어오지 않음 |
 | `monthOf(startsOn: DateOnly) → 'YYYY-MM'` | 귀속 달. `starts_on`은 `to_char`로 읽은 DateOnly 문자열이므로 앞 7자 — 시간대 시프트 없음 |
 | `budgetForMonth(client, month) → { amount: number \| null; source: 'override' \| 'default' \| 'none' }` | 예외 → 기본 → 미설정 |
-| `budgetRows(client, spendByMonth, today) → MonthRow[]` | 클라이언트 상세 표 행. 범위: `min(첫 캠페인 달, 이번 달)` ~ 다음 달, 최대 12행, 최신 위. 캠페인이 없으면 이번 달·다음 달 2행 |
+| `budgetRows(client, spendByMonth, today) → MonthRow[]` | 클라이언트 상세 표 행. `today`는 `kstToday()`(서울 날짜, `datetime.ts`) — 월말 밤에 UTC로 달이 갈리지 않게. 범위: `min(첫 캠페인 달, 이번 달)` ~ 다음 달, 최대 12행, 최신 위. 캠페인이 없으면 이번 달·다음 달 2행 |
 | `budgetJudgment(row) → string` | 잔액 셀 문구: `N원 남음` / `N원 초과` / 예산 미설정이면 `예산을 설정하면 잔액이 보여요` |
 
 ```ts
@@ -123,6 +123,7 @@ interface MonthRow {
 
 ## 7. 경계·오류
 
+- **캠페인에 넣지 않은 원고의 비용은 예산 집계에 들어가지 않는다.** 예산은 캠페인 단위 집행을 대조하는 것이고(§0), 캠페인 없는 원고는 귀속 달이 없다. 클라이언트 상세 표 ⓘ 문구에 "캠페인에 넣은 콘텐츠 비용만 집계해요"를 포함한다.
 - 캠페인 시작일을 바꿔 달이 옮겨가면 자동으로 새 달에 잡힌다(저장 안 하므로 조치 없음).
 - 캠페인 기간이 여러 달을 걸쳐도 시작 달 하나에만 집계. 표 ⓘ에 한 줄로 명시(§6-1).
 - 예외 달을 기본값과 같은 금액으로 저장해도 "(수정)"으로 남는다(§3). 되돌리기는 별도 버튼.

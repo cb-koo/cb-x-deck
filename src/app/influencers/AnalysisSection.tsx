@@ -267,9 +267,9 @@ function TopicTable({ topics, accountMedianViews }: {
           <thead>
             <tr className="text-caption text-x-muted">
               <th className="py-1 text-left font-normal">주제</th>
-              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal @3xl:@max-4xl:whitespace-normal @3xl:@max-4xl:pl-3">건수</th>
-              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal @3xl:@max-4xl:whitespace-normal @3xl:@max-4xl:pl-3">조회 중앙값</th>
-              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal @3xl:@max-4xl:whitespace-normal @3xl:@max-4xl:pl-3">계정 중앙값 대비</th>
+              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal">건수</th>
+              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal"><span className="@3xl:@max-4xl:hidden">조회 중앙값</span><span className="hidden @3xl:@max-4xl:inline">조회</span></th>
+              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal"><span className="@3xl:@max-4xl:hidden">계정 중앙값 대비</span><span className="hidden @3xl:@max-4xl:inline">계정 대비</span></th>
             </tr>
           </thead>
           <tbody>
@@ -279,11 +279,11 @@ function TopicTable({ topics, accountMedianViews }: {
               return (
                 <tr key={t.tag} className="border-t border-x-border">
                   <td className="py-2">{t.tag}</td>
-                  <td className="whitespace-nowrap py-2 pl-4 text-right tabular-nums text-x-secondary @3xl:@max-4xl:pl-3">{t.count}</td>
-                  <td className="whitespace-nowrap py-2 pl-4 text-right tabular-nums text-x-secondary @3xl:@max-4xl:pl-3">
+                  <td className="whitespace-nowrap py-2 pl-4 text-right tabular-nums text-x-secondary">{t.count}</td>
+                  <td className="whitespace-nowrap py-2 pl-4 text-right tabular-nums text-x-secondary">
                     {t.medianViews !== null ? formatKoCount(t.medianViews) : '—'}
                   </td>
-                  <td className="whitespace-nowrap py-2 pl-4 text-right @3xl:@max-4xl:pl-3">
+                  <td className="whitespace-nowrap py-2 pl-4 text-right">
                     {t.count < MIN_TOPIC_N ? (
                       <span className="text-x-muted">표본 부족</span>
                     ) : ratio !== null && v !== null ? (
@@ -301,6 +301,9 @@ function TopicTable({ topics, accountMedianViews }: {
           </tbody>
         </table>
       </div>
+      {/* 좁은 구간(768~896px)에서는 머리글을 '조회'·'계정 대비'로 줄이는 대신 뜻을 여기 한 줄로 — 단어 중간을
+          자르는 줄바꿈("대/비")은 읽기 불편하다(피드백). 넓어지면 머리글이 원문으로 돌아가므로 숨긴다. */}
+      <p className="mt-1.5 hidden text-caption text-x-muted @3xl:@max-4xl:block">조회·계정 대비는 중앙값 기준이에요</p>
     </div>
   );
 }
@@ -649,7 +652,7 @@ function ActivityResult({ analysis, activity, followers }: {
           · @3xl(768px)~: 3열 균등(grid-cols-3) — 위 타일 3장과 열 경계가 맞아 한 판으로 읽힌다(피드백: auto·1fr로
             내용 폭에 맞추면 왼쪽으로 몰리고 오른쪽만 비어 균형이 깨진다). 임계값이 896(@4xl)이었을 때는
             사이드바 208 + 명부 300 + 여백 ≈ 600px를 빼면 창 1500px 미만(13~14인치 노트북)에서 2열로 떨어져
-            "3열 적용 안 됐나?"가 됐다(피드백). 768~896px 구간은 히트맵 셀을 20px로, 표 머리글은 줄바꿈으로
+            "3열 적용 안 됐나?"가 됐다(피드백). 768~896px 구간은 히트맵 셀을 20px로, 표 머리글은 짧은 말('조회'·'계정 대비')로
             좁혀 세 열이 들어간다. 도넛 범례는 flex-wrap으로 아래로 접힌다.
           · @2xl(672px)~@4xl: 2열(히트맵+도넛) + 표는 아래 전체 폭 — 그 폭에서 한 열이 (672-24)/2 = 324px라
             표의 최소 폭(320px)이 겨우 들어가는데, 표가 위 두 블록과 폭을 나눠 가지면 바로 스크롤한다.

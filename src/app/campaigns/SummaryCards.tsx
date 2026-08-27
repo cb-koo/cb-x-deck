@@ -1,8 +1,10 @@
 'use client';
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 import type { CampaignSummary, PerfSummary } from '@/lib/campaignJudgment';
 import { moneyParts, formatAmount, type MoneyByCurrency } from '@/lib/campaignCost';
 import { overdueJudgment, publishedSub, costSub, perfSub } from '@/lib/campaignTableView';
+import { toKrw, remainingOf, monthShort, budgetTipText, type CampaignMonthBudget } from '@/lib/clientBudget';
 import { InfoTip } from '@/components/InfoTip';
 
 // 요약 4칸 — 예외 우선 순서(밀림 → 게시 → 비용 → 조회, 스펙 §3-2). 숫자 26px, 라벨은 아래 13px(가독성 기준).
@@ -13,7 +15,7 @@ import { InfoTip } from '@/components/InfoTip';
 // 패널(CampaignDetail의 PANEL) 안에 또 카드가 있으면 테두리가 겹쳐 '패널 속 패널'로 읽힌다.
 // 밀림 경고는 빨간 배경 대신 숫자·라벨 빨강으로만 말한다 — 칸 배경을 쓰면 구분선 격자 안에 색 블록이 떠 보인다.
 function Card({ alert, value, label, sub, good, tip }: {
-  alert?: boolean; value: ReactNode; label: string; sub: string; good?: boolean; tip?: string;
+  alert?: boolean; value: ReactNode; label: string; sub: ReactNode; good?: boolean; tip?: string;
 }) {
   return (
     // 구분선은 칸마다 왼쪽 1px(첫 칸은 없음) — divide-x-* 는 폭/색 해석이 갈리는 이름이라 쓰지 않는다
@@ -29,10 +31,18 @@ function Card({ alert, value, label, sub, good, tip }: {
   );
 }
 
-export function SummaryCards({ summary, perf, total }: { summary: CampaignSummary; perf: PerfSummary; total: MoneyByCurrency }) {
+export function SummaryCards({ summary, perf, total, budget, clientId }: {
+  summary: CampaignSummary; perf: PerfSummary; total: MoneyByCurrency;
+  budget: CampaignMonthBudget | null;   // 이 달 클라이언트 예산(서버). 클라 없는 캠페인은 null → 4칸 유지
+  clientId: string | null;
+}) {
   const money = moneyParts(total);
+  // 잔액 = 예산 − (다른 캠페인 몫 + 이 캠페인 합계 환산). 이 캠페인 몫을 화면의 total에서 더해야
+  // 비용 셀을 고친 순간 '비용 합계' 칸과 같은 박자로 움직인다(스펙 §6-2, UX 원칙 4).
+  const spentKrw = budget ? budget.othersKrw + toKrw(total).krw : 0;
+  const remaining = budget ? remainingOf(budget.amount, spentKrw) : null;
   return (
-    <div className="grid grid-cols-4">
+    <div className={`grid ${budget ? 'grid-cols-5' : 'grid-cols-4'}`}>
       <Card alert={summary.overdue > 0} value={summary.overdue > 0 ? `⚠ ${summary.overdue}` : '0'} label="밀림"
             sub={overdueJudgment(summary.overdue)} good={summary.overdue === 0} />
       <Card value={<>{summary.published} <span className="text-content font-normal text-x-muted">/ {summary.total}</span></>}
@@ -43,6 +53,18 @@ export function SummaryCards({ summary, perf, total }: { summary: CampaignSummar
             )}
             label="비용 합계" sub={costSub(total)} tip="통화가 다르면 합치지 않고 따로 보여요" />
       <Card value={perf.views === null ? '—' : perf.views.toLocaleString('ko-KR')} label="조회" sub={perfSub(perf)} />
+      {budget && (budget.amount === null ? (
+        <Card value="—" label="월 예산"
+              sub={clientId
+                ? <>미설정 — <Link href={`/clients?client=${clientId}`} className="text-x-blue-text hover:underline">클라이언트 설정에서 입력</Link></>
+                : '미설정'} />
+      ) : (
+        <Card alert={remaining !== null && remaining < 0}
+              value={remaining !== null && remaining < 0 ? `−${formatAmount(-remaining, 'KRW')}` : formatAmount(remaining ?? 0, 'KRW')}
+              label={`${monthShort(budget.month)} 예산 잔액`}
+              sub={`${formatAmount(budget.amount, 'KRW')} 중 ${formatAmount(spentKrw, 'KRW')} 사용 · 캠페인 ${budget.campaignCount}개`}
+              tip={`클라이언트의 ${monthShort(budget.month)}에 시작한 캠페인 비용을 전부 합쳐 예산과 대조해요. ${budgetTipText()}`} />
+      ))}
     </div>
   );
 }

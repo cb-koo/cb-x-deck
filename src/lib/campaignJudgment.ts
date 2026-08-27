@@ -186,7 +186,9 @@ export function sortContent<T extends SortInput>(items: T[], key: ContentSortKey
 }
 
 // ─────────────────────────── 인플루언서 목록·비용 ───────────────────────────
-export interface CostInput { influencerHandle: string | null; status: DraftStatus; cost: DraftCost | null }
+// cost는 원고(옛 {type,amount,currency})·작업(새 {amount,currency}) 둘 다 들어온다 — 합계는 amount·currency만 본다.
+// Task 5에서 campaignStore가 작업 기준으로 바뀌면 TaskCost로 좁힌다.
+export interface CostInput { influencerHandle: string | null; status: DraftStatus; cost: DraftCost | TaskCost | null }
 export interface CostRowInput { influencerHandle: string; extraCosts: ExtraCost[]; note: string }
 export interface InfluencerLine {
   handle: string | null;      // null = 미배정 원고 묶음 — 원고가 있을 때만 한 줄(비용이 합계에서 증발하지 않게)

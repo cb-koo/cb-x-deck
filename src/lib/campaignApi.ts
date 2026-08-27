@@ -6,7 +6,7 @@ import type { DraftStatus } from './draftStatus.ts';
 import type { DraftContent } from './draftTypes.ts';
 import type { CampaignRow, CampaignDetail, InfluencerCostRow } from './campaignStore.ts';
 import type { CampaignCreateInput, CampaignPatchInput } from './campaignInput.ts';
-import type { ExtraCost, DraftCost } from './campaignCost.ts';
+import type { ExtraCost } from './campaignCost.ts';
 import type { TrackedPostRow } from './trackingStore.ts';
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; status: number };
@@ -47,7 +47,7 @@ export const fetchCandidateDrafts = (campaignId: string) => call<DraftRow[]>(`/a
 // ── 원고(기존 라우트 — 값은 하나, 캠페인 전용 경로 없음 §2-5) ──
 export interface DraftPatchBody {
   status?: DraftStatus; influencerHandle?: string | null; title?: string; edited?: DraftContent; dismissedFlags?: string[];
-  campaignId?: string | null; scheduledOn?: string | null; cost?: DraftCost | null;
+  taskId?: string | null;   // null = 작업에서 떼기 · uuid = 그 작업에 붙이기(스펙 2026-08-28 §5)
 }
 export const patchDraftApi = (id: string, body: DraftPatchBody) => call<DraftRow>(`/api/drafts/${id}`, json('PATCH', body));
 // 일괄 소속·해제 — 50건도 커넥션 1개(updateDraftsBulk). '기존 원고 고르기'와 DraftCard 캠페인 칸의 이동이 쓴다.

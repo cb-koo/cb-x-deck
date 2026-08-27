@@ -58,13 +58,14 @@ export function useCampaignDraftActions({ campaign, setDrafts, influencerOptions
       const opt = handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined;
       const suggested = !d.cost && opt ? suggestDraftCost(opt.pricing, defaultCostType(campaign?.kind ?? null)) : null;
       const patch = { influencerHandle: handle, ...(suggested ? { cost: suggested } : {}) };
-      const ok = await apply(d, patch, patch);
+      // Task 11/15에서 작업 기준으로 대체 — 임시 어댑터: 예정일·비용은 이제 작업의 값이라 원고 PATCH가 받지 않는다(서버가 무시한다)
+      const ok = await apply(d, patch, patch as DraftPatchBody);
       if (ok) onChanged();   // 인플 목록·(제안이 들어갔으면) 합계가 바뀐다
       return ok;
     },
-    changeScheduledOn: (d: Item, next: string | null) => apply(d, { scheduledOn: next }, { scheduledOn: next }),
+    changeScheduledOn: (d: Item, next: string | null) => apply(d, { scheduledOn: next }, { scheduledOn: next } as DraftPatchBody), // Task 11/15에서 작업 기준으로 대체 — 임시 어댑터
     changeCost: async (d: Item, next: DraftCost | null) => {
-      const ok = await apply(d, { cost: next }, { cost: next });
+      const ok = await apply(d, { cost: next }, { cost: next } as DraftPatchBody); // Task 11/15에서 작업 기준으로 대체 — 임시 어댑터
       if (ok) onChanged();   // 합계가 목록 보조줄에도 실린다
       return ok;
     },
@@ -75,7 +76,7 @@ export function useCampaignDraftActions({ campaign, setDrafts, influencerOptions
     // 캠페인에서 빼기 — 행이 사라지는 변경이라 apply의 필드 롤백 대신 목록 복원으로 되돌린다(순서는 표 정렬이 다시 잡는다)
     removeFromCampaign: async (d: Item) => {
       setDrafts((cur) => cur.filter((x) => x.id !== d.id));
-      const r = await patchDraftApi(d.id, { campaignId: null });
+      const r = await patchDraftApi(d.id, { taskId: null });   // Task 11/15에서 작업 기준으로 대체 — 임시 어댑터
       if (r.ok) { show('캠페인에서 뺐어요 — 원고는 콘텐츠 생성 목록에 그대로 있어요'); onChanged(); return true; }
       setDrafts((cur) => (cur.some((x) => x.id === d.id) ? cur : [...cur, d]));
       show(r.error);
@@ -85,7 +86,7 @@ export function useCampaignDraftActions({ campaign, setDrafts, influencerOptions
     moveToCampaign: async (d: Item, campaignId: string | null) => {
       if (campaignId === (campaign?.id ?? null)) return true;
       setDrafts((cur) => cur.filter((x) => x.id !== d.id));
-      const r = await patchDraftApi(d.id, { campaignId });
+      const r = await patchDraftApi(d.id, { taskId: null });   // Task 11/15에서 작업 기준으로 대체 — 임시 어댑터
       if (r.ok) { show(campaignId ? '다른 캠페인으로 옮겼어요' : '캠페인에서 뺐어요'); onChanged(); return true; }
       setDrafts((cur) => (cur.some((x) => x.id === d.id) ? cur : [...cur, d]));
       show(r.error);

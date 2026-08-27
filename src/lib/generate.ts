@@ -28,7 +28,9 @@ export interface GenerateRequest {
   mode: ReferenceMode; direction: string; format: DraftFormat;
   constraintsOn: boolean; memberId: string | null;
   count?: number; // 시안 수 (1~5, 기본 1) — 라우트가 범위 검증
-  campaignId?: string | null; // /generate?campaign= 경로 — 만든 시안 전부 그 캠페인 소속(스펙 §4-1). 라우트가 존재까지 검증한 값
+  // 작업에 붙여 만들기(스펙 §5 /generate?task=) — 라우트가 존재·미부착까지 검증한 값.
+  // 다중 시안(count>1)이면 첫 시안에만 붙인다(원고 1개 = 작업 1개).
+  taskId?: string | null;
 }
 
 export async function generateDraft(
@@ -123,10 +125,14 @@ export async function generateDraft(
     translation: glossOf(i),
     koTitle: glosses[i]?.title ?? null,
     koTitleHash: glosses[i]?.title ? draftVersionHash(variants[i].posts) : null,
-    campaignId: req.campaignId ?? null,
+    taskId: i === 0 ? (req.taskId ?? null) : null,
   });
-  // 배치는 한 단위 — 중간 실패 시 고아 부분 배치가 남지 않게 트랜잭션. 단일 생성은 기존 경로 그대로.
-  if (!batchId) return [await insertOne(sql, 0)];
+  // 배치는 한 단위 — 중간 실패 시 고아 부분 배치가 남지 않게 트랜잭션. 단일 생성은 기존 경로 그대로 —
+  // 단, 작업에 붙여 만들 때는 삽입+붙이기가 한 단위여야 한다(붙이기가 실패하면 주인 없는 원고가 남는다).
+  if (!batchId) {
+    if (!req.taskId) return [await insertOne(sql, 0)];
+    return [await sql.begin(async (tx) => insertOne(tx as unknown as postgres.Sql, 0)) as unknown as string];
+  }
   return sql.begin((tx) => Promise.all(variants.map((_, i) => insertOne(tx as unknown as postgres.Sql, i)))) as Promise<string[]>;
 }
 

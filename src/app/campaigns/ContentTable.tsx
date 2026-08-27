@@ -10,7 +10,12 @@ import { CostPopover } from '@/components/CostPopover';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
 import { Button } from '@/components/ui';
 import { draftLabel } from '@/lib/draftViews';
-import { suggestDraftCost, type DraftCost } from '@/lib/campaignCost';
+import { suggestDraftCost, type DraftCost, type TaskCost } from '@/lib/campaignCost';
+import type { TaskType } from '@/lib/campaignJudgment';
+// // Task 11/15에서 작업 기준으로 대체 — 임시 어댑터: 비용 유형이 작업으로 옮겨가(DraftRow.taskType) 원고 비용은 {amount,currency}만 남았다.
+// 이 화면(원고 기준 표)은 Task 11/15에서 작업 표로 바뀐다 — 그때까지 옛 모양으로 되맞춰 그린다.
+const asDraftCostRow = (d: { cost: TaskCost | null; taskType: TaskType | null }): { cost: DraftCost | null } =>
+  ({ cost: d.cost ? { type: d.taskType ?? 'post', ...d.cost } : null });
 import {
   sortContent, matchesStageFilter, isOutOfRange, defaultCostType,
   STAGE_FILTER_LABEL, CONTENT_SORT_LABEL, type ContentSortKey, type StageFilter,
@@ -190,7 +195,7 @@ export function ContentTable({
                       <p className="line-clamp-2 font-medium" title={label.text}>{label.text}</p>
                     </td>
                     <td className={TD}>
-                      <span className={d.cost ? 'text-x-secondary' : 'text-x-muted'}>{contentTypeLabel(d)}</span>
+                      <span className={d.cost ? 'text-x-secondary' : 'text-x-muted'}>{contentTypeLabel(asDraftCostRow(d))}</span>
                     </td>
                     <td className={TD}>
                       <span className="flex items-center gap-2">
@@ -204,7 +209,7 @@ export function ContentTable({
                       </span>
                     </td>
                     <td className={TD}>
-                      <CostPopover value={d.cost} suggestion={suggestion} defaultType={defaultCostType(campaign.kind)}
+                      <CostPopover value={asDraftCostRow(d).cost} suggestion={suggestion} defaultType={defaultCostType(campaign.kind)}
                                    onChange={(next) => onChangeCost(d, next)} compact />
                     </td>
                     <td className={TD}>

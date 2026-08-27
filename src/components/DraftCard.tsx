@@ -208,6 +208,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   const overdue = campaign && isOverdue({ status: draft.status, published: campaign.published ?? false, scheduledOn: draft.scheduledOn }, campaign.today)
     ? daysBetweenDates(draft.scheduledOn as string, campaign.today) : null;
   const outOfRange = camp ? isOutOfRange(draft.scheduledOn, camp.startsOn, camp.endsOn) : false;
+  // // Task 11/15에서 작업 기준으로 대체 — 임시 어댑터: 비용 유형은 작업(draft.taskType)으로 옮겼다 — CostPopover는 아직 옛 {type,...} 모양을 받는다
   const costSuggestion = campaign && draft.influencerHandle
     ? suggestDraftCost(influencerOptions.find((o) => o.handle.toLowerCase() === (draft.influencerHandle as string).toLowerCase())?.pricing,
                        defaultCostType(camp?.kind ?? null))
@@ -478,7 +479,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
       {campaign && draft.campaignId && (
         <div className="flex flex-wrap items-center gap-2 border-b border-x-border bg-x-surface px-4 pb-2">
           <ScheduledOnField value={draft.scheduledOn} overdueDays={overdue} outOfRange={outOfRange} onChange={campaign.onChangeScheduledOn} />
-          <CostPopover value={draft.cost} suggestion={costSuggestion} defaultType={defaultCostType(camp?.kind ?? null)} onChange={campaign.onChangeCost} />
+          <CostPopover value={draft.cost ? { type: draft.taskType ?? 'post', ...draft.cost } : null} suggestion={costSuggestion} defaultType={defaultCostType(camp?.kind ?? null)} onChange={campaign.onChangeCost} />
         </div>
       )}
       {/* 원고 이름 — 도구층의 둘째 줄. 칩과 같은 줄에 두지 않는 이유는 제목이 최대 80자라

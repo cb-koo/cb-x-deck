@@ -1,5 +1,10 @@
 // 작업 API 입력 검증 — 순수(DB 없음). 라우트 4곳(작업 생성·패치, 원고 PATCH·POST의 taskId)이 같은 규칙을 쓴다.
-import type { Parsed } from './campaignCost.ts';
+import type { Parsed, TaskCost } from './campaignCost.ts';
+import { parseTaskCost } from './campaignCost.ts';
+import { isTaskType, isDateOnlyString, type TaskType } from './campaignJudgment.ts';
+import type { TaskPatch } from './campaignTaskStore.ts';
+import { parseTweetLink, tweetPermalink } from './tweetLink.ts';
+import { parseXHandle, handleParseMessage } from './xHandle.ts';
 import { isUuidLike } from './uuid.ts';
 
 export const TASK_ID_MESSAGE = '작업 값이 올바르지 않아요';
@@ -13,4 +18,98 @@ export function parseTaskIdPatch(v: unknown): Parsed<string | null | undefined> 
   if (v === null) return { ok: true, value: null };
   if (typeof v === 'string' && isUuidLike(v)) return { ok: true, value: v };
   return { ok: false, message: TASK_ID_MESSAGE };
+}
+
+export const TASK_TYPE_MESSAGE = '작업 유형 값이 올바르지 않아요';
+export const TARGET_MESSAGE = 'RT 대상 링크가 X 게시물 주소가 아니에요';
+export const TARGET_TYPE_MESSAGE = 'RT 작업은 대상이 될 수 없어요 — 투고·인용RT·방문협찬 작업을 골라 주세요';
+export const TARGET_SELF_MESSAGE = '작업이 자기 자신을 대상으로 가질 수 없어요';
+export const VISIT_ON_MESSAGE = '방문일은 방문협찬 작업에만 있어요';
+export const DRAFT_MULTI_MESSAGE = '원고는 한 사람에게만 붙일 수 있어요 — 인플루언서를 한 명만 고르거나 원고를 빼 주세요';
+export const POSTED_AT_NULL_MESSAGE = '게시 확인은 지울 수 없어요 — 잘못 찍었으면 작업을 삭제하고 다시 만들어 주세요';
+export const REMOVED_WITHOUT_POSTED_MESSAGE = '게시 확인이 없는 작업이에요 — 게시 내림은 게시된 작업에만 표시할 수 있어요';
+export const DATE_MESSAGE = '날짜는 YYYY-MM-DD 형식이어야 해요';
+function fail<T>(message: string): Parsed<T> { return { ok: false, message }; }
+
+// 사용자가 붙인 X 링크 → 정규형 permalink(x.com/twitter.com·꼬리 무관). 핸들이 있으면 보존, 없으면 /i/status/.
+export function normalizeTargetTweetUrl(v: string): string | null {
+  const p = parseTweetLink(v);
+  if (!p.ok) return null;
+  const m = /(?:x\.com|twitter\.com)\/([A-Za-z0-9_]{1,15})\/status\//i.exec(v);
+  const handle = m && m[1].toLowerCase() !== 'i' ? m[1] : null;
+  return tweetPermalink(handle, p.tweetId);
+}
+const dateOrNull = (v: unknown): Parsed<string | null> => {
+  if (v === undefined || v === null || v === '') return { ok: true, value: null };
+  return isDateOnlyString(v) ? { ok: true, value: v } : fail(DATE_MESSAGE);
+};
+const uuidOrNull = (v: unknown, message: string): Parsed<string | null> => {
+  if (v === undefined || v === null || v === '') return { ok: true, value: null };
+  return typeof v === 'string' && isUuidLike(v) ? { ok: true, value: v } : fail(message);
+};
+
+export interface TaskCreateBody {
+  type: TaskType; targetTaskId: string | null; targetTweetUrl: string | null; draftId: string | null;
+  scheduledOn: string | null; visitOn: string | null; note: string; cost: TaskCost | null;
+  influencers: Array<{ handle: string; cost: TaskCost | null }>;
+}
+export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
+  const b = (body ?? {}) as Record<string, unknown>;
+  if (!isTaskType(b.type)) return fail(TASK_TYPE_MESSAGE);
+  const targetTaskId = uuidOrNull(b.targetTaskId, TASK_ID_MESSAGE); if (!targetTaskId.ok) return targetTaskId;
+  let targetTweetUrl: string | null = null;
+  if (typeof b.targetTweetUrl === 'string' && b.targetTweetUrl.trim()) {
+    targetTweetUrl = normalizeTargetTweetUrl(b.targetTweetUrl);
+    if (!targetTweetUrl) return fail(TARGET_MESSAGE);
+  }
+  const draftId = uuidOrNull(b.draftId, TASK_ID_MESSAGE); if (!draftId.ok) return draftId;
+  const scheduledOn = dateOrNull(b.scheduledOn); if (!scheduledOn.ok) return scheduledOn;
+  const visitOn = dateOrNull(b.visitOn); if (!visitOn.ok) return visitOn;
+  if (visitOn.value && b.type !== 'visit') return fail(VISIT_ON_MESSAGE);
+  const cost = b.cost === undefined ? { ok: true as const, value: null } : parseTaskCost(b.cost); if (!cost.ok) return cost;
+  const raw = Array.isArray(b.influencers) ? b.influencers : [];
+  const influencers: TaskCreateBody['influencers'] = [];
+  for (const it of raw) {
+    const o = (it ?? {}) as { handle?: unknown; cost?: unknown };
+    const h = parseXHandle(String(o.handle ?? ''));
+    if (!h.ok) return fail(handleParseMessage(h.reason));
+    const c = o.cost === undefined ? { ok: true as const, value: null } : parseTaskCost(o.cost); if (!c.ok) return c;
+    influencers.push({ handle: h.handle, cost: c.value });
+  }
+  if (draftId.value && influencers.length > 1) return fail(DRAFT_MULTI_MESSAGE);
+  return { ok: true, value: {
+    type: b.type, targetTaskId: targetTaskId.value, targetTweetUrl, draftId: draftId.value,
+    scheduledOn: scheduledOn.value, visitOn: visitOn.value, note: typeof b.note === 'string' ? b.note.trim() : '', cost: cost.value, influencers,
+  } };
+}
+
+// 온 키만 결과에 실린다(undefined=건드리지 않음) — 스토어 updateTask의 3값 규칙과 맞물린다
+export function parseTaskPatch(body: unknown): Parsed<TaskPatch> {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const out: TaskPatch = {};
+  if ('influencerHandle' in b) {
+    if (b.influencerHandle === null) out.influencerHandle = null;
+    else { const h = parseXHandle(String(b.influencerHandle ?? '')); if (!h.ok) return fail(handleParseMessage(h.reason)); out.influencerHandle = h.handle; }
+  }
+  if ('targetTaskId' in b) { const r = uuidOrNull(b.targetTaskId, TASK_ID_MESSAGE); if (!r.ok) return r; out.targetTaskId = r.value; }
+  if ('targetTweetUrl' in b) {
+    if (b.targetTweetUrl === null || b.targetTweetUrl === '') out.targetTweetUrl = null;
+    else { const u = normalizeTargetTweetUrl(String(b.targetTweetUrl)); if (!u) return fail(TARGET_MESSAGE); out.targetTweetUrl = u; }
+  }
+  if ('postUrl' in b) {
+    if (b.postUrl === null || b.postUrl === '') out.postUrl = null;
+    else { const u = normalizeTargetTweetUrl(String(b.postUrl)); if (!u) return fail(TARGET_MESSAGE); out.postUrl = u; }
+  }
+  if ('postedAt' in b) {
+    if (b.postedAt === null) return fail(POSTED_AT_NULL_MESSAGE);
+    if (!isDateOnlyString(b.postedAt)) return fail(DATE_MESSAGE);
+    out.postedAt = b.postedAt; out.postedSource = 'manual';   // 사람이 찍는 경로는 항상 manual — 클라가 source를 정하지 못한다
+  }
+  if ('removedAt' in b) { const r = dateOrNull(b.removedAt); if (!r.ok) return r; out.removedAt = r.value; }
+  if ('removedReason' in b) out.removedReason = typeof b.removedReason === 'string' ? b.removedReason.trim() : '';
+  if ('scheduledOn' in b) { const r = dateOrNull(b.scheduledOn); if (!r.ok) return r; out.scheduledOn = r.value; }
+  if ('visitOn' in b) { const r = dateOrNull(b.visitOn); if (!r.ok) return r; out.visitOn = r.value; }
+  if ('cost' in b) { const c = parseTaskCost(b.cost); if (!c.ok) return c; out.cost = c.value; }
+  if ('note' in b) out.note = typeof b.note === 'string' ? b.note.trim() : '';
+  return { ok: true, value: out };
 }

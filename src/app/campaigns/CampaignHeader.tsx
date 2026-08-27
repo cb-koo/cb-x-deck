@@ -6,7 +6,6 @@ import {
   campaignStatus, CAMPAIGN_STATUS_LABEL,
   formatDateKo, daysBetweenDates,
 } from '@/lib/campaignJudgment';
-import { Button } from '@/components/ui';
 import { InfoTip } from '@/components/InfoTip';
 
 // 상세 헤더 — 이름·기간·코드·메모를 그 자리에서 고친다(스펙 §3-3). 상태 pill은 기간에서 파생(수동 상태 없음, §10).
@@ -39,13 +38,13 @@ function ReadValue({ onEdit, title, mono, children }: {
   );
 }
 
-export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete, onAddDrafts }: {
+export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete }: {
   campaign: CampaignRow;
   // 삭제 시 실제로 지워질 작업 수·대상 미정이 되는 다른 캠페인 작업 수 — 삭제 확인 문구가 말하는 그 숫자들
   deleteInfo: { taskCount: number; detachedTargets: number };
   today: string;
   onPatch: (patch: CampaignPatchInput) => Promise<boolean>;
-  onDelete: () => void; onAddDrafts: () => void;
+  onDelete: () => void;
 }) {
   const [edit, setEdit] = useState<Field | null>(null);
   const [name, setName] = useState(campaign.name);
@@ -233,8 +232,7 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete,
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {/* 라벨은 '작업 추가'로 고정(Task 11) — Task 13에서 툴바로 옮기고 나서도 문구는 같아야 한다. 핸들러는 그대로(플레이스홀더 안내) */}
-          <Button variant="primary" onClick={onAddDrafts} className="h-10 px-4 text-content">+ 작업 추가</Button>
+          {/* '+ 작업 추가'는 Task 13에서 아래 툴바로 옮겼다 — 여기 남는 건 메뉴(메모 추가·삭제)뿐 */}
           <details ref={menuRef} className="relative">
             <summary aria-label="캠페인 메뉴" className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full border border-x-border-strong text-x-secondary hover:bg-x-hover">···</summary>
             <div className="absolute right-0 z-10 mt-1 w-44 rounded-lg border border-x-border-strong bg-white p-1 shadow-lg">

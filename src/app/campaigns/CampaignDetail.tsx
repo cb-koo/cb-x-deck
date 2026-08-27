@@ -10,8 +10,9 @@ import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { DraftRow } from '@/lib/draftStore';
 import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, putInfluencerCostApi,
-  patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, type DraftPatchBody,
+  patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, checkPostedApi, type DraftPatchBody,
 } from '@/lib/campaignApi';
+import type { CheckPostedResult } from '@/lib/checkPosted';
 import {
   summarizeTasks, summarizeTaskPerf, deriveTaskInfluencers, taskCampaignTotal, matchesTaskFilter, subtotalsByType,
   STAGE_FILTERS, STAGE_FILTER_LABEL, TASK_TYPE_LABEL, type StageFilter, type TaskSortKey,
@@ -29,6 +30,7 @@ import { useCampaignTaskActions } from './useCampaignTaskActions';
 import { TaskAddModal } from './TaskAddModal';
 import { AttachDraftModal } from './AttachDraftModal';
 import { TargetPicker, type TargetValue } from './TargetPicker';
+import { CheckPostedModal } from './CheckPostedModal';
 
 // 캠페인 상세 컨테이너 — 로드·낙관적 갱신·모달을 쥔다. 요약·인플 목록·합계·성과는 서버 응답을 그대로 쓰지 않고
 // 같은 판정 함수(campaignJudgment)로 여기서 다시 계산한다 — 표에서 값을 고친 즉시 카드 숫자가 따라가야 하고,
@@ -80,6 +82,9 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
   const [addOpen, setAddOpen] = useState(false);
   const [attachFor, setAttachFor] = useState<CampaignTaskItem | null>(null);
   const [targetFor, setTargetFor] = useState<CampaignTaskItem | null>(null);
+  // 게시 확인하기(§3-3) — opt-in 비용 유발 액션이라 자동 실행 없음(UX 원칙 6). 결과는 모달로, 닫으면 표를 다시 불러온다.
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<CheckPostedResult | null>(null);
 
   // 요청 토큰 — 캠페인을 빠르게 갈아타면 앞 캠페인의 응답이 뒤에 도착할 수 있다. 그때 화면에는 이미 다른 캠페인이
   // 떠 있으므로 옛 응답은 성공이든 실패든 버린다(남의 캠페인 데이터·오류 배너가 붙는 것을 막는다).
@@ -143,6 +148,11 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
     STAGE_FILTERS.map((f) => [f, (data?.tasks ?? []).filter((t) => matchesTaskFilter(t, f, data?.today ?? '')).length]),
   ) as Record<StageFilter, number>, [data]);
   const total = useMemo(() => taskCampaignTotal(influencers), [influencers]);
+  // [게시 확인하기] 버튼의 활성 여부 — 확인할 RT 작업이 없으면 눌러도 할 일이 없으니 미리 막는다(비용 낭비 방지)
+  const rtPendingCount = useMemo(
+    () => (data ? data.tasks.filter((t) => t.type === 'rt' && t.postedAt === null && t.influencerHandle).length : 0),
+    [data],
+  );
   // 표 하단 유형 줄 — 서버가 준 값 대신 여기서 다시 센다(표에서 유형·비용을 고친 즉시 따라가야 한다)
   const byType = useMemo(() => (data ? subtotalsByType(data.tasks) : []), [data]);
   // 열려 있는 원고가 붙은 작업 — 카드의 인플루언서 배정이 이 작업으로 간다(캠페인의 단위는 작업이다)
@@ -175,6 +185,17 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
     // deleted:false = 이미 없는 캠페인(다른 사람이 지웠거나 내 화면이 오래됐다) — 지웠다고 말하지 않되 화면은 똑같이 목록으로 빠진다
     show(r.data.deleted ? `캠페인을 삭제했어요 — 작업 ${r.data.taskCount}개도 지워졌고 원고는 남아 있어요` : '이미 삭제된 캠페인이에요');
     onDeleted();
+  }
+
+  // [게시 확인하기] — RT 대상 게시글의 리포스트 계정을 찾아 게시 확인을 채운다(§3-3). 결과는 모달로 보이고,
+  // 확인됨 여부가 작업에 반영되므로 표도 새로고침한다.
+  async function checkPosted() {
+    setChecking(true);
+    const r = await checkPostedApi(id);
+    setChecking(false);
+    if (!r.ok) { show(r.error); return; }
+    setCheckResult(r.data);
+    void load();
   }
 
   // 추가 비용·메모 — PUT 응답 행으로 costRows를 갈아끼운다(같은 핸들은 lower 기준 하나). 합계가 목록 보조줄에도 실리므로 onChanged.
@@ -253,8 +274,7 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
       )}
       <div className={PANEL}>
         <CampaignHeader campaign={data.campaign} deleteInfo={data.deleteInfo} today={data.today} onPatch={patchCampaign}
-                        onDelete={() => void removeCampaign()}
-                        onAddDrafts={() => setAddOpen(true)} />
+                        onDelete={() => void removeCampaign()} />
       </div>
       <div className={PANEL}>
         <h2 className={PANEL_TITLE}>캠페인 요약</h2>
@@ -268,6 +288,16 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
         <h2 className={PANEL_TITLE}>
           작업 진행 현황 <span className="text-ui font-normal text-x-muted tabular-nums">{data.tasks.length}건</span>
         </h2>
+        {/* 툴바 첫 줄 — [+ 작업 추가](헤더에서 이곳으로 이동, Task 14)와 opt-in 비용 유발 액션 [게시 확인하기](UX 원칙 6).
+            도움말은 같은 줄 오른쪽에 붙여 행동 전 기대를 세운다(원칙 2) — 비용을 숨기지 않는다. */}
+        <div className="mt-3.5 flex flex-wrap items-center gap-2">
+          <Button variant="primary" onClick={() => setAddOpen(true)} className="h-9 px-3.5 text-ui">+ 작업 추가</Button>
+          <Button onClick={() => void checkPosted()} disabled={checking || rtPendingCount === 0}
+                  title={rtPendingCount === 0 ? '확인할 RT 작업이 없어요' : undefined} className="h-9 px-3.5 text-ui">
+            {checking ? '확인하는 중…' : '게시 확인하기'}
+          </Button>
+          <span className="ml-auto text-ui text-x-muted">게시 확인하기 — RT 대상 게시글의 리포스트 계정을 찾아 게시 확인을 채워요 · 게시글 1개당 $0.001</span>
+        </div>
         <div className="mt-3.5 flex flex-wrap items-center gap-3">
           <div role="group" aria-label="작업 보기" className="inline-flex rounded-full border border-x-border-strong p-0.5">
             {(['table', 'calendar'] as DetailView[]).map((v) => (
@@ -383,6 +413,13 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
         <TargetDialog task={targetFor} campaign={data.campaign} onClose={() => setTargetFor(null)}
                       onPick={(next) => { void actions.changeTarget(targetFor, next); setTargetFor(null); }}
                       onClear={() => { void actions.changeTarget(targetFor, null); setTargetFor(null); }} />
+      )}
+      {checkResult && (
+        <CheckPostedModal result={checkResult} tasks={data.tasks} onClose={() => setCheckResult(null)}
+                           onMarkRemoved={(taskId) => {
+                             const t = data.tasks.find((x) => x.id === taskId);
+                             if (t) void actions.markRemoved(t, data.today, '리포스트 목록에서 사라짐');
+                           }} />
       )}
     </div>
   );

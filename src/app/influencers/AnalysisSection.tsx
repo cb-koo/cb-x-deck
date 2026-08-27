@@ -563,7 +563,7 @@ function ActivityResult({ analysis, activity, followers }: {
               cadence.caution ? 'text-amber-800' : 'text-x-secondary'
             }`}>{cad.verdict}</p>
           )}
-          <p className="mt-0.5 text-caption text-x-secondary">직접 쓴 글 · 최근 4주</p>
+          <p className="mt-0.5 text-caption text-x-secondary">{activity.coveredDays < 28 ? `직접 쓴 글 · 최근 ${activity.coveredDays}일` : '직접 쓴 글 · 최근 4주'}</p>
         </StatTile>
         <StatTile value={rt.value}>
           {/* RT는 많고 적음이 좋고 나쁨이 아니다 — 판단문도 서술로만 적는다(주의 색 없음) */}

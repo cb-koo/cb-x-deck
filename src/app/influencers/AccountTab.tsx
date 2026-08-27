@@ -25,6 +25,9 @@ export function AccountTab({ id, data, onChanged, onDeleted, setData, reportErro
                        followers={inf.followersCount}
                        onAnalyzed={(analysis, analyzedAt) => {
                          setData((d) => (d ? { ...d, analysis, analyzedAt } : d));
+                         // 명부 행의 '분석 N일 전' 캡션은 목록 응답(analyzed_at)에서 오므로 목록도 갱신 —
+                         // 오른쪽은 '오늘 분석'인데 왼쪽은 '미분석'이면 같은 사실을 두 말로 하게 된다.
+                         void onChanged();
                        }} />
       <TagEditor id={id} tags={inf.tags} onSaved={onChanged} onErrorChange={(v) => reportError('tags', v)} />
       <NoteEditor id={id} note={inf.note} onErrorChange={(v) => reportError('note', v)} />

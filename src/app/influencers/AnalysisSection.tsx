@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui';
 import { formatKoCount } from '@/lib/formatKo';
-import { kstMonthDay, kstDayRange, kstDate, asDateOnly, dateOnlyMonthDay } from '@/lib/datetime';
+import { kstMonthDay, kstDayRange, kstDate, asDateOnly } from '@/lib/datetime';
 import { relTime } from '@/lib/relTime';
 import { judgeDirectCadence, judgeEngagement, judgeRt } from '@/lib/influencerJudgment';
 import { CONTENT_TYPE_LABEL, type ContentType, type Activity } from '@/lib/analysisStats';
@@ -257,8 +257,8 @@ function TopicTable({ topics, accountMedianViews }: {
     <div>
       <BlockTitle>어떤 주제가 통하나</BlockTitle>
       <div className="mt-2 overflow-x-auto">
-        {/* 2열 배치라 이 표가 갖는 폭은 패널의 절반이다 — 열 넷이 들어갈 최소치까지 낮추고,
-            그보다 좁아지면 표만 가로 스크롤한다(패널 전체가 밀리지 않게) */}
+        {/* 3열 배치라 이 표가 갖는 폭은 히트맵·도넛을 빼고 남는 만큼이다 — 열 넷이 들어갈 최소치까지
+            낮추고, 그보다 좁아지면 표만 가로 스크롤한다(패널 전체가 밀리지 않게) */}
         {/* 숫자 열은 내용 폭(w-0 + nowrap)으로 좁혀 오른쪽에 모이고, 주제 열이 남는 폭을 다 갖는다 —
             열을 균등 분배하면 숫자 사이가 벌어져 같은 행으로 읽기 어렵다(피드백). 열 간격은 pl-5 하나로. */}
         <table className="w-full min-w-[320px] text-ui">
@@ -329,11 +329,12 @@ function RtTopicChips({ items, rtSince, until, rtClassified }: {
 
 // ── 발행 히트맵 ──────────────────────────────────────────────────────────────
 // 하루 몇 건(타일)은 평균이라 "몰아 쓰고 2주 쉬는" 계정과 "매일 한 건"을 구분하지 못한다.
-// 히트맵은 그 분포를 그대로 보여준다 — 달력과 같은 배치로 가로=요일 7칸, 세로=주.
-// GitHub식 전치(열=주)는 28일 창에서 열이 5개뿐이라 격자가 손가락만큼 좁았다(피드백) — 4~5줄 ×
-// 7칸이면 폭 250px 남짓으로 패널을 제대로 쓴다.
-// 셀은 고정 32px다. 폭을 나눠 갖게(1fr) 두면 칸 하나가 패널 폭만큼 부푼다(실제 피드백).
-const CELL = 32;         // px — 계정이 달라도 셀 크기는 같다
+// 히트맵은 그 분포를 그대로 보여준다 — 배치는 GitHub 잔디밭과 같이 열=주(일요일 시작), 행=요일 7칸.
+// 한때 달력 배치(가로 7칸 × 세로 주)로 뒤집어 봤지만, 히트맵·도넛·주제 표를 한 행에 세우는 3열
+// 배치에서는 가로로 눕는 격자가 자리를 다 먹는다 — 세로로 선 5×7 격자(폭 ≈180px · 높이 ≈236px)가
+// 도넛과 키가 맞아 세 열이 나란히 읽힌다.
+// 셀은 고정 28px다. 폭을 나눠 갖게(1fr) 두면 칸 하나가 열 폭만큼 부푼다(실제 피드백).
+const CELL = 28;         // px — 계정이 달라도 셀 크기는 같다
 const GAP = 4;           // 칸 사이 여백은 배경색이 만든다(면과 면을 붙이지 않는다)
 const LEGEND_CELL = 14;  // 범례는 색 견본일 뿐 — 격자 셀만 한 32px 견본은 눈금이 아니라 블록이 된다
 
@@ -376,7 +377,7 @@ function cellLabel(key: string, n: number, noun: string): string {
 
 // daily는 게시가 있었던 날만 담는다. 창은 activity의 since~until 그대로 — 활동 창이 28일 고정이라
 // 계정이 달라도 격자 크기가 같고, 두 계정을 나란히 읽을 수 있다.
-// since 이전 칸(첫 줄의 앞부분)·until 이후 칸(마지막 줄의 뒷부분)은 그리지 않는다 —
+// since 이전 칸(첫 열의 위쪽)·until 이후 칸(마지막 열의 아래쪽)은 그리지 않는다 —
 // 0건 회색으로 채우면 '안 썼다'는 거짓말이 된다.
 function PostingHeatmap({ activity }: { activity: Activity }) {
   // 셀 수십 개를 Tooltip으로 감싸면 포털이 그만큼 뜬다 — 대신 격자 하나가 툴팁 하나를 공유한다.
@@ -434,12 +435,22 @@ function PostingHeatmap({ activity }: { activity: Activity }) {
   const sinceDay = kstDate(activity.since);   // 이 날 이전 칸은 창 밖 — 그리지 않는다
   if (!untilDay || !sinceDay) return null;
 
-  // 창 시작이 든 주의 일요일에서 시작한다(줄 = 달력 주). 28일 창이면 줄은 4개 또는 5개.
-  // gridStart가 일요일이라 i % 7이 곧 요일(가로), i / 7이 곧 주(세로)다.
+  // 창 시작이 든 주의 일요일에서 시작한다(열 = 달력 주). 28일 창이면 열은 4개 또는 5개 —
+  // 창 시작이 일요일일 때만 4개고, 나머지 여섯 요일에서는 양끝이 반쪽 열로 잘려 5개다.
+  // gridStart가 일요일이라 firstDow는 0이지만, 계산식은 그 가정에 기대지 않고 실제 요일을 쓴다.
   const gridStart = addDays(sinceDay, -dowOf(sinceDay));
   const days = kstDayRange(new Date(gridStart + 'T00:00:00Z'), new Date(untilDay + 'T00:00:00Z'));
   if (days.length === 0) return null;
-  const rows = Math.ceil(days.length / 7);
+
+  const firstDow = dowOf(days[0]);
+  const colOf = (i: number) => Math.floor((i + firstDow) / 7);
+  const cols = colOf(days.length - 1) + 1;
+
+  // 달 라벨은 '그 달 1일이 든 열' 위에만 — 달 시작은 최소 4열 간격이라 라벨끼리 겹칠 일이 없다.
+  // (모든 달 경계를 찍으면 앞쪽 반쪽 열에서 라벨 두 개가 겹친다.)
+  const monthMarks = days.flatMap((d, i) => (
+    d.slice(8) === '01' ? [{ col: colOf(i), label: `${Number(d.slice(5, 7))}월` }] : []
+  ));
 
   return (
     <div>
@@ -466,29 +477,30 @@ function PostingHeatmap({ activity }: { activity: Activity }) {
           aria-label={ariaLabel}
           className="grid w-max"
           style={{
-            gridTemplateColumns: `auto repeat(7, ${CELL}px)`,      // 1열은 주(일요일) 날짜 라벨
-            gridTemplateRows: `auto repeat(${rows}, ${CELL}px)`,   // 1행은 요일 라벨
+            gridTemplateColumns: `auto repeat(${cols}, ${CELL}px)`,   // 1열은 요일 라벨
+            gridTemplateRows: `auto repeat(7, ${CELL}px)`,            // 1행은 달 라벨
             gap: `${GAP}px`,
           }}
           onMouseLeave={() => setTip(null)}
         >
-          {/* 가로축이 요일이라는 건 라벨 없이는 스스로 설명되지 않는다. 달력과 같은 배치라 7개를
-              다 적어도 시끄럽지 않다 — 오히려 '달력이구나'를 한눈에 말해준다. */}
-          {DOW.map((label, i) => (
+          {/* 세로축이 요일이라는 건 라벨 없이는 스스로 설명되지 않는다("이게 왜 7칸이지?"라는
+              질문을 실제로 받았다). GitHub처럼 격줄(월·수·금)만 적는다 — 7개를 다 적으면
+              라벨이 격자만큼 시끄러워진다. */}
+          {([['월', 3], ['수', 5], ['금', 7]] as const).map(([label, row]) => (
             <span key={label}
-              className="justify-self-center text-caption leading-none text-x-muted"
-              style={{ gridColumnStart: i + 2, gridRowStart: 1 }}
+              className="self-center pr-1 text-caption leading-none text-x-muted"
+              style={{ gridColumnStart: 1, gridRowStart: row }}
               onMouseEnter={() => setTip(null)}
             >{label}</span>
           ))}
-          {/* 줄마다 그 주 일요일 날짜 — 월 라벨을 대신한다(어느 주인지가 어느 달인지보다 쓸모 있다) */}
-          {Array.from({ length: rows }, (_, r) => (
-            <span key={days[r * 7]}
-              className="self-center whitespace-nowrap pr-1 text-caption leading-none text-x-muted"
-              style={{ gridColumnStart: 1, gridRowStart: r + 2 }}
-              /* 라벨로 올라가면 방금 보던 셀의 툴팁은 이미 거짓말이다 — 격자를 벗어나기 전에 걷는다 */
+          {monthMarks.map((m) => (
+            <span
+              key={m.col}
+              className="whitespace-nowrap text-caption leading-none text-x-muted"
+              style={{ gridColumnStart: m.col + 2, gridRowStart: 1 }}
+              /* 라벨 줄로 올라가면 방금 보던 셀의 툴팁은 이미 거짓말이다 — 격자를 벗어나기 전에 걷는다 */
               onMouseEnter={() => setTip(null)}
-            >{dateOnlyMonthDay(asDateOnly(days[r * 7]))}</span>
+            >{m.label}</span>
           ))}
           {days.map((d, i) => {
             if (d < sinceDay) return null;   // 창 시작 전: 데이터 없음 ≠ 0건 — 빈칸으로 둔다
@@ -498,8 +510,8 @@ function PostingHeatmap({ activity }: { activity: Activity }) {
                 key={d}
                 className="rounded-[4px]"
                 style={{
-                  gridColumnStart: (i % 7) + 2,          // 가로 = 요일(1열은 날짜 라벨)
-                  gridRowStart: Math.floor(i / 7) + 2,   // 세로 = 주(1행은 요일 라벨)
+                  gridColumnStart: colOf(i) + 2,              // 가로 = 주(1열은 요일 라벨)
+                  gridRowStart: ((i + firstDow) % 7) + 2,     // 세로 = 요일(1행은 달 라벨)
                   background: HEAT_STEPS[heatStep(n, thresholds)],
                 }}
                 onMouseEnter={(e) => showTip(e.currentTarget, cellLabel(d, n, noun))}
@@ -621,27 +633,43 @@ function ActivityResult({ analysis, activity, followers }: {
         </StatTile>
       </div>
 
-      {/* 격자는 하나 — 직접 글/RT는 토글이 고른다(RT로만 도는 확산형 계정도 '활동 없음'으로 보이지 않게).
-          창·셀 크기가 고정이라 계정을 바꿔도 같은 자리에 같은 크기로 선다. */}
-      <PostingHeatmap activity={activity} />
-
-      {/* '무엇을 쓰나'(유형)와 '무엇이 통하나'(주제)는 같은 질문의 두 면이라 나란히 세운다.
+      {/* '언제 쓰나'(히트맵) · '무엇을 쓰나'(유형) · '무엇이 통하나'(주제)는 한 표본(직접 글)을 세 각도로
+          본 것이라 한 행에 나란히 세운다 — 세로로 쌓으면 셋을 견주려고 스크롤을 오르내리게 된다.
           접힘 기준은 화면 폭이 아니라 이 블록이 실제로 가진 폭(@container) — 사이드바·패널 폭이
-          달라져도 표가 눌리지 않는다. 접히는 지점은 @2xl(672px) — 그 폭에서 한 열이 (672-24)/2 = 324px라
-          표의 최소 폭(320px)이 딱 들어간다. 더 이른 @xl(576px)에서 나누면 나누자마자 표가 스크롤한다. */}
-      {direct > 0 && (
-        <div className="@container">
-          {/* 나란히 놓이면 두 열의 경계가 보여야 한다(피드백: "유형·주제 구분이 잘 안 된다") — 간격 대신
-              세로 구분선 + 좌우 패딩으로 나눈다. 접힌(1열) 상태에서는 구분선 없이 세로 간격만. */}
-          <div className="grid grid-cols-1 gap-6 @2xl:grid-cols-2 @2xl:gap-0 @2xl:divide-x @2xl:divide-x-border @2xl:[&>*+*]:pl-6 @2xl:[&>*:first-child]:pr-6">
-            {/* 유형·주제는 분류된 직접 글만 센다 — 위 타일(4주 활동)과 표본이 다르다는 건 도넛 가운데가 적는다 */}
-            <TypeDonut types={types} classified={sample.directClassified ?? 0} />
-            {topics.length > 0 && (
-              <TopicTable topics={topics} accountMedianViews={stats.medianViews} />
-            )}
+          달라져도 표가 눌리지 않는다.
+          · @4xl(896px)~: 3열. 히트맵·도넛은 내용 폭(auto), 남는 폭은 전부 표에 준다(1fr).
+          · @2xl(672px)~@4xl: 2열(히트맵+도넛) + 표는 아래 전체 폭 — 그 폭에서 한 열이 (672-24)/2 = 324px라
+            표의 최소 폭(320px)이 겨우 들어가는데, 표가 위 두 블록과 폭을 나눠 가지면 바로 스크롤한다.
+          · 그 미만: 1열.
+          나란히 놓이면 열의 경계가 보여야 한다(피드백: "유형·주제 구분이 잘 안 된다") — 간격 대신
+          세로 구분선 + 좌우 패딩으로 나눈다. 접힌 상태에서는 구분선 없이 세로 간격만. */}
+      <div className="@container">
+        <div className="grid grid-cols-1 gap-6 @2xl:grid-cols-2 @2xl:gap-x-0 @4xl:grid-cols-[auto_auto_1fr] @4xl:gap-y-0">
+          {/* 격자는 하나 — 직접 글/RT는 토글이 고른다(RT로만 도는 확산형 계정도 '활동 없음'으로 보이지 않게).
+              창·셀 크기가 고정이라 계정을 바꿔도 같은 자리에 같은 크기로 선다. */}
+          <div className="@2xl:pr-6">
+            <PostingHeatmap activity={activity} />
           </div>
+
+          {/* 직접 쓴 글이 0건이면 유형·주제는 셀 것이 없다 — 열 자체를 두지 않는다(빈 열은 거짓 어포던스) */}
+          {direct > 0 && (
+            <>
+              {/* 유형·주제는 분류된 직접 글만 센다 — 위 타일(4주 활동)과 표본이 다르다는 건 도넛 가운데가 적는다 */}
+              <div className="@2xl:border-l @2xl:border-x-border @2xl:pl-6 @4xl:pr-6">
+                <TypeDonut types={types} classified={sample.directClassified ?? 0} />
+              </div>
+              {topics.length > 0 && (
+                /* min-w-0: 1열·2열일 때 표의 내용 폭이 열을 부풀리지 않게 — 좁으면 표만 가로 스크롤한다.
+                   3열에서는 반대로 320px를 바닥으로 깔아 준다. auto 두 열(히트맵·도넛)은 max-content까지
+                   부풀 권리가 있어서, 바닥이 없으면 남는 폭을 저 둘이 다 가져가고 표만 스크롤한다. */
+                <div className="min-w-0 @2xl:col-span-2 @4xl:col-span-1 @4xl:min-w-[320px] @4xl:border-l @4xl:border-x-border @4xl:pl-6">
+                  <TopicTable topics={topics} accountMedianViews={stats.medianViews} />
+                </div>
+              )}
+            </>
+          )}
         </div>
-      )}
+      </div>
 
       {/* 직접 쓴 글이 0건이면 유형·주제 표는 셀 것이 없다 — 조용히 비는 대신 무엇으로 봤는지 적는다 */}
       {direct === 0 && rtTopics.length > 0 && (

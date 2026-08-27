@@ -5,6 +5,7 @@ export type TweetKind = 'original' | 'retweet' | 'quote';
 export interface AnalysisTweet {
   id: string; text: string; createdAt: string; kind: TweetKind;
   views: number | null; likes: number | null; hasMedia: boolean;
+  rtText?: string;
 }
 
 export type ContentType = 'info' | 'review' | 'daily' | 'promo' | 'other';
@@ -70,6 +71,61 @@ export function dailyCounts(tweets: AnalysisTweet[]): Record<string, number> {
     out[day] = (out[day] ?? 0) + 1;
   }
   return out;
+}
+
+// dailyCounts를 조건으로 좁혀 쓰는 헬퍼 — 직접/RT를 각각 별도 히트맵으로 나눌 때 재사용(스펙 §3-7).
+export function dailyCountsBy(tweets: AnalysisTweet[], pred: (t: AnalysisTweet) => boolean): Record<string, number> {
+  return dailyCounts(tweets.filter(pred));
+}
+
+// 계정 상세의 "직접 글" 반응 중앙값 — computeStats의 반응 집계(RT 제외)와 같은 규칙을
+// 창(활동 통계용) 단위로 재사용할 수 있도록 별도로 노출한다.
+export function medianEngagement(direct: AnalysisTweet[]): { medianViews: number | null; medianLikes: number | null } {
+  return {
+    medianViews: median(direct.map((t) => t.views).filter((v): v is number => v !== null)),
+    medianLikes: median(direct.map((t) => t.likes).filter((v): v is number => v !== null)),
+  };
+}
+
+const DAY_MS = 86_400_000;
+const r1 = (n: number) => Math.round(n * 10) / 10;
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+export interface Activity {
+  since: string; until: string; days: number; truncated: boolean; coveredDays: number;
+  directPerDay: number; rtPerDay: number; rtShare: number; quoteShare: number; activeDays: number;
+  dailyDirect: Record<string, number>; dailyRt: Record<string, number>;
+}
+
+// 28일 창의 활동 지표 — 호출자가 이미 창 안으로 걸러낸 트윗만 넣는다(스펙 §3-7).
+// 분모(coveredDays): 28일까지 거슬러 갔으면 28, 못 갔으면 최고령~until(최소 1),
+// 0건이면 28 — "4주 내내 0건"이 사실이다(0/0 방지).
+export function computeActivity(
+  tweets: AnalysisTweet[],
+  opts: { since: string; until: string; truncated: boolean; reachedActivitySince: boolean },
+): Activity {
+  const direct = tweets.filter((t) => t.kind !== 'retweet');
+  const rts = tweets.filter((t) => t.kind === 'retweet');
+  const quotes = tweets.filter((t) => t.kind === 'quote');
+
+  let coveredDays = 28;
+  if (!opts.reachedActivitySince && tweets.length > 0) {
+    const oldest = tweets.reduce((m, t) => (t.createdAt < m ? t.createdAt : m), tweets[0].createdAt);
+    coveredDays = Math.max(1, Math.round((Date.parse(opts.until) - Date.parse(oldest)) / DAY_MS));
+  }
+
+  const dailyDirect = dailyCountsBy(tweets, (t) => t.kind !== 'retweet');
+  const dailyRt = dailyCountsBy(tweets, (t) => t.kind === 'retweet');
+
+  return {
+    since: opts.since, until: opts.until, days: 28, truncated: opts.truncated, coveredDays,
+    directPerDay: r1(direct.length / coveredDays),
+    rtPerDay: r1(rts.length / coveredDays),
+    rtShare: tweets.length ? r2(rts.length / tweets.length) : 0,
+    quoteShare: direct.length ? r2(quotes.length / direct.length) : 0,
+    activeDays: Object.keys(dailyDirect).length,
+    dailyDirect, dailyRt,
+  };
 }
 
 export function chunk<T>(arr: T[], size: number): T[][] {

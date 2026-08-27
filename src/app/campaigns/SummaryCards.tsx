@@ -1,6 +1,6 @@
 'use client';
 import type { ReactNode } from 'react';
-import type { CampaignSummary, PerfSummary } from '@/lib/campaignJudgment';
+import type { TaskSummary, PerfSummary } from '@/lib/campaignJudgment';
 import { moneyParts, formatAmount, type MoneyByCurrency } from '@/lib/campaignCost';
 import { overdueJudgment, publishedSub, costSub, perfSub } from '@/lib/campaignTableView';
 import { InfoTip } from '@/components/InfoTip';
@@ -29,7 +29,7 @@ function Card({ alert, value, label, sub, good, tip }: {
   );
 }
 
-export function SummaryCards({ summary, perf, total }: { summary: CampaignSummary; perf: PerfSummary; total: MoneyByCurrency }) {
+export function SummaryCards({ summary, perf, total }: { summary: TaskSummary; perf: PerfSummary; total: MoneyByCurrency }) {
   const money = moneyParts(total);
   return (
     <div className="grid grid-cols-4">
@@ -41,7 +41,8 @@ export function SummaryCards({ summary, perf, total }: { summary: CampaignSummar
       <Card value={money.length === 0 ? '—' : (
               <span className="flex flex-col">{money.map((m) => <span key={m.currency}>{formatAmount(m.amount, m.currency)}</span>)}</span>
             )}
-            label="비용 합계" sub={costSub(total)} tip="통화가 다르면 합치지 않고 따로 보여요" />
+            label="비용 합계" sub={costSub(total)}
+            tip="통화가 다르면 합치지 않고 따로 보여요. 내려진 작업 비용도 포함돼요 — 정산 여부는 정산 화면에서 판단해요" />
       <Card value={perf.views === null ? '—' : perf.views.toLocaleString('ko-KR')} label="조회" sub={perfSub(perf)} />
     </div>
   );

@@ -49,7 +49,7 @@ export function LinkPostModal({ task, onClose, onLinked }: {
       <div className="w-full max-w-[520px] rounded-2xl bg-white p-4" role="dialog" aria-modal="true" aria-label="게시물 연결" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-content font-bold">게시물 연결</h2>
         <p className="mt-0.5 truncate text-ui text-x-muted">{title}</p>
-        <p className="mt-3 text-ui text-x-secondary">인플루언서가 올린 게시물 링크를 붙이면 이 작업이 <b>게시됨</b>으로 바뀌고, 조회·좋아요가 트래킹에서 넘어와요.</p>
+        <p className="mt-3 text-ui text-x-secondary">인플루언서가 올린 게시물 링크를 붙이면 이 작업이 <b>게시됨</b>으로 표시되고, 조회·좋아요가 트래킹에서 넘어와요.</p>
         <input autoFocus value={url} onChange={(e) => { setUrl(e.target.value); setErr(''); }}
                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void submit(); }}
                placeholder="https://x.com/계정/status/…" aria-label="게시물 링크"

@@ -2,7 +2,7 @@
 // 라벨-값 일치(AGENTS 원칙 4)는 대개 문구에서 깨진다: 판정은 campaignJudgment, 문구는 여기, 그리기는 컴포넌트.
 import {
   isOverdue, isTaskOverdue, daysBetweenDates, formatDateKo, TASK_TYPE_LABEL,
-  type StageInput, type TaskStageInput, type TypeSubtotal, type CampaignSummary, type PerfSummary,
+  type StageInput, type TaskStageInput, type TypeSubtotal, type TaskSummary, type PerfSummary,
 } from './campaignJudgment.ts';
 import type { TaskRow } from './campaignTaskStore.ts';
 import {
@@ -58,14 +58,16 @@ export function overdueJudgment(n: number): string {
   return n === 0 ? '없음 — 예정대로' : '예정일 지났는데 아직 안 올라감';
 }
 /** '준비 중 1' · '전달됨 1 · 준비 중 2' — 0인 항목은 빼서 눈이 붙잡을 숫자만 남긴다.
- *  콘텐츠가 없으면 '콘텐츠 없음', 남은 게 없으면(전부 게시) '모두 게시됨'. */
-export function publishedSub(s: CampaignSummary): string {
-  if (s.total === 0) return '콘텐츠 없음';
+ *  작업이 없으면 '작업 없음', 남은 게 없으면(전부 게시) '모두 게시됨'.
+ *  내려짐은 게시 수에 든 채로 지금은 사라진 작업이라 뒤에 덧붙인다 — 숫자만 보면 멀쩡한 것처럼 읽힌다. */
+export function publishedSub(s: TaskSummary): string {
+  if (s.total === 0) return '작업 없음';
   const parts = [
     s.delivered > 0 ? `전달됨 ${s.delivered}` : null,
     s.preparing > 0 ? `준비 중 ${s.preparing}` : null,
   ].filter(Boolean);
-  return parts.length ? parts.join(' · ') : '모두 게시됨';
+  const base = parts.length ? parts.join(' · ') : '모두 게시됨';
+  return s.removed > 0 ? `${base} · 내려짐 ${s.removed}` : base;
 }
 // 비용 카드 보조 줄에서만 쓰는 통화 이름 — '원/엔'(금액 뒤 단위)과 달리 문장 안에서는 '원화/엔화'로 읽힌다(오너 결정).
 const CURRENCY_WORD: Record<Currency, string> = { KRW: '원화', JPY: '엔화' };
@@ -82,7 +84,7 @@ export function costSub(m: MoneyByCurrency): string {
 /** 조회 카드 보조 줄 — 게시된 게 없으면 숫자 대신 그 사실을 말한다(링크 클릭은 있을 때만 덧붙임). */
 export function perfSub(p: PerfSummary): string {
   if (p.publishedCount === 0) {
-    return p.linkClicks ? `게시된 콘텐츠 없음 · 링크 클릭 ${num(p.linkClicks)}` : '게시된 콘텐츠 없음';
+    return p.linkClicks ? `게시된 작업 없음 · 링크 클릭 ${num(p.linkClicks)}` : '게시된 작업 없음';
   }
   return `게시 ${p.publishedCount}건 · 좋아요 ${num(p.likes)} · 링크 클릭 ${num(p.linkClicks)}`;
 }

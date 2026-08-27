@@ -30,10 +30,12 @@ const TYPE_CHIP: Record<TaskType, string> = {
   post: 'bg-[#e8f0fe] text-[#1d4ed8]', quoteRt: 'bg-[#f3e8ff] text-[#7e22ce]', rt: 'bg-[#e6f6ee] text-[#15803d]', visit: 'bg-[#fff4e5] text-[#b45309]',
 };
 const MENU_W = 176;
-const MENU_H = 96;   // 항목 2개 + 패딩 근사 — flip 판단에만 쓰므로 근사치로 충분하다(CostPopover 관례)
+const MENU_H = 128;  // 항목 3개 + 패딩 근사 — flip 판단에만 쓰므로 근사치로 충분하다(CostPopover 관례)
 
-// 행 메뉴 — 자주 쓰지 않는 동작(원고 열기·작업 삭제)만. 팝오버 골격은 CostPopover와 같다.
-function RowMenu({ onOpenDraft, onDelete }: { onOpenDraft: (() => void) | null; onDelete: () => void }) {
+// 행 메뉴 — 자주 쓰지 않는 동작(원고 열기·게시물 연결·작업 삭제)만. 팝오버 골격은 CostPopover와 같다.
+function RowMenu({ onOpenDraft, onLinkPost, onDelete }: {
+  onOpenDraft: (() => void) | null; onLinkPost: (() => void) | null; onDelete: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const btnRef = useRef<HTMLButtonElement | null>(null);
@@ -71,19 +73,22 @@ function RowMenu({ onOpenDraft, onDelete }: { onOpenDraft: (() => void) | null; 
         <div ref={menuRef} role="menu" style={{ top: pos.top, left: pos.left, width: MENU_W }} onClick={(e) => e.stopPropagation()}
              className="fixed z-50 rounded-lg border border-x-border-strong bg-white p-1 shadow-lg">
           {onOpenDraft && <button type="button" role="menuitem" onClick={() => { close(); onOpenDraft(); }} className="block w-full rounded px-2.5 py-1.5 text-left text-ui hover:bg-x-hover">원고 열기</button>}
+          {/* 올라간 게시물 링크를 붙이는 자리 — 붙이면 게시됨으로 표시되고 조회수가 잡힌다. RT는 별도 게시물이 없어 뺀다(§2-4). */}
+          {onLinkPost && <button type="button" role="menuitem" onClick={() => { close(); onLinkPost(); }} className="block w-full rounded px-2.5 py-1.5 text-left text-ui hover:bg-x-hover">게시물 연결(트래킹)</button>}
           <button type="button" role="menuitem" onClick={() => { close(); onDelete(); }} className="block w-full rounded px-2.5 py-1.5 text-left text-ui text-red-700 hover:bg-red-50">작업 삭제</button>
         </div>, document.body)}
     </>
   );
 }
 
-export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSortChange, filter, byType, total, summary, actions, onOpenDraft, onAttachDraft, onPickTarget, onDelete }: {
+export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSortChange, filter, byType, total, summary, actions, onOpenDraft, onAttachDraft, onPickTarget, onLinkPost, onDelete }: {
   rows: CampaignTaskItem[]; campaign: CampaignRow; today: string; influencerOptions: InfluencerOption[];
   sort: TaskSortKey; onSortChange: (k: TaskSortKey) => void; filter: StageFilter;
   byType: TypeSubtotal[]; total: MoneyByCurrency; summary: TaskSummary;
   actions: ReturnType<typeof useCampaignTaskActions>;
   onOpenDraft: (draftId: string) => void; onAttachDraft: (t: CampaignTaskItem) => void;
-  onPickTarget: (t: CampaignTaskItem) => void; onDelete: (t: CampaignTaskItem) => void;
+  onPickTarget: (t: CampaignTaskItem) => void; onLinkPost: (t: CampaignTaskItem) => void;
+  onDelete: (t: CampaignTaskItem) => void;
 }) {
   const shown = sortTasks(rows.filter((t) => matchesTaskFilter(t, filter, today)), sort, today);
   const optionFor = (handle: string | null) => (handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined);
@@ -164,7 +169,9 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                       <span className="flex items-center justify-end gap-2 tabular-nums">
                         <CostPopover value={t.cost} suggestion={suggestion} onChange={(next: TaskCost | null) => void actions.changeCost(t, next)} compact />
                         {/* 정산 배지 자리(§4-1) — payment_request가 생기면 여기 상태 문구. 이번 릴리스는 빈 자리 */}
-                        <RowMenu onOpenDraft={t.draftId ? () => onOpenDraft(t.draftId as string) : null} onDelete={() => onDelete(t)} />
+                        <RowMenu onOpenDraft={t.draftId ? () => onOpenDraft(t.draftId as string) : null}
+                                 onLinkPost={t.type === 'rt' ? null : () => onLinkPost(t)}
+                                 onDelete={() => onDelete(t)} />
                       </span>
                     </td>
                   </tr>

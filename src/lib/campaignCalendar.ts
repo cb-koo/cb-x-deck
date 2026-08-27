@@ -1,11 +1,14 @@
 // 달력 격자의 순수 계산(스펙 §3-2 주간 달력) — 주 행 스택·날짜별 카드 배분·날짜 앵커 표기. DOM 없음, 컴포넌트는 결과를 그릴 뿐이다.
 // 날짜는 전부 'YYYY-MM-DD'(date-only) — 산술은 campaignJudgment의 헬퍼를 그대로 쓴다.
 // 주 페이징(◀ ▶)은 없앴다(리서치 §3-1): 달력 도구는 주를 넘기지 않고 아래로 쌓아 기간 전체를 한 화면에 보여준다.
-import { weekStartOf, weekDays, addDays, sortContent, type SortInput } from './campaignJudgment.ts';
+import { weekStartOf, weekDays, addDays, sortTasks, type TaskSortInput, type TaskType } from './campaignJudgment.ts';
 import { dateOnlyMonthDay, asDateOnly, type DateOnly } from './datetime.ts';
 
 export interface DayCell<T> { date: DateOnly; items: T[] }
-export interface CalendarGrid<T> { weeks: DayCell<T>[][]; unscheduled: T[] }
+/** 칸에 서는 카드 하나 — 같은 작업이 방문일 칸과 게시 예정일 칸에 각각 설 수 있어(방문협찬) 무엇으로 섰는지 kind가 말한다 */
+export type CalendarKind = 'post' | 'visit';
+export interface CalendarCard<T> { task: T; kind: CalendarKind }
+export interface CalendarGrid<T> { weeks: DayCell<CalendarCard<T>>[][]; unscheduled: T[] }
 export interface WeekBounds { first: string; last: string }   // 그려야 할 첫·마지막 주(월요일)
 
 // 그릴 범위 = 캠페인 기간의 주들 ∪ 예정일이 찍힌 주들. 기간 밖 예정일도 어느 주엔가 보여야 그 카드에 손이 닿는다.
@@ -31,13 +34,25 @@ export function weekRows(startsOn: string, endsOn: string, scheduled: Array<stri
   return rows;
 }
 
-/** 주 행 × 요일 칸에 카드를 담고, 예정일 없는 카드는 따로 모은다.
- *  칸 안 순서는 sortContent('scheduled') — 같은 날이라 생성순이 되고 미사용은 맨 아래(표와 같은 규칙, 흐린 카드가 중간에 끼지 않게). */
-export function calendarGrid<T extends SortInput>(items: T[], weeks: DateOnly[][], today: string): CalendarGrid<T> {
-  const sorted = sortContent(items, 'scheduled', today);
+/** 주 행 × 요일 칸에 카드를 담고, 게시 예정일 없는 작업은 따로 모은다.
+ *  한 작업이 카드 둘이 될 수 있다 — 방문협찬은 방문일 칸에 '방문' 카드, 게시 예정일 칸에 게시 카드가 선다(같은 날이면 둘 다 그 칸에).
+ *  unscheduled = 게시 예정일이 없는 작업 — 방문일만 잡혀 있어도 여기 든다('게시일 미정'이라는 사실은 방문일과 별개다).
+ *  칸 안 순서는 sortTasks('scheduled') — 같은 날이라 만든 순이 되고 미사용은 맨 아래(표와 같은 규칙, 흐린 카드가 중간에 끼지 않게). */
+export function calendarGrid<T extends TaskSortInput & { visitOn: string | null; type: TaskType }>(
+  items: T[], weeks: DateOnly[][], today: string,
+): CalendarGrid<T> {
+  const sorted = sortTasks(items, 'scheduled', today);
+  const cardsOn = (date: DateOnly): CalendarCard<T>[] => {
+    const out: CalendarCard<T>[] = [];
+    for (const task of sorted) {
+      if (task.scheduledOn === date) out.push({ task, kind: 'post' });
+      if (task.type === 'visit' && task.visitOn === date) out.push({ task, kind: 'visit' });
+    }
+    return out;
+  };
   return {
-    weeks: weeks.map((days) => days.map((date) => ({ date, items: sorted.filter((d) => d.scheduledOn === date) }))),
-    unscheduled: sorted.filter((d) => d.scheduledOn === null),
+    weeks: weeks.map((days) => days.map((date) => ({ date, items: cardsOn(date) }))),
+    unscheduled: sorted.filter((t) => t.scheduledOn === null),
   };
 }
 

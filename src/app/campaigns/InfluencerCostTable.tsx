@@ -7,6 +7,7 @@ import {
 } from '@/lib/campaignCost';
 import { upsertExtraCost, removeExtraCost, extraCostLabel } from '@/lib/campaignCostEdit';
 import { Button } from '@/components/ui';
+import { InfoTip } from '@/components/InfoTip';
 
 // 인플루언서별 비용 표(스펙 §3-2 하단, 표·달력 두 보기 공통) — 열 5: 인플루언서(+메모) · 작업 n(유형별) · 작업 비용 · 추가 비용 · 소계.
 // 줄은 deriveTaskInfluencers 결과 그대로(작업 핸들 ∪ 비용 행 핸들, 미배정 묶음 맨 아래) — 여기서 다시 세지 않는다.
@@ -45,7 +46,11 @@ export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote
     // 섹션 패널 안(CampaignDetail의 PANEL) — 바깥 여백은 패널 사이 space-y-5가 쥔다(mt-8 없음, QA 7라운드).
     // 제목 16px semibold·빈 상태는 테두리 없이 연회색 면만 — 패널 테두리와 겹치지 않게(QA 7라운드).
     <section>
-      <h2 className="text-[16px] font-semibold">인플루언서별 비용</h2>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <h2 className="text-[16px] font-semibold">인플루언서별 비용</h2>
+        {/* 표가 무엇을 모아 보여주는지 한 줄(UX 원칙 2) — 통화가 다르면 합치지 않는다는 사실도 여기서 말한다(§2-4) */}
+        <InfoTip text="작업 비용 + 추가 비용을 사람별로 모았어요. 통화가 다르면 따로 보여요." label="인플루언서별 비용 설명 보기" />
+      </div>
       {lines.length === 0 ? (
         <p className="mt-3 rounded-xl bg-x-surface px-4 py-6 text-center text-content text-x-secondary">
           작업에 인플루언서를 배정하면 사람별 비용이 여기 모여요.

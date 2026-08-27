@@ -5,7 +5,7 @@ import {
   overdueSuffix, NO_SCHEDULE_LABEL,
   taskScheduleLabel, targetLabel, typeFooterLabel, stageTag,
 } from './campaignTableView.ts';
-import { formatDateKo } from './campaignJudgment.ts';
+import { formatDateKo, type TaskSummary } from './campaignJudgment.ts';
 
 const T = '2026-08-27';
 
@@ -48,14 +48,19 @@ test('4) scheduledOnLabel 조립이 overdueSuffix·NO_SCHEDULE_LABEL과 어긋�
 test('3) 요약 카드 보조 문구 — 판단 한 줄(QA 1라운드), 0인 항목은 빼고 값 없음은 —', () => {
   assert.equal(overdueJudgment(0), '없음 — 예정대로');
   assert.equal(overdueJudgment(2), '예정일 지났는데 아직 안 올라감');
-  assert.equal(publishedSub({ total: 4, published: 1, delivered: 1, preparing: 2, overdue: 0 }), '전달됨 1 · 준비 중 2');
-  assert.equal(publishedSub({ total: 1, published: 0, delivered: 0, preparing: 1, overdue: 0 }), '준비 중 1');   // 0인 '전달됨'은 뺀다
-  assert.equal(publishedSub({ total: 2, published: 2, delivered: 0, preparing: 0, overdue: 0 }), '모두 게시됨');
-  assert.equal(publishedSub({ total: 0, published: 0, delivered: 0, preparing: 0, overdue: 0 }), '콘텐츠 없음');
+  const sum = (o: Partial<TaskSummary>): TaskSummary =>
+    ({ total: 0, published: 0, delivered: 0, preparing: 0, overdue: 0, removed: 0, ...o });
+  assert.equal(publishedSub(sum({ total: 4, published: 1, delivered: 1, preparing: 2 })), '전달됨 1 · 준비 중 2');
+  assert.equal(publishedSub(sum({ total: 1, preparing: 1 })), '준비 중 1');           // 0인 '전달됨'은 뺀다
+  assert.equal(publishedSub(sum({ total: 2, published: 2 })), '모두 게시됨');
+  assert.equal(publishedSub(sum({ total: 0 })), '작업 없음');
+  // 내려짐은 게시는 됐지만 지금은 없는 작업 — '모두 게시됨'만 보이면 사라진 게 없는 것처럼 읽힌다
+  assert.equal(publishedSub(sum({ total: 2, published: 2, removed: 1 })), '모두 게시됨 · 내려짐 1');
+  assert.equal(publishedSub(sum({ total: 3, published: 2, preparing: 1, removed: 1 })), '준비 중 1 · 내려짐 1');
   assert.equal(perfSub({ publishedCount: 2, views: 12400, likes: 300, linkClicks: 100 }), '게시 2건 · 좋아요 300 · 링크 클릭 100');
-  assert.equal(perfSub({ publishedCount: 0, views: null, likes: null, linkClicks: 2 }), '게시된 콘텐츠 없음 · 링크 클릭 2');
-  assert.equal(perfSub({ publishedCount: 0, views: null, likes: null, linkClicks: null }), '게시된 콘텐츠 없음');
-  assert.equal(perfSub({ publishedCount: 0, views: null, likes: null, linkClicks: 0 }), '게시된 콘텐츠 없음');  // 0은 붙이지 않는다
+  assert.equal(perfSub({ publishedCount: 0, views: null, likes: null, linkClicks: 2 }), '게시된 작업 없음 · 링크 클릭 2');
+  assert.equal(perfSub({ publishedCount: 0, views: null, likes: null, linkClicks: null }), '게시된 작업 없음');
+  assert.equal(perfSub({ publishedCount: 0, views: null, likes: null, linkClicks: 0 }), '게시된 작업 없음');  // 0은 붙이지 않는다
 });
 
 test('5) 비용 카드 보조 줄 — 통화는 합치지 않고, 한쪽만 있으면 없는 쪽을 말해 준다(오너 문구: 원화/엔화)', () => {

@@ -23,6 +23,7 @@ import { Button } from '@/components/ui';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
 import { CampaignHeader } from './CampaignHeader';
+import { WeekCalendar } from './WeekCalendar';
 import { SummaryCards } from './SummaryCards';
 import { TaskTable } from './TaskTable';
 import { InfluencerCostTable } from './InfluencerCostTable';
@@ -31,6 +32,7 @@ import { TaskAddModal } from './TaskAddModal';
 import { AttachDraftModal } from './AttachDraftModal';
 import { TargetPicker, type TargetValue } from './TargetPicker';
 import { CheckPostedModal } from './CheckPostedModal';
+import { LinkPostModal } from './LinkPostModal';
 
 // 캠페인 상세 컨테이너 — 로드·낙관적 갱신·모달을 쥔다. 요약·인플 목록·합계·성과는 서버 응답을 그대로 쓰지 않고
 // 같은 판정 함수(campaignJudgment)로 여기서 다시 계산한다 — 표에서 값을 고친 즉시 카드 숫자가 따라가야 하고,
@@ -38,7 +40,7 @@ import { CheckPostedModal } from './CheckPostedModal';
 //
 // 표는 작업 표(TaskTable)다. 원고는 작업에 붙은 '재료'라 표에서 이름을 누르면 원고 카드가 열린다 —
 // 작업 목록엔 원고 본문이 없으므로 그때 GET /api/drafts/[id]로 한 건만 받아 카드에 넘긴다(같은 원고를 다시 열면 재요청 없음).
-// 달력은 Task 14에서 작업 기준으로 온다.
+// 달력도 작업 기준이다 — 방문협찬은 방문일 칸과 게시 예정일 칸에 카드가 각각 선다(WeekCalendar).
 
 // 섹션 패널(QA 7라운드 결정 B) — 오너 피드백: 전부 같은 흰 배경이라 헤더·요약·표가 "경계 없이 붙어 보인다".
 // 간격만으로 나누던 것을 연회색 바닥(page.tsx의 bg-x-surface) 위 흰 패널 4장으로 바꿨다: 헤더 / 요약 / 작업 진행 현황 / 인플루언서별 비용.
@@ -82,6 +84,8 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
   const [addOpen, setAddOpen] = useState(false);
   const [attachFor, setAttachFor] = useState<CampaignTaskItem | null>(null);
   const [targetFor, setTargetFor] = useState<CampaignTaskItem | null>(null);
+  // 게시물 연결(트래킹) — 표의 행 메뉴에서 연다. 링크를 붙이면 게시됨으로 표시되고 조회수가 잡힌다.
+  const [linkFor, setLinkFor] = useState<CampaignTaskItem | null>(null);
   // 게시 확인하기(§3-3) — opt-in 비용 유발 액션이라 자동 실행 없음(UX 원칙 6). 결과는 모달로, 닫으면 표를 다시 불러온다.
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<CheckPostedResult | null>(null);
@@ -326,11 +330,15 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
                      onOpenDraft={setPeekId}
                      onAttachDraft={setAttachFor}
                      onPickTarget={setTargetFor}
+                     onLinkPost={setLinkFor}
                      onDelete={(t) => {
                        if (window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}`)) void actions.remove(t);
                      }} />
         ) : (
-          <p className="mt-3 text-ui text-x-muted">달력을 작업 기준으로 바꾸는 중…</p>
+          <WeekCalendar rows={data.tasks} campaign={data.campaign} today={data.today} filter={filter}
+                        onOpenDraft={setPeekId}
+                        onChangeScheduledOn={(t, next) => void actions.changeScheduledOn(t, next)}
+                        onChangeVisitOn={(t, next) => void actions.changeVisitOn(t, next)} />
         )}
       </div>
       <div className={PANEL}>
@@ -413,6 +421,14 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
         <TargetDialog task={targetFor} campaign={data.campaign} onClose={() => setTargetFor(null)}
                       onPick={(next) => { void actions.changeTarget(targetFor, next); setTargetFor(null); }}
                       onClear={() => { void actions.changeTarget(targetFor, null); setTargetFor(null); }} />
+      )}
+      {linkFor && (
+        <LinkPostModal task={linkFor} onClose={() => setLinkFor(null)}
+                       onLinked={() => {
+                         setLinkFor(null);
+                         show('게시물을 연결했어요 — 게시됨으로 표시되고 조회수가 잡혀요');
+                         void load(); onChanged();
+                       }} />
       )}
       {checkResult && (
         <CheckPostedModal result={checkResult} tasks={data.tasks} onClose={() => setCheckResult(null)}

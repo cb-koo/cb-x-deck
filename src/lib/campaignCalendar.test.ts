@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { weekBounds, weekRows, calendarGrid, dateAnchorLabel } from './campaignCalendar.ts';
-import type { SortInput } from './campaignJudgment.ts';
+import type { TaskSortInput } from './campaignJudgment.ts';
 
 const T = '2026-08-27'; // 목
-const s = (o: Partial<SortInput> & { createdAt: string }): SortInput =>
-  ({ status: 'draft', published: false, scheduledOn: null, influencerHandle: null, ...o });
+// 달력의 카드는 작업(campaign_task)이다 — 게시 예정일 칸과(방문협찬이면) 방문일 칸에 각각 선다.
+const t = (o: Partial<TaskSortInput> & { createdAt: string }): TaskSortInput =>
+  ({ type: 'post', draftStatus: null, postedAt: null, removedAt: null, scheduledOn: null, visitOn: null, influencerHandle: null, ...o });
 
 test('1) weekBounds — 기간의 주 ∪ 예정일의 주', () => {
   assert.deepEqual(weekBounds('2026-08-24', '2026-08-30', []), { first: '2026-08-24', last: '2026-08-24' });
@@ -28,22 +29,40 @@ test('2) weekRows — 주 행이 월~일 7일로 쌓인다(달·해 경계 포�
   assert.deepEqual(ny[1].at(-1), '2027-01-03');
 });
 
-test('3) calendarGrid — 날짜별 칸 배분, 칸 안은 생성순·미사용 맨 아래, 예정일 미정은 따로', () => {
+test('3) calendarGrid — 게시 예정일 칸에 카드, 칸 안은 만든 순·미사용 맨 아래, 게시일 미정은 따로', () => {
   const rows = [
-    s({ scheduledOn: '2026-08-26', createdAt: 'b' }),
-    s({ scheduledOn: '2026-08-26', createdAt: 'a' }),
-    s({ scheduledOn: '2026-08-26', status: 'unused', createdAt: '0' }),   // 같은 날이지만 맨 아래
-    s({ scheduledOn: '2026-09-02', createdAt: 'c' }),                     // 다음 주 행에 들어간다(넘김 없이 보인다)
-    s({ scheduledOn: null, createdAt: 'd' }),
-    s({ scheduledOn: null, createdAt: 'e', status: 'unused' }),
+    t({ scheduledOn: '2026-08-26', createdAt: 'b' }),
+    t({ scheduledOn: '2026-08-26', createdAt: 'a' }),
+    t({ scheduledOn: '2026-08-26', draftStatus: 'unused', createdAt: '0' }),   // 같은 날이지만 맨 아래
+    t({ scheduledOn: '2026-09-02', createdAt: 'c' }),                          // 다음 주 행에 들어간다(넘김 없이 보인다)
+    t({ scheduledOn: null, createdAt: 'd' }),
+    t({ scheduledOn: null, createdAt: 'e', draftStatus: 'unused' }),
   ];
   const weeks = weekRows('2026-08-24', '2026-09-06', rows.map((r) => r.scheduledOn));
   const grid = calendarGrid(rows, weeks, T);
   assert.equal(grid.weeks.length, 2);
-  assert.deepEqual(grid.weeks[0][2].items.map((r) => r.createdAt), ['a', 'b', '0']);   // 8/26 수
-  assert.deepEqual(grid.weeks[1][2].items.map((r) => r.createdAt), ['c']);             // 9/2 수 — 두 번째 주 행
-  assert.equal(grid.weeks.flat().flatMap((c) => c.items).length, 4);                   // 예정일 있는 4건만 칸에 담긴다
+  assert.deepEqual(grid.weeks[0][2].items.map((i) => [i.task.createdAt, i.kind]),
+    [['a', 'post'], ['b', 'post'], ['0', 'post']]);                            // 8/26 수
+  assert.deepEqual(grid.weeks[1][2].items.map((i) => [i.task.createdAt, i.kind]), [['c', 'post']]);   // 9/2 수 — 두 번째 주 행
+  assert.equal(grid.weeks.flat().flatMap((c) => c.items).length, 4);           // 예정일 있는 4건만 칸에 담긴다
   assert.deepEqual(grid.unscheduled.map((r) => r.createdAt), ['d', 'e']);
+});
+
+test('3-2) calendarGrid — 방문협찬은 방문일 칸에도 선다(게시일이 없으면 미정에도 든다)', () => {
+  const rows = [
+    t({ type: 'visit', visitOn: '2026-09-10', scheduledOn: null, createdAt: 'v1' }),          // 방문일만 — 게시일은 미정
+    t({ type: 'visit', visitOn: '2026-09-08', scheduledOn: '2026-09-10', createdAt: 'v2' }),  // 방문 카드 + 게시 카드 둘
+    t({ type: 'post', visitOn: '2026-09-08', scheduledOn: null, createdAt: 'p' }),            // 방문협찬이 아니면 방문일은 무시
+  ];
+  const weeks = weekRows('2026-09-07', '2026-09-13', rows.flatMap((r) => [r.scheduledOn, r.visitOn]));
+  const grid = calendarGrid(rows, weeks, T);
+  assert.equal(grid.weeks.length, 1);
+  // 9/8 화 — v2의 방문 카드 하나뿐(p의 visitOn은 유형이 방문협찬이 아니라 안 선다)
+  assert.deepEqual(grid.weeks[0][1].items.map((i) => [i.task.createdAt, i.kind]), [['v2', 'visit']]);
+  // 9/10 목 — v2의 게시 카드 + v1의 방문 카드
+  assert.deepEqual(grid.weeks[0][3].items.map((i) => [i.task.createdAt, i.kind]), [['v2', 'post'], ['v1', 'visit']]);
+  // 게시 예정일이 없는 작업은 방문일이 있어도 '게시일 미정'에 든다
+  assert.deepEqual(grid.unscheduled.map((r) => r.createdAt), ['p', 'v1']);   // 둘 다 게시일 미정이라 만든 순
 });
 
 test('4) dateAnchorLabel — 첫 칸과 달이 바뀌는 칸만 달을 붙인다', () => {

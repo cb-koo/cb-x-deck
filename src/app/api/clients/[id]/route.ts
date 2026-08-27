@@ -3,6 +3,7 @@ import { getSql } from '@/lib/db';
 import { getClientWithProcedures, updateClient, deleteClient } from '@/lib/clientStore';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { checkLandingUrl, landingUrlMessage } from '@/lib/trackingLink';
+import { parseBudgetAmount } from '@/lib/clientBudget';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAllowedUser();
@@ -17,7 +18,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
-  const body = (await req.json().catch(() => ({}))) as { name?: string; info?: string; bannedPhrases?: string[]; landingUrl?: string; nameEn?: string };
+  const body = (await req.json().catch(() => ({}))) as {
+    name?: string; info?: string; bannedPhrases?: string[]; landingUrl?: string; nameEn?: string; monthlyBudget?: unknown;
+  };
   if (body.name !== undefined) {
     body.name = body.name?.trim();
     if (!body.name) return NextResponse.json({ error: '클라이언트 이름은 비울 수 없어요' }, { status: 400 });
@@ -38,7 +41,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       return NextResponse.json({ error: '영문 이름은 영어·숫자로 입력해 주세요 (예: yonsei-clinic)' }, { status: 400 });
     }
   }
-  await updateClient(getSql(), id, body);
+  // 예산: undefined = 건드리지 않음 · null/'' = 미설정 · 숫자(콤마 문자열 허용) = 설정. 0 이상 정수만(비용 금액 규칙과 동일)
+  let monthlyBudget: number | null | undefined;
+  if (body.monthlyBudget !== undefined) {
+    const parsed = parseBudgetAmount(body.monthlyBudget);
+    if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: 400 });
+    monthlyBudget = parsed.value;
+  }
+  await updateClient(getSql(), id, { ...body, monthlyBudget } as Parameters<typeof updateClient>[2]);
   return NextResponse.json(await getClientWithProcedures(getSql(), id));
 }
 

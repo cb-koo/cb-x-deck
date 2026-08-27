@@ -210,8 +210,9 @@ export function ContentTable({
                       </span>
                     </td>
                     <td className={TD}>
-                      <CostPopover value={asDraftCostRow(d).cost} suggestion={suggestion} defaultType={defaultCostType(campaign.kind)}
-                                   onChange={(next) => onChangeCost(d, next)} compact />
+                      {/* Task 17에서 삭제 — CostPopover가 작업 비용({amount,currency})만 받게 바뀌어 유형은 여기서 되붙인다 */}
+                      <CostPopover value={d.cost} suggestion={suggestion ? { amount: suggestion.amount, currency: suggestion.currency } : null}
+                                   onChange={(next) => onChangeCost(d, next ? { type: d.taskType ?? 'post', ...next } : null)} compact />
                     </td>
                     <td className={TD}>
                       <span className="flex flex-col items-start gap-1">

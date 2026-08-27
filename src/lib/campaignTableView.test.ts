@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   overdueDays, scheduledOnLabel, contentTypeLabel, perfLabel, handleInitial, overdueJudgment, publishedSub, costSub, perfSub,
   overdueSuffix, NO_SCHEDULE_LABEL,
+  taskScheduleLabel, targetLabel, typeFooterLabel, stageTag,
 } from './campaignTableView.ts';
 import { formatDateKo } from './campaignJudgment.ts';
 
@@ -62,4 +63,27 @@ test('5) 비용 카드 보조 줄 — 통화는 합치지 않고, 한쪽만 있�
   assert.equal(costSub({ JPY: 5000 }), '엔화 기준 · 원화 없음');
   assert.equal(costSub({ KRW: 30000, JPY: 5000 }), '');   // 숫자 두 줄이 스스로 말한다 — 보조 줄 없음
   assert.equal(costSub({}), '비용 입력 없음');
+});
+
+// ── 작업(campaign_task) 표시 문구 — 스펙 2026-08-28 §4-1 ──
+test('작업 예정일 셀 — 한 줄, 밀림 접미, 방문협찬은 방문·게시 두 날짜', () => {
+  const b = { type: 'rt' as const, draftStatus: null, postedAt: null, removedAt: null, scheduledOn: null, visitOn: null };
+  assert.equal(taskScheduleLabel({ ...b, scheduledOn: '2026-09-03' }, '2026-09-02'), '9/3 목');
+  assert.equal(taskScheduleLabel({ ...b, scheduledOn: '2026-08-26' }, '2026-08-27'), '8/26 수 · 1일 지남');
+  assert.equal(taskScheduleLabel(b, '2026-08-27'), '미정');
+  assert.equal(taskScheduleLabel({ ...b, type: 'visit', visitOn: '2026-09-10' }, '2026-08-27'), '방문 9/10 목 · 게시 미정');
+  assert.equal(taskScheduleLabel({ ...b, type: 'visit', visitOn: '2026-09-10', scheduledOn: '2026-09-12' }, '2026-08-27'), '방문 9/10 목 · 게시 9/12 토');
+  assert.equal(taskScheduleLabel({ ...b, type: 'visit' }, '2026-08-27'), '방문 미정 · 게시 미정');
+});
+
+test('대상 셀·하단 유형 줄·단계 태그', () => {
+  const t = (o: object) => ({ targetTaskId: null, targetTweetUrl: null, target: null, postedSource: null, removedAt: null, removedReason: '', postedAt: null, ...o }) as never;
+  assert.deepEqual(targetLabel(t({ targetTaskId: 'x', target: { taskId: 'x', type: 'post', influencerHandle: 'mika', campaignId: 'c1', campaignName: 'A 9월 1주', postUrl: null } }), 'c1'), { text: '@mika 투고', sub: null, muted: false });
+  assert.deepEqual(targetLabel(t({ targetTaskId: 'x', target: { taskId: 'x', type: 'quoteRt', influencerHandle: 'yuna', campaignId: 'c0', campaignName: 'A 8월 4주', postUrl: null } }), 'c1'), { text: '@yuna 인용RT', sub: 'A 8월 4주', muted: false });
+  assert.deepEqual(targetLabel(t({ targetTweetUrl: 'https://x.com/clinic/status/12345' }), 'c1'), { text: 'x.com/clinic/status/12345', sub: null, muted: false });
+  assert.deepEqual(targetLabel(t({}), 'c1'), { text: '대상 미정', sub: null, muted: true });
+  assert.equal(typeFooterLabel([{ type: 'rt', count: 3, published: 1, cost: {} }, { type: 'post', count: 1, published: 1, cost: {} }]), 'RT 3 · 투고 1');
+  assert.equal(stageTag(t({ postedAt: '2026-09-03', postedSource: 'auto' })), '자동');
+  assert.equal(stageTag(t({ postedAt: '2026-09-03', postedSource: 'manual' })), null);
+  assert.equal(stageTag(t({ postedAt: '2026-09-03', removedAt: '2026-09-05', removedReason: '본인 요청' })), '본인 요청');
 });

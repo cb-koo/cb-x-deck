@@ -1,9 +1,10 @@
 // 콘텐츠 표·요약 카드·달력 카드가 쓰는 표시 문자열 — 컴포넌트가 아니라 여기 두어 테스트로 고정한다.
 // 라벨-값 일치(AGENTS 원칙 4)는 대개 문구에서 깨진다: 판정은 campaignJudgment, 문구는 여기, 그리기는 컴포넌트.
 import {
-  isOverdue, daysBetweenDates, formatDateKo,
-  type StageInput, type CampaignSummary, type PerfSummary,
+  isOverdue, isTaskOverdue, daysBetweenDates, formatDateKo, TASK_TYPE_LABEL,
+  type StageInput, type TaskStageInput, type TypeSubtotal, type CampaignSummary, type PerfSummary,
 } from './campaignJudgment.ts';
+import type { TaskRow } from './campaignTaskStore.ts';
 import {
   COST_TYPE_LABEL, CURRENCIES, moneyParts,
   type Currency, type DraftCost, type MoneyByCurrency,
@@ -84,4 +85,47 @@ export function perfSub(p: PerfSummary): string {
     return p.linkClicks ? `게시된 콘텐츠 없음 · 링크 클릭 ${num(p.linkClicks)}` : '게시된 콘텐츠 없음';
   }
   return `게시 ${p.publishedCount}건 · 좋아요 ${num(p.likes)} · 링크 클릭 ${num(p.linkClicks)}`;
+}
+
+// ─────────────────────────── 작업(campaign_task) 표시 문구 — 스펙 2026-08-28 §4-1 ───────────────────────────
+// 원고 기준 문구(위)와 나란히 둔다: 판정은 campaignJudgment, 문구는 여기, 그리기는 TaskTable.
+
+/** 밀림이면 며칠 지났는지, 아니면 null — isTaskOverdue와 같은 모집단(게시됨·미사용·예정일 미정·오늘 이후는 null) */
+export function taskOverdueDays(t: TaskStageInput, today: string): number | null {
+  return isTaskOverdue(t, today) ? daysBetweenDates(t.scheduledOn as string, today) : null;
+}
+
+/** 예정일 셀 한 줄(§4-1). 방문협찬은 '방문 M/D 요일 · 게시 M/D 요일'(각각 없으면 '미정'), 그 외는 게시 예정일 하나. */
+export function taskScheduleLabel(t: TaskStageInput, today: string): string {
+  const od = taskOverdueDays(t, today);
+  const sched = t.scheduledOn
+    ? (od !== null ? `${formatDateKo(t.scheduledOn)} · ${overdueSuffix(od)}` : formatDateKo(t.scheduledOn))
+    : null;
+  if (t.type !== 'visit') return sched ?? '미정';
+  return `방문 ${t.visitOn ? formatDateKo(t.visitOn) : '미정'} · 게시 ${sched ?? '미정'}`;
+}
+
+/** 'RT/인용RT 대상' 셀 — 작업 참조는 '@핸들 유형'(다른 캠페인이면 sub에 캠페인명), 링크는 스킴·www를 뗀 주소.
+ *  muted = 아직 가리키는 것이 없음(회색). 게시 전 여부는 targetStatus로 컴포넌트가 따로 덧붙인다. */
+export function targetLabel(t: Pick<TaskRow, 'targetTaskId' | 'targetTweetUrl' | 'target'>, campaignId: string): { text: string; sub: string | null; muted: boolean } {
+  if (t.target) {
+    const who = t.target.influencerHandle ? `@${t.target.influencerHandle}` : '미배정';
+    return { text: `${who} ${TASK_TYPE_LABEL[t.target.type]}`, sub: t.target.campaignId === campaignId ? null : t.target.campaignName, muted: false };
+  }
+  // 참조는 있는데 그 작업이 조인되지 않은 경우(대상이 방금 지워졌다) — 빈 칸 대신 사실을 말한다
+  if (t.targetTaskId) return { text: '대상 게시 대기', sub: null, muted: true };
+  if (t.targetTweetUrl) return { text: t.targetTweetUrl.replace(/^https?:\/\//, '').replace(/^www\./, ''), sub: null, muted: false };
+  return { text: '대상 미정', sub: null, muted: true };
+}
+
+/** 표 하단 유형 줄 — 있는 유형만(subtotalsByType가 TASK_TYPES 순으로 준 그대로): '투고 1 · RT 3' */
+export function typeFooterLabel(byType: TypeSubtotal[]): string {
+  return byType.map((s) => `${TASK_TYPE_LABEL[s.type]} ${s.count}`).join(' · ');
+}
+
+/** 단계 칩 옆 회색 작은 태그 — 내림 사유(내려짐) 또는 '자동'(수집기가 확인한 게시). 없으면 null */
+export function stageTag(t: Pick<TaskRow, 'postedAt' | 'postedSource' | 'removedAt' | 'removedReason'>): string | null {
+  if (t.postedAt && t.removedAt) return t.removedReason || null;
+  if (t.postedAt && t.postedSource === 'auto') return '자동';
+  return null;
 }

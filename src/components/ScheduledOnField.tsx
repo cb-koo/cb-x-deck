@@ -7,12 +7,15 @@ import { NO_SCHEDULE_LABEL, overdueSuffix } from '@/lib/campaignTableView';
 // Atlassian Inline Edit 골격(읽기 뷰 클릭 → 편집 뷰, 커밋하면 다시 읽기 뷰) — 상시 ✕는 없앴다(QA 1라운드):
 // 뜻이 안 보이는 아이콘이 모든 행에 떠 있었고, 지움은 편집 상태 안의 '지우기' 라벨 버튼(null 저장, §2-3 null=지움)으로 옮겼다.
 // 밀림(overdueDays)·기간 밖(outOfRange) 판정은 호출부가 campaignJudgment로 계산해 넘긴다 — 이 칸은 게시됨 여부를 모른다.
-export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, compact }: {
+export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, compact, emptyLabel }: {
   value: string | null;          // 'YYYY-MM-DD' | null
   overdueDays: number | null;    // isOverdue면 daysBetweenDates(value, today), 아니면 null
   outOfRange: boolean;           // 캠페인 기간 밖 — 경고 표시만, 저장 차단 없음(§2-4)
   onChange: (next: string | null) => void;
   compact?: boolean;             // 표 셀 = 글자(15px), 카드 도구층 = 칩(32px, 13px)
+  // 값이 없을 때 compact 자리에 쓰는 문구. 기본은 NO_SCHEDULE_LABEL('예정일 미정') — 방문협찬 칸처럼
+  // 앞에 이미 '방문'·'게시'가 붙는 자리에서만 '미정'처럼 짧게 넘긴다(안 넘기면 '방문 예정일 미정 · 게시 예정일 미정'이 된다).
+  emptyLabel?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -61,7 +64,7 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
     <button type="button" onClick={() => setEditing(true)}
             title={value ? '게시 예정일 — 눌러서 바꾸기' : '게시 예정일을 정하면 밀림 여부를 알려줘요'}
             className={`inline-flex cursor-pointer items-center gap-1 text-left hover:bg-x-hover ${box}`}>
-      <span className="tabular-nums">{value ? formatDateKo(value) : (compact ? NO_SCHEDULE_LABEL : '+ 예정일')}</span>
+      <span className="tabular-nums">{value ? formatDateKo(value) : (compact ? (emptyLabel ?? NO_SCHEDULE_LABEL) : '+ 예정일')}</span>
       {overdueDays !== null ? <span className="font-normal">· {overdueSuffix(overdueDays)}</span> : null}
       {outOfRange && <span className="rounded bg-amber-100 px-1 text-ui font-normal text-amber-800" title="캠페인 기간 밖 날짜예요 — 저장은 되지만 표시로 알려요">기간 밖</span>}
     </button>

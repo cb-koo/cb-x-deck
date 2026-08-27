@@ -6,8 +6,8 @@ import { parseTweetLink, tweetLinkParseMessage } from '@/lib/tweetLink';
 import { registerTrackedPostApi, linkTrackedPostApi } from '@/lib/campaignApi';
 import { Button } from '@/components/ui';
 
-// 게시물 연결(스펙 §3-2 단계 셀 옆) — 올라간 게시물 링크를 붙이면 (1) 트래킹 등록(그 자리에서 taskId를 같이 넘긴다) →
-// (2) 이미 다른 작업에 연결돼 있으면 확인 후 (3) 이 작업으로 다시 연결한다. 둘 다 기존 라우트(POST /api/tracking·PATCH /api/tracking/[id]) — 새 API 없음.
+// 게시물 연결(스펙 §3-2 단계 셀 옆) — 올라간 게시물 링크를 붙이면 (1) 트래킹 등록(taskId 없이 — POST가 taskId를 받으면 기존 연결을
+// 확인 없이 덮어쓰므로) → (2) 이미 다른 작업에 연결돼 있으면 확인 후 (3) PATCH로 이 작업에 연결한다. 둘 다 기존 라우트(POST /api/tracking·PATCH /api/tracking/[id]) — 새 API 없음.
 // 연결되면 '게시됨' 판정·조회수가 잡힌다(§2-4). 소수 케이스용 진입점 — 자동 매칭은 백로그(§9).
 export function LinkPostModal({ task, onClose, onLinked }: {
   task: CampaignTaskItem; onClose: () => void; onLinked: () => void;

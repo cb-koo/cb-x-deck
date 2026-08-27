@@ -2,129 +2,158 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { createClient, deleteClient } from './clientStore.ts';
-import { insertDraft, getDraft } from './draftStore.ts';
+import { insertDraft, updateDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
 import {
-  createCampaign, listCampaigns, getCampaign, updateCampaign, deleteCampaign,
-  getCampaignDetail, upsertInfluencerCost,
+  createCampaign, listCampaigns, getCampaign, updateCampaign, deleteCampaign, getCampaignDetail, upsertInfluencerCost, listInfluencerCampaigns,
 } from './campaignStore.ts';
-import { createTasks } from './campaignTaskStore.ts';
+import { createTasks, updateTask } from './campaignTaskStore.ts';
+import { taskCampaignTotal } from './campaignJudgment.ts';
 
 const sql = getSql();
 const P = 'tcmp' + process.pid;
 const content: DraftContent = { posts: [{ text: '캠페인 스토어', media: [] }] };
-const T = '2026-08-27';
-
+const T = '2026-09-02';
 after(async () => {
-  await sql`delete from tracked_post where tweet_id like ${P + '%'}`;            // 스냅샷 cascade
+  await sql`delete from tracked_post where tweet_id like ${P + '%'}`;
   await sql`delete from tracking_link where utm_campaign like ${P + '%'}`;
+  await sql`delete from campaign_task where campaign_id in (select id from campaign where name like ${P + '%'})`;
   await sql`delete from draft where direction like ${P + '%'}`;
-  await sql`delete from campaign where name like ${P + '%'}`;                    // 비용 행 cascade
+  await sql`delete from campaign where name like ${P + '%'}`;
   await sql`delete from client where name like ${P + '%'}`;
   await sql.end();
 });
-
-// 원고는 더 이상 캠페인에 직접 속하지 않는다(스펙 2026-08-28 §5) — 캠페인에 넣으려면 작업을 만들어 붙인다.
-const mkDraft = async (clientId: string | null, clientName: string | null, campaignId: string | null) => {
-  const id = await insertDraft(sql, {
-    clientId, clientName, procedureNames: [], direction: P + '방향', format: 'single', referenceMode: 'off', refs: [],
-    content, model: null, memberId: null,
-  });
-  if (campaignId) {
-    await createTasks(sql, campaignId, {
-      type: 'post', targetTaskId: null, targetTweetUrl: null, draftId: id,
-      scheduledOn: null, visitOn: null, note: '', createdBy: null, items: [],
-    });
-  }
-  return id;
-};
+const mkDraft = (clientId: string | null, clientName: string | null, taskId: string | null = null) =>
+  insertDraft(sql, { clientId, clientName, procedureNames: [], direction: P + '방향', format: 'single', referenceMode: 'off', refs: [], content, model: null, memberId: null, taskId });
 const base = (clientId: string, clientName: string, suffix: string) => ({
-  clientId, clientName, name: P + suffix, nameEn: `${P.toLowerCase()}-${suffix}`,
-  startsOn: '2026-08-24', endsOn: '2026-08-30', kind: null, note: '', createdBy: null,
+  clientId, clientName, name: P + suffix, nameEn: `${P.toLowerCase()}-${suffix}`, startsOn: '2026-08-31', endsOn: '2026-09-06', kind: null, note: '', createdBy: null,
 });
+const tin = { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null };
 
-// 목록 파생 합계(4)·상세 성과/요약(5)·인플 참여 캠페인(8) 테스트는 draft.campaign_id 기반 집계를 검증하던 것이라
-// 여기서 뺐다 — campaignStore가 작업(campaign_task) 기준으로 바뀌는 Task 5에서 그 기준으로 다시 쓴다.
-test('1) 생성 → 조회 — 날짜 문자열 왕복·기본값·목록 포함·파생 수 0·합계 {}', async () => {
+test('1) 생성 → 조회 — 기본값·목록 포함·taskCount 0·합계 {}', async () => {
   const c = await createClient(sql, P + '클라1');
-  const row = await createCampaign(sql, { ...base(c.id, c.name, 'a'), kind: 'content', note: '메모' });
-  assert.equal(row.startsOn, '2026-08-24');
-  assert.equal(row.endsOn, '2026-08-30');
-  assert.equal(row.kind, 'content');
-  assert.equal(row.note, '메모');
-  assert.equal(row.clientName, c.name);
-  assert.equal(row.draftCount, 0);
-  assert.deepEqual(row.total, {});
+  const row = await createCampaign(sql, { ...base(c.id, c.name, 'a'), note: '메모' });
+  assert.equal(row.startsOn, '2026-08-31'); assert.equal(row.note, '메모'); assert.equal(row.taskCount, 0); assert.deepEqual(row.total, {});
   assert.ok((await listCampaigns(sql)).some((x) => x.id === row.id));
-  assert.equal((await getCampaign(sql, row.id))!.name, P + 'a');
-  assert.equal(await getCampaign(sql, '00000000-0000-0000-0000-000000000000'), null);
-});
-
-test('1b) 비uuid id는 던지지 않고 조회는 null·삭제는 false(라우트가 404로 처리)', async () => {
   assert.equal(await getCampaign(sql, 'not-a-uuid'), null);
-  assert.equal(await deleteCampaign(sql, 'nope'), false);
+  await updateCampaign(sql, row.id, { name: P + 'a2' });
+  assert.equal((await getCampaign(sql, row.id))!.name, P + 'a2');
 });
 
-test('2) 기간 역순은 DB check가 막는다(라우트 검증의 최후 방어)', async () => {
+test('2) 상세 — 작업 목록·게시됨(posted_at)·성과(task_id)·링크 클릭(draft)·요약·인플 목록·유형별 소계·삭제 정보', async () => {
   const c = await createClient(sql, P + '클라2');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'b'));
+  const other = await createCampaign(sql, base(c.id, c.name, 'b2'));
+  const [post] = await createTasks(sql, camp.id, { ...tin, type: 'post', scheduledOn: '2026-09-01', items: [{ handle: 'mika', cost: { amount: 20000, currency: 'JPY' } }] });
+  const draftId = await mkDraft(c.id, c.name, post.id);
+  await updateDraft(sql, draftId, { status: 'delivered' });
+  const [rt1, rt2] = await createTasks(sql, camp.id, { ...tin, type: 'rt', targetTaskId: post.id, scheduledOn: '2026-09-01', items: [{ handle: 'rio', cost: { amount: 3000, currency: 'JPY' } }, { handle: 'sora', cost: { amount: 3000, currency: 'JPY' } }] });
+  const [unusedTask] = await createTasks(sql, camp.id, { ...tin, type: 'quoteRt', items: [{ handle: 'kei', cost: { amount: 8000, currency: 'JPY' } }] });
+  await updateDraft(sql, await mkDraft(c.id, c.name, unusedTask.id), { status: 'unused' });
+  await createTasks(sql, other.id, { ...tin, type: 'rt', targetTaskId: post.id, items: [{ handle: 'ten', cost: null }] });   // 다른 캠페인의 참조
+  await upsertInfluencerCost(sql, camp.id, 'hana', { extraCosts: [{ label: '교통비', amount: 5000, currency: 'KRW' }] });
+  // 게시물 → 작업(rt1 게시 확인 + 성과), 링크 클릭 → 원고
+  await updateTask(sql, rt1.id, { postedAt: '2026-09-01', postedSource: 'auto' });
+  const tp = await sql<Array<{ id: string }>>`insert into tracked_post (tweet_id, author_handle, text, task_id) values (${P + 'x1'}, 'rio', '', ${rt1.id}) returning id`;
+  // 스냅샷 두 줄은 captured_at을 명시로 벌린다 — 한 문장(또는 같은 트랜잭션)에 default now()로 넣으면 두 줄의 captured_at이
+  // 같아져 'order by captured_at desc limit 1'이 어느 줄을 고를지 정해지지 않는다(최신=1200/12 검증이 흔들린다).
+  await sql`insert into post_metric_snapshot (tracked_post_id, views, likes, captured_at) values (${tp[0].id}, 1000, 10, now() - interval '1 hour')`;
+  await sql`insert into post_metric_snapshot (tracked_post_id, views, likes, captured_at) values (${tp[0].id}, 1200, 12, now())`;
+  const link = await sql<Array<{ id: string }>>`insert into tracking_link (code, landing_url, long_url, short_url, shortio_link_id, utm_campaign, influencer_handle, draft_id)
+    values (${P.toLowerCase().slice(-6)}, 'https://example.com', 'https://example.com/?x', 'https://s.io/x', ${P + 'sid'}, ${P + 'utm'}, 'mika', ${draftId}) returning id`;
+  await sql`insert into link_click_snapshot (tracking_link_id, total_clicks) values (${link[0].id}, 96)`;
+
+  const d = (await getCampaignDetail(sql, camp.id, T))!;
+  assert.equal(d.tasks.length, 4);
+  const p = d.tasks.find((t) => t.id === post.id)!;
+  assert.equal(p.draftStatus, 'delivered'); assert.equal(p.published, false); assert.equal(p.linkClicks, 96);
+  const r = d.tasks.find((t) => t.id === rt1.id)!;
+  assert.equal(r.published, true); assert.deepEqual(r.perf, { postCount: 1, views: 1200, likes: 12 });   // 최신 스냅샷만
+  assert.equal(r.target!.taskId, post.id);
+  assert.equal(d.tasks.find((t) => t.id === rt2.id)!.published, false);
+  assert.deepEqual(d.summary, { total: 3, published: 1, delivered: 1, preparing: 1, overdue: 2, removed: 0 });   // 미사용 제외, post·rt2 밀림(9/1 < 9/2), rt1은 게시됨
+  assert.deepEqual(d.byType.map((x) => [x.type, x.count]), [['rt', 2], ['post', 1]]);
+  assert.deepEqual(d.influencers.map((l) => l.handle), ['mika', 'rio', 'sora', 'hana']);
+  assert.deepEqual(d.influencers.find((l) => l.handle === 'hana')!.extraCost, { KRW: 5000 });
+  assert.deepEqual(taskCampaignTotal(d.influencers), { JPY: 26000, KRW: 5000 });
+  assert.deepEqual(d.deleteInfo, { taskCount: 4, detachedTargets: 1 });
+  assert.equal(d.today, T);
+  const listed = (await listCampaigns(sql)).find((x) => x.id === camp.id)!;
+  assert.equal(listed.taskCount, 3);
+  assert.deepEqual(listed.total, { JPY: 26000, KRW: 5000 });
+});
+
+test('3) 인플 프로필 참여 캠페인 — 작업 기준(lower), 유형별 건수, 비용 행만 있는 캠페인도', async () => {
+  const c = await createClient(sql, P + '클라3');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'c'));
+  await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: 'Yuna', cost: { amount: 3000, currency: 'JPY' } }, { handle: 'yuna', cost: { amount: 3000, currency: 'JPY' } }] });
+  await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: 'YUNA', cost: { amount: 20000, currency: 'JPY' } }] });
+  const camp2 = await createCampaign(sql, base(c.id, c.name, 'c2'));
+  await upsertInfluencerCost(sql, camp2.id, 'yuna', { extraCosts: [{ label: '선물', amount: 10000, currency: 'KRW' }] });
+  const items = await listInfluencerCampaigns(sql, 'yuna');
+  const a = items.find((x) => x.id === camp.id)!;
+  assert.equal(a.taskCount, 3); assert.deepEqual(a.countsByType, { rt: 2, post: 1 }); assert.deepEqual(a.subtotal, { JPY: 26000 });
+  const b = items.find((x) => x.id === camp2.id)!;
+  assert.equal(b.taskCount, 0); assert.deepEqual(b.subtotal, { KRW: 10000 });
+});
+
+test('4) 삭제 — 작업은 cascade, 원고는 남고, 다른 캠페인의 참조는 대상 미정으로, 응답에 숫자', async () => {
+  const c = await createClient(sql, P + '클라4');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'd'));
+  const other = await createCampaign(sql, base(c.id, c.name, 'd2'));
+  const [post] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: 'mika', cost: null }] });
+  const draftId = await mkDraft(c.id, c.name, post.id);
+  const [rt] = await createTasks(sql, other.id, { ...tin, type: 'rt', targetTaskId: post.id, items: [{ handle: 'rio', cost: null }] });
+  assert.deepEqual(await deleteCampaign(sql, camp.id), { deleted: true, taskCount: 1, detachedTargets: 1 });
+  assert.equal((await sql`select id from draft where id = ${draftId}`).length, 1);
+  assert.equal((await sql`select target_task_id from campaign_task where id = ${rt.id}`)[0].target_task_id, null);
+  assert.deepEqual(await deleteCampaign(sql, camp.id), { deleted: false, taskCount: 0, detachedTargets: 0 });
+  await deleteClient(sql, c.id);
+  assert.equal((await getCampaign(sql, other.id))!.clientName, c.name);   // 스냅샷 유지
+});
+
+// 5~7)은 작업 전환과 무관한 기존 검증(DB check·부분 패치·upsert) — 옛 파일에서 그대로 옮겨 왔다.
+// 작업 기준으로 다시 쓸 것이 없는 규칙이라 여기서 사라지면 아무도 지키지 않는다.
+test('5) 기간 역순은 DB check가 막는다(라우트 검증의 최후 방어)', async () => {
+  const c = await createClient(sql, P + '클라5');
   // 매처로 제약 이름까지 확인 — 오타로 다른 컬럼 체크가 걸려도 통과해버리는 걸 막는다
   await assert.rejects(
-    () => createCampaign(sql, { ...base(c.id, c.name, 'b'), startsOn: '2026-08-30', endsOn: '2026-08-24' }),
+    () => createCampaign(sql, { ...base(c.id, c.name, 'e'), startsOn: '2026-09-06', endsOn: '2026-08-31' }),
     /campaign_period_check/,
   );
 });
 
-test('3) 수정 — 부분 패치, kind null=지움, updated_at 갱신', async () => {
-  const c = await createClient(sql, P + '클라3');
-  const row = await createCampaign(sql, { ...base(c.id, c.name, 'c'), kind: 'visit' });
-  await updateCampaign(sql, row.id, { name: P + 'c2', endsOn: '2026-09-06' });
+test('6) 수정 — 부분 패치, kind null=지움, updated_at 갱신', async () => {
+  const c = await createClient(sql, P + '클라6');
+  const row = await createCampaign(sql, { ...base(c.id, c.name, 'f'), kind: 'visit' });
+  await updateCampaign(sql, row.id, { name: P + 'f2', endsOn: '2026-09-13' });
   const got = await getCampaign(sql, row.id);
-  assert.equal(got!.name, P + 'c2');
-  assert.equal(got!.endsOn, '2026-09-06');
-  assert.equal(got!.startsOn, '2026-08-24');
+  assert.equal(got!.name, P + 'f2');
+  assert.equal(got!.endsOn, '2026-09-13');
+  assert.equal(got!.startsOn, '2026-08-31');
   assert.equal(got!.kind, 'visit');                          // undefined = 유지
   assert.ok(got!.updatedAt > row.updatedAt);
   await updateCampaign(sql, row.id, { kind: null });
   assert.equal((await getCampaign(sql, row.id))!.kind, null); // null = 지움
 });
 
-
-
-test('6) 추가 비용 upsert — 처음엔 insert, 다음엔 부분 갱신(대소문자 무관 같은 행), 원고 0이어도 인플 목록에 나온다', async () => {
-  const c = await createClient(sql, P + '클라6');
-  const row = await createCampaign(sql, base(c.id, c.name, 'f'));
-  const first = await upsertInfluencerCost(sql, row.id, 'Ghost', { note: '아직 원고 없음' });
+test('7) 추가 비용 upsert — 처음엔 insert, 다음엔 부분 갱신(대소문자 무관 같은 행), 작업 0이어도 인플 목록에 나온다', async () => {
+  const c = await createClient(sql, P + '클라7');
+  const row = await createCampaign(sql, base(c.id, c.name, 'g'));
+  const first = await upsertInfluencerCost(sql, row.id, 'Ghost', { note: '아직 작업 없음' });
   assert.deepEqual(first.extraCosts, []);
-  assert.equal(first.note, '아직 원고 없음');
+  assert.equal(first.note, '아직 작업 없음');
   const second = await upsertInfluencerCost(sql, row.id, 'ghost', { extraCosts: [{ label: '선물', amount: 5000, currency: 'JPY' }] });
   assert.equal(second.id, first.id);                      // 같은 행
   assert.equal(second.influencerHandle, 'Ghost');         // 표기는 처음 것 보존
-  assert.equal(second.note, '아직 원고 없음');            // undefined = 유지
+  assert.equal(second.note, '아직 작업 없음');            // undefined = 유지
   assert.deepEqual(second.extraCosts, [{ label: '선물', amount: 5000, currency: 'JPY' }]);
   const third = await upsertInfluencerCost(sql, row.id, 'ghost', { note: '수정' });
   assert.deepEqual(third.extraCosts, [{ label: '선물', amount: 5000, currency: 'JPY' }]); // note-only 패치는 extraCosts를 보존
   assert.equal(third.note, '수정');
   const detail = await getCampaignDetail(sql, row.id, T);
   const line = detail!.influencers.find((l) => l.handle === 'Ghost')!;
-  assert.equal(line.contentCount, 0);
+  assert.equal(line.taskCount, 0);
   assert.equal(line.hasCostRow, true);
   assert.deepEqual(line.subtotal, { JPY: 5000 });
 });
-
-test('7) 클라 삭제 → client_id null·client_name 스냅샷 유지 / 캠페인 삭제 → 원고 보존·비용 행 cascade', async () => {
-  const c = await createClient(sql, P + '클라7');
-  const row = await createCampaign(sql, base(c.id, c.name, 'g'));
-  const d = await mkDraft(c.id, c.name, row.id);
-  await upsertInfluencerCost(sql, row.id, 'hana', { note: 'x' });
-  await deleteClient(sql, c.id);
-  const after1 = await getCampaign(sql, row.id);
-  assert.equal(after1!.clientId, null);
-  assert.equal(after1!.clientName, c.name);
-  assert.equal(await deleteCampaign(sql, row.id), true);
-  assert.equal(await deleteCampaign(sql, row.id), false);
-  assert.ok(await getDraft(sql, d), '원고는 남는다');
-  assert.equal((await getDraft(sql, d))!.campaignId, null);
-  const cic = await sql`select id from campaign_influencer_cost where campaign_id = ${row.id}`;
-  assert.equal(cic.length, 0);
-});
-

@@ -233,15 +233,6 @@ export async function removeDraft(sql: postgres.Sql, id: string): Promise<void> 
   await sql`delete from draft where id = ${id}`;
 }
 
-// 캠페인 상세의 원고 목록 — 예정일 오름차순(없음은 뒤), 같은 날은 생성순. 표의 최종 순서(밀림 우선 등)는
-// campaignJudgment.sortContent가 정한다 — 여기는 안정적인 기본 순서만 보장한다.
-export async function listDraftsByCampaign(sql: postgres.Sql, campaignId: string): Promise<DraftRow[]> {
-  const rows = await sql<Row[]>`
-    ${SELECT(sql)} where t.campaign_id = ${campaignId}
-    order by t.scheduled_on asc nulls last, d.created_at asc`;
-  return rows.map(toRow);
-}
-
 // '있는 원고 고르기'(스펙 §4-2) — 그 클라이언트의 작업에 안 붙은 원고만. 클라이언트 없는 캠페인은 클라 없는 원고를 후보로.
 export async function listUnattachedDrafts(
   sql: postgres.Sql, clientId: string | null, limit = 200,

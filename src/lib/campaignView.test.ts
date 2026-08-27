@@ -4,9 +4,9 @@ import { groupCampaigns, pickCampaignId, periodLabel, listSubline, parseDetailVi
 
 const T = '2026-08-27';
 const rows = [
-  { id: 'u', startsOn: '2026-09-07', endsOn: '2026-09-13', draftCount: 0 },  // 예정
-  { id: 'a', startsOn: '2026-08-24', endsOn: '2026-08-30', draftCount: 3 },  // 진행 중
-  { id: 'e', startsOn: '2026-08-03', endsOn: '2026-08-09', draftCount: 5 },  // 종료
+  { id: 'u', startsOn: '2026-09-07', endsOn: '2026-09-13', taskCount: 0 },  // 예정
+  { id: 'a', startsOn: '2026-08-24', endsOn: '2026-08-30', taskCount: 3 },  // 진행 중
+  { id: 'e', startsOn: '2026-08-03', endsOn: '2026-08-09', taskCount: 5 },  // 종료
 ];
 
 test('1) 그룹 — 상태는 campaignStatus로만(수동 상태 없음), 그룹 안 순서는 입력 순서 유지', () => {
@@ -28,7 +28,7 @@ test('2) 선택 — ?id=가 있으면 그것, 없으면 진행 중→예정→�
 
 test('3) 문구·보기 기억', () => {
   assert.equal(periodLabel('2026-08-24', '2026-08-30'), '8/24 월 ~ 8/30 일');
-  assert.equal(listSubline(rows[1]), '8/24 월 ~ 8/30 일 · 콘텐츠 3개');
+  assert.equal(listSubline(rows[1]), '8/24 월 ~ 8/30 일 · 작업 3건');
   assert.equal(parseDetailView('calendar'), 'calendar');
   assert.equal(parseDetailView('table'), 'table');
   assert.equal(parseDetailView(null), 'table');        // 기본 표(스펙 §3-2)

@@ -25,9 +25,9 @@ export function pickCampaignId<T extends { id: string; startsOn: string; endsOn:
 export function periodLabel(startsOn: string, endsOn: string): string {
   return `${formatDateKo(startsOn)} ~ ${formatDateKo(endsOn)}`;
 }
-/** 목록 행 보조줄 — 콘텐츠 수는 미사용 제외(campaignStore.draftCount) */
-export function listSubline(c: { startsOn: string; endsOn: string; draftCount: number }): string {
-  return `${periodLabel(c.startsOn, c.endsOn)} · 콘텐츠 ${c.draftCount}개`;
+/** 목록 행 보조줄 — 작업 수는 미사용 제외(campaignStore.taskCount) */
+export function listSubline(c: { startsOn: string; endsOn: string; taskCount: number }): string {
+  return `${periodLabel(c.startsOn, c.endsOn)} · 작업 ${c.taskCount}건`;
 }
 
 // 상세 [표 | 주간 달력] — 작업 방식 선호라 저장한다(generate VIEW_KEY 관례). 기본은 표(§3-2).

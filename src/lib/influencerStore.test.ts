@@ -366,7 +366,7 @@ test('12) renameInfluencer: 캠페인 추가 비용 행도 새 핸들로 이관(
 
   const detail = await getInfluencerDetail(sql, row.id);
   assert.deepEqual(detail!.campaigns.map((x) => x.id), [camp.id]);
-  assert.equal(detail!.campaigns[0].contentCount, 0);                            // 원고 없이 비용만 — "배정 원고 없음"
+  assert.equal(detail!.campaigns[0].taskCount, 0);                               // 작업 없이 비용만 — "배정 작업 없음"
   assert.deepEqual(detail!.campaigns[0].subtotal, { KRW: 20000 });
 });
 

@@ -39,9 +39,11 @@ export const fetchCampaigns = () => call<CampaignRow[]>('/api/campaigns');
 export const fetchCampaignDetail = (id: string) => call<CampaignDetail>(`/api/campaigns/${id}`);
 export const createCampaignApi = (input: CampaignCreateInput) => call<CampaignRow>('/api/campaigns', json('POST', input));
 export const patchCampaignApi = (id: string, patch: CampaignPatchInput) => call<CampaignRow>(`/api/campaigns/${id}`, json('PATCH', patch));
-export const deleteCampaignApi = (id: string) => call<{ ok: true; deleted: boolean }>(`/api/campaigns/${id}`, { method: 'DELETE' });
+export const deleteCampaignApi = (id: string) =>
+  call<{ ok: true; deleted: boolean; taskCount: number; detachedTargets: number }>(`/api/campaigns/${id}`, { method: 'DELETE' });
 export const putInfluencerCostApi = (campaignId: string, handle: string, patch: { extraCosts?: ExtraCost[]; note?: string }) =>
   call<InfluencerCostRow>(`/api/campaigns/${campaignId}/influencers/${encodeURIComponent(handle)}`, json('PUT', patch));
+// Task 17에서 AddDraftsModal과 함께 제거 — 이 라우트는 이미 지웠다(대체: GET /api/drafts?unattached=1). 지금 부르면 404.
 export const fetchCandidateDrafts = (campaignId: string) => call<DraftRow[]>(`/api/campaigns/${campaignId}/drafts`);
 
 // ── 원고(기존 라우트 — 값은 하나, 캠페인 전용 경로 없음 §2-5) ──

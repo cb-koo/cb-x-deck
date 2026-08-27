@@ -72,14 +72,16 @@ export function remainingOf(amount: number | null, spentKrw: number): number | n
   return amount === null ? null : amount - spentKrw;
 }
 
-// 범위: min(첫 캠페인 달, 이번 달) ~ max(마지막 캠페인 달, 다음 달). 최신 위, 최대 12행(스펙 §4).
-// 캠페인이 없으면 이번 달·다음 달 2행. 빈 달도 행을 만든다 — 표에서 그 달 예산을 고칠 자리가 필요하다.
+// 범위: min(첫 캠페인 달, 이번 달) ~ 다음 달. 최신 위, 최대 12행(스펙 §4).
+// 위 끝은 항상 다음 달로 고정 — 아주 먼 미래 캠페인이 있어도 이번 달·다음 달이 12행 상한에 밀려 표에서
+// 사라지면 안 된다(그 캠페인들은 "이번 달 예산" 관심사가 아니다). 캠페인이 없으면 이번 달·다음 달 2행.
+// 빈 달도 행을 만든다 — 표에서 그 달 예산을 고칠 자리가 필요하다.
 export function budgetRows(client: BudgetClient, spend: Map<string, MonthSpend>, today: string): MonthRow[] {
   const thisMonth = monthOf(today);
   const months = [...spend.keys()].sort();
   const first = months.length && months[0] < thisMonth ? months[0] : thisMonth;
   const nextMonth = addMonths(thisMonth, 1);
-  const last = months.length && months[months.length - 1] > nextMonth ? months[months.length - 1] : nextMonth;
+  const last = nextMonth;
   const rows: MonthRow[] = [];
   for (let m = last; m >= first && rows.length < MAX_ROWS; m = addMonths(m, -1)) {
     const s = spend.get(m);

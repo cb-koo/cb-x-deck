@@ -195,7 +195,7 @@ test('12) spendByMonth — 시작 달로 묶고 totalsFor와 같은 정의(미�
   const c = await createClient(sql, P + '예산클라');
   const aug1 = await createCampaign(sql, { ...base(c.id, c.name, 'm1'), startsOn: '2026-08-03', endsOn: '2026-08-09' });
   const aug2 = await createCampaign(sql, { ...base(c.id, c.name, 'm2'), startsOn: '2026-08-31', endsOn: '2026-09-06' }); // 월을 걸쳐도 8월
-  const sep = await createCampaign(sql, { ...base(c.id, c.name, 'm3'), startsOn: '2026-09-01', endsOn: '2026-09-07' });
+  await createCampaign(sql, { ...base(c.id, c.name, 'm3'), startsOn: '2026-09-01', endsOn: '2026-09-07' });
   const d1 = await mkDraft(c.id, c.name, aug1.id);
   const d2 = await mkDraft(c.id, c.name, aug1.id);
   const d3 = await mkDraft(c.id, c.name, aug2.id);
@@ -212,7 +212,6 @@ test('12) spendByMonth — 시작 달로 묶고 totalsFor와 같은 정의(미�
   const only = await spendByMonth(sql, c.id, ['2026-09']);
   assert.deepEqual([...only.keys()], ['2026-09']);
   assert.equal(only.get('2026-09')!.campaignCount, 1);
-  void sep;
 
   // 다른 클라이언트의 캠페인은 섞이지 않는다
   const other = await createClient(sql, P + '남의클라');

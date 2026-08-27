@@ -88,8 +88,10 @@ test('8) budgetRows — 12행 상한(최신 12개), 첫 캠페인이 미래여�
   assert.equal(many[0].month, '2026-09');
   assert.equal(many[11].month, '2025-10');
   const future = budgetRows(client(1), spend([['2026-11', { total: {}, campaignCount: 1 }]]), '2026-08-27');
-  // 미래 캠페인 달까지 포함 — 예정 캠페인의 예산도 봐야 한다
-  assert.deepEqual(future.map((r) => r.month), ['2026-11', '2026-10', '2026-09', '2026-08']);
+  // 위 끝은 항상 다음 달 — 먼 미래 캠페인이 이번 달·다음 달을 표 밖으로 밀어내면 안 된다
+  assert.deepEqual(future.map((r) => r.month), ['2026-09', '2026-08']);
+  const farFuture = budgetRows(client(1), spend([['2027-12', { total: {}, campaignCount: 1 }]]), '2026-08-27');
+  assert.deepEqual(farFuture.map((r) => r.month).slice(0, 2), ['2026-09', '2026-08']);   // 이번 달이 절대 빠지지 않는다
 });
 
 test('9) campaignMonthBudget — othersKrw는 같은 달 합계에서 이 캠페인 몫을 뺀 값', () => {

@@ -14,6 +14,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string; mon
   if (!isUuidLike(id)) return NextResponse.json({ error: `client not found: ${id}` }, { status: 404 });
   if (!isMonthKey(month)) return NextResponse.json({ error: MONTH_MESSAGE }, { status: 400 });
   const body = (await req.json().catch(() => ({}))) as { amount?: unknown };
+  if (!('amount' in body)) return NextResponse.json({ error: '예산 금액을 보내 주세요 (되돌리기는 null)' }, { status: 400 });
   const parsed = parseBudgetAmount(body.amount);
   if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: 400 });
   const sql = getSql();

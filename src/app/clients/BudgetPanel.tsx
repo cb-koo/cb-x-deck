@@ -17,11 +17,6 @@ import type { Register } from './ClientDetail';
 async function errOf(r: Response): Promise<string> {
   return ((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`;
 }
-// 입력칸 표시용 — 저장은 정수, 표시는 콤마
-const withCommas = (s: string) => {
-  const n = parseAmount(s);
-  return n === null ? s : n.toLocaleString('ko-KR');
-};
 
 export function BudgetPanel({ client, register, onChanged }: {
   client: ClientRow; register: Register; onChanged: () => Promise<void>;
@@ -115,8 +110,8 @@ function DefaultBudgetEditor({ client, register, onSaved }: {
     <label className="block">
       <span className="text-ui font-bold">기본 월 예산 <span className="font-normal text-x-muted">선택</span></span>
       <div className="mt-1 flex items-center gap-2.5">
-        <input value={withCommas(value)} inputMode="numeric" autoComplete="off"
-               onChange={(e) => { setValue(e.target.value.replace(/,/g, '')); setSaved(false); }}
+        <input value={value} inputMode="numeric" autoComplete="off"
+               onChange={(e) => { setValue(e.target.value); setSaved(false); }}
                placeholder="예: 3,000,000"
                className="w-48 rounded-md border border-x-border-strong p-2 text-right text-ui tabular-nums outline-none focus:border-x-blue" />
         <span className="text-ui">원</span>
@@ -132,7 +127,7 @@ function BudgetTable({ clientId, rows, onChanged }: { clientId: string; rows: Mo
   const [editing, setEditing] = useState<string | null>(null);   // 편집 중인 month
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-ui">
+      <table className="w-full text-content">
         <thead>
           <tr className="text-left text-x-secondary">
             <th className="py-2 pr-4 font-bold">월</th>
@@ -158,8 +153,13 @@ function BudgetRow({ clientId, row, editing, onEdit, onClose, onChanged }: {
   const [value, setValue] = useState(row.budget === null ? '' : String(row.budget));
   const [err, setErr] = useState('');
   const busy = useRef(false);
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- 편집 시작 시 입력값 리셋(기존 코드베이스 관례)
-  useEffect(() => { if (editing) { setValue(row.budget === null ? '' : String(row.budget)); setErr(''); } }, [editing, row.budget]);
+  // 편집 진입(전이) 때만 리셋 — editing이 true인 동안 row.budget이 바뀌어도(백그라운드 loadRows 등)
+  // 입력값을 덮어쓰지 않는다. row.budget은 의도적으로 deps에 남겨(린트) 있지만 wasEditing 가드가 실제 리셋을 막는다.
+  const wasEditing = useRef(false);
+  useEffect(() => {
+    if (editing && !wasEditing.current) { setValue(row.budget === null ? '' : String(row.budget)); setErr(''); }
+    wasEditing.current = editing;
+  }, [editing, row.budget]);
 
   async function put(amount: number | null) {
     if (busy.current) return;
@@ -183,17 +183,18 @@ function BudgetRow({ clientId, row, editing, onEdit, onClose, onChanged }: {
   const over = row.remaining !== null && row.remaining < 0;
   return (
     <tr className="border-t border-x-border align-top">
-      <td className="whitespace-nowrap py-3 pr-4">{monthLabel(row.month)}</td>
-      <td className="py-3 pr-4">
+      <td className="whitespace-nowrap py-3.5 pr-4">{monthLabel(row.month)}</td>
+      <td className="py-3.5 pr-4">
         {editing ? (
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
-              <input value={withCommas(value)} inputMode="numeric" autoFocus autoComplete="off"
-                     onChange={(e) => setValue(e.target.value.replace(/,/g, ''))}
+              <input value={value} inputMode="numeric" autoFocus autoComplete="off"
+                     onChange={(e) => setValue(e.target.value)}
                      onKeyDown={(e) => {
                        if (e.key === 'Enter' && !e.nativeEvent.isComposing) save();
                        if (e.key === 'Escape') onClose();
                      }}
+                     aria-label={`${monthLabel(row.month)} 예산`}
                      className="w-36 rounded-md border border-x-border-strong p-1.5 text-right text-ui tabular-nums outline-none focus:border-x-blue" />
               <span>원</span>
               <Button variant="primary" onClick={save}>저장</Button>
@@ -205,20 +206,21 @@ function BudgetRow({ clientId, row, editing, onEdit, onClose, onChanged }: {
             {err && <p className="text-caption text-red-500">{err}</p>}
           </div>
         ) : (
-          <button onClick={onEdit} className="text-left tabular-nums hover:text-x-blue-text" title="이 달 예산 고치기">
+          <button onClick={onEdit} className="text-left tabular-nums hover:text-x-blue-text">
             {row.budget === null ? '—' : formatAmount(row.budget, 'KRW')}
             <span className="ml-1.5 text-caption text-x-muted">{row.source === 'override' ? '(수정)' : row.source === 'default' ? '기본' : '미설정'}</span>
+            <span className="ml-1.5 text-ui text-x-muted">고치기</span>
           </button>
         )}
       </td>
-      <td className="py-3 pr-4 tabular-nums">
+      <td className="py-3.5 pr-4 tabular-nums">
         {formatAmount(row.spentKrw, 'KRW')}
         <span className="ml-1.5 text-x-muted">· {row.campaignCount === 0 ? '캠페인 없음' : `캠페인 ${row.campaignCount}개`}</span>
         {row.jpyIncluded > 0 && (
-          <p className="text-caption text-x-muted">엔화 {formatAmount(row.jpyIncluded, 'JPY')} 포함({formatAmount(row.jpyIncluded * JPY_TO_KRW, 'KRW')}으로 환산)</p>
+          <p className="text-ui text-x-muted">엔화 {formatAmount(row.jpyIncluded, 'JPY')} 포함({formatAmount(row.jpyIncluded * JPY_TO_KRW, 'KRW')}으로 환산)</p>
         )}
       </td>
-      <td className={`py-3 tabular-nums ${over ? 'font-bold text-red-700' : row.remaining === null ? 'text-x-muted' : ''}`}>
+      <td className={`py-3.5 tabular-nums ${over ? 'font-bold text-red-700' : row.remaining === null ? 'text-x-muted' : ''}`}>
         {budgetJudgment(row.budget, row.remaining)}
       </td>
     </tr>

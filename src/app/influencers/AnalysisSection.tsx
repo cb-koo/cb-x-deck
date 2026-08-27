@@ -258,17 +258,18 @@ function TopicTable({ topics, accountMedianViews }: {
     <div>
       <BlockTitle>어떤 주제가 통하나</BlockTitle>
       <div className="mt-2 overflow-x-auto">
-        {/* 3열 배치라 이 표가 갖는 폭은 히트맵·도넛을 빼고 남는 만큼이다 — 열 넷이 들어갈 최소치까지
-            낮추고, 그보다 좁아지면 표만 가로 스크롤한다(패널 전체가 밀리지 않게) */}
-        {/* 숫자 열은 내용 폭(w-0 + nowrap)으로 좁혀 오른쪽에 모이고, 주제 열이 남는 폭을 다 갖는다 —
-            열을 균등 분배하면 숫자 사이가 벌어져 같은 행으로 읽기 어렵다(피드백). 열 간격은 pl-5 하나로. */}
-        <table className="w-full min-w-[320px] text-ui">
+        {/* 3열 배치라 이 표가 갖는 폭은 히트맵·도넛을 빼고 남는 만큼이다 — 넓은 화면에서 표를 그 폭에
+            늘리면 주제와 건수 사이만 벌어져 세 열의 균형이 깨진다(피드백). 표는 내용 폭(w-auto)으로 두고,
+            그보다 좁아지면 표만 가로 스크롤한다(패널 전체가 밀리지 않게) */}
+        {/* 숫자 열은 내용 폭(w-0 + nowrap)으로 좁혀 오른쪽에 모인다 — 열을 균등 분배하면 숫자 사이가 벌어져
+            같은 행으로 읽기 어렵다. 열 간격은 pl-4 하나로. */}
+        <table className="w-auto text-ui">
           <thead>
             <tr className="text-caption text-x-muted">
               <th className="py-1 text-left font-normal">주제</th>
-              <th className="w-0 whitespace-nowrap py-1 pl-5 text-right font-normal">건수</th>
-              <th className="w-0 whitespace-nowrap py-1 pl-5 text-right font-normal">조회 중앙값</th>
-              <th className="w-0 whitespace-nowrap py-1 pl-5 text-right font-normal">계정 중앙값 대비</th>
+              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal">건수</th>
+              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal">조회 중앙값</th>
+              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal">계정 중앙값 대비</th>
             </tr>
           </thead>
           <tbody>
@@ -278,11 +279,11 @@ function TopicTable({ topics, accountMedianViews }: {
               return (
                 <tr key={t.tag} className="border-t border-x-border">
                   <td className="py-2">{t.tag}</td>
-                  <td className="whitespace-nowrap py-2 pl-5 text-right tabular-nums text-x-secondary">{t.count}</td>
-                  <td className="whitespace-nowrap py-2 pl-5 text-right tabular-nums text-x-secondary">
+                  <td className="whitespace-nowrap py-2 pl-4 text-right tabular-nums text-x-secondary">{t.count}</td>
+                  <td className="whitespace-nowrap py-2 pl-4 text-right tabular-nums text-x-secondary">
                     {t.medianViews !== null ? formatKoCount(t.medianViews) : '—'}
                   </td>
-                  <td className="whitespace-nowrap py-2 pl-5 text-right">
+                  <td className="whitespace-nowrap py-2 pl-4 text-right">
                     {t.count < MIN_TOPIC_N ? (
                       <span className="text-x-muted">표본 부족</span>
                     ) : ratio !== null && v !== null ? (
@@ -534,11 +535,16 @@ function PostingHeatmap({ activity }: { activity: Activity }) {
         </div>
         {/* 색이 몇 건인지는 hover가 아니라 글로 적는다 — 범례에 title을 달면 아무도 못 본다 */}
         <p className="mt-1">{legend}</p>
-        {/* 토글이 있을 때만 — 없으면 가리키는 스위치가 없어 안내가 거짓이 된다 */}
-        {hasRt && (
+        {/* 토글이 있으면 그리로 안내하고, 없으면 왜 없는지 말한다 — 스위치가 안 보이는 것이 "RT가 없다"로
+            읽히면 안 된다(피드백). 격자를 생략한 이유(비중이 작다)를 누르기 전에 알려준다(UX 원칙 2). */}
+        {hasRt ? (
           <p className="mt-1">
             RT는 하루 평균 {Number.isInteger(activity.rtPerDay) ? activity.rtPerDay : activity.rtPerDay.toFixed(1)}건 — 토글로 볼 수 있어요
           </p>
+        ) : activity.rtShare > 0 ? (
+          <p className="mt-1">RT 비중 {Math.round(activity.rtShare * 100) < 1 ? '1% 미만' : `${Math.round(activity.rtShare * 100)}%`} — 격자는 생략</p>
+        ) : (
+          <p className="mt-1">RT 없음</p>
         )}
       </div>
       {tip && createPortal(

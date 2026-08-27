@@ -262,14 +262,14 @@ function TopicTable({ topics, accountMedianViews }: {
             늘리면 주제와 건수 사이만 벌어져 세 열의 균형이 깨진다(피드백). 표는 내용 폭(w-auto)으로 두고,
             그보다 좁아지면 표만 가로 스크롤한다(패널 전체가 밀리지 않게) */}
         {/* 숫자 열은 내용 폭(w-0 + nowrap)으로 좁혀 오른쪽에 모인다 — 열을 균등 분배하면 숫자 사이가 벌어져
-            같은 행으로 읽기 어렵다. 열 간격은 pl-4 하나로. */}
+            같은 행으로 읽기 어렵다. 열 간격은 pl-6 하나로(pl-4는 답답하다는 피드백). */}
         <table className="w-auto text-ui">
           <thead>
             <tr className="text-caption text-x-muted">
               <th className="py-1 text-left font-normal">주제</th>
-              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal">건수</th>
-              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal"><span className="@3xl:@max-4xl:hidden">조회 중앙값</span><span className="hidden @3xl:@max-4xl:inline">조회</span></th>
-              <th className="w-0 whitespace-nowrap py-1 pl-4 text-right font-normal"><span className="@3xl:@max-4xl:hidden">계정 중앙값 대비</span><span className="hidden @3xl:@max-4xl:inline">계정 대비</span></th>
+              <th className="w-0 whitespace-nowrap py-1 pl-6 text-right font-normal">건수</th>
+              <th className="w-0 whitespace-nowrap py-1 pl-6 text-right font-normal"><span className="@3xl:@max-4xl:hidden">조회 중앙값</span><span className="hidden @3xl:@max-4xl:inline">조회</span></th>
+              <th className="w-0 whitespace-nowrap py-1 pl-6 text-right font-normal"><span className="@3xl:@max-4xl:hidden">계정 중앙값 대비</span><span className="hidden @3xl:@max-4xl:inline">계정 대비</span></th>
             </tr>
           </thead>
           <tbody>
@@ -279,11 +279,11 @@ function TopicTable({ topics, accountMedianViews }: {
               return (
                 <tr key={t.tag} className="border-t border-x-border">
                   <td className="py-2">{t.tag}</td>
-                  <td className="whitespace-nowrap py-2 pl-4 text-right tabular-nums text-x-secondary">{t.count}</td>
-                  <td className="whitespace-nowrap py-2 pl-4 text-right tabular-nums text-x-secondary">
+                  <td className="whitespace-nowrap py-2 pl-6 text-right tabular-nums text-x-secondary">{t.count}</td>
+                  <td className="whitespace-nowrap py-2 pl-6 text-right tabular-nums text-x-secondary">
                     {t.medianViews !== null ? formatKoCount(t.medianViews) : '—'}
                   </td>
-                  <td className="whitespace-nowrap py-2 pl-4 text-right">
+                  <td className="whitespace-nowrap py-2 pl-6 text-right">
                     {t.count < MIN_TOPIC_N ? (
                       <span className="text-x-muted">표본 부족</span>
                     ) : ratio !== null && v !== null ? (

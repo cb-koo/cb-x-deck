@@ -42,6 +42,8 @@ export interface InfluencerRow {
   lastLogAt: string | null;  // 파생: 로그 최신행(all kind) — 라벨은 "마지막 기록" (스펙 §2)
   draftCount: number;        // 파생: lower(handle) 조인 count
   lastContactAt: string | null;  // 파생: kind='manual' 로그만의 최신행 — "연락 기록" 축 (스펙 §① 라벨-값 일치)
+  analyzedAt: string | null;  // 파생: influencer.analyzed_at — 목록에도 "언제 분석했는지"가 필요하다(v2 계정 분석)
+  analysisV2: boolean;        // 파생: analysis jsonb에 activity 키가 있는지 — 값은 싣지 않는다(목록 payload 절약)
 }
 
 export interface InfluencerLogRow {
@@ -71,6 +73,7 @@ type IRow = {
   tags: string[]; note: string; created_at: Date;
   last_log_at: Date | null; draft_count: string | number;
   last_contact_at: Date | null;
+  analyzed_at: Date | null; analysis_v2: boolean | null; // jsonb `?` — analysis가 null이면 결과도 null
 };
 
 type LRow = {
@@ -95,6 +98,8 @@ const toRow = (r: IRow): InfluencerRow => ({
   lastLogAt: r.last_log_at ? new Date(r.last_log_at).toISOString() : null,
   draftCount: Number(r.draft_count), // count(*)는 bigint → postgres.js가 문자열로 준다
   lastContactAt: r.last_contact_at ? new Date(r.last_contact_at).toISOString() : null,
+  analyzedAt: r.analyzed_at ? new Date(r.analyzed_at).toISOString() : null,
+  analysisV2: Boolean(r.analysis_v2),
 });
 
 const toLog = (r: LRow): InfluencerLogRow => ({
@@ -114,7 +119,8 @@ const SELECT = (sql: postgres.Sql) => sql`
          (select max(l.created_at) from influencer_log l where l.influencer_id = i.id) as last_log_at,
          (select count(*) from draft d where lower(d.influencer_handle) = lower(i.handle)) as draft_count,
          (select max(l2.created_at) from influencer_log l2
-           where l2.influencer_id = i.id and l2.kind = 'manual') as last_contact_at
+           where l2.influencer_id = i.id and l2.kind = 'manual') as last_contact_at,
+         i.analyzed_at, (i.analysis ? 'activity') as analysis_v2
     from influencer i`;
 
 const LOG_SELECT = (sql: postgres.Sql) => sql`

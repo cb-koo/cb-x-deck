@@ -8,7 +8,7 @@ import {
   createInfluencer, listInfluencers, findInfluencerById, findByHandle, findDuplicateByXUserId,
   getInfluencerDetail, updateInfluencer, deleteInfluencer, applyProfileSnapshot, ensureInfluencer,
   renameInfluencer, addManualLog, deleteManualLog, insertAutoLog, listOptions,
-  updatePricing, saveAnalysis,
+  updatePricing, saveAnalysis, type InfluencerAnalysis,
 } from './influencerStore.ts';
 import { createClient } from './clientStore.ts';
 import { createCampaign, upsertInfluencerCost } from './campaignStore.ts';
@@ -38,6 +38,8 @@ test('1) CRUD 왕복: 생성 기본값 → 수정 반영 → 목록 포함 → �
   assert.equal(row.profileRefreshedAt, null);
   assert.equal(row.lastLogAt, null);
   assert.equal(row.draftCount, 0);
+  assert.equal(row.analyzedAt, null);
+  assert.equal(row.analysisV2, false);
   assert.ok(row.createdAt);
 
   await updateInfluencer(sql, row.id, { note: '단가 30만', tags: ['뷰티', '도쿄'] });
@@ -315,6 +317,19 @@ test('10) saveAnalysis: 저장·조회 왕복', async () => {
   const detail = await getInfluencerDetail(sql, row.id);
   assert.deepEqual(detail!.analysis, analysis);
   assert.ok(detail!.analyzedAt);
+
+  // 명부 행(InfluencerRow)에서도 같은 analyzedAt이 보인다 — activity 없는 분석(v1 모양)은 analysisV2 false
+  const listedRow = await findInfluencerById(sql, row.id);
+  assert.ok(listedRow!.analyzedAt);
+  assert.equal(listedRow!.analysisV2, false, 'activity 없는 분석은 v2 아님');
+
+  // activity가 있는 분석(v2)을 저장하면 analysisV2가 true로 바뀐다 — jsonb `?` 키 존재 검사, 값은 명부에 싣지 않는다
+  const { row: row2 } = await createInfluencer(sql, { handle: P + 'analv2', createdBy: null });
+  const analysisV2 = { ...analysis, activity: { hourly: [], weekday: [] } } as unknown as InfluencerAnalysis;
+  await saveAnalysis(sql, row2.id, analysisV2);
+  const row2After = await findInfluencerById(sql, row2.id);
+  assert.ok(row2After!.analyzedAt);
+  assert.equal(row2After!.analysisV2, true);
 });
 
 // ── 캠페인 연결(캠페인 스펙 §2-5·§5) ──

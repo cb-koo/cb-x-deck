@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { insertDraft, updateDraft } from './draftStore.ts';
 import { insertLink, appendClickSnapshot } from './linkStore.ts';
-import { addTrackedPost, setDraftLink } from './trackingStore.ts';
+import { addTrackedPost, linkTrackedPost } from './trackingStore.ts';
 import { insertLandingEvents } from './landingEventStore.ts';
 import type { LandingEventInput } from './landingEvent.ts';
 import { listCampaigns, listContentRows, loadPerformance, ALL_CAMPAIGNS } from './performanceStore.ts';
@@ -44,7 +44,7 @@ test('콘텐츠 행 — 링크+원고+게시물(main·link)+클릭 스냅샷+이
     createdBy: null, metrics: { ...M, views: 12400 }, raw: { isReply: false, entities: { urls: [] } } });
   const lnk = await addTrackedPost(sql, { tweetId: P + 'l', authorHandle: 'hana_kim', text: '링크', postedAt: '2026-08-24T01:10:00.000Z',
     createdBy: null, metrics: { ...M, views: 3100 }, raw: { isReply: true, entities: { urls: [{ expanded_url: link.shortUrl }] } } });
-  await setDraftLink(sql, main.row.id, d); await setDraftLink(sql, lnk.row.id, d);
+  await linkTrackedPost(sql, main.row.id, { draftId: d }); await linkTrackedPost(sql, lnk.row.id, { draftId: d });
   await insertLandingEvents(sql, [
     ev('v1', 'arrival', `hana_kim-${P}`), ev('v1', 'view', `hana_kim-${P}`), ev('v1', 'tap', `hana_kim-${P}`),
     ev('v2', 'view', `hana_kim-${P}`), ev('v3', 'arrival', `hana_kim-${P}`),

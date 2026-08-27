@@ -134,3 +134,10 @@ test('maxPages 마지막 페이지에서 done()도 충족되면 truncated=false'
   assert.equal(r.directCount, 2);
   assert.equal(r.truncated, false);
 });
+
+test('maxTweets에 정확히 도달했고 그 항목이 마지막이며 더 없으면(has_more=false) 상한이 아니다', async () => {
+  const { source } = src([page([raw({ id: '1' }), raw({ id: '2' })], false)]);
+  const r = await source.fetchRecent('u', { ...OPTS, maxTweets: 2 });
+  assert.equal(r.tweets.length, 2);
+  assert.equal(r.truncated, false);   // 잘린 게 없다 — 상한 캡션을 띄우면 거짓말
+});

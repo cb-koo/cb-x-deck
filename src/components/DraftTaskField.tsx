@@ -1,10 +1,11 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Link from 'next/link';
 import type { DraftRow } from '@/lib/draftStore';
 import type { CampaignRow, CampaignTaskItem } from '@/lib/campaignStore';
 import { fetchCampaignDetail } from '@/lib/campaignApi';
-import { TASK_TYPE_LABEL, campaignStatus, formatDateKo, type TaskType } from '@/lib/campaignJudgment';
+import { TASK_TYPE_LABEL, TARGETABLE_TYPES, campaignStatus, formatDateKo, type TaskType } from '@/lib/campaignJudgment';
 
 // 원고가 붙은 '작업' 한 칸(스펙 2026-08-28 §5) — 캠페인의 단위가 원고에서 작업(campaign_task)으로 옮겨가면서
 // 옛 '캠페인: ○○ ▾'(DraftCampaignField)를 대체한다. 원고는 캠페인에 직접 속하지 않는다: 작업에 붙으면
@@ -16,7 +17,7 @@ const POP_W = 360;
 const POP_H = 380; // 실측 근사 — 아래 공간 판정(flip)에만 쓴다
 
 // 붙일 수 있는 작업 유형 — RT는 별도 게시물이 없어 원고가 붙지 않는다(TARGETABLE_TYPES와 같은 세 가지).
-const ATTACHABLE_TYPES: readonly TaskType[] = ['post', 'quoteRt', 'visit'];
+const ATTACHABLE_TYPES = TARGETABLE_TYPES;
 
 // 후보 캠페인 = 그 원고 클라이언트의 진행 중·예정이 기본, 종료는 접힘. 클라가 없는 원고는 전체.
 // draftCampaignOptions.ts의 같은 규칙을 옮겨 왔다 — 그 파일은 옛 캠페인 칸과 함께 사라진다(Task 17).
@@ -34,12 +35,18 @@ export function DraftTaskField({ draft, campaigns, today, onAttach, onDetach, on
   today: string;                 // 진행 중·종료 판정 기준(서울) — 호스트가 서버 today 또는 kstToday()를 준다
   onAttach: (taskId: string) => void;
   onDetach: () => void;
-  onCreateTask: (campaignId: string, type: TaskType) => Promise<string | null>;   // 만든 작업 id, 실패면 null
+  // 성공하면 true, 실패하면 false(호스트가 이미 토스트로 사유를 말한다) — 작업 만들기+원고 붙이기를
+  // 호스트가 한 트랜잭션으로 처리하므로(리뷰 발견: 따로 하면 붙임 실패 시 원고 없는 고아 작업이 남는다),
+  // 여기서는 만든 작업 id를 몰라도 된다(붙이는 것도 이미 끝난 뒤이므로).
+  onCreateTask: (campaignId: string, type: TaskType) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const [campaignId, setCampaignId] = useState('');
   const [showEnded, setShowEnded] = useState(false);
+  // 원고 없는 작업 후보(=붙일 수 있는 기존 작업) 목록에서 지금 붙이는 중인 것 — 완료 신호가 없는
+  // fire-and-forget(onAttach는 void)이라 다음 틱에 닫아 '붙이는 중' 표시가 최소 한 프레임은 보이게 한다.
+  const [busyId, setBusyId] = useState<string | null>(null);
   // 불러온 작업 목록은 '어느 캠페인 것인지'와 한 벌로 들고 있는다 — 캠페인을 바꾼 직후 옛 목록이
   // 새 캠페인의 것인 척 남아 있으면 남의 작업에 원고를 붙일 수 있다. 셋을 따로 두고 이펙트에서 지우면
   // 렌더 도중 setState가 되므로(연쇄 렌더) 한 값으로 묶어 '캠페인이 다르면 아직 없는 것'으로 읽는다.
@@ -69,6 +76,7 @@ export function DraftTaskField({ draft, campaigns, today, onAttach, onDetach, on
     // 캠페인 하나뿐이면 고르는 단계가 사족이다 — 바로 그 캠페인의 작업 목록으로 시작한다.
     setCampaignId((cur) => cur || (openCampaigns.length === 1 ? openCampaigns[0].id : ''));
     setLoaded(null);   // 닫혀 있는 동안 다른 사람이 작업을 붙였을 수 있다 — 열 때마다 새로 읽는다
+    setBusyId(null);
     place(); setOpen(true);
   }
 
@@ -115,11 +123,22 @@ export function DraftTaskField({ draft, campaigns, today, onAttach, onDetach, on
   async function createAndAttach(type: TaskType) {
     if (!campaignId || creating) return;
     setCreating(true);
-    const id = await onCreateTask(campaignId, type);
+    // 작업 만들기 + 이 원고 붙이기를 호스트가 한 트랜잭션으로 처리한다(리뷰 발견 — 따로 하면 작업은
+    // 만들어졌는데 붙임에 실패해 원고 없는 고아 작업이 남을 수 있었다). 그래서 여기서 onAttach를
+    // 따로 부르지 않는다 — 성공이면 이미 붙어 있다.
+    const ok = await onCreateTask(campaignId, type);
     setCreating(false);
-    if (!id) return;   // 실패 문구는 호스트가 토스트로 말한다
-    onAttach(id);
+    if (!ok) return;   // 실패 문구는 호스트가 토스트로 말한다 — 팝오버는 열어 둬 재시도할 수 있게 한다
     close();
+  }
+
+  // 이미 있는(원고 없는) 작업에 붙이기 — onAttach는 완료 신호를 안 주는 fire-and-forget이라, 다음 틱에
+  // 닫아 '붙이는 중' 표시가 최소 한 프레임은 보이게 한다.
+  function attachExisting(taskId: string) {
+    if (busyId) return;
+    setBusyId(taskId);
+    onAttach(taskId);
+    setTimeout(close, 0);
   }
 
   // ── 붙어 있을 때 — 칩 하나로 "어느 캠페인의 무슨 작업인지" ──
@@ -129,11 +148,11 @@ export function DraftTaskField({ draft, campaigns, today, onAttach, onDetach, on
       <span className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-x-border-strong bg-white px-2.5 text-ui">
         <span className="text-x-secondary">작업:</span>
         {/* 캠페인 화면으로 — 예정일·비용·게시 확인은 전부 그쪽이 고치는 자리다 */}
-        <a href={`/campaigns?id=${draft.campaignId ?? ''}`}
-           title="이 작업이 있는 캠페인 화면으로 — 예정일·비용은 거기서 고쳐요"
-           className="font-bold text-x-blue-text hover:underline">
+        <Link href={`/campaigns?id=${draft.campaignId ?? ''}`}
+              title="이 작업이 있는 캠페인 화면으로 — 예정일·비용은 거기서 고쳐요"
+              className="font-bold text-x-blue-text hover:underline">
           {draft.campaignName ?? '캠페인'} · {typeLabel}{draft.influencerHandle ? ` @${draft.influencerHandle}` : ''} ↗
-        </a>
+        </Link>
         <button type="button" onClick={onDetach}
                 title="이 원고를 작업에서 떼요 — 작업도 원고도 지워지지 않아요"
                 className="text-x-muted hover:text-red-600 hover:underline">떼기</button>
@@ -153,12 +172,12 @@ export function DraftTaskField({ draft, campaigns, today, onAttach, onDetach, on
       {open && createPortal(
         <div ref={popRef} role="dialog" aria-label="작업에 붙이기" style={{ top: pos.top, left: pos.left, width: POP_W }}
              onClick={(e) => e.stopPropagation()}
-             className="fixed z-50 rounded-xl border border-x-border-strong bg-white p-3 shadow-lg">
+             className="fixed z-50 max-h-[80vh] overflow-y-auto rounded-xl border border-x-border-strong bg-white p-3 shadow-lg">
           <p className="text-ui font-bold">작업에 붙이기</p>
           <p className="mt-0.5 text-ui text-x-muted">캠페인의 작업 하나에 이 원고를 붙여요 — 예정일·비용은 그 작업에서 관리돼요</p>
 
           <label className="mt-2 block text-ui text-x-secondary">캠페인
-            <select value={campaignId} onChange={(e) => { setCampaignId(e.target.value); }}
+            <select value={campaignId} autoFocus onChange={(e) => { setCampaignId(e.target.value); }}
                     className="mt-0.5 h-10 w-full rounded-md border border-x-border-strong bg-white px-2 text-content outline-none focus:border-x-blue">
               <option value="">고르세요</option>
               {openCampaigns.length > 0 && (
@@ -178,7 +197,11 @@ export function DraftTaskField({ draft, campaigns, today, onAttach, onDetach, on
                     className="mt-1 text-ui text-x-muted hover:text-x-secondary hover:underline">종료된 캠페인도 목록에 넣기</button>
           )}
           {openCampaigns.length === 0 && ended.length === 0 && (
-            <p className="mt-1 text-ui text-x-muted">이 클라이언트의 캠페인이 아직 없어요 — 캠페인 화면에서 먼저 만들어 주세요</p>
+            <p className="mt-1 text-ui text-x-muted">
+              {draft.clientId === null
+                ? '캠페인이 아직 없어요 — 캠페인 화면에서 먼저 만들어 주세요'
+                : '이 클라이언트의 캠페인이 아직 없어요 — 캠페인 화면에서 먼저 만들어 주세요'}
+            </p>
           )}
 
           {campaignId && (
@@ -191,22 +214,31 @@ export function DraftTaskField({ draft, campaigns, today, onAttach, onDetach, on
                 <p className="text-ui text-x-muted">원고 없는 작업이 없어요 — 아래에서 새 작업을 만들어요</p>
               ) : (
                 <ul className="max-h-52 overflow-y-auto">
-                  {free.map((t) => (
-                    <li key={t.id}>
-                      <button type="button" onClick={() => { onAttach(t.id); close(); }}
-                              className="flex w-full items-center gap-2 rounded-md px-1.5 py-2 text-left text-ui hover:bg-x-hover">
-                        <span className="shrink-0 rounded-full border border-x-border-strong px-1.5 text-caption text-x-secondary">
-                          {TASK_TYPE_LABEL[t.type]}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate">
-                          {t.influencerHandle ? `@${t.influencerHandle}` : <span className="text-x-muted">미배정</span>}
-                        </span>
-                        <span className="shrink-0 tabular-nums text-x-muted">
-                          {t.scheduledOn ? formatDateKo(t.scheduledOn) : '예정일 미정'}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
+                  {free.map((t) => {
+                    const busy = busyId === t.id;
+                    return (
+                      <li key={t.id}>
+                        <button type="button" disabled={busyId !== null} onClick={() => attachExisting(t.id)}
+                                className="flex w-full items-center gap-2 rounded-md px-1.5 py-2 text-left text-ui hover:bg-x-hover disabled:cursor-not-allowed disabled:opacity-50">
+                          <span className="shrink-0 rounded-full border border-x-border-strong px-1.5 text-caption text-x-secondary">
+                            {TASK_TYPE_LABEL[t.type]}
+                          </span>
+                          {busy ? (
+                            <span className="flex-1 text-x-muted">붙이는 중…</span>
+                          ) : (
+                            <>
+                              <span className="min-w-0 flex-1 truncate">
+                                {t.influencerHandle ? `@${t.influencerHandle}` : <span className="text-x-muted">미배정</span>}
+                              </span>
+                              <span className="shrink-0 tabular-nums text-x-muted">
+                                {t.scheduledOn ? formatDateKo(t.scheduledOn) : '예정일 미정'}
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
               <div className="mt-2 border-t border-x-border pt-2">

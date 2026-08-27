@@ -397,17 +397,23 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
                          onDismissMediaDrop={() => setMediaDrop(null)}
                          // 작업 칸 — 이 화면은 캠페인 하나를 보고 있지만 후보는 전 캠페인이다(다른 캠페인의 작업으로 옮길 수 있다)
                          task={{
-                           campaigns, today: data.today, influencerOptions,
+                           campaigns, today: data.today,
                            onAttach: (taskId) => void attachPeek(peeked.id, taskId),
                            onDetach: () => void attachPeek(peeked.id, null),
                            onCreateTask: async (campaignId: string, type: TaskType) => {
-                             // 새 작업은 이 원고의 배정 인플루언서로 만든다 — 미배정이면 미배정 작업 한 건
+                             // 작업 만들기 + 이 원고 붙이기를 한 트랜잭션으로(서버가 draftId를 받아 처리) — 따로 하면
+                             // 작업만 만들고 붙임에 실패했을 때 원고 없는 고아 작업이 남는다(리뷰 발견).
+                             // 새 작업은 이 원고의 배정 인플루언서로 만든다 — 미배정이면 미배정 작업 한 건.
                              const r = await createTasksApi(campaignId, {
-                               type, influencers: peeked.influencerHandle ? [{ handle: peeked.influencerHandle }] : [],
+                               type, draftId: peeked.id,
+                               influencers: peeked.influencerHandle ? [{ handle: peeked.influencerHandle }] : [],
                              });
-                             if (!r.ok) { show(r.error); return null; }
+                             if (!r.ok) { show(r.error); return false; }   // 409(이미 다른 작업에 붙음)도 이 문구로 충분하다
                              onChanged();   // 작업 수가 늘었다 — 왼쪽 목록의 보조줄도 따라가야 한다
-                             return r.data.tasks[0]?.id ?? null;
+                             await load();
+                             const d = await apiFetch(`/api/drafts/${peeked.id}`).then((res) => (res.ok ? res.json() : null)).catch(() => null);
+                             setPeekDraft((d as DraftRow | null) ?? peeked);
+                             return true;
                            },
                          }} />
             ) : (

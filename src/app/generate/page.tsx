@@ -612,23 +612,28 @@ function Workbench() {
   // 작업(campaign_task)에 붙이기·떼기 — 카드의 작업 칸(DraftCard task prop)에서. 캠페인 소속·예정일·비용은
   // 이제 전부 붙은 작업에서 파생되므로, 이 페이지가 저장하는 값은 taskId 하나다(값은 하나 §2-5).
   // Task 16에서 마무리 — 이 페이지의 필터·표·칸반이 아직 옛 캠페인 축을 쓰고 있어 그때 함께 정리한다.
-  function attachDraft(d: DraftRow, taskId: string | null) {
+  async function attachDraft(d: DraftRow, taskId: string | null) {
     // 낙관적 갱신을 하지 않는다 — 붙이면 캠페인명·예정일·비용까지 한꺼번에 따라오는데 그 값들은 서버만 안다.
     // 응답 행이 그대로 목록에 들어간다(patchDraft가 갈아끼운다).
-    void patchDraft(d.id, { taskId });
+    const updated = await patchDraft(d.id, { taskId });
+    if (updated && taskId === null) setToast('작업에서 뗐어요 — 작업도 원고도 남아 있어요');
   }
   // 두 DraftCard 호출부(카드 뷰·피크)가 같은 객체 모양을 넘긴다 — 한 곳에서 만든다
   const cardTask = (d: DraftRow) => ({
-    campaigns, today, influencerOptions,
-    onAttach: (taskId: string) => attachDraft(d, taskId),
-    onDetach: () => attachDraft(d, null),
-    // 새 작업은 이 원고의 배정 인플루언서로 만든다 — 미배정이면 미배정 작업 한 건(items 비면 서버가 1행을 만든다)
+    campaigns, today,
+    onAttach: (taskId: string) => void attachDraft(d, taskId),
+    onDetach: () => void attachDraft(d, null),
     onCreateTask: async (campaignId: string, type: TaskType) => {
+      // 작업 만들기 + 이 원고 붙이기를 한 트랜잭션으로(서버가 draftId를 받아 처리) — 따로 하면 작업만
+      // 만들고 붙임에 실패했을 때 원고 없는 고아 작업이 남는다(리뷰 발견).
+      // 새 작업은 이 원고의 배정 인플루언서로 만든다 — 미배정이면 미배정 작업 한 건(items 비면 서버가 1행을 만든다)
       const r = await createTasksApi(campaignId, {
-        type, influencers: d.influencerHandle ? [{ handle: d.influencerHandle }] : [],
+        type, draftId: d.id, influencers: d.influencerHandle ? [{ handle: d.influencerHandle }] : [],
       });
-      if (!r.ok) { setToast(r.error); return null; }
-      return r.data.tasks[0]?.id ?? null;
+      if (!r.ok) { setToast(r.error); return false; }   // 409(이미 다른 작업에 붙음)도 이 문구로 충분하다
+      const updated = await apiFetch(`/api/drafts/${d.id}`).then((res) => (res.ok ? res.json() : null)).catch(() => null);
+      if (updated) setDrafts((cur) => cur.map((x) => (x.id === d.id ? (updated as DraftRow) : x)));
+      return true;
     },
   });
 

@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, type SyntheticEvent } from 'react';
+import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
 import type { DraftRow } from '@/lib/draftStore';
 import type { RefSnapshot, InfluencerOption, DraftContent, DraftPost } from '@/lib/draftTypes';
@@ -193,10 +194,11 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   task?: {
     campaigns: CampaignRow[];        // 전 캠페인 — 후보 필터(클라·상태)는 DraftTaskField가 한다
     today: string;                   // 밀림 판정 기준(서울) — 호스트가 서버 today 또는 kstToday()를 준다
-    influencerOptions: InfluencerOption[];   // 새 작업을 만들 때 배정 후보(호스트가 이미 들고 있는 그 목록)
     onAttach: (taskId: string) => void;
     onDetach: () => void;
-    onCreateTask: (campaignId: string, type: TaskType) => Promise<string | null>;   // 새 작업 id, 실패면 null
+    // 작업 만들기 + 이 원고 붙이기를 호스트가 한 트랜잭션으로 처리한다(리뷰 발견 — 따로 하면 원고 없는
+    // 고아 작업이 남을 수 있다). 성공하면 true, 실패하면 false(호스트가 토스트로 사유를 말한다).
+    onCreateTask: (campaignId: string, type: TaskType) => Promise<boolean>;
   };
 }) {
   const [refsOpen, setRefsOpen] = useState(false);
@@ -482,7 +484,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
             {overdue !== null && <span className="font-bold text-red-700"> · {overdue}일 지남</span>}
           </span>
           <span>비용 {draft.cost ? formatAmount(draft.cost.amount, draft.cost.currency) : '없음'}</span>
-          <a href={`/campaigns?id=${draft.campaignId ?? ''}`} className="text-x-blue-text hover:underline">작업에서 고치기 ↗</a>
+          <Link href={`/campaigns?id=${draft.campaignId ?? ''}`} className="text-x-blue-text hover:underline">작업에서 고치기 ↗</Link>
         </div>
       )}
       {/* 원고 이름 — 도구층의 둘째 줄. 칩과 같은 줄에 두지 않는 이유는 제목이 최대 80자라

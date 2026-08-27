@@ -416,9 +416,10 @@ export function CampaignDetail({ id, view, onViewChange, onChanged, onDeleted }:
       )}
       {checkResult && (
         <CheckPostedModal result={checkResult} tasks={data.tasks} onClose={() => setCheckResult(null)}
-                           onMarkRemoved={(taskId) => {
+                           onMarkRemoved={async (taskId) => {
                              const t = data.tasks.find((x) => x.id === taskId);
-                             if (t) void actions.markRemoved(t, data.today, '리포스트 목록에서 사라짐');
+                             if (!t) return false;
+                             return actions.markRemoved(t, data.today, '리포스트 목록에서 사라짐');
                            }} />
       )}
     </div>

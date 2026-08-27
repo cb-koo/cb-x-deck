@@ -1,5 +1,5 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { CheckPostedResult } from '@/lib/checkPosted';
 import type { CampaignTaskItem } from '@/lib/campaignStore';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
@@ -9,8 +9,17 @@ import { Button } from '@/components/ui';
 const at = (h: string) => `@${h}`;
 export function CheckPostedModal({ result, tasks, onClose, onMarkRemoved }: {
   result: CheckPostedResult; tasks: CampaignTaskItem[]; onClose: () => void;
-  onMarkRemoved: (taskId: string) => void;   // "게시 내림으로 표시" — 오늘 날짜, 사유 '리포스트 목록에서 사라짐'
+  onMarkRemoved: (taskId: string) => Promise<boolean>;   // "게시 내림으로 표시" — 오늘 날짜, 사유 '리포스트 목록에서 사라짐'
 }) {
+  // missing 목록은 검사 시점의 고정 스냅샷 — 표시 완료 여부는 여기 로컬로 따로 쥔다(실패 시엔 다시 눌러볼 수 있게 busy만 푼다).
+  const [markedIds, setMarkedIds] = useState<Set<string>>(new Set());
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const handleMarkRemoved = async (taskId: string) => {
+    setBusyId(taskId);
+    const ok = await onMarkRemoved(taskId);
+    if (ok) setMarkedIds((cur) => new Set(cur).add(taskId));
+    setBusyId(null);
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) onClose(); };
     document.addEventListener('keydown', onKey);
@@ -24,7 +33,7 @@ export function CheckPostedModal({ result, tasks, onClose, onMarkRemoved }: {
       <div className="w-full max-w-[560px] rounded-2xl bg-white p-5" role="dialog" aria-modal="true" aria-label="게시 확인 결과" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-[17px] font-bold">게시 확인 결과</h2>
         {nothing && <p className="mt-3 text-content text-x-secondary">확인할 RT 작업이 없어요.</p>}
-        <ul className="mt-3 space-y-3 text-content">
+        <ul className="mt-3 space-y-3 text-content" aria-live="polite">
           {result.confirmed.length > 0 && <li><span className="font-bold text-green-700">확인됨 {result.confirmed.length}건</span> — {result.confirmed.map((h) => at(h.handle)).join(' ')} → 게시 확인을 채웠어요</li>}
           {result.pending.length > 0 && <li><span className="font-bold">아직 {result.pending.length}건</span> — {result.pending.map((h) => at(h.handle)).join(' ')} <span className="text-ui text-x-muted">(목록에 없음 · 비공개 계정이거나 아직 안 했을 수 있어요)</span></li>}
           {result.skipped.length > 0 && (
@@ -32,12 +41,26 @@ export function CheckPostedModal({ result, tasks, onClose, onMarkRemoved }: {
               <ul className="mt-1 space-y-0.5 text-ui text-x-secondary">{result.skipped.map((s) => <li key={s.taskId}>{s.handle ? at(s.handle) : '(미배정)'}: {reasonOf(s)}</li>)}</ul>
             </li>
           )}
-          {result.missing.map((h) => (
-            <li key={h.taskId} className="rounded-lg bg-amber-50 px-3 py-2">
-              <span className="font-bold text-amber-800">{at(h.handle)}의 RT가 목록에 없어요</span> — 내려졌을 수 있어요
-              <button type="button" onClick={() => onMarkRemoved(h.taskId)} className="ml-2 rounded-full border border-amber-300 bg-white px-2.5 py-0.5 text-ui hover:bg-amber-100">게시 내림으로 표시</button>
-            </li>
-          ))}
+          {result.missing.map((h) => {
+            const marked = markedIds.has(h.taskId);
+            const busy = busyId === h.taskId;
+            if (marked) {
+              return (
+                <li key={h.taskId} className="rounded-lg bg-x-hover px-3 py-2 text-x-secondary">
+                  {at(h.handle)}의 RT를 내려짐으로 표시했어요
+                </li>
+              );
+            }
+            return (
+              <li key={h.taskId} className="rounded-lg bg-amber-50 px-3 py-2">
+                <span className="font-bold text-amber-800">{at(h.handle)}의 RT가 목록에 없어요</span> — 내려졌을 수 있어요
+                <button type="button" onClick={() => void handleMarkRemoved(h.taskId)} disabled={busy}
+                        className="ml-2 rounded-full border border-amber-300 bg-white px-2.5 py-0.5 text-ui hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60">
+                  {busy ? '표시하는 중…' : '게시 내림으로 표시'}
+                </button>
+              </li>
+            );
+          })}
           {result.unreadable.map((u) => <li key={u.tweetId} className="text-ui text-x-secondary">대상 게시글({u.tweetId})을 읽을 수 없어요 — 삭제·비공개일 수 있어요</li>)}
           {result.partial.length > 0 && <li className="text-ui text-x-muted">리포스트 목록이 길어 일부만 확인한 게시글이 {result.partial.length}개 있어요</li>}
         </ul>

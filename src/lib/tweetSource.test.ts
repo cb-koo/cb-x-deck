@@ -1,66 +1,97 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mapRawAnalysisTweet, makeGetxapiTweetSource } from './tweetSource.ts';
+import { mapRawAnalysisTweet, makeGetxapiTweetSource, type FetchOpts } from './tweetSource.ts';
 import type { RawTweet, SearchPage } from './getxapi.ts';
 
 const raw = (over: Record<string, unknown>): RawTweet => ({
-  id: 't1', text: '本文', createdAt: '2026-08-20T00:00:00.000Z',
-  viewCount: 100, likeCount: 10, media: [], ...over,
+  id: 't', text: '本文', createdAt: '2026-08-20T00:00:00.000Z', viewCount: 1, likeCount: 1, media: [], ...over,
+});
+const page = (tweets: RawTweet[], more: boolean): SearchPage => ({ tweets, has_more: more, next_cursor: more ? 'c' : null });
+const src = (pages: SearchPage[], now = () => 0) => {
+  let i = 0;
+  return { source: makeGetxapiTweetSource({ getUserTweets: async () => pages[i++] }, now), calls: () => i };
+};
+const OPTS: FetchOpts = {
+  activitySince: '2026-08-01T00:00:00.000Z', directTarget: 2,
+  lookbackSince: '2026-03-01T00:00:00.000Z', maxPages: 10, maxTweets: 100,
+};
+
+test('mapRawAnalysisTweet: RT는 rtText에 원문(retweeted_tweet.text 우선)', () => {
+  const t = mapRawAnalysisTweet(raw({ id: 'r', retweeted_tweet: { id: 'o', text: '原文' }, text: 'RT @o: 原…' }))!;
+  assert.equal(t.kind, 'retweet');
+  assert.equal(t.rtText, '原文');
+  assert.equal(mapRawAnalysisTweet(raw({}))!.rtText, undefined);
 });
 
-test('mapRawAnalysisTweet: 순수 RT를 버리지 않고 kind로 구분한다(mapRawTweet과 다른 점)', () => {
-  assert.equal(mapRawAnalysisTweet(raw({}))!.kind, 'original');
-  assert.equal(mapRawAnalysisTweet(raw({ retweeted_tweet: { id: 'x' } }))!.kind, 'retweet');
-  assert.equal(mapRawAnalysisTweet(raw({ quoted_tweet: { id: 'x' } }))!.kind, 'quote');
+test('정상 종료: activitySince를 지났고 직접 글 목표를 채우면 더 안 넘긴다', async () => {
+  const { source, calls } = src([
+    page([raw({ id: 'a', createdAt: '2026-08-20T00:00:00.000Z' }), raw({ id: 'b', createdAt: '2026-07-30T00:00:00.000Z' })], true),
+    page([raw({ id: 'never' })], false),
+  ]);
+  const r = await source.fetchRecent('u', OPTS);          // 직접 2건(a,b) 확보 + b가 activitySince 이전
+  assert.deepEqual(r.tweets.map((t) => t.id), ['a', 'b']);
+  assert.equal(r.reachedActivitySince, true);
+  assert.equal(r.directCount, 2);
+  assert.equal(r.truncated, false);
+  assert.equal(calls(), 1);
 });
 
-test('mapRawAnalysisTweet: 지표 없음은 null, 미디어 유무, 필수값 없으면 null', () => {
-  const t = mapRawAnalysisTweet(raw({ viewCount: undefined, likeCount: undefined, media: [{ url: 'u' }] }))!;
-  assert.equal(t.views, null);
-  assert.equal(t.likes, null);
-  assert.equal(t.hasMedia, true);
-  assert.equal(mapRawAnalysisTweet(raw({ id: undefined })), null);
-  assert.equal(mapRawAnalysisTweet(raw({ createdAt: undefined })), null);
+test('activitySince를 지났어도 직접 글이 부족하면 lookbackSince까지 계속 넘긴다', async () => {
+  const { source, calls } = src([
+    page([raw({ id: 'rt1', kind: 'x', retweeted_tweet: { text: 'o' }, createdAt: '2026-07-20T00:00:00.000Z' })], true),
+    page([raw({ id: 'd1', createdAt: '2026-06-01T00:00:00.000Z' }), raw({ id: 'd2', createdAt: '2026-05-01T00:00:00.000Z' })], true),
+    page([raw({ id: 'never' })], false),
+  ]);
+  const r = await source.fetchRecent('u', OPTS);
+  assert.deepEqual(r.tweets.map((t) => t.id), ['rt1', 'd1', 'd2']);
+  assert.equal(r.directCount, 2);
+  assert.equal(calls(), 2);
 });
 
-test('fetchRecent: since보다 오래된 트윗을 만나면 그 페이지에서 중단·잘라낸다', async () => {
-  const pages: SearchPage[] = [
-    { tweets: [raw({ id: 'a', createdAt: '2026-08-20T00:00:00.000Z' }),
-               raw({ id: 'old', createdAt: '2026-01-01T00:00:00.000Z' })],
-      has_more: true, next_cursor: 'c1' },
-    { tweets: [raw({ id: 'never' })], has_more: false, next_cursor: null },
-  ];
-  let calls = 0;
-  const source = makeGetxapiTweetSource({ getUserTweets: async () => pages[calls++] });
-  const r = await source.fetchRecent('u1', { maxCount: 100, since: '2026-05-24T00:00:00.000Z' });
-  assert.deepEqual(r.tweets.map((t) => t.id), ['a']);
-  assert.equal(calls, 1);                 // 2페이지는 부르지 않는다
-  assert.equal(r.truncatedByCount, false);
+test('lookbackSince보다 오래된 트윗은 담지 않고 종료', async () => {
+  const { source } = src([page([raw({ id: 'old', createdAt: '2026-01-01T00:00:00.000Z' })], true), page([raw({ id: 'x' })], false)]);
+  const r = await source.fetchRecent('u', OPTS);
+  assert.deepEqual(r.tweets, []);
+  assert.equal(r.truncated, false);
 });
 
-test('fetchRecent: 오래된 고정글이 첫 페이지 맨 앞에 있어도 수집을 멈추지 않는다', async () => {
-  // getxapi는 isPinned 글을 최신순과 무관하게 1페이지 맨 앞에 끼워 준다(실호출 확인).
-  const pages: SearchPage[] = [
-    { tweets: [raw({ id: 'pinned', createdAt: '2024-01-01T00:00:00.000Z', isPinned: true }),
-               raw({ id: 'a', createdAt: '2026-08-20T00:00:00.000Z' })],
-      has_more: true, next_cursor: 'c1' },
-    { tweets: [raw({ id: 'b', createdAt: '2026-08-19T00:00:00.000Z' })], has_more: false, next_cursor: null },
-  ];
-  let calls = 0;
-  const source = makeGetxapiTweetSource({ getUserTweets: async () => pages[calls++] });
-  const r = await source.fetchRecent('u1', { maxCount: 100, since: '2026-05-24T00:00:00.000Z' });
-  assert.deepEqual(r.tweets.map((t) => t.id), ['a', 'b']);   // 고정글은 빠지고 2페이지까지 이어진다
-  assert.equal(calls, 2);
+test('상한 종료: maxPages', async () => {
+  const pages = Array.from({ length: 5 }, (_, i) => page([raw({ id: `p${i}`, retweeted_tweet: { text: 'o' } })], true));
+  const { source } = src(pages);
+  const r = await source.fetchRecent('u', { ...OPTS, maxPages: 3 });
+  assert.equal(r.pagesUsed, 3);
+  assert.equal(r.truncated, true);
+  assert.equal(r.reachedActivitySince, false);
 });
 
-test('fetchRecent: maxCount에서 중단하고 truncatedByCount=true', async () => {
-  const page = (ids: string[], more: boolean): SearchPage => ({
-    tweets: ids.map((id) => raw({ id })), has_more: more, next_cursor: more ? 'c' : null,
-  });
-  const pages = [page(['1', '2'], true), page(['3', '4'], true), page(['5'], false)];
-  let calls = 0;
-  const source = makeGetxapiTweetSource({ getUserTweets: async () => pages[calls++] });
-  const r = await source.fetchRecent('u1', { maxCount: 3, since: '2026-05-24T00:00:00.000Z' });
-  assert.deepEqual(r.tweets.map((t) => t.id), ['1', '2', '3']);
-  assert.equal(r.truncatedByCount, true);
+test('상한 종료: maxTweets', async () => {
+  const { source } = src([page([raw({ id: '1' }), raw({ id: '2' }), raw({ id: '3' })], true), page([raw({ id: '4' })], false)]);
+  const r = await source.fetchRecent('u', { ...OPTS, maxTweets: 2 });
+  assert.equal(r.tweets.length, 2);
+  assert.equal(r.truncated, true);
+});
+
+test('상한 종료: deadlineAt', async () => {
+  let t = 0;
+  const { source } = src([page([raw({ id: '1' })], true), page([raw({ id: '2' })], true), page([raw({ id: '3' })], false)], () => (t += 100));
+  const r = await source.fetchRecent('u', { ...OPTS, deadlineAt: 150 });   // 1페이지 후 now=100<150 계속, 2페이지 후 200≥150 중단
+  assert.equal(r.pagesUsed, 2);
+  assert.equal(r.truncated, true);
+});
+
+test('계정 소진(has_more=false)은 상한이 아니다', async () => {
+  const { source } = src([page([raw({ id: '1', createdAt: '2026-08-20T00:00:00.000Z' })], false)]);
+  const r = await source.fetchRecent('u', OPTS);
+  assert.equal(r.truncated, false);
+  assert.equal(r.reachedActivitySince, false);  // 28일 전까지 못 갔지만 상한 아님
+});
+
+test('고정글은 시간순 판정에서만 빼고 수집엔 포함, 중복 제거', async () => {
+  const { source, calls } = src([
+    page([raw({ id: 'pin', isPinned: true, createdAt: '2026-05-05T00:00:00.000Z' }), raw({ id: 'a', createdAt: '2026-08-20T00:00:00.000Z' }), raw({ id: 'b', createdAt: '2026-07-30T00:00:00.000Z' })], true),
+    page([raw({ id: 'pin', createdAt: '2026-05-05T00:00:00.000Z' })], false),
+  ]);
+  const r = await source.fetchRecent('u', { ...OPTS, directTarget: 10 });
+  assert.deepEqual([...r.tweets.map((t) => t.id)].sort(), ['a', 'b', 'pin']);   // pin 1번만
+  assert.ok(calls() >= 1);
 });

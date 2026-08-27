@@ -1,56 +1,75 @@
-// 계정 분석용 수집 경계(스펙 §4) — 다른 서비스 API로 교체할 수 있게 인터페이스 뒤에 둔다.
-// mapRawTweet을 재사용하지 않는 이유: 그쪽은 순수 RT를 버린다(벤치마크 대상 아님) — 분석은
-// RT 비중 자체가 판단 재료라 kind로 구분해 남긴다. RT의 본문·지표는 쓰지 않는다(원작자 것).
+// 계정 분석용 수집 경계(스펙 §1). 활동은 activitySince(28일)까지, 내용은 직접 글 directTarget건까지 —
+// 두 조건이 모두 차거나 lookbackSince(6개월)를 넘으면 정상 종료. 페이지/총량/데드라인은 "상한 종료"(truncated)로
+// 따로 표시한다 — 계정 트윗이 소진돼 끝난 것은 상한이 아니다(캡션은 상한일 때만, 라벨-값 일치).
 import type { GetxapiClient, RawTweet } from './getxapi.ts';
 import { num, str, toIso } from './mappers.ts';
 import type { AnalysisTweet } from './analysisStats.ts';
 
-export interface FetchRecentResult { tweets: AnalysisTweet[]; truncatedByCount: boolean }
-
-export interface TweetSource {
-  fetchRecent(userId: string, opts: { maxCount: number; since: string }): Promise<FetchRecentResult>;
+export interface FetchOpts {
+  activitySince: string; directTarget: number; lookbackSince: string;
+  maxPages: number; maxTweets: number; deadlineAt?: number;
 }
+export interface FetchResult {
+  tweets: AnalysisTweet[]; truncated: boolean; reachedActivitySince: boolean; directCount: number; pagesUsed: number;
+}
+export interface TweetSource { fetchRecent(userId: string, opts: FetchOpts): Promise<FetchResult> }
 
 export function mapRawAnalysisTweet(raw: RawTweet): AnalysisTweet | null {
   const id = str(raw.id);
   const createdAt = toIso(raw.createdAt);
   if (!id || !createdAt) return null;
-  const kind = raw.retweeted_tweet ? 'retweet' : raw.quoted_tweet ? 'quote' : 'original';
+  const rt = raw.retweeted_tweet as Record<string, unknown> | undefined;
+  const kind = rt ? 'retweet' : raw.quoted_tweet ? 'quote' : 'original';
   const media = Array.isArray(raw.media) ? raw.media : [];
   return {
     id, createdAt, kind,
     text: str(raw.text) ?? '',
+    // 퍼나르는 주제 분류용 — RT 원문. raw.text는 "RT @x: …"로 잘려 있을 수 있어 원본을 우선한다.
+    ...(kind === 'retweet' ? { rtText: str(rt?.text) ?? str(raw.text) ?? '' } : {}),
     views: num(raw.viewCount), likes: num(raw.likeCount),
     hasMedia: media.length > 0,
   };
 }
 
-const MAX_PAGES = 10; // 무한 커서 가드 — 100건이면 5~6페이지에서 끝난다
-
-export function makeGetxapiTweetSource(client: Pick<GetxapiClient, 'getUserTweets'>): TweetSource {
+export function makeGetxapiTweetSource(
+  client: Pick<GetxapiClient, 'getUserTweets'>, now: () => number = Date.now,
+): TweetSource {
   return {
-    async fetchRecent(userId, { maxCount, since }) {
+    async fetchRecent(userId, opts) {
       const out: AnalysisTweet[] = [];
+      const seen = new Set<string>();
       let cursor: string | undefined;
-      for (let p = 0; p < MAX_PAGES; p++) {
+      let oldest: string | null = null;   // 고정글 제외한 시간순 최고령
+      let directCount = 0;
+      let pagesUsed = 0;
+      let truncated = false;
+
+      const done = () =>
+        oldest !== null && oldest < opts.activitySince &&
+        (directCount >= opts.directTarget || oldest < opts.lookbackSince);
+
+      while (pagesUsed < opts.maxPages) {
         const page = await client.getUserTweets(userId, cursor);
-        let sawOld = false;
+        pagesUsed += 1;
         for (const raw of page.tweets) {
-          // 고정글은 최신순과 무관하게 1페이지 맨 앞에 실려 온다 — 실호출로 확인(2026-08-25, elonmusk:
-          // idx0 = isPinned:true / Aug 22, idx1 = Aug 24). 그대로 두면 3개월보다 오래된 고정글 하나가
-          // sawOld를 켜 1페이지에서 수집이 끊긴다(빈도 과소평가). 시간순 신호가 아니므로 아예 건너뛴다
-          // — 창 안의 고정글 1건을 표본에서 잃을 수 있지만, 앞머리 중복 계수도 함께 막는다.
-          if (raw.isPinned === true) continue;
           const t = mapRawAnalysisTweet(raw);
-          if (!t) continue;
-          if (t.createdAt < since) { sawOld = true; continue; } // 페이지가 최신순이라 이후는 전부 과거
+          if (!t || seen.has(t.id)) continue;
+          // 고정글은 1페이지 맨 앞에 시간순과 무관하게 실려 온다(실호출 확인) — 시간순 신호로 쓰지 않되 수집엔 포함.
+          if (raw.isPinned !== true && (oldest === null || t.createdAt < oldest)) oldest = t.createdAt;
+          if (t.createdAt < opts.lookbackSince) continue;   // 6개월 밖은 담지 않는다
+          seen.add(t.id);
           out.push(t);
-          if (out.length >= maxCount) return { tweets: out, truncatedByCount: true };
+          if (t.kind !== 'retweet') directCount += 1;
+          if (out.length >= opts.maxTweets) { truncated = true; break; }
         }
-        if (sawOld || !page.has_more || !page.next_cursor) break;
+        if (truncated) break;
+        if (done() || !page.has_more || !page.next_cursor) break;
+        if (opts.deadlineAt !== undefined && now() >= opts.deadlineAt) { truncated = true; break; }
         cursor = page.next_cursor;
       }
-      return { tweets: out, truncatedByCount: false };
+      if (!truncated && pagesUsed >= opts.maxPages && !done()) truncated = true;
+      const reachedActivitySince = oldest !== null && oldest < opts.activitySince;
+      return { tweets: out, truncated, reachedActivitySince, directCount, pagesUsed };
     },
   };
 }

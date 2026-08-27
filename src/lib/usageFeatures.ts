@@ -19,6 +19,7 @@ const FEATURE: Record<string, string> = {
   'anthropic.draftRewrite': '원고 다시 쓰기',
   'anthropic.draftTranslate': '원고 번역',
   'anthropic.influencerClassify': '계정 분석',
+  'anthropic.influencerClassifyRt': '계정 분석',
   'anthropic.influencerNormalize': '계정 분석',
   'anthropic.influencerSynth': '계정 분석',
 };

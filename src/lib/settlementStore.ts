@@ -143,7 +143,7 @@ const isHttpUrl = (u: string) => /^https?:\/\/\S+$/.test(u);
 export async function createRequests(
   sql: postgres.Sql, items: CreateItemInput[], member: { id: string; name: string }, today: string = kstToday(),
 ): Promise<PaymentRequestRow[]> {
-  if (items.length === 0) throw new SettlementCreateError([]);
+  if (items.length === 0) throw new SettlementCreateError([{ taskId: '', reason: '요청할 작업을 골라 주세요' }]);
   const settings = await getSettlementSettings(sql);
   const lastQ = await lastQuoteRtCategory(sql, member.id);
   const ids = items.map((i) => i.taskId).filter(isUuidLike);

@@ -184,11 +184,16 @@ test('목록 — 기간 필터는 서울 자정 기준', async () => {
   const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: H('range'), cost: { amount: 10000, currency: 'KRW' } }] });
   await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
   const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
-  await createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28');
-  const within = await listRequests(sql, { taskId: t.id, from: '2026-01-01', to: '2099-12-31' });
-  assert.equal(within.length, 1); assert.equal(within[0].taskId, t.id);
-  const outside = await listRequests(sql, { taskId: t.id, from: '2099-01-01' });
-  assert.equal(outside.length, 0);
+  const [row] = await createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28');
+  // 8-28 00:30 KST = 8-27 15:30 UTC — 세션 TimeZone이 UTC면 옛 ::timestamptz 캐스트는
+  // 이 시각을 8-27로 잘못 분류한다(경계를 넘지 못함). 이 고정 시각이라야 옛 캐스트와 구별된다.
+  await sql`update payment_request set created_at = '2026-08-28T00:30:00+09:00' where id = ${row.id}`;
+  const onDay = await listRequests(sql, { taskId: t.id, from: '2026-08-28', to: '2026-08-28' });
+  assert.equal(onDay.length, 1); assert.equal(onDay[0].taskId, t.id);
+  const before = await listRequests(sql, { taskId: t.id, to: '2026-08-27' });
+  assert.equal(before.length, 0);
+  const after28 = await listRequests(sql, { taskId: t.id, from: '2026-08-29' });
+  assert.equal(after28.length, 0);
 });
 
 test('취소 — 상태·사유·사람·시각, 후보 복귀, 재요청 허용, 배지는 취소됨', async () => {

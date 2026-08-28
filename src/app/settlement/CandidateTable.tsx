@@ -117,7 +117,11 @@ export function CandidateTable() {
           {rows.map((c) => (
             <CandidateRow key={c.taskId} c={c} edit={edits[c.taskId]} categories={cats} failure={failures[c.taskId]}
                           selected={selected.has(c.taskId)}
-                          onEdit={(e) => setEdits((p) => ({ ...p, [c.taskId]: e }))}
+                          onEdit={(e) => {
+                            setEdits((p) => ({ ...p, [c.taskId]: e }));
+                            // 분류를 비우는 등으로 즉시 🔴가 되면 체크도 같이 풀어 준다(라벨-값 불일치 방지, §4 리뷰)
+                            if (effectiveReadiness(c, e) === 'blocked') setSelected((p) => { const n = new Set(p); n.delete(c.taskId); return n; });
+                          }}
                           onToggle={(on) => setSelected((p) => { const n = new Set(p); if (on) n.add(c.taskId); else n.delete(c.taskId); return n; })} />
           ))}
         </ul>

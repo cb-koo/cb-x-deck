@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { createClient } from './clientStore.ts';
 import { createCampaign } from './campaignStore.ts';
-import { createTasks, updateTask } from './campaignTaskStore.ts';
+import { createTasks, updateTask, getTask } from './campaignTaskStore.ts';
 import { createInfluencer, updatePaymentMethods } from './influencerStore.ts';
-import { SETTLEMENT_DEFAULTS } from './settlementSettings.ts';
+import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettings.ts';
+import { isSettlementCandidate } from './campaignJudgment.ts';
 import {
   getSettlementSettings, saveSettlementSettings, listSettlementVersions, lastQuoteRtCategory, listCandidates,
   createRequests, cancelRequest, listRequests, settlementByTaskIds, SettlementCreateError,
@@ -15,7 +16,12 @@ import type { CreateItemInput } from './settlementStore.ts';
 const sql = getSql();
 const P = 'tstl' + process.pid;
 const H = (s: string) => `${P}_${s}`;   // 핸들도 접두어 — 명부 정리를 위해
+// 설정 테스트가 중단(인터럽트)돼도 프로덕션 설정을 테스트 값으로 남기지 않기 위한 원상복구용 — 테스트 시작 시 채운다
+let savedBefore: SettlementSettings | null = null;
 after(async () => {
+  // 마커 없는 순수 복구 행을 먼저 넣어 "현재 설정"을 테스트 이전 값으로 되돌린다 — 그 다음 이번 실행의 마커 행을 지운다.
+  // 순서를 바꾸지 않는 이유: 중간에 프로세스가 죽어도 이 행이 이미 최신이면 현재값은 항상 원래대로다.
+  if (savedBefore) await saveSettlementSettings(sql, savedBefore, null);
   await sql`delete from payment_request where influencer_handle like ${P + '%'}`;
   await sql`delete from settlement_setting_version where settings->>'marker' = ${P}`;
   await sql`delete from campaign_task where campaign_id in (select id from campaign where name like ${P + '%'})`;
@@ -35,21 +41,6 @@ async function influencerWithPaypal(handle: string) {
   await updatePaymentMethods(sql, row.id, { kind: 'add', input: { type: 'paypal', holder: 'KEIKO', currency: 'JPY', email: `${handle}@x.com`, fee: { mode: 'grossUp', percent: 5 } }, makeDefault: true }, null);
   return row;
 }
-
-test('설정 — 행 없으면 기본값, 저장하면 마지막 행이 현재값, 버전 목록', async () => {
-  // 다른 세션이 이미 저장한 행이 있을 수 있어 "기본값과 같다"는 단정 대신 모양만 본다
-  const before = await getSettlementSettings(sql);
-  assert.ok(before.categories.length >= 1 && before.rateKrwPerJpy >= 1);
-  const mine = { ...SETTLEMENT_DEFAULTS, rateKrwPerJpy: 11, marker: P } as typeof SETTLEMENT_DEFAULTS & { marker: string };
-  await saveSettlementSettings(sql, mine, null);
-  const cur = await getSettlementSettings(sql);
-  assert.equal(cur.rateKrwPerJpy, 11);
-  const versions = await listSettlementVersions(sql, 1);
-  assert.equal(versions.length, 1);
-  // 원상복구 — 프로덕션 설정을 테스트 값으로 남기지 않는다
-  await saveSettlementSettings(sql, { ...before, marker: P } as typeof before & { marker: string }, null);
-  assert.equal((await getSettlementSettings(sql)).rateKrwPerJpy, before.rateKrwPerJpy);
-});
 
 test('후보 — 게시됨+비용+인플만, 명부/결제 수단 유무가 신호등, 활성 요청 있으면 제외', async () => {
   const c = await createClient(sql, P + '클라');
@@ -72,6 +63,15 @@ test('후보 — 게시됨+비용+인플만, 명부/결제 수단 유무가 신�
   const ids = list.map((x) => x.taskId);
   assert.ok(ids.includes(tPay.id) && ids.includes(tNoPm.id) && ids.includes(tNoRoster.id));
   assert.ok(!ids.includes(tNoCost.id) && !ids.includes(tNotPosted.id));
+  // 스펙 §2-4: SQL 후보 조건이 campaignJudgment.isSettlementCandidate와 같은 답을 내야 한다 — 둘이 갈리면 안 된다
+  for (const t of [tPay, tNoPm, tNoRoster, tNoCost, tNotPosted]) {
+    const task = await getTask(sql, t.id);
+    assert.ok(task);
+    assert.equal(
+      isSettlementCandidate({ postedAt: task.postedAt, cost: task.cost, influencerHandle: task.influencerHandle, removedAt: task.removedAt }),
+      ids.includes(task.id),
+    );
+  }
   const pay = list.find((x) => x.taskId === tPay.id)!;
   assert.equal(pay.money?.amountGross, 3158); assert.equal(pay.method?.type, 'paypal');
   assert.equal(pay.readiness, 'blocked');   // 인용RT 첫 요청 — 분류 빈칸
@@ -221,4 +221,22 @@ test('취소 — 상태·사유·사람·시각, 후보 복귀, 재요청 허용
   const list = await listRequests(sql, { campaignId: camp.id, status: 'cancelled' });
   assert.equal(list.length, 1); assert.equal(list[0].id, row.id);
   assert.equal((await listRequests(sql, { taskId: t.id })).length, 2);
+});
+
+// 마지막에 둔다 — 이 테스트가 "현재 설정"을 잠시 바꿔 두고 after()에서만 되돌리기 때문에(인터럽트 안전을 위한 설계, 아래
+// 참고), 앞선 테스트들이 실행되는 동안엔 DB 현재 설정이 원래값이어야 createRequests()의 실시간 rate와 어긋나지 않는다.
+test('설정 — 행 없으면 기본값, 저장하면 마지막 행이 현재값, 버전 목록', async () => {
+  // 이전 실행이 인터럽트로 중간에 끊겨 이 테스트의 마커 행이 "현재값"으로 남아 있을 수 있다 — 먼저 지워야
+  // 아래 before가 진짜 원래값을 읽는다(그래야 after()의 복구도 올바른 값으로 이뤄진다)
+  await sql`delete from settlement_setting_version where settings->>'marker' = ${P}`;
+  // 다른 세션이 이미 저장한 행이 있을 수 있어 "기본값과 같다"는 단정 대신 모양만 본다
+  const before = await getSettlementSettings(sql);
+  assert.ok(before.categories.length >= 1 && before.rateKrwPerJpy >= 1);
+  savedBefore = before;   // after()가 인터럽트 여부와 무관하게 이 값으로 되돌린다(테스트 본문에서는 복구하지 않는다)
+  const mine = { ...SETTLEMENT_DEFAULTS, rateKrwPerJpy: 11, marker: P } as typeof SETTLEMENT_DEFAULTS & { marker: string };
+  await saveSettlementSettings(sql, mine, null);
+  const cur = await getSettlementSettings(sql);
+  assert.equal(cur.rateKrwPerJpy, 11);
+  const versions = await listSettlementVersions(sql, 1);
+  assert.equal(versions.length, 1);
 });

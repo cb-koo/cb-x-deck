@@ -4,7 +4,8 @@ import type { SettlementCandidate } from '@/lib/settlementCalc';
 import type { SettlementCategory } from '@/lib/settlementSettings';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPE_LABEL, describeMethod } from '@/lib/influencerPayment';
-import { READINESS_STYLE, effectiveReadiness } from './readinessView';
+import { formatMoney } from '@/lib/influencerPricing';
+import { READINESS_STYLE, effectiveReadiness, effectiveIssues } from './readinessView';
 import { formatKrwToPayout } from './money';
 
 export interface RowEdit { category: string | null; deadlineOn: string; referenceUrl: string }
@@ -16,7 +17,7 @@ export function CandidateRow({ c, edit, categories, selected, failure, onEdit, o
 }) {
   const level = effectiveReadiness(c, edit);
   const st = READINESS_STYLE[level];
-  const issues = c.issues.filter((i) => !(i.code === 'no-category' && edit.category));
+  const issues = effectiveIssues(c, edit);
   const money = c.money ? formatKrwToPayout(c.money) : null;
   return (
     <li className={`px-4 py-3 ${level === 'blocked' ? 'bg-x-surface/60' : ''}`} style={{ minHeight: 76 }}>
@@ -27,7 +28,7 @@ export function CandidateRow({ c, edit, categories, selected, failure, onEdit, o
         <span className="rounded-full border border-x-border px-2 py-0.5 text-ui">{TASK_TYPE_LABEL[c.taskType]}</span>
         <span className="text-x-secondary truncate">{c.clientName} · {c.campaignName}</span>
         <span className="ml-auto tabular-nums font-medium whitespace-nowrap">
-          {money ? <>{money.base}{money.fee && <span className="ml-1 text-x-muted font-normal">{money.fee}</span>}</> : <span className="text-x-muted">→ —</span>}
+          {money ? <>{money.base}{money.fee && <span className="ml-1 text-x-muted font-normal">{money.fee}</span>}</> : <span className="text-x-muted">{formatMoney(c.cost.amount, c.cost.currency)} → —</span>}
         </span>
         <span className="text-ui text-x-secondary truncate max-w-[260px]" title={c.method ? describeMethod(c.method) : ''}>
           {c.method ? `${PAYMENT_TYPE_LABEL[c.method.type]} · ${identOf(c.method)}` : '결제 수단 없음'}

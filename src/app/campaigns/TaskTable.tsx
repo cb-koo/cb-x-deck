@@ -171,7 +171,7 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                       <span className="flex items-center justify-end gap-2 tabular-nums">
                         <CostPopover value={t.cost} suggestion={suggestion} onChange={(next: TaskCost | null) => void actions.changeCost(t, next)} compact />
                         {t.settlement && (
-                          <Link href={`/settlement?tab=requests&task=${t.id}`} className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${t.settlement.status === 'requested' ? 'bg-x-blue/10 text-x-blue-text' : 'bg-x-bg text-x-secondary'}`}
+                          <Link href={`/settlement?tab=requests&task=${t.id}`} className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${t.settlement.status === 'requested' ? 'bg-x-blue/10 text-x-blue-text' : 'bg-x-surface text-x-secondary'}`}
                                 title={t.settlement.status === 'requested' ? '정산 요청됨 — 클릭하면 요청 내역으로' : '마지막 요청이 취소됨'}>
                             {t.settlement.status === 'requested' ? `정산 요청됨 ${kstMonthDay(t.settlement.createdAt)}` : '취소됨'}
                           </Link>

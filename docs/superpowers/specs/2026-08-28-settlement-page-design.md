@@ -84,6 +84,7 @@ id uuid pk, settings jsonb not null, member_id uuid → member set null, created
 ### 2-3. `influencer_log` 이벤트 추가
 
 `influencer_log_event_type_check`를 drop+add로 확장: `'payment_requested','payment_cancelled'` 추가. `payload = { requestId, amountGross, currency, taskType }`, `kind='auto'`, actor = 만든/취소한 멤버. 타임라인 문구: `정산 요청 · ¥3,158` / `정산 요청 취소 · ¥3,158 — {사유}`.
+이벤트 제약 재생성은 `not valid`(032·036·040) — `apply-migrations`가 전 파일을 재실행할 때 뒤 마이그레이션이 넓힌 값과 충돌하지 않게 한다. 새로 들어오는 행은 그대로 검사된다. 다음 마이그레이션 작성자는 이 방식을 유지한다.
 
 ### 2-4. 정산 후보는 저장하지 않고 계산한다
 
@@ -262,3 +263,4 @@ post·quoteRt·visit → `task.postUrl`. rt → `task.targetTweetUrl ?? task.tar
 - 08-27 koo: payment_request 신설·스냅샷 / 클리닉 ID+이름 동봉 / 데드라인 금요일 / 원화·엔화 둘 다 / 분류는 옵션 선택 + 사용자 편집 목록, 저장·송신은 텍스트.
 - 08-28 koo: 1차 범위 = 저장 + 화면 확인(송신·슬랙·복사 없음) / 지급완료 상태는 API 때 / 표에서 일괄 확정 / 평평한 목록 + 필터 / 설정은 정산 페이지 안 탭 / B안 두 줄 행, **클리닉·캠페인은 윗줄** / 분류 빈칸 = 🔴, 참고 URL 없음 = 🟡 / 값 바뀌면 **튕김**(A) / 취소는 사유 기록.
 - 08-28 설계: 일괄 생성은 부분 저장 없이 전체 검증·전체 저장(§5-2) — 튕김 결정의 일관된 귀결.
+- 08-28 구현: 취소 버튼은 행이 아니라 펼침 패널 안(행 전체가 토글 버튼이라 중첩 버튼 불가) / `bg-x-bg` 토큰이 없어 `bg-x-surface` 사용 / `settlementByTaskIds`는 campaignTaskStore(순환 방지) / 요청 내역은 전량 로드 후 화면 필터 / 분류를 비우면 즉시 🔴(체크 해제).

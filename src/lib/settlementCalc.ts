@@ -84,6 +84,20 @@ export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | 
   return { level, issues };
 }
 
+// ── 화면의 실제 신호등(§4) — 서버 값에 "사람이 지금 분류를 골랐는지"만 얹는다.
+// 서버가 채워 보낸 no-category는 늘 버리고, 지금 edit.category가 비어 있으면 다시 얹는다 — 분류를 지우면
+// 즉시 🔴로 떨어져야 한다(비웠는데도 🟢로 남아 체크 가능한 비대칭 버그, 08-28 리뷰).
+export function effectiveIssues(c: SettlementCandidate, e: { category: string | null } | undefined): ReadinessIssue[] {
+  const issues = c.issues.filter((i) => i.code !== 'no-category');
+  if (!e?.category) issues.push({ level: 'blocked', code: 'no-category', text: '분류를 골라 주세요' });
+  return issues;
+}
+export function effectiveReadiness(c: SettlementCandidate, e: { category: string | null } | undefined): ReadinessLevel {
+  const issues = effectiveIssues(c, e);
+  if (issues.some((i) => i.level === 'blocked')) return 'blocked';
+  return issues.length ? 'warn' : 'ready';
+}
+
 // ── 결제 수단 스냅샷(§2-1 payment_method) ──
 export interface PaymentMethodSnapshot {
   type: PaymentMethod['type']; holder: string; currency: Currency;
@@ -115,6 +129,7 @@ export interface CandidateInput {
 export interface SettlementCandidate {
   taskId: string; campaignId: string; campaignName: string; clientId: string | null; clientName: string; campaignKind: CampaignKind | null;
   influencerHandle: string; taskType: TaskType; postedAt: string; removedAt: string | null; removedReason: string; draftLabel: string | null;
+  cost: TaskCost;   // 결제 수단이 없어 money가 null이어도 화면에 원가는 보여준다(§4-1 "막힌 행에도 금액")
   money: MoneyCalc | null; method: PaymentMethod | null;
   categoryDefault: string | null; deadlineDefault: string; referenceDefault: string | null; itemText: string; purposeText: string;
   readiness: ReadinessLevel; issues: ReadinessIssue[];
@@ -129,7 +144,7 @@ export function computeCandidate(i: CandidateInput): SettlementCandidate {
   return {
     taskId: task.id, campaignId: campaign.id, campaignName: campaign.name, clientId: campaign.clientId, clientName: campaign.clientName, campaignKind: campaign.kind,
     influencerHandle: task.influencerHandle, taskType: task.type, postedAt: task.postedAt, removedAt: task.removedAt, removedReason: task.removedReason, draftLabel: task.draftLabel,
-    money, method,
+    cost: task.cost, money, method,
     categoryDefault, deadlineDefault: defaultDeadline(i.today), referenceDefault,
     itemText: itemText(task.influencerHandle, task.type), purposeText: purposeText(campaign.clientName, campaign.kind, task.type),
     readiness: r.level, issues: r.issues,

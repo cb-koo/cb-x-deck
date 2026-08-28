@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   computeMoney, defaultDeadline, defaultCategory, itemText, purposeText, referenceUrlFor, assessReadiness,
-  toMethodSnapshot, describeSnapshot, computeCandidate,
+  toMethodSnapshot, describeSnapshot, computeCandidate, effectiveReadiness, effectiveIssues,
 } from './settlementCalc.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings } from './settlementSettings.ts';
 import type { PaymentMethod } from './influencerPayment.ts';
@@ -115,6 +115,7 @@ test('computeCandidate — 전부 합친 한 건', () => {
     influencer: { inRoster: true, method: { ...paypal, fee: { mode: 'grossUp', percent: 5 } } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: SETTLEMENT_DEFAULTS.categories[2].sendAs, today: '2026-08-28',
   });
+  assert.deepEqual(c.cost, { amount: 30000, currency: 'KRW' });
   assert.equal(c.money?.amountGross, 3158);
   assert.equal(c.categoryDefault, SETTLEMENT_DEFAULTS.categories[2].sendAs);
   assert.equal(c.deadlineDefault, '2026-08-28');
@@ -127,5 +128,40 @@ test('computeCandidate — 전부 합친 한 건', () => {
     campaign: { id: 'c1', name: 'N', kind: null, clientId: null, clientName: '기타' },
     influencer: { inRoster: false, method: null }, settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
   });
+  assert.deepEqual(blocked.cost, { amount: 20000, currency: 'KRW' });
   assert.equal(blocked.money, null); assert.equal(blocked.readiness, 'blocked');
+});
+
+test('effectiveReadiness/effectiveIssues — 분류를 지우면 즉시 🔴, 서버 no-category를 사람이 채우면 해제, warn은 유지', () => {
+  const filled = computeCandidate({
+    task: { id: 't3', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null },
+    campaign: { id: 'c1', name: 'N', kind: 'content', clientId: null, clientName: '기타' },
+    influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
+    settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
+  });
+  // 서버가 분류를 미리 채워 ready — 사람이 그 분류를 지우면 즉시 blocked(비대칭 버그 재발 방지, 08-28 리뷰)
+  assert.equal(filled.readiness, 'ready');
+  assert.equal(effectiveReadiness(filled, { category: filled.categoryDefault }), 'ready');
+  assert.equal(effectiveReadiness(filled, { category: null }), 'blocked');
+  assert.deepEqual(effectiveIssues(filled, { category: null }).map((i) => i.code), ['no-category']);
+  // 서버 no-category(분류 기본값 없음) + 사람이 골랐으면 더 이상 blocked가 아니다
+  const empty = computeCandidate({
+    task: { id: 't4', type: 'quoteRt', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null },
+    campaign: { id: 'c1', name: 'N', kind: 'content', clientId: null, clientName: '기타' },
+    influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
+    settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
+  });
+  assert.equal(empty.categoryDefault, null);
+  assert.equal(empty.readiness, 'blocked');
+  assert.equal(effectiveReadiness(empty, { category: SETTLEMENT_DEFAULTS.categories[0].sendAs }), 'ready');
+  assert.deepEqual(effectiveIssues(empty, { category: SETTLEMENT_DEFAULTS.categories[0].sendAs }).map((i) => i.code), []);
+  // warn 이슈(참고 링크 없음)는 분류와 무관하게 그대로 남는다
+  const warnOnly = computeCandidate({
+    task: { id: 't5', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null },
+    campaign: { id: 'c1', name: 'N', kind: 'content', clientId: null, clientName: '기타' },
+    influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
+    settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
+  });
+  assert.equal(effectiveReadiness(warnOnly, { category: warnOnly.categoryDefault }), 'warn');
+  assert.deepEqual(effectiveIssues(warnOnly, { category: warnOnly.categoryDefault }).map((i) => i.code), ['no-reference']);
 });

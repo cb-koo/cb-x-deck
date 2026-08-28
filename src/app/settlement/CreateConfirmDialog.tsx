@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui';
 import type { SettlementCandidate } from '@/lib/settlementCalc';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
@@ -11,6 +11,11 @@ export function CreateConfirmDialog({ items, edits, onConfirm, onClose }: {
   items: SettlementCandidate[]; edits: Record<string, RowEdit>; onConfirm: () => Promise<void>; onClose: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing && !busy) onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose, busy]);
   const totals: Record<string, number> = {};
   for (const c of items) if (c.money) totals[c.money.payoutCurrency] = (totals[c.money.payoutCurrency] ?? 0) + c.money.amountGross;
   const deadlines = [...new Set(items.map((c) => edits[c.taskId].deadlineOn))];

@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui';
 import type { PaymentRequestRow } from '@/lib/settlementStore';
 import { formatMoney } from '@/lib/influencerPricing';
@@ -8,6 +8,11 @@ export function CancelDialog({ target, onConfirm, onClose }: { target: PaymentRe
   const [reason, setReason] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing && !busy) onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose, busy]);
   async function go() {
     const r = reason.trim();
     if (!r) { setErr('취소 사유를 적어 주세요'); return; }

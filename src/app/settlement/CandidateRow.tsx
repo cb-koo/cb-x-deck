@@ -19,7 +19,7 @@ export function CandidateRow({ c, edit, categories, selected, failure, onEdit, o
   const issues = c.issues.filter((i) => !(i.code === 'no-category' && edit.category));
   const money = c.money ? formatKrwToPayout(c.money) : null;
   return (
-    <li className={`px-4 py-3 ${level === 'blocked' ? 'bg-x-bg/60' : ''}`} style={{ minHeight: 76 }}>
+    <li className={`px-4 py-3 ${level === 'blocked' ? 'bg-x-surface/60' : ''}`} style={{ minHeight: 76 }}>
       {/* 윗줄 — 읽기 6개: 체크 · 핸들 · 유형 · 클리닉/캠페인 · 금액 · 수단 · 신호등 */}
       <div className="flex items-center gap-3 text-[15px]">
         <input type="checkbox" className="h-4 w-4" checked={selected} disabled={level === 'blocked'} onChange={(e) => onToggle(e.target.checked)} aria-label={`@${c.influencerHandle} 선택`} />

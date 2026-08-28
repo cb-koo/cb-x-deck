@@ -13,6 +13,8 @@ import {
 import { PAYMENT_NOT_FOUND, type PaymentMethodInput } from './influencerPayment.ts';
 import { createClient } from './clientStore.ts';
 import { createCampaign, upsertInfluencerCost } from './campaignStore.ts';
+import { createTasks, getTask } from './campaignTaskStore.ts';
+import type postgres from 'postgres';
 
 const sql = getSql();
 // 핸들 접두어 — 병렬 실행/실 DB 오염 방지. 소문자로 시작해야 lower 정리 쿼리가 맞아떨어진다.
@@ -22,6 +24,7 @@ const content: DraftContent = { posts: [{ text: '正直迷ってた。\n\nでも
 after(async () => {
   await sql`delete from draft where lower(influencer_handle) like ${P.toLowerCase() + '%'}`;
   await sql`delete from draft where direction like ${P + '%'}`;
+  await sql`delete from campaign_task where campaign_id in (select id from campaign where name like ${P + '%'})`;
   await sql`delete from campaign where name like ${P + '%'}`;                   // 비용 행(campaign_influencer_cost)은 cascade
   await sql`delete from client where name like ${P + '%'}`;
   await sql`delete from influencer where lower(handle) like ${P.toLowerCase() + '%'}`; // 로그는 cascade
@@ -366,8 +369,13 @@ test('12) renameInfluencer: 캠페인 추가 비용 행도 새 핸들로 이관(
 
   const detail = await getInfluencerDetail(sql, row.id);
   assert.deepEqual(detail!.campaigns.map((x) => x.id), [camp.id]);
-  assert.equal(detail!.campaigns[0].contentCount, 0);                            // 원고 없이 비용만 — "배정 원고 없음"
+  assert.equal(detail!.campaigns[0].taskCount, 0);                               // 작업 없이 비용만 — "배정 작업 없음"
   assert.deepEqual(detail!.campaigns[0].subtotal, { KRW: 20000 });
+
+  // 캠페인 작업의 핸들도 같은 트랜잭션에서 따라간다(작업 스펙 §2-3) — 빠지면 인플 목록에 옛 핸들 유령 줄
+  const [tk] = await createTasks(sql, camp.id, { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, type: 'rt', items: [{ handle: from, cost: null }] });
+  await sql.begin(async (tx0) => renameInfluencer(tx0 as unknown as postgres.Sql, { influencerId: row.id, from, to: to + '2', actorId: null }));
+  assert.equal((await getTask(sql, tk.id))!.influencerHandle, to + '2');
 });
 
 test('13) renameInfluencer: 같은 캠페인에 옛·새 핸들 행이 둘 다 있으면 병합 — extra_costs는 새 뒤에 옛, note는 새가 비었을 때만 옛, 옛 행 삭제', async () => {

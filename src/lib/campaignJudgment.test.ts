@@ -2,10 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isDateOnlyString, addDays, daysBetweenDates, weekStartOf, weekDays, nextWeekRange, formatDateKo,
-  campaignStatus, defaultCostType,
-  contentStage, isOverdue, isOutOfRange, isPreparing, matchesStageFilter, summarizeStages, summarizePerf,
-  sortContent, deriveInfluencers, campaignTotal, suggestCampaignName, suggestCampaignCode,
-  type StageInput, type SortInput,
+  campaignStatus, isOutOfRange, isCampaignKind,
+  suggestCampaignName, suggestCampaignCode,
 } from './campaignJudgment.ts';
 
 const T = '2026-08-27'; // 목요일
@@ -34,115 +32,20 @@ test('2) 캠페인 상태 — 기간에서만 파생(경계 포함)', () => {
   assert.equal(campaignStatus('2026-08-28', '2026-09-03', T), 'upcoming');
   assert.equal(campaignStatus('2026-08-27', '2026-08-27', T), 'active');  // 하루짜리, 오늘
   assert.equal(campaignStatus('2026-08-20', '2026-08-26', T), 'ended');
-  assert.equal(defaultCostType('visit'), 'visit');
-  assert.equal(defaultCostType('content'), 'post');
-  assert.equal(defaultCostType(null), 'post');
+  assert.equal(isCampaignKind('visit'), true);
+  assert.equal(isCampaignKind('gift'), false);
+  assert.equal(isCampaignKind(null), false);
 });
 
-const d = (o: Partial<StageInput>): StageInput => ({ status: 'draft', published: false, scheduledOn: null, ...o });
-
-test('3) 단계·밀림·기간 밖·준비 중 — 게시됨이 status를 이긴다, 미사용은 밀림이 아니다', () => {
-  assert.equal(contentStage(d({ status: 'draft', published: true })), 'published');
-  assert.equal(contentStage(d({ status: 'delivered' })), 'delivered');
-  assert.equal(isOverdue(d({ scheduledOn: '2026-08-26' }), T), true);
-  assert.equal(isOverdue(d({ scheduledOn: T }), T), false);                        // 오늘은 아직 안 밀림
-  assert.equal(isOverdue(d({ scheduledOn: '2026-08-26', published: true }), T), false);
-  assert.equal(isOverdue(d({ scheduledOn: '2026-08-26', status: 'unused' }), T), false);
-  assert.equal(isOverdue(d({ scheduledOn: null }), T), false);
+test('3) 기간 밖 — 경고 표시용 판정(경계 포함, 예정일 없으면 아님)', () => {
   assert.equal(isOutOfRange('2026-09-07', '2026-08-24', '2026-09-06'), true);
+  assert.equal(isOutOfRange('2026-08-23', '2026-08-24', '2026-09-06'), true);
   assert.equal(isOutOfRange('2026-09-06', '2026-08-24', '2026-09-06'), false);
+  assert.equal(isOutOfRange('2026-08-24', '2026-08-24', '2026-09-06'), false);
   assert.equal(isOutOfRange(null, '2026-08-24', '2026-09-06'), false);
-  assert.equal(isPreparing(d({ status: 'approved' })), true);
-  assert.equal(isPreparing(d({ status: 'approved', published: true })), false);
-  assert.equal(isPreparing(d({ status: 'delivered' })), false);
-  assert.equal(matchesStageFilter(d({ status: 'review' }), 'preparing'), true);
-  assert.equal(matchesStageFilter(d({ status: 'delivered', published: true }), 'delivered'), false); // 게시됨은 전달됨 필터에 안 걸림
-  assert.equal(matchesStageFilter(d({ status: 'delivered', published: true }), 'published'), true);
-  assert.equal(matchesStageFilter(d({ status: 'unused' }), 'all'), true);
-  assert.equal(matchesStageFilter(d({ status: 'unused', published: true }), 'published'), false); // 미사용은 게시됨이어도 '게시됨' 필터에 안 걸림 — 요약과 같은 모집단
 });
 
-test('4) 요약 — N은 미사용 제외, 게시됨/전달됨/준비 중/밀림이 같은 모집단', () => {
-  const s = summarizeStages([
-    d({ status: 'draft', scheduledOn: '2026-08-25' }),            // 준비 중 + 밀림
-    d({ status: 'review' }),                                      // 준비 중
-    d({ status: 'delivered', scheduledOn: '2026-08-26' }),        // 전달됨 + 밀림
-    d({ status: 'delivered', published: true, scheduledOn: '2026-08-25' }), // 게시됨(밀림 아님)
-    d({ status: 'unused', scheduledOn: '2026-08-20' }),           // 제외
-    d({ status: 'unused', published: true, scheduledOn: '2026-08-20' }), // 게시됐어도 미사용이면 제외
-  ], T);
-  assert.deepEqual(s, { total: 4, published: 1, delivered: 1, preparing: 2, overdue: 2 });
-  assert.deepEqual(summarizeStages([], T), { total: 0, published: 0, delivered: 0, preparing: 0, overdue: 0 });
-});
-
-test('5) 성과 합계 — 스냅샷 없으면 null 유지(0으로 위장 금지), 링크 클릭은 미게시 원고 것도 합산', () => {
-  const p = summarizePerf([
-    { status: 'delivered', published: true, perf: { views: 12400, likes: 300 }, linkClicks: 96 },
-    { status: 'delivered', published: true, perf: { views: null, likes: null }, linkClicks: null },
-    { status: 'draft', published: false, perf: null, linkClicks: 4 },
-  ]);
-  assert.deepEqual(p, { publishedCount: 2, views: 12400, likes: 300, linkClicks: 100 });
-  assert.deepEqual(summarizePerf([{ status: 'delivered', published: true, perf: { views: null, likes: null }, linkClicks: null }]),
-    { publishedCount: 1, views: null, likes: null, linkClicks: null });
-  // 미사용은 게시됐어도 제외 — summarizeStages(카드 ②)와 같은 모집단이어야 라벨-값이 일치한다(최종 리뷰)
-  assert.deepEqual(summarizePerf([
-    { status: 'delivered', published: true, perf: { views: 100, likes: 10 }, linkClicks: 5 },
-    { status: 'unused', published: true, perf: { views: 99999, likes: 99999 }, linkClicks: 99999 },
-  ]), { publishedCount: 1, views: 100, likes: 10, linkClicks: 5 });
-});
-
-const s = (o: Partial<SortInput>): SortInput => ({ status: 'draft', published: false, scheduledOn: null, influencerHandle: null, createdAt: '2026-08-20T00:00:00Z', ...o });
-
-test('6) 기본 정렬 — 밀린 것 → 예정일 오름차순 → 예정일 없음 → 미사용 맨 아래', () => {
-  const rows = [
-    s({ status: 'unused', scheduledOn: '2026-08-01', createdAt: 'a' }),
-    s({ scheduledOn: null, createdAt: 'b' }),
-    s({ scheduledOn: '2026-08-29', createdAt: 'c' }),
-    s({ scheduledOn: '2026-08-26', createdAt: 'd' }),                 // 밀림 — 예정일은 f보다 늦다(오름차순이면 f가 앞)
-    s({ scheduledOn: '2026-08-28', createdAt: 'e' }),
-    s({ scheduledOn: '2026-08-20', published: true, createdAt: 'f' }), // 게시됨 — 밀림 아님, d보다 이른 예정일
-  ];
-  // default(밀림 우선)와 scheduled(예정일 순수 오름차순)가 실제로 다른 순서를 낸다 — d와 f의 순서가 뒤바뀐다.
-  assert.deepEqual(sortContent(rows, 'default', T).map((r) => r.createdAt), ['d', 'f', 'e', 'c', 'b', 'a']);
-  assert.deepEqual(sortContent(rows, 'scheduled', T).map((r) => r.createdAt), ['f', 'd', 'e', 'c', 'b', 'a']);
-  const byInf = sortContent([s({ influencerHandle: 'Zed', createdAt: 'z' }), s({ influencerHandle: 'amy', createdAt: 'y' }), s({ createdAt: 'x' })], 'influencer', T);
-  assert.deepEqual(byInf.map((r) => r.createdAt), ['y', 'z', 'x']); // 미배정은 뒤
-  const byStage = sortContent([s({ status: 'delivered', createdAt: 'p' }), s({ status: 'draft', createdAt: 'q' }), s({ published: true, createdAt: 'r' })], 'stage', T);
-  assert.deepEqual(byStage.map((r) => r.createdAt), ['q', 'p', 'r']);
-  assert.notEqual(sortContent(rows, 'default', T), rows); // 원본 불변(새 배열)
-});
-
-test('7) 인플 목록 파생 — 소문자 합집합, 비용 행만 있어도 나옴, 미배정 묶음, 통화별 소계·합계', () => {
-  const lines = deriveInfluencers([
-    { influencerHandle: 'Hana', status: 'delivered', cost: { type: 'post', amount: 300000, currency: 'KRW' } },
-    { influencerHandle: 'hana', status: 'draft', cost: { type: 'rt', amount: 60000, currency: 'KRW' } },
-    { influencerHandle: 'hana', status: 'unused', cost: { type: 'rt', amount: 999999, currency: 'KRW' } }, // 제외
-    { influencerHandle: 'Yuki', status: 'approved', cost: { type: 'post', amount: 95000, currency: 'JPY' } },
-    { influencerHandle: null, status: 'draft', cost: { type: 'post', amount: 1000, currency: 'KRW' } },
-    { influencerHandle: 'Yuki', status: 'draft', cost: null },
-  ], [
-    { influencerHandle: 'HANA', extraCosts: [{ label: '교통비', amount: 20000, currency: 'KRW' }], note: '패키지' },
-    { influencerHandle: 'ghost', extraCosts: [{ label: '선물', amount: 5000, currency: 'JPY' }], note: '' },
-  ]);
-  assert.deepEqual(lines.map((l) => l.handle), ['Hana', 'Yuki', 'ghost', null]); // 원고 많은 순 → 사전순, 미배정 맨 뒤
-  const hana = lines[0];
-  assert.equal(hana.contentCount, 2);
-  assert.deepEqual(hana.contentCost, { KRW: 360000 });
-  assert.deepEqual(hana.extraCost, { KRW: 20000 });
-  assert.deepEqual(hana.subtotal, { KRW: 380000 });
-  assert.equal(hana.note, '패키지');
-  assert.equal(hana.hasCostRow, true);
-  const ghost = lines[2];
-  assert.equal(ghost.contentCount, 0);              // "배정 원고 없음" 표시 근거
-  assert.deepEqual(ghost.subtotal, { JPY: 5000 });
-  assert.equal(lines[3].contentCount, 1);
-  assert.deepEqual(campaignTotal(lines), { KRW: 381000, JPY: 100000 });
-  assert.deepEqual(deriveInfluencers([{ influencerHandle: null, status: 'unused', cost: null }], []), []); // 미배정+미사용만이면 줄 없음
-  assert.deepEqual(campaignTotal([]), {});
-  assert.deepEqual(deriveInfluencers([], []), []);
-});
-
-test('8) 이름·코드 제안 — {클라} {M월 N주}(그 주의 목요일 기준), {영문 소문자}-{YYYYMMDD}, 영문 없으면 날짜만, 규칙 위반 문자 제거', () => {
+test('4) 이름·코드 제안 — {클라} {M월 N주}(그 주의 목요일 기준), {영문 소문자}-{YYYYMMDD}, 영문 없으면 날짜만, 규칙 위반 문자 제거', () => {
   assert.equal(suggestCampaignName('리프팅클리닉', '2026-08-24'), '리프팅클리닉 8월 4주'); // 월, 그 주 목요일=8/27
   assert.equal(suggestCampaignName('  ', '2026-09-01'), '9월 1주');
   assert.equal(suggestCampaignName('A', '2026-08-07'), 'A 8월 1주');

@@ -293,6 +293,8 @@ export async function renameInfluencer(
   const { influencerId, from, to, actorId } = args;
   await sql`update influencer set handle = ${to} where id = ${influencerId}`;
   await sql`update draft set influencer_handle = ${to} where lower(influencer_handle) = ${from.toLowerCase()}`;
+  // 작업(campaign_task)은 unique 제약이 없어 병합 없이 표기만 바꾼다
+  await sql`update campaign_task set influencer_handle = ${to}, updated_at = now() where lower(influencer_handle) = ${from.toLowerCase()}`;
   await moveCampaignCostRows(sql, from, to);
   await insertAutoLog(sql, {
     influencerId, eventType: 'handle_changed', draftId: null, draftTitle: null,

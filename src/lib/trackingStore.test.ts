@@ -4,9 +4,12 @@ import { getSql } from './db.ts';
 import { insertDraft, updateDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
 import { insertLink } from './linkStore.ts';
+import { createClient } from './clientStore.ts';
+import { createCampaign } from './campaignStore.ts';
+import { createTasks, getTask } from './campaignTaskStore.ts';
 import {
   addTrackedPost, listTrackedPosts, findByTweetId, findTrackedPostById,
-  appendSnapshot, markUnavailable, setDraftLink, deleteTrackedPost, listSnapshots, setRole,
+  appendSnapshot, markUnavailable, linkTrackedPost, deleteTrackedPost, listSnapshots, setRole,
 } from './trackingStore.ts';
 
 const sql = getSql();
@@ -17,6 +20,9 @@ after(async () => {
   await sql`delete from tracking_link where utm_campaign like ${P + '%'}`;
   await sql`delete from tracked_post where tweet_id like ${P + '%'}`; // 스냅샷은 cascade
   await sql`delete from draft where direction like ${P + '%'}`;
+  await sql`delete from campaign_task where campaign_id in (select id from campaign where name like ${P + '%'})`;
+  await sql`delete from campaign where name like ${P + '%'}`;
+  await sql`delete from client where name like ${P + '%'}`;
   await sql.end();
 });
 
@@ -58,7 +64,7 @@ test('3) 스냅샷 추가 → 최신값 갱신, 볼 수 없음 기록·복귀', 
 test('4) 원고 연결·해제, findByTweetId, 삭제 cascade', async () => {
   const { row } = await addTrackedPost(sql, { tweetId: P + '4', authorHandle: null, text: '', postedAt: null, createdBy: null, metrics: M, raw: null });
   assert.ok(await findByTweetId(sql, P + '4'));
-  assert.equal(await setDraftLink(sql, row.id, null), true);
+  assert.equal(await linkTrackedPost(sql, row.id, { draftId: null }), true);
   assert.equal(await deleteTrackedPost(sql, row.id), true);
   assert.equal(await findByTweetId(sql, P + '4'), null);
   const snaps = await sql`select id from post_metric_snapshot where tracked_post_id = ${row.id}`;
@@ -78,7 +84,7 @@ test('5) 원고 연결 후 목록에서 draftLabel(title 우선)이 보인다', 
   const { row } = await addTrackedPost(sql, {
     tweetId: P + '5', authorHandle: null, text: '', postedAt: null, createdBy: null, metrics: M, raw: null,
   });
-  assert.equal(await setDraftLink(sql, row.id, draftId), true);
+  assert.equal(await linkTrackedPost(sql, row.id, { draftId }), true);
 
   const listed = (await listTrackedPosts(sql)).find((r) => r.tweetId === P + '5');
   assert.ok(listed);
@@ -88,7 +94,7 @@ test('5) 원고 연결 후 목록에서 draftLabel(title 우선)이 보인다', 
   const found = await findTrackedPostById(sql, row.id);
   assert.equal(found!.draftLabel, P + '제목');
 
-  assert.equal(await setDraftLink(sql, row.id, null), true);
+  assert.equal(await linkTrackedPost(sql, row.id, { draftId: null }), true);
   const unlinked = await findTrackedPostById(sql, row.id);
   assert.equal(unlinked!.draftId, null);
   assert.equal(unlinked!.draftLabel, null);
@@ -133,8 +139,8 @@ test('7) 역할 — 원고의 링크 URL이 든 게시물은 link, 가장 이른
     tweetId: P + '72', authorHandle: 'hana_kim', text: '링크', postedAt: '2026-08-24T01:10:00.000Z',
     createdBy: null, metrics: M, raw: { isReply: true, entities: { urls: [{ expanded_url: link.shortUrl }] } },
   });
-  await setDraftLink(sql, main.row.id, d);
-  await setDraftLink(sql, reply.row.id, d);
+  await linkTrackedPost(sql, main.row.id, { draftId: d });
+  await linkTrackedPost(sql, reply.row.id, { draftId: d });
 
   const list = await listTrackedPosts(sql);
   assert.equal(list.find((r) => r.id === main.row.id)!.derivedRole, 'main');
@@ -149,4 +155,28 @@ test('7) 역할 — 원고의 링크 URL이 든 게시물은 link, 가장 이른
   assert.equal((await findTrackedPostById(sql, reply.row.id))!.derivedRole, 'link');
 
   await sql`delete from tracking_link where id = ${link.id}`;
+});
+
+test('8) 작업으로 연결 — task_id·draft_id 함께, 작업의 post_url/posted_at 보충(비어 있을 때만), 해제는 둘 다 null', async () => {
+  const c = await createClient(sql, P + '클라');
+  const camp = await createCampaign(sql, { clientId: c.id, clientName: c.name, name: P + 'c', nameEn: `${P.toLowerCase()}-c`, startsOn: '2026-08-31', endsOn: '2026-09-06', kind: null, note: '', createdBy: null });
+  const [task] = await createTasks(sql, camp.id, { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, type: 'post', items: [{ handle: 'mika', cost: null }] });
+  const draftId = await insertDraft(sql, { clientId: c.id, clientName: c.name, procedureNames: [], direction: P + '방향', format: 'single', referenceMode: 'off', refs: [], content: { posts: [{ text: 'x', media: [] }] }, model: null, memberId: null, taskId: task.id });
+  const { row } = await addTrackedPost(sql, { tweetId: P + 'L1', authorHandle: 'mika', text: '', postedAt: '2026-09-01T20:00:00Z', createdBy: null, metrics: M, raw: null });
+  assert.equal(await linkTrackedPost(sql, row.id, { taskId: task.id }), true);
+  const linked = (await findTrackedPostById(sql, row.id))!;
+  assert.equal(linked.taskId, task.id); assert.equal(linked.draftId, draftId);
+  let t = (await getTask(sql, task.id))!;
+  assert.equal(t.postUrl, `https://x.com/mika/status/${P}L1`); assert.equal(t.postedAt, '2026-09-02'); assert.equal(t.postedSource, 'manual');   // 20:00Z = 서울 다음날 05:00
+  // 원고로 연결(트래킹 페이지 경로)도 작업까지 채운다
+  const { row: row2 } = await addTrackedPost(sql, { tweetId: P + 'L2', authorHandle: 'mika', text: '', postedAt: null, createdBy: null, metrics: M, raw: null });
+  assert.equal(await linkTrackedPost(sql, row2.id, { draftId }), true);
+  assert.equal((await findTrackedPostById(sql, row2.id))!.taskId, task.id);
+  t = (await getTask(sql, task.id))!;
+  assert.equal(t.postUrl, `https://x.com/mika/status/${P}L1`);   // 이미 있으니 덮지 않는다
+  assert.equal(await linkTrackedPost(sql, row2.id, { taskId: null }), true);
+  const cleared = (await findTrackedPostById(sql, row2.id))!;
+  assert.equal(cleared.taskId, null); assert.equal(cleared.draftId, null);
+  assert.equal((await getTask(sql, task.id))!.postedAt, '2026-09-02');       // 되돌리지 않는다
+  assert.equal(await linkTrackedPost(sql, '00000000-0000-0000-0000-000000000000', { draftId: null }), false);
 });

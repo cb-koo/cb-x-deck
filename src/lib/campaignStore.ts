@@ -1,39 +1,38 @@
 import type postgres from 'postgres';
-import type { DraftRow } from './draftStore.ts';
-import { listDraftsByCampaign } from './draftStore.ts';
 import { kstToday } from './datetime.ts';
 import { isUuidLike } from './uuid.ts';
 import {
-  parseExtraCosts, parseDraftCost, sumMoney, mergeMoney, isCurrency, type ExtraCost, type MoneyByCurrency,
+  parseExtraCosts, parseTaskCost, sumMoney, mergeMoney, isCurrency, type ExtraCost, type MoneyByCurrency,
 } from './campaignCost.ts';
+import { listTasksByCampaign, countTasksForCampaignDelete, type TaskRow } from './campaignTaskStore.ts';
 import {
-  summarizeStages, deriveInfluencers, type CampaignKind, type CampaignSummary, type InfluencerLine,
+  summarizeTasks, deriveTaskInfluencers, subtotalsByType,
+  type CampaignKind, type TaskSummary, type TaskInfluencerLine, type TypeSubtotal, type TaskType,
 } from './campaignJudgment.ts';
 import { getClientBudget } from './clientStore.ts';
 import { campaignMonthBudget, monthOf, toKrw, type MonthSpend, type CampaignMonthBudget } from './clientBudget.ts';
 
 export { CAMPAIGN_KINDS, CAMPAIGN_KIND_LABEL, type CampaignKind } from './campaignJudgment.ts';
 
-// 캠페인 = 클라이언트 1 × 기간 1 동안 나가는 원고 묶음(스펙 §0). 상태·인플 목록·합계는 저장하지 않는다 —
-// 목록엔 SQL 집계(draft_count·통화별 합계)만 붙이고, 상세의 판정은 campaignJudgment 순수 함수가 한다(서버·클라 동일).
+// 캠페인 = 클라이언트 1 × 기간 1 동안 나가는 작업 묶음(스펙 2026-08-28 §0). 상태·인플 목록·합계는 저장하지 않는다 —
+// 목록엔 SQL 집계(task_count·통화별 합계)만 붙이고, 상세의 판정은 campaignJudgment 순수 함수가 한다(서버·클라 동일).
 export interface CampaignRow {
   id: string; clientId: string | null; clientName: string | null;
   name: string; nameEn: string;
   startsOn: string; endsOn: string;    // 'YYYY-MM-DD'(서울) — to_char로 읽는다
   kind: CampaignKind | null; note: string;
   createdAt: string; updatedAt: string; // ISO
-  draftCount: number;                   // 파생: 미사용 제외 원고 수(요약 N과 같은 모집단)
-  total: MoneyByCurrency;               // 파생: 콘텐츠 비용(미사용 제외) + 추가 비용, 통화별
+  taskCount: number;                    // 파생: 미사용 원고 작업 제외 작업 수(요약 N과 같은 모집단)
+  total: MoneyByCurrency;               // 파생: 작업 비용(미사용 제외) + 추가 비용, 통화별
 }
 
 export interface CampaignPerf { postCount: number; views: number | null; likes: number | null }
-// 상세 표의 한 행 — DraftRow + 게시됨 판정 + 성과. 게시됨 = tracked_post.draft_id 존재(§2-4).
-export interface CampaignDraftItem extends DraftRow {
-  published: boolean;
-  perf: CampaignPerf | null;       // 게시됨일 때만. 최신 스냅샷(lateral) 게시물별 SUM. 스냅샷 없으면 views/likes null
-  linkClicks: number | null;       // tracking_link 최신 스냅샷 합 — 게시 여부와 무관(요약 카드 합계용, §5)
+// 상세 표의 한 행 — TaskRow + 게시 확인 + 성과.
+export interface CampaignTaskItem extends TaskRow {
+  published: boolean;              // = postedAt !== null (게시 확인이 판정한다, tracked_post 유무가 아니다 — §2-5)
+  perf: CampaignPerf | null;       // tracked_post.task_id 최신 스냅샷(lateral) 합. 스냅샷 없으면 views/likes null
+  linkClicks: number | null;       // 붙은 원고의 tracking_link 최신 스냅샷 합 — 게시 여부와 무관(요약 카드 합계용, §5)
 }
-
 export interface InfluencerCostRow {
   id: string; campaignId: string; influencerHandle: string;
   extraCosts: ExtraCost[]; note: string; updatedAt: string;
@@ -41,23 +40,25 @@ export interface InfluencerCostRow {
 
 export interface CampaignDetail {
   campaign: CampaignRow;
-  drafts: CampaignDraftItem[];
+  tasks: CampaignTaskItem[];
   costRows: InfluencerCostRow[];
-  summary: CampaignSummary;        // summarizeStages(drafts, today) — 클라도 같은 함수로 재계산한다
-  influencers: InfluencerLine[];   // deriveInfluencers(drafts, costRows)
-  today: string;                   // 판정에 쓴 '오늘'(서울) — 클라가 같은 기준으로 다시 그릴 수 있게 함께 내려준다
-  budget: CampaignMonthBudget | null;   // 이 캠페인이 속한 달의 클라이언트 예산(스펙 2026-08-27 §5-3). 클라 없으면 null
+  summary: TaskSummary;                // summarizeTasks(tasks, today) — 클라도 같은 함수로 재계산한다
+  influencers: TaskInfluencerLine[];   // deriveTaskInfluencers(tasks, costRows)
+  byType: TypeSubtotal[];              // subtotalsByType(tasks) — 표 하단 유형별 줄
+  deleteInfo: { taskCount: number; detachedTargets: number };   // 삭제 확인 문구의 숫자(§4-4) — 미사용 포함 전수
+  today: string;                       // 판정에 쓴 '오늘'(서울) — 클라가 같은 기준으로 다시 그릴 수 있게 함께 내려준다
+  budget: CampaignMonthBudget | null;  // 이 캠페인이 속한 달의 클라이언트 예산(스펙 2026-08-27 §5-3). 클라 없으면 null
 }
 
 export interface InfluencerCampaignItem {
   id: string; name: string; startsOn: string; endsOn: string;
-  contentCount: number; subtotal: MoneyByCurrency;
+  taskCount: number; countsByType: Partial<Record<TaskType, number>>; subtotal: MoneyByCurrency;
 }
 
 type CRow = {
   id: string; client_id: string | null; client_name: string | null; name: string; name_en: string;
   starts_on: string; ends_on: string; kind: CampaignKind | null; note: string;
-  created_at: Date; updated_at: Date; draft_count: string | number;
+  created_at: Date; updated_at: Date; task_count: string | number;
 };
 type TotalRow = { campaign_id: string; currency: string; amount: string | number };
 type CicRow = { id: string; campaign_id: string; influencer_handle: string; extra_costs: unknown; note: string; updated_at: Date };
@@ -73,24 +74,27 @@ const toCic = (r: CicRow): InfluencerCostRow => ({
   extraCosts: extraCostsOf(r.extra_costs), note: r.note, updatedAt: new Date(r.updated_at).toISOString(),
 });
 
-// 목록·단건이 같은 정의를 쓴다(드리프트 방지). draft_count는 미사용 제외 — 요약 카드 N과 같은 모집단(§2-4).
+// 목록·단건이 같은 정의를 쓴다(드리프트 방지). task_count는 미사용(붙은 원고가 미사용 + 미게시) 제외 —
+// 요약 카드 N(summarizeTasks)과 같은 모집단이라 목록 보조줄과 상세 카드가 같은 수를 말한다(§4-1).
 const SELECT = (sql: postgres.Sql) => sql`
   select c.id, c.client_id, c.client_name, c.name, c.name_en,
          to_char(c.starts_on, 'YYYY-MM-DD') as starts_on, to_char(c.ends_on, 'YYYY-MM-DD') as ends_on,
          c.kind, c.note, c.created_at, c.updated_at,
-         (select count(*) from draft d where d.campaign_id = c.id and d.status <> 'unused') as draft_count
+         (select count(*) from campaign_task t left join draft d on d.id = t.draft_id
+           where t.campaign_id = c.id and not (coalesce(d.status, '') = 'unused' and t.posted_at is null)) as task_count
     from campaign c`;
 
-// 통화별 합계 — 콘텐츠 비용(미사용 제외) + 추가 비용을 SQL에서 통화별로 묶는다. 통화 간 합산은 하지 않는다.
+// 통화별 합계 — 작업 비용(미사용 제외) + 추가 비용을 SQL에서 통화별로 묶는다. 통화 간 합산은 하지 않는다.
 // 캠페인 수는 소수라 목록 1회 + 합계 1회의 두 쿼리로 충분하다.
 async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, MoneyByCurrency>> {
   const out = new Map<string, MoneyByCurrency>();
   if (ids.length === 0) return out;
   const rows = await sql<TotalRow[]>`
     select campaign_id, currency, sum(amount) as amount from (
-      select d.campaign_id, d.cost->>'currency' as currency, (d.cost->>'amount')::bigint as amount
-        from draft d
-       where d.campaign_id = any(${ids}::uuid[]) and d.cost is not null and d.status <> 'unused'
+      select t.campaign_id, t.cost->>'currency' as currency, (t.cost->>'amount')::bigint as amount
+        from campaign_task t left join draft d on d.id = t.draft_id
+       where t.campaign_id = any(${ids}::uuid[]) and t.cost is not null
+         and not (coalesce(d.status, '') = 'unused' and t.posted_at is null)
       union all
       select cic.campaign_id, e->>'currency', (e->>'amount')::bigint
         from campaign_influencer_cost cic, jsonb_array_elements(cic.extra_costs) e
@@ -128,7 +132,7 @@ async function toRows(sql: postgres.Sql, rows: CRow[]): Promise<CampaignRow[]> {
     id: r.id, clientId: r.client_id, clientName: r.client_name, name: r.name, nameEn: r.name_en,
     startsOn: r.starts_on, endsOn: r.ends_on, kind: r.kind, note: r.note,
     createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
-    draftCount: Number(r.draft_count),
+    taskCount: Number(r.task_count),
     total: totals.get(r.id) ?? {},
   }));
 }
@@ -176,14 +180,18 @@ export async function updateCampaign(
     where id = ${id}`;
 }
 
-// 원고는 지우지 않는다 — draft.campaign_id는 FK set null, 비용 행은 cascade(스펙 §2-5)
-export async function deleteCampaign(sql: postgres.Sql, id: string): Promise<boolean> {
-  if (!isUuidLike(id)) return false; // 형식이 아니면 DB까지 가기 전에 끊는다(22P02 방지) — 라우트가 404로 처리
+// 작업은 cascade로 함께 지워지고 원고는 남는다(campaign_task.draft_id FK set null). 다른 캠페인에서 이 캠페인 작업을
+// 대상으로 삼던 작업은 '대상 미정'이 된다(target_task_id FK set null) — 몇 건인지 응답에 실어 화면이 사실대로 말하게 한다.
+export async function deleteCampaign(
+  sql: postgres.Sql, id: string,
+): Promise<{ deleted: boolean; taskCount: number; detachedTargets: number }> {
+  if (!isUuidLike(id)) return { deleted: false, taskCount: 0, detachedTargets: 0 }; // 22P02 방지 — 라우트가 404로 처리
+  const info = await countTasksForCampaignDelete(sql, id);   // 삭제 전에 세야 한다(cascade 뒤엔 0)
   const del = await sql`delete from campaign where id = ${id} returning id`;
-  return del.length > 0;
+  return del.length > 0 ? { deleted: true, ...info } : { deleted: false, taskCount: 0, detachedTargets: 0 };
 }
 
-type PerfRow = { draft_id: string; post_count: number; views: string | number | null; likes: string | number | null };
+type PerfRow = { task_id: string; post_count: number; views: string | number | null; likes: string | number | null };
 type ClickRow = { draft_id: string; clicks: string | number | null };
 
 export async function getCampaignDetail(
@@ -192,20 +200,20 @@ export async function getCampaignDetail(
   if (!isUuidLike(id)) return null; // 형식이 아니면 DB까지 가기 전에 끊는다(22P02 방지) — 라우트가 404로 처리
   const campaign = await getCampaign(sql, id);
   if (!campaign) return null;
-  const drafts = await listDraftsByCampaign(sql, id);
+  const tasks = await listTasksByCampaign(sql, id);
 
-  // 게시됨 + 성과: 원고에 게시물이 여러 개면(tracked_post는 tweet_id만 unique) 각 게시물의 최신 스냅샷을 합산한다(§2-4).
-  // 최신 1건은 lateral(trackingStore 관례). 스냅샷이 없는 게시물은 sum에서 null로 빠진다.
+  // 성과: 게시물은 작업에 붙는다(§2-4). 한 작업에 게시물이 여러 개면(tracked_post는 tweet_id만 unique)
+  // 각 게시물의 최신 스냅샷을 합산한다. 최신 1건은 lateral(trackingStore 관례) — 스냅샷 없는 게시물은 sum에서 null로 빠진다.
   const perfRows = await sql<PerfRow[]>`
-    select tp.draft_id, count(tp.id)::int as post_count, sum(s.views) as views, sum(s.likes) as likes
+    select tp.task_id, count(tp.id)::int as post_count, sum(s.views) as views, sum(s.likes) as likes
       from tracked_post tp
       left join lateral (
         select views, likes from post_metric_snapshot where tracked_post_id = tp.id
         order by captured_at desc limit 1
       ) s on true
-     where tp.draft_id in (select d.id from draft d where d.campaign_id = ${id})
-     group by tp.draft_id`;
-  // 링크 클릭: 원고에 링크가 여럿이면(tracking_link는 draft_id 인덱스만) 최신 스냅샷 합(§5)
+     where tp.task_id in (select t.id from campaign_task t where t.campaign_id = ${id})
+     group by tp.task_id`;
+  // 링크 클릭은 아직 원고 기준이다(tracking_link.draft_id) — 작업에 붙은 원고를 통해 잇는다(§5)
   const clickRows = await sql<ClickRow[]>`
     select l.draft_id, sum(s.total_clicks) as clicks
       from tracking_link l
@@ -213,18 +221,18 @@ export async function getCampaignDetail(
         select total_clicks from link_click_snapshot where tracking_link_id = l.id
         order by captured_at desc limit 1
       ) s on true
-     where l.draft_id in (select d.id from draft d where d.campaign_id = ${id})
+     where l.draft_id in (select t.draft_id from campaign_task t where t.campaign_id = ${id} and t.draft_id is not null)
      group by l.draft_id`;
-  const perfMap = new Map(perfRows.map((r) => [r.draft_id, r]));
+  const perfMap = new Map(perfRows.map((r) => [r.task_id, r]));
   const clickMap = new Map(clickRows.map((r) => [r.draft_id, r]));
   const num = (v: string | number | null) => (v === null ? null : Number(v)); // sum(bigint)는 문자열
 
-  const items: CampaignDraftItem[] = drafts.map((d) => {
-    const p = perfMap.get(d.id);
-    const c = clickMap.get(d.id);
+  const items: CampaignTaskItem[] = tasks.map((t) => {
+    const p = perfMap.get(t.id);
+    const c = t.draftId ? clickMap.get(t.draftId) : undefined;
     return {
-      ...d,
-      published: p !== undefined,
+      ...t,
+      published: t.postedAt !== null,   // 게시 확인이 판정한다 — 게시물이 아직 안 붙었어도 게시됨(§2-5)
       perf: p ? { postCount: p.post_count, views: num(p.views), likes: num(p.likes) } : null,
       linkClicks: c ? num(c.clicks) : null,
     };
@@ -247,9 +255,11 @@ export async function getCampaignDetail(
   }
 
   return {
-    campaign, drafts: items, costRows,
-    summary: summarizeStages(items, today),
-    influencers: deriveInfluencers(items, costRows),
+    campaign, tasks: items, costRows,
+    summary: summarizeTasks(items, today),
+    influencers: deriveTaskInfluencers(items, costRows),
+    byType: subtotalsByType(items),
+    deleteInfo: await countTasksForCampaignDelete(sql, id),   // 삭제 확인 문구는 미사용까지 전부 센다(실제로 지워지는 수)
     today,
     budget,
   };
@@ -272,31 +282,31 @@ export async function upsertInfluencerCost(
   return toCic(rows[0]);
 }
 
-// 인플루언서 프로필 "참여 캠페인"(§5) — 원고가 배정됐거나 비용 행이 있는 캠페인. 조회만, 로그 없음.
+// 인플루언서 프로필 "참여 캠페인"(§5) — 작업이 배정됐거나 비용 행이 있는 캠페인. 조회만, 로그 없음.
 export async function listInfluencerCampaigns(sql: postgres.Sql, handle: string): Promise<InfluencerCampaignItem[]> {
   const lower = handle.toLowerCase();
-  const drafts = await sql<Array<{ campaign_id: string; status: string; cost: unknown }>>`
-    select campaign_id, status, cost from draft
-     where campaign_id is not null and lower(influencer_handle) = ${lower}`;
+  const tasks = await sql<Array<{ campaign_id: string; type: TaskType; cost: unknown; unused: boolean }>>`
+    select t.campaign_id, t.type, t.cost, (coalesce(d.status, '') = 'unused' and t.posted_at is null) as unused
+      from campaign_task t left join draft d on d.id = t.draft_id
+     where lower(t.influencer_handle) = ${lower}`;
   const cic = await sql<Array<{ campaign_id: string; extra_costs: unknown }>>`
     select campaign_id, extra_costs from campaign_influencer_cost where lower(influencer_handle) = ${lower}`;
-  const ids = [...new Set([...drafts.map((d) => d.campaign_id), ...cic.map((c) => c.campaign_id)])];
+  const ids = [...new Set([...tasks.map((t) => t.campaign_id), ...cic.map((c) => c.campaign_id)])];
   if (ids.length === 0) return [];
   const camps = await sql<Array<{ id: string; name: string; starts_on: string; ends_on: string }>>`
     select id, name, to_char(starts_on, 'YYYY-MM-DD') as starts_on, to_char(ends_on, 'YYYY-MM-DD') as ends_on
       from campaign where id = any(${ids}::uuid[]) order by starts_on desc, created_at desc`;
   return camps.map((c) => {
-    const mine = drafts.filter((d) => d.campaign_id === c.id && d.status !== 'unused');
-    // draftStore.costOf와 같은 검증(parseDraftCost) — jsonb 모양을 다르게 믿으면 롤업 합계와 캠페인 상세 합계가
-    // 서로 다른 값을 보여줄 수 있다(최종 리뷰). amount는 이미 parseAmount(안전 정수)를 통과한 값만 남는다.
-    const costs = mine.flatMap((d) => {
-      const p = parseDraftCost(d.cost ?? null);
-      return p.ok && p.value ? [{ amount: p.value.amount, currency: p.value.currency }] : [];
-    });
+    const mine = tasks.filter((t) => t.campaign_id === c.id && !t.unused);
+    const countsByType: Partial<Record<TaskType, number>> = {};
+    for (const t of mine) countsByType[t.type] = (countsByType[t.type] ?? 0) + 1;
+    // campaignTaskStore.costOf와 같은 검증(parseTaskCost) — jsonb 모양을 다르게 믿으면 이 롤업 합계와 캠페인 상세 합계가
+    // 서로 다른 값을 보여줄 수 있다. amount는 이미 parseAmount(안전 정수)를 통과한 값만 남는다.
+    const costs = mine.flatMap((t) => { const p = parseTaskCost(t.cost ?? null); return p.ok && p.value ? [p.value] : []; });
     const extra = cic.filter((x) => x.campaign_id === c.id).flatMap((x) => extraCostsOf(x.extra_costs));
     return {
       id: c.id, name: c.name, startsOn: c.starts_on, endsOn: c.ends_on,
-      contentCount: mine.length, subtotal: mergeMoney(sumMoney(costs), sumMoney(extra)),
+      taskCount: mine.length, countsByType, subtotal: mergeMoney(sumMoney(costs), sumMoney(extra)),
     };
   });
 }

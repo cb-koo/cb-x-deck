@@ -1,15 +1,16 @@
 'use client';
 import { useEffect, useState } from 'react';
-import type { InfluencerLine } from '@/lib/campaignJudgment';
+import { countsByTypeLabel, type TaskInfluencerLine } from '@/lib/campaignJudgment';
 import {
   formatMoneyBy, CURRENCIES, CURRENCY_LABEL, AMOUNT_MESSAGE, EXTRA_LABEL_MESSAGE, parseAmount,
   type ExtraCost, type Currency, type MoneyByCurrency,
 } from '@/lib/campaignCost';
 import { upsertExtraCost, removeExtraCost, extraCostLabel } from '@/lib/campaignCostEdit';
 import { Button } from '@/components/ui';
+import { InfoTip } from '@/components/InfoTip';
 
-// 인플루언서별 비용 표(스펙 §3-2 하단, 표·달력 두 보기 공통) — 열 5: 인플루언서(+메모) · 콘텐츠 n · 콘텐츠 비용 · 추가 비용 · 소계.
-// 줄은 deriveInfluencers 결과 그대로(원고 핸들 ∪ 비용 행 핸들, 미배정 묶음 맨 아래) — 여기서 다시 세지 않는다.
+// 인플루언서별 비용 표(스펙 §3-2 하단, 표·달력 두 보기 공통) — 열 5: 인플루언서(+메모) · 작업 n(유형별) · 작업 비용 · 추가 비용 · 소계.
+// 줄은 deriveTaskInfluencers 결과 그대로(작업 핸들 ∪ 비용 행 핸들, 미배정 묶음 맨 아래) — 여기서 다시 세지 않는다.
 // 저장은 부모가 PUT하고 boolean으로 알려준다 — 실패하면 입력을 남긴다(닫으면 안 저장된 게 저장된 것처럼 보인다).
 type Editing = { handle: string; index: number | null } | null;
 const TD = 'px-3 py-3 align-top';
@@ -17,7 +18,7 @@ const TD = 'px-3 py-3 align-top';
 const TD_SINGLE = 'px-3 py-3.5 align-top';
 
 export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote }: {
-  lines: InfluencerLine[]; total: MoneyByCurrency;
+  lines: TaskInfluencerLine[]; total: MoneyByCurrency;
   onSaveExtraCosts: (handle: string, next: ExtraCost[]) => Promise<boolean>;
   onSaveNote: (handle: string, note: string) => Promise<boolean>;
 }) {
@@ -45,10 +46,14 @@ export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote
     // 섹션 패널 안(CampaignDetail의 PANEL) — 바깥 여백은 패널 사이 space-y-5가 쥔다(mt-8 없음, QA 7라운드).
     // 제목 16px semibold·빈 상태는 테두리 없이 연회색 면만 — 패널 테두리와 겹치지 않게(QA 7라운드).
     <section>
-      <h2 className="text-[16px] font-semibold">인플루언서별 비용</h2>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <h2 className="text-[16px] font-semibold">인플루언서별 비용</h2>
+        {/* 표가 무엇을 모아 보여주는지 한 줄(UX 원칙 2) — 통화가 다르면 합치지 않는다는 사실도 여기서 말한다(§2-4) */}
+        <InfoTip text="작업 비용 + 추가 비용을 사람별로 모았어요. 통화가 다르면 따로 보여요." label="인플루언서별 비용 설명 보기" />
+      </div>
       {lines.length === 0 ? (
         <p className="mt-3 rounded-xl bg-x-surface px-4 py-6 text-center text-content text-x-secondary">
-          원고에 인플루언서를 배정하면 사람별 비용이 여기 모여요.
+          작업에 인플루언서를 배정하면 사람별 비용이 여기 모여요.
         </p>
       ) : (
         <div className="mt-3 w-full overflow-x-auto">
@@ -56,8 +61,8 @@ export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote
             <thead>
               <tr className="border-b border-x-border text-left text-ui text-x-muted">
                 <th className="px-3 py-2 font-normal">인플루언서</th>
-                <th className="w-[130px] px-3 py-2 font-normal">콘텐츠</th>
-                <th className="w-[170px] px-3 py-2 font-normal">콘텐츠 비용</th>
+                <th className="w-[130px] px-3 py-2 font-normal">작업</th>
+                <th className="w-[170px] px-3 py-2 font-normal">작업 비용</th>
                 <th className="px-3 py-2 font-normal">추가 비용</th>
                 <th className="w-[170px] px-3 py-2 font-normal">소계</th>
               </tr>
@@ -69,7 +74,7 @@ export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote
                 <tr key={l.handle ?? '__unassigned'} className="border-b border-x-border">
                   <td className={td}>
                     {l.handle === null ? (
-                      <p className="text-x-secondary" title="인플루언서가 아직 배정되지 않은 원고들의 비용 — 배정하면 그 사람 줄로 옮겨가요">미배정 원고</p>
+                      <p className="text-x-secondary" title="인플루언서가 아직 배정되지 않은 작업들의 비용 — 배정하면 그 사람 줄로 옮겨가요">미배정 작업</p>
                     ) : (
                       <>
                         <p className="font-medium">@{l.handle}</p>
@@ -96,13 +101,18 @@ export function InfluencerCostTable({ lines, total, onSaveExtraCosts, onSaveNote
                     )}
                   </td>
                   <td className={`${td} tabular-nums`}>
-                    {l.contentCount > 0 ? `${l.contentCount}개` : (
-                      // 돈이 붙었는데 원고가 안 보이는 일을 막는다(§2-4) — 색만 아니라 말로
+                    {l.taskCount > 0 ? (
+                      <>
+                        {l.taskCount}건
+                        <span className="mt-0.5 block text-ui text-x-muted">{countsByTypeLabel(l.countsByType)}</span>
+                      </>
+                    ) : (
+                      // 돈이 붙었는데 작업이 안 보이는 일을 막는다(§4-1) — 색만 아니라 말로
                       <span className="rounded bg-amber-100 px-1.5 py-0.5 text-ui text-amber-800"
-                            title="추가 비용은 적혀 있는데 배정된 원고가 없어요 — 원고를 배정하거나 비용 항목을 정리하세요">배정 원고 없음</span>
+                            title="추가 비용은 적혀 있는데 배정된 작업이 없어요 — 작업을 배정하거나 비용 항목을 정리하세요">배정 작업 없음</span>
                     )}
                   </td>
-                  <td className={`${td} tabular-nums`}>{formatMoneyBy(l.contentCost)}</td>
+                  <td className={`${td} tabular-nums`}>{formatMoneyBy(l.taskCost)}</td>
                   <td className={td}>
                     {l.handle === null ? (
                       <span className="text-x-muted" title="인플루언서를 배정하면 추가 비용을 적을 수 있어요">—</span>

@@ -29,8 +29,8 @@ import type { ReferenceRow } from '@/lib/referenceStore';
 import type { DraftStatus } from '@/lib/draftStatus';
 import type { InfluencerOption, DraftContent } from '@/lib/draftTypes';
 import type { CampaignRow } from '@/lib/campaignStore';
-import { fetchCampaigns } from '@/lib/campaignApi';
-import type { DraftCost } from '@/lib/campaignCost';
+import { fetchCampaigns, fetchCampaignDetail, createTasksApi } from '@/lib/campaignApi';
+import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
 import { kstToday } from '@/lib/datetime';
 
 const COMPOSER_KEY = 'cbx-composer'; // 직전 설정 유지 (스펙 §4 "바꾸기 — 직전 값 유지")
@@ -98,12 +98,14 @@ function Workbench() {
   // 칸반에서 방금 옮긴 카드 — 세션 한정. 열은 최신순 정렬 + 상위 N장만 그리므로, 오래된 원고를
   // 옮기면 정렬에 밀려 화면에서 사라진다. 그 카드를 열 맨 위에 세워 "옮겼는데 없어졌다"를 막는다(설계 §H).
   const [pinnedIds, setPinnedIds] = useState<ReadonlySet<string>>(new Set());
-  // 캠페인 — 목록은 카드 캠페인 칸·표 열·필터의 소스, campaignCtx는 ?campaign= 진입 시 "이 캠페인에 추가 중" 컨텍스트(캠페인 스펙 §4-1)
+  // 캠페인 — 목록은 카드 작업 칸(캠페인 고르기)·표 열·필터의 소스.
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
-  const [campaignsLoaded, setCampaignsLoaded] = useState(false);
-  const [campaignsError, setCampaignsError] = useState<string | null>(null); // 로드 실패 원인 — 딥링크가 이걸 '삭제됨'과 구분한다
-  const [campaignCtx, setCampaignCtx] = useState<CampaignRow | null>(null);
-  const campaignLinkDone = useRef(false); // ?campaign= 소비 표시 — 클라·캠페인 목록이 다 온 뒤 1회만
+  const [campaignsError, setCampaignsError] = useState<string | null>(null); // 로드 실패 원인 — 필터 select가 비어 보이는 이유를 말한다
+  // ?task= 진입 컨텍스트 — "이 작업에 붙이는 원고를 만드는 중"(스펙 §5). attached는 그 작업에 이미 원고가
+  // 붙었다는 뜻이다(원고 1개 = 작업 1개) — 붙은 뒤로는 taskId를 싣지 않는다.
+  const [taskCtx, setTaskCtx] = useState<
+    { taskId: string; campaign: CampaignRow; type: TaskType; influencerHandle: string | null; attached: boolean } | null>(null);
+  const taskLinkDone = useRef(false); // ?task= 소비 표시 — 클라 목록이 온 뒤 1회만
   // '오늘'(서울)은 마운트 시 한 번 — 카드의 밀림 판정 기준. 렌더마다 시계를 읽지 않는다(react-hooks/purity)
   const [today] = useState(() => kstToday());
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -195,12 +197,9 @@ function Workbench() {
     apiFetch('/api/drafts/influencers').then((r) => (r.ok ? r.json() : [])).catch(() => [])
       .then((inf) => setInfluencerOptions(Array.isArray(inf) ? inf : []));
 
-    // 캠페인 목록 — 카드 캠페인 칸·표 열·필터의 소스. 실패해도 원고 열람은 막지 않는다(캠페인 칸이 '없음'만 보인다).
+    // 캠페인 목록 — 카드 작업 칸·표 열·필터의 소스. 실패해도 원고 열람은 막지 않는다(작업 칸이 '없음'만 보인다).
     fetchCampaigns().then((r) => {
-      // 로드 실패도 '완료'로 쳐서 딥링크가 영원히 대기하지 않게 한다 — !ok를 '완료' 밖에 두면
-      // ?campaign= 진입이 campaignsLoaded를 영원히 기다리다 아무 반응도 없이 멈춘다.
       if (r.ok) setCampaigns(r.data); else setCampaignsError(r.error);
-      setCampaignsLoaded(true);
     }).catch(() => {}); // unauthorized는 apiFetch가 이미 /login으로 리다이렉트한다 — 여기선 더 할 일이 없다
   }, []);
   useEffect(() => () => { if (pollTimer.current) clearInterval(pollTimer.current); }, []);
@@ -289,41 +288,56 @@ function Workbench() {
     if (url.toString() !== window.location.href) window.history.replaceState(null, '', url);
   }, [peekId, deeplinkDone]);
 
-  // 진입점 D: /generate?campaign=<id> — 캠페인 화면 [+ 원고 추가 → 새로 만들기]에서 진입(캠페인 스펙 §4-1).
-  // 클라를 자동 선택하고 배너를 켠다; 이 상태에서 만든 원고(생성·직접 쓰기)는 campaignId가 실려 그 캠페인 소속으로 저장된다.
-  // 클라·캠페인 목록이 둘 다 온 뒤 1회만 — composer.clientId를 세팅하려면 그 클라가 목록에 있어야 한다(유령 클라 정리 이펙트와 순서 충돌 방지).
+  // 진입점 D: /generate?task=<taskId>&campaign=<campaignId> — 캠페인 화면 [+ 원고 추가 → 새로 만들기]에서 진입(스펙 §5).
+  // 캠페인 id가 함께 오는 이유는 작업 단건 조회 라우트를 따로 두지 않기 때문이다 — 캠페인 상세의 tasks에서 찾는다.
+  // 클라를 자동 선택하고 배너를 켠다; 이 상태에서 만든 원고(생성·직접 쓰기)는 taskId가 실려 그 작업에 붙는다.
+  // 클라 목록이 온 뒤 1회만 — composer.clientId를 세팅하려면 그 클라가 목록에 있어야 한다(유령 클라 정리 이펙트와 순서 충돌 방지).
   useEffect(() => {
-    if (campaignLinkDone.current || !clientsLoaded || !campaignsLoaded) return;
-    const target = searchParams.get('campaign');
-    if (!target) return;
-    campaignLinkDone.current = true;
-    const row = campaigns.find((c) => c.id === target);
-    if (!row) {
-      // 로드 자체가 실패했으면 '삭제됐을 수 있어요'로 오진하지 않는다 — 원인은 목록을 못 받은 것이다(리뷰 Important)
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 이 이펙트의 setState 일괄(효과 안 첫 호출만 검사) — 두 로드가 끝난 뒤 1회
-      if (campaignsError) { setToast(`캠페인 목록을 불러오지 못했어요 — ${campaignsError}`); return; }
-      setToast('링크가 가리키는 캠페인을 찾을 수 없어요 — 삭제됐을 수 있어요');
-      // 없는 id로 남으면 새로고침마다 같은 토스트가 뜬다 — 주소에서 지운다(?draft= replaceState와 같은 관례).
-      // 컨텍스트가 성공적으로 걸린 경우는 주소를 그대로 둔다(?ref= 관례 — 성공한 딥링크는 주소를 지우지 않는다).
-      const url = new URL(window.location.href);
-      url.searchParams.delete('campaign');
-      window.history.replaceState(null, '', url);
-      return;
-    }
-    setCampaignCtx(row);
-    setFilter((f) => ({ ...f, campaignId: row.id }));
-    if (row.clientId && clients.some((c) => c.client.id === row.clientId)) {
-      setComposer((cur) => (cur.clientId === row.clientId ? cur : { ...cur, clientId: row.clientId, procedureIds: [] }));
-    }
-    if (!panelOpenRef.current) setPanelPref('open');   // 만들러 왔으니 생성 패널을 펼친다(?ref=와 같은 규칙)
-  }, [searchParams, clientsLoaded, campaignsLoaded, campaigns, clients, campaignsError]);
+    if (taskLinkDone.current || !clientsLoaded) return;
+    const targetTask = searchParams.get('task');
+    const targetCampaign = searchParams.get('campaign');
+    if (!targetTask || !targetCampaign) return;
+    taskLinkDone.current = true;
+    void (async () => {
+      const r = await fetchCampaignDetail(targetCampaign);
+      // 로드 자체가 실패했으면 '삭제됐을 수 있어요'로 오진하지 않는다 — 원인은 상세를 못 받은 것이다.
+      // 이때는 주소도 그대로 둔다(새로고침하면 다시 시도된다).
+      if (!r.ok) { setToast(`캠페인을 불러오지 못했어요 — ${r.error}`); return; }
+      const task = r.data.tasks.find((t) => t.id === targetTask);
+      if (!task) {
+        setToast('링크가 가리키는 작업을 찾을 수 없어요 — 삭제됐을 수 있어요');
+        // 없는 id로 남으면 새로고침마다 같은 토스트가 뜬다 — 주소에서 지운다(?draft= replaceState와 같은 관례).
+        // 컨텍스트가 성공적으로 걸린 경우는 주소를 그대로 둔다(?ref= 관례 — 성공한 딥링크는 주소를 지우지 않는다).
+        const url = new URL(window.location.href);
+        url.searchParams.delete('task'); url.searchParams.delete('campaign');
+        window.history.replaceState(null, '', url);
+        return;
+      }
+      const campaign = r.data.campaign;
+      // 이미 원고가 붙은 작업으로 들어왔으면 배너는 '붙었어요' 모양으로 켠다 — 여기서 만든 원고가 조용히
+      // 그 작업을 덮어쓰지 않는다(원고 1개 = 작업 1개, 서버도 409로 막는다).
+      setTaskCtx({ taskId: task.id, campaign, type: task.type, influencerHandle: task.influencerHandle, attached: task.draftId !== null });
+      setFilter((f) => ({ ...f, campaignId: campaign.id }));
+      if (campaign.clientId && clients.some((c) => c.client.id === campaign.clientId)) {
+        setComposer((cur) => (cur.clientId === campaign.clientId ? cur : { ...cur, clientId: campaign.clientId, procedureIds: [] }));
+      }
+      if (!panelOpenRef.current) setPanelPref('open');   // 만들러 왔으니 생성 패널을 펼친다(?ref=와 같은 규칙)
+    })();
+  }, [searchParams, clientsLoaded, clients]);
+
+  // 표시용 한 줄 — 배너와 직접 쓰기 모달이 같은 말을 쓴다('마인드스킨 9월 1주 · 투고 @mika')
+  const taskCtxLabel = taskCtx
+    ? `${taskCtx.campaign.name} · ${TASK_TYPE_LABEL[taskCtx.type]}${taskCtx.influencerHandle ? ` @${taskCtx.influencerHandle}` : ''}`
+    : null;
+  // 원고가 붙은 뒤 — 배너 문구가 바뀌고 이후 요청엔 taskId를 싣지 않는다
+  const markTaskAttached = () => setTaskCtx((cur) => (cur && !cur.attached ? { ...cur, attached: true } : cur));
 
   // 배너 [해제] — 컨텍스트와 필터를 풀고 주소에서도 지운다(?draft= 동기화와 같은 replaceState 관례 — 라우터 리렌더 없이 주소만).
-  function clearCampaignCtx() {
-    setCampaignCtx(null);
+  function clearTaskCtx() {
+    setTaskCtx(null);
     setFilter((f) => ({ ...f, campaignId: '' }));
     const url = new URL(window.location.href);
-    url.searchParams.delete('campaign');
+    url.searchParams.delete('task'); url.searchParams.delete('campaign');
     window.history.replaceState(null, '', url);
   }
 
@@ -389,16 +403,21 @@ function Workbench() {
   // 새 초안이 현재 렌즈(상태·클라이언트·검색·시술·기간)에 가려 있으면 전부 리셋 — T11의 6차 확장
   const revealIfHidden = useCallback((created: DraftRow[]) => {
     const L = lensRef.current;
-    const visible = applyPeriod(
+    // 판정 기준은 '한 건이라도 보이나'가 아니라 '방금 만든 것이 전부 보이나'다 — 작업에 원고가 붙은 뒤에
+    // 만든 원고나 2번째 시안처럼 일부만 렌즈에 걸리면, 나머지는 소리 없이 화면 밖에 남는다(리뷰 Important).
+    const shown = applyPeriod(
       filterByProcedure(searchDrafts(filterDrafts(created, L.filter), L.query), L.procFilter),
-      L.period, Date.now()).length > 0;
-    if (!visible) {
-      // 배너(campaignCtx)가 켜져 있으면 표 축도 그 캠페인에 묶어 둔다 — 배너가 "이 캠페인에 추가 중"인데
+      L.period, Date.now());
+    if (shown.length < created.length) {
+      // 배너(taskCtx)가 켜져 있으면 표 축도 그 캠페인에 묶어 둔다 — 배너가 "이 작업에 붙이는 중"인데
       // 표 필터가 전체로 풀리면 방금 만든 원고가 뒤섞여 어디 갔는지 헷갈린다(배너-표 축 결합, 캠페인 스펙 §4-3).
-      setFilter({ status: 'all', clientId: '', campaignId: campaignCtx ? campaignCtx.id : '' });
+      // 다만 묶는 것은 방금 만든 것이 전부 그 캠페인 소속일 때뿐이다: 한 건이라도 소속이 다르면
+      // 캠페인에 묶는 순간 그 원고가 도로 숨어, 숨은 것을 드러내려는 이 함수가 스스로를 배반한다.
+      const pin = taskCtx && created.every((d) => d.campaignId === taskCtx.campaign.id) ? taskCtx.campaign.id : '';
+      setFilter({ status: 'all', clientId: '', campaignId: pin });
       setQuery(''); setProcFilter(''); setPeriod({ kind: 'preset', preset: 'all' });
     }
-  }, [campaignCtx]);
+  }, [taskCtx]);
 
   async function generate() {
     if (generating) return;
@@ -416,16 +435,25 @@ function Workbench() {
         mode: refRows.length > 0 ? composer.mode : 'off',
         direction: composer.direction, format: composer.format,
         count: composer.count,
-        ...(campaignCtx ? { campaignId: campaignCtx.id } : {}),   // 배너가 켜져 있으면 그 캠페인 소속으로
+        // 배너가 켜져 있고 아직 원고가 안 붙었으면 그 작업에 붙여 만든다(시안이 여러 개면 서버가 첫 시안만 붙인다).
+        // 이미 붙은 뒤엔 싣지 않는다 — 원고 1개 = 작업 1개이므로 두 번째 요청은 409로 통째로 실패한다.
+        ...(taskCtx && !taskCtx.attached ? { taskId: taskCtx.taskId } : {}),
       };
       const r = await apiFetch('/api/drafts', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ac.signal,
         body: JSON.stringify({ ...src, constraintsOn: composer.constraintsOn }),
       });
       const body = await r.json().catch(() => ({}));
-      if (!r.ok) { setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return; }
+      if (!r.ok) {
+        // 409 = 이 작업엔 이미 원고가 붙어 있다(다른 탭에서 먼저 붙였을 수 있다). 배너를 '붙었어요'로
+        // 넘겨야 다음 시도가 taskId 없이 저장된다 — 안 그러면 같은 요청이 계속 409로 막히는 막다른 길이 된다.
+        if (r.status === 409) markTaskAttached();
+        setToast((body as { error?: string }).error ?? `오류 ${r.status}`); return;
+      }
       const created = body as DraftRow[];
       setDrafts((cur) => [...created, ...cur]);
+      // 실제로 붙었을 때만 배너를 '붙었어요'로 바꾼다 — 응답이 말해주는 사실을 그대로 읽는다(추측하지 않는다)
+      if (taskCtx && created.some((d) => d.taskId === taskCtx.taskId)) markTaskAttached();
       // 렌즈 전체 리셋 — T11의 6차 확장(생성 결과가 소리 없이 사라지지 않게)
       revealIfHidden(created);
       setComposer((c) => ({ ...c, count: 1 })); // 시안 수는 1회용 — 다음 생성이 조용히 N배 비용이 되지 않게
@@ -608,38 +636,32 @@ function Workbench() {
     });
   }
 
-  // 캠페인 소속·예정일·비용 — 카드 캠페인 칸(DraftCard campaign prop)에서. assignInfluencer와 같은 모양.
-  // 값은 하나(§2-5): 캠페인 화면이 같은 컬럼을 보므로 여기서 바꾼 것이 그대로 그쪽에 나타난다.
-  function changeCampaign(d: DraftRow, campaignId: string | null) {
-    const camp = campaignId ? campaigns.find((c) => c.id === campaignId) ?? null : null;
-    const prev = { campaignId: d.campaignId, campaignName: d.campaignName, campaignCode: d.campaignCode };
-    const next = { campaignId, campaignName: camp?.name ?? null, campaignCode: camp?.nameEn ?? null };
-    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, ...next } : x)));
-    void patchDraft(d.id, { campaignId }).then((updated) => {
-      // 이 요청이 세팅한 값이 아직 표시 중일 때만 되돌린다 — 연속 변경 시 뒤 갱신을 덮지 않도록
-      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.campaignId === campaignId ? { ...x, ...prev } : x)));
-    });
-  }
-  function changeScheduledOn(d: DraftRow, scheduledOn: string | null) {
-    const prev = d.scheduledOn;
-    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, scheduledOn } : x)));
-    void patchDraft(d.id, { scheduledOn }).then((updated) => {
-      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.scheduledOn === scheduledOn ? { ...x, scheduledOn: prev } : x)));
-    });
-  }
-  function changeCost(d: DraftRow, cost: DraftCost | null) {
-    const prev = d.cost;
-    setDrafts((cur) => cur.map((x) => (x.id === d.id ? { ...x, cost } : x)));
-    void patchDraft(d.id, { cost }).then((updated) => {
-      if (!updated) setDrafts((cur) => cur.map((x) => (x.id === d.id && x.cost === cost ? { ...x, cost: prev } : x)));
-    });
+  // 작업(campaign_task)에 붙이기·떼기 — 카드의 작업 칸(DraftCard task prop)에서. 캠페인 소속·예정일·비용은
+  // 이제 전부 붙은 작업에서 파생되므로, 이 페이지가 저장하는 값은 taskId 하나다(값은 하나 §2-5).
+  // 필터·표의 캠페인 축은 그대로 둔다 — draft.campaignId가 붙은 작업에서 오는 파생값이라 저절로 맞는다.
+  async function attachDraft(d: DraftRow, taskId: string | null) {
+    // 낙관적 갱신을 하지 않는다 — 붙이면 캠페인명·예정일·비용까지 한꺼번에 따라오는데 그 값들은 서버만 안다.
+    // 응답 행이 그대로 목록에 들어간다(patchDraft가 갈아끼운다).
+    const updated = await patchDraft(d.id, { taskId });
+    if (updated && taskId === null) setToast('작업에서 뗐어요 — 작업도 원고도 남아 있어요');
   }
   // 두 DraftCard 호출부(카드 뷰·피크)가 같은 객체 모양을 넘긴다 — 한 곳에서 만든다
-  const cardCampaign = (d: DraftRow) => ({
-    options: campaigns, today,
-    onChange: (id: string | null) => changeCampaign(d, id),
-    onChangeScheduledOn: (next: string | null) => changeScheduledOn(d, next),
-    onChangeCost: (next: DraftCost | null) => changeCost(d, next),
+  const cardTask = (d: DraftRow) => ({
+    campaigns, today,
+    onAttach: (taskId: string) => void attachDraft(d, taskId),
+    onDetach: () => void attachDraft(d, null),
+    onCreateTask: async (campaignId: string, type: TaskType) => {
+      // 작업 만들기 + 이 원고 붙이기를 한 트랜잭션으로(서버가 draftId를 받아 처리) — 따로 하면 작업만
+      // 만들고 붙임에 실패했을 때 원고 없는 고아 작업이 남는다(리뷰 발견).
+      // 새 작업은 이 원고의 배정 인플루언서로 만든다 — 미배정이면 미배정 작업 한 건(items 비면 서버가 1행을 만든다)
+      const r = await createTasksApi(campaignId, {
+        type, draftId: d.id, influencers: d.influencerHandle ? [{ handle: d.influencerHandle }] : [],
+      });
+      if (!r.ok) { setToast(r.error); return false; }   // 409(이미 다른 작업에 붙음)도 이 문구로 충분하다
+      const updated = await apiFetch(`/api/drafts/${d.id}`).then((res) => (res.ok ? res.json() : null)).catch(() => null);
+      if (updated) setDrafts((cur) => cur.map((x) => (x.id === d.id ? (updated as DraftRow) : x)));
+      return true;
+    },
   });
 
   // 일괄 변경 — 개별 patchDraft를 N번 부르지 않는다(설계 §B). 50건을 고르면 커넥션 50개가 동시에
@@ -777,10 +799,23 @@ function Workbench() {
       {/* 우: 결과 영역 — 필터 헤더는 스크롤 밖 고정 행 (Dense Scan List) */}
       <div className="flex min-w-0 flex-1 flex-col lg:min-h-0">
         {/* 원고가 0건이어도 보여야 한다 — 만들러 온 상태라 "지금 만드는 것이 어디로 가는지"가 먼저다 */}
-        {campaignCtx && (
+        {taskCtx && (
           <div role="status" className="flex flex-wrap items-center gap-2 border-b border-x-blue/30 bg-x-blue/5 px-4 py-2 text-ui text-x-blue-text">
-            <span><b>{campaignCtx.name}</b> 캠페인에 추가 중 — 지금 만드는 원고(생성·직접 쓰기)는 이 캠페인에 들어가요</span>
-            <button onClick={clearCampaignCtx} className="ml-auto rounded-full border border-x-blue/40 px-2.5 py-0.5 text-ui hover:bg-white">해제</button>
+            <span className="min-w-0">
+              {taskCtx.attached ? (
+                // 붙은 뒤 — 이후 생성은 작업 없이 저장된다. 그 사실을 말해두지 않으면 "왜 두 번째 시안은 안 붙지"가 된다.
+                <>이 작업에 원고가 붙었어요 — 더 만들면 작업 없이 저장돼요</>
+              ) : (
+                <>
+                  <b>{taskCtxLabel}</b> 작업에 붙이는 원고를 만들고 있어요 — 지금 만드는 원고(생성·직접 쓰기)가 이 작업에 붙어요
+                  {composer.count > 1 && (
+                    // 시안 수를 올린 그 자리에서 기대를 맞춘다 — 작업은 원고 1개만 받는다(AGENTS 원칙 2)
+                    <span className="block text-[13px] text-x-secondary">시안이 여러 개면 첫 시안만 붙어요</span>
+                  )}
+                </>
+              )}
+            </span>
+            <button onClick={clearTaskCtx} className="ml-auto rounded-full border border-x-blue/40 px-2.5 py-0.5 text-ui hover:bg-white">해제</button>
           </div>
         )}
         {loaded && drafts.length > 0 && (
@@ -803,6 +838,7 @@ function Workbench() {
                 <DraftFilterBar counts={counts} total={scoped.length} filter={filter}
                                 clients={clients.map(({ client }) => ({ id: client.id, name: client.name }))}
                                 campaigns={campaigns.map((c) => ({ id: c.id, name: c.name }))}
+                                currentCampaignName={taskCtx?.campaign.name}
                                 onChange={setFilter} showStatusTabs={view !== 'kanban'} />
               </div>
             </div>
@@ -886,7 +922,7 @@ function Workbench() {
                        onSaveMedia={(next) => saveDraftMedia(d, next)}
                        mediaDropNotice={mediaDrop?.draftId === d.id ? mediaDrop.notice : null}
                        onDismissMediaDrop={() => setMediaDrop(null)}
-                       campaign={cardCampaign(d)} />
+                       task={cardTask(d)} />
           ))}
           {view === 'cards' && (
             <div className="w-full max-w-[600px]">
@@ -950,7 +986,7 @@ function Workbench() {
                        onSaveMedia={(next) => saveDraftMedia(peeked, next)}
                        mediaDropNotice={mediaDrop?.draftId === peeked.id ? mediaDrop.notice : null}
                        onDismissMediaDrop={() => setMediaDrop(null)}
-                       campaign={cardCampaign(peeked)} />
+                       task={cardTask(peeked)} />
           </div>
         </div>
       )}
@@ -966,10 +1002,13 @@ function Workbench() {
       {writeOpen && (
         <DraftWriteModal clientId={composer.clientId} procedureIds={composer.procedureIds}
                          clientName={writeScope.clientName} procedureNames={writeScope.procedureNames}
-                         campaignId={campaignCtx?.id ?? null} campaignName={campaignCtx?.name ?? null}
+                         taskId={taskCtx && !taskCtx.attached ? taskCtx.taskId : null}
+                         taskLabel={taskCtx && !taskCtx.attached ? taskCtxLabel : null}
+                         onTaskConflict={markTaskAttached}
                          onClose={() => setWriteOpen(false)}
                          onSaved={(row) => {
                            setDrafts((cur) => [row, ...cur]);
+                           if (taskCtx && row.taskId === taskCtx.taskId) markTaskAttached();
                            revealIfHidden([row]);
                            setWriteOpen(false);
                            resultsRef.current?.scrollTo({ top: 0, behavior: 'smooth' });

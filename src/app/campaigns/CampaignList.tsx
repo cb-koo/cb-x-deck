@@ -38,7 +38,7 @@ export function CampaignList({ rows, selectedId, today, loaded, loadErr, onSelec
         <h2 className="text-content font-bold">캠페인 {rows.length > 0 && <span className="text-ui font-normal text-x-secondary">{rows.length}</span>}</h2>
         <button onClick={onCreate} className="text-ui font-medium text-x-blue-text hover:underline">+ 새 캠페인</button>
       </div>
-      <p className="mb-3 px-2 text-ui text-x-muted">클라이언트 한 곳의 한 기간 동안 나가는 원고를 묶어요 — 진행·성과·비용을 한 화면에서 봐요.</p>
+      <p className="mb-3 px-2 text-ui text-x-muted">클라이언트 한 곳의 한 기간 동안 나가는 작업(투고·인용RT·RT·방문협찬)을 묶어요 — 진행·성과·비용을 한 화면에서 봐요.</p>
 
       {!loaded && <p className="px-2 py-4 text-content text-x-muted">불러오는 중…</p>}
       {loaded && loadErr && (

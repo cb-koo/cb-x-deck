@@ -3,7 +3,9 @@ import type { Member } from './types.ts';
 import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
 import type { DraftStatus } from './draftStatus.ts';
 import { hashSource } from './translationStore.ts';
-import { parseDraftCost, type DraftCost } from './campaignCost.ts';
+import { parseTaskCost, type TaskCost } from './campaignCost.ts';
+import { attachDraft } from './campaignTaskStore.ts';
+import type { TaskType } from './campaignJudgment.ts';
 
 // 버전별 한국어 번역 캐시 — sourceHash(원문 지문) → 번역 posts. 어떤 버전이든 한 번 번역하면 재사용.
 export type DraftTranslation = Record<string, string[]>;
@@ -38,13 +40,15 @@ export interface DraftRow {
   // 게시할 인플루언서의 X 핸들('@' 없음, 사용자가 친 대소문자 그대로) — null = 미배정.
   // 배정 단위는 시안 하나(행)다: 형제 시안 셋 다 배정하면 "원고 3개를 줬다"가 되어 사실과 어긋난다.
   influencerHandle: string | null;
-  // 캠페인 소속(스펙 §2-3) — null = 없음. 원고는 캠페인보다 오래 산다(캠페인 삭제 시 set null).
-  // campaignName/Code는 표시·트래킹 링크 utm_campaign 제안용 파생 필드 — SELECT()의 left join 한 번으로 전 경로가 받는다.
+  // 캠페인 소속은 붙은 작업(campaign_task.draft_id)에서 파생한다(스펙 2026-08-28 §5) — 원고는 캠페인에 직접 속하지 않는다.
+  // 이름은 옛 그대로 두어(campaignId·campaignName·campaignCode·scheduledOn·cost) 표·필터·트래킹 링크 prefill이 그대로 읽는다.
+  taskId: string | null;
+  taskType: TaskType | null;
   campaignId: string | null;
   campaignName: string | null;
   campaignCode: string | null;   // campaign.name_en
-  scheduledOn: string | null;    // 'YYYY-MM-DD'(서울). null = 미정. to_char로 읽는다 — Date로 받으면 하루 민다
-  cost: DraftCost | null;        // {type, amount, currency}. 통화는 어디서도 합치지 않는다
+  scheduledOn: string | null;    // 작업의 게시 예정일 'YYYY-MM-DD'
+  cost: TaskCost | null;         // 작업 비용 {amount, currency} — 유형은 taskType
   batchId: string | null;      // 다중 시안 묶음 — 단일 생성은 null
   variantIndex: number | null; // 묶음 내 순번(0부터, 표시 라벨 A/B/C…)
   model: string | null; createdAt: string; member: Member | null;
@@ -60,6 +64,7 @@ type Row = {
   dismissed_flags: string[];
   status: DraftStatus;
   influencer_handle: string | null;
+  task_id: string | null; task_type: TaskType | null;
   campaign_id: string | null; campaign_name: string | null; campaign_code: string | null;
   scheduled_on: string | null; cost: unknown;
   batch_id: string | null; variant_index: number | null;
@@ -68,8 +73,8 @@ type Row = {
 };
 
 // jsonb는 모양을 보증하지 않는다 — 검증을 통과한 것만 값으로, 아니면 null(linkStore.toDaily 관례)
-function costOf(v: unknown): DraftCost | null {
-  const p = parseDraftCost(v ?? null);
+function costOf(v: unknown): TaskCost | null {
+  const p = parseTaskCost(v ?? null);
   return p.ok ? p.value : null;
 }
 
@@ -90,6 +95,7 @@ const toRow = (r: Row): DraftRow => {
     dismissedFlags: r.dismissed_flags,
     status: r.status,
     influencerHandle: r.influencer_handle,
+    taskId: r.task_id, taskType: r.task_type,
     campaignId: r.campaign_id, campaignName: r.campaign_name, campaignCode: r.campaign_code,
     scheduledOn: r.scheduled_on, cost: costOf(r.cost),
     batchId: r.batch_id, variantIndex: r.variant_index,
@@ -103,12 +109,14 @@ const SELECT = (sql: postgres.Sql) => sql`
          d.reference_mode, d.refs, d.content, d.edited, d.history, d.translation,
          d.title, d.ko_title, d.ko_title_hash,
          d.dismissed_flags, d.status, d.influencer_handle, d.batch_id, d.variant_index, d.model, d.created_at,
-         d.campaign_id, c.name as campaign_name, c.name_en as campaign_code,
-         to_char(d.scheduled_on, 'YYYY-MM-DD') as scheduled_on, d.cost,
+         t.id as task_id, t.type as task_type, t.campaign_id, c.name as campaign_name, c.name_en as campaign_code,
+         to_char(t.scheduled_on, 'YYYY-MM-DD') as scheduled_on, t.cost,
          m.id as member_id, m.name as member_name, m.color as member_color
     from draft d
     left join member m on m.id = d.created_by
-    left join campaign c on c.id = d.campaign_id`;
+    left join campaign_task t on t.draft_id = d.id
+    left join campaign c on c.id = t.campaign_id`;
+// campaign_task(draft_id) unique partial index(038) 덕에 원고 1행에 작업은 최대 1행 — 이 조인으로 행이 불어나지 않는다.
 
 export async function insertDraft(sql: postgres.Sql, input: {
   clientId: string | null; clientName: string | null; procedureNames: string[];
@@ -121,31 +129,36 @@ export async function insertDraft(sql: postgres.Sql, input: {
   // 한 번에 제목까지 함께 넣어야 하므로 여기서 받는다. 생략(undefined)하면 기존 호출부(generate.ts)
   // 그대로 null — DEFAULT null 컬럼이라 무변경으로 통과한다.
   title?: string | null;
-  // /generate?campaign= 경로(스펙 §4-1)에서 생성·직접 쓰기 원고가 바로 소속되도록. 생략(undefined)이면 null.
-  campaignId?: string | null;
+  // 작업에 붙여 만들기(/generate?task= · 원고 카드 '새 작업 만들기') — 같은 sql(트랜잭션) 안에서 attachDraft.
+  // 실패(TaskAttachError)는 호출자에게 던진다 — 트랜잭션이면 insert도 함께 롤백된다.
+  taskId?: string | null;
 }): Promise<string> {
   const rows = await sql<Array<{ id: string }>>`
     insert into draft (client_id, client_name, procedure_names, direction, format,
                        reference_mode, refs, content, model, created_by, batch_id, variant_index, translation,
-                       ko_title, ko_title_hash, title, campaign_id)
+                       ko_title, ko_title_hash, title)
     values (${input.clientId}, ${input.clientName}, ${sql.json(input.procedureNames)},
             ${input.direction}, ${input.format}, ${input.referenceMode},
             ${sql.json(input.refs as never)}, ${sql.json(input.content as never)},
             ${input.model}, ${input.memberId}, ${input.batchId ?? null}, ${input.variantIndex ?? null},
             ${input.translation ? sql.json(input.translation as never) : null},
-            ${input.koTitle ?? null}, ${input.koTitleHash ?? null}, ${input.title ?? null}, ${input.campaignId ?? null})
+            ${input.koTitle ?? null}, ${input.koTitleHash ?? null}, ${input.title ?? null})
     returning id`;
-  return rows[0].id;
+  const id = rows[0].id;
+  if (input.taskId) await attachDraft(sql, input.taskId, id);
+  return id;
 }
 
 export async function listDrafts(
-  sql: postgres.Sql, opts: { clientId?: string; status?: DraftStatus; limit?: number } = {},
+  sql: postgres.Sql, opts: { clientId?: string; status?: DraftStatus; limit?: number; unattached?: boolean } = {},
 ): Promise<DraftRow[]> {
   const byClient = opts.clientId ? sql`and d.client_id = ${opts.clientId}` : sql``;
   const byStatus = opts.status ? sql`and d.status = ${opts.status}` : sql``;
+  // 작업에 안 붙은 원고만 — '있는 원고 고르기'(스펙 §4-2)·미부착 필터가 쓴다
+  const byAttach = opts.unattached ? sql`and not exists (select 1 from campaign_task t2 where t2.draft_id = d.id)` : sql``;
   // 배치 형제는 created_at이 동일 — variant_index로 A/B/C 순서 고정 (단일 초안 null은 앞)
   const rows = await sql<Row[]>`
-    ${SELECT(sql)} where true ${byClient} ${byStatus}
+    ${SELECT(sql)} where true ${byClient} ${byStatus} ${byAttach}
     order by d.created_at desc, d.variant_index asc nulls first
     limit ${opts.limit ?? 50}`;
   return rows.map(toRow);
@@ -163,11 +176,7 @@ export async function updateDraft(
            title?: string | null; // '' · null = 지움 · 문자열 = 설정 · undefined = 건드리지 않음
            koTitle?: string | null; koTitleHash?: string | null; // 호출부가 둘을 항상 쌍으로 세팅
            influencerHandle?: string | null; // null이 '배정 해제'라는 뜻을 갖는 유일한 필드 — 아래 case when 참조
-           // 캠페인 관련 3필드(스펙 §2-3) — influencer_handle과 같은 case when 3값 규칙.
-           // undefined = 건드리지 않음 · null = 지움(캠페인에서 빼기·예정일 지움·비용 지움) · 값 = 설정
-           campaignId?: string | null;
-           scheduledOn?: string | null;   // 'YYYY-MM-DD'
-           cost?: DraftCost | null;
+           // 캠페인·예정일·비용은 이제 작업(campaign_task)의 것이다(스펙 2026-08-28 §5) — 여기서 받지 않는다.
            format?: DraftFormat }, // 칸 수 변경 시 서버가 파생해 넘긴다 — '지움' 개념이 없으므로 coalesce로 충분
 ): Promise<void> {
   await sql`update draft set
@@ -187,17 +196,7 @@ export async function updateDraft(
       -- undefined = 건드리지 않음 · null = 배정 해제 · 문자열 = 배정 (::text는 파라미터 타입 추론 명시)
       influencer_handle = case when ${patch.influencerHandle !== undefined}
                             then ${patch.influencerHandle ?? null}::text
-                            else influencer_handle end,
-      -- 아래 셋도 coalesce가 아니다: "캠페인에서 빼기·예정일 지움·비용 지움"은 null을 저장해야 한다(§2-3)
-      campaign_id = case when ${patch.campaignId !== undefined}
-                      then ${patch.campaignId ?? null}::uuid
-                      else campaign_id end,
-      scheduled_on = case when ${patch.scheduledOn !== undefined}
-                       then ${patch.scheduledOn ?? null}::date
-                       else scheduled_on end,
-      cost = case when ${patch.cost !== undefined}
-               then ${patch.cost ? sql.json(patch.cost as never) : null}::jsonb
-               else cost end
+                            else influencer_handle end
     where id = ${id}`;
 }
 
@@ -206,18 +205,14 @@ export async function updateDraft(
 // null·undefined 의미는 updateDraft와 같다: undefined = 건드리지 않음, null = 배정 해제.
 export async function updateDraftsBulk(
   sql: postgres.Sql, ids: string[],
-  patch: { status?: DraftStatus; influencerHandle?: string | null; campaignId?: string | null },
+  patch: { status?: DraftStatus; influencerHandle?: string | null },
 ): Promise<void> {
   if (ids.length === 0) return; // any(빈 배열)은 0건을 맞히지만, 쿼리를 안 쏘는 편이 정직하다
   await sql`update draft set
       status = coalesce(${patch.status ?? null}, status),
       influencer_handle = case when ${patch.influencerHandle !== undefined}
                             then ${patch.influencerHandle ?? null}::text
-                            else influencer_handle end,
-      -- 캠페인 일괄 소속·해제(스펙 §4-1 '기존 원고 고르기' 여러 개 체크 = 한 문장)
-      campaign_id = case when ${patch.campaignId !== undefined}
-                      then ${patch.campaignId ?? null}::uuid
-                      else campaign_id end
+                            else influencer_handle end
     where id = any(${ids}::uuid[])`;
 }
 
@@ -236,26 +231,4 @@ export async function getDraftsByIdsForUpdate(sql: postgres.Sql, ids: string[]):
 
 export async function removeDraft(sql: postgres.Sql, id: string): Promise<void> {
   await sql`delete from draft where id = ${id}`;
-}
-
-// 캠페인 상세의 원고 목록 — 예정일 오름차순(없음은 뒤), 같은 날은 생성순. 표의 최종 순서(밀림 우선 등)는
-// campaignJudgment.sortContent가 정한다 — 여기는 안정적인 기본 순서만 보장한다.
-export async function listDraftsByCampaign(sql: postgres.Sql, campaignId: string): Promise<DraftRow[]> {
-  const rows = await sql<Row[]>`
-    ${SELECT(sql)} where d.campaign_id = ${campaignId}
-    order by d.scheduled_on asc nulls last, d.created_at asc, d.variant_index asc nulls first`;
-  return rows.map(toRow);
-}
-
-// '기존 원고 고르기' 후보(스펙 §4-1) — 그 클라이언트의 캠페인 미소속 원고만. 다른 캠페인 소속은 나오지 않는다(§7).
-// 클라이언트가 삭제된 캠페인(client_id null)은 클라 없는 원고를 후보로 본다.
-export async function listUnassignedDrafts(
-  sql: postgres.Sql, clientId: string | null, limit = 200,
-): Promise<DraftRow[]> {
-  const byClient = clientId === null ? sql`and d.client_id is null` : sql`and d.client_id = ${clientId}`;
-  const rows = await sql<Row[]>`
-    ${SELECT(sql)} where d.campaign_id is null ${byClient}
-    order by d.created_at desc, d.variant_index asc nulls first
-    limit ${limit}`;
-  return rows.map(toRow);
 }

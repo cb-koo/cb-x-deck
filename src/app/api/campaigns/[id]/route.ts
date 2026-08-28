@@ -8,7 +8,7 @@ import { parseCampaignPatch, checkPeriod, CAMPAIGN_NOT_FOUND_MESSAGE } from '@/l
 // campaign.id는 uuid — 형식 아닌 값은 "없음"이 아니라 캐스팅 오류(22P02 → 500)라 조회 전에 404로 끊는다(influencers/[id] 관례)
 const notFound = () => NextResponse.json({ error: CAMPAIGN_NOT_FOUND_MESSAGE }, { status: 404 });
 
-// 상세 = 캠페인 + 원고(게시됨·성과) + 비용 행 + 요약 + 인플 목록 + today(스펙 §6) — 판정 기준 '오늘'을 함께 내려
+// 상세 = 캠페인 + 작업(게시 확인·성과) + 비용 행 + 요약 + 인플 목록 + 유형별 소계 + 삭제 정보 + today(스펙 §6) — 판정 기준 '오늘'을 함께 내려
 // 클라가 같은 기준으로 다시 그린다(캠페인 화면의 낙관적 갱신이 서버와 다른 날짜로 밀림을 판정하면 안 된다).
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAllowedUser();
@@ -41,12 +41,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   return NextResponse.json(updated);
 }
 
-// 원고는 지우지 않는다(FK set null, 예정일·비용은 원고에 남는다) — 확인 다이얼로그는 클라 몫(스펙 §3-3).
-// 이미 없어도 ok:true·deleted:false — 삭제는 멱등(influencers DELETE 관례).
+// 작업은 함께 지워지고 원고는 남는다 — 지워질 작업 수·'대상 미정'이 될 참조 수를 응답에 함께 실어 보낸다(스펙 §4-4).
+// 확인 다이얼로그는 클라 몫. 이미 없어도 ok:true·deleted:false — 삭제는 멱등(influencers DELETE 관례).
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
   if (!isUuidLike(id)) return notFound();
-  return NextResponse.json({ ok: true, deleted: await deleteCampaign(getSql(), id) });
+  return NextResponse.json({ ok: true, ...(await deleteCampaign(getSql(), id)) });
 }

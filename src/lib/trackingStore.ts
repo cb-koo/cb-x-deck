@@ -1,11 +1,13 @@
 import type postgres from 'postgres';
 import type { PostMetrics } from './postMetrics.ts';
 import { assignRoles, type PostRole } from './postRole.ts';
+import { tweetPermalink } from './tweetLink.ts';
 
 export interface TrackedPostRow {
   id: string; tweetId: string; authorHandle: string | null; text: string;
   postedAt: string | null;            // ISO or null
   draftId: string | null;
+  taskId: string | null;              // 붙은 작업(campaign_task) — 게시물은 작업에 붙는다(§2-4). draftId는 남긴다(원고 기준 화면용)
   draftLabel: string | null;          // coalesce(draft.title, draft.ko_title) — 목록 표시용
   source: string;
   unavailableAt: string | null;       // ISO or null
@@ -18,7 +20,7 @@ export interface TrackedPostRow {
 
 type Row = {
   id: string; tweet_id: string; author_handle: string | null; text: string;
-  posted_at: Date | null; draft_id: string | null;
+  posted_at: Date | null; draft_id: string | null; task_id: string | null;
   draft_title: string | null; draft_ko_title: string | null;
   source: string; unavailable_at: Date | null; created_at: Date;
   views: string | number | null; likes: number | null; retweets: number | null;
@@ -29,7 +31,7 @@ type Row = {
 
 // 목록·단건이 같은 정의를 쓴다(드리프트 방지) — lateral join으로 최신 스냅샷 1건만 붙인다.
 const SELECT = (sql: postgres.Sql) => sql`
-  select tp.id, tp.tweet_id, tp.author_handle, tp.text, tp.posted_at, tp.draft_id,
+  select tp.id, tp.tweet_id, tp.author_handle, tp.text, tp.posted_at, tp.draft_id, tp.task_id,
          d.title as draft_title, d.ko_title as draft_ko_title,
          tp.source, tp.unavailable_at, tp.created_at,
          s.views, s.likes, s.retweets, s.replies, s.bookmarks, s.quotes, s.captured_at,
@@ -47,6 +49,7 @@ function toRow(r: Row): TrackedPostRow & { _isReply: boolean | null; _rawUrls: u
     id: r.id, tweetId: r.tweet_id, authorHandle: r.author_handle, text: r.text,
     postedAt: r.posted_at ? new Date(r.posted_at).toISOString() : null,
     draftId: r.draft_id,
+    taskId: r.task_id,
     draftLabel: r.draft_title ?? r.draft_ko_title ?? null,
     source: r.source,
     unavailableAt: r.unavailable_at ? new Date(r.unavailable_at).toISOString() : null,
@@ -68,11 +71,11 @@ function stripInternal(
   r: TrackedPostRow & { _isReply: boolean | null; _rawUrls: unknown }, derivedRole: PostRole | null,
 ): TrackedPostRow {
   const {
-    id, tweetId, authorHandle, text, postedAt, draftId, draftLabel, source,
+    id, tweetId, authorHandle, text, postedAt, draftId, taskId, draftLabel, source,
     unavailableAt, createdAt, metrics, capturedAt, role,
   } = r;
   return {
-    id, tweetId, authorHandle, text, postedAt, draftId, draftLabel, source,
+    id, tweetId, authorHandle, text, postedAt, draftId, taskId, draftLabel, source,
     unavailableAt, createdAt, metrics, capturedAt, role, derivedRole,
   };
 }
@@ -206,11 +209,41 @@ export async function markUnavailable(sql: postgres.Sql, trackedPostId: string):
   await sql`update tracked_post set unavailable_at = coalesce(unavailable_at, now()) where id = ${trackedPostId}`;
 }
 
-export async function setDraftLink(
-  sql: postgres.Sql, trackedPostId: string, draftId: string | null,
+// 게시물 연결 — 작업·원고 어느 쪽으로 연결하든 두 칸을 함께 맞춘다(캠페인 작업 스펙 §2-4 양방향 규칙).
+// 작업 쪽 보충(post_url·posted_at)은 비어 있을 때만 — 게시 확인은 되돌리지 않는다(§3-4). 트랜잭션은 호출자 몫(라우트가 sql.begin).
+export async function linkTrackedPost(
+  sql: postgres.Sql, trackedPostId: string, link: { taskId: string | null } | { draftId: string | null },
 ): Promise<boolean> {
-  const rows = await sql`update tracked_post set draft_id = ${draftId} where id = ${trackedPostId} returning id`;
-  return rows.length > 0;
+  const cur = await sql<Array<{ tweet_id: string; author_handle: string | null; posted_at: Date | null }>>`
+    select tweet_id, author_handle, posted_at from tracked_post where id = ${trackedPostId} for update`;
+  if (cur.length === 0) return false;
+  let taskId: string | null = null;
+  let draftId: string | null = null;
+  if ('taskId' in link) {
+    taskId = link.taskId;
+    if (taskId) {
+      const t = await sql<Array<{ draft_id: string | null }>>`select draft_id from campaign_task where id = ${taskId}`;
+      if (t.length === 0) throw Object.assign(new Error('task not found'), { code: '23503' });   // FK 위반과 같은 처리(라우트 400)
+      draftId = t[0].draft_id;
+    }
+  } else {
+    draftId = link.draftId;
+    if (draftId) {
+      const t = await sql<Array<{ id: string }>>`select id from campaign_task where draft_id = ${draftId}`;
+      taskId = t[0]?.id ?? null;
+    }
+  }
+  await sql`update tracked_post set task_id = ${taskId}, draft_id = ${draftId} where id = ${trackedPostId}`;
+  if (taskId) {
+    const permalink = tweetPermalink(cur[0].author_handle, cur[0].tweet_id);
+    await sql`update campaign_task set
+        post_url = coalesce(post_url, ${permalink}),
+        posted_at = coalesce(posted_at, coalesce((${cur[0].posted_at}::timestamptz at time zone 'Asia/Seoul')::date, (now() at time zone 'Asia/Seoul')::date)),
+        posted_source = coalesce(posted_source, 'manual'),
+        updated_at = now()
+      where id = ${taskId}`;
+  }
+  return true;
 }
 
 export async function deleteTrackedPost(sql: postgres.Sql, trackedPostId: string): Promise<boolean> {

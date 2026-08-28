@@ -6,8 +6,11 @@ import type { DraftStatus } from './draftStatus.ts';
 import type { DraftContent } from './draftTypes.ts';
 import type { CampaignRow, CampaignDetail, InfluencerCostRow } from './campaignStore.ts';
 import type { CampaignCreateInput, CampaignPatchInput } from './campaignInput.ts';
-import type { ExtraCost, DraftCost } from './campaignCost.ts';
+import type { ExtraCost, TaskCost } from './campaignCost.ts';
 import type { TrackedPostRow } from './trackingStore.ts';
+import type { TaskRow, TargetCandidate } from './campaignTaskStore.ts';
+import type { TaskType } from './campaignJudgment.ts';
+import type { CheckPostedResult } from './checkPosted.ts';
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; status: number };
 
@@ -39,28 +42,61 @@ export const fetchCampaigns = () => call<CampaignRow[]>('/api/campaigns');
 export const fetchCampaignDetail = (id: string) => call<CampaignDetail>(`/api/campaigns/${id}`);
 export const createCampaignApi = (input: CampaignCreateInput) => call<CampaignRow>('/api/campaigns', json('POST', input));
 export const patchCampaignApi = (id: string, patch: CampaignPatchInput) => call<CampaignRow>(`/api/campaigns/${id}`, json('PATCH', patch));
-export const deleteCampaignApi = (id: string) => call<{ ok: true; deleted: boolean }>(`/api/campaigns/${id}`, { method: 'DELETE' });
+export const deleteCampaignApi = (id: string) =>
+  call<{ ok: true; deleted: boolean; taskCount: number; detachedTargets: number }>(`/api/campaigns/${id}`, { method: 'DELETE' });
 export const putInfluencerCostApi = (campaignId: string, handle: string, patch: { extraCosts?: ExtraCost[]; note?: string }) =>
   call<InfluencerCostRow>(`/api/campaigns/${campaignId}/influencers/${encodeURIComponent(handle)}`, json('PUT', patch));
-export const fetchCandidateDrafts = (campaignId: string) => call<DraftRow[]>(`/api/campaigns/${campaignId}/drafts`);
+
+// ── 작업(캠페인 단위 원고→작업 전환, 스펙 2026-08-27 §6) ──
+export const fetchTasksTargets = (q: { clientId?: string | null; q?: string; all?: boolean }) => {
+  const p = new URLSearchParams();
+  if (q.clientId) p.set('clientId', q.clientId);
+  if (q.q) p.set('q', q.q);
+  if (q.all) p.set('all', '1');
+  const qs = p.toString();
+  return call<TargetCandidate[]>(`/api/campaigns/tasks/targets${qs ? `?${qs}` : ''}`);
+};
+export const fetchTargeting = (t: { taskId: string } | { url: string }) =>
+  call<{ handles: string[] }>(`/api/campaigns/tasks/targeting?${'taskId' in t ? `taskId=${encodeURIComponent(t.taskId)}` : `url=${encodeURIComponent(t.url)}`}`);
+
+export interface TaskCreateRequest {
+  type: TaskType; targetTaskId?: string | null; targetTweetUrl?: string | null; draftId?: string | null;
+  scheduledOn?: string | null; visitOn?: string | null; note?: string; cost?: TaskCost | null;
+  // 날짜는 사람별(줄) 값이 먼저 — 위의 scheduledOn/visitOn은 줄에 값이 없을 때·미배정일 때의 기본값
+  influencers: Array<{ handle: string; cost?: TaskCost | null; scheduledOn?: string | null; visitOn?: string | null }>;
+}
+export type TaskPatchRequest = {
+  influencerHandle?: string | null; targetTaskId?: string | null; targetTweetUrl?: string | null;
+  postUrl?: string | null; postedAt?: string; removedAt?: string | null; removedReason?: string;
+  scheduledOn?: string | null; visitOn?: string | null; cost?: TaskCost | null; note?: string;
+};
+export const createTasksApi = (campaignId: string, body: TaskCreateRequest) =>
+  call<{ tasks: TaskRow[] }>(`/api/campaigns/${campaignId}/tasks`, json('POST', body));
+export const patchTaskApi = (campaignId: string, taskId: string, body: TaskPatchRequest) =>
+  call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}`, json('PATCH', body));
+export const deleteTaskApi = (campaignId: string, taskId: string) =>
+  call<{ ok: true; deleted: boolean }>(`/api/campaigns/${campaignId}/tasks/${taskId}`, { method: 'DELETE' });
+// 비용 유발(트윗당 $0.001) — 버튼 opt-in(UX 원칙 6). 서버가 확인·미확인·건너뜀·유실을 한 번에 판정해 돌려준다.
+export const checkPostedApi = (campaignId: string) => call<CheckPostedResult>(`/api/campaigns/${campaignId}/check-posted`, { method: 'POST' });
 
 // ── 원고(기존 라우트 — 값은 하나, 캠페인 전용 경로 없음 §2-5) ──
 export interface DraftPatchBody {
   status?: DraftStatus; influencerHandle?: string | null; title?: string; edited?: DraftContent; dismissedFlags?: string[];
-  campaignId?: string | null; scheduledOn?: string | null; cost?: DraftCost | null;
+  taskId?: string | null;   // null = 작업에서 떼기 · uuid = 그 작업에 붙이기(스펙 2026-08-28 §5)
 }
 export const patchDraftApi = (id: string, body: DraftPatchBody) => call<DraftRow>(`/api/drafts/${id}`, json('PATCH', body));
-// 일괄 소속·해제 — 50건도 커넥션 1개(updateDraftsBulk). '기존 원고 고르기'와 DraftCard 캠페인 칸의 이동이 쓴다.
-export const bulkCampaignApi = (ids: string[], campaignId: string | null) =>
-  call<{ ok: true; updated: number }>('/api/drafts', json('PATCH', { ids, campaignId }));
 export const deleteDraftApi = (id: string) => call<{ ok: true }>(`/api/drafts/${id}`, { method: 'DELETE' });
 export const rewriteDraftApi = (id: string, baseIndex: number, feedback: string) =>
   call<DraftRow>(`/api/drafts/${id}/rewrite`, json('POST', { baseIndex, ...(feedback ? { feedback } : {}) }));
 export const regenPostApi = (id: string, index: number) => call<DraftRow>(`/api/drafts/${id}/regen-post`, json('POST', { index }));
+// '있는 원고에서 고르기'(스펙 §4-2) 후보 — 아직 어느 작업에도 안 붙은 원고. clientId 없으면 전체.
+export const fetchUnattachedDrafts = (clientId: string | null) =>
+  call<DraftRow[]>(`/api/drafts?unattached=1${clientId ? `&clientId=${clientId}` : ''}&limit=200`);
 
-// ── 게시물 연결(스펙 §3-2 단계 셀 옆) — 등록 POST(url만 받는다) 뒤 PATCH로 draft_id를 붙인다. 두 라우트 다 기존.
-export const registerTrackedPostApi = (url: string) => call<{ created: boolean; row: TrackedPostRow }>('/api/tracking', json('POST', { url }));
+// ── 게시물 연결(스펙 §3-2 단계 셀 옆) — 등록 POST 뒤 PATCH로 작업(taskId)이나 원고(draftId)를 붙인다. 두 라우트 다 기존.
+export const registerTrackedPostApi = (url: string, taskId?: string) =>
+  call<{ created: boolean; row: TrackedPostRow }>('/api/tracking', json('POST', { url, ...(taskId ? { taskId } : {}) }));
 // 라우트가 재조회 결과를 { row }로 감싸 돌려준다 — 무검사 캐스팅이라 타입이 어긋나면 tsc가 못 잡는다.
 // row는 findTrackedPostById 재조회이므로 대상이 그 사이 지워졌으면 null일 수 있다(호출부가 null도 다뤄야 한다).
-export const linkTrackedPostDraftApi = (trackedPostId: string, draftId: string | null) =>
-  call<{ row: TrackedPostRow | null }>(`/api/tracking/${trackedPostId}`, json('PATCH', { draftId }));
+export const linkTrackedPostApi = (trackedPostId: string, link: { taskId: string | null } | { draftId: string | null }) =>
+  call<{ row: TrackedPostRow | null }>(`/api/tracking/${trackedPostId}`, json('PATCH', link));

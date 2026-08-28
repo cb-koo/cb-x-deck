@@ -1,7 +1,7 @@
 'use client';
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import type { CampaignSummary, PerfSummary } from '@/lib/campaignJudgment';
+import type { TaskSummary, PerfSummary } from '@/lib/campaignJudgment';
 import { moneyParts, formatAmount, type MoneyByCurrency } from '@/lib/campaignCost';
 import { overdueJudgment, publishedSub, costSub, perfSub } from '@/lib/campaignTableView';
 import { toKrw, remainingOf, monthShort, budgetTipText, type CampaignMonthBudget } from '@/lib/clientBudget';
@@ -33,7 +33,7 @@ function Card({ alert, value, label, sub, good, tip }: {
 }
 
 export function SummaryCards({ summary, perf, total, budget, clientId }: {
-  summary: CampaignSummary; perf: PerfSummary; total: MoneyByCurrency;
+  summary: TaskSummary; perf: PerfSummary; total: MoneyByCurrency;
   budget: CampaignMonthBudget | null;   // 이 달 클라이언트 예산(서버). 클라 없는 캠페인은 null → 4칸 유지
   clientId: string | null;
 }) {
@@ -53,7 +53,8 @@ export function SummaryCards({ summary, perf, total, budget, clientId }: {
       <Card value={money.length === 0 ? '—' : (
               <span className="flex flex-col">{money.map((m) => <span key={m.currency}>{formatAmount(m.amount, m.currency)}</span>)}</span>
             )}
-            label="비용 합계" sub={costSub(total)} tip="통화가 다르면 합치지 않고 따로 보여요" />
+            label="비용 합계" sub={costSub(total)}
+            tip="통화가 다르면 합치지 않고 따로 보여요. 내려진 작업 비용도 포함돼요 — 정산 여부는 정산 화면에서 판단해요" />
       {budget && (budget.amount === null ? (
         <Card value="—" label="월 예산"
               sub={clientId

@@ -7,7 +7,8 @@ import { relTime } from '@/lib/relTime';
 import { kstMonthDay } from '@/lib/datetime';
 import { PRICE_TYPE_LABEL, formatMoney, type PricingChange } from '@/lib/influencerPricing';
 import { PAYMENT_FIELD_LABEL, type PaymentMethodChange } from '@/lib/influencerPayment';
-import type { InfluencerAutoEvent, InfluencerChannel, InfluencerLogRow } from '@/lib/influencerStore';
+import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
+import type { InfluencerAutoEvent, InfluencerChannel, InfluencerLogRow, PaymentLogPayload } from '@/lib/influencerStore';
 import { errOf, PANEL, PANEL_TITLE, useErrorReport } from './profileShared';
 
 export const CHANNEL_LABEL: Record<InfluencerChannel, string> = {
@@ -59,6 +60,16 @@ function autoText(l: InfluencerLogRow): ReactNode {
         default: return <>결제 수단 변경</>;
       }
     }
+    case 'payment_requested': {
+      const p = l.payload as PaymentLogPayload | null;
+      if (!p) return <>정산 요청</>;
+      return <>정산 요청 · {formatMoney(p.amountGross, p.currency)} <span className="text-x-muted">({TASK_TYPE_LABEL[p.taskType]})</span></>;
+    }
+    case 'payment_cancelled': {
+      const p = l.payload as PaymentLogPayload | null;
+      if (!p) return <>정산 요청 취소</>;
+      return <>정산 요청 취소 · {formatMoney(p.amountGross, p.currency)}{p.reason ? <> — {p.reason}</> : null}</>;
+    }
     default: return <>활동 기록</>;
   }
 }
@@ -72,6 +83,8 @@ function groupText(eventType: InfluencerAutoEvent | null, n: number): string {
     case 'handle_changed': return `핸들 변경 ${n}건`;
     case 'pricing_changed': return `단가 변경 ${n}건`;
     case 'payment_method_changed': return `결제 수단 변경 ${n}건`;
+    case 'payment_requested': return `정산 요청 ${n}건`;
+    case 'payment_cancelled': return `정산 요청 취소 ${n}건`;
     default: return `활동 기록 ${n}건`;
   }
 }

@@ -140,7 +140,7 @@ post·quoteRt·visit → `task.postUrl`. rt → `task.targetTweetUrl ?? task.tar
 
 | 색 | 조건 | 행 표시 |
 |---|---|---|
-| 🔴 `blocked` | 결제 수단 없음 / 분류 빈칸 | 체크 불가. 이유 + 해결 동작: `프로필에서 등록 →`(인플 프로필 거래 정보 탭 링크) / `분류를 골라 주세요` |
+| 🔴 `blocked` | 명부에 없는 인플 / 결제 수단 없음 / 분류 빈칸 | 체크 불가. 이유 + 해결 동작: `명부에 없는 인플루언서예요 — 명부에 추가하고 결제 수단을 등록해 주세요`(`/influencers` 링크) / `결제 수단이 없어요 — 프로필에서 등록 →`(거래 정보 탭 링크) / `분류를 골라 주세요` |
 | 🟡 `warn` | 참고 URL 없음 / `removed_at` 있음(게시 내려짐 M-D · 사유) / PayPay인데 identifier 없음 | 체크 가능. 문구는 회색·주황 |
 | 🟢 `ready` | 나머지 | `보낼 수 있음` |
 
@@ -185,6 +185,7 @@ post·quoteRt·visit → `task.postUrl`. rt → `task.targetTweetUrl ?? task.tar
 
 - **캠페인 상세 작업 표** `TaskTable.tsx:171` 빈 자리: 작업에 활성 요청이 있으면 `정산 요청됨 8-28`, 마지막 요청이 취소면 `취소됨`, 없으면 빈 자리 유지. 클릭 → `/settlement?tab=requests&task={id}`(내역에서 그 건 펼침). `getCampaignDetail`이 `TaskRow.settlement: { status, createdAt } | null`을 함께 돌려준다(lateral join 1개).
 - **인플루언서 프로필 타임라인**: §2-3 이벤트 두 종 문구.
+- **삭제 보호**: 활성(`requested`) 요청이 붙은 작업은 지울 수 없다 — `DELETE /api/campaigns/[id]/tasks/[taskId]`가 409 `정산 요청된 작업이에요 — 먼저 정산에서 요청을 취소해 주세요`. 캠페인 삭제도 활성 요청이 하나라도 있으면 같은 이유로 막고(`countTasksForCampaignDelete`에 `activeRequests` 추가), 삭제 확인 문구에 건수를 보인다. 취소된 요청만 있으면 삭제 가능(`task_id`는 set null로 기록만 남는다).
 
 ### 4-5. UX 원칙 체크(AGENTS.md)
 
@@ -204,7 +205,7 @@ post·quoteRt·visit → `task.postUrl`. rt → `task.targetTweetUrl ?? task.tar
 | `PATCH /api/settlement/requests/[id]` | 취소만. body `{ action: 'cancel', reason }` |
 | `GET / PUT /api/settlement/settings` | 설정 읽기 / 저장(`sanitizeSettlementSettings`로 검증, 버전 행 추가) |
 
-가드: GET은 `requireAllowedUser`, 쓰기는 `requireMember`(프롬프트 설정 관례). 요청자·취소자는 서버가 해석한 멤버 — body의 사람 정보는 무시.
+가드: `GET candidates`는 `requireMember`(§3-3의 "요청자 최근 인용RT 분류"에 멤버가 필요하다), 그 외 GET은 `requireAllowedUser`, 쓰기는 `requireMember`(프롬프트 설정 관례). 요청자·취소자는 서버가 해석한 멤버 — body의 사람 정보는 무시. 활동 기록은 `insertAutoLog`에 `findByHandle(lower)`로 찾은 influencer_id — 요청은 결제 수단이 있는(=명부에 있는) 인플에만 생기므로 항상 찾아진다.
 
 ### 5-2. 일괄 생성은 "전부 검증 → 전부 저장" 한 트랜잭션
 
@@ -254,7 +255,7 @@ post·quoteRt·visit → `task.postUrl`. rt → `task.targetTweetUrl ?? task.tar
 ## 8. 범위 밖 / 다음 작업의 자리
 
 - **정산 프로덕트 송신** — `src/lib/settlementSender.ts`에 `send(request: PaymentRequestRow): Promise<{ externalId }>` 인터페이스만 두고 구현은 다음 작업. `sent_at`·`external_id`는 그때 채운다. 상태 `paid`(지급완료)도 그때.
-- 슬랙 게시 · 11항목 복사 버튼(koo 08-28: 넣지 않음) · 인플별 묶어 보기 · 인용RT 분류 규칙 확정(`category_default` vs `category` 비교로 근거 생김) · 앳홈·종근당 등 비클라이언트(필요 시 클라이언트 생성으로) · 권오윤 계정(운영).
+- 요청 후 작업 비용·수단이 바뀌었을 때 알림(요청은 스냅샷이라 그대로, 배지는 유지 — 차이를 보여주는 건 다음) · 슬랙 게시 · 11항목 복사 버튼(koo 08-28: 넣지 않음) · 인플별 묶어 보기 · 인용RT 분류 규칙 확정(`category_default` vs `category` 비교로 근거 생김) · 앳홈·종근당 등 비클라이언트(필요 시 클라이언트 생성으로) · 권오윤 계정(운영).
 
 ## 9. 결정 이력
 

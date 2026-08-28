@@ -72,6 +72,20 @@ Authorization: Bearer <API 키>
 
 새로 만들어지거나 바뀐 요청은 약 30초 뒤부터 목록에 나타납니다(동시에 진행 중인 저장을 건너뛰지 않기 위한 안전 지연).
 
+### 시간대
+
+- 시각 필드(`created_at`, `updated_at`, `cancelled.at`, `settlement.*_at`, 그쪽이 보내는 `updated_at`·`paid_at`)는 **ISO 8601, UTC**(`Z` 접미). 표시할 때 그쪽 시간대로 바꿔 쓰면 된다.
+- 날짜 필드(`deadline`)는 **한국(Asia/Seoul) 기준 날짜** `YYYY-MM-DD`다. 시각이 아니라 날짜이므로 변환하지 않는다.
+
+### 3-1. 요청은 수정되지 않는다 — "수정"과 "보류 해결"은 취소 + 새 요청
+
+우리 쪽 결제 요청은 만든 뒤 내용이 바뀌지 않는다(스냅샷). 금액·계좌·분류 등을 고쳐야 하면 담당자가 **그 요청을 취소하고 같은 작업으로 새 요청을 만든다.** 그쪽 미러에는 이렇게 보인다:
+
+1. 옛 건: `status: "cancelled"`, `cancelled.reason`에 사유 — 폴링 목록에 `updated_at`이 갱신되어 다시 나온다. 그쪽이 `on_hold`를 걸어 둔 건이었다면 이 취소가 곧 "보류에 대한 응답"이다.
+2. 새 건: 처음 보는 `request_id`, `status: "requested"`, **`task_id`는 옛 건과 같다.**
+
+그쪽에서 두 건을 이어 보고 싶으면 `task_id`로 묶으면 된다(한 작업에 활성 요청은 항상 1건이고, 취소된 건은 여러 개일 수 있다). 옛 건의 `on_hold`·`note`는 옛 건에 남고 새 건은 `settlement.status: null`로 시작하므로, 새 건에 대해 `received`부터 다시 보내 달라.
+
 ### 정렬·중복 판정 기준은 `updated_at`이다
 
 - 커서와 정렬은 전부 `updated_at`(+동률 시 `id`) 기준이다. **`revision`은 정렬·페이지네이션에 쓰지 않는다** — §5에서 설명하듯 `revision`은 우리 쪽 원본 요청의 변경 횟수(0 또는 1)일 뿐이고, 우리가 그쪽 처리 상태를 반영해도 값이 바뀌지 않는다.
@@ -101,15 +115,15 @@ Authorization: Bearer <API 키>
 | `cancelled.at` | string(ISO 8601) \| null | | |
 | `cancelled.by_name` | string \| null | | |
 | `cancelled.reason` | string \| null | | |
-| `task_id` | string(uuid) \| null | 예 | 원본 캠페인 작업 ID. |
+| `task_id` | string(uuid) \| null | 예(드묾) | 원본 캠페인 작업 ID. **같은 작업을 다시 요청하면(취소 → 새 요청) 새 `request_id`가 생기고 `task_id`는 같다** — 옛 건과 새 건을 잇는 열쇠(§3-1). 작업 자체가 삭제된 경우에만 `null`. |
 | `campaign.id` | string(uuid) \| null | 예 | |
 | `campaign.name` | string | 아니오 | |
-| `clinic.id` | string(uuid) \| null | 예 | 우리 클라이언트(병원). 그쪽 체크리스트의 `clinic_id`에 대응. 이름이 같아도 id가 없을 수 있으니 **매핑은 id 기준**으로. |
+| `clinic.id` | string(uuid) | 아니오 | 우리 클라이언트(병원). 그쪽 체크리스트의 `clinic_id`에 대응. **요청 시점에 스냅샷으로 저장되어 클라이언트가 나중에 삭제·개명되어도 그대로 유지**된다. 매핑·집계는 id 기준으로. |
 | `clinic.name` | string | 아니오 | |
-| `influencer.id` | string(uuid) \| null | 예 | 그쪽 체크리스트의 `influencer_uuid`에 대응. **핸들이 바뀌어도 이 id는 유지**된다 — 집계 키로 이걸 쓸 것. |
+| `influencer.id` | string(uuid) | 아니오 | 그쪽 체크리스트의 `influencer_uuid`에 대응. **요청 시점 스냅샷 — 핸들이 바뀌거나 인플루언서가 삭제되어도 이 id는 유지**된다. 집계 키로 이걸 쓸 것. |
 | `influencer.handle` | string | 아니오 | 요청 시점의 핸들 표기(표시용). |
 | `task_type` | `"post"` \| `"quoteRt"` \| `"rt"` \| `"visit"` | 아니오 | 투고 / 인용RT / RT / 방문협찬. |
-| `category.code` | string \| null | 예 | 분류 옵션의 안정 키(예 `promo-rt`). 사용자가 추가한 옵션은 uuid 문자열. 과거 요청(마이그레이션 이전)은 `null`일 수 있다 — 그 경우 `category.label`만 있다. |
+| `category.code` | string | 아니오 | 분류 옵션의 안정 키(예 `promo-rt`, `fee`, `info-post`). 사용자가 추가한 옵션은 uuid 문자열. 옵션은 삭제되지 않고 숨김만 되므로 코드는 항상 유효하다. |
 | `category.label` | string | 아니오 | 분류 표시 문구(예 `마케팅비 > X(트위터) …`). |
 | `item` | string | 아니오 | 품목. |
 | `purpose` | string | 아니오 | 목적. |
@@ -125,8 +139,8 @@ Authorization: Bearer <API 키>
 | `reference_url` | string \| null | 예 | 참고 링크. |
 | `payment_method` | object(문자열 값만) | 아니오(빈 객체 가능) | 결제 수단. 있는 키만 내려온다: `type`, `holder`, `currency`, `email`, `paypal_id`, `identifier`, `bank`, `branch`, `account`. 전부 snake_case(원본 `paypalId` → `paypal_id`). |
 | `requester.name` | string | 아니오 | 요청자 이름. |
-| `requester.email` | string \| null | 예 | 요청자가 우리 시스템 멤버가 아니면 `null`. |
-| `requester.slack_id` | string \| null | 예 | 요청자가 우리 시스템 멤버가 아니면 `null`. **`payer`/`cc`에 대응하는 필드는 없다** — 아래 참고. |
+| `requester.email` | string \| null | 예(드묾) | 요청자는 로그인한 멤버만 가능하므로 사실상 항상 값이 있다. 그 멤버 계정이 나중에 삭제된 경우에만 `null`. |
+| `requester.slack_id` | string \| null | 예 | 우리 쪽에 Slack ID가 등록된 요청자만 값이 있다. 없으면 `email`로 Slack `users.lookupByEmail`을 쓰면 된다. **`payer`/`cc`에 대응하는 필드는 없다** — 아래 참고. |
 | `note` | string | 아니오 | 요청 메모(빈 문자열일 수 있음). |
 | `settlement.status` | `"received"` \| `"scheduled"` \| `"paid"` \| `"on_hold"` \| `"cancelled"` \| `null` | 예 | **그쪽이 마지막으로 보낸 처리 상태**를 그대로 되비친 값. `null` = 그쪽이 아직 한 번도 상태를 보내지 않음. |
 | `settlement.paid_amount_krw` | number(정수) \| null | 예 | 그쪽이 보낸 실제 지급 원화 금액. `paid` 상태에서만 값이 있다. |
@@ -166,6 +180,8 @@ Authorization: Bearer <API 키>
 401(인증 실패)은 본문 없음. 200·409 응답은 최신 `Item`을 `request`에 담아 돌려주므로(400·404에는 없음), 그쪽은 이 응답만으로도 자기 미러를 즉시 맞출 수 있다.
 
 ### 그쪽에 요구하는 것 (반드시 지켜야 함)
+
+- **가져간 직후 `received`를 보내 달라.** 우리 화면의 "정산 접수" 표시는 이 POST로만 바뀐다. 보내지 않으면 우리 담당자에게는 계속 "요청됨"(정산 쪽이 아직 안 봄)으로 보인다.
 
 - **`updated_at`은 실제 변경 시각(서버 시각)이어야 한다.** 재전송 시각이나 클라이언트 시각을 넣지 않는다.
 - **실패(네트워크 오류·5xx 등)하면 같은 본문 그대로 재전송한다.** `updated_at`을 갱신하지 말고 원래 본문 그대로 다시 보낸다 — 이 API는 그 경우를 멱등하게 처리한다(위 3번 규칙, 또는 정상 재적용).

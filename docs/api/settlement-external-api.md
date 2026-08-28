@@ -92,7 +92,7 @@ Authorization: Bearer <API 키>
 |---|---|---|---|
 | `request_id` | string(uuid) | 아니오 | 결제 요청 ID. 상태 POST의 경로 파라미터로 그대로 쓴다. |
 | `revision` | `0` \| `1` | 아니오 | **우리 원본 요청의 변경 횟수** — `0` 요청됨, `1` 취소됨. 그쪽 처리 상태(`settlement.status`)가 바뀌어도 이 값은 바뀌지 않는다. **정렬·중복 판정에 쓰지 말 것**(§3 참고, `updated_at` 사용). |
-| `status` | `"requested"` \| `"cancelled"` | 아니오 | **우리 쪽 요청 자체의 상태.** 그쪽 처리 상태가 아니다 — 그쪽 처리 상태는 `settlement.status`. `cancelled`가 되는 경우는 (a) 우리 담당자가 취소, (b) 그쪽이 POST로 `status: cancelled`를 보내 우리가 취소 처리한 경우(§6-2, §7) 둘 다. |
+| `status` | `"requested"` \| `"cancelled"` | 아니오 | **우리 쪽 요청 자체의 상태.** 그쪽 처리 상태가 아니다 — 그쪽 처리 상태는 `settlement.status`. `cancelled`가 되는 경우는 (a) 우리 담당자가 취소, (b) 그쪽이 POST로 `status: cancelled`를 보내 우리가 취소 처리한 경우(§6, §7) 둘 다. |
 | `created_at` | string(ISO 8601) | 아니오 | 요청 생성 시각. |
 | `updated_at` | string(ISO 8601) | 아니오 | 이 요청 행이 마지막으로 바뀐 시각. 폴링 정렬·커서 기준. |
 | `cancelled` | object \| null | `status`가 `cancelled`일 때만 값 있음 | `{ at, by_name, reason }` — 취소 시각·취소한 사람 이름(그쪽이 취소시킨 경우 `"정산 프로덕트"`)·사유. |
@@ -156,12 +156,12 @@ Authorization: Bearer <API 키>
 |---|---|---|
 | 1 | `request_id`가 uuid가 아니거나 존재하지 않음 | **404** |
 | 2 | 본문이 JSON 객체가 아님 / `status` 값이 5개 중 하나가 아님 / `updated_at`이 ISO 8601이 아님 / `note`·`external_id`가 최대 길이 초과 또는 문자열이 아님 / `status: paid`인데 `paid_amount_krw`·`paid_at`이 없거나 형식이 틀림 | **400** `{ "error": "...", "field": "..." }` — 첫 번째로 걸리는 필드 하나만 알려준다 |
-| 3 | 위 조건을 다 통과했지만, 보낸 `updated_at`이 **저장된 `settlement.updated_at`보다 이전이거나 같음** | **200** `{ "applied": false, "reason": "stale", "request": Item }` — 적용하지 않고 무시(재전송·순서 뒤바뀐 옛 변경 흡수) |
+| 3 | 위 조건을 다 통과했지만, 보낸 `updated_at`이 **저장된 `settlement.updated_at`보다 이전이거나 같음** | **200** `{ "version": 1, "applied": false, "reason": "stale", "request": Item }` — 적용하지 않고 무시(재전송·순서 뒤바뀐 옛 변경 흡수) |
 | 4 | 우리 쪽 `status`(Item 최상위, §5)가 이미 `"cancelled"`인데 보낸 `status`가 `"cancelled"`가 아님 | **409** `{ "error": "이 요청은 취소됐어요 — 다시 가져가 확인해 주세요", "code": "request-cancelled", "request": Item }` |
 | 5 | 저장된 `settlement.status`가 이미 `"paid"`인데 보낸 `status`가 `"paid"`가 아님 | **409** `{ "error": "이미 지급 완료된 요청이에요", "code": "paid-locked", "request": Item }` |
 | 6 | 그 외(정상 적용 — `paid → paid` 정정 포함) | **200** `{ "version": 1, "applied": true, "request": Item }` |
 
-401(인증 실패)은 본문 없음. 200/409/404/400 응답 모두 최신 `Item`을 `request`(400은 없음)에 담아 돌려주므로, 그쪽은 이 응답만으로도 자기 미러를 즉시 맞출 수 있다.
+401(인증 실패)은 본문 없음. 200·409 응답은 최신 `Item`을 `request`에 담아 돌려주므로(400·404에는 없음), 그쪽은 이 응답만으로도 자기 미러를 즉시 맞출 수 있다.
 
 ### 그쪽에 요구하는 것 (반드시 지켜야 함)
 
@@ -178,7 +178,7 @@ Authorization: Bearer <API 키>
 | `null` | 그쪽이 아직 이 요청을 확인하지 않음 |
 | `received` | 정산 접수 |
 | `scheduled` | 지급 예정 |
-| `paid` | 지급 완료(실제 지급액·시각 확정) |
+| `paid` | 지급 완료(실제 지급액·시각 확정). 지급 완료(paid) 이후에는 우리 쪽에서도 요청을 취소할 수 없도록 막혀 있습니다 — 되돌려야 하면 사람이 협의합니다. |
 | `on_hold` | 보류 — 사유는 `note`에 |
 | `cancelled` | 그쪽이 취소 — 수신 시 우리 쪽 요청도 취소 처리되고, 그 작업은 다시 검토 대기로 돌아간다 |
 

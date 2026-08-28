@@ -1,10 +1,11 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '@/lib/toastContext';
 import { fetchRequests, cancelRequestApi } from '@/lib/settlementApi';
 import type { PaymentRequestRow, RequestStatus } from '@/lib/settlementStore';
 import { RequestRow } from './RequestRow';
 import { CancelDialog } from './CancelDialog';
+import { uniqPairs } from './uniqPairs';
 
 const SEL = 'rounded-lg border border-x-border bg-white px-2.5 py-1.5 text-ui';
 
@@ -15,6 +16,7 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
   const [filter, setFilter] = useState<{ clientId: string; campaignId: string; status: '' | RequestStatus; from: string; to: string }>({ clientId: '', campaignId: '', status: '', from: '', to: '' });
   const [open, setOpen] = useState<string | null>(null);        // 펼친 요청 id
   const [cancelling, setCancelling] = useState<PaymentRequestRow | null>(null);
+  const didFocus = useRef(false);                                // 딥링크 자동 펼침을 첫 로드 1회로 제한
 
   const load = useCallback(async () => {
     const r = await fetchRequests({
@@ -23,17 +25,18 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
     });
     if (!r.ok) { setErr(r.error); return; }
     setErr(''); setRows(r.data);
-    // 배지에서 들어왔으면 그 작업의 활성 요청(없으면 최신)을 펼친다
-    if (focusTaskId && open === null) {
+    // 배지에서 들어왔으면 그 작업의 활성 요청(없으면 최신)을 펼친다 — 최초 1회만(이후 토글은 사용자 의도 유지)
+    if (focusTaskId && !didFocus.current) {
+      didFocus.current = true;
       const hit = r.data.find((x) => x.taskId === focusTaskId && x.status === 'requested') ?? r.data.find((x) => x.taskId === focusTaskId);
       if (hit) setOpen(hit.id);
     }
-  }, [filter, focusTaskId, open]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
+  }, [filter, focusTaskId]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트·필터 변경 시 재조회, open을 의존성에서 뺀 덕에 토글마다 재실행되지 않음(CandidateTable 관례)
   useEffect(() => { void load(); }, [load]);
 
-  const clients = useMemo(() => uniq((rows ?? []).map((r) => [r.clientId ?? '', r.clientName] as const)), [rows]);
-  const campaigns = useMemo(() => uniq((rows ?? []).filter((r) => !filter.clientId || r.clientId === filter.clientId).map((r) => [r.campaignId ?? '', r.campaignName] as const)), [rows, filter.clientId]);
+  const clients = useMemo(() => uniqPairs((rows ?? []).map((r) => [r.clientId ?? '', r.clientName] as const)), [rows]);
+  const campaigns = useMemo(() => uniqPairs((rows ?? []).filter((r) => !filter.clientId || r.clientId === filter.clientId).map((r) => [r.campaignId ?? '', r.campaignName] as const)), [rows, filter.clientId]);
 
   async function doCancel(reason: string): Promise<string | null> {
     if (!cancelling) return null;
@@ -77,7 +80,4 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
       {cancelling && <CancelDialog target={cancelling} onConfirm={doCancel} onClose={() => setCancelling(null)} />}
     </section>
   );
-}
-function uniq<T extends readonly [string, string]>(pairs: T[]): T[] {
-  const m = new Map<string, T>(); for (const p of pairs) if (!m.has(p[0])) m.set(p[0], p); return [...m.values()];
 }

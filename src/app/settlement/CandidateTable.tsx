@@ -12,6 +12,7 @@ import { formatMoney } from '@/lib/influencerPricing';
 import { CandidateRow, type RowEdit } from './CandidateRow';
 import { CreateConfirmDialog } from './CreateConfirmDialog';
 import { effectiveReadiness } from './readinessView';
+import { uniqPairs } from './uniqPairs';
 
 const SEL = 'rounded-lg border border-x-border bg-white px-2.5 py-1.5 text-ui';
 const deadlineLabel = (ymd: string) => {
@@ -55,8 +56,8 @@ export function CandidateTable() {
     return [...f.filter((c) => !blocked(c)), ...f.filter(blocked)];
   }, [data, filter, edits]);
 
-  const clients = useMemo(() => uniq(data?.candidates.map((c) => [c.clientId ?? '', c.clientName] as const) ?? []), [data]);
-  const campaigns = useMemo(() => uniq((data?.candidates ?? []).filter((c) => !filter.clientId || c.clientId === filter.clientId).map((c) => [c.campaignId, c.campaignName] as const)), [data, filter.clientId]);
+  const clients = useMemo(() => uniqPairs(data?.candidates.map((c) => [c.clientId ?? '', c.clientName] as const) ?? []), [data]);
+  const campaigns = useMemo(() => uniqPairs((data?.candidates ?? []).filter((c) => !filter.clientId || c.clientId === filter.clientId).map((c) => [c.campaignId, c.campaignName] as const)), [data, filter.clientId]);
 
   const picked = rows.filter((c) => selected.has(c.taskId));
   const totals = useMemo(() => {
@@ -129,8 +130,4 @@ export function CandidateTable() {
       {confirming && <CreateConfirmDialog items={picked} edits={edits} onConfirm={submit} onClose={() => setConfirming(false)} />}
     </section>
   );
-}
-
-function uniq<T extends readonly [string, string]>(pairs: T[]): T[] {
-  const m = new Map<string, T>(); for (const p of pairs) if (!m.has(p[0])) m.set(p[0], p); return [...m.values()];
 }

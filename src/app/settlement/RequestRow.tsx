@@ -13,17 +13,19 @@ export function RequestRow({ r, open, onToggle, onCancel }: { r: PaymentRequestR
   const base = r.costCurrency === r.payoutCurrency ? formatMoney(r.amountNet, r.payoutCurrency) : `${formatMoney(costAmount, r.costCurrency)} → ${formatMoney(r.amountNet, r.payoutCurrency)}`;
   return (
     <li className="px-4 py-3" style={{ minHeight: 76 }}>
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3 text-left text-[15px]">
-        <span className="font-semibold">@{r.influencerHandle}</span>
-        <span className="rounded-full border border-x-border px-2 py-0.5 text-ui">{TASK_TYPE_LABEL[r.taskType]}</span>
-        <span className="text-x-secondary truncate">{r.clientName} · {r.campaignName}</span>
-        <span className="ml-auto tabular-nums font-medium whitespace-nowrap">{base}{r.feeAmount > 0 && <span className="ml-1 text-x-muted font-normal">+ {r.feeAmount.toLocaleString('ko-KR')}</span>}</span>
-        <span className="text-ui text-x-secondary whitespace-nowrap">{PAYMENT_TYPE_LABEL[r.paymentMethod.type]}</span>
-        <span className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${cancelled ? 'bg-x-surface text-x-secondary' : 'bg-x-blue/10 text-x-blue-text'}`}>
-          {cancelled ? `취소됨 ${kstMonthDay(r.cancelledAt)}` : `요청됨 ${kstMonthDay(r.createdAt)}`}
-        </span>
+      <button type="button" onClick={onToggle} aria-expanded={open} className="block w-full text-left text-[15px]">
+        <div className="flex items-center gap-3">
+          <span className="font-semibold">@{r.influencerHandle}</span>
+          <span className="rounded-full border border-x-border px-2 py-0.5 text-ui">{TASK_TYPE_LABEL[r.taskType]}</span>
+          <span className="text-x-secondary truncate">{r.clientName} · {r.campaignName}</span>
+          <span className="ml-auto tabular-nums font-medium whitespace-nowrap">{base}{r.feeAmount > 0 && <span className="ml-1 text-x-muted font-normal">+ {r.feeAmount.toLocaleString('ko-KR')}</span>}</span>
+          <span className="text-ui text-x-secondary whitespace-nowrap">{PAYMENT_TYPE_LABEL[r.paymentMethod.type]}</span>
+          <span className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${cancelled ? 'bg-x-surface text-x-secondary' : 'bg-x-blue/10 text-x-blue-text'}`}>
+            {cancelled ? `취소됨 ${kstMonthDay(r.cancelledAt)}` : `요청됨 ${kstMonthDay(r.createdAt)}`}
+          </span>
+        </div>
+        <div className="mt-1 pl-0 text-ui text-x-muted">마감 {r.deadlineOn} · 요청자 {r.requesterName}</div>
       </button>
-      <div className="mt-1 pl-0 text-ui text-x-muted">마감 {r.deadlineOn} · 요청자 {r.requesterName}</div>
       {open && (
         <div className="mt-3 rounded-xl bg-x-surface p-4 text-ui">
           <dl className="grid grid-cols-[96px_1fr] gap-x-4 gap-y-1.5">

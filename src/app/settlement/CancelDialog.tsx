@@ -28,7 +28,7 @@ export function CancelDialog({ target, onConfirm, onClose }: { target: PaymentRe
         <h2 className="text-[16px] font-semibold">이 요청을 취소할까요?</h2>
         <p className="mt-1 text-ui text-x-secondary">@{target.influencerHandle} · {formatMoney(target.amountGross, target.payoutCurrency)}</p>
         <label className="mt-3 block text-ui text-x-secondary">사유 <span className="text-red-600">필수</span>
-          <textarea className="mt-1 w-full rounded-lg border border-x-border p-2 text-ui" rows={3} value={reason} onChange={(e) => { setReason(e.target.value); setErr(''); }} placeholder="예: 금액 착오 — 3,000엔이 아니라 5,000엔" />
+          <textarea autoFocus className="mt-1 w-full rounded-lg border border-x-border p-2 text-ui" rows={3} value={reason} onChange={(e) => { setReason(e.target.value); setErr(''); }} placeholder="예: 금액 착오 — 3,000엔이 아니라 5,000엔" />
         </label>
         <p className="mt-2 text-ui text-x-muted">취소해도 기록은 남아요(누가·언제·왜). 이 작업은 다시 검토 대기에 나타나요.</p>
         {err && <p role="alert" className="mt-2 text-ui text-red-700">{err}</p>}

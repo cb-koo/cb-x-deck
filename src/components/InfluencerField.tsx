@@ -10,13 +10,16 @@ import type { InfluencerOption } from '@/lib/draftTypes';
 //
 // 정규화(parseXHandle)와 오류 판정도 여기서 하지 않는다. 저장되는 값의 근거는 서버 정규화이고,
 // 호출부(편집창)가 같은 함수로 즉시 피드백을 만든다 — 이 필드는 받은 error를 표시만 한다.
-export function InfluencerField({ value, options, onChange, error, autoFocus, onEnter, hideLabel, hideHelp }: {
+export function InfluencerField({ value, options, onChange, error, autoFocus, onEnter, onBlur, hideLabel, hideHelp }: {
   value: string;                    // 핸들('@' 없음), '' = 미배정
   options: InfluencerOption[];
   onChange: (v: string) => void;
   error: string | null;
   autoFocus?: boolean;              // 팝오버처럼 이 칸 하나만 있는 자리에서 (편집창은 본문이 먼저 잡는다)
   onEnter?: (current: string) => void;  // 입력칸에서 Enter로 저장 — 저장 버튼이 팝오버 안에만 있어 손이 멀다
+  // 칸을 떠날 때도 확정 — 한 명만 고르는 자리(작업 추가)에서 Enter를 안 누르고 [작업 만들기]를 누르면
+  // 적어 둔 사람이 통째로 사라진다. blur가 click보다 먼저 오므로 만들기 버튼은 확정된 값을 본다.
+  onBlur?: (current: string) => void;
   // 부르는 쪽이 이미 같은 말을 하는 자리(작업 추가 모달의 '인플루언서' 칸 = 칩 상자 안)에서 라벨·도움말이
   // 두 번 나오지 않게 감춘다. 라벨은 화면에서만 감추고 스크린리더에는 남긴다. 오류 줄은 감추지 않는다.
   hideLabel?: boolean;
@@ -37,6 +40,7 @@ export function InfluencerField({ value, options, onChange, error, autoFocus, on
              // 한글·일본어 입력에서 조합을 확정하는 Enter가 저장으로 새면 안 된다(저장소 관례: nativeEvent.isComposing).
              // 값은 state가 아니라 입력칸에서 읽는다 — 제안 목록을 Enter로 고른 직후엔 state가 아직 그 값이 아니다.
              onKeyDown={onEnter && ((e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) onEnter(e.currentTarget.value); })}
+             onBlur={onBlur && ((e) => onBlur(e.currentTarget.value))}
              // 핸들은 대소문자 그대로 보존해야 하고 사전에 없는 문자열이라, 모바일 자동 대문자·자동 교정이 값을 망친다.
              // autoComplete="off": 브라우저 저장값(이름·주소) 팝업이 배정 후보 위에 겹쳐 뜨는 걸 막는다.
              autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}

@@ -15,8 +15,12 @@ import { CostRows, type RowDates } from './CostRows';
 import { AttachDraftModal } from './AttachDraftModal';
 
 // [+ 작업 추가](스펙 §4-2, 시안 task-add-v3) — 한 창에서 유형을 바꾸면 칸이 바뀐다(입력한 인플·예정일은 유지).
-// RT·인용RT: 유형 → 대상 → 인플(여러 명) → (인용RT: 원고) → 사람별 줄(금액·날짜) → 메모 / 투고·방문협찬: 유형 → 인플 → 원고 → 사람별 줄 → 메모.
-// 여러 명 = 사람 수만큼 작업. 0명 = 미배정 1개. 원고는 0~1명일 때만.
+// RT·인용RT: 유형 → 대상 → 인플 → (인용RT: 원고) → 줄(금액·날짜) → 메모 / 투고·방문협찬: 유형 → 인플 → 원고 → 줄 → 메모.
+//
+// 인플을 몇 명 고르는지는 유형이 정한다(koo 2026-08-28): 투고·인용RT·방문협찬은 한 명, RT만 여러 명.
+// 원고는 한 사람 것이고(거절하면 다른 사람에게 다시 쓴다) 발행 유형은 늘 원고가 딸린 일이라 구조상 한 명이다 —
+// 그래서 '원고는 한 사람에게만' 같은 설명이나 잠긴 라디오가 더 이상 필요 없다. RT는 원고가 없고 주당 십수 건이라
+// 묶음 입력이 필요해서 여러 명 그대로 둔다. 여러 명 = 사람 수만큼 작업. 0명 = 미배정 1개.
 //
 // 날짜는 사람별 줄에서 받는다(koo QA) — 인플마다 올리는 날이 다른 게 실무인데, 창 위 한 칸이면 N명에게 같은
 // 날이 들어간다. 위의 '(전체)' 칸은 [모두에게 적용]을 눌렀을 때만 줄에 퍼진다 — 치는 대로 자동으로 퍼지면
@@ -34,7 +38,7 @@ const suggestForRow = (pricing: Parameters<typeof suggestTaskCost>[0], type: Tas
 
 export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }: {
   campaign: CampaignRow; influencerOptions: InfluencerOption[]; onClose: () => void;
-  onCreated: (created: { count: number; firstTaskId: string; goToGenerate: boolean }) => void;
+  onCreated: (created: { count: number; firstTaskId: string; goToGenerate: boolean; keepOpen?: boolean }) => void;
 }) {
   const [type, setType] = useState<TaskType>('post');
   const [target, setTarget] = useState<TargetValue>(null);
@@ -42,6 +46,8 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
   const [handles, setHandles] = useState<string[]>([]);
   const [handleInput, setHandleInput] = useState('');
   const [handleErr, setHandleErr] = useState<string | null>(null);
+  // RT에서 발행 유형으로 바꾸며 뺀 사람들 — 조용히 사라지면 안 되니 한 줄로 말하고, 다음 변경에서 사라진다
+  const [droppedHandles, setDroppedHandles] = useState<string[]>([]);
   const [costs, setCosts] = useState<Record<string, TaskCost | null>>({});
   // 비용 블록의 통화 — 모달 전체 상태(CostRows의 로컬 state였다가 여기로 옮김, 유형이 바뀌어도 안 사라지게).
   const [currency, setCurrency] = useState<Currency>('JPY');
@@ -54,7 +60,8 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const hasTarget = TARGETING_TYPES.includes(type);
-  const hasDraft = type !== 'rt';
+  const isMulti = type === 'rt';        // 여러 명을 한 번에 고르는 유형은 RT 하나뿐
+  const hasDraft = !isMulti;
   const optionFor = useCallback((h: string) => influencerOptions.find((o) => o.handle.toLowerCase() === h.toLowerCase()), [influencerOptions]);
   const changeCost = useCallback((h: string, next: TaskCost | null) => setCosts((cur) => ({ ...cur, [h]: next })), []);
   const changeDate = useCallback((h: string, patch: Partial<RowDates>) =>
@@ -95,6 +102,16 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
     });
     if (next === 'rt') setDraft({ kind: 'none' });   // RT엔 원고 칸이 없다 — 골라 둔 원고가 몰래 따라가면 안 된다
     if (!TARGETING_TYPES.includes(next)) setTargeting([]);   // 대상 칸이 사라지면 '이미 있음' 주황 표시도 근거를 잃는다
+    // 여러 명(RT) → 한 명(발행 유형): 첫 사람만 남긴다. 남은 사람을 말없이 지우면 만들어진 작업 수가 안 맞는다.
+    setDroppedHandles([]);
+    if (next !== 'rt' && handles.length > 1) {
+      const [kept, ...rest] = handles;
+      const prune = <T,>(cur: Record<string, T>) => { const out = { ...cur }; for (const h of rest) delete out[h]; return out; };
+      setHandles([kept]);
+      setCosts(prune);
+      setDates(prune);
+      setDroppedHandles(rest);
+    }
     setType(next);
   }
 
@@ -109,9 +126,10 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
     // 순서에서 이게 실제로 어긋난다는 걸 확인했다). 통화는 오직 통화 select(명시적 행동)로만 바뀐다.
     setHandles((cur) => [...cur, p.handle]);
     setCosts((cur) => ({ ...cur, [p.handle]: sug && sug.currency === currency ? sug : null }));
-    setHandleInput(''); setHandleErr(null);
+    setHandleInput(''); setHandleErr(null); setDroppedHandles([]);
   }
   const removeHandle = (h: string) => {
+    setDroppedHandles([]);
     setHandles((cur) => cur.filter((x) => x !== h));
     setCosts((cur) => { const out = { ...cur }; delete out[h]; return out; });
     setDates((cur) => { const out = { ...cur }; delete out[h]; return out; });
@@ -126,7 +144,6 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
     });
   }
   const dup = useMemo(() => new Set(targeting.map((h) => h.toLowerCase())), [targeting]);
-  const canAttachDraft = hasDraft && handles.length <= 1;
 
   // TargetPicker는 id만 돌려준다 — 접힌 카드에 보여줄 라벨·게시 여부는 후보 목록에서 다시 찾는다(한 번 더 조회, 50건 안에 있다)
   async function resolveTarget(next: { taskId: string } | { url: string } | null) {
@@ -137,7 +154,8 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
     setTarget({ taskId: next.taskId, label: c ? candidateLabel(c) : '선택한 작업', sub: c && c.campaignId !== campaign.id ? c.campaignName : null, posted: !!c?.postedAt });
   }
 
-  async function submit(goToGenerate: boolean) {
+  // keepOpen = [만들고 하나 더] — 만든 뒤 창을 열어 둔 채 사람에 딸린 칸만 비운다(다음 사람을 이어서 넣는다)
+  async function submit(goToGenerate: boolean, keepOpen = false) {
     if (busy) return;
     for (const h of rowKeys) {
       const d = dates[h] ?? EMPTY_DATES;
@@ -145,7 +163,6 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
       if (d.scheduledOn && !isDateOnlyString(d.scheduledOn)) { setErr(`${who}게시 예정일 형식이 올바르지 않아요`); return; }
       if (type === 'visit' && d.visitOn && !isDateOnlyString(d.visitOn)) { setErr(`${who}방문일 형식이 올바르지 않아요`); return; }
     }
-    if (!canAttachDraft && draft.kind !== 'none') { setErr('원고는 한 사람에게만 붙일 수 있어요 — 인플루언서를 한 명만 고르거나 원고를 빼 주세요'); return; }
     // 저장되는 날짜는 언제나 줄의 날짜다. 최상위 값은 미배정(0명) 한 줄일 때만 쓴다 — 서버가 그때 items 없이 1행을 만든다.
     const solo = dates[''] ?? EMPTY_DATES;
     const body: TaskCreateRequest = {
@@ -165,7 +182,12 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
     const r = await createTasksApi(campaign.id, body);
     setBusy(false);
     if (!r.ok) { setErr(r.error); return; }
-    onCreated({ count: r.data.tasks.length, firstTaskId: r.data.tasks[0].id, goToGenerate });
+    // 유형·대상·(전체)날짜·통화·메모는 그대로 둔다 — 다음 사람도 같은 캠페인의 같은 일이라 다시 고를 이유가 없다
+    if (keepOpen) {
+      setHandles([]); setHandleInput(''); setHandleErr(null); setDroppedHandles([]);
+      setCosts({}); setDates({}); setDraft({ kind: 'none' });
+    }
+    onCreated({ count: r.data.tasks.length, firstTaskId: r.data.tasks[0].id, goToGenerate, keepOpen });
   }
 
   const label = 'text-ui text-x-secondary';
@@ -175,9 +197,10 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
     <div className={field}>
       <p className={label}>원고 <span className="text-x-muted">우리가 써서 전달할 때</span></p>
       <div className="mt-1.5 flex flex-wrap items-center gap-4 text-content">
+        {/* 세 갈래 모두 언제나 고를 수 있다 — 원고가 붙는 유형은 인플이 구조상 한 명이라 막을 일이 없다 */}
         {(['none', 'existing', 'new'] as const).map((k) => (
-          <label key={k} className={`flex items-center gap-1.5 ${!canAttachDraft && k !== 'none' ? 'text-x-muted' : ''}`}>
-            <input type="radio" name="draft" checked={draft.kind === k} disabled={!canAttachDraft && k !== 'none'}
+          <label key={k} className="flex items-center gap-1.5">
+            <input type="radio" name="draft" checked={draft.kind === k}
                    onChange={() => { if (k === 'existing') setAttachOpen(true); else setDraft({ kind: k }); }} />
             {k === 'none' ? '없음 (인플루언서가 직접 씀)' : k === 'existing' ? '있는 원고 고르기' : '새로 만들기'}
           </label>
@@ -189,31 +212,42 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
           <button type="button" onClick={() => setAttachOpen(true)} className="text-ui text-x-secondary hover:underline">바꾸기</button>
         </p>
       )}
-      <p className="mt-1 text-ui text-x-muted">{draft.kind === 'new' ? '만들기를 누르면 작업이 먼저 생기고 원고 생성 화면으로 가요 — 거기서 만든 원고가 이 작업에 붙어요' : !canAttachDraft ? '인플루언서가 여러 명이면 원고를 붙일 수 없어요' : ' '}</p>
+      <p className="mt-1 text-ui text-x-muted">{draft.kind === 'new' ? '만들기를 누르면 작업이 먼저 생기고 원고 생성 화면으로 가요 — 거기서 만든 원고가 이 작업에 붙어요' : ' '}</p>
     </div>
   );
+  // 한 명만 고르는 유형에서는 사람을 고르는 순간 칩 하나만 남고 입력칸이 사라진다 — 두 번째 사람을 넣을 자리가
+  // 아예 없는 게 규칙을 말하는 가장 짧은 방법이다(✕로 빼면 다시 고를 수 있다).
   const influencerField = (
     <div className={field}>
-      <p className={label}>인플루언서 <span className="text-x-muted">여러 명이면 사람 수만큼 작업이 생겨요</span></p>
-      <div className="mt-1.5 flex min-h-11 flex-wrap items-center gap-2 rounded-[10px] border border-x-border-strong bg-white px-3 py-1.5">
+      <p className={label}>인플루언서 {isMulti && <span className="text-x-muted">여러 명이면 사람 수만큼 작업이 생겨요</span>}</p>
+      <div className={`mt-1.5 flex min-h-11 flex-wrap items-center gap-2 rounded-[10px] border border-x-border-strong bg-white px-3 py-1.5 ${isMulti ? '' : 'max-w-[318px]'}`}>
         {handles.map((h) => (
           <span key={h} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-ui ${dup.has(h.toLowerCase()) ? 'bg-amber-100 text-amber-800' : 'bg-x-surface'}`}>
             <span aria-hidden className="inline-block h-5 w-5 rounded-full bg-x-border" />@{h}{dup.has(h.toLowerCase()) && ' · 이미 있음'}
             <button type="button" onClick={() => removeHandle(h)} aria-label={`@${h} 빼기`} className="text-x-muted hover:text-x-text">✕</button>
           </span>
         ))}
-        <span className="min-w-[180px] flex-1">
-          {/* 라벨·도움말은 이 칸 위 '인플루언서' 줄이 이미 말한다 — 칩 상자 안에서 두 번 말하지 않는다(오류 줄은 남긴다) */}
-          <InfluencerField value={handleInput} options={influencerOptions} hideLabel hideHelp onChange={(v) => { setHandleInput(v); setHandleErr(null); }} error={handleErr} onEnter={(v) => { if (v.trim()) addHandle(v); }} />
-        </span>
+        {(isMulti || handles.length === 0) && (
+          <span className="min-w-[180px] flex-1">
+            {/* 라벨·도움말은 이 칸 위 '인플루언서' 줄이 이미 말한다 — 칩 상자 안에서 두 번 말하지 않는다(오류 줄은 남긴다) */}
+            {/* 한 명 고르는 자리에선 칸을 떠날 때도 확정한다 — Enter를 안 누르고 [작업 만들기]를 누르면 고른 사람이 통째로 사라진다 */}
+            <InfluencerField value={handleInput} options={influencerOptions} hideLabel hideHelp onChange={(v) => { setHandleInput(v); setHandleErr(null); }} error={handleErr}
+                             onEnter={(v) => { if (v.trim()) addHandle(v); }}
+                             onBlur={isMulti ? undefined : (v) => { if (v.trim()) addHandle(v); }} />
+          </span>
+        )}
       </div>
+      {droppedHandles.length > 0 && (
+        <p className="mt-1.5 text-ui text-x-secondary">{droppedHandles.map((h) => `@${h}`).join(', ')}는 빠졌어요 — RT가 아니면 한 사람씩 만들어요</p>
+      )}
       {targeting.length > 0 && hasTarget && <p className="mt-1.5 text-ui text-x-secondary">이 게시물을 이미 RT하기로 한 사람: {targeting.map((h) => `@${h}`).join(' · ')}</p>}
       {dup.size > 0 && handles.some((h) => dup.has(h.toLowerCase())) && <p className="mt-1 text-ui text-x-muted">주황 표시는 같은 대상으로 이미 작업이 있는 사람 — 그대로 두면 두 번째 작업이 만들어져요</p>}
     </div>
   );
+  const manyRows = rowKeys.length > 1;   // 줄이 하나면 '사람별'·'모두에게 적용'은 말이 안 된다(뜻이 없는 칸은 감춘다)
   const rowsField = (
     <div className={field}>
-      <p className={label}>사람별 금액·날짜 <span className="text-x-muted">명부 단가로 채웠어요 — 사람마다 다르면 그 줄에서 고치세요</span></p>
+      <p className={label}>{manyRows ? '사람별 ' : ''}금액·날짜 <span className="text-x-muted">명부 단가로 채웠어요 — {manyRows ? '사람마다 다르면 그 줄에서 고치세요' : '다르면 고치세요'}</span></p>
       {/* key={type}: 유형을 바꾸면 칸을 새로 그린다 — 치던 글자가 남아 새 단가를 가리는 일이 없게 */}
       <div className="mt-1.5">
         <CostRows key={type} type={type} handles={handles} influencerOptions={influencerOptions} values={costs} currency={currency}
@@ -271,13 +305,18 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
           )}
           {influencerField}
           {hasDraft && draftField}
-          {dateFields}
+          {/* 줄이 하나뿐이면 '(전체) 날짜 + 모두에게 적용'은 그 한 줄에게 그 줄의 날짜를 넣는 셈이라 감춘다 */}
+          {manyRows && dateFields}
           {rowsField}
           {noteField}
           {err && <p role="alert" className="mt-3 text-ui text-red-600">{err}</p>}
         </div>
         <div className="flex justify-end gap-2.5 border-t border-x-border px-6 py-4">
           <Button onClick={onClose} disabled={busy} className="h-10 px-4 text-content">취소</Button>
+          {/* 한 사람씩 만드는 유형에서 같은 캠페인의 다음 사람으로 이어 가는 길 — '새로 만들기'는 원고 화면으로 떠나므로 뺀다 */}
+          {hasDraft && draft.kind !== 'new' && (
+            <Button onClick={() => void submit(false, true)} disabled={busy} className="h-10 px-4 text-content">만들고 하나 더</Button>
+          )}
           <Button variant="primary" onClick={() => void submit(draft.kind === 'new')} disabled={busy} className="h-10 px-4 text-content">
             {busy ? '만드는 중…' : draft.kind === 'new' ? '작업 만들고 원고 쓰기' : handles.length > 1 ? `작업 ${handles.length}개 만들기` : '작업 만들기'}
           </Button>

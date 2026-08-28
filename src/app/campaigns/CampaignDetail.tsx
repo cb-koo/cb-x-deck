@@ -441,7 +441,9 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
       )}
       {addOpen && (
         <TaskAddModal campaign={data.campaign} influencerOptions={influencerOptions} onClose={() => setAddOpen(false)}
-                      onCreated={({ count, firstTaskId, goToGenerate }) => {
+                      onCreated={({ count, firstTaskId, goToGenerate, keepOpen }) => {
+                        // [만들고 하나 더] — 창은 그대로 두고 표만 새로 읽는다(만든 게 바로 뒤에 보이게)
+                        if (keepOpen) { show('작업을 만들었어요 — 다음 사람을 골라요'); void load(); onChanged(); return; }
                         setAddOpen(false);
                         // '새로 만들기' — 작업이 먼저 생겼으니 원고 생성 화면으로 넘긴다(거기서 만든 원고가 이 작업에 붙는다)
                         if (goToGenerate) { window.location.assign(`/generate?task=${firstTaskId}&campaign=${data.campaign.id}`); return; }

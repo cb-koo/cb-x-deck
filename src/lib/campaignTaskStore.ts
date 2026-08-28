@@ -240,13 +240,23 @@ export async function markPosted(sql: postgres.Sql, taskIds: string[], postedAt:
   return rows.length;
 }
 
-// 캠페인 삭제 확인 문구(§4-4)의 숫자 — 함께 지워질 작업 수, 다른 캠페인에서 이 캠페인 작업을 대상으로 참조하는 작업 수
-export async function countTasksForCampaignDelete(sql: postgres.Sql, campaignId: string): Promise<{ taskCount: number; detachedTargets: number }> {
-  const [r] = await sql<Array<{ task_count: string | number; detached: string | number }>>`
+// 정산 보호(정산 스펙 §4-4) — 활성 요청이 붙은 작업은 지우지 않는다
+export async function hasActiveRequest(sql: postgres.Sql, taskId: string): Promise<boolean> {
+  if (!isUuidLike(taskId)) return false;
+  const r = await sql<Array<{ n: string | number }>>`select count(*) as n from payment_request where task_id = ${taskId} and status = 'requested'`;
+  return Number(r[0].n) > 0;
+}
+
+// 캠페인 삭제 확인 문구(§4-4)의 숫자 — 함께 지워질 작업 수, 다른 캠페인에서 이 캠페인 작업을 대상으로 참조하는 작업 수,
+// 활성 정산 요청이 붙은 작업 수(1건이라도 있으면 삭제를 막는다 — 정산 스펙 §4-4)
+export async function countTasksForCampaignDelete(sql: postgres.Sql, campaignId: string): Promise<{ taskCount: number; detachedTargets: number; activeRequests: number }> {
+  const [r] = await sql<Array<{ task_count: string | number; detached: string | number; active: string | number }>>`
     select (select count(*) from campaign_task where campaign_id = ${campaignId}) as task_count,
            (select count(*) from campaign_task x join campaign_task y on y.id = x.target_task_id
-             where y.campaign_id = ${campaignId} and x.campaign_id <> ${campaignId}) as detached`;
-  return { taskCount: Number(r.task_count), detachedTargets: Number(r.detached) };
+             where y.campaign_id = ${campaignId} and x.campaign_id <> ${campaignId}) as detached,
+           (select count(*) from payment_request r join campaign_task t on t.id = r.task_id
+             where t.campaign_id = ${campaignId} and r.status = 'requested') as active`;
+  return { taskCount: Number(r.task_count), detachedTargets: Number(r.detached), activeRequests: Number(r.active) };
 }
 
 // 이관(§2-2 ②) — draft.campaign_id가 있는 원고 → 작업 1행(유형 = 비용 유형, 없으면 투고), 연결된 tracked_post는 작업으로.

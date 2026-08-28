@@ -41,7 +41,7 @@ function ReadValue({ onEdit, title, mono, children }: {
 export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete }: {
   campaign: CampaignRow;
   // 삭제 시 실제로 지워질 작업 수·대상 미정이 되는 다른 캠페인 작업 수 — 삭제 확인 문구가 말하는 그 숫자들
-  deleteInfo: { taskCount: number; detachedTargets: number };
+  deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number };
   today: string;
   onPatch: (patch: CampaignPatchInput) => Promise<boolean>;
   onDelete: () => void;
@@ -127,6 +127,11 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete 
       .catch(() => {});
   }
   function confirmDelete() {
+    // 정산 보호(정산 스펙 §4-4) — 활성 요청이 붙은 작업이 있으면 삭제 확인 대신 알림만 보이고 끝낸다
+    if (deleteInfo.activeRequests > 0) {
+      window.alert(`정산 요청된 작업이 ${deleteInfo.activeRequests}건 있어요 — 먼저 정산에서 취소해 주세요`);
+      return;
+    }
     // 확인 다이얼로그 필수(§2-5) — 원고 무손실이라 실행취소는 없다(§3-3)
     if (window.confirm(
       `'${campaign.name}' 캠페인을 삭제할까요?\n\n작업 ${deleteInfo.taskCount}개가 함께 지워져요. 원고는 남아요 — 예정일·비용은 작업과 함께 사라져요.${deleteInfo.detachedTargets > 0 ? `\n다른 캠페인 작업 ${deleteInfo.detachedTargets}건의 대상이 '대상 미정'으로 바뀌어요.` : ''}\n실행 취소는 없어요.`)) onDelete();

@@ -4,7 +4,9 @@ import { isUuidLike } from './uuid.ts';
 import {
   parseExtraCosts, parseTaskCost, sumMoney, mergeMoney, isCurrency, type ExtraCost, type MoneyByCurrency,
 } from './campaignCost.ts';
-import { listTasksByCampaign, countTasksForCampaignDelete, type TaskRow } from './campaignTaskStore.ts';
+import {
+  listTasksByCampaign, countTasksForCampaignDelete, settlementByTaskIds, type TaskRow, type SettlementBadgeStatus,
+} from './campaignTaskStore.ts';
 import {
   summarizeTasks, deriveTaskInfluencers, subtotalsByType,
   type CampaignKind, type TaskSummary, type TaskInfluencerLine, type TypeSubtotal, type TaskType,
@@ -32,6 +34,7 @@ export interface CampaignTaskItem extends TaskRow {
   published: boolean;              // = postedAt !== null (게시 확인이 판정한다, tracked_post 유무가 아니다 — §2-5)
   perf: CampaignPerf | null;       // tracked_post.task_id 최신 스냅샷(lateral) 합. 스냅샷 없으면 views/likes null
   linkClicks: number | null;       // 붙은 원고의 tracking_link 최신 스냅샷 합 — 게시 여부와 무관(요약 카드 합계용, §5)
+  settlement: { status: SettlementBadgeStatus; createdAt: string } | null;   // 표의 정산 배지(정산 스펙 §4-4) — settlementByTaskIds
 }
 export interface InfluencerCostRow {
   id: string; campaignId: string; influencerHandle: string;
@@ -45,7 +48,7 @@ export interface CampaignDetail {
   summary: TaskSummary;                // summarizeTasks(tasks, today) — 클라도 같은 함수로 재계산한다
   influencers: TaskInfluencerLine[];   // deriveTaskInfluencers(tasks, costRows)
   byType: TypeSubtotal[];              // subtotalsByType(tasks) — 표 하단 유형별 줄
-  deleteInfo: { taskCount: number; detachedTargets: number };   // 삭제 확인 문구의 숫자(§4-4) — 미사용 포함 전수
+  deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number };   // 삭제 확인 문구의 숫자(§4-4) — 미사용 포함 전수
   today: string;                       // 판정에 쓴 '오늘'(서울) — 클라가 같은 기준으로 다시 그릴 수 있게 함께 내려준다
   budget: CampaignMonthBudget | null;  // 이 캠페인이 속한 달의 클라이언트 예산(스펙 2026-08-27 §5-3). 클라 없으면 null
 }
@@ -182,13 +185,15 @@ export async function updateCampaign(
 
 // 작업은 cascade로 함께 지워지고 원고는 남는다(campaign_task.draft_id FK set null). 다른 캠페인에서 이 캠페인 작업을
 // 대상으로 삼던 작업은 '대상 미정'이 된다(target_task_id FK set null) — 몇 건인지 응답에 실어 화면이 사실대로 말하게 한다.
+// 정산 보호(정산 스펙 §4-4) — 활성 요청이 붙은 작업이 하나라도 있으면 지우지 않는다(deleted:false, activeRequests > 0).
 export async function deleteCampaign(
   sql: postgres.Sql, id: string,
-): Promise<{ deleted: boolean; taskCount: number; detachedTargets: number }> {
-  if (!isUuidLike(id)) return { deleted: false, taskCount: 0, detachedTargets: 0 }; // 22P02 방지 — 라우트가 404로 처리
+): Promise<{ deleted: boolean; taskCount: number; detachedTargets: number; activeRequests: number }> {
+  if (!isUuidLike(id)) return { deleted: false, taskCount: 0, detachedTargets: 0, activeRequests: 0 }; // 22P02 방지 — 라우트가 404로 처리
   const info = await countTasksForCampaignDelete(sql, id);   // 삭제 전에 세야 한다(cascade 뒤엔 0)
+  if (info.activeRequests > 0) return { deleted: false, ...info };
   const del = await sql`delete from campaign where id = ${id} returning id`;
-  return del.length > 0 ? { deleted: true, ...info } : { deleted: false, taskCount: 0, detachedTargets: 0 };
+  return del.length > 0 ? { deleted: true, ...info } : { deleted: false, taskCount: 0, detachedTargets: 0, activeRequests: 0 };
 }
 
 type PerfRow = { task_id: string; post_count: number; views: string | number | null; likes: string | number | null };
@@ -226,6 +231,7 @@ export async function getCampaignDetail(
   const perfMap = new Map(perfRows.map((r) => [r.task_id, r]));
   const clickMap = new Map(clickRows.map((r) => [r.draft_id, r]));
   const num = (v: string | number | null) => (v === null ? null : Number(v)); // sum(bigint)는 문자열
+  const badges = await settlementByTaskIds(sql, tasks.map((t) => t.id));   // 표의 정산 배지(정산 스펙 §4-4)
 
   const items: CampaignTaskItem[] = tasks.map((t) => {
     const p = perfMap.get(t.id);
@@ -235,6 +241,7 @@ export async function getCampaignDetail(
       published: t.postedAt !== null,   // 게시 확인이 판정한다 — 게시물이 아직 안 붙었어도 게시됨(§2-5)
       perf: p ? { postCount: p.post_count, views: num(p.views), likes: num(p.likes) } : null,
       linkClicks: c ? num(c.clicks) : null,
+      settlement: badges.get(t.id) ?? null,
     };
   });
 

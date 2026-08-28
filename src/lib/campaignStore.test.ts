@@ -8,8 +8,11 @@ import {
   createCampaign, listCampaigns, getCampaign, updateCampaign, deleteCampaign,
   getCampaignDetail, upsertInfluencerCost, listInfluencerCampaigns, spendByMonth,
 } from './campaignStore.ts';
-import { createTasks, updateTask } from './campaignTaskStore.ts';
+import { createTasks, updateTask, hasActiveRequest } from './campaignTaskStore.ts';
 import { taskCampaignTotal } from './campaignJudgment.ts';
+import { createInfluencer, updatePaymentMethods } from './influencerStore.ts';
+import { createRequests, listCandidates } from './settlementStore.ts';
+import { SETTLEMENT_DEFAULTS } from './settlementSettings.ts';
 
 const sql = getSql();
 const P = 'tcmp' + process.pid;
@@ -77,7 +80,7 @@ test('2) 상세 — 작업 목록·게시됨(posted_at)·성과(task_id)·링크
   assert.deepEqual(d.influencers.map((l) => l.handle), ['mika', 'rio', 'sora', 'hana']);
   assert.deepEqual(d.influencers.find((l) => l.handle === 'hana')!.extraCost, { KRW: 5000 });
   assert.deepEqual(taskCampaignTotal(d.influencers), { JPY: 26000, KRW: 5000 });
-  assert.deepEqual(d.deleteInfo, { taskCount: 4, detachedTargets: 1 });
+  assert.deepEqual(d.deleteInfo, { taskCount: 4, detachedTargets: 1, activeRequests: 0 });
   assert.equal(d.today, T);
   const listed = (await listCampaigns(sql)).find((x) => x.id === camp.id)!;
   assert.equal(listed.taskCount, 3);
@@ -105,13 +108,13 @@ test('4) 삭제 — 작업은 cascade, 원고는 남고, 다른 캠페인의 참
   const [post] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: 'mika', cost: null }] });
   const draftId = await mkDraft(c.id, c.name, post.id);
   const [rt] = await createTasks(sql, other.id, { ...tin, type: 'rt', targetTaskId: post.id, items: [{ handle: 'rio', cost: null }] });
-  assert.deepEqual(await deleteCampaign(sql, 'not-a-uuid'), { deleted: false, taskCount: 0, detachedTargets: 0 });   // 22P02 방지 경로
+  assert.deepEqual(await deleteCampaign(sql, 'not-a-uuid'), { deleted: false, taskCount: 0, detachedTargets: 0, activeRequests: 0 });   // 22P02 방지 경로
   await upsertInfluencerCost(sql, camp.id, 'gone', { note: 'x' });   // 삭제 캠페인의 비용 행도 cascade로 사라져야 한다
-  assert.deepEqual(await deleteCampaign(sql, camp.id), { deleted: true, taskCount: 1, detachedTargets: 1 });
+  assert.deepEqual(await deleteCampaign(sql, camp.id), { deleted: true, taskCount: 1, detachedTargets: 1, activeRequests: 0 });
   assert.equal((await sql`select id from draft where id = ${draftId}`).length, 1);
   assert.equal((await sql`select target_task_id from campaign_task where id = ${rt.id}`)[0].target_task_id, null);
   assert.equal((await sql`select id from campaign_influencer_cost where campaign_id = ${camp.id}`).length, 0);
-  assert.deepEqual(await deleteCampaign(sql, camp.id), { deleted: false, taskCount: 0, detachedTargets: 0 });
+  assert.deepEqual(await deleteCampaign(sql, camp.id), { deleted: false, taskCount: 0, detachedTargets: 0, activeRequests: 0 });
   await deleteClient(sql, c.id);
   assert.equal((await getCampaign(sql, other.id))!.clientName, c.name);   // 스냅샷 유지
 });
@@ -212,4 +215,25 @@ test('13) getCampaignDetail.budget — 예외 달 우선·othersKrw는 같은 �
   // 클라이언트를 지우면(client_id set null) budget은 null
   await deleteClient(sql, c.id);
   assert.equal((await getCampaignDetail(sql, a.id, T))!.budget, null);
+});
+
+test('정산 배지·삭제 보호 — 활성 요청이 있으면 settlement 채워지고 activeRequests 1', async () => {
+  const c = await createClient(sql, P + '클라S');
+  const camp = await createCampaign(sql, base(c.id, c.name, 's'));
+  const h = P + '_stl';
+  const { row: inf } = await createInfluencer(sql, { handle: h, createdBy: null });
+  await updatePaymentMethods(sql, inf.id, { kind: 'add', input: { type: 'paypal', holder: 'K', currency: 'JPY', email: 'k@x.com' }, makeDefault: true }, null);
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: h, cost: { amount: 10000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-09-01', postedSource: 'manual' });
+  const [m] = await sql<Array<{ id: string }>>`insert into member (name, color) values (${P + '멤버S'}, '#000') returning id`;
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-09-01')).find((x) => x.taskId === t.id)!;
+  await createRequests(sql, [{ taskId: t.id, category: cand.categoryDefault!, deadlineOn: cand.deadlineDefault, referenceUrl: null, expected: { amountGross: cand.money!.amountGross, payoutCurrency: cand.money!.payoutCurrency, paymentMethodId: cand.method!.id } }], { id: m.id, name: P + '멤버S' });
+  const d = (await getCampaignDetail(sql, camp.id, '2026-09-01'))!;
+  assert.equal(d.tasks.find((x) => x.id === t.id)!.settlement?.status, 'requested');
+  assert.equal(d.deleteInfo.activeRequests, 1);
+  assert.equal(await hasActiveRequest(sql, t.id), true);
+  // 정리(after는 payment_request를 모른다) — 요청·인플·멤버
+  await sql`delete from payment_request where task_id = ${t.id}`;
+  await sql`delete from influencer_log where influencer_id = ${inf.id}`; await sql`delete from influencer where id = ${inf.id}`;
+  await sql`delete from member where id = ${m.id}`;
 });

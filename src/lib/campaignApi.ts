@@ -43,7 +43,7 @@ export const fetchCampaignDetail = (id: string) => call<CampaignDetail>(`/api/ca
 export const createCampaignApi = (input: CampaignCreateInput) => call<CampaignRow>('/api/campaigns', json('POST', input));
 export const patchCampaignApi = (id: string, patch: CampaignPatchInput) => call<CampaignRow>(`/api/campaigns/${id}`, json('PATCH', patch));
 export const deleteCampaignApi = (id: string) =>
-  call<{ ok: true; deleted: boolean; taskCount: number; detachedTargets: number }>(`/api/campaigns/${id}`, { method: 'DELETE' });
+  call<{ ok: true; deleted: boolean; taskCount: number; detachedTargets: number; activeRequests: number }>(`/api/campaigns/${id}`, { method: 'DELETE' });
 export const putInfluencerCostApi = (campaignId: string, handle: string, patch: { extraCosts?: ExtraCost[]; note?: string }) =>
   call<InfluencerCostRow>(`/api/campaigns/${campaignId}/influencers/${encodeURIComponent(handle)}`, json('PUT', patch));
 

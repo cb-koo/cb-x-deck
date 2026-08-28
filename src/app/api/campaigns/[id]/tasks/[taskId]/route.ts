@@ -3,7 +3,7 @@ import type postgres from 'postgres';
 import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
-import { getTask, updateTask, deleteTask } from '@/lib/campaignTaskStore';
+import { getTask, updateTask, deleteTask, hasActiveRequest } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
 import { parseTaskPatch, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE } from '@/lib/campaignTaskInput';
 import { getDraft, updateDraft } from '@/lib/draftStore';
@@ -60,5 +60,9 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string;
   const sql = getSql();
   const cur = await getTask(sql, taskId);
   if (cur && cur.campaignId !== id) return notFound();
+  // 정산 보호(정산 스펙 §4-4) — 활성 요청이 붙은 작업은 지우지 않는다
+  if (await hasActiveRequest(sql, taskId)) {
+    return NextResponse.json({ error: '정산 요청된 작업이에요 — 먼저 정산에서 요청을 취소해 주세요' }, { status: 409 });
+  }
   return NextResponse.json({ ok: true, deleted: await deleteTask(sql, taskId) });
 }

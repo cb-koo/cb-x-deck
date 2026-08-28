@@ -122,7 +122,7 @@ test('3) 대상 — 참조는 캠페인 경계 없음, 대상 요약(post_url·�
   assert.deepEqual(await listTargetingHandles(sql, { taskId: post.id }), ['rio']);
   assert.deepEqual(await listTargetingHandles(sql, { tweetUrl: 'https://x.com/i/status/99' }), ['sora']);
 
-  assert.deepEqual(await countTasksForCampaignDelete(sql, camp1.id), { taskCount: 1, detachedTargets: 1 });
+  assert.deepEqual(await countTasksForCampaignDelete(sql, camp1.id), { taskCount: 1, detachedTargets: 1, activeRequests: 0 });
   assert.equal(await deleteTask(sql, post.id), true);
   assert.equal((await getTask(sql, rt.id))!.targetTaskId, null);            // 대상 미정으로
   assert.equal(await deleteTask(sql, post.id), false);

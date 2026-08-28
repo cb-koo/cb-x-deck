@@ -51,7 +51,7 @@ import { LinkPostModal } from './LinkPostModal';
 
 interface DetailState {
   campaign: CampaignRow; tasks: CampaignTaskItem[]; costRows: InfluencerCostRow[];
-  deleteInfo: { taskCount: number; detachedTargets: number }; today: string;
+  deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number }; today: string;
   budget: CampaignMonthBudget | null;   // 이 달 클라이언트 예산(서버 판정) — 요약 칸의 '월 예산 잔액'
 }
 type ClientData = { client: ClientRow; procedures: ProcedureRow[] };

@@ -285,3 +285,17 @@ export async function cutoverDraftsToTasks(sql: postgres.Sql): Promise<{ tasks: 
 }
 // tweetPermalink는 위 SQL과 같은 모양을 TS 쪽에서 만들 때 쓴다(라우트·UI) — SQL과 규칙이 갈리지 않도록 여기서 재수출
 export { tweetPermalink };
+
+// 캠페인 표 정산 배지(정산 스펙 §4-4) — 활성 요청 우선, 없으면 가장 최근 취소. payment_request는 040.
+// settlementStore가 아니라 여기 두는 이유: settlementStore→campaignTaskStore가 아니라 반대로 두면
+// settlementStore→influencerStore→campaignStore 경로로 순환 import가 생긴다.
+export type SettlementBadgeStatus = 'requested' | 'cancelled';
+export async function settlementByTaskIds(sql: postgres.Sql, taskIds: string[]): Promise<Map<string, { status: SettlementBadgeStatus; createdAt: string }>> {
+  const ids = taskIds.filter(isUuidLike);
+  if (!ids.length) return new Map();
+  const rows = await sql<Array<{ task_id: string; status: SettlementBadgeStatus; created_at: Date }>>`
+    select distinct on (task_id) task_id, status, created_at
+      from payment_request where task_id in ${sql(ids)}
+     order by task_id, (status = 'requested') desc, created_at desc`;
+  return new Map(rows.map((r) => [r.task_id, { status: r.status, createdAt: new Date(r.created_at).toISOString() }]));
+}

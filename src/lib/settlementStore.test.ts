@@ -8,7 +8,9 @@ import { createInfluencer, updatePaymentMethods } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS } from './settlementSettings.ts';
 import {
   getSettlementSettings, saveSettlementSettings, listSettlementVersions, lastQuoteRtCategory, listCandidates,
+  createRequests, cancelRequest, listRequests, settlementByTaskIds, SettlementCreateError,
 } from './settlementStore.ts';
+import type { CreateItemInput } from './settlementStore.ts';
 
 const sql = getSql();
 const P = 'tstl' + process.pid;
@@ -21,6 +23,7 @@ after(async () => {
   await sql`delete from client where name like ${P + '%'}`;
   await sql`delete from influencer_log where influencer_id in (select id from influencer where handle like ${P + '%'})`;
   await sql`delete from influencer where handle like ${P + '%'}`;
+  await sql`delete from member where name like ${P + '%'}`;
   await sql.end();
 });
 const base = (clientId: string, clientName: string, suffix: string, kind: 'content' | 'visit' | null = 'content') => ({
@@ -81,4 +84,102 @@ test('후보 — 게시됨+비용+인플만, 명부/결제 수단 유무가 신�
 test('lastQuoteRtCategory — 없으면 null', async () => {
   assert.equal(await lastQuoteRtCategory(sql, '00000000-0000-0000-0000-000000000000'), null);
   assert.equal(await lastQuoteRtCategory(sql, null), null);
+});
+
+const MEMBER = { id: '00000000-0000-0000-0000-000000000001', name: P + '멤버' };
+// member FK가 있어 실제 멤버가 필요 — 테스트 멤버를 만들고 after에서 지운다
+let memberId = '';
+async function ensureMember() {
+  if (memberId) return { id: memberId, name: MEMBER.name };
+  const [m] = await sql<Array<{ id: string }>>`insert into member (name, color) values (${MEMBER.name}, '#000') returning id`;
+  memberId = m.id;
+  return { id: memberId, name: MEMBER.name };
+}
+const itemOf = (c: { taskId: string; money: { amountGross: number; payoutCurrency: 'KRW' | 'JPY' } | null; method: { id: string } | null; deadlineDefault: string; referenceDefault: string | null }, category: string): CreateItemInput => ({
+  taskId: c.taskId, category, deadlineOn: c.deadlineDefault, referenceUrl: c.referenceDefault,
+  expected: { amountGross: c.money!.amountGross, payoutCurrency: c.money!.payoutCurrency, paymentMethodId: c.method!.id },
+});
+
+test('생성 — 스냅샷·로그·후보에서 제외·배지', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라B');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'b', 'visit'));
+  await influencerWithPaypal(H('gen'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H('gen'), cost: { amount: 200000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: 'https://x.com/g/status/1' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  assert.equal(cand.readiness, 'ready');
+  assert.equal(cand.categoryDefault, SETTLEMENT_DEFAULTS.categories[1].sendAs);   // visit 캠페인 투고 → 원고료
+  const [row] = await createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28');
+  assert.equal(row.status, 'requested'); assert.equal(row.amountKrw, 200000); assert.equal(row.amountNet, 20000); assert.equal(row.amountGross, 21053);
+  assert.equal(row.category, cand.categoryDefault); assert.equal(row.categoryDefault, cand.categoryDefault);
+  assert.equal(row.itemText, `@${H('gen')} 투고 1건 정산`); assert.equal(row.purposeText, `${c.name} 방문협찬 원고료`);
+  assert.equal(row.paymentMethod.type, 'paypal'); assert.equal(row.requesterName, m.name); assert.equal(row.deadlineOn, '2026-08-28');
+  assert.equal(row.sentAt, null);
+  // 후보에서 빠짐
+  assert.ok(!(await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).some((x) => x.taskId === t.id));
+  // 로그 1건
+  const logs = await sql<Array<{ event_type: string; payload: { requestId: string } }>>`
+    select event_type, payload from influencer_log where influencer_id = (select id from influencer where handle = ${H('gen')}) and event_type = 'payment_requested'`;
+  assert.equal(logs.length, 1); assert.equal(logs[0].payload.requestId, row.id);
+  // 배지
+  const badge = await settlementByTaskIds(sql, [t.id]);
+  assert.equal(badge.get(t.id)?.status, 'requested');
+  // 최근 인용RT 분류는 quoteRt만 본다
+  assert.equal(await lastQuoteRtCategory(sql, m.id), null);
+});
+
+test('생성 — 전체 검증: 하나라도 실패면 0건 저장, 건별 이유', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라C');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'c'));
+  await influencerWithPaypal(H('v1')); await influencerWithPaypal(H('v2'));
+  const [t1, t2] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: H('v1'), cost: { amount: 30000, currency: 'KRW' } }, { handle: H('v2'), cost: { amount: 30000, currency: 'KRW' } }] });
+  for (const t of [t1, t2]) await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  const cands = await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28');
+  const c1 = cands.find((x) => x.taskId === t1.id)!, c2 = cands.find((x) => x.taskId === t2.id)!;
+  // t2의 expected 금액을 틀리게(화면이 낡은 값을 들고 있던 상황)
+  const stale = { ...itemOf(c2, c2.categoryDefault!), expected: { ...itemOf(c2, c2.categoryDefault!).expected, amountGross: 999 } };
+  await assert.rejects(createRequests(sql, [itemOf(c1, c1.categoryDefault!), stale], m, '2026-08-28'), (e: unknown) => {
+    assert.ok(e instanceof SettlementCreateError);
+    assert.deepEqual(e.failures.map((f) => f.taskId), [t2.id]);
+    assert.match(e.failures[0].reason, /금액이 바뀌었어요/);
+    return true;
+  });
+  assert.equal((await listRequests(sql, { campaignId: camp.id })).length, 0);   // 0건 저장
+  // 분류 빈칸·숨김/모르는 분류·날짜 형식·URL 형식
+  await assert.rejects(createRequests(sql, [{ ...itemOf(c1, '없는 분류') }], m), (e: SettlementCreateError) => /분류/.test(e.failures[0].reason));
+  await assert.rejects(createRequests(sql, [{ ...itemOf(c1, c1.categoryDefault!), deadlineOn: '2026-13-40' }], m), (e: SettlementCreateError) => /마감/.test(e.failures[0].reason));
+  await assert.rejects(createRequests(sql, [{ ...itemOf(c1, c1.categoryDefault!), referenceUrl: 'ftp://x' }], m), (e: SettlementCreateError) => /링크/.test(e.failures[0].reason));
+  // 정상 2건 → 저장, 같은 작업 다시 → 전체 거절(이미 요청됨)
+  const rows = await createRequests(sql, [itemOf(c1, c1.categoryDefault!), itemOf(c2, c2.categoryDefault!)], m, '2026-08-28');
+  assert.equal(rows.length, 2);
+  await assert.rejects(createRequests(sql, [itemOf(c1, c1.categoryDefault!)], m), (e: SettlementCreateError) => /이미 요청됐어요/.test(e.failures[0].reason));
+});
+
+test('취소 — 상태·사유·사람·시각, 후보 복귀, 재요청 허용, 배지는 취소됨', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라D');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'd'));
+  await influencerWithPaypal(H('cx'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: H('cx'), cost: { amount: 10000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  const [row] = await createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28');
+  const cancelled = await cancelRequest(sql, row.id, '금액 착오', m);
+  assert.ok(typeof cancelled === 'object');
+  assert.equal(cancelled.status, 'cancelled'); assert.equal(cancelled.cancelReason, '금액 착오'); assert.equal(cancelled.cancelledByName, m.name); assert.ok(cancelled.cancelledAt);
+  assert.equal(await cancelRequest(sql, row.id, '다시', m), 'already-cancelled');
+  assert.equal(await cancelRequest(sql, '00000000-0000-0000-0000-000000000009', 'x', m), 'not-found');
+  assert.ok((await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).some((x) => x.taskId === t.id));   // 복귀
+  assert.equal((await settlementByTaskIds(sql, [t.id])).get(t.id)?.status, 'cancelled');
+  const again = await createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28');
+  assert.equal(again.length, 1);
+  assert.equal((await settlementByTaskIds(sql, [t.id])).get(t.id)?.status, 'requested');   // 활성 우선
+  const logs = await sql<Array<{ event_type: string }>>`select event_type from influencer_log where influencer_id = (select id from influencer where handle = ${H('cx')}) order by created_at`;
+  assert.deepEqual(logs.map((l) => l.event_type), ['payment_method_changed', 'payment_requested', 'payment_cancelled', 'payment_requested']);
+  // 목록 필터
+  const list = await listRequests(sql, { campaignId: camp.id, status: 'cancelled' });
+  assert.equal(list.length, 1); assert.equal(list[0].id, row.id);
+  assert.equal((await listRequests(sql, { taskId: t.id })).length, 2);
 });

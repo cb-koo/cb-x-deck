@@ -22,7 +22,7 @@ export function decodeCursor(s: string): Cursor | null {
   const i = raw.indexOf(':');
   if (i < 0) return null;
   const us = raw.slice(0, i), id = raw.slice(i + 1);
-  if (!/^\d{1,19}$/.test(us) || !isUuidLike(id)) return null;
+  if (!/^\d{1,16}$/.test(us) || !isUuidLike(id)) return null;
   return { updatedAtUs: us, id };
 }
 export function clampLimit(raw: string | null): number {

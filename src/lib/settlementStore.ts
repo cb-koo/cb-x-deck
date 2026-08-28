@@ -289,12 +289,15 @@ async function exportRows(sql: postgres.Sql, ids: string[], usById: Map<string, 
   });
 }
 export async function listForExport(sql: postgres.Sql, cursor: Cursor | null, limit: number): Promise<ExportRow[]> {
+  // 안전 지연 30초 — payment_request 쓰기 트랜잭션(createRequests 일괄 포함)이 이보다 오래 열려 있지 않는 한,
+  // 커서가 아직 커밋되지 않은 행을 지나칠 수 없다(at-least-once 보장)
   const page = await sql<Array<{ id: string; us: string }>>`
     select id, (extract(epoch from updated_at) * 1000000)::bigint::text as us
       from payment_request
      where ${cursor
        ? sql`(updated_at, id) > (to_timestamp(${cursor.updatedAtUs}::bigint / 1000000) + (${cursor.updatedAtUs}::bigint % 1000000) * interval '1 microsecond', ${cursor.id}::uuid)`
        : sql`true`}
+       and updated_at < now() - interval '30 seconds'
      order by updated_at, id
      limit ${limit}`;
   return exportRows(sql, page.map((p) => p.id), new Map(page.map((p) => [p.id, p.us])));

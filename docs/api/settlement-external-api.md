@@ -70,6 +70,8 @@ Authorization: Bearer <API 키>
 3. `has_more: true`면 1로 돌아가 즉시 다시 호출한다.
 4. `has_more: false`면 이번 사이클 종료. 다음 사이클(권장 5분 뒤)에 저장해 둔 `next_cursor`로 다시 1부터.
 
+새로 만들어지거나 바뀐 요청은 약 30초 뒤부터 목록에 나타납니다(동시에 진행 중인 저장을 건너뛰지 않기 위한 안전 지연).
+
 ### 정렬·중복 판정 기준은 `updated_at`이다
 
 - 커서와 정렬은 전부 `updated_at`(+동률 시 `id`) 기준이다. **`revision`은 정렬·페이지네이션에 쓰지 않는다** — §5에서 설명하듯 `revision`은 우리 쪽 원본 요청의 변경 횟수(0 또는 1)일 뿐이고, 우리가 그쪽 처리 상태를 반영해도 값이 바뀌지 않는다.
@@ -232,7 +234,7 @@ curl -s \
       "settlement": { "status": null, "paid_amount_krw": null, "paid_at": null, "note": null, "updated_at": null, "external_id": null }
     }
   ],
-  "next_cursor": "MTc1NjM1MjIwMDAwMDAwMDo6M2ZhODVmNjQtNTcxNy00NTYyLWIzZmMtMmM5NjNmNjZhZmE2",
+  "next_cursor": "MTc1NjM1MjIwMDAwMDAwMDozZmE4NWY2NC01NzE3LTQ1NjItYjNmYy0yYzk2M2Y2NmFmYTY",
   "has_more": false
 }
 ```

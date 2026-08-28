@@ -10,6 +10,7 @@ test('커서 — 왕복, 깨진 값은 null', () => {
   assert.equal(decodeCursor('not-base64!!'), null);
   assert.equal(decodeCursor(Buffer.from('abc:def').toString('base64url')), null);      // µs가 숫자 아님
   assert.equal(decodeCursor(Buffer.from('123:nope').toString('base64url')), null);     // uuid 아님
+  assert.equal(decodeCursor(Buffer.from('99999999999999999:' + ID).toString('base64url')), null); // 17자리 — bigint 넘침 방지
 });
 test('limit — 기본 100, 최대 500, 잘못된 값은 기본', () => {
   assert.equal(clampLimit(null), 100); assert.equal(clampLimit('50'), 50); assert.equal(clampLimit('9999'), 500);

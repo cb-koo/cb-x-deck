@@ -300,20 +300,32 @@ const upd = (status: 'received' | 'scheduled' | 'paid' | 'on_hold' | 'cancelled'
 test('listForExport — 같은 시각에 갱신된 3건이 limit 2로 두 페이지에 빠짐없이, 커서는 µs 단위', async () => {
   const a = await requestFor('ex1', 'e1'); const b = await requestFor('ex2', 'e2'); const c = await requestFor('ex3', 'e3');
   const ids = new Set([a.row.id, b.row.id, c.row.id]);
-  await sql`update payment_request set updated_at = '2030-01-01T00:00:00.000001Z' where id in ${sql([...ids])}`;   // 미래 시각 — 다른 테스트 행보다 뒤
-  const startCursor = decodeCursor(encodeCursor({ updatedAtUs: String(Date.parse('2030-01-01T00:00:00Z') * 1000), id: '00000000-0000-0000-0000-000000000000' }))!;
+  // 과거 시각 — 실제 운영 행(2026년대)보다 앞에 오도록. 안전 지연(30초)에도 걸리지 않아 확실히 노출된다
+  await sql`update payment_request set updated_at = '2000-01-01T00:00:00.000001Z' where id in ${sql([...ids])}`;
+  const startCursor = decodeCursor(encodeCursor({ updatedAtUs: String(Date.parse('2000-01-01T00:00:00Z') * 1000), id: '00000000-0000-0000-0000-000000000000' }))!;
   const p1 = await listForExport(sql, startCursor, 2);
   assert.equal(p1.length, 2);
+  assert.equal(p1.every((e) => ids.has(e.row.id)), true);
   const c1 = { updatedAtUs: p1[1].updatedAtUs, id: p1[1].row.id };
   assert.equal(c1.updatedAtUs.endsWith('000001'), true);
   const p2 = await listForExport(sql, c1, 2);
-  assert.equal(p2.length, 1);
-  const got = new Set([...p1, ...p2].map((e) => e.row.id));
+  assert.ok(p2.length >= 1);
+  const remaining = [...ids].find((id) => !p1.some((e) => e.row.id === id))!;
+  assert.equal(p2[0].row.id, remaining);
+  const got = new Set([...p1.map((e) => e.row.id), p2[0].row.id]);
   assert.deepEqual(got, ids);
   assert.equal(p1[0].requester.email, null);   // 테스트 멤버는 이메일 없음
   const one = await getForExport(sql, a.row.id);
   assert.equal(one?.row.id, a.row.id);
   assert.equal(await getForExport(sql, 'nope'), null);
+
+  // 안전 지연 30초 — 방금 갱신된 행은 아직 목록에 나오지 않고, 31초 지난 것으로 치면 나온다
+  const fresh = await requestFor('ex4', 'e4');
+  const justNow = await listForExport(sql, startCursor, 500);
+  assert.equal(justNow.some((e) => e.row.id === fresh.row.id), false);
+  await sql`update payment_request set updated_at = now() - interval '31 seconds' where id = ${fresh.row.id}`;
+  const afterLag = await listForExport(sql, startCursor, 500);
+  assert.equal(afterLag.some((e) => e.row.id === fresh.row.id), true);
 });
 
 test('applyExternalStatus — 규칙표: 첫 수신 sent_at, stale 무시, paid 로그, paid 정정, paid 이후 다른 상태 409', async () => {

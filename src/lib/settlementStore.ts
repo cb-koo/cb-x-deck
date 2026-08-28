@@ -12,6 +12,7 @@ import { insertAutoLog, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
 import { computeCandidate, toMethodSnapshot, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
 import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
+import type { Cursor, ExportRow, StatusUpdate } from './settlementExternal.ts';   // 타입만이라 순환 무해
 
 const asJson = (v: object): postgres.JSONValue => v as unknown as postgres.JSONValue;
 
@@ -269,6 +270,78 @@ export async function listRequests(sql: postgres.Sql, f: RequestFilter): Promise
       ${f.to && isDateOnlyString(f.to) ? sql`and created_at < ((${f.to}::date) + 1)::timestamp at time zone 'Asia/Seoul'` : sql``}
     order by created_at desc, id desc`;
   return rows.map(toRequest);
+}
+
+// ── 그쪽(정산 프로덕트) 연동(스펙 payment-api §5·§6) ──
+// 커서 조회: (updated_at, id) 오름차순. 커서의 µs 정수를 정수 연산으로 timestamptz로 되돌려 인덱스를 그대로 탄다.
+async function exportRows(sql: postgres.Sql, ids: string[], usById: Map<string, string>): Promise<ExportRow[]> {
+  if (!ids.length) return [];
+  const rows = await sql<RRow[]>`${R_SELECT(sql)} where id in ${sql(ids)}`;
+  const memberIds = [...new Set(rows.map((r) => r.requester_member_id).filter((x): x is string => !!x))];
+  const members = memberIds.length
+    ? await sql<Array<{ id: string; email: string | null; slack_id: string | null }>>`select id, email, slack_id from member where id in ${sql(memberIds)}`
+    : [];
+  const mem = new Map(members.map((m) => [m.id, m]));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return ids.map((id) => byId.get(id)).filter((r): r is RRow => !!r).map((r) => {
+    const m = r.requester_member_id ? mem.get(r.requester_member_id) : undefined;
+    return { row: toRequest(r), updatedAtUs: usById.get(r.id) ?? '0', requester: { email: m?.email ?? null, slackId: m?.slack_id ?? null } };
+  });
+}
+export async function listForExport(sql: postgres.Sql, cursor: Cursor | null, limit: number): Promise<ExportRow[]> {
+  const page = await sql<Array<{ id: string; us: string }>>`
+    select id, (extract(epoch from updated_at) * 1000000)::bigint::text as us
+      from payment_request
+     where ${cursor
+       ? sql`(updated_at, id) > (to_timestamp(${cursor.updatedAtUs}::bigint / 1000000) + (${cursor.updatedAtUs}::bigint % 1000000) * interval '1 microsecond', ${cursor.id}::uuid)`
+       : sql`true`}
+     order by updated_at, id
+     limit ${limit}`;
+  return exportRows(sql, page.map((p) => p.id), new Map(page.map((p) => [p.id, p.us])));
+}
+export async function getForExport(sql: postgres.Sql, id: string): Promise<ExportRow | null> {
+  if (!isUuidLike(id)) return null;
+  const page = await sql<Array<{ id: string; us: string }>>`
+    select id, (extract(epoch from updated_at) * 1000000)::bigint::text as us from payment_request where id = ${id}`;
+  const [row] = await exportRows(sql, page.map((p) => p.id), new Map(page.map((p) => [p.id, p.us])));
+  return row ?? null;
+}
+
+export type ApplyResult =
+  | { kind: 'applied' | 'stale'; row: PaymentRequestRow }
+  | { kind: 'conflict'; code: 'request-cancelled' | 'paid-locked'; row: PaymentRequestRow }
+  | 'not-found';
+// §6-2 규칙표. 한 트랜잭션, for update 잠금. 순서: stale → 우리 취소 충돌 → paid 종점 → 적용.
+export async function applyExternalStatus(sql: postgres.Sql, id: string, u: StatusUpdate): Promise<ApplyResult> {
+  if (!isUuidLike(id)) return 'not-found';
+  return await sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    const cur = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id} for update`;
+    if (!cur.length) return 'not-found';
+    const c = cur[0];
+    if (c.external_updated_at && new Date(u.updatedAt).getTime() <= new Date(c.external_updated_at).getTime()) return { kind: 'stale', row: toRequest(c) };
+    if (c.status === 'cancelled' && u.status !== 'cancelled') return { kind: 'conflict', code: 'request-cancelled', row: toRequest(c) };
+    if (c.external_status === 'paid' && u.status !== 'paid') return { kind: 'conflict', code: 'paid-locked', row: toRequest(c) };
+    if (u.status === 'cancelled' && c.status === 'requested') {
+      await cancelInTx(tx, id, { id: null, name: '정산 프로덕트' }, u.note ?? '정산에서 취소');
+    }
+    await tx`
+      update payment_request
+         set external_status = ${u.status}, paid_amount_krw = ${u.paidAmountKrw}, paid_at = ${u.paidAt}, external_note = ${u.note},
+             external_updated_at = ${u.updatedAt}, external_id = coalesce(${u.externalId}, external_id),
+             sent_at = coalesce(sent_at, now()), updated_at = now()
+       where id = ${id}`;
+    const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;
+    const row = toRequest(saved);
+    if (u.status === 'paid' && c.external_status !== 'paid') {
+      const infId = row.influencerId ?? (await tx<Array<{ id: string }>>`select id from influencer where lower(handle) = lower(${row.influencerHandle})`)[0]?.id ?? null;
+      if (infId) {
+        const payload: PaymentLogPayload = { requestId: row.id, amountGross: row.amountGross, currency: row.payoutCurrency, taskType: row.taskType, paidAmountKrw: u.paidAmountKrw ?? undefined };
+        await insertAutoLog(tx, { influencerId: infId, eventType: 'payment_paid', draftId: null, draftTitle: null, payload, authorId: null });
+      }
+    }
+    return { kind: 'applied', row };
+  });
 }
 
 // 배지 조회(settlementByTaskIds)는 campaignTaskStore에 있다(순환 방지: settlementStore→influencerStore→campaignStore) — 여기서는 re-export만

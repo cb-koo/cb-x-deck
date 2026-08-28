@@ -10,8 +10,10 @@ import { isSettlementCandidate } from './campaignJudgment.ts';
 import {
   getSettlementSettings, saveSettlementSettings, listSettlementVersions, lastQuoteRtCategory, listCandidates,
   createRequests, cancelRequest, listRequests, settlementByTaskIds, SettlementCreateError,
+  listForExport, getForExport, applyExternalStatus,
 } from './settlementStore.ts';
 import type { CreateItemInput } from './settlementStore.ts';
+import { encodeCursor, decodeCursor } from './settlementExternal.ts';
 
 const sql = getSql();
 const P = 'tstl' + process.pid;
@@ -276,4 +278,91 @@ test('취소 — 그쪽이 지급 완료한 요청은 paid-locked, 트리거가 
   await assert.rejects(sql`update payment_request set status = 'cancelled' where id = ${row.id}`, /paid-locked/);
   const badge = (await settlementByTaskIds(sql, [t.id])).get(t.id)!;
   assert.equal(badge.externalStatus, 'paid');
+});
+
+async function requestFor(handle: string, campSuffix: string) {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라' + campSuffix);
+  const camp = await createCampaign(sql, base(c.id, c.name, campSuffix, 'visit'));
+  await influencerWithPaypal(H(handle));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H(handle), cost: { amount: 30000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: 'https://x.com/r/status/1' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
+  const [row] = await createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-28');
+  return { row, task: t, member: m };
+}
+const at = (s: string) => new Date(s).toISOString();
+const upd = (status: 'received' | 'scheduled' | 'paid' | 'on_hold' | 'cancelled', updatedAt: string, extra: Partial<{ note: string; paidAmountKrw: number; paidAt: string; externalId: string }> = {}) => ({
+  status, updatedAt: at(updatedAt), note: extra.note ?? null, paidAmountKrw: extra.paidAmountKrw ?? null, paidAt: extra.paidAt ? at(extra.paidAt) : null, externalId: extra.externalId ?? null,
+});
+
+test('listForExport — 같은 시각에 갱신된 3건이 limit 2로 두 페이지에 빠짐없이, 커서는 µs 단위', async () => {
+  const a = await requestFor('ex1', 'e1'); const b = await requestFor('ex2', 'e2'); const c = await requestFor('ex3', 'e3');
+  const ids = new Set([a.row.id, b.row.id, c.row.id]);
+  await sql`update payment_request set updated_at = '2030-01-01T00:00:00.000001Z' where id in ${sql([...ids])}`;   // 미래 시각 — 다른 테스트 행보다 뒤
+  const startCursor = decodeCursor(encodeCursor({ updatedAtUs: String(Date.parse('2030-01-01T00:00:00Z') * 1000), id: '00000000-0000-0000-0000-000000000000' }))!;
+  const p1 = await listForExport(sql, startCursor, 2);
+  assert.equal(p1.length, 2);
+  const c1 = { updatedAtUs: p1[1].updatedAtUs, id: p1[1].row.id };
+  assert.equal(c1.updatedAtUs.endsWith('000001'), true);
+  const p2 = await listForExport(sql, c1, 2);
+  assert.equal(p2.length, 1);
+  const got = new Set([...p1, ...p2].map((e) => e.row.id));
+  assert.deepEqual(got, ids);
+  assert.equal(p1[0].requester.email, null);   // 테스트 멤버는 이메일 없음
+  const one = await getForExport(sql, a.row.id);
+  assert.equal(one?.row.id, a.row.id);
+  assert.equal(await getForExport(sql, 'nope'), null);
+});
+
+test('applyExternalStatus — 규칙표: 첫 수신 sent_at, stale 무시, paid 로그, paid 정정, paid 이후 다른 상태 409', async () => {
+  const { row, member } = await requestFor('ap1', 'a1');
+  const r1 = await applyExternalStatus(sql, row.id, upd('received', '2026-08-29T00:00:00Z', { externalId: 'X-9' }));
+  assert.equal(r1 !== 'not-found' && r1.kind, 'applied');
+  const after1 = (r1 as { row: typeof row }).row;
+  assert.equal(after1.externalStatus, 'received'); assert.ok(after1.sentAt); assert.equal(after1.externalId, 'X-9');
+  const sentAt = after1.sentAt;
+  const stale = await applyExternalStatus(sql, row.id, upd('scheduled', '2026-08-28T23:00:00Z'));
+  assert.equal(stale !== 'not-found' && stale.kind, 'stale');
+  assert.equal((stale as { row: typeof row }).row.externalStatus, 'received');
+  const same = await applyExternalStatus(sql, row.id, upd('received', '2026-08-29T00:00:00Z'));   // 같은 본문 재전송
+  assert.equal(same !== 'not-found' && same.kind, 'stale');
+  const paid = await applyExternalStatus(sql, row.id, upd('paid', '2026-08-30T00:00:00Z', { paidAmountKrw: 29700, paidAt: '2026-08-30T00:00:00Z', note: '환율' }));
+  assert.equal(paid !== 'not-found' && paid.kind, 'applied');
+  const p = (paid as { row: typeof row }).row;
+  assert.equal(p.paidAmountKrw, 29700); assert.equal(p.externalNote, '환율'); assert.equal(p.sentAt, sentAt);   // sent_at은 1회
+  const logs = await sql<Array<{ event_type: string; payload: { paidAmountKrw?: number } }>>`
+    select event_type, payload from influencer_log where influencer_id = ${row.influencerId!} and event_type = 'payment_paid'`;
+  assert.equal(logs.length, 1); assert.equal(logs[0].payload.paidAmountKrw, 29700);
+  const fix = await applyExternalStatus(sql, row.id, upd('paid', '2026-08-30T01:00:00Z', { paidAmountKrw: 29800, paidAt: '2026-08-30T00:00:00Z' }));
+  assert.equal(fix !== 'not-found' && fix.kind, 'applied');
+  assert.equal((fix as { row: typeof row }).row.paidAmountKrw, 29800);
+  assert.equal((await sql`select count(*)::int as n from influencer_log where influencer_id = ${row.influencerId!} and event_type = 'payment_paid'`)[0].n, 1);   // 정정은 로그 안 남김
+  const back = await applyExternalStatus(sql, row.id, upd('scheduled', '2026-08-30T02:00:00Z'));
+  assert.equal(back !== 'not-found' && back.kind, 'conflict'); assert.equal((back as { code: string }).code, 'paid-locked');
+  assert.equal(await cancelRequest(sql, row.id, '늦음', member), 'paid-locked');
+  assert.equal(await applyExternalStatus(sql, '00000000-0000-0000-0000-000000000000', upd('received', '2026-08-29T00:00:00Z')), 'not-found');
+  assert.equal(await applyExternalStatus(sql, 'x', upd('received', '2026-08-29T00:00:00Z')), 'not-found');
+});
+
+test('applyExternalStatus — 그쪽 취소는 우리 취소(정산 프로덕트·사유), 우리가 취소한 건에 다른 상태는 409, 취소 ack는 적용', async () => {
+  const a = await requestFor('ap2', 'a2');
+  const r = await applyExternalStatus(sql, a.row.id, upd('cancelled', '2026-08-29T00:00:00Z', { note: '중복 요청' }));
+  assert.equal(r !== 'not-found' && r.kind, 'applied');
+  const row = (r as { row: typeof a.row }).row;
+  assert.equal(row.status, 'cancelled'); assert.equal(row.cancelledByName, '정산 프로덕트'); assert.equal(row.cancelReason, '중복 요청'); assert.equal(row.externalStatus, 'cancelled');
+  const logs = await sql<Array<{ payload: { reason?: string } }>>`select payload from influencer_log where influencer_id = ${row.influencerId!} and event_type = 'payment_cancelled'`;
+  assert.equal(logs.length, 1); assert.equal(logs[0].payload.reason, '중복 요청');
+  // 취소된 작업은 다시 후보에 나온다
+  const cands = await listCandidates(sql, SETTLEMENT_DEFAULTS, a.member.id, '2026-08-28');
+  assert.ok(cands.some((x) => x.taskId === a.task.id));
+
+  const b = await requestFor('ap3', 'a3');
+  await cancelRequest(sql, b.row.id, '우리 취소', b.member);
+  const conflict = await applyExternalStatus(sql, b.row.id, upd('scheduled', '2026-08-29T00:00:00Z'));
+  assert.equal(conflict !== 'not-found' && conflict.kind, 'conflict'); assert.equal((conflict as { code: string }).code, 'request-cancelled');
+  const ack = await applyExternalStatus(sql, b.row.id, upd('cancelled', '2026-08-29T00:00:00Z'));
+  assert.equal(ack !== 'not-found' && ack.kind, 'applied');
+  assert.equal((ack as { row: typeof b.row }).row.cancelReason, '우리 취소');   // 우리 취소 기록은 그대로
 });

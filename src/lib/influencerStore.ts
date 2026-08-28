@@ -15,10 +15,10 @@ export type InfluencerChannel = 'dm' | 'line' | 'email' | 'other';
 // 앱이 스스로 남기는 이벤트 — 표시 문구는 UI가 만든다(로그에는 사실만 저장)
 export type InfluencerAutoEvent =
   'draft_assigned' | 'draft_unassigned' | 'draft_delivered' | 'handle_changed' | 'pricing_changed'
-  | 'payment_method_changed' | 'payment_requested' | 'payment_cancelled';
+  | 'payment_method_changed' | 'payment_requested' | 'payment_cancelled' | 'payment_paid';
 
-// 정산 요청/취소 한 줄 — 타임라인은 금액·통화·유형만 보인다(요청 상세는 정산 페이지)
-export interface PaymentLogPayload { requestId: string; amountGross: number; currency: Currency; taskType: TaskType; reason?: string }
+// 정산 요청/취소/지급 한 줄 — 타임라인은 금액·통화·유형만 보인다(요청 상세는 정산 페이지)
+export interface PaymentLogPayload { requestId: string; amountGross: number; currency: Currency; taskType: TaskType; reason?: string; paidAmountKrw?: number }
 // 로그 payload는 이벤트마다 모양이 다르다 — 읽는 쪽이 eventType으로 좁힌다.
 export type LogPayload = { from?: string; to?: string } | PricingChange | PaymentMethodChange | PaymentLogPayload;
 

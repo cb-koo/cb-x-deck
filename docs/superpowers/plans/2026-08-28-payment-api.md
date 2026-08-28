@@ -996,7 +996,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
   export type StatusGroup = '' | 'active' | 'on_hold' | 'paid' | 'cancelled';
   export const STATUS_GROUP_OPTIONS: ReadonlyArray<{ value: StatusGroup; label: string }>;
   export function inGroup(key: DisplayKey, g: StatusGroup): boolean;
-  export function paidText(amountKrw: number, paidAmountKrw: number): string;   // '실지급 ₩29,700 (요청 ₩30,000, −300)'
+  export function paidText(amountKrw: number, paidAmountKrw: number): string;   // '실지급 29,700원 (요청 30,000,원 −300)'
   export function settlementDetail(s: StatusSource & { paidAmountKrw: number | null; paidAt: string | null; amountKrw: number }): string;
   ```
 
@@ -1040,14 +1040,14 @@ test('inGroup — 진행 중은 요청됨·접수·지급 예정', () => {
   assert.ok(inGroup('paid', ''));
 });
 test('paidText — 차이 해석까지', () => {
-  assert.equal(paidText(30000, 29700), '실지급 ₩29,700 (요청 ₩30,000, −300)');
-  assert.equal(paidText(30000, 30300), '실지급 ₩30,300 (요청 ₩30,000, +300)');
-  assert.equal(paidText(30000, 30000), '실지급 ₩30,000');
+  assert.equal(paidText(30000, 29700), '실지급 29,700원 (요청 30,000,원 −300)');
+  assert.equal(paidText(30000, 30300), '실지급 30,300원 (요청 30,000,원 +300)');
+  assert.equal(paidText(30000, 30000), '실지급 30,000원');
 });
 test('settlementDetail — 펼침 한 줄', () => {
   assert.equal(settlementDetail({ ...base, paidAmountKrw: null, paidAt: null, amountKrw: 30000 }), '아직 정산 쪽에서 확인 전이에요');
   assert.match(settlementDetail({ ...ext('on_hold', '계좌 확인'), paidAmountKrw: null, paidAt: null, amountKrw: 30000 }), /^보류 · .+ · 계좌 확인$/);
-  assert.match(settlementDetail({ ...ext('paid', '환율'), paidAmountKrw: 29700, paidAt: '2026-08-30T05:10:00Z', amountKrw: 30000 }), /^지급 완료 · .+ · 실지급 ₩29,700 \(요청 ₩30,000, −300\) · 메모: 환율$/);
+  assert.match(settlementDetail({ ...ext('paid', '환율'), paidAmountKrw: 29700, paidAt: '2026-08-30T05:10:00Z', amountKrw: 30000 }), /^지급 완료 · .+ · 실지급 29,700원 \(요청 30,000,원 −300\) · 메모: 환율$/);
   assert.match(settlementDetail({ ...ext('scheduled'), paidAmountKrw: null, paidAt: null, amountKrw: 30000 }), /^지급 예정 · /);
 });
 ```
@@ -1143,7 +1143,7 @@ export function settlementDetail(s: StatusSource & { paidAmountKrw: number | nul
   }
 }
 ```
-`kstDateTime`이 `src/lib/datetime.ts:33`에 있음 — 시그니처 `(iso: string | null) => string` 확인 후 사용. `formatMoney(30000,'KRW')`가 `₩30,000` 형식인지 `influencerPricing.ts`에서 확인(다르면 테스트 기대값을 실제 형식으로 맞춘다 — 함수를 새로 만들지 않는다).
+`kstDateTime`이 `src/lib/datetime.ts:33`에 있음 — 시그니처 `(iso: string | null) => string` 확인 후 사용. `formatMoney(30000,'KRW')`가 `30,000원` 형식인지 `influencerPricing.ts`에서 확인(다르면 테스트 기대값을 실제 형식으로 맞춘다 — 함수를 새로 만들지 않는다).
 
 - [ ] **Step 4: 통과 확인**
 

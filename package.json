@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "node --import tsx --env-file-if-exists=.env --test --test-concurrency=1 \"src/**/*.test.ts\"",
     "migrate": "bash scripts/apply-migrations.sh",
+    "migrate:staging": "bash scripts/apply-migrations.sh .env.staging",
     "smoke:getxapi": "node --import tsx --env-file-if-exists=.env scripts/smoke-getxapi.ts",
     "smoke:suggest": "node --import tsx --env-file-if-exists=.env scripts/smoke-suggest.ts",
     "smoke:exa": "node --import tsx --env-file-if-exists=.env scripts/smoke-exa.ts",

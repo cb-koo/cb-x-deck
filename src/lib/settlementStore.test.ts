@@ -243,3 +243,37 @@ test('설정 — 행 없으면 기본값, 저장하면 마지막 행이 현재�
   await saveSettlementSettings(sql, savedBefore!, null);
   assert.equal((await getSettlementSettings(sql)).rateKrwPerJpy, before.rateKrwPerJpy);
 });
+
+test('생성 — influencer_id·category_option_id 스냅샷 저장, 외부 필드는 null로 시작', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라X');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'x', 'visit'));
+  const inf = await influencerWithPaypal(H('ext'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H('ext'), cost: { amount: 30000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: 'https://x.com/e/status/1' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
+  const [row] = await createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-28');
+  assert.equal(row.influencerId, inf.id);
+  assert.equal(row.categoryOptionId, 'fee');
+  assert.equal(row.externalStatus, null); assert.equal(row.paidAmountKrw, null); assert.equal(row.externalUpdatedAt, null);
+  const badge = (await settlementByTaskIds(sql, [t.id])).get(t.id)!;
+  assert.equal(badge.externalStatus, null); assert.equal(badge.cancelledAt, null);
+});
+
+test('취소 — 그쪽이 지급 완료한 요청은 paid-locked, 트리거가 우회 UPDATE도 막는다', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라Y');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'y', 'visit'));
+  await influencerWithPaypal(H('pd'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H('pd'), cost: { amount: 30000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: 'https://x.com/p/status/1' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
+  const [row] = await createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-28');
+  await sql`update payment_request set external_status = 'paid', paid_amount_krw = 29700, paid_at = now(), external_updated_at = now() where id = ${row.id}`;
+  assert.equal(await cancelRequest(sql, row.id, '실수', m), 'paid-locked');
+  await assert.rejects(sql`update payment_request set status = 'cancelled' where id = ${row.id}`, /paid-locked/);
+  const badge = (await settlementByTaskIds(sql, [t.id])).get(t.id)!;
+  assert.equal(badge.externalStatus, 'paid');
+});

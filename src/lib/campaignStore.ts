@@ -5,7 +5,7 @@ import {
   parseExtraCosts, parseTaskCost, sumMoney, mergeMoney, isCurrency, type ExtraCost, type MoneyByCurrency,
 } from './campaignCost.ts';
 import {
-  listTasksByCampaign, countTasksForCampaignDelete, settlementByTaskIds, type TaskRow, type SettlementBadgeStatus,
+  listTasksByCampaign, countTasksForCampaignDelete, settlementByTaskIds, type TaskRow, type SettlementBadge,
 } from './campaignTaskStore.ts';
 import {
   summarizeTasks, deriveTaskInfluencers, subtotalsByType,
@@ -34,7 +34,7 @@ export interface CampaignTaskItem extends TaskRow {
   published: boolean;              // = postedAt !== null (게시 확인이 판정한다, tracked_post 유무가 아니다 — §2-5)
   perf: CampaignPerf | null;       // tracked_post.task_id 최신 스냅샷(lateral) 합. 스냅샷 없으면 views/likes null
   linkClicks: number | null;       // 붙은 원고의 tracking_link 최신 스냅샷 합 — 게시 여부와 무관(요약 카드 합계용, §5)
-  settlement: { status: SettlementBadgeStatus; createdAt: string } | null;   // 표의 정산 배지(정산 스펙 §4-4) — settlementByTaskIds
+  settlement: SettlementBadge | null;   // 표의 정산 배지(정산 스펙 §4-4) — settlementByTaskIds
 }
 export interface InfluencerCostRow {
   id: string; campaignId: string; influencerHandle: string;

@@ -300,12 +300,24 @@ export { tweetPermalink };
 // settlementStore가 아니라 여기 두는 이유: settlementStore→campaignTaskStore가 아니라 반대로 두면
 // settlementStore→influencerStore→campaignStore 경로로 순환 import가 생긴다.
 export type SettlementBadgeStatus = 'requested' | 'cancelled';
-export async function settlementByTaskIds(sql: postgres.Sql, taskIds: string[]): Promise<Map<string, { status: SettlementBadgeStatus; createdAt: string }>> {
+// 그쪽(정산 프로덕트) 상태 — payment_request.external_status(041). null = 그쪽이 아직 안 봄.
+export type ExternalStatus = 'received' | 'scheduled' | 'paid' | 'on_hold' | 'cancelled';
+export const EXTERNAL_STATUSES: readonly ExternalStatus[] = ['received', 'scheduled', 'paid', 'on_hold', 'cancelled'];
+export interface SettlementBadge {
+  status: SettlementBadgeStatus; createdAt: string; cancelledAt: string | null;
+  externalStatus: ExternalStatus | null; externalNote: string | null; externalUpdatedAt: string | null;
+}
+export async function settlementByTaskIds(sql: postgres.Sql, taskIds: string[]): Promise<Map<string, SettlementBadge>> {
   const ids = taskIds.filter(isUuidLike);
   if (!ids.length) return new Map();
-  const rows = await sql<Array<{ task_id: string; status: SettlementBadgeStatus; created_at: Date }>>`
-    select distinct on (task_id) task_id, status, created_at
+  const rows = await sql<Array<{ task_id: string; status: SettlementBadgeStatus; created_at: Date; cancelled_at: Date | null;
+    external_status: ExternalStatus | null; external_note: string | null; external_updated_at: Date | null }>>`
+    select distinct on (task_id) task_id, status, created_at, cancelled_at, external_status, external_note, external_updated_at
       from payment_request where task_id in ${sql(ids)}
      order by task_id, (status = 'requested') desc, created_at desc`;
-  return new Map(rows.map((r) => [r.task_id, { status: r.status, createdAt: new Date(r.created_at).toISOString() }]));
+  const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
+  return new Map(rows.map((r) => [r.task_id, {
+    status: r.status, createdAt: new Date(r.created_at).toISOString(), cancelledAt: iso(r.cancelled_at),
+    externalStatus: r.external_status, externalNote: r.external_note, externalUpdatedAt: iso(r.external_updated_at),
+  }]));
 }

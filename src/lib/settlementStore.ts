@@ -11,7 +11,7 @@ import { getDefaultPaymentMethod, type PaymentMethod } from './influencerPayment
 import { insertAutoLog, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
 import { computeCandidate, toMethodSnapshot, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
-import type { SettlementBadgeStatus } from './campaignTaskStore.ts';
+import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
 
 const asJson = (v: object): postgres.JSONValue => v as unknown as postgres.JSONValue;
 
@@ -102,6 +102,8 @@ export interface PaymentRequestRow {
   paymentMethod: PaymentMethodSnapshot; requesterMemberId: string | null; requesterName: string;
   status: RequestStatus; cancelledAt: string | null; cancelledByName: string | null; cancelReason: string | null;
   sentAt: string | null; externalId: string | null; note: string; createdAt: string; updatedAt: string;
+  externalStatus: ExternalStatus | null; paidAmountKrw: number | null; paidAt: string | null; externalNote: string | null;
+  externalUpdatedAt: string | null; influencerId: string | null; categoryOptionId: string | null;
 }
 export interface CreateItemInput {
   taskId: string; category: string; deadlineOn: string; referenceUrl: string | null;
@@ -119,12 +121,15 @@ type RRow = {
   payment_method: PaymentMethodSnapshot; requester_member_id: string | null; requester_name: string;
   status: RequestStatus; cancelled_at: Date | null; cancelled_by_name: string | null; cancel_reason: string | null;
   sent_at: Date | null; external_id: string | null; note: string; created_at: Date; updated_at: Date;
+  external_status: ExternalStatus | null; paid_amount_krw: number | null; paid_at: Date | null; external_note: string | null;
+  external_updated_at: Date | null; influencer_id: string | null; category_option_id: string | null;
 };
 const R_SELECT = (sql: postgres.Sql) => sql`
   select id, task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type, category, category_default,
          item_text, purpose_text, amount_krw, cost_currency, payout_currency, rate_krw_per_jpy, amount_net, fee, fee_amount, amount_gross,
          to_char(deadline_on, 'YYYY-MM-DD') as deadline_on, reference_url, payment_method, requester_member_id, requester_name,
-         status, cancelled_at, cancelled_by_name, cancel_reason, sent_at, external_id, note, created_at, updated_at
+         status, cancelled_at, cancelled_by_name, cancel_reason, sent_at, external_id, note, created_at, updated_at,
+         external_status, paid_amount_krw, paid_at, external_note, external_updated_at, influencer_id, category_option_id
     from payment_request`;
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 const toRequest = (r: RRow): PaymentRequestRow => ({
@@ -135,6 +140,8 @@ const toRequest = (r: RRow): PaymentRequestRow => ({
   paymentMethod: r.payment_method, requesterMemberId: r.requester_member_id, requesterName: r.requester_name,
   status: r.status, cancelledAt: iso(r.cancelled_at), cancelledByName: r.cancelled_by_name, cancelReason: r.cancel_reason,
   sentAt: iso(r.sent_at), externalId: r.external_id, note: r.note, createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
+  externalStatus: r.external_status, paidAmountKrw: r.paid_amount_krw, paidAt: iso(r.paid_at), externalNote: r.external_note,
+  externalUpdatedAt: iso(r.external_updated_at), influencerId: r.influencer_id, categoryOptionId: r.category_option_id,
 });
 
 const isHttpUrl = (u: string) => /^https?:\/\/\S+$/.test(u);
@@ -150,7 +157,7 @@ export async function createRequests(
   const rows = await sql<CandRow[]>`${CANDIDATE_SQL(sql)} and t.id in ${sql(ids.length ? ids : ['00000000-0000-0000-0000-000000000000'])}`;
   const byTask = new Map(rows.map((r) => [r.id, r]));
   const failures: Array<{ taskId: string; reason: string }> = [];
-  const prepared: Array<{ item: CreateItemInput; cand: SettlementCandidate; r: CandRow }> = [];
+  const prepared: Array<{ item: CreateItemInput; cand: SettlementCandidate; r: CandRow; cat: { id: string } }> = [];
   const seenTaskIds = new Set<string>();
   for (const item of items) {
     if (seenTaskIds.has(item.taskId)) {   // 같은 작업이 두 번 들어오면 부분 유니크 인덱스가 트랜잭션 전체를 굴린다 — 검증 단계에서 미리 거절
@@ -176,7 +183,7 @@ export async function createRequests(
       failures.push({ taskId: item.taskId, reason: '금액이 바뀌었어요 — 다시 확인해 주세요' }); continue;
     }
     if (cand.method.id !== item.expected.paymentMethodId) { failures.push({ taskId: item.taskId, reason: '결제 수단이 바뀌었어요 — 다시 확인해 주세요' }); continue; }
-    prepared.push({ item, cand, r });
+    prepared.push({ item, cand, r, cat });
   }
   if (failures.length) throw new SettlementCreateError(failures);
 
@@ -184,16 +191,18 @@ export async function createRequests(
     return await sql.begin(async (tx0) => {
       const tx = tx0 as unknown as postgres.Sql;
       const out: PaymentRequestRow[] = [];
-      for (const { item, cand, r } of prepared) {
+      for (const { item, cand, r, cat } of prepared) {
         const m = cand.money!; const pm = cand.method!;
         const ins = await tx<Array<{ id: string }>>`
           insert into payment_request (task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type,
             category, category_default, item_text, purpose_text, amount_krw, cost_currency, payout_currency, rate_krw_per_jpy,
-            amount_net, fee, fee_amount, amount_gross, deadline_on, reference_url, payment_method, requester_member_id, requester_name)
+            amount_net, fee, fee_amount, amount_gross, deadline_on, reference_url, payment_method, requester_member_id, requester_name,
+            influencer_id, category_option_id)
           values (${cand.taskId}, ${cand.campaignId}, ${cand.campaignName}, ${cand.clientId}, ${cand.clientName}, ${cand.influencerHandle}, ${cand.taskType},
             ${item.category}, ${cand.categoryDefault}, ${cand.itemText}, ${cand.purposeText}, ${m.amountKrw}, ${m.costCurrency}, ${m.payoutCurrency}, ${m.rateKrwPerJpy},
             ${m.amountNet}, ${m.fee ? tx.json(asJson(m.fee)) : null}, ${m.feeAmount}, ${m.amountGross}, ${item.deadlineOn}, ${item.referenceUrl || null},
-            ${tx.json(asJson(toMethodSnapshot(pm)))}, ${member.id}, ${member.name})
+            ${tx.json(asJson(toMethodSnapshot(pm)))}, ${member.id}, ${member.name},
+            ${r.influencer_id}, ${cat.id})
           returning id`;
         const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${ins[0].id}`;
         const row = toRequest(saved);
@@ -217,27 +226,33 @@ export async function createRequests(
   }
 }
 
+// 취소 한 경로 — 사람(요청 내역)과 그쪽(정산 프로덕트 '취소' 수신)이 같은 함수를 쓴다. 호출자가 for update 잠금·상태 판정을 끝낸 뒤 부른다.
+async function cancelInTx(tx: postgres.Sql, id: string, by: { id: string | null; name: string }, reason: string): Promise<PaymentRequestRow> {
+  await tx`
+    update payment_request set status = 'cancelled', cancelled_at = now(), cancelled_by = ${by.id}, cancelled_by_name = ${by.name},
+           cancel_reason = ${reason}, updated_at = now()
+     where id = ${id}`;
+  const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;
+  const row = toRequest(saved);
+  const infId = row.influencerId ?? (await tx<Array<{ id: string }>>`select id from influencer where lower(handle) = lower(${row.influencerHandle})`)[0]?.id ?? null;
+  if (infId) {
+    const payload: PaymentLogPayload = { requestId: row.id, amountGross: row.amountGross, currency: row.payoutCurrency, taskType: row.taskType, reason };
+    await insertAutoLog(tx, { influencerId: infId, eventType: 'payment_cancelled', draftId: null, draftTitle: null, payload, authorId: by.id });
+  }
+  return row;
+}
+
 export async function cancelRequest(
   sql: postgres.Sql, id: string, reason: string, member: { id: string; name: string },
-): Promise<PaymentRequestRow | 'not-found' | 'already-cancelled'> {
+): Promise<PaymentRequestRow | 'not-found' | 'already-cancelled' | 'paid-locked'> {
   if (!isUuidLike(id)) return 'not-found';
   return await sql.begin(async (tx0) => {
     const tx = tx0 as unknown as postgres.Sql;
     const cur = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id} for update`;
     if (!cur.length) return 'not-found';
     if (cur[0].status === 'cancelled') return 'already-cancelled';
-    await tx`
-      update payment_request set status = 'cancelled', cancelled_at = now(), cancelled_by = ${member.id}, cancelled_by_name = ${member.name},
-             cancel_reason = ${reason}, updated_at = now()
-       where id = ${id}`;
-    const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;
-    const row = toRequest(saved);
-    const inf = await tx<Array<{ id: string }>>`select id from influencer where lower(handle) = lower(${row.influencerHandle})`;
-    if (inf.length) {
-      const payload: PaymentLogPayload = { requestId: row.id, amountGross: row.amountGross, currency: row.payoutCurrency, taskType: row.taskType, reason };
-      await insertAutoLog(tx, { influencerId: inf[0].id, eventType: 'payment_cancelled', draftId: null, draftTitle: null, payload, authorId: member.id });
-    }
-    return row;
+    if (cur[0].external_status === 'paid') return 'paid-locked';   // §4-2 — 트리거가 마지막 벽, 여기서는 화면 문구용 판정
+    return cancelInTx(tx, id, member, reason);
   });
 }
 
@@ -257,4 +272,4 @@ export async function listRequests(sql: postgres.Sql, f: RequestFilter): Promise
 }
 
 // 배지 조회(settlementByTaskIds)는 campaignTaskStore에 있다(순환 방지: settlementStore→influencerStore→campaignStore) — 여기서는 re-export만
-export { settlementByTaskIds, type SettlementBadgeStatus } from './campaignTaskStore.ts';
+export { settlementByTaskIds, EXTERNAL_STATUSES, type SettlementBadgeStatus, type SettlementBadge, type ExternalStatus } from './campaignTaskStore.ts';

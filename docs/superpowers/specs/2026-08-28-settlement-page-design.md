@@ -1,6 +1,6 @@
 # 정산 페이지(payment_request) — 설계 스펙
 
-작성: 2026-08-28 · 브랜치 `cb-koo/payment-data` · 상태: 설계 확정, 구현 전
+작성: 2026-08-28 · 브랜치 `cb-koo/payment-data` · 상태: 구현 완료(브랜치), koo 화면 QA 대기
 선행 스펙: `docs/superpowers/specs/2026-08-28-campaign-task-design.md` §7(정산 데이터 계약), `docs/superpowers/specs/2026-08-27-influencer-payment-method-design.md` §5(payment-data로 넘기는 계약)
 근거 분석: `~/claude-outputs/20260827_결제요청_분류패턴분석.md`(슬랙 3채널 756건), `~/claude-outputs/20260827_결제요청_데이터리스트.md`
 시안(로컬, 미커밋): `.superpowers/brainstorm/58705-1787881570/content/row-layout.html` — B안(두 줄 행) 채택

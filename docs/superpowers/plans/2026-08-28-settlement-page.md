@@ -856,6 +856,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `src/lib/settlementStore.ts`, `src/lib/settlementStore.test.ts`
+- Modify: `src/lib/campaignTaskStore.ts` — `settlementByTaskIds`(배지용)는 **여기**에 둔다(campaignStore가 settlementStore를 import하면 influencerStore 경로로 순환)
 - Modify: `src/lib/influencerStore.ts` — `InfluencerAutoEvent`에 `'payment_requested' | 'payment_cancelled'`, `LogPayload`에 `PaymentLogPayload`
 
 **Interfaces:**
@@ -908,7 +909,6 @@ async function ensureMember() {
   memberId = m.id;
   return { id: memberId, name: MEMBER.name };
 }
-after(async () => { /* 멤버 정리는 위 after보다 먼저 등록되면 순서가 어긋나므로, 여기서 별도로 */ });
 const itemOf = (c: { taskId: string; money: { amountGross: number; payoutCurrency: 'KRW' | 'JPY' } | null; method: { id: string } | null; deadlineDefault: string; referenceDefault: string | null }, category: string): CreateItemInput => ({
   taskId: c.taskId, category, deadlineOn: c.deadlineDefault, referenceUrl: c.referenceDefault,
   expected: { amountGross: c.money!.amountGross, payoutCurrency: c.money!.payoutCurrency, paymentMethodId: c.method!.id },
@@ -999,7 +999,7 @@ test('취소 — 상태·사유·사람·시각, 후보 복귀, 재요청 허용
 });
 ```
 
-`after()` 정리에 멤버 삭제를 추가한다(파일 상단 after 블록 안, 마지막 `sql.end()` 직전): `await sql\`delete from member where name = ${P + '멤버'}\`;` — payment_request의 requester FK는 set null이지만 요청 행은 위에서 먼저 지워진다. 위 코드의 빈 `after(...)` 한 줄은 넣지 않는다(상단 after에 합친다).
+`after()` 정리에 멤버 삭제를 추가한다(파일 상단 after 블록 안, 마지막 `sql.end()` 직전): `await sql\`delete from member where name = ${P + '멤버'}\`;` — payment_request의 requester FK는 set null이지만 요청 행은 위에서 먼저 지워진다.
 
 - [ ] **Step 3: 실패 확인**
 
@@ -1165,11 +1165,18 @@ export async function listRequests(sql: postgres.Sql, f: RequestFilter): Promise
   return rows.map(toRequest);
 }
 
-// 캠페인 표 배지(§4-4) — 활성 요청 우선, 없으면 가장 최근 취소
-export async function settlementByTaskIds(sql: postgres.Sql, taskIds: string[]): Promise<Map<string, { status: RequestStatus; createdAt: string }>> {
+// 배지 조회(settlementByTaskIds)는 campaignTaskStore에 있다(순환 방지: settlementStore→influencerStore→campaignStore) — 여기서는 re-export만
+export { settlementByTaskIds } from './campaignTaskStore.ts';
+```
+
+`src/lib/campaignTaskStore.ts` 끝에 추가:
+```ts
+// 캠페인 표 정산 배지(정산 스펙 §4-4) — 활성 요청 우선, 없으면 가장 최근 취소. payment_request는 040.
+export type SettlementBadgeStatus = 'requested' | 'cancelled';
+export async function settlementByTaskIds(sql: postgres.Sql, taskIds: string[]): Promise<Map<string, { status: SettlementBadgeStatus; createdAt: string }>> {
   const ids = taskIds.filter(isUuidLike);
   if (!ids.length) return new Map();
-  const rows = await sql<Array<{ task_id: string; status: RequestStatus; created_at: Date }>>`
+  const rows = await sql<Array<{ task_id: string; status: SettlementBadgeStatus; created_at: Date }>>`
     select distinct on (task_id) task_id, status, created_at
       from payment_request where task_id in ${sql(ids)}
      order by task_id, (status = 'requested') desc, created_at desc`;
@@ -1192,7 +1199,7 @@ Expected: 전부 pass(타입만 넓혔다).
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lib/settlementStore.ts src/lib/settlementStore.test.ts src/lib/influencerStore.ts
+git add src/lib/settlementStore.ts src/lib/settlementStore.test.ts src/lib/influencerStore.ts src/lib/campaignTaskStore.ts
 git commit -m "feat(settlement): 스토어 ② — 일괄 생성(전부 재계산·검증→전부 저장, 실패 시 0건+건별 이유)·사유 있는 취소·목록·배지 조회 + 인플 활동 기록 2종
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
@@ -1454,13 +1461,19 @@ export function parseSettlementTab(v: string | null): SettlementTab {
 
 ```ts
 // src/app/settlement/readinessView.ts
-import type { ReadinessLevel } from '@/lib/settlementCalc';
+import type { ReadinessLevel, SettlementCandidate } from '@/lib/settlementCalc';
 // 색은 신호등 3색만 — 라벨-값 일치(UX 원칙 4): 값은 서버가 계산한 readiness에서만 파생
 export const READINESS_STYLE: Record<ReadinessLevel, { dot: string; text: string; label: string }> = {
   ready:   { dot: 'bg-emerald-500', text: 'text-emerald-700', label: '보낼 수 있음' },
   warn:    { dot: 'bg-amber-500',   text: 'text-amber-700',   label: '확인 필요' },
   blocked: { dot: 'bg-red-500',     text: 'text-red-700',     label: '못 보냄' },
 };
+// 행의 실제 신호등 — 서버 값에 "사람이 분류를 골랐는지"만 얹는다(분류 빈칸은 🔴, 골랐으면 그 이유가 빠진다)
+export function effectiveReadiness(c: SettlementCandidate, e: { category: string | null } | undefined): ReadinessLevel {
+  const issues = c.issues.filter((i) => !(i.code === 'no-category' && e?.category));
+  if (issues.some((i) => i.level === 'blocked')) return 'blocked';
+  return issues.length ? 'warn' : 'ready';
+}
 ```
 ```ts
 // src/app/settlement/money.ts
@@ -1551,6 +1564,7 @@ import { PAYMENT_TYPES, PAYMENT_TYPE_LABEL, type PaymentMethodType } from '@/lib
 import { formatMoney } from '@/lib/influencerPricing';
 import { CandidateRow, type RowEdit } from './CandidateRow';
 import { CreateConfirmDialog } from './CreateConfirmDialog';
+import { effectiveReadiness } from './readinessView';
 
 const SEL = 'rounded-lg border border-x-border bg-white px-2.5 py-1.5 text-ui';
 const deadlineLabel = (ymd: string) => {
@@ -1669,12 +1683,6 @@ export function CandidateTable() {
   );
 }
 
-// 행의 실제 신호등 — 서버 값에 "사람이 분류를 골랐는지"만 얹는다(분류 빈칸은 🔴, 골랐으면 그 이유가 빠진다)
-export function effectiveReadiness(c: SettlementCandidate, e: RowEdit | undefined): SettlementCandidate['readiness'] {
-  const issues = c.issues.filter((i) => !(i.code === 'no-category' && e?.category));
-  if (issues.some((i) => i.level === 'blocked')) return 'blocked';
-  return issues.length ? 'warn' : 'ready';
-}
 function uniq<T extends readonly [string, string]>(pairs: T[]): T[] {
   const m = new Map<string, T>(); for (const p of pairs) if (!m.has(p[0])) m.set(p[0], p); return [...m.values()];
 }
@@ -1690,9 +1698,8 @@ import type { SettlementCandidate } from '@/lib/settlementCalc';
 import type { SettlementCategory } from '@/lib/settlementSettings';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPE_LABEL, describeMethod } from '@/lib/influencerPayment';
-import { READINESS_STYLE } from './readinessView';
+import { READINESS_STYLE, effectiveReadiness } from './readinessView';
 import { formatKrwToPayout } from './money';
-import { effectiveReadiness } from './CandidateTable';
 
 export interface RowEdit { category: string | null; deadlineOn: string; referenceUrl: string }
 const FIELD = 'rounded-lg border border-x-border bg-white px-2 py-1 text-ui';
@@ -2229,7 +2236,7 @@ export async function countTasksForCampaignDelete(sql: postgres.Sql, campaignId:
 `campaignStore.ts`:
 - `CampaignTaskItem`에 `settlement: { status: 'requested' | 'cancelled'; createdAt: string } | null;` 추가.
 - `CampaignDetail.deleteInfo` 타입을 `{ taskCount: number; detachedTargets: number; activeRequests: number }`로.
-- `getCampaignDetail`에서 `const badges = await settlementByTaskIds(sql, tasks.map((t) => t.id));` 후 items 매핑에 `settlement: badges.get(t.id) ?? null,` 추가(`import { settlementByTaskIds } from './settlementStore.ts'` — settlementStore는 campaignStore를 import하지 않으므로 순환 없음. 확인: settlementStore는 `campaignCost`·`campaignJudgment`·`influencerStore`만 본다. **influencerStore가 campaignStore를 import한다**(`listInfluencerCampaigns`) → settlementStore → influencerStore → campaignStore → settlementStore 순환. 피하려면 `getCampaignDetail`이 `settlementByTaskIds`를 **동적 import**로 부르거나, `settlementByTaskIds`를 `campaignTaskStore.ts`로 옮긴다. **옮긴다**: Task 5의 `settlementByTaskIds`를 `campaignTaskStore.ts`에 두고 settlementStore는 re-export만(`export { settlementByTaskIds } from './campaignTaskStore.ts'`). 테스트는 그대로 통과.)
+- `getCampaignDetail`에서 `const badges = await settlementByTaskIds(sql, tasks.map((t) => t.id));` 후 items 매핑에 `settlement: badges.get(t.id) ?? null,` 추가. import는 `./campaignTaskStore.ts`에서(Task 5가 거기 두었다 — settlementStore를 import하면 influencerStore→campaignStore 경로로 순환).
 - `deleteCampaign`: `activeRequests > 0`이면 삭제하지 않고 `{ deleted: false, ...info }`를 돌려준다.
 
 - [ ] **Step 4: 라우트·화면**

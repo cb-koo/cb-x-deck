@@ -99,7 +99,7 @@ test('assessReadiness — 🔴 > 🟡, 문구 나열', () => {
   const noClient = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', removedAt: null, removedReason: '', clientId: null });
   assert.equal(noClient.level, 'blocked');
   assert.deepEqual(noClient.issues.map((i) => i.code), ['no-client']);
-  assert.match(noClient.issues[0].text, /캠페인에 클라이언트가 없어요/);
+  assert.match(noClient.issues[0].text, /이 캠페인의 클라이언트가 삭제돼 비어 있어요/);
 });
 
 test('snapshot — 필드 선별·양식 8번 문자열', () => {

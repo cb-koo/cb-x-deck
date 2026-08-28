@@ -3,7 +3,8 @@
 -- 재실행하므로 모든 문장은 멱등.
 
 -- §4-8-a FK를 떼어 평범한 uuid 컬럼으로 — 참조 행이 지워져도(on delete set null이 발동하지 않고) 이 값이 그대로 남는다.
--- task_id의 FK는 남긴다: 작업당 활성 요청 1건 부분 유니크 인덱스·작업 삭제 보호 로직이 그 FK 관계에 기대고 있다(040·campaignTaskStore).
+-- task_id의 FK는 남긴다: 다른 세 ID(그쪽이 조인·집계에 쓰는 식별자)와 달리 task_id는 우리 앱 안에서 조인·딥링크 용도라
+-- 작업이 지워지면 그 포인터도 null로 비는 게 맞다(가리킬 작업 자체가 더는 없으므로 보존할 스냅샷도 없다).
 alter table payment_request drop constraint if exists payment_request_client_id_fkey;
 alter table payment_request drop constraint if exists payment_request_campaign_id_fkey;
 alter table payment_request drop constraint if exists payment_request_influencer_id_fkey;

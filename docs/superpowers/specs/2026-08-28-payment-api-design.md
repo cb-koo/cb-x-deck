@@ -102,7 +102,7 @@ API 키 테이블(단일 상대 → 환경 변수) · outbox · 상태 변경 �
 
 ### 4-8. 042 — ID 스냅샷·non-null
 
-외부 API가 이미 `influencer.id`·`clinic.id`·`category.code`를 non-null로 약속했으니(`docs/api/settlement-external-api.md`) DB도 그렇게 만든다. (a) `payment_request`의 `client_id`·`campaign_id`·`influencer_id` FK를 떼어 평범한 uuid 컬럼으로 — 참조가 지워져도(`client_name`·`influencer_handle`처럼) 값이 그대로 남는 진짜 스냅샷이 된다. `task_id` FK만 남긴다(활성 요청 1건 부분 유니크·삭제 보호가 그 관계에 기댐). (b) 레거시 행의 `category_option_id`는 최신 설정 행의 `sendAs`로 역매치, 실패하면 `settlementSettings.ts` 기본 3종으로 폴백해 백필. (c) 세 컬럼 모두 guarded `alter … set not null`(매치 안 된 행이 남으면 그 컬럼만 nullable로 남기고 마이그레이션은 항상 성공). 생성 시점 검증(`createRequests`)도 `client_id`·`influencer_id`가 null이면 저장을 거절하고, 화면 신호등(`assessReadiness`)이 `no-client` blocked 이슈로 클릭 전에 미리 보여준다.
+외부 API가 이미 `influencer.id`·`clinic.id`·`category.code`를 non-null로 약속했으니(`docs/api/settlement-external-api.md`) DB도 그렇게 만든다. (a) `payment_request`의 `client_id`·`campaign_id`·`influencer_id` FK를 떼어 평범한 uuid 컬럼으로 — 참조가 지워져도(`client_name`·`influencer_handle`처럼) 값이 그대로 남는 진짜 스냅샷이 된다. `task_id` FK만 남긴다 — 다른 세 ID는 그쪽이 조인·집계에 쓰는 식별자라 삭제 후에도 반드시 남아야 하지만, `task_id`는 우리 앱 안에서 조인·딥링크 용도라 작업이 지워지면 그 포인터도 null로 비는 게 맞다(가리킬 작업 자체가 더는 없어 보존할 스냅샷도 없음). (b) 레거시 행의 `category_option_id`는 최신 설정 행의 `sendAs`로 역매치, 실패하면 `settlementSettings.ts` 기본 3종으로 폴백해 백필. (c) 세 컬럼 모두 guarded `alter … set not null`(매치 안 된 행이 남으면 그 컬럼만 nullable로 남기고 마이그레이션은 항상 성공). 생성 시점 검증(`createRequests`)도 `client_id`·`influencer_id`가 null이면 저장을 거절하고, 화면 신호등(`assessReadiness`)이 `no-client` blocked 이슈로 클릭 전에 미리 보여준다.
 
 ## 5. 송신 API — 그쪽이 가져가기
 

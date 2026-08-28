@@ -414,7 +414,7 @@ test('생성 — 클라이언트 없는 캠페인은 no-client로 막히고 저�
   const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
   await assert.rejects(createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-28'), (e: unknown) => {
     assert.ok(e instanceof SettlementCreateError);
-    assert.match(e.failures[0].reason, /캠페인에 클라이언트가 없어요/);
+    assert.match(e.failures[0].reason, /이 캠페인의 클라이언트가 삭제돼 비어 있어요/);
     return true;
   });
   assert.equal((await listRequests(sql, { taskId: t.id })).length, 0);

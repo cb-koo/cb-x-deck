@@ -10,7 +10,7 @@ import { isDateOnlyString } from './campaignJudgment.ts';   // 'YYYY-MM-DD' + �
 import { getDefaultPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
 import { insertAutoLog, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
-import { computeCandidate, toMethodSnapshot, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
+import { computeCandidate, toMethodSnapshot, NO_CLIENT_TEXT, NO_INFLUENCER_TEXT, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
 import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
 import type { Cursor, ExportRow, StatusUpdate } from './settlementExternal.ts';   // 타입만이라 순환 무해
 
@@ -173,8 +173,8 @@ export async function createRequests(
       continue;
     }
     // 계약 보증(042 §4-8): 저장되는 순간 클라이언트·인플 ID는 non-null이어야 한다 — 화면 신호등(no-client)이 먼저 막지만, 여기서 다시 막는다
-    if (r.client_id === null) { failures.push({ taskId: item.taskId, reason: '캠페인에 클라이언트가 없어요 — 캠페인에서 클라이언트를 지정해 주세요' }); continue; }
-    if (r.influencer_id === null) { failures.push({ taskId: item.taskId, reason: '명부에 없는 인플루언서예요 — 인플루언서 명부에 먼저 추가해 주세요' }); continue; }
+    if (r.client_id === null) { failures.push({ taskId: item.taskId, reason: NO_CLIENT_TEXT }); continue; }
+    if (r.influencer_id === null) { failures.push({ taskId: item.taskId, reason: NO_INFLUENCER_TEXT }); continue; }
     const cost = parseTaskCost(r.cost ?? null);
     if (!cost.ok || cost.value === null) { failures.push({ taskId: item.taskId, reason: '비용 형식이 올바르지 않아요' }); continue; }
     const cand = rowToCandidate(r, cost.value, settings, lastQ, today);

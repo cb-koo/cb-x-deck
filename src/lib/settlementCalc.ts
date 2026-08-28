@@ -72,11 +72,14 @@ export type ReadinessLevel = 'ready' | 'warn' | 'blocked';
 export type IssueCode = 'no-influencer' | 'no-payment-method' | 'no-category' | 'no-reference' | 'removed' | 'paypay-no-identifier' | 'no-client';
 export interface ReadinessIssue { level: 'warn' | 'blocked'; code: IssueCode; text: string }
 // 클릭 전에 미리 보여준다(UX 원칙 ②) — createRequests의 거절 사유(settlementStore)와 문구를 맞춘다(042)
-export const NO_CLIENT_TEXT = '캠페인에 클라이언트가 없어요 — 캠페인에서 클라이언트를 지정해 주세요';
+// 클라이언트 지정은 캠페인 생성 시점에만 가능(수정 UI 없음·parseCampaignPatch가 clientId를 의도적으로 무시) — 클라이언트가 삭제되면
+// campaign.client_id가 on delete set null로 비고, 그때부터는 고칠 수 없다. 그래서 문구는 "다시 지정"이 아니라 실제로 남은 유일한 조치를 말한다.
+export const NO_CLIENT_TEXT = '이 캠페인의 클라이언트가 삭제돼 비어 있어요 — 클라이언트를 다시 만들고 캠페인을 새로 만들어야 정산할 수 있어요';
+export const NO_INFLUENCER_TEXT = '명부에 없는 인플루언서예요 — 명부에 추가하고 결제 수단을 등록해 주세요';
 const monthDay = (ymd: string) => `${Number(ymd.slice(5, 7))}-${Number(ymd.slice(8, 10))}`;
 export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; removedAt: string | null; removedReason: string; clientId: string | null }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
   const issues: ReadinessIssue[] = [];
-  if (!i.inRoster) issues.push({ level: 'blocked', code: 'no-influencer', text: '명부에 없는 인플루언서예요 — 명부에 추가하고 결제 수단을 등록해 주세요' });
+  if (!i.inRoster) issues.push({ level: 'blocked', code: 'no-influencer', text: NO_INFLUENCER_TEXT });
   else if (!i.method) issues.push({ level: 'blocked', code: 'no-payment-method', text: '결제 수단이 없어요 — 프로필에서 등록해 주세요' });
   if (i.clientId === null) issues.push({ level: 'blocked', code: 'no-client', text: NO_CLIENT_TEXT });
   if (!i.category) issues.push({ level: 'blocked', code: 'no-category', text: '분류를 골라 주세요' });

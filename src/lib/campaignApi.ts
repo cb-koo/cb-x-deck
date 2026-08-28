@@ -62,7 +62,8 @@ export const fetchTargeting = (t: { taskId: string } | { url: string }) =>
 export interface TaskCreateRequest {
   type: TaskType; targetTaskId?: string | null; targetTweetUrl?: string | null; draftId?: string | null;
   scheduledOn?: string | null; visitOn?: string | null; note?: string; cost?: TaskCost | null;
-  influencers: Array<{ handle: string; cost?: TaskCost | null }>;
+  // 날짜는 사람별(줄) 값이 먼저 — 위의 scheduledOn/visitOn은 줄에 값이 없을 때·미배정일 때의 기본값
+  influencers: Array<{ handle: string; cost?: TaskCost | null; scheduledOn?: string | null; visitOn?: string | null }>;
 }
 export type TaskPatchRequest = {
   influencerHandle?: string | null; targetTaskId?: string | null; targetTweetUrl?: string | null;

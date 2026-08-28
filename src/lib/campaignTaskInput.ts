@@ -50,10 +50,12 @@ const uuidOrNull = (v: unknown, message: string): Parsed<string | null> => {
   return typeof v === 'string' && isUuidLike(v) ? { ok: true, value: v } : fail(message);
 };
 
+// 날짜는 사람마다 다르다(같은 캠페인이어도 인플마다 올리는 날이 다르다) — influencers[]의 날짜가 먼저고,
+// 최상위 scheduledOn/visitOn은 그 줄에 날짜가 없을 때의 기본값(미배정 1행도 이걸 쓴다).
 export interface TaskCreateBody {
   type: TaskType; targetTaskId: string | null; targetTweetUrl: string | null; draftId: string | null;
   scheduledOn: string | null; visitOn: string | null; note: string; cost: TaskCost | null;
-  influencers: Array<{ handle: string; cost: TaskCost | null }>;
+  influencers: Array<{ handle: string; cost: TaskCost | null; scheduledOn: string | null; visitOn: string | null }>;
 }
 export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
   const b = (body ?? {}) as Record<string, unknown>;
@@ -72,11 +74,14 @@ export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
   const raw = Array.isArray(b.influencers) ? b.influencers : [];
   const influencers: TaskCreateBody['influencers'] = [];
   for (const it of raw) {
-    const o = (it ?? {}) as { handle?: unknown; cost?: unknown };
+    const o = (it ?? {}) as { handle?: unknown; cost?: unknown; scheduledOn?: unknown; visitOn?: unknown };
     const h = parseXHandle(String(o.handle ?? ''));
     if (!h.ok) return fail(handleParseMessage(h.reason));
     const c = o.cost === undefined ? { ok: true as const, value: null } : parseTaskCost(o.cost); if (!c.ok) return c;
-    influencers.push({ handle: h.handle, cost: c.value });
+    const s = dateOrNull(o.scheduledOn); if (!s.ok) return s;
+    const v = dateOrNull(o.visitOn); if (!v.ok) return v;
+    if (v.value && b.type !== 'visit') return fail(VISIT_ON_MESSAGE);
+    influencers.push({ handle: h.handle, cost: c.value, scheduledOn: s.value, visitOn: v.value });
   }
   if (draftId.value && influencers.length > 1) return fail(DRAFT_MULTI_MESSAGE);
   return { ok: true, value: {

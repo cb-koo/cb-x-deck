@@ -9,7 +9,10 @@ test('생성 — 정규화된 핸들·비용, 대상 링크 permalink 정규화,
   assert.ok(ok.ok);
   if (ok.ok) {
     assert.equal(ok.value.targetTweetUrl, 'https://x.com/Mika/status/123');
-    assert.deepEqual(ok.value.influencers, [{ handle: 'Rio', cost: { amount: 3000, currency: 'JPY' } }, { handle: 'sora', cost: null }]);
+    assert.deepEqual(ok.value.influencers, [
+      { handle: 'Rio', cost: { amount: 3000, currency: 'JPY' }, scheduledOn: null, visitOn: null },
+      { handle: 'sora', cost: null, scheduledOn: null, visitOn: null },
+    ]);
     assert.equal(ok.value.note, '메모'); assert.equal(ok.value.draftId, null); assert.equal(ok.value.visitOn, null); assert.equal(ok.value.cost, null);
   }
   assert.ok(parseTaskCreate({ type: 'post', influencers: [] }).ok);
@@ -22,6 +25,26 @@ test('생성 — 정규화된 핸들·비용, 대상 링크 permalink 정규화,
   assert.equal(parseTaskCreate({ type: 'post', influencers: [{ handle: 'bad handle!' }] }).ok, false);
   assert.equal(parseTaskCreate({ type: 'rt', targetTaskId: 'nope' }).ok, false);
   assert.equal(parseTaskCreate({ type: 'visit', visitOn: '2026-09-10', influencers: [{ handle: 'h' }] }).ok, true);
+});
+
+test('생성 — 사람별 날짜(인플마다 게시일이 다르다), 형식 오류·방문일은 방문협찬만', () => {
+  const ok = parseTaskCreate({ type: 'visit', scheduledOn: '2026-09-01', influencers: [
+    { handle: 'Rio', scheduledOn: '2026-09-03', visitOn: '2026-09-02' },
+    { handle: 'sora' },   // 줄에 날짜가 없으면 null — 기본값을 쓰는 건 저장소 쪽 규칙
+  ] });
+  assert.ok(ok.ok);
+  if (ok.ok) {
+    assert.deepEqual(ok.value.influencers, [
+      { handle: 'Rio', cost: null, scheduledOn: '2026-09-03', visitOn: '2026-09-02' },
+      { handle: 'sora', cost: null, scheduledOn: null, visitOn: null },
+    ]);
+    assert.equal(ok.value.scheduledOn, '2026-09-01');
+  }
+  assert.deepEqual(parseTaskCreate({ type: 'post', influencers: [{ handle: 'a', scheduledOn: '2026-9-3' }] }), { ok: false, message: DATE_MESSAGE });
+  assert.deepEqual(parseTaskCreate({ type: 'post', influencers: [{ handle: 'a', visitOn: '2026-09-03' }] }), { ok: false, message: VISIT_ON_MESSAGE });
+  // 빈 문자열은 '안 적음'과 같다(달력 칸을 비운 상태)
+  const blank = parseTaskCreate({ type: 'post', influencers: [{ handle: 'a', scheduledOn: '' }] });
+  assert.ok(blank.ok && blank.value.influencers[0].scheduledOn === null);
 });
 
 test('패치 — 온 키만, null=지움, postedAt null 거절, removedReason trim', () => {

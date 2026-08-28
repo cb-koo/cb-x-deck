@@ -11,13 +11,18 @@ import { parseXHandle } from '@/lib/xHandle';
 import { draftLabel } from '@/lib/draftViews';
 import { Button } from '@/components/ui';
 import { TargetPicker, type TargetValue, candidateLabel } from './TargetPicker';
-import { CostRows } from './CostRows';
+import { CostRows, type RowDates } from './CostRows';
 import { AttachDraftModal } from './AttachDraftModal';
 
 // [+ 작업 추가](스펙 §4-2, 시안 task-add-v3) — 한 창에서 유형을 바꾸면 칸이 바뀐다(입력한 인플·예정일은 유지).
-// RT·인용RT: 유형 → 대상 → 인플(여러 명) → (인용RT: 원고) → 비용(사람별) → 예정일·메모 / 투고·방문협찬: 유형 → 인플 → 원고 → 비용 → (방문일)·예정일 → 메모.
+// RT·인용RT: 유형 → 대상 → 인플(여러 명) → (인용RT: 원고) → 사람별 줄(금액·날짜) → 메모 / 투고·방문협찬: 유형 → 인플 → 원고 → 사람별 줄 → 메모.
 // 여러 명 = 사람 수만큼 작업. 0명 = 미배정 1개. 원고는 0~1명일 때만.
+//
+// 날짜는 사람별 줄에서 받는다(koo QA) — 인플마다 올리는 날이 다른 게 실무인데, 창 위 한 칸이면 N명에게 같은
+// 날이 들어간다. 위의 '(전체)' 칸은 [모두에게 적용]을 눌렀을 때만 줄에 퍼진다 — 치는 대로 자동으로 퍼지면
+// 사람이 줄에서 고쳐 둔 날짜를 조용히 덮는다.
 type DraftChoice = { kind: 'none' } | { kind: 'existing'; draft: DraftRow } | { kind: 'new' };
+const EMPTY_DATES: RowDates = { scheduledOn: '', visitOn: '' };
 
 // 비용 블록의 통화는 하나(통화 select도 하나) — 명부 단가 통화가 블록 통화와 다르면 금액을 그 통화로 '바꿔 넣지'
 // 않는다(금액을 조작하는 셈이라 위험 — 결정 로그 참조). 그 사람 줄은 비워 두고 근거에 원래 단가·통화를 보여준다.
@@ -44,6 +49,7 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
   const [attachOpen, setAttachOpen] = useState(false);
   const [scheduledOn, setScheduledOn] = useState('');
   const [visitOn, setVisitOn] = useState('');
+  const [dates, setDates] = useState<Record<string, RowDates>>({});   // 사람별 날짜 — key는 핸들, 미배정은 ''
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -51,6 +57,18 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
   const hasDraft = type !== 'rt';
   const optionFor = useCallback((h: string) => influencerOptions.find((o) => o.handle.toLowerCase() === h.toLowerCase()), [influencerOptions]);
   const changeCost = useCallback((h: string, next: TaskCost | null) => setCosts((cur) => ({ ...cur, [h]: next })), []);
+  const changeDate = useCallback((h: string, patch: Partial<RowDates>) =>
+    setDates((cur) => ({ ...cur, [h]: { ...(cur[h] ?? EMPTY_DATES), ...patch } })), []);
+  const rowKeys = handles.length ? handles : [''];
+  // [모두에게 적용] — 누른 그 순간에만 모든 줄에 같은 날짜를 넣는다(빈 줄만이 아니라 전부, 눌렀으니 그게 뜻이다)
+  function applyDateToAll(kind: keyof RowDates, value: string) {
+    if (!value) return;
+    setDates((cur) => {
+      const out = { ...cur };
+      for (const h of rowKeys) out[h] = { ...(out[h] ?? EMPTY_DATES), [kind]: value };
+      return out;
+    });
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing && !busy && !attachOpen) onClose(); };
@@ -96,6 +114,7 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
   const removeHandle = (h: string) => {
     setHandles((cur) => cur.filter((x) => x !== h));
     setCosts((cur) => { const out = { ...cur }; delete out[h]; return out; });
+    setDates((cur) => { const out = { ...cur }; delete out[h]; return out; });
   };
   // 통화를 바꾸는 건 명시적 사용자 행동 — 이때는 금액을 그대로 두고 통화만 새로 붙인다(도움말이 이미 그렇게 말한다)
   function changeCurrency(c: Currency) {
@@ -120,15 +139,26 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
 
   async function submit(goToGenerate: boolean) {
     if (busy) return;
-    if (scheduledOn && !isDateOnlyString(scheduledOn)) { setErr('게시 예정일 형식이 올바르지 않아요'); return; }
-    if (visitOn && !isDateOnlyString(visitOn)) { setErr('방문일 형식이 올바르지 않아요'); return; }
+    for (const h of rowKeys) {
+      const d = dates[h] ?? EMPTY_DATES;
+      const who = h ? `@${h}의 ` : '';
+      if (d.scheduledOn && !isDateOnlyString(d.scheduledOn)) { setErr(`${who}게시 예정일 형식이 올바르지 않아요`); return; }
+      if (type === 'visit' && d.visitOn && !isDateOnlyString(d.visitOn)) { setErr(`${who}방문일 형식이 올바르지 않아요`); return; }
+    }
     if (!canAttachDraft && draft.kind !== 'none') { setErr('원고는 한 사람에게만 붙일 수 있어요 — 인플루언서를 한 명만 고르거나 원고를 빼 주세요'); return; }
+    // 저장되는 날짜는 언제나 줄의 날짜다. 최상위 값은 미배정(0명) 한 줄일 때만 쓴다 — 서버가 그때 items 없이 1행을 만든다.
+    const solo = dates[''] ?? EMPTY_DATES;
     const body: TaskCreateRequest = {
       type,
       ...(hasTarget && target ? ('taskId' in target ? { targetTaskId: target.taskId } : { targetTweetUrl: target.url }) : {}),
       ...(draft.kind === 'existing' ? { draftId: draft.draft.id } : {}),
-      scheduledOn: scheduledOn || null, visitOn: type === 'visit' && visitOn ? visitOn : null, note,
-      influencers: handles.map((h) => ({ handle: h, cost: costs[h] ?? null })),
+      scheduledOn: handles.length === 0 ? solo.scheduledOn || null : null,
+      visitOn: handles.length === 0 && type === 'visit' && solo.visitOn ? solo.visitOn : null,
+      note,
+      influencers: handles.map((h) => {
+        const d = dates[h] ?? EMPTY_DATES;
+        return { handle: h, cost: costs[h] ?? null, scheduledOn: d.scheduledOn || null, visitOn: type === 'visit' && d.visitOn ? d.visitOn : null };
+      }),
       ...(handles.length === 0 ? { cost: costs[''] ?? null } : {}),
     };
     setBusy(true); setErr('');
@@ -181,25 +211,44 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
       {dup.size > 0 && handles.some((h) => dup.has(h.toLowerCase())) && <p className="mt-1 text-ui text-x-muted">주황 표시는 같은 대상으로 이미 작업이 있는 사람 — 그대로 두면 두 번째 작업이 만들어져요</p>}
     </div>
   );
-  const costField = (
+  const rowsField = (
     <div className={field}>
-      <p className={label}>비용 <span className="text-x-muted">명부 단가로 채웠어요 — 금액을 눌러 고치세요</span></p>
-      {/* key={type}: 유형을 바꾸면 비용 칸을 새로 그린다 — 치던 글자가 남아 새 단가를 가리는 일이 없게 */}
-      <div className="mt-1.5"><CostRows key={type} type={type} handles={handles} influencerOptions={influencerOptions} values={costs} currency={currency} onChange={changeCost} onCurrencyChange={changeCurrency} /></div>
+      <p className={label}>사람별 금액·날짜 <span className="text-x-muted">명부 단가로 채웠어요 — 사람마다 다르면 그 줄에서 고치세요</span></p>
+      {/* key={type}: 유형을 바꾸면 칸을 새로 그린다 — 치던 글자가 남아 새 단가를 가리는 일이 없게 */}
+      <div className="mt-1.5">
+        <CostRows key={type} type={type} handles={handles} influencerOptions={influencerOptions} values={costs} currency={currency}
+                  dates={dates} showVisit={type === 'visit'} onChange={changeCost} onCurrencyChange={changeCurrency} onDateChange={changeDate} />
+      </div>
+    </div>
+  );
+  // 창 위의 '(전체)' 칸 — 값을 치는 것만으로는 아무 줄도 바뀌지 않는다. [모두에게 적용]을 눌러야 퍼진다.
+  const dateHelper = (kind: keyof RowDates, id: string, text: string, value: string, set: (v: string) => void) => (
+    <div className="w-[318px]">
+      <label htmlFor={id} className={`block ${label}`}>{text} <span className="text-x-muted">선택</span></label>
+      <div className="mt-1.5 flex items-center gap-2">
+        <input id={id} type="date" value={value} onChange={(e) => set(e.target.value)} className={`${input} mt-0`} />
+        <button type="button" onClick={() => applyDateToAll(kind, value)} disabled={!value}
+                className="h-11 shrink-0 rounded-[10px] border border-x-border-strong px-3.5 text-content text-x-secondary hover:bg-x-hover disabled:opacity-40">모두에게 적용</button>
+      </div>
     </div>
   );
   const dateFields = (
-    <div className={`${field} grid grid-cols-2 gap-3.5`}>
-      {type === 'visit' && <label className={label}>방문일 <span className="text-x-muted">선택</span><input type="date" value={visitOn} onChange={(e) => setVisitOn(e.target.value)} className={input} /></label>}
-      <label className={label}>게시 예정일 <span className="text-x-muted">선택</span><input type="date" value={scheduledOn} onChange={(e) => setScheduledOn(e.target.value)} className={input} /></label>
-      {type !== 'visit' && <label className={label}>메모 <span className="text-x-muted">선택</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="한 줄" className={input} /></label>}
+    <div className={`${field} flex flex-wrap items-start gap-x-4 gap-y-3`}>
+      {type === 'visit' && dateHelper('visitOn', 'visit-on-all', '방문일 (전체)', visitOn, setVisitOn)}
+      {dateHelper('scheduledOn', 'scheduled-on-all', '게시 예정일 (전체)', scheduledOn, setScheduledOn)}
+      <p className="w-full text-ui text-x-muted">사람별로 다르면 아래 줄에서 고쳐요</p>
     </div>
+  );
+  const noteField = (
+    <label className={`${field} block ${label}`}>메모 <span className="text-x-muted">선택</span>
+      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="한 줄" className={input} />
+    </label>
   );
 
   return (
     <>
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-6" onClick={() => { if (!busy) onClose(); }}>
-      <div className="w-full max-w-[680px] rounded-[14px] bg-white" role="dialog" aria-modal="true" aria-label="작업 추가" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-[760px] rounded-[14px] bg-white" role="dialog" aria-modal="true" aria-label="작업 추가" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 pt-5 pb-1.5">
           <h2 className="text-[17px] font-bold">작업 추가 — {campaign.name}</h2>
           <button type="button" onClick={onClose} disabled={busy} aria-label="닫기" className="text-[18px] text-x-muted hover:text-x-text">✕</button>
@@ -222,9 +271,9 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
           )}
           {influencerField}
           {hasDraft && draftField}
-          {costField}
           {dateFields}
-          {type === 'visit' && <label className={`${field} block ${label}`}>메모 <span className="text-x-muted">선택</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="한 줄" className={input} /></label>}
+          {rowsField}
+          {noteField}
           {err && <p role="alert" className="mt-3 text-ui text-red-600">{err}</p>}
         </div>
         <div className="flex justify-end gap-2.5 border-t border-x-border px-6 py-4">

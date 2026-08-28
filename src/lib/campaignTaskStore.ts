@@ -21,7 +21,8 @@ export interface TaskRow {
 export interface TaskCreateInput {
   type: TaskType; targetTaskId: string | null; targetTweetUrl: string | null; draftId: string | null;
   scheduledOn: string | null; visitOn: string | null; note: string; createdBy: string | null;
-  items: Array<{ handle: string | null; cost: TaskCost | null }>;   // 비면 미배정 1행
+  // 비면 미배정 1행. 줄의 날짜(scheduledOn·visitOn)가 있으면 그게 이기고, 없으면 위의 입력값을 쓴다 — 인플마다 게시일이 다르다.
+  items: Array<{ handle: string | null; cost: TaskCost | null; scheduledOn?: string | null; visitOn?: string | null }>;
 }
 export interface TaskPatch {
   influencerHandle?: string | null; targetTaskId?: string | null; targetTweetUrl?: string | null;
@@ -119,7 +120,7 @@ export async function createTasks(sql: postgres.Sql, campaignId: string, input: 
         insert into campaign_task (campaign_id, influencer_handle, type, target_task_id, target_tweet_url,
                                    scheduled_on, visit_on, cost, note, created_by, created_at)
         values (${campaignId}, ${it.handle}, ${input.type}, ${input.targetTaskId}, ${input.targetTweetUrl},
-                ${input.scheduledOn}::date, ${input.visitOn}::date,
+                ${it.scheduledOn ?? input.scheduledOn}::date, ${it.visitOn ?? input.visitOn}::date,
                 ${it.cost ? tx.json(it.cost as never) : null}, ${input.note}, ${input.createdBy}, clock_timestamp())
         returning id`;
       ids.push(rows[0].id);

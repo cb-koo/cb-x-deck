@@ -46,14 +46,26 @@ test('1) 여러 명 한 번에 → 사람 수만큼, 빈 목록 → 미배정 1�
   assert.equal(rows[0].scheduledOn, '2026-09-03');
   assert.deepEqual(rows[0].cost, { amount: 3000, currency: 'JPY' });
   assert.equal(rows[1].cost, null);
+  assert.equal(rows[1].scheduledOn, '2026-09-03');   // 줄에 날짜가 없으면 입력의 기본값
   assert.equal(rows[0].postedAt, null);
   assert.equal(rows[0].removedReason, '');
   assert.equal(rows[0].draftStatus, null);
+  // 사람별 날짜 — 인플마다 올리는 날이 다르다(줄의 날짜가 기본값을 이긴다)
+  const perPerson = await createTasks(sql, camp.id, {
+    ...baseInput, type: 'visit', scheduledOn: '2026-09-03',
+    items: [
+      { handle: 'Rio', cost: null, scheduledOn: '2026-09-04', visitOn: '2026-09-02' },
+      { handle: 'sora', cost: null, scheduledOn: '2026-09-06' },
+      { handle: 'nao', cost: null },
+    ],
+  });
+  assert.deepEqual(perPerson.map((r) => r.scheduledOn), ['2026-09-04', '2026-09-06', '2026-09-03']);
+  assert.deepEqual(perPerson.map((r) => r.visitOn), ['2026-09-02', null, null]);
   const solo = await createTasks(sql, camp.id, { ...baseInput, type: 'post', items: [] });
   assert.equal(solo.length, 1);
   assert.equal(solo[0].influencerHandle, null);
   const listed = await listTasksByCampaign(sql, camp.id);
-  assert.deepEqual(listed.map((r) => r.id), [...rows.map((r) => r.id), solo[0].id]);   // created_at asc
+  assert.deepEqual(listed.map((r) => r.id), [...rows.map((r) => r.id), ...perPerson.map((r) => r.id), solo[0].id]);   // created_at asc
   assert.equal(await getTask(sql, 'not-a-uuid'), null);
 });
 

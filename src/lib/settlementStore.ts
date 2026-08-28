@@ -96,7 +96,7 @@ function rowToCandidate(r: CandRow, cost: TaskCost, settings: SettlementSettings
 // ── 요청(§2-1·§5) ──
 export type RequestStatus = SettlementBadgeStatus;
 export interface PaymentRequestRow {
-  id: string; taskId: string | null; campaignId: string | null; campaignName: string; clientId: string | null; clientName: string;
+  id: string; taskId: string | null; campaignId: string | null; campaignName: string; clientId: string; clientName: string;
   influencerHandle: string; taskType: TaskType; category: string; categoryDefault: string | null; itemText: string; purposeText: string;
   amountKrw: number; costCurrency: Currency; payoutCurrency: Currency; rateKrwPerJpy: number; amountNet: number;
   fee: PaymentFee | null; feeAmount: number; amountGross: number; deadlineOn: string; referenceUrl: string | null;
@@ -104,7 +104,7 @@ export interface PaymentRequestRow {
   status: RequestStatus; cancelledAt: string | null; cancelledByName: string | null; cancelReason: string | null;
   sentAt: string | null; externalId: string | null; note: string; createdAt: string; updatedAt: string;
   externalStatus: ExternalStatus | null; paidAmountKrw: number | null; paidAt: string | null; externalNote: string | null;
-  externalUpdatedAt: string | null; influencerId: string | null; categoryOptionId: string | null;
+  externalUpdatedAt: string | null; influencerId: string; categoryOptionId: string;
 }
 export interface CreateItemInput {
   taskId: string; category: string; deadlineOn: string; referenceUrl: string | null;
@@ -115,7 +115,7 @@ export class SettlementCreateError extends Error {
 }
 
 type RRow = {
-  id: string; task_id: string | null; campaign_id: string | null; campaign_name: string; client_id: string | null; client_name: string;
+  id: string; task_id: string | null; campaign_id: string | null; campaign_name: string; client_id: string; client_name: string;
   influencer_handle: string; task_type: TaskType; category: string; category_default: string | null; item_text: string; purpose_text: string;
   amount_krw: number; cost_currency: Currency; payout_currency: Currency; rate_krw_per_jpy: number; amount_net: number;
   fee: PaymentFee | null; fee_amount: number; amount_gross: number; deadline_on: string; reference_url: string | null;
@@ -123,7 +123,7 @@ type RRow = {
   status: RequestStatus; cancelled_at: Date | null; cancelled_by_name: string | null; cancel_reason: string | null;
   sent_at: Date | null; external_id: string | null; note: string; created_at: Date; updated_at: Date;
   external_status: ExternalStatus | null; paid_amount_krw: number | null; paid_at: Date | null; external_note: string | null;
-  external_updated_at: Date | null; influencer_id: string | null; category_option_id: string | null;
+  external_updated_at: Date | null; influencer_id: string; category_option_id: string;
 };
 const R_SELECT = (sql: postgres.Sql) => sql`
   select id, task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type, category, category_default,
@@ -172,6 +172,9 @@ export async function createRequests(
       failures.push({ taskId: item.taskId, reason: active.length ? `이미 요청됐어요 (${active[0].requester_name})` : '지금은 정산 후보가 아니에요 — 목록을 다시 확인해 주세요' });
       continue;
     }
+    // 계약 보증(042 §4-8): 저장되는 순간 클라이언트·인플 ID는 non-null이어야 한다 — 화면 신호등(no-client)이 먼저 막지만, 여기서 다시 막는다
+    if (r.client_id === null) { failures.push({ taskId: item.taskId, reason: '캠페인에 클라이언트가 없어요 — 캠페인에서 클라이언트를 지정해 주세요' }); continue; }
+    if (r.influencer_id === null) { failures.push({ taskId: item.taskId, reason: '명부에 없는 인플루언서예요 — 인플루언서 명부에 먼저 추가해 주세요' }); continue; }
     const cost = parseTaskCost(r.cost ?? null);
     if (!cost.ok || cost.value === null) { failures.push({ taskId: item.taskId, reason: '비용 형식이 올바르지 않아요' }); continue; }
     const cand = rowToCandidate(r, cost.value, settings, lastQ, today);

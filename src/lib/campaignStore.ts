@@ -141,7 +141,9 @@ async function toRows(sql: postgres.Sql, rows: CRow[]): Promise<CampaignRow[]> {
 }
 
 export async function createCampaign(sql: postgres.Sql, input: {
-  clientId: string; clientName: string; name: string; nameEn: string;
+  // DB는 client_id를 on delete set null로 허용(스키마상 nullable) — API 라우트(campaignInput.ts)는 항상 채워 보내지만,
+  // 저장소 자체는 클라이언트 없는 캠페인도 만들 수 있다(042 §4-8 no-client 시나리오 테스트가 이 경로를 쓴다)
+  clientId: string | null; clientName: string | null; name: string; nameEn: string;
   startsOn: string; endsOn: string; kind: CampaignKind | null; note: string; createdBy: string | null;
 }): Promise<CampaignRow> {
   const ins = await sql<Array<{ id: string }>>`

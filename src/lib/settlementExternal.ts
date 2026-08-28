@@ -37,10 +37,10 @@ export interface ExternalItem {
   request_id: string; revision: 0 | 1; status: 'requested' | 'cancelled'; created_at: string; updated_at: string;
   cancelled: { at: string | null; by_name: string | null; reason: string | null } | null;
   task_id: string | null;
-  campaign: { id: string | null; name: string }; clinic: { id: string | null; name: string };
-  influencer: { id: string | null; handle: string };
+  campaign: { id: string | null; name: string }; clinic: { id: string; name: string };
+  influencer: { id: string; handle: string };
   task_type: PaymentRequestRow['taskType'];
-  category: { code: string | null; label: string };
+  category: { code: string; label: string };
   item: string; purpose: string;
   amount_krw: number; cost_currency: PaymentRequestRow['costCurrency'];
   payout: { currency: PaymentRequestRow['payoutCurrency']; net: number; fee: PaymentFee | null; fee_amount: number; gross: number; rate_krw_per_jpy: number };

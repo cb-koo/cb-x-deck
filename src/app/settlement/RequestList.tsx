@@ -36,7 +36,8 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
   useEffect(() => { void load(); }, [load]);
 
   // 옵션은 전량(rows)에서 뽑는다 — 필터에 걸려 안 보이는 클라이언트/캠페인도 계속 골라 쓸 수 있게(08-28 리뷰)
-  const clients = useMemo(() => uniqPairs((rows ?? []).filter((r) => r.clientId).map((r) => [r.clientId as string, r.clientName] as const)), [rows]);
+  // clientId는 042부터 non-null 스냅샷이라 더 이상 걸러낼 필요가 없다
+  const clients = useMemo(() => uniqPairs((rows ?? []).map((r) => [r.clientId, r.clientName] as const)), [rows]);
   const campaigns = useMemo(() => uniqPairs((rows ?? []).filter((r) => r.campaignId && (!filter.clientId || r.clientId === filter.clientId)).map((r) => [r.campaignId as string, r.campaignName] as const)), [rows, filter.clientId]);
 
   const filtered = useMemo(() => (rows ?? []).filter((r) =>

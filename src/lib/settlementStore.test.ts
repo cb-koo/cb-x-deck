@@ -1,10 +1,10 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { createClient } from './clientStore.ts';
+import { createClient, deleteClient } from './clientStore.ts';
 import { createCampaign } from './campaignStore.ts';
 import { createTasks, updateTask, getTask } from './campaignTaskStore.ts';
-import { createInfluencer, updatePaymentMethods } from './influencerStore.ts';
+import { createInfluencer, updatePaymentMethods, deleteInfluencer } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettings.ts';
 import { isSettlementCandidate } from './campaignJudgment.ts';
 import {
@@ -377,4 +377,56 @@ test('applyExternalStatus — 그쪽 취소는 우리 취소(정산 프로덕트
   const ack = await applyExternalStatus(sql, b.row.id, upd('cancelled', '2026-08-29T00:00:00Z'));
   assert.equal(ack !== 'not-found' && ack.kind, 'applied');
   assert.equal((ack as { row: typeof b.row }).row.cancelReason, '우리 취소');   // 우리 취소 기록은 그대로
+});
+
+// 042: ID는 스냅샷 — 참조가 지워져도 요청 행의 influencer_id·client_id는 그대로 남아야 한다
+test('스냅샷 ID — 인플·클라이언트를 지워도 요청의 influencerId·clientId는 그대로', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라Z');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'z', 'visit'));
+  const inf = await influencerWithPaypal(H('snap'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H('snap'), cost: { amount: 30000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: 'https://x.com/s/status/1' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
+  const [row] = await createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-28');
+  assert.equal(row.influencerId, inf.id); assert.equal(row.clientId, c.id);
+  // 참조 삭제 — payment_request의 FK가 없으니(042) 그대로 지워진다(influencer_log는 cascade로 같이 지워진다)
+  await deleteInfluencer(sql, inf.id);
+  await deleteClient(sql, c.id);
+  const [again] = await listRequests(sql, { taskId: t.id });
+  assert.equal(again.influencerId, inf.id); assert.equal(again.clientId, c.id);
+  const exported = await getForExport(sql, row.id);
+  assert.equal(exported?.row.influencerId, inf.id); assert.equal(exported?.row.clientId, c.id);
+});
+
+// 042: 클라이언트 없는 캠페인은 화면 신호등에서 no-client로 미리 막히고, 저장 단계에서도 재차 막힌다
+test('생성 — 클라이언트 없는 캠페인은 no-client로 막히고 저장도 거절', async () => {
+  const m = await ensureMember();
+  const camp = await createCampaign(sql, { clientId: null, clientName: null, name: P + 'noclient', nameEn: `${P.toLowerCase()}-noclient`, startsOn: '2026-08-31', endsOn: '2026-09-06', kind: 'content', note: '', createdBy: null });
+  await influencerWithPaypal(H('ncl'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H('ncl'), cost: { amount: 30000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: 'https://x.com/n/status/1' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  assert.equal(cand.clientId, null);
+  assert.equal(cand.readiness, 'blocked');
+  assert.ok(cand.issues.some((i) => i.code === 'no-client'));
+  const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
+  await assert.rejects(createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-28'), (e: unknown) => {
+    assert.ok(e instanceof SettlementCreateError);
+    assert.match(e.failures[0].reason, /캠페인에 클라이언트가 없어요/);
+    return true;
+  });
+  assert.equal((await listRequests(sql, { taskId: t.id })).length, 0);
+});
+
+// 042: 마이그레이션의 guarded ALTER가 실제로 이 DB에 적용됐는지 — 재실행돼도 이 단언은 항상 성립해야 한다
+test('스키마 — influencer_id·client_id·category_option_id는 NOT NULL(042)', async () => {
+  const cols = await sql<Array<{ column_name: string; is_nullable: string }>>`
+    select column_name, is_nullable from information_schema.columns
+     where table_name = 'payment_request' and column_name in ('influencer_id', 'client_id', 'category_option_id')`;
+  const byName = new Map(cols.map((c) => [c.column_name, c.is_nullable]));
+  assert.equal(byName.get('influencer_id'), 'NO');
+  assert.equal(byName.get('client_id'), 'NO');
+  assert.equal(byName.get('category_option_id'), 'NO');
 });

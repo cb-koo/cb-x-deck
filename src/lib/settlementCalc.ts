@@ -69,13 +69,16 @@ export function referenceUrlFor(t: { type: TaskType; postUrl: string | null; tar
 
 // ── 신호등(§3-7) ──
 export type ReadinessLevel = 'ready' | 'warn' | 'blocked';
-export type IssueCode = 'no-influencer' | 'no-payment-method' | 'no-category' | 'no-reference' | 'removed' | 'paypay-no-identifier';
+export type IssueCode = 'no-influencer' | 'no-payment-method' | 'no-category' | 'no-reference' | 'removed' | 'paypay-no-identifier' | 'no-client';
 export interface ReadinessIssue { level: 'warn' | 'blocked'; code: IssueCode; text: string }
+// 클릭 전에 미리 보여준다(UX 원칙 ②) — createRequests의 거절 사유(settlementStore)와 문구를 맞춘다(042)
+export const NO_CLIENT_TEXT = '캠페인에 클라이언트가 없어요 — 캠페인에서 클라이언트를 지정해 주세요';
 const monthDay = (ymd: string) => `${Number(ymd.slice(5, 7))}-${Number(ymd.slice(8, 10))}`;
-export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; removedAt: string | null; removedReason: string }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
+export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; removedAt: string | null; removedReason: string; clientId: string | null }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
   const issues: ReadinessIssue[] = [];
   if (!i.inRoster) issues.push({ level: 'blocked', code: 'no-influencer', text: '명부에 없는 인플루언서예요 — 명부에 추가하고 결제 수단을 등록해 주세요' });
   else if (!i.method) issues.push({ level: 'blocked', code: 'no-payment-method', text: '결제 수단이 없어요 — 프로필에서 등록해 주세요' });
+  if (i.clientId === null) issues.push({ level: 'blocked', code: 'no-client', text: NO_CLIENT_TEXT });
   if (!i.category) issues.push({ level: 'blocked', code: 'no-category', text: '분류를 골라 주세요' });
   if (!i.referenceUrl) issues.push({ level: 'warn', code: 'no-reference', text: '참고 링크 없음' });
   if (i.removedAt) issues.push({ level: 'warn', code: 'removed', text: `게시 내려짐 ${monthDay(i.removedAt)}${i.removedReason ? ` · ${i.removedReason}` : ''}` });
@@ -140,7 +143,7 @@ export function computeCandidate(i: CandidateInput): SettlementCandidate {
   const money = method ? computeMoney(task.cost, method.currency, method.fee, i.settings.rateKrwPerJpy) : null;
   const categoryDefault = defaultCategory({ type: task.type, campaignKind: campaign.kind, settings: i.settings, lastQuoteRtCategory: i.lastQuoteRtCategory });
   const referenceDefault = referenceUrlFor(task);
-  const r = assessReadiness({ inRoster: influencer.inRoster, method, category: categoryDefault, referenceUrl: referenceDefault, removedAt: task.removedAt, removedReason: task.removedReason });
+  const r = assessReadiness({ inRoster: influencer.inRoster, method, category: categoryDefault, referenceUrl: referenceDefault, removedAt: task.removedAt, removedReason: task.removedReason, clientId: campaign.clientId });
   return {
     taskId: task.id, campaignId: campaign.id, campaignName: campaign.name, clientId: campaign.clientId, clientName: campaign.clientName, campaignKind: campaign.kind,
     influencerHandle: task.influencerHandle, taskType: task.type, postedAt: task.postedAt, removedAt: task.removedAt, removedReason: task.removedReason, draftLabel: task.draftLabel,

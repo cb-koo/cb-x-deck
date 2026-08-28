@@ -83,19 +83,23 @@ test('referenceUrlFor — RT는 대상, 나머지는 자기 게시물', () => {
 });
 
 test('assessReadiness — 🔴 > 🟡, 문구 나열', () => {
-  const ok = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', removedAt: null, removedReason: '' });
+  const ok = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', removedAt: null, removedReason: '', clientId: 'cl1' });
   assert.equal(ok.level, 'ready'); assert.equal(ok.issues.length, 0);
-  const noRoster = assessReadiness({ inRoster: false, method: null, category: 'X', referenceUrl: null, removedAt: null, removedReason: '' });
+  const noRoster = assessReadiness({ inRoster: false, method: null, category: 'X', referenceUrl: null, removedAt: null, removedReason: '', clientId: 'cl1' });
   assert.equal(noRoster.level, 'blocked');
   assert.deepEqual(noRoster.issues.map((i) => i.code), ['no-influencer', 'no-reference']);
   assert.match(noRoster.issues[0].text, /명부에 없는 인플루언서예요/);
-  const noPm = assessReadiness({ inRoster: true, method: null, category: null, referenceUrl: null, removedAt: '2026-08-27', removedReason: '계정 정지' });
+  const noPm = assessReadiness({ inRoster: true, method: null, category: null, referenceUrl: null, removedAt: '2026-08-27', removedReason: '계정 정지', clientId: 'cl1' });
   assert.equal(noPm.level, 'blocked');
   assert.deepEqual(noPm.issues.map((i) => i.code), ['no-payment-method', 'no-category', 'no-reference', 'removed']);
   assert.match(noPm.issues[3].text, /게시 내려짐 8-27 · 계정 정지/);
-  const warn = assessReadiness({ inRoster: true, method: paypay, category: 'X', referenceUrl: null, removedAt: null, removedReason: '' });
+  const warn = assessReadiness({ inRoster: true, method: paypay, category: 'X', referenceUrl: null, removedAt: null, removedReason: '', clientId: 'cl1' });
   assert.equal(warn.level, 'warn');
   assert.deepEqual(warn.issues.map((i) => i.code), ['no-reference', 'paypay-no-identifier']);
+  const noClient = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', removedAt: null, removedReason: '', clientId: null });
+  assert.equal(noClient.level, 'blocked');
+  assert.deepEqual(noClient.issues.map((i) => i.code), ['no-client']);
+  assert.match(noClient.issues[0].text, /캠페인에 클라이언트가 없어요/);
 });
 
 test('snapshot — 필드 선별·양식 8번 문자열', () => {
@@ -135,7 +139,7 @@ test('computeCandidate — 전부 합친 한 건', () => {
 test('effectiveReadiness/effectiveIssues — 분류를 지우면 즉시 🔴, 서버 no-category를 사람이 채우면 해제, warn은 유지', () => {
   const filled = computeCandidate({
     task: { id: 't3', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null },
-    campaign: { id: 'c1', name: 'N', kind: 'content', clientId: null, clientName: '기타' },
+    campaign: { id: 'c1', name: 'N', kind: 'content', clientId: 'cl1', clientName: '기타' },
     influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
   });
@@ -147,7 +151,7 @@ test('effectiveReadiness/effectiveIssues — 분류를 지우면 즉시 🔴, �
   // 서버 no-category(분류 기본값 없음) + 사람이 골랐으면 더 이상 blocked가 아니다
   const empty = computeCandidate({
     task: { id: 't4', type: 'quoteRt', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null },
-    campaign: { id: 'c1', name: 'N', kind: 'content', clientId: null, clientName: '기타' },
+    campaign: { id: 'c1', name: 'N', kind: 'content', clientId: 'cl1', clientName: '기타' },
     influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
   });
@@ -158,7 +162,7 @@ test('effectiveReadiness/effectiveIssues — 분류를 지우면 즉시 🔴, �
   // warn 이슈(참고 링크 없음)는 분류와 무관하게 그대로 남는다
   const warnOnly = computeCandidate({
     task: { id: 't5', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null },
-    campaign: { id: 'c1', name: 'N', kind: 'content', clientId: null, clientName: '기타' },
+    campaign: { id: 'c1', name: 'N', kind: 'content', clientId: 'cl1', clientName: '기타' },
     influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
   });

@@ -21,10 +21,14 @@ const T = '2026-09-02';
 after(async () => {
   await sql`delete from tracked_post where tweet_id like ${P + '%'}`;
   await sql`delete from tracking_link where utm_campaign like ${P + '%'}`;
+  await sql`delete from payment_request where influencer_handle like ${P + '%'}`;
   await sql`delete from campaign_task where campaign_id in (select id from campaign where name like ${P + '%'})`;
   await sql`delete from draft where direction like ${P + '%'}`;
   await sql`delete from campaign where name like ${P + '%'}`;
   await sql`delete from client where name like ${P + '%'}`;
+  await sql`delete from influencer_log where influencer_id in (select id from influencer where handle like ${P + '%'})`;
+  await sql`delete from influencer where handle like ${P + '%'}`;
+  await sql`delete from member where name like ${P + '%'}`;
   await sql.end();
 });
 const mkDraft = (clientId: string | null, clientName: string | null, taskId: string | null = null) =>
@@ -232,8 +236,5 @@ test('정산 배지·삭제 보호 — 활성 요청이 있으면 settlement 채
   assert.equal(d.tasks.find((x) => x.id === t.id)!.settlement?.status, 'requested');
   assert.equal(d.deleteInfo.activeRequests, 1);
   assert.equal(await hasActiveRequest(sql, t.id), true);
-  // 정리(after는 payment_request를 모른다) — 요청·인플·멤버
-  await sql`delete from payment_request where task_id = ${t.id}`;
-  await sql`delete from influencer_log where influencer_id = ${inf.id}`; await sql`delete from influencer where id = ${inf.id}`;
-  await sql`delete from member where id = ${m.id}`;
+  // 정리는 after()가 P 접두어 기준으로 일괄 처리한다(중간에 assert 실패해도 잔여 행 방지)
 });

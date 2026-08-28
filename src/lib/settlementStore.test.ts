@@ -223,8 +223,8 @@ test('취소 — 상태·사유·사람·시각, 후보 복귀, 재요청 허용
   assert.equal((await listRequests(sql, { taskId: t.id })).length, 2);
 });
 
-// 마지막에 둔다 — 이 테스트가 "현재 설정"을 잠시 바꿔 두고 after()에서만 되돌리기 때문에(인터럽트 안전을 위한 설계, 아래
-// 참고), 앞선 테스트들이 실행되는 동안엔 DB 현재 설정이 원래값이어야 createRequests()의 실시간 rate와 어긋나지 않는다.
+// 이 위치에 두는 이유는 이제 순서 문제가 아니다 — 테스트 본문 끝에서 바로 원래값으로 복구하고(인라인),
+// after()가 한 번 더 같은 복구를 시도한다(인터럽트로 본문이 끝까지 못 갈 때 대비). 이중 복구라 파일 내 위치가 어디든 무방하다.
 test('설정 — 행 없으면 기본값, 저장하면 마지막 행이 현재값, 버전 목록', async () => {
   // 이전 실행이 인터럽트로 중간에 끊겨 이 테스트의 마커 행이 "현재값"으로 남아 있을 수 있다 — 먼저 지워야
   // 아래 before가 진짜 원래값을 읽는다(그래야 after()의 복구도 올바른 값으로 이뤄진다)
@@ -239,4 +239,7 @@ test('설정 — 행 없으면 기본값, 저장하면 마지막 행이 현재�
   assert.equal(cur.rateKrwPerJpy, 11);
   const versions = await listSettlementVersions(sql, 1);
   assert.equal(versions.length, 1);
+  // 본문 끝에서 바로 원래값으로 복구 — after()의 복구는 인터럽트 대비 이중 안전장치일 뿐, 순서에 기대지 않는다
+  await saveSettlementSettings(sql, savedBefore!, null);
+  assert.equal((await getSettlementSettings(sql)).rateKrwPerJpy, before.rateKrwPerJpy);
 });

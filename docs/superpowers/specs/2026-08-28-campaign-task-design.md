@@ -1,6 +1,6 @@
 # 캠페인 작업(campaign_task) — 설계 스펙
 
-작성: 2026-08-28 · 브랜치 `cb-koo/campaign-task`(origin/main 77eea95에서 분기) · 상태: 구현 완료(08-28, Task 1~18) — 최종 리뷰 반영 · koo QA·이관·머지 대기
+작성: 2026-08-28 · 브랜치 `cb-koo/campaign-task` · 상태: **프로덕션 배포 완료(2026-08-28 10:15 KST, main fdbc5ff)** — 038·039 적용됨, 이관 완료, koo QA 2건 반영(사람별 예정일 · 발행 유형 인플 1명/RT만 여러 명). 백로그는 `~/claude-outputs/20260828_campaign-task_QA체크리스트_배포절차.md` 끝
 선행 스펙: `docs/superpowers/specs/2026-08-25-campaign-management-design.md`(캠페인 관리 — 이 문서가 §0·§2·§3·§4를 대체한다. 캠페인 표 자체·기간·이름 규칙·달력 격자·섹션 경계는 그대로)
 인계: `~/claude-outputs/20260827_campaign-task_인계.md` · 근거 분석: `~/claude-outputs/20260827_결제요청_분류패턴분석.md`
 시안(로컬, 미커밋): `.superpowers/brainstorm/30057-1787841572/content/{task-table-v4,task-add-v3}.html`

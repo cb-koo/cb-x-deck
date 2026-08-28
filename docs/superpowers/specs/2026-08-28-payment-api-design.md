@@ -247,7 +247,7 @@ external_id?     ≤ 100자
 | `src/app/api/settlement/requests/[id]/route.ts` | `paid-locked` → 409 문구 |
 | `src/app/settlement/RequestRow.tsx`, `RequestList.tsx` | §7-2 |
 | `src/app/campaigns/TaskTable.tsx` | §7-3 |
-| 인플 타임라인 문구 파일(기존 `payment_requested` 문구가 있는 곳) | `payment_paid` |
+| `src/app/influencers/Timeline.tsx`, `src/lib/influencerStore.ts`(이벤트 타입) | `payment_paid` 문구·타입 |
 | `scripts/apply-migrations.sh`, `deploy-staging.sh`, `setup-staging.ts`, `seed-staging.ts`, `smoke-external-api.ts` | §3, §9 |
 | `docs/api/settlement-external-api.md` | 그쪽 전달 문서(§5·§6 + 상태 뜻 + 폴링 절차 + §6-3 + `payer/cc` 없음 + 키 회전 = env 교체·재배포) |
 | `src/content/updates.ts` | §10-3 |

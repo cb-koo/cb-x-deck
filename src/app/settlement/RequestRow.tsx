@@ -5,10 +5,12 @@ import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPE_LABEL } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
 import { describeSnapshot } from '@/lib/settlementCalc';
-import { kstMonthDay } from '@/lib/datetime';
+import { displayStatus, TONE_CLASS, paidText, settlementDetail } from '@/lib/settlementDisplay';
 
 export function RequestRow({ r, open, onToggle, onCancel }: { r: PaymentRequestRow; open: boolean; onToggle: () => void; onCancel: () => void }) {
   const cancelled = r.status === 'cancelled';
+  const paid = r.externalStatus === 'paid';
+  const st = displayStatus(r, 'list');
   const costAmount = r.costCurrency === 'KRW' ? r.amountKrw : Math.round(r.amountKrw / r.rateKrwPerJpy);
   const base = r.costCurrency === r.payoutCurrency ? formatMoney(r.amountNet, r.payoutCurrency) : `${formatMoney(costAmount, r.costCurrency)} → ${formatMoney(r.amountNet, r.payoutCurrency)}`;
   return (
@@ -20,11 +22,9 @@ export function RequestRow({ r, open, onToggle, onCancel }: { r: PaymentRequestR
           <span className="text-x-secondary truncate">{r.clientName} · {r.campaignName}</span>
           <span className="ml-auto tabular-nums font-medium whitespace-nowrap">{base}{r.feeAmount > 0 && <span className="ml-1 text-x-muted font-normal">+ {r.feeAmount.toLocaleString('ko-KR')}</span>}</span>
           <span className="text-ui text-x-secondary whitespace-nowrap">{PAYMENT_TYPE_LABEL[r.paymentMethod.type]}</span>
-          <span className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${cancelled ? 'bg-x-surface text-x-secondary' : 'bg-x-blue/10 text-x-blue-text'}`}>
-            {cancelled ? `취소됨 ${kstMonthDay(r.cancelledAt)}` : `요청됨 ${kstMonthDay(r.createdAt)}`}
-          </span>
+          <span className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${TONE_CLASS[st.tone]}`} title={st.title}>{st.label}</span>
         </div>
-        <div className="mt-1 pl-0 text-ui text-x-muted">마감 {r.deadlineOn} · 요청자 {r.requesterName}</div>
+        <div className="mt-1 pl-0 text-ui text-x-muted">마감 {r.deadlineOn} · 요청자 {r.requesterName}{paid && r.paidAmountKrw !== null && <> · {paidText(r.amountKrw, r.paidAmountKrw)}</>}</div>
       </button>
       {open && (
         <div className="mt-3 rounded-xl bg-x-surface p-4 text-ui">
@@ -40,12 +40,15 @@ export function RequestRow({ r, open, onToggle, onCancel }: { r: PaymentRequestR
             <Item k="결제수단" v={describeSnapshot(r.paymentMethod)} />
             <Item k="참고자료" v={r.referenceUrl ? <a href={r.referenceUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline break-all">{r.referenceUrl}</a> : '—'} />
             <Item k="메모" v={r.note || '—'} />
+            <Item k="정산" v={settlementDetail(r)} />
           </dl>
           <div className="mt-3 flex items-center justify-between text-x-muted">
             <span>만든 사람 {r.requesterName} · {new Date(r.createdAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
               {cancelled && <> · <span className="text-x-secondary">취소 · {r.cancelledByName} · {r.cancelledAt ? new Date(r.cancelledAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : ''} · {r.cancelReason}</span></>}
             </span>
-            {!cancelled && <Button onClick={onCancel}>취소</Button>}
+            {!cancelled && (paid
+              ? <span className="text-x-secondary">지급 완료된 요청은 취소할 수 없어요 — 정산 담당자에게 알려 주세요</span>
+              : <Button onClick={onCancel}>취소</Button>)}
           </div>
         </div>
       )}

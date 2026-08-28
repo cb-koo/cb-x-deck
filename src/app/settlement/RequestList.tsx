@@ -2,10 +2,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '@/lib/toastContext';
 import { fetchRequests, cancelRequestApi } from '@/lib/settlementApi';
-import type { PaymentRequestRow, RequestStatus } from '@/lib/settlementStore';
+import type { PaymentRequestRow } from '@/lib/settlementStore';
 import { RequestRow } from './RequestRow';
 import { CancelDialog } from './CancelDialog';
 import { uniqPairs } from './uniqPairs';
+import { STATUS_GROUP_OPTIONS, inGroup, keyOf, type StatusGroup } from '@/lib/settlementDisplay';
 
 const SEL = 'rounded-lg border border-x-border bg-white px-2.5 py-1.5 text-ui';
 // KST 기준 'YYYY-MM-DD' — filter.from/to(날짜 입력)와 같은 자리에서 비교하기 위함
@@ -15,7 +16,7 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
   const { show } = useToast();
   const [rows, setRows] = useState<PaymentRequestRow[] | null>(null);   // 필터 없이 전량 — 옵션 목록도 이걸로 만든다
   const [err, setErr] = useState('');
-  const [filter, setFilter] = useState<{ clientId: string; campaignId: string; status: '' | RequestStatus; from: string; to: string }>({ clientId: '', campaignId: '', status: '', from: '', to: '' });
+  const [filter, setFilter] = useState<{ clientId: string; campaignId: string; status: StatusGroup; from: string; to: string }>({ clientId: '', campaignId: '', status: '', from: '', to: '' });
   const [open, setOpen] = useState<string | null>(null);        // 펼친 요청 id
   const [cancelling, setCancelling] = useState<PaymentRequestRow | null>(null);
   const didFocus = useRef(false);                                // 딥링크 자동 펼침을 첫 로드 1회로 제한
@@ -41,7 +42,7 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
   const filtered = useMemo(() => (rows ?? []).filter((r) =>
     (!filter.clientId || r.clientId === filter.clientId)
     && (!filter.campaignId || r.campaignId === filter.campaignId)
-    && (!filter.status || r.status === filter.status)
+    && inGroup(keyOf(r), filter.status)
     && (!filter.from || kstDay(r.createdAt) >= filter.from)
     && (!filter.to || kstDay(r.createdAt) <= filter.to)), [rows, filter]);
 
@@ -65,8 +66,8 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
         <select className={SEL} value={filter.campaignId} onChange={(e) => setFilter({ ...filter, campaignId: e.target.value })} aria-label="캠페인">
           <option value="">캠페인 전체</option>{campaigns.map(([id, n]) => <option key={id} value={id}>{n}</option>)}
         </select>
-        <select className={SEL} value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value as '' | RequestStatus })} aria-label="상태">
-          <option value="">상태 전체</option><option value="requested">요청됨</option><option value="cancelled">취소됨</option>
+        <select className={SEL} value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value as StatusGroup })} aria-label="상태">
+          {STATUS_GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <label className="flex items-center gap-1 text-ui text-x-secondary">기간
           <input type="date" className={SEL} value={filter.from} onChange={(e) => setFilter({ ...filter, from: e.target.value })} aria-label="시작일" />

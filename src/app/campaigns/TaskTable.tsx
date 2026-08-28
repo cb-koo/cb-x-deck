@@ -10,7 +10,7 @@ import { CostPopover } from '@/components/CostPopover';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
 import { PostedCell } from './PostedCell';
 import { suggestTaskCost, formatMoneyBy, type TaskCost } from '@/lib/campaignCost';
-import { kstMonthDay } from '@/lib/datetime';
+import { displayStatus, TONE_CLASS } from '@/lib/settlementDisplay';
 import {
   sortTasks, matchesTaskFilter, isTaskUnused, isOutOfRange, targetStatus, TARGETING_TYPES,
   TASK_TYPE_LABEL, TASK_SORT_LABEL, STAGE_FILTER_LABEL, type TaskSortKey, type StageFilter, type TypeSubtotal, type TaskSummary,
@@ -170,12 +170,9 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                     <td className={`${TD} text-right`}>
                       <span className="flex items-center justify-end gap-2 tabular-nums">
                         <CostPopover value={t.cost} suggestion={suggestion} onChange={(next: TaskCost | null) => void actions.changeCost(t, next)} compact />
-                        {t.settlement && (
-                          <Link href={`/settlement?tab=requests&task=${t.id}`} className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${t.settlement.status === 'requested' ? 'bg-x-blue/10 text-x-blue-text' : 'bg-x-surface text-x-secondary'}`}
-                                title={t.settlement.status === 'requested' ? '정산 요청됨 — 클릭하면 요청 내역으로' : '마지막 요청이 취소됨'}>
-                            {t.settlement.status === 'requested' ? `정산 요청됨 ${kstMonthDay(t.settlement.createdAt)}` : '취소됨'}
-                          </Link>
-                        )}
+                        {t.settlement && (() => { const st = displayStatus(t.settlement, 'campaign'); return (
+                          <Link href={`/settlement?tab=requests&task=${t.id}`} className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${TONE_CLASS[st.tone]}`} title={st.title}>{st.label}</Link>
+                        ); })()}
                         <RowMenu onOpenDraft={t.draftId ? () => onOpenDraft(t.draftId as string) : null}
                                  onLinkPost={t.type === 'rt' ? null : () => onLinkPost(t)}
                                  onDelete={() => onDelete(t)} />

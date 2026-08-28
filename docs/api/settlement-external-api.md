@@ -84,7 +84,17 @@ Authorization: Bearer <API 키>
 1. 옛 건: `status: "cancelled"`, `cancelled.reason`에 사유 — 폴링 목록에 `updated_at`이 갱신되어 다시 나온다. 그쪽이 `on_hold`를 걸어 둔 건이었다면 이 취소가 곧 "보류에 대한 응답"이다.
 2. 새 건: 처음 보는 `request_id`, `status: "requested"`, **`task_id`는 옛 건과 같다.**
 
+**그쪽이 `status: "cancelled"`를 보낸 경우**도 같은 모양이다: 우리 쪽 `status`가 `cancelled`로 바뀌고 `cancelled.by_name`은 `"정산 프로덕트"`, **`cancelled.reason`에는 그쪽이 보낸 `note`가 그대로 들어간다**(`note`가 없으면 `"정산에서 취소"`).
+
 그쪽에서 두 건을 이어 보고 싶으면 `task_id`로 묶으면 된다(한 작업에 활성 요청은 항상 1건이고, 취소된 건은 여러 개일 수 있다). 옛 건의 `on_hold`·`note`는 옛 건에 남고 새 건은 `settlement.status: null`로 시작하므로, 새 건에 대해 `received`부터 다시 보내 달라.
+
+### 그쪽이 보낸 상태는 다음 폴링에 되돌아온다(에코)
+
+그쪽이 `POST …/status`를 보내면 그 건의 최상위 `updated_at`이 갱신되므로 **다음 폴링 목록에 그 건이 다시 내려온다.** 그쪽 자신의 변경인지 구분하려면 `settlement.updated_at`(그쪽이 보낸 `updated_at`의 되비침)과 자기 마지막 전송 시각을 비교하면 된다 — 같으면 에코, 다르면 우리 쪽 변경(취소 등)이다. `revision`이 0 → 1로 바뀌었다면 우리 쪽 취소다.
+
+### 커서가 무효해지는 경우
+
+커서는 그 건의 `updated_at`(마이크로초)과 `id`에서 파생한 값이라 **서버 재배포나 스키마 변경으로 무효해지지 않는다** — 저장해 둔 커서는 언제든 이어 쓸 수 있다. 커서 문자열이 해석되지 않으면(형식 손상) **항상 400** `{ "error": …, "field": "cursor" }`를 준다 → 그쪽은 커서를 버리고 `cursor` 없이 첫 호출부터 다시 받으면 된다(멱등 upsert라 안전). 형식이 유효한데 그 시점 이후 바뀐 건이 없으면 정상 200 빈 목록이다. 커서 형식을 바꿔야 하는 일이 생기면 `/v2`로 올리고 옛 형식은 400으로 거절한다.
 
 ### 정렬·중복 판정 기준은 `updated_at`이다
 
@@ -137,7 +147,7 @@ Authorization: Bearer <API 키>
 | `payout.rate_krw_per_jpy` | number | 아니오 | 요청 시점 스냅샷 환율(원/엔). |
 | `deadline` | string(`YYYY-MM-DD`) | 아니오 | 처리 마감일. |
 | `reference_url` | string \| null | 예 | 참고 링크. |
-| `payment_method` | object(문자열 값만) | 아니오(빈 객체 가능) | 결제 수단. 있는 키만 내려온다: `type`, `holder`, `currency`, `email`, `paypal_id`, `identifier`, `bank`, `branch`, `account`. 전부 snake_case(원본 `paypalId` → `paypal_id`). |
+| `payment_method` | object(문자열 값만) | 아니오 | 결제 수단 스냅샷. **`type`(`"paypal"` \| `"paypay"` \| `"bank"`)·`holder`(수취인)·`currency`(`"KRW"` \| `"JPY"`)는 항상 있다** — 결제 수단이 없는 작업은 요청을 만들 수 없기 때문. 나머지 `email`, `paypal_id`, `identifier`, `bank`, `branch`, `account`는 수단 종류에 따라 있는 키만 내려온다(paypal: `email` 또는 `paypal_id`, paypay: `identifier`(없을 수 있음), bank: `bank`·`account`·`branch`(일본 계좌만)). 전부 snake_case(원본 `paypalId` → `paypal_id`). |
 | `requester.name` | string | 아니오 | 요청자 이름. |
 | `requester.email` | string \| null | 예(드묾) | 요청자는 로그인한 멤버만 가능하므로 사실상 항상 값이 있다. 그 멤버 계정이 나중에 삭제된 경우에만 `null`. |
 | `requester.slack_id` | string \| null | 예 | 우리 쪽에 Slack ID가 등록된 요청자만 값이 있다. 없으면 `email`로 Slack `users.lookupByEmail`을 쓰면 된다. **`payer`/`cc`에 대응하는 필드는 없다** — 아래 참고. |

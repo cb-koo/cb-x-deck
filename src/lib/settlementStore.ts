@@ -11,6 +11,7 @@ import { getDefaultPaymentMethod, type PaymentMethod } from './influencerPayment
 import { insertAutoLog, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
 import { computeCandidate, toMethodSnapshot, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
+import type { SettlementBadgeStatus } from './campaignTaskStore.ts';
 
 const asJson = (v: object): postgres.JSONValue => v as unknown as postgres.JSONValue;
 
@@ -92,7 +93,7 @@ function rowToCandidate(r: CandRow, cost: TaskCost, settings: SettlementSettings
 }
 
 // ── 요청(§2-1·§5) ──
-export type RequestStatus = 'requested' | 'cancelled';
+export type RequestStatus = SettlementBadgeStatus;
 export interface PaymentRequestRow {
   id: string; taskId: string | null; campaignId: string | null; campaignName: string; clientId: string | null; clientName: string;
   influencerHandle: string; taskType: TaskType; category: string; categoryDefault: string | null; itemText: string; purposeText: string;
@@ -150,7 +151,13 @@ export async function createRequests(
   const byTask = new Map(rows.map((r) => [r.id, r]));
   const failures: Array<{ taskId: string; reason: string }> = [];
   const prepared: Array<{ item: CreateItemInput; cand: SettlementCandidate; r: CandRow }> = [];
+  const seenTaskIds = new Set<string>();
   for (const item of items) {
+    if (seenTaskIds.has(item.taskId)) {   // 같은 작업이 두 번 들어오면 부분 유니크 인덱스가 트랜잭션 전체를 굴린다 — 검증 단계에서 미리 거절
+      failures.push({ taskId: item.taskId, reason: '같은 작업이 두 번 골라졌어요 — 한 번만 선택해 주세요' });
+      continue;
+    }
+    seenTaskIds.add(item.taskId);
     const r = byTask.get(item.taskId);
     if (!r) {   // 후보가 아니거나(게시 취소·비용 삭제) 이미 활성 요청이 있다
       const active = isUuidLike(item.taskId) ? await sql<Array<{ requester_name: string }>>`select requester_name from payment_request where task_id = ${item.taskId} and status = 'requested'` : [];
@@ -198,9 +205,12 @@ export async function createRequests(
     });
   } catch (e) {
     // 동시 클릭으로 unique(활성 요청 1건) 위반 — 어느 작업인지 다시 조회해 건별 이유로
-    if ((e as { code?: string }).code === '23505') {
+    if (e instanceof postgres.PostgresError && e.code === '23505') {
       const dup = await sql<Array<{ task_id: string; requester_name: string }>>`
         select task_id, requester_name from payment_request where status = 'requested' and task_id in ${sql(prepared.map((p) => p.cand.taskId))}`;
+      if (!dup.length) {   // 활성 행을 못 찾음(경합이 이미 지나감 등) — 이유 없는 빈 배열 대신 건별 오류로
+        throw new SettlementCreateError(prepared.map((p) => ({ taskId: p.cand.taskId, reason: '저장 중 충돌이 났어요 — 다시 확인해 주세요' })));
+      }
       throw new SettlementCreateError(dup.map((d) => ({ taskId: d.task_id, reason: `이미 요청됐어요 (${d.requester_name})` })));
     }
     throw e;
@@ -239,11 +249,12 @@ export async function listRequests(sql: postgres.Sql, f: RequestFilter): Promise
       ${f.campaignId && isUuidLike(f.campaignId) ? sql`and campaign_id = ${f.campaignId}` : sql``}
       ${f.taskId && isUuidLike(f.taskId) ? sql`and task_id = ${f.taskId}` : sql``}
       ${f.status ? sql`and status = ${f.status}` : sql``}
-      ${f.from && isDateOnlyString(f.from) ? sql`and created_at >= (${f.from}::date)::timestamptz` : sql``}
-      ${f.to && isDateOnlyString(f.to) ? sql`and created_at < ((${f.to}::date) + 1)::timestamptz` : sql``}
+      -- 서울 자정 기준(다른 날짜 필터와 동일) — 세션 TimeZone에 따라 9시간 밀리지 않게
+      ${f.from && isDateOnlyString(f.from) ? sql`and created_at >= (${f.from}::date)::timestamp at time zone 'Asia/Seoul'` : sql``}
+      ${f.to && isDateOnlyString(f.to) ? sql`and created_at < ((${f.to}::date) + 1)::timestamp at time zone 'Asia/Seoul'` : sql``}
     order by created_at desc, id desc`;
   return rows.map(toRequest);
 }
 
 // 배지 조회(settlementByTaskIds)는 campaignTaskStore에 있다(순환 방지: settlementStore→influencerStore→campaignStore) — 여기서는 re-export만
-export { settlementByTaskIds } from './campaignTaskStore.ts';
+export { settlementByTaskIds, type SettlementBadgeStatus } from './campaignTaskStore.ts';

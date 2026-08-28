@@ -86,7 +86,7 @@ test('lastQuoteRtCategory — 없으면 null', async () => {
   assert.equal(await lastQuoteRtCategory(sql, null), null);
 });
 
-const MEMBER = { id: '00000000-0000-0000-0000-000000000001', name: P + '멤버' };
+const MEMBER = { name: P + '멤버' };
 // member FK가 있어 실제 멤버가 필요 — 테스트 멤버를 만들고 after에서 지운다
 let memberId = '';
 async function ensureMember() {
@@ -155,6 +155,40 @@ test('생성 — 전체 검증: 하나라도 실패면 0건 저장, 건별 이�
   const rows = await createRequests(sql, [itemOf(c1, c1.categoryDefault!), itemOf(c2, c2.categoryDefault!)], m, '2026-08-28');
   assert.equal(rows.length, 2);
   await assert.rejects(createRequests(sql, [itemOf(c1, c1.categoryDefault!)], m), (e: SettlementCreateError) => /이미 요청됐어요/.test(e.failures[0].reason));
+});
+
+test('생성 — 같은 작업 두 번 고르면 거절, 저장 0건', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라E');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'e'));
+  await influencerWithPaypal(H('dup'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: H('dup'), cost: { amount: 10000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  const item = itemOf(cand, cand.categoryDefault!);
+  await assert.rejects(createRequests(sql, [item, item], m, '2026-08-28'), (e: unknown) => {
+    assert.ok(e instanceof SettlementCreateError);
+    assert.equal(e.failures.length, 1);
+    assert.equal(e.failures[0].taskId, t.id);
+    assert.match(e.failures[0].reason, /두 번 골라졌어요/);
+    return true;
+  });
+  assert.equal((await listRequests(sql, { campaignId: camp.id })).length, 0);
+});
+
+test('목록 — 기간 필터는 서울 자정 기준', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라F');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'f'));
+  await influencerWithPaypal(H('range'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: H('range'), cost: { amount: 10000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  await createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28');
+  const within = await listRequests(sql, { taskId: t.id, from: '2026-01-01', to: '2099-12-31' });
+  assert.equal(within.length, 1); assert.equal(within[0].taskId, t.id);
+  const outside = await listRequests(sql, { taskId: t.id, from: '2099-01-01' });
+  assert.equal(outside.length, 0);
 });
 
 test('취소 — 상태·사유·사람·시각, 후보 복귀, 재요청 허용, 배지는 취소됨', async () => {

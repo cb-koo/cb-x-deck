@@ -90,7 +90,7 @@ Authorization: Bearer <API 키>
 
 ### 그쪽이 보낸 상태는 다음 폴링에 되돌아온다(에코)
 
-그쪽이 `POST …/status`를 보내면 그 건의 최상위 `updated_at`이 갱신되므로 **다음 폴링 목록에 그 건이 다시 내려온다.** 그쪽 자신의 변경인지 구분하려면 `settlement.updated_at`(그쪽이 보낸 `updated_at`의 되비침)과 자기 마지막 전송 시각을 비교하면 된다 — 같으면 에코, 다르면 우리 쪽 변경(취소 등)이다. `revision`이 0 → 1로 바뀌었다면 우리 쪽 취소다.
+그쪽이 `POST …/status`를 보내면 그 건의 최상위 `updated_at`이 갱신되므로 **다음 폴링 목록에 그 건이 다시 내려온다.** 그쪽 자신의 변경인지 구분하려면 `settlement.updated_at`(그쪽이 보낸 `updated_at`의 되비침)과 자기 마지막 전송 시각을 비교하면 된다 — 같으면 에코, 다르면 우리 쪽 변경(취소 등)이다. `revision`이 0 → 1로 바뀌었다면 그 요청이 취소된 것이다 — `cancelled.by_name`이 `"정산 프로덕트"`면 그쪽이 보낸 취소의 에코이고, 그 밖의 이름이면 우리 쪽 담당자의 취소다.
 
 ### 커서가 무효해지는 경우
 
@@ -149,8 +149,8 @@ Authorization: Bearer <API 키>
 | `reference_url` | string \| null | 예 | 참고 링크. |
 | `payment_method` | object(문자열 값만) | 아니오 | 결제 수단 스냅샷. **`type`(`"paypal"` \| `"paypay"` \| `"bank"`)·`holder`(수취인)·`currency`(`"KRW"` \| `"JPY"`)는 항상 있다** — 결제 수단이 없는 작업은 요청을 만들 수 없기 때문. 나머지 `email`, `paypal_id`, `identifier`, `bank`, `branch`, `account`는 수단 종류에 따라 있는 키만 내려온다(paypal: `email` 또는 `paypal_id`, paypay: `identifier`(없을 수 있음), bank: `bank`·`account`·`branch`(일본 계좌만)). 전부 snake_case(원본 `paypalId` → `paypal_id`). |
 | `requester.name` | string | 아니오 | 요청자 이름. |
-| `requester.email` | string \| null | 예(드묾) | 요청자는 로그인한 멤버만 가능하므로 사실상 항상 값이 있다. 그 멤버 계정이 나중에 삭제된 경우에만 `null`. |
-| `requester.slack_id` | string \| null | 예 | 우리 쪽에 Slack ID가 등록된 요청자만 값이 있다. 없으면 `email`로 Slack `users.lookupByEmail`을 쓰면 된다. **`payer`/`cc`에 대응하는 필드는 없다** — 아래 참고. |
+| `requester.email` | string \| null | 예 | 운영에서는 요청자가 로그인한 멤버라 사실상 항상 값이 있다(멤버 계정이 삭제된 경우에만 `null`). **스테이징의 슬랙 이관 데이터는 요청자에 멤버 계정이 없어 전부 `null`** — 스테이징에서 이 필드로 매핑을 검증하지 말 것. |
+| `requester.slack_id` | string \| null | 예 | 우리 쪽에 Slack ID가 등록된 요청자만 값이 있다(스테이징 이관 데이터는 전부 `null`). 없으면 `email`로 Slack `users.lookupByEmail`을 쓰면 된다. **`payer`/`cc`에 대응하는 필드는 없다** — 아래 참고. |
 | `note` | string | 아니오 | 요청 메모(빈 문자열일 수 있음). |
 | `settlement.status` | `"received"` \| `"scheduled"` \| `"paid"` \| `"on_hold"` \| `"cancelled"` \| `null` | 예 | **그쪽이 마지막으로 보낸 처리 상태**를 그대로 되비친 값. `null` = 그쪽이 아직 한 번도 상태를 보내지 않음. |
 | `settlement.paid_amount_krw` | number(정수) \| null | 예 | 그쪽이 보낸 실제 지급 원화 금액. `paid` 상태에서만 값이 있다. |
@@ -176,12 +176,12 @@ Authorization: Bearer <API 키>
 | `paid_at` | `status: "paid"`일 때 필수 | string(ISO 8601) | |
 | `external_id` | 아니오 | string, ≤100자 | 그쪽 자체 건 ID. |
 
-### 적용 규칙 (요청이 들어온 순서대로 판정)
+### 적용 규칙 (아래 순서대로 판정 — **본문을 먼저 검사하고, 그다음 요청을 찾는다**: 본문이 틀리면 없는 id여도 400)
 
 | 순서 | 조건 | 결과 |
 |---|---|---|
-| 1 | `request_id`가 uuid가 아니거나 존재하지 않음 | **404** |
-| 2 | 본문이 JSON 객체가 아님 / `status` 값이 5개 중 하나가 아님 / `updated_at`이 ISO 8601이 아님 / `note`·`external_id`가 최대 길이 초과 또는 문자열이 아님 / `status: paid`인데 `paid_amount_krw`·`paid_at`이 없거나 형식이 틀림 | **400** `{ "error": "...", "field": "..." }` — 첫 번째로 걸리는 필드 하나만 알려준다 |
+| 1 | 본문이 JSON 객체가 아님 / `status` 값이 5개 중 하나가 아님 / `updated_at`이 ISO 8601이 아님 / `note`·`external_id`가 최대 길이 초과 또는 문자열이 아님 / `status: paid`인데 `paid_amount_krw`·`paid_at`이 없거나 형식이 틀림 | **400** `{ "error": "...", "field": "..." }` — 첫 번째로 걸리는 필드 하나만 알려준다 |
+| 2 | 본문이 유효한데 `request_id`가 uuid가 아니거나 존재하지 않음 | **404** |
 | 3 | 위 조건을 다 통과했지만, 보낸 `updated_at`이 **저장된 `settlement.updated_at`보다 이전이거나 같음** | **200** `{ "version": 1, "applied": false, "reason": "stale", "request": Item }` — 적용하지 않고 무시(재전송·순서 뒤바뀐 옛 변경 흡수) |
 | 4 | 우리 쪽 `status`(Item 최상위, §5)가 이미 `"cancelled"`인데 보낸 `status`가 `"cancelled"`가 아님 | **409** `{ "error": "이 요청은 취소됐어요 — 다시 가져가 확인해 주세요", "code": "request-cancelled", "request": Item }` |
 | 5 | 저장된 `settlement.status`가 이미 `"paid"`인데 보낸 `status`가 `"paid"`가 아님 | **409** `{ "error": "이미 지급 완료된 요청이에요", "code": "paid-locked", "request": Item }` |
@@ -260,7 +260,7 @@ curl -s \
       "settlement": { "status": null, "paid_amount_krw": null, "paid_at": null, "note": null, "updated_at": null, "external_id": null }
     }
   ],
-  "next_cursor": "MTc1NjM1MjIwMDAwMDAwMDozZmE4NWY2NC01NzE3LTQ1NjItYjNmYy0yYzk2M2Y2NmFmYTY",
+  "next_cursor": "MTc4Nzg4MzAwMDAwMDAwMDozZmE4NWY2NC01NzE3LTQ1NjItYjNmYy0yYzk2M2Y2NmFmYTY",
   "has_more": false
 }
 ```

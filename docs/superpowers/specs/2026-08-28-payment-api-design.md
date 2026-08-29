@@ -26,7 +26,7 @@
 
 | 층 | 프로덕션 | 스테이징(신설) |
 |---|---|---|
-| DB | Supabase `cb-x-deck`(ref `xdwtehjlxsnntsuizxba`, 싱가포르) | Supabase **`cb-x-deck-staging`** — 같은 조직(`jlsetstofdcgpahulhjh`), 싱가포르 |
+| DB | Supabase `cb-x-deck`(ref `xdwtehjlxsnntsuizxba`, 싱가포르) | Supabase **`cb-x-deck-staging`**(ref `zatrinmwpqarjhkarubj`) — 같은 조직 "Koo Personal"(`jlsetstofdcgpahulhjh`, Free 플랜 — koo 결정 08-29), 싱가포르. 풀러 호스트는 `aws-0-…`(프로덕션은 `aws-1-…`) |
 | 앱 | Vercel `cb-x-deck` → cb-x-deck.vercel.app | Vercel **`cb-x-deck-staging`** → cb-x-deck-staging.vercel.app (Production 환경 — Preview 배포 보호에 걸리지 않게) |
 | 로그인 | Google OAuth + clinicbridge 도메인 게이팅(`isAllowedUser`, 코드) | 같은 Google OAuth 클라이언트 재사용, Supabase 스테이징의 콜백 URI만 추가. 도메인 게이팅은 코드라 자동 |
 | 외부 API 키 | `SETTLEMENT_API_KEY` 운영값 | 같은 변수명, **다른 값** |

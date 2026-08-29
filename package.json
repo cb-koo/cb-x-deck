@@ -20,7 +20,8 @@
     "smoke:translate": "node --import tsx --env-file-if-exists=.env scripts/smoke-translate.ts",
     "smoke:generate": "node --import tsx --env-file-if-exists=.env scripts/smoke-generate.ts",
     "smoke:shortio": "node --import tsx --env-file-if-exists=.env scripts/smoke-shortio.ts",
-    "backfill:quoted": "node --import tsx --env-file-if-exists=.env scripts/backfill-quoted.ts"
+    "backfill:quoted": "node --import tsx --env-file-if-exists=.env scripts/backfill-quoted.ts",
+    "seed:staging:slack": "node --import tsx --env-file=.env.staging scripts/seed-staging-slack.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

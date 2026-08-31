@@ -4,6 +4,7 @@ import { toApiResult, type ApiResult } from './campaignApi.ts';
 import type { SettlementCandidate } from './settlementCalc.ts';
 import type { SettlementSettings } from './settlementSettings.ts';
 import type { PaymentRequestRow, CreateItemInput, RequestFilter, SettlementVersionRow } from './settlementStore.ts';
+import type { ExternalLogRow } from './externalLogCopy.ts';
 
 export type CreateFailure = { taskId: string; reason: string };
 export type CreateResult = ApiResult<{ created: PaymentRequestRow[] }> & { failures?: CreateFailure[] };
@@ -40,3 +41,4 @@ export async function createRequestsApi(items: CreateItemInput[]): Promise<Creat
 export const cancelRequestApi = (id: string, reason: string) => call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'cancel', reason }));
 export const fetchSettlementSettings = () => call<{ settings: SettlementSettings; versions: SettlementVersionRow[] }>('/api/settlement/settings');
 export const saveSettlementSettingsApi = (settings: SettlementSettings) => call<{ settings: SettlementSettings }>('/api/settlement/settings', json('PUT', { settings }));
+export const fetchExternalLog = () => call<{ rows: ExternalLogRow[] }>('/api/settlement/external-log');

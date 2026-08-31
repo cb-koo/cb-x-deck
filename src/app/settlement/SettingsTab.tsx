@@ -2,11 +2,14 @@
 import { useEffect, useState } from 'react';
 import { Button, PANEL, PANEL_TITLE } from '@/components/ui';
 import { useToast } from '@/lib/toastContext';
-import { fetchSettlementSettings, saveSettlementSettingsApi } from '@/lib/settlementApi';
+import { fetchSettlementSettings, saveSettlementSettingsApi, fetchExternalLog } from '@/lib/settlementApi';
 import { sanitizeSettlementSettings, type SettlementSettings, type SettlementCategory } from '@/lib/settlementSettings';
 import type { SettlementVersionRow } from '@/lib/settlementStore';
 import { TASK_TYPES, TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
-import { kstMonthDay } from '@/lib/datetime';
+import { kstMonthDay, kstDateTime } from '@/lib/datetime';
+import { describeExternalCall, type ExternalLogRow } from '@/lib/externalLogCopy';
+
+const TONE_CLASS: Record<'ok' | 'warn' | 'bad', string> = { ok: '', warn: 'text-amber-700', bad: 'text-red-700' };
 
 const FIELD = 'rounded-lg border border-x-border bg-white px-2 py-1 text-ui w-full';
 
@@ -14,6 +17,7 @@ export function SettingsTab() {
   const { show } = useToast();
   const [s, setS] = useState<SettlementSettings | null>(null);
   const [versions, setVersions] = useState<SettlementVersionRow[]>([]);
+  const [log, setLog] = useState<ExternalLogRow[]>([]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -21,6 +25,11 @@ export function SettingsTab() {
     const r = await fetchSettlementSettings();
     if (!r.ok) { setErr(r.error); return; }
     setS(r.data.settings); setVersions(r.data.versions);
+  })(); }, []);
+
+  useEffect(() => { (async () => {
+    const r = await fetchExternalLog();
+    if (r.ok) setLog(r.data.rows);
   })(); }, []);
 
   if (err && !s) return <p role="alert" className="text-ui text-red-700">{err}</p>;
@@ -85,6 +94,33 @@ export function SettingsTab() {
           원 = 1엔
         </label>
         <p className="mt-2 text-ui text-x-muted">바꿔도 이미 만든 요청은 안 바뀌어요 — 만든 시점 값이 저장돼 있어요.</p>
+      </section>
+      <section className={PANEL}>
+        <h2 className={PANEL_TITLE}>연동 기록</h2>
+        <p className="mt-1 text-ui text-x-muted">정산 프로덕트가 우리 서버를 호출한 기록이에요. &quot;보냈는데 안 보인다&quot;는 상황이 생기면 여기서 확인해요.</p>
+        {log.length ? (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-ui">
+              <thead className="text-left text-x-secondary">
+                <tr><th className="py-2 pr-3">시각</th><th className="py-2 pr-3">내용</th><th className="py-2 pr-3">응답</th></tr>
+              </thead>
+              <tbody>
+                {log.map((row) => {
+                  const d = describeExternalCall(row);
+                  return (
+                    <tr key={row.id} className="border-t border-x-border">
+                      <td className="py-2 pr-3 whitespace-nowrap">{kstDateTime(row.at)}</td>
+                      <td className={`py-2 pr-3 ${TONE_CLASS[d.tone]}`}>{d.line}</td>
+                      <td className="py-2 pr-3 text-ui text-x-muted tabular-nums">{row.statusCode}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="mt-3 text-ui text-x-muted">아직 정산 프로덕트가 호출한 기록이 없어요.</p>
+        )}
       </section>
       {err && <p role="alert" className="text-ui text-red-700">{err}</p>}
       <div className="flex items-center justify-between">

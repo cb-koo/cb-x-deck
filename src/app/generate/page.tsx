@@ -805,8 +805,8 @@ function Workbench() {
       <div className="flex min-w-0 flex-1 flex-col lg:min-h-0">
         {/* 원고가 0건이어도 보여야 한다 — 만들러 온 상태라 "지금 만드는 것이 어디로 가는지"가 먼저다 */}
         {taskCtx && (
-          <div role="status" className="flex flex-wrap items-center gap-2 border-b border-x-blue/30 bg-x-blue/5 px-4 py-2 text-ui text-x-blue-text">
-            <span className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 border-b border-x-blue/30 bg-x-blue/5 px-4 py-2 text-ui text-x-blue-text">
+            <span role="status" className="min-w-0">
               {taskCtx.attached ? (
                 // 붙은 뒤 — 이후 생성은 작업 없이 저장된다. 그 사실을 말해두지 않으면 "왜 두 번째 시안은 안 붙지"가 된다.
                 <>이 작업에 원고가 붙었어요 — 더 만들면 작업 없이 저장돼요</>
@@ -824,8 +824,8 @@ function Workbench() {
               {/* 다 쓰고 돌아가는 것과 '역시 나중에' 하고 돌아가는 것이 같은 자리다 — 붙기 전에도 보인다.
                   Link인 이유는 새 탭으로도 열 수 있게 하기 위해서다. */}
               <Link href={`/campaigns?id=${taskCtx.campaign.id}`}
-                    className="rounded-full border border-x-blue/40 px-2.5 py-0.5 text-ui hover:bg-white">
-                ← {taskCtx.campaign.name}으로
+                    className="whitespace-nowrap rounded-full border border-x-blue/40 px-2.5 py-0.5 text-ui hover:bg-white">
+                ← {taskCtx.campaign.name} 캠페인으로 돌아가기
               </Link>
               <button onClick={clearTaskCtx} className="rounded-full border border-x-blue/40 px-2.5 py-0.5 text-ui hover:bg-white">해제</button>
             </span>

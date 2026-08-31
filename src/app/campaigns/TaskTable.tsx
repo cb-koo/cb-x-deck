@@ -149,12 +149,12 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                           // 원고 없는 줄의 두 갈래(스펙 2026-08-31 §3-1). 캠페인을 먼저 짜두는 방식에선
                           // '새로 만들기'가 흔한 경우라 앞에 둔다. Link인 이유는 ⌘·가운데 클릭으로
                           // 새 탭에 열어 캠페인 표를 띄워둔 채 원고만 따로 쓸 수 있게 하기 위해서다.
-                          <span className="flex flex-wrap items-center gap-x-1.5 text-x-muted">
-                            <span>원고 없음</span>
+                          <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-x-muted">
+                            <span className="whitespace-nowrap">원고 없음</span>
                             <span aria-hidden>·</span>
-                            <Link href={draftWriteHref(t.id, campaign.id)} className="text-x-blue-text hover:underline">새로 만들기</Link>
+                            <Link href={draftWriteHref(t.id, campaign.id)} className="whitespace-nowrap text-x-blue-text hover:underline">새로 만들기</Link>
                             <span aria-hidden>·</span>
-                            <button type="button" onClick={() => onAttachDraft(t)} className="hover:text-x-secondary hover:underline">고르기</button>
+                            <button type="button" onClick={() => onAttachDraft(t)} className="whitespace-nowrap hover:text-x-secondary hover:underline">고르기</button>
                           </span>
                         )}
                     </td>

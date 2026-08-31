@@ -59,7 +59,16 @@ export async function proxy(request: NextRequest) {
   const isPublic = PUBLIC_PREFIXES.some((p) => matchesPrefix(pathname, p));
 
   // API는 리다이렉트하지 않는다 — 세션만 갱신하고 통과. 인가는 각 라우트의 가드가 JSON 401로 처리.
-  if (matchesPrefix(pathname, '/api')) return response;
+  if (matchesPrefix(pathname, '/api')) {
+    // API 응답은 브라우저 캐시에 넣지 않는다. 이유가 둘이다.
+    // (1) 느려 보이는 원인이었다: 캐시 금지 헤더가 없으면 크롬이 이 응답을 캐시 대상으로 잡고,
+    //     같은 주소의 항목이 잠긴 동안 뒤따르는 요청을 최대 20초까지 세운다. 2026-08-31 로컬 실측에서
+    //     /api/clients가 22초 걸렸는데 서버 안에서는 2.5초였고, 나머지 20초가 이 대기였다
+    //     (cache:'no-store'로 부르면 1.3초).
+    // (2) 응답은 로그인한 사람의 데이터다 — 디스크 캐시에 남길 이유가 없다.
+    response.headers.set('cache-control', 'no-store');
+    return response;
+  }
 
   if (!user) {
     return isPublic ? response : withCookies(NextResponse.redirect(new URL('/login', request.url)));

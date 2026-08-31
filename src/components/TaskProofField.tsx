@@ -81,6 +81,24 @@ export function TaskProofField({
             )}
           </div>
         </div>
+      ) : value ? (
+        // value(저장된 경로)는 있는데 보여줄 이미지가 아직(또는 영구히) 없는 상태 — 서명 URL이 늦거나
+        // useSignedTaskProofUrls가 실패를 삼켜 조용히 비어 있을 수 있다. 이때 붙여넣기 상자를 그리면
+        // "증빙이 없다"고 거짓말하는 셈이라(이 화면 바로 아래 캡션은 "있다"고 말한다), 있다는 사실을
+        // 정직하게 말하고 바꾸기·받기만 계속 쓸 수 있게 둔다(받기는 value만 있으면 원본을 내려받는다).
+        <div className="mt-1 flex items-start gap-2">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md border border-x-border bg-x-surface text-center text-[11px] leading-tight text-x-muted">
+            불러오는 중…
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-ui">
+            <p className="w-full text-x-secondary">증빙 스크린샷이 있어요 — 미리보기를 불러오는 중이에요</p>
+            <button type="button" disabled={blocked} onClick={() => inputRef.current?.click()}
+                    className="text-x-blue-text hover:underline disabled:opacity-50">바꾸기</button>
+            <button type="button"
+                    onClick={() => void downloadTaskProof(value, taskProofFilename({ postedAt, influencerHandle, url: value }))}
+                    className="text-x-blue-text hover:underline">받기</button>
+          </div>
+        </div>
       ) : (
         // 상자 자체가 버튼이다 — 포커스가 여기 있을 때만 붙여넣기(Ctrl+V)를 받는다. 문서 전역에 리스너를
         // 달면 다른 입력 칸의 붙여넣기를 훔치게 된다. div+role="button"이 아니라 실제 <button>을 써서
@@ -96,7 +114,7 @@ export function TaskProofField({
           {busy ? '올리는 중…' : '여기를 누르거나 Ctrl+V로 붙여넣기'}
         </button>
       )}
-      {required && !shown && (
+      {required && !value && (
         <p className="mt-1 text-ui text-x-muted">인플루언서 피드에서 RT가 보이는 화면을 찍어주세요 — 계정 이름과 RT 표시가 함께 보이면 좋아요</p>
       )}
       {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}

@@ -9,7 +9,6 @@ import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
 import { parseTaskPatch, proofGateError, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE } from '@/lib/campaignTaskInput';
 import { getDraft, updateDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
-import { PROOF_VALUE_MESSAGE } from '@/lib/taskProofGuard';
 
 const notFound = () => NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 404 });
 
@@ -34,10 +33,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
   const { proofUrl, ...rest } = patch;
   const taskPatch: TaskPatch = { ...rest };
   if (proofUrl !== undefined) {
-    // 경로가 이 작업 것인지 좁힌다 — 모양만 맞으면 남의 작업(혹은 없는 객체)을 가리키는 값도 통과해 버린다(리뷰 Minor)
-    if (proofUrl !== null && !proofUrl.startsWith(`task/${taskId}/`)) {
-      return NextResponse.json({ error: PROOF_VALUE_MESSAGE }, { status: 400 });
-    }
+    // 경로 검증(모양·이 작업 것인지)은 proofGateError가 이미 했다 — 여기는 서버만 아는 값을 채우는 자리다
     taskPatch.proof = proofUrl === null
       ? null
       : { url: proofUrl, by: gate.member.id, byName: gate.member.name, at: new Date().toISOString() };

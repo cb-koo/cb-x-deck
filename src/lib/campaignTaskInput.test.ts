@@ -98,15 +98,25 @@ test('parseTaskPatch — 증빙 키가 없으면 결과에도 없다(건드리�
 });
 
 // ── proofGateError — RT 증빙 3규칙 판정(패치 후 상태로 봐야 한다) ──
-const rtUnposted = { type: 'rt' as const, postedAt: null, proof: { url: P_OK } };
-const rtUnpostedNoProof = { type: 'rt' as const, postedAt: null, proof: null };
-const rtPosted = { type: 'rt' as const, postedAt: '2026-08-20', proof: { url: P_OK } };
-const postUnposted = { type: 'post' as const, postedAt: null, proof: null };
+// 픽스처는 실제 TaskProof 모양을 그대로 쓴다 — 껍데기 객체를 쓰면 테스트가 계약을 고정하지 못한다.
+const savedProof = { url: P_OK, by: null, byName: '박구건', at: '2026-08-30T01:00:00.000Z' };
+const rtUnposted = { id: P_TASK, type: 'rt' as const, postedAt: null, proof: savedProof };
+const rtUnpostedNoProof = { id: P_TASK, type: 'rt' as const, postedAt: null, proof: null };
+const rtPosted = { id: P_TASK, type: 'rt' as const, postedAt: '2026-08-20', proof: savedProof };
+const postUnposted = { id: P_TASK, type: 'post' as const, postedAt: null, proof: null };
 
 test('proofGateError — 구멍: 한 요청에 postedAt+proofUrl:null을 합치면(패치 전 증빙 있음, 미게시 RT) 거절', () => {
   // 이게 리뷰에서 Critical로 잡힌 우회다: cur.proof(패치 전)만 보면 통과해 버린다.
-  const err = proofGateError(rtUnposted, { postedAt: '2026-09-01', proofUrl: null });
-  assert.ok(err, '거절되어야 하는데 통과했다 — 증빙 없는 게시됨 RT가 만들어진다');
+  // 문구는 '증빙이 필요하다'여야 한다 — 그 작업은 아직 게시됨이 아니라 '떼기 금지'가 사실과 어긋난다(문구-값 일치).
+  assert.equal(proofGateError(rtUnposted, { postedAt: '2026-09-01', proofUrl: null }), PROOF_REQUIRED_MESSAGE);
+});
+
+test('proofGateError — 다른 작업의 경로는 거절(모양만 맞는 값으로 남의 객체를 가리킬 수 없다)', () => {
+  const otherTask = '99999999-8888-7777-6666-555555555555';
+  const otherPath = `task/${otherTask}/${P_FILE}.png`;
+  assert.equal(proofGateError(rtUnpostedNoProof, { proofUrl: otherPath }), PROOF_VALUE_MESSAGE);
+  // 자기 작업 경로는 통과한다 — 과잉 차단이 아닌지 함께 못박는다
+  assert.equal(proofGateError(rtUnpostedNoProof, { proofUrl: P_OK }), null);
 });
 
 test('proofGateError — 한 요청에 postedAt+올바른 proofUrl은 통과', () => {

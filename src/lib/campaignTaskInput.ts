@@ -6,7 +6,7 @@ import type { TaskPatch } from './campaignTaskStore.ts';
 import { parseTweetLink, tweetPermalink } from './tweetLink.ts';
 import { parseXHandle, handleParseMessage } from './xHandle.ts';
 import { isUuidLike } from './uuid.ts';
-import { isTaskProofPath, PROOF_VALUE_MESSAGE, PROOF_ONLY_RT_MESSAGE, PROOF_KEEP_MESSAGE, PROOF_REQUIRED_MESSAGE } from './taskProofGuard.ts';
+import { isTaskProofPath, isTaskProofPathFor, PROOF_VALUE_MESSAGE, PROOF_ONLY_RT_MESSAGE, PROOF_KEEP_MESSAGE, PROOF_REQUIRED_MESSAGE, type TaskProof } from './taskProofGuard.ts';
 
 export const TASK_ID_MESSAGE = '작업 값이 올바르지 않아요';
 export const TASK_NOT_FOUND_MESSAGE = '작업을 찾을 수 없어요 — 삭제됐을 수 있어요. 화면을 새로고침해 주세요';
@@ -134,16 +134,19 @@ export function parseTaskPatch(body: unknown): Parsed<TaskPatchParsed> {
 // 핵심: "패치 후 상태"로 판단해야 한다. 패치 전 증빙(cur.proof)만 보면 한 요청에 postedAt과
 // proof:null을 합쳐 보내는 것을 통과시켜, 되돌릴 수 없는 '증빙 없는 게시됨 RT'가 남는다.
 export function proofGateError(
-  cur: { type: TaskType; postedAt: string | null; proof: unknown },
+  cur: { id: string; type: TaskType; postedAt: string | null; proof: TaskProof | null },
   patch: { postedAt?: string; proofUrl?: string | null },
 ): string | null {
   // ① 범위 — RT 작업에만 붙는다
   if (patch.proofUrl !== undefined && cur.type !== 'rt') return PROOF_ONLY_RT_MESSAGE;
-  const postedAfter = cur.postedAt ?? patch.postedAt ?? null;
-  const proofAfter = patch.proofUrl !== undefined ? patch.proofUrl : (cur.proof ? '있음' : null);
-  // ② 떼기 금지 — 이번 요청이 증빙을 비우는데 패치 후 게시됨이면(이미 게시됐거나, 이번에 게시되거나) 막는다
-  if (patch.proofUrl === null && postedAfter) return PROOF_KEEP_MESSAGE;
-  // ③ 필수 — 새로 게시됨이 되는 RT는 패치 후 증빙이 있어야 한다
+  // ② 이 작업의 증빙인가 — 모양만 맞는 남의 경로를 막는다(판정을 라우트에 두지 않는다, 리뷰 Important)
+  if (patch.proofUrl != null && !isTaskProofPathFor(cur.id, patch.proofUrl)) return PROOF_VALUE_MESSAGE;
+  // 패치 후 증빙 — 이번 요청이 증빙 키를 안 보냈으면 원래 값이 남는다
+  const proofAfter = patch.proofUrl !== undefined ? patch.proofUrl : (cur.proof?.url ?? null);
+  // ③ 떼기 금지 — 이미 게시됨인 RT에서 비우는 것만 막는다. 아직 게시 전이면 자유롭게 뗄 수 있고,
+  //    이번 요청이 게시까지 함께 하는 경우는 ④가 '증빙이 필요하다'는 정확한 문구로 잡는다(문구-값 일치).
+  if (patch.proofUrl === null && cur.postedAt) return PROOF_KEEP_MESSAGE;
+  // ④ 필수 — 새로 게시됨이 되는 RT는 패치 후 증빙이 있어야 한다
   if (patch.postedAt && !cur.postedAt && cur.type === 'rt' && !proofAfter) return PROOF_REQUIRED_MESSAGE;
   return null;
 }

@@ -22,6 +22,12 @@ export function isTaskProofPath(v: unknown): v is string {
   return typeof v === 'string' && TASK_PROOF_PATH_RE.test(v);
 }
 
+// 모양만 맞으면 남의 작업(혹은 없는 객체)을 가리키는 경로도 통과한다 — 어느 작업 것인지까지 본다.
+// 'task/' 접두어 리터럴을 라우트에 다시 박지 않기 위해 경로 규칙의 소유자인 이 파일에 둔다.
+export function isTaskProofPathFor(taskId: string, v: unknown): v is string {
+  return isTaskProofPath(v) && v.startsWith(`task/${taskId}/`);
+}
+
 // jsonb 컬럼의 모양은 보증되지 않는다 — 검증 통과분만 돌려준다(campaignTaskStore.costOf와 같은 태도).
 export function taskProofOf(v: unknown): TaskProof | null {
   if (typeof v !== 'object' || v === null) return null;

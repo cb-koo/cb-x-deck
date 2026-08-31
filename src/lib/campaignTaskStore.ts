@@ -4,6 +4,7 @@ import { parseTaskCost, type TaskCost } from './campaignCost.ts';
 import { TARGETABLE_TYPES, type TaskType } from './campaignJudgment.ts';
 import { tweetPermalink } from './tweetLink.ts';
 import { isUuidLike } from './uuid.ts';
+import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
 
 // 작업(campaign_task) 저장소 — 스펙 2026-08-28 §2-1. 판정(단계·밀림·요약)은 campaignJudgment가, 여기는 행의 읽기·쓰기만.
 // 핸들은 표기 보존·비교는 lower(). 날짜는 date 컬럼 + to_char 왕복(시간대 시프트 방지, DateOnly 관례).
@@ -13,6 +14,7 @@ export interface TaskRow {
   postUrl: string | null; postedAt: string | null; postedSource: 'auto' | 'manual' | null;
   removedAt: string | null; removedReason: string;
   scheduledOn: string | null; visitOn: string | null; cost: TaskCost | null; note: string;
+  proof: TaskProof | null;   // RT 증빙 스크린샷 1장(스펙 2026-08-31 §4-2). RT 아닌 유형은 늘 null
   createdAt: string; updatedAt: string;
   draftStatus: DraftStatus | null; draftLabel: string | null;   // 붙은 원고 요약 — 표의 '원고' 열
   // 대상 작업 요약(§4-1 'RT/인용RT 대상' 열) — 다른 캠페인이면 campaignName으로 구분해 보인다
@@ -29,6 +31,7 @@ export interface TaskPatch {
   postUrl?: string | null; postedAt?: string; postedSource?: 'auto' | 'manual';
   removedAt?: string | null; removedReason?: string;
   scheduledOn?: string | null; visitOn?: string | null; cost?: TaskCost | null; note?: string;
+  proof?: TaskProof | null;   // 3값: undefined 유지 · null 떼기 · 값 설정
 }
 export interface TargetCandidate {
   taskId: string; type: TaskType; influencerHandle: string | null; campaignId: string; campaignName: string;
@@ -46,7 +49,7 @@ type Row = {
   draft_id: string | null; target_task_id: string | null; target_tweet_url: string | null;
   post_url: string | null; posted_at: string | null; posted_source: 'auto' | 'manual' | null;
   removed_at: string | null; removed_reason: string;
-  scheduled_on: string | null; visit_on: string | null; cost: unknown; note: string;
+  scheduled_on: string | null; visit_on: string | null; cost: unknown; note: string; proof: unknown;
   created_at: Date; updated_at: Date;
   draft_status: DraftStatus | null; draft_title: string | null; draft_ko_title: string | null; draft_first_line: string | null;
   tg_id: string | null; tg_type: TaskType | null; tg_handle: string | null; tg_campaign_id: string | null; tg_campaign_name: string | null; tg_post_url: string | null;
@@ -67,6 +70,7 @@ const toRow = (r: Row): TaskRow => ({
   postUrl: r.post_url, postedAt: r.posted_at, postedSource: r.posted_source,
   removedAt: r.removed_at, removedReason: r.removed_reason,
   scheduledOn: r.scheduled_on, visitOn: r.visit_on, cost: costOf(r.cost), note: r.note,
+  proof: taskProofOf(r.proof),
   createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
   draftStatus: r.draft_id ? r.draft_status : null, draftLabel: r.draft_id ? labelOf(r) : null,
   target: r.tg_id ? {
@@ -81,7 +85,7 @@ const SELECT = (sql: postgres.Sql) => sql`
          t.post_url, to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, t.posted_source,
          to_char(t.removed_at, 'YYYY-MM-DD') as removed_at, t.removed_reason,
          to_char(t.scheduled_on, 'YYYY-MM-DD') as scheduled_on, to_char(t.visit_on, 'YYYY-MM-DD') as visit_on,
-         t.cost, t.note, t.created_at, t.updated_at,
+         t.cost, t.note, t.proof, t.created_at, t.updated_at,
          d.status as draft_status, d.title as draft_title, d.ko_title as draft_ko_title,
          coalesce(d.edited, d.content)->'posts'->0->>'text' as draft_first_line,
          tg.id as tg_id, tg.type as tg_type, tg.influencer_handle as tg_handle, tg.campaign_id as tg_campaign_id,
@@ -150,6 +154,7 @@ export async function updateTask(sql: postgres.Sql, id: string, patch: TaskPatch
       visit_on          = case when ${patch.visitOn !== undefined} then ${patch.visitOn ?? null}::date else visit_on end,
       cost              = case when ${patch.cost !== undefined} then ${patch.cost ? sql.json(patch.cost as never) : null}::jsonb else cost end,
       note              = coalesce(${patch.note ?? null}::text, note),
+      proof             = case when ${patch.proof !== undefined} then ${patch.proof ? sql.json(patch.proof as never) : null}::jsonb else proof end,
       updated_at = now()
     where id = ${id} returning id`;
   return rows.length > 0;

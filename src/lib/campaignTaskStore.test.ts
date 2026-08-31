@@ -182,3 +182,37 @@ test('5) 이관 — draft 3컬럼 → 작업 1행(유형=비용 유형), tracked
   assert.equal((await listTasksByCampaign(sql, camp.id)).length, 1);
   assert.equal(r2.tasks, 0);
 });
+
+test('6) 증빙 — 저장하고 다시 읽는다 · 3값 규칙(undefined 유지 · null 지움)', async () => {
+  const c = await createClient(sql, P + '클라6');
+  const camp = await mkCampaign(c.id, c.name, 'f');
+  const [task] = await createTasks(sql, camp.id, { ...baseInput, type: 'rt', items: [{ handle: 'someone', cost: null }] });
+  const proof = {
+    url: `task/${task.id}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png`,
+    by: null, byName: '박구건', at: '2026-08-31T01:00:00.000Z',
+  };
+
+  assert.equal((await getTask(sql, task.id))!.proof, null);
+
+  await updateTask(sql, task.id, { proof });
+  assert.deepEqual((await getTask(sql, task.id))!.proof, proof);
+
+  // 다른 칸만 고치면 증빙은 그대로 남는다(undefined = 건드리지 않음)
+  await updateTask(sql, task.id, { note: '메모' });
+  assert.deepEqual((await getTask(sql, task.id))!.proof, proof);
+
+  // null = 지움
+  await updateTask(sql, task.id, { proof: null });
+  assert.equal((await getTask(sql, task.id))!.proof, null);
+
+  await deleteTask(sql, task.id);
+});
+
+test('7) 증빙 — jsonb에 깨진 값이 들어 있으면 null로 읽는다(화면이 죽지 않게)', async () => {
+  const c = await createClient(sql, P + '클라7');
+  const camp = await mkCampaign(c.id, c.name, 'g');
+  const [task] = await createTasks(sql, camp.id, { ...baseInput, type: 'rt', items: [{ handle: 'someone', cost: null }] });
+  await sql`update campaign_task set proof = ${sql.json({ url: 'https://evil.example/a.png' } as never)} where id = ${task.id}`;
+  assert.equal((await getTask(sql, task.id))!.proof, null);
+  await deleteTask(sql, task.id);
+});

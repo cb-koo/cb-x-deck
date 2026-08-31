@@ -54,14 +54,11 @@
 
 **"새로 만들기"** — `TaskAddModal:205`의 라디오와 같은 말. 같은 동작에 두 이름을 두지 않는다(AGENTS.md 원칙 4). "새로 쓰기"는 쓰지 않는다. `직접 쓰기`는 다른 뜻(LLM 없이 쓰기)이므로 혼용 금지.
 
-### 3-3. 판정은 순수 함수로
+### 3-3. 주소 조립은 순수 함수로
 
-`campaignJudgment.ts`에 다음을 둔다(리포 관례 — 판정은 순수, DB·네트워크 없음):
+`campaignJudgment.ts`에 `draftWriteHref(taskId, campaignId): string`을 둔다(리포 관례 — 판정·조립은 순수, DB·네트워크 없음). 두 파라미터가 모두 있어야 `/generate`가 배너를 켜므로(`page.tsx:299`), 조립 규칙이 한 곳에만 있어야 한다. 호출자는 `TaskTable`(새 입구)과 `CampaignDetail`(작업 생성 직후 이동) 둘이다.
 
-- `canWriteDraft(task): boolean` — 원고가 없고 유형이 `ATTACHABLE_TYPES`에 속하는가. 기존 `ATTACHABLE_TYPES`(= `TARGETABLE_TYPES`)를 재사용한다.
-- `draftWriteHref(taskId, campaignId): string` — `/generate?task=…&campaign=…` 조립.
-
-`TaskTable`과 `DraftTaskField`가 같은 판정을 쓰게 해 규칙이 갈라지지 않게 한다.
+"이 줄에 새로 만들기를 보일 것인가"는 별도 함수로 뽑지 **않는다**. 원고 칸은 이미 `rt → —` / `원고 있음 → 제목` / `그 외` 세 갈래로 갈리고, 세 번째 갈래가 곧 그 조건이다. 이름을 붙이면 소비자 없는 추상이 하나 늘 뿐이다(YAGNI). 대신 `rt`를 먼저 거르는 기존 분기 순서를 **그대로 유지한다** — 순서를 바꾸면 "rt 작업에 붙은 원고가 표에 안 보인다"는 별건(§2 안 한다 목록)의 동작이 딸려 바뀐다.
 
 ## 4. 원고 고르기 창의 빈 상태 문구 (`AttachDraftModal`)
 
@@ -115,7 +112,7 @@
 
 ## 8. 검증
 
-- **단위 테스트**: `campaignJudgment.test.ts`에 `canWriteDraft`(원고 있음/없음 × 4유형)와 `draftWriteHref` 추가. 기존 파일의 결정적 테스트 관례를 따른다(DB·네트워크 없음).
+- **단위 테스트**: `campaignJudgment.test.ts`에 `draftWriteHref` 추가(테스트 `5)`). 기존 파일의 결정적 테스트 관례를 따른다(DB·네트워크 없음).
 - **회귀**: `npm test` 전량 통과(실 DB, 약 4분). 린트 기준선 24개 유지.
 - **화면 확인**: OAuth 도메인 게이팅이라 koo만 가능. 확인 항목 —
   1. 작업 줄에서 "새로 만들기" → 원고 화면이 그 작업 맥락으로 열림(클라이언트 자동 선택, 배너 문구)

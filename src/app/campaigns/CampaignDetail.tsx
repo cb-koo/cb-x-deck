@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useRouter } from 'next/navigation';
 import { useToast } from '@/lib/toastContext';
 import { apiFetch } from '@/lib/apiFetch';
 import type { CampaignRow, CampaignTaskItem, InfluencerCostRow } from '@/lib/campaignStore';
@@ -14,7 +15,7 @@ import {
   patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, type DraftPatchBody,
 } from '@/lib/campaignApi';
 import {
-  summarizeTasks, summarizeTaskPerf, deriveTaskInfluencers, taskCampaignTotal, matchesTaskFilter, subtotalsByType,
+  summarizeTasks, summarizeTaskPerf, deriveTaskInfluencers, taskCampaignTotal, matchesTaskFilter, subtotalsByType, draftWriteHref,
   STAGE_FILTERS, STAGE_FILTER_LABEL, TASK_TYPE_LABEL, type StageFilter, type TaskSortKey, type TaskType,
 } from '@/lib/campaignJudgment';
 import type { DetailView } from '@/lib/campaignView';
@@ -63,6 +64,7 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
   onDeleted: () => void;
 }) {
   const { show } = useToast();
+  const router = useRouter();
   const [data, setData] = useState<DetailState | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
@@ -421,7 +423,8 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
                         if (keepOpen) { show('작업을 만들었어요 — 다음 사람을 골라요'); void load(); onChanged(); return; }
                         setAddOpen(false);
                         // '새로 만들기' — 작업이 먼저 생겼으니 원고 생성 화면으로 넘긴다(거기서 만든 원고가 이 작업에 붙는다)
-                        if (goToGenerate) { window.location.assign(`/generate?task=${firstTaskId}&campaign=${data.campaign.id}`); return; }
+                        // 라우터 이동 — 전체 리로드를 하면 앱이 통째로 다시 켜진다(리포 표준은 useRouter).
+                        if (goToGenerate) { router.push(draftWriteHref(firstTaskId, data.campaign.id)); return; }
                         show(count > 1 ? `작업 ${count}개를 만들었어요` : '작업을 만들었어요');
                         void load(); onChanged();
                       }} />

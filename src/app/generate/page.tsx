@@ -291,7 +291,7 @@ function Workbench() {
     if (url.toString() !== window.location.href) window.history.replaceState(null, '', url);
   }, [peekId, deeplinkDone]);
 
-  // 진입점 D: /generate?task=<taskId>&campaign=<campaignId> — 캠페인 화면 [+ 원고 추가 → 새로 만들기]에서 진입(스펙 §5).
+  // 진입점 D: /generate?task=<taskId>&campaign=<campaignId> — 캠페인 화면에서 진입한다: 작업을 만들 때 '새로 만들기'를 고르거나, 이미 있는 작업 줄의 '새로 만들기'를 누르거나(스펙 2026-08-31 §3-1).
   // 캠페인 id가 함께 오는 이유는 작업 단건 조회 라우트를 따로 두지 않기 때문이다 — 캠페인 상세의 tasks에서 찾는다.
   // 클라를 자동 선택하고 배너를 켠다; 이 상태에서 만든 원고(생성·직접 쓰기)는 taskId가 실려 그 작업에 붙는다.
   // 클라 목록이 온 뒤 1회만 — composer.clientId를 세팅하려면 그 클라가 목록에 있어야 한다(유령 클라 정리 이펙트와 순서 충돌 방지).

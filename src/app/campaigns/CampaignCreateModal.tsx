@@ -97,7 +97,7 @@ export function CampaignCreateModal({ today, onClose, onCreated }: {
           <h2 className="text-content font-bold">새 캠페인</h2>
           <button onClick={onClose} disabled={busy} aria-label="닫기" className="ml-auto rounded px-1.5 text-x-secondary hover:bg-x-border disabled:opacity-40">✕</button>
         </div>
-        <p className="mt-1 text-ui text-x-muted">클라이언트 한 곳 × 기간 하나예요. 원고는 만든 뒤 [+ 원고 추가]로 넣거나 콘텐츠 생성에서 바로 만들어요.</p>
+        <p className="mt-1 text-ui text-x-muted">클라이언트 한 곳 × 기간 하나예요. 만든 뒤 [+ 작업 추가]로 이번 주에 나갈 일을 올리고, 원고는 각 작업에 붙여요.</p>
 
         <label htmlFor="cc-client" className={LABEL}>클라이언트</label>
         <select id="cc-client" value={clientId} onChange={(e) => setClientId(e.target.value)} autoFocus className={INPUT}>

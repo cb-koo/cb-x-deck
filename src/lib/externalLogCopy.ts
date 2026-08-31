@@ -1,6 +1,6 @@
-// 연동 기록 화면 문구 — externalApiLog.ts에서 분리(그쪽은 postgres를 top-level import해 클라이언트 컴포넌트에서
-// 그 값을 바로 import하면 postgres가 브라우저 번들에 딸려 들어와 빌드가 깨진다). DB를 만지는 함수(recordExternalCallSafe 등)는
-// externalApiLog.ts에 남아 있고, 그 파일이 여기서 타입·순수 함수를 재수출한다 — 서버 쪽 소비자는 지금처럼 '@/lib/externalApiLog'만 쓰면 된다.
+// 연동 기록 화면 문구 — DB를 만지지 않는 순수 모듈. 화면(클라이언트 컴포넌트)은 반드시 이 파일에서 import한다.
+// externalApiLog.ts(기록·조회)는 postgres를 top-level import하므로, 그 경로로 문구 함수를 가져가면
+// 브라우저 번들에 pg가 딸려 들어와 빌드가 깨진다 — 그래서 그 파일은 여기의 것을 재수출하지 않는다.
 export type ExternalOutcome = 'ok' | 'applied' | 'stale' | 'unauthorized' | 'bad-request' | 'not-found' | 'conflict' | 'error';
 
 export interface ExternalLogTarget { handle: string; clientName: string; amountGross: number; payoutCurrency: string }

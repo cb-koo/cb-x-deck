@@ -1,20 +1,23 @@
 'use client';
+import { useState } from 'react';
 import Link from 'next/link';
 import type { SettlementCandidate } from '@/lib/settlementCalc';
 import type { SettlementCategory } from '@/lib/settlementSettings';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPE_LABEL, describeMethod } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
+import { ImageLightbox } from '@/components/ImageLightbox';
 import { READINESS_STYLE, effectiveReadiness, effectiveIssues } from './readinessView';
 import { formatKrwToPayout } from './money';
 
 export interface RowEdit { category: string | null; deadlineOn: string; referenceUrl: string }
 const FIELD = 'rounded-lg border border-x-border bg-white px-2 py-1 text-ui';
 
-export function CandidateRow({ c, edit, categories, selected, failure, onEdit, onToggle }: {
-  c: SettlementCandidate; edit: RowEdit; categories: SettlementCategory[]; selected: boolean; failure?: string;
+export function CandidateRow({ c, edit, categories, selected, failure, proofSignedUrl, onEdit, onToggle }: {
+  c: SettlementCandidate; edit: RowEdit; categories: SettlementCategory[]; selected: boolean; failure?: string; proofSignedUrl: string | null;
   onEdit: (e: RowEdit) => void; onToggle: (on: boolean) => void;
 }) {
+  const [zoom, setZoom] = useState(false);
   const level = effectiveReadiness(c, edit);
   const st = READINESS_STYLE[level];
   const issues = effectiveIssues(c, edit);
@@ -50,6 +53,15 @@ export function CandidateRow({ c, edit, categories, selected, failure, onEdit, o
           <input type="url" className={`${FIELD} w-[260px]`} placeholder="게시물 링크(선택)" value={edit.referenceUrl} onChange={(e) => onEdit({ ...edit, referenceUrl: e.target.value })} />
           {edit.referenceUrl && <a href={edit.referenceUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline">열기</a>}
         </label>
+        {c.proof && (
+          <span className="flex items-center gap-1.5 text-x-secondary">증빙
+            {proofSignedUrl
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={proofSignedUrl} alt="증빙 스크린샷" title={`${c.proof.byName || '누군가'}가 올림`}
+                     onClick={() => setZoom(true)} className="h-7 w-7 cursor-zoom-in rounded border border-x-border object-cover" />
+              : <span className="text-x-muted">있음</span>}
+          </span>
+        )}
         {issues.map((i) => (
           <span key={i.code} className={i.level === 'blocked' ? 'text-red-700' : 'text-amber-700'}>
             {i.text}
@@ -59,6 +71,7 @@ export function CandidateRow({ c, edit, categories, selected, failure, onEdit, o
         ))}
         {failure && <span role="alert" className="text-red-700 font-medium">{failure}</span>}
       </div>
+      {zoom && proofSignedUrl && <ImageLightbox urls={[proofSignedUrl]} index={0} onIndexChange={() => {}} onClose={() => setZoom(false)} />}
     </li>
   );
 }

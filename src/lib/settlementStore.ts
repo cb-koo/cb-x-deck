@@ -11,6 +11,7 @@ import { getDefaultPaymentMethod, type PaymentMethod } from './influencerPayment
 import { insertAutoLog, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
 import { computeCandidate, toMethodSnapshot, NO_CLIENT_TEXT, NO_INFLUENCER_TEXT, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
+import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
 import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
 import type { Cursor, ExportRow, StatusUpdate } from './settlementExternal.ts';   // 타입만이라 순환 무해
 
@@ -51,13 +52,13 @@ type CandRow = {
   id: string; type: TaskType; influencer_handle: string; cost: unknown; post_url: string | null; target_tweet_url: string | null;
   target_post_url: string | null; posted_at: string; removed_at: string | null; removed_reason: string; draft_label: string | null;
   campaign_id: string; campaign_name: string; kind: CampaignKind | null; client_id: string | null; client_name: string | null;
-  influencer_id: string | null; payment_methods: unknown;
+  influencer_id: string | null; payment_methods: unknown; proof: unknown;
 };
 // 후보 조건은 campaignJudgment.isSettlementCandidate와 같은 정의 — 스토어 테스트가 대조한다
 const CANDIDATE_SQL = (sql: postgres.Sql) => sql`
   select t.id, t.type, t.influencer_handle, t.cost, t.post_url, t.target_tweet_url, tg.post_url as target_post_url,
          to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, to_char(t.removed_at, 'YYYY-MM-DD') as removed_at, t.removed_reason,
-         coalesce(d.title, d.ko_title) as draft_label,
+         coalesce(d.title, d.ko_title) as draft_label, t.proof,
          c.id as campaign_id, c.name as campaign_name, c.kind, c.client_id, c.client_name,
          i.id as influencer_id, i.payment_methods
     from campaign_task t
@@ -86,7 +87,7 @@ export async function listCandidates(
 function rowToCandidate(r: CandRow, cost: TaskCost, settings: SettlementSettings, lastQ: string | null, today: string): SettlementCandidate {
   const methods = Array.isArray(r.payment_methods) ? (r.payment_methods as PaymentMethod[]) : [];
   return computeCandidate({
-    task: { id: r.id, type: r.type, influencerHandle: r.influencer_handle, cost, postUrl: r.post_url, targetTweetUrl: r.target_tweet_url, targetPostUrl: r.target_post_url, postedAt: r.posted_at, removedAt: r.removed_at, removedReason: r.removed_reason, draftLabel: r.draft_label },
+    task: { id: r.id, type: r.type, influencerHandle: r.influencer_handle, cost, postUrl: r.post_url, targetTweetUrl: r.target_tweet_url, targetPostUrl: r.target_post_url, postedAt: r.posted_at, removedAt: r.removed_at, removedReason: r.removed_reason, draftLabel: r.draft_label, proof: taskProofOf(r.proof) },
     campaign: { id: r.campaign_id, name: r.campaign_name, kind: r.kind, clientId: r.client_id, clientName: r.client_name ?? '기타' },
     influencer: { inRoster: r.influencer_id !== null, method: r.influencer_id ? getDefaultPaymentMethod(methods) : null },
     settings, lastQuoteRtCategory: lastQ, today,

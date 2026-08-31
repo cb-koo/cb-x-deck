@@ -6,8 +6,19 @@ import {
 } from './settlementCalc.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings } from './settlementSettings.ts';
 import type { PaymentMethod } from './influencerPayment.ts';
+import type { TaskType } from './campaignJudgment.ts';
+import type { TaskProof } from './taskProofGuard.ts';
 
 const paypal: PaymentMethod = { id: 'pm1', type: 'paypal', isDefault: true, holder: 'SAWADA KEIKO', currency: 'JPY', email: 'ucymk@gmail.com', updatedAt: '2026-08-27T00:00:00.000Z' };
+// computeCandidate 최소 입력 — 유형·증빙만 바꿔 가며 no-proof 판정을 본다(다른 필드는 readiness에 영향 없게 다 채운다)
+function candInput(over: { type: TaskType; proof: TaskProof | null }) {
+  return {
+    task: { id: 't-proof', type: over.type, influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' as const }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: over.proof },
+    campaign: { id: 'c1', name: 'N', kind: 'content' as const, clientId: 'cl1', clientName: '기타' },
+    influencer: { inRoster: true, method: paypal },
+    settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
+  };
+}
 const bankJp: PaymentMethod = { id: 'pm2', type: 'bank', isDefault: true, holder: 'オオクボナナ', currency: 'JPY', bank: '三菱UFJ', branch: '赤坂見附支店(064)', account: '0441321', fee: { mode: 'fixed', amount: 165 }, updatedAt: '2026-08-27T00:00:00.000Z' };
 const bankKr: PaymentMethod = { id: 'pm3', type: 'bank', isDefault: true, holder: 'KAWAGOE AMI', currency: 'KRW', bank: '신한', account: '110543468512', updatedAt: '2026-08-27T00:00:00.000Z' };
 const paypay: PaymentMethod = { id: 'pm4', type: 'paypay', isDefault: true, holder: 'A', currency: 'JPY', updatedAt: '2026-08-27T00:00:00.000Z' };
@@ -83,23 +94,49 @@ test('referenceUrlFor — RT는 대상, 나머지는 자기 게시물', () => {
 });
 
 test('assessReadiness — 🔴 > 🟡, 문구 나열', () => {
-  const ok = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', removedAt: null, removedReason: '', clientId: 'cl1' });
+  const ok = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false });
   assert.equal(ok.level, 'ready'); assert.equal(ok.issues.length, 0);
-  const noRoster = assessReadiness({ inRoster: false, method: null, category: 'X', referenceUrl: null, removedAt: null, removedReason: '', clientId: 'cl1' });
+  const noRoster = assessReadiness({ inRoster: false, method: null, category: 'X', referenceUrl: null, removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false });
   assert.equal(noRoster.level, 'blocked');
   assert.deepEqual(noRoster.issues.map((i) => i.code), ['no-influencer', 'no-reference']);
   assert.match(noRoster.issues[0].text, /명부에 없는 인플루언서예요/);
-  const noPm = assessReadiness({ inRoster: true, method: null, category: null, referenceUrl: null, removedAt: '2026-08-27', removedReason: '계정 정지', clientId: 'cl1' });
+  const noPm = assessReadiness({ inRoster: true, method: null, category: null, referenceUrl: null, removedAt: '2026-08-27', removedReason: '계정 정지', clientId: 'cl1', proofMissing: false });
   assert.equal(noPm.level, 'blocked');
   assert.deepEqual(noPm.issues.map((i) => i.code), ['no-payment-method', 'no-category', 'no-reference', 'removed']);
   assert.match(noPm.issues[3].text, /게시 내려짐 8-27 · 계정 정지/);
-  const warn = assessReadiness({ inRoster: true, method: paypay, category: 'X', referenceUrl: null, removedAt: null, removedReason: '', clientId: 'cl1' });
+  const warn = assessReadiness({ inRoster: true, method: paypay, category: 'X', referenceUrl: null, removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false });
   assert.equal(warn.level, 'warn');
   assert.deepEqual(warn.issues.map((i) => i.code), ['no-reference', 'paypay-no-identifier']);
-  const noClient = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', removedAt: null, removedReason: '', clientId: null });
+  const noClient = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', removedAt: null, removedReason: '', clientId: null, proofMissing: false });
   assert.equal(noClient.level, 'blocked');
   assert.deepEqual(noClient.issues.map((i) => i.code), ['no-client']);
   assert.match(noClient.issues[0].text, /이 캠페인의 클라이언트가 삭제돼 비어 있어요/);
+});
+
+test('assessReadiness — 증빙 없는 RT는 노랑 경고, 막지는 않는다', () => {
+  const base = { inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', removedAt: null, removedReason: '', clientId: 'cl1' };
+  const missing = assessReadiness({ ...base, proofMissing: true });
+  assert.equal(missing.level, 'warn');
+  assert.ok(missing.issues.some((i) => i.code === 'no-proof' && i.level === 'warn'));
+
+  const has = assessReadiness({ ...base, proofMissing: false });
+  assert.equal(has.level, 'ready');
+  assert.equal(has.issues.length, 0);
+});
+
+test('computeCandidate — RT는 증빙이 없으면 no-proof, 투고는 증빙과 무관', () => {
+  const rt = computeCandidate(candInput({ type: 'rt', proof: null }));
+  assert.ok(rt.issues.some((i) => i.code === 'no-proof'));
+
+  const rtWithProof = computeCandidate(candInput({
+    type: 'rt',
+    proof: { url: 'task/11111111-2222-3333-4444-555555555555/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png', by: null, byName: '박구건', at: '2026-08-31T01:00:00.000Z' },
+  }));
+  assert.equal(rtWithProof.issues.some((i) => i.code === 'no-proof'), false);
+  assert.deepEqual(rtWithProof.proof?.byName, '박구건');
+
+  const post = computeCandidate(candInput({ type: 'post', proof: null }));
+  assert.equal(post.issues.some((i) => i.code === 'no-proof'), false);
 });
 
 test('snapshot — 필드 선별·양식 8번 문자열', () => {
@@ -114,7 +151,7 @@ test('snapshot — 필드 선별·양식 8번 문자열', () => {
 
 test('computeCandidate — 전부 합친 한 건', () => {
   const c = computeCandidate({
-    task: { id: 't1', type: 'quoteRt', influencerHandle: 'seikeinu', cost: { amount: 30000, currency: 'KRW' }, postUrl: 'https://x.com/seikeinu/status/9', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: '원고 A' },
+    task: { id: 't1', type: 'quoteRt', influencerHandle: 'seikeinu', cost: { amount: 30000, currency: 'KRW' }, postUrl: 'https://x.com/seikeinu/status/9', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: '원고 A', proof: null },
     campaign: { id: 'c1', name: '손유나 9월 1주', kind: 'content', clientId: 'cl1', clientName: '닥터손유나클리닉' },
     influencer: { inRoster: true, method: { ...paypal, fee: { mode: 'grossUp', percent: 5 } } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: SETTLEMENT_DEFAULTS.categories[2].sendAs, today: '2026-08-28',
@@ -128,7 +165,7 @@ test('computeCandidate — 전부 합친 한 건', () => {
   assert.equal(c.purposeText, '닥터손유나클리닉 정보성 콘텐츠 Viral 협찬');
   assert.equal(c.readiness, 'ready');
   const blocked = computeCandidate({
-    task: { id: 't2', type: 'rt', influencerHandle: 'nobody', cost: { amount: 20000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null },
+    task: { id: 't2', type: 'rt', influencerHandle: 'nobody', cost: { amount: 20000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null },
     campaign: { id: 'c1', name: 'N', kind: null, clientId: null, clientName: '기타' },
     influencer: { inRoster: false, method: null }, settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
   });
@@ -138,7 +175,7 @@ test('computeCandidate — 전부 합친 한 건', () => {
 
 test('effectiveReadiness/effectiveIssues — 분류를 지우면 즉시 🔴, 서버 no-category를 사람이 채우면 해제, warn은 유지', () => {
   const filled = computeCandidate({
-    task: { id: 't3', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null },
+    task: { id: 't3', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null },
     campaign: { id: 'c1', name: 'N', kind: 'content', clientId: 'cl1', clientName: '기타' },
     influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
@@ -150,7 +187,7 @@ test('effectiveReadiness/effectiveIssues — 분류를 지우면 즉시 🔴, �
   assert.deepEqual(effectiveIssues(filled, { category: null }).map((i) => i.code), ['no-category']);
   // 서버 no-category(분류 기본값 없음) + 사람이 골랐으면 더 이상 blocked가 아니다
   const empty = computeCandidate({
-    task: { id: 't4', type: 'quoteRt', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null },
+    task: { id: 't4', type: 'quoteRt', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null },
     campaign: { id: 'c1', name: 'N', kind: 'content', clientId: 'cl1', clientName: '기타' },
     influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
@@ -161,7 +198,7 @@ test('effectiveReadiness/effectiveIssues — 분류를 지우면 즉시 🔴, �
   assert.deepEqual(effectiveIssues(empty, { category: SETTLEMENT_DEFAULTS.categories[0].sendAs }).map((i) => i.code), []);
   // warn 이슈(참고 링크 없음)는 분류와 무관하게 그대로 남는다
   const warnOnly = computeCandidate({
-    task: { id: 't5', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null },
+    task: { id: 't5', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null },
     campaign: { id: 'c1', name: 'N', kind: 'content', clientId: 'cl1', clientName: '기타' },
     influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',

@@ -9,6 +9,7 @@ import { visibleCategories } from '@/lib/settlementSettings';
 import { TASK_TYPES, TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPES, PAYMENT_TYPE_LABEL, type PaymentMethodType } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
+import { useSignedTaskProofUrls } from '@/components/useSignedTaskProofUrls';
 import { CandidateRow, type RowEdit } from './CandidateRow';
 import { CreateConfirmDialog } from './CreateConfirmDialog';
 import { effectiveReadiness } from './readinessView';
@@ -65,6 +66,9 @@ export function CandidateTable() {
     for (const c of picked) if (c.money) t[c.money.payoutCurrency] = (t[c.money.payoutCurrency] ?? 0) + c.money.amountGross;
     return t;
   }, [picked]);
+  // 증빙 서명 URL — 표 전체에서 한 번만 배치 요청한다(행마다 부르면 왕복이 행 수만큼 늘어난다, useSignedTaskProofUrls 관례).
+  // data가 아직 없어도(로딩 중) 훅은 매 렌더 호출돼야 하므로 빈 배열로 대체한다(입력 크기와 무관하게 고정된 훅 호출 규칙).
+  const proofUrls = useSignedTaskProofUrls((data?.candidates ?? []).map((c) => c.proof?.url ?? '').filter(Boolean));
 
   async function submit() {
     if (!data) return;
@@ -117,6 +121,7 @@ export function CandidateTable() {
           {rows.map((c) => (
             <CandidateRow key={c.taskId} c={c} edit={edits[c.taskId]} categories={cats} failure={failures[c.taskId]}
                           selected={selected.has(c.taskId)}
+                          proofSignedUrl={c.proof ? proofUrls[c.proof.url] ?? null : null}
                           onEdit={(e) => {
                             setEdits((p) => ({ ...p, [c.taskId]: e }));
                             // 분류를 비우는 등으로 즉시 🔴가 되면 체크도 같이 풀어 준다(라벨-값 불일치 방지, §4 리뷰)

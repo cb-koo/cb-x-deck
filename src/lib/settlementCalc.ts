@@ -4,6 +4,7 @@ import { TASK_TYPE_LABEL, type TaskType, type CampaignKind } from './campaignJud
 import type { TaskCost } from './campaignCost.ts';
 import { PAYMENT_TYPE_LABEL, type PaymentMethod, type PaymentFee } from './influencerPayment.ts';
 import { defaultCategoryFor, visibleCategories, CATEGORY_ID_FEE, CATEGORY_ID_INFO, type SettlementSettings } from './settlementSettings.ts';
+import type { TaskProof } from './taskProofGuard.ts';
 
 // ── 금액(§3-1·3-2) ──
 export interface MoneyCalc {
@@ -69,7 +70,7 @@ export function referenceUrlFor(t: { type: TaskType; postUrl: string | null; tar
 
 // ── 신호등(§3-7) ──
 export type ReadinessLevel = 'ready' | 'warn' | 'blocked';
-export type IssueCode = 'no-influencer' | 'no-payment-method' | 'no-category' | 'no-reference' | 'removed' | 'paypay-no-identifier' | 'no-client';
+export type IssueCode = 'no-influencer' | 'no-payment-method' | 'no-category' | 'no-reference' | 'removed' | 'paypay-no-identifier' | 'no-client' | 'no-proof';
 export interface ReadinessIssue { level: 'warn' | 'blocked'; code: IssueCode; text: string }
 // 클릭 전에 미리 보여준다(UX 원칙 ②) — createRequests의 거절 사유(settlementStore)와 문구를 맞춘다(042)
 // 클라이언트 지정은 캠페인 생성 시점에만 가능(수정 UI 없음·parseCampaignPatch가 clientId를 의도적으로 무시) — 클라이언트가 삭제되면
@@ -77,13 +78,14 @@ export interface ReadinessIssue { level: 'warn' | 'blocked'; code: IssueCode; te
 export const NO_CLIENT_TEXT = '이 캠페인의 클라이언트가 삭제돼 비어 있어요 — 클라이언트를 다시 만들고 캠페인을 새로 만들어야 정산할 수 있어요';
 export const NO_INFLUENCER_TEXT = '명부에 없는 인플루언서예요 — 명부에 추가하고 결제 수단을 등록해 주세요';
 const monthDay = (ymd: string) => `${Number(ymd.slice(5, 7))}-${Number(ymd.slice(8, 10))}`;
-export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; removedAt: string | null; removedReason: string; clientId: string | null }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
+export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; removedAt: string | null; removedReason: string; clientId: string | null; proofMissing: boolean }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
   const issues: ReadinessIssue[] = [];
   if (!i.inRoster) issues.push({ level: 'blocked', code: 'no-influencer', text: NO_INFLUENCER_TEXT });
   else if (!i.method) issues.push({ level: 'blocked', code: 'no-payment-method', text: '결제 수단이 없어요 — 프로필에서 등록해 주세요' });
   if (i.clientId === null) issues.push({ level: 'blocked', code: 'no-client', text: NO_CLIENT_TEXT });
   if (!i.category) issues.push({ level: 'blocked', code: 'no-category', text: '분류를 골라 주세요' });
   if (!i.referenceUrl) issues.push({ level: 'warn', code: 'no-reference', text: '참고 링크 없음' });
+  if (i.proofMissing) issues.push({ level: 'warn', code: 'no-proof', text: '증빙 스크린샷 없음' });
   if (i.removedAt) issues.push({ level: 'warn', code: 'removed', text: `게시 내려짐 ${monthDay(i.removedAt)}${i.removedReason ? ` · ${i.removedReason}` : ''}` });
   if (i.method?.type === 'paypay' && !i.method.identifier) issues.push({ level: 'warn', code: 'paypay-no-identifier', text: 'PayPay 수취 정보 미입력' });
   const level: ReadinessLevel = issues.some((x) => x.level === 'blocked') ? 'blocked' : issues.length ? 'warn' : 'ready';
@@ -127,7 +129,7 @@ export function describeSnapshot(m: PaymentMethodSnapshot): string {
 
 // ── 후보 한 건(§2-4 + §3 전부) ──
 export interface CandidateInput {
-  task: { id: string; type: TaskType; influencerHandle: string; cost: TaskCost; postUrl: string | null; targetTweetUrl: string | null; targetPostUrl: string | null; postedAt: string; removedAt: string | null; removedReason: string; draftLabel: string | null };
+  task: { id: string; type: TaskType; influencerHandle: string; cost: TaskCost; postUrl: string | null; targetTweetUrl: string | null; targetPostUrl: string | null; postedAt: string; removedAt: string | null; removedReason: string; draftLabel: string | null; proof: TaskProof | null };
   campaign: { id: string; name: string; kind: CampaignKind | null; clientId: string | null; clientName: string };
   influencer: { inRoster: boolean; method: PaymentMethod | null };
   settings: SettlementSettings; lastQuoteRtCategory: string | null; today: string;
@@ -136,7 +138,7 @@ export interface SettlementCandidate {
   taskId: string; campaignId: string; campaignName: string; clientId: string | null; clientName: string; campaignKind: CampaignKind | null;
   influencerHandle: string; taskType: TaskType; postedAt: string; removedAt: string | null; removedReason: string; draftLabel: string | null;
   cost: TaskCost;   // 결제 수단이 없어 money가 null이어도 화면에 원가는 보여준다(§4-1 "막힌 행에도 금액")
-  money: MoneyCalc | null; method: PaymentMethod | null;
+  money: MoneyCalc | null; method: PaymentMethod | null; proof: TaskProof | null;
   categoryDefault: string | null; deadlineDefault: string; referenceDefault: string | null; itemText: string; purposeText: string;
   readiness: ReadinessLevel; issues: ReadinessIssue[];
 }
@@ -146,11 +148,13 @@ export function computeCandidate(i: CandidateInput): SettlementCandidate {
   const money = method ? computeMoney(task.cost, method.currency, method.fee, i.settings.rateKrwPerJpy) : null;
   const categoryDefault = defaultCategory({ type: task.type, campaignKind: campaign.kind, settings: i.settings, lastQuoteRtCategory: i.lastQuoteRtCategory });
   const referenceDefault = referenceUrlFor(task);
-  const r = assessReadiness({ inRoster: influencer.inRoster, method, category: categoryDefault, referenceUrl: referenceDefault, removedAt: task.removedAt, removedReason: task.removedReason, clientId: campaign.clientId });
+  // RT만 증빙을 요구한다(RT 증빙 스펙 결정 3) — 투고·인용RT는 post_url이 증거다
+  const proofMissing = task.type === 'rt' && !task.proof;
+  const r = assessReadiness({ inRoster: influencer.inRoster, method, category: categoryDefault, referenceUrl: referenceDefault, removedAt: task.removedAt, removedReason: task.removedReason, clientId: campaign.clientId, proofMissing });
   return {
     taskId: task.id, campaignId: campaign.id, campaignName: campaign.name, clientId: campaign.clientId, clientName: campaign.clientName, campaignKind: campaign.kind,
     influencerHandle: task.influencerHandle, taskType: task.type, postedAt: task.postedAt, removedAt: task.removedAt, removedReason: task.removedReason, draftLabel: task.draftLabel,
-    cost: task.cost, money, method,
+    cost: task.cost, money, method, proof: task.proof,
     categoryDefault, deadlineDefault: defaultDeadline(i.today), referenceDefault,
     itemText: itemText(task.influencerHandle, task.type), purposeText: purposeText(campaign.clientName, campaign.kind, task.type),
     readiness: r.level, issues: r.issues,

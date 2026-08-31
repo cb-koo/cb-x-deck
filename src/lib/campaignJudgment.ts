@@ -132,6 +132,13 @@ export function isTaskType(v: unknown): v is TaskType {
 export const TARGETABLE_TYPES: readonly TaskType[] = ['post', 'quoteRt', 'visit'];
 export const TARGETING_TYPES: readonly TaskType[] = ['rt', 'quoteRt'];
 
+// 작업 맥락을 실은 원고 화면 주소(스펙 2026-08-31 §3-3). /generate는 task·campaign 두 파라미터가
+// 모두 있어야 배너를 켜므로(generate/page.tsx:299) 조립 규칙이 한 곳에만 있어야 한다.
+// 호출자: 캠페인 표의 작업 줄(TaskTable), 작업을 만든 직후의 이동(CampaignDetail).
+export function draftWriteHref(taskId: string, campaignId: string): string {
+  return `/generate?task=${encodeURIComponent(taskId)}&campaign=${encodeURIComponent(campaignId)}`;
+}
+
 export type TaskStage = 'planned' | 'visitPending' | 'visited' | DraftStatus | 'published' | 'removed';
 export const TASK_STAGE_LABEL: Record<TaskStage, string> = {
   planned: '예정', visitPending: '방문 전', visited: '방문 완료', ...STATUS_LABEL, published: '게시됨', removed: '내려짐',

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   isDateOnlyString, addDays, daysBetweenDates, weekStartOf, weekDays, nextWeekRange, formatDateKo,
   campaignStatus, isOutOfRange, isCampaignKind,
-  suggestCampaignName, suggestCampaignCode,
+  suggestCampaignName, suggestCampaignCode, draftWriteHref,
 } from './campaignJudgment.ts';
 
 const T = '2026-08-27'; // 목요일
@@ -55,4 +55,16 @@ test('4) 이름·코드 제안 — {클라} {M월 N주}(그 주의 목요일 기
   assert.equal(suggestCampaignCode('Lifting Clinic', '2026-08-24'), 'lifting-clinic-20260824');
   assert.equal(suggestCampaignCode('', '2026-08-24'), '20260824');
   assert.equal(suggestCampaignCode('클리닉', '2026-08-24'), '20260824'); // 비영문만이면 날짜만
+});
+
+test('5) 작업 맥락을 실은 원고 화면 주소', () => {
+  // /generate는 task·campaign 두 파라미터가 다 있어야 배너를 켠다(generate/page.tsx:299)
+  assert.equal(draftWriteHref('t1', 'c1'), '/generate?task=t1&campaign=c1');
+  // 실제 값은 uuid라 이스케이프가 필요 없지만, 주소 조립이 한 곳에만 있게 하는 것이 이 함수의 목적이다
+  assert.equal(
+    draftWriteHref('9f1c0e2a-0000-4000-8000-000000000001', '9f1c0e2a-0000-4000-8000-000000000002'),
+    '/generate?task=9f1c0e2a-0000-4000-8000-000000000001&campaign=9f1c0e2a-0000-4000-8000-000000000002',
+  );
+  // 예상 밖 문자가 들어와도 주소가 깨지지 않는다
+  assert.equal(draftWriteHref('a&b', 'c d'), '/generate?task=a%26b&campaign=c%20d');
 });

@@ -131,6 +131,28 @@ test('생성 — 스냅샷·로그·후보에서 제외·배지', async () => {
   assert.equal(await lastQuoteRtCategory(sql, m.id), null);
 });
 
+test('요청 스냅샷 — 만든 시점의 증빙이 요청 행에 복사된다(전송은 안 한다)', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라Proof');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'proof', 'visit'));
+  await influencerWithPaypal(H('proof'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', targetTweetUrl: 'https://x.com/target/status/1', items: [{ handle: H('proof'), cost: { amount: 30000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  const proof = {
+    url: `task/${t.id}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png`,
+    by: null, byName: '박구건', at: '2026-08-31T01:00:00.000Z',
+  };
+  await updateTask(sql, t.id, { proof });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  assert.deepEqual(cand.proof, proof);
+  assert.equal(cand.issues.some((i) => i.code === 'no-proof'), false);   // 증빙이 있으니 경고가 없다
+  const [row] = await createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28');
+  assert.deepEqual(row.proof, proof);
+  // 다시 읽어도(스토리지 왕복 없이 저장된 스냅샷 그대로) 같은 값 — listRequests 경로도 같은 R_SELECT/toRequest를 탄다
+  const [reloaded] = await listRequests(sql, { taskId: t.id });
+  assert.deepEqual(reloaded.proof, proof);
+});
+
 test('생성 — 전체 검증: 하나라도 실패면 0건 저장, 건별 이유', async () => {
   const m = await ensureMember();
   const c = await createClient(sql, P + '클라C');

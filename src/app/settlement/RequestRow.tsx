@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import { Button } from '@/components/ui';
 import type { PaymentRequestRow } from '@/lib/settlementStore';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
@@ -6,8 +7,10 @@ import { PAYMENT_TYPE_LABEL } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
 import { describeSnapshot } from '@/lib/settlementCalc';
 import { displayStatus, TONE_CLASS, paidText, settlementDetail } from '@/lib/settlementDisplay';
+import { ImageLightbox } from '@/components/ImageLightbox';
 
-export function RequestRow({ r, open, onToggle, onCancel }: { r: PaymentRequestRow; open: boolean; onToggle: () => void; onCancel: () => void }) {
+export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel }: { r: PaymentRequestRow; open: boolean; proofSignedUrl: string | null; onToggle: () => void; onCancel: () => void }) {
+  const [zoom, setZoom] = useState(false);
   const cancelled = r.status === 'cancelled';
   const paid = r.externalStatus === 'paid';
   const st = displayStatus(r, 'list');
@@ -39,6 +42,13 @@ export function RequestRow({ r, open, onToggle, onCancel }: { r: PaymentRequestR
             <Item k="데드라인" v={r.deadlineOn} />
             <Item k="결제수단" v={describeSnapshot(r.paymentMethod)} />
             <Item k="참고자료" v={r.referenceUrl ? <a href={r.referenceUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline break-all">{r.referenceUrl}</a> : '—'} />
+            <Item k="증빙" v={r.proof
+              ? (proofSignedUrl
+                // eslint-disable-next-line @next/next/no-img-element
+                ? <img src={proofSignedUrl} alt="증빙 스크린샷" onClick={() => setZoom(true)}
+                       className="h-16 w-16 cursor-zoom-in rounded border border-x-border object-cover" />
+                : '있음')
+              : '—'} sub={r.proof ? `${r.proof.byName || '누군가'}가 올림` : undefined} />
             <Item k="메모" v={r.note || '—'} />
             <Item k="정산" v={settlementDetail(r)} />
           </dl>
@@ -52,6 +62,7 @@ export function RequestRow({ r, open, onToggle, onCancel }: { r: PaymentRequestR
           </div>
         </div>
       )}
+      {zoom && proofSignedUrl && <ImageLightbox urls={[proofSignedUrl]} index={0} onIndexChange={() => {}} onClose={() => setZoom(false)} />}
     </li>
   );
 }

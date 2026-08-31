@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '@/lib/toastContext';
 import { fetchRequests, cancelRequestApi } from '@/lib/settlementApi';
 import type { PaymentRequestRow } from '@/lib/settlementStore';
+import { useSignedTaskProofUrls } from '@/components/useSignedTaskProofUrls';
 import { RequestRow } from './RequestRow';
 import { CancelDialog } from './CancelDialog';
 import { uniqPairs } from './uniqPairs';
@@ -47,6 +48,10 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
     && (!filter.from || kstDay(r.createdAt) >= filter.from)
     && (!filter.to || kstDay(r.createdAt) <= filter.to)), [rows, filter]);
 
+  // 증빙 서명 URL — 목록 전체에서 한 번만 배치 요청한다(행마다 부르면 왕복이 행 수만큼 늘어난다, useSignedTaskProofUrls 관례).
+  // rows가 아직 없어도(로딩 중) 훅은 매 렌더 호출돼야 하므로 빈 배열로 대체한다.
+  const proofUrls = useSignedTaskProofUrls((rows ?? []).map((r) => r.proof?.url ?? '').filter(Boolean));
+
   async function doCancel(reason: string): Promise<string | null> {
     if (!cancelling) return null;
     const r = await cancelRequestApi(cancelling.id, reason);
@@ -84,7 +89,8 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
       ) : (
         <ul className="mt-3 divide-y divide-x-border rounded-xl border border-x-border bg-white">
           {filtered.map((r) => (
-            <RequestRow key={r.id} r={r} open={open === r.id} onToggle={() => setOpen(open === r.id ? null : r.id)} onCancel={() => setCancelling(r)} />
+            <RequestRow key={r.id} r={r} open={open === r.id} proofSignedUrl={r.proof ? proofUrls[r.proof.url] ?? null : null}
+                        onToggle={() => setOpen(open === r.id ? null : r.id)} onCancel={() => setCancelling(r)} />
           ))}
         </ul>
       )}

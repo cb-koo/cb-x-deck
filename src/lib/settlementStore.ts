@@ -100,7 +100,7 @@ export interface PaymentRequestRow {
   id: string; taskId: string | null; campaignId: string | null; campaignName: string; clientId: string; clientName: string;
   influencerHandle: string; taskType: TaskType; category: string; categoryDefault: string | null; itemText: string; purposeText: string;
   amountKrw: number; costCurrency: Currency; payoutCurrency: Currency; rateKrwPerJpy: number; amountNet: number;
-  fee: PaymentFee | null; feeAmount: number; amountGross: number; deadlineOn: string; referenceUrl: string | null;
+  fee: PaymentFee | null; feeAmount: number; amountGross: number; deadlineOn: string; referenceUrl: string | null; proof: TaskProof | null;
   paymentMethod: PaymentMethodSnapshot; requesterMemberId: string | null; requesterName: string;
   status: RequestStatus; cancelledAt: string | null; cancelledByName: string | null; cancelReason: string | null;
   sentAt: string | null; externalId: string | null; note: string; createdAt: string; updatedAt: string;
@@ -119,7 +119,7 @@ type RRow = {
   id: string; task_id: string | null; campaign_id: string | null; campaign_name: string; client_id: string; client_name: string;
   influencer_handle: string; task_type: TaskType; category: string; category_default: string | null; item_text: string; purpose_text: string;
   amount_krw: number; cost_currency: Currency; payout_currency: Currency; rate_krw_per_jpy: number; amount_net: number;
-  fee: PaymentFee | null; fee_amount: number; amount_gross: number; deadline_on: string; reference_url: string | null;
+  fee: PaymentFee | null; fee_amount: number; amount_gross: number; deadline_on: string; reference_url: string | null; proof: unknown;
   payment_method: PaymentMethodSnapshot; requester_member_id: string | null; requester_name: string;
   status: RequestStatus; cancelled_at: Date | null; cancelled_by_name: string | null; cancel_reason: string | null;
   sent_at: Date | null; external_id: string | null; note: string; created_at: Date; updated_at: Date;
@@ -129,7 +129,7 @@ type RRow = {
 const R_SELECT = (sql: postgres.Sql) => sql`
   select id, task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type, category, category_default,
          item_text, purpose_text, amount_krw, cost_currency, payout_currency, rate_krw_per_jpy, amount_net, fee, fee_amount, amount_gross,
-         to_char(deadline_on, 'YYYY-MM-DD') as deadline_on, reference_url, payment_method, requester_member_id, requester_name,
+         to_char(deadline_on, 'YYYY-MM-DD') as deadline_on, reference_url, proof, payment_method, requester_member_id, requester_name,
          status, cancelled_at, cancelled_by_name, cancel_reason, sent_at, external_id, note, created_at, updated_at,
          external_status, paid_amount_krw, paid_at, external_note, external_updated_at, influencer_id, category_option_id
     from payment_request`;
@@ -138,7 +138,7 @@ const toRequest = (r: RRow): PaymentRequestRow => ({
   id: r.id, taskId: r.task_id, campaignId: r.campaign_id, campaignName: r.campaign_name, clientId: r.client_id, clientName: r.client_name,
   influencerHandle: r.influencer_handle, taskType: r.task_type, category: r.category, categoryDefault: r.category_default, itemText: r.item_text, purposeText: r.purpose_text,
   amountKrw: r.amount_krw, costCurrency: r.cost_currency, payoutCurrency: r.payout_currency, rateKrwPerJpy: r.rate_krw_per_jpy, amountNet: r.amount_net,
-  fee: r.fee, feeAmount: r.fee_amount, amountGross: r.amount_gross, deadlineOn: r.deadline_on, referenceUrl: r.reference_url,
+  fee: r.fee, feeAmount: r.fee_amount, amountGross: r.amount_gross, deadlineOn: r.deadline_on, referenceUrl: r.reference_url, proof: taskProofOf(r.proof),
   paymentMethod: r.payment_method, requesterMemberId: r.requester_member_id, requesterName: r.requester_name,
   status: r.status, cancelledAt: iso(r.cancelled_at), cancelledByName: r.cancelled_by_name, cancelReason: r.cancel_reason,
   sentAt: iso(r.sent_at), externalId: r.external_id, note: r.note, createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
@@ -201,11 +201,11 @@ export async function createRequests(
         const ins = await tx<Array<{ id: string }>>`
           insert into payment_request (task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type,
             category, category_default, item_text, purpose_text, amount_krw, cost_currency, payout_currency, rate_krw_per_jpy,
-            amount_net, fee, fee_amount, amount_gross, deadline_on, reference_url, payment_method, requester_member_id, requester_name,
+            amount_net, fee, fee_amount, amount_gross, deadline_on, reference_url, proof, payment_method, requester_member_id, requester_name,
             influencer_id, category_option_id)
           values (${cand.taskId}, ${cand.campaignId}, ${cand.campaignName}, ${cand.clientId}, ${cand.clientName}, ${cand.influencerHandle}, ${cand.taskType},
             ${item.category}, ${cand.categoryDefault}, ${cand.itemText}, ${cand.purposeText}, ${m.amountKrw}, ${m.costCurrency}, ${m.payoutCurrency}, ${m.rateKrwPerJpy},
-            ${m.amountNet}, ${m.fee ? tx.json(asJson(m.fee)) : null}, ${m.feeAmount}, ${m.amountGross}, ${item.deadlineOn}, ${item.referenceUrl || null},
+            ${m.amountNet}, ${m.fee ? tx.json(asJson(m.fee)) : null}, ${m.feeAmount}, ${m.amountGross}, ${item.deadlineOn}, ${item.referenceUrl || null}, ${cand.proof ? tx.json(asJson(cand.proof)) : null},
             ${tx.json(asJson(toMethodSnapshot(pm)))}, ${member.id}, ${member.name},
             ${r.influencer_id}, ${cat.id})
           returning id`;

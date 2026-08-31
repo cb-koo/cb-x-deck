@@ -20,7 +20,7 @@ test('limit — 기본 100, 최대 500, 잘못된 값은 기본', () => {
 const row: PaymentRequestRow = {
   id: ID, taskId: 't', campaignId: 'c', campaignName: '캠', clientId: 'cl', clientName: '마인드피부과', influencerHandle: 'sawada_k', taskType: 'post',
   category: '마케팅비 > 원고료', categoryDefault: null, itemText: '항목', purposeText: '목적', amountKrw: 30000, costCurrency: 'KRW', payoutCurrency: 'JPY',
-  rateKrwPerJpy: 10, amountNet: 3000, fee: { mode: 'grossUp', percent: 5 }, feeAmount: 158, amountGross: 3158, deadlineOn: '2026-08-29', referenceUrl: null,
+  rateKrwPerJpy: 10, amountNet: 3000, fee: { mode: 'grossUp', percent: 5 }, feeAmount: 158, amountGross: 3158, deadlineOn: '2026-08-29', referenceUrl: null, proof: null,
   paymentMethod: { type: 'paypal', holder: 'KEIKO', currency: 'JPY', paypalId: 'keiko' }, requesterMemberId: 'm', requesterName: '모에카',
   status: 'requested', cancelledAt: null, cancelledByName: null, cancelReason: null, sentAt: null, externalId: null, note: '',
   createdAt: '2026-08-28T00:00:00.000Z', updatedAt: '2026-08-28T00:00:00.000Z',
@@ -40,6 +40,8 @@ test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   assert.equal(it.cancelled, null);
   assert.deepEqual(it.settlement, { status: null, paid_amount_krw: null, paid_at: null, note: null, updated_at: null, external_id: null });
   assert.equal(it.deadline, '2026-08-29'); assert.equal(it.reference_url, null);
+  // 증빙은 정산 프로덕트 계약에 칸이 없다(스펙 결정 6) — toExternalItem 출력에 proof가 어떤 키로도 섞여 나가면 안 된다
+  assert.equal(JSON.stringify(it).includes('proof'), false);
 });
 test('toExternalItem — 취소·지급 완료 되비침', () => {
   const r2: PaymentRequestRow = { ...row, status: 'cancelled', cancelledAt: '2026-08-29T01:00:00.000Z', cancelledByName: '정산 프로덕트', cancelReason: '중복',

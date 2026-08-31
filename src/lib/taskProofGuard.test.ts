@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isTaskProofPath, taskProofOf, TASK_PROOF_PATH_RE } from './taskProofGuard.ts';
+import { isTaskProofPath, taskProofOf, TASK_PROOF_PATH_RE, proofUploadedLine } from './taskProofGuard.ts';
 
 const TASK = '11111111-2222-3333-4444-555555555555';
 const FILE = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -47,4 +47,20 @@ test('taskProofOf — jsonb 모양이 보증되지 않으므로 통과분만 돌
 test('taskProofOf — by는 null을 허용한다(멤버가 지워진 경우)', () => {
   const p = { url: OK, by: null, byName: '박구건', at: '2026-08-31T01:00:00.000Z' };
   assert.deepEqual(taskProofOf(p), p);
+});
+
+test('proofUploadedLine — 세 화면이 같은 한 줄을 쓴다', () => {
+  assert.equal(proofUploadedLine('박구건', '2026-08-31T10:00:00.000Z'), '박구건가 8/31 올림');
+  // 이름이 비어 있으면 '누군가'로 대체한다
+  assert.equal(proofUploadedLine('', '2026-08-31T10:00:00.000Z'), '누군가가 8/31 올림');
+});
+
+test('proofUploadedLine — 한국 오전 9시 이전(=UTC 전날 15~24시)에 올린 증빙이 전날로 안 밀린다(리뷰 수정 2)', () => {
+  // 한국 8/30 23:59는 UTC로 8/30 14:59 — 아직 8/30
+  assert.equal(proofUploadedLine('박구건', '2026-08-30T14:59:59.000Z'), '박구건가 8/30 올림');
+  // 경계 정각: UTC 8/30 15:00 = 한국 8/31 00:00 — 여기서 한국 날짜가 넘어간다
+  assert.equal(proofUploadedLine('박구건', '2026-08-30T15:00:00.000Z'), '박구건가 8/31 올림');
+  // 한국 8/31 08:00(=UTC 8/30 23:00) — 문자열을 그냥 잘랐다면(.slice(0, 10)) UTC 날짜인 '8/30'으로
+  // 전날로 보였을 값. kstMonthDay를 쓰면 올바르게 8/31로 나온다.
+  assert.equal(proofUploadedLine('박구건', '2026-08-30T23:00:00.000Z'), '박구건가 8/31 올림');
 });

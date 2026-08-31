@@ -8,6 +8,7 @@ import { stageTag } from '@/lib/campaignTableView';
 import { parseTweetLink, tweetLinkParseMessage } from '@/lib/tweetLink';
 import { DATE_MESSAGE } from '@/lib/campaignTaskInput';
 import { TaskProofField } from '@/components/TaskProofField';
+import { PROOF_REQUIRED_MESSAGE, proofUploadedLine } from '@/lib/taskProofGuard';
 
 // 단계 셀(스펙 §3-4·§4-1) — 칩은 값만('게시됨 9/3'), 부가 정보는 옆의 회색 태그. 누르면 지금 상태에서 할 수 있는 것만 보이는 팝오버.
 // 게시 확인 자체는 되돌리지 않는다 — 잘못 찍었으면 작업을 지우고 다시 만든다(팝오버 문구가 그렇게 말한다).
@@ -77,7 +78,8 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
 
   function submitPosted() {
     if (!isDateOnlyString(date)) { setErr(DATE_MESSAGE); return; }
-    if (task.type === 'rt' && !pendingProof) { setErr('증빙 스크린샷을 넣어야 게시됨으로 표시할 수 있어요'); return; }
+    // 증빙 없는 RT는 [게시됨으로 표시] 버튼 자체가 disabled라 onClick이 나지 않는다 — 여기서 다시
+    // 막을 필요가 없다(리뷰 수정 3). 이유는 버튼 위 안내 문구(PROOF_REQUIRED_MESSAGE)가 화면에 늘 보인다.
     const u = url.trim();
     if (u) { const p = parseTweetLink(u); if (!p.ok) { setErr(tweetLinkParseMessage(p.reason)); return; } }
     onMarkPosted(date, u || undefined, pendingProof ?? undefined); close();
@@ -121,12 +123,17 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
                                 required canRemove disabled={false}
                                 onChange={(p) => { setPendingProof(p); setErr(''); }} />
               )}
+              {/* 비활성 버튼의 이유를 툴팁(터치·키보드 사용자에겐 안 보인다)에만 두지 않고 화면에도 문구로
+                  말한다(리뷰 수정 3) — 이 저장소 규칙. */}
+              {task.type === 'rt' && !pendingProof && (
+                <p className="mt-1 text-ui text-x-muted">{PROOF_REQUIRED_MESSAGE}</p>
+              )}
               {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
               <div className="mt-2 flex items-center gap-2">
                 <button type="button" onClick={close} className="ml-auto rounded-full px-3 py-1 text-ui text-x-secondary hover:bg-x-text/5">취소</button>
                 <button type="button" onClick={submitPosted}
                         disabled={task.type === 'rt' && !pendingProof}
-                        title={task.type === 'rt' && !pendingProof ? '증빙 스크린샷을 넣어야 눌러요' : undefined}
+                        title={task.type === 'rt' && !pendingProof ? PROOF_REQUIRED_MESSAGE : undefined}
                         className="rounded-full bg-x-blue px-3 py-1 text-ui font-bold text-white hover:bg-x-blue-hover disabled:cursor-not-allowed disabled:opacity-50">게시됨으로 표시</button>
               </div>
             </>
@@ -140,6 +147,10 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
               <label className="mt-2 block text-ui text-x-secondary">사유 <span className="text-x-muted">선택</span>
                 <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="본인 요청" className={input} />
               </label>
+              {/* 안내 문구는 첨부 칸 '위'에 온다 — 읽는 순서상 상자보다 먼저 와야 한다(리뷰 수정 4). */}
+              {task.type === 'rt' && !task.proof && (
+                <p className="mt-0.5 text-ui text-amber-700">증빙 없음 — 지금 채울 수 있어요</p>
+              )}
               {/* key를 주지 않는다 — TaskProofField가 preview를 자신이 올린 경로와 함께 들고 있어서,
                   실패한 '바꾸기'가 롤백돼 value가 이전 경로로 돌아가면 컴포넌트가 알아서 signedUrl로
                   되돌아간다(강제 리마운트로 성공 경로의 미리보기까지 지우던 문제 — RT 증빙 리뷰 수정 1). */}
@@ -149,11 +160,10 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
                                 required={false} canRemove={false} disabled={false}
                                 onChange={(p) => onSetProof(p)} />
               )}
+              {/* '누가 언제 올림' — 세 화면(이 칸·내려짐 칸·정산 요청 상세)이 같은 문구 함수를 쓴다(리뷰 수정 5).
+                  proofUploadedLine이 KST 기준 날짜를 계산한다(.slice(0, 10) UTC 절단 버그, 리뷰 수정 2). */}
               {task.type === 'rt' && task.proof && (
-                <p className="mt-0.5 text-ui text-x-muted">{task.proof.byName || '누군가'}가 {formatDateKo(task.proof.at.slice(0, 10))} 올림</p>
-              )}
-              {task.type === 'rt' && !task.proof && (
-                <p className="mt-0.5 text-ui text-amber-700">증빙 없음 — 지금 채울 수 있어요</p>
+                <p className="mt-0.5 text-ui text-x-muted">{proofUploadedLine(task.proof.byName, task.proof.at)}</p>
               )}
               {task.postUrl && <a href={task.postUrl} target="_blank" rel="noreferrer" className="mt-2 block text-ui text-x-blue-text hover:underline">게시물 보기 ↗</a>}
               {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
@@ -174,6 +184,10 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
                                 postedAt={task.postedAt} influencerHandle={task.influencerHandle}
                                 required={false} canRemove={false} disabled={false}
                                 onChange={(p) => onSetProof(p)} />
+              )}
+              {/* 내려짐 분기도 게시됨 분기와 같은 '누가 언제 올림' 문구를 쓴다 — 이전엔 여기만 빠져 있었다(리뷰 수정 5). */}
+              {task.type === 'rt' && task.proof && (
+                <p className="mt-0.5 text-ui text-x-muted">{proofUploadedLine(task.proof.byName, task.proof.at)}</p>
               )}
               <p className="mt-1 text-ui text-x-muted">잘못 표시했으면 취소할 수 있어요</p>
               <div className="mt-2 flex items-center gap-2">

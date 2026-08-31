@@ -5,6 +5,8 @@
 // 전원의 브라우저가 그 주소로 <img src> 요청을 보낸다(추적 픽셀·IP 유출). 업로드 경로의 MIME·용량
 // 제한은 PATCH 경로를 통과하지 않으므로, 여기가 유일한 방어선이다.
 
+import { kstMonthDay } from './datetime.ts';
+
 export interface TaskProof {
   url: string;        // 스토리지 경로. task/<작업id>/<파일id>.<확장자> — 절대 URL이 아니다
   by: string | null;  // 올린 member.id. 멤버가 지워지면 null이 될 수 있다
@@ -44,3 +46,10 @@ export const PROOF_VALUE_MESSAGE = '증빙 스크린샷 값이 올바르지 않�
 export const PROOF_ONLY_RT_MESSAGE = '증빙 스크린샷은 RT 작업에만 붙일 수 있어요';
 export const PROOF_REQUIRED_MESSAGE = '증빙 스크린샷을 넣어야 게시됨으로 표시할 수 있어요';
 export const PROOF_KEEP_MESSAGE = '게시됨인 RT 작업은 증빙을 뗄 수 없어요 — 다른 스크린샷으로 바꿔 주세요';
+
+// '구건 박이 8/31 올림' — 캠페인 표·게시 확인 팝오버·정산 요청 상세 세 화면이 같은 한 줄을 쓴다(리뷰 수정 5).
+// 날짜는 datetime.ts의 kstMonthDay를 그대로 쓴다 — proof.at은 서버가 넣은 UTC라 자정~오전 9시 사이에
+// 올린 증빙을 그냥 자르면 하루 전으로 보인다(리뷰 수정 2와 같은 함정).
+export function proofUploadedLine(byName: string, at: string): string {
+  return `${byName || '누군가'}가 ${kstMonthDay(at)} 올림`;
+}

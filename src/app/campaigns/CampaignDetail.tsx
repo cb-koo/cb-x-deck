@@ -294,7 +294,7 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
         </h2>
         {/* 툴바 첫 줄 — [+ 작업 추가](헤더가 아니라 표 바로 위, 작업을 보면서 누르는 자리).
             [게시 확인하기](자동 조회)는 보류 — 증빙 스크린샷 없이 채워지면 이 기능의 원칙과 부딪혀 화면에서 내렸다
-            (코드·라우트는 남겨 되살릴 수 있게 뒀다, RT 증빙 스펙 §9). */}
+            (코드·라우트는 남겨 되살릴 수 있게 뒀다, RT 증빙 스펙 §5 수용된 틈·§6-3). */}
         <div className="mt-3.5 flex flex-wrap items-center gap-2">
           <Button variant="primary" onClick={() => setAddOpen(true)} className="h-9 px-3.5 text-ui">+ 작업 추가</Button>
         </div>

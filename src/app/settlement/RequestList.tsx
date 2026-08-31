@@ -8,10 +8,9 @@ import { RequestRow } from './RequestRow';
 import { CancelDialog } from './CancelDialog';
 import { uniqPairs } from './uniqPairs';
 import { STATUS_GROUP_OPTIONS, inGroup, keyOf, type StatusGroup } from '@/lib/settlementDisplay';
+import { kstDate } from '@/lib/datetime';
 
 const SEL = 'rounded-lg border border-x-border bg-white px-2.5 py-1.5 text-ui';
-// KST 기준 'YYYY-MM-DD' — filter.from/to(날짜 입력)와 같은 자리에서 비교하기 위함
-const kstDay = (iso: string) => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 
 export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
   const { show } = useToast();
@@ -45,8 +44,8 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
     (!filter.clientId || r.clientId === filter.clientId)
     && (!filter.campaignId || r.campaignId === filter.campaignId)
     && inGroup(keyOf(r), filter.status)
-    && (!filter.from || kstDay(r.createdAt) >= filter.from)
-    && (!filter.to || kstDay(r.createdAt) <= filter.to)), [rows, filter]);
+    && (!filter.from || kstDate(r.createdAt) >= filter.from)
+    && (!filter.to || kstDate(r.createdAt) <= filter.to)), [rows, filter]);
 
   // 증빙 서명 URL — 한 번에 펼쳐지는 행은 하나뿐이라 그 행의 증빙만 서명한다(목록은 단조 증가하므로 전량을
   // 미리 서명하면 낭비가 계속 커진다, 리뷰 수정 5). 훅 호출 자체는 화면당 정확히 1회·조건부 return보다

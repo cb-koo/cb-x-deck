@@ -293,10 +293,11 @@ function Workbench() {
 
   // 진입점 D: /generate?task=<taskId>&campaign=<campaignId> — 캠페인 화면에서 진입한다: 작업을 만들 때 '새로 만들기'를 고르거나, 이미 있는 작업 줄의 '새로 만들기'를 누르거나(스펙 2026-08-31 §3-1).
   // 캠페인 id가 함께 오는 이유는 작업 단건 조회 라우트를 따로 두지 않기 때문이다 — 캠페인 상세의 tasks에서 찾는다.
-  // 클라를 자동 선택하고 배너를 켠다; 이 상태에서 만든 원고(생성·직접 쓰기)는 taskId가 실려 그 작업에 붙는다.
-  // 클라 목록이 온 뒤 1회만 — composer.clientId를 세팅하려면 그 클라가 목록에 있어야 한다(유령 클라 정리 이펙트와 순서 충돌 방지).
+  // 배너를 켠다; 이 상태에서 만든 원고(생성·직접 쓰기)는 taskId가 실려 그 작업에 붙는다.
+  // 클라 목록을 기다리지 않는다 — /api/clients는 N+1 질의라 다른 요청과 겹치면 20초대가 걸리는데(로컬 실측 22초),
+  // 배너까지 그 뒤에 세워 두면 그동안 화면에 아무 표시가 없어 "링크가 안 먹었다"로 보인다. 클라 자동 선택만
+  // 아래 이펙트로 떼어 목록이 도착한 뒤에 한다.
   useEffect(() => {
-    if (!clientsLoaded) return;
     const targetTask = searchParams.get('task');
     const targetCampaign = searchParams.get('campaign');
     if (!targetTask || !targetCampaign) return;
@@ -322,12 +323,20 @@ function Workbench() {
       // 그 작업을 덮어쓰지 않는다(원고 1개 = 작업 1개, 서버도 409로 막는다).
       setTaskCtx({ taskId: task.id, campaign, type: task.type, influencerHandle: task.influencerHandle, attached: task.draftId !== null });
       setFilter((f) => ({ ...f, campaignId: campaign.id }));
-      if (campaign.clientId && clients.some((c) => c.client.id === campaign.clientId)) {
-        setComposer((cur) => (cur.clientId === campaign.clientId ? cur : { ...cur, clientId: campaign.clientId, procedureIds: [] }));
-      }
       if (!panelOpenRef.current) setPanelPref('open');   // 만들러 왔으니 생성 패널을 펼친다(?ref=와 같은 규칙)
     })();
-  }, [searchParams, clientsLoaded, clients]);
+  }, [searchParams]);
+
+  // 작업 맥락의 클라를 컴포저에 채운다 — 목록이 있어야 하는 이유는 그 클라가 실재하는지 확인해야 하고(유령 클라
+  // 정리 이펙트와 순서가 엉키면 방금 넣은 값을 그 이펙트가 도로 지운다), 목록은 늦게 온다. 배너와 떼어 두었으므로
+  // 늦어도 배너는 먼저 뜨고 클라만 나중에 채워진다.
+  useEffect(() => {
+    if (!clientsLoaded || !taskCtx) return;
+    const wanted = taskCtx.campaign.clientId;
+    if (!wanted || !clients.some((c) => c.client.id === wanted)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 딥링크가 준 값을 목록 도착 시점에 반영한다(위 진입 이펙트에서 떼어낸 조각)
+    setComposer((cur) => (cur.clientId === wanted ? cur : { ...cur, clientId: wanted, procedureIds: [] }));
+  }, [clientsLoaded, clients, taskCtx]);
 
   // 표시용 한 줄 — 배너와 직접 쓰기 모달이 같은 말을 쓴다('마인드스킨 9월 1주 · 투고 @mika')
   const taskCtxLabel = taskCtx

@@ -4,10 +4,12 @@ import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { getTask, updateTask, deleteTask, hasActiveRequest } from '@/lib/campaignTaskStore';
+import type { TaskPatch } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
 import { parseTaskPatch, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE } from '@/lib/campaignTaskInput';
 import { getDraft, updateDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
+import { PROOF_ONLY_RT_MESSAGE, PROOF_REQUIRED_MESSAGE, PROOF_KEEP_MESSAGE } from '@/lib/taskProofGuard';
 
 const notFound = () => NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 404 });
 
@@ -25,19 +27,36 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
   const cur = await getTask(sql, taskId);
   if (!cur || cur.campaignId !== id) return notFound();
   if (patch.visitOn && cur.type !== 'visit') return NextResponse.json({ error: VISIT_ON_MESSAGE }, { status: 400 });
+  // ── RT 증빙 3규칙 (스펙 §5) ──
+  const { proofUrl, ...rest } = patch;
+  const taskPatch: TaskPatch = { ...rest };
+  if (proofUrl !== undefined) {
+    // ① 범위 — RT 작업에만 붙는다(결정 3)
+    if (cur.type !== 'rt') return NextResponse.json({ error: PROOF_ONLY_RT_MESSAGE }, { status: 400 });
+    // ② 게시됨인 RT에서 증빙을 비우는 것은 막는다 — 비우기가 아니라 바꾸기만(결정 1과 5의 정합)
+    if (proofUrl === null && cur.postedAt) return NextResponse.json({ error: PROOF_KEEP_MESSAGE }, { status: 400 });
+    taskPatch.proof = proofUrl === null
+      ? null
+      : { url: proofUrl, by: gate.member.id, byName: gate.member.name, at: new Date().toISOString() };
+  }
+  // ③ 필수 — RT를 게시됨으로 바꾸려면 이번 요청에 증빙이 오거나 이미 행에 있어야 한다(결정 1).
+  //    DB CHECK 제약으로는 못 막는다: 기존 게시된 RT 행에 증빙이 없어 그 행을 수정할 때 터진다(§5).
+  if (taskPatch.postedAt && !cur.postedAt && cur.type === 'rt' && !taskPatch.proof && !cur.proof) {
+    return NextResponse.json({ error: PROOF_REQUIRED_MESSAGE }, { status: 400 });
+  }
   if (patch.removedAt && !cur.postedAt && !patch.postedAt) return NextResponse.json({ error: REMOVED_WITHOUT_POSTED_MESSAGE }, { status: 400 });
   if (patch.targetTaskId) {
     if (patch.targetTaskId === taskId) return NextResponse.json({ error: TARGET_SELF_MESSAGE }, { status: 400 });
     const target = await getTask(sql, patch.targetTaskId);
     if (!target) return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 400 });
     if (!TARGETABLE_TYPES.includes(target.type)) return NextResponse.json({ error: TARGET_TYPE_MESSAGE }, { status: 400 });
-    patch.targetTweetUrl = null;   // 작업 참조와 링크는 둘 중 하나
+    taskPatch.targetTweetUrl = null;   // 작업 참조와 링크는 둘 중 하나
   } else if (patch.targetTweetUrl) {
-    patch.targetTaskId = null;
+    taskPatch.targetTaskId = null;
   }
   await sql.begin(async (tx0) => {
     const tx = tx0 as unknown as postgres.Sql;
-    await updateTask(tx, taskId, patch);
+    await updateTask(tx, taskId, taskPatch);
     if (patch.influencerHandle !== undefined && cur.draftId) {
       const before = await getDraft(tx, cur.draftId);
       if (before && (before.influencerHandle ?? '').toLowerCase() !== (patch.influencerHandle ?? '').toLowerCase()) {

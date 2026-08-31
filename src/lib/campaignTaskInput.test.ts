@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseTaskCreate, parseTaskPatch, normalizeTargetTweetUrl, parseTaskIdPatch, TASK_TYPE_MESSAGE, TARGET_MESSAGE, POST_URL_MESSAGE, VISIT_ON_MESSAGE, DRAFT_MULTI_MESSAGE, POSTED_AT_NULL_MESSAGE, DATE_MESSAGE } from './campaignTaskInput.ts';
+import { PROOF_VALUE_MESSAGE } from './taskProofGuard.ts';
 
 const U = '11111111-1111-1111-1111-111111111111';
 
@@ -65,4 +66,33 @@ test('패치 — 온 키만, null=지움, postedAt null 거절, removedReason tr
   assert.equal(normalizeTargetTweetUrl('https://x.com/i/web/status/55'), 'https://x.com/i/status/55');
   assert.equal(normalizeTargetTweetUrl('nope'), null);
   assert.deepEqual(parseTaskIdPatch(undefined), { ok: true, value: undefined });
+});
+
+const P_TASK = '11111111-2222-3333-4444-555555555555';
+const P_FILE = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const P_OK = `task/${P_TASK}/${P_FILE}.png`;
+
+test('parseTaskPatch — 증빙 경로는 통과, 임의 URL은 거절', () => {
+  const ok = parseTaskPatch({ proof: P_OK });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.ok && ok.value.proofUrl, P_OK);
+
+  const bad = parseTaskPatch({ proof: 'https://evil.example/pixel.png' });
+  assert.equal(bad.ok, false);
+  assert.equal(bad.ok === false && bad.message, PROOF_VALUE_MESSAGE);
+
+  const obj = parseTaskPatch({ proof: { url: P_OK, byName: '남의 이름' } });
+  assert.equal(obj.ok, false);   // 객체는 받지 않는다 — 서버가 by/byName/at을 채운다
+});
+
+test('parseTaskPatch — 증빙 null은 떼기(파서 단계에서는 허용)', () => {
+  const r = parseTaskPatch({ proof: null });
+  assert.equal(r.ok, true);
+  assert.equal(r.ok && r.value.proofUrl, null);
+});
+
+test('parseTaskPatch — 증빙 키가 없으면 결과에도 없다(건드리지 않음)', () => {
+  const r = parseTaskPatch({ note: '메모' });
+  assert.equal(r.ok, true);
+  assert.equal(r.ok && 'proofUrl' in r.value, false);
 });

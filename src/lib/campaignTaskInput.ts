@@ -6,6 +6,7 @@ import type { TaskPatch } from './campaignTaskStore.ts';
 import { parseTweetLink, tweetPermalink } from './tweetLink.ts';
 import { parseXHandle, handleParseMessage } from './xHandle.ts';
 import { isUuidLike } from './uuid.ts';
+import { isTaskProofPath, PROOF_VALUE_MESSAGE } from './taskProofGuard.ts';
 
 export const TASK_ID_MESSAGE = '작업 값이 올바르지 않아요';
 export const TASK_NOT_FOUND_MESSAGE = '작업을 찾을 수 없어요 — 삭제됐을 수 있어요. 화면을 새로고침해 주세요';
@@ -90,10 +91,13 @@ export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
   } };
 }
 
+// 파서는 멤버를 모르므로 증빙은 경로만 넘긴다 — 라우트가 by/byName/at을 붙여 TaskPatch.proof를 만든다(§5-1).
+export type TaskPatchParsed = Omit<TaskPatch, 'proof'> & { proofUrl?: string | null };
+
 // 온 키만 결과에 실린다(undefined=건드리지 않음) — 스토어 updateTask의 3값 규칙과 맞물린다
-export function parseTaskPatch(body: unknown): Parsed<TaskPatch> {
+export function parseTaskPatch(body: unknown): Parsed<TaskPatchParsed> {
   const b = (body ?? {}) as Record<string, unknown>;
-  const out: TaskPatch = {};
+  const out: TaskPatchParsed = {};
   if ('influencerHandle' in b) {
     if (b.influencerHandle === null) out.influencerHandle = null;
     else { const h = parseXHandle(String(b.influencerHandle ?? '')); if (!h.ok) return fail(handleParseMessage(h.reason)); out.influencerHandle = h.handle; }
@@ -118,5 +122,10 @@ export function parseTaskPatch(body: unknown): Parsed<TaskPatch> {
   if ('visitOn' in b) { const r = dateOrNull(b.visitOn); if (!r.ok) return r; out.visitOn = r.value; }
   if ('cost' in b) { const c = parseTaskCost(b.cost); if (!c.ok) return c; out.cost = c.value; }
   if ('note' in b) out.note = typeof b.note === 'string' ? b.note.trim() : '';
+  if ('proof' in b) {
+    if (b.proof === null) out.proofUrl = null;
+    else if (isTaskProofPath(b.proof)) out.proofUrl = b.proof;
+    else return fail(PROOF_VALUE_MESSAGE);
+  }
   return { ok: true, value: out };
 }

@@ -10,6 +10,7 @@ import { createTasks, getTask } from './campaignTaskStore.ts';
 import {
   addTrackedPost, listTrackedPosts, findByTweetId, findTrackedPostById,
   appendSnapshot, markUnavailable, linkTrackedPost, deleteTrackedPost, listSnapshots, setRole,
+  TrackingLinkError,
 } from './trackingStore.ts';
 
 const sql = getSql();
@@ -179,4 +180,25 @@ test('8) 작업으로 연결 — task_id·draft_id 함께, 작업의 post_url/po
   assert.equal(cleared.taskId, null); assert.equal(cleared.draftId, null);
   assert.equal((await getTask(sql, task.id))!.postedAt, '2026-09-02');       // 되돌리지 않는다
   assert.equal(await linkTrackedPost(sql, '00000000-0000-0000-0000-000000000000', { draftId: null }), false);
+});
+
+test('9) 게시물 연결 — RT 작업에는 붙일 수 없다(증빙 없이 게시됨이 되는 우회 경로 차단)', async () => {
+  const c = await createClient(sql, P + 'RT클라');
+  const camp = await createCampaign(sql, { clientId: c.id, clientName: c.name, name: P + 'rtc', nameEn: `${P.toLowerCase()}-rtc`, startsOn: '2026-08-31', endsOn: '2026-09-06', kind: null, note: '', createdBy: null });
+  const [rt] = await createTasks(sql, camp.id, {
+    type: 'rt', targetTaskId: null, targetTweetUrl: 'https://x.com/a/status/10',
+    draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null,
+    items: [{ handle: 'someone', cost: null }],
+  });
+  const { row } = await addTrackedPost(sql, {
+    tweetId: P + 'RT1', authorHandle: 'someone', text: '', postedAt: null, createdBy: null, metrics: M, raw: null,
+  });
+
+  await assert.rejects(
+    () => linkTrackedPost(sql, row.id, { taskId: rt.id }),
+    (e: unknown) => e instanceof TrackingLinkError && e.code === 'rt-task',
+  );
+
+  // 게시 확인이 채워지지 않았음을 직접 확인한다 — 이게 이 가드의 목적이다
+  assert.equal((await getTask(sql, rt.id))!.postedAt, null);
 });

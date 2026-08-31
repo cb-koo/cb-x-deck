@@ -3,6 +3,12 @@ import type { PostMetrics } from './postMetrics.ts';
 import { assignRoles, type PostRole } from './postRole.ts';
 import { tweetPermalink } from './tweetLink.ts';
 
+// 게시물 연결이 거절되는 이유 — 라우트가 400 문구로 바꿔 보낸다.
+export class TrackingLinkError extends Error {
+  constructor(public code: 'rt-task') { super(code); this.name = 'TrackingLinkError'; }
+}
+export const TRACKING_LINK_RT_MESSAGE = 'RT 작업에는 게시물을 연결할 수 없어요 — RT는 새 게시물을 만들지 않아요. 증빙 스크린샷으로 게시 확인해 주세요';
+
 export interface TrackedPostRow {
   id: string; tweetId: string; authorHandle: string | null; text: string;
   postedAt: string | null;            // ISO or null
@@ -222,8 +228,10 @@ export async function linkTrackedPost(
   if ('taskId' in link) {
     taskId = link.taskId;
     if (taskId) {
-      const t = await sql<Array<{ draft_id: string | null }>>`select draft_id from campaign_task where id = ${taskId}`;
+      const t = await sql<Array<{ draft_id: string | null; type: string }>>`select draft_id, type from campaign_task where id = ${taskId}`;
       if (t.length === 0) throw Object.assign(new Error('task not found'), { code: '23503' });   // FK 위반과 같은 처리(라우트 400)
+      // RT엔 자기 게시물이 없다 — 붙이면 posted_at이 증빙 없이 채워진다(RT 증빙 스펙 §5)
+      if (t[0].type === 'rt') throw new TrackingLinkError('rt-task');
       draftId = t[0].draft_id;
     }
   } else {

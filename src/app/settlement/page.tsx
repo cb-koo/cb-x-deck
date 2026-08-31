@@ -5,6 +5,7 @@ import { SETTLEMENT_TABS, SETTLEMENT_TAB_LABEL, parseSettlementTab, type Settlem
 import { CandidateTable } from './CandidateTable';
 import { RequestList } from './RequestList';
 import { SettingsTab } from './SettingsTab';
+import { ExternalLogTab } from './ExternalLogTab';
 
 function SettlementInner() {
   const router = useRouter(); const pathname = usePathname(); const sp = useSearchParams();
@@ -32,6 +33,7 @@ function SettlementInner() {
         {tab === 'candidates' && <CandidateTable />}
         {tab === 'requests' && <RequestList focusTaskId={sp.get('task')} />}
         {tab === 'settings' && <SettingsTab />}
+        {tab === 'log' && <ExternalLogTab />}
       </div>
     </main>
   );

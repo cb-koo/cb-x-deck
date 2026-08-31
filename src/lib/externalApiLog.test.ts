@@ -2,7 +2,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { insertExternalLog, listExternalLog, recordExternalCallSafe } from './externalApiLog.ts';
-import { describeExternalCall } from './externalLogCopy.ts';
+import { describeExternalCall, describeCaller, describeTarget } from './externalLogCopy.ts';
 import type { ExternalLogRow } from './externalLogCopy.ts';
 
 const sql = getSql();
@@ -26,6 +26,7 @@ const row = (over: Partial<ExternalLogRow> = {}): ExternalLogRow => ({
   query: null,
   ip: null,
   userAgent: null,
+  target: null,
   ...over,
 });
 
@@ -33,25 +34,25 @@ const row = (over: Partial<ExternalLogRow> = {}): ExternalLogRow => ({
 
 test('describeExternalCall — applied', () => {
   const r = describeExternalCall(row({ outcome: 'applied', sentStatus: 'on_hold' }));
-  assert.equal(r.line, "정산 프로덕트가 '보류'을 보냈어요 — 반영했어요");
+  assert.equal(r.line, "'보류'을 보냈어요 — 반영했어요");
   assert.equal(r.tone, 'ok');
 });
 
 test('describeExternalCall — stale', () => {
   const r = describeExternalCall(row({ outcome: 'stale', sentStatus: 'cancelled' }));
-  assert.equal(r.line, "정산 프로덕트가 '취소'을 다시 보냈어요 — 이미 반영된 내용이라 넘겼어요");
+  assert.equal(r.line, "'취소'을 다시 보냈어요 — 이미 반영된 내용이라 넘겼어요");
   assert.equal(r.tone, 'ok');
 });
 
 test('describeExternalCall — ok, 목록(GET .../requests)', () => {
   const r = describeExternalCall(row({ outcome: 'ok', path: P + '/requests', method: 'GET' }));
-  assert.equal(r.line, '정산 프로덕트가 요청 목록을 가져갔어요');
+  assert.equal(r.line, '요청 목록을 가져갔어요');
   assert.equal(r.tone, 'ok');
 });
 
 test('describeExternalCall — ok, 단건 조회(그 외)', () => {
   const r = describeExternalCall(row({ outcome: 'ok', path: P + '/requests/00000000-0000-0000-0000-000000000000', method: 'GET' }));
-  assert.equal(r.line, '정산 프로덕트가 요청 1건을 조회했어요');
+  assert.equal(r.line, '요청 1건을 조회했어요');
   assert.equal(r.tone, 'ok');
 });
 
@@ -95,6 +96,50 @@ test('describeExternalCall — error', () => {
   const r = describeExternalCall(row({ outcome: 'error' }));
   assert.equal(r.line, '처리 중 오류가 나 거부했어요');
   assert.equal(r.tone, 'bad');
+});
+
+// --- describeCaller ---
+
+test('describeCaller — UA 없음', () => {
+  const r = describeCaller({ userAgent: null, ip: null });
+  assert.deepEqual(r, { label: '알 수 없음', kind: 'unknown' });
+});
+
+test('describeCaller — curl', () => {
+  const r = describeCaller({ userAgent: 'curl/8.4.0', ip: null });
+  assert.deepEqual(r, { label: '우리 쪽 점검', kind: 'us' });
+});
+
+test('describeCaller — Mozilla(브라우저)', () => {
+  const r = describeCaller({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', ip: null });
+  assert.deepEqual(r, { label: '브라우저', kind: 'us' });
+});
+
+test('describeCaller — 그 외(node 등)는 정산 프로덕트로 추정', () => {
+  const r = describeCaller({ userAgent: 'node-fetch/1.0', ip: null });
+  assert.deepEqual(r, { label: '정산 프로덕트', kind: 'partner' });
+});
+
+// --- describeTarget ---
+
+test('describeTarget — target 있음, JPY', () => {
+  const r = describeTarget({ requestId: 'r1', target: { handle: 'foo', clientName: '클라A', amountGross: 12000, payoutCurrency: 'JPY' } });
+  assert.equal(r, '@foo · 클라A · ¥12,000');
+});
+
+test('describeTarget — target 있음, KRW', () => {
+  const r = describeTarget({ requestId: 'r1', target: { handle: 'bar', clientName: '클라B', amountGross: 340000, payoutCurrency: 'KRW' } });
+  assert.equal(r, '@bar · 클라B · ₩340,000');
+});
+
+test('describeTarget — requestId 있는데 target 없음', () => {
+  const r = describeTarget({ requestId: 'r1', target: null });
+  assert.equal(r, '찾을 수 없는 요청');
+});
+
+test('describeTarget — requestId 없음', () => {
+  const r = describeTarget({ requestId: null, target: null });
+  assert.equal(r, '—');
 });
 
 // --- insertExternalLog + listExternalLog 왕복 ---
@@ -142,6 +187,18 @@ test('insertExternalLog — 길이 초과 detail은 300자로 잘려 저장', as
   assert.ok(r);
   assert.equal(r!.detail!.length, 300);
   assert.equal(r!.detail, 'x'.repeat(300));
+});
+
+test('listExternalLog — 대상 요청 조인: 존재하지 않는 요청 id면 target null(찾을 수 없는 요청)', async () => {
+  const path = P + '/requests/00000000-0000-0000-0000-0000000000fe/status';
+  const missingRequestId = '00000000-0000-0000-0000-0000000000fe';
+  await insertExternalLog(sql, { method: 'POST', path, requestId: missingRequestId, statusCode: 404, outcome: 'not-found' });
+  const rows = await listExternalLog(sql, 50);
+  const r = rows.find((x) => x.path === path);
+  assert.ok(r);
+  assert.equal(r!.requestId, missingRequestId);
+  assert.equal(r!.target, null);
+  assert.equal(describeTarget(r!), '찾을 수 없는 요청');
 });
 
 // --- recordExternalCallSafe: 킬스위치만 동기적으로 확인 ---

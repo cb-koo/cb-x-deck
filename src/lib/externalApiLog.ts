@@ -73,14 +73,20 @@ export async function listExternalLog(sql: postgres.Sql, limit = 50): Promise<Ex
     Array<{
       id: string; at: Date; method: string; path: string; request_id: string | null; status_code: number;
       outcome: ExternalOutcome; detail: string | null; sent_status: string | null; query: string | null; ip: string | null; user_agent: string | null;
+      influencer_handle: string | null; client_name: string | null; amount_gross: number | null; payout_currency: string | null;
     }>
   >`
-    select id, at, method, path, request_id, status_code, outcome, detail, sent_status, query, ip, user_agent
-      from external_api_log
-     order by at desc
+    select l.id, l.at, l.method, l.path, l.request_id, l.status_code, l.outcome, l.detail, l.sent_status, l.query, l.ip, l.user_agent,
+           p.influencer_handle, p.client_name, p.amount_gross, p.payout_currency
+      from external_api_log l
+      left join payment_request p on p.id = l.request_id
+     order by l.at desc
      limit ${limit}`;
   return rows.map((r) => ({
     id: r.id, at: new Date(r.at).toISOString(), method: r.method, path: r.path, requestId: r.request_id, statusCode: r.status_code,
     outcome: r.outcome, detail: r.detail, sentStatus: r.sent_status, query: r.query, ip: r.ip, userAgent: r.user_agent,
+    target: r.influencer_handle != null
+      ? { handle: r.influencer_handle, clientName: r.client_name!, amountGross: r.amount_gross!, payoutCurrency: r.payout_currency! }
+      : null,
   }));
 }

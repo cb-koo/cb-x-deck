@@ -19,7 +19,10 @@ export function TaskProofField({
   disabled: boolean;
   onChange: (path: string | null) => void; // 업로드 완료·지우기 시
 }) {
-  const [preview, setPreview] = useState<string | null>(null); // 방금 올린 파일의 objectURL — 서명을 기다리지 않는다
+  // 미리보기는 "어느 경로의 것인지"를 함께 들고 있는다 — 부모(key 없이 쓴다)가 낙관 갱신으로 value를
+  // 새 경로로 바꾸면 preview.path === value가 돼 미리보기가 그대로 이어지고, 실패로 롤백돼 value가
+  // 옛 경로로 돌아가면 preview.path !== value가 돼 옛 이미지(signedUrl)로 정직하게 되돌아간다.
+  const [preview, setPreview] = useState<{ path: string; url: string } | null>(null); // 방금 올린 파일 — 서명을 기다리지 않는다
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [zoom, setZoom] = useState(false);
@@ -30,7 +33,7 @@ export function TaskProofField({
   // preview가 바뀌면 React가 "이전 렌더의" 이 이펙트를 정리(cleanup)하면서 옛 objectURL을 걷고,
   // 그 후 새 값으로 이펙트가 다시 붙는다. 언마운트 때도 같은 cleanup이 마지막 값을 걷는다.
   useEffect(() => {
-    return () => { if (preview) URL.revokeObjectURL(preview); };
+    return () => { if (preview) URL.revokeObjectURL(preview.url); };
   }, [preview]);
 
   async function put(file: File) {
@@ -41,7 +44,7 @@ export function TaskProofField({
     setBusy(true);
     try {
       const path = await uploadTaskProof(taskId, file);
-      setPreview(URL.createObjectURL(file));
+      setPreview({ path, url: URL.createObjectURL(file) });
       onChange(path);
     } catch (e) {
       setErr(e instanceof Error ? e.message : '올리지 못했어요 — 다시 시도해주세요');
@@ -50,7 +53,7 @@ export function TaskProofField({
     }
   }
 
-  const shown = preview ?? signedUrl;
+  const shown = (preview && preview.path === value ? preview.url : null) ?? signedUrl;
   const blocked = disabled || busy;
 
   return (

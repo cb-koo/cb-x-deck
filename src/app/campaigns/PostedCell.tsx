@@ -140,10 +140,11 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
               <label className="mt-2 block text-ui text-x-secondary">사유 <span className="text-x-muted">선택</span>
                 <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="본인 요청" className={input} />
               </label>
-              {/* key: 실패한 '바꾸기'가 롤백되면 task.proof.url이 이전 값으로 되돌아간다 — 그때 이 칸을 새로
-                  마운트해 컴포넌트 내부의 미리보기(방금 올린 실패 이미지)를 걷어내고 이전 값으로 다시 그린다. */}
+              {/* key를 주지 않는다 — TaskProofField가 preview를 자신이 올린 경로와 함께 들고 있어서,
+                  실패한 '바꾸기'가 롤백돼 value가 이전 경로로 돌아가면 컴포넌트가 알아서 signedUrl로
+                  되돌아간다(강제 리마운트로 성공 경로의 미리보기까지 지우던 문제 — RT 증빙 리뷰 수정 1). */}
               {task.type === 'rt' && (
-                <TaskProofField key={task.proof?.url ?? 'none'} taskId={task.id} value={task.proof?.url ?? null} signedUrl={proofSignedUrl}
+                <TaskProofField taskId={task.id} value={task.proof?.url ?? null} signedUrl={proofSignedUrl}
                                 postedAt={task.postedAt} influencerHandle={task.influencerHandle}
                                 required={false} canRemove={false} disabled={false}
                                 onChange={(p) => onSetProof(p)} />
@@ -165,10 +166,11 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
             <>
               <p className="text-ui font-bold">내려짐 {formatDateKo(task.removedAt)}</p>
               {task.removedReason && <p className="mt-0.5 text-ui text-x-secondary">{task.removedReason}</p>}
-              {/* key: 실패한 '바꾸기'가 롤백되면 task.proof.url이 이전 값으로 되돌아간다 — 그때 이 칸을 새로
-                  마운트해 컴포넌트 내부의 미리보기(방금 올린 실패 이미지)를 걷어내고 이전 값으로 다시 그린다. */}
+              {/* key를 주지 않는다 — TaskProofField가 preview를 자신이 올린 경로와 함께 들고 있어서,
+                  실패한 '바꾸기'가 롤백돼 value가 이전 경로로 돌아가면 컴포넌트가 알아서 signedUrl로
+                  되돌아간다(강제 리마운트로 성공 경로의 미리보기까지 지우던 문제 — RT 증빙 리뷰 수정 1). */}
               {task.type === 'rt' && (
-                <TaskProofField key={task.proof?.url ?? 'none'} taskId={task.id} value={task.proof?.url ?? null} signedUrl={proofSignedUrl}
+                <TaskProofField taskId={task.id} value={task.proof?.url ?? null} signedUrl={proofSignedUrl}
                                 postedAt={task.postedAt} influencerHandle={task.influencerHandle}
                                 required={false} canRemove={false} disabled={false}
                                 onChange={(p) => onSetProof(p)} />

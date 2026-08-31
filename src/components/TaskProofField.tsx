@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { uploadTaskProof, taskProofValidationError, downloadTaskProof, taskProofFilename } from '@/lib/taskProof';
 import { ImageLightbox } from '@/components/ImageLightbox';
 
@@ -36,7 +36,7 @@ export function TaskProofField({
     return () => { if (preview) URL.revokeObjectURL(preview.url); };
   }, [preview]);
 
-  async function put(file: File) {
+  const put = useCallback(async (file: File) => {
     if (busy) return; // 업로드 중 다시 눌리는 것(붙여넣기 연타 등)에 대한 방어 — disabled 속성과 별개로 한 번 더 막는다
     const v = taskProofValidationError(file);
     if (v) { setErr(v); return; }
@@ -51,7 +51,28 @@ export function TaskProofField({
     } finally {
       setBusy(false);
     }
-  }
+  }, [busy, taskId, onChange]);
+
+  // 붙여넣기는 document에서 받는다. 상자에 포커스가 있을 때만 받게 만들었다가 실사용에서 실패했다(koo 확인):
+  // <button>은 편집 요소가 아니라 브라우저가 paste 이벤트를 보내주지 않고, 상자를 누르면 파일 창이 열려
+  // 포커스도 남지 않는다. 그래서 이 칸이 화면에 있는 동안 문서 붙여넣기를 듣되, 편집 칸(팝오버의 날짜·
+  // 게시물 링크 등)으로 향한 붙여넣기는 건드리지 않는다 — 그 칸의 붙여넣기를 훔치면 안 된다.
+  // 이 칸은 한 번에 하나만 화면에 있다(팝오버는 한 행만 열린다).
+  // 이미 증빙이 있는 칸에서는 붙여넣기를 받지 않는다 — 엉뚱한 이미지 하나로 원래 증빙이 덮이면
+  // 교체 이력이 없어 되찾을 수 없다. 교체는 [바꾸기]를 눌러 명시적으로만 한다.
+  useEffect(() => {
+    if (disabled || value) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      const file = Array.from(e.clipboardData?.files ?? [])[0];
+      if (!file) return;   // 텍스트 붙여넣기는 그냥 흘려보낸다
+      e.preventDefault();
+      void put(file);
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [disabled, value, put]);
 
   const shown = (preview && preview.path === value ? preview.url : null) ?? signedUrl;
   const blocked = disabled || busy;
@@ -100,18 +121,12 @@ export function TaskProofField({
           </div>
         </div>
       ) : (
-        // 상자 자체가 버튼이다 — 포커스가 여기 있을 때만 붙여넣기(Ctrl+V)를 받는다. 문서 전역에 리스너를
-        // 달면 다른 입력 칸의 붙여넣기를 훔치게 된다. div+role="button"이 아니라 실제 <button>을 써서
-        // Enter·스페이스로도 파일 고르기가 열리게 한다(이 저장소는 role="button"을 키보드 조작 없이 쓰지 않는다).
+        // 붙여넣기는 위 이펙트가 문서에서 받는다(포커스와 무관) — 이 버튼은 파일 고르기 담당이다.
+        // div+role="button"이 아니라 실제 <button>을 써서 Enter·스페이스로도 열리게 한다(이 저장소는
+        // role="button"을 키보드 조작 없이 쓰지 않는다).
         <button type="button" disabled={blocked} onClick={() => inputRef.current?.click()}
-                onPaste={(e) => {
-                  const file = Array.from(e.clipboardData.files)[0];
-                  if (!file) return;
-                  e.preventDefault();
-                  void put(file);
-                }}
                 className="mt-1 block w-full rounded-lg border border-dashed border-x-border-strong px-3 py-4 text-center text-ui text-x-secondary hover:bg-x-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-x-blue disabled:cursor-not-allowed disabled:opacity-50">
-          {busy ? '올리는 중…' : '여기를 누르거나 Ctrl+V로 붙여넣기'}
+          {busy ? '올리는 중…' : '붙여넣기(⌘V) 또는 눌러서 파일 고르기'}
         </button>
       )}
       {required && !value && (

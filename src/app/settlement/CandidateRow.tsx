@@ -54,12 +54,14 @@ export function CandidateRow({ c, edit, categories, selected, failure, proofSign
           {edit.referenceUrl && <a href={edit.referenceUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline">열기</a>}
         </label>
         {c.proof && (
+          // 캠페인 작업 표(TaskTable)와 같은 표현 — 회색 알약 버튼 '증빙 보기'(서명 URL이 늦으면 비활성+안내 문구,
+          // '없음'으로 스치지 않는다). 28px 썸네일은 판독이 안 돼 정보값 없이 행만 빽빽하게 만들어 없앴다(리뷰 수정 2).
           <span className="flex items-center gap-1.5 text-x-secondary">증빙
-            {proofSignedUrl
-              // eslint-disable-next-line @next/next/no-img-element
-              ? <img src={proofSignedUrl} alt="증빙 스크린샷" title={`${c.proof.byName || '누군가'}가 올림`}
-                     onClick={() => setZoom(true)} className="h-7 w-7 cursor-zoom-in rounded border border-x-border object-cover" />
-              : <span className="text-x-muted">있음</span>}
+            <button type="button" disabled={!proofSignedUrl} onClick={() => proofSignedUrl && setZoom(true)}
+                    title={proofSignedUrl ? '증빙 스크린샷 — 눌러서 크게 보기' : '증빙 스크린샷 불러오는 중…'}
+                    className="rounded bg-slate-100 px-1.5 py-0.5 text-[12px] text-slate-600 hover:bg-slate-200 disabled:cursor-default disabled:opacity-70 disabled:hover:bg-slate-100">
+              증빙 보기
+            </button>
           </span>
         )}
         {issues.map((i) => (
@@ -67,6 +69,7 @@ export function CandidateRow({ c, edit, categories, selected, failure, proofSign
             {i.text}
             {i.code === 'no-payment-method' && <> · <Link href="/influencers" className="underline">프로필에서 등록 →</Link></>}
             {i.code === 'no-influencer' && <> · <Link href="/influencers" className="underline">명부 →</Link></>}
+            {i.code === 'no-proof' && <> · <Link href={`/campaigns?id=${c.campaignId}`} className="underline">캠페인에서 채우기 →</Link></>}
           </span>
         ))}
         {failure && <span role="alert" className="text-red-700 font-medium">{failure}</span>}

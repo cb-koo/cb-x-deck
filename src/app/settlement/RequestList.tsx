@@ -48,9 +48,12 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
     && (!filter.from || kstDay(r.createdAt) >= filter.from)
     && (!filter.to || kstDay(r.createdAt) <= filter.to)), [rows, filter]);
 
-  // 증빙 서명 URL — 목록 전체에서 한 번만 배치 요청한다(행마다 부르면 왕복이 행 수만큼 늘어난다, useSignedTaskProofUrls 관례).
-  // rows가 아직 없어도(로딩 중) 훅은 매 렌더 호출돼야 하므로 빈 배열로 대체한다.
-  const proofUrls = useSignedTaskProofUrls((rows ?? []).map((r) => r.proof?.url ?? '').filter(Boolean));
+  // 증빙 서명 URL — 한 번에 펼쳐지는 행은 하나뿐이라 그 행의 증빙만 서명한다(목록은 단조 증가하므로 전량을
+  // 미리 서명하면 낭비가 계속 커진다, 리뷰 수정 5). 훅 호출 자체는 화면당 정확히 1회·조건부 return보다
+  // 앞에서 여전히 무조건 실행된다 — 입력 배열의 길이만 펼침 여부에 따라 0~1개로 바뀔 뿐이다.
+  // 훅이 경로→URL을 캐시하므로 같은 행을 다시 펼치면 즉시 뜬다.
+  const openRow = (rows ?? []).find((r) => r.id === open) ?? null;
+  const proofUrls = useSignedTaskProofUrls(openRow?.proof?.url ? [openRow.proof.url] : []);
 
   async function doCancel(reason: string): Promise<string | null> {
     if (!cancelling) return null;

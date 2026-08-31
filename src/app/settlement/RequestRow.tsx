@@ -42,13 +42,17 @@ export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel }: { r:
             <Item k="데드라인" v={r.deadlineOn} />
             <Item k="결제수단" v={describeSnapshot(r.paymentMethod)} />
             <Item k="참고자료" v={r.referenceUrl ? <a href={r.referenceUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline break-all">{r.referenceUrl}</a> : '—'} />
-            <Item k="증빙" v={r.proof
-              ? (proofSignedUrl
-                // eslint-disable-next-line @next/next/no-img-element
-                ? <img src={proofSignedUrl} alt="증빙 스크린샷" onClick={() => setZoom(true)}
-                       className="h-16 w-16 cursor-zoom-in rounded border border-x-border object-cover" />
-                : '있음')
-              : '—'} sub={r.proof ? `${r.proof.byName || '누군가'}가 올림` : undefined} />
+            {/* 증빙이 필요 없는 유형(투고·인용RT·방문)엔 이 줄 자체를 안 그린다 — RT가 아니면서 증빙도 없는 행에
+                '증빙 —'가 남으면 "빠진 것"으로 읽힌다(리뷰 수정 4). 여기서는 자리가 남아 64px 썸네일을 유지한다. */}
+            {(r.taskType === 'rt' || r.proof) && (
+              <Item k="증빙" v={r.proof
+                ? (proofSignedUrl
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img src={proofSignedUrl} alt="증빙 스크린샷" onClick={() => setZoom(true)}
+                         className="h-16 w-16 cursor-zoom-in rounded border border-x-border object-cover" />
+                  : '있음')
+                : '—'} sub={r.proof ? `${r.proof.byName || '누군가'}가 올림` : undefined} />
+            )}
             <Item k="메모" v={r.note || '—'} />
             <Item k="정산" v={settlementDetail(r)} />
           </dl>

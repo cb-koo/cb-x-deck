@@ -1,8 +1,9 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { insertExternalLog, listExternalLog, describeExternalCall, recordExternalCallSafe } from './externalApiLog.ts';
-import type { ExternalLogRow } from './externalApiLog.ts';
+import { insertExternalLog, listExternalLog, recordExternalCallSafe } from './externalApiLog.ts';
+import { describeExternalCall } from './externalLogCopy.ts';
+import type { ExternalLogRow } from './externalLogCopy.ts';
 
 const sql = getSql();
 const P = 'tstlog' + process.pid;

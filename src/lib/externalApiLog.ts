@@ -1,11 +1,10 @@
 import type postgres from 'postgres';
 import { getUsageSql } from './db.ts';
 import { isUuidLike } from './uuid.ts';
-import { type ExternalOutcome, type ExternalLogRow, describeExternalCall } from './externalLogCopy.ts';
+import type { ExternalOutcome, ExternalLogRow } from './externalLogCopy.ts';
 
-// 화면(클라이언트 컴포넌트)은 이 파일이 아니라 './externalLogCopy.ts'에서 바로 import한다 —
-// 이 파일은 postgres를 top-level import해 브라우저 번들에 들어가면 빌드가 깨진다. 서버 쪽 소비자를 위해 그대로 재수출.
-export { type ExternalOutcome, type ExternalLogRow, describeExternalCall };
+// 문구 함수(describeExternalCall)와 타입은 './externalLogCopy.ts'에 있다 — 여기서 재수출하지 않는다.
+// 이 파일은 postgres를 top-level import하므로, 화면이 이 경로로 문구 함수를 가져가면 브라우저 번들에 pg가 들어가 빌드가 깨진다.
 
 export interface ExternalLogEvent {
   method: string;

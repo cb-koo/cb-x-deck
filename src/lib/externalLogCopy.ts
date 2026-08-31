@@ -1,4 +1,4 @@
-// 연동 기록 화면 문구 — DB를 만지지 않는 순수 모듈. 화면(클라이언트 컴포넌트)은 반드시 이 파일에서 import한다.
+// 호출 기록 화면 문구 — DB를 만지지 않는 순수 모듈. 화면(클라이언트 컴포넌트)은 반드시 이 파일에서 import한다.
 // externalApiLog.ts(기록·조회)는 postgres를 top-level import하므로, 그 경로로 문구 함수를 가져가면
 // 브라우저 번들에 pg가 딸려 들어와 빌드가 깨진다 — 그래서 그 파일은 여기의 것을 재수출하지 않는다.
 export type ExternalOutcome = 'ok' | 'applied' | 'stale' | 'unauthorized' | 'bad-request' | 'not-found' | 'conflict' | 'error';

@@ -25,7 +25,7 @@ export function ExternalLogTab() {
     <section>
       <p className="text-ui text-x-muted">정산 프로덕트가 우리 서버를 호출한 기록이에요. &quot;보냈는데 안 보인다&quot;는 상황이 생기면 여기서 확인해요.</p>
       <p className="mt-1 text-ui text-x-muted">호출자는 프로그램 이름으로 추정한 값이에요 — <strong className="font-semibold">행을 누르면</strong> 호출 경로·IP·프로그램 이름 전문이 펼쳐져요.</p>
-      <h2 className="mt-4 text-[16px] font-semibold">연동 기록 {rows.length}</h2>
+      <h2 className="mt-4 text-[16px] font-semibold">호출 기록 {rows.length}</h2>
       {rows.length === 0 ? (
         <p className="mt-6 rounded-xl border border-dashed border-x-border p-8 text-center text-ui text-x-muted">
           아직 정산 프로덕트가 호출한 기록이 없어요.

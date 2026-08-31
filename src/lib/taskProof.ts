@@ -6,7 +6,7 @@ import { TASK_PROOF_EXTENSIONS } from './taskProofGuard.ts';
 
 export const TASK_PROOF_BUCKET = 'task-proof';
 
-// 마이그레이션 043의 버킷 file_size_limit과 반드시 같은 값 — 여기서 통과시킨 파일이 서버에서
+// 마이그레이션 044의 버킷 file_size_limit과 반드시 같은 값 — 여기서 통과시킨 파일이 서버에서
 // 거절되면 "골라서 바로 알았다"가 깨진다.
 export const MAX_TASK_PROOF_BYTES = 10 * 1024 * 1024;
 export const ALLOWED_TASK_PROOF_MIME = ['image/jpeg', 'image/png', 'image/webp'] as const;

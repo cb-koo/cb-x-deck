@@ -193,9 +193,9 @@ RT일 때 지금 비어 있는 '게시물 링크' 자리에 증빙 칸이 들어
 
 ## 10. 마이그레이션
 
-**번호는 043.** 041·042는 정산 프로덕트 연동 API 브랜치(미머지)가 이미 쓰고 있다.
+**번호는 044.** 041·042는 정산 프로덕트 연동 API가 쓰고, 043은 외부 API 호출 기록이 먼저 main에 들어갔다(프로덕션에는 043_task_proof.sql 이름으로 이미 적용된 뒤 옮긴 것 — 추가만 하는 문장이라 재실행 안전).
 
-`migrations/043_task_proof.sql` — 전부 재실행 안전(`apply-migrations.sh`가 매번 전 파일을 재실행한다):
+`migrations/044_task_proof.sql` — 전부 재실행 안전(`apply-migrations.sh`가 매번 전 파일을 재실행한다):
 1. `campaign_task.proof jsonb` 추가
 2. `payment_request.proof jsonb` 추가
 3. `task-proof` 버킷 insert (`on conflict do nothing`)

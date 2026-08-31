@@ -1,6 +1,7 @@
 'use client';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
 import { newDraftsSince, filterDrafts, statusCounts, siblingCount, type DraftListFilter } from '@/lib/draftUi';
 import { searchDrafts, filterByProcedure, applyPeriod, procedureOptions, sortDrafts, type PeriodValue, type TableSort } from '@/lib/draftViews';
@@ -105,7 +106,9 @@ function Workbench() {
   // 붙었다는 뜻이다(원고 1개 = 작업 1개) — 붙은 뒤로는 taskId를 싣지 않는다.
   const [taskCtx, setTaskCtx] = useState<
     { taskId: string; campaign: CampaignRow; type: TaskType; influencerHandle: string | null; attached: boolean } | null>(null);
-  const taskLinkDone = useRef(false); // ?task= 소비 표시 — 클라 목록이 온 뒤 1회만
+  // 소비한 작업 id — 참·거짓이 아니라 id로 기억한다. 예전엔 캠페인 화면이 전체 리로드로 들어와
+  // 매번 새 마운트가 보장됐지만, 라우터 이동으로 바뀌면서 그 전제가 약해졌다(스펙 2026-08-31 §5-2).
+  const taskLinkDone = useRef<string | null>(null);
   // '오늘'(서울)은 마운트 시 한 번 — 카드의 밀림 판정 기준. 렌더마다 시계를 읽지 않는다(react-hooks/purity)
   const [today] = useState(() => kstToday());
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -293,11 +296,12 @@ function Workbench() {
   // 클라를 자동 선택하고 배너를 켠다; 이 상태에서 만든 원고(생성·직접 쓰기)는 taskId가 실려 그 작업에 붙는다.
   // 클라 목록이 온 뒤 1회만 — composer.clientId를 세팅하려면 그 클라가 목록에 있어야 한다(유령 클라 정리 이펙트와 순서 충돌 방지).
   useEffect(() => {
-    if (taskLinkDone.current || !clientsLoaded) return;
+    if (!clientsLoaded) return;
     const targetTask = searchParams.get('task');
     const targetCampaign = searchParams.get('campaign');
     if (!targetTask || !targetCampaign) return;
-    taskLinkDone.current = true;
+    if (taskLinkDone.current === targetTask) return;   // 같은 작업으로 다시 들어오면 무시
+    taskLinkDone.current = targetTask;
     void (async () => {
       const r = await fetchCampaignDetail(targetCampaign);
       // 로드 자체가 실패했으면 '삭제됐을 수 있어요'로 오진하지 않는다 — 원인은 상세를 못 받은 것이다.
@@ -815,7 +819,15 @@ function Workbench() {
                 </>
               )}
             </span>
-            <button onClick={clearTaskCtx} className="ml-auto rounded-full border border-x-blue/40 px-2.5 py-0.5 text-ui hover:bg-white">해제</button>
+            <span className="ml-auto flex items-center gap-1.5">
+              {/* 다 쓰고 돌아가는 것과 '역시 나중에' 하고 돌아가는 것이 같은 자리다 — 붙기 전에도 보인다.
+                  Link인 이유는 새 탭으로도 열 수 있게 하기 위해서다. */}
+              <Link href={`/campaigns?id=${taskCtx.campaign.id}`}
+                    className="rounded-full border border-x-blue/40 px-2.5 py-0.5 text-ui hover:bg-white">
+                ← {taskCtx.campaign.name}으로
+              </Link>
+              <button onClick={clearTaskCtx} className="rounded-full border border-x-blue/40 px-2.5 py-0.5 text-ui hover:bg-white">해제</button>
+            </span>
           </div>
         )}
         {loaded && drafts.length > 0 && (

@@ -339,6 +339,7 @@ function Workbench() {
   // 배너 [해제] — 컨텍스트와 필터를 풀고 주소에서도 지운다(?draft= 동기화와 같은 replaceState 관례 — 라우터 리렌더 없이 주소만).
   function clearTaskCtx() {
     setTaskCtx(null);
+    taskLinkDone.current = null;   // 맥락을 푼 뒤 같은 작업으로 다시 들어올 수 있어야 한다
     setFilter((f) => ({ ...f, campaignId: '' }));
     const url = new URL(window.location.href);
     url.searchParams.delete('task'); url.searchParams.delete('campaign');

@@ -9,8 +9,10 @@ import { Button } from '@/components/ui';
 
 // 있는 원고 고르기(스펙 §4-2) — 그 클라이언트의 작업에 안 붙은 원고만. 하나만 고른다(원고 1개 = 작업 1개).
 // 형제 시안(A/B/C)은 라벨로 보여주되 하나만 붙이는 게 자연스럽다 — 도움말로 말한다.
-export function AttachDraftModal({ clientId, onClose, onPick, title = '있는 원고 고르기' }: {
-  clientId: string | null; onClose: () => void; onPick: (draft: DraftRow) => void; title?: string;
+// emptyHint에 기본값을 두지 않는다 — 이 창은 두 맥락(작업 만드는 중 / 작업 줄)에서 쓰이고
+// 맥락마다 다음 행동이 다르다. 기본값이 있으면 새 호출자가 조용히 틀린 문구를 쓰게 된다.
+export function AttachDraftModal({ clientId, onClose, onPick, emptyHint, title = '있는 원고 고르기' }: {
+  clientId: string | null; onClose: () => void; onPick: (draft: DraftRow) => void; emptyHint: string; title?: string;
 }) {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [rows, setRows] = useState<DraftRow[]>([]);
@@ -37,7 +39,7 @@ export function AttachDraftModal({ clientId, onClose, onPick, title = '있는 �
         <div className="mt-3 max-h-[50vh] overflow-y-auto rounded-lg border border-x-border">
           {state === 'loading' && <p className="px-4 py-6 text-center text-ui text-x-muted">불러오는 중…</p>}
           {state === 'error' && <p role="alert" className="px-4 py-6 text-center text-ui text-red-600">{err}</p>}
-          {state === 'ready' && shown.length === 0 && <p className="px-4 py-6 text-center text-ui text-x-muted">붙일 수 있는 원고가 없어요 — &ldquo;새로 만들기&rdquo;로 바로 써도 돼요</p>}
+          {state === 'ready' && shown.length === 0 && <p className="px-4 py-6 text-center text-ui text-x-muted">{emptyHint}</p>}
           {state === 'ready' && shown.map((d) => (
             <button key={d.id} type="button" onClick={() => onPick(d)} className="flex w-full items-center gap-3 border-b border-x-border px-4 py-3 text-left last:border-b-0 hover:bg-x-hover">
               <span className="min-w-0 flex-1">

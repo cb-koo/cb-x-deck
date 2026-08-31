@@ -325,7 +325,9 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
     </div>
     {/* 원고 고르기 창은 이 오버레이 '밖'에 둔다 — 안에 두면 그 창을 누른 클릭이 오버레이까지 올라가 작업 추가 창이 닫힌다 */}
     {attachOpen && (
-      <AttachDraftModal clientId={campaign.clientId} onClose={() => { setAttachOpen(false); if (draft.kind !== 'existing') setDraft({ kind: 'none' }); }}
+      <AttachDraftModal clientId={campaign.clientId}
+                        emptyHint="붙일 수 있는 원고가 없어요 — 위 '원고' 칸에서 '새로 만들기'를 고르면 바로 써도 돼요"
+                        onClose={() => { setAttachOpen(false); if (draft.kind !== 'existing') setDraft({ kind: 'none' }); }}
                         onPick={(d) => { setDraft({ kind: 'existing', draft: d }); setAttachOpen(false); if (d.influencerHandle && handles.length === 0) addHandle(d.influencerHandle); }} />
     )}
     </>

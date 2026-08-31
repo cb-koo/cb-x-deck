@@ -427,7 +427,9 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
                       }} />
       )}
       {attachFor && (
-        <AttachDraftModal clientId={data.campaign.clientId} title="이 작업에 붙일 원고 고르기" onClose={() => setAttachFor(null)}
+        <AttachDraftModal clientId={data.campaign.clientId} title="이 작업에 붙일 원고 고르기"
+                          emptyHint="붙일 수 있는 원고가 없어요 — 창을 닫고 '새로 만들기'를 누르면 바로 쓸 수 있어요"
+                          onClose={() => setAttachFor(null)}
                           onPick={async (d) => {
                             const r = await patchDraftApi(d.id, { taskId: attachFor.id });
                             if (!r.ok) { show(r.error); return; }

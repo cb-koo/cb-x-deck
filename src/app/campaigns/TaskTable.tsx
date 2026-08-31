@@ -9,6 +9,7 @@ import { InfluencerChip } from '@/components/InfluencerChip';
 import { CostPopover } from '@/components/CostPopover';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
 import { useSignedTaskProofUrls } from '@/components/useSignedTaskProofUrls';
+import { ImageLightbox } from '@/components/ImageLightbox';
 import { PostedCell } from './PostedCell';
 import { suggestTaskCost, formatMoneyBy, type TaskCost } from '@/lib/campaignCost';
 import { displayStatus, TONE_CLASS } from '@/lib/settlementDisplay';
@@ -96,6 +97,7 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
   const shown = sortTasks(rows.filter((t) => matchesTaskFilter(t, filter, today)), sort, today);
   // 증빙 서명 URL — 표 전체에서 한 번만 배치 요청한다(행마다 부르면 왕복이 행 수만큼 늘어난다, useSignedTaskProofUrls 관례)
   const proofUrls = useSignedTaskProofUrls(rows.map((t) => t.proof?.url ?? '').filter(Boolean));
+  const [zoomUrl, setZoomUrl] = useState<string | null>(null);
   const optionFor = (handle: string | null) => (handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined);
   const empty = (text: string) => <p className="mt-4 rounded-xl bg-x-surface px-4 py-6 text-center text-content text-x-secondary">{text}</p>;
 
@@ -171,6 +173,24 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                                   onMarkRemoved={(date, reason) => void actions.markRemoved(t, date, reason)}
                                   onUnmarkRemoved={() => void actions.unmarkRemoved(t)}
                                   onSetProof={(path) => void actions.setProof(t, path)} />
+                      {/* RT 증빙 표시 — 게시 확인 전에는 아무것도 없다(증빙은 게시 확인과 함께 생긴다). 썸네일을 늘어놓아
+                          행을 빽빽하게 만들지 않고 작은 태그 하나로 대신하며, 누르면 ImageLightbox로 확대한다.
+                          서명 URL이 아직 안 왔을 때도 '증빙 보기'로 자리를 채운다(눌러도 반응 없을 뿐) —
+                          '증빙 없음'이 잘못 스치면 라벨-값이 어긋난다(UX 원칙 4). */}
+                      {t.type === 'rt' && t.postedAt && (
+                        t.proof
+                          ? (() => {
+                              const url = proofUrls[t.proof.url];
+                              return (
+                                <button type="button" disabled={!url} onClick={() => url && setZoomUrl(url)}
+                                        title={url ? '증빙 스크린샷 — 눌러서 크게 보기' : '증빙 스크린샷 불러오는 중…'}
+                                        className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[12px] text-slate-600 hover:bg-slate-200 disabled:cursor-default disabled:opacity-70 disabled:hover:bg-slate-100">
+                                  증빙 보기
+                                </button>
+                              );
+                            })()
+                          : <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[12px] text-amber-700">증빙 없음</span>
+                      )}
                     </td>
                     <td className={`${TD} text-right`}>
                       <span className="flex items-center justify-end gap-2 tabular-nums">
@@ -197,6 +217,7 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
           </table>
         </div>
       )}
+      {zoomUrl && <ImageLightbox urls={[zoomUrl]} index={0} onIndexChange={() => {}} onClose={() => setZoomUrl(null)} />}
     </section>
   );
 }

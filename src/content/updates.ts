@@ -13,7 +13,7 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
-    date: '2026-09-01', type: '개선',
+    date: '2026-08-29', type: '개선',
     title: '정산 요청이 어디까지 처리됐는지 배지로 볼 수 있어요',
     summary: '정산팀이 그쪽 프로그램에서 상태를 바꾸면 우리 요청 내역과 캠페인 작업 표의 배지가 따라 바뀌어요. 담당자가 따로 할 일은 없어요.',
     bullets: [
@@ -25,7 +25,7 @@ export const UPDATES: UpdateEntry[] = [
     link: { label: '정산', href: '/settlement?tab=requests' },
   },
   {
-    date: '2026-09-01', type: '내부',
+    date: '2026-08-29', type: '내부',
     title: '정산 프로그램이 결제 요청을 가져가고 처리 상태를 알려 주는 연결 통로를 만들었어요',
     summary: '결제 요청을 정산 프로그램이 주기적으로 가져가고, 처리 상태와 실제 지급액을 우리에게 돌려줘요. 담당자가 하는 일은 그대로(요청 만들기까지)예요.',
     bullets: [

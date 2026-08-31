@@ -43,7 +43,7 @@ export interface ExternalItem {
   category: { code: string; label: string };
   item: string; purpose: string;
   amount_krw: number; cost_currency: PaymentRequestRow['costCurrency'];
-  payout: { currency: PaymentRequestRow['payoutCurrency']; net: number; fee: PaymentFee | null; fee_amount: number; gross: number; rate_krw_per_jpy: number };
+  payout: { currency: PaymentRequestRow['payoutCurrency']; net: number; fee: PaymentFee | null; fee_amount: number; gross: number; rate_krw_per_jpy: number; gross_krw: number };
   deadline: string; reference_url: string | null;
   payment_method: Record<string, string>;
   requester: { name: string; email: string | null; slack_id: string | null };
@@ -51,6 +51,13 @@ export interface ExternalItem {
   settlement: { status: ExternalStatus | null; paid_amount_krw: number | null; paid_at: string | null; note: string | null; updated_at: string | null; external_id: string | null };
 }
 const SNAKE_PM: Record<string, string> = { type: 'type', holder: 'holder', currency: 'currency', email: 'email', paypalId: 'paypal_id', identifier: 'identifier', bank: 'bank', branch: 'branch', account: 'account' };
+
+// 실제 송금액(gross)을 원화로 — 지급 통화가 KRW면 그 자체가 원화다. 저장하지 않고 여기서만 계산한다:
+// 같은 값을 컬럼으로 두면 환율·수수료가 바뀔 때 두 값이 갈린다. amount_krw(수수료 제외 단가)와는 다른 값이니
+// "실제 나간 돈" 집계는 이 값을 쓰라고 그쪽 문서(§5-3)에 적어 두었다.
+function grossKrw(r: PaymentRequestRow): number {
+  return r.payoutCurrency === 'KRW' ? r.amountGross : r.amountGross * r.rateKrwPerJpy;
+}
 export function toExternalItem(e: ExportRow): ExternalItem {
   const r = e.row;
   const pm: Record<string, string> = {};
@@ -65,7 +72,10 @@ export function toExternalItem(e: ExportRow): ExternalItem {
     category: { code: r.categoryOptionId, label: r.category },
     item: r.itemText, purpose: r.purposeText,
     amount_krw: r.amountKrw, cost_currency: r.costCurrency,
-    payout: { currency: r.payoutCurrency, net: r.amountNet, fee: r.fee, fee_amount: r.feeAmount, gross: r.amountGross, rate_krw_per_jpy: r.rateKrwPerJpy },
+    payout: {
+      currency: r.payoutCurrency, net: r.amountNet, fee: r.fee, fee_amount: r.feeAmount, gross: r.amountGross,
+      rate_krw_per_jpy: r.rateKrwPerJpy, gross_krw: grossKrw(r),
+    },
     deadline: r.deadlineOn, reference_url: r.referenceUrl,
     payment_method: pm,
     requester: { name: r.requesterName, email: e.requester.email, slack_id: e.requester.slackId },

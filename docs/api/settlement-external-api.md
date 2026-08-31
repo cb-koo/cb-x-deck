@@ -137,14 +137,15 @@ Authorization: Bearer <API 키>
 | `category.label` | string | 아니오 | 분류 표시 문구(예 `마케팅비 > X(트위터) …`). |
 | `item` | string | 아니오 | 품목. |
 | `purpose` | string | 아니오 | 목적. |
-| `amount_krw` | number(정수) | 아니오 | **우리 확정 원화 금액**(잠정치가 아니다). 환율은 요청 시점 우리 설정값의 스냅샷. 그쪽 체크리스트의 `amount_krw_estimated`에 대응하되, "estimated"가 아니라 확정값. |
+| `amount_krw` | number(정수) | 아니오 | **단가의 원화 금액 — 송금 수수료는 빠져 있다.** 우리 캠페인 단가(원화 관리)의 확정값이며 잠정치가 아니다. 환율은 요청 시점 우리 설정값의 스냅샷. 그쪽 체크리스트의 `amount_krw_estimated`에 대응하되 "estimated"가 아니라 확정값. **실제로 나간 돈은 `payout.gross_krw`를 쓸 것**(아래 "원화 집계" 참고). |
 | `cost_currency` | `"KRW"` \| `"JPY"` | 아니오 | 원가 통화. |
 | `payout.currency` | `"KRW"` \| `"JPY"` | 아니오 | 인플루언서가 받는 통화. |
 | `payout.net` | number | 아니오 | 인플루언서가 실수령하는 순액. |
 | `payout.fee` | `{ mode: "grossUp", percent: number }` \| `{ mode: "fixed", amount: number }` \| `null` | 예 | 송금 수수료를 우리(CB)가 부담하는 방식. `null`이면 수수료 부담 없음. |
 | `payout.fee_amount` | number | 아니오 | 수수료 금액(부담 없으면 0). |
 | `payout.gross` | number | 아니오 | **실제 송금액 — 결제 양식의 "금액"에 해당하는 값**. `net + fee_amount`. |
-| `payout.rate_krw_per_jpy` | number | 아니오 | 요청 시점 스냅샷 환율(원/엔). |
+| `payout.rate_krw_per_jpy` | number | 아니오 | 요청 시점 스냅샷 환율(원/엔). 지급 통화가 `KRW`면 환산에 쓰이지 않는다. |
+| `payout.gross_krw` | number(정수) | 아니오 | **실제 송금액을 원화로 환산한 값 — 원화 지출 집계에 쓸 값.** 우리가 계산해서 보낸다: 지급 통화가 `KRW`면 `gross` 그대로, `JPY`면 `gross × rate_krw_per_jpy`. **그쪽이 통화별로 분기할 필요가 없다.** |
 | `deadline` | string(`YYYY-MM-DD`) | 아니오 | 처리 마감일. |
 | `reference_url` | string \| null | 예 | 참고 링크. |
 | `payment_method` | object(문자열 값만) | 아니오 | 결제 수단 스냅샷. **`type`(`"paypal"` \| `"paypay"` \| `"bank"`)·`holder`(수취인)·`currency`(`"KRW"` \| `"JPY"`)는 항상 있다** — 결제 수단이 없는 작업은 요청을 만들 수 없기 때문. 나머지 `email`, `paypal_id`, `identifier`, `bank`, `branch`, `account`는 수단 종류에 따라 있는 키만 내려온다(paypal: `email` 또는 `paypal_id`, paypay: `identifier`(없을 수 있음), bank: `bank`·`account`·`branch`(일본 계좌만)). 전부 snake_case(원본 `paypalId` → `paypal_id`). |
@@ -160,6 +161,22 @@ Authorization: Bearer <API 키>
 | `settlement.external_id` | string \| null | 예 | 그쪽 자체 건 ID(그쪽이 보내준 경우만). |
 
 **`payer`/`cc`는 제공하지 않는다.** 그쪽 체크리스트에 있는 이 두 항목은 우리 데이터가 아니라 그쪽 자체 설정(누가 결제 담당·누구를 참조에 넣을지)이므로 이 API에 해당 필드가 없다. 요청자 정보는 `requester` 하나뿐이다.
+
+### 원화 집계 — 어느 필드를 쓸까
+
+원화로 합계를 낼 때 쓸 값이 두 개이고 **뜻이 다르다.**
+
+| 목적 | 쓸 필드 | 뜻 |
+|---|---|---|
+| 실제 지출(실제로 나간 돈) | **`payout.gross_krw`** | 송금 수수료 포함, 원화 환산 완료 |
+| 예산 대비·단가 집계 | `amount_krw` | 우리 캠페인 단가의 원화, **수수료 제외** |
+
+두 값은 수수료만큼 다르다. 예: 순액 ¥3,000 + 수수료 ¥158 = 송금 ¥3,158, 환율 10 →
+`amount_krw` = 30,000원 / `payout.gross_krw` = 31,580원 (**1,580원 차이**).
+
+정산은 **원화로 하는 경우와 엔화로 하는 경우가 섞여 있다.** `payout.gross_krw`는 두 경우를 우리가 이미 정리해서
+보내는 값이므로 그쪽에서 `payout.currency`로 분기하거나 환율을 곱할 필요가 없다.
+`settlement.paid_amount_krw`(그쪽이 실제 지급한 원화)와 대조할 상대도 이 값이다.
 
 ## 6. `POST /api/external/settlement/requests/{request_id}/status` — 처리 상태·실지급액 갱신
 
@@ -252,7 +269,7 @@ curl -s \
       "category": { "code": "promo-rt", "label": "마케팅비 > X(트위터) > 프로모션" },
       "item": "RT 진행", "purpose": "노출 확대",
       "amount_krw": 30000, "cost_currency": "KRW",
-      "payout": { "currency": "JPY", "net": 3000, "fee": { "mode": "grossUp", "percent": 5 }, "fee_amount": 158, "gross": 3158, "rate_krw_per_jpy": 10 },
+      "payout": { "currency": "JPY", "net": 3000, "fee": { "mode": "grossUp", "percent": 5 }, "fee_amount": 158, "gross": 3158, "rate_krw_per_jpy": 10, "gross_krw": 31580 },
       "deadline": "2026-08-29", "reference_url": null,
       "payment_method": { "type": "paypal", "holder": "Sawada K", "currency": "JPY", "email": "sawada@example.com", "paypal_id": "sawada-pp" },
       "requester": { "name": "모에카", "email": "moeka@clinicbridge.co.kr", "slack_id": "U0123ABC" },

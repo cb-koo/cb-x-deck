@@ -31,7 +31,7 @@ test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   const it = toExternalItem(e);
   assert.equal(it.request_id, ID); assert.equal(it.revision, 0); assert.equal(it.status, 'requested');
   assert.equal(it.amount_krw, 30000); assert.equal(it.cost_currency, 'KRW');
-  assert.deepEqual(it.payout, { currency: 'JPY', net: 3000, fee: { mode: 'grossUp', percent: 5 }, fee_amount: 158, gross: 3158, rate_krw_per_jpy: 10 });
+  assert.deepEqual(it.payout, { currency: 'JPY', net: 3000, fee: { mode: 'grossUp', percent: 5 }, fee_amount: 158, gross: 3158, rate_krw_per_jpy: 10, gross_krw: 31580 });
   assert.deepEqual(it.influencer, { id: 'inf', handle: 'sawada_k' });
   assert.deepEqual(it.clinic, { id: 'cl', name: '마인드피부과' });
   assert.deepEqual(it.category, { code: 'fee', label: '마케팅비 > 원고료' });
@@ -73,4 +73,16 @@ test('parseStatusUpdate — 거절 사유는 필드 단위', () => {
   bad({ status: 'received', updated_at: '2026-08-29T00:00:00Z', note: 'x'.repeat(501) }, 'note');
   bad({ status: 'received', updated_at: '2026-08-29T00:00:00Z', external_id: 'x'.repeat(101) }, 'external_id');
   bad({ status: 'received', updated_at: '2026-08-29T00:00:00Z', note: 5 }, 'note');
+});
+
+test('toExternalItem — 원화 지급이면 gross_krw는 환산 없이 gross 그대로', () => {
+  const krw: PaymentRequestRow = { ...row, payoutCurrency: 'KRW', amountNet: 20000, fee: null, feeAmount: 0, amountGross: 20000, amountKrw: 20000 };
+  const it = toExternalItem({ row: krw, updatedAtUs: '1', requester: { email: null, slackId: null } });
+  assert.deepEqual(it.payout, { currency: 'KRW', net: 20000, fee: null, fee_amount: 0, gross: 20000, rate_krw_per_jpy: 10, gross_krw: 20000 });
+});
+
+test('toExternalItem — 수수료가 붙으면 gross_krw가 amount_krw보다 크다(실제 나간 돈 ≠ 단가)', () => {
+  const it = toExternalItem({ row, updatedAtUs: '1', requester: { email: null, slackId: null } });
+  assert.equal(it.amount_krw, 30000);
+  assert.equal(it.payout.gross_krw, 31580);   // 수수료 158엔 × 환율 10 = 1,580원 더
 });

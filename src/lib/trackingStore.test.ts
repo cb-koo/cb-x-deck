@@ -202,3 +202,32 @@ test('9) 게시물 연결 — RT 작업에는 붙일 수 없다(증빙 없이 �
   // 게시 확인이 채워지지 않았음을 직접 확인한다 — 이게 이 가드의 목적이다
   assert.equal((await getTask(sql, rt.id))!.postedAt, null);
 });
+
+test('10) 원고 경로 우회 차단 — RT 작업에 원고가 붙어 있어도(비정상 상태) 그 원고로 연결하면 작업의 posted_at을 채우지 않는다', async () => {
+  const c = await createClient(sql, P + 'RT2클라');
+  const camp = await createCampaign(sql, { clientId: c.id, clientName: c.name, name: P + 'rtc2', nameEn: `${P.toLowerCase()}-rtc2`, startsOn: '2026-08-31', endsOn: '2026-09-06', kind: null, note: '', createdBy: null });
+  const [rt] = await createTasks(sql, camp.id, {
+    type: 'rt', targetTaskId: null, targetTweetUrl: 'https://x.com/a/status/11',
+    draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null,
+    items: [{ handle: 'someone', cost: null }],
+  });
+  const draftId = await insertDraft(sql, {
+    clientId: c.id, clientName: c.name, procedureNames: [], direction: P + 'rt방향', format: 'single',
+    referenceMode: 'off', refs: [], content: { posts: [{ text: 'x', media: [] }] }, model: null, memberId: null,
+  });
+  // 정상 UI로는 만들 수 없는 이상 상태: RT 작업에 원고를 직접 붙인다.
+  await sql`update campaign_task set draft_id = ${draftId} where id = ${rt.id}`;
+
+  const { row } = await addTrackedPost(sql, {
+    tweetId: P + 'RT2', authorHandle: 'someone', text: '', postedAt: null, createdBy: null, metrics: M, raw: null,
+  });
+
+  // 원고 경로로 연결하는 것 자체는 허용된다(사용자 의도는 "이 게시물을 이 원고에 연결").
+  assert.equal(await linkTrackedPost(sql, row.id, { draftId }), true);
+  const linked = (await findTrackedPostById(sql, row.id))!;
+  assert.equal(linked.draftId, draftId);
+  assert.equal(linked.taskId, rt.id);
+
+  // 그러나 RT 작업의 게시 확인(posted_at)은 여전히 채워지지 않아야 한다 — 이게 이 가드의 목적이다.
+  assert.equal((await getTask(sql, rt.id))!.postedAt, null);
+});

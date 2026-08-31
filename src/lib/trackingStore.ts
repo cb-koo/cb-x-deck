@@ -225,6 +225,7 @@ export async function linkTrackedPost(
   if (cur.length === 0) return false;
   let taskId: string | null = null;
   let draftId: string | null = null;
+  let skipTaskSupplement = false;   // RT 작업엔 posted_at/post_url을 보충하지 않는다(아래에서 판단)
   if ('taskId' in link) {
     taskId = link.taskId;
     if (taskId) {
@@ -237,12 +238,17 @@ export async function linkTrackedPost(
   } else {
     draftId = link.draftId;
     if (draftId) {
-      const t = await sql<Array<{ id: string }>>`select id from campaign_task where draft_id = ${draftId}`;
+      const t = await sql<Array<{ id: string; type: string }>>`select id, type from campaign_task where draft_id = ${draftId}`;
       taskId = t[0]?.id ?? null;
+      // RT 작업에 원고가 붙어 있는 건 정상 화면으로는 못 만드는 이상 상태다(TaskAddModal이 RT엔 원고 칸을 안 주고
+      // TaskTable도 붙이기 버튼을 안 준다) — 그래도 API로는 만들어질 수 있어 여기서도 지켜야 한다(리뷰 지적).
+      // 연결(tracked_post.task_id/draft_id) 자체는 거절하지 않는다: 사용자 의도는 "이 게시물을 이 원고에
+      // 연결"이지 그 원고에 어쩌다 붙은 RT 작업과는 무관하다 — 대신 아래 작업 쪽 보충만 건너뛴다.
+      if (t[0]?.type === 'rt') skipTaskSupplement = true;
     }
   }
   await sql`update tracked_post set task_id = ${taskId}, draft_id = ${draftId} where id = ${trackedPostId}`;
-  if (taskId) {
+  if (taskId && !skipTaskSupplement) {
     const permalink = tweetPermalink(cur[0].author_handle, cur[0].tweet_id);
     await sql`update campaign_task set
         post_url = coalesce(post_url, ${permalink}),

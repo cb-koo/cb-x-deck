@@ -6,7 +6,7 @@ import type { TaskPatch } from './campaignTaskStore.ts';
 import { parseTweetLink, tweetPermalink } from './tweetLink.ts';
 import { parseXHandle, handleParseMessage } from './xHandle.ts';
 import { isUuidLike } from './uuid.ts';
-import { isTaskProofPath, PROOF_VALUE_MESSAGE } from './taskProofGuard.ts';
+import { isTaskProofPath, PROOF_VALUE_MESSAGE, PROOF_ONLY_RT_MESSAGE, PROOF_KEEP_MESSAGE, PROOF_REQUIRED_MESSAGE } from './taskProofGuard.ts';
 
 export const TASK_ID_MESSAGE = '작업 값이 올바르지 않아요';
 export const TASK_NOT_FOUND_MESSAGE = '작업을 찾을 수 없어요 — 삭제됐을 수 있어요. 화면을 새로고침해 주세요';
@@ -128,4 +128,22 @@ export function parseTaskPatch(body: unknown): Parsed<TaskPatchParsed> {
     else return fail(PROOF_VALUE_MESSAGE);
   }
   return { ok: true, value: out };
+}
+
+// RT 증빙 3규칙의 판정 — 라우트에 테스트 하네스가 없어 순수 함수로 뺀다(리뷰에서 우회 구멍이 잡힌 자리).
+// 핵심: "패치 후 상태"로 판단해야 한다. 패치 전 증빙(cur.proof)만 보면 한 요청에 postedAt과
+// proof:null을 합쳐 보내는 것을 통과시켜, 되돌릴 수 없는 '증빙 없는 게시됨 RT'가 남는다.
+export function proofGateError(
+  cur: { type: TaskType; postedAt: string | null; proof: unknown },
+  patch: { postedAt?: string; proofUrl?: string | null },
+): string | null {
+  // ① 범위 — RT 작업에만 붙는다
+  if (patch.proofUrl !== undefined && cur.type !== 'rt') return PROOF_ONLY_RT_MESSAGE;
+  const postedAfter = cur.postedAt ?? patch.postedAt ?? null;
+  const proofAfter = patch.proofUrl !== undefined ? patch.proofUrl : (cur.proof ? '있음' : null);
+  // ② 떼기 금지 — 이번 요청이 증빙을 비우는데 패치 후 게시됨이면(이미 게시됐거나, 이번에 게시되거나) 막는다
+  if (patch.proofUrl === null && postedAfter) return PROOF_KEEP_MESSAGE;
+  // ③ 필수 — 새로 게시됨이 되는 RT는 패치 후 증빙이 있어야 한다
+  if (patch.postedAt && !cur.postedAt && cur.type === 'rt' && !proofAfter) return PROOF_REQUIRED_MESSAGE;
+  return null;
 }

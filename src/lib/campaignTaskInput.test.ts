@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTaskCreate, parseTaskPatch, normalizeTargetTweetUrl, parseTaskIdPatch, TASK_TYPE_MESSAGE, TARGET_MESSAGE, POST_URL_MESSAGE, VISIT_ON_MESSAGE, DRAFT_MULTI_MESSAGE, POSTED_AT_NULL_MESSAGE, DATE_MESSAGE } from './campaignTaskInput.ts';
-import { PROOF_VALUE_MESSAGE } from './taskProofGuard.ts';
+import { parseTaskCreate, parseTaskPatch, proofGateError, normalizeTargetTweetUrl, parseTaskIdPatch, TASK_TYPE_MESSAGE, TARGET_MESSAGE, POST_URL_MESSAGE, VISIT_ON_MESSAGE, DRAFT_MULTI_MESSAGE, POSTED_AT_NULL_MESSAGE, DATE_MESSAGE } from './campaignTaskInput.ts';
+import { PROOF_VALUE_MESSAGE, PROOF_ONLY_RT_MESSAGE, PROOF_KEEP_MESSAGE, PROOF_REQUIRED_MESSAGE } from './taskProofGuard.ts';
 
 const U = '11111111-1111-1111-1111-111111111111';
 
@@ -95,4 +95,44 @@ test('parseTaskPatch — 증빙 키가 없으면 결과에도 없다(건드리�
   const r = parseTaskPatch({ note: '메모' });
   assert.equal(r.ok, true);
   assert.equal(r.ok && 'proofUrl' in r.value, false);
+});
+
+// ── proofGateError — RT 증빙 3규칙 판정(패치 후 상태로 봐야 한다) ──
+const rtUnposted = { type: 'rt' as const, postedAt: null, proof: { url: P_OK } };
+const rtUnpostedNoProof = { type: 'rt' as const, postedAt: null, proof: null };
+const rtPosted = { type: 'rt' as const, postedAt: '2026-08-20', proof: { url: P_OK } };
+const postUnposted = { type: 'post' as const, postedAt: null, proof: null };
+
+test('proofGateError — 구멍: 한 요청에 postedAt+proofUrl:null을 합치면(패치 전 증빙 있음, 미게시 RT) 거절', () => {
+  // 이게 리뷰에서 Critical로 잡힌 우회다: cur.proof(패치 전)만 보면 통과해 버린다.
+  const err = proofGateError(rtUnposted, { postedAt: '2026-09-01', proofUrl: null });
+  assert.ok(err, '거절되어야 하는데 통과했다 — 증빙 없는 게시됨 RT가 만들어진다');
+});
+
+test('proofGateError — 한 요청에 postedAt+올바른 proofUrl은 통과', () => {
+  assert.equal(proofGateError(rtUnpostedNoProof, { postedAt: '2026-09-01', proofUrl: P_OK }), null);
+});
+
+test('proofGateError — postedAt만, 패치 전 증빙 있음 → 통과(증빙을 안 건드리는 정상 경로)', () => {
+  assert.equal(proofGateError(rtUnposted, { postedAt: '2026-09-01' }), null);
+});
+
+test('proofGateError — postedAt만, 증빙 없음, RT → 거절(필수)', () => {
+  assert.equal(proofGateError(rtUnpostedNoProof, { postedAt: '2026-09-01' }), PROOF_REQUIRED_MESSAGE);
+});
+
+test('proofGateError — postedAt만, 증빙 없음, post 유형 → 통과(RT만 요구한다)', () => {
+  assert.equal(proofGateError(postUnposted, { postedAt: '2026-09-01' }), null);
+});
+
+test('proofGateError — 이미 게시됨인 RT에서 증빙을 떼면 거절(떼기 금지)', () => {
+  assert.equal(proofGateError(rtPosted, { proofUrl: null }), PROOF_KEEP_MESSAGE);
+});
+
+test('proofGateError — 미게시 RT는 증빙을 자유롭게 뗄 수 있다', () => {
+  assert.equal(proofGateError(rtUnposted, { proofUrl: null }), null);
+});
+
+test('proofGateError — post 유형에 증빙을 붙이면 거절(범위)', () => {
+  assert.equal(proofGateError(postUnposted, { proofUrl: P_OK }), PROOF_ONLY_RT_MESSAGE);
 });

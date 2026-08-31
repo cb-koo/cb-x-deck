@@ -68,9 +68,11 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
     // 게시 확인 — 사람이 찍은 것이라 postedSource는 'manual'(수집기가 찾은 것은 'auto', 표에 회색 태그로 구분).
     // 링크를 함께 넣으면 [게시물 연결(트래킹)]과 같은 등록까지 한다(스펙 §3-4) — 서버가 task_id를 붙이고
     // post_url·posted_at은 coalesce라 사람이 찍은 날짜가 이긴다. 등록만 실패해도 게시 확인은 이미 저장됐다.
-    markPosted: async (t: Item, date: string, postUrl?: string) => {
-      const ok = await patch(t, { postedAt: date, ...(postUrl ? { postUrl } : {}) },
-                             { postedAt: date, postedSource: 'manual', published: true, ...(postUrl ? { postUrl } : {}) });
+    // RT는 증빙(proof)이 함께 와야 서버가 받는다(RT 증빙 스펙 §5).
+    markPosted: async (t: Item, date: string, postUrl?: string, proof?: string) => {
+      const ok = await patch(t, { postedAt: date, ...(postUrl ? { postUrl } : {}), ...(proof ? { proof } : {}) },
+                             { postedAt: date, postedSource: 'manual', published: true, ...(postUrl ? { postUrl } : {}),
+                               ...(proof ? { proof: { url: proof, by: null, byName: '', at: new Date().toISOString() } } : {}) });
       if (!ok) return false;
       if (postUrl) {
         const reg = await registerTrackedPostApi(postUrl, t.id);
@@ -79,6 +81,10 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
       onChanged();
       return true;
     },
+    // 증빙만 바꾸기·떼기 — 게시됨인 RT는 서버가 떼기를 거절한다(비우기가 아니라 바꾸기만).
+    // 낙관값의 by/byName은 응답이 진짜 값으로 덮는다(patch가 r.data로 덮어쓴다).
+    setProof: (t: Item, path: string | null) =>
+      patch(t, { proof: path }, { proof: path ? { url: path, by: null, byName: '', at: new Date().toISOString() } : null }),
     markRemoved: (t: Item, date: string, reason: string) => patch(t, { removedAt: date, removedReason: reason }, { removedAt: date, removedReason: reason }),
     unmarkRemoved: (t: Item) => patch(t, { removedAt: null, removedReason: '' }, { removedAt: null, removedReason: '' }),
     // 삭제 — 행이 사라지는 변경이라 필드 롤백 대신 목록 복원으로 되돌린다(순서는 표 정렬이 다시 잡는다)

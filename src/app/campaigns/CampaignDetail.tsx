@@ -146,8 +146,8 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
   // 낙관적 갱신으로는 못 채운다. 링크가 있었을 때만 상세를 다시 읽어 조회·좋아요가 표에 뜨게 한다.
   const actions = useMemo(() => ({
     ...taskActions,
-    markPosted: async (t: CampaignTaskItem, date: string, postUrl?: string) => {
-      const ok = await taskActions.markPosted(t, date, postUrl);
+    markPosted: async (t: CampaignTaskItem, date: string, postUrl?: string, proof?: string) => {
+      const ok = await taskActions.markPosted(t, date, postUrl, proof);
       if (ok && postUrl) void load();
       return ok;
     },

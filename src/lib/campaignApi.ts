@@ -69,6 +69,7 @@ export type TaskPatchRequest = {
   influencerHandle?: string | null; targetTaskId?: string | null; targetTweetUrl?: string | null;
   postUrl?: string | null; postedAt?: string; removedAt?: string | null; removedReason?: string;
   scheduledOn?: string | null; visitOn?: string | null; cost?: TaskCost | null; note?: string;
+  proof?: string | null;   // 스토리지 경로 또는 null(떼기). 올린 사람·시각은 서버가 채운다
 };
 export const createTasksApi = (campaignId: string, body: TaskCreateRequest) =>
   call<{ tasks: TaskRow[] }>(`/api/campaigns/${campaignId}/tasks`, json('POST', body));

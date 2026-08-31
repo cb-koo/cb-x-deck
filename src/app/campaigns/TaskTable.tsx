@@ -8,6 +8,7 @@ import type { MoneyByCurrency } from '@/lib/campaignCost';
 import { InfluencerChip } from '@/components/InfluencerChip';
 import { CostPopover } from '@/components/CostPopover';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
+import { useSignedTaskProofUrls } from '@/components/useSignedTaskProofUrls';
 import { PostedCell } from './PostedCell';
 import { suggestTaskCost, formatMoneyBy, type TaskCost } from '@/lib/campaignCost';
 import { displayStatus, TONE_CLASS } from '@/lib/settlementDisplay';
@@ -93,6 +94,8 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
   onDelete: (t: CampaignTaskItem) => void;
 }) {
   const shown = sortTasks(rows.filter((t) => matchesTaskFilter(t, filter, today)), sort, today);
+  // 증빙 서명 URL — 표 전체에서 한 번만 배치 요청한다(행마다 부르면 왕복이 행 수만큼 늘어난다, useSignedTaskProofUrls 관례)
+  const proofUrls = useSignedTaskProofUrls(rows.map((t) => t.proof?.url ?? '').filter(Boolean));
   const optionFor = (handle: string | null) => (handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined);
   const empty = (text: string) => <p className="mt-4 rounded-xl bg-x-surface px-4 py-6 text-center text-content text-x-secondary">{text}</p>;
 
@@ -163,9 +166,11 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                     </td>
                     <td className={TD}>
                       <PostedCell task={t} today={today}
-                                  onMarkPosted={(date, url) => void actions.markPosted(t, date, url)}
+                                  proofSignedUrl={t.proof ? proofUrls[t.proof.url] ?? null : null}
+                                  onMarkPosted={(date, url, proof) => void actions.markPosted(t, date, url, proof)}
                                   onMarkRemoved={(date, reason) => void actions.markRemoved(t, date, reason)}
-                                  onUnmarkRemoved={() => void actions.unmarkRemoved(t)} />
+                                  onUnmarkRemoved={() => void actions.unmarkRemoved(t)}
+                                  onSetProof={(path) => void actions.setProof(t, path)} />
                     </td>
                     <td className={`${TD} text-right`}>
                       <span className="flex items-center justify-end gap-2 tabular-nums">

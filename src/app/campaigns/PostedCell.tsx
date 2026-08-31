@@ -7,18 +7,21 @@ import { TASK_STAGE_STYLE } from '@/components/DraftStatusChip';
 import { stageTag } from '@/lib/campaignTableView';
 import { parseTweetLink, tweetLinkParseMessage } from '@/lib/tweetLink';
 import { DATE_MESSAGE } from '@/lib/campaignTaskInput';
+import { TaskProofField } from '@/components/TaskProofField';
 
 // 단계 셀(스펙 §3-4·§4-1) — 칩은 값만('게시됨 9/3'), 부가 정보는 옆의 회색 태그. 누르면 지금 상태에서 할 수 있는 것만 보이는 팝오버.
 // 게시 확인 자체는 되돌리지 않는다 — 잘못 찍었으면 작업을 지우고 다시 만든다(팝오버 문구가 그렇게 말한다).
 // 팝오버 골격(body 포털·좌표 고정·바깥 클릭/Esc/스크롤 닫기)은 CostPopover·InfluencerChip과 같다 — 표 셀의 overflow에 잘리지 않는다.
+// RT는 증빙 스크린샷 칸이 붙어 팝오버가 커진다(RT 증빙 스펙 §7) — POP_H를 실제 높이에 맞춰 키웠다.
 const POP_W = 320;
-const POP_H = 260;
+const POP_H = 380;
 
-export function PostedCell({ task, today, onMarkPosted, onMarkRemoved, onUnmarkRemoved }: {
-  task: CampaignTaskItem; today: string;
-  onMarkPosted: (date: string, postUrl?: string) => void;
+export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRemoved, onUnmarkRemoved, onSetProof }: {
+  task: CampaignTaskItem; today: string; proofSignedUrl: string | null;
+  onMarkPosted: (date: string, postUrl?: string, proof?: string) => void;
   onMarkRemoved: (date: string, reason: string) => void;
   onUnmarkRemoved: () => void;
+  onSetProof: (path: string | null) => void;
 }) {
   const stage = taskStage(task, today);
   const tag = stageTag(task);
@@ -28,6 +31,7 @@ export function PostedCell({ task, today, onMarkPosted, onMarkRemoved, onUnmarkR
   const [url, setUrl] = useState('');
   const [reason, setReason] = useState('');
   const [err, setErr] = useState('');
+  const [pendingProof, setPendingProof] = useState<string | null>(null);   // 아직 저장 전 — [게시됨으로 표시]와 함께 나간다
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
 
@@ -65,7 +69,7 @@ export function PostedCell({ task, today, onMarkPosted, onMarkRemoved, onUnmarkR
     };
   }, [open, close, place]);
 
-  function openPop() { setDate(today); setUrl(''); setReason(task.removedReason); setErr(''); place(); setOpen(true); }
+  function openPop() { setDate(today); setUrl(''); setReason(task.removedReason); setErr(''); setPendingProof(null); place(); setOpen(true); }
   const label = stage === 'published' ? `게시됨 ${formatDateKo(task.postedAt as string)}`
     : stage === 'removed' ? `내려짐 ${formatDateKo(task.removedAt as string)}`
     : TASK_STAGE_LABEL[stage];
@@ -73,9 +77,10 @@ export function PostedCell({ task, today, onMarkPosted, onMarkRemoved, onUnmarkR
 
   function submitPosted() {
     if (!isDateOnlyString(date)) { setErr(DATE_MESSAGE); return; }
+    if (task.type === 'rt' && !pendingProof) { setErr('증빙 스크린샷을 넣어야 게시됨으로 표시할 수 있어요'); return; }
     const u = url.trim();
     if (u) { const p = parseTweetLink(u); if (!p.ok) { setErr(tweetLinkParseMessage(p.reason)); return; } }
-    onMarkPosted(date, u || undefined); close();
+    onMarkPosted(date, u || undefined, pendingProof ?? undefined); close();
   }
   function submitRemoved() {
     if (!isDateOnlyString(date)) { setErr(DATE_MESSAGE); return; }
@@ -96,7 +101,11 @@ export function PostedCell({ task, today, onMarkPosted, onMarkRemoved, onUnmarkR
           {!task.postedAt ? (
             <>
               <p className="text-ui font-bold">게시 확인</p>
-              <p className="mt-0.5 text-ui text-x-muted">게시된 날을 적으면 이 작업이 게시됨으로 바뀌고 정산 후보가 돼요</p>
+              <p className="mt-0.5 text-ui text-x-muted">
+                {task.type === 'rt'
+                  ? '게시된 날을 적고 증빙 스크린샷을 넣으면 게시됨으로 바뀌고 정산 후보가 돼요'
+                  : '게시된 날을 적으면 이 작업이 게시됨으로 바뀌고 정산 후보가 돼요'}
+              </p>
               <label className="mt-2 block text-ui text-x-secondary">게시된 날
                 <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setErr(''); }} className={input} />
               </label>
@@ -106,10 +115,19 @@ export function PostedCell({ task, today, onMarkPosted, onMarkRemoved, onUnmarkR
                   <span className="mt-0.5 block text-ui text-x-muted">링크를 붙이면 트래킹에도 등록돼 조회·좋아요가 잡혀요</span>
                 </label>
               )}
+              {task.type === 'rt' && (
+                <TaskProofField taskId={task.id} value={pendingProof} signedUrl={null}
+                                postedAt={null} influencerHandle={task.influencerHandle}
+                                required canRemove disabled={false}
+                                onChange={(p) => { setPendingProof(p); setErr(''); }} />
+              )}
               {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
               <div className="mt-2 flex items-center gap-2">
                 <button type="button" onClick={close} className="ml-auto rounded-full px-3 py-1 text-ui text-x-secondary hover:bg-x-text/5">취소</button>
-                <button type="button" onClick={submitPosted} className="rounded-full bg-x-blue px-3 py-1 text-ui font-bold text-white hover:bg-x-blue-hover">게시됨으로 표시</button>
+                <button type="button" onClick={submitPosted}
+                        disabled={task.type === 'rt' && !pendingProof}
+                        title={task.type === 'rt' && !pendingProof ? '증빙 스크린샷을 넣어야 눌러요' : undefined}
+                        className="rounded-full bg-x-blue px-3 py-1 text-ui font-bold text-white hover:bg-x-blue-hover disabled:cursor-not-allowed disabled:opacity-50">게시됨으로 표시</button>
               </div>
             </>
           ) : !task.removedAt ? (
@@ -122,6 +140,20 @@ export function PostedCell({ task, today, onMarkPosted, onMarkRemoved, onUnmarkR
               <label className="mt-2 block text-ui text-x-secondary">사유 <span className="text-x-muted">선택</span>
                 <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="본인 요청" className={input} />
               </label>
+              {/* key: 실패한 '바꾸기'가 롤백되면 task.proof.url이 이전 값으로 되돌아간다 — 그때 이 칸을 새로
+                  마운트해 컴포넌트 내부의 미리보기(방금 올린 실패 이미지)를 걷어내고 이전 값으로 다시 그린다. */}
+              {task.type === 'rt' && (
+                <TaskProofField key={task.proof?.url ?? 'none'} taskId={task.id} value={task.proof?.url ?? null} signedUrl={proofSignedUrl}
+                                postedAt={task.postedAt} influencerHandle={task.influencerHandle}
+                                required={false} canRemove={false} disabled={false}
+                                onChange={(p) => onSetProof(p)} />
+              )}
+              {task.type === 'rt' && task.proof && (
+                <p className="mt-0.5 text-ui text-x-muted">{task.proof.byName || '누군가'}가 {formatDateKo(task.proof.at.slice(0, 10))} 올림</p>
+              )}
+              {task.type === 'rt' && !task.proof && (
+                <p className="mt-0.5 text-ui text-amber-700">증빙 없음 — 지금 채울 수 있어요</p>
+              )}
               {task.postUrl && <a href={task.postUrl} target="_blank" rel="noreferrer" className="mt-2 block text-ui text-x-blue-text hover:underline">게시물 보기 ↗</a>}
               {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
               <div className="mt-2 flex items-center gap-2">
@@ -133,6 +165,14 @@ export function PostedCell({ task, today, onMarkPosted, onMarkRemoved, onUnmarkR
             <>
               <p className="text-ui font-bold">내려짐 {formatDateKo(task.removedAt)}</p>
               {task.removedReason && <p className="mt-0.5 text-ui text-x-secondary">{task.removedReason}</p>}
+              {/* key: 실패한 '바꾸기'가 롤백되면 task.proof.url이 이전 값으로 되돌아간다 — 그때 이 칸을 새로
+                  마운트해 컴포넌트 내부의 미리보기(방금 올린 실패 이미지)를 걷어내고 이전 값으로 다시 그린다. */}
+              {task.type === 'rt' && (
+                <TaskProofField key={task.proof?.url ?? 'none'} taskId={task.id} value={task.proof?.url ?? null} signedUrl={proofSignedUrl}
+                                postedAt={task.postedAt} influencerHandle={task.influencerHandle}
+                                required={false} canRemove={false} disabled={false}
+                                onChange={(p) => onSetProof(p)} />
+              )}
               <p className="mt-1 text-ui text-x-muted">잘못 표시했으면 취소할 수 있어요</p>
               <div className="mt-2 flex items-center gap-2">
                 <button type="button" onClick={close} className="ml-auto rounded-full px-3 py-1 text-ui text-x-secondary hover:bg-x-text/5">닫기</button>

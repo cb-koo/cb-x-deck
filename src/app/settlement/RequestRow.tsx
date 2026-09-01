@@ -28,7 +28,7 @@ export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel }: { r:
           <span className="text-ui text-x-secondary whitespace-nowrap">{PAYMENT_TYPE_LABEL[r.paymentMethod.type]}</span>
           <span className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${TONE_CLASS[st.tone]}`} title={st.title}>{st.label}</span>
         </div>
-        <div className="mt-1 pl-0 text-ui text-x-muted">마감 {r.deadlineOn} · 요청자 {r.requesterName}{paid && r.paidAmountKrw !== null && <> · {paidText(r.amountKrw, r.paidAmountKrw)}</>}</div>
+        <div className="mt-1 pl-0 text-ui text-x-muted">마감 {r.deadlineOn} · 요청자 {r.requesterName}{paid && r.paidAmountKrw !== null && <> · {paidText(r.grossKrw, r.paidAmountKrw)}</>}</div>
       </button>
       {open && (
         <div className="mt-3 rounded-xl bg-x-surface p-4 text-ui">

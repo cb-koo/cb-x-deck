@@ -38,11 +38,21 @@ export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel }: { r:
             <Item k="분류" v={r.category} sub={r.categoryDefault && r.categoryDefault !== r.category ? `미리 채운 값: ${r.categoryDefault}` : undefined} />
             <Item k="항목" v={r.itemText} />
             <Item k="목적" v={r.purposeText} />
-            <Item k="금액" v={`${formatMoney(r.amountGross, r.payoutCurrency)}${r.feeAmount > 0 ? ` (${r.amountNet.toLocaleString('ko-KR')} + ${r.feeAmount.toLocaleString('ko-KR')} 수수료)` : ''}`}
-                  sub={<>
-                    단가 {formatMoney(r.amountKrw, 'KRW')} · 환율 {r.rateKrwPerJpy}원 = 1엔
-                    {r.feeAmount > 0 && <><br />실지출 {formatMoney(r.grossKrw, 'KRW')}</>}
-                  </>} />
+            {/* 금액은 통화별로 줄을 나눈다 — 한 줄에 송금액·순액·수수료·단가·실지출 다섯 숫자가 몰리면 어느 게 어느 건지 안 읽힌다(koo 09-01).
+                '원화' 줄은 엔화로 보낼 때만: 원화로 보내면 송금액이 곧 원화라 같은 숫자가 두 번 나오고,
+                그 경우 단가는 아래 '순액'이 이미 말해 준다(원화 지급이면 순액 = 단가). */}
+            <Item k="송금액" v={formatMoney(r.amountGross, r.payoutCurrency)}
+                  sub={r.feeAmount > 0
+                    ? `순액 ${formatMoney(r.amountNet, r.payoutCurrency)} + 송금 수수료 ${formatMoney(r.feeAmount, r.payoutCurrency)}`
+                    : undefined} />
+            {r.payoutCurrency === 'JPY' && (
+              <Item k="원화"
+                    v={r.grossKrw !== r.amountKrw ? `실지출 ${formatMoney(r.grossKrw, 'KRW')}` : formatMoney(r.amountKrw, 'KRW')}
+                    sub={[
+                      r.grossKrw !== r.amountKrw ? `단가 ${formatMoney(r.amountKrw, 'KRW')}` : null,
+                      r.payoutCurrency === 'JPY' ? `환율 ${r.rateKrwPerJpy}원 = 1엔` : null,
+                    ].filter(Boolean).join(' · ')} />
+            )}
             <Item k="데드라인" v={r.deadlineOn} />
             <Item k="결제수단" v={describeSnapshot(r.paymentMethod)} />
             <Item k="참고자료" v={r.referenceUrl ? <a href={r.referenceUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline break-all">{r.referenceUrl}</a> : '—'} />

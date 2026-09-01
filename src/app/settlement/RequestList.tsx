@@ -7,7 +7,7 @@ import { useSignedTaskProofUrls } from '@/components/useSignedTaskProofUrls';
 import { RequestRow } from './RequestRow';
 import { CancelDialog } from './CancelDialog';
 import { uniqPairs } from './uniqPairs';
-import { STATUS_GROUP_OPTIONS, inGroup, keyOf, type StatusGroup } from '@/lib/settlementDisplay';
+import { STATUS_GROUP_OPTIONS, inGroup, keyOf, needsDiffAck, type StatusGroup } from '@/lib/settlementDisplay';
 import { kstDate } from '@/lib/datetime';
 
 const SEL = 'rounded-lg border border-x-border bg-white px-2.5 py-1.5 text-ui';
@@ -47,6 +47,9 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
     && (!filter.from || kstDate(r.createdAt) >= filter.from)
     && (!filter.to || kstDate(r.createdAt) <= filter.to)), [rows, filter]);
 
+  // 차액 확인이 필요한 건 — 알림이 없으므로 화면 안에서 눈에 띄어야 한다(스펙 §6-5)
+  const needAck = useMemo(() => (rows ?? []).filter((r) => needsDiffAck(r)), [rows]);
+
   // 증빙 서명 URL — 한 번에 펼쳐지는 행은 하나뿐이라 그 행의 증빙만 서명한다(목록은 단조 증가하므로 전량을
   // 미리 서명하면 낭비가 계속 커진다, 리뷰 수정 5). 훅 호출 자체는 화면당 정확히 1회·조건부 return보다
   // 앞에서 여전히 무조건 실행된다 — 입력 배열의 길이만 펼침 여부에 따라 0~1개로 바뀔 뿐이다.
@@ -83,6 +86,12 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
           <input type="date" className={SEL} value={filter.to} onChange={(e) => setFilter({ ...filter, to: e.target.value })} aria-label="종료일" />
         </label>
       </div>
+      {needAck.length > 0 && filter.status !== 'paid_diff' && (
+        <p className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-ui text-amber-700">
+          정산 금액이 요청과 다른 지급이 {needAck.length}건 있어요 — 확인해 주세요
+          <button type="button" className="underline" onClick={() => setFilter({ ...filter, status: 'paid_diff' })}>보기</button>
+        </p>
+      )}
       <h2 className="mt-4 text-[16px] font-semibold">요청 내역 {filtered.length}</h2>
       {filtered.length === 0 ? (
         <p className="mt-6 rounded-xl border border-dashed border-x-border p-8 text-center text-ui text-x-muted">
@@ -92,7 +101,7 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
         <ul className="mt-3 divide-y divide-x-border rounded-xl border border-x-border bg-white">
           {filtered.map((r) => (
             <RequestRow key={r.id} r={r} open={open === r.id} proofSignedUrl={r.proof ? proofUrls[r.proof.url] ?? null : null}
-                        onToggle={() => setOpen(open === r.id ? null : r.id)} onCancel={() => setCancelling(r)} />
+                        onToggle={() => setOpen(open === r.id ? null : r.id)} onCancel={() => setCancelling(r)} onChanged={() => void load()} />
           ))}
         </ul>
       )}

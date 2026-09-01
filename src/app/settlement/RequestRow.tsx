@@ -6,11 +6,12 @@ import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPE_LABEL } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
 import { describeSnapshot } from '@/lib/settlementCalc';
-import { displayStatus, TONE_CLASS, paidText, settlementDetail } from '@/lib/settlementDisplay';
+import { displayStatus, TONE_CLASS, paidText } from '@/lib/settlementDisplay';
 import { proofUploadedLine } from '@/lib/taskProofGuard';
 import { ImageLightbox } from '@/components/ImageLightbox';
+import { PartnerResultBlock } from './PartnerResultBlock';
 
-export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel }: { r: PaymentRequestRow; open: boolean; proofSignedUrl: string | null; onToggle: () => void; onCancel: () => void }) {
+export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel, onChanged }: { r: PaymentRequestRow; open: boolean; proofSignedUrl: string | null; onToggle: () => void; onCancel: () => void; onChanged: () => void }) {
   const [zoom, setZoom] = useState(false);
   const cancelled = r.status === 'cancelled';
   const paid = r.externalStatus === 'paid';
@@ -69,11 +70,12 @@ export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel }: { r:
                   ? <img src={proofSignedUrl} alt="증빙 스크린샷" onClick={() => setZoom(true)}
                          className="h-16 w-16 cursor-zoom-in rounded border border-x-border object-cover" />
                   : '있음')
-                : '—'} sub={r.proof ? proofUploadedLine(r.proof.byName, r.proof.at) : undefined} />
+                : '—'} sub={<>{r.proof ? proofUploadedLine(r.proof.byName, r.proof.at) : null}
+                              <div className="text-x-muted">정산에는 안 보내요 (우리 보관용)</div></>} />
             )}
             <Item k="메모" v={r.note || '—'} />
-            <Item k="정산" v={settlementDetail(r)} />
           </dl>
+          <PartnerResultBlock r={r} onChanged={onChanged} />
           <div className="mt-3 flex items-center justify-between text-x-muted">
             <span>만든 사람 {r.requesterName} · {new Date(r.createdAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
               {cancelled && <> · <span className="text-x-secondary">취소 · {r.cancelledByName} · {r.cancelledAt ? new Date(r.cancelledAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : ''} · {r.cancelReason}</span></>}

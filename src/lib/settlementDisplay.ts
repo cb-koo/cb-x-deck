@@ -47,6 +47,12 @@ export function keyOf(s: StatusSource): DisplayKey {
   }
 }
 
+// 그쪽 처리 상태의 평이한 라벨(날짜 없음) — 요청 펼침의 '정산 프로덕트가 보낸 결과' 블록 전용.
+// displayStatus()의 배지 라벨(날짜·차액 문구 포함)과는 쓰임이 달라 따로 둔다. 내부어(on_hold 등)를 밖으로 내보내지 않는 것은 여기도 동일.
+export const EXTERNAL_STATUS_LABEL: Record<ExternalStatus, string> = {
+  received: '정산 접수', scheduled: '지급 예정', paid: '지급 완료', on_hold: '보류', cancelled: '정산에서 취소',
+};
+
 export function displayStatus(s: StatusSource, where: 'list' | 'campaign'): StatusDisplay {
   const key = keyOf(s);
   const extDay = kstMonthDay(s.externalUpdatedAt);

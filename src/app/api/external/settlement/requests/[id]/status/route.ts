@@ -48,7 +48,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: '요청을 찾을 수 없어요' }, { status: 404, headers: NO_STORE });
   }
   const exp = await getForExport(sql, id);
-  const item = exp ? toExternalItem(exp) : null;
+  const item = exp ? toExternalItem(exp, new URL(req.url).origin) : null;
   if (r.kind === 'conflict') {
     recordExternalCallSafe({ ...c, requestId: id, statusCode: 409, outcome: 'conflict', detail: r.code, sentStatus: parsed.update.status, body: raw });
     return NextResponse.json({ error: CONFLICT_MESSAGE[r.code], code: r.code, request: item }, { status: 409, headers: NO_STORE });

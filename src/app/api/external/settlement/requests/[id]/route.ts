@@ -31,5 +31,5 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     return NextResponse.json({ error: '요청을 찾을 수 없어요' }, { status: 404, headers: NO_STORE });
   }
   recordExternalCallSafe({ ...c, requestId: id, statusCode: 200, outcome: 'ok' });
-  return NextResponse.json({ version: EXTERNAL_API_VERSION, item: toExternalItem(row) }, { headers: NO_STORE });
+  return NextResponse.json({ version: EXTERNAL_API_VERSION, item: toExternalItem(row, new URL(req.url).origin) }, { headers: NO_STORE });
 }

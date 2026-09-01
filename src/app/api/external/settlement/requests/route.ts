@@ -37,10 +37,11 @@ export async function GET(req: Request) {
   const limit = clampLimit(url.searchParams.get('limit'));
   const rows = await listForExport(getSql(), cursor, limit);
   const last = rows.at(-1);
+  const origin = url.origin;
   recordExternalCallSafe({ ...c, statusCode: 200, outcome: 'ok', detail: `${rows.length}건` });
   return NextResponse.json({
     version: EXTERNAL_API_VERSION,
-    items: rows.map(toExternalItem),
+    items: rows.map((r) => toExternalItem(r, origin)),
     next_cursor: last ? encodeCursor({ updatedAtUs: last.updatedAtUs, id: last.row.id }) : rawCursor,
     has_more: rows.length === limit,
   }, { headers: NO_STORE });

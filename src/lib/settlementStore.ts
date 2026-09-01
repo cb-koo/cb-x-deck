@@ -280,7 +280,7 @@ export async function listRequests(sql: postgres.Sql, f: RequestFilter): Promise
   return rows.map(toRequest);
 }
 
-// ── 그쪽(정산 프로덕트) 연동(스펙 payment-api §5·§6) ──
+// ── 그쪽(정산 프로덕트) 연동(스펙 payment-api §5·§6, 증빙 2026-09-01-proof-to-partner-design.md §5) ──
 // 커서 조회: (updated_at, id) 오름차순. 커서의 µs 정수를 정수 연산으로 timestamptz로 되돌려 인덱스를 그대로 탄다.
 async function exportRows(sql: postgres.Sql, ids: string[], usById: Map<string, string>): Promise<ExportRow[]> {
   if (!ids.length) return [];
@@ -290,10 +290,21 @@ async function exportRows(sql: postgres.Sql, ids: string[], usById: Map<string, 
     ? await sql<Array<{ id: string; email: string | null; slack_id: string | null }>>`select id, email, slack_id from member where id in ${sql(memberIds)}`
     : [];
   const mem = new Map(members.map((m) => [m.id, m]));
+  // 증빙만 라이브(작업의 현재값), 금액·계좌·기한 등 나머지는 스냅샷 그대로(위 R_SELECT/toRequest) — 의도된 비대칭이다(스펙 §5).
+  // 돈 값은 "요청 시점에 담당자가 승인한 값"이 진실이어야 하지만, 증빙의 목적은 "지금 실제로 했는지"라 최신이 맞다.
+  // task_id가 있는 요청만 campaign_task.proof를 조인한다 — task_id가 null(작업이 지워진 오래된 요청)이면
+  // payment_request.proof 스냅샷(toRequest가 이미 taskProofOf로 해석해 둔 값)으로 폴백한다.
+  const taskIds = [...new Set(rows.map((r) => r.task_id).filter((x): x is string => !!x))];
+  const liveProofs = taskIds.length
+    ? await sql<Array<{ id: string; proof: unknown }>>`select id, proof from campaign_task where id in ${sql(taskIds)}`
+    : [];
+  const liveProofByTask = new Map(liveProofs.map((t) => [t.id, taskProofOf(t.proof)]));
   const byId = new Map(rows.map((r) => [r.id, r]));
   return ids.map((id) => byId.get(id)).filter((r): r is RRow => !!r).map((r) => {
     const m = r.requester_member_id ? mem.get(r.requester_member_id) : undefined;
-    return { row: toRequest(r), updatedAtUs: usById.get(r.id) ?? '0', requester: { email: m?.email ?? null, slackId: m?.slack_id ?? null } };
+    const request = toRequest(r);
+    const proof = request.taskId ? (liveProofByTask.get(request.taskId) ?? null) : request.proof;
+    return { row: request, updatedAtUs: usById.get(r.id) ?? '0', requester: { email: m?.email ?? null, slackId: m?.slack_id ?? null }, proof };
   });
 }
 export async function listForExport(sql: postgres.Sql, cursor: Cursor | null, limit: number): Promise<ExportRow[]> {

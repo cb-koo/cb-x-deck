@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { createClient, deleteClient } from './clientStore.ts';
 import { createCampaign } from './campaignStore.ts';
-import { createTasks, updateTask, getTask } from './campaignTaskStore.ts';
+import { createTasks, updateTask, getTask, deleteTask } from './campaignTaskStore.ts';
 import { createInfluencer, updatePaymentMethods, deleteInfluencer } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettings.ts';
 import { isSettlementCandidate } from './campaignJudgment.ts';
@@ -348,6 +348,58 @@ test('listForExport — 같은 시각에 갱신된 3건이 limit 2로 두 페이
   await sql`update payment_request set updated_at = now() - interval '31 seconds' where id = ${fresh.row.id}`;
   const afterLag = await listForExport(sql, startCursor, 500);
   assert.equal(afterLag.some((e) => e.row.id === fresh.row.id), true);
+});
+
+// 증빙 2026-09-01-proof-to-partner-design.md §5(koo 결정 B) — 돈은 스냅샷, 증빙만 작업의 현재값
+async function requestForRt(handle: string, campSuffix: string) {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라' + campSuffix);
+  const camp = await createCampaign(sql, base(c.id, c.name, campSuffix, 'visit'));
+  await influencerWithPaypal(H(handle));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', targetTweetUrl: 'https://x.com/target/status/1', items: [{ handle: H(handle), cost: { amount: 30000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
+  const [row] = await createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-28');
+  return { row, task: t, member: m };
+}
+
+test('getForExport — proof는 작업의 현재값을 따른다: 요청 뒤 작업에 증빙을 올리면 반영된다', async () => {
+  const { row, task } = await requestForRt('exp1', 'ep1');
+  const before = await getForExport(sql, row.id);
+  assert.equal(before?.proof, null);   // 요청 시점엔 증빙이 없었다
+  const proof = { url: `task/${task.id}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png`, by: null, byName: '박구건', at: '2026-08-31T01:00:00.000Z' };
+  await updateTask(sql, task.id, { proof });
+  const after = await getForExport(sql, row.id);
+  assert.deepEqual(after?.proof, proof);   // 요청 스냅샷(payment_request.proof)에는 없던 값이 다음 조회에 반영됨
+  // listForExport도 같은 exportRows(같은 조인)를 탄다 — 여기서는 30초 안전 지연을 우회하도록 시각을 뒤로 돌려 확인한다
+  await sql`update payment_request set updated_at = now() - interval '31 seconds' where id = ${row.id}`;
+  const startCursor = decodeCursor(encodeCursor({ updatedAtUs: String(Date.parse('2000-01-01T00:00:00Z') * 1000), id: '00000000-0000-0000-0000-000000000000' }))!;
+  const listed = (await listForExport(sql, startCursor, 500)).find((r) => r.row.id === row.id);
+  assert.deepEqual(listed?.proof, proof);
+});
+
+test('getForExport — task_id가 null(작업 삭제된 오래된 요청)이면 payment_request.proof 스냅샷으로 폴백', async () => {
+  const { row, task } = await requestForRt('exp2', 'ep2');
+  const proof = { url: `task/${task.id}/bbbbbbbb-cccc-dddd-eeee-ffffffffffff.png`, by: null, byName: '모에카', at: '2026-08-30T00:00:00.000Z' };
+  await updateTask(sql, task.id, { proof });
+  const live = await getForExport(sql, row.id);
+  assert.deepEqual(live?.proof, proof);   // task_id가 살아있는 동안은 라이브값
+  assert.deepEqual(live?.row.proof, null);   // 요청 생성 시점엔 증빙이 없었으니 스냅샷은 null(둘이 다르다는 확인)
+  await deleteTask(sql, task.id);   // FK on delete set null → payment_request.task_id가 null이 된다
+  const afterDelete = await getForExport(sql, row.id);
+  assert.equal(afterDelete?.row.taskId, null);
+  assert.deepEqual(afterDelete?.proof, null);   // 스냅샷도 null이었으니 폴백값도 null — 라이브였던 값이 새지 않는다
+});
+
+test('getForExport — RT가 아닌 유형도 작업에 증빙이 있으면 그대로 싣는다(있는 자료를 숨기지 않는다)', async () => {
+  const { row, task } = await requestFor('exp3', 'ep3');   // type: 'post' — reference_url로 이미 충분하지만, 있으면 감추지 않는다
+  const before = await getForExport(sql, row.id);
+  assert.equal(before?.proof, null);
+  const proof = { url: `task/${task.id}/cccccccc-dddd-eeee-ffff-000000000000.png`, by: null, byName: '테스트', at: '2026-08-31T02:00:00.000Z' };
+  await updateTask(sql, task.id, { proof });
+  const after = await getForExport(sql, row.id);
+  assert.deepEqual(after?.proof, proof);
 });
 
 test('applyExternalStatus — 규칙표: 첫 수신 sent_at, stale 무시, paid 로그, paid 정정, paid 이후 다른 상태 409', async () => {

@@ -1,9 +1,10 @@
 // 그쪽(정산 프로덕트) API 계약의 순수 부분 — 커서·상태 파서·직렬화. DB 없음.
-// 설계: docs/superpowers/specs/2026-08-28-payment-api-design.md §5·§6. 그쪽 전달 문서: docs/api/settlement-external-api.md
+// 설계: docs/superpowers/specs/2026-08-28-payment-api-design.md §5·§6, 2026-09-01-proof-to-partner-design.md §3·§5. 그쪽 전달 문서: docs/api/settlement-external-api.md
 import type { PaymentRequestRow } from './settlementStore.ts';            // 타입만 — 값 import면 settlementStore↔settlementExternal 순환
 import { EXTERNAL_STATUSES, type ExternalStatus } from './campaignTaskStore.ts';
 import { isUuidLike } from './uuid.ts';
 import type { PaymentFee } from './influencerPayment.ts';
+import type { TaskProof } from './taskProofGuard.ts';
 
 export const EXTERNAL_API_VERSION = 1;
 export const LIST_LIMIT_DEFAULT = 100;
@@ -32,7 +33,10 @@ export function clampLimit(raw: string | null): number {
 }
 
 // ── 직렬화(§5-3) — GET 목록·GET 단건·POST 응답이 전부 이 함수 하나를 쓴다 ──
-export interface ExportRow { row: PaymentRequestRow; updatedAtUs: string; requester: { email: string | null; slackId: string | null } }
+// proof는 이미 해석된 "실을 값"이다(settlementStore.exportRows가 결정) — task_id가 있으면 campaign_task.proof(현재값),
+// 없으면 row.proof(payment_request 스냅샷)로 이미 폴백된 상태로 들어온다(스펙 §5, koo 결정 B). 여기서는 DB를 만지지 않으므로
+// "라이브냐 스냅샷이냐"를 다시 판단하지 않고, 주어진 값을 그쪽 계약 모양(snake_case)으로만 바꾼다.
+export interface ExportRow { row: PaymentRequestRow; updatedAtUs: string; requester: { email: string | null; slackId: string | null }; proof: TaskProof | null }
 export interface ExternalItem {
   request_id: string; revision: 0 | 1; status: 'requested' | 'cancelled'; created_at: string; updated_at: string;
   cancelled: { at: string | null; by_name: string | null; reason: string | null } | null;
@@ -49,10 +53,14 @@ export interface ExternalItem {
   requester: { name: string; email: string | null; slack_id: string | null };
   note: string;
   settlement: { status: ExternalStatus | null; paid_amount_krw: number | null; paid_at: string | null; note: string | null; updated_at: string | null; external_id: string | null };
+  // RT 지급 전 확인 자료(스펙 §3). null인 경우 둘: ①RT가 아닌 유형(reference_url로 확인) ②RT인데 아직 증빙이 없음.
+  // url은 고정 엔드포인트(서명 URL이 아니다 — 서명 URL은 만료돼 캐시된 목록의 링크가 죽는다, 스펙 §4).
+  proof: { url: string; uploaded_at: string; uploaded_by: string } | null;
 }
 const SNAKE_PM: Record<string, string> = { type: 'type', holder: 'holder', currency: 'currency', email: 'email', paypalId: 'paypal_id', identifier: 'identifier', bank: 'bank', branch: 'branch', account: 'account' };
 
-export function toExternalItem(e: ExportRow): ExternalItem {
+// origin은 호출한 라우트의 new URL(req.url).origin — 하드코딩하면 스테이징·운영이 갈린다(part B가 만들 /proof 경로).
+export function toExternalItem(e: ExportRow, origin: string): ExternalItem {
   const r = e.row;
   const pm: Record<string, string> = {};
   for (const [k, v] of Object.entries(r.paymentMethod)) if (typeof v === 'string' && SNAKE_PM[k]) pm[SNAKE_PM[k]] = v;
@@ -77,6 +85,7 @@ export function toExternalItem(e: ExportRow): ExternalItem {
     requester: { name: r.requesterName, email: e.requester.email, slack_id: e.requester.slackId },
     note: r.note,
     settlement: { status: r.externalStatus, paid_amount_krw: r.paidAmountKrw, paid_at: r.paidAt, note: r.externalNote, updated_at: r.externalUpdatedAt, external_id: r.externalId },
+    proof: e.proof ? { url: `${origin}/api/external/settlement/requests/${r.id}/proof`, uploaded_at: e.proof.at, uploaded_by: e.proof.byName } : null,
   };
 }
 

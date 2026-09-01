@@ -529,3 +529,27 @@ test('19) getInfluencerDetail().paymentMethods 반영 + 없는 id는 PAYMENT_NOT
     (err: Error) => err.message === PAYMENT_NOT_FOUND,
   );
 });
+
+test('20) listInfluencers/findInfluencerById: settlement — 기본 수단의 통화·수수료만, 미등록은 null', async () => {
+  const { row: withPay } = await createInfluencer(sql, { handle: P + 'set1', createdBy: null });
+  const { row: noPay } = await createInfluencer(sql, { handle: P + 'set2', createdBy: null });
+
+  // 1번째(paypal, 수수료 없음)가 우선 기본이 됐다가, 2번째(계좌이체, CB 비율 5%)를 기본으로 지정 —
+  // settlement에는 지금 기본인 2번째 것만 실려야 한다(1번째의 이메일 등은 섞이면 안 된다).
+  await updatePaymentMethods(sql, withPay.id, { kind: 'add', input: paypalInput('ゆい') }, null);
+  const bankFee: PaymentMethodInput = {
+    type: 'bank', holder: '오오쿠보', currency: 'KRW', bank: '신한', account: '110000000000',
+    fee: { mode: 'grossUp', percent: 5 },
+  };
+  await updatePaymentMethods(sql, withPay.id, { kind: 'add', input: bankFee, makeDefault: true }, null);
+
+  const got = await findInfluencerById(sql, withPay.id);
+  assert.deepEqual(got!.settlement, { currency: 'KRW', fee: { mode: 'grossUp', percent: 5 } });
+  assert.deepEqual(Object.keys(got!.settlement!).sort(), ['currency', 'fee'], '계좌·수취인명 등은 담기지 않는다');
+
+  const gotNone = await findInfluencerById(sql, noPay.id);
+  assert.equal(gotNone!.settlement, null, '결제 수단 미등록은 null');
+
+  const listed = (await listInfluencers(sql)).find((r) => r.id === withPay.id);
+  assert.deepEqual(listed!.settlement, { currency: 'KRW', fee: { mode: 'grossUp', percent: 5 } });
+});

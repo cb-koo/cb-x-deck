@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parsePaymentMethodInput, applyPaymentOp, describeMethod, formatFee, getDefaultPaymentMethod,
+  settlementBadge,
   PAYMENT_TYPE_LABEL, PAYMENT_FIELD_LABEL, PAYMENT_NOT_FOUND,
   type PaymentMethod, type PaymentMethodInput,
 } from './influencerPayment.ts';
@@ -301,4 +302,18 @@ test('getDefaultPaymentMethod: 있으면 반환, 없으면 null', () => {
   assert.equal(getDefaultPaymentMethod([]), null);
   const list = applyPaymentOp([], { kind: 'add', input: bankInput() }, NOW, newId).list;
   assert.equal(getDefaultPaymentMethod(list), list[0]);
+});
+
+test('settlementBadge: 명부 목록 배지 5케이스', () => {
+  assert.deepEqual(settlementBadge(null), { label: '정산 조건 없음', muted: true });
+  assert.deepEqual(settlementBadge({ currency: 'KRW', fee: null }), { label: '₩ 원화 · 인플 부담', muted: false });
+  assert.deepEqual(settlementBadge({ currency: 'JPY', fee: null }), { label: '¥ 엔화 · 인플 부담', muted: false });
+  assert.deepEqual(
+    settlementBadge({ currency: 'JPY', fee: { mode: 'grossUp', percent: 5 } }),
+    { label: '¥ 엔화 · CB 5%', muted: false },
+  );
+  assert.deepEqual(
+    settlementBadge({ currency: 'JPY', fee: { mode: 'fixed', amount: 165 } }),
+    { label: '¥ 엔화 · CB 165엔', muted: false },
+  );
 });

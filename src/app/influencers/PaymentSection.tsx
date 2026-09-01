@@ -2,7 +2,7 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
-import { CURRENCY_LABEL, type Currency } from '@/lib/influencerPricing';
+import { CURRENCY_LABEL, CURRENCY_SYMBOL, type Currency } from '@/lib/influencerPricing';
 import {
   PAYMENT_TYPES, PAYMENT_TYPE_LABEL, describeMethod, formatFee, parsePaymentMethodInput,
   type PaymentMethod, type PaymentMethodType,
@@ -10,9 +10,6 @@ import {
 import { PANEL, PANEL_TITLE, errOf, useErrorReport } from './profileShared';
 import type { InfluencerLogRow } from '@/lib/influencerStore';
 
-// 통화 기호 — 목록 카드는 좁아서 '원/엔'(CURRENCY_LABEL)보다 기호가 읽기 쉽다. 폼 select는
-// PricingSection과 같이 '기호 + 말'을 둘 다 보여준다(처음 보는 사람 기준).
-const CURRENCY_SYMBOL: Record<Currency, string> = { KRW: '₩', JPY: '¥' };
 const CURRENCIES: readonly Currency[] = ['KRW', 'JPY'];
 
 // 수취인 칸의 이름은 유형에 따라 바뀐다 — 계좌이체에서 '수취인명'은 정산 담당이 쓰는 말이 아니다.

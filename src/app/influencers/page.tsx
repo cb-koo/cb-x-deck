@@ -6,11 +6,22 @@ import { Button } from '@/components/ui';
 import { formatKoCount } from '@/lib/formatKo';
 import { relTime } from '@/lib/relTime';
 import { judgeContact } from '@/lib/influencerJudgment';
+import { settlementBadge } from '@/lib/influencerPayment';
 import { AddInfluencersDialog } from './AddInfluencersDialog';
 import { BulkAnalyzeDialog, useBulkState } from './BulkAnalyzeDialog';
 import { Avatar, InfluencerProfile } from './InfluencerProfile';
 import { mergeQuery, parseTab, tabQuery, type TabKey } from '@/lib/profileTabs';
 import type { InfluencerRow } from '@/lib/influencerStore';
+
+// 정산 통화 필터 — '전체'가 기본이라 결제 수단 미등록 인플(운영 현황 86명)도 기본 목록에서 사라지지 않는다.
+type CurrencyFilter = 'all' | 'KRW' | 'JPY';
+const CURRENCY_FILTER_LABEL: Record<CurrencyFilter, string> = { all: '전체', KRW: '원화', JPY: '엔화' };
+const CURRENCY_FILTERS: readonly CurrencyFilter[] = ['all', 'KRW', 'JPY'];
+
+// 수수료 부담 필터 — '미등록'은 결제 수단 자체가 없는 인플(settlement === null), 'cb'/'influencer'는 등록된 것 중에서만 가른다.
+type FeeFilter = 'all' | 'cb' | 'influencer' | 'none';
+const FEE_FILTER_LABEL: Record<FeeFilter, string> = { all: '전체', cb: 'CB 부담', influencer: '인플 부담', none: '미등록' };
+const FEE_FILTERS: readonly FeeFilter[] = ['all', 'cb', 'influencer', 'none'];
 
 export default function InfluencersPage() {
   // useSearchParams는 Suspense 경계 필수 (clients/page.tsx·generate/page.tsx 선례)
@@ -29,6 +40,8 @@ function InfluencersSplit() {
   const [loadErr, setLoadErr] = useState(false);
   const [q, setQ] = useState('');
   const [tag, setTag] = useState<string | null>(null);
+  const [settleCurrency, setSettleCurrency] = useState<CurrencyFilter>('all');
+  const [settleFee, setSettleFee] = useState<FeeFilter>('all');
   const [adding, setAdding] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const bulk = useBulkState();   // 일괄 분석 진행 — 다이얼로그를 닫아도 이어지므로 모듈 스토어를 구독한다
@@ -68,16 +81,21 @@ function InfluencersSplit() {
     [rows],
   );
 
+  // 목록은 이미 전량 로드(rows)라 필터도 클라이언트에서 거른다 — 검색·태그와 같은 방식(서버 왕복 없음).
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
       if (tag && !r.tags.includes(tag)) return false;
+      if (settleCurrency !== 'all' && r.settlement?.currency !== settleCurrency) return false;
+      if (settleFee === 'none' && r.settlement !== null) return false;
+      if (settleFee === 'cb' && !r.settlement?.fee) return false;
+      if (settleFee === 'influencer' && !(r.settlement && !r.settlement.fee)) return false;
       if (!needle) return true;
       return r.handle.toLowerCase().includes(needle)
         || (r.displayName ?? '').toLowerCase().includes(needle)
         || r.tags.some((t) => t.toLowerCase().includes(needle));
     });
-  }, [rows, q, tag]);
+  }, [rows, q, tag, settleCurrency, settleFee]);
 
   // 리스트의 모든 행이 같은 순간을 기준으로 판단하도록 한 번만 계산해 공유한다.
   const now = new Date();
@@ -138,6 +156,23 @@ function InfluencersSplit() {
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·핸들·태그로 찾기"
                aria-label="인플루언서 검색"
                className="mb-2 w-full rounded-lg border border-x-border-strong px-2.5 py-1.5 text-ui outline-none focus:border-x-blue" />
+
+        <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1.5 px-0.5">
+          <label className="flex shrink-0 items-center gap-1.5 text-caption text-x-secondary">정산 통화
+            <select value={settleCurrency} onChange={(e) => setSettleCurrency(e.target.value as CurrencyFilter)}
+                    aria-label="정산 통화 필터"
+                    className="h-7 rounded-md border border-x-border-strong bg-white px-1.5 text-caption outline-none focus:border-x-blue">
+              {CURRENCY_FILTERS.map((c) => <option key={c} value={c}>{CURRENCY_FILTER_LABEL[c]}</option>)}
+            </select>
+          </label>
+          <label className="flex shrink-0 items-center gap-1.5 text-caption text-x-secondary">수수료 부담
+            <select value={settleFee} onChange={(e) => setSettleFee(e.target.value as FeeFilter)}
+                    aria-label="수수료 부담 필터"
+                    className="h-7 rounded-md border border-x-border-strong bg-white px-1.5 text-caption outline-none focus:border-x-blue">
+              {FEE_FILTERS.map((f) => <option key={f} value={f}>{FEE_FILTER_LABEL[f]}</option>)}
+            </select>
+          </label>
+        </div>
 
         {allTags.length > 0 && (
           <div className="mb-3 flex flex-wrap gap-1 px-0.5">
@@ -236,6 +271,8 @@ function RosterRow({ row, active, onSelect, now }: { row: InfluencerRow; active:
   // 프로필과 같은 판단 함수를 쓴다 — 명부와 프로필이 서로 다른 말을 하면 안 된다.
   // 점은 거들 뿐이고 뜻은 글자가 나른다(색·모양만으로 전달 금지).
   const { needsFollowup, daysSince } = judgeContact(row.lastContactAt, row.createdAt, now);
+  // 정산 조건 배지 — 통화·수수료 부담(스펙 §5-4). 계좌·이메일 등은 settlement 자체에 없다(목록 payload 절약).
+  const settle = settlementBadge(row.settlement);
 
   return (
     <button onClick={onSelect}
@@ -250,6 +287,7 @@ function RosterRow({ row, active, onSelect, now }: { row: InfluencerRow; active:
         </span>
         <span className="block text-caption text-x-muted">
           {meta.join(' · ')}
+          <span className={`ml-1.5 ${settle.muted ? 'text-x-muted' : 'font-medium text-x-text'}`}>{`· ${settle.label}`}</span>
           {needsFollowup && (
             <span className="ml-1.5 whitespace-nowrap font-medium text-red-600">
               <span aria-hidden>●</span>{' '}

@@ -8,6 +8,8 @@ export const PRICE_TYPE_LABEL: Record<PriceType, string> = {
   rt: 'RT', quoteRt: '인용RT', post: '투고', visit: '방문협찬',
 };
 export const CURRENCY_LABEL: Record<Currency, string> = { KRW: '원', JPY: '엔' };
+// 통화 기호 — 좁은 자리(목록 카드·명부 배지)는 '원/엔'보다 기호가 읽기 쉽다. 폼 select는 기호+말을 함께 보인다.
+export const CURRENCY_SYMBOL: Record<Currency, string> = { KRW: '₩', JPY: '¥' };
 
 export interface Pricing {
   currency?: Currency;

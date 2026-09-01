@@ -1,6 +1,6 @@
 // 정산 결제 수단 — 유형·검증·연산(add/update/remove/setDefault)·표시 도우미. DB 접근 없음.
 // influencerPricing.ts와 같은 문법: 검증은 실패 시 사용자 문구를 그대로 반환, 연산은 배열 전체를 새로 만든다.
-import { type Currency, formatMoney } from './influencerPricing.ts';
+import { type Currency, CURRENCY_LABEL, CURRENCY_SYMBOL, formatMoney } from './influencerPricing.ts';
 
 export type PaymentMethodType = 'paypal' | 'paypay' | 'bank';
 
@@ -164,6 +164,18 @@ export function formatFee(fee: PaymentFee | undefined, currency: Currency): stri
 
 export function getDefaultPaymentMethod(list: PaymentMethod[]): PaymentMethod | null {
   return list.find((m) => m.isDefault) ?? null;
+}
+
+// 명부 목록 배지 문구 — InfluencerRow.settlement(기본 결제 수단의 통화·수수료만)에서 파생.
+// 계좌·이메일 등은 settlement에 애초에 없으니 여기서도 다룰 일이 없다(스펙 §5-4).
+export function settlementBadge(
+  s: { currency: Currency; fee: PaymentFee | null } | null,
+): { label: string; muted: boolean } {
+  if (!s) return { label: '정산 조건 없음', muted: true };
+  const base = `${CURRENCY_SYMBOL[s.currency]} ${CURRENCY_LABEL[s.currency]}화`;
+  if (!s.fee) return { label: `${base} · 인플 부담`, muted: false };
+  if (s.fee.mode === 'grossUp') return { label: `${base} · CB ${s.fee.percent}%`, muted: false };
+  return { label: `${base} · CB ${formatMoney(s.fee.amount, s.currency)}`, muted: false };
 }
 
 // updated 로그의 fields — 실제로 바뀐 항목만, 사람이 읽을 문자열로. fee는 formatFee 문구로 비교(pricing 관례 — 값 그대로 비교 대신 표시 문구 비교로 통일).

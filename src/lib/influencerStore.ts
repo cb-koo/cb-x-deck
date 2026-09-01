@@ -5,7 +5,7 @@ import type { DraftStatus } from './draftStatus.ts';
 import type { UserInfo } from './getxapi.ts';
 import { draftVersionHash } from './draftStore.ts';
 import { diffPricing, mergePricing, type Currency, type Pricing, type PricingChange } from './influencerPricing.ts';
-import { applyPaymentOp, type PaymentMethod, type PaymentMethodChange, type PaymentOp } from './influencerPayment.ts';
+import { applyPaymentOp, type PaymentFee, type PaymentMethod, type PaymentMethodChange, type PaymentOp } from './influencerPayment.ts';
 import type { Activity, ContentType, TopicStat } from './analysisStats.ts';
 import { listInfluencerCampaigns, type InfluencerCampaignItem } from './campaignStore.ts';
 import type { TaskType } from './campaignJudgment.ts';
@@ -67,6 +67,9 @@ export interface InfluencerRow {
   lastContactAt: string | null;  // 파생: kind='manual' 로그만의 최신행 — "연락 기록" 축 (스펙 §① 라벨-값 일치)
   analyzedAt: string | null;  // 파생: influencer.analyzed_at — 목록에도 "언제 분석했는지"가 필요하다(v2 계정 분석)
   analysisV2: boolean;        // 파생: analysis jsonb에 activity 키가 있는지 — 값은 싣지 않는다(목록 payload 절약)
+  // 파생: payment_methods 중 기본 수단 하나의 통화·수수료만(스펙 §5-4) — 계좌·이메일 등은 목록에 싣지 않는다
+  // (전체 배열을 싣지 않는 이유는 InfluencerDetail.paymentMethods와 같은 privacy 경계).
+  settlement: { currency: Currency; fee: PaymentFee | null } | null;
 }
 
 export interface InfluencerLogRow {
@@ -98,6 +101,7 @@ type IRow = {
   last_log_at: Date | null; draft_count: string | number;
   last_contact_at: Date | null;
   analyzed_at: Date | null; analysis_v2: boolean | null; // jsonb `?` — analysis가 null이면 결과도 null
+  settlement: { currency?: Currency; fee?: PaymentFee | null } | null;
 };
 
 type LRow = {
@@ -124,6 +128,8 @@ const toRow = (r: IRow): InfluencerRow => ({
   lastContactAt: r.last_contact_at ? new Date(r.last_contact_at).toISOString() : null,
   analyzedAt: r.analyzed_at ? new Date(r.analyzed_at).toISOString() : null,
   analysisV2: Boolean(r.analysis_v2),
+  // currency 없는 깨진 데이터(예: isDefault만 있고 currency가 빠진 수단) 방어 — null로 떨어뜨린다.
+  settlement: r.settlement?.currency ? { currency: r.settlement.currency, fee: r.settlement.fee ?? null } : null,
 });
 
 const toLog = (r: LRow): InfluencerLogRow => ({
@@ -144,7 +150,11 @@ const SELECT = (sql: postgres.Sql) => sql`
          (select count(*) from draft d where lower(d.influencer_handle) = lower(i.handle)) as draft_count,
          (select max(l2.created_at) from influencer_log l2
            where l2.influencer_id = i.id and l2.kind = 'manual') as last_contact_at,
-         i.analyzed_at, (i.analysis ? 'activity') as analysis_v2
+         i.analyzed_at, (i.analysis ? 'activity') as analysis_v2,
+         -- 기본 결제 수단의 통화·수수료만(스펙 §5-4) — 전체 배열을 목록에 실으면 계좌·이메일 등이 새어나간다.
+         (select jsonb_build_object('currency', m->'currency', 'fee', m->'fee')
+            from jsonb_array_elements(coalesce(i.payment_methods, '[]'::jsonb)) m
+           where (m->>'isDefault')::bool limit 1) as settlement
     from influencer i`;
 
 const LOG_SELECT = (sql: postgres.Sql) => sql`

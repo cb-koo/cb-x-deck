@@ -13,8 +13,21 @@ export function PartnerResultBlock({ r, onChanged }: { r: PaymentRequestRow; onC
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
+  // "그쪽은 보냈다는데 우리 화면엔 없다" 조사가 시작되는 지점이 바로 여기(externalStatus 없음)다 —
+  // 호출 기록 링크가 가장 필요한 상태이므로 아래 블록과 똑같은 링크를 여기서도 보여준다.
+  const logLink = (
+    <a href={`/settlement?tab=log&request=${r.id}`} className="mt-3 inline-block text-ui text-x-blue-text hover:underline">
+      이 요청의 호출 기록 보기 →
+    </a>
+  );
+
   if (!r.externalStatus) {
-    return <p className="mt-3 border-t border-x-border pt-3 text-ui text-x-muted">아직 정산 쪽에서 확인 전이에요</p>;
+    return (
+      <div className="mt-3 border-t border-x-border pt-3">
+        <p className="text-ui text-x-muted">아직 정산 쪽에서 확인 전이에요</p>
+        {logLink}
+      </div>
+    );
   }
 
   const diff = paidDiff(r);
@@ -77,9 +90,7 @@ export function PartnerResultBlock({ r, onChanged }: { r: PaymentRequestRow; onC
 
       {err && <p role="alert" className="mt-2 text-ui text-red-700">{err}</p>}
 
-      <a href={`/settlement?tab=log&request=${r.id}`} className="mt-3 inline-block text-ui text-x-blue-text hover:underline">
-        이 요청의 호출 기록 보기 →
-      </a>
+      {logLink}
     </section>
   );
 }

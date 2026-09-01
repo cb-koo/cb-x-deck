@@ -34,7 +34,7 @@ export function ExternalLogTab({ focusRequestId }: { focusRequestId: string | nu
     <section>
       <p className="text-ui text-x-muted">정산 프로덕트가 우리 서버를 호출한 기록이에요. &quot;보냈는데 안 보인다&quot;는 상황이 생기면 여기서 확인해요.</p>
       <p className="mt-1 text-ui text-x-muted">호출자는 프로그램 이름으로 추정한 값이에요 — <strong className="font-semibold">행을 누르면</strong> 호출 경로·IP·프로그램 이름 전문이 펼쳐져요.</p>
-      <p className="mt-1 text-ui text-x-muted">8/31 이전 호출은 기록 기능 배포 전이라 남아 있지 않아요.</p>
+      <p className="mt-1 text-ui text-x-muted">기록은 8/31 저녁부터 남아요 — 그 직후 며칠은 빠진 호출이 있을 수 있어요.</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <select className={SEL} value={f.method ?? ''} onChange={(e) => setF({ ...f, method: (e.target.value || undefined) as 'GET' | 'POST' | undefined })} aria-label="방식">
           <option value="">방식 전체</option>
@@ -47,7 +47,10 @@ export function ExternalLogTab({ focusRequestId }: { focusRequestId: string | nu
         </label>
         {f.request && <button type="button" className="text-ui underline" onClick={() => setF({ ...f, request: undefined })}>요청 하나만 보는 중 — 전체 보기</button>}
       </div>
-      <h2 className="mt-4 text-[16px] font-semibold">호출 기록 {rows.length}</h2>
+      <h2 className="mt-4 text-[16px] font-semibold">최근 호출 기록 {rows.length}건</h2>
+      {rows.length === 50 && (
+        <p className="mt-1 text-ui text-x-muted">최근 50건만 보여요 — 더 뒤를 보려면 위 필터로 좁혀 주세요.</p>
+      )}
       {rows.length === 0 ? (
         <p className="mt-6 rounded-xl border border-dashed border-x-border p-8 text-center text-ui text-x-muted">
           아직 정산 프로덕트가 호출한 기록이 없어요.

@@ -367,7 +367,14 @@ export async function ackDiff(sql: postgres.Sql, id: string, by: { name: string 
   if (!cur) return 'not-found';
   const row = toRequest(cur);
   if (row.status === 'cancelled' || row.externalStatus !== 'paid' || row.paidAmountKrw === null || row.paidAmountKrw === row.grossKrw) return 'no-diff';
-  await sql`update payment_request set diff_ack_at = now(), diff_ack_by_name = ${by.name} where id = ${id}`;
+  // 읽은 금액이 그대로일 때만 확인을 찍는다 — 그 사이 그쪽이 금액을 정정했으면 사람이 본 적 없는 금액이다.
+  // (위 사전 가드는 잠금 없이 읽은 값 기준이라 그 자체로는 경쟁을 막지 못한다 — 이 조건부 UPDATE가 실제 방어선이다.)
+  const res = await sql`
+    update payment_request
+       set diff_ack_at = now(), diff_ack_by_name = ${by.name}
+     where id = ${id} and status <> 'cancelled' and external_status = 'paid'
+       and paid_amount_krw = ${row.paidAmountKrw}`;
+  if (res.count === 0) return 'no-diff';
   const [saved] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
   return toRequest(saved);
 }

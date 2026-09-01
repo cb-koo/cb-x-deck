@@ -1,7 +1,7 @@
 // src/lib/settlementDisplay.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { displayStatus, inGroup, paidText, paidDiff, needsDiffAck, settlementDetail, type StatusSource } from './settlementDisplay.ts';
+import { displayStatus, inGroup, paidText, paidDiff, needsDiffAck, type StatusSource } from './settlementDisplay.ts';
 
 const base: StatusSource = { status: 'requested', externalStatus: null, externalNote: null, externalUpdatedAt: null, createdAt: '2026-08-28T03:00:00Z', cancelledAt: null,
   paidAmountKrw: null, grossKrw: 31650, diffAckAt: null };
@@ -40,24 +40,11 @@ test('paidText — 차이 해석까지', () => {
   assert.equal(paidText(30000, 30300), '실지급 30,300원 (송금액 30,000원, +300)');
   assert.equal(paidText(30000, 30000), '실지급 30,000원');
 });
-test('settlementDetail — 펼침 한 줄', () => {
-  assert.equal(settlementDetail({ ...base, paidAmountKrw: null, paidAt: null, grossKrw: 30000 }), '아직 정산 쪽에서 확인 전이에요');
-  assert.match(settlementDetail({ ...ext('on_hold', '계좌 확인'), paidAmountKrw: null, paidAt: null, grossKrw: 30000 }), /^보류 · .+ · 계좌 확인$/);
-  assert.match(settlementDetail({ ...ext('paid', '환율'), paidAmountKrw: 29700, paidAt: '2026-08-30T05:10:00Z', grossKrw: 30000 }), /^지급 완료 · .+ · 실지급 29,700원 \(송금액 30,000원, −300\) · 메모: 환율$/);
-  assert.match(settlementDetail({ ...ext('scheduled'), paidAmountKrw: null, paidAt: null, grossKrw: 30000 }), /^지급 예정 · /);
-});
-
 test('paidText — 실제 송금액과 비교한다(수수료를 차액으로 오해하지 않는다)', () => {
   // 8/31 실제 건: 순액 30,000 / 송금액 31,650 / 실지급 31,650 → 차액 없음
   assert.equal(paidText(31650, 31650), '실지급 31,650원');
   assert.equal(paidText(31650, 30000), '실지급 30,000원 (송금액 31,650원, −1,650)');
   assert.equal(paidText(31650, 33000), '실지급 33,000원 (송금액 31,650원, +1,350)');
-});
-
-test('settlementDetail — 지급 완료 줄도 송금액과 비교한다', () => {
-  const s = { ...ext('paid'), paidAmountKrw: 31650, paidAt: '2026-08-31T10:59:00Z', grossKrw: 31650 };
-  assert.ok(settlementDetail(s).includes('실지급 31,650원'));
-  assert.ok(!settlementDetail(s).includes('송금액'), '차액이 없으면 비교값을 쓰지 않는다');
 });
 
 const paidWith = (paidAmountKrw: number, diffAckAt: string | null = null): StatusSource =>

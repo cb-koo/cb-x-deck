@@ -541,3 +541,20 @@ test('차액 확인 — 그쪽이 금액을 정정하면 확인이 풀린다', a
   assert.equal(after2.diffAckAt, null, '금액이 바뀌면 이전 확인은 다른 금액에 대한 확인이다');
   assert.equal(after2.diffAckByName, null);
 });
+
+test('ackDiff — 취소된 요청은 no-diff', async () => {
+  const { row, member } = await requestFor('diffack5', 'diffack5');
+  const cancelled = await cancelRequest(sql, row.id, '테스트', member);
+  assert.notEqual(cancelled, 'not-found'); assert.notEqual(cancelled, 'already-cancelled'); assert.notEqual(cancelled, 'paid-locked');
+  assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
+});
+
+test('ackDiff — 아직 지급 완료가 아니면 no-diff', async () => {
+  const { row } = await requestFor('diffack6', 'diffack6');
+  assert.equal(row.externalStatus, null);
+  assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
+});
+
+test('unackDiff — 없는 id는 not-found', async () => {
+  assert.equal(await unackDiff(sql, '00000000-0000-0000-0000-000000000000'), 'not-found');
+});

@@ -49,8 +49,12 @@ export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel }: { r:
               <Item k="원화"
                     v={r.grossKrw !== r.amountKrw ? `실지출 ${formatMoney(r.grossKrw, 'KRW')}` : formatMoney(r.amountKrw, 'KRW')}
                     sub={[
-                      r.grossKrw !== r.amountKrw ? `단가 ${formatMoney(r.amountKrw, 'KRW')}` : null,
-                      r.payoutCurrency === 'JPY' ? `환율 ${r.rateKrwPerJpy}원 = 1엔` : null,
+                      // 수수료를 원화로도 적는다 — 여기가 "실질 비용"을 보는 자리인데 차액을 사용자가 직접 빼게 두면 안 된다(koo 09-01).
+                      // 값은 실지출 − 단가로 낸다(수수료×환율이 아니라): 화면의 덧셈이 언제나 맞아떨어져야 한다(원가 원화→엔화 환산 시 반올림이 섞인다).
+                      r.grossKrw !== r.amountKrw
+                        ? `단가 ${formatMoney(r.amountKrw, 'KRW')} + 송금 수수료 ${formatMoney(r.grossKrw - r.amountKrw, 'KRW')}`
+                        : null,
+                      `환율 ${r.rateKrwPerJpy}원 = 1엔`,
                     ].filter(Boolean).join(' · ')} />
             )}
             <Item k="데드라인" v={r.deadlineOn} />

@@ -452,3 +452,43 @@ test('스키마 — influencer_id·client_id·category_option_id는 NOT NULL(042
   assert.equal(byName.get('client_id'), 'NO');
   assert.equal(byName.get('category_option_id'), 'NO');
 });
+
+// 045 생성 컬럼 — DB가 계산하는 값이라 "코드가 맞다"로는 검증되지 않는다. 실제 행으로 세 성질을 본다:
+// ① 엔화 지급이면 송금액×환율 ② 원화 지급이면 환산 없이 그대로 ③ 원본(환율)을 바꾸면 자동 재계산
+// ④ 손으로 쓰려 하면 DB가 거부. 이 중 하나라도 깨지면 그쪽에 잘못된 원화 금액이 나간다.
+test('045 gross_krw — 엔화는 ×환율, 원본 바꾸면 재계산, 직접 쓰기는 거부', async () => {
+  const { row } = await requestFor('gk1', 'gk1');
+  assert.equal(row.payoutCurrency, 'JPY');
+  assert.equal(row.grossKrw, row.amountGross * row.rateKrwPerJpy);   // 3158 × 10
+
+  // ③ 원본(환율)만 바꾸면 생성 컬럼이 따라온다 — 손으로 gross_krw를 고치지 않았는데도
+  await sql`update payment_request set rate_krw_per_jpy = 11 where id = ${row.id}`;
+  const [after] = await listRequests(sql, { taskId: row.taskId! });
+  assert.equal(after.rateKrwPerJpy, 11);
+  assert.equal(after.grossKrw, row.amountGross * 11);
+  await sql`update payment_request set rate_krw_per_jpy = 10 where id = ${row.id}`;
+
+  // ④ 직접 쓰기는 Postgres가 막는다(사본이 원본과 갈릴 수 없는 이유)
+  await assert.rejects(
+    sql`update payment_request set gross_krw = 1 where id = ${row.id}`,
+    /can only be updated to DEFAULT|generated column/i,
+  );
+});
+
+test('045 gross_krw — 원화 지급은 환산 없이 송금액 그대로', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라gk2');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'gk2', 'visit'));
+  const { row: inf } = await createInfluencer(sql, { handle: H('gk2'), createdBy: null });
+  await updatePaymentMethods(sql, inf.id, {
+    kind: 'add', input: { type: 'bank', holder: '원화수취인', currency: 'KRW', bank: '테스트은행', account: '000-0000' }, makeDefault: true,
+  }, null);
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H('gk2'), cost: { amount: 40000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: 'https://x.com/k/status/1' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
+  const [row] = await createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-28');
+  assert.equal(row.payoutCurrency, 'KRW');
+  assert.equal(row.amountGross, 40000);
+  assert.equal(row.grossKrw, 40000);   // 환율을 곱하지 않는다
+});

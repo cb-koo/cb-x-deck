@@ -61,13 +61,17 @@ export function inGroup(key: DisplayKey, g: StatusGroup): boolean {
 }
 
 const signed = (n: number) => (n > 0 ? `+${n.toLocaleString('ko-KR')}` : `−${Math.abs(n).toLocaleString('ko-KR')}`);
-export function paidText(amountKrw: number, paidAmountKrw: number): string {
-  const diff = paidAmountKrw - amountKrw;
-  return diff === 0 ? `실지급 ${formatMoney(paidAmountKrw, 'KRW')}` : `실지급 ${formatMoney(paidAmountKrw, 'KRW')} (요청 ${formatMoney(amountKrw, 'KRW')}, ${signed(diff)})`;
+// 그쪽 실지급액은 우리가 '실제로 보낸 금액'(gross_krw, 수수료 포함)과 비교한다.
+// amount_krw(수수료 제외 순액)와 비교하면 수수료가 차액으로 오해된다 — 2026-09-01 수정.
+export function paidText(grossKrw: number, paidAmountKrw: number): string {
+  const diff = paidAmountKrw - grossKrw;
+  return diff === 0
+    ? `실지급 ${formatMoney(paidAmountKrw, 'KRW')}`
+    : `실지급 ${formatMoney(paidAmountKrw, 'KRW')} (송금액 ${formatMoney(grossKrw, 'KRW')}, ${signed(diff)})`;
 }
 
 // 요청 내역 펼침의 '정산' 항목 한 줄
-export function settlementDetail(s: StatusSource & { paidAmountKrw: number | null; paidAt: string | null; amountKrw: number }): string {
+export function settlementDetail(s: StatusSource & { paidAmountKrw: number | null; paidAt: string | null; grossKrw: number }): string {
   if (!s.externalStatus) return '아직 정산 쪽에서 확인 전이에요';
   const when = kstDateTime(s.externalUpdatedAt);
   const memo = s.externalNote ? ` · 메모: ${s.externalNote}` : '';
@@ -75,7 +79,7 @@ export function settlementDetail(s: StatusSource & { paidAmountKrw: number | nul
     case 'received': return `정산 접수 · ${when}${memo}`;
     case 'scheduled': return `지급 예정 · ${when}${memo}`;
     case 'on_hold': return `보류 · ${when}${s.externalNote ? ` · ${s.externalNote}` : ''}`;
-    case 'paid': return `지급 완료 · ${kstDateTime(s.paidAt ?? s.externalUpdatedAt)} · ${paidText(s.amountKrw, s.paidAmountKrw ?? 0)}${memo}`;
+    case 'paid': return `지급 완료 · ${kstDateTime(s.paidAt ?? s.externalUpdatedAt)} · ${paidText(s.grossKrw, s.paidAmountKrw ?? 0)}${memo}`;
     case 'cancelled': return `정산에서 취소 · ${when}${memo}`;
   }
 }

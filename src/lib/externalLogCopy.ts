@@ -2,9 +2,10 @@
 // externalApiLog.ts(기록·조회)는 postgres를 top-level import하므로, 그 경로로 문구 함수를 가져가면
 // 브라우저 번들에 pg가 딸려 들어와 빌드가 깨진다 — 그래서 그 파일은 여기의 것을 재수출하지 않는다.
 import { kstDateTime, kstMonthDay } from './datetime.ts';
+import { TASK_TYPE_LABEL, type TaskType } from './campaignJudgment.ts';
 export type ExternalOutcome = 'ok' | 'applied' | 'stale' | 'unauthorized' | 'bad-request' | 'not-found' | 'conflict' | 'error';
 
-export interface ExternalLogTarget { handle: string; clientName: string; amountGross: number; payoutCurrency: string }
+export interface ExternalLogTarget { handle: string; clientName: string; amountGross: number; payoutCurrency: string; taskType: TaskType }
 
 export interface ExternalLogRow {
   id: string;
@@ -102,7 +103,7 @@ export function describeCaller(row: Pick<ExternalLogRow, 'userAgent' | 'ip'>): {
 export function describeTarget(row: Pick<ExternalLogRow, 'requestId' | 'target'>): string {
   if (row.target) {
     const amount = `${row.target.payoutCurrency === 'JPY' ? '¥' : '₩'}${row.target.amountGross.toLocaleString('ko-KR')}`;
-    return `@${row.target.handle} · ${row.target.clientName} · ${amount}`;
+    return `@${row.target.handle} · ${TASK_TYPE_LABEL[row.target.taskType]} · ${row.target.clientName} · ${amount}`;
   }
   if (row.requestId) return '찾을 수 없는 요청';
   return '—';

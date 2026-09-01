@@ -2,6 +2,7 @@ import type postgres from 'postgres';
 import { getUsageSql } from './db.ts';
 import { isUuidLike } from './uuid.ts';
 import type { ExternalOutcome, ExternalLogRow } from './externalLogCopy.ts';
+import type { TaskType } from './campaignJudgment.ts';
 
 // 문구 함수(describeExternalCall)와 타입은 './externalLogCopy.ts'에 있다 — 여기서 재수출하지 않는다.
 // 이 파일은 postgres를 top-level import하므로, 화면이 이 경로로 문구 함수를 가져가면 브라우저 번들에 pg가 들어가 빌드가 깨진다.
@@ -97,11 +98,11 @@ export async function listExternalLog(sql: postgres.Sql, q: ExternalLogQuery = {
       id: string; at: Date; method: string; path: string; request_id: string | null; status_code: number;
       outcome: ExternalOutcome; detail: string | null; sent_status: string | null; query: string | null; ip: string | null; user_agent: string | null;
       body: string | null;
-      influencer_handle: string | null; client_name: string | null; amount_gross: number | null; payout_currency: string | null;
+      influencer_handle: string | null; client_name: string | null; amount_gross: number | null; payout_currency: string | null; task_type: TaskType | null;
     }>
   >`
     select l.id, l.at, l.method, l.path, l.request_id, l.status_code, l.outcome, l.detail, l.sent_status, l.query, l.ip, l.user_agent, l.body,
-           p.influencer_handle, p.client_name, p.amount_gross, p.payout_currency
+           p.influencer_handle, p.client_name, p.amount_gross, p.payout_currency, p.task_type
       from external_api_log l
       left join payment_request p on p.id = l.request_id
      where ${q.method ? sql`l.method = ${q.method}` : sql`true`}
@@ -113,7 +114,7 @@ export async function listExternalLog(sql: postgres.Sql, q: ExternalLogQuery = {
     id: r.id, at: new Date(r.at).toISOString(), method: r.method, path: r.path, requestId: r.request_id, statusCode: r.status_code,
     outcome: r.outcome, detail: r.detail, sentStatus: r.sent_status, query: r.query, ip: r.ip, userAgent: r.user_agent, body: r.body,
     target: r.influencer_handle != null
-      ? { handle: r.influencer_handle, clientName: r.client_name!, amountGross: r.amount_gross!, payoutCurrency: r.payout_currency! }
+      ? { handle: r.influencer_handle, clientName: r.client_name!, amountGross: r.amount_gross!, payoutCurrency: r.payout_currency!, taskType: r.task_type! }
       : null,
   }));
 }

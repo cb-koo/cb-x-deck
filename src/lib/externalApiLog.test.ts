@@ -124,13 +124,18 @@ test('describeCaller — 그 외(node 등)는 정산 프로덕트로 추정', ()
 // --- describeTarget ---
 
 test('describeTarget — target 있음, JPY', () => {
-  const r = describeTarget({ requestId: 'r1', target: { handle: 'foo', clientName: '클라A', amountGross: 12000, payoutCurrency: 'JPY' } });
-  assert.equal(r, '@foo · 클라A · ¥12,000');
+  const r = describeTarget({ requestId: 'r1', target: { handle: 'foo', clientName: '클라A', amountGross: 12000, payoutCurrency: 'JPY', taskType: 'post' } });
+  assert.equal(r, '@foo · 투고 · 클라A · ¥12,000');
 });
 
 test('describeTarget — target 있음, KRW', () => {
-  const r = describeTarget({ requestId: 'r1', target: { handle: 'bar', clientName: '클라B', amountGross: 340000, payoutCurrency: 'KRW' } });
-  assert.equal(r, '@bar · 클라B · ₩340,000');
+  const r = describeTarget({ requestId: 'r1', target: { handle: 'bar', clientName: '클라B', amountGross: 340000, payoutCurrency: 'KRW', taskType: 'visit' } });
+  assert.equal(r, '@bar · 방문협찬 · 클라B · ₩340,000');
+});
+
+test('describeTarget — 같은 인플루언서라도 작업 유형이 다르면 문구로 구분된다(RT)', () => {
+  const r = describeTarget({ requestId: 'r1', target: { handle: 'minchannell', clientName: '손유나클리닉', amountGross: 2000, payoutCurrency: 'JPY', taskType: 'rt' } });
+  assert.equal(r, '@minchannell · RT · 손유나클리닉 · ¥2,000');
 });
 
 test('describeTarget — requestId 있는데 target 없음', () => {

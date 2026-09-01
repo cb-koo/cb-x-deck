@@ -492,3 +492,9 @@ test('045 gross_krw — 원화 지급은 환산 없이 송금액 그대로', asy
   assert.equal(row.amountGross, 40000);
   assert.equal(row.grossKrw, 40000);   // 환율을 곱하지 않는다
 });
+
+test('046 — 차액 확인 칸이 요청 행에 실려 나온다(기본값 없음)', async () => {
+  const { row } = await requestFor('diffack1', 'diffack1');
+  assert.equal(row.diffAckAt, null);
+  assert.equal(row.diffAckByName, null);
+});

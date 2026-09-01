@@ -106,6 +106,7 @@ export interface PaymentRequestRow {
   sentAt: string | null; externalId: string | null; note: string; createdAt: string; updatedAt: string;
   externalStatus: ExternalStatus | null; paidAmountKrw: number | null; paidAt: string | null; externalNote: string | null;
   externalUpdatedAt: string | null; influencerId: string; categoryOptionId: string;
+  diffAckAt: string | null; diffAckByName: string | null;
 }
 export interface CreateItemInput {
   taskId: string; category: string; deadlineOn: string; referenceUrl: string | null;
@@ -125,13 +126,15 @@ type RRow = {
   sent_at: Date | null; external_id: string | null; note: string; created_at: Date; updated_at: Date;
   external_status: ExternalStatus | null; paid_amount_krw: number | null; paid_at: Date | null; external_note: string | null;
   external_updated_at: Date | null; influencer_id: string; category_option_id: string;
+  diff_ack_at: Date | null; diff_ack_by_name: string | null;
 };
 const R_SELECT = (sql: postgres.Sql) => sql`
   select id, task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type, category, category_default,
          item_text, purpose_text, amount_krw, cost_currency, payout_currency, rate_krw_per_jpy, amount_net, fee, fee_amount, amount_gross, gross_krw,
          to_char(deadline_on, 'YYYY-MM-DD') as deadline_on, reference_url, proof, payment_method, requester_member_id, requester_name,
          status, cancelled_at, cancelled_by_name, cancel_reason, sent_at, external_id, note, created_at, updated_at,
-         external_status, paid_amount_krw, paid_at, external_note, external_updated_at, influencer_id, category_option_id
+         external_status, paid_amount_krw, paid_at, external_note, external_updated_at, influencer_id, category_option_id,
+         diff_ack_at, diff_ack_by_name
     from payment_request`;
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 const toRequest = (r: RRow): PaymentRequestRow => ({
@@ -144,6 +147,7 @@ const toRequest = (r: RRow): PaymentRequestRow => ({
   sentAt: iso(r.sent_at), externalId: r.external_id, note: r.note, createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
   externalStatus: r.external_status, paidAmountKrw: r.paid_amount_krw, paidAt: iso(r.paid_at), externalNote: r.external_note,
   externalUpdatedAt: iso(r.external_updated_at), influencerId: r.influencer_id, categoryOptionId: r.category_option_id,
+  diffAckAt: iso(r.diff_ack_at), diffAckByName: r.diff_ack_by_name,
 });
 
 const isHttpUrl = (u: string) => /^https?:\/\/\S+$/.test(u);

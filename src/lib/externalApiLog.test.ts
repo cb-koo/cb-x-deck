@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { insertExternalLog, listExternalLog, recordExternalCallSafe } from './externalApiLog.ts';
+import { insertExternalLog, listExternalLog, recordExternalCall } from './externalApiLog.ts';
 import { describeExternalCall, describeCaller, describeTarget } from './externalLogCopy.ts';
 import type { ExternalLogRow } from './externalLogCopy.ts';
 
@@ -26,6 +26,7 @@ const row = (over: Partial<ExternalLogRow> = {}): ExternalLogRow => ({
   query: null,
   ip: null,
   userAgent: null,
+  body: null,
   target: null,
   ...over,
 });
@@ -152,7 +153,7 @@ test('insertExternalLog + listExternalLog — 저장·조회 왕복, at desc, �
   await new Promise((r) => setTimeout(r, 5));
   await insertExternalLog(sql, { method: 'GET', path, statusCode: 200, outcome: 'ok', ip: '1.2.3.4', userAgent: 'ua-3' });
 
-  const rows = await listExternalLog(sql, 50);
+  const rows = await listExternalLog(sql, { limit: 50 });
   const mine = rows.filter((r) => r.path === path);
   assert.equal(mine.length, 3);
   assert.equal(mine[0].userAgent, 'ua-3');
@@ -171,7 +172,7 @@ test('insertExternalLog + listExternalLog — 저장·조회 왕복, at desc, �
 test('insertExternalLog — uuid 아닌 requestId는 request_id null + detail에 보낸 값', async () => {
   const path = P + '/requests/not-a-uuid/status';
   await insertExternalLog(sql, { method: 'POST', path, requestId: 'not-a-uuid', statusCode: 404, outcome: 'not-found' });
-  const rows = await listExternalLog(sql, 50);
+  const rows = await listExternalLog(sql, { limit: 50 });
   const r = rows.find((x) => x.path === path);
   assert.ok(r);
   assert.equal(r!.requestId, null);
@@ -182,7 +183,7 @@ test('insertExternalLog — 길이 초과 detail은 300자로 잘려 저장', as
   const path = P + '/requests/00000000-0000-0000-0000-000000000001/status';
   const longDetail = 'x'.repeat(400);
   await insertExternalLog(sql, { method: 'POST', path, statusCode: 400, outcome: 'bad-request', detail: longDetail });
-  const rows = await listExternalLog(sql, 50);
+  const rows = await listExternalLog(sql, { limit: 50 });
   const r = rows.find((x) => x.path === path);
   assert.ok(r);
   assert.equal(r!.detail!.length, 300);
@@ -193,7 +194,7 @@ test('listExternalLog — 대상 요청 조인: 존재하지 않는 요청 id면
   const path = P + '/requests/00000000-0000-0000-0000-0000000000fe/status';
   const missingRequestId = '00000000-0000-0000-0000-0000000000fe';
   await insertExternalLog(sql, { method: 'POST', path, requestId: missingRequestId, statusCode: 404, outcome: 'not-found' });
-  const rows = await listExternalLog(sql, 50);
+  const rows = await listExternalLog(sql, { limit: 50 });
   const r = rows.find((x) => x.path === path);
   assert.ok(r);
   assert.equal(r!.requestId, missingRequestId);
@@ -201,17 +202,37 @@ test('listExternalLog — 대상 요청 조인: 존재하지 않는 요청 id면
   assert.equal(describeTarget(r!), '찾을 수 없는 요청');
 });
 
-// --- recordExternalCallSafe: 킬스위치만 동기적으로 확인 ---
+// --- 본문 저장 ---
 
-test('recordExternalCallSafe — EXTERNAL_API_LOG=off이면 즉시 반환(예외 없음)', () => {
+test('본문 — 상태 전송 본문이 원문 그대로 남는다', async () => {
+  const body = '{"status":"paid","updated_at":"2026-09-01T01:00:00Z","paid_amount_krw":31650}';
+  await insertExternalLog(sql, { method: 'POST', path: P + '/body-ok', statusCode: 200, outcome: 'applied', sentStatus: 'paid', body });
+  const [row] = await listExternalLog(sql, { limit: 1 });
+  assert.equal(row.body, body);
+});
+
+test('본문 — 깨진 JSON도 원문 그대로 남는다(400으로 거부된 본문이 가장 보고 싶다)', async () => {
+  const body = '{"status":"paid", 이건 JSON이 아니다';
+  await insertExternalLog(sql, { method: 'POST', path: P + '/body-broken', statusCode: 400, outcome: 'bad-request', detail: 'body', body });
+  const [row] = await listExternalLog(sql, { limit: 1 });
+  assert.equal(row.body, body);
+});
+
+test('본문 — 4KB를 넘으면 잘리고 잘림 표시가 붙는다', async () => {
+  await insertExternalLog(sql, { method: 'POST', path: P + '/body-long', statusCode: 200, outcome: 'applied', body: 'x'.repeat(5000) });
+  const [row] = await listExternalLog(sql, { limit: 1 });
+  assert.equal(row.body!.length, 4096);
+  assert.ok(row.body!.endsWith('…(본문이 길어 여기서 잘렸어요)'));
+});
+
+test('recordExternalCall — EXTERNAL_API_LOG=off이면 아무것도 쓰지 않는다', async () => {
   const prev = process.env.EXTERNAL_API_LOG;
   process.env.EXTERNAL_API_LOG = 'off';
   try {
-    assert.doesNotThrow(() => {
-      recordExternalCallSafe({ method: 'GET', path: P + '/off-test', statusCode: 200, outcome: 'ok' });
-    });
+    await recordExternalCall({ method: 'GET', path: P + '/off-test', statusCode: 200, outcome: 'ok' });
+    const rows = await listExternalLog(sql, { limit: 50 });
+    assert.equal(rows.filter((r) => r.path === P + '/off-test').length, 0);
   } finally {
-    if (prev === undefined) delete process.env.EXTERNAL_API_LOG;
-    else process.env.EXTERNAL_API_LOG = prev;
+    if (prev === undefined) delete process.env.EXTERNAL_API_LOG; else process.env.EXTERNAL_API_LOG = prev;
   }
 });

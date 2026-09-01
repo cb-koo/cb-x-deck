@@ -6,5 +6,5 @@ import { listExternalLog } from '@/lib/externalApiLog';
 export async function GET() {
   const gate = await requireAllowedUser();
   if (gate.response) return gate.response;
-  return NextResponse.json({ rows: await listExternalLog(getSql(), 50) });
+  return NextResponse.json({ rows: await listExternalLog(getSql(), { limit: 50 }) });
 }

@@ -3,7 +3,7 @@ import { getSql } from '@/lib/db';
 import { bearerAuthorized } from '@/lib/externalAuth';
 import { toExternalItem, EXTERNAL_API_VERSION } from '@/lib/settlementExternal';
 import { getForExport } from '@/lib/settlementStore';
-import { recordExternalCallSafe } from '@/lib/externalApiLog';
+import { recordExternalCallSafe } from '@/lib/externalApiLogAfter';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 const ENV = 'SETTLEMENT_API_KEY';

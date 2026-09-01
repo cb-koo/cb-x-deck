@@ -3,7 +3,7 @@ import { getSql } from '@/lib/db';
 import { bearerAuthorized } from '@/lib/externalAuth';
 import { decodeCursor, encodeCursor, clampLimit, toExternalItem, EXTERNAL_API_VERSION } from '@/lib/settlementExternal';
 import { listForExport } from '@/lib/settlementStore';
-import { recordExternalCallSafe } from '@/lib/externalApiLog';
+import { recordExternalCallSafe } from '@/lib/externalApiLogAfter';
 
 // 그쪽(정산 프로덕트)이 폴링으로 가져간다 — 사람이 아니라 서버가 부르므로 세션 게이트가 아니라 공유 시크릿.
 // 설계: docs/superpowers/specs/2026-08-28-payment-api-design.md §5. 그쪽 문서: docs/api/settlement-external-api.md

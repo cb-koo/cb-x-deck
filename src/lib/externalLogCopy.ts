@@ -18,6 +18,7 @@ export interface ExternalLogRow {
   query: string | null;
   ip: string | null;
   userAgent: string | null;
+  body: string | null;                // 그쪽이 보낸 본문 원문(파싱 전). 401은 저장하지 않는다 — null일 수 있다.
   target: ExternalLogTarget | null;   // request_id로 찾은 결제 요청 요약. request_id가 없거나 그 요청이 우리에게 없으면 null
 }
 

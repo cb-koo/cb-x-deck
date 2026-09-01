@@ -125,6 +125,13 @@ create index if not exists idx_payment_request_gross_krw on payment_request (gro
 - `spendByMonth`: 인플 부담·CB 비율·CB 고정·결제 수단 없음 네 경우가 섞인 캠페인에서 합계가 맞는지.
 - 인플 목록: 기본 수단만 실리는지, 결제 수단 없는 인플이 `null`인지.
 
+## 7-1. 백로그 (구현 리뷰에서 나온 것)
+
+- **환율 출처 통일** — 예산의 수수료 환산은 `clientBudget.JPY_TO_KRW`(고정 10), 정산 요청은 `settlementSettings.rateKrwPerJpy`(설정 화면에서 편집 가능, 기본 10). 누가 정산 환율을 바꾸면 두 화면이 갈린다. 기본값이 같아 지금은 일치하지만 출처를 하나로 모으는 게 맞다.
+- **`feeUnknown`이 두 원인을 섞는다** — 결제 수단 미등록과 인플 미배정 작업이 같은 카운트다. 문구("수수료 미확인 N건")는 두 경우 다 사실이지만, 담당자가 "명부에 추가하면 되는 건수"로 읽을 수 있다. 나눠 세는 게 친절하다.
+- **`totalsFor`의 수수료 조인이 캠페인 목록 경로에서도 돈다** — 그 경로는 수수료 값을 읽지 않는다. 플래그 인자로 분리하면 목록 조회가 가벼워진다(현재 규모에서는 체감 문제 없음).
+- **`getInfluencerDetail`이 `payment_methods`를 두 번 읽는다**(파생 `settlement` + 전체 배열). 무해하지만 중복.
+
 ## 8. 범위 밖
 
 정산단 실지급(`paid_amount_krw`) 집계 · 캠페인 상세의 수수료 포함 표시 · 예산 입력 방식 변경 · 결제 수단 없는 인플의 수수료 추정.

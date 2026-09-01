@@ -128,9 +128,11 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
      where t.campaign_id = any(${ids}::uuid[]) and t.cost is not null
        and not (coalesce(d.status, '') = 'unused' and t.posted_at is null)`;
   for (const r of feeRows) {
-    const parsed = parseTaskCost(r.cost ?? null);
-    if (!parsed.ok || !parsed.value) continue; // jsonb 모양 보증 없음 — 검증 통과분만(campaignTaskStore.costOf와 같은 태도)
     const t = out.get(r.campaign_id) ?? { money: {}, feeKrw: 0, feeUnknown: 0 };
+    const parsed = parseTaskCost(r.cost ?? null);
+    // 비용 모양이 깨진 건도 '수수료 미확인'으로 센다 — 단가에는 SQL 캐스팅으로 잡히는데 여기서 조용히 빠지면
+    // 화면의 "미확인 N건은 단가만 넣었어요"가 실제와 어긋난다.
+    if (!parsed.ok || !parsed.value) { t.feeUnknown += 1; out.set(r.campaign_id, t); continue; }
     const methods = Array.isArray(r.payment_methods) ? (r.payment_methods as PaymentMethod[]) : [];
     const method = getDefaultPaymentMethod(methods);
     if (!method) { t.feeUnknown += 1; out.set(r.campaign_id, t); continue; }

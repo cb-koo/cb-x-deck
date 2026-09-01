@@ -54,7 +54,7 @@ export function BudgetPanel({ client, register, onChanged }: {
       </div>
       <div className="border-t border-x-border px-5 py-5">
         <div className="mb-2 flex items-center gap-1.5">
-          <span className="text-ui font-bold">월별 예산과 집행</span>
+          <span className="text-ui font-bold">월별 예산과 지출</span>
           <InfoTip text={budgetTipText()} label="집계 방식 설명 보기" />
         </div>
         <div className="mb-3 flex items-center gap-2">
@@ -152,7 +152,7 @@ function BudgetTable({ clientId, rows, basis, onChanged }: {
           <tr className="text-left text-x-secondary">
             <th className="py-2 pr-4 font-bold">월</th>
             <th className="py-2 pr-4 font-bold">예산</th>
-            <th className="py-2 pr-4 font-bold">집행</th>
+            <th className="py-2 pr-4 font-bold">지출</th>
             <th className="py-2 font-bold">잔액</th>
           </tr>
         </thead>
@@ -240,11 +240,12 @@ function BudgetRow({ clientId, row, basis, editing, onEdit, onClose, onChanged }
       <td className="py-3.5 pr-4 tabular-nums">
         {formatAmount(spentKrw, 'KRW')}
         <span className="ml-1.5 text-x-muted">· {row.campaignCount === 0 ? '캠페인 없음' : `캠페인 ${row.campaignCount}개`}</span>
-        {basis === 'unit' ? (
-          row.jpyIncluded > 0 && (
-            <p className="text-ui text-x-muted">엔화 {formatAmount(row.jpyIncluded, 'JPY')} 포함({formatAmount(row.jpyIncluded * JPY_TO_KRW, 'KRW')}으로 환산)</p>
-          )
-        ) : (
+        {/* 엔화 구성은 두 기준 모두에서 알아야 한다 — '수수료 포함'에서만 사라지면 정보가 줄어든다.
+            수수료 줄은 보여줄 게 있을 때만: 캠페인 없는 달에 "수수료 0원 포함"이 뜨면 빈 정보가 밀도만 먹는다. */}
+        {row.jpyIncluded > 0 && (
+          <p className="text-ui text-x-muted">엔화 {formatAmount(row.jpyIncluded, 'JPY')} 포함({formatAmount(row.jpyIncluded * JPY_TO_KRW, 'KRW')}으로 환산)</p>
+        )}
+        {basis === 'withFee' && (row.feeKrw > 0 || row.feeUnknown > 0) && (
           <p className="text-ui text-x-muted">
             송금 수수료 {formatAmount(row.feeKrw, 'KRW')} 포함
             {row.feeUnknown > 0 && ` · 수수료 미확인 ${row.feeUnknown}건은 단가만 넣었어요`}

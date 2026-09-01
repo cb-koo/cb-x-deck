@@ -311,18 +311,22 @@ export const EXTERNAL_STATUSES: readonly ExternalStatus[] = ['received', 'schedu
 export interface SettlementBadge {
   status: SettlementBadgeStatus; createdAt: string; cancelledAt: string | null;
   externalStatus: ExternalStatus | null; externalNote: string | null; externalUpdatedAt: string | null;
+  paidAmountKrw: number | null; grossKrw: number; diffAckAt: string | null;
 }
 export async function settlementByTaskIds(sql: postgres.Sql, taskIds: string[]): Promise<Map<string, SettlementBadge>> {
   const ids = taskIds.filter(isUuidLike);
   if (!ids.length) return new Map();
   const rows = await sql<Array<{ task_id: string; status: SettlementBadgeStatus; created_at: Date; cancelled_at: Date | null;
-    external_status: ExternalStatus | null; external_note: string | null; external_updated_at: Date | null }>>`
-    select distinct on (task_id) task_id, status, created_at, cancelled_at, external_status, external_note, external_updated_at
+    external_status: ExternalStatus | null; external_note: string | null; external_updated_at: Date | null;
+    paid_amount_krw: number | null; gross_krw: string | number; diff_ack_at: Date | null }>>`
+    select distinct on (task_id) task_id, status, created_at, cancelled_at, external_status, external_note, external_updated_at,
+           paid_amount_krw, gross_krw, diff_ack_at
       from payment_request where task_id in ${sql(ids)}
      order by task_id, (status = 'requested') desc, created_at desc`;
   const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
   return new Map(rows.map((r) => [r.task_id, {
     status: r.status, createdAt: new Date(r.created_at).toISOString(), cancelledAt: iso(r.cancelled_at),
     externalStatus: r.external_status, externalNote: r.external_note, externalUpdatedAt: iso(r.external_updated_at),
+    paidAmountKrw: r.paid_amount_krw, grossKrw: Number(r.gross_krw), diffAckAt: iso(r.diff_ack_at),
   }]));
 }

@@ -1,9 +1,10 @@
 // src/lib/settlementDisplay.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { displayStatus, inGroup, paidText, settlementDetail, type StatusSource } from './settlementDisplay.ts';
+import { displayStatus, inGroup, paidText, paidDiff, needsDiffAck, settlementDetail, type StatusSource } from './settlementDisplay.ts';
 
-const base: StatusSource = { status: 'requested', externalStatus: null, externalNote: null, externalUpdatedAt: null, createdAt: '2026-08-28T03:00:00Z', cancelledAt: null };
+const base: StatusSource = { status: 'requested', externalStatus: null, externalNote: null, externalUpdatedAt: null, createdAt: '2026-08-28T03:00:00Z', cancelledAt: null,
+  paidAmountKrw: null, grossKrw: 31650, diffAckAt: null };
 const ext = (externalStatus: StatusSource['externalStatus'], note: string | null = null): StatusSource => ({ ...base, externalStatus, externalNote: note, externalUpdatedAt: '2026-08-29T03:00:00Z' });
 
 test('displayStatus — 우리·그쪽 조합 → 라벨 하나(요청 내역)', () => {
@@ -57,4 +58,40 @@ test('settlementDetail — 지급 완료 줄도 송금액과 비교한다', () =
   const s = { ...ext('paid'), paidAmountKrw: 31650, paidAt: '2026-08-31T10:59:00Z', grossKrw: 31650 };
   assert.ok(settlementDetail(s).includes('실지급 31,650원'));
   assert.ok(!settlementDetail(s).includes('송금액'), '차액이 없으면 비교값을 쓰지 않는다');
+});
+
+const paidWith = (paidAmountKrw: number, diffAckAt: string | null = null): StatusSource =>
+  ({ ...ext('paid'), paidAmountKrw, diffAckAt });
+
+test('차액 확인 — 실지급액이 송금액과 다르고 미확인이면 확인 필요', () => {
+  assert.equal(displayStatus(paidWith(30000), 'list').key, 'paid_diff');
+  assert.equal(displayStatus(paidWith(30000), 'list').label, '지급 완료 · 차액 확인 필요');
+  assert.equal(displayStatus(paidWith(30000), 'list').tone, 'warn');
+  assert.equal(displayStatus(paidWith(30000), 'campaign').label, '정산 차액 확인 필요');
+});
+
+test('차액 확인 — 차액 0이거나 이미 확인했으면 그냥 지급 완료', () => {
+  assert.equal(displayStatus(paidWith(31650), 'list').key, 'paid');
+  assert.equal(displayStatus(paidWith(30000, '2026-09-01T05:00:00Z'), 'list').key, 'paid');
+  assert.equal(displayStatus(paidWith(30000, '2026-09-01T05:00:00Z'), 'list').label, '지급 완료 8/29');
+});
+
+test('차액 확인 — 취소된 요청에는 뜨지 않는다', () => {
+  const s = { ...paidWith(30000), status: 'cancelled' as const, cancelledAt: '2026-08-30T03:00:00Z' };
+  assert.equal(displayStatus(s, 'list').key, 'cancelled');
+});
+
+test('차액 확인 — 지급 완료 필터에 차액 건도 포함된다', () => {
+  assert.ok(inGroup('paid_diff', 'paid'), '차액 건도 지급 완료다 — 필터에서 사라지면 안 된다');
+  assert.ok(inGroup('paid_diff', 'paid_diff'));
+  assert.ok(!inGroup('paid', 'paid_diff'));
+  assert.ok(inGroup('paid_diff', ''));
+});
+
+test('paidDiff / needsDiffAck', () => {
+  assert.equal(paidDiff({ paidAmountKrw: null, grossKrw: 31650 }), null);
+  assert.equal(paidDiff({ paidAmountKrw: 30000, grossKrw: 31650 }), -1650);
+  assert.equal(needsDiffAck(paidWith(30000)), true);
+  assert.equal(needsDiffAck(paidWith(31650)), false);
+  assert.equal(needsDiffAck(ext('scheduled')), false);
 });

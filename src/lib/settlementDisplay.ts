@@ -4,11 +4,13 @@ import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.
 import { kstMonthDay, kstDateTime } from './datetime.ts';
 import { formatMoney } from './influencerPricing.ts';
 
-export type DisplayKey = 'requested' | 'received' | 'scheduled' | 'on_hold' | 'paid' | 'cancelled';
+export type DisplayKey = 'requested' | 'received' | 'scheduled' | 'on_hold' | 'paid' | 'paid_diff' | 'cancelled';
 export type DisplayTone = 'blue' | 'warn' | 'done' | 'gray';
 export interface StatusSource {
   status: SettlementBadgeStatus; externalStatus: ExternalStatus | null; externalNote: string | null; externalUpdatedAt: string | null;
   createdAt: string; cancelledAt: string | null;
+  // 차액 판정 입력 — 그쪽 실지급액을 우리가 실제로 보낸 금액과 비교한다
+  paidAmountKrw: number | null; grossKrw: number; diffAckAt: string | null;
 }
 export interface StatusDisplay { key: DisplayKey; label: string; tone: DisplayTone; title: string }
 
@@ -22,13 +24,25 @@ export const TONE_CLASS: Record<DisplayTone, string> = {
 const NOTE_PREVIEW = 20;
 const preview = (note: string | null) => (note ? (note.length > NOTE_PREVIEW ? `${note.slice(0, NOTE_PREVIEW)}…` : note) : null);
 
-export function keyOf(s: Pick<StatusSource, 'status' | 'externalStatus'>): DisplayKey {
+// 차액 = 그쪽 실지급액 − 우리가 실제로 보낸 금액. 아직 지급 전이면 null.
+export function paidDiff(s: Pick<StatusSource, 'paidAmountKrw' | 'grossKrw'>): number | null {
+  return s.paidAmountKrw === null ? null : s.paidAmountKrw - s.grossKrw;
+}
+
+// 담당자 확인이 필요한가 — 지급 완료 + 차액 있음 + 아직 확인 안 함. 취소된 요청은 대상이 아니다.
+export function needsDiffAck(s: StatusSource): boolean {
+  if (s.status === 'cancelled' || s.externalStatus !== 'paid' || s.diffAckAt) return false;
+  const d = paidDiff(s);
+  return d !== null && d !== 0;
+}
+
+export function keyOf(s: StatusSource): DisplayKey {
   if (s.status === 'cancelled') return 'cancelled';
   switch (s.externalStatus) {
     case 'received': return 'received';
     case 'scheduled': return 'scheduled';
     case 'on_hold': return 'on_hold';
-    case 'paid': return 'paid';
+    case 'paid': return needsDiffAck(s) ? 'paid_diff' : 'paid';
     default: return 'requested';   // null, 또는 그쪽 cancelled인데 우리가 아직 requested(적용 직후엔 생기지 않는다)
   }
 }
@@ -46,17 +60,25 @@ export function displayStatus(s: StatusSource, where: 'list' | 'campaign'): Stat
       return { key, tone: 'warn', label: campaign ? '정산 보류 — 확인 필요' : (p ? `보류 · ${p}` : '보류'), title: s.externalNote ?? '정산 쪽이 보류했어요' };
     }
     case 'paid': return { key, tone: 'done', label: `지급 완료 ${extDay}`, title: '지급이 끝났어요' };
+    case 'paid_diff': {
+      const d = paidDiff(s) ?? 0;
+      const 적게많게 = d < 0 ? '적게' : '많게';
+      return { key, tone: 'warn', label: campaign ? '정산 차액 확인 필요' : '지급 완료 · 차액 확인 필요',
+               title: `요청한 송금액보다 ${Math.abs(d).toLocaleString('ko-KR')}원 ${적게많게} 지급됐어요 — 확인해 주세요` };
+    }
     case 'cancelled': return { key, tone: 'gray', label: campaign ? '취소됨' : `취소됨 ${kstMonthDay(s.cancelledAt)}`, title: '요청이 취소됐어요' };
   }
 }
 
-export type StatusGroup = '' | 'active' | 'on_hold' | 'paid' | 'cancelled';
+export type StatusGroup = '' | 'active' | 'on_hold' | 'paid' | 'paid_diff' | 'cancelled';
 export const STATUS_GROUP_OPTIONS: ReadonlyArray<{ value: StatusGroup; label: string }> = [
-  { value: '', label: '상태 전체' }, { value: 'active', label: '진행 중' }, { value: 'on_hold', label: '보류' }, { value: 'paid', label: '지급 완료' }, { value: 'cancelled', label: '취소됨' },
+  { value: '', label: '상태 전체' }, { value: 'active', label: '진행 중' }, { value: 'on_hold', label: '보류' },
+  { value: 'paid_diff', label: '차액 확인 필요' }, { value: 'paid', label: '지급 완료' }, { value: 'cancelled', label: '취소됨' },
 ];
 export function inGroup(key: DisplayKey, g: StatusGroup): boolean {
   if (g === '') return true;
   if (g === 'active') return key === 'requested' || key === 'received' || key === 'scheduled';
+  if (g === 'paid') return key === 'paid' || key === 'paid_diff';   // 차액 건도 지급 완료다
   return key === g;
 }
 

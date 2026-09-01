@@ -20,7 +20,7 @@ test('limit — 기본 100, 최대 500, 잘못된 값은 기본', () => {
 const row: PaymentRequestRow = {
   id: ID, taskId: 't', campaignId: 'c', campaignName: '캠', clientId: 'cl', clientName: '마인드피부과', influencerHandle: 'sawada_k', taskType: 'post',
   category: '마케팅비 > 원고료', categoryDefault: null, itemText: '항목', purposeText: '목적', amountKrw: 30000, costCurrency: 'KRW', payoutCurrency: 'JPY',
-  rateKrwPerJpy: 10, amountNet: 3000, fee: { mode: 'grossUp', percent: 5 }, feeAmount: 158, amountGross: 3158, deadlineOn: '2026-08-29', referenceUrl: null, proof: null,
+  rateKrwPerJpy: 10, amountNet: 3000, fee: { mode: 'grossUp', percent: 5 }, feeAmount: 158, amountGross: 3158, grossKrw: 31580, deadlineOn: '2026-08-29', referenceUrl: null, proof: null,
   paymentMethod: { type: 'paypal', holder: 'KEIKO', currency: 'JPY', paypalId: 'keiko' }, requesterMemberId: 'm', requesterName: '모에카',
   status: 'requested', cancelledAt: null, cancelledByName: null, cancelReason: null, sentAt: null, externalId: null, note: '',
   createdAt: '2026-08-28T00:00:00.000Z', updatedAt: '2026-08-28T00:00:00.000Z',
@@ -76,7 +76,7 @@ test('parseStatusUpdate — 거절 사유는 필드 단위', () => {
 });
 
 test('toExternalItem — 원화 지급이면 gross_krw는 환산 없이 gross 그대로', () => {
-  const krw: PaymentRequestRow = { ...row, payoutCurrency: 'KRW', amountNet: 20000, fee: null, feeAmount: 0, amountGross: 20000, amountKrw: 20000 };
+  const krw: PaymentRequestRow = { ...row, payoutCurrency: 'KRW', amountNet: 20000, fee: null, feeAmount: 0, amountGross: 20000, grossKrw: 20000, amountKrw: 20000 };
   const it = toExternalItem({ row: krw, updatedAtUs: '1', requester: { email: null, slackId: null } });
   assert.deepEqual(it.payout, { currency: 'KRW', net: 20000, fee: null, fee_amount: 0, gross: 20000, rate_krw_per_jpy: 10, gross_krw: 20000 });
 });

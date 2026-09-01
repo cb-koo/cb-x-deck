@@ -39,7 +39,10 @@ export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel }: { r:
             <Item k="항목" v={r.itemText} />
             <Item k="목적" v={r.purposeText} />
             <Item k="금액" v={`${formatMoney(r.amountGross, r.payoutCurrency)}${r.feeAmount > 0 ? ` (${r.amountNet.toLocaleString('ko-KR')} + ${r.feeAmount.toLocaleString('ko-KR')} 수수료)` : ''}`}
-                  sub={`원화 ${formatMoney(r.amountKrw, 'KRW')} · 환율 ${r.rateKrwPerJpy}원 = 1엔`} />
+                  sub={<>
+                    단가 {formatMoney(r.amountKrw, 'KRW')} · 환율 {r.rateKrwPerJpy}원 = 1엔
+                    {r.feeAmount > 0 && <><br />실지출 {formatMoney(r.grossKrw, 'KRW')}</>}
+                  </>} />
             <Item k="데드라인" v={r.deadlineOn} />
             <Item k="결제수단" v={describeSnapshot(r.paymentMethod)} />
             <Item k="참고자료" v={r.referenceUrl ? <a href={r.referenceUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline break-all">{r.referenceUrl}</a> : '—'} />
@@ -71,6 +74,6 @@ export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel }: { r:
     </li>
   );
 }
-function Item({ k, v, sub }: { k: string; v: React.ReactNode; sub?: string }) {
+function Item({ k, v, sub }: { k: string; v: React.ReactNode; sub?: React.ReactNode }) {
   return (<><dt className="text-x-secondary">{k}</dt><dd className="min-w-0">{v}{sub && <div className="text-x-muted">{sub}</div>}</dd></>);
 }

@@ -52,12 +52,6 @@ export interface ExternalItem {
 }
 const SNAKE_PM: Record<string, string> = { type: 'type', holder: 'holder', currency: 'currency', email: 'email', paypalId: 'paypal_id', identifier: 'identifier', bank: 'bank', branch: 'branch', account: 'account' };
 
-// 실제 송금액(gross)을 원화로 — 지급 통화가 KRW면 그 자체가 원화다. 저장하지 않고 여기서만 계산한다:
-// 같은 값을 컬럼으로 두면 환율·수수료가 바뀔 때 두 값이 갈린다. amount_krw(수수료 제외 단가)와는 다른 값이니
-// "실제 나간 돈" 집계는 이 값을 쓰라고 그쪽 문서(§5-3)에 적어 두었다.
-function grossKrw(r: PaymentRequestRow): number {
-  return r.payoutCurrency === 'KRW' ? r.amountGross : r.amountGross * r.rateKrwPerJpy;
-}
 export function toExternalItem(e: ExportRow): ExternalItem {
   const r = e.row;
   const pm: Record<string, string> = {};
@@ -72,9 +66,11 @@ export function toExternalItem(e: ExportRow): ExternalItem {
     category: { code: r.categoryOptionId, label: r.category },
     item: r.itemText, purpose: r.purposeText,
     amount_krw: r.amountKrw, cost_currency: r.costCurrency,
+    // gross_krw(실제 송금액의 원화 환산)는 045 생성 컬럼(payment_request.gross_krw)에서 그대로 옮겨 싣는다 — 여기서 계산하지 않는다.
+    // amount_krw(수수료 제외 단가)와는 다른 값이니 "실제 나간 돈" 집계는 이 값을 쓰라고 그쪽 문서(§5-3)에 적어 두었다.
     payout: {
       currency: r.payoutCurrency, net: r.amountNet, fee: r.fee, fee_amount: r.feeAmount, gross: r.amountGross,
-      rate_krw_per_jpy: r.rateKrwPerJpy, gross_krw: grossKrw(r),
+      rate_krw_per_jpy: r.rateKrwPerJpy, gross_krw: r.grossKrw,
     },
     deadline: r.deadlineOn, reference_url: r.referenceUrl,
     payment_method: pm,

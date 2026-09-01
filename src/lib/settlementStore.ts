@@ -336,11 +336,15 @@ export async function applyExternalStatus(sql: postgres.Sql, id: string, u: Stat
     if (u.status === 'cancelled' && c.status === 'requested') {
       await cancelInTx(tx, id, { id: null, name: '정산 프로덕트' }, u.note ?? '정산에서 취소');
     }
+    // 실지급액이 바뀌면 이전 차액 확인은 무효다(다른 금액에 대한 확인이었다). 사람이 잊지 않게 여기서 강제한다.
+    const paidAmountChanged = u.paidAmountKrw !== c.paid_amount_krw;
     await tx`
       update payment_request
          set external_status = ${u.status}, paid_amount_krw = ${u.paidAmountKrw}, paid_at = ${u.paidAt}, external_note = ${u.note},
              external_updated_at = ${u.updatedAt}, external_id = coalesce(${u.externalId}, external_id),
-             sent_at = coalesce(sent_at, now()), updated_at = now()
+             sent_at = coalesce(sent_at, now()), updated_at = now(),
+             diff_ack_at = case when ${paidAmountChanged} then null else diff_ack_at end,
+             diff_ack_by_name = case when ${paidAmountChanged} then null else diff_ack_by_name end
        where id = ${id}`;
     const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;
     const row = toRequest(saved);

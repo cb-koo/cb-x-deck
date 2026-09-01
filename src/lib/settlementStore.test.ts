@@ -523,3 +523,21 @@ test('차액 확인 — 차액이 없으면 확인할 것이 없다', async () =
     paidAmountKrw: row.grossKrw, paidAt: '2026-09-01T00:59:00Z', externalId: null });
   assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
 });
+
+test('차액 확인 — 그쪽이 금액을 정정하면 확인이 풀린다', async () => {
+  const { row } = await requestFor('diffack4', 'diffack4');
+  const paid = (krw: number, at: string) => applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: at, note: null, paidAmountKrw: krw, paidAt: at, externalId: null });
+
+  await paid(row.grossKrw - 1650, '2026-09-01T01:00:00Z');
+  await ackDiff(sql, row.id, { name: '박구건' });
+
+  // 같은 금액 재전송(더 늦은 시각) → 확인 유지
+  await paid(row.grossKrw - 1650, '2026-09-01T02:00:00Z');
+  assert.ok(((await listRequests(sql, { taskId: row.taskId! }))[0]).diffAckAt, '같은 금액이면 확인이 유지된다');
+
+  // 다른 금액으로 정정 → 확인 해제
+  await paid(row.grossKrw - 3000, '2026-09-01T03:00:00Z');
+  const after2 = (await listRequests(sql, { taskId: row.taskId! }))[0];
+  assert.equal(after2.diffAckAt, null, '금액이 바뀌면 이전 확인은 다른 금액에 대한 확인이다');
+  assert.equal(after2.diffAckByName, null);
+});

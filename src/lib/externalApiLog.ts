@@ -24,12 +24,24 @@ const LIMITS = { path: 200, query: 200, detail: 300, userAgent: 200, ip: 100 };
 const BODY_MAX = 4096;
 const BODY_CUT = '…(본문이 길어 여기서 잘렸어요)';
 
+// s.slice(0, n)은 UTF-16 코드 유닛 단위로 자른다 — 자르는 지점이 이모지 등 서로게이트 쌍(높은 0xD800~0xDBFF
+// + 낮은 0xDC00~0xDFFF) 중간이면, 잘린 조각의 마지막 문자가 짝 없는 '높은 서로게이트'만 홀로 남는다.
+// postgres 드라이버는 이를 UTF-8로 인코딩할 때 예외 없이 조용히 U+FFFD('�')로 바꿔치기해 저장한다 —
+// 크래시가 없어 알아채기 어렵다. 이 저장소가 이미 같은 버그 계열로 사고를 낸 적 있다(브리핑 502 —
+// 문자열을 반토막 낸 slice가 이모지를 갈라 홀로 남은 서로게이트를 만들었고, 그게 Anthropic API 400으로 이어졌다).
+// 그래서 자른 결과의 마지막 코드 유닛이 짝 없는 높은 서로게이트면 통째로 버린다(짝인 낮은 서로게이트는
+// 이미 잘려 나갔으므로 살릴 수 없다).
+function trimDanglingHighSurrogate(s: string): string {
+  const lastCode = s.charCodeAt(s.length - 1);
+  return lastCode >= 0xd800 && lastCode <= 0xdbff ? s.slice(0, -1) : s;
+}
+
 function clip(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max) : s;
+  return s.length > max ? trimDanglingHighSurrogate(s.slice(0, max)) : s;
 }
 
 function clipBody(s: string): string {
-  return s.length <= BODY_MAX ? s : s.slice(0, BODY_MAX - BODY_CUT.length) + BODY_CUT;
+  return s.length <= BODY_MAX ? s : trimDanglingHighSurrogate(s.slice(0, BODY_MAX - BODY_CUT.length)) + BODY_CUT;
 }
 
 // 기록의 본체(await 되는 쪽) — 테스트가 직접 쓴다.

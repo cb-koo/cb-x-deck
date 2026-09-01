@@ -225,6 +225,48 @@ test('본문 — 4KB를 넘으면 잘리고 잘림 표시가 붙는다', async (
   assert.ok(row.body!.endsWith('…(본문이 길어 여기서 잘렸어요)'));
 });
 
+test('본문 — 이모지가 자르는 지점에 걸려도 홀로 남은 서로게이트(�)가 저장되지 않는다', async () => {
+  // BODY_MAX=4096, BODY_CUT 길이=18 → 자르는 지점(cutPoint)=4078.
+  // clipBody가 하던 대로 s.slice(0, cutPoint)를 하면 마지막 문자가 정확히 이모지의 높은 서로게이트가 되도록
+  // 구성한다: index(cutPoint-1)에 높은 서로게이트, index(cutPoint)에 낮은 서로게이트가 오게 만든다.
+  const BODY_MAX = 4096;
+  const BODY_CUT = '…(본문이 길어 여기서 잘렸어요)';
+  const cutPoint = BODY_MAX - BODY_CUT.length;
+  const emoji = '😀'; // U+1F600, 서로게이트 쌍(높은 0xD83D + 낮은 0xDE00) 2코드유닛
+  assert.equal(emoji.charCodeAt(0) >= 0xd800 && emoji.charCodeAt(0) <= 0xdbff, true);
+  const body = 'x'.repeat(cutPoint - 1) + emoji + 'y'.repeat(50);
+  assert.ok(body.length > BODY_MAX); // 반드시 잘리는 경로를 타야 한다
+  // 이모지가 정확히 자르는 경계에 걸리는지 확인(테스트 자체가 틀리지 않도록)
+  assert.equal(body.charCodeAt(cutPoint - 1) >= 0xd800 && body.charCodeAt(cutPoint - 1) <= 0xdbff, true);
+
+  const path = P + '/body-emoji-boundary';
+  await insertExternalLog(sql, { method: 'POST', path, statusCode: 200, outcome: 'applied', body });
+  const rows = await listExternalLog(sql, { limit: 50 });
+  const r = rows.find((x) => x.path === path);
+  assert.ok(r);
+  assert.ok(!r!.body!.includes('�'), `저장된 본문에 홀로 남은 서로게이트가 �로 깨져 들어갔다: ${JSON.stringify(r!.body!.slice(-30))}`);
+  assert.ok(r!.body!.length <= BODY_MAX);
+  assert.ok(r!.body!.endsWith(BODY_CUT));
+});
+
+test('detail — clip()도 잘리는 경계에 이모지가 걸리면 홀로 남은 서로게이트(�)가 저장되지 않는다', async () => {
+  // LIMITS.detail=300. index299에 높은 서로게이트가 오도록 구성해 clip(s, 300)의 slice(0,300)이
+  // 이모지 중간을 자르게 만든다.
+  const max = 300;
+  const emoji = '😀';
+  const detail = 'x'.repeat(max - 1) + emoji + 'y'.repeat(50);
+  assert.ok(detail.length > max);
+  assert.equal(detail.charCodeAt(max - 1) >= 0xd800 && detail.charCodeAt(max - 1) <= 0xdbff, true);
+
+  const path = P + '/detail-emoji-boundary';
+  await insertExternalLog(sql, { method: 'POST', path, statusCode: 400, outcome: 'bad-request', detail });
+  const rows = await listExternalLog(sql, { limit: 50 });
+  const r = rows.find((x) => x.path === path);
+  assert.ok(r);
+  assert.ok(!r!.detail!.includes('�'), `저장된 detail에 홀로 남은 서로게이트가 �로 깨져 들어갔다: ${JSON.stringify(r!.detail!.slice(-30))}`);
+  assert.ok(r!.detail!.length <= max);
+});
+
 test('recordExternalCall — EXTERNAL_API_LOG=off이면 아무것도 쓰지 않는다', async () => {
   const prev = process.env.EXTERNAL_API_LOG;
   process.env.EXTERNAL_API_LOG = 'off';

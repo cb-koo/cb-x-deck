@@ -24,7 +24,7 @@ const row: PaymentRequestRow = {
   paymentMethod: { type: 'paypal', holder: 'KEIKO', currency: 'JPY', paypalId: 'keiko' }, requesterMemberId: 'm', requesterName: '모에카',
   status: 'requested', cancelledAt: null, cancelledByName: null, cancelReason: null, sentAt: null, externalId: null, note: '',
   createdAt: '2026-08-28T00:00:00.000Z', updatedAt: '2026-08-28T00:00:00.000Z',
-  externalStatus: null, paidAmountKrw: null, paidAt: null, externalNote: null, externalUpdatedAt: null, influencerId: 'inf', categoryOptionId: 'fee',
+  externalStatus: null, paidAmountKrw: null, paidAt: null, externalNote: null, externalUpdatedAt: null, influencerId: 'inf', categoryOptionId: 'fee', diffAckAt: null, diffAckByName: null,
 };
 test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   const e: ExportRow = { row, updatedAtUs: '1', requester: { email: 'a@b.c', slackId: null } };

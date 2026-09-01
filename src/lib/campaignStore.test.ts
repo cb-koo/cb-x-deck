@@ -183,8 +183,9 @@ test('12) spendByMonth — 시작 달로 묶고 totalsFor와 같은 정의(미�
   await upsertInfluencerCost(sql, aug1.id, 'hana', { extraCosts: [{ label: '교통비', amount: 20_000, currency: 'KRW' }] });
 
   const all = await spendByMonth(sql, c.id);
-  assert.deepEqual(all.get('2026-08'), { total: { KRW: 320_000, JPY: 95_000 }, campaignCount: 2 });
-  assert.deepEqual(all.get('2026-09'), { total: {}, campaignCount: 1 });   // 비용 없는 캠페인도 개수에 든다
+  // hana·mika는 명부에 없는 인플(payment_methods 없음) — 수수료를 구하지 못하니 feeKrw 0, feeUnknown은 비용 있는 작업 수(2)
+  assert.deepEqual(all.get('2026-08'), { total: { KRW: 320_000, JPY: 95_000 }, campaignCount: 2, feeKrw: 0, feeUnknown: 2 });
+  assert.deepEqual(all.get('2026-09'), { total: {}, campaignCount: 1, feeKrw: 0, feeUnknown: 0 });   // 비용 없는 캠페인도 개수에 든다
   assert.equal(all.has('2026-07'), false);
 
   const only = await spendByMonth(sql, c.id, ['2026-09']);
@@ -195,6 +196,38 @@ test('12) spendByMonth — 시작 달로 묶고 totalsFor와 같은 정의(미�
   const other = await createClient(sql, P + '남의클라');
   await createCampaign(sql, { ...base(other.id, other.name, 'm4'), startsOn: '2026-08-10', endsOn: '2026-08-16' });
   assert.equal((await spendByMonth(sql, c.id)).get('2026-08')!.campaignCount, 2);
+});
+
+// Task C(스펙 §3-2·§5-5) — 인플 부담·CB 비율·CB 고정·결제 수단 없음 네 경우가 섞인 캠페인의 수수료 합.
+// 추가 비용(extra_costs)에는 수수료를 얹지 않으므로 total에는 넣지만 feeKrw 계산에는 영향이 없다.
+test('12-1) spendByMonth — feeKrw·feeUnknown(인플 부담 0 · CB 비율 5% · CB 고정 ¥165 · 결제 수단 없음)', async () => {
+  const c = await createClient(sql, P + '수수료클라');
+  const camp = await createCampaign(sql, { ...base(c.id, c.name, 'fee'), startsOn: '2026-08-12', endsOn: '2026-08-18' });
+
+  const bank = (fee?: { mode: 'grossUp'; percent: number } | { mode: 'fixed'; amount: number }) =>
+    ({ kind: 'add' as const, input: { type: 'bank' as const, holder: 'K', currency: 'JPY' as const, bank: 'b', account: '1', ...(fee ? { fee } : {}) }, makeDefault: true });
+
+  const { row: selfPay } = await createInfluencer(sql, { handle: P + '_self', createdBy: null });     // 인플 부담 — 수수료 없음
+  await updatePaymentMethods(sql, selfPay.id, bank(), null);
+  const { row: grossUp } = await createInfluencer(sql, { handle: P + '_gross', createdBy: null });    // CB 비율 5%
+  await updatePaymentMethods(sql, grossUp.id, bank({ mode: 'grossUp', percent: 5 }), null);
+  const { row: fixed } = await createInfluencer(sql, { handle: P + '_fixed', createdBy: null });      // CB 고정 ¥165
+  await updatePaymentMethods(sql, fixed.id, bank({ mode: 'fixed', amount: 165 }), null);
+  const { row: noMethod } = await createInfluencer(sql, { handle: P + '_none', createdBy: null });    // 결제 수단 없음
+
+  await createTasks(sql, camp.id, { ...tin, type: 'post', items: [
+    { handle: selfPay.handle, cost: { amount: 10_000, currency: 'JPY' } },
+    { handle: grossUp.handle, cost: { amount: 10_000, currency: 'JPY' } },
+    { handle: fixed.handle, cost: { amount: 10_000, currency: 'JPY' } },
+    { handle: noMethod.handle, cost: { amount: 10_000, currency: 'JPY' } },
+  ] });
+  await upsertInfluencerCost(sql, camp.id, selfPay.handle, { extraCosts: [{ label: '교통비', amount: 1_000, currency: 'JPY' }] });
+
+  const spend = (await spendByMonth(sql, c.id, ['2026-08'])).get('2026-08')!;
+  assert.deepEqual(spend.total, { JPY: 41_000 });        // 작업 4 × 10,000 + 추가 비용 1,000
+  // grossUp: round(10000/0.95)-10000 = 526엔 → 5,260원 / fixed: 165엔 → 1,650원. 인플 부담·추가비용·결제수단없음은 0
+  assert.equal(spend.feeKrw, 5_260 + 1_650);
+  assert.equal(spend.feeUnknown, 1);                     // 결제 수단 없는 1건만
 });
 
 test('13) getCampaignDetail.budget — 예외 달 우선·othersKrw는 같은 달 다른 캠페인 몫·클라 없으면 null', async () => {

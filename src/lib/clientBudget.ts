@@ -31,11 +31,16 @@ export const MONTH_MESSAGE = '달 형식이 올바르지 않아요 (예: 2026-09
 const MAX_ROWS = 12;
 
 export type BudgetSource = 'override' | 'default' | 'none';
-export interface MonthSpend { total: MoneyByCurrency; campaignCount: number }
+// feeKrw·feeUnknown(스펙 §3-2·§5-5) — 캠페인 작업의 인플별 송금 수수료 합(원화, 예상치)과
+// 결제 수단이 없어 수수료를 구하지 못한 작업 수. 추가 비용(extra_costs)에는 수수료가 없다(인플 송금이 아니다).
+export interface MonthSpend { total: MoneyByCurrency; campaignCount: number; feeKrw: number; feeUnknown: number }
 export interface MonthRow {
   month: string; budget: number | null; source: BudgetSource;
   spentKrw: number; jpyIncluded: number; campaignCount: number;
-  remaining: number | null;   // budget - spentKrw. budget이 null이면 null
+  remaining: number | null;   // budget - spentKrw(단가 기준, 기본 모드). budget이 null이면 null
+  // 지출 기준 토글(스펙 §5-5) — 단가(spentKrw)는 그대로 두고, 수수료 포함 값은 따로 담아 화면이 고른다.
+  // 수수료 포함 잔액은 화면이 remainingOf(budget, spentWithFeeKrw)로 계산한다(서버 왕복 없음).
+  spentWithFeeKrw: number; feeKrw: number; feeUnknown: number;
 }
 // 캠페인 상세 카드용 — othersKrw는 같은 달 '다른' 캠페인의 환산 합. 이 캠페인 몫은 화면이 자기 합계(campaignTotal)를
 // 더한다 — 비용 셀을 고치면 비용 합계 칸과 잔액 칸이 같은 순간에 같은 숫자로 움직여야 한다(UX 원칙 4).
@@ -87,8 +92,10 @@ export function budgetRows(client: BudgetClient, spend: Map<string, MonthSpend>,
     const s = spend.get(m);
     const { amount, source } = budgetForMonth(client, m);
     const { krw, jpyIncluded } = toKrw(s?.total ?? {});
+    const feeKrw = s?.feeKrw ?? 0;
     rows.push({ month: m, budget: amount, source, spentKrw: krw, jpyIncluded, campaignCount: s?.campaignCount ?? 0,
-                remaining: remainingOf(amount, krw) });
+                remaining: remainingOf(amount, krw),
+                spentWithFeeKrw: krw + feeKrw, feeKrw, feeUnknown: s?.feeUnknown ?? 0 });
   }
   return rows;
 }
@@ -116,7 +123,7 @@ export function monthShort(month: string): string {
 
 // 표·카드 ⓘ 공용 — 귀속 규칙·집계 범위·환율을 한 문장씩(스펙 §6-1, §7)
 export function budgetTipText(): string {
-  return `캠페인은 시작한 달에 잡혀요 · 캠페인에 넣은 콘텐츠 비용만 집계해요 · 엔화는 1엔 = ${JPY_TO_KRW}원으로 환산해요`;
+  return `캠페인은 시작한 달에 잡혀요 · 캠페인에 넣은 콘텐츠 비용만 집계해요 · 엔화는 1엔 = ${JPY_TO_KRW}원으로 환산해요 · 수수료 포함은 인플루언서별 송금 수수료를 얹은 예상 금액이에요`;
 }
 
 // 예산 입력 검증 — null·빈 문자열은 '미설정'으로 허용, 그 외는 parseAmount(0 이상 안전 정수, 콤마 허용)

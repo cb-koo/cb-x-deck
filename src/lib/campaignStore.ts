@@ -12,7 +12,9 @@ import {
   type CampaignKind, type TaskSummary, type TaskInfluencerLine, type TypeSubtotal, type TaskType,
 } from './campaignJudgment.ts';
 import { getClientBudget } from './clientStore.ts';
-import { campaignMonthBudget, monthOf, toKrw, type MonthSpend, type CampaignMonthBudget } from './clientBudget.ts';
+import { campaignMonthBudget, monthOf, toKrw, JPY_TO_KRW, type MonthSpend, type CampaignMonthBudget } from './clientBudget.ts';
+import { getDefaultPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
+import { computeMoney } from './settlementCalc.ts';
 
 export { CAMPAIGN_KINDS, CAMPAIGN_KIND_LABEL, type CampaignKind } from './campaignJudgment.ts';
 
@@ -64,7 +66,12 @@ type CRow = {
   created_at: Date; updated_at: Date; task_count: string | number;
 };
 type TotalRow = { campaign_id: string; currency: string; amount: string | number };
+type FeeRow = { campaign_id: string; cost: unknown; payment_methods: unknown };
 type CicRow = { id: string; campaign_id: string; influencer_handle: string; extra_costs: unknown; note: string; updated_at: Date };
+
+// totalsFor의 캠페인별 결과 — money(통화별 합계)에 수수료 합계(원화, §3-2 예상치)를 더한 것.
+// feeUnknown은 결제 수단이 없어 수수료를 구하지 못한 작업 수(화면이 "수수료 미확인 N건" 문구로 밝힌다).
+interface CampaignTotals { money: MoneyByCurrency; feeKrw: number; feeUnknown: number }
 
 // jsonb 모양은 보증되지 않는다 — 검증 통과분만(draftStore.costOf와 같은 태도)
 function extraCostsOf(v: unknown): ExtraCost[] {
@@ -88,9 +95,10 @@ const SELECT = (sql: postgres.Sql) => sql`
     from campaign c`;
 
 // 통화별 합계 — 작업 비용(미사용 제외) + 추가 비용을 SQL에서 통화별로 묶는다. 통화 간 합산은 하지 않는다.
-// 캠페인 수는 소수라 목록 1회 + 합계 1회의 두 쿼리로 충분하다.
-async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, MoneyByCurrency>> {
-  const out = new Map<string, MoneyByCurrency>();
+// 캠페인 수는 소수라 목록 1회 + 합계 1회(+ 수수료 1회)의 세 쿼리로 충분하다.
+// 수수료(§3-2, 예상치)는 작업 쪽에서만 나온다 — 추가 비용(extra_costs)은 인플에게 송금하는 돈이 아니라서 얹지 않는다.
+async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, CampaignTotals>> {
+  const out = new Map<string, CampaignTotals>();
   if (ids.length === 0) return out;
   const rows = await sql<TotalRow[]>`
     select campaign_id, currency, sum(amount) as amount from (
@@ -105,9 +113,30 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
     ) t group by campaign_id, currency`;
   for (const r of rows) {
     if (!isCurrency(r.currency)) continue; // 알 수 없는 통화는 합계에 섣불리 넣지 않는다
-    const m = out.get(r.campaign_id) ?? {};
-    m[r.currency] = (m[r.currency] ?? 0) + Number(r.amount); // sum(bigint)는 문자열로 온다
-    out.set(r.campaign_id, m);
+    const t = out.get(r.campaign_id) ?? { money: {}, feeKrw: 0, feeUnknown: 0 };
+    t.money[r.currency] = (t.money[r.currency] ?? 0) + Number(r.amount); // sum(bigint)는 문자열로 온다
+    out.set(r.campaign_id, t);
+  }
+
+  // 작업마다 그 인플의 기본 결제 수단을 조인해 온다 — SQL은 조회만, 수수료 계산은 순수 함수 computeMoney를 그대로 쓴다
+  // (정산 화면과 같은 계산, 스펙 §3-2). 결제 수단이 없으면(인플 미등록 포함) 수수료 0 + feeUnknown 1.
+  const feeRows = await sql<FeeRow[]>`
+    select t.campaign_id, t.cost, i.payment_methods
+      from campaign_task t
+      left join draft d on d.id = t.draft_id
+      left join influencer i on lower(i.handle) = lower(t.influencer_handle)
+     where t.campaign_id = any(${ids}::uuid[]) and t.cost is not null
+       and not (coalesce(d.status, '') = 'unused' and t.posted_at is null)`;
+  for (const r of feeRows) {
+    const parsed = parseTaskCost(r.cost ?? null);
+    if (!parsed.ok || !parsed.value) continue; // jsonb 모양 보증 없음 — 검증 통과분만(campaignTaskStore.costOf와 같은 태도)
+    const t = out.get(r.campaign_id) ?? { money: {}, feeKrw: 0, feeUnknown: 0 };
+    const methods = Array.isArray(r.payment_methods) ? (r.payment_methods as PaymentMethod[]) : [];
+    const method = getDefaultPaymentMethod(methods);
+    if (!method) { t.feeUnknown += 1; out.set(r.campaign_id, t); continue; }
+    const money = computeMoney(parsed.value, method.currency, method.fee, JPY_TO_KRW);
+    t.feeKrw += method.currency === 'JPY' ? money.feeAmount * JPY_TO_KRW : money.feeAmount;
+    out.set(r.campaign_id, t);
   }
   return out;
 }
@@ -123,8 +152,14 @@ export async function spendByMonth(sql: postgres.Sql, clientId: string, months?:
   const totals = await totalsFor(sql, camps.map((c) => c.id));
   const out = new Map<string, MonthSpend>();
   for (const c of camps) {
-    const cur = out.get(c.month) ?? { total: {}, campaignCount: 0 };
-    out.set(c.month, { total: mergeMoney(cur.total, totals.get(c.id) ?? {}), campaignCount: cur.campaignCount + 1 });
+    const cur = out.get(c.month) ?? { total: {}, campaignCount: 0, feeKrw: 0, feeUnknown: 0 };
+    const t = totals.get(c.id);
+    out.set(c.month, {
+      total: mergeMoney(cur.total, t?.money ?? {}),
+      campaignCount: cur.campaignCount + 1,
+      feeKrw: cur.feeKrw + (t?.feeKrw ?? 0),
+      feeUnknown: cur.feeUnknown + (t?.feeUnknown ?? 0),
+    });
   }
   return out;
 }
@@ -136,7 +171,7 @@ async function toRows(sql: postgres.Sql, rows: CRow[]): Promise<CampaignRow[]> {
     startsOn: r.starts_on, endsOn: r.ends_on, kind: r.kind, note: r.note,
     createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
     taskCount: Number(r.task_count),
-    total: totals.get(r.id) ?? {},
+    total: totals.get(r.id)?.money ?? {},
   }));
 }
 

@@ -5,7 +5,7 @@ import { Button, PANEL_SPLIT, PANEL_TITLE } from '@/components/ui';
 import { InfoTip } from '@/components/InfoTip';
 import { formatAmount, parseAmount } from '@/lib/campaignCost';
 import {
-  budgetJudgment, monthLabel, budgetTipText, BUDGET_AMOUNT_MESSAGE, JPY_TO_KRW, type MonthRow,
+  budgetJudgment, monthLabel, budgetTipText, remainingOf, BUDGET_AMOUNT_MESSAGE, JPY_TO_KRW, type MonthRow,
 } from '@/lib/clientBudget';
 import type { ClientRow } from '@/lib/clientStore';
 import type { Register } from './ClientDetail';
@@ -18,11 +18,17 @@ async function errOf(r: Response): Promise<string> {
   return ((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`;
 }
 
+// 지출 기준 토글(스펙 §5-5) — 기본 '단가'. 두 모드 다 같은 대상(작업 비용 + 추가 비용)을 센다,
+// '수수료 포함'만 인플별 송금 수수료(예상치)를 얹는다. 화면 안 state로 충분하다(URL·저장 불필요).
+type SpendBasis = 'unit' | 'withFee';
+const BASIS_LABEL: Record<SpendBasis, string> = { unit: '단가', withFee: '수수료 포함' };
+
 export function BudgetPanel({ client, register, onChanged }: {
   client: ClientRow; register: Register; onChanged: () => Promise<void>;
 }) {
   const [rows, setRows] = useState<MonthRow[] | null>(null);
   const [rowsErr, setRowsErr] = useState(false);
+  const [basis, setBasis] = useState<SpendBasis>('unit');   // 기본 '단가' — 담당자가 지금 보던 숫자·잔액이 그대로여야 한다
   const loadRows = useCallback(async () => {
     setRowsErr(false);
     try {
@@ -51,6 +57,18 @@ export function BudgetPanel({ client, register, onChanged }: {
           <span className="text-ui font-bold">월별 예산과 집행</span>
           <InfoTip text={budgetTipText()} label="집계 방식 설명 보기" />
         </div>
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-ui text-x-secondary">지출 기준</span>
+          <div role="group" aria-label="지출 기준" className="inline-flex rounded-full border border-x-border-strong p-0.5">
+            {(['unit', 'withFee'] as const).map((b) => (
+              <button key={b} type="button" onClick={() => setBasis(b)} aria-pressed={basis === b}
+                      className={`h-7 rounded-full px-3 text-ui ${
+                        basis === b ? 'bg-x-text font-bold text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
+                {BASIS_LABEL[b]}
+              </button>
+            ))}
+          </div>
+        </div>
         {rowsErr ? (
           <div className="flex items-center gap-2 text-ui text-red-500">
             <span>예산 정보를 불러오지 못했어요</span>
@@ -59,7 +77,7 @@ export function BudgetPanel({ client, register, onChanged }: {
         ) : rows === null ? (
           <p className="text-ui text-x-muted">불러오는 중…</p>
         ) : (
-          <BudgetTable clientId={client.id} rows={rows} onChanged={async () => { await onChanged(); await loadRows(); }} />
+          <BudgetTable clientId={client.id} rows={rows} basis={basis} onChanged={async () => { await onChanged(); await loadRows(); }} />
         )}
       </div>
     </div>
@@ -123,7 +141,9 @@ function DefaultBudgetEditor({ client, register, onSaved }: {
   );
 }
 
-function BudgetTable({ clientId, rows, onChanged }: { clientId: string; rows: MonthRow[]; onChanged: () => Promise<void> }) {
+function BudgetTable({ clientId, rows, basis, onChanged }: {
+  clientId: string; rows: MonthRow[]; basis: SpendBasis; onChanged: () => Promise<void>;
+}) {
   const [editing, setEditing] = useState<string | null>(null);   // 편집 중인 month
   return (
     <div className="overflow-x-auto">
@@ -138,7 +158,7 @@ function BudgetTable({ clientId, rows, onChanged }: { clientId: string; rows: Mo
         </thead>
         <tbody>
           {rows.map((r) => (
-            <BudgetRow key={r.month} clientId={clientId} row={r} editing={editing === r.month}
+            <BudgetRow key={r.month} clientId={clientId} row={r} basis={basis} editing={editing === r.month}
                        onEdit={() => setEditing(r.month)} onClose={() => setEditing(null)} onChanged={onChanged} />
           ))}
         </tbody>
@@ -147,8 +167,8 @@ function BudgetTable({ clientId, rows, onChanged }: { clientId: string; rows: Mo
   );
 }
 
-function BudgetRow({ clientId, row, editing, onEdit, onClose, onChanged }: {
-  clientId: string; row: MonthRow; editing: boolean; onEdit: () => void; onClose: () => void; onChanged: () => Promise<void>;
+function BudgetRow({ clientId, row, basis, editing, onEdit, onClose, onChanged }: {
+  clientId: string; row: MonthRow; basis: SpendBasis; editing: boolean; onEdit: () => void; onClose: () => void; onChanged: () => Promise<void>;
 }) {
   const [value, setValue] = useState(row.budget === null ? '' : String(row.budget));
   const [err, setErr] = useState('');
@@ -180,7 +200,11 @@ function BudgetRow({ clientId, row, editing, onEdit, onClose, onChanged }: {
     void put(n);
   }
 
-  const over = row.remaining !== null && row.remaining < 0;
+  // 지출 기준 토글(스펙 §5-5) — 단가는 지금처럼 row.spentKrw/row.remaining을 그대로 쓰고,
+  // 수수료 포함은 spentWithFeeKrw로 다시 계산한다(서버가 두 값을 이미 담아 보내 왕복 없음).
+  const spentKrw = basis === 'unit' ? row.spentKrw : row.spentWithFeeKrw;
+  const remaining = basis === 'unit' ? row.remaining : remainingOf(row.budget, row.spentWithFeeKrw);
+  const over = remaining !== null && remaining < 0;
   return (
     <tr className="border-t border-x-border align-top">
       <td className="whitespace-nowrap py-3.5 pr-4">{monthLabel(row.month)}</td>
@@ -214,14 +238,21 @@ function BudgetRow({ clientId, row, editing, onEdit, onClose, onChanged }: {
         )}
       </td>
       <td className="py-3.5 pr-4 tabular-nums">
-        {formatAmount(row.spentKrw, 'KRW')}
+        {formatAmount(spentKrw, 'KRW')}
         <span className="ml-1.5 text-x-muted">· {row.campaignCount === 0 ? '캠페인 없음' : `캠페인 ${row.campaignCount}개`}</span>
-        {row.jpyIncluded > 0 && (
-          <p className="text-ui text-x-muted">엔화 {formatAmount(row.jpyIncluded, 'JPY')} 포함({formatAmount(row.jpyIncluded * JPY_TO_KRW, 'KRW')}으로 환산)</p>
+        {basis === 'unit' ? (
+          row.jpyIncluded > 0 && (
+            <p className="text-ui text-x-muted">엔화 {formatAmount(row.jpyIncluded, 'JPY')} 포함({formatAmount(row.jpyIncluded * JPY_TO_KRW, 'KRW')}으로 환산)</p>
+          )
+        ) : (
+          <p className="text-ui text-x-muted">
+            송금 수수료 {formatAmount(row.feeKrw, 'KRW')} 포함
+            {row.feeUnknown > 0 && ` · 수수료 미확인 ${row.feeUnknown}건은 단가만 넣었어요`}
+          </p>
         )}
       </td>
-      <td className={`py-3.5 tabular-nums ${over ? 'font-bold text-red-700' : row.remaining === null ? 'text-x-muted' : ''}`}>
-        {budgetJudgment(row.budget, row.remaining)}
+      <td className={`py-3.5 tabular-nums ${over ? 'font-bold text-red-700' : remaining === null ? 'text-x-muted' : ''}`}>
+        {budgetJudgment(row.budget, remaining)}
       </td>
     </tr>
   );

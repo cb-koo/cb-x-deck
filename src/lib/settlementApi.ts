@@ -39,6 +39,8 @@ export async function createRequestsApi(items: CreateItemInput[]): Promise<Creat
   }
 }
 export const cancelRequestApi = (id: string, reason: string) => call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'cancel', reason }));
+export const ackDiffApi = (id: string) => call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'ack-diff' }));
+export const unackDiffApi = (id: string) => call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'unack-diff' }));
 export const fetchSettlementSettings = () => call<{ settings: SettlementSettings; versions: SettlementVersionRow[] }>('/api/settlement/settings');
 export const saveSettlementSettingsApi = (settings: SettlementSettings) => call<{ settings: SettlementSettings }>('/api/settlement/settings', json('PUT', { settings }));
 export const fetchExternalLog = () => call<{ rows: ExternalLogRow[] }>('/api/settlement/external-log');

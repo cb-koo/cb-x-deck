@@ -355,5 +355,27 @@ export async function applyExternalStatus(sql: postgres.Sql, id: string, u: Stat
   });
 }
 
+// 차액 확인 — 우리 내부 표시다. updated_at을 건드리지 않는다(그쪽 폴링에 무의미한 변경이 흘러가면 안 된다).
+// 사유는 받지 않는다(koo 결정 09-01: 사유는 정산 쪽 메모만 쓴다).
+export async function ackDiff(sql: postgres.Sql, id: string, by: { name: string }): Promise<PaymentRequestRow | 'not-found' | 'no-diff'> {
+  if (!isUuidLike(id)) return 'not-found';
+  const [cur] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
+  if (!cur) return 'not-found';
+  const row = toRequest(cur);
+  if (row.status === 'cancelled' || row.externalStatus !== 'paid' || row.paidAmountKrw === null || row.paidAmountKrw === row.grossKrw) return 'no-diff';
+  await sql`update payment_request set diff_ack_at = now(), diff_ack_by_name = ${by.name} where id = ${id}`;
+  const [saved] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
+  return toRequest(saved);
+}
+
+export async function unackDiff(sql: postgres.Sql, id: string): Promise<PaymentRequestRow | 'not-found'> {
+  if (!isUuidLike(id)) return 'not-found';
+  const [cur] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
+  if (!cur) return 'not-found';
+  await sql`update payment_request set diff_ack_at = null, diff_ack_by_name = null where id = ${id}`;
+  const [saved] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
+  return toRequest(saved);
+}
+
 // 배지 조회(settlementByTaskIds)는 campaignTaskStore에 있다(순환 방지: settlementStore→influencerStore→campaignStore) — 여기서는 re-export만
 export { settlementByTaskIds, EXTERNAL_STATUSES, type SettlementBadgeStatus, type SettlementBadge, type ExternalStatus } from './campaignTaskStore.ts';

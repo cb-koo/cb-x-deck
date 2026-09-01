@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
-import { cancelRequest } from '@/lib/settlementStore';
+import { cancelRequest, ackDiff, unackDiff } from '@/lib/settlementStore';
 
 // 라우트 파일은 HTTP 핸들러만 export한다 — 상수는 모듈 내부에 둔다.
 const CANCEL_REASON_MESSAGE = '취소 사유를 1~200자로 적어 주세요';
@@ -11,6 +11,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
   const body = (await req.json().catch(() => ({}))) as { action?: unknown; reason?: unknown };
+
+  if (body.action === 'ack-diff' || body.action === 'unack-diff') {
+    const r = body.action === 'ack-diff'
+      ? await ackDiff(getSql(), id, { name: gate.member.name })
+      : await unackDiff(getSql(), id);
+    if (r === 'not-found') return NextResponse.json({ error: '요청을 찾을 수 없어요 — 화면을 새로고침해 주세요' }, { status: 404 });
+    if (r === 'no-diff') return NextResponse.json({ error: '확인할 차액이 없어요 — 화면을 새로고침해 주세요' }, { status: 409 });
+    return NextResponse.json(r);
+  }
+
   if (body.action !== 'cancel') return NextResponse.json({ error: '지원하지 않는 동작이에요' }, { status: 400 });
   const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
   if (!reason || reason.length > 200) return NextResponse.json({ error: CANCEL_REASON_MESSAGE }, { status: 400 });

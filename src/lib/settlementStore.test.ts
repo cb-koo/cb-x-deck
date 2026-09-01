@@ -10,9 +10,9 @@ import { isSettlementCandidate } from './campaignJudgment.ts';
 import {
   getSettlementSettings, saveSettlementSettings, listSettlementVersions, lastQuoteRtCategory, listCandidates,
   createRequests, cancelRequest, listRequests, settlementByTaskIds, SettlementCreateError,
-  listForExport, getForExport, applyExternalStatus,
+  listForExport, getForExport, applyExternalStatus, ackDiff, unackDiff,
 } from './settlementStore.ts';
-import type { CreateItemInput } from './settlementStore.ts';
+import type { CreateItemInput, PaymentRequestRow } from './settlementStore.ts';
 import { encodeCursor, decodeCursor } from './settlementExternal.ts';
 
 const sql = getSql();
@@ -497,4 +497,29 @@ test('046 — 차액 확인 칸이 요청 행에 실려 나온다(기본값 없�
   const { row } = await requestFor('diffack1', 'diffack1');
   assert.equal(row.diffAckAt, null);
   assert.equal(row.diffAckByName, null);
+});
+
+test('차액 확인 — 확인·취소가 되고 updated_at을 건드리지 않는다', async () => {
+  const { row } = await requestFor('diffack2', 'diffack2');
+  // 그쪽이 송금액보다 적게 지급한 상황을 만든다
+  await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
+    paidAmountKrw: row.grossKrw - 1650, paidAt: '2026-09-01T00:59:00Z', externalId: null });
+  const [before] = await listRequests(sql, { taskId: row.taskId! });
+
+  const acked = await ackDiff(sql, row.id, { name: '박구건' });
+  assert.notEqual(acked, 'not-found'); assert.notEqual(acked, 'no-diff');
+  const a = acked as PaymentRequestRow;
+  assert.ok(a.diffAckAt); assert.equal(a.diffAckByName, '박구건');
+  assert.equal(a.updatedAt, before.updatedAt, '확인은 그쪽 폴링에 흘러가면 안 된다');
+
+  const un = await unackDiff(sql, row.id) as PaymentRequestRow;
+  assert.equal(un.diffAckAt, null); assert.equal(un.diffAckByName, null);
+  assert.equal(un.updatedAt, before.updatedAt);
+});
+
+test('차액 확인 — 차액이 없으면 확인할 것이 없다', async () => {
+  const { row } = await requestFor('diffack3', 'diffack3');
+  await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
+    paidAmountKrw: row.grossKrw, paidAt: '2026-09-01T00:59:00Z', externalId: null });
+  assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
 });

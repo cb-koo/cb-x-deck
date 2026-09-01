@@ -33,7 +33,7 @@ function SettlementInner() {
         {tab === 'candidates' && <CandidateTable />}
         {tab === 'requests' && <RequestList focusTaskId={sp.get('task')} />}
         {tab === 'settings' && <SettingsTab />}
-        {tab === 'log' && <ExternalLogTab />}
+        {tab === 'log' && <ExternalLogTab focusRequestId={sp.get('request')} />}
       </div>
     </main>
   );

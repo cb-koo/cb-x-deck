@@ -1,6 +1,7 @@
 // 호출 기록 화면 문구 — DB를 만지지 않는 순수 모듈. 화면(클라이언트 컴포넌트)은 반드시 이 파일에서 import한다.
 // externalApiLog.ts(기록·조회)는 postgres를 top-level import하므로, 그 경로로 문구 함수를 가져가면
 // 브라우저 번들에 pg가 딸려 들어와 빌드가 깨진다 — 그래서 그 파일은 여기의 것을 재수출하지 않는다.
+import { kstDateTime, kstMonthDay } from './datetime.ts';
 export type ExternalOutcome = 'ok' | 'applied' | 'stale' | 'unauthorized' | 'bad-request' | 'not-found' | 'conflict' | 'error';
 
 export interface ExternalLogTarget { handle: string; clientName: string; amountGross: number; payoutCurrency: string }
@@ -33,6 +34,31 @@ function statusLabel(sentStatus: string | null): string {
   return SENT_STATUS_LABEL[sentStatus] ?? sentStatus;
 }
 
+// 그쪽 폴링 커서를 사람 말로 — 목록 조회 기록에는 요청 번호가 없어서(건수만 남는다)
+// "어디부터 가져갔나"가 안 보인다. 커서에 그 정보가 이미 들어 있으므로 풀어서 보여준다.
+// 브라우저·서버 양쪽에서 동작해야 한다(이 파일은 클라이언트 컴포넌트가 import한다).
+function b64urlToString(s: string): string | null {
+  try {
+    const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+    if (typeof atob === 'function') return atob(b64);
+    return Buffer.from(b64, 'base64').toString('binary');
+  } catch { return null; }
+}
+
+export function describeCursor(query: string | null): string | null {
+  const m = (query ?? '').match(/cursor=([^&]+)/);
+  if (!m) return null;
+  const raw = b64urlToString(decodeURIComponent(m[1]));
+  if (!raw) return null;
+  const i = raw.indexOf(':');
+  if (i < 0) return null;
+  const us = raw.slice(0, i);
+  if (!/^\d{1,16}$/.test(us)) return null;
+  const iso = new Date(Number(us) / 1000).toISOString();
+  // "8/31 23:19"처럼 짧게 — kstDateTime의 'YYYY-MM-DD HH:MM'은 표에는 맞지만 이 문장 안에서는 너무 길다.
+  return `${kstMonthDay(iso)} ${kstDateTime(iso).slice(11)} 이후 바뀐 것`;
+}
+
 export function describeExternalCall(row: ExternalLogRow): { line: string; tone: 'ok' | 'warn' | 'bad' } {
   switch (row.outcome) {
     case 'applied':
@@ -41,7 +67,10 @@ export function describeExternalCall(row: ExternalLogRow): { line: string; tone:
       return { line: `'${statusLabel(row.sentStatus)}'을 다시 보냈어요 — 이미 반영된 내용이라 넘겼어요`, tone: 'ok' };
     case 'ok':
       if (!row.path.endsWith('/status') && row.path.endsWith('/requests')) {
-        return { line: '요청 목록을 가져갔어요', tone: 'ok' };
+        const from = describeCursor(row.query);
+        const empty = row.detail === '0건';
+        const what = from ? `${from}을 가져갔어요` : '요청 목록을 처음부터 가져갔어요';
+        return { line: empty ? `${what} — 새로 바뀐 게 없었어요` : what, tone: 'ok' };
       }
       return { line: '요청 1건을 조회했어요', tone: 'ok' };
     case 'unauthorized':

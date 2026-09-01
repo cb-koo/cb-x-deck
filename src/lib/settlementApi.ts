@@ -43,4 +43,11 @@ export const ackDiffApi = (id: string) => call<PaymentRequestRow>(`/api/settleme
 export const unackDiffApi = (id: string) => call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'unack-diff' }));
 export const fetchSettlementSettings = () => call<{ settings: SettlementSettings; versions: SettlementVersionRow[] }>('/api/settlement/settings');
 export const saveSettlementSettingsApi = (settings: SettlementSettings) => call<{ settings: SettlementSettings }>('/api/settlement/settings', json('PUT', { settings }));
-export const fetchExternalLog = () => call<{ rows: ExternalLogRow[] }>('/api/settlement/external-log');
+export const fetchExternalLog = (f: { method?: 'GET' | 'POST'; rejectedOnly?: boolean; request?: string } = {}) => {
+  const p = new URLSearchParams();
+  if (f.method) p.set('method', f.method);
+  if (f.rejectedOnly) p.set('rejectedOnly', '1');
+  if (f.request) p.set('request', f.request);
+  const qs = p.toString();
+  return call<{ rows: ExternalLogRow[] }>(`/api/settlement/external-log${qs ? `?${qs}` : ''}`);
+};

@@ -2,7 +2,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { insertExternalLog, listExternalLog, recordExternalCall } from './externalApiLog.ts';
-import { describeExternalCall, describeCaller, describeTarget } from './externalLogCopy.ts';
+import { describeExternalCall, describeCaller, describeTarget, describeCursor } from './externalLogCopy.ts';
 import type { ExternalLogRow } from './externalLogCopy.ts';
 
 const sql = getSql();
@@ -45,9 +45,9 @@ test('describeExternalCall — stale', () => {
   assert.equal(r.tone, 'ok');
 });
 
-test('describeExternalCall — ok, 목록(GET .../requests)', () => {
+test('describeExternalCall — ok, 목록(GET .../requests), 커서 없음(처음)', () => {
   const r = describeExternalCall(row({ outcome: 'ok', path: P + '/requests', method: 'GET' }));
-  assert.equal(r.line, '요청 목록을 가져갔어요');
+  assert.equal(r.line, '요청 목록을 처음부터 가져갔어요');
   assert.equal(r.tone, 'ok');
 });
 
@@ -265,6 +265,37 @@ test('detail — clip()도 잘리는 경계에 이모지가 걸리면 홀로 남
   assert.ok(r);
   assert.ok(!r!.detail!.includes('�'), `저장된 detail에 홀로 남은 서로게이트가 �로 깨져 들어갔다: ${JSON.stringify(r!.detail!.slice(-30))}`);
   assert.ok(r!.detail!.length <= max);
+});
+
+test('describeCursor — 그쪽이 보낸 커서를 사람 말로 푼다', () => {
+  // 2026-08-31T14:19:10.791678Z 마이크로초 + 요청 id
+  const raw = '1788185950791678:f65553e4-8c26-47c8-a6cf-3cbab28541e3';
+  const cursor = Buffer.from(raw).toString('base64url');
+  const out = describeCursor(`?cursor=${cursor}&limit=100`);
+  assert.ok(out && out.includes('이후 바뀐 것'), out ?? '(null)');
+  assert.ok(out.includes('8/31'), out);
+  assert.equal(describeCursor(null), null);
+  assert.equal(describeCursor('?limit=100'), null);
+  assert.equal(describeCursor('?cursor=쓰레기'), null);
+});
+
+test('목록 조회 문구 — 커서가 있으면 어디부터 가져갔는지 말한다', () => {
+  const cursor = Buffer.from('1788185950791678:f65553e4-8c26-47c8-a6cf-3cbab28541e3').toString('base64url');
+  const line = describeExternalCall(row({ method: 'GET', path: '/api/external/settlement/requests', outcome: 'ok', detail: '0건', query: `?cursor=${cursor}` })).line;
+  assert.ok(line.includes('이후 바뀐 것을 가져갔어요'), line);
+  assert.ok(line.includes('새로 바뀐 게 없었어요'), line);
+});
+
+test('필터 — 상태 전송만 / 거부된 것만 / 요청별', async () => {
+  const id = '00000000-0000-0000-0000-000000000001';
+  await insertExternalLog(sql, { method: 'GET', path: P + '/f-get', statusCode: 200, outcome: 'ok' });
+  await insertExternalLog(sql, { method: 'POST', path: P + '/f-post', statusCode: 400, outcome: 'bad-request', detail: 'status' });
+  const posts = await listExternalLog(sql, { limit: 50, method: 'POST' });
+  assert.ok(posts.every((r) => r.method === 'POST'));
+  const rejected = await listExternalLog(sql, { limit: 50, rejectedOnly: true });
+  assert.ok(rejected.every((r) => r.statusCode >= 400));
+  const byReq = await listExternalLog(sql, { limit: 50, requestId: id });
+  assert.ok(byReq.every((r) => r.requestId === id));
 });
 
 test('recordExternalCall — EXTERNAL_API_LOG=off이면 아무것도 쓰지 않는다', async () => {

@@ -173,7 +173,7 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 | `payout.gross_krw` | number(정수) | 아니오 | **실제 송금액을 원화로 환산한 값 — 원화 지출 집계에 쓸 값.** 우리가 계산해서 보낸다: 지급 통화가 `KRW`면 `gross` 그대로, `JPY`면 `gross × rate_krw_per_jpy`. **그쪽이 통화별로 분기할 필요가 없다.** |
 | `deadline` | string(`YYYY-MM-DD`) | 아니오 | 처리 마감일. |
 | `reference_url` | string \| null | 예 | 참고 링크. **투고·인용RT·방문 협찬에서는 이 값이 인플루언서 본인 게시물 링크라 지급 전 확인 자료가 된다.** `rt`(단순 RT)에서는 클리닉 원본 트윗이라 확인 자료가 아니다 — 아래 "유형별 확인 자료"·`proof` 참고. |
-| `proof` | object \| null | 예 | **RT 작업의 지급 전 확인 자료(스크린샷).** `{ url, uploaded_at, uploaded_by }`. `null`인 경우 둘: ① RT가 아닌 유형(→ `reference_url`로 확인) ② RT인데 아직 스크린샷이 없음. **`task_type == "rt"`이고 `proof == null`이면 확인 자료가 없는 요청 — `on_hold`로 돌려보내 달라(§6, §7).** `proof`만은 스냅샷이 아니라 최신값이다(§3-2). |
+| `proof` | object \| null | 예 | **RT 작업의 지급 전 확인 자료(스크린샷).** `{ url, uploaded_at, uploaded_by }`. `null`인 경우 둘: ① RT가 아닌 유형(→ `reference_url`로 확인) ② RT인데 아직 스크린샷이 없음. **`task_type == "rt"`이고 `proof == null`이면 확인 자료가 없는 요청 — `on_hold`로 돌려보내 달라(§6, §7).** `proof`만은 스냅샷이 아니라 최신값이다(§3-2). **2026-09-02부터 저희 쪽에서 증빙 없는 RT는 요청 자체를 만들 수 없게 막았다** — 그 이후 새 요청에서 이 조합은 나오지 않고, 그 전에 만든 요청에만 남아 있을 수 있다. 같은 날부터 `rt`가 아닌 유형은 `reference_url`이 항상 채워진다. |
 | `proof.url` | string | | 증빙 이미지의 고정 주소(§4-1). 서명 URL이 아니다 — 만료되지 않는다. |
 | `proof.uploaded_at` | string(ISO 8601) | | 스크린샷을 올린 시각. |
 | `proof.uploaded_by` | string | | 스크린샷을 올린 사람 이름. |

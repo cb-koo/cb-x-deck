@@ -38,6 +38,11 @@ const base = (clientId: string, clientName: string, suffix: string, kind: 'conte
   clientId, clientName, name: P + suffix, nameEn: `${P.toLowerCase()}-${suffix}`, startsOn: '2026-08-31', endsOn: '2026-09-06', kind, note: '', createdBy: null,
 });
 const tin = { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null };
+// 09-02부터 증빙 없는 RT는 🔴로 요청이 막힌다 — 요청 생성이 목적인 RT 픽스처는 이걸로 증빙을 채운다
+const fakeProof = (taskId: string) => ({ url: `task/${taskId}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png`, by: null, byName: '박구건', at: '2026-08-31T01:00:00.000Z' });
+async function postedRtWithProof(taskId: string) {
+  await updateTask(sql, taskId, { postedAt: '2026-08-27', postedSource: 'manual', proof: fakeProof(taskId) });
+}
 async function influencerWithPaypal(handle: string) {
   const { row } = await createInfluencer(sql, { handle, createdBy: null });
   await updatePaymentMethods(sql, row.id, { kind: 'add', input: { type: 'paypal', holder: 'KEIKO', currency: 'JPY', email: `${handle}@x.com`, fee: { mode: 'grossUp', percent: 5 } }, makeDefault: true }, null);
@@ -159,7 +164,7 @@ test('생성 — 전체 검증: 하나라도 실패면 0건 저장, 건별 이�
   const camp = await createCampaign(sql, base(c.id, c.name, 'c'));
   await influencerWithPaypal(H('v1')); await influencerWithPaypal(H('v2'));
   const [t1, t2] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: H('v1'), cost: { amount: 30000, currency: 'KRW' } }, { handle: H('v2'), cost: { amount: 30000, currency: 'KRW' } }] });
-  for (const t of [t1, t2]) await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  for (const t of [t1, t2]) await postedRtWithProof(t.id);
   const cands = await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28');
   const c1 = cands.find((x) => x.taskId === t1.id)!, c2 = cands.find((x) => x.taskId === t2.id)!;
   // t2의 expected 금액을 틀리게(화면이 낡은 값을 들고 있던 상황)
@@ -187,7 +192,7 @@ test('생성 — 같은 작업 두 번 고르면 거절, 저장 0건', async () 
   const camp = await createCampaign(sql, base(c.id, c.name, 'e'));
   await influencerWithPaypal(H('dup'));
   const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: H('dup'), cost: { amount: 10000, currency: 'KRW' } }] });
-  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  await postedRtWithProof(t.id);
   const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
   const item = itemOf(cand, cand.categoryDefault!);
   await assert.rejects(createRequests(sql, [item, item], m, '2026-08-28'), (e: unknown) => {
@@ -206,7 +211,7 @@ test('목록 — 기간 필터는 서울 자정 기준', async () => {
   const camp = await createCampaign(sql, base(c.id, c.name, 'f'));
   await influencerWithPaypal(H('range'));
   const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: H('range'), cost: { amount: 10000, currency: 'KRW' } }] });
-  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  await postedRtWithProof(t.id);
   const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
   const [row] = await createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28');
   // 8-28 00:30 KST = 8-27 15:30 UTC — 세션 TimeZone이 UTC면 옛 ::timestamptz 캐스트는
@@ -226,7 +231,7 @@ test('취소 — 상태·사유·사람·시각, 후보 복귀, 재요청 허용
   const camp = await createCampaign(sql, base(c.id, c.name, 'd'));
   await influencerWithPaypal(H('cx'));
   const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: H('cx'), cost: { amount: 10000, currency: 'KRW' } }] });
-  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  await postedRtWithProof(t.id);
   const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
   const [row] = await createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28');
   const cancelled = await cancelRequest(sql, row.id, '금액 착오', m);
@@ -357,10 +362,15 @@ async function requestForRt(handle: string, campSuffix: string) {
   const camp = await createCampaign(sql, base(c.id, c.name, campSuffix, 'visit'));
   await influencerWithPaypal(H(handle));
   const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', targetTweetUrl: 'https://x.com/target/status/1', items: [{ handle: H(handle), cost: { amount: 30000, currency: 'KRW' } }] });
-  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  // "증빙 없이 만들어진 RT 요청"을 재현한다 — 09-02부터 createRequests가 증빙 없는 RT를 막으므로, 증빙을 채워 만든 뒤
+  // 작업·요청 양쪽의 증빙을 SQL로 비운다(증빙 규칙 이전에 만들어진 운영 요청과 같은 상태).
+  await postedRtWithProof(t.id);
   const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
   const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
-  const [row] = await createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-28');
+  const [created] = await createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-28');
+  await sql`update campaign_task set proof = null where id = ${t.id}`;
+  await sql`update payment_request set proof = null where id = ${created.id}`;
+  const [row] = await listRequests(sql, { taskId: t.id });
   return { row, task: t, member: m };
 }
 
@@ -507,6 +517,48 @@ test('생성 — 클라이언트 없는 캠페인은 no-client로 막히고 저�
     return true;
   });
   assert.equal((await listRequests(sql, { taskId: t.id })).length, 0);
+});
+
+// 09-02 koo: 정산 쪽이 지급 전 확인 자료 없는 요청은 받지 않는다 → 화면 🔴와 같은 판정으로 서버도 거절(판정은 effectiveIssues 한 곳)
+test('생성 — 증빙 없는 RT는 화면 🔴, 서버도 같은 문구로 거절', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라NP');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'np'));
+  await influencerWithPaypal(H('noproof'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', targetTweetUrl: 'https://x.com/target/status/1', items: [{ handle: H('noproof'), cost: { amount: 10000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  assert.equal(cand.readiness, 'blocked');
+  await assert.rejects(createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28'), (e: unknown) => {
+    assert.ok(e instanceof SettlementCreateError);
+    assert.match(e.failures[0].reason, /증빙 스크린샷을 넣어야 요청할 수 있어요/);
+    return true;
+  });
+  assert.equal((await listRequests(sql, { taskId: t.id })).length, 0);
+  // 증빙을 채우면 같은 아이템으로 통과
+  await updateTask(sql, t.id, { proof: fakeProof(t.id) });
+  const [row] = await createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28');
+  assert.equal(row.status, 'requested');
+});
+
+test('생성 — 투고에 참고 링크가 없으면 거절, 아이템에 링크를 넣어 보내면 통과(화면 입력칸과 같은 경로)', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라NR');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'nr'));
+  await influencerWithPaypal(H('nolink'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H('nolink'), cost: { amount: 10000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });   // postUrl 없음
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  assert.equal(cand.referenceDefault, null);
+  assert.equal(cand.readiness, 'blocked');
+  await assert.rejects(createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28'), (e: unknown) => {
+    assert.ok(e instanceof SettlementCreateError);
+    assert.match(e.failures[0].reason, /참고 링크를 넣어 주세요/);
+    return true;
+  });
+  await assert.rejects(createRequests(sql, [{ ...itemOf(cand, cand.categoryDefault!), referenceUrl: '' }], m, '2026-08-28'), (e: SettlementCreateError) => /참고 링크를 넣어 주세요/.test(e.failures[0].reason));
+  const [row] = await createRequests(sql, [{ ...itemOf(cand, cand.categoryDefault!), referenceUrl: 'https://x.com/nolink/status/1' }], m, '2026-08-28');
+  assert.equal(row.referenceUrl, 'https://x.com/nolink/status/1');
 });
 
 // 042: 마이그레이션의 guarded ALTER가 실제로 이 DB에 적용됐는지 — 재실행돼도 이 단언은 항상 성립해야 한다

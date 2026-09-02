@@ -10,7 +10,7 @@ import { isDateOnlyString } from './campaignJudgment.ts';   // 'YYYY-MM-DD' + �
 import { getDefaultPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
 import { insertAutoLog, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
-import { computeCandidate, toMethodSnapshot, NO_CLIENT_TEXT, NO_INFLUENCER_TEXT, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
+import { computeCandidate, effectiveIssues, toMethodSnapshot, NO_CLIENT_TEXT, NO_INFLUENCER_TEXT, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
 import { hasPaidDiff } from './settlementDisplay.ts';   // 순수 모듈(campaignTaskStore는 type import만) — 화면 배지와 같은 차액 판정
 import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
@@ -189,6 +189,10 @@ export async function createRequests(
     if (!cat || cat.hidden) { failures.push({ taskId: item.taskId, reason: '분류를 다시 골라 주세요 — 목록에 없는 분류예요' }); continue; }
     if (!isDateOnlyString(item.deadlineOn)) { failures.push({ taskId: item.taskId, reason: '마감일 형식을 확인해 주세요' }); continue; }
     if (item.referenceUrl !== null && item.referenceUrl !== '' && !isHttpUrl(item.referenceUrl)) { failures.push({ taskId: item.taskId, reason: '참고 링크는 http(s) 주소여야 해요' }); continue; }
+    // 화면 신호등과 같은 판정(09-02): 아이템이 들고 온 분류·링크를 얹은 상태에서 🔴가 하나라도 남으면 거절 — RT 증빙 없음,
+    // 투고·인용RT·방문의 참고 링크 없음이 여기서 걸린다. 화면을 우회한 호출도 같은 문구로 튕긴다.
+    const blocked = effectiveIssues(cand, { category: item.category, referenceUrl: item.referenceUrl }).filter((x) => x.level === 'blocked');
+    if (blocked.length) { failures.push({ taskId: item.taskId, reason: blocked.map((x) => x.text).join(' · ') }); continue; }
     if (cand.money.amountGross !== item.expected.amountGross || cand.money.payoutCurrency !== item.expected.payoutCurrency) {
       failures.push({ taskId: item.taskId, reason: '금액이 바뀌었어요 — 다시 확인해 주세요' }); continue;
     }

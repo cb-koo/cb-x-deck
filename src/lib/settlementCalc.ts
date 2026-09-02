@@ -78,29 +78,48 @@ export interface ReadinessIssue { level: 'warn' | 'blocked'; code: IssueCode; te
 export const NO_CLIENT_TEXT = '이 캠페인의 클라이언트가 삭제돼 비어 있어요 — 클라이언트를 다시 만들고 캠페인을 새로 만들어야 정산할 수 있어요';
 export const NO_INFLUENCER_TEXT = '명부에 없는 인플루언서예요 — 명부에 추가하고 결제 수단을 등록해 주세요';
 const monthDay = (ymd: string) => `${Number(ymd.slice(5, 7))}-${Number(ymd.slice(8, 10))}`;
-export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; removedAt: string | null; removedReason: string; clientId: string | null; proofMissing: boolean }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
+// 09-02 koo: 정산 프로덕트가 지급 전 확인에 쓰는 자료가 없으면 그쪽이 요청을 받지 않는다(보류로 돌려보냄) → 우리가 요청 단계에서 막는다.
+//  · RT → 증빙 스크린샷(원본 트윗 링크는 증거가 아니다)  · 투고·인용RT·방문 → 인플루언서 본인 게시물 링크(reference_url)
+// 이 두 이슈는 화면(effectiveIssues)과 서버(createRequests)가 같은 객체를 쓴다 — 문구·수준이 한 곳에서만 바뀌게.
+const NO_CATEGORY_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-category', text: '분류를 골라 주세요' };
+const NO_PROOF_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-proof', text: '증빙 스크린샷을 넣어야 요청할 수 있어요 — 정산 쪽이 지급 전에 확인해요' };
+function referenceIssue(required: boolean): ReadinessIssue {
+  return required
+    ? { level: 'blocked', code: 'no-reference', text: '참고 링크를 넣어 주세요 — 정산 쪽이 이 링크로 게시를 확인해요' }
+    : { level: 'warn', code: 'no-reference', text: '참고 링크 없음' };
+}
+// 참고 링크가 확인 자료인 유형 — RT만 아니다(RT의 링크는 클리닉 원본 트윗; 스펙 3-6, 슬랙 RT 405건 중 350건이 링크 없이 갔다)
+export const referenceRequiredFor = (type: TaskType): boolean => type !== 'rt';
+
+export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; referenceRequired: boolean; removedAt: string | null; removedReason: string; clientId: string | null; proofMissing: boolean }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
   const issues: ReadinessIssue[] = [];
   if (!i.inRoster) issues.push({ level: 'blocked', code: 'no-influencer', text: NO_INFLUENCER_TEXT });
   else if (!i.method) issues.push({ level: 'blocked', code: 'no-payment-method', text: '결제 수단이 없어요 — 프로필에서 등록해 주세요' });
   if (i.clientId === null) issues.push({ level: 'blocked', code: 'no-client', text: NO_CLIENT_TEXT });
-  if (!i.category) issues.push({ level: 'blocked', code: 'no-category', text: '분류를 골라 주세요' });
-  if (!i.referenceUrl) issues.push({ level: 'warn', code: 'no-reference', text: '참고 링크 없음' });
-  if (i.proofMissing) issues.push({ level: 'warn', code: 'no-proof', text: '증빙 스크린샷 없음' });
+  if (!i.category) issues.push(NO_CATEGORY_ISSUE);
+  if (!i.referenceUrl) issues.push(referenceIssue(i.referenceRequired));
+  if (i.proofMissing) issues.push(NO_PROOF_ISSUE);
   if (i.removedAt) issues.push({ level: 'warn', code: 'removed', text: `게시 내려짐 ${monthDay(i.removedAt)}${i.removedReason ? ` · ${i.removedReason}` : ''}` });
   if (i.method?.type === 'paypay' && !i.method.identifier) issues.push({ level: 'warn', code: 'paypay-no-identifier', text: 'PayPay 수취 정보 미입력' });
   const level: ReadinessLevel = issues.some((x) => x.level === 'blocked') ? 'blocked' : issues.length ? 'warn' : 'ready';
   return { level, issues };
 }
 
-// ── 화면의 실제 신호등(§4) — 서버 값에 "사람이 지금 분류를 골랐는지"만 얹는다.
-// 서버가 채워 보낸 no-category는 늘 버리고, 지금 edit.category가 비어 있으면 다시 얹는다 — 분류를 지우면
-// 즉시 🔴로 떨어져야 한다(비웠는데도 🟢로 남아 체크 가능한 비대칭 버그, 08-28 리뷰).
-export function effectiveIssues(c: SettlementCandidate, e: { category: string | null } | undefined): ReadinessIssue[] {
-  const issues = c.issues.filter((i) => i.code !== 'no-category');
-  if (!e?.category) issues.push({ level: 'blocked', code: 'no-category', text: '분류를 골라 주세요' });
+// ── 화면의 실제 신호등(§4) — 서버 값에 "사람이 지금 채운 값"만 얹는다.
+// · 분류: 서버가 채워 보낸 no-category는 늘 버리고, 지금 edit.category가 비어 있으면 다시 얹는다 — 분류를 지우면
+//   즉시 🔴로 떨어져야 한다(비웠는데도 🟢로 남아 체크 가능한 비대칭 버그, 08-28 리뷰).
+// · 참고 링크(09-02): edit에 referenceUrl이 있으면 같은 방식 — 행의 입력칸에 링크를 넣으면 즉시 풀리고 지우면 다시 막힌다.
+//   edit에 referenceUrl 키가 없으면(옛 호출) 서버 판정을 그대로 둔다.
+// 서버(createRequests)도 아이템의 분류·링크를 넣어 이 함수를 부른다 — 화면이 🔴로 막는 것과 서버가 거절하는 것이 한 판정.
+export interface ReadinessEdit { category: string | null; referenceUrl?: string | null }
+export function effectiveIssues(c: SettlementCandidate, e: ReadinessEdit | undefined): ReadinessIssue[] {
+  const editsReference = e !== undefined && 'referenceUrl' in e;
+  const issues = c.issues.filter((i) => i.code !== 'no-category' && !(editsReference && i.code === 'no-reference'));
+  if (!e?.category) issues.push(NO_CATEGORY_ISSUE);
+  if (editsReference && !e.referenceUrl) issues.push(referenceIssue(referenceRequiredFor(c.taskType)));
   return issues;
 }
-export function effectiveReadiness(c: SettlementCandidate, e: { category: string | null } | undefined): ReadinessLevel {
+export function effectiveReadiness(c: SettlementCandidate, e: ReadinessEdit | undefined): ReadinessLevel {
   const issues = effectiveIssues(c, e);
   if (issues.some((i) => i.level === 'blocked')) return 'blocked';
   return issues.length ? 'warn' : 'ready';
@@ -148,9 +167,9 @@ export function computeCandidate(i: CandidateInput): SettlementCandidate {
   const money = method ? computeMoney(task.cost, method.currency, method.fee, i.settings.rateKrwPerJpy) : null;
   const categoryDefault = defaultCategory({ type: task.type, campaignKind: campaign.kind, settings: i.settings, lastQuoteRtCategory: i.lastQuoteRtCategory });
   const referenceDefault = referenceUrlFor(task);
-  // RT만 증빙을 요구한다(RT 증빙 스펙 결정 3) — 투고·인용RT는 post_url이 증거다
+  // RT만 증빙을 요구한다(RT 증빙 스펙 결정 3) — 투고·인용RT는 post_url이 증거다. 없으면 🔴(09-02, 그쪽이 받지 않는 요청은 만들지 않는다)
   const proofMissing = task.type === 'rt' && !task.proof;
-  const r = assessReadiness({ inRoster: influencer.inRoster, method, category: categoryDefault, referenceUrl: referenceDefault, removedAt: task.removedAt, removedReason: task.removedReason, clientId: campaign.clientId, proofMissing });
+  const r = assessReadiness({ inRoster: influencer.inRoster, method, category: categoryDefault, referenceUrl: referenceDefault, referenceRequired: referenceRequiredFor(task.type), removedAt: task.removedAt, removedReason: task.removedReason, clientId: campaign.clientId, proofMissing });
   return {
     taskId: task.id, campaignId: campaign.id, campaignName: campaign.name, clientId: campaign.clientId, clientName: campaign.clientName, campaignKind: campaign.kind,
     influencerHandle: task.influencerHandle, taskType: task.type, postedAt: task.postedAt, removedAt: task.removedAt, removedReason: task.removedReason, draftLabel: task.draftLabel,

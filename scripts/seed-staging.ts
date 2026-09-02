@@ -51,6 +51,10 @@ const METHODS: Array<{ handle: string; pm: PaymentMethodInput }> = [
   for (const [i, t] of [...posts, ...rts].entries()) {
     await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: `https://x.com/${S}${i}/status/${1000 + i}` });
   }
+  // 증빙 없는 RT는 요청이 막힌다(09-02) — 시드 RT에는 자리만 있는 증빙을 붙인다(스토리지에 파일은 없어 '증빙 보기'는 안 열린다).
+  for (const t of rts) {
+    await updateTask(sql, t.id, { proof: { url: `task/${t.id}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png`, by: null, byName: '시드', at: '2026-08-27T01:00:00.000Z' } });
+  }
   const cands = await listCandidates(sql, SETTLEMENT_DEFAULTS, m1.id, '2026-08-28');
   const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
   const promo = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'promo-rt')!;

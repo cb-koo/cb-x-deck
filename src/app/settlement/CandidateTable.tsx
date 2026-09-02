@@ -21,7 +21,7 @@ const deadlineLabel = (ymd: string) => {
   return `${d.getUTCMonth() + 1}-${d.getUTCDate()}(${'일월화수목금토'[d.getUTCDay()]})`;
 };
 
-export function CandidateTable() {
+export function CandidateTable({ onCreated }: { onCreated?: () => void }) {
   const { show } = useToast();
   const [data, setData] = useState<{ candidates: SettlementCandidate[]; settings: SettlementSettings; today: string } | null>(null);
   const [err, setErr] = useState('');
@@ -82,6 +82,9 @@ export function CandidateTable() {
     if (r.ok) {
       show(`${r.data.created.length}건 만들었어요`);
       setSelected(new Set()); setFailures({});
+      // 만든 요청을 바로 보게 요청 내역 탭으로 넘긴다(원 스펙 QA 항목 '만들기 → 내역 이동', 09-02 koo 확정).
+      // 탭이 바뀌면 이 컴포넌트는 언마운트되므로 재조회는 하지 않는다 — 돌아오면 마운트 시 다시 읽는다.
+      if (onCreated) { onCreated(); return; }
       await load();
       return;
     }

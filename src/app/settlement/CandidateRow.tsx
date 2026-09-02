@@ -8,6 +8,7 @@ import { PAYMENT_TYPE_LABEL, describeMethod } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
 import { ImageLightbox } from '@/components/ImageLightbox';
 import { READINESS_STYLE, effectiveReadiness, effectiveIssues } from './readinessView';
+import { referenceRequiredFor } from '@/lib/settlementCalc';
 import { formatKrwToPayout } from './money';
 
 export interface RowEdit { category: string | null; deadlineOn: string; referenceUrl: string }
@@ -50,7 +51,10 @@ export function CandidateRow({ c, edit, categories, selected, failure, proofSign
           <input type="date" className={FIELD} value={edit.deadlineOn} onChange={(e) => onEdit({ ...edit, deadlineOn: e.target.value })} />
         </label>
         <label className="flex items-center gap-1.5 text-x-secondary min-w-0">참고
-          <input type="url" className={`${FIELD} w-[260px]`} placeholder="게시물 링크(선택)" value={edit.referenceUrl} onChange={(e) => onEdit({ ...edit, referenceUrl: e.target.value })} />
+          {/* 투고·인용RT·방문은 이 링크가 정산 쪽 확인 자료라 필수(09-02) — 비면 🔴, 넣으면 즉시 풀린다. RT는 원본 트윗이라 선택 */}
+          <input type="url" className={`${FIELD} w-[260px] ${referenceRequiredFor(c.taskType) && !edit.referenceUrl ? 'border-red-400' : ''}`}
+                 placeholder={referenceRequiredFor(c.taskType) ? '인플루언서 게시물 링크(필수)' : '게시물 링크(선택)'}
+                 value={edit.referenceUrl} onChange={(e) => onEdit({ ...edit, referenceUrl: e.target.value })} />
           {edit.referenceUrl && <a href={edit.referenceUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline">열기</a>}
         </label>
         {c.proof && (

@@ -52,10 +52,14 @@ async function requestForRt(handle: string, campSuffix: string) {
   const { row: inf } = await createInfluencer(sql, { handle: H(handle), createdBy: null });
   await updatePaymentMethods(sql, inf.id, { kind: 'add', input: { type: 'paypal', holder: 'TEST', currency: 'JPY', email: `${H(handle)}@x.com`, fee: { mode: 'grossUp', percent: 5 } }, makeDefault: true }, null);
   const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: H(handle), cost: { amount: 30000, currency: 'KRW' } }] });
-  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual' });
+  // 증빙 없는 RT 요청을 재현한다(09-02부터 createRequests가 막으므로 증빙을 채워 만든 뒤 SQL로 비운다 — 규칙 이전 운영 요청과 같은 상태)
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', proof: { url: `task/${t.id}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png`, by: null, byName: '픽스처', at: '2026-08-27T01:00:00.000Z' } });
   const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
   const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
-  const [row] = await createRequests(sql, [{ taskId: cand.taskId, category: fee.sendAs, deadlineOn: cand.deadlineDefault, referenceUrl: cand.referenceDefault, expected: { amountGross: cand.money!.amountGross, payoutCurrency: cand.money!.payoutCurrency, paymentMethodId: cand.method!.id } }], m, '2026-08-28');
+  const [created] = await createRequests(sql, [{ taskId: cand.taskId, category: fee.sendAs, deadlineOn: cand.deadlineDefault, referenceUrl: cand.referenceDefault, expected: { amountGross: cand.money!.amountGross, payoutCurrency: cand.money!.payoutCurrency, paymentMethodId: cand.method!.id } }], m, '2026-08-28');
+  await sql`update campaign_task set proof = null where id = ${t.id}`;
+  await sql`update payment_request set proof = null where id = ${created.id}`;
+  const row = { ...created, proof: null };
   return { row, task: t, client: c, influencer: inf };
 }
 

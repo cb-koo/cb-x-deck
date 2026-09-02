@@ -43,7 +43,7 @@ function SettlementInner() {
         ))}
       </nav>
       <div className="mt-5">
-        {tab === 'candidates' && <CandidateTable />}
+        {tab === 'candidates' && <CandidateTable onCreated={() => setTab('requests')} />}
         {tab === 'requests' && <RequestList focusTaskId={focusTaskId} />}
         {tab === 'settings' && <SettingsTab />}
         {tab === 'log' && <ExternalLogTab focusRequestId={focusRequestId} />}

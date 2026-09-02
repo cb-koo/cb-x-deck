@@ -261,7 +261,8 @@ test('정산 배지·삭제 보호 — 활성 요청이 있으면 settlement 채
   const { row: inf } = await createInfluencer(sql, { handle: h, createdBy: null });
   await updatePaymentMethods(sql, inf.id, { kind: 'add', input: { type: 'paypal', holder: 'K', currency: 'JPY', email: 'k@x.com' }, makeDefault: true }, null);
   const [t] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: h, cost: { amount: 10000, currency: 'KRW' } }] });
-  await updateTask(sql, t.id, { postedAt: '2026-09-01', postedSource: 'manual' });
+  // 증빙 없는 RT는 요청이 막히므로(09-02) 픽스처에 증빙을 채운다
+  await updateTask(sql, t.id, { postedAt: '2026-09-01', postedSource: 'manual', proof: { url: `task/${t.id}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png`, by: null, byName: '박구건', at: '2026-08-31T01:00:00.000Z' } });
   const [m] = await sql<Array<{ id: string }>>`insert into member (name, color) values (${P + '멤버S'}, '#000') returning id`;
   const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-09-01')).find((x) => x.taskId === t.id)!;
   await createRequests(sql, [{ taskId: t.id, category: cand.categoryDefault!, deadlineOn: cand.deadlineDefault, referenceUrl: null, expected: { amountGross: cand.money!.amountGross, payoutCurrency: cand.money!.payoutCurrency, paymentMethodId: cand.method!.id } }], { id: m.id, name: P + '멤버S' });

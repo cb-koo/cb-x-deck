@@ -94,39 +94,63 @@ test('referenceUrlFor — RT는 대상, 나머지는 자기 게시물', () => {
 });
 
 test('assessReadiness — 🔴 > 🟡, 문구 나열', () => {
-  const ok = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false });
+  const ok = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', referenceRequired: true, removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false });
   assert.equal(ok.level, 'ready'); assert.equal(ok.issues.length, 0);
-  const noRoster = assessReadiness({ inRoster: false, method: null, category: 'X', referenceUrl: null, removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false });
+  const noRoster = assessReadiness({ inRoster: false, method: null, category: 'X', referenceUrl: null, referenceRequired: false, removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false });
   assert.equal(noRoster.level, 'blocked');
   assert.deepEqual(noRoster.issues.map((i) => i.code), ['no-influencer', 'no-reference']);
   assert.match(noRoster.issues[0].text, /명부에 없는 인플루언서예요/);
-  const noPm = assessReadiness({ inRoster: true, method: null, category: null, referenceUrl: null, removedAt: '2026-08-27', removedReason: '계정 정지', clientId: 'cl1', proofMissing: false });
+  const noPm = assessReadiness({ inRoster: true, method: null, category: null, referenceUrl: null, referenceRequired: false, removedAt: '2026-08-27', removedReason: '계정 정지', clientId: 'cl1', proofMissing: false });
   assert.equal(noPm.level, 'blocked');
   assert.deepEqual(noPm.issues.map((i) => i.code), ['no-payment-method', 'no-category', 'no-reference', 'removed']);
   assert.match(noPm.issues[3].text, /게시 내려짐 8-27 · 계정 정지/);
-  const warn = assessReadiness({ inRoster: true, method: paypay, category: 'X', referenceUrl: null, removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false });
+  const warn = assessReadiness({ inRoster: true, method: paypay, category: 'X', referenceUrl: null, referenceRequired: false, removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false });
   assert.equal(warn.level, 'warn');
   assert.deepEqual(warn.issues.map((i) => i.code), ['no-reference', 'paypay-no-identifier']);
-  const noClient = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', removedAt: null, removedReason: '', clientId: null, proofMissing: false });
+  const noClient = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', referenceRequired: true, removedAt: null, removedReason: '', clientId: null, proofMissing: false });
   assert.equal(noClient.level, 'blocked');
   assert.deepEqual(noClient.issues.map((i) => i.code), ['no-client']);
   assert.match(noClient.issues[0].text, /이 캠페인의 클라이언트가 삭제돼 비어 있어요/);
 });
 
-test('assessReadiness — 증빙 없는 RT는 노랑 경고, 막지는 않는다', () => {
-  const base = { inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', removedAt: null, removedReason: '', clientId: 'cl1' };
+// 09-02 koo: 정산 쪽이 지급 전 확인에 쓰는 자료(RT 스크린샷 / 그 외 유형의 게시물 링크)가 없으면 그쪽이 받지 않는다 → 우리가 미리 막는다
+test('assessReadiness — 증빙 없는 RT는 🔴, 요청을 막는다', () => {
+  const base = { inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', referenceRequired: false, removedAt: null, removedReason: '', clientId: 'cl1' };
   const missing = assessReadiness({ ...base, proofMissing: true });
-  assert.equal(missing.level, 'warn');
-  assert.ok(missing.issues.some((i) => i.code === 'no-proof' && i.level === 'warn'));
+  assert.equal(missing.level, 'blocked');
+  const issue = missing.issues.find((i) => i.code === 'no-proof')!;
+  assert.equal(issue.level, 'blocked');
+  assert.match(issue.text, /증빙 스크린샷을 넣어야 요청할 수 있어요/);
 
   const has = assessReadiness({ ...base, proofMissing: false });
   assert.equal(has.level, 'ready');
   assert.equal(has.issues.length, 0);
 });
 
+test('assessReadiness — 참고 링크 없음은 필수 유형(투고·인용RT·방문)이면 🔴, RT면 🟡', () => {
+  const base = { inRoster: true, method: paypal, category: 'X', referenceUrl: null, removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false };
+  const required = assessReadiness({ ...base, referenceRequired: true });
+  assert.equal(required.level, 'blocked');
+  assert.match(required.issues.find((i) => i.code === 'no-reference')!.text, /참고 링크를 넣어 주세요/);
+  const optional = assessReadiness({ ...base, referenceRequired: false });
+  assert.equal(optional.level, 'warn');
+  assert.equal(optional.issues.find((i) => i.code === 'no-reference')!.text, '참고 링크 없음');
+});
+
+test('computeCandidate — 참고 링크 필수 여부는 유형에서 나온다: RT만 선택', () => {
+  const noLink = (type: TaskType) => ({ ...candInput({ type, proof: null }), task: { ...candInput({ type, proof: null }).task, postUrl: null } });
+  for (const type of ['post', 'quoteRt', 'visit'] as const) {
+    const c = computeCandidate(noLink(type));
+    assert.equal(c.issues.find((i) => i.code === 'no-reference')?.level, 'blocked', type);
+  }
+  const rt = computeCandidate(noLink('rt'));
+  assert.equal(rt.issues.find((i) => i.code === 'no-reference')?.level, 'warn');
+});
+
 test('computeCandidate — RT는 증빙이 없으면 no-proof, 투고는 증빙과 무관', () => {
   const rt = computeCandidate(candInput({ type: 'rt', proof: null }));
-  assert.ok(rt.issues.some((i) => i.code === 'no-proof'));
+  assert.ok(rt.issues.some((i) => i.code === 'no-proof' && i.level === 'blocked'));
+  assert.equal(rt.readiness, 'blocked');
 
   const rtWithProof = computeCandidate(candInput({
     type: 'rt',
@@ -196,13 +220,29 @@ test('effectiveReadiness/effectiveIssues — 분류를 지우면 즉시 🔴, �
   assert.equal(empty.readiness, 'blocked');
   assert.equal(effectiveReadiness(empty, { category: SETTLEMENT_DEFAULTS.categories[0].sendAs }), 'ready');
   assert.deepEqual(effectiveIssues(empty, { category: SETTLEMENT_DEFAULTS.categories[0].sendAs }).map((i) => i.code), []);
-  // warn 이슈(참고 링크 없음)는 분류와 무관하게 그대로 남는다
-  const warnOnly = computeCandidate({
+  // 투고에 참고 링크가 없으면 🔴 — 사람이 행에서 링크를 넣으면 즉시 풀리고, 지우면 다시 막힌다(분류 칸과 같은 방식)
+  const noLink = computeCandidate({
     task: { id: 't5', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null },
     campaign: { id: 'c1', name: 'N', kind: 'content', clientId: 'cl1', clientName: '기타' },
     influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
   });
-  assert.equal(effectiveReadiness(warnOnly, { category: warnOnly.categoryDefault }), 'warn');
-  assert.deepEqual(effectiveIssues(warnOnly, { category: warnOnly.categoryDefault }).map((i) => i.code), ['no-reference']);
+  assert.equal(noLink.readiness, 'blocked');
+  assert.equal(effectiveReadiness(noLink, { category: noLink.categoryDefault }), 'blocked');                       // 편집 정보 없음 → 서버 판정 그대로
+  assert.equal(effectiveReadiness(noLink, { category: noLink.categoryDefault, referenceUrl: '' }), 'blocked');
+  assert.equal(effectiveReadiness(noLink, { category: noLink.categoryDefault, referenceUrl: 'https://x.com/a/status/9' }), 'ready');
+  assert.deepEqual(effectiveIssues(noLink, { category: noLink.categoryDefault, referenceUrl: 'https://x.com/a/status/9' }), []);
+  // 서버가 링크를 채워 ready였던 행에서 사람이 링크를 지우면 즉시 🔴
+  assert.equal(effectiveReadiness(filled, { category: filled.categoryDefault, referenceUrl: '' }), 'blocked');
+  assert.deepEqual(effectiveIssues(filled, { category: filled.categoryDefault, referenceUrl: '' }).map((i) => i.code), ['no-reference']);
+  // RT는 링크가 없어도 🟡(원본 트윗은 확인 자료가 아니다 — 증빙이 그 역할)
+  const rtNoLink = computeCandidate({
+    task: { id: 't6', type: 'rt', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null,
+            proof: { url: 'task/11111111-2222-3333-4444-555555555555/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png', by: null, byName: '박구건', at: '2026-08-31T01:00:00.000Z' } },
+    campaign: { id: 'c1', name: 'N', kind: 'content', clientId: 'cl1', clientName: '기타' },
+    influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
+    settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
+  });
+  assert.equal(effectiveReadiness(rtNoLink, { category: rtNoLink.categoryDefault, referenceUrl: '' }), 'warn');
+  assert.deepEqual(effectiveIssues(rtNoLink, { category: rtNoLink.categoryDefault, referenceUrl: '' }).map((i) => i.code), ['no-reference']);
 });

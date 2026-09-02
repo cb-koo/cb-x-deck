@@ -60,9 +60,14 @@ export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel, onChan
             )}
             <Item k="데드라인" v={r.deadlineOn} />
             <Item k="결제수단" v={describeSnapshot(r.paymentMethod)} />
-            <Item k="참고자료" v={r.referenceUrl ? <a href={r.referenceUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline break-all">{r.referenceUrl}</a> : '—'} />
+            {/* 증빙 2026-09-01-proof-to-partner-design.md §6: 투고·인용RT·방문은 이 링크(인플루언서 본인 게시물)가
+                정산 쪽 확인 자료다 — RT는 아니다(원본 트윗이라 증거가 안 된다, 아래 증빙 줄 참고). */}
+            <Item k="참고자료" v={r.referenceUrl ? <a href={r.referenceUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline break-all">{r.referenceUrl}</a> : '—'}
+                  sub={r.referenceUrl && r.taskType !== 'rt' ? '이 링크가 정산 쪽 확인 자료예요' : undefined} />
             {/* 증빙이 필요 없는 유형(투고·인용RT·방문)엔 이 줄 자체를 안 그린다 — RT가 아니면서 증빙도 없는 행에
-                '증빙 —'가 남으면 "빠진 것"으로 읽힌다(리뷰 수정 4). 여기서는 자리가 남아 64px 썸네일을 유지한다. */}
+                '증빙 —'가 남으면 "빠진 것"으로 읽힌다(리뷰 수정 4). 여기서는 자리가 남아 64px 썸네일을 유지한다.
+                증빙이 정산 쪽에 나가는 것은 RT뿐이다(§4·§6) — 나가지 않는 그 외 유형까지 이 줄이 뜨는 경우
+                (있는 자료를 숨기지 않는다, settlementStore.test.ts)엔 "정산에는 안 보내요"가 여전히 맞는 말이다. */}
             {(r.taskType === 'rt' || r.proof) && (
               <Item k="증빙" v={r.proof
                 ? (proofSignedUrl
@@ -71,7 +76,11 @@ export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel, onChan
                          className="h-16 w-16 cursor-zoom-in rounded border border-x-border object-cover" />
                   : '있음')
                 : '—'} sub={<>{r.proof ? proofUploadedLine(r.proof.byName, r.proof.at) : null}
-                              <div className="text-x-muted">정산에는 안 보내요 (우리 보관용)</div></>} />
+                              <div className="text-x-muted">
+                                {r.taskType === 'rt'
+                                  ? (r.proof ? '정산 프로덕트도 이 증빙을 봐요' : '증빙을 올리면 정산 프로덕트에도 자동으로 전달돼요')
+                                  : '정산에는 안 보내요 (우리 보관용)'}
+                              </div></>} />
             )}
             <Item k="메모" v={r.note || '—'} />
           </dl>

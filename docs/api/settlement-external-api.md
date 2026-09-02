@@ -88,6 +88,10 @@ Authorization: Bearer <API 키>
 
 그쪽에서 두 건을 이어 보고 싶으면 `task_id`로 묶으면 된다(한 작업에 활성 요청은 항상 1건이고, 취소된 건은 여러 개일 수 있다). 옛 건의 `on_hold`·`note`는 옛 건에 남고 새 건은 `settlement.status: null`로 시작하므로, 새 건에 대해 `received`부터 다시 보내 달라.
 
+### 3-2. 예외 — `proof`만은 최신값이 내려간다
+
+위 원칙(요청은 수정되지 않는다)은 금액·계좌·기한 등 **돈과 관련된 값**에 대한 것이다. **`proof`(§5, §4-1)는 예외다** — 이 항목만은 그 작업의 **지금 값**을 실어 보낸다. 그래서 `task_type == "rt"`인 요청을 `on_hold`로 돌려보낸 뒤 저희 담당자가 그 작업에 스크린샷을 올리면, **취소·재요청 없이 다음 폴링에 `proof`가 채워져 내려간다.** 돈 관련 값은 "요청 시점에 확정한 값"이 진실이어야 하지만, 증빙의 목적은 "지금 실제로 했는지 확인"이므로 최신이 맞다는 판단이다.
+
 ### 그쪽이 보낸 상태는 다음 폴링에 되돌아온다(에코)
 
 그쪽이 `POST …/status`를 보내면 그 건의 최상위 `updated_at`이 갱신되므로 **다음 폴링 목록에 그 건이 다시 내려온다.** 그쪽 자신의 변경인지 구분하려면 `settlement.updated_at`(그쪽이 보낸 `updated_at`의 되비침)과 자기 마지막 전송 시각을 비교하면 된다 — 같으면 에코, 다르면 우리 쪽 변경(취소 등)이다. `revision`이 0 → 1로 바뀌었다면 그 요청이 취소된 것이다 — `cancelled.by_name`이 `"정산 프로덕트"`면 그쪽이 보낸 취소의 에코이고, 그 밖의 이름이면 우리 쪽 담당자의 취소다.
@@ -109,6 +113,27 @@ Authorization: Bearer <API 키>
 
 - 200: `{ "version": 1, "item": { /* Item, §5 */ } }`
 - 404: uuid 형식이 아니거나 존재하지 않는 id — `{ "error": "요청을 찾을 수 없어요" }`
+
+## 4-1. `GET /api/external/settlement/requests/{request_id}/proof` — 증빙 이미지
+
+RT(단순 리트윗) 작업은 새 게시물 URL이 없어 `reference_url`이 확인 자료가 되지 못한다 — 원본 트윗(클리닉 자신의 글)만 가리키기 때문이다. 그래서 RT 작업만 저희가 받아 둔 **인플루언서 피드 스크린샷**을 이 엔드포인트로 내려받을 수 있다(다른 유형이 무엇을 확인 자료로 쓰는지는 §5 "유형별 확인 자료" 참고).
+
+```
+GET /api/external/settlement/requests/{request_id}/proof
+Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
+```
+
+| 응답 | 조건 |
+|---|---|
+| **200** | 증빙이 있음. 본문은 이미지 바이트 그대로, `Content-Type: image/jpeg` \| `image/png` \| `image/webp` |
+| **404** | 요청이 없거나, 있어도 증빙이 없음 — 저희 쪽 기록에는 둘을 구분해 남기지만 **응답은 둘 다 같은 404**다(본문 없음) |
+| **401** | 키 불일치. 본문 없음 |
+
+모든 응답에 `Cache-Control: no-store`가 붙는다(§2와 동일).
+
+- **왜 Item에 서명 URL을 직접 넣지 않는가:** 서명 URL은 만료된다. 목록을 캐시해 두셨다가 며칠 뒤 여시면 죽은 링크가 됩니다. 이 엔드포인트는 **주소가 고정**이고 열 때마다 저희 쪽에서 새로 서명하므로 만료가 없습니다 — `proof.url`(§5)은 항상 이 주소이고, 그쪽 코드는 "GET 한 번"으로 끝납니다.
+- **왜 302 리다이렉트가 아니라 바이트를 그대로 주는가:** 302는 그쪽 HTTP 클라이언트가 리다이렉트를 따라가야 하고, 안 따라가면 저희가 알 수 없는 실패가 됩니다. 증빙은 스크린샷 한 장(버킷 상한 10MB)이라 바이트로 주는 편이 모호함이 없습니다.
+- **이 호출도 저희 쪽 호출 기록에 남습니다.** 이 API의 용도가 "지급 전 확인"이므로, **그쪽이 언제 이 증빙을 열어봤는지가 저희 쪽에 기록되는 것 자체가 근거**가 될 수 있습니다.
 
 ## 5. Item 필드
 
@@ -147,7 +172,11 @@ Authorization: Bearer <API 키>
 | `payout.rate_krw_per_jpy` | number | 아니오 | 요청 시점 스냅샷 환율(원/엔). 지급 통화가 `KRW`면 환산에 쓰이지 않는다. |
 | `payout.gross_krw` | number(정수) | 아니오 | **실제 송금액을 원화로 환산한 값 — 원화 지출 집계에 쓸 값.** 우리가 계산해서 보낸다: 지급 통화가 `KRW`면 `gross` 그대로, `JPY`면 `gross × rate_krw_per_jpy`. **그쪽이 통화별로 분기할 필요가 없다.** |
 | `deadline` | string(`YYYY-MM-DD`) | 아니오 | 처리 마감일. |
-| `reference_url` | string \| null | 예 | 참고 링크. |
+| `reference_url` | string \| null | 예 | 참고 링크. **투고·인용RT·방문 협찬에서는 이 값이 인플루언서 본인 게시물 링크라 지급 전 확인 자료가 된다.** `rt`(단순 RT)에서는 클리닉 원본 트윗이라 확인 자료가 아니다 — 아래 "유형별 확인 자료"·`proof` 참고. |
+| `proof` | object \| null | 예 | **RT 작업의 지급 전 확인 자료(스크린샷).** `{ url, uploaded_at, uploaded_by }`. `null`인 경우 둘: ① RT가 아닌 유형(→ `reference_url`로 확인) ② RT인데 아직 스크린샷이 없음. **`task_type == "rt"`이고 `proof == null`이면 확인 자료가 없는 요청 — `on_hold`로 돌려보내 달라(§6, §7).** `proof`만은 스냅샷이 아니라 최신값이다(§3-2). |
+| `proof.url` | string | | 증빙 이미지의 고정 주소(§4-1). 서명 URL이 아니다 — 만료되지 않는다. |
+| `proof.uploaded_at` | string(ISO 8601) | | 스크린샷을 올린 시각. |
+| `proof.uploaded_by` | string | | 스크린샷을 올린 사람 이름. |
 | `payment_method` | object(문자열 값만) | 아니오 | 결제 수단 스냅샷. **`type`(`"paypal"` \| `"paypay"` \| `"bank"`)·`holder`(수취인)·`currency`(`"KRW"` \| `"JPY"`)는 항상 있다** — 결제 수단이 없는 작업은 요청을 만들 수 없기 때문. 나머지 `email`, `paypal_id`, `identifier`, `bank`, `branch`, `account`는 수단 종류에 따라 있는 키만 내려온다(paypal: `email` 또는 `paypal_id`, paypay: `identifier`(없을 수 있음), bank: `bank`·`account`·`branch`(일본 계좌만)). 전부 snake_case(원본 `paypalId` → `paypal_id`). |
 | `requester.name` | string | 아니오 | 요청자 이름. |
 | `requester.email` | string \| null | 예 | 운영에서는 요청자가 로그인한 멤버라 사실상 항상 값이 있다(멤버 계정이 삭제된 경우에만 `null`). **스테이징의 슬랙 이관 데이터는 요청자에 멤버 계정이 없어 전부 `null`** — 스테이징에서 이 필드로 매핑을 검증하지 말 것. |
@@ -161,6 +190,17 @@ Authorization: Bearer <API 키>
 | `settlement.external_id` | string \| null | 예 | 그쪽 자체 건 ID(그쪽이 보내준 경우만). |
 
 **`payer`/`cc`는 제공하지 않는다.** 그쪽 체크리스트에 있는 이 두 항목은 우리 데이터가 아니라 그쪽 자체 설정(누가 결제 담당·누구를 참조에 넣을지)이므로 이 API에 해당 필드가 없다. 요청자 정보는 `requester` 하나뿐이다.
+
+### 유형별 확인 자료 — 지급 전에 무엇을 볼 것인가
+
+`task_type`에 따라 "그 작업이 실제로 이루어졌는지" 확인할 자료가 다른 필드에 있다.
+
+| `task_type` | 확인할 필드 | 왜 |
+|---|---|---|
+| `post`(투고) · `quoteRt`(인용RT) · `visit`(방문협찬) | `reference_url` | 인플루언서 본인 게시물 링크 — 그 자체가 증거다 |
+| `rt`(단순 RT) | `proof`(§4-1) | 새 게시물이 없어 `reference_url`은 **클리닉 원본 트윗**이 된다 — 원본을 보여줄 뿐 그 인플루언서가 RT했다는 증거는 아니다. 그래서 저희가 별도로 받아 둔 피드 스크린샷이 확인 자료다. |
+
+`task_type == "rt"`이고 `proof == null`이면 확인 자료가 아직 없는 요청이다 — **`on_hold`로 돌려보내 주시면 감사하겠다.** 저희 담당자가 스크린샷을 올리면 취소·재요청 없이 다음 폴링에 `proof`가 채워져 내려간다(§3-2).
 
 ### 원화 집계 — 어느 필드를 쓸까
 
@@ -271,6 +311,7 @@ curl -s \
       "amount_krw": 30000, "cost_currency": "KRW",
       "payout": { "currency": "JPY", "net": 3000, "fee": { "mode": "grossUp", "percent": 5 }, "fee_amount": 158, "gross": 3158, "rate_krw_per_jpy": 10, "gross_krw": 31580 },
       "deadline": "2026-08-29", "reference_url": null,
+      "proof": { "url": "https://cb-x-deck.vercel.app/api/external/settlement/requests/3fa85f64-5717-4562-b3fc-2c963f66afa6/proof", "uploaded_at": "2026-08-31T10:12:00.000Z", "uploaded_by": "박구건" },
       "payment_method": { "type": "paypal", "holder": "Sawada K", "currency": "JPY", "email": "sawada@example.com", "paypal_id": "sawada-pp" },
       "requester": { "name": "모에카", "email": "moeka@clinicbridge.co.kr", "slack_id": "U0123ABC" },
       "note": "",
@@ -344,3 +385,14 @@ curl -s -X POST \
 ```
 
 지급 완료 건을 정정해야 하면 API가 아니라 사람이 처리한다(§6).
+
+### 9-4. 증빙 이미지 내려받기 (§4-1)
+
+```bash
+curl -s \
+  -H "Authorization: Bearer $SETTLEMENT_API_KEY" \
+  -o proof.png \
+  "https://cb-x-deck-staging.vercel.app/api/external/settlement/requests/3fa85f64-5717-4562-b3fc-2c963f66afa6/proof"
+```
+
+성공하면 `proof.png`에 이미지 바이트가 그대로 저장된다(`Content-Type` 헤더로 실제 형식을 확인). 증빙이 없거나 요청이 없으면 본문 없이 404다.

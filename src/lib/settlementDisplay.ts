@@ -29,11 +29,18 @@ export function paidDiff(s: Pick<StatusSource, 'paidAmountKrw' | 'grossKrw'>): n
   return s.paidAmountKrw === null ? null : s.paidAmountKrw - s.grossKrw;
 }
 
-// 담당자 확인이 필요한가 — 지급 완료 + 차액 있음 + 아직 확인 안 함. 취소된 요청은 대상이 아니다.
-export function needsDiffAck(s: StatusSource): boolean {
-  if (s.status === 'cancelled' || s.externalStatus !== 'paid' || s.diffAckAt) return false;
+// 차액이 있는 지급인가 — 지급 완료 + 실지급액 있음 + 차액 ≠ 0. 취소된 요청은 대상이 아니다.
+// 화면 배지(needsDiffAck)와 서버의 확인 가드(settlementStore.ackDiff)가 이 한 함수를 쓴다 — 판정이 두 곳에
+// 따로 있으면 한쪽만 바뀌어 어긋난다(09-02 순액·송금액 결함과 같은 종류). 기준(예: 1원 이내 무시)을 바꿀 자리도 여기 하나.
+export function hasPaidDiff(s: Pick<StatusSource, 'status' | 'externalStatus' | 'paidAmountKrw' | 'grossKrw'>): boolean {
+  if (s.status === 'cancelled' || s.externalStatus !== 'paid') return false;
   const d = paidDiff(s);
   return d !== null && d !== 0;
+}
+
+// 담당자 확인이 필요한가 — 차액 있음 + 아직 확인 안 함.
+export function needsDiffAck(s: StatusSource): boolean {
+  return hasPaidDiff(s) && !s.diffAckAt;
 }
 
 export function keyOf(s: StatusSource): DisplayKey {

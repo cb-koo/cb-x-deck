@@ -12,11 +12,14 @@ import { kstDate } from '@/lib/datetime';
 
 const SEL = 'rounded-lg border border-x-border bg-white px-2.5 py-1.5 text-ui';
 
+type RequestFilter = { clientId: string; campaignId: string; status: StatusGroup; from: string; to: string };
+const NO_FILTER: RequestFilter = { clientId: '', campaignId: '', status: '', from: '', to: '' };
+
 export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
   const { show } = useToast();
   const [rows, setRows] = useState<PaymentRequestRow[] | null>(null);   // 필터 없이 전량 — 옵션 목록도 이걸로 만든다
   const [err, setErr] = useState('');
-  const [filter, setFilter] = useState<{ clientId: string; campaignId: string; status: StatusGroup; from: string; to: string }>({ clientId: '', campaignId: '', status: '', from: '', to: '' });
+  const [filter, setFilter] = useState<RequestFilter>(NO_FILTER);
   const [open, setOpen] = useState<string | null>(null);        // 펼친 요청 id
   const [cancelling, setCancelling] = useState<PaymentRequestRow | null>(null);
   const didFocus = useRef(false);                                // 딥링크 자동 펼침을 첫 로드 1회로 제한
@@ -47,8 +50,13 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
     && (!filter.from || kstDate(r.createdAt) >= filter.from)
     && (!filter.to || kstDate(r.createdAt) <= filter.to)), [rows, filter]);
 
-  // 차액 확인이 필요한 건 — 알림이 없으므로 화면 안에서 눈에 띄어야 한다(스펙 §6-5)
+  // 차액 확인이 필요한 건 — 알림이 없으므로 화면 안에서 눈에 띄어야 한다(스펙 §6-5). 필터와 무관하게 전량에서 센다 —
+  // 다른 클라이언트로 좁혀 보고 있어도 차액 건이 있다는 사실은 놓치면 안 되기 때문이다.
+  // 그래서 [보기]는 필터를 전부 풀고 '차액 확인 필요'만 남긴다 — 배너의 건수와 눌러서 보이는 건수가 항상 같다(UX 원칙 4).
+  // 지금 필터 안에 이미 전부 보이면 배너는 필요 없다.
   const needAck = useMemo(() => (rows ?? []).filter((r) => needsDiffAck(r)), [rows]);
+  const needAckVisible = useMemo(() => filtered.filter((r) => needsDiffAck(r)).length, [filtered]);
+  const otherFiltersOn = !!(filter.clientId || filter.campaignId || filter.from || filter.to);
 
   // 증빙 서명 URL — 한 번에 펼쳐지는 행은 하나뿐이라 그 행의 증빙만 서명한다(목록은 단조 증가하므로 전량을
   // 미리 서명하면 낭비가 계속 커진다, 리뷰 수정 5). 훅 호출 자체는 화면당 정확히 1회·조건부 return보다
@@ -86,10 +94,12 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
           <input type="date" className={SEL} value={filter.to} onChange={(e) => setFilter({ ...filter, to: e.target.value })} aria-label="종료일" />
         </label>
       </div>
-      {needAck.length > 0 && filter.status !== 'paid_diff' && (
+      {needAck.length > 0 && (filter.status !== 'paid_diff' || needAckVisible < needAck.length) && (
         <p className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-ui text-amber-700">
           정산 금액이 요청과 다른 지급이 {needAck.length}건 있어요 — 확인해 주세요
-          <button type="button" className="underline" onClick={() => setFilter({ ...filter, status: 'paid_diff' })}>보기</button>
+          <button type="button" className="underline" onClick={() => setFilter({ ...NO_FILTER, status: 'paid_diff' })}>
+            {otherFiltersOn ? '필터를 풀고 보기' : '보기'}
+          </button>
         </p>
       )}
       <h2 className="mt-4 text-[16px] font-semibold">요청 내역 {filtered.length}</h2>

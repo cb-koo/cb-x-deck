@@ -3,6 +3,7 @@
 // 브라우저 번들에 pg가 딸려 들어와 빌드가 깨진다 — 그래서 그 파일은 여기의 것을 재수출하지 않는다.
 import { kstDateTime, kstMonthDay } from './datetime.ts';
 import { TASK_TYPE_LABEL, type TaskType } from './campaignJudgment.ts';
+import { objectParticle } from './koreanParticle.ts';
 export type ExternalOutcome = 'ok' | 'applied' | 'stale' | 'unauthorized' | 'bad-request' | 'not-found' | 'conflict' | 'error';
 
 export interface ExternalLogTarget { handle: string; clientName: string; amountGross: number; payoutCurrency: string; taskType: TaskType }
@@ -62,10 +63,14 @@ export function describeCursor(query: string | null): string | null {
 
 export function describeExternalCall(row: ExternalLogRow): { line: string; tone: 'ok' | 'warn' | 'bad' } {
   switch (row.outcome) {
-    case 'applied':
-      return { line: `'${statusLabel(row.sentStatus)}'을 보냈어요 — 반영했어요`, tone: 'ok' };
-    case 'stale':
-      return { line: `'${statusLabel(row.sentStatus)}'을 다시 보냈어요 — 이미 반영된 내용이라 넘겼어요`, tone: 'ok' };
+    case 'applied': {
+      const label = statusLabel(row.sentStatus);
+      return { line: `'${label}'${objectParticle(label)} 보냈어요 — 반영했어요`, tone: 'ok' };   // '지급 완료'를 / '지급 예정'을
+    }
+    case 'stale': {
+      const label = statusLabel(row.sentStatus);
+      return { line: `'${label}'${objectParticle(label)} 다시 보냈어요 — 이미 반영된 내용이라 넘겼어요`, tone: 'ok' };
+    }
     case 'ok':
       // 증빙 이미지 보기(2026-09-01-proof-to-partner-design.md §4) — "요청 1건을 조회했어요"로 뭉뚱그리면
       // 지급 전에 증빙을 열어봤다는 사실(이 기록 자체가 근거가 된다, 스펙 §4 보너스)이 안 보인다.

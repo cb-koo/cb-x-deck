@@ -35,13 +35,19 @@ const row = (over: Partial<ExternalLogRow> = {}): ExternalLogRow => ({
 
 test('describeExternalCall — applied', () => {
   const r = describeExternalCall(row({ outcome: 'applied', sentStatus: 'on_hold' }));
-  assert.equal(r.line, "'보류'을 보냈어요 — 반영했어요");
+  assert.equal(r.line, "'보류'를 보냈어요 — 반영했어요");
   assert.equal(r.tone, 'ok');
+});
+
+test('describeExternalCall — 목적격 조사가 받침에 따라 갈린다(\'지급 완료\'을 → 를)', () => {
+  assert.equal(describeExternalCall(row({ outcome: 'applied', sentStatus: 'paid' })).line, "'지급 완료'를 보냈어요 — 반영했어요");
+  assert.equal(describeExternalCall(row({ outcome: 'applied', sentStatus: 'scheduled' })).line, "'지급 예정'을 보냈어요 — 반영했어요");
+  assert.equal(describeExternalCall(row({ outcome: 'stale', sentStatus: 'paid' })).line, "'지급 완료'를 다시 보냈어요 — 이미 반영된 내용이라 넘겼어요");
 });
 
 test('describeExternalCall — stale', () => {
   const r = describeExternalCall(row({ outcome: 'stale', sentStatus: 'cancelled' }));
-  assert.equal(r.line, "'취소'을 다시 보냈어요 — 이미 반영된 내용이라 넘겼어요");
+  assert.equal(r.line, "'취소'를 다시 보냈어요 — 이미 반영된 내용이라 넘겼어요");
   assert.equal(r.tone, 'ok');
 });
 

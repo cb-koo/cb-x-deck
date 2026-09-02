@@ -1,7 +1,7 @@
 // src/lib/settlementDisplay.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { displayStatus, inGroup, paidText, paidDiff, needsDiffAck, type StatusSource } from './settlementDisplay.ts';
+import { displayStatus, inGroup, paidText, paidDiff, needsDiffAck, hasPaidDiff, type StatusSource } from './settlementDisplay.ts';
 
 const base: StatusSource = { status: 'requested', externalStatus: null, externalNote: null, externalUpdatedAt: null, createdAt: '2026-08-28T03:00:00Z', cancelledAt: null,
   paidAmountKrw: null, grossKrw: 31650, diffAckAt: null };
@@ -81,4 +81,15 @@ test('paidDiff / needsDiffAck', () => {
   assert.equal(needsDiffAck(paidWith(30000)), true);
   assert.equal(needsDiffAck(paidWith(31650)), false);
   assert.equal(needsDiffAck(ext('scheduled')), false);
+});
+
+test('hasPaidDiff — 화면(needsDiffAck)과 서버(ackDiff)가 같은 판정을 쓴다: 확인 여부만 빼고 같다', () => {
+  assert.equal(hasPaidDiff(paidWith(30000)), true);
+  assert.equal(hasPaidDiff(paidWith(31650)), false);          // 차액 0
+  assert.equal(hasPaidDiff(ext('scheduled')), false);          // 지급 전
+  assert.equal(hasPaidDiff({ ...paidWith(30000), status: 'cancelled' }), false);
+  // 이미 확인한 차액 건 — 차액은 여전히 있다(서버가 '확인할 게 없다'고 하면 안 된다), 화면 배지만 꺼진다
+  const acked = { ...paidWith(30000), diffAckAt: '2026-09-01T00:00:00.000Z' };
+  assert.equal(hasPaidDiff(acked), true);
+  assert.equal(needsDiffAck(acked), false);
 });

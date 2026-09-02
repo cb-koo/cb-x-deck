@@ -12,6 +12,7 @@ import { insertAutoLog, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
 import { computeCandidate, toMethodSnapshot, NO_CLIENT_TEXT, NO_INFLUENCER_TEXT, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
+import { hasPaidDiff } from './settlementDisplay.ts';   // 순수 모듈(campaignTaskStore는 type import만) — 화면 배지와 같은 차액 판정
 import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
 import type { Cursor, ExportRow, StatusUpdate } from './settlementExternal.ts';   // 타입만이라 순환 무해
 
@@ -388,9 +389,10 @@ export async function ackDiff(sql: postgres.Sql, id: string, by: { name: string 
   const [cur] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
   if (!cur) return 'not-found';
   const row = toRequest(cur);
-  if (row.status === 'cancelled' || row.externalStatus !== 'paid' || row.paidAmountKrw === null || row.paidAmountKrw === row.grossKrw) return 'no-diff';
+  if (!hasPaidDiff(row)) return 'no-diff';   // 화면이 노란 배지를 띄우는 판정과 같은 함수(settlementDisplay)
   // 읽은 금액이 그대로일 때만 확인을 찍는다 — 그 사이 그쪽이 금액을 정정했으면 사람이 본 적 없는 금액이다.
   // (위 사전 가드는 잠금 없이 읽은 값 기준이라 그 자체로는 경쟁을 막지 못한다 — 이 조건부 UPDATE가 실제 방어선이다.)
+  // WHERE는 차액을 다시 판정하지 않는다 — 판정한 그 행(상태·금액)이 그대로인지만 본다. 판정 기준은 hasPaidDiff 한 곳.
   const res = await sql`
     update payment_request
        set diff_ack_at = now(), diff_ack_by_name = ${by.name}

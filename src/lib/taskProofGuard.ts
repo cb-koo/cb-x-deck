@@ -6,6 +6,7 @@
 // 제한은 PATCH 경로를 통과하지 않으므로, 여기가 유일한 방어선이다.
 
 import { kstMonthDay } from './datetime.ts';
+import { subjectParticle } from './koreanParticle.ts';   // '박구건가 올림'(88272c0)을 막는 이/가 판정
 
 export interface TaskProof {
   url: string;        // 스토리지 경로. task/<작업id>/<파일id>.<확장자> — 절대 URL이 아니다
@@ -46,15 +47,6 @@ export const PROOF_VALUE_MESSAGE = '증빙 스크린샷 값이 올바르지 않�
 export const PROOF_ONLY_RT_MESSAGE = '증빙 스크린샷은 RT 작업에만 붙일 수 있어요';
 export const PROOF_REQUIRED_MESSAGE = '증빙 스크린샷을 넣어야 게시됨으로 표시할 수 있어요';
 export const PROOF_KEEP_MESSAGE = '게시됨인 RT 작업은 증빙을 뗄 수 없어요 — 다른 스크린샷으로 바꿔 주세요';
-
-// 주격 조사 이/가 — 받침이 있으면 '이'. 한국 이름은 대부분 받침으로 끝나서 '가'로 고정하면
-// '박구건가 올림'처럼 틀린 말이 화면에 나온다. 한글 음절이 아니면(로마자 이름 등) '가'로 둔다.
-function subjectParticle(name: string): string {
-  const last = name.at(-1) ?? '';
-  const code = last.charCodeAt(0);
-  if (Number.isNaN(code) || code < 0xac00 || code > 0xd7a3) return '가';
-  return (code - 0xac00) % 28 === 0 ? '가' : '이';   // 나머지 0 = 받침 없음
-}
 
 // '박구건이 8/31 올림' — 캠페인 표·게시 확인 팝오버·정산 요청 상세 세 화면이 같은 한 줄을 쓴다(리뷰 수정 5).
 // 날짜는 datetime.ts의 kstMonthDay를 그대로 쓴다 — proof.at은 서버가 넣은 UTC라 자정~오전 9시 사이에

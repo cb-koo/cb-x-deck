@@ -379,6 +379,21 @@ test('getForExport — proof는 작업의 현재값을 따른다: 요청 뒤 작
   assert.deepEqual(listed?.proof, proof);
 });
 
+// koo가 2026-09-02 스테이징에서 잡은 어긋남: 그쪽 API는 라이브 증빙을 내보내는데 우리 화면(listRequests)은
+// 스냅샷을 읽어 '증빙 —'으로 남았다. 그러면 "올리면 정산 프로덕트에도 전달돼요" 안내가 거짓이 된다.
+// 두 경로가 같은 판정(liveProofResolver)을 쓰는지 여기서 못 박는다 — 한쪽만 고치면 이 테스트가 깨진다.
+test('listRequests — 우리 화면도 작업의 현재 증빙을 본다(그쪽 API와 같은 값)', async () => {
+  const { row, task } = await requestForRt('scr1', 'sc1');
+  const before = (await listRequests(sql, { taskId: task.id }))[0];
+  assert.equal(before.proof, null);
+  const proof = { url: `task/${task.id}/11111111-2222-3333-4444-555555555555.png`, by: null, byName: '박구건', at: '2026-09-02T01:00:00.000Z' };
+  await updateTask(sql, task.id, { proof });
+  const screen = (await listRequests(sql, { taskId: task.id }))[0];
+  const partner = await getForExport(sql, row.id);
+  assert.deepEqual(screen.proof, proof, '화면이 라이브 증빙을 못 보면 담당자가 올린 것이 나갔는지 알 수 없다');
+  assert.deepEqual(screen.proof, partner?.proof, '화면과 그쪽 API가 같은 증빙을 보아야 한다');
+});
+
 test('getForExport — task_id가 null(작업 삭제된 오래된 요청)이면 payment_request.proof 스냅샷으로 폴백', async () => {
   const { row, task } = await requestForRt('exp2', 'ep2');
   const proof = { url: `task/${task.id}/bbbbbbbb-cccc-dddd-eeee-ffffffffffff.png`, by: null, byName: '모에카', at: '2026-08-30T00:00:00.000Z' };

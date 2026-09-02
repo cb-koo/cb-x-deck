@@ -277,7 +277,25 @@ export async function listRequests(sql: postgres.Sql, f: RequestFilter): Promise
       ${f.from && isDateOnlyString(f.from) ? sql`and created_at >= (${f.from}::date)::timestamp at time zone 'Asia/Seoul'` : sql``}
       ${f.to && isDateOnlyString(f.to) ? sql`and created_at < ((${f.to}::date) + 1)::timestamp at time zone 'Asia/Seoul'` : sql``}
     order by created_at desc, id desc`;
-  return rows.map(toRequest);
+  // 증빙은 작업의 현재값으로 — 그쪽 API와 같은 판정을 쓴다(liveProofResolver 주석 참고)
+  const liveProof = await liveProofResolver(sql, rows);
+  return rows.map((r) => { const req = toRequest(r); return { ...req, proof: liveProof(req) }; });
+}
+
+// 증빙만 라이브(작업의 현재값), 금액·계좌·기한 등 나머지는 스냅샷 그대로(R_SELECT/toRequest) — 의도된 비대칭이다
+// (증빙 스펙 §5). 돈 값은 "요청 시점에 담당자가 승인한 값"이 진실이어야 하지만, 증빙의 목적은 "지금 실제로 했는지"라
+// 최신이 맞다. task_id가 null(작업이 지워진 오래된 요청)이면 payment_request.proof 스냅샷으로 폴백한다.
+//
+// **우리 화면(listRequests)과 그쪽 API(exportRows)가 이 함수 하나를 같이 쓴다.** 한쪽만 라이브로 두면,
+// 보류를 받고 담당자가 올린 증빙이 그쪽에는 나가는데 우리 화면엔 '증빙 —'으로 남아 "올리면 전달돼요"가
+// 거짓이 된다(koo가 2026-09-02 스테이징에서 발견). 판정을 두 곳에 두지 않는 것이 유일한 방어다.
+async function liveProofResolver(sql: postgres.Sql, rows: RRow[]): Promise<(r: PaymentRequestRow) => TaskProof | null> {
+  const taskIds = [...new Set(rows.map((r) => r.task_id).filter((x): x is string => !!x))];
+  const live = taskIds.length
+    ? await sql<Array<{ id: string; proof: unknown }>>`select id, proof from campaign_task where id in ${sql(taskIds)}`
+    : [];
+  const byTask = new Map(live.map((t) => [t.id, taskProofOf(t.proof)]));
+  return (r) => (r.taskId ? (byTask.get(r.taskId) ?? null) : r.proof);
 }
 
 // ── 그쪽(정산 프로덕트) 연동(스펙 payment-api §5·§6, 증빙 2026-09-01-proof-to-partner-design.md §5) ──
@@ -290,21 +308,14 @@ async function exportRows(sql: postgres.Sql, ids: string[], usById: Map<string, 
     ? await sql<Array<{ id: string; email: string | null; slack_id: string | null }>>`select id, email, slack_id from member where id in ${sql(memberIds)}`
     : [];
   const mem = new Map(members.map((m) => [m.id, m]));
-  // 증빙만 라이브(작업의 현재값), 금액·계좌·기한 등 나머지는 스냅샷 그대로(위 R_SELECT/toRequest) — 의도된 비대칭이다(스펙 §5).
-  // 돈 값은 "요청 시점에 담당자가 승인한 값"이 진실이어야 하지만, 증빙의 목적은 "지금 실제로 했는지"라 최신이 맞다.
-  // task_id가 있는 요청만 campaign_task.proof를 조인한다 — task_id가 null(작업이 지워진 오래된 요청)이면
-  // payment_request.proof 스냅샷(toRequest가 이미 taskProofOf로 해석해 둔 값)으로 폴백한다.
-  const taskIds = [...new Set(rows.map((r) => r.task_id).filter((x): x is string => !!x))];
-  const liveProofs = taskIds.length
-    ? await sql<Array<{ id: string; proof: unknown }>>`select id, proof from campaign_task where id in ${sql(taskIds)}`
-    : [];
-  const liveProofByTask = new Map(liveProofs.map((t) => [t.id, taskProofOf(t.proof)]));
+  const liveProof = await liveProofResolver(sql, rows);
   const byId = new Map(rows.map((r) => [r.id, r]));
   return ids.map((id) => byId.get(id)).filter((r): r is RRow => !!r).map((r) => {
     const m = r.requester_member_id ? mem.get(r.requester_member_id) : undefined;
     const request = toRequest(r);
-    const proof = request.taskId ? (liveProofByTask.get(request.taskId) ?? null) : request.proof;
-    return { row: request, updatedAtUs: usById.get(r.id) ?? '0', requester: { email: m?.email ?? null, slackId: m?.slack_id ?? null }, proof };
+    // row.proof는 스냅샷 그대로 둔다 — 직렬화(toExternalItem)가 쓰는 값은 아래 proof다. 이 구분이 있어야
+    // "작업이 지워지면 라이브였던 값이 새지 않는다"를 테스트가 검증할 수 있다(settlementStore.test.ts).
+    return { row: request, updatedAtUs: usById.get(r.id) ?? '0', requester: { email: m?.email ?? null, slackId: m?.slack_id ?? null }, proof: liveProof(request) };
   });
 }
 export async function listForExport(sql: postgres.Sql, cursor: Cursor | null, limit: number): Promise<ExportRow[]> {

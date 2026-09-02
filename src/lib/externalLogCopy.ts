@@ -67,6 +67,9 @@ export function describeExternalCall(row: ExternalLogRow): { line: string; tone:
     case 'stale':
       return { line: `'${statusLabel(row.sentStatus)}'을 다시 보냈어요 — 이미 반영된 내용이라 넘겼어요`, tone: 'ok' };
     case 'ok':
+      // 증빙 이미지 보기(2026-09-01-proof-to-partner-design.md §4) — "요청 1건을 조회했어요"로 뭉뚱그리면
+      // 지급 전에 증빙을 열어봤다는 사실(이 기록 자체가 근거가 된다, 스펙 §4 보너스)이 안 보인다.
+      if (row.path.endsWith('/proof')) return { line: '증빙 이미지를 확인했어요', tone: 'ok' };
       if (!row.path.endsWith('/status') && row.path.endsWith('/requests')) {
         const from = describeCursor(row.query);
         const empty = row.detail === '0건';
@@ -80,6 +83,12 @@ export function describeExternalCall(row: ExternalLogRow): { line: string; tone:
       if (row.detail) return { line: `보낸 내용의 '${row.detail}' 값이 잘못돼 거부했어요`, tone: 'warn' };
       return { line: '보낸 내용의 형식이 잘못돼 거부했어요', tone: 'warn' };
     case 'not-found':
+      // 증빙 보기의 404는 두 가지 뜻이 갈린다(라우트가 detail로 구분해 남긴다) — "요청 자체가 없음"과
+      // "요청은 있는데 증빙이 없음"을 같은 문구로 뭉치면 후자가 "찾을 수 없는 요청"이라는 거짓말이 된다.
+      if (row.path.endsWith('/proof')) {
+        if (row.detail === 'no-proof') return { line: '증빙이 없는 요청이라 보여줄 이미지가 없었어요', tone: 'warn' };
+        if (row.detail === 'storage-miss') return { line: '증빙 파일을 스토리지에서 찾지 못했어요 — 확인이 필요해요', tone: 'bad' };
+      }
       return { line: '찾을 수 없는 요청이라 거부했어요 — 연습용(스테이징) 요청 번호를 보냈을 수 있어요', tone: 'warn' };
     case 'conflict':
       if (row.detail === 'paid-locked') return { line: '이미 지급 완료된 요청이라 거부했어요', tone: 'warn' };

@@ -40,6 +40,10 @@ async function call<T>(input: string, init?: RequestInit): Promise<ApiResult<T>>
 // ── 캠페인 ──
 export const fetchCampaigns = () => call<CampaignRow[]>('/api/campaigns');
 export const fetchCampaignDetail = (id: string) => call<CampaignDetail>(`/api/campaigns/${id}`);
+// 워크플로 화면(1단계, 읽기 전용) — 캠페인마다 '막힌 것 N건'이 붙어 온다(워크플로 스펙 §6-3).
+export interface WorkflowCampaignRow extends CampaignRow { blocked: number }
+export interface WorkflowList { today: string; campaigns: WorkflowCampaignRow[] }
+export const fetchWorkflowCampaigns = () => call<WorkflowList>('/api/campaigns/workflow');
 export const createCampaignApi = (input: CampaignCreateInput) => call<CampaignRow>('/api/campaigns', json('POST', input));
 export const patchCampaignApi = (id: string, patch: CampaignPatchInput) => call<CampaignRow>(`/api/campaigns/${id}`, json('PATCH', patch));
 export const deleteCampaignApi = (id: string) =>

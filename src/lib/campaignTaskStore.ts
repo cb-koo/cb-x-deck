@@ -104,6 +104,14 @@ export async function listTasksByCampaign(sql: postgres.Sql, campaignId: string)
   const rows = await sql<Row[]>`${SELECT(sql)} where t.campaign_id = ${campaignId} order by t.created_at asc, t.id asc`;
   return rows.map(toRow);
 }
+// 여러 캠페인의 작업을 한 번에 — 캠페인 목록의 '막힌 것 N건'(워크플로 스펙 §6-3)을 캠페인마다 조회하지 않기 위해.
+// 단건 조회와 같은 SELECT를 쓴다(드리프트 방지). uuid 아닌 값은 걸러 22P02를 막는다.
+export async function listTasksByCampaigns(sql: postgres.Sql, campaignIds: readonly string[]): Promise<TaskRow[]> {
+  const ids = campaignIds.filter(isUuidLike);
+  if (!ids.length) return [];
+  const rows = await sql<Row[]>`${SELECT(sql)} where t.campaign_id = any(${ids}::uuid[]) order by t.created_at asc, t.id asc`;
+  return rows.map(toRow);
+}
 export async function findTaskByDraft(sql: postgres.Sql, draftId: string): Promise<TaskRow | null> {
   if (!isUuidLike(draftId)) return null;
   const rows = await sql<Row[]>`${SELECT(sql)} where t.draft_id = ${draftId}`;

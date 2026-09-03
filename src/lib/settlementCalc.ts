@@ -100,7 +100,8 @@ export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | 
   if (!i.referenceUrl) issues.push(referenceIssue(i.referenceRequired));
   if (i.proofMissing) issues.push(NO_PROOF_ISSUE);
   if (i.removedAt) issues.push({ level: 'warn', code: 'removed', text: `게시 내려짐 ${monthDay(i.removedAt)}${i.removedReason ? ` · ${i.removedReason}` : ''}` });
-  if (i.method?.type === 'paypay' && !i.method.identifier) issues.push({ level: 'warn', code: 'paypay-no-identifier', text: 'PayPay 수취 정보 미입력' });
+  // 09-03 koo: 그쪽이 "PayPay 수취 식별값 없으면 송금을 시작할 수 없다"로 확정 → 🔴. 채우는 곳은 인플루언서 프로필의 결제 수단.
+  if (i.method?.type === 'paypay' && !i.method.identifier) issues.push({ level: 'blocked', code: 'paypay-no-identifier', text: 'PayPay 수취 정보를 넣어야 요청할 수 있어요 — 정산 쪽이 이 값 없이는 송금하지 못해요' });
   const level: ReadinessLevel = issues.some((x) => x.level === 'blocked') ? 'blocked' : issues.length ? 'warn' : 'ready';
   return { level, issues };
 }

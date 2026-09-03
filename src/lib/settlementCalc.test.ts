@@ -104,9 +104,9 @@ test('assessReadiness — 🔴 > 🟡, 문구 나열', () => {
   assert.equal(noPm.level, 'blocked');
   assert.deepEqual(noPm.issues.map((i) => i.code), ['no-payment-method', 'no-category', 'no-reference', 'removed']);
   assert.match(noPm.issues[3].text, /게시 내려짐 8-27 · 계정 정지/);
-  const warn = assessReadiness({ inRoster: true, method: paypay, category: 'X', referenceUrl: null, referenceRequired: false, removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false });
+  const warn = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: null, referenceRequired: false, removedAt: '2026-08-27', removedReason: '', clientId: 'cl1', proofMissing: false });
   assert.equal(warn.level, 'warn');
-  assert.deepEqual(warn.issues.map((i) => i.code), ['no-reference', 'paypay-no-identifier']);
+  assert.deepEqual(warn.issues.map((i) => i.code), ['no-reference', 'removed']);
   const noClient = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', referenceRequired: true, removedAt: null, removedReason: '', clientId: null, proofMissing: false });
   assert.equal(noClient.level, 'blocked');
   assert.deepEqual(noClient.issues.map((i) => i.code), ['no-client']);
@@ -125,6 +125,18 @@ test('assessReadiness — 증빙 없는 RT는 🔴, 요청을 막는다', () => 
   const has = assessReadiness({ ...base, proofMissing: false });
   assert.equal(has.level, 'ready');
   assert.equal(has.issues.length, 0);
+});
+
+// 09-03 koo: 그쪽이 "PayPay 수취 식별값 없으면 송금 불가"로 확정 → 우리도 요청 단계에서 막는다
+test('assessReadiness — PayPay인데 수취 식별 정보가 없으면 🔴, 있으면 통과', () => {
+  const base = { inRoster: true, category: 'X', referenceUrl: 'https://x.com/1', referenceRequired: true, removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false };
+  const missing = assessReadiness({ ...base, method: paypay });
+  assert.equal(missing.level, 'blocked');
+  const issue = missing.issues.find((i) => i.code === 'paypay-no-identifier')!;
+  assert.equal(issue.level, 'blocked');
+  assert.match(issue.text, /PayPay 수취 정보를 넣어야 요청할 수 있어요/);
+  const has = assessReadiness({ ...base, method: { ...paypay, identifier: '090-1234-5678' } });
+  assert.equal(has.level, 'ready');
 });
 
 test('assessReadiness — 참고 링크 없음은 필수 유형(투고·인용RT·방문)이면 🔴, RT면 🟡', () => {

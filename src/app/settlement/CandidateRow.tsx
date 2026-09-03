@@ -72,6 +72,7 @@ export function CandidateRow({ c, edit, categories, selected, failure, proofSign
           <span key={i.code} className={i.level === 'blocked' ? 'text-red-700' : 'text-amber-700'}>
             {i.text}
             {i.code === 'no-payment-method' && <> · <Link href="/influencers" className="underline">프로필에서 등록 →</Link></>}
+            {i.code === 'paypay-no-identifier' && <> · <Link href="/influencers" className="underline">프로필에서 채우기 →</Link></>}
             {i.code === 'no-influencer' && <> · <Link href="/influencers" className="underline">명부 →</Link></>}
             {i.code === 'no-proof' && <> · <Link href={`/campaigns?id=${c.campaignId}`} className="underline">캠페인에서 채우기 →</Link></>}
           </span>

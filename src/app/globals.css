@@ -1,4 +1,8 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
 
 /* X.com 라이트모드 팔레트 — 덱 전체가 이 토큰만 사용한다 (다크모드 없음, 라이트 고정) */
 @theme {
@@ -77,4 +81,135 @@ textarea:focus-visible,
   border-radius: 9999px;
   font-size: 13px;
   text-shadow: none;
+}
+
+/* shadcn/Base UI 좌표계. shadcn init이 넣은 블록을 손으로 손질했다 — 무엇을 왜 뺐는지는 각 주석에. */
+@theme inline {
+  /* init은 --font-sans: var(--font-sans) 를 써서 순환 참조를 만들었다. 그러면 Tailwind 기본
+     sans 토큰이 무효값으로 덮여 font-sans 유틸과 --default-font-family 가 같이 죽는다.
+     body와 같은 시스템 폰트 스택을 명시해 실제 렌더링과 토큰을 일치시킨다. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  /* init의 --radius-* 재정의는 뺐다. 그것을 두면 덱의 rounded-* 277곳이 전부 커진다
+     (rounded-lg 8px→10px 등). shadcn 컴포넌트는 Tailwind 기본 radius로도 문제 없다. */
+}
+
+:root {
+  /* shadcn 컴포넌트가 읽는 시맨틱 토큰. 값은 전부 위의 x-* 팔레트를 가리킨다 —
+     그래야 새로 붙는 컴포넌트가 덱과 같은 색으로 나온다.
+
+     ⚠ --border 는 반드시 --color-x-border 와 같은 값이어야 한다.
+     Tailwind가 `border-x-border` 를 두 갈래로 읽어(우리 의도인 border-{x-border} 4면 색,
+     그리고 border-x-{border} 좌우 색) 규칙 두 개를 모두 뽑아낸다. 나중 것이 이기므로
+     두 값이 어긋나면 덱 409곳의 좌우 테두리 색만 따로 틀어진다. 값이 같으면 무해하다. */
+  --background: #ffffff;
+  --foreground: var(--color-x-text);
+  --card: #ffffff;
+  --card-foreground: var(--color-x-text);
+  --popover: #ffffff;
+  --popover-foreground: var(--color-x-text);
+  --primary: var(--color-x-blue);
+  --primary-foreground: #ffffff;
+  --secondary: var(--color-x-surface);
+  --secondary-foreground: var(--color-x-text);
+  --muted: var(--color-x-surface);
+  --muted-foreground: var(--color-x-muted);
+  --accent: var(--color-x-hover);
+  --accent-foreground: var(--color-x-text);
+  --destructive: #e40014; /* red-600 — 덱이 위험 표시에 쓰는 값 */
+  --border: var(--color-x-border);
+  --input: var(--color-x-border-strong);
+  --ring: var(--color-x-blue);
+  --chart-1: var(--color-x-blue);
+  --chart-2: var(--color-x-green);
+  --chart-3: var(--color-x-pink);
+  --chart-4: var(--color-x-secondary);
+  --chart-5: var(--color-x-border-strong);
+  --radius: 0.625rem;
+  --sidebar: var(--color-x-surface);
+  --sidebar-foreground: var(--color-x-text);
+  --sidebar-primary: var(--color-x-blue);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--color-x-hover);
+  --sidebar-accent-foreground: var(--color-x-text);
+  --sidebar-border: var(--color-x-border);
+  --sidebar-ring: var(--color-x-blue);
+}
+
+/* 덱은 라이트 고정이라 .dark 는 어디에도 안 붙는다(도달 불가).
+   지우지 않는 이유: @custom-variant dark 가 있어야 shadcn 컴포넌트의 dark: 클래스가 컴파일된다. */
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+/* init은 이 리셋을 전역(*)에 걸었다. 그러면 색을 안 준 테두리가 currentColor(거의 검정)에서
+   회색으로 바뀐다 — 로그인 버튼처럼 그 동작에 기대던 곳이 있어 기존 화면이 달라진다.
+   그래서 .ds 안으로만 좁혔다. shadcn 컴포넌트를 쓰는 화면이 루트에 .ds 를 달면 되고,
+   기존 화면은 손대지 않은 상태로 남는다.
+   body/html 규칙은 뺐다 — 위의 body 규칙(레이어 밖이라 항상 이김)과 같은 값이라 무의미하다. */
+@layer base {
+  .ds, .ds *, .ds *::before, .ds *::after {
+    @apply border-border outline-ring/50;
+  }
 }

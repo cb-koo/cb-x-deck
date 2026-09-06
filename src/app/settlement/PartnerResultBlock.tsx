@@ -51,6 +51,13 @@ export function PartnerResultBlock({ r, onChanged }: { r: PaymentRequestRow; onC
         <dt className="text-x-secondary">처리 상태</dt>
         <dd>{EXTERNAL_STATUS_LABEL[r.externalStatus]}</dd>
 
+        {/* 그쪽이 사람이 실행한 전이(취소·보류·재개·지급)에만 담당자를 실어 보낸다(09-04). 자동 전이면 키가 없어 null → 줄을 그리지 않는다.
+            "누가 처리했는지"가 없다고 해서 빠진 것이 아니라 시스템이 자동으로 넘긴 것이다. */}
+        {r.externalOperatorName && <>
+          <dt className="text-x-secondary">처리한 사람</dt>
+          <dd>{r.externalOperatorName} <span className="text-x-muted">· 정산 프로덕트 담당자</span></dd>
+        </>}
+
         {r.paidAmountKrw !== null && <>
           <dt className="text-x-secondary">실지급액</dt>
           <dd>{formatMoney(r.paidAmountKrw, 'KRW')}

@@ -320,8 +320,24 @@ async function requestFor(handle: string, campSuffix: string) {
   return { row, task: t, member: m };
 }
 const at = (s: string) => new Date(s).toISOString();
-const upd = (status: 'received' | 'scheduled' | 'paid' | 'on_hold' | 'cancelled', updatedAt: string, extra: Partial<{ note: string; paidAmountKrw: number; paidAt: string; externalId: string }> = {}) => ({
+const upd = (status: 'received' | 'scheduled' | 'paid' | 'on_hold' | 'cancelled', updatedAt: string, extra: Partial<{ note: string; paidAmountKrw: number; paidAt: string; externalId: string; operator: { id: string; name: string } }> = {}) => ({
   status, updatedAt: at(updatedAt), note: extra.note ?? null, paidAmountKrw: extra.paidAmountKrw ?? null, paidAt: extra.paidAt ? at(extra.paidAt) : null, externalId: extra.externalId ?? null,
+  operator: extra.operator ?? null,
+});
+
+// 09-04 그쪽 요청: 사람이 실행한 전이의 담당자를 요청 행에 남겨 화면에 "누가 처리했는지"를 보인다. 자동 전이(operator 없음)가 오면 비운다.
+test('applyExternalStatus — operator가 오면 처리한 사람이 저장되고, 없는 전이가 오면 비워진다', async () => {
+  const { row } = await requestFor('op1', 'o1');
+  const r1 = await applyExternalStatus(sql, row.id, upd('scheduled', '2026-09-04T07:30:05Z'));
+  assert.equal((r1 as { row: PaymentRequestRow }).row.externalOperatorName, null);
+  const r2 = await applyExternalStatus(sql, row.id, upd('on_hold', '2026-09-04T08:54:35Z', { note: '수수료를 추가해 주세요!', operator: { id: '8f2c9e10-1b2a-4c3d-9e4f-000000000001', name: '전태정' } }));
+  const h = (r2 as { row: PaymentRequestRow }).row;
+  assert.equal(h.externalOperatorName, '전태정');
+  assert.equal(h.externalOperatorId, '8f2c9e10-1b2a-4c3d-9e4f-000000000001');
+  const [listed] = await listRequests(sql, { taskId: row.taskId! });
+  assert.equal(listed.externalOperatorName, '전태정');   // 화면 경로도 같은 값
+  const r3 = await applyExternalStatus(sql, row.id, upd('scheduled', '2026-09-04T09:00:00Z'));   // 자동 재개 — operator 없음
+  assert.equal((r3 as { row: PaymentRequestRow }).row.externalOperatorName, null);
 });
 
 test('listForExport — 같은 시각에 갱신된 3건이 limit 2로 두 페이지에 빠짐없이, 커서는 µs 단위', async () => {
@@ -622,7 +638,7 @@ test('차액 확인 — 확인·취소가 되고 updated_at을 건드리지 않�
   const { row } = await requestFor('diffack2', 'diffack2');
   // 그쪽이 송금액보다 적게 지급한 상황을 만든다
   await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
-    paidAmountKrw: row.grossKrw - 1650, paidAt: '2026-09-01T00:59:00Z', externalId: null });
+    paidAmountKrw: row.grossKrw - 1650, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null });
   const [before] = await listRequests(sql, { taskId: row.taskId! });
 
   const acked = await ackDiff(sql, row.id, { name: '박구건' });
@@ -639,13 +655,13 @@ test('차액 확인 — 확인·취소가 되고 updated_at을 건드리지 않�
 test('차액 확인 — 차액이 없으면 확인할 것이 없다', async () => {
   const { row } = await requestFor('diffack3', 'diffack3');
   await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
-    paidAmountKrw: row.grossKrw, paidAt: '2026-09-01T00:59:00Z', externalId: null });
+    paidAmountKrw: row.grossKrw, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null });
   assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
 });
 
 test('차액 확인 — 그쪽이 금액을 정정하면 확인이 풀린다', async () => {
   const { row } = await requestFor('diffack4', 'diffack4');
-  const paid = (krw: number, at: string) => applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: at, note: null, paidAmountKrw: krw, paidAt: at, externalId: null });
+  const paid = (krw: number, at: string) => applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: at, note: null, paidAmountKrw: krw, paidAt: at, externalId: null, operator: null });
 
   await paid(row.grossKrw - 1650, '2026-09-01T01:00:00Z');
   await ackDiff(sql, row.id, { name: '박구건' });

@@ -11,6 +11,7 @@ export const LIST_LIMIT_DEFAULT = 100;
 export const LIST_LIMIT_MAX = 500;
 const NOTE_MAX = 500;
 const EXTERNAL_ID_MAX = 100;
+const OPERATOR_MAX = 100;
 
 // ── 커서: (updated_at 마이크로초 정수, id) — ISO(ms)로 만들면 같은 ms의 다음 행이 다시 나와 무한 반복될 수 있다 ──
 export interface Cursor { updatedAtUs: string; id: string }
@@ -90,7 +91,8 @@ export function toExternalItem(e: ExportRow, origin: string): ExternalItem {
 }
 
 // ── 상태 수신 본문(§6-1) — 첫 오류에서 멈추고 어느 필드인지 알려준다(landingEvent 파서 관례) ──
-export interface StatusUpdate { status: ExternalStatus; updatedAt: string; note: string | null; paidAmountKrw: number | null; paidAt: string | null; externalId: string | null }
+export interface StatusOperator { id: string; name: string }   // 그 상태 전이를 실행한 그쪽 결제 담당자(09-04 그쪽 요청). 자동 전이엔 없다.
+export interface StatusUpdate { status: ExternalStatus; updatedAt: string; note: string | null; paidAmountKrw: number | null; paidAt: string | null; externalId: string | null; operator: StatusOperator | null }
 export type StatusParse = { ok: true; update: StatusUpdate } | { ok: false; field: string; error: string };
 const bad = (field: string, error: string): StatusParse => ({ ok: false, field, error });
 function isoOf(v: unknown): string | null {
@@ -124,5 +126,16 @@ export function parseStatusUpdate(body: unknown): StatusParse {
     paidAt = isoOf(o.paid_at);
     if (!paidAt) return bad('paid_at', '지급 완료에는 ISO 8601 지급 시각이 필요해요');
   }
-  return { ok: true, update: { status: status as ExternalStatus, updatedAt, note, paidAmountKrw, paidAt, externalId } };
+  // operator(선택): 있으면 { id, name } 모양만 받는다 — 그쪽 목 서버 규칙과 같다. null은 "없음". 본문의 그 외 모르는 키는 전부 무시한다.
+  let operator: StatusOperator | null = null;
+  if (o.operator !== undefined && o.operator !== null) {
+    const op = o.operator;
+    if (typeof op !== 'object' || Array.isArray(op)) return bad('operator', '{ id, name } 객체여야 해요');
+    const { id, name } = op as Record<string, unknown>;
+    const idOk = typeof id === 'string' && id.trim() !== '' && id.length <= OPERATOR_MAX;
+    const nameOk = typeof name === 'string' && name.trim() !== '' && name.length <= OPERATOR_MAX;
+    if (!idOk || !nameOk) return bad('operator', `id·name은 비어 있지 않은 ${OPERATOR_MAX}자 이하 문자열이어야 해요`);
+    operator = { id: (id as string).trim(), name: (name as string).trim() };
+  }
+  return { ok: true, update: { status: status as ExternalStatus, updatedAt, note, paidAmountKrw, paidAt, externalId, operator } };
 }

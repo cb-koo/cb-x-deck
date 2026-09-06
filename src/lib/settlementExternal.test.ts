@@ -32,7 +32,7 @@ const row: PaymentRequestRow = {
   paymentMethod: { type: 'paypal', holder: 'KEIKO', currency: 'JPY', paypalId: 'keiko' }, requesterMemberId: 'm', requesterName: '모에카',
   status: 'requested', cancelledAt: null, cancelledByName: null, cancelReason: null, sentAt: null, externalId: null, note: '',
   createdAt: '2026-08-28T00:00:00.000Z', updatedAt: '2026-08-28T00:00:00.000Z',
-  externalStatus: null, paidAmountKrw: null, paidAt: null, externalNote: null, externalUpdatedAt: null, influencerId: 'inf', categoryOptionId: 'fee', diffAckAt: null, diffAckByName: null,
+  externalStatus: null, paidAmountKrw: null, paidAt: null, externalNote: null, externalUpdatedAt: null, influencerId: 'inf', categoryOptionId: 'fee', diffAckAt: null, diffAckByName: null, externalOperatorId: null, externalOperatorName: null,
 };
 test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   const e: ExportRow = { row, updatedAtUs: '1', requester: { email: 'a@b.c', slackId: null }, proof: null };
@@ -80,9 +80,27 @@ test('toExternalItem — proof 있으면 고정 엔드포인트 URL(origin은 �
 test('parseStatusUpdate — 정상·정규화', () => {
   const r = parseStatusUpdate({ status: 'paid', updated_at: '2026-08-30T05:00:00Z', paid_amount_krw: 29700, paid_at: '2026-08-30T05:00:00+09:00', note: ' 환율 ', external_id: 'X-1' });
   assert.ok(r.ok);
-  assert.deepEqual(r.update, { status: 'paid', updatedAt: '2026-08-30T05:00:00.000Z', paidAmountKrw: 29700, paidAt: '2026-08-29T20:00:00.000Z', note: '환율', externalId: 'X-1' });
+  assert.deepEqual(r.update, { status: 'paid', updatedAt: '2026-08-30T05:00:00.000Z', paidAmountKrw: 29700, paidAt: '2026-08-29T20:00:00.000Z', note: '환율', externalId: 'X-1', operator: null });
   const h = parseStatusUpdate({ status: 'on_hold', updated_at: '2026-08-29T00:00:00Z', note: '계좌 확인' });
-  assert.ok(h.ok); assert.equal(h.update.paidAmountKrw, null); assert.equal(h.update.externalId, null);
+  assert.ok(h.ok); assert.equal(h.update.paidAmountKrw, null); assert.equal(h.update.externalId, null); assert.equal(h.update.operator, null);
+});
+// 09-04 그쪽 요청: 사람이 실행한 전이에는 operator { id, name }(처리한 결제 담당자)가 실린다. 자동 전이에는 키 자체가 없다.
+test('parseStatusUpdate — operator는 선택, 있으면 { id, name }만 받는다', () => {
+  const r = parseStatusUpdate({ status: 'cancelled', updated_at: '2026-09-04T09:12:33.120Z', note: '조건 변경', operator: { id: '8f2c9e10-1b2a-4c3d-9e4f-000000000001', name: ' 전태정 ' } });
+  assert.ok(r.ok);
+  assert.deepEqual(r.update.operator, { id: '8f2c9e10-1b2a-4c3d-9e4f-000000000001', name: '전태정' });
+  const bad = (body: unknown) => { const x = parseStatusUpdate(body); assert.ok(!x.ok); assert.equal(x.field, 'operator'); };
+  bad({ status: 'paid', updated_at: '2026-09-04T09:12:33Z', paid_amount_krw: 1, paid_at: '2026-09-04T09:00:00Z', operator: '전태정' });
+  bad({ status: 'on_hold', updated_at: '2026-09-04T09:12:33Z', operator: { id: 'x' } });                 // name 없음
+  bad({ status: 'on_hold', updated_at: '2026-09-04T09:12:33Z', operator: { id: '', name: '전태정' } });   // id 비어 있음
+  bad({ status: 'on_hold', updated_at: '2026-09-04T09:12:33Z', operator: { id: 'x', name: 'n'.repeat(101) } });
+  // null은 "없음"으로 본다
+  const n = parseStatusUpdate({ status: 'scheduled', updated_at: '2026-09-04T09:00:00Z', operator: null });
+  assert.ok(n.ok); assert.equal(n.update.operator, null);
+});
+test('parseStatusUpdate — 모르는 키는 무시한다(그쪽이 필드를 추가해도 400이 나지 않는다)', () => {
+  const r = parseStatusUpdate({ status: 'scheduled', updated_at: '2026-09-04T09:00:00Z', something_new: { a: 1 }, another: 'x' });
+  assert.ok(r.ok);
 });
 test('parseStatusUpdate — 거절 사유는 필드 단위', () => {
   const bad = (body: unknown, field: string) => { const r = parseStatusUpdate(body); assert.ok(!r.ok); assert.equal(r.field, field); };

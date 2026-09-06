@@ -108,6 +108,7 @@ export interface PaymentRequestRow {
   externalStatus: ExternalStatus | null; paidAmountKrw: number | null; paidAt: string | null; externalNote: string | null;
   externalUpdatedAt: string | null; influencerId: string; categoryOptionId: string;
   diffAckAt: string | null; diffAckByName: string | null;
+  externalOperatorId: string | null; externalOperatorName: string | null;   // 그쪽이 마지막 상태와 함께 보낸 처리 담당자(047). 자동 전이면 null
 }
 export interface CreateItemInput {
   taskId: string; category: string; deadlineOn: string; referenceUrl: string | null;
@@ -128,6 +129,7 @@ type RRow = {
   external_status: ExternalStatus | null; paid_amount_krw: number | null; paid_at: Date | null; external_note: string | null;
   external_updated_at: Date | null; influencer_id: string; category_option_id: string;
   diff_ack_at: Date | null; diff_ack_by_name: string | null;
+  external_operator_id: string | null; external_operator_name: string | null;
 };
 const R_SELECT = (sql: postgres.Sql) => sql`
   select id, task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type, category, category_default,
@@ -135,7 +137,7 @@ const R_SELECT = (sql: postgres.Sql) => sql`
          to_char(deadline_on, 'YYYY-MM-DD') as deadline_on, reference_url, proof, payment_method, requester_member_id, requester_name,
          status, cancelled_at, cancelled_by_name, cancel_reason, sent_at, external_id, note, created_at, updated_at,
          external_status, paid_amount_krw, paid_at, external_note, external_updated_at, influencer_id, category_option_id,
-         diff_ack_at, diff_ack_by_name
+         diff_ack_at, diff_ack_by_name, external_operator_id, external_operator_name
     from payment_request`;
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 const toRequest = (r: RRow): PaymentRequestRow => ({
@@ -149,6 +151,7 @@ const toRequest = (r: RRow): PaymentRequestRow => ({
   externalStatus: r.external_status, paidAmountKrw: r.paid_amount_krw, paidAt: iso(r.paid_at), externalNote: r.external_note,
   externalUpdatedAt: iso(r.external_updated_at), influencerId: r.influencer_id, categoryOptionId: r.category_option_id,
   diffAckAt: iso(r.diff_ack_at), diffAckByName: r.diff_ack_by_name,
+  externalOperatorId: r.external_operator_id, externalOperatorName: r.external_operator_name,
 });
 
 const isHttpUrl = (u: string) => /^https?:\/\/\S+$/.test(u);
@@ -369,6 +372,7 @@ export async function applyExternalStatus(sql: postgres.Sql, id: string, u: Stat
       update payment_request
          set external_status = ${u.status}, paid_amount_krw = ${u.paidAmountKrw}, paid_at = ${u.paidAt}, external_note = ${u.note},
              external_updated_at = ${u.updatedAt}, external_id = coalesce(${u.externalId}, external_id),
+             external_operator_id = ${u.operator?.id ?? null}, external_operator_name = ${u.operator?.name ?? null},
              sent_at = coalesce(sent_at, now()), updated_at = now(),
              diff_ack_at = case when ${paidAmountChanged} then null else diff_ack_at end,
              diff_ack_by_name = case when ${paidAmountChanged} then null else diff_ack_by_name end

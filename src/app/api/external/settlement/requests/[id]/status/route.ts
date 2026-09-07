@@ -4,6 +4,7 @@ import { bearerAuthorized } from '@/lib/externalAuth';
 import { parseStatusUpdate, toExternalItem, EXTERNAL_API_VERSION } from '@/lib/settlementExternal';
 import { applyExternalStatus, getForExport } from '@/lib/settlementStore';
 import { recordExternalCallSafe } from '@/lib/externalApiLogAfter';
+import { isRevisionV2 } from '@/lib/settlementRevisionFlag';
 
 // 그쪽 처리 상태·실지급액 수신(스펙 §6). 규칙 판정은 스토어(applyExternalStatus), 여기는 HTTP 매핑만.
 const NO_STORE = { 'Cache-Control': 'no-store' };
@@ -11,6 +12,7 @@ const ENV = 'SETTLEMENT_API_KEY';
 const CONFLICT_MESSAGE = {
   'request-cancelled': '이 요청은 취소됐어요 — 다시 가져가 확인해 주세요',
   'paid-locked': '이미 지급 완료된 요청이에요',
+  'revision-mismatch': '이 요청은 그 사이 고쳐졌어요 — 최신 내용으로 다시 확인해 주세요',
 } as const;
 
 function common(req: Request) {
@@ -40,6 +42,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       : null;
     recordExternalCallSafe({ ...c, requestId: id, statusCode: 400, outcome: 'bad-request', detail: parsed.field, sentStatus: bodyStatus, body: raw });
     return NextResponse.json({ error: parsed.error, field: parsed.field }, { status: 400, headers: NO_STORE });
+  }
+  // 제자리 수정 전환 후(스펙 2026-09-07 §5·§6): revision은 필수 — 없으면 400. 전환 전에는 보내도 무시된다(applyExternalStatus가 스위치를 본다).
+  if (isRevisionV2() && parsed.update.revision === null) {
+    recordExternalCallSafe({ ...c, requestId: id, statusCode: 400, outcome: 'bad-request', detail: 'revision', sentStatus: parsed.update.status, body: raw });
+    return NextResponse.json({ error: 'revision이 필요해요 — 마지막으로 받은 아이템의 revision 값을 함께 보내 주세요', field: 'revision' }, { status: 400, headers: NO_STORE });
   }
   const sql = getSql();
   const r = await applyExternalStatus(sql, id, parsed.update);

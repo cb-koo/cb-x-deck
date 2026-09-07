@@ -3,7 +3,8 @@ import { apiFetch } from './apiFetch.ts';
 import { toApiResult, type ApiResult } from './campaignApi.ts';
 import type { SettlementCandidate } from './settlementCalc.ts';
 import type { SettlementSettings } from './settlementSettings.ts';
-import type { PaymentRequestRow, CreateItemInput, RequestFilter, SettlementVersionRow } from './settlementStore.ts';
+import type { PaymentRequestRow, CreateItemInput, RequestFilter, SettlementVersionRow, RevisionEdits, RevisionTarget, RevisionHistoryRow } from './settlementStore.ts';
+import type { ReadinessIssue } from './settlementCalc.ts';
 import type { ExternalLogRow } from './externalLogCopy.ts';
 
 export type CreateFailure = { taskId: string; reason: string };
@@ -51,3 +52,16 @@ export const fetchExternalLog = (f: { method?: 'GET' | 'POST'; rejectedOnly?: bo
   const qs = p.toString();
   return call<{ rows: ExternalLogRow[] }>(`/api/settlement/external-log${qs ? `?${qs}` : ''}`);
 };
+
+// ── 제자리 수정(스펙 2026-09-07 §6) ──
+export const fetchSettlementConfig = () => call<{ revisionV2: boolean }>('/api/settlement/config');
+export type RevisionPreviewResult = { ok: true; before: PaymentRequestRow; after: RevisionTarget } | { ok: false; error: string; issues?: ReadinessIssue[]; before: PaymentRequestRow | null };
+export const fetchRevisionPreview = (id: string, edits: RevisionEdits | null) => {
+  const p = new URLSearchParams();
+  if (edits) { p.set('category', edits.category); p.set('deadlineOn', edits.deadlineOn); p.set('referenceUrl', edits.referenceUrl ?? ''); }
+  const qs = p.toString();
+  return call<RevisionPreviewResult>(`/api/settlement/requests/${id}/revision-preview${qs ? `?${qs}` : ''}`);
+};
+export const reviseRequestApi = (id: string, input: { expectedRevision: number; reason: string; edits: RevisionEdits }) =>
+  call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'revise', ...input }));
+export const fetchRevisions = (id: string) => call<{ revisions: RevisionHistoryRow[] }>(`/api/settlement/requests/${id}/revisions`);

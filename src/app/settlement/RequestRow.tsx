@@ -10,8 +10,9 @@ import { displayStatus, TONE_CLASS, paidText } from '@/lib/settlementDisplay';
 import { proofUploadedLine } from '@/lib/taskProofGuard';
 import { ImageLightbox } from '@/components/ImageLightbox';
 import { PartnerResultBlock } from './PartnerResultBlock';
+import { RevisionHistory } from './RevisionHistory';
 
-export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel, onChanged }: { r: PaymentRequestRow; open: boolean; proofSignedUrl: string | null; onToggle: () => void; onCancel: () => void; onChanged: () => void }) {
+export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle, onCancel, onRevise, onChanged }: { r: PaymentRequestRow; open: boolean; proofSignedUrl: string | null; revisionEnabled: boolean; onToggle: () => void; onCancel: () => void; onRevise: () => void; onChanged: () => void }) {
   const [zoom, setZoom] = useState(false);
   const cancelled = r.status === 'cancelled';
   const paid = r.externalStatus === 'paid';
@@ -85,13 +86,20 @@ export function RequestRow({ r, open, proofSignedUrl, onToggle, onCancel, onChan
             <Item k="메모" v={r.note || '—'} />
           </dl>
           <PartnerResultBlock r={r} onChanged={onChanged} />
-          <div className="mt-3 flex items-center justify-between text-x-muted">
+          <RevisionHistory r={r} />
+          <div className="mt-3 flex items-center justify-between gap-3 text-x-muted">
             <span>만든 사람 {r.requesterName} · {new Date(r.createdAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
               {cancelled && <> · <span className="text-x-secondary">취소 · {r.cancelledByName} · {r.cancelledAt ? new Date(r.cancelledAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : ''} · {r.cancelReason}</span></>}
             </span>
             {!cancelled && (paid
-              ? <span className="text-x-secondary">지급 완료된 요청은 취소할 수 없어요 — 정산 담당자에게 알려 주세요</span>
-              : <Button onClick={onCancel}>취소</Button>)}
+              ? <span className="text-x-secondary">지급 완료된 요청은 취소·수정할 수 없어요 — 정산 담당자에게 알려 주세요</span>
+              : (
+                <span className="flex items-center gap-2">
+                  {/* 제자리 수정(스펙 2026-09-07 §6) — 전환 스위치가 켜진 뒤에만. 그 전엔 종전대로 취소 → 검토 대기에서 새로 요청 */}
+                  {revisionEnabled && <Button onClick={onRevise} title="프로필·캠페인에서 고친 값을 이 요청에 반영해요 — 정산 쪽에는 같은 건의 수정으로 전달돼요">고친 값으로 다시 반영</Button>}
+                  <Button onClick={onCancel}>취소</Button>
+                </span>
+              ))}
           </div>
         </div>
       )}

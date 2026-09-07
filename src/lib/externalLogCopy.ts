@@ -85,6 +85,7 @@ export function describeExternalCall(row: ExternalLogRow): { line: string; tone:
     case 'unauthorized':
       return { line: 'API 키가 맞지 않아 거부했어요 — 정산 프로덕트에 운영 키를 다시 확인해 달라고 알려 주세요', tone: 'bad' };
     case 'bad-request':
+      if (row.detail === 'revision') return { line: '어느 판에 대한 상태인지(revision)가 없어 거부했어요 — 그쪽이 최신 아이템 값을 붙여 다시 보내요', tone: 'warn' };
       if (row.detail) return { line: `보낸 내용의 '${row.detail}' 값이 잘못돼 거부했어요`, tone: 'warn' };
       return { line: '보낸 내용의 형식이 잘못돼 거부했어요', tone: 'warn' };
     case 'not-found':
@@ -98,6 +99,7 @@ export function describeExternalCall(row: ExternalLogRow): { line: string; tone:
     case 'conflict':
       if (row.detail === 'paid-locked') return { line: '이미 지급 완료된 요청이라 거부했어요', tone: 'warn' };
       if (row.detail === 'request-cancelled') return { line: '우리 쪽에서 취소한 요청이라 거부했어요', tone: 'warn' };
+      if (row.detail === 'revision-mismatch') return { line: '그 사이 고쳐진 요청이라 거부했어요 — 그쪽이 최신 내용으로 다시 보내요', tone: 'warn' };
       return { line: '처리 중 충돌이 있어 거부했어요', tone: 'warn' };
     case 'error':
     default:

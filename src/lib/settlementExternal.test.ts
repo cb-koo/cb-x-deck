@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeCursor, decodeCursor, clampLimit, toExternalItem, parseStatusUpdate, type ExportRow } from './settlementExternal.ts';
+import { withRevisionV2 } from './settlementRevisionFlag.ts';
 import type { PaymentRequestRow } from './settlementStore.ts';
 import type { TaskProof } from './taskProofGuard.ts';
 
@@ -32,7 +33,7 @@ const row: PaymentRequestRow = {
   paymentMethod: { type: 'paypal', holder: 'KEIKO', currency: 'JPY', paypalId: 'keiko' }, requesterMemberId: 'm', requesterName: '모에카',
   status: 'requested', cancelledAt: null, cancelledByName: null, cancelReason: null, sentAt: null, externalId: null, note: '',
   createdAt: '2026-08-28T00:00:00.000Z', updatedAt: '2026-08-28T00:00:00.000Z',
-  externalStatus: null, paidAmountKrw: null, paidAt: null, externalNote: null, externalUpdatedAt: null, influencerId: 'inf', categoryOptionId: 'fee', diffAckAt: null, diffAckByName: null, externalOperatorId: null, externalOperatorName: null,
+  externalStatus: null, paidAmountKrw: null, paidAt: null, externalNote: null, externalUpdatedAt: null, influencerId: 'inf', categoryOptionId: 'fee', diffAckAt: null, diffAckByName: null, externalOperatorId: null, externalOperatorName: null, revision: 0, revisedAt: null,
 };
 test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   const e: ExportRow = { row, updatedAtUs: '1', requester: { email: 'a@b.c', slackId: null }, proof: null };
@@ -51,7 +52,7 @@ test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   // 증빙 없음(RT 아닌 유형이거나, RT인데 아직 없음) → proof는 null(스펙 §3)
   assert.equal(it.proof, null);
   // 응답 키 집합 — proof 추가 외에는 그대로다(파트너 영향 0을 못박는다, 스펙 §10)
-  assert.deepEqual(Object.keys(it).sort(), [...ITEM_KEYS_BEFORE_PROOF, 'proof'].sort());
+  assert.deepEqual(Object.keys(it).sort(), [...ITEM_KEYS_BEFORE_PROOF, 'proof', 'revised_at'].sort());
 });
 test('toExternalItem — 취소·지급 완료 되비침', () => {
   const r2: PaymentRequestRow = { ...row, status: 'cancelled', cancelledAt: '2026-08-29T01:00:00.000Z', cancelledByName: '정산 프로덕트', cancelReason: '중복',
@@ -80,7 +81,7 @@ test('toExternalItem — proof 있으면 고정 엔드포인트 URL(origin은 �
 test('parseStatusUpdate — 정상·정규화', () => {
   const r = parseStatusUpdate({ status: 'paid', updated_at: '2026-08-30T05:00:00Z', paid_amount_krw: 29700, paid_at: '2026-08-30T05:00:00+09:00', note: ' 환율 ', external_id: 'X-1' });
   assert.ok(r.ok);
-  assert.deepEqual(r.update, { status: 'paid', updatedAt: '2026-08-30T05:00:00.000Z', paidAmountKrw: 29700, paidAt: '2026-08-29T20:00:00.000Z', note: '환율', externalId: 'X-1', operator: null });
+  assert.deepEqual(r.update, { status: 'paid', updatedAt: '2026-08-30T05:00:00.000Z', paidAmountKrw: 29700, paidAt: '2026-08-29T20:00:00.000Z', note: '환율', externalId: 'X-1', operator: null, revision: null });
   const h = parseStatusUpdate({ status: 'on_hold', updated_at: '2026-08-29T00:00:00Z', note: '계좌 확인' });
   assert.ok(h.ok); assert.equal(h.update.paidAmountKrw, null); assert.equal(h.update.externalId, null); assert.equal(h.update.operator, null);
 });
@@ -128,4 +129,32 @@ test('toExternalItem — 수수료가 붙으면 gross_krw가 amount_krw보다 �
   const it = toExternalItem({ row, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null }, ORIGIN);
   assert.equal(it.amount_krw, 30000);
   assert.equal(it.payout.gross_krw, 31580);   // 수수료 158엔 × 환율 10 = 1,580원 더
+});
+
+// ── 제자리 수정(2026-09-07 스펙 §2·§5): 스위치 꺼짐이면 옛 의미(0 요청/1 취소), 켜짐이면 수정 횟수 + revised_at ──
+test('toExternalItem — revision: 스위치 꺼짐이면 취소=1, 켜짐이면 payment_request.revision·revised_at', () => {
+  const revised: PaymentRequestRow = { ...row, revision: 2, revisedAt: '2026-09-07T03:50:14.000Z' };
+  const e = (r: PaymentRequestRow): ExportRow => ({ row: r, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null });
+  withRevisionV2(false, () => {
+    assert.equal(toExternalItem(e(revised), ORIGIN).revision, 0);                                   // 옛 의미: 요청됨
+    assert.equal(toExternalItem(e(revised), ORIGIN).revised_at, null);                              // 전환 전엔 항상 null
+    assert.equal(toExternalItem(e({ ...revised, status: 'cancelled' }), ORIGIN).revision, 1);      // 옛 의미: 취소
+  });
+  withRevisionV2(true, () => {
+    const it = toExternalItem(e(revised), ORIGIN);
+    assert.equal(it.revision, 2); assert.equal(it.revised_at, '2026-09-07T03:50:14.000Z');
+    assert.equal(toExternalItem(e({ ...revised, status: 'cancelled' }), ORIGIN).revision, 2);      // 취소돼도 수정 횟수 유지 — 취소는 status로만
+    assert.equal(toExternalItem(e(row), ORIGIN).revision, 0);
+  });
+});
+test('parseStatusUpdate — revision은 정수(≥0)만, 없으면 null(필수 여부는 라우트가 스위치로 판단)', () => {
+  const ok = parseStatusUpdate({ status: 'scheduled', updated_at: '2026-09-07T09:00:00Z', revision: 2 });
+  assert.ok(ok.ok); assert.equal(ok.update.revision, 2);
+  const none = parseStatusUpdate({ status: 'scheduled', updated_at: '2026-09-07T09:00:00Z' });
+  assert.ok(none.ok); assert.equal(none.update.revision, null);
+  for (const bad of ['1', 1.5, -1, null]) {
+    const r = parseStatusUpdate({ status: 'scheduled', updated_at: '2026-09-07T09:00:00Z', revision: bad });
+    if (bad === null) { assert.ok(r.ok); assert.equal(r.update.revision, null); continue; }   // null은 "없음"
+    assert.ok(!r.ok); assert.equal(r.field, 'revision');
+  }
 });

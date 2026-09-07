@@ -1,11 +1,12 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '@/lib/toastContext';
-import { fetchRequests, cancelRequestApi } from '@/lib/settlementApi';
+import { fetchRequests, cancelRequestApi, fetchSettlementConfig } from '@/lib/settlementApi';
 import type { PaymentRequestRow } from '@/lib/settlementStore';
 import { useSignedTaskProofUrls } from '@/components/useSignedTaskProofUrls';
 import { RequestRow } from './RequestRow';
 import { CancelDialog } from './CancelDialog';
+import { ReviseDialog } from './ReviseDialog';
 import { uniqPairs } from './uniqPairs';
 import { STATUS_GROUP_OPTIONS, inGroup, keyOf, needsDiffAck, type StatusGroup } from '@/lib/settlementDisplay';
 import { kstDate } from '@/lib/datetime';
@@ -22,6 +23,8 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
   const [filter, setFilter] = useState<RequestFilter>(NO_FILTER);
   const [open, setOpen] = useState<string | null>(null);        // 펼친 요청 id
   const [cancelling, setCancelling] = useState<PaymentRequestRow | null>(null);
+  const [revising, setRevising] = useState<PaymentRequestRow | null>(null);
+  const [revisionEnabled, setRevisionEnabled] = useState(false);   // 제자리 수정 전환 스위치(서버 env) — 켜지기 전엔 버튼 자체가 없다
   const didFocus = useRef(false);                                // 딥링크 자동 펼침을 첫 로드 1회로 제한
 
   const load = useCallback(async () => {
@@ -37,6 +40,7 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
   }, [focusTaskId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로드(필터는 화면에서만 적용, 재조회 없음), 취소 후에도 load()로 재조회
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void fetchSettlementConfig().then((r) => { if (r.ok) setRevisionEnabled(r.data.revisionV2); }); }, []);
 
   // 옵션은 전량(rows)에서 뽑는다 — 필터에 걸려 안 보이는 클라이언트/캠페인도 계속 골라 쓸 수 있게(08-28 리뷰)
   // clientId는 042부터 non-null 스냅샷이라 더 이상 걸러낼 필요가 없다
@@ -110,12 +114,14 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
       ) : (
         <ul className="mt-3 divide-y divide-x-border rounded-xl border border-x-border bg-white">
           {filtered.map((r) => (
-            <RequestRow key={r.id} r={r} open={open === r.id} proofSignedUrl={r.proof ? proofUrls[r.proof.url] ?? null : null}
-                        onToggle={() => setOpen(open === r.id ? null : r.id)} onCancel={() => setCancelling(r)} onChanged={() => void load()} />
+            <RequestRow key={r.id} r={r} open={open === r.id} proofSignedUrl={r.proof ? proofUrls[r.proof.url] ?? null : null} revisionEnabled={revisionEnabled}
+                        onToggle={() => setOpen(open === r.id ? null : r.id)} onCancel={() => setCancelling(r)} onRevise={() => setRevising(r)} onChanged={() => void load()} />
           ))}
         </ul>
       )}
       {cancelling && <CancelDialog target={cancelling} onConfirm={doCancel} onClose={() => setCancelling(null)} />}
+      {revising && <ReviseDialog target={revising} onClose={() => setRevising(null)}
+                                 onDone={(row) => { setRevising(null); show(`${row.revision + 1}판으로 반영했어요 — 정산 쪽이 다시 검토해요`); void load(); }} />}
     </section>
   );
 }

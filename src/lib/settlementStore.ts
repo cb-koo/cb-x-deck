@@ -12,7 +12,9 @@ import { insertAutoLog, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
 import { computeCandidate, effectiveIssues, toMethodSnapshot, NO_CLIENT_TEXT, NO_INFLUENCER_TEXT, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
-import { hasPaidDiff } from './settlementDisplay.ts';   // 순수 모듈(campaignTaskStore는 type import만) — 화면 배지와 같은 차액 판정
+import { hasPaidDiff } from './settlementDisplay.ts';
+import { isRevisionV2 } from './settlementRevisionFlag.ts';
+import { effectiveIssues as gateIssues, type ReadinessIssue } from './settlementCalc.ts';   // 순수 모듈(campaignTaskStore는 type import만) — 화면 배지와 같은 차액 판정
 import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
 import type { Cursor, ExportRow, StatusUpdate } from './settlementExternal.ts';   // 타입만이라 순환 무해
 
@@ -56,7 +58,7 @@ type CandRow = {
   influencer_id: string | null; payment_methods: unknown; proof: unknown;
 };
 // 후보 조건은 campaignJudgment.isSettlementCandidate와 같은 정의 — 스토어 테스트가 대조한다
-const CANDIDATE_SQL = (sql: postgres.Sql) => sql`
+const CANDIDATE_BASE = (sql: postgres.Sql) => sql`
   select t.id, t.type, t.influencer_handle, t.cost, t.post_url, t.target_tweet_url, tg.post_url as target_post_url,
          to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, to_char(t.removed_at, 'YYYY-MM-DD') as removed_at, t.removed_reason,
          coalesce(d.title, d.ko_title) as draft_label, t.proof,
@@ -67,7 +69,9 @@ const CANDIDATE_SQL = (sql: postgres.Sql) => sql`
     left join campaign_task tg on tg.id = t.target_task_id
     left join draft d on d.id = t.draft_id
     left join influencer i on lower(i.handle) = lower(t.influencer_handle)
-   where t.posted_at is not null and t.cost is not null and t.influencer_handle is not null
+   where t.posted_at is not null and t.cost is not null and t.influencer_handle is not null`;
+// 검토 대기 목록용 — 활성 요청이 있는 작업은 뺀다. 제자리 수정(reviseRequest)은 활성 요청의 작업을 다시 계산해야 하므로 CANDIDATE_BASE를 쓴다.
+const CANDIDATE_SQL = (sql: postgres.Sql) => sql`${CANDIDATE_BASE(sql)}
      and not exists (select 1 from payment_request r where r.task_id = t.id and r.status = 'requested')`;
 
 export async function listCandidates(
@@ -109,6 +113,7 @@ export interface PaymentRequestRow {
   externalUpdatedAt: string | null; influencerId: string; categoryOptionId: string;
   diffAckAt: string | null; diffAckByName: string | null;
   externalOperatorId: string | null; externalOperatorName: string | null;   // 그쪽이 마지막 상태와 함께 보낸 처리 담당자(047). 자동 전이면 null
+  revision: number; revisedAt: string | null;   // 제자리 수정 횟수·마지막 수정 시각(048). 0·null = 한 번도 안 고침
 }
 export interface CreateItemInput {
   taskId: string; category: string; deadlineOn: string; referenceUrl: string | null;
@@ -130,6 +135,7 @@ type RRow = {
   external_updated_at: Date | null; influencer_id: string; category_option_id: string;
   diff_ack_at: Date | null; diff_ack_by_name: string | null;
   external_operator_id: string | null; external_operator_name: string | null;
+  revision: number; revised_at: Date | null;
 };
 const R_SELECT = (sql: postgres.Sql) => sql`
   select id, task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type, category, category_default,
@@ -137,7 +143,7 @@ const R_SELECT = (sql: postgres.Sql) => sql`
          to_char(deadline_on, 'YYYY-MM-DD') as deadline_on, reference_url, proof, payment_method, requester_member_id, requester_name,
          status, cancelled_at, cancelled_by_name, cancel_reason, sent_at, external_id, note, created_at, updated_at,
          external_status, paid_amount_krw, paid_at, external_note, external_updated_at, influencer_id, category_option_id,
-         diff_ack_at, diff_ack_by_name, external_operator_id, external_operator_name
+         diff_ack_at, diff_ack_by_name, external_operator_id, external_operator_name, revision, revised_at
     from payment_request`;
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 const toRequest = (r: RRow): PaymentRequestRow => ({
@@ -152,6 +158,7 @@ const toRequest = (r: RRow): PaymentRequestRow => ({
   externalUpdatedAt: iso(r.external_updated_at), influencerId: r.influencer_id, categoryOptionId: r.category_option_id,
   diffAckAt: iso(r.diff_ack_at), diffAckByName: r.diff_ack_by_name,
   externalOperatorId: r.external_operator_id, externalOperatorName: r.external_operator_name,
+  revision: r.revision, revisedAt: iso(r.revised_at),
 });
 
 const isHttpUrl = (u: string) => /^https?:\/\/\S+$/.test(u);
@@ -350,7 +357,7 @@ export async function getForExport(sql: postgres.Sql, id: string): Promise<Expor
 
 export type ApplyResult =
   | { kind: 'applied' | 'stale'; row: PaymentRequestRow }
-  | { kind: 'conflict'; code: 'request-cancelled' | 'paid-locked'; row: PaymentRequestRow }
+  | { kind: 'conflict'; code: 'request-cancelled' | 'paid-locked' | 'revision-mismatch'; row: PaymentRequestRow }
   | 'not-found';
 // §6-2 규칙표. 한 트랜잭션, for update 잠금. 순서: stale → 우리 취소 충돌 → paid 종점 → 적용.
 export async function applyExternalStatus(sql: postgres.Sql, id: string, u: StatusUpdate): Promise<ApplyResult> {
@@ -360,6 +367,9 @@ export async function applyExternalStatus(sql: postgres.Sql, id: string, u: Stat
     const cur = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id} for update`;
     if (!cur.length) return 'not-found';
     const c = cur[0];
+    // 제자리 수정(스펙 2026-09-07 §5): 그쪽이 본 판과 다르면 거절 — 옛 판에 대한 늦은 상태가 리셋된 새 판에 붙는 것을 막는다.
+    // 스위치 꺼짐이면 revision을 보지 않는다(그쪽 옛 클라이언트는 이 값을 안 보낸다). stale보다 먼저 본다: 리셋 뒤엔 external_updated_at이 null이라 stale이 못 잡는다.
+    if (isRevisionV2() && u.revision !== null && u.revision !== c.revision) return { kind: 'conflict', code: 'revision-mismatch', row: toRequest(c) };
     if (c.external_updated_at && new Date(u.updatedAt).getTime() <= new Date(c.external_updated_at).getTime()) return { kind: 'stale', row: toRequest(c) };
     if (c.status === 'cancelled' && u.status !== 'cancelled') return { kind: 'conflict', code: 'request-cancelled', row: toRequest(c) };
     if (c.external_status === 'paid' && u.status !== 'paid') return { kind: 'conflict', code: 'paid-locked', row: toRequest(c) };
@@ -422,3 +432,97 @@ export async function unackDiff(sql: postgres.Sql, id: string): Promise<PaymentR
 
 // 배지 조회(settlementByTaskIds)는 campaignTaskStore에 있다(순환 방지: settlementStore→influencerStore→campaignStore) — 여기서는 re-export만
 export { settlementByTaskIds, EXTERNAL_STATUSES, type SettlementBadgeStatus, type SettlementBadge, type ExternalStatus } from './campaignTaskStore.ts';
+
+
+// ── 제자리 수정(2026-09-07 스펙 §4) — 같은 요청을 고쳐 revision을 올린다. 고치기 전 행은 payment_request_revision에 그대로 남긴다. ──
+export type RevisionFailure =
+  | 'not-enabled' | 'not-found' | 'cancelled' | 'paid-locked' | 'revision-mismatch' | 'task-gone' | 'influencer-changed' | 'not-candidate'
+  | { kind: 'blocked'; issues: ReadinessIssue[] };
+export interface RevisionEdits { category: string; deadlineOn: string; referenceUrl: string | null }
+export interface RevisionTarget {
+  // 고쳤을 때의 값 — 화면 미리보기(before/after)와 실제 반영이 같은 계산을 쓴다
+  candidate: SettlementCandidate; category: { id: string; sendAs: string }; deadlineOn: string; referenceUrl: string | null; issues: ReadinessIssue[];
+}
+export type RevisionPreview = { ok: true; before: PaymentRequestRow; after: RevisionTarget } | { ok: false; reason: RevisionFailure; before: PaymentRequestRow | null };
+
+// 현재 작업·인플루언서·설정으로 "고쳤을 때 값"을 계산하고, 스펙 §4의 판정 1~9를 순서대로 본다. 트랜잭션 안에서(for update 뒤) 부른다.
+async function resolveRevision(
+  tx: postgres.Sql, cur: RRow, edits: RevisionEdits | null, today: string,
+): Promise<{ ok: true; target: RevisionTarget } | { ok: false; reason: RevisionFailure }> {
+  if (!isRevisionV2()) return { ok: false, reason: 'not-enabled' };
+  if (cur.status === 'cancelled') return { ok: false, reason: 'cancelled' };
+  if (cur.external_status === 'paid') return { ok: false, reason: 'paid-locked' };
+  if (!cur.task_id) return { ok: false, reason: 'task-gone' };
+  const settings = await getSettlementSettings(tx);
+  const [r] = await tx<CandRow[]>`${CANDIDATE_BASE(tx)} and t.id = ${cur.task_id}`;
+  if (!r) return { ok: false, reason: 'not-candidate' };                                  // 게시 취소·비용 삭제 등으로 후보 조건을 잃음
+  if (r.influencer_id !== cur.influencer_id) return { ok: false, reason: 'influencer-changed' };   // 재배정은 다른 의무 — 취소 + 새 요청
+  const cost = parseTaskCost(r.cost ?? null);
+  if (!cost.ok || cost.value === null) return { ok: false, reason: 'not-candidate' };
+  const cand = rowToCandidate(r, cost.value, settings, null, today);
+  const e: RevisionEdits = edits ?? { category: cur.category, deadlineOn: cur.deadline_on, referenceUrl: cur.reference_url };
+  const cat = categoryBySendAs(settings, e.category);
+  const issues = gateIssues(cand, { category: cat && !cat.hidden ? e.category : null, referenceUrl: e.referenceUrl ?? '' });
+  const blocked = issues.filter((x) => x.level === 'blocked');
+  if (blocked.length || !cat || cat.hidden) return { ok: false, reason: { kind: 'blocked', issues: blocked.length ? blocked : [{ level: 'blocked', code: 'no-category', text: '분류를 다시 골라 주세요 — 목록에 없는 분류예요' }] } };
+  if (!isDateOnlyString(e.deadlineOn)) return { ok: false, reason: { kind: 'blocked', issues: [{ level: 'blocked', code: 'no-category', text: '마감일 형식을 확인해 주세요' }] } };
+  if (e.referenceUrl && !isHttpUrl(e.referenceUrl)) return { ok: false, reason: { kind: 'blocked', issues: [{ level: 'blocked', code: 'no-reference', text: '참고 링크는 http(s) 주소여야 해요' }] } };
+  return { ok: true, target: { candidate: cand, category: { id: cat.id, sendAs: e.category }, deadlineOn: e.deadlineOn, referenceUrl: e.referenceUrl || null, issues } };
+}
+
+// 미리보기 — 화면이 [고친 값으로 다시 반영]을 열 때. edits가 없으면 현재 요청의 분류·마감·링크를 그대로 두고 돈 값만 다시 계산한다.
+export async function previewRevision(sql: postgres.Sql, id: string, edits: RevisionEdits | null = null, today: string = kstToday()): Promise<RevisionPreview> {
+  if (!isUuidLike(id)) return { ok: false, reason: 'not-found', before: null };
+  const [cur] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
+  if (!cur) return { ok: false, reason: 'not-found', before: null };
+  const r = await resolveRevision(sql, cur, edits, today);
+  return r.ok ? { ok: true, before: toRequest(cur), after: r.target } : { ok: false, reason: r.reason, before: toRequest(cur) };
+}
+
+export async function reviseRequest(
+  sql: postgres.Sql, id: string, input: { expectedRevision: number; reason: string; edits: RevisionEdits }, member: { id: string; name: string }, today: string = kstToday(),
+): Promise<PaymentRequestRow | RevisionFailure> {
+  if (!isUuidLike(id)) return 'not-found';
+  return await sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    const cur = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id} for update`;
+    if (!cur.length) return 'not-found';
+    const c = cur[0];
+    const r = await resolveRevision(tx, c, input.edits, today);
+    if (!r.ok) return r.reason;
+    if (c.revision !== input.expectedRevision) return 'revision-mismatch';   // 우리 화면 둘이 동시에 고치는 것 방지 — 판정 뒤에 봐서 문구 우선순위는 상태 쪽
+    const t = r.target; const m = t.candidate.money!; const pm = t.candidate.method!;
+    const before = toRequest(c);
+    // (a) 고치기 전 행을 그대로 보관 — "1판 값이 얼마였나"의 유일한 출처
+    await tx`
+      insert into payment_request_revision (request_id, revision, snapshot, reason, revised_by, revised_by_name)
+      values (${id}, ${c.revision}, ${tx.json(asJson(before))}, ${input.reason}, ${member.id}, ${member.name})`;
+    // (b) 행 갱신: 돈·수단·분류·마감·링크 + revision·revised_at·updated_at. 그쪽 결과는 리셋(received부터 다시), external_id·sent_at·created_at·요청자는 유지.
+    //     gross_krw는 045 생성 컬럼이라 amount_gross·rate·currency가 바뀌면 따라 바뀐다.
+    await tx`
+      update payment_request
+         set amount_krw = ${m.amountKrw}, cost_currency = ${m.costCurrency}, payout_currency = ${m.payoutCurrency}, rate_krw_per_jpy = ${m.rateKrwPerJpy},
+             amount_net = ${m.amountNet}, fee = ${m.fee ? tx.json(asJson(m.fee)) : null}, fee_amount = ${m.feeAmount}, amount_gross = ${m.amountGross},
+             payment_method = ${tx.json(asJson(toMethodSnapshot(pm)))},
+             category = ${t.category.sendAs}, category_option_id = ${t.category.id}, deadline_on = ${t.deadlineOn}, reference_url = ${t.referenceUrl},
+             item_text = ${t.candidate.itemText}, purpose_text = ${t.candidate.purposeText},
+             revision = revision + 1, revised_at = now(), updated_at = now(),
+             external_status = null, paid_amount_krw = null, paid_at = null, external_note = null, external_updated_at = null,
+             external_operator_id = null, external_operator_name = null, diff_ack_at = null, diff_ack_by_name = null
+       where id = ${id}`;
+    const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;
+    const row = toRequest(saved);
+    const payload: PaymentLogPayload = { requestId: row.id, amountGross: row.amountGross, currency: row.payoutCurrency, taskType: row.taskType, reason: input.reason,
+      revision: row.revision, before: { amountGross: before.amountGross, currency: before.payoutCurrency } };
+    await insertAutoLog(tx, { influencerId: row.influencerId, eventType: 'payment_revised', draftId: null, draftTitle: null, payload, authorId: member.id });
+    return row;
+  });
+}
+
+export interface RevisionHistoryRow { revision: number; snapshot: PaymentRequestRow; reason: string; revisedByName: string; createdAt: string }
+export async function listRevisions(sql: postgres.Sql, id: string): Promise<RevisionHistoryRow[]> {
+  if (!isUuidLike(id)) return [];
+  const rows = await sql<Array<{ revision: number; snapshot: unknown; reason: string; revised_by_name: string; created_at: Date }>>`
+    select revision, snapshot, reason, revised_by_name, created_at from payment_request_revision where request_id = ${id} order by revision`;
+  return rows.map((r) => ({ revision: r.revision, snapshot: r.snapshot as PaymentRequestRow, reason: r.reason, revisedByName: r.revised_by_name, createdAt: new Date(r.created_at).toISOString() }));
+}

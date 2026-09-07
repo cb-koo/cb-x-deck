@@ -70,6 +70,11 @@ function autoText(l: InfluencerLogRow): ReactNode {
       if (!p) return <>정산 요청 취소</>;
       return <>정산 요청 취소 · {formatMoney(p.amountGross, p.currency)}{p.reason ? <> — {p.reason}</> : null}</>;
     }
+    case 'payment_revised': {
+      const p = l.payload as PaymentLogPayload | null;
+      if (!p) return <>정산 요청 수정</>;
+      return <>정산 요청 수정 · {p.before ? <>{formatMoney(p.before.amountGross, p.before.currency)} → </> : null}{formatMoney(p.amountGross, p.currency)}{p.reason ? <> — {p.reason}</> : null}</>;
+    }
     case 'payment_paid': {
       const p = l.payload as PaymentLogPayload | null;
       if (!p) return <>지급 완료</>;
@@ -90,6 +95,7 @@ function groupText(eventType: InfluencerAutoEvent | null, n: number): string {
     case 'payment_method_changed': return `결제 수단 변경 ${n}건`;
     case 'payment_requested': return `정산 요청 ${n}건`;
     case 'payment_cancelled': return `정산 요청 취소 ${n}건`;
+    case 'payment_revised': return `정산 요청 수정 ${n}건`;
     case 'payment_paid': return `지급 완료 ${n}건`;
     default: return `활동 기록 ${n}건`;
   }

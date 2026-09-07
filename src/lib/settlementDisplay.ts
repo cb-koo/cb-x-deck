@@ -11,6 +11,8 @@ export interface StatusSource {
   createdAt: string; cancelledAt: string | null;
   // 차액 판정 입력 — 그쪽 실지급액을 우리가 실제로 보낸 금액과 비교한다
   paidAmountKrw: number | null; grossKrw: number; diffAckAt: string | null;
+  // 제자리 수정(2026-09-07): 고친 횟수·마지막 고친 시각. 캠페인 표 배지 소스엔 없을 수 있어 선택
+  revision?: number; revisedAt?: string | null;
 }
 export interface StatusDisplay { key: DisplayKey; label: string; tone: DisplayTone; title: string }
 
@@ -65,7 +67,14 @@ export function displayStatus(s: StatusSource, where: 'list' | 'campaign'): Stat
   const extDay = kstMonthDay(s.externalUpdatedAt);
   const campaign = where === 'campaign';
   switch (key) {
-    case 'requested': return { key, tone: 'blue', label: `${campaign ? '정산 ' : ''}요청됨 ${kstMonthDay(s.createdAt)}`, title: campaign ? '정산 요청됨 — 클릭하면 요청 내역으로' : '정산 쪽에서 아직 확인 전' };
+    case 'requested': {
+      // 고친 요청(revision>0)은 요청 내역에서 "요청됨 · 2판 M/D"로 — 만든 날짜만 보이면 고친 뒤에도 아무 일 없어 보인다(스펙 2026-09-07 §6).
+      // 캠페인 표 배지는 짧게 유지한다.
+      if (!campaign && (s.revision ?? 0) > 0 && s.revisedAt) {
+        return { key, tone: 'blue', label: `요청됨 · ${(s.revision ?? 0) + 1}판 ${kstMonthDay(s.revisedAt)}`, title: '고쳐서 다시 보낸 요청이에요 — 정산 쪽이 다시 검토 중' };
+      }
+      return { key, tone: 'blue', label: `${campaign ? '정산 ' : ''}요청됨 ${kstMonthDay(s.createdAt)}`, title: campaign ? '정산 요청됨 — 클릭하면 요청 내역으로' : '정산 쪽에서 아직 확인 전' };
+    }
     case 'received': return { key, tone: 'blue', label: `정산 접수 ${extDay}`, title: '정산 쪽이 요청을 접수했어요' };
     case 'scheduled': return { key, tone: 'blue', label: '지급 예정', title: '정산 쪽이 지급을 예정해 두었어요' };
     case 'on_hold': {

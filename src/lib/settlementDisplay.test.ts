@@ -93,3 +93,13 @@ test('hasPaidDiff — 화면(needsDiffAck)과 서버(ackDiff)가 같은 판정�
   assert.equal(hasPaidDiff(acked), true);
   assert.equal(needsDiffAck(acked), false);
 });
+
+test('displayStatus — 고친 요청은 "요청됨 · 2판 M/D"(revised_at), 안 고쳤으면 그대로', () => {
+  const plain = displayStatus({ ...base, externalStatus: null }, 'list');
+  assert.equal(plain.label, '요청됨 8/28');
+  const revised = displayStatus({ ...base, externalStatus: null, revision: 1, revisedAt: '2026-09-07T03:50:14.000Z' }, 'list');
+  assert.equal(revised.label, '요청됨 · 2판 9/7');
+  assert.match(revised.title, /고쳐서 다시 보낸 요청/);
+  // 캠페인 표 배지는 짧게 유지 — 판 표시는 요청 내역에서만
+  assert.equal(displayStatus({ ...base, externalStatus: null, revision: 1, revisedAt: '2026-09-07T03:50:14.000Z' }, 'campaign').label, '정산 요청됨 8/28');
+});

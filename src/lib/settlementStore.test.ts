@@ -11,6 +11,7 @@ import {
   getSettlementSettings, saveSettlementSettings, listSettlementVersions, lastQuoteRtCategory, listCandidates,
   createRequests, cancelRequest, listRequests, settlementByTaskIds, SettlementCreateError,
   listForExport, getForExport, applyExternalStatus, ackDiff, unackDiff,
+  reviseRequest, previewRevision, listRevisions,
 } from './settlementStore.ts';
 import type { CreateItemInput, PaymentRequestRow } from './settlementStore.ts';
 import { encodeCursor, decodeCursor } from './settlementExternal.ts';
@@ -320,9 +321,11 @@ async function requestFor(handle: string, campSuffix: string) {
   return { row, task: t, member: m };
 }
 const at = (s: string) => new Date(s).toISOString();
-const upd = (status: 'received' | 'scheduled' | 'paid' | 'on_hold' | 'cancelled', updatedAt: string, extra: Partial<{ note: string; paidAmountKrw: number; paidAt: string; externalId: string; operator: { id: string; name: string } }> = {}) => ({
+// 제자리 수정 테스트는 스위치를 켜야 한다 — 비동기라 withRevisionV2를 못 쓰고 직접 env를 바꾼 뒤 finally로 복구
+async function revisionOn<T>(fn: () => Promise<T>): Promise<T> { const prev = process.env.SETTLEMENT_REVISION_V2; process.env.SETTLEMENT_REVISION_V2 = 'on'; try { return await fn(); } finally { if (prev === undefined) delete process.env.SETTLEMENT_REVISION_V2; else process.env.SETTLEMENT_REVISION_V2 = prev; } }
+const upd = (status: 'received' | 'scheduled' | 'paid' | 'on_hold' | 'cancelled', updatedAt: string, extra: Partial<{ note: string; paidAmountKrw: number; paidAt: string; externalId: string; operator: { id: string; name: string }; revision: number }> = {}) => ({
   status, updatedAt: at(updatedAt), note: extra.note ?? null, paidAmountKrw: extra.paidAmountKrw ?? null, paidAt: extra.paidAt ? at(extra.paidAt) : null, externalId: extra.externalId ?? null,
-  operator: extra.operator ?? null,
+  operator: extra.operator ?? null, revision: extra.revision ?? null,
 });
 
 // 09-04 그쪽 요청: 사람이 실행한 전이의 담당자를 요청 행에 남겨 화면에 "누가 처리했는지"를 보인다. 자동 전이(operator 없음)가 오면 비운다.
@@ -577,6 +580,85 @@ test('생성 — 투고에 참고 링크가 없으면 거절, 아이템에 링�
   assert.equal(row.referenceUrl, 'https://x.com/nolink/status/1');
 });
 
+// ── 제자리 수정(스펙 2026-09-07 §4·§5·§7) ──
+test('reviseRequest — 스위치 꺼짐이면 not-enabled(외부에는 옛 의미 그대로)', async () => {
+  const { row, member } = await requestFor('rv0', 'rv0');
+  delete process.env.SETTLEMENT_REVISION_V2;
+  assert.equal(await reviseRequest(sql, row.id, { expectedRevision: 0, reason: '테스트', edits: { category: row.category, deadlineOn: row.deadlineOn, referenceUrl: row.referenceUrl } }, member), 'not-enabled');
+  const p = await previewRevision(sql, row.id);
+  assert.ok(!p.ok && p.reason === 'not-enabled');
+});
+
+test('reviseRequest — 수수료를 바꾼 뒤 다시 반영: 같은 id·external_id 유지, revision+1, 그쪽 결과 리셋, 이력에 1판 보관', () => revisionOn(async () => {
+  const { row, member } = await requestFor('rv1', 'rv1');
+  // 그쪽이 접수·보류(담당자 포함)까지 보낸 상태
+  await applyExternalStatus(sql, row.id, upd('received', '2026-09-07T03:40:05Z', { externalId: 'CBX-260907-004', revision: 0 }));
+  await applyExternalStatus(sql, row.id, upd('on_hold', '2026-09-07T03:44:56Z', { note: '수수료 추가해서 요청해주세요', operator: { id: 'op', name: '전태정' }, revision: 0 }));
+  // 프로필에서 수수료를 CB 5% 부담(픽스처 기본) → 인플 부담(수수료 없음)으로
+  const inf = (await sql<Array<{ id: string; payment_methods: Array<{ id: string }> }>>`select id, payment_methods from influencer where handle = ${H('rv1')}`)[0];
+  await updatePaymentMethods(sql, inf.id, { kind: 'update', id: inf.payment_methods[0].id, input: { type: 'paypal', holder: 'KEIKO', currency: 'JPY', email: `${H('rv1')}@x.com` } }, null);
+  const before = (await listRequests(sql, { taskId: row.taskId! }))[0];
+  const pv = await previewRevision(sql, row.id);
+  assert.ok(pv.ok); assert.equal(pv.after.candidate.money!.amountGross, 3000); assert.equal(pv.after.issues.filter((i) => i.level === 'blocked').length, 0);
+  const r = await reviseRequest(sql, row.id, { expectedRevision: 0, reason: '수수료 재설정', edits: { category: row.category, deadlineOn: '2026-09-11', referenceUrl: row.referenceUrl } }, member);
+  assert.ok(typeof r === 'object' && !('kind' in r));
+  const after = r as PaymentRequestRow;
+  assert.equal(after.id, row.id); assert.equal(after.externalId, 'CBX-260907-004'); assert.ok(after.sentAt);          // 유지
+  assert.equal(after.revision, 1); assert.ok(after.revisedAt); assert.equal(after.status, 'requested');
+  assert.equal(after.amountGross, 3000); assert.equal(after.feeAmount, 0); assert.equal(after.fee, null); assert.equal(after.grossKrw, 30000);
+  assert.equal(after.deadlineOn, '2026-09-11');
+  assert.equal(after.externalStatus, null); assert.equal(after.externalNote, null); assert.equal(after.externalUpdatedAt, null); assert.equal(after.externalOperatorName, null);   // 리셋
+  assert.equal(after.createdAt, before.createdAt); assert.ok(new Date(after.updatedAt) > new Date(before.updatedAt));
+  // 이력: 1판(고치기 전) 그대로 — 그쪽 메모·담당자도 함께 남는다
+  const hist = await listRevisions(sql, row.id);
+  assert.equal(hist.length, 1); assert.equal(hist[0].revision, 0); assert.equal(hist[0].reason, '수수료 재설정'); assert.equal(hist[0].revisedByName, member.name);
+  assert.equal(hist[0].snapshot.amountGross, 3158); assert.equal(hist[0].snapshot.feeAmount, 158);   // 1판 = 수수료 포함이던 값
+  assert.equal(hist[0].snapshot.externalNote, '수수료 추가해서 요청해주세요'); assert.equal(hist[0].snapshot.externalOperatorName, '전태정');
+  // 활동 기록
+  const logs = await sql<Array<{ payload: { revision: number; before: { amountGross: number } } }>>`select payload from influencer_log where influencer_id = ${inf.id} and event_type = 'payment_revised'`;
+  assert.equal(logs.length, 1); assert.equal(logs[0].payload.revision, 1); assert.equal(logs[0].payload.before.amountGross, 3158);
+  // 외부 아이템: revision 1, revised_at, settlement 전부 null인데 external_id는 남는다
+  const exp = await getForExport(sql, row.id);
+  assert.equal(exp!.row.revision, 1); assert.equal(exp!.row.externalStatus, null); assert.equal(exp!.row.externalId, 'CBX-260907-004');
+  // 그쪽이 옛 판(0)으로 보낸 늦은 상태는 409 revision-mismatch, 새 판(1)으로 보낸 received는 적용
+  const late = await applyExternalStatus(sql, row.id, upd('scheduled', '2026-09-07T03:45:00Z', { revision: 0 }));
+  assert.ok(late !== 'not-found' && late.kind === 'conflict' && late.code === 'revision-mismatch');
+  const fresh = await applyExternalStatus(sql, row.id, upd('received', '2026-09-07T03:55:00Z', { revision: 1 }));
+  assert.ok(fresh !== 'not-found' && fresh.kind === 'applied');
+  // 같은 값으로 다시 반영도 허용 — 2판, 이력 2건
+  const again = await reviseRequest(sql, row.id, { expectedRevision: 1, reason: '재검토 요청', edits: { category: row.category, deadlineOn: '2026-09-11', referenceUrl: row.referenceUrl } }, member);
+  assert.equal((again as PaymentRequestRow).revision, 2);
+  assert.equal((await listRevisions(sql, row.id)).length, 2);
+}));
+
+test('reviseRequest — 거절 판정: 취소됨·지급 완료·판 불일치·🔴 관문·작업 삭제', () => revisionOn(async () => {
+  const edits = (row: PaymentRequestRow) => ({ category: row.category, deadlineOn: row.deadlineOn, referenceUrl: row.referenceUrl });
+  // 취소된 요청
+  const a = await requestFor('rvA', 'rvA');
+  await cancelRequest(sql, a.row.id, '폐기', a.member);
+  assert.equal(await reviseRequest(sql, a.row.id, { expectedRevision: 0, reason: 'x', edits: edits(a.row) }, a.member), 'cancelled');
+  // 지급 완료
+  const b = await requestFor('rvB', 'rvB');
+  await applyExternalStatus(sql, b.row.id, upd('paid', '2026-09-07T05:00:00Z', { paidAmountKrw: 31580, paidAt: '2026-09-07T04:58:00Z', revision: 0 }));
+  assert.equal(await reviseRequest(sql, b.row.id, { expectedRevision: 0, reason: 'x', edits: edits(b.row) }, b.member), 'paid-locked');
+  // 판 불일치(화면이 옛 판을 들고 있음)
+  const c = await requestFor('rvC', 'rvC');
+  assert.equal(await reviseRequest(sql, c.row.id, { expectedRevision: 3, reason: 'x', edits: edits(c.row) }, c.member), 'revision-mismatch');
+  // 🔴 관문: 투고인데 참고 링크를 비우면 막힘 — 문구는 검토 대기와 같다
+  const blocked = await reviseRequest(sql, c.row.id, { expectedRevision: 0, reason: 'x', edits: { ...edits(c.row), referenceUrl: null } }, c.member);
+  assert.ok(typeof blocked === 'object' && 'kind' in blocked && blocked.kind === 'blocked');
+  assert.match((blocked as { issues: Array<{ text: string }> }).issues[0].text, /참고 링크를 넣어 주세요/);
+  // 작업 삭제 → task-gone
+  const d = await requestFor('rvD', 'rvD');
+  await deleteTask(sql, d.task.id);
+  assert.equal(await reviseRequest(sql, d.row.id, { expectedRevision: 0, reason: 'x', edits: edits(d.row) }, d.member), 'task-gone');
+  // 스위치 꺼짐이면 revision 불일치도 무시하고 적용한다(그쪽 옛 클라이언트 호환)
+  delete process.env.SETTLEMENT_REVISION_V2;
+  const ignored = await applyExternalStatus(sql, c.row.id, upd('received', '2026-09-07T06:00:00Z', { revision: 7 }));
+  assert.ok(ignored !== 'not-found' && ignored.kind === 'applied');
+  process.env.SETTLEMENT_REVISION_V2 = 'on';
+}));
+
 // 042: 마이그레이션의 guarded ALTER가 실제로 이 DB에 적용됐는지 — 재실행돼도 이 단언은 항상 성립해야 한다
 test('스키마 — influencer_id·client_id·category_option_id는 NOT NULL(042)', async () => {
   const cols = await sql<Array<{ column_name: string; is_nullable: string }>>`
@@ -638,7 +720,7 @@ test('차액 확인 — 확인·취소가 되고 updated_at을 건드리지 않�
   const { row } = await requestFor('diffack2', 'diffack2');
   // 그쪽이 송금액보다 적게 지급한 상황을 만든다
   await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
-    paidAmountKrw: row.grossKrw - 1650, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null });
+    paidAmountKrw: row.grossKrw - 1650, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null });
   const [before] = await listRequests(sql, { taskId: row.taskId! });
 
   const acked = await ackDiff(sql, row.id, { name: '박구건' });
@@ -655,13 +737,13 @@ test('차액 확인 — 확인·취소가 되고 updated_at을 건드리지 않�
 test('차액 확인 — 차액이 없으면 확인할 것이 없다', async () => {
   const { row } = await requestFor('diffack3', 'diffack3');
   await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
-    paidAmountKrw: row.grossKrw, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null });
+    paidAmountKrw: row.grossKrw, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null });
   assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
 });
 
 test('차액 확인 — 그쪽이 금액을 정정하면 확인이 풀린다', async () => {
   const { row } = await requestFor('diffack4', 'diffack4');
-  const paid = (krw: number, at: string) => applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: at, note: null, paidAmountKrw: krw, paidAt: at, externalId: null, operator: null });
+  const paid = (krw: number, at: string) => applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: at, note: null, paidAmountKrw: krw, paidAt: at, externalId: null, operator: null, revision: null });
 
   await paid(row.grossKrw - 1650, '2026-09-01T01:00:00Z');
   await ackDiff(sql, row.id, { name: '박구건' });

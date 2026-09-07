@@ -6,6 +6,7 @@ import { isUuidLike } from './uuid.ts';
 import type { PaymentFee } from './influencerPayment.ts';
 import type { TaskProof } from './taskProofGuard.ts';
 
+import { isRevisionV2 } from './settlementRevisionFlag.ts';
 export const EXTERNAL_API_VERSION = 1;
 export const LIST_LIMIT_DEFAULT = 100;
 export const LIST_LIMIT_MAX = 500;
@@ -39,7 +40,7 @@ export function clampLimit(raw: string | null): number {
 // "라이브냐 스냅샷이냐"를 다시 판단하지 않고, 주어진 값을 그쪽 계약 모양(snake_case)으로만 바꾼다.
 export interface ExportRow { row: PaymentRequestRow; updatedAtUs: string; requester: { email: string | null; slackId: string | null }; proof: TaskProof | null }
 export interface ExternalItem {
-  request_id: string; revision: 0 | 1; status: 'requested' | 'cancelled'; created_at: string; updated_at: string;
+  request_id: string; revision: number; revised_at: string | null; status: 'requested' | 'cancelled'; created_at: string; updated_at: string;
   cancelled: { at: string | null; by_name: string | null; reason: string | null } | null;
   task_id: string | null;
   campaign: { id: string | null; name: string }; clinic: { id: string; name: string };
@@ -66,7 +67,9 @@ export function toExternalItem(e: ExportRow, origin: string): ExternalItem {
   const pm: Record<string, string> = {};
   for (const [k, v] of Object.entries(r.paymentMethod)) if (typeof v === 'string' && SNAKE_PM[k]) pm[SNAKE_PM[k]] = v;
   return {
-    request_id: r.id, revision: r.status === 'cancelled' ? 1 : 0, status: r.status, created_at: r.createdAt, updated_at: r.updatedAt,
+    // revision(스펙 2026-09-07 §2): 스위치 꺼짐 = 옛 의미(0 요청/1 취소, 그쪽 옛 파서가 0|1만 받는다) / 켜짐 = 수정 횟수(취소 여부는 status로만)
+    request_id: r.id, revision: isRevisionV2() ? r.revision : (r.status === 'cancelled' ? 1 : 0), revised_at: isRevisionV2() ? r.revisedAt : null,
+    status: r.status, created_at: r.createdAt, updated_at: r.updatedAt,
     cancelled: r.status === 'cancelled' ? { at: r.cancelledAt, by_name: r.cancelledByName, reason: r.cancelReason } : null,
     task_id: r.taskId,
     campaign: { id: r.campaignId, name: r.campaignName }, clinic: { id: r.clientId, name: r.clientName },
@@ -92,7 +95,7 @@ export function toExternalItem(e: ExportRow, origin: string): ExternalItem {
 
 // ── 상태 수신 본문(§6-1) — 첫 오류에서 멈추고 어느 필드인지 알려준다(landingEvent 파서 관례) ──
 export interface StatusOperator { id: string; name: string }   // 그 상태 전이를 실행한 그쪽 결제 담당자(09-04 그쪽 요청). 자동 전이엔 없다.
-export interface StatusUpdate { status: ExternalStatus; updatedAt: string; note: string | null; paidAmountKrw: number | null; paidAt: string | null; externalId: string | null; operator: StatusOperator | null }
+export interface StatusUpdate { status: ExternalStatus; updatedAt: string; note: string | null; paidAmountKrw: number | null; paidAt: string | null; externalId: string | null; operator: StatusOperator | null; revision: number | null }   // revision: 그쪽이 마지막으로 받은 판(§6). null = 안 보냄(전환 전 허용)
 export type StatusParse = { ok: true; update: StatusUpdate } | { ok: false; field: string; error: string };
 const bad = (field: string, error: string): StatusParse => ({ ok: false, field, error });
 function isoOf(v: unknown): string | null {
@@ -137,5 +140,11 @@ export function parseStatusUpdate(body: unknown): StatusParse {
     if (!idOk || !nameOk) return bad('operator', `id·name은 비어 있지 않은 ${OPERATOR_MAX}자 이하 문자열이어야 해요`);
     operator = { id: (id as string).trim(), name: (name as string).trim() };
   }
-  return { ok: true, update: { status: status as ExternalStatus, updatedAt, note, paidAmountKrw, paidAt, externalId, operator } };
+  // revision(§6, 전환 후 필수): 정수(≥0)만. 없거나 null이면 null — 필수 여부는 라우트가 스위치를 보고 판단한다(파서는 스위치를 모른다).
+  let revision: number | null = null;
+  if (o.revision !== undefined && o.revision !== null) {
+    if (typeof o.revision !== 'number' || !Number.isInteger(o.revision) || o.revision < 0) return bad('revision', '0 이상의 정수여야 해요 — 마지막으로 받은 아이템의 revision 값');
+    revision = o.revision;
+  }
+  return { ok: true, update: { status: status as ExternalStatus, updatedAt, note, paidAmountKrw, paidAt, externalId, operator, revision } };
 }

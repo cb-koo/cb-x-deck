@@ -584,7 +584,7 @@ test('생성 — 투고에 참고 링크가 없으면 거절, 아이템에 링�
 test('reviseRequest — 스위치 꺼짐이면 not-enabled(외부에는 옛 의미 그대로)', async () => {
   const { row, member } = await requestFor('rv0', 'rv0');
   delete process.env.SETTLEMENT_REVISION_V2;
-  assert.equal(await reviseRequest(sql, row.id, { expectedRevision: 0, reason: '테스트', edits: { category: row.category, deadlineOn: row.deadlineOn, referenceUrl: row.referenceUrl } }, member), 'not-enabled');
+  assert.equal(await reviseRequest(sql, row.id, { expectedRevision: 0, reason: '테스트', edits: { category: row.category, deadlineOn: row.deadlineOn, referenceUrl: row.referenceUrl }, partnerConfirmed: false }, member), 'not-enabled');
   const p = await previewRevision(sql, row.id);
   assert.ok(!p.ok && p.reason === 'not-enabled');
 });
@@ -600,7 +600,9 @@ test('reviseRequest — 수수료를 바꾼 뒤 다시 반영: 같은 id·extern
   const before = (await listRequests(sql, { taskId: row.taskId! }))[0];
   const pv = await previewRevision(sql, row.id);
   assert.ok(pv.ok); assert.equal(pv.after.candidate.money!.amountGross, 3000); assert.equal(pv.after.issues.filter((i) => i.level === 'blocked').length, 0);
-  const r = await reviseRequest(sql, row.id, { expectedRevision: 0, reason: '수수료 재설정', edits: { category: row.category, deadlineOn: '2026-09-11', referenceUrl: row.referenceUrl } }, member);
+  // 그쪽이 처리한 건(보류) — 담당자 확인 체크 없이는 confirm-required(09-07 합의), 체크하면 통과
+  assert.equal(await reviseRequest(sql, row.id, { expectedRevision: 0, reason: '수수료 재설정', edits: { category: row.category, deadlineOn: '2026-09-11', referenceUrl: row.referenceUrl }, partnerConfirmed: false }, member), 'confirm-required');
+  const r = await reviseRequest(sql, row.id, { expectedRevision: 0, reason: '수수료 재설정', edits: { category: row.category, deadlineOn: '2026-09-11', referenceUrl: row.referenceUrl }, partnerConfirmed: true }, member);
   assert.ok(typeof r === 'object' && !('kind' in r));
   const after = r as PaymentRequestRow;
   assert.equal(after.id, row.id); assert.equal(after.externalId, 'CBX-260907-004'); assert.ok(after.sentAt);          // 유지
@@ -611,7 +613,7 @@ test('reviseRequest — 수수료를 바꾼 뒤 다시 반영: 같은 id·extern
   assert.equal(after.createdAt, before.createdAt); assert.ok(new Date(after.updatedAt) > new Date(before.updatedAt));
   // 이력: 1판(고치기 전) 그대로 — 그쪽 메모·담당자도 함께 남는다
   const hist = await listRevisions(sql, row.id);
-  assert.equal(hist.length, 1); assert.equal(hist[0].revision, 0); assert.equal(hist[0].reason, '수수료 재설정'); assert.equal(hist[0].revisedByName, member.name);
+  assert.equal(hist.length, 1); assert.equal(hist[0].revision, 0); assert.equal(hist[0].reason, '수수료 재설정'); assert.equal(hist[0].revisedByName, member.name); assert.equal(hist[0].partnerConfirmed, true);
   assert.equal(hist[0].snapshot.amountGross, 3158); assert.equal(hist[0].snapshot.feeAmount, 158);   // 1판 = 수수료 포함이던 값
   assert.equal(hist[0].snapshot.externalNote, '수수료 추가해서 요청해주세요'); assert.equal(hist[0].snapshot.externalOperatorName, '전태정');
   // 활동 기록
@@ -626,32 +628,34 @@ test('reviseRequest — 수수료를 바꾼 뒤 다시 반영: 같은 id·extern
   const fresh = await applyExternalStatus(sql, row.id, upd('received', '2026-09-07T03:55:00Z', { revision: 1 }));
   assert.ok(fresh !== 'not-found' && fresh.kind === 'applied');
   // 같은 값으로 다시 반영도 허용 — 2판, 이력 2건
-  const again = await reviseRequest(sql, row.id, { expectedRevision: 1, reason: '재검토 요청', edits: { category: row.category, deadlineOn: '2026-09-11', referenceUrl: row.referenceUrl } }, member);
+  const again = await reviseRequest(sql, row.id, { expectedRevision: 1, reason: '재검토 요청', edits: { category: row.category, deadlineOn: '2026-09-11', referenceUrl: row.referenceUrl }, partnerConfirmed: true }, member);
   assert.equal((again as PaymentRequestRow).revision, 2);
   assert.equal((await listRevisions(sql, row.id)).length, 2);
 }));
 
 test('reviseRequest — 거절 판정: 취소됨·지급 완료·판 불일치·🔴 관문·작업 삭제', () => revisionOn(async () => {
   const edits = (row: PaymentRequestRow) => ({ category: row.category, deadlineOn: row.deadlineOn, referenceUrl: row.referenceUrl });
+  const inp = (row: PaymentRequestRow, over: Partial<{ expectedRevision: number; edits: ReturnType<typeof edits> }> = {}) => ({ expectedRevision: 0, reason: 'x', edits: edits(row), partnerConfirmed: false, ...over });
   // 취소된 요청
   const a = await requestFor('rvA', 'rvA');
   await cancelRequest(sql, a.row.id, '폐기', a.member);
-  assert.equal(await reviseRequest(sql, a.row.id, { expectedRevision: 0, reason: 'x', edits: edits(a.row) }, a.member), 'cancelled');
+  assert.equal(await reviseRequest(sql, a.row.id, inp(a.row), a.member), 'cancelled');
   // 지급 완료
   const b = await requestFor('rvB', 'rvB');
   await applyExternalStatus(sql, b.row.id, upd('paid', '2026-09-07T05:00:00Z', { paidAmountKrw: 31580, paidAt: '2026-09-07T04:58:00Z', revision: 0 }));
-  assert.equal(await reviseRequest(sql, b.row.id, { expectedRevision: 0, reason: 'x', edits: edits(b.row) }, b.member), 'paid-locked');
+  assert.equal(await reviseRequest(sql, b.row.id, inp(b.row), b.member), 'paid-locked');
   // 판 불일치(화면이 옛 판을 들고 있음)
   const c = await requestFor('rvC', 'rvC');
-  assert.equal(await reviseRequest(sql, c.row.id, { expectedRevision: 3, reason: 'x', edits: edits(c.row) }, c.member), 'revision-mismatch');
+  assert.equal(await reviseRequest(sql, c.row.id, inp(c.row, { expectedRevision: 3 }), c.member), 'revision-mismatch');
   // 🔴 관문: 투고인데 참고 링크를 비우면 막힘 — 문구는 검토 대기와 같다
-  const blocked = await reviseRequest(sql, c.row.id, { expectedRevision: 0, reason: 'x', edits: { ...edits(c.row), referenceUrl: null } }, c.member);
+  // 그쪽이 아직 손대지 않은 요청(externalStatus null)은 담당자 확인 없이 고칠 수 있다 — 여기선 🔴 관문에 걸린다
+  const blocked = await reviseRequest(sql, c.row.id, inp(c.row, { edits: { ...edits(c.row), referenceUrl: null } }), c.member);
   assert.ok(typeof blocked === 'object' && 'kind' in blocked && blocked.kind === 'blocked');
   assert.match((blocked as { issues: Array<{ text: string }> }).issues[0].text, /참고 링크를 넣어 주세요/);
   // 작업 삭제 → task-gone
   const d = await requestFor('rvD', 'rvD');
   await deleteTask(sql, d.task.id);
-  assert.equal(await reviseRequest(sql, d.row.id, { expectedRevision: 0, reason: 'x', edits: edits(d.row) }, d.member), 'task-gone');
+  assert.equal(await reviseRequest(sql, d.row.id, inp(d.row), d.member), 'task-gone');
   // 스위치 꺼짐이면 revision 불일치도 무시하고 적용한다(그쪽 옛 클라이언트 호환)
   delete process.env.SETTLEMENT_REVISION_V2;
   const ignored = await applyExternalStatus(sql, c.row.id, upd('received', '2026-09-07T06:00:00Z', { revision: 7 }));

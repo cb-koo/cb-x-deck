@@ -12,7 +12,7 @@ import { insertAutoLog, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
 import { computeCandidate, effectiveIssues, toMethodSnapshot, NO_CLIENT_TEXT, NO_INFLUENCER_TEXT, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
-import { hasPaidDiff } from './settlementDisplay.ts';
+import { hasPaidDiff, needsPartnerConfirm } from './settlementDisplay.ts';
 import { isRevisionV2 } from './settlementRevisionFlag.ts';
 import { effectiveIssues as gateIssues, type ReadinessIssue } from './settlementCalc.ts';   // 순수 모듈(campaignTaskStore는 type import만) — 화면 배지와 같은 차액 판정
 import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
@@ -436,7 +436,7 @@ export { settlementByTaskIds, EXTERNAL_STATUSES, type SettlementBadgeStatus, typ
 
 // ── 제자리 수정(2026-09-07 스펙 §4) — 같은 요청을 고쳐 revision을 올린다. 고치기 전 행은 payment_request_revision에 그대로 남긴다. ──
 export type RevisionFailure =
-  | 'not-enabled' | 'not-found' | 'cancelled' | 'paid-locked' | 'revision-mismatch' | 'task-gone' | 'influencer-changed' | 'not-candidate'
+  | 'not-enabled' | 'not-found' | 'cancelled' | 'paid-locked' | 'revision-mismatch' | 'task-gone' | 'influencer-changed' | 'not-candidate' | 'confirm-required'
   | { kind: 'blocked'; issues: ReadinessIssue[] };
 export interface RevisionEdits { category: string; deadlineOn: string; referenceUrl: string | null }
 export interface RevisionTarget {
@@ -480,7 +480,7 @@ export async function previewRevision(sql: postgres.Sql, id: string, edits: Revi
 }
 
 export async function reviseRequest(
-  sql: postgres.Sql, id: string, input: { expectedRevision: number; reason: string; edits: RevisionEdits }, member: { id: string; name: string }, today: string = kstToday(),
+  sql: postgres.Sql, id: string, input: { expectedRevision: number; reason: string; edits: RevisionEdits; partnerConfirmed: boolean }, member: { id: string; name: string }, today: string = kstToday(),
 ): Promise<PaymentRequestRow | RevisionFailure> {
   if (!isUuidLike(id)) return 'not-found';
   return await sql.begin(async (tx0) => {
@@ -491,12 +491,13 @@ export async function reviseRequest(
     const r = await resolveRevision(tx, c, input.edits, today);
     if (!r.ok) return r.reason;
     if (c.revision !== input.expectedRevision) return 'revision-mismatch';   // 우리 화면 둘이 동시에 고치는 것 방지 — 판정 뒤에 봐서 문구 우선순위는 상태 쪽
-    const t = r.target; const m = t.candidate.money!; const pm = t.candidate.method!;
     const before = toRequest(c);
+    if (needsPartnerConfirm(before) && !input.partnerConfirmed) return 'confirm-required';   // 화면 체크를 우회한 호출도 막는다
+    const t = r.target; const m = t.candidate.money!; const pm = t.candidate.method!;
     // (a) 고치기 전 행을 그대로 보관 — "1판 값이 얼마였나"의 유일한 출처
     await tx`
-      insert into payment_request_revision (request_id, revision, snapshot, reason, revised_by, revised_by_name)
-      values (${id}, ${c.revision}, ${tx.json(asJson(before))}, ${input.reason}, ${member.id}, ${member.name})`;
+      insert into payment_request_revision (request_id, revision, snapshot, reason, revised_by, revised_by_name, partner_confirmed)
+      values (${id}, ${c.revision}, ${tx.json(asJson(before))}, ${input.reason}, ${member.id}, ${member.name}, ${input.partnerConfirmed})`;
     // (b) 행 갱신: 돈·수단·분류·마감·링크 + revision·revised_at·updated_at. 그쪽 결과는 리셋(received부터 다시), external_id·sent_at·created_at·요청자는 유지.
     //     gross_krw는 045 생성 컬럼이라 amount_gross·rate·currency가 바뀌면 따라 바뀐다.
     await tx`
@@ -519,10 +520,10 @@ export async function reviseRequest(
   });
 }
 
-export interface RevisionHistoryRow { revision: number; snapshot: PaymentRequestRow; reason: string; revisedByName: string; createdAt: string }
+export interface RevisionHistoryRow { revision: number; snapshot: PaymentRequestRow; reason: string; revisedByName: string; createdAt: string; partnerConfirmed: boolean }
 export async function listRevisions(sql: postgres.Sql, id: string): Promise<RevisionHistoryRow[]> {
   if (!isUuidLike(id)) return [];
-  const rows = await sql<Array<{ revision: number; snapshot: unknown; reason: string; revised_by_name: string; created_at: Date }>>`
-    select revision, snapshot, reason, revised_by_name, created_at from payment_request_revision where request_id = ${id} order by revision`;
-  return rows.map((r) => ({ revision: r.revision, snapshot: r.snapshot as PaymentRequestRow, reason: r.reason, revisedByName: r.revised_by_name, createdAt: new Date(r.created_at).toISOString() }));
+  const rows = await sql<Array<{ revision: number; snapshot: unknown; reason: string; revised_by_name: string; created_at: Date; partner_confirmed: boolean }>>`
+    select revision, snapshot, reason, revised_by_name, created_at, partner_confirmed from payment_request_revision where request_id = ${id} order by revision`;
+  return rows.map((r) => ({ revision: r.revision, snapshot: r.snapshot as PaymentRequestRow, reason: r.reason, revisedByName: r.revised_by_name, createdAt: new Date(r.created_at).toISOString(), partnerConfirmed: r.partner_confirmed }));
 }

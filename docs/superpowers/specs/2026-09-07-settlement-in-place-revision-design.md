@@ -7,6 +7,10 @@
 
 취소+새 요청 모델은 그쪽 화면에서 "취소 1건 + 신규 1건, 정산코드 2개"로 갈라져 담당자 혼선을 낳았다(09-07 @Qni6F 사건). 그쪽 제안대로 **같은 요청을 제자리에서 고치고 `revision`을 올린다.** 우리 원칙 "돈 값은 요청 시점 확정값"은 **개정 이력 보존**으로 지킨다 — 고치기 전 행을 그대로 이력 표에 남기므로 어느 판의 값이 얼마였는지는 항상 답할 수 있다.
 
+## 1-1. 송금 중 수정 방지 — 절차로 해결(09-07 합의)
+
+그쪽 송금은 수동 송금 → 실지급액 입력 → 확정이라 송금 시점에 `paid`를 보낼 수 없다(그쪽 17번 보고). 잠금 API 대신 **그쪽이 처리한 건을 고칠 때는 슬랙으로 그쪽 담당자 확인 후 반영**으로 합의. 차단 장치 = 수정 창의 확인 체크(서버도 `confirm-required`로 재검사), 대사 = 담당자의 슬랙 답. 그쪽 안전장치(송금 끝난 건에 수정본이 오면 금액 안 덮고 정합 오류)는 유지. 건수·담당자가 늘면 `paying` 상태 추가로 격상.
+
 ## 2. 전환 스위치
 
 `SETTLEMENT_REVISION_V2=on`(환경 변수, 운영·스테이징 각각). 꺼짐(기본)이면 외부에는 지금과 똑같이 나가고 수정 기능은 화면·API 모두 닫힌다.
@@ -19,7 +23,7 @@
 | 요청 내역 [고친 값으로 다시 반영] | 없음 | 있음(조건 §4) |
 | PATCH action `revise` | 409 `not-enabled` | 동작 |
 
-우리가 먼저 배포(꺼짐) → 그쪽 배포 → 슬랙으로 시각 합의 → 켬. 스위치는 `src/lib/settlementRevisionFlag.ts` 한 곳에서 읽는다(`isRevisionV2()`); 테스트는 env를 바꿔 양쪽을 다 본다.
+우리가 먼저 배포(꺼짐) → 그쪽 배포 → 슬랙으로 시각 합의 → **그쪽 스위치 먼저 ON → 우리 ON**(그쪽은 OFF 상태에서 수정본을 받으면 커서 진행을 일부러 실패시킨다 — 우리가 먼저 켜면 그쪽 폴링이 멈춘다, 그쪽 17번 보고). 스위치는 `src/lib/settlementRevisionFlag.ts` 한 곳에서 읽는다(`isRevisionV2()`); 테스트는 env를 바꿔 양쪽을 다 본다.
 
 ## 3. 데이터
 
@@ -42,6 +46,7 @@
 7. 작업의 현재 `influencer_id !== payment_request.influencer_id` → `influencer-changed`(재배정은 취소+새 요청)
 8. 작업이 후보 조건을 잃음(게시 취소·비용 삭제) → `not-candidate`
 9. `computeCandidate`(현재 작업·인플루언서·설정·오늘) + `effectiveIssues(cand, edits)`에 🔴 → `blocked`(문구 그대로)
+9-1. **그쪽이 처리한 건(`external_status !== null`)인데 `partnerConfirmed`가 아님 → `confirm-required`** (09-07 koo·그쪽 합의: 송금 중 수정 방지를 API 대신 "슬랙 확인 후 반영" 절차로. 화면 체크를 우회한 호출도 막는다. 049 `payment_request_revision.partner_confirmed`에 기록)
 10. 통과 → (a) 현재 행을 `payment_request_revision`에 `revision = 현재값`으로 보관 (b) 행 갱신: 돈 필드 전부(amount_*·fee·fee_amount·rate·payout_currency·gross_krw는 045 생성 컬럼이라 자동)·`payment_method` 스냅샷·`category`·`category_option_id`·`deadline_on`·`reference_url`·`revision = +1`·`revised_at = now()`·`updated_at = now()`, 그쪽 결과 리셋: `external_status, paid_amount_krw, paid_at, external_note, external_updated_at, external_operator_* = null`, `diff_ack_* = null`. **유지**: `external_id`, `sent_at`, `created_at`, `requester_*`, `proof`(라이브라 무관). (c) `influencer_log` `payment_revised` { requestId, revision, before: { amountGross, payoutCurrency }, after: {...}, reason }.
 
 같은 값으로 고치기(변경 없음)도 허용한다 — 그쪽 재검토를 다시 태우는 용도.
@@ -57,6 +62,7 @@
 
 - `RequestRow` 펼침에 **[고친 값으로 다시 반영]**: 조건 = 스위치 켜짐 ∧ `status === 'requested'` ∧ `externalStatus !== 'paid'`. 옆 도움말 "프로필·캠페인에서 고친 값을 이 요청에 반영해요. 정산 쪽에는 같은 건의 수정으로 전달돼요."
 - `ReviseDialog`: 열리면 `GET /api/settlement/requests/{id}/revision-preview`로 **지금 값과 고쳤을 때 값**을 나란히(금액·수수료·송금액·결제 수단·분류·마감·링크, 바뀐 줄 강조). 분류·마감·참고 링크는 창 안에서 편집(검토 대기 행과 같은 컨트롤·같은 🔴 표시). 사유 필수. 🔴가 남으면 [반영] 비활성 + 이유. 확인 → `PATCH … { action: 'revise', expectedRevision, reason, edits }`.
+- **담당자 확인(09-07 합의):** 대상이 그쪽이 처리한 건이면 창 위쪽에 노란 안내("정산 쪽이 이미 처리한 요청 · 송금 진행 중일 수 있으니 슬랙으로 담당자에게 먼저 확인") + 체크 "정산 담당자에게 확인했어요". 체크 전에는 [반영] 비활성. 개정 이력에 "· 정산 담당자 확인 후" 표시.
 - 결과 토스트 "2판으로 반영했어요 — 정산 쪽이 다시 검토해요". 실패 사유는 §4 종류별 사용자 문구(`paid-locked` "이미 지급 완료돼 고칠 수 없어요 — 금액 정정은 정산 쪽에 요청해요", `influencer-changed` "인플루언서가 바뀐 작업이라 취소 후 새로 요청해야 해요" 등).
 - 배지(`settlementDisplay`): `requested`일 때 `revision > 0`이면 "요청됨 · 2판 M/D"(revised_at). title "고쳐서 다시 보낸 요청이에요 — 정산 쪽이 다시 검토 중".
 - 펼침에 **개정 이력** 블록: `GET /api/settlement/requests/{id}/revisions` → "1판 ¥8,000 → 2판 ¥8,421 · 9/7 12:50 · 박구건 · 수수료 재설정 · 그쪽 메모 '수수료 추가해서…'(전태정)". 이력이 없으면 블록 없음.

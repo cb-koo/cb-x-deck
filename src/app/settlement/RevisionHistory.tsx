@@ -26,7 +26,7 @@ export function RevisionHistory({ r }: { r: PaymentRequestRow }) {
             return (
               <li key={h.revision} className="text-x-secondary">
                 <span className="text-x-text">{h.revision + 1}판 {formatMoney(h.snapshot.amountGross, h.snapshot.payoutCurrency)} → {h.revision + 2}판 {formatMoney(next.amountGross, next.payoutCurrency)}</span>
-                {' · '}{kstDateTime(h.createdAt)} · {h.revisedByName} · {h.reason}
+                {' · '}{kstDateTime(h.createdAt)} · {h.revisedByName} · {h.reason}{h.partnerConfirmed && <span className="text-x-muted"> · 정산 담당자 확인 후</span>}
                 {h.snapshot.externalNote && <span className="text-x-muted"> · 정산 쪽 메모 “{h.snapshot.externalNote}”{h.snapshot.externalOperatorName ? `(${h.snapshot.externalOperatorName})` : ''}</span>}
               </li>
             );

@@ -113,3 +113,7 @@ export function paidText(grossKrw: number, paidAmountKrw: number): string {
     ? `실지급 ${formatMoney(paidAmountKrw, 'KRW')}`
     : `실지급 ${formatMoney(paidAmountKrw, 'KRW')} (송금액 ${formatMoney(grossKrw, 'KRW')}, ${signed(diff)})`;
 }
+
+// 그쪽이 처리한 건(상태를 보내온 요청)인가 — 이런 건을 고칠 때는 슬랙으로 정산 담당자 확인 후 반영(09-07 합의). 송금 중일 수 있는 틈을 사람 확인으로 막는다.
+// 순수 모듈에 두는 이유: 수정 창(클라이언트)과 서버(reviseRequest)가 같은 판정을 쓰되, 클라이언트가 settlementStore(pg)를 끌어오면 빌드가 깨진다.
+export const needsPartnerConfirm = (r: { externalStatus: ExternalStatus | null }): boolean => r.externalStatus !== null;

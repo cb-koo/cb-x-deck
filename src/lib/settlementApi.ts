@@ -62,6 +62,6 @@ export const fetchRevisionPreview = (id: string, edits: RevisionEdits | null) =>
   const qs = p.toString();
   return call<RevisionPreviewResult>(`/api/settlement/requests/${id}/revision-preview${qs ? `?${qs}` : ''}`);
 };
-export const reviseRequestApi = (id: string, input: { expectedRevision: number; reason: string; edits: RevisionEdits }) =>
+export const reviseRequestApi = (id: string, input: { expectedRevision: number; reason: string; edits: RevisionEdits; partnerConfirmed: boolean }) =>
   call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'revise', ...input }));
 export const fetchRevisions = (id: string) => call<{ revisions: RevisionHistoryRow[] }>(`/api/settlement/requests/${id}/revisions`);

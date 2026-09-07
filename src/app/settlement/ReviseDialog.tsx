@@ -8,6 +8,7 @@ import { PAYMENT_TYPE_LABEL } from '@/lib/influencerPayment';
 import { describeSnapshot, toMethodSnapshot, referenceRequiredFor } from '@/lib/settlementCalc';
 import { visibleCategories } from '@/lib/settlementSettings';
 import { fetchRevisionPreview, fetchSettlementSettings, reviseRequestApi } from '@/lib/settlementApi';
+import { EXTERNAL_STATUS_LABEL, needsPartnerConfirm } from '@/lib/settlementDisplay';
 import type { SettlementSettings } from '@/lib/settlementSettings';
 
 // 제자리 수정 창(스펙 2026-09-07 §6) — "지금 값 → 고쳤을 때 값"을 나란히 보여주고, 분류·마감·참고 링크는 여기서 바로 고친다.
@@ -31,6 +32,9 @@ export function ReviseDialog({ target, onDone, onClose }: { target: PaymentReque
   const [settings, setSettings] = useState<SettlementSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  // 09-07 그쪽과 합의: 그쪽이 처리한 건(상태를 보내온 요청)은 송금 중일 수 있어, 슬랙으로 담당자 확인 후에만 반영한다. 체크 없이는 버튼이 살지 않는다.
+  const confirmNeeded = needsPartnerConfirm(target);
+  const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing && !busy) onClose(); };
@@ -59,7 +63,7 @@ export function ReviseDialog({ target, onDone, onClose }: { target: PaymentReque
     if (!rs) { setErr('수정 사유를 적어 주세요'); return; }
     if (rs.length > 200) { setErr('사유는 200자까지예요'); return; }
     setBusy(true); setErr('');
-    const r = await reviseRequestApi(target.id, { expectedRevision: target.revision, reason: rs, edits });
+    const r = await reviseRequestApi(target.id, { expectedRevision: target.revision, reason: rs, edits, partnerConfirmed: confirmed });
     setBusy(false);
     if (!r.ok) { setErr(r.error); return; }
     onDone(r.data);
@@ -68,7 +72,7 @@ export function ReviseDialog({ target, onDone, onClose }: { target: PaymentReque
   const cats = settings ? visibleCategories(settings) : [];
   const beforeMethod = describeSnapshot(target.paymentMethod);
   const changed = (a: string | number, b: string | number) => a !== b ? 'font-semibold text-x-text' : 'text-x-secondary';
-  const canApply = preview.state === 'ok';
+  const canApply = preview.state === 'ok' && (!confirmNeeded || confirmed);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
@@ -111,6 +115,15 @@ export function ReviseDialog({ target, onDone, onClose }: { target: PaymentReque
           <p className="mt-3 text-ui text-amber-700">{preview.after.issues.map((i) => i.text).join(' · ')}</p>
         )}
 
+        {confirmNeeded && (
+          <div className="mt-4 rounded-lg bg-amber-50 p-3 text-ui text-amber-800">
+            <p>정산 쪽이 이미 처리한 요청이에요(지금 {target.externalStatus ? EXTERNAL_STATUS_LABEL[target.externalStatus] : ''}). 송금이 진행 중일 수 있으니 <b>슬랙으로 정산 담당자에게 먼저 확인</b>하고 반영해 주세요.</p>
+            <label className="mt-2 flex items-center gap-2">
+              <input type="checkbox" className="h-4 w-4" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+              정산 담당자에게 확인했어요 — 고쳐도 된다고 했어요
+            </label>
+          </div>
+        )}
         <label className="mt-4 block text-ui text-x-secondary">사유 <span className="text-red-600">필수</span>
           <textarea className="mt-1 w-full rounded-lg border border-x-border p-2 text-ui" rows={2} value={reason} onChange={(e) => { setReason(e.target.value); setErr(''); }} placeholder="예: 수수료 CB 부담 5%로 재설정" />
         </label>

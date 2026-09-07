@@ -10,4 +10,5 @@ export const REVISION_FAILURE_MESSAGE: Record<StringFailure, string> = {
   'task-gone': '작업이 삭제된 요청이라 다시 계산할 수 없어요 — 취소하고 새로 요청해 주세요',
   'influencer-changed': '인플루언서가 바뀐 작업이에요 — 이 요청을 취소하고 새로 요청해야 해요',
   'not-candidate': '작업이 정산 조건을 잃었어요(게시 취소·비용 없음) — 캠페인에서 확인해 주세요',
+  'confirm-required': '정산 쪽이 처리한 요청이에요 — 슬랙으로 정산 담당자에게 확인한 뒤 체크하고 반영해 주세요',
 };

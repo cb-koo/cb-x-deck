@@ -77,16 +77,38 @@ Authorization: Bearer <API 키>
 - 시각 필드(`created_at`, `updated_at`, `cancelled.at`, `settlement.*_at`, 그쪽이 보내는 `updated_at`·`paid_at`)는 **ISO 8601, UTC**(`Z` 접미). 표시할 때 그쪽 시간대로 바꿔 쓰면 된다.
 - 날짜 필드(`deadline`)는 **한국(Asia/Seoul) 기준 날짜** `YYYY-MM-DD`다. 시각이 아니라 날짜이므로 변환하지 않는다.
 
-### 3-1. 요청은 수정되지 않는다 — "수정"과 "보류 해결"은 취소 + 새 요청
+### 3-1. 요청 수정은 "제자리 수정"이다 — 같은 `request_id`, `revision` +1 (2026-09-07 개정, 전환일부터 적용)
 
-우리 쪽 결제 요청은 만든 뒤 내용이 바뀌지 않는다(스냅샷). 금액·계좌·분류 등을 고쳐야 하면 담당자가 **그 요청을 취소하고 같은 작업으로 새 요청을 만든다.** 그쪽 미러에는 이렇게 보인다:
+> **전환 안내.** 이 절은 그쪽 09-07 제안을 수용해 바꾼 것이다. **전환 스위치를 켜는 시각(양쪽 배포 완료 후 슬랙으로 합의)부터 적용**되며, 그 전까지는 아래 "전환 전(현행)" 동작이 그대로 유효하다.
 
-1. 옛 건: `status: "cancelled"`, `cancelled.reason`에 사유 — 폴링 목록에 `updated_at`이 갱신되어 다시 나온다. 그쪽이 `on_hold`를 걸어 둔 건이었다면 이 취소가 곧 "보류에 대한 응답"이다.
-2. 새 건: 처음 보는 `request_id`, `status: "requested"`, **`task_id`는 옛 건과 같다.**
+**전환 후.** 지급 전(`settlement.status`가 `paid`가 아닌) 요청은 저희 담당자가 **제자리에서 고친다.** 그쪽 미러에는 이렇게 보인다:
 
-**그쪽이 `status: "cancelled"`를 보낸 경우**도 같은 모양이다: 우리 쪽 `status`가 `cancelled`로 바뀌고 `cancelled.by_name`은 `"정산 프로덕트"`, **`cancelled.reason`에는 그쪽이 보낸 `note`가 그대로 들어간다**(`note`가 없으면 `"정산에서 취소"`).
+| 필드 | 수정 전 | 수정 후 |
+|---|---|---|
+| `request_id` · `external_id` · `task_id` | 그대로 | **그대로** |
+| `status` | `requested` | **`requested`** (수정은 취소가 아니다) |
+| `revision` | n | **n+1** (수정 횟수, §5) |
+| `revised_at` | 이전 수정 시각 또는 `null` | **이번 수정 시각** |
+| `settlement.status`·`note`·`paid_*`·`updated_at` | 그쪽이 보낸 값 | **전부 `null`로 리셋** — 금액 등이 바뀌었으니 `received`부터 다시 처리해 달라 |
+| `settlement.external_id` | 그쪽 정산코드 | **그대로 유지** |
+| `updated_at` | | 갱신 → 다음 폴링에 다시 내려온다 |
 
-그쪽에서 두 건을 이어 보고 싶으면 `task_id`로 묶으면 된다(한 작업에 활성 요청은 항상 1건이고, 취소된 건은 여러 개일 수 있다). 옛 건의 `on_hold`·`note`는 옛 건에 남고 새 건은 `settlement.status: null`로 시작하므로, 새 건에 대해 `received`부터 다시 보내 달라.
+- 고칠 수 있는 값: 요청을 만들 때 정하는 값 전부(금액·수수료·결제 수단·통화·분류·마감·참고 링크). 고친 값은 새 요청을 만들 때와 같은 검사(증빙·링크·결제 수단)를 통과한 것만 반영된다.
+- **`paid` 이후에는 수정할 수 없다.** 지급 후 금액 정정은 종전처럼 그쪽의 `paid → paid` 재전송(§6)만 쓴다.
+- **진짜 폐기는 종전처럼 `status: "cancelled"`** + `cancelled.reason`. 수정(`requested` + `revision`↑)과 폐기(`cancelled`)는 데이터로 구분된다. 취소된 요청의 `revision`은 그때까지의 수정 횟수를 그대로 가진다.
+- 작업의 인플루언서가 바뀐 경우(재배정)는 수정이 아니라 다른 의무이므로 종전처럼 취소 + 새 요청이다(`task_id` 같음).
+- 고치기 전 내용은 저희 쪽에 개정 이력으로 보관한다(이 API로는 내려가지 않는다).
+
+**그쪽이 함께 지켜야 하는 것.**
+1. **수정을 원하면 `on_hold` + `note`로 보낸다.** `cancelled`를 보내면 저희 요청이 즉시 취소되어 고칠 수 없고, 저희는 새 요청을 만들게 된다(`task_id` 같음, 서류 두 장).
+2. **상태 POST에 `revision`을 넣는다**(§6). 저희 현재 값과 다르면 409 `revision-mismatch` — 재전송하지 말고 응답의 최신 Item으로 다시 판단한다.
+3. **`revision`은 +1씩 오지 않을 수 있다**(한 폴링 간격 안에 두 번 고치면 0 → 2). "저장값보다 커졌다"로 판단한다. **처음 보는 요청인데 `revision` > 0**이면(가져가기 전에 고친 것) 신규로 처리한다.
+4. **신규 유입 집계는 `request_id` 첫 등장 기준**으로 한다 — 고친 요청도 `status: "requested"`로 다시 내려온다.
+5. **송금을 실행하는 순간 `paid`를 먼저 보낸다.** `paid`가 도착하면 저희 수정이 막힌다 — 송금 실행과 `paid` 전송 사이에 저희가 고치는 틈을 없애기 위해.
+
+**전환 전(현행).** 요청은 만든 뒤 내용이 바뀌지 않는다(스냅샷). 고쳐야 하면 담당자가 그 요청을 **취소하고 같은 작업으로 새 요청을 만든다** — 옛 건은 `status: "cancelled"` + `cancelled.reason`, 새 건은 새 `request_id` + `status: "requested"` + **같은 `task_id`**. 두 건을 이으려면 `task_id`로 묶는다. `revision`은 `0` 요청됨 / `1` 취소됨.
+
+**그쪽이 `status: "cancelled"`를 보낸 경우**(전환 전후 동일): 우리 쪽 `status`가 `cancelled`로 바뀌고 `cancelled.by_name`은 `"정산 프로덕트"`, **`cancelled.reason`에는 그쪽이 보낸 `note`가 그대로 들어간다**(`note`가 없으면 `"정산에서 취소"`). 그 작업은 저희 검토 대기로 돌아간다.
 
 ### 3-2. 예외 — `proof`만은 최신값이 내려간다
 
@@ -94,7 +116,7 @@ Authorization: Bearer <API 키>
 
 ### 그쪽이 보낸 상태는 다음 폴링에 되돌아온다(에코)
 
-그쪽이 `POST …/status`를 보내면 그 건의 최상위 `updated_at`이 갱신되므로 **다음 폴링 목록에 그 건이 다시 내려온다.** 그쪽 자신의 변경인지 구분하려면 `settlement.updated_at`(그쪽이 보낸 `updated_at`의 되비침)과 자기 마지막 전송 시각을 비교하면 된다 — 같으면 에코, 다르면 우리 쪽 변경(취소 등)이다. `revision`이 0 → 1로 바뀌었다면 그 요청이 취소된 것이다 — `cancelled.by_name`이 `"정산 프로덕트"`면 그쪽이 보낸 취소의 에코이고, 그 밖의 이름이면 우리 쪽 담당자의 취소다.
+그쪽이 `POST …/status`를 보내면 그 건의 최상위 `updated_at`이 갱신되므로 **다음 폴링 목록에 그 건이 다시 내려온다.** 그쪽 자신의 변경인지 구분하려면 `settlement.updated_at`(그쪽이 보낸 `updated_at`의 되비침)과 자기 마지막 전송 시각을 비교하면 된다 — 같으면 에코, 다르면 우리 쪽 변경(취소 등)이다. `revision`이 커졌다면 저희가 그 요청을 고친 것이다(§3-1, 전환 후) — 전환 전에는 0 → 1이 곧 취소였다. 취소 여부는 항상 `status`로 본다 — `cancelled.by_name`이 `"정산 프로덕트"`면 그쪽이 보낸 취소의 에코이고, 그 밖의 이름이면 우리 쪽 담당자의 취소다.
 
 ### 커서가 무효해지는 경우
 
@@ -142,7 +164,8 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 | 필드 | 타입 | null 가능 | 뜻 |
 |---|---|---|---|
 | `request_id` | string(uuid) | 아니오 | 결제 요청 ID. 상태 POST의 경로 파라미터로 그대로 쓴다. |
-| `revision` | `0` \| `1` | 아니오 | **우리 원본 요청의 변경 횟수** — `0` 요청됨, `1` 취소됨. 그쪽 처리 상태(`settlement.status`)가 바뀌어도 이 값은 바뀌지 않는다. **정렬·중복 판정에 쓰지 말 것**(§3 참고, `updated_at` 사용). |
+| `revision` | number(정수 ≥ 0) | 아니오 | **저희가 이 요청을 고친 횟수**(§3-1). `0` 최초, `1` 1차 수정, … 취소 여부는 이 값이 아니라 `status`로 본다(취소된 요청도 수정 횟수를 그대로 가진다). 그쪽 처리 상태(`settlement.status`)가 바뀌어도 변하지 않는다. **정렬·중복 판정에 쓰지 말 것**(`updated_at` 사용). **전환 전(현행)**: `0` 요청됨 / `1` 취소됨. |
+| `revised_at` | string(ISO 8601) \| null | 예 | 마지막으로 고친 시각(§3-1). 한 번도 안 고쳤으면 `null`. 전환 전에는 항상 `null`. |
 | `status` | `"requested"` \| `"cancelled"` | 아니오 | **우리 쪽 요청 자체의 상태.** 그쪽 처리 상태가 아니다 — 그쪽 처리 상태는 `settlement.status`. `cancelled`가 되는 경우는 (a) 우리 담당자가 취소, (b) 그쪽이 POST로 `status: cancelled`를 보내 우리가 취소 처리한 경우(§6, §7) 둘 다. |
 | `created_at` | string(ISO 8601) | 아니오 | 요청 생성 시각. |
 | `updated_at` | string(ISO 8601) | 아니오 | 이 요청 행이 마지막으로 바뀐 시각. 폴링 정렬·커서 기준. |
@@ -232,6 +255,7 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 | `paid_amount_krw` | `status: "paid"`일 때 필수 | number(정수, ≥0) | |
 | `paid_at` | `status: "paid"`일 때 필수 | string(ISO 8601) | |
 | `external_id` | 아니오 | string, ≤100자 | 그쪽 자체 건 ID. |
+| `revision` | **전환 후 필수**(전환 전 무시) | number(정수 ≥ 0) | 그쪽이 마지막으로 받은 Item의 `revision`. 저희 현재 값과 다르면 **409 `revision-mismatch`**(아래 규칙 3-1) — 옛 판에 대한 늦은 상태가 새 판에 붙는 것을 막는다. |
 | `operator` | 아니오 | `{ id: string, name: string }` (각 ≤100자, 비어 있지 않음) | **이 상태 전이를 실행한 그쪽 결제 담당자**(2026-09-07 추가, 그쪽 09-04 요청). 사람이 실행한 전이(취소·보류·재개·지급·정정)에만 넣고, 자동 전이(수신 즉시 `received→scheduled`)에는 키를 넣지 않는다. 저희는 마지막으로 적용된 전이의 담당자를 요청에 남겨 화면에 "처리한 사람"으로 보인다. `null`은 "없음"과 같다. 모양이 틀리면 400 `{ field: "operator" }`. |
 
 **본문에 저희가 모르는 키가 있으면 무시한다** — 400을 내지 않는다. 그쪽이 필드를 먼저 추가해 보내도 상태 전송이 깨지지 않는다(단, 저희가 저장·표시하려면 위 표에 올라와야 한다 — 미리 알려 주시면 반영한다).
@@ -240,8 +264,9 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 
 | 순서 | 조건 | 결과 |
 |---|---|---|
-| 1 | 본문이 JSON 객체가 아님 / `status` 값이 5개 중 하나가 아님 / `updated_at`이 ISO 8601이 아님 / `note`·`external_id`가 최대 길이 초과 또는 문자열이 아님 / `operator`가 있는데 `{ id, name }` 모양이 아님 / `status: paid`인데 `paid_amount_krw`·`paid_at`이 없거나 형식이 틀림 | **400** `{ "error": "...", "field": "..." }` — 첫 번째로 걸리는 필드 하나만 알려준다 |
+| 1 | 본문이 JSON 객체가 아님 / `status` 값이 5개 중 하나가 아님 / `updated_at`이 ISO 8601이 아님 / `note`·`external_id`가 최대 길이 초과 또는 문자열이 아님 / `operator`가 있는데 `{ id, name }` 모양이 아님 / (전환 후) `revision`이 정수가 아님 / `status: paid`인데 `paid_amount_krw`·`paid_at`이 없거나 형식이 틀림 | **400** `{ "error": "...", "field": "..." }` — 첫 번째로 걸리는 필드 하나만 알려준다 |
 | 2 | 본문이 유효한데 `request_id`가 uuid가 아니거나 존재하지 않음 | **404** |
+| 2-1 | (전환 후) 본문의 `revision`이 없음 → **400** `{ field: "revision" }` / 저희 현재 `revision`과 다름 → **409** `{ "error": "이 요청은 그 사이 고쳐졌어요 — 최신 내용으로 다시 확인해 주세요", "code": "revision-mismatch", "request": Item }`. 재전송하지 말고 `request`(최신 Item)로 다시 판단한다. (전환 전에는 `revision`을 무시한다.) |
 | 3 | 위 조건을 다 통과했지만, 보낸 `updated_at`이 **저장된 `settlement.updated_at`보다 이전이거나 같음** | **200** `{ "version": 1, "applied": false, "reason": "stale", "request": Item }` — 적용하지 않고 무시(재전송·순서 뒤바뀐 옛 변경 흡수) |
 | 4 | 우리 쪽 `status`(Item 최상위, §5)가 이미 `"cancelled"`인데 보낸 `status`가 `"cancelled"`가 아님 | **409** `{ "error": "이 요청은 취소됐어요 — 다시 가져가 확인해 주세요", "code": "request-cancelled", "request": Item }` |
 | 5 | 저장된 `settlement.status`가 이미 `"paid"`인데 보낸 `status`가 `"paid"`가 아님 | **409** `{ "error": "이미 지급 완료된 요청이에요", "code": "paid-locked", "request": Item }` |
@@ -270,7 +295,7 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 | `on_hold` | 보류 — 사유는 `note`에 |
 | `cancelled` | 그쪽이 취소 — 수신 시 우리 쪽 요청도 취소 처리되고, 그 작업은 다시 검토 대기로 돌아간다 |
 
-**"수정 요청"에 해당하는 별도 API는 없다.** 요청 내용을 우리 쪽이 다시 확인해야 하면 `status: "on_hold"` + `note`에 사유를 적어 보낸다. 예: `{ "status": "on_hold", "updated_at": "...", "note": "계좌 정보 확인 필요" }`. `note`는 `on_hold`뿐 아니라 어떤 상태에도 함께 보낼 수 있다.
+**"수정 요청"에 해당하는 별도 API는 없다.** 요청 내용을 우리 쪽이 다시 확인해야 하면 `status: "on_hold"` + `note`에 사유를 적어 보낸다. 저희가 고치면 같은 요청이 `revision`이 커진 채 `settlement.status: null`로 다시 내려온다(§3-1) — `cancelled`로 보내면 고칠 수 없게 되니 수정 요청에는 쓰지 않는다. 예: `{ "status": "on_hold", "updated_at": "...", "note": "계좌 정보 확인 필요" }`. `note`는 `on_hold`뿐 아니라 어떤 상태에도 함께 보낼 수 있다.
 
 ## 8. 버전 관리·문의
 
@@ -278,6 +303,7 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 - 하위 호환을 깨는 변경은 이 경로를 그대로 두고 새 `/v2` 경로로 낸다. 이 문서·엔드포인트가 예고 없이 모양을 바꾸는 일은 없다.
 - 이 API에는 `event_id`나 웹훅이 없다(§1). HMAC 서명도 쓰지 않는다 — 웹훅이 없으므로 필요하지 않다.
 - 담당자·연락 채널은 운영 단계에서 별도 안내한다.
+- **개정 기록.** 2026-09-01 `payout.gross_krw` 추가 / 2026-09-02 `proof`·`GET …/proof` 추가, 증빙만 최신값(§3-2) / 2026-09-02 요청 생성 사전 차단(RT `proof`·그 외 `reference_url` 필수) / 2026-09-03 PayPay `identifier` 필수, `payment_method` 빈 키 생략 명시 / 2026-09-07 상태 POST `operator` 선택 필드, 모르는 키 무시 명시 / **2026-09-07 제자리 수정(§3-1 개정, `revision` 의미 변경, `revised_at` 추가, 상태 POST `revision` 필수·409 `revision-mismatch`) — 전환 스위치 ON 시각부터 적용, 그 전까지 현행.**
 
 ## 9. curl 예시
 

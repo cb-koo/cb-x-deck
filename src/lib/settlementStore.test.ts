@@ -680,6 +680,21 @@ test('applyExternalStatus — paid_amount_usd를 저장하고, 다음 전이에�
   const [listed] = await listRequests(sql, { taskId: row.taskId! }); assert.equal(listed.paidAmountUsd, 22.7);
 });
 
+// 09-09 사고 재발 방지: 서버(NODE_TEST_CONTEXT 없음)에서는 픽스처 핸들 요청이 그쪽 목록·단건에 나오지 않는다
+test('외부 내보내기 — 테스트 픽스처는 서버 모드에서 목록·단건 모두 감춰진다', async () => {
+  const { row } = await requestFor('hide1', 'hd1');
+  assert.ok(await getForExport(sql, row.id), '테스트 모드에서는 보인다');
+  const prev = process.env.NODE_TEST_CONTEXT; delete process.env.NODE_TEST_CONTEXT;
+  try {
+    assert.equal(await getForExport(sql, row.id), null);
+    await sql`update payment_request set updated_at = now() - interval '31 seconds' where id = ${row.id}`;
+    const start = decodeCursor(encodeCursor({ updatedAtUs: String(Date.parse('2000-01-01T00:00:00Z') * 1000), id: '00000000-0000-0000-0000-000000000000' }))!;
+    const listed = await listForExport(sql, start, 500);
+    assert.equal(listed.some((r) => r.row.id === row.id), false);
+    assert.equal(listed.some((r) => /^(tstl|tstpf|tcmp)\d+_/.test(r.row.influencerHandle)), false, '어떤 픽스처도 새지 않는다');
+  } finally { process.env.NODE_TEST_CONTEXT = prev; }
+});
+
 // 042: 마이그레이션의 guarded ALTER가 실제로 이 DB에 적용됐는지 — 재실행돼도 이 단언은 항상 성립해야 한다
 test('스키마 — influencer_id·client_id·category_option_id는 NOT NULL(042)', async () => {
   const cols = await sql<Array<{ column_name: string; is_nullable: string }>>`

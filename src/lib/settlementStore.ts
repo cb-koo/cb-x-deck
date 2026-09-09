@@ -14,6 +14,7 @@ import { computeCandidate, effectiveIssues, toMethodSnapshot, NO_CLIENT_TEXT, NO
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
 import { hasPaidDiff, needsPartnerConfirm } from './settlementDisplay.ts';
 import { isRevisionV2 } from './settlementRevisionFlag.ts';
+import { exportIncludesTestFixtures, TEST_FIXTURE_HANDLE_PG } from './settlementTestFixture.ts';
 import { effectiveIssues as gateIssues, type ReadinessIssue } from './settlementCalc.ts';   // 순수 모듈(campaignTaskStore는 type import만) — 화면 배지와 같은 차액 판정
 import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
 import type { Cursor, ExportRow, StatusUpdate } from './settlementExternal.ts';   // 타입만이라 순환 무해
@@ -345,14 +346,18 @@ export async function listForExport(sql: postgres.Sql, cursor: Cursor | null, li
        ? sql`(updated_at, id) > (to_timestamp(${cursor.updatedAtUs}::bigint / 1000000) + (${cursor.updatedAtUs}::bigint % 1000000) * interval '1 microsecond', ${cursor.id}::uuid)`
        : sql`true`}
        and updated_at < now() - interval '30 seconds'
+       ${fixtureFilter(sql)}
      order by updated_at, id
      limit ${limit}`;
   return exportRows(sql, page.map((p) => p.id), new Map(page.map((p) => [p.id, p.us])));
 }
+// 자동 테스트 픽스처(운영 DB에 잠깐 생기는 요청)는 그쪽에 내보내지 않는다 — 2026-09-09 사고(settlementTestFixture.ts 참고).
+// 테스트 프로세스 안에서는 필터를 끈다(내보내기 테스트가 픽스처를 봐야 한다).
+const fixtureFilter = (sql: postgres.Sql) => (exportIncludesTestFixtures() ? sql`` : sql`and influencer_handle !~ ${TEST_FIXTURE_HANDLE_PG}`);
 export async function getForExport(sql: postgres.Sql, id: string): Promise<ExportRow | null> {
   if (!isUuidLike(id)) return null;
   const page = await sql<Array<{ id: string; us: string }>>`
-    select id, (extract(epoch from updated_at) * 1000000)::bigint::text as us from payment_request where id = ${id}`;
+    select id, (extract(epoch from updated_at) * 1000000)::bigint::text as us from payment_request where id = ${id} ${fixtureFilter(sql)}`;
   const [row] = await exportRows(sql, page.map((p) => p.id), new Map(page.map((p) => [p.id, p.us])));
   return row ?? null;
 }

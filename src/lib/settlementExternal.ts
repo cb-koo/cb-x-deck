@@ -54,7 +54,7 @@ export interface ExternalItem {
   payment_method: Record<string, string>;
   requester: { name: string; email: string | null; slack_id: string | null };
   note: string;
-  settlement: { status: ExternalStatus | null; paid_amount_krw: number | null; paid_amount_usd: number | null; paid_at: string | null; note: string | null; updated_at: string | null; external_id: string | null };
+  settlement: { status: ExternalStatus | null; paid_amount_krw: number | null; paid_amount_usd: number | null; paid_amount_jpy: number | null; paid_at: string | null; note: string | null; updated_at: string | null; external_id: string | null };
   // RT 지급 전 확인 자료(스펙 §3). null인 경우 둘: ①RT가 아닌 유형(reference_url로 확인) ②RT인데 아직 증빙이 없음.
   // url은 고정 엔드포인트(서명 URL이 아니다 — 서명 URL은 만료돼 캐시된 목록의 링크가 죽는다, 스펙 §4).
   proof: { url: string; uploaded_at: string; uploaded_by: string } | null;
@@ -88,14 +88,17 @@ export function toExternalItem(e: ExportRow, origin: string): ExternalItem {
     payment_method: pm,
     requester: { name: r.requesterName, email: e.requester.email, slack_id: e.requester.slackId },
     note: r.note,
-    settlement: { status: r.externalStatus, paid_amount_krw: r.paidAmountKrw, paid_amount_usd: r.paidAmountUsd, paid_at: r.paidAt, note: r.externalNote, updated_at: r.externalUpdatedAt, external_id: r.externalId },
+    settlement: { status: r.externalStatus, paid_amount_krw: r.paidAmountKrw, paid_amount_usd: r.paidAmountUsd, paid_amount_jpy: r.paidAmountJpy, paid_at: r.paidAt, note: r.externalNote, updated_at: r.externalUpdatedAt, external_id: r.externalId },
     proof: e.proof ? { url: `${origin}/api/external/settlement/requests/${r.id}/proof`, uploaded_at: e.proof.at, uploaded_by: e.proof.byName } : null,
   };
 }
 
 // ── 상태 수신 본문(§6-1) — 첫 오류에서 멈추고 어느 필드인지 알려준다(landingEvent 파서 관례) ──
+export type PaidCurrency = 'KRW' | 'JPY' | 'USD';
 export interface StatusOperator { id: string; name: string }   // 그 상태 전이를 실행한 그쪽 결제 담당자(09-04 그쪽 요청). 자동 전이엔 없다.
-export interface StatusUpdate { status: ExternalStatus; updatedAt: string; note: string | null; paidAmountKrw: number | null; paidAt: string | null; externalId: string | null; operator: StatusOperator | null; revision: number | null; paidAmountUsd: number | null }   // revision: 그쪽이 마지막으로 받은 판(§6). paidAmountUsd: PayPal 지급의 달러 실지급액(선택, 09-09)
+export interface StatusUpdate { status: ExternalStatus; updatedAt: string; note: string | null; paidAmountKrw: number | null; paidAt: string | null; externalId: string | null; operator: StatusOperator | null; revision: number | null;
+  // 외화 실지급액(선택, 09-09): USD는 PayPal, JPY는 계좌(일본)·PayPay. 한 요청에 하나만. paidCurrency는 우리 제안 — 명시하면 그 통화로 확정(KRW면 외화 둘 다 지움)
+  paidAmountUsd: number | null; paidAmountJpy: number | null; paidCurrency: PaidCurrency | null }
 export type StatusParse = { ok: true; update: StatusUpdate } | { ok: false; field: string; error: string };
 const bad = (field: string, error: string): StatusParse => ({ ok: false, field, error });
 function isoOf(v: unknown): string | null {
@@ -129,11 +132,36 @@ export function parseStatusUpdate(body: unknown): StatusParse {
     paidAt = isoOf(o.paid_at);
     if (!paidAt) return bad('paid_at', '지급 완료에는 ISO 8601 지급 시각이 필요해요');
   }
-  // paid_amount_usd(선택, 09-09): PayPal 지급의 달러 실지급액. 소수 허용, 0 이상. 원화(paid_amount_krw)가 판정 기준이고 이 값은 보관·표시용.
-  if (o.paid_amount_usd !== undefined && o.paid_amount_usd !== null) {
+  // 외화 실지급액(선택, 09-09 · 그쪽 요청 22): paid에서만, 한 요청에 하나만. 원화(paid_amount_krw)가 판정 기준이고 이 값들은 보관·표시·되비침용.
+  //  · paid_amount_usd(PayPal): 소수 허용, 0 이상. null은 "없음".
+  //  · paid_amount_jpy(계좌·PayPay): 0 이상 안전 정수. null·소수·문자열은 400(그쪽 표 그대로). 0은 유효(존재로 판정).
+  //  · paid_currency(우리 제안): 'KRW'|'JPY'|'USD' — 명시하면 그 통화로 확정, 외화 필드와 어긋나면 400.
+  const hasUsd = o.paid_amount_usd !== undefined && o.paid_amount_usd !== null;
+  const hasJpy = o.paid_amount_jpy !== undefined;
+  const hasCur = o.paid_currency !== undefined && o.paid_currency !== null;
+  if (status !== 'paid') {
+    if (hasUsd) return bad('paid_amount_usd', '지급 완료(paid)에만 보낼 수 있어요');
+    if (hasJpy) return bad('paid_amount_jpy', '지급 완료(paid)에만 보낼 수 있어요');
+    if (hasCur) return bad('paid_currency', '지급 완료(paid)에만 보낼 수 있어요');
+  }
+  if (hasUsd) {
     const u = o.paid_amount_usd;
     if (typeof u !== 'number' || !Number.isFinite(u) || u < 0) return bad('paid_amount_usd', '0 이상의 숫자(달러)여야 해요');
     paidAmountUsd = Math.round(u * 100) / 100;
+  }
+  let paidAmountJpy: number | null = null;
+  if (hasJpy) {
+    const j = o.paid_amount_jpy;
+    if (typeof j !== 'number' || !Number.isSafeInteger(j) || j < 0) return bad('paid_amount_jpy', '0 이상의 정수(엔)여야 해요');
+    if (hasUsd) return bad('paid_amount_jpy', 'paid_amount_usd와 함께 보낼 수 없어요 — 한 지급에 외화는 하나예요');
+    paidAmountJpy = j;
+  }
+  let paidCurrency: PaidCurrency | null = null;
+  if (hasCur) {
+    const c = o.paid_currency;
+    if (c !== 'KRW' && c !== 'JPY' && c !== 'USD') return bad('paid_currency', 'KRW·JPY·USD 중 하나여야 해요');
+    if ((c === 'USD' && hasJpy) || (c === 'JPY' && hasUsd) || (c === 'KRW' && (hasUsd || hasJpy))) return bad('paid_currency', '실제 지급 통화와 외화 금액 필드가 어긋나요');
+    paidCurrency = c;
   }
   // operator(선택): 있으면 { id, name } 모양만 받는다 — 그쪽 목 서버 규칙과 같다. null은 "없음". 본문의 그 외 모르는 키는 전부 무시한다.
   let operator: StatusOperator | null = null;
@@ -152,5 +180,5 @@ export function parseStatusUpdate(body: unknown): StatusParse {
     if (typeof o.revision !== 'number' || !Number.isInteger(o.revision) || o.revision < 0) return bad('revision', '0 이상의 정수여야 해요 — 마지막으로 받은 아이템의 revision 값');
     revision = o.revision;
   }
-  return { ok: true, update: { status: status as ExternalStatus, updatedAt, note, paidAmountKrw, paidAt, externalId, operator, revision, paidAmountUsd } };
+  return { ok: true, update: { status: status as ExternalStatus, updatedAt, note, paidAmountKrw, paidAt, externalId, operator, revision, paidAmountUsd, paidAmountJpy, paidCurrency } };
 }

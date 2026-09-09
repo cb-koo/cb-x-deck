@@ -324,9 +324,9 @@ async function requestFor(handle: string, campSuffix: string) {
 const at = (s: string) => new Date(s).toISOString();
 // 제자리 수정 테스트는 스위치를 켜야 한다 — 비동기라 withRevisionV2를 못 쓰고 직접 env를 바꾼 뒤 finally로 복구
 async function revisionOn<T>(fn: () => Promise<T>): Promise<T> { const prev = process.env.SETTLEMENT_REVISION_V2; process.env.SETTLEMENT_REVISION_V2 = 'on'; try { return await fn(); } finally { if (prev === undefined) delete process.env.SETTLEMENT_REVISION_V2; else process.env.SETTLEMENT_REVISION_V2 = prev; } }
-const upd = (status: 'received' | 'scheduled' | 'paid' | 'on_hold' | 'cancelled', updatedAt: string, extra: Partial<{ note: string; paidAmountKrw: number; paidAt: string; externalId: string; operator: { id: string; name: string }; revision: number; paidAmountUsd: number }> = {}) => ({
+const upd = (status: 'received' | 'scheduled' | 'paid' | 'on_hold' | 'cancelled', updatedAt: string, extra: Partial<{ note: string; paidAmountKrw: number; paidAt: string; externalId: string; operator: { id: string; name: string }; revision: number; paidAmountUsd: number; paidAmountJpy: number; paidCurrency: 'KRW' | 'JPY' | 'USD' }> = {}) => ({
   status, updatedAt: at(updatedAt), note: extra.note ?? null, paidAmountKrw: extra.paidAmountKrw ?? null, paidAt: extra.paidAt ? at(extra.paidAt) : null, externalId: extra.externalId ?? null,
-  operator: extra.operator ?? null, revision: extra.revision ?? null, paidAmountUsd: extra.paidAmountUsd ?? null,
+  operator: extra.operator ?? null, revision: extra.revision ?? null, paidAmountUsd: extra.paidAmountUsd ?? null, paidAmountJpy: extra.paidAmountJpy ?? null, paidCurrency: extra.paidCurrency ?? null,
 });
 
 // 09-04 그쪽 요청: 사람이 실행한 전이의 담당자를 요청 행에 남겨 화면에 "누가 처리했는지"를 보인다. 자동 전이(operator 없음)가 오면 비운다.
@@ -695,6 +695,33 @@ test('외부 내보내기 — 테스트 픽스처는 서버 모드에서 목록�
   } finally { process.env.NODE_TEST_CONTEXT = prev; }
 });
 
+// 09-09 그쪽 요청(22) + 우리 제안: 외화 필드는 "보낸 것만 갱신", 다른 외화는 지움. paid_currency가 오면 그 통화로 확정(KRW면 외화 둘 다 지움). 아무 외화도 안 오면 기존 값 유지.
+test('applyExternalStatus — paid_amount_jpy 저장, 외화 교체·유지·KRW 정정 의미', async () => {
+  const { row } = await requestFor('jpy1', 'jp1');
+  const at = (h: string) => `2026-09-09T${h}:00Z`;
+  // 엔화 지급 완료
+  let r = await applyExternalStatus(sql, row.id, upd('paid', at('06:00'), { paidAmountKrw: 13685, paidAmountJpy: 1500, paidAt: at('05:59') }));
+  let p = (r as { row: PaymentRequestRow }).row; assert.equal(p.paidAmountJpy, 1500); assert.equal(p.paidAmountUsd, null);
+  // 엔화 정정 — 새 값으로
+  r = await applyExternalStatus(sql, row.id, upd('paid', at('06:10'), { paidAmountKrw: 14597, paidAmountJpy: 1600, paidAt: at('05:59'), note: '실지급 엔화 금액 정정' }));
+  p = (r as { row: PaymentRequestRow }).row; assert.equal(p.paidAmountJpy, 1600); assert.equal(p.paidAmountKrw, 14597);
+  // 외화 없이 원화만 정정(구버전 전송 모양) → 기존 엔화 유지(부재는 의미 없음)
+  r = await applyExternalStatus(sql, row.id, upd('paid', at('06:15'), { paidAmountKrw: 14600, paidAt: at('05:59') }));
+  p = (r as { row: PaymentRequestRow }).row; assert.equal(p.paidAmountJpy, 1600); assert.equal(p.paidAmountKrw, 14600);
+  // paid_currency KRW 명시 → 외화 둘 다 지움
+  r = await applyExternalStatus(sql, row.id, upd('paid', at('06:20'), { paidAmountKrw: 14000, paidAt: at('05:59'), paidCurrency: 'KRW' }));
+  p = (r as { row: PaymentRequestRow }).row; assert.equal(p.paidAmountJpy, null); assert.equal(p.paidAmountUsd, null); assert.equal(p.paidAmountKrw, 14000);
+  // 달러가 오면 엔화는 지움(상호 배타), 그 반대도
+  r = await applyExternalStatus(sql, row.id, upd('paid', at('06:30'), { paidAmountKrw: 14000, paidAmountUsd: 10.5, paidAt: at('05:59') }));
+  p = (r as { row: PaymentRequestRow }).row; assert.equal(p.paidAmountUsd, 10.5); assert.equal(p.paidAmountJpy, null);
+  r = await applyExternalStatus(sql, row.id, upd('paid', at('06:40'), { paidAmountKrw: 14000, paidAmountJpy: 1550, paidAt: at('05:59') }));
+  p = (r as { row: PaymentRequestRow }).row; assert.equal(p.paidAmountJpy, 1550); assert.equal(p.paidAmountUsd, null);
+  // stale은 아무것도 안 바꿈
+  const stale = await applyExternalStatus(sql, row.id, upd('paid', at('06:35'), { paidAmountKrw: 1, paidAmountUsd: 1, paidAt: at('05:59') }));
+  assert.ok(stale !== 'not-found' && stale.kind === 'stale'); assert.equal((stale as { row: PaymentRequestRow }).row.paidAmountJpy, 1550);
+  const exp = await getForExport(sql, row.id); assert.equal(exp!.row.paidAmountJpy, 1550);
+});
+
 // 042: 마이그레이션의 guarded ALTER가 실제로 이 DB에 적용됐는지 — 재실행돼도 이 단언은 항상 성립해야 한다
 test('스키마 — influencer_id·client_id·category_option_id는 NOT NULL(042)', async () => {
   const cols = await sql<Array<{ column_name: string; is_nullable: string }>>`
@@ -756,7 +783,7 @@ test('차액 확인 — 확인·취소가 되고 updated_at을 건드리지 않�
   const { row } = await requestFor('diffack2', 'diffack2');
   // 그쪽이 송금액보다 적게 지급한 상황을 만든다
   await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
-    paidAmountKrw: row.grossKrw - 1650, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null, paidAmountUsd: null });
+    paidAmountKrw: row.grossKrw - 1650, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: null, paidCurrency: null });
   const [before] = await listRequests(sql, { taskId: row.taskId! });
 
   const acked = await ackDiff(sql, row.id, { name: '박구건' });
@@ -773,13 +800,13 @@ test('차액 확인 — 확인·취소가 되고 updated_at을 건드리지 않�
 test('차액 확인 — 차액이 없으면 확인할 것이 없다', async () => {
   const { row } = await requestFor('diffack3', 'diffack3');
   await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
-    paidAmountKrw: row.grossKrw, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null, paidAmountUsd: null });
+    paidAmountKrw: row.grossKrw, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: null, paidCurrency: null });
   assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
 });
 
 test('차액 확인 — 그쪽이 금액을 정정하면 확인이 풀린다', async () => {
   const { row } = await requestFor('diffack4', 'diffack4');
-  const paid = (krw: number, at: string) => applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: at, note: null, paidAmountKrw: krw, paidAt: at, externalId: null, operator: null, revision: null, paidAmountUsd: null });
+  const paid = (krw: number, at: string) => applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: at, note: null, paidAmountKrw: krw, paidAt: at, externalId: null, operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: null, paidCurrency: null });
 
   await paid(row.grossKrw - 1650, '2026-09-01T01:00:00Z');
   await ackDiff(sql, row.id, { name: '박구건' });

@@ -65,6 +65,7 @@ export function PartnerResultBlock({ r, onChanged }: { r: PaymentRequestRow; onC
           <dd>
             <div className="font-medium">{formatMoney(r.paidAmountKrw, 'KRW')}</div>
             {r.paidAmountUsd !== null && <div className="text-x-secondary">달러 {usdText(r.paidAmountUsd)}로 송금됨 <span className="text-x-muted">· 원화는 정산 쪽 환산값</span></div>}
+            {r.paidAmountJpy !== null && <div className="text-x-secondary">엔화 {formatMoney(r.paidAmountJpy, 'JPY')}로 송금됨 <span className="text-x-muted">· 원화는 정산 쪽 환산값</span></div>}
             {diff !== null && diff !== 0 && (
               <div className="text-amber-700">우리가 보낸 송금액 {formatMoney(r.grossKrw, 'KRW')}보다 {Math.abs(diff).toLocaleString('ko-KR')}원 {diff < 0 ? '적어요' : '많아요'}</div>
             )}

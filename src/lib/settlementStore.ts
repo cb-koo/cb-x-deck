@@ -116,6 +116,7 @@ export interface PaymentRequestRow {
   externalOperatorId: string | null; externalOperatorName: string | null;   // 그쪽이 마지막 상태와 함께 보낸 처리 담당자(047). 자동 전이면 null
   revision: number; revisedAt: string | null;   // 제자리 수정 횟수·마지막 수정 시각(048). 0·null = 한 번도 안 고침
   paidAmountUsd: number | null;   // PayPal 지급의 달러 실지급액(050, 그쪽 09-09). 표시·되비침용, 차액 판정은 원화
+  paidAmountJpy: number | null;   // 계좌(일본)·PayPay 지급의 엔화 실지급액(051). 한 요청에 외화는 하나
 }
 export interface CreateItemInput {
   taskId: string; category: string; deadlineOn: string; referenceUrl: string | null;
@@ -137,7 +138,7 @@ type RRow = {
   external_updated_at: Date | null; influencer_id: string; category_option_id: string;
   diff_ack_at: Date | null; diff_ack_by_name: string | null;
   external_operator_id: string | null; external_operator_name: string | null;
-  revision: number; revised_at: Date | null; paid_amount_usd: string | number | null;
+  revision: number; revised_at: Date | null; paid_amount_usd: string | number | null; paid_amount_jpy: string | number | null;
 };
 const R_SELECT = (sql: postgres.Sql) => sql`
   select id, task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type, category, category_default,
@@ -145,7 +146,7 @@ const R_SELECT = (sql: postgres.Sql) => sql`
          to_char(deadline_on, 'YYYY-MM-DD') as deadline_on, reference_url, proof, payment_method, requester_member_id, requester_name,
          status, cancelled_at, cancelled_by_name, cancel_reason, sent_at, external_id, note, created_at, updated_at,
          external_status, paid_amount_krw, paid_at, external_note, external_updated_at, influencer_id, category_option_id,
-         diff_ack_at, diff_ack_by_name, external_operator_id, external_operator_name, revision, revised_at, paid_amount_usd
+         diff_ack_at, diff_ack_by_name, external_operator_id, external_operator_name, revision, revised_at, paid_amount_usd, paid_amount_jpy
     from payment_request`;
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 const toRequest = (r: RRow): PaymentRequestRow => ({
@@ -162,6 +163,7 @@ const toRequest = (r: RRow): PaymentRequestRow => ({
   externalOperatorId: r.external_operator_id, externalOperatorName: r.external_operator_name,
   revision: r.revision, revisedAt: iso(r.revised_at),
   paidAmountUsd: r.paid_amount_usd === null ? null : Number(r.paid_amount_usd),
+  paidAmountJpy: r.paid_amount_jpy === null ? null : Number(r.paid_amount_jpy),
 });
 
 const isHttpUrl = (u: string) => /^https?:\/\/\S+$/.test(u);
@@ -385,9 +387,17 @@ export async function applyExternalStatus(sql: postgres.Sql, id: string, u: Stat
     }
     // 실지급액이 바뀌면 이전 차액 확인은 무효다(다른 금액에 대한 확인이었다). 사람이 잊지 않게 여기서 강제한다.
     const paidAmountChanged = u.paidAmountKrw !== c.paid_amount_krw;
+    // 외화 실지급액(050·051)은 "보낸 것만 갱신"한다 — 외화 없이 온 정정(구버전 전송)이 저장된 외화를 지우지 않게(그쪽 요청 22 §3·§4).
+    // 한 요청에 외화는 하나: USD가 오면 JPY를 지우고, JPY가 오면 USD를 지운다. paid_currency가 명시되면 그 통화로 확정(KRW면 둘 다 지움).
+    const clearUsd = u.paidCurrency === 'KRW' || u.paidCurrency === 'JPY' || u.paidAmountJpy !== null;
+    const clearJpy = u.paidCurrency === 'KRW' || u.paidCurrency === 'USD' || u.paidAmountUsd !== null;
+    const keepUsd = c.paid_amount_usd === null ? null : Number(c.paid_amount_usd);
+    const keepJpy = c.paid_amount_jpy === null ? null : Number(c.paid_amount_jpy);
+    const nextUsd = u.paidAmountUsd !== null ? u.paidAmountUsd : clearUsd ? null : keepUsd;
+    const nextJpy = u.paidAmountJpy !== null ? u.paidAmountJpy : clearJpy ? null : keepJpy;
     await tx`
       update payment_request
-         set external_status = ${u.status}, paid_amount_krw = ${u.paidAmountKrw}, paid_amount_usd = ${u.paidAmountUsd}, paid_at = ${u.paidAt}, external_note = ${u.note},
+         set external_status = ${u.status}, paid_amount_krw = ${u.paidAmountKrw}, paid_amount_usd = ${nextUsd}, paid_amount_jpy = ${nextJpy}, paid_at = ${u.paidAt}, external_note = ${u.note},
              external_updated_at = ${u.updatedAt}, external_id = coalesce(${u.externalId}, external_id),
              external_operator_id = ${u.operator?.id ?? null}, external_operator_name = ${u.operator?.name ?? null},
              sent_at = coalesce(sent_at, now()), updated_at = now(),
@@ -515,7 +525,7 @@ export async function reviseRequest(
              category = ${t.category.sendAs}, category_option_id = ${t.category.id}, deadline_on = ${t.deadlineOn}, reference_url = ${t.referenceUrl},
              item_text = ${t.candidate.itemText}, purpose_text = ${t.candidate.purposeText},
              revision = revision + 1, revised_at = now(), updated_at = now(),
-             external_status = null, paid_amount_krw = null, paid_amount_usd = null, paid_at = null, external_note = null, external_updated_at = null,
+             external_status = null, paid_amount_krw = null, paid_amount_usd = null, paid_amount_jpy = null, paid_at = null, external_note = null, external_updated_at = null,
              external_operator_id = null, external_operator_name = null, diff_ack_at = null, diff_ack_by_name = null
        where id = ${id}`;
     const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;

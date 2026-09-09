@@ -60,13 +60,13 @@ export function PartnerResultBlock({ r, onChanged }: { r: PaymentRequestRow; onC
 
         {r.paidAmountKrw !== null && <>
           <dt className="text-x-secondary">실지급액</dt>
-          <dd>{formatMoney(r.paidAmountKrw, 'KRW')}
-            {/* PayPal은 달러로 송금된다(그쪽 09-09) — 그쪽이 보낸 달러 실지급액을 원화 옆에 같이 보여 "환율 차이"인지 담당자가 판단할 수 있게 */}
-            {r.paidAmountUsd !== null && <span className="ml-2 text-x-secondary">달러로 {usdText(r.paidAmountUsd)} 송금</span>}
+          {/* 세 줄로 나눈다 — 원화 금액 / 달러 송금액(PayPal, 그쪽 09-09) / 우리 송금액과의 차이. 한 줄에 이어 붙이면
+              "8,734원달러로 $6.51 송금우리가 보낸…"처럼 읽힌다(koo 09-09). 달러는 "환율 차이인가"를 판단하는 근거라 원화 바로 아래에. */}
+          <dd>
+            <div className="font-medium">{formatMoney(r.paidAmountKrw, 'KRW')}</div>
+            {r.paidAmountUsd !== null && <div className="text-x-secondary">달러 {usdText(r.paidAmountUsd)}로 송금됨 <span className="text-x-muted">· 원화는 정산 쪽 환산값</span></div>}
             {diff !== null && diff !== 0 && (
-              <span className="ml-2 text-amber-700">
-                우리가 보낸 송금액 {formatMoney(r.grossKrw, 'KRW')}보다 {Math.abs(diff).toLocaleString('ko-KR')}원 {diff < 0 ? '적어요' : '많아요'}
-              </span>
+              <div className="text-amber-700">우리가 보낸 송금액 {formatMoney(r.grossKrw, 'KRW')}보다 {Math.abs(diff).toLocaleString('ko-KR')}원 {diff < 0 ? '적어요' : '많아요'}</div>
             )}
           </dd>
         </>}

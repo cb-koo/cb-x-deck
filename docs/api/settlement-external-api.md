@@ -269,7 +269,7 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 
 | 순서 | 조건 | 결과 |
 |---|---|---|
-| 1 | 본문이 JSON 객체가 아님 / `status` 값이 5개 중 하나가 아님 / `updated_at`이 ISO 8601이 아님 / `note`·`external_id`가 최대 길이 초과 또는 문자열이 아님 / `operator`가 있는데 `{ id, name }` 모양이 아님 / (전환 후) `revision`이 정수가 아님 / `status: paid`인데 `paid_amount_krw`·`paid_at`이 없거나 형식이 틀림 | **400** `{ "error": "...", "field": "..." }` — 첫 번째로 걸리는 필드 하나만 알려준다 |
+| 1 | 본문이 JSON 객체가 아님 / `status` 값이 5개 중 하나가 아님 / `updated_at`이 ISO 8601이 아님 / `note`·`external_id`가 최대 길이 초과 또는 문자열이 아님 / `operator`가 있는데 `{ id, name }` 모양이 아님 / (전환 후) `revision`이 정수가 아님 / `status: paid`인데 `paid_amount_krw`·`paid_at`이 없거나 형식이 틀림 / `paid_amount_usd`·`paid_amount_jpy`·`paid_currency`가 `paid`가 아닌 상태에 있음, 형식이 틀림, 서로 어긋남(USD·JPY 동시, 통화와 외화 불일치) | **400** `{ "error": "...", "field": "..." }` — 첫 번째로 걸리는 필드 하나만 알려준다 |
 | 2 | 본문이 유효한데 `request_id`가 uuid가 아니거나 존재하지 않음 | **404** |
 | 2-1 | (전환 후) 본문의 `revision`이 없음 → **400** `{ field: "revision" }` / 저희 현재 `revision`과 다름 → **409** `{ "error": "이 요청은 그 사이 고쳐졌어요 — 최신 내용으로 다시 확인해 주세요", "code": "revision-mismatch", "request": Item }`. 재전송하지 말고 `request`(최신 Item)로 다시 판단한다. (전환 전에는 `revision`을 무시한다.) |
 | 3 | 위 조건을 다 통과했지만, 보낸 `updated_at`이 **저장된 `settlement.updated_at`보다 이전이거나 같음** | **200** `{ "version": 1, "applied": false, "reason": "stale", "request": Item }` — 적용하지 않고 무시(재전송·순서 뒤바뀐 옛 변경 흡수) |

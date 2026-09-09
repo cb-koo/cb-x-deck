@@ -8,7 +8,7 @@
 
 *받는 규칙*
 • `paid` 완료·정정 POST에 `paid_amount_krw`와 **함께** 보내 주세요. 원화 없이 달러만 오면 지금처럼 400(`field: "paid_amount_krw"`)입니다 — 차액 판정은 원화로만 합니다.
-• `paid_amount_usd`는 0 이상의 숫자, 소수 허용(셋째 자리부터 반올림). 문자열이면 400 `field: "paid_amount_usd"`.
+• `paid_amount_usd`는 0 이상의 숫자, 소수 허용(셋째 자리부터 반올림). 문자열이면 400 `field: "paid_amount_usd"`. `paid`에서만 보낼 수 있습니다(다른 상태에 붙이면 400).
 • 아이템(GET)에 `settlement.paid_amount_usd`로 되비칩니다. 달러를 안 보낸 지급(계좌·PayPay)은 `null`.
 • 저희 화면에는 "실지급 25,934원 · 달러로 $18.62 송금"처럼 보입니다. 원화가 송금액과 다를 때 환율 차이인지 판단하는 근거로 씁니다.
 

@@ -8,7 +8,7 @@
 
 *1. 필드·검증 — 제안 그대로*
 • `paid_amount_jpy`: 0 이상 안전 정수(0 ~ 9,007,199,254,740,991). `null`·소수·문자열·상한 초과는 400 `field: "paid_amount_jpy"`. 0은 유효(필드 존재로 판정).
-• `paid`에서만 허용. 다른 상태에 오면 400. `paid_amount_usd`도 같은 규칙으로 맞췼습니다.
+• `paid`에서만 허용. 다른 상태에 오면 400. `paid_amount_usd`도 같은 규칙으로 맞췄습니다(어제 안내 때는 이 제한이 없었는데, 이번에 함께 적용했습니다).
 • `paid_amount_usd`와 동시 전송은 400, 오류 필드는 `paid_amount_jpy`.
 • `paid_amount_krw`·`paid_at`는 지금처럼 필수. 외화만 오면 400 `field: "paid_amount_krw"`.
 • 차액 판정은 종전대로 `paid_amount_krw` 기준입니다.

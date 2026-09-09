@@ -1,7 +1,7 @@
 // src/lib/settlementDisplay.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { displayStatus, inGroup, paidText, paidDiff, needsDiffAck, hasPaidDiff, type StatusSource } from './settlementDisplay.ts';
+import { displayStatus, inGroup, paidText, paidDiff, needsDiffAck, hasPaidDiff, usdText, type StatusSource } from './settlementDisplay.ts';
 
 const base: StatusSource = { status: 'requested', externalStatus: null, externalNote: null, externalUpdatedAt: null, createdAt: '2026-08-28T03:00:00Z', cancelledAt: null,
   paidAmountKrw: null, grossKrw: 31650, diffAckAt: null };
@@ -102,4 +102,10 @@ test('displayStatus — 고친 요청은 "요청됨 · 2판 M/D"(revised_at), �
   assert.match(revised.title, /고쳐서 다시 보낸 요청/);
   // 캠페인 표 배지는 짧게 유지 — 판 표시는 요청 내역에서만
   assert.equal(displayStatus({ ...base, externalStatus: null, revision: 1, revisedAt: '2026-09-07T03:50:14.000Z' }, 'campaign').label, '정산 요청됨 8/28');
+});
+
+test('usdText — PayPal 달러 실지급액 표기(소수 둘째 자리, 천 단위 쉼표)', () => {
+  assert.equal(usdText(18.62), '$18.62');
+  assert.equal(usdText(1234.5), '$1,234.50');
+  assert.equal(usdText(20), '$20.00');
 });

@@ -54,7 +54,7 @@ export interface ExternalItem {
   payment_method: Record<string, string>;
   requester: { name: string; email: string | null; slack_id: string | null };
   note: string;
-  settlement: { status: ExternalStatus | null; paid_amount_krw: number | null; paid_at: string | null; note: string | null; updated_at: string | null; external_id: string | null };
+  settlement: { status: ExternalStatus | null; paid_amount_krw: number | null; paid_amount_usd: number | null; paid_at: string | null; note: string | null; updated_at: string | null; external_id: string | null };
   // RT 지급 전 확인 자료(스펙 §3). null인 경우 둘: ①RT가 아닌 유형(reference_url로 확인) ②RT인데 아직 증빙이 없음.
   // url은 고정 엔드포인트(서명 URL이 아니다 — 서명 URL은 만료돼 캐시된 목록의 링크가 죽는다, 스펙 §4).
   proof: { url: string; uploaded_at: string; uploaded_by: string } | null;
@@ -88,14 +88,14 @@ export function toExternalItem(e: ExportRow, origin: string): ExternalItem {
     payment_method: pm,
     requester: { name: r.requesterName, email: e.requester.email, slack_id: e.requester.slackId },
     note: r.note,
-    settlement: { status: r.externalStatus, paid_amount_krw: r.paidAmountKrw, paid_at: r.paidAt, note: r.externalNote, updated_at: r.externalUpdatedAt, external_id: r.externalId },
+    settlement: { status: r.externalStatus, paid_amount_krw: r.paidAmountKrw, paid_amount_usd: r.paidAmountUsd, paid_at: r.paidAt, note: r.externalNote, updated_at: r.externalUpdatedAt, external_id: r.externalId },
     proof: e.proof ? { url: `${origin}/api/external/settlement/requests/${r.id}/proof`, uploaded_at: e.proof.at, uploaded_by: e.proof.byName } : null,
   };
 }
 
 // ── 상태 수신 본문(§6-1) — 첫 오류에서 멈추고 어느 필드인지 알려준다(landingEvent 파서 관례) ──
 export interface StatusOperator { id: string; name: string }   // 그 상태 전이를 실행한 그쪽 결제 담당자(09-04 그쪽 요청). 자동 전이엔 없다.
-export interface StatusUpdate { status: ExternalStatus; updatedAt: string; note: string | null; paidAmountKrw: number | null; paidAt: string | null; externalId: string | null; operator: StatusOperator | null; revision: number | null }   // revision: 그쪽이 마지막으로 받은 판(§6). null = 안 보냄(전환 전 허용)
+export interface StatusUpdate { status: ExternalStatus; updatedAt: string; note: string | null; paidAmountKrw: number | null; paidAt: string | null; externalId: string | null; operator: StatusOperator | null; revision: number | null; paidAmountUsd: number | null }   // revision: 그쪽이 마지막으로 받은 판(§6). paidAmountUsd: PayPal 지급의 달러 실지급액(선택, 09-09)
 export type StatusParse = { ok: true; update: StatusUpdate } | { ok: false; field: string; error: string };
 const bad = (field: string, error: string): StatusParse => ({ ok: false, field, error });
 function isoOf(v: unknown): string | null {
@@ -121,13 +121,19 @@ export function parseStatusUpdate(body: unknown): StatusParse {
   if (!updatedAt) return bad('updated_at', 'ISO 8601 시각이어야 해요');
   const note = optStr(o, 'note', NOTE_MAX); if (isParse(note)) return note;
   const externalId = optStr(o, 'external_id', EXTERNAL_ID_MAX); if (isParse(externalId)) return externalId;
-  let paidAmountKrw: number | null = null, paidAt: string | null = null;
+  let paidAmountKrw: number | null = null, paidAt: string | null = null, paidAmountUsd: number | null = null;
   if (status === 'paid') {
     const a = o.paid_amount_krw;
     if (typeof a !== 'number' || !Number.isInteger(a) || a < 0) return bad('paid_amount_krw', '지급 완료에는 0 이상의 정수 원화 금액이 필요해요');
     paidAmountKrw = a;
     paidAt = isoOf(o.paid_at);
     if (!paidAt) return bad('paid_at', '지급 완료에는 ISO 8601 지급 시각이 필요해요');
+  }
+  // paid_amount_usd(선택, 09-09): PayPal 지급의 달러 실지급액. 소수 허용, 0 이상. 원화(paid_amount_krw)가 판정 기준이고 이 값은 보관·표시용.
+  if (o.paid_amount_usd !== undefined && o.paid_amount_usd !== null) {
+    const u = o.paid_amount_usd;
+    if (typeof u !== 'number' || !Number.isFinite(u) || u < 0) return bad('paid_amount_usd', '0 이상의 숫자(달러)여야 해요');
+    paidAmountUsd = Math.round(u * 100) / 100;
   }
   // operator(선택): 있으면 { id, name } 모양만 받는다 — 그쪽 목 서버 규칙과 같다. null은 "없음". 본문의 그 외 모르는 키는 전부 무시한다.
   let operator: StatusOperator | null = null;
@@ -146,5 +152,5 @@ export function parseStatusUpdate(body: unknown): StatusParse {
     if (typeof o.revision !== 'number' || !Number.isInteger(o.revision) || o.revision < 0) return bad('revision', '0 이상의 정수여야 해요 — 마지막으로 받은 아이템의 revision 값');
     revision = o.revision;
   }
-  return { ok: true, update: { status: status as ExternalStatus, updatedAt, note, paidAmountKrw, paidAt, externalId, operator, revision } };
+  return { ok: true, update: { status: status as ExternalStatus, updatedAt, note, paidAmountKrw, paidAt, externalId, operator, revision, paidAmountUsd } };
 }

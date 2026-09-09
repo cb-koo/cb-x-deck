@@ -4,7 +4,7 @@ import { Button } from '@/components/ui';
 import type { PaymentRequestRow } from '@/lib/settlementStore';
 import { formatMoney } from '@/lib/influencerPricing';
 import { kstDateTime } from '@/lib/datetime';
-import { paidDiff, needsDiffAck, EXTERNAL_STATUS_LABEL } from '@/lib/settlementDisplay';
+import { paidDiff, needsDiffAck, EXTERNAL_STATUS_LABEL, usdText } from '@/lib/settlementDisplay';
 import { ackDiffApi, unackDiffApi } from '@/lib/settlementApi';
 
 // 요청 펼침의 두 번째 블록 — '정산 프로덕트가 보낸 결과'. 위 블록(우리가 보낸 요청 내용)과 시각적으로 분리해서
@@ -61,6 +61,8 @@ export function PartnerResultBlock({ r, onChanged }: { r: PaymentRequestRow; onC
         {r.paidAmountKrw !== null && <>
           <dt className="text-x-secondary">실지급액</dt>
           <dd>{formatMoney(r.paidAmountKrw, 'KRW')}
+            {/* PayPal은 달러로 송금된다(그쪽 09-09) — 그쪽이 보낸 달러 실지급액을 원화 옆에 같이 보여 "환율 차이"인지 담당자가 판단할 수 있게 */}
+            {r.paidAmountUsd !== null && <span className="ml-2 text-x-secondary">달러로 {usdText(r.paidAmountUsd)} 송금</span>}
             {diff !== null && diff !== 0 && (
               <span className="ml-2 text-amber-700">
                 우리가 보낸 송금액 {formatMoney(r.grossKrw, 'KRW')}보다 {Math.abs(diff).toLocaleString('ko-KR')}원 {diff < 0 ? '적어요' : '많아요'}

@@ -33,7 +33,7 @@ const row: PaymentRequestRow = {
   paymentMethod: { type: 'paypal', holder: 'KEIKO', currency: 'JPY', paypalId: 'keiko' }, requesterMemberId: 'm', requesterName: '모에카',
   status: 'requested', cancelledAt: null, cancelledByName: null, cancelReason: null, sentAt: null, externalId: null, note: '',
   createdAt: '2026-08-28T00:00:00.000Z', updatedAt: '2026-08-28T00:00:00.000Z',
-  externalStatus: null, paidAmountKrw: null, paidAt: null, externalNote: null, externalUpdatedAt: null, influencerId: 'inf', categoryOptionId: 'fee', diffAckAt: null, diffAckByName: null, externalOperatorId: null, externalOperatorName: null, revision: 0, revisedAt: null,
+  externalStatus: null, paidAmountKrw: null, paidAt: null, externalNote: null, externalUpdatedAt: null, influencerId: 'inf', categoryOptionId: 'fee', diffAckAt: null, diffAckByName: null, externalOperatorId: null, externalOperatorName: null, revision: 0, revisedAt: null, paidAmountUsd: null,
 };
 test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   const e: ExportRow = { row, updatedAtUs: '1', requester: { email: 'a@b.c', slackId: null }, proof: null };
@@ -47,7 +47,7 @@ test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   assert.deepEqual(it.payment_method, { type: 'paypal', holder: 'KEIKO', currency: 'JPY', paypal_id: 'keiko' });
   assert.deepEqual(it.requester, { name: '모에카', email: 'a@b.c', slack_id: null });
   assert.equal(it.cancelled, null);
-  assert.deepEqual(it.settlement, { status: null, paid_amount_krw: null, paid_at: null, note: null, updated_at: null, external_id: null });
+  assert.deepEqual(it.settlement, { status: null, paid_amount_krw: null, paid_amount_usd: null, paid_at: null, note: null, updated_at: null, external_id: null });
   assert.equal(it.deadline, '2026-08-29'); assert.equal(it.reference_url, null);
   // 증빙 없음(RT 아닌 유형이거나, RT인데 아직 없음) → proof는 null(스펙 §3)
   assert.equal(it.proof, null);
@@ -60,7 +60,7 @@ test('toExternalItem — 취소·지급 완료 되비침', () => {
   const it = toExternalItem({ row: r2, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null }, ORIGIN);
   assert.equal(it.revision, 1);
   assert.deepEqual(it.cancelled, { at: '2026-08-29T01:00:00.000Z', by_name: '정산 프로덕트', reason: '중복' });
-  assert.deepEqual(it.settlement, { status: 'paid', paid_amount_krw: 29700, paid_at: '2026-08-30T05:00:00.000Z', note: '환율', updated_at: '2026-08-30T05:00:00.000Z', external_id: 'X-1' });
+  assert.deepEqual(it.settlement, { status: 'paid', paid_amount_krw: 29700, paid_amount_usd: null, paid_at: '2026-08-30T05:00:00.000Z', note: '환율', updated_at: '2026-08-30T05:00:00.000Z', external_id: 'X-1' });
 });
 
 test('toExternalItem — proof 있으면 고정 엔드포인트 URL(origin은 호출부가 넘긴 값)·업로더·시각을 싣는다', () => {
@@ -81,7 +81,7 @@ test('toExternalItem — proof 있으면 고정 엔드포인트 URL(origin은 �
 test('parseStatusUpdate — 정상·정규화', () => {
   const r = parseStatusUpdate({ status: 'paid', updated_at: '2026-08-30T05:00:00Z', paid_amount_krw: 29700, paid_at: '2026-08-30T05:00:00+09:00', note: ' 환율 ', external_id: 'X-1' });
   assert.ok(r.ok);
-  assert.deepEqual(r.update, { status: 'paid', updatedAt: '2026-08-30T05:00:00.000Z', paidAmountKrw: 29700, paidAt: '2026-08-29T20:00:00.000Z', note: '환율', externalId: 'X-1', operator: null, revision: null });
+  assert.deepEqual(r.update, { status: 'paid', updatedAt: '2026-08-30T05:00:00.000Z', paidAmountKrw: 29700, paidAt: '2026-08-29T20:00:00.000Z', note: '환율', externalId: 'X-1', operator: null, revision: null, paidAmountUsd: null });
   const h = parseStatusUpdate({ status: 'on_hold', updated_at: '2026-08-29T00:00:00Z', note: '계좌 확인' });
   assert.ok(h.ok); assert.equal(h.update.paidAmountKrw, null); assert.equal(h.update.externalId, null); assert.equal(h.update.operator, null);
 });
@@ -157,4 +157,24 @@ test('parseStatusUpdate — revision은 정수(≥0)만, 없으면 null(필수 �
     if (bad === null) { assert.ok(r.ok); assert.equal(r.update.revision, null); continue; }   // null은 "없음"
     assert.ok(!r.ok); assert.equal(r.field, 'revision');
   }
+});
+
+// 09-09 그쪽: PayPal 지급 완료·정정 POST에 paid_amount_usd를 paid_amount_krw와 함께 보낸다. 달러 값은 보관·표시·되비침용이고 차액 판정은 원화(gross_krw)로만 한다.
+test('parseStatusUpdate — paid_amount_usd는 선택(소수 허용, 0 이상), 없으면 null', () => {
+  const ok = parseStatusUpdate({ status: 'paid', updated_at: '2026-09-08T11:13:50Z', paid_amount_krw: 25934, paid_amount_usd: 18.62, paid_at: '2026-09-08T11:12:00Z' });
+  assert.ok(ok.ok); assert.equal(ok.update.paidAmountUsd, 18.62); assert.equal(ok.update.paidAmountKrw, 25934);
+  const none = parseStatusUpdate({ status: 'paid', updated_at: '2026-09-08T11:13:50Z', paid_amount_krw: 25934, paid_at: '2026-09-08T11:12:00Z' });
+  assert.ok(none.ok); assert.equal(none.update.paidAmountUsd, null);
+  for (const bad of ['18.62', -1, NaN]) {
+    const r = parseStatusUpdate({ status: 'paid', updated_at: '2026-09-08T11:13:50Z', paid_amount_krw: 25934, paid_amount_usd: bad, paid_at: '2026-09-08T11:12:00Z' });
+    assert.ok(!r.ok); assert.equal(r.field, 'paid_amount_usd');
+  }
+  // 원화 없이 달러만 → 여전히 paid_amount_krw 400(원화가 판정 기준)
+  const krwMissing = parseStatusUpdate({ status: 'paid', updated_at: '2026-09-08T11:13:50Z', paid_amount_usd: 18.62, paid_at: '2026-09-08T11:12:00Z' });
+  assert.ok(!krwMissing.ok); assert.equal(krwMissing.field, 'paid_amount_krw');
+});
+test('toExternalItem — settlement.paid_amount_usd 되비침', () => {
+  const r2: PaymentRequestRow = { ...row, externalStatus: 'paid', paidAmountKrw: 25934, paidAmountUsd: 18.62, paidAt: '2026-09-08T11:12:00.000Z', externalUpdatedAt: '2026-09-08T11:13:50.000Z' };
+  const it = toExternalItem({ row: r2, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null }, ORIGIN);
+  assert.equal(it.settlement.paid_amount_usd, 18.62);
 });

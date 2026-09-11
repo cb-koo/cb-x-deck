@@ -9,8 +9,10 @@
 //   ③ 작성자 핸들 — 게시물 URL의 핸들과 다르면 개명(@coco__ns_5 → @coco_______5 사례)
 //   ④ 게시 시각 — 내가 스노플레이크로 계산한 값과 API createdAt 대조(16건 전량)
 //   ⑤ 지표 — tracked_post + post_metric_snapshot 에 담을 수 있나
-// 실행: node --env-file=.env --import tsx scripts/fetch-week2-posts.ts
-import { readFileSync, writeFileSync } from 'node:fs';
+// 증분이다 — 이미 받아 둔 것은 건너뛴다(--refresh 로 전부 다시 받는다). 스레드가 수정되며 게시물 링크가
+// 뒤늦게 붙으므로 이 스크립트는 여러 번 돌게 된다. 같은 트윗을 다시 사는 일이 없게 한다.
+// 실행: node --env-file=.env --import tsx scripts/fetch-week2-posts.ts [--refresh]
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { makeClient, GetxapiAuthError, type RawTweet } from '../src/lib/getxapi.ts';
 import { tweetId, postedOnSeoul } from './tweetDate.ts';
 
@@ -30,18 +32,22 @@ const seoul = (iso: string): string => {
 
 async function main(): Promise<void> {
   const posted = D.tasks.filter((t) => t.post_url);
-  console.log(`조회 대상 ${posted.length}건 (게시 완료분만) · 예상 비용 약 $${(posted.length * 0.001).toFixed(3)}\n`);
+  let fetched = 0;
 
+  const refresh = process.argv.includes('--refresh');
+  const prev: Record<string, RawTweet | null> = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : {};
   const client = makeClient();
-  const raws: Record<string, RawTweet | null> = {};
+  const raws: Record<string, RawTweet | null> = { ...prev };
   const rows: Array<Record<string, unknown>> = [];
 
   for (const t of posted) {
     const id = tweetId(t.post_url as string);
     if (!id) { console.log(`✗ ${t.campaign} @${t.handle}: URL에서 ID를 못 뽑음`); continue; }
     let raw: RawTweet | null;
-    try {
+    if (!refresh && prev[id]) { raw = prev[id]; }
+    else try {
       raw = await client.getTweetDetail(id);
+      fetched += 1;
     } catch (e) {
       if (e instanceof GetxapiAuthError) { console.error('✗ GetXAPI 인증 실패 — GETXAPI_KEY 또는 잔액 확인'); process.exit(1); }
       console.log(`✗ ${t.campaign} @${t.handle}: ${(e as Error).message}`);
@@ -80,6 +86,7 @@ async function main(): Promise<void> {
   }
 
   writeFileSync(OUT, JSON.stringify(raws, null, 2) + '\n');
+  console.log(`\n새로 조회한 것 ${fetched}건 · 저장된 것 재사용 ${rows.length - fetched}건 · 비용 약 $${(fetched * 0.001).toFixed(3)}`);
 
   const ok = rows.length;
   const 개명 = rows.filter((r) => r.개명);

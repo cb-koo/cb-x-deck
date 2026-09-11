@@ -5,6 +5,8 @@ import { getSql } from '../src/lib/db.ts';
 import { tweetId } from './tweetDate.ts';
 
 const RAWS = JSON.parse(readFileSync(new URL('../data-work/week2-posts-raw.json', import.meta.url), 'utf8')) as Record<string, Record<string, unknown> | null>;
+// 기대 건수는 원천에서 도출한다 — 숫자를 박아 두면 게시물이 늘 때마다 검사가 먼저 틀린다(2026-09-11)
+const SRC = JSON.parse(readFileSync(new URL('../data-work/week2-normalized.json', import.meta.url), 'utf8')) as { tasks: Array<{ post_url: string | null }> };
 
 async function main(): Promise<void> {
   const sql = getSql();
@@ -24,8 +26,10 @@ async function main(): Promise<void> {
      where c.name like '%_9월2주차' and t.post_url is not null
      order by c.name, t.influencer_handle`;
 
-  console.log(`DB에서 읽음 — 게시 완료 작업 ${rows.length}건`);
-  if (rows.length !== 16) fails.push(`게시 완료 작업 ${rows.length}건 (기대 16)`);
+  // 기대값은 원천에서 도출한다 — 숫자를 박아 두면 게시물이 늘 때마다 검사가 먼저 틀린다(2026-09-11)
+  const wantPosted = SRC.tasks.filter((t) => t.post_url !== null).length;
+  console.log(`DB에서 읽음 — 게시 완료 작업 ${rows.length}건 (원천 게시 완료 ${wantPosted}건 / 전체 ${SRC.tasks.length}건)`);
+  if (rows.length !== wantPosted) fails.push(`게시 완료 작업 ${rows.length}건 ≠ 원천 ${wantPosted}건`);
 
   for (const r of rows) {
     const id = tweetId(String(r.post_url));
@@ -69,22 +73,26 @@ async function main(): Promise<void> {
   }
 
   console.log('\n=== 인플루언서 활동 로그(원고 배정·전달) ===');
+  // 이 캠페인들의 원고에 달린 로그만 센다 — '최근 1시간'으로 세면 나눠 적재할 때마다 틀린다
   const logs = await sql`
-    select event_type, count(*) as n from influencer_log
-     where event_type in ('draft_assigned','draft_delivered') and created_at > now() - interval '1 hour'
+    select l.event_type, count(*) as n from influencer_log l
+     where l.event_type in ('draft_assigned','draft_delivered')
+       and l.draft_id in (select t.draft_id from campaign_task t
+                            join campaign c on c.id = t.campaign_id
+                           where c.name like '%_9월2주차' and t.draft_id is not null)
      group by 1`;
   for (const l of logs) console.log(`  ${l.event_type}: ${l.n}건`);
   const assigned = Number(logs.find((l) => l.event_type === 'draft_assigned')?.n ?? 0);
   const delivered = Number(logs.find((l) => l.event_type === 'draft_delivered')?.n ?? 0);
-  if (assigned !== 16) fails.push(`draft_assigned ${assigned}건 (기대 16)`);
-  if (delivered !== 16) fails.push(`draft_delivered ${delivered}건 (기대 16)`);
+  if (assigned !== rows.length) fails.push(`draft_assigned ${assigned}건 ≠ 원고 붙은 작업 ${rows.length}건`);
+  if (delivered !== rows.length) fails.push(`draft_delivered ${delivered}건 ≠ 원고 붙은 작업 ${rows.length}건`);
 
   const [x] = await sql`select
     (select count(*) from payment_request) as req,
     (select count(*) from draft where model is null and status='delivered') as delivered_manual,
     (select count(*) from post_metric_snapshot) as snaps`;
-  console.log(`\n정산 요청 ${x.req}건(건드리지 않음) · 직접작성+전달됨 원고 ${x.delivered_manual}건 · 지표 스냅샷 ${x.snaps}건`);
-  if (Number(x.req) !== 0) fails.push(`정산 요청이 ${x.req}건 생겼다`);
+  // 정산 요청은 사람이 화면에서 낸다 — 적재 스크립트가 만들지 않을 뿐, 있는 게 비정상은 아니다.
+  console.log(`\n정산 요청 ${x.req}건(적재가 만들지 않음) · 직접작성+전달됨 원고 ${x.delivered_manual}건 · 지표 스냅샷 ${x.snaps}건`);
 
   console.log('\n════════════');
   if (!fails.length) console.log('✓ 대조 통과 — 원본 응답과 완전히 일치');

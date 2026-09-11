@@ -9,6 +9,7 @@ interface Cost { amount: number; currency: string }
 interface Task {
   no: number; campaign: string; handle: string; type: string; cost: Cost;
   post_url: string | null; 게시: boolean; 답글일: string; 명부: boolean; note: string;
+  proof_file?: string;   // RT 증빙 파일 — 이게 있으면 URL 없이도 게시 완료다
 }
 interface Camp {
   key: string; name: string; name_en: string; client_name: string; client_id: string | null;
@@ -39,7 +40,10 @@ async function main(): Promise<void> {
     if (sum !== c.적재_금액합) fails.push(`${c.name}: 금액합 선언 ${c.적재_금액합} ≠ 실제 ${sum}`);
 
     // 2) 게시 판정 규칙 검산 — '금주 소진' = 게시 완료분 합
-    const posted = mine.filter((t) => t.게시);
+    //    완료 = 게시물 URL 있음 **또는** RT이면서 증빙 있음. RT 는 자기 게시물이 없어 URL 대신
+    //    증빙 스크린샷이 완료의 근거다(2026-09-11: 미모드림 RT 3건 11만원이 빠져 56만원이 안 맞았다).
+    const done = (t: Task) => t.게시 || (t.type === 'rt' && Boolean(t.proof_file));
+    const posted = mine.filter(done);
     const postedSum = posted.reduce((a, t) => a + t.cost.amount, 0);
     const upTo0909 = posted.filter((t) => t.답글일 <= '2026-09-09').reduce((a, t) => a + t.cost.amount, 0);
     const 금주 = c.슬랙_비용.금주_소진;

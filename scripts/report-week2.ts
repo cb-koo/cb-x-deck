@@ -4,7 +4,10 @@
 import { readFileSync } from 'node:fs';
 import { postedOnSeoul } from './tweetDate.ts';
 
-interface Task { no: number; campaign: string; handle: string; type: string; cost: { amount: number }; post_url: string | null; 게시: boolean; 답글일: string; 명부: boolean; note: string }
+interface Task { no: number; campaign: string; handle: string; type: string; cost: { amount: number }; post_url: string | null; 게시: boolean; 답글일: string; 명부: boolean; note: string; proof_file?: string }
+// 게시 완료 = 게시물 URL 있음 **또는** RT이면서 증빙 있음.
+// RT 는 자기 게시물이 없어 URL 이 나올 수 없다 — 링크만 보면 RT 가 통째로 '미게시'가 된다(2026-09-11 발견).
+const done = (t: Task) => t.게시 || (t.type === 'rt' && Boolean(t.proof_file));
 interface Camp { key: string; name: string; name_en: string; client_name: string; client_id: string | null; starts_on: string; ends_on: string; kind: string; note: string; 슬랙_비용: { 금주_소진: number | null; 이전주_누적: number | null; 월_예산: number; 원문: string }; '🔴_확인필요'?: string }
 interface Ex { no: number; campaign: string; handle: string | null; type: string; amount: number | null; 사유: string; 분류: string }
 
@@ -24,7 +27,7 @@ p();
 p(`> 이 스레드에는 답글이 계속 붙습니다. 19:30에 다시 확인해 더스퀘어 **13.@ririko_item · 14.@8_rivi** 2건을 이어붙였습니다. 이후 변화는 \`sync-week2.ts\`(멱등)로 반영합니다.`);
 p();
 p(`- 출처: ${D._meta.출처}`);
-p(`- 넣은 것: 클라이언트 **1개 생성**(백수약국) · 캠페인 **${D.campaigns.length}개** · 작업 **${D.tasks.length}건**(합 ${man(D.tasks.reduce((a, t) => a + t.cost.amount, 0))}) · 게시 완료 **${D.tasks.filter((t) => t.post_url).length}건**에 게시일`);
+p(`- 넣은 것: 클라이언트 **1개 생성**(백수약국) · 캠페인 **${D.campaigns.length}개** · 작업 **${D.tasks.length}건**(합 ${man(D.tasks.reduce((a, t) => a + t.cost.amount, 0))}) · 게시 완료 **${D.tasks.filter(done).length}건**`);
 p(`- 슬랙 번호행 ${D.tasks.length + D.excluded.length}행 중 ${D.excluded.length}행은 넣지 않았습니다(아래 '넣지 않는 행').`);
 p('- 정산 요청은 만들지 않았습니다(0건) — 적재는 작업까지고, 지급 요청은 화면에서 사람이 냅니다.');
 p();
@@ -39,7 +42,7 @@ p('| @coco__ns_5 | 9/03 | **9/07 19:34** |');
 p('| @2024_0406 | 9/03 | **9/08 21:18** |');
 p('| @ykss_2141 | 9/03 | **9/09 18:01** |');
 p();
-p('→ 9/03 답글은 그날 **섭외 목록을 미리 적어둔 것**이고 게시는 2주차에 일어났습니다. `9월2주차` 라벨이 처음부터 맞았고("주차 라벨 실수 아님"이 이렇게 설명됩니다), 기간을 넓힐 필요가 없습니다. 캠페인 4개 게시 완료 15건 전부가 **9/07~9/10** 안에 들어옵니다.');
+p('→ 9/03 답글은 그날 **섭외 목록을 미리 적어둔 것**이고 게시는 2주차에 일어났습니다. `9월2주차` 라벨이 처음부터 맞았고("주차 라벨 실수 아님"이 이렇게 설명됩니다), 기간을 넓힐 필요가 없습니다. 캠페인 4개의 게시물이 전부 **9/07~9/10** 안에 들어옵니다.');
 p();
 p('**2. 백수약국 클라이언트 → 생성 완료.** 월 예산 250만원. 랜딩 URL은 비워 뒀습니다(지도 링크 2개는 브릿지 랜딩이 아니라 트래킹 링크라 캠페인 메모에 남겼습니다).');
 p();
@@ -56,7 +59,7 @@ p('| 캠페인 | 슬랙 금주 소진 | URL 붙은 작업 합 | 일치 |');
 p('|---|---|---|---|');
 for (const c of D.campaigns) {
   const mine = D.tasks.filter((t) => t.campaign === c.key);
-  const posted = mine.filter((t) => t.게시);
+  const posted = mine.filter(done);
   const sum = posted.reduce((a, t) => a + t.cost.amount, 0);
   const upto = posted.filter((t) => t.답글일 <= '2026-09-09').reduce((a, t) => a + t.cost.amount, 0);
   const 금주 = c.슬랙_비용.금주_소진;
@@ -64,7 +67,7 @@ for (const c of D.campaigns) {
   p(`| ${c.name} | ${man(금주)} | ${man(sum)} (${posted.length}건) | ${mark} |`);
 }
 p();
-p('→ 그래서 **URL 있음 = 게시 완료 / 없음 = 섭외만 됨**으로 판정했습니다. 더스퀘어만 부모의 금주 표기가 `00만원`으로 남아 있는데, @skysky_ca 게시분 10만원이 있어 부모가 갱신되지 않은 것으로 봤습니다.');
+p('→ 그래서 **게시물 URL이 있으면 게시 완료**로 판정했습니다. 다만 **RT는 자기 게시물이 없어 URL이 나올 수 없어서**, RT는 증빙 스크린샷이 있으면 완료로 봅니다(이 예외를 빠뜨려 미모드림 RT 3건 11만원이 빠졌던 것을 09-11에 바로잡았습니다). 더스퀘어만 부모의 금주 표기가 `00만원`으로 남아 있습니다.');
 p();
 
 for (const c of D.campaigns) {
@@ -79,9 +82,9 @@ for (const c of D.campaigns) {
   p('| # | 핸들 | 유형 | 금액 | 게시 | 명부 | 메모 |');
   p('|---|---|---|---|---|---|---|');
   for (const t of mine) {
-    p(`| ${t.no} | @${t.handle} | ${TYPE[t.type]} | ${man(t.cost.amount)} | ${t.post_url ? `[${postedOnSeoul(t.post_url)}](${t.post_url})` : '게시 전'} | ${t.명부 ? '○' : '**✗ 없음**'} | ${t.note} |`);
+    p(`| ${t.no} | @${t.handle} | ${TYPE[t.type]} | ${man(t.cost.amount)} | ${t.post_url ? `[${postedOnSeoul(t.post_url)}](${t.post_url})` : (t.type === 'rt' && t.proof_file ? 'RT 증빙' : '게시 전')} | ${t.명부 ? '○' : '**✗ 없음**'} | ${t.note} |`);
   }
-  p(`| | **${mine.length}건** | | **${man(mine.reduce((a, t) => a + t.cost.amount, 0))}** | 게시 ${mine.filter((t) => t.게시).length}건 | | |`);
+  p(`| | **${mine.length}건** | | **${man(mine.reduce((a, t) => a + t.cost.amount, 0))}** | 게시 ${mine.filter(done).length}건 | | |`);
   p();
   if (ex.length) {
     p('넣지 않는 행:');

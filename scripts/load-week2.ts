@@ -83,7 +83,7 @@ async function main(): Promise<void> {
   console.log('게시물 URL의 트윗 ID(스노플레이크)에서 파생한다 — 답글 시각이 아니다(scripts/tweetDate.ts, API 2건 대조 검증).');
   const posted = tasks.filter((t) => t.post_url);
   const days = [...new Set(posted.map((t) => postedOnSeoul(t.post_url as string)))].sort();
-  console.log(`게시 완료 ${posted.length}건 · 게시일 범위 ${days[0]} ~ ${days[days.length - 1]} · posted_source='manual'`);
+  console.log(`게시물 URL 있는 작업 ${posted.length}건(RT는 URL이 없어 여기 안 잡힌다) · 게시일 범위 ${days[0]} ~ ${days[days.length - 1]} · posted_source='manual'`);
 
   console.log('\n══ 넣지 않는 것 ══');
   console.log('· scheduled_on — 게시 예정일 정보가 슬랙에 없다');

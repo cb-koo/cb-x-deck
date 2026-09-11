@@ -66,8 +66,11 @@ async function main(): Promise<void> {
       if (!hit) { inserts.push({ camp: c, t }); continue; }
       matched.add(hit.id as string);
       const changes: string[] = [];
-      if ((hit.post_url ?? null) !== t.post_url) changes.push(`게시물 URL ${hit.post_url ? '변경' : '채움'}: ${t.post_url ?? '(없음)'}`);
-      if ((hit.posted_at ?? null) !== want) changes.push(`게시일 ${hit.posted_at ?? '(없음)'} → ${want ?? '(없음)'}`);
+      // 🔴 채우기만 한다 — 비우지 않는다. 원천에 게시물 URL 이 없다고 DB 값을 지우면
+      // RT 작업(자기 게시물이 없어 URL 이 원래 없고 게시일은 증빙으로 찍힌다)의 게시일이 날아간다.
+      // 2026-09-11 드라이런이 이걸 잡았다 — 이미 정산 요청이 나간 RT 3건의 posted_at 이 지워질 뻔했다.
+      if (t.post_url && (hit.post_url ?? null) !== t.post_url) changes.push(`게시물 URL ${hit.post_url ? '변경' : '채움'}: ${t.post_url}`);
+      if (want !== null && (hit.posted_at ?? null) !== want) changes.push(`게시일 ${hit.posted_at ?? '(없음)'} → ${want}`);
       if (Number((hit.cost as { amount: number } | null)?.amount ?? -1) !== t.cost.amount) changes.push(`금액 ${man(Number((hit.cost as { amount: number }).amount))} → ${man(t.cost.amount)}`);
       if (String(hit.note ?? '') !== t.note) changes.push('메모 갱신');
       if (changes.length) updates.push({ camp: c, t, id: hit.id as string, changes });
@@ -122,12 +125,17 @@ async function main(): Promise<void> {
     }
     for (const u of updates) {
       const on = u.t.post_url ? postedOnSeoul(u.t.post_url) : null;
-      await tx`
-        update campaign_task set
-          post_url = ${u.t.post_url}, posted_at = ${on},
-          posted_source = ${on ? 'manual' : null},
-          cost = ${tx.json(u.t.cost)}, note = ${u.t.note}, updated_at = now()
-        where id = ${u.id}`;
+      // 금액·메모는 원천이 기준이라 늘 덮는다.
+      await tx`update campaign_task set cost = ${tx.json(u.t.cost)}, note = ${u.t.note}, updated_at = now() where id = ${u.id}`;
+      // 게시물 URL·게시일은 **원천에 값이 있을 때만** 덮는다. 없다고 지우지 않는다 —
+      // RT 는 자기 게시물이 없어 URL 이 원래 비어 있고 게시일은 증빙으로 찍히기 때문이다.
+      if (u.t.post_url) {
+        await tx`update campaign_task set post_url = ${u.t.post_url}, updated_at = now() where id = ${u.id}`;
+      }
+      if (on) {
+        await tx`update campaign_task set posted_at = ${on}::date,
+                   posted_source = coalesce(posted_source, 'manual'), updated_at = now() where id = ${u.id}`;
+      }
       console.log(`✓ 갱신 ${u.camp.name} @${u.t.handle}`);
     }
   });

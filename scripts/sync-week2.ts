@@ -22,6 +22,11 @@ interface Task {
   no: number; campaign: string; handle: string; type: string;
   cost: { amount: number; currency: string };
   post_url: string | null; 게시: boolean; 답글일: string; 명부: boolean; note: string;
+  // RT 작업이 리포스트한 대상이 우리 작업일 때 그 작업의 핸들(같은 캠페인 안에서 찾는다).
+  // 인용RT의 target 은 load-week2-posts.ts 가 X 응답의 quoted_tweet 으로 채우고, RT 는 여기서 채운다 —
+  // 리포스트는 응답에 quoted_tweet 이 없어(자기 게시물이 아니다) 사람이 준 증빙이 유일한 근거다.
+  rt_target_handle?: string;
+  proof_slack_file?: string;   // 증빙 원본(슬랙 파일 ID) — 실제 업로드는 attach-week2-proofs.ts
 }
 interface Camp { key: string; name: string; starts_on: string; ends_on: string }
 
@@ -79,7 +84,7 @@ async function main(): Promise<void> {
     console.log('\n══ 새로 넣을 작업 ══');
     for (const { camp, t } of inserts) {
       const on = t.post_url ? postedOnSeoul(t.post_url) : null;
-      console.log(`   ${camp.name}  ${t.no}. @${t.handle.padEnd(15)} ${t.type.padEnd(8)} ${man(t.cost.amount).padStart(7)}  ${on ? '게시 ' + on : '게시 전'}${t.명부 ? '' : ' ⚠️명부없음'}${t.note ? ' · ' + t.note : ''}`);
+      console.log(`   ${camp.name}  ${t.no}. @${t.handle.padEnd(15)} ${t.type.padEnd(8)} ${man(t.cost.amount).padStart(7)}  ${on ? '게시 ' + on : '게시 전'}${t.rt_target_handle ? ` · RT 대상 @${t.rt_target_handle}` : ''}${t.proof_slack_file ? ' · 증빙 대기' : ''}${t.명부 ? '' : ' ⚠️명부없음'}${t.note ? ' · ' + t.note : ''}`);
     }
   }
   if (updates.length) {
@@ -98,11 +103,22 @@ async function main(): Promise<void> {
     for (const { camp, t } of inserts) {
       const [c] = await tx`select id from campaign where name = ${camp.name}`;
       const on = t.post_url ? postedOnSeoul(t.post_url) : null;
-      await tx`
+      const [row] = await tx`
         insert into campaign_task (campaign_id, influencer_handle, type, post_url, posted_at, posted_source, cost, note, created_by)
         values (${c.id}, ${t.handle}, ${t.type}, ${t.post_url}, ${on}, ${on ? 'manual' : null},
-                ${tx.json(t.cost)}, ${t.note}, ${KOO})`;
-      console.log(`✓ 추가 ${camp.name} @${t.handle}`);
+                ${tx.json(t.cost)}, ${t.note}, ${KOO})
+        returning id`;
+      // RT 가 리포스트한 우리 작업을 가리킨다 — 같은 캠페인 안에서 핸들로 찾는다.
+      // 못 찾으면 조용히 넘기지 않고 트랜잭션을 되돌린다(빈 대상으로 남으면 확산 구조가 끊긴다).
+      if (t.rt_target_handle) {
+        const [tgt] = await tx`
+          select id from campaign_task
+           where campaign_id = ${c.id} and lower(influencer_handle) = ${t.rt_target_handle.toLowerCase()}
+             and id <> ${row.id}`;
+        if (!tgt) throw new Error(`${camp.name} @${t.handle}: RT 대상 @${t.rt_target_handle} 을 같은 캠페인에서 못 찾았습니다`);
+        await tx`update campaign_task set target_task_id = ${tgt.id}, updated_at = now() where id = ${row.id}`;
+      }
+      console.log(`✓ 추가 ${camp.name} @${t.handle}${t.rt_target_handle ? ` (RT 대상 @${t.rt_target_handle})` : ''}`);
     }
     for (const u of updates) {
       const on = u.t.post_url ? postedOnSeoul(u.t.post_url) : null;

@@ -1,6 +1,8 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { Badge } from '@/components/ds/badge';
+import { Button } from '@/components/ds/button';
 import { campaignStatus, CAMPAIGN_STATUS_LABEL, formatDateKo } from '@/lib/campaignJudgment';
 import { formatMoneyBy } from '@/lib/campaignCost';
 import { fetchCampaignDetail, fetchWorkflowCampaigns, type WorkflowCampaignRow } from '@/lib/campaignApi';
@@ -90,36 +92,39 @@ export default function CampaignWorkflowPreviewPage() {
   return (
     <div className="ds mx-auto flex w-full max-w-[1400px] flex-col gap-5 px-5 py-6">
       <header className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-baseline gap-3">
-          <h1 className="text-[20px] font-bold">캠페인 — 업무 흐름 보기</h1>
-          <span className="rounded-full bg-x-surface px-2 py-0.5 text-ui text-x-secondary">뼈대 · 읽기 전용</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-bold tracking-tight">캠페인 — 업무 흐름 보기</h1>
+          <Badge variant="secondary">뼈대 · 읽기 전용</Badge>
+          <Button variant="outline" size="sm" className="ml-auto" render={<Link href="/campaigns" />}>
+            지금 화면으로
+          </Button>
         </div>
-        <p className="text-content text-x-secondary">
-          지금 화면(<Link href="/campaigns" className="text-x-blue-text hover:underline">/campaigns</Link>)은 그대로 있어요.
+        <p className="text-sm text-muted-foreground">
+          지금 화면(<Link href="/campaigns" className="font-medium text-foreground underline underline-offset-4">/campaigns</Link>)은 그대로 있어요.
           여기서는 <strong>어느 캠페인의 무엇이 막혀 있고 다음에 무엇을 할지</strong>가 읽히는지만 봅니다.
           아직 아무것도 저장되지 않아요 — 버튼 대신 다음 행동을 문구로 적어 뒀습니다.
         </p>
-        <p className="text-ui text-x-muted">
+        <p className="text-sm text-muted-foreground">
           「전달함」을 기록할 칸이 아직 없어서, 원고 상태가 <strong>전달됨</strong>인 것만 게시 대기로 잡힙니다.
           RT는 원고가 없어 전달 기록이 아예 없고, 원고를 인플루언서가 쓰기로 한 작업도
-          <strong> &lsquo;아직 안 정함&rsquo;과 구별되지 않아 계속 준비에 남습니다</strong> — 이 두 가지가 2단계에서 칸을 추가할 근거예요.
+          <strong className="text-foreground"> &lsquo;아직 안 정함&rsquo;과 구별되지 않아 계속 준비에 남습니다</strong> — 이 두 가지가 2단계에서 칸을 추가할 근거예요.
         </p>
       </header>
 
-      {listErr && <p role="alert" className="rounded-lg border border-x-pink/30 bg-x-pink/5 px-3.5 py-2.5 text-content text-x-pink">{listErr}</p>}
+      {listErr && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3.5 py-2.5 text-sm text-destructive">{listErr}</p>}
 
       <div className="flex flex-col gap-5 lg:flex-row">
         <nav aria-label="캠페인" className="flex shrink-0 flex-col gap-4 lg:w-[280px]">
           {(['active', 'upcoming'] as const).map((k) => grouped[k].length > 0 && (
             <div key={k} className="flex flex-col gap-1.5">
-              <p className="px-1 text-caption text-x-muted">{CAMPAIGN_STATUS_LABEL[k]}</p>
+              <p className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">{CAMPAIGN_STATUS_LABEL[k]}</p>
               {grouped[k].map((c) => <CampaignButton key={c.id} c={c} picked={c.id === pickedId} onPick={setPickedId} />)}
             </div>
           ))}
           {/* 종료는 접어 둔다 — 막힌 것 숫자가 붙어 있어도 지금 손댈 것은 아니다 */}
           {grouped.ended.length > 0 && (
             <details className="flex flex-col gap-1.5">
-              <summary className="cursor-pointer list-none px-1 text-caption text-x-muted hover:text-x-secondary [&::-webkit-details-marker]:hidden">
+              <summary className="cursor-pointer list-none px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground [&::-webkit-details-marker]:hidden">
                 종료 {grouped.ended.length}개 보기
               </summary>
               <div className="mt-1.5 flex flex-col gap-1.5">
@@ -127,27 +132,27 @@ export default function CampaignWorkflowPreviewPage() {
               </div>
             </details>
           )}
-          {!listErr && list.length === 0 && <p className="text-content text-x-muted">캠페인이 없어요</p>}
+          {!listErr && list.length === 0 && <p className="text-sm text-muted-foreground">캠페인이 없어요</p>}
         </nav>
 
         <div className="min-w-0 flex-1">
           {picked && (
             <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h2 className="text-[16px] font-semibold">{picked.name}</h2>
-              <span className="text-ui text-x-secondary">
+              <h2 className="text-base font-semibold">{picked.name}</h2>
+              <span className="text-sm text-muted-foreground">
                 {picked.clientName ?? '클라이언트 없음'} · {formatDateKo(picked.startsOn)}~{formatDateKo(picked.endsOn)} · {formatMoneyBy(picked.total)}
               </span>
             </div>
           )}
-          {detailMessage && <p role="alert" className="text-content text-x-pink">{detailMessage}</p>}
-          {!detailMessage && tasks === null && pickedId && <p role="status" className="py-10 text-center text-content text-x-muted">불러오는 중…</p>}
+          {detailMessage && <p role="alert" className="text-sm text-destructive">{detailMessage}</p>}
+          {!detailMessage && tasks === null && pickedId && <p role="status" className="py-10 text-center text-sm text-muted-foreground">불러오는 중…</p>}
           {tasks !== null && (
             <WorkflowTable tasks={tasks} today={today} groupBy={groupBy} onGroupBy={changeGroupBy} />
           )}
         </div>
       </div>
 
-      <footer className="border-t border-x-border pt-4 text-ui text-x-muted">
+      <footer className="border-t pt-4 text-sm text-muted-foreground">
         묶기 {GROUP_BYS.length}가지를 눌러 보고, 묶음 제목줄로 접어 보세요. 마지막 선택은 기억됩니다.
         보시고 나서 정할 것: 단계 일곱 개가 많지 않은지(특히 「지급 대기」), 「진행」 한 칸이 읽히는지,
         완료·취소를 접어 두는 게 불편하지 않은지.
@@ -159,17 +164,13 @@ export default function CampaignWorkflowPreviewPage() {
 function CampaignButton({ c, picked, onPick }: { c: WorkflowCampaignRow; picked: boolean; onPick: (id: string) => void }) {
   return (
     <button type="button" onClick={() => onPick(c.id)} aria-current={picked ? 'true' : undefined}
-            className={`flex min-h-[60px] flex-col gap-1 rounded-xl border px-3.5 py-2.5 text-left ${
-              picked ? 'border-x-blue bg-x-blue/5' : 'border-x-border bg-white hover:bg-x-hover'}`}>
-      <span className="flex items-center gap-2">
-        <span className="truncate text-content font-medium">{c.name}</span>
-        {c.blocked > 0 && (
-          <span className="ml-auto shrink-0 rounded-full bg-x-pink/10 px-2 py-0.5 text-caption font-bold text-x-pink">
-            막힌 것 {c.blocked}
-          </span>
-        )}
+            className={`flex min-h-[60px] w-full flex-col gap-1 rounded-xl border px-3.5 py-2.5 text-left transition-colors ${
+              picked ? 'border-primary bg-primary/5' : 'bg-card hover:bg-muted/60'}`}>
+      <span className="flex w-full items-center gap-2">
+        <span className="truncate text-sm font-medium">{c.name}</span>
+        {c.blocked > 0 && <Badge variant="destructive" className="ml-auto shrink-0">막힌 것 {c.blocked}</Badge>}
       </span>
-      <span className="text-caption text-x-muted">
+      <span className="text-xs text-muted-foreground">
         {formatDateKo(c.startsOn)}~{formatDateKo(c.endsOn)} · 작업 {c.taskCount}
       </span>
     </button>

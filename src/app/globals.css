@@ -213,3 +213,12 @@ textarea:focus-visible,
     @apply border-border outline-ring/50;
   }
 }
+
+/* .ds 안에서만 Geist — shadcn 룩의 절반이 폰트다(시안 StyleNew가 이걸 쓴다).
+   덱은 X 재현이 제품 가치라 시스템 폰트 그대로 둔다(디자인 시스템 결정) — 그래서 전역이 아니라 .ds 스코프다.
+   layout.tsx가 --font-geist-sans로 불러만 두고 body가 덮어써서 지금까지 실제로는 안 쓰이고 있었다.
+   Geist에 한글 글리프가 없어 한글은 다음 스택(시스템 한글 폰트)으로 자연히 넘어간다 — 의도한 동작이다.
+   레이어 밖이라 body 규칙(역시 레이어 밖, 위쪽)보다 나중이어서 이긴다. */
+.ds {
+  font-family: var(--font-geist-sans), var(--font-sans);
+}

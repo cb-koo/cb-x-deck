@@ -1,4 +1,4 @@
--- 028: 마케팅 리포트 — 외부 리포트 API 스냅샷 + 클라이언트↔클리닉 코드 매핑.
+-- 052 (구 028): 마케팅 리포트 — 외부 리포트 API 스냅샷 + 클라이언트↔클리닉 코드 매핑.
 -- 설계: docs/superpowers/specs/2026-08-24-marketing-report-design.md
 create table if not exists report_snapshot (
   clinic_code  text not null,           -- 외부 API의 clinic 파라미터 값 (예: velybjp)

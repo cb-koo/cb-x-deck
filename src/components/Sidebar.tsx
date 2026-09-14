@@ -71,7 +71,7 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     // 인플루언서 다음: 원고를 누구에게 줬는지 → 그게 어떻게 됐는지 순서로 읽힌다.
     { href: '/tracking', label: '트래킹', Ic: ViewIcon },
     // 성과는 트래킹 다음 — 등록·갱신(작업)한 것이 어떤 결과를 냈는지(회고)로 읽힌다. B단계(퍼널 통합)의 자리.
-    { href: '/performance', label: '성과', Ic: TrendIcon },
+    { href: '/performance', label: '콘텐츠 성과', Ic: TrendIcon },
     // 캠페인 성과 리포트 — 트래킹(개별 게시물) 다음, 전체 성과로 시야가 넓어지는 순서
     { href: '/reports', label: '리포트', Ic: ReportIcon },
   ];

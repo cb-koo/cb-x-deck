@@ -104,7 +104,7 @@ function PerformanceView() {
 
   return (
     <main className="mx-auto max-w-[1280px] px-6 py-8">
-      <h1 className="mb-1 text-[20px] font-bold">성과</h1>
+      <h1 className="mb-1 text-[20px] font-bold">콘텐츠 성과</h1>
       <p className="mb-4 text-caption text-x-muted">인플루언서·콘텐츠별로 랜딩 방문과 LINE 탭을 모아 봐요. 브릿지 페이지에서 바로 들어오는 기록이라 새로고침이 필요 없어요.</p>
 
       {data === null && !loadErr && <p className="py-8 text-center text-ui text-x-muted">불러오는 중…</p>}

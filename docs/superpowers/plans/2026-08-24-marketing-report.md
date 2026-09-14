@@ -28,7 +28,7 @@
 ### Task 1: 마이그레이션 028 + client.clinic_code
 
 **Files:**
-- Create: `migrations/028_report_snapshot.sql`
+- Create: `migrations/052_report_snapshot.sql`
 - Modify: `src/lib/clientStore.ts` (ClientRow에 clinicCode)
 - Test: `src/lib/clientStore.test.ts` (기존 파일에 테스트 추가)
 
@@ -111,7 +111,7 @@ Expected: PASS (기존 테스트 포함 전부).
 - [ ] **Step 7: 커밋**
 
 ```bash
-git add migrations/028_report_snapshot.sql src/lib/clientStore.ts src/lib/clientStore.test.ts
+git add migrations/052_report_snapshot.sql src/lib/clientStore.ts src/lib/clientStore.test.ts
 git commit -m "feat(reports): report_snapshot 테이블 + client.clinic_code 매핑"
 ```
 

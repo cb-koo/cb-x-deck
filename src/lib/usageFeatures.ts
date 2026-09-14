@@ -18,6 +18,10 @@ const FEATURE: Record<string, string> = {
   'anthropic.draftRegen': '원고 부분 재생성',
   'anthropic.draftRewrite': '원고 다시 쓰기',
   'anthropic.draftTranslate': '원고 번역',
+  'anthropic.influencerClassify': '계정 분석',
+  'anthropic.influencerClassifyRt': '계정 분석',
+  'anthropic.influencerNormalize': '계정 분석',
+  'anthropic.influencerSynth': '계정 분석',
 };
 
 // 알려진 operation은 사용자 언어 라벨로, 그 외에는 제공사별 '기타'로 — 내부 원문(anthropic.translate·probe 등)을 화면에 노출하지 않는다.

@@ -8,7 +8,7 @@ import { useMember } from '@/lib/memberContext';
 import { swapWorkspacePath } from '@/lib/wsNav';
 import { interceptNav } from '@/lib/navGuard';
 import { createClient } from '@/lib/supabase/client';
-import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, PromptIcon, UserIcon, ViewIcon } from './XIcons';
+import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, PromptIcon, UserIcon, ViewIcon, CampaignIcon, TrendIcon } from './XIcons';
 
 // 리포트(막대 그래프) — 다른 XIcons는 채움(fill) 단일 path인데 막대 그래프는 선(stroke) 3개가
 // 자연스러워 여기만 로컬로 둔다. props 시그니처는 XIcons의 다른 아이콘들과 동일.
@@ -59,13 +59,19 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
   ];
 
   // 워크스페이스 무관 최상위 기능 (스펙 §4 — 콘텐츠 생성은 /w/[wsId] 밖)
+  // 캠페인이 맨 위 — 콘텐츠 생성·인플루언서·트래킹 셋을 묶는 상위 개념이다(캠페인 스펙 §3-1).
   // 인플루언서 명부도 워크스페이스 밖 — 원고를 누구에게 줄지는 워크스페이스와 무관한 사람 정보다(스펙 §3)
   const globalNav = [
+    { href: '/campaigns', label: '캠페인', Ic: CampaignIcon },
+    // 정산은 캠페인 바로 아래 — 만든 것(작업) → 돈 보내는 것(요청) 순으로 읽힌다(정산 스펙 §4)
+    { href: '/settlement', label: '정산', Ic: CampaignIcon },
     { href: '/generate', label: '콘텐츠 생성', Ic: PenIcon },
     { href: '/influencers', label: '인플루언서', Ic: UserIcon },
     // 트래킹도 워크스페이스 밖 — 게시된 게시물의 반응은 리서치 덱이 아니라 우리가 낸 원고에 딸린 결과다.
     // 인플루언서 다음: 원고를 누구에게 줬는지 → 그게 어떻게 됐는지 순서로 읽힌다.
     { href: '/tracking', label: '트래킹', Ic: ViewIcon },
+    // 성과는 트래킹 다음 — 등록·갱신(작업)한 것이 어떤 결과를 냈는지(회고)로 읽힌다. B단계(퍼널 통합)의 자리.
+    { href: '/performance', label: '성과', Ic: TrendIcon },
     // 캠페인 성과 리포트 — 트래킹(개별 게시물) 다음, 전체 성과로 시야가 넓어지는 순서
     { href: '/reports', label: '리포트', Ic: ReportIcon },
   ];
@@ -139,6 +145,12 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
       </nav>
 
       <div className="mb-2 border-t border-x-border pt-2">
+        {/* 업데이트 소식 — 가끔 들어와 읽는 곳이라 매일 쓰는 메뉴·설정과 분리해 하단에 (업데이트 피드 스펙 §4) */}
+        <Link href="/updates" onNavigate={guardedNavigate('/updates')}
+              aria-current={pathname === '/updates' ? 'page' : undefined}
+              className={`flex items-center gap-2.5 rounded-full px-3 py-1.5 text-caption hover:bg-x-text/5 ${pathname === '/updates' ? 'text-x-text' : 'text-x-muted'}`}>
+          업데이트 소식
+        </Link>
         <Link href="/usage" onNavigate={guardedNavigate('/usage')}
               aria-current={pathname === '/usage' ? 'page' : undefined}
               className={`flex items-center gap-2.5 rounded-full px-3 py-1.5 text-caption hover:bg-x-text/5 ${pathname === '/usage' ? 'text-x-text' : 'text-x-muted'}`}>

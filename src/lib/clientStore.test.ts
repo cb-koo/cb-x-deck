@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import {
   createClient, listClients, getClientWithProcedures, updateClient, deleteClient,
-  createProcedure, updateProcedure, deleteProcedure,
+  createProcedure, updateProcedure, deleteProcedure, setBudgetOverride, getClientBudget,
 } from './clientStore.ts';
 
 const sql = getSql();
@@ -90,4 +90,72 @@ test('clinic_code 왕복 — 설정·해제·목록 노출', async () => {
   await updateClient(sql, c.id, { clinicCode: null });
   assert.equal((await getClientWithProcedures(sql, c.id))!.client.clinicCode, null);
   await deleteClient(sql, c.id);
+});
+
+test('landing_url — 저장·조회 왕복, 기본값은 빈 문자열', async () => {
+  const c = await createClient(sql, P + '랜딩');
+  assert.equal(c.landingUrl, '');
+  await updateClient(sql, c.id, { landingUrl: 'https://clinic.example.com/event' });
+  const got = await getClientWithProcedures(sql, c.id);
+  assert.equal(got!.client.landingUrl, 'https://clinic.example.com/event');
+  // 다른 필드 patch가 landing_url을 지우지 않는다(coalesce)
+  await updateClient(sql, c.id, { info: '정보' });
+  assert.equal((await getClientWithProcedures(sql, c.id))!.client.landingUrl, 'https://clinic.example.com/event');
+});
+
+test('name_en — 저장·조회 왕복, 기본값은 빈 문자열, 다른 patch가 지우지 않는다', async () => {
+  const c = await createClient(sql, P + '영문');
+  assert.equal(c.nameEn, '');
+  await updateClient(sql, c.id, { nameEn: 'yonsei-clinic' });
+  assert.equal((await getClientWithProcedures(sql, c.id))!.client.nameEn, 'yonsei-clinic');
+  await updateClient(sql, c.id, { info: '정보' }); // coalesce 보존
+  assert.equal((await getClientWithProcedures(sql, c.id))!.client.nameEn, 'yonsei-clinic');
+});
+
+test('월 예산: 기본값 설정·null=지움·예외 달 설정/삭제·updated_at 갱신', async () => {
+  const c = await createClient(sql, P + '예산클리닉');
+  assert.equal(c.monthlyBudget, null);          // 생성 직후 미설정
+  assert.deepEqual(c.budgetOverrides, {});
+
+  await updateClient(sql, c.id, { monthlyBudget: 3_000_000 });
+  let got = (await getClientWithProcedures(sql, c.id))!.client;
+  assert.equal(got.monthlyBudget, 3_000_000);
+
+  // 다른 필드만 패치하면 예산은 그대로(undefined = 건드리지 않음)
+  await updateClient(sql, c.id, { info: '변경' });
+  got = (await getClientWithProcedures(sql, c.id))!.client;
+  assert.equal(got.monthlyBudget, 3_000_000);
+
+  // 예외 달 두 개 — 서로 덮지 않는다
+  await setBudgetOverride(sql, c.id, '2026-08', 2_500_000);
+  await setBudgetOverride(sql, c.id, '2026-09', 4_000_000);
+  got = (await getClientWithProcedures(sql, c.id))!.client;
+  assert.deepEqual(got.budgetOverrides, { '2026-08': 2_500_000, '2026-09': 4_000_000 });
+
+  // 예외 삭제(null) → 키가 사라진다. 없는 달을 지워도 오류 없음
+  await setBudgetOverride(sql, c.id, '2026-08', null);
+  await setBudgetOverride(sql, c.id, '2027-01', null);
+  got = (await getClientWithProcedures(sql, c.id))!.client;
+  assert.deepEqual(got.budgetOverrides, { '2026-09': 4_000_000 });
+
+  // 기본값 지움(null) — 예외는 남는다
+  await updateClient(sql, c.id, { monthlyBudget: null });
+  got = (await getClientWithProcedures(sql, c.id))!.client;
+  assert.equal(got.monthlyBudget, null);
+  assert.deepEqual(got.budgetOverrides, { '2026-09': 4_000_000 });
+
+  // getClientBudget — 캠페인 상세가 쓰는 가벼운 조회. 없는 id는 null
+  assert.deepEqual(await getClientBudget(sql, c.id), { monthlyBudget: null, budgetOverrides: { '2026-09': 4_000_000 } });
+  assert.equal(await getClientBudget(sql, '00000000-0000-0000-0000-000000000000'), null);
+
+  // 예외 저장이 updated_at을 끌어올린다(시술 변경과 같은 격)
+  await sql`update client set updated_at = now() - interval '1 hour' where id = ${c.id}`;
+  await setBudgetOverride(sql, c.id, '2026-10', 1);
+  const after = (await getClientWithProcedures(sql, c.id))!.client;
+  assert.ok(Date.now() - new Date(after.updatedAt).getTime() < 60_000);
+
+  // jsonb에 이상한 값이 섞여 있어도 읽기가 죽지 않고 검증 통과분만 남는다
+  await sql`update client set budget_overrides = '{"2026-11": 5, "bad": 1, "2026-12": -3, "2026-13": 7}'::jsonb where id = ${c.id}`;
+  got = (await getClientWithProcedures(sql, c.id))!.client;
+  assert.deepEqual(got.budgetOverrides, { '2026-11': 5 });
 });

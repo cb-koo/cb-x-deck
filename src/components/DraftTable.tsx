@@ -55,6 +55,8 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard, s
             </th>
             <th className="px-3 py-2 font-normal">원고</th>
             <th className="px-3 py-2 font-normal" aria-sort={sort.key === 'client' ? (sort.dir === 'desc' ? 'descending' : 'ascending') : undefined}>{sortBtn('client', '클라이언트')}</th>
+            {/* 캠페인 — 클라이언트 바로 다음: 둘 다 "어디 소속" 축. 정렬 없음(시술·형식과 같은 급, 캠페인 스펙 §4-3) */}
+            <th className="px-3 py-2 font-normal">캠페인</th>
             {/* 인플루언서 — 시술·형식과 같은 비정렬 열(스펙 §F). 클라이언트 바로 다음: 둘 다 "누구" 축이라 붙여야 훑기 좋다 */}
             <th className="px-3 py-2 font-normal">인플루언서</th>
             <th className="px-3 py-2 font-normal">시술</th>
@@ -97,6 +99,7 @@ export function DraftTable({ drafts, clientNameOf, onChangeStatus, onOpenCard, s
                  : label.text}
               </td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{clientNameOf(d.clientId)}</td>
+              <td className="max-w-[180px] truncate whitespace-nowrap px-3 py-2 text-x-secondary" title={d.campaignName ?? undefined}>{d.campaignName ?? '—'}</td>
               {/* 열 정합을 위해서만 미배정에 '—'를 쓴다 (카드·칸반은 자리 자체를 안 그림 — 표만 예외) */}
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{d.influencerHandle ? `@${d.influencerHandle}` : '—'}</td>
               <td className="whitespace-nowrap px-3 py-2 text-x-secondary">{d.procedureNames.join(' · ') || '—'}</td>

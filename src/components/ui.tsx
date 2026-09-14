@@ -12,6 +12,14 @@ const VARIANT = {
 
 export type ButtonVariant = keyof typeof VARIANT;
 
+// 화면 공용 패널 — 연회색 바닥(bg-x-surface) 위 흰 카드. 캠페인·클라이언트 상세가 같은 정의를 쓴다(QA 7라운드 결정 B:
+// 전부 같은 흰 배경이면 섹션 경계가 안 읽힌다). 패널 사이 간격은 부모의 space-y-5(20px) 한 곳에서만 준다.
+export const PANEL = 'rounded-xl border border-x-border bg-white p-5';
+// 머리(제목·설명)와 몸통을 선으로 나누는 패널 — p-5 대신 안쪽 섹션이 px-5로 여백을 준다
+export const PANEL_SPLIT = 'rounded-xl border border-x-border bg-white';
+// 패널 제목 — 16px semibold(가독성 기준: 본문 15px보다 한 단 위, text-caption은 쓰지 않는다)
+export const PANEL_TITLE = 'text-[16px] font-semibold';
+
 export function Button({ variant = 'subtle', className = '', children, ...props }:
   { variant?: ButtonVariant; children?: ReactNode } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (

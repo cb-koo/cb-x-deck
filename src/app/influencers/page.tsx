@@ -3,12 +3,25 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
-import { formatCount } from '@/lib/format';
+import { formatKoCount } from '@/lib/formatKo';
 import { relTime } from '@/lib/relTime';
 import { judgeContact } from '@/lib/influencerJudgment';
+import { settlementBadge } from '@/lib/influencerPayment';
 import { AddInfluencersDialog } from './AddInfluencersDialog';
+import { BulkAnalyzeDialog, useBulkState } from './BulkAnalyzeDialog';
 import { Avatar, InfluencerProfile } from './InfluencerProfile';
+import { mergeQuery, parseTab, tabQuery, type TabKey } from '@/lib/profileTabs';
 import type { InfluencerRow } from '@/lib/influencerStore';
+
+// 정산 통화 필터 — '전체'가 기본이라 결제 수단 미등록 인플(운영 현황 86명)도 기본 목록에서 사라지지 않는다.
+type CurrencyFilter = 'all' | 'KRW' | 'JPY';
+const CURRENCY_FILTER_LABEL: Record<CurrencyFilter, string> = { all: '전체', KRW: '원화', JPY: '엔화' };
+const CURRENCY_FILTERS: readonly CurrencyFilter[] = ['all', 'KRW', 'JPY'];
+
+// 수수료 부담 필터 — '미등록'은 결제 수단 자체가 없는 인플(settlement === null), 'cb'/'influencer'는 등록된 것 중에서만 가른다.
+type FeeFilter = 'all' | 'cb' | 'influencer' | 'none';
+const FEE_FILTER_LABEL: Record<FeeFilter, string> = { all: '전체', cb: 'CB 부담', influencer: '인플 부담', none: '미등록' };
+const FEE_FILTERS: readonly FeeFilter[] = ['all', 'cb', 'influencer', 'none'];
 
 export default function InfluencersPage() {
   // useSearchParams는 Suspense 경계 필수 (clients/page.tsx·generate/page.tsx 선례)
@@ -20,13 +33,18 @@ function InfluencersSplit() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const urlId = searchParams.get('i');
+  const tab = parseTab(searchParams.get('tab'));
 
   const [rows, setRows] = useState<InfluencerRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
   const [q, setQ] = useState('');
   const [tag, setTag] = useState<string | null>(null);
+  const [settleCurrency, setSettleCurrency] = useState<CurrencyFilter>('all');
+  const [settleFee, setSettleFee] = useState<FeeFilter>('all');
   const [adding, setAdding] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const bulk = useBulkState();   // 일괄 분석 진행 — 다이얼로그를 닫아도 이어지므로 모듈 스토어를 구독한다
 
   // setState는 전부 await 뒤에 둔다 — 동기 setState를 앞에 넣으면 set-state-in-effect에 걸린다(GlobalShell 관례)
   const load = useCallback(async () => {
@@ -44,6 +62,15 @@ function InfluencersSplit() {
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로드, setState는 전부 비동기 콜백(GlobalShell·clients 관례)
   useEffect(() => { load(); }, [load]);
 
+  // 일괄 분석은 이 탭이 열려 있는 동안만 진행된다 — 진행 중 새로고침·닫기는 남은 계정을 멈춘다.
+  // 그래서 경고는 진행 중일 때만 건다(평소에도 걸어두면 매번 물어보는 성가신 창이 된다).
+  useEffect(() => {
+    if (!bulk.running) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [bulk.running]);
+
   const selected = rows.find((r) => r.id === urlId) ?? null;
   // 삭제된 인플루언서를 가리키는 링크 — 첫 번째로 슬쩍 바꿔치기하지 않고 정직하게 알린다.
   // (effect로 URL을 고치는 clients와 달리 렌더에서 파생만 하므로 setState-in-effect가 없다)
@@ -54,23 +81,36 @@ function InfluencersSplit() {
     [rows],
   );
 
+  // 목록은 이미 전량 로드(rows)라 필터도 클라이언트에서 거른다 — 검색·태그와 같은 방식(서버 왕복 없음).
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
       if (tag && !r.tags.includes(tag)) return false;
+      if (settleCurrency !== 'all' && r.settlement?.currency !== settleCurrency) return false;
+      if (settleFee === 'none' && r.settlement !== null) return false;
+      if (settleFee === 'cb' && !r.settlement?.fee) return false;
+      if (settleFee === 'influencer' && !(r.settlement && !r.settlement.fee)) return false;
       if (!needle) return true;
       return r.handle.toLowerCase().includes(needle)
         || (r.displayName ?? '').toLowerCase().includes(needle)
         || r.tags.some((t) => t.toLowerCase().includes(needle));
     });
-  }, [rows, q, tag]);
+  }, [rows, q, tag, settleCurrency, settleFee]);
 
   // 리스트의 모든 행이 같은 순간을 기준으로 판단하도록 한 번만 계산해 공유한다.
   const now = new Date();
 
-  const select = useCallback((id: string) => {
-    router.replace(`${pathname}?i=${id}`);
+  // 선택·탭은 한 URL에 공존한다 — 한쪽을 쓸 때 다른 쪽을 지우면 안 된다(스펙 §2).
+  // scroll:false — 탭·선택마다 상단으로 튀지 않게(선례 없이 기본값 true였음).
+  const replaceQuery = useCallback((q: string) => {
+    router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
   }, [router, pathname]);
+  const select = useCallback((id: string) => {
+    replaceQuery(mergeQuery(searchParams.toString(), { i: id }));
+  }, [replaceQuery, searchParams]);
+  const setTab = useCallback((t: TabKey) => {
+    replaceQuery(tabQuery(searchParams.toString(), t));
+  }, [replaceQuery, searchParams]);
 
   // 삭제 후: 쿼리를 비워 "고르세요" 안내로 돌아간다
   function handleDeleted() {
@@ -79,16 +119,36 @@ function InfluencersSplit() {
   }
 
   return (
-    <div className="flex">
+    // min-h-full: GlobalShell의 스크롤 래퍼가 definite height를 주는 지점 — 여기 둬야 내용이
+    // 짧아도 회색 바닥(main의 bg-x-surface)이 화면 아래까지 내려간다(캠페인 page.tsx와 같은 방식).
+    <div className="flex min-h-full">
       <aside className="sticky top-0 max-h-screen w-[300px] shrink-0 self-start overflow-y-auto border-r border-x-border px-3 py-5">
         <div className="mb-1 flex items-center justify-between px-2">
           <h2 className="text-content font-bold">
             인플루언서 {rows.length > 0 && <span className="text-ui font-normal text-x-secondary">{rows.length}</span>}
           </h2>
-          <button onClick={() => setAdding(true)} className="text-ui font-medium text-x-blue-text hover:underline">
-            + 추가
-          </button>
+          <span className="flex items-center gap-2">
+            {/* 비용이 드는 액션이라 바로 돌지 않는다 — 다이얼로그에서 대상·비용·시간을 보고 시작한다 */}
+            <button onClick={() => setBulkOpen(true)} className="text-ui text-x-secondary hover:underline">
+              전체 분석
+            </button>
+            <button onClick={() => setAdding(true)} className="text-ui font-medium text-x-blue-text hover:underline">
+              + 추가
+            </button>
+          </span>
         </div>
+        {(bulk.running || bulk.failed.length > 0) && (
+          // 다이얼로그를 닫아도 진행 중임을 알린다(뜻은 글자가 나른다 — 색만으로 전달하지 않는다)
+          // 실패가 있으면 닫힌 채 끝나도 배지가 남는다 — 성공만이면 조용히 사라진다.
+          // 새 회차 시작·다이얼로그의 '새로 시작'이 failed를 비워 리셋한다.
+          <p className="mb-2 px-2">
+            <span className="rounded-full bg-x-blue/10 px-2 py-0.5 text-caption text-x-blue-text">
+              {bulk.running
+                ? `분석 ${bulk.done}/${bulk.total}${bulk.failed.length > 0 ? ` · 실패 ${bulk.failed.length}` : ''}`
+                : `분석 완료 · 실패 ${bulk.failed.length}`}
+            </span>
+          </p>
+        )}
         <p className="mb-3 px-2 text-caption text-x-muted">
           함께 일하는 계정을 모아두면 주고받은 이야기와 넘긴 원고를 한자리에서 볼 수 있어요.
         </p>
@@ -96,6 +156,23 @@ function InfluencersSplit() {
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·핸들·태그로 찾기"
                aria-label="인플루언서 검색"
                className="mb-2 w-full rounded-lg border border-x-border-strong px-2.5 py-1.5 text-ui outline-none focus:border-x-blue" />
+
+        <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1.5 px-0.5">
+          <label className="flex shrink-0 items-center gap-1.5 text-caption text-x-secondary">정산 통화
+            <select value={settleCurrency} onChange={(e) => setSettleCurrency(e.target.value as CurrencyFilter)}
+                    aria-label="정산 통화 필터"
+                    className="h-7 rounded-md border border-x-border-strong bg-white px-1.5 text-caption outline-none focus:border-x-blue">
+              {CURRENCY_FILTERS.map((c) => <option key={c} value={c}>{CURRENCY_FILTER_LABEL[c]}</option>)}
+            </select>
+          </label>
+          <label className="flex shrink-0 items-center gap-1.5 text-caption text-x-secondary">수수료 부담
+            <select value={settleFee} onChange={(e) => setSettleFee(e.target.value as FeeFilter)}
+                    aria-label="수수료 부담 필터"
+                    className="h-7 rounded-md border border-x-border-strong bg-white px-1.5 text-caption outline-none focus:border-x-blue">
+              {FEE_FILTERS.map((f) => <option key={f} value={f}>{FEE_FILTER_LABEL[f]}</option>)}
+            </select>
+          </label>
+        </div>
 
         {allTags.length > 0 && (
           <div className="mb-3 flex flex-wrap gap-1 px-0.5">
@@ -133,9 +210,12 @@ function InfluencersSplit() {
         ))}
       </aside>
 
-      <main className="min-w-0 flex-1">
+      {/* 프로필은 연회색 바닥(bg-x-surface) 위 흰 패널들(InfluencerProfile) — 왼쪽 명부는 흰 배경 그대로다(캠페인 상세와 같은 결정).
+          바닥 높이는 위 루트 div의 min-h-full이 준다. */}
+      <main className="min-w-0 flex-1 bg-x-surface">
         {deadLink && (
-          <p className="mx-6 mt-4 rounded-lg bg-x-surface px-3 py-2 text-ui text-x-secondary">
+          // 바닥이 회색이 됐으므로 안내띠는 흰 면 + 테두리로 — 같은 회색이면 띠가 바닥에 묻힌다
+          <p className="mx-6 mt-4 rounded-lg border border-x-border bg-white px-3 py-2 text-ui text-x-secondary">
             링크가 가리키는 인플루언서를 찾을 수 없어요 — 명부에서 지워졌거나 링크가 잘못됐어요.
           </p>
         )}
@@ -154,9 +234,14 @@ function InfluencersSplit() {
           </p>
         )}
         {selected && (
-          <InfluencerProfile key={selected.id} id={selected.id} onChanged={load} onDeleted={handleDeleted} />
+          <InfluencerProfile key={selected.id} id={selected.id} onChanged={load} onDeleted={handleDeleted}
+                             tab={tab} onTabChange={setTab} />
         )}
       </main>
+
+      {bulkOpen && (
+        <BulkAnalyzeDialog rows={rows} onClose={() => setBulkOpen(false)} onFinished={load} />
+      )}
 
       {adding && (
         <AddInfluencersDialog
@@ -171,13 +256,23 @@ function InfluencersSplit() {
 // 프로필을 아직 조회하지 않은 계정도 1급 시민이다: 이름 자리에 핸들을 세우고 미조회임을 메타에 적는다.
 function RosterRow({ row, active, onSelect, now }: { row: InfluencerRow; active: boolean; onSelect: () => void; now: Date }) {
   const meta: string[] = [];
-  if (row.followersCount !== null) meta.push(`팔로워 ${formatCount(row.followersCount)}`);
+  if (row.followersCount !== null) meta.push(`팔로워 ${formatKoCount(row.followersCount)}`);
   else if (row.profileRefreshedAt === null) meta.push('프로필 미조회');
   meta.push(row.lastLogAt ? relTime(row.lastLogAt, '기록') : '기록 없음');
   if (row.draftCount > 0) meta.push(`원고 ${row.draftCount}`);
+  // 분석 상태 세 가지(스펙 §7). 프로필 캡션(AnalysisSection)과 같은 relTime 어순 — '3일 전 분석'.
+  // relTime이 해석 불가로 ''를 돌려주면 캡션 자체를 생략한다(뜻 없는 '분석' 칩 방지).
+  if (!row.analyzedAt) meta.push('미분석');
+  else if (!row.analysisV2) meta.push('다시 분석 필요 (이전 방식)');
+  else {
+    const analyzedCaption = relTime(row.analyzedAt, '분석', now.getTime());
+    if (analyzedCaption) meta.push(analyzedCaption);
+  }
   // 프로필과 같은 판단 함수를 쓴다 — 명부와 프로필이 서로 다른 말을 하면 안 된다.
   // 점은 거들 뿐이고 뜻은 글자가 나른다(색·모양만으로 전달 금지).
   const { needsFollowup, daysSince } = judgeContact(row.lastContactAt, row.createdAt, now);
+  // 정산 조건 배지 — 통화·수수료 부담(스펙 §5-4). 계좌·이메일 등은 settlement 자체에 없다(목록 payload 절약).
+  const settle = settlementBadge(row.settlement);
 
   return (
     <button onClick={onSelect}
@@ -192,6 +287,7 @@ function RosterRow({ row, active, onSelect, now }: { row: InfluencerRow; active:
         </span>
         <span className="block text-caption text-x-muted">
           {meta.join(' · ')}
+          <span className={`ml-1.5 ${settle.muted ? 'text-x-muted' : 'font-medium text-x-text'}`}>{`· ${settle.label}`}</span>
           {needsFollowup && (
             <span className="ml-1.5 whitespace-nowrap font-medium text-red-600">
               <span aria-hidden>●</span>{' '}

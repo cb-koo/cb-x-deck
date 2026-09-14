@@ -10,6 +10,8 @@ import { isDraftStatus, type DraftStatus } from '@/lib/draftStatus';
 import { normalizeInfluencerPatch } from '@/lib/influencerPatch';
 import { isUuidLike } from '@/lib/uuid';
 import { LIST_CAP } from '@/lib/draftPaging';
+import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, TASK_HAS_DRAFT_MESSAGE, DRAFT_ATTACHED_MESSAGE } from '@/lib/campaignTaskInput';
+import { getTask, TaskAttachError } from '@/lib/campaignTaskStore';
 
 export async function GET(req: Request) {
   const gate = await requireAllowedUser();
@@ -26,7 +28,9 @@ export async function GET(req: Request) {
   // 읽기 전용이고, 여기서 400을 주면 낡은 클라이언트가 목록을 통째로 못 보는 쪽이 더 나쁘다.
   const rawLimit = Number(params.get('limit'));
   const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), LIST_CAP) : LIST_CAP;
-  return NextResponse.json(await listDrafts(getSql(), { clientId, status: status ?? undefined, limit }));
+  // unattached=1 — 작업에 안 붙은 원고만('있는 원고 고르기' 후보, 스펙 2026-08-28 §4-2)
+  const unattached = params.get('unattached') === '1';
+  return NextResponse.json(await listDrafts(getSql(), { clientId, status: status ?? undefined, limit, unattached }));
 }
 
 export async function POST(req: Request) {
@@ -45,6 +49,15 @@ export async function POST(req: Request) {
   if (body.count !== undefined && (!Number.isInteger(body.count) || body.count < 1 || body.count > 5)) {
     return NextResponse.json({ error: '시안 수는 1~5 사이여야 해요' }, { status: 400 });
   }
+  // 작업에 붙여 만들기(스펙 2026-08-28 §5 /generate?task=) — 형식·존재·미부착을 여기서 확정하고
+  // generateDraft엔 검증된 값만 넘긴다. 시안을 N개 만들면 첫 시안만 붙는다(원고 1개 = 작업 1개).
+  const taskId = parseTaskIdPatch((body as { taskId?: unknown }).taskId);
+  if (!taskId.ok) return NextResponse.json({ error: taskId.message }, { status: 400 });
+  if (typeof taskId.value === 'string') {
+    const task = await getTask(sql, taskId.value);
+    if (!task) return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 400 });
+    if (task.draftId) return NextResponse.json({ error: TASK_HAS_DRAFT_MESSAGE }, { status: 409 });
+  }
   try {
     const ids = await generateDraft(sql, {
       clientId: body.clientId ?? null,
@@ -56,6 +69,7 @@ export async function POST(req: Request) {
       constraintsOn: !!body.constraintsOn,
       count: body.count,
       memberId: gate.member.id, // 클라이언트 body 무시 — 위조 차단(브리핑 관례)
+      taskId: taskId.value ?? null, // 위에서 존재·미부착까지 확인한 값
     });
     return NextResponse.json(await Promise.all(ids.map((id) => getDraft(sql, id))));
   } catch (e) {
@@ -63,6 +77,12 @@ export async function POST(req: Request) {
     if (e instanceof LLMRefusalError) {
       return NextResponse.json(
         { error: '안전 분류기가 이번 생성을 거절했어요 — 방향성을 바꿔 다시 시도해주세요' }, { status: 502 });
+    }
+    // 생성 자체는 끝났는데 붙이기(insertDraft→attachDraft)가 경합으로 실패한 경우 — manual 라우트와 같은 매핑.
+    if (e instanceof TaskAttachError) {
+      const message = e.code === 'draft-attached' ? DRAFT_ATTACHED_MESSAGE
+        : e.code === 'task-has-draft' ? TASK_HAS_DRAFT_MESSAGE : TASK_NOT_FOUND_MESSAGE;
+      return NextResponse.json({ error: message }, { status: e.code === 'no-task' ? 400 : 409 });
     }
     // 원인을 삼키지 않는다(브리핑 라우트 관례)
     console.error('[draft] 생성 중 오류', { err: e instanceof Error ? e.message : String(e) });
@@ -95,13 +115,14 @@ export async function PATCH(req: Request) {
   }
   const inf = normalizeInfluencerPatch(body.influencerHandle);
   if (!inf.ok) return NextResponse.json({ error: inf.message }, { status: 400 });
+  // 일괄은 상태·배정만 받는다 — 캠페인 소속은 작업의 것이라 여기로 오지 않는다(스펙 2026-08-28 §5).
   if (body.status === undefined && inf.value === undefined) {
     return NextResponse.json({ error: '바꿀 내용이 없어요' }, { status: 400 });
   }
+  const sql = getSql();
   // 갱신과 자동 로그(influencerSync)를 같은 트랜잭션에 — 단건 PATCH와 같은 원칙(스펙 §5).
   // UPDATE는 여전히 한 문장이고, 로그 insert N개는 같은 커넥션 위의 짧은 문장들이라
   // updateDraftsBulk가 피하려던 "커넥션 N개 동시 점유"와는 다르다.
-  const sql = getSql();
   await sql.begin(async (tx0) => {
     const tx = tx0 as unknown as postgres.Sql; // 저장소 선례: generate.ts:127
     const befores = await getDraftsByIdsForUpdate(tx, parsed.ids);

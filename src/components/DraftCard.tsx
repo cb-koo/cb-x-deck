@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, type SyntheticEvent } from 'react';
+import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
 import type { DraftRow } from '@/lib/draftStore';
 import type { RefSnapshot, InfluencerOption, DraftContent, DraftPost } from '@/lib/draftTypes';
@@ -19,9 +20,15 @@ import { useTranslations } from '@/components/useTranslations';
 import { DraftStatusChip } from '@/components/DraftStatusChip';
 import { InfluencerChip } from '@/components/InfluencerChip';
 import { DraftTitleField } from '@/components/DraftTitleField';
+import { TrackingLinkSection } from '@/components/TrackingLinkSection';
 import { draftLabel } from '@/lib/draftViews';
 import { draftShareUrl } from '@/lib/draftShare';
 import type { DraftStatus } from '@/lib/draftStatus';
+import type { CampaignRow } from '@/lib/campaignStore';
+import { formatAmount } from '@/lib/campaignCost';
+import { DraftTaskField } from '@/components/DraftTaskField';
+// TASK_TYPE_LABEL은 여기서 쓰지 않는다 — 유형은 DraftTaskField 칩이 이미 말한다(같은 카드에 두 번 쓰지 않는다)
+import { isTaskOverdue, daysBetweenDates, formatDateKo, type TaskType } from '@/lib/campaignJudgment';
 
 const MODE_LABEL: Record<DraftRow['referenceMode'], string> = {
   off: '참고 없음', form: '형식만', angle: '앵글만', both: '형식 + 앵글',
@@ -161,7 +168,7 @@ function MediaOverlayActions({ canDetach, isGif, onDetach, onDownload, onCopy, o
 }
 
 // 초안 카드 — X 실측(600px·radius16·아바타40·본문 15/20). 지표·배지·이미지 자리 없음(없는 데이터는 자리도 안 만듦)
-export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, onChangeTitle, siblingTotal, influencerOptions, onAssignInfluencer, onSaveMedia, mediaDropNotice, onDismissMediaDrop }: {
+export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, onChangeTitle, siblingTotal, influencerOptions, onAssignInfluencer, onSaveMedia, mediaDropNotice, onDismissMediaDrop, task }: {
   draft: DraftRow; banned: string[];
   onEdit: () => void; onRewrite: (feedback: string, baseIndex: number) => void; rewriteBusy: boolean;
   onDelete: () => void; onRegenPost: (index: number) => void; regenBusyIndex: number | null;
@@ -180,6 +187,19 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   // 다시 쓰기를 실행한 페이지가 응답을 받는 순간 계산해 내려준다. null이면 안내 없음.
   mediaDropNotice: MediaDropNotice | null;
   onDismissMediaDrop: () => void;
+  // 작업(campaign_task) 관련은 객체 하나로(리뷰 Should 4 — prop 18개 위에 여러 개를 더 얹지 않는다).
+  // undefined면 작업 칸을 그리지 않는다: 캠페인 화면·/generate가 배선하고, 그 밖의 호스트는 그대로 컴파일·동작한다.
+  // 값은 전부 draft에서 읽는다(값은 하나 — taskId/taskType/campaignId/campaignName/scheduledOn/cost가 모두 붙은 작업의 파생값).
+  // 저장은 호스트가 PATCH /api/drafts/[id] { taskId }로 — 카드는 fetch하지 않는다(낙관적 갱신·롤백은 목록 소유자의 몫).
+  task?: {
+    campaigns: CampaignRow[];        // 전 캠페인 — 후보 필터(클라·상태)는 DraftTaskField가 한다
+    today: string;                   // 밀림 판정 기준(서울) — 호스트가 서버 today 또는 kstToday()를 준다
+    onAttach: (taskId: string) => void;
+    onDetach: () => void;
+    // 작업 만들기 + 이 원고 붙이기를 호스트가 한 트랜잭션으로 처리한다(리뷰 발견 — 따로 하면 원고 없는
+    // 고아 작업이 남을 수 있다). 성공하면 true, 실패하면 false(호스트가 토스트로 사유를 말한다).
+    onCreateTask: (campaignId: string, type: TaskType) => Promise<boolean>;
+  };
 }) {
   const [refsOpen, setRefsOpen] = useState(false);
   // 레퍼런스 번역 — 덱/보관함과 같은 훅·같은 캐시(tweet_translation, tweet_id 단위 전역).
@@ -194,6 +214,17 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   const active = flags.filter((f) => !f.dismissed);
   const dismissedCount = flags.length - active.length;
   const isThread = draft.format === 'thread';
+
+  // 밀림 며칠 — 카드는 게시 확인(postedAt)·내려짐을 모른다. 그래서 postedAt: null로 본다: 이미 게시한 작업도
+  // 예정일이 지났으면 '지남'으로 보일 수 있다. 정확한 판정은 캠페인 표(작업의 게시 확인을 아는 곳)의 몫이고,
+  // 여기 숫자는 "예정일이 지났다"는 알림 수준이다. 정확히 보려면 옆의 '작업에서 고치기 ↗'로 간다.
+  const overdue = task && draft.taskId && draft.scheduledOn
+    && isTaskOverdue({
+      type: draft.taskType as TaskType, draftStatus: draft.status,
+      postedAt: null, removedAt: null, scheduledOn: draft.scheduledOn, visitOn: null,
+    }, task.today)
+    ? daysBetweenDates(draft.scheduledOn, task.today)
+    : null;
 
   // 버전 이력 — 재생성 직전 스냅샷들(history) + 현재 표시본. ‹ 1/2 › 페이저로 이전 버전 열람.
   // verIdx=null은 '항상 최신' — 새 버전이 생겨도 자동으로 따라간다.
@@ -427,6 +458,11 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
         <DraftStatusChip status={draft.status} onChange={onChangeStatus} />
         {/* 인플루언서 배정 — 상태와 나란히 "누구에게·어디까지"를 한 자리에서 (스펙 §F). 편집 모달을 열지 않고 카드에서 바로 배정 — 미배정 표시도 칩이 알아서 그린다 */}
         <InfluencerChip handle={draft.influencerHandle} options={influencerOptions} onChange={onAssignInfluencer} />
+        {/* 작업 소속(스펙 2026-08-28 §5) — 인플루언서 칸 옆 "누구에게 · 어느 작업으로". 배선한 호스트에서만 보인다 */}
+        {task && (
+          <DraftTaskField draft={draft} campaigns={task.campaigns} today={task.today}
+                          onAttach={task.onAttach} onDetach={task.onDetach} onCreateTask={task.onCreateTask} />
+        )}
         {draft.batchId !== null && siblingTotal !== null && (
           <span className="text-caption text-x-muted">
             시안 {variantLabel(draft.variantIndex ?? 0)} · 같은 조건 {siblingTotal}개 중
@@ -438,6 +474,19 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
           {draft.format === 'thread' ? '스레드' : '단문'}
         </span>
       </div>
+      {/* 예정일·비용 — 읽기만 한다. 두 값은 작업(campaign_task)의 것이라 원고 PATCH로는 저장되지 않는다:
+          여기에 입력 칸을 두면 눌러도 아무 일이 없는 거짓 어포던스가 된다. 고치는 자리는 캠페인 화면이고,
+          그 자리로 가는 링크를 같은 줄에 둔다(§UX 원칙 2 — 어디서 고치는지를 그 자리에서 말한다). */}
+      {task && draft.taskId && (
+        <div className="flex flex-wrap items-center gap-3 border-b border-x-border bg-x-surface px-4 pb-2 text-ui text-x-secondary">
+          <span>
+            예정일 {draft.scheduledOn ? formatDateKo(draft.scheduledOn) : '미정'}
+            {overdue !== null && <span className="font-bold text-red-700"> · {overdue}일 지남</span>}
+          </span>
+          <span>비용 {draft.cost ? formatAmount(draft.cost.amount, draft.cost.currency) : '없음'}</span>
+          <Link href={`/campaigns?id=${draft.campaignId ?? ''}`} className="text-x-blue-text hover:underline">작업에서 고치기 ↗</Link>
+        </div>
+      )}
       {/* 원고 이름 — 도구층의 둘째 줄. 칩과 같은 줄에 두지 않는 이유는 제목이 최대 80자라
           한 줄에 섞으면 상태·인플루언서 칩을 밀어내기 때문이다. X 콘텐츠층(아래 흰 영역) 밖에
           두어 본문 미러링은 그대로 둔다 — 제목은 X에 없는, 우리 목록에만 있는 개념이다. */}
@@ -717,6 +766,9 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
         {/* PR 표기 안내가 여기 상시로 있었다 — 매 카드 같은 문구라 며칠이면 아무도 안 읽는다.
             복사·받기 직후(원고가 실제로 나가는 순간)로 옮겼다. 검수 표식이 없으면 이 회색 층은
             근거 풋터 한 줄만 남으므로 위쪽 구분선도 필요 없어졌다. */}
+        <TrackingLinkSection draftId={draft.id} influencerHandle={draft.influencerHandle}
+                             clientId={draft.clientId} clientName={draft.clientName}
+                             campaignCode={draft.campaignCode} />
         <div className={`flex items-baseline justify-between gap-3 text-[13px] ${active.length > 0 || dismissedCount > 0 ? 'mt-1 border-t border-x-border pt-1.5' : ''}`}>
           <button onClick={() => { const opening = !refsOpen; setRefsOpen(opening); if (opening) void refTr.loadCached(draft.refs.map((r) => r.tweetId)); }}
                   disabled={draft.refs.length === 0}

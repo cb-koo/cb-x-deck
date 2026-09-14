@@ -1,4 +1,5 @@
 {
+  "framework": "nextjs",
   "regions": ["sin1"],
   "crons": [{ "path": "/api/reports/sync", "schedule": "0 19 * * *" }]
 }

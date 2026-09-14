@@ -1,5 +1,6 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { useToast } from '@/lib/toastContext';
@@ -8,9 +9,11 @@ import { TrackAddForm } from '@/components/TrackAddForm';
 import { TrackAddManyDialog } from '@/components/TrackAddManyDialog';
 import { TrackingTable, type DraftOption, type DraftsState, type HistoryState, type TrackSortKey, type TrackSortDir } from '@/components/TrackingTable';
 import { ShowMoreButton } from '@/components/ShowMoreButton';
+import { LinksView } from './LinksView';
 import { PAGE_STEP } from '@/lib/draftPaging';
 import type { TrackedPostRow, MetricSnapshotRow } from '@/lib/trackingStore';
 import type { DraftRow } from '@/lib/draftStore';
+import type { PostRole } from '@/lib/postRole';
 
 const FETCH_FAILED = '지표를 가져오지 못했어요 — 잠시 후 다시 시도해 주세요';
 
@@ -20,6 +23,23 @@ type AddOutcome =
   | { kind: 'fail'; msg: string };
 
 export default function TrackingPage() {
+  // useSearchParams는 Suspense 경계 필수 (clients/page.tsx·influencers/page.tsx 선례)
+  return <Suspense><TrackingTabs /></Suspense>;
+}
+
+function TrackingTabs() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // 주소에 탭을 남긴다 — 새로고침·링크 공유로 유지 (library·덱과 같은 패턴)
+  const tab = searchParams.get('view') === 'links' ? 'links' : 'posts';
+  function setTab(next: 'posts' | 'links') {
+    const p = new URLSearchParams(searchParams.toString());
+    if (next === 'links') p.set('view', 'links'); else p.delete('view');
+    const q = p.toString();
+    router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+  }
+
   const { show, hide } = useToast();
   const [rows, setRows] = useState<TrackedPostRow[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -285,6 +305,21 @@ export default function TrackingPage() {
     }
   }, [show]);
 
+  // 역할 변경 — 성과 화면이 '조회'로 쓸 게시물을 사람이 바로잡는다. null = 자동으로 되돌리기.
+  const setRole = useCallback(async (row: TrackedPostRow, role: PostRole | null) => {
+    try {
+      const res = await apiFetch(`/api/tracking/${row.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { row?: TrackedPostRow; error?: string };
+      if (!res.ok || !data.row) { show(data.error ?? '역할을 바꾸지 못했어요 — 잠시 후 다시 시도해 주세요'); return; }
+      const next = data.row;
+      setRows((cur) => cur.map((r) => (r.id === next.id ? next : r)));
+    } catch {
+      show('역할을 바꾸지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
+    }
+  }, [show]);
+
   // 펼침 = 그 행의 측정 이력을 그때 조회한다(목록 응답에 전부 실어 보내지 않기 위해).
   // 다시 누르면 접고, 다른 행을 누르면 그 행으로 옮겨간다.
   const toggleExpand = useCallback(async (id: string) => {
@@ -358,14 +393,31 @@ export default function TrackingPage() {
     <main className="mx-auto max-w-[1600px] px-6 py-8">
       <div className="mb-1 flex items-baseline gap-2">
         <h1 className="text-[20px] font-bold">트래킹</h1>
-        {loaded && !loadErr && visible.length > 0 && (
+        {tab === 'posts' && loaded && !loadErr && visible.length > 0 && (
           <span className="text-ui text-x-muted">{visible.length}건</span>
         )}
       </div>
-      <p className="mb-4 text-caption text-x-muted">
-        게시된 게시물의 반응을 모아 보는 곳이에요. 지표는 새로고침을 누른 순간에만 다시 가져와요(자동 수집 없음).
+      <p className="mb-3 text-caption text-x-muted">
+        {tab === 'posts'
+          ? '게시된 게시물의 반응을 모아 보는 곳이에요. 지표는 새로고침을 누른 순간에만 다시 가져와요(자동 수집 없음).'
+          : '인플루언서에게 전달할 랜딩페이지 링크를 만드는 곳이에요 — 어느 인플·어느 콘텐츠에서 온 방문인지 꼬리표가 붙고, 클릭 수를 여기서 추적해요.'}
       </p>
 
+      {/* 추적 대상 전환은 채움형 세그먼트 — 배타적 모드 전환기라 필터 알약과 다른 시각 문법을 쓴다
+          (library 보기 방식 세그먼트와 동일 규격) */}
+      <div role="group" aria-label="추적 대상" className="mb-4 flex h-7 w-fit overflow-hidden rounded-lg border border-x-border-strong">
+        {([['posts', '게시물'], ['links', '링크']] as const).map(([v, label], i) => (
+          <button key={v} onClick={() => setTab(v)} aria-pressed={tab === v}
+                  title={v === 'posts' ? '게시된 게시물의 반응(조회·좋아요 등)을 추적해요' : '랜딩페이지 링크를 만들고 클릭을 추적해요'}
+                  className={`h-full px-3 text-[13px] ${i > 0 ? 'border-l border-x-border-strong' : ''} ${tab === v ? 'bg-x-blue font-bold text-white' : 'bg-white text-x-secondary hover:bg-x-hover'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'links' && <LinksView />}
+
+      {tab === 'posts' && (<>
       <div className="mb-5 rounded-xl border border-x-border p-3">
         <TrackAddForm busy={adding} onSubmit={addSingle} onOpenMany={() => setShowAddMany(true)} />
       </div>
@@ -406,6 +458,7 @@ export default function TrackingPage() {
                          drafts={drafts} draftsState={draftsState} onLoadDrafts={() => void loadDrafts()}
                          pickerFor={pickerFor} onOpenPicker={openPicker}
                          onLinkDraft={(row, draftId) => void linkDraft(row, draftId)}
+                         onSetRole={(row, role) => void setRole(row, role)}
                          onRefresh={(row) => void refreshOne(row.id)} onRemove={(row) => requestRemove([row])} />
           {/* '더 보기'는 표 스크롤 컨테이너 밖 — 표를 끝까지 내리지 않아도 잘렸다는 사실이 보인다(TweetTableView 관례) */}
           <ShowMoreButton total={sorted.length} shown={shown.length}
@@ -426,6 +479,7 @@ export default function TrackingPage() {
           )}
         </>
       )}
+      </>)}
     </main>
   );
 }

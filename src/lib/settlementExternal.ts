@@ -43,7 +43,10 @@ export interface ExternalItem {
   request_id: string; revision: number; revised_at: string | null; status: 'requested' | 'cancelled'; created_at: string; updated_at: string;
   cancelled: { at: string | null; by_name: string | null; reason: string | null } | null;
   task_id: string | null;
-  campaign: { id: string | null; name: string }; clinic: { id: string; name: string };
+  // starts_on/ends_on·posted_on/confirmed_on(2026-09-14): 요청 시점 스냅샷. 게시일은 유형별로 뜻이 달라 필드를 가른다 —
+  // 투고·인용RT·방문은 트윗 시각에서 뽑은 게시일(posted_on), RT는 담당자가 확인해 적은 확인일(confirmed_on). 반대쪽은 null.
+  campaign: { id: string | null; name: string; starts_on: string | null; ends_on: string | null }; clinic: { id: string; name: string };
+  posted_on: string | null; confirmed_on: string | null;
   influencer: { id: string; handle: string };
   task_type: PaymentRequestRow['taskType'];
   category: { code: string; label: string };
@@ -72,7 +75,8 @@ export function toExternalItem(e: ExportRow, origin: string): ExternalItem {
     status: r.status, created_at: r.createdAt, updated_at: r.updatedAt,
     cancelled: r.status === 'cancelled' ? { at: r.cancelledAt, by_name: r.cancelledByName, reason: r.cancelReason } : null,
     task_id: r.taskId,
-    campaign: { id: r.campaignId, name: r.campaignName }, clinic: { id: r.clientId, name: r.clientName },
+    campaign: { id: r.campaignId, name: r.campaignName, starts_on: r.campaignStartsOn, ends_on: r.campaignEndsOn }, clinic: { id: r.clientId, name: r.clientName },
+    posted_on: r.taskType === 'rt' ? null : r.postedOn, confirmed_on: r.taskType === 'rt' ? r.postedOn : null,
     influencer: { id: r.influencerId, handle: r.influencerHandle },
     task_type: r.taskType,
     category: { code: r.categoryOptionId, label: r.category },

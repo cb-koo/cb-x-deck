@@ -1,8 +1,8 @@
-import { test, after } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { createClient, deleteClient } from './clientStore.ts';
-import { createCampaign } from './campaignStore.ts';
+import { createCampaign, updateCampaign } from './campaignStore.ts';
 import { createTasks, updateTask, getTask, deleteTask } from './campaignTaskStore.ts';
 import { createInfluencer, updatePaymentMethods, deleteInfluencer } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettings.ts';
@@ -14,7 +14,7 @@ import {
   reviseRequest, previewRevision, listRevisions,
 } from './settlementStore.ts';
 import type { CreateItemInput, PaymentRequestRow } from './settlementStore.ts';
-import { encodeCursor, decodeCursor } from './settlementExternal.ts';
+import { encodeCursor, decodeCursor, toExternalItem } from './settlementExternal.ts';
 import { hasPaidDiff } from './settlementDisplay.ts';
 
 const sql = getSql();
@@ -22,6 +22,14 @@ const P = 'tstl' + process.pid;
 const H = (s: string) => `${P}_${s}`;   // 핸들도 접두어 — 명부 정리를 위해
 // 설정 테스트가 중단(인터럽트)돼도 프로덕션 설정을 테스트 값으로 남기지 않기 위한 원상복구용 — 테스트 시작 시 채운다
 let savedBefore: SettlementSettings | null = null;
+// 09-11 분류 개편 뒤 프로덕션 현재 설정에서는 SETTLEMENT_DEFAULTS의 분류 3개가 숨김이라, DB 설정을 읽는 createRequests가 '목록에 없는 분류'로
+// 전부 튕겼다(09-14 발견). 테스트는 기본 분류를 전제하므로 시작할 때 기본 설정(+마커)을 깔고, after()가 원래 설정으로 되돌린다.
+before(async () => {
+  // 이전 실행이 인터럽트로 끊겨 이 파일의 마커 행이 "현재값"으로 남아 있을 수 있다 — 먼저 지워야 아래가 진짜 원래값을 읽는다
+  await sql`delete from settlement_setting_version where settings->>'marker' = ${P}`;
+  savedBefore = await getSettlementSettings(sql);
+  await saveSettlementSettings(sql, { ...SETTLEMENT_DEFAULTS, marker: P } as SettlementSettings & { marker: string }, null);
+});
 after(async () => {
   // 마커 없는 순수 복구 행을 먼저 넣어 "현재 설정"을 테스트 이전 값으로 되돌린다 — 그 다음 이번 실행의 마커 행을 지운다.
   // 순서를 바꾸지 않는 이유: 중간에 프로세스가 죽어도 이 행이 이미 최신이면 현재값은 항상 원래대로다.
@@ -257,21 +265,18 @@ test('취소 — 상태·사유·사람·시각, 후보 복귀, 재요청 허용
 // 이 위치에 두는 이유는 이제 순서 문제가 아니다 — 테스트 본문 끝에서 바로 원래값으로 복구하고(인라인),
 // after()가 한 번 더 같은 복구를 시도한다(인터럽트로 본문이 끝까지 못 갈 때 대비). 이중 복구라 파일 내 위치가 어디든 무방하다.
 test('설정 — 행 없으면 기본값, 저장하면 마지막 행이 현재값, 버전 목록', async () => {
-  // 이전 실행이 인터럽트로 중간에 끊겨 이 테스트의 마커 행이 "현재값"으로 남아 있을 수 있다 — 먼저 지워야
-  // 아래 before가 진짜 원래값을 읽는다(그래야 after()의 복구도 올바른 값으로 이뤄진다)
-  await sql`delete from settlement_setting_version where settings->>'marker' = ${P}`;
-  // 다른 세션이 이미 저장한 행이 있을 수 있어 "기본값과 같다"는 단정 대신 모양만 본다
+  // 인터럽트 잔여 정리와 원래값 보관은 파일 앞의 before()가 한다(09-14). 여기서는 "이 테스트 직전 값"(= before()가 깐 기본 설정)으로만 되돌린다 —
+  // 뒤따르는 생성 테스트들이 기본 분류를 전제하기 때문에, 여기서 프로덕션 원래값으로 되돌리면 그 뒤가 전부 '목록에 없는 분류'로 깨진다.
   const before = await getSettlementSettings(sql);
   assert.ok(before.categories.length >= 1 && before.rateKrwPerJpy >= 1);
-  savedBefore = before;   // after()가 인터럽트 여부와 무관하게 이 값으로 되돌린다(테스트 본문에서는 복구하지 않는다)
   const mine = { ...SETTLEMENT_DEFAULTS, rateKrwPerJpy: 11, marker: P } as typeof SETTLEMENT_DEFAULTS & { marker: string };
   await saveSettlementSettings(sql, mine, null);
   const cur = await getSettlementSettings(sql);
   assert.equal(cur.rateKrwPerJpy, 11);
   const versions = await listSettlementVersions(sql, 1);
   assert.equal(versions.length, 1);
-  // 본문 끝에서 바로 원래값으로 복구 — after()의 복구는 인터럽트 대비 이중 안전장치일 뿐, 순서에 기대지 않는다
-  await saveSettlementSettings(sql, savedBefore!, null);
+  // 본문 끝에서 직전 값으로 복구(마커를 붙여 after()가 지운다) — 프로덕션 원래값 복구는 after()의 몫
+  await saveSettlementSettings(sql, { ...before, marker: P } as SettlementSettings & { marker: string }, null);
   assert.equal((await getSettlementSettings(sql)).rateKrwPerJpy, before.rateKrwPerJpy);
 });
 
@@ -290,6 +295,32 @@ test('생성 — influencer_id·category_option_id 스냅샷 저장, 외부 필�
   assert.equal(row.externalStatus, null); assert.equal(row.paidAmountKrw, null); assert.equal(row.externalUpdatedAt, null);
   const badge = (await settlementByTaskIds(sql, [t.id])).get(t.id)!;
   assert.equal(badge.externalStatus, null); assert.equal(badge.cancelledAt, null);
+});
+
+// 09-14 koo: 캠페인 기간·게시일을 요청 시점 값으로 고정해 그쪽에 싣는다(단가·수단과 같은 스냅샷 규칙).
+test('생성 — 캠페인 기간·게시일 스냅샷: 요청 뒤 캠페인 기간을 고쳐도 요청 값은 그대로, 제자리 수정이 새 값을 가져온다', async () => {
+  const { row, member } = await requestFor('dates', 'dt');
+  assert.equal(row.campaignStartsOn, '2026-08-31'); assert.equal(row.campaignEndsOn, '2026-09-06'); assert.equal(row.postedOn, '2026-08-27');
+  // 그쪽 API 항목: 투고라 posted_on, confirmed_on은 null
+  const ex = (await getForExport(sql, row.id))!;
+  const it = toExternalItem(ex, 'https://x.example');
+  assert.deepEqual(it.campaign, { id: row.campaignId, name: row.campaignName, starts_on: '2026-08-31', ends_on: '2026-09-06' });
+  assert.equal(it.posted_on, '2026-08-27'); assert.equal(it.confirmed_on, null);
+  // 원본 캠페인 기간을 고쳐도 요청 스냅샷은 그대로(그쪽 폴링이 다시 집어갈 신호가 없으므로 조용히 바뀌면 안 된다)
+  await updateCampaign(sql, row.campaignId!, { startsOn: '2026-09-01', endsOn: '2026-09-10' });
+  const [same] = await listRequests(sql, { taskId: row.taskId! });
+  assert.equal(same.campaignStartsOn, '2026-08-31'); assert.equal(same.campaignEndsOn, '2026-09-06');
+  // 제자리 수정([고친 값으로 다시 반영])은 현재 캠페인 기간을 새 스냅샷으로 가져온다 — updated_at도 갱신돼 그쪽이 다시 집어간다
+  const revised = await revisionOn(() => reviseRequest(sql, row.id, { expectedRevision: 0, reason: '기간 정정', edits: { category: row.category, deadlineOn: row.deadlineOn, referenceUrl: row.referenceUrl }, partnerConfirmed: false }, member));
+  assert.ok(typeof revised === 'object' && 'id' in revised, JSON.stringify(revised));
+  assert.equal(revised.campaignStartsOn, '2026-09-01'); assert.equal(revised.campaignEndsOn, '2026-09-10'); assert.equal(revised.postedOn, '2026-08-27');
+});
+
+test('생성 — RT 요청은 그쪽 항목에서 confirmed_on으로 나가고 posted_on은 null', async () => {
+  const { row } = await requestForRt('dtrt', 'dtrt');
+  assert.equal(row.postedOn, '2026-08-27');
+  const it = toExternalItem((await getForExport(sql, row.id))!, 'https://x.example');
+  assert.equal(it.posted_on, null); assert.equal(it.confirmed_on, '2026-08-27');
 });
 
 test('취소 — 그쪽이 지급 완료한 요청은 paid-locked, 트리거가 우회 UPDATE도 막는다', async () => {

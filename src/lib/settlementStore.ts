@@ -57,6 +57,7 @@ type CandRow = {
   target_post_url: string | null; posted_at: string; removed_at: string | null; removed_reason: string; draft_label: string | null;
   campaign_id: string; campaign_name: string; kind: CampaignKind | null; client_id: string | null; client_name: string | null;
   influencer_id: string | null; payment_methods: unknown; proof: unknown;
+  campaign_starts_on: string; campaign_ends_on: string;   // 요청 스냅샷용 캠페인 기간(054)
 };
 // 후보 조건은 campaignJudgment.isSettlementCandidate와 같은 정의 — 스토어 테스트가 대조한다
 const CANDIDATE_BASE = (sql: postgres.Sql) => sql`
@@ -64,6 +65,7 @@ const CANDIDATE_BASE = (sql: postgres.Sql) => sql`
          to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, to_char(t.removed_at, 'YYYY-MM-DD') as removed_at, t.removed_reason,
          coalesce(d.title, d.ko_title) as draft_label, t.proof,
          c.id as campaign_id, c.name as campaign_name, c.kind, c.client_id, c.client_name,
+         to_char(c.starts_on, 'YYYY-MM-DD') as campaign_starts_on, to_char(c.ends_on, 'YYYY-MM-DD') as campaign_ends_on,
          i.id as influencer_id, i.payment_methods
     from campaign_task t
     join campaign c on c.id = t.campaign_id
@@ -117,6 +119,9 @@ export interface PaymentRequestRow {
   revision: number; revisedAt: string | null;   // 제자리 수정 횟수·마지막 수정 시각(048). 0·null = 한 번도 안 고침
   paidAmountUsd: number | null;   // PayPal 지급의 달러 실지급액(050, 그쪽 09-09). 표시·되비침용, 차액 판정은 원화
   paidAmountJpy: number | null;   // 계좌(일본)·PayPay 지급의 엔화 실지급액(051). 한 요청에 외화는 하나
+  // 캠페인 기간·게시일 스냅샷(054, koo 09-14) — 그쪽 API의 campaign.starts_on/ends_on·posted_on/confirmed_on. 단가·수단과 같은 '요청 시점 값 고정'.
+  // null은 백필 전 옛 요청(캠페인·작업이 지워진 경우)뿐 — 새 요청은 항상 채워진다(게시일 없는 작업은 후보가 못 된다).
+  campaignStartsOn: string | null; campaignEndsOn: string | null; postedOn: string | null;
 }
 export interface CreateItemInput {
   taskId: string; category: string; deadlineOn: string; referenceUrl: string | null;
@@ -139,6 +144,7 @@ type RRow = {
   diff_ack_at: Date | null; diff_ack_by_name: string | null;
   external_operator_id: string | null; external_operator_name: string | null;
   revision: number; revised_at: Date | null; paid_amount_usd: string | number | null; paid_amount_jpy: string | number | null;
+  campaign_starts_on: string | null; campaign_ends_on: string | null; task_posted_on: string | null;
 };
 const R_SELECT = (sql: postgres.Sql) => sql`
   select id, task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type, category, category_default,
@@ -146,7 +152,8 @@ const R_SELECT = (sql: postgres.Sql) => sql`
          to_char(deadline_on, 'YYYY-MM-DD') as deadline_on, reference_url, proof, payment_method, requester_member_id, requester_name,
          status, cancelled_at, cancelled_by_name, cancel_reason, sent_at, external_id, note, created_at, updated_at,
          external_status, paid_amount_krw, paid_at, external_note, external_updated_at, influencer_id, category_option_id,
-         diff_ack_at, diff_ack_by_name, external_operator_id, external_operator_name, revision, revised_at, paid_amount_usd, paid_amount_jpy
+         diff_ack_at, diff_ack_by_name, external_operator_id, external_operator_name, revision, revised_at, paid_amount_usd, paid_amount_jpy,
+         to_char(campaign_starts_on, 'YYYY-MM-DD') as campaign_starts_on, to_char(campaign_ends_on, 'YYYY-MM-DD') as campaign_ends_on, to_char(task_posted_on, 'YYYY-MM-DD') as task_posted_on
     from payment_request`;
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 const toRequest = (r: RRow): PaymentRequestRow => ({
@@ -164,6 +171,7 @@ const toRequest = (r: RRow): PaymentRequestRow => ({
   revision: r.revision, revisedAt: iso(r.revised_at),
   paidAmountUsd: r.paid_amount_usd === null ? null : Number(r.paid_amount_usd),
   paidAmountJpy: r.paid_amount_jpy === null ? null : Number(r.paid_amount_jpy),
+  campaignStartsOn: r.campaign_starts_on, campaignEndsOn: r.campaign_ends_on, postedOn: r.task_posted_on,
 });
 
 const isHttpUrl = (u: string) => /^https?:\/\/\S+$/.test(u);
@@ -226,12 +234,12 @@ export async function createRequests(
           insert into payment_request (task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type,
             category, category_default, item_text, purpose_text, amount_krw, cost_currency, payout_currency, rate_krw_per_jpy,
             amount_net, fee, fee_amount, amount_gross, deadline_on, reference_url, proof, payment_method, requester_member_id, requester_name,
-            influencer_id, category_option_id)
+            influencer_id, category_option_id, campaign_starts_on, campaign_ends_on, task_posted_on)
           values (${cand.taskId}, ${cand.campaignId}, ${cand.campaignName}, ${cand.clientId}, ${cand.clientName}, ${cand.influencerHandle}, ${cand.taskType},
             ${item.category}, ${cand.categoryDefault}, ${cand.itemText}, ${cand.purposeText}, ${m.amountKrw}, ${m.costCurrency}, ${m.payoutCurrency}, ${m.rateKrwPerJpy},
             ${m.amountNet}, ${m.fee ? tx.json(asJson(m.fee)) : null}, ${m.feeAmount}, ${m.amountGross}, ${item.deadlineOn}, ${item.referenceUrl || null}, ${cand.proof ? tx.json(asJson(cand.proof)) : null},
             ${tx.json(asJson(toMethodSnapshot(pm)))}, ${member.id}, ${member.name},
-            ${r.influencer_id}, ${cat.id})
+            ${r.influencer_id}, ${cat.id}, ${r.campaign_starts_on}, ${r.campaign_ends_on}, ${r.posted_at})
           returning id`;
         const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${ins[0].id}`;
         const row = toRequest(saved);
@@ -459,6 +467,7 @@ export interface RevisionEdits { category: string; deadlineOn: string; reference
 export interface RevisionTarget {
   // 고쳤을 때의 값 — 화면 미리보기(before/after)와 실제 반영이 같은 계산을 쓴다
   candidate: SettlementCandidate; category: { id: string; sendAs: string }; deadlineOn: string; referenceUrl: string | null; issues: ReadinessIssue[];
+  dates: { campaignStartsOn: string; campaignEndsOn: string; postedOn: string };   // 고쳤을 때 새로 스냅샷될 캠페인 기간·게시일(054)
 }
 export type RevisionPreview = { ok: true; before: PaymentRequestRow; after: RevisionTarget } | { ok: false; reason: RevisionFailure; before: PaymentRequestRow | null };
 
@@ -484,7 +493,8 @@ async function resolveRevision(
   if (blocked.length || !cat || cat.hidden) return { ok: false, reason: { kind: 'blocked', issues: blocked.length ? blocked : [{ level: 'blocked', code: 'no-category', text: '분류를 다시 골라 주세요 — 목록에 없는 분류예요' }] } };
   if (!isDateOnlyString(e.deadlineOn)) return { ok: false, reason: { kind: 'blocked', issues: [{ level: 'blocked', code: 'no-category', text: '마감일 형식을 확인해 주세요' }] } };
   if (e.referenceUrl && !isHttpUrl(e.referenceUrl)) return { ok: false, reason: { kind: 'blocked', issues: [{ level: 'blocked', code: 'no-reference', text: '참고 링크는 http(s) 주소여야 해요' }] } };
-  return { ok: true, target: { candidate: cand, category: { id: cat.id, sendAs: e.category }, deadlineOn: e.deadlineOn, referenceUrl: e.referenceUrl || null, issues } };
+  return { ok: true, target: { candidate: cand, category: { id: cat.id, sendAs: e.category }, deadlineOn: e.deadlineOn, referenceUrl: e.referenceUrl || null, issues,
+    dates: { campaignStartsOn: r.campaign_starts_on, campaignEndsOn: r.campaign_ends_on, postedOn: r.posted_at } } };
 }
 
 // 미리보기 — 화면이 [고친 값으로 다시 반영]을 열 때. edits가 없으면 현재 요청의 분류·마감·링크를 그대로 두고 돈 값만 다시 계산한다.
@@ -524,6 +534,7 @@ export async function reviseRequest(
              payment_method = ${tx.json(asJson(toMethodSnapshot(pm)))},
              category = ${t.category.sendAs}, category_option_id = ${t.category.id}, deadline_on = ${t.deadlineOn}, reference_url = ${t.referenceUrl},
              item_text = ${t.candidate.itemText}, purpose_text = ${t.candidate.purposeText},
+             campaign_starts_on = ${t.dates.campaignStartsOn}, campaign_ends_on = ${t.dates.campaignEndsOn}, task_posted_on = ${t.dates.postedOn},
              revision = revision + 1, revised_at = now(), updated_at = now(),
              external_status = null, paid_amount_krw = null, paid_amount_usd = null, paid_amount_jpy = null, paid_at = null, external_note = null, external_updated_at = null,
              external_operator_id = null, external_operator_name = null, diff_ack_at = null, diff_ack_by_name = null

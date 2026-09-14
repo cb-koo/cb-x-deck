@@ -176,6 +176,8 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 | `task_id` | string(uuid) \| null | 예(드묾) | 원본 캠페인 작업 ID. **같은 작업을 다시 요청하면(취소 → 새 요청) 새 `request_id`가 생기고 `task_id`는 같다** — 옛 건과 새 건을 잇는 열쇠(§3-1). 작업 자체가 삭제된 경우에만 `null`. |
 | `campaign.id` | string(uuid) \| null | 예 | |
 | `campaign.name` | string | 아니오 | |
+| `campaign.starts_on` | string(`YYYY-MM-DD`) \| null | 예 | **요청 시점 캠페인 시작일 스냅샷**(2026-09-14 추가). 그 뒤 캠페인 기간을 고쳐도 이 값은 그대로다 — 고친 값을 보내야 하면 저희가 제자리 수정(§3-1)으로 다시 반영하고, 그때 `revision`·`updated_at`이 함께 바뀐다. `null`은 2026-09-14 이전에 만들어졌고 캠페인이 삭제된 요청뿐. |
+| `campaign.ends_on` | string(`YYYY-MM-DD`) \| null | 예 | 요청 시점 캠페인 종료일 스냅샷(2026-09-14 추가). 규칙은 `starts_on`과 같다. |
 | `clinic.id` | string(uuid) | 아니오 | 우리 클라이언트(병원). 그쪽 체크리스트의 `clinic_id`에 대응. **요청 시점에 스냅샷으로 저장되어 클라이언트가 나중에 삭제·개명되어도 그대로 유지**된다. 매핑·집계는 id 기준으로. |
 | `clinic.name` | string | 아니오 | |
 | `influencer.id` | string(uuid) | 아니오 | 그쪽 체크리스트의 `influencer_uuid`에 대응. **요청 시점 스냅샷 — 핸들이 바뀌거나 인플루언서가 삭제되어도 이 id는 유지**된다. 집계 키로 이걸 쓸 것. |
@@ -195,6 +197,8 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 | `payout.rate_krw_per_jpy` | number | 아니오 | 요청 시점 스냅샷 환율(원/엔). 지급 통화가 `KRW`면 환산에 쓰이지 않는다. |
 | `payout.gross_krw` | number(정수) | 아니오 | **실제 송금액을 원화로 환산한 값 — 원화 지출 집계에 쓸 값.** 우리가 계산해서 보낸다: 지급 통화가 `KRW`면 `gross` 그대로, `JPY`면 `gross × rate_krw_per_jpy`. **그쪽이 통화별로 분기할 필요가 없다.** |
 | `deadline` | string(`YYYY-MM-DD`) | 아니오 | 처리 마감일. |
+| `posted_on` | string(`YYYY-MM-DD`) \| null | 예 | **게시일(서울 날짜) — `task_type`이 `post`·`quoteRt`·`visit`일 때만 값이 있다**(2026-09-14 추가). 인플루언서 본인 게시물의 트윗 시각에서 뽑은 날짜의 요청 시점 스냅샷. `rt`에서는 항상 `null`(아래 `confirmed_on`). |
+| `confirmed_on` | string(`YYYY-MM-DD`) \| null | 예 | **RT 확인일 — `task_type`이 `rt`일 때만 값이 있다**(2026-09-14 추가). 단순 RT는 새 게시물이 없어 실제 리트윗 시각을 알 수 없다. 저희 담당자가 피드 스크린샷(`proof`)을 확인하고 적은 날짜다. `rt`가 아닌 유형에서는 항상 `null`. 두 필드는 한쪽만 값이 있고, "날짜 하나"가 필요하면 둘 중 값이 있는 쪽을 쓰면 된다. 2026-09-14 이전 요청 중 작업이 삭제된 건만 둘 다 `null`. |
 | `reference_url` | string \| null | 예 | 참고 링크. **투고·인용RT·방문 협찬에서는 이 값이 인플루언서 본인 게시물 링크라 지급 전 확인 자료가 된다.** `rt`(단순 RT)에서는 클리닉 원본 트윗이라 확인 자료가 아니다 — 아래 "유형별 확인 자료"·`proof` 참고. |
 | `proof` | object \| null | 예 | **RT 작업의 지급 전 확인 자료(스크린샷).** `{ url, uploaded_at, uploaded_by }`. `null`인 경우 둘: ① RT가 아닌 유형(→ `reference_url`로 확인) ② RT인데 아직 스크린샷이 없음. **`task_type == "rt"`이고 `proof == null`이면 확인 자료가 없는 요청 — `on_hold`로 돌려보내 달라(§6, §7).** `proof`만은 스냅샷이 아니라 최신값이다(§3-2). **2026-09-02부터 저희 쪽에서 증빙 없는 RT는 요청 자체를 만들 수 없게 막았다** — 그 이후 새 요청에서 이 조합은 나오지 않고, 그 전에 만든 요청에만 남아 있을 수 있다. 같은 날부터 `rt`가 아닌 유형은 `reference_url`이 항상 채워진다. |
 | `proof.url` | string | | 증빙 이미지의 고정 주소(§4-1). 서명 URL이 아니다 — 만료되지 않는다. |
@@ -322,7 +326,7 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 - 하위 호환을 깨는 변경은 이 경로를 그대로 두고 새 `/v2` 경로로 낸다. 이 문서·엔드포인트가 예고 없이 모양을 바꾸는 일은 없다.
 - 이 API에는 `event_id`나 웹훅이 없다(§1). HMAC 서명도 쓰지 않는다 — 웹훅이 없으므로 필요하지 않다.
 - 담당자·연락 채널은 운영 단계에서 별도 안내한다.
-- **개정 기록.** 2026-09-01 `payout.gross_krw` 추가 / 2026-09-02 `proof`·`GET …/proof` 추가, 증빙만 최신값(§3-2) / 2026-09-02 요청 생성 사전 차단(RT `proof`·그 외 `reference_url` 필수) / 2026-09-03 PayPay `identifier` 필수, `payment_method` 빈 키 생략 명시 / 2026-09-07 상태 POST `operator` 선택 필드, 모르는 키 무시 명시 / **2026-09-07 제자리 수정(§3-1 개정, `revision` 의미 변경, `revised_at` 추가, 상태 POST `revision` 필수·409 `revision-mismatch`) — 2026-09-08 양쪽 스위치 ON, 전환 완료.** / 2026-09-09 상태 POST `paid_amount_usd` 선택 필드 수용, Item `settlement.paid_amount_usd` 되비침 추가. / 2026-09-09 `paid_amount_jpy`·`paid_currency` 선택 필드 수용(외화는 paid에서만·한 요청에 하나·보낸 것만 갱신), Item `settlement.paid_amount_jpy` 되비침 추가.
+- **개정 기록.** 2026-09-01 `payout.gross_krw` 추가 / 2026-09-02 `proof`·`GET …/proof` 추가, 증빙만 최신값(§3-2) / 2026-09-02 요청 생성 사전 차단(RT `proof`·그 외 `reference_url` 필수) / 2026-09-03 PayPay `identifier` 필수, `payment_method` 빈 키 생략 명시 / 2026-09-07 상태 POST `operator` 선택 필드, 모르는 키 무시 명시 / **2026-09-07 제자리 수정(§3-1 개정, `revision` 의미 변경, `revised_at` 추가, 상태 POST `revision` 필수·409 `revision-mismatch`) — 2026-09-08 양쪽 스위치 ON, 전환 완료.** / 2026-09-09 상태 POST `paid_amount_usd` 선택 필드 수용, Item `settlement.paid_amount_usd` 되비침 추가. / 2026-09-09 `paid_amount_jpy`·`paid_currency` 선택 필드 수용(외화는 paid에서만·한 요청에 하나·보낸 것만 갱신), Item `settlement.paid_amount_jpy` 되비침 추가. / **2026-09-14 Item에 `campaign.starts_on`·`campaign.ends_on`(캠페인 기간)·`posted_on`(게시일, RT 외)·`confirmed_on`(RT 확인일) 추가 — 전부 요청 시점 스냅샷, 기존 요청은 현재값으로 백필. 키만 늘었고 기존 키·의미 변화 없음.**
 
 ## 9. curl 예시
 
@@ -350,7 +354,7 @@ curl -s \
       "updated_at": "2026-08-28T02:10:00.000Z",
       "cancelled": null,
       "task_id": "b6f1...",
-      "campaign": { "id": "c1a2...", "name": "8월 캠페인" },
+      "campaign": { "id": "c1a2...", "name": "8월 캠페인", "starts_on": "2026-08-24", "ends_on": "2026-08-30" },
       "clinic": { "id": "cl01...", "name": "OO클리닉" },
       "influencer": { "id": "in01...", "handle": "sawada_k" },
       "task_type": "rt",
@@ -359,6 +363,7 @@ curl -s \
       "amount_krw": 30000, "cost_currency": "KRW",
       "payout": { "currency": "JPY", "net": 3000, "fee": { "mode": "grossUp", "percent": 5 }, "fee_amount": 158, "gross": 3158, "rate_krw_per_jpy": 10, "gross_krw": 31580 },
       "deadline": "2026-08-29", "reference_url": null,
+      "posted_on": null, "confirmed_on": "2026-08-27",
       "proof": { "url": "https://cb-x-deck.vercel.app/api/external/settlement/requests/3fa85f64-5717-4562-b3fc-2c963f66afa6/proof", "uploaded_at": "2026-08-31T10:12:00.000Z", "uploaded_by": "박구건" },
       "payment_method": { "type": "paypal", "holder": "Sawada K", "currency": "JPY", "email": "sawada@example.com", "paypal_id": "sawada-pp" },
       "requester": { "name": "모에카", "email": "moeka@clinicbridge.co.kr", "slack_id": "U0123ABC" },

@@ -34,6 +34,7 @@ const row: PaymentRequestRow = {
   status: 'requested', cancelledAt: null, cancelledByName: null, cancelReason: null, sentAt: null, externalId: null, note: '',
   createdAt: '2026-08-28T00:00:00.000Z', updatedAt: '2026-08-28T00:00:00.000Z',
   externalStatus: null, paidAmountKrw: null, paidAt: null, externalNote: null, externalUpdatedAt: null, influencerId: 'inf', categoryOptionId: 'fee', diffAckAt: null, diffAckByName: null, externalOperatorId: null, externalOperatorName: null, revision: 0, revisedAt: null, paidAmountUsd: null, paidAmountJpy: null,
+  campaignStartsOn: '2026-08-31', campaignEndsOn: '2026-09-06', postedOn: '2026-08-27',
 };
 test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   const e: ExportRow = { row, updatedAtUs: '1', requester: { email: 'a@b.c', slackId: null }, proof: null };
@@ -52,7 +53,26 @@ test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   // 증빙 없음(RT 아닌 유형이거나, RT인데 아직 없음) → proof는 null(스펙 §3)
   assert.equal(it.proof, null);
   // 응답 키 집합 — proof 추가 외에는 그대로다(파트너 영향 0을 못박는다, 스펙 §10)
-  assert.deepEqual(Object.keys(it).sort(), [...ITEM_KEYS_BEFORE_PROOF, 'proof', 'revised_at'].sort());
+  assert.deepEqual(Object.keys(it).sort(), [...ITEM_KEYS_BEFORE_PROOF, 'proof', 'revised_at', 'posted_on', 'confirmed_on'].sort());
+});
+
+// 09-14 koo: 캠페인 기간과 게시일을 그쪽에 싣는다. 게시일은 유형별로 뜻이 달라 필드를 가른다(A안) —
+// 투고·인용RT·방문은 트윗 시각에서 뽑은 '게시일'(posted_on), RT는 담당자가 확인해 적은 '확인일'(confirmed_on). 다른 쪽은 null.
+test('toExternalItem — campaign.starts_on/ends_on 스냅샷, 투고는 posted_on·RT는 confirmed_on(반대쪽은 null)', () => {
+  const e: ExportRow = { row, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null };
+  const post = toExternalItem(e, ORIGIN);
+  assert.deepEqual(post.campaign, { id: 'c', name: '캠', starts_on: '2026-08-31', ends_on: '2026-09-06' });
+  assert.equal(post.posted_on, '2026-08-27'); assert.equal(post.confirmed_on, null);
+  for (const t of ['quoteRt', 'visit'] as const) {
+    const it = toExternalItem({ ...e, row: { ...row, taskType: t } }, ORIGIN);
+    assert.equal(it.posted_on, '2026-08-27'); assert.equal(it.confirmed_on, null);
+  }
+  const rt = toExternalItem({ ...e, row: { ...row, taskType: 'rt' } }, ORIGIN);
+  assert.equal(rt.posted_on, null); assert.equal(rt.confirmed_on, '2026-08-27');
+  // 옛 요청(백필 전·작업 삭제): 값이 없으면 어느 필드든 null — 키는 항상 있다
+  const old = toExternalItem({ ...e, row: { ...row, campaignStartsOn: null, campaignEndsOn: null, postedOn: null } }, ORIGIN);
+  assert.deepEqual(old.campaign, { id: 'c', name: '캠', starts_on: null, ends_on: null });
+  assert.equal(old.posted_on, null); assert.equal(old.confirmed_on, null);
 });
 test('toExternalItem — 취소·지급 완료 되비침', () => {
   const r2: PaymentRequestRow = { ...row, status: 'cancelled', cancelledAt: '2026-08-29T01:00:00.000Z', cancelledByName: '정산 프로덕트', cancelReason: '중복',

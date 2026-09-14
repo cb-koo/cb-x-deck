@@ -40,14 +40,16 @@ test('computeMoney — 고정 165·인플 부담 0·환산 방향·같은 통화
   assert.equal(computeMoney({ amount: 3000, currency: 'JPY' }, 'JPY', undefined, 10).amountKrw, 30000);
 });
 
-test('defaultDeadline — 월~금 그 주 금요일, 토 다음 금요일, 일 다음날 월요일', () => {
-  assert.equal(defaultDeadline('2026-08-24'), '2026-08-28'); // 월
-  assert.equal(defaultDeadline('2026-08-26'), '2026-08-28'); // 수
-  assert.equal(defaultDeadline('2026-08-28'), '2026-08-28'); // 금 = 당일
-  assert.equal(defaultDeadline('2026-08-29'), '2026-09-04'); // 토 → 다음 금
-  assert.equal(defaultDeadline('2026-08-30'), '2026-08-31'); // 일 → 월
-  assert.equal(defaultDeadline('2026-08-31'), '2026-09-04'); // 월(월말 넘김)
-  assert.equal(defaultDeadline('2026-09-01'), '2026-09-04'); // 화
+// koo 09-14: 요청한 주의 다음 주 월요일(그날 23:59까지 — 날짜 필드라 그날 안이면 된다). 금요일 요청이 당일 마감으로 잡혀
+// 실제 지급(다음 주 초)과 어긋나던 옛 규칙("그 주 금요일")을 바꿨다. 급한 건은 요청 전(후보 행)·요청 후(제자리 수정)에서 손으로 고친다.
+test('defaultDeadline — 요청일이 속한 주의 다음 주 월요일 (월요일 요청은 7일 뒤, 일요일 요청은 다음날)', () => {
+  assert.equal(defaultDeadline('2026-09-14'), '2026-09-21'); // 월 → 다음 주 월(7일 뒤, 당일 아님)
+  assert.equal(defaultDeadline('2026-09-16'), '2026-09-21'); // 수
+  assert.equal(defaultDeadline('2026-09-11'), '2026-09-14'); // 금 → 다음 주 월(옛 규칙은 당일이었다)
+  assert.equal(defaultDeadline('2026-09-12'), '2026-09-14'); // 토
+  assert.equal(defaultDeadline('2026-09-13'), '2026-09-14'); // 일 → 다음날(일요일은 그 주의 끝)
+  assert.equal(defaultDeadline('2026-08-31'), '2026-09-07'); // 월(월말 넘김)
+  assert.equal(defaultDeadline('2026-12-30'), '2027-01-04'); // 수(연말 넘김)
 });
 
 test('defaultCategory — 설정 defaultFor > 캠페인 종류 규칙 > 인용RT 최근값 > 빈칸', () => {
@@ -195,7 +197,7 @@ test('computeCandidate — 전부 합친 한 건', () => {
   assert.deepEqual(c.cost, { amount: 30000, currency: 'KRW' });
   assert.equal(c.money?.amountGross, 3158);
   assert.equal(c.categoryDefault, SETTLEMENT_DEFAULTS.categories[2].sendAs);
-  assert.equal(c.deadlineDefault, '2026-08-28');
+  assert.equal(c.deadlineDefault, '2026-08-31');   // 금(08-28) 요청 → 다음 주 월
   assert.equal(c.referenceDefault, 'https://x.com/seikeinu/status/9');
   assert.equal(c.itemText, '@seikeinu 인용RT 1건 정산');
   assert.equal(c.purposeText, '닥터손유나클리닉 정보성 콘텐츠 Viral 협찬');

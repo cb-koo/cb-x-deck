@@ -114,7 +114,7 @@ export function CandidateTable({ onCreated }: { onCreated?: () => void }) {
         <select className={SEL} value={filter.method} onChange={(e) => setFilter({ ...filter, method: e.target.value as '' | PaymentMethodType })} aria-label="결제 수단">
           <option value="">결제 수단 전체</option>{PAYMENT_TYPES.map((t) => <option key={t} value={t}>{PAYMENT_TYPE_LABEL[t]}</option>)}
         </select>
-        <span className="ml-auto text-ui text-x-muted">이번 주 마감 {deadlineLabel(rows[0]?.deadlineDefault ?? data.today)}</span>
+        <span className="ml-auto text-ui text-x-muted" title="요청한 주의 다음 주 월요일까지. 급한 건은 행에서 마감을 직접 당겨 주세요">기본 마감 {deadlineLabel(rows[0]?.deadlineDefault ?? data.today)} · 다음 주 월요일</span>
       </div>
       <h2 className="mt-4 text-[16px] font-semibold">검토 대기 {rows.length}</h2>
       {rows.length === 0 ? (

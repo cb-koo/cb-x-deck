@@ -25,11 +25,13 @@ export function computeMoney(cost: TaskCost, payoutCurrency: Currency, fee: Paym
   return { costAmount: cost.amount, costCurrency: cost.currency, amountKrw, payoutCurrency, rateKrwPerJpy: rate, amountNet: net, fee: fee ?? null, feeAmount, amountGross: net + feeAmount };
 }
 
-// ── 데드라인(§3-4) — 월~금 그 주 금요일, 토 다음 금요일, 일 다음날 월요일. 문자열 날짜만 다룬다(UTC 정오로 계산해 시프트 없음).
+// ── 데드라인(§3-4, koo 2026-09-14 개정) — 요청일이 속한 주의 **다음 주 월요일**(그날 23:59까지; 날짜 필드라 그날 안이면 된다).
+// 월요일 요청은 7일 뒤(당일 아님), 일요일은 그 주의 끝이라 다음날. 옛 규칙(그 주 금요일)은 금요일 요청이 당일 마감으로 잡혀 실제 지급(다음 주 초)과 어긋났다.
+// 급한 건은 요청 전(후보 행 '마감')·요청 후(제자리 수정 '마감')에서 손으로 당긴다. 문자열 날짜만 다룬다(UTC 정오로 계산해 시프트 없음).
 export function defaultDeadline(today: string): string {
   const d = new Date(today + 'T12:00:00Z');
   const dow = d.getUTCDay(); // 0 일 … 6 토
-  const add = dow === 0 ? 1 : dow === 6 ? 6 : 5 - dow;
+  const add = dow === 0 ? 1 : 8 - dow;   // 월 7 · 화 6 · … · 토 2 · 일 1
   d.setUTCDate(d.getUTCDate() + add);
   return d.toISOString().slice(0, 10);
 }

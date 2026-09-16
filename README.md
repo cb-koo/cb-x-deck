@@ -60,12 +60,35 @@ npm run migrate
 
 DB 스키마 초기화 (`migrations/*.sql`). 로컬 개발·배포 전 최초 1회 실행.
 
+**번호 규칙 (여러 명이 동시에 작업할 때).** 파일 이름 앞 세 자리가 적용 순서다. 두 사람이 같은 번호를
+각자 만들면 순서가 어긋나므로, **브랜치를 시작할 때 번호를 먼저 잡고 팀에 알린다**(빈 파일이라도 먼저
+커밋해 두면 확실하다). 다음 번호는 `ls migrations | tail -1`로 확인한다. 이미 올린 마이그레이션 파일은
+번호도 내용도 고치지 않는다 — 다른 사람의 DB에는 이미 적용됐을 수 있다. 고칠 일이 있으면 새 번호로 만든다.
+
+`apply-migrations.sh`는 매번 전체 파일을 다시 실행하므로, 모든 마이그레이션은 여러 번 돌려도 같은 결과여야
+한다(`if not exists` / `drop ... if exists` 뒤 재생성).
+
+**연습용에도 함께 적용한다.** 마이그레이션을 추가하면 `npm run migrate:staging`도 돌린다. 연습용 스키마가
+뒤처지면 테스트가 코드와 무관한 이유로 실패하고, 그러면 사람들이 테스트를 믿지 않게 된다.
+
+## 테스트 환경 (연습용 DB)
+
+`npm test`는 연습용(스테이징) Supabase에서 돈다. 테스트는 자기 데이터를 만들었다 지우는데, 중단되면
+남는다 — 운영에서 돌리면 그 찌꺼기가 실제 화면에 섞이고(2026-08 가짜 팀원이 보관함 필터에 노출),
+정산 요청 픽스처가 정산 프로덕트로 새어 나간 적도 있다(2026-09-09). 그래서 운영 DB를 가리키면
+`scripts/testGuard.ts`가 시작 전에 막는다.
+
+`.env.staging`이 필요하다. 연습용 프로젝트는 `cb-x-deck-staging`(Supabase). DB 비밀번호는 조회할 수
+없고 대시보드에서 재설정만 되며, 나머지 값은 `supabase projects api-keys --project-ref <ref>`로 얻는다.
+시드 데이터는 필요 없다 — DB 테스트는 모두 자기 데이터를 스스로 만든다.
+
 ## 명령
 
 | 명령 | 설명 |
 |---|---|
 | `npm run dev` | 로컬 실행 |
-| `npm test` | 단위+DB 통합 테스트 (실 Supabase, test- 접두 데이터 자가 정리) |
+| `npm test` | 단위+DB 통합 테스트 — **연습용(스테이징) DB에서 돈다**(`.env.staging`). 운영 DB를 가리키면 시작 전에 막힌다 |
+| `npm run test:prod` | 운영 DB에서 테스트 (알고 하는 예외 — 평소엔 쓰지 않는다) |
 | `npm run migrate` | `migrations/*.sql` 적용 |
 | `npm run smoke:getxapi` | GetXAPI 실호출 계약 검증 + fixtures 재채집 (~$0.003) |
 | `npm run smoke:suggest` | Claude 연관 키워드 실호출 확인 |

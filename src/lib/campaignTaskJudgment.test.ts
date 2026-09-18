@@ -73,8 +73,8 @@ test('5) 요약 — N은 취소만 제외(미사용 포함), 게시됨은 내려
   // summarizeTasks(전체 published: 2 = post 1건 + rt 1건)와도 맞아떨어지는 값은 1이다 — 브리프 오타로 보고 수정(task-2-report.md 기록).
   assert.deepEqual(sub.find((s) => s.type === 'rt'), { type: 'rt', count: 2, published: 1, cost: { JPY: 6000 } });
   assert.deepEqual(sub.find((s) => s.type === 'quoteRt'), { type: 'quoteRt', count: 2, published: 0, cost: { JPY: 16000 } }); // 미사용 포함(제외는 취소만, R17)
-  assert.deepEqual(summarizeTaskPerf(items.map((t) => ({ ...t, perf: t.postedAt ? { views: 100, likes: 1 } : null, linkClicks: null }))),
-    { publishedCount: 2, views: 200, likes: 2, linkClicks: null });
+  assert.deepEqual(summarizeTaskPerf(items.map((t) => ({ ...t, perf: t.postedAt ? { views: 100, likes: 1, bookmarks: null } : null, linkClicks: null }))),
+    { publishedCount: 2, views: 200, likes: 2, bookmarks: null, linkClicks: null });
 });
 
 test('6) 정렬 — 기본 만든 순(밀림도 자리 유지), 취소만 어느 키든 맨 아래(미사용은 더 이상 아니다)', () => {
@@ -158,4 +158,22 @@ test('10) 6단계 파생(flowStage) — 취소 > 완료 > 정산 > 게시 > 준�
   assert.equal(s({ ...base(), ...h }, null), 'handed');                                                   // 원고 없는 RT + 인플 있음
   assert.equal(s({ ...base({ type: 'post' }), influencerHandle: null }, null), 'prep');                   // 미배정
   assert.equal(FLOW_STAGE_LABEL.handed, '전달');
+});
+
+test('flowStage — 그쪽이 요청을 취소하면(externalStatus cancelled) 다시 게시로 돌아간다(§3-1 정산 정의에 없음)', () => {
+  const t = { type: 'post' as const, draftStatus: 'delivered' as const, postedAt: '2026-09-10', removedAt: null, scheduledOn: null, visitOn: null, cancelledAt: null, influencerHandle: 'a' };
+  assert.equal(flowStage(t, { status: 'requested', externalStatus: 'cancelled' }), 'posted');
+  assert.equal(flowStage(t, { status: 'requested', externalStatus: 'on_hold' }), 'settle');
+  assert.equal(flowStage(t, { status: 'requested', externalStatus: 'paid' }), 'done');
+  assert.equal(flowStage(t, { status: 'cancelled', externalStatus: null }), 'posted');   // 우리가 취소한 요청도 게시로
+});
+
+test('summarizeTaskPerf — 북마크도 합산, 취소 작업은 제외', () => {
+  const b = { type: 'post' as const, draftStatus: null, postedAt: '2026-09-10', removedAt: null, scheduledOn: null, visitOn: null, cancelledAt: null, linkClicks: null };
+  const s = summarizeTaskPerf([
+    { ...b, perf: { views: 100, likes: 5, bookmarks: 2 } },
+    { ...b, perf: { views: 50, likes: null, bookmarks: 1 } },
+    { ...b, cancelledAt: '2026-09-11', perf: { views: 999, likes: 9, bookmarks: 9 } },
+  ]);
+  assert.equal(s.views, 150); assert.equal(s.likes, 5); assert.equal(s.bookmarks, 3); assert.equal(s.publishedCount, 2);
 });

@@ -29,6 +29,7 @@ export interface TaskRow {
   cancelledDraftId: string | null; cancelledDraftTitle: string | null;
   createdAt: string; updatedAt: string;
   draftStatus: DraftStatus | null; draftLabel: string | null;   // 붙은 원고 요약 — 표의 '원고' 열
+  draftFirstLine: string | null;   // 붙은 원고 본문 첫 줄(v2 표의 원고 칸, R26) — 제목이 아니라 내용
   // 대상 작업 요약(§4-1 'RT/인용RT 대상' 열) — 다른 캠페인이면 campaignName으로 구분해 보인다
   // cancelledAt은 대상 작업 자체의 취소 여부(R19) — 이 작업(RT/인용RT)이 취소된 게 아니라 가리키는 대상이 취소됐음을 안다.
   target: { taskId: string; type: TaskType; influencerHandle: string | null; campaignId: string; campaignName: string; postUrl: string | null; cancelledAt: string | null } | null;
@@ -80,6 +81,11 @@ function labelOf(r: Row): string | null {
   const first = (r.draft_first_line ?? '').split('\n')[0].trim();
   return r.draft_title?.trim() || r.draft_ko_title || (first ? (first.length > 60 ? first.slice(0, 60) + '…' : first) : null);
 }
+// v2 표의 원고 칸(R26) — 제목·상태가 아니라 본문 첫 줄. 화면이 truncate하므로 길이는 여기서 자르지 않는다(툴팁에 전체).
+function firstLineOf(r: Row): string | null {
+  const first = (r.draft_first_line ?? '').split('\n')[0].trim();
+  return first || null;
+}
 const toRow = (r: Row): TaskRow => ({
   id: r.id, campaignId: r.campaign_id, influencerHandle: r.influencer_handle, type: r.type,
   draftId: r.draft_id, targetTaskId: r.target_task_id, targetTweetUrl: r.target_tweet_url,
@@ -91,6 +97,7 @@ const toRow = (r: Row): TaskRow => ({
   cancelledDraftId: r.cancelled_draft_id, cancelledDraftTitle: r.cancelled_draft_title,
   createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
   draftStatus: r.draft_id ? r.draft_status : null, draftLabel: r.draft_id ? labelOf(r) : null,
+  draftFirstLine: r.draft_id ? firstLineOf(r) : null,
   target: r.tg_id ? {
     taskId: r.tg_id, type: r.tg_type as TaskType, influencerHandle: r.tg_handle,
     campaignId: r.tg_campaign_id as string, campaignName: r.tg_campaign_name as string, postUrl: r.tg_post_url,

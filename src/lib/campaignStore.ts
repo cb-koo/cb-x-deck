@@ -30,7 +30,7 @@ export interface CampaignRow {
   total: MoneyByCurrency;               // 파생: 작업 비용(취소 제외) + 추가 비용, 통화별
 }
 
-export interface CampaignPerf { postCount: number; views: number | null; likes: number | null }
+export interface CampaignPerf { postCount: number; views: number | null; likes: number | null; bookmarks: number | null }
 // 상세 표의 한 행 — TaskRow + 게시 확인 + 성과.
 export interface CampaignTaskItem extends TaskRow {
   published: boolean;              // = postedAt !== null (게시 확인이 판정한다, tracked_post 유무가 아니다 — §2-5)
@@ -232,7 +232,7 @@ export async function deleteCampaign(
   return del.length > 0 ? { deleted: true, ...info } : { deleted: false, taskCount: 0, detachedTargets: 0, activeRequests: 0 };
 }
 
-type PerfRow = { task_id: string; post_count: number; views: string | number | null; likes: string | number | null };
+type PerfRow = { task_id: string; post_count: number; views: string | number | null; likes: string | number | null; bookmarks: string | number | null };
 type ClickRow = { draft_id: string; clicks: string | number | null };
 
 export async function getCampaignDetail(
@@ -246,10 +246,10 @@ export async function getCampaignDetail(
   // 성과: 게시물은 작업에 붙는다(§2-4). 한 작업에 게시물이 여러 개면(tracked_post는 tweet_id만 unique)
   // 각 게시물의 최신 스냅샷을 합산한다. 최신 1건은 lateral(trackingStore 관례) — 스냅샷 없는 게시물은 sum에서 null로 빠진다.
   const perfRows = await sql<PerfRow[]>`
-    select tp.task_id, count(tp.id)::int as post_count, sum(s.views) as views, sum(s.likes) as likes
+    select tp.task_id, count(tp.id)::int as post_count, sum(s.views) as views, sum(s.likes) as likes, sum(s.bookmarks) as bookmarks
       from tracked_post tp
       left join lateral (
-        select views, likes from post_metric_snapshot where tracked_post_id = tp.id
+        select views, likes, bookmarks from post_metric_snapshot where tracked_post_id = tp.id
         order by captured_at desc limit 1
       ) s on true
      where tp.task_id in (select t.id from campaign_task t where t.campaign_id = ${id})
@@ -275,7 +275,7 @@ export async function getCampaignDetail(
     return {
       ...t,
       published: t.postedAt !== null,   // 게시 확인이 판정한다 — 게시물이 아직 안 붙었어도 게시됨(§2-5)
-      perf: p ? { postCount: p.post_count, views: num(p.views), likes: num(p.likes) } : null,
+      perf: p ? { postCount: p.post_count, views: num(p.views), likes: num(p.likes), bookmarks: num(p.bookmarks) } : null,
       linkClicks: c ? num(c.clicks) : null,
       settlement: badges.get(t.id) ?? null,
     };

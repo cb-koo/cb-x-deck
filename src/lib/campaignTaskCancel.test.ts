@@ -235,3 +235,44 @@ test('9) 교체 — 같은 핸들(대소문자만 다름)은 no-op: 원고 강�
 
   assert.equal((await sql`select count(*)::int as n from influencer_log where influencer_id = ${infId} and event_type = 'task_declined'`)[0].n, 0);
 });
+
+test('10) 트래킹↔취소 동시 실행 — linkTrackedPost의 for update 직렬화로 23514 대신 문구 있는 오류를 받는다 (I2, §8)', async () => {
+  const { camp } = await mkCampaign('j');
+  const [t] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', items: [{ handle: P + '_j', cost: null }] });
+  const { row } = await addTrackedPost(sql, {
+    tweetId: P + 'J1', authorHandle: P + '_j', text: '', postedAt: null, createdBy: null,
+    metrics: { views: null, likes: null, retweets: null, replies: null, bookmarks: null, quotes: null }, raw: null,
+  });
+  // cancelTask를 흉내낸 트랜잭션 — select ... for update로 행을 잠근 채 신호를 받을 때까지 대기하다가
+  // cancelled_at을 찍고 커밋한다. 실제 cancelTask도 같은 모양(for update → 갱신 → 커밋)이라 대표성이 있다.
+  // lockAcquired는 "이 select가 실제로 서버에 도달해 락을 쥐었다"는 신호 — 원격 DB의 왕복 지연에 좌우되지
+  // 않게, 임의의 대기시간 대신 이 select 자체를 기다려 순서를 보장한다.
+  let lockAcquired: () => void = () => {};
+  const lockAcquiredPromise = new Promise<void>((res) => { lockAcquired = res; });
+  let releaseCancel: () => void = () => {};
+  const cancelHeld = new Promise<void>((res) => { releaseCancel = res; });
+  const cancelTx = sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as typeof sql;
+    await tx`select id from campaign_task where id = ${t.id} for update`;
+    lockAcquired();
+    await cancelHeld;   // linkTrackedPost가 이 자리에서 직렬화(대기)되는지가 이 테스트의 핵심
+    await tx`update campaign_task set cancelled_at = '2026-09-16' where id = ${t.id}`;
+  });
+  await lockAcquiredPromise;   // cancelTx가 확실히 락을 쥔 뒤에만 linkTx를 시작한다
+
+  const linkTx = sql.begin((tx0) => linkTrackedPost(tx0 as unknown as typeof sql, row.id, { taskId: t.id }));
+  // linkTx가 새 커넥션을 맺고(원격 DB라 이 자체가 수백 ms) 자기 select를 서버로 보내고 블록될 시간을
+  // 넉넉히 준다 — 짧으면(직접 확인함: 800ms는 부족) cancelTx가 먼저 커밋해버려 linkTx의 select가 이미
+  // 갱신된 값을 읽어 이 테스트가 고치기 전 코드에서도 우연히 통과해버린다(경합이 재현되지 않는다).
+  await new Promise((r) => setTimeout(r, 2500));
+  releaseCancel();
+  await cancelTx;
+
+  // for update 직렬화 덕에 linkTrackedPost는 cancelTx 커밋 후의 cancelled_at을 보고 깨끗하게
+  // TrackingLinkError를 던진다 — 23514(raw PostgresError)로 터지지 않는다.
+  await assert.rejects(
+    linkTx,
+    (e: unknown) => e instanceof TrackingLinkError && e.code === 'cancelled-task',
+  );
+  assert.equal((await getTask(sql, t.id))?.postedAt, null);      // 반쪽 연결로 채워지지 않았다
+});

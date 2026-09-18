@@ -231,7 +231,12 @@ export async function linkTrackedPost(
   if ('taskId' in link) {
     taskId = link.taskId;
     if (taskId) {
-      const t = await sql<Array<{ draft_id: string | null; type: string; cancelled_at: string | null }>>`select draft_id, type, cancelled_at from campaign_task where id = ${taskId}`;
+      // for update — cancelTask의 for update와 같은 행을 두고 직렬화한다(I2). 이게 없으면 이 select가
+      // cancelTask 커밋 직전의 값(취소 전)을 읽고 통과한 뒤, 아래 campaign_task update가 cancelTask의
+      // 행 잠금에 막혀 대기하다 커밋 후 재개돼 check(campaign_task_cancel_xor_posted) 위반(23514)으로
+      // 터지는 경합이 생긴다. for update로 이 select 자체가 cancelTask 커밋까지 기다리게 하면 그 뒤엔
+      // 항상 최신 cancelled_at을 보고 여기서 깨끗하게 거절한다.
+      const t = await sql<Array<{ draft_id: string | null; type: string; cancelled_at: string | null }>>`select draft_id, type, cancelled_at from campaign_task where id = ${taskId} for update`;
       if (t.length === 0) throw Object.assign(new Error('task not found'), { code: '23503' });   // FK 위반과 같은 처리(라우트 400)
       // RT엔 자기 게시물이 없다 — 붙이면 posted_at이 증빙 없이 채워진다(RT 증빙 스펙 §5)
       if (t[0].type === 'rt') throw new TrackingLinkError('rt-task');
@@ -243,7 +248,8 @@ export async function linkTrackedPost(
   } else {
     draftId = link.draftId;
     if (draftId) {
-      const t = await sql<Array<{ id: string; type: string; cancelled_at: string | null }>>`select id, type, cancelled_at from campaign_task where draft_id = ${draftId}`;
+      // for update — 위 taskId 분기와 같은 이유(I2)로 직렬화한다.
+      const t = await sql<Array<{ id: string; type: string; cancelled_at: string | null }>>`select id, type, cancelled_at from campaign_task where draft_id = ${draftId} for update`;
       taskId = t[0]?.id ?? null;
       // RT 작업에 원고가 붙어 있는 건 정상 화면으로는 못 만드는 이상 상태다(TaskAddModal이 RT엔 원고 칸을 안 주고
       // TaskTable도 붙이기 버튼을 안 준다) — 그래도 API로는 만들어질 수 있어 여기서도 지켜야 한다(리뷰 지적).

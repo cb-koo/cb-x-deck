@@ -3,7 +3,7 @@ import postgres from 'postgres';
 import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
-import { findTrackedPostById, linkTrackedPost, deleteTrackedPost, setRole, TrackingLinkError, trackingLinkMessage } from '@/lib/trackingStore';
+import { findTrackedPostById, linkTrackedPost, deleteTrackedPost, setRole, TrackingLinkError, trackingLinkMessage, TRACKING_LINK_CANCELLED_MESSAGE } from '@/lib/trackingStore';
 import { POST_ROLES, type PostRole } from '@/lib/postRole';
 
 // tracked_post.id는 uuid 컬럼이라 형식이 아닌 값은 "없음"이 아니라 캐스팅 오류(22P02 → 500)가 된다.
@@ -57,6 +57,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     // 존재하지 않는 원고/작업 id를 연결하려 하면 FK 위반(23503, linkTrackedPost는 작업 쪽을 같은 code로 직접 던진다) — 사용자 잘못이니 400으로 알린다.
     if ((e instanceof postgres.PostgresError && e.code === '23503') || (e as { code?: unknown })?.code === '23503') {
       return NextResponse.json({ error: '연결하려는 원고나 작업을 찾을 수 없어요' }, { status: 400 });
+    }
+    // 최후 방어 — linkTrackedPost의 for update 직렬화(I2)로 거의 나지 않지만, 다른 경로가 check를
+    // 밟아도 500 대신 문구로(취소·게시 확인 상호 배제, ADR 0002).
+    if (e instanceof postgres.PostgresError && e.code === '23514') {
+      return NextResponse.json({ error: TRACKING_LINK_CANCELLED_MESSAGE }, { status: 400 });
     }
     throw e;
   }

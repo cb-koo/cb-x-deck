@@ -216,3 +216,15 @@ test('7) 증빙 — jsonb에 깨진 값이 들어 있으면 null로 읽는다(�
   assert.equal((await getTask(sql, task.id))!.proof, null);
   await deleteTask(sql, task.id);
 });
+
+test('8) createTasks — items N개(뼈대)는 N행, 전부 미배정·비용 없음, created_at 순서 보존', async () => {
+  const c = await createClient(sql, P + '클라8');
+  const camp = await mkCampaign(c.id, c.name, 'h');
+  const rows = await createTasks(sql, camp.id, {
+    ...baseInput, type: 'quoteRt',
+    items: Array.from({ length: 3 }, () => ({ handle: null, cost: null })),
+  });
+  assert.equal(rows.length, 3);
+  assert.ok(rows.every((r) => r.influencerHandle === null && r.cost === null && r.draftFirstLine === null));
+  assert.ok(rows[0].createdAt <= rows[1].createdAt && rows[1].createdAt <= rows[2].createdAt);
+});

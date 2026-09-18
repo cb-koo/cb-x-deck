@@ -34,6 +34,10 @@ export const REMOVED_WITHOUT_POSTED_MESSAGE = '게시 확인이 없는 작업이
 export const DATE_MESSAGE = '날짜는 YYYY-MM-DD 형식이어야 해요';
 function fail<T>(message: string): Parsed<T> { return { ok: false, message }; }
 
+export const CANCEL_REASONS = ['declined', 'no_response', 'other'] as const;
+export type CancelReason = typeof CANCEL_REASONS[number];
+export const isCancelReason = (v: unknown): v is CancelReason => typeof v === 'string' && (CANCEL_REASONS as readonly string[]).includes(v);
+
 // 사용자가 붙인 X 링크 → 정규형 permalink(x.com/twitter.com·꼬리 무관). 핸들이 있으면 보존, 없으면 /i/status/.
 export function normalizeTargetTweetUrl(v: string): string | null {
   const p = parseTweetLink(v);

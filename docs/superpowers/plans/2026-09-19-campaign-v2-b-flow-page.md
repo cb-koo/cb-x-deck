@@ -443,7 +443,7 @@ const sortValue = (t: FlowRow, key: FlowSortKey): string | number => {
     case 'influencer': return t.influencerHandle ? t.influencerHandle.toLowerCase() : LAST;
     case 'draft': { const d = draftCell(t).text; return d === '미정' || d === '—' ? LAST : d.toLowerCase(); }
     case 'date': return t.postedAt ?? t.scheduledOn ?? LAST;
-    case 'cost': return t.cost ? t.cost.amount : -1;
+    case 'cost': return t.cost ? t.cost.amount : LAST;   // 미정은 0원이 아니라 '값 없음' — 다른 키와 같이 맨 뒤로
   }
 };
 export function sortFlowRows<T extends FlowRow>(rows: T[], sort: FlowSort): T[] {

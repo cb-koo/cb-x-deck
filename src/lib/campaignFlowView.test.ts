@@ -56,6 +56,10 @@ test('4) 정렬 — 기본 만든 순, 헤더 클릭 순환, 미정은 오름차
   assert.deepEqual(sortFlowRows([a, b, c], { key: 'date', dir: -1 }).map((t) => t.id), [a.id, c.id, b.id]);
   const x = mk({ influencerHandle: 'b' }), y = mk({ influencerHandle: 'A' }), z = mk({});
   assert.deepEqual(sortFlowRows([x, y, z], { key: 'influencer', dir: 1 }).map((t) => t.id), [y.id, x.id, z.id]);
+  // 비용 미정도 다른 키와 같이 방향과 무관하게 맨 뒤 — 오름차순에서 맨 앞으로 오면 '0원'처럼 읽힌다
+  const c1 = mk({}), c2 = mk({ cost: { amount: 10000, currency: 'KRW' } }), c3 = mk({ cost: { amount: 50000, currency: 'KRW' } });
+  assert.deepEqual(sortFlowRows([c1, c2, c3], { key: 'cost', dir: 1 }).map((t) => t.id), [c2.id, c3.id, c1.id]);
+  assert.deepEqual(sortFlowRows([c1, c2, c3], { key: 'cost', dir: -1 }).map((t) => t.id), [c3.id, c2.id, c1.id]);
   const p = mk({ postedAt: '2026-09-10' }), q = mk({ cancelledAt: '2026-09-10' }), r = mk({});
   assert.deepEqual(sortFlowRows([q, p, r], { key: 'stage', dir: 1 }).map((t) => t.id), [r.id, p.id, q.id]);
 });
@@ -73,6 +77,8 @@ test('6) 원고 칸 — 첫 줄, RT는 —, 없으면 미정, 취소는 사유·
   assert.equal(draftCell(mk({ draftId: 'd', draftFirstLine: null, draftLabel: '제목' })).text, '제목');   // 본문이 비면 라벨
   assert.deepEqual(draftCell(mk({ type: 'rt' })), { text: '—', muted: true, title: '' });
   assert.equal(draftCell(mk({})).text, '미정');
+  // 원고가 붙어 있는데 제목·본문이 둘 다 비면 '미정'이 아니다 — 붙일 원고가 없다는 뜻으로 읽히면 안 된다(라벨-값 일치)
+  assert.equal(draftCell(mk({ draftId: 'd', draftFirstLine: null, draftLabel: null })).text, '(내용 없음)');
   const c = draftCell(mk({ cancelledAt: '2026-09-17', cancelReason: 'declined', cancelNote: '일정 안 맞음', cancelledDraftTitle: '치아미백 후기' }));
   assert.equal(c.text, '🙅 거절 · 일정 안 맞음 · 원고 있었음: 치아미백 후기');
   assert.equal(draftCell(mk({ cancelledAt: '2026-09-17', cancelReason: null, cancelNote: '' })).text, '취소');

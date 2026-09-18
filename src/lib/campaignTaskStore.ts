@@ -48,7 +48,7 @@ export interface TargetCandidate {
   clientId: string | null; postUrl: string | null; postedAt: string | null; draftLabel: string | null; createdAt: string;
 }
 export class TaskAttachError extends Error {
-  constructor(public code: 'no-task' | 'task-has-draft' | 'draft-attached') {
+  constructor(public code: 'no-task' | 'task-has-draft' | 'draft-attached' | 'task-cancelled') {
     super(code);
     this.name = 'TaskAttachError';
   }
@@ -192,9 +192,11 @@ export async function deleteTask(sql: postgres.Sql, id: string): Promise<boolean
 // 인플 동기화(값은 하나, §4-3): 작업에 인플이 있으면 원고에 채우고, 작업이 비어 있고 원고에 있으면 작업에 채운다.
 export async function attachDraft(sql: postgres.Sql, taskId: string, draftId: string): Promise<void> {
   if (!isUuidLike(taskId) || !isUuidLike(draftId)) throw new TaskAttachError('no-task');
-  const t = await sql<Array<{ id: string; draft_id: string | null; influencer_handle: string | null }>>`
-    select id, draft_id, influencer_handle from campaign_task where id = ${taskId} for update`;
+  const t = await sql<Array<{ id: string; draft_id: string | null; influencer_handle: string | null; cancelled_at: string | null }>>`
+    select id, draft_id, influencer_handle, cancelled_at from campaign_task where id = ${taskId} for update`;
   if (t.length === 0) throw new TaskAttachError('no-task');
+  // 취소 작업엔 원고를 붙일 수 없다(R18) — 되돌린 뒤 붙이라는 문구로 라우트가 안내한다.
+  if (t[0].cancelled_at) throw new TaskAttachError('task-cancelled');
   if (t[0].draft_id && t[0].draft_id !== draftId) throw new TaskAttachError('task-has-draft');
   const taken = await sql<Array<{ id: string }>>`select id from campaign_task where draft_id = ${draftId} and id <> ${taskId}`;
   if (taken.length) throw new TaskAttachError('draft-attached');
@@ -424,6 +426,7 @@ export async function restoreTask(sql: postgres.Sql, id: string): Promise<{ resu
       await tx.savepoint(async (sp) => { await attachDraft(sp as unknown as postgres.Sql, id, draftId); });
       return { result: 'ok', draft: 'reattached' };
     } catch (e) {
+      // 'task-cancelled'는 여기 오지 않는다 — 위에서 이미 cancelled_at을 null로 만든 뒤 재부착하므로.
       if (e instanceof TaskAttachError) return { result: 'ok', draft: 'taken' };   // 세이브포인트만 롤백됨 — 복원은 유지
       throw e;
     }

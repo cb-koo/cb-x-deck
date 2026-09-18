@@ -5,7 +5,7 @@ import { createClient } from './clientStore.ts';
 import { createCampaign } from './campaignStore.ts';
 import { insertDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
-import { createTasks, getTask, markPosted, listTargetCandidates, listTargetingHandles, cancelTask, restoreTask, attachDraft, replaceInfluencer, updateTask } from './campaignTaskStore.ts';
+import { createTasks, getTask, markPosted, listTargetCandidates, listTargetingHandles, cancelTask, restoreTask, attachDraft, replaceInfluencer, updateTask, TaskAttachError } from './campaignTaskStore.ts';
 import { linkTrackedPost, addTrackedPost, TrackingLinkError } from './trackingStore.ts';
 import { CANCEL_REASONS } from './campaignTaskInput.ts';
 import { ensureInfluencer } from './influencerStore.ts';
@@ -201,4 +201,15 @@ test('7) updateTask R17 가드 — 취소 작업의 게시 확인은 false(경�
   // 메모는 취소 중에도 허용(R18) — true를 돌려주고 값이 반영된다
   assert.equal(await updateTask(sql, t.id, { note: 'x' }), true);
   assert.equal((await getTask(sql, t.id))?.note, 'x');
+});
+
+test('8) 취소 작업에 원고 붙이기 금지 (R18) — attachDraft가 TaskAttachError(\'task-cancelled\')를 던진다', async () => {
+  const { c, camp } = await mkCampaign('h');
+  const [t] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', items: [{ handle: P + '_h', cost: null }] });
+  assert.equal(await cancelTask(sql, t.id, { reason: null, note: '', actorId: null, today: '2026-09-16' }), 'ok');
+  const draftId = await mkDraft(c.id, c.name, '붙일 원고');
+  await assert.rejects(
+    () => attachDraft(sql, t.id, draftId),
+    (e: unknown) => e instanceof TaskAttachError && e.code === 'task-cancelled',
+  );
 });

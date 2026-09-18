@@ -243,13 +243,17 @@ export async function linkTrackedPost(
   } else {
     draftId = link.draftId;
     if (draftId) {
-      const t = await sql<Array<{ id: string; type: string }>>`select id, type from campaign_task where draft_id = ${draftId}`;
+      const t = await sql<Array<{ id: string; type: string; cancelled_at: string | null }>>`select id, type, cancelled_at from campaign_task where draft_id = ${draftId}`;
       taskId = t[0]?.id ?? null;
       // RT 작업에 원고가 붙어 있는 건 정상 화면으로는 못 만드는 이상 상태다(TaskAddModal이 RT엔 원고 칸을 안 주고
       // TaskTable도 붙이기 버튼을 안 준다) — 그래도 API로는 만들어질 수 있어 여기서도 지켜야 한다(리뷰 지적).
       // 연결(tracked_post.task_id/draft_id) 자체는 거절하지 않는다: 사용자 의도는 "이 게시물을 이 원고에
       // 연결"이지 그 원고에 어쩌다 붙은 RT 작업과는 무관하다 — 대신 아래 작업 쪽 보충만 건너뛴다.
       if (t[0]?.type === 'rt') skipTaskSupplement = true;
+      // 취소 작업엔 연결 자체를 거절한다(ADR 0002, taskId 분기와 동일) — 비정상 상태(취소는 원고를
+      // 자동으로 떼는데, SQL로 직접 draft_id를 되돌려 붙인 경우 등)를 통해서도 이 draftId 분기로
+      // 취소 작업에 도달할 수 있다.
+      if (t[0]?.cancelled_at) throw new TrackingLinkError('cancelled-task');
     }
   }
   await sql`update tracked_post set task_id = ${taskId}, draft_id = ${draftId} where id = ${trackedPostId}`;

@@ -117,7 +117,8 @@ export function DraftTaskField({ draft, campaigns, today, onAttach, onDetach, on
 
   // 붙일 수 있는 작업 = 원고가 아직 없고 RT가 아닌 것. 이미 다른 원고가 붙은 작업은 후보가 아니다(원고 1 : 작업 1).
   const free = useMemo(
-    () => (shown?.tasks ?? []).filter((t) => t.draftId === null && ATTACHABLE_TYPES.includes(t.type)),
+    // 취소된 작업은 후보가 아니다(R18) — 원고를 붙일 수 없다
+    () => (shown?.tasks ?? []).filter((t) => t.draftId === null && t.cancelledAt === null && ATTACHABLE_TYPES.includes(t.type)),
     [shown]);
 
   async function createAndAttach(type: TaskType) {

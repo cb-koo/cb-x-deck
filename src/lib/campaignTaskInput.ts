@@ -34,6 +34,13 @@ export const REMOVED_WITHOUT_POSTED_MESSAGE = '게시 확인이 없는 작업이
 export const DATE_MESSAGE = '날짜는 YYYY-MM-DD 형식이어야 해요';
 function fail<T>(message: string): Parsed<T> { return { ok: false, message }; }
 
+export const CANCELLED_TASK_MESSAGE = '취소된 작업이에요 — 되돌린 뒤 고쳐 주세요';
+export const CANCEL_POSTED_MESSAGE = '이미 게시된 작업은 취소할 수 없어요 — 내림으로 처리해 주세요';
+export const POST_CANCELLED_MESSAGE = '취소된 작업이에요 — 되돌린 뒤 게시 확인해 주세요';
+export const REPLACE_REQUIRED_MESSAGE = '다른 인플루언서로 바꾸려면 교체를 써 주세요';
+export const REPLACE_AFTER_VISIT_MESSAGE = '방문한 인플루언서가 게시해야 해요 — 진행이 안 되면 취소해 주세요';
+export const CANCEL_REASON_MESSAGE = '취소 사유 값이 올바르지 않아요';
+
 export const CANCEL_REASONS = ['declined', 'no_response', 'other'] as const;
 export type CancelReason = typeof CANCEL_REASONS[number];
 export const isCancelReason = (v: unknown): v is CancelReason => typeof v === 'string' && (CANCEL_REASONS as readonly string[]).includes(v);

@@ -131,7 +131,7 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                 const unused = isTaskUnused(t);
                 const od = taskOverdueDays(t, today);
                 const tgt = targetLabel(t, campaign.id);
-                const tStatus = targetStatus({ targetTaskId: t.targetTaskId, targetPostUrl: t.target?.postUrl ?? null, targetTweetUrl: t.targetTweetUrl });
+                const tStatus = targetStatus({ targetTaskId: t.targetTaskId, targetPostUrl: t.target?.postUrl ?? null, targetTweetUrl: t.targetTweetUrl, targetCancelledAt: t.target?.cancelledAt ?? null });
                 const suggestion = suggestTaskCost(optionFor(t.influencerHandle)?.pricing, t.type);
                 return (
                   <tr key={t.id} className={`border-b border-x-border ${od !== null ? 'bg-red-50 shadow-[inset_3px_0_0_0_#dc2626]' : 'hover:bg-x-hover'} ${unused ? 'opacity-60' : ''}`}>
@@ -159,7 +159,7 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                     <td className={TD}>
                       {TARGETING_TYPES.includes(t.type) ? (
                         <button type="button" onClick={() => onPickTarget(t)} className={`block max-w-full truncate text-left hover:underline ${tgt.muted ? 'text-x-muted' : ''}`} title={t.targetTweetUrl ?? t.target?.postUrl ?? ''}>
-                          {tgt.text}{tgt.sub && <span className="text-x-muted"> · {tgt.sub}</span>}{tStatus === 'pending' && <span className="text-x-muted"> · 게시 전</span>}
+                          {tgt.text}{tgt.sub && <span className="text-x-muted"> · {tgt.sub}</span>}{tStatus === 'pending' && <span className="text-x-muted"> · 게시 전</span>}{tStatus === 'cancelled' && <span className="text-red-600"> · 대상 작업 취소됨</span>}
                         </button>
                       ) : <span className="text-x-muted">—</span>}
                     </td>

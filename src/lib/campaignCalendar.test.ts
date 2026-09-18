@@ -6,7 +6,7 @@ import type { TaskSortInput } from './campaignJudgment.ts';
 const T = '2026-08-27'; // 목
 // 달력의 카드는 작업(campaign_task)이다 — 게시 예정일 칸과(방문협찬이면) 방문일 칸에 각각 선다.
 const t = (o: Partial<TaskSortInput> & { createdAt: string }): TaskSortInput =>
-  ({ type: 'post', draftStatus: null, postedAt: null, removedAt: null, scheduledOn: null, visitOn: null, influencerHandle: null, ...o });
+  ({ type: 'post', draftStatus: null, postedAt: null, removedAt: null, scheduledOn: null, visitOn: null, influencerHandle: null, cancelledAt: null, ...o });
 
 test('1) weekBounds — 기간의 주 ∪ 예정일의 주', () => {
   assert.deepEqual(weekBounds('2026-08-24', '2026-08-30', []), { first: '2026-08-24', last: '2026-08-24' });

@@ -14,7 +14,7 @@ export const emptyResult = (): CheckPostedResult => ({ confirmed: [], pending: [
 
 export function taskToCheck(t: {
   id: string; influencerHandle: string | null; postedAt: string | null;
-  targetTaskId: string | null; targetTweetUrl: string | null; target: { postUrl: string | null } | null;
+  targetTaskId: string | null; targetTweetUrl: string | null; target: { postUrl: string | null; cancelledAt: string | null } | null;
 }): CheckTask {
   const input = { targetTaskId: t.targetTaskId, targetPostUrl: t.target?.postUrl ?? null, targetTweetUrl: t.targetTweetUrl };
   const url = targetUrlOf(input);
@@ -22,7 +22,7 @@ export function taskToCheck(t: {
   return {
     id: t.id, influencerHandle: t.influencerHandle, postedAt: t.postedAt,
     targetTweetId: parsed && parsed.ok ? parsed.tweetId : null,
-    targetPending: targetStatus(input) === 'pending',
+    targetPending: targetStatus({ ...input, targetCancelledAt: t.target?.cancelledAt ?? null }) === 'pending',
   };
 }
 

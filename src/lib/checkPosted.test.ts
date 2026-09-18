@@ -31,9 +31,9 @@ test('judge — lower 비교, 미확인+있음=confirmed, 미확인+없음=pendi
 });
 
 test('taskToCheck — 대상 URL은 작업 참조의 post_url 우선, 게시 대기 표시', () => {
-  assert.deepEqual(taskToCheck({ id: 'a', influencerHandle: 'rio', postedAt: null, targetTaskId: 't', targetTweetUrl: null, target: { postUrl: 'https://x.com/m/status/77' } }),
+  assert.deepEqual(taskToCheck({ id: 'a', influencerHandle: 'rio', postedAt: null, targetTaskId: 't', targetTweetUrl: null, target: { postUrl: 'https://x.com/m/status/77', cancelledAt: null } }),
     { id: 'a', influencerHandle: 'rio', postedAt: null, targetTweetId: '77', targetPending: false });
-  assert.deepEqual(taskToCheck({ id: 'b', influencerHandle: 'rio', postedAt: null, targetTaskId: 't', targetTweetUrl: null, target: { postUrl: null } }),
+  assert.deepEqual(taskToCheck({ id: 'b', influencerHandle: 'rio', postedAt: null, targetTaskId: 't', targetTweetUrl: null, target: { postUrl: null, cancelledAt: null } }),
     { id: 'b', influencerHandle: 'rio', postedAt: null, targetTweetId: null, targetPending: true });
   assert.equal(taskToCheck({ id: 'c', influencerHandle: 'rio', postedAt: null, targetTaskId: null, targetTweetUrl: 'https://x.com/i/status/5', target: null }).targetTweetId, '5');
 });

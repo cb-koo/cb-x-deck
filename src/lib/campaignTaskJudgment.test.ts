@@ -47,11 +47,12 @@ test('3) 준비 중·필터 — 준비 중 = 원고 초안·검수·확정 + 예
   assert.equal(matchesTaskFilter(base({ type: 'post', draftStatus: 'unused' }), 'preparing', T), false);
 });
 
-test('4) 대상 상태 — 없음/게시 대기/확정, URL은 작업의 post_url 우선', () => {
-  assert.equal(targetStatus({ targetTaskId: null, targetPostUrl: null, targetTweetUrl: null }), 'none');
-  assert.equal(targetStatus({ targetTaskId: 't1', targetPostUrl: null, targetTweetUrl: null }), 'pending');
-  assert.equal(targetStatus({ targetTaskId: 't1', targetPostUrl: 'https://x.com/a/status/1', targetTweetUrl: null }), 'ready');
-  assert.equal(targetStatus({ targetTaskId: null, targetPostUrl: null, targetTweetUrl: 'https://x.com/i/status/2' }), 'ready');
+test('4) 대상 상태 — 없음/게시 대기/확정/취소, URL은 작업의 post_url 우선', () => {
+  assert.equal(targetStatus({ targetTaskId: null, targetPostUrl: null, targetTweetUrl: null, targetCancelledAt: null }), 'none');
+  assert.equal(targetStatus({ targetTaskId: 't1', targetPostUrl: null, targetTweetUrl: null, targetCancelledAt: null }), 'pending');
+  assert.equal(targetStatus({ targetTaskId: 't1', targetPostUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetCancelledAt: null }), 'ready');
+  assert.equal(targetStatus({ targetTaskId: null, targetPostUrl: null, targetTweetUrl: 'https://x.com/i/status/2', targetCancelledAt: null }), 'ready');
+  assert.equal(targetStatus({ targetTaskId: 'x', targetPostUrl: null, targetTweetUrl: null, targetCancelledAt: '2026-08-20' }), 'cancelled');
   assert.equal(targetUrlOf({ targetTaskId: 't1', targetPostUrl: 'https://x.com/a/status/1', targetTweetUrl: 'https://x.com/i/status/2' }), 'https://x.com/a/status/1');
   assert.equal(targetUrlOf({ targetTaskId: 't1', targetPostUrl: null, targetTweetUrl: null }), null);
 });

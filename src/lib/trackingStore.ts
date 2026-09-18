@@ -5,9 +5,11 @@ import { tweetPermalink } from './tweetLink.ts';
 
 // 게시물 연결이 거절되는 이유 — 라우트가 400 문구로 바꿔 보낸다.
 export class TrackingLinkError extends Error {
-  constructor(public code: 'rt-task') { super(code); this.name = 'TrackingLinkError'; }
+  constructor(public code: 'rt-task' | 'cancelled-task') { super(code); this.name = 'TrackingLinkError'; }
 }
 export const TRACKING_LINK_RT_MESSAGE = 'RT 작업에는 게시물을 연결할 수 없어요 — RT는 새 게시물을 만들지 않아요. 증빙 스크린샷으로 게시 확인해 주세요';
+export const TRACKING_LINK_CANCELLED_MESSAGE = '취소된 작업에는 게시물을 연결할 수 없어요 — 되돌린 뒤 연결해 주세요';
+export const trackingLinkMessage = (e: TrackingLinkError) => e.code === 'rt-task' ? TRACKING_LINK_RT_MESSAGE : TRACKING_LINK_CANCELLED_MESSAGE;
 
 export interface TrackedPostRow {
   id: string; tweetId: string; authorHandle: string | null; text: string;
@@ -229,10 +231,13 @@ export async function linkTrackedPost(
   if ('taskId' in link) {
     taskId = link.taskId;
     if (taskId) {
-      const t = await sql<Array<{ draft_id: string | null; type: string }>>`select draft_id, type from campaign_task where id = ${taskId}`;
+      const t = await sql<Array<{ draft_id: string | null; type: string; cancelled_at: string | null }>>`select draft_id, type, cancelled_at from campaign_task where id = ${taskId}`;
       if (t.length === 0) throw Object.assign(new Error('task not found'), { code: '23503' });   // FK 위반과 같은 처리(라우트 400)
       // RT엔 자기 게시물이 없다 — 붙이면 posted_at이 증빙 없이 채워진다(RT 증빙 스펙 §5)
       if (t[0].type === 'rt') throw new TrackingLinkError('rt-task');
+      // 취소 작업엔 연결 자체를 거절한다(ADR 0002) — 보충만 건너뛰면 tracked_post.task_id가 취소 작업에 남는 반쪽 연결이 생기고
+      // check 제약도 잡지 못한다. 연결 update보다 먼저 던져 라우트 트랜잭션이 통째로 롤백된다.
+      if (t[0].cancelled_at) throw new TrackingLinkError('cancelled-task');
       draftId = t[0].draft_id;
     }
   } else {

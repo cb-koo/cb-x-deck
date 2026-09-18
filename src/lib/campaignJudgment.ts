@@ -178,15 +178,16 @@ export function matchesTaskFilter(t: TaskStageInput, f: StageFilter, today: stri
   return taskStage(t, today) === 'delivered';
 }
 
-// 대상(RT/인용RT) — 가리킨 작업의 post_url이 있거나 링크가 직접 있으면 확정.
-export type TargetStatus = 'none' | 'pending' | 'ready';
+// 대상(RT/인용RT) — 가리킨 작업의 post_url이 있거나 링크가 직접 있으면 확정. 대상 작업이 취소되면(R19) 'cancelled' —
+// 대상을 바꿔야 한다는 뜻이라 pending/ready와는 다른 취급이 필요하다.
+export type TargetStatus = 'none' | 'pending' | 'ready' | 'cancelled';
 export interface TargetInput { targetTaskId: string | null; targetPostUrl: string | null; targetTweetUrl: string | null }
 export function targetUrlOf(t: TargetInput): string | null {
   if (t.targetTaskId) return t.targetPostUrl;
   return t.targetTweetUrl;
 }
-export function targetStatus(t: TargetInput): TargetStatus {
-  if (t.targetTaskId) return t.targetPostUrl ? 'ready' : 'pending';
+export function targetStatus(t: TargetInput & { targetCancelledAt: string | null }): TargetStatus {
+  if (t.targetTaskId) return t.targetCancelledAt ? 'cancelled' : t.targetPostUrl ? 'ready' : 'pending';   // 대상 작업이 취소됨(R19) — 대상을 바꿔야 한다
   return t.targetTweetUrl ? 'ready' : 'none';
 }
 

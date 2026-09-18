@@ -22,7 +22,8 @@ export interface TaskRow {
   createdAt: string; updatedAt: string;
   draftStatus: DraftStatus | null; draftLabel: string | null;   // 붙은 원고 요약 — 표의 '원고' 열
   // 대상 작업 요약(§4-1 'RT/인용RT 대상' 열) — 다른 캠페인이면 campaignName으로 구분해 보인다
-  target: { taskId: string; type: TaskType; influencerHandle: string | null; campaignId: string; campaignName: string; postUrl: string | null } | null;
+  // cancelledAt은 대상 작업 자체의 취소 여부(R19) — 이 작업(RT/인용RT)이 취소된 게 아니라 가리키는 대상이 취소됐음을 안다.
+  target: { taskId: string; type: TaskType; influencerHandle: string | null; campaignId: string; campaignName: string; postUrl: string | null; cancelledAt: string | null } | null;
 }
 export interface TaskCreateInput {
   type: TaskType; targetTaskId: string | null; targetTweetUrl: string | null; draftId: string | null;
@@ -59,6 +60,7 @@ type Row = {
   created_at: Date; updated_at: Date;
   draft_status: DraftStatus | null; draft_title: string | null; draft_ko_title: string | null; draft_first_line: string | null;
   tg_id: string | null; tg_type: TaskType | null; tg_handle: string | null; tg_campaign_id: string | null; tg_campaign_name: string | null; tg_post_url: string | null;
+  tg_cancelled_at: string | null;
 };
 
 function costOf(v: unknown): TaskCost | null {
@@ -84,6 +86,7 @@ const toRow = (r: Row): TaskRow => ({
   target: r.tg_id ? {
     taskId: r.tg_id, type: r.tg_type as TaskType, influencerHandle: r.tg_handle,
     campaignId: r.tg_campaign_id as string, campaignName: r.tg_campaign_name as string, postUrl: r.tg_post_url,
+    cancelledAt: r.tg_cancelled_at,
   } : null,
 });
 
@@ -99,7 +102,7 @@ const SELECT = (sql: postgres.Sql) => sql`
          d.status as draft_status, d.title as draft_title, d.ko_title as draft_ko_title,
          coalesce(d.edited, d.content)->'posts'->0->>'text' as draft_first_line,
          tg.id as tg_id, tg.type as tg_type, tg.influencer_handle as tg_handle, tg.campaign_id as tg_campaign_id,
-         tgc.name as tg_campaign_name, tg.post_url as tg_post_url
+         tgc.name as tg_campaign_name, tg.post_url as tg_post_url, to_char(tg.cancelled_at, 'YYYY-MM-DD') as tg_cancelled_at
     from campaign_task t
     left join draft d on d.id = t.draft_id
     left join campaign_task tg on tg.id = t.target_task_id
@@ -227,7 +230,7 @@ export async function listTargetCandidates(
       from campaign_task t
       join campaign c on c.id = t.campaign_id
       left join draft d on d.id = t.draft_id
-     where t.type = any(${[...TARGETABLE_TYPES]}::text[]) ${byClient} ${byQ}
+     where t.type = any(${[...TARGETABLE_TYPES]}::text[]) and t.cancelled_at is null ${byClient} ${byQ}
      order by t.created_at desc
      limit ${opts.limit ?? 50}`;
   return rows.map((r) => ({
@@ -239,8 +242,8 @@ export async function listTargetCandidates(
 // "이 게시물을 이미 RT하기로 한 사람"(§4-2) — 같은 대상을 가리키는 작업들의 핸들(lower 중복 제거, 첫 표기 보존)
 export async function listTargetingHandles(sql: postgres.Sql, target: { taskId: string } | { tweetUrl: string }): Promise<string[]> {
   const rows = 'taskId' in target
-    ? await sql<Array<{ h: string }>>`select influencer_handle as h from campaign_task where target_task_id = ${target.taskId} and influencer_handle is not null order by created_at`
-    : await sql<Array<{ h: string }>>`select influencer_handle as h from campaign_task where target_tweet_url = ${target.tweetUrl} and influencer_handle is not null order by created_at`;
+    ? await sql<Array<{ h: string }>>`select influencer_handle as h from campaign_task where target_task_id = ${target.taskId} and influencer_handle is not null and cancelled_at is null order by created_at`
+    : await sql<Array<{ h: string }>>`select influencer_handle as h from campaign_task where target_tweet_url = ${target.tweetUrl} and influencer_handle is not null and cancelled_at is null order by created_at`;
   const seen = new Set<string>();
   const out: string[] = [];
   for (const r of rows) { const k = r.h.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(r.h); } }
@@ -250,8 +253,9 @@ export async function listTargetingHandles(sql: postgres.Sql, target: { taskId: 
 // 게시 확인 채우기 — posted_at이 비어 있는 행만(이미 확인된 건 덮지 않는다). 갱신 수를 돌려준다.
 export async function markPosted(sql: postgres.Sql, taskIds: string[], postedAt: string, source: 'auto' | 'manual'): Promise<number> {
   if (taskIds.length === 0) return 0;
+  // 취소된 작업은 건너뛴다(ADR 0002 상호 배제) — check 제약이 최후 방어지만 자동 조회가 한 건 때문에 통째로 실패하면 안 된다
   const rows = await sql`update campaign_task set posted_at = ${postedAt}::date, posted_source = ${source}, updated_at = now()
-    where id = any(${taskIds}::uuid[]) and posted_at is null returning id`;
+    where id = any(${taskIds}::uuid[]) and posted_at is null and cancelled_at is null returning id`;
   return rows.length;
 }
 

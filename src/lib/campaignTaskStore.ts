@@ -344,3 +344,80 @@ export async function settlementByTaskIds(sql: postgres.Sql, taskIds: string[]):
     paidAmountKrw: r.paid_amount_krw, grossKrw: Number(r.gross_krw), diffAckAt: iso(r.diff_ack_at),
   }]));
 }
+
+// ─────────────────────────── 취소·되돌리기 (055, ADR 0002) ───────────────────────────
+// 취소 = 상태. 게시 전만. 원고는 떼되 무엇이었는지(id·제목) 기억한다. 컬럼·떼기·스냅샷·로그는 한 트랜잭션.
+// 조건부 UPDATE(posted_at is null and cancelled_at is null)가 경합을 막고, check 제약이 최후 방어다.
+export async function cancelTask(
+  sql: postgres.Sql, id: string,
+  input: { reason: CancelReason | null; note: string; actorId: string | null; today: string },
+): Promise<'ok' | 'not-found' | 'posted' | 'already'> {
+  if (!isUuidLike(id)) return 'not-found';
+  return sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    const cur = await tx<Array<{ posted_at: string | null; cancelled_at: string | null; draft_id: string | null; influencer_handle: string | null; type: TaskType; campaign_id: string }>>`
+      select posted_at, cancelled_at, draft_id, influencer_handle, type, campaign_id from campaign_task where id = ${id} for update`;
+    if (cur.length === 0) return 'not-found';
+    if (cur[0].cancelled_at) return 'already';
+    if (cur[0].posted_at) return 'posted';
+    const draftId = cur[0].draft_id;
+    let title: string | null = null;
+    if (draftId) {
+      const d = await tx<Array<{ title: string | null; ko_title: string | null; first: string | null }>>`
+        select title, ko_title, coalesce(edited, content)->'posts'->0->>'text' as first from draft where id = ${draftId}`;
+      const first = (d[0]?.first ?? '').split('\n')[0].trim();
+      title = d[0]?.title?.trim() || d[0]?.ko_title || (first ? (first.length > 60 ? first.slice(0, 60) + '…' : first) : null);
+    }
+    const rows = await tx`update campaign_task set
+        cancelled_at = ${input.today}::date, cancel_reason = ${input.reason}, cancel_note = ${input.note},
+        draft_id = null, cancelled_draft_id = ${draftId}, cancelled_draft_title = ${title}, updated_at = now()
+      where id = ${id} and posted_at is null and cancelled_at is null returning id`;
+    if (rows.length === 0) return 'posted';   // 그 사이 게시 확인이 들어왔다
+    if ((input.reason === 'declined' || input.reason === 'no_response') && cur[0].influencer_handle) {
+      await logTaskDeclined(tx, { handle: cur[0].influencer_handle, taskId: id, campaignId: cur[0].campaign_id, taskType: cur[0].type, reason: input.reason, action: 'cancel', actorId: input.actorId });
+    }
+    return 'ok';
+  });
+}
+
+// 거절·무응답을 인플루언서 타임라인에 — 명부에 없는 핸들은 기록하지 않는다(해제·전달과 같은 태도, influencerSync).
+export async function logTaskDeclined(tx: postgres.Sql, a: {
+  handle: string; taskId: string; campaignId: string; taskType: TaskType; reason: 'declined' | 'no_response'; action: 'cancel' | 'replace'; actorId: string | null;
+}): Promise<void> {
+  const inf = await tx<Array<{ id: string }>>`select id from influencer where lower(handle) = lower(${a.handle})`;
+  if (inf.length === 0) return;
+  const camp = await tx<Array<{ name: string }>>`select name from campaign where id = ${a.campaignId}`;
+  await tx`insert into influencer_log (influencer_id, kind, event_type, draft_id, draft_title, payload, author_id)
+    values (${inf[0].id}, 'auto', 'task_declined', null, null,
+            ${tx.json({ taskId: a.taskId, campaignId: a.campaignId, campaignName: camp[0]?.name ?? '', taskType: a.taskType, reason: a.reason, action: a.action } as never)}, ${a.actorId})`;
+}
+
+// 되돌리기 — 외부 트랜잭션 하나: ① 작업 복원 UPDATE(취소 컬럼·스냅샷 전부 지움) → ② 세이브포인트 안에서 재부착 → ③ 커밋.
+// attachDraft의 unique 충돌(23505 → TaskAttachError)이 트랜잭션을 통째로 깨지 않게 세이브포인트로 격리한다.
+// "복원은 항상 성공" = 원고 점유·삭제가 작업 복원을 실패시키지 않는다는 뜻.
+export async function restoreTask(sql: postgres.Sql, id: string): Promise<{ result: 'ok' | 'not-found' | 'not-cancelled'; draft: 'reattached' | 'taken' | 'gone' | 'none' }> {
+  if (!isUuidLike(id)) return { result: 'not-found', draft: 'none' };
+  return sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql & { savepoint<T>(cb: (s: postgres.Sql) => Promise<T>): Promise<T> };
+    const cur = await tx<Array<{ cancelled_at: string | null; cancelled_draft_id: string | null; cancelled_draft_title: string | null }>>`
+      select cancelled_at, cancelled_draft_id, cancelled_draft_title from campaign_task where id = ${id} for update`;
+    if (cur.length === 0) return { result: 'not-found', draft: 'none' };
+    if (!cur[0].cancelled_at) return { result: 'not-cancelled', draft: 'none' };
+    const draftId = cur[0].cancelled_draft_id;
+    // cancelled_draft_id는 on delete set null(055) — 원고가 지워지면 취소 스냅샷이 잡히기도 전에 이미 null이 된다.
+    // "원고가 없었다"(none)와 "원고가 있었는데 지워졌다"(gone)를 가르는 건 title 스냅샷(텍스트라 FK 캐스케이드를 안 탄다) 생존 여부다.
+    const hadDraft = draftId !== null || cur[0].cancelled_draft_title !== null;
+    await tx`update campaign_task set cancelled_at = null, cancel_reason = null, cancel_note = '',
+        cancelled_draft_id = null, cancelled_draft_title = null, updated_at = now() where id = ${id}`;
+    if (!draftId) return { result: 'ok', draft: hadDraft ? 'gone' : 'none' };
+    const exists = await tx<Array<{ id: string }>>`select id from draft where id = ${draftId}`;
+    if (exists.length === 0) return { result: 'ok', draft: 'gone' };
+    try {
+      await tx.savepoint(async (sp) => { await attachDraft(sp as unknown as postgres.Sql, id, draftId); });
+      return { result: 'ok', draft: 'reattached' };
+    } catch (e) {
+      if (e instanceof TaskAttachError) return { result: 'ok', draft: 'taken' };   // 세이브포인트만 롤백됨 — 복원은 유지
+      throw e;
+    }
+  });
+}

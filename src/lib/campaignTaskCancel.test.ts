@@ -5,9 +5,10 @@ import { createClient } from './clientStore.ts';
 import { createCampaign } from './campaignStore.ts';
 import { insertDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
-import { createTasks, getTask, markPosted, listTargetCandidates, listTargetingHandles } from './campaignTaskStore.ts';
+import { createTasks, getTask, markPosted, listTargetCandidates, listTargetingHandles, cancelTask, restoreTask, attachDraft } from './campaignTaskStore.ts';
 import { linkTrackedPost, addTrackedPost, TrackingLinkError } from './trackingStore.ts';
 import { CANCEL_REASONS } from './campaignTaskInput.ts';
+import { ensureInfluencer } from './influencerStore.ts';
 
 const sql = getSql();
 const P = 'tcv2' + process.pid;
@@ -98,4 +99,65 @@ test('3b) 대상 — 취소된 작업은 새 대상 후보·"이미 RT하기로 
   assert.deepEqual(await listTargetingHandles(sql, { taskId: post.id }), []);          // 취소된 RT는 "이미 RT하기로 한 사람"이 아니다
   await sql`update campaign_task set cancelled_at = null where id = ${rt.id}`;
   assert.equal((await getTask(sql, rt.id))?.target?.cancelledAt, '2026-09-16');           // 대상이 취소됨 — 화면이 '대상 작업 취소됨'으로
+});
+
+test('4) 취소 — 원고를 떼고 스냅샷을 남기며, 게시된 작업은 거절, 거절 사유는 타임라인에 남는다', async () => {
+  const { c, camp } = await mkCampaign('d');
+  const handle = P + '_d';
+  const infId = await ensureInfluencer(sql, handle, null);
+  const draftId = await mkDraft(c.id, c.name, '치아미백 후기');
+  const [t] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', draftId, items: [{ handle, cost: { amount: 10000, currency: 'KRW' } }] });
+  assert.equal(await cancelTask(sql, t.id, { reason: 'declined', note: '일정 안 맞음', actorId: null, today: '2026-09-16' }), 'ok');
+  const r = await getTask(sql, t.id);
+  assert.equal(r?.cancelledAt, '2026-09-16');
+  assert.equal(r?.cancelReason, 'declined');
+  assert.equal(r?.cancelNote, '일정 안 맞음');
+  assert.equal(r?.draftId, null);                                  // 떼어졌다
+  assert.equal(r?.cancelledDraftId, draftId);
+  assert.equal(r?.cancelledDraftTitle, '치아미백 후기');
+  const logs = await sql<Array<{ event_type: string; payload: { action: string; reason: string } }>>`
+    select event_type, payload from influencer_log where influencer_id = ${infId} and event_type = 'task_declined'`;
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].payload.action, 'cancel');
+  assert.equal(logs[0].payload.reason, 'declined');
+  assert.equal(await cancelTask(sql, t.id, { reason: null, note: '', actorId: null, today: '2026-09-16' }), 'already');
+  const [posted] = await createTasks(sql, camp.id, { ...baseInput, type: 'rt', items: [{ handle, cost: null }] });
+  await sql`update campaign_task set posted_at = '2026-09-15' where id = ${posted.id}`;
+  assert.equal(await cancelTask(sql, posted.id, { reason: 'other', note: '', actorId: null, today: '2026-09-16' }), 'posted');
+  // 사유 없음·미배정 → 로그 없음
+  const [noone] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', items: [] });
+  assert.equal(await cancelTask(sql, noone.id, { reason: 'no_response', note: '', actorId: null, today: '2026-09-16' }), 'ok');
+  assert.equal((await sql`select count(*)::int as n from influencer_log where event_type = 'task_declined' and influencer_id = ${infId}`)[0].n, 1);
+});
+
+test('5) 되돌리기 — 재부착 / 다른 작업이 가져갔으면 작업만 복원 / 원고가 지워졌으면 작업만 복원, 취소 컬럼은 전부 비운다', async () => {
+  const { c, camp } = await mkCampaign('e');
+  const handle = P + '_e';
+  // 재부착
+  const d1 = await mkDraft(c.id, c.name, 'd1');
+  const [t1] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', draftId: d1, items: [{ handle, cost: null }] });
+  await cancelTask(sql, t1.id, { reason: null, note: '', actorId: null, today: '2026-09-16' });
+  const r1 = await restoreTask(sql, t1.id);
+  assert.deepEqual(r1, { result: 'ok', draft: 'reattached' });
+  const g1 = await getTask(sql, t1.id);
+  assert.equal(g1?.draftId, d1);
+  assert.equal(g1?.cancelledAt, null); assert.equal(g1?.cancelReason, null); assert.equal(g1?.cancelNote, '');
+  assert.equal(g1?.cancelledDraftId, null); assert.equal(g1?.cancelledDraftTitle, null);
+  // 다른 작업이 가져감 → 작업만 복원(세이브포인트: unique 충돌이 복원을 깨지 않는다)
+  const d2 = await mkDraft(c.id, c.name, 'd2');
+  const [t2] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', draftId: d2, items: [{ handle, cost: null }] });
+  await cancelTask(sql, t2.id, { reason: null, note: '', actorId: null, today: '2026-09-16' });
+  const [other] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', items: [{ handle: P + '_e2', cost: null }] });
+  await attachDraft(sql, other.id, d2);
+  assert.deepEqual(await restoreTask(sql, t2.id), { result: 'ok', draft: 'taken' });
+  assert.equal((await getTask(sql, t2.id))?.draftId, null);
+  assert.equal((await getTask(sql, t2.id))?.cancelledAt, null);
+  // 원고 삭제됨
+  const d3 = await mkDraft(c.id, c.name, 'd3');
+  const [t3] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', draftId: d3, items: [{ handle, cost: null }] });
+  await cancelTask(sql, t3.id, { reason: null, note: '', actorId: null, today: '2026-09-16' });
+  await sql`delete from draft where id = ${d3}`;
+  assert.deepEqual(await restoreTask(sql, t3.id), { result: 'ok', draft: 'gone' });
+  // 취소 아님
+  assert.equal((await restoreTask(sql, t3.id)).result, 'not-cancelled');
 });

@@ -40,10 +40,23 @@ export const POST_CANCELLED_MESSAGE = '취소된 작업이에요 — 되돌린 �
 export const REPLACE_REQUIRED_MESSAGE = '다른 인플루언서로 바꾸려면 교체를 써 주세요';
 export const REPLACE_AFTER_VISIT_MESSAGE = '방문한 인플루언서가 게시해야 해요 — 진행이 안 되면 취소해 주세요';
 export const CANCEL_REASON_MESSAGE = '취소 사유 값이 올바르지 않아요';
+export const RESTORE_NOT_CANCELLED_MESSAGE = '취소된 작업이 아니에요';
 
 export const CANCEL_REASONS = ['declined', 'no_response', 'other'] as const;
 export type CancelReason = typeof CANCEL_REASONS[number];
 export const isCancelReason = (v: unknown): v is CancelReason => typeof v === 'string' && (CANCEL_REASONS as readonly string[]).includes(v);
+
+// 취소 요청 본문 — reason은 없어도(단순 취소) 되고, 셋 중 하나여야 한다.
+export function parseCancelBody(body: unknown): Parsed<{ reason: CancelReason | null; note: string }> {
+  const b = (body ?? {}) as Record<string, unknown>;
+  let reason: CancelReason | null = null;
+  if (b.reason != null && b.reason !== '') {
+    if (!isCancelReason(b.reason)) return fail(CANCEL_REASON_MESSAGE);
+    reason = b.reason;
+  }
+  const note = typeof b.note === 'string' ? b.note.trim() : '';
+  return { ok: true, value: { reason, note } };
+}
 
 // 사용자가 붙인 X 링크 → 정규형 permalink(x.com/twitter.com·꼬리 무관). 핸들이 있으면 보존, 없으면 /i/status/.
 export function normalizeTargetTweetUrl(v: string): string | null {

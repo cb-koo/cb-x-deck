@@ -11,6 +11,7 @@ import type { TrackedPostRow } from './trackingStore.ts';
 import type { TaskRow, TargetCandidate } from './campaignTaskStore.ts';
 import type { TaskType } from './campaignJudgment.ts';
 import type { CheckPostedResult } from './checkPosted.ts';
+import type { CancelReason } from './campaignTaskInput.ts';
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; status: number };
 
@@ -77,6 +78,11 @@ export const patchTaskApi = (campaignId: string, taskId: string, body: TaskPatch
   call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}`, json('PATCH', body));
 export const deleteTaskApi = (campaignId: string, taskId: string) =>
   call<{ ok: true; deleted: boolean }>(`/api/campaigns/${campaignId}/tasks/${taskId}`, { method: 'DELETE' });
+// 취소·되돌리기(ADR 0002) — PATCH가 아니라 액션 라우트(스토어와 계약이 같다)
+export const cancelTaskApi = (campaignId: string, taskId: string, body: { reason: CancelReason | null; note: string }) =>
+  call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/cancel`, json('POST', body));
+export const restoreTaskApi = (campaignId: string, taskId: string) =>
+  call<{ task: TaskRow; draft: 'reattached' | 'taken' | 'gone' | 'none' }>(`/api/campaigns/${campaignId}/tasks/${taskId}/restore`, { method: 'POST' });
 // 비용 유발(트윗당 $0.001) — 버튼 opt-in(UX 원칙 6). 서버가 확인·미확인·건너뜀·유실을 한 번에 판정해 돌려준다.
 export const checkPostedApi = (campaignId: string) => call<CheckPostedResult>(`/api/campaigns/${campaignId}/check-posted`, { method: 'POST' });
 

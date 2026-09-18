@@ -261,6 +261,8 @@ test('10) 트래킹↔취소 동시 실행 — linkTrackedPost의 for update 직
   await lockAcquiredPromise;   // cancelTx가 확실히 락을 쥔 뒤에만 linkTx를 시작한다
 
   const linkTx = sql.begin((tx0) => linkTrackedPost(tx0 as unknown as typeof sql, row.id, { taskId: t.id }));
+  // 아래 2.5초 동안 거부 핸들러가 없으면(커넥션 끊김 등) unhandledRejection으로 러너 전체가 죽는다 — 즉시 붙여 둔다.
+  const linkSettled = linkTx.then(() => null, (e: unknown) => e);
   // linkTx가 새 커넥션을 맺고(원격 DB라 이 자체가 수백 ms) 자기 select를 서버로 보내고 블록될 시간을
   // 넉넉히 준다 — 짧으면(직접 확인함: 800ms는 부족) cancelTx가 먼저 커밋해버려 linkTx의 select가 이미
   // 갱신된 값을 읽어 이 테스트가 고치기 전 코드에서도 우연히 통과해버린다(경합이 재현되지 않는다).
@@ -270,9 +272,7 @@ test('10) 트래킹↔취소 동시 실행 — linkTrackedPost의 for update 직
 
   // for update 직렬화 덕에 linkTrackedPost는 cancelTx 커밋 후의 cancelled_at을 보고 깨끗하게
   // TrackingLinkError를 던진다 — 23514(raw PostgresError)로 터지지 않는다.
-  await assert.rejects(
-    linkTx,
-    (e: unknown) => e instanceof TrackingLinkError && e.code === 'cancelled-task',
-  );
+  const linkError = await linkSettled;
+  assert.ok(linkError instanceof TrackingLinkError && linkError.code === 'cancelled-task', `expected TrackingLinkError(cancelled-task), got ${String(linkError)}`);
   assert.equal((await getTask(sql, t.id))?.postedAt, null);      // 반쪽 연결로 채워지지 않았다
 });

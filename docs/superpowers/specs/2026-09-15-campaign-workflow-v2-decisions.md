@@ -230,8 +230,8 @@ raw 23514로 새기도 하는 진짜 경합임이 드러나 재작업: `updateTa
 메모는 허용, R17·R18) + `linkTrackedPost` 작업 select에 `for update`로 `cancelTask`와 직렬화해 경합 자체를
 제거하고, 그래도 다른 경로로 23514가 나면 라우트가 문구로 매핑 — 테스트: `campaignTaskCancel.test.ts`
 "7) updateTask R17 가드"·"10) 트래킹↔취소 동시 실행"(두 트랜잭션을 실제로 동시 실행해 for update 없이는
-raw PostgresError(23514)로, 있으면 `TrackingLinkError('cancelled-task')`로 거절됨을 직접 확인). 전체 `npm test`: 이 계획으로 깨진 테스트 0 — 유일한 실패 `campaignStore.test` "정산 배지·삭제 보호"는 09-11 정산 분류 개편 뒤부터의 기존 실패(`settlementStore.test`처럼 before/after에서 기본 분류를 깔면 고쳐짐, 별건)
-- [ ] A 계획 잔여 minor(최종 리뷰에서 판단): replaceInfluencer 같은 핸들 no-op, restoreTask savepoint 캐스트, 테스트 커버리지 보강(taken/gone 컬럼, 명부 없는 핸들, 가드 순서)
+raw PostgresError(23514)로 — 이 음성 갈래는 수정 전 코드로 되돌려 수동 확인 —, 있으면 `TrackingLinkError('cancelled-task')`로 거절됨을 확인). 전체 `npm test`: 이 계획으로 깨진 테스트 0 — 유일한 실패 `campaignStore.test` "정산 배지·삭제 보호"는 09-11 정산 분류 개편 뒤부터의 기존 실패(`settlementStore.test`처럼 before/after에서 기본 분류를 깔면 고쳐짐, 별건)
+- [x] A 계획 잔여 minor(최종 리뷰 판정 09-18): replaceInfluencer 같은 핸들 no-op → 머지 전 수정(C3) · 커버리지 보강(taken/gone·명부 없는 핸들·가드 순서·R17 가드·경합) → 테스트 7~10 추가 · savepoint 캐스트·PATCH 가드 중복은 불필요 판정. B로 넘김: WeekCalendar 취소 작업의 빈 주 행, 055 check `not valid`, 미사용 인덱스 idx_campaign_task_cancelled, `logTaskDeclined` insertAutoLog 재사용
 - [ ] 캠페인 페이지 대체 조건·시점, `/generate` 처리 방식 — 안정화 후
 
 ## 9. 결정 이력

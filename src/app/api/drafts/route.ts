@@ -56,6 +56,7 @@ export async function POST(req: Request) {
   if (typeof taskId.value === 'string') {
     const task = await getTask(sql, taskId.value);
     if (!task) return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 400 });
+    if (task.cancelledAt) return NextResponse.json({ error: CANCELLED_TASK_MESSAGE }, { status: 409 });   // R18 — attachDraft도 막지만 여기서 먼저(생성 비용 전)
     if (task.draftId) return NextResponse.json({ error: TASK_HAS_DRAFT_MESSAGE }, { status: 409 });
   }
   try {

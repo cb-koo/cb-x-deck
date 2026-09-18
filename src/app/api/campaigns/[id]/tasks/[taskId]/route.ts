@@ -70,7 +70,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
       // updateTask의 where절이 R17 가드를 건다(게시 확인만) — 읽기~쓰기 사이 취소가 끼어들면 false가
       // 온다. 트랜잭션을 throw로 끊어 흔적 정리·원고 동기화까지 반쪽으로 남지 않게 한다(라우트가 409로).
       const ok = await updateTask(tx, taskId, taskPatch);
-      if (!ok) throw new TaskUpdateRaceError();
+      // false의 다른 원인은 "행이 없음"(동시 삭제) — 그건 아래 getTask → 404 문구가 맞다. 게시 확인 패치일 때만 취소 경합.
+      if (!ok && taskPatch.postedAt !== undefined) throw new TaskUpdateRaceError();
       // 해제(인플 → 없음)도 옛 사람 흔적을 정리한다 — "해제 → 재배정"으로 교체 규칙을 우회할 수 없게(ADR 0005 표)
       if (patch.influencerHandle === null && cur.influencerHandle) {
         const traces = await clearOldInfluencerTraces(tx, taskId);

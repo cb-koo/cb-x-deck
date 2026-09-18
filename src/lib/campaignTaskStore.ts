@@ -9,8 +9,11 @@ import { influencerChangeGuard, type CancelReason } from './campaignTaskInput.ts
 // draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
 // getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
 import type { DraftRow } from './draftStore.ts';
-// influencerSync.ts는 campaignTaskStore를 import하지 않는다(grep 확인) — 값 import 안전.
-import { syncInfluencerOnDraftUpdate } from './influencerSync.ts';
+// influencerSync.ts 자체는 campaignTaskStore를 import하지 않지만, 전이 그래프까지 확인하면
+// campaignTaskStore → influencerSync → influencerStore(값 import: draftVersionHash from draftStore,
+// listInfluencerCampaigns from campaignStore) → draftStore → campaignTaskStore(값 import: attachDraft)로
+// 순환이 생긴다(campaignStore → campaignTaskStore 간선도 있다) — 정적 import(값·타입 모두)를 두지 않고
+// 지연 import로 끊는다(ReplaceDraftDeps·defaultReplaceDraftDeps, 아래). 타입은 typeof import(...)로 얻는다.
 
 // 작업(campaign_task) 저장소 — 스펙 2026-08-28 §2-1. 판정(단계·밀림·요약)은 campaignJudgment가, 여기는 행의 읽기·쓰기만.
 // 핸들은 표기 보존·비교는 lower(). 날짜는 date 컬럼 + to_char 왕복(시간대 시프트 방지, DateOnly 관례).
@@ -443,15 +446,18 @@ export async function clearOldInfluencerTraces(tx: postgres.Sql, id: string): Pr
   return { draftId: cur[0]?.draft_id ?? null, draftWasDelivered: cur[0]?.status === 'delivered' };
 }
 
-// getDraft/updateDraft는 draftStore.ts 것 — 위 순환 사유로 정적 값 import를 못 한다. deps로 주입 가능하되
-// 기본값은 동적 import로 지연 로드한다(호출부가 매번 넘길 필요 없음 — 첫 호출 후 모듈 캐시로 비용은 1회뿐).
+// getDraft/updateDraft(draftStore.ts)·syncInfluencerOnDraftUpdate(influencerSync.ts)는 위 순환 사유로
+// 정적 값 import를 못 한다. deps로 주입 가능하되 기본값은 동적 import로 지연 로드한다(호출부가 매번
+// 넘길 필요 없음 — 첫 호출 후 모듈 캐시로 비용은 1회뿐).
 type ReplaceDraftDeps = {
   getDraft: (tx: postgres.Sql, draftId: string) => Promise<DraftRow | null>;
   updateDraft: (tx: postgres.Sql, draftId: string, patch: { influencerHandle?: string | null; status?: DraftStatus }) => Promise<void>;
+  syncInfluencerOnDraftUpdate: typeof import('./influencerSync.ts').syncInfluencerOnDraftUpdate;
 };
 async function defaultReplaceDraftDeps(): Promise<ReplaceDraftDeps> {
   const m = await import('./draftStore.ts');
-  return { getDraft: m.getDraft, updateDraft: m.updateDraft };
+  const s = await import('./influencerSync.ts');
+  return { getDraft: m.getDraft, updateDraft: m.updateDraft, syncInfluencerOnDraftUpdate: s.syncInfluencerOnDraftUpdate };
 }
 
 // 교체(ADR 0005) — 같은 작업 ID. for update 재검사 → 인플·비용 → 흔적 정리 → 원고 상태·인플 동기화 → 사유 로그. 한 트랜잭션.
@@ -461,7 +467,7 @@ export async function replaceInfluencer(
   deps?: ReplaceDraftDeps,
 ): Promise<'ok' | 'not-found' | string> {
   if (!isUuidLike(id)) return 'not-found';
-  const { getDraft, updateDraft } = deps ?? await defaultReplaceDraftDeps();
+  const { getDraft, updateDraft, syncInfluencerOnDraftUpdate } = deps ?? await defaultReplaceDraftDeps();
   return sql.begin(async (tx0) => {
     const tx = tx0 as unknown as postgres.Sql;
     const rows = await tx<Array<{ posted_at: string | null; cancelled_at: string | null; type: TaskType; visit_on: string | null; influencer_handle: string | null; campaign_id: string }>>`

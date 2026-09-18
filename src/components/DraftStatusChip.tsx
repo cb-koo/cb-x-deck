@@ -38,10 +38,11 @@ export const TASK_STAGE_STYLE: Record<TaskStage, string> = {
   visitPending: 'border-amber-300 bg-amber-50 text-amber-800',
   visited: 'border-x-blue/40 bg-x-blue/10 text-x-blue-text',
   removed: 'border-slate-300 bg-slate-100 text-slate-600',
+  cancelled: 'border-slate-200 bg-slate-50 text-slate-400 line-through',   // 취소(055) — 흐리게, 취소선
 };
 // 달력 바·범례용 HEX(위 칩 색의 '진한 쪽' 한 톤) — STAGE_BAR_HEX 위에 작업 고유 단계를 얹는다.
 export const TASK_STAGE_BAR_HEX: Record<TaskStage, string> = {
-  ...STAGE_BAR_HEX, planned: '#94a3ab', visitPending: '#f59e0b', visited: '#1d9bf0', removed: '#64748b',
+  ...STAGE_BAR_HEX, planned: '#94a3ab', visitPending: '#f59e0b', visited: '#1d9bf0', removed: '#64748b', cancelled: '#cbd5e1',
 };
 
 // 밀림은 단계가 아니라 상태 위에 얹히는 경고다(isTaskOverdue) — 단계색을 덮어쓴다. 표의 빨간 신호와 같은 색.

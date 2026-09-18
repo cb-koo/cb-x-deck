@@ -221,7 +221,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   const overdue = task && draft.taskId && draft.scheduledOn
     && isTaskOverdue({
       type: draft.taskType as TaskType, draftStatus: draft.status,
-      postedAt: null, removedAt: null, scheduledOn: draft.scheduledOn, visitOn: null,
+      postedAt: null, removedAt: null, scheduledOn: draft.scheduledOn, visitOn: null, cancelledAt: null,
     }, task.today)
     ? daysBetweenDates(draft.scheduledOn, task.today)
     : null;

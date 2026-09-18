@@ -2,7 +2,7 @@
 import { useState, useRef } from 'react';
 import type { CampaignTaskItem, CampaignRow } from '@/lib/campaignStore';
 import {
-  isOutOfRange, formatDateKo, taskStage, isTaskUnused, matchesTaskFilter,
+  isOutOfRange, formatDateKo, taskStage, isTaskExcluded, matchesTaskFilter,
   TASK_STAGE_LABEL, TASK_TYPE_LABEL, type TaskStage, type StageFilter, type TaskType,
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, overdueSuffix, NO_SCHEDULE_LABEL } from '@/lib/campaignTableView';
@@ -79,7 +79,7 @@ export function WeekCalendar({ rows, campaign, today, filter, onOpenDraft, onCha
   // 방문일도 넣는다: 기간 밖 방문일이어도 그 카드가 격자 어딘가에 있어야 손이 닿는다.
   const weeks = weekRows(campaign.startsOn, campaign.endsOn,
     rows.flatMap((r) => [r.scheduledOn, r.type === 'visit' ? r.visitOn : null]));
-  const grid = calendarGrid(rows.filter((t) => matchesTaskFilter(t, filter, today)), weeks, today);
+  const grid = calendarGrid(rows.filter((t) => matchesTaskFilter(t, filter, today)).filter((t) => !isTaskExcluded(t)), weeks, today);
   // 끌고 있는 카드(작업 + 무슨 날짜로 섰는지) — 미정 섹션을 내보일지 판단하는 데 쓴다
   const dragged = (() => {
     if (!dragKey) return null;
@@ -125,7 +125,6 @@ export function WeekCalendar({ rows, campaign, today, filter, onOpenDraft, onCha
     // scheduledOn이라 방문 칸에 그대로 쓰면 '방문이 밀렸다'로 읽히는 빨간 카드가 된다. 색·테두리도 od에서 따라온다.
     const od = kind === 'visit' ? null : taskOverdueDays(t, today);
     const overdue = od !== null;
-    const unused = isTaskUnused(t);
     const key = cardKey(t.id, kind);
     const who = t.influencerHandle ? `@${t.influencerHandle}` : '미배정';
     const date = kind === 'visit' ? t.visitOn : t.scheduledOn;
@@ -154,7 +153,7 @@ export function WeekCalendar({ rows, campaign, today, filter, onOpenDraft, onCha
                 fixedWidth ? 'w-[220px] shrink-0' : 'w-full'} ${
                 overdue ? 'border-y-red-200 border-r-red-200 bg-red-50' : 'border-y-x-border border-r-x-border bg-white'} ${
                 openable ? (overdue ? 'hover:bg-red-100/60' : 'hover:bg-x-hover') : ''} ${
-                unused ? 'opacity-60' : ''} ${dragKey === key ? 'opacity-40' : ''}`}>
+                dragKey === key ? 'opacity-40' : ''}`}>
         <span className="flex items-start gap-1.5">
           <span className={`mt-px shrink-0 rounded px-1.5 py-0.5 text-[12px] font-bold ${TYPE_CHIP[t.type]}`}>{TASK_TYPE_LABEL[t.type]}</span>
           <span className="line-clamp-2 text-content">{t.draftLabel ?? who}</span>

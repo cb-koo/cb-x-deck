@@ -56,6 +56,10 @@ test('4) 정렬 — 기본 만든 순, 헤더 클릭 순환, 미정은 오름차
   assert.deepEqual(sortFlowRows([a, b, c], { key: 'date', dir: -1 }).map((t) => t.id), [a.id, c.id, b.id]);
   const x = mk({ influencerHandle: 'b' }), y = mk({ influencerHandle: 'A' }), z = mk({});
   assert.deepEqual(sortFlowRows([x, y, z], { key: 'influencer', dir: 1 }).map((t) => t.id), [y.id, x.id, z.id]);
+  // 날짜 정렬은 화면에 찍히는 날짜를 따른다 — 취소 행은 취소일로 보이므로 원래 예정일로 줄을 세우면 안 된다
+  const dz = mk({ scheduledOn: '2026-09-01', cancelledAt: '2026-09-17' });   // 표시: 9/17 목 취소
+  const dy = mk({ scheduledOn: '2026-09-10' });                               // 표시: 9/10 목
+  assert.deepEqual(sortFlowRows([dz, dy], { key: 'date', dir: 1 }).map((t) => t.id), [dy.id, dz.id]);
   // 비용 미정도 다른 키와 같이 방향과 무관하게 맨 뒤 — 오름차순에서 맨 앞으로 오면 '0원'처럼 읽힌다
   const c1 = mk({}), c2 = mk({ cost: { amount: 10000, currency: 'KRW' } }), c3 = mk({ cost: { amount: 50000, currency: 'KRW' } });
   assert.deepEqual(sortFlowRows([c1, c2, c3], { key: 'cost', dir: 1 }).map((t) => t.id), [c2.id, c3.id, c1.id]);

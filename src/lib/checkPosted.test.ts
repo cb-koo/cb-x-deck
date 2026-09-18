@@ -11,13 +11,15 @@ test('plan — 트윗별 묶음(같은 트윗 두 작업 = 한 그룹), 대상 �
     t({ id: 'd', influencerHandle: 'x', targetTweetId: null }),
     t({ id: 'e', influencerHandle: 'y', targetTweetId: null, targetPending: true }),
     t({ id: 'f', influencerHandle: null }),
-    t({ id: 'g', influencerHandle: 'hana', postedAt: '2026-09-01' }),
+    t({ id: 'g', influencerHandle: 'z', targetTweetId: null, targetCancelled: true }),
+    t({ id: 'i', influencerHandle: 'hana', postedAt: '2026-09-01' }),
     t({ id: 'h', influencerHandle: 'yuki', targetTweetId: '3', targetCancelled: true }),
   ]);
-  assert.deepEqual([...byTweet.keys()], ['1', '2']);
-  assert.deepEqual(byTweet.get('1')!.map((x) => x.id), ['a', 'b', 'g']);
+  assert.deepEqual([...byTweet.keys()], ['1', '2', '3']);
+  assert.deepEqual(byTweet.get('1')!.map((x) => x.id), ['a', 'b', 'i']);
+  assert.deepEqual(byTweet.get('3')!.map((x) => x.id), ['h']);   // 대상이 취소돼도 대상 트윗 id가 있으면 건너뛰지 않고 그룹으로 묶인다(브리프 Step3 분기)
   assert.deepEqual(skipped, [
-    { taskId: 'd', handle: 'x', reason: 'no_target' }, { taskId: 'e', handle: 'y', reason: 'target_not_posted' }, { taskId: 'f', handle: '', reason: 'no_handle' }, { taskId: 'h', handle: 'yuki', reason: 'target_cancelled' },
+    { taskId: 'd', handle: 'x', reason: 'no_target' }, { taskId: 'e', handle: 'y', reason: 'target_not_posted' }, { taskId: 'f', handle: '', reason: 'no_handle' }, { taskId: 'g', handle: 'z', reason: 'target_cancelled' },
   ]);
 });
 
@@ -39,4 +41,8 @@ test('taskToCheck — 대상 URL은 작업 참조의 post_url 우선, 게시 대
   assert.deepEqual(taskToCheck({ id: 'd', influencerHandle: 'rio', postedAt: null, targetTaskId: 't', targetTweetUrl: null, target: { postUrl: 'https://x.com/m/status/88', cancelledAt: '2026-09-01' } }),
     { id: 'd', influencerHandle: 'rio', postedAt: null, targetTweetId: '88', targetPending: false, targetCancelled: true });
   assert.equal(taskToCheck({ id: 'c', influencerHandle: 'rio', postedAt: null, targetTaskId: null, targetTweetUrl: 'https://x.com/i/status/5', target: null }).targetTweetId, '5');
+  const c = taskToCheck({ id: 't', influencerHandle: 'z', postedAt: null, targetTaskId: 'tt', targetTweetUrl: null, target: { postUrl: null, cancelledAt: '2026-09-16' } });
+  assert.equal(c.targetPending, false);
+  assert.equal(c.targetCancelled, true);
+  assert.equal(c.targetTweetId, null);
 });

@@ -34,8 +34,10 @@ export function planChecks(tasks: CheckTask[]): { byTweet: Map<string, CheckTask
   const skipped: CheckPostedResult['skipped'] = [];
   for (const t of tasks) {
     if (!t.influencerHandle) { skipped.push({ taskId: t.id, handle: '', reason: 'no_handle' }); continue; }
-    if (t.targetCancelled) { skipped.push({ taskId: t.id, handle: t.influencerHandle, reason: 'target_cancelled' }); continue; }
-    if (!t.targetTweetId) { skipped.push({ taskId: t.id, handle: t.influencerHandle, reason: t.targetPending ? 'target_not_posted' : 'no_target' }); continue; }
+    if (!t.targetTweetId) {
+      skipped.push({ taskId: t.id, handle: t.influencerHandle, reason: t.targetCancelled ? 'target_cancelled' : t.targetPending ? 'target_not_posted' : 'no_target' });
+      continue;
+    }
     const g = byTweet.get(t.targetTweetId) ?? [];
     g.push(t);
     byTweet.set(t.targetTweetId, g);

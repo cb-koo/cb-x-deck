@@ -110,13 +110,13 @@ export function costCell(t: FlowRow, suggestion: TaskCost | null): { text: strin
 }
 
 // ── 하단 줄·카드(§3-2 하단 한 줄, §3-3) — 모집단은 취소 제외(R17) ──
-// 유형 나열 순서는 TASK_TYPES(rt·quoteRt·post·visit)를 그대로 쓰지 않는다 — 하단 한 줄은 투고를 먼저 읽는 게
-// 자연스럽다는 게 결정 문서 예시(§3-2 "투고 2 · 인용RT 5 · RT 3 · …")와 테스트 8의 기대값이다. TASK_TYPES 자체의
-// 순서는 다른 곳(정렬 키·filterSummary)에 영향이 없어 그대로 두고, 여기서만 표시 순서를 명시적으로 고정한다.
-const FOOTER_TYPE_ORDER: readonly TaskType[] = ['post', 'quoteRt', 'rt', 'visit'];
+// 화면에 유형을 나열하는 순서 — 주력인 발행 유형(투고·인용RT)이 먼저, 부수적인 RT·방문협찬이 뒤.
+// TASK_TYPES(rt·quoteRt·post·visit)는 도메인 순서(단가 키 등)라 그대로 두고, 보이는 순서만 여기서 한 번 정한다:
+// 하단 한 줄과 필터 드롭다운이 같은 순서를 써야 화면 안에서 유형 나열이 두 가지로 갈리지 않는다(시안 F도 이 순서).
+export const DISPLAY_TYPE_ORDER: readonly TaskType[] = ['post', 'quoteRt', 'rt', 'visit'];
 export function flowFooter(rows: FlowRow[], today: string): string {
   const live = rows.filter((t) => !isTaskExcluded(t));
-  const types = FOOTER_TYPE_ORDER.filter((k) => live.some((t) => t.type === k)).map((k) => `${TASK_TYPE_LABEL[k]} ${live.filter((t) => t.type === k).length}`);
+  const types = DISPLAY_TYPE_ORDER.filter((k) => live.some((t) => t.type === k)).map((k) => `${TASK_TYPE_LABEL[k]} ${live.filter((t) => t.type === k).length}`);
   const cost = sumMoney(live.flatMap((t) => (t.cost ? [t.cost] : [])));
   const posted = live.filter((t) => t.postedAt).length;
   const late = live.filter((t) => isTaskOverdue(t, today)).length;

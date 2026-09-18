@@ -244,7 +244,8 @@ git commit -m "feat(campaign-v2): 읽기 필드 보강(원고 첫 줄·북마크
   - `dateCell(t, today): { text: string; tone: 'late' | 'posted' | 'plain' | 'muted' }`
   - `draftCell(t): { text: string; muted: boolean; title: string }`
   - `costCell(t, suggestion): { text: string; tone: 'plain' | 'muted' | 'struck' | 'suggested'; title?: string }`
-  - `flowFooter(rows): string` = `투고 2 · 인용RT 5 · RT 3 · 비용 ₩880,000 · 게시 4 / 12 · 밀림 1`
+  - `DISPLAY_TYPE_ORDER = ['post','quoteRt','rt','visit']`(화면에 유형을 나열하는 순서 — 하단 줄과 필터 드롭다운이 함께 쓴다. TASK_TYPES는 도메인 순서라 건드리지 않는다)
+  - `flowFooter(rows, today): string` = `투고 2 · 인용RT 5 · RT 3 · 비용 880,000원 · 게시 4 / 12 · 밀림 1`
   - `filterSummary(f, shown, total): string`
   - `flowStats(rows): { planned; posted; perf: { views; likes; bookmarks; withPerf; noLink }; spent: MoneyByCurrency; plannedCost: MoneyByCurrency }`
   - `settleWaitCount(rows)`

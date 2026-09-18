@@ -3,9 +3,9 @@
 import { parseTweetLink } from './tweetLink.ts';
 import { targetUrlOf, targetStatus } from './campaignJudgment.ts';
 
-export interface CheckTask { id: string; influencerHandle: string | null; postedAt: string | null; targetTweetId: string | null; targetPending: boolean }
+export interface CheckTask { id: string; influencerHandle: string | null; postedAt: string | null; targetTweetId: string | null; targetPending: boolean; targetCancelled: boolean }
 export interface Hit { taskId: string; handle: string }
-export type SkipReason = 'no_target' | 'target_not_posted' | 'no_handle';
+export type SkipReason = 'no_target' | 'target_not_posted' | 'no_handle' | 'target_cancelled';
 export interface CheckPostedResult {
   confirmed: Hit[]; pending: Hit[]; skipped: Array<Hit & { reason: SkipReason }>; missing: Hit[];
   unreadable: Array<{ tweetId: string; reason: string }>; partial: string[];   // partial = 페이지 상한에 걸려 일부만 본 트윗
@@ -19,10 +19,12 @@ export function taskToCheck(t: {
   const input = { targetTaskId: t.targetTaskId, targetPostUrl: t.target?.postUrl ?? null, targetTweetUrl: t.targetTweetUrl };
   const url = targetUrlOf(input);
   const parsed = url ? parseTweetLink(url) : null;
+  const status = targetStatus({ ...input, targetCancelledAt: t.target?.cancelledAt ?? null });
   return {
     id: t.id, influencerHandle: t.influencerHandle, postedAt: t.postedAt,
     targetTweetId: parsed && parsed.ok ? parsed.tweetId : null,
-    targetPending: targetStatus({ ...input, targetCancelledAt: t.target?.cancelledAt ?? null }) === 'pending',
+    targetPending: status === 'pending',
+    targetCancelled: status === 'cancelled',
   };
 }
 
@@ -32,6 +34,7 @@ export function planChecks(tasks: CheckTask[]): { byTweet: Map<string, CheckTask
   const skipped: CheckPostedResult['skipped'] = [];
   for (const t of tasks) {
     if (!t.influencerHandle) { skipped.push({ taskId: t.id, handle: '', reason: 'no_handle' }); continue; }
+    if (t.targetCancelled) { skipped.push({ taskId: t.id, handle: t.influencerHandle, reason: 'target_cancelled' }); continue; }
     if (!t.targetTweetId) { skipped.push({ taskId: t.id, handle: t.influencerHandle, reason: t.targetPending ? 'target_not_posted' : 'no_target' }); continue; }
     const g = byTweet.get(t.targetTweetId) ?? [];
     g.push(t);

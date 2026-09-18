@@ -5,7 +5,7 @@ import { createClient } from './clientStore.ts';
 import { createCampaign } from './campaignStore.ts';
 import { insertDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
-import { createTasks, getTask, markPosted, listTargetCandidates, listTargetingHandles, cancelTask, restoreTask, attachDraft, replaceInfluencer } from './campaignTaskStore.ts';
+import { createTasks, getTask, markPosted, listTargetCandidates, listTargetingHandles, cancelTask, restoreTask, attachDraft, replaceInfluencer, updateTask } from './campaignTaskStore.ts';
 import { linkTrackedPost, addTrackedPost, TrackingLinkError } from './trackingStore.ts';
 import { CANCEL_REASONS } from './campaignTaskInput.ts';
 import { ensureInfluencer } from './influencerStore.ts';
@@ -189,4 +189,16 @@ test('6) 교체 — 같은 행에서 인플만 바뀌고, 전달됨 원고는 �
   // 게시된 작업은 거절(문구)
   await sql`update campaign_task set posted_at = '2026-09-16' where id = ${rt.id}`;
   assert.equal(typeof await replaceInfluencer(sql, rt.id, { handle: oldH, cost: null, reason: null, note: '', actorId: null, today: '2026-09-17' }), 'string');
+});
+
+test('7) updateTask R17 가드 — 취소 작업의 게시 확인은 false(경합 신호)로 거절되고, 메모 편집은 취소 중에도 허용된다(R18)', async () => {
+  const { camp } = await mkCampaign('g');
+  const [t] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', items: [{ handle: P + '_g', cost: null }] });
+  assert.equal(await cancelTask(sql, t.id, { reason: null, note: '', actorId: null, today: '2026-09-16' }), 'ok');
+  // 게시 확인(postedAt)은 취소 작업에 막힌다 — updateTask가 false를 돌려주고 posted_at은 null 그대로
+  assert.equal(await updateTask(sql, t.id, { postedAt: '2026-09-18', postedSource: 'manual' }), false);
+  assert.equal((await getTask(sql, t.id))?.postedAt, null);
+  // 메모는 취소 중에도 허용(R18) — true를 돌려주고 값이 반영된다
+  assert.equal(await updateTask(sql, t.id, { note: 'x' }), true);
+  assert.equal((await getTask(sql, t.id))?.note, 'x');
 });

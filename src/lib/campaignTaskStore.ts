@@ -174,7 +174,10 @@ export async function updateTask(sql: postgres.Sql, id: string, patch: TaskPatch
       note              = coalesce(${patch.note ?? null}::text, note),
       proof             = case when ${patch.proof !== undefined} then ${patch.proof ? sql.json(patch.proof as never) : null}::jsonb else proof end,
       updated_at = now()
-    where id = ${id} returning id`;
+    where id = ${id} and (${patch.postedAt ?? null}::date is null or cancelled_at is null) returning id`;
+  // R17 — 게시 확인(postedAt)만 취소 작업에 막는다. 메모 등 나머지 편집은 취소 중에도 허용된다(R18)라
+  // 조건을 postedAt 유무로 좁힌다(전면 cancelled_at is null이면 메모 편집까지 막는다). false는 "그 사이
+  // 취소됨"(경합) 신호 — 호출자(라우트)가 409로 매핑한다.
   return rows.length > 0;
 }
 

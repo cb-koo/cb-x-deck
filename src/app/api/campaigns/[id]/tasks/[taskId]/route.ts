@@ -3,12 +3,13 @@ import type postgres from 'postgres';
 import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
-import { getTask, updateTask, deleteTask, hasActiveRequest } from '@/lib/campaignTaskStore';
+import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces } from '@/lib/campaignTaskStore';
 import type { TaskPatch } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
-import { parseTaskPatch, proofGateError, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE } from '@/lib/campaignTaskInput';
+import { parseTaskPatch, proofGateError, influencerChangeGuard, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE, CANCELLED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
 import { getDraft, updateDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
+import { kstToday } from '@/lib/datetime';
 
 const notFound = () => NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 404 });
 
@@ -25,6 +26,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
   const sql = getSql();
   const cur = await getTask(sql, taskId);
   if (!cur || cur.campaignId !== id) return notFound();
+  // 취소 중 허용되는 편집은 메모만(ADR 0002 "취소 중 허용되는 것"). 나머지는 되돌린 뒤.
+  if (cur.cancelledAt && Object.keys(patch).some((k) => k !== 'note')) return NextResponse.json({ error: CANCELLED_TASK_MESSAGE }, { status: 400 });
+  // 인플루언서 칸 변경 — 배정·해제·같은 인플만. 다른 인플로는 교체 라우트(ADR 0005). 상태 제한은 셋에 같다.
+  if (patch.influencerHandle !== undefined) {
+    const g = influencerChangeGuard(cur, patch.influencerHandle, kstToday());
+    if (g) return NextResponse.json({ error: g }, { status: 400 });
+  }
   if (patch.visitOn && cur.type !== 'visit') return NextResponse.json({ error: VISIT_ON_MESSAGE }, { status: 400 });
   // ── RT 증빙 3규칙 (스펙 §5) — 판정은 순수 함수 campaignTaskInput.proofGateError로 뺐다(리뷰 Critical:
   //    패치 전 증빙만 보면 한 요청에 postedAt+proof:null을 합쳐 보내는 우회가 뚫린다. 반드시 패치 후 상태로 본다.
@@ -51,6 +59,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
   await sql.begin(async (tx0) => {
     const tx = tx0 as unknown as postgres.Sql;
     await updateTask(tx, taskId, taskPatch);
+    // 해제(인플 → 없음)도 옛 사람 흔적을 정리한다 — "해제 → 재배정"으로 교체 규칙을 우회할 수 없게(ADR 0005 표)
+    if (patch.influencerHandle === null && cur.influencerHandle) {
+      const traces = await clearOldInfluencerTraces(tx, taskId);
+      if (traces.draftId && traces.draftWasDelivered) await updateDraft(tx, traces.draftId, { status: 'approved' });
+    }
     if (patch.influencerHandle !== undefined && cur.draftId) {
       const before = await getDraft(tx, cur.draftId);
       if (before && (before.influencerHandle ?? '').toLowerCase() !== (patch.influencerHandle ?? '').toLowerCase()) {

@@ -5,7 +5,12 @@ import { TARGETABLE_TYPES, type TaskType } from './campaignJudgment.ts';
 import { tweetPermalink } from './tweetLink.ts';
 import { isUuidLike } from './uuid.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
-import type { CancelReason } from './campaignTaskInput.ts';
+import { influencerChangeGuard, type CancelReason } from './campaignTaskInput.ts';
+// draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
+// getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
+import type { DraftRow } from './draftStore.ts';
+// influencerSync.ts는 campaignTaskStore를 import하지 않는다(grep 확인) — 값 import 안전.
+import { syncInfluencerOnDraftUpdate } from './influencerSync.ts';
 
 // 작업(campaign_task) 저장소 — 스펙 2026-08-28 §2-1. 판정(단계·밀림·요약)은 campaignJudgment가, 여기는 행의 읽기·쓰기만.
 // 핸들은 표기 보존·비교는 lower(). 날짜는 date 컬럼 + to_char 왕복(시간대 시프트 방지, DateOnly 관례).
@@ -419,5 +424,64 @@ export async function restoreTask(sql: postgres.Sql, id: string): Promise<{ resu
       if (e instanceof TaskAttachError) return { result: 'ok', draft: 'taken' };   // 세이브포인트만 롤백됨 — 복원은 유지
       throw e;
     }
+  });
+}
+
+// ─────────────────────────── 인플루언서 교체 (ADR 0005) ───────────────────────────
+// 옛 인플루언서의 흔적 정리(ADR 0005 표) — 해제·교체가 같이 쓴다: RT 증빙 제거, 붙은 원고가 '전달됨'이면 '사용 확정'으로.
+// 원고 status 변경은 draftStore.updateDraft를 거쳐야 하므로 여기서는 값만 돌려주고 호출자(라우트/replaceInfluencer)가 처리한다.
+export async function clearOldInfluencerTraces(tx: postgres.Sql, id: string): Promise<{ draftId: string | null; draftWasDelivered: boolean }> {
+  const cur = await tx<Array<{ draft_id: string | null; status: string | null }>>`
+    select t.draft_id, d.status from campaign_task t left join draft d on d.id = t.draft_id where t.id = ${id}`;
+  await tx`update campaign_task set proof = null, updated_at = now() where id = ${id} and type = 'rt'`;
+  return { draftId: cur[0]?.draft_id ?? null, draftWasDelivered: cur[0]?.status === 'delivered' };
+}
+
+// getDraft/updateDraft는 draftStore.ts 것 — 위 순환 사유로 정적 값 import를 못 한다. deps로 주입 가능하되
+// 기본값은 동적 import로 지연 로드한다(호출부가 매번 넘길 필요 없음 — 첫 호출 후 모듈 캐시로 비용은 1회뿐).
+type ReplaceDraftDeps = {
+  getDraft: (tx: postgres.Sql, draftId: string) => Promise<DraftRow | null>;
+  updateDraft: (tx: postgres.Sql, draftId: string, patch: { influencerHandle?: string | null; status?: DraftStatus }) => Promise<void>;
+};
+async function defaultReplaceDraftDeps(): Promise<ReplaceDraftDeps> {
+  const m = await import('./draftStore.ts');
+  return { getDraft: m.getDraft, updateDraft: m.updateDraft };
+}
+
+// 교체(ADR 0005) — 같은 작업 ID. for update 재검사 → 인플·비용 → 흔적 정리 → 원고 상태·인플 동기화 → 사유 로그. 한 트랜잭션.
+export async function replaceInfluencer(
+  sql: postgres.Sql, id: string,
+  input: { handle: string; cost: TaskCost | null | undefined; reason: CancelReason | null; note: string; actorId: string | null; today: string },
+  deps?: ReplaceDraftDeps,
+): Promise<'ok' | 'not-found' | string> {
+  if (!isUuidLike(id)) return 'not-found';
+  const { getDraft, updateDraft } = deps ?? await defaultReplaceDraftDeps();
+  return sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    const rows = await tx<Array<{ posted_at: string | null; cancelled_at: string | null; type: TaskType; visit_on: string | null; influencer_handle: string | null; campaign_id: string }>>`
+      select to_char(posted_at,'YYYY-MM-DD') as posted_at, to_char(cancelled_at,'YYYY-MM-DD') as cancelled_at, type, to_char(visit_on,'YYYY-MM-DD') as visit_on, influencer_handle, campaign_id
+        from campaign_task where id = ${id} for update`;
+    if (rows.length === 0) return 'not-found';
+    const cur = rows[0];
+    const guard = influencerChangeGuard(
+      { postedAt: cur.posted_at, cancelledAt: cur.cancelled_at, type: cur.type, visitOn: cur.visit_on, influencerHandle: cur.influencer_handle },
+      input.handle, input.today, { allowReplace: true },
+    );
+    if (guard) return guard;
+    await tx`update campaign_task set influencer_handle = ${input.handle},
+        cost = case when ${input.cost !== undefined} then ${input.cost ? tx.json(input.cost as never) : null}::jsonb else cost end,
+        updated_at = now() where id = ${id}`;
+    const traces = await clearOldInfluencerTraces(tx, id);
+    if (traces.draftId) {
+      const before = await getDraft(tx, traces.draftId);
+      if (before) {
+        await updateDraft(tx, traces.draftId, { influencerHandle: input.handle, ...(traces.draftWasDelivered ? { status: 'approved' as const } : {}) });
+        await syncInfluencerOnDraftUpdate(tx, { before, influencerHandle: input.handle, status: traces.draftWasDelivered ? 'approved' : undefined, actorId: input.actorId });
+      }
+    }
+    if ((input.reason === 'declined' || input.reason === 'no_response') && cur.influencer_handle) {
+      await logTaskDeclined(tx, { handle: cur.influencer_handle, taskId: id, campaignId: cur.campaign_id, taskType: cur.type, reason: input.reason, action: 'replace', actorId: input.actorId });
+    }
+    return 'ok';
   });
 }

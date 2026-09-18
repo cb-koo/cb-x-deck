@@ -41,6 +41,32 @@ export const REPLACE_REQUIRED_MESSAGE = '다른 인플루언서로 바꾸려면 
 export const REPLACE_AFTER_VISIT_MESSAGE = '방문한 인플루언서가 게시해야 해요 — 진행이 안 되면 취소해 주세요';
 export const CANCEL_REASON_MESSAGE = '취소 사유 값이 올바르지 않아요';
 export const RESTORE_NOT_CANCELLED_MESSAGE = '취소된 작업이 아니에요';
+export const POSTED_TASK_MESSAGE = '이미 게시된 작업이에요 — 인플루언서를 바꿀 수 없어요';
+
+// 인플루언서 칸을 바꾸는 모든 요청(배정·해제·교체)에 같은 상태 제한(ADR 0005). PATCH는 "다른 인플로"를 막고 교체 라우트로 보낸다.
+export function influencerChangeGuard(
+  cur: { postedAt: string | null; cancelledAt: string | null; type: TaskType; visitOn: string | null; influencerHandle: string | null },
+  next: string | null, today: string, opts: { allowReplace?: boolean } = {},
+): string | null {
+  if (cur.cancelledAt) return CANCELLED_TASK_MESSAGE;
+  if (cur.postedAt) return POSTED_TASK_MESSAGE;
+  const same = (cur.influencerHandle ?? '').toLowerCase() === (next ?? '').toLowerCase();
+  if (same) return null;
+  if (cur.type === 'visit' && cur.visitOn !== null && cur.visitOn < today) return REPLACE_AFTER_VISIT_MESSAGE;   // 방문 완료 판정과 같은 기준(< 오늘)
+  if (cur.influencerHandle && next && !opts.allowReplace) return REPLACE_REQUIRED_MESSAGE;
+  return null;
+}
+
+export function parseReplaceBody(body: unknown): Parsed<{ handle: string; cost: TaskCost | null | undefined; reason: CancelReason | null; note: string }> {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const h = parseXHandle(String(b.handle ?? ''));
+  if (!h.ok) return fail(handleParseMessage(h.reason));
+  let cost: TaskCost | null | undefined = undefined;
+  if ('cost' in b) { const c = parseTaskCost(b.cost); if (!c.ok) return c; cost = c.value; }
+  const r = parseCancelBody(b);
+  if (!r.ok) return r;
+  return { ok: true, value: { handle: h.handle, cost, reason: r.value.reason, note: r.value.note } };
+}
 
 export const CANCEL_REASONS = ['declined', 'no_response', 'other'] as const;
 export type CancelReason = typeof CANCEL_REASONS[number];

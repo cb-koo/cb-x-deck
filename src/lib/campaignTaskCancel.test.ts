@@ -5,10 +5,11 @@ import { createClient } from './clientStore.ts';
 import { createCampaign } from './campaignStore.ts';
 import { insertDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
-import { createTasks, getTask, markPosted, listTargetCandidates, listTargetingHandles, cancelTask, restoreTask, attachDraft } from './campaignTaskStore.ts';
+import { createTasks, getTask, markPosted, listTargetCandidates, listTargetingHandles, cancelTask, restoreTask, attachDraft, replaceInfluencer } from './campaignTaskStore.ts';
 import { linkTrackedPost, addTrackedPost, TrackingLinkError } from './trackingStore.ts';
 import { CANCEL_REASONS } from './campaignTaskInput.ts';
 import { ensureInfluencer } from './influencerStore.ts';
+import { getDraft, updateDraft } from './draftStore.ts';
 
 const sql = getSql();
 const P = 'tcv2' + process.pid;
@@ -160,4 +161,32 @@ test('5) 되돌리기 — 재부착 / 다른 작업이 가져갔으면 작업만
   assert.deepEqual(await restoreTask(sql, t3.id), { result: 'ok', draft: 'gone' });
   // 취소 아님
   assert.equal((await restoreTask(sql, t3.id)).result, 'not-cancelled');
+});
+
+test('6) 교체 — 같은 행에서 인플만 바뀌고, 전달됨 원고는 사용 확정으로, RT 증빙은 지워지고, 사유가 무응답이면 옛 인플 타임라인에 남는다', async () => {
+  const { c, camp } = await mkCampaign('f');
+  const oldH = P + '_f1', newH = P + '_f2';
+  const oldId = await ensureInfluencer(sql, oldH, null);
+  const draftId = await mkDraft(c.id, c.name, '전달된 원고');
+  await updateDraft(sql, draftId, { status: 'delivered' });
+  const [t] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', draftId, scheduledOn: '2026-09-18', items: [{ handle: oldH, cost: { amount: 30000, currency: 'KRW' } }] });
+  const r = await replaceInfluencer(sql, t.id, { handle: newH, cost: { amount: 35000, currency: 'KRW' }, reason: 'no_response', note: '', actorId: null, today: '2026-09-16' });
+  assert.equal(r, 'ok');
+  const g = await getTask(sql, t.id);
+  assert.equal(g?.influencerHandle, newH);
+  assert.deepEqual(g?.cost, { amount: 35000, currency: 'KRW' });
+  assert.equal(g?.scheduledOn, '2026-09-18');                                  // 그대로
+  assert.equal(g?.draftId, draftId);                                           // 원고는 따라간다
+  assert.equal((await getDraft(sql, draftId))?.status, 'approved');            // 전달됨 → 사용 확정
+  assert.equal((await getDraft(sql, draftId))?.influencerHandle, newH);
+  const logs = await sql<Array<{ payload: { action: string } }>>`select payload from influencer_log where influencer_id = ${oldId} and event_type = 'task_declined'`;
+  assert.equal(logs.length, 1); assert.equal(logs[0].payload.action, 'replace');
+  // RT 증빙 제거
+  const [rt] = await createTasks(sql, camp.id, { ...baseInput, type: 'rt', items: [{ handle: oldH, cost: null }] });
+  await sql`update campaign_task set proof = ${sql.json({ url: `task/${rt.id}/00000000-0000-4000-8000-000000000000.png`, by: null, byName: '', at: new Date().toISOString() } as never)} where id = ${rt.id}`;
+  assert.equal(await replaceInfluencer(sql, rt.id, { handle: newH, cost: null, reason: null, note: '', actorId: null, today: '2026-09-16' }), 'ok');
+  assert.equal((await getTask(sql, rt.id))?.proof, null);
+  // 게시된 작업은 거절(문구)
+  await sql`update campaign_task set posted_at = '2026-09-16' where id = ${rt.id}`;
+  assert.equal(typeof await replaceInfluencer(sql, rt.id, { handle: oldH, cost: null, reason: null, note: '', actorId: null, today: '2026-09-17' }), 'string');
 });

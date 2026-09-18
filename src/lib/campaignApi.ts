@@ -83,6 +83,9 @@ export const cancelTaskApi = (campaignId: string, taskId: string, body: { reason
   call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/cancel`, json('POST', body));
 export const restoreTaskApi = (campaignId: string, taskId: string) =>
   call<{ task: TaskRow; draft: 'reattached' | 'taken' | 'gone' | 'none' }>(`/api/campaigns/${campaignId}/tasks/${taskId}/restore`, { method: 'POST' });
+// 인플루언서 교체(ADR 0005) — PATCH가 아니라 액션 라우트(다른 인플로 바꾸는 유일한 경로)
+export const replaceInfluencerApi = (campaignId: string, taskId: string, body: { handle: string; cost?: TaskCost | null; reason?: CancelReason | null; note?: string }) =>
+  call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/replace`, json('POST', body));
 // 비용 유발(트윗당 $0.001) — 버튼 opt-in(UX 원칙 6). 서버가 확인·미확인·건너뜀·유실을 한 번에 판정해 돌려준다.
 export const checkPostedApi = (campaignId: string) => call<CheckPostedResult>(`/api/campaigns/${campaignId}/check-posted`, { method: 'POST' });
 

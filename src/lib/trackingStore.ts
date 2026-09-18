@@ -2,6 +2,7 @@ import type postgres from 'postgres';
 import type { PostMetrics } from './postMetrics.ts';
 import { assignRoles, type PostRole } from './postRole.ts';
 import { tweetPermalink } from './tweetLink.ts';
+import { isUuidLike } from './uuid.ts';
 
 // 게시물 연결이 거절되는 이유 — 라우트가 400 문구로 바꿔 보낸다.
 export class TrackingLinkError extends Error {
@@ -273,6 +274,18 @@ export async function linkTrackedPost(
       where id = ${taskId}`;
   }
   return true;
+}
+
+// 캠페인 v2 성과 [업데이트](§3-3) — 다시 조회할 게시물 = 이 캠페인의 게시 확인된·취소 아닌 작업에 붙은 것(R17 모집단).
+// unavailable_at이 찍힌 것도 포함한다(복귀 수용은 appendSnapshot이 한다).
+export async function listTrackedPostIdsForCampaign(sql: postgres.Sql, campaignId: string): Promise<Array<{ id: string; tweetId: string }>> {
+  if (!isUuidLike(campaignId)) return [];
+  const rows = await sql<Array<{ id: string; tweet_id: string }>>`
+    select tp.id, tp.tweet_id from tracked_post tp
+      join campaign_task t on t.id = tp.task_id
+     where t.campaign_id = ${campaignId} and t.posted_at is not null and t.cancelled_at is null
+     order by tp.created_at asc`;
+  return rows.map((r) => ({ id: r.id, tweetId: r.tweet_id }));
 }
 
 export async function deleteTrackedPost(sql: postgres.Sql, trackedPostId: string): Promise<boolean> {

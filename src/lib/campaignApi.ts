@@ -89,6 +89,9 @@ export const replaceInfluencerApi = (campaignId: string, taskId: string, body: {
   call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/replace`, json('POST', body));
 // 비용 유발(트윗당 $0.001) — 버튼 opt-in(UX 원칙 6). 서버가 확인·미확인·건너뜀·유실을 한 번에 판정해 돌려준다.
 export const checkPostedApi = (campaignId: string) => call<CheckPostedResult>(`/api/campaigns/${campaignId}/check-posted`, { method: 'POST' });
+// 성과 [업데이트](v2 §3-3) — 비용 유발(게시물당 API 1회), 버튼 opt-in
+export const refreshCampaignPerfApi = (campaignId: string) =>
+  call<{ total: number; refreshed: number; unavailable: number; failed: number }>(`/api/campaigns/${campaignId}/perf-refresh`, { method: 'POST' });
 
 // ── 원고(기존 라우트 — 값은 하나, 캠페인 전용 경로 없음 §2-5) ──
 export interface DraftPatchBody {

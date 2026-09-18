@@ -278,6 +278,8 @@ export async function linkTrackedPost(
 
 // 캠페인 v2 성과 [업데이트](§3-3) — 다시 조회할 게시물 = 이 캠페인의 게시 확인된·취소 아닌 작업에 붙은 것(R17 모집단).
 // unavailable_at이 찍힌 것도 포함한다(복귀 수용은 appendSnapshot이 한다).
+// cancelled_at 조건은 방어용이다: 055의 check(취소 ↔ 게시 상호 배제) 때문에 게시된 작업은 취소될 수 없어
+// posted_at 조건만으로 이미 걸러진다 — isSettlementCandidate와 같은 이유로 의도를 코드에 남긴다(테스트로는 단독 재현 불가).
 export async function listTrackedPostIdsForCampaign(sql: postgres.Sql, campaignId: string): Promise<Array<{ id: string; tweetId: string }>> {
   if (!isUuidLike(campaignId)) return [];
   const rows = await sql<Array<{ id: string; tweet_id: string }>>`

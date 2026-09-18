@@ -99,6 +99,9 @@ test('3) 인플 프로필 참여 캠페인 — 작업 기준(lower), 유형별 �
   const camp = await createCampaign(sql, base(c.id, c.name, 'c'));
   await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: 'Yuna', cost: { amount: 3000, currency: 'JPY' } }, { handle: 'yuna', cost: { amount: 3000, currency: 'JPY' } }] });
   await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: 'YUNA', cost: { amount: 20000, currency: 'JPY' } }] });
+  const [cancTask] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: 'yuna', cost: { amount: 5000, currency: 'JPY' } }] });
+  await sql`update campaign_task set cancelled_at = '2026-08-30', cancel_reason = 'declined' where id = ${cancTask.id}`;
+  // 취소된 작업은 참여 건수·비용에서 빠진다(R17) — 위 기대값이 그대로여야 한다
   const camp2 = await createCampaign(sql, base(c.id, c.name, 'c2'));
   await upsertInfluencerCost(sql, camp2.id, 'yuna', { extraCosts: [{ label: '선물', amount: 10000, currency: 'KRW' }] });
   const items = await listInfluencerCampaigns(sql, 'yuna');

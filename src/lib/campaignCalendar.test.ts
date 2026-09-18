@@ -29,11 +29,11 @@ test('2) weekRows — 주 행이 월~일 7일로 쌓인다(달·해 경계 포�
   assert.deepEqual(ny[1].at(-1), '2027-01-03');
 });
 
-test('3) calendarGrid — 게시 예정일 칸에 카드, 칸 안은 만든 순·미사용 맨 아래, 게시일 미정은 따로', () => {
+test('3) calendarGrid — 게시 예정일 칸에 카드, 칸 안은 만든 순(미사용도 그대로 — R17로 더 이상 맨 아래로 가라앉지 않는다), 게시일 미정은 따로', () => {
   const rows = [
     t({ scheduledOn: '2026-08-26', createdAt: 'b' }),
     t({ scheduledOn: '2026-08-26', createdAt: 'a' }),
-    t({ scheduledOn: '2026-08-26', draftStatus: 'unused', createdAt: '0' }),   // 같은 날이지만 맨 아래
+    t({ scheduledOn: '2026-08-26', draftStatus: 'unused', createdAt: '0' }),   // 미사용이어도 만든 순 그대로 섞인다(R17, ADR 0002)
     t({ scheduledOn: '2026-09-02', createdAt: 'c' }),                          // 다음 주 행에 들어간다(넘김 없이 보인다)
     t({ scheduledOn: null, createdAt: 'd' }),
     t({ scheduledOn: null, createdAt: 'e', draftStatus: 'unused' }),
@@ -42,7 +42,7 @@ test('3) calendarGrid — 게시 예정일 칸에 카드, 칸 안은 만든 순�
   const grid = calendarGrid(rows, weeks, T);
   assert.equal(grid.weeks.length, 2);
   assert.deepEqual(grid.weeks[0][2].items.map((i) => [i.task.createdAt, i.kind]),
-    [['a', 'post'], ['b', 'post'], ['0', 'post']]);                            // 8/26 수
+    [['0', 'post'], ['a', 'post'], ['b', 'post']]);                            // 8/26 수 — createdAt 오름차순('0' < 'a' < 'b')
   assert.deepEqual(grid.weeks[1][2].items.map((i) => [i.task.createdAt, i.kind]), [['c', 'post']]);   // 9/2 수 — 두 번째 주 행
   assert.equal(grid.weeks.flat().flatMap((c) => c.items).length, 4);           // 예정일 있는 4건만 칸에 담긴다
   assert.deepEqual(grid.unscheduled.map((r) => r.createdAt), ['d', 'e']);

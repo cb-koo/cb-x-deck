@@ -17,6 +17,10 @@ const P = 'tstmc' + process.pid;
 const H = (s: string) => `${P}_${s}`;
 const CLINIC = `${P}jp`;           // clinic_code는 unique — 실제 슬러그(mimodreamjp 등)와 겹치지 않게 프로세스 고유값
 const TODAY = kstToday();
+// 조회는 지급요청일(created_at=오늘)이 아니라 귀속일(게시일) 기준이다(변경요청 2026-09-18). 픽스처의 귀속일:
+//  · quoteRt → task_posted_on 2026-08-27,  · rt → campaign_starts_on 2026-08-31(캠페인 startsOn). 둘을 감싸는 창으로 조회한다.
+const ATTR_FROM = '2026-08-27';   // quoteRt 귀속일
+const ATTR_TO = '2026-08-31';     // rt 귀속일
 const UA = `${P}-test`;            // 이 프로세스 호출만 external_api_log에서 지우기 위한 표식(스테이징은 그쪽 QA 로그가 섞여 있다 — path로 지우면 안 된다)
 
 const TEST_KEY = P + '_key';
@@ -122,8 +126,8 @@ test('from·to 누락/형식 오류 → 400', async () => {
   assert.equal((await GET(req(`?from=${TODAY}&to=2026/09/18`))).status, 400);   // 형식 오류
 });
 
-test('오늘 범위 — 봉투 모양 + 유형별 카테고리 매핑 + amountKrw=gross_krw', async () => {
-  const res = await GET(req(`?from=${TODAY}&to=${TODAY}`));
+test('귀속일 범위 — 봉투 모양 + 유형별 카테고리 매핑 + amountKrw=gross_krw + timestamp=귀속일', async () => {
+  const res = await GET(req(`?from=${ATTR_FROM}&to=${ATTR_TO}`));
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('cache-control'), 'no-store');
   const body = await res.json();
@@ -144,11 +148,23 @@ test('오늘 범위 — 봉투 모양 + 유형별 카테고리 매핑 + amountKr
     assert.match(r.timestamp, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);   // KST, 공백 구분
     assert.ok(r.id.startsWith('xdeck:'));
   }
+  // timestamp는 귀속일 — quoteRt는 게시일(08-27), rt는 캠페인 시작일(08-31). 지급요청일(오늘)이 아니다.
+  assert.equal(byCat.get('x_content_quote_rt')!.timestamp, '2026-08-27 00:00:00', 'quoteRt 귀속일=게시일');
+  assert.equal(byCat.get('x_secondary_viral')!.timestamp, '2026-08-31 00:00:00', 'rt 귀속일=캠페인 시작일');
   // gross_krw 정수 = amountKrw
   const q = byCat.get('x_content_quote_rt')!;
   const [pr] = await sql<Array<{ gross_krw: string }>>`select gross_krw from payment_request where id = ${quoteRtReq}`;
   assert.equal(q.amountKrw, Math.round(Number(pr.gross_krw)));
   assert.equal(q.id, `xdeck:${quoteRtReq}`);
+});
+
+test('귀속일 필터·표시 일치 — 08-28~08-31이면 rt(08-31)만, quoteRt(08-27)는 빠진다', async () => {
+  const res = await GET(req(`?from=2026-08-28&to=${ATTR_TO}`));
+  assert.equal(res.status, 200);
+  const rows = mine((await res.json()).data as Row[]);
+  assert.equal(rows.length, 1, '창을 08-28로 좁히면 quoteRt(08-27)는 필터에서 빠진다 — 필터도 귀속일 기준');
+  assert.equal(rows[0].category, 'x_secondary_viral');
+  assert.equal(rows[0].timestamp, '2026-08-31 00:00:00');
 });
 
 test('데이터 없는 과거 범위 → 200 + data 빈 배열 + totalPages 1', async () => {
@@ -161,7 +177,7 @@ test('데이터 없는 과거 범위 → 200 + data 빈 배열 + totalPages 1', 
 });
 
 test('limit=1 — 페이지네이션: totalPages 올라가고 data는 1건', async () => {
-  const res = await GET(req(`?from=${TODAY}&to=${TODAY}&limit=1&page=1`));
+  const res = await GET(req(`?from=${ATTR_FROM}&to=${ATTR_TO}&limit=1&page=1`));
   const body = await res.json();
   assert.equal(body.limit, 1);
   assert.ok(body.total >= 2);

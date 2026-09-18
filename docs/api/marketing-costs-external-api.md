@@ -32,15 +32,15 @@ x-api-key: <API 키>
 
 | 파라미터 | 필수 | 설명 |
 |---|---|---|
-| `from` | ✅ | 조회 시작일. **KST** `YYYY-MM-DD`. 형식 오류·누락은 400 |
+| `from` | ✅ | 조회 시작일(**포함**). **KST** `YYYY-MM-DD`. 형식 오류·누락은 400 |
 | `to` | ✅ | 조회 종료일(**포함**). **KST** `YYYY-MM-DD` |
 | `limit` | 선택 | 페이지당 행 수. 기본 **500**, 최대 **2000**. 1년치를 몇 요청에 당기려면 `limit=2000` 권장 |
 | `page` | 선택 | 1부터. 기본 1 |
 
 > **1년치 조회**: 이 엔드포인트는 PostgREST가 아니라 DB 직결이라 1000행 상한이 없다. `limit=2000`이면 X 정산 요청 볼륨상 1년치가 대개 1페이지(많아도 2~3페이지, `totalPages`로 순차 조회)에 들어온다. 그 이상은 응답이 무거워져 상한을 2000으로 둔다.
 
-- `from`/`to` 필터 기준은 **지급 요청일**(`payment_request.created_at`)이다. 정렬은 `created_at` 오름차순 + `id` 보조 정렬(페이지 간 누락/중복 방지).
-- `from`/`to` 경계는 **KST 자정** 기준이다(세션 타임존에 밀리지 않게 서울 시간대로 캐스팅).
+- `from`/`to` 필터·정렬 기준은 **귀속일**(게시일)이다 — **지급 요청일(`created_at`)이 아니다**(LINE 대시보드 변경요청 2026-09-18로 변경. 지급요청은 게시 며칠 뒤 배치로 생겨 주 경계에서 캠페인이 쪼개졌다). 귀속일 정의는 §4.2. 정렬은 귀속일 오름차순 + `id` 보조 정렬(페이지 간 누락/중복 방지).
+- `from`/`to`는 **양끝 포함**(귀속일 `>= from` AND `<= to`)이다. 귀속일이 date라 날짜 그대로 비교한다.
 
 ## 4. 응답
 
@@ -54,7 +54,7 @@ x-api-key: <API 키>
   "limit": 500,
   "totalPages": 1,
   "data": [
-    { "id": "xdeck:<uuid>", "timestamp": "2026-09-08 14:10:00", "clinicId": "mimodreamjp", "clinic": "미모드림의원",
+    { "id": "xdeck:<uuid>", "timestamp": "2026-09-08 00:00:00", "clinicId": "mimodreamjp", "clinic": "미모드림의원",
       "category": "x_content_quote_rt", "amountKrw": 52630, "currency": "JPY", "originalAmount": 5263, "splitCount": 1 }
   ]
 }
@@ -69,7 +69,7 @@ x-api-key: <API 키>
 |---|---|
 | `category` | §5의 enum 키. 우리는 **작업 유형(task_type)** 으로 정한다 |
 | `amountKrw` | **`payment_request.gross_krw`** — 수수료 포함 **실지급 원화(정수)**. "실제 나간 돈" (koo 확정 2026-09-18) |
-| `timestamp` | KST `YYYY-MM-DD HH:mm:ss` — 지급 요청일(`created_at`). 제자리 수정에도 안 바뀐다 |
+| `timestamp` | KST `YYYY-MM-DD 00:00:00` — **귀속일**(§4.2). 게시일엔 시각이 없어 항상 `00:00:00`. 제자리 수정에도 안 바뀐다 |
 | `clinicId` | LINE 슬러그(§6). `client.id` 고정 매핑 우선, 없으면 `clinic_code` 폴백 |
 | `clinic` | 클라이언트 한글명(요청 시점 스냅샷). 폴백용 |
 | `id` | `xdeck:<payment_request.uuid>`. 추적·중복제거용 |
@@ -77,7 +77,24 @@ x-api-key: <API 키>
 | `originalAmount` | 환산 전 지급액(`amount_gross`, 요청 통화). 참고용, 집계엔 미사용 |
 | `splitCount` | 항상 1 — 우리 요청은 이미 클리닉 단위라 배분이 없다 |
 
-### 4.2 집계에 넣는 행의 조건
+### 4.2 귀속일 (`timestamp`·`from`/`to` 필터·정렬 기준)
+
+`timestamp`와 기간 필터·정렬은 모두 **귀속일**을 쓴다(지급요청일 `created_at`이 아니다 — LINE 대시보드 변경요청 2026-09-18). 작업 유형별로 다르다.
+
+| 작업 유형 → `category` | 귀속일 |
+|---|---|
+| `post`·`quoteRt` → `x_content_quote_rt` | **게시일** `task_posted_on` |
+| `visit` → `x_visit_manuscript` | **게시일** `task_posted_on` |
+| `rt` → `x_secondary_viral` | **캠페인 시작일** `campaign_starts_on` |
+
+- **`rt`가 캠페인 시작일인 이유**: RT는 실제 리트윗 시각(`posted_at`)이 없고 담당자 확인일뿐이라, 주차 귀속엔 캠페인 시작일 앵커링이 안정적이다(대시보드 측 결정).
+- **폴백(값이 null일 때)**: `task_posted_on` → `campaign_starts_on` → `created_at`(서울 자정 기준 date). 054 백필 전 옛 요청도 날짜가 비어 누락되지 않게. 정리하면
+  - `rt`: `campaign_starts_on ?? created_at`
+  - 그 외: `task_posted_on ?? campaign_starts_on ?? created_at`
+- 필요한 컬럼(`task_posted_on`·`campaign_starts_on`)은 마이그레이션 054(koo 2026-09-14)에 이미 있다 — 새 마이그레이션 없음.
+- 게시일은 date라 시각이 없으므로 `timestamp`는 항상 `YYYY-MM-DD 00:00:00`. WHERE·ORDER BY·SELECT가 모두 같은 귀속일 식을 써 필터·표시·정렬이 함께 움직인다(`src/lib/settlementStore.ts` `listMarketingCosts`의 `attrDate`).
+
+### 4.3 집계에 넣는 행의 조건
 
 - `status <> 'cancelled'`(취소만 제외). 그쪽 정산 프로덕트가 취소한 건도 `status='cancelled'`로 떨어져 한 조건이 둘을 덮는다. (§7-6: `status`는 DB CHECK로 `{requested, cancelled}` 뿐이라 `= 'requested'`와 현재 동일하나, 미래 상태값 추가에 안전하도록 `<> 'cancelled'` 채택.)
 - `client.id` 고정 매핑 또는 `client.clinic_code`가 있는 클라이언트만(둘 다 없으면 그쪽이 집계에서 제외하므로 애초에 안 보낸다 — §6).

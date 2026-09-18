@@ -47,7 +47,8 @@ export function resolveClinicId(clientId: string, clinicCode: string | null): st
 
 // 페이지네이션(스펙 §2-1): page는 1부터. limit 기본 500(안 보내면 500/페이지), 최대 2000.
 // 최대를 2000으로 올린 이유(koo 2026-09-18): 1년치를 1~3요청에 당길 수 있게 — 이 엔드포인트는 PostgREST가 아니라
-// postgres.js 직결이라 1000행 상한이 없고, 2000행(≈400KB, created_at 인덱스 조회)은 p95 5초 안에 든다.
+// postgres.js 직결이라 1000행 상한이 없고, 2000행(≈400KB)은 p95 5초 안에 든다. (귀속일이 case 식이라 인덱스 대신
+// payment_request seq scan을 타지만 X 정산 요청 볼륨이 작아 문제되지 않는다.)
 // 정산 API의 clampLimit(기본 100)과 일부러 다르다 — 계약·상한이 달라 재사용하지 않는다.
 export const PAGE_LIMIT_DEFAULT = 500;
 export const PAGE_LIMIT_MAX = 2000;
@@ -65,7 +66,7 @@ export function clampPage(raw: string | null): number {
 // 한 행(스펙 §3). 그쪽이 집계에 실제로 쓰는 값은 category·amountKrw·timestamp·clinicId 4개. 나머지는 감사·추적용.
 export interface MarketingCostItem {
   id: string;
-  timestamp: string;        // KST 'YYYY-MM-DD HH:mm:ss' — 지급 요청일(payment_request.created_at)
+  timestamp: string;        // KST 'YYYY-MM-DD 00:00:00' — 귀속일(게시일; rt는 캠페인 시작일). 제자리 수정에도 안 바뀐다
   clinicId: string;         // LINE 대시보드 클리닉 슬러그(client.clinic_code)
   clinic: string;           // 클리닉 한글명(폴백용)
   category: MarketingCostCategory;
@@ -75,11 +76,11 @@ export interface MarketingCostItem {
   splitCount: number;       // cb-x-deck 요청은 이미 클리닉 단위라 항상 1
 }
 
-// 직렬화 입력 — 스토어가 SQL에서 뽑아 온 행. timestamp는 SQL(to_char, KST)에서 이미 문자열로 만든다.
+// 직렬화 입력 — 스토어가 SQL에서 뽑아 온 행. timestampKst는 귀속일(게시일; rt는 캠페인 시작일)을 SQL(KST 'YYYY-MM-DD 00:00:00')에서 이미 문자열로 만든다.
 export interface MarketingCostSource {
   id: string;
   taskType: TaskType;
-  createdAtKst: string;
+  timestampKst: string;
   clinicCode: string;
   clientName: string;
   grossKrw: number;
@@ -89,7 +90,7 @@ export interface MarketingCostSource {
 export function toMarketingCostItem(s: MarketingCostSource): MarketingCostItem {
   return {
     id: `xdeck:${s.id}`,
-    timestamp: s.createdAtKst,
+    timestamp: s.timestampKst,
     clinicId: s.clinicCode,
     clinic: s.clientName,
     category: categoryForTaskType(s.taskType),

@@ -62,7 +62,7 @@ test('toMarketingCostItem — 스펙 §3 행 모양으로 직렬화, amountKrw�
   const src: MarketingCostSource = {
     id: '11111111-2222-3333-4444-555555555555',
     taskType: 'visit',
-    createdAtKst: '2026-09-08 14:10:00',
+    timestampKst: '2026-09-08 00:00:00',   // 귀속일(게시일) — 스토어가 'YYYY-MM-DD 00:00:00'으로 만든다
     clinicCode: 'mimodreamjp',
     clientName: '미모드림의원',
     grossKrw: 120000.4,       // 생성 컬럼이 소수를 내도 정수로 반올림해 보낸다
@@ -71,7 +71,7 @@ test('toMarketingCostItem — 스펙 §3 행 모양으로 직렬화, amountKrw�
   };
   assert.deepEqual(toMarketingCostItem(src), {
     id: 'xdeck:11111111-2222-3333-4444-555555555555',
-    timestamp: '2026-09-08 14:10:00',
+    timestamp: '2026-09-08 00:00:00',
     clinicId: 'mimodreamjp',
     clinic: '미모드림의원',
     category: 'x_visit_manuscript',

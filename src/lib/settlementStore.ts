@@ -366,39 +366,52 @@ export async function listForExport(sql: postgres.Sql, cursor: Cursor | null, li
 // 테스트 프로세스 안에서는 필터를 끈다(내보내기 테스트가 픽스처를 봐야 한다).
 const fixtureFilter = (sql: postgres.Sql) => (exportIncludesTestFixtures() ? sql`` : sql`and influencer_handle !~ ${TEST_FIXTURE_HANDLE_PG}`);
 // ── LINE 메시지 대시보드(마케팅 비용 표) 전달(계약: docs/api/marketing-costs-external-api.md) ──
-// 정산 요청(payment_request)을, 클리닉 슬러그(client.clinic_code)가 매핑된 것만, 지급 요청일(created_at, KST) 기간으로 넘긴다.
+// 정산 요청(payment_request)을, 클리닉 슬러그(client.clinic_code)가 매핑된 것만, 귀속일(게시일 기준, KST) 기간으로 넘긴다.
 // 정산 API(listForExport)와 달리 커서가 아니라 page/limit이다 — 그쪽 계약이 그렇다. count와 목록은 반드시 같은 WHERE를 쓴다.
 export interface MarketingCostQuery { from: string; to: string; page: number; limit: number }
 export interface MarketingCostPage { items: MarketingCostSource[]; total: number }
+// 귀속일(attribution date, date 반환) — timestamp·from/to 필터·정렬의 기준. 지급요청일(created_at)이 아니라 게시일이다
+// (LINE 대시보드 변경요청 2026-09-18: 지급요청은 게시 며칠 뒤 배치로 생겨 주 경계에서 캠페인이 쪼개졌다 → 게시일로 통일).
+//  · rt(RT)는 실제 리트윗 시각(posted_at)이 없고 확인일뿐이라 캠페인 시작일(campaign_starts_on)에 앵커링한다.
+//  · 그 외(post·quoteRt·visit)는 작업 게시일(task_posted_on)이 기준.
+//  · 054 백필 전 옛 요청은 스냅샷이 null일 수 있어 created_at(서울 자정 기준 date)으로 폴백 — 날짜가 비어 누락되지 않게.
+// WHERE·ORDER·SELECT가 모두 이 식을 써야 필터와 표시가 어긋나지 않는다(변경요청 §3).
+const attrDate = (sql: postgres.Sql) => sql`
+      case when r.task_type = 'rt'
+           then coalesce(r.campaign_starts_on, (r.created_at at time zone 'Asia/Seoul')::date)
+           else coalesce(r.task_posted_on, r.campaign_starts_on, (r.created_at at time zone 'Asia/Seoul')::date)
+      end`;
 export async function listMarketingCosts(sql: postgres.Sql, q: MarketingCostQuery): Promise<MarketingCostPage> {
   const offset = (q.page - 1) * q.limit;
   //  · 취소만 제외(status <> 'cancelled') — 확정본 §7-3. status는 DB CHECK로 {requested, cancelled} 두 값뿐이라 지금은 status='requested'와 동일하지만,
   //    미래에 상태값이 추가돼도 "취소 아닌 것 전부"라는 뜻이 안 흔들리게 <> 'cancelled'로 둔다. 지급 완료는 별도 컬럼(external_status)이라 여기 안 걸린다.
   //  · clinicId가 붙는 클라이언트만 — 고정 UUID 매핑(MAPPED_CLIENT_IDS)이거나 clinic_code가 있는 것. 둘 다 없으면 그쪽이 집계에서 제외하므로 애초에 안 보낸다(스펙 §5).
-  //  · 기간은 지급 요청일(created_at) 서울 자정 경계(listRequests와 같은 idiom). to는 포함이라 +1일 미만.
+  //  · 기간은 귀속일(attrDate, date) BETWEEN from..to(양끝 포함). from/to도 date라 그대로 비교한다.
   //  · 자동 테스트 픽스처는 제외(fixtureFilter — influencer_handle은 client와 겹치지 않아 별칭 없이 해석된다).
   const where = sql`
       r.status <> 'cancelled'
       and (c.clinic_code is not null or r.client_id in ${sql(MAPPED_CLIENT_IDS)})
-      and r.created_at >= (${q.from}::date)::timestamp at time zone 'Asia/Seoul'
-      and r.created_at < ((${q.to}::date) + 1)::timestamp at time zone 'Asia/Seoul'
+      and ${attrDate(sql)} >= ${q.from}::date
+      and ${attrDate(sql)} <= ${q.to}::date
       ${fixtureFilter(sql)}`;
   const [countRow] = await sql<Array<{ n: string }>>`
     select count(*)::text as n from payment_request r join client c on c.id = r.client_id where ${where}`;
   const total = Number(countRow?.n ?? 0);
-  const rows = await sql<Array<{ id: string; task_type: TaskType; created_at_kst: string; client_id: string; clinic_code: string | null; client_name: string; gross_krw: string | number; amount_gross: number; payout_currency: Currency }>>`
+  //  · timestamp는 귀속일(date)을 계약 형식 'YYYY-MM-DD 00:00:00'으로 — 게시일엔 시각이 없다(변경요청 §3).
+  //  · 정렬도 귀속일 + id 보조정렬(페이지 간 누락/중복 방지). WHERE와 같은 식을 써 필터·표시·정렬이 함께 움직인다.
+  const rows = await sql<Array<{ id: string; task_type: TaskType; timestamp_kst: string; client_id: string; clinic_code: string | null; client_name: string; gross_krw: string | number; amount_gross: number; payout_currency: Currency }>>`
     select r.id, r.task_type,
-           to_char(r.created_at at time zone 'Asia/Seoul', 'YYYY-MM-DD HH24:MI:SS') as created_at_kst,
+           to_char(${attrDate(sql)}, 'YYYY-MM-DD') || ' 00:00:00' as timestamp_kst,
            r.client_id, c.clinic_code, r.client_name, r.gross_krw, r.amount_gross, r.payout_currency
       from payment_request r join client c on c.id = r.client_id
      where ${where}
-     order by r.created_at, r.id
+     order by ${attrDate(sql)}, r.id
      limit ${q.limit} offset ${offset}`;
   return {
     total,
     // clinicCode는 고정 UUID 매핑 우선, 없으면 clinic_code. WHERE가 "둘 중 하나는 있음"을 보증하므로 여기선 항상 non-null.
     items: rows.map((r) => ({
-      id: r.id, taskType: r.task_type, createdAtKst: r.created_at_kst,
+      id: r.id, taskType: r.task_type, timestampKst: r.timestamp_kst,
       clinicCode: resolveClinicId(r.client_id, r.clinic_code)!, clientName: r.client_name,
       grossKrw: Number(r.gross_krw), amountGross: r.amount_gross, payoutCurrency: r.payout_currency,
     })),

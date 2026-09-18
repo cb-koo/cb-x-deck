@@ -474,6 +474,9 @@ export async function replaceInfluencer(
       input.handle, input.today, { allowReplace: true },
     );
     if (guard) return guard;
+    // 같은 인플루언서 재선택은 no-op이다(ADR 0005 표 "같은 인플 재선택" — 변경 없음). 표기(대소문자)만
+    // 다른 재입력도 여기 해당한다 — 흔적 정리·비용 변경·원고 강등·로그를 전부 건너뛴다.
+    if ((cur.influencer_handle ?? '').toLowerCase() === input.handle.toLowerCase()) return 'ok';
     await tx`update campaign_task set influencer_handle = ${input.handle},
         cost = case when ${input.cost !== undefined} then ${input.cost ? tx.json(input.cost as never) : null}::jsonb else cost end,
         updated_at = now() where id = ${id}`;

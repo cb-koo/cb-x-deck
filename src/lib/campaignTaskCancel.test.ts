@@ -213,3 +213,25 @@ test('8) 취소 작업에 원고 붙이기 금지 (R18) — attachDraft가 TaskA
     (e: unknown) => e instanceof TaskAttachError && e.code === 'task-cancelled',
   );
 });
+
+test('9) 교체 — 같은 핸들(대소문자만 다름)은 no-op: 원고 강등·비용 변경·RT 증빙 제거·로그 전부 건너뛴다 (ADR 0005 "같은 인플 재선택")', async () => {
+  const { c, camp } = await mkCampaign('i');
+  const handle = P + '_i1';
+  const infId = await ensureInfluencer(sql, handle, null);
+  const draftId = await mkDraft(c.id, c.name, '전달된 원고2');
+  await updateDraft(sql, draftId, { status: 'delivered' });
+  const [t] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', draftId, items: [{ handle, cost: { amount: 10000, currency: 'KRW' } }] });
+  assert.equal(await replaceInfluencer(sql, t.id, { handle: handle.toUpperCase(), cost: { amount: 99999, currency: 'KRW' }, reason: 'declined', note: '', actorId: null, today: '2026-09-16' }), 'ok');
+  const g = await getTask(sql, t.id);
+  assert.equal(g?.influencerHandle, handle);                                  // 표기 보존 — 대문자로 덮이지 않는다
+  assert.deepEqual(g?.cost, { amount: 10000, currency: 'KRW' });              // 비용도 그대로
+  assert.equal((await getDraft(sql, draftId))?.status, 'delivered');         // 강등 안 됨
+
+  const [rt] = await createTasks(sql, camp.id, { ...baseInput, type: 'rt', items: [{ handle, cost: null }] });
+  const proof = { url: `task/${rt.id}/00000000-0000-4000-8000-000000000009.png`, by: null, byName: '', at: new Date().toISOString() };
+  await sql`update campaign_task set proof = ${sql.json(proof as never)} where id = ${rt.id}`;
+  assert.equal(await replaceInfluencer(sql, rt.id, { handle: handle.toUpperCase(), cost: null, reason: 'no_response', note: '', actorId: null, today: '2026-09-16' }), 'ok');
+  assert.equal((await getTask(sql, rt.id))?.proof?.url, proof.url);          // 증빙 유지
+
+  assert.equal((await sql`select count(*)::int as n from influencer_log where influencer_id = ${infId} and event_type = 'task_declined'`)[0].n, 0);
+});

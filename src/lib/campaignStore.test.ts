@@ -1,4 +1,4 @@
-import { test, after } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { createClient, deleteClient, updateClient, setBudgetOverride } from './clientStore.ts';
@@ -11,14 +11,26 @@ import {
 import { createTasks, updateTask, hasActiveRequest } from './campaignTaskStore.ts';
 import { taskCampaignTotal } from './campaignJudgment.ts';
 import { createInfluencer, updatePaymentMethods } from './influencerStore.ts';
-import { createRequests, listCandidates } from './settlementStore.ts';
-import { SETTLEMENT_DEFAULTS } from './settlementSettings.ts';
+import { createRequests, listCandidates, getSettlementSettings, saveSettlementSettings } from './settlementStore.ts';
+import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettings.ts';
 
 const sql = getSql();
 const P = 'tcmp' + process.pid;
 const content: DraftContent = { posts: [{ text: '캠페인 스토어', media: [] }] };
 const T = '2026-09-02';
+// 09-11 분류 개편 뒤 운영 현재 설정에서는 SETTLEMENT_DEFAULTS의 분류가 숨김이라, DB 설정을 읽는 createRequests가 '목록에 없는 분류'로
+// 튕긴다(09-14 settlementStore.test에서 발견, 이 파일은 09-19에 같은 패턴 적용). 시작 때 기본 설정(+마커)을 깔고 after()가 원래 설정으로 되돌린다.
+let savedBefore: SettlementSettings | null = null;
+before(async () => {
+  // 이전 실행이 인터럽트로 끊겨 이 파일의 마커 행이 "현재값"으로 남아 있을 수 있다 — 먼저 지워야 아래가 진짜 원래값을 읽는다
+  await sql`delete from settlement_setting_version where settings->>'marker' = ${P}`;
+  savedBefore = await getSettlementSettings(sql);
+  await saveSettlementSettings(sql, { ...SETTLEMENT_DEFAULTS, marker: P } as SettlementSettings & { marker: string }, null);
+});
 after(async () => {
+  // 마커 없는 순수 복구 행을 먼저 넣어 "현재 설정"을 테스트 이전 값으로 되돌린 뒤, 이번 실행의 마커 행을 지운다(중간에 죽어도 현재값은 원래대로).
+  if (savedBefore) await saveSettlementSettings(sql, savedBefore, null);
+  await sql`delete from settlement_setting_version where settings->>'marker' = ${P}`;
   await sql`delete from tracked_post where tweet_id like ${P + '%'}`;
   await sql`delete from tracking_link where utm_campaign like ${P + '%'}`;
   await sql`delete from payment_request where influencer_handle like ${P + '%'}`;

@@ -140,7 +140,7 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                       <span className="flex items-center gap-2">
                         {t.influencerHandle && <span aria-hidden className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-x-border-strong text-ui font-bold text-white">{handleInitial(t.influencerHandle)}</span>}
                         {cancelled
-                          ? <span>{t.influencerHandle ? `@${t.influencerHandle}` : '미배정'}</span>
+                          ? <span className="text-x-muted">{t.influencerHandle ? `@${t.influencerHandle}` : '미배정'}</span>
                           : <InfluencerChip handle={t.influencerHandle} options={influencerOptions} onChange={(next) => void actions.assignInfluencer(t, next)} />}
                       </span>
                     </td>
@@ -161,9 +161,15 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                     </td>
                     <td className={TD}>
                       {TARGETING_TYPES.includes(t.type) ? (
-                        <button type="button" onClick={() => onPickTarget(t)} className={`block max-w-full truncate text-left hover:underline ${tgt.muted ? 'text-x-muted' : ''}`} title={t.targetTweetUrl ?? t.target?.postUrl ?? ''}>
-                          {tgt.text}{tgt.sub && <span className="text-x-muted"> · {tgt.sub}</span>}{tStatus === 'pending' && <span className="text-x-muted"> · 게시 전</span>}{tStatus === 'cancelled' && <span className="text-red-600"> · 대상 작업 취소됨</span>}
-                        </button>
+                        cancelled ? (
+                          <span className="block max-w-full truncate text-x-muted" title={t.targetTweetUrl ?? t.target?.postUrl ?? ''}>
+                            {tgt.text}{tgt.sub && <> · {tgt.sub}</>}
+                          </span>
+                        ) : (
+                          <button type="button" onClick={() => onPickTarget(t)} className={`block max-w-full truncate text-left hover:underline ${tgt.muted ? 'text-x-muted' : ''}`} title={t.targetTweetUrl ?? t.target?.postUrl ?? ''}>
+                            {tgt.text}{tgt.sub && <span className="text-x-muted"> · {tgt.sub}</span>}{tStatus === 'pending' && <span className="text-x-muted"> · 게시 전</span>}{tStatus === 'cancelled' && <span className="text-red-600"> · 대상 작업 취소됨</span>}
+                          </button>
+                        )
                       ) : <span className="text-x-muted">—</span>}
                     </td>
                     <td className={TD}>

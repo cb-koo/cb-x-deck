@@ -9,13 +9,13 @@ import type { TaskSummary } from './campaignJudgment.ts';
 
 const T = '2026-08-27';
 
-const b = { type: 'rt' as const, draftStatus: null, postedAt: null, removedAt: null, scheduledOn: null, visitOn: null };
+const b = { type: 'rt' as const, draftStatus: null, postedAt: null, removedAt: null, scheduledOn: null, visitOn: null, cancelledAt: null };
 
-test('1) 작업 밀림 일수·문구 조각 — 게시됨·미사용·오늘·예정일 없음은 밀림 아님(isTaskOverdue와 같은 모집단)', () => {
+test('1) 작업 밀림 일수·문구 조각 — 게시됨·오늘·예정일 없음은 밀림 아님(isTaskOverdue와 같은 모집단), 미사용은 이제 밀림일 수 있다', () => {
   assert.equal(taskOverdueDays({ ...b, scheduledOn: '2026-08-26' }, T), 1);
   assert.equal(taskOverdueDays({ ...b, scheduledOn: '2026-08-20' }, T), 7);
   assert.equal(taskOverdueDays({ ...b, scheduledOn: '2026-08-20', postedAt: '2026-08-21T00:00:00Z' }, T), null);
-  assert.equal(taskOverdueDays({ ...b, scheduledOn: '2026-08-20', draftStatus: 'unused' }, T), null);
+  assert.equal(taskOverdueDays({ ...b, scheduledOn: '2026-08-20', draftStatus: 'unused' }, T), 7);
   assert.equal(taskOverdueDays({ ...b, scheduledOn: T }, T), null);          // 오늘은 아직 안 밀림
   assert.equal(taskOverdueDays(b, T), null);                                  // 예정일 미정
   // 밀림 접미사·예정일 없음 문구는 표(ScheduledOnField)와 달력이 같은 상수를 쓴다 — 여기서 문구를 고정한다
@@ -30,7 +30,7 @@ test('2) 요약 카드 보조 문구 — 판단 한 줄(QA 1라운드), 0인 항
   assert.equal(overdueJudgment(0), '없음 — 예정대로');
   assert.equal(overdueJudgment(2), '예정일 지났는데 아직 안 올라감');
   const sum = (o: Partial<TaskSummary>): TaskSummary =>
-    ({ total: 0, published: 0, delivered: 0, preparing: 0, overdue: 0, removed: 0, ...o });
+    ({ total: 0, published: 0, delivered: 0, preparing: 0, overdue: 0, removed: 0, cancelled: 0, ...o });
   assert.equal(publishedSub(sum({ total: 4, published: 1, delivered: 1, preparing: 2 })), '전달됨 1 · 준비 중 2');
   assert.equal(publishedSub(sum({ total: 1, preparing: 1 })), '준비 중 1');           // 0인 '전달됨'은 뺀다
   assert.equal(publishedSub(sum({ total: 2, published: 2 })), '모두 게시됨');

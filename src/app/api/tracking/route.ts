@@ -4,7 +4,7 @@ import { getSql } from '@/lib/db';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { parseTweetLink, tweetLinkParseMessage } from '@/lib/tweetLink';
 import { fetchPost } from '@/lib/postMetrics';
-import { addTrackedPost, findByTweetId, findTrackedPostById, linkTrackedPost, listTrackedPosts, TrackingLinkError, TRACKING_LINK_RT_MESSAGE } from '@/lib/trackingStore';
+import { addTrackedPost, findByTweetId, findTrackedPostById, linkTrackedPost, listTrackedPosts, TrackingLinkError, trackingLinkMessage, TRACKING_LINK_CANCELLED_MESSAGE } from '@/lib/trackingStore';
 import { TASK_ID_MESSAGE } from '@/lib/campaignTaskInput';
 import { isUuidLike } from '@/lib/uuid';
 
@@ -60,11 +60,16 @@ export async function POST(req: Request) {
       await sql.begin(async (tx0) => linkTrackedPost(tx0 as unknown as postgres.Sql, row!.id, { taskId }));
     } catch (e) {
       // RT 작업엔 자기 게시물이 없다 — 연결하면 증빙 없이 게시됨이 된다(§5). 등록(첫 측정)은 그대로 두고 연결만 거절한다.
-      if (e instanceof TrackingLinkError) return NextResponse.json({ error: TRACKING_LINK_RT_MESSAGE }, { status: 400 });
+      if (e instanceof TrackingLinkError) return NextResponse.json({ error: trackingLinkMessage(e) }, { status: 400 });
       // 존재하지 않는 작업 id를 연결하려 하면 FK 위반(23503, linkTrackedPost는 직접 같은 code로 던지기도 한다) — 사용자 잘못이니 400으로 알린다.
       // 등록(첫 측정)은 이미 끝난 뒤라 그대로 두고, 연결만 실패한 것으로 처리한다([id] PATCH와 동일 매핑).
       if ((e instanceof postgres.PostgresError && e.code === '23503') || (e as { code?: unknown })?.code === '23503') {
         return NextResponse.json({ error: '연결하려는 원고나 작업을 찾을 수 없어요' }, { status: 400 });
+      }
+      // 최후 방어 — linkTrackedPost의 for update 직렬화(I2)로 거의 나지 않지만, 다른 경로가 check를
+      // 밟아도 500 대신 문구로(취소·게시 확인 상호 배제, ADR 0002).
+      if (e instanceof postgres.PostgresError && e.code === '23514') {
+        return NextResponse.json({ error: TRACKING_LINK_CANCELLED_MESSAGE }, { status: 400 });
       }
       throw e;
     }

@@ -1,4 +1,4 @@
-import { test, after } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient as createSupabaseAdmin } from '@supabase/supabase-js';
 import { getSql } from '@/lib/db';
@@ -6,8 +6,8 @@ import { createClient } from '@/lib/clientStore';
 import { createCampaign } from '@/lib/campaignStore';
 import { createTasks, updateTask, deleteTask } from '@/lib/campaignTaskStore';
 import { createInfluencer, updatePaymentMethods } from '@/lib/influencerStore';
-import { SETTLEMENT_DEFAULTS } from '@/lib/settlementSettings';
-import { listCandidates, createRequests } from '@/lib/settlementStore';
+import { SETTLEMENT_DEFAULTS, type SettlementSettings } from '@/lib/settlementSettings';
+import { listCandidates, createRequests, getSettlementSettings, saveSettlementSettings } from '@/lib/settlementStore';
 import { TASK_PROOF_BUCKET } from '@/lib/taskProof';
 import { GET } from './route.ts';
 
@@ -24,6 +24,16 @@ const H = (s: string) => `${P}_${s}`;
 const TEST_KEY = P + '_key';
 process.env.SETTLEMENT_API_KEY = TEST_KEY;
 const AUTH = { Authorization: `Bearer ${TEST_KEY}` };
+
+// 09-11 분류 개편 뒤 운영 현재 설정에서는 SETTLEMENT_DEFAULTS의 분류가 숨김이라, DB 설정을 읽는 createRequests가 '목록에 없는 분류'로
+// 튕긴다(09-14 settlementStore.test에서 발견, 이 파일은 09-19에 같은 패턴 적용). 시작 때 기본 설정(+마커)을 깔고 after()가 원래 설정으로 되돌린다.
+let savedBefore: SettlementSettings | null = null;
+before(async () => {
+  // 이전 실행이 인터럽트로 끊겨 이 파일의 마커 행이 "현재값"으로 남아 있을 수 있다 — 먼저 지워야 아래가 진짜 원래값을 읽는다
+  await sql`delete from settlement_setting_version where settings->>'marker' = ${P}`;
+  savedBefore = await getSettlementSettings(sql);
+  await saveSettlementSettings(sql, { ...SETTLEMENT_DEFAULTS, marker: P } as SettlementSettings & { marker: string }, null);
+});
 
 // 1x1 투명 PNG
 const PNG_1PX = Buffer.from(
@@ -98,6 +108,9 @@ async function lastLogFor(id: string) {
 }
 
 after(async () => {
+  // 마커 없는 순수 복구 행을 먼저 넣어 "현재 설정"을 테스트 이전 값으로 되돌린 뒤, 이번 실행의 마커 행을 지운다(중간에 죽어도 현재값은 원래대로).
+  if (savedBefore) await saveSettlementSettings(sql, savedBefore, null);
+  await sql`delete from settlement_setting_version where settings->>'marker' = ${P}`;
   const admin = createSupabaseAdmin(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   if (uploadedPaths.length) await admin.storage.from(TASK_PROOF_BUCKET).remove(uploadedPaths);
   if (loggedPaths.length) await sql`delete from external_api_log where path in ${sql(loggedPaths)}`;

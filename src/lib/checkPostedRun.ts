@@ -12,7 +12,7 @@ export async function runCheckPosted(
   sql: postgres.Sql, campaignId: string, deps: { source: RetweeterSource; today: string; maxPages?: number },
 ): Promise<CheckPostedResult> {
   const maxPages = deps.maxPages ?? 5;
-  const tasks = (await listTasksByCampaign(sql, campaignId)).filter((t) => t.type === 'rt').map(taskToCheck);
+  const tasks = (await listTasksByCampaign(sql, campaignId)).filter((t) => t.type === 'rt' && t.cancelledAt === null).map(taskToCheck);
   const result = emptyResult();
   const { byTweet, skipped } = planChecks(tasks);
   result.skipped = skipped;

@@ -14,8 +14,8 @@ import { PostedCell } from './PostedCell';
 import { suggestTaskCost, formatMoneyBy, type TaskCost } from '@/lib/campaignCost';
 import { displayStatus, TONE_CLASS } from '@/lib/settlementDisplay';
 import {
-  sortTasks, matchesTaskFilter, isTaskUnused, isOutOfRange, targetStatus, TARGETING_TYPES, draftWriteHref,
-  TASK_TYPE_LABEL, TASK_SORT_LABEL, STAGE_FILTER_LABEL, type TaskSortKey, type StageFilter, type TypeSubtotal, type TaskSummary,
+  sortTasks, matchesTaskFilter, isTaskExcluded, isOutOfRange, targetStatus, TARGETING_TYPES, draftWriteHref,
+  TASK_TYPE_LABEL, TASK_SORT_LABEL, STAGE_FILTER_LABEL, formatDateKo, type TaskSortKey, type StageFilter, type TypeSubtotal, type TaskSummary,
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, targetLabel, typeFooterLabel, handleInitial } from '@/lib/campaignTableView';
 import type { useCampaignTaskActions } from './useCampaignTaskActions';
@@ -24,7 +24,7 @@ import type { TaskType } from '@/lib/campaignJudgment';
 // 작업 표(스펙 §4-1, 시안 task-table-v4) — 표 하나·열 7개 고정·행은 만든 순(밀림도 자리를 바꾸지 않고 강조만 한다).
 // 판정은 campaignJudgment, 문구는 campaignTableView, 여기는 그리기만. 저장은 actions(PATCH tasks/[taskId]).
 // 행 ≥52px·본문 15px(text-content)·보조 13px(text-ui) — "빽빽해서 보기 힘들다"(koo)가 이 표의 첫 요구사항.
-// 연한 글씨 규칙(koo 08-28): 흐린 행 = 미사용 원고가 붙은 작업만 · 내려짐 행은 일반 진하기 · 값 없는 칸만 '—'를 연하게.
+// 연한 글씨 규칙(v2 R17): 흐린 행 = 취소된 작업만(합계·게시 n/N에서 빠지는 것). 미사용 원고 작업은 일반 진하기(원고 미사용은 원고의 상태).
 // 열 너비(px, colgroup): 유형 110·인플루언서 180·원고 가변·RT/인용RT 대상 250·예정일 230(방문협찬은 '방문 · 게시' 한 줄, wrap 없음)·단계 190·비용 190.
 const SORT_KEYS: TaskSortKey[] = ['created', 'scheduled', 'stage', 'influencer'];
 const TH = 'px-3.5 py-2 font-normal';
@@ -128,22 +128,25 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
             </thead>
             <tbody>
               {shown.map((t) => {
-                const unused = isTaskUnused(t);
-                const od = taskOverdueDays(t, today);
+                const cancelled = isTaskExcluded(t);
+                const od = cancelled ? null : taskOverdueDays(t, today);
                 const tgt = targetLabel(t, campaign.id);
-                const tStatus = targetStatus({ targetTaskId: t.targetTaskId, targetPostUrl: t.target?.postUrl ?? null, targetTweetUrl: t.targetTweetUrl });
+                const tStatus = targetStatus({ targetTaskId: t.targetTaskId, targetPostUrl: t.target?.postUrl ?? null, targetTweetUrl: t.targetTweetUrl, targetCancelledAt: t.target?.cancelledAt ?? null });
                 const suggestion = suggestTaskCost(optionFor(t.influencerHandle)?.pricing, t.type);
                 return (
-                  <tr key={t.id} className={`border-b border-x-border ${od !== null ? 'bg-red-50 shadow-[inset_3px_0_0_0_#dc2626]' : 'hover:bg-x-hover'} ${unused ? 'opacity-60' : ''}`}>
+                  <tr key={t.id} className={`border-b border-x-border ${od !== null ? 'bg-red-50 shadow-[inset_3px_0_0_0_#dc2626]' : 'hover:bg-x-hover'} ${cancelled ? 'opacity-60' : ''}`}>
                     <td className={TD}><span className={`inline-block min-w-[64px] rounded-full px-2.5 py-1 text-center text-ui ${TYPE_CHIP[t.type]}`}>{TASK_TYPE_LABEL[t.type]}</span></td>
                     <td className={TD}>
                       <span className="flex items-center gap-2">
                         {t.influencerHandle && <span aria-hidden className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-x-border-strong text-ui font-bold text-white">{handleInitial(t.influencerHandle)}</span>}
-                        <InfluencerChip handle={t.influencerHandle} options={influencerOptions} onChange={(next) => void actions.assignInfluencer(t, next)} />
+                        {cancelled
+                          ? <span className="text-x-muted">{t.influencerHandle ? `@${t.influencerHandle}` : '미배정'}</span>
+                          : <InfluencerChip handle={t.influencerHandle} options={influencerOptions} onChange={(next) => void actions.assignInfluencer(t, next)} />}
                       </span>
                     </td>
                     <td className={`${TD} min-w-0`}>
-                      {t.type === 'rt' ? <span className="text-x-muted">—</span>
+                      {cancelled ? <span className="text-x-muted">{t.cancelledDraftTitle ? `원고 있었음: ${t.cancelledDraftTitle}` : '—'}</span>
+                      : t.type === 'rt' ? <span className="text-x-muted">—</span>
                         : t.draftId ? <button type="button" onClick={() => onOpenDraft(t.draftId as string)} className="block max-w-full truncate text-left font-medium hover:underline" title={t.draftLabel ?? ''}>{t.draftLabel ?? '(제목 없음)'}</button>
                         : (
                           // 원고 없는 줄의 두 갈래(스펙 2026-08-31 §3-1). 캠페인을 먼저 짜두는 방식에선
@@ -158,13 +161,27 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                     </td>
                     <td className={TD}>
                       {TARGETING_TYPES.includes(t.type) ? (
-                        <button type="button" onClick={() => onPickTarget(t)} className={`block max-w-full truncate text-left hover:underline ${tgt.muted ? 'text-x-muted' : ''}`} title={t.targetTweetUrl ?? t.target?.postUrl ?? ''}>
-                          {tgt.text}{tgt.sub && <span className="text-x-muted"> · {tgt.sub}</span>}{tStatus === 'pending' && <span className="text-x-muted"> · 게시 전</span>}
-                        </button>
+                        cancelled ? (
+                          <span className="block max-w-full truncate text-x-muted" title={t.targetTweetUrl ?? t.target?.postUrl ?? ''}>
+                            {tgt.text}{tgt.sub && <> · {tgt.sub}</>}
+                          </span>
+                        ) : (
+                          <button type="button" onClick={() => onPickTarget(t)} className={`block max-w-full truncate text-left hover:underline ${tgt.muted ? 'text-x-muted' : ''}`} title={t.targetTweetUrl ?? t.target?.postUrl ?? ''}>
+                            {tgt.text}{tgt.sub && <span className="text-x-muted"> · {tgt.sub}</span>}{tStatus === 'pending' && <span className="text-x-muted"> · 게시 전</span>}{tStatus === 'cancelled' && <span className="text-red-600"> · 대상 작업 취소됨</span>}
+                          </button>
+                        )
                       ) : <span className="text-x-muted">—</span>}
                     </td>
                     <td className={TD}>
-                      {t.type === 'visit' ? (
+                      {cancelled ? (
+                        t.type === 'visit' ? (
+                          <span className="whitespace-nowrap text-x-muted">
+                            방문 {t.visitOn ? formatDateKo(t.visitOn) : '미정'} · 게시 {t.scheduledOn ? formatDateKo(t.scheduledOn) : '미정'}
+                          </span>
+                        ) : (
+                          <span className="text-x-muted">{t.scheduledOn ? formatDateKo(t.scheduledOn) : '미정'}</span>
+                        )
+                      ) : t.type === 'visit' ? (
                         <span className="flex items-center gap-1 whitespace-nowrap">
                           <span className="text-x-secondary">방문</span>
                           <ScheduledOnField value={t.visitOn} overdueDays={null} outOfRange={isOutOfRange(t.visitOn, campaign.startsOn, campaign.endsOn)} emptyLabel="미정" ariaLabel="방문일" onChange={(next) => void actions.changeVisitOn(t, next)} compact />
@@ -203,12 +220,14 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                     </td>
                     <td className={`${TD} text-right`}>
                       <span className="flex items-center justify-end gap-2 tabular-nums">
-                        <CostPopover value={t.cost} suggestion={suggestion} onChange={(next: TaskCost | null) => void actions.changeCost(t, next)} compact />
+                        {cancelled
+                          ? <span className="tabular-nums text-x-muted line-through">{t.cost ? formatMoneyBy({ [t.cost.currency]: t.cost.amount }) : '—'}</span>
+                          : <CostPopover value={t.cost} suggestion={suggestion} onChange={(next: TaskCost | null) => void actions.changeCost(t, next)} compact />}
                         {t.settlement && (() => { const st = displayStatus(t.settlement, 'campaign'); return (
                           <Link href={`/settlement?tab=requests&task=${t.id}`} className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${TONE_CLASS[st.tone]}`} title={st.title}>{st.label}</Link>
                         ); })()}
                         <RowMenu onOpenDraft={t.draftId ? () => onOpenDraft(t.draftId as string) : null}
-                                 onLinkPost={t.type === 'rt' ? null : () => onLinkPost(t)}
+                                 onLinkPost={cancelled || t.type === 'rt' ? null : () => onLinkPost(t)}
                                  onDelete={() => onDelete(t)} />
                       </span>
                     </td>
@@ -219,7 +238,7 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
             <tfoot>
               <tr className="text-ui text-x-secondary">
                 <td className="px-3.5 py-3" colSpan={3}>{typeFooterLabel(byType)}</td>
-                <td className="px-3.5 py-3" colSpan={2}>게시됨 {summary.published} / {summary.total}{summary.overdue > 0 && ` · 밀림 ${summary.overdue}`}{summary.removed > 0 && ` · 내려짐 ${summary.removed}`}</td>
+                <td className="px-3.5 py-3" colSpan={2}>게시됨 {summary.published} / {summary.total}{summary.overdue > 0 && ` · 밀림 ${summary.overdue}`}{summary.removed > 0 && ` · 내려짐 ${summary.removed}`}{summary.cancelled > 0 && ` · 취소 ${summary.cancelled}`}</td>
                 <td className="px-3.5 py-3 text-right tabular-nums" colSpan={2}>비용 {formatMoneyBy(total)}</td>
               </tr>
             </tfoot>

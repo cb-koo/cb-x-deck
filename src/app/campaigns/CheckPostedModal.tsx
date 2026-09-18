@@ -26,7 +26,11 @@ export function CheckPostedModal({ result, tasks, onClose, onMarkRemoved }: {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
   const targetOf = (taskId: string) => { const t = tasks.find((x) => x.id === taskId); return t?.target ? `${t.target.influencerHandle ? at(t.target.influencerHandle) : '미배정'} ${TASK_TYPE_LABEL[t.target.type]}` : '대상'; };
-  const reasonOf = (s: CheckPostedResult['skipped'][number]) => s.reason === 'no_target' ? '대상 미정' : s.reason === 'no_handle' ? '인플루언서 미배정' : `대상 게시글(${targetOf(s.taskId)})이 아직 게시 전`;
+  const reasonOf = (s: CheckPostedResult['skipped'][number]) =>
+    s.reason === 'no_target' ? '대상 미정'
+    : s.reason === 'no_handle' ? '인플루언서 미배정'
+    : s.reason === 'target_cancelled' ? `대상 게시글(${targetOf(s.taskId)})이 취소됐어요 — 대상을 바꿔 주세요`
+    : `대상 게시글(${targetOf(s.taskId)})이 아직 게시 전`;
   const nothing = result.confirmed.length + result.pending.length + result.skipped.length + result.missing.length + result.unreadable.length === 0;
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-6" onClick={onClose}>

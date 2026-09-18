@@ -73,7 +73,7 @@ const CANDIDATE_BASE = (sql: postgres.Sql) => sql`
     left join campaign_task tg on tg.id = t.target_task_id
     left join draft d on d.id = t.draft_id
     left join influencer i on lower(i.handle) = lower(t.influencer_handle)
-   where t.posted_at is not null and t.cost is not null and t.influencer_handle is not null`;
+   where t.cancelled_at is null and t.posted_at is not null and t.cost is not null and t.influencer_handle is not null`;
 // 검토 대기 목록용 — 활성 요청이 있는 작업은 뺀다. 제자리 수정(reviseRequest)은 활성 요청의 작업을 다시 계산해야 하므로 CANDIDATE_BASE를 쓴다.
 const CANDIDATE_SQL = (sql: postgres.Sql) => sql`${CANDIDATE_BASE(sql)}
      and not exists (select 1 from payment_request r where r.task_id = t.id and r.status = 'requested')`;

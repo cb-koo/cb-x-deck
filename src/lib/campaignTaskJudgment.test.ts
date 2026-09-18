@@ -1,15 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  taskStage, isTaskUnused, isTaskOverdue, isTaskPreparing, matchesTaskFilter, targetStatus, targetUrlOf,
+  taskStage, isTaskOverdue, isTaskPreparing, matchesTaskFilter, targetStatus, targetUrlOf,
   summarizeTasks, summarizeTaskPerf, subtotalsByType, sortTasks, deriveTaskInfluencers, taskCampaignTotal,
-  countsByTypeLabel, isSettlementCandidate, TASK_STAGE_LABEL, TARGETABLE_TYPES, TARGETING_TYPES,
+  countsByTypeLabel, isSettlementCandidate, isTaskExcluded, flowStage, TASK_STAGE_LABEL, FLOW_STAGE_LABEL,
+  TARGETABLE_TYPES, TARGETING_TYPES,
   type TaskStageInput, type TaskCostInput,
 } from './campaignJudgment.ts';
 
 const T = '2026-08-28';
 const base = (o: Partial<TaskStageInput> = {}): TaskStageInput => ({
-  type: 'rt', draftStatus: null, postedAt: null, removedAt: null, scheduledOn: null, visitOn: null, ...o,
+  type: 'rt', draftStatus: null, postedAt: null, removedAt: null, scheduledOn: null, visitOn: null, cancelledAt: null, ...o,
 });
 
 test('1) 단계 우선순위 — 내려짐 > 게시됨 > 원고 상태 > 방문 > 예정', () => {
@@ -27,13 +28,11 @@ test('1) 단계 우선순위 — 내려짐 > 게시됨 > 원고 상태 > 방문 
   assert.deepEqual(TARGETING_TYPES, ['rt', 'quoteRt']);
 });
 
-test('2) 미사용·밀림 — 방문일은 밀림에 쓰지 않는다, 게시됨·미사용은 밀림 아님', () => {
-  assert.equal(isTaskUnused(base({ type: 'post', draftStatus: 'unused' })), true);
-  assert.equal(isTaskUnused(base({ type: 'post', draftStatus: 'unused', postedAt: '2026-08-20' })), false); // 게시했으면 미사용이 아니다
+test('2) 밀림 — 방문일은 밀림에 쓰지 않는다, 게시됨은 밀림 아님, 미사용은 이제 밀림일 수 있다(R17)', () => {
   assert.equal(isTaskOverdue(base({ scheduledOn: '2026-08-27' }), T), true);
   assert.equal(isTaskOverdue(base({ scheduledOn: T }), T), false);
   assert.equal(isTaskOverdue(base({ scheduledOn: '2026-08-27', postedAt: '2026-08-27' }), T), false);
-  assert.equal(isTaskOverdue(base({ type: 'post', draftStatus: 'unused', scheduledOn: '2026-08-01' }), T), false);
+  assert.equal(isTaskOverdue(base({ type: 'post', draftStatus: 'unused', scheduledOn: '2026-08-01' }), T), true); // 미사용은 더 이상 특별 취급 없음
   assert.equal(isTaskOverdue(base({ type: 'visit', visitOn: '2026-08-01' }), T), false);           // 방문일만 지남 → 밀림 아님
 });
 
@@ -48,16 +47,17 @@ test('3) 준비 중·필터 — 준비 중 = 원고 초안·검수·확정 + 예
   assert.equal(matchesTaskFilter(base({ type: 'post', draftStatus: 'unused' }), 'preparing', T), false);
 });
 
-test('4) 대상 상태 — 없음/게시 대기/확정, URL은 작업의 post_url 우선', () => {
-  assert.equal(targetStatus({ targetTaskId: null, targetPostUrl: null, targetTweetUrl: null }), 'none');
-  assert.equal(targetStatus({ targetTaskId: 't1', targetPostUrl: null, targetTweetUrl: null }), 'pending');
-  assert.equal(targetStatus({ targetTaskId: 't1', targetPostUrl: 'https://x.com/a/status/1', targetTweetUrl: null }), 'ready');
-  assert.equal(targetStatus({ targetTaskId: null, targetPostUrl: null, targetTweetUrl: 'https://x.com/i/status/2' }), 'ready');
+test('4) 대상 상태 — 없음/게시 대기/확정/취소, URL은 작업의 post_url 우선', () => {
+  assert.equal(targetStatus({ targetTaskId: null, targetPostUrl: null, targetTweetUrl: null, targetCancelledAt: null }), 'none');
+  assert.equal(targetStatus({ targetTaskId: 't1', targetPostUrl: null, targetTweetUrl: null, targetCancelledAt: null }), 'pending');
+  assert.equal(targetStatus({ targetTaskId: 't1', targetPostUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetCancelledAt: null }), 'ready');
+  assert.equal(targetStatus({ targetTaskId: null, targetPostUrl: null, targetTweetUrl: 'https://x.com/i/status/2', targetCancelledAt: null }), 'ready');
+  assert.equal(targetStatus({ targetTaskId: 'x', targetPostUrl: null, targetTweetUrl: null, targetCancelledAt: '2026-08-20' }), 'cancelled');
   assert.equal(targetUrlOf({ targetTaskId: 't1', targetPostUrl: 'https://x.com/a/status/1', targetTweetUrl: 'https://x.com/i/status/2' }), 'https://x.com/a/status/1');
   assert.equal(targetUrlOf({ targetTaskId: 't1', targetPostUrl: null, targetTweetUrl: null }), null);
 });
 
-test('5) 요약 — N은 미사용 제외, 게시됨은 내려짐 포함, 유형별 소계는 있는 유형만·TASK_TYPES 순', () => {
+test('5) 요약 — N은 취소만 제외(미사용 포함), 게시됨은 내려짐 포함, 유형별 소계는 있는 유형만·TASK_TYPES 순', () => {
   const items = [
     { ...base({ type: 'post', draftStatus: 'delivered', postedAt: '2026-08-20' }), cost: { amount: 20000, currency: 'JPY' as const } },
     { ...base({ type: 'quoteRt', draftStatus: 'review' }), cost: { amount: 8000, currency: 'JPY' as const } },
@@ -66,18 +66,18 @@ test('5) 요약 — N은 미사용 제외, 게시됨은 내려짐 포함, 유형
     { ...base({ postedAt: '2026-08-20', removedAt: '2026-08-25' }), cost: { amount: 3000, currency: 'JPY' as const } },
     { ...base({ type: 'visit' }), cost: { amount: 300000, currency: 'KRW' as const } },
   ];
-  assert.deepEqual(summarizeTasks(items, T), { total: 5, published: 2, delivered: 0, preparing: 3, overdue: 1, removed: 1 });
+  assert.deepEqual(summarizeTasks(items, T), { total: 6, published: 2, delivered: 0, preparing: 3, overdue: 1, removed: 1, cancelled: 0 });
   const sub = subtotalsByType(items);
   assert.deepEqual(sub.map((s) => s.type), ['rt', 'quoteRt', 'post', 'visit']);
   // 브리프 원문은 published: 2였으나, rt 항목 중 postedAt이 있는 것은 1건(예정일만 있는 item4는 미게시)뿐이라
   // summarizeTasks(전체 published: 2 = post 1건 + rt 1건)와도 맞아떨어지는 값은 1이다 — 브리프 오타로 보고 수정(task-2-report.md 기록).
   assert.deepEqual(sub.find((s) => s.type === 'rt'), { type: 'rt', count: 2, published: 1, cost: { JPY: 6000 } });
-  assert.deepEqual(sub.find((s) => s.type === 'quoteRt'), { type: 'quoteRt', count: 1, published: 0, cost: { JPY: 8000 } }); // 미사용 제외
+  assert.deepEqual(sub.find((s) => s.type === 'quoteRt'), { type: 'quoteRt', count: 2, published: 0, cost: { JPY: 16000 } }); // 미사용 포함(제외는 취소만, R17)
   assert.deepEqual(summarizeTaskPerf(items.map((t) => ({ ...t, perf: t.postedAt ? { views: 100, likes: 1 } : null, linkClicks: null }))),
     { publishedCount: 2, views: 200, likes: 2, linkClicks: null });
 });
 
-test('6) 정렬 — 기본 만든 순(밀림도 자리 유지), 미사용은 어느 키든 맨 아래', () => {
+test('6) 정렬 — 기본 만든 순(밀림도 자리 유지), 취소만 어느 키든 맨 아래(미사용은 더 이상 아니다)', () => {
   const mk = (id: string, createdAt: string, o: Partial<TaskStageInput> = {}, handle: string | null = null) =>
     ({ id, ...base(o), createdAt, influencerHandle: handle });
   const items = [
@@ -90,7 +90,7 @@ test('6) 정렬 — 기본 만든 순(밀림도 자리 유지), 미사용은 어
   assert.deepEqual(sortTasks(items, 'influencer', T).map((x) => x.id), ['b', 'a', 'c']);
 });
 
-test('7) 인플 목록 — 작업 핸들 ∪ 비용 행, 유형별 건수, 미배정 묶음 맨 아래, 내려짐도 합계 포함', () => {
+test('7) 인플 목록 — 작업 핸들 ∪ 비용 행, 유형별 건수, 미배정 묶음 맨 아래, 내려짐·미사용 모두 합계 포함(제외는 취소만)', () => {
   const tasks: TaskCostInput[] = [
     { ...base({ type: 'post', draftStatus: 'delivered' }), influencerHandle: 'Mika', cost: { amount: 20000, currency: 'JPY' } },
     { ...base(), influencerHandle: 'rio', cost: { amount: 3000, currency: 'JPY' } },
@@ -101,20 +101,61 @@ test('7) 인플 목록 — 작업 핸들 ∪ 비용 행, 유형별 건수, 미�
   const lines = deriveTaskInfluencers(tasks, [{ influencerHandle: 'hana', extraCosts: [{ label: '교통비', amount: 5000, currency: 'KRW' }], note: '' }]);
   assert.deepEqual(lines.map((l) => l.handle), ['rio', 'Mika', 'hana', null]);
   const rio = lines[0];
-  assert.equal(rio.taskCount, 2);                                  // 미사용 제외
-  assert.deepEqual(rio.countsByType, { rt: 2 });
-  assert.deepEqual(rio.taskCost, { JPY: 6000 });                    // 내려짐 포함
-  assert.equal(countsByTypeLabel(rio.countsByType), 'RT 2');
+  assert.equal(rio.taskCount, 3);                                  // 미사용 포함(제외는 취소만)
+  assert.deepEqual(rio.countsByType, { rt: 2, quoteRt: 1 });
+  assert.deepEqual(rio.taskCost, { JPY: 14000 });                    // 내려짐·미사용 포함
+  assert.equal(countsByTypeLabel(rio.countsByType), 'RT 2 · 인용RT 1');
   assert.equal(countsByTypeLabel({ post: 1, rt: 3 }), 'RT 3 · 투고 1');   // TASK_TYPES 순(rt·quoteRt·post·visit)
   assert.equal(lines[2].hasCostRow, true);
   assert.equal(lines[2].taskCount, 0);
   assert.deepEqual(lines[3].subtotal, { KRW: 1000 });
-  assert.deepEqual(taskCampaignTotal(lines), { JPY: 26000, KRW: 6000 });
+  assert.deepEqual(taskCampaignTotal(lines), { JPY: 34000, KRW: 6000 });
 });
 
-test('8) 정산 후보 — 게시 확인 + 비용 + 인플. 내려짐은 조건이 아니다', () => {
-  assert.equal(isSettlementCandidate({ postedAt: '2026-08-20', cost: { amount: 1, currency: 'KRW' }, influencerHandle: 'a', removedAt: '2026-08-21' }), true);
-  assert.equal(isSettlementCandidate({ postedAt: null, cost: { amount: 1, currency: 'KRW' }, influencerHandle: 'a', removedAt: null }), false);
-  assert.equal(isSettlementCandidate({ postedAt: '2026-08-20', cost: null, influencerHandle: 'a', removedAt: null }), false);
-  assert.equal(isSettlementCandidate({ postedAt: '2026-08-20', cost: { amount: 1, currency: 'KRW' }, influencerHandle: null, removedAt: null }), false);
+test('8) 정산 후보 — 게시 확인 + 비용 + 인플 + 취소 아님. 내려짐은 조건이 아니다', () => {
+  assert.equal(isSettlementCandidate({ postedAt: '2026-08-20', cost: { amount: 1, currency: 'KRW' }, influencerHandle: 'a', removedAt: '2026-08-21', cancelledAt: null }), true);
+  assert.equal(isSettlementCandidate({ postedAt: null, cost: { amount: 1, currency: 'KRW' }, influencerHandle: 'a', removedAt: null, cancelledAt: null }), false);
+  assert.equal(isSettlementCandidate({ postedAt: '2026-08-20', cost: null, influencerHandle: 'a', removedAt: null, cancelledAt: null }), false);
+  assert.equal(isSettlementCandidate({ postedAt: '2026-08-20', cost: { amount: 1, currency: 'KRW' }, influencerHandle: null, removedAt: null, cancelledAt: null }), false);
+});
+
+test('9) 취소 — 단계 최상위, 집계·밀림·정산 후보에서 빠지는 유일한 조건, 미사용 원고는 이제 빠지지 않는다 (R17·R21)', () => {
+  const canc = base({ type: 'post', draftStatus: 'draft', scheduledOn: '2026-08-01', cancelledAt: '2026-08-20' });
+  assert.equal(taskStage(canc, T), 'cancelled');
+  assert.equal(TASK_STAGE_LABEL.cancelled, '취소됨');
+  assert.equal(isTaskExcluded(canc), true);
+  assert.equal(isTaskOverdue(canc, T), false);                       // 취소된 작업은 밀림이 아니다
+  assert.equal(matchesTaskFilter(canc, 'preparing', T), false);
+  assert.equal(matchesTaskFilter(canc, 'all', T), true);
+  // 미사용 원고가 붙은 미게시 작업은 더 이상 제외되지 않는다 — 원고 미사용은 원고 상태, 작업은 진행 중(koo 09-15)
+  const unusedTask = base({ type: 'post', draftStatus: 'unused', scheduledOn: '2026-08-01' });
+  assert.equal(isTaskExcluded(unusedTask), false);
+  assert.equal(isTaskOverdue(unusedTask, T), true);
+  const s = summarizeTasks([canc, unusedTask, base({ postedAt: '2026-08-20' })], T);
+  assert.equal(s.total, 2);                                          // 취소 1건만 빠진다
+  assert.equal(s.published, 1);
+  assert.equal(s.overdue, 1);
+  assert.equal(s.cancelled, 1);
+  const sub = subtotalsByType([{ ...canc, cost: { amount: 1000, currency: 'KRW' } }, { ...unusedTask, cost: { amount: 2000, currency: 'KRW' } }]);
+  assert.deepEqual(sub, [{ type: 'post', count: 1, published: 0, cost: { KRW: 2000 } }]);
+  assert.equal(isSettlementCandidate({ postedAt: '2026-08-20', cost: { amount: 1, currency: 'KRW' }, influencerHandle: 'a', removedAt: null, cancelledAt: null }), true);
+  assert.equal(isSettlementCandidate({ postedAt: null, cost: { amount: 1, currency: 'KRW' }, influencerHandle: 'a', removedAt: null, cancelledAt: '2026-08-20' }), false);
+});
+
+test('10) 6단계 파생(flowStage) — 취소 > 완료 > 정산 > 게시 > 준비 > 전달', () => {
+  const s = (t: TaskStageInput & { influencerHandle: string | null }, settle: { status: 'requested' | 'cancelled'; externalStatus: string | null } | null) => flowStage(t, settle);
+  const h = { influencerHandle: 'a' };
+  assert.equal(s({ ...base({ cancelledAt: '2026-08-20' }), ...h }, null), 'canc');
+  assert.equal(s({ ...base({ postedAt: '2026-08-20' }), ...h }, { status: 'requested', externalStatus: 'paid' }), 'done');
+  assert.equal(s({ ...base({ postedAt: '2026-08-20' }), ...h }, { status: 'requested', externalStatus: null }), 'settle');
+  assert.equal(s({ ...base({ postedAt: '2026-08-20' }), ...h }, { status: 'requested', externalStatus: 'on_hold' }), 'settle');
+  assert.equal(s({ ...base({ postedAt: '2026-08-20' }), ...h }, { status: 'cancelled', externalStatus: null }), 'posted');   // 요청이 취소되면 다시 게시(정산 대기)
+  assert.equal(s({ ...base({ postedAt: '2026-08-20' }), ...h }, null), 'posted');
+  assert.equal(s({ ...base({ type: 'post', draftStatus: 'draft' }), ...h }, null), 'prep');
+  assert.equal(s({ ...base({ type: 'post', draftStatus: 'approved' }), ...h }, null), 'prep');
+  assert.equal(s({ ...base({ type: 'post', draftStatus: 'delivered' }), ...h }, null), 'handed');
+  assert.equal(s({ ...base({ type: 'post', draftStatus: 'unused' }), ...h }, null), 'handed');            // 미사용 = 인플이 자기 글로 진행
+  assert.equal(s({ ...base(), ...h }, null), 'handed');                                                   // 원고 없는 RT + 인플 있음
+  assert.equal(s({ ...base({ type: 'post' }), influencerHandle: null }, null), 'prep');                   // 미배정
+  assert.equal(FLOW_STAGE_LABEL.handed, '전달');
 });

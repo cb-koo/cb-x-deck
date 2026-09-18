@@ -6,7 +6,7 @@ import { isUuidLike } from '@/lib/uuid';
 import { getCampaign } from '@/lib/campaignStore';
 import { createTasks, getTask, findTaskByDraft, TaskAttachError } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
-import { parseTaskCreate, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, DRAFT_ATTACHED_MESSAGE, TASK_HAS_DRAFT_MESSAGE } from '@/lib/campaignTaskInput';
+import { parseTaskCreate, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, DRAFT_ATTACHED_MESSAGE, TASK_HAS_DRAFT_MESSAGE, CANCELLED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
 import { CAMPAIGN_NOT_FOUND_MESSAGE } from '@/lib/campaignInput';
 import { getDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
@@ -49,7 +49,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ tasks });
   } catch (e) {
     if (e instanceof TaskAttachError) {
-      const msg = e.code === 'draft-attached' ? DRAFT_ATTACHED_MESSAGE : e.code === 'task-has-draft' ? TASK_HAS_DRAFT_MESSAGE : TASK_NOT_FOUND_MESSAGE;
+      const msg = e.code === 'draft-attached' ? DRAFT_ATTACHED_MESSAGE
+        : e.code === 'task-has-draft' ? TASK_HAS_DRAFT_MESSAGE
+        : e.code === 'task-cancelled' ? CANCELLED_TASK_MESSAGE : TASK_NOT_FOUND_MESSAGE;
       return NextResponse.json({ error: msg }, { status: e.code === 'no-task' ? 400 : 409 });
     }
     throw e;

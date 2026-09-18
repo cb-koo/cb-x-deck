@@ -10,7 +10,7 @@ import { isDraftStatus, type DraftStatus } from '@/lib/draftStatus';
 import { normalizeInfluencerPatch } from '@/lib/influencerPatch';
 import { isUuidLike } from '@/lib/uuid';
 import { LIST_CAP } from '@/lib/draftPaging';
-import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, TASK_HAS_DRAFT_MESSAGE, DRAFT_ATTACHED_MESSAGE } from '@/lib/campaignTaskInput';
+import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, TASK_HAS_DRAFT_MESSAGE, DRAFT_ATTACHED_MESSAGE, CANCELLED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
 import { getTask, TaskAttachError } from '@/lib/campaignTaskStore';
 
 export async function GET(req: Request) {
@@ -56,6 +56,7 @@ export async function POST(req: Request) {
   if (typeof taskId.value === 'string') {
     const task = await getTask(sql, taskId.value);
     if (!task) return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 400 });
+    if (task.cancelledAt) return NextResponse.json({ error: CANCELLED_TASK_MESSAGE }, { status: 409 });   // R18 — attachDraft도 막지만 여기서 먼저(생성 비용 전)
     if (task.draftId) return NextResponse.json({ error: TASK_HAS_DRAFT_MESSAGE }, { status: 409 });
   }
   try {
@@ -81,7 +82,8 @@ export async function POST(req: Request) {
     // 생성 자체는 끝났는데 붙이기(insertDraft→attachDraft)가 경합으로 실패한 경우 — manual 라우트와 같은 매핑.
     if (e instanceof TaskAttachError) {
       const message = e.code === 'draft-attached' ? DRAFT_ATTACHED_MESSAGE
-        : e.code === 'task-has-draft' ? TASK_HAS_DRAFT_MESSAGE : TASK_NOT_FOUND_MESSAGE;
+        : e.code === 'task-has-draft' ? TASK_HAS_DRAFT_MESSAGE
+        : e.code === 'task-cancelled' ? CANCELLED_TASK_MESSAGE : TASK_NOT_FOUND_MESSAGE;
       return NextResponse.json({ error: message }, { status: e.code === 'no-task' ? 400 : 409 });
     }
     // 원인을 삼키지 않는다(브리핑 라우트 관례)

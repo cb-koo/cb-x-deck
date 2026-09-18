@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTaskCreate, parseTaskPatch, proofGateError, normalizeTargetTweetUrl, parseTaskIdPatch, TASK_TYPE_MESSAGE, TARGET_MESSAGE, POST_URL_MESSAGE, VISIT_ON_MESSAGE, DRAFT_MULTI_MESSAGE, POSTED_AT_NULL_MESSAGE, DATE_MESSAGE } from './campaignTaskInput.ts';
+import { parseTaskCreate, parseTaskPatch, proofGateError, normalizeTargetTweetUrl, parseTaskIdPatch, TASK_TYPE_MESSAGE, TARGET_MESSAGE, POST_URL_MESSAGE, VISIT_ON_MESSAGE, DRAFT_MULTI_MESSAGE, POSTED_AT_NULL_MESSAGE, DATE_MESSAGE, influencerChangeGuard, CANCELLED_TASK_MESSAGE, POSTED_TASK_MESSAGE, REPLACE_AFTER_VISIT_MESSAGE, REPLACE_REQUIRED_MESSAGE } from './campaignTaskInput.ts';
 import { PROOF_VALUE_MESSAGE, PROOF_ONLY_RT_MESSAGE, PROOF_KEEP_MESSAGE, PROOF_REQUIRED_MESSAGE } from './taskProofGuard.ts';
 
 const U = '11111111-1111-1111-1111-111111111111';
@@ -145,4 +145,22 @@ test('proofGateError — 미게시 RT는 증빙을 자유롭게 뗄 수 있다',
 
 test('proofGateError — post 유형에 증빙을 붙이면 거절(범위)', () => {
   assert.equal(proofGateError(postUnposted, { proofUrl: P_OK }), PROOF_ONLY_RT_MESSAGE);
+});
+
+// ── influencerChangeGuard — 인플루언서 칸 변경(배정·해제·교체)의 공통 상태 제한(ADR 0005) ──
+const T = '2026-09-16';
+const cur = (o: Partial<{ postedAt: string | null; cancelledAt: string | null; type: 'post' | 'rt' | 'quoteRt' | 'visit'; visitOn: string | null; influencerHandle: string | null }> = {}) =>
+  ({ postedAt: null, cancelledAt: null, type: 'post' as const, visitOn: null, influencerHandle: null, ...o });
+
+test('인플 변경 가드 — 상태 제한은 배정·해제·교체에 같고, 다른 인플로의 PATCH는 교체로 보낸다 (ADR 0005)', () => {
+  assert.equal(influencerChangeGuard(cur(), 'a', T), null);                                            // 배정
+  assert.equal(influencerChangeGuard(cur({ influencerHandle: 'a' }), null, T), null);                  // 해제
+  assert.equal(influencerChangeGuard(cur({ influencerHandle: 'a' }), 'A', T), null);                   // 같은 인플(대소문자 무시) = 변경 아님
+  assert.equal(influencerChangeGuard(cur({ influencerHandle: 'a' }), 'b', T), REPLACE_REQUIRED_MESSAGE);
+  assert.equal(influencerChangeGuard(cur({ influencerHandle: 'a' }), 'b', T, { allowReplace: true }), null);
+  assert.equal(influencerChangeGuard(cur({ cancelledAt: '2026-09-15' }), 'a', T), CANCELLED_TASK_MESSAGE);
+  assert.equal(influencerChangeGuard(cur({ postedAt: '2026-09-15', influencerHandle: 'a' }), null, T), POSTED_TASK_MESSAGE);
+  assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: '2026-09-15', influencerHandle: 'a' }), 'b', T, { allowReplace: true }), REPLACE_AFTER_VISIT_MESSAGE);
+  assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: T, influencerHandle: 'a' }), 'b', T, { allowReplace: true }), null);   // 당일은 허용
+  assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: null, influencerHandle: 'a' }), 'b', T, { allowReplace: true }), null); // 미정은 허용
 });

@@ -9,7 +9,7 @@ import { normalizeInfluencerPatch } from '@/lib/influencerPatch';
 import { formatForPosts } from '@/lib/draftFormat';
 import { normalizeDraftMedia } from '@/lib/draftMediaGuard';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
-import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, DRAFT_ATTACHED_MESSAGE, TASK_HAS_DRAFT_MESSAGE } from '@/lib/campaignTaskInput';
+import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, DRAFT_ATTACHED_MESSAGE, TASK_HAS_DRAFT_MESSAGE, CANCELLED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
 import { attachDraft, detachDraft, TaskAttachError } from '@/lib/campaignTaskStore';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -70,7 +70,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     derivedFormat = formatForPosts((body.edited as DraftContent).posts.length);
   }
   const sql = getSql();
-  const result = await sql.begin(async (tx0): Promise<'ok' | 'no-draft' | 'no-task' | 'draft-attached' | 'task-has-draft'> => {
+  const result = await sql.begin(async (tx0): Promise<'ok' | 'no-draft' | 'no-task' | 'draft-attached' | 'task-has-draft' | 'task-cancelled'> => {
     const tx = tx0 as unknown as postgres.Sql; // 저장소 선례: generate.ts:127
     // 동시 PATCH가 스테일 스냅샷으로 로그를 쓰지 않도록 행을 잠그고 읽는다 (리뷰 반영)
     await tx`select id from draft where id = ${id} for update`;
@@ -113,6 +113,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (result === 'no-task') return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 400 });
   if (result === 'draft-attached') return NextResponse.json({ error: DRAFT_ATTACHED_MESSAGE }, { status: 409 });
   if (result === 'task-has-draft') return NextResponse.json({ error: TASK_HAS_DRAFT_MESSAGE }, { status: 409 });
+  if (result === 'task-cancelled') return NextResponse.json({ error: CANCELLED_TASK_MESSAGE }, { status: 409 });
   if (result === 'no-draft') {
     return NextResponse.json({ error: '원고를 찾을 수 없어요 — 다른 사람이 삭제했을 수 있어요' }, { status: 404 });
   }

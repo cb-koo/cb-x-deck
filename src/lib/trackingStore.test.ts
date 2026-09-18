@@ -231,3 +231,24 @@ test('10) 원고 경로 우회 차단 — RT 작업에 원고가 붙어 있어�
   // 그러나 RT 작업의 게시 확인(posted_at)은 여전히 채워지지 않아야 한다 — 이게 이 가드의 목적이다.
   assert.equal((await getTask(sql, rt.id))!.postedAt, null);
 });
+
+test('11) 게시물 연결 — 취소된 작업에 원고가 붙은 비정상 상태에서도 draftId 경로 연결을 거절한다(ADR 0002, C2)', async () => {
+  const c = await createClient(sql, P + '취소클라');
+  const camp = await createCampaign(sql, { clientId: c.id, clientName: c.name, name: P + 'cnl', nameEn: `${P.toLowerCase()}-cnl`, startsOn: '2026-08-31', endsOn: '2026-09-06', kind: null, note: '', createdBy: null });
+  const [task] = await createTasks(sql, camp.id, { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, type: 'post', items: [{ handle: 'cancelledguy', cost: null }] });
+  const draftId = await insertDraft(sql, {
+    clientId: c.id, clientName: c.name, procedureNames: [], direction: P + '취소방향', format: 'single',
+    referenceMode: 'off', refs: [], content: { posts: [{ text: 'x', media: [] }] }, model: null, memberId: null,
+  });
+  // 정상 취소는 원고를 자동으로 뗀다(ADR 0002) — 이 테스트는 그 경로를 우회해 SQL로 직접 만든
+  // 비정상 상태("취소된 작업에 원고가 붙어 있음")를 재현한다.
+  await sql`update campaign_task set cancelled_at = '2026-09-16', draft_id = ${draftId} where id = ${task.id}`;
+  const { row } = await addTrackedPost(sql, {
+    tweetId: P + 'CNL1', authorHandle: null, text: '', postedAt: null, createdBy: null, metrics: M, raw: null,
+  });
+  await assert.rejects(
+    () => linkTrackedPost(sql, row.id, { draftId }),
+    (e: unknown) => e instanceof TrackingLinkError && e.code === 'cancelled-task',
+  );
+  assert.equal((await findTrackedPostById(sql, row.id))!.taskId, null);   // 연결되지 않았다
+});

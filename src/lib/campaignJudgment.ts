@@ -139,30 +139,33 @@ export function draftWriteHref(taskId: string, campaignId: string): string {
   return `/generate?task=${encodeURIComponent(taskId)}&campaign=${encodeURIComponent(campaignId)}`;
 }
 
-export type TaskStage = 'planned' | 'visitPending' | 'visited' | DraftStatus | 'published' | 'removed';
+export type TaskStage = 'cancelled' | 'planned' | 'visitPending' | 'visited' | DraftStatus | 'published' | 'removed';
 export const TASK_STAGE_LABEL: Record<TaskStage, string> = {
-  planned: '예정', visitPending: '방문 전', visited: '방문 완료', ...STATUS_LABEL, published: '게시됨', removed: '내려짐',
+  cancelled: '취소됨', planned: '예정', visitPending: '방문 전', visited: '방문 완료', ...STATUS_LABEL, published: '게시됨', removed: '내려짐',
 };
 export interface TaskStageInput {
   type: TaskType; draftStatus: DraftStatus | null;
   postedAt: string | null; removedAt: string | null;
   scheduledOn: string | null; visitOn: string | null;
+  cancelledAt: string | null;   // 055 — 취소는 어느 판정보다 먼저
 }
-// 우선순위: 내려짐 > 게시됨 > 원고 상태 > 방문(완료/전) > 예정. 게시 확인은 원고 status와 무관하게 이긴다(status 값은 바꾸지 않는다).
+// 우선순위: 취소 > 내려짐 > 게시됨 > 원고 상태 > 방문(완료/전) > 예정. 게시 확인은 원고 status와 무관하게 이긴다(status 값은 바꾸지 않는다).
 export function taskStage(t: TaskStageInput, today: string): TaskStage {
+  if (t.cancelledAt) return 'cancelled';
   if (t.postedAt && t.removedAt) return 'removed';
   if (t.postedAt) return 'published';
   if (t.draftStatus) return t.draftStatus;
   if (t.type === 'visit') return t.visitOn !== null && t.visitOn < today ? 'visited' : 'visitPending';
   return 'planned';
 }
-// 미사용 = 붙은 원고가 미사용이고 아직 게시하지 않은 작업 — 요약 N·합계·인플 건수에서 빠진다(흐린 행의 유일한 조건, §4-1)
-export function isTaskUnused(t: TaskStageInput): boolean {
-  return t.draftStatus === 'unused' && t.postedAt === null;
+// 집계(작업 수·비용 합·밀림·인플 건수)에서 빼는 유일한 조건 = 취소(R17, ADR 0002). 옛 규칙 "미사용 원고가 붙은 미게시 작업 제외"는
+// 취소가 없던 시절의 대용이었고 폐지됐다 — 원고 미사용은 원고의 상태이지 작업의 상태가 아니다(koo 09-15).
+export function isTaskExcluded(t: Pick<TaskStageInput, 'cancelledAt'>): boolean {
+  return t.cancelledAt !== null;
 }
-// 밀림 = 게시 예정일 < 오늘 · 게시 안 됨 · 미사용 아님. 방문일은 쓰지 않는다(방문→게시 사이가 긴 것이 정상).
+// 밀림 = 게시 예정일 < 오늘 · 게시 안 됨 · 취소 아님. 방문일은 쓰지 않는다(방문→게시 사이가 긴 것이 정상).
 export function isTaskOverdue(t: TaskStageInput, today: string): boolean {
-  return t.scheduledOn !== null && t.scheduledOn < today && t.postedAt === null && !isTaskUnused(t);
+  return t.scheduledOn !== null && t.scheduledOn < today && t.postedAt === null && !isTaskExcluded(t);
 }
 const PREPARING_STAGES: readonly TaskStage[] = ['draft', 'review', 'approved', 'planned', 'visitPending', 'visited'];
 export function isTaskPreparing(t: TaskStageInput, today: string): boolean {
@@ -171,27 +174,28 @@ export function isTaskPreparing(t: TaskStageInput, today: string): boolean {
 export function matchesTaskFilter(t: TaskStageInput, f: StageFilter, today: string): boolean {
   if (f === 'all') return true;
   if (f === 'preparing') return isTaskPreparing(t, today);
-  if (f === 'published') return t.postedAt !== null && !isTaskUnused(t);   // 내려짐도 게시는 했다 — 게시 n과 같은 모집단
+  if (f === 'published') return t.postedAt !== null && !isTaskExcluded(t);   // 내려짐도 게시는 했다 — 게시 n과 같은 모집단
   return taskStage(t, today) === 'delivered';
 }
 
-// 대상(RT/인용RT) — 가리킨 작업의 post_url이 있거나 링크가 직접 있으면 확정.
-export type TargetStatus = 'none' | 'pending' | 'ready';
+// 대상(RT/인용RT) — 가리킨 작업의 post_url이 있거나 링크가 직접 있으면 확정. 대상 작업이 취소되면(R19) 'cancelled' —
+// 대상을 바꿔야 한다는 뜻이라 pending/ready와는 다른 취급이 필요하다.
+export type TargetStatus = 'none' | 'pending' | 'ready' | 'cancelled';
 export interface TargetInput { targetTaskId: string | null; targetPostUrl: string | null; targetTweetUrl: string | null }
 export function targetUrlOf(t: TargetInput): string | null {
   if (t.targetTaskId) return t.targetPostUrl;
   return t.targetTweetUrl;
 }
-export function targetStatus(t: TargetInput): TargetStatus {
-  if (t.targetTaskId) return t.targetPostUrl ? 'ready' : 'pending';
+export function targetStatus(t: TargetInput & { targetCancelledAt: string | null }): TargetStatus {
+  if (t.targetTaskId) return t.targetCancelledAt ? 'cancelled' : t.targetPostUrl ? 'ready' : 'pending';   // 대상 작업이 취소됨(R19) — 대상을 바꿔야 한다
   return t.targetTweetUrl ? 'ready' : 'none';
 }
 
-export interface TaskSummary { total: number; published: number; delivered: number; preparing: number; overdue: number; removed: number }
+export interface TaskSummary { total: number; published: number; delivered: number; preparing: number; overdue: number; removed: number; cancelled: number }
 export function summarizeTasks(items: TaskStageInput[], today: string): TaskSummary {
-  const s: TaskSummary = { total: 0, published: 0, delivered: 0, preparing: 0, overdue: 0, removed: 0 };
+  const s: TaskSummary = { total: 0, published: 0, delivered: 0, preparing: 0, overdue: 0, removed: 0, cancelled: 0 };
   for (const t of items) {
-    if (isTaskUnused(t)) continue;
+    if (isTaskExcluded(t)) { s.cancelled += 1; continue; }
     s.total += 1;
     const stage = taskStage(t, today);
     if (t.postedAt) s.published += 1;
@@ -207,7 +211,7 @@ export function summarizeTaskPerf(items: TaskPerfInput[]): PerfSummary {
   const out: PerfSummary = { publishedCount: 0, views: null, likes: null, linkClicks: null };
   const add = (k: 'views' | 'likes' | 'linkClicks', v: number | null) => { if (v !== null) out[k] = (out[k] ?? 0) + v; };
   for (const it of items) {
-    if (isTaskUnused(it)) continue;
+    if (isTaskExcluded(it)) continue;
     if (it.postedAt) out.publishedCount += 1;
     add('views', it.perf?.views ?? null);
     add('likes', it.perf?.likes ?? null);
@@ -220,7 +224,7 @@ export interface TypeSubtotal { type: TaskType; count: number; published: number
 export function subtotalsByType(items: Array<TaskStageInput & { cost: TaskCost | null }>): TypeSubtotal[] {
   const out: TypeSubtotal[] = [];
   for (const type of TASK_TYPES) {
-    const mine = items.filter((t) => t.type === type && !isTaskUnused(t));
+    const mine = items.filter((t) => t.type === type && !isTaskExcluded(t));
     if (mine.length === 0) continue;
     out.push({
       type, count: mine.length, published: mine.filter((t) => t.postedAt !== null).length,
@@ -234,9 +238,9 @@ export type TaskSortKey = 'created' | 'scheduled' | 'stage' | 'influencer';
 export const TASK_SORT_LABEL: Record<TaskSortKey, string> = { created: '만든 순', scheduled: '예정일', stage: '단계', influencer: '인플루언서' };
 export interface TaskSortInput extends TaskStageInput { influencerHandle: string | null; createdAt: string }
 const TASK_STAGE_ORDER: Record<TaskStage, number> = {
-  planned: 0, visitPending: 0, visited: 1, draft: 0, review: 1, approved: 2, delivered: 3, published: 4, removed: 5, unused: 6,
+  planned: 0, visitPending: 0, visited: 1, draft: 0, review: 1, approved: 2, delivered: 3, published: 4, removed: 5, unused: 6, cancelled: 7,
 };
-// 기본은 만든 순(koo 08-28) — 밀림도 자리를 바꾸지 않고 표시만 강조한다. 미사용은 어느 키든 맨 아래(흐린 행이 중간에 끼지 않게).
+// 기본은 만든 순(koo 08-28) — 밀림도 자리를 바꾸지 않고 표시만 강조한다. 취소는 어느 키든 맨 아래(흐린 행이 중간에 끼지 않게).
 export function sortTasks<T extends TaskSortInput>(items: T[], key: TaskSortKey, today: string): T[] {
   const byCreated = (a: T, b: T) => a.createdAt.localeCompare(b.createdAt);
   const bySchedule = (a: T, b: T): number => {
@@ -246,7 +250,7 @@ export function sortTasks<T extends TaskSortInput>(items: T[], key: TaskSortKey,
     return a.scheduledOn.localeCompare(b.scheduledOn);
   };
   return [...items].sort((a, b) => {
-    const u = Number(isTaskUnused(a)) - Number(isTaskUnused(b));
+    const u = Number(isTaskExcluded(a)) - Number(isTaskExcluded(b));
     if (u !== 0) return u;
     if (key === 'created') return byCreated(a, b);
     if (key === 'scheduled') return bySchedule(a, b);
@@ -277,7 +281,7 @@ export function deriveTaskInfluencers(tasks: TaskCostInput[], costRows: CostRowI
   const byKey = new Map<string, Bucket>();
   const keyOf = (h: string | null) => (h ? h.toLowerCase() : '');
   for (const t of tasks) {
-    if (isTaskUnused(t)) continue;
+    if (isTaskExcluded(t)) continue;
     const k = keyOf(t.influencerHandle);
     const b = byKey.get(k) ?? { handle: t.influencerHandle, tasks: [], row: null };
     b.tasks.push(t);
@@ -315,7 +319,23 @@ export function taskCampaignTotal(lines: TaskInfluencerLine[]): MoneyByCurrency 
 export function countsByTypeLabel(counts: Partial<Record<TaskType, number>>): string {
   return TASK_TYPES.filter((t) => (counts[t] ?? 0) > 0).map((t) => `${TASK_TYPE_LABEL[t]} ${counts[t]}`).join(' · ');
 }
-// 정산 후보(§7) — 게시 확인 + 비용 + 인플. 내려짐(removed_at)은 판단 참고 정보라 조건에 넣지 않는다(koo 08-27).
-export function isSettlementCandidate(t: { postedAt: string | null; cost: TaskCost | null; influencerHandle: string | null; removedAt: string | null }): boolean {
-  return t.postedAt !== null && t.cost !== null && t.influencerHandle !== null;
+// 정산 후보(정산 스펙 §2-4) — settlementStore.CANDIDATE_BASE와 같은 정의, 스토어 테스트가 대조한다. 취소는 게시와 상호 배제라
+// 이론상 겹치지 않지만 의도를 코드로 남긴다. 내려짐(removed_at)은 판단 참고 정보라 조건에 넣지 않는다(koo 08-27).
+export function isSettlementCandidate(t: { postedAt: string | null; cost: TaskCost | null; influencerHandle: string | null; removedAt: string | null; cancelledAt: string | null }): boolean {
+  return t.cancelledAt === null && t.postedAt !== null && t.cost !== null && t.influencerHandle !== null;
+}
+
+// ─────────────────────────── 6단계(캠페인 v2 §3-1, R21) ───────────────────────────
+// 저장하지 않고 파생. 위에서부터 먼저 맞는 것. 정산 요청 상태(그쪽 external_status)는 settlementByTaskIds 결과를 받는다.
+export type FlowStage = 'prep' | 'handed' | 'posted' | 'settle' | 'done' | 'canc';
+export const FLOW_STAGES: readonly FlowStage[] = ['prep', 'handed', 'posted', 'settle', 'done', 'canc'];
+export const FLOW_STAGE_LABEL: Record<FlowStage, string> = { prep: '준비', handed: '전달', posted: '게시', settle: '정산', done: '완료', canc: '취소' };
+export interface FlowSettlementInput { status: 'requested' | 'cancelled'; externalStatus: string | null }
+export function flowStage(t: TaskStageInput & { influencerHandle: string | null }, settlement: FlowSettlementInput | null): FlowStage {
+  if (t.cancelledAt) return 'canc';
+  if (settlement?.status === 'requested') return settlement.externalStatus === 'paid' ? 'done' : 'settle';
+  if (t.postedAt) return 'posted';
+  if (!t.influencerHandle) return 'prep';
+  if (t.draftStatus && t.draftStatus !== 'delivered' && t.draftStatus !== 'unused') return 'prep';
+  return 'handed';
 }

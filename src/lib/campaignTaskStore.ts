@@ -5,6 +5,15 @@ import { TARGETABLE_TYPES, type TaskType } from './campaignJudgment.ts';
 import { tweetPermalink } from './tweetLink.ts';
 import { isUuidLike } from './uuid.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
+import { influencerChangeGuard, type CancelReason } from './campaignTaskInput.ts';
+// draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
+// getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
+import type { DraftRow } from './draftStore.ts';
+// influencerSync.ts 자체는 campaignTaskStore를 import하지 않지만, 전이 그래프까지 확인하면
+// campaignTaskStore → influencerSync → influencerStore(값 import: draftVersionHash from draftStore,
+// listInfluencerCampaigns from campaignStore) → draftStore → campaignTaskStore(값 import: attachDraft)로
+// 순환이 생긴다(campaignStore → campaignTaskStore 간선도 있다) — 정적 import(값·타입 모두)를 두지 않고
+// 지연 import로 끊는다(ReplaceDraftDeps·defaultReplaceDraftDeps, 아래). 타입은 typeof import(...)로 얻는다.
 
 // 작업(campaign_task) 저장소 — 스펙 2026-08-28 §2-1. 판정(단계·밀림·요약)은 campaignJudgment가, 여기는 행의 읽기·쓰기만.
 // 핸들은 표기 보존·비교는 lower(). 날짜는 date 컬럼 + to_char 왕복(시간대 시프트 방지, DateOnly 관례).
@@ -15,10 +24,14 @@ export interface TaskRow {
   removedAt: string | null; removedReason: string;
   scheduledOn: string | null; visitOn: string | null; cost: TaskCost | null; note: string;
   proof: TaskProof | null;   // RT 증빙 스크린샷 1장(스펙 2026-08-31 §4-2). RT 아닌 유형은 늘 null
+  // 취소(055, ADR 0002) — 삭제가 아니라 상태. cancelledDraft*는 되돌리기용 스냅샷(떼어낸 원고 id·제목)
+  cancelledAt: string | null; cancelReason: CancelReason | null; cancelNote: string;
+  cancelledDraftId: string | null; cancelledDraftTitle: string | null;
   createdAt: string; updatedAt: string;
   draftStatus: DraftStatus | null; draftLabel: string | null;   // 붙은 원고 요약 — 표의 '원고' 열
   // 대상 작업 요약(§4-1 'RT/인용RT 대상' 열) — 다른 캠페인이면 campaignName으로 구분해 보인다
-  target: { taskId: string; type: TaskType; influencerHandle: string | null; campaignId: string; campaignName: string; postUrl: string | null } | null;
+  // cancelledAt은 대상 작업 자체의 취소 여부(R19) — 이 작업(RT/인용RT)이 취소된 게 아니라 가리키는 대상이 취소됐음을 안다.
+  target: { taskId: string; type: TaskType; influencerHandle: string | null; campaignId: string; campaignName: string; postUrl: string | null; cancelledAt: string | null } | null;
 }
 export interface TaskCreateInput {
   type: TaskType; targetTaskId: string | null; targetTweetUrl: string | null; draftId: string | null;
@@ -38,7 +51,7 @@ export interface TargetCandidate {
   clientId: string | null; postUrl: string | null; postedAt: string | null; draftLabel: string | null; createdAt: string;
 }
 export class TaskAttachError extends Error {
-  constructor(public code: 'no-task' | 'task-has-draft' | 'draft-attached') {
+  constructor(public code: 'no-task' | 'task-has-draft' | 'draft-attached' | 'task-cancelled') {
     super(code);
     this.name = 'TaskAttachError';
   }
@@ -50,9 +63,12 @@ type Row = {
   post_url: string | null; posted_at: string | null; posted_source: 'auto' | 'manual' | null;
   removed_at: string | null; removed_reason: string;
   scheduled_on: string | null; visit_on: string | null; cost: unknown; note: string; proof: unknown;
+  cancelled_at: string | null; cancel_reason: CancelReason | null; cancel_note: string;
+  cancelled_draft_id: string | null; cancelled_draft_title: string | null;
   created_at: Date; updated_at: Date;
   draft_status: DraftStatus | null; draft_title: string | null; draft_ko_title: string | null; draft_first_line: string | null;
   tg_id: string | null; tg_type: TaskType | null; tg_handle: string | null; tg_campaign_id: string | null; tg_campaign_name: string | null; tg_post_url: string | null;
+  tg_cancelled_at: string | null;
 };
 
 function costOf(v: unknown): TaskCost | null {
@@ -71,11 +87,14 @@ const toRow = (r: Row): TaskRow => ({
   removedAt: r.removed_at, removedReason: r.removed_reason,
   scheduledOn: r.scheduled_on, visitOn: r.visit_on, cost: costOf(r.cost), note: r.note,
   proof: taskProofOf(r.proof),
+  cancelledAt: r.cancelled_at, cancelReason: r.cancel_reason, cancelNote: r.cancel_note,
+  cancelledDraftId: r.cancelled_draft_id, cancelledDraftTitle: r.cancelled_draft_title,
   createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
   draftStatus: r.draft_id ? r.draft_status : null, draftLabel: r.draft_id ? labelOf(r) : null,
   target: r.tg_id ? {
     taskId: r.tg_id, type: r.tg_type as TaskType, influencerHandle: r.tg_handle,
     campaignId: r.tg_campaign_id as string, campaignName: r.tg_campaign_name as string, postUrl: r.tg_post_url,
+    cancelledAt: r.tg_cancelled_at,
   } : null,
 });
 
@@ -86,10 +105,12 @@ const SELECT = (sql: postgres.Sql) => sql`
          to_char(t.removed_at, 'YYYY-MM-DD') as removed_at, t.removed_reason,
          to_char(t.scheduled_on, 'YYYY-MM-DD') as scheduled_on, to_char(t.visit_on, 'YYYY-MM-DD') as visit_on,
          t.cost, t.note, t.proof, t.created_at, t.updated_at,
+         to_char(t.cancelled_at, 'YYYY-MM-DD') as cancelled_at, t.cancel_reason, t.cancel_note,
+         t.cancelled_draft_id, t.cancelled_draft_title,
          d.status as draft_status, d.title as draft_title, d.ko_title as draft_ko_title,
          coalesce(d.edited, d.content)->'posts'->0->>'text' as draft_first_line,
          tg.id as tg_id, tg.type as tg_type, tg.influencer_handle as tg_handle, tg.campaign_id as tg_campaign_id,
-         tgc.name as tg_campaign_name, tg.post_url as tg_post_url
+         tgc.name as tg_campaign_name, tg.post_url as tg_post_url, to_char(tg.cancelled_at, 'YYYY-MM-DD') as tg_cancelled_at
     from campaign_task t
     left join draft d on d.id = t.draft_id
     left join campaign_task tg on tg.id = t.target_task_id
@@ -156,7 +177,10 @@ export async function updateTask(sql: postgres.Sql, id: string, patch: TaskPatch
       note              = coalesce(${patch.note ?? null}::text, note),
       proof             = case when ${patch.proof !== undefined} then ${patch.proof ? sql.json(patch.proof as never) : null}::jsonb else proof end,
       updated_at = now()
-    where id = ${id} returning id`;
+    where id = ${id} and (${patch.postedAt ?? null}::date is null or cancelled_at is null) returning id`;
+  // R17 — 게시 확인(postedAt)만 취소 작업에 막는다. 메모 등 나머지 편집은 취소 중에도 허용된다(R18)라
+  // 조건을 postedAt 유무로 좁힌다(전면 cancelled_at is null이면 메모 편집까지 막는다). false는 "그 사이
+  // 취소됨"(경합) 신호 — 호출자(라우트)가 409로 매핑한다.
   return rows.length > 0;
 }
 
@@ -171,9 +195,11 @@ export async function deleteTask(sql: postgres.Sql, id: string): Promise<boolean
 // 인플 동기화(값은 하나, §4-3): 작업에 인플이 있으면 원고에 채우고, 작업이 비어 있고 원고에 있으면 작업에 채운다.
 export async function attachDraft(sql: postgres.Sql, taskId: string, draftId: string): Promise<void> {
   if (!isUuidLike(taskId) || !isUuidLike(draftId)) throw new TaskAttachError('no-task');
-  const t = await sql<Array<{ id: string; draft_id: string | null; influencer_handle: string | null }>>`
-    select id, draft_id, influencer_handle from campaign_task where id = ${taskId} for update`;
+  const t = await sql<Array<{ id: string; draft_id: string | null; influencer_handle: string | null; cancelled_at: string | null }>>`
+    select id, draft_id, influencer_handle, cancelled_at from campaign_task where id = ${taskId} for update`;
   if (t.length === 0) throw new TaskAttachError('no-task');
+  // 취소 작업엔 원고를 붙일 수 없다(R18) — 되돌린 뒤 붙이라는 문구로 라우트가 안내한다.
+  if (t[0].cancelled_at) throw new TaskAttachError('task-cancelled');
   if (t[0].draft_id && t[0].draft_id !== draftId) throw new TaskAttachError('task-has-draft');
   const taken = await sql<Array<{ id: string }>>`select id from campaign_task where draft_id = ${draftId} and id <> ${taskId}`;
   if (taken.length) throw new TaskAttachError('draft-attached');
@@ -217,7 +243,7 @@ export async function listTargetCandidates(
       from campaign_task t
       join campaign c on c.id = t.campaign_id
       left join draft d on d.id = t.draft_id
-     where t.type = any(${[...TARGETABLE_TYPES]}::text[]) ${byClient} ${byQ}
+     where t.type = any(${[...TARGETABLE_TYPES]}::text[]) and t.cancelled_at is null ${byClient} ${byQ}
      order by t.created_at desc
      limit ${opts.limit ?? 50}`;
   return rows.map((r) => ({
@@ -229,8 +255,8 @@ export async function listTargetCandidates(
 // "이 게시물을 이미 RT하기로 한 사람"(§4-2) — 같은 대상을 가리키는 작업들의 핸들(lower 중복 제거, 첫 표기 보존)
 export async function listTargetingHandles(sql: postgres.Sql, target: { taskId: string } | { tweetUrl: string }): Promise<string[]> {
   const rows = 'taskId' in target
-    ? await sql<Array<{ h: string }>>`select influencer_handle as h from campaign_task where target_task_id = ${target.taskId} and influencer_handle is not null order by created_at`
-    : await sql<Array<{ h: string }>>`select influencer_handle as h from campaign_task where target_tweet_url = ${target.tweetUrl} and influencer_handle is not null order by created_at`;
+    ? await sql<Array<{ h: string }>>`select influencer_handle as h from campaign_task where target_task_id = ${target.taskId} and influencer_handle is not null and cancelled_at is null order by created_at`
+    : await sql<Array<{ h: string }>>`select influencer_handle as h from campaign_task where target_tweet_url = ${target.tweetUrl} and influencer_handle is not null and cancelled_at is null order by created_at`;
   const seen = new Set<string>();
   const out: string[] = [];
   for (const r of rows) { const k = r.h.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(r.h); } }
@@ -240,8 +266,9 @@ export async function listTargetingHandles(sql: postgres.Sql, target: { taskId: 
 // 게시 확인 채우기 — posted_at이 비어 있는 행만(이미 확인된 건 덮지 않는다). 갱신 수를 돌려준다.
 export async function markPosted(sql: postgres.Sql, taskIds: string[], postedAt: string, source: 'auto' | 'manual'): Promise<number> {
   if (taskIds.length === 0) return 0;
+  // 취소된 작업은 건너뛴다(ADR 0002 상호 배제) — check 제약이 최후 방어지만 자동 조회가 한 건 때문에 통째로 실패하면 안 된다
   const rows = await sql`update campaign_task set posted_at = ${postedAt}::date, posted_source = ${source}, updated_at = now()
-    where id = any(${taskIds}::uuid[]) and posted_at is null returning id`;
+    where id = any(${taskIds}::uuid[]) and posted_at is null and cancelled_at is null returning id`;
   return rows.length;
 }
 
@@ -329,4 +356,147 @@ export async function settlementByTaskIds(sql: postgres.Sql, taskIds: string[]):
     externalStatus: r.external_status, externalNote: r.external_note, externalUpdatedAt: iso(r.external_updated_at),
     paidAmountKrw: r.paid_amount_krw, grossKrw: Number(r.gross_krw), diffAckAt: iso(r.diff_ack_at),
   }]));
+}
+
+// ─────────────────────────── 취소·되돌리기 (055, ADR 0002) ───────────────────────────
+// 취소 = 상태. 게시 전만. 원고는 떼되 무엇이었는지(id·제목) 기억한다. 컬럼·떼기·스냅샷·로그는 한 트랜잭션.
+// 조건부 UPDATE(posted_at is null and cancelled_at is null)가 경합을 막고, check 제약이 최후 방어다.
+export async function cancelTask(
+  sql: postgres.Sql, id: string,
+  input: { reason: CancelReason | null; note: string; actorId: string | null; today: string },
+): Promise<'ok' | 'not-found' | 'posted' | 'already'> {
+  if (!isUuidLike(id)) return 'not-found';
+  return sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    const cur = await tx<Array<{ posted_at: string | null; cancelled_at: string | null; draft_id: string | null; influencer_handle: string | null; type: TaskType; campaign_id: string }>>`
+      select posted_at, cancelled_at, draft_id, influencer_handle, type, campaign_id from campaign_task where id = ${id} for update`;
+    if (cur.length === 0) return 'not-found';
+    if (cur[0].cancelled_at) return 'already';
+    if (cur[0].posted_at) return 'posted';
+    const draftId = cur[0].draft_id;
+    let title: string | null = null;
+    if (draftId) {
+      const d = await tx<Array<{ title: string | null; ko_title: string | null; first: string | null }>>`
+        select title, ko_title, coalesce(edited, content)->'posts'->0->>'text' as first from draft where id = ${draftId}`;
+      const first = (d[0]?.first ?? '').split('\n')[0].trim();
+      title = d[0]?.title?.trim() || d[0]?.ko_title || (first ? (first.length > 60 ? first.slice(0, 60) + '…' : first) : null);
+    }
+    const rows = await tx`update campaign_task set
+        cancelled_at = ${input.today}::date, cancel_reason = ${input.reason}, cancel_note = ${input.note},
+        draft_id = null, cancelled_draft_id = ${draftId}, cancelled_draft_title = ${title}, updated_at = now()
+      where id = ${id} and posted_at is null and cancelled_at is null returning id`;
+    if (rows.length === 0) return 'posted';   // 그 사이 게시 확인이 들어왔다
+    if ((input.reason === 'declined' || input.reason === 'no_response') && cur[0].influencer_handle) {
+      await logTaskDeclined(tx, { handle: cur[0].influencer_handle, taskId: id, campaignId: cur[0].campaign_id, taskType: cur[0].type, reason: input.reason, action: 'cancel', actorId: input.actorId });
+    }
+    return 'ok';
+  });
+}
+
+// 거절·무응답을 인플루언서 타임라인에 — 명부에 없는 핸들은 기록하지 않는다(해제·전달과 같은 태도, influencerSync).
+export async function logTaskDeclined(tx: postgres.Sql, a: {
+  handle: string; taskId: string; campaignId: string; taskType: TaskType; reason: 'declined' | 'no_response'; action: 'cancel' | 'replace'; actorId: string | null;
+}): Promise<void> {
+  const inf = await tx<Array<{ id: string }>>`select id from influencer where lower(handle) = lower(${a.handle})`;
+  if (inf.length === 0) return;
+  const camp = await tx<Array<{ name: string }>>`select name from campaign where id = ${a.campaignId}`;
+  await tx`insert into influencer_log (influencer_id, kind, event_type, draft_id, draft_title, payload, author_id)
+    values (${inf[0].id}, 'auto', 'task_declined', null, null,
+            ${tx.json({ taskId: a.taskId, campaignId: a.campaignId, campaignName: camp[0]?.name ?? '', taskType: a.taskType, reason: a.reason, action: a.action } as never)}, ${a.actorId})`;
+}
+
+// 되돌리기 — 외부 트랜잭션 하나: ① 작업 복원 UPDATE(취소 컬럼·스냅샷 전부 지움) → ② 세이브포인트 안에서 재부착 → ③ 커밋.
+// attachDraft의 unique 충돌(23505 → TaskAttachError)이 트랜잭션을 통째로 깨지 않게 세이브포인트로 격리한다.
+// "복원은 항상 성공" = 원고 점유·삭제가 작업 복원을 실패시키지 않는다는 뜻.
+export async function restoreTask(sql: postgres.Sql, id: string): Promise<{ result: 'ok' | 'not-found' | 'not-cancelled'; draft: 'reattached' | 'taken' | 'gone' | 'none' }> {
+  if (!isUuidLike(id)) return { result: 'not-found', draft: 'none' };
+  return sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql & { savepoint<T>(cb: (s: postgres.Sql) => Promise<T>): Promise<T> };
+    const cur = await tx<Array<{ cancelled_at: string | null; cancelled_draft_id: string | null; cancelled_draft_title: string | null }>>`
+      select cancelled_at, cancelled_draft_id, cancelled_draft_title from campaign_task where id = ${id} for update`;
+    if (cur.length === 0) return { result: 'not-found', draft: 'none' };
+    if (!cur[0].cancelled_at) return { result: 'not-cancelled', draft: 'none' };
+    const draftId = cur[0].cancelled_draft_id;
+    // cancelled_draft_id는 on delete set null(055) — 원고가 지워지면 취소 스냅샷이 잡히기도 전에 이미 null이 된다.
+    // "원고가 없었다"(none)와 "원고가 있었는데 지워졌다"(gone)를 가르는 건 title 스냅샷(텍스트라 FK 캐스케이드를 안 탄다) 생존 여부다.
+    const hadDraft = draftId !== null || cur[0].cancelled_draft_title !== null;
+    await tx`update campaign_task set cancelled_at = null, cancel_reason = null, cancel_note = '',
+        cancelled_draft_id = null, cancelled_draft_title = null, updated_at = now() where id = ${id}`;
+    if (!draftId) return { result: 'ok', draft: hadDraft ? 'gone' : 'none' };
+    const exists = await tx<Array<{ id: string }>>`select id from draft where id = ${draftId}`;
+    if (exists.length === 0) return { result: 'ok', draft: 'gone' };
+    try {
+      await tx.savepoint(async (sp) => { await attachDraft(sp as unknown as postgres.Sql, id, draftId); });
+      return { result: 'ok', draft: 'reattached' };
+    } catch (e) {
+      // 'task-cancelled'는 여기 오지 않는다 — 위에서 이미 cancelled_at을 null로 만든 뒤 재부착하므로.
+      if (e instanceof TaskAttachError) return { result: 'ok', draft: 'taken' };   // 세이브포인트만 롤백됨 — 복원은 유지
+      throw e;
+    }
+  });
+}
+
+// ─────────────────────────── 인플루언서 교체 (ADR 0005) ───────────────────────────
+// 옛 인플루언서의 흔적 정리(ADR 0005 표) — 해제·교체가 같이 쓴다: RT 증빙 제거, 붙은 원고가 '전달됨'이면 '사용 확정'으로.
+// 원고 status 변경은 draftStore.updateDraft를 거쳐야 하므로 여기서는 값만 돌려주고 호출자(라우트/replaceInfluencer)가 처리한다.
+export async function clearOldInfluencerTraces(tx: postgres.Sql, id: string): Promise<{ draftId: string | null; draftWasDelivered: boolean }> {
+  const cur = await tx<Array<{ draft_id: string | null; status: string | null }>>`
+    select t.draft_id, d.status from campaign_task t left join draft d on d.id = t.draft_id where t.id = ${id}`;
+  await tx`update campaign_task set proof = null, updated_at = now() where id = ${id} and type = 'rt'`;
+  return { draftId: cur[0]?.draft_id ?? null, draftWasDelivered: cur[0]?.status === 'delivered' };
+}
+
+// getDraft/updateDraft(draftStore.ts)·syncInfluencerOnDraftUpdate(influencerSync.ts)는 위 순환 사유로
+// 정적 값 import를 못 한다. deps로 주입 가능하되 기본값은 동적 import로 지연 로드한다(호출부가 매번
+// 넘길 필요 없음 — 첫 호출 후 모듈 캐시로 비용은 1회뿐).
+type ReplaceDraftDeps = {
+  getDraft: (tx: postgres.Sql, draftId: string) => Promise<DraftRow | null>;
+  updateDraft: (tx: postgres.Sql, draftId: string, patch: { influencerHandle?: string | null; status?: DraftStatus }) => Promise<void>;
+  syncInfluencerOnDraftUpdate: typeof import('./influencerSync.ts').syncInfluencerOnDraftUpdate;
+};
+async function defaultReplaceDraftDeps(): Promise<ReplaceDraftDeps> {
+  const m = await import('./draftStore.ts');
+  const s = await import('./influencerSync.ts');
+  return { getDraft: m.getDraft, updateDraft: m.updateDraft, syncInfluencerOnDraftUpdate: s.syncInfluencerOnDraftUpdate };
+}
+
+// 교체(ADR 0005) — 같은 작업 ID. for update 재검사 → 인플·비용 → 흔적 정리 → 원고 상태·인플 동기화 → 사유 로그. 한 트랜잭션.
+export async function replaceInfluencer(
+  sql: postgres.Sql, id: string,
+  input: { handle: string; cost: TaskCost | null | undefined; reason: CancelReason | null; note: string; actorId: string | null; today: string },
+  deps?: ReplaceDraftDeps,
+): Promise<'ok' | 'not-found' | string> {
+  if (!isUuidLike(id)) return 'not-found';
+  const { getDraft, updateDraft, syncInfluencerOnDraftUpdate } = deps ?? await defaultReplaceDraftDeps();
+  return sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    const rows = await tx<Array<{ posted_at: string | null; cancelled_at: string | null; type: TaskType; visit_on: string | null; influencer_handle: string | null; campaign_id: string }>>`
+      select to_char(posted_at,'YYYY-MM-DD') as posted_at, to_char(cancelled_at,'YYYY-MM-DD') as cancelled_at, type, to_char(visit_on,'YYYY-MM-DD') as visit_on, influencer_handle, campaign_id
+        from campaign_task where id = ${id} for update`;
+    if (rows.length === 0) return 'not-found';
+    const cur = rows[0];
+    const guard = influencerChangeGuard(
+      { postedAt: cur.posted_at, cancelledAt: cur.cancelled_at, type: cur.type, visitOn: cur.visit_on, influencerHandle: cur.influencer_handle },
+      input.handle, input.today, { allowReplace: true },
+    );
+    if (guard) return guard;
+    // 같은 인플루언서 재선택은 no-op이다(ADR 0005 표 "같은 인플 재선택" — 변경 없음). 표기(대소문자)만
+    // 다른 재입력도 여기 해당한다 — 흔적 정리·비용 변경·원고 강등·로그를 전부 건너뛴다.
+    if ((cur.influencer_handle ?? '').toLowerCase() === input.handle.toLowerCase()) return 'ok';
+    await tx`update campaign_task set influencer_handle = ${input.handle},
+        cost = case when ${input.cost !== undefined} then ${input.cost ? tx.json(input.cost as never) : null}::jsonb else cost end,
+        updated_at = now() where id = ${id}`;
+    const traces = await clearOldInfluencerTraces(tx, id);
+    if (traces.draftId) {
+      const before = await getDraft(tx, traces.draftId);
+      if (before) {
+        await updateDraft(tx, traces.draftId, { influencerHandle: input.handle, ...(traces.draftWasDelivered ? { status: 'approved' as const } : {}) });
+        await syncInfluencerOnDraftUpdate(tx, { before, influencerHandle: input.handle, status: traces.draftWasDelivered ? 'approved' : undefined, actorId: input.actorId });
+      }
+    }
+    if ((input.reason === 'declined' || input.reason === 'no_response') && cur.influencer_handle) {
+      await logTaskDeclined(tx, { handle: cur.influencer_handle, taskId: id, campaignId: cur.campaign_id, taskType: cur.type, reason: input.reason, action: 'replace', actorId: input.actorId });
+    }
+    return 'ok';
+  });
 }

@@ -15,13 +15,19 @@ export type InfluencerChannel = 'dm' | 'line' | 'email' | 'other';
 // 앱이 스스로 남기는 이벤트 — 표시 문구는 UI가 만든다(로그에는 사실만 저장)
 export type InfluencerAutoEvent =
   'draft_assigned' | 'draft_unassigned' | 'draft_delivered' | 'handle_changed' | 'pricing_changed'
-  | 'payment_method_changed' | 'payment_requested' | 'payment_cancelled' | 'payment_paid' | 'payment_revised';
+  | 'payment_method_changed' | 'payment_requested' | 'payment_cancelled' | 'payment_paid' | 'payment_revised'
+  | 'task_declined';   // 작업 취소·교체의 사유가 거절/무응답일 때(캠페인 v2 ADR 0001·0005)
 
 // 정산 요청/취소/지급 한 줄 — 타임라인은 금액·통화·유형만 보인다(요청 상세는 정산 페이지)
 export interface PaymentLogPayload { requestId: string; amountGross: number; currency: Currency; taskType: TaskType; reason?: string; paidAmountKrw?: number;
   revision?: number; before?: { amountGross: number; currency: Currency } }   // payment_revised: 고친 뒤 판·고치기 전 송금액(048)
+// 작업 거절·무응답 한 줄 — 타임라인은 "작업 거절 · 캠페인명 · 유형"만 보인다. 되돌리기 정정 이벤트는 없다(한계, ADR 0005).
+export interface TaskDeclinedPayload {
+  taskId: string; campaignId: string; campaignName: string; taskType: TaskType;
+  reason: 'declined' | 'no_response'; action: 'cancel' | 'replace';
+}
 // 로그 payload는 이벤트마다 모양이 다르다 — 읽는 쪽이 eventType으로 좁힌다.
-export type LogPayload = { from?: string; to?: string } | PricingChange | PaymentMethodChange | PaymentLogPayload;
+export type LogPayload = { from?: string; to?: string } | PricingChange | PaymentMethodChange | PaymentLogPayload | TaskDeclinedPayload;
 
 // 계정 분석 저장 형태 (계정 분석 v2 스펙 §3) — 분석 실행이 만들고 프로필 화면이 읽는다.
 // jsonb라 마이그레이션이 없다: v1로 저장된 행이 그대로 남아 있으므로 v1 필드는 전부 옵셔널이고,

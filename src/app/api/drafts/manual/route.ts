@@ -6,7 +6,7 @@ import { getClientWithProcedures } from '@/lib/clientStore';
 import { insertDraft, getDraft } from '@/lib/draftStore';
 import { formatForPosts } from '@/lib/draftFormat';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
-import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, TASK_HAS_DRAFT_MESSAGE, DRAFT_ATTACHED_MESSAGE } from '@/lib/campaignTaskInput';
+import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, TASK_HAS_DRAFT_MESSAGE, DRAFT_ATTACHED_MESSAGE, CANCELLED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
 import { getTask, TaskAttachError } from '@/lib/campaignTaskStore';
 import { CLIENT_NOT_FOUND_MESSAGE } from '@/lib/campaignInput';
 
@@ -41,6 +41,7 @@ export async function POST(req: Request) {
   if (typeof taskId.value === 'string') {
     const task = await getTask(sql, taskId.value);
     if (!task) return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 400 });
+    if (task.cancelledAt) return NextResponse.json({ error: CANCELLED_TASK_MESSAGE }, { status: 409 });   // R18 — attachDraft도 막지만 여기서 먼저(생성 비용 전)
     if (task.draftId) return NextResponse.json({ error: TASK_HAS_DRAFT_MESSAGE }, { status: 409 });
   }
 
@@ -80,7 +81,8 @@ export async function POST(req: Request) {
   } catch (e) {
     if (e instanceof TaskAttachError) {
       const message = e.code === 'draft-attached' ? DRAFT_ATTACHED_MESSAGE
-        : e.code === 'task-has-draft' ? TASK_HAS_DRAFT_MESSAGE : TASK_NOT_FOUND_MESSAGE;
+        : e.code === 'task-has-draft' ? TASK_HAS_DRAFT_MESSAGE
+        : e.code === 'task-cancelled' ? CANCELLED_TASK_MESSAGE : TASK_NOT_FOUND_MESSAGE;
       return NextResponse.json({ error: message }, { status: e.code === 'no-task' ? 400 : 409 });
     }
     throw e;

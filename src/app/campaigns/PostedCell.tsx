@@ -70,6 +70,16 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
     };
   }, [open, close, place]);
 
+  // 취소된 작업(055)은 조작이 없다 — 칩만 보이고 팝오버를 열지 않는다. 되돌리기는 v2 화면에서(R20).
+  if (stage === 'cancelled') {
+    return (
+      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-ui ${TASK_STAGE_STYLE.cancelled}`}
+            title={task.cancelledDraftTitle ? `원고 있었음: ${task.cancelledDraftTitle}` : '취소된 작업'}>
+        취소됨 {formatDateKo(task.cancelledAt as string)}
+      </span>
+    );
+  }
+
   function openPop() { setDate(today); setUrl(''); setReason(task.removedReason); setErr(''); setPendingProof(null); place(); setOpen(true); }
   const label = stage === 'published' ? `게시됨 ${formatDateKo(task.postedAt as string)}`
     : stage === 'removed' ? `내려짐 ${formatDateKo(task.removedAt as string)}`

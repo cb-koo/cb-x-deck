@@ -85,10 +85,21 @@ test('후보 — 게시됨+비용+인플만, 명부/결제 수단 유무가 신�
     const task = await getTask(sql, t.id);
     assert.ok(task);
     assert.equal(
-      isSettlementCandidate({ postedAt: task.postedAt, cost: task.cost, influencerHandle: task.influencerHandle, removedAt: task.removedAt }),
+      isSettlementCandidate({ postedAt: task.postedAt, cost: task.cost, influencerHandle: task.influencerHandle, removedAt: task.removedAt, cancelledAt: task.cancelledAt }),
       ids.includes(task.id),
     );
   }
+  // 취소된 작업은 게시·비용·인플이 있어도 후보에서 빠진다(ADR 0002) — check 제약상 posted_at·cancelled_at을 동시에 못 찍으니
+  // posted_at을 지우고 cancelled_at을 찍은 뒤, 순수 함수와 SQL 둘 다에서 후보가 아님을 확인한다.
+  await sql`update campaign_task set posted_at = null, cancelled_at = '2026-08-27' where id = ${tPay.id}`;
+  const taskCancelled = await getTask(sql, tPay.id);
+  assert.ok(taskCancelled);
+  assert.equal(
+    isSettlementCandidate({ postedAt: taskCancelled.postedAt, cost: taskCancelled.cost, influencerHandle: taskCancelled.influencerHandle, removedAt: taskCancelled.removedAt, cancelledAt: taskCancelled.cancelledAt }),
+    false,
+  );
+  const listAfterCancel = (await listCandidates(sql, SETTLEMENT_DEFAULTS, null, '2026-08-28')).filter((x) => x.influencerHandle.startsWith(P));
+  assert.ok(!listAfterCancel.map((x) => x.taskId).includes(tPay.id));
   const pay = list.find((x) => x.taskId === tPay.id)!;
   assert.equal(pay.money?.amountGross, 3158); assert.equal(pay.method?.type, 'paypal');
   assert.equal(pay.readiness, 'blocked');   // 인용RT 첫 요청 — 분류 빈칸

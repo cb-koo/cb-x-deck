@@ -26,8 +26,8 @@ export interface CampaignRow {
   startsOn: string; endsOn: string;    // 'YYYY-MM-DD'(서울) — to_char로 읽는다
   kind: CampaignKind | null; note: string;
   createdAt: string; updatedAt: string; // ISO
-  taskCount: number;                    // 파생: 미사용 원고 작업 제외 작업 수(요약 N과 같은 모집단)
-  total: MoneyByCurrency;               // 파생: 작업 비용(미사용 제외) + 추가 비용, 통화별
+  taskCount: number;                    // 파생: 취소 제외 작업 수(요약 N과 같은 모집단, R17)
+  total: MoneyByCurrency;               // 파생: 작업 비용(취소 제외) + 추가 비용, 통화별
 }
 
 export interface CampaignPerf { postCount: number; views: number | null; likes: number | null }
@@ -84,17 +84,17 @@ const toCic = (r: CicRow): InfluencerCostRow => ({
   extraCosts: extraCostsOf(r.extra_costs), note: r.note, updatedAt: new Date(r.updated_at).toISOString(),
 });
 
-// 목록·단건이 같은 정의를 쓴다(드리프트 방지). task_count는 미사용(붙은 원고가 미사용 + 미게시) 제외 —
-// 요약 카드 N(summarizeTasks)과 같은 모집단이라 목록 보조줄과 상세 카드가 같은 수를 말한다(§4-1).
+// 목록·단건이 같은 정의를 쓴다(드리프트 방지). task_count는 취소 제외 — 요약 카드 N(summarizeTasks)과
+// 같은 모집단(R17)이라 목록 보조줄과 상세 카드가 같은 수를 말한다(§4-1). 옛 "미사용 원고 붙고 미게시" 제외는 폐지.
 const SELECT = (sql: postgres.Sql) => sql`
   select c.id, c.client_id, c.client_name, c.name, c.name_en,
          to_char(c.starts_on, 'YYYY-MM-DD') as starts_on, to_char(c.ends_on, 'YYYY-MM-DD') as ends_on,
          c.kind, c.note, c.created_at, c.updated_at,
-         (select count(*) from campaign_task t left join draft d on d.id = t.draft_id
-           where t.campaign_id = c.id and not (coalesce(d.status, '') = 'unused' and t.posted_at is null)) as task_count
+         (select count(*) from campaign_task t
+           where t.campaign_id = c.id and t.cancelled_at is null) as task_count
     from campaign c`;
 
-// 통화별 합계 — 작업 비용(미사용 제외) + 추가 비용을 SQL에서 통화별로 묶는다. 통화 간 합산은 하지 않는다.
+// 통화별 합계 — 작업 비용(취소 제외) + 추가 비용을 SQL에서 통화별로 묶는다. 통화 간 합산은 하지 않는다.
 // 캠페인 수는 소수라 목록 1회 + 합계 1회(+ 수수료 1회)의 세 쿼리로 충분하다.
 // 수수료(§3-2, 예상치)는 작업 쪽에서만 나온다 — 추가 비용(extra_costs)은 인플에게 송금하는 돈이 아니라서 얹지 않는다.
 async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, CampaignTotals>> {
@@ -103,9 +103,8 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
   const rows = await sql<TotalRow[]>`
     select campaign_id, currency, sum(amount) as amount from (
       select t.campaign_id, t.cost->>'currency' as currency, (t.cost->>'amount')::bigint as amount
-        from campaign_task t left join draft d on d.id = t.draft_id
-       where t.campaign_id = any(${ids}::uuid[]) and t.cost is not null
-         and not (coalesce(d.status, '') = 'unused' and t.posted_at is null)
+        from campaign_task t
+       where t.campaign_id = any(${ids}::uuid[]) and t.cost is not null and t.cancelled_at is null
       union all
       select cic.campaign_id, e->>'currency', (e->>'amount')::bigint
         from campaign_influencer_cost cic, jsonb_array_elements(cic.extra_costs) e
@@ -123,10 +122,8 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
   const feeRows = await sql<FeeRow[]>`
     select t.campaign_id, t.cost, i.payment_methods
       from campaign_task t
-      left join draft d on d.id = t.draft_id
       left join influencer i on lower(i.handle) = lower(t.influencer_handle)
-     where t.campaign_id = any(${ids}::uuid[]) and t.cost is not null
-       and not (coalesce(d.status, '') = 'unused' and t.posted_at is null)`;
+     where t.campaign_id = any(${ids}::uuid[]) and t.cost is not null and t.cancelled_at is null`;
   for (const r of feeRows) {
     const t = out.get(r.campaign_id) ?? { money: {}, feeKrw: 0, feeUnknown: 0 };
     const parsed = parseTaskCost(r.cost ?? null);
@@ -331,9 +328,9 @@ export async function upsertInfluencerCost(
 // 인플루언서 프로필 "참여 캠페인"(§5) — 작업이 배정됐거나 비용 행이 있는 캠페인. 조회만, 로그 없음.
 export async function listInfluencerCampaigns(sql: postgres.Sql, handle: string): Promise<InfluencerCampaignItem[]> {
   const lower = handle.toLowerCase();
-  const tasks = await sql<Array<{ campaign_id: string; type: TaskType; cost: unknown; unused: boolean }>>`
-    select t.campaign_id, t.type, t.cost, (coalesce(d.status, '') = 'unused' and t.posted_at is null) as unused
-      from campaign_task t left join draft d on d.id = t.draft_id
+  const tasks = await sql<Array<{ campaign_id: string; type: TaskType; cost: unknown; cancelled: boolean }>>`
+    select t.campaign_id, t.type, t.cost, (t.cancelled_at is not null) as cancelled
+      from campaign_task t
      where lower(t.influencer_handle) = ${lower}`;
   const cic = await sql<Array<{ campaign_id: string; extra_costs: unknown }>>`
     select campaign_id, extra_costs from campaign_influencer_cost where lower(influencer_handle) = ${lower}`;
@@ -343,7 +340,7 @@ export async function listInfluencerCampaigns(sql: postgres.Sql, handle: string)
     select id, name, to_char(starts_on, 'YYYY-MM-DD') as starts_on, to_char(ends_on, 'YYYY-MM-DD') as ends_on
       from campaign where id = any(${ids}::uuid[]) order by starts_on desc, created_at desc`;
   return camps.map((c) => {
-    const mine = tasks.filter((t) => t.campaign_id === c.id && !t.unused);
+    const mine = tasks.filter((t) => t.campaign_id === c.id && !t.cancelled);
     const countsByType: Partial<Record<TaskType, number>> = {};
     for (const t of mine) countsByType[t.type] = (countsByType[t.type] ?? 0) + 1;
     // campaignTaskStore.costOf와 같은 검증(parseTaskCost) — jsonb 모양을 다르게 믿으면 이 롤업 합계와 캠페인 상세 합계가

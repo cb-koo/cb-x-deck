@@ -58,6 +58,8 @@ test('2) 상세 — 작업 목록·게시됨(posted_at)·성과(task_id)·링크
   const [rt1, rt2] = await createTasks(sql, camp.id, { ...tin, type: 'rt', targetTaskId: post.id, scheduledOn: '2026-09-01', items: [{ handle: 'rio', cost: { amount: 3000, currency: 'JPY' } }, { handle: 'sora', cost: { amount: 3000, currency: 'JPY' } }] });
   const [unusedTask] = await createTasks(sql, camp.id, { ...tin, type: 'quoteRt', items: [{ handle: 'kei', cost: { amount: 8000, currency: 'JPY' } }] });
   await updateDraft(sql, await mkDraft(c.id, c.name, unusedTask.id), { status: 'unused' });
+  const [cancTask] = await createTasks(sql, camp.id, { ...tin, type: 'rt', items: [{ handle: 'mio', cost: { amount: 5000, currency: 'JPY' } }] });
+  await sql`update campaign_task set cancelled_at = '2026-08-30', cancel_reason = 'declined' where id = ${cancTask.id}`;
   await createTasks(sql, other.id, { ...tin, type: 'rt', targetTaskId: post.id, items: [{ handle: 'ten', cost: null }] });   // 다른 캠페인의 참조
   await upsertInfluencerCost(sql, camp.id, 'hana', { extraCosts: [{ label: '교통비', amount: 5000, currency: 'KRW' }] });
   // 게시물 → 작업(rt1 게시 확인 + 성과), 링크 클릭 → 원고
@@ -72,23 +74,24 @@ test('2) 상세 — 작업 목록·게시됨(posted_at)·성과(task_id)·링크
   await sql`insert into link_click_snapshot (tracking_link_id, total_clicks) values (${link[0].id}, 96)`;
 
   const d = (await getCampaignDetail(sql, camp.id, T))!;
-  assert.equal(d.tasks.length, 4);
+  assert.equal(d.tasks.length, 5);   // 취소 작업도 목록엔 남는다(취소 표시는 화면 몫) — 집계에서만 빠진다
   const p = d.tasks.find((t) => t.id === post.id)!;
   assert.equal(p.draftStatus, 'delivered'); assert.equal(p.published, false); assert.equal(p.linkClicks, 96);
   const r = d.tasks.find((t) => t.id === rt1.id)!;
   assert.equal(r.published, true); assert.deepEqual(r.perf, { postCount: 1, views: 1200, likes: 12 });   // 최신 스냅샷만
   assert.equal(r.target!.taskId, post.id);
   assert.equal(d.tasks.find((t) => t.id === rt2.id)!.published, false);
-  assert.deepEqual(d.summary, { total: 3, published: 1, delivered: 1, preparing: 1, overdue: 2, removed: 0 });   // 미사용 제외, post·rt2 밀림(9/1 < 9/2), rt1은 게시됨
-  assert.deepEqual(d.byType.map((x) => [x.type, x.count]), [['rt', 2], ['post', 1]]);
-  assert.deepEqual(d.influencers.map((l) => l.handle), ['mika', 'rio', 'sora', 'hana']);
+  // 미사용 원고(kei)는 이제 포함, 취소(mio)만 제외(R17) — post·rt2 밀림(9/1 < 9/2), rt1은 게시됨
+  assert.deepEqual(d.summary, { total: 4, published: 1, delivered: 1, preparing: 1, overdue: 2, removed: 0, cancelled: 1 });
+  assert.deepEqual(d.byType.map((x) => [x.type, x.count]), [['rt', 2], ['quoteRt', 1], ['post', 1]]);
+  assert.deepEqual(d.influencers.map((l) => l.handle), ['kei', 'mika', 'rio', 'sora', 'hana']);   // taskCount(1) 동률은 알파벳순, kei가 새로 1건 생겨 k < m로 앞에 온다
   assert.deepEqual(d.influencers.find((l) => l.handle === 'hana')!.extraCost, { KRW: 5000 });
-  assert.deepEqual(taskCampaignTotal(d.influencers), { JPY: 26000, KRW: 5000 });
-  assert.deepEqual(d.deleteInfo, { taskCount: 4, detachedTargets: 1, activeRequests: 0 });
+  assert.deepEqual(taskCampaignTotal(d.influencers), { JPY: 34000, KRW: 5000 });   // 20000+3000+3000+8000(미사용 포함), 취소(mio 5000)는 빠짐
+  assert.deepEqual(d.deleteInfo, { taskCount: 5, detachedTargets: 1, activeRequests: 0 });   // 삭제 대상 수는 취소도 그대로 센다(삭제는 전부 지운다)
   assert.equal(d.today, T);
   const listed = (await listCampaigns(sql)).find((x) => x.id === camp.id)!;
-  assert.equal(listed.taskCount, 3);
-  assert.deepEqual(listed.total, { JPY: 26000, KRW: 5000 });
+  assert.equal(listed.taskCount, 4);   // 미사용 +1, 취소 제외 — 요약 카드 total(4)과 같은 모집단
+  assert.deepEqual(listed.total, { JPY: 34000, KRW: 5000 });
 });
 
 test('3) 인플 프로필 참여 캠페인 — 작업 기준(lower), 유형별 건수, 비용 행만 있는 캠페인도', async () => {
@@ -171,20 +174,22 @@ test('7) 추가 비용 upsert — 처음엔 insert, 다음엔 부분 갱신(대�
 
 // 12~13) 월 예산(2026-08-27 스펙)은 main에서 왔다 — 원고 기준 픽스처를 작업 기준으로 옮겼다.
 // 집행액은 totalsFor 하나를 쓰므로 캠페인 합계 칸과 예산 표는 언제나 같은 숫자를 말한다.
-test('12) spendByMonth — 시작 달로 묶고 totalsFor와 같은 정의(미사용 제외·추가 비용 포함·통화 분리), 비용 0 캠페인도 센다', async () => {
+test('12) spendByMonth — 시작 달로 묶고 totalsFor와 같은 정의(취소 제외·추가 비용 포함·통화 분리), 비용 0 캠페인도 센다', async () => {
   const c = await createClient(sql, P + '예산클라');
   const aug1 = await createCampaign(sql, { ...base(c.id, c.name, 'm1'), startsOn: '2026-08-03', endsOn: '2026-08-09' });
   const aug2 = await createCampaign(sql, { ...base(c.id, c.name, 'm2'), startsOn: '2026-08-31', endsOn: '2026-09-06' }); // 월을 걸쳐도 8월
   await createCampaign(sql, { ...base(c.id, c.name, 'm3'), startsOn: '2026-09-01', endsOn: '2026-09-07' });
   await createTasks(sql, aug1.id, { ...tin, type: 'post', items: [{ handle: 'hana', cost: { amount: 300_000, currency: 'KRW' } }] });
   const [skip] = await createTasks(sql, aug1.id, { ...tin, type: 'post', items: [{ handle: 'hana', cost: { amount: 777_777, currency: 'KRW' } }] });
-  await updateDraft(sql, await mkDraft(c.id, c.name, skip.id), { status: 'unused' });   // 미사용 원고가 붙고 게시 전 → 제외
+  await updateDraft(sql, await mkDraft(c.id, c.name, skip.id), { status: 'unused' });   // 미사용 원고가 붙어도 이제 포함(취소만 제외, R17)
+  const [cancTask] = await createTasks(sql, aug1.id, { ...tin, type: 'post', items: [{ handle: 'hana', cost: { amount: 999_999, currency: 'KRW' } }] });
+  await sql`update campaign_task set cancelled_at = '2026-08-30', cancel_reason = 'declined' where id = ${cancTask.id}`;   // 취소는 제외
   await createTasks(sql, aug2.id, { ...tin, type: 'post', items: [{ handle: 'mika', cost: { amount: 95_000, currency: 'JPY' } }] });
   await upsertInfluencerCost(sql, aug1.id, 'hana', { extraCosts: [{ label: '교통비', amount: 20_000, currency: 'KRW' }] });
 
   const all = await spendByMonth(sql, c.id);
-  // hana·mika는 명부에 없는 인플(payment_methods 없음) — 수수료를 구하지 못하니 feeKrw 0, feeUnknown은 비용 있는 작업 수(2)
-  assert.deepEqual(all.get('2026-08'), { total: { KRW: 320_000, JPY: 95_000 }, campaignCount: 2, feeKrw: 0, feeUnknown: 2 });
+  // hana·mika는 명부에 없는 인플(payment_methods 없음) — 수수료를 구하지 못하니 feeKrw 0, feeUnknown은 비용 있는 비취소 작업 수(3, 미사용 포함·취소 제외)
+  assert.deepEqual(all.get('2026-08'), { total: { KRW: 1_097_777, JPY: 95_000 }, campaignCount: 2, feeKrw: 0, feeUnknown: 3 });
   assert.deepEqual(all.get('2026-09'), { total: {}, campaignCount: 1, feeKrw: 0, feeUnknown: 0 });   // 비용 없는 캠페인도 개수에 든다
   assert.equal(all.has('2026-07'), false);
 

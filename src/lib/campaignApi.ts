@@ -65,6 +65,7 @@ export interface TaskCreateRequest {
   scheduledOn?: string | null; visitOn?: string | null; note?: string; cost?: TaskCost | null;
   // 날짜는 사람별(줄) 값이 먼저 — 위의 scheduledOn/visitOn은 줄에 값이 없을 때·미배정일 때의 기본값
   influencers: Array<{ handle: string; cost?: TaskCost | null; scheduledOn?: string | null; visitOn?: string | null }>;
+  count?: number;   // 뼈대 N개(§4-1 한 번에 만들기) — influencers 비고 draftId 없을 때만
 }
 export type TaskPatchRequest = {
   influencerHandle?: string | null; targetTaskId?: string | null; targetTweetUrl?: string | null;

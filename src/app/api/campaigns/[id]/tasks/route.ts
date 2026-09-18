@@ -40,7 +40,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const tasks = await createTasks(sql, id, {
       type: v.type, targetTaskId: v.targetTaskId, targetTweetUrl: v.targetTweetUrl, draftId: v.draftId,
       scheduledOn: v.scheduledOn, visitOn: v.visitOn, note: v.note, createdBy: gate.member.id,
-      items: v.influencers.length ? v.influencers : (v.cost ? [{ handle: null, cost: v.cost }] : []),
+      items: v.count ? Array.from({ length: v.count }, () => ({ handle: null, cost: v.cost }))
+           : v.influencers.length ? v.influencers : (v.cost ? [{ handle: null, cost: v.cost }] : []),
     });
     // 원고를 붙이며 인플이 바뀌었으면(작업 인플 → 원고) 배정 자동 로그도 남긴다(§5 syncInfluencerOnDraftUpdate)
     if (before && tasks[0].influencerHandle && (before.influencerHandle ?? '').toLowerCase() !== tasks[0].influencerHandle.toLowerCase()) {

@@ -103,10 +103,14 @@ const uuidOrNull = (v: unknown, message: string): Parsed<string | null> => {
 
 // 날짜는 사람마다 다르다(같은 캠페인이어도 인플마다 올리는 날이 다르다) — influencers[]의 날짜가 먼저고,
 // 최상위 scheduledOn/visitOn은 그 줄에 날짜가 없을 때의 기본값(미배정 1행도 이걸 쓴다).
+export const COUNT_MESSAGE = '만들 개수는 1~20 사이여야 해요';
+export const COUNT_WITH_ITEMS_MESSAGE = '개수로 만들 때는 인플루언서·원고 없이 빈 작업만 만들어요';
+
 export interface TaskCreateBody {
   type: TaskType; targetTaskId: string | null; targetTweetUrl: string | null; draftId: string | null;
   scheduledOn: string | null; visitOn: string | null; note: string; cost: TaskCost | null;
   influencers: Array<{ handle: string; cost: TaskCost | null; scheduledOn: string | null; visitOn: string | null }>;
+  count: number | null;   // 뼈대 N개 한 번에 만들기(§4-1) — influencers 비고 draftId 없을 때만
 }
 export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
   const b = (body ?? {}) as Record<string, unknown>;
@@ -135,9 +139,15 @@ export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
     influencers.push({ handle: h.handle, cost: c.value, scheduledOn: s.value, visitOn: v.value });
   }
   if (draftId.value && influencers.length > 1) return fail(DRAFT_MULTI_MESSAGE);
+  let count: number | null = null;
+  if (b.count !== undefined) {
+    if (typeof b.count !== 'number' || !Number.isInteger(b.count) || b.count < 1 || b.count > 20) return fail(COUNT_MESSAGE);
+    if (influencers.length > 0 || draftId.value) return fail(COUNT_WITH_ITEMS_MESSAGE);
+    count = b.count;
+  }
   return { ok: true, value: {
     type: b.type, targetTaskId: targetTaskId.value, targetTweetUrl, draftId: draftId.value,
-    scheduledOn: scheduledOn.value, visitOn: visitOn.value, note: typeof b.note === 'string' ? b.note.trim() : '', cost: cost.value, influencers,
+    scheduledOn: scheduledOn.value, visitOn: visitOn.value, note: typeof b.note === 'string' ? b.note.trim() : '', cost: cost.value, influencers, count,
   } };
 }
 

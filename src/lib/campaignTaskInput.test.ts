@@ -164,3 +164,13 @@ test('인플 변경 가드 — 상태 제한은 배정·해제·교체에 같고
   assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: T, influencerHandle: 'a' }), 'b', T, { allowReplace: true }), null);   // 당일은 허용
   assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: null, influencerHandle: 'a' }), 'b', T, { allowReplace: true }), null); // 미정은 허용
 });
+
+test('parseTaskCreate — count: 인플·원고 없는 뼈대만 1~20, 그 외는 거절', () => {
+  const base = { type: 'post' };
+  assert.equal(parseTaskCreate({ ...base, count: 5 }).ok && (parseTaskCreate({ ...base, count: 5 }) as { value: { count: number | null } }).value.count, 5);
+  assert.equal((parseTaskCreate(base) as { value: { count: number | null } }).value.count, null);
+  assert.equal(parseTaskCreate({ ...base, count: 0 }).ok, false);
+  assert.equal(parseTaskCreate({ ...base, count: 21 }).ok, false);
+  assert.equal(parseTaskCreate({ ...base, count: 2, influencers: [{ handle: 'a' }] }).ok, false);
+  assert.equal(parseTaskCreate({ ...base, count: 2, draftId: '00000000-0000-0000-0000-000000000000' }).ok, false);
+});

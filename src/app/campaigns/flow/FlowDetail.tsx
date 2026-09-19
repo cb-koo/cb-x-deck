@@ -141,8 +141,10 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const [cancelFor, setCancelFor] = useState<FlowRow | null>(null);
   const [replaceFor, setReplaceFor] = useState<FlowRow | null>(null);
   // 원고 모드(§5) — '있는 원고 고르기' 입구 라벨의 개수와 pick 탭의 후보에 쓴다. 캠페인 단위로 한 번 읽고,
-  // 원고를 붙이거나 뗄 때마다 다시 읽는다(reloadCandidates). 아직 못 읽었으면 null(0이라고 거짓말하지 않는다).
-  const [candidates, setCandidates] = useState<{ siblings: DraftRow[]; others: DraftRow[] } | null>(null);
+  // 원고를 붙이거나 뗄 때마다 다시 읽는다(reloadCandidates). undefined=아직 못 읽음(로딩 중), null=읽다가
+  // 실패, 객체=성공 — clientData(위)와 같은 모양(리뷰 지적 2, Task 3에서 같은 문제를 고친 방식을 따른다).
+  // 실패를 로딩 중이라고 말하지 않는다 — DraftPick이 이 둘을 구분해 읽는다.
+  const [candidates, setCandidates] = useState<{ siblings: DraftRow[]; others: DraftRow[] } | null | undefined>(undefined);
   // 행 메뉴 등 패널 바깥에서 온 "원고 모드로 열어라" 요청 — 이미 같은 작업의 패널이 열려 있으면 key
   // 리마운트가 안 일어나 TaskPanel의 로컬 mode가 안 바뀐다. seq를 매번 올려 그 경우에도 요청이 전달되게 한다.
   // tab이 null이면 "작업 모드로 되돌려라"는 뜻(리뷰 지적 4) — openPanel이 같은 작업 행을 다시 눌렀을 때
@@ -222,18 +224,28 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- id 전환 시의 리셋이 목적이라 동기 setState가 맞다(그 뒤 로드는 비동기 콜백)
     setData(null); setLoaded(false); setLoadErr(false);
     setPanel(null);   // 다른 캠페인의 작업 id를 들고 있던 패널이 새 캠페인 화면에 남지 않게
-    setCandidates(null);   // 다른 캠페인의 후보가 이 캠페인 화면에 남지 않게
+    setCandidates(undefined);   // 다른 캠페인의 후보가 이 캠페인 화면에 남지 않게 — 로딩 중이지 실패가 아니다
     void load();
   }, [load]);
 
   // 원고 모드의 '있는 원고 고르기' 후보(§5-3, Task 1) — 캠페인 단위로 한 번 읽는다. 실패해도 화면을 막지
-  // 않는다(개수는 null로 남아 '아직 못 읽음'을 그대로 말한다 — 0이라고 거짓말하지 않는다).
+  // 않는다 — 읽지 못했으면 null로 남겨 '실패'를 말하고(리뷰 지적 2), DraftPick이 다시 시도할 길을 보여준다.
+  // 붙이기·떼기 뒤에도 이 함수로 다시 읽는다(백그라운드 재조회) — 그때는 이미 보이던 목록을 undefined로
+  // 덮지 않는다(안 그러면 붙이는 동안 잠깐 '불러오는 중…'이 다시 뜬다). 실패했던 상태에서 [다시 시도]를
+  // 눌렀을 때만 로딩 중으로 되돌린다(cur === null일 때만) — 그래야 재시도 버튼을 누른 보람이 화면에 보인다.
+  const candReqRef = useRef(0);   // load()의 reqRef와 같은 관례(리뷰 지적 3) — 별도 요청이라 토큰도 따로 둔다(공유하면 서로의 응답을 버린다)
   const reloadCandidates = useCallback(async () => {
+    const token = ++candReqRef.current;
+    setCandidates((cur) => (cur === null ? undefined : cur));
     const r = await fetchDraftCandidatesApi(id);
+    if (token !== candReqRef.current) return;   // 그 사이 다른 캠페인(또는 새 재조회)이 시작됐다 — 이 응답은 화면의 것이 아니다
     setCandidates(r.ok ? r.data : null);
   }, [id]);
+  // reloadCandidates 맨 앞의 setCandidates(재시도→로딩 전환, 위 주석)는 await 이전이라 아래 이펙트 안에서
+  // 동기로 실행된다 — id 전환 시 그 리셋이 의도한 동작이라 다음 줄에서 끈다. 뒤이은 setCandidates(결과
+  // 반영)는 fetch 뒤 콜백이라 원래도 안 걸린다.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- id가 바뀔 때마다 후보를 다시 읽어야 한다(setState는 비동기 콜백 안에서)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- id 전환 시 reloadCandidates 맨 앞의 동기 setCandidates(재시도→로딩 전환)를 의도적으로 태운다(바로 위 주석)
     void reloadCandidates();
   }, [reloadCandidates]);
 
@@ -635,19 +647,45 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 함수는 호출되지 않는다. draftPickBusy에 붙이는 원고의 id를 담는다(DraftGenerate.attach와 같은 값
   // 모양) — DraftPick이 그 id로 눌린 행만 "붙이는 중…"으로 보여주고 나머지도 함께 잠근다(원칙 1·2, 옆에
   // 진짜 이유를 둔다). 재진입 방지도 겸한다(진행 중이면 다른 행을 눌러도 중복 PATCH가 안 나간다).
+  //
+  // busy를 푸는 자리는 여기 하나뿐이다(리뷰 지적 1, Critical — 예전엔 실패 두 갈래에서만 풀어 성공하면
+  // 패널이 영영 잠겼다). DraftGenerate·DraftWrite는 busy를 자식이 들고 언마운트 정리
+  // (useEffect(() => () => onBusyChange(false), …))로 풀지만, DraftPick은 busy를 안 들고 onBusyChange도
+  // 없다 — 붙이기 성공으로 카드로 바뀌며 이 탭이 언마운트돼도 부모의 draftPickBusy는 아무도 정리하지
+  // 않는다. 그래서 onDraftAttached가 끝나면(성공이든 실패든) 여기서 곧장 푼다 — 그 시점엔 성공이면
+  // load()가 이미 draftId를 채워 화면이 카드로 가 있어 깜빡일 일이 없다. 아래 panelTaskId·panelDraftId
+  // 이펙트가 두 번째 안전망이다 — 패널이 보는 작업 자체가 바뀌면 이 값은 더 이상 뜻이 없으므로 어떤
+  // 경로로도 굳지 않게 거기서도 리셋한다(둘 다 넣는다 — 하나는 정상 경로, 하나는 안전망).
   const attachExistingDraft = useCallback(async (d: DraftRow) => {
     if (!panelTask || draftPickBusy) return;
     setDraftPickBusy(d.id);
     const r = await patchDraftApi(d.id, { taskId: panelTask.id });
-    if (!r.ok) { setDraftPickBusy(null); show(r.error); return; }
-    if (!(await onDraftAttached(r.data))) { setDraftPickBusy(null); show('붙였어요 — 화면을 새로고침해 주세요'); }
-    // 재조회까지 성공하면 패널이 카드로 전환되며 이 탭 자체가 사라진다 — 그 전엔 busy를 풀지 않는다(DraftWrite의
-    // save()·DraftGenerate의 attach()와 같은 규칙).
-  }, [panelTask, draftPickBusy, show, onDraftAttached]);
+    if (!r.ok) {
+      setDraftPickBusy(null);
+      show(r.error);
+      // 409(이미 원고가 있음·취소된 작업 등, 리뷰 지적 3) — 서버 문구는 그대로 보여 주되 상세·후보를
+      // 다시 읽어 낡은 화면(다른 세션이 먼저 붙였거나 작업을 취소한 뒤)을 되돌린다. 안 그러면 같은
+      // 오류로 다시 들어간다.
+      if (r.status === 409) { void load(); void reloadCandidates(); }
+      return;
+    }
+    const ok = await onDraftAttached(r.data);
+    setDraftPickBusy(null);
+    if (!ok) show('붙였어요 — 화면을 새로고침해 주세요');
+  }, [panelTask, draftPickBusy, show, onDraftAttached, load, reloadCandidates]);
+  // 안전망(위 attachExistingDraft 주석) — 패널이 보는 작업이 바뀌면(다른 작업을 열었거나, 이 작업에
+  // 원고가 붙어 카드로 전환됐거나) draftPickBusy는 더 이상 뜻이 없다. 정상 경로가 이미 풀지만, 앞으로
+  // 어느 경로가 그 정상 경로를 안 타더라도 여기서 다시 풀어 패널이 굳지 않게 한다.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 패널이 보는 작업이 바뀔 때의 안전망 리셋이 목적(정상 경로가 이미 풀지만, 어떤 경로로도 굳지 않게 하는 두 번째 장치)
+    setDraftPickBusy(null);
+  }, [panelTaskId, panelDraftId]);
   const draftPick: ReactNode = panelTask
-    ? <DraftPick candidates={candidates} onAttach={(d) => void attachExistingDraft(d)} attaching={draftPickBusy} />
+    ? <DraftPick candidates={candidates} onAttach={(d) => void attachExistingDraft(d)} attaching={draftPickBusy}
+                 onRetry={() => void reloadCandidates()} />
     : null;
-  // '있는 원고 고르기 n' — Task 1의 후보 조회 합. 아직 못 읽었으면 null(0이라고 거짓말하지 않는다, 결정 4).
+  // '있는 원고 고르기 n' — Task 1의 후보 조회 합. 아직 못 읽었거나(undefined) 실패했으면(null) 개수를
+  // 모르므로 null(0이라고 거짓말하지 않는다, 결정 4) — 리뷰가 승인한 필터된 개수 계산은 그대로 둔다.
   const pickCount = candidates ? candidates.siblings.length + candidates.others.length : null;
 
   if (!loaded) return <p className="px-6 py-6 text-content text-x-muted">불러오는 중…</p>;

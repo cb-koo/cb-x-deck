@@ -14,20 +14,33 @@ import { Button } from '@/components/ui';
 // "붙이는 중이에요"만 말할 뿐 어느 원고인지는 말 안 한다) 눌러도 반응 없는 버튼처럼 보인다(원칙 1·2).
 //
 // 검색 한 칸이 두 묶음(형제 시안·작업 없는 원고)에 함께 걸린다 — searchDraftCandidates(draftPickView.ts)가
-// 제목·본문 첫 줄을 본다. 빈 상태 넷은 브리프 §Step1 문구를 그대로 쓴다(글자 하나도 새로 짓지 않는다):
-//  1) candidates===null → 아직 후보를 못 읽음 → '불러오는 중…'
-//  2) 두 묶음이 원래(검색 전)부터 모두 비면 → 검색해도 나올 게 없으므로 검색칸 자체를 그리지 않고
-//     안내만 보여준다(제목만 있고 아무것도 못 거를 입력칸은 UX 원칙 1 위반 — 행동해도 아무 일도 안 일어난다).
-//  3) 검색 결과만(둘 다) 비면 → 그 검색어를 문구에 되비춘다.
-//  4) 한쪽 묶음만 비면(검색 전이든 후든) → 그 묶음은 제목째로 그리지 않는다(빈 제목만 남기지 않는다).
-export function DraftPick({ candidates, onAttach, attaching }: {
-  candidates: { siblings: DraftRow[]; others: DraftRow[] } | null;
+// 제목·본문 첫 줄을 본다. 빈 상태 다섯:
+//  1) candidates===undefined → 아직 후보를 못 읽음(로딩 중) → '불러오는 중…'(브리프 §Step1 문구 그대로).
+//  2) candidates===null → 읽다가 실패(리뷰 지적 2 — clientData와 같은 모양, FlowDetail 참고) → c-task-5b
+//     브리프가 요구한 새 실패 문구 + [다시 시도](onRetry). 실패를 로딩 중이라고 말하지 않는다 — 다시
+//     시도할 길이 없었다.
+//  3) 두 묶음이 원래(검색 전)부터 모두 비면 → 검색해도 나올 게 없으므로 검색칸 자체를 그리지 않고
+//     안내만 보여준다(제목만 있고 아무것도 못 거를 입력칸은 UX 원칙 1 위반 — 행동해도 아무 일도 안 일어난다,
+//     브리프 §Step1 문구 그대로).
+//  4) 검색 결과만(둘 다) 비면 → 그 검색어를 문구에 되비춘다(다듬은 문자열로 — 리뷰 minor).
+//  5) 한쪽 묶음만 비면(검색 전이든 후든) → 그 묶음은 제목째로 그리지 않는다(빈 제목만 남기지 않는다).
+export function DraftPick({ candidates, onAttach, attaching, onRetry }: {
+  candidates: { siblings: DraftRow[]; others: DraftRow[] } | null | undefined;
   onAttach: (d: DraftRow) => void;
   attaching: string | null;   // 붙이는 중인 원고의 id — 그 행만 "붙이는 중…"으로 바꾸고 나머지도 함께 잠근다
+  onRetry: () => void;        // 후보를 못 읽었을 때(candidates===null) [다시 시도]가 부른다(FlowDetail.reloadCandidates)
 }): ReactNode {
   const [q, setQ] = useState('');
 
-  if (candidates === null) return <p className="text-ui text-x-muted">불러오는 중…</p>;
+  if (candidates === undefined) return <p className="text-ui text-x-muted">불러오는 중…</p>;
+  if (candidates === null) {
+    return (
+      <div className="space-y-2">
+        <p className="text-ui text-x-secondary" role="alert">원고 목록을 불러오지 못했어요</p>
+        <Button variant="subtle" onClick={onRetry} className="h-8 px-2.5 text-ui">다시 시도</Button>
+      </div>
+    );
+  }
 
   // 검색 전부터 두 묶음이 모두 비어 있으면 붙일 원고 자체가 없다 — 검색칸을 보여줘도 아무것도 못 거른다.
   if (candidates.siblings.length === 0 && candidates.others.length === 0) {
@@ -43,7 +56,7 @@ export function DraftPick({ candidates, onAttach, attaching }: {
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="제목·내용으로 찾기" aria-label="원고 찾기"
              className="h-9 w-full rounded-md border border-x-border-strong px-3 text-ui outline-none focus:border-x-blue" />
       {searchedEmpty ? (
-        <p className="text-ui text-x-muted">{`'${q}'에 맞는 원고가 없어요`}</p>
+        <p className="text-ui text-x-muted">{`'${q.trim()}'에 맞는 원고가 없어요`}</p>
       ) : (
         <>
           <Group title="같은 재료로 만든 시안" rows={siblings} onAttach={onAttach} attaching={attaching} />
@@ -54,7 +67,7 @@ export function DraftPick({ candidates, onAttach, attaching }: {
   );
 }
 
-// 묶음 하나 — 행이 없으면(검색으로 걸러졌든 원래 없든) 통째로 그리지 않는다(위 빈 상태 4).
+// 묶음 하나 — 행이 없으면(검색으로 걸러졌든 원래 없든) 통째로 그리지 않는다(위 빈 상태 5).
 function Group({ title, rows, onAttach, attaching }: {
   title: string; rows: DraftRow[]; onAttach: (d: DraftRow) => void; attaching: string | null;
 }) {

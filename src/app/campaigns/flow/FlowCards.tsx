@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { Button } from '@/components/ui';
+import { InfoTip } from '@/components/InfoTip';
 import type { FlowStats } from '@/lib/campaignFlowView';
 import { CURRENCIES, formatAmount, formatMoneyBy, moneyParts, type MoneyByCurrency } from '@/lib/campaignCost';
 import { toKrw, monthShort, type CampaignMonthBudget } from '@/lib/clientBudget';
@@ -55,9 +56,10 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
   return (
     <div className="grid grid-cols-[0.9fr_1.1fr_1.4fr] gap-0">
       {/* 작업 */}
-      <div className="border-l border-x-border px-5 first:border-l-0 first:pl-0 last:pr-0"
-           title={cancelledCount ? `취소 ${cancelledCount}건은 빼고 셉니다` : undefined}>
-        <p className="text-ui text-x-secondary">작업</p>
+      <div className="border-l border-x-border px-5 first:border-l-0 first:pl-0 last:pr-0">
+        <p className="flex items-center gap-1.5 text-ui text-x-secondary">
+          작업{cancelledCount ? <InfoTip text={`취소 ${cancelledCount}건은 빼고 셉니다`} label="작업 카드 설명 보기" /> : null}
+        </p>
         <p className="mt-1 text-[26px] font-bold leading-tight tabular-nums">
           {stats.posted} <span className="text-content font-normal text-x-muted">/ {stats.planned}</span>
         </p>
@@ -68,10 +70,11 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
       </div>
 
       {/* 성과 */}
-      <div className="border-l border-x-border px-5 first:border-l-0 first:pl-0 last:pr-0"
-           title={`게시물 링크가 있는 ${stats.perf.withPerf}건 합계${stats.perf.noLink ? ` · 링크 없는 게시물 ${stats.perf.noLink}건은 합계 밖` : ''}`}>
+      <div className="border-l border-x-border px-5 first:border-l-0 first:pl-0 last:pr-0">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-ui text-x-secondary">성과</p>
+          <p className="flex items-center gap-1.5 text-ui text-x-secondary">
+            성과<InfoTip text={`게시물 링크가 있는 ${stats.perf.withPerf}건 합계${stats.perf.noLink ? ` · 링크 없는 게시물 ${stats.perf.noLink}건은 합계 밖` : ''}`} label="성과 카드 설명 보기" />
+          </p>
           {/* 게시된 작업이 하나도 없을 때만 막는다 — withPerf(스냅샷이 잡힌 수)로 막으면, 연결은 돼 있는데 아직
               지표가 없는 게시물을 두고 "조회할 게 없다"고 잘못 말한다. 실제로 조회할 게 없으면 서버가 total 0으로 답하고
               토스트가 그 사실을 말한다. */}
@@ -99,15 +102,17 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
 
       {/* 비용 */}
       <div className="border-l border-x-border px-5 first:border-l-0 first:pl-0 last:pr-0">
-        <p className="text-ui text-x-secondary">비용</p>
+        <p className="flex items-center gap-1.5 text-ui text-x-secondary">
+          비용{costTip || budgetTip ? <InfoTip text={[costTip, budgetTip].filter(Boolean).join(' · ')} label="비용 카드 설명 보기" /> : null}
+        </p>
         <div className="mt-1 flex items-start justify-between gap-4">
-          <div title={costTip}>
+          <div>
             <p className="text-[26px] font-bold leading-tight tabular-nums">
               {formatMoneyBy(stats.spent)} <span className="text-content font-normal text-x-muted">/ {formatMoneyBy(plannedTotal)}</span>
             </p>
             <p className="mt-1 text-ui text-x-secondary">소진 / 계획</p>
           </div>
-          <div className="shrink-0 text-right" title={budgetTip}>
+          <div className="shrink-0 text-right">
             {amount !== null ? (
               <p className="text-[26px] font-bold leading-tight tabular-nums">{formatAmount(amount, 'KRW')}</p>
             ) : (
@@ -123,7 +128,7 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
           </div>
         </div>
         {hasBudgetBar && (
-          <div className="mt-2 flex h-1.5 overflow-hidden rounded bg-x-border" title={budgetTip}>
+          <div className="mt-2 flex h-1.5 overflow-hidden rounded bg-x-border">
             <div className="h-full bg-x-border-strong" style={{ width: `${wOthers}%` }} />
             <div className="h-full bg-x-blue" style={{ width: `${wSpent}%` }} />
             <div className="h-full bg-x-blue/30" style={{ width: `${wPlanned}%` }} />

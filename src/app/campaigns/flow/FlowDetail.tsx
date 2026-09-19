@@ -489,7 +489,7 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
         <LinkPostModal task={linkFor} onClose={() => setLinkFor(null)}
                        onLinked={() => {
                          setLinkFor(null);
-                         show('게시물을 연결했어요 — 게시됨으로 표시되고 조회수가 잡혀요');
+                         show(linkFor?.postedAt ? '게시물을 연결했어요 — 조회수가 잡혀요' : '게시물을 연결했어요 — 게시됨으로 표시되고 조회수가 잡혀요');
                          void load(); onChanged();
                        }} />
       )}

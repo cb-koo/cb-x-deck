@@ -49,7 +49,13 @@ export function LinkPostModal({ task, onClose, onLinked }: {
       <div className="w-full max-w-[520px] rounded-2xl bg-white p-4" role="dialog" aria-modal="true" aria-label="게시물 연결" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-content font-bold">게시물 연결</h2>
         <p className="mt-0.5 truncate text-ui text-x-muted">{title}</p>
-        <p className="mt-3 text-ui text-x-secondary">인플루언서가 올린 게시물 링크를 붙이면 이 작업이 <b>게시됨</b>으로 표시되고, 조회·좋아요가 트래킹에서 넘어와요.</p>
+        {/* 이미 게시 확인된 작업에도 쓴다(게시 확인 때 링크 등록이 실패한 경우) — 그때 '게시됨으로 표시된다'고
+            말하면 이미 된 일을 다시 한다는 뜻으로 읽힌다. 상태에 따라 실제로 달라지는 것만 말한다. */}
+        <p className="mt-3 text-ui text-x-secondary">
+          {task.postedAt
+            ? <>인플루언서가 올린 게시물 링크를 붙이면 조회·좋아요가 트래킹에서 넘어와요. 게시 확인은 이미 돼 있어요.</>
+            : <>인플루언서가 올린 게시물 링크를 붙이면 이 작업이 <b>게시됨</b>으로 표시되고, 조회·좋아요가 트래킹에서 넘어와요.</>}
+        </p>
         <input autoFocus value={url} onChange={(e) => { setUrl(e.target.value); setErr(''); }}
                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void submit(); }}
                placeholder="https://x.com/계정/status/…" aria-label="게시물 링크"

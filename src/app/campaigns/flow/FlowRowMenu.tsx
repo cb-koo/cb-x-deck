@@ -58,6 +58,9 @@ export function FlowRowMenu({ task, today, on }: {
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
+  // 항목 onClick이 쓰므로 항목을 만들기 전에 선언한다 — 닫으면서 포커스를 트리거 버튼으로 되돌린다(TaskTable.RowMenu 관례).
+  const close = useCallback(() => { if (menuRef.current?.contains(document.activeElement)) btnRef.current?.focus(); setOpen(false); }, []);
+
   const cancelled = task.cancelledAt !== null;
   const prePost = !cancelled && task.postedAt === null;
   const replaceReason = replaceDisabledReason(task, today);
@@ -69,22 +72,22 @@ export function FlowRowMenu({ task, today, on }: {
   const push = (node: ReactNode, h = ITEM_H) => rows.push({ node, h });
 
   if (prePost) {
-    push(<MenuButton key="posted" onClick={() => { setOpen(false); on.posted(task); }}>게시 확인</MenuButton>);
-    push(<MenuButton key="schedule" onClick={() => { setOpen(false); on.schedule(task); }}>예정일 바꾸기</MenuButton>);
+    push(<MenuButton key="posted" onClick={() => { close(); on.posted(task); }}>게시 확인</MenuButton>);
+    push(<MenuButton key="schedule" onClick={() => { close(); on.schedule(task); }}>예정일 바꾸기</MenuButton>);
   }
   if (task.draftId) {
-    push(<MenuButton key="openDraft" onClick={() => { setOpen(false); on.openDraft(task); }}>원고 열기</MenuButton>);
+    push(<MenuButton key="openDraft" onClick={() => { close(); on.openDraft(task); }}>원고 열기</MenuButton>);
   } else if (task.type !== 'rt' && !cancelled) {
-    push(<MenuButton key="attachDraft" onClick={() => { setOpen(false); on.attachDraft(task); }}>원고 붙이기</MenuButton>);
+    push(<MenuButton key="attachDraft" onClick={() => { close(); on.attachDraft(task); }}>원고 붙이기</MenuButton>);
     push(
-      <Link key="generate" href={on.generateHref(task)} role="menuitem" onClick={() => setOpen(false)}
+      <Link key="generate" href={on.generateHref(task)} role="menuitem" onClick={() => close()}
             className="block rounded px-2.5 py-1.5 text-ui hover:bg-x-hover">새로 만들기</Link>,
     );
   }
   // 게시물 연결은 게시 뒤에도 쓴다 — 게시 확인 때 링크 등록이 실패하면 "행 메뉴에서 다시 시도하세요"가
   // 가리키는 곳이 바로 여기다(기존 화면도 게시 여부를 따지지 않는다). RT는 자기 게시물이 없어 제외.
   if (!cancelled && task.type !== 'rt') {
-    push(<MenuButton key="linkPost" onClick={() => { setOpen(false); on.linkPost(task); }}>게시물 연결(트래킹)</MenuButton>);
+    push(<MenuButton key="linkPost" onClick={() => { close(); on.linkPost(task); }}>게시물 연결(트래킹)</MenuButton>);
   }
 
   const tail: Row[] = [];
@@ -92,20 +95,20 @@ export function FlowRowMenu({ task, today, on }: {
     tail.push({
       node: (
         <MenuButton key="replace" disabled={!!replaceReason} reason={replaceReason ?? undefined}
-                    onClick={() => { setOpen(false); on.replace(task); }}>인플루언서 교체</MenuButton>
+                    onClick={() => { close(); on.replace(task); }}>인플루언서 교체</MenuButton>
       ),
       h: replaceReason ? DISABLED_ITEM_H : ITEM_H,
     });
-    tail.push({ node: <MenuButton key="cancel" danger onClick={() => { setOpen(false); on.cancel(task); }}>작업 취소</MenuButton>, h: ITEM_H });
+    tail.push({ node: <MenuButton key="cancel" danger onClick={() => { close(); on.cancel(task); }}>작업 취소</MenuButton>, h: ITEM_H });
   } else if (cancelled) {
-    tail.push({ node: <MenuButton key="restore" onClick={() => { setOpen(false); on.restore(task); }}>되돌리기</MenuButton>, h: ITEM_H });
+    tail.push({ node: <MenuButton key="restore" onClick={() => { close(); on.restore(task); }}>되돌리기</MenuButton>, h: ITEM_H });
   }
   if (tail.length) {
     if (rows.length) rows.push({ divider: true });
     rows.push(...tail);
   }
   if (rows.length) rows.push({ divider: true });
-  rows.push({ node: <MenuButton key="remove" danger onClick={() => { setOpen(false); on.remove(task); }}>삭제</MenuButton>, h: ITEM_H });
+  rows.push({ node: <MenuButton key="remove" danger onClick={() => { close(); on.remove(task); }}>삭제</MenuButton>, h: ITEM_H });
 
   const menuH = rows.reduce((sum, r) => sum + ('divider' in r ? DIVIDER_H : r.h), 8);
 
@@ -117,7 +120,6 @@ export function FlowRowMenu({ task, today, on }: {
     const flip = below + menuH > window.innerHeight && r.top - menuH - 4 > 0;
     setPos({ top: flip ? r.top - menuH - 4 : below, left });
   }, [menuH]);
-  const close = useCallback(() => { if (menuRef.current?.contains(document.activeElement)) btnRef.current?.focus(); setOpen(false); }, []);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => { const t = e.target as Node | null; if (!t || menuRef.current?.contains(t) || btnRef.current?.contains(t)) return; close(); };

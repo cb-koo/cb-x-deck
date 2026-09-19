@@ -13,7 +13,7 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
-    date: '2026-09-20', type: '새 기능',
+    date: '2026-09-19', type: '새 기능',
     title: '캠페인 v2 — 한 화면에서 작업을 만들고 채우고 게시 확인·정산까지 이어갈 수 있어요',
     summary: '사이드바 "캠페인 v2"에 새 캠페인 화면이 생겼어요. 표 하나에 작업이 한 줄씩 놓이고, 행을 누르면 오른쪽 패널에서 인플루언서·비용·원고·대상·예정일을 차례로 채워요. 기존 캠페인 화면은 그대로 있어요.',
     bullets: [

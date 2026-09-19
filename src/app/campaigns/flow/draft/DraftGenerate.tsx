@@ -2,12 +2,12 @@
 import { useEffect, useState } from 'react';
 import { useToast } from '@/lib/toastContext';
 import { apiFetch } from '@/lib/apiFetch';
-import type { ProcedureRow } from '@/lib/clientStore';
+import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { ReferenceRow } from '@/lib/referenceStore';
 import type { DraftRow } from '@/lib/draftStore';
 import type { FlowRow } from '@/lib/campaignFlowView';
 import { createDraftsApi, patchDraftApi } from '@/lib/campaignApi';
-import { canGenerate, COST_CAPTION, DEFAULT_COMPOSER, type ComposerState } from '@/components/DraftComposer';
+import { canGenerate, bannedPhraseCount, COST_CAPTION, DEFAULT_COMPOSER, type ComposerState } from '@/components/DraftComposer';
 import { candidateLine } from '@/lib/draftPickView';
 import { RefPickerSheet, MAX_REFS_UI } from '@/components/RefPickerSheet';
 import { AddByLinkModal, type AddedByLink } from '@/components/AddByLinkModal';
@@ -31,22 +31,36 @@ const DEFAULT_FOLDED: FoldedSettings = {
   constraintsOn: DEFAULT_COMPOSER.constraintsOn,
 };
 
-// DraftComposer.tsx의 bannedPhraseCount와 같은 계산(그 파일은 이번 커밋 대상이 아니라 export를 늘리지 않고
-// 여기서 다시 계산한다) — generatePrompt가 procedureIds로 시술을 거르므로 같은 집합을 세야 표시와 동작이
-// 일치한다(리뷰 지적 5).
-function bannedPhraseCount(clientBannedPhrases: string[], procedures: ProcedureRow[], procedureIds: string[]): number {
-  return clientBannedPhrases.length
-    + procedures.filter((p) => procedureIds.includes(p.id)).reduce((n, p) => n + p.bannedPhrases.length, 0);
+// 레퍼런스를 추가할 때 지키는 상한 규칙 — '+ 링크'(handleAddedByLink)와 고르기 시트(RefPickerSheet.onApply)가
+// 같은 함수를 쓴다(3c 리뷰 지적 6). 시트는 자기 안에서 MAX_REFS_UI(8)까지 고르게 하지만 인용RT 대상 게시물
+// (targetRef)을 모른다 — 대상이 있으면 실제 자리는 7이다. 여기서: 대상 게시물도 한 자리로 센다, 이미 있는
+// tweetId는 중복으로 넣지 않는다, 상한에 걸려 잘라낸 건수를 돌려준다(호출부가 조용히 버리지 않고 토스트로 말한다).
+function applyRefCap(
+  candidates: ReferenceRow[], targetRef: { tweetId: string } | null,
+): { rows: ReferenceRow[]; droppedByCap: number } {
+  const cap = MAX_REFS_UI - (targetRef ? 1 : 0);
+  const seen = new Set<string>();
+  const rows: ReferenceRow[] = [];
+  let droppedByCap = 0;
+  for (const r of candidates) {
+    if (targetRef?.tweetId === r.tweetId || seen.has(r.tweetId)) continue;   // 대상과 겹치거나 이미 넣은 건 중복
+    if (rows.length >= cap) { droppedByCap++; continue; }
+    seen.add(r.tweetId);
+    rows.push(r);
+  }
+  return { rows, droppedByCap };
 }
 
 export function DraftGenerate({
-  task, clientId, clientName, procedures, clientBannedPhrases, targetRef, onAttached, onGenerated, onBusyChange, onOverlayChange,
+  task, clientId, clientName, clientData, targetRef, onAttached, onGenerated, onBusyChange, onOverlayChange,
 }: {
   task: FlowRow;
   clientId: string | null;
   clientName: string | null;
-  procedures: ProcedureRow[];
-  clientBannedPhrases: string[];   // 클라이언트 공통 금지 표현(리뷰 지적 5) — clientData.client.bannedPhrases, bannedFor와 같은 출처
+  // 클라이언트 정보 — FlowDetail의 clientData와 같은 모양(3c 리뷰 지적 5). null은 두 가지를 뜻한다:
+  // clientId도 없거나(이 캠페인엔 클라이언트가 없음), clientId는 있는데 아직 못 읽었거나. 어느 쪽인지는
+  // clientId로 구분한다 — 아래 bannedCount 계산 참고.
+  clientData: { client: ClientRow; procedures: ProcedureRow[] } | null;
   targetRef: { tweetId: string; label: string } | null;   // 인용RT의 대상 게시물(자동 포함)
   onAttached: (d: DraftRow) => void;   // 시안을 붙였다 — 부모가 상세를 다시 읽고 카드로 전환한다
   // 브리프의 계약엔 없지만(§ Interfaces), 생성 뒤 '있는 원고 고르기' 후보 수를 갱신하려면 부모(FlowDetail)의
@@ -112,14 +126,10 @@ export function DraftGenerate({
   // /generate의 handleAddedByLink와 같은 패턴(단건 조회 API가 없어 전량에서 찾는다).
   async function handleAddedByLink(r: AddedByLink) {
     const saved = r.alreadyInLibrary ? '이미 보관함에 있어요' : '보관함에 추가했어요';
-    // 대상 게시물(targetRef)도 레퍼런스 한 자리를 쓴다 — 중복으로 넣지 않는다(리뷰 지적 6).
+    // 대상 게시물(targetRef)도 레퍼런스 한 자리를 쓴다 — 중복으로 넣지 않는다. 여기서도 위 applyRefCap과
+    // 같은 규칙이지만, fetch 전에 빠르게 걸러 불필요한 조회를 하지 않는다(최종 판정은 applyRefCap이 한다).
     if (targetRef?.tweetId === r.tweetId || refs.some((x) => x.tweetId === r.tweetId)) {
       show(`${saved} — 이미 레퍼런스로 선택돼 있어요`); return;
-    }
-    // 서버 상한 8을 넘지 않는다 — 대상 게시물도 한 자리로 센다(refCount, 아래). 고르기 시트(RefPickerSheet의
-    // handleAdded)와 같은 상한을 여기 링크 경로에도 적용한다(리뷰 지적 6, /generate handleAddedByLink 선례).
-    if (refCount >= MAX_REFS_UI) {
-      show(`${saved} — 레퍼런스가 ${MAX_REFS_UI}건이라 자동 선택은 안 했어요. 위 레퍼런스 목록에서 조정해주세요`); return;
     }
     try {
       const res = await apiFetch('/api/references?scope=all');
@@ -127,10 +137,28 @@ export function DraftGenerate({
       const rows: ReferenceRow[] = await res.json();
       const found = rows.find((x) => x.tweetId === r.tweetId);
       if (!found) { show(`${saved} — 목록을 갱신하지 못했어요. 보관함에서 골라주세요`); return; }
-      setRefs((cur) => (cur.some((x) => x.tweetId === r.tweetId) ? cur : [...cur, found]));
+      // 고르기 시트(onApply)와 같은 함수로 상한을 지킨다(3c 리뷰 지적 6) — 대상 게시물도 한 자리로 센다.
+      // 토스트 판정은 await 이전 refs로 미리 해 두되(클로저), 실제 반영은 함수형 업데이터로 한다 — 그 사이
+      // (레퍼런스 fetch가 도는 동안) 사용자가 칩을 빼거나 시트를 적용했으면 그 변경을 덮어쓰지 않기 위해서다.
+      // applyRefCap은 순수 함수고 targetRef는 패널 생애주기 동안 바뀌지 않아 업데이터 안에서 다시 불러도 안전하다.
+      if (applyRefCap([...refs, found], targetRef).droppedByCap > 0) {
+        show(`${saved} — 레퍼런스가 대상 게시물 포함 ${MAX_REFS_UI}건이라 자동 선택은 안 했어요. 위 레퍼런스 목록에서 조정해주세요`);
+        return;
+      }
+      setRefs((cur) => applyRefCap([...cur, found], targetRef).rows);
       show(`${saved} — 레퍼런스로 선택했어요`);
     } catch {
       show(`${saved} — 목록을 갱신하지 못했어요. 보관함에서 골라주세요`);
+    }
+  }
+
+  // 고르기 시트(RefPickerSheet)의 onApply — 시트가 돌려주는 선택 결과를 그대로 넣지 않는다(3c 리뷰 지적 6).
+  // 시트는 targetRef를 모르므로 자기 안에서 8개까지 고르게 하지만, 대상 게시물이 있으면 실제 자리는 7이다.
+  function applyPickedRefs(rows: ReferenceRow[]) {
+    const { rows: next, droppedByCap } = applyRefCap(rows, targetRef);
+    setRefs(next);
+    if (droppedByCap > 0) {
+      show(`레퍼런스가 대상 게시물 포함 ${MAX_REFS_UI}건이라 ${droppedByCap}건은 담지 못했어요. 목록에서 직접 조정해주세요`);
     }
   }
 
@@ -140,7 +168,11 @@ export function DraftGenerate({
   };
   const refCount = refs.length + (targetRef ? 1 : 0);
   const ok = canGenerate(composerValue, refCount);
-  const bannedCount = bannedPhraseCount(clientBannedPhrases, procedures, folded.procedureIds);
+  const procedures = clientData?.procedures ?? [];
+  // 세 상태를 구분한다(3c 리뷰 지적 2) — clientId가 없으면 금지 표현 0건이 확정이다. clientId는 있는데
+  // clientData를 아직 못 읽었으면(로딩 중이거나 실패) '모름'이지 0건이 아니다 — 실제로는 금지 표현이 있는
+  // 클라이언트일 수 있어, 없다고 말하면 사실이 아닌 말을 하는 것이다. 읽었으면 bannedPhraseCount 그대로.
+  const bannedCount = clientId === null ? 0 : clientData ? bannedPhraseCount(clientData, folded.procedureIds) : null;
 
   async function run() {
     if (busy || !ok) return;
@@ -172,8 +204,9 @@ export function DraftGenerate({
     procNames.length ? `시술 ${procNames.join('·')}` : '시술 없음',
     folded.format === 'single' ? '단문' : '스레드',
     `시안 ${count}개`,
-    // 금지 표현이 0건이면 켜도 프롬프트에 실리는 게 없다 — 적용되지 않는 보호를 적용됐다고 말하지 않는다(리뷰 지적 5)
-    bannedCount > 0 ? `제약 ${folded.constraintsOn ? '켬' : '끔'}` : null,
+    // 금지 표현이 0건이면 켜도 프롬프트에 실리는 게 없다 — 적용되지 않는 보호를 적용됐다고 말하지 않는다.
+    // 모르는 동안(bannedCount === null)에도 항목 자체를 뺀다 — 켰다고도 껐다고도 말하지 않는다(3c 리뷰 지적 2).
+    bannedCount ? `제약 ${folded.constraintsOn ? '켬' : '끔'}` : null,
   ].filter(Boolean).join(' · ');
 
   return (
@@ -246,13 +279,17 @@ export function DraftGenerate({
               <span className="text-ui text-x-secondary">개</span>
             </span>
           </label>
-          {/* 금지 표현이 0건이면 잠근다(DraftComposer.tsx:224와 같은 규칙, 리뷰 지적 5) — 켜도 아무 일이
-              없는데 켤 수 있게 두면 지켜지는 줄 알고 안심하게 된다. title만으로 끝내지 않고 보이는 이유를 붙인다. */}
-          <label className={`flex items-center gap-2 ${bannedCount === 0 ? 'opacity-60' : ''}`}>
-            <input type="checkbox" checked={folded.constraintsOn} disabled={bannedCount === 0}
+          {/* 금지 표현이 0건이거나 아직 모르면 잠근다(DraftComposer.tsx:224와 같은 규칙) — 켜도 아무 일이
+              없는데(또는 실제론 있는데 없다고 잘못 말하고) 켤 수 있게 두면 지켜지는 줄 알고 안심하게 된다.
+              title만으로 끝내지 않고 보이는 이유를 붙인다(3c 리뷰 지적 2 — 불러오는 중에 '없다'고 말하던 것). */}
+          <label className={`flex items-center gap-2 ${!bannedCount ? 'opacity-60' : ''}`}>
+            <input type="checkbox" checked={folded.constraintsOn} disabled={!bannedCount}
                    onChange={(e) => updateFolded({ ...folded, constraintsOn: e.target.checked })} className="h-4 w-4 shrink-0" />
             <span className="text-ui text-x-text">의료광고 제약(금지 표현) 피하기</span>
           </label>
+          {bannedCount === null && (
+            <p className="-mt-2 text-caption text-x-muted">클라이언트 정보를 불러오는 중이에요</p>
+          )}
           {bannedCount === 0 && (
             <p className="-mt-2 text-caption text-x-muted">등록된 금지 표현이 없어 지금은 켜도 달라지는 게 없어요</p>
           )}
@@ -295,7 +332,7 @@ export function DraftGenerate({
       )}
 
       <RefPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} lastWsId={lastWsId}
-                      selectedIds={refs.map((r) => r.tweetId)} seedRows={refs} onApply={setRefs} />
+                      selectedIds={refs.map((r) => r.tweetId)} seedRows={refs} onApply={applyPickedRefs} />
       <AddByLinkModal open={linkOpen} onClose={() => setLinkOpen(false)} defaultWsId={lastWsId}
                       onAdded={(r) => { void handleAddedByLink(r); }} />
     </div>

@@ -492,12 +492,12 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
     setCardDraft(d); setCardErr(null);
     void load(); onChanged(); void reloadCandidates();
   }, [load, onChanged, reloadCandidates]);
-  // 패널의 원고 모드 · 'AI로 만들기' 탭 — 클라이언트 정보(procedures)는 아직 못 읽었을 수 있어 빈 배열로 시작한다.
+  // 패널의 원고 모드 · 'AI로 만들기' 탭 — clientData는 clientId가 있어도 아직 못 읽었으면 null이다
+  // (DraftGenerate가 그 null을 '0건 확정'과 '모름'으로 구분해 읽는다 — clientId를 함께 받는 이유).
   const draftGenerate: ReactNode = panelTask
     ? (
       <DraftGenerate task={panelTask} clientId={clientId} clientName={clientData?.client.name ?? null}
-                     procedures={clientData?.procedures ?? []} clientBannedPhrases={clientData?.client.bannedPhrases ?? []}
-                     targetRef={targetRef}
+                     clientData={clientData} targetRef={targetRef}
                      onAttached={onDraftAttached} onGenerated={() => void reloadCandidates()}
                      onBusyChange={setDraftBusy} onOverlayChange={setDraftOverlayOpen} />
     )

@@ -77,7 +77,7 @@ export function FlowRowMenu({ task, today, on }: {
 
   // 게시 확인·게시물 연결 둘 다 posted_at을 찍을 수 있다 — 인플 미정인 채로 찍히면 되돌릴 길이 없다(C1, 위 주석).
   const NEEDS_INFLUENCER = '인플루언서를 먼저 정해요';
-  const postReason = prePost && !task.influencerHandle ? NEEDS_INFLUENCER : undefined;
+  const postReason = prePost && task.influencerHandle === null ? NEEDS_INFLUENCER : undefined;
   if (prePost) {
     push(
       <MenuButton key="posted" disabled={!!postReason} reason={postReason} onClick={() => { close(); on.posted(task); }}>게시 확인</MenuButton>,
@@ -97,7 +97,7 @@ export function FlowRowMenu({ task, today, on }: {
   // 게시물 연결은 게시 뒤에도 쓴다 — 게시 확인 때 링크 등록이 실패하면 "행 메뉴에서 다시 시도하세요"가
   // 가리키는 곳이 바로 여기다(기존 화면도 게시 여부를 따지지 않는다). RT는 자기 게시물이 없어 제외.
   if (!cancelled && task.type !== 'rt') {
-    const linkReason = prePost && !task.influencerHandle ? NEEDS_INFLUENCER : undefined;
+    const linkReason = prePost && task.influencerHandle === null ? NEEDS_INFLUENCER : undefined;
     push(
       <MenuButton key="linkPost" disabled={!!linkReason} reason={linkReason} onClick={() => { close(); on.linkPost(task); }}>게시물 연결(트래킹)</MenuButton>,
       linkReason ? DISABLED_ITEM_H : ITEM_H,

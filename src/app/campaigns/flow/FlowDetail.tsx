@@ -237,7 +237,7 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const newDirtyRef = useRef(false);
   const onNewDirtyChange = useCallback((dirty: boolean) => { newDirtyRef.current = dirty; }, []);
   const onRowClick = useCallback((t: FlowRow) => {
-    if (isNew && newDirtyRef.current && !window.confirm('입력한 내용이 사라져요. 닫을까요?')) return;
+    if (isNew && newDirtyRef.current && !window.confirm('입력한 내용이 사라져요. 다른 작업을 열까요?')) return;
     openPanel(t.id);
   }, [isNew, openPanel]);
   const onPanelPrev = useCallback(() => { if (panelIndex > 0) setPanel({ taskId: shown[panelIndex - 1].id }); }, [panelIndex, shown]);

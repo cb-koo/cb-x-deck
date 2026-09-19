@@ -5,7 +5,7 @@ import { TARGETABLE_TYPES, type TaskType } from './campaignJudgment.ts';
 import { tweetPermalink } from './tweetLink.ts';
 import { isUuidLike } from './uuid.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
-import { influencerChangeGuard, type CancelReason } from './campaignTaskInput.ts';
+import { influencerChangeGuard, POSTED_TASK_MESSAGE, type CancelReason } from './campaignTaskInput.ts';
 // draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
 // getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
 import type { DraftRow } from './draftStore.ts';
@@ -485,6 +485,10 @@ export async function replaceInfluencer(
         from campaign_task where id = ${id} for update`;
     if (rows.length === 0) return 'not-found';
     const cur = rows[0];
+    // 게시된 작업은 교체하지 않는다(ADR 0005 "게시 전만"). 공용 가드는 게시된 **미배정** 작업의 최초 배정을
+    // 허용하도록 열려 있으므로(C1-b), 교체 라우트는 자기 규칙을 여기서 직접 든다 — 안 그러면 API로 게시된
+    // RT의 증빙이 흔적 정리에 쓸려 나간다(PATCH 쪽은 proofGateError가 막는 불변식).
+    if (cur.posted_at) return POSTED_TASK_MESSAGE;
     const guard = influencerChangeGuard(
       { postedAt: cur.posted_at, cancelledAt: cur.cancelled_at, type: cur.type, visitOn: cur.visit_on, influencerHandle: cur.influencer_handle },
       input.handle, input.today, { allowReplace: true },

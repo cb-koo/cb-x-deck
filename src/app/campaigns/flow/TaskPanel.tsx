@@ -162,6 +162,9 @@ export function TaskPanel({
     const p = parseXHandle(v);
     if (!p.ok) { setEditHandleErr(handleParseMessage(p.reason)); return; }
     setEditHandleErr(null);
+    // 게시된 작업의 최초 배정은 저장하는 순간 잠긴다(서버가 그 뒤의 변경·해제를 거절한다) — 오타 한 번이
+    // 삭제·재생성 말고는 되돌릴 수 없는 상태를 만들므로, 블러로 조용히 저장하지 않고 한 번 묻는다.
+    if (t.postedAt && !window.confirm(`@${p.handle}로 저장할까요?\n\n게시된 작업이라 나중에 바꿀 수 없어요.`)) return;
     const ok = await actions.assignInfluencer(t, p.handle, { autoCost: false });   // 비용은 [확인]이 확정한다(R24)
     if (ok) setEditHandleInput('');
   }
@@ -209,7 +212,7 @@ export function TaskPanel({
                              onChange={(v) => { setEditHandleInput(v); setEditHandleErr(null); }} error={editHandleErr}
                              onEnter={(v) => void commitEditHandle(t, v)} onBlur={(v) => void commitEditHandle(t, v)} />
             {/* C1-b가 이 배정을 이제 서버에서 허용한다 — 왜 이 칸이 아직 남아 있는지, 채우면 뭐가 달라지는지 알린다 */}
-            {t.postedAt && <p className="mt-1 text-caption text-x-muted">게시 확인된 작업이에요 — 누가 올렸는지 적으면 정산 후보에 잡혀요</p>}
+            {t.postedAt && <p className="mt-1 text-caption text-x-muted">게시 확인된 작업이에요 — 누가 올렸는지 적으면 정산 후보에 잡혀요. 한 번 적으면 바꿀 수 없어요</p>}
           </div>
         );
       }

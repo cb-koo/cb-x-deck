@@ -155,6 +155,15 @@ export function flowStats(rows: FlowRow[]): FlowStats {
 export const settleWaitCount = (rows: FlowRow[]) => rows.filter((t) =>
   isSettlementCandidate(t) && (!t.settlement || t.settlement.status === 'cancelled' || t.settlement.externalStatus === 'cancelled')).length;
 
+// 인플루언서 교체 버튼 활성 조건(Task 10, ··· 메뉴·패널 [바꾸기] 공용) — 서버 가드(influencerChangeGuard의
+// REPLACE_AFTER_VISIT_MESSAGE와 같은 조건)를 화면에서 먼저 판정해 비활성 문구로 보여준다(거짓 어포던스 금지).
+// null = 바꿀 수 있음. 두 자리(행 메뉴·패널)가 각자 판정하면 한쪽만 조건을 놓쳐 라벨-값이 어긋날 수 있어 하나로 묶는다.
+export function replaceDisabledReason(t: FlowRow, today: string): string | null {
+  if (!t.influencerHandle) return '배정부터 해요';
+  if (t.type === 'visit' && t.visitOn !== null && t.visitOn < today) return '방문한 인플루언서가 게시해야 해요';
+  return null;
+}
+
 export function restoreMessage(r: 'reattached' | 'taken' | 'gone' | 'none'): string {
   return r === 'reattached' ? '되돌렸어요 — 원고도 다시 붙었어요'
     : r === 'taken' ? '되돌렸어요 — 원고는 그 사이 다른 작업에 붙어 있어요'

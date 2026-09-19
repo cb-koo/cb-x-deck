@@ -85,7 +85,18 @@ export function CostConfirmField({
   let statusText: string;
   let amber = false;
   if (saved) {
-    statusText = `✓ 확정${note}`;
+    // 확정된 값이라도 "지금 배정된 인플루언서"의 프로필 단가와 다르면 그 사실을 덧붙인다 — 교체·재배정 뒤
+    // 앞사람 기준 금액이 그대로 남아 있어도 화면이 '✓ 확정'만 보여줘 조용히 틀린 값이 되는 문제(Task 8 리뷰
+    // Minor)를 막는다. profile은 이미 "지금" 배정된 인플의 단가(위 option prop이 그 인플이다).
+    if (profile && (scenario === 'differs' || scenario === 'currency-mismatch')) {
+      const diff = scenario === 'currency-mismatch'
+        ? `프로필 단가는 ${CURRENCY_LABEL[profile.currency]}로 적혀 있어요`
+        : `프로필 단가 ${formatAmount(profile.amount, profile.currency)}과 다름`;
+      statusText = `✓ 확정 · ${diff}${note}`;
+      amber = true;
+    } else {
+      statusText = `✓ 확정${note}`;
+    }
   } else if (entered === null) {
     statusText = profile ? '금액을 넣어 주세요' : '프로필에 단가 없음 — 직접 입력';
   } else if (scenario === 'same') {

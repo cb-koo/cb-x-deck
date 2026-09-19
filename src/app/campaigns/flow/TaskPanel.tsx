@@ -10,7 +10,7 @@ import {
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, targetLabel } from '@/lib/campaignTableView';
 import {
-  PANEL_FIELD_ORDER, DISPLAY_TYPE_ORDER, costCell, type FlowRow, type PanelField,
+  PANEL_FIELD_ORDER, DISPLAY_TYPE_ORDER, costCell, replaceDisabledReason, type FlowRow, type PanelField,
 } from '@/lib/campaignFlowView';
 import { STATUS_LABEL } from '@/lib/draftStatus';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
@@ -33,13 +33,14 @@ import type { useCampaignTaskActions } from '../useCampaignTaskActions';
 // 그려 로컬 상태(target)로 들고 있다가 [만들기]에서 targetTaskId/targetTweetUrl로 함께 보낸다. 게시 확인도
 // 같은 이유로 slots.posted(다이얼로그는 FlowDetail이 연다, Task 10의 행 메뉴와 같은 다이얼로그를 쓴다).
 // 취소된 작업(cancelledAt)의 편집기는 메모 한 칸뿐(R18) — 나머지는 값만 보여준다(거짓 어포던스 금지).
-// 인플루언서 [바꾸기](교체, ADR 0005)는 확인 다이얼로그가 있는 Task 10의 몫 — 그때까진 누를 게 없는 버튼을
-// 두지 않는다(같은 이유로 게시 후 잠금·방문 후 교체 불가 안내도 Task 10이 붙인다).
+// 인플루언서 [바꾸기](교체, ADR 0005)는 Task 10에서 다이얼로그(ReplaceDialog)가 생겨 여기 버튼이 붙었다 —
+// 게시 후·방문 지남·미배정 조건은 replaceDisabledReason(campaignFlowView) 하나로 행 메뉴(FlowRowMenu)와
+// 판정을 공유한다 — 각자 판정하면 한쪽만 조건을 놓쳐 버튼이 있다/없다가 갈릴 수 있다.
 type PanelMode = { kind: 'edit'; task: FlowRow; index: number; total: number } | { kind: 'new' };
 
 export function TaskPanel({
   mode, campaign, today, influencerOptions, actions, onClose, onPrev, onNext, onCreate,
-  menu, onOpenDraft, onAttachDraft, onGenerateHref, onDetachDraft, onSaveProfilePricing, slots, overlayOpen,
+  menu, onOpenDraft, onAttachDraft, onGenerateHref, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen,
 }: {
   mode: PanelMode;
   campaign: CampaignRow;
@@ -50,11 +51,12 @@ export function TaskPanel({
   onPrev: () => void;
   onNext: () => void;
   onCreate: (body: TaskCreateRequest, more: boolean) => Promise<boolean>;
-  menu: ReactNode;   // 헤더 ··· — edit 모드에만 채워진다(Task 10)
+  menu: ReactNode;   // 헤더 ··· — edit 모드에만 채워진다(Task 10, FlowRowMenu)
   onOpenDraft: (draftId: string) => void;
   onAttachDraft: (t: FlowRow) => void;
   onGenerateHref: (t: FlowRow) => string;
   onDetachDraft: (t: FlowRow) => void;
+  onReplace: (t: FlowRow) => void;   // 인플루언서 칸의 [바꾸기] — ReplaceDialog를 여는 것은 FlowDetail 쪽(Task 10)
   // new 모드의 CostConfirmField가 이 파일 안에서 직접 만들어지는 이유는 위 주석 — 그래서 프로필 반영 저장만
   // 콜백으로 받는다(option.id·pricing patch·influencerOptions 재조회는 FlowDetail 쪽이 쥔 것들이라서).
   onSaveProfilePricing: (option: InfluencerOption, cost: TaskCost, type: TaskType) => Promise<boolean>;
@@ -160,14 +162,33 @@ export function TaskPanel({
   function renderEditField(field: PanelField, t: FlowRow): ReactNode {
     const cancelled = t.cancelledAt !== null;
     switch (field) {
-      case 'influencer':
+      case 'influencer': {
         if (cancelled) return <span className="text-content text-x-muted">{t.influencerHandle ? `@${t.influencerHandle}` : '미정'}</span>;
-        if (t.influencerHandle) return <span className="text-content">@{t.influencerHandle}</span>;
+        if (t.influencerHandle) {
+          // 게시된 작업은 교체 자체가 서버 가드(POSTED_TASK_MESSAGE)에 막혀 있다 — FlowRowMenu의 prePost
+          // 게이트와 같은 조건. 여기서 숨기지 않고 disabled로만 두면 눌렀을 때 400이 나는 거짓 어포던스가 된다.
+          if (t.postedAt) return <span className="text-content">@{t.influencerHandle}</span>;
+          const disabledReason = replaceDisabledReason(t, today);
+          return (
+            <div>
+              <span className="flex items-center justify-between gap-2 text-content">
+                <span>@{t.influencerHandle}</span>
+                <button type="button" onClick={() => onReplace(t)} disabled={!!disabledReason} title={disabledReason ?? undefined}
+                        className="shrink-0 text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
+                  바꾸기
+                </button>
+              </span>
+              {/* title만으로 끝내지 않는다(UX 원칙 2·5) — 비활성 이유를 보이는 문구로도 말한다 */}
+              {disabledReason && <p className="mt-1 text-caption text-x-muted">{disabledReason}</p>}
+            </div>
+          );
+        }
         return (
           <InfluencerField value={editHandleInput} options={influencerOptions} hideLabel hideHelp
                            onChange={(v) => { setEditHandleInput(v); setEditHandleErr(null); }} error={editHandleErr}
                            onEnter={(v) => void commitEditHandle(t, v)} onBlur={(v) => void commitEditHandle(t, v)} />
         );
+      }
       case 'cost': {
         if (!cancelled) return <>{slots.cost}</>;
         const cc = costCell(t, null);
@@ -343,8 +364,9 @@ export function TaskPanel({
               </div>
             ))}
             {/* 게시 확인 — PANEL_FIELD_ORDER에 없는 칸이다(모든 유형에 있고, 취소된 작업엔 없다). 다이얼로그는
-                FlowDetail이 열고(패널에서만, 행 메뉴는 Task 10) 값·증빙 라이트박스도 그쪽 클로저가 필요해
-                slots.posted로 받는다(slots.cost와 같은 이유) — FlowDetail이 취소된 작업이면 null을 준다. */}
+                FlowDetail이 열고(이 버튼과 행 메뉴(FlowRowMenu)의 [게시 확인]이 같은 상태를 연다, Task 10)
+                값·증빙 라이트박스도 그쪽 클로저가 필요해 slots.posted로 받는다(slots.cost와 같은 이유) —
+                FlowDetail이 취소된 작업이면 null을 준다. */}
             {slots.posted && (
               <div>
                 <p className="text-ui text-x-secondary">게시</p>

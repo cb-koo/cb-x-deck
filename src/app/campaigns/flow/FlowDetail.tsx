@@ -28,6 +28,7 @@ import {
 import { CampaignHeader } from '../CampaignHeader';
 import { useCampaignTaskActions } from '../useCampaignTaskActions';
 import { AttachDraftModal } from '../AttachDraftModal';
+import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar } from './FlowFilterBar';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
@@ -36,6 +37,9 @@ import { CostConfirmField } from './CostConfirmField';
 import { TargetLinkField } from './TargetLinkField';
 import { PostedDialog } from './PostedDialog';
 import { BulkCreateDialog } from './BulkCreateDialog';
+import { FlowRowMenu, type FlowRowMenuActions } from './FlowRowMenu';
+import { CancelDialog } from './CancelDialog';
+import { ReplaceDialog } from './ReplaceDialog';
 import { useFlowTaskActions } from './useFlowTaskActions';
 
 // 캠페인 v2 상세 컨테이너 — /campaigns의 CampaignDetail과 같은 계약(로드·낙관적 갱신·원고 카드 모달)을 쥐지만,
@@ -80,12 +84,16 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const [sort, setSort] = useState<FlowSort>({ key: null, dir: 1 });
   const [panel, setPanel] = useState<Panel>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
-  // 게시 확인 다이얼로그(Task 9) — 패널에서만 연다(행 메뉴는 Task 10). RT 증빙 라이트박스는 TaskTable과
-  // 같은 관례(useSignedTaskProofUrls로 배치 서명 + zoomUrl 하나).
+  // 게시 확인 다이얼로그(Task 9) — 패널의 [게시] 버튼과 행 메뉴(FlowRowMenu)의 [게시 확인]이 둘 다 이 상태를
+  // 연다(Task 10). RT 증빙 라이트박스는 TaskTable과 같은 관례(useSignedTaskProofUrls로 배치 서명 + zoomUrl 하나).
   const [postedFor, setPostedFor] = useState<FlowRow | null>(null);
   const [zoomUrl, setZoomUrl] = useState<string | null>(null);
   // 있는 원고 고르기(패널의 [있는 원고 고르기]) — CampaignDetail의 attachFor와 같은 패턴, 같은 모달(AttachDraftModal)
   const [attachFor, setAttachFor] = useState<CampaignTaskItem | null>(null);
+  // 게시물 연결(트래킹)·취소·교체(Task 10) — 셋 다 ··· 메뉴에서만 연다(행·패널 공용, FlowRowMenu)
+  const [linkFor, setLinkFor] = useState<FlowRow | null>(null);
+  const [cancelFor, setCancelFor] = useState<FlowRow | null>(null);
+  const [replaceFor, setReplaceFor] = useState<FlowRow | null>(null);
 
   // 요청 토큰 — 캠페인을 빠르게 갈아타면 앞 캠페인의 응답이 뒤에 도착할 수 있다. 그때 화면에는 이미 다른 캠페인이
   // 떠 있으므로 옛 응답은 성공이든 실패든 버린다(남의 캠페인 데이터·오류 배너가 붙는 것을 막는다).
@@ -208,9 +216,30 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const onRowClick = useCallback((t: FlowRow) => openPanel(t.id), [openPanel]);
   const onPanelPrev = useCallback(() => { if (panelIndex > 0) setPanel({ taskId: shown[panelIndex - 1].id }); }, [panelIndex, shown]);
   const onPanelNext = useCallback(() => { if (panelIndex >= 0 && panelIndex < shown.length - 1) setPanel({ taskId: shown[panelIndex + 1].id }); }, [panelIndex, shown]);
-  // 행 "···" 메뉴 — 취소·되돌리기·교체·게시물 연결·삭제(Task 10까지는 아무것도 없다, b-task-6-brief.md §3).
-  // flowActions(취소·되돌리기·교체)는 이미 준비돼 있다 — Task 10은 메뉴·확인 다이얼로그만 얹으면 된다.
-  const renderMenu = useCallback((t: FlowRow): ReactNode => { void t; void flowActions; return null; }, [flowActions]);
+  // 행 "···" 메뉴(Task 10) — 표의 마지막 칸과 패널 헤더가 같은 컴포넌트(FlowRowMenu)를 쓴다. 여기 모인
+  // 콜백들은 전부 "다이얼로그/모달을 연다" 또는 "확인 뒤 바로 실행한다" 둘 중 하나 — 실제 저장은 flowActions
+  // (취소·되돌리기·교체, Task 7)나 actions.remove(useCampaignTaskActions)가 한다.
+  const menuActions: FlowRowMenuActions = useMemo(() => ({
+    posted: (t) => setPostedFor(t),
+    schedule: (t) => openPanel(t.id),
+    openDraft: (t) => { if (t.draftId) setPeekId(t.draftId); },
+    attachDraft: (t) => setAttachFor(t),
+    generateHref: (t) => draftWriteHref(t.id, id),
+    linkPost: (t) => setLinkFor(t),
+    replace: (t) => setReplaceFor(t),
+    cancel: (t) => setCancelFor(t),
+    // 되돌리기는 확인 창 없이 즉시 실행한다 — 되돌리기 자체가 되돌리는 동작이고, 결과는 훅이 토스트로 알린다.
+    restore: (t) => { void flowActions.restore(t); },
+    // 삭제는 기존 관례(CampaignDetail)와 같은 확인 문구 — actions.remove가 실제 삭제. 패널이 지금 이 작업을
+    // 보고 있었으면(삭제된 작업 id로 남지 않게) 함께 닫는다.
+    remove: (t) => {
+      if (!window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}`)) return;
+      void actions.remove(t).then((ok) => { if (ok && panelTaskId === t.id) setPanel(null); });
+    },
+  }), [openPanel, id, flowActions, actions, panelTaskId]);
+  const renderMenu = useCallback((t: FlowRow): ReactNode => (
+    <FlowRowMenu task={t} today={data?.today ?? ''} on={menuActions} />
+  ), [menuActions, data?.today]);
 
   // 오른쪽 패널의 [만들기]/[만들고 하나 더] — 새 작업은 만들기 전까지 로컬 상태로 들고 있다가 한 번에 보낸다
   // (결정 3, b-task-7-brief.md). more가 아니면 방금 만든 작업으로 패널을 전환한다.
@@ -396,6 +425,7 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                    onOpenDraft={setPeekId} onAttachDraft={setAttachFor}
                    onGenerateHref={(t) => draftWriteHref(t.id, id)}
                    onDetachDraft={(t) => void detachDraft(t)}
+                   onReplace={(t) => setReplaceFor(t)}
                    onSaveProfilePricing={saveProfilePricing}
                    // edit 모드만 여기서 채운다 — new 모드의 비용 칸은 TaskPanel이 로컬 상태로 직접 그린다(위 주석).
                    slots={{
@@ -443,9 +473,10 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                            : <Button variant="subtle" onClick={() => setPostedFor(panelTask)} className="h-9 px-3.5 text-ui">게시 확인</Button>)
                        : null,
                    }}
-                   // 패널 위에 뜬 다른 레이어(원고 카드·편집 모달·원고 고르기·한 번에 만들기·게시 확인)가 있으면
-                   // 패널의 Esc를 끈다 — 안 그러면 그 레이어를 닫는 Esc 한 번에 패널까지 같이 닫힌다.
-                   overlayOpen={!!peekId || !!editing || !!attachFor || bulkOpen || !!postedFor} />
+                   // 패널 위에 뜬 다른 레이어(원고 카드·편집 모달·원고 고르기·한 번에 만들기·게시 확인·게시물
+                   // 연결·취소·교체)가 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를 닫는 Esc 한 번에
+                   // 패널까지 같이 닫힌다.
+                   overlayOpen={!!peekId || !!editing || !!attachFor || bulkOpen || !!postedFor || !!linkFor || !!cancelFor || !!replaceFor} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
       {postedFor && (
@@ -454,6 +485,22 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                       onSubmit={(date, url, proof) => void actions.markPosted(postedFor, date, url, proof)} />
       )}
       {zoomUrl && <ImageLightbox urls={[zoomUrl]} index={0} onIndexChange={() => {}} onClose={() => setZoomUrl(null)} />}
+      {linkFor && (
+        <LinkPostModal task={linkFor} onClose={() => setLinkFor(null)}
+                       onLinked={() => {
+                         setLinkFor(null);
+                         show('게시물을 연결했어요 — 게시됨으로 표시되고 조회수가 잡혀요');
+                         void load(); onChanged();
+                       }} />
+      )}
+      {cancelFor && (
+        <CancelDialog task={cancelFor} onClose={() => setCancelFor(null)}
+                      onConfirm={async (body) => { await flowActions.cancel(cancelFor, body); }} />
+      )}
+      {replaceFor && (
+        <ReplaceDialog task={replaceFor} influencerOptions={influencerOptions} onClose={() => setReplaceFor(null)}
+                       onConfirm={async (body) => { await flowActions.replace(replaceFor, body); }} />
+      )}
       {attachFor && (
         <AttachDraftModal clientId={data.campaign.clientId} title="이 작업에 붙일 원고 고르기"
                           emptyHint="붙일 수 있는 원고가 없어요 — 창을 닫고 [새로 만들기]를 누르면 바로 쓸 수 있어요"

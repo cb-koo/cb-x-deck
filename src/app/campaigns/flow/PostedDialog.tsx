@@ -5,8 +5,9 @@ import { TASK_TYPE_LABEL, formatDateKo } from '@/lib/campaignJudgment';
 import { PostedForm } from '../PostedCell';
 
 // 게시 확인은 한 창에서 끝낸다(b-task-9-brief.md §3) — 언제·링크·(RT면) 증빙. 표의 팝오버가 이미 이 셋을
-// 받고 있으므로 그 폼(PostedForm)을 그대로 쓴다. 게시 전·취소 아닌 작업의 패널에서만 연다(Task 10의 행
-// 메뉴는 별도) — 그래서 여기 오는 task는 항상 postedAt이 없다(§4-4, FlowDetail이 그 조건에서만 연다).
+// 받고 있으므로 그 폼(PostedForm)을 그대로 쓴다. 패널의 [게시 확인] 버튼과 행 메뉴(FlowRowMenu)의 [게시
+// 확인] 둘 다 이 창을 연다(Task 10) — 둘 다 게시 전·취소 아닌 작업에서만 보이는 항목이라 여기 오는 task는
+// 항상 postedAt이 없다(§4-4, FlowDetail이 그 조건에서만 연다).
 export function PostedDialog({ task, today, onClose, onSubmit }: {
   task: FlowRow;
   today: string;

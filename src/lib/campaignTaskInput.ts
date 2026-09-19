@@ -56,7 +56,9 @@ export function influencerChangeGuard(
   if (cur.postedAt && next === null) return POSTED_TASK_MESSAGE;
   const same = (cur.influencerHandle ?? '').toLowerCase() === (next ?? '').toLowerCase();
   if (same) return null;
-  if (cur.type === 'visit' && cur.visitOn !== null && cur.visitOn < today) return REPLACE_AFTER_VISIT_MESSAGE;   // 방문 완료 판정과 같은 기준(< 오늘)
+  // 방문 완료 판정과 같은 기준(< 오늘). 배정된 사람이 있을 때만 막는다 — 이 규칙은 "방문한 사람이 게시해야
+  // 한다"는 뜻이라, 방문한 사람이 애초에 없는 미배정 작업의 최초 배정에는 해당되지 않는다(문구도 거짓말이 된다).
+  if (cur.type === 'visit' && cur.influencerHandle && cur.visitOn !== null && cur.visitOn < today) return REPLACE_AFTER_VISIT_MESSAGE;
   if (cur.influencerHandle && next && !opts.allowReplace) return REPLACE_REQUIRED_MESSAGE;
   return null;
 }

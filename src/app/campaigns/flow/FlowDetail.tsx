@@ -40,6 +40,7 @@ import { TaskPanel } from './TaskPanel';
 import { CostConfirmField } from './CostConfirmField';
 import { TargetLinkField } from './TargetLinkField';
 import { PostedDialog } from './PostedDialog';
+import { RemovedDialog } from './RemovedDialog';
 import { BulkCreateDialog } from './BulkCreateDialog';
 import { FlowRowMenu, type FlowRowMenuActions } from './FlowRowMenu';
 import { CancelDialog } from './CancelDialog';
@@ -91,6 +92,8 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   // 게시 확인 다이얼로그(Task 9) — 패널의 [게시] 버튼과 행 메뉴(FlowRowMenu)의 [게시 확인]이 둘 다 이 상태를
   // 연다(Task 10). RT 증빙 라이트박스는 TaskTable과 같은 관례(useSignedTaskProofUrls로 배치 서명 + zoomUrl 하나).
   const [postedFor, setPostedFor] = useState<FlowRow | null>(null);
+  // 게시 내림 표시 다이얼로그(koo 09-19 결정 3) — 패널의 [내림 표시] 버튼이 연다. PostedDialog와 같은 자리.
+  const [removedFor, setRemovedFor] = useState<FlowRow | null>(null);
   const [zoomUrl, setZoomUrl] = useState<string | null>(null);
   // 있는 원고 고르기(패널의 [있는 원고 고르기]) — CampaignDetail의 attachFor와 같은 패턴, 같은 모달(AttachDraftModal)
   const [attachFor, setAttachFor] = useState<CampaignTaskItem | null>(null);
@@ -494,6 +497,22 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                                      })()
                                    : <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[12px] text-amber-700">증빙 없음</span>
                                )}
+                               {/* 게시 내림(koo 09-19 결정 3) — 기존 화면(PostedCell)에 있던 표시·되돌리기가
+                                   v2에도 있어야 한다. v2만 쓰는 사람이 적을 데가 없으면 정산 판단에 쓰이는
+                                   정보가 사라진다. 되돌리기는 확인 없이 즉시(되돌리는 동작이라 R18과 같은 결). */}
+                               {panelTask.removedAt ? (
+                                 <div className="mt-2">
+                                   <p className="text-content">
+                                     내림 {formatDateKo(panelTask.removedAt)}
+                                     {panelTask.removedReason && ` · ${panelTask.removedReason}`}
+                                   </p>
+                                   <button type="button" onClick={() => void actions.unmarkRemoved(panelTask)}
+                                           className="mt-1 text-ui text-x-secondary hover:underline">내림 취소</button>
+                                 </div>
+                               ) : (
+                                 <button type="button" onClick={() => setRemovedFor(panelTask)}
+                                         className="mt-2 block text-ui text-x-secondary hover:underline">내림 표시</button>
+                               )}
                              </div>
                            )
                            : (panelTask.influencerHandle === null
@@ -512,7 +531,7 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                    // 패널 위에 뜬 다른 레이어(원고 카드·편집 모달·원고 고르기·한 번에 만들기·게시 확인·게시물
                    // 연결·취소·교체)가 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를 닫는 Esc 한 번에
                    // 패널까지 같이 닫힌다.
-                   overlayOpen={!!peekId || !!editing || !!attachFor || bulkOpen || !!postedFor || !!linkFor || !!cancelFor || !!replaceFor}
+                   overlayOpen={!!peekId || !!editing || !!attachFor || bulkOpen || !!postedFor || !!removedFor || !!linkFor || !!cancelFor || !!replaceFor}
                    onDirtyChange={onNewDirtyChange} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
@@ -520,6 +539,12 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
         <PostedDialog task={postedFor} today={data.today}
                       onClose={() => setPostedFor(null)}
                       onSubmit={(date, url, proof) => void actions.markPosted(postedFor, date, url, proof)} />
+      )}
+      {removedFor && (
+        <RemovedDialog task={removedFor} today={data.today} proofSignedUrl={removedFor.proof ? proofUrls[removedFor.proof.url] ?? null : null}
+                       onClose={() => setRemovedFor(null)}
+                       onSetProof={(p) => void actions.setProof(removedFor, p)}
+                       onSubmit={(date, reason) => void actions.markRemoved(removedFor, date, reason)} />
       )}
       {zoomUrl && <ImageLightbox urls={[zoomUrl]} index={0} onIndexChange={() => {}} onClose={() => setZoomUrl(null)} />}
       {linkFor && (

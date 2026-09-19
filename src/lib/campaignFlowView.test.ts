@@ -75,6 +75,8 @@ test('5) 날짜 칸 — 지남 빨강 D+N, 오늘·예정 기본, 게시된 건 
   assert.deepEqual(dateCell(mk({ scheduledOn: '2026-09-15', postedAt: '2026-09-16' }), T), { text: '9/16 수', tone: 'posted' });
   assert.deepEqual(dateCell(mk({}), T), { text: '미정', tone: 'muted' });
   assert.deepEqual(dateCell(mk({ cancelledAt: '2026-09-17', scheduledOn: '2026-09-15' }), T), { text: '9/17 목 취소', tone: 'muted' });
+  // 내림(koo 09-19 결정 3) — 게시일 파랑과 구분되는 톤이되, 색만이 아니라 글자로도 적는다
+  assert.deepEqual(dateCell(mk({ postedAt: '2026-09-16', removedAt: '2026-09-17' }), T), { text: '9/16 수 · 내림', tone: 'muted' });
 });
 
 test('6) 원고 칸 — 첫 줄, RT는 —, 없으면 미정, 취소는 사유·메모·있었던 원고', () => {
@@ -120,6 +122,15 @@ test('8) 하단 줄·요약 줄·카드 숫자·정산 대기 — 취소 제외,
   assert.equal(restoreMessage('taken'), '되돌렸어요 — 원고는 그 사이 다른 작업에 붙어 있어요');
   assert.deepEqual(PANEL_FIELD_ORDER.visit, ['influencer', 'dates', 'cost', 'draft', 'note']);
   assert.deepEqual(PANEL_FIELD_ORDER.quoteRt, ['influencer', 'cost', 'draft', 'target', 'scheduled', 'note']);
+});
+
+test('8-b) 하단 줄 — 내려진 작업이 있으면 끝에 · 내림 N(밀림과 같은 방식, 0이면 생략, koo 09-19 결정 3)', () => {
+  const rows = [
+    mk({ type: 'post', cost: { amount: 80000, currency: 'KRW' }, postedAt: '2026-09-10', removedAt: '2026-09-16', influencerHandle: 'a' }),
+    mk({ type: 'post', cost: { amount: 50000, currency: 'KRW' }, postedAt: '2026-09-11', influencerHandle: 'b' }),
+  ];
+  assert.equal(flowFooter(rows, T), '투고 2 · 작업 비용 130,000원 · 게시 2 / 2 · 내림 1');
+  assert.equal(flowFooter([mk({ type: 'post', postedAt: '2026-09-11' })], T), '투고 1 · 작업 비용 — · 게시 1 / 1');
 });
 
 test('9) 비용 확인 시나리오 — 같음 / 다름 / 프로필 없음 / 통화 다름 / 빈칸', () => {

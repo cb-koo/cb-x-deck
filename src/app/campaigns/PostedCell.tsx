@@ -82,6 +82,65 @@ export function PostedForm({ task, today, onSubmit, onCancel, submitLabel = '게
   );
 }
 
+// 게시 내림 표시 폼 — 표의 팝오버(PostedCell)와 캠페인 v2 패널의 다이얼로그(flow/RemovedDialog)가 같은 폼을
+// 쓴다(PostedForm을 뺀 것과 정확히 같은 방식, koo 09-19 결정 3) — 문구·검증·버튼 라벨·증빙 칸 동작을 두
+// 벌로 만들면 한쪽만 고쳐 갈라진다. 증빙은 PostedForm의 pendingProof와 달리 담아 두지 않는다 — 게시
+// 확인은 없던 값을 한 번에 만드는 것이지만, 내림 표시는 이미 게시된 작업의 증빙을 즉시 바꾸는 것이라
+// (onSetProof, 별개의 PATCH) 옛 화면 그대로 제출과 분리해 둔다.
+export function RemovedForm({ task, today, proofSignedUrl, onSetProof, onSubmit, onCancel }: {
+  task: CampaignTaskItem; today: string; proofSignedUrl: string | null;
+  onSetProof: (path: string | null) => void;
+  onSubmit: (date: string, reason: string) => void;
+  onCancel: () => void;
+}) {
+  const [date, setDate] = useState(today);
+  const [reason, setReason] = useState(task.removedReason);
+  const [err, setErr] = useState('');
+  const input = 'mt-0.5 h-10 w-full rounded-md border border-x-border-strong bg-white px-2.5 text-content outline-none focus:border-x-blue';
+
+  function submitRemoved() {
+    if (!isDateOnlyString(date)) { setErr(DATE_MESSAGE); return; }
+    onSubmit(date, reason.trim());
+  }
+
+  return (
+    <>
+      <p className="text-ui font-bold">게시 내림 표시</p>
+      <p className="mt-0.5 text-ui text-x-muted">게시 확인은 그대로 남고 &quot;내려짐&quot;이 붙어요 — 정산할지는 정산 화면에서 판단해요</p>
+      <label className="mt-2 block text-ui text-x-secondary">내려진 날
+        <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setErr(''); }} className={input} />
+      </label>
+      <label className="mt-2 block text-ui text-x-secondary">사유 <span className="text-x-muted">선택</span>
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="본인 요청" className={input} />
+      </label>
+      {/* 안내 문구는 첨부 칸 '위'에 온다 — 읽는 순서상 상자보다 먼저 와야 한다(리뷰 수정 4). */}
+      {task.type === 'rt' && !task.proof && (
+        <p className="mt-0.5 text-ui text-amber-700">증빙 없음 — 지금 채울 수 있어요</p>
+      )}
+      {/* key를 주지 않는다 — TaskProofField가 preview를 자신이 올린 경로와 함께 들고 있어서, 실패한
+          '바꾸기'가 롤백돼 value가 이전 경로로 돌아가면 컴포넌트가 알아서 signedUrl로 되돌아간다(강제
+          리마운트로 성공 경로의 미리보기까지 지우던 문제 — RT 증빙 리뷰 수정 1). */}
+      {task.type === 'rt' && (
+        <TaskProofField taskId={task.id} value={task.proof?.url ?? null} signedUrl={proofSignedUrl}
+                        postedAt={task.postedAt} influencerHandle={task.influencerHandle}
+                        required={false} canRemove={false} disabled={false}
+                        onChange={(p) => onSetProof(p)} />
+      )}
+      {/* '누가 언제 올림' — 세 화면(이 칸·내려짐 칸·정산 요청 상세)이 같은 문구 함수를 쓴다(리뷰 수정 5).
+          proofUploadedLine이 KST 기준 날짜를 계산한다(.slice(0, 10) UTC 절단 버그, 리뷰 수정 2). */}
+      {task.type === 'rt' && task.proof && (
+        <p className="mt-0.5 text-ui text-x-muted">{proofUploadedLine(task.proof.byName, task.proof.at)}</p>
+      )}
+      {task.postUrl && <a href={task.postUrl} target="_blank" rel="noreferrer" className="mt-2 block text-ui text-x-blue-text hover:underline">게시물 보기 ↗</a>}
+      {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
+      <div className="mt-2 flex items-center gap-2">
+        <button type="button" onClick={onCancel} className="ml-auto rounded-full px-3 py-1 text-ui text-x-secondary hover:bg-x-text/5">취소</button>
+        <button type="button" onClick={submitRemoved} className="rounded-full bg-x-text px-3 py-1 text-ui font-bold text-white hover:opacity-90">내려짐으로 표시</button>
+      </div>
+    </>
+  );
+}
+
 export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRemoved, onUnmarkRemoved, onSetProof }: {
   task: CampaignTaskItem; today: string; proofSignedUrl: string | null;
   onMarkPosted: (date: string, postUrl?: string, proof?: string) => void;
@@ -93,9 +152,6 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
   const tag = stageTag(task);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
-  const [date, setDate] = useState(today);
-  const [reason, setReason] = useState('');
-  const [err, setErr] = useState('');
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
 
@@ -143,16 +199,10 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
     );
   }
 
-  function openPop() { setDate(today); setReason(task.removedReason); setErr(''); place(); setOpen(true); }
+  function openPop() { place(); setOpen(true); }
   const label = stage === 'published' ? `게시됨 ${formatDateKo(task.postedAt as string)}`
     : stage === 'removed' ? `내려짐 ${formatDateKo(task.removedAt as string)}`
     : TASK_STAGE_LABEL[stage];
-  const input = 'mt-0.5 h-10 w-full rounded-md border border-x-border-strong bg-white px-2.5 text-content outline-none focus:border-x-blue';
-
-  function submitRemoved() {
-    if (!isDateOnlyString(date)) { setErr(DATE_MESSAGE); return; }
-    onMarkRemoved(date, reason.trim()); close();
-  }
 
   return (
     <>
@@ -170,40 +220,10 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
                         onSubmit={(d, u, p) => { onMarkPosted(d, u, p); close(); }}
                         onCancel={close} />
           ) : !task.removedAt ? (
-            <>
-              <p className="text-ui font-bold">게시 내림 표시</p>
-              <p className="mt-0.5 text-ui text-x-muted">게시 확인은 그대로 남고 &quot;내려짐&quot;이 붙어요 — 정산할지는 정산 화면에서 판단해요</p>
-              <label className="mt-2 block text-ui text-x-secondary">내려진 날
-                <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setErr(''); }} className={input} />
-              </label>
-              <label className="mt-2 block text-ui text-x-secondary">사유 <span className="text-x-muted">선택</span>
-                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="본인 요청" className={input} />
-              </label>
-              {/* 안내 문구는 첨부 칸 '위'에 온다 — 읽는 순서상 상자보다 먼저 와야 한다(리뷰 수정 4). */}
-              {task.type === 'rt' && !task.proof && (
-                <p className="mt-0.5 text-ui text-amber-700">증빙 없음 — 지금 채울 수 있어요</p>
-              )}
-              {/* key를 주지 않는다 — TaskProofField가 preview를 자신이 올린 경로와 함께 들고 있어서,
-                  실패한 '바꾸기'가 롤백돼 value가 이전 경로로 돌아가면 컴포넌트가 알아서 signedUrl로
-                  되돌아간다(강제 리마운트로 성공 경로의 미리보기까지 지우던 문제 — RT 증빙 리뷰 수정 1). */}
-              {task.type === 'rt' && (
-                <TaskProofField taskId={task.id} value={task.proof?.url ?? null} signedUrl={proofSignedUrl}
-                                postedAt={task.postedAt} influencerHandle={task.influencerHandle}
-                                required={false} canRemove={false} disabled={false}
-                                onChange={(p) => onSetProof(p)} />
-              )}
-              {/* '누가 언제 올림' — 세 화면(이 칸·내려짐 칸·정산 요청 상세)이 같은 문구 함수를 쓴다(리뷰 수정 5).
-                  proofUploadedLine이 KST 기준 날짜를 계산한다(.slice(0, 10) UTC 절단 버그, 리뷰 수정 2). */}
-              {task.type === 'rt' && task.proof && (
-                <p className="mt-0.5 text-ui text-x-muted">{proofUploadedLine(task.proof.byName, task.proof.at)}</p>
-              )}
-              {task.postUrl && <a href={task.postUrl} target="_blank" rel="noreferrer" className="mt-2 block text-ui text-x-blue-text hover:underline">게시물 보기 ↗</a>}
-              {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
-              <div className="mt-2 flex items-center gap-2">
-                <button type="button" onClick={close} className="ml-auto rounded-full px-3 py-1 text-ui text-x-secondary hover:bg-x-text/5">취소</button>
-                <button type="button" onClick={submitRemoved} className="rounded-full bg-x-text px-3 py-1 text-ui font-bold text-white hover:opacity-90">내려짐으로 표시</button>
-              </div>
-            </>
+            <RemovedForm task={task} today={today} proofSignedUrl={proofSignedUrl}
+                         onSetProof={onSetProof}
+                         onSubmit={(d, r) => { onMarkRemoved(d, r); close(); }}
+                         onCancel={close} />
           ) : (
             <>
               <p className="text-ui font-bold">내려짐 {formatDateKo(task.removedAt)}</p>

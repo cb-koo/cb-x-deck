@@ -85,6 +85,9 @@ export function sortFlowRows<T extends FlowRow>(rows: T[], sort: FlowSort): T[] 
 // ── 칸 문구(R26·R27) ──
 export function dateCell(t: FlowRow, today: string): { text: string; tone: 'late' | 'posted' | 'plain' | 'muted' } {
   if (t.cancelledAt) return { text: `${formatDateKo(t.cancelledAt)} 취소`, tone: 'muted' };
+  // 내림은 게시일 파랑과 구분되는 톤(muted)이되, 글자로도 적는다(koo 09-19 결정 3) — 정산 판단에 쓰이는
+  // 정보라 색만으로 표시하면 처음 보는 사람은 놓친다(화면 규칙: 정보는 글자로).
+  if (t.postedAt && t.removedAt) return { text: `${formatDateKo(t.postedAt)} · 내림`, tone: 'muted' };
   if (t.postedAt) return { text: formatDateKo(t.postedAt), tone: 'posted' };
   if (!t.scheduledOn) return { text: '미정', tone: 'muted' };
   if (t.scheduledOn < today) return { text: `${formatDateKo(t.scheduledOn)} · D+${daysBetweenDates(t.scheduledOn, today)}`, tone: 'late' };
@@ -130,9 +133,11 @@ export function flowFooter(rows: FlowRow[], today: string): string {
   const cost = sumMoney(live.flatMap((t) => (t.cost ? [t.cost] : [])));
   const posted = live.filter((t) => t.postedAt).length;
   const late = live.filter((t) => isTaskOverdue(t, today)).length;
+  const removed = live.filter((t) => t.removedAt).length;   // koo 09-19 결정 3 — 밀림과 같은 방식, 0이면 생략
   // M3 — 카드의 '계획'은 작업 비용 + 인플별 추가 비용인데 이 줄은 작업 비용만이다. 라벨이 같으면 두 숫자가
   // 다른 걸 두고 왜 다르냐는 질문이 나온다(FlowCards.tsx 상단 주석 참조).
-  return [...types, `작업 비용 ${formatMoneyBy(cost)}`, `게시 ${posted} / ${live.length}`, ...(late ? [`밀림 ${late}`] : [])].join(' · ');
+  return [...types, `작업 비용 ${formatMoneyBy(cost)}`, `게시 ${posted} / ${live.length}`,
+          ...(late ? [`밀림 ${late}`] : []), ...(removed ? [`내림 ${removed}`] : [])].join(' · ');
 }
 export interface FlowStats {
   planned: number; posted: number;

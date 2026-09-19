@@ -49,7 +49,11 @@ export function influencerChangeGuard(
   next: string | null, today: string, opts: { allowReplace?: boolean } = {},
 ): string | null {
   if (cur.cancelledAt) return CANCELLED_TASK_MESSAGE;
-  if (cur.postedAt) return POSTED_TASK_MESSAGE;
+  // 게시 뒤에는 사람을 바꾸거나 뗄 수 없다. 다만 **미배정 작업의 최초 배정**은 허용한다 — 일을 한 사람이
+  // 누구인지 뒤늦게 적는 것이고, 막아 두면 그 작업은 배정·교체·취소·정산이 전부 막혀 삭제 말고는 길이 없다.
+  // ADR 0005가 막으려던 것은 "해제 → 재배정"으로 교체 규칙을 우회하는 것인데, 해제(next === null)는 여기서 계속 막힌다.
+  if (cur.postedAt && cur.influencerHandle !== null) return POSTED_TASK_MESSAGE;
+  if (cur.postedAt && next === null) return POSTED_TASK_MESSAGE;
   const same = (cur.influencerHandle ?? '').toLowerCase() === (next ?? '').toLowerCase();
   if (same) return null;
   if (cur.type === 'visit' && cur.visitOn !== null && cur.visitOn < today) return REPLACE_AFTER_VISIT_MESSAGE;   // 방문 완료 판정과 같은 기준(< 오늘)

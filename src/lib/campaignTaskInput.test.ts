@@ -163,6 +163,11 @@ test('인플 변경 가드 — 상태 제한은 배정·해제·교체에 같고
   assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: '2026-09-15', influencerHandle: 'a' }), 'b', T, { allowReplace: true }), REPLACE_AFTER_VISIT_MESSAGE);
   assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: T, influencerHandle: 'a' }), 'b', T, { allowReplace: true }), null);   // 당일은 허용
   assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: null, influencerHandle: 'a' }), 'b', T, { allowReplace: true }), null); // 미정은 허용
+  // C1-b — 게시 뒤에도 미배정 작업의 "최초 배정"은 허용한다(해제·재배정, 이미 배정된 채 바꾸기는 여전히 막는다)
+  assert.equal(influencerChangeGuard(cur({ postedAt: '2026-09-15' }), 'a', T), null);
+  assert.equal(influencerChangeGuard(cur({ postedAt: '2026-09-15', influencerHandle: 'a' }), 'b', T), POSTED_TASK_MESSAGE);
+  assert.equal(influencerChangeGuard(cur({ postedAt: '2026-09-15', influencerHandle: 'a' }), null, T), POSTED_TASK_MESSAGE);
+  assert.equal(influencerChangeGuard(cur({ postedAt: '2026-09-15' }), null, T), POSTED_TASK_MESSAGE);
 });
 
 test('parseTaskCreate — count: 인플·원고 없는 뼈대만 1~20, 그 외는 거절', () => {

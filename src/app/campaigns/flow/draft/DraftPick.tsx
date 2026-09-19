@@ -31,7 +31,7 @@ export function DraftPick({ candidates, onAttach, attaching }: {
 
   // 검색 전부터 두 묶음이 모두 비어 있으면 붙일 원고 자체가 없다 — 검색칸을 보여줘도 아무것도 못 거른다.
   if (candidates.siblings.length === 0 && candidates.others.length === 0) {
-    return <p className="text-ui text-x-muted">{"붙일 수 있는 원고가 없어요 — '생성'이나 '직접 쓰기'로 만들어요"}</p>;
+    return <p className="text-ui text-x-muted">{"붙일 수 있는 원고가 없어요 — 'AI로 만들기'나 '직접 쓰기'로 만들어요"}</p>;
   }
 
   const siblings = searchDraftCandidates(candidates.siblings, q);

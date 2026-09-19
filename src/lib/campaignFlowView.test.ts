@@ -155,3 +155,9 @@ test('10) 해제 확인 문구 — 실제로 일어날 일만, 해당하는 것�
   // RT 증빙이 없으면 언급하지 않는다 — 없는 것을 지운다고 말하지 않는다
   assert.equal(detachConfirmMessage({ type: 'rt', proof: null, draftStatus: null }), '인플루언서를 미정으로 되돌려요.');
 });
+
+test('11) 원고 칸은 본문 첫 줄을 쓴다 — 첫 줄이 갱신되면 표도 따라간다', () => {
+  const t = mk({ draftId: 'd', draftLabel: '제목', draftFirstLine: '옛 첫 줄' });
+  assert.equal(draftCell(t).text, '옛 첫 줄');
+  assert.equal(draftCell({ ...t, draftFirstLine: '새 첫 줄' }).text, '새 첫 줄');
+});

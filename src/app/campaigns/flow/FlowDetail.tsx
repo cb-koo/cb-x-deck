@@ -421,14 +421,20 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     replace: (t) => setReplaceFor(t),
     cancel: (t) => setCancelFor(t),
     // 되돌리기는 확인 창 없이 즉시 실행한다 — 되돌리기 자체가 되돌리는 동작이고, 결과는 훅이 토스트로 알린다.
-    restore: (t) => { void flowActions.restore(t); },
+    // 취소돼 있던 작업에 붙어 있던 원고는 되돌리며 재부착되거나(reattached) 남의 것이 됐거나(taken) 지워졌을
+    // 수 있다(restoreMessage) — 어느 쪽이든 후보 목록(있는 원고 고르기)이 달라질 수 있어 다시 읽는다.
+    restore: (t) => { void flowActions.restore(t).then((ok) => { if (ok) void reloadCandidates(); }); },
     // 삭제는 기존 관례(CampaignDetail)와 같은 확인 문구 — actions.remove가 실제 삭제. 패널이 지금 이 작업을
     // 보고 있었으면(삭제된 작업 id로 남지 않게) 함께 닫는다.
     remove: (t) => {
       if (!window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}`)) return;
-      void actions.remove(t).then((ok) => { if (ok && panelTaskId === t.id) setPanel(null); });
+      void actions.remove(t).then((ok) => {
+        if (ok && panelTaskId === t.id) setPanel(null);
+        // 원고가 붙어 있던 작업을 지우면 원고는 남되(토스트) 작업 없는 상태가 된다 — 후보로 다시 잡혀야 한다.
+        if (ok && t.draftId) void reloadCandidates();
+      });
     },
-  }), [openPanel, openDraftMode, flowActions, actions, panelTaskId]);
+  }), [openPanel, openDraftMode, flowActions, actions, panelTaskId, reloadCandidates]);
   const renderMenu = useCallback((t: FlowRow): ReactNode => (
     <FlowRowMenu task={t} today={data?.today ?? ''} on={menuActions} />
   ), [menuActions, data?.today]);
@@ -509,7 +515,12 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 응답(DraftRow)으로 카드를 갈아끼우고, 표의 '원고' 칸(상태·라벨)도 같이 맞춘다 — 카드에서 고친 제목이 표에 그대로 보여야 한다.
   function mergeRow(row: DraftRow) {
     setCardDraft((cur) => (cur?.id === row.id ? row : cur));
-    setTasks((cur) => cur.map((t) => (t.draftId === row.id ? { ...t, draftStatus: row.status, draftLabel: draftLabel(row).text } : t)));
+    // draftFirstLine은 표의 원고 칸(R26)이 쓰는 값 — campaignTaskStore.firstLineOf와 같은 식(첫 포스트의
+    // 첫 줄, 공백 정리, 비면 null)이어야 카드에서 고친 뒤와 새로고침 뒤가 같은 문구를 보여준다(Task 6, B 최종 리뷰 M1).
+    const firstLine = ((row.edited ?? row.content).posts[0]?.text ?? '').split('\n')[0].trim() || null;
+    setTasks((cur) => cur.map((t) => (t.draftId === row.id
+      ? { ...t, draftStatus: row.status, draftLabel: draftLabel(row).text, draftFirstLine: firstLine }
+      : t)));
   }
   async function patchDraft(d: DraftRow, body: DraftPatchBody) {
     const r = await patchDraftApi(d.id, body);
@@ -544,9 +555,14 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     if (!r.ok) { show(r.error); return; }
     // 지운 원고가 캐시에 남아 다음 카드에 잘못 뜨지 않게 비운다(오버레이가 있던 시절의 closePeek과 같은 목적)
     setCardDraft(null); setCardErr(null);
-    setTasks((cur) => cur.map((t) => (t.draftId === d.id ? { ...t, draftId: null, draftStatus: null, draftLabel: null } : t)));
+    // draftFirstLine도 같이 비운다 — 남겨두면 draftId는 null이라 칸은 '미정'으로 보이지만, 검색(matchesSearch)은
+    // draftId와 무관하게 draftFirstLine을 그대로 훑어 지워진 원고의 옛 첫 줄로 걸릴 수 있다.
+    setTasks((cur) => cur.map((t) => (t.draftId === d.id ? { ...t, draftId: null, draftStatus: null, draftLabel: null, draftFirstLine: null } : t)));
     show('원고를 삭제했어요 — 작업은 남아 있어요');
     onChanged();
+    // 지운 원고가 어느 배치(batch)에 속했으면, 그 배치의 다른 원고들은 '형제 시안'이었다가 이 원고가
+    // 없어지며 groupings(siblings/others)가 달라질 수 있다 — 후보를 다시 읽는다.
+    void reloadCandidates();
   }
 
   // 원고 카드 배선 — 패널(원고 모드)이 이 하나를 쓴다(다시 쓰기·상태·이미지·금지 표현 등 전부 여기 하나,
@@ -847,7 +863,11 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
       )}
       {cancelFor && (
         <CancelDialog task={cancelFor} onClose={() => setCancelFor(null)}
-                      onConfirm={async (body) => { await flowActions.cancel(cancelFor, body); }} />
+                      onConfirm={async (body) => {
+                        const ok = await flowActions.cancel(cancelFor, body);
+                        // 취소는 붙어 있던 원고를 뗀다(서버, cancelTask) — 후보로 다시 잡혀야 '있는 원고 고르기 n'이 맞다.
+                        if (ok && cancelFor.draftId) void reloadCandidates();
+                      }} />
       )}
       {replaceFor && (
         <ReplaceDialog task={replaceFor} influencerOptions={influencerOptions} onClose={() => setReplaceFor(null)}

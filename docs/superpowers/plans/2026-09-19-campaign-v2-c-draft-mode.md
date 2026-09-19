@@ -40,6 +40,7 @@
 | `src/lib/campaignApi.ts` | `fetchDraftCandidatesApi` · `createDraftsApi` · `createManualDraftApi` 래퍼 | 1 |
 | `src/lib/draftPickView.ts` (+`.test.ts`, 신규) | 후보 검색·라벨·빈 상태 문구, 컴포저 저장 가능 판정 — 순수 함수 | 1·4·5 |
 | `src/app/campaigns/flow/TaskPanel.tsx` | `mode: 'task' | 'draft'` 토글, 원고 모드 머리말(`← 작업으로`)·입구 세 개 | 2 |
+| `src/app/campaigns/flow/FlowRowMenu.tsx` | 원고 항목 셋이 패널의 원고 모드를 연다(바깥 화면으로 나가지 않는다) | 2 |
 | `src/app/campaigns/flow/draft/DraftMode.tsx` (신규) | 원고 모드의 껍데기 — 탭 세 개, 붙어 있으면 `DraftCard` | 2 |
 | `src/app/campaigns/flow/draft/DraftGenerate.tsx` (신규) | 레퍼런스·방향성·접힌 설정·[시안 N개 만들기]·시안 카드 | 3 |
 | `src/lib/draftMedia.ts` | 원고가 생기기 전에 올리는 헬퍼(`uploadPendingDraftImage`) | 4 |
@@ -341,6 +342,7 @@ git commit -m "feat(campaign-v2): 원고 후보 조회(형제 시안·작업 없
   <button type="button" onClick={() => { setDraftTab('pick'); setMode('draft'); }}>있는 원고 고르기{candidateCount !== null ? ` ${candidateCount}` : ''}</button>
   ```
   기존의 `새로 만들기`(→ `/generate` 링크)와 `있는 원고 고르기`(→ `AttachDraftModal`)는 **이 세 버튼으로 대체한다** — 링크와 모달 배선을 지운다(`onGenerateHref`·`onAttachDraft` prop과 `FlowDetail`의 `attachFor` 상태까지). 원고가 붙어 있으면 지금처럼 `제목 · 상태 [열기] [떼기]`이되, `[열기]`가 `setDraftTab` 없이 `setMode('draft')`로 카드를 연다.
+- **행 메뉴도 같은 곳으로 보낸다.** `src/app/campaigns/flow/FlowRowMenu.tsx`의 `원고 열기`·`원고 붙이기`·`새로 만들기`(지금은 `/generate` 링크)는 전부 **그 행의 패널을 원고 모드로 연다**. 한 화면에서 두 갈래(패널 / 바깥 화면)가 생기면 사용자는 어느 쪽이 맞는지 모른다. `FlowRowMenuActions`에 `openDraftMode: (t: FlowRow, tab: DraftTab) => void` 하나를 두고 세 항목이 그것만 부른다 — `generateHref`와 `attachDraft`는 이 메뉴에서 지운다(`FlowDetail`이 넘기던 것도 함께).
 - 헤더: `mode === 'draft'`이면 크럼 자리에 `← 작업으로` 버튼(`onClick={() => setMode('task')}`), 제목은 `원고 · {유형} · {@핸들 또는 인플루언서 미정}`. `···` 메뉴는 원고 모드에서 숨긴다(작업 동작이라 여기서 부를 일이 없다).
 - 푸터: 원고 모드에서는 이전/다음 대신 `[작업으로]` 하나. (작업 사이 이동은 작업 모드의 일이다.)
 - Esc·바깥 클릭: 원고 모드에서도 지금 규칙 그대로 패널이 닫힌다. 단 **원고 모드에서 닫으면 다음에 열 때는 작업 모드**다(모드는 패널 로컬 상태라 자동).
@@ -396,7 +398,7 @@ Expected: 오류 0, `/campaigns/flow` 빌드됨. 화면에서 원고 칸의 세 
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add src/app/campaigns/flow/TaskPanel.tsx src/app/campaigns/flow/draft/DraftMode.tsx src/app/campaigns/flow/FlowDetail.tsx
+git add src/app/campaigns/flow/TaskPanel.tsx src/app/campaigns/flow/draft/DraftMode.tsx src/app/campaigns/flow/FlowRowMenu.tsx src/app/campaigns/flow/FlowDetail.tsx
 git commit -m "feat(campaign-v2): 패널이 원고 모드로 바뀐다 — 세 입구와 붙은 원고 카드"
 ```
 

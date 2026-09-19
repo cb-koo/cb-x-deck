@@ -15,8 +15,9 @@ import { LAST_WS_KEY } from '@/components/GlobalShell';
 import { Button } from '@/components/ui';
 
 // 원고 모드 · AI로 만들기(C 원고 모드 Task 3) — 패널 안에서 시안을 만들고 하나를 그 작업에 붙인다.
-// 첫 화면은 매번 바뀌는 레퍼런스·방향성 둘뿐(브리프 §5-1). 시술·형식·시안 수·제약은 ▸ 설정으로 접고
-// 클라이언트별 마지막 값을 localStorage에 기억한다(기존 /generate COMPOSER_KEY 관례).
+// 첫 화면은 매번 바뀌는 레퍼런스·방향성 둘뿐(브리프 §5-1). 시술·형식·제약은 ▸ 설정으로 접고 클라이언트별
+// 마지막 값을 localStorage에 기억한다(기존 /generate COMPOSER_KEY 관례). 시안 수는 기억하지 않는다 — 아래
+// count 주석 참조(리뷰 지적 4).
 //
 // 참고 방식(form/angle/both)은 이 화면에 노출하지 않는다 — 브리프의 접힌 설정 목록(시술·형식·시안 수·제약)에
 // 없고, "매번 바꾸는 둘만" 원칙과도 맞지 않아 항상 both로 고정한다(레퍼런스가 있으면 형식+앵글 모두 참고).

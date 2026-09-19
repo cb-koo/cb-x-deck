@@ -61,7 +61,10 @@ export function TaskPanel({
   draftCard: ReactNode;       // 붙어 있는 원고의 카드 — FlowDetail이 만든다(로딩·에러 표시도 포함)
   draftGenerate: ReactNode;   // 'AI로 만들기' 탭 본체(DraftGenerate, C 원고 모드 Task 3) — FlowDetail이 만든다
   // 시안을 만드는 동안(draftGenerate 내부 busy) 패널의 바깥 클릭·Esc 닫기를 끈다 — 요청이 오래 걸려도
-  // 실수로 닫혀 만들던 걸 잃지 않게(명시적 [닫기]·[← 작업으로]는 그대로 눌린다, 아래 두 useEffect만 막는다).
+  // 실수로 닫혀 만들던 걸 잃지 않게(아래 두 useEffect가 막는다). 탭 버튼·← 작업으로·푸터 작업으로도 이
+  // 값으로 비활성한다(리뷰 지적 2) — 탭을 바꾸면 DraftGenerate가 언마운트돼 생성 요청이 화면에서 끊겨
+  // 보인다. 헤더 [✕ 닫기]는 막지 않는다(패널이 닫혀도 생성은 미부착 원고로 남는다, DraftGenerate의 '화면을
+  // 떠나도…' 안내와 같은 전제).
   draftBusy: boolean;
   onDetachDraft: (t: FlowRow) => void;
   onReplace: (t: FlowRow) => void;   // 인플루언서 칸의 [바꾸기] — ReplaceDialog를 여는 것은 FlowDetail 쪽(Task 10)
@@ -442,7 +445,17 @@ export function TaskPanel({
       <div className="flex items-start justify-between border-b border-x-border px-6 pt-5 pb-4">
         <div className="min-w-0">
           {inDraftMode
-            ? <button type="button" onClick={() => setDraftMode('task')} className="text-ui text-x-secondary hover:underline">← 작업으로</button>
+            ? (
+              <span className="flex items-center gap-1.5">
+                {/* 생성 중엔 막는다(리뷰 지적 2) — 탭을 바꾸면 DraftGenerate가 언마운트돼 생성 요청이 화면에서
+                    끊겨 보인다. title만으로 끝내지 않고 보이는 이유를 옆에 둔다(거짓 어포던스 금지). */}
+                <button type="button" onClick={() => setDraftMode('task')} disabled={draftBusy}
+                        className="text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
+                  ← 작업으로
+                </button>
+                {draftBusy && <span className="text-caption text-x-muted">만드는 중이에요</span>}
+              </span>
+            )
             : <p className="text-ui text-x-secondary">{crumb}</p>}
           <h2 className="mt-0.5 truncate text-[20px]">{inDraftMode ? draftTitle : title}</h2>
         </div>
@@ -455,7 +468,7 @@ export function TaskPanel({
 
       <div className="flex-1 space-y-5 overflow-y-auto px-6 py-4">
         {inDraftMode && task ? (
-          <DraftMode attached={!!task.draftId} tab={draftTab} onTab={setDraftTab} pickCount={pickCount}
+          <DraftMode attached={!!task.draftId} tab={draftTab} onTab={setDraftTab} busy={draftBusy} pickCount={pickCount}
                      card={draftCard}
                      generate={draftGenerate}
                      write={<p className="text-ui text-x-muted">(Task 4에서 채웁니다)</p>}
@@ -508,7 +521,11 @@ export function TaskPanel({
       <div className="flex items-center gap-3 border-t border-x-border px-6 py-3">
         {inDraftMode ? (
           // 원고 모드에서는 이전/다음 대신 이것 하나 — 작업 사이 이동은 작업 모드의 일이다.
-          <Button onClick={() => setDraftMode('task')} className="ml-auto h-9 px-3.5 text-ui">작업으로</Button>
+          // 생성 중엔 이 버튼도 막는다(리뷰 지적 2, 위 헤더 ← 작업으로와 같은 이유·같은 문구).
+          <div className="ml-auto flex items-center gap-2">
+            {draftBusy && <span className="text-caption text-x-muted">만드는 중이에요</span>}
+            <Button onClick={() => setDraftMode('task')} disabled={draftBusy} className="h-9 px-3.5 text-ui">작업으로</Button>
+          </div>
         ) : task ? (
           <div className="ml-auto flex items-center gap-3">
             <Button onClick={onPrev} disabled={!validIndex || index <= 0} className="h-9 px-3 text-ui">← 이전</Button>

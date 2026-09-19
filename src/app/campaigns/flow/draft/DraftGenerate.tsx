@@ -9,7 +9,7 @@ import type { FlowRow } from '@/lib/campaignFlowView';
 import { createDraftsApi, patchDraftApi } from '@/lib/campaignApi';
 import { canGenerate, COST_CAPTION, DEFAULT_COMPOSER, type ComposerState } from '@/components/DraftComposer';
 import { candidateLine } from '@/lib/draftPickView';
-import { RefPickerSheet } from '@/components/RefPickerSheet';
+import { RefPickerSheet, MAX_REFS_UI } from '@/components/RefPickerSheet';
 import { AddByLinkModal, type AddedByLink } from '@/components/AddByLinkModal';
 import { LAST_WS_KEY } from '@/components/GlobalShell';
 import { Button } from '@/components/ui';
@@ -21,19 +21,31 @@ import { Button } from '@/components/ui';
 // 참고 방식(form/angle/both)은 이 화면에 노출하지 않는다 — 브리프의 접힌 설정 목록(시술·형식·시안 수·제약)에
 // 없고, "매번 바꾸는 둘만" 원칙과도 맞지 않아 항상 both로 고정한다(레퍼런스가 있으면 형식+앵글 모두 참고).
 const settingsKey = (clientId: string) => `campaign-v2-draft-settings:${clientId}`;
-type FoldedSettings = { procedureIds: string[]; format: ComposerState['format']; constraintsOn: boolean; count: number };
+// count(시안 수)는 여기 없다 — /generate가 이미 막아 둔 것과 같은 이유(generate/page.tsx:211,473 주석 "시안 수는
+// 1회용"): 기억해 두면 한 번 5로 늘린 사용자가 그 뒤 모든 생성에서 조용히 5배를 낸다. 매 마운트 1에서 시작하고
+// 생성이 끝나면 다시 1로 돌아온다(리뷰 지적 4).
+type FoldedSettings = { procedureIds: string[]; format: ComposerState['format']; constraintsOn: boolean };
 const DEFAULT_FOLDED: FoldedSettings = {
   procedureIds: DEFAULT_COMPOSER.procedureIds, format: DEFAULT_COMPOSER.format,
-  constraintsOn: DEFAULT_COMPOSER.constraintsOn, count: DEFAULT_COMPOSER.count,
+  constraintsOn: DEFAULT_COMPOSER.constraintsOn,
 };
 
+// DraftComposer.tsx의 bannedPhraseCount와 같은 계산(그 파일은 이번 커밋 대상이 아니라 export를 늘리지 않고
+// 여기서 다시 계산한다) — generatePrompt가 procedureIds로 시술을 거르므로 같은 집합을 세야 표시와 동작이
+// 일치한다(리뷰 지적 5).
+function bannedPhraseCount(clientBannedPhrases: string[], procedures: ProcedureRow[], procedureIds: string[]): number {
+  return clientBannedPhrases.length
+    + procedures.filter((p) => procedureIds.includes(p.id)).reduce((n, p) => n + p.bannedPhrases.length, 0);
+}
+
 export function DraftGenerate({
-  task, clientId, clientName, procedures, targetRef, onAttached, onGenerated, onBusyChange,
+  task, clientId, clientName, procedures, clientBannedPhrases, targetRef, onAttached, onGenerated, onBusyChange, onOverlayChange,
 }: {
   task: FlowRow;
   clientId: string | null;
   clientName: string | null;
   procedures: ProcedureRow[];
+  clientBannedPhrases: string[];   // 클라이언트 공통 금지 표현(리뷰 지적 5) — clientData.client.bannedPhrases, bannedFor와 같은 출처
   targetRef: { tweetId: string; label: string } | null;   // 인용RT의 대상 게시물(자동 포함)
   onAttached: (d: DraftRow) => void;   // 시안을 붙였다 — 부모가 상세를 다시 읽고 카드로 전환한다
   // 브리프의 계약엔 없지만(§ Interfaces), 생성 뒤 '있는 원고 고르기' 후보 수를 갱신하려면 부모(FlowDetail)의
@@ -42,6 +54,10 @@ export function DraftGenerate({
   // 생성 중엔 패널의 Esc·바깥 클릭 닫기를 부모(TaskPanel)가 끄게 한다(원고 모드 §Step3 "만드는 동안
   // 패널에 머무른다") — 이 컴포넌트의 로컬 busy는 TaskPanel이 못 보므로 콜백으로 올려 보낸다.
   onBusyChange: (busy: boolean) => void;
+  // 레퍼런스 고르기 시트·링크 추가 모달이 떠 있는 동안은 패널의 Esc를 끈다(리뷰 지적 1, Critical) — 두 오버레이는
+  // 버블 단계에서 keydown을 듣고 stopPropagation을 하지 않아, 패널의 Esc 리스너가 먼저 잡아 패널째로 닫혀 버린다.
+  // onBusyChange와 같은 방식(부모가 못 보는 로컬 상태를 콜백으로 올린다, 언마운트 시 false로 정리).
+  onOverlayChange: (open: boolean) => void;
 }) {
   const { show } = useToast();
   const [refs, setRefs] = useState<ReferenceRow[]>([]);
@@ -49,23 +65,38 @@ export function DraftGenerate({
   const [linkOpen, setLinkOpen] = useState(false);
   const [direction, setDirection] = useState('');
   const [folded, setFolded] = useState<FoldedSettings>(DEFAULT_FOLDED);
+  const [count, setCount] = useState(DEFAULT_COMPOSER.count);   // 저장·복원하지 않는다(위 FoldedSettings 주석)
   const [busy, setBusy] = useState(false);
   const [variants, setVariants] = useState<DraftRow[]>([]);
-  const [attaching, setAttaching] = useState(false);
+  const [attaching, setAttaching] = useState<string | null>(null);   // 붙이는 중인 시안의 id(리뷰 지적 6)
 
-  // 클라이언트별 마지막 설정 복원 — 마운트 시 1회(기존 COMPOSER_KEY 관례와 같다)
+  // 클라이언트별 마지막 설정 복원 — 마운트 시 1회(기존 COMPOSER_KEY 관례와 같다). 저장값은 그대로 믿지 않는다
+  // (리뷰 지적 4) — 깨졌거나 옛 모양이면 기본값으로 떨어뜨리고, format은 아는 값인지, procedureIds는 문자열
+  // 배열인지 하나씩 확인한다. count는 이제 저장하지 않으니 검사할 것도, 복원할 것도 없다.
   useEffect(() => {
     if (!clientId) return;
     try {
       const s = localStorage.getItem(settingsKey(clientId));
+      if (!s) return;
+      const parsed: unknown = JSON.parse(s);
+      if (!parsed || typeof parsed !== 'object') return;
+      const p = parsed as Record<string, unknown>;
+      const next: FoldedSettings = { ...DEFAULT_FOLDED };
+      if (Array.isArray(p.procedureIds) && p.procedureIds.every((x) => typeof x === 'string')) next.procedureIds = p.procedureIds;
+      if (p.format === 'single' || p.format === 'thread') next.format = p.format;
+      if (typeof p.constraintsOn === 'boolean') next.constraintsOn = p.constraintsOn;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 저장값 복원(기존 코드베이스 관례, /generate 선례)
-      if (s) setFolded((cur) => ({ ...cur, ...JSON.parse(s) }));
+      setFolded(next);
     } catch { /* 무시 — 저장값이 깨졌어도 기본값으로 계속 쓴다 */ }
   }, [clientId]);
 
   // busy를 부모에 올려 보낸다 — 언마운트(탭을 벗어남 등) 시에는 false로 되돌려 부모가 영영 막힌 채로 남지 않게 한다.
   useEffect(() => { onBusyChange(busy); }, [busy, onBusyChange]);
   useEffect(() => () => onBusyChange(false), [onBusyChange]);
+  // overlayOpen도 같은 방식으로 올려 보낸다(위 onOverlayChange 주석) — 언마운트 시 false로 정리.
+  const overlayOpen = pickerOpen || linkOpen;
+  useEffect(() => { onOverlayChange(overlayOpen); }, [overlayOpen, onOverlayChange]);
+  useEffect(() => () => onOverlayChange(false), [onOverlayChange]);
 
   const lastWsId = typeof window !== 'undefined' ? localStorage.getItem(LAST_WS_KEY) : null;
 
@@ -80,7 +111,15 @@ export function DraftGenerate({
   // /generate의 handleAddedByLink와 같은 패턴(단건 조회 API가 없어 전량에서 찾는다).
   async function handleAddedByLink(r: AddedByLink) {
     const saved = r.alreadyInLibrary ? '이미 보관함에 있어요' : '보관함에 추가했어요';
-    if (refs.some((x) => x.tweetId === r.tweetId)) { show(`${saved} — 이미 레퍼런스로 선택돼 있어요`); return; }
+    // 대상 게시물(targetRef)도 레퍼런스 한 자리를 쓴다 — 중복으로 넣지 않는다(리뷰 지적 6).
+    if (targetRef?.tweetId === r.tweetId || refs.some((x) => x.tweetId === r.tweetId)) {
+      show(`${saved} — 이미 레퍼런스로 선택돼 있어요`); return;
+    }
+    // 서버 상한 8을 넘지 않는다 — 대상 게시물도 한 자리로 센다(refCount, 아래). 고르기 시트(RefPickerSheet의
+    // handleAdded)와 같은 상한을 여기 링크 경로에도 적용한다(리뷰 지적 6, /generate handleAddedByLink 선례).
+    if (refCount >= MAX_REFS_UI) {
+      show(`${saved} — 레퍼런스가 ${MAX_REFS_UI}건이라 자동 선택은 안 했어요. 위 레퍼런스 목록에서 조정해주세요`); return;
+    }
     try {
       const res = await apiFetch('/api/references?scope=all');
       if (!res.ok) throw new Error(String(res.status));
@@ -96,10 +135,11 @@ export function DraftGenerate({
 
   const composerValue: ComposerState = {
     clientId, procedureIds: folded.procedureIds, format: folded.format, mode: 'both',
-    constraintsOn: folded.constraintsOn, direction, count: folded.count,
+    constraintsOn: folded.constraintsOn, direction, count,
   };
   const refCount = refs.length + (targetRef ? 1 : 0);
   const ok = canGenerate(composerValue, refCount);
+  const bannedCount = bannedPhraseCount(clientBannedPhrases, procedures, folded.procedureIds);
 
   async function run() {
     if (busy || !ok) return;
@@ -107,20 +147,22 @@ export function DraftGenerate({
     const r = await createDraftsApi({
       clientId, procedureIds: folded.procedureIds,
       refTweetIds: [...(targetRef ? [targetRef.tweetId] : []), ...refs.map((x) => x.tweetId)],
-      mode: 'both', direction, format: folded.format, constraintsOn: folded.constraintsOn, count: folded.count,
+      mode: 'both', direction, format: folded.format, constraintsOn: folded.constraintsOn, count,
     });
     setBusy(false);
     if (!r.ok) { show(r.error); return; }
     setVariants(r.data);   // 미부착 원고들 — taskId를 보내지 않았다
+    setCount(DEFAULT_COMPOSER.count);   // 시안 수는 1회용 — 다음 생성이 조용히 N배 비용이 되지 않게(/generate와 같은 규칙, 리뷰 지적 4)
     onGenerated();   // 고르지 않은 시안도 '있는 원고 고르기' 후보가 된다 — 부모가 다시 읽어야 그 수가 맞는다
   }
 
   async function attach(d: DraftRow) {
     if (attaching) return;
-    setAttaching(true);
+    setAttaching(d.id);
     const r = await patchDraftApi(d.id, { taskId: task.id });
-    setAttaching(false);
-    if (!r.ok) { show(r.error); return; }   // 이미 붙었거나 취소된 작업이면 서버가 문구를 준다
+    // 실패했을 때만 되돌린다(리뷰 지적 6) — 성공 경로에서 먼저 풀면 상세 재조회(onAttached → 부모의 load)가
+    // 끝나기 전까지 다른 시안 버튼이 다시 눌려 409를 부른다. 성공하면 카드로 바뀌며 이 화면 자체가 사라진다.
+    if (!r.ok) { setAttaching(null); show(r.error); return; }   // 이미 붙었거나 취소된 작업이면 서버가 문구를 준다
     onAttached(r.data);
   }
 
@@ -128,9 +170,10 @@ export function DraftGenerate({
   const settingsSummary = [
     procNames.length ? `시술 ${procNames.join('·')}` : '시술 없음',
     folded.format === 'single' ? '단문' : '스레드',
-    `시안 ${folded.count}개`,
-    `제약 ${folded.constraintsOn ? '켬' : '끔'}`,
-  ].join(' · ');
+    `시안 ${count}개`,
+    // 금지 표현이 0건이면 켜도 프롬프트에 실리는 게 없다 — 적용되지 않는 보호를 적용됐다고 말하지 않는다(리뷰 지적 5)
+    bannedCount > 0 ? `제약 ${folded.constraintsOn ? '켬' : '끔'}` : null,
+  ].filter(Boolean).join(' · ');
 
   return (
     <div className="space-y-4">
@@ -159,9 +202,10 @@ export function DraftGenerate({
                   className="mt-1 w-full resize-none rounded-md border border-x-border-strong px-3 py-2 text-content outline-none focus:border-x-blue" />
       </label>
 
-      <details className="border-t border-x-border pt-3">
+      <details className="group border-t border-x-border pt-3">
         <summary className="cursor-pointer list-none text-ui text-x-secondary">
-          ▸ 설정 <span className="text-x-muted">{settingsSummary}</span>
+          {/* group-open: 열렸을 때 ▸를 90도 돌려 방향을 맞춘다(리뷰 지적 6 — 열어도 안 돌아가던 것) */}
+          <span className="inline-block transition-transform group-open:rotate-90">▸</span> 설정 <span className="text-x-muted">{settingsSummary}</span>
         </summary>
         <div className="mt-3 space-y-3.5">
           {procedures.length > 0 && (
@@ -195,26 +239,37 @@ export function DraftGenerate({
           <label className="flex items-center justify-between gap-2">
             <span className="text-ui text-x-secondary">시안 수</span>
             <span className="flex items-center gap-1.5">
-              <input type="number" min={1} max={5} value={folded.count}
-                     onChange={(e) => updateFolded({ ...folded, count: Math.min(5, Math.max(1, Math.trunc(Number(e.target.value) || 1))) })}
+              <input type="number" min={1} max={5} value={count}
+                     onChange={(e) => setCount(Math.min(5, Math.max(1, Math.trunc(Number(e.target.value) || 1))))}
                      className="h-9 w-14 rounded-lg border border-x-border-strong bg-white px-2 text-center text-ui outline-none focus:border-x-blue" />
               <span className="text-ui text-x-secondary">개</span>
             </span>
           </label>
-          <label className="flex items-center gap-2">
-            <input type="checkbox" checked={folded.constraintsOn} onChange={(e) => updateFolded({ ...folded, constraintsOn: e.target.checked })} className="h-4 w-4 shrink-0" />
+          {/* 금지 표현이 0건이면 잠근다(DraftComposer.tsx:224와 같은 규칙, 리뷰 지적 5) — 켜도 아무 일이
+              없는데 켤 수 있게 두면 지켜지는 줄 알고 안심하게 된다. title만으로 끝내지 않고 보이는 이유를 붙인다. */}
+          <label className={`flex items-center gap-2 ${bannedCount === 0 ? 'opacity-60' : ''}`}>
+            <input type="checkbox" checked={folded.constraintsOn} disabled={bannedCount === 0}
+                   onChange={(e) => updateFolded({ ...folded, constraintsOn: e.target.checked })} className="h-4 w-4 shrink-0" />
             <span className="text-ui text-x-text">의료광고 제약(금지 표현) 피하기</span>
           </label>
+          {bannedCount === 0 && (
+            <p className="-mt-2 text-caption text-x-muted">등록된 금지 표현이 없어 지금은 켜도 달라지는 게 없어요</p>
+          )}
         </div>
       </details>
 
       <div className="flex items-center gap-2 pt-1">
         <Button variant="primary" disabled={busy || !ok} onClick={() => void run()} className="h-10 px-4 text-content">
-          {busy ? '만드는 중…' : `시안 ${folded.count}개 만들기`}
+          {busy ? '만드는 중…' : `시안 ${count}개 만들기`}
         </Button>
-        <span className="text-caption text-x-muted">{COST_CAPTION}</span>
+        {/* DraftComposer.tsx(ComposerFooter)와 같은 문구 — 시안 수만큼 비용이 늘어난다는 걸 값으로도 말한다(리뷰 지적 3).
+            소요 시간도 함께 — 만드는 중엔 Esc가 말없이 먹히므로 얼마나 걸리는지 알아야 한다. */}
+        <span className="text-caption text-x-muted">{COST_CAPTION}{count > 1 ? ` × ${count}` : ''} · 15~30초</span>
       </div>
       {!ok && <p className="text-caption text-x-muted">클라이언트·레퍼런스·방향성 중 하나는 있어야 만들 수 있어요</p>}
+      {/* 표의 다른 행을 누르면 패널이 통째로 리마운트돼 막을 수 없다 — 그래서 미리 말한다(리뷰 지적 2).
+          실제로 그렇게 동작한다: onGenerated가 클로저에서 불려 후보 목록이 갱신된다. */}
+      {busy && <p className="text-caption text-x-muted">화면을 떠나도 만들어진 시안은 ‘있는 원고 고르기’에 남아요</p>}
 
       {variants.length > 0 && (
         <div className="space-y-2 border-t border-x-border pt-3">
@@ -225,7 +280,9 @@ export function DraftGenerate({
               <div key={d.id} className="rounded-lg border border-x-border p-3">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-ui text-x-secondary">시안 {'ABCDE'[i] ?? i + 1}</p>
-                  <Button variant={i === 0 ? 'primary' : 'subtle'} disabled={attaching} onClick={() => void attach(d)} className="h-8 shrink-0 px-2.5">이 시안 붙이기</Button>
+                  <Button variant={i === 0 ? 'primary' : 'subtle'} disabled={!!attaching} onClick={() => void attach(d)} className="h-8 shrink-0 px-2.5">
+                    {attaching === d.id ? '붙이는 중…' : '이 시안 붙이기'}
+                  </Button>
                 </div>
                 <p className="mt-1 whitespace-pre-wrap text-content">{(d.edited ?? d.content).posts.map((p) => p.text).join('\n\n')}</p>
                 <p className="mt-1 text-caption text-x-muted">{line.meta}</p>

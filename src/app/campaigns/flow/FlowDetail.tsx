@@ -120,6 +120,10 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   // AI로 만들기(Task 3)가 시안을 만드는 동안 — TaskPanel이 이 값으로 바깥 클릭·Esc 닫기를 끈다(생성 중
   // 실수로 패널이 닫혀도 만들던 결과 자체는 미부착 원고로 남지만, 사용자가 붙일 기회를 놓치지 않게 한다).
   const [draftBusy, setDraftBusy] = useState(false);
+  // 레퍼런스 고르기 시트·링크 추가 모달이 원고 모드 안에서 떠 있는 동안(리뷰 지적 1, Critical) — 두 오버레이는
+  // document keydown을 버블 단계에서 듣고 stopPropagation을 안 해서, 먼저 등록된 패널의 Esc가 패널째로 닫아
+  // 버린다. overlayOpen(아래)에 OR로 더해 막는다 — 다른 오버레이들과 같은 자리, DraftGenerate의 onOverlayChange가 채운다.
+  const [draftOverlayOpen, setDraftOverlayOpen] = useState(false);
 
   // 요청 토큰 — 캠페인을 빠르게 갈아타면 앞 캠페인의 응답이 뒤에 도착할 수 있다. 그때 화면에는 이미 다른 캠페인이
   // 떠 있으므로 옛 응답은 성공이든 실패든 버린다(남의 캠페인 데이터·오류 배너가 붙는 것을 막는다).
@@ -492,9 +496,10 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   const draftGenerate: ReactNode = panelTask
     ? (
       <DraftGenerate task={panelTask} clientId={clientId} clientName={clientData?.client.name ?? null}
-                     procedures={clientData?.procedures ?? []} targetRef={targetRef}
+                     procedures={clientData?.procedures ?? []} clientBannedPhrases={clientData?.client.bannedPhrases ?? []}
+                     targetRef={targetRef}
                      onAttached={onDraftAttached} onGenerated={() => void reloadCandidates()}
-                     onBusyChange={setDraftBusy} />
+                     onBusyChange={setDraftBusy} onOverlayChange={setDraftOverlayOpen} />
     )
     : null;
   // '있는 원고 고르기 n' — Task 1의 후보 조회 합. 아직 못 읽었으면 null(0이라고 거짓말하지 않는다, 결정 4).
@@ -630,9 +635,10 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
                              : <Button variant="subtle" onClick={() => setPostedFor(panelTask)} className="h-9 px-3.5 text-ui">게시 확인</Button>))
                        : null,
                    }}
-                   // 패널 위에 뜬 다른 레이어(편집 모달·한 번에 만들기·게시 확인·게시물 연결·취소·교체)가
-                   // 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를 닫는 Esc 한 번에 패널까지 같이 닫힌다.
-                   overlayOpen={!!editing || bulkOpen || !!postedFor || removedOpen || !!linkFor || !!cancelFor || !!replaceFor}
+                   // 패널 위에 뜬 다른 레이어(편집 모달·한 번에 만들기·게시 확인·게시물 연결·취소·교체·
+                   // 원고 모드의 레퍼런스 고르기·링크 추가)가 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를
+                   // 닫는 Esc 한 번에 패널까지 같이 닫힌다(리뷰 지적 1, Critical).
+                   overlayOpen={!!editing || bulkOpen || !!postedFor || removedOpen || !!linkFor || !!cancelFor || !!replaceFor || draftOverlayOpen}
                    onDirtyChange={onNewDirtyChange} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}

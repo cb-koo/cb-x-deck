@@ -159,11 +159,13 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const [refreshing] = useState(false);   // TODO(Task 11): 실제 진행 상태로 교체
   const onRefresh = useCallback(() => { /* TODO(Task 11): refreshCampaignPerfApi(id) 연결 */ }, []);
 
-  // 오른쪽 패널이 가리키는 작업 — shown에서 찾는다(패널의 이전/다음도 이 순서를 걷는다, 결정 4).
+  // 오른쪽 패널 — 이전/다음은 shown(표시 순서, 결정 4)을 걷지만, 패널이 보여줄 작업 자체는 data.tasks에서 찾는다.
+  // shown으로 찾으면 패널을 연 채 필터를 바꾸거나(다른 세션 변경으로) 단계가 바뀌어 이 작업이 shown에서
+  // 빠지는 순간 패널이 '작업 없음'으로 보인다 — 열려 있는 작업은 화면에서 안 보여도 패널 안에서는 계속 보여야 한다.
   const isNew = !!panel && 'fresh' in panel;
   const panelTaskId = panel && 'taskId' in panel ? panel.taskId : null;
   const panelIndex = panelTaskId ? shown.findIndex((t) => t.id === panelTaskId) : -1;
-  const panelTask = panelIndex >= 0 ? shown[panelIndex] : null;
+  const panelTask = panelTaskId ? (data?.tasks.find((t) => t.id === panelTaskId) ?? null) : null;
   const openPanel = useCallback((taskId: string) => setPanel({ taskId }), []);
   const openNew = useCallback(() => setPanel({ fresh: true }), []);
   const openBulk = useCallback(() => setBulkOpen(true), []);

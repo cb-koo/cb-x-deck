@@ -16,11 +16,12 @@ function SettlementInner() {
   const [tab, setTabState] = useState<SettlementTab>(() => parseSettlementTab(sp.get('tab')));
   const [focusTaskId, setFocusTaskId] = useState<string | null>(() => sp.get('task'));
   const [focusRequestId, setFocusRequestId] = useState<string | null>(() => sp.get('request'));
-  const [focusCampaignId] = useState<string | null>(() => sp.get('campaign'));
+  const [focusCampaignId, setFocusCampaignId] = useState<string | null>(() => sp.get('campaign'));
   const setTab = useCallback((t: SettlementTab) => {
     setTabState(t);
-    setFocusTaskId(null);      // 탭을 바꾸면 딥링크로 들어온 '요청 하나만 보기' 필터는 해제한다(기존 동작 유지 + request도 함께)
+    setFocusTaskId(null);      // 탭을 바꾸면 딥링크로 들어온 좁힘(요청 하나만·캠페인 하나만)은 전부 해제한다 — URL에서도 아래에서 같이 지운다
     setFocusRequestId(null);
+    setFocusCampaignId(null);  // 안 지우면 탭을 떠났다 돌아올 때마다 캠페인 필터가 되살아나 사용자가 고른 값을 덮는다
     // 네이티브 History API로 URL만 갱신한다 — Next 라우터의 서버 왕복을 기다리지 않는다(pathname/searchParams와는
     // 계속 동기화된다: node_modules/next/dist/docs/01-app/01-getting-started/04-linking-and-navigating.md
     // "Native History API" 절 — pushState/replaceState calls integrate into the Next.js Router).

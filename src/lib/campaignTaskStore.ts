@@ -5,7 +5,7 @@ import { TARGETABLE_TYPES, type TaskType } from './campaignJudgment.ts';
 import { tweetPermalink } from './tweetLink.ts';
 import { isUuidLike } from './uuid.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
-import { influencerChangeGuard, type CancelReason } from './campaignTaskInput.ts';
+import { influencerChangeGuard, POSTED_TASK_MESSAGE, type CancelReason } from './campaignTaskInput.ts';
 // draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
 // getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
 import type { DraftRow } from './draftStore.ts';
@@ -29,9 +29,12 @@ export interface TaskRow {
   cancelledDraftId: string | null; cancelledDraftTitle: string | null;
   createdAt: string; updatedAt: string;
   draftStatus: DraftStatus | null; draftLabel: string | null;   // 붙은 원고 요약 — 표의 '원고' 열
+  draftFirstLine: string | null;   // 붙은 원고 본문 첫 줄(v2 표의 원고 칸, R26) — 제목이 아니라 내용
   // 대상 작업 요약(§4-1 'RT/인용RT 대상' 열) — 다른 캠페인이면 campaignName으로 구분해 보인다
   // cancelledAt은 대상 작업 자체의 취소 여부(R19) — 이 작업(RT/인용RT)이 취소된 게 아니라 가리키는 대상이 취소됐음을 안다.
-  target: { taskId: string; type: TaskType; influencerHandle: string | null; campaignId: string; campaignName: string; postUrl: string | null; cancelledAt: string | null } | null;
+  // postedAt(I3) — 대상이 게시 확인은 됐는데 링크가 아직 없는 상태를 "게시 확인 전"이라고 잘못 말하지
+  // 않으려면 postUrl 유무만으로는 부족하다(사람이 날짜만 찍고 링크는 나중에 등록하는 경로가 있다).
+  target: { taskId: string; type: TaskType; influencerHandle: string | null; campaignId: string; campaignName: string; postUrl: string | null; postedAt: string | null; cancelledAt: string | null } | null;
 }
 export interface TaskCreateInput {
   type: TaskType; targetTaskId: string | null; targetTweetUrl: string | null; draftId: string | null;
@@ -68,7 +71,7 @@ type Row = {
   created_at: Date; updated_at: Date;
   draft_status: DraftStatus | null; draft_title: string | null; draft_ko_title: string | null; draft_first_line: string | null;
   tg_id: string | null; tg_type: TaskType | null; tg_handle: string | null; tg_campaign_id: string | null; tg_campaign_name: string | null; tg_post_url: string | null;
-  tg_cancelled_at: string | null;
+  tg_posted_at: string | null; tg_cancelled_at: string | null;
 };
 
 function costOf(v: unknown): TaskCost | null {
@@ -79,6 +82,11 @@ function costOf(v: unknown): TaskCost | null {
 function labelOf(r: Row): string | null {
   const first = (r.draft_first_line ?? '').split('\n')[0].trim();
   return r.draft_title?.trim() || r.draft_ko_title || (first ? (first.length > 60 ? first.slice(0, 60) + '…' : first) : null);
+}
+// v2 표의 원고 칸(R26) — 제목·상태가 아니라 본문 첫 줄. 화면이 truncate하므로 길이는 여기서 자르지 않는다(툴팁에 전체).
+function firstLineOf(r: Row): string | null {
+  const first = (r.draft_first_line ?? '').split('\n')[0].trim();
+  return first || null;
 }
 const toRow = (r: Row): TaskRow => ({
   id: r.id, campaignId: r.campaign_id, influencerHandle: r.influencer_handle, type: r.type,
@@ -91,10 +99,11 @@ const toRow = (r: Row): TaskRow => ({
   cancelledDraftId: r.cancelled_draft_id, cancelledDraftTitle: r.cancelled_draft_title,
   createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
   draftStatus: r.draft_id ? r.draft_status : null, draftLabel: r.draft_id ? labelOf(r) : null,
+  draftFirstLine: r.draft_id ? firstLineOf(r) : null,
   target: r.tg_id ? {
     taskId: r.tg_id, type: r.tg_type as TaskType, influencerHandle: r.tg_handle,
     campaignId: r.tg_campaign_id as string, campaignName: r.tg_campaign_name as string, postUrl: r.tg_post_url,
-    cancelledAt: r.tg_cancelled_at,
+    postedAt: r.tg_posted_at, cancelledAt: r.tg_cancelled_at,
   } : null,
 });
 
@@ -110,7 +119,8 @@ const SELECT = (sql: postgres.Sql) => sql`
          d.status as draft_status, d.title as draft_title, d.ko_title as draft_ko_title,
          coalesce(d.edited, d.content)->'posts'->0->>'text' as draft_first_line,
          tg.id as tg_id, tg.type as tg_type, tg.influencer_handle as tg_handle, tg.campaign_id as tg_campaign_id,
-         tgc.name as tg_campaign_name, tg.post_url as tg_post_url, to_char(tg.cancelled_at, 'YYYY-MM-DD') as tg_cancelled_at
+         tgc.name as tg_campaign_name, tg.post_url as tg_post_url, to_char(tg.posted_at, 'YYYY-MM-DD') as tg_posted_at,
+         to_char(tg.cancelled_at, 'YYYY-MM-DD') as tg_cancelled_at
     from campaign_task t
     left join draft d on d.id = t.draft_id
     left join campaign_task tg on tg.id = t.target_task_id
@@ -475,6 +485,10 @@ export async function replaceInfluencer(
         from campaign_task where id = ${id} for update`;
     if (rows.length === 0) return 'not-found';
     const cur = rows[0];
+    // 게시된 작업은 교체하지 않는다(ADR 0005 "게시 전만"). 공용 가드는 게시된 **미배정** 작업의 최초 배정을
+    // 허용하도록 열려 있으므로(C1-b), 교체 라우트는 자기 규칙을 여기서 직접 든다 — 안 그러면 API로 게시된
+    // RT의 증빙이 흔적 정리에 쓸려 나간다(PATCH 쪽은 proofGateError가 막는 불변식).
+    if (cur.posted_at) return POSTED_TASK_MESSAGE;
     const guard = influencerChangeGuard(
       { postedAt: cur.posted_at, cancelledAt: cur.cancelled_at, type: cur.type, visitOn: cur.visit_on, influencerHandle: cur.influencer_handle },
       input.handle, input.today, { allowReplace: true },

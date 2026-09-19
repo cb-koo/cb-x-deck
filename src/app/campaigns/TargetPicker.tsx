@@ -82,7 +82,7 @@ export function TargetPicker({ value, clientId, campaignId, excludeTaskId, onCha
   return (
     <div ref={boxRef} className="relative">
       <input value={q} autoFocus={autoFocus} onChange={(e) => { setQ(e.target.value); setErr(''); setOpen(true); }} onFocus={() => setOpen(true)}
-             onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); if (isLink) pickLink(); } if (e.key === 'Escape') setOpen(false); }}
+             onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); if (isLink) pickLink(); } if (e.key === 'Escape') { if (open) e.stopPropagation(); setOpen(false); } }}
              placeholder="@핸들이나 원고 제목으로 찾기 — 또는 X 링크 붙이기" aria-label="대상 찾기" className={input} />
       {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
       {quick.length > 0 && !q && (

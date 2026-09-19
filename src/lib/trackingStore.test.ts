@@ -6,10 +6,11 @@ import type { DraftContent } from './draftTypes.ts';
 import { insertLink } from './linkStore.ts';
 import { createClient } from './clientStore.ts';
 import { createCampaign } from './campaignStore.ts';
-import { createTasks, getTask } from './campaignTaskStore.ts';
+import { createTasks, getTask, cancelTask } from './campaignTaskStore.ts';
 import {
   addTrackedPost, listTrackedPosts, findByTweetId, findTrackedPostById,
   appendSnapshot, markUnavailable, linkTrackedPost, deleteTrackedPost, listSnapshots, setRole,
+  listTrackedPostIdsForCampaign,
   TrackingLinkError,
 } from './trackingStore.ts';
 
@@ -251,4 +252,41 @@ test('11) 게시물 연결 — 취소된 작업에 원고가 붙은 비정상 �
     (e: unknown) => e instanceof TrackingLinkError && e.code === 'cancelled-task',
   );
   assert.equal((await findTrackedPostById(sql, row.id))!.taskId, null);   // 연결되지 않았다
+});
+
+test('12) listTrackedPostIdsForCampaign — 게시 확인된·취소 아닌 작업의 게시물만, 다른 캠페인 제외', async () => {
+  const c1 = await createClient(sql, P + '유입클라1');
+  const camp1 = await createCampaign(sql, { clientId: c1.id, clientName: c1.name, name: P + 'camp1', nameEn: `${P.toLowerCase()}-camp1`, startsOn: '2026-09-14', endsOn: '2026-09-20', kind: null, note: '', createdBy: null });
+  const c2 = await createClient(sql, P + '유입클라2');
+  const camp2 = await createCampaign(sql, { clientId: c2.id, clientName: c2.name, name: P + 'camp2', nameEn: `${P.toLowerCase()}-camp2`, startsOn: '2026-09-14', endsOn: '2026-09-20', kind: null, note: '', createdBy: null });
+  const baseTask = { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, type: 'post' as const };
+
+  // a: 게시 확인됨(취소 아님) — 포함 대상. linkTrackedPost(taskId)가 작업의 posted_at도 함께 채운다.
+  const [taskA] = await createTasks(sql, camp1.id, { ...baseTask, items: [{ handle: P + '_a', cost: null }] });
+  const postA = await addTrackedPost(sql, { tweetId: P + 'PA', authorHandle: P + '_a', text: '', postedAt: '2026-09-15T00:00:00Z', createdBy: null, metrics: M, raw: null });
+  await linkTrackedPost(sql, postA.row.id, { taskId: taskA.id });
+
+  // b: 취소된 작업 — DB 제약(campaign_task_cancel_xor_posted)상 취소는 게시 확인과 공존할 수 없어 posted_at은 없다.
+  // 정상 경로로는 취소 작업에 게시물을 연결할 수 없으므로(linkTrackedPost가 거절) SQL로 직접 붙여 "취소 작업에 게시물이 붙어 있는" 상태를 재현한다.
+  const [taskB] = await createTasks(sql, camp1.id, { ...baseTask, items: [{ handle: P + '_b', cost: null }] });
+  await cancelTask(sql, taskB.id, { reason: 'declined', note: '', actorId: null, today: '2026-09-16' });
+  const postB = await addTrackedPost(sql, { tweetId: P + 'PB', authorHandle: P + '_b', text: '', postedAt: null, createdBy: null, metrics: M, raw: null });
+  await sql`update tracked_post set task_id = ${taskB.id} where id = ${postB.row.id}`;
+
+  // c: 미게시 작업 — 게시물은 붙어 있지만 작업은 아직 게시 확인 전(직접 SQL로 연결해 posted_at 자동 보충을 피한다) → 제외 대상
+  const [taskC] = await createTasks(sql, camp1.id, { ...baseTask, items: [{ handle: P + '_c', cost: null }] });
+  const postC = await addTrackedPost(sql, { tweetId: P + 'PC', authorHandle: P + '_c', text: '', postedAt: null, createdBy: null, metrics: M, raw: null });
+  await sql`update tracked_post set task_id = ${taskC.id} where id = ${postC.row.id}`;
+
+  // d: 다른 캠페인(camp2)의 게시 확인된 작업 — 캠페인 필터로 제외
+  const [taskD] = await createTasks(sql, camp2.id, { ...baseTask, items: [{ handle: P + '_d', cost: null }] });
+  const postD = await addTrackedPost(sql, { tweetId: P + 'PD', authorHandle: P + '_d', text: '', postedAt: '2026-09-15T00:00:00Z', createdBy: null, metrics: M, raw: null });
+  await linkTrackedPost(sql, postD.row.id, { taskId: taskD.id });
+
+  const ids = await listTrackedPostIdsForCampaign(sql, camp1.id);
+  assert.deepEqual(ids.map((x) => x.id).sort(), [postA.row.id].sort());
+  assert.equal(ids[0].tweetId, P + 'PA');
+
+  assert.deepEqual(await listTrackedPostIdsForCampaign(sql, '00000000-0000-0000-0000-000000000000'), []);
+  assert.deepEqual(await listTrackedPostIdsForCampaign(sql, 'not-a-uuid'), []);
 });

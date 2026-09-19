@@ -10,11 +10,14 @@ comment on column campaign_task.cancelled_at is '취소일(055). 게시 확인(p
 comment on column campaign_task.cancelled_draft_id is '취소 때 떼어낸 원고(055). 되돌리기가 재부착을 시도한다';
 
 -- 취소 ↔ 게시 확인 상호 배제. 경합(취소 직전에 게시 확인이 들어옴)의 최후 방어 — 진 쪽은 23514.
+-- not valid = 재추가(스키마 재실행)해도 기존 행 전 스캔 없이 새로 들어오는 행부터만 검사한다.
+-- 기존 행은 이미 취소/게시 상호배제를 만족한 상태로 만들어졌으므로 안전하다(influencer_log 제약과 같은 이유, 040 관례).
 alter table campaign_task drop constraint if exists campaign_task_cancel_xor_posted;
 alter table campaign_task add constraint campaign_task_cancel_xor_posted
-  check (cancelled_at is null or posted_at is null);
+  check (cancelled_at is null or posted_at is null) not valid;
 
-create index if not exists idx_campaign_task_cancelled on campaign_task (campaign_id) where cancelled_at is not null;
+-- 뜨거운 조회는 전부 'cancelled_at is null'(살아있는 작업)만 보고, campaign_id별 취소건만 따로 찾는 조회는 없다 — 미사용이라 뺀다.
+drop index if exists idx_campaign_task_cancelled;
 
 -- 인플루언서 타임라인: 작업 거절·무응답(ADR 0001·0005). not valid = 전 파일 재실행 때 뒤 마이그레이션이 넓힌 값과 충돌하지 않게(040 관례).
 alter table influencer_log drop constraint if exists influencer_log_event_type_check;

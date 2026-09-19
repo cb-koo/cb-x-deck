@@ -90,7 +90,7 @@ export const STAGE_FILTER_LABEL: Record<StageFilter, string> = {
 // ─────────────────────────── 요약 카드 ───────────────────────────
 // 성과 합계의 모양 — 스냅샷이 하나도 없으면 null(0으로 위장하지 않는다, 스펙 §7 "성과 스냅샷 없음 → —").
 // 채우는 쪽은 summarizeTaskPerf(아래 작업 블록) 하나다.
-export interface PerfSummary { publishedCount: number; views: number | null; likes: number | null; linkClicks: number | null }
+export interface PerfSummary { publishedCount: number; views: number | null; likes: number | null; bookmarks: number | null; linkClicks: number | null }
 
 // ─────────────────────────── 인플루언서 비용 행 ───────────────────────────
 // campaign_influencer_cost 한 행 — 작업 비용 밖의 추가 비용·메모. 인플 줄 조립은 deriveTaskInfluencers(아래).
@@ -206,15 +206,16 @@ export function summarizeTasks(items: TaskStageInput[], today: string): TaskSumm
   }
   return s;
 }
-export interface TaskPerfInput extends TaskStageInput { perf: { views: number | null; likes: number | null } | null; linkClicks: number | null }
+export interface TaskPerfInput extends TaskStageInput { perf: { views: number | null; likes: number | null; bookmarks: number | null } | null; linkClicks: number | null }
 export function summarizeTaskPerf(items: TaskPerfInput[]): PerfSummary {
-  const out: PerfSummary = { publishedCount: 0, views: null, likes: null, linkClicks: null };
-  const add = (k: 'views' | 'likes' | 'linkClicks', v: number | null) => { if (v !== null) out[k] = (out[k] ?? 0) + v; };
+  const out: PerfSummary = { publishedCount: 0, views: null, likes: null, bookmarks: null, linkClicks: null };
+  const add = (k: 'views' | 'likes' | 'bookmarks' | 'linkClicks', v: number | null) => { if (v !== null) out[k] = (out[k] ?? 0) + v; };
   for (const it of items) {
     if (isTaskExcluded(it)) continue;
     if (it.postedAt) out.publishedCount += 1;
     add('views', it.perf?.views ?? null);
     add('likes', it.perf?.likes ?? null);
+    add('bookmarks', it.perf?.bookmarks ?? null);
     add('linkClicks', it.linkClicks);
   }
   return out;
@@ -333,9 +334,17 @@ export const FLOW_STAGE_LABEL: Record<FlowStage, string> = { prep: '준비', han
 export interface FlowSettlementInput { status: 'requested' | 'cancelled'; externalStatus: string | null }
 export function flowStage(t: TaskStageInput & { influencerHandle: string | null }, settlement: FlowSettlementInput | null): FlowStage {
   if (t.cancelledAt) return 'canc';
-  if (settlement?.status === 'requested') return settlement.externalStatus === 'paid' ? 'done' : 'settle';
+  // 그쪽이 취소한 요청(externalStatus 'cancelled')은 정산 목록에 없다 — 다시 게시로(§3-1). 우리가 취소한 요청(status 'cancelled')도 같다.
+  if (settlement?.status === 'requested' && settlement.externalStatus !== 'cancelled') {
+    return settlement.externalStatus === 'paid' ? 'done' : 'settle';
+  }
   if (t.postedAt) return 'posted';
   if (!t.influencerHandle) return 'prep';
+  // 뼈대 우선 워크플로(koo 09-19): 투고 뼈대에 사람만 배정한 상태는 아직 '준비'다. 여기서 곧장 '전달'로
+  // 보내면, 그 뒤 원고를 붙이는 순간(초안) 단계가 handed → prep으로 거꾸로 내려간다 — 20~40건을 훑어
+  // "지금 뭘 해야 하나"를 보는 화면에서 그 역행은 준비/전달 구분 자체를 무의미하게 만든다. RT는 원고가
+  // 없는 것이 정상이라 예외(원고 없이도 '전달' 그대로).
+  if (t.type !== 'rt' && !t.draftStatus) return 'prep';
   if (t.draftStatus && t.draftStatus !== 'delivered' && t.draftStatus !== 'unused') return 'prep';
   return 'handed';
 }

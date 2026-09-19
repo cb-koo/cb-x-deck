@@ -163,4 +163,23 @@ test('인플 변경 가드 — 상태 제한은 배정·해제·교체에 같고
   assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: '2026-09-15', influencerHandle: 'a' }), 'b', T, { allowReplace: true }), REPLACE_AFTER_VISIT_MESSAGE);
   assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: T, influencerHandle: 'a' }), 'b', T, { allowReplace: true }), null);   // 당일은 허용
   assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: null, influencerHandle: 'a' }), 'b', T, { allowReplace: true }), null); // 미정은 허용
+  // C1-b — 게시 뒤에도 미배정 작업의 "최초 배정"은 허용한다(해제·재배정, 이미 배정된 채 바꾸기는 여전히 막는다)
+  assert.equal(influencerChangeGuard(cur({ postedAt: '2026-09-15' }), 'a', T), null);
+  assert.equal(influencerChangeGuard(cur({ postedAt: '2026-09-15', influencerHandle: 'a' }), 'b', T), POSTED_TASK_MESSAGE);
+  assert.equal(influencerChangeGuard(cur({ postedAt: '2026-09-15', influencerHandle: 'a' }), null, T), POSTED_TASK_MESSAGE);
+  assert.equal(influencerChangeGuard(cur({ postedAt: '2026-09-15' }), null, T), POSTED_TASK_MESSAGE);
+  // 방문협찬 뼈대: 방문일이 지났어도 '방문한 사람'이 없으면 최초 배정을 막지 않는다 — 막으면 그 작업은 영영 못 채우고,
+  // "방문한 인플루언서가 게시해야 해요"라는 문구도 사실이 아니게 된다.
+  assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: '2026-09-15' }), 'a', T), null);
+  assert.equal(influencerChangeGuard(cur({ type: 'visit', visitOn: '2026-09-15', postedAt: '2026-09-16' }), 'a', T), null);
+});
+
+test('parseTaskCreate — count: 인플·원고 없는 뼈대만 1~20, 그 외는 거절', () => {
+  const base = { type: 'post' };
+  assert.equal(parseTaskCreate({ ...base, count: 5 }).ok && (parseTaskCreate({ ...base, count: 5 }) as { value: { count: number | null } }).value.count, 5);
+  assert.equal((parseTaskCreate(base) as { value: { count: number | null } }).value.count, null);
+  assert.equal(parseTaskCreate({ ...base, count: 0 }).ok, false);
+  assert.equal(parseTaskCreate({ ...base, count: 21 }).ok, false);
+  assert.equal(parseTaskCreate({ ...base, count: 2, influencers: [{ handle: 'a' }] }).ok, false);
+  assert.equal(parseTaskCreate({ ...base, count: 2, draftId: '00000000-0000-0000-0000-000000000000' }).ok, false);
 });

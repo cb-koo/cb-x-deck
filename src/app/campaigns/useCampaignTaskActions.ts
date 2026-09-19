@@ -42,9 +42,11 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
   return useMemo(() => ({
     patch,
     // 배정·변경 시 비용 제안 — 비어 있을 때만 자동(사람이 적은 값은 덮지 않는다). 금액 = pricing[작업 유형].
-    assignInfluencer: async (t: Item, handle: string | null) => {
+    // autoCost:false면 제안을 저장하지 않는다 — 캠페인 v2는 프로필 단가를 칸에 채워만 두고 [확인]을 눌러야
+    // 확정한다(R24: 아무도 안 본 값이 예산이 되면 안 된다). 기존 화면은 기본값(true) 그대로다.
+    assignInfluencer: async (t: Item, handle: string | null, opts?: { autoCost?: boolean }) => {
       const opt = handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined;
-      const suggested = !t.cost && opt ? suggestTaskCost(opt.pricing, t.type) : null;
+      const suggested = opts?.autoCost === false ? null : (!t.cost && opt ? suggestTaskCost(opt.pricing, t.type) : null);
       const body: TaskPatchRequest = { influencerHandle: handle, ...(suggested ? { cost: suggested } : {}) };
       const ok = await patch(t, body, { influencerHandle: handle, ...(suggested ? { cost: suggested } : {}) });
       if (ok) onChanged();   // 인플 목록·(제안이 들어갔으면) 합계가 바뀐다

@@ -49,10 +49,16 @@ export function influencerChangeGuard(
   next: string | null, today: string, opts: { allowReplace?: boolean } = {},
 ): string | null {
   if (cur.cancelledAt) return CANCELLED_TASK_MESSAGE;
-  if (cur.postedAt) return POSTED_TASK_MESSAGE;
+  // 게시 뒤에는 사람을 바꾸거나 뗄 수 없다. 다만 **미배정 작업의 최초 배정**은 허용한다 — 일을 한 사람이
+  // 누구인지 뒤늦게 적는 것이고, 막아 두면 그 작업은 배정·교체·취소·정산이 전부 막혀 삭제 말고는 길이 없다.
+  // ADR 0005가 막으려던 것은 "해제 → 재배정"으로 교체 규칙을 우회하는 것인데, 해제(next === null)는 여기서 계속 막힌다.
+  if (cur.postedAt && cur.influencerHandle !== null) return POSTED_TASK_MESSAGE;
+  if (cur.postedAt && next === null) return POSTED_TASK_MESSAGE;
   const same = (cur.influencerHandle ?? '').toLowerCase() === (next ?? '').toLowerCase();
   if (same) return null;
-  if (cur.type === 'visit' && cur.visitOn !== null && cur.visitOn < today) return REPLACE_AFTER_VISIT_MESSAGE;   // 방문 완료 판정과 같은 기준(< 오늘)
+  // 방문 완료 판정과 같은 기준(< 오늘). 배정된 사람이 있을 때만 막는다 — 이 규칙은 "방문한 사람이 게시해야
+  // 한다"는 뜻이라, 방문한 사람이 애초에 없는 미배정 작업의 최초 배정에는 해당되지 않는다(문구도 거짓말이 된다).
+  if (cur.type === 'visit' && cur.influencerHandle && cur.visitOn !== null && cur.visitOn < today) return REPLACE_AFTER_VISIT_MESSAGE;
   if (cur.influencerHandle && next && !opts.allowReplace) return REPLACE_REQUIRED_MESSAGE;
   return null;
 }
@@ -103,10 +109,14 @@ const uuidOrNull = (v: unknown, message: string): Parsed<string | null> => {
 
 // 날짜는 사람마다 다르다(같은 캠페인이어도 인플마다 올리는 날이 다르다) — influencers[]의 날짜가 먼저고,
 // 최상위 scheduledOn/visitOn은 그 줄에 날짜가 없을 때의 기본값(미배정 1행도 이걸 쓴다).
+export const COUNT_MESSAGE = '만들 개수는 1~20 사이여야 해요';
+export const COUNT_WITH_ITEMS_MESSAGE = '개수로 만들 때는 인플루언서·원고 없이 빈 작업만 만들어요';
+
 export interface TaskCreateBody {
   type: TaskType; targetTaskId: string | null; targetTweetUrl: string | null; draftId: string | null;
   scheduledOn: string | null; visitOn: string | null; note: string; cost: TaskCost | null;
   influencers: Array<{ handle: string; cost: TaskCost | null; scheduledOn: string | null; visitOn: string | null }>;
+  count: number | null;   // 뼈대 N개 한 번에 만들기(§4-1) — influencers 비고 draftId 없을 때만
 }
 export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
   const b = (body ?? {}) as Record<string, unknown>;
@@ -135,9 +145,15 @@ export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
     influencers.push({ handle: h.handle, cost: c.value, scheduledOn: s.value, visitOn: v.value });
   }
   if (draftId.value && influencers.length > 1) return fail(DRAFT_MULTI_MESSAGE);
+  let count: number | null = null;
+  if (b.count !== undefined) {
+    if (typeof b.count !== 'number' || !Number.isInteger(b.count) || b.count < 1 || b.count > 20) return fail(COUNT_MESSAGE);
+    if (influencers.length > 0 || draftId.value) return fail(COUNT_WITH_ITEMS_MESSAGE);
+    count = b.count;
+  }
   return { ok: true, value: {
     type: b.type, targetTaskId: targetTaskId.value, targetTweetUrl, draftId: draftId.value,
-    scheduledOn: scheduledOn.value, visitOn: visitOn.value, note: typeof b.note === 'string' ? b.note.trim() : '', cost: cost.value, influencers,
+    scheduledOn: scheduledOn.value, visitOn: visitOn.value, note: typeof b.note === 'string' ? b.note.trim() : '', cost: cost.value, influencers, count,
   } };
 }
 

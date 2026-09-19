@@ -90,7 +90,7 @@ test('2) 상세 — 작업 목록·게시됨(posted_at)·성과(task_id)·링크
   const p = d.tasks.find((t) => t.id === post.id)!;
   assert.equal(p.draftStatus, 'delivered'); assert.equal(p.published, false); assert.equal(p.linkClicks, 96);
   const r = d.tasks.find((t) => t.id === rt1.id)!;
-  assert.equal(r.published, true); assert.deepEqual(r.perf, { postCount: 1, views: 1200, likes: 12 });   // 최신 스냅샷만
+  assert.equal(r.published, true); assert.deepEqual(r.perf, { postCount: 1, views: 1200, likes: 12, bookmarks: null });   // 최신 스냅샷만
   assert.equal(r.target!.taskId, post.id);
   assert.equal(d.tasks.find((t) => t.id === rt2.id)!.published, false);
   // 미사용 원고(kei)는 이제 포함, 취소(mio)만 제외(R17) — post·rt2 밀림(9/1 < 9/2), rt1은 게시됨

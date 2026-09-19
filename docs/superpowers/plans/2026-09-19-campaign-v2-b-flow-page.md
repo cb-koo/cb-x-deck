@@ -240,13 +240,14 @@ git commit -m "feat(campaign-v2): 읽기 필드 보강(원고 첫 줄·북마크
   - `type ExtraFilter = 'late' | 'today' | 'none'`, `EXTRA_FILTERS`, `EXTRA_FILTER_LABEL = { late: '지연', today: '오늘 게시 예정', none: '예정일 미정' }`
   - `interface FlowFilter { stages: Set<FlowStage>; types: Set<TaskType>; extras: Set<ExtraFilter>; q: string }`, `EMPTY_FLOW_FILTER()`, `filterCount(f)`, `isFilterActive(f)`
   - `matchesExtra(t, key, today)`, `matchesSearch(t, q)`, `matchesFlowFilter(t, f, today)`
-  - `type FlowSortKey = 'stage' | 'type' | 'influencer' | 'draft' | 'date' | 'cost'`, `interface FlowSort { key: FlowSortKey | null; dir: 1 | -1 }`, `nextSort(cur, key)`(null→오름→내림→null), `sortFlowRows(rows, sort, today)`, `FLOW_SORT_LABEL`
+  - `type FlowSortKey = 'stage' | 'type' | 'influencer' | 'draft' | 'date' | 'cost'`, `interface FlowSort { key: FlowSortKey | null; dir: 1 | -1 }`, `nextSort(cur, key)`(null→오름→내림→null), `sortFlowRows(rows, sort)`, `FLOW_SORT_LABEL`
   - `dateCell(t, today): { text: string; tone: 'late' | 'posted' | 'plain' | 'muted' }`
   - `draftCell(t): { text: string; muted: boolean; title: string }`
   - `costCell(t, suggestion): { text: string; tone: 'plain' | 'muted' | 'struck' | 'suggested'; title?: string }`
-  - `flowFooter(rows): string` = `투고 2 · 인용RT 5 · RT 3 · 비용 ₩880,000 · 게시 4 / 12 · 밀림 1`
+  - `DISPLAY_TYPE_ORDER = ['post','quoteRt','rt','visit']`(화면에 유형을 나열하는 순서 — 하단 줄과 필터 드롭다운이 함께 쓴다. TASK_TYPES는 도메인 순서라 건드리지 않는다)
+  - `flowFooter(rows, today): string` = `투고 2 · 인용RT 5 · RT 3 · 비용 880,000원 · 게시 4 / 12 · 밀림 1`
   - `filterSummary(f, shown, total): string`
-  - `flowStats(rows, today): { planned; posted; perf: { views; likes; bookmarks; withPerf; noLink }; spent: MoneyByCurrency; plannedCost: MoneyByCurrency }`
+  - `flowStats(rows): { planned; posted; perf: { views; likes; bookmarks; withPerf; noLink }; spent: MoneyByCurrency; plannedCost: MoneyByCurrency }`
   - `settleWaitCount(rows)`
   - `CANCEL_REASON_CHIPS: Array<{ value: CancelReason; label: string }>` = 🙅 거절 · 🔇 무응답 · 📝 기타
   - `restoreMessage(result: 'reattached' | 'taken' | 'gone' | 'none'): string`
@@ -310,13 +311,13 @@ test('4) 정렬 — 기본 만든 순, 헤더 클릭 순환, 미정은 오름차
   assert.deepEqual(nextSort({ key: 'date', dir: -1 }, 'date'), { key: null, dir: 1 });
   assert.deepEqual(nextSort({ key: 'date', dir: -1 }, 'cost'), { key: 'cost', dir: 1 });
   const a = mk({ scheduledOn: '2026-09-20' }), b = mk({}), c = mk({ scheduledOn: '2026-09-15' });
-  assert.deepEqual(sortFlowRows([a, b, c], { key: null, dir: 1 }, T).map((t) => t.id), [a.id, b.id, c.id]);
-  assert.deepEqual(sortFlowRows([a, b, c], { key: 'date', dir: 1 }, T).map((t) => t.id), [c.id, a.id, b.id]);
-  assert.deepEqual(sortFlowRows([a, b, c], { key: 'date', dir: -1 }, T).map((t) => t.id), [a.id, c.id, b.id]);
+  assert.deepEqual(sortFlowRows([a, b, c], { key: null, dir: 1 }).map((t) => t.id), [a.id, b.id, c.id]);
+  assert.deepEqual(sortFlowRows([a, b, c], { key: 'date', dir: 1 }).map((t) => t.id), [c.id, a.id, b.id]);
+  assert.deepEqual(sortFlowRows([a, b, c], { key: 'date', dir: -1 }).map((t) => t.id), [a.id, c.id, b.id]);
   const x = mk({ influencerHandle: 'b' }), y = mk({ influencerHandle: 'A' }), z = mk({});
-  assert.deepEqual(sortFlowRows([x, y, z], { key: 'influencer', dir: 1 }, T).map((t) => t.id), [y.id, x.id, z.id]);
+  assert.deepEqual(sortFlowRows([x, y, z], { key: 'influencer', dir: 1 }).map((t) => t.id), [y.id, x.id, z.id]);
   const p = mk({ postedAt: '2026-09-10' }), q = mk({ cancelledAt: '2026-09-10' }), r = mk({});
-  assert.deepEqual(sortFlowRows([q, p, r], { key: 'stage', dir: 1 }, T).map((t) => t.id), [r.id, p.id, q.id]);
+  assert.deepEqual(sortFlowRows([q, p, r], { key: 'stage', dir: 1 }).map((t) => t.id), [r.id, p.id, q.id]);
 });
 
 test('5) 날짜 칸 — 지남 빨강 D+N, 오늘·예정 기본, 게시된 건 게시일 파랑, 미정 회색, 취소는 취소일', () => {
@@ -352,7 +353,7 @@ test('8) 하단 줄·요약 줄·카드 숫자·정산 대기 — 취소 제외,
     mk({ type: 'post', postedAt: '2026-09-11', influencerHandle: 'b', cost: { amount: 50000, currency: 'KRW' } }),
   ];
   assert.equal(flowFooter(rows, T), '투고 2 · RT 1 · 비용 160,000원 · 게시 2 / 3 · 밀림 1');
-  const s = flowStats(rows, T);
+  const s = flowStats(rows);
   assert.equal(s.planned, 3); assert.equal(s.posted, 2);
   assert.deepEqual(s.spent, { KRW: 130000 }); assert.deepEqual(s.plannedCost, { KRW: 160000 });
   assert.deepEqual(s.perf, { views: 100, likes: 3, bookmarks: 1, withPerf: 1, noLink: 1 });
@@ -441,12 +442,12 @@ const sortValue = (t: FlowRow, key: FlowSortKey): string | number => {
     case 'type': return TASK_TYPES.indexOf(t.type);
     case 'influencer': return t.influencerHandle ? t.influencerHandle.toLowerCase() : LAST;
     case 'draft': { const d = draftCell(t).text; return d === '미정' || d === '—' ? LAST : d.toLowerCase(); }
-    case 'date': return t.postedAt ?? t.scheduledOn ?? LAST;
-    case 'cost': return t.cost ? t.cost.amount : -1;
+    // dateCell이 보여주는 날짜와 같은 우선순위(취소일 > 게시일 > 예정일) — 표시와 정렬이 어긋나면 안 된다
+    case 'date': return t.cancelledAt ?? t.postedAt ?? t.scheduledOn ?? LAST;
+    case 'cost': return t.cost ? t.cost.amount : LAST;   // 미정은 0원이 아니라 '값 없음' — 다른 키와 같이 맨 뒤로
   }
 };
-export function sortFlowRows<T extends FlowRow>(rows: T[], sort: FlowSort, today: string): T[] {
-  void today;   // 시그니처는 표와 같은 모양(today를 받는 판정과 나란히) — 지금 정렬 키는 오늘을 쓰지 않는다
+export function sortFlowRows<T extends FlowRow>(rows: T[], sort: FlowSort): T[] {
   const byCreated = (a: T, b: T) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
   if (!sort.key) return [...rows].sort(byCreated);
   const key = sort.key;
@@ -502,8 +503,7 @@ export interface FlowStats {
   perf: { views: number; likes: number; bookmarks: number; withPerf: number; noLink: number };
   spent: MoneyByCurrency; plannedCost: MoneyByCurrency;
 }
-export function flowStats(rows: FlowRow[], today: string): FlowStats {
-  void today;
+export function flowStats(rows: FlowRow[]): FlowStats {
   const live = rows.filter((t) => !isTaskExcluded(t));
   const posted = live.filter((t) => t.postedAt);
   const withPerf = posted.filter((t) => t.perf);
@@ -517,7 +517,9 @@ export function flowStats(rows: FlowRow[], today: string): FlowStats {
     plannedCost: sumMoney(live.flatMap((t) => (t.cost ? [t.cost] : []))),
   };
 }
-export const settleWaitCount = (rows: FlowRow[]) => rows.filter((t) => isSettlementCandidate(t) && !t.settlement).length;
+// 정산 대기 = 정산 후보인데 활성 요청이 없는 것. 우리가 취소했거나 그쪽이 취소한 요청은 후보로 돌아온다(§3-1 정산 정의).
+export const settleWaitCount = (rows: FlowRow[]) => rows.filter((t) =>
+  isSettlementCandidate(t) && (!t.settlement || t.settlement.status === 'cancelled' || t.settlement.externalStatus === 'cancelled')).length;
 
 export function restoreMessage(r: 'reattached' | 'taken' | 'gone' | 'none'): string {
   return r === 'reattached' ? '되돌렸어요 — 원고도 다시 붙었어요'
@@ -536,7 +538,7 @@ export const PANEL_FIELD_ORDER: Record<TaskType, PanelField[]> = {
 };
 ```
 
-`isTaskOverdue`가 export돼 있는지 확인(`campaignJudgment.ts:167` — 있음). `settleWaitCount`의 `!t.settlement`: `isSettlementCandidate`는 활성 요청 유무를 모르므로(정산 후보 정의 = 활성 요청 없음) 배지가 없는 것만 센다 — 그쪽 취소(`externalStatus==='cancelled'`)나 우리 취소(`status==='cancelled'`)인 배지는 후보로 돌아오므로 조건을 `!t.settlement || t.settlement.status === 'cancelled' || t.settlement.externalStatus === 'cancelled'`로 쓴다. 테스트 8의 기대(2)는 배지 없는 두 건이라 그대로.
+`isTaskOverdue`가 export돼 있는지 확인(`campaignJudgment.ts:167` — 있음). `settleWaitCount`는 `flowStage`의 정산 판정과 같은 기준을 쓴다 — 취소된 요청(우리 취소·그쪽 취소)은 '게시'로 돌아오므로 정산 대기에도 다시 잡힌다. 테스트 8의 기대(2)는 배지 없는 두 건.
 
 - [ ] **Step 4: 통과 확인·커밋**
 
@@ -709,8 +711,8 @@ const [bulkOpen, setBulkOpen] = useState(false);
 파생값:
 
 ```ts
-const shown = useMemo(() => (data ? sortFlowRows(data.tasks.filter((t) => matchesFlowFilter(t, filter, data.today)), sort, data.today) : []), [data, filter, sort]);
-const stats = useMemo(() => (data ? flowStats(data.tasks, data.today) : null), [data]);
+const shown = useMemo(() => (data ? sortFlowRows(data.tasks.filter((t) => matchesFlowFilter(t, filter, data.today)), sort) : []), [data, filter, sort]);
+const stats = useMemo(() => (data ? flowStats(data.tasks) : null), [data]);
 const settleWait = useMemo(() => (data ? settleWaitCount(data.tasks) : 0), [data]);
 ```
 
@@ -1006,16 +1008,17 @@ git commit -m "feat(campaign-v2): ··· 메뉴(게시 확인·예정일·원고
 
 - [ ] **Step 1: FlowCards**
 
-Props `{ stats: FlowStats; budget: CampaignMonthBudget | null; clientId: string | null; cancelledCount: number; refreshing: boolean; onRefresh(): void; lastCapturedAt: string | null }`.
+Props `{ stats: FlowStats; plannedTotal: MoneyByCurrency; budget: CampaignMonthBudget | null; clientId: string | null; cancelledCount: number; refreshing: boolean; onRefresh(): void }`.
 
 `<div className="grid grid-cols-[0.9fr_1.1fr_1.4fr] gap-0">`, 칸은 `SummaryCards.Card`처럼 왼쪽 구분선(`border-l first:border-l-0 px-5`). 각 칸:
 1. **작업** — 제목 `<p className="text-ui text-x-secondary">작업</p>`, 큰 숫자 `<p className="text-[26px] tabular-nums">{posted} <span className="text-content text-x-muted">/ {planned}</span></p>`, 라벨 `게시`, 막대(`h-1.5 rounded bg-x-border` 안 `bg-x-text` 폭 `posted/planned`). `title={`취소 ${cancelledCount}건은 빼고 셉니다`}`.
-2. **성과** — 제목 줄 오른쪽에 `<Button variant="subtle" disabled={refreshing || withPerf === 0} onClick={onRefresh} title={`게시물 ${withPerf}건을 다시 조회해요 — 게시물당 API 1회`}>{refreshing ? '조회 중…' : '업데이트'}</Button>`(`withPerf === 0`이면 title `조회할 게시물 링크가 없어요`). 숫자 셋 가로(`flex gap-6`): 조회·좋아요·북마크(`toLocaleString('ko-KR')`). 칸 `title={`게시물 링크가 있는 ${withPerf}건 합계${noLink ? ` · 링크 없는 게시물 ${noLink}건은 합계 밖` : ''}${lastCapturedAt ? ` · ${formatDateTimeKo(lastCapturedAt)} 기준` : ''}`}`(시각 포맷은 `datetime.ts`에 있는 KST 포맷 함수 — 없으면 `new Date(x).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })`).
-3. **비용** — 왼쪽 `{formatMoneyBy(spent)} <span muted>/ {formatMoneyBy(plannedCost)}</span>` 라벨 `소진 / 계획`; 오른콽(`text-right`) 예산: `budget?.amount != null ? formatAmount(budget.amount, 'KRW')` 라벨 `{monthShort(budget.month)} 예산` / 예산 없음 → `—` + 라벨 `예산 미설정`(clientId 있으면 `Link /clients?client=`). 막대(예산이 전체 길이, 예산 없으면 막대 없음): 회색 `budget.othersKrw` → 진한 파랑 `toKrw(spent).krw` → 연한 파랑 `toKrw(plannedCost).krw - toKrw(spent).krw` → 빈칸. 폭은 `Math.min(100, v / amount * 100)`. `title={`${monthShort(month)} 예산 ${formatAmount(amount)} · 회색은 이달 다른 캠페인 계획 ${formatAmount(othersKrw)} · 인플별 추가 비용은 계획에 포함 · 송금 수수료 미포함`}`.
+2. **성과** — 제목 줄 오른쪽에 `<Button variant="subtle" disabled={refreshing || withPerf === 0} onClick={onRefresh} title={`게시물 ${withPerf}건을 다시 조회해요 — 게시물당 API 1회`}>{refreshing ? '조회 중…' : '업데이트'}</Button>`(`withPerf === 0`이면 title `조회할 게시물 링크가 없어요`). 숫자 셋 가로(`flex gap-6`): 조회·좋아요·북마크(`toLocaleString('ko-KR')`). 칸 `title={`게시물 링크가 있는 ${withPerf}건 합계${noLink ? ` · 링크 없는 게시물 ${noLink}건은 합계 밖` : ''}`}`. **기준 시각은 넣지 않는다** — 상세 응답에 최신 스냅샷 시각이 없다(§8 후속 항목).
+3. **비용** — 왼쪽 `{formatMoneyBy(spent)} <span muted>/ {formatMoneyBy(plannedTotal)}</span>` 라벨 `소진 / 계획`.
+   **계획에는 인플별 추가 비용이 들어간다**(§3-3, 현행 월 집계와 같은 정의): `plannedTotal = taskCampaignTotal(deriveTaskInfluencers(tasks, costRows))` — 기존 화면의 '비용 합계'와 같은 함수라 두 화면이 같은 숫자를 말한다. `stats.plannedCost`(작업 비용만)는 툴팁의 내역에 쓴다: 추가 비용 = `plannedTotal − stats.plannedCost`가 0이 아니면 툴팁에 `추가 비용 n원은 계획에 포함`. **소진(`stats.spent`)에는 추가 비용을 넣지 않는다**(작업별 값이 아니라서).; 오른콽(`text-right`) 예산: `budget?.amount != null ? formatAmount(budget.amount, 'KRW')` 라벨 `{monthShort(budget.month)} 예산` / 예산 없음 → `—` + 라벨 `예산 미설정`(clientId 있으면 `Link /clients?client=`). 막대(예산이 전체 길이, 예산 없으면 막대 없음): 회색 `budget.othersKrw` → 진한 파랑 `toKrw(spent).krw` → 연한 파랑 `toKrw(plannedCost).krw - toKrw(spent).krw` → 빈칸. 폭은 `Math.min(100, v / amount * 100)`. `title={`${monthShort(month)} 예산 ${formatAmount(amount)} · 회색은 이달 다른 캠페인 계획 ${formatAmount(othersKrw)} · 인플별 추가 비용은 계획에 포함 · 송금 수수료 미포함`}`.
 
 - [ ] **Step 2: 연결**
 
-`FlowDetail`: `refreshing` 상태; `onRefresh` → `refreshCampaignPerfApi(id)` → 성공 시 `load()` + 토스트 `게시물 ${r.data.refreshed}건을 다시 조회했어요${r.data.unavailable ? ` · ${r.data.unavailable}건은 찾을 수 없어요` : ''}${r.data.failed ? ` · ${r.data.failed}건은 실패했어요` : ''}`; 실패 시 `show(r.error)`. `lastCapturedAt`은 상세 응답에 없다 — `null`로 두고(툴팁에 시각 없음) 후속 표시 항목으로 §8에 남긴다. `cancelledCount = data.tasks.filter(isTaskExcluded).length`.
+`FlowDetail`: `refreshing` 상태; `onRefresh` → `refreshCampaignPerfApi(id)` → 성공 시 `load()` + 토스트 `게시물 ${r.data.refreshed}건을 다시 조회했어요${r.data.unavailable ? ` · ${r.data.unavailable}건은 찾을 수 없어요` : ''}${r.data.failed ? ` · ${r.data.failed}건은 실패했어요` : ''}`; 실패 시 `show(r.error)`. `cancelledCount = data.tasks.filter(isTaskExcluded).length`.
 
 ```bash
 git add src/app/campaigns/flow/FlowCards.tsx src/app/campaigns/flow/FlowDetail.tsx

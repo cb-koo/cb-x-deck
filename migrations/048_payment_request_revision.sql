@@ -19,6 +19,8 @@ create index if not exists idx_payment_request_revision_request on payment_reque
 
 -- 활동 기록에 '정산 요청 수정' 이벤트를 허용한다(041의 목록 + payment_revised). 재실행 안전(drop if exists → add).
 alter table influencer_log drop constraint if exists influencer_log_event_type_check;
+-- not valid = 전 파일 재실행 때 뒤 마이그레이션(055 task_declined)이 넓힌 값과 충돌하지 않게(040 관례).
+-- 없으면 재실행 시 이 파일이 좁은 목록을 '검증된' 제약으로 다시 걸어, 이미 쌓인 task_declined 행 때문에 실패한다.
 alter table influencer_log add constraint influencer_log_event_type_check
   check (event_type in ('draft_assigned','draft_unassigned','draft_delivered','handle_changed','pricing_changed',
-                        'payment_method_changed','payment_requested','payment_cancelled','payment_paid','payment_revised'));
+                        'payment_method_changed','payment_requested','payment_cancelled','payment_paid','payment_revised')) not valid;

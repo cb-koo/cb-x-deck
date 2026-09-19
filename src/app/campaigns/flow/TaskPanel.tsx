@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import type { CampaignRow } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
@@ -101,6 +101,7 @@ export function TaskPanel({
       scheduledOn !== null || visitOn !== null || note.trim() !== ''
     )
   ), [mode.kind, handleInput, newCost, target, scheduledOn, visitOn, note]);
+  const panelRef = useRef<HTMLElement | null>(null);
   const requestClose = useCallback(() => {
     if (isNewDirty() && !window.confirm('입력한 내용이 사라져요. 닫을까요?')) return;
     onClose();
@@ -108,6 +109,23 @@ export function TaskPanel({
   // FlowDetail이 표의 다른 행을 클릭했을 때 같은 확인을 거치려면 지금 dirty 여부를 알아야 한다(I1-3) —
   // 이 컴포넌트 밖에서 못 보는 로컬 상태라 바뀔 때마다 콜백으로 올려 보낸다.
   useEffect(() => { onDirtyChange?.(isNewDirty()); }, [isNewDirty, onDirtyChange]);
+
+  // 바깥을 누르면 닫는다(koo 09-19). 예외 셋: ① 패널 안 ② 표의 행 — 다른 작업으로 갈아타는 동작이라 행이 직접
+  // 처리한다 ③ 포털로 body에 붙는 팝오버·메뉴·툴팁(비용·인플·필터·행 메뉴·ⓘ) — 패널에서 연 것인데 DOM 상으로는
+  // 패널 밖이라, 안 빼면 팝오버를 누르는 순간 패널이 닫힌다. 패널 위에 모달이 떠 있으면(overlayOpen) 리스너를 끈다.
+  useEffect(() => {
+    if (overlayOpen) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      if (panelRef.current?.contains(t)) return;
+      if (t.closest('[data-flow-row]')) return;
+      if (t.closest('[role="dialog"],[role="menu"],[role="tooltip"],[role="listbox"]')) return;
+      requestClose();
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [requestClose, overlayOpen]);
 
   // Esc는 패널만 닫는다 — 안에서 열린 팝오버(예정일 달력 등)는 capture에서 stopPropagation하므로 그쪽이 먼저 먹는다.
   // 패널 위의 오버레이(원고 카드·모달)가 떠 있으면 이 리스너 자체를 끈다 — 안 그러면 그 오버레이를 닫는 Esc가
@@ -383,7 +401,7 @@ export function TaskPanel({
     : (newType ? `새 ${TASK_TYPE_LABEL[newType]} 작업` : '어떤 작업인가요?');
 
   return (
-    <aside role="dialog" aria-label="작업 편집" className="fixed inset-y-0 right-0 z-40 flex w-[560px] flex-col border-l border-x-border bg-white shadow-xl">
+    <aside ref={panelRef} role="dialog" aria-label="작업 편집" className="fixed inset-y-0 right-0 z-40 flex w-[560px] flex-col border-l border-x-border bg-white shadow-xl">
       <div className="flex items-start justify-between border-b border-x-border px-6 pt-5 pb-4">
         <div className="min-w-0">
           <p className="text-ui text-x-secondary">{crumb}</p>

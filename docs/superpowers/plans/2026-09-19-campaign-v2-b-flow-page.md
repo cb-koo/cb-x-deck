@@ -1008,12 +1008,13 @@ git commit -m "feat(campaign-v2): ··· 메뉴(게시 확인·예정일·원고
 
 - [ ] **Step 1: FlowCards**
 
-Props `{ stats: FlowStats; budget: CampaignMonthBudget | null; clientId: string | null; cancelledCount: number; refreshing: boolean; onRefresh(): void }`.
+Props `{ stats: FlowStats; plannedTotal: MoneyByCurrency; budget: CampaignMonthBudget | null; clientId: string | null; cancelledCount: number; refreshing: boolean; onRefresh(): void }`.
 
 `<div className="grid grid-cols-[0.9fr_1.1fr_1.4fr] gap-0">`, 칸은 `SummaryCards.Card`처럼 왼쪽 구분선(`border-l first:border-l-0 px-5`). 각 칸:
 1. **작업** — 제목 `<p className="text-ui text-x-secondary">작업</p>`, 큰 숫자 `<p className="text-[26px] tabular-nums">{posted} <span className="text-content text-x-muted">/ {planned}</span></p>`, 라벨 `게시`, 막대(`h-1.5 rounded bg-x-border` 안 `bg-x-text` 폭 `posted/planned`). `title={`취소 ${cancelledCount}건은 빼고 셉니다`}`.
 2. **성과** — 제목 줄 오른쪽에 `<Button variant="subtle" disabled={refreshing || withPerf === 0} onClick={onRefresh} title={`게시물 ${withPerf}건을 다시 조회해요 — 게시물당 API 1회`}>{refreshing ? '조회 중…' : '업데이트'}</Button>`(`withPerf === 0`이면 title `조회할 게시물 링크가 없어요`). 숫자 셋 가로(`flex gap-6`): 조회·좋아요·북마크(`toLocaleString('ko-KR')`). 칸 `title={`게시물 링크가 있는 ${withPerf}건 합계${noLink ? ` · 링크 없는 게시물 ${noLink}건은 합계 밖` : ''}`}`. **기준 시각은 넣지 않는다** — 상세 응답에 최신 스냅샷 시각이 없다(§8 후속 항목).
-3. **비용** — 왼쪽 `{formatMoneyBy(spent)} <span muted>/ {formatMoneyBy(plannedCost)}</span>` 라벨 `소진 / 계획`; 오른콽(`text-right`) 예산: `budget?.amount != null ? formatAmount(budget.amount, 'KRW')` 라벨 `{monthShort(budget.month)} 예산` / 예산 없음 → `—` + 라벨 `예산 미설정`(clientId 있으면 `Link /clients?client=`). 막대(예산이 전체 길이, 예산 없으면 막대 없음): 회색 `budget.othersKrw` → 진한 파랑 `toKrw(spent).krw` → 연한 파랑 `toKrw(plannedCost).krw - toKrw(spent).krw` → 빈칸. 폭은 `Math.min(100, v / amount * 100)`. `title={`${monthShort(month)} 예산 ${formatAmount(amount)} · 회색은 이달 다른 캠페인 계획 ${formatAmount(othersKrw)} · 인플별 추가 비용은 계획에 포함 · 송금 수수료 미포함`}`.
+3. **비용** — 왼쪽 `{formatMoneyBy(spent)} <span muted>/ {formatMoneyBy(plannedTotal)}</span>` 라벨 `소진 / 계획`.
+   **계획에는 인플별 추가 비용이 들어간다**(§3-3, 현행 월 집계와 같은 정의): `plannedTotal = taskCampaignTotal(deriveTaskInfluencers(tasks, costRows))` — 기존 화면의 '비용 합계'와 같은 함수라 두 화면이 같은 숫자를 말한다. `stats.plannedCost`(작업 비용만)는 툴팁의 내역에 쓴다: 추가 비용 = `plannedTotal − stats.plannedCost`가 0이 아니면 툴팁에 `추가 비용 n원은 계획에 포함`. **소진(`stats.spent`)에는 추가 비용을 넣지 않는다**(작업별 값이 아니라서).; 오른콽(`text-right`) 예산: `budget?.amount != null ? formatAmount(budget.amount, 'KRW')` 라벨 `{monthShort(budget.month)} 예산` / 예산 없음 → `—` + 라벨 `예산 미설정`(clientId 있으면 `Link /clients?client=`). 막대(예산이 전체 길이, 예산 없으면 막대 없음): 회색 `budget.othersKrw` → 진한 파랑 `toKrw(spent).krw` → 연한 파랑 `toKrw(plannedCost).krw - toKrw(spent).krw` → 빈칸. 폭은 `Math.min(100, v / amount * 100)`. `title={`${monthShort(month)} 예산 ${formatAmount(amount)} · 회색은 이달 다른 캠페인 계획 ${formatAmount(othersKrw)} · 인플별 추가 비용은 계획에 포함 · 송금 수수료 미포함`}`.
 
 - [ ] **Step 2: 연결**
 

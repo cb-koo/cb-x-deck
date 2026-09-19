@@ -199,8 +199,9 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
     const r = await patchDraftApi(t.draftId, { taskId: null });
     if (!r.ok) { show(r.error); return; }
     await load();
+    onChanged();   // 붙이기(onPick)도 부른다 — 한쪽만 부르면 왼쪽 목록의 '원고 없음' 수가 어긋난다
     show('작업에서 뗐어요 — 작업도 원고도 남아 있어요');
-  }, [show, load]);
+  }, [show, load, onChanged]);
 
   // 한 번에 만들기(§4-1) — 유형마다 createTasksApi를 DISPLAY_TYPE_ORDER 순으로. 하나라도 실패하면 멈추고
   // 거기까지 만들어진 걸 문구로 알린다(조용히 일부만 만들지 않는다).
@@ -217,7 +218,7 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
         if (firstId) setPanel({ taskId: firstId });
         return;
       }
-      made.push(`${TASK_TYPE_LABEL[type]} ${n}개`);
+      made.push(`${TASK_TYPE_LABEL[type]} ${r.data.tasks.length}개`);   // 요청 수가 아니라 실제로 만들어진 수
       if (!firstId) firstId = r.data.tasks[0].id;
     }
     await load(); onChanged();

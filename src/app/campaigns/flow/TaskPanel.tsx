@@ -319,8 +319,8 @@ export function TaskPanel({
               <p className="text-ui text-x-secondary">유형</p>
               <div role="group" aria-label="작업 유형" className="mt-1 inline-flex overflow-hidden rounded-lg border border-x-border-strong">
                 {DISPLAY_TYPE_ORDER.map((k) => (
-                  <button key={k} type="button" aria-pressed={newType === k} onClick={() => setNewType(k)}
-                          className={`border-r border-x-border-strong px-3.5 py-2 text-content last:border-r-0 ${newType === k ? 'bg-x-text text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
+                  <button key={k} type="button" aria-pressed={newType === k} onClick={() => setNewType(k)} disabled={busy}
+                          className={`border-r border-x-border-strong px-3.5 py-2 text-content last:border-r-0 disabled:opacity-50 ${newType === k ? 'bg-x-text text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
                     {TASK_TYPE_LABEL[k]}
                   </button>
                 ))}

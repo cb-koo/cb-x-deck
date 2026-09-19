@@ -130,9 +130,13 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   const [draftGenBusy, setDraftGenBusy] = useState(false);
   const [draftWriteBusy, setDraftWriteBusy] = useState<{ label: string } | null>(null);
   const draftBusy: { label: string } | null = draftGenBusy ? { label: '만드는 중이에요' } : draftWriteBusy;
-  // 직접 쓰기 탭이 "작성 중"인지(리뷰 지적 4) — DraftWrite의 로컬 상태(posts)를 이 컴포넌트가 못 보므로
-  // 콜백으로 받아 TaskPanel에 다시 내려준다(onBusyChange와 같은 배선). TaskPanel이 탭 전환·← 작업으로·
-  // 푸터 작업으로·패널 닫기 넷을 이 값으로 확인 대상으로 삼는다.
+  // 원고 모드가 "작성 중"인지(리뷰 지적 4, Task 4c §3에서 생성 탭까지 넓혔다) — DraftWrite의 로컬 상태
+  // (posts)도, DraftGenerate의 방향성 글자도 이 컴포넌트가 못 보므로 콜백으로 받아 TaskPanel에 다시
+  // 내려준다(onBusyChange와 같은 배선). 두 탭은 동시에 마운트되지 않아(draftBusy 주석과 같은 전제) 같은
+  // setter를 공유해도 값이 섞이지 않는다. TaskPanel이 탭 전환·← 작업으로·푸터 작업으로·패널 닫기 넷을,
+  // 이 파일의 openPanel·openNew·openDraftMode(아래)가 다른 작업으로 넘어가는 자리 전부를 이 값으로
+  // 확인 대상으로 삼는다. 이름은 그대로 둔다(4b가 만든 draftWriteDirty·DRAFT_WRITE_LOST_CONFIRM을 새로
+  // 짓지 않고 재사용한다, Task 4c 지시).
   const [draftWriteDirty, setDraftWriteDirty] = useState(false);
   // 레퍼런스 고르기 시트·링크 추가 모달이 원고 모드 안에서 떠 있는 동안(리뷰 지적 1, Critical) — 두 오버레이는
   // document keydown을 버블 단계에서 듣고 stopPropagation을 안 해서, 먼저 등록된 패널의 Esc가 패널째로 닫아
@@ -291,12 +295,24 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   const panelDraft = panelDraftId && cardDraft?.id === panelDraftId ? cardDraft : null;
   // tab:null을 보낸다(seq는 그대로 증가) — 이미 그 작업의 패널이 원고 모드로 열려 있으면(key 리마운트가
   // 없다) TaskPanel의 이펙트가 이 신호로 작업 모드로 돌려보낸다(리뷰 지적 4, "행 클릭 = 그 작업을 연다").
+  // 직접 쓰기·생성 탭이 작성 중이면(draftWriteDirty) 다른 작업으로 넘어가기 전에 확인한다(Task 4c §1) —
+  // 여기 한 곳에서 막으면 이 함수를 부르는 모든 자리(행 클릭·행 메뉴 예정일 바꾸기·이전/다음·한 번에
+  // 만들기 뒤 이동)가 한 번에 지켜진다. 새 작업 폼의 isNewDirty는 여기서 보지 않는다 — createTask가
+  // 작업을 막 만든 뒤 이 함수로 그 작업을 여는데, 그 순간 isNew·newDirtyRef는 "방금 저장된 값"이라 여기서
+  // 같이 물으면 저장 직후 스스로를 지운다는 거짓 경고가 된다(isNewDirty 확인은 openDraftMode·onRowClick이
+  // 각자 진다).
   const openPanel = useCallback((taskId: string) => {
+    if (draftWriteDirty && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
     draftOpenSeqRef.current += 1;
     setDraftOpenReq({ tab: null, seq: draftOpenSeqRef.current });
     setPanel({ taskId });
-  }, []);
-  const openNew = useCallback(() => { setDraftOpenReq(null); setPanel({ fresh: true }); }, []);
+  }, [draftWriteDirty]);
+  // + 작업 추가(Task 4c §1 — 4b가 안 막았던 문) — 같은 확인. isNewDirty는 필요 없다(이미 새 작업 모드일 때
+  // 다시 눌러도 key가 그대로 'new'라 TaskPanel이 리마운트되지 않고, 로컬 입력은 그대로 남는다).
+  const openNew = useCallback(() => {
+    if (draftWriteDirty && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
+    setDraftOpenReq(null); setPanel({ fresh: true });
+  }, [draftWriteDirty]);
   const openBulk = useCallback(() => setBulkOpen(true), []);
   // 새 작업 모드가 dirty한 동안 다른 행을 클릭하면 로컬 입력이 경고 없이 사라진다(I1-3) — dirty 여부는
   // TaskPanel의 로컬 상태에만 있어 ref로 받아 둔다(매 렌더 상태로 올리면 이 화면 전체가 리렌더된다).
@@ -317,11 +333,11 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
     setDraftOpenReq({ tab, seq: draftOpenSeqRef.current });
     setPanel({ taskId: t.id });
   }, [isNew, draftWriteDirty]);
+  // draftWriteDirty 확인은 openPanel이 이미 진다(위 주석) — 여기서 또 물으면 같은 클릭에 확인창이 두 번 뜬다.
   const onRowClick = useCallback((t: FlowRow) => {
     if (isNew && newDirtyRef.current && !window.confirm('입력한 내용이 사라져요. 다른 작업을 열까요?')) return;
-    if (draftWriteDirty && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
     openPanel(t.id);
-  }, [isNew, draftWriteDirty, openPanel]);
+  }, [isNew, openPanel]);
   const onPanelPrev = useCallback(() => { if (panelIndex > 0) openPanel(shown[panelIndex - 1].id); }, [panelIndex, shown, openPanel]);
   const onPanelNext = useCallback(() => { if (panelIndex >= 0 && panelIndex < shown.length - 1) openPanel(shown[panelIndex + 1].id); }, [panelIndex, shown, openPanel]);
   // 행 "···" 메뉴(Task 10) — 표의 마지막 칸과 패널 헤더가 같은 컴포넌트(FlowRowMenu)를 쓴다. 여기 모인
@@ -348,7 +364,10 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   ), [menuActions, data?.today]);
 
   // 오른쪽 패널의 [만들기]/[만들고 하나 더] — 새 작업은 만들기 전까지 로컬 상태로 들고 있다가 한 번에 보낸다
-  // (결정 3, b-task-7-brief.md). more가 아니면 방금 만든 작업으로 패널을 전환한다.
+  // (결정 3, b-task-7-brief.md). more가 아니면 방금 만든 작업으로 패널을 전환한다(openPanel). 이 시점의
+  // draftWriteDirty는 항상 false다 — 패널이 'new' 모드인 동안은 DraftWrite·DraftGenerate 둘 다 마운트되지
+  // 않아(DraftMode가 원고 모드일 때만 그린다) 그 dirty를 세울 주체가 없다. openPanel의 확인은 그래도
+  // 통과하므로(값이 false라 물을 게 없다) 여기서 따로 처리하지 않는다.
   const createTask = useCallback(async (body: TaskCreateRequest, more: boolean): Promise<boolean> => {
     const r = await createTasksApi(id, body);
     if (!r.ok) { show(r.error); return false; }
@@ -369,7 +388,11 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   }, [show, load, onChanged, reloadCandidates]);
 
   // 한 번에 만들기(§4-1) — 유형마다 createTasksApi를 DISPLAY_TYPE_ORDER 순으로. 하나라도 실패하면 멈추고
-  // 거기까지 만들어진 걸 문구로 알린다(조용히 일부만 만들지 않는다).
+  // 거기까지 만들어진 걸 문구로 알린다(조용히 일부만 만들지 않는다). [한 번에 만들기]는 패널이 무슨 모드든
+  // (다른 작업의 직접 쓰기가 작성 중이어도) 열 수 있는 별도 다이얼로그다 — 아래 두 openPanel(firstId)가
+  // 성공 뒤 그 작업으로 패널을 바꾸는데, 이때 draftWriteDirty가 여전히 true일 수 있다(Task 4c §1 셋째 문 —
+  // "작업을 만든 뒤 패널을 여는 openPanel 호출들"). openPanel 안의 확인이 그 경우를 잡는다 — 만든 작업
+  // 자체는 이미 서버에 남으니, 확인에서 취소해도 잃는 것은 없다(패널이 그 작업으로 안 바뀔 뿐).
   const bulkCreate = useCallback(async (counts: Record<TaskType, number>) => {
     let firstId: string | null = null;
     const made: string[] = [];
@@ -533,7 +556,8 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
       <DraftGenerate task={panelTask} clientId={clientId}
                      clientData={clientData} targetRef={targetRef}
                      onAttached={onDraftAttached} onGenerated={() => void reloadCandidates()}
-                     onBusyChange={setDraftGenBusy} onOverlayChange={setDraftOverlayOpen} />
+                     onBusyChange={setDraftGenBusy} onOverlayChange={setDraftOverlayOpen}
+                     onDirtyChange={setDraftWriteDirty} />
     )
     : null;
   // 패널의 원고 모드 · '직접 쓰기' 탭(Task 4) — 붙이기 성공 뒤 동작은 'AI로 만들기'와 같은 재조회

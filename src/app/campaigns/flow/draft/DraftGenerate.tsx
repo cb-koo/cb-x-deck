@@ -54,7 +54,7 @@ function applyRefCap(
 }
 
 export function DraftGenerate({
-  task, clientId, clientData, targetRef, onAttached, onGenerated, onBusyChange, onOverlayChange,
+  task, clientId, clientData, targetRef, onAttached, onGenerated, onBusyChange, onOverlayChange, onDirtyChange,
 }: {
   task: FlowRow;
   clientId: string | null;
@@ -79,6 +79,11 @@ export function DraftGenerate({
   // 버블 단계에서 keydown을 듣고 stopPropagation을 하지 않아, 패널의 Esc 리스너가 먼저 잡아 패널째로 닫혀 버린다.
   // onBusyChange와 같은 방식(부모가 못 보는 로컬 상태를 콜백으로 올린다, 언마운트 시 false로 정리).
   onOverlayChange: (open: boolean) => void;
+  // 방향성에 글자가 있는지를 부모에 올린다(Task 4c §3) — '직접 쓰기' 탭의 onDirtyChange와 같은 값을
+  // 같은 곳(FlowDetail의 draftWriteDirty)에 싣는다. 두 탭은 동시에 마운트되지 않으므로 값이 섞이지
+  // 않는다. 레퍼런스 칩·만들어진 시안은 판정에 넣지 않는다(브리프 §3) — 레퍼런스는 다시 고르면 그만이고,
+  // 시안은 이미 원고로 저장돼 '있는 원고 고르기'에 남아 잃을 게 없다. 방향성 글자만 "다시 칠 일"이라서다.
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const { show } = useToast();
   const [refs, setRefs] = useState<ReferenceRow[]>([]);
@@ -118,6 +123,11 @@ export function DraftGenerate({
   const overlayOpen = pickerOpen || linkOpen;
   useEffect(() => { onOverlayChange(overlayOpen); }, [overlayOpen, onOverlayChange]);
   useEffect(() => () => onOverlayChange(false), [onOverlayChange]);
+  // 작성 중 여부 — 방향성에 글자가 있을 때만(위 onDirtyChange 주석, 브리프 §3). DraftWrite의 dirty
+  // 관례와 같은 두 이펙트(값이 바뀔 때마다 올리고, 언마운트되면 false로 정리).
+  const directionDirty = direction.trim() !== '';
+  useEffect(() => { onDirtyChange(directionDirty); }, [directionDirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
 
   const lastWsId = typeof window !== 'undefined' ? localStorage.getItem(LAST_WS_KEY) : null;
 

@@ -76,9 +76,11 @@ export function TaskPanel({
   // FlowDetail이 draftGenerate·draftWrite 두 busy를 OR로 합쳐 이 하나의 값으로 넘긴다. label은 켜는 쪽이
   // 준다(리뷰 지적 3, DraftMode와 같은 계약) — null이면 안 막혀 있다는 뜻.
   draftBusy: { label: string } | null;
-  // 직접 쓰기 탭이 "작성 중"인지(칸에 글자가 있거나 이미지가 붙어 있음) — DraftWrite의 로컬 상태라
-  // FlowDetail이 콜백으로 받아 여기로 다시 내려준다(리뷰 지적 4). 탭 전환·← 작업으로·푸터 작업으로·패널
-  // 닫기(Esc·바깥 클릭·✕) 넷 다 이 값으로 떠나기 전 확인을 건다 — DraftWriteModal의 dirty 관례와 같다.
+  // 직접 쓰기 탭이 "작성 중"인지(칸에 글자가 있거나 이미지가 붙어 있음), 또는 생성 탭의 방향성에 글자가
+  // 있는지(Task 4c §3 — 4b는 직접 쓰기만 걸었다) — DraftWrite·DraftGenerate의 로컬 상태라 FlowDetail이
+  // 콜백으로 받아 여기로 다시 내려준다(리뷰 지적 4). 두 탭은 동시에 마운트되지 않아 같은 값을 공유해도
+  // 안전하다. 탭 전환·← 작업으로·푸터 작업으로·패널 닫기(Esc·바깥 클릭·✕) 넷 다 이 값으로 떠나기 전
+  // 확인을 건다 — DraftWriteModal의 dirty 관례와 같다.
   draftWriteDirty: boolean;
   onDetachDraft: (t: FlowRow) => void;
   onReplace: (t: FlowRow) => void;   // 인플루언서 칸의 [바꾸기] — ReplaceDialog를 여는 것은 FlowDetail 쪽(Task 10)
@@ -145,10 +147,12 @@ export function TaskPanel({
       scheduledOn !== null || visitOn !== null || note.trim() !== ''
     )
   ), [mode.kind, handleInput, newCost, target, scheduledOn, visitOn, note]);
-  // 직접 쓰기 탭에서 작성 중일 때 떠나기 전 확인(리뷰 지적 4) — draftTab이 'write'가 아니면 그 탭은
-  // 마운트돼 있지 않으므로(DraftMode가 하나만 그린다) draftWriteDirty는 이미 false로 정리돼 있다.
+  // 직접 쓰기·생성 탭에서 작성 중일 때 떠나기 전 확인(리뷰 지적 4, Task 4c §3에서 생성 탭까지 넓혔다) —
+  // draftTab이 'write'도 'generate'도 아니면 그 탭은 마운트돼 있지 않으므로(DraftMode가 하나만 그린다)
+  // draftWriteDirty는 이미 false로 정리돼 있다 — 그래도 지금 마운트된 탭이 둘 중 하나일 때만 보게
+  // 방어적으로 남겨 둔다(값이 늦게 정리되는 경쟁이 생겨도 다른 탭 것을 잘못 묻지 않는다).
   const draftWriteWouldLose = useCallback((): boolean => (
-    draftTab === 'write' && draftWriteDirty
+    (draftTab === 'write' || draftTab === 'generate') && draftWriteDirty
   ), [draftTab, draftWriteDirty]);
   const panelRef = useRef<HTMLElement | null>(null);
   const requestClose = useCallback(() => {

@@ -38,6 +38,11 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
   // 붙이기(PATCH)만 실패했을 때 재시도 대상 — 원고는 이미 만들어졌으므로 다시 누르면 새로 만들지 않고
   // 이 id로 붙이기만 다시 시도한다(리뷰 지적 5). 붙이기가 성공하면 비운다.
   const [createdDraftId, setCreatedDraftId] = useState<string | null>(null);
+  // 붙이기(PATCH) 자체가 성공했는지(Task 4c §2) — 그 뒤의 재조회(onAttached)가 실패해도 이 값은 true로
+  // 남는다. 옛 코드는 재조회 실패 때 createdDraftId를 비워 버튼이 '저장하고 붙이기'로 되돌아갔고, 한 번
+  // 더 누르면 이미 붙은 글로 createManualDraftApi가 또 돌아 같은 원고가 두 벌 생겼다(리뷰 지적 5와 같은
+  // 모양의 사고). attached가 true인 동안은 컴포저를 통째로 잠가 그 재시도 자체를 막는다.
+  const [attached, setAttached] = useState(false);
 
   // 칸별 uploading(ComposerPost.uploading, draftPickView.ts)의 합 — 이미지가 올라가는 중인지, 몇 장인지는
   // 여기서 더해서만 쓴다. XComposer가 칸마다 진행을 그리고(리뷰 지적 2), 여기는 총합으로 잠금·안내를 낸다.
@@ -55,9 +60,11 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
   // 작성 중 여부 — 친 글(트림)이 있거나, 이미 올라간 이미지가 있거나, 지금 올라가는 중이면 '작성 중'이다.
   // createdDraftId가 있으면(원고는 이미 저장, 붙이기만 재시도 대기) dirty가 아니다(자문 리뷰) — 이미
   // '있는 원고 고르기'에 안전하게 저장돼 있는데 dirty=true로 두면 떠날 때 "닫으면 저장되지 않고 사라져요"가
-  // 거짓말이 된다. 언마운트(탭을 벗어남 등)되면 false로 정리한다 — 안 그러면 다음에 이 탭을 다시 열었을 때
-  // (초기 상태인데도) 부모가 옛 값을 들고 있게 된다.
-  const dirty = createdDraftId === null && posts.some((p) => p.text.trim() !== '' || p.media.length > 0 || p.uploading > 0);
+  // 거짓말이 된다. attached면(붙이기까지 이미 끝났다, Task 4c §2) 재조회가 실패해도 같은 이유로 dirty가
+  // 아니다 — 잃을 게 없다. 언마운트(탭을 벗어남 등)되면 false로 정리한다 — 안 그러면 다음에 이 탭을 다시
+  // 열었을 때(초기 상태인데도) 부모가 옛 값을 들고 있게 된다.
+  const dirty = !attached && createdDraftId === null
+    && posts.some((p) => p.text.trim() !== '' || p.media.length > 0 || p.uploading > 0);
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
 
@@ -81,7 +88,7 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
   }, [show]);
 
   async function save() {
-    if (composing || !composerCanSave(posts)) return;
+    if (composing || attached || !composerCanSave(posts)) return;
     setBusy(true);
     let draftId = createdDraftId;
     if (!draftId) {
@@ -115,10 +122,13 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
       onSavedUnattached();
       return;
     }
+    // 붙이기(PATCH)는 여기서 이미 끝났다 — 뒤이은 재조회가 실패해도 이 사실은 바뀌지 않는다(Task 4c §2).
+    // createdDraftId를 비우는 것과 attached를 세우는 것을 함께 해야, 재조회가 실패해도 컴포저가
+    // '저장하고 붙이기'로 되돌아가지 않는다(되돌아가면 다시 눌렀을 때 같은 글로 createManualDraftApi가
+    // 또 돌아 원고가 두 벌 생긴다 — 원본 리뷰 지적 5와 같은 사고). 재조회까지 성공하면 패널이 카드로
+    // 전환되며 이 컴포넌트 자체가 사라진다(언마운트 이펙트가 busy를 정리) — 그 전엔 busy를 풀지 않는다.
+    setAttached(true);
     setCreatedDraftId(null);
-    // 성공해도 여기서 풀지 않는다(DraftGenerate.attach와 같은 이유) — 재조회(onAttached → 부모의
-    // load())가 끝나기 전에 버튼이 다시 눌리면 같은 작업에 두 번째 원고를 만들게 된다. 재조회가 성공하면
-    // 패널이 카드로 전환되며 이 컴포넌트 자체가 사라진다(언마운트 이펙트가 busy를 정리).
     if (!(await onAttached(a.data))) { setBusy(false); show('저장하고 붙였어요 — 화면을 새로고침해 주세요'); }
   }
 
@@ -130,23 +140,30 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
   // 컴포저를 잠그는 진짜 이유 — XComposer에 그대로 넘겨서 그 컴포넌트가 스스로 지어낸 문구를 보이지
   // 않게 한다(자문 리뷰, Finding 3과 같은 규칙). 저장 중이 아닌데도 붙이기만 재시도하는 동안 컴포저가
   // 계속 편집 가능하면 [붙이기 다시 시도]가 taskId만 다시 PATCH할 뿐이라 그 수정이 조용히 버려진다.
-  const composerDisabledReason = busy ? '저장하는 중이에요' : createdDraftId ? '글은 저장됐어요 — 붙이기만 다시 시도하면 돼요' : null;
+  // attached가 가장 먼저다(Task 4c §2) — 붙이기까지 끝난 뒤에는(재조회 실패로 여기 그대로 남아 있어도)
+  // '저장됐어요'라고 말하면 거짓말이다. 이미 붙었다는 사실 그대로 말한다.
+  const composerDisabledReason = attached
+    ? '이미 붙였어요 — 화면을 새로고침하면 원고 카드로 보여요'
+    : busy ? '저장하는 중이에요' : createdDraftId ? '글은 저장됐어요 — 붙이기만 다시 시도하면 돼요' : null;
 
   return (
     <div>
       <XComposer handle={task.influencerHandle} posts={posts} onChange={setPosts}
                  onPickImages={onPickImages} disabledReason={composerDisabledReason} />
       <div className="mt-3 flex items-center gap-2">
-        <Button variant="primary" disabled={composing || !ok} onClick={() => void save()} className="h-10 px-4 text-content">
-          {busy ? '저장 중…' : createdDraftId ? '붙이기 다시 시도' : '저장하고 붙이기'}
+        <Button variant="primary" disabled={composing || attached || !ok} onClick={() => void save()} className="h-10 px-4 text-content">
+          {attached ? '붙였어요' : busy ? '저장 중…' : createdDraftId ? '붙이기 다시 시도' : '저장하고 붙이기'}
         </Button>
-        {uploadingTotal > 0
-          // 본문이 비었거나 글자 수가 넘었으면 업로드가 끝나도 저장할 수 없다 — 두 조건을 합쳐서 말한다(리뷰 minor).
-          ? <span className="text-caption text-x-muted">{ok ? '이미지를 올리는 중이에요 — 끝나면 저장할 수 있어요' : '이미지를 올리는 중이에요 · 글자 수가 넘거나 빈 칸이 있어요'}</span>
-          // createdDraftId 케이스는 XComposer 안(structureLockedReason)이 이미 같은 문장을 보여준다 —
-          // 여기서 또 그리면 화면에 같은 문장이 두 번 겹친다(자문 리뷰). 한 곳(composerDisabledReason의
-          // 출처)에서만 말한다.
-          : (!ok && !untouched) && <span className="text-caption text-x-muted">글자 수가 넘거나 빈 칸이 있어요</span>}
+        {attached
+          // XComposer 안(structureLockedReason)이 이미 같은 사실을 보여준다 — 여기서 또 말하지 않는다.
+          ? null
+          : uploadingTotal > 0
+            // 본문이 비었거나 글자 수가 넘었으면 업로드가 끝나도 저장할 수 없다 — 두 조건을 합쳐서 말한다(리뷰 minor).
+            ? <span className="text-caption text-x-muted">{ok ? '이미지를 올리는 중이에요 — 끝나면 저장할 수 있어요' : '이미지를 올리는 중이에요 · 글자 수가 넘거나 빈 칸이 있어요'}</span>
+            // createdDraftId 케이스는 XComposer 안(structureLockedReason)이 이미 같은 문장을 보여준다 —
+            // 여기서 또 그리면 화면에 같은 문장이 두 번 겹친다(자문 리뷰). 한 곳(composerDisabledReason의
+            // 출처)에서만 말한다.
+            : (!ok && !untouched) && <span className="text-caption text-x-muted">글자 수가 넘거나 빈 칸이 있어요</span>}
       </div>
     </div>
   );

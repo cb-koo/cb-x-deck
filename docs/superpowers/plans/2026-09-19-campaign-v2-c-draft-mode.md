@@ -419,7 +419,7 @@ git commit -m "feat(campaign-v2): 패널이 원고 모드로 바뀐다 — 세 �
     onAttached: (d: DraftRow) => void }   // 시안을 붙였다 — 부모가 상세를 다시 읽고 카드로 전환한다
   ```
 
-**첫 화면은 매번 바꾸는 둘만(§5-1)** — 레퍼런스와 방향성. 나머지(시술·형식·시안 수·제약)는 `▸ 설정`으로 접고, 클라이언트별 마지막 값을 `localStorage`에 기억한다(키 `campaign-v2-draft-settings:<clientId>`, 기존 `/generate`의 `COMPOSER_KEY` 관례).
+**첫 화면은 매번 바꾸는 둘만(§5-1)** — 레퍼런스와 방향성. 나머지(시술·형식·시안 수·제약)는 `▸ 설정`으로 접고, **시술·형식·제약만** 클라이언트별 마지막 값을 `localStorage`에 기억한다(키 `campaign-v2-draft-settings:<clientId>`, 기존 `/generate`의 `COMPOSER_KEY` 관례). **시안 수는 기억하지 않는다**(09-19 리뷰 결정) — `/generate`가 같은 이유로 저장에서 빼고 생성 뒤 1로 되돌린다(`generate/page.tsx`의 "시안 수는 1회용 — 다음 생성이 조용히 N배 비용이 되지 않게"). 기억해 두면 한 번 5로 둔 사용자가 그 뒤 모든 생성에서 5배를 내고, 비용 문구는 1회분만 말한다.
 
 - [ ] **Step 1: 레퍼런스 줄을 만든다**
 

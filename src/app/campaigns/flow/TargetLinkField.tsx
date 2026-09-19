@@ -54,7 +54,10 @@ export function TargetLinkField({ task, campaign, onChange }: {
             {/* 대상 작업이 취소됐으면 알리고 바꾸기를 권한다(결정 3) — 표의 문구와 같은 뜻 */}
             {task.target.cancelledAt && <span className="text-red-600"> · 대상 작업 취소됨</span>}
           </span>
-          <button type="button" onClick={() => onChange(null)} className={changeBtn}>바꾸기</button>
+          {/* text도 같이 비운다 — 안 그러면 이 작업이 원래 targetTweetUrl을 갖고 있던 상태에서 마운트된 뒤
+              대상 작업으로 바꿨다가 다시 [바꾸기]로 돌아올 때, 입력칸에 그 옛 링크가 남아 블러 한 번에
+              되살아난다(대상 비우기 버튼과 같은 이유로 같은 처리). */}
+          <button type="button" onClick={() => { onChange(null); setText(''); }} className={changeBtn}>바꾸기</button>
         </div>
       </div>
     );
@@ -69,7 +72,7 @@ export function TargetLinkField({ task, campaign, onChange }: {
         <input value="" disabled placeholder="대상 확인 중…" className={input} />
         <div className={card}>
           <span className="min-w-0 flex-1 truncate text-x-muted">{tgt.text}</span>
-          <button type="button" onClick={() => onChange(null)} className={changeBtn}>바꾸기</button>
+          <button type="button" onClick={() => { onChange(null); setText(''); }} className={changeBtn}>바꾸기</button>
         </div>
       </div>
     );

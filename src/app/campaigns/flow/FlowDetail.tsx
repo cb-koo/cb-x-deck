@@ -10,10 +10,14 @@ import type { DraftRow } from '@/lib/draftStore';
 import type { CampaignMonthBudget } from '@/lib/clientBudget';
 import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, patchInfluencerPricingApi,
-  patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, type DraftPatchBody, type TaskCreateRequest,
+  patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, refreshCampaignPerfApi,
+  type DraftPatchBody, type TaskCreateRequest,
 } from '@/lib/campaignApi';
 import type { TaskCost } from '@/lib/campaignCost';
-import { flowStage, FLOW_STAGES, draftWriteHref, TASK_TYPE_LABEL, formatDateKo, type TaskType, type FlowStage } from '@/lib/campaignJudgment';
+import {
+  flowStage, FLOW_STAGES, draftWriteHref, TASK_TYPE_LABEL, formatDateKo, isTaskExcluded,
+  deriveTaskInfluencers, taskCampaignTotal, type TaskType, type FlowStage,
+} from '@/lib/campaignJudgment';
 import { draftLabel } from '@/lib/draftViews';
 import { Button, PANEL } from '@/components/ui';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
@@ -182,6 +186,12 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   // shown = 필터·정렬을 적용한 표시 순서. 표가 그리는 순서이자 패널의 이전/다음이 걷는 순서다(하나의 소스).
   const shown = useMemo(() => (data ? sortFlowRows(data.tasks.filter((t) => matchesFlowFilter(t, filter, data.today)), sort) : []), [data, filter, sort]);
   const stats = useMemo(() => (data ? flowStats(data.tasks) : null), [data]);
+  // 계획 비용(카드용, b-task-11-brief.md §1) — stats.plannedCost(작업 비용만)와 달리 인플별 추가 비용까지 더한다.
+  // /campaigns(CampaignDetail)의 '비용 합계'와 같은 함수라 두 화면이 같은 숫자를 말한다.
+  const plannedTotal = useMemo(
+    () => (data ? taskCampaignTotal(deriveTaskInfluencers(data.tasks, data.costRows)) : {}),
+    [data],
+  );
   const settleWait = useMemo(() => (data ? settleWaitCount(data.tasks) : 0), [data]);
   // 필터 드롭다운의 칩 개수 — "그 조건 하나만 켰을 때의 건수"(다른 묶음과 교차시키지 않는다, b-task-6-brief.md 명확화 3)
   const counts = useMemo(() => ({
@@ -192,10 +202,19 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const summary = useMemo(() => filterSummary(filter, shown.length, data?.tasks.length ?? 0), [filter, shown, data]);
   const footer = useMemo(() => flowFooter(data?.tasks ?? [], data?.today ?? ''), [data]);
   const sortNote = sort.key ? `· ${FLOW_SORT_LABEL[sort.key]} ${sort.dir === 1 ? '오름차순' : '내림차순'}` : '· 만든 순';
-  // 카드(Task 11)의 성과 업데이트 버튼 자리 — refreshCampaignPerfApi 연결은 그 작업의 몫(b-task-11-brief.md §2)
-  const cancelledCount = 0;   // TODO(Task 11): data.tasks.filter(isTaskExcluded).length
-  const [refreshing] = useState(false);   // TODO(Task 11): 실제 진행 상태로 교체
-  const onRefresh = useCallback(() => { /* TODO(Task 11): refreshCampaignPerfApi(id) 연결 */ }, []);
+  // 성과 [업데이트](비용 유발 — 게시물당 API 1회, UX 원칙 6 opt-in). 성공하면 상세를 다시 읽어야 새 스냅샷이 카드·표에 보인다.
+  const cancelledCount = data?.tasks.filter(isTaskExcluded).length ?? 0;
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    const r = await refreshCampaignPerfApi(id);
+    if (!r.ok) { setRefreshing(false); show(r.error); return; }
+    await load();   // 새 스냅샷이 카드·표에 보이려면 상세를 다시 읽어야 한다 — 버튼은 그때까지 눌리지 않는다
+    setRefreshing(false);
+    show(r.data.total === 0
+      ? '조회할 게시물이 없었어요'
+      : `게시물 ${r.data.refreshed}건을 다시 조회했어요${r.data.unavailable ? ` · ${r.data.unavailable}건은 찾을 수 없어요` : ''}${r.data.failed ? ` · ${r.data.failed}건은 실패했어요` : ''}`);
+  }, [id, show, load]);
 
   // 오른쪽 패널 — 이전/다음은 shown(표시 순서, 결정 4)을 걷지만, 패널이 보여줄 작업 자체는 data.tasks에서 찾는다.
   // shown으로 찾으면 패널을 연 채 필터를 바꾸거나(다른 세션 변경으로) 단계가 바뀌어 이 작업이 shown에서
@@ -393,8 +412,8 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                         onDelete={() => void removeCampaign()} />
       </div>
       <div className={PANEL}>
-        <FlowCards stats={stats} budget={data.budget} clientId={data.campaign.clientId}
-                   cancelledCount={cancelledCount} refreshing={refreshing} onRefresh={onRefresh} />
+        <FlowCards stats={stats} plannedTotal={plannedTotal} budget={data.budget} clientId={data.campaign.clientId}
+                   cancelledCount={cancelledCount} refreshing={refreshing} onRefresh={() => void onRefresh()} />
       </div>
       <div className={PANEL}>
         {/* [+ 작업 추가]는 오른쪽 패널을 새 작업 모드로 연다(Task 7). [한 번에 만들기]는 아직 뒤에 창이 없다(Task 7). */}

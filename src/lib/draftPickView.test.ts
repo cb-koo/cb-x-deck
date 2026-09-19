@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { candidateLine, searchDraftCandidates } from './draftPickView.ts';
+import { candidateLine, searchDraftCandidates, composerCanSave } from './draftPickView.ts';
 import type { DraftRow } from './draftStore.ts';
 
 const mk = (p: Partial<DraftRow>): DraftRow => ({
@@ -25,4 +25,12 @@ test('2) 검색 — 제목·본문 첫 줄, 대소문자 무관, 공백만이면
   assert.deepEqual(searchDraftCandidates(rows, '미백').map((d) => d.id), ['a']);
   assert.deepEqual(searchDraftCandidates(rows, 'whitening').map((d) => d.id), ['b']);
   assert.deepEqual(searchDraftCandidates(rows, '   ').map((d) => d.id), ['a', 'b']);
+});
+
+test('3) 컴포저 저장 판정 — 빈 칸만 있으면 못 저장, 한 칸이라도 내용이 있으면 저장, 글자 수 초과면 못 저장', () => {
+  assert.equal(composerCanSave([{ text: '', media: [] }]), false);
+  assert.equal(composerCanSave([{ text: '   ', media: [] }]), false);
+  assert.equal(composerCanSave([{ text: '올릴 글', media: [] }]), true);
+  assert.equal(composerCanSave([{ text: '올릴 글', media: [] }, { text: '', media: [] }]), false);   // 스레드 중간이 비면 안 된다
+  assert.equal(composerCanSave([{ text: 'あ'.repeat(200), media: [] }]), false);                      // 전각 200자 = 가중치 400 > 280
 });

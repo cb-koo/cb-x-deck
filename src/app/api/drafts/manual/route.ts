@@ -5,6 +5,7 @@ import { requireMember } from '@/lib/authGuard';
 import { getClientWithProcedures } from '@/lib/clientStore';
 import { insertDraft, getDraft } from '@/lib/draftStore';
 import { formatForPosts } from '@/lib/draftFormat';
+import { parseManualPosts } from '@/lib/draftMediaGuard';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, TASK_HAS_DRAFT_MESSAGE, DRAFT_ATTACHED_MESSAGE, CANCELLED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
 import { getTask, TaskAttachError } from '@/lib/campaignTaskStore';
@@ -19,12 +20,17 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as
     { posts?: unknown; title?: unknown; clientId?: string | null; procedureIds?: unknown; taskId?: unknown };
 
-  // posts: 비어 있지 않은 배열 + 모든 항목이 공백 아닌 문자열. 칸 수 상한 없음(편집 모달 칸 추가와 동일).
-  if (!Array.isArray(body.posts) || body.posts.length === 0 ||
-      body.posts.some((p) => typeof p !== 'string' || !p.trim())) {
-    return NextResponse.json({ error: '본문을 입력해주세요' }, { status: 400 });
+  // posts: string[](기존 입구 — DraftWriteModal) 또는 { text, media }[](캠페인 v2 컴포저) — 둘 다 받는다.
+  // 이미지는 클라이언트가 이미 스토리지에 올린 경로다(PATCH /api/drafts/[id] { edited }와 같은 신뢰 수준 —
+  // parseManualPosts가 그 라우트와 같은 normalizeDraftMedia로 검증한다).
+  const parsed = parseManualPosts(body.posts);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: parsed.error === 'media' ? '첨부 이미지 형식이 올바르지 않아요' : '본문을 입력해주세요' },
+      { status: 400 },
+    );
   }
-  const posts = body.posts as string[];
+  const posts = parsed.posts;
 
   // clientId가 있으면 이름·시술명을 스냅샷으로 박제(generate.ts와 동일한 방식) — procedureIds로 필터.
   const clientId = body.clientId ?? null;
@@ -59,7 +65,7 @@ export async function POST(req: Request) {
         procedureNames: procedures.map((p) => p.name),
         direction: '', format: formatForPosts(posts.length),
         referenceMode: 'off', refs: [],
-        content: { posts: posts.map((text) => ({ text, media: [] })) },
+        content: { posts },
         model: null, memberId: gate.member.id, // 클라이언트 body 무시 — 위조 차단(생성 POST와 동일)
         title,
         taskId: taskId.value ?? null,

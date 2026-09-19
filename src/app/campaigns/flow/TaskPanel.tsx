@@ -40,7 +40,7 @@ type PanelMode = { kind: 'edit'; task: FlowRow; index: number; total: number } |
 
 export function TaskPanel({
   mode, campaign, today, influencerOptions, actions, onClose, onPrev, onNext, onCreate,
-  menu, draftOpen, pickCount, draftCard, draftGenerate, draftBusy, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
+  menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftBusy, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
 }: {
   mode: PanelMode;
   campaign: CampaignRow;
@@ -60,11 +60,13 @@ export function TaskPanel({
   pickCount: number | null;   // '있는 원고 고르기 n' — Task 1의 후보 조회 합, 아직 못 읽었으면 null
   draftCard: ReactNode;       // 붙어 있는 원고의 카드 — FlowDetail이 만든다(로딩·에러 표시도 포함)
   draftGenerate: ReactNode;   // 'AI로 만들기' 탭 본체(DraftGenerate, C 원고 모드 Task 3) — FlowDetail이 만든다
-  // 시안을 만드는 동안(draftGenerate 내부 busy) 패널의 바깥 클릭·Esc 닫기를 끈다 — 요청이 오래 걸려도
-  // 실수로 닫혀 만들던 걸 잃지 않게(아래 두 useEffect가 막는다). 탭 버튼·← 작업으로·푸터 작업으로도 이
-  // 값으로 비활성한다(리뷰 지적 2) — 탭을 바꾸면 DraftGenerate가 언마운트돼 생성 요청이 화면에서 끊겨
-  // 보인다. 헤더 [✕ 닫기]는 막지 않는다(패널이 닫혀도 생성은 미부착 원고로 남는다, DraftGenerate의 '화면을
-  // 떠나도…' 안내와 같은 전제).
+  draftWrite: ReactNode;      // '직접 쓰기' 탭 본체(DraftWrite, C 원고 모드 Task 4) — FlowDetail이 만든다
+  // 시안을 만드는 동안(draftGenerate 내부 busy) 또는 직접 쓰는 동안(draftWrite의 저장·이미지 업로드)
+  // 패널의 바깥 클릭·Esc 닫기를 끈다 — 요청이 오래 걸려도 실수로 닫혀 만들던/쓰던 걸 잃지 않게(아래 두
+  // useEffect가 막는다). 탭 버튼·← 작업으로·푸터 작업으로도 이 값으로 비활성한다(리뷰 지적 2) — 탭을
+  // 바꾸면 두 컴포넌트 모두 언마운트돼 진행 중인 요청이 화면에서 끊겨 보인다. 헤더 [✕ 닫기]는 막지 않는다
+  // (패널이 닫혀도 생성 결과는 미부착 원고로 남는다, DraftGenerate의 '화면을 떠나도…' 안내와 같은 전제).
+  // FlowDetail이 draftGenerate·draftWrite 두 busy를 OR로 합쳐 이 하나의 값으로 넘긴다.
   draftBusy: boolean;
   onDetachDraft: (t: FlowRow) => void;
   onReplace: (t: FlowRow) => void;   // 인플루언서 칸의 [바꾸기] — ReplaceDialog를 여는 것은 FlowDetail 쪽(Task 10)
@@ -471,7 +473,7 @@ export function TaskPanel({
           <DraftMode attached={!!task.draftId} tab={draftTab} onTab={setDraftTab} busy={draftBusy} pickCount={pickCount}
                      card={draftCard}
                      generate={draftGenerate}
-                     write={<p className="text-ui text-x-muted">(Task 4에서 채웁니다)</p>}
+                     write={draftWrite}
                      pick={<p className="text-ui text-x-muted">(Task 5에서 채웁니다)</p>} />
         ) : task ? (
           <>

@@ -1,10 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeDraftMedia, MAX_MEDIA_PER_POST } from './draftMediaGuard.ts';
+import { normalizeDraftMedia, parseManualPosts, MAX_MEDIA_PER_POST } from './draftMediaGuard.ts';
 
 // uploadDraftImage가 실제로 만드는 형태의 경로
 const path = (n: number, ext = 'jpg') =>
   `draft/2c98fbaa-f96b-4d09-a550-20c2cacda668/e6779c58-d727-4d09-ba85-${String(n).padStart(12, '0')}.${ext}`;
+// uploadPendingDraftImage가 만드는 경로(캠페인 v2 직접 쓰기 §5-2 — 원고가 생기기 전에 올린 이미지)
+const pendingPath = (n: number, ext = 'jpg') =>
+  `draft/pending/e6779c58-d727-4d09-ba85-${String(n).padStart(12, '0')}.${ext}`;
 const item = (n: number, ext = 'jpg') => ({ type: 'photo', url: path(n, ext), videoUrl: null });
 
 test('normalizeDraftMedia: 정상 항목(스토리지 경로)은 그대로 통과', () => {
@@ -60,4 +63,46 @@ test('normalizeDraftMedia: photo 외 type·videoUrl 값은 거절 — 업로드 
   assert.equal(normalizeDraftMedia([{ type: 'video', url: path(1), videoUrl: null }]), null);
   assert.equal(normalizeDraftMedia([{ type: 'photo', url: path(1), videoUrl: 'x' }]), null);
   assert.equal(normalizeDraftMedia([{ type: 'photo', url: path(1), videoUrl: 123 }]), null);
+});
+
+// uploadPendingDraftImage(캠페인 v2 직접 쓰기, §5-2)의 경로도 통과해야 한다 — 안 그러면 그 이미지로
+// 저장된 원고는 저장된 순간부터 이 PATCH 경로(다시 쓰기·이미지 편집)로 다시는 못 건드린다.
+test('normalizeDraftMedia: draft/pending/<uuid>.ext(직접 쓰기의 원고 생성 전 업로드)도 통과', () => {
+  const media = [{ type: 'photo', url: pendingPath(1), videoUrl: null }];
+  assert.deepEqual(normalizeDraftMedia(media), media);
+});
+
+// ─────────────────────────── parseManualPosts (POST /api/drafts/manual) ───────────────────────────
+
+test('parseManualPosts: 기존 입구(string[]) — DraftWriteModal이 보내는 그대로', () => {
+  const r = parseManualPosts(['첫 줄', '둘째 줄']);
+  assert.deepEqual(r, { ok: true, posts: [{ text: '첫 줄', media: [] }, { text: '둘째 줄', media: [] }] });
+});
+
+test('parseManualPosts: 새 입구({text,media}[]) — 캠페인 v2 컴포저가 보내는 모양', () => {
+  const media = [{ type: 'photo', url: pendingPath(1), videoUrl: null }];
+  const r = parseManualPosts([{ text: '올릴 글', media }]);
+  assert.deepEqual(r, { ok: true, posts: [{ text: '올릴 글', media }] });
+});
+
+test('parseManualPosts: 섞인 배열(string과 객체가 함께)도 항목별로 파싱', () => {
+  const r = parseManualPosts(['문자열 칸', { text: '객체 칸', media: [] }]);
+  assert.deepEqual(r, { ok: true, posts: [{ text: '문자열 칸', media: [] }, { text: '객체 칸', media: [] }] });
+});
+
+test('parseManualPosts: 빈 배열·배열 아님이면 거절', () => {
+  assert.deepEqual(parseManualPosts([]), { ok: false, error: 'empty' });
+  assert.deepEqual(parseManualPosts('not-an-array'), { ok: false, error: 'empty' });
+  assert.deepEqual(parseManualPosts(undefined), { ok: false, error: 'empty' });
+});
+
+test('parseManualPosts: 공백만 있는 칸(문자열이든 객체든)은 거절', () => {
+  assert.deepEqual(parseManualPosts(['   ']), { ok: false, error: 'empty' });
+  assert.deepEqual(parseManualPosts([{ text: '   ', media: [] }]), { ok: false, error: 'empty' });
+  assert.deepEqual(parseManualPosts([{ media: [] }]), { ok: false, error: 'empty' });   // text 자체가 없음
+});
+
+test('parseManualPosts: 형식이 틀린 media는 본문과 별개로 거절(사유 media)', () => {
+  const r = parseManualPosts([{ text: '올릴 글', media: [{ type: 'photo', url: 'https://attacker.example/x.jpg', videoUrl: null }] }]);
+  assert.deepEqual(r, { ok: false, error: 'media' });
 });

@@ -137,6 +137,21 @@ export async function uploadDraftImage(draftId: string, file: File): Promise<Dec
   return { type: 'photo', url: path, videoUrl: null };
 }
 
+// 원고가 생기기 전에 올린다(캠페인 v2 직접 쓰기, §5-2) — X에서처럼 이미지를 고르는 순간 올라가고
+// [저장하고 붙이기] 한 번으로 본문과 함께 저장된다. 경로의 앞부분(pending)은 표시·다운로드 어디서도
+// 되읽지 않는다. draftMediaGuard.STORAGE_PATH_RE가 이 접두어를 알고 있어야 저장 후 PATCH 편집(다시
+// 쓰기·이미지 편집)에서 거절되지 않는다 — draftMediaGuard.ts에서 함께 허용한다.
+// 저장하지 않고 떠나면 올라간 파일이 남는다 — 원고에서 이미지를 뗐을 때와 같은 성질이라 같은 수준으로 둔다.
+export async function uploadPendingDraftImage(file: File): Promise<DeckMedia> {
+  const validationError = draftImageValidationError(file);
+  if (validationError) throw new Error(validationError);
+  const path = `draft/pending/${crypto.randomUUID()}.${extensionForFile(file)}`;
+  const supabase = createClient();
+  const { error } = await supabase.storage.from(DRAFT_MEDIA_BUCKET).upload(path, file, { contentType: file.type });
+  if (error) throw new Error('업로드에 실패했어요 — 다시 시도해주세요');
+  return { type: 'photo', url: path, videoUrl: null };
+}
+
 // ─────────────────────────── 다운로드 ───────────────────────────
 
 // 서명 URL을 클릭 시점에 새로 발급받는다 — 렌더 때 받은 URL을 재사용하면 만료된 채로

@@ -50,6 +50,7 @@ import { ReplaceDialog } from './ReplaceDialog';
 import { useFlowTaskActions } from './useFlowTaskActions';
 import { type DraftTab } from './draft/DraftMode';
 import { DraftGenerate } from './draft/DraftGenerate';
+import { DraftWrite } from './draft/DraftWrite';
 
 // 캠페인 v2 상세 컨테이너 — /campaigns의 CampaignDetail과 같은 계약(로드·낙관적 갱신·원고 카드 모달)을 쥐지만,
 // 표는 작업 표(TaskTable) 대신 단계 기반 표(FlowTable, Task 6)고 달력·인플루언서별 비용 표는 없다(R10 — 단일 표 화면).
@@ -119,9 +120,14 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   // 이 신호를 보낸다(패널이 원고 모드일 때도 행 클릭 = 그 작업을 연다가 지켜져야 한다).
   const [draftOpenReq, setDraftOpenReq] = useState<{ tab: DraftTab | null; seq: number } | null>(null);
   const draftOpenSeqRef = useRef(0);
-  // AI로 만들기(Task 3)가 시안을 만드는 동안 — TaskPanel이 이 값으로 바깥 클릭·Esc 닫기를 끈다(생성 중
-  // 실수로 패널이 닫혀도 만들던 결과 자체는 미부착 원고로 남지만, 사용자가 붙일 기회를 놓치지 않게 한다).
-  const [draftBusy, setDraftBusy] = useState(false);
+  // AI로 만들기(Task 3)가 시안을 만드는 동안 · 직접 쓰기(Task 4)가 저장·업로드하는 동안 — TaskPanel이
+  // 이 값(둘을 OR로 합친 draftBusy)으로 바깥 클릭·Esc 닫기를 끈다(생성/저장 중 실수로 패널이 닫혀도
+  // 결과 자체는 남지만, 사용자가 붙일 기회를 놓치지 않게 한다). 두 탭은 동시에 마운트되지 않으므로
+  // (DraftMode가 tab === 'generate' ? generate : tab === 'write' ? write : pick 중 하나만 그린다)
+  // 실제로는 항상 둘 중 하나만 true지만, 어느 탭의 값인지 TaskPanel이 몰라도 되게 여기서 미리 합친다.
+  const [draftGenBusy, setDraftGenBusy] = useState(false);
+  const [draftWriteBusy, setDraftWriteBusy] = useState(false);
+  const draftBusy = draftGenBusy || draftWriteBusy;
   // 레퍼런스 고르기 시트·링크 추가 모달이 원고 모드 안에서 떠 있는 동안(리뷰 지적 1, Critical) — 두 오버레이는
   // document keydown을 버블 단계에서 듣고 stopPropagation을 안 해서, 먼저 등록된 패널의 Esc가 패널째로 닫아
   // 버린다. overlayOpen(아래)에 OR로 더해 막는다 — 다른 오버레이들과 같은 자리, DraftGenerate의 onOverlayChange가 채운다.
@@ -515,7 +521,17 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
       <DraftGenerate task={panelTask} clientId={clientId}
                      clientData={clientData} targetRef={targetRef}
                      onAttached={onDraftAttached} onGenerated={() => void reloadCandidates()}
-                     onBusyChange={setDraftBusy} onOverlayChange={setDraftOverlayOpen} />
+                     onBusyChange={setDraftGenBusy} onOverlayChange={setDraftOverlayOpen} />
+    )
+    : null;
+  // 패널의 원고 모드 · '직접 쓰기' 탭(Task 4) — 붙이기 성공 뒤 동작은 'AI로 만들기'와 같은 재조회
+  // (onDraftAttached, 위 주석 참고)를 그대로 재사용한다. 저장은 됐는데 붙이기만 실패했을 때는(원고가
+  // 이미 저장돼 있다) 후보만 다시 읽는다 — onGenerated와 같은 함수(reloadCandidates)를 부른다.
+  const draftWrite: ReactNode = panelTask
+    ? (
+      <DraftWrite task={panelTask} clientId={clientId}
+                  onAttached={onDraftAttached} onSavedUnattached={() => void reloadCandidates()}
+                  onBusyChange={setDraftWriteBusy} />
     )
     : null;
   // '있는 원고 고르기 n' — Task 1의 후보 조회 합. 아직 못 읽었으면 null(0이라고 거짓말하지 않는다, 결정 4).
@@ -575,7 +591,7 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
                    onClose={() => setPanel(null)} onPrev={onPanelPrev} onNext={onPanelNext} onCreate={createTask}
                    menu={panelTask ? renderMenu(panelTask) : null}
                    draftOpen={draftOpenReq} pickCount={pickCount} draftCard={draftCard}
-                   draftGenerate={draftGenerate} draftBusy={draftBusy}
+                   draftGenerate={draftGenerate} draftWrite={draftWrite} draftBusy={draftBusy}
                    onDetachDraft={(t) => void detachDraft(t)}
                    onReplace={(t) => setReplaceFor(t)}
                    onSaveProfilePricing={saveProfilePricing}

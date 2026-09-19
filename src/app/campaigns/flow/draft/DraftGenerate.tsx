@@ -54,7 +54,7 @@ function applyRefCap(
 }
 
 export function DraftGenerate({
-  task, clientId, clientData, targetRef, onAttached, onGenerated, onBusyChange, onOverlayChange, onDirtyChange,
+  task, clientId, clientData, targetRef, onAttached, onAttachFailed, onGenerated, onBusyChange, onOverlayChange, onDirtyChange,
 }: {
   task: FlowRow;
   clientId: string | null;
@@ -69,12 +69,20 @@ export function DraftGenerate({
   // 재조회가 실패하면 붙이기 자체는 이미 서버에서 끝났어도 task.draftId가 안 채워져 이 화면이 카드로
   // 전환되지 않는다 — attaching 잠금을 푸는 유일한 길이 그 전환이라, 실패를 모르면 잠금이 영영 안 풀린다.
   onAttached: (d: DraftRow) => Promise<boolean>;
+  // 붙이기 실패(주로 409 — 다른 세션이 먼저 붙였거나 작업이 취소된 뒤) 뒤 복구를 부모(FlowDetail) 한
+  // 곳으로 모은다(최종 리뷰 §2) — '있는 원고 고르기' 탭과 같은 PATCH를 쏘는데 회복 규칙만 여기 따로
+  // 없으면 같은 오류로 계속 재시도하게 된다. status를 그대로 넘기고 판정은 부모가 진다.
+  onAttachFailed: (status: number) => void;
   // 브리프의 계약엔 없지만(§ Interfaces), 생성 뒤 '있는 원고 고르기' 후보 수를 갱신하려면 부모(FlowDetail)의
   // reloadCandidates를 불러야 한다 — 고르지 않은 시안도 미부착 원고로 남기 때문(§Step3 주석).
   onGenerated: () => void;
-  // 생성 중엔 패널의 Esc·바깥 클릭 닫기를 부모(TaskPanel)가 끄게 한다(원고 모드 §Step3 "만드는 동안
-  // 패널에 머무른다") — 이 컴포넌트의 로컬 busy는 TaskPanel이 못 보므로 콜백으로 올려 보낸다.
-  onBusyChange: (busy: boolean) => void;
+  // 생성·붙이기 중엔 패널의 Esc·바깥 클릭 닫기를 부모(TaskPanel)가 끄게 한다(원고 모드 §Step3 "만드는 동안
+  // 패널에 머무른다" — 최종 리뷰 §3에서 붙이는 동안도 넓혔다. 안 그러면 다른 두 탭과 달리 이 시안 붙이기
+  // 중에 Esc 한 번으로 패널이 닫힌다. 데이터는 안전해도(서버 PATCH는 이미 끝났다) 사용자는 붙었는지 모른
+  // 채 화면을 잃는다) — 이 컴포넌트의 로컬 busy·attaching은 TaskPanel이 못 보므로 콜백으로 올려 보낸다.
+  // label을 함께 올린다(DraftWrite와 같은 계약) — 생성 중과 붙이는 중은 다른 사실이라 boolean 하나로는
+  // 거짓 어포던스가 된다.
+  onBusyChange: (busy: { label: string } | null) => void;
   // 레퍼런스 고르기 시트·링크 추가 모달이 떠 있는 동안은 패널의 Esc를 끈다(리뷰 지적 1, Critical) — 두 오버레이는
   // 버블 단계에서 keydown을 듣고 stopPropagation을 하지 않아, 패널의 Esc 리스너가 먼저 잡아 패널째로 닫혀 버린다.
   // onBusyChange와 같은 방식(부모가 못 보는 로컬 상태를 콜백으로 올린다, 언마운트 시 false로 정리).
@@ -116,9 +124,14 @@ export function DraftGenerate({
     } catch { /* 무시 — 저장값이 깨졌어도 기본값으로 계속 쓴다 */ }
   }, [clientId]);
 
-  // busy를 부모에 올려 보낸다 — 언마운트(탭을 벗어남 등) 시에는 false로 되돌려 부모가 영영 막힌 채로 남지 않게 한다.
-  useEffect(() => { onBusyChange(busy); }, [busy, onBusyChange]);
-  useEffect(() => () => onBusyChange(false), [onBusyChange]);
+  // busy·attaching을 부모에 올려 보낸다(최종 리뷰 §3) — 시안을 만드는 동안과 붙이는 동안 둘 다 패널을
+  // 잠근다. 언마운트(탭을 벗어남 등) 시에는 null로 되돌려 부모가 영영 막힌 채로 남지 않게 한다.
+  useEffect(() => {
+    if (busy) onBusyChange({ label: '만드는 중이에요' });
+    else if (attaching) onBusyChange({ label: '붙이는 중이에요' });
+    else onBusyChange(null);
+  }, [busy, attaching, onBusyChange]);
+  useEffect(() => () => onBusyChange(null), [onBusyChange]);
   // overlayOpen도 같은 방식으로 올려 보낸다(위 onOverlayChange 주석) — 언마운트 시 false로 정리.
   const overlayOpen = pickerOpen || linkOpen;
   useEffect(() => { onOverlayChange(overlayOpen); }, [overlayOpen, onOverlayChange]);
@@ -224,8 +237,14 @@ export function DraftGenerate({
     // 끝나기 전까지 다른 시안 버튼이 다시 눌려 409를 부른다. 재조회까지 성공하면 카드로 바뀌며 이 화면
     // 자체가 사라진다. 재조회가 실패하면(리뷰 지적 3) 잠금을 풀 유일한 길이 그 재조회뿐이라 — 붙이기 자체는
     // 서버에서 이미 끝났으니 "안 붙었다"고 말하지 않고, 붙었다는 사실과 새로고침 안내만 말한다.
-    if (!r.ok) { setAttaching(null); show(r.error); return; }   // 이미 붙었거나 취소된 작업이면 서버가 문구를 준다
-    if (!(await onAttached(r.data))) { setAttaching(null); show('시안은 붙였어요 — 화면을 새로고침해 주세요'); }
+    if (!r.ok) {
+      setAttaching(null); show(r.error);   // 이미 붙었거나 취소된 작업이면 서버가 문구를 준다
+      onAttachFailed(r.status);   // 409 복구(상세·후보 재조회)는 부모 한 곳(onAttachFailed)이 진다(최종 리뷰 §2)
+      return;
+    }
+    // '있는 원고 고르기' 탭(FlowDetail.attachExistingDraft)과 같은 상황·같은 문구로 통일한다(최종 리뷰 §5
+    // — 하는 일이 같으니 머리도 같아야 한다).
+    if (!(await onAttached(r.data))) { setAttaching(null); show('붙였어요 — 화면을 새로고침해 주세요'); }
   }
 
   const procNames = procedures.filter((p) => folded.procedureIds.includes(p.id)).map((p) => p.name);

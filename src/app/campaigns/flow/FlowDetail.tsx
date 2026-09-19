@@ -151,21 +151,20 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 이 신호를 보낸다(패널이 원고 모드일 때도 행 클릭 = 그 작업을 연다가 지켜져야 한다).
   const [draftOpenReq, setDraftOpenReq] = useState<{ tab: DraftTab | null; seq: number } | null>(null);
   const draftOpenSeqRef = useRef(0);
-  // AI로 만들기(Task 3)가 시안을 만드는 동안 · 직접 쓰기(Task 4)가 저장·업로드하는 동안 · 있는 원고
-  // 고르기(Task 5)가 붙이는 동안 — TaskPanel이 이 값(셋을 합친 draftBusy)으로 바깥 클릭·Esc 닫기를
+  // AI로 만들기(Task 3)가 시안을 만들거나 붙이는 동안 · 직접 쓰기(Task 4)가 저장·업로드하는 동안 · 있는
+  // 원고 고르기(Task 5)가 붙이는 동안 — TaskPanel이 이 값(셋을 합친 draftBusy)으로 바깥 클릭·Esc 닫기를
   // 끈다(생성/저장/붙이기 중 실수로 패널이 닫혀도 결과 자체는 남지만, 사용자가 붙일 기회를 놓치지 않게
   // 한다). 세 탭은 동시에 마운트되지 않으므로(DraftMode가 tab === 'generate' ? generate : tab === 'write'
-  // ? write : pick 중 하나만 그린다) 실제로는 항상 하나만 true지만, 어느 탭의 값인지 TaskPanel이 몰라도
-  // 되게 여기서 미리 합친다. DraftGenerate는 이 라운드에서 손대지 않아 boolean 그대로다(브리프 범위 밖) —
-  // label은 여기서 붙인다. DraftWrite는 label을 스스로 안다(업로드 중·저장 중이 다른 사실이라, 리뷰 지적
-  // 3)라 그 값을 그대로 쓴다. 있는 원고 고르기는 붙이는 중인 원고의 id를 들고 있다(DraftPick이 그 행에
-  // "붙이는 중…"을 보여줘야 해서, DraftGenerate.attaching과 같은 모양) — 여기서는 값이 있는지만 본다.
-  const [draftGenBusy, setDraftGenBusy] = useState(false);
+  // ? write : pick 중 하나만 그린다) 실제로는 항상 하나만 값이 있지만, 어느 탭의 값인지 TaskPanel이 몰라도
+  // 되게 여기서 미리 합친다. DraftGenerate·DraftWrite는 label을 스스로 안다(생성 중·붙이는 중, 저장 중·
+  // 업로드 중이 서로 다른 사실이라 boolean 하나로는 거짓 어포던스가 된다 — 최종 리뷰 §3에서 DraftGenerate도
+  // 붙이는 동안 잠그도록 넓혔다) — 그 값을 그대로 쓴다. 있는 원고 고르기는 붙이는 중인 원고의 id를 들고
+  // 있다(DraftPick이 그 행에 "붙이는 중…"을 보여줘야 해서, DraftGenerate.attaching과 같은 모양) — 여기서는
+  // 값이 있는지만 보고 label은 여기서 붙인다.
+  const [draftGenBusy, setDraftGenBusy] = useState<{ label: string } | null>(null);
   const [draftWriteBusy, setDraftWriteBusy] = useState<{ label: string } | null>(null);
   const [draftPickBusy, setDraftPickBusy] = useState<string | null>(null);
-  const draftBusy: { label: string } | null = draftGenBusy
-    ? { label: '만드는 중이에요' }
-    : draftWriteBusy ?? (draftPickBusy ? { label: '붙이는 중이에요' } : null);
+  const draftBusy: { label: string } | null = draftGenBusy ?? draftWriteBusy ?? (draftPickBusy ? { label: '붙이는 중이에요' } : null);
   // 원고 모드가 "작성 중"인지(리뷰 지적 4, Task 4c §3에서 생성 탭까지 넓혔다) — DraftWrite의 로컬 상태
   // (posts)도, DraftGenerate의 방향성 글자도 이 컴포넌트가 못 보므로 콜백으로 받아 TaskPanel에 다시
   // 내려준다(onBusyChange와 같은 배선). openPanel 등(아래)은 합친 값 하나(draftWriteDirty)만 보면 되지만,
@@ -371,11 +370,19 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 각자 진다). 문구는 '닫을까요?'가 아니라 '열까요?' 쪽이다(Task 4d §2) — 이 함수는 패널을 닫지 않고
   // 다른 작업으로 바꾼다.
   const openPanel = useCallback((taskId: string) => {
-    if (draftWriteDirty && !window.confirm(draftSwitchConfirm)) return;
+    // 지금 패널이 보여주는 바로 그 작업을 다시 누른 것이면 draftSwitchConfirm("다른 작업을 열까요?")을
+    // 쓰지 않는다(리뷰 지적 4) — 다른 작업을 여는 게 아니라 그 작업의 작업 모드로 돌아가는 것이라 그
+    // 문장은 사실이 아니다. 그렇다고 묻지 않는 것은 아니다 — 이 자리가 보내는 tab:null 신호를 TaskPanel의
+    // draftOpen 이펙트가 확인 없이 그대로 받아 setDraftMode('task')를 부르고(위 tab:null 주석), 원고
+    // 모드가 꺼지며 DraftWrite·DraftGenerate가 언마운트돼 작성 중인 글이 사라진다 — requestDraftModeExit
+    // ("← 작업으로")가 같은 전환에 쓰는 moveConfirm("나갈까요?")을 여기서도 그대로 쓴다(새 문장을 짓지
+    // 않는다, 다른 작업이면 지금처럼 draftSwitchConfirm).
+    const msg = taskId === panelTaskId ? moveConfirm : draftSwitchConfirm;
+    if (draftWriteDirty && msg && !window.confirm(msg)) return;
     draftOpenSeqRef.current += 1;
     setDraftOpenReq({ tab: null, seq: draftOpenSeqRef.current });
     setPanel({ taskId });
-  }, [draftWriteDirty, draftSwitchConfirm]);
+  }, [panelTaskId, draftWriteDirty, draftSwitchConfirm, moveConfirm]);
   // + 작업 추가(Task 4c §1 — 4b가 안 막았던 문) — 같은 확인. isNewDirty는 필요 없다(이미 새 작업 모드일 때
   // 다시 눌러도 key가 그대로 'new'라 TaskPanel이 리마운트되지 않고, 로컬 입력은 그대로 남는다).
   const openNew = useCallback(() => {
@@ -410,6 +417,15 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   }, [isNew, openPanel]);
   const onPanelPrev = useCallback(() => { if (panelIndex > 0) openPanel(shown[panelIndex - 1].id); }, [panelIndex, shown, openPanel]);
   const onPanelNext = useCallback(() => { if (panelIndex >= 0 && panelIndex < shown.length - 1) openPanel(shown[panelIndex + 1].id); }, [panelIndex, shown, openPanel]);
+  // 취소·삭제도 패널의 확인을 먼저 지나야 한다(최종 리뷰 §1 — 같은 종류의 손실을 다섯 라운드에 걸쳐 막던
+  // 것의 여섯 번째 문). 지금 패널이 보여주는 바로 그 작업을 표의 ··· 메뉴에서 취소·삭제하면 inDraftMode
+  // 게이트가 꺼지며 DraftWrite·DraftGenerate가 언마운트돼 작성 중인 글·방향성이 확인 없이 사라진다(표는
+  // 흐릴 뿐 막혀 있지 않고, 메뉴 셀은 클릭 전파를 막아 메뉴가 그대로 열린다). openPanel 등(위)이 다른
+  // 작업을 열 때 쓰는 것과 같은 확인(draftSwitchConfirm)을 재사용한다 — 새 문장을 짓지 않는다. 다른
+  // 작업의 취소·삭제는 지금 패널과 무관하니 묻지 않는다(taskId !== panelTaskId).
+  const confirmLoseDraftFor = useCallback((taskId: string): boolean => (
+    taskId !== panelTaskId || !draftWriteDirty || window.confirm(draftSwitchConfirm)
+  ), [panelTaskId, draftWriteDirty, draftSwitchConfirm]);
   // 행 "···" 메뉴(Task 10) — 표의 마지막 칸과 패널 헤더가 같은 컴포넌트(FlowRowMenu)를 쓴다. 여기 모인
   // 콜백들은 전부 "다이얼로그/모달을 연다" 또는 "확인 뒤 바로 실행한다" 둘 중 하나 — 실제 저장은 flowActions
   // (취소·되돌리기·교체, Task 7)나 actions.remove(useCampaignTaskActions)가 한다.
@@ -419,14 +435,16 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     openDraftMode,
     linkPost: (t) => setLinkFor(t),
     replace: (t) => setReplaceFor(t),
-    cancel: (t) => setCancelFor(t),
+    cancel: (t) => { if (confirmLoseDraftFor(t.id)) setCancelFor(t); },
     // 되돌리기는 확인 창 없이 즉시 실행한다 — 되돌리기 자체가 되돌리는 동작이고, 결과는 훅이 토스트로 알린다.
     // 취소돼 있던 작업에 붙어 있던 원고는 되돌리며 재부착되거나(reattached) 남의 것이 됐거나(taken) 지워졌을
     // 수 있다(restoreMessage) — 어느 쪽이든 후보 목록(있는 원고 고르기)이 달라질 수 있어 다시 읽는다.
     restore: (t) => { void flowActions.restore(t).then((ok) => { if (ok) void reloadCandidates(); }); },
     // 삭제는 기존 관례(CampaignDetail)와 같은 확인 문구 — actions.remove가 실제 삭제. 패널이 지금 이 작업을
-    // 보고 있었으면(삭제된 작업 id로 남지 않게) 함께 닫는다.
+    // 보고 있었으면(삭제된 작업 id로 남지 않게) 함께 닫는다. confirmLoseDraftFor가 먼저다 — 작성 중인 글을
+    // 잃는 확인이, 작업 자체를 지울지 묻는 확인보다 앞서야 한다(최종 리뷰 §1).
     remove: (t) => {
+      if (!confirmLoseDraftFor(t.id)) return;
       if (!window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}`)) return;
       void actions.remove(t).then((ok) => {
         if (ok && panelTaskId === t.id) setPanel(null);
@@ -434,7 +452,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
         if (ok && t.draftId) void reloadCandidates();
       });
     },
-  }), [openPanel, openDraftMode, flowActions, actions, panelTaskId, reloadCandidates]);
+  }), [openPanel, openDraftMode, flowActions, actions, panelTaskId, reloadCandidates, confirmLoseDraftFor]);
   const renderMenu = useCallback((t: FlowRow): ReactNode => (
     <FlowRowMenu task={t} today={data?.today ?? ''} on={menuActions} />
   ), [menuActions, data?.today]);
@@ -635,6 +653,14 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     onChanged(); void reloadCandidates();
     return ok;
   }, [load, onChanged, reloadCandidates]);
+  // 붙이기 실패 뒤 복구(최종 리뷰 §2) — 세 탭(AI로 만들기·직접 쓰기·있는 원고 고르기)이 모두 같은 PATCH
+  // (patchDraftApi({ taskId }))를 쏘는데, 회복 규칙은 '있는 원고 고르기'(아래 attachExistingDraft)에만
+  // 있었다. 409(이미 다른 원고가 붙었거나 작업이 취소된 뒤 — 다른 세션이 먼저 손댄 것)면 상세·후보를
+  // 다시 읽어 낡은 화면을 되돌린다 — 안 그러면 같은 오류로 계속 재시도하게 된다. 세 자리가 각자 재조회
+  // 코드를 베끼지 않고 여기 하나만 부르게 모은다(붙이기 성공 처리가 onDraftAttached 하나에 모인 것과 같은 결).
+  const onAttachFailed = useCallback((status: number) => {
+    if (status === 409) { void load(); void reloadCandidates(); }
+  }, [load, reloadCandidates]);
   // 패널의 원고 모드 · 'AI로 만들기' 탭 — clientData는 clientId가 있어도 아직 못 읽었으면 undefined(로딩
   // 중)거나 null(실패)이다(DraftGenerate가 그 둘과 성공을 구분해 읽는다 — clientId를 함께 받는 이유,
   // 리뷰 지적 4). clientName은 따로 넘기지 않는다 — clientData에서 파생되는 값이라 두 prop으로 같은
@@ -643,7 +669,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     ? (
       <DraftGenerate task={panelTask} clientId={clientId}
                      clientData={clientData} targetRef={targetRef}
-                     onAttached={onDraftAttached} onGenerated={() => void reloadCandidates()}
+                     onAttached={onDraftAttached} onAttachFailed={onAttachFailed} onGenerated={() => void reloadCandidates()}
                      onBusyChange={setDraftGenBusy} onOverlayChange={setDraftOverlayOpen}
                      onDirtyChange={setDraftGenDirty} />
     )
@@ -654,7 +680,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const draftWrite: ReactNode = panelTask
     ? (
       <DraftWrite task={panelTask} clientId={clientId}
-                  onAttached={onDraftAttached} onSavedUnattached={() => void reloadCandidates()}
+                  onAttached={onDraftAttached} onAttachFailed={onAttachFailed} onSavedUnattached={() => void reloadCandidates()}
                   onBusyChange={setDraftWriteBusy} onDirtyChange={setDraftWriteOnlyDirty} />
     )
     : null;
@@ -681,16 +707,15 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     if (!r.ok) {
       setDraftPickBusy(null);
       show(r.error);
-      // 409(이미 원고가 있음·취소된 작업 등, 리뷰 지적 3) — 서버 문구는 그대로 보여 주되 상세·후보를
-      // 다시 읽어 낡은 화면(다른 세션이 먼저 붙였거나 작업을 취소한 뒤)을 되돌린다. 안 그러면 같은
-      // 오류로 다시 들어간다.
-      if (r.status === 409) { void load(); void reloadCandidates(); }
+      // 409(이미 원고가 있음·취소된 작업 등) 복구는 onAttachFailed 하나로 모은다(위 정의, 최종 리뷰 §2)
+      // — 서버 문구는 그대로 보여 주고, 화면 되돌리기는 세 탭이 공유하는 그 함수가 한다.
+      onAttachFailed(r.status);
       return;
     }
     const ok = await onDraftAttached(r.data);
     setDraftPickBusy(null);
     if (!ok) show('붙였어요 — 화면을 새로고침해 주세요');
-  }, [panelTask, draftPickBusy, show, onDraftAttached, load, reloadCandidates]);
+  }, [panelTask, draftPickBusy, show, onDraftAttached, onAttachFailed]);
   // 안전망(위 attachExistingDraft 주석) — 패널이 보는 작업이 바뀌면(다른 작업을 열었거나, 이 작업에
   // 원고가 붙어 카드로 전환됐거나) draftPickBusy는 더 이상 뜻이 없다. 정상 경로가 이미 풀지만, 앞으로
   // 어느 경로가 그 정상 경로를 안 타더라도 여기서 다시 풀어 패널이 굳지 않게 한다.

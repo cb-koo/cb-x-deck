@@ -15,12 +15,15 @@ import { XComposer } from './XComposer';
 // 아직 원고가 없으므로 draftId가 필요한 uploadDraftImage 대신 쓴다), 저장 버튼은 본문과 이미 올라간
 // 이미지를 함께 실어 원고 생성 + 작업 붙이기를 한 번에 끝낸다(DraftGenerate처럼 "만들고 → 고르고 →
 // 붙이고" 세 단계가 아니다 — 여기엔 고를 시안이 없다).
-export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBusyChange, onDirtyChange }: {
+export function DraftWrite({ task, clientId, onAttached, onAttachFailed, onSavedUnattached, onBusyChange, onDirtyChange }: {
   task: FlowRow;
   clientId: string | null;
   // 붙이기 성공 뒤 부모(FlowDetail)가 상세를 다시 읽는다 — DraftGenerate의 onAttached와 똑같은 계약
   // (재조회 성공 여부를 돌려준다). 재조회가 실패하면 여기서도 잠금을 풀고 새로고침을 안내한다.
   onAttached: (d: DraftRow) => Promise<boolean>;
+  // 붙이기(PATCH) 실패 복구를 부모 한 곳으로 모은다(최종 리뷰 §2) — DraftGenerate.onAttachFailed와 같은
+  // 계약. status를 그대로 넘기고 판정(409면 재조회)은 부모가 진다.
+  onAttachFailed: (status: number) => void;
   // 원고 생성은 됐는데(저장은 이미 끝났다) 그 작업에 붙이는 PATCH만 실패했을 때 — 쓴 글은 원고로
   // 이미 남아 있으므로 다시 칠 일이 없다. 부모가 '있는 원고 고르기' 후보를 다시 읽어야 거기서 보인다.
   onSavedUnattached: () => void;
@@ -131,6 +134,9 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
       setBusy(false);
       show(`${a.error} — 쓴 글은 '있는 원고 고르기'에 저장돼 있어요`);
       onSavedUnattached();
+      // 409(다른 세션이 먼저 붙였거나 작업이 취소됨) 복구는 부모 한 곳(onAttachFailed)에 모은다 — '있는
+      // 원고 고르기' 탭과 같은 PATCH라 회복 규칙도 같아야 한다(최종 리뷰 §2).
+      onAttachFailed(a.status);
       return;
     }
     // 붙이기(PATCH)는 여기서 이미 끝났다 — 뒤이은 재조회가 실패해도 이 사실은 바뀌지 않는다(Task 4c §2).

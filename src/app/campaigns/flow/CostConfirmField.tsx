@@ -37,10 +37,16 @@ export function CostConfirmField({
   const [dialog, setDialog] = useState<{ scenario: 'differs' | 'no-profile'; entered: TaskCost } | null>(null);
 
   if (disabledReason) {
+    // I4 — 저장된 비용(value)이 있으면 빈 점선 상자로 지우지 않는다: 표는 값을 보여주는데 패널만 빈칸이면
+    // 같은 화면이 두 말을 하는 셈이다(예: 미배정으로 돌아간 작업도 확정된 비용은 남아 있을 수 있다).
     return (
       <div>
-        <input disabled placeholder="₩" aria-label={label}
-               className="h-10 w-full rounded-md border border-dashed border-x-border-strong bg-x-surface px-3 text-content text-x-muted" />
+        {value ? (
+          <p className="flex h-10 items-center text-content tabular-nums">{formatAmount(value.amount, value.currency)}</p>
+        ) : (
+          <input disabled placeholder="₩" aria-label={label}
+                 className="h-10 w-full rounded-md border border-dashed border-x-border-strong bg-x-surface px-3 text-content text-x-muted" />
+        )}
         <p className="mt-1 text-caption text-x-muted">{disabledReason}</p>
       </div>
     );

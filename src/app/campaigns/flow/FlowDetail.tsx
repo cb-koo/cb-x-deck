@@ -13,11 +13,13 @@ import {
   patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, type DraftPatchBody, type TaskCreateRequest,
 } from '@/lib/campaignApi';
 import type { TaskCost } from '@/lib/campaignCost';
-import { flowStage, FLOW_STAGES, draftWriteHref, TASK_TYPE_LABEL, type TaskType, type FlowStage } from '@/lib/campaignJudgment';
+import { flowStage, FLOW_STAGES, draftWriteHref, TASK_TYPE_LABEL, formatDateKo, type TaskType, type FlowStage } from '@/lib/campaignJudgment';
 import { draftLabel } from '@/lib/draftViews';
 import { Button, PANEL } from '@/components/ui';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
+import { useSignedTaskProofUrls } from '@/components/useSignedTaskProofUrls';
+import { ImageLightbox } from '@/components/ImageLightbox';
 import {
   EMPTY_FLOW_FILTER, matchesFlowFilter, sortFlowRows, flowStats, settleWaitCount, flowFooter, filterSummary,
   FLOW_SORT_LABEL, DISPLAY_TYPE_ORDER, matchesExtra, EXTRA_FILTERS,
@@ -31,6 +33,8 @@ import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
 import { TaskPanel } from './TaskPanel';
 import { CostConfirmField } from './CostConfirmField';
+import { TargetLinkField } from './TargetLinkField';
+import { PostedDialog } from './PostedDialog';
 import { BulkCreateDialog } from './BulkCreateDialog';
 import { useFlowTaskActions } from './useFlowTaskActions';
 
@@ -76,6 +80,10 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const [sort, setSort] = useState<FlowSort>({ key: null, dir: 1 });
   const [panel, setPanel] = useState<Panel>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  // 게시 확인 다이얼로그(Task 9) — 패널에서만 연다(행 메뉴는 Task 10). RT 증빙 라이트박스는 TaskTable과
+  // 같은 관례(useSignedTaskProofUrls로 배치 서명 + zoomUrl 하나).
+  const [postedFor, setPostedFor] = useState<FlowRow | null>(null);
+  const [zoomUrl, setZoomUrl] = useState<string | null>(null);
   // 있는 원고 고르기(패널의 [있는 원고 고르기]) — CampaignDetail의 attachFor와 같은 패턴, 같은 모달(AttachDraftModal)
   const [attachFor, setAttachFor] = useState<CampaignTaskItem | null>(null);
 
@@ -192,6 +200,8 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   // 삭제·취소로 data.tasks에서 사라지면(Task 10 삭제 등) panelTask가 null이 되는데, 그때 표만 흐리고 패널이
   // 없으면 "닫히지도 열리지도 않은" 상태로 보인다. 하나의 값으로 통일한다.
   const panelOpen = !!panel && (isNew || !!panelTask);
+  // 증빙 서명 URL — 패널이 지금 보여주는 작업 하나만(TaskTable처럼 표 전체를 배치하지 않는다, 패널은 한 번에 하나다)
+  const proofUrls = useSignedTaskProofUrls(panelTask?.proof?.url ? [panelTask.proof.url] : []);
   const openPanel = useCallback((taskId: string) => setPanel({ taskId }), []);
   const openNew = useCallback(() => setPanel({ fresh: true }), []);
   const openBulk = useCallback(() => setBulkOpen(true), []);
@@ -398,13 +408,52 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                                           onSaveProfile={(opt, c) => saveProfilePricing(opt, c, panelTask.type)}
                                           disabledReason={panelTask.influencerHandle ? undefined : '인플을 정하면 프로필 단가로 채워요'} />
                        : null,
-                     target: <div className="text-ui text-x-muted">대상 칸(Task 9)</div>,
+                     // 대상은 링크 하나로 통일한다(Task 9) — actions.changeTarget이 taskId/url/null 셋을 받는다.
+                     target: panelTask
+                       ? <TargetLinkField task={panelTask} campaign={data.campaign} onChange={(next) => void actions.changeTarget(panelTask, next)} />
+                       : null,
+                     // 게시 확인(Task 9) — 취소된 작업엔 아무것도 주지 않는다(패널이 칸 자체를 그리지 않는다).
+                     // 게시 전이면 다이얼로그를 여는 버튼, 게시됐으면 값(+RT 증빙 라이트박스)을 보여준다.
+                     posted: panelTask && !panelTask.cancelledAt
+                       ? (panelTask.postedAt
+                           ? (
+                             <div>
+                               <p className="text-content">
+                                 게시 {formatDateKo(panelTask.postedAt)}
+                                 {panelTask.postUrl && (
+                                   <> · <a href={panelTask.postUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline">게시물 보기 ↗</a></>
+                                 )}
+                               </p>
+                               {panelTask.type === 'rt' && (
+                                 panelTask.proof
+                                   ? (() => {
+                                       const url = proofUrls[panelTask.proof!.url];
+                                       return (
+                                         <button type="button" disabled={!url} onClick={() => url && setZoomUrl(url)}
+                                                 title={url ? '증빙 스크린샷 — 눌러서 크게 보기' : '증빙 스크린샷 불러오는 중…'}
+                                                 className="mt-1 rounded bg-slate-100 px-1.5 py-0.5 text-[12px] text-slate-600 hover:bg-slate-200 disabled:cursor-default disabled:opacity-70 disabled:hover:bg-slate-100">
+                                           증빙 보기
+                                         </button>
+                                       );
+                                     })()
+                                   : <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[12px] text-amber-700">증빙 없음</span>
+                               )}
+                             </div>
+                           )
+                           : <Button variant="subtle" onClick={() => setPostedFor(panelTask)} className="h-9 px-3.5 text-ui">게시 확인</Button>)
+                       : null,
                    }}
-                   // 패널 위에 뜬 다른 레이어(원고 카드·편집 모달·원고 고르기·한 번에 만들기)가 있으면 패널의
-                   // Esc를 끈다 — 안 그러면 그 레이어를 닫는 Esc 한 번에 패널까지 같이 닫힌다.
-                   overlayOpen={!!peekId || !!editing || !!attachFor || bulkOpen} />
+                   // 패널 위에 뜬 다른 레이어(원고 카드·편집 모달·원고 고르기·한 번에 만들기·게시 확인)가 있으면
+                   // 패널의 Esc를 끈다 — 안 그러면 그 레이어를 닫는 Esc 한 번에 패널까지 같이 닫힌다.
+                   overlayOpen={!!peekId || !!editing || !!attachFor || bulkOpen || !!postedFor} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
+      {postedFor && (
+        <PostedDialog task={postedFor} today={data.today}
+                      onClose={() => setPostedFor(null)}
+                      onSubmit={(date, url, proof) => void actions.markPosted(postedFor, date, url, proof)} />
+      )}
+      {zoomUrl && <ImageLightbox urls={[zoomUrl]} index={0} onIndexChange={() => {}} onClose={() => setZoomUrl(null)} />}
       {attachFor && (
         <AttachDraftModal clientId={data.campaign.clientId} title="이 작업에 붙일 원고 고르기"
                           emptyHint="붙일 수 있는 원고가 없어요 — 창을 닫고 [새로 만들기]를 누르면 바로 쓸 수 있어요"

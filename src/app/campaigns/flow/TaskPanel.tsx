@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import type { CampaignRow } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
-import type { TaskCreateRequest } from '@/lib/campaignApi';
+import { fetchTasksTargets, type TaskCreateRequest } from '@/lib/campaignApi';
 import type { TaskCost } from '@/lib/campaignCost';
 import {
   flowStage, FLOW_STAGE_LABEL, TASK_TYPE_LABEL, isOutOfRange, formatDateKo, type TaskType,
@@ -18,6 +18,7 @@ import { InfluencerField } from '@/components/InfluencerField';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
 import { Button } from '@/components/ui';
 import { CostConfirmField } from './CostConfirmField';
+import { TargetPicker, candidateLabel, type TargetValue } from '../TargetPicker';
 import type { useCampaignTaskActions } from '../useCampaignTaskActions';
 
 // 편집 패널(b-task-7-brief.md §2) — 작업 하나(edit)와 새 작업(new)을 같은 골격에서 다룬다. 칸 순서는
@@ -27,7 +28,10 @@ import type { useCampaignTaskActions } from '../useCampaignTaskActions';
 //    (중간에 실패해도 빈 작업이 안 남는다, 결정 3).
 // 비용 칸(Task 8)은 edit 모드만 slots.cost(부모 FlowDetail이 채운다, task.cost·onSaveProfile 클로저가 필요해서)를
 // 쓰고, new 모드는 이 파일이 직접 CostConfirmField를 그린다 — 로컬 상태(newCost)가 이 파일에만 있어서다
-// (onSave가 로컬 setCost만 하고 true를 돌려주면 확정된다, 저장은 [만들기]에서 한 번에). 대상 칸은 아직 Task 9.
+// (onSave가 로컬 setCost만 하고 true를 돌려주면 확정된다, 저장은 [만들기]에서 한 번에). 대상 칸(Task 9)도 같은
+// 나눔: edit는 slots.target(TargetLinkField, actions.changeTarget 클로저가 필요), new는 TargetPicker를 직접
+// 그려 로컬 상태(target)로 들고 있다가 [만들기]에서 targetTaskId/targetTweetUrl로 함께 보낸다. 게시 확인도
+// 같은 이유로 slots.posted(다이얼로그는 FlowDetail이 연다, Task 10의 행 메뉴와 같은 다이얼로그를 쓴다).
 // 취소된 작업(cancelledAt)의 편집기는 메모 한 칸뿐(R18) — 나머지는 값만 보여준다(거짓 어포던스 금지).
 // 인플루언서 [바꾸기](교체, ADR 0005)는 확인 다이얼로그가 있는 Task 10의 몫 — 그때까진 누를 게 없는 버튼을
 // 두지 않는다(같은 이유로 게시 후 잠금·방문 후 교체 불가 안내도 Task 10이 붙인다).
@@ -54,7 +58,7 @@ export function TaskPanel({
   // new 모드의 CostConfirmField가 이 파일 안에서 직접 만들어지는 이유는 위 주석 — 그래서 프로필 반영 저장만
   // 콜백으로 받는다(option.id·pricing patch·influencerOptions 재조회는 FlowDetail 쪽이 쥔 것들이라서).
   onSaveProfilePricing: (option: InfluencerOption, cost: TaskCost, type: TaskType) => Promise<boolean>;
-  slots: { cost: ReactNode; target: ReactNode };
+  slots: { cost: ReactNode; target: ReactNode; posted: ReactNode };
   // 패널 위에 뜬 다른 오버레이(원고 카드·편집 모달·원고 고르기·한 번에 만들기)가 있는 동안은 패널의 Esc를 끈다 —
   // 안 그러면 [열기]로 연 원고 카드에서 Esc 한 번에 카드와 패널이 같이 닫힌다(generate 관례: 겹친 레이어는 위부터 하나씩).
   overlayOpen: boolean;
@@ -70,8 +74,9 @@ export function TaskPanel({
   const [handle, setHandle] = useState('');
   const [handleErr, setHandleErr] = useState<string | null>(null);
   const [newCost, setNewCost] = useState<TaskCost | null>(null);
-  // Task 9가 채울 자리 — 지금은 편집기가 없어 늘 값이 없다(그 자리엔 slots.target만 보인다)
-  const target: { taskId: string } | { url: string } | null = null;
+  // 대상(Task 9) — TargetPicker는 taskId만 돌려준다. 접힌 카드에 보여줄 라벨·게시 여부는 후보 목록에서
+  // 다시 찾는다(TaskAddModal의 resolveTarget과 같은 패턴, 한 번 더 조회해도 50건 안에 있다).
+  const [target, setTarget] = useState<TargetValue>(null);
   const [scheduledOn, setScheduledOn] = useState<string | null>(null);
   const [visitOn, setVisitOn] = useState<string | null>(null);
   const [note, setNote] = useState('');
@@ -94,7 +99,14 @@ export function TaskPanel({
 
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
-    setScheduledOn(null); setVisitOn(null); setNote(''); setNewCost(null);
+    setScheduledOn(null); setVisitOn(null); setNote(''); setNewCost(null); setTarget(null);
+  }
+  async function resolveNewTarget(next: { taskId: string } | { url: string } | null) {
+    if (next === null) { setTarget(null); return; }
+    if ('url' in next) { setTarget(next); return; }
+    const r = await fetchTasksTargets({ clientId: campaign.clientId, all: true });
+    const c = r.ok ? r.data.find((x) => x.taskId === next.taskId) : undefined;
+    setTarget({ taskId: next.taskId, label: c ? candidateLabel(c) : '선택한 작업', sub: c && c.campaignId !== campaign.id ? c.campaignName : null, posted: !!c?.postedAt });
   }
   function commitNewHandle(raw: string) {
     const v = raw.trim();
@@ -262,7 +274,7 @@ export function TaskPanel({
         );
       }
       case 'target':
-        return <>{slots.target}</>;
+        return <TargetPicker value={target} clientId={campaign.clientId} campaignId={campaign.id} onChange={(next) => void resolveNewTarget(next)} />;
       case 'scheduled':
         return (
           <ScheduledOnField value={scheduledOn} overdueDays={null}
@@ -330,6 +342,15 @@ export function TaskPanel({
                 <div className="mt-1">{renderEditField(field, task)}</div>
               </div>
             ))}
+            {/* 게시 확인 — PANEL_FIELD_ORDER에 없는 칸이다(모든 유형에 있고, 취소된 작업엔 없다). 다이얼로그는
+                FlowDetail이 열고(패널에서만, 행 메뉴는 Task 10) 값·증빙 라이트박스도 그쪽 클로저가 필요해
+                slots.posted로 받는다(slots.cost와 같은 이유) — FlowDetail이 취소된 작업이면 null을 준다. */}
+            {slots.posted && (
+              <div>
+                <p className="text-ui text-x-secondary">게시</p>
+                <div className="mt-1">{slots.posted}</div>
+              </div>
+            )}
           </>
         ) : (
           <>

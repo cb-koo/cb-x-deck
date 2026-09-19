@@ -43,7 +43,10 @@ export function XComposer({ handle, posts, onChange, onPickImages, uploading, di
   }
   function removeSlotAt(i: number) {
     onChange(posts.filter((_, j) => j !== i));
-    setRejectMsg((cur) => { const next = { ...cur }; delete next[i]; return next; });
+    // 인덱스별로 골라 지우지 않는다 — 지운 칸보다 뒤쪽 메시지는 인덱스가 한 칸씩 밀리는데 내용은 그대로라,
+    // 엉뚱한 칸 아래에 남의 거절 사유가 붙는다(표시된 이유가 사실과 달라진다). 거절 메시지는 어차피
+    // 일시적인 안내라 구조가 바뀌면 전부 지우는 편이 더 간단하고 항상 맞다.
+    setRejectMsg({});
   }
   function pickFiles(i: number, files: File[]) {
     if (files.length === 0) return;

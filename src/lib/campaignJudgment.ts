@@ -340,6 +340,11 @@ export function flowStage(t: TaskStageInput & { influencerHandle: string | null 
   }
   if (t.postedAt) return 'posted';
   if (!t.influencerHandle) return 'prep';
+  // 뼈대 우선 워크플로(koo 09-19): 투고 뼈대에 사람만 배정한 상태는 아직 '준비'다. 여기서 곧장 '전달'로
+  // 보내면, 그 뒤 원고를 붙이는 순간(초안) 단계가 handed → prep으로 거꾸로 내려간다 — 20~40건을 훑어
+  // "지금 뭘 해야 하나"를 보는 화면에서 그 역행은 준비/전달 구분 자체를 무의미하게 만든다. RT는 원고가
+  // 없는 것이 정상이라 예외(원고 없이도 '전달' 그대로).
+  if (t.type !== 'rt' && !t.draftStatus) return 'prep';
   if (t.draftStatus && t.draftStatus !== 'delivered' && t.draftStatus !== 'unused') return 'prep';
   return 'handed';
 }

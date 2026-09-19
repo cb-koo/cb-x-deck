@@ -160,6 +160,17 @@ test('10) 6단계 파생(flowStage) — 취소 > 완료 > 정산 > 게시 > 준�
   assert.equal(FLOW_STAGE_LABEL.handed, '전달');
 });
 
+test('10-b) flowStage — 원고가 붙는 유형은 원고가 없으면 준비(koo 09-19, 뼈대 우선 워크플로)', () => {
+  const s = (t: TaskStageInput & { influencerHandle: string | null }, settle: { status: 'requested' | 'cancelled'; externalStatus: string | null } | null) => flowStage(t, settle);
+  const h = { influencerHandle: 'a' };
+  // 투고 뼈대 + 인플 배정 + 원고 없음 → 아직 준비(전달로 앞서가지 않는다, 원고를 붙일 때 역행을 막는다)
+  assert.equal(s({ ...base({ type: 'post' }), ...h }, null), 'prep');
+  // RT는 원고가 없는 것이 정상 — 인플만 있으면 그대로 전달
+  assert.equal(s({ ...base({ type: 'rt' }), ...h }, null), 'handed');
+  // 투고 + 인플 + 원고 전달됨 → 전달
+  assert.equal(s({ ...base({ type: 'post', draftStatus: 'delivered' }), ...h }, null), 'handed');
+});
+
 test('flowStage — 그쪽이 요청을 취소하면(externalStatus cancelled) 다시 게시로 돌아간다(§3-1 정산 정의에 없음)', () => {
   const t = { type: 'post' as const, draftStatus: 'delivered' as const, postedAt: '2026-09-10', removedAt: null, scheduledOn: null, visitOn: null, cancelledAt: null, influencerHandle: 'a' };
   assert.equal(flowStage(t, { status: 'requested', externalStatus: 'cancelled' }), 'posted');

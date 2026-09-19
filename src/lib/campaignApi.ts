@@ -3,7 +3,7 @@
 import { apiFetch } from './apiFetch.ts';
 import type { DraftRow } from './draftStore.ts';
 import type { DraftStatus } from './draftStatus.ts';
-import type { DraftContent } from './draftTypes.ts';
+import type { DraftContent, DraftFormat, ReferenceMode } from './draftTypes.ts';
 import type { CampaignRow, CampaignDetail, InfluencerCostRow } from './campaignStore.ts';
 import type { CampaignCreateInput, CampaignPatchInput } from './campaignInput.ts';
 import type { ExtraCost, TaskCost } from './campaignCost.ts';
@@ -107,6 +107,16 @@ export const regenPostApi = (id: string, index: number) => call<DraftRow>(`/api/
 // '있는 원고에서 고르기'(스펙 §4-2) 후보 — 아직 어느 작업에도 안 붙은 원고. clientId 없으면 전체.
 export const fetchUnattachedDrafts = (clientId: string | null) =>
   call<DraftRow[]>(`/api/drafts?unattached=1${clientId ? `&clientId=${clientId}` : ''}&limit=200`);
+
+// 원고 모드(§5) — 생성은 taskId 없이 부르고(미부착), 붙이기는 기존 patchDraftApi({ taskId })가 한다.
+export const fetchDraftCandidatesApi = (campaignId: string) =>
+  call<{ siblings: DraftRow[]; others: DraftRow[] }>(`/api/campaigns/${campaignId}/draft-candidates`);
+export const createDraftsApi = (body: {
+  clientId: string | null; procedureIds: string[]; refTweetIds: string[];
+  mode: ReferenceMode; direction: string; format: DraftFormat; constraintsOn: boolean; count: number;
+}) => call<DraftRow[]>('/api/drafts', json('POST', body));
+export const createManualDraftApi = (body: { posts: string[]; title?: string | null; clientId: string | null; procedureIds: string[] }) =>
+  call<DraftRow[]>('/api/drafts/manual', json('POST', body));
 
 // ── 인플루언서(명부) ── 비용 [확인] 뒤 "프로필도 바꿀까요" 답이 예일 때만 부른다(b-task-8-brief.md §3).
 // 서버가 부분 병합 + pricing_changed 로그를 알아서 남긴다 — 여기서는 바뀐 키만 보낸다.

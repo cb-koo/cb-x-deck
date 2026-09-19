@@ -55,8 +55,9 @@ import { DraftGenerate } from './draft/DraftGenerate';
 // 표는 작업 표(TaskTable) 대신 단계 기반 표(FlowTable, Task 6)고 달력·인플루언서별 비용 표는 없다(R10 — 단일 표 화면).
 // 필터·정렬·패널 열림은 campaignFlowView(Task 2)의 순수 함수로 판정한다 — 이 파일은 상태만 쥐고 계산은 그쪽에 맡긴다.
 //
-// 원고 카드(패널의 원고 모드가 그린다)·patchCampaign·removeCampaign·요청 토큰(reqRef)·
-// influencerOptions/clientData 로드는 CampaignDetail과 그대로다 — 코드와 함께 그 이유를 설명하는 주석도 옮겼다.
+// 원고 카드(패널의 원고 모드가 그린다)·patchCampaign·removeCampaign·요청 토큰(reqRef)·influencerOptions 로드는
+// CampaignDetail과 그대로다 — 코드와 함께 그 이유를 설명하는 주석도 옮겼다. clientData는 로딩/실패/성공
+// 셋을 구분하도록 이 화면에서 갈렸다(리뷰 지적 4) — CampaignDetail은 손대지 않는다.
 
 interface DetailState {
   campaign: CampaignRow; tasks: CampaignTaskItem[]; costRows: InfluencerCostRow[];
@@ -77,7 +78,8 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
   const [influencerOptions, setInfluencerOptions] = useState<InfluencerOption[]>([]);
-  const [clientData, setClientData] = useState<ClientData | null>(null);
+  // undefined=아직 못 읽음(로딩 중), null=읽다가 실패, 객체=성공(리뷰 지적 4 — 실패를 로딩 중이라고 말하지 않는다)
+  const [clientData, setClientData] = useState<ClientData | null | undefined>(undefined);
   // 원고 카드 — 패널이 보여줄 작업에 붙은 원고 한 건. 작업 목록엔 본문이 없어 열 때 받아 온다.
   const [cardDraft, setCardDraft] = useState<DraftRow | null>(null);
   // 실패한 원고의 id(리뷰 지적 3) — boolean이면 어느 원고의 실패인지 몰라, 한 원고를 못 읽은 뒤 다른
@@ -128,10 +130,12 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   // 요청 토큰 — 캠페인을 빠르게 갈아타면 앞 캠페인의 응답이 뒤에 도착할 수 있다. 그때 화면에는 이미 다른 캠페인이
   // 떠 있으므로 옛 응답은 성공이든 실패든 버린다(남의 캠페인 데이터·오류 배너가 붙는 것을 막는다).
   const reqRef = useRef(0);
-  const load = useCallback(async () => {
+  // 성공 여부를 돌려준다(리뷰 지적 3) — 원고 붙이기(onDraftAttached)가 이 재조회로만 잠금을 풀 수 있어,
+  // 실패를 알아야 그 잠금을 대신 풀어 준다.
+  const load = useCallback(async (): Promise<boolean> => {
     const token = ++reqRef.current;
     const r = await fetchCampaignDetail(id);
-    if (token !== reqRef.current) return;   // 그 사이 다른 캠페인(또는 새 로드)이 시작됐다 — 이 응답은 화면의 것이 아니다
+    if (token !== reqRef.current) return r.ok;   // 그 사이 다른 캠페인(또는 새 로드)이 시작됐다 — 이 응답은 화면의 것이 아니다(더 새 로드가 마무리한다)
     if (r.ok) {
       const { campaign, tasks, costRows, deleteInfo, today, budget } = r.data;   // 카드·필터 집계는 아래 useMemo가 같은 함수로 다시 만든다
       setData({ campaign, tasks, costRows, deleteInfo, today, budget });
@@ -140,6 +144,7 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
       setLoadErr(true);   // 실패를 빈 상태로 위장하지 않는다
     }
     setLoaded(true);
+    return r.ok;
   }, [id]);
   // id가 바뀌면 이전 캠페인의 data를 먼저 지우고 로딩 상태로 돌아간다 — 안 지우면 새 캠페인을 불러오는 동안
   // 앞 캠페인의 헤더·표·합계가 새 id의 화면인 척 남아 있고, '최신이 아닐 수 있어요' 배너도 남의 데이터에 붙는다.
@@ -171,6 +176,8 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   const clientId = data?.campaign.clientId ?? null;
   useEffect(() => {
     if (!clientId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 클라이언트가 바뀌면 로딩 상태로 되돌린다(그 뒤 읽기는 비동기 콜백 안에서)
+    setClientData(undefined);   // 앞 클라이언트의 정보를 새 클라이언트인 척 잠깐 보여주지 않는다
     apiFetch(`/api/clients/${clientId}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
       .then((c) => setClientData(c as ClientData | null));
   }, [clientId]);
@@ -190,7 +197,10 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
     },
   }), [taskActions, load]);
   // 취소·되돌리기·교체(ADR 0002·0005) — 낙관 갱신 없이 성공 뒤 상세를 다시 읽는다. 호출부(다이얼로그)는 Task 10.
-  const flowActions = useFlowTaskActions({ campaignId: id, show, reload: load, onChanged });
+  // useFlowTaskActions는 reload: () => Promise<void>를 받는다 — load()가 이제 성공 여부를 돌려주므로(리뷰
+  // 지적 3) 그 계약을 안 건드리려고 결과를 버리는 얇은 래퍼로 감싼다.
+  const reloadDetail = useCallback(async () => { await load(); }, [load]);
+  const flowActions = useFlowTaskActions({ campaignId: id, show, reload: reloadDetail, onChanged });
   // 배정된 인플루언서의 명부 옵션 — FlowTable·TaskTable과 같은 매칭 규칙(핸들 대소문자 무관)
   const optionFor = useCallback(
     (handle: string | null) => (handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined),
@@ -487,16 +497,22 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   }, [panelTask, data]);
   // 시안 붙이기(Task 3) — 패널은 task.draftId가 채워지는 순간 스스로 카드로 전환한다(panelDraftId 이펙트).
   // 그러려면 상세를 다시 읽어야 한다(원고 카드 배선 주석과 같은 이유) — cardDraft는 미리 채워 둬 그 이펙트가
-  // 같은 원고를 다시 조회하지 않게 한다(패치 응답이 이미 최신이다).
-  const onDraftAttached = useCallback((d: DraftRow) => {
+  // 같은 원고를 다시 조회하지 않게 한다(패치 응답이 이미 최신이다). 재조회 성공 여부를 돌려준다(리뷰 지적 3)
+  // — 실패하면 DraftGenerate가 그걸로 attaching 잠금을 대신 풀고 새로고침을 안내한다(이 재조회가 유일한
+  // 잠금 해제 경로라, 실패를 모르면 붙이기 버튼이 영영 '붙이는 중…'에 멈춘다).
+  const onDraftAttached = useCallback(async (d: DraftRow): Promise<boolean> => {
     setCardDraft(d); setCardErr(null);
-    void load(); onChanged(); void reloadCandidates();
+    const ok = await load();
+    onChanged(); void reloadCandidates();
+    return ok;
   }, [load, onChanged, reloadCandidates]);
-  // 패널의 원고 모드 · 'AI로 만들기' 탭 — clientData는 clientId가 있어도 아직 못 읽었으면 null이다
-  // (DraftGenerate가 그 null을 '0건 확정'과 '모름'으로 구분해 읽는다 — clientId를 함께 받는 이유).
+  // 패널의 원고 모드 · 'AI로 만들기' 탭 — clientData는 clientId가 있어도 아직 못 읽었으면 undefined(로딩
+  // 중)거나 null(실패)이다(DraftGenerate가 그 둘과 성공을 구분해 읽는다 — clientId를 함께 받는 이유,
+  // 리뷰 지적 4). clientName은 따로 넘기지 않는다 — clientData에서 파생되는 값이라 두 prop으로 같은
+  // 사실을 넘기지 않는다(리뷰 지적 5).
   const draftGenerate: ReactNode = panelTask
     ? (
-      <DraftGenerate task={panelTask} clientId={clientId} clientName={clientData?.client.name ?? null}
+      <DraftGenerate task={panelTask} clientId={clientId}
                      clientData={clientData} targetRef={targetRef}
                      onAttached={onDraftAttached} onGenerated={() => void reloadCandidates()}
                      onBusyChange={setDraftBusy} onOverlayChange={setDraftOverlayOpen} />

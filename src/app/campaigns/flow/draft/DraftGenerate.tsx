@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useToast } from '@/lib/toastContext';
 import { apiFetch } from '@/lib/apiFetch';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
@@ -43,26 +44,31 @@ function applyRefCap(
   const rows: ReferenceRow[] = [];
   let droppedByCap = 0;
   for (const r of candidates) {
-    if (targetRef?.tweetId === r.tweetId || seen.has(r.tweetId)) continue;   // 대상과 겹치거나 이미 넣은 건 중복
+    if (targetRef?.tweetId === r.tweetId || seen.has(r.tweetId)) continue;   // 대상과 겹치거나 이미 본 건 중복
+    seen.add(r.tweetId);   // push 여부와 무관하게 본 id로 표시한다 — 안 그러면 상한에 걸린 뒤 같은 id가 또
+                            // 나올 때마다 '못 담음'이 다시 올라, 실제로 버린 고유 건수보다 커진다(리뷰 지적 2)
     if (rows.length >= cap) { droppedByCap++; continue; }
-    seen.add(r.tweetId);
     rows.push(r);
   }
   return { rows, droppedByCap };
 }
 
 export function DraftGenerate({
-  task, clientId, clientName, clientData, targetRef, onAttached, onGenerated, onBusyChange, onOverlayChange,
+  task, clientId, clientData, targetRef, onAttached, onGenerated, onBusyChange, onOverlayChange,
 }: {
   task: FlowRow;
   clientId: string | null;
-  clientName: string | null;
-  // 클라이언트 정보 — FlowDetail의 clientData와 같은 모양(3c 리뷰 지적 5). null은 두 가지를 뜻한다:
-  // clientId도 없거나(이 캠페인엔 클라이언트가 없음), clientId는 있는데 아직 못 읽었거나. 어느 쪽인지는
-  // clientId로 구분한다 — 아래 bannedCount 계산 참고.
-  clientData: { client: ClientRow; procedures: ProcedureRow[] } | null;
+  // 클라이언트 정보 — FlowDetail의 clientData와 같은 모양(3c 리뷰 지적 5). 셋으로 나뉜다(리뷰 지적 4):
+  // undefined는 아직 못 읽음(로딩 중이거나 clientId 자체가 없음), null은 읽다가 실패, 객체는 성공. clientId가
+  // 없어서인지 실패해서인지는 clientId로 구분한다 — 아래 bannedCount 계산 참고. clientName은 따로 받지
+  // 않는다 — clientData.client.name에서 그대로 나오는 값이라 읽는 자리(아래 JSX 한 곳)에서 파생시킨다
+  // (리뷰 지적 5, 같은 사실을 prop 두 개로 넘기지 않는다).
+  clientData: { client: ClientRow; procedures: ProcedureRow[] } | null | undefined;
   targetRef: { tweetId: string; label: string } | null;   // 인용RT의 대상 게시물(자동 포함)
-  onAttached: (d: DraftRow) => void;   // 시안을 붙였다 — 부모가 상세를 다시 읽고 카드로 전환한다
+  // 시안을 붙였다 — 부모가 상세를 다시 읽고 카드로 전환한다. 그 재조회가 성공했는지를 돌려준다(리뷰 지적 3):
+  // 재조회가 실패하면 붙이기 자체는 이미 서버에서 끝났어도 task.draftId가 안 채워져 이 화면이 카드로
+  // 전환되지 않는다 — attaching 잠금을 푸는 유일한 길이 그 전환이라, 실패를 모르면 잠금이 영영 안 풀린다.
+  onAttached: (d: DraftRow) => Promise<boolean>;
   // 브리프의 계약엔 없지만(§ Interfaces), 생성 뒤 '있는 원고 고르기' 후보 수를 갱신하려면 부모(FlowDetail)의
   // reloadCandidates를 불러야 한다 — 고르지 않은 시안도 미부착 원고로 남기 때문(§Step3 주석).
   onGenerated: () => void;
@@ -138,15 +144,22 @@ export function DraftGenerate({
       const found = rows.find((x) => x.tweetId === r.tweetId);
       if (!found) { show(`${saved} — 목록을 갱신하지 못했어요. 보관함에서 골라주세요`); return; }
       // 고르기 시트(onApply)와 같은 함수로 상한을 지킨다(3c 리뷰 지적 6) — 대상 게시물도 한 자리로 센다.
-      // 토스트 판정은 await 이전 refs로 미리 해 두되(클로저), 실제 반영은 함수형 업데이터로 한다 — 그 사이
-      // (레퍼런스 fetch가 도는 동안) 사용자가 칩을 빼거나 시트를 적용했으면 그 변경을 덮어쓰지 않기 위해서다.
-      // applyRefCap은 순수 함수고 targetRef는 패널 생애주기 동안 바뀌지 않아 업데이터 안에서 다시 불러도 안전하다.
-      if (applyRefCap([...refs, found], targetRef).droppedByCap > 0) {
-        show(`${saved} — 레퍼런스가 대상 게시물 포함 ${MAX_REFS_UI}건이라 자동 선택은 안 했어요. 위 레퍼런스 목록에서 조정해주세요`);
-        return;
-      }
-      setRefs((cur) => applyRefCap([...cur, found], targetRef).rows);
-      show(`${saved} — 레퍼런스로 선택했어요`);
+      // 판정도 저장도 최신값(cur)에 대한 함수형 업데이터 안에서 한다(리뷰 지적 1) — fetch가 도는 동안
+      // 사용자가 칩을 빼거나 시트를 적용했을 수 있어, await 이전 refs 클로저로 판정하면 토스트와 실제 저장이
+      // 서로 다른 시점의 목록을 본다. flushSync로 감싸 이 setRefs가 커밋될 때까지 기다린 뒤에 토스트를
+      // 말한다 — 업데이터 안에서 직접 show를 부르지 않는다(React가 업데이터를 두 번 부를 수 있어 그 안에서
+      // 부르면 토스트가 두 번 뜰 수 있다). out은 업데이터가 몇 번 불려도 매번 같은 값으로 덮어써 안전하다.
+      const out = { droppedByCap: 0 };
+      flushSync(() => {
+        setRefs((cur) => {
+          const capped = applyRefCap([...cur, found], targetRef);
+          out.droppedByCap = capped.droppedByCap;
+          return capped.droppedByCap > 0 ? cur : capped.rows;
+        });
+      });
+      show(out.droppedByCap > 0
+        ? `${saved} — 레퍼런스가 대상 게시물 포함 ${MAX_REFS_UI}건이라 자동 선택은 안 했어요. 위 레퍼런스 목록에서 조정해주세요`
+        : `${saved} — 레퍼런스로 선택했어요`);
     } catch {
       show(`${saved} — 목록을 갱신하지 못했어요. 보관함에서 골라주세요`);
     }
@@ -170,9 +183,13 @@ export function DraftGenerate({
   const ok = canGenerate(composerValue, refCount);
   const procedures = clientData?.procedures ?? [];
   // 세 상태를 구분한다(3c 리뷰 지적 2) — clientId가 없으면 금지 표현 0건이 확정이다. clientId는 있는데
-  // clientData를 아직 못 읽었으면(로딩 중이거나 실패) '모름'이지 0건이 아니다 — 실제로는 금지 표현이 있는
-  // 클라이언트일 수 있어, 없다고 말하면 사실이 아닌 말을 하는 것이다. 읽었으면 bannedPhraseCount 그대로.
+  // clientData를 아직 못 읽었거나(undefined, 로딩 중) 실패했으면(null) '모름'이지 0건이 아니다 — 실제로는
+  // 금지 표현이 있는 클라이언트일 수 있어, 없다고 말하면 사실이 아닌 말을 하는 것이다. 읽었으면
+  // bannedPhraseCount 그대로.
   const bannedCount = clientId === null ? 0 : clientData ? bannedPhraseCount(clientData, folded.procedureIds) : null;
+  // 로딩과 실패는 둘 다 '모름'으로 같이 잠기지만(위 bannedCount) 옆에 보이는 문구는 달라야 한다(리뷰 지적 4)
+  // — 실패인데 "불러오는 중이에요"라고 계속 말하면(삭제된 클라이언트·네트워크 실패면 영원히) 거짓말이 된다.
+  const clientLoadFailed = clientId !== null && clientData === null;
 
   async function run() {
     if (busy || !ok) return;
@@ -194,9 +211,11 @@ export function DraftGenerate({
     setAttaching(d.id);
     const r = await patchDraftApi(d.id, { taskId: task.id });
     // 실패했을 때만 되돌린다(리뷰 지적 6) — 성공 경로에서 먼저 풀면 상세 재조회(onAttached → 부모의 load)가
-    // 끝나기 전까지 다른 시안 버튼이 다시 눌려 409를 부른다. 성공하면 카드로 바뀌며 이 화면 자체가 사라진다.
+    // 끝나기 전까지 다른 시안 버튼이 다시 눌려 409를 부른다. 재조회까지 성공하면 카드로 바뀌며 이 화면
+    // 자체가 사라진다. 재조회가 실패하면(리뷰 지적 3) 잠금을 풀 유일한 길이 그 재조회뿐이라 — 붙이기 자체는
+    // 서버에서 이미 끝났으니 "안 붙었다"고 말하지 않고, 붙었다는 사실과 새로고침 안내만 말한다.
     if (!r.ok) { setAttaching(null); show(r.error); return; }   // 이미 붙었거나 취소된 작업이면 서버가 문구를 준다
-    onAttached(r.data);
+    if (!(await onAttached(r.data))) { setAttaching(null); show('시안은 붙였어요 — 화면을 새로고침해 주세요'); }
   }
 
   const procNames = procedures.filter((p) => folded.procedureIds.includes(p.id)).map((p) => p.name);
@@ -211,7 +230,7 @@ export function DraftGenerate({
 
   return (
     <div className="space-y-4">
-      {clientName && <p className="text-caption text-x-muted">{clientName} 정보를 반영해서 만들어요</p>}
+      {clientData?.client.name && <p className="text-caption text-x-muted">{clientData.client.name} 정보를 반영해서 만들어요</p>}
 
       <div className="space-y-1">
         <p className="text-ui text-x-secondary">레퍼런스 <span className="text-x-muted">이 글들을 참고해서 써요</span></p>
@@ -287,8 +306,11 @@ export function DraftGenerate({
                    onChange={(e) => updateFolded({ ...folded, constraintsOn: e.target.checked })} className="h-4 w-4 shrink-0" />
             <span className="text-ui text-x-text">의료광고 제약(금지 표현) 피하기</span>
           </label>
-          {bannedCount === null && (
+          {bannedCount === null && !clientLoadFailed && (
             <p className="-mt-2 text-caption text-x-muted">클라이언트 정보를 불러오는 중이에요</p>
+          )}
+          {clientLoadFailed && (
+            <p className="-mt-2 text-caption text-x-muted">클라이언트 정보를 불러오지 못했어요 — 새로고침해 주세요</p>
           )}
           {bannedCount === 0 && (
             <p className="-mt-2 text-caption text-x-muted">등록된 금지 표현이 없어 지금은 켜도 달라지는 게 없어요</p>

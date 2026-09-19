@@ -103,11 +103,15 @@ test('8) 하단 줄·요약 줄·카드 숫자·정산 대기 — 취소 제외,
     mk({ type: 'rt', cost: { amount: 30000, currency: 'KRW' }, cancelledAt: '2026-09-17' }),
     mk({ type: 'post', postedAt: '2026-09-11', influencerHandle: 'b', cost: { amount: 50000, currency: 'KRW' } }),
   ];
-  assert.equal(flowFooter(rows, T), '투고 2 · RT 1 · 비용 160,000원 · 게시 2 / 3 · 밀림 1');
+  // M3 — 하단 줄 라벨을 '비용' → '작업 비용'으로(카드의 '계획'과 이름이 겹쳐 다른 값인데 같아 보였다)
+  assert.equal(flowFooter(rows, T), '투고 2 · RT 1 · 작업 비용 160,000원 · 게시 2 / 3 · 밀림 1');
   const s = flowStats(rows);
   assert.equal(s.planned, 3); assert.equal(s.posted, 2);
   assert.deepEqual(s.spent, { KRW: 130000 }); assert.deepEqual(s.plannedCost, { KRW: 160000 });
   assert.deepEqual(s.perf, { views: 100, likes: 3, bookmarks: 1, withPerf: 1, noLink: 1 });
+  // I2 — 게시된 작업은 있지만 성과 스냅샷이 하나도 없으면 0이 아니라 null(0으로 위장하지 않는다)
+  const noSnap = [mk({ type: 'post', postedAt: '2026-09-10', influencerHandle: 'a' })];
+  assert.deepEqual(flowStats(noSnap).perf, { views: null, likes: null, bookmarks: null, withPerf: 0, noLink: 1 });
   assert.equal(settleWaitCount(rows), 2);
   const f = EMPTY_FLOW_FILTER();
   assert.equal(filterSummary(f, 4, 4), '전체 4건');

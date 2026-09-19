@@ -86,15 +86,21 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
         </div>
         <div className="mt-2 flex gap-6">
           <div>
-            <p className="text-[20px] font-bold leading-tight tabular-nums">{stats.perf.views.toLocaleString('ko-KR')}</p>
+            <p className="text-[20px] font-bold leading-tight tabular-nums">
+              {stats.perf.views !== null ? stats.perf.views.toLocaleString('ko-KR') : <span className="text-x-muted">—</span>}
+            </p>
             <p className="mt-0.5 text-ui text-x-secondary">조회</p>
           </div>
           <div>
-            <p className="text-[20px] font-bold leading-tight tabular-nums">{stats.perf.likes.toLocaleString('ko-KR')}</p>
+            <p className="text-[20px] font-bold leading-tight tabular-nums">
+              {stats.perf.likes !== null ? stats.perf.likes.toLocaleString('ko-KR') : <span className="text-x-muted">—</span>}
+            </p>
             <p className="mt-0.5 text-ui text-x-secondary">좋아요</p>
           </div>
           <div>
-            <p className="text-[20px] font-bold leading-tight tabular-nums">{stats.perf.bookmarks.toLocaleString('ko-KR')}</p>
+            <p className="text-[20px] font-bold leading-tight tabular-nums">
+              {stats.perf.bookmarks !== null ? stats.perf.bookmarks.toLocaleString('ko-KR') : <span className="text-x-muted">—</span>}
+            </p>
             <p className="mt-0.5 text-ui text-x-secondary">북마크</p>
           </div>
         </div>

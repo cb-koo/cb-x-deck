@@ -130,20 +130,26 @@ export function flowFooter(rows: FlowRow[], today: string): string {
   const cost = sumMoney(live.flatMap((t) => (t.cost ? [t.cost] : [])));
   const posted = live.filter((t) => t.postedAt).length;
   const late = live.filter((t) => isTaskOverdue(t, today)).length;
-  return [...types, `비용 ${formatMoneyBy(cost)}`, `게시 ${posted} / ${live.length}`, ...(late ? [`밀림 ${late}`] : [])].join(' · ');
+  // M3 — 카드의 '계획'은 작업 비용 + 인플별 추가 비용인데 이 줄은 작업 비용만이다. 라벨이 같으면 두 숫자가
+  // 다른 걸 두고 왜 다르냐는 질문이 나온다(FlowCards.tsx 상단 주석 참조).
+  return [...types, `작업 비용 ${formatMoneyBy(cost)}`, `게시 ${posted} / ${live.length}`, ...(late ? [`밀림 ${late}`] : [])].join(' · ');
 }
 export interface FlowStats {
   planned: number; posted: number;
-  perf: { views: number; likes: number; bookmarks: number; withPerf: number; noLink: number };
+  // 스냅샷이 하나도 없으면 null(0으로 위장하지 않는다 — summarizeTaskPerf·SummaryCards와 같은 규칙,
+  // campaignJudgment.ts:93 주석). 값이 하나라도 있으면 그것만 더한다(개별 항목의 null은 빼고).
+  perf: { views: number | null; likes: number | null; bookmarks: number | null; withPerf: number; noLink: number };
   spent: MoneyByCurrency; plannedCost: MoneyByCurrency;
 }
 export function flowStats(rows: FlowRow[]): FlowStats {
   const live = rows.filter((t) => !isTaskExcluded(t));
   const posted = live.filter((t) => t.postedAt);
   const withPerf = posted.filter((t) => t.perf);
-  const perf = withPerf.reduce((a, t) => ({
-    views: a.views + (t.perf?.views ?? 0), likes: a.likes + (t.perf?.likes ?? 0), bookmarks: a.bookmarks + (t.perf?.bookmarks ?? 0),
-  }), { views: 0, likes: 0, bookmarks: 0 });
+  const perf: { views: number | null; likes: number | null; bookmarks: number | null } = { views: null, likes: null, bookmarks: null };
+  const add = (k: 'views' | 'likes' | 'bookmarks', v: number | null | undefined) => { if (v != null) perf[k] = (perf[k] ?? 0) + v; };
+  for (const t of withPerf) {
+    add('views', t.perf?.views); add('likes', t.perf?.likes); add('bookmarks', t.perf?.bookmarks);
+  }
   return {
     planned: live.length, posted: posted.length,
     perf: { ...perf, withPerf: withPerf.length, noLink: posted.length - withPerf.length },

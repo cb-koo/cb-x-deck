@@ -42,7 +42,14 @@ export function FlowTable({ rows, total, today, influencerOptions, sort, onSortC
     return <p className="rounded-xl bg-x-surface px-4 py-6 text-center text-content text-x-secondary">아직 이 캠페인에 작업이 없어요 — 위의 [+ 작업 추가] 또는 [한 번에 만들기]로 시작해요.</p>;
   }
   if (rows.length === 0) {
-    return <p className="rounded-xl bg-x-surface px-4 py-6 text-center text-content text-x-secondary">조건에 맞는 작업이 없어요 — 필터를 지우면 전체가 보여요.</p>;
+    // 걸리는 게 없어도 캠페인 전체 현황(하단 줄)은 계속 보인다 — 필터를 좁힌 순간 진행 상황이 사라지면
+    // 사용자는 '작업이 없어진 것'과 '지금 조건에 없는 것'을 구분할 수 없다.
+    return (
+      <div>
+        <p className="rounded-xl bg-x-surface px-4 py-6 text-center text-content text-x-secondary">조건에 맞는 작업이 없어요 — 필터를 지우면 전체가 보여요.</p>
+        <p className="px-3 py-2 text-ui text-x-secondary">{footer}</p>
+      </div>
+    );
   }
 
   return (

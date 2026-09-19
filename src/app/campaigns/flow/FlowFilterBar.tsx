@@ -70,6 +70,7 @@ export function FlowFilterBar({ filter, onChange, counts, summary, sortNote, set
 
   useEffect(() => {
     if (!open) return;
+    popRef.current?.focus();   // 닫을 때 버튼으로 되돌리는 것은 close()가 이미 한다(CostPopover 관례)
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node | null;
       if (!t || popRef.current?.contains(t) || btnRef.current?.contains(t)) return;
@@ -116,9 +117,11 @@ export function FlowFilterBar({ filter, onChange, counts, summary, sortNote, set
           : <span className="text-x-muted">정산 대기 없음</span>}
       </span>
       {open && createPortal(
-        <div ref={popRef} role="dialog" aria-label="필터" style={{ top: pos.top, left: pos.left, width: POP_W }}
+        // tabIndex -1 + 열 때 focus(): 포털이라 DOM 끝에 붙어서, 포커스를 안 옮기면 키보드로 연 사용자의
+        // 다음 Tab이 체크박스가 아니라 페이지 나머지로 간다(role="dialog"인데 다이얼로그처럼 굴지 않는 상태).
+        <div ref={popRef} role="dialog" aria-label="필터" tabIndex={-1} style={{ top: pos.top, left: pos.left, width: POP_W }}
              onClick={(e) => e.stopPropagation()}
-             className="fixed z-50 max-h-[70vh] overflow-y-auto rounded-xl border border-x-border-strong bg-white p-3 shadow-lg">
+             className="fixed z-50 max-h-[70vh] overflow-y-auto rounded-xl border border-x-border-strong bg-white p-3 shadow-lg outline-none">
           <FilterGroup title="단계" items={FLOW_STAGES.map((k) => ({ key: k, label: FLOW_STAGE_LABEL[k], count: counts.stage[k] }))}
                        checked={filter.stages} onToggle={(k) => onChange({ ...filter, stages: toggle(filter.stages, k) })} />
           <FilterGroup title="유형" items={DISPLAY_TYPE_ORDER.map((k) => ({ key: k, label: TASK_TYPE_LABEL[k], count: counts.type[k] }))}

@@ -28,9 +28,16 @@ test('2) 검색 — 제목·본문 첫 줄, 대소문자 무관, 공백만이면
 });
 
 test('3) 컴포저 저장 판정 — 빈 칸만 있으면 못 저장, 한 칸이라도 내용이 있으면 저장, 글자 수 초과면 못 저장', () => {
-  assert.equal(composerCanSave([{ text: '', media: [] }]), false);
-  assert.equal(composerCanSave([{ text: '   ', media: [] }]), false);
-  assert.equal(composerCanSave([{ text: '올릴 글', media: [] }]), true);
-  assert.equal(composerCanSave([{ text: '올릴 글', media: [] }, { text: '', media: [] }]), false);   // 스레드 중간이 비면 안 된다
-  assert.equal(composerCanSave([{ text: 'あ'.repeat(200), media: [] }]), false);                      // 전각 200자 = 가중치 400 > 280
+  assert.equal(composerCanSave([{ text: '', media: [], uploading: 0 }]), false);
+  assert.equal(composerCanSave([{ text: '   ', media: [], uploading: 0 }]), false);
+  assert.equal(composerCanSave([{ text: '올릴 글', media: [], uploading: 0 }]), true);
+  assert.equal(composerCanSave([{ text: '올릴 글', media: [], uploading: 0 }, { text: '', media: [], uploading: 0 }]), false);   // 스레드 중간이 비면 안 된다
+  assert.equal(composerCanSave([{ text: 'あ'.repeat(200), media: [], uploading: 0 }]), false);                      // 전각 200자 = 가중치 400 > 280
+});
+
+test('4) 컴포저 저장 판정 — 뒤 공백은 트림해서 잰다(저장이 trim을 보내므로 판정도 trim을 봐야 한다)', () => {
+  // 전각 140자(가중치 280, 상한 정확히)에 공백 3칸을 더하면 트림 전엔 283으로 상한을 넘는 것처럼 보인다.
+  assert.equal(composerCanSave([{ text: `${'あ'.repeat(140)}   `, media: [], uploading: 0 }]), true);
+  // 공백만 있는 칸은 트림하면 빈 칸이므로 여전히 저장할 수 없다.
+  assert.equal(composerCanSave([{ text: '올릴 글', media: [], uploading: 0 }, { text: '   ', media: [], uploading: 0 }]), false);
 });

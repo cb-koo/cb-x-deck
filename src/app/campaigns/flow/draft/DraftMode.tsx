@@ -14,9 +14,12 @@ const TAB_LABEL: Record<DraftTab, string> = { generate: 'AI로 만들기', write
 export function DraftMode({ attached, tab, onTab, busy, pickCount, card, generate, write, pick }: {
   attached: boolean;
   tab: DraftTab; onTab: (t: DraftTab) => void;
-  // 시안을 만드는 동안(DraftGenerate 내부 busy) 탭을 못 바꾸게 한다(리뷰 지적 2) — 탭을 바꾸면 DraftGenerate가
-  // 언마운트돼 생성 요청이 화면에서 끊겨 보이고, 만들어진 시안이 어디로 갔는지 알 길이 없어진다.
-  busy: boolean;
+  // 시안을 만드는 동안(DraftGenerate) 또는 직접 쓰기가 올리는·저장하는 동안(DraftWrite) 탭을 못 바꾸게
+  // 한다(리뷰 지적 2) — 탭을 바꾸면 그 컴포넌트가 언마운트돼 요청이 화면에서 끊겨 보인다. label은 켜는
+  // 쪽이 준다(리뷰 지적 3) — boolean 하나로 세 자리(DraftMode·TaskPanel 헤더·푸터)가 전부 '만드는 중이에요'로
+  // 고정돼 있던 게 Task 4부터는 거짓이 됐다(업로드·저장 중에도 켜지는데 아무것도 '만들고' 있지 않다).
+  // busy와 label을 한 값으로 묶어 둔다 — 둘을 따로 두면 busy=true인데 label을 빼먹는 드리프트가 난다.
+  busy: { label: string } | null;
   pickCount: number | null;   // 후보 수(형제 시안 + 작업 없는 원고 합) — 아직 못 읽었으면 null(0이라고 거짓말하지 않는다)
   card: ReactNode; generate: ReactNode; write: ReactNode; pick: ReactNode;
 }) {
@@ -25,13 +28,13 @@ export function DraftMode({ attached, tab, onTab, busy, pickCount, card, generat
     <div>
       <div className="-mx-6 mb-4 flex items-center gap-1 border-b border-x-border px-6">
         {(['generate', 'write', 'pick'] as DraftTab[]).map((t) => (
-          <button key={t} type="button" onClick={() => onTab(t)} disabled={busy} aria-current={tab === t ? 'page' : undefined}
+          <button key={t} type="button" onClick={() => onTab(t)} disabled={!!busy} aria-current={tab === t ? 'page' : undefined}
                   className={`px-3 py-2 text-ui disabled:cursor-not-allowed disabled:opacity-50 ${tab === t ? 'border-b-2 border-x-blue text-x-text' : 'text-x-secondary hover:text-x-text'}`}>
             {TAB_LABEL[t]}{t === 'pick' && pickCount !== null ? <span className="ml-1 text-x-muted">{pickCount}</span> : null}
           </button>
         ))}
         {/* title만으로 끝내지 않는다(UX 원칙 2·5, 거짓 어포던스 금지) — 탭이 막힌 보이는 이유를 한 줄로 둔다 */}
-        {busy && <span className="ml-auto shrink-0 text-caption text-x-muted">만드는 중이에요</span>}
+        {busy && <span className="ml-auto shrink-0 text-caption text-x-muted">{busy.label}</span>}
       </div>
       {tab === 'generate' ? generate : tab === 'write' ? write : pick}
     </div>

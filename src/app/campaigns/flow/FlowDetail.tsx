@@ -38,7 +38,7 @@ import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar } from './FlowFilterBar';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
-import { TaskPanel } from './TaskPanel';
+import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM } from './TaskPanel';
 import { CostConfirmField } from './CostConfirmField';
 import { TargetLinkField } from './TargetLinkField';
 import { PostedDialog } from './PostedDialog';
@@ -121,13 +121,19 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   const [draftOpenReq, setDraftOpenReq] = useState<{ tab: DraftTab | null; seq: number } | null>(null);
   const draftOpenSeqRef = useRef(0);
   // AI로 만들기(Task 3)가 시안을 만드는 동안 · 직접 쓰기(Task 4)가 저장·업로드하는 동안 — TaskPanel이
-  // 이 값(둘을 OR로 합친 draftBusy)으로 바깥 클릭·Esc 닫기를 끈다(생성/저장 중 실수로 패널이 닫혀도
+  // 이 값(둘을 합친 draftBusy)으로 바깥 클릭·Esc 닫기를 끈다(생성/저장 중 실수로 패널이 닫혀도
   // 결과 자체는 남지만, 사용자가 붙일 기회를 놓치지 않게 한다). 두 탭은 동시에 마운트되지 않으므로
   // (DraftMode가 tab === 'generate' ? generate : tab === 'write' ? write : pick 중 하나만 그린다)
   // 실제로는 항상 둘 중 하나만 true지만, 어느 탭의 값인지 TaskPanel이 몰라도 되게 여기서 미리 합친다.
+  // DraftGenerate는 이 라운드에서 손대지 않아 boolean 그대로다(브리프 범위 밖) — label은 여기서 붙인다.
+  // DraftWrite는 label을 스스로 안다(업로드 중·저장 중이 다른 사실이라, 리뷰 지적 3)라 그 값을 그대로 쓴다.
   const [draftGenBusy, setDraftGenBusy] = useState(false);
-  const [draftWriteBusy, setDraftWriteBusy] = useState(false);
-  const draftBusy = draftGenBusy || draftWriteBusy;
+  const [draftWriteBusy, setDraftWriteBusy] = useState<{ label: string } | null>(null);
+  const draftBusy: { label: string } | null = draftGenBusy ? { label: '만드는 중이에요' } : draftWriteBusy;
+  // 직접 쓰기 탭이 "작성 중"인지(리뷰 지적 4) — DraftWrite의 로컬 상태(posts)를 이 컴포넌트가 못 보므로
+  // 콜백으로 받아 TaskPanel에 다시 내려준다(onBusyChange와 같은 배선). TaskPanel이 탭 전환·← 작업으로·
+  // 푸터 작업으로·패널 닫기 넷을 이 값으로 확인 대상으로 삼는다.
+  const [draftWriteDirty, setDraftWriteDirty] = useState(false);
   // 레퍼런스 고르기 시트·링크 추가 모달이 원고 모드 안에서 떠 있는 동안(리뷰 지적 1, Critical) — 두 오버레이는
   // document keydown을 버블 단계에서 듣고 stopPropagation을 안 해서, 먼저 등록된 패널의 Esc가 패널째로 닫아
   // 버린다. overlayOpen(아래)에 OR로 더해 막는다 — 다른 오버레이들과 같은 자리, DraftGenerate의 onOverlayChange가 채운다.
@@ -300,16 +306,22 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   // "지금 이 탭으로 원고 모드를 열어라"를 전달한다(이미 같은 작업 패널이 열려 있으면 key 리마운트가 없어
   // seq가 없으면 두 번째 요청이 무시된다). 표가 흐려질 뿐 막히진 않으므로(결정 3) 새 작업 dirty 확인도
   // onRowClick과 같은 규칙으로 지켜야 한다 — 안 그러면 ···에서 원고 모드로 바로 넘어가며 입력이 조용히 사라진다.
+  // 직접 쓰기가 작성 중일 때도 같은 규칙으로 지켜야 한다(자문 리뷰) — openPanel(taskId)은 같은 작업을
+  // 다시 눌렀을 때도 draftOpenReq{tab:null}을 보내는데, TaskPanel의 draftOpen 이펙트가 그 신호로
+  // setDraftMode('task')를 확인 없이 직접 부른다(패널 안의 requestTabChange·requestDraftModeExit를
+  // 거치지 않는 별도 경로). 문장은 새로 짓지 않고 TaskPanel과 같은 상수를 그대로 쓴다.
   const openDraftMode = useCallback((t: FlowRow, tab: DraftTab) => {
     if (isNew && newDirtyRef.current && !window.confirm('입력한 내용이 사라져요. 다른 작업을 열까요?')) return;
+    if (draftWriteDirty && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
     draftOpenSeqRef.current += 1;
     setDraftOpenReq({ tab, seq: draftOpenSeqRef.current });
     setPanel({ taskId: t.id });
-  }, [isNew]);
+  }, [isNew, draftWriteDirty]);
   const onRowClick = useCallback((t: FlowRow) => {
     if (isNew && newDirtyRef.current && !window.confirm('입력한 내용이 사라져요. 다른 작업을 열까요?')) return;
+    if (draftWriteDirty && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
     openPanel(t.id);
-  }, [isNew, openPanel]);
+  }, [isNew, draftWriteDirty, openPanel]);
   const onPanelPrev = useCallback(() => { if (panelIndex > 0) openPanel(shown[panelIndex - 1].id); }, [panelIndex, shown, openPanel]);
   const onPanelNext = useCallback(() => { if (panelIndex >= 0 && panelIndex < shown.length - 1) openPanel(shown[panelIndex + 1].id); }, [panelIndex, shown, openPanel]);
   // 행 "···" 메뉴(Task 10) — 표의 마지막 칸과 패널 헤더가 같은 컴포넌트(FlowRowMenu)를 쓴다. 여기 모인
@@ -531,7 +543,7 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
     ? (
       <DraftWrite task={panelTask} clientId={clientId}
                   onAttached={onDraftAttached} onSavedUnattached={() => void reloadCandidates()}
-                  onBusyChange={setDraftWriteBusy} />
+                  onBusyChange={setDraftWriteBusy} onDirtyChange={setDraftWriteDirty} />
     )
     : null;
   // '있는 원고 고르기 n' — Task 1의 후보 조회 합. 아직 못 읽었으면 null(0이라고 거짓말하지 않는다, 결정 4).
@@ -591,7 +603,7 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
                    onClose={() => setPanel(null)} onPrev={onPanelPrev} onNext={onPanelNext} onCreate={createTask}
                    menu={panelTask ? renderMenu(panelTask) : null}
                    draftOpen={draftOpenReq} pickCount={pickCount} draftCard={draftCard}
-                   draftGenerate={draftGenerate} draftWrite={draftWrite} draftBusy={draftBusy}
+                   draftGenerate={draftGenerate} draftWrite={draftWrite} draftBusy={draftBusy} draftWriteDirty={draftWriteDirty}
                    onDetachDraft={(t) => void detachDraft(t)}
                    onReplace={(t) => setReplaceFor(t)}
                    onSaveProfilePricing={saveProfilePricing}

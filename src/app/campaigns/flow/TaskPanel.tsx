@@ -38,9 +38,16 @@ import { DraftMode, type DraftTab } from './draft/DraftMode';
 // 판정을 공유한다 — 각자 판정하면 한쪽만 조건을 놓쳐 버튼이 있다/없다가 갈릴 수 있다.
 type PanelMode = { kind: 'edit'; task: FlowRow; index: number; total: number } | { kind: 'new' };
 
+// 직접 쓰기에서 떠나기 전 확인(리뷰 지적 4) — 기존 두 번째 입구 DraftWriteModal.requestClose와 글자 하나까지
+// 같은 문장을 쓴다(새로 짓지 말 것). 같은 기능이 같은 상황에서 다른 문구를 쓰면 사용자가 두 화면을 다른
+// 기능으로 읽는다. export하는 이유 — FlowDetail의 onRowClick·openDraftMode(다른 작업으로 갈아타는 길)도
+// 같은 dirty를 확인해야 한다(자문 리뷰) — isNewDirty가 이미 그 두 곳과 이 파일(requestClose 등) 양쪽에서
+// 같은 규칙으로 지켜지는 것과 같은 이유. 새 문장을 짓는 대신 이 상수를 그대로 공유한다.
+export const DRAFT_WRITE_LOST_CONFIRM = '작성 중인 원고가 있어요. 닫으면 저장되지 않고 사라져요. 닫을까요?';
+
 export function TaskPanel({
   mode, campaign, today, influencerOptions, actions, onClose, onPrev, onNext, onCreate,
-  menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftBusy, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
+  menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftBusy, draftWriteDirty, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
 }: {
   mode: PanelMode;
   campaign: CampaignRow;
@@ -66,8 +73,13 @@ export function TaskPanel({
   // useEffect가 막는다). 탭 버튼·← 작업으로·푸터 작업으로도 이 값으로 비활성한다(리뷰 지적 2) — 탭을
   // 바꾸면 두 컴포넌트 모두 언마운트돼 진행 중인 요청이 화면에서 끊겨 보인다. 헤더 [✕ 닫기]는 막지 않는다
   // (패널이 닫혀도 생성 결과는 미부착 원고로 남는다, DraftGenerate의 '화면을 떠나도…' 안내와 같은 전제).
-  // FlowDetail이 draftGenerate·draftWrite 두 busy를 OR로 합쳐 이 하나의 값으로 넘긴다.
-  draftBusy: boolean;
+  // FlowDetail이 draftGenerate·draftWrite 두 busy를 OR로 합쳐 이 하나의 값으로 넘긴다. label은 켜는 쪽이
+  // 준다(리뷰 지적 3, DraftMode와 같은 계약) — null이면 안 막혀 있다는 뜻.
+  draftBusy: { label: string } | null;
+  // 직접 쓰기 탭이 "작성 중"인지(칸에 글자가 있거나 이미지가 붙어 있음) — DraftWrite의 로컬 상태라
+  // FlowDetail이 콜백으로 받아 여기로 다시 내려준다(리뷰 지적 4). 탭 전환·← 작업으로·푸터 작업으로·패널
+  // 닫기(Esc·바깥 클릭·✕) 넷 다 이 값으로 떠나기 전 확인을 건다 — DraftWriteModal의 dirty 관례와 같다.
+  draftWriteDirty: boolean;
   onDetachDraft: (t: FlowRow) => void;
   onReplace: (t: FlowRow) => void;   // 인플루언서 칸의 [바꾸기] — ReplaceDialog를 여는 것은 FlowDetail 쪽(Task 10)
   // new 모드의 CostConfirmField가 이 파일 안에서 직접 만들어지는 이유는 위 주석 — 그래서 프로필 반영 저장만
@@ -133,14 +145,30 @@ export function TaskPanel({
       scheduledOn !== null || visitOn !== null || note.trim() !== ''
     )
   ), [mode.kind, handleInput, newCost, target, scheduledOn, visitOn, note]);
+  // 직접 쓰기 탭에서 작성 중일 때 떠나기 전 확인(리뷰 지적 4) — draftTab이 'write'가 아니면 그 탭은
+  // 마운트돼 있지 않으므로(DraftMode가 하나만 그린다) draftWriteDirty는 이미 false로 정리돼 있다.
+  const draftWriteWouldLose = useCallback((): boolean => (
+    draftTab === 'write' && draftWriteDirty
+  ), [draftTab, draftWriteDirty]);
   const panelRef = useRef<HTMLElement | null>(null);
   const requestClose = useCallback(() => {
     if (isNewDirty() && !window.confirm('입력한 내용이 사라져요. 닫을까요?')) return;
+    if (draftWriteWouldLose() && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
     onClose();
-  }, [isNewDirty, onClose]);
+  }, [isNewDirty, draftWriteWouldLose, onClose]);
   // FlowDetail이 표의 다른 행을 클릭했을 때 같은 확인을 거치려면 지금 dirty 여부를 알아야 한다(I1-3) —
   // 이 컴포넌트 밖에서 못 보는 로컬 상태라 바뀔 때마다 콜백으로 올려 보낸다.
   useEffect(() => { onDirtyChange?.(isNewDirty()); }, [isNewDirty, onDirtyChange]);
+  // 탭 전환 · ← 작업으로 · 푸터 작업으로(리뷰 지적 4) — 탭을 바꾸거나 원고 모드를 나가면 DraftWrite가
+  // 언마운트돼 친 글과 이미 올라간 이미지가 확인 없이 사라진다. 문구는 패널 닫기와 같다(위 상수).
+  const requestTabChange = useCallback((t: DraftTab) => {
+    if (draftWriteWouldLose() && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
+    setDraftTab(t);
+  }, [draftWriteWouldLose]);
+  const requestDraftModeExit = useCallback(() => {
+    if (draftWriteWouldLose() && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
+    setDraftMode('task');
+  }, [draftWriteWouldLose]);
 
   // 바깥을 누르면 닫는다(koo 09-19). 예외 셋: ① 패널 안 ② 표의 행 — 다른 작업으로 갈아타는 동작이라 행이 직접
   // 처리한다 ③ 포털로 body에 붙는 팝오버·메뉴·툴팁(비용·인플·필터·행 메뉴·ⓘ) — 패널에서 연 것인데 DOM 상으로는
@@ -449,13 +477,14 @@ export function TaskPanel({
           {inDraftMode
             ? (
               <span className="flex items-center gap-1.5">
-                {/* 생성 중엔 막는다(리뷰 지적 2) — 탭을 바꾸면 DraftGenerate가 언마운트돼 생성 요청이 화면에서
-                    끊겨 보인다. title만으로 끝내지 않고 보이는 이유를 옆에 둔다(거짓 어포던스 금지). */}
-                <button type="button" onClick={() => setDraftMode('task')} disabled={draftBusy}
+                {/* 생성·저장 중엔 막는다(리뷰 지적 2) — 탭을 바꾸면 그 컴포넌트가 언마운트돼 요청이 화면에서
+                    끊겨 보인다. title만으로 끝내지 않고 보이는 이유를 옆에 둔다(거짓 어포던스 금지). 작성
+                    중인 글이 있으면 확인을 먼저 받는다(리뷰 지적 4, requestDraftModeExit). */}
+                <button type="button" onClick={requestDraftModeExit} disabled={!!draftBusy}
                         className="text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
                   ← 작업으로
                 </button>
-                {draftBusy && <span className="text-caption text-x-muted">만드는 중이에요</span>}
+                {draftBusy && <span className="text-caption text-x-muted">{draftBusy.label}</span>}
               </span>
             )
             : <p className="text-ui text-x-secondary">{crumb}</p>}
@@ -470,7 +499,7 @@ export function TaskPanel({
 
       <div className="flex-1 space-y-5 overflow-y-auto px-6 py-4">
         {inDraftMode && task ? (
-          <DraftMode attached={!!task.draftId} tab={draftTab} onTab={setDraftTab} busy={draftBusy} pickCount={pickCount}
+          <DraftMode attached={!!task.draftId} tab={draftTab} onTab={requestTabChange} busy={draftBusy} pickCount={pickCount}
                      card={draftCard}
                      generate={draftGenerate}
                      write={draftWrite}
@@ -525,8 +554,8 @@ export function TaskPanel({
           // 원고 모드에서는 이전/다음 대신 이것 하나 — 작업 사이 이동은 작업 모드의 일이다.
           // 생성 중엔 이 버튼도 막는다(리뷰 지적 2, 위 헤더 ← 작업으로와 같은 이유·같은 문구).
           <div className="ml-auto flex items-center gap-2">
-            {draftBusy && <span className="text-caption text-x-muted">만드는 중이에요</span>}
-            <Button onClick={() => setDraftMode('task')} disabled={draftBusy} className="h-9 px-3.5 text-ui">작업으로</Button>
+            {draftBusy && <span className="text-caption text-x-muted">{draftBusy.label}</span>}
+            <Button onClick={requestDraftModeExit} disabled={!!draftBusy} className="h-9 px-3.5 text-ui">작업으로</Button>
           </div>
         ) : task ? (
           <div className="ml-auto flex items-center gap-3">

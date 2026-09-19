@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import type { CampaignRow } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
@@ -40,7 +40,7 @@ type PanelMode = { kind: 'edit'; task: FlowRow; index: number; total: number } |
 
 export function TaskPanel({
   mode, campaign, today, influencerOptions, actions, onClose, onPrev, onNext, onCreate,
-  menu, onOpenDraft, onAttachDraft, onGenerateHref, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen,
+  menu, onOpenDraft, onAttachDraft, onGenerateHref, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
 }: {
   mode: PanelMode;
   campaign: CampaignRow;
@@ -64,6 +64,9 @@ export function TaskPanel({
   // 패널 위에 뜬 다른 오버레이(원고 카드·편집 모달·원고 고르기·한 번에 만들기)가 있는 동안은 패널의 Esc를 끈다 —
   // 안 그러면 [열기]로 연 원고 카드에서 Esc 한 번에 카드와 패널이 같이 닫힌다(generate 관례: 겹친 레이어는 위부터 하나씩).
   overlayOpen: boolean;
+  // 새 작업 모드의 dirty 여부를 부모(FlowDetail)에 알린다(I1-3) — 표의 다른 행을 클릭했을 때 같은 확인을
+  // 거치려면 부모가 알아야 하는데, 그 값은 이 컴포넌트의 로컬 상태에서만 계산된다.
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const task = mode.kind === 'edit' ? mode.task : null;
   const index = mode.kind === 'edit' ? mode.index : -1;
@@ -89,15 +92,32 @@ export function TaskPanel({
   const [editHandleErr, setEditHandleErr] = useState<string | null>(null);
   const [noteBuf, setNoteBuf] = useState(task?.note ?? '');
 
+  // 새 작업 모드에서 값이 하나라도 채워졌으면(유형은 빼고) Esc·[✕]로 닫을 때 경고 없이 사라지지 않게 한 번
+  // 묻는다(I1) — DraftWriteModal의 dirty 관례와 같다. handleInput은 아직 커밋 전(엔터·블러 전) 값도 잡는다 —
+  // 반쯤 친 핸들이야말로 경고 없이 사라지면 안 되는 값이다.
+  const isNewDirty = useCallback((): boolean => (
+    mode.kind === 'new' && (
+      handleInput.trim() !== '' || newCost !== null || target !== null ||
+      scheduledOn !== null || visitOn !== null || note.trim() !== ''
+    )
+  ), [mode.kind, handleInput, newCost, target, scheduledOn, visitOn, note]);
+  const requestClose = useCallback(() => {
+    if (isNewDirty() && !window.confirm('입력한 내용이 사라져요. 닫을까요?')) return;
+    onClose();
+  }, [isNewDirty, onClose]);
+  // FlowDetail이 표의 다른 행을 클릭했을 때 같은 확인을 거치려면 지금 dirty 여부를 알아야 한다(I1-3) —
+  // 이 컴포넌트 밖에서 못 보는 로컬 상태라 바뀔 때마다 콜백으로 올려 보낸다.
+  useEffect(() => { onDirtyChange?.(isNewDirty()); }, [isNewDirty, onDirtyChange]);
+
   // Esc는 패널만 닫는다 — 안에서 열린 팝오버(예정일 달력 등)는 capture에서 stopPropagation하므로 그쪽이 먼저 먹는다.
   // 패널 위의 오버레이(원고 카드·모달)가 떠 있으면 이 리스너 자체를 끈다 — 안 그러면 그 오버레이를 닫는 Esc가
   // 패널까지 같이 닫혀 버린다(FlowDetail의 peek Esc 관례와 같다: `if (!peekId || editing) return;`).
   useEffect(() => {
     if (overlayOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) requestClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, overlayOpen]);
+  }, [requestClose, overlayOpen]);
 
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
@@ -351,7 +371,7 @@ export function TaskPanel({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {task && menu}
-          <button type="button" onClick={onClose} aria-label="닫기" className="rounded-full p-1.5 text-x-secondary hover:bg-x-hover">✕</button>
+          <button type="button" onClick={requestClose} aria-label="닫기" className="rounded-full p-1.5 text-x-secondary hover:bg-x-hover">✕</button>
         </div>
       </div>
 

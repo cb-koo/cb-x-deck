@@ -232,7 +232,14 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const openPanel = useCallback((taskId: string) => setPanel({ taskId }), []);
   const openNew = useCallback(() => setPanel({ fresh: true }), []);
   const openBulk = useCallback(() => setBulkOpen(true), []);
-  const onRowClick = useCallback((t: FlowRow) => openPanel(t.id), [openPanel]);
+  // 새 작업 모드가 dirty한 동안 다른 행을 클릭하면 로컬 입력이 경고 없이 사라진다(I1-3) — dirty 여부는
+  // TaskPanel의 로컬 상태에만 있어 ref로 받아 둔다(매 렌더 상태로 올리면 이 화면 전체가 리렌더된다).
+  const newDirtyRef = useRef(false);
+  const onNewDirtyChange = useCallback((dirty: boolean) => { newDirtyRef.current = dirty; }, []);
+  const onRowClick = useCallback((t: FlowRow) => {
+    if (isNew && newDirtyRef.current && !window.confirm('입력한 내용이 사라져요. 닫을까요?')) return;
+    openPanel(t.id);
+  }, [isNew, openPanel]);
   const onPanelPrev = useCallback(() => { if (panelIndex > 0) setPanel({ taskId: shown[panelIndex - 1].id }); }, [panelIndex, shown]);
   const onPanelNext = useCallback(() => { if (panelIndex >= 0 && panelIndex < shown.length - 1) setPanel({ taskId: shown[panelIndex + 1].id }); }, [panelIndex, shown]);
   // 행 "···" 메뉴(Task 10) — 표의 마지막 칸과 패널 헤더가 같은 컴포넌트(FlowRowMenu)를 쓴다. 여기 모인
@@ -505,7 +512,8 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                    // 패널 위에 뜬 다른 레이어(원고 카드·편집 모달·원고 고르기·한 번에 만들기·게시 확인·게시물
                    // 연결·취소·교체)가 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를 닫는 Esc 한 번에
                    // 패널까지 같이 닫힌다.
-                   overlayOpen={!!peekId || !!editing || !!attachFor || bulkOpen || !!postedFor || !!linkFor || !!cancelFor || !!replaceFor} />
+                   overlayOpen={!!peekId || !!editing || !!attachFor || bulkOpen || !!postedFor || !!linkFor || !!cancelFor || !!replaceFor}
+                   onDirtyChange={onNewDirtyChange} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
       {postedFor && (

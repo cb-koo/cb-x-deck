@@ -54,7 +54,9 @@ export function TaskPanel({
   menu: ReactNode;   // 헤더 ··· — edit 모드에만 채워진다(Task 10, FlowRowMenu). 원고 모드에서는 숨긴다(작업 동작이라서).
   // 원고 모드로 들어가라는 요청(행 메뉴 등 패널 바깥에서 왔을 수 있다, C 원고 모드 §Step1). seq가 매번 바뀌어야
   // 이미 같은 작업의 패널이 열려 있을 때(키 리마운트가 안 일어난다)도 같은 탭을 다시 요청하면 반영된다.
-  draftOpen?: { tab: DraftTab; seq: number } | null;
+  // tab이 null이면 "작업 모드로 되돌려라"는 뜻(C 원고 모드 리뷰 지적 4) — FlowDetail의 openPanel이
+  // 같은 작업 행을 다시 눌렀을 때 이 신호를 보낸다(패널이 원고 모드에 머물러 있어도 행 클릭 = 그 작업을 연다).
+  draftOpen?: { tab: DraftTab | null; seq: number } | null;
   pickCount: number | null;   // '있는 원고 고르기 n' — Task 1의 후보 조회 합, 아직 못 읽었으면 null
   draftCard: ReactNode;       // 붙어 있는 원고의 카드 — FlowDetail이 만든다(로딩·에러 표시도 포함)
   onDetachDraft: (t: FlowRow) => void;
@@ -81,11 +83,18 @@ export function TaskPanel({
   const [draftTab, setDraftTab] = useState<DraftTab>('generate');
   useEffect(() => {
     if (!draftOpen) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 패널 바깥(행 메뉴)에서 온 요청을 반영하는 것이 목적이라 동기 setState가 맞다
+    if (draftOpen.tab === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 패널 바깥(같은 행 재클릭 등)에서 온 요청을 반영하는 것이 목적이라 동기 setState가 맞다
+      setDraftMode('task');
+      return;
+    }
     setDraftTab(draftOpen.tab);
     setDraftMode('draft');
   }, [draftOpen]);
-  const inDraftMode = draftMode === 'draft' && !!task;
+  // 취소된 작업은 원고 모드에 머무르지 않는다(리뷰 지적 1, 거짓 어포던스) — 원고 모드인 채로 그 작업이
+  // 표의 ···에서 취소되면(서버가 draft_id를 뗀다) 자리표시자 탭 세 개가 취소된 작업 위에 남는다. 취소된
+  // 작업의 원고 칸은 이미 스냅샷 텍스트만 보여주므로 작업 모드로 돌아오는 것이 맞다.
+  const inDraftMode = draftMode === 'draft' && !!task && !task.cancelledAt;
 
   // ── 새 작업 로컬 상태 — 만들기 전까지 서버에 쓰지 않는다 ──
   const [newType, setNewType] = useState<TaskType | null>(null);
@@ -290,7 +299,7 @@ export function TaskPanel({
           <div>
             <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-content">
               <button type="button" onClick={() => { setDraftTab('generate'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-blue-text hover:underline">새로 쓰기</button>
+                      className="whitespace-nowrap text-x-blue-text hover:underline">AI로 만들기</button>
               <span aria-hidden className="text-x-muted">·</span>
               <button type="button" onClick={() => { setDraftTab('write'); setDraftMode('draft'); }}
                       className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">직접 쓰기</button>

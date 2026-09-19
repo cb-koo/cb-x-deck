@@ -77,7 +77,10 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   const [clientData, setClientData] = useState<ClientData | null>(null);
   // 원고 카드 — 패널이 보여줄 작업에 붙은 원고 한 건. 작업 목록엔 본문이 없어 열 때 받아 온다.
   const [cardDraft, setCardDraft] = useState<DraftRow | null>(null);
-  const [cardErr, setCardErr] = useState(false);
+  // 실패한 원고의 id(리뷰 지적 3) — boolean이면 어느 원고의 실패인지 몰라, 한 원고를 못 읽은 뒤 다른
+  // 작업의 패널을 열면 그 작업의 카드 자리에 실패 문구가 한 프레임 비칠 수 있다. 카드 자리의 판정은
+  // cardErr === panelDraftId로 한다.
+  const [cardErr, setCardErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<DraftRow | null>(null);
   const [rewritingId, setRewritingId] = useState<string | null>(null);
   const [regenBusy, setRegenBusy] = useState<{ draftId: string; index: number } | null>(null);
@@ -107,7 +110,9 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   const [candidates, setCandidates] = useState<{ siblings: DraftRow[]; others: DraftRow[] } | null>(null);
   // 행 메뉴 등 패널 바깥에서 온 "원고 모드로 열어라" 요청 — 이미 같은 작업의 패널이 열려 있으면 key
   // 리마운트가 안 일어나 TaskPanel의 로컬 mode가 안 바뀐다. seq를 매번 올려 그 경우에도 요청이 전달되게 한다.
-  const [draftOpenReq, setDraftOpenReq] = useState<{ tab: DraftTab; seq: number } | null>(null);
+  // tab이 null이면 "작업 모드로 되돌려라"는 뜻(리뷰 지적 4) — openPanel이 같은 작업 행을 다시 눌렀을 때
+  // 이 신호를 보낸다(패널이 원고 모드일 때도 행 클릭 = 그 작업을 연다가 지켜져야 한다).
+  const [draftOpenReq, setDraftOpenReq] = useState<{ tab: DraftTab | null; seq: number } | null>(null);
   const draftOpenSeqRef = useRef(0);
 
   // 요청 토큰 — 캠페인을 빠르게 갈아타면 앞 캠페인의 응답이 뒤에 도착할 수 있다. 그때 화면에는 이미 다른 캠페인이
@@ -248,11 +253,17 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
     if (!panelDraftId || cardDraft?.id === panelDraftId) return;
     let alive = true;
     apiFetch(`/api/drafts/${panelDraftId}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
-      .then((d) => { if (!alive) return; setCardDraft((d as DraftRow | null) ?? null); setCardErr(d === null); });
+      .then((d) => { if (!alive) return; setCardDraft((d as DraftRow | null) ?? null); setCardErr(d === null ? panelDraftId : null); });
     return () => { alive = false; };
   }, [panelDraftId, cardDraft]);
   const panelDraft = panelDraftId && cardDraft?.id === panelDraftId ? cardDraft : null;
-  const openPanel = useCallback((taskId: string) => { setDraftOpenReq(null); setPanel({ taskId }); }, []);
+  // tab:null을 보낸다(seq는 그대로 증가) — 이미 그 작업의 패널이 원고 모드로 열려 있으면(key 리마운트가
+  // 없다) TaskPanel의 이펙트가 이 신호로 작업 모드로 돌려보낸다(리뷰 지적 4, "행 클릭 = 그 작업을 연다").
+  const openPanel = useCallback((taskId: string) => {
+    draftOpenSeqRef.current += 1;
+    setDraftOpenReq({ tab: null, seq: draftOpenSeqRef.current });
+    setPanel({ taskId });
+  }, []);
   const openNew = useCallback(() => { setDraftOpenReq(null); setPanel({ fresh: true }); }, []);
   const openBulk = useCallback(() => setBulkOpen(true), []);
   // 새 작업 모드가 dirty한 동안 다른 행을 클릭하면 로컬 입력이 경고 없이 사라진다(I1-3) — dirty 여부는
@@ -401,7 +412,7 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
     const r = await deleteDraftApi(d.id);
     if (!r.ok) { show(r.error); return; }
     // 지운 원고가 캐시에 남아 다음 카드에 잘못 뜨지 않게 비운다(오버레이가 있던 시절의 closePeek과 같은 목적)
-    setCardDraft(null); setCardErr(false);
+    setCardDraft(null); setCardErr(null);
     setTasks((cur) => cur.map((t) => (t.draftId === d.id ? { ...t, draftId: null, draftStatus: null, draftLabel: null } : t)));
     show('원고를 삭제했어요 — 작업은 남아 있어요');
     onChanged();
@@ -449,8 +460,8 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
     ? (panelDraft
         ? renderDraftCard(panelDraft, panelTask)
         : (
-          <div className="rounded-2xl border border-x-border-strong bg-white px-4 py-6 text-content text-x-secondary" role={cardErr ? 'alert' : undefined}>
-            {cardErr ? '원고를 불러오지 못했어요 — 새로고침해 주세요' : '원고를 불러오는 중…'}
+          <div className="rounded-2xl border border-x-border-strong bg-white px-4 py-6 text-content text-x-secondary" role={cardErr === panelDraftId ? 'alert' : undefined}>
+            {cardErr === panelDraftId ? '원고를 불러오지 못했어요 — 새로고침해 주세요' : '원고를 불러오는 중…'}
           </div>
         ))
     : null;

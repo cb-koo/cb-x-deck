@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react';
 
 export type DraftTab = 'generate' | 'write' | 'pick';
-const TAB_LABEL: Record<DraftTab, string> = { generate: '생성', write: '직접 쓰기', pick: '있는 원고 고르기' };
+const TAB_LABEL: Record<DraftTab, string> = { generate: 'AI로 만들기', write: '직접 쓰기', pick: '있는 원고 고르기' };
 
 // 원고 모드(§5) — 패널이 원고 일을 하는 상태. 원고가 붙어 있으면 손보는 곳(카드)이고,
 // 없으면 만드는 곳(생성·직접 쓰기·고르기)이다. 세 갈래의 알맹이는 부모(TaskPanel)가 넣는다(이 파일은 골격만) —

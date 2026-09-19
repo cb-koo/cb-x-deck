@@ -89,8 +89,8 @@ export function FlowRowMenu({ task, today, on }: {
   if (task.draftId) {
     push(<MenuButton key="openDraft" onClick={() => { close(); on.openDraftMode(task, 'generate'); }}>원고 열기</MenuButton>);
   } else if (task.type !== 'rt' && !cancelled) {
-    push(<MenuButton key="attachDraft" onClick={() => { close(); on.openDraftMode(task, 'pick'); }}>원고 붙이기</MenuButton>);
-    push(<MenuButton key="generate" onClick={() => { close(); on.openDraftMode(task, 'generate'); }}>새로 만들기</MenuButton>);
+    push(<MenuButton key="attachDraft" onClick={() => { close(); on.openDraftMode(task, 'pick'); }}>있는 원고 고르기</MenuButton>);
+    push(<MenuButton key="generate" onClick={() => { close(); on.openDraftMode(task, 'generate'); }}>AI로 만들기</MenuButton>);
   }
   // 게시물 연결은 게시 뒤에도 쓴다 — 게시 확인 때 링크 등록이 실패하면 "행 메뉴에서 다시 시도하세요"가
   // 가리키는 곳이 바로 여기다(기존 화면도 게시 여부를 따지지 않는다). RT는 자기 게시물이 없어 제외.

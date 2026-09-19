@@ -448,7 +448,7 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                          onAssignInfluencer={(next) => {
                            if (!peekTask) { show('이 원고가 붙은 작업을 찾지 못했어요 — 새로고침해 주세요'); return; }
                            setPeekDraft((cur) => (cur?.id === peeked.id ? { ...cur, influencerHandle: next } : cur));
-                           void actions.assignInfluencer(peekTask, next);
+                           void actions.assignInfluencer(peekTask, next, { autoCost: false });   // 비용은 패널의 [확인]이 확정한다(R24)
                          }}
                          onSaveMedia={(next) => void patchDraft(peeked, { edited: next })}
                          mediaDropNotice={mediaDrop?.draftId === peeked.id ? mediaDrop.notice : null}

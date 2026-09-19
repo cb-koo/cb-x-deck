@@ -126,7 +126,7 @@ export function TaskPanel({
     const p = parseXHandle(v);
     if (!p.ok) { setEditHandleErr(handleParseMessage(p.reason)); return; }
     setEditHandleErr(null);
-    const ok = await actions.assignInfluencer(t, p.handle);
+    const ok = await actions.assignInfluencer(t, p.handle, { autoCost: false });   // 비용은 [확인]이 확정한다(R24)
     if (ok) setEditHandleInput('');
   }
 

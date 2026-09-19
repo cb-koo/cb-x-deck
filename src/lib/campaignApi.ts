@@ -7,6 +7,7 @@ import type { DraftContent } from './draftTypes.ts';
 import type { CampaignRow, CampaignDetail, InfluencerCostRow } from './campaignStore.ts';
 import type { CampaignCreateInput, CampaignPatchInput } from './campaignInput.ts';
 import type { ExtraCost, TaskCost } from './campaignCost.ts';
+import type { Pricing } from './influencerPricing.ts';
 import type { TrackedPostRow } from './trackingStore.ts';
 import type { TaskRow, TargetCandidate } from './campaignTaskStore.ts';
 import type { TaskType } from './campaignJudgment.ts';
@@ -106,6 +107,11 @@ export const regenPostApi = (id: string, index: number) => call<DraftRow>(`/api/
 // '있는 원고에서 고르기'(스펙 §4-2) 후보 — 아직 어느 작업에도 안 붙은 원고. clientId 없으면 전체.
 export const fetchUnattachedDrafts = (clientId: string | null) =>
   call<DraftRow[]>(`/api/drafts?unattached=1${clientId ? `&clientId=${clientId}` : ''}&limit=200`);
+
+// ── 인플루언서(명부) ── 비용 [확인] 뒤 "프로필도 바꿀까요" 답이 예일 때만 부른다(b-task-8-brief.md §3).
+// 서버가 부분 병합 + pricing_changed 로그를 알아서 남긴다 — 여기서는 바뀐 키만 보낸다.
+export const patchInfluencerPricingApi = (influencerId: string, pricing: Pricing) =>
+  call<unknown>(`/api/influencers/${influencerId}`, json('PATCH', { pricing }));
 
 // ── 게시물 연결(스펙 §3-2 단계 셀 옆) — 등록 POST 뒤 PATCH로 작업(taskId)이나 원고(draftId)를 붙인다. 두 라우트 다 기존.
 export const registerTrackedPostApi = (url: string, taskId?: string) =>

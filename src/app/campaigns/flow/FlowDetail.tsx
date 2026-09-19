@@ -9,9 +9,10 @@ import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { DraftRow } from '@/lib/draftStore';
 import type { CampaignMonthBudget } from '@/lib/clientBudget';
 import {
-  fetchCampaignDetail, patchCampaignApi, deleteCampaignApi,
+  fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, patchInfluencerPricingApi,
   patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, type DraftPatchBody, type TaskCreateRequest,
 } from '@/lib/campaignApi';
+import type { TaskCost } from '@/lib/campaignCost';
 import { flowStage, FLOW_STAGES, draftWriteHref, TASK_TYPE_LABEL, type TaskType, type FlowStage } from '@/lib/campaignJudgment';
 import { draftLabel } from '@/lib/draftViews';
 import { Button, PANEL } from '@/components/ui';
@@ -29,6 +30,7 @@ import { FlowFilterBar } from './FlowFilterBar';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
 import { TaskPanel } from './TaskPanel';
+import { CostConfirmField } from './CostConfirmField';
 import { BulkCreateDialog } from './BulkCreateDialog';
 import { useFlowTaskActions } from './useFlowTaskActions';
 
@@ -142,6 +144,21 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   }), [taskActions, load]);
   // 취소·되돌리기·교체(ADR 0002·0005) — 낙관 갱신 없이 성공 뒤 상세를 다시 읽는다. 호출부(다이얼로그)는 Task 10.
   const flowActions = useFlowTaskActions({ campaignId: id, show, reload: load, onChanged });
+  // 배정된 인플루언서의 명부 옵션 — FlowTable·TaskTable과 같은 매칭 규칙(핸들 대소문자 무관)
+  const optionFor = useCallback(
+    (handle: string | null) => (handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined),
+    [influencerOptions],
+  );
+  // 비용 [확인] 뒤 "프로필도 바꿀까요"에 예라고 답했을 때만(b-task-8-brief.md §3) — option.id 없으면(명부 밖)
+  // 저장할 곳이 없다고 알리고 끝낸다. 성공하면 배정 자동완성 후보(단가 포함)를 다시 읽어 새 값이 바로 보이게 한다.
+  const saveProfilePricing = useCallback(async (option: InfluencerOption, cost: TaskCost, type: TaskType): Promise<boolean> => {
+    if (!option.id) { show('이 인플루언서는 명부에 없어 프로필을 바꿀 수 없어요'); return false; }
+    const r = await patchInfluencerPricingApi(option.id, { [type]: cost.amount, currency: cost.currency });
+    if (!r.ok) { show(r.error); return false; }
+    const inf: unknown = await apiFetch('/api/drafts/influencers').then((res) => (res.ok ? res.json() : [])).catch(() => []);
+    if (Array.isArray(inf)) setInfluencerOptions(inf as InfluencerOption[]);
+    return true;
+  }, [show]);
 
   // ── 이 화면의 파생값(§4-2·§4-3) — 필터·정렬·통계는 campaignFlowView의 순수 함수로 계산한다. 여기서 다시 판정하지 않는다. ──
   // shown = 필터·정렬을 적용한 표시 순서. 표가 그리는 순서이자 패널의 이전/다음이 걷는 순서다(하나의 소스).
@@ -367,8 +384,18 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                    onOpenDraft={setPeekId} onAttachDraft={setAttachFor}
                    onGenerateHref={(t) => draftWriteHref(t.id, id)}
                    onDetachDraft={(t) => void detachDraft(t)}
+                   onSaveProfilePricing={saveProfilePricing}
+                   // edit 모드만 여기서 채운다 — new 모드의 비용 칸은 TaskPanel이 로컬 상태로 직접 그린다(위 주석).
                    slots={{
-                     cost: <div className="text-ui text-x-muted">비용 칸(Task 8)</div>,
+                     // key=influencerHandle — 인플루언서가 바뀌면(미정 → 배정 포함) 새 프로필 단가로 다시
+                     // 초기화한다(마운트 시 한 번만 채우는 필드라 안 그러면 방금 배정한 인플의 단가 제안이 안 보인다).
+                     cost: panelTask
+                       ? <CostConfirmField key={panelTask.influencerHandle ?? ''} value={panelTask.cost} option={optionFor(panelTask.influencerHandle)} type={panelTask.type}
+                                          label={panelTask.type === 'visit' ? '예산' : '비용'}
+                                          onSave={(c) => actions.changeCost(panelTask, c)}
+                                          onSaveProfile={(opt, c) => saveProfilePricing(opt, c, panelTask.type)}
+                                          disabledReason={panelTask.influencerHandle ? undefined : '인플을 정하면 프로필 단가로 채워요'} />
+                       : null,
                      target: <div className="text-ui text-x-muted">대상 칸(Task 9)</div>,
                    }}
                    // 패널 위에 뜬 다른 레이어(원고 카드·편집 모달·원고 고르기·한 번에 만들기)가 있으면 패널의

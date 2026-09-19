@@ -110,6 +110,15 @@ export function costCell(t: FlowRow, suggestion: TaskCost | null): { text: strin
   return { text: '미정', tone: 'muted' };
 }
 
+// 비용 [확인](R24·§4-3) — 확정은 '저장'이다(확정 전 값은 저장하지 않는다). 프로필 반영 질문은 differs·no-profile 때만.
+export type CostConfirmScenario = 'empty' | 'same' | 'differs' | 'no-profile' | 'currency-mismatch';
+export function costConfirmScenario({ profile, entered }: { profile: TaskCost | null; entered: TaskCost | null }): CostConfirmScenario {
+  if (!entered) return 'empty';
+  if (!profile) return 'no-profile';
+  if (profile.currency !== entered.currency) return 'currency-mismatch';
+  return profile.amount === entered.amount ? 'same' : 'differs';
+}
+
 // ── 하단 줄·카드(§3-2 하단 한 줄, §3-3) — 모집단은 취소 제외(R17) ──
 // 화면에 유형을 나열하는 순서 — 주력인 발행 유형(투고·인용RT)이 먼저, 부수적인 RT·방문협찬이 뒤.
 // TASK_TYPES(rt·quoteRt·post·visit)는 도메인 순서(단가 키 등)라 그대로 두고, 보이는 순서만 여기서 한 번 정한다:

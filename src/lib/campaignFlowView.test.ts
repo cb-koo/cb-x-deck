@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   EMPTY_FLOW_FILTER, matchesFlowFilter, matchesSearch, matchesExtra, filterCount, filterSummary,
   nextSort, sortFlowRows, dateCell, draftCell, costCell, flowFooter, flowStats, settleWaitCount, restoreMessage, PANEL_FIELD_ORDER,
+  costConfirmScenario,
 } from './campaignFlowView.ts';
 import type { CampaignTaskItem } from './campaignStore.ts';
 
@@ -115,4 +116,13 @@ test('8) 하단 줄·요약 줄·카드 숫자·정산 대기 — 취소 제외,
   assert.equal(restoreMessage('taken'), '되돌렸어요 — 원고는 그 사이 다른 작업에 붙어 있어요');
   assert.deepEqual(PANEL_FIELD_ORDER.visit, ['influencer', 'dates', 'cost', 'draft', 'note']);
   assert.deepEqual(PANEL_FIELD_ORDER.quoteRt, ['influencer', 'cost', 'draft', 'target', 'scheduled', 'note']);
+});
+
+test('9) 비용 확인 시나리오 — 같음 / 다름 / 프로필 없음 / 통화 다름 / 빈칸', () => {
+  const k = (amount: number, currency: 'KRW' | 'JPY' = 'KRW') => ({ amount, currency });
+  assert.equal(costConfirmScenario({ profile: k(30000), entered: k(30000) }), 'same');
+  assert.equal(costConfirmScenario({ profile: k(30000), entered: k(35000) }), 'differs');
+  assert.equal(costConfirmScenario({ profile: null, entered: k(50000) }), 'no-profile');
+  assert.equal(costConfirmScenario({ profile: k(30000), entered: k(3000, 'JPY') }), 'currency-mismatch');
+  assert.equal(costConfirmScenario({ profile: k(30000), entered: null }), 'empty');
 });

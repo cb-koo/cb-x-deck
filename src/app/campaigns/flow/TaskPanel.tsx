@@ -17,6 +17,7 @@ import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
 import { InfluencerField } from '@/components/InfluencerField';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
 import { Button } from '@/components/ui';
+import { CostConfirmField } from './CostConfirmField';
 import type { useCampaignTaskActions } from '../useCampaignTaskActions';
 
 // 편집 패널(b-task-7-brief.md §2) — 작업 하나(edit)와 새 작업(new)을 같은 골격에서 다룬다. 칸 순서는
@@ -24,7 +25,9 @@ import type { useCampaignTaskActions } from '../useCampaignTaskActions';
 //  - edit: 칸마다 actions(useCampaignTaskActions, PATCH 낙관적 갱신)를 바로 부른다.
 //  - new: 아무것도 서버에 쓰지 않고 로컬 상태로 들고 있다가 [만들기]에서 createTasksApi 한 번으로 보낸다
 //    (중간에 실패해도 빈 작업이 안 남는다, 결정 3).
-// 비용·대상 칸은 Task 8·9의 컴포넌트를 부모가 slots로 채운다 — 지금은 부모가 자리 표시 텍스트를 넣는다.
+// 비용 칸(Task 8)은 edit 모드만 slots.cost(부모 FlowDetail이 채운다, task.cost·onSaveProfile 클로저가 필요해서)를
+// 쓰고, new 모드는 이 파일이 직접 CostConfirmField를 그린다 — 로컬 상태(newCost)가 이 파일에만 있어서다
+// (onSave가 로컬 setCost만 하고 true를 돌려주면 확정된다, 저장은 [만들기]에서 한 번에). 대상 칸은 아직 Task 9.
 // 취소된 작업(cancelledAt)의 편집기는 메모 한 칸뿐(R18) — 나머지는 값만 보여준다(거짓 어포던스 금지).
 // 인플루언서 [바꾸기](교체, ADR 0005)는 확인 다이얼로그가 있는 Task 10의 몫 — 그때까진 누를 게 없는 버튼을
 // 두지 않는다(같은 이유로 게시 후 잠금·방문 후 교체 불가 안내도 Task 10이 붙인다).
@@ -32,7 +35,7 @@ type PanelMode = { kind: 'edit'; task: FlowRow; index: number; total: number } |
 
 export function TaskPanel({
   mode, campaign, today, influencerOptions, actions, onClose, onPrev, onNext, onCreate,
-  menu, onOpenDraft, onAttachDraft, onGenerateHref, onDetachDraft, slots, overlayOpen,
+  menu, onOpenDraft, onAttachDraft, onGenerateHref, onDetachDraft, onSaveProfilePricing, slots, overlayOpen,
 }: {
   mode: PanelMode;
   campaign: CampaignRow;
@@ -48,6 +51,9 @@ export function TaskPanel({
   onAttachDraft: (t: FlowRow) => void;
   onGenerateHref: (t: FlowRow) => string;
   onDetachDraft: (t: FlowRow) => void;
+  // new 모드의 CostConfirmField가 이 파일 안에서 직접 만들어지는 이유는 위 주석 — 그래서 프로필 반영 저장만
+  // 콜백으로 받는다(option.id·pricing patch·influencerOptions 재조회는 FlowDetail 쪽이 쥔 것들이라서).
+  onSaveProfilePricing: (option: InfluencerOption, cost: TaskCost, type: TaskType) => Promise<boolean>;
   slots: { cost: ReactNode; target: ReactNode };
   // 패널 위에 뜬 다른 오버레이(원고 카드·편집 모달·원고 고르기·한 번에 만들기)가 있는 동안은 패널의 Esc를 끈다 —
   // 안 그러면 [열기]로 연 원고 카드에서 Esc 한 번에 카드와 패널이 같이 닫힌다(generate 관례: 겹친 레이어는 위부터 하나씩).
@@ -63,8 +69,8 @@ export function TaskPanel({
   const [handleInput, setHandleInput] = useState('');
   const [handle, setHandle] = useState('');
   const [handleErr, setHandleErr] = useState<string | null>(null);
-  // Task 8·9가 채울 자리 — 지금은 편집기가 없어 늘 값이 없다(그 자리엔 slots만 보인다)
-  const cost: TaskCost | null = null;
+  const [newCost, setNewCost] = useState<TaskCost | null>(null);
+  // Task 9가 채울 자리 — 지금은 편집기가 없어 늘 값이 없다(그 자리엔 slots.target만 보인다)
   const target: { taskId: string } | { url: string } | null = null;
   const [scheduledOn, setScheduledOn] = useState<string | null>(null);
   const [visitOn, setVisitOn] = useState<string | null>(null);
@@ -88,7 +94,7 @@ export function TaskPanel({
 
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
-    setScheduledOn(null); setVisitOn(null); setNote('');
+    setScheduledOn(null); setVisitOn(null); setNote(''); setNewCost(null);
   }
   function commitNewHandle(raw: string) {
     const v = raw.trim();
@@ -102,8 +108,8 @@ export function TaskPanel({
     setBusy(true);
     const body: TaskCreateRequest = {
       type: newType,
-      influencers: handle ? [{ handle, cost }] : [],
-      ...(handle ? {} : { cost: cost ?? undefined }),
+      influencers: handle ? [{ handle, cost: newCost }] : [],
+      ...(handle ? {} : { cost: newCost ?? undefined }),
       scheduledOn, visitOn: newType === 'visit' ? visitOn : null,
       note,
       ...(target && 'taskId' in target ? { targetTaskId: target.taskId } : {}),
@@ -241,8 +247,18 @@ export function TaskPanel({
                            onChange={(v) => { setHandleInput(v); setHandleErr(null); }} error={handleErr}
                            onEnter={commitNewHandle} onBlur={commitNewHandle} />
         );
-      case 'cost':
-        return <>{slots.cost}</>;
+      case 'cost': {
+        // 명부 값(option)은 handle이 정해졌을 때만 있다 — 미정이면 disabledReason으로 비활성(브리프 §5).
+        const opt = handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined;
+        return (
+          // key=handle — 인플루언서가 바뀌면(미정 → 배정 포함) 새 프로필 단가로 다시 초기화한다(마운트 시 한 번만
+          // 채우는 필드라 안 그러면 방금 배정한 인플의 단가 제안이 안 보인다).
+          <CostConfirmField key={handle} value={newCost} option={opt} type={newType as TaskType} label={fieldLabel('cost', newType as TaskType)}
+                            onSave={async (c) => { setNewCost(c); return true; }}
+                            onSaveProfile={(o, c) => onSaveProfilePricing(o, c, newType as TaskType)}
+                            disabledReason={handle ? undefined : '인플을 정하면 프로필 단가로 채워요'} />
+        );
+      }
       case 'target':
         return <>{slots.target}</>;
       case 'scheduled':

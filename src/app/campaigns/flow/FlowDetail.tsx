@@ -81,6 +81,10 @@ const DRAFT_DIRECTION_SWITCH_CONFIRM = '쓰던 방향성이 있어요. 다른 �
 const DRAFT_DIRECTION_LOST_CONFIRM = '쓰던 방향성이 있어요. 닫으면 사라져요. 닫을까요?';
 const DRAFT_WRITE_LEAVE_CONFIRM = '작성 중인 원고가 있어요. 나가면 저장되지 않고 사라져요. 나갈까요?';
 const DRAFT_DIRECTION_LEAVE_CONFIRM = '쓰던 방향성이 있어요. 나가면 사라져요. 나갈까요?';
+// 취소·삭제는 '열지도' '나가지도' 않는다 — 그 작업을 그렇게 만들면 원고 모드가 함께 꺼진다. 그래서 문장도
+// 그 동작을 가리켜야 한다(최종 수정 보고 (b)): 어느 문장을 쓰든 잃는 것은 같지만, 무엇을 하려는 참이냐가 다르다.
+const DRAFT_WRITE_DISCARD_CONFIRM = '작성 중인 원고가 있어요. 계속하면 저장되지 않고 사라져요. 계속할까요?';
+const DRAFT_DIRECTION_DISCARD_CONFIRM = '쓰던 방향성이 있어요. 계속하면 사라져요. 계속할까요?';
 
 interface DetailState {
   campaign: CampaignRow; tasks: CampaignTaskItem[]; costRows: InfluencerCostRow[];
@@ -185,6 +189,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // (닫기=closeConfirm, 이동=moveConfirm). 둘 다 작성 중이 아니면 null — TaskPanel은 null이면 묻지 않고 그대로 진행한다.
   const closeConfirm = draftWriteDirty ? (draftGenDirty ? DRAFT_DIRECTION_LOST_CONFIRM : DRAFT_WRITE_LOST_CONFIRM) : null;
   const moveConfirm = draftWriteDirty ? (draftGenDirty ? DRAFT_DIRECTION_LEAVE_CONFIRM : DRAFT_WRITE_LEAVE_CONFIRM) : null;
+  // 취소·삭제 자리(confirmLoseDraftFor)가 쓰는 문장 — 같은 출처 판정, 다른 동작.
+  const discardConfirm = draftGenDirty ? DRAFT_DIRECTION_DISCARD_CONFIRM : DRAFT_WRITE_DISCARD_CONFIRM;
   // page.tsx로 한 단계 더 올린다(Task 4d §6) — 왼쪽 목록 클릭(캠페인 전환)은 이 컴포넌트 바깥이라 패널
   // 안쪽 가드(openPanel 등)가 안 닿는다. boolean이 아니라 "띄울 문장 자체"를 올린다(자문 리뷰) — 그냥
   // dirty만 올리면 page.tsx는 어느 탭인지 몰라 DRAFT_WRITE_SWITCH_CONFIRM 하나로 고정되고, 생성 탭이
@@ -405,11 +411,13 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // draftWriteDirty 쪽은 openPanel과 같은 draftSwitchConfirm(위에서 정의, Task 4d §2·§3)을 쓴다.
   const openDraftMode = useCallback((t: FlowRow, tab: DraftTab) => {
     if (isNew && newDirtyRef.current && !window.confirm('입력한 내용이 사라져요. 다른 작업을 열까요?')) return;
-    if (draftWriteDirty && !window.confirm(draftSwitchConfirm)) return;
+    // openPanel과 같은 규칙 — 같은 작업이면 다른 작업을 여는 게 아니라 그 작업 안에서 자리를 옮기는 것이다.
+    const msg = t.id === panelTaskId ? moveConfirm : draftSwitchConfirm;
+    if (draftWriteDirty && msg && !window.confirm(msg)) return;
     draftOpenSeqRef.current += 1;
     setDraftOpenReq({ tab, seq: draftOpenSeqRef.current });
     setPanel({ taskId: t.id });
-  }, [isNew, draftWriteDirty, draftSwitchConfirm]);
+  }, [isNew, panelTaskId, draftWriteDirty, draftSwitchConfirm, moveConfirm]);
   // draftWriteDirty 확인은 openPanel이 이미 진다(위 주석) — 여기서 또 물으면 같은 클릭에 확인창이 두 번 뜬다.
   const onRowClick = useCallback((t: FlowRow) => {
     if (isNew && newDirtyRef.current && !window.confirm('입력한 내용이 사라져요. 다른 작업을 열까요?')) return;
@@ -421,11 +429,11 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 것의 여섯 번째 문). 지금 패널이 보여주는 바로 그 작업을 표의 ··· 메뉴에서 취소·삭제하면 inDraftMode
   // 게이트가 꺼지며 DraftWrite·DraftGenerate가 언마운트돼 작성 중인 글·방향성이 확인 없이 사라진다(표는
   // 흐릴 뿐 막혀 있지 않고, 메뉴 셀은 클릭 전파를 막아 메뉴가 그대로 열린다). openPanel 등(위)이 다른
-  // 작업을 열 때 쓰는 것과 같은 확인(draftSwitchConfirm)을 재사용한다 — 새 문장을 짓지 않는다. 다른
+  // 확인 문장은 이 동작을 가리키는 것(discardConfirm)을 쓴다 — '다른 작업을 열까요?'는 여기서 사실이 아니다. 다른
   // 작업의 취소·삭제는 지금 패널과 무관하니 묻지 않는다(taskId !== panelTaskId).
   const confirmLoseDraftFor = useCallback((taskId: string): boolean => (
-    taskId !== panelTaskId || !draftWriteDirty || window.confirm(draftSwitchConfirm)
-  ), [panelTaskId, draftWriteDirty, draftSwitchConfirm]);
+    taskId !== panelTaskId || !draftWriteDirty || window.confirm(discardConfirm)
+  ), [panelTaskId, draftWriteDirty, discardConfirm]);
   // 행 "···" 메뉴(Task 10) — 표의 마지막 칸과 패널 헤더가 같은 컴포넌트(FlowRowMenu)를 쓴다. 여기 모인
   // 콜백들은 전부 "다이얼로그/모달을 연다" 또는 "확인 뒤 바로 실행한다" 둘 중 하나 — 실제 저장은 flowActions
   // (취소·되돌리기·교체, Task 7)나 actions.remove(useCampaignTaskActions)가 한다.

@@ -72,8 +72,11 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
            title={`게시물 링크가 있는 ${stats.perf.withPerf}건 합계${stats.perf.noLink ? ` · 링크 없는 게시물 ${stats.perf.noLink}건은 합계 밖` : ''}`}>
         <div className="flex items-center justify-between gap-2">
           <p className="text-ui text-x-secondary">성과</p>
-          <Button variant="subtle" disabled={refreshing || stats.perf.withPerf === 0} onClick={onRefresh}
-                  title={stats.perf.withPerf === 0 ? '조회할 게시물 링크가 없어요' : `게시물 ${stats.perf.withPerf}건을 다시 조회해요 — 게시물당 API 1회`}
+          {/* 게시된 작업이 하나도 없을 때만 막는다 — withPerf(스냅샷이 잡힌 수)로 막으면, 연결은 돼 있는데 아직
+              지표가 없는 게시물을 두고 "조회할 게 없다"고 잘못 말한다. 실제로 조회할 게 없으면 서버가 total 0으로 답하고
+              토스트가 그 사실을 말한다. */}
+          <Button variant="subtle" disabled={refreshing || stats.posted === 0} onClick={onRefresh}
+                  title={stats.posted === 0 ? '게시 확인된 작업이 아직 없어요' : '게시된 작업의 게시물을 다시 조회해요 — 게시물당 API 1회'}
                   className="h-8 shrink-0 px-2.5">
             {refreshing ? '조회 중…' : '업데이트'}
           </Button>

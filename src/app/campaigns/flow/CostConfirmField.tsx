@@ -53,6 +53,7 @@ export function CostConfirmField({
   const scenario = costConfirmScenario({ profile, entered });
 
   async function confirm() {
+    if (busy) return;    // 연타로 같은 PATCH가 두 번 나가지 않게
     if (saved) return;   // 이미 확정된 값 그대로 — Enter가 다시 불러도 재저장·다이얼로그 재오픈을 막는다
     if (entered === null) { setErr(AMOUNT_MESSAGE); return; }
     setErr(null);

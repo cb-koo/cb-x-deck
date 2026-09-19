@@ -155,8 +155,10 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
     if (!option.id) { show('이 인플루언서는 명부에 없어 프로필을 바꿀 수 없어요'); return false; }
     const r = await patchInfluencerPricingApi(option.id, { [type]: cost.amount, currency: cost.currency });
     if (!r.ok) { show(r.error); return false; }
-    const inf: unknown = await apiFetch('/api/drafts/influencers').then((res) => (res.ok ? res.json() : [])).catch(() => []);
-    if (Array.isArray(inf)) setInfluencerOptions(inf as InfluencerOption[]);
+    // 재조회 실패면 들고 있던 후보를 유지한다 — 빈 배열로 덮으면 저장은 성공했는데 화면의 자동완성·단가 제안이
+    // 통째로 사라져(새로고침 전까지) 사용자가 원인을 짚을 수 없다.
+    const inf: unknown = await apiFetch('/api/drafts/influencers').then((res) => (res.ok ? res.json() : null)).catch(() => null);
+    if (Array.isArray(inf) && inf.length) setInfluencerOptions(inf as InfluencerOption[]);
     return true;
   }, [show]);
 

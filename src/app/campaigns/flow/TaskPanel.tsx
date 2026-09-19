@@ -98,10 +98,12 @@ export function TaskPanel({
   }
   function commitNewHandle(raw: string) {
     const v = raw.trim();
-    if (!v) { setHandle(''); setHandleInput(''); setHandleErr(null); return; }
+    if (!v) { setHandle(''); setHandleInput(''); setHandleErr(null); setNewCost(null); return; }
     const p = parseXHandle(v);
     if (!p.ok) { setHandleErr(handleParseMessage(p.reason)); return; }
     setHandle(p.handle); setHandleInput(p.handle); setHandleErr(null);
+    // 사람이 바뀌면 앞사람 단가로 확인한 비용은 버린다 — 안 그러면 새 사람의 단가와 비교도 없이 '확정'으로 넘어간다(R24).
+    setNewCost(null);
   }
   async function submitNew(more: boolean) {
     if (!newType || busy) return;

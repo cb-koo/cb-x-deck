@@ -32,7 +32,9 @@ export interface TaskRow {
   draftFirstLine: string | null;   // 붙은 원고 본문 첫 줄(v2 표의 원고 칸, R26) — 제목이 아니라 내용
   // 대상 작업 요약(§4-1 'RT/인용RT 대상' 열) — 다른 캠페인이면 campaignName으로 구분해 보인다
   // cancelledAt은 대상 작업 자체의 취소 여부(R19) — 이 작업(RT/인용RT)이 취소된 게 아니라 가리키는 대상이 취소됐음을 안다.
-  target: { taskId: string; type: TaskType; influencerHandle: string | null; campaignId: string; campaignName: string; postUrl: string | null; cancelledAt: string | null } | null;
+  // postedAt(I3) — 대상이 게시 확인은 됐는데 링크가 아직 없는 상태를 "게시 확인 전"이라고 잘못 말하지
+  // 않으려면 postUrl 유무만으로는 부족하다(사람이 날짜만 찍고 링크는 나중에 등록하는 경로가 있다).
+  target: { taskId: string; type: TaskType; influencerHandle: string | null; campaignId: string; campaignName: string; postUrl: string | null; postedAt: string | null; cancelledAt: string | null } | null;
 }
 export interface TaskCreateInput {
   type: TaskType; targetTaskId: string | null; targetTweetUrl: string | null; draftId: string | null;
@@ -69,7 +71,7 @@ type Row = {
   created_at: Date; updated_at: Date;
   draft_status: DraftStatus | null; draft_title: string | null; draft_ko_title: string | null; draft_first_line: string | null;
   tg_id: string | null; tg_type: TaskType | null; tg_handle: string | null; tg_campaign_id: string | null; tg_campaign_name: string | null; tg_post_url: string | null;
-  tg_cancelled_at: string | null;
+  tg_posted_at: string | null; tg_cancelled_at: string | null;
 };
 
 function costOf(v: unknown): TaskCost | null {
@@ -101,7 +103,7 @@ const toRow = (r: Row): TaskRow => ({
   target: r.tg_id ? {
     taskId: r.tg_id, type: r.tg_type as TaskType, influencerHandle: r.tg_handle,
     campaignId: r.tg_campaign_id as string, campaignName: r.tg_campaign_name as string, postUrl: r.tg_post_url,
-    cancelledAt: r.tg_cancelled_at,
+    postedAt: r.tg_posted_at, cancelledAt: r.tg_cancelled_at,
   } : null,
 });
 
@@ -117,7 +119,8 @@ const SELECT = (sql: postgres.Sql) => sql`
          d.status as draft_status, d.title as draft_title, d.ko_title as draft_ko_title,
          coalesce(d.edited, d.content)->'posts'->0->>'text' as draft_first_line,
          tg.id as tg_id, tg.type as tg_type, tg.influencer_handle as tg_handle, tg.campaign_id as tg_campaign_id,
-         tgc.name as tg_campaign_name, tg.post_url as tg_post_url, to_char(tg.cancelled_at, 'YYYY-MM-DD') as tg_cancelled_at
+         tgc.name as tg_campaign_name, tg.post_url as tg_post_url, to_char(tg.posted_at, 'YYYY-MM-DD') as tg_posted_at,
+         to_char(tg.cancelled_at, 'YYYY-MM-DD') as tg_cancelled_at
     from campaign_task t
     left join draft d on d.id = t.draft_id
     left join campaign_task tg on tg.id = t.target_task_id

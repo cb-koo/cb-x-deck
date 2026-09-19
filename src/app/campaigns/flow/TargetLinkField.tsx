@@ -33,9 +33,13 @@ export function TargetLinkField({ task, campaign, onChange }: {
 
   const tgt = targetLabel(task, campaign.id);
 
-  // 대상 작업이 조인돼 있다 — 이미 정해진 대상. 게시 확인되면(postUrl) 그 링크를 그대로 보여주고 새 탭으로
-  // 열 수 있게 한다(결정 2) — 링크가 없으면(아직 게시 전) 입력칸은 잠긴 채로 둔다(직접 못 고친다, 대상 작업 쪽에서 정해진다).
+  // 대상 작업이 조인돼 있다 — 이미 정해진 대상. 상태는 셋(I3): 링크 있음(게시됨, 새 탭으로 열기) /
+  // postedAt은 있는데 링크 없음(게시됐지만 링크가 아직 안 들어왔다 — 잠그지 않고 직접 넣을 수 있게 둔다,
+  // "자동으로 채워진다"고 말하지 않는다 — 이 상태는 그 약속이 이미 어긋난 경우다) / 둘 다 없음(게시 확인 전,
+  // 입력칸은 잠근 채로 — 대상 작업 쪽에서 정해진다).
   if (task.target) {
+    const linked = !!task.target.postUrl;
+    const postedNoLink = !linked && !!task.target.postedAt;
     return (
       <div>
         {task.target.postUrl ? (
@@ -43,13 +47,21 @@ export function TargetLinkField({ task, campaign, onChange }: {
              className={`${input} flex items-center text-x-blue-text hover:underline`}>
             {task.target.postUrl.replace(/^https?:\/\//, '')} ↗
           </a>
+        ) : postedNoLink ? (
+          // commit()이 onChange({ url })을 부른다 — "그 게시물은 언제나 링크 하나"(파일 상단 주석) 원칙대로
+          // 대상 작업 참조(targetTaskId)를 이 링크로 바꿔치기한다(actions.changeTarget이 targetTaskId를
+          // null로 함께 보낸다). 대상 작업 자체의 링크를 대신 채워 주는 게 아니다 — 이 작업만 링크를 갖는다.
+          <input value={text} onChange={(e) => { setText(e.target.value); setErr(''); }} onBlur={commit}
+                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); commit(); } }}
+                 placeholder="https://x.com/계정/status/…" className={input} />
         ) : (
           <input value="" disabled placeholder="게시 확인 전" className={input} />
         )}
+        {postedNoLink && err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
         <div className={card}>
           <span className="min-w-0 flex-1 truncate text-content">
             {tgt.text}
-            <span className="text-x-muted">{task.target.postUrl ? ' · 게시됨' : ' · 게시 확인 전'}</span>
+            <span className="text-x-muted">{linked ? ' · 게시됨' : postedNoLink ? ' · 게시됨 · 링크 없음' : ' · 게시 확인 전'}</span>
             {tgt.sub && <span className="text-x-muted"> · {tgt.sub}</span>}
             {/* 대상 작업이 취소됐으면 알리고 바꾸기를 권한다(결정 3) — 표의 문구와 같은 뜻 */}
             {task.target.cancelledAt && <span className="text-red-600"> · 대상 작업 취소됨</span>}
@@ -111,8 +123,8 @@ export function TargetLinkField({ task, campaign, onChange }: {
                           onChange={(n) => { if (n && 'taskId' in n) onChange({ taskId: n.taskId }); }} />
           </div>
           {/* 체크만 하고 작업을 안 고르면 저장할 칸이 없다(스키마를 안 바꾼다) — 다시 열면 '미정'으로 보인다는
-              한계를 여기서 한 줄로 알린다. */}
-          <p className="mt-1 text-caption text-x-muted">어느 작업인지 고르면 기억해요 — 그 글이 게시 확인되면 링크가 자동으로 채워져요</p>
+              한계를 여기서 한 줄로, 사실대로 알린다(M5 — 저장된다고 말하지 않는다). */}
+          <p className="mt-1 text-caption text-x-muted">어느 작업인지 고르면 기억해요 — 체크만 하면 저장되지 않아요</p>
         </div>
       )}
     </div>

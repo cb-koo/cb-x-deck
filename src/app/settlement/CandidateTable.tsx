@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui';
 import { useToast } from '@/lib/toastContext';
 import { fetchCandidates, createRequestsApi, type CreateFailure } from '@/lib/settlementApi';
@@ -31,6 +31,7 @@ export function CandidateTable({ onCreated, initialCampaignId }: { onCreated?: (
   const [filter, setFilter] = useState<{ clientId: string; campaignId: string; type: '' | TaskType; method: '' | PaymentMethodType }>({ clientId: '', campaignId: initialCampaignId ?? '', type: '', method: '' });
   const [confirming, setConfirming] = useState(false);
   const [deepLinkNote, setDeepLinkNote] = useState('');
+  const deepLinkNoteShown = useRef(false);   // 한 번 띄우고 끝 — 사용자가 지운 안내가 무관한 재조회(요청 실패 등)로 되살아나지 않게
 
   const load = useCallback(async () => {
     const r = await fetchCandidates();
@@ -44,7 +45,8 @@ export function CandidateTable({ onCreated, initialCampaignId }: { onCreated?: (
       return next;
     });
     // 딥링크(v2 R15) — 그 캠페인의 후보가 0건이면 빈 표 대신 전체를 보이고 한 줄로 알린다
-    if (initialCampaignId && !r.data.candidates.some((c) => c.campaignId === initialCampaignId)) {
+    if (initialCampaignId && !deepLinkNoteShown.current && !r.data.candidates.some((c) => c.campaignId === initialCampaignId)) {
+      deepLinkNoteShown.current = true;
       setFilter((f) => (f.campaignId === initialCampaignId ? { ...f, campaignId: '' } : f));
       setDeepLinkNote('링크의 캠페인에는 정산 대기가 없어요 — 전체를 보여요');
     }

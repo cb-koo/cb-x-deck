@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   EMPTY_FLOW_FILTER, matchesFlowFilter, matchesSearch, matchesExtra, filterCount, filterSummary,
   nextSort, sortFlowRows, dateCell, draftCell, costCell, flowFooter, flowStats, settleWaitCount, restoreMessage, PANEL_FIELD_ORDER,
-  costConfirmScenario,
+  costConfirmScenario, detachConfirmMessage,
 } from './campaignFlowView.ts';
 import type { CampaignTaskItem } from './campaignStore.ts';
 
@@ -129,4 +129,18 @@ test('9) 비용 확인 시나리오 — 같음 / 다름 / 프로필 없음 / 통
   assert.equal(costConfirmScenario({ profile: null, entered: k(50000) }), 'no-profile');
   assert.equal(costConfirmScenario({ profile: k(30000), entered: k(3000, 'JPY') }), 'currency-mismatch');
   assert.equal(costConfirmScenario({ profile: k(30000), entered: null }), 'empty');
+});
+
+test('10) 해제 확인 문구 — 실제로 일어날 일만, 해당하는 것만 붙는다(koo 09-19 결정 2)', () => {
+  assert.equal(detachConfirmMessage({ type: 'post', proof: null, draftStatus: null }), '인플루언서를 미정으로 되돌려요.');
+  assert.equal(
+    detachConfirmMessage({ type: 'rt', proof: { url: 'p', by: null, byName: '', at: '' }, draftStatus: null }),
+    '인플루언서를 미정으로 되돌려요.\n올려둔 RT 증빙도 지워져요.',
+  );
+  assert.equal(
+    detachConfirmMessage({ type: 'post', proof: null, draftStatus: 'delivered' }),
+    "인플루언서를 미정으로 되돌려요.\n원고 상태는 '전달됨'에서 '사용 확정'으로 돌아가요.",
+  );
+  // RT 증빙이 없으면 언급하지 않는다 — 없는 것을 지운다고 말하지 않는다
+  assert.equal(detachConfirmMessage({ type: 'rt', proof: null, draftStatus: null }), '인플루언서를 미정으로 되돌려요.');
 });

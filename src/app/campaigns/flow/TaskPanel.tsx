@@ -10,7 +10,7 @@ import {
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, targetLabel } from '@/lib/campaignTableView';
 import {
-  PANEL_FIELD_ORDER, DISPLAY_TYPE_ORDER, costCell, replaceDisabledReason, type FlowRow, type PanelField,
+  PANEL_FIELD_ORDER, DISPLAY_TYPE_ORDER, costCell, replaceDisabledReason, detachConfirmMessage, type FlowRow, type PanelField,
 } from '@/lib/campaignFlowView';
 import { STATUS_LABEL } from '@/lib/draftStatus';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
@@ -169,6 +169,15 @@ export function TaskPanel({
     if (ok) setEditHandleInput('');
   }
 
+  // 인플루언서 해제(koo 09-19 결정 2) — 뼈대에 사람을 잘못 넣었을 때 다른 사람 이름을 대지 않고 미정으로
+  // 되돌린다. 서버는 새 라우트 없이 PATCH의 influencerHandle:null이 받는다(influencerChangeGuard) —
+  // 게시 뒤·방문일 지난 방문협찬은 [바꾸기]와 같은 disabledReason으로 버튼 자체를 막는다(거짓 어포던스 금지).
+  // 확인 문구는 실제로 일어나는 일만 말한다(비용은 남는다 — 문구에 넣지 않는다).
+  async function handleDetach(t: FlowRow) {
+    if (!window.confirm(detachConfirmMessage(t))) return;
+    await actions.assignInfluencer(t, null, { autoCost: false });
+  }
+
   function fieldLabel(field: PanelField, type: TaskType): string {
     switch (field) {
       case 'influencer': return '인플루언서';
@@ -196,10 +205,18 @@ export function TaskPanel({
             <div>
               <span className="flex items-center justify-between gap-2 text-content">
                 <span>@{t.influencerHandle}</span>
-                <button type="button" onClick={() => onReplace(t)} disabled={!!disabledReason} title={disabledReason ?? undefined}
-                        className="shrink-0 text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
-                  바꾸기
-                </button>
+                {/* [해제]는 [바꾸기]와 같은 판정(replaceDisabledReason)으로 막는다 — 방문한 인플루언서를
+                    떼면 서버가 거절하는 것과 같은 조작이라 이유 문구도 같아야 한다(라벨-값 일치). */}
+                <span className="flex shrink-0 items-center gap-2">
+                  <button type="button" onClick={() => onReplace(t)} disabled={!!disabledReason} title={disabledReason ?? undefined}
+                          className="text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
+                    바꾸기
+                  </button>
+                  <button type="button" onClick={() => void handleDetach(t)} disabled={!!disabledReason} title={disabledReason ?? undefined}
+                          className="text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
+                    해제
+                  </button>
+                </span>
               </span>
               {/* title만으로 끝내지 않는다(UX 원칙 2·5) — 비활성 이유를 보이는 문구로도 말한다 */}
               {disabledReason && <p className="mt-1 text-caption text-x-muted">{disabledReason}</p>}

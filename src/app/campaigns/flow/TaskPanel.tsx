@@ -184,9 +184,13 @@ export function TaskPanel({
           );
         }
         return (
-          <InfluencerField value={editHandleInput} options={influencerOptions} hideLabel hideHelp
-                           onChange={(v) => { setEditHandleInput(v); setEditHandleErr(null); }} error={editHandleErr}
-                           onEnter={(v) => void commitEditHandle(t, v)} onBlur={(v) => void commitEditHandle(t, v)} />
+          <div>
+            <InfluencerField value={editHandleInput} options={influencerOptions} hideLabel hideHelp
+                             onChange={(v) => { setEditHandleInput(v); setEditHandleErr(null); }} error={editHandleErr}
+                             onEnter={(v) => void commitEditHandle(t, v)} onBlur={(v) => void commitEditHandle(t, v)} />
+            {/* C1-b가 이 배정을 이제 서버에서 허용한다 — 왜 이 칸이 아직 남아 있는지, 채우면 뭐가 달라지는지 알린다 */}
+            {t.postedAt && <p className="mt-1 text-caption text-x-muted">게시 확인된 작업이에요 — 누가 올렸는지 적으면 정산 후보에 잡혀요</p>}
+          </div>
         );
       }
       case 'cost': {

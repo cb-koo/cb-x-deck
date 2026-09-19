@@ -8,9 +8,13 @@ import { replaceDisabledReason, type FlowRow } from '@/lib/campaignFlowView';
 // 클릭·Esc·스크롤 닫기)와 같은 골격, 항목만 이 화면 것으로 바꿨다. 표의 마지막 칸(renderMenu)과 패널 헤더가
 // 같은 컴포넌트를 쓴다 — 둘 다 "이 작업에 지금 할 수 있는 것"이 같아야 하고, 따로 두면 한쪽만 항목이 갈린다.
 //
-// 서버가 이미 막는 조작에는 버튼을 아예 안 둔다(거짓 어포던스 금지): 게시된 작업엔 취소·교체·게시물 연결이
+// 서버가 이미 막는 조작에는 버튼을 아예 안 둔다(거짓 어포던스 금지): 게시된 작업엔 취소·교체가
 // 없고, 취소된 작업엔 되돌리기·삭제만 있다. 인플루언서 교체는 자리는 두되(게시 전·취소 아닐 때) 인플이
 // 없거나 방문이 지났으면 비활성 + 보이는 이유 문구(title만으로 끝내지 않는다, UX 원칙 2·5)로 막는다.
+// 게시 확인·게시물 연결(트래킹)은 둘 다 posted_at을 찍을 수 있다 — 인플 미정인 채로 찍히면 배정·교체·
+// 취소·정산이 전부 막혀 삭제 말고는 복구 길이 없다(b-final-fix-brief.md C1). 그래서 게시 전(prePost) +
+// 인플 미정이면 이 두 항목도 비활성 + 이유 문구로 막는다. 이미 게시된 작업의 게시물 연결(링크만 나중에
+// 등록)은 posted_at을 새로 찍지 않으니 인플 미정이어도 막지 않는다.
 const MENU_W = 200;
 const ITEM_H = 32;
 const DIVIDER_H = 9;
@@ -71,8 +75,14 @@ export function FlowRowMenu({ task, today, on }: {
   const rows: Row[] = [];
   const push = (node: ReactNode, h = ITEM_H) => rows.push({ node, h });
 
+  // 게시 확인·게시물 연결 둘 다 posted_at을 찍을 수 있다 — 인플 미정인 채로 찍히면 되돌릴 길이 없다(C1, 위 주석).
+  const NEEDS_INFLUENCER = '인플루언서를 먼저 정해요';
+  const postReason = prePost && !task.influencerHandle ? NEEDS_INFLUENCER : undefined;
   if (prePost) {
-    push(<MenuButton key="posted" onClick={() => { close(); on.posted(task); }}>게시 확인</MenuButton>);
+    push(
+      <MenuButton key="posted" disabled={!!postReason} reason={postReason} onClick={() => { close(); on.posted(task); }}>게시 확인</MenuButton>,
+      postReason ? DISABLED_ITEM_H : ITEM_H,
+    );
     push(<MenuButton key="schedule" onClick={() => { close(); on.schedule(task); }}>예정일 바꾸기</MenuButton>);
   }
   if (task.draftId) {
@@ -87,7 +97,11 @@ export function FlowRowMenu({ task, today, on }: {
   // 게시물 연결은 게시 뒤에도 쓴다 — 게시 확인 때 링크 등록이 실패하면 "행 메뉴에서 다시 시도하세요"가
   // 가리키는 곳이 바로 여기다(기존 화면도 게시 여부를 따지지 않는다). RT는 자기 게시물이 없어 제외.
   if (!cancelled && task.type !== 'rt') {
-    push(<MenuButton key="linkPost" onClick={() => { close(); on.linkPost(task); }}>게시물 연결(트래킹)</MenuButton>);
+    const linkReason = prePost && !task.influencerHandle ? NEEDS_INFLUENCER : undefined;
+    push(
+      <MenuButton key="linkPost" disabled={!!linkReason} reason={linkReason} onClick={() => { close(); on.linkPost(task); }}>게시물 연결(트래킹)</MenuButton>,
+      linkReason ? DISABLED_ITEM_H : ITEM_H,
+    );
   }
 
   const tail: Row[] = [];

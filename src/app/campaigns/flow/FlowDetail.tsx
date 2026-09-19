@@ -489,7 +489,17 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                                )}
                              </div>
                            )
-                           : <Button variant="subtle" onClick={() => setPostedFor(panelTask)} className="h-9 px-3.5 text-ui">게시 확인</Button>)
+                           : (panelTask.influencerHandle === null
+                             // C1-a — 미배정 작업이 여기서 게시 확인되면 인플 배정·교체·취소·정산이 전부
+                             // 막혀 삭제 말고는 복구 길이 없다(b-final-fix-brief.md C1). 행 메뉴(FlowRowMenu)의
+                             // prePost 게이트와 같은 조건 — 그쪽만 막으면 패널에서 여전히 뚫린다.
+                             ? (
+                               <div>
+                                 <Button variant="subtle" disabled title="인플루언서를 먼저 정해요" className="h-9 px-3.5 text-ui">게시 확인</Button>
+                                 <p className="mt-1 text-caption text-x-muted">인플루언서를 먼저 정해요</p>
+                               </div>
+                             )
+                             : <Button variant="subtle" onClick={() => setPostedFor(panelTask)} className="h-9 px-3.5 text-ui">게시 확인</Button>))
                        : null,
                    }}
                    // 패널 위에 뜬 다른 레이어(원고 카드·편집 모달·원고 고르기·한 번에 만들기·게시 확인·게시물

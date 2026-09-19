@@ -40,14 +40,14 @@ type PanelMode = { kind: 'edit'; task: FlowRow; index: number; total: number } |
 
 // 직접 쓰기에서 떠나기 전 확인(리뷰 지적 4) — 기존 두 번째 입구 DraftWriteModal.requestClose와 글자 하나까지
 // 같은 문장을 쓴다(새로 짓지 말 것). 같은 기능이 같은 상황에서 다른 문구를 쓰면 사용자가 두 화면을 다른
-// 기능으로 읽는다. export하는 이유 — FlowDetail의 onRowClick·openDraftMode(다른 작업으로 갈아타는 길)도
-// 같은 dirty를 확인해야 한다(자문 리뷰) — isNewDirty가 이미 그 두 곳과 이 파일(requestClose 등) 양쪽에서
-// 같은 규칙으로 지켜지는 것과 같은 이유. 새 문장을 짓는 대신 이 상수를 그대로 공유한다.
+// 기능으로 읽는다. export하는 이유 — FlowDetail이 이 값을 그대로 가져다 패널 닫기 자리의 closeConfirm을
+// 만든다(Task 4e — 원고가 작성 중일 때 닫는 동작에 쓸 문장은 이 상수 하나뿐이라 FlowDetail이 새로 짓지
+// 않고 가져다 쓴다).
 export const DRAFT_WRITE_LOST_CONFIRM = '작성 중인 원고가 있어요. 닫으면 저장되지 않고 사라져요. 닫을까요?';
 
 export function TaskPanel({
   mode, campaign, today, influencerOptions, actions, onClose, onPrev, onNext, onCreate,
-  menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftBusy, draftWriteDirty, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
+  menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftBusy, closeConfirm, moveConfirm, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
 }: {
   mode: PanelMode;
   campaign: CampaignRow;
@@ -76,12 +76,15 @@ export function TaskPanel({
   // FlowDetail이 draftGenerate·draftWrite 두 busy를 OR로 합쳐 이 하나의 값으로 넘긴다. label은 켜는 쪽이
   // 준다(리뷰 지적 3, DraftMode와 같은 계약) — null이면 안 막혀 있다는 뜻.
   draftBusy: { label: string } | null;
-  // 직접 쓰기 탭이 "작성 중"인지(칸에 글자가 있거나 이미지가 붙어 있음), 또는 생성 탭의 방향성에 글자가
-  // 있는지(Task 4c §3 — 4b는 직접 쓰기만 걸었다) — DraftWrite·DraftGenerate의 로컬 상태라 FlowDetail이
-  // 콜백으로 받아 여기로 다시 내려준다(리뷰 지적 4). 두 탭은 동시에 마운트되지 않아 같은 값을 공유해도
-  // 안전하다. 탭 전환·← 작업으로·푸터 작업으로·패널 닫기(Esc·바깥 클릭·✕) 넷 다 이 값으로 떠나기 전
-  // 확인을 건다 — DraftWriteModal의 dirty 관례와 같다.
-  draftWriteDirty: boolean;
+  // 패널 닫기(requestClose, Esc·바깥 클릭·✕)에서 쓸 확인 문구(Task 4e) — FlowDetail이 이미 어느 쪽이
+  // 작성 중인지 안다(생성 탭의 방향성 / 직접 쓰기의 원고, draftGenDirty·draftWriteOnlyDirty)라 이 컴포넌트는
+  // 그 판정을 다시 하지 않고 이미 고른 문장을 그대로 받는다. null이면 작성 중이 아니라는 뜻 — 묻지 않고
+  // 그대로 닫는다.
+  closeConfirm: string | null;
+  // 자리를 옮기는 동작(requestTabChange · requestDraftModeExit — 탭 전환 · ← 작업으로 · 푸터 작업으로)에서
+  // 쓸 확인 문구(Task 4e) — closeConfirm과 같은 출처 판정을 쓰지만 닫는 게 아니라 옮기는 동작이라 문장이
+  // 다르다. null이면 묻지 않고 그대로 옮긴다.
+  moveConfirm: string | null;
   onDetachDraft: (t: FlowRow) => void;
   onReplace: (t: FlowRow) => void;   // 인플루언서 칸의 [바꾸기] — ReplaceDialog를 여는 것은 FlowDetail 쪽(Task 10)
   // new 모드의 CostConfirmField가 이 파일 안에서 직접 만들어지는 이유는 위 주석 — 그래서 프로필 반영 저장만
@@ -147,32 +150,29 @@ export function TaskPanel({
       scheduledOn !== null || visitOn !== null || note.trim() !== ''
     )
   ), [mode.kind, handleInput, newCost, target, scheduledOn, visitOn, note]);
-  // 직접 쓰기·생성 탭에서 작성 중일 때 떠나기 전 확인(리뷰 지적 4, Task 4c §3에서 생성 탭까지 넓혔다) —
-  // draftTab이 'write'도 'generate'도 아니면 그 탭은 마운트돼 있지 않으므로(DraftMode가 하나만 그린다)
-  // draftWriteDirty는 이미 false로 정리돼 있다 — 그래도 지금 마운트된 탭이 둘 중 하나일 때만 보게
-  // 방어적으로 남겨 둔다(값이 늦게 정리되는 경쟁이 생겨도 다른 탭 것을 잘못 묻지 않는다).
-  const draftWriteWouldLose = useCallback((): boolean => (
-    (draftTab === 'write' || draftTab === 'generate') && draftWriteDirty
-  ), [draftTab, draftWriteDirty]);
   const panelRef = useRef<HTMLElement | null>(null);
+  // 직접 쓰기·생성 탭에서 작성 중일 때 닫기 전 확인(리뷰 지적 4, Task 4c §3에서 생성 탭까지 넓혔다,
+  // Task 4e에서 문구를 closeConfirm으로 받게 바꿨다) — closeConfirm은 FlowDetail이 어느 탭이 작성
+  // 중인지 이미 반영해서 내려준다. null이면 작성 중이 아니라는 뜻이라 묻지 않는다.
   const requestClose = useCallback(() => {
     if (isNewDirty() && !window.confirm('입력한 내용이 사라져요. 닫을까요?')) return;
-    if (draftWriteWouldLose() && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
+    if (closeConfirm !== null && !window.confirm(closeConfirm)) return;
     onClose();
-  }, [isNewDirty, draftWriteWouldLose, onClose]);
+  }, [isNewDirty, closeConfirm, onClose]);
   // FlowDetail이 표의 다른 행을 클릭했을 때 같은 확인을 거치려면 지금 dirty 여부를 알아야 한다(I1-3) —
   // 이 컴포넌트 밖에서 못 보는 로컬 상태라 바뀔 때마다 콜백으로 올려 보낸다.
   useEffect(() => { onDirtyChange?.(isNewDirty()); }, [isNewDirty, onDirtyChange]);
   // 탭 전환 · ← 작업으로 · 푸터 작업으로(리뷰 지적 4) — 탭을 바꾸거나 원고 모드를 나가면 DraftWrite가
-  // 언마운트돼 친 글과 이미 올라간 이미지가 확인 없이 사라진다. 문구는 패널 닫기와 같다(위 상수).
+  // 언마운트돼 친 글과 이미 올라간 이미지가 확인 없이 사라진다. 문구는 패널 닫기와 다르다(moveConfirm,
+  // Task 4e) — 닫는 게 아니라 자리를 옮기는 동작이라서다.
   const requestTabChange = useCallback((t: DraftTab) => {
-    if (draftWriteWouldLose() && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
+    if (moveConfirm !== null && !window.confirm(moveConfirm)) return;
     setDraftTab(t);
-  }, [draftWriteWouldLose]);
+  }, [moveConfirm]);
   const requestDraftModeExit = useCallback(() => {
-    if (draftWriteWouldLose() && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
+    if (moveConfirm !== null && !window.confirm(moveConfirm)) return;
     setDraftMode('task');
-  }, [draftWriteWouldLose]);
+  }, [moveConfirm]);
 
   // 바깥을 누르면 닫는다(koo 09-19). 예외 셋: ① 패널 안 ② 표의 행 — 다른 작업으로 갈아타는 동작이라 행이 직접
   // 처리한다 ③ 포털로 body에 붙는 팝오버·메뉴·툴팁(비용·인플·필터·행 메뉴·ⓘ) — 패널에서 연 것인데 DOM 상으로는

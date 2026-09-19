@@ -38,7 +38,7 @@ import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar } from './FlowFilterBar';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
-import { TaskPanel } from './TaskPanel';
+import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM } from './TaskPanel';
 import { CostConfirmField } from './CostConfirmField';
 import { TargetLinkField } from './TargetLinkField';
 import { PostedDialog } from './PostedDialog';
@@ -61,9 +61,9 @@ import { DraftWrite } from './draft/DraftWrite';
 // 셋을 구분하도록 이 화면에서 갈렸다(리뷰 지적 4) — CampaignDetail은 손대지 않는다.
 
 // 다른 작업으로 넘어가며 작성 중인 걸 잃는 경우의 확인 문구(Task 4d §2·§3) — TaskPanel의
-// DRAFT_WRITE_LOST_CONFIRM은 '닫을까요?'로 끝나 패널을 통째로 닫는 동작(TaskPanel.requestClose 등, 이
-// 파일은 손대지 않는다)에만 맞는다. 여기 모인 자리(openPanel·openNew·openDraftMode, 아래)는 패널을 닫지
-// 않고 다른 작업으로 바꾸므로, 이 파일에 이미 있던 전환용 문구(새 작업 dirty용 '입력한 내용이 사라져요.
+// DRAFT_WRITE_LOST_CONFIRM은 '닫을까요?'로 끝나 패널을 통째로 닫는 동작(TaskPanel.requestClose)에만
+// 맞는다. 여기 모인 자리(openPanel·openNew·openDraftMode, 아래)는 패널을 닫지 않고 다른 작업으로
+// 바꾸므로, 이 파일에 이미 있던 전환용 문구(새 작업 dirty용 '입력한 내용이 사라져요.
 // 다른 작업을 열까요?')와 같은 결로 새로 둔다 — 새 문장을 짓지 않고 그 어미를 그대로 쓴다.
 // 직접 쓰기(원고)와 'AI로 만들기'(방향성)는 잃는 대상이 다르므로 문장도 나눈다 — 생성 탭에서 "원고가
 // 있어요"라고 말하면 거짓이다(방향성 입력일 뿐, Task 4d §3). export하지 않는다 — page.tsx(왼쪽 목록
@@ -72,6 +72,14 @@ import { DraftWrite } from './draft/DraftWrite';
 // 정확한 문장이 뜬다.
 const DRAFT_WRITE_SWITCH_CONFIRM = '작성 중인 원고가 있어요. 다른 작업을 열면 저장되지 않고 사라져요. 다른 작업을 열까요?';
 const DRAFT_DIRECTION_SWITCH_CONFIRM = '쓰던 방향성이 있어요. 다른 작업을 열면 사라져요. 다른 작업을 열까요?';
+// TaskPanel 안쪽 세 자리(requestClose·requestTabChange·requestDraftModeExit)에 내려줄 문구(Task 4e) —
+// 위 SWITCH_CONFIRM 둘과 같은 출처(원고/방향성) 구분을 쓰지만 동작이 다르다. 닫기 쪽 원고 문장은
+// DraftWriteModal.requestClose와 글자까지 맞춰야 해서 TaskPanel이 export하는 DRAFT_WRITE_LOST_CONFIRM을
+// 그대로 쓰고, 나머지 셋은 그 말투에 맞춰 새로 둔다. 이동 쪽(탭 전환·← 작업으로·작업으로)은 다른 작업을
+// 여는 동작이 아니므로 '다른 작업을 열까요?'를 쓰지 않고 이 자리를 떠난다는 뜻으로 쓴다.
+const DRAFT_DIRECTION_LOST_CONFIRM = '쓰던 방향성이 있어요. 닫으면 사라져요. 닫을까요?';
+const DRAFT_WRITE_LEAVE_CONFIRM = '작성 중인 원고가 있어요. 나가면 저장되지 않고 사라져요. 나갈까요?';
+const DRAFT_DIRECTION_LEAVE_CONFIRM = '쓰던 방향성이 있어요. 나가면 사라져요. 나갈까요?';
 
 interface DetailState {
   campaign: CampaignRow; tasks: CampaignTaskItem[]; costRows: InfluencerCostRow[];
@@ -152,10 +160,11 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const draftBusy: { label: string } | null = draftGenBusy ? { label: '만드는 중이에요' } : draftWriteBusy;
   // 원고 모드가 "작성 중"인지(리뷰 지적 4, Task 4c §3에서 생성 탭까지 넓혔다) — DraftWrite의 로컬 상태
   // (posts)도, DraftGenerate의 방향성 글자도 이 컴포넌트가 못 보므로 콜백으로 받아 TaskPanel에 다시
-  // 내려준다(onBusyChange와 같은 배선). TaskPanel에는 합친 값 하나(draftWriteDirty, 아래)만 내려준다 —
-  // 이름은 그대로 둔다(4b가 만든 draftWriteDirty를 새로 짓지 않고 재사용한다, Task 4c 지시). 두 원천은
-  // 따로 든다(Task 4d §3) — "작성 중"인 이유가 원고냐 방향성이냐에 따라 다른데, 합친 값 하나로는 이
-  // 파일의 전환 확인(openPanel 등, 아래)이 어느 문장을 골라야 할지 알 수 없다. 두 탭은 동시에 마운트되지
+  // 내려준다(onBusyChange와 같은 배선). openPanel 등(아래)은 합친 값 하나(draftWriteDirty)만 보면 되지만,
+  // TaskPanel의 패널 안쪽 세 자리는 이미 골라진 문장(closeConfirm·moveConfirm, 아래)을 받는다(Task 4e —
+  // 어느 탭인지는 TaskPanel이 몰라도 된다). 두 원천은 따로 든다(Task 4d §3) — "작성 중"인 이유가
+  // 원고냐 방향성이냐에 따라 다른데, 합친 값 하나로는 이 파일의 전환 확인(openPanel 등, 아래)과
+  // TaskPanel에 내려줄 문장 모두 어느 것을 골라야 할지 알 수 없다. 두 탭은 동시에 마운트되지
   // 않으므로(draftBusy 주석과 같은 전제) 둘 다 세워질 일은 없다.
   const [draftGenDirty, setDraftGenDirty] = useState(false);
   const [draftWriteOnlyDirty, setDraftWriteOnlyDirty] = useState(false);
@@ -164,6 +173,11 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 잃는다. 두 탭이 동시에 마운트되지 않으므로(위 주석) 여기서도 동시에 참일 일이 없다. openPanel·openNew·
   // openDraftMode(아래)가 이 값을 쓴다.
   const draftSwitchConfirm = draftGenDirty ? DRAFT_DIRECTION_SWITCH_CONFIRM : DRAFT_WRITE_SWITCH_CONFIRM;
+  // TaskPanel 안쪽 세 자리(requestClose·requestTabChange·requestDraftModeExit)에 내려줄 문장(Task 4e) —
+  // 위 draftSwitchConfirm과 같은 출처 판정(draftGenDirty ? 방향성 : 원고)이지만 동작별로 문장이 갈린다
+  // (닫기=closeConfirm, 이동=moveConfirm). 둘 다 작성 중이 아니면 null — TaskPanel은 null이면 묻지 않고 그대로 진행한다.
+  const closeConfirm = draftWriteDirty ? (draftGenDirty ? DRAFT_DIRECTION_LOST_CONFIRM : DRAFT_WRITE_LOST_CONFIRM) : null;
+  const moveConfirm = draftWriteDirty ? (draftGenDirty ? DRAFT_DIRECTION_LEAVE_CONFIRM : DRAFT_WRITE_LEAVE_CONFIRM) : null;
   // page.tsx로 한 단계 더 올린다(Task 4d §6) — 왼쪽 목록 클릭(캠페인 전환)은 이 컴포넌트 바깥이라 패널
   // 안쪽 가드(openPanel 등)가 안 닿는다. boolean이 아니라 "띄울 문장 자체"를 올린다(자문 리뷰) — 그냥
   // dirty만 올리면 page.tsx는 어느 탭인지 몰라 DRAFT_WRITE_SWITCH_CONFIRM 하나로 고정되고, 생성 탭이
@@ -665,7 +679,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                    onClose={() => setPanel(null)} onPrev={onPanelPrev} onNext={onPanelNext} onCreate={createTask}
                    menu={panelTask ? renderMenu(panelTask) : null}
                    draftOpen={draftOpenReq} pickCount={pickCount} draftCard={draftCard}
-                   draftGenerate={draftGenerate} draftWrite={draftWrite} draftBusy={draftBusy} draftWriteDirty={draftWriteDirty}
+                   draftGenerate={draftGenerate} draftWrite={draftWrite} draftBusy={draftBusy} closeConfirm={closeConfirm} moveConfirm={moveConfirm}
                    onDetachDraft={(t) => void detachDraft(t)}
                    onReplace={(t) => setReplaceFor(t)}
                    onSaveProfilePricing={saveProfilePricing}

@@ -51,6 +51,7 @@ import { useFlowTaskActions } from './useFlowTaskActions';
 import { type DraftTab } from './draft/DraftMode';
 import { DraftGenerate } from './draft/DraftGenerate';
 import { DraftWrite } from './draft/DraftWrite';
+import { DraftPick } from './draft/DraftPick';
 
 // 캠페인 v2 상세 컨테이너 — /campaigns의 CampaignDetail과 같은 계약(로드·낙관적 갱신·원고 카드 모달)을 쥐지만,
 // 표는 작업 표(TaskTable) 대신 단계 기반 표(FlowTable, Task 6)고 달력·인플루언서별 비용 표는 없다(R10 — 단일 표 화면).
@@ -148,16 +149,21 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 이 신호를 보낸다(패널이 원고 모드일 때도 행 클릭 = 그 작업을 연다가 지켜져야 한다).
   const [draftOpenReq, setDraftOpenReq] = useState<{ tab: DraftTab | null; seq: number } | null>(null);
   const draftOpenSeqRef = useRef(0);
-  // AI로 만들기(Task 3)가 시안을 만드는 동안 · 직접 쓰기(Task 4)가 저장·업로드하는 동안 — TaskPanel이
-  // 이 값(둘을 합친 draftBusy)으로 바깥 클릭·Esc 닫기를 끈다(생성/저장 중 실수로 패널이 닫혀도
-  // 결과 자체는 남지만, 사용자가 붙일 기회를 놓치지 않게 한다). 두 탭은 동시에 마운트되지 않으므로
-  // (DraftMode가 tab === 'generate' ? generate : tab === 'write' ? write : pick 중 하나만 그린다)
-  // 실제로는 항상 둘 중 하나만 true지만, 어느 탭의 값인지 TaskPanel이 몰라도 되게 여기서 미리 합친다.
-  // DraftGenerate는 이 라운드에서 손대지 않아 boolean 그대로다(브리프 범위 밖) — label은 여기서 붙인다.
-  // DraftWrite는 label을 스스로 안다(업로드 중·저장 중이 다른 사실이라, 리뷰 지적 3)라 그 값을 그대로 쓴다.
+  // AI로 만들기(Task 3)가 시안을 만드는 동안 · 직접 쓰기(Task 4)가 저장·업로드하는 동안 · 있는 원고
+  // 고르기(Task 5)가 붙이는 동안 — TaskPanel이 이 값(셋을 합친 draftBusy)으로 바깥 클릭·Esc 닫기를
+  // 끈다(생성/저장/붙이기 중 실수로 패널이 닫혀도 결과 자체는 남지만, 사용자가 붙일 기회를 놓치지 않게
+  // 한다). 세 탭은 동시에 마운트되지 않으므로(DraftMode가 tab === 'generate' ? generate : tab === 'write'
+  // ? write : pick 중 하나만 그린다) 실제로는 항상 하나만 true지만, 어느 탭의 값인지 TaskPanel이 몰라도
+  // 되게 여기서 미리 합친다. DraftGenerate는 이 라운드에서 손대지 않아 boolean 그대로다(브리프 범위 밖) —
+  // label은 여기서 붙인다. DraftWrite는 label을 스스로 안다(업로드 중·저장 중이 다른 사실이라, 리뷰 지적
+  // 3)라 그 값을 그대로 쓴다. 있는 원고 고르기는 붙이는 중인 원고의 id를 들고 있다(DraftPick이 그 행에
+  // "붙이는 중…"을 보여줘야 해서, DraftGenerate.attaching과 같은 모양) — 여기서는 값이 있는지만 본다.
   const [draftGenBusy, setDraftGenBusy] = useState(false);
   const [draftWriteBusy, setDraftWriteBusy] = useState<{ label: string } | null>(null);
-  const draftBusy: { label: string } | null = draftGenBusy ? { label: '만드는 중이에요' } : draftWriteBusy;
+  const [draftPickBusy, setDraftPickBusy] = useState<string | null>(null);
+  const draftBusy: { label: string } | null = draftGenBusy
+    ? { label: '만드는 중이에요' }
+    : draftWriteBusy ?? (draftPickBusy ? { label: '붙이는 중이에요' } : null);
   // 원고 모드가 "작성 중"인지(리뷰 지적 4, Task 4c §3에서 생성 탭까지 넓혔다) — DraftWrite의 로컬 상태
   // (posts)도, DraftGenerate의 방향성 글자도 이 컴포넌트가 못 보므로 콜백으로 받아 TaskPanel에 다시
   // 내려준다(onBusyChange와 같은 배선). openPanel 등(아래)은 합친 값 하나(draftWriteDirty)만 보면 되지만,
@@ -622,6 +628,25 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                   onBusyChange={setDraftWriteBusy} onDirtyChange={setDraftWriteOnlyDirty} />
     )
     : null;
+  // 패널의 원고 모드 · '있는 원고 고르기' 탭(Task 5) — 이미 만들어진 원고를 이 작업에 붙인다. 붙이기 자체는
+  // 기존 patchDraftApi({ taskId })로 하고, 성공하면 'AI로 만들기'·'직접 쓰기'와 같은 재조회
+  // (onDraftAttached, 위 주석 참고)를 그대로 재사용한다 — 세 번째 붙이기 경로를 새로 만들지 않는다.
+  // panelTask가 없으면(패널이 새 작업 모드 등) 부를 일이 없다 — 그 경우 draftPick 자체가 null이라 이
+  // 함수는 호출되지 않는다. draftPickBusy에 붙이는 원고의 id를 담는다(DraftGenerate.attach와 같은 값
+  // 모양) — DraftPick이 그 id로 눌린 행만 "붙이는 중…"으로 보여주고 나머지도 함께 잠근다(원칙 1·2, 옆에
+  // 진짜 이유를 둔다). 재진입 방지도 겸한다(진행 중이면 다른 행을 눌러도 중복 PATCH가 안 나간다).
+  const attachExistingDraft = useCallback(async (d: DraftRow) => {
+    if (!panelTask || draftPickBusy) return;
+    setDraftPickBusy(d.id);
+    const r = await patchDraftApi(d.id, { taskId: panelTask.id });
+    if (!r.ok) { setDraftPickBusy(null); show(r.error); return; }
+    if (!(await onDraftAttached(r.data))) { setDraftPickBusy(null); show('붙였어요 — 화면을 새로고침해 주세요'); }
+    // 재조회까지 성공하면 패널이 카드로 전환되며 이 탭 자체가 사라진다 — 그 전엔 busy를 풀지 않는다(DraftWrite의
+    // save()·DraftGenerate의 attach()와 같은 규칙).
+  }, [panelTask, draftPickBusy, show, onDraftAttached]);
+  const draftPick: ReactNode = panelTask
+    ? <DraftPick candidates={candidates} onAttach={(d) => void attachExistingDraft(d)} attaching={draftPickBusy} />
+    : null;
   // '있는 원고 고르기 n' — Task 1의 후보 조회 합. 아직 못 읽었으면 null(0이라고 거짓말하지 않는다, 결정 4).
   const pickCount = candidates ? candidates.siblings.length + candidates.others.length : null;
 
@@ -679,7 +704,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                    onClose={() => setPanel(null)} onPrev={onPanelPrev} onNext={onPanelNext} onCreate={createTask}
                    menu={panelTask ? renderMenu(panelTask) : null}
                    draftOpen={draftOpenReq} pickCount={pickCount} draftCard={draftCard}
-                   draftGenerate={draftGenerate} draftWrite={draftWrite} draftBusy={draftBusy} closeConfirm={closeConfirm} moveConfirm={moveConfirm}
+                   draftGenerate={draftGenerate} draftWrite={draftWrite} draftPick={draftPick} draftBusy={draftBusy} closeConfirm={closeConfirm} moveConfirm={moveConfirm}
                    onDetachDraft={(t) => void detachDraft(t)}
                    onReplace={(t) => setReplaceFor(t)}
                    onSaveProfilePricing={saveProfilePricing}

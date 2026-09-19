@@ -47,7 +47,7 @@ export const DRAFT_WRITE_LOST_CONFIRM = '작성 중인 원고가 있어요. 닫�
 
 export function TaskPanel({
   mode, campaign, today, influencerOptions, actions, onClose, onPrev, onNext, onCreate,
-  menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftBusy, closeConfirm, moveConfirm, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
+  menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftPick, draftBusy, closeConfirm, moveConfirm, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
 }: {
   mode: PanelMode;
   campaign: CampaignRow;
@@ -68,6 +68,7 @@ export function TaskPanel({
   draftCard: ReactNode;       // 붙어 있는 원고의 카드 — FlowDetail이 만든다(로딩·에러 표시도 포함)
   draftGenerate: ReactNode;   // 'AI로 만들기' 탭 본체(DraftGenerate, C 원고 모드 Task 3) — FlowDetail이 만든다
   draftWrite: ReactNode;      // '직접 쓰기' 탭 본체(DraftWrite, C 원고 모드 Task 4) — FlowDetail이 만든다
+  draftPick: ReactNode;       // '있는 원고 고르기' 탭 본체(DraftPick, C 원고 모드 Task 5) — FlowDetail이 만든다
   // 시안을 만드는 동안(draftGenerate 내부 busy) 또는 직접 쓰는 동안(draftWrite의 저장·이미지 업로드)
   // 패널의 바깥 클릭·Esc 닫기를 끈다 — 요청이 오래 걸려도 실수로 닫혀 만들던/쓰던 걸 잃지 않게(아래 두
   // useEffect가 막는다). 탭 버튼·← 작업으로·푸터 작업으로도 이 값으로 비활성한다(리뷰 지적 2) — 탭을
@@ -507,7 +508,7 @@ export function TaskPanel({
                      card={draftCard}
                      generate={draftGenerate}
                      write={draftWrite}
-                     pick={<p className="text-ui text-x-muted">(Task 5에서 채웁니다)</p>} />
+                     pick={draftPick} />
         ) : task ? (
           <>
             {task.cancelledAt && (

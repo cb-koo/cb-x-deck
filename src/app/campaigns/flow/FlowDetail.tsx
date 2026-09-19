@@ -38,7 +38,7 @@ import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar } from './FlowFilterBar';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
-import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM } from './TaskPanel';
+import { TaskPanel } from './TaskPanel';
 import { CostConfirmField } from './CostConfirmField';
 import { TargetLinkField } from './TargetLinkField';
 import { PostedDialog } from './PostedDialog';
@@ -60,6 +60,19 @@ import { DraftWrite } from './draft/DraftWrite';
 // CampaignDetail과 그대로다 — 코드와 함께 그 이유를 설명하는 주석도 옮겼다. clientData는 로딩/실패/성공
 // 셋을 구분하도록 이 화면에서 갈렸다(리뷰 지적 4) — CampaignDetail은 손대지 않는다.
 
+// 다른 작업으로 넘어가며 작성 중인 걸 잃는 경우의 확인 문구(Task 4d §2·§3) — TaskPanel의
+// DRAFT_WRITE_LOST_CONFIRM은 '닫을까요?'로 끝나 패널을 통째로 닫는 동작(TaskPanel.requestClose 등, 이
+// 파일은 손대지 않는다)에만 맞는다. 여기 모인 자리(openPanel·openNew·openDraftMode, 아래)는 패널을 닫지
+// 않고 다른 작업으로 바꾸므로, 이 파일에 이미 있던 전환용 문구(새 작업 dirty용 '입력한 내용이 사라져요.
+// 다른 작업을 열까요?')와 같은 결로 새로 둔다 — 새 문장을 짓지 않고 그 어미를 그대로 쓴다.
+// 직접 쓰기(원고)와 'AI로 만들기'(방향성)는 잃는 대상이 다르므로 문장도 나눈다 — 생성 탭에서 "원고가
+// 있어요"라고 말하면 거짓이다(방향성 입력일 뿐, Task 4d §3). export하지 않는다 — page.tsx(왼쪽 목록
+// 클릭, Task 4d §6)는 이 상수가 아니라 onLeaveConfirmChange로 이미 골라진 문장 자체를 받는다(아래
+// FlowDetail의 onLeaveConfirmChange prop 주석) — 그래야 어느 탭이 작성 중인지 모르는 page.tsx에서도
+// 정확한 문장이 뜬다.
+const DRAFT_WRITE_SWITCH_CONFIRM = '작성 중인 원고가 있어요. 다른 작업을 열면 저장되지 않고 사라져요. 다른 작업을 열까요?';
+const DRAFT_DIRECTION_SWITCH_CONFIRM = '쓰던 방향성이 있어요. 다른 작업을 열면 사라져요. 다른 작업을 열까요?';
+
 interface DetailState {
   campaign: CampaignRow; tasks: CampaignTaskItem[]; costRows: InfluencerCostRow[];
   deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number }; today: string;
@@ -69,10 +82,17 @@ type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 // 오른쪽 패널이 여는 대상 — 기존 작업(taskId) 또는 새 작업(fresh). 둘 다 아니면 패널이 닫혀 있다.
 type Panel = { taskId: string } | { fresh: true } | null;
 
-export function FlowDetail({ id, onChanged, onDeleted }: {
+export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   id: string;
   onChanged: () => void;      // 목록(왼쪽) 새로고침 — 이름·작업 수·합계가 바뀌면 목록 보조줄도 움직여야 한다
   onDeleted: () => void;
+  // 직접 쓰기·생성 탭이 작성 중이면 그때 띄울 확인 문장을 부모(page.tsx)에 올린다(Task 4d §6) — 왼쪽
+  // 목록에서 다른 캠페인을 누르면 이 컴포넌트째로 언마운트된다(page.tsx가 key={picked.id}로 그린다).
+  // 패널 안쪽 가드(openPanel 등, 아래)는 같은 캠페인 안에서 다른 작업으로 넘어갈 때만 닿고, 캠페인
+  // 자체를 바꾸는 그 클릭에는 안 닿는다. boolean이 아니라 문장 자체를 올리는 이유 — page.tsx는 어느 탭이
+  // 작성 중인지 모르므로, boolean만 받으면 원고용 문장 하나로 고정해야 해서 생성 탭이 작성 중일 때도
+  // "원고가 있어요"라는 거짓을 말하게 된다(Task 4d §3과 같은 문제, 아래 draftSwitchConfirm 참고).
+  onLeaveConfirmChange?: (confirmMessage: string | null) => void;
 }) {
   const { show } = useToast();
   const [data, setData] = useState<DetailState | null>(null);
@@ -132,12 +152,26 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   const draftBusy: { label: string } | null = draftGenBusy ? { label: '만드는 중이에요' } : draftWriteBusy;
   // 원고 모드가 "작성 중"인지(리뷰 지적 4, Task 4c §3에서 생성 탭까지 넓혔다) — DraftWrite의 로컬 상태
   // (posts)도, DraftGenerate의 방향성 글자도 이 컴포넌트가 못 보므로 콜백으로 받아 TaskPanel에 다시
-  // 내려준다(onBusyChange와 같은 배선). 두 탭은 동시에 마운트되지 않아(draftBusy 주석과 같은 전제) 같은
-  // setter를 공유해도 값이 섞이지 않는다. TaskPanel이 탭 전환·← 작업으로·푸터 작업으로·패널 닫기 넷을,
-  // 이 파일의 openPanel·openNew·openDraftMode(아래)가 다른 작업으로 넘어가는 자리 전부를 이 값으로
-  // 확인 대상으로 삼는다. 이름은 그대로 둔다(4b가 만든 draftWriteDirty·DRAFT_WRITE_LOST_CONFIRM을 새로
-  // 짓지 않고 재사용한다, Task 4c 지시).
-  const [draftWriteDirty, setDraftWriteDirty] = useState(false);
+  // 내려준다(onBusyChange와 같은 배선). TaskPanel에는 합친 값 하나(draftWriteDirty, 아래)만 내려준다 —
+  // 이름은 그대로 둔다(4b가 만든 draftWriteDirty를 새로 짓지 않고 재사용한다, Task 4c 지시). 두 원천은
+  // 따로 든다(Task 4d §3) — "작성 중"인 이유가 원고냐 방향성이냐에 따라 다른데, 합친 값 하나로는 이
+  // 파일의 전환 확인(openPanel 등, 아래)이 어느 문장을 골라야 할지 알 수 없다. 두 탭은 동시에 마운트되지
+  // 않으므로(draftBusy 주석과 같은 전제) 둘 다 세워질 일은 없다.
+  const [draftGenDirty, setDraftGenDirty] = useState(false);
+  const [draftWriteOnlyDirty, setDraftWriteOnlyDirty] = useState(false);
+  const draftWriteDirty = draftGenDirty || draftWriteOnlyDirty;
+  // 어느 쪽이 작성 중인지에 따라 문장을 고른다(Task 4d §3) — 직접 쓰기는 원고를 잃고, 생성 탭은 방향성을
+  // 잃는다. 두 탭이 동시에 마운트되지 않으므로(위 주석) 여기서도 동시에 참일 일이 없다. openPanel·openNew·
+  // openDraftMode(아래)가 이 값을 쓴다.
+  const draftSwitchConfirm = draftGenDirty ? DRAFT_DIRECTION_SWITCH_CONFIRM : DRAFT_WRITE_SWITCH_CONFIRM;
+  // page.tsx로 한 단계 더 올린다(Task 4d §6) — 왼쪽 목록 클릭(캠페인 전환)은 이 컴포넌트 바깥이라 패널
+  // 안쪽 가드(openPanel 등)가 안 닿는다. boolean이 아니라 "띄울 문장 자체"를 올린다(자문 리뷰) — 그냥
+  // dirty만 올리면 page.tsx는 어느 탭인지 몰라 DRAFT_WRITE_SWITCH_CONFIRM 하나로 고정되고, 생성 탭이
+  // 작성 중일 때도 "원고가 있어요"라고 말하는 거짓말이 된다(Task 4d §3이 막던 것과 같은 모양). 언마운트
+  // 되면 null로 정리한다(DraftWrite·DraftGenerate의 onDirtyChange 정리 관례와 같다) — 안 그러면 캠페인을
+  // 지운 직후처럼 이 컴포넌트가 사라진 뒤에도 부모가 옛 문장을 들고 있어 다음 전환에 엉뚱한 확인이 뜬다.
+  useEffect(() => { onLeaveConfirmChange?.(draftWriteDirty ? draftSwitchConfirm : null); }, [draftWriteDirty, draftSwitchConfirm, onLeaveConfirmChange]);
+  useEffect(() => () => onLeaveConfirmChange?.(null), [onLeaveConfirmChange]);
   // 레퍼런스 고르기 시트·링크 추가 모달이 원고 모드 안에서 떠 있는 동안(리뷰 지적 1, Critical) — 두 오버레이는
   // document keydown을 버블 단계에서 듣고 stopPropagation을 안 해서, 먼저 등록된 패널의 Esc가 패널째로 닫아
   // 버린다. overlayOpen(아래)에 OR로 더해 막는다 — 다른 오버레이들과 같은 자리, DraftGenerate의 onOverlayChange가 채운다.
@@ -295,24 +329,27 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   const panelDraft = panelDraftId && cardDraft?.id === panelDraftId ? cardDraft : null;
   // tab:null을 보낸다(seq는 그대로 증가) — 이미 그 작업의 패널이 원고 모드로 열려 있으면(key 리마운트가
   // 없다) TaskPanel의 이펙트가 이 신호로 작업 모드로 돌려보낸다(리뷰 지적 4, "행 클릭 = 그 작업을 연다").
+  // draftSwitchConfirm은 위(draftWriteDirty 바로 아래)에서 이미 정의했다 — page.tsx로 올리는 문장과
+  // 여기서 쓰는 문장이 같은 값이어야 한다(Task 4d §3·§6).
   // 직접 쓰기·생성 탭이 작성 중이면(draftWriteDirty) 다른 작업으로 넘어가기 전에 확인한다(Task 4c §1) —
   // 여기 한 곳에서 막으면 이 함수를 부르는 모든 자리(행 클릭·행 메뉴 예정일 바꾸기·이전/다음·한 번에
   // 만들기 뒤 이동)가 한 번에 지켜진다. 새 작업 폼의 isNewDirty는 여기서 보지 않는다 — createTask가
   // 작업을 막 만든 뒤 이 함수로 그 작업을 여는데, 그 순간 isNew·newDirtyRef는 "방금 저장된 값"이라 여기서
   // 같이 물으면 저장 직후 스스로를 지운다는 거짓 경고가 된다(isNewDirty 확인은 openDraftMode·onRowClick이
-  // 각자 진다).
+  // 각자 진다). 문구는 '닫을까요?'가 아니라 '열까요?' 쪽이다(Task 4d §2) — 이 함수는 패널을 닫지 않고
+  // 다른 작업으로 바꾼다.
   const openPanel = useCallback((taskId: string) => {
-    if (draftWriteDirty && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
+    if (draftWriteDirty && !window.confirm(draftSwitchConfirm)) return;
     draftOpenSeqRef.current += 1;
     setDraftOpenReq({ tab: null, seq: draftOpenSeqRef.current });
     setPanel({ taskId });
-  }, [draftWriteDirty]);
+  }, [draftWriteDirty, draftSwitchConfirm]);
   // + 작업 추가(Task 4c §1 — 4b가 안 막았던 문) — 같은 확인. isNewDirty는 필요 없다(이미 새 작업 모드일 때
   // 다시 눌러도 key가 그대로 'new'라 TaskPanel이 리마운트되지 않고, 로컬 입력은 그대로 남는다).
   const openNew = useCallback(() => {
-    if (draftWriteDirty && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
+    if (draftWriteDirty && !window.confirm(draftSwitchConfirm)) return;
     setDraftOpenReq(null); setPanel({ fresh: true });
-  }, [draftWriteDirty]);
+  }, [draftWriteDirty, draftSwitchConfirm]);
   const openBulk = useCallback(() => setBulkOpen(true), []);
   // 새 작업 모드가 dirty한 동안 다른 행을 클릭하면 로컬 입력이 경고 없이 사라진다(I1-3) — dirty 여부는
   // TaskPanel의 로컬 상태에만 있어 ref로 받아 둔다(매 렌더 상태로 올리면 이 화면 전체가 리렌더된다).
@@ -325,14 +362,15 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   // 직접 쓰기가 작성 중일 때도 같은 규칙으로 지켜야 한다(자문 리뷰) — openPanel(taskId)은 같은 작업을
   // 다시 눌렀을 때도 draftOpenReq{tab:null}을 보내는데, TaskPanel의 draftOpen 이펙트가 그 신호로
   // setDraftMode('task')를 확인 없이 직접 부른다(패널 안의 requestTabChange·requestDraftModeExit를
-  // 거치지 않는 별도 경로). 문장은 새로 짓지 않고 TaskPanel과 같은 상수를 그대로 쓴다.
+  // 거치지 않는 별도 경로). isNew 쪽 문장은 새로 짓지 않고 이 파일에 이미 있는 것을 그대로 쓴다 — 아래
+  // draftWriteDirty 쪽은 openPanel과 같은 draftSwitchConfirm(위에서 정의, Task 4d §2·§3)을 쓴다.
   const openDraftMode = useCallback((t: FlowRow, tab: DraftTab) => {
     if (isNew && newDirtyRef.current && !window.confirm('입력한 내용이 사라져요. 다른 작업을 열까요?')) return;
-    if (draftWriteDirty && !window.confirm(DRAFT_WRITE_LOST_CONFIRM)) return;
+    if (draftWriteDirty && !window.confirm(draftSwitchConfirm)) return;
     draftOpenSeqRef.current += 1;
     setDraftOpenReq({ tab, seq: draftOpenSeqRef.current });
     setPanel({ taskId: t.id });
-  }, [isNew, draftWriteDirty]);
+  }, [isNew, draftWriteDirty, draftSwitchConfirm]);
   // draftWriteDirty 확인은 openPanel이 이미 진다(위 주석) — 여기서 또 물으면 같은 클릭에 확인창이 두 번 뜬다.
   const onRowClick = useCallback((t: FlowRow) => {
     if (isNew && newDirtyRef.current && !window.confirm('입력한 내용이 사라져요. 다른 작업을 열까요?')) return;
@@ -557,7 +595,7 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
                      clientData={clientData} targetRef={targetRef}
                      onAttached={onDraftAttached} onGenerated={() => void reloadCandidates()}
                      onBusyChange={setDraftGenBusy} onOverlayChange={setDraftOverlayOpen}
-                     onDirtyChange={setDraftWriteDirty} />
+                     onDirtyChange={setDraftGenDirty} />
     )
     : null;
   // 패널의 원고 모드 · '직접 쓰기' 탭(Task 4) — 붙이기 성공 뒤 동작은 'AI로 만들기'와 같은 재조회
@@ -567,7 +605,7 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
     ? (
       <DraftWrite task={panelTask} clientId={clientId}
                   onAttached={onDraftAttached} onSavedUnattached={() => void reloadCandidates()}
-                  onBusyChange={setDraftWriteBusy} onDirtyChange={setDraftWriteDirty} />
+                  onBusyChange={setDraftWriteBusy} onDirtyChange={setDraftWriteOnlyDirty} />
     )
     : null;
   // '있는 원고 고르기 n' — Task 1의 후보 조회 합. 아직 못 읽었으면 null(0이라고 거짓말하지 않는다, 결정 4).

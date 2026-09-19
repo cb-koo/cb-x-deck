@@ -38,6 +38,11 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
   // 붙이기(PATCH)만 실패했을 때 재시도 대상 — 원고는 이미 만들어졌으므로 다시 누르면 새로 만들지 않고
   // 이 id로 붙이기만 다시 시도한다(리뷰 지적 5). 붙이기가 성공하면 비운다.
   const [createdDraftId, setCreatedDraftId] = useState<string | null>(null);
+  // 응답이 비어([null] 등) 서버가 만든 원고의 id를 못 받았을 때(리뷰 minor) — createdDraftId도 못 채우므로
+  // 그냥 두면 다시 눌렀을 때 재시도 대상이 없어 createManualDraftApi가 또 돌아 원고가 두 벌 생긴다(Task 4d
+  // §5, 리뷰 지적 5와 같은 사고). id를 영영 모르므로 재시도 자체를 막는다 — true가 되면 attached와 같은
+  // 자리(컴포저 잠금·저장 버튼 비활성)로 취급하고, 새로고침을 안내하는 쪽으로만 간다.
+  const [saveResultUnknown, setSaveResultUnknown] = useState(false);
   // 붙이기(PATCH) 자체가 성공했는지(Task 4c §2) — 그 뒤의 재조회(onAttached)가 실패해도 이 값은 true로
   // 남는다. 옛 코드는 재조회 실패 때 createdDraftId를 비워 버튼이 '저장하고 붙이기'로 되돌아갔고, 한 번
   // 더 누르면 이미 붙은 글로 createManualDraftApi가 또 돌아 같은 원고가 두 벌 생겼다(리뷰 지적 5와 같은
@@ -61,9 +66,10 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
   // createdDraftId가 있으면(원고는 이미 저장, 붙이기만 재시도 대기) dirty가 아니다(자문 리뷰) — 이미
   // '있는 원고 고르기'에 안전하게 저장돼 있는데 dirty=true로 두면 떠날 때 "닫으면 저장되지 않고 사라져요"가
   // 거짓말이 된다. attached면(붙이기까지 이미 끝났다, Task 4c §2) 재조회가 실패해도 같은 이유로 dirty가
-  // 아니다 — 잃을 게 없다. 언마운트(탭을 벗어남 등)되면 false로 정리한다 — 안 그러면 다음에 이 탭을 다시
+  // 아니다 — 잃을 게 없다. saveResultUnknown도 같은 이유(Task 4d §5) — 서버가 만들긴 만들었을 것이라
+  // 다시 쳐도 되찾을 게 없다. 언마운트(탭을 벗어남 등)되면 false로 정리한다 — 안 그러면 다음에 이 탭을 다시
   // 열었을 때(초기 상태인데도) 부모가 옛 값을 들고 있게 된다.
-  const dirty = !attached && createdDraftId === null
+  const dirty = !attached && !saveResultUnknown && createdDraftId === null
     && posts.some((p) => p.text.trim() !== '' || p.media.length > 0 || p.uploading > 0);
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
@@ -88,7 +94,7 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
   }, [show]);
 
   async function save() {
-    if (composing || attached || !composerCanSave(posts)) return;
+    if (composing || attached || saveResultUnknown || !composerCanSave(posts)) return;
     setBusy(true);
     let draftId = createdDraftId;
     if (!draftId) {
@@ -103,9 +109,14 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
       const draft = r.data[0];
       // 응답이 비었거나([null] 등) 원고를 못 읽으면 여기서 멈추고 busy를 반드시 풀어야 한다(리뷰 minor) —
       // 안 풀면 이 상태가 패널의 Esc·바깥 클릭·탭까지 잠근 채로 굳는다. 저장 자체는 됐을 수 있으니
-      // '있는 원고 고르기' 후보를 다시 읽게 한다(기존 입구 DraftWriteModal.save와 같은 방어).
+      // '있는 원고 고르기' 후보를 다시 읽게 한다(기존 입구 DraftWriteModal.save와 같은 방어). id를 못
+      // 받았으니 createdDraftId를 채울 수 없다 — 그대로 두면 재시도 버튼이 다시 '저장하고 붙이기'로
+      // 보여 같은 글로 createManualDraftApi가 또 돌 수 있다(Task 4d §5, 리뷰 지적 5와 같은 모양의 사고).
+      // saveResultUnknown을 세워 재시도 자체를 막는다(다시 만들지 않는다) — 컴포저도 이 값으로 잠긴다
+      // (composerDisabledReason 아래).
       if (!draft) {
         setBusy(false);
+        setSaveResultUnknown(true);
         show('저장은 됐는데 결과를 읽지 못했어요 — 새로고침하면 \'있는 원고 고르기\'에 있어요');
         onSavedUnattached();
         return;
@@ -134,8 +145,10 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
 
   const ok = composerCanSave(posts);
   // 아직 아무것도 손대지 않은 첫 화면(칸 하나·빈 글·이미지 없음)에서는 "글자 수가 넘거나 빈 칸이 있어요"를
-  // 띄우지 않는다(리뷰 minor) — 사실이지만 가만히 있는 화면에 오류처럼 읽힌다. 뭔가 치거나 지우는 순간부터는
-  // 다시 보인다.
+  // 띄우지 않는다(리뷰 minor) — 사실이지만 가만히 있는 화면에 오류처럼 읽힌다. untouched는 이 조건(칸
+  // 하나·빈 글·이미지 없음) 그 자체를 매번 다시 계산한다 — 뭔가 쳤다가도 빈 칸 하나로 완전히 되돌리면
+  // untouched가 다시 참이 되어 문구가 도로 숨는다(계속 편집 중이라도 그 순간의 모양이 처음과 같으면 같은
+  // 판정이다, Task 4d §4 — "치거나 지우는 순간부터 다시 보인다"는 예전 주석은 사실이 아니었다).
   const untouched = posts.length === 1 && posts[0].text === '' && posts[0].media.length === 0 && posts[0].uploading === 0;
   // 컴포저를 잠그는 진짜 이유 — XComposer에 그대로 넘겨서 그 컴포넌트가 스스로 지어낸 문구를 보이지
   // 않게 한다(자문 리뷰, Finding 3과 같은 규칙). 저장 중이 아닌데도 붙이기만 재시도하는 동안 컴포저가
@@ -144,6 +157,7 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
   // '저장됐어요'라고 말하면 거짓말이다. 이미 붙었다는 사실 그대로 말한다.
   const composerDisabledReason = attached
     ? '이미 붙였어요 — 화면을 새로고침하면 원고 카드로 보여요'
+    : saveResultUnknown ? '저장은 됐는데 결과를 확인하지 못했어요 — 새로고침해 주세요'
     : busy ? '저장하는 중이에요' : createdDraftId ? '글은 저장됐어요 — 붙이기만 다시 시도하면 돼요' : null;
 
   return (
@@ -151,8 +165,8 @@ export function DraftWrite({ task, clientId, onAttached, onSavedUnattached, onBu
       <XComposer handle={task.influencerHandle} posts={posts} onChange={setPosts}
                  onPickImages={onPickImages} disabledReason={composerDisabledReason} />
       <div className="mt-3 flex items-center gap-2">
-        <Button variant="primary" disabled={composing || attached || !ok} onClick={() => void save()} className="h-10 px-4 text-content">
-          {attached ? '붙였어요' : busy ? '저장 중…' : createdDraftId ? '붙이기 다시 시도' : '저장하고 붙이기'}
+        <Button variant="primary" disabled={composing || attached || saveResultUnknown || !ok} onClick={() => void save()} className="h-10 px-4 text-content">
+          {attached ? '붙였어요' : saveResultUnknown ? '확인 못 했어요' : busy ? '저장 중…' : createdDraftId ? '붙이기 다시 시도' : '저장하고 붙이기'}
         </Button>
         {attached
           // XComposer 안(structureLockedReason)이 이미 같은 사실을 보여준다 — 여기서 또 말하지 않는다.

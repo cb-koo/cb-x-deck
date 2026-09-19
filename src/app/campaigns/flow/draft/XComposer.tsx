@@ -170,12 +170,15 @@ export function XComposer({ handle, posts, onChange, onPickImages, disabledReaso
                 className="flex h-8 w-8 items-center justify-center rounded-full border border-x-border-strong text-x-blue hover:bg-x-blue/10 disabled:cursor-not-allowed disabled:opacity-40">
           +
         </button>
-        {structureLockedReason
+        {disabledReason
           // 칸 지우기·+ 버튼이 막힌 진짜 이유를 여기 한 번 보이게 둔다(리뷰 minor, title만으로는 흐림만
           // 보인다 — 자문 리뷰). 칸마다 반복하지 않는 이유는 두 버튼이 항상 같은 조건 하나(structureLocked)로
           // 함께 막히기 때문 — 칸별로 되풀이하면 스레드가 길수록 같은 문장이 여러 번 겹쳐 보인다.
-          ? <span className="text-caption text-x-muted">{structureLockedReason}</span>
-          : posts.length === 1 && <span className="text-caption text-x-muted">스레드로 이어 쓸 수 있어요</span>}
+          // anyUploading만으로 잠겼을 때(disabledReason이 없을 때)는 여기서 다시 말하지 않는다(Task 4d §1) —
+          // 그 칸 바로 아래(149)에 이미 같은 문장이 있어, 업로드 중엔 이 자리까지 합쳐 같은 사실이 여섯 번
+          // 뜨는 문제였다. title(+ 버튼)은 그대로 둔다 — 호버로만 보이므로 동시에 겹쳐 보이지 않는다.
+          ? <span className="text-caption text-x-muted">{disabledReason}</span>
+          : !anyUploading && posts.length === 1 && <span className="text-caption text-x-muted">스레드로 이어 쓸 수 있어요</span>}
       </div>
     </div>
   );

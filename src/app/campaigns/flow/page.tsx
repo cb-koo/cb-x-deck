@@ -47,6 +47,16 @@ function CampaignsFlowSplit() {
   // picked.missing이 true가 되어 "찾을 수 없어요" 토스트가 뜬다 — 방금 지운 사람에게는 오경보다. 순서를 맞추는 대신
   // "이 id는 내가 막 지웠다"를 기억해 그 한 번만 토스트를 건너뛴다(정말 낯선 ?id=는 그대로 토스트).
   const justDeletedRef = useRef<string | null>(null);
+  // 작성 중인 컴포저를 잃지 않는다(Task 4d §6, "마지막 문") — FlowDetail은 key={picked.id}로 그려서
+  // (아래) 다른 캠페인을 고르면 통째로 언마운트된다. 패널 안쪽 가드(FlowDetail의 openPanel 등)는 같은
+  // 캠페인 안에서 다른 작업으로 넘어갈 때만 닿고, 이 목록 클릭에는 안 닿는다. 렌더 중에 읽지 않는다
+  // (React Compiler 규칙) — select(아래)는 클릭 핸들러 안에서만 읽는다. FlowDetail이 매 렌더 상태로
+  // 올리지 않고 ref로만 받는 이유는 새 작업 dirty(newDirtyRef)와 같다 — 이 값 때문에 페이지 전체가
+  // 리렌더될 필요는 없다. boolean이 아니라 문장 자체를 든다 — FlowDetail이 어느 탭(직접 쓰기·생성)이
+  // 작성 중인지 알아 문장을 이미 고른 채로 올려 준다(FlowDetail의 onLeaveConfirmChange 주석). 여기서
+  // 새로 문장을 짓지 않는다.
+  const leaveConfirmRef = useRef<string | null>(null);
+  const onComposerLeaveConfirmChange = useCallback((message: string | null) => { leaveConfirmRef.current = message; }, []);
 
   // setState는 전부 await 뒤 — 동기 setState가 앞에 있으면 set-state-in-effect에 걸린다(CampaignDetail 관례)
   const load = useCallback(async () => {
@@ -69,7 +79,13 @@ function CampaignsFlowSplit() {
     else if (!picked.id && urlId) router.replace(pathname, { scroll: false });
   }, [loaded, loadErr, picked, urlId, pathname, router, show]);
 
-  const select = useCallback((id: string) => router.replace(`${pathname}?id=${id}`, { scroll: false }), [router, pathname]);
+  // 작성 중인 컴포저가 있으면 확인한다(Task 4d §6) — 문구는 FlowDetail이 이미 고른 것을 그대로 쓴다(새로
+  // 짓지 않는다, 브리프 지시). 여기서 읽는 leaveConfirmRef.current는 클릭 핸들러 안이라 렌더 중이 아니다
+  // (React Compiler 규칙 위반 아님).
+  const select = useCallback((id: string) => {
+    if (leaveConfirmRef.current && !window.confirm(leaveConfirmRef.current)) return;
+    router.replace(`${pathname}?id=${id}`, { scroll: false });
+  }, [router, pathname]);
 
   return (
     // 상세는 연회색 바닥(bg-x-surface) 위 흰 패널들(FlowDetail) — 왼쪽 목록은 흰 배경 + 세로 구분선 그대로다(/campaigns와 같은 부품).
@@ -111,7 +127,8 @@ function CampaignsFlowSplit() {
                         justDeletedRef.current = picked.id;   // load()가 router.replace보다 먼저 반영돼도 이 id는 오경보 대상에서 뺀다
                         router.replace(pathname, { scroll: false });
                         void load();
-                      }} />
+                      }}
+                      onLeaveConfirmChange={onComposerLeaveConfirmChange} />
         )}
       </main>
       {creating && (

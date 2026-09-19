@@ -12,7 +12,7 @@ import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi,
   patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, type DraftPatchBody,
 } from '@/lib/campaignApi';
-import type { TaskType, FlowStage } from '@/lib/campaignJudgment';
+import { flowStage, FLOW_STAGES, type TaskType, type FlowStage } from '@/lib/campaignJudgment';
 import { draftLabel } from '@/lib/draftViews';
 import { Button, PANEL } from '@/components/ui';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
@@ -143,11 +143,9 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const shown = useMemo(() => (data ? sortFlowRows(data.tasks.filter((t) => matchesFlowFilter(t, filter, data.today)), sort) : []), [data, filter, sort]);
   const stats = useMemo(() => (data ? flowStats(data.tasks) : null), [data]);
   const settleWait = useMemo(() => (data ? settleWaitCount(data.tasks) : 0), [data]);
-  // 필터 드롭다운의 칩 개수(Task 6이 FlowFilterBar를 실제로 만들며 채운다). type·extra는 이 파일이 가져온 헬퍼로
-  // 바로 계산되지만, stage는 FLOW_STAGES·flowStage(campaignJudgment)가 있어야 하는데 이 작업의 몫이 아니다 —
-  // Task 6이 FlowDetail을 다시 열어 채운다(b-task-6-brief.md §3).
+  // 필터 드롭다운의 칩 개수 — "그 조건 하나만 켰을 때의 건수"(다른 묶음과 교차시키지 않는다, b-task-6-brief.md 명확화 3)
   const counts = useMemo(() => ({
-    stage: {} as Record<FlowStage, number>,   // TODO(Task 6): FLOW_STAGES별 flowStage(t, t.settlement) 집계로 교체
+    stage: Object.fromEntries(FLOW_STAGES.map((k) => [k, (data?.tasks ?? []).filter((t) => flowStage(t, t.settlement) === k).length])) as Record<FlowStage, number>,
     type: Object.fromEntries(DISPLAY_TYPE_ORDER.map((k) => [k, (data?.tasks ?? []).filter((t) => t.type === k).length])) as Record<TaskType, number>,
     extra: Object.fromEntries(EXTRA_FILTERS.map((k) => [k, (data?.tasks ?? []).filter((t) => matchesExtra(t, k, data?.today ?? '')).length])) as Record<ExtraFilter, number>,
   }), [data]);

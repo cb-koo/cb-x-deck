@@ -19,7 +19,7 @@ import {
   flowStage, FLOW_STAGES, TASK_TYPE_LABEL, formatDateKo, isTaskExcluded,
   deriveTaskInfluencers, taskCampaignTotal, type TaskType, type FlowStage,
 } from '@/lib/campaignJudgment';
-import { draftLabel } from '@/lib/draftViews';
+import { draftLabel, draftPreviewLine } from '@/lib/draftViews';
 import { targetLabel } from '@/lib/campaignTableView';
 import { parseTweetLink } from '@/lib/tweetLink';
 import { Button, PANEL } from '@/components/ui';
@@ -517,7 +517,9 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     setCardDraft((cur) => (cur?.id === row.id ? row : cur));
     // draftFirstLine은 표의 원고 칸(R26)이 쓰는 값 — campaignTaskStore.firstLineOf와 같은 식(첫 포스트의
     // 첫 줄, 공백 정리, 비면 null)이어야 카드에서 고친 뒤와 새로고침 뒤가 같은 문구를 보여준다(Task 6, B 최종 리뷰 M1).
-    const firstLine = ((row.edited ?? row.content).posts[0]?.text ?? '').split('\n')[0].trim() || null;
+    // 식을 여기 다시 적지 않고 draftViews.draftPreviewLine을 쓴다 — 같은 규칙이 이미 테스트까지 있고(draftViews.test.ts),
+    // 손으로 베낀 사본이 늘수록 서버와 어긋나도 아무도 모른다(Task 6 리뷰 Important 1).
+    const firstLine = draftPreviewLine(row) || null;
     setTasks((cur) => cur.map((t) => (t.draftId === row.id
       ? { ...t, draftStatus: row.status, draftLabel: draftLabel(row).text, draftFirstLine: firstLine }
       : t)));

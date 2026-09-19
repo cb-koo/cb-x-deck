@@ -1,6 +1,5 @@
 'use client';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import Link from 'next/link';
 import type { CampaignRow } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { fetchTasksTargets, type TaskCreateRequest } from '@/lib/campaignApi';
@@ -20,6 +19,7 @@ import { Button } from '@/components/ui';
 import { CostConfirmField } from './CostConfirmField';
 import { TargetPicker, candidateLabel, type TargetValue } from '../TargetPicker';
 import type { useCampaignTaskActions } from '../useCampaignTaskActions';
+import { DraftMode, type DraftTab } from './draft/DraftMode';
 
 // 편집 패널(b-task-7-brief.md §2) — 작업 하나(edit)와 새 작업(new)을 같은 골격에서 다룬다. 칸 순서는
 // PANEL_FIELD_ORDER(campaignFlowView) 하나뿐 — 여기서 다시 적지 않는다. 저장은 두 갈래:
@@ -40,7 +40,7 @@ type PanelMode = { kind: 'edit'; task: FlowRow; index: number; total: number } |
 
 export function TaskPanel({
   mode, campaign, today, influencerOptions, actions, onClose, onPrev, onNext, onCreate,
-  menu, onOpenDraft, onAttachDraft, onGenerateHref, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
+  menu, draftOpen, pickCount, draftCard, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
 }: {
   mode: PanelMode;
   campaign: CampaignRow;
@@ -51,10 +51,12 @@ export function TaskPanel({
   onPrev: () => void;
   onNext: () => void;
   onCreate: (body: TaskCreateRequest, more: boolean) => Promise<boolean>;
-  menu: ReactNode;   // 헤더 ··· — edit 모드에만 채워진다(Task 10, FlowRowMenu)
-  onOpenDraft: (draftId: string) => void;
-  onAttachDraft: (t: FlowRow) => void;
-  onGenerateHref: (t: FlowRow) => string;
+  menu: ReactNode;   // 헤더 ··· — edit 모드에만 채워진다(Task 10, FlowRowMenu). 원고 모드에서는 숨긴다(작업 동작이라서).
+  // 원고 모드로 들어가라는 요청(행 메뉴 등 패널 바깥에서 왔을 수 있다, C 원고 모드 §Step1). seq가 매번 바뀌어야
+  // 이미 같은 작업의 패널이 열려 있을 때(키 리마운트가 안 일어난다)도 같은 탭을 다시 요청하면 반영된다.
+  draftOpen?: { tab: DraftTab; seq: number } | null;
+  pickCount: number | null;   // '있는 원고 고르기 n' — Task 1의 후보 조회 합, 아직 못 읽었으면 null
+  draftCard: ReactNode;       // 붙어 있는 원고의 카드 — FlowDetail이 만든다(로딩·에러 표시도 포함)
   onDetachDraft: (t: FlowRow) => void;
   onReplace: (t: FlowRow) => void;   // 인플루언서 칸의 [바꾸기] — ReplaceDialog를 여는 것은 FlowDetail 쪽(Task 10)
   // new 모드의 CostConfirmField가 이 파일 안에서 직접 만들어지는 이유는 위 주석 — 그래서 프로필 반영 저장만
@@ -72,6 +74,18 @@ export function TaskPanel({
   const index = mode.kind === 'edit' ? mode.index : -1;
   const total = mode.kind === 'edit' ? mode.total : 0;
   const validIndex = index >= 0;
+
+  // ── 원고 모드(C 원고 모드 §Step1) — 패널 로컬 상태다. 작업이 바뀌면(패널이 key로 remount) 초기값 'task'로
+  // 돌아간다 — 따로 리셋 코드를 두지 않는다. draftOpen(패널 바깥, 행 메뉴 등에서 온 요청)이 오면 그 탭으로 연다.
+  const [draftMode, setDraftMode] = useState<'task' | 'draft'>('task');
+  const [draftTab, setDraftTab] = useState<DraftTab>('generate');
+  useEffect(() => {
+    if (!draftOpen) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 패널 바깥(행 메뉴)에서 온 요청을 반영하는 것이 목적이라 동기 setState가 맞다
+    setDraftTab(draftOpen.tab);
+    setDraftMode('draft');
+  }, [draftOpen]);
+  const inDraftMode = draftMode === 'draft' && !!task;
 
   // ── 새 작업 로컬 상태 — 만들기 전까지 서버에 쓰지 않는다 ──
   const [newType, setNewType] = useState<TaskType | null>(null);
@@ -265,7 +279,8 @@ export function TaskPanel({
                 {t.draftLabel ?? '(제목 없음)'}{t.draftStatus && <span className="text-ui text-x-muted"> · {STATUS_LABEL[t.draftStatus]}</span>}
               </span>
               <span className="flex shrink-0 items-center gap-3 text-ui">
-                <button type="button" onClick={() => onOpenDraft(t.draftId as string)} className="text-x-blue-text hover:underline">열기</button>
+                {/* setDraftTab 없이 연다 — 붙어 있으면 탭 대신 카드가 뜬다(DraftMode) */}
+                <button type="button" onClick={() => setDraftMode('draft')} className="text-x-blue-text hover:underline">열기</button>
                 <button type="button" onClick={() => onDetachDraft(t)} className="text-x-secondary hover:underline">떼기</button>
               </span>
             </div>
@@ -273,10 +288,17 @@ export function TaskPanel({
         }
         return (
           <div>
-            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-content text-x-muted">
-              <Link href={onGenerateHref(t)} className="whitespace-nowrap text-x-blue-text hover:underline">새로 만들기</Link>
-              <span aria-hidden>·</span>
-              <button type="button" onClick={() => onAttachDraft(t)} className="whitespace-nowrap hover:text-x-secondary hover:underline">있는 원고 고르기</button>
+            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-content">
+              <button type="button" onClick={() => { setDraftTab('generate'); setDraftMode('draft'); }}
+                      className="whitespace-nowrap text-x-blue-text hover:underline">새로 쓰기</button>
+              <span aria-hidden className="text-x-muted">·</span>
+              <button type="button" onClick={() => { setDraftTab('write'); setDraftMode('draft'); }}
+                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">직접 쓰기</button>
+              <span aria-hidden className="text-x-muted">·</span>
+              <button type="button" onClick={() => { setDraftTab('pick'); setDraftMode('draft'); }}
+                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">
+                있는 원고 고르기{pickCount !== null ? ` ${pickCount}` : ''}
+              </button>
             </span>
             <p className="mt-1 text-caption text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
           </div>
@@ -399,22 +421,33 @@ export function TaskPanel({
   const title: ReactNode = task
     ? (task.influencerHandle ? `@${task.influencerHandle}` : <span className="text-x-muted">인플루언서 미정</span>)
     : (newType ? `새 ${TASK_TYPE_LABEL[newType]} 작업` : '어떤 작업인가요?');
+  // 원고 모드 헤더 — 작업 정보(단계·유형)는 이미 봤으니 크럼 자리는 뒤로가기로 바꾸고, 제목은 원고 쪽으로 말한다.
+  const draftTitle = task ? `원고 · ${TASK_TYPE_LABEL[task.type]} · ${task.influencerHandle ? `@${task.influencerHandle}` : '인플루언서 미정'}` : '';
 
   return (
     <aside ref={panelRef} role="dialog" aria-label="작업 편집" className="fixed inset-y-0 right-0 z-40 flex w-[560px] flex-col border-l border-x-border bg-white shadow-xl">
       <div className="flex items-start justify-between border-b border-x-border px-6 pt-5 pb-4">
         <div className="min-w-0">
-          <p className="text-ui text-x-secondary">{crumb}</p>
-          <h2 className="mt-0.5 truncate text-[20px]">{title}</h2>
+          {inDraftMode
+            ? <button type="button" onClick={() => setDraftMode('task')} className="text-ui text-x-secondary hover:underline">← 작업으로</button>
+            : <p className="text-ui text-x-secondary">{crumb}</p>}
+          <h2 className="mt-0.5 truncate text-[20px]">{inDraftMode ? draftTitle : title}</h2>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {task && menu}
+          {/* ···(작업 메뉴)는 원고 모드에서 숨긴다 — 전부 작업 단위 동작이라 원고를 보는 중엔 부를 일이 없다 */}
+          {task && !inDraftMode && menu}
           <button type="button" onClick={requestClose} aria-label="닫기" className="rounded-full p-1.5 text-x-secondary hover:bg-x-hover">✕</button>
         </div>
       </div>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-6 py-4">
-        {task ? (
+        {inDraftMode && task ? (
+          <DraftMode attached={!!task.draftId} tab={draftTab} onTab={setDraftTab} pickCount={pickCount}
+                     card={draftCard}
+                     generate={<p className="text-ui text-x-muted">(Task 3에서 채웁니다)</p>}
+                     write={<p className="text-ui text-x-muted">(Task 4에서 채웁니다)</p>}
+                     pick={<p className="text-ui text-x-muted">(Task 5에서 채웁니다)</p>} />
+        ) : task ? (
           <>
             {task.cancelledAt && (
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-ui text-slate-600">취소된 작업이에요 — ··· 메뉴의 [되돌리기]로 살릴 수 있어요</p>
@@ -460,7 +493,10 @@ export function TaskPanel({
       </div>
 
       <div className="flex items-center gap-3 border-t border-x-border px-6 py-3">
-        {task ? (
+        {inDraftMode ? (
+          // 원고 모드에서는 이전/다음 대신 이것 하나 — 작업 사이 이동은 작업 모드의 일이다.
+          <Button onClick={() => setDraftMode('task')} className="ml-auto h-9 px-3.5 text-ui">작업으로</Button>
+        ) : task ? (
           <div className="ml-auto flex items-center gap-3">
             <Button onClick={onPrev} disabled={!validIndex || index <= 0} className="h-9 px-3 text-ui">← 이전</Button>
             {validIndex

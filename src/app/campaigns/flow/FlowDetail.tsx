@@ -52,8 +52,8 @@ import { type DraftTab } from './draft/DraftMode';
 // 표는 작업 표(TaskTable) 대신 단계 기반 표(FlowTable, Task 6)고 달력·인플루언서별 비용 표는 없다(R10 — 단일 표 화면).
 // 필터·정렬·패널 열림은 campaignFlowView(Task 2)의 순수 함수로 판정한다 — 이 파일은 상태만 쥐고 계산은 그쪽에 맡긴다.
 //
-// 원고 카드(peek)·patchCampaign·removeCampaign·요청 토큰(reqRef)·influencerOptions/clientData 로드는
-// CampaignDetail과 그대로다 — 코드와 함께 그 이유를 설명하는 주석도 옮겼다.
+// 원고 카드(패널의 원고 모드가 그린다)·patchCampaign·removeCampaign·요청 토큰(reqRef)·
+// influencerOptions/clientData 로드는 CampaignDetail과 그대로다 — 코드와 함께 그 이유를 설명하는 주석도 옮겼다.
 
 interface DetailState {
   campaign: CampaignRow; tasks: CampaignTaskItem[]; costRows: InfluencerCostRow[];
@@ -64,9 +64,8 @@ type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 // 오른쪽 패널이 여는 대상 — 기존 작업(taskId) 또는 새 작업(fresh). 둘 다 아니면 패널이 닫혀 있다.
 type Panel = { taskId: string } | { fresh: true } | null;
 
-export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
+export function FlowDetail({ id, onChanged, onDeleted }: {
   id: string;
-  campaigns: CampaignRow[];   // 전 캠페인 목록 — 원고 카드의 작업 칸이 '어느 캠페인의 작업에 붙일지' 고를 때 쓴다
   onChanged: () => void;      // 목록(왼쪽) 새로고침 — 이름·작업 수·합계가 바뀌면 목록 보조줄도 움직여야 한다
   onDeleted: () => void;
 }) {
@@ -76,10 +75,9 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const [loadErr, setLoadErr] = useState(false);
   const [influencerOptions, setInfluencerOptions] = useState<InfluencerOption[]>([]);
   const [clientData, setClientData] = useState<ClientData | null>(null);
-  // 원고 카드(peek) — 표에서 누른 원고 id와 그 원고 한 건. 작업 목록엔 본문이 없어 열 때 받아 온다.
-  const [peekId, setPeekId] = useState<string | null>(null);
-  const [peekDraft, setPeekDraft] = useState<DraftRow | null>(null);
-  const [peekErr, setPeekErr] = useState(false);
+  // 원고 카드 — 패널이 보여줄 작업에 붙은 원고 한 건. 작업 목록엔 본문이 없어 열 때 받아 온다.
+  const [cardDraft, setCardDraft] = useState<DraftRow | null>(null);
+  const [cardErr, setCardErr] = useState(false);
   const [editing, setEditing] = useState<DraftRow | null>(null);
   const [rewritingId, setRewritingId] = useState<string | null>(null);
   const [regenBusy, setRegenBusy] = useState<{ draftId: string; index: number } | null>(null);
@@ -162,8 +160,6 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
       .then((c) => setClientData(c as ClientData | null));
   }, [clientId]);
 
-  // 닫아도 받아 둔 원고는 버리지 않는다 — 같은 원고를 다시 열면 요청 없이 바로 보인다(peekId만 내린다)
-  const closePeek = useCallback(() => { setPeekId(null); setPeekErr(false); }, []);
   const setTasks: Dispatch<SetStateAction<CampaignTaskItem[]>> = useCallback((next) => {
     setData((cur) => (cur ? { ...cur, tasks: typeof next === 'function' ? next(cur.tasks) : next } : cur));
   }, []);
@@ -245,19 +241,17 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const panelOpen = !!panel && (isNew || !!panelTask);
   // 증빙 서명 URL — 패널이 지금 보여주는 작업 하나만(TaskTable처럼 표 전체를 배치하지 않는다, 패널은 한 번에 하나다)
   const proofUrls = useSignedTaskProofUrls(panelTask?.proof?.url ? [panelTask.proof.url] : []);
-  // 원고 모드(§5) — 패널이 보여줄 작업에 원고가 붙어 있으면 카드를 그릴 원고 한 건을 받아 온다. peekId가
-  // 남아 있으면(현재는 아무도 설정하지 않는다 — 아래 참고) 그쪽을 우선한다. 같은 원고를 다시 열면 이미
-  // 받아 둔 것을 쓴다(재요청 없음) — peekDraft를 두 자리(원고 카드 오버레이·패널)가 함께 쓴다.
-  const wantDraftId = peekId ?? panelTask?.draftId ?? null;
-  useEffect(() => {
-    if (!wantDraftId || peekDraft?.id === wantDraftId) return;
-    let alive = true;
-    apiFetch(`/api/drafts/${wantDraftId}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
-      .then((d) => { if (!alive) return; setPeekDraft((d as DraftRow | null) ?? null); setPeekErr(d === null); });
-    return () => { alive = false; };
-  }, [wantDraftId, peekDraft]);
+  // 원고 모드(§5) — 패널이 보여줄 작업에 원고가 붙어 있으면 카드를 그릴 원고 한 건을 받아 온다. 같은
+  // 원고를 다시 열면 이미 받아 둔 것을 쓴다(재요청 없음).
   const panelDraftId = panelTask?.draftId ?? null;
-  const panelDraft = panelDraftId && peekDraft?.id === panelDraftId ? peekDraft : null;
+  useEffect(() => {
+    if (!panelDraftId || cardDraft?.id === panelDraftId) return;
+    let alive = true;
+    apiFetch(`/api/drafts/${panelDraftId}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      .then((d) => { if (!alive) return; setCardDraft((d as DraftRow | null) ?? null); setCardErr(d === null); });
+    return () => { alive = false; };
+  }, [panelDraftId, cardDraft]);
+  const panelDraft = panelDraftId && cardDraft?.id === panelDraftId ? cardDraft : null;
   const openPanel = useCallback((taskId: string) => { setDraftOpenReq(null); setPanel({ taskId }); }, []);
   const openNew = useCallback(() => { setDraftOpenReq(null); setPanel({ fresh: true }); }, []);
   const openBulk = useCallback(() => setBulkOpen(true), []);
@@ -348,21 +342,10 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
     show(`${made.join(' · ')} 만들었어요`);
   }, [id, show, load, onChanged, openPanel]);
 
-  // 열려 있는 원고가 붙은 작업 — 카드의 인플루언서 배정이 이 작업으로 간다(캠페인의 단위는 작업이다)
-  const peekTask = useMemo(() => (peekId && data ? data.tasks.find((t) => t.draftId === peekId) ?? null : null), [peekId, data]);
-  const peeked = peekDraft?.id === peekId ? peekDraft : null;
   const bannedFor = useCallback((d: DraftRow) => (clientData
     ? [...clientData.client.bannedPhrases,
        ...clientData.procedures.filter((p) => d.procedureNames.includes(p.name)).flatMap((p) => p.bannedPhrases)]
     : []), [clientData]);
-
-  // Esc로 원고 카드 닫기 — 편집 모달이 위에 있으면 그쪽 Esc가 우선(generate 관례)
-  useEffect(() => {
-    if (!peekId || editing) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) closePeek(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [peekId, editing, closePeek]);
 
   const patchCampaign = useCallback(async (patch: CampaignPatchInput) => {
     const r = await patchCampaignApi(id, patch);
@@ -380,27 +363,16 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
     onDeleted();
   }
 
-  // ── 원고 카드(표에서 원고를 누르면 열린다) — 원고 자체의 편집은 기존 PATCH /api/drafts/[id] 그대로 ──
+  // ── 원고 카드(패널의 원고 모드가 그린다) — 원고 자체의 편집은 기존 PATCH /api/drafts/[id] 그대로 ──
   // 응답(DraftRow)으로 카드를 갈아끼우고, 표의 '원고' 칸(상태·라벨)도 같이 맞춘다 — 카드에서 고친 제목이 표에 그대로 보여야 한다.
   function mergeRow(row: DraftRow) {
-    setPeekDraft((cur) => (cur?.id === row.id ? row : cur));
+    setCardDraft((cur) => (cur?.id === row.id ? row : cur));
     setTasks((cur) => cur.map((t) => (t.draftId === row.id ? { ...t, draftStatus: row.status, draftLabel: draftLabel(row).text } : t)));
   }
   async function patchDraft(d: DraftRow, body: DraftPatchBody) {
     const r = await patchDraftApi(d.id, body);
     if (r.ok) mergeRow(r.data); else show(r.error);
     return r.ok;
-  }
-  // 원고를 작업에 붙이기·떼기(§5) — 원고가 저장하는 캠페인 값은 taskId 하나다. 붙이면 캠페인·예정일·비용이
-  // 그 작업에서 따라오므로 낙관적 갱신을 하지 않고 응답 행으로 카드를 갈아끼운 뒤 표도 다시 불러온다
-  // (표의 '원고' 열은 작업 쪽 행이라 이 원고 한 건만 고쳐서는 맞출 수 없다).
-  async function attachPeek(draftId: string, taskId: string | null) {
-    const r = await patchDraftApi(draftId, { taskId });
-    if (!r.ok) { show(r.error); return; }
-    setPeekDraft((cur) => (cur?.id === r.data.id ? r.data : cur));
-    await load();
-    void reloadCandidates();   // 붙거나 떨어진 원고는 후보 두 묶음(형제·작업 없는 원고)에서 즉시 빠지거나 다시 잡혀야 한다
-    show(taskId ? '작업에 붙였어요' : '작업에서 뗐어요 — 작업도 원고도 남아 있어요');
   }
 
   async function rewrite(d: DraftRow, feedback: string, baseIndex: number) {
@@ -428,18 +400,18 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
     if (!window.confirm(`'${draftLabel(d).text}' 원고를 삭제할까요?\n\n작업은 남고 원고만 떨어져요.`)) return;
     const r = await deleteDraftApi(d.id);
     if (!r.ok) { show(r.error); return; }
-    closePeek();
+    // 지운 원고가 캐시에 남아 다음 카드에 잘못 뜨지 않게 비운다(오버레이가 있던 시절의 closePeek과 같은 목적)
+    setCardDraft(null); setCardErr(false);
     setTasks((cur) => cur.map((t) => (t.draftId === d.id ? { ...t, draftId: null, draftStatus: null, draftLabel: null } : t)));
     show('원고를 삭제했어요 — 작업은 남아 있어요');
     onChanged();
   }
 
-  // 원고 카드 배선 — 원고 카드 오버레이(peekId)와 패널(원고 모드)이 같은 것을 쓴다(다시 쓰기·상태·이미지·
-  // 금지 표현 등 전부 여기 하나, C 원고 모드 §Step3). forTask는 배정이 실제로 저장되는 작업(카드의
-  // 인플루언서 표시·배정 변경이 이 값을 쓴다) — 없으면 배정을 바꿀 수 없다고 말한다. withTaskField는 카드의
-  // 작업 칸(DraftTaskField, 다른 캠페인으로도 옮길 수 있는 피커)을 그릴지 — 패널 안에서는 넘기지 않는다
-  // (작업 정보는 패널 본체가 이미 보여 준다).
-  function renderDraftCard(d: DraftRow, forTask: CampaignTaskItem | null, withTaskField: boolean): ReactNode {
+  // 원고 카드 배선 — 패널(원고 모드)이 이 하나를 쓴다(다시 쓰기·상태·이미지·금지 표현 등 전부 여기 하나,
+  // C 원고 모드 §Step3). forTask는 배정이 실제로 저장되는 작업(카드의 인플루언서 표시·배정 변경이 이 값을
+  // 쓴다) — 없으면 배정을 바꿀 수 없다고 말한다. 작업 칸(DraftTaskField, 다른 캠페인으로도 옮길 수 있는
+  // 피커)은 그리지 않는다 — 작업 정보는 패널 본체가 이미 보여 준다.
+  function renderDraftCard(d: DraftRow, forTask: CampaignTaskItem | null): ReactNode {
     return (
       // 배정은 작업이 쥔다 — 카드에는 그 작업의 인플을 얹어 넘긴다(원고에 남아 있는 옛 값이 아니라 화면과 같은 값 하나)
       <DraftCard draft={{ ...d, influencerHandle: forTask?.influencerHandle ?? d.influencerHandle }} banned={bannedFor(d)}
@@ -464,44 +436,21 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                  // 카드 표시만 같은 값으로 맞춰 둔다(작업이 없으면 배정할 곳도 없다).
                  onAssignInfluencer={(next) => {
                    if (!forTask) { show('이 원고가 붙은 작업을 찾지 못했어요 — 새로고침해 주세요'); return; }
-                   setPeekDraft((cur) => (cur?.id === d.id ? { ...cur, influencerHandle: next } : cur));
+                   setCardDraft((cur) => (cur?.id === d.id ? { ...cur, influencerHandle: next } : cur));
                    void actions.assignInfluencer(forTask, next, { autoCost: false });   // 비용은 패널의 [확인]이 확정한다(R24)
                  }}
                  onSaveMedia={(next) => void patchDraft(d, { edited: next })}
                  mediaDropNotice={mediaDrop?.draftId === d.id ? mediaDrop.notice : null}
-                 onDismissMediaDrop={() => setMediaDrop(null)}
-                 // 작업 칸 — 오버레이만 그린다(withTaskField). 이 화면은 캠페인 하나를 보고 있지만 후보는 전
-                 // 캠페인이다(다른 캠페인의 작업으로 옮길 수 있다).
-                 task={withTaskField ? {
-                   campaigns, today: data?.today ?? '',
-                   onAttach: (taskId) => void attachPeek(d.id, taskId),
-                   onDetach: () => void attachPeek(d.id, null),
-                   onCreateTask: async (campaignId: string, type: TaskType) => {
-                     // 작업 만들기 + 이 원고 붙이기를 한 트랜잭션으로(서버가 draftId를 받아 처리) — 따로 하면
-                     // 작업만 만들고 붙임에 실패했을 때 원고 없는 고아 작업이 남는다(리뷰 발견).
-                     // 새 작업은 이 원고의 배정 인플루언서로 만든다 — 미배정이면 미배정 작업 한 건.
-                     const r = await createTasksApi(campaignId, {
-                       type, draftId: d.id,
-                       influencers: d.influencerHandle ? [{ handle: d.influencerHandle }] : [],
-                     });
-                     if (!r.ok) { show(r.error); return false; }   // 409(이미 다른 작업에 붙음)도 이 문구로 충분하다
-                     onChanged();   // 작업 수가 늘었다 — 왼쪽 목록의 보조줄도 따라가야 한다
-                     await load();
-                     const nd = await apiFetch(`/api/drafts/${d.id}`).then((res) => (res.ok ? res.json() : null)).catch(() => null);
-                     setPeekDraft((nd as DraftRow | null) ?? d);
-                     return true;
-                   },
-                 } : undefined} />
+                 onDismissMediaDrop={() => setMediaDrop(null)} />
     );
   }
-  // 패널의 원고 모드가 그릴 카드 — 붙은 원고가 있으면(panelDraftId) 로딩·에러도 이 자리가 보여준다(오버레이의
-  // '불러오는 중…' 관례와 같다). 패널 안에서는 task prop을 넘기지 않는다(withTaskField=false).
+  // 패널의 원고 모드가 그릴 카드 — 붙은 원고가 있으면(panelDraftId) 로딩·에러도 이 자리가 보여준다.
   const draftCard: ReactNode = panelDraftId
     ? (panelDraft
-        ? renderDraftCard(panelDraft, panelTask, false)
+        ? renderDraftCard(panelDraft, panelTask)
         : (
-          <div className="rounded-2xl border border-x-border-strong bg-white px-4 py-6 text-content text-x-secondary" role={peekErr ? 'alert' : undefined}>
-            {peekErr ? '원고를 불러오지 못했어요 — 새로고침해 주세요' : '원고를 불러오는 중…'}
+          <div className="rounded-2xl border border-x-border-strong bg-white px-4 py-6 text-content text-x-secondary" role={cardErr ? 'alert' : undefined}>
+            {cardErr ? '원고를 불러오지 못했어요 — 새로고침해 주세요' : '원고를 불러오는 중…'}
           </div>
         ))
     : null;
@@ -637,10 +586,9 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                              : <Button variant="subtle" onClick={() => setPostedFor(panelTask)} className="h-9 px-3.5 text-ui">게시 확인</Button>))
                        : null,
                    }}
-                   // 패널 위에 뜬 다른 레이어(원고 카드·편집 모달·원고 고르기·한 번에 만들기·게시 확인·게시물
-                   // 연결·취소·교체)가 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를 닫는 Esc 한 번에
-                   // 패널까지 같이 닫힌다.
-                   overlayOpen={!!peekId || !!editing || bulkOpen || !!postedFor || removedOpen || !!linkFor || !!cancelFor || !!replaceFor}
+                   // 패널 위에 뜬 다른 레이어(편집 모달·한 번에 만들기·게시 확인·게시물 연결·취소·교체)가
+                   // 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를 닫는 Esc 한 번에 패널까지 같이 닫힌다.
+                   overlayOpen={!!editing || bulkOpen || !!postedFor || removedOpen || !!linkFor || !!cancelFor || !!replaceFor}
                    onDirtyChange={onNewDirtyChange} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
@@ -671,25 +619,6 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
       {replaceFor && (
         <ReplaceDialog task={replaceFor} influencerOptions={influencerOptions} onClose={() => setReplaceFor(null)}
                        onConfirm={async (body) => { await flowActions.replace(replaceFor, body); }} />
-      )}
-      {peekId && (
-        <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-x-text/40 p-6" onClick={closePeek}>
-          <div role="dialog" aria-modal="true" aria-label="원고 상세" className="w-full max-w-[600px]" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-2 flex justify-end">
-              <button onClick={closePeek} aria-label="상세 닫기" title="닫기 (Esc)"
-                      className="rounded-full bg-white/90 px-2.5 py-1 text-[13px] text-x-secondary hover:bg-white">✕ 닫기</button>
-            </div>
-            {peeked ? (
-              // 오버레이는 패널과 같은 배선을 쓴다(renderDraftCard) — withTaskField=true만 이 자리와 다르다
-              // (오버레이는 다른 캠페인의 작업으로도 옮길 수 있는 작업 칸을 그린다).
-              renderDraftCard(peeked, peekTask, true)
-            ) : (
-              <div className="rounded-2xl border border-x-border-strong bg-white px-4 py-6 text-content text-x-secondary" role={peekErr ? 'alert' : undefined}>
-                {peekErr ? '원고를 불러오지 못했어요 — 닫고 다시 눌러 주세요' : '원고를 불러오는 중…'}
-              </div>
-            )}
-          </div>
-        </div>
       )}
       {editing && (
         <DraftEditModal draft={editing} onClose={() => setEditing(null)}

@@ -105,7 +105,7 @@ function CampaignsFlowSplit() {
           </div>
         )}
         {picked.id && (
-          <FlowDetail key={picked.id} id={picked.id} campaigns={rows}
+          <FlowDetail key={picked.id} id={picked.id}
                       onChanged={() => void load()}
                       onDeleted={() => {
                         justDeletedRef.current = picked.id;   // load()가 router.replace보다 먼저 반영돼도 이 id는 오경보 대상에서 뺀다

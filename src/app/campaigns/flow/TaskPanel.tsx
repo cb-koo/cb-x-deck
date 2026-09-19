@@ -63,8 +63,8 @@ export function TaskPanel({
   // 콜백으로 받는다(option.id·pricing patch·influencerOptions 재조회는 FlowDetail 쪽이 쥔 것들이라서).
   onSaveProfilePricing: (option: InfluencerOption, cost: TaskCost, type: TaskType) => Promise<boolean>;
   slots: { cost: ReactNode; target: ReactNode; posted: ReactNode };
-  // 패널 위에 뜬 다른 오버레이(원고 카드·편집 모달·원고 고르기·한 번에 만들기)가 있는 동안은 패널의 Esc를 끈다 —
-  // 안 그러면 [열기]로 연 원고 카드에서 Esc 한 번에 카드와 패널이 같이 닫힌다(generate 관례: 겹친 레이어는 위부터 하나씩).
+  // 패널 위에 뜬 다른 오버레이(편집 모달·한 번에 만들기 등)가 있는 동안은 패널의 Esc를 끈다 —
+  // 안 그러면 그 레이어를 닫는 Esc 한 번에 오버레이와 패널이 같이 닫힌다(generate 관례: 겹친 레이어는 위부터 하나씩).
   overlayOpen: boolean;
   // 새 작업 모드의 dirty 여부를 부모(FlowDetail)에 알린다(I1-3) — 표의 다른 행을 클릭했을 때 같은 확인을
   // 거치려면 부모가 알아야 하는데, 그 값은 이 컴포넌트의 로컬 상태에서만 계산된다.
@@ -142,8 +142,8 @@ export function TaskPanel({
   }, [requestClose, overlayOpen]);
 
   // Esc는 패널만 닫는다 — 안에서 열린 팝오버(예정일 달력 등)는 capture에서 stopPropagation하므로 그쪽이 먼저 먹는다.
-  // 패널 위의 오버레이(원고 카드·모달)가 떠 있으면 이 리스너 자체를 끈다 — 안 그러면 그 오버레이를 닫는 Esc가
-  // 패널까지 같이 닫혀 버린다(FlowDetail의 peek Esc 관례와 같다: `if (!peekId || editing) return;`).
+  // 패널 위의 오버레이(모달 등)가 떠 있으면 이 리스너 자체를 끈다 — 안 그러면 그 오버레이를 닫는 Esc가
+  // 패널까지 같이 닫혀 버린다(overlayOpen이 true인 동안 통째로 끈다).
   useEffect(() => {
     if (overlayOpen) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) requestClose(); };

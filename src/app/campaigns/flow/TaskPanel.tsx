@@ -40,7 +40,7 @@ type PanelMode = { kind: 'edit'; task: FlowRow; index: number; total: number } |
 
 export function TaskPanel({
   mode, campaign, today, influencerOptions, actions, onClose, onPrev, onNext, onCreate,
-  menu, draftOpen, pickCount, draftCard, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
+  menu, draftOpen, pickCount, draftCard, draftGenerate, draftBusy, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
 }: {
   mode: PanelMode;
   campaign: CampaignRow;
@@ -59,6 +59,10 @@ export function TaskPanel({
   draftOpen?: { tab: DraftTab | null; seq: number } | null;
   pickCount: number | null;   // '있는 원고 고르기 n' — Task 1의 후보 조회 합, 아직 못 읽었으면 null
   draftCard: ReactNode;       // 붙어 있는 원고의 카드 — FlowDetail이 만든다(로딩·에러 표시도 포함)
+  draftGenerate: ReactNode;   // 'AI로 만들기' 탭 본체(DraftGenerate, C 원고 모드 Task 3) — FlowDetail이 만든다
+  // 시안을 만드는 동안(draftGenerate 내부 busy) 패널의 바깥 클릭·Esc 닫기를 끈다 — 요청이 오래 걸려도
+  // 실수로 닫혀 만들던 걸 잃지 않게(명시적 [닫기]·[← 작업으로]는 그대로 눌린다, 아래 두 useEffect만 막는다).
+  draftBusy: boolean;
   onDetachDraft: (t: FlowRow) => void;
   onReplace: (t: FlowRow) => void;   // 인플루언서 칸의 [바꾸기] — ReplaceDialog를 여는 것은 FlowDetail 쪽(Task 10)
   // new 모드의 CostConfirmField가 이 파일 안에서 직접 만들어지는 이유는 위 주석 — 그래서 프로필 반영 저장만
@@ -137,7 +141,7 @@ export function TaskPanel({
   // 처리한다 ③ 포털로 body에 붙는 팝오버·메뉴·툴팁(비용·인플·필터·행 메뉴·ⓘ) — 패널에서 연 것인데 DOM 상으로는
   // 패널 밖이라, 안 빼면 팝오버를 누르는 순간 패널이 닫힌다. 패널 위에 모달이 떠 있으면(overlayOpen) 리스너를 끈다.
   useEffect(() => {
-    if (overlayOpen) return;
+    if (overlayOpen || draftBusy) return;   // 시안을 만드는 동안은 바깥을 눌러도 안 닫는다(위 draftBusy 주석)
     const onDown = (e: PointerEvent) => {
       const t = e.target as HTMLElement | null;
       if (!t) return;
@@ -148,17 +152,17 @@ export function TaskPanel({
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
-  }, [requestClose, overlayOpen]);
+  }, [requestClose, overlayOpen, draftBusy]);
 
   // Esc는 패널만 닫는다 — 안에서 열린 팝오버(예정일 달력 등)는 capture에서 stopPropagation하므로 그쪽이 먼저 먹는다.
   // 패널 위의 오버레이(모달 등)가 떠 있으면 이 리스너 자체를 끈다 — 안 그러면 그 오버레이를 닫는 Esc가
-  // 패널까지 같이 닫혀 버린다(overlayOpen이 true인 동안 통째로 끈다).
+  // 패널까지 같이 닫혀 버린다(overlayOpen이 true인 동안 통째로 끈다). draftBusy도 같은 이유로 끈다.
   useEffect(() => {
-    if (overlayOpen) return;
+    if (overlayOpen || draftBusy) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) requestClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [requestClose, overlayOpen]);
+  }, [requestClose, overlayOpen, draftBusy]);
 
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
@@ -453,7 +457,7 @@ export function TaskPanel({
         {inDraftMode && task ? (
           <DraftMode attached={!!task.draftId} tab={draftTab} onTab={setDraftTab} pickCount={pickCount}
                      card={draftCard}
-                     generate={<p className="text-ui text-x-muted">(Task 3에서 채웁니다)</p>}
+                     generate={draftGenerate}
                      write={<p className="text-ui text-x-muted">(Task 4에서 채웁니다)</p>}
                      pick={<p className="text-ui text-x-muted">(Task 5에서 채웁니다)</p>} />
         ) : task ? (

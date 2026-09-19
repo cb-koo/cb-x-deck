@@ -16,7 +16,9 @@ export const DEFAULT_COMPOSER: ComposerState = {
 };
 const MODE_LABEL: Record<ReferenceMode, string> = { off: '참고 안 함', form: '형식만', angle: '앵글만', both: '형식+앵글' };
 // CONTENT_MODEL 변경 시 함께 갱신 (스펙 3-6 — sonnet 실측 ≈$0.015의 보수적 반올림)
-const COST_CAPTION = '생성 1회 ≈ $0.02';
+// export — 패널 원고 모드(DraftGenerate, C 원고 모드 Task 3)가 같은 문구를 쓴다. 두 곳에 따로 적으면 모델을
+// 바꿀 때 한쪽만 갱신되어 드리프트가 생긴다.
+export const COST_CAPTION = '생성 1회 ≈ $0.02';
 
 // 클라이언트·레퍼런스·방향성 중 하나는 있어야 생성 가능 — 섹션부/풋터가 같은 판정을 쓴다
 export function canGenerate(value: ComposerState, refCount: number): boolean {

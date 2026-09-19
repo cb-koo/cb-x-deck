@@ -20,6 +20,8 @@ import {
   deriveTaskInfluencers, taskCampaignTotal, type TaskType, type FlowStage,
 } from '@/lib/campaignJudgment';
 import { draftLabel } from '@/lib/draftViews';
+import { targetLabel } from '@/lib/campaignTableView';
+import { parseTweetLink } from '@/lib/tweetLink';
 import { Button, PANEL } from '@/components/ui';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
@@ -47,6 +49,7 @@ import { CancelDialog } from './CancelDialog';
 import { ReplaceDialog } from './ReplaceDialog';
 import { useFlowTaskActions } from './useFlowTaskActions';
 import { type DraftTab } from './draft/DraftMode';
+import { DraftGenerate } from './draft/DraftGenerate';
 
 // 캠페인 v2 상세 컨테이너 — /campaigns의 CampaignDetail과 같은 계약(로드·낙관적 갱신·원고 카드 모달)을 쥐지만,
 // 표는 작업 표(TaskTable) 대신 단계 기반 표(FlowTable, Task 6)고 달력·인플루언서별 비용 표는 없다(R10 — 단일 표 화면).
@@ -114,6 +117,9 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
   // 이 신호를 보낸다(패널이 원고 모드일 때도 행 클릭 = 그 작업을 연다가 지켜져야 한다).
   const [draftOpenReq, setDraftOpenReq] = useState<{ tab: DraftTab | null; seq: number } | null>(null);
   const draftOpenSeqRef = useRef(0);
+  // AI로 만들기(Task 3)가 시안을 만드는 동안 — TaskPanel이 이 값으로 바깥 클릭·Esc 닫기를 끈다(생성 중
+  // 실수로 패널이 닫혀도 만들던 결과 자체는 미부착 원고로 남지만, 사용자가 붙일 기회를 놓치지 않게 한다).
+  const [draftBusy, setDraftBusy] = useState(false);
 
   // 요청 토큰 — 캠페인을 빠르게 갈아타면 앞 캠페인의 응답이 뒤에 도착할 수 있다. 그때 화면에는 이미 다른 캠페인이
   // 떠 있으므로 옛 응답은 성공이든 실패든 버린다(남의 캠페인 데이터·오류 배너가 붙는 것을 막는다).
@@ -465,6 +471,32 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
           </div>
         ))
     : null;
+  // 'AI로 만들기'의 자동 레퍼런스(§5-1) — 인용RT 작업이 대상을 정했으면 그 게시물의 tweetId. targetLabel이
+  // 이미 '대상 작업 참조 vs 링크'를 갈라 사람이 읽을 라벨로 바꿔 준다(표의 대상 칸과 같은 문구, 중복 구현 금지).
+  // 대상이 아직 없거나(빈 문자열) 파싱이 안 되는 값(placeholder 문구)이면 칩을 그리지 않는다.
+  const targetRef = useMemo(() => {
+    if (!panelTask || panelTask.type !== 'quoteRt' || !data) return null;
+    const raw = panelTask.target?.postUrl ?? panelTask.targetTweetUrl;
+    if (!raw) return null;
+    const parsed = parseTweetLink(raw);
+    return parsed.ok ? { tweetId: parsed.tweetId, label: targetLabel(panelTask, data.campaign.id).text } : null;
+  }, [panelTask, data]);
+  // 시안 붙이기(Task 3) — 패널은 task.draftId가 채워지는 순간 스스로 카드로 전환한다(panelDraftId 이펙트).
+  // 그러려면 상세를 다시 읽어야 한다(원고 카드 배선 주석과 같은 이유) — cardDraft는 미리 채워 둬 그 이펙트가
+  // 같은 원고를 다시 조회하지 않게 한다(패치 응답이 이미 최신이다).
+  const onDraftAttached = useCallback((d: DraftRow) => {
+    setCardDraft(d); setCardErr(null);
+    void load(); onChanged(); void reloadCandidates();
+  }, [load, onChanged, reloadCandidates]);
+  // 패널의 원고 모드 · 'AI로 만들기' 탭 — 클라이언트 정보(procedures)는 아직 못 읽었을 수 있어 빈 배열로 시작한다.
+  const draftGenerate: ReactNode = panelTask
+    ? (
+      <DraftGenerate task={panelTask} clientId={clientId} clientName={clientData?.client.name ?? null}
+                     procedures={clientData?.procedures ?? []} targetRef={targetRef}
+                     onAttached={onDraftAttached} onGenerated={() => void reloadCandidates()}
+                     onBusyChange={setDraftBusy} />
+    )
+    : null;
   // '있는 원고 고르기 n' — Task 1의 후보 조회 합. 아직 못 읽었으면 null(0이라고 거짓말하지 않는다, 결정 4).
   const pickCount = candidates ? candidates.siblings.length + candidates.others.length : null;
 
@@ -522,6 +554,7 @@ export function FlowDetail({ id, onChanged, onDeleted }: {
                    onClose={() => setPanel(null)} onPrev={onPanelPrev} onNext={onPanelNext} onCreate={createTask}
                    menu={panelTask ? renderMenu(panelTask) : null}
                    draftOpen={draftOpenReq} pickCount={pickCount} draftCard={draftCard}
+                   draftGenerate={draftGenerate} draftBusy={draftBusy}
                    onDetachDraft={(t) => void detachDraft(t)}
                    onReplace={(t) => setReplaceFor(t)}
                    onSaveProfilePricing={saveProfilePricing}

@@ -20,6 +20,7 @@
 - **레퍼런스 고르기 창은 기존 `RefPickerSheet`를 그대로 쓴다**(§5-1 1.5 예고 — 재설계는 v2 1.5 별건). 새로 만들지 말 것.
 - **원고 카드는 기존 `DraftCard`를 그대로 쓴다**(`max-w-[600px]`, 내부 고정 폭 없음 → 패널 안 516px에 들어간다). 카드의 기능을 다시 만들지 말 것.
 - **직접 쓰기의 X 컴포저**(§5-2): 가져오는 것 = 아바타·핸들(작업의 인플루언서) · 글자 수 원형 카운터(`xWeightedLength`, 초과 시 빨강) · 스레드(아래 `+`로 다음 글, 글마다 카운터, 연결선) · 이미지 첨부(글 아래 미리보기 격자, 글당 최대 `MAX_MEDIA_PER_POST`). **안 가져오는 것 = 이모지 피커·투표·GIF·예약.** 버튼은 `[저장하고 붙이기]`.
+- **본문과 이미지는 한 번에 저장된다**(koo 09-19): X에서 글을 쓸 때처럼 이미지를 고르는 순간 올라가 미리보기가 뜨고, `[저장하고 붙이기]`는 **한 번**이다. "저장한 뒤 이미지를 다시 올리는" 순서를 만들지 말 것.
 - **원고 카드의 편집(`DraftEditModal`)을 이 컴포저로 통일하는 것은 이번 범위가 아니다**(koo 09-18: "통일이 맞되 크기 보고"). 1차는 직접 쓰기만 — 후속 항목으로 §8에 남긴다.
 - **스키마 변경 없음.** 새 마이그레이션을 만들지 않는다. 형제 시안은 기존 `draft.batch_id`(017)·`variant_index`로 판정한다.
 - **취소된 작업(R18)에서는 원고 모드를 열지 않는다** — 원고를 붙일 수 없다(서버가 `task-cancelled`로 거절). 원고 칸은 스냅샷 텍스트만 보인다.
@@ -41,6 +42,8 @@
 | `src/app/campaigns/flow/TaskPanel.tsx` | `mode: 'task' | 'draft'` 토글, 원고 모드 머리말(`← 작업으로`)·입구 세 개 | 2 |
 | `src/app/campaigns/flow/draft/DraftMode.tsx` (신규) | 원고 모드의 껍데기 — 탭 세 개, 붙어 있으면 `DraftCard` | 2 |
 | `src/app/campaigns/flow/draft/DraftGenerate.tsx` (신규) | 레퍼런스·방향성·접힌 설정·[시안 N개 만들기]·시안 카드 | 3 |
+| `src/lib/draftMedia.ts` | 원고가 생기기 전에 올리는 헬퍼(`uploadPendingDraftImage`) | 4 |
+| `src/app/api/drafts/manual/route.ts` | 글마다 이미지를 함께 받아 한 번에 저장 | 4 |
 | `src/app/campaigns/flow/draft/XComposer.tsx` (신규) | X 포스트 작성 UI(카운터·스레드·이미지) | 4 |
 | `src/app/campaigns/flow/draft/DraftWrite.tsx` (신규) | 직접 쓰기 화면 — `XComposer` + [저장하고 붙이기] | 4 |
 | `src/app/campaigns/flow/draft/DraftPick.tsx` (신규) | 있는 원고 고르기 — 두 묶음 + 검색 | 5 |
@@ -525,12 +528,14 @@ git commit -m "feat(campaign-v2): 패널에서 시안을 만들고 하나를 붙
 **Files:**
 - Create: `src/app/campaigns/flow/draft/XComposer.tsx`
 - Create: `src/app/campaigns/flow/draft/DraftWrite.tsx`
-- Modify: `src/lib/draftPickView.ts`, `src/lib/draftPickView.test.ts`
+- Modify: `src/lib/draftMedia.ts` (원고 생성 전 업로드 헬퍼)
+- Modify: `src/app/api/drafts/manual/route.ts` (글마다 이미지를 함께 받는다)
+- Modify: `src/lib/draftPickView.ts`, `src/lib/draftPickView.test.ts`, `src/lib/campaignApi.ts`
 
 **Interfaces:**
 - Consumes: `xWeightedLength`·`X_MAX_WEIGHTED`(`src/lib/xLength.ts`) · `selectDraftImages`·`uploadDraftImage`·`MAX_MEDIA_PER_POST`(`src/lib/draftMedia.ts`) · `MediaGrid`(`src/components/MediaGrid.tsx`) · `createManualDraftApi`(Task 1)
 - Produces:
-  - `XComposer` props: `{ handle: string | null; posts: ComposerPost[]; onChange: (next: ComposerPost[]) => void; disabled?: boolean }` · `type ComposerPost = { text: string; files: File[] }`
+  - `XComposer` props: `{ handle: string | null; posts: ComposerPost[]; onChange: (next: ComposerPost[]) => void; onPickImages: (postIndex: number, files: File[]) => void; uploading: number; disabled?: boolean }` · `type ComposerPost = { text: string; media: DeckMedia[] }` — **이미 올라간 이미지**를 들고 있다(고르는 순간 올린다)
   - `composerCanSave(posts): boolean` (`src/lib/draftPickView.ts`) — 저장 가능 판정
 
 - [ ] **Step 1: 저장 가능 판정을 테스트로 먼저 못 박는다**
@@ -539,18 +544,18 @@ git commit -m "feat(campaign-v2): 패널에서 시안을 만들고 하나를 붙
 
 ```ts
 test('3) 컴포저 저장 판정 — 빈 칸만 있으면 못 저장, 한 칸이라도 내용이 있으면 저장, 글자 수 초과면 못 저장', () => {
-  assert.equal(composerCanSave([{ text: '', files: [] }]), false);
-  assert.equal(composerCanSave([{ text: '   ', files: [] }]), false);
-  assert.equal(composerCanSave([{ text: '올릴 글', files: [] }]), true);
-  assert.equal(composerCanSave([{ text: '올릴 글', files: [] }, { text: '', files: [] }]), false);   // 스레드 중간이 비면 안 된다
-  assert.equal(composerCanSave([{ text: 'あ'.repeat(200), files: [] }]), false);                      // 전각 200자 = 가중치 400 > 280
+  assert.equal(composerCanSave([{ text: '', media: [] }]), false);
+  assert.equal(composerCanSave([{ text: '   ', media: [] }]), false);
+  assert.equal(composerCanSave([{ text: '올릴 글', media: [] }]), true);
+  assert.equal(composerCanSave([{ text: '올릴 글', media: [] }, { text: '', media: [] }]), false);   // 스레드 중간이 비면 안 된다
+  assert.equal(composerCanSave([{ text: 'あ'.repeat(200), media: [] }]), false);                      // 전각 200자 = 가중치 400 > 280
 });
 ```
 
 `src/lib/draftPickView.ts`:
 ```ts
 import { X_MAX_WEIGHTED, xWeightedLength } from './xLength.ts';
-export interface ComposerPost { text: string; files: File[] }
+export interface ComposerPost { text: string; media: DeckMedia[] }
 // 직접 쓰기(§5-2) 저장 판정 — 스레드의 모든 칸이 비지 않고 각 칸이 X 상한 안이어야 한다.
 // 빈 칸을 허용하면 X에 올릴 수 없는 글이 저장되고, 사용자는 저장된 뒤에야 안다.
 export function composerCanSave(posts: ComposerPost[]): boolean {
@@ -561,7 +566,26 @@ export function composerCanSave(posts: ComposerPost[]): boolean {
 
 Run: `node --import tsx --test src/lib/draftPickView.test.ts` → 새 테스트가 먼저 실패하는지 보고, 구현 후 통과.
 
-- [ ] **Step 2: `XComposer`를 만든다**
+- [ ] **Step 2: 원고가 생기기 전에 올리는 헬퍼를 더한다**
+
+`uploadDraftImage(draftId, file)`는 경로에 원고 id가 필요하다. 아직 원고가 없는 컴포저용으로 같은 파일에 형제 함수를 둔다 — `url`은 스토리지 경로일 뿐이고 어디에도 원고 id를 되읽는 코드가 없으므로(`draftMediaFilename`은 입력값으로 이름을 만든다) 접두어만 다르면 된다.
+
+```ts
+// 원고가 생기기 전에 올린다(캠페인 v2 직접 쓰기, §5-2) — X에서처럼 이미지를 고르는 순간 올라가고
+// [저장하고 붙이기] 한 번으로 본문과 함께 저장된다. 경로의 앞부분은 표시·다운로드 어디서도 되읽지 않는다.
+// 저장하지 않고 떠나면 올라간 파일이 남는다 — 원고에서 이미지를 뗐을 때와 같은 성질이라 같은 수준으로 둔다.
+export async function uploadPendingDraftImage(file: File): Promise<DeckMedia> {
+  const validationError = draftImageValidationError(file);
+  if (validationError) throw new Error(validationError);
+  const path = `draft/pending/${crypto.randomUUID()}.${extensionForFile(file)}`;
+  const supabase = createClient();
+  const { error } = await supabase.storage.from(DRAFT_MEDIA_BUCKET).upload(path, file, { contentType: file.type });
+  if (error) throw new Error('업로드에 실패했어요 — 다시 시도해주세요');
+  return { type: 'photo', url: path, videoUrl: null };
+}
+```
+
+- [ ] **Step 3: `XComposer`를 만든다**
 
 X 작성 화면의 모양을 가져온다 — 아바타(핸들 첫 글자, 표의 `handleInitial`과 같은 방식) · 핸들 · 본문 textarea(자동 높이) · 오른쪽 아래 원형 카운터 · 글 아래 이미지 격자 · 칸 사이 세로 연결선 · 마지막 칸 아래 `+` 버튼.
 
@@ -580,11 +604,33 @@ const over = remain < 0;
 </svg>
 ```
 
-이미지: `selectDraftImages()`로 파일을 고르고(기존 헬퍼), 칸별 `files`에 `MAX_MEDIA_PER_POST`까지 담는다. 아직 업로드하지 않는다 — 미리보기는 `URL.createObjectURL`로 만들고 언마운트 때 `revokeObjectURL`한다. 스레드 칸 삭제 버튼은 칸이 둘 이상일 때만.
+이미지: `selectDraftImages(files, remainingSlots)`(기존 헬퍼)로 개수·형식·용량을 거른 뒤 **고르는 즉시 올린다** — X에서 글을 쓸 때처럼 미리보기가 바로 뜨고, 저장은 한 번이다. 올리는 동안 그 자리에 진행 표시를 두고 `[저장하고 붙이기]`는 비활성(`uploading > 0`). 거절된 파일은 이유를 한 줄로 말한다(`DraftImageRejection.reason`). 표시는 기존 `MediaGrid`(서명 URL 재발급까지 처리한다)를 그대로 쓴다. 스레드 칸 삭제 버튼은 칸이 둘 이상일 때만.
 
 **안 만드는 것**: 이모지 피커·투표·GIF·예약(§5-2).
 
-- [ ] **Step 3: `DraftWrite`가 저장하고 붙인다**
+- [ ] **Step 4: 생성 라우트가 글마다 이미지를 함께 받는다**
+
+`src/app/api/drafts/manual/route.ts`는 지금 `posts: string[]`만 받아 `media: []`로 저장한다. 본문과 이미지를 한 번에 저장하려면 글마다 이미지를 받아야 한다. **기존 형태(`string[]`)도 계속 받는다** — `DraftWriteModal`(기존 화면)이 그대로 동작해야 한다.
+
+```ts
+// posts: string[](기존 입구) 또는 { text, media }[](캠페인 v2 컴포저) — 둘 다 받는다.
+// 이미지는 클라이언트가 이미 스토리지에 올린 경로다(PATCH /api/drafts/[id] { edited }와 같은 신뢰 수준).
+type PostIn = string | { text?: unknown; media?: unknown };
+const rawPosts = Array.isArray(body.posts) ? (body.posts as PostIn[]) : [];
+const parsed = rawPosts.map((p) => (typeof p === 'string'
+  ? { text: p, media: [] as DeckMedia[] }
+  : { text: typeof p?.text === 'string' ? p.text : '', media: parseDeckMedia(p?.media) }));
+if (parsed.length === 0 || parsed.some((p) => !p.text.trim())) {
+  return NextResponse.json({ error: '본문을 입력해주세요' }, { status: 400 });
+}
+```
+`parseDeckMedia(v)`는 같은 파일 안의 작은 헬퍼 — 배열이 아니면 `[]`, 각 항목은 `{ type: string, url: string, videoUrl: string | null }` 모양이고 `url`이 비지 않은 문자열인 것만 남긴다. 저장할 `content`는 `{ posts: parsed }`.
+
+기존 응답·나머지 동작(클라이언트 스냅샷·taskId 부착·오류 매핑)은 그대로 둔다.
+
+`src/lib/campaignApi.ts`의 `createManualDraftApi` 타입을 `posts: Array<{ text: string; media: DeckMedia[] }>`로 넓힌다.
+
+- [ ] **Step 5: `DraftWrite`가 한 번에 저장하고 붙인다**
 
 ```tsx
 <XComposer handle={task.influencerHandle} posts={posts} onChange={setPosts} disabled={busy} />
@@ -596,29 +642,26 @@ const over = remain < 0;
 </div>
 ```
 
-`save()`의 순서와 실패 처리 — **본문 저장이 먼저, 이미지는 그다음**이다. 중간에 실패해도 사용자가 다시 칠 일이 없게:
+`save()` — 이미지는 이미 스토리지에 있으므로 **한 번의 생성 요청에 본문과 함께 실어 보낸다**:
 ```ts
 setBusy(true);
-const r = await createManualDraftApi({ posts: posts.map((p) => p.text.trim()), clientId, procedureIds });
+const r = await createManualDraftApi({ posts: posts.map((p) => ({ text: p.text.trim(), media: p.media })), clientId, procedureIds });
 if (!r.ok) { setBusy(false); show(r.error); return; }
 const draft = r.data[0];
 const a = await patchDraftApi(draft.id, { taskId: task.id });
-if (!a.ok) { setBusy(false); show(`${a.error} — 쓴 글은 '있는 원고 고르기'에 저장돼 있어요`); onSavedUnattached(); return; }
-// 이미지는 원고가 생긴 뒤에만 올릴 수 있다(uploadDraftImage(draftId, file)) — 실패해도 본문은 이미 저장됐다.
-const failed = await uploadPending(draft.id, posts);
 setBusy(false);
-if (failed > 0) show(`본문은 저장했고 이미지 ${failed}장은 실패했어요 — 카드에서 다시 붙일 수 있어요`);
+if (!a.ok) { show(`${a.error} — 쓴 글은 '있는 원고 고르기'에 저장돼 있어요`); onSavedUnattached(); return; }
 onAttached(a.data);
 ```
-`uploadPending`은 칸별로 `uploadDraftImage`를 돌리고, 성공한 것만 모아 `patchDraftApi(id, { edited })`로 한 번에 반영한 뒤 실패 수를 돌려준다.
+붙이기가 실패해도 **쓴 것은 이미 원고로 남아 있다** — 다시 칠 일이 없고, 고르기 탭에서 붙이면 된다.
 
-- [ ] **Step 4: 검증과 커밋**
+- [ ] **Step 6: 검증과 커밋**
 
 Run: `node --import tsx --test src/lib/draftPickView.test.ts && npx tsc --noEmit && npx eslint src/app/campaigns/flow src/lib && npm run build`
 
 ```bash
-git add src/app/campaigns/flow/draft/XComposer.tsx src/app/campaigns/flow/draft/DraftWrite.tsx src/lib/draftPickView.ts src/lib/draftPickView.test.ts src/app/campaigns/flow/FlowDetail.tsx
-git commit -m "feat(campaign-v2): 직접 쓰기를 X 작성 화면으로 — 글자 수·스레드·이미지"
+git add src/app/campaigns/flow/draft/XComposer.tsx src/app/campaigns/flow/draft/DraftWrite.tsx src/lib/draftMedia.ts src/app/api/drafts/manual/route.ts src/lib/campaignApi.ts src/lib/draftPickView.ts src/lib/draftPickView.test.ts src/app/campaigns/flow/FlowDetail.tsx
+git commit -m "feat(campaign-v2): 직접 쓰기를 X 작성 화면으로 — 글자 수·스레드·이미지 한 번에 저장"
 ```
 
 ---
@@ -760,6 +803,6 @@ git commit -m "docs(campaign-v2): 원고 모드 배포 안내 + §5·§8 갱신"
 ## 계획 자체 검토(작성 시 self-review)
 
 - **스펙 커버리지**: §5 머리(패널이 원고 모드로 바뀜·잠긴 값·인플 미정에서도 열림) → Task 2 · §5-1 생성(레퍼런스·방향성·접힌 설정·시안 카드·미부착 생성·형제 시안) → Task 1·3 · §5-2 직접 쓰기(X 컴포저) → Task 4 · §5-3 고르기(두 묶음·검색) → Task 1·5 · §5-4 작업 모드의 원고 칸 → Task 2·6.
-- **의도적 축소(koo 확인 필요)**: ① 원고 카드 편집(`DraftEditModal`)의 컴포저 통일은 이번 범위 밖 — koo가 "통일이 맞되 크기 보고"라 했고, `/generate`·기존 캠페인 상세까지 파급되어 별건이 맞다. ② 직접 쓰기의 이미지는 본문 저장 **뒤**에 올라간다(업로드에 원고 id가 필요하다) — 부분 실패를 문구로 알린다. ③ 레퍼런스 고르기 창은 기존 것을 그대로 쓴다(v2 1.5에서 재설계).
+- **의도적 축소(koo 확인 필요)**: ① 원고 카드 편집(`DraftEditModal`)의 컴포저 통일은 이번 범위 밖 — koo가 "통일이 맞되 크기 보고"라 했고, `/generate`·기존 캠페인 상세까지 파급되어 별건이 맞다. ② 직접 쓰기의 이미지는 **고르는 순간 올라가고 저장은 한 번**이다(koo 09-19) — 저장하지 않고 떠나면 올라간 파일이 스토리지에 남는다(원고에서 이미지를 뗐을 때와 같은 성질). ③ 레퍼런스 고르기 창은 기존 것을 그대로 쓴다(v2 1.5에서 재설계).
 - **타입 일관성**: `DraftRow.batchId`·`variantIndex`는 이미 존재한다(스토어 변경 없음) · `ComposerPost`는 Task 4가 정의하고 `composerCanSave`가 받는다 · `DraftTab`은 Task 2가 정의하고 Task 3·4·5의 자리를 가른다 · 생성 본문은 `createDraftsApi`에 `taskId`를 **넣지 않는다**(미부착).
 - **테스트 없는 부분**: 컴포넌트(하네스 없음) — `npm run build` + koo 화면 확인. 순수 함수(`draftPickView`)와 스토어(`campaignDraftStore`)는 테스트로 덮는다.

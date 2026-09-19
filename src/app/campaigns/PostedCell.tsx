@@ -17,6 +17,71 @@ import { PROOF_REQUIRED_MESSAGE, proofUploadedLine } from '@/lib/taskProofGuard'
 const POP_W = 320;
 const POP_H = 380;
 
+// 게시 확인 폼 — 표의 팝오버(PostedCell)와 캠페인 v2 패널의 다이얼로그(flow/PostedDialog)가 같은 폼을
+// 쓴다(b-task-9-brief.md §2) — 문구·검증·버튼 라벨·증빙 필수 규칙을 두 벌로 만들면 RT 증빙 규칙이 갈라진다.
+// 제출 성공 뒤 창을 닫을지는 onSubmit을 받은 쪽이 정한다(이 폼은 스스로 닫지 않는다) — 팝오버는 즉시 닫고
+// 다이얼로그도 마찬가지로 즉시 닫는다(성공 여부와 무관하게, 표의 기존 관례 그대로).
+export function PostedForm({ task, today, onSubmit, onCancel, submitLabel = '게시됨으로 표시' }: {
+  task: CampaignTaskItem; today: string;
+  onSubmit: (date: string, postUrl?: string, proof?: string) => void;
+  onCancel: () => void;
+  submitLabel?: string;
+}) {
+  const [date, setDate] = useState(today);
+  const [url, setUrl] = useState('');
+  const [err, setErr] = useState('');
+  const [pendingProof, setPendingProof] = useState<string | null>(null);   // 아직 저장 전 — [게시됨으로 표시]와 함께 나간다
+  const input = 'mt-0.5 h-10 w-full rounded-md border border-x-border-strong bg-white px-2.5 text-content outline-none focus:border-x-blue';
+
+  function submitPosted() {
+    if (!isDateOnlyString(date)) { setErr(DATE_MESSAGE); return; }
+    // 증빙 없는 RT는 [게시됨으로 표시] 버튼 자체가 disabled라 onClick이 나지 않는다 — 여기서 다시
+    // 막을 필요가 없다(리뷰 수정 3). 이유는 버튼 위 안내 문구(PROOF_REQUIRED_MESSAGE)가 화면에 늘 보인다.
+    const u = url.trim();
+    if (u) { const p = parseTweetLink(u); if (!p.ok) { setErr(tweetLinkParseMessage(p.reason)); return; } }
+    onSubmit(date, u || undefined, pendingProof ?? undefined);
+  }
+
+  return (
+    <>
+      <p className="text-ui font-bold">게시 확인</p>
+      <p className="mt-0.5 text-ui text-x-muted">
+        {task.type === 'rt'
+          ? '게시된 날을 적고 증빙 스크린샷을 넣으면 게시됨으로 바뀌고 정산 후보가 돼요'
+          : '게시된 날을 적으면 이 작업이 게시됨으로 바뀌고 정산 후보가 돼요'}
+      </p>
+      <label className="mt-2 block text-ui text-x-secondary">게시된 날
+        <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setErr(''); }} className={input} />
+      </label>
+      {task.type !== 'rt' && (
+        <label className="mt-2 block text-ui text-x-secondary">게시물 링크 <span className="text-x-muted">선택</span>
+          <input value={url} onChange={(e) => { setUrl(e.target.value); setErr(''); }} placeholder="https://x.com/계정/status/…" className={input} />
+          <span className="mt-0.5 block text-ui text-x-muted">링크를 붙이면 트래킹에도 등록돼 조회·좋아요가 잡혀요</span>
+        </label>
+      )}
+      {task.type === 'rt' && (
+        <TaskProofField taskId={task.id} value={pendingProof} signedUrl={null}
+                        postedAt={null} influencerHandle={task.influencerHandle}
+                        required canRemove disabled={false}
+                        onChange={(p) => { setPendingProof(p); setErr(''); }} />
+      )}
+      {/* 비활성 버튼의 이유를 툴팁(터치·키보드 사용자에겐 안 보인다)에만 두지 않고 화면에도 문구로
+          말한다(리뷰 수정 3) — 이 저장소 규칙. */}
+      {task.type === 'rt' && !pendingProof && (
+        <p className="mt-1 text-ui text-x-muted">{PROOF_REQUIRED_MESSAGE}</p>
+      )}
+      {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
+      <div className="mt-2 flex items-center gap-2">
+        <button type="button" onClick={onCancel} className="ml-auto rounded-full px-3 py-1 text-ui text-x-secondary hover:bg-x-text/5">취소</button>
+        <button type="button" onClick={submitPosted}
+                disabled={task.type === 'rt' && !pendingProof}
+                title={task.type === 'rt' && !pendingProof ? PROOF_REQUIRED_MESSAGE : undefined}
+                className="rounded-full bg-x-blue px-3 py-1 text-ui font-bold text-white hover:bg-x-blue-hover disabled:cursor-not-allowed disabled:opacity-50">{submitLabel}</button>
+      </div>
+    </>
+  );
+}
+
 export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRemoved, onUnmarkRemoved, onSetProof }: {
   task: CampaignTaskItem; today: string; proofSignedUrl: string | null;
   onMarkPosted: (date: string, postUrl?: string, proof?: string) => void;
@@ -29,10 +94,8 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const [date, setDate] = useState(today);
-  const [url, setUrl] = useState('');
   const [reason, setReason] = useState('');
   const [err, setErr] = useState('');
-  const [pendingProof, setPendingProof] = useState<string | null>(null);   // 아직 저장 전 — [게시됨으로 표시]와 함께 나간다
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
 
@@ -80,20 +143,12 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
     );
   }
 
-  function openPop() { setDate(today); setUrl(''); setReason(task.removedReason); setErr(''); setPendingProof(null); place(); setOpen(true); }
+  function openPop() { setDate(today); setReason(task.removedReason); setErr(''); place(); setOpen(true); }
   const label = stage === 'published' ? `게시됨 ${formatDateKo(task.postedAt as string)}`
     : stage === 'removed' ? `내려짐 ${formatDateKo(task.removedAt as string)}`
     : TASK_STAGE_LABEL[stage];
   const input = 'mt-0.5 h-10 w-full rounded-md border border-x-border-strong bg-white px-2.5 text-content outline-none focus:border-x-blue';
 
-  function submitPosted() {
-    if (!isDateOnlyString(date)) { setErr(DATE_MESSAGE); return; }
-    // 증빙 없는 RT는 [게시됨으로 표시] 버튼 자체가 disabled라 onClick이 나지 않는다 — 여기서 다시
-    // 막을 필요가 없다(리뷰 수정 3). 이유는 버튼 위 안내 문구(PROOF_REQUIRED_MESSAGE)가 화면에 늘 보인다.
-    const u = url.trim();
-    if (u) { const p = parseTweetLink(u); if (!p.ok) { setErr(tweetLinkParseMessage(p.reason)); return; } }
-    onMarkPosted(date, u || undefined, pendingProof ?? undefined); close();
-  }
   function submitRemoved() {
     if (!isDateOnlyString(date)) { setErr(DATE_MESSAGE); return; }
     onMarkRemoved(date, reason.trim()); close();
@@ -111,42 +166,9 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
         <div ref={popRef} role="dialog" aria-label="게시 확인" style={{ top: pos.top, left: pos.left, width: POP_W }} onClick={(e) => e.stopPropagation()}
              className="fixed z-50 rounded-xl border border-x-border-strong bg-white p-3 shadow-lg">
           {!task.postedAt ? (
-            <>
-              <p className="text-ui font-bold">게시 확인</p>
-              <p className="mt-0.5 text-ui text-x-muted">
-                {task.type === 'rt'
-                  ? '게시된 날을 적고 증빙 스크린샷을 넣으면 게시됨으로 바뀌고 정산 후보가 돼요'
-                  : '게시된 날을 적으면 이 작업이 게시됨으로 바뀌고 정산 후보가 돼요'}
-              </p>
-              <label className="mt-2 block text-ui text-x-secondary">게시된 날
-                <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setErr(''); }} className={input} />
-              </label>
-              {task.type !== 'rt' && (
-                <label className="mt-2 block text-ui text-x-secondary">게시물 링크 <span className="text-x-muted">선택</span>
-                  <input value={url} onChange={(e) => { setUrl(e.target.value); setErr(''); }} placeholder="https://x.com/계정/status/…" className={input} />
-                  <span className="mt-0.5 block text-ui text-x-muted">링크를 붙이면 트래킹에도 등록돼 조회·좋아요가 잡혀요</span>
-                </label>
-              )}
-              {task.type === 'rt' && (
-                <TaskProofField taskId={task.id} value={pendingProof} signedUrl={null}
-                                postedAt={null} influencerHandle={task.influencerHandle}
-                                required canRemove disabled={false}
-                                onChange={(p) => { setPendingProof(p); setErr(''); }} />
-              )}
-              {/* 비활성 버튼의 이유를 툴팁(터치·키보드 사용자에겐 안 보인다)에만 두지 않고 화면에도 문구로
-                  말한다(리뷰 수정 3) — 이 저장소 규칙. */}
-              {task.type === 'rt' && !pendingProof && (
-                <p className="mt-1 text-ui text-x-muted">{PROOF_REQUIRED_MESSAGE}</p>
-              )}
-              {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
-              <div className="mt-2 flex items-center gap-2">
-                <button type="button" onClick={close} className="ml-auto rounded-full px-3 py-1 text-ui text-x-secondary hover:bg-x-text/5">취소</button>
-                <button type="button" onClick={submitPosted}
-                        disabled={task.type === 'rt' && !pendingProof}
-                        title={task.type === 'rt' && !pendingProof ? PROOF_REQUIRED_MESSAGE : undefined}
-                        className="rounded-full bg-x-blue px-3 py-1 text-ui font-bold text-white hover:bg-x-blue-hover disabled:cursor-not-allowed disabled:opacity-50">게시됨으로 표시</button>
-              </div>
-            </>
+            <PostedForm task={task} today={today}
+                        onSubmit={(d, u, p) => { onMarkPosted(d, u, p); close(); }}
+                        onCancel={close} />
           ) : !task.removedAt ? (
             <>
               <p className="text-ui font-bold">게시 내림 표시</p>

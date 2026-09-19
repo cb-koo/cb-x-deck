@@ -21,15 +21,16 @@ const deadlineLabel = (ymd: string) => {
   return `${d.getUTCMonth() + 1}-${d.getUTCDate()}(${'일월화수목금토'[d.getUTCDay()]})`;
 };
 
-export function CandidateTable({ onCreated }: { onCreated?: () => void }) {
+export function CandidateTable({ onCreated, initialCampaignId }: { onCreated?: () => void; initialCampaignId?: string | null }) {
   const { show } = useToast();
   const [data, setData] = useState<{ candidates: SettlementCandidate[]; settings: SettlementSettings; today: string } | null>(null);
   const [err, setErr] = useState('');
   const [edits, setEdits] = useState<Record<string, RowEdit>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [failures, setFailures] = useState<Record<string, string>>({});
-  const [filter, setFilter] = useState<{ clientId: string; campaignId: string; type: '' | TaskType; method: '' | PaymentMethodType }>({ clientId: '', campaignId: '', type: '', method: '' });
+  const [filter, setFilter] = useState<{ clientId: string; campaignId: string; type: '' | TaskType; method: '' | PaymentMethodType }>({ clientId: '', campaignId: initialCampaignId ?? '', type: '', method: '' });
   const [confirming, setConfirming] = useState(false);
+  const [deepLinkNote, setDeepLinkNote] = useState('');
 
   const load = useCallback(async () => {
     const r = await fetchCandidates();
@@ -42,8 +43,13 @@ export function CandidateTable({ onCreated }: { onCreated?: () => void }) {
       for (const c of r.data.candidates) next[c.taskId] = prev[c.taskId] ?? { category: c.categoryDefault, deadlineOn: c.deadlineDefault, referenceUrl: c.referenceDefault ?? '' };
       return next;
     });
+    // 딥링크(v2 R15) — 그 캠페인의 후보가 0건이면 빈 표 대신 전체를 보이고 한 줄로 알린다
+    if (initialCampaignId && !r.data.candidates.some((c) => c.campaignId === initialCampaignId)) {
+      setFilter((f) => (f.campaignId === initialCampaignId ? { ...f, campaignId: '' } : f));
+      setDeepLinkNote('링크의 캠페인에는 정산 대기가 없어요 — 전체를 보여요');
+    }
     setSelected((prev) => new Set([...prev].filter((id) => r.data.candidates.some((c) => c.taskId === id))));
-  }, []);
+  }, [initialCampaignId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로드, setState는 전부 비동기 콜백(CampaignDetail·tracking 관례)
   useEffect(() => { void load(); }, [load]);
 
@@ -102,20 +108,21 @@ export function CandidateTable({ onCreated }: { onCreated?: () => void }) {
   return (
     <section>
       <div className="flex flex-wrap items-center gap-2">
-        <select className={SEL} value={filter.clientId} onChange={(e) => setFilter({ ...filter, clientId: e.target.value, campaignId: '' })} aria-label="클라이언트">
+        <select className={SEL} value={filter.clientId} onChange={(e) => { setFilter({ ...filter, clientId: e.target.value, campaignId: '' }); setDeepLinkNote(''); }} aria-label="클라이언트">
           <option value="">클라이언트 전체</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
         </select>
-        <select className={SEL} value={filter.campaignId} onChange={(e) => setFilter({ ...filter, campaignId: e.target.value })} aria-label="캠페인">
+        <select className={SEL} value={filter.campaignId} onChange={(e) => { setFilter({ ...filter, campaignId: e.target.value }); setDeepLinkNote(''); }} aria-label="캠페인">
           <option value="">캠페인 전체</option>{campaigns.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
         </select>
-        <select className={SEL} value={filter.type} onChange={(e) => setFilter({ ...filter, type: e.target.value as '' | TaskType })} aria-label="유형">
+        <select className={SEL} value={filter.type} onChange={(e) => { setFilter({ ...filter, type: e.target.value as '' | TaskType }); setDeepLinkNote(''); }} aria-label="유형">
           <option value="">유형 전체</option>{TASK_TYPES.map((t) => <option key={t} value={t}>{TASK_TYPE_LABEL[t]}</option>)}
         </select>
-        <select className={SEL} value={filter.method} onChange={(e) => setFilter({ ...filter, method: e.target.value as '' | PaymentMethodType })} aria-label="결제 수단">
+        <select className={SEL} value={filter.method} onChange={(e) => { setFilter({ ...filter, method: e.target.value as '' | PaymentMethodType }); setDeepLinkNote(''); }} aria-label="결제 수단">
           <option value="">결제 수단 전체</option>{PAYMENT_TYPES.map((t) => <option key={t} value={t}>{PAYMENT_TYPE_LABEL[t]}</option>)}
         </select>
         <span className="ml-auto text-ui text-x-muted" title="요청한 주의 다음 주 월요일까지. 급한 건은 행에서 마감을 직접 당겨 주세요">기본 마감 {deadlineLabel(rows[0]?.deadlineDefault ?? data.today)} · 다음 주 월요일</span>
       </div>
+      {deepLinkNote && <p className="mt-2 text-ui text-x-muted">{deepLinkNote}</p>}
       <h2 className="mt-4 text-[16px] font-semibold">검토 대기 {rows.length}</h2>
       {rows.length === 0 ? (
         <p className="mt-6 rounded-xl border border-dashed border-x-border p-8 text-center text-ui text-x-muted">게시 확인된 작업이 없어요 — 캠페인에서 게시된 날을 적으면 여기 나타나요</p>

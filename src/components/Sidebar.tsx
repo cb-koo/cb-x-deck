@@ -63,6 +63,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
   // 인플루언서 명부도 워크스페이스 밖 — 원고를 누구에게 줄지는 워크스페이스와 무관한 사람 정보다(스펙 §3)
   const globalNav = [
     { href: '/campaigns', label: '캠페인', Ic: CampaignIcon },
+    // 캠페인 v2(ADR 0003) — 새 업무흐름 화면, 자리 잡으면 위 캠페인을 대체
+    { href: '/campaigns/flow', label: '캠페인 v2', Ic: CampaignIcon },
     // 정산은 캠페인 바로 아래 — 만든 것(작업) → 돈 보내는 것(요청) 순으로 읽힌다(정산 스펙 §4)
     { href: '/settlement', label: '정산', Ic: CampaignIcon },
     { href: '/generate', label: '콘텐츠 생성', Ic: PenIcon },

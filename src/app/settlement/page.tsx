@@ -11,10 +11,12 @@ function SettlementInner() {
   const pathname = usePathname(); const sp = useSearchParams();
   // 탭은 URL이 아니라 지역 상태다 — router.replace는 App Router의 소프트 내비게이션(라우트 세그먼트 서버 왕복)을
   // 포함해서, 왕복이 밀리면 탭 클릭이 씹힌 것처럼 보였다(사용자 신고). URL 초기값은 마운트 시 1회만 읽는다 —
-  // 딥링크 두 개(캠페인 표 배지 → ?tab=requests&task=, 요청 펼침 → ?tab=log&request=)가 여기서 소비된다.
+  // 딥링크 세 개(캠페인 표 배지 → ?tab=requests&task=, 요청 펼침 → ?tab=log&request=,
+  // 캠페인 v2 → ?tab=candidates&campaign=)가 여기서 소비된다.
   const [tab, setTabState] = useState<SettlementTab>(() => parseSettlementTab(sp.get('tab')));
   const [focusTaskId, setFocusTaskId] = useState<string | null>(() => sp.get('task'));
   const [focusRequestId, setFocusRequestId] = useState<string | null>(() => sp.get('request'));
+  const [focusCampaignId] = useState<string | null>(() => sp.get('campaign'));
   const setTab = useCallback((t: SettlementTab) => {
     setTabState(t);
     setFocusTaskId(null);      // 탭을 바꾸면 딥링크로 들어온 '요청 하나만 보기' 필터는 해제한다(기존 동작 유지 + request도 함께)
@@ -27,6 +29,7 @@ function SettlementInner() {
     if (t === 'candidates') p.delete('tab'); else p.set('tab', t);
     p.delete('task');
     p.delete('request');
+    p.delete('campaign');
     const qs = p.toString();
     window.history.replaceState(null, '', qs ? `${pathname}?${qs}` : pathname);
   }, [pathname]);
@@ -43,7 +46,7 @@ function SettlementInner() {
         ))}
       </nav>
       <div className="mt-5">
-        {tab === 'candidates' && <CandidateTable onCreated={() => setTab('requests')} />}
+        {tab === 'candidates' && <CandidateTable onCreated={() => setTab('requests')} initialCampaignId={focusCampaignId} />}
         {tab === 'requests' && <RequestList focusTaskId={focusTaskId} />}
         {tab === 'settings' && <SettingsTab />}
         {tab === 'log' && <ExternalLogTab focusRequestId={focusRequestId} />}

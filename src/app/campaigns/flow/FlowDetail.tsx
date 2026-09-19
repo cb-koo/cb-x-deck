@@ -92,8 +92,12 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   // 게시 확인 다이얼로그(Task 9) — 패널의 [게시] 버튼과 행 메뉴(FlowRowMenu)의 [게시 확인]이 둘 다 이 상태를
   // 연다(Task 10). RT 증빙 라이트박스는 TaskTable과 같은 관례(useSignedTaskProofUrls로 배치 서명 + zoomUrl 하나).
   const [postedFor, setPostedFor] = useState<FlowRow | null>(null);
-  // 게시 내림 표시 다이얼로그(koo 09-19 결정 3) — 패널의 [내림 표시] 버튼이 연다. PostedDialog와 같은 자리.
-  const [removedFor, setRemovedFor] = useState<FlowRow | null>(null);
+  // 게시 내림 표시 다이얼로그(koo 09-19 결정 3) — 패널의 [내림 표시] 버튼이 연다. PostedDialog와 같은
+  // 자리. [내림 표시]는 항상 지금 패널이 보여주는 작업(panelTask)에서만 열리므로 대상은 boolean 하나로
+  // 충분하다 — postedFor처럼 클릭 시점 작업을 따로 들고 있으면, 다이얼로그 안에서 증빙을 올려도(그
+  // setProof는 data.tasks만 갱신) 그 스냅샷은 갱신되지 않아 옛 화면(PostedCell, task가 살아있는 prop)과
+  // 동작이 달라진다.
+  const [removedOpen, setRemovedOpen] = useState(false);
   const [zoomUrl, setZoomUrl] = useState<string | null>(null);
   // 있는 원고 고르기(패널의 [있는 원고 고르기]) — CampaignDetail의 attachFor와 같은 패턴, 같은 모달(AttachDraftModal)
   const [attachFor, setAttachFor] = useState<CampaignTaskItem | null>(null);
@@ -510,7 +514,7 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                                            className="mt-1 text-ui text-x-secondary hover:underline">내림 취소</button>
                                  </div>
                                ) : (
-                                 <button type="button" onClick={() => setRemovedFor(panelTask)}
+                                 <button type="button" onClick={() => setRemovedOpen(true)}
                                          className="mt-2 block text-ui text-x-secondary hover:underline">내림 표시</button>
                                )}
                              </div>
@@ -531,7 +535,7 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                    // 패널 위에 뜬 다른 레이어(원고 카드·편집 모달·원고 고르기·한 번에 만들기·게시 확인·게시물
                    // 연결·취소·교체)가 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를 닫는 Esc 한 번에
                    // 패널까지 같이 닫힌다.
-                   overlayOpen={!!peekId || !!editing || !!attachFor || bulkOpen || !!postedFor || !!removedFor || !!linkFor || !!cancelFor || !!replaceFor}
+                   overlayOpen={!!peekId || !!editing || !!attachFor || bulkOpen || !!postedFor || removedOpen || !!linkFor || !!cancelFor || !!replaceFor}
                    onDirtyChange={onNewDirtyChange} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
@@ -540,11 +544,11 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                       onClose={() => setPostedFor(null)}
                       onSubmit={(date, url, proof) => void actions.markPosted(postedFor, date, url, proof)} />
       )}
-      {removedFor && (
-        <RemovedDialog task={removedFor} today={data.today} proofSignedUrl={removedFor.proof ? proofUrls[removedFor.proof.url] ?? null : null}
-                       onClose={() => setRemovedFor(null)}
-                       onSetProof={(p) => void actions.setProof(removedFor, p)}
-                       onSubmit={(date, reason) => void actions.markRemoved(removedFor, date, reason)} />
+      {removedOpen && panelTask && (
+        <RemovedDialog task={panelTask} today={data.today} proofSignedUrl={panelTask.proof ? proofUrls[panelTask.proof.url] ?? null : null}
+                       onClose={() => setRemovedOpen(false)}
+                       onSetProof={(p) => void actions.setProof(panelTask, p)}
+                       onSubmit={(date, reason) => void actions.markRemoved(panelTask, date, reason)} />
       )}
       {zoomUrl && <ImageLightbox urls={[zoomUrl]} index={0} onIndexChange={() => {}} onClose={() => setZoomUrl(null)} />}
       {linkFor && (

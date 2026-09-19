@@ -10,9 +10,9 @@ import type { DraftRow } from '@/lib/draftStore';
 import type { CampaignMonthBudget } from '@/lib/clientBudget';
 import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi,
-  patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, type DraftPatchBody,
+  patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, type DraftPatchBody, type TaskCreateRequest,
 } from '@/lib/campaignApi';
-import { flowStage, FLOW_STAGES, type TaskType, type FlowStage } from '@/lib/campaignJudgment';
+import { flowStage, FLOW_STAGES, draftWriteHref, TASK_TYPE_LABEL, type TaskType, type FlowStage } from '@/lib/campaignJudgment';
 import { draftLabel } from '@/lib/draftViews';
 import { Button, PANEL } from '@/components/ui';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
@@ -24,10 +24,13 @@ import {
 } from '@/lib/campaignFlowView';
 import { CampaignHeader } from '../CampaignHeader';
 import { useCampaignTaskActions } from '../useCampaignTaskActions';
+import { AttachDraftModal } from '../AttachDraftModal';
 import { FlowFilterBar } from './FlowFilterBar';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
 import { TaskPanel } from './TaskPanel';
+import { BulkCreateDialog } from './BulkCreateDialog';
+import { useFlowTaskActions } from './useFlowTaskActions';
 
 // 캠페인 v2 상세 컨테이너 — /campaigns의 CampaignDetail과 같은 계약(로드·낙관적 갱신·원고 카드 모달)을 쥐지만,
 // 표는 작업 표(TaskTable) 대신 단계 기반 표(FlowTable, Task 6)고 달력·인플루언서별 비용 표는 없다(R10 — 단일 표 화면).
@@ -70,8 +73,9 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const [filter, setFilter] = useState<FlowFilter>(EMPTY_FLOW_FILTER);
   const [sort, setSort] = useState<FlowSort>({ key: null, dir: 1 });
   const [panel, setPanel] = useState<Panel>(null);
-  // "한 번에 만들기" 버튼은 지금 상태만 쥔다 — 뒤에 열 BulkCreateDialog가 아직 없다(Task 7). 그때까진 아무도 읽지 않는다.
-  const [, setBulkOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  // 있는 원고 고르기(패널의 [있는 원고 고르기]) — CampaignDetail의 attachFor와 같은 패턴, 같은 모달(AttachDraftModal)
+  const [attachFor, setAttachFor] = useState<CampaignTaskItem | null>(null);
 
   // 요청 토큰 — 캠페인을 빠르게 갈아타면 앞 캠페인의 응답이 뒤에 도착할 수 있다. 그때 화면에는 이미 다른 캠페인이
   // 떠 있으므로 옛 응답은 성공이든 실패든 버린다(남의 캠페인 데이터·오류 배너가 붙는 것을 막는다).
@@ -128,7 +132,6 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const taskActions = useCampaignTaskActions({ campaignId: id, setTasks, influencerOptions, show, onChanged });
   // 게시 확인에 링크를 함께 넣으면 트래킹 등록까지 일어난다 — 그 결과(성과 스냅샷·게시물 연결)는 서버에만 있으므로
   // 낙관적 갱신으로는 못 채운다. 링크가 있었을 때만 상세를 다시 읽어 조회·좋아요가 표에 뜨게 한다.
-  // (useFlowTaskActions — 취소·되돌리기·교체 — 는 Task 7이 여기에 얹는다.)
   const actions = useMemo(() => ({
     ...taskActions,
     markPosted: async (t: CampaignTaskItem, date: string, postUrl?: string, proof?: string) => {
@@ -137,6 +140,8 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
       return ok;
     },
   }), [taskActions, load]);
+  // 취소·되돌리기·교체(ADR 0002·0005) — 낙관 갱신 없이 성공 뒤 상세를 다시 읽는다. 호출부(다이얼로그)는 Task 10.
+  const flowActions = useFlowTaskActions({ campaignId: id, show, reload: load, onChanged });
 
   // ── 이 화면의 파생값(§4-2·§4-3) — 필터·정렬·통계는 campaignFlowView의 순수 함수로 계산한다. 여기서 다시 판정하지 않는다. ──
   // shown = 필터·정렬을 적용한 표시 순서. 표가 그리는 순서이자 패널의 이전/다음이 걷는 순서다(하나의 소스).
@@ -164,14 +169,61 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
   const panelTaskId = panel && 'taskId' in panel ? panel.taskId : null;
   const panelIndex = panelTaskId ? shown.findIndex((t) => t.id === panelTaskId) : -1;
   const panelTask = panelTaskId ? (data?.tasks.find((t) => t.id === panelTaskId) ?? null) : null;
+  // 표가 흐려지는 조건과 패널이 실제로 뜨는 조건은 항상 같아야 한다 — panelTaskId가 가리키는 작업이 다른 세션의
+  // 삭제·취소로 data.tasks에서 사라지면(Task 10 삭제 등) panelTask가 null이 되는데, 그때 표만 흐리고 패널이
+  // 없으면 "닫히지도 열리지도 않은" 상태로 보인다. 하나의 값으로 통일한다.
+  const panelOpen = !!panel && (isNew || !!panelTask);
   const openPanel = useCallback((taskId: string) => setPanel({ taskId }), []);
   const openNew = useCallback(() => setPanel({ fresh: true }), []);
   const openBulk = useCallback(() => setBulkOpen(true), []);
   const onRowClick = useCallback((t: FlowRow) => openPanel(t.id), [openPanel]);
   const onPanelPrev = useCallback(() => { if (panelIndex > 0) setPanel({ taskId: shown[panelIndex - 1].id }); }, [panelIndex, shown]);
   const onPanelNext = useCallback(() => { if (panelIndex >= 0 && panelIndex < shown.length - 1) setPanel({ taskId: shown[panelIndex + 1].id }); }, [panelIndex, shown]);
-  // 행 "···" 메뉴 — 취소·되돌리기·교체·게시물 연결·삭제(Task 10까지는 아무것도 없다, b-task-6-brief.md §3)
-  const renderMenu = useCallback((t: FlowRow): ReactNode => { void t; return null; }, []);
+  // 행 "···" 메뉴 — 취소·되돌리기·교체·게시물 연결·삭제(Task 10까지는 아무것도 없다, b-task-6-brief.md §3).
+  // flowActions(취소·되돌리기·교체)는 이미 준비돼 있다 — Task 10은 메뉴·확인 다이얼로그만 얹으면 된다.
+  const renderMenu = useCallback((t: FlowRow): ReactNode => { void t; void flowActions; return null; }, [flowActions]);
+
+  // 오른쪽 패널의 [만들기]/[만들고 하나 더] — 새 작업은 만들기 전까지 로컬 상태로 들고 있다가 한 번에 보낸다
+  // (결정 3, b-task-7-brief.md). more가 아니면 방금 만든 작업으로 패널을 전환한다.
+  const createTask = useCallback(async (body: TaskCreateRequest, more: boolean): Promise<boolean> => {
+    const r = await createTasksApi(id, body);
+    if (!r.ok) { show(r.error); return false; }
+    await load(); onChanged();
+    if (!more) setPanel({ taskId: r.data.tasks[0].id });
+    return true;
+  }, [id, show, load, onChanged]);
+
+  // 원고 떼기(패널의 [떼기]) — 확인 없이(원고는 남는다고 토스트가 말한다), 작업의 원고 칸만 비운다(§5)
+  const detachDraft = useCallback(async (t: CampaignTaskItem) => {
+    if (!t.draftId) return;
+    const r = await patchDraftApi(t.draftId, { taskId: null });
+    if (!r.ok) { show(r.error); return; }
+    await load();
+    show('작업에서 뗐어요 — 작업도 원고도 남아 있어요');
+  }, [show, load]);
+
+  // 한 번에 만들기(§4-1) — 유형마다 createTasksApi를 DISPLAY_TYPE_ORDER 순으로. 하나라도 실패하면 멈추고
+  // 거기까지 만들어진 걸 문구로 알린다(조용히 일부만 만들지 않는다).
+  const bulkCreate = useCallback(async (counts: Record<TaskType, number>) => {
+    let firstId: string | null = null;
+    const made: string[] = [];
+    for (const type of DISPLAY_TYPE_ORDER) {
+      const n = counts[type];
+      if (!n) continue;
+      const r = await createTasksApi(id, { type, count: n, influencers: [] });
+      if (!r.ok) {
+        show(`${made.length ? made.join(' · ') + ' 만들었어요. ' : ''}${TASK_TYPE_LABEL[type]}에서 실패했어요 — ${r.error}`);
+        await load(); onChanged();
+        if (firstId) setPanel({ taskId: firstId });
+        return;
+      }
+      made.push(`${TASK_TYPE_LABEL[type]} ${n}개`);
+      if (!firstId) firstId = r.data.tasks[0].id;
+    }
+    await load(); onChanged();
+    if (firstId) setPanel({ taskId: firstId });
+    show(`${made.join(' · ')} 만들었어요`);
+  }, [id, show, load, onChanged]);
 
   // 열려 있는 원고가 붙은 작업 — 카드의 인플루언서 배정이 이 작업으로 간다(캠페인의 단위는 작업이다)
   const peekTask = useMemo(() => (peekId && data ? data.tasks.find((t) => t.draftId === peekId) ?? null : null), [peekId, data]);
@@ -296,16 +348,44 @@ export function FlowDetail({ id, campaigns, onChanged, onDeleted }: {
                          sortNote={sortNote} settleWait={settleWait} campaignId={id} />
         </div>
         {/* 패널이 열려 있는 동안 표를 흐리게 — 스크림은 두지 않는다(다른 행을 눌러도 패널이 그 작업으로 바뀌어야 한다, 결정 3) */}
-        <div className={panel ? 'mt-3.5 opacity-60 transition-opacity' : 'mt-3.5'}>
+        <div className={panelOpen ? 'mt-3.5 opacity-60 transition-opacity' : 'mt-3.5'}>
           <FlowTable rows={shown} total={data.tasks.length} today={data.today} influencerOptions={influencerOptions}
                      sort={sort} onSortChange={setSort} footer={footer}
                      selectedId={panelTaskId} onRowClick={onRowClick} renderMenu={renderMenu} />
         </div>
       </div>
 
-      {panel && (
-        <TaskPanel task={isNew ? null : panelTask} isNew={isNew} index={panelIndex} total={shown.length}
-                   onClose={() => setPanel(null)} onPrev={onPanelPrev} onNext={onPanelNext} />
+      {/* key: 다른 작업으로(이전/다음) 또는 새 작업으로 넘어가면 패널의 로컬 입력 버퍼(인플 입력칸·메모 등)를
+          통째로 새로 시작한다 — 안 그러면 직전 작업에서 치던 값이 다음 작업 화면에 잠깐 남는다. */}
+      {panelOpen && (
+        <TaskPanel key={isNew ? 'new' : (panelTaskId ?? 'none')}
+                   mode={isNew ? { kind: 'new' } : { kind: 'edit', task: panelTask as FlowRow, index: panelIndex, total: shown.length }}
+                   campaign={data.campaign} today={data.today} influencerOptions={influencerOptions} actions={actions}
+                   onClose={() => setPanel(null)} onPrev={onPanelPrev} onNext={onPanelNext} onCreate={createTask}
+                   menu={panelTask ? renderMenu(panelTask) : null}
+                   onOpenDraft={setPeekId} onAttachDraft={setAttachFor}
+                   onGenerateHref={(t) => draftWriteHref(t.id, id)}
+                   onDetachDraft={(t) => void detachDraft(t)}
+                   slots={{
+                     cost: <div className="text-ui text-x-muted">비용 칸(Task 8)</div>,
+                     target: <div className="text-ui text-x-muted">대상 칸(Task 9)</div>,
+                   }}
+                   // 패널 위에 뜬 다른 레이어(원고 카드·편집 모달·원고 고르기·한 번에 만들기)가 있으면 패널의
+                   // Esc를 끈다 — 안 그러면 그 레이어를 닫는 Esc 한 번에 패널까지 같이 닫힌다.
+                   overlayOpen={!!peekId || !!editing || !!attachFor || bulkOpen} />
+      )}
+      {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
+      {attachFor && (
+        <AttachDraftModal clientId={data.campaign.clientId} title="이 작업에 붙일 원고 고르기"
+                          emptyHint="붙일 수 있는 원고가 없어요 — 창을 닫고 [새로 만들기]를 누르면 바로 쓸 수 있어요"
+                          onClose={() => setAttachFor(null)}
+                          onPick={async (d) => {
+                            const r = await patchDraftApi(d.id, { taskId: attachFor.id });
+                            if (!r.ok) { show(r.error); return; }
+                            setAttachFor(null);
+                            show('원고를 붙였어요');
+                            void load(); onChanged();
+                          }} />
       )}
 
       {peekId && (

@@ -32,6 +32,7 @@ import {
   FLOW_SORT_LABEL, DISPLAY_TYPE_ORDER, matchesExtra, EXTRA_FILTERS, replaceDisabledReason,
   type FlowRow, type FlowFilter, type FlowSort, type ExtraFilter,
 } from '@/lib/campaignFlowView';
+import { POSTED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
 import { CampaignHeader } from '../CampaignHeader';
 import { useCampaignTaskActions } from '../useCampaignTaskActions';
 import { LinkPostModal } from '../LinkPostModal';
@@ -634,6 +635,11 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                    if (!forTask) { show('이 원고가 붙은 작업을 찾지 못했어요 — 새로고침해 주세요'); return; }
                    const current = forTask.influencerHandle;
                    if (current && next && current.toLowerCase() !== next.toLowerCase()) {
+                     // 게시 뒤에는 교체가 없다 — replaceDisabledReason은 미배정·방문일 지남만 보고 게시는
+                     // 보지 않는다(다른 호출부들은 한 층 위에서 prePost로 걸러 이 함수까지 오지 않는다).
+                     // 여기서 안 막으면 게시된 작업에서 교체 창이 열렸다가, 비용·사유·메모를 다 쓴 뒤
+                     // 제출에서 서버가 거절한다 — 이 분기가 막으려던 바로 그 모양이다(최종 리뷰).
+                     if (forTask.postedAt) { show(POSTED_TASK_MESSAGE); return; }
                      const reason = data ? replaceDisabledReason(forTask, data.today) : null;
                      if (reason) { show(reason); return; }
                      setReplaceInitialHandle(next); setReplaceFor(forTask); return;

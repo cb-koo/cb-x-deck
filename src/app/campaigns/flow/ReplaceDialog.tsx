@@ -14,15 +14,35 @@ import { Button } from '@/components/ui';
 // 그 선택지 자체를 감춘다 — 통화 단위가 다른 값을 슬쩍 밀어 넣지 않는다(koo 결정, 리뷰 carried-over 2).
 // onConfirm은 flowActions.replace를 감싼 것 — CancelDialog·BulkCreateDialog와 같은 관례로 제출 뒤 결과와
 // 무관하게 닫는다(성공·실패는 토스트가 말한다).
-export function ReplaceDialog({ task, influencerOptions, onClose, onConfirm }: {
+// 핸들 하나를 검증·정규화한다 — 사용자가 친 값이든(commitHandle) 카드에서 미리 골라 넘어온 값이든
+// (initialHandle) 같은 길을 지나야 한다(koo QA 지적: 두 번 고르게 하지 않되 검증은 다르게 타면 안 된다).
+function resolveHandle(raw: string, currentHandle: string | null): { handle: string; handleInput: string; handleErr: string | null } {
+  const v = raw.trim();
+  if (!v) return { handle: '', handleInput: '', handleErr: null };
+  const p = parseXHandle(v);
+  if (!p.ok) return { handle: '', handleInput: raw, handleErr: handleParseMessage(p.reason) };
+  if (currentHandle && p.handle.toLowerCase() === currentHandle.toLowerCase()) {
+    return { handle: '', handleInput: raw, handleErr: '같은 인플루언서예요 — 바꿀 사람을 골라요' };
+  }
+  return { handle: p.handle, handleInput: p.handle, handleErr: null };
+}
+
+export function ReplaceDialog({ task, influencerOptions, initialHandle, onClose, onConfirm }: {
   task: FlowRow;
   influencerOptions: InfluencerOption[];
+  // 원고 카드에서 이미 고른 핸들(선택) — 있으면 입력칸에 미리 채운 채 연다. 검증은 resolveHandle 하나로
+  // commitHandle과 공유한다(아래) — 초기값만 다른 길을 타면 카드에서 고른 값이 여기선 다르게 판정될 수 있다.
+  initialHandle?: string;
   onClose: () => void;
   onConfirm: (body: { handle: string; cost?: TaskCost | null; reason?: CancelReason | null; note?: string }) => Promise<void>;
 }) {
-  const [handleInput, setHandleInput] = useState('');
-  const [handle, setHandle] = useState('');
-  const [handleErr, setHandleErr] = useState<string | null>(null);
+  // 다이얼로그는 열릴 때마다 새로 마운트된다(FlowDetail이 {replaceFor && <ReplaceDialog .../>}로 그린다) —
+  // 그래서 마운트 시 한 번 계산하는 이 값은 매번 다시 여는 것과 같다(리렌더마다 다시 계산돼도 useState
+  // 초기값 인자로만 쓰이므로 첫 렌더 뒤로는 영향이 없다).
+  const initial = initialHandle ? resolveHandle(initialHandle, task.influencerHandle) : { handle: '', handleInput: '', handleErr: null };
+  const [handleInput, setHandleInput] = useState(initial.handleInput);
+  const [handle, setHandle] = useState(initial.handle);
+  const [handleErr, setHandleErr] = useState<string | null>(initial.handleErr);
   const [costChoice, setCostChoice] = useState<'keep' | 'suggest'>('keep');
   const [reason, setReason] = useState<CancelReason | null>(null);
   const [note, setNote] = useState('');
@@ -35,16 +55,9 @@ export function ReplaceDialog({ task, influencerOptions, onClose, onConfirm }: {
   }, [onClose, busy]);
 
   function commitHandle(raw: string) {
-    const v = raw.trim();
-    if (!v) { setHandle(''); setHandleInput(''); setHandleErr(null); return; }
-    const p = parseXHandle(v);
-    if (!p.ok) { setHandleErr(handleParseMessage(p.reason)); return; }
-    if (task.influencerHandle && p.handle.toLowerCase() === task.influencerHandle.toLowerCase()) {
-      setHandleErr('같은 인플루언서예요 — 바꿀 사람을 골라요');
-      return;
-    }
-    setHandle(p.handle); setHandleInput(p.handle); setHandleErr(null);
-    setCostChoice('keep');   // 사람이 바뀌면 새 단가 선택은 다시 기본값(유지)부터
+    const r = resolveHandle(raw, task.influencerHandle);
+    setHandle(r.handle); setHandleInput(r.handleInput); setHandleErr(r.handleErr);
+    if (r.handle) setCostChoice('keep');   // 사람이 바뀌면 새 단가 선택은 다시 기본값(유지)부터
   }
 
   const option = handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined;

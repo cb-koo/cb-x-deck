@@ -29,7 +29,7 @@ import { useSignedTaskProofUrls } from '@/components/useSignedTaskProofUrls';
 import { ImageLightbox } from '@/components/ImageLightbox';
 import {
   EMPTY_FLOW_FILTER, matchesFlowFilter, sortFlowRows, flowStats, settleWaitCount, flowFooter, filterSummary,
-  FLOW_SORT_LABEL, DISPLAY_TYPE_ORDER, matchesExtra, EXTRA_FILTERS,
+  FLOW_SORT_LABEL, DISPLAY_TYPE_ORDER, matchesExtra, EXTRA_FILTERS, replaceDisabledReason,
   type FlowRow, type FlowFilter, type FlowSort, type ExtraFilter,
 } from '@/lib/campaignFlowView';
 import { CampaignHeader } from '../CampaignHeader';
@@ -144,6 +144,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const [linkFor, setLinkFor] = useState<FlowRow | null>(null);
   const [cancelFor, setCancelFor] = useState<FlowRow | null>(null);
   const [replaceFor, setReplaceFor] = useState<FlowRow | null>(null);
+  // 원고 카드에서 고른 핸들을 교체 다이얼로그가 이어받게(있음+다른 핸들, koo QA) — 행 메뉴로 열 때는 없다(빈 입력부터).
+  const [replaceInitialHandle, setReplaceInitialHandle] = useState<string | null>(null);
   // 원고 모드(§5) — '있는 원고 고르기' 입구 라벨의 개수와 pick 탭의 후보에 쓴다. 캠페인 단위로 한 번 읽고,
   // 원고를 붙이거나 뗄 때마다 다시 읽는다(reloadCandidates). undefined=아직 못 읽음(로딩 중), null=읽다가
   // 실패, 객체=성공 — clientData(위)와 같은 모양(리뷰 지적 2, Task 3에서 같은 문제를 고친 방식을 따른다).
@@ -442,7 +444,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     schedule: (t) => openPanel(t.id),
     openDraftMode,
     linkPost: (t) => setLinkFor(t),
-    replace: (t) => setReplaceFor(t),
+    replace: (t) => { setReplaceInitialHandle(null); setReplaceFor(t); },
     cancel: (t) => { if (confirmLoseDraftFor(t.id)) setCancelFor(t); },
     // 되돌리기는 확인 창 없이 즉시 실행한다 — 되돌리기 자체가 되돌리는 동작이고, 결과는 훅이 토스트로 알린다.
     // 취소돼 있던 작업에 붙어 있던 원고는 되돌리며 재부착되거나(reattached) 남의 것이 됐거나(taken) 지워졌을
@@ -620,8 +622,22 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                  influencerOptions={influencerOptions}
                  // 배정은 작업의 값이다(§2-5) — 카드에서 바꿔도 저장되는 곳은 이 원고가 붙은 작업이고,
                  // 카드 표시만 같은 값으로 맞춰 둔다(작업이 없으면 배정할 곳도 없다).
+                 // 이미 인플이 있는 작업에서 (대소문자 무시하고) '다른' 핸들을 고르면 배정 API를 부르지
+                 // 않고 교체 다이얼로그로 보낸다(koo QA 지적) — 교체에는 비용 이월·이전 증빙 정리·사유
+                 // 기록이 붙는데 배정 API엔 없다. 방문협찬이 방문일을 지나 게시 전이면 행 메뉴·패널의
+                 // [바꾸기]와 같은 이유(replaceDisabledReason)로 교체 자체가 막혀 있다 — 여기서도 먼저
+                 // 판정해 다이얼로그가 열렸다가 제출에서야 실패하지 않게 한다(같은 판정 함수 하나, §AGENTS 4).
+                 // 최초 배정(미배정→핸들)·해제(→null)·표기만 바뀐 같은 사람(대소문자 변경)은 지금 그대로
+                 // 배정 API를 부른다 — 서버가 셋 다 허용한다. 완전히 같은 표기를 다시 고르는 것은 칩
+                 // 자체가 걸러 이 콜백까지 오지 않는다(InfluencerChip.save).
                  onAssignInfluencer={(next) => {
                    if (!forTask) { show('이 원고가 붙은 작업을 찾지 못했어요 — 새로고침해 주세요'); return; }
+                   const current = forTask.influencerHandle;
+                   if (current && next && current.toLowerCase() !== next.toLowerCase()) {
+                     const reason = data ? replaceDisabledReason(forTask, data.today) : null;
+                     if (reason) { show(reason); return; }
+                     setReplaceInitialHandle(next); setReplaceFor(forTask); return;
+                   }
                    setCardDraft((cur) => (cur?.id === d.id ? { ...cur, influencerHandle: next } : cur));
                    void actions.assignInfluencer(forTask, next, { autoCost: false });   // 비용은 패널의 [확인]이 확정한다(R24)
                  }}
@@ -795,7 +811,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                    draftOpen={draftOpenReq} pickCount={pickCount} draftCard={draftCard}
                    draftGenerate={draftGenerate} draftWrite={draftWrite} draftPick={draftPick} draftBusy={draftBusy} closeConfirm={closeConfirm} moveConfirm={moveConfirm}
                    onDetachDraft={(t) => void detachDraft(t)}
-                   onReplace={(t) => setReplaceFor(t)}
+                   onReplace={(t) => { setReplaceInitialHandle(null); setReplaceFor(t); }}
                    onSaveProfilePricing={saveProfilePricing}
                    // edit 모드만 여기서 채운다 — new 모드의 비용 칸은 TaskPanel이 로컬 상태로 직접 그린다(위 주석).
                    slots={{
@@ -905,7 +921,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                       }} />
       )}
       {replaceFor && (
-        <ReplaceDialog task={replaceFor} influencerOptions={influencerOptions} onClose={() => setReplaceFor(null)}
+        <ReplaceDialog task={replaceFor} influencerOptions={influencerOptions} initialHandle={replaceInitialHandle ?? undefined}
+                       onClose={() => { setReplaceFor(null); setReplaceInitialHandle(null); }}
                        onConfirm={async (body) => { await flowActions.replace(replaceFor, body); }} />
       )}
       {editing && (

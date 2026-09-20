@@ -13,7 +13,7 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
-    date: '2026-09-19', type: '새 기능',
+    date: '2026-09-20', type: '새 기능',
     title: '캠페인 v2에서 원고까지 만들 수 있어요 — 화면을 떠나지 않아요',
     summary: '작업 패널의 원고 칸에서 바로 시안을 만들거나, 직접 쓰거나, 이미 있는 원고를 골라 붙일 수 있어요. 원고를 만들려고 콘텐츠 생성 화면으로 넘어갔다 돌아오지 않아도 돼요.',
     bullets: [

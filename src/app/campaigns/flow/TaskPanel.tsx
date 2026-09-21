@@ -4,6 +4,7 @@ import type { CampaignRow } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import type { DraftRow } from '@/lib/draftStore';
 import { fetchTasksTargets, type TaskCreateRequest } from '@/lib/campaignApi';
+import { buildTaskCreateBody } from '@/lib/taskCreateBody';
 import type { TaskCost } from '@/lib/campaignCost';
 import {
   flowStage, FLOW_STAGE_LABEL, TASK_TYPE_LABEL, isOutOfRange, formatDateKo, type TaskType,
@@ -65,7 +66,9 @@ export function TaskPanel({
   onClose: () => void;
   onPrev: () => void;
   onNext: () => void;
-  onCreate: (body: TaskCreateRequest, more: boolean) => Promise<boolean>;
+  // 'draft-taken' — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져간 409(Task 5 §3). 'error'는 그 밖의
+  // 실패(토스트는 FlowDetail이 띄운다). 'ok'만 성공 — more일 때만 폼에 남는다(그 갈래는 이 컴포넌트가 비운다).
+  onCreate: (body: TaskCreateRequest, more: boolean) => Promise<'ok' | 'draft-taken' | 'error'>;
   menu: ReactNode;   // 헤더 ··· — edit 모드에만 채워진다(Task 10, FlowRowMenu). 원고 모드에서는 숨긴다(작업 동작이라서).
   // 원고 모드로 들어가라는 요청(행 메뉴 등 패널 바깥에서 왔을 수 있다, C 원고 모드 §Step1). seq가 매번 바뀌어야
   // 이미 같은 작업의 패널이 열려 있을 때(키 리마운트가 안 일어난다)도 같은 탭을 다시 요청하면 반영된다.
@@ -164,6 +167,15 @@ export function TaskPanel({
   const [visitOn, setVisitOn] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  // 409(Task 5 §3) — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져갔다는 사실을 원고 칸 자리에서
+  // 직접 말한다(서버 문구를 그대로 토스트로 흘리지 않는다). newDraft는 FlowDetail이 주인인 외부 상태라
+  // (formDraft) 그쪽이 다시 채우면(재고름·되돌리기 등 이 컴포넌트가 모르는 경로 포함) 여기서도 지운다 —
+  // 안 지우면 나중에 정상적으로 뗐을 때(삭제·[떼기])도 옛 충돌 문구가 엉뚱하게 남는다.
+  const [draftGone, setDraftGone] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 부모(FlowDetail)가 주인인 외부 상태(newDraft)의 변화를 반영하는 것이 목적
+    if (newDraft) setDraftGone(false);
+  }, [newDraft]);
 
   // ── 편집 모드 로컬 상태 — 미배정 인플 입력 버퍼, 메모 입력 버퍼(값이 바뀌었을 때만 저장) ──
   const [editHandleInput, setEditHandleInput] = useState('');
@@ -281,18 +293,17 @@ export function TaskPanel({
   async function submitNew(more: boolean) {
     if (!newType || busy) return;
     setBusy(true);
-    const body: TaskCreateRequest = {
-      type: newType,
-      influencers: handle ? [{ handle, cost: newCost }] : [],
-      ...(handle ? {} : { cost: newCost ?? undefined }),
-      scheduledOn, visitOn: newType === 'visit' ? visitOn : null,
-      note,
-      ...(target && 'taskId' in target ? { targetTaskId: target.taskId } : {}),
-      ...(target && 'url' in target ? { targetTweetUrl: target.url } : {}),
-    };
-    const ok = await onCreate(body, more);
+    // 본문 조립은 buildTaskCreateBody 하나로(Task 1) — 서버 제약(draftId는 1명 이하·count와 배타)을 여기서
+    // 다시 만들지 않는다. handle은 '' | string인데 draftId는 string | null이 필요해 handle || null로 맞춘다.
+    const body = buildTaskCreateBody({
+      type: newType, handle: handle || null, cost: newCost,
+      scheduledOn, visitOn, note, target,
+      draftId: newDraft?.id ?? null,
+    });
+    const result = await onCreate(body, more);
     setBusy(false);
-    if (ok && more) resetNewFields();   // 유형은 유지 — 같은 유형을 연달아 만드는 게 실제 사용 패턴(결정 4)
+    if (result === 'draft-taken') { setDraftGone(true); return; }   // FlowDetail이 이미 formDraft를 비웠다
+    if (result === 'ok' && more) resetNewFields();   // 유형은 유지 — 같은 유형을 연달아 만드는 게 실제 사용 패턴(결정 4). 원고는 FlowDetail이 비운다(스펙 §4-5)
   }
 
   async function commitEditHandle(t: FlowRow, raw: string) {
@@ -574,7 +585,9 @@ export function TaskPanel({
                 있는 원고 고르기{pickCount !== null ? ` ${pickCount}` : ''}
               </button>
             </span>
-            <p className="mt-1 text-caption text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
+            {/* 409(Task 5 §3) — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져갔다. 서버 문구를 그대로
+                옮기지 않고 이 자리에서 사실만 말한다: 원고는 지워지지 않았고, 다시 고르면 된다. */}
+            <p className="mt-1 text-caption text-x-muted">{draftGone ? '다른 작업에 붙었어요 — 다시 고르기' : '인플루언서가 직접 쓰면 비워 둬요'}</p>
           </div>
         );
       }

@@ -510,12 +510,22 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // draftWriteDirty는 항상 false다 — 패널이 'new' 모드인 동안은 DraftWrite·DraftGenerate 둘 다 마운트되지
   // 않아(DraftMode가 원고 모드일 때만 그린다) 그 dirty를 세울 주체가 없다. openPanel의 확인은 그래도
   // 통과하므로(값이 false라 물을 게 없다) 여기서 따로 처리하지 않는다.
-  const createTask = useCallback(async (body: TaskCreateRequest, more: boolean): Promise<boolean> => {
+  // 409(Task 5 §3) — draftId를 함께 보냈는데 그 사이 다른 작업이 그 원고를 가져갔다(route.ts:37·56 —
+  // 이 라우트에서 409는 이 경우뿐이다). 서버 문구(DRAFT_ATTACHED_MESSAGE)를 토스트로 흘리지 않고
+  // 'draft-taken'으로 돌려준다 — TaskPanel이 원고 칸 자리에서 사실대로 말한다. formDraft는 여기서 비운다
+  // (주인이 이 컴포넌트라서) — TaskPanel은 다시 고를 수 있게 빈 칸을 보여준다.
+  const createTask = useCallback(async (body: TaskCreateRequest, more: boolean): Promise<'ok' | 'draft-taken' | 'error'> => {
     const r = await createTasksApi(id, body);
-    if (!r.ok) { show(r.error); return false; }
+    if (!r.ok) {
+      if (r.status === 409 && body.draftId) { setFormDraft(null); return 'draft-taken'; }
+      show(r.error);
+      return 'error';
+    }
     await load(); onChanged();
-    if (!more) openPanel(r.data.tasks[0].id);
-    return true;
+    // more(만들고 하나 더) — 폼을 비울 때 고른 원고도 비운다(스펙 §4-5, 유형은 TaskPanel이 유지한다).
+    // more가 아니면 만든 작업으로 패널을 바꾼다 — isNew가 꺼지며 formDraft를 비우는 효과(위)가 대신 돈다.
+    if (more) setFormDraft(null); else openPanel(r.data.tasks[0].id);
+    return 'ok';
   }, [id, show, load, onChanged, openPanel]);
 
   // 원고 떼기(패널의 [떼기]) — 확인 없이(원고는 남는다고 토스트가 말한다), 작업의 원고 칸만 비운다(§5)

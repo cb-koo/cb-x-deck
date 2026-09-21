@@ -6,7 +6,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { ReferenceRow } from '@/lib/referenceStore';
 import type { DraftRow } from '@/lib/draftStore';
-import type { FlowRow } from '@/lib/campaignFlowView';
+import type { DraftHost } from '@/lib/draftHost';
 import { createDraftsApi, patchDraftApi } from '@/lib/campaignApi';
 import { canGenerate, bannedPhraseCount, COST_CAPTION, DEFAULT_COMPOSER, type ComposerState } from '@/components/DraftComposer';
 import { candidateLine } from '@/lib/draftPickView';
@@ -54,9 +54,12 @@ function applyRefCap(
 }
 
 export function DraftGenerate({
-  task, clientId, clientData, targetRef, onAttached, onAttachFailed, onGenerated, onBusyChange, onOverlayChange, onDirtyChange,
+  host, clientId, clientData, targetRef, onAttached, onAttachFailed, onGenerated, onBusyChange, onOverlayChange, onDirtyChange, onChosen,
 }: {
-  task: FlowRow;
+  // 이 원고 모드가 저장된 작업 밑에서 열렸는지(그러면 시안을 그 작업에 붙인다), 아직 안 만든 새 작업 폼
+  // 밑에서 열렸는지(그러면 붙일 작업이 없으므로 서버를 부르지 않고 "골랐다"는 사실만 onChosen으로 올린다) —
+  // draftHost.ts 참고. 이 컴포넌트가 쓰는 필드는 host.kind === 'task'일 때의 taskId 하나뿐이다(확인됨).
+  host: DraftHost;
   clientId: string | null;
   // 클라이언트 정보 — FlowDetail의 clientData와 같은 모양(3c 리뷰 지적 5). 셋으로 나뉜다(리뷰 지적 4):
   // undefined는 아직 못 읽음(로딩 중이거나 clientId 자체가 없음), null은 읽다가 실패, 객체는 성공. clientId가
@@ -92,6 +95,10 @@ export function DraftGenerate({
   // 않는다. 레퍼런스 칩·만들어진 시안은 판정에 넣지 않는다(브리프 §3) — 레퍼런스는 다시 고르면 그만이고,
   // 시안은 이미 원고로 저장돼 '있는 원고 고르기'에 남아 잃을 게 없다. 방향성 글자만 "다시 칠 일"이라서다.
   onDirtyChange: (dirty: boolean) => void;
+  // host.kind === 'form'일 때만 불린다(작업 호스트에서는 붙이기가 서버까지 끝나므로 부를 일이 없다 — 넘기지
+  // 않는 선택 prop). 폼에는 아직 붙일 작업이 없으니 고른 시안을 서버에 보내지 않고 그대로 부모(새 작업 폼)에
+  // 올린다 — 실제 부착은 [만들기]가 작업 생성과 한 트랜잭션으로 한다(태스크 2 브리프 §4-2).
+  onChosen?: (d: DraftRow) => void;
 }) {
   const { show } = useToast();
   const [refs, setRefs] = useState<ReferenceRow[]>([]);
@@ -231,8 +238,12 @@ export function DraftGenerate({
 
   async function attach(d: DraftRow) {
     if (attaching) return;
+    // 폼에서는 붙일 작업이 아직 없다(태스크 2 브리프 §4-2) — 서버를 부르지 않고 고른 사실만 위로 올린다.
+    // 부착은 [만들기]가 작업 생성과 한 트랜잭션으로 한다. attaching 잠금도 걸지 않는다 — 서버를 안 부르니
+    // 잠글 비동기 구간이 없다.
+    if (host.kind === 'form') { onChosen?.(d); return; }
     setAttaching(d.id);
-    const r = await patchDraftApi(d.id, { taskId: task.id });
+    const r = await patchDraftApi(d.id, { taskId: host.taskId });
     // 실패했을 때만 되돌린다(리뷰 지적 6) — 성공 경로에서 먼저 풀면 상세 재조회(onAttached → 부모의 load)가
     // 끝나기 전까지 다른 시안 버튼이 다시 눌려 409를 부른다. 재조회까지 성공하면 카드로 바뀌며 이 화면
     // 자체가 사라진다. 재조회가 실패하면(리뷰 지적 3) 잠금을 풀 유일한 길이 그 재조회뿐이라 — 붙이기 자체는
@@ -362,7 +373,9 @@ export function DraftGenerate({
 
       {variants.length > 0 && (
         <div className="space-y-2 border-t border-x-border pt-3">
-          <p className="text-ui text-x-secondary">만들어진 시안 <span className="text-x-muted">하나를 골라 붙여요 · 다듬기는 붙인 뒤에</span></p>
+          <p className="text-ui text-x-secondary">만들어진 시안 <span className="text-x-muted">
+            {host.kind === 'form' ? '하나를 골라 써요 · 다듬기는 고른 뒤에' : '하나를 골라 붙여요 · 다듬기는 붙인 뒤에'}
+          </span></p>
           {variants.map((d, i) => {
             const line = candidateLine(d);
             return (
@@ -370,7 +383,7 @@ export function DraftGenerate({
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-ui text-x-secondary">시안 {'ABCDE'[i] ?? i + 1}</p>
                   <Button variant={i === 0 ? 'primary' : 'subtle'} disabled={!!attaching} onClick={() => void attach(d)} className="h-8 shrink-0 px-2.5">
-                    {attaching === d.id ? '붙이는 중…' : '이 시안 붙이기'}
+                    {attaching === d.id ? '붙이는 중…' : (host.kind === 'form' ? '이 시안 쓰기' : '이 시안 붙이기')}
                   </Button>
                 </div>
                 <p className="mt-1 whitespace-pre-wrap text-content">{(d.edited ?? d.content).posts.map((p) => p.text).join('\n\n')}</p>

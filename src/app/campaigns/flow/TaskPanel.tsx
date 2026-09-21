@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
+import type { DraftRow } from '@/lib/draftStore';
 import { fetchTasksTargets, type TaskCreateRequest } from '@/lib/campaignApi';
+import { buildTaskCreateBody } from '@/lib/taskCreateBody';
 import type { TaskCost } from '@/lib/campaignCost';
 import {
   flowStage, FLOW_STAGE_LABEL, TASK_TYPE_LABEL, isOutOfRange, formatDateKo, type TaskType,
@@ -12,6 +14,7 @@ import {
   PANEL_FIELD_ORDER, DISPLAY_TYPE_ORDER, costCell, replaceDisabledReason, detachConfirmMessage, type FlowRow, type PanelField,
 } from '@/lib/campaignFlowView';
 import { STATUS_LABEL } from '@/lib/draftStatus';
+import { draftLabel } from '@/lib/draftViews';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
 import { InfluencerField } from '@/components/InfluencerField';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
@@ -38,6 +41,11 @@ import { DraftMode, type DraftTab } from './draft/DraftMode';
 // 판정을 공유한다 — 각자 판정하면 한쪽만 조건을 놓쳐 버튼이 있다/없다가 갈릴 수 있다.
 type PanelMode = { kind: 'edit'; task: FlowRow; index: number; total: number } | { kind: 'new' };
 
+// 폼 맥락(Task 4, 스펙 §4-6) — 새 작업 폼의 인플루언서·유형·대상을 FlowDetail에 알려, 그쪽이 원고 모드
+// 세 갈래(폼 호스트)를 이 값으로 만든다. TaskPanel의 로컬 상태(newType·handle·target)를 그대로 옮긴 것뿐이라
+// 새 상태 보관소가 아니다 — target은 인용RT의 targetRef 계산(대상 링크가 있을 때만)에만 쓰인다.
+export type FormDraftContext = { type: TaskType | null; handle: string | null; target: TargetValue };
+
 // 직접 쓰기에서 떠나기 전 확인(리뷰 지적 4) — 기존 두 번째 입구 DraftWriteModal.requestClose와 글자 하나까지
 // 같은 문장을 쓴다(새로 짓지 말 것). 같은 기능이 같은 상황에서 다른 문구를 쓰면 사용자가 두 화면을 다른
 // 기능으로 읽는다. export하는 이유 — FlowDetail이 이 값을 그대로 가져다 패널 닫기 자리의 closeConfirm을
@@ -48,6 +56,7 @@ export const DRAFT_WRITE_LOST_CONFIRM = '작성 중인 원고가 있어요. 닫�
 export function TaskPanel({
   mode, campaign, today, influencerOptions, actions, onClose, onPrev, onNext, onCreate,
   menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftPick, draftBusy, closeConfirm, moveConfirm, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
+  newDraft, onNewDraftChange, onNewContextChange, formHandleFill,
 }: {
   mode: PanelMode;
   campaign: CampaignRow;
@@ -57,7 +66,9 @@ export function TaskPanel({
   onClose: () => void;
   onPrev: () => void;
   onNext: () => void;
-  onCreate: (body: TaskCreateRequest, more: boolean) => Promise<boolean>;
+  // 'draft-taken' — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져간 409(Task 5 §3). 'error'는 그 밖의
+  // 실패(토스트는 FlowDetail이 띄운다). 'ok'만 성공 — more일 때만 폼에 남는다(그 갈래는 이 컴포넌트가 비운다).
+  onCreate: (body: TaskCreateRequest, more: boolean) => Promise<'ok' | 'draft-taken' | 'error'>;
   menu: ReactNode;   // 헤더 ··· — edit 모드에만 채워진다(Task 10, FlowRowMenu). 원고 모드에서는 숨긴다(작업 동작이라서).
   // 원고 모드로 들어가라는 요청(행 메뉴 등 패널 바깥에서 왔을 수 있다, C 원고 모드 §Step1). seq가 매번 바뀌어야
   // 이미 같은 작업의 패널이 열려 있을 때(키 리마운트가 안 일어난다)도 같은 탭을 다시 요청하면 반영된다.
@@ -95,9 +106,26 @@ export function TaskPanel({
   // 패널 위에 뜬 다른 오버레이(편집 모달·한 번에 만들기 등)가 있는 동안은 패널의 Esc를 끈다 —
   // 안 그러면 그 레이어를 닫는 Esc 한 번에 오버레이와 패널이 같이 닫힌다(generate 관례: 겹친 레이어는 위부터 하나씩).
   overlayOpen: boolean;
-  // 새 작업 모드의 dirty 여부를 부모(FlowDetail)에 알린다(I1-3) — 표의 다른 행을 클릭했을 때 같은 확인을
-  // 거치려면 부모가 알아야 하는데, 그 값은 이 컴포넌트의 로컬 상태에서만 계산된다.
-  onDirtyChange?: (dirty: boolean) => void;
+  // 새 작업 모드에서 "떠나면 잃는 것"을 부모(FlowDetail)에 알린다(I1-3, Task 4 §6) — 표의 다른 행을
+  // 클릭했을 때 같은 확인을 거치려면 부모가 알아야 하는데, 그 값은 이 컴포넌트의 로컬 상태에서만 계산된다.
+  // boolean이 아니라 문장 조각(string|null)을 올린다 — FlowDetail:419·429의 행 전환 확인이 "입력한 내용이
+  // 사라져요"로 고정돼 있으면 원고만 고르고 칸은 비운 경우 거짓말이 된다(원고는 '있는 원고 고르기'에
+  // 남아 안 사라진다). null이면 잃을 게 없다는 뜻 — 묻지 않는다. requestClose가 쓰는 것과 같은 조각
+  // (newDirtyParts, 아래)이고, 어미(마침 문구)만 자리마다 다르다.
+  onDirtyChange?: (msg: string | null) => void;
+  // 새 작업 폼에서 고른 원고(Task 3 원고 칸) — 주인은 FlowDetail이다(스펙 §4-6, Task 4에서 세 갈래와 함께
+  // 배선한다). 이 컴포넌트는 받아서 그리기만 한다. 떼는 동작(onNewDraftChange(null))도 서버를 부르지
+  // 않는다 — 아직 어디에도 붙은 적이 없어 폼에서 내려놓는 것뿐이고, 원고는 '있는 원고 고르기'에 남는다.
+  newDraft: DraftRow | null;
+  onNewDraftChange: (d: DraftRow | null) => void;
+  // 폼 맥락이 바뀔 때마다 위로 알린다(Task 4 §Step1, onDirtyChange와 같은 관례) — FlowDetail이 이 값으로
+  // 폼 호스트(DraftHost)를 만든다. 새 상태 보관소가 아니다 — 이 컴포넌트가 이미 든 값(newType·handle·target)을
+  // 그대로 올리기만 한다.
+  onNewContextChange?: (ctx: FormDraftContext) => void;
+  // '있는 원고 고르기'에서 고른 원고의 주인이 폼의 인플루언서와 다를 때(스펙 §4-3 "고르는 순간의 주인
+  // 불일치") — FlowDetail이 pickedHandleNotice로 판정해 채울 값이 있으면 이 신호를 보낸다. seq가 매번
+  // 바뀌어야 같은 핸들을 연달아 골라도(예: 뗐다가 같은 원고를 다시 고름) 반영된다(draftOpenReq와 같은 관례).
+  formHandleFill?: { handle: string | null; seq: number } | null;
 }) {
   const task = mode.kind === 'edit' ? mode.task : null;
   const index = mode.kind === 'edit' ? mode.index : -1;
@@ -121,7 +149,10 @@ export function TaskPanel({
   // 취소된 작업은 원고 모드에 머무르지 않는다(리뷰 지적 1, 거짓 어포던스) — 원고 모드인 채로 그 작업이
   // 표의 ···에서 취소되면(서버가 draft_id를 뗀다) 자리표시자 탭 세 개가 취소된 작업 위에 남는다. 취소된
   // 작업의 원고 칸은 이미 스냅샷 텍스트만 보여주므로 작업 모드로 돌아오는 것이 맞다.
-  const inDraftMode = draftMode === 'draft' && !!task && !task.cancelledAt;
+  // 새 작업 폼(mode.kind === 'new')도 원고 모드를 연다(Task 4 §1) — 취소라는 개념이 없으므로 그 가드는
+  // task가 있을 때만 적용한다. 폼에서 draftMode가 'draft'가 되는 건 원고 칸의 세 버튼(newFieldOrder가
+  // 'draft'를 포함할 때만 보인다 → newType이 이미 정해져 있다)을 눌렀을 때뿐이다.
+  const inDraftMode = draftMode === 'draft' && (mode.kind === 'new' || (!!task && !task.cancelledAt));
 
   // ── 새 작업 로컬 상태 — 만들기 전까지 서버에 쓰지 않는다 ──
   const [newType, setNewType] = useState<TaskType | null>(null);
@@ -136,6 +167,15 @@ export function TaskPanel({
   const [visitOn, setVisitOn] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  // 409(Task 5 §3) — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져갔다는 사실을 원고 칸 자리에서
+  // 직접 말한다(서버 문구를 그대로 토스트로 흘리지 않는다). newDraft는 FlowDetail이 주인인 외부 상태라
+  // (formDraft) 그쪽이 다시 채우면(재고름·되돌리기 등 이 컴포넌트가 모르는 경로 포함) 여기서도 지운다 —
+  // 안 지우면 나중에 정상적으로 뗐을 때(삭제·[떼기])도 옛 충돌 문구가 엉뚱하게 남는다.
+  const [draftGone, setDraftGone] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 부모(FlowDetail)가 주인인 외부 상태(newDraft)의 변화를 반영하는 것이 목적
+    if (newDraft) setDraftGone(false);
+  }, [newDraft]);
 
   // ── 편집 모드 로컬 상태 — 미배정 인플 입력 버퍼, 메모 입력 버퍼(값이 바뀌었을 때만 저장) ──
   const [editHandleInput, setEditHandleInput] = useState('');
@@ -145,24 +185,38 @@ export function TaskPanel({
   // 새 작업 모드에서 값이 하나라도 채워졌으면(유형은 빼고) Esc·[✕]로 닫을 때 경고 없이 사라지지 않게 한 번
   // 묻는다(I1) — DraftWriteModal의 dirty 관례와 같다. handleInput은 아직 커밋 전(엔터·블러 전) 값도 잡는다 —
   // 반쯤 친 핸들이야말로 경고 없이 사라지면 안 되는 값이다.
-  const isNewDirty = useCallback((): boolean => (
+  const isFormFieldsFilled = useCallback((): boolean => (
     mode.kind === 'new' && (
       handleInput.trim() !== '' || newCost !== null || target !== null ||
       scheduledOn !== null || visitOn !== null || note.trim() !== ''
     )
   ), [mode.kind, handleInput, newCost, target, scheduledOn, visitOn, note]);
+  // 원고만 고르고 다른 칸은 그대로 둔 채 닫으려는 경우도 dirty다(Task 3 §4) — 원고는 잃지 않지만(폼에서
+  // 내려놓을 뿐 '있는 원고 고르기'에 남는다), 그 사실을 묻지 않고 닫으면 "방금 고른 게 어디 갔지"가 된다.
+  // 문장 조각만 만들고 마침 문구(닫을까요?/다른 작업을 열까요?)는 부르는 쪽이 붙인다(Task 4 §6) — 이
+  // 컴포넌트 안(requestClose, '닫을까요?')과 FlowDetail(행 전환, '다른 작업을 열까요?')이 같은 사실을
+  // 서로 다른 동작 문구로 말해야 해서다. null이면 잃을 게 없다는 뜻.
+  const newDirtyParts = useCallback((): string | null => {
+    const parts: string[] = [];
+    if (isFormFieldsFilled()) parts.push('입력한 내용이 사라져요.');
+    if (mode.kind === 'new' && newDraft) parts.push("고른 원고는 '있는 원고 고르기'에 남아요.");
+    return parts.length ? parts.join(' ') : null;
+  }, [isFormFieldsFilled, mode.kind, newDraft]);
   const panelRef = useRef<HTMLElement | null>(null);
   // 직접 쓰기·생성 탭에서 작성 중일 때 닫기 전 확인(리뷰 지적 4, Task 4c §3에서 생성 탭까지 넓혔다,
   // Task 4e에서 문구를 closeConfirm으로 받게 바꿨다) — closeConfirm은 FlowDetail이 어느 탭이 작성
   // 중인지 이미 반영해서 내려준다. null이면 작성 중이 아니라는 뜻이라 묻지 않는다.
+  // 원고를 고른 채 닫으면 문구가 갈린다(Task 3 §4, 사실만 말한다) — 입력칸이 채워졌으면 "사라져요", 원고가
+  // 있으면 "'있는 원고 고르기'에 남아요"(잃지 않는다), 둘 다면 두 문장을 이어 잃는 것과 안 잃는 것을 함께 말한다.
   const requestClose = useCallback(() => {
-    if (isNewDirty() && !window.confirm('입력한 내용이 사라져요. 닫을까요?')) return;
+    const dirtyMsg = newDirtyParts();
+    if (dirtyMsg && !window.confirm(`${dirtyMsg} 닫을까요?`)) return;
     if (closeConfirm !== null && !window.confirm(closeConfirm)) return;
     onClose();
-  }, [isNewDirty, closeConfirm, onClose]);
+  }, [newDirtyParts, closeConfirm, onClose]);
   // FlowDetail이 표의 다른 행을 클릭했을 때 같은 확인을 거치려면 지금 dirty 여부를 알아야 한다(I1-3) —
   // 이 컴포넌트 밖에서 못 보는 로컬 상태라 바뀔 때마다 콜백으로 올려 보낸다.
-  useEffect(() => { onDirtyChange?.(isNewDirty()); }, [isNewDirty, onDirtyChange]);
+  useEffect(() => { onDirtyChange?.(newDirtyParts()); }, [newDirtyParts, onDirtyChange]);
   // 탭 전환 · ← 작업으로 · 푸터 작업으로(리뷰 지적 4) — 탭을 바꾸거나 원고 모드를 나가면 DraftWrite가
   // 언마운트돼 친 글과 이미 올라간 이미지가 확인 없이 사라진다. 문구는 패널 닫기와 다르다(moveConfirm,
   // Task 4e) — 닫는 게 아니라 자리를 옮기는 동작이라서다.
@@ -174,6 +228,20 @@ export function TaskPanel({
     if (moveConfirm !== null && !window.confirm(moveConfirm)) return;
     setDraftMode('task');
   }, [moveConfirm]);
+  // 폼 맥락을 위로 알린다(Task 4 §Step1) — FlowDetail이 이 값으로 폼 호스트(DraftHost)와 인용RT의
+  // targetRef를 만든다. edit 모드에서도 도는데(newType 등은 그 모드에서 안 바뀌므로 매번 null) 무해하다 —
+  // FlowDetail은 mode.kind === 'new'일 때만 이 값을 쓴다.
+  useEffect(() => {
+    onNewContextChange?.({ type: newType, handle: handle || null, target });
+  }, [newType, handle, target, onNewContextChange]);
+  // 있는 원고 고르기에서 주인이 다른 원고를 고르면, 폼이 비어 있던 경우 FlowDetail이 pickedHandleNotice의
+  // fill로 이 신호를 보낸다(위 formHandleFill 주석) — commitNewHandle로 기존 핸들 입력과 같은 검증·저장
+  // 경로를 탄다(새 로직이 아니다). handle이 null이면(카드에서 해제) 빈 문자열로 — commitNewHandle('')은
+  // 이미 '비우기'로 정의돼 있다(handle 커밋 함수 본문 참고).
+  useEffect(() => {
+    if (!formHandleFill) return;
+    commitNewHandle(formHandleFill.handle ?? '');
+  }, [formHandleFill]);
 
   // 바깥을 누르면 닫는다(koo 09-19). 예외 셋: ① 패널 안 ② 표의 행 — 다른 작업으로 갈아타는 동작이라 행이 직접
   // 처리한다 ③ 포털로 body에 붙는 팝오버·메뉴·툴팁(비용·인플·필터·행 메뉴·ⓘ) — 패널에서 연 것인데 DOM 상으로는
@@ -205,6 +273,10 @@ export function TaskPanel({
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
     setScheduledOn(null); setVisitOn(null); setNote(''); setNewCost(null); setTarget(null);
+    // 409 문구(draftGone)는 newDraft가 "들어올 때"만 꺼진다(위 이펙트) — [만들고 하나 더]로 새 빈 폼을
+    // 열면 newDraft가 애초에 안 들어오므로 그 이펙트가 안 돈다. 여기서 직접 꺼야 새 폼에 옛 충돌 문구가
+    // 남지 않는다(최종 리뷰 §2).
+    setDraftGone(false);
   }
   async function resolveNewTarget(next: { taskId: string } | { url: string } | null) {
     if (next === null) { setTarget(null); return; }
@@ -225,18 +297,17 @@ export function TaskPanel({
   async function submitNew(more: boolean) {
     if (!newType || busy) return;
     setBusy(true);
-    const body: TaskCreateRequest = {
-      type: newType,
-      influencers: handle ? [{ handle, cost: newCost }] : [],
-      ...(handle ? {} : { cost: newCost ?? undefined }),
-      scheduledOn, visitOn: newType === 'visit' ? visitOn : null,
-      note,
-      ...(target && 'taskId' in target ? { targetTaskId: target.taskId } : {}),
-      ...(target && 'url' in target ? { targetTweetUrl: target.url } : {}),
-    };
-    const ok = await onCreate(body, more);
+    // 본문 조립은 buildTaskCreateBody 하나로(Task 1) — 서버 제약(draftId는 1명 이하·count와 배타)을 여기서
+    // 다시 만들지 않는다. handle은 '' | string인데 draftId는 string | null이 필요해 handle || null로 맞춘다.
+    const body = buildTaskCreateBody({
+      type: newType, handle: handle || null, cost: newCost,
+      scheduledOn, visitOn, note, target,
+      draftId: newDraft?.id ?? null,
+    });
+    const result = await onCreate(body, more);
     setBusy(false);
-    if (ok && more) resetNewFields();   // 유형은 유지 — 같은 유형을 연달아 만드는 게 실제 사용 패턴(결정 4)
+    if (result === 'draft-taken') { setDraftGone(true); return; }   // FlowDetail이 이미 formDraft를 비웠다
+    if (result === 'ok' && more) resetNewFields();   // 유형은 유지 — 같은 유형을 연달아 만드는 게 실제 사용 패턴(결정 4). 원고는 FlowDetail이 비운다(스펙 §4-5)
   }
 
   async function commitEditHandle(t: FlowRow, raw: string) {
@@ -407,11 +478,31 @@ export function TaskPanel({
     }
   }
 
-  // ── 새 작업 칸 — PANEL_FIELD_ORDER에서 'draft'만 뺀다(만들 때는 원고를 못 붙인다, 붙이기는 만든 뒤 편집 패널에서) ──
-  const newFieldOrder: PanelField[] = newType ? PANEL_FIELD_ORDER[newType].filter((f) => f !== 'draft') : [];
+  // 새 작업 폼에서 원고를 떼는 동작(Task 3 §2) — 서버를 부르지 않는다. 원고는 어디에도 붙은 적이 없어
+  // '떼기'가 아니라 '내려놓기'다 — 사실대로 확인 문구가 그렇게 말한다.
+  function detachNewDraft() {
+    if (!window.confirm("폼에서 내려놓을까요? 원고는 지워지지 않고 '있는 원고 고르기'에 남아요.")) return;
+    onNewDraftChange(null);
+  }
+
+  // 새 작업 칸 — 원고 칸도 그대로 쓴다(스펙 §4-1). RT는 PANEL_FIELD_ORDER.rt에 'draft'가 없어 자동으로 빠진다.
+  const newFieldOrder: PanelField[] = newType ? PANEL_FIELD_ORDER[newType] : [];
   function renderNewField(field: PanelField): ReactNode {
     switch (field) {
       case 'influencer':
+        // 원고가 들어오면 인플루언서 칸을 칩(읽기 전용)으로 바꾼다(스펙 §4-3) — 서버가 붙는 순간 원고의
+        // 주인을 작업 값으로 덮어쓰므로(coalesce 반대 방향), 화면에서도 고정해 둔다. 비용·일정·대상·메모는
+        // 이 잠금과 무관하다(Global Constraints).
+        if (newDraft) {
+          return (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center rounded-lg border border-x-border-strong bg-x-hover px-2.5 py-2 text-content text-x-secondary">
+                {handle ? `@${handle}` : '미정'}
+              </span>
+              <span className="text-caption text-x-muted">원고를 떼면 바꿀 수 있어요</span>
+            </div>
+          );
+        }
         return (
           <InfluencerField value={handleInput} options={influencerOptions} hideLabel hideHelp
                            onChange={(v) => { setHandleInput(v); setHandleErr(null); }} error={handleErr}
@@ -463,8 +554,59 @@ export function TaskPanel({
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="한 줄"
                  className="h-10 w-full rounded-md border border-x-border-strong bg-white px-2.5 text-content outline-none focus:border-x-blue" />
         );
-      case 'draft':
-        return null;
+      case 'draft': {
+        // 원고 칸(스펙 §4-1) — 모양은 편집 패널(renderEditField 'draft')과 같다. 다른 점은 [떼기]가
+        // 서버 detach가 아니라 폼에서 내려놓는 것뿐이다(위 detachNewDraft) — 아직 어디에도 안 붙어서다.
+        if (newDraft) {
+          return (
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-content">
+                <span className="min-w-0 truncate" title={draftLabel(newDraft).text}>
+                  {draftLabel(newDraft).text}
+                  <span className="text-ui text-x-muted"> · {STATUS_LABEL[newDraft.status]}</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-3 text-ui">
+                  {/* setDraftTab 없이 연다 — 이미 골라 둔 원고면 탭 대신 카드가 뜬다(Task 4의 attached 판정) */}
+                  <button type="button" onClick={() => setDraftMode('draft')} className="text-x-blue-text hover:underline">열기</button>
+                  <button type="button" onClick={detachNewDraft} className="text-x-secondary hover:underline">떼기</button>
+                </span>
+              </div>
+              <p className="mt-1 text-caption text-x-muted">만들기를 누르면 이 원고가 함께 붙어요</p>
+            </div>
+          );
+        }
+        return (
+          <div>
+            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-content">
+              <button type="button" onClick={() => { setDraftTab('generate'); setDraftMode('draft'); }}
+                      className="whitespace-nowrap text-x-blue-text hover:underline">AI로 만들기</button>
+              <span aria-hidden className="text-x-muted">·</span>
+              <button type="button" onClick={() => { setDraftTab('write'); setDraftMode('draft'); }}
+                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">직접 쓰기</button>
+              <span aria-hidden className="text-x-muted">·</span>
+              <button type="button" onClick={() => { setDraftTab('pick'); setDraftMode('draft'); }}
+                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">
+                있는 원고 고르기{pickCount !== null ? ` ${pickCount}` : ''}
+              </button>
+            </span>
+            {/* 409(Task 5 §3) — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져갔다. 서버 문구를 그대로
+                옮기지 않고 이 자리에서 사실만 말한다: 원고는 지워지지 않았고, 다시 고르면 된다. 중립
+                도움말(비워 둬요)과 같은 회색·자리라 못 보고 지나치기 쉬웠다(최종 리뷰 §3) — 경고 톤
+                (이 저장소의 amber 계열, 정산 경고와 같은 색)과 role="alert"로 눈에 띄게 한다. "다시
+                고르기"는 텍스트만으로는 링크처럼 보이는데 아무 동작이 없었다(거짓 어포던스) — 실제로
+                '있는 원고 고르기' 탭을 여는 버튼으로 고친다. */}
+            {draftGone ? (
+              <p role="alert" className="mt-1 text-caption text-amber-700">
+                다른 작업에 붙었어요 —{' '}
+                <button type="button" onClick={() => { setDraftTab('pick'); setDraftMode('draft'); }}
+                        className="underline hover:text-amber-800">다시 고르기</button>
+              </p>
+            ) : (
+              <p className="mt-1 text-caption text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
+            )}
+          </div>
+        );
+      }
     }
   }
 
@@ -473,7 +615,11 @@ export function TaskPanel({
     ? (task.influencerHandle ? `@${task.influencerHandle}` : <span className="text-x-muted">인플루언서 미정</span>)
     : (newType ? `새 ${TASK_TYPE_LABEL[newType]} 작업` : '어떤 작업인가요?');
   // 원고 모드 헤더 — 작업 정보(단계·유형)는 이미 봤으니 크럼 자리는 뒤로가기로 바꾸고, 제목은 원고 쪽으로 말한다.
-  const draftTitle = task ? `원고 · ${TASK_TYPE_LABEL[task.type]} · ${task.influencerHandle ? `@${task.influencerHandle}` : '인플루언서 미정'}` : '';
+  // 새 작업 폼(Task 4)도 같은 모양 — newType은 여기 도달할 때 항상 정해져 있다(원고 칸은 유형을 고른
+  // 뒤에만 뜬다, inDraftMode 주석 참고).
+  const draftTitle = task
+    ? `원고 · ${TASK_TYPE_LABEL[task.type]} · ${task.influencerHandle ? `@${task.influencerHandle}` : '인플루언서 미정'}`
+    : (newType ? `원고 · ${TASK_TYPE_LABEL[newType]} · ${handle ? `@${handle}` : '인플루언서 미정'}` : '');
 
   return (
     <aside ref={panelRef} role="dialog" aria-label="작업 편집" className="fixed inset-y-0 right-0 z-40 flex w-[560px] flex-col border-l border-x-border bg-white shadow-xl">
@@ -503,8 +649,8 @@ export function TaskPanel({
       </div>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-6 py-4">
-        {inDraftMode && task ? (
-          <DraftMode attached={!!task.draftId} tab={draftTab} onTab={requestTabChange} busy={draftBusy} pickCount={pickCount}
+        {inDraftMode ? (
+          <DraftMode attached={task ? !!task.draftId : !!newDraft} tab={draftTab} onTab={requestTabChange} busy={draftBusy} pickCount={pickCount}
                      card={draftCard}
                      generate={draftGenerate}
                      write={draftWrite}
@@ -535,14 +681,30 @@ export function TaskPanel({
           <>
             <div>
               <p className="text-ui text-x-secondary">유형</p>
-              <div role="group" aria-label="작업 유형" className="mt-1 inline-flex overflow-hidden rounded-lg border border-x-border-strong">
-                {DISPLAY_TYPE_ORDER.map((k) => (
-                  <button key={k} type="button" aria-pressed={newType === k} onClick={() => setNewType(k)} disabled={busy}
-                          className={`border-r border-x-border-strong px-3.5 py-2 text-content last:border-r-0 disabled:opacity-50 ${newType === k ? 'bg-x-text text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
-                    {TASK_TYPE_LABEL[k]}
-                  </button>
-                ))}
-              </div>
+              {/* 원고가 들어오면 유형도 칩(읽기 전용)으로 바꾼다(스펙 §4-3) — RT로 바꾸면 이미 고른 원고를
+                  어떻게 할지가 모호해진다. 한 마운트 안에서는 newType이 항상 먼저 있다(원고 칸은 유형을
+                  고른 뒤에만 뜬다) — 단, newDraft는 FlowDetail(formDraft)이 들고 있어 패널이 새로 열려도
+                  (행 전환·재오픈으로 key가 바뀌어도) 안 비워지면 newType=null인 채로 newDraft만 남을 수
+                  있다. FlowDetail이 패널을 닫거나 다른 행으로 옮길 때 formDraft를 비우는 것이 전제다(Task 4). */}
+              {newDraft ? (
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="inline-flex items-center rounded-lg border border-x-border-strong bg-x-hover px-3.5 py-2 text-content text-x-secondary">
+                    {/* newType은 이 분기(newDraft가 있음)에서 항상 정해져 있다(원고 칸은 유형을 고른 뒤에만
+                        뜬다) — 그래도 `as TaskType`로 그 가드를 무시하지 않는다(최종 리뷰 §4, as는 지뢰). */}
+                    {newType ? TASK_TYPE_LABEL[newType] : null}
+                  </span>
+                  <span className="text-caption text-x-muted">원고를 떼면 바꿀 수 있어요</span>
+                </div>
+              ) : (
+                <div role="group" aria-label="작업 유형" className="mt-1 inline-flex overflow-hidden rounded-lg border border-x-border-strong">
+                  {DISPLAY_TYPE_ORDER.map((k) => (
+                    <button key={k} type="button" aria-pressed={newType === k} onClick={() => setNewType(k)} disabled={busy}
+                            className={`border-r border-x-border-strong px-3.5 py-2 text-content last:border-r-0 disabled:opacity-50 ${newType === k ? 'bg-x-text text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
+                      {TASK_TYPE_LABEL[k]}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             {newFieldOrder.map((field) => (
               <div key={field}>

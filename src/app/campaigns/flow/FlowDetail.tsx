@@ -125,6 +125,9 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const [rewritingId, setRewritingId] = useState<string | null>(null);
   const [regenBusy, setRegenBusy] = useState<{ draftId: string; index: number } | null>(null);
   const [mediaDrop, setMediaDrop] = useState<{ draftId: string; notice: MediaDropNotice } | null>(null);
+  // 새 작업 폼에서 고른 원고(Task 3 원고 칸) — 주인은 여기(스펙 §4-6). 지금은 TaskPanel에 그대로 내려주기만
+  // 한다 — 세 갈래(AI 생성·직접 쓰기·있는 원고 고르기)를 폼 맥락으로 채우는 배선은 Task 4가 한다.
+  const [formDraft, setFormDraft] = useState<DraftRow | null>(null);
 
   // 이 화면만의 상태 — 필터·정렬·오른쪽 패널·"한 번에 만들기" 열림(§4-2, §4-3, koo 09-18)
   const [filter, setFilter] = useState<FlowFilter>(EMPTY_FLOW_FILTER);
@@ -821,6 +824,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                    onDetachDraft={(t) => void detachDraft(t)}
                    onReplace={(t) => { setReplaceInitialHandle(null); setReplaceFor(t); }}
                    onSaveProfilePricing={saveProfilePricing}
+                   newDraft={formDraft} onNewDraftChange={setFormDraft}
                    // edit 모드만 여기서 채운다 — new 모드의 비용 칸은 TaskPanel이 로컬 상태로 직접 그린다(위 주석).
                    slots={{
                      // key=influencerHandle — 인플루언서가 바뀌면(미정 → 배정 포함) 새 프로필 단가로 다시

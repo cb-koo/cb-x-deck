@@ -522,11 +522,14 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
       return 'error';
     }
     await load(); onChanged();
+    // draftId를 실어 성공했으면 그 원고는 이 작업에 붙었다 — 후보(작업 없는 원고) 목록에서 빠져야 한다
+    // (detachDraft의 반대 방향, 위 538줄과 같은 이유).
+    if (body.draftId) void reloadCandidates();
     // more(만들고 하나 더) — 폼을 비울 때 고른 원고도 비운다(스펙 §4-5, 유형은 TaskPanel이 유지한다).
     // more가 아니면 만든 작업으로 패널을 바꾼다 — isNew가 꺼지며 formDraft를 비우는 효과(위)가 대신 돈다.
     if (more) setFormDraft(null); else openPanel(r.data.tasks[0].id);
     return 'ok';
-  }, [id, show, load, onChanged, openPanel]);
+  }, [id, show, load, onChanged, openPanel, reloadCandidates]);
 
   // 원고 떼기(패널의 [떼기]) — 확인 없이(원고는 남는다고 토스트가 말한다), 작업의 원고 칸만 비운다(§5)
   const detachDraft = useCallback(async (t: CampaignTaskItem) => {

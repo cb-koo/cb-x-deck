@@ -22,6 +22,7 @@ import {
 import { draftLabel, draftPreviewLine } from '@/lib/draftViews';
 import { targetLabel } from '@/lib/campaignTableView';
 import { parseTweetLink } from '@/lib/tweetLink';
+import { pickedHandleNotice, type DraftHost } from '@/lib/draftHost';
 import { Button, PANEL } from '@/components/ui';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
@@ -39,7 +40,7 @@ import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar } from './FlowFilterBar';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
-import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM } from './TaskPanel';
+import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM, type FormDraftContext } from './TaskPanel';
 import { CostConfirmField } from './CostConfirmField';
 import { TargetLinkField } from './TargetLinkField';
 import { PostedDialog } from './PostedDialog';
@@ -125,9 +126,28 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const [rewritingId, setRewritingId] = useState<string | null>(null);
   const [regenBusy, setRegenBusy] = useState<{ draftId: string; index: number } | null>(null);
   const [mediaDrop, setMediaDrop] = useState<{ draftId: string; notice: MediaDropNotice } | null>(null);
-  // 새 작업 폼에서 고른 원고(Task 3 원고 칸) — 주인은 여기(스펙 §4-6). 지금은 TaskPanel에 그대로 내려주기만
-  // 한다 — 세 갈래(AI 생성·직접 쓰기·있는 원고 고르기)를 폼 맥락으로 채우는 배선은 Task 4가 한다.
+  // 새 작업 폼에서 고른 원고(Task 3 원고 칸) — 주인은 여기(스펙 §4-6). TaskPanel에 newDraft로 내려주고,
+  // 아래 세 갈래(폼 호스트)의 onChosen이 채운다(Task 4).
   const [formDraft, setFormDraft] = useState<DraftRow | null>(null);
+  // 폼 맥락(스펙 §4-6) — TaskPanel의 로컬 상태(newType·handle·target)를 그대로 옮겨 받는다(onNewContextChange).
+  // 이 값으로 폼 호스트(DraftHost)와 인용RT의 targetRef를 만든다 — "선택된 작업으로 만들 때와 같은 함수"를
+  // task 대신 이 맥락 객체로 부른다.
+  const [formCtx, setFormCtx] = useState<FormDraftContext>({ type: null, handle: null, target: null });
+  // 있는 원고 고르기에서 주인이 다른 원고를 고르면(pickedHandleNotice) TaskPanel의 handle 칸을 채우라는
+  // 신호(draftOpenReq와 같은 seq 관례) — TaskPanel이 값 소유자라 여기서 직접 못 바꾼다.
+  // handle이 null일 수 있다 — 카드에서 인플루언서를 해제(→null)했을 때도 폼의 잠긴 칩을 같이 비워야
+  // 한다(안 그러면 카드는 '미배정', 잠긴 칩은 옛 사람을 계속 말하는 어긋남이 생긴다).
+  const [formHandleFill, setFormHandleFill] = useState<{ handle: string | null; seq: number } | null>(null);
+  const formHandleFillSeqRef = useRef(0);
+  // ref 접근을 useCallback 하나로 모은다 — renderDraftCard(아래, 훅이 아닌 평범한 함수)가 돌려주는 JSX의
+  // 이벤트 콜백 안에서 ref.current를 직접 건드리면 React Compiler가 "렌더 중 ref 접근"으로 오판해(그
+  // 콜백이 실제로는 클릭 때만 도는 이벤트 핸들러인데도) 같은 함수 안의 다른 콜백들까지 최적화를 포기한다
+  // (직접 겪음 — 이 함수를 만들기 전엔 renderDraftCard 안 무관한 줄들까지 함께 에러가 났다). draftOpenSeqRef
+  // 처럼 useCallback 안에 갇힌 ref 접근은 문제가 없어, 그 관례를 그대로 따른다.
+  const bumpFormHandleFill = useCallback((handle: string | null) => {
+    formHandleFillSeqRef.current += 1;
+    setFormHandleFill({ handle, seq: formHandleFillSeqRef.current });
+  }, []);
 
   // 이 화면만의 상태 — 필터·정렬·오른쪽 패널·"한 번에 만들기" 열림(§4-2, §4-3, koo 09-18)
   const [filter, setFilter] = useState<FlowFilter>(EMPTY_FLOW_FILTER);
@@ -357,6 +377,17 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 삭제·취소로 data.tasks에서 사라지면(Task 10 삭제 등) panelTask가 null이 되는데, 그때 표만 흐리고 패널이
   // 없으면 "닫히지도 열리지도 않은" 상태로 보인다. 하나의 값으로 통일한다.
   const panelOpen = !!panel && (isNew || !!panelTask);
+  // 패널을 닫거나(panel:null) 다른 행으로 옮기면(panel:{taskId}) formDraft를 비운다(Task 4 §5) — 안 비우면
+  // 다음에 새 작업 폼을 열 때(TaskPanel이 key='new'로 리마운트돼 newType 등은 초기화되지만, formDraft는
+  // 여기 남아 있어) 유형 없이 원고만 남아 TaskPanel의 유형 칩이 빈 라벨(TASK_TYPE_LABEL[null])로 뜬다.
+  // 같은 새 작업 폼 안에서 자리를 옮기는 것(같은 'new' 키, 리마운트 없음)은 없으므로 isNew만 보면 된다.
+  // formHandleFill도 같이 비운다(자문 리뷰) — 안 비우면 @A 원고를 고른 채 닫고 [+ 작업 추가]로 새 폼을
+  // 열었을 때, TaskPanel이 마운트되며 그 옛 신호를 다시 받아 아무것도 안 골랐는데 인플루언서 칸이 @A로
+  // 채워진다(openNew이 draftOpenReq를 null로 비우는 것과 같은 이유 — 신호는 한 번 쓰고 버려야 한다).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 패널이 새 작업 폼을 벗어날 때의 정리가 목적(isNew가 바뀔 때만 반응)
+    if (!isNew) { setFormDraft(null); setFormHandleFill(null); }
+  }, [isNew]);
   // 증빙 서명 URL — 패널이 지금 보여주는 작업 하나만(TaskTable처럼 표 전체를 배치하지 않는다, 패널은 한 번에 하나다)
   const proofUrls = useSignedTaskProofUrls(panelTask?.proof?.url ? [panelTask.proof.url] : []);
   // 원고 모드(§5) — 패널이 보여줄 작업에 원고가 붙어 있으면 카드를 그릴 원고 한 건을 받아 온다. 같은
@@ -404,8 +435,11 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const openBulk = useCallback(() => setBulkOpen(true), []);
   // 새 작업 모드가 dirty한 동안 다른 행을 클릭하면 로컬 입력이 경고 없이 사라진다(I1-3) — dirty 여부는
   // TaskPanel의 로컬 상태에만 있어 ref로 받아 둔다(매 렌더 상태로 올리면 이 화면 전체가 리렌더된다).
-  const newDirtyRef = useRef(false);
-  const onNewDirtyChange = useCallback((dirty: boolean) => { newDirtyRef.current = dirty; }, []);
+  // boolean이 아니라 TaskPanel이 이미 고른 문장 조각을 받는다(Task 4 §6) — "입력한 내용이 사라져요"로
+  // 고정돼 있으면 원고만 고르고 칸은 비운 경우 거짓말이 된다(원고는 '있는 원고 고르기'에 남아 안 사라진다).
+  // TaskPanel.requestClose가 쓰는 것과 같은 조각(newDirtyParts)이고, 어미만 여기서 다르게 붙인다.
+  const newDirtyRef = useRef<string | null>(null);
+  const onNewDirtyChange = useCallback((msg: string | null) => { newDirtyRef.current = msg; }, []);
   // 원고 모드로 열어라(행 메뉴 등 패널 바깥에서 온 요청) — 이 작업의 패널을 열고, seq를 올려 TaskPanel에
   // "지금 이 탭으로 원고 모드를 열어라"를 전달한다(이미 같은 작업 패널이 열려 있으면 key 리마운트가 없어
   // seq가 없으면 두 번째 요청이 무시된다). 표가 흐려질 뿐 막히진 않으므로(결정 3) 새 작업 dirty 확인도
@@ -416,7 +450,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 거치지 않는 별도 경로). isNew 쪽 문장은 새로 짓지 않고 이 파일에 이미 있는 것을 그대로 쓴다 — 아래
   // draftWriteDirty 쪽은 openPanel과 같은 draftSwitchConfirm(위에서 정의, Task 4d §2·§3)을 쓴다.
   const openDraftMode = useCallback((t: FlowRow, tab: DraftTab) => {
-    if (isNew && newDirtyRef.current && !window.confirm('입력한 내용이 사라져요. 다른 작업을 열까요?')) return;
+    if (isNew && newDirtyRef.current && !window.confirm(`${newDirtyRef.current} 다른 작업을 열까요?`)) return;
     // openPanel과 같은 규칙 — 같은 작업이면 다른 작업을 여는 게 아니라 그 작업 안에서 자리를 옮기는 것이다.
     const msg = t.id === panelTaskId ? moveConfirm : draftSwitchConfirm;
     if (draftWriteDirty && msg && !window.confirm(msg)) return;
@@ -426,7 +460,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   }, [isNew, panelTaskId, draftWriteDirty, draftSwitchConfirm, moveConfirm]);
   // draftWriteDirty 확인은 openPanel이 이미 진다(위 주석) — 여기서 또 물으면 같은 클릭에 확인창이 두 번 뜬다.
   const onRowClick = useCallback((t: FlowRow) => {
-    if (isNew && newDirtyRef.current && !window.confirm('입력한 내용이 사라져요. 다른 작업을 열까요?')) return;
+    if (isNew && newDirtyRef.current && !window.confirm(`${newDirtyRef.current} 다른 작업을 열까요?`)) return;
     openPanel(t.id);
   }, [isNew, openPanel]);
   const onPanelPrev = useCallback(() => { if (panelIndex > 0) openPanel(shown[panelIndex - 1].id); }, [panelIndex, shown, openPanel]);
@@ -547,6 +581,9 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 응답(DraftRow)으로 카드를 갈아끼우고, 표의 '원고' 칸(상태·라벨)도 같이 맞춘다 — 카드에서 고친 제목이 표에 그대로 보여야 한다.
   function mergeRow(row: DraftRow) {
     setCardDraft((cur) => (cur?.id === row.id ? row : cur));
+    // 폼(새 작업)에서 고른 원고의 카드도 같은 갱신 경로를 탄다(renderDraftCard(formDraft, null)) — 안
+    // 맞추면 카드에서 다시 쓰기·상태·제목을 고쳐도 폼의 원고 칸·카드가 옛 값을 계속 보여준다.
+    setFormDraft((cur) => (cur?.id === row.id ? row : cur));
     // draftFirstLine은 표의 원고 칸(R26)이 쓰는 값 — campaignTaskStore.firstLineOf와 같은 식(첫 포스트의
     // 첫 줄, 공백 정리, 비면 null)이어야 카드에서 고친 뒤와 새로고침 뒤가 같은 문구를 보여준다(Task 6, B 최종 리뷰 M1).
     // 식을 여기 다시 적지 않고 draftViews.draftPreviewLine을 쓴다 — 같은 규칙이 이미 테스트까지 있고(draftViews.test.ts),
@@ -583,16 +620,22 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     if (r.ok) mergeRow(r.data); else show(r.error);
   }
   async function removeDraft(d: DraftRow) {
-    // 원고를 지워도 작업은 남는다(작업이 캠페인의 단위다) — 확인 문구가 그렇게 말한다
-    if (!window.confirm(`'${draftLabel(d).text}' 원고를 삭제할까요?\n\n작업은 남고 원고만 떨어져요.`)) return;
+    // 원고를 지워도 작업은 남는다(작업이 캠페인의 단위다) — 확인 문구가 그렇게 말한다. 폼(새 작업)에서
+    // 고른 원고는 아직 어디에도 붙지 않았으므로 "작업은 남고"가 거짓이다 — d.taskId 유무로 갈린다
+    // (붙은 원고면 taskId가 있다, 폼에서 고르기만 한 원고는 null).
+    const msg = d.taskId
+      ? `'${draftLabel(d).text}' 원고를 삭제할까요?\n\n작업은 남고 원고만 떨어져요.`
+      : `'${draftLabel(d).text}' 원고를 삭제할까요?`;
+    if (!window.confirm(msg)) return;
     const r = await deleteDraftApi(d.id);
     if (!r.ok) { show(r.error); return; }
     // 지운 원고가 캐시에 남아 다음 카드에 잘못 뜨지 않게 비운다(오버레이가 있던 시절의 closePeek과 같은 목적)
     setCardDraft(null); setCardErr(null);
+    setFormDraft((cur) => (cur?.id === d.id ? null : cur));
     // draftFirstLine도 같이 비운다 — 남겨두면 draftId는 null이라 칸은 '미정'으로 보이지만, 검색(matchesSearch)은
     // draftId와 무관하게 draftFirstLine을 그대로 훑어 지워진 원고의 옛 첫 줄로 걸릴 수 있다.
     setTasks((cur) => cur.map((t) => (t.draftId === d.id ? { ...t, draftId: null, draftStatus: null, draftLabel: null, draftFirstLine: null } : t)));
-    show('원고를 삭제했어요 — 작업은 남아 있어요');
+    show(d.taskId ? '원고를 삭제했어요 — 작업은 남아 있어요' : '원고를 삭제했어요');
     onChanged();
     // 지운 원고가 어느 배치(batch)에 속했으면, 그 배치의 다른 원고들은 '형제 시안'이었다가 이 원고가
     // 없어지며 groupings(siblings/others)가 달라질 수 있다 — 후보를 다시 읽는다.
@@ -635,7 +678,18 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                  // 배정 API를 부른다 — 서버가 셋 다 허용한다. 완전히 같은 표기를 다시 고르는 것은 칩
                  // 자체가 걸러 이 콜백까지 오지 않는다(InfluencerChip.save).
                  onAssignInfluencer={(next) => {
-                   if (!forTask) { show('이 원고가 붙은 작업을 찾지 못했어요 — 새로고침해 주세요'); return; }
+                   if (!forTask) {
+                     // 폼(새 작업)에서 고른 원고는 아직 붙은 작업이 없다 — "작업을 찾지 못했어요"는 거짓이다
+                     // (찾을 작업 자체가 없다). 아직 아무 데도 안 붙은 원고이므로 원고 자체의 배정을 직접
+                     // 바꾼다(/generate가 미부착 원고에 쓰는 것과 같은 패턴, patchDraft가 mergeRow로 카드·
+                     // 폼(formDraft)을 함께 갱신한다). 폼의 인플루언서 칸(잠긴 칩)이 새 값을 보이도록 같은
+                     // 신호(formHandleFill)로 채운다 — 해제(next=null)도 함께 보낸다(안 하면 카드는
+                     // '미배정'인데 잠긴 칩은 옛 사람을 계속 말하는 어긋남이 생긴다).
+                     void patchDraft(d, { influencerHandle: next }).then((ok) => {
+                       if (ok) bumpFormHandleFill(next);
+                     });
+                     return;
+                   }
                    const current = forTask.influencerHandle;
                    if (current && next && current.toLowerCase() !== next.toLowerCase()) {
                      // 게시 뒤에는 교체가 없다 — replaceDisabledReason은 미배정·방문일 지남만 보고 게시는
@@ -656,6 +710,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     );
   }
   // 패널의 원고 모드가 그릴 카드 — 붙은 원고가 있으면(panelDraftId) 로딩·에러도 이 자리가 보여준다.
+  // 폼(새 작업)에서 고른 원고는 붙은 작업이 아직 없으므로 로딩·에러가 없다 — formDraft가 이미 값 그 자체다
+  // (renderDraftCard(formDraft, null) — Task 3의 '[열기]'가 이 카드를 연다, 스펙 §4-1).
   const draftCard: ReactNode = panelDraftId
     ? (panelDraft
         ? renderDraftCard(panelDraft, panelTask)
@@ -664,7 +720,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
             {cardErr === panelDraftId ? '원고를 불러오지 못했어요 — 새로고침해 주세요' : '원고를 불러오는 중…'}
           </div>
         ))
-    : null;
+    : (isNew && formDraft ? renderDraftCard(formDraft, null) : null);
   // 'AI로 만들기'의 자동 레퍼런스(§5-1) — 인용RT 작업이 대상을 정했으면 그 게시물의 tweetId. targetLabel이
   // 이미 '대상 작업 참조 vs 링크'를 갈라 사람이 읽을 라벨로 바꿔 준다(표의 대상 칸과 같은 문구, 중복 구현 금지).
   // 대상이 아직 없거나(빈 문자열) 파싱이 안 되는 값(placeholder 문구)이면 칩을 그리지 않는다.
@@ -675,6 +731,17 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     const parsed = parseTweetLink(raw);
     return parsed.ok ? { tweetId: parsed.tweetId, label: targetLabel(panelTask, data.campaign.id).text } : null;
   }, [panelTask, data]);
+  // 폼(새 작업)의 targetRef(Task 4 §Step2) — 대상 링크가 있을 때만(스펙: "인용RT에서 대상 링크가 있을 때만,
+  // 없으면 null"). 폼이 작업 참조(target.taskId)를 골랐어도 그 작업의 실제 게시물 링크는 여기서 모른다
+  // (TargetPicker가 라벨·게시 여부만 들고 온다, TaskPanel.resolveNewTarget) — 억지로 만들지 않는다.
+  // label은 targetLabel의 링크 분기(targetTweetUrl만 있고 target 조인이 없을 때)와 같은 식으로 만든다 —
+  // 표의 대상 칸과 같은 문구(중복 구현 금지).
+  const formTargetRef = useMemo(() => {
+    if (formCtx.type !== 'quoteRt' || !formCtx.target || !('url' in formCtx.target) || !data) return null;
+    const parsed = parseTweetLink(formCtx.target.url);
+    if (!parsed.ok) return null;
+    return { tweetId: parsed.tweetId, label: targetLabel({ targetTaskId: null, targetTweetUrl: formCtx.target.url, target: null }, data.campaign.id).text };
+  }, [formCtx.type, formCtx.target, data]);
   // 시안 붙이기(Task 3) — 패널은 task.draftId가 채워지는 순간 스스로 카드로 전환한다(panelDraftId 이펙트).
   // 그러려면 상세를 다시 읽어야 한다(원고 카드 배선 주석과 같은 이유) — cardDraft는 미리 채워 둬 그 이펙트가
   // 같은 원고를 다시 조회하지 않게 한다(패치 응답이 이미 최신이다). 재조회 성공 여부를 돌려준다(리뷰 지적 3)
@@ -694,6 +761,21 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const onAttachFailed = useCallback((status: number) => {
     if (status === 409) { void load(); void reloadCandidates(); }
   }, [load, reloadCandidates]);
+  // 폼(새 작업 — 아직 안 만든 작업)의 원고 모드 호스트(Task 4 §Step2, 스펙 §4-2) — 알맹이는 작업 모드와
+  // 같은 컴포넌트다, 호스트만 다르다. formCtx는 TaskPanel이 onNewContextChange로 올린 값(폼 입력의 사본).
+  const formHost: DraftHost = { kind: 'form', influencerHandle: formCtx.handle };
+  // 고른 뒤 갈 곳은 카드가 아니라 폼이다(스펙 §4-2 표 — "부착 없이 폼으로"·"폼으로"·"고르면 폼으로").
+  // draftOpenReq에 tab:null을 보낸다 — TaskPanel의 draftOpen 이펙트가 확인 없이 setDraftMode('task')로
+  // 돌려보내는, 이미 있는 채널(같은 행 재클릭이 쓰는 것과 같다, 위 openPanel 주석). 그 결과 DraftGenerate·
+  // DraftWrite·DraftPick은 그 자리에서 언마운트되고(DraftMode가 더는 그리지 않는다) 정리 이펙트
+  // (onDirtyChange(false)·onBusyChange(null))가 자연히 돈다 — 방향성 입력이 남아 이탈 확인이 계속 뜨는
+  // 문제(Task 2·3 이월 항목)가 여기서 함께 해소된다. 나중에 원고 칸의 [열기]를 누르면 attached=true라
+  // DraftMode가 곧장 카드를 보여준다(작업 호스트와 같은 재진입 규칙).
+  const onFormChosen = useCallback((d: DraftRow) => {
+    setFormDraft(d);
+    draftOpenSeqRef.current += 1;
+    setDraftOpenReq({ tab: null, seq: draftOpenSeqRef.current });
+  }, []);
   // 패널의 원고 모드 · 'AI로 만들기' 탭 — clientData는 clientId가 있어도 아직 못 읽었으면 undefined(로딩
   // 중)거나 null(실패)이다(DraftGenerate가 그 둘과 성공을 구분해 읽는다 — clientId를 함께 받는 이유,
   // 리뷰 지적 4). clientName은 따로 넘기지 않는다 — clientData에서 파생되는 값이라 두 prop으로 같은
@@ -707,6 +789,17 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                      onBusyChange={setDraftGenBusy} onOverlayChange={setDraftOverlayOpen}
                      onDirtyChange={setDraftGenDirty} />
     )
+    : isNew
+    ? (
+      // onAttached·onAttachFailed는 필수 prop이지만 host.kind==='form'에서는 부르지 않는다(Task 2 계약) —
+      // 작업 호스트와 같은 함수를 그대로 넘겨 두 번째 사본을 만들지 않는다(닿지 않는 코드라 무해하다).
+      <DraftGenerate host={formHost}
+                     clientId={clientId}
+                     clientData={clientData} targetRef={formTargetRef}
+                     onAttached={onDraftAttached} onAttachFailed={onAttachFailed} onGenerated={() => void reloadCandidates()}
+                     onBusyChange={setDraftGenBusy} onOverlayChange={setDraftOverlayOpen}
+                     onDirtyChange={setDraftGenDirty} onChosen={onFormChosen} />
+    )
     : null;
   // 패널의 원고 모드 · '직접 쓰기' 탭(Task 4) — 붙이기 성공 뒤 동작은 'AI로 만들기'와 같은 재조회
   // (onDraftAttached, 위 주석 참고)를 그대로 재사용한다. 저장은 됐는데 붙이기만 실패했을 때는(원고가
@@ -717,6 +810,17 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                   clientId={clientId}
                   onAttached={onDraftAttached} onAttachFailed={onAttachFailed} onSavedUnattached={() => void reloadCandidates()}
                   onBusyChange={setDraftWriteBusy} onDirtyChange={setDraftWriteOnlyDirty} />
+    )
+    : isNew
+    ? (
+      // 폼 갈래는 저장까지만 하고 부착 PATCH는 건너뛴다(Task 2 계약) — onSavedUnattached는 그 PATCH가
+      // 실패했을 때만 쓰는 신호라 폼에서는 안 불린다. 대신 onChosen이 '이미 저장된 원고'를 알리는 유일한
+      // 신호라, 여기서 reloadCandidates까지 겸한다(안 그러면 저장한 원고가 '있는 원고 고르기'에 안 뜬다).
+      <DraftWrite host={formHost}
+                  clientId={clientId}
+                  onAttached={onDraftAttached} onAttachFailed={onAttachFailed} onSavedUnattached={() => void reloadCandidates()}
+                  onBusyChange={setDraftWriteBusy} onDirtyChange={setDraftWriteOnlyDirty}
+                  onChosen={(d) => { onFormChosen(d); void reloadCandidates(); }} />
     )
     : null;
   // 패널의 원고 모드 · '있는 원고 고르기' 탭(Task 5) — 이미 만들어진 원고를 이 작업에 붙인다. 붙이기 자체는
@@ -758,8 +862,22 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 패널이 보는 작업이 바뀔 때의 안전망 리셋이 목적(정상 경로가 이미 풀지만, 어떤 경로로도 굳지 않게 하는 두 번째 장치)
     setDraftPickBusy(null);
   }, [panelTaskId, panelDraftId]);
+  // 폼(새 작업)의 '있는 원고 고르기' — 붙이지 않고 고른 사실만 올린다(스펙 §4-2 "고르면 폼으로"). 주인
+  // 불일치(스펙 §4-3 "고르는 순간의 주인 불일치")를 pickedHandleNotice로 먼저 본다 — fill이 있으면
+  // TaskPanel의 핸들 칸을 채우라는 신호(formHandleFill)를 보내고, notice가 있으면 토스트로 알린 뒤(막지
+  // 않는다) onFormChosen으로 진행한다.
+  const pickForForm = useCallback((d: DraftRow) => {
+    const { fill, notice } = pickedHandleNotice(formCtx.handle, d.influencerHandle);
+    if (notice) show(notice);
+    if (fill) bumpFormHandleFill(fill);
+    onFormChosen(d);
+  }, [formCtx.handle, show, bumpFormHandleFill, onFormChosen]);
   const draftPick: ReactNode = panelTask
-    ? <DraftPick candidates={candidates} onPick={(d) => void attachExistingDraft(d)} picking={draftPickBusy}
+    ? <DraftPick host={{ kind: 'task', taskId: panelTask.id, draftId: panelTask.draftId, influencerHandle: panelTask.influencerHandle }}
+                 candidates={candidates} onPick={(d) => void attachExistingDraft(d)} picking={draftPickBusy}
+                 onRetry={() => void reloadCandidates()} />
+    : isNew
+    ? <DraftPick host={formHost} candidates={candidates} onPick={pickForForm} picking={draftPickBusy}
                  onRetry={() => void reloadCandidates()} />
     : null;
   // '있는 원고 고르기 n' — Task 1의 후보 조회 합. 아직 못 읽었거나(undefined) 실패했으면(null) 개수를
@@ -825,6 +943,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                    onReplace={(t) => { setReplaceInitialHandle(null); setReplaceFor(t); }}
                    onSaveProfilePricing={saveProfilePricing}
                    newDraft={formDraft} onNewDraftChange={setFormDraft}
+                   onNewContextChange={setFormCtx} formHandleFill={formHandleFill}
                    // edit 모드만 여기서 채운다 — new 모드의 비용 칸은 TaskPanel이 로컬 상태로 직접 그린다(위 주석).
                    slots={{
                      // key=influencerHandle — 인플루언서가 바뀌면(미정 → 배정 포함) 새 프로필 단가로 다시

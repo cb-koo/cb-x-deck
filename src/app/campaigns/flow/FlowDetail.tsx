@@ -17,7 +17,7 @@ import {
 import type { TaskCost } from '@/lib/campaignCost';
 import {
   flowStage, FLOW_STAGES, TASK_TYPE_LABEL, formatDateKo, isTaskExcluded,
-  deriveTaskInfluencers, taskCampaignTotal, type TaskType, type FlowStage,
+  deriveTaskInfluencers, taskCampaignTotal, targetUrlOf, type TaskType, type FlowStage,
 } from '@/lib/campaignJudgment';
 import { draftLabel, draftPreviewLine } from '@/lib/draftViews';
 import { targetLabel } from '@/lib/campaignTableView';
@@ -662,15 +662,16 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
           </div>
         ))
     : null;
-  // 'AI로 만들기'의 자동 레퍼런스(§5-1) — 인용RT 작업이 대상을 정했으면 그 게시물의 tweetId. targetLabel이
-  // 이미 '대상 작업 참조 vs 링크'를 갈라 사람이 읽을 라벨로 바꿔 준다(표의 대상 칸과 같은 문구, 중복 구현 금지).
-  // 대상이 아직 없거나(빈 문자열) 파싱이 안 되는 값(placeholder 문구)이면 칩을 그리지 않는다.
-  const targetRef = useMemo(() => {
+  // tweetId는 화면의 중복 제거·개수 계산용이다. 요청은 작업 ID만 보내 서버가 저장된 대상을 다시 읽는다.
+  const quoteTarget = useMemo(() => {
     if (!panelTask || panelTask.type !== 'quoteRt' || !data) return null;
-    const raw = panelTask.target?.postUrl ?? panelTask.targetTweetUrl;
-    if (!raw) return null;
-    const parsed = parseTweetLink(raw);
-    return parsed.ok ? { tweetId: parsed.tweetId, label: targetLabel(panelTask, data.campaign.id).text } : null;
+    const url = targetUrlOf({ targetTaskId: panelTask.targetTaskId, targetPostUrl: panelTask.target?.postUrl ?? null, targetTweetUrl: panelTask.targetTweetUrl });
+    const parsed = url ? parseTweetLink(url) : null;
+    return {
+      taskId: panelTask.id,
+      label: targetLabel(panelTask, data.campaign.id).text,
+      tweetId: parsed?.ok ? parsed.tweetId : null,
+    };
   }, [panelTask, data]);
   // 시안 붙이기(Task 3) — 패널은 task.draftId가 채워지는 순간 스스로 카드로 전환한다(panelDraftId 이펙트).
   // 그러려면 상세를 다시 읽어야 한다(원고 카드 배선 주석과 같은 이유) — cardDraft는 미리 채워 둬 그 이펙트가
@@ -698,7 +699,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const draftGenerate: ReactNode = panelTask
     ? (
       <DraftGenerate task={panelTask} clientId={clientId}
-                     clientData={clientData} targetRef={targetRef}
+                     clientData={clientData} quoteTarget={quoteTarget}
                      onAttached={onDraftAttached} onAttachFailed={onAttachFailed} onGenerated={() => void reloadCandidates()}
                      onBusyChange={setDraftGenBusy} onOverlayChange={setDraftOverlayOpen}
                      onDirtyChange={setDraftGenDirty} />

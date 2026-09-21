@@ -9,6 +9,8 @@ import { getDraft, removeDraft, updateDraft } from './draftStore.ts';
 import { savePromptOverrides } from './promptSettings.ts';
 import { PROMPT_DEFAULTS } from './generatePrompt.ts';
 import type { AnthropicLike } from './llm.ts';
+import { createCampaign } from './campaignStore.ts';
+import { createTasks } from './campaignTaskStore.ts';
 
 const sql = getSql();
 const P = 'test-gen-' + process.pid + '-';
@@ -205,6 +207,72 @@ test('요청한 레퍼런스가 보관함에 없으면 GenerateInputError (유�
     GenerateInputError,
   );
   assert.equal(called, false);
+});
+
+test('인용RT 대상은 보관함 없이 스냅샷으로 저장되고, 다시 쓰기·부분 재생성에도 대상 지시를 쓴다', async () => {
+  const targetId = `9${process.pid}12345678`;
+  const camp = await createCampaign(sql, {
+    clientId: null, clientName: null, name: P + 'quote-target', nameEn: P + 'quote-target',
+    startsOn: '2026-09-01', endsOn: '2026-09-07', kind: null, note: '', createdBy: null,
+  });
+  await sql`insert into tweet (tweet_id, author_handle, author_name, text, metrics)
+            values (${targetId}, 'target_author', '대상 작성자', '대상 게시물의 실제 내용', ${sql.json({})})`;
+  const [task] = await createTasks(sql, camp.id, {
+    type: 'quoteRt', targetTaskId: null, targetTweetUrl: `https://x.com/target_author/status/${targetId}`,
+    draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, items: [],
+  });
+  let prompt = '';
+  const capture: AnthropicLike = { messages: { create: async (p: object) => {
+    const content = String((p as { messages: Array<{ content: string }> }).messages[0].content);
+    if (!content.includes('번역가')) prompt = content;
+    return { content: [{ type: 'text', text: JSON.stringify({ posts: [{ text: '인용RT 초안' }] }) }] } as never;
+  } } };
+  let id: string | null = null;
+  let fetched = false;
+  try {
+    [id] = await generateDraft(sql, {
+      clientId: null, procedureIds: [], refTweetIds: [], quoteTargetTaskId: task.id, mode: 'off',
+      direction: '', format: 'single', constraintsOn: false, memberId: null,
+    }, capture, { getTweetDetail: async () => { fetched = true; return null; } });
+    const draft = await getDraft(sql, id);
+    assert.deepEqual(draft!.refs.map((r) => [r.tweetId, r.role]), [[targetId, 'quoteTarget']]);
+    assert.ok(prompt.includes('인용할 대상 게시물') && prompt.includes('대상 게시물의 실제 내용'));
+    assert.equal(fetched, false, '캐시된 대상은 X 상세 조회를 하지 않는다');
+    const [saved] = await sql<Array<{ n: string }>>`select count(*) as n from library_item where tweet_id = ${targetId}`;
+    assert.equal(Number(saved.n), 0, '인용 대상은 보관함에 자동 저장하지 않는다');
+    await rewriteDraft(sql, id, {}, capture);
+    assert.ok(prompt.includes('인용할 대상 게시물'));
+    await regeneratePost(sql, id, 0, capture);
+    assert.ok(prompt.includes('인용할 대상 게시물'));
+  } finally {
+    if (id) await removeDraft(sql, id);
+    await sql`delete from campaign_task where campaign_id = ${camp.id}`;
+    await sql`delete from campaign where id = ${camp.id}`;
+    await sql`delete from tweet where tweet_id = ${targetId}`;
+  }
+});
+
+test('없는 일반 레퍼런스는 인용 대상 상세 조회보다 먼저 막는다', async () => {
+  const targetId = `8${process.pid}12345678`;
+  const camp = await createCampaign(sql, {
+    clientId: null, clientName: null, name: P + 'quote-no-ref', nameEn: P + 'quote-no-ref',
+    startsOn: '2026-09-01', endsOn: '2026-09-07', kind: null, note: '', createdBy: null,
+  });
+  const [task] = await createTasks(sql, camp.id, {
+    type: 'quoteRt', targetTaskId: null, targetTweetUrl: `https://x.com/target_author/status/${targetId}`,
+    draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, items: [],
+  });
+  let fetched = false;
+  try {
+    await assert.rejects(generateDraft(sql, {
+      clientId: null, procedureIds: [], refTweetIds: [P + 'missing-ref'], quoteTargetTaskId: task.id, mode: 'both',
+      direction: '', format: 'single', constraintsOn: false, memberId: null,
+    }, fakeLLM(), { getTweetDetail: async () => { fetched = true; return null; } }), GenerateInputError);
+    assert.equal(fetched, false);
+  } finally {
+    await sql`delete from campaign_task where campaign_id = ${camp.id}`;
+    await sql`delete from campaign where id = ${camp.id}`;
+  }
 });
 
 test('count 3 — 1콜로 variants 3개를 받아 3행 삽입, 같은 batch·순번', async () => {

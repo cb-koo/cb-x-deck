@@ -113,6 +113,7 @@ export const fetchDraftCandidatesApi = (campaignId: string) =>
   call<{ siblings: DraftRow[]; others: DraftRow[] }>(`/api/campaigns/${campaignId}/draft-candidates`);
 export const createDraftsApi = (body: {
   clientId: string | null; procedureIds: string[]; refTweetIds: string[];
+  quoteTargetTaskId?: string | null;
   mode: ReferenceMode; direction: string; format: DraftFormat; constraintsOn: boolean; count: number;
 }) => call<DraftRow[]>('/api/drafts', json('POST', body));
 // posts를 { text, media }[]로 넓힌다(캠페인 v2 컴포저 직접 쓰기, §5-2) — 이 래퍼의 유일한 호출부인

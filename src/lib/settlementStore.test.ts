@@ -883,6 +883,9 @@ test('unackDiff — 없는 id는 not-found', async () => {
 
 // ── 정산 쪽 수취 정보 정정 회신(스펙 2026-09-21 §4, 그쪽 09-21 요청) ──
 const CID = (n: number) => `22222222-3333-4444-8555-${String(n).padStart(12, '0')}`;
+// correction_id는 정정 이력 표의 기본키 = DB 전체에서 한 번만 쓴다. before()의 정리는 실행당 1회뿐이라,
+// 저장에 성공하는 테스트끼리 같은 번호를 쓰면 뒤 테스트가 invalid(correction_id)로 막힌다(따로 돌리면 통과, 같이 돌리면 실패).
+// 그래서 성공하는 테스트마다 자기 번호를 준다 — 1·2는 아래 첫 테스트, 3은 판정 테스트(전부 거절이라 돌려씀), 4는 reviseRequest 테스트.
 const corr = (patch: Record<string, string | null>, extra: Partial<{ correctionId: string; baseRevision: number; idempotencyKey: string | null; reason: string }> = {}) => ({
   correctionId: extra.correctionId ?? CID(1), baseRevision: extra.baseRevision ?? 0, baseUpdatedAt: at('2026-09-21T05:00:00Z'), patch,
   operator: { id: '8f2c9e10-1b2a-4c3d-9e4f-000000000001', name: '정산 담당' }, reason: extra.reason ?? '이메일 오타', idempotencyKey: extra.idempotencyKey ?? null,
@@ -929,16 +932,16 @@ test('applyPaymentMethodCorrection — 수취 정보만 바뀌고 revision·금�
 test('applyPaymentMethodCorrection — 판정: 취소 → 지급 완료 → 판 불일치 → 수단에 없는 키(400) → 없는 요청', () => revisionOn(async () => {
   const a = await requestFor('pc2a', 'pc2a');
   await cancelRequest(sql, a.row.id, '중복', a.member);
-  const c1 = await applyPaymentMethodCorrection(sql, a.row.id, corr({ email: 'a@x.com' }, { baseRevision: 9 }));
+  const c1 = await applyPaymentMethodCorrection(sql, a.row.id, corr({ email: 'a@x.com' }, { baseRevision: 9, correctionId: CID(3) }));
   assert.ok(c1 !== 'not-found' && c1.kind === 'conflict' && c1.code === 'request-cancelled');   // 판이 틀려도 취소가 먼저
   const b = await requestFor('pc2b', 'pc2b');
   await applyExternalStatus(sql, b.row.id, upd('paid', '2026-09-21T05:00:00Z', { paidAmountKrw: 31580, paidAt: '2026-09-21T04:59:00Z', revision: 0 }));
-  const c2 = await applyPaymentMethodCorrection(sql, b.row.id, corr({ email: 'b@x.com' }));
+  const c2 = await applyPaymentMethodCorrection(sql, b.row.id, corr({ email: 'b@x.com' }, { correctionId: CID(3) }));
   assert.ok(c2 !== 'not-found' && c2.kind === 'conflict' && c2.code === 'paid-locked');
   const c = await requestFor('pc2c', 'pc2c');
-  const c3 = await applyPaymentMethodCorrection(sql, c.row.id, corr({ email: 'c@x.com' }, { baseRevision: 1 }));
+  const c3 = await applyPaymentMethodCorrection(sql, c.row.id, corr({ email: 'c@x.com' }, { baseRevision: 1, correctionId: CID(3) }));
   assert.ok(c3 !== 'not-found' && c3.kind === 'conflict' && c3.code === 'revision-mismatch');
-  const c4 = await applyPaymentMethodCorrection(sql, c.row.id, corr({ bank: 'みずほ' }));   // PayPal 수단에 은행
+  const c4 = await applyPaymentMethodCorrection(sql, c.row.id, corr({ bank: 'みずほ' }, { correctionId: CID(3) }));   // PayPal 수단에 은행
   assert.ok(c4 !== 'not-found' && c4.kind === 'invalid' && c4.field === 'payment_method.bank');
   assert.equal((await listRequests(sql, { taskId: c.row.taskId! }))[0].paymentMethodCorrection, null);   // 거절은 아무것도 남기지 않는다
   assert.equal(await applyPaymentMethodCorrection(sql, '00000000-0000-0000-0000-000000000000', corr({ email: 'x@x.com' })), 'not-found');
@@ -947,7 +950,7 @@ test('applyPaymentMethodCorrection — 판정: 취소 → 지급 완료 → 판 
 
 test('applyPaymentMethodCorrection → reviseRequest — 우리가 다시 반영하면 결제 수단은 명부 값으로 돌아가고 표식은 지워진다', () => revisionOn(async () => {
   const { row, member } = await requestFor('pc3', 'pc3');
-  const r = await applyPaymentMethodCorrection(sql, row.id, corr({ email: `${H('pc3')}.fixed@x.com` }));
+  const r = await applyPaymentMethodCorrection(sql, row.id, corr({ email: `${H('pc3')}.fixed@x.com` }, { correctionId: CID(4) }));
   assert.ok(r !== 'not-found' && r.kind === 'applied');
   const rv = await reviseRequest(sql, row.id, { expectedRevision: 0, reason: '재검토', edits: { category: row.category, deadlineOn: row.deadlineOn, referenceUrl: row.referenceUrl }, partnerConfirmed: true }, member);
   const after = rv as PaymentRequestRow;

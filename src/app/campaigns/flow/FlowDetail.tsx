@@ -513,11 +513,13 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 409(Task 5 §3) — draftId를 함께 보냈는데 그 사이 다른 작업이 그 원고를 가져갔다(route.ts:37·56 —
   // 이 라우트에서 409는 이 경우뿐이다). 서버 문구(DRAFT_ATTACHED_MESSAGE)를 토스트로 흘리지 않고
   // 'draft-taken'으로 돌려준다 — TaskPanel이 원고 칸 자리에서 사실대로 말한다. formDraft는 여기서 비운다
-  // (주인이 이 컴포넌트라서) — TaskPanel은 다시 고를 수 있게 빈 칸을 보여준다.
+  // (주인이 이 컴포넌트라서) — TaskPanel은 다시 고를 수 있게 빈 칸을 보여준다. 가져간 원고는 후보(있는
+  // 원고 고르기) 목록에서도 빠져야 한다 — onAttachFailed(아래 775줄 부근)의 같은 409 회복과 같은 이유로
+  // 상세·후보를 다시 읽는다(최종 리뷰 §1, 안 그러면 화면에 남은 그 원고를 다시 골라 또 409를 받는다).
   const createTask = useCallback(async (body: TaskCreateRequest, more: boolean): Promise<'ok' | 'draft-taken' | 'error'> => {
     const r = await createTasksApi(id, body);
     if (!r.ok) {
-      if (r.status === 409 && body.draftId) { setFormDraft(null); return 'draft-taken'; }
+      if (r.status === 409 && body.draftId) { setFormDraft(null); void load(); void reloadCandidates(); return 'draft-taken'; }
       show(r.error);
       return 'error';
     }

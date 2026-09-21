@@ -273,6 +273,10 @@ export function TaskPanel({
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
     setScheduledOn(null); setVisitOn(null); setNote(''); setNewCost(null); setTarget(null);
+    // 409 문구(draftGone)는 newDraft가 "들어올 때"만 꺼진다(위 이펙트) — [만들고 하나 더]로 새 빈 폼을
+    // 열면 newDraft가 애초에 안 들어오므로 그 이펙트가 안 돈다. 여기서 직접 꺼야 새 폼에 옛 충돌 문구가
+    // 남지 않는다(최종 리뷰 §2).
+    setDraftGone(false);
   }
   async function resolveNewTarget(next: { taskId: string } | { url: string } | null) {
     if (next === null) { setTarget(null); return; }
@@ -586,8 +590,20 @@ export function TaskPanel({
               </button>
             </span>
             {/* 409(Task 5 §3) — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져갔다. 서버 문구를 그대로
-                옮기지 않고 이 자리에서 사실만 말한다: 원고는 지워지지 않았고, 다시 고르면 된다. */}
-            <p className="mt-1 text-caption text-x-muted">{draftGone ? '다른 작업에 붙었어요 — 다시 고르기' : '인플루언서가 직접 쓰면 비워 둬요'}</p>
+                옮기지 않고 이 자리에서 사실만 말한다: 원고는 지워지지 않았고, 다시 고르면 된다. 중립
+                도움말(비워 둬요)과 같은 회색·자리라 못 보고 지나치기 쉬웠다(최종 리뷰 §3) — 경고 톤
+                (이 저장소의 amber 계열, 정산 경고와 같은 색)과 role="alert"로 눈에 띄게 한다. "다시
+                고르기"는 텍스트만으로는 링크처럼 보이는데 아무 동작이 없었다(거짓 어포던스) — 실제로
+                '있는 원고 고르기' 탭을 여는 버튼으로 고친다. */}
+            {draftGone ? (
+              <p role="alert" className="mt-1 text-caption text-amber-700">
+                다른 작업에 붙었어요 —{' '}
+                <button type="button" onClick={() => { setDraftTab('pick'); setDraftMode('draft'); }}
+                        className="underline hover:text-amber-800">다시 고르기</button>
+              </p>
+            ) : (
+              <p className="mt-1 text-caption text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
+            )}
           </div>
         );
       }
@@ -673,7 +689,9 @@ export function TaskPanel({
               {newDraft ? (
                 <div className="mt-1 flex items-center gap-2">
                   <span className="inline-flex items-center rounded-lg border border-x-border-strong bg-x-hover px-3.5 py-2 text-content text-x-secondary">
-                    {TASK_TYPE_LABEL[newType as TaskType]}
+                    {/* newType은 이 분기(newDraft가 있음)에서 항상 정해져 있다(원고 칸은 유형을 고른 뒤에만
+                        뜬다) — 그래도 `as TaskType`로 그 가드를 무시하지 않는다(최종 리뷰 §4, as는 지뢰). */}
+                    {newType ? TASK_TYPE_LABEL[newType] : null}
                   </span>
                   <span className="text-caption text-x-muted">원고를 떼면 바꿀 수 있어요</span>
                 </div>

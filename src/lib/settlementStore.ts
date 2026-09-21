@@ -11,6 +11,7 @@ import { getDefaultPaymentMethod, type PaymentMethod } from './influencerPayment
 import { insertAutoLog, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
 import { computeCandidate, effectiveIssues, toMethodSnapshot, NO_CLIENT_TEXT, NO_INFLUENCER_TEXT, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
+import { mergePaymentMethodCorrection, type PaymentInfoCorrection } from './settlementPaymentCorrection.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
 import { hasPaidDiff, needsPartnerConfirm } from './settlementDisplay.ts';
 import { isRevisionV2 } from './settlementRevisionFlag.ts';
@@ -123,7 +124,10 @@ export interface PaymentRequestRow {
   // 캠페인 기간·게시일 스냅샷(054, koo 09-14) — 그쪽 API의 campaign.starts_on/ends_on·posted_on/confirmed_on. 단가·수단과 같은 '요청 시점 값 고정'.
   // null은 백필 전 옛 요청(캠페인·작업이 지워진 경우)뿐 — 새 요청은 항상 채워진다(게시일 없는 작업은 후보가 못 된다).
   campaignStartsOn: string | null; campaignEndsOn: string | null; postedOn: string | null;
+  // 정산 쪽이 마지막으로 보낸 수취 정보 정정(056, 그쪽 09-21 요청). null = 없음. 제자리 수정이 결제 수단을 명부에서 다시 스냅샷하면 null로 돌아간다.
+  paymentMethodCorrection: PaymentMethodCorrectionMark | null;
 }
+export interface PaymentMethodCorrectionMark { correctionId: string; at: string; byId: string; byName: string; reason: string }
 export interface CreateItemInput {
   taskId: string; category: string; deadlineOn: string; referenceUrl: string | null;
   expected: { amountGross: number; payoutCurrency: Currency; paymentMethodId: string };
@@ -146,6 +150,7 @@ type RRow = {
   external_operator_id: string | null; external_operator_name: string | null;
   revision: number; revised_at: Date | null; paid_amount_usd: string | number | null; paid_amount_jpy: string | number | null;
   campaign_starts_on: string | null; campaign_ends_on: string | null; task_posted_on: string | null;
+  payment_method_correction: unknown;
 };
 const R_SELECT = (sql: postgres.Sql) => sql`
   select id, task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type, category, category_default,
@@ -154,9 +159,17 @@ const R_SELECT = (sql: postgres.Sql) => sql`
          status, cancelled_at, cancelled_by_name, cancel_reason, sent_at, external_id, note, created_at, updated_at,
          external_status, paid_amount_krw, paid_at, external_note, external_updated_at, influencer_id, category_option_id,
          diff_ack_at, diff_ack_by_name, external_operator_id, external_operator_name, revision, revised_at, paid_amount_usd, paid_amount_jpy,
-         to_char(campaign_starts_on, 'YYYY-MM-DD') as campaign_starts_on, to_char(campaign_ends_on, 'YYYY-MM-DD') as campaign_ends_on, to_char(task_posted_on, 'YYYY-MM-DD') as task_posted_on
+         to_char(campaign_starts_on, 'YYYY-MM-DD') as campaign_starts_on, to_char(campaign_ends_on, 'YYYY-MM-DD') as campaign_ends_on, to_char(task_posted_on, 'YYYY-MM-DD') as task_posted_on,
+         payment_method_correction
     from payment_request`;
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
+// jsonb { correction_id, at, by_id, by_name, reason } → 화면 모양. 모양이 어긋난 값은 "없음"으로 읽는다(표식일 뿐, 이력 원본은 payment_request_payment_correction).
+function correctionMarkOf(v: unknown): PaymentMethodCorrectionMark | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.correction_id !== 'string' || typeof o.at !== 'string' || typeof o.by_name !== 'string') return null;
+  return { correctionId: o.correction_id, at: o.at, byId: typeof o.by_id === 'string' ? o.by_id : '', byName: o.by_name, reason: typeof o.reason === 'string' ? o.reason : '' };
+}
 const toRequest = (r: RRow): PaymentRequestRow => ({
   id: r.id, taskId: r.task_id, campaignId: r.campaign_id, campaignName: r.campaign_name, clientId: r.client_id, clientName: r.client_name,
   influencerHandle: r.influencer_handle, taskType: r.task_type, category: r.category, categoryDefault: r.category_default, itemText: r.item_text, purposeText: r.purpose_text,
@@ -173,6 +186,7 @@ const toRequest = (r: RRow): PaymentRequestRow => ({
   paidAmountUsd: r.paid_amount_usd === null ? null : Number(r.paid_amount_usd),
   paidAmountJpy: r.paid_amount_jpy === null ? null : Number(r.paid_amount_jpy),
   campaignStartsOn: r.campaign_starts_on, campaignEndsOn: r.campaign_ends_on, postedOn: r.task_posted_on,
+  paymentMethodCorrection: correctionMarkOf(r.payment_method_correction),
 });
 
 const isHttpUrl = (u: string) => /^https?:\/\/\S+$/.test(u);
@@ -337,6 +351,12 @@ async function exportRows(sql: postgres.Sql, ids: string[], usById: Map<string, 
     ? await sql<Array<{ id: string; email: string | null; slack_id: string | null }>>`select id, email, slack_id from member where id in ${sql(memberIds)}`
     : [];
   const mem = new Map(members.map((m) => [m.id, m]));
+  // 인플루언서 표시명(그쪽 09-21 요청 §3-7, 미러 표시용) — 핸들처럼 스냅샷이 아니라 명부의 지금 값이다(표시용이라 최신이 맞다, proof와 같은 판단). 삭제됐으면 null.
+  const infIds = [...new Set(rows.map((r) => r.influencer_id).filter((x): x is string => !!x))];
+  const infs = infIds.length
+    ? await sql<Array<{ id: string; display_name: string | null }>>`select id, display_name from influencer where id in ${sql(infIds)}`
+    : [];
+  const infName = new Map(infs.map((i) => [i.id, i.display_name]));
   const liveProof = await liveProofResolver(sql, rows);
   const byId = new Map(rows.map((r) => [r.id, r]));
   return ids.map((id) => byId.get(id)).filter((r): r is RRow => !!r).map((r) => {
@@ -344,7 +364,8 @@ async function exportRows(sql: postgres.Sql, ids: string[], usById: Map<string, 
     const request = toRequest(r);
     // row.proof는 스냅샷 그대로 둔다 — 직렬화(toExternalItem)가 쓰는 값은 아래 proof다. 이 구분이 있어야
     // "작업이 지워지면 라이브였던 값이 새지 않는다"를 테스트가 검증할 수 있다(settlementStore.test.ts).
-    return { row: request, updatedAtUs: usById.get(r.id) ?? '0', requester: { email: m?.email ?? null, slackId: m?.slack_id ?? null }, proof: liveProof(request) };
+    return { row: request, updatedAtUs: usById.get(r.id) ?? '0', requester: { email: m?.email ?? null, slackId: m?.slack_id ?? null }, proof: liveProof(request),
+      influencerDisplayName: infName.get(r.influencer_id) ?? null };
   });
 }
 export async function listForExport(sql: postgres.Sql, cursor: Cursor | null, limit: number): Promise<ExportRow[]> {
@@ -591,7 +612,8 @@ export async function reviseRequest(
              campaign_starts_on = ${t.dates.campaignStartsOn}, campaign_ends_on = ${t.dates.campaignEndsOn}, task_posted_on = ${t.dates.postedOn},
              revision = revision + 1, revised_at = now(), updated_at = now(),
              external_status = null, paid_amount_krw = null, paid_amount_usd = null, paid_amount_jpy = null, paid_at = null, external_note = null, external_updated_at = null,
-             external_operator_id = null, external_operator_name = null, diff_ack_at = null, diff_ack_by_name = null
+             external_operator_id = null, external_operator_name = null, diff_ack_at = null, diff_ack_by_name = null,
+             payment_method_correction = null
        where id = ${id}`;
     const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;
     const row = toRequest(saved);
@@ -608,4 +630,60 @@ export async function listRevisions(sql: postgres.Sql, id: string): Promise<Revi
   const rows = await sql<Array<{ revision: number; snapshot: unknown; reason: string; revised_by_name: string; created_at: Date; partner_confirmed: boolean }>>`
     select revision, snapshot, reason, revised_by_name, created_at, partner_confirmed from payment_request_revision where request_id = ${id} order by revision`;
   return rows.map((r) => ({ revision: r.revision, snapshot: r.snapshot as PaymentRequestRow, reason: r.reason, revisedByName: r.revised_by_name, createdAt: new Date(r.created_at).toISOString(), partnerConfirmed: r.partner_confirmed }));
+}
+
+// ── 정산 쪽 수취 정보 정정 회신(스펙 2026-09-21 §4) — 같은 요청의 payment_method만 바꾼다. revision·금액·그쪽 처리 상태·정산코드는 그대로. ──
+// revision을 올리지 않는 이유: 올리면 그쪽 outbox에 이미 쌓인 상태 POST(옛 revision)가 전부 409가 되고, 그쪽은 "revision이 커졌다 = 우리가 고쳐서
+// 정산이 리셋됐다"로 읽는다(계약 §3-1 규칙 3). 정정은 리셋을 동반하지 않으므로 다른 표식(payment_method_correction)으로 구분한다.
+export type CorrectionResult =
+  | { kind: 'applied' | 'replayed'; correctionId: string; row: PaymentRequestRow }
+  | { kind: 'conflict'; code: 'request-cancelled' | 'paid-locked' | 'revision-mismatch'; row: PaymentRequestRow }
+  | { kind: 'invalid'; field: string; error: string }
+  | 'not-found';
+export async function applyPaymentMethodCorrection(sql: postgres.Sql, id: string, c: PaymentInfoCorrection): Promise<CorrectionResult> {
+  if (!isUuidLike(id)) return 'not-found';
+  return await sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    const cur = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id} for update`;
+    if (!cur.length) return 'not-found';
+    const cx = cur[0];
+    // 멱등(§4-2): 같은 correction_id, 또는 같은 요청 안의 같은 idempotency_key가 이미 적용됐으면 다시 적용하지 않고 최초 결과(지금 행)를 돌려준다 — 쓰기 없음.
+    const seen = await tx<Array<{ id: string; request_id: string }>>`
+      select id, request_id from payment_request_payment_correction
+       where id = ${c.correctionId}
+          or (${c.idempotencyKey !== null} and request_id = ${id} and idempotency_key = ${c.idempotencyKey})
+       order by (id = ${c.correctionId}) desc limit 1`;
+    if (seen.length) {
+      // 다른 요청에 이미 쓴 correction_id — 재전송이 아니라 그쪽 버그다. PK 충돌 500 대신 400으로 알려준다.
+      if (seen[0].request_id !== id) return { kind: 'invalid', field: 'correction_id', error: '다른 요청에 이미 쓴 정정 식별자예요 — 새 correction_id로 보내 주세요' };
+      return { kind: 'replayed', correctionId: seen[0].id, row: toRequest(cx) };
+    }
+    // 판정 순서(§4-1): 취소 → 지급 완료 → 판 불일치. 취소·지급 완료는 판과 무관한 종점이라 먼저 본다(그쪽 목 서버와 같은 순서).
+    if (cx.status === 'cancelled') return { kind: 'conflict', code: 'request-cancelled', row: toRequest(cx) };
+    if (cx.external_status === 'paid') return { kind: 'conflict', code: 'paid-locked', row: toRequest(cx) };
+    // 그쪽이 본 revision은 toExternalItem이 내보낸 값과 같은 의미여야 한다(스위치 꺼짐이면 요청됨 = 0).
+    const exposedRevision = isRevisionV2() ? cx.revision : 0;
+    if (c.baseRevision !== exposedRevision) return { kind: 'conflict', code: 'revision-mismatch', row: toRequest(cx) };
+    const before = cx.payment_method;
+    const merged = mergePaymentMethodCorrection(before, c.patch);
+    if (!merged.ok) return { kind: 'invalid', field: merged.field, error: merged.error };
+    const at = new Date().toISOString();
+    const mark = { correction_id: c.correctionId, at, by_id: c.operator.id, by_name: c.operator.name, reason: c.reason };
+    await tx`
+      insert into payment_request_payment_correction (id, request_id, idempotency_key, base_revision, patch, before, after, reason, operator_id, operator_name)
+      values (${c.correctionId}, ${id}, ${c.idempotencyKey}, ${c.baseRevision}, ${tx.json(asJson(c.patch))}, ${tx.json(asJson(before))}, ${tx.json(asJson(merged.after))},
+              ${c.reason}, ${c.operator.id}, ${c.operator.name})`;
+    // updated_at만 갱신 — 다음 폴링에 이 건이 다시 내려가고, 그쪽은 Item의 payment_method_correction.correction_id로 자기 정정의 회신임을 안다(§3-5).
+    await tx`
+      update payment_request
+         set payment_method = ${tx.json(asJson(merged.after))}, payment_method_correction = ${tx.json(asJson(mark))}, updated_at = now()
+       where id = ${id}`;
+    const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;
+    const row = toRequest(saved);
+    // 명부 타임라인에 남긴다 — 명부의 결제 수단은 그대로이므로("이번 지급 건"만 정정) 담당자가 명부도 고칠지 판단할 근거가 여기 있다.
+    const payload: PaymentLogPayload = { requestId: row.id, amountGross: row.amountGross, currency: row.payoutCurrency, taskType: row.taskType, reason: c.reason,
+      byName: c.operator.name, fields: merged.fields };
+    await insertAutoLog(tx, { influencerId: row.influencerId, eventType: 'payment_corrected', draftId: null, draftTitle: null, payload, authorId: null });
+    return { kind: 'applied', correctionId: c.correctionId, row };
+  });
 }

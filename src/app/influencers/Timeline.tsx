@@ -75,6 +75,14 @@ function autoText(l: InfluencerLogRow): ReactNode {
       if (!p) return <>정산 요청 수정</>;
       return <>정산 요청 수정 · {p.before ? <>{formatMoney(p.before.amountGross, p.before.currency)} → </> : null}{formatMoney(p.amountGross, p.currency)}{p.reason ? <> — {p.reason}</> : null}</>;
     }
+    case 'payment_corrected': {
+      // 정산 쪽이 이번 지급 건의 수취 정보를 고쳤다(056). 명부의 결제 수단은 그대로다 — 담당자가 명부도 고칠지 여기서 판단한다.
+      const p = l.payload as PaymentLogPayload | null;
+      if (!p) return <>정산 쪽이 수취 정보 정정</>;
+      const f = p.fields?.[0];
+      const extra = p.fields && p.fields.length > 1 ? ` 외 ${p.fields.length - 1}건` : '';
+      return <>정산 쪽이 수취 정보 정정{p.byName ? <> · {p.byName}</> : null}{f ? <>: {PAYMENT_FIELD_LABEL[f.field] ?? f.field} {f.from ?? '없음'} → {f.to ?? '없음'}{extra}</> : null}{p.reason ? <> — {p.reason}</> : null} <span className="text-x-muted">(명부는 그대로예요)</span></>;
+    }
     case 'payment_paid': {
       const p = l.payload as PaymentLogPayload | null;
       if (!p) return <>지급 완료</>;
@@ -96,6 +104,7 @@ function groupText(eventType: InfluencerAutoEvent | null, n: number): string {
     case 'payment_requested': return `정산 요청 ${n}건`;
     case 'payment_cancelled': return `정산 요청 취소 ${n}건`;
     case 'payment_revised': return `정산 요청 수정 ${n}건`;
+    case 'payment_corrected': return `정산 쪽 수취 정보 정정 ${n}건`;
     case 'payment_paid': return `지급 완료 ${n}건`;
     default: return `활동 기록 ${n}건`;
   }

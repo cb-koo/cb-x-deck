@@ -16,11 +16,13 @@ export type InfluencerChannel = 'dm' | 'line' | 'email' | 'other';
 export type InfluencerAutoEvent =
   'draft_assigned' | 'draft_unassigned' | 'draft_delivered' | 'handle_changed' | 'pricing_changed'
   | 'payment_method_changed' | 'payment_requested' | 'payment_cancelled' | 'payment_paid' | 'payment_revised'
-  | 'task_declined';   // 작업 취소·교체의 사유가 거절/무응답일 때(캠페인 v2 ADR 0001·0005)
+  | 'task_declined'      // 작업 취소·교체의 사유가 거절/무응답일 때(캠페인 v2 ADR 0001·0005)
+  | 'payment_corrected'; // 정산 쪽이 이번 지급 건의 수취 정보를 정정(056)
 
 // 정산 요청/취소/지급 한 줄 — 타임라인은 금액·통화·유형만 보인다(요청 상세는 정산 페이지)
 export interface PaymentLogPayload { requestId: string; amountGross: number; currency: Currency; taskType: TaskType; reason?: string; paidAmountKrw?: number;
-  revision?: number; before?: { amountGross: number; currency: Currency } }   // payment_revised: 고친 뒤 판·고치기 전 송금액(048)
+  revision?: number; before?: { amountGross: number; currency: Currency };   // payment_revised: 고친 뒤 판·고치기 전 송금액(048)
+  byName?: string; fields?: Array<{ field: string; from: string | null; to: string | null }> }   // payment_corrected: 정산 쪽 담당자·바뀐 항목(056). field는 PAYMENT_FIELD_LABEL 키
 // 작업 거절·무응답 한 줄 — 타임라인은 "작업 거절 · 캠페인명 · 유형"만 보인다. 되돌리기 정정 이벤트는 없다(한계, ADR 0005).
 export interface TaskDeclinedPayload {
   taskId: string; campaignId: string; campaignName: string; taskType: TaskType;

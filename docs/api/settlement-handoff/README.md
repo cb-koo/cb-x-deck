@@ -31,6 +31,7 @@
 | 23 | `23_우리_paid_amount_jpy수용_슬랙_20260909.md` | 우리 → 그쪽 | `paid_amount_jpy` 수용 + `paid_currency` 제안(슬랙 본문) |
 | 24 | `24_우리_캠페인기간_게시일_추가_통지_20260914.md` | 우리 → 그쪽 | Item에 `campaign.starts_on`·`ends_on`·`posted_on`·`confirmed_on` 추가 통지(슬랙 본문) |
 | 25 | `25_우리_클라이언트_ID목록_슬랙_20260918.md` | 우리 → 그쪽 | 클라이언트(clinic) ID ↔ 이름 5곳 + 보낸 요청 건수·금액, id로 매핑 요청(슬랙 본문) |
+| 26 | `26_우리_결제정보정정_회신_슬랙_20260921.md` | 우리 → 그쪽 | 수취 정보 정정 회신 API(`POST …/payment-info`) 요청 수용 — §3 7개 항목 답(revision 불변·상관관계 표식 `payment_method_correction`·멱등·`display_name`), 스테이징 점검 순서(슬랙 본문). 그쪽 원문은 그쪽 저장소 `docs/etc/20260921_결제정보정정_API_회신_소스팀.md` |
 
 **첨부 명세(그쪽 개발자용):** `../settlement-external-api.md` — 03·04와 함께 보낸 갱신본. 명세를 고치면 이 폴더의 메시지가 아니라 명세 파일을 고치고, 다시 보낼 때 "갱신본"이라고 적는다.
 

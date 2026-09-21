@@ -98,6 +98,7 @@ Authorization: Bearer <API 키>
 - **진짜 폐기는 종전처럼 `status: "cancelled"`** + `cancelled.reason`. 수정(`requested` + `revision`↑)과 폐기(`cancelled`)는 데이터로 구분된다. 취소된 요청의 `revision`은 그때까지의 수정 횟수를 그대로 가진다.
 - 작업의 인플루언서가 바뀐 경우(재배정)는 수정이 아니라 다른 의무이므로 종전처럼 취소 + 새 요청이다(`task_id` 같음).
 - 고치기 전 내용은 저희 쪽에 개정 이력으로 보관한다(이 API로는 내려가지 않는다).
+- **예외 — 수취 정보 정정(2026-09-21, §6-1).** 그쪽이 `POST …/payment-info`로 이번 지급 건의 수취 정보(계좌·PayPal 등)를 고치면 **`revision`은 오르지 않고** `payment_method`만 바뀐다(`settlement.*`·금액·`external_id`도 그대로). 그 건은 `updated_at`이 갱신돼 다음 폴링에 다시 내려오며, Item의 `payment_method_correction.correction_id`가 그쪽이 보낸 값이면 **그쪽 자신의 정정의 회신**이다 — 저희 수정(`revision` 증가·`settlement` 리셋)과 혼동하지 않는다.
 
 **그쪽이 함께 지켜야 하는 것.**
 1. **수정을 원하면 `on_hold` + `note`로 보낸다.** `cancelled`를 보내면 저희 요청이 즉시 취소되어 고칠 수 없고, 저희는 새 요청을 만들게 된다(`task_id` 같음, 서류 두 장).
@@ -166,6 +167,7 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 | `request_id` | string(uuid) | 아니오 | 결제 요청 ID. 상태 POST의 경로 파라미터로 그대로 쓴다. |
 | `revision` | number(정수 ≥ 0) | 아니오 | **저희가 이 요청을 고친 횟수**(§3-1). `0` 최초, `1` 1차 수정, … 취소 여부는 이 값이 아니라 `status`로 본다(취소된 요청도 수정 횟수를 그대로 가진다). 그쪽 처리 상태(`settlement.status`)가 바뀌어도 변하지 않는다. **정렬·중복 판정에 쓰지 말 것**(`updated_at` 사용). **전환 전(현행)**: `0` 요청됨 / `1` 취소됨. |
 | `revised_at` | string(ISO 8601) \| null | 예 | 마지막으로 고친 시각(§3-1). 한 번도 안 고쳤으면 `null`. 전환 전에는 항상 `null`. |
+| `payment_method_correction` | object \| null | 예 | **그쪽이 `POST …/payment-info`(§6-1)로 마지막에 보낸 수취 정보 정정의 표식**(2026-09-21 추가). `{ correction_id, at, by_name }` — `correction_id`는 그쪽이 보낸 값 그대로, `at`은 저희가 반영한 시각, `by_name`은 `operator.name`. 이 값이 있는 건이 폴링에 내려오면 `correction_id`를 자기 기록과 대조해 **자기 정정의 회신인지** 가른다. `null` = 정정된 적 없음, **또는 그 뒤 저희가 제자리 수정(§3-1)으로 결제 수단을 명부 값으로 다시 덮음**(그때는 `revision`도 함께 커진다 — 정정이 사라질 수 있으니 필요하면 다시 보낸다). |
 | `status` | `"requested"` \| `"cancelled"` | 아니오 | **우리 쪽 요청 자체의 상태.** 그쪽 처리 상태가 아니다 — 그쪽 처리 상태는 `settlement.status`. `cancelled`가 되는 경우는 (a) 우리 담당자가 취소, (b) 그쪽이 POST로 `status: cancelled`를 보내 우리가 취소 처리한 경우(§6, §7) 둘 다. |
 | `created_at` | string(ISO 8601) | 아니오 | 요청 생성 시각. |
 | `updated_at` | string(ISO 8601) | 아니오 | 이 요청 행이 마지막으로 바뀐 시각. 폴링 정렬·커서 기준. |
@@ -182,6 +184,7 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 | `clinic.name` | string | 아니오 | |
 | `influencer.id` | string(uuid) | 아니오 | 그쪽 체크리스트의 `influencer_uuid`에 대응. **요청 시점 스냅샷 — 핸들이 바뀌거나 인플루언서가 삭제되어도 이 id는 유지**된다. 집계 키로 이걸 쓸 것. |
 | `influencer.handle` | string | 아니오 | 요청 시점의 핸들 표기(표시용). |
+| `influencer.display_name` | string \| null | 예 | 인플루언서 **명부의 지금 표시명**(X 프로필 이름, 2026-09-21 추가 — 그쪽 미러 표시용). 핸들과 달리 스냅샷이 아니라 최신값이다(`proof`와 같은 판단 — 표시용은 최신이 맞다). 프로필을 아직 조회하지 않았거나 인플루언서가 삭제됐으면 `null`. 집계·매핑 키로 쓰지 말 것(`influencer.id`). |
 | `task_type` | `"post"` \| `"quoteRt"` \| `"rt"` \| `"visit"` | 아니오 | 투고 / 인용RT / RT / 방문협찬. |
 | `category.code` | string | 아니오 | 분류 옵션의 안정 키(예 `promo-rt`, `fee`, `info-post`). 사용자가 추가한 옵션은 uuid 문자열. 옵션은 삭제되지 않고 숨김만 되므로 코드는 항상 유효하다. |
 | `category.label` | string | 아니오 | 분류 표시 문구(예 `마케팅비 > X(트위터) …`). |
@@ -307,6 +310,70 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 - **폴링 응답에서 특정 요청의 `status`(최상위)가 `"cancelled"`로 바뀐 것을 보면, 지급을 중단하고 그쪽 자기 상태도 취소로 바꾼다.** (우리가 "지급 예정" 상태의 요청을 취소할 수 있다.)
 - **`paid` 반영 뒤 되돌리기는 API로 하지 않는다.** 지급 완료된 요청은 우리 쪽에서 취소가 구조적으로 막혀 있고(§7), 그쪽 상태도 `paid` 외로 바꿀 수 없다(위 규칙 5). 지급 완료 건을 정정해야 하면 **API가 아니라 사람(정산 담당자)이 처리**한다.
 
+## 6-1. `POST /api/external/settlement/requests/{request_id}/payment-info` — 수취 정보(결제 수단) 정정 회신 (2026-09-21 추가)
+
+그쪽 정산 담당자가 **이번 지급 건의 수취 정보**(계좌·PayPal·PayPay 식별값 등)의 오타를 고쳤을 때, 취소·재요청 없이 **같은 요청의 `payment_method`만** 바꾸는 엔드포인트다(그쪽 09-21 요청 수용). §3-1 "요청 내용 변경은 저희 쪽 제자리 수정"의 유일한 예외이며, 바뀌는 것은 `payment_method`·`payment_method_correction`·`updated_at` 셋뿐이다 — **`revision`·`revised_at`·`status`·금액·`settlement.*`(처리 상태·정산코드·실지급액·담당자)는 건드리지 않는다.**
+
+- 정정은 **이 요청에만** 반영된다. 저희 인플루언서 명부의 결제 수단은 그대로다(명부는 저희 담당자가 화면의 안내를 보고 고친다). 그래서 같은 인플루언서의 **다음 요청에는 옛 값이 다시 나갈 수 있다** — 그때는 다시 정정을 보내거나 슬랙으로 알려 주면 명부를 고친다.
+- 저희가 그 뒤 제자리 수정(§3-1)으로 결제 수단을 명부에서 다시 스냅샷하면 정정은 사라지고 `payment_method_correction`이 `null`로 돌아간다(`revision`은 커진다). 저희 화면은 정정된 건을 다시 반영하기 전에 "명부를 먼저 확인하라"고 막아 세우지만, 강제는 아니다.
+
+### 요청 본문
+
+```
+POST {base}/api/external/settlement/requests/{request_id}/payment-info
+Authorization: Bearer <운영키>
+Content-Type: application/json
+```
+
+| 필드 | 필수 | 타입 | 설명 |
+|---|---|---|---|
+| `correction_id` | 예 | string(uuid) | 그쪽이 발급한 정정 식별자. **멱등 키이자 회신 상관관계 키** — 반영 뒤 Item의 `payment_method_correction.correction_id`로 되돌아온다. 요청 하나에 한 번만 쓴다(다른 요청에 재사용하면 400 `field: "correction_id"`). |
+| `base_source_revision` | 예 | number(정수 ≥ 0) | 정정이 기준한 Item의 `revision`. 저희 현재 값과 다르면 **409 `revision-mismatch`**. |
+| `base_source_updated_at` | 예 | string(ISO 8601) | 기준한 Item의 `updated_at`. **형식만 검사하고 판정에는 쓰지 않는다**(정보용·로그용) — 그쪽 자신의 상태 POST도 저희 `updated_at`을 갱신하므로 정확히 일치하기를 요구하면 정상 흐름에서도 거절이 난다. 동시성 판정은 `base_source_revision`으로 충분하다(취소는 `status`, 지급 완료는 `settlement.status`가 따로 막는다). |
+| `payment_method` | 예 | object | **바뀐 키만** 담는다(부분 전송). 허용 키 7개: `holder`·`paypal_id`·`email`·`identifier`·`bank`·`branch`·`account`. 값은 문자열(앞뒤 공백 제거, ≤200자). **`type`·`currency`는 보낼 수 없다**(400) — 수단 종류·통화를 바꾸는 것은 다른 의무라 `on_hold` + `note`로 알려 달라. 7개 밖의 키·비어 있는 객체도 400. **비우기(`null` 또는 `""`)는 선택 항목만**: `branch`, 그리고 PayPal의 `email`·`paypal_id`(둘 중 하나는 남아야 한다). 그 외 키를 비우면 400. |
+| `operator` | **예** | `{ id: string, name: string }` (각 ≤100자) | 정정을 실행한 그쪽 담당자. 상태 POST(§6)에서는 선택이지만 정정은 사람이 하는 일이라 **필수** — 없으면 400 `field: "operator"`. 저희 화면과 명부 활동 기록에 "정산 쪽이 수취 정보를 고쳤어요 · {name}"로 보인다. |
+| `reason` | 예 | string, ≤500자 | 정정 사유(자유 텍스트). 저희 화면·활동 기록에 그대로 보인다. |
+| `idempotency_key` | 아니오 | string(≤200자) \| null | 재전송 안전 키. 같은 요청 안에서 같은 키가 이미 반영됐으면 **다시 적용하지 않고 최초 결과를 돌려준다**(아래 규칙 3). `correction_id`만으로도 멱등이므로 없어도 된다. |
+
+본문에 저희가 모르는 **최상위** 키가 있으면 무시한다(§6과 같다). 단 `payment_method` 안의 모르는 키는 400이다 — "정정했다고 믿은 값이 조용히 버려지는 것"이 가장 나쁜 실패라서다.
+
+### 적용 규칙 (아래 순서대로 판정)
+
+| 순서 | 조건 | 결과 |
+|---|---|---|
+| 1 | 본문 모양 오류(위 표의 필수·형식·허용 키·비울 수 없는 키) | **400** `{ "error": "...", "field": "..." }` — 첫 번째로 걸리는 필드 하나. `payment_method` 안의 키는 `field: "payment_method.account"`처럼 점으로 잇는다 |
+| 2 | `request_id`가 uuid가 아니거나 존재하지 않음 | **404** `{ "error": "..." }` |
+| 3 | 같은 `correction_id`가 이 요청에 이미 반영됨, 또는 같은 `idempotency_key`가 이 요청에 이미 반영됨 | **200** `{ "applied": true, "correction_id": <최초 반영된 id>, "request": Item }` — **쓰기 없음**(`updated_at`도 그대로). 본문이 달라도 다시 보지 않는다(재전송은 같은 본문이어야 한다는 §6 규칙과 같다). `correction_id`가 **다른 요청**에 이미 쓰인 값이면 **400** `field: "correction_id"` |
+| 4 | 저희 `status`가 `"cancelled"` | **409** `{ "code": "request-cancelled", "error": "...", "request": Item }` — 판이 틀려도 취소가 먼저(종점) |
+| 5 | `settlement.status`가 `"paid"` | **409** `{ "code": "paid-locked", "error": "...", "request": Item }` — 지급 뒤 수취 정보 정정은 사람이 협의 |
+| 6 | `base_source_revision`이 저희 현재 `revision`과 다름 | **409** `{ "code": "revision-mismatch", "request": Item }` — 재전송하지 말고 `request`(최신 Item)의 `payment_method`·`revision`으로 다시 판단해 필요하면 새 `correction_id`로 보낸다 |
+| 7 | 바뀐 키가 **현재 수단 종류에 없는 항목**(예: PayPal 수단에 `bank`), 또는 합친 결과가 저희 결제 수단 규칙을 통과하지 못함(이메일 형식, PayPal.me 아이디 형식(영문·숫자·`._-` 3~50자), 은행·계좌번호 비움, PayPal에 이메일·아이디 둘 다 없음, 수취인 80자 초과 등) | **400** `{ "error": "...", "field": "payment_method.bank" \| "payment_method" }` — 행을 읽어야 아는 검증이라 404 뒤에 난다 |
+| 8 | 그 외(정상 적용 — 같은 값이어서 바뀐 항목이 0건이어도 적용으로 처리) | **200** `{ "applied": true, "correction_id": "<보낸 값>", "request": Item }` |
+
+- **200 응답에는 다른 200과 달리 `version`이 없다** — 그쪽 파서가 `{ applied, correction_id, request }` 세 키만 엄격히 받기 때문(§8). 409의 `code`는 위 세 가지만 쓴다(그쪽이 엄격 파싱).
+- `request`는 §5의 Item(정정 반영 후 최신 상태). `payment_method`에는 합친 결과가 전부(바뀐 키만이 아니라) 들어 있고, `payment_method_correction`에 표식이 있다.
+- 반영되면 그 건의 `updated_at`이 갱신돼 **다음 폴링에 다시 내려온다.** `payment_method_correction.correction_id`가 자기 것이면 회신이다 — 담당 해제·재검토 경로를 타지 않는다. `revision`은 그대로이므로 그쪽 outbox에 남아 있던 상태 POST도 그대로 통한다.
+- 합친 결과는 저희가 **새 요청을 만들 때와 같은 검사**를 통과해야 한다(규칙 7) — 정정으로 "요청 생성이 막혔을 값"이 들어오는 일을 막는다. PayPal.me 아이디는 `@`·`paypal.me/` 접두어를 떼고 저장한다(새 요청과 같은 정규화).
+- 저희는 정정마다 이력(정정 전·후 스냅샷·사유·담당자)을 보관하고, 인플루언서 명부의 활동 기록에 "정산 쪽이 수취 정보 정정 — {항목} {이전} → {이후}"를 남긴다. 이 이력은 이 API로는 내려가지 않는다.
+
+### curl 예시
+
+```bash
+curl -sS -X POST "$BASE/api/external/settlement/requests/$REQUEST_ID/payment-info" \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{
+    "correction_id": "5f2b9c1e-6d3a-4b7c-9e0f-1a2b3c4d5e6f",
+    "base_source_revision": 1,
+    "base_source_updated_at": "2026-09-21T05:00:00.000Z",
+    "payment_method": { "account": "7654321", "branch": null },
+    "operator": { "id": "8f2c9e10-1b2a-4c3d-9e4f-000000000001", "name": "정산 담당자" },
+    "reason": "계좌번호 마지막 자리 오타, 지점 없음",
+    "idempotency_key": "corr-2026-09-21-0001"
+  }'
+# 200 { "applied": true, "correction_id": "5f2b9c1e-…", "request": { …, "revision": 1, "payment_method": { "type": "bank", "holder": "…", "currency": "JPY", "bank": "…", "account": "7654321" },
+#                                                                    "payment_method_correction": { "correction_id": "5f2b9c1e-…", "at": "2026-09-21T05:03:12.481Z", "by_name": "정산 담당자" }, … } }
+```
+
 ## 7. 상태 값의 뜻
 
 | `settlement.status` | 뜻 |
@@ -326,7 +393,7 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 - 하위 호환을 깨는 변경은 이 경로를 그대로 두고 새 `/v2` 경로로 낸다. 이 문서·엔드포인트가 예고 없이 모양을 바꾸는 일은 없다.
 - 이 API에는 `event_id`나 웹훅이 없다(§1). HMAC 서명도 쓰지 않는다 — 웹훅이 없으므로 필요하지 않다.
 - 담당자·연락 채널은 운영 단계에서 별도 안내한다.
-- **개정 기록.** 2026-09-01 `payout.gross_krw` 추가 / 2026-09-02 `proof`·`GET …/proof` 추가, 증빙만 최신값(§3-2) / 2026-09-02 요청 생성 사전 차단(RT `proof`·그 외 `reference_url` 필수) / 2026-09-03 PayPay `identifier` 필수, `payment_method` 빈 키 생략 명시 / 2026-09-07 상태 POST `operator` 선택 필드, 모르는 키 무시 명시 / **2026-09-07 제자리 수정(§3-1 개정, `revision` 의미 변경, `revised_at` 추가, 상태 POST `revision` 필수·409 `revision-mismatch`) — 2026-09-08 양쪽 스위치 ON, 전환 완료.** / 2026-09-09 상태 POST `paid_amount_usd` 선택 필드 수용, Item `settlement.paid_amount_usd` 되비침 추가. / 2026-09-09 `paid_amount_jpy`·`paid_currency` 선택 필드 수용(외화는 paid에서만·한 요청에 하나·보낸 것만 갱신), Item `settlement.paid_amount_jpy` 되비침 추가. / **2026-09-14 Item에 `campaign.starts_on`·`campaign.ends_on`(캠페인 기간)·`posted_on`(게시일, RT 외)·`confirmed_on`(RT 확인일) 추가 — 전부 요청 시점 스냅샷, 기존 요청은 현재값으로 백필. 키만 늘었고 기존 키·의미 변화 없음.**
+- **개정 기록.** 2026-09-01 `payout.gross_krw` 추가 / 2026-09-02 `proof`·`GET …/proof` 추가, 증빙만 최신값(§3-2) / 2026-09-02 요청 생성 사전 차단(RT `proof`·그 외 `reference_url` 필수) / 2026-09-03 PayPay `identifier` 필수, `payment_method` 빈 키 생략 명시 / 2026-09-07 상태 POST `operator` 선택 필드, 모르는 키 무시 명시 / **2026-09-07 제자리 수정(§3-1 개정, `revision` 의미 변경, `revised_at` 추가, 상태 POST `revision` 필수·409 `revision-mismatch`) — 2026-09-08 양쪽 스위치 ON, 전환 완료.** / 2026-09-09 상태 POST `paid_amount_usd` 선택 필드 수용, Item `settlement.paid_amount_usd` 되비침 추가. / 2026-09-09 `paid_amount_jpy`·`paid_currency` 선택 필드 수용(외화는 paid에서만·한 요청에 하나·보낸 것만 갱신), Item `settlement.paid_amount_jpy` 되비침 추가. / **2026-09-14 Item에 `campaign.starts_on`·`campaign.ends_on`(캠페인 기간)·`posted_on`(게시일, RT 외)·`confirmed_on`(RT 확인일) 추가 — 전부 요청 시점 스냅샷, 기존 요청은 현재값으로 백필. 키만 늘었고 기존 키·의미 변화 없음.** / **2026-09-21 `POST …/payment-info`(§6-1) 신설 — 그쪽 09-21 요청 수용. 같은 요청의 `payment_method`만 정정, `revision`·`settlement.*` 불변, 멱등(`correction_id`·`idempotency_key`), 409 코드는 §6과 같은 세 가지. 200 응답은 `{ applied, correction_id, request }`로 `version`이 없다(그쪽 엄격 파서, 이 엔드포인트만의 예외). Item에 `payment_method_correction`(정정 표식)·`influencer.display_name`(명부 표시명, 최신값) 추가 — 키만 늘었고 기존 키·의미 변화 없음.**
 
 ## 9. curl 예시
 

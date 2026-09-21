@@ -115,6 +115,12 @@ export function ReviseDialog({ target, onDone, onClose }: { target: PaymentReque
           <p className="mt-3 text-ui text-amber-700">{preview.after.issues.map((i) => i.text).join(' · ')}</p>
         )}
 
+        {/* 정산 쪽이 이 건의 수취 정보를 고친 뒤(056)라면, 다시 반영은 결제 수단을 명부 값으로 되돌린다 — 명부가 아직 옛 값이면 정정이 사라진다. */}
+        {target.paymentMethodCorrection && (
+          <div className="mt-4 rounded-lg bg-amber-50 p-3 text-ui text-amber-800">
+            <p>정산 쪽이 이 요청의 수취 정보를 고쳤어요({target.paymentMethodCorrection.byName}{target.paymentMethodCorrection.reason ? <> — {target.paymentMethodCorrection.reason}</> : null}). 다시 반영하면 결제 수단이 <b>명부의 값으로 되돌아가요</b> — 명부의 결제 수단이 고친 값과 같은지 먼저 확인해 주세요.</p>
+          </div>
+        )}
         {confirmNeeded && (
           <div className="mt-4 rounded-lg bg-amber-50 p-3 text-ui text-amber-800">
             <p>정산 쪽이 이미 처리한 요청이에요(지금 {target.externalStatus ? EXTERNAL_STATUS_LABEL[target.externalStatus] : ''}). 송금이 진행 중일 수 있으니 <b>슬랙으로 정산 담당자에게 먼저 확인</b>하고 반영해 주세요.</p>

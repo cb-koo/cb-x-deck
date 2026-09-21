@@ -38,7 +38,8 @@ export function clampLimit(raw: string | null): number {
 // proof는 이미 해석된 "실을 값"이다(settlementStore.exportRows가 결정) — task_id가 있으면 campaign_task.proof(현재값),
 // 없으면 row.proof(payment_request 스냅샷)로 이미 폴백된 상태로 들어온다(스펙 §5, koo 결정 B). 여기서는 DB를 만지지 않으므로
 // "라이브냐 스냅샷이냐"를 다시 판단하지 않고, 주어진 값을 그쪽 계약 모양(snake_case)으로만 바꾼다.
-export interface ExportRow { row: PaymentRequestRow; updatedAtUs: string; requester: { email: string | null; slackId: string | null }; proof: TaskProof | null }
+export interface ExportRow { row: PaymentRequestRow; updatedAtUs: string; requester: { email: string | null; slackId: string | null }; proof: TaskProof | null;
+  influencerDisplayName: string | null }   // 명부의 지금 표시명(09-21 그쪽 §3-7, 표시용) — 스냅샷이 아니다. 삭제됐으면 null
 export interface ExternalItem {
   request_id: string; revision: number; revised_at: string | null; status: 'requested' | 'cancelled'; created_at: string; updated_at: string;
   cancelled: { at: string | null; by_name: string | null; reason: string | null } | null;
@@ -47,7 +48,7 @@ export interface ExternalItem {
   // 투고·인용RT·방문은 트윗 시각에서 뽑은 게시일(posted_on), RT는 담당자가 확인해 적은 확인일(confirmed_on). 반대쪽은 null.
   campaign: { id: string | null; name: string; starts_on: string | null; ends_on: string | null }; clinic: { id: string; name: string };
   posted_on: string | null; confirmed_on: string | null;
-  influencer: { id: string; handle: string };
+  influencer: { id: string; handle: string; display_name: string | null };
   task_type: PaymentRequestRow['taskType'];
   category: { code: string; label: string };
   item: string; purpose: string;
@@ -61,6 +62,9 @@ export interface ExternalItem {
   // RT 지급 전 확인 자료(스펙 §3). null인 경우 둘: ①RT가 아닌 유형(reference_url로 확인) ②RT인데 아직 증빙이 없음.
   // url은 고정 엔드포인트(서명 URL이 아니다 — 서명 URL은 만료돼 캐시된 목록의 링크가 죽는다, 스펙 §4).
   proof: { url: string; uploaded_at: string; uploaded_by: string } | null;
+  // 그쪽이 보낸 수취 정보 정정의 표식(2026-09-21, 그쪽 §3-5 상관관계). 이 건이 폴링에 다시 내려올 때 correction_id가 자기 것이면 "내 정정의 회신"이다.
+  // null = 정정된 적 없음, 또는 그 뒤 우리가 제자리 수정(§3-1)으로 결제 수단을 명부 값으로 다시 덮음(그때는 revision도 커진다).
+  payment_method_correction: { correction_id: string; at: string; by_name: string } | null;
 }
 const SNAKE_PM: Record<string, string> = { type: 'type', holder: 'holder', currency: 'currency', email: 'email', paypalId: 'paypal_id', identifier: 'identifier', bank: 'bank', branch: 'branch', account: 'account' };
 
@@ -77,7 +81,7 @@ export function toExternalItem(e: ExportRow, origin: string): ExternalItem {
     task_id: r.taskId,
     campaign: { id: r.campaignId, name: r.campaignName, starts_on: r.campaignStartsOn, ends_on: r.campaignEndsOn }, clinic: { id: r.clientId, name: r.clientName },
     posted_on: r.taskType === 'rt' ? null : r.postedOn, confirmed_on: r.taskType === 'rt' ? r.postedOn : null,
-    influencer: { id: r.influencerId, handle: r.influencerHandle },
+    influencer: { id: r.influencerId, handle: r.influencerHandle, display_name: e.influencerDisplayName },
     task_type: r.taskType,
     category: { code: r.categoryOptionId, label: r.category },
     item: r.itemText, purpose: r.purposeText,
@@ -94,6 +98,9 @@ export function toExternalItem(e: ExportRow, origin: string): ExternalItem {
     note: r.note,
     settlement: { status: r.externalStatus, paid_amount_krw: r.paidAmountKrw, paid_amount_usd: r.paidAmountUsd, paid_amount_jpy: r.paidAmountJpy, paid_at: r.paidAt, note: r.externalNote, updated_at: r.externalUpdatedAt, external_id: r.externalId },
     proof: e.proof ? { url: `${origin}/api/external/settlement/requests/${r.id}/proof`, uploaded_at: e.proof.at, uploaded_by: e.proof.byName } : null,
+    payment_method_correction: r.paymentMethodCorrection
+      ? { correction_id: r.paymentMethodCorrection.correctionId, at: r.paymentMethodCorrection.at, by_name: r.paymentMethodCorrection.byName }
+      : null,
   };
 }
 
@@ -119,6 +126,18 @@ function optStr(o: Record<string, unknown>, k: string, max: number): string | nu
   return t.length ? t : null;
 }
 const isParse = (v: unknown): v is StatusParse => typeof v === 'object' && v !== null && 'ok' in (v as object);
+// operator { id, name } 규약 한 곳 — 상태 POST(선택)와 수취 정보 정정 POST(필수, settlementPaymentCorrection.ts)가 같은 검사를 쓴다.
+// id는 그쪽 로그인 사용자 UUID라지만 형식을 강제하지 않는다(047과 같은 이유 — 그쪽 사정으로 바뀌어도 400을 내지 않기 위해).
+export function parseOperatorField(v: unknown): StatusOperator | null | StatusParse {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== 'object' || Array.isArray(v)) return bad('operator', '{ id, name } 객체여야 해요');
+  const { id, name } = v as Record<string, unknown>;
+  const idOk = typeof id === 'string' && id.trim() !== '' && id.length <= OPERATOR_MAX;
+  const nameOk = typeof name === 'string' && name.trim() !== '' && name.length <= OPERATOR_MAX;
+  if (!idOk || !nameOk) return bad('operator', `id·name은 비어 있지 않은 ${OPERATOR_MAX}자 이하 문자열이어야 해요`);
+  return { id: (id as string).trim(), name: (name as string).trim() };
+}
+export function parseIsoField(v: unknown): string | null { return isoOf(v); }
 export function parseStatusUpdate(body: unknown): StatusParse {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('body', 'JSON 객체여야 해요');
   const o = body as Record<string, unknown>;
@@ -168,16 +187,8 @@ export function parseStatusUpdate(body: unknown): StatusParse {
     paidCurrency = c;
   }
   // operator(선택): 있으면 { id, name } 모양만 받는다 — 그쪽 목 서버 규칙과 같다. null은 "없음". 본문의 그 외 모르는 키는 전부 무시한다.
-  let operator: StatusOperator | null = null;
-  if (o.operator !== undefined && o.operator !== null) {
-    const op = o.operator;
-    if (typeof op !== 'object' || Array.isArray(op)) return bad('operator', '{ id, name } 객체여야 해요');
-    const { id, name } = op as Record<string, unknown>;
-    const idOk = typeof id === 'string' && id.trim() !== '' && id.length <= OPERATOR_MAX;
-    const nameOk = typeof name === 'string' && name.trim() !== '' && name.length <= OPERATOR_MAX;
-    if (!idOk || !nameOk) return bad('operator', `id·name은 비어 있지 않은 ${OPERATOR_MAX}자 이하 문자열이어야 해요`);
-    operator = { id: (id as string).trim(), name: (name as string).trim() };
-  }
+  const operator = parseOperatorField(o.operator);
+  if (isParse(operator)) return operator;
   // revision(§6, 전환 후 필수): 정수(≥0)만. 없거나 null이면 null — 필수 여부는 라우트가 스위치를 보고 판단한다(파서는 스위치를 모른다).
   let revision: number | null = null;
   if (o.revision !== undefined && o.revision !== null) {

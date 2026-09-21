@@ -11,7 +11,7 @@ import {
   getSettlementSettings, saveSettlementSettings, listSettlementVersions, lastQuoteRtCategory, listCandidates,
   createRequests, cancelRequest, listRequests, settlementByTaskIds, SettlementCreateError,
   listForExport, getForExport, applyExternalStatus, ackDiff, unackDiff,
-  reviseRequest, previewRevision, listRevisions,
+  reviseRequest, previewRevision, listRevisions, applyPaymentMethodCorrection,
 } from './settlementStore.ts';
 import type { CreateItemInput, PaymentRequestRow } from './settlementStore.ts';
 import { encodeCursor, decodeCursor, toExternalItem } from './settlementExternal.ts';
@@ -880,3 +880,79 @@ test('ackDiff — 아직 지급 완료가 아니면 no-diff', async () => {
 test('unackDiff — 없는 id는 not-found', async () => {
   assert.equal(await unackDiff(sql, '00000000-0000-0000-0000-000000000000'), 'not-found');
 });
+
+// ── 정산 쪽 수취 정보 정정 회신(스펙 2026-09-21 §4, 그쪽 09-21 요청) ──
+const CID = (n: number) => `22222222-3333-4444-8555-${String(n).padStart(12, '0')}`;
+const corr = (patch: Record<string, string | null>, extra: Partial<{ correctionId: string; baseRevision: number; idempotencyKey: string | null; reason: string }> = {}) => ({
+  correctionId: extra.correctionId ?? CID(1), baseRevision: extra.baseRevision ?? 0, baseUpdatedAt: at('2026-09-21T05:00:00Z'), patch,
+  operator: { id: '8f2c9e10-1b2a-4c3d-9e4f-000000000001', name: '정산 담당' }, reason: extra.reason ?? '이메일 오타', idempotencyKey: extra.idempotencyKey ?? null,
+});
+
+test('applyPaymentMethodCorrection — 수취 정보만 바뀌고 revision·금액·그쪽 결과는 그대로, 표식·이력·활동 기록, 멱등 재전송은 쓰기 없음', () => revisionOn(async () => {
+  const { row } = await requestFor('pc1', 'pc1');
+  await applyExternalStatus(sql, row.id, upd('scheduled', '2026-09-21T04:00:00Z', { externalId: 'CBX-260921-001', revision: 0, operator: { id: 'op', name: '전태정' } }));
+  const before = (await listRequests(sql, { taskId: row.taskId! }))[0];
+  const r = await applyPaymentMethodCorrection(sql, row.id, corr({ email: `${H('pc1')}.fixed@x.com` }, { idempotencyKey: 'idem-1' }));
+  assert.ok(r !== 'not-found' && r.kind === 'applied' && r.correctionId === CID(1));
+  const after = r.row;
+  assert.equal(after.paymentMethod.email, `${H('pc1')}.fixed@x.com`); assert.equal(after.paymentMethod.holder, before.paymentMethod.holder);   // 바뀐 키만
+  assert.equal(after.revision, 0); assert.equal(after.revisedAt, null);                                                                  // 판은 그대로
+  assert.equal(after.amountGross, before.amountGross); assert.equal(after.externalStatus, 'scheduled'); assert.equal(after.externalId, 'CBX-260921-001');
+  assert.equal(after.externalOperatorName, '전태정'); assert.equal(after.status, 'requested');                                          // 그쪽 결과·담당자 유지
+  assert.ok(new Date(after.updatedAt) > new Date(before.updatedAt));                                                                     // 폴링에 다시 내려간다
+  assert.ok(after.paymentMethodCorrection); assert.equal(after.paymentMethodCorrection!.correctionId, CID(1)); assert.equal(after.paymentMethodCorrection!.byName, '정산 담당'); assert.equal(after.paymentMethodCorrection!.reason, '이메일 오타');
+  // 그쪽 아이템에는 표식이, 명부 타임라인에는 바뀐 항목이 남는다
+  const exp = await getForExport(sql, row.id);
+  const item = toExternalItem(exp!, 'https://x');
+  assert.deepEqual(item.payment_method_correction, { correction_id: CID(1), at: after.paymentMethodCorrection!.at, by_name: '정산 담당' });
+  assert.equal(item.payment_method.email, `${H('pc1')}.fixed@x.com`);
+  const logs = await sql<Array<{ payload: { byName: string; fields: Array<{ field: string; to: string }> } }>>`select payload from influencer_log where influencer_id = ${row.influencerId} and event_type = 'payment_corrected'`;
+  assert.equal(logs.length, 1); assert.equal(logs[0].payload.byName, '정산 담당'); assert.equal(logs[0].payload.fields[0].field, 'email');
+  const hist = await sql<Array<{ base_revision: number; before: { email: string }; after: { email: string }; idempotency_key: string }>>`select base_revision, before, after, idempotency_key from payment_request_payment_correction where request_id = ${row.id}`;
+  assert.equal(hist.length, 1); assert.equal(hist[0].base_revision, 0); assert.equal(hist[0].before.email, `${H('pc1')}@x.com`); assert.equal(hist[0].idempotency_key, 'idem-1');
+  // 같은 correction_id 재전송 → replayed, 쓰기 없음(updated_at 그대로·이력 1건). 같은 idempotency_key에 다른 correction_id도 replayed(최초 id 반환)
+  const again = await applyPaymentMethodCorrection(sql, row.id, corr({ email: 'other@x.com' }));
+  assert.ok(again !== 'not-found' && again.kind === 'replayed' && again.correctionId === CID(1)); assert.equal(again.row.updatedAt, after.updatedAt);
+  const byKey = await applyPaymentMethodCorrection(sql, row.id, corr({ email: 'other@x.com' }, { correctionId: CID(2), idempotencyKey: 'idem-1' }));
+  assert.ok(byKey !== 'not-found' && byKey.kind === 'replayed' && byKey.correctionId === CID(1));
+  assert.equal((await sql`select 1 from payment_request_payment_correction where request_id = ${row.id}`).length, 1);
+  assert.equal((await listRequests(sql, { taskId: row.taskId! }))[0].paymentMethod.email, `${H('pc1')}.fixed@x.com`);
+  // 다른 요청에 이미 쓴 correction_id → invalid(correction_id), PK 충돌 500이 아니다
+  const { row: other } = await requestFor('pc1b', 'pc1b');
+  const reused = await applyPaymentMethodCorrection(sql, other.id, corr({ email: 'z@x.com' }));
+  assert.ok(reused !== 'not-found' && reused.kind === 'invalid' && reused.field === 'correction_id');
+  // 정정 뒤에도 그쪽 상태 POST는 같은 revision(0)으로 계속 통한다 — 판을 올리지 않은 이유
+  const st = await applyExternalStatus(sql, row.id, upd('paid', '2026-09-21T06:00:00Z', { paidAmountKrw: 31580, paidAt: '2026-09-21T05:59:00Z', revision: 0 }));
+  assert.ok(st !== 'not-found' && st.kind === 'applied');
+}));
+
+test('applyPaymentMethodCorrection — 판정: 취소 → 지급 완료 → 판 불일치 → 수단에 없는 키(400) → 없는 요청', () => revisionOn(async () => {
+  const a = await requestFor('pc2a', 'pc2a');
+  await cancelRequest(sql, a.row.id, '중복', a.member);
+  const c1 = await applyPaymentMethodCorrection(sql, a.row.id, corr({ email: 'a@x.com' }, { baseRevision: 9 }));
+  assert.ok(c1 !== 'not-found' && c1.kind === 'conflict' && c1.code === 'request-cancelled');   // 판이 틀려도 취소가 먼저
+  const b = await requestFor('pc2b', 'pc2b');
+  await applyExternalStatus(sql, b.row.id, upd('paid', '2026-09-21T05:00:00Z', { paidAmountKrw: 31580, paidAt: '2026-09-21T04:59:00Z', revision: 0 }));
+  const c2 = await applyPaymentMethodCorrection(sql, b.row.id, corr({ email: 'b@x.com' }));
+  assert.ok(c2 !== 'not-found' && c2.kind === 'conflict' && c2.code === 'paid-locked');
+  const c = await requestFor('pc2c', 'pc2c');
+  const c3 = await applyPaymentMethodCorrection(sql, c.row.id, corr({ email: 'c@x.com' }, { baseRevision: 1 }));
+  assert.ok(c3 !== 'not-found' && c3.kind === 'conflict' && c3.code === 'revision-mismatch');
+  const c4 = await applyPaymentMethodCorrection(sql, c.row.id, corr({ bank: 'みずほ' }));   // PayPal 수단에 은행
+  assert.ok(c4 !== 'not-found' && c4.kind === 'invalid' && c4.field === 'payment_method.bank');
+  assert.equal((await listRequests(sql, { taskId: c.row.taskId! }))[0].paymentMethodCorrection, null);   // 거절은 아무것도 남기지 않는다
+  assert.equal(await applyPaymentMethodCorrection(sql, '00000000-0000-0000-0000-000000000000', corr({ email: 'x@x.com' })), 'not-found');
+  assert.equal(await applyPaymentMethodCorrection(sql, 'nope', corr({ email: 'x@x.com' })), 'not-found');
+}));
+
+test('applyPaymentMethodCorrection → reviseRequest — 우리가 다시 반영하면 결제 수단은 명부 값으로 돌아가고 표식은 지워진다', () => revisionOn(async () => {
+  const { row, member } = await requestFor('pc3', 'pc3');
+  const r = await applyPaymentMethodCorrection(sql, row.id, corr({ email: `${H('pc3')}.fixed@x.com` }));
+  assert.ok(r !== 'not-found' && r.kind === 'applied');
+  const rv = await reviseRequest(sql, row.id, { expectedRevision: 0, reason: '재검토', edits: { category: row.category, deadlineOn: row.deadlineOn, referenceUrl: row.referenceUrl }, partnerConfirmed: true }, member);
+  const after = rv as PaymentRequestRow;
+  assert.equal(after.revision, 1); assert.equal(after.paymentMethod.email, `${H('pc3')}@x.com`); assert.equal(after.paymentMethodCorrection, null);
+  // 1판 이력 스냅샷에는 정정된 값과 표식이 그대로 남아 "정정이 있었다"를 나중에도 답할 수 있다
+  const hist = await listRevisions(sql, row.id);
+  assert.equal(hist[0].snapshot.paymentMethod.email, `${H('pc3')}.fixed@x.com`); assert.ok(hist[0].snapshot.paymentMethodCorrection);
+}));

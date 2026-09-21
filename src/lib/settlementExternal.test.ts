@@ -34,15 +34,15 @@ const row: PaymentRequestRow = {
   status: 'requested', cancelledAt: null, cancelledByName: null, cancelReason: null, sentAt: null, externalId: null, note: '',
   createdAt: '2026-08-28T00:00:00.000Z', updatedAt: '2026-08-28T00:00:00.000Z',
   externalStatus: null, paidAmountKrw: null, paidAt: null, externalNote: null, externalUpdatedAt: null, influencerId: 'inf', categoryOptionId: 'fee', diffAckAt: null, diffAckByName: null, externalOperatorId: null, externalOperatorName: null, revision: 0, revisedAt: null, paidAmountUsd: null, paidAmountJpy: null,
-  campaignStartsOn: '2026-08-31', campaignEndsOn: '2026-09-06', postedOn: '2026-08-27',
+  campaignStartsOn: '2026-08-31', campaignEndsOn: '2026-09-06', postedOn: '2026-08-27', paymentMethodCorrection: null,
 };
 test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
-  const e: ExportRow = { row, updatedAtUs: '1', requester: { email: 'a@b.c', slackId: null }, proof: null };
+  const e: ExportRow = { row, updatedAtUs: '1', requester: { email: 'a@b.c', slackId: null }, proof: null, influencerDisplayName: null };
   const it = toExternalItem(e, ORIGIN);
   assert.equal(it.request_id, ID); assert.equal(it.revision, 0); assert.equal(it.status, 'requested');
   assert.equal(it.amount_krw, 30000); assert.equal(it.cost_currency, 'KRW');
   assert.deepEqual(it.payout, { currency: 'JPY', net: 3000, fee: { mode: 'grossUp', percent: 5 }, fee_amount: 158, gross: 3158, rate_krw_per_jpy: 10, gross_krw: 31580 });
-  assert.deepEqual(it.influencer, { id: 'inf', handle: 'sawada_k' });
+  assert.deepEqual(it.influencer, { id: 'inf', handle: 'sawada_k', display_name: null });
   assert.deepEqual(it.clinic, { id: 'cl', name: '마인드피부과' });
   assert.deepEqual(it.category, { code: 'fee', label: '마케팅비 > 원고료' });
   assert.deepEqual(it.payment_method, { type: 'paypal', holder: 'KEIKO', currency: 'JPY', paypal_id: 'keiko' });
@@ -53,13 +53,13 @@ test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   // 증빙 없음(RT 아닌 유형이거나, RT인데 아직 없음) → proof는 null(스펙 §3)
   assert.equal(it.proof, null);
   // 응답 키 집합 — proof 추가 외에는 그대로다(파트너 영향 0을 못박는다, 스펙 §10)
-  assert.deepEqual(Object.keys(it).sort(), [...ITEM_KEYS_BEFORE_PROOF, 'proof', 'revised_at', 'posted_on', 'confirmed_on'].sort());
+  assert.deepEqual(Object.keys(it).sort(), [...ITEM_KEYS_BEFORE_PROOF, 'proof', 'revised_at', 'posted_on', 'confirmed_on', 'payment_method_correction'].sort());
 });
 
 // 09-14 koo: 캠페인 기간과 게시일을 그쪽에 싣는다. 게시일은 유형별로 뜻이 달라 필드를 가른다(A안) —
 // 투고·인용RT·방문은 트윗 시각에서 뽑은 '게시일'(posted_on), RT는 담당자가 확인해 적은 '확인일'(confirmed_on). 다른 쪽은 null.
 test('toExternalItem — campaign.starts_on/ends_on 스냅샷, 투고는 posted_on·RT는 confirmed_on(반대쪽은 null)', () => {
-  const e: ExportRow = { row, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null };
+  const e: ExportRow = { row, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null, influencerDisplayName: null };
   const post = toExternalItem(e, ORIGIN);
   assert.deepEqual(post.campaign, { id: 'c', name: '캠', starts_on: '2026-08-31', ends_on: '2026-09-06' });
   assert.equal(post.posted_on, '2026-08-27'); assert.equal(post.confirmed_on, null);
@@ -77,7 +77,7 @@ test('toExternalItem — campaign.starts_on/ends_on 스냅샷, 투고는 posted_
 test('toExternalItem — 취소·지급 완료 되비침', () => {
   const r2: PaymentRequestRow = { ...row, status: 'cancelled', cancelledAt: '2026-08-29T01:00:00.000Z', cancelledByName: '정산 프로덕트', cancelReason: '중복',
     externalStatus: 'paid', paidAmountKrw: 29700, paidAt: '2026-08-30T05:00:00.000Z', externalNote: '환율', externalUpdatedAt: '2026-08-30T05:00:00.000Z', externalId: 'X-1', requesterMemberId: null };
-  const it = toExternalItem({ row: r2, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null }, ORIGIN);
+  const it = toExternalItem({ row: r2, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null, influencerDisplayName: null }, ORIGIN);
   assert.equal(it.revision, 1);
   assert.deepEqual(it.cancelled, { at: '2026-08-29T01:00:00.000Z', by_name: '정산 프로덕트', reason: '중복' });
   assert.deepEqual(it.settlement, { status: 'paid', paid_amount_krw: 29700, paid_amount_usd: null, paid_amount_jpy: null, paid_at: '2026-08-30T05:00:00.000Z', note: '환율', updated_at: '2026-08-30T05:00:00.000Z', external_id: 'X-1' });
@@ -85,7 +85,7 @@ test('toExternalItem — 취소·지급 완료 되비침', () => {
 
 test('toExternalItem — proof 있으면 고정 엔드포인트 URL(origin은 호출부가 넘긴 값)·업로더·시각을 싣는다', () => {
   const proof: TaskProof = { url: 'task/tt/ff.png', by: 'm1', byName: '박구건', at: '2026-08-31T10:12:00.000Z' };
-  const it = toExternalItem({ row, updatedAtUs: '1', requester: { email: null, slackId: null }, proof }, ORIGIN);
+  const it = toExternalItem({ row, updatedAtUs: '1', requester: { email: null, slackId: null }, proof, influencerDisplayName: null }, ORIGIN);
   assert.deepEqual(it.proof, {
     url: `${ORIGIN}/api/external/settlement/requests/${ID}/proof`,
     uploaded_at: '2026-08-31T10:12:00.000Z',
@@ -141,12 +141,12 @@ test('parseStatusUpdate — 거절 사유는 필드 단위', () => {
 
 test('toExternalItem — 원화 지급이면 gross_krw는 환산 없이 gross 그대로', () => {
   const krw: PaymentRequestRow = { ...row, payoutCurrency: 'KRW', amountNet: 20000, fee: null, feeAmount: 0, amountGross: 20000, grossKrw: 20000, amountKrw: 20000 };
-  const it = toExternalItem({ row: krw, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null }, ORIGIN);
+  const it = toExternalItem({ row: krw, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null, influencerDisplayName: null }, ORIGIN);
   assert.deepEqual(it.payout, { currency: 'KRW', net: 20000, fee: null, fee_amount: 0, gross: 20000, rate_krw_per_jpy: 10, gross_krw: 20000 });
 });
 
 test('toExternalItem — 수수료가 붙으면 gross_krw가 amount_krw보다 크다(실제 나간 돈 ≠ 단가)', () => {
-  const it = toExternalItem({ row, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null }, ORIGIN);
+  const it = toExternalItem({ row, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null, influencerDisplayName: null }, ORIGIN);
   assert.equal(it.amount_krw, 30000);
   assert.equal(it.payout.gross_krw, 31580);   // 수수료 158엔 × 환율 10 = 1,580원 더
 });
@@ -154,7 +154,7 @@ test('toExternalItem — 수수료가 붙으면 gross_krw가 amount_krw보다 �
 // ── 제자리 수정(2026-09-07 스펙 §2·§5): 스위치 꺼짐이면 옛 의미(0 요청/1 취소), 켜짐이면 수정 횟수 + revised_at ──
 test('toExternalItem — revision: 스위치 꺼짐이면 취소=1, 켜짐이면 payment_request.revision·revised_at', () => {
   const revised: PaymentRequestRow = { ...row, revision: 2, revisedAt: '2026-09-07T03:50:14.000Z' };
-  const e = (r: PaymentRequestRow): ExportRow => ({ row: r, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null });
+  const e = (r: PaymentRequestRow): ExportRow => ({ row: r, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null, influencerDisplayName: null });
   withRevisionV2(false, () => {
     assert.equal(toExternalItem(e(revised), ORIGIN).revision, 0);                                   // 옛 의미: 요청됨
     assert.equal(toExternalItem(e(revised), ORIGIN).revised_at, null);                              // 전환 전엔 항상 null
@@ -195,7 +195,7 @@ test('parseStatusUpdate — paid_amount_usd는 선택(소수 허용, 0 이상), 
 });
 test('toExternalItem — settlement.paid_amount_usd 되비침', () => {
   const r2: PaymentRequestRow = { ...row, externalStatus: 'paid', paidAmountKrw: 25934, paidAmountUsd: 18.62, paidAt: '2026-09-08T11:12:00.000Z', externalUpdatedAt: '2026-09-08T11:13:50.000Z' };
-  const it = toExternalItem({ row: r2, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null }, ORIGIN);
+  const it = toExternalItem({ row: r2, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null, influencerDisplayName: null }, ORIGIN);
   assert.equal(it.settlement.paid_amount_usd, 18.62);
 });
 
@@ -223,6 +223,17 @@ test('parseStatusUpdate — paid_currency(우리 제안): KRW·JPY·USD만, paid
 });
 test('toExternalItem — settlement.paid_amount_jpy 되비침', () => {
   const r2: PaymentRequestRow = { ...row, externalStatus: 'paid', paidAmountKrw: 13685, paidAmountJpy: 1500, paidAt: '2026-09-09T05:59:00.000Z', externalUpdatedAt: '2026-09-09T06:00:00.000Z' };
-  const it = toExternalItem({ row: r2, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null }, ORIGIN);
+  const it = toExternalItem({ row: r2, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null, influencerDisplayName: null }, ORIGIN);
   assert.equal(it.settlement.paid_amount_jpy, 1500); assert.equal(it.settlement.paid_amount_usd, null);
+});
+
+// 09-21 그쪽 §3-5: 정정이 반영된 건이 폴링에 다시 내려올 때 "내 정정의 회신"임을 알 표식. 내부 by_id·reason은 내보내지 않는다.
+test('toExternalItem — payment_method_correction 표식·influencer.display_name 되비침', () => {
+  const marked: PaymentRequestRow = { ...row, paymentMethod: { type: 'paypal', holder: 'KEIKO', currency: 'JPY', paypalId: 'keiko2' },
+    paymentMethodCorrection: { correctionId: '22222222-3333-4444-8555-666666666666', at: '2026-09-21T05:00:00.000Z', byId: 'op-1', byName: '정산 담당', reason: '아이디 오타' } };
+  const it = toExternalItem({ row: marked, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null, influencerDisplayName: 'けいこ' }, ORIGIN);
+  assert.deepEqual(it.payment_method_correction, { correction_id: '22222222-3333-4444-8555-666666666666', at: '2026-09-21T05:00:00.000Z', by_name: '정산 담당' });
+  assert.equal(it.payment_method.paypal_id, 'keiko2');
+  assert.equal(it.revision, 0);   // 정정은 판을 올리지 않는다
+  assert.deepEqual(it.influencer, { id: 'inf', handle: 'sawada_k', display_name: 'けいこ' });
 });

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/lib/toastContext';
 import type { DraftRow } from '@/lib/draftStore';
-import type { FlowRow } from '@/lib/campaignFlowView';
+import type { DraftHost } from '@/lib/draftHost';
 import { createManualDraftApi, patchDraftApi } from '@/lib/campaignApi';
 import { uploadPendingDraftImage } from '@/lib/draftMedia';
 import { composerCanSave, type ComposerPost } from '@/lib/draftPickView';
@@ -15,8 +15,12 @@ import { XComposer } from './XComposer';
 // 아직 원고가 없으므로 draftId가 필요한 uploadDraftImage 대신 쓴다), 저장 버튼은 본문과 이미 올라간
 // 이미지를 함께 실어 원고 생성 + 작업 붙이기를 한 번에 끝낸다(DraftGenerate처럼 "만들고 → 고르고 →
 // 붙이고" 세 단계가 아니다 — 여기엔 고를 시안이 없다).
-export function DraftWrite({ task, clientId, onAttached, onAttachFailed, onSavedUnattached, onBusyChange, onDirtyChange }: {
-  task: FlowRow;
+export function DraftWrite({ host, clientId, onAttached, onAttachFailed, onSavedUnattached, onBusyChange, onDirtyChange, onChosen }: {
+  // 이 원고 모드가 저장된 작업 밑에서 열렸는지(저장 뒤 그 작업에 붙인다), 아직 안 만든 새 작업 폼 밑에서
+  // 열렸는지(붙일 작업이 없으므로 저장까지만 하고 onChosen으로 고른 사실을 올린다) — draftHost.ts 참고.
+  // 이 컴포넌트가 쓰는 필드는 host.kind === 'task'일 때의 taskId·influencerHandle 둘뿐이다(확인됨).
+  // influencerHandle은 host.kind === 'form'일 때도 온다(컴포저의 아바타·핸들 표시에 그대로 쓴다).
+  host: DraftHost;
   clientId: string | null;
   // 붙이기 성공 뒤 부모(FlowDetail)가 상세를 다시 읽는다 — DraftGenerate의 onAttached와 똑같은 계약
   // (재조회 성공 여부를 돌려준다). 재조회가 실패하면 여기서도 잠금을 풀고 새로고침을 안내한다.
@@ -34,6 +38,10 @@ export function DraftWrite({ task, clientId, onAttached, onAttachFailed, onSaved
   // 작성 중(칸에 글자가 있거나 이미지가 붙어 있음)인지를 부모에 올린다(리뷰 지적 4) — 탭 전환·← 작업으로·
   // 패널 닫기가 이 값으로 "떠나기 전에 확인"을 건다. TaskPanel의 isNewDirty(새 작업 모드)와 같은 관례다.
   onDirtyChange: (dirty: boolean) => void;
+  // host.kind === 'form'일 때만 불린다(작업 호스트에서는 저장이 붙이기까지 서버에서 끝나므로 부를 일이
+  // 없다 — 넘기지 않는 선택 prop). 저장까지만 하고(PATCH는 건너뛰고) 고른 원고를 그대로 부모(새 작업 폼)에
+  // 올린다 — 실제 부착은 [만들기]가 작업 생성과 한 트랜잭션으로 한다(태스크 2 브리프 §4-2).
+  onChosen?: (d: DraftRow) => void;
 }) {
   const { show } = useToast();
   const [posts, setPosts] = useState<ComposerPost[]>([{ text: '', media: [], uploading: 0 }]);
@@ -125,9 +133,25 @@ export function DraftWrite({ task, clientId, onAttached, onAttachFailed, onSaved
         return;
       }
       draftId = draft.id;
+      // 폼에는 아직 붙일 작업이 없다(태스크 2 브리프 §4-2) — 저장까지만 하고 PATCH는 건너뛴 채 고른 사실만
+      // 부모(새 작업 폼)에 올린다. createdDraftId는 세우지 않는다 — 붙이기 재시도 대상이 아니라 여기서
+      // 이미 끝났기 때문이다. 대신 attached를 세워 같은 글로 createManualDraftApi가 다시 돌지 않게 막는다
+      // (작업 호스트의 attached 잠금과 같은 계약 — 저장은 이미 끝났으므로 다시 누르면 또 만들어진다).
+      // busy는 여기서 직접 푼다 — 작업 호스트와 달리 이 화면이 붙었다고 스스로 언마운트되지 않으므로,
+      // 안 풀면 패널의 Esc·바깥 클릭 잠금이 영영 풀리지 않는다.
+      if (host.kind === 'form') {
+        setAttached(true);
+        setBusy(false);
+        onChosen?.(draft);
+        return;
+      }
       setCreatedDraftId(draftId);
     }
-    const a = await patchDraftApi(draftId, { taskId: task.id });
+    // 여기 도달하면 host는 항상 'task'다 — 폼이면 위에서 이미 return했고(첫 저장), 재시도 경로
+    // (draftId가 이미 있던 경우)도 폼에서는 일어나지 않는다(폼은 createdDraftId를 세우지 않는다). TS
+    // narrowing을 위한 방어 가드(런타임에는 도달하지 않는다).
+    if (host.kind !== 'task') { setBusy(false); return; }
+    const a = await patchDraftApi(draftId, { taskId: host.taskId });
     if (!a.ok) {
       // 원고 자체는 이미 저장됐다 — 다시 쓰지 않아도 된다(브리프가 약속하는 문구 그대로). createdDraftId를
       // 비우지 않는다 — 다시 누르면 새로 만들지 않고 이 원고를 붙이기만 다시 시도한다(리뷰 지적 5).
@@ -162,17 +186,19 @@ export function DraftWrite({ task, clientId, onAttached, onAttachFailed, onSaved
   // attached가 가장 먼저다(Task 4c §2) — 붙이기까지 끝난 뒤에는(재조회 실패로 여기 그대로 남아 있어도)
   // '저장됐어요'라고 말하면 거짓말이다. 이미 붙었다는 사실 그대로 말한다.
   const composerDisabledReason = attached
-    ? '이미 붙였어요 — 화면을 새로고침하면 원고 카드로 보여요'
+    ? (host.kind === 'form' ? '이미 골랐어요' : '이미 붙였어요 — 화면을 새로고침하면 원고 카드로 보여요')
     : saveResultUnknown ? '저장은 됐는데 결과를 확인하지 못했어요 — 새로고침해 주세요'
     : busy ? '저장하는 중이에요' : createdDraftId ? '글은 저장됐어요 — 붙이기만 다시 시도하면 돼요' : null;
 
   return (
     <div>
-      <XComposer handle={task.influencerHandle} posts={posts} onChange={setPosts}
+      <XComposer handle={host.influencerHandle} posts={posts} onChange={setPosts}
                  onPickImages={onPickImages} disabledReason={composerDisabledReason} />
       <div className="mt-3 flex items-center gap-2">
         <Button variant="primary" disabled={composing || attached || saveResultUnknown || !ok} onClick={() => void save()} className="h-10 px-4 text-content">
-          {attached ? '붙였어요' : saveResultUnknown ? '확인 못 했어요' : busy ? '저장 중…' : createdDraftId ? '붙이기 다시 시도' : '저장하고 붙이기'}
+          {attached ? (host.kind === 'form' ? '골랐어요' : '붙였어요')
+            : saveResultUnknown ? '확인 못 했어요' : busy ? '저장 중…' : createdDraftId ? '붙이기 다시 시도'
+            : (host.kind === 'form' ? '저장하고 쓰기' : '저장하고 붙이기')}
         </Button>
         {attached
           // XComposer 안(structureLockedReason)이 이미 같은 사실을 보여준다 — 여기서 또 말하지 않는다.

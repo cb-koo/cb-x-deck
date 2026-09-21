@@ -697,7 +697,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 사실을 넘기지 않는다(리뷰 지적 5).
   const draftGenerate: ReactNode = panelTask
     ? (
-      <DraftGenerate task={panelTask} clientId={clientId}
+      <DraftGenerate host={{ kind: 'task', taskId: panelTask.id, draftId: panelTask.draftId, influencerHandle: panelTask.influencerHandle }}
+                     clientId={clientId}
                      clientData={clientData} targetRef={targetRef}
                      onAttached={onDraftAttached} onAttachFailed={onAttachFailed} onGenerated={() => void reloadCandidates()}
                      onBusyChange={setDraftGenBusy} onOverlayChange={setDraftOverlayOpen}
@@ -709,7 +710,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 이미 저장돼 있다) 후보만 다시 읽는다 — onGenerated와 같은 함수(reloadCandidates)를 부른다.
   const draftWrite: ReactNode = panelTask
     ? (
-      <DraftWrite task={panelTask} clientId={clientId}
+      <DraftWrite host={{ kind: 'task', taskId: panelTask.id, draftId: panelTask.draftId, influencerHandle: panelTask.influencerHandle }}
+                  clientId={clientId}
                   onAttached={onDraftAttached} onAttachFailed={onAttachFailed} onSavedUnattached={() => void reloadCandidates()}
                   onBusyChange={setDraftWriteBusy} onDirtyChange={setDraftWriteOnlyDirty} />
     )
@@ -754,7 +756,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     setDraftPickBusy(null);
   }, [panelTaskId, panelDraftId]);
   const draftPick: ReactNode = panelTask
-    ? <DraftPick candidates={candidates} onAttach={(d) => void attachExistingDraft(d)} attaching={draftPickBusy}
+    ? <DraftPick candidates={candidates} onPick={(d) => void attachExistingDraft(d)} picking={draftPickBusy}
                  onRetry={() => void reloadCandidates()} />
     : null;
   // '있는 원고 고르기 n' — Task 1의 후보 조회 합. 아직 못 읽었거나(undefined) 실패했으면(null) 개수를

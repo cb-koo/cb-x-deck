@@ -17,7 +17,7 @@ import {
 import type { TaskCost } from '@/lib/campaignCost';
 import {
   flowStage, FLOW_STAGES, TASK_TYPE_LABEL, formatDateKo, isTaskExcluded,
-  deriveTaskInfluencers, taskCampaignTotal, type TaskType, type FlowStage,
+  deriveTaskInfluencers, taskCampaignTotal, targetUrlOf, type TaskType, type FlowStage,
 } from '@/lib/campaignJudgment';
 import { draftLabel, draftPreviewLine } from '@/lib/draftViews';
 import { targetLabel } from '@/lib/campaignTableView';
@@ -130,7 +130,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 아래 세 갈래(폼 호스트)의 onChosen이 채운다(Task 4).
   const [formDraft, setFormDraft] = useState<DraftRow | null>(null);
   // 폼 맥락(스펙 §4-6) — TaskPanel의 로컬 상태(newType·handle·target)를 그대로 옮겨 받는다(onNewContextChange).
-  // 이 값으로 폼 호스트(DraftHost)와 인용RT의 targetRef를 만든다 — "선택된 작업으로 만들 때와 같은 함수"를
+  // 이 값으로 폼 호스트(DraftHost)와 인용RT의 대상 정보를 만든다 — "선택된 작업으로 만들 때와 같은 함수"를
   // task 대신 이 맥락 객체로 부른다.
   const [formCtx, setFormCtx] = useState<FormDraftContext>({ type: null, handle: null, target: null });
   // 있는 원고 고르기에서 주인이 다른 원고를 고르면(pickedHandleNotice) TaskPanel의 handle 칸을 채우라는
@@ -736,27 +736,30 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
           </div>
         ))
     : (isNew && formDraft ? renderDraftCard(formDraft, null) : null);
-  // 'AI로 만들기'의 자동 레퍼런스(§5-1) — 인용RT 작업이 대상을 정했으면 그 게시물의 tweetId. targetLabel이
-  // 이미 '대상 작업 참조 vs 링크'를 갈라 사람이 읽을 라벨로 바꿔 준다(표의 대상 칸과 같은 문구, 중복 구현 금지).
-  // 대상이 아직 없거나(빈 문자열) 파싱이 안 되는 값(placeholder 문구)이면 칩을 그리지 않는다.
-  const targetRef = useMemo(() => {
+  // 화면은 중복 계산용 ID만 사용하고, 서버는 저장된 작업의 대상을 다시 읽는다.
+  const quoteTarget = useMemo(() => {
     if (!panelTask || panelTask.type !== 'quoteRt' || !data) return null;
-    const raw = panelTask.target?.postUrl ?? panelTask.targetTweetUrl;
-    if (!raw) return null;
-    const parsed = parseTweetLink(raw);
-    return parsed.ok ? { tweetId: parsed.tweetId, label: targetLabel(panelTask, data.campaign.id).text } : null;
+    const url = targetUrlOf({ targetTaskId: panelTask.targetTaskId, targetPostUrl: panelTask.target?.postUrl ?? null, targetTweetUrl: panelTask.targetTweetUrl });
+    const parsed = url ? parseTweetLink(url) : null;
+    return {
+      request: { quoteTargetTaskId: panelTask.id },
+      label: targetLabel(panelTask, data.campaign.id).text,
+      tweetId: parsed?.ok ? parsed.tweetId : null,
+    };
   }, [panelTask, data]);
-  // 폼(새 작업)의 targetRef(Task 4 §Step2) — 대상 링크가 있을 때만(스펙: "인용RT에서 대상 링크가 있을 때만,
-  // 없으면 null"). 폼이 작업 참조(target.taskId)를 골랐어도 그 작업의 실제 게시물 링크는 여기서 모른다
-  // (TargetPicker가 라벨·게시 여부만 들고 온다, TaskPanel.resolveNewTarget) — 억지로 만들지 않는다.
-  // label은 targetLabel의 링크 분기(targetTweetUrl만 있고 target 조인이 없을 때)와 같은 식으로 만든다 —
-  // 표의 대상 칸과 같은 문구(중복 구현 금지).
-  const formTargetRef = useMemo(() => {
-    if (formCtx.type !== 'quoteRt' || !formCtx.target || !('url' in formCtx.target) || !data) return null;
-    const parsed = parseTweetLink(formCtx.target.url);
-    if (!parsed.ok) return null;
-    return { tweetId: parsed.tweetId, label: targetLabel({ targetTaskId: null, targetTweetUrl: formCtx.target.url, target: null }, data.campaign.id).text };
-  }, [formCtx.type, formCtx.target, data]);
+  // 새 작업은 아직 ID가 없다. 링크 또는 대상 작업 ID만 보내고 본문은 서버에서 읽는다.
+  const formQuoteTarget = useMemo(() => {
+    if (formCtx.type !== 'quoteRt' || !formCtx.target) return null;
+    const target = formCtx.target;
+    const url = 'url' in target ? target.url : target.postUrl;
+    const parsed = url ? parseTweetLink(url) : null;
+    return {
+      unknownLink: !('url' in target) && target.postUrl === undefined,
+      request: { quoteTargetInput: 'url' in target ? { url: target.url } : { taskId: target.taskId } },
+      label: 'url' in target ? target.url.replace(/^https?:\/\//, '') : target.label,
+      tweetId: parsed?.ok ? parsed.tweetId : null,
+    };
+  }, [formCtx.type, formCtx.target]);
   // 시안 붙이기(Task 3) — 패널은 task.draftId가 채워지는 순간 스스로 카드로 전환한다(panelDraftId 이펙트).
   // 그러려면 상세를 다시 읽어야 한다(원고 카드 배선 주석과 같은 이유) — cardDraft는 미리 채워 둬 그 이펙트가
   // 같은 원고를 다시 조회하지 않게 한다(패치 응답이 이미 최신이다). 재조회 성공 여부를 돌려준다(리뷰 지적 3)
@@ -799,7 +802,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     ? (
       <DraftGenerate host={{ kind: 'task', taskId: panelTask.id, draftId: panelTask.draftId, influencerHandle: panelTask.influencerHandle }}
                      clientId={clientId}
-                     clientData={clientData} targetRef={targetRef}
+                     clientData={clientData} quoteTarget={quoteTarget}
                      onAttached={onDraftAttached} onAttachFailed={onAttachFailed} onGenerated={() => void reloadCandidates()}
                      onBusyChange={setDraftGenBusy} onOverlayChange={setDraftOverlayOpen}
                      onDirtyChange={setDraftGenDirty} />
@@ -810,7 +813,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
       // 작업 호스트와 같은 함수를 그대로 넘겨 두 번째 사본을 만들지 않는다(닿지 않는 코드라 무해하다).
       <DraftGenerate host={formHost}
                      clientId={clientId}
-                     clientData={clientData} targetRef={formTargetRef}
+                     clientData={clientData} quoteTarget={formQuoteTarget}
                      onAttached={onDraftAttached} onAttachFailed={onAttachFailed} onGenerated={() => void reloadCandidates()}
                      onBusyChange={setDraftGenBusy} onOverlayChange={setDraftOverlayOpen}
                      onDirtyChange={setDraftGenDirty} onChosen={onFormChosen} />

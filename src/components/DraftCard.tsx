@@ -773,7 +773,10 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
           <button onClick={() => { const opening = !refsOpen; setRefsOpen(opening); if (opening) void refTr.loadCached(draft.refs.map((r) => r.tweetId)); }}
                   disabled={draft.refs.length === 0}
                   className="text-left disabled:cursor-default">
-            참고 레퍼런스 {draft.refs.length}건{draft.refs.length > 0 && <span className="text-x-blue-text"> · {MODE_LABEL[draft.referenceMode]} {refsOpen ? '⌃' : '⌄'}</span>}
+            {draft.refs.some((r) => r.role === 'quoteTarget') && <>인용 대상 1건{draft.refs.some((r) => r.role !== 'quoteTarget') && ' · '}</>}
+            {draft.refs.length === 0 && '참고 레퍼런스 0건'}
+            {draft.refs.some((r) => r.role !== 'quoteTarget') && <>참고 레퍼런스 {draft.refs.filter((r) => r.role !== 'quoteTarget').length}건<span className="text-x-blue-text"> · {MODE_LABEL[draft.referenceMode]}</span></>}
+            {draft.refs.length > 0 && <span className="text-x-blue-text"> {refsOpen ? '⌃' : '⌄'}</span>}
           </button>
           <span className="shrink-0 text-caption tabular-nums text-x-muted">
             {[draft.clientName, ...draft.procedureNames].filter(Boolean).join(' · ')}
@@ -781,6 +784,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
         </div>
         {refsOpen && draft.refs.map((r: RefSnapshot) => (
           <div key={r.tweetId} className="mt-2 rounded-lg border border-x-border bg-white px-3 py-2">
+            {r.role === 'quoteTarget' && <p className="mb-1 text-caption font-medium text-x-blue-text">인용할 대상 게시물</p>}
             <p className="text-ui"><b>{r.name ?? r.handle}</b> <span className="text-x-muted">@{r.handle}</span>
               <a href={`https://x.com/i/status/${r.tweetId}`} target="_blank" rel="noreferrer" className="ml-2 text-x-blue-text hover:underline">원문 ↗</a>
             </p>

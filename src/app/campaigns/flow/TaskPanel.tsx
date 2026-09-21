@@ -281,9 +281,14 @@ export function TaskPanel({
   async function resolveNewTarget(next: { taskId: string } | { url: string } | null) {
     if (next === null) { setTarget(null); return; }
     if ('url' in next) { setTarget(next); return; }
+    // 원고 화면으로 바로 이동해도 대상 ID가 빠지지 않도록 먼저 선택을 반영한다.
+    setTarget({ taskId: next.taskId, label: '선택한 작업', sub: null, posted: false });
     const r = await fetchTasksTargets({ clientId: campaign.clientId, all: true });
     const c = r.ok ? r.data.find((x) => x.taskId === next.taskId) : undefined;
-    setTarget({ taskId: next.taskId, label: c ? candidateLabel(c) : '선택한 작업', sub: c && c.campaignId !== campaign.id ? c.campaignName : null, posted: !!c?.postedAt });
+    // 조회 중 사용자가 다른 대상을 고르거나 비운 경우 이전 응답으로 덮지 않는다.
+    setTarget((current) => current && 'taskId' in current && current.taskId === next.taskId
+      ? { taskId: next.taskId, label: c ? candidateLabel(c) : '선택한 작업', sub: c && c.campaignId !== campaign.id ? c.campaignName : null, posted: !!c?.postedAt, postUrl: c ? c.postUrl : undefined }
+      : current);
   }
   function commitNewHandle(raw: string) {
     const v = raw.trim();

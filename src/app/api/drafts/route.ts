@@ -46,6 +46,9 @@ export async function POST(req: Request) {
       (body.procedureIds !== undefined && !Array.isArray(body.procedureIds))) {
     return NextResponse.json({ error: '요청 형식이 올바르지 않아요' }, { status: 400 });
   }
+  if (body.quoteTargetTaskId !== undefined && body.quoteTargetTaskId !== null && (typeof body.quoteTargetTaskId !== 'string' || !isUuidLike(body.quoteTargetTaskId))) {
+    return NextResponse.json({ error: '인용RT 작업 정보가 올바르지 않아요' }, { status: 400 });
+  }
   if (body.count !== undefined && (!Number.isInteger(body.count) || body.count < 1 || body.count > 5)) {
     return NextResponse.json({ error: '시안 수는 1~5 사이여야 해요' }, { status: 400 });
   }
@@ -71,6 +74,8 @@ export async function POST(req: Request) {
       count: body.count,
       memberId: gate.member.id, // 클라이언트 body 무시 — 위조 차단(브리핑 관례)
       taskId: taskId.value ?? null, // 위에서 존재·미부착까지 확인한 값
+      quoteTargetTaskId: body.quoteTargetTaskId ?? null,
+      quoteTargetInput: body.quoteTargetInput ?? null,
     });
     return NextResponse.json(await Promise.all(ids.map((id) => getDraft(sql, id))));
   } catch (e) {

@@ -43,6 +43,13 @@ test('mode=off면 레퍼런스가 있어도 블록 부재', () => {
   assert.ok(!p.includes('正直迷ってた'));
 });
 
+test('인용 대상은 mode=off여도 형식·앵글 레퍼런스와 분리해 넣는다', () => {
+  const target = { ...ref, role: 'quoteTarget' as const, excerpt: '인용할 대상 본문' };
+  const p = buildUserPrompt({ ...base, quoteTarget: target });
+  assert.ok(p.includes('인용할 대상 게시물') && p.includes('인용할 대상 본문'));
+  assert.ok(!p.includes('## 레퍼런스'));
+});
+
 test('형식 규칙: single=1개·thread=3~5개, 첫 단락 훅 규칙 포함', () => {
   const s = buildUserPrompt({ ...base, direction: 'x', format: 'single' });
   assert.ok(s.includes('1개') && s.includes('첫 단락'));

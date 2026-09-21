@@ -5,6 +5,8 @@ export interface PromptInput {
   client: { name: string; info: string; bannedPhrases: string[] } | null;
   procedures: Array<{ name: string; description: string; effectPhrases: string; bannedPhrases: string[] }>;
   references: RefSnapshot[];
+  // 인용RT의 대상은 형식·앵글을 참고하는 레퍼런스가 아니라, 이번 글이 인용할 원문이다.
+  quoteTarget?: RefSnapshot | null;
   mode: ReferenceMode;
   direction: string;
   format: DraftFormat;
@@ -69,6 +71,9 @@ export function buildUserPrompt(i: PromptInput, overrides?: PromptOverrides): st
     blocks.push(lines.join('\n'));
   }
 
+  const target = quoteTargetPromptBlock(i.quoteTarget ?? null);
+  if (target) blocks.push(target);
+
   // 3) 이번 작업 지시 — 가변 정보는 뒤에
   const task = ['## 이번 초안'];
   if (i.direction.trim()) task.push(`방향성: ${i.direction.trim()}`);
@@ -94,6 +99,17 @@ export function buildUserPrompt(i: PromptInput, overrides?: PromptOverrides): st
   blocks.push(task.join('\n'));
 
   return blocks.join('\n\n');
+}
+
+// 다시 쓰기·부분 재생성도 같은 대상을 알아야 한다. 일반 레퍼런스의 form/angle 규칙과 섞지 않는다.
+export function quoteTargetPromptBlock(target: RefSnapshot | null): string {
+  if (!target) return '';
+  return [
+    `## 인용할 대상 게시물 (@${target.handle})`,
+    '이번 초안은 아래 게시물에 덧붙일 의견·소개를 담은 인용RT 원고입니다. 대상의 내용과 맥락을 자연스럽게 받아 쓰세요.',
+    '이 블록은 형식·앵글을 참고하는 레퍼런스가 아닙니다. 대상 문구를 그대로 옮기지 마세요.',
+    target.excerpt,
+  ].join('\n');
 }
 
 // 구조화 출력 스키마 — extractJson 정규식 대신 output_config.format으로 형식을 강제

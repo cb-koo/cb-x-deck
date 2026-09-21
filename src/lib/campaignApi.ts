@@ -1,3 +1,4 @@
+import type { QuoteTargetInput } from './quoteTargetInput';
 // 브라우저 전용 fetch 헬퍼 — /campaigns·DraftCard·/generate가 같은 요청 함수를 쓴다(오류 문구 추출을 한 곳에).
 // 성공/실패를 한 모양(ApiResult)으로 돌려 호출부가 try/catch 없이 ok만 본다 — 낙관적 갱신·롤백 코드가 짧아진다.
 import { apiFetch } from './apiFetch.ts';
@@ -113,6 +114,8 @@ export const fetchDraftCandidatesApi = (campaignId: string) =>
   call<{ siblings: DraftRow[]; others: DraftRow[] }>(`/api/campaigns/${campaignId}/draft-candidates`);
 export const createDraftsApi = (body: {
   clientId: string | null; procedureIds: string[]; refTweetIds: string[];
+  quoteTargetTaskId?: string | null;
+  quoteTargetInput?: QuoteTargetInput | null;
   mode: ReferenceMode; direction: string; format: DraftFormat; constraintsOn: boolean; count: number;
 }) => call<DraftRow[]>('/api/drafts', json('POST', body));
 // posts를 { text, media }[]로 넓힌다(캠페인 v2 컴포저 직접 쓰기, §5-2) — 이 래퍼의 유일한 호출부인

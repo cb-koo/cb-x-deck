@@ -1,8 +1,9 @@
+import { parseQuoteTargetInput, type QuoteTargetInput } from './quoteTargetInput.ts';
 import type postgres from 'postgres';
 import { callLLM, type AnthropicLike } from './llm.ts';
 import { getClientWithProcedures } from './clientStore.ts';
 import { getReferencesByIds } from './referenceStore.ts';
-import { buildUserPrompt, draftOutputSchema, variantsOutputSchema, draftSystem } from './generatePrompt.ts';
+import { buildUserPrompt, draftOutputSchema, variantsOutputSchema, draftSystem, quoteTargetPromptBlock } from './generatePrompt.ts';
 import { getPromptOverrides } from './promptSettings.ts';
 import { insertDraft, getDraft, updateDraft, draftVersionHash, type DraftRow, type DraftTranslation } from './draftStore.ts';
 import { syncInfluencerOnDraftUpdate } from './influencerSync.ts';
@@ -10,6 +11,13 @@ import { translateDraftPosts } from './translateDraft.ts';
 import { X_MAX_WEIGHTED } from './xLength.ts';
 import { CLIENT_NOT_FOUND_MESSAGE } from './campaignInput.ts';
 import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './draftTypes.ts';
+import { getTask } from './campaignTaskStore.ts';
+import { targetUrlOf, TARGETABLE_TYPES } from './campaignJudgment.ts';
+import { parseTweetLink } from './tweetLink.ts';
+import { getTweetsByIds, upsertTweets } from './tweetStore.ts';
+import { makeClient, type GetxapiClient } from './getxapi.ts';
+import { mapRawTweet } from './mappers.ts';
+import { isUuidLike } from './uuid.ts';
 
 export const CONTENT_MODEL = () => process.env.CONTENT_MODEL ?? 'claude-opus-5';
 export const MAX_REFS = 8; // few-shot 실무 상한 — 초과 시 원고가 레퍼런스 문구를 베낄 위험(over-copying)이 커진다
@@ -32,22 +40,87 @@ export interface GenerateRequest {
   // 작업에 붙여 만들기(스펙 §5 /generate?task=) — 라우트가 존재·미부착까지 검증한 값.
   // 다중 시안(count>1)이면 첫 시안에만 붙인다(원고 1개 = 작업 1개).
   taskId?: string | null;
+  // 생성에 붙일 작업(taskId)과 별개로, 인용RT 작업의 대상 게시물을 읽는 문맥이다.
+  quoteTargetTaskId?: string | null;
+  quoteTargetInput?: QuoteTargetInput | null;
+}
+
+type QuoteTargetResolution = { tweetId: string | null };
+
+async function resolveQuoteTarget(sql: postgres.Sql, quoteTargetTaskId: string | null | undefined, input?: QuoteTargetInput | null): Promise<QuoteTargetResolution> {
+  let source: QuoteTargetInput | null;
+  try { source = parseQuoteTargetInput(input); }
+  catch (e) { throw new GenerateInputError(e instanceof Error ? e.message : '인용 대상 정보가 올바르지 않아요'); }
+  if (source && quoteTargetTaskId) throw new GenerateInputError('저장된 작업과 새 작업의 인용 대상을 함께 보낼 수 없어요');
+  if (source) {
+    let url: string | null;
+    if (source.taskId) {
+      const target = await getTask(sql, source.taskId);
+      if (!target) throw new GenerateInputError('인용할 대상 작업을 찾을 수 없어요');
+      if (target.cancelledAt) throw new GenerateInputError('인용할 대상 작업이 취소됐어요 — 대상을 다시 골라주세요');
+      if (!TARGETABLE_TYPES.includes(target.type)) throw new GenerateInputError('이 작업은 인용 대상으로 고를 수 없어요');
+      url = target.postUrl;
+    } else url = source.url ?? null;
+    if (!url) return { tweetId: null };
+    const parsed = parseTweetLink(url);
+    if (!parsed.ok) throw new GenerateInputError('인용 대상의 X 게시물 링크를 확인해 주세요');
+    return { tweetId: parsed.tweetId };
+  }
+  if (!quoteTargetTaskId) return { tweetId: null };
+  if (!isUuidLike(quoteTargetTaskId)) throw new GenerateInputError('인용RT 작업 정보가 올바르지 않아요');
+  const task = await getTask(sql, quoteTargetTaskId);
+  if (!task) throw new GenerateInputError('인용RT 작업을 찾을 수 없어요 — 화면을 새로고침해 주세요');
+  if (task.type !== 'quoteRt') throw new GenerateInputError('인용RT 작업에서만 대상 게시물을 불러올 수 있어요');
+  if (task.cancelledAt) throw new GenerateInputError('취소된 인용RT 작업으로는 원고를 만들 수 없어요');
+  if (task.targetTaskId && task.target?.cancelledAt) {
+    throw new GenerateInputError('인용할 대상 작업이 취소됐어요 — 대상을 다시 정한 뒤 원고를 만들어 주세요');
+  }
+
+  const url = targetUrlOf({ targetTaskId: task.targetTaskId, targetPostUrl: task.target?.postUrl ?? null, targetTweetUrl: task.targetTweetUrl });
+  if (!url) return { tweetId: null };
+  const parsed = parseTweetLink(url);
+  if (!parsed.ok) throw new GenerateInputError('인용RT 대상 게시물 링크가 올바르지 않아요 — 대상에서 X 게시물 링크를 확인해 주세요');
+  return { tweetId: parsed.tweetId };
+}
+
+async function loadQuoteTarget(
+  sql: postgres.Sql, tweetId: string | null, xClient?: Pick<GetxapiClient, 'getTweetDetail'>,
+): Promise<RefSnapshot | null> {
+  if (!tweetId) return null;
+  // 대상은 보관함 소속과 무관하다. 캐시가 있으면 우선 쓰고, 없거나 본문이 비어 있으면 사용자가 생성 버튼을
+  // 누른 이 시점에만 X 상세 조회를 한다. upsert는 캐시 갱신일 뿐 library_item을 만들지 않는다.
+  let tweet = (await getTweetsByIds(sql, [tweetId]))[0] ?? null;
+  // 빈 본문 캐시는 대상 내용을 모른 채 조용히 생성하게 만든다. 이 경우만 최신 상세로 보강한다.
+  if (!tweet || !tweet.text.trim()) {
+    let raw;
+    try { raw = await (xClient ?? makeClient()).getTweetDetail(tweetId); }
+    catch { throw new GenerateInputError('인용RT 대상 게시물을 확인하지 못했어요 — 잠시 후 다시 시도해 주세요'); }
+    if (!raw) throw new GenerateInputError('인용RT 대상 게시물을 읽을 수 없어요 — 삭제되었거나 공개 범위를 확인해 주세요');
+    const mapped = mapRawTweet(raw);
+    if (!mapped || !mapped.text.trim()) throw new GenerateInputError('인용RT 대상 게시물의 내용을 읽을 수 없어요');
+    if (mapped.tweetId !== tweetId) throw new GenerateInputError('인용RT 대상 게시물이 바뀌었어요 — 대상 링크를 다시 확인해 주세요');
+    await upsertTweets(sql, [mapped]);
+    tweet = mapped;
+  }
+  return { tweetId: tweet.tweetId, handle: tweet.authorHandle, name: tweet.authorName, excerpt: tweet.text, memos: [], role: 'quoteTarget' };
 }
 
 export async function generateDraft(
-  sql: postgres.Sql, req: GenerateRequest, client?: AnthropicLike,
+  sql: postgres.Sql, req: GenerateRequest, client?: AnthropicLike, quoteTargetClient?: Pick<GetxapiClient, 'getTweetDetail'>,
 ): Promise<string[]> {
   const count = req.count ?? 1;
   if (!Number.isInteger(count) || count < 1 || count > 5) {
     throw new GenerateInputError('시안 수는 1~5 사이여야 해요');
   }
+  const quoteTarget = await resolveQuoteTarget(sql, req.quoteTargetTaskId, req.quoteTargetInput);
+  const ordinaryRefIds = [...new Set(req.refTweetIds)].filter((id) => id !== quoteTarget.tweetId);
   const hasClient = !!req.clientId;
-  const hasRefs = req.refTweetIds.length > 0 && req.mode !== 'off';
+  const hasRefs = ordinaryRefIds.length > 0 && req.mode !== 'off';
   const hasDirection = req.direction.trim().length > 0;
-  if (!hasClient && !hasRefs && !hasDirection) {
+  if (!hasClient && !hasRefs && !quoteTarget.tweetId && !hasDirection) {
     throw new GenerateInputError('클라이언트·레퍼런스·방향성 중 최소 하나는 필요해요');
   }
-  if (req.refTweetIds.length > MAX_REFS) {
+  if (ordinaryRefIds.length + (quoteTarget.tweetId ? 1 : 0) > MAX_REFS) {
     throw new GenerateInputError(`레퍼런스는 ${MAX_REFS}건까지 고를 수 있어요 — 서로 다른 앵글로 3~5건이 가장 좋아요`);
   }
 
@@ -55,15 +128,18 @@ export async function generateDraft(
   const clientData = req.clientId ? await getClientWithProcedures(sql, req.clientId) : null;
   if (req.clientId && !clientData) throw new GenerateInputError(CLIENT_NOT_FOUND_MESSAGE);
   const procedures = (clientData?.procedures ?? []).filter((p) => req.procedureIds.includes(p.id));
-  const refRows = hasRefs ? await getReferencesByIds(sql, req.refTweetIds) : [];
-  const refs: RefSnapshot[] = refRows.map((r) => ({
+  const refRows = hasRefs ? await getReferencesByIds(sql, ordinaryRefIds) : [];
+  const ordinaryRefs: RefSnapshot[] = refRows.map((r) => ({
     tweetId: r.tweetId, handle: r.authorHandle, name: r.authorName,
     excerpt: r.text, memos: r.memos,
   }));
-  if (hasRefs && refs.length < req.refTweetIds.length) {
+  if (hasRefs && ordinaryRefs.length < ordinaryRefIds.length) {
     throw new GenerateInputError(
-      `레퍼런스 ${req.refTweetIds.length - refs.length}건을 보관함에서 찾을 수 없어요 — 목록을 새로고침해 주세요`);
+      `레퍼런스 ${ordinaryRefIds.length - ordinaryRefs.length}건을 보관함에서 찾을 수 없어요 — 목록을 새로고침해 주세요`);
   }
+  // 보관함 레퍼런스의 존재를 먼저 검증해, 잘못된 일반 레퍼런스 때문에 비용이 드는 대상 상세 조회를 하지 않는다.
+  const target = await loadQuoteTarget(sql, quoteTarget.tweetId, quoteTargetClient);
+  const refs = [...(target ? [target] : []), ...ordinaryRefs];
 
   // 팀이 /prompt에서 편집한 지시문 오버라이드 — 생성 시점의 최신 저장본 1회 로드
   const promptOverrides = await getPromptOverrides(sql);
@@ -72,7 +148,7 @@ export async function generateDraft(
   const user = buildUserPrompt({
     client: clientData ? { name: clientData.client.name, info: clientData.client.info,
                            bannedPhrases: clientData.client.bannedPhrases } : null,
-    procedures, references: refs, mode: hasRefs ? req.mode : 'off',
+    procedures, references: ordinaryRefs, quoteTarget: target, mode: hasRefs ? req.mode : 'off',
     direction: req.direction, format: req.format, constraintsOn: req.constraintsOn,
     ...(count > 1 ? { variantCount: count } : {}),
   }, promptOverrides);
@@ -175,10 +251,12 @@ export async function rewriteDraft(
   const procedures = (clientData?.procedures ?? []).filter((p) => draft.procedureNames.includes(p.name));
   // 팀이 /prompt에서 편집한 지시문 오버라이드 — 생성 시점의 최신 저장본 1회 로드
   const promptOverrides = await getPromptOverrides(sql);
+  const quoteTarget = draft.refs.find((r) => r.role === 'quoteTarget') ?? null;
+  const ordinaryRefs = draft.refs.filter((r) => r.role !== 'quoteTarget');
   const user = buildUserPrompt({
     client: clientData ? { name: clientData.client.name, info: clientData.client.info,
                            bannedPhrases: clientData.client.bannedPhrases } : null,
-    procedures, references: draft.refs, mode: draft.refs.length > 0 ? draft.referenceMode : 'off',
+    procedures, references: ordinaryRefs, quoteTarget, mode: ordinaryRefs.length > 0 ? draft.referenceMode : 'off',
     direction: draft.direction, format: draft.format,
     constraintsOn: false, // 생성 시점의 제약 토글은 초안에 저장되지 않음 — 사후 검수 표식이 항상 커버
     rewrite: { current: base.posts.map((p) => p.text), feedback },
@@ -250,7 +328,9 @@ export async function regeneratePost(
   }
 
   const thread = base.posts.map((p, n) => `${n + 1}. ${p.text}`).join('\n---\n');
+  const quoteTarget = draft.refs.find((r) => r.role === 'quoteTarget') ?? null;
   const user = [
+    quoteTargetPromptBlock(quoteTarget),
     '아래는 X 스레드 초안입니다. 다른 포스트는 그대로 두고,',
     `${postIndex + 1}번 포스트만 같은 맥락에서 다른 표현·접근으로 다시 쓰세요.`,
     `가중 ${X_MAX_WEIGHTED}자(일본어 약 140자) 이내.`,

@@ -7,7 +7,7 @@ import { TASK_TYPE_LABEL, formatDateKo } from '@/lib/campaignJudgment';
 
 // RT/인용RT 대상 한 칸(스펙 §4-2, 시안 task-add-v3) — 탭·팝오버 없이 입력 하나: @핸들/제목/캠페인명을 치면 작업 목록,
 // X 링크를 붙이면 그대로 대상(자동 인식). 아래 빠른 선택 칩 = 이 캠페인의 후보 최근 5개. 선택되면 회색 카드로 접힌다.
-export type TargetValue = { taskId: string; label: string; sub: string | null; posted: boolean } | { url: string } | null;
+export type TargetValue = { taskId: string; label: string; sub: string | null; posted: boolean; postUrl?: string | null } | { url: string } | null;
 const TYPE_CHIP: Record<string, string> = { post: 'bg-[#e8f0fe] text-[#1d4ed8]', quoteRt: 'bg-[#f3e8ff] text-[#7e22ce]', visit: 'bg-[#fff4e5] text-[#b45309]' };
 
 export function candidateLabel(c: TargetCandidate): string {

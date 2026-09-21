@@ -6,10 +6,12 @@ import { apiFetch } from '@/lib/apiFetch';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { ReferenceRow } from '@/lib/referenceStore';
 import type { DraftRow } from '@/lib/draftStore';
+import type { QuoteTargetInput } from '@/lib/quoteTargetInput';
 import type { DraftHost } from '@/lib/draftHost';
 import { createDraftsApi, patchDraftApi } from '@/lib/campaignApi';
 import { canGenerate, bannedPhraseCount, COST_CAPTION, DEFAULT_COMPOSER, type ComposerState } from '@/components/DraftComposer';
 import { candidateLine } from '@/lib/draftPickView';
+import { ordinaryQuoteReferences } from '@/lib/quoteReferenceSelection';
 import { RefPickerSheet, MAX_REFS_UI } from '@/components/RefPickerSheet';
 import { AddByLinkModal, type AddedByLink } from '@/components/AddByLinkModal';
 import { LAST_WS_KEY } from '@/components/GlobalShell';
@@ -33,20 +35,16 @@ const DEFAULT_FOLDED: FoldedSettings = {
 };
 
 // 레퍼런스를 추가할 때 지키는 상한 규칙 — '+ 링크'(handleAddedByLink)와 고르기 시트(RefPickerSheet.onApply)가
-// 같은 함수를 쓴다(3c 리뷰 지적 6). 시트는 자기 안에서 MAX_REFS_UI(8)까지 고르게 하지만 인용RT 대상 게시물
-// (targetRef)을 모른다 — 대상이 있으면 실제 자리는 7이다. 여기서: 대상 게시물도 한 자리로 센다, 이미 있는
+// 같은 함수를 쓴다(3c 리뷰 지적 6). 시트는 MAX_REFS_UI(8)까지 고르게 하지만 인용RT 대상을 모른다.
+// 대상이 있으면 일반 참고 자리는 7이다. 여기서: 대상 게시물도 한 자리로 센다, 이미 있는
 // tweetId는 중복으로 넣지 않는다, 상한에 걸려 잘라낸 건수를 돌려준다(호출부가 조용히 버리지 않고 토스트로 말한다).
 function applyRefCap(
-  candidates: ReferenceRow[], targetRef: { tweetId: string } | null,
+  candidates: ReferenceRow[], targetTweetId: string | null,
 ): { rows: ReferenceRow[]; droppedByCap: number } {
-  const cap = MAX_REFS_UI - (targetRef ? 1 : 0);
-  const seen = new Set<string>();
+  const cap = MAX_REFS_UI - (targetTweetId ? 1 : 0);
   const rows: ReferenceRow[] = [];
   let droppedByCap = 0;
-  for (const r of candidates) {
-    if (targetRef?.tweetId === r.tweetId || seen.has(r.tweetId)) continue;   // 대상과 겹치거나 이미 본 건 중복
-    seen.add(r.tweetId);   // push 여부와 무관하게 본 id로 표시한다 — 안 그러면 상한에 걸린 뒤 같은 id가 또
-                            // 나올 때마다 '못 담음'이 다시 올라, 실제로 버린 고유 건수보다 커진다(리뷰 지적 2)
+  for (const r of ordinaryQuoteReferences(candidates, targetTweetId)) {
     if (rows.length >= cap) { droppedByCap++; continue; }
     rows.push(r);
   }
@@ -54,7 +52,7 @@ function applyRefCap(
 }
 
 export function DraftGenerate({
-  host, clientId, clientData, targetRef, onAttached, onAttachFailed, onGenerated, onBusyChange, onOverlayChange, onDirtyChange, onChosen,
+  host, clientId, clientData, quoteTarget, onAttached, onAttachFailed, onGenerated, onBusyChange, onOverlayChange, onDirtyChange, onChosen,
 }: {
   // 이 원고 모드가 저장된 작업 밑에서 열렸는지(그러면 시안을 그 작업에 붙인다), 아직 안 만든 새 작업 폼
   // 밑에서 열렸는지(그러면 붙일 작업이 없으므로 서버를 부르지 않고 "골랐다"는 사실만 onChosen으로 올린다) —
@@ -67,7 +65,8 @@ export function DraftGenerate({
   // 않는다 — clientData.client.name에서 그대로 나오는 값이라 읽는 자리(아래 JSX 한 곳)에서 파생시킨다
   // (리뷰 지적 5, 같은 사실을 prop 두 개로 넘기지 않는다).
   clientData: { client: ClientRow; procedures: ProcedureRow[] } | null | undefined;
-  targetRef: { tweetId: string; label: string } | null;   // 인용RT의 대상 게시물(자동 포함)
+  // tweetId는 보내지 않는다. 서버가 작업 또는 링크로 대상을 읽어 스냅샷을 만든다.
+  quoteTarget: { request: { quoteTargetTaskId?: string; quoteTargetInput?: QuoteTargetInput }; label: string; tweetId: string | null; unknownLink?: boolean } | null;
   // 시안을 붙였다 — 부모가 상세를 다시 읽고 카드로 전환한다. 그 재조회가 성공했는지를 돌려준다(리뷰 지적 3):
   // 재조회가 실패하면 붙이기 자체는 이미 서버에서 끝났어도 task.draftId가 안 채워져 이 화면이 카드로
   // 전환되지 않는다 — attaching 잠금을 푸는 유일한 길이 그 전환이라, 실패를 모르면 잠금이 영영 안 풀린다.
@@ -162,9 +161,9 @@ export function DraftGenerate({
   // /generate의 handleAddedByLink와 같은 패턴(단건 조회 API가 없어 전량에서 찾는다).
   async function handleAddedByLink(r: AddedByLink) {
     const saved = r.alreadyInLibrary ? '이미 보관함에 있어요' : '보관함에 추가했어요';
-    // 대상 게시물(targetRef)도 레퍼런스 한 자리를 쓴다 — 중복으로 넣지 않는다. 여기서도 위 applyRefCap과
+    // 인용 대상도 레퍼런스 한 자리를 쓴다 — 중복으로 넣지 않는다. 여기서도 위 applyRefCap과
     // 같은 규칙이지만, fetch 전에 빠르게 걸러 불필요한 조회를 하지 않는다(최종 판정은 applyRefCap이 한다).
-    if (targetRef?.tweetId === r.tweetId || refs.some((x) => x.tweetId === r.tweetId)) {
+    if (quoteTarget?.tweetId === r.tweetId || refs.some((x) => x.tweetId === r.tweetId)) {
       show(`${saved} — 이미 레퍼런스로 선택돼 있어요`); return;
     }
     try {
@@ -182,7 +181,7 @@ export function DraftGenerate({
       const out = { droppedByCap: 0 };
       flushSync(() => {
         setRefs((cur) => {
-          const capped = applyRefCap([...cur, found], targetRef);
+          const capped = applyRefCap([...cur, found], quoteTarget?.tweetId ?? null);
           out.droppedByCap = capped.droppedByCap;
           return capped.droppedByCap > 0 ? cur : capped.rows;
         });
@@ -196,9 +195,9 @@ export function DraftGenerate({
   }
 
   // 고르기 시트(RefPickerSheet)의 onApply — 시트가 돌려주는 선택 결과를 그대로 넣지 않는다(3c 리뷰 지적 6).
-  // 시트는 targetRef를 모르므로 자기 안에서 8개까지 고르게 하지만, 대상 게시물이 있으면 실제 자리는 7이다.
+  // 시트는 인용 대상을 모르므로 자기 안에서 8개까지 고르게 하지만, 대상 게시물이 있으면 실제 자리는 7이다.
   function applyPickedRefs(rows: ReferenceRow[]) {
-    const { rows: next, droppedByCap } = applyRefCap(rows, targetRef);
+    const { rows: next, droppedByCap } = applyRefCap(rows, quoteTarget?.tweetId ?? null);
     setRefs(next);
     if (droppedByCap > 0) {
       show(`레퍼런스가 대상 게시물 포함 ${MAX_REFS_UI}건이라 ${droppedByCap}건은 담지 못했어요. 목록에서 직접 조정해주세요`);
@@ -209,8 +208,10 @@ export function DraftGenerate({
     clientId, procedureIds: folded.procedureIds, format: folded.format, mode: 'both',
     constraintsOn: folded.constraintsOn, direction, count,
   };
-  const refCount = refs.length + (targetRef ? 1 : 0);
-  const ok = canGenerate(composerValue, refCount);
+  const ordinaryRefs = ordinaryQuoteReferences(refs, quoteTarget?.tweetId ?? null);
+  const refCount = ordinaryRefs.length + (quoteTarget?.tweetId ? 1 : 0);
+  const tooManyRefs = refCount > MAX_REFS_UI;
+  const ok = !tooManyRefs && canGenerate(composerValue, refCount);
   const procedures = clientData?.procedures ?? [];
   // 세 상태를 구분한다(3c 리뷰 지적 2) — clientId가 없으면 금지 표현 0건이 확정이다. clientId는 있는데
   // clientData를 아직 못 읽었거나(undefined, 로딩 중) 실패했으면(null) '모름'이지 0건이 아니다 — 실제로는
@@ -226,7 +227,8 @@ export function DraftGenerate({
     setBusy(true);
     const r = await createDraftsApi({
       clientId, procedureIds: folded.procedureIds,
-      refTweetIds: [...(targetRef ? [targetRef.tweetId] : []), ...refs.map((x) => x.tweetId)],
+      refTweetIds: ordinaryRefs.map((x) => x.tweetId),
+      ...quoteTarget?.request,
       mode: 'both', direction, format: folded.format, constraintsOn: folded.constraintsOn, count,
     });
     setBusy(false);
@@ -275,8 +277,8 @@ export function DraftGenerate({
       <div className="space-y-1">
         <p className="text-ui text-x-secondary">레퍼런스 <span className="text-x-muted">이 글들을 참고해서 써요</span></p>
         <div className="flex flex-wrap items-center gap-1.5">
-          {targetRef && <span className="rounded-full bg-x-surface px-2.5 py-1 text-ui text-x-secondary">🔗 대상 · {targetRef.label}</span>}
-          {refs.map((r) => (
+          {quoteTarget && <span className="rounded-full bg-x-surface px-2.5 py-1 text-ui text-x-secondary">🔗 인용 대상 · {quoteTarget.label}</span>}
+          {ordinaryRefs.map((r) => (
             <span key={r.tweetId} className="inline-flex items-center gap-1 rounded-full bg-x-surface px-2.5 py-1 text-ui">
               {r.authorHandle ? `@${r.authorHandle}` : '레퍼런스'}
               <button type="button" onClick={() => setRefs((cur) => cur.filter((x) => x.tweetId !== r.tweetId))} aria-label="레퍼런스 빼기">✕</button>
@@ -285,7 +287,11 @@ export function DraftGenerate({
           <Button variant="subtle" className="h-8 px-2.5" onClick={() => setPickerOpen(true)}>+ 보관함에서</Button>
           <Button variant="subtle" className="h-8 px-2.5" onClick={() => setLinkOpen(true)}>+ 링크</Button>
         </div>
-        {targetRef && <p className="text-caption text-x-muted">인용RT의 대상 게시물은 자동으로 들어가요</p>}
+        {quoteTarget && <p className="text-caption text-x-muted">{quoteTarget.unknownLink
+          ? '시안을 만들 때 대상 작업의 게시 링크를 확인해요. 링크가 있으면 그 글에 덧붙일 내용을 쓰고, 아직 없으면 다른 참고 자료와 방향성으로 초안을 만들어요.'
+          : quoteTarget.tweetId
+          ? '시안을 만들 때 대상 글을 불러와, 그 글에 덧붙일 내용을 써요. 보관함에 저장하지 않아도 돼요.'
+          : '대상 게시물 링크가 아직 없어요. 지금은 다른 참고 자료와 방향성으로 초안을 만들 수 있어요.'}</p>}
       </div>
 
       <label className="block">
@@ -366,7 +372,9 @@ export function DraftGenerate({
             소요 시간도 함께 — 만드는 중엔 Esc가 말없이 먹히므로 얼마나 걸리는지 알아야 한다. */}
         <span className="text-caption text-x-muted">{COST_CAPTION}{count > 1 ? ` × ${count}` : ''} · 15~30초</span>
       </div>
-      {!ok && <p className="text-caption text-x-muted">클라이언트·레퍼런스·방향성 중 하나는 있어야 만들 수 있어요</p>}
+      {(quoteTarget?.tweetId || quoteTarget?.unknownLink) && <p className="text-caption text-x-muted">저장된 대상 본문이 없으면 X에서 불러와요. 게시물 조회 1회에 약 $0.001이 추가돼요.</p>}
+      {tooManyRefs ? <p role="alert" className="text-caption text-red-600">인용 대상 포함 {refCount}건이에요. {MAX_REFS_UI}건 이내로 줄이면 만들 수 있어요.</p>
+        : !ok && <p className="text-caption text-x-muted">클라이언트·레퍼런스·방향성 중 하나는 있어야 만들 수 있어요</p>}
       {/* 표의 다른 행을 누르면 패널이 통째로 리마운트돼 막을 수 없다 — 그래서 미리 말한다(리뷰 지적 2).
           실제로 그렇게 동작한다: onGenerated가 클로저에서 불려 후보 목록이 갱신된다. */}
       {busy && <p className="text-caption text-x-muted">화면을 떠나도 만들어진 시안은 ‘있는 원고 고르기’에 남아요</p>}
@@ -396,7 +404,7 @@ export function DraftGenerate({
       )}
 
       <RefPickerSheet open={pickerOpen} onClose={() => setPickerOpen(false)} lastWsId={lastWsId}
-                      selectedIds={refs.map((r) => r.tweetId)} seedRows={refs} onApply={applyPickedRefs} />
+                      selectedIds={ordinaryRefs.map((r) => r.tweetId)} seedRows={ordinaryRefs} onApply={applyPickedRefs} />
       <AddByLinkModal open={linkOpen} onClose={() => setLinkOpen(false)} defaultWsId={lastWsId}
                       onAdded={(r) => { void handleAddedByLink(r); }} />
     </div>

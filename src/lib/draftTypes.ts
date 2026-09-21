@@ -20,4 +20,6 @@ export interface RefSnapshot {
   tweetId: string; handle: string; name: string | null;
   excerpt: string;
   memos: Array<{ member: string; text: string }>;
+  // 인용RT의 대상은 일반 레퍼런스와 역할이 다르다. 기존 JSON에는 이 키가 없으므로 없으면 일반 레퍼런스다.
+  role?: 'quoteTarget';
 }

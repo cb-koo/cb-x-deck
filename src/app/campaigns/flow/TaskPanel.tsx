@@ -1,6 +1,5 @@
 'use client';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import Link from 'next/link';
 import type { CampaignRow } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { fetchTasksTargets, type TaskCreateRequest } from '@/lib/campaignApi';
@@ -20,6 +19,7 @@ import { Button } from '@/components/ui';
 import { CostConfirmField } from './CostConfirmField';
 import { TargetPicker, candidateLabel, type TargetValue } from '../TargetPicker';
 import type { useCampaignTaskActions } from '../useCampaignTaskActions';
+import { DraftMode, type DraftTab } from './draft/DraftMode';
 
 // 편집 패널(b-task-7-brief.md §2) — 작업 하나(edit)와 새 작업(new)을 같은 골격에서 다룬다. 칸 순서는
 // PANEL_FIELD_ORDER(campaignFlowView) 하나뿐 — 여기서 다시 적지 않는다. 저장은 두 갈래:
@@ -38,9 +38,16 @@ import type { useCampaignTaskActions } from '../useCampaignTaskActions';
 // 판정을 공유한다 — 각자 판정하면 한쪽만 조건을 놓쳐 버튼이 있다/없다가 갈릴 수 있다.
 type PanelMode = { kind: 'edit'; task: FlowRow; index: number; total: number } | { kind: 'new' };
 
+// 직접 쓰기에서 떠나기 전 확인(리뷰 지적 4) — 기존 두 번째 입구 DraftWriteModal.requestClose와 글자 하나까지
+// 같은 문장을 쓴다(새로 짓지 말 것). 같은 기능이 같은 상황에서 다른 문구를 쓰면 사용자가 두 화면을 다른
+// 기능으로 읽는다. export하는 이유 — FlowDetail이 이 값을 그대로 가져다 패널 닫기 자리의 closeConfirm을
+// 만든다(Task 4e — 원고가 작성 중일 때 닫는 동작에 쓸 문장은 이 상수 하나뿐이라 FlowDetail이 새로 짓지
+// 않고 가져다 쓴다).
+export const DRAFT_WRITE_LOST_CONFIRM = '작성 중인 원고가 있어요. 닫으면 저장되지 않고 사라져요. 닫을까요?';
+
 export function TaskPanel({
   mode, campaign, today, influencerOptions, actions, onClose, onPrev, onNext, onCreate,
-  menu, onOpenDraft, onAttachDraft, onGenerateHref, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
+  menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftPick, draftBusy, closeConfirm, moveConfirm, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
 }: {
   mode: PanelMode;
   campaign: CampaignRow;
@@ -51,18 +58,42 @@ export function TaskPanel({
   onPrev: () => void;
   onNext: () => void;
   onCreate: (body: TaskCreateRequest, more: boolean) => Promise<boolean>;
-  menu: ReactNode;   // 헤더 ··· — edit 모드에만 채워진다(Task 10, FlowRowMenu)
-  onOpenDraft: (draftId: string) => void;
-  onAttachDraft: (t: FlowRow) => void;
-  onGenerateHref: (t: FlowRow) => string;
+  menu: ReactNode;   // 헤더 ··· — edit 모드에만 채워진다(Task 10, FlowRowMenu). 원고 모드에서는 숨긴다(작업 동작이라서).
+  // 원고 모드로 들어가라는 요청(행 메뉴 등 패널 바깥에서 왔을 수 있다, C 원고 모드 §Step1). seq가 매번 바뀌어야
+  // 이미 같은 작업의 패널이 열려 있을 때(키 리마운트가 안 일어난다)도 같은 탭을 다시 요청하면 반영된다.
+  // tab이 null이면 "작업 모드로 되돌려라"는 뜻(C 원고 모드 리뷰 지적 4) — FlowDetail의 openPanel이
+  // 같은 작업 행을 다시 눌렀을 때 이 신호를 보낸다(패널이 원고 모드에 머물러 있어도 행 클릭 = 그 작업을 연다).
+  draftOpen?: { tab: DraftTab | null; seq: number } | null;
+  pickCount: number | null;   // '있는 원고 고르기 n' — Task 1의 후보 조회 합, 아직 못 읽었으면 null
+  draftCard: ReactNode;       // 붙어 있는 원고의 카드 — FlowDetail이 만든다(로딩·에러 표시도 포함)
+  draftGenerate: ReactNode;   // 'AI로 만들기' 탭 본체(DraftGenerate, C 원고 모드 Task 3) — FlowDetail이 만든다
+  draftWrite: ReactNode;      // '직접 쓰기' 탭 본체(DraftWrite, C 원고 모드 Task 4) — FlowDetail이 만든다
+  draftPick: ReactNode;       // '있는 원고 고르기' 탭 본체(DraftPick, C 원고 모드 Task 5) — FlowDetail이 만든다
+  // 시안을 만드는 동안(draftGenerate 내부 busy) 또는 직접 쓰는 동안(draftWrite의 저장·이미지 업로드)
+  // 패널의 바깥 클릭·Esc 닫기를 끈다 — 요청이 오래 걸려도 실수로 닫혀 만들던/쓰던 걸 잃지 않게(아래 두
+  // useEffect가 막는다). 탭 버튼·← 작업으로·푸터 작업으로도 이 값으로 비활성한다(리뷰 지적 2) — 탭을
+  // 바꾸면 두 컴포넌트 모두 언마운트돼 진행 중인 요청이 화면에서 끊겨 보인다. 헤더 [✕ 닫기]는 막지 않는다
+  // (패널이 닫혀도 생성 결과는 미부착 원고로 남는다, DraftGenerate의 '화면을 떠나도…' 안내와 같은 전제).
+  // FlowDetail이 draftGenerate·draftWrite 두 busy를 OR로 합쳐 이 하나의 값으로 넘긴다. label은 켜는 쪽이
+  // 준다(리뷰 지적 3, DraftMode와 같은 계약) — null이면 안 막혀 있다는 뜻.
+  draftBusy: { label: string } | null;
+  // 패널 닫기(requestClose, Esc·바깥 클릭·✕)에서 쓸 확인 문구(Task 4e) — FlowDetail이 이미 어느 쪽이
+  // 작성 중인지 안다(생성 탭의 방향성 / 직접 쓰기의 원고, draftGenDirty·draftWriteOnlyDirty)라 이 컴포넌트는
+  // 그 판정을 다시 하지 않고 이미 고른 문장을 그대로 받는다. null이면 작성 중이 아니라는 뜻 — 묻지 않고
+  // 그대로 닫는다.
+  closeConfirm: string | null;
+  // 자리를 옮기는 동작(requestTabChange · requestDraftModeExit — 탭 전환 · ← 작업으로 · 푸터 작업으로)에서
+  // 쓸 확인 문구(Task 4e) — closeConfirm과 같은 출처 판정을 쓰지만 닫는 게 아니라 옮기는 동작이라 문장이
+  // 다르다. null이면 묻지 않고 그대로 옮긴다.
+  moveConfirm: string | null;
   onDetachDraft: (t: FlowRow) => void;
   onReplace: (t: FlowRow) => void;   // 인플루언서 칸의 [바꾸기] — ReplaceDialog를 여는 것은 FlowDetail 쪽(Task 10)
   // new 모드의 CostConfirmField가 이 파일 안에서 직접 만들어지는 이유는 위 주석 — 그래서 프로필 반영 저장만
   // 콜백으로 받는다(option.id·pricing patch·influencerOptions 재조회는 FlowDetail 쪽이 쥔 것들이라서).
   onSaveProfilePricing: (option: InfluencerOption, cost: TaskCost, type: TaskType) => Promise<boolean>;
   slots: { cost: ReactNode; target: ReactNode; posted: ReactNode };
-  // 패널 위에 뜬 다른 오버레이(원고 카드·편집 모달·원고 고르기·한 번에 만들기)가 있는 동안은 패널의 Esc를 끈다 —
-  // 안 그러면 [열기]로 연 원고 카드에서 Esc 한 번에 카드와 패널이 같이 닫힌다(generate 관례: 겹친 레이어는 위부터 하나씩).
+  // 패널 위에 뜬 다른 오버레이(편집 모달·한 번에 만들기 등)가 있는 동안은 패널의 Esc를 끈다 —
+  // 안 그러면 그 레이어를 닫는 Esc 한 번에 오버레이와 패널이 같이 닫힌다(generate 관례: 겹친 레이어는 위부터 하나씩).
   overlayOpen: boolean;
   // 새 작업 모드의 dirty 여부를 부모(FlowDetail)에 알린다(I1-3) — 표의 다른 행을 클릭했을 때 같은 확인을
   // 거치려면 부모가 알아야 하는데, 그 값은 이 컴포넌트의 로컬 상태에서만 계산된다.
@@ -72,6 +103,25 @@ export function TaskPanel({
   const index = mode.kind === 'edit' ? mode.index : -1;
   const total = mode.kind === 'edit' ? mode.total : 0;
   const validIndex = index >= 0;
+
+  // ── 원고 모드(C 원고 모드 §Step1) — 패널 로컬 상태다. 작업이 바뀌면(패널이 key로 remount) 초기값 'task'로
+  // 돌아간다 — 따로 리셋 코드를 두지 않는다. draftOpen(패널 바깥, 행 메뉴 등에서 온 요청)이 오면 그 탭으로 연다.
+  const [draftMode, setDraftMode] = useState<'task' | 'draft'>('task');
+  const [draftTab, setDraftTab] = useState<DraftTab>('generate');
+  useEffect(() => {
+    if (!draftOpen) return;
+    if (draftOpen.tab === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 패널 바깥(같은 행 재클릭 등)에서 온 요청을 반영하는 것이 목적이라 동기 setState가 맞다
+      setDraftMode('task');
+      return;
+    }
+    setDraftTab(draftOpen.tab);
+    setDraftMode('draft');
+  }, [draftOpen]);
+  // 취소된 작업은 원고 모드에 머무르지 않는다(리뷰 지적 1, 거짓 어포던스) — 원고 모드인 채로 그 작업이
+  // 표의 ···에서 취소되면(서버가 draft_id를 뗀다) 자리표시자 탭 세 개가 취소된 작업 위에 남는다. 취소된
+  // 작업의 원고 칸은 이미 스냅샷 텍스트만 보여주므로 작업 모드로 돌아오는 것이 맞다.
+  const inDraftMode = draftMode === 'draft' && !!task && !task.cancelledAt;
 
   // ── 새 작업 로컬 상태 — 만들기 전까지 서버에 쓰지 않는다 ──
   const [newType, setNewType] = useState<TaskType | null>(null);
@@ -102,19 +152,34 @@ export function TaskPanel({
     )
   ), [mode.kind, handleInput, newCost, target, scheduledOn, visitOn, note]);
   const panelRef = useRef<HTMLElement | null>(null);
+  // 직접 쓰기·생성 탭에서 작성 중일 때 닫기 전 확인(리뷰 지적 4, Task 4c §3에서 생성 탭까지 넓혔다,
+  // Task 4e에서 문구를 closeConfirm으로 받게 바꿨다) — closeConfirm은 FlowDetail이 어느 탭이 작성
+  // 중인지 이미 반영해서 내려준다. null이면 작성 중이 아니라는 뜻이라 묻지 않는다.
   const requestClose = useCallback(() => {
     if (isNewDirty() && !window.confirm('입력한 내용이 사라져요. 닫을까요?')) return;
+    if (closeConfirm !== null && !window.confirm(closeConfirm)) return;
     onClose();
-  }, [isNewDirty, onClose]);
+  }, [isNewDirty, closeConfirm, onClose]);
   // FlowDetail이 표의 다른 행을 클릭했을 때 같은 확인을 거치려면 지금 dirty 여부를 알아야 한다(I1-3) —
   // 이 컴포넌트 밖에서 못 보는 로컬 상태라 바뀔 때마다 콜백으로 올려 보낸다.
   useEffect(() => { onDirtyChange?.(isNewDirty()); }, [isNewDirty, onDirtyChange]);
+  // 탭 전환 · ← 작업으로 · 푸터 작업으로(리뷰 지적 4) — 탭을 바꾸거나 원고 모드를 나가면 DraftWrite가
+  // 언마운트돼 친 글과 이미 올라간 이미지가 확인 없이 사라진다. 문구는 패널 닫기와 다르다(moveConfirm,
+  // Task 4e) — 닫는 게 아니라 자리를 옮기는 동작이라서다.
+  const requestTabChange = useCallback((t: DraftTab) => {
+    if (moveConfirm !== null && !window.confirm(moveConfirm)) return;
+    setDraftTab(t);
+  }, [moveConfirm]);
+  const requestDraftModeExit = useCallback(() => {
+    if (moveConfirm !== null && !window.confirm(moveConfirm)) return;
+    setDraftMode('task');
+  }, [moveConfirm]);
 
   // 바깥을 누르면 닫는다(koo 09-19). 예외 셋: ① 패널 안 ② 표의 행 — 다른 작업으로 갈아타는 동작이라 행이 직접
   // 처리한다 ③ 포털로 body에 붙는 팝오버·메뉴·툴팁(비용·인플·필터·행 메뉴·ⓘ) — 패널에서 연 것인데 DOM 상으로는
   // 패널 밖이라, 안 빼면 팝오버를 누르는 순간 패널이 닫힌다. 패널 위에 모달이 떠 있으면(overlayOpen) 리스너를 끈다.
   useEffect(() => {
-    if (overlayOpen) return;
+    if (overlayOpen || draftBusy) return;   // 시안을 만드는 동안은 바깥을 눌러도 안 닫는다(위 draftBusy 주석)
     const onDown = (e: PointerEvent) => {
       const t = e.target as HTMLElement | null;
       if (!t) return;
@@ -125,17 +190,17 @@ export function TaskPanel({
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
-  }, [requestClose, overlayOpen]);
+  }, [requestClose, overlayOpen, draftBusy]);
 
   // Esc는 패널만 닫는다 — 안에서 열린 팝오버(예정일 달력 등)는 capture에서 stopPropagation하므로 그쪽이 먼저 먹는다.
-  // 패널 위의 오버레이(원고 카드·모달)가 떠 있으면 이 리스너 자체를 끈다 — 안 그러면 그 오버레이를 닫는 Esc가
-  // 패널까지 같이 닫혀 버린다(FlowDetail의 peek Esc 관례와 같다: `if (!peekId || editing) return;`).
+  // 패널 위의 오버레이(모달 등)가 떠 있으면 이 리스너 자체를 끈다 — 안 그러면 그 오버레이를 닫는 Esc가
+  // 패널까지 같이 닫혀 버린다(overlayOpen이 true인 동안 통째로 끈다). draftBusy도 같은 이유로 끈다.
   useEffect(() => {
-    if (overlayOpen) return;
+    if (overlayOpen || draftBusy) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) requestClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [requestClose, overlayOpen]);
+  }, [requestClose, overlayOpen, draftBusy]);
 
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
@@ -265,7 +330,8 @@ export function TaskPanel({
                 {t.draftLabel ?? '(제목 없음)'}{t.draftStatus && <span className="text-ui text-x-muted"> · {STATUS_LABEL[t.draftStatus]}</span>}
               </span>
               <span className="flex shrink-0 items-center gap-3 text-ui">
-                <button type="button" onClick={() => onOpenDraft(t.draftId as string)} className="text-x-blue-text hover:underline">열기</button>
+                {/* setDraftTab 없이 연다 — 붙어 있으면 탭 대신 카드가 뜬다(DraftMode) */}
+                <button type="button" onClick={() => setDraftMode('draft')} className="text-x-blue-text hover:underline">열기</button>
                 <button type="button" onClick={() => onDetachDraft(t)} className="text-x-secondary hover:underline">떼기</button>
               </span>
             </div>
@@ -273,10 +339,17 @@ export function TaskPanel({
         }
         return (
           <div>
-            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-content text-x-muted">
-              <Link href={onGenerateHref(t)} className="whitespace-nowrap text-x-blue-text hover:underline">새로 만들기</Link>
-              <span aria-hidden>·</span>
-              <button type="button" onClick={() => onAttachDraft(t)} className="whitespace-nowrap hover:text-x-secondary hover:underline">있는 원고 고르기</button>
+            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-content">
+              <button type="button" onClick={() => { setDraftTab('generate'); setDraftMode('draft'); }}
+                      className="whitespace-nowrap text-x-blue-text hover:underline">AI로 만들기</button>
+              <span aria-hidden className="text-x-muted">·</span>
+              <button type="button" onClick={() => { setDraftTab('write'); setDraftMode('draft'); }}
+                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">직접 쓰기</button>
+              <span aria-hidden className="text-x-muted">·</span>
+              <button type="button" onClick={() => { setDraftTab('pick'); setDraftMode('draft'); }}
+                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">
+                있는 원고 고르기{pickCount !== null ? ` ${pickCount}` : ''}
+              </button>
             </span>
             <p className="mt-1 text-caption text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
           </div>
@@ -399,22 +472,44 @@ export function TaskPanel({
   const title: ReactNode = task
     ? (task.influencerHandle ? `@${task.influencerHandle}` : <span className="text-x-muted">인플루언서 미정</span>)
     : (newType ? `새 ${TASK_TYPE_LABEL[newType]} 작업` : '어떤 작업인가요?');
+  // 원고 모드 헤더 — 작업 정보(단계·유형)는 이미 봤으니 크럼 자리는 뒤로가기로 바꾸고, 제목은 원고 쪽으로 말한다.
+  const draftTitle = task ? `원고 · ${TASK_TYPE_LABEL[task.type]} · ${task.influencerHandle ? `@${task.influencerHandle}` : '인플루언서 미정'}` : '';
 
   return (
     <aside ref={panelRef} role="dialog" aria-label="작업 편집" className="fixed inset-y-0 right-0 z-40 flex w-[560px] flex-col border-l border-x-border bg-white shadow-xl">
       <div className="flex items-start justify-between border-b border-x-border px-6 pt-5 pb-4">
         <div className="min-w-0">
-          <p className="text-ui text-x-secondary">{crumb}</p>
-          <h2 className="mt-0.5 truncate text-[20px]">{title}</h2>
+          {inDraftMode
+            ? (
+              <span className="flex items-center gap-1.5">
+                {/* 생성·저장 중엔 막는다(리뷰 지적 2) — 탭을 바꾸면 그 컴포넌트가 언마운트돼 요청이 화면에서
+                    끊겨 보인다. title만으로 끝내지 않고 보이는 이유를 옆에 둔다(거짓 어포던스 금지). 작성
+                    중인 글이 있으면 확인을 먼저 받는다(리뷰 지적 4, requestDraftModeExit). */}
+                <button type="button" onClick={requestDraftModeExit} disabled={!!draftBusy}
+                        className="text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
+                  ← 작업으로
+                </button>
+                {draftBusy && <span className="text-caption text-x-muted">{draftBusy.label}</span>}
+              </span>
+            )
+            : <p className="text-ui text-x-secondary">{crumb}</p>}
+          <h2 className="mt-0.5 truncate text-[20px]">{inDraftMode ? draftTitle : title}</h2>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {task && menu}
+          {/* ···(작업 메뉴)는 원고 모드에서 숨긴다 — 전부 작업 단위 동작이라 원고를 보는 중엔 부를 일이 없다 */}
+          {task && !inDraftMode && menu}
           <button type="button" onClick={requestClose} aria-label="닫기" className="rounded-full p-1.5 text-x-secondary hover:bg-x-hover">✕</button>
         </div>
       </div>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-6 py-4">
-        {task ? (
+        {inDraftMode && task ? (
+          <DraftMode attached={!!task.draftId} tab={draftTab} onTab={requestTabChange} busy={draftBusy} pickCount={pickCount}
+                     card={draftCard}
+                     generate={draftGenerate}
+                     write={draftWrite}
+                     pick={draftPick} />
+        ) : task ? (
           <>
             {task.cancelledAt && (
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-ui text-slate-600">취소된 작업이에요 — ··· 메뉴의 [되돌리기]로 살릴 수 있어요</p>
@@ -460,7 +555,14 @@ export function TaskPanel({
       </div>
 
       <div className="flex items-center gap-3 border-t border-x-border px-6 py-3">
-        {task ? (
+        {inDraftMode ? (
+          // 원고 모드에서는 이전/다음 대신 이것 하나 — 작업 사이 이동은 작업 모드의 일이다.
+          // 생성 중엔 이 버튼도 막는다(리뷰 지적 2, 위 헤더 ← 작업으로와 같은 이유·같은 문구).
+          <div className="ml-auto flex items-center gap-2">
+            {draftBusy && <span className="text-caption text-x-muted">{draftBusy.label}</span>}
+            <Button onClick={requestDraftModeExit} disabled={!!draftBusy} className="h-9 px-3.5 text-ui">작업으로</Button>
+          </div>
+        ) : task ? (
           <div className="ml-auto flex items-center gap-3">
             <Button onClick={onPrev} disabled={!validIndex || index <= 0} className="h-9 px-3 text-ui">← 이전</Button>
             {validIndex

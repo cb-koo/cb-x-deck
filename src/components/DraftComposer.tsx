@@ -16,7 +16,9 @@ export const DEFAULT_COMPOSER: ComposerState = {
 };
 const MODE_LABEL: Record<ReferenceMode, string> = { off: '참고 안 함', form: '형식만', angle: '앵글만', both: '형식+앵글' };
 // CONTENT_MODEL 변경 시 함께 갱신 (스펙 3-6 — sonnet 실측 ≈$0.015의 보수적 반올림)
-const COST_CAPTION = '생성 1회 ≈ $0.02';
+// export — 패널 원고 모드(DraftGenerate, C 원고 모드 Task 3)가 같은 문구를 쓴다. 두 곳에 따로 적으면 모델을
+// 바꿀 때 한쪽만 갱신되어 드리프트가 생긴다.
+export const COST_CAPTION = '생성 1회 ≈ $0.02';
 
 // 클라이언트·레퍼런스·방향성 중 하나는 있어야 생성 가능 — 섹션부/풋터가 같은 판정을 쓴다
 export function canGenerate(value: ComposerState, refCount: number): boolean {
@@ -56,7 +58,9 @@ const Optional = () => <span className="text-caption text-x-muted">선택</span>
 // 실제로 프롬프트에 실리는 금지어 수 — 클라이언트 것 + '선택한' 시술 것.
 // generate.ts가 procedureIds로 시술을 거르므로 같은 집합을 세야 표시와 동작이 일치한다.
 // 섹션부(잠금·개수 표시)와 풋터(요약)가 같은 판정을 써야 해서 함수로 뽑았다 — canGenerate와 같은 이유.
-function bannedPhraseCount(
+// export — 패널 원고 모드(DraftGenerate, 3c)도 같은 계산을 쓴다. 3b는 이 파일이 커밋 범위 밖이라 사본을
+// 따로 뒀었다(DraftGenerate.tsx 주석 참고) — 공식이 한쪽만 바뀌면 두 화면이 다른 개수를 말하게 되므로 합친다.
+export function bannedPhraseCount(
   cur: { client: ClientRow; procedures: ProcedureRow[] } | null, procedureIds: string[],
 ): number {
   if (!cur) return 0;

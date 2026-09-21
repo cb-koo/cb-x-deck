@@ -1,8 +1,8 @@
 'use client';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import Link from 'next/link';
 import { replaceDisabledReason, type FlowRow } from '@/lib/campaignFlowView';
+import type { DraftTab } from './draft/DraftMode';
 
 // 행·패널 공용 ··· 메뉴(Task 10, b-task-10-brief.md §3-2) — TaskTable.tsx의 RowMenu(포털·좌표 클램프·바깥
 // 클릭·Esc·스크롤 닫기)와 같은 골격, 항목만 이 화면 것으로 바꿨다. 표의 마지막 칸(renderMenu)과 패널 헤더가
@@ -42,9 +42,10 @@ function MenuButton({ onClick, danger, disabled, reason, children }: {
 export interface FlowRowMenuActions {
   posted: (t: FlowRow) => void;         // 게시 확인 다이얼로그 열기
   schedule: (t: FlowRow) => void;       // 예정일 바꾸기 — 오른쪽 패널 열기(§3-2)
-  openDraft: (t: FlowRow) => void;      // 붙은 원고 카드 열기
-  attachDraft: (t: FlowRow) => void;    // 있는 원고 고르기 모달 열기
-  generateHref: (t: FlowRow) => string; // 새로 만들기(Link) — /generate로
+  // 원고 열기·있는 원고 고르기·AI로 만들기 — 셋 다 이 행의 패널을 원고 모드로 연다(C 원고 모드). 화면 밖(/generate)
+  // 이나 별도 모달로 보내지 않는다 — 한 화면에서 두 갈래가 생기면 사용자는 어느 쪽이 맞는지 모른다.
+  // 붙은 원고가 있으면(원고 열기) tab은 무시된다(패널이 탭 대신 카드를 그린다).
+  openDraftMode: (t: FlowRow, tab: DraftTab) => void;
   linkPost: (t: FlowRow) => void;       // 게시물 연결(트래킹) 모달 열기
   replace: (t: FlowRow) => void;        // 인플루언서 교체 다이얼로그 열기
   cancel: (t: FlowRow) => void;         // 작업 취소 다이얼로그 열기
@@ -86,13 +87,10 @@ export function FlowRowMenu({ task, today, on }: {
     push(<MenuButton key="schedule" onClick={() => { close(); on.schedule(task); }}>예정일 바꾸기</MenuButton>);
   }
   if (task.draftId) {
-    push(<MenuButton key="openDraft" onClick={() => { close(); on.openDraft(task); }}>원고 열기</MenuButton>);
+    push(<MenuButton key="openDraft" onClick={() => { close(); on.openDraftMode(task, 'generate'); }}>원고 열기</MenuButton>);
   } else if (task.type !== 'rt' && !cancelled) {
-    push(<MenuButton key="attachDraft" onClick={() => { close(); on.attachDraft(task); }}>원고 붙이기</MenuButton>);
-    push(
-      <Link key="generate" href={on.generateHref(task)} role="menuitem" onClick={() => close()}
-            className="block rounded px-2.5 py-1.5 text-ui hover:bg-x-hover">새로 만들기</Link>,
-    );
+    push(<MenuButton key="attachDraft" onClick={() => { close(); on.openDraftMode(task, 'pick'); }}>있는 원고 고르기</MenuButton>);
+    push(<MenuButton key="generate" onClick={() => { close(); on.openDraftMode(task, 'generate'); }}>AI로 만들기</MenuButton>);
   }
   // 게시물 연결은 게시 뒤에도 쓴다 — 게시 확인 때 링크 등록이 실패하면 "행 메뉴에서 다시 시도하세요"가
   // 가리키는 곳이 바로 여기다(기존 화면도 게시 여부를 따지지 않는다). RT는 자기 게시물이 없어 제외.

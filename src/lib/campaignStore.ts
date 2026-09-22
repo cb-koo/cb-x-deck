@@ -11,8 +11,10 @@ import {
   summarizeTasks, deriveTaskInfluencers, subtotalsByType,
   type CampaignKind, type TaskSummary, type TaskInfluencerLine, type TypeSubtotal, type TaskType,
 } from './campaignJudgment.ts';
-import { getClientBudget } from './clientStore.ts';
-import { campaignMonthBudget, monthOf, toKrw, JPY_TO_KRW, type MonthSpend, type CampaignMonthBudget } from './clientBudget.ts';
+import { listBudgetPeriods } from './budgetPeriodStore.ts';
+import {
+  campaignPeriodBudget, periodFor, toKrw, JPY_TO_KRW, type PeriodSpend, type SpanningCampaign, type CampaignPeriodBudget,
+} from './clientBudget.ts';
 import { getDefaultPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
 import { computeMoney } from './settlementCalc.ts';
 
@@ -52,7 +54,7 @@ export interface CampaignDetail {
   byType: TypeSubtotal[];              // subtotalsByType(tasks) — 표 하단 유형별 줄
   deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number };   // 삭제 확인 문구의 숫자(§4-4) — 미사용 포함 전수
   today: string;                       // 판정에 쓴 '오늘'(서울) — 클라가 같은 기준으로 다시 그릴 수 있게 함께 내려준다
-  budget: CampaignMonthBudget | null;  // 이 캠페인이 속한 달의 클라이언트 예산(스펙 2026-08-27 §5-3). 클라 없으면 null
+  budget: CampaignPeriodBudget | null;  // 이 캠페인이 속한 기간의 클라이언트 예산(스펙 2026-09-22 §5-2). 클라 없으면 null
 }
 
 export interface InfluencerCampaignItem {
@@ -140,25 +142,32 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
   return out;
 }
 
-// 클라이언트 × 달 집행(스펙 2026-08-27 §3) — 캠페인 starts_on의 달로 묶는다. 합산은 totalsFor를 그대로 써서
-// 캠페인 카드 합계와 예산 표가 항상 같은 숫자를 말한다. 캠페인 수는 비용 0인 캠페인도 센다.
-// months를 주면 그 달만(캠페인 상세는 한 달), 없으면 전부(클라이언트 상세 표).
-export async function spendByMonth(sql: postgres.Sql, clientId: string, months?: string[]): Promise<Map<string, MonthSpend>> {
-  const camps = await sql<Array<{ id: string; month: string }>>`
-    select id, to_char(starts_on, 'YYYY-MM') as month from campaign
-     where client_id = ${clientId}
-       ${months ? sql`and to_char(starts_on, 'YYYY-MM') = any(${months}::text[])` : sql``}`;
+// 클라이언트 × 예산 기간 집행(스펙 2026-09-22 §5-2) — 캠페인 starts_on이 그 기간 안에 있으면 전액 귀속.
+// 합산은 totalsFor를 그대로 써서 캠페인 카드 합계와 예산 표가 항상 같은 숫자를 말한다.
+// spanning: 그 기간에 귀속됐지만 ends_on이 기간 종료일 뒤까지 이어지는 캠페인(초과 원인 배지용, §4).
+export async function spendByPeriods(
+  sql: postgres.Sql, clientId: string, periods: Array<{ id: string; startsOn: string; endsOn: string }>,
+): Promise<Map<string, PeriodSpend & { spanning: SpanningCampaign[] }>> {
+  const camps = await sql<Array<{ id: string; starts_on: string; ends_on: string }>>`
+    select id, to_char(starts_on, 'YYYY-MM-DD') as starts_on, to_char(ends_on, 'YYYY-MM-DD') as ends_on
+      from campaign where client_id = ${clientId}`;
   const totals = await totalsFor(sql, camps.map((c) => c.id));
-  const out = new Map<string, MonthSpend>();
-  for (const c of camps) {
-    const cur = out.get(c.month) ?? { total: {}, campaignCount: 0, feeKrw: 0, feeUnknown: 0 };
-    const t = totals.get(c.id);
-    out.set(c.month, {
-      total: mergeMoney(cur.total, t?.money ?? {}),
-      campaignCount: cur.campaignCount + 1,
-      feeKrw: cur.feeKrw + (t?.feeKrw ?? 0),
-      feeUnknown: cur.feeUnknown + (t?.feeUnknown ?? 0),
-    });
+  const out = new Map<string, PeriodSpend & { spanning: SpanningCampaign[] }>();
+  for (const period of periods) {
+    let cur: PeriodSpend = { total: {}, campaignCount: 0, feeKrw: 0, feeUnknown: 0 };
+    const spanning: SpanningCampaign[] = [];
+    for (const c of camps) {
+      if (c.starts_on < period.startsOn || c.starts_on > period.endsOn) continue;
+      const t = totals.get(c.id);
+      cur = {
+        total: mergeMoney(cur.total, t?.money ?? {}),
+        campaignCount: cur.campaignCount + 1,
+        feeKrw: cur.feeKrw + (t?.feeKrw ?? 0),
+        feeUnknown: cur.feeUnknown + (t?.feeUnknown ?? 0),
+      };
+      if (c.ends_on > period.endsOn) spanning.push({ id: c.id, endsOn: c.ends_on });
+    }
+    out.set(period.id, { ...cur, spanning });
   }
   return out;
 }
@@ -292,15 +301,13 @@ export async function getCampaignDetail(
       from campaign_influencer_cost where campaign_id = ${id} order by lower(influencer_handle)`;
   const costRows = cic.map(toCic);
 
-  // 이 달 예산(§5-3) — 클라이언트 없는 캠페인은 null. othersKrw = 같은 달 합계 − 이 캠페인 몫(campaign.total은 같은 totalsFor)
-  let budget: CampaignMonthBudget | null = null;
+  // 이 기간 예산(스펙 §5-2) — 클라이언트 없는 캠페인은 null. othersKrw = 같은 기간 합계 − 이 캠페인 몫(campaign.total은 같은 totalsFor)
+  let budget: CampaignPeriodBudget | null = null;
   if (campaign.clientId) {
-    const client = await getClientBudget(sql, campaign.clientId);
-    if (client) {
-      const month = monthOf(campaign.startsOn);
-      const spend = (await spendByMonth(sql, campaign.clientId, [month])).get(month);
-      budget = campaignMonthBudget(client, month, spend, toKrw(campaign.total).krw);
-    }
+    const periods = await listBudgetPeriods(sql, campaign.clientId);
+    const period = periodFor(periods, campaign.startsOn);
+    const spend = period ? (await spendByPeriods(sql, campaign.clientId, [period])).get(period.id) : undefined;
+    budget = campaignPeriodBudget(period, spend, spend?.spanning ?? [], toKrw(campaign.total).krw);
   }
 
   return {

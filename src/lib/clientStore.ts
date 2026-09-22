@@ -1,11 +1,8 @@
 import type postgres from 'postgres';
-import { budgetOverridesOf, type BudgetClient } from './clientBudget.ts';
 
 export interface ClientRow {
   id: string; name: string; info: string; bannedPhrases: string[]; position: number; updatedAt: string;
   landingUrl: string; nameEn: string;
-  monthlyBudget: number | null;              // 기본 월 예산(원). null = 미설정 (스펙 2026-08-27 §3)
-  budgetOverrides: Record<string, number>;   // {"YYYY-MM": 원} 예외 달만
   clinicCode: string | null;                 // 리포트 페이지 연결용 클리닉 코드(외부 리포트 API의 clinic_code). null = 연결 안 함
 }
 export interface ProcedureRow {
@@ -15,7 +12,7 @@ export interface ProcedureRow {
 
 type CRow = {
   id: string; name: string; info: string; banned_phrases: string[]; position: number; updated_at: Date;
-  landing_url: string; name_en: string; monthly_budget: number | null; budget_overrides: unknown; clinic_code: string | null;
+  landing_url: string; name_en: string; clinic_code: string | null;
 };
 type PRow = { id: string; client_id: string; name: string; description: string; effect_phrases: string; banned_phrases: string[]; position: number };
 
@@ -31,15 +28,14 @@ function toIsoOrEmpty(v: Date | string): string {
 
 const toClient = (r: CRow): ClientRow =>
   ({ id: r.id, name: r.name, info: r.info, bannedPhrases: r.banned_phrases, position: r.position,
-     updatedAt: toIsoOrEmpty(r.updated_at), landingUrl: r.landing_url, nameEn: r.name_en,
-     monthlyBudget: r.monthly_budget, budgetOverrides: budgetOverridesOf(r.budget_overrides), clinicCode: r.clinic_code });
+     updatedAt: toIsoOrEmpty(r.updated_at), landingUrl: r.landing_url, nameEn: r.name_en, clinicCode: r.clinic_code });
 const toProcedure = (r: PRow): ProcedureRow =>
   ({ id: r.id, clientId: r.client_id, name: r.name, description: r.description,
      effectPhrases: r.effect_phrases, bannedPhrases: r.banned_phrases, position: r.position });
 
 // 세 조회가 같은 컬럼을 읽는다 — 한 곳만 컬럼을 빠뜨리면 그 경로에서만 undefined가 나온다
 const CLIENT_COLS = (sql: postgres.Sql) => sql`
-  id, name, info, banned_phrases, position, updated_at, landing_url, name_en, monthly_budget, budget_overrides, clinic_code`;
+  id, name, info, banned_phrases, position, updated_at, landing_url, name_en, clinic_code`;
 
 export async function createClient(sql: postgres.Sql, name: string): Promise<ClientRow> {
   const rows = await sql<CRow[]>`
@@ -68,7 +64,7 @@ export async function getClientWithProcedures(
 
 export async function updateClient(
   sql: postgres.Sql, id: string,
-  patch: { name?: string; info?: string; bannedPhrases?: string[]; landingUrl?: string; nameEn?: string; monthlyBudget?: number | null; clinicCode?: string | null },
+  patch: { name?: string; info?: string; bannedPhrases?: string[]; landingUrl?: string; nameEn?: string; clinicCode?: string | null },
 ): Promise<void> {
   await sql`update client set
       name = coalesce(${patch.name ?? null}, name),
@@ -76,33 +72,12 @@ export async function updateClient(
       banned_phrases = coalesce(${patch.bannedPhrases ? sql.json(patch.bannedPhrases) : null}, banned_phrases),
       landing_url = coalesce(${patch.landingUrl ?? null}, landing_url),
       name_en = coalesce(${patch.nameEn ?? null}, name_en),
-      -- coalesce는 "null이면 유지"라 예산 지움을 표현할 수 없다 — undefined=유지 · null=지움 · 숫자=설정 (draftStore.influencer_handle 규칙)
-      monthly_budget = case when ${patch.monthlyBudget !== undefined} then ${patch.monthlyBudget ?? null}::int else monthly_budget end,
       updated_at = now()
     where id = ${id}`;
   // clinic_code는 "null로 되돌리기"를 표현해야 해서 coalesce 패턴을 못 쓴다 — undefined(미지정)일 때만 건드리지 않는다.
   if (patch.clinicCode !== undefined) {
     await sql`update client set clinic_code = ${patch.clinicCode} where id = ${id}`;
   }
-}
-
-// 예외 달 설정/삭제 — 한 문장의 jsonb 연산이라 두 사람이 다른 달을 동시에 고쳐도 서로 덮지 않는다.
-// null = 그 달 예외 삭제(기본값으로 돌아감). 없는 달을 지워도 오류 없음.
-export async function setBudgetOverride(sql: postgres.Sql, id: string, month: string, amount: number | null): Promise<void> {
-  if (amount === null) {
-    await sql`update client set budget_overrides = budget_overrides - ${month}::text, updated_at = now() where id = ${id}`;
-  } else {
-    await sql`update client set budget_overrides = budget_overrides || jsonb_build_object(${month}::text, ${amount}::int),
-                                updated_at = now() where id = ${id}`;
-  }
-}
-
-// 캠페인 상세가 쓰는 가벼운 조회 — 시술까지 끌어오지 않는다
-export async function getClientBudget(sql: postgres.Sql, id: string): Promise<BudgetClient | null> {
-  const rows = await sql<Array<{ monthly_budget: number | null; budget_overrides: unknown }>>`
-    select monthly_budget, budget_overrides from client where id = ${id}`;
-  if (rows.length === 0) return null;
-  return { monthlyBudget: rows[0].monthly_budget, budgetOverrides: budgetOverridesOf(rows[0].budget_overrides) };
 }
 
 export async function deleteClient(sql: postgres.Sql, id: string): Promise<void> {

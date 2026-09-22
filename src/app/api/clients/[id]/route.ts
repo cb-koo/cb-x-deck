@@ -3,7 +3,6 @@ import { getSql } from '@/lib/db';
 import { getClientWithProcedures, updateClient, deleteClient } from '@/lib/clientStore';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { checkLandingUrl, landingUrlMessage } from '@/lib/trackingLink';
-import { parseBudgetAmount } from '@/lib/clientBudget';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAllowedUser();
@@ -18,8 +17,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
-  const { monthlyBudget: rawBudget, ...rest } = (await req.json().catch(() => ({}))) as {
-    name?: string; info?: string; bannedPhrases?: string[]; landingUrl?: string; nameEn?: string; monthlyBudget?: unknown; clinicCode?: string | null;
+  const rest = (await req.json().catch(() => ({}))) as {
+    name?: string; info?: string; bannedPhrases?: string[]; landingUrl?: string; nameEn?: string; clinicCode?: string | null;
   };
   if (rest.name !== undefined) {
     rest.name = rest.name?.trim();
@@ -41,15 +40,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       return NextResponse.json({ error: '영문 이름은 영어·숫자로 입력해 주세요 (예: yonsei-clinic)' }, { status: 400 });
     }
   }
-  // 예산: undefined = 건드리지 않음 · null/'' = 미설정 · 숫자(콤마 문자열 허용) = 설정. 0 이상 정수만(비용 금액 규칙과 동일)
-  let monthlyBudget: number | null | undefined;
-  if (rawBudget !== undefined) {
-    const parsed = parseBudgetAmount(rawBudget);
-    if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: 400 });
-    monthlyBudget = parsed.value;
-  }
   try {
-    await updateClient(getSql(), id, { ...rest, monthlyBudget });
+    await updateClient(getSql(), id, rest);
   } catch (e) {
     if ((e as { code?: string }).code === '23505')
       return NextResponse.json({ error: '이 리포트 코드는 이미 다른 클라이언트에 연결돼 있어요' }, { status: 409 });

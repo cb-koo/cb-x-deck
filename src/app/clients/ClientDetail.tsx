@@ -156,7 +156,7 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
         </div>
       </div>
 
-      <BudgetPanel client={client} register={register} onChanged={onChanged} />
+      <BudgetPanel client={client} onChanged={onChanged} />
 
       {deleting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setDeleting(false); setDeleteErr(''); }}>

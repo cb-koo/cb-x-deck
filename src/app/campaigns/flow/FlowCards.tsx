@@ -4,7 +4,7 @@ import { Button } from '@/components/ui';
 import { InfoTip } from '@/components/InfoTip';
 import type { FlowStats } from '@/lib/campaignFlowView';
 import { CURRENCIES, formatAmount, formatMoneyBy, moneyParts, type MoneyByCurrency } from '@/lib/campaignCost';
-import { toKrw, monthShort, type CampaignMonthBudget } from '@/lib/clientBudget';
+import { toKrw, periodLabel, type CampaignPeriodBudget } from '@/lib/clientBudget';
 import { formatPct } from '@/lib/performanceJudgment';
 
 // 요약 카드 3장(작업·성과·비용) — 클러터로 반려된 초안 뒤 정해진 모양(b-task-11-brief.md):
@@ -27,7 +27,7 @@ function diffMoney(a: MoneyByCurrency, b: MoneyByCurrency): MoneyByCurrency {
 export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCount, refreshing, onRefresh }: {
   stats: FlowStats;
   plannedTotal: MoneyByCurrency;   // 계획(작업 비용 + 인플별 추가 비용) — stats.plannedCost(작업 비용만)와는 다른 숫자(위 주석)
-  budget: CampaignMonthBudget | null;   // 클라이언트가 없거나 예산 미설정이면 null이 아니라 amount만 null로 온다(clientBudget.ts)
+  budget: CampaignPeriodBudget | null;   // 클라이언트가 없거나 예산 기간 미설정이면 null이 아니라 period만 null로 온다(clientBudget.ts)
   clientId: string | null;
   cancelledCount: number;
   refreshing: boolean;
@@ -39,7 +39,7 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
   const hasExtra = moneyParts(extraCost).length > 0;
   const costTip = hasExtra ? `추가 비용 ${formatMoneyBy(extraCost)}은 계획에 포함` : undefined;
 
-  const amount = budget?.amount ?? null;
+  const amount = budget?.period ? budget.period.amountKrw : null;
   const hasBudgetBar = amount !== null && amount > 0;
   // 막대는 예산이 전체 길이 — 회색(이달 다른 캠페인 계획) → 진한 파랑(이 캠페인 소진) → 연한 파랑(이 캠페인 계획 잔여) → 빈칸(남음) 순.
   // 소진이 계획을 넘거나 계획이 예산을 넘어도 막대는 100%에서 잘린다 — 숫자는 실제 값 그대로 보여주고(아래), 여기 폭만 클램프한다.
@@ -51,7 +51,7 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
   const wSpent = hasBudgetBar ? segWidth((spentKrw / amount!) * 100) : 0;
   const wPlanned = hasBudgetBar ? segWidth((Math.max(0, plannedKrw - spentKrw) / amount!) * 100) : 0;
   const budgetTip = hasBudgetBar
-    ? `${monthShort(budget!.month)} 예산 ${formatAmount(amount!, 'KRW')} · 회색은 이달 다른 캠페인 계획 ${formatAmount(budget!.othersKrw, 'KRW')} · 인플별 추가 비용은 계획에 포함 · 송금 수수료 미포함`
+    ? `${periodLabel(budget!.period!)} 예산 ${formatAmount(amount!, 'KRW')} · 회색은 기간 내 다른 캠페인 계획 ${formatAmount(budget!.othersKrw, 'KRW')} · 인플별 추가 비용은 계획에 포함 · 송금 수수료 미포함`
     : undefined;
 
   return (
@@ -130,7 +130,7 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
             )}
             <p className="mt-1 text-ui text-x-secondary">
               {amount !== null
-                ? `${monthShort(budget!.month)} 예산`
+                ? `${periodLabel(budget!.period!)} 예산`
                 : (clientId
                     ? <Link href={`/clients?client=${clientId}`} className="text-x-blue-text hover:underline">예산 미설정</Link>
                     : '예산 미설정')}

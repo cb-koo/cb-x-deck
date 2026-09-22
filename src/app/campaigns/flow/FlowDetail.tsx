@@ -7,7 +7,7 @@ import type { CampaignPatchInput } from '@/lib/campaignInput';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { DraftRow } from '@/lib/draftStore';
-import type { CampaignMonthBudget } from '@/lib/clientBudget';
+import type { CampaignPeriodBudget } from '@/lib/clientBudget';
 import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, patchInfluencerPricingApi,
   patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, refreshCampaignPerfApi,
@@ -91,7 +91,7 @@ const DRAFT_DIRECTION_DISCARD_CONFIRM = '쓰던 방향성이 있어요. 계속�
 interface DetailState {
   campaign: CampaignRow; tasks: CampaignTaskItem[]; costRows: InfluencerCostRow[];
   deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number }; today: string;
-  budget: CampaignMonthBudget | null;   // 이 달 클라이언트 예산(서버 판정) — 카드의 '월 예산 잔액'(Task 11)
+  budget: CampaignPeriodBudget | null;   // 이 기간 클라이언트 예산(서버 판정) — 카드의 '예산 기간 잔액'
 }
 type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 // 오른쪽 패널이 여는 대상 — 기존 작업(taskId) 또는 새 작업(fresh). 둘 다 아니면 패널이 닫혀 있다.

@@ -7,6 +7,9 @@ import {
   PAYMENT_TYPES, PAYMENT_TYPE_LABEL, describeMethod, formatFee, parsePaymentMethodInput,
   type PaymentMethod, type PaymentMethodType,
 } from '@/lib/influencerPayment';
+import { signPaymentQrUrl } from '@/lib/paymentQr';
+import { ImageLightbox } from '@/components/ImageLightbox';
+import { PaymentQrField } from './PaymentQrField';
 import { PANEL, PANEL_TITLE, errOf, useErrorReport } from './profileShared';
 import type { InfluencerLogRow } from '@/lib/influencerStore';
 
@@ -24,7 +27,7 @@ const FEE_MODE_LABEL: Record<FeeMode, string> = {
 
 interface Draft {
   type: PaymentMethodType; holder: string; currency: Currency;
-  email: string; paypalId: string; identifier: string;
+  email: string; paypalId: string; identifier: string; qr: string;
   bank: string; branch: string; account: string;
   feeMode: FeeMode; feePercent: string; feeAmount: string;
   memo: string; makeDefault: boolean;
@@ -40,6 +43,7 @@ function draftOf(m: PaymentMethod | null): Draft {
     email: m?.email ?? '',
     paypalId: m?.paypalId ?? '',
     identifier: m?.identifier ?? '',
+    qr: m?.qr ?? '',
     bank: m?.bank ?? '',
     branch: m?.branch ?? '',
     account: m?.account ?? '',
@@ -65,7 +69,7 @@ function inputOf(d: Draft): unknown {
       : undefined;
   return {
     type: d.type, holder: d.holder, currency: d.currency,
-    email: d.email, paypalId: d.paypalId, identifier: d.identifier,
+    email: d.email, paypalId: d.paypalId, identifier: d.identifier, qr: d.qr,
     bank: d.bank, branch: d.branch, account: d.account,
     fee, memo: d.memo,
   };
@@ -175,7 +179,7 @@ export function PaymentSection({ id, methods, onSaved, onErrorChange }: {
           <li key={m.id}>
             {typeof editing === 'object' && editing?.id === m.id ? (
               <MethodForm draft={draft} setDraft={setDraft} isFirst={false} showDefaultCheck={false}
-                          busy={busy} error={formErr}
+                          busy={busy} error={formErr} influencerId={id}
                           onSubmit={() => submit({ id: m.id })} onCancel={() => { setEditing(null); setFormErr(null); }} />
             ) : (
               <MethodCard m={m} busy={busy} copiedKey={copiedKey} confirming={confirmId === m.id}
@@ -192,7 +196,7 @@ export function PaymentSection({ id, methods, onSaved, onErrorChange }: {
         {editing === 'add' && (
           <li>
             <MethodForm draft={draft} setDraft={setDraft} isFirst={isFirst} showDefaultCheck
-                        busy={busy} error={formErr}
+                        busy={busy} error={formErr} influencerId={id}
                         onSubmit={() => submit('add')} onCancel={() => { setEditing(null); setFormErr(null); }} />
           </li>
         )}
@@ -218,7 +222,7 @@ function MethodCard({ m, busy, copiedKey, confirming, fallbackLabel, onCopy, onS
   const label = describeMethod(m);
   const fee = formatFee(m.fee, m.currency);
 
-  type Row = { key: string; label: string; value: ReactNode; copy?: string; muted?: boolean };
+  type Row = { key: string; label: string; value: ReactNode; copy?: string; muted?: boolean; qrPath?: string };
   const rows: Row[] = [{ key: 'holder', label: holderLabel(m.type), value: m.holder }];
   rows.push({ key: 'currency', label: '지급 통화', value: `${CURRENCY_SYMBOL[m.currency]} ${m.currency === 'JPY' ? '엔화' : '원화'}` });
   if (m.type === 'paypal') {
@@ -228,6 +232,8 @@ function MethodCard({ m, busy, copiedKey, confirming, fallbackLabel, onCopy, onS
     rows.push(m.identifier
       ? { key: 'identifier', label: '수취 식별 정보', value: m.identifier, copy: m.identifier }
       : { key: 'identifier', label: '수취 식별 정보', value: '미입력 — 정산 쪽에서 확인되면 적어 두세요', muted: true });
+    // QR은 있을 때만 행을 만든다 — 둘 다 선택이라 둘 다 "미입력"이 뜨면 잔소리가 된다(스펙 §2)
+    if (m.qr) rows.push({ key: 'qr', label: 'QR 이미지', value: null, qrPath: m.qr });
   } else {
     rows.push({ key: 'bank', label: '은행', value: [m.bank, m.branch].filter(Boolean).join(' · ') });
     if (m.account) rows.push({ key: 'account', label: '계좌번호', value: m.account, copy: m.account });
@@ -262,7 +268,7 @@ function MethodCard({ m, busy, copiedKey, confirming, fallbackLabel, onCopy, onS
           <Fragment key={r.key}>
             <dt className="whitespace-nowrap text-x-muted">{r.label}</dt>
             <dd className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 ${r.muted ? 'text-x-muted' : ''}`}>
-              <span className="min-w-0 break-all">{r.value}</span>
+              {r.qrPath ? <QrPreviewCell key={r.qrPath} path={r.qrPath} /> : <span className="min-w-0 break-all">{r.value}</span>}
               {r.copy && (
                 <button onClick={() => onCopy(r.key, r.copy!)} aria-label={`${r.label} ${r.copy} 복사`}
                         className="shrink-0 rounded border border-x-border-strong bg-white px-1.5 py-0.5 text-caption text-x-secondary hover:bg-x-hover">
@@ -293,11 +299,41 @@ function MethodCard({ m, busy, copiedKey, confirming, fallbackLabel, onCopy, onS
   );
 }
 
-function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, onSubmit, onCancel }: {
+// 카드 목록(표시 전용)에서 QR 행 하나를 그린다. 편집 폼(PaymentQrField)과 달리 부모가 값을
+// 바꿀 일이 없어 훨씬 단순하다 — 마운트 시 한 번 서명해 작은 미리보기를 보여주고 눌러서 확대만 한다.
+// 호출부가 key={path}로 그려 path가 바뀌면 새로 마운트된다 — 그래서 이펙트 안에서 이전 값을
+// 지우는 setState가 필요 없다(react-hooks/set-state-in-effect 회피와도 맞아떨어진다).
+function QrPreviewCell({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [zoom, setZoom] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    signPaymentQrUrl(path)
+      .then((u) => { if (!cancelled) setUrl(u); })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, [path]);
+
+  if (failed) return <span className="text-x-muted">미리보기를 불러오지 못했어요</span>;
+  if (!url) return <span className="text-x-muted">불러오는 중…</span>;
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt="QR 이미지" onClick={() => setZoom(true)}
+           className="h-[72px] w-[72px] cursor-zoom-in rounded-md border border-x-border bg-white object-contain" />
+      {zoom && <ImageLightbox urls={[url]} index={0} onIndexChange={() => {}} onClose={() => setZoom(false)} />}
+    </>
+  );
+}
+
+function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, influencerId, onSubmit, onCancel }: {
   draft: Draft; setDraft: (fn: (d: Draft) => Draft) => void;
   isFirst: boolean;            // 명부에 수단이 하나도 없는 상태 — 첫 수단은 무조건 기본이 된다
   showDefaultCheck: boolean;   // 추가 폼에만. 수정은 기본 지정을 카드의 '기본으로'가 맡는다
   busy: boolean; error: string | null;
+  influencerId: string;        // paypay QR 업로드 경로에 쓴다
   onSubmit: () => void; onCancel: () => void;
 }) {
   const uid = useId();
@@ -361,11 +397,21 @@ function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, o
 
         {draft.type === 'paypay' && (
           <div className={SPAN2}>
-            <label className={FIELD_LABEL} htmlFor={`${uid}-identifier`}>수취 식별 정보 (선택)</label>
-            <input id={`${uid}-identifier`} value={draft.identifier} disabled={busy}
-                   onChange={(e) => set('identifier', e.target.value)} className={FIELD} />
+            <p className={FIELD_LABEL}>받을 정보 <span className="text-x-muted font-normal">(둘 중 하나만 있어도 돼요)</span></p>
+            <div className="mt-1 space-y-3 rounded-lg border border-x-border p-3">
+              <div>
+                <label className={FIELD_LABEL} htmlFor={`${uid}-identifier`}>수취 식별 정보</label>
+                <input id={`${uid}-identifier`} value={draft.identifier} disabled={busy}
+                       onChange={(e) => set('identifier', e.target.value)} className={FIELD} />
+              </div>
+              <div>
+                <p className={FIELD_LABEL}>QR 이미지</p>
+                <PaymentQrField influencerId={influencerId} value={draft.qr} disabled={busy}
+                                onChange={(path) => set('qr', path)} />
+              </div>
+            </div>
             <p className="mt-0.5 text-caption text-x-muted">
-              PayPay는 아직 무엇으로 받는지 확정되지 않았어요 — 정산 쪽에서 확인되면 그대로 적어 두세요.
+              아직 못 받았으면 비워두셔도 돼요 — 정산 쪽에서 확인되면 그때 채우면 됩니다.
             </p>
           </div>
         )}

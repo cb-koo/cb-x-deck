@@ -1,12 +1,13 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { createClient, deleteClient, updateClient, setBudgetOverride } from './clientStore.ts';
+import { createClient, deleteClient } from './clientStore.ts';
+import { createBudgetPeriod, listBudgetPeriods } from './budgetPeriodStore.ts';
 import { insertDraft, updateDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
 import {
   createCampaign, listCampaigns, getCampaign, updateCampaign, deleteCampaign,
-  getCampaignDetail, upsertInfluencerCost, listInfluencerCampaigns, spendByMonth,
+  getCampaignDetail, upsertInfluencerCost, listInfluencerCampaigns, spendByPeriods,
 } from './campaignStore.ts';
 import { createTasks, updateTask, hasActiveRequest } from './campaignTaskStore.ts';
 import { taskCampaignTotal } from './campaignJudgment.ts';
@@ -197,53 +198,57 @@ test('7) 추가 비용 upsert — 처음엔 insert, 다음엔 부분 갱신(대�
   assert.deepEqual(line.subtotal, { JPY: 5000 });
 });
 
-// 12~13) 월 예산(2026-08-27 스펙)은 main에서 왔다 — 원고 기준 픽스처를 작업 기준으로 옮겼다.
-// 집행액은 totalsFor 하나를 쓰므로 캠페인 합계 칸과 예산 표는 언제나 같은 숫자를 말한다.
-test('12) spendByMonth — 시작 달로 묶고 totalsFor와 같은 정의(취소 제외·추가 비용 포함·통화 분리), 비용 0 캠페인도 센다', async () => {
+test('12) spendByPeriods — 시작일이 속한 기간으로 묶고 totalsFor와 같은 정의, 기간 종료일 넘는 캠페인은 spanning', async () => {
   const c = await createClient(sql, P + '예산클라');
+  await createBudgetPeriod(sql, c.id, { startsOn: '2026-08-01', endsOn: '2026-08-31', amountKrw: 1 });
+  await createBudgetPeriod(sql, c.id, { startsOn: '2026-09-01', endsOn: '2026-09-30', amountKrw: 1 });
+  const periods = await listBudgetPeriods(sql, c.id);
+  const aug = periods.find((p) => p.startsOn === '2026-08-01')!;
+  const sep = periods.find((p) => p.startsOn === '2026-09-01')!;
+
   const aug1 = await createCampaign(sql, { ...base(c.id, c.name, 'm1'), startsOn: '2026-08-03', endsOn: '2026-08-09' });
-  const aug2 = await createCampaign(sql, { ...base(c.id, c.name, 'm2'), startsOn: '2026-08-31', endsOn: '2026-09-06' }); // 월을 걸쳐도 8월
+  const aug2 = await createCampaign(sql, { ...base(c.id, c.name, 'm2'), startsOn: '2026-08-31', endsOn: '2026-09-06' }); // 8월 기간을 넘어 9월까지
   await createCampaign(sql, { ...base(c.id, c.name, 'm3'), startsOn: '2026-09-01', endsOn: '2026-09-07' });
   await createTasks(sql, aug1.id, { ...tin, type: 'post', items: [{ handle: 'hana', cost: { amount: 300_000, currency: 'KRW' } }] });
   const [skip] = await createTasks(sql, aug1.id, { ...tin, type: 'post', items: [{ handle: 'hana', cost: { amount: 777_777, currency: 'KRW' } }] });
-  await updateDraft(sql, await mkDraft(c.id, c.name, skip.id), { status: 'unused' });   // 미사용 원고가 붙어도 이제 포함(취소만 제외, R17)
+  await updateDraft(sql, await mkDraft(c.id, c.name, skip.id), { status: 'unused' });
   const [cancTask] = await createTasks(sql, aug1.id, { ...tin, type: 'post', items: [{ handle: 'hana', cost: { amount: 999_999, currency: 'KRW' } }] });
-  await sql`update campaign_task set cancelled_at = '2026-08-30', cancel_reason = 'declined' where id = ${cancTask.id}`;   // 취소는 제외
+  await sql`update campaign_task set cancelled_at = '2026-08-30', cancel_reason = 'declined' where id = ${cancTask.id}`;
   await createTasks(sql, aug2.id, { ...tin, type: 'post', items: [{ handle: 'mika', cost: { amount: 95_000, currency: 'JPY' } }] });
   await upsertInfluencerCost(sql, aug1.id, 'hana', { extraCosts: [{ label: '교통비', amount: 20_000, currency: 'KRW' }] });
 
-  const all = await spendByMonth(sql, c.id);
-  // hana·mika는 명부에 없는 인플(payment_methods 없음) — 수수료를 구하지 못하니 feeKrw 0, feeUnknown은 비용 있는 비취소 작업 수(3, 미사용 포함·취소 제외)
-  assert.deepEqual(all.get('2026-08'), { total: { KRW: 1_097_777, JPY: 95_000 }, campaignCount: 2, feeKrw: 0, feeUnknown: 3 });
-  assert.deepEqual(all.get('2026-09'), { total: {}, campaignCount: 1, feeKrw: 0, feeUnknown: 0 });   // 비용 없는 캠페인도 개수에 든다
-  assert.equal(all.has('2026-07'), false);
-
-  const only = await spendByMonth(sql, c.id, ['2026-09']);
-  assert.deepEqual([...only.keys()], ['2026-09']);
-  assert.equal(only.get('2026-09')!.campaignCount, 1);
+  const all = await spendByPeriods(sql, c.id, periods);
+  const augSpend = all.get(aug.id)!;
+  assert.deepEqual(augSpend.total, { KRW: 1_097_777, JPY: 95_000 });
+  assert.equal(augSpend.campaignCount, 2);              // aug1 + aug2(시작일이 8/31이라 8월 기간에 귀속)
+  assert.deepEqual(augSpend.spanning, [{ id: aug2.id, endsOn: '2026-09-06' }]);   // aug2는 9월까지 이어짐
+  const sepSpend = all.get(sep.id)!;
+  assert.deepEqual(sepSpend.total, {});
+  assert.equal(sepSpend.campaignCount, 1);              // m3만(aug2는 8월 기간 몫)
+  assert.deepEqual(sepSpend.spanning, []);
 
   // 다른 클라이언트의 캠페인은 섞이지 않는다
   const other = await createClient(sql, P + '남의클라');
   await createCampaign(sql, { ...base(other.id, other.name, 'm4'), startsOn: '2026-08-10', endsOn: '2026-08-16' });
-  assert.equal((await spendByMonth(sql, c.id)).get('2026-08')!.campaignCount, 2);
+  assert.equal((await spendByPeriods(sql, c.id, periods)).get(aug.id)!.campaignCount, 2);
 });
 
-// Task C(스펙 §3-2·§5-5) — 인플 부담·CB 비율·CB 고정·결제 수단 없음 네 경우가 섞인 캠페인의 수수료 합.
-// 추가 비용(extra_costs)에는 수수료를 얹지 않으므로 total에는 넣지만 feeKrw 계산에는 영향이 없다.
-test('12-1) spendByMonth — feeKrw·feeUnknown(인플 부담 0 · CB 비율 5% · CB 고정 ¥165 · 결제 수단 없음)', async () => {
+test('12-1) spendByPeriods — feeKrw·feeUnknown(인플 부담 0 · CB 비율 5% · CB 고정 ¥165 · 결제 수단 없음)', async () => {
   const c = await createClient(sql, P + '수수료클라');
+  await createBudgetPeriod(sql, c.id, { startsOn: '2026-08-01', endsOn: '2026-08-31', amountKrw: 1 });
+  const period = (await listBudgetPeriods(sql, c.id))[0];
   const camp = await createCampaign(sql, { ...base(c.id, c.name, 'fee'), startsOn: '2026-08-12', endsOn: '2026-08-18' });
 
   const bank = (fee?: { mode: 'grossUp'; percent: number } | { mode: 'fixed'; amount: number }) =>
     ({ kind: 'add' as const, input: { type: 'bank' as const, holder: 'K', currency: 'JPY' as const, bank: 'b', account: '1', ...(fee ? { fee } : {}) }, makeDefault: true });
 
-  const { row: selfPay } = await createInfluencer(sql, { handle: P + '_self', createdBy: null });     // 인플 부담 — 수수료 없음
+  const { row: selfPay } = await createInfluencer(sql, { handle: P + '_self', createdBy: null });
   await updatePaymentMethods(sql, selfPay.id, bank(), null);
-  const { row: grossUp } = await createInfluencer(sql, { handle: P + '_gross', createdBy: null });    // CB 비율 5%
+  const { row: grossUp } = await createInfluencer(sql, { handle: P + '_gross', createdBy: null });
   await updatePaymentMethods(sql, grossUp.id, bank({ mode: 'grossUp', percent: 5 }), null);
-  const { row: fixed } = await createInfluencer(sql, { handle: P + '_fixed', createdBy: null });      // CB 고정 ¥165
+  const { row: fixed } = await createInfluencer(sql, { handle: P + '_fixed', createdBy: null });
   await updatePaymentMethods(sql, fixed.id, bank({ mode: 'fixed', amount: 165 }), null);
-  const { row: noMethod } = await createInfluencer(sql, { handle: P + '_none', createdBy: null });    // 결제 수단 없음
+  const { row: noMethod } = await createInfluencer(sql, { handle: P + '_none', createdBy: null });
 
   await createTasks(sql, camp.id, { ...tin, type: 'post', items: [
     { handle: selfPay.handle, cost: { amount: 10_000, currency: 'JPY' } },
@@ -253,31 +258,32 @@ test('12-1) spendByMonth — feeKrw·feeUnknown(인플 부담 0 · CB 비율 5% 
   ] });
   await upsertInfluencerCost(sql, camp.id, selfPay.handle, { extraCosts: [{ label: '교통비', amount: 1_000, currency: 'JPY' }] });
 
-  const spend = (await spendByMonth(sql, c.id, ['2026-08'])).get('2026-08')!;
-  assert.deepEqual(spend.total, { JPY: 41_000 });        // 작업 4 × 10,000 + 추가 비용 1,000
-  // grossUp: round(10000/0.95)-10000 = 526엔 → 5,260원 / fixed: 165엔 → 1,650원. 인플 부담·추가비용·결제수단없음은 0
+  const spend = (await spendByPeriods(sql, c.id, [period])).get(period.id)!;
+  assert.deepEqual(spend.total, { JPY: 41_000 });
   assert.equal(spend.feeKrw, 5_260 + 1_650);
-  assert.equal(spend.feeUnknown, 1);                     // 결제 수단 없는 1건만
+  assert.equal(spend.feeUnknown, 1);
 });
 
-test('13) getCampaignDetail.budget — 예외 달 우선·othersKrw는 같은 달 다른 캠페인 몫·클라 없으면 null', async () => {
+test('13) getCampaignDetail.budget — 기간에 귀속·othersKrw는 같은 기간 다른 캠페인 몫·클라 없으면 null·기간 밖이면 source none', async () => {
   const c = await createClient(sql, P + '예산클라2');
-  await updateClient(sql, c.id, { monthlyBudget: 3_000_000 });
-  await setBudgetOverride(sql, c.id, '2026-08', 2_500_000);
+  await createBudgetPeriod(sql, c.id, { startsOn: '2026-08-01', endsOn: '2026-08-31', amountKrw: 2_500_000 });
   const a = await createCampaign(sql, { ...base(c.id, c.name, 'b1'), startsOn: '2026-08-03', endsOn: '2026-08-09' });
   const b = await createCampaign(sql, { ...base(c.id, c.name, 'b2'), startsOn: '2026-08-17', endsOn: '2026-08-23' });
   await createTasks(sql, a.id, { ...tin, type: 'post', items: [{ handle: 'hana', cost: { amount: 1_200_000, currency: 'KRW' } }] });
   await createTasks(sql, b.id, { ...tin, type: 'post', items: [{ handle: 'mika', cost: { amount: 65_000, currency: 'JPY' } }] });   // 650,000원
 
   const detA = (await getCampaignDetail(sql, a.id, T))!;
-  assert.deepEqual(detA.budget, { month: '2026-08', amount: 2_500_000, source: 'override', othersKrw: 650_000, campaignCount: 2 });
+  assert.equal(detA.budget!.period!.amountKrw, 2_500_000);
+  assert.equal(detA.budget!.source, 'period');
+  assert.equal(detA.budget!.othersKrw, 650_000);
+  assert.equal(detA.budget!.campaignCount, 2);
   const detB = (await getCampaignDetail(sql, b.id, T))!;
   assert.equal(detB.budget!.othersKrw, 1_200_000);
 
-  // 9월 캠페인은 기본값
+  // 9월은 기간이 없으므로 source none
   const s = await createCampaign(sql, { ...base(c.id, c.name, 'b3'), startsOn: '2026-09-07', endsOn: '2026-09-13' });
   const detS = (await getCampaignDetail(sql, s.id, T))!;
-  assert.deepEqual(detS.budget, { month: '2026-09', amount: 3_000_000, source: 'default', othersKrw: 0, campaignCount: 1 });
+  assert.deepEqual(detS.budget, { period: null, source: 'none', othersKrw: 0, campaignCount: 0, badge: null });
 
   // 클라이언트를 지우면(client_id set null) budget은 null
   await deleteClient(sql, c.id);

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import type { TaskSummary, PerfSummary } from '@/lib/campaignJudgment';
 import { moneyParts, formatAmount, type MoneyByCurrency } from '@/lib/campaignCost';
 import { overdueJudgment, publishedSub, costSub, perfSub } from '@/lib/campaignTableView';
-import { toKrw, remainingOf, monthShort, budgetTipText, type CampaignMonthBudget } from '@/lib/clientBudget';
+import { toKrw, remainingOf, periodLabel, badgeText, budgetTipText, type CampaignPeriodBudget } from '@/lib/clientBudget';
 import { InfoTip } from '@/components/InfoTip';
 
 // 요약 칸 — 순서는 조회 → 게시됨 → 밀림 → 비용 합계 → 월 예산 잔액(koo 결정 08-28: 성과 → 진행 → 돈 순으로 읽히고,
@@ -34,14 +34,14 @@ function Card({ alert, value, label, sub, good, tip }: {
 
 export function SummaryCards({ summary, perf, total, budget, clientId }: {
   summary: TaskSummary; perf: PerfSummary; total: MoneyByCurrency;
-  budget: CampaignMonthBudget | null;   // 이 달 클라이언트 예산(서버). 클라 없는 캠페인은 null → 4칸 유지
+  budget: CampaignPeriodBudget | null;   // 이 캠페인이 속한 기간의 클라이언트 예산(서버). 클라 없는 캠페인은 null → 4칸 유지
   clientId: string | null;
 }) {
   const money = moneyParts(total);
   // 잔액 = 예산 − (다른 캠페인 몫 + 이 캠페인 합계 환산). 이 캠페인 몫을 화면의 total에서 더해야
   // 비용 셀을 고친 순간 '비용 합계' 칸과 같은 박자로 움직인다(스펙 §6-2, UX 원칙 4).
   const spentKrw = budget ? budget.othersKrw + toKrw(total).krw : 0;
-  const remaining = budget ? remainingOf(budget.amount, spentKrw) : null;
+  const remaining = budget?.period ? remainingOf(budget.period.amountKrw, spentKrw) : null;
   return (
     <div className={`grid ${budget ? 'grid-cols-5' : 'grid-cols-4'}`}>
       <Card value={perf.views === null ? '—' : perf.views.toLocaleString('ko-KR')} label="조회" sub={perfSub(perf)} />
@@ -55,17 +55,20 @@ export function SummaryCards({ summary, perf, total, budget, clientId }: {
             )}
             label="비용 합계" sub={costSub(total)}
             tip="통화가 다르면 합치지 않고 따로 보여요. 내려진 작업 비용도 포함돼요 — 정산 여부는 정산 화면에서 판단해요" />
-      {budget && (budget.amount === null ? (
-        <Card value="—" label="월 예산"
+      {budget && (budget.period === null ? (
+        <Card value="—" label="예산 기간"
               sub={clientId
                 ? <>미설정 — <Link href={`/clients?client=${clientId}`} className="text-x-blue-text hover:underline">클라이언트 설정에서 입력</Link></>
                 : '미설정'} />
       ) : (
         <Card alert={remaining !== null && remaining < 0}
               value={remaining !== null && remaining < 0 ? `−${formatAmount(-remaining, 'KRW')}` : formatAmount(remaining ?? 0, 'KRW')}
-              label={`${monthShort(budget.month)} 예산 잔액`}
-              sub={`${formatAmount(budget.amount, 'KRW')} 중 ${formatAmount(spentKrw, 'KRW')} 사용 · 캠페인 ${budget.campaignCount}개`}
-              tip={`클라이언트의 ${monthShort(budget.month)}에 시작한 캠페인 비용을 전부 합쳐 예산과 대조해요. ${budgetTipText()}`} />
+              label="예산 기간 잔액"
+              sub={<>
+                {periodLabel(budget.period)} 예산 {formatAmount(budget.period.amountKrw, 'KRW')} 중 {formatAmount(spentKrw, 'KRW')} 사용 · 캠페인 {budget.campaignCount}개
+                {budget.badge && <><br />{badgeText(budget.badge)}</>}
+              </>}
+              tip={`클라이언트의 ${periodLabel(budget.period)} 기간에 시작한 캠페인 비용을 전부 합쳐 예산과 대조해요. ${budgetTipText()}`} />
       ))}
     </div>
   );

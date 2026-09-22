@@ -2,13 +2,13 @@
 import { Fragment, useEffect, useState } from 'react';
 import { fetchExternalLog } from '@/lib/settlementApi';
 import { kstDateTime } from '@/lib/datetime';
-import { describeExternalCall, describeCaller, describeTarget, type ExternalLogRow } from '@/lib/externalLogCopy';
+import { describeExternalCall, describeCaller, describeTarget, describeCorrectionPatch, isPaymentInfoCorrection, type ExternalLogRow } from '@/lib/externalLogCopy';
 
 const TONE_CLASS: Record<'ok' | 'warn' | 'bad', string> = { ok: '', warn: 'text-amber-700', bad: 'text-red-700' };
 const METHOD_TITLE: Record<string, string> = { GET: '가져가기', POST: '보내기' };
 const SEL = 'rounded-lg border border-x-border bg-white px-2.5 py-1.5 text-ui';
 
-type LogFilter = { method?: 'GET' | 'POST'; rejectedOnly?: boolean; request?: string };
+type LogFilter = { method?: 'GET' | 'POST'; rejectedOnly?: boolean; correctionsOnly?: boolean; request?: string };
 
 // 본문은 원문 문자열이다(깨진 JSON도 그대로 저장한다) — 읽히면 줄을 맞추고, 아니면 원문 그대로 보여준다
 function prettyBody(body: string): string {
@@ -45,6 +45,11 @@ export function ExternalLogTab({ focusRequestId }: { focusRequestId: string | nu
           <input type="checkbox" checked={!!f.rejectedOnly} onChange={(e) => setF({ ...f, rejectedOnly: e.target.checked })} />
           거부된 것만
         </label>
+        {/* 지급 정보 변경만 — 정산 쪽이 수취 정보를 고친 회신만 모아 본다(057). 인플루언서를 한 명씩 안 열어도 무엇이 바뀌었는지 한 번에. */}
+        <label className="flex items-center gap-1 text-ui text-x-secondary">
+          <input type="checkbox" checked={!!f.correctionsOnly} onChange={(e) => setF({ ...f, correctionsOnly: e.target.checked })} />
+          지급 정보 변경만
+        </label>
         {f.request && <button type="button" className="text-ui underline" onClick={() => setF({ ...f, request: undefined })}>요청 하나만 보는 중 — 전체 보기</button>}
       </div>
       <h2 className="mt-4 text-[16px] font-semibold">최근 호출 기록 {rows.length}건</h2>
@@ -77,6 +82,10 @@ export function ExternalLogTab({ focusRequestId }: { focusRequestId: string | nu
                 const target = describeTarget(row);
                 const detailId = `log-detail-${row.id}`;
                 const toggle = () => setOpen(isOpen ? null : row.id);
+                // 지급 정보 변경 줄은 대상 인플루언서의 거래 정보로 바로 건너뛴다 — "한 명씩 안 들어가도" 고치러 갈 수 있게(057).
+                const isCorr = isPaymentInfoCorrection(row);
+                const dealHref = isCorr && row.target?.influencerId ? `/influencers?i=${row.target.influencerId}&tab=deal` : null;
+                const patch = isCorr ? describeCorrectionPatch(row.body) : [];
                 return (
                   <Fragment key={row.id}>
                     {/* 행 전체가 클릭 지점 — 시각 칸만 눌러야 펼쳐지는 건 직관적이지 않았다(koo 08-31).
@@ -95,7 +104,11 @@ export function ExternalLogTab({ focusRequestId }: { focusRequestId: string | nu
                       <td className="py-2 pr-3 text-x-secondary" title={METHOD_TITLE[row.method] ?? row.method}>{row.method}</td>
                       <td className={`py-2 pr-3 ${caller.kind === 'partner' ? '' : 'text-x-muted'}`}>{caller.label}</td>
                       <td className={`py-2 pr-3 ${TONE_CLASS[d.tone]}`}>{d.line}</td>
-                      <td className={`py-2 pr-3 text-x-secondary ${target === '찾을 수 없는 요청' ? 'text-amber-700' : ''}`}>{target}</td>
+                      <td className={`py-2 pr-3 text-x-secondary ${target === '찾을 수 없는 요청' ? 'text-amber-700' : ''}`}>
+                        {dealHref
+                          ? <a href={dealHref} onClick={(e) => e.stopPropagation()} className="text-x-blue-text hover:underline" title="이 인플루언서의 거래 정보로 이동">{target}</a>
+                          : target}
+                      </td>
                       <td className="py-2 pr-3 text-x-muted tabular-nums">{row.statusCode}</td>
                     </tr>
                     {isOpen && (
@@ -104,6 +117,9 @@ export function ExternalLogTab({ focusRequestId }: { focusRequestId: string | nu
                         <td colSpan={7} className="p-4">
                           <dl className="grid grid-cols-[176px_1fr] gap-x-4 gap-y-1.5">
                             <Item k="시각" v={`${new Date(row.at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} (UTC ${row.at})`} />
+                            {patch.length > 0 && (
+                              <Item k="정정한 항목" v={<span>{patch.map((p) => `${p.label} → ${p.to}`).join(' · ')}<span className="block text-x-muted">옛 값을 포함한 전체 변경은 인플루언서 거래 정보·활동 기록에서 볼 수 있어요</span></span>} />
+                            )}
                             <Item k="호출" v={`${row.method} ${row.path}`} />
                             <Item k="쿼리" v={row.query ?? '—'} />
                             <Item k="대상 요청 번호" v={row.requestId ?? '—'} className="break-all" />

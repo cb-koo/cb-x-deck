@@ -909,10 +909,19 @@ test('applyPaymentMethodCorrection — 수취 정보만 바뀌고 revision·금�
   const item = toExternalItem(exp!, 'https://x');
   assert.deepEqual(item.payment_method_correction, { correction_id: CID(1), at: after.paymentMethodCorrection!.at, by_name: '정산 담당' });
   assert.equal(item.payment_method.email, `${H('pc1')}.fixed@x.com`);
-  const logs = await sql<Array<{ payload: { byName: string; fields: Array<{ field: string; to: string }> } }>>`select payload from influencer_log where influencer_id = ${row.influencerId} and event_type = 'payment_corrected'`;
+  const logs = await sql<Array<{ payload: { byName: string; fields: Array<{ field: string; to: string }>; rosterApplied: boolean } }>>`select payload from influencer_log where influencer_id = ${row.influencerId} and event_type = 'payment_corrected'`;
   assert.equal(logs.length, 1); assert.equal(logs[0].payload.byName, '정산 담당'); assert.equal(logs[0].payload.fields[0].field, 'email');
-  const hist = await sql<Array<{ base_revision: number; before: { email: string }; after: { email: string }; idempotency_key: string }>>`select base_revision, before, after, idempotency_key from payment_request_payment_correction where request_id = ${row.id}`;
+  const hist = await sql<Array<{ base_revision: number; before: { email: string }; after: { email: string }; idempotency_key: string; roster_applied: boolean; roster_skip_reason: string | null }>>`select base_revision, before, after, idempotency_key, roster_applied, roster_skip_reason from payment_request_payment_correction where request_id = ${row.id}`;
   assert.equal(hist.length, 1); assert.equal(hist[0].base_revision, 0); assert.equal(hist[0].before.email, `${H('pc1')}@x.com`); assert.equal(hist[0].idempotency_key, 'idem-1');
+  // 057: 명부(원본)에도 고친 항목(email)이 반영됐다. 결과가 이력·반환값·명부에 함께 남는다.
+  assert.equal(r.rosterApplied, true); assert.equal(r.rosterSkipReason, null);
+  assert.equal(hist[0].roster_applied, true); assert.equal(hist[0].roster_skip_reason, null);
+  const rosterMethods = (await sql<Array<{ payment_methods: Array<{ isDefault: boolean; email?: string }> }>>`select payment_methods from influencer where id = ${row.influencerId}`)[0].payment_methods;
+  assert.equal(rosterMethods.find((m) => m.isDefault)!.email, `${H('pc1')}.fixed@x.com`, '명부 기본 수단이 정정 값으로 덮였다');
+  // 명부 반영은 payment_corrected 한 줄(rosterApplied=true)로만 남긴다 — 별도 payment_method_changed 줄을 만들지 않는다(정정 1건이 두 줄로 보이지 않게).
+  const autoLogs = await sql`select 1 from influencer_log where influencer_id = ${row.influencerId} and event_type = 'payment_method_changed'`;
+  assert.equal(autoLogs.length, 0, '명부 반영은 정정 줄로 합치고 별도 결제수단 변경 줄을 남기지 않는다');
+  assert.equal(logs[0].payload.rosterApplied, true);
   // 같은 correction_id 재전송 → replayed, 쓰기 없음(updated_at 그대로·이력 1건). 같은 idempotency_key에 다른 correction_id도 replayed(최초 id 반환)
   const again = await applyPaymentMethodCorrection(sql, row.id, corr({ email: 'other@x.com' }));
   assert.ok(again !== 'not-found' && again.kind === 'replayed' && again.correctionId === CID(1)); assert.equal(again.row.updatedAt, after.updatedAt);
@@ -948,14 +957,38 @@ test('applyPaymentMethodCorrection — 판정: 취소 → 지급 완료 → 판 
   assert.equal(await applyPaymentMethodCorrection(sql, 'nope', corr({ email: 'x@x.com' })), 'not-found');
 }));
 
-test('applyPaymentMethodCorrection → reviseRequest — 우리가 다시 반영하면 결제 수단은 명부 값으로 돌아가고 표식은 지워진다', () => revisionOn(async () => {
+test('applyPaymentMethodCorrection → reviseRequest — 명부도 자동 반영됐으므로(057) 다시 반영해도 정정 값이 유지되고 표식만 지워진다', () => revisionOn(async () => {
   const { row, member } = await requestFor('pc3', 'pc3');
   const r = await applyPaymentMethodCorrection(sql, row.id, corr({ email: `${H('pc3')}.fixed@x.com` }, { correctionId: CID(4) }));
-  assert.ok(r !== 'not-found' && r.kind === 'applied');
+  assert.ok(r !== 'not-found' && r.kind === 'applied' && r.rosterApplied === true);
   const rv = await reviseRequest(sql, row.id, { expectedRevision: 0, reason: '재검토', edits: { category: row.category, deadlineOn: row.deadlineOn, referenceUrl: row.referenceUrl }, partnerConfirmed: true }, member);
   const after = rv as PaymentRequestRow;
-  assert.equal(after.revision, 1); assert.equal(after.paymentMethod.email, `${H('pc3')}@x.com`); assert.equal(after.paymentMethodCorrection, null);
+  // 옛 동작(명부는 그대로 → 되돌아감)과 달리, 명부가 이미 정정 값이라 다시 반영해도 정정 값이 유지된다.
+  assert.equal(after.revision, 1); assert.equal(after.paymentMethod.email, `${H('pc3')}.fixed@x.com`); assert.equal(after.paymentMethodCorrection, null);
   // 1판 이력 스냅샷에는 정정된 값과 표식이 그대로 남아 "정정이 있었다"를 나중에도 답할 수 있다
   const hist = await listRevisions(sql, row.id);
   assert.equal(hist[0].snapshot.paymentMethod.email, `${H('pc3')}.fixed@x.com`); assert.ok(hist[0].snapshot.paymentMethodCorrection);
+}));
+
+test('applyPaymentMethodCorrection — 명부 반영(057): 고친 항목만 명부에 병합(안 고친 값 보존), 명부에 수단이 없으면 no_method(요청은 반영)', () => revisionOn(async () => {
+  // (가) 명부가 그 사이 달라져 있어도, 정정이 고친 항목(email)만 반영하고 안 고친 항목(holder)은 명부 값 그대로 둔다(요청 스냅샷으로 되돌리지 않는다)
+  const { row } = await requestFor('pc4', 'pc4');
+  const rosterBefore = (await sql<Array<{ payment_methods: Array<{ id: string; isDefault: boolean }> }>>`select payment_methods from influencer where id = ${row.influencerId}`)[0].payment_methods;
+  const defId = rosterBefore.find((m) => m.isDefault)!.id;
+  await updatePaymentMethods(sql, row.influencerId, { kind: 'update', id: defId, input: { type: 'paypal', holder: '명부에서만 바꾼 이름', currency: 'JPY', email: `${H('pc4')}.divergent@x.com` } }, null);
+  const r = await applyPaymentMethodCorrection(sql, row.id, corr({ email: `${H('pc4')}.fixed@x.com` }, { correctionId: CID(6) }));
+  assert.ok(r !== 'not-found' && r.kind === 'applied' && r.rosterApplied === true && r.rosterSkipReason === null);
+  const def = (await sql<Array<{ payment_methods: Array<{ isDefault: boolean; email?: string; holder: string }> }>>`select payment_methods from influencer where id = ${row.influencerId}`)[0].payment_methods.find((m) => m.isDefault)!;
+  assert.equal(def.email, `${H('pc4')}.fixed@x.com`, '고친 항목(email)은 정정 값으로');
+  assert.equal(def.holder, '명부에서만 바꾼 이름', '안 고친 항목(holder)은 명부 값 그대로 — 요청 스냅샷으로 되돌리지 않는다');
+
+  // (나) 명부에 결제 수단이 하나도 없으면 덮을 곳이 없다 → no_method. 요청 정정 자체는 반영된다.
+  const { row: row2 } = await requestFor('pc5', 'pc5');
+  const only = (await sql<Array<{ payment_methods: Array<{ id: string }> }>>`select payment_methods from influencer where id = ${row2.influencerId}`)[0].payment_methods;
+  await updatePaymentMethods(sql, row2.influencerId, { kind: 'remove', id: only[0].id }, null);
+  const r2 = await applyPaymentMethodCorrection(sql, row2.id, corr({ email: `${H('pc5')}.fixed@x.com` }, { correctionId: CID(5) }));
+  assert.ok(r2 !== 'not-found' && r2.kind === 'applied' && r2.rosterApplied === false && r2.rosterSkipReason === 'no_method');
+  assert.equal(r2.row.paymentMethod.email, `${H('pc5')}.fixed@x.com`, '명부가 비어도 요청 스냅샷은 정정된다');
+  const hist2 = await sql<Array<{ roster_applied: boolean; roster_skip_reason: string | null }>>`select roster_applied, roster_skip_reason from payment_request_payment_correction where request_id = ${row2.id}`;
+  assert.equal(hist2[0].roster_applied, false); assert.equal(hist2[0].roster_skip_reason, 'no_method');
 }));

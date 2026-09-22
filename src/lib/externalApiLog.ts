@@ -88,7 +88,7 @@ export async function recordExternalCall(ev: ExternalLogEvent): Promise<void> {
   }
 }
 
-export interface ExternalLogQuery { limit?: number; method?: 'GET' | 'POST'; rejectedOnly?: boolean; requestId?: string | null }
+export interface ExternalLogQuery { limit?: number; method?: 'GET' | 'POST'; rejectedOnly?: boolean; requestId?: string | null; correctionsOnly?: boolean }
 
 export async function listExternalLog(sql: postgres.Sql, q: ExternalLogQuery = {}): Promise<ExternalLogRow[]> {
   const limit = Math.min(Math.max(q.limit ?? 50, 1), 200);
@@ -98,23 +98,25 @@ export async function listExternalLog(sql: postgres.Sql, q: ExternalLogQuery = {
       id: string; at: Date; method: string; path: string; request_id: string | null; status_code: number;
       outcome: ExternalOutcome; detail: string | null; sent_status: string | null; query: string | null; ip: string | null; user_agent: string | null;
       body: string | null;
-      influencer_handle: string | null; client_name: string | null; amount_gross: number | null; payout_currency: string | null; task_type: TaskType | null;
+      influencer_id: string | null; influencer_handle: string | null; client_name: string | null; amount_gross: number | null; payout_currency: string | null; task_type: TaskType | null;
     }>
   >`
     select l.id, l.at, l.method, l.path, l.request_id, l.status_code, l.outcome, l.detail, l.sent_status, l.query, l.ip, l.user_agent, l.body,
-           p.influencer_handle, p.client_name, p.amount_gross, p.payout_currency, p.task_type
+           p.influencer_id, p.influencer_handle, p.client_name, p.amount_gross, p.payout_currency, p.task_type
       from external_api_log l
       left join payment_request p on p.id = l.request_id
      where ${q.method ? sql`l.method = ${q.method}` : sql`true`}
        and ${q.rejectedOnly ? sql`l.status_code >= 400` : sql`true`}
        and ${requestId ? sql`l.request_id = ${requestId}` : sql`true`}
+       -- 지급 정보 변경만: 정산 정정 회신(…/payment-info)만 남긴다. 폴링 GET 소음 속에서 "무엇이 바뀌었나"를 한 번에 보게(057).
+       and ${q.correctionsOnly ? sql`l.path like '%/payment-info'` : sql`true`}
      order by l.at desc
      limit ${limit}`;
   return rows.map((r) => ({
     id: r.id, at: new Date(r.at).toISOString(), method: r.method, path: r.path, requestId: r.request_id, statusCode: r.status_code,
     outcome: r.outcome, detail: r.detail, sentStatus: r.sent_status, query: r.query, ip: r.ip, userAgent: r.user_agent, body: r.body,
     target: r.influencer_handle != null
-      ? { handle: r.influencer_handle, clientName: r.client_name!, amountGross: r.amount_gross!, payoutCurrency: r.payout_currency!, taskType: r.task_type! }
+      ? { handle: r.influencer_handle, clientName: r.client_name!, amountGross: r.amount_gross!, payoutCurrency: r.payout_currency!, taskType: r.task_type!, influencerId: r.influencer_id }
       : null,
   }));
 }

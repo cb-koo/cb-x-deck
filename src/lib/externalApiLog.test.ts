@@ -130,17 +130,17 @@ test('describeCaller — 그 외(node 등)는 정산 프로덕트로 추정', ()
 // --- describeTarget ---
 
 test('describeTarget — target 있음, JPY', () => {
-  const r = describeTarget({ requestId: 'r1', target: { handle: 'foo', clientName: '클라A', amountGross: 12000, payoutCurrency: 'JPY', taskType: 'post' } });
+  const r = describeTarget({ requestId: 'r1', target: { handle: 'foo', clientName: '클라A', amountGross: 12000, payoutCurrency: 'JPY', taskType: 'post', influencerId: null } });
   assert.equal(r, '@foo · 투고 · 클라A · ¥12,000');
 });
 
 test('describeTarget — target 있음, KRW', () => {
-  const r = describeTarget({ requestId: 'r1', target: { handle: 'bar', clientName: '클라B', amountGross: 340000, payoutCurrency: 'KRW', taskType: 'visit' } });
+  const r = describeTarget({ requestId: 'r1', target: { handle: 'bar', clientName: '클라B', amountGross: 340000, payoutCurrency: 'KRW', taskType: 'visit', influencerId: null } });
   assert.equal(r, '@bar · 방문협찬 · 클라B · ₩340,000');
 });
 
 test('describeTarget — 같은 인플루언서라도 작업 유형이 다르면 문구로 구분된다(RT)', () => {
-  const r = describeTarget({ requestId: 'r1', target: { handle: 'minchannell', clientName: '손유나클리닉', amountGross: 2000, payoutCurrency: 'JPY', taskType: 'rt' } });
+  const r = describeTarget({ requestId: 'r1', target: { handle: 'minchannell', clientName: '손유나클리닉', amountGross: 2000, payoutCurrency: 'JPY', taskType: 'rt', influencerId: null } });
   assert.equal(r, '@minchannell · RT · 손유나클리닉 · ¥2,000');
 });
 
@@ -307,6 +307,14 @@ test('필터 — 상태 전송만 / 거부된 것만 / 요청별', async () => {
   assert.ok(rejected.every((r) => r.statusCode >= 400));
   const byReq = await listExternalLog(sql, { limit: 50, requestId: id });
   assert.ok(byReq.every((r) => r.requestId === id));
+});
+
+test('필터 — 지급 정보 변경만(057): …/payment-info 호출만 남긴다', async () => {
+  await insertExternalLog(sql, { method: 'POST', path: P + '/requests/x/payment-info', statusCode: 200, outcome: 'applied', detail: 'roster-applied' });
+  await insertExternalLog(sql, { method: 'POST', path: P + '/requests/x/status', statusCode: 200, outcome: 'applied', sentStatus: 'paid' });
+  const corr = await listExternalLog(sql, { limit: 50, correctionsOnly: true });
+  assert.ok(corr.length > 0);
+  assert.ok(corr.every((r) => r.path.endsWith('/payment-info')));
 });
 
 test('recordExternalCall — EXTERNAL_API_LOG=off이면 아무것도 쓰지 않는다', async () => {

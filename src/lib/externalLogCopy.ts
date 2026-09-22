@@ -6,7 +6,7 @@ import { TASK_TYPE_LABEL, type TaskType } from './campaignJudgment.ts';
 import { objectParticle } from './koreanParticle.ts';
 export type ExternalOutcome = 'ok' | 'applied' | 'stale' | 'unauthorized' | 'bad-request' | 'not-found' | 'conflict' | 'error';
 
-export interface ExternalLogTarget { handle: string; clientName: string; amountGross: number; payoutCurrency: string; taskType: TaskType }
+export interface ExternalLogTarget { handle: string; clientName: string; amountGross: number; payoutCurrency: string; taskType: TaskType; influencerId: string | null }
 
 export interface ExternalLogRow {
   id: string;
@@ -61,7 +61,63 @@ export function describeCursor(query: string | null): string | null {
   return `${kstMonthDay(iso)} ${kstDateTime(iso).slice(11)} 이후 바뀐 것`;
 }
 
+// 정산 쪽 수취 정보 정정(056·057) — 상태 POST가 아니라서 sentStatus가 없다. outcome 'applied'를 상태 POST 문구
+// (''을 보냈어요)로 찍으면 빈 문구가 되므로, 이 경로는 전용 문구를 쓴다. detail이 명부 반영 결과를 담는다(라우트가 인코딩).
+export function isPaymentInfoCorrection(row: Pick<ExternalLogRow, 'path'>): boolean {
+  return row.path.endsWith('/payment-info');
+}
+function describeCorrection(row: ExternalLogRow): { line: string; tone: 'ok' | 'warn' | 'bad' } {
+  switch (row.outcome) {
+    case 'applied': {
+      if (row.detail === 'replayed') return { line: '수취 정보 정정을 다시 받았어요 — 이미 반영된 내용이라 넘겼어요', tone: 'ok' };
+      if (row.detail?.startsWith('roster-skip')) {
+        const why = row.detail === 'roster-skip:ambiguous' ? '같은 종류의 결제 수단이 여러 개라 어느 것인지 가릴 수 없었어요'
+          : row.detail === 'roster-skip:invalid' ? '정정 내용이 명부의 결제 수단과 맞지 않았어요'
+          : '명부에 등록된 결제 수단이 없어요';   // no_method(옛 detail 'roster-skip'도 포함)
+        return { line: `수취 정보를 정정했어요 — 명부는 확인이 필요해요(${why})`, tone: 'warn' };
+      }
+      return { line: '수취 정보를 정정했어요 — 명부에도 반영했어요', tone: 'ok' };
+    }
+    case 'bad-request':
+      if (row.detail) return { line: `정정 내용의 '${row.detail}' 값이 맞지 않아 반영하지 못했어요`, tone: 'warn' };
+      return { line: '정정 내용의 형식이 맞지 않아 반영하지 못했어요', tone: 'warn' };
+    case 'not-found':
+      return { line: '정정 대상 요청을 찾지 못해 반영하지 못했어요 — 연습용(스테이징) 요청 번호를 보냈을 수 있어요', tone: 'warn' };
+    case 'conflict':
+      if (row.detail === 'paid-locked') return { line: '이미 지급 완료된 요청이라 정정을 반영하지 못했어요 — 지급 뒤 정정은 사람이 협의해요', tone: 'warn' };
+      if (row.detail === 'request-cancelled') return { line: '우리 쪽에서 취소한 요청이라 정정을 반영하지 못했어요', tone: 'warn' };
+      if (row.detail === 'revision-mismatch') return { line: '그 사이 고쳐진 요청이라 정정을 반영하지 못했어요 — 그쪽이 최신 내용으로 다시 보내요', tone: 'warn' };
+      return { line: '처리 중 충돌이 있어 정정을 반영하지 못했어요', tone: 'warn' };
+    case 'unauthorized':
+      return { line: 'API 키가 맞지 않아 거부했어요 — 정산 프로덕트에 운영 키를 다시 확인해 달라고 알려 주세요', tone: 'bad' };
+    default:
+      return { line: '정정을 처리하는 중 오류가 나 반영하지 못했어요', tone: 'bad' };
+  }
+}
+
+// 정정 본문(그쪽이 보낸 patch)에서 바뀐 항목을 사람 말로 — 펼침 상세에 "정정한 항목: 수취인명 → ASAMI HANYU"로 보인다.
+// 본문은 그쪽이 이 호출에서 보낸 값이라 정확하다(요청별). 옛값(from)은 본문에 없어 새 값(to)만 보인다 — 옛→새 전체는 명부 타임라인에서 본다.
+const CORRECTION_KEY_LABEL: Record<string, string> = {
+  holder: '수취인명', paypal_id: 'PayPal 이메일/아이디', email: '이메일', identifier: '수취 식별 정보', bank: '은행', branch: '지점', account: '계좌번호',
+};
+export function describeCorrectionPatch(body: string | null): Array<{ label: string; to: string }> {
+  if (!body) return [];
+  let parsed: unknown;
+  try { parsed = JSON.parse(body); } catch { return []; }
+  if (typeof parsed !== 'object' || parsed === null) return [];
+  const pm = (parsed as Record<string, unknown>).payment_method;
+  if (typeof pm !== 'object' || pm === null) return [];
+  const out: Array<{ label: string; to: string }> = [];
+  for (const [k, v] of Object.entries(pm as Record<string, unknown>)) {
+    const label = CORRECTION_KEY_LABEL[k];
+    if (!label) continue;
+    out.push({ label, to: v === null || v === '' ? '(지움)' : String(v) });
+  }
+  return out;
+}
+
 export function describeExternalCall(row: ExternalLogRow): { line: string; tone: 'ok' | 'warn' | 'bad' } {
+  if (isPaymentInfoCorrection(row)) return describeCorrection(row);
   switch (row.outcome) {
     case 'applied': {
       const label = statusLabel(row.sentStatus);

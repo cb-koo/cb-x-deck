@@ -317,3 +317,5 @@ test('settlementBadge: 명부 목록 배지 5케이스', () => {
     { label: '¥ 엔화 · CB 165엔', muted: false },
   );
 });
+
+// planRosterOverwrite(057) 테스트는 settlementPaymentCorrection.test.ts로 옮겼다 — 병합에 mergePaymentMethodCorrection·toMethodSnapshot이 필요해서다.

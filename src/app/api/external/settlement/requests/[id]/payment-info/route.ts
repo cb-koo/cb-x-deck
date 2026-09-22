@@ -59,6 +59,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     recordExternalCallSafe({ ...c, requestId: id, statusCode: 409, outcome: 'conflict', detail: r.code, body: raw });
     return NextResponse.json({ error: CONFLICT_MESSAGE[r.code], code: r.code, request: item }, { status: 409, headers: NO_STORE });
   }
-  recordExternalCallSafe({ ...c, requestId: id, statusCode: 200, outcome: 'applied', detail: r.kind === 'replayed' ? 'replayed' : null, body: raw });
+  // 호출 기록 문구(externalLogCopy)가 detail로 명부 반영 여부를 가른다: replayed(재전송) / roster-applied(명부도 반영) / roster-skip:no_method(명부에 수단 없음).
+  const detail = r.kind === 'replayed'
+    ? 'replayed'
+    : r.rosterApplied ? 'roster-applied' : `roster-skip:${r.rosterSkipReason ?? 'no_method'}`;
+  recordExternalCallSafe({ ...c, requestId: id, statusCode: 200, outcome: 'applied', detail, body: raw });
   return NextResponse.json({ applied: true, correction_id: r.correctionId, request: item }, { headers: NO_STORE });
 }

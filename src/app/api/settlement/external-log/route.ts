@@ -12,6 +12,7 @@ export async function GET(req: Request) {
     limit: 50,
     method: method === 'GET' || method === 'POST' ? method : undefined,
     rejectedOnly: q.get('rejectedOnly') === '1',
+    correctionsOnly: q.get('correctionsOnly') === '1',
     requestId: q.get('request'),
   }) });
 }

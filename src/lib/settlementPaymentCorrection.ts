@@ -3,8 +3,8 @@
 //
 // 두 단계로 나눈다 — ① 본문 모양 검사(parsePaymentInfoCorrection: 요청을 찾기 전에 끝난다, 상태 POST와 같은 관례)
 // ② 현재 스냅샷과 합쳐 수단 종류에 맞는지 검사(mergePaymentMethodCorrection: 행을 읽어야 하므로 스토어가 트랜잭션 안에서 부른다).
-import type { PaymentMethodSnapshot } from './settlementCalc.ts';
-import { PAYMENT_TYPE_LABEL, parsePaymentMethodInput, type PaymentMethodType } from './influencerPayment.ts';
+import { toMethodSnapshot, type PaymentMethodSnapshot } from './settlementCalc.ts';
+import { PAYMENT_TYPE_LABEL, parsePaymentMethodInput, getDefaultPaymentMethod, type PaymentMethodType, type PaymentMethod, type PaymentMethodInput, type PaymentOp } from './influencerPayment.ts';
 import { isUuidLike } from './uuid.ts';
 import { parseOperatorField, parseIsoField, type StatusOperator } from './settlementExternal.ts';
 
@@ -112,4 +112,46 @@ export function mergePaymentMethodCorrection(before: PaymentMethodSnapshot, patc
     if (a !== b) fields.push({ field: k, from: a, to: b });
   }
   return { ok: true, after, fields };
+}
+
+// ── 명부(원본) 반영 계획(057) — 정정이 "고친 항목만" 인플루언서 명부 수단에 병합한다. ──
+// 사용자 결정(2026-09-22): patch가 가리킨 키만 명부 수단에 반영하고, 수수료(fee)·메모(memo)·기본 여부(isDefault)·id·정정과 무관한 항목은 그대로 둔다.
+//   (요청 스냅샷 전체로 덮으면 명부에서만 바뀐 값이나 통화까지 되돌아가므로, after가 아니라 patch를 명부 현재 값에 얹는다.)
+// 대상 고르기: 같은 종류 수단이 하나면 그것 / 여럿이면 요청 스냅샷(before)의 식별값과 일치하는 하나(유일할 때만) / 같은 종류가 없으면 명부 기본 수단.
+// 건너뜀 사유: no_method(명부에 수단 없음) · ambiguous(같은 종류 여럿인데 일치가 유일하지 않음 — 엉뚱한 수단을 고치지 않게) · invalid(patch 병합 결과가 검사 실패, 예: 종류 불일치).
+export type RosterSkipReason = 'no_method' | 'ambiguous' | 'invalid';
+export type RosterOverwritePlan =
+  | { op: Extract<PaymentOp, { kind: 'update' }>; targetId: string }
+  | { skip: RosterSkipReason };
+
+// 같은 종류가 여럿일 때 어느 수단을 정정했는지 가릴 식별값 — 요청 스냅샷(before)과 명부 수단을 같은 규칙으로 뽑아 맞춘다.
+function methodIdentity(m: Pick<PaymentMethodSnapshot, 'type' | 'holder' | 'email' | 'paypalId' | 'identifier' | 'account'>): string | null {
+  if (m.type === 'paypal') return m.email ?? m.paypalId ?? null;
+  if (m.type === 'bank') return m.account ?? null;
+  return m.identifier ?? m.holder ?? null;   // paypay
+}
+
+export function planRosterOverwrite(
+  list: PaymentMethod[], before: PaymentMethodSnapshot, patch: PaymentInfoCorrection['patch'],
+): RosterOverwritePlan {
+  if (list.length === 0) return { skip: 'no_method' };
+  const sameType = list.filter((m) => m.type === before.type);
+  let target: PaymentMethod;
+  if (sameType.length === 0) {
+    target = getDefaultPaymentMethod(list) ?? list[0];   // 같은 종류가 없어도 반영 시도 — 기본 수단에(병합이 안 맞으면 아래에서 invalid)
+  } else if (sameType.length === 1) {
+    target = sameType[0];
+  } else {
+    const wanted = methodIdentity(before);
+    const matches = sameType.filter((m) => methodIdentity(m) === wanted);
+    if (matches.length !== 1) return { skip: 'ambiguous' };   // 유일하게 못 가리면 건너뛴다(엉뚱한 수단 오손 방지)
+    target = matches[0];
+  }
+  // 정정이 고친 항목만 병합 — 명부 수단의 "현재 값"에 patch를 얹는다(안 고친 항목·fee·memo·기본 여부는 그대로).
+  const merged = mergePaymentMethodCorrection(toMethodSnapshot(target), patch);
+  if (!merged.ok) return { skip: 'invalid' };
+  const input: PaymentMethodInput = { ...merged.after };
+  if (target.fee) input.fee = target.fee;
+  if (target.memo) input.memo = target.memo;
+  return { op: { kind: 'update', id: target.id, input }, targetId: target.id };
 }

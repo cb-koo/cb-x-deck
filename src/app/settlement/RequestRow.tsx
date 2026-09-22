@@ -60,12 +60,12 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
                     ].filter(Boolean).join(' · ')} />
             )}
             <Item k="데드라인" v={r.deadlineOn} />
-            {/* 정산 쪽이 이번 건의 수취 정보를 고친 경우(056) — 명부의 결제 수단은 그대로라, 다음 요청에 같은 오타가 다시 나가지 않게 명부 확인을 권한다.
-                [고친 값으로 다시 반영]은 명부 값으로 되돌리므로 그 전에 명부를 고쳐야 한다(ReviseDialog에도 같은 안내). */}
+            {/* 정산 쪽이 이번 건의 수취 정보를 고친 경우(056·057) — 이제 이 요청과 인플루언서 명부에 함께 반영된다(고친 항목만 병합).
+                더는 명부를 따로 확인할 필요가 없다. [고친 값으로 다시 반영]도 명부가 이미 같은 값이라 되돌아가지 않는다. */}
             <Item k="결제수단" v={describeSnapshot(r.paymentMethod)}
                   sub={r.paymentMethodCorrection
-                    ? <span className="text-amber-700">정산 쪽이 수취 정보를 고쳤어요 · {r.paymentMethodCorrection.byName} · {new Date(r.paymentMethodCorrection.at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{r.paymentMethodCorrection.reason ? <> — {r.paymentMethodCorrection.reason}</> : null}
-                        <span className="block text-x-muted">이 요청에만 반영됐어요 — 인플루언서 명부의 결제 수단도 같은지 확인해 주세요</span></span>
+                    ? <span className="text-x-secondary">정산 쪽이 수취 정보를 고쳤어요 · {r.paymentMethodCorrection.byName} · {new Date(r.paymentMethodCorrection.at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{r.paymentMethodCorrection.reason ? <> — {r.paymentMethodCorrection.reason}</> : null}
+                        <span className="block text-x-muted">이 요청과 인플루언서 명부에 함께 반영됐어요</span></span>
                     : undefined} />
             {/* 증빙 2026-09-01-proof-to-partner-design.md §6: 투고·인용RT·방문은 이 링크(인플루언서 본인 게시물)가
                 정산 쪽 확인 자료다 — RT는 아니다(원본 트윗이라 증거가 안 된다, 아래 증빙 줄 참고). */}

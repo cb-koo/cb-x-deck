@@ -8,10 +8,10 @@ import type { PaymentFee } from './influencerPayment.ts';
 import type { TaskType, CampaignKind } from './campaignJudgment.ts';
 import { isDateOnlyString } from './campaignJudgment.ts';   // 'YYYY-MM-DD' + 실제 달력일 검증(캠페인 라우트 가드)
 import { getDefaultPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
-import { insertAutoLog, type PaymentLogPayload } from './influencerStore.ts';
+import { insertAutoLog, overwriteRosterFromCorrectionInTx, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
 import { computeCandidate, effectiveIssues, toMethodSnapshot, NO_CLIENT_TEXT, NO_INFLUENCER_TEXT, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
-import { mergePaymentMethodCorrection, type PaymentInfoCorrection } from './settlementPaymentCorrection.ts';
+import { mergePaymentMethodCorrection, type PaymentInfoCorrection, type RosterSkipReason } from './settlementPaymentCorrection.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
 import { hasPaidDiff, needsPartnerConfirm } from './settlementDisplay.ts';
 import { isRevisionV2 } from './settlementRevisionFlag.ts';
@@ -636,7 +636,8 @@ export async function listRevisions(sql: postgres.Sql, id: string): Promise<Revi
 // revision을 올리지 않는 이유: 올리면 그쪽 outbox에 이미 쌓인 상태 POST(옛 revision)가 전부 409가 되고, 그쪽은 "revision이 커졌다 = 우리가 고쳐서
 // 정산이 리셋됐다"로 읽는다(계약 §3-1 규칙 3). 정정은 리셋을 동반하지 않으므로 다른 표식(payment_method_correction)으로 구분한다.
 export type CorrectionResult =
-  | { kind: 'applied' | 'replayed'; correctionId: string; row: PaymentRequestRow }
+  | { kind: 'applied'; correctionId: string; row: PaymentRequestRow; rosterApplied: boolean; rosterSkipReason: RosterSkipReason | null }
+  | { kind: 'replayed'; correctionId: string; row: PaymentRequestRow }
   | { kind: 'conflict'; code: 'request-cancelled' | 'paid-locked' | 'revision-mismatch'; row: PaymentRequestRow }
   | { kind: 'invalid'; field: string; error: string }
   | 'not-found';
@@ -669,10 +670,13 @@ export async function applyPaymentMethodCorrection(sql: postgres.Sql, id: string
     if (!merged.ok) return { kind: 'invalid', field: merged.field, error: merged.error };
     const at = new Date().toISOString();
     const mark = { correction_id: c.correctionId, at, by_id: c.operator.id, by_name: c.operator.name, reason: c.reason };
+    // 명부(원본)에도 반영(057) — 정정이 "고친 항목만" 인플루언서 명부 수단에 병합한다(before로 어느 수단인지 가리고 patch만 얹는다, fee·기본 여부·안 고친 항목 보존).
+    // 요청 스냅샷과 같은 트랜잭션이라 "요청은 고쳤는데 명부는 안 고쳐진" 중간 상태가 없다. 결과(반영/사유)는 정정 이력·호출 기록 문구에 실린다.
+    const roster = await overwriteRosterFromCorrectionInTx(tx, cx.influencer_id, before, c.patch);
     await tx`
-      insert into payment_request_payment_correction (id, request_id, idempotency_key, base_revision, patch, before, after, reason, operator_id, operator_name)
+      insert into payment_request_payment_correction (id, request_id, idempotency_key, base_revision, patch, before, after, reason, operator_id, operator_name, roster_applied, roster_skip_reason)
       values (${c.correctionId}, ${id}, ${c.idempotencyKey}, ${c.baseRevision}, ${tx.json(asJson(c.patch))}, ${tx.json(asJson(before))}, ${tx.json(asJson(merged.after))},
-              ${c.reason}, ${c.operator.id}, ${c.operator.name})`;
+              ${c.reason}, ${c.operator.id}, ${c.operator.name}, ${roster.applied}, ${roster.skipReason})`;
     // updated_at만 갱신 — 다음 폴링에 이 건이 다시 내려가고, 그쪽은 Item의 payment_method_correction.correction_id로 자기 정정의 회신임을 안다(§3-5).
     await tx`
       update payment_request
@@ -680,10 +684,10 @@ export async function applyPaymentMethodCorrection(sql: postgres.Sql, id: string
        where id = ${id}`;
     const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;
     const row = toRequest(saved);
-    // 명부 타임라인에 남긴다 — 명부의 결제 수단은 그대로이므로("이번 지급 건"만 정정) 담당자가 명부도 고칠지 판단할 근거가 여기 있다.
+    // 명부 타임라인에 남긴다 — 명부에도 자동 반영했음을 함께 적는다(rosterApplied). 반영 못 했으면(명부에 수단 없음) 담당자가 명부를 채우도록 유도한다.
     const payload: PaymentLogPayload = { requestId: row.id, amountGross: row.amountGross, currency: row.payoutCurrency, taskType: row.taskType, reason: c.reason,
-      byName: c.operator.name, fields: merged.fields };
+      byName: c.operator.name, fields: merged.fields, rosterApplied: roster.applied };
     await insertAutoLog(tx, { influencerId: row.influencerId, eventType: 'payment_corrected', draftId: null, draftTitle: null, payload, authorId: null });
-    return { kind: 'applied', correctionId: c.correctionId, row };
+    return { kind: 'applied', correctionId: c.correctionId, row, rosterApplied: roster.applied, rosterSkipReason: roster.skipReason };
   });
 }

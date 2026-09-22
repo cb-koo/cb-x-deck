@@ -76,12 +76,16 @@ function autoText(l: InfluencerLogRow): ReactNode {
       return <>정산 요청 수정 · {p.before ? <>{formatMoney(p.before.amountGross, p.before.currency)} → </> : null}{formatMoney(p.amountGross, p.currency)}{p.reason ? <> — {p.reason}</> : null}</>;
     }
     case 'payment_corrected': {
-      // 정산 쪽이 이번 지급 건의 수취 정보를 고쳤다(056). 명부의 결제 수단은 그대로다 — 담당자가 명부도 고칠지 여기서 판단한다.
+      // 정산 쪽이 이번 지급 건의 수취 정보를 고쳤다(056). 이제 명부(원본)에도 자동으로 같이 반영한다(057, 고친 항목만 병합).
+      // rosterApplied가 없는 옛 기록은 명부를 안 고치던 시절이라 "(명부는 그대로예요)"로 둔다(뒤늦게 거짓말이 되지 않게).
       const p = l.payload as PaymentLogPayload | null;
       if (!p) return <>정산 쪽이 수취 정보 정정</>;
       const f = p.fields?.[0];
       const extra = p.fields && p.fields.length > 1 ? ` 외 ${p.fields.length - 1}건` : '';
-      return <>정산 쪽이 수취 정보 정정{p.byName ? <> · {p.byName}</> : null}{f ? <>: {PAYMENT_FIELD_LABEL[f.field] ?? f.field} {f.from ?? '없음'} → {f.to ?? '없음'}{extra}</> : null}{p.reason ? <> — {p.reason}</> : null} <span className="text-x-muted">(명부는 그대로예요)</span></>;
+      const rosterNote = p.rosterApplied === undefined
+        ? '(명부는 그대로예요)'
+        : p.rosterApplied ? '(명부에도 반영했어요)' : '(명부는 확인이 필요해요)';
+      return <>정산 쪽이 수취 정보 정정{p.byName ? <> · {p.byName}</> : null}{f ? <>: {PAYMENT_FIELD_LABEL[f.field] ?? f.field} {f.from ?? '없음'} → {f.to ?? '없음'}{extra}</> : null}{p.reason ? <> — {p.reason}</> : null} <span className="text-x-muted">{rosterNote}</span></>;
     }
     case 'payment_paid': {
       const p = l.payload as PaymentLogPayload | null;

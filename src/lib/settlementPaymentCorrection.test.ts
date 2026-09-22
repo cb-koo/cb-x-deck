@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePaymentInfoCorrection, mergePaymentMethodCorrection } from './settlementPaymentCorrection.ts';
+import { parsePaymentInfoCorrection, mergePaymentMethodCorrection, planRosterOverwrite } from './settlementPaymentCorrection.ts';
 import type { PaymentMethodSnapshot } from './settlementCalc.ts';
+import type { PaymentMethod } from './influencerPayment.ts';
 
 const CID = '22222222-3333-4444-8555-666666666666';
 const op = { id: '8f2c9e10-1b2a-4c3d-9e4f-000000000001', name: '정산 담당' };
@@ -65,4 +66,52 @@ test('mergePaymentMethodCorrection — 수단 종류에 없는 키는 조용히 
   assert.ok(!badEmail.ok && badEmail.field === 'payment_method');
   const longHolder = mergePaymentMethodCorrection(bank, { holder: 'x'.repeat(81) });
   assert.ok(!longHolder.ok);
+});
+
+// ---- planRosterOverwrite (057: 정산 정정을 명부에 "고친 항목만" 반영) ----
+const pmPaypal = (over: Partial<PaymentMethod> = {}): PaymentMethod => ({
+  id: 'm1', type: 'paypal', isDefault: true, holder: 'KEIKO', currency: 'JPY', email: 'old@x.com', updatedAt: '2026-01-01T00:00:00Z', ...over,
+});
+const pmBank = (over: Partial<PaymentMethod> = {}): PaymentMethod => ({
+  id: 'b1', type: 'bank', isDefault: true, holder: '山田', currency: 'JPY', bank: 'みずほ', account: '1234567', updatedAt: '2026-01-01T00:00:00Z', ...over,
+});
+const beforePaypal: PaymentMethodSnapshot = { type: 'paypal', holder: 'KEIKO', currency: 'JPY', email: 'old@x.com' };
+
+test('planRosterOverwrite: 명부에 수단이 없으면 no_method', () => {
+  assert.deepEqual(planRosterOverwrite([], beforePaypal, { email: 'new@x.com' }), { skip: 'no_method' });
+});
+
+test('planRosterOverwrite: 고친 항목만 병합하고 fee·memo·id는 보존한다', () => {
+  const plan = planRosterOverwrite([pmPaypal({ fee: { mode: 'fixed', amount: 165 }, memo: '유지' })], beforePaypal, { email: 'new@x.com' });
+  assert.ok('op' in plan);
+  assert.equal(plan.op.id, 'm1'); assert.equal(plan.op.input.email, 'new@x.com');
+  assert.equal(plan.op.input.holder, 'KEIKO');                            // 안 고친 항목 그대로
+  assert.deepEqual(plan.op.input.fee, { mode: 'fixed', amount: 165 }); assert.equal(plan.op.input.memo, '유지');
+});
+
+test('planRosterOverwrite: 명부가 요청 스냅샷과 달라도 patch 키만 바꾸고 명부의 다른 값은 되돌리지 않는다', () => {
+  const list = [pmPaypal({ holder: 'ROSTER 이름', email: 'roster@x.com' })];   // 명부가 그 사이 달라짐
+  const before: PaymentMethodSnapshot = { type: 'paypal', holder: 'REQ 이름', currency: 'JPY', email: 'req@x.com' };
+  const plan = planRosterOverwrite(list, before, { email: 'fixed@x.com' });     // email만 정정
+  assert.ok('op' in plan);
+  assert.equal(plan.op.input.email, 'fixed@x.com');    // 고친 항목은 반영
+  assert.equal(plan.op.input.holder, 'ROSTER 이름');    // 명부의 현재 값 보존(요청 스냅샷 값으로 되돌리지 않는다)
+});
+
+test('planRosterOverwrite: 같은 종류가 여럿이면 요청 스냅샷(before)의 식별값과 일치하는 하나를 고른다', () => {
+  const list = [pmPaypal({ id: 'a', email: 'a@x.com' }), pmPaypal({ id: 'b', isDefault: false, email: 'b@x.com' })];
+  const before: PaymentMethodSnapshot = { type: 'paypal', holder: 'KEIKO', currency: 'JPY', email: 'b@x.com' };
+  const plan = planRosterOverwrite(list, before, { holder: 'NEW' });
+  assert.ok('op' in plan); assert.equal(plan.op.id, 'b', '식별값(email)이 일치하는 b를 고른다');
+});
+
+test('planRosterOverwrite: 같은 종류가 여럿인데 일치가 유일하지 않으면 ambiguous', () => {
+  const list = [pmPaypal({ id: 'a', email: 'a@x.com' }), pmPaypal({ id: 'b', isDefault: false, email: 'b@x.com' })];
+  const before: PaymentMethodSnapshot = { type: 'paypal', holder: 'KEIKO', currency: 'JPY', email: 'none@x.com' };
+  assert.deepEqual(planRosterOverwrite(list, before, { holder: 'NEW' }), { skip: 'ambiguous' });
+});
+
+test('planRosterOverwrite: patch가 명부 수단과 안 맞으면 invalid(같은 종류가 없어 기본 수단에 얹었으나 검사 실패)', () => {
+  const plan = planRosterOverwrite([pmBank()], beforePaypal, { email: 'new@x.com' });   // 계좌 수단만 있는데 paypal 정정
+  assert.deepEqual(plan, { skip: 'invalid' });
 });

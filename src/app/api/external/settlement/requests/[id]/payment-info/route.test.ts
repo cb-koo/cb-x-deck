@@ -93,6 +93,9 @@ test('POST payment-info — 200은 { applied: true, correction_id, request } 세
   assert.equal(j.applied, true); assert.equal(j.correction_id, CID);
   assert.equal(j.request.payment_method.account, '7654321'); assert.equal(j.request.payment_method.branch, '渋谷');
   assert.equal(j.request.revision, 0); assert.equal(j.request.payment_method_correction.correction_id, CID); assert.equal(j.request.payment_method_correction.by_name, '정산 담당');
+  // 057: 명부(원본) 기본 수단도 정산이 보낸 계좌번호로 함께 덮인다(무조건 반영).
+  const roster = (await sql<Array<{ payment_methods: Array<{ isDefault: boolean; account?: string }> }>>`select payment_methods from influencer where handle = ${H('b')}`)[0].payment_methods;
+  assert.equal(roster.find((m) => m.isDefault)!.account, '7654321', '명부 기본 수단 계좌번호가 정정 값으로 반영된다');
   const again = await call(req.id, body());
   assert.equal(again.status, 200); assert.deepEqual(Object.keys(await again.json()).sort(), ['applied', 'correction_id', 'request']);
   // 판 불일치 → 409 revision-mismatch + 최신 request

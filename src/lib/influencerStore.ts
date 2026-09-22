@@ -6,6 +6,8 @@ import type { UserInfo } from './getxapi.ts';
 import { draftVersionHash } from './draftStore.ts';
 import { diffPricing, mergePricing, type Currency, type Pricing, type PricingChange } from './influencerPricing.ts';
 import { applyPaymentOp, type PaymentFee, type PaymentMethod, type PaymentMethodChange, type PaymentOp } from './influencerPayment.ts';
+import { planRosterOverwrite, type RosterSkipReason, type PaymentInfoCorrection } from './settlementPaymentCorrection.ts';
+import type { PaymentMethodSnapshot } from './settlementCalc.ts';
 import type { Activity, ContentType, TopicStat } from './analysisStats.ts';
 import { listInfluencerCampaigns, type InfluencerCampaignItem } from './campaignStore.ts';
 import type { TaskType } from './campaignJudgment.ts';
@@ -22,7 +24,8 @@ export type InfluencerAutoEvent =
 // 정산 요청/취소/지급 한 줄 — 타임라인은 금액·통화·유형만 보인다(요청 상세는 정산 페이지)
 export interface PaymentLogPayload { requestId: string; amountGross: number; currency: Currency; taskType: TaskType; reason?: string; paidAmountKrw?: number;
   revision?: number; before?: { amountGross: number; currency: Currency };   // payment_revised: 고친 뒤 판·고치기 전 송금액(048)
-  byName?: string; fields?: Array<{ field: string; from: string | null; to: string | null }> }   // payment_corrected: 정산 쪽 담당자·바뀐 항목(056). field는 PAYMENT_FIELD_LABEL 키
+  byName?: string; fields?: Array<{ field: string; from: string | null; to: string | null }>;   // payment_corrected: 정산 쪽 담당자·바뀐 항목(056). field는 PAYMENT_FIELD_LABEL 키
+  rosterApplied?: boolean }   // payment_corrected: 명부(원본)에도 자동 반영했는지(057). false = 명부에 수단이 없어 못 덮음 → 타임라인이 "명부 확인 필요"로 가른다
 // 작업 거절·무응답 한 줄 — 타임라인은 "작업 거절 · 캠페인명 · 유형"만 보인다. 되돌리기 정정 이벤트는 없다(한계, ADR 0005).
 export interface TaskDeclinedPayload {
   taskId: string; campaignId: string; campaignName: string; taskType: TaskType;
@@ -453,6 +456,25 @@ export async function updatePaymentMethods(
       : [];
     return { paymentMethods: list, logs };
   });
+}
+
+// 정산 정정을 명부에 반영(057) — applyPaymentMethodCorrection이 자기 트랜잭션 안에서 부른다(그래서 tx를 받는다, 새 begin 없음).
+// 어느 수단을 어떻게 고칠지는 순수 planRosterOverwrite가 정한다(정정이 고친 항목만 병합, fee·memo·기본 여부·안 고친 항목은 보존).
+// before=요청의 정정 전 스냅샷(같은 종류가 여럿일 때 어느 수단인지 가릴 식별값), patch=그쪽이 보낸 바뀐 키.
+// 명부 변경을 활동 기록에 따로 남기지 않는다 — 같은 정정의 payment_corrected 한 줄이 "(명부에도 반영했어요)"로 이미 말하므로, 둘로 나오면 한 변경이 두 줄처럼 보인다(중복 방지).
+// 반환: applied=명부에 반영함, skipReason=반영 못 한 사유(no_method·ambiguous·invalid). 이 결과가 정정 이력(roster_applied)과 호출 기록 문구의 출처다.
+export async function overwriteRosterFromCorrectionInTx(
+  tx: postgres.Sql, influencerId: string, before: PaymentMethodSnapshot, patch: PaymentInfoCorrection['patch'],
+): Promise<{ applied: boolean; skipReason: RosterSkipReason | null }> {
+  const rows = await tx<Array<{ payment_methods: PaymentMethod[] }>>`
+    select payment_methods from influencer where id = ${influencerId} for update`;
+  if (rows.length === 0) return { applied: false, skipReason: 'no_method' };   // 인플루언서가 지워졌다 — 덮을 명부가 없다
+  const list = rows[0].payment_methods ?? [];
+  const plan = planRosterOverwrite(list, before, patch);
+  if ('skip' in plan) return { applied: false, skipReason: plan.skip };
+  const { list: next } = applyPaymentOp(list, plan.op, new Date().toISOString(), () => crypto.randomUUID());
+  await tx`update influencer set payment_methods = ${tx.json(asJson(next))} where id = ${influencerId}`;
+  return { applied: true, skipReason: null };
 }
 
 // 분석 결과 박제 — analyzed_at이 "언제 기준"인지를 화면이 말할 근거다.

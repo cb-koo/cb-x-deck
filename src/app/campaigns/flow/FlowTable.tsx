@@ -6,11 +6,15 @@ import {
 } from '@/lib/campaignFlowView';
 import { flowStage, FLOW_STAGE_LABEL, TASK_TYPE_LABEL, type FlowStage, type TaskType } from '@/lib/campaignJudgment';
 import { suggestTaskCost } from '@/lib/campaignCost';
+import { num } from '@/lib/campaignTableView';
 import type { InfluencerOption } from '@/lib/draftTypes';
 
-// 표 6열(단계·유형·인플·원고·게시 예정일·비용) + 헤더 정렬 + 빈 상태 + 하단 요약(b-task-6-brief.md §2).
+// 표 6열(단계·유형·인플·원고·게시 예정일·비용) + 조회·좋아요·북마크 3열(koo 09-22: 원래 6열 고정이던 것을
+// 깨고 추가 — CampaignTaskItem에 이미 실려 오는 perf 값을 그리기만 한다, TaskTable.tsx와 같은 패턴) +
+// 헤더 정렬 + 빈 상태 + 하단 요약(b-task-6-brief.md §2).
 // 행 하나 = 한 줄(여러 줄로 쌓지 않는다) — 원고 칸만 truncate + title. 굵은 글씨 없음. 셀 편집기는 여기 없다(값은 글자로만,
-// 편집은 행을 눌러 여는 오른쪽 패널이 한다). 판정·문구는 campaignFlowView·campaignJudgment — 여기는 그리기만 한다.
+// 편집은 행을 눌러 여는 오른쪽 패널이 한다). 성과 3열도 정렬은 없다(SORT_KEYS 밖) — 읽기 전용 값이라 굳이 정렬을 안 붙였다.
+// 판정·문구는 campaignFlowView·campaignJudgment — 여기는 그리기만 한다.
 const SORT_KEYS: readonly FlowSortKey[] = ['stage', 'type', 'influencer', 'draft', 'date', 'cost'];
 const STAGE_CHIP: Record<FlowStage, string> = {
   prep: 'bg-x-surface text-x-secondary', handed: 'bg-[#e8f0fe] text-[#1d4ed8]', posted: 'bg-[#e6f6ee] text-[#15803d]',
@@ -54,10 +58,12 @@ export function FlowTable({ rows, total, today, influencerOptions, sort, onSortC
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[960px] table-fixed text-content">
+      <table className="w-full min-w-[1200px] table-fixed text-content">
         <colgroup>
           <col style={{ width: 84 }} /><col style={{ width: 104 }} /><col style={{ width: 200 }} /><col />
-          <col style={{ width: 170 }} /><col style={{ width: 120 }} /><col style={{ width: 40 }} />
+          <col style={{ width: 170 }} /><col style={{ width: 120 }} />
+          <col style={{ width: 80 }} /><col style={{ width: 80 }} /><col style={{ width: 80 }} />
+          <col style={{ width: 40 }} />
         </colgroup>
         <thead>
           <tr className="border-b border-x-border">
@@ -73,6 +79,9 @@ export function FlowTable({ rows, total, today, influencerOptions, sort, onSortC
                 </button>
               </th>
             ))}
+            <th className="px-3 py-2 text-right text-ui font-normal text-x-muted">조회</th>
+            <th className="px-3 py-2 text-right text-ui font-normal text-x-muted">좋아요</th>
+            <th className="px-3 py-2 text-right text-ui font-normal text-x-muted">북마크</th>
             <th className="px-3 py-2" />
           </tr>
         </thead>
@@ -93,6 +102,9 @@ export function FlowTable({ rows, total, today, influencerOptions, sort, onSortC
                 <td className="px-3 truncate" title={d.title}><span className={d.muted ? 'text-x-muted' : ''}>{d.text}</span></td>
                 <td className={`px-3 ${DATE_TONE[dc.tone]}`}>{dc.text}</td>
                 <td className={`px-3 text-right ${COST_TONE[cc.tone]}`} title={cc.title}>{cc.text}</td>
+                <td className="px-3 text-right tabular-nums">{num(t.perf?.views ?? null)}</td>
+                <td className="px-3 text-right tabular-nums">{num(t.perf?.likes ?? null)}</td>
+                <td className="px-3 text-right tabular-nums">{num(t.perf?.bookmarks ?? null)}</td>
                 <td className="px-3" onClick={(e) => e.stopPropagation()}>{renderMenu(t)}</td>
               </tr>
             );
@@ -100,7 +112,7 @@ export function FlowTable({ rows, total, today, influencerOptions, sort, onSortC
         </tbody>
         <tfoot>
           <tr>
-            <td colSpan={7} className="px-3 py-2 text-ui text-x-secondary">{footer}</td>
+            <td colSpan={10} className="px-3 py-2 text-ui text-x-secondary">{footer}</td>
           </tr>
         </tfoot>
       </table>

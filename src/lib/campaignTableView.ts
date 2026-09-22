@@ -19,7 +19,8 @@ export function overdueSuffix(days: number): string {
   return `${days}일 지남`;
 }
 
-const num = (n: number | null) => (n === null ? '—' : n.toLocaleString('ko-KR'));
+// 표의 성과 열(조회·좋아요·북마크)과 요약 보조 문구가 같은 표기를 쓴다 — 숫자 표기가 두 벌이 되지 않게.
+export const num = (n: number | null) => (n === null ? '—' : n.toLocaleString('ko-KR'));
 
 /** 인플 아바타 이니셜(InfluencerProfile.Avatar와 같은 규칙 — 프로필 사진은 여기까지 안 내려온다) */
 export function handleInitial(handle: string): string {

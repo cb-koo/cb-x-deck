@@ -1,11 +1,13 @@
 'use client';
 import { useRef, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
+import type { ClientRow } from '@/lib/clientStore';
 import { checkPeriod, parseCampaignPatch, NAME_MAX, type CampaignPatchInput } from '@/lib/campaignInput';
 import {
   campaignStatus, CAMPAIGN_STATUS_LABEL,
   formatDateKo, daysBetweenDates,
 } from '@/lib/campaignJudgment';
+import { apiFetch } from '@/lib/apiFetch';
 import { InfoTip } from '@/components/InfoTip';
 
 // 상세 헤더 — 이름·기간·코드·메모를 그 자리에서 고친다(스펙 §3-3). 상태 pill은 기간에서 파생(수동 상태 없음, §10).
@@ -22,8 +24,11 @@ const STATUS_STYLE = {
 // 편집 상태의 입력 — 읽기 상태에는 테두리가 없다(폼처럼 보이지 않게). 높이는 40px(h-10) 이상(가독성 기준).
 const INPUT = 'h-10 rounded-md border border-x-border-strong bg-white px-2.5 text-content outline-none focus:border-x-blue';
 // 편집 중인 항목 = 오류가 붙을 항목. 한 번에 하나만 연다 — 어느 칸 얘기인지 오류 줄이 가리켜야 한다.
-type Field = 'name' | 'period' | 'code' | 'note';
+type Field = 'name' | 'period' | 'code' | 'note' | 'client';
 const PERIOD_TIP = "기간을 줄여 예정일이 밖으로 나가도 막지 않고 '기간 밖'으로만 표시해요";
+// 클라이언트를 바꾸면 예산·대상 후보(작업 만들 때 고르는 목록)가 새 클라이언트 기준으로 바로 다시 계산된다 —
+// 조용히 넘어가면 안 되는 변화라 저장 직전 한 번 더 묻는다(koo 09-22: 잘못 고른 클라이언트를 바로잡는 용도).
+const CLIENT_CHANGE_CONFIRM = '클라이언트를 바꾸면 예산·대상 후보가 새 클라이언트 기준으로 바뀌어요. 계속할까요?';
 
 // 읽기 상태의 값 — 클릭이 곧 편집이라 hover 배경 + 연필로 '누를 수 있음'을 알린다(버튼이라 Tab·Enter로도 열린다).
 function ReadValue({ onEdit, title, mono, children }: {
@@ -50,6 +55,9 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete 
   const [name, setName] = useState(campaign.name);
   const [code, setCode] = useState(campaign.nameEn);
   const [note, setNote] = useState(campaign.note);
+  // 클라이언트 목록 — 처음 편집을 열 때만 받아온다(상세 화면을 열 때마다 매번 부를 필요 없음)
+  const [clients, setClients] = useState<ClientRow[]>([]);
+  const [clientsLoaded, setClientsLoaded] = useState(false);
   // 오류는 고치던 칸 바로 밑에 붙인다 — 이름 오류가 코드 줄 아래에 뜨면 어느 칸이 잘못됐는지 사용자가 되짚어야 한다
   const [err, setErr] = useState<{ field: Field; message: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -87,6 +95,14 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete 
   function open(field: Field) {
     setName(campaign.name); setCode(campaign.nameEn); setNote(campaign.note);
     setErr(null); setEdit(field);
+    if (field === 'client' && !clientsLoaded) {
+      apiFetch('/api/clients').then((r) => (r.ok ? r.json() : Promise.reject(new Error('load failed'))))
+        .then((rows: Array<{ client: ClientRow }>) => {
+          setClients(Array.isArray(rows) ? rows.map((r) => r.client) : []);
+          setClientsLoaded(true);
+        })
+        .catch(() => {});
+    }
   }
   function cancel() { setErr(null); setEdit(null); }
   // 포커스가 그 항목 밖(다른 칸·바깥)으로 나갈 때만 닫는다 — 기간의 두 입력을 오갈 때 닫히면 종료일을 못 고친다
@@ -108,6 +124,13 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete 
     if (!v) return;
     if (v.nameEn === campaign.nameEn) { setEdit(null); return; }
     if (await patchOnce(v)) setEdit(null);
+  }
+  // 확인 다이얼로그를 거절하면 아무것도 보내지 않는다 — select는 campaign.clientId를 그대로 반영하므로
+  // 다음 렌더에서 고르기 전 값으로 저절로 돌아간다(로컬 상태를 따로 되돌릴 필요 없음)
+  async function saveClient(next: string) {
+    if (!next || next === (campaign.clientId ?? '')) { setEdit(null); return; }
+    if (!window.confirm(CLIENT_CHANGE_CONFIRM)) return;
+    if (await patchOnce({ clientId: next })) setEdit(null);
   }
   async function saveNote() {
     const v = validate({ note }, 'note');
@@ -155,7 +178,19 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete 
                       className="max-w-full truncate rounded-md px-1 text-left text-[20px] font-bold hover:bg-x-hover">{campaign.name}</button>
             )}
             <span className={`rounded-full px-2.5 py-0.5 text-ui font-bold ${STATUS_STYLE[status]}`}>{CAMPAIGN_STATUS_LABEL[status]}</span>
-            <span className="text-ui text-x-secondary">{campaign.clientName ?? '클라이언트 없음'}</span>
+            {edit === 'client' ? (
+              <select autoFocus value={campaign.clientId ?? ''} onChange={(e) => void saveClient(e.target.value)}
+                      onBlur={closeOnLeave}
+                      onKeyDown={(e) => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) cancel(); }}
+                      aria-label="클라이언트" className={`${INPUT} h-8 text-ui`}>
+                <option value="" disabled>{clientsLoaded ? '클라이언트 선택' : '불러오는 중…'}</option>
+                {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            ) : (
+              <ReadValue onEdit={() => open('client')} title="클라이언트 — 눌러서 바꾸기">
+                <span className="text-ui text-x-secondary">{campaign.clientName ?? '클라이언트 없음'}</span>
+              </ReadValue>
+            )}
           </div>
           {errLine('name')}
 

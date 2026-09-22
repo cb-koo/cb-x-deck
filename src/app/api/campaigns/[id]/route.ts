@@ -3,7 +3,8 @@ import { getSql } from '@/lib/db';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { getCampaign, getCampaignDetail, updateCampaign, deleteCampaign } from '@/lib/campaignStore';
-import { parseCampaignPatch, checkPeriod, CAMPAIGN_NOT_FOUND_MESSAGE } from '@/lib/campaignInput';
+import { parseCampaignPatch, checkPeriod, CAMPAIGN_NOT_FOUND_MESSAGE, CLIENT_NOT_FOUND_MESSAGE } from '@/lib/campaignInput';
+import { getClientWithProcedures } from '@/lib/clientStore';
 
 // campaign.id는 uuid — 형식 아닌 값은 "없음"이 아니라 캐스팅 오류(22P02 → 500)라 조회 전에 404로 끊는다(influencers/[id] 관례)
 const notFound = () => NextResponse.json({ error: CAMPAIGN_NOT_FOUND_MESSAGE }, { status: 404 });
@@ -34,7 +35,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   // 기간을 줄여 예정일이 기간 밖이 되는 원고는 막지 않는다 — 카드·행에 '기간 밖' 경고만(스펙 §3-3).
   const period = checkPeriod(parsed.value.startsOn ?? cur.startsOn, parsed.value.endsOn ?? cur.endsOn);
   if (period) return NextResponse.json({ error: period }, { status: 400 });
-  await updateCampaign(sql, id, parsed.value);
+  // 클라이언트를 바꾸면 이름도 같이 스냅샷(POST 관례) — id만 바뀌고 표시 이름이 옛 클라로 남는 불일치 방지
+  let clientName: string | undefined;
+  if (parsed.value.clientId !== undefined) {
+    const client = await getClientWithProcedures(sql, parsed.value.clientId);
+    if (!client) return NextResponse.json({ error: CLIENT_NOT_FOUND_MESSAGE }, { status: 400 });
+    clientName = client.client.name;
+  }
+  await updateCampaign(sql, id, { ...parsed.value, clientName });
   // update 이후 재조회 — 그 사이 지워졌으면(경합) null을 그대로 200에 실어 보내지 않고 GET과 같은 404로.
   const updated = await getCampaign(sql, id);
   if (!updated) return notFound();

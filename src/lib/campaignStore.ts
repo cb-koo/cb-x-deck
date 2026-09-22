@@ -204,11 +204,17 @@ export async function getCampaign(sql: postgres.Sql, id: string): Promise<Campai
 
 export async function updateCampaign(
   sql: postgres.Sql, id: string,
-  patch: { name?: string; nameEn?: string; startsOn?: string; endsOn?: string; kind?: CampaignKind | null; note?: string },
+  patch: {
+    clientId?: string; clientName?: string; name?: string; nameEn?: string;
+    startsOn?: string; endsOn?: string; kind?: CampaignKind | null; note?: string;
+  },
 ): Promise<void> {
   if (!isUuidLike(id)) return; // 형식이 아니면 DB까지 가기 전에 끊는다(22P02 방지) — 라우트가 404로 처리
   // kind만 case when — null이 '유형 없음'이라는 뜻을 갖는 유일한 필드(draftStore.influencer_handle과 같은 구조)
+  // clientId·clientName은 항상 함께 온다(라우트가 조회해서 채운다) — 이름만 갱신되고 id가 안 바뀌는 불일치를 막는다
   await sql`update campaign set
+      client_id = coalesce(${patch.clientId ?? null}::uuid, client_id),
+      client_name = coalesce(${patch.clientName ?? null}, client_name),
       name = coalesce(${patch.name ?? null}, name),
       name_en = coalesce(${patch.nameEn ?? null}, name_en),
       starts_on = coalesce(${patch.startsOn ?? null}::date, starts_on),

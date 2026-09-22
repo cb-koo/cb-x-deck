@@ -53,5 +53,6 @@ test('3) 수정 — 온 키만 검증, kind null·\'\'=지움, 양쪽 날짜가 
   assert.equal(msg(parseCampaignPatch({ startsOn: '2026-09-07', endsOn: '2026-09-06' })), PERIOD_MESSAGE);
   assert.equal(msg(parseCampaignPatch({ name: '' })), NAME_MESSAGE);
   assert.equal(msg(parseCampaignPatch({ note: 3 })), NOTE_MESSAGE);
-  assert.deepEqual(parseCampaignPatch({ clientId: CLIENT, note: '' }), { ok: true, value: { note: '' } }); // 클라 변경은 범위 밖 — 키가 값에 실리지 않는다
+  assert.deepEqual(parseCampaignPatch({ clientId: CLIENT, note: '' }), { ok: true, value: { clientId: CLIENT, note: '' } }); // 클라 변경 허용(09-22)
+  assert.equal(msg(parseCampaignPatch({ clientId: 'abc' })), CLIENT_MESSAGE);
 });

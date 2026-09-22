@@ -60,6 +60,16 @@ test('1) 생성 → 조회 — 기본값·목록 포함·taskCount 0·합계 {}'
   assert.equal((await getCampaign(sql, row.id))!.name, P + 'a2');
 });
 
+test('1b) 수정 — clientId·clientName은 함께 바뀐다(잘못 고른 클라이언트 바로잡기, 09-22)', async () => {
+  const c1 = await createClient(sql, P + '클라1b-old');
+  const c2 = await createClient(sql, P + '클라1b-new');
+  const row = await createCampaign(sql, base(c1.id, c1.name, 'a1b'));
+  await updateCampaign(sql, row.id, { clientId: c2.id, clientName: c2.name });
+  const updated = await getCampaign(sql, row.id);
+  assert.equal(updated!.clientId, c2.id);
+  assert.equal(updated!.clientName, c2.name);
+});
+
 test('2) 상세 — 작업 목록·게시됨(posted_at)·성과(task_id)·링크 클릭(draft)·요약·인플 목록·유형별 소계·삭제 정보', async () => {
   const c = await createClient(sql, P + '클라2');
   const camp = await createCampaign(sql, base(c.id, c.name, 'b'));

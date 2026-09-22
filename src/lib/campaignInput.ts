@@ -11,7 +11,7 @@ export interface CampaignCreateInput {
   kind: CampaignKind | null; note: string;
 }
 export interface CampaignPatchInput {
-  name?: string; nameEn?: string; startsOn?: string; endsOn?: string; kind?: CampaignKind | null; note?: string;
+  clientId?: string; name?: string; nameEn?: string; startsOn?: string; endsOn?: string; kind?: CampaignKind | null; note?: string;
 }
 
 export const NAME_MAX = 80;    // 원고 제목과 같은 상한(drafts/[id] 라우트) — 목록 한 줄에 들어가는 길이
@@ -80,10 +80,12 @@ export function parseCampaignCreate(body: unknown): Parsed<CampaignCreateInput> 
   } };
 }
 
-// undefined = 건드리지 않음. 모르는 키(clientId 등)는 무시 — 클라이언트 변경은 범위 밖(스펙 §3-3 수정 항목: 이름·기간·유형·코드·메모).
+// undefined = 건드리지 않음. clientId는 잘못 고른 클라이언트를 바로잡는 용도(koo 09-22) — 예산·대상 후보는
+// 캠페인의 현재 client_id를 그때그때 조회하므로 바꾸면 즉시 새 클라이언트 기준으로 다시 계산된다.
 export function parseCampaignPatch(body: unknown): Parsed<CampaignPatchInput> {
   const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   const out: CampaignPatchInput = {};
+  if (b.clientId !== undefined) { if (typeof b.clientId !== 'string' || !isUuidLike(b.clientId)) return fail(CLIENT_MESSAGE); out.clientId = b.clientId; }
   if (b.name !== undefined)     { const p = parseName(b.name);       if (!p.ok) return fail(p.message); out.name = p.value; }
   if (b.nameEn !== undefined)   { const p = parseNameEn(b.nameEn);   if (!p.ok) return fail(p.message); out.nameEn = p.value; }
   if (b.startsOn !== undefined) { const p = parseDate(b.startsOn);   if (!p.ok) return fail(p.message); out.startsOn = p.value; }

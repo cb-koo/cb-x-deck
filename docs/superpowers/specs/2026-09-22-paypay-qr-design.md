@@ -130,6 +130,31 @@ POST /api/external/settlement/requests/{request_id}/payment-info
 
 `docs/api/settlement-external-api.md`에 §5 `payment_method` 설명 보강, §4-2로 `GET .../payment-qr` 신설, §6-1(정정)에 `qr` 키 추가. 그쪽 전달 문안은 `docs/api/settlement-handoff/`에 새 번호로.
 
+## 3-1. 🔴 키 목록 네 곳 — 하나라도 빠뜨리면 QR이 조용히 사라진다
+
+수단의 선택 항목 목록이 **같은 형태로 네 군데 하드코딩**돼 있다. `qr`을 전부에 더해야 한다.
+
+```
+['email', 'paypalId', 'identifier', 'bank', 'branch', 'account']
+```
+
+| # | 위치 | 빠뜨리면 |
+|---|---|---|
+| 1 | `toMethodSnapshot` (`settlementCalc.ts:138`) | 요청 스냅샷에 QR이 안 실린다 → 그쪽에 아예 전달되지 않는다 |
+| 2 | `mergePaymentMethodCorrection` 앞쪽 (`settlementPaymentCorrection.ts:98`) | **정산 쪽이 수취인 이름만 고쳐도 QR이 날아간다** |
+| 3 | 같은 함수 뒤쪽 (`:108`) | 정정 결과(`after`)에 QR이 안 남는다 |
+| 4 | `fields` 비교 (`:110`) | 활동 기록에 QR 변경이 안 찍힌다 |
+
+**2번이 가장 위험하다.** `merged`를 `before`에서 새로 만드는 구조라, 목록에 없는 키는 정정할 때마다 버려진다. 그 결과가 명부 자동 반영(057)을 타고 **원본까지 덮는다.** 2026-09-22에 `fee`·`memo`가 같은 이유로 문제가 될 뻔했고 그때는 `planRosterOverwrite`가 명시적으로 되살려 막았다 — `qr`도 같은 확인이 필요하다.
+
+**테스트로 못 박는다:** "QR이 있는 PayPay 수단에 `holder`만 정정 → QR이 그대로 남는다"를 DB 연동 테스트에 넣는다. 이 한 줄이 네 곳을 동시에 지킨다.
+
+### `methodIdentity`는 그대로 둔다
+
+같은 종류 수단이 여럿일 때 어느 것을 고칠지 가리는 함수(`settlementPaymentCorrection.ts`)는 PayPay를 `identifier ?? holder`로 판단한다. **QR만 있고 식별 정보가 없으면 `holder`로만 가리므로**, 같은 이름의 PayPay 수단이 둘이면 `ambiguous`로 건너뛴다.
+
+이건 의도된 안전장치다(엉뚱한 수단을 고치느니 건너뛴다). `qr`은 이미지라 비교 키로 쓸 수 없으므로 바꾸지 않는다.
+
 ## 4. 검사와 오류
 
 | 상황 | 처리 |
@@ -151,6 +176,7 @@ POST /api/external/settlement/requests/{request_id}/payment-info
 - `ALLOWED_BY_TYPE`에 `qr` 추가 후 PayPal·계좌에서 거절되는지
 - `toExternalItem`이 QR 있을 때만 `qr_url`을 넣는지
 - `planRosterOverwrite`가 `qr`을 병합할 때 `fee`·`memo`·`isDefault`를 보존하는지
+- **`holder`만 정정했을 때 기존 `qr`이 남는지** (§3-1의 네 곳을 한 번에 지키는 테스트)
 
 **DB 연동** (연습용 DB)
 - 정정으로 QR이 오면 요청 스냅샷과 명부가 함께 바뀌는지

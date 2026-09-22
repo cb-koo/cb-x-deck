@@ -5,6 +5,8 @@ import {
 } from './campaignJudgment.ts';
 import { formatAmount, formatMoneyBy, sumMoney, type MoneyByCurrency, type TaskCost } from './campaignCost.ts';
 import type { CancelReason } from './campaignTaskInput.ts';
+import { toKrw } from './clientBudget.ts';
+import { rate } from './performanceJudgment.ts';
 
 // 캠페인 v2 화면(결정 문서 §3·§4)의 판정·문구 — 컴포넌트는 그리기만 한다. 단계는 flowStage 하나(R21), 모집단은 취소 제외(R17).
 export type FlowRow = CampaignTaskItem;
@@ -145,6 +147,10 @@ export interface FlowStats {
   // campaignJudgment.ts:93 주석). 값이 하나라도 있으면 그것만 더한다(개별 항목의 null은 빼고).
   perf: { views: number | null; likes: number | null; bookmarks: number | null; withPerf: number; noLink: number };
   spent: MoneyByCurrency; plannedCost: MoneyByCurrency;
+  // koo 09-22 — 조회가 없거나(null·0) 못 구하면 null(0으로 위장하지 않는다, 위 perf와 같은 규칙).
+  cpvKrw: number | null;        // 소진 비용(원화 환산, JPY_TO_KRW) ÷ 조회수 — "1조회 얻는 데 든 돈"
+  likeRate: number | null;      // 좋아요 ÷ 조회수(비율, formatPct가 %로 그린다)
+  bookmarkRate: number | null;  // 북마크 ÷ 조회수(비율, formatPct가 %로 그린다)
 }
 export function flowStats(rows: FlowRow[]): FlowStats {
   const live = rows.filter((t) => !isTaskExcluded(t));
@@ -155,11 +161,25 @@ export function flowStats(rows: FlowRow[]): FlowStats {
   for (const t of withPerf) {
     add('views', t.perf?.views); add('likes', t.perf?.likes); add('bookmarks', t.perf?.bookmarks);
   }
+  const spent = sumMoney(posted.flatMap((t) => (t.cost ? [t.cost] : [])));
   return {
     planned: live.length, posted: posted.length,
     perf: { ...perf, withPerf: withPerf.length, noLink: posted.length - withPerf.length },
-    spent: sumMoney(posted.flatMap((t) => (t.cost ? [t.cost] : []))),
-    plannedCost: sumMoney(live.flatMap((t) => (t.cost ? [t.cost] : []))),
+    spent, plannedCost: sumMoney(live.flatMap((t) => (t.cost ? [t.cost] : []))),
+    cpvKrw: perf.views ? toKrw(spent).krw / perf.views : null,
+    likeRate: rate(perf.likes, perf.views),
+    bookmarkRate: rate(perf.bookmarks, perf.views),
+  };
+}
+
+// 작업 표 성과 3열의 괄호 값(koo 09-22) — 그 작업 하나만의 CPV·좋아요율·북마크율. flowStats의 캠페인 합산과
+// 같은 정의(비용은 원화 환산 ÷ 조회, 비율은 조회 대비)지만 분모·분자가 그 작업 것만이라 별도 함수로 둔다.
+export function taskPerfExtra(t: FlowRow): { cpvKrw: number | null; likeRate: number | null; bookmarkRate: number | null } {
+  const views = t.perf?.views ?? null;
+  return {
+    cpvKrw: views && t.cost ? toKrw(sumMoney([t.cost])).krw / views : null,
+    likeRate: rate(t.perf?.likes ?? null, views),
+    bookmarkRate: rate(t.perf?.bookmarks ?? null, views),
   };
 }
 // 정산 대기 = 정산 후보인데 활성 요청이 없는 것. 우리가 취소했거나 그쪽이 취소한 요청은 후보로 돌아온다(§3-1 정산 정의).

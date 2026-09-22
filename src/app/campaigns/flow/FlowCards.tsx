@@ -5,6 +5,7 @@ import { InfoTip } from '@/components/InfoTip';
 import type { FlowStats } from '@/lib/campaignFlowView';
 import { CURRENCIES, formatAmount, formatMoneyBy, moneyParts, type MoneyByCurrency } from '@/lib/campaignCost';
 import { toKrw, monthShort, type CampaignMonthBudget } from '@/lib/clientBudget';
+import { formatPct } from '@/lib/performanceJudgment';
 
 // 요약 카드 3장(작업·성과·비용) — 클러터로 반려된 초안 뒤 정해진 모양(b-task-11-brief.md):
 // 제목은 한 단어 · 큰 숫자는 하나 · 라벨은 숫자 아래 · 주석은 툴팁으로 · 기호는 '/' 하나.
@@ -54,7 +55,7 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
     : undefined;
 
   return (
-    <div className="grid grid-cols-[0.9fr_1.1fr_1.4fr] gap-0">
+    <div className="grid grid-cols-[0.9fr_1.4fr_1.1fr] gap-0">
       {/* 작업 */}
       <div className="border-l border-x-border px-5 first:border-l-0 first:pl-0 last:pr-0">
         <p className="flex items-center gap-1.5 text-ui text-x-secondary">
@@ -88,20 +89,23 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
           <div>
             <p className="text-[20px] font-bold leading-tight tabular-nums">
               {stats.perf.views !== null ? stats.perf.views.toLocaleString('ko-KR') : <span className="text-x-muted">—</span>}
+              {stats.cpvKrw !== null && <span className="text-[15px] font-normal text-x-muted">({stats.cpvKrw.toFixed(1)}원)</span>}
             </p>
-            <p className="mt-0.5 text-ui text-x-secondary">조회</p>
+            <p className="mt-0.5 text-ui text-x-secondary">조회(CPV)</p>
           </div>
           <div>
             <p className="text-[20px] font-bold leading-tight tabular-nums">
               {stats.perf.likes !== null ? stats.perf.likes.toLocaleString('ko-KR') : <span className="text-x-muted">—</span>}
+              {stats.likeRate !== null && <span className="text-[15px] font-normal text-x-muted">({formatPct(stats.likeRate, 1)})</span>}
             </p>
-            <p className="mt-0.5 text-ui text-x-secondary">좋아요</p>
+            <p className="mt-0.5 text-ui text-x-secondary">좋아요(좋아요율)</p>
           </div>
           <div>
             <p className="text-[20px] font-bold leading-tight tabular-nums">
               {stats.perf.bookmarks !== null ? stats.perf.bookmarks.toLocaleString('ko-KR') : <span className="text-x-muted">—</span>}
+              {stats.bookmarkRate !== null && <span className="text-[15px] font-normal text-x-muted">({formatPct(stats.bookmarkRate, 1)})</span>}
             </p>
-            <p className="mt-0.5 text-ui text-x-secondary">북마크</p>
+            <p className="mt-0.5 text-ui text-x-secondary">북마크(북마크율)</p>
           </div>
         </div>
       </div>

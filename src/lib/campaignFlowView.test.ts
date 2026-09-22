@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EMPTY_FLOW_FILTER, matchesFlowFilter, matchesSearch, matchesExtra, filterCount, filterSummary,
-  nextSort, sortFlowRows, dateCell, draftCell, costCell, flowFooter, flowStats, settleWaitCount, restoreMessage, PANEL_FIELD_ORDER,
+  nextSort, sortFlowRows, dateCell, draftCell, costCell, flowFooter, flowStats, taskPerfExtra, settleWaitCount, restoreMessage, PANEL_FIELD_ORDER,
   costConfirmScenario, detachConfirmMessage,
 } from './campaignFlowView.ts';
 import type { CampaignTaskItem } from './campaignStore.ts';
@@ -111,9 +111,16 @@ test('8) 하단 줄·요약 줄·카드 숫자·정산 대기 — 취소 제외,
   assert.equal(s.planned, 3); assert.equal(s.posted, 2);
   assert.deepEqual(s.spent, { KRW: 130000 }); assert.deepEqual(s.plannedCost, { KRW: 160000 });
   assert.deepEqual(s.perf, { views: 100, likes: 3, bookmarks: 1, withPerf: 1, noLink: 1 });
+  // koo 09-22 — CPV = 소진(원화 환산) ÷ 조회, 좋아요율·북마크율 = 각 ÷ 조회(비율)
+  assert.equal(s.cpvKrw, 1300); assert.equal(s.likeRate, 0.03); assert.equal(s.bookmarkRate, 0.01);
   // I2 — 게시된 작업은 있지만 성과 스냅샷이 하나도 없으면 0이 아니라 null(0으로 위장하지 않는다)
   const noSnap = [mk({ type: 'post', postedAt: '2026-09-10', influencerHandle: 'a' })];
-  assert.deepEqual(flowStats(noSnap).perf, { views: null, likes: null, bookmarks: null, withPerf: 0, noLink: 1 });
+  const noSnapStats = flowStats(noSnap);
+  assert.deepEqual(noSnapStats.perf, { views: null, likes: null, bookmarks: null, withPerf: 0, noLink: 1 });
+  assert.equal(noSnapStats.cpvKrw, null); assert.equal(noSnapStats.likeRate, null); assert.equal(noSnapStats.bookmarkRate, null);
+  // koo 09-22 — 표 성과 열의 괄호 값(작업 하나만의 CPV·좋아요율·북마크율)
+  assert.deepEqual(taskPerfExtra(rows[0]), { cpvKrw: 800, likeRate: 0.03, bookmarkRate: 0.01 });
+  assert.deepEqual(taskPerfExtra(rows[1]), { cpvKrw: null, likeRate: null, bookmarkRate: null }); // 성과 스냅샷 없음
   assert.equal(settleWaitCount(rows), 2);
   const f = EMPTY_FLOW_FILTER();
   assert.equal(filterSummary(f, 4, 4), '전체 4건');

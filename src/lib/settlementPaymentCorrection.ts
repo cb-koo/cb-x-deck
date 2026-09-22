@@ -8,20 +8,21 @@ import { PAYMENT_TYPE_LABEL, parsePaymentMethodInput, getDefaultPaymentMethod, t
 import { isUuidLike } from './uuid.ts';
 import { parseOperatorField, parseIsoField, type StatusOperator } from './settlementExternal.ts';
 
-// 그쪽이 보내는 7키(snake_case). type·currency는 없다 — 수단 종류·통화를 바꾸는 것은 다른 의무라 on_hold + note로 알려 달라고 했다.
-export const CORRECTION_KEYS = ['holder', 'paypal_id', 'email', 'identifier', 'bank', 'branch', 'account'] as const;
+// 그쪽이 보내는 8키(snake_case). type·currency는 없다 — 수단 종류·통화를 바꾸는 것은 다른 의무라 on_hold + note로 알려 달라고 했다.
+export const CORRECTION_KEYS = ['holder', 'paypal_id', 'email', 'identifier', 'qr', 'bank', 'branch', 'account'] as const;
 export type CorrectionKey = (typeof CORRECTION_KEYS)[number];
 const TO_CAMEL: Record<CorrectionKey, Exclude<keyof PaymentMethodSnapshot, 'type' | 'currency'>> = {
-  holder: 'holder', paypal_id: 'paypalId', email: 'email', identifier: 'identifier', bank: 'bank', branch: 'branch', account: 'account',
+  holder: 'holder', paypal_id: 'paypalId', email: 'email', identifier: 'identifier', qr: 'qr', bank: 'bank', branch: 'branch', account: 'account',
 };
 // 수단 종류별로 고칠 수 있는 키. 다른 종류의 키(예: PayPal 수단에 bank)는 조용히 버리지 않고 400 — "정정했다고 믿은 값이 반영되지 않음"이 가장 나쁜 실패다.
 const ALLOWED_BY_TYPE: Record<PaymentMethodType, readonly CorrectionKey[]> = {
   paypal: ['holder', 'email', 'paypal_id'],
-  paypay: ['holder', 'identifier'],
+  paypay: ['holder', 'identifier', 'qr'],
   bank: ['holder', 'bank', 'branch', 'account'],
 };
 // 비워서(null·"") 지울 수 있는 키 — 선택 항목만. paypal의 email·paypal_id는 둘 중 하나만 남으면 된다(influencerPayment 규칙이 다시 검사한다).
-const REMOVABLE: ReadonlySet<CorrectionKey> = new Set(['branch', 'email', 'paypal_id']);
+// qr을 넣는 이유: 잘못 올린 QR을 되돌릴 길이 필요하다.
+const REMOVABLE: ReadonlySet<CorrectionKey> = new Set(['branch', 'email', 'paypal_id', 'qr']);
 const VALUE_MAX = 200;
 const REASON_MAX = 500;
 const IDEM_MAX = 200;
@@ -95,7 +96,7 @@ export type CorrectionMerge =
 export function mergePaymentMethodCorrection(before: PaymentMethodSnapshot, patch: PaymentInfoCorrection['patch']): CorrectionMerge {
   const allowed = ALLOWED_BY_TYPE[before.type];
   const merged: Record<string, unknown> = { type: before.type, holder: before.holder, currency: before.currency };
-  for (const k of ['email', 'paypalId', 'identifier', 'bank', 'branch', 'account'] as const) if (before[k]) merged[k] = before[k];
+  for (const k of ['email', 'paypalId', 'identifier', 'bank', 'branch', 'account', 'qr'] as const) if (before[k]) merged[k] = before[k];
   for (const [k, v] of Object.entries(patch) as Array<[CorrectionKey, string | null | undefined]>) {
     if (v === undefined) continue;
     if (!allowed.includes(k)) return { ok: false, field: `payment_method.${k}`, error: `${PAYMENT_TYPE_LABEL[before.type]} 수단에는 없는 항목이에요 — ${allowed.join('·')}만 고칠 수 있어요` };
@@ -105,9 +106,9 @@ export function mergePaymentMethodCorrection(before: PaymentMethodSnapshot, patc
   const parsed = parsePaymentMethodInput(merged);
   if (typeof parsed === 'string') return { ok: false, field: 'payment_method', error: parsed };
   const after: PaymentMethodSnapshot = { type: parsed.type, holder: parsed.holder, currency: parsed.currency };
-  for (const k of ['email', 'paypalId', 'identifier', 'bank', 'branch', 'account'] as const) if (parsed[k]) after[k] = parsed[k];
+  for (const k of ['email', 'paypalId', 'identifier', 'bank', 'branch', 'account', 'qr'] as const) if (parsed[k]) after[k] = parsed[k];
   const fields: CorrectionFieldDiff[] = [];
-  for (const k of ['holder', 'email', 'paypalId', 'identifier', 'bank', 'branch', 'account'] as const) {
+  for (const k of ['holder', 'email', 'paypalId', 'identifier', 'bank', 'branch', 'account', 'qr'] as const) {
     const a = before[k] ?? null, b = after[k] ?? null;
     if (a !== b) fields.push({ field: k, from: a, to: b });
   }

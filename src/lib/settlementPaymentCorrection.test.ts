@@ -115,3 +115,38 @@ test('planRosterOverwrite: patch가 명부 수단과 안 맞으면 invalid(같�
   const plan = planRosterOverwrite([pmBank()], beforePaypal, { email: 'new@x.com' });   // 계좌 수단만 있는데 paypal 정정
   assert.deepEqual(plan, { skip: 'invalid' });
 });
+
+test('mergePaymentMethodCorrection — holder만 고쳐도 기존 qr이 남는다 (스펙 §3-1)', () => {
+  const before = { type: 'paypay' as const, holder: '옛 이름', currency: 'JPY' as const,
+                   identifier: 'ident-1', qr: 'inf-1/aaa.png' };
+  const r = mergePaymentMethodCorrection(before, { holder: '새 이름' });
+  assert.ok(r.ok);
+  assert.equal(r.after.holder, '새 이름');
+  assert.equal(r.after.qr, 'inf-1/aaa.png');       // ← 사라지면 안 된다
+  assert.equal(r.after.identifier, 'ident-1');
+});
+
+test('mergePaymentMethodCorrection — qr을 바꾸고 지울 수 있다', () => {
+  const before = { type: 'paypay' as const, holder: '이름', currency: 'JPY' as const, qr: 'inf-1/old.png' };
+  const changed = mergePaymentMethodCorrection(before, { qr: 'inf-1/new.png' });
+  assert.ok(changed.ok);
+  assert.equal(changed.after.qr, 'inf-1/new.png');
+
+  const removed = mergePaymentMethodCorrection(before, { qr: null });
+  assert.ok(removed.ok);
+  assert.equal(removed.after.qr, undefined);
+});
+
+test('mergePaymentMethodCorrection — PayPal·계좌 수단에 qr은 거절', () => {
+  const paypal = { type: 'paypal' as const, holder: '이름', currency: 'JPY' as const, email: 'a@b.com' };
+  const r = mergePaymentMethodCorrection(paypal, { qr: 'x/y.png' });
+  assert.ok(!r.ok);
+  assert.equal(r.field, 'payment_method.qr');
+});
+
+test('mergePaymentMethodCorrection — qr 변경이 활동 기록 fields에 남는다', () => {
+  const before = { type: 'paypay' as const, holder: '이름', currency: 'JPY' as const, qr: 'inf-1/old.png' };
+  const r = mergePaymentMethodCorrection(before, { qr: 'inf-1/new.png' });
+  assert.ok(r.ok);
+  assert.ok(r.fields.some((f) => f.field === 'qr' && f.to === 'inf-1/new.png'));
+});

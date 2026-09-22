@@ -20,6 +20,7 @@ export const PAYMENT_FIELD_LABEL: Record<string, string> = {
   email: '이메일',
   paypalId: 'PayPal.me 아이디',
   identifier: '수취 식별 정보',
+  qr: 'QR 이미지',
   bank: '은행',
   branch: '지점',
   account: '계좌번호',
@@ -40,6 +41,7 @@ export interface PaymentMethod {
   email?: string;               // paypal: email 또는 paypalId 중 하나 필수
   paypalId?: string;            // PayPal.me 아이디(paypal.me/<id>) — 이메일 대신 아이디로 받는 인플이 있다
   identifier?: string;          // paypay 수취 식별 정보 — 선택(미확정)
+  qr?: string;                  // paypay QR 이미지의 저장소 경로 — 선택. 절대 URL이 아니다(058)
   bank?: string;
   branch?: string;
   account?: string;
@@ -109,7 +111,9 @@ export function parsePaymentMethodInput(v: unknown): PaymentMethodInput | string
     }
   } else if (type === 'paypay') {
     const identifier = trimmedString(obj.identifier);
-    if (identifier) out.identifier = identifier; // 선택 — 미확정
+    if (identifier) out.identifier = identifier;   // 선택
+    const qr = trimmedString(obj.qr);
+    if (qr) out.qr = qr;                            // 선택 — 식별 정보와 둘 다 없어도 된다(koo 결정 1)
   } else {
     const bank = trimmedString(obj.bank);
     const account = trimmedString(obj.account);
@@ -179,7 +183,7 @@ export function settlementBadge(
 }
 
 // updated 로그의 fields — 실제로 바뀐 항목만, 사람이 읽을 문자열로. fee는 formatFee 문구로 비교(pricing 관례 — 값 그대로 비교 대신 표시 문구 비교로 통일).
-const DIFF_FIELDS = ['type', 'holder', 'currency', 'email', 'paypalId', 'identifier', 'bank', 'branch', 'account', 'fee', 'memo'] as const;
+const DIFF_FIELDS = ['type', 'holder', 'currency', 'email', 'paypalId', 'identifier', 'qr', 'bank', 'branch', 'account', 'fee', 'memo'] as const;
 
 function displayValue(field: (typeof DIFF_FIELDS)[number], m: PaymentMethodInput): string | null {
   switch (field) {
@@ -189,6 +193,7 @@ function displayValue(field: (typeof DIFF_FIELDS)[number], m: PaymentMethodInput
     case 'email': return m.email ?? null;
     case 'paypalId': return m.paypalId ?? null;
     case 'identifier': return m.identifier ?? null;
+    case 'qr': return m.qr ?? null;
     case 'bank': return m.bank ?? null;
     case 'branch': return m.branch ?? null;
     case 'account': return m.account ?? null;

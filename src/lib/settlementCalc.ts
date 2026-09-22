@@ -132,10 +132,11 @@ export function effectiveReadiness(c: SettlementCandidate, e: ReadinessEdit | un
 export interface PaymentMethodSnapshot {
   type: PaymentMethod['type']; holder: string; currency: Currency;
   email?: string; paypalId?: string; identifier?: string; bank?: string; branch?: string; account?: string;
+  qr?: string;
 }
 export function toMethodSnapshot(m: PaymentMethod): PaymentMethodSnapshot {
   const s: PaymentMethodSnapshot = { type: m.type, holder: m.holder, currency: m.currency };
-  for (const k of ['email', 'paypalId', 'identifier', 'bank', 'branch', 'account'] as const) {
+  for (const k of ['email', 'paypalId', 'identifier', 'bank', 'branch', 'account', 'qr'] as const) {
     if (m[k]) s[k] = m[k];
   }
   return s;

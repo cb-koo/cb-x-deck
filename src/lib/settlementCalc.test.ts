@@ -187,6 +187,12 @@ test('snapshot — 필드 선별·양식 8번 문자열', () => {
   assert.equal(describeSnapshot(toMethodSnapshot(paypay)), 'PayPay | A | ');
 });
 
+test('toMethodSnapshot — qr 경로를 스냅샷에 싣는다 (스펙 §3-1)', () => {
+  const m = { id: 'm1', type: 'paypay' as const, isDefault: true, holder: '이름',
+              currency: 'JPY' as const, qr: 'inf-1/aaa.png', updatedAt: '2026-09-22T00:00:00.000Z' };
+  assert.equal(toMethodSnapshot(m).qr, 'inf-1/aaa.png');
+});
+
 test('computeCandidate — 전부 합친 한 건', () => {
   const c = computeCandidate({
     task: { id: 't1', type: 'quoteRt', influencerHandle: 'seikeinu', cost: { amount: 30000, currency: 'KRW' }, postUrl: 'https://x.com/seikeinu/status/9', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: '원고 A', proof: null },

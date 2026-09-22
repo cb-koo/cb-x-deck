@@ -41,6 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 .worktrees/
+.claude/worktrees/
 /PROGRESS.md
 
 # 브레인스토밍 시안 (superpowers visual companion — 로컬 전용)

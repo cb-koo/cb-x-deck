@@ -9,7 +9,7 @@ import type { ExtraCost } from '@/lib/campaignCost';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { DraftRow } from '@/lib/draftStore';
-import type { CampaignMonthBudget } from '@/lib/clientBudget';
+import type { CampaignPeriodBudget } from '@/lib/clientBudget';
 import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, putInfluencerCostApi,
   patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, type DraftPatchBody,
@@ -51,7 +51,7 @@ import { LinkPostModal } from './LinkPostModal';
 interface DetailState {
   campaign: CampaignRow; tasks: CampaignTaskItem[]; costRows: InfluencerCostRow[];
   deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number }; today: string;
-  budget: CampaignMonthBudget | null;   // 이 달 클라이언트 예산(서버 판정) — 요약 칸의 '월 예산 잔액'
+  budget: CampaignPeriodBudget | null;   // 이 기간 클라이언트 예산(서버 판정) — 요약 칸의 '예산 기간 잔액'
 }
 type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 

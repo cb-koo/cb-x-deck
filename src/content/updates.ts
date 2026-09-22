@@ -13,7 +13,7 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
-    date: '2026-09-22', type: '개선',
+    date: '2026-09-23', type: '개선',
     title: '예산을 원하는 기간으로 나눠서 관리할 수 있어요',
     summary: '지금까지는 클라이언트 예산을 달 단위로만 정할 수 있었어요. 이제 시작일·종료일을 직접 정해서 원하는 기간만큼 예산을 나눠 관리할 수 있어요 — 꼭 한 달 단위가 아니어도 돼요.',
     bullets: [

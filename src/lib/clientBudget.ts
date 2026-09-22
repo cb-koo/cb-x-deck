@@ -79,6 +79,19 @@ export function campaignPeriodBudget(
 function shortDate(d: string): string { return `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`; }
 export function periodLabel(p: BudgetPeriod): string { return `${shortDate(p.startsOn)} ~ ${shortDate(p.endsOn)}`; }
 
+// 연도 포함 — 클라이언트 상세의 기간 표(모든 기간을 나열, 연도 문맥 없음) 전용. periodLabel과 달리 연도를 보여줘
+// 1년 차이 기간이 같아 보이는 문제를 막는다(최종 리뷰 반영, 스펙 §4).
+export function periodLabelFull(p: BudgetPeriod): string {
+  const startYear = p.startsOn.slice(0, 4);
+  const endYear = p.endsOn.slice(0, 4);
+  const fullDate = (d: string) => `${d.slice(0, 4)}년 ${Number(d.slice(5, 7))}월 ${Number(d.slice(8, 10))}일`;
+  const start = fullDate(p.startsOn);
+  const end = startYear === endYear
+    ? `${Number(p.endsOn.slice(5, 7))}월 ${Number(p.endsOn.slice(8, 10))}일`
+    : fullDate(p.endsOn);
+  return `${start} ~ ${end}`;
+}
+
 export function badgeText(badge: OverageBadge): string {
   return badge.count === 1
     ? `${shortDate(badge.latestEndsOn)}까지 이어지는 캠페인 때문에 초과됐어요`

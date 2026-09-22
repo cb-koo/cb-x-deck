@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   JPY_TO_KRW, BUDGET_AMOUNT_MESSAGE, PERIOD_DATE_MESSAGE, PERIOD_ORDER_MESSAGE,
   toKrw, remainingOf, periodFor, overageBadge, periodRow, campaignPeriodBudget,
-  periodLabel, budgetTipText, badgeText, budgetJudgment, parseBudgetAmount, parseBudgetPeriodInput,
+  periodLabel, periodLabelFull, budgetTipText, badgeText, budgetJudgment, parseBudgetAmount, parseBudgetPeriodInput,
   type BudgetPeriod, type PeriodSpend, type SpanningCampaign,
 } from './clientBudget.ts';
 
@@ -79,6 +79,8 @@ test('7) periodLabel·budgetTipText·badgeText', () => {
   assert.ok(budgetTipText().includes('시작일이 속한 기간'));
   assert.equal(badgeText({ latestEndsOn: '2026-09-04', count: 1 }), '9/4까지 이어지는 캠페인 때문에 초과됐어요');
   assert.equal(badgeText({ latestEndsOn: '2026-09-04', count: 3 }), '3개 캠페인이 기간을 넘어가요 · 가장 늦게는 9/4까지');
+  assert.equal(periodLabelFull(period('p', '2026-09-01', '2026-09-30', 1)), '2026년 9월 1일 ~ 9월 30일');
+  assert.equal(periodLabelFull(period('p', '2026-12-15', '2027-01-14', 1)), '2026년 12월 15일 ~ 2027년 1월 14일');
 });
 
 test('8) budgetJudgment — 남음/초과 문구', () => {

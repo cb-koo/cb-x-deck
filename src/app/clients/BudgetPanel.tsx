@@ -5,7 +5,7 @@ import { Button, PANEL_SPLIT, PANEL_TITLE } from '@/components/ui';
 import { InfoTip } from '@/components/InfoTip';
 import { formatAmount, parseAmount } from '@/lib/campaignCost';
 import {
-  budgetJudgment, budgetTipText, badgeText, periodLabel, remainingOf, JPY_TO_KRW, type PeriodRow,
+  budgetJudgment, budgetTipText, badgeText, periodLabelFull, remainingOf, JPY_TO_KRW, type PeriodRow,
 } from '@/lib/clientBudget';
 import type { ClientRow } from '@/lib/clientStore';
 
@@ -171,11 +171,12 @@ function PeriodRowView({ clientId, row, basis, editing, onEdit, onClose, onChang
   const [endsOn, setEndsOn] = useState(period.endsOn);
   const [amount, setAmount] = useState(String(period.amountKrw));
   const [err, setErr] = useState('');
+  const [confirmDel, setConfirmDel] = useState(false);
   const busy = useRef(false);
   const wasEditing = useRef(false);
   useEffect(() => {
     if (editing && !wasEditing.current) {
-      setStartsOn(period.startsOn); setEndsOn(period.endsOn); setAmount(String(period.amountKrw)); setErr('');
+      setStartsOn(period.startsOn); setEndsOn(period.endsOn); setAmount(String(period.amountKrw)); setErr(''); setConfirmDel(false);
     }
     wasEditing.current = editing;
   }, [editing, period.startsOn, period.endsOn, period.amountKrw]);
@@ -218,7 +219,7 @@ function PeriodRowView({ clientId, row, basis, editing, onEdit, onClose, onChang
             <input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} aria-label="종료일" className={DATE_INPUT} />
           </div>
         ) : (
-          <button onClick={onEdit} className="text-left hover:text-x-blue-text">{periodLabel(period)} <span className="text-ui text-x-muted">고치기</span></button>
+          <button onClick={onEdit} className="text-left hover:text-x-blue-text">{periodLabelFull(period)} <span className="text-ui text-x-muted">고치기</span></button>
         )}
       </td>
       <td className="py-3.5 pr-4">
@@ -232,8 +233,19 @@ function PeriodRowView({ clientId, row, basis, editing, onEdit, onClose, onChang
             <div className="flex items-center gap-2">
               <Button variant="primary" onClick={save}>저장</Button>
               <Button variant="ghost" onClick={onClose}>취소</Button>
-              <button onClick={remove} className="text-caption text-x-secondary hover:text-red-500">삭제</button>
+              {!confirmDel && (
+                <button onClick={() => setConfirmDel(true)} className="text-caption text-x-secondary hover:text-red-500">삭제</button>
+              )}
             </div>
+            {confirmDel && (
+              <div className="space-y-1">
+                <p className="text-caption text-x-secondary">이 기간을 지우면 여기 속한 캠페인은 예산 미설정이 돼요</p>
+                <div className="flex items-center gap-2">
+                  <button onClick={remove} className="rounded bg-red-600 px-2 py-0.5 text-caption text-white">삭제 확정</button>
+                  <button onClick={() => setConfirmDel(false)} className="rounded border border-x-border-strong px-2 py-0.5 text-caption">취소</button>
+                </div>
+              </div>
+            )}
             {err && <p className="text-caption text-red-500">{err}</p>}
           </div>
         ) : (

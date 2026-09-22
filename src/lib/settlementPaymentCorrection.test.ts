@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { parsePaymentInfoCorrection, mergePaymentMethodCorrection, planRosterOverwrite } from './settlementPaymentCorrection.ts';
 import type { PaymentMethodSnapshot } from './settlementCalc.ts';
 import type { PaymentMethod } from './influencerPayment.ts';
+import { applyPaymentOp } from './influencerPayment.ts';
 
 const CID = '22222222-3333-4444-8555-666666666666';
 const op = { id: '8f2c9e10-1b2a-4c3d-9e4f-000000000001', name: '정산 담당' };
@@ -114,6 +115,29 @@ test('planRosterOverwrite: 같은 종류가 여럿인데 일치가 유일하지 
 test('planRosterOverwrite: patch가 명부 수단과 안 맞으면 invalid(같은 종류가 없어 기본 수단에 얹었으나 검사 실패)', () => {
   const plan = planRosterOverwrite([pmBank()], beforePaypal, { email: 'new@x.com' });   // 계좌 수단만 있는데 paypal 정정
   assert.deepEqual(plan, { skip: 'invalid' });
+});
+
+// 058: qr 병합 시 fee·memo·isDefault가 사라지는 회귀를 막는다 — 09-22에 정산 정정이 명부를 덮으며
+// 명부에만 있는 값(수수료 설정)을 지울 뻔한 것과 같은 종류의 버그라 별도 테스트로 남긴다.
+test('planRosterOverwrite: qr만 고쳐도 fee·memo는 보존한다', () => {
+  const pmPaypay: PaymentMethod = {
+    id: 'p1', type: 'paypay', isDefault: true, holder: '山田', currency: 'JPY',
+    identifier: 'ident-1', qr: 'inf-1/old.png',
+    fee: { mode: 'fixed', amount: 165 }, memo: '유지', updatedAt: '2026-01-01T00:00:00Z',
+  };
+  const beforePaypay: PaymentMethodSnapshot = {
+    type: 'paypay', holder: '山田', currency: 'JPY', identifier: 'ident-1', qr: 'inf-1/old.png',
+  };
+  const plan = planRosterOverwrite([pmPaypay], beforePaypay, { qr: 'inf-1/new.png' });
+  assert.ok('op' in plan);
+  assert.equal(plan.op.input.qr, 'inf-1/new.png');                                    // 고친 항목은 반영
+  assert.deepEqual(plan.op.input.fee, { mode: 'fixed', amount: 165 });                // 명부에만 있던 fee 보존
+  assert.equal(plan.op.input.memo, '유지');                                            // 명부에만 있던 memo 보존
+
+  // isDefault는 planRosterOverwrite가 아니라 applyPaymentOp(update)가 지킨다 — 그 경로까지 확인해야
+  // "값은 안 사라졌지만 기본 수단 표시가 풀렸다" 같은 회귀를 놓치지 않는다.
+  const { list } = applyPaymentOp([pmPaypay], plan.op, '2026-09-22T00:00:00.000Z', () => 'unused');
+  assert.equal(list[0].isDefault, true);
 });
 
 test('mergePaymentMethodCorrection — holder만 고쳐도 기존 qr이 남는다 (스펙 §3-1)', () => {

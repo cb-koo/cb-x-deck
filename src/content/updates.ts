@@ -22,7 +22,7 @@ export const UPDATES: UpdateEntry[] = [
       '비용 칸에서 결제 수단과 수수료를 누가 내는지 바로 보여요',
       '쓰던 방식이 바뀐 것: 새 작업에서 비용 칸에 보이는 금액이 [만들기]를 누르면 그대로 저장돼요(예전엔 [확인]을 따로 눌러야 했어요). 프로필 단가와 다르면 만든 뒤 프로필에도 반영할지 물어봐요',
     ],
-    link: { label: '캠페인에서 보기', href: '/campaigns/flow' },
+    link: { label: '캠페인 v2', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-23', type: '개선',

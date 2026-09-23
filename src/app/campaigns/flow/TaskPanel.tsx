@@ -26,6 +26,8 @@ import { DraftMode, type DraftTab } from './draft/DraftMode';
 import { PanelSection } from './panel/PanelSection';
 import { StageTypeBox } from './panel/StageTypeBox';
 import { InfluencerSummary } from './panel/InfluencerSummary';
+import { PaymentLine } from './panel/PaymentLine';
+import { usePaymentView } from './panel/usePaymentView';
 
 // 편집 패널(b-task-7-brief.md §2) — 작업 하나(edit)와 새 작업(new)을 같은 골격에서 다룬다. 칸 순서는
 // PANEL_FIELD_ORDER(campaignFlowView) 하나뿐 — 여기서 다시 적지 않는다. 저장은 두 갈래:
@@ -188,6 +190,12 @@ export function TaskPanel({
   const [editHandleInput, setEditHandleInput] = useState('');
   const [editHandleErr, setEditHandleErr] = useState<string | null>(null);
   const [noteBuf, setNoteBuf] = useState(task?.note ?? '');
+
+  // ── 비용 · 정산 상자의 결제 수단 한 줄(설계 §8-1) — 훅이라 렌더 함수(renderEditField 등) 밖, 여기서 한 번 부른다.
+  // refreshKey: 정산 요청 상태(우리·그쪽)나 작업이 바뀌면 다시 부른다 — 요청이 생기면 명부 수단 대신 요청 스냅샷이 사실이다.
+  const payHandle = task ? task.influencerHandle : (handle || null);
+  const payRefresh = task ? `${task.settlement?.status ?? ''}:${task.settlement?.externalStatus ?? ''}:${task.updatedAt}` : '';
+  const pay = usePaymentView(payHandle, task?.id ?? null, payRefresh);
 
   // 새 작업 모드에서 값이 하나라도 채워졌으면(유형은 빼고) Esc·[✕]로 닫을 때 경고 없이 사라지지 않게 한 번
   // 묻는다(I1) — DraftWriteModal의 dirty 관례와 같다. handleInput은 아직 커밋 전(엔터·블러 전) 값도 잡는다 —
@@ -360,13 +368,27 @@ export function TaskPanel({
   function fieldLabel(field: PanelField, type: TaskType): string {
     switch (field) {
       case 'influencer': return '인플루언서';
-      case 'cost': return type === 'visit' ? '예산' : '비용';
+      case 'cost': return type === 'visit' ? '예산 · 정산' : '비용 · 정산';
       case 'draft': return '원고';
       case 'target': return `${TASK_TYPE_LABEL[type]} 대상`;
       case 'scheduled': return '게시 예정일';
       case 'dates': return '일정';
       case 'note': return '메모';
     }
+  }
+
+  // 비용 · 정산 상자 본문(설계 §8·§10) — 두 모드 공통 모양: 금액 + 결제 수단 한 줄. 인플 미정이면 '인플 선택 후'는
+  // 결제 수단 줄에서 한 번만 말하고, 금액 칸은 문구 없는 비활성(disabledReason='')으로 둔다.
+  // 소제목에 '· 이 작업에만 적용'은 아직 붙이지 않는다 — 수단 선택(2단계)이 들어와야 참이 되는 말이다(UX 원칙 4).
+  function costBox(amount: ReactNode): ReactNode {
+    return (
+      <div>
+        <p className="mb-1.5 text-ui font-semibold text-x-secondary">금액</p>
+        {amount}
+        <p className="mb-1.5 mt-3.5 text-ui font-semibold text-x-secondary">결제 수단</p>
+        {payHandle ? <PaymentLine {...pay} /> : <p className="text-content text-x-muted">인플 선택 후</p>}
+      </div>
+    );
   }
 
   // ── 편집 모드 칸 ──
@@ -417,9 +439,10 @@ export function TaskPanel({
         );
       }
       case 'cost': {
-        if (!cancelled) return <>{slots.cost}</>;
-        const cc = costCell(t, null);
-        return <span className={`text-content ${cc.tone === 'muted' ? 'text-x-muted' : cc.tone === 'struck' ? 'text-x-muted line-through' : ''}`}>{cc.text}</span>;
+        const cc = cancelled ? costCell(t, null) : null;
+        return costBox(cc
+          ? <span className={`text-content ${cc.tone === 'muted' ? 'text-x-muted' : cc.tone === 'struck' ? 'text-x-muted line-through' : ''}`}>{cc.text}</span>
+          : <>{slots.cost}</>);
       }
       case 'draft': {
         if (cancelled) return <span className="text-content text-x-muted">{t.cancelledDraftTitle ? `원고 있었음: ${t.cancelledDraftTitle}` : '—'}</span>;
@@ -549,9 +572,9 @@ export function TaskPanel({
                            onEnter={commitNewHandle} onBlur={commitNewHandle} />
         );
       case 'cost': {
-        // 명부 값(option)은 handle이 정해졌을 때만 있다 — 미정이면 disabledReason으로 비활성(브리프 §5).
+        // 명부 값(option)은 handle이 정해졌을 때만 있다 — 미정이면 문구 없는 비활성(disabledReason='', 이유는 결제 수단 줄이 말한다).
         const opt = optionForHandle(handle);
-        return (
+        return costBox(
           // 초기값은 부모의 newCost(없으면 프로필 단가) — 원고 모드를 다녀오면 폼이 언마운트됐다 다시 마운트되는데,
           // 그때 입력한 금액이 프로필 단가로 조용히 바뀌지 않게 한다. 'invalid'는 값으로 못 옮겨 비운 채 넘긴다
           // (다시 마운트되면 보이는 값 — 프로필 단가 또는 빈 칸 — 이 다시 올라와 '보이는 값 = 저장 값'이 유지된다).
@@ -559,11 +582,11 @@ export function TaskPanel({
           // 넣는다 — 인플 목록이 늦게 오면 빈 칸으로 마운트됐다가, 목록이 오면 다시 마운트돼 채워진다(설계 §8).
           // draft 모드라 [확인]이 없고 값이 바뀔 때마다 newCost로 올라온다.
           <CostConfirmField key={`${handle}:${newType}:${opt ? 'o' : '-'}`} mode="draft" value={newCost !== 'invalid' ? newCost : null} option={opt} type={newType as TaskType}
-                            label={fieldLabel('cost', newType as TaskType)} error={costErr}
+                            label={newType === 'visit' ? '예산' : '비용'} error={costErr}
                             onDraftChange={(v) => { setNewCost(v); setCostErr(null); }}
                             onSave={async () => true}
                             onSaveProfile={(o, c) => onSaveProfilePricing(o, c, newType as TaskType)}
-                            disabledReason={handle ? undefined : '인플 선택 후'} />
+                            disabledReason={handle ? undefined : ''} />
         );
       }
       case 'target':

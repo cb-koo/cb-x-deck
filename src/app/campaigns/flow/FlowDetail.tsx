@@ -982,7 +982,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                                           label={panelTask.type === 'visit' ? '예산' : '비용'}
                                           onSave={(c) => actions.changeCost(panelTask, c)}
                                           onSaveProfile={(opt, c) => saveProfilePricing(opt, c, panelTask.type)}
-                                          disabledReason={panelTask.influencerHandle ? undefined : '인플을 정하면 프로필 단가로 채워요'} />
+                                          disabledReason={panelTask.influencerHandle ? undefined : ''} />
                        : null,
                      // 대상은 링크 하나로 통일한다(Task 9) — actions.changeTarget이 taskId/url/null 셋을 받는다.
                      target: panelTask

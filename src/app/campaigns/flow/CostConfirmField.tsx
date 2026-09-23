@@ -28,7 +28,8 @@ export function CostConfirmField({
   label: string;                          // '비용' | '예산' — 칸 위 라벨은 부모가 그리므로 여기선 접근성 라벨로만 쓴다
   onSave: (cost: TaskCost) => Promise<boolean>;
   onSaveProfile: (option: InfluencerOption, cost: TaskCost) => Promise<boolean>;
-  disabledReason?: string;                // 있으면 칸을 비활성으로 그리고 이 문구를 보여준다(인플 미정 등)
+  disabledReason?: string;                // 있으면 칸을 비활성으로 그리고 이 문구를 보여준다(인플 미정 등). ''이면 문구 없이 비활성만 —
+                                          // 이유를 칸 밖(비용 · 정산 상자의 결제 수단 줄)에서 한 번만 말할 때(설계 §10)
   mode?: 'confirm' | 'draft';
   onDraftChange?: (v: TaskCost | null | 'invalid') => void;   // draft 모드만 — 빈 칸 null, 못 읽는 값 'invalid'
   error?: string | null;                  // 부모가 정한 오류(draft 모드의 [만들기] 때 'invalid')
@@ -43,7 +44,7 @@ export function CostConfirmField({
 
   // draft 모드에서 지금 보이는 값을 부모에 올린다 — 이펙트에서 setState하지 않으려고 핸들러와 마운트 때 부른다.
   const report = (a: string, c: Currency) => {
-    if (mode !== 'draft' || !onDraftChange || disabledReason) return;
+    if (mode !== 'draft' || !onDraftChange || disabledReason !== undefined) return;
     if (a.trim() === '') { onDraftChange(null); return; }
     const n = parseAmount(a);
     onDraftChange(n === null ? 'invalid' : { amount: n, currency: c });
@@ -53,7 +54,7 @@ export function CostConfirmField({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- 마운트 때 초기값을 한 번 올린다
   useEffect(() => { report(amount, currency); }, []);
 
-  if (disabledReason) {
+  if (disabledReason !== undefined) {
     // I4 — 저장된 비용(value)이 있으면 빈 점선 상자로 지우지 않는다: 표는 값을 보여주는데 패널만 빈칸이면
     // 같은 화면이 두 말을 하는 셈이다(예: 미배정으로 돌아간 작업도 확정된 비용은 남아 있을 수 있다).
     return (
@@ -64,7 +65,7 @@ export function CostConfirmField({
           <input disabled placeholder="₩" aria-label={label}
                  className="h-10 w-full rounded-md border border-dashed border-x-border-strong bg-x-surface px-3 text-content text-x-muted" />
         )}
-        <p className="mt-1 text-ui text-x-muted">{disabledReason}</p>
+        {disabledReason && <p className="mt-1 text-ui text-x-muted">{disabledReason}</p>}
       </div>
     );
   }

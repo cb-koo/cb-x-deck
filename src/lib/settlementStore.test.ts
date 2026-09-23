@@ -5,6 +5,7 @@ import { createClient, deleteClient } from './clientStore.ts';
 import { createCampaign, updateCampaign } from './campaignStore.ts';
 import { createTasks, updateTask, getTask, deleteTask } from './campaignTaskStore.ts';
 import { createInfluencer, updatePaymentMethods, deleteInfluencer } from './influencerStore.ts';
+import type { PaymentMethodInput } from './influencerPayment.ts';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettings.ts';
 import { isSettlementCandidate } from './campaignJudgment.ts';
 import {
@@ -351,11 +352,21 @@ test('취소 — 그쪽이 지급 완료한 요청은 paid-locked, 트리거가 
   assert.equal(badge.externalStatus, 'paid');
 });
 
-async function requestFor(handle: string, campSuffix: string) {
+// method를 주면 PayPal 기본 수단 대신 그 수단(예: PayPay + QR)을 명부 기본 수단으로 심는다.
+// 기존 호출부는 인자를 안 주면 지금과 같게(influencerWithPaypal) 동작한다.
+type MethodSeed = Partial<PaymentMethodInput> & { type: PaymentMethodInput['type'] };
+async function requestFor(handle: string, campSuffix: string, method?: MethodSeed) {
   const m = await ensureMember();
   const c = await createClient(sql, P + '클라' + campSuffix);
   const camp = await createCampaign(sql, base(c.id, c.name, campSuffix, 'visit'));
-  await influencerWithPaypal(H(handle));
+  if (method) {
+    const { row: inf } = await createInfluencer(sql, { handle: H(handle), createdBy: null });
+    // identifier는 요청 생성 관문(settlementCalc — paypay-no-identifier)이 요구한다. qr만으로는 후보가 되지 못한다.
+    const input: PaymentMethodInput = { holder: 'KEIKO', currency: method.type === 'paypay' ? 'JPY' : 'KRW', ...(method.type === 'paypay' ? { identifier: H(handle) } : {}), ...method };
+    await updatePaymentMethods(sql, inf.id, { kind: 'add', input, makeDefault: true }, null);
+  } else {
+    await influencerWithPaypal(H(handle));
+  }
   const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H(handle), cost: { amount: 30000, currency: 'KRW' } }] });
   await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: 'https://x.com/r/status/1' });
   const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
@@ -991,4 +1002,39 @@ test('applyPaymentMethodCorrection — 명부 반영(057): 고친 항목만 명�
   assert.equal(r2.row.paymentMethod.email, `${H('pc5')}.fixed@x.com`, '명부가 비어도 요청 스냅샷은 정정된다');
   const hist2 = await sql<Array<{ roster_applied: boolean; roster_skip_reason: string | null }>>`select roster_applied, roster_skip_reason from payment_request_payment_correction where request_id = ${row2.id}`;
   assert.equal(hist2[0].roster_applied, false); assert.equal(hist2[0].roster_skip_reason, 'no_method');
+}));
+
+// CID(1)·CID(2)는 앞 테스트가 이미 썼다 — correction_id는 DB 전체에서 한 번만 쓸 수 있으므로
+// 저장에 성공하는 테스트는 자기 번호를 써야 한다(파일 상단 CID 주석 참고). 여기는 10번대를 쓴다.
+test('applyPaymentMethodCorrection — QR 정정이 요청과 명부에 함께 반영된다', () => revisionOn(async () => {
+  const { row } = await requestFor('qr1', 'qr1', { type: 'paypay', qr: 'seed/old.png' });
+  const r = await applyPaymentMethodCorrection(sql, row.id, corr({ qr: 'seed/new.png' }, { correctionId: CID(10) }));
+  assert.ok(r !== 'not-found' && r.kind === 'applied' && r.rosterApplied === true);
+
+  const after = (await listRequests(sql, { taskId: row.taskId! }))[0];
+  assert.equal(after.paymentMethod.qr, 'seed/new.png');
+  assert.equal(after.revision, 0);                       // 정정은 판을 올리지 않는다
+
+  const inf = await sql<Array<{ payment_methods: Array<Record<string, unknown>> }>>`
+    select payment_methods from influencer where id = ${row.influencerId}`;
+  const pm = inf[0].payment_methods.find((m) => m.type === 'paypay')!;
+  assert.equal(pm.qr, 'seed/new.png');                   // 명부에도 반영
+  assert.equal(pm.isDefault, true);                      // 명부에만 있는 값은 보존
+}));
+
+test('applyPaymentMethodCorrection — holder만 고쳐도 QR이 남는다 (스펙 §3-1)', () => revisionOn(async () => {
+  const { row } = await requestFor('qr2', 'qr2', { type: 'paypay', qr: 'seed/keep.png' });
+  const r = await applyPaymentMethodCorrection(sql, row.id, corr({ holder: '새 이름' }, { correctionId: CID(11) }));
+  assert.ok(r !== 'not-found' && r.kind === 'applied');
+
+  const after = (await listRequests(sql, { taskId: row.taskId! }))[0];
+  assert.equal(after.paymentMethod.holder, '새 이름');
+  assert.equal(after.paymentMethod.qr, 'seed/keep.png');  // ← 네 곳 중 하나라도 빠지면 여기서 undefined
+}));
+
+test('applyPaymentMethodCorrection — qr을 null로 지운다', () => revisionOn(async () => {
+  const { row } = await requestFor('qr3', 'qr3', { type: 'paypay', qr: 'seed/gone.png' });
+  const r = await applyPaymentMethodCorrection(sql, row.id, corr({ qr: null }, { correctionId: CID(12) }));
+  assert.ok(r !== 'not-found' && r.kind === 'applied');
+  assert.equal((await listRequests(sql, { taskId: row.taskId! }))[0].paymentMethod.qr, undefined);
 }));

@@ -641,6 +641,13 @@ export type CorrectionResult =
   | { kind: 'conflict'; code: 'request-cancelled' | 'paid-locked' | 'revision-mismatch'; row: PaymentRequestRow }
   | { kind: 'invalid'; field: string; error: string }
   | 'not-found';
+// QR 정정 처리(route.ts)가 저장소에 올리기 전에 필요 — 정정 트랜잭션보다 먼저, 별도 조회로 가볍게 구한다.
+export async function influencerIdOfRequest(sql: postgres.Sql, id: string): Promise<string | null> {
+  if (!isUuidLike(id)) return null;
+  const r = await sql<Array<{ influencer_id: string }>>`select influencer_id from payment_request where id = ${id}`;
+  return r[0]?.influencer_id ?? null;
+}
+
 export async function applyPaymentMethodCorrection(sql: postgres.Sql, id: string, c: PaymentInfoCorrection): Promise<CorrectionResult> {
   if (!isUuidLike(id)) return 'not-found';
   return await sql.begin(async (tx0) => {

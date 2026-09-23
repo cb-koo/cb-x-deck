@@ -3,8 +3,10 @@ import { getSql } from '@/lib/db';
 import { bearerAuthorized } from '@/lib/externalAuth';
 import { toExternalItem } from '@/lib/settlementExternal';
 import { parsePaymentInfoCorrection } from '@/lib/settlementPaymentCorrection';
-import { applyPaymentMethodCorrection, getForExport } from '@/lib/settlementStore';
+import { applyPaymentMethodCorrection, getForExport, influencerIdOfRequest } from '@/lib/settlementStore';
 import { recordExternalCallSafe } from '@/lib/externalApiLogAfter';
+import { parseQrDataUri } from '@/lib/paymentQrInput';
+import { uploadPaymentQrBytes } from '@/lib/paymentQr';
 
 // 그쪽(정산 프로덕트)이 이번 지급 건의 수취 정보를 정정했을 때의 회신 수신(계약 §6-1, 그쪽 2026-09-21 요청).
 // 규칙 판정은 스토어(applyPaymentMethodCorrection), 여기는 HTTP 매핑만 — 상태 POST 라우트와 같은 구조.
@@ -43,6 +45,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: parsed.error, field: parsed.field }, { status: 400, headers: NO_STORE });
   }
   const sql = getSql();
+  // qr만 특별 취급한다 — 받은 base64를 저장소에 넣고, 이후 처리에는 경로만 쓴다.
+  // 그래야 정정 이력(patch·before·after)에 base64가 아니라 경로가 남는다(기록 테이블이 붓지 않게).
+  // 저장을 DB 트랜잭션보다 먼저 하는 이유: 트랜잭션 안에서 외부 저장소를 만지면 실패 시 롤백이 어긋난다.
+  // 저장은 됐는데 DB가 롤백되면 고아 파일이 남지만 비공개 버킷이라 무해하다 — 반대가 위험하다.
+  const qrRaw = parsed.correction.patch.qr;
+  if (typeof qrRaw === 'string' && qrRaw.length > 0) {
+    const decoded = parseQrDataUri(qrRaw);
+    if ('error' in decoded) {
+      recordExternalCallSafe({ ...c, requestId: id, statusCode: 400, outcome: 'bad-request', detail: 'payment_method.qr', body: raw });
+      return NextResponse.json({ error: decoded.error, field: 'payment_method.qr' }, { status: 400, headers: NO_STORE });
+    }
+    const influencerId = await influencerIdOfRequest(sql, id);   // 없으면 404 (아래 판정이 다시 잡는다)
+    if (influencerId) {
+      parsed.correction.patch.qr = await uploadPaymentQrBytes(influencerId, decoded.bytes, decoded.contentType);
+    }
+  }
   const r = await applyPaymentMethodCorrection(sql, id, parsed.correction);
   if (r === 'not-found') {
     recordExternalCallSafe({ ...c, requestId: id, statusCode: 404, outcome: 'not-found', body: raw });

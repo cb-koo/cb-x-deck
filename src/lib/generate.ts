@@ -14,9 +14,8 @@ import type { DraftContent, DraftFormat, ReferenceMode, RefSnapshot } from './dr
 import { getTask } from './campaignTaskStore.ts';
 import { targetUrlOf, TARGETABLE_TYPES } from './campaignJudgment.ts';
 import { parseTweetLink } from './tweetLink.ts';
-import { getTweetsByIds, upsertTweets } from './tweetStore.ts';
 import { makeClient, type GetxapiClient } from './getxapi.ts';
-import { mapRawTweet } from './mappers.ts';
+import { fetchTweetCached } from './tweetPreview.ts';
 import { isUuidLike } from './uuid.ts';
 
 export const CONTENT_MODEL = () => process.env.CONTENT_MODEL ?? 'claude-opus-5';
@@ -87,21 +86,22 @@ async function loadQuoteTarget(
   sql: postgres.Sql, tweetId: string | null, xClient?: Pick<GetxapiClient, 'getTweetDetail'>,
 ): Promise<RefSnapshot | null> {
   if (!tweetId) return null;
-  // 대상은 보관함 소속과 무관하다. 캐시가 있으면 우선 쓰고, 없거나 본문이 비어 있으면 사용자가 생성 버튼을
-  // 누른 이 시점에만 X 상세 조회를 한다. upsert는 캐시 갱신일 뿐 library_item을 만들지 않는다.
-  let tweet = (await getTweetsByIds(sql, [tweetId]))[0] ?? null;
-  // 빈 본문 캐시는 대상 내용을 모른 채 조용히 생성하게 만든다. 이 경우만 최신 상세로 보강한다.
-  if (!tweet || !tweet.text.trim()) {
-    let raw;
-    try { raw = await (xClient ?? makeClient()).getTweetDetail(tweetId); }
-    catch { throw new GenerateInputError('인용RT 대상 게시물을 확인하지 못했어요 — 잠시 후 다시 시도해 주세요'); }
-    if (!raw) throw new GenerateInputError('인용RT 대상 게시물을 읽을 수 없어요 — 삭제되었거나 공개 범위를 확인해 주세요');
-    const mapped = mapRawTweet(raw);
-    if (!mapped || !mapped.text.trim()) throw new GenerateInputError('인용RT 대상 게시물의 내용을 읽을 수 없어요');
-    if (mapped.tweetId !== tweetId) throw new GenerateInputError('인용RT 대상 게시물이 바뀌었어요 — 대상 링크를 다시 확인해 주세요');
-    await upsertTweets(sql, [mapped]);
-    tweet = mapped;
+  // 대상은 보관함 소속과 무관하다. 캐시 우선 조회는 미리보기 창구(tweetPreview.ts)와 공용 규칙이다 —
+  // 캐시가 있으면 우선 쓰고, 없거나 본문이 비어 있으면 사용자가 생성 버튼을 누른 이 시점에만 X 상세
+  // 조회를 한다. upsert는 캐시 갱신일 뿐 library_item을 만들지 않는다.
+  let r;
+  try { r = await fetchTweetCached(sql, tweetId, xClient ?? makeClient()); }
+  catch { throw new GenerateInputError('인용RT 대상 게시물을 확인하지 못했어요 — 잠시 후 다시 시도해 주세요'); }
+  if (r.kind === 'unavailable') {
+    throw new GenerateInputError('인용RT 대상 게시물을 읽을 수 없어요 — 삭제되었거나 공개 범위를 확인해 주세요');
   }
+  if (r.kind === 'mismatch') {
+    throw new GenerateInputError('인용RT 대상 게시물이 바뀌었어요 — 대상 링크를 다시 확인해 주세요');
+  }
+  if (r.kind !== 'ok') { // repost(순수 리트윗) | noText(본문이 비어 보여줄 내용이 없음) — badLink는 tweetId를 직접 넘겨 도달하지 않는다
+    throw new GenerateInputError('인용RT 대상 게시물의 내용을 읽을 수 없어요');
+  }
+  const tweet = r.tweet;
   return { tweetId: tweet.tweetId, handle: tweet.authorHandle, name: tweet.authorName, excerpt: tweet.text, memos: [], role: 'quoteTarget' };
 }
 

@@ -110,7 +110,7 @@ koo(09-23) 지적 네 가지 + 대화 중 추가 세 가지:
   - 인플 미배정: 칸 자체를 회색 "인플을 정하면 보여요".
   - 정산 요청을 보낸 뒤(단계 `정산`·`완료`): 요청 스냅샷의 수단을 보여주고 고정. 도움말 "요청에 담긴 수단이에요 — 바꾸려면 정산 화면에서 요청을 취소해요".
   - 명부에 없는 핸들: 결제 수단 칸에서는 다루지 않는다(§9에서 인플 칸이 처리). 칸은 "인플을 명부에 등록하면 보여요".
-- **데이터:** 결제 수단(계좌번호 포함)을 `listOptions`에 싣지 않는다 — 그 응답은 원고 생성 화면도 매번 받는다. 패널이 배정된 명부 인플을 열 때 **새 가벼운 조회 `GET /api/influencers/[id]/payment-methods`**(지금은 POST/PATCH/DELETE만 있다)를 부르고 FlowDetail이 id별로 캐시한다. `GET /api/influencers/[id]`는 로그·원고 50건·분석까지 6개 쿼리라 패널마다 부르기엔 무겁다. 권한은 `listOptions`와 같은 `requireAllowedUser`. 정산 요청 후 스냅샷은 FlowRow에 싣지 않는다 — `settlementByTaskIds`는 캠페인 목록의 모든 행에 붙어 나가므로(campaignStore:285) 계좌번호·이메일이 전 작업분 새어 나간다. 요청 뒤 상태의 패널은 열 때 그 작업의 요청 한 건에서 `describe` 문자열 + `payment_request.fee`만 받는다(스냅샷엔 fee·id가 없다, `toMethodSnapshot`). '요청 후' 판정은 단계 판정과 같은 조건(`status = 'requested'`이고 `externalStatus ≠ 'cancelled'`, 즉 단계 `정산`·`완료`).
+- **데이터:** 결제 수단(계좌번호 포함)을 `listOptions`에 싣지 않는다 — 그 응답은 원고 생성 화면도 매번 받는다. 패널이 열릴 때 **새 가벼운 조회 `GET /api/influencers/payment-view?handle=&taskId=`** 하나로 받는다 — 활성 정산 요청이 있으면 그 스냅샷(설명 + 수수료), 없으면 명부 인플의 기본 수단(설명 + 수수료), 명부 밖·수단 없음은 상태만. 새 작업은 handle만 보낸다. 화면이 (핸들·작업·요청 상태)별로 캐시한다. 2단계의 수단 목록(드롭다운)은 2단계 계획에서 이 조회를 넓혀 싣는다. `GET /api/influencers/[id]`는 로그·원고 50건·분석까지 6개 쿼리라 패널마다 부르기엔 무겁다. 권한은 `listOptions`와 같은 `requireAllowedUser`. 정산 요청 후 스냅샷은 FlowRow에 싣지 않는다 — `settlementByTaskIds`는 캠페인 목록의 모든 행에 붙어 나가므로(campaignStore:285) 계좌번호·이메일이 전 작업분 새어 나간다. 요청 뒤 상태는 위 조회가 그 작업의 요청 한 건에서 설명 문자열 + `payment_request.fee`만 돌려준다(스냅샷엔 fee·id가 없다, `toMethodSnapshot`). '요청 후' 판정은 단계 판정과 같은 조건(`status = 'requested'`이고 `externalStatus ≠ 'cancelled'`, 즉 단계 `정산`·`완료`).
 
 ### 8-2. 작업별 선택 (2단계, koo 결정: "이 작업만")
 

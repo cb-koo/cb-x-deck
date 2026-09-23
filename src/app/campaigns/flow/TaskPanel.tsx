@@ -474,7 +474,7 @@ export function TaskPanel({
         return (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-ui text-x-muted">방문일 <span title="방문일이 지나면 인플루언서를 바꿀 수 없어요" className="cursor-help text-x-muted">ⓘ</span></p>
+              <p className="text-ui text-x-muted">방문일 <span title="방문일이 지나면 인플루언서를 바꿀 수 없어요" aria-label="방문일이 지나면 인플루언서를 바꿀 수 없어요" className="cursor-help text-x-muted">ⓘ</span></p>
               <div className="mt-0.5">
                 <ScheduledOnField value={t.visitOn} overdueDays={null}
                                  outOfRange={isOutOfRange(t.visitOn, campaign.startsOn, campaign.endsOn)}

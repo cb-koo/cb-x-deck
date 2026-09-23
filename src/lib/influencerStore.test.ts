@@ -283,6 +283,20 @@ test('9) listOptions: 표시 이름은 있으면 name, 없으면 undefined', asy
   await deleteInfluencer(sql, noName.row.id);
 });
 
+test('9b) listOptions: 사진 URL은 있으면 avatarUrl, 없으면 undefined', async () => {
+  const withPic = await createInfluencer(sql, { handle: P + 'picA', createdBy: null });
+  const noPic = await createInfluencer(sql, { handle: P + 'picB', createdBy: null });
+  await applyProfileSnapshot(sql, withPic.row.id, {
+    id: '889' + process.pid, userName: P + 'picA', name: null,
+    followers: 10, profilePicture: 'https://pbs.twimg.com/x.jpg', description: null,
+  });
+  const opts = await listOptions(sql);
+  assert.equal(opts.find((o) => o.handle === P + 'picA')?.avatarUrl, 'https://pbs.twimg.com/x.jpg');
+  assert.equal(opts.find((o) => o.handle === P + 'picB')?.avatarUrl, undefined);
+  await deleteInfluencer(sql, withPic.row.id);
+  await deleteInfluencer(sql, noPic.row.id);
+});
+
 test('9) updatePricing: 병합 저장 + 변경분만 auto 로그', async () => {
   const { row } = await createInfluencer(sql, { handle: P + 'price', createdBy: null });
 

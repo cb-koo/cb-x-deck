@@ -394,10 +394,13 @@ export async function insertAutoLog(sql: postgres.Sql, input: {
 
 // 배정 자동완성 후보 — 명부가 기준이다(과거 배정 이력에서 긁어모으던 listInfluencerHandles의 후신).
 // pricing도 함께 — 캠페인 비용 제안(스펙 §3-2 비용 셀)이 배정 직후 단가를 알아야 한다. 컬럼은 032(pricing jsonb not null default '{}').
+// 사진 URL은 작업 패널 인플 칸용(§6) — 결제 수단은 싣지 않는다(원고 생성 화면도 이 응답을 매번 받는다).
 export async function listOptions(sql: postgres.Sql): Promise<InfluencerOption[]> {
-  const rows = await sql<Array<{ id: string; handle: string; display_name: string | null; pricing: Pricing | null }>>`
-    select id, handle, display_name, pricing from influencer order by lower(handle)`;
-  return rows.map((r) => ({ id: r.id, handle: r.handle, name: r.display_name ?? undefined, pricing: r.pricing ?? undefined }));
+  const rows = await sql<Array<{ id: string; handle: string; display_name: string | null; avatar_url: string | null; pricing: Pricing | null }>>`
+    select id, handle, display_name, avatar_url, pricing from influencer order by lower(handle)`;
+  return rows.map((r) => ({
+    id: r.id, handle: r.handle, name: r.display_name ?? undefined, avatarUrl: r.avatar_url ?? undefined, pricing: r.pricing ?? undefined,
+  }));
 }
 
 // 단가 병합 저장 — 행 잠금 후 diff라 동시 blur가 겹쳐도 로그·값이 어긋나지 않는다(스펙 §2).

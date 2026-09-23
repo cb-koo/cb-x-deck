@@ -1,4 +1,6 @@
--- 058: PayPay 수취 QR 이미지 (스펙 2026-09-22-paypay-qr-design.md §1)
+-- 059: PayPay 수취 QR 이미지 (스펙 2026-09-22-paypay-qr-design.md §1)
+-- 058은 클라이언트 예산 기간(058_client_budget_period.sql)이 먼저 main에 들어갔다 → 이 파일은 059로 옮겼다.
+-- 운영에는 058_payment_qr.sql이라는 이름으로 이미 적용됐다 — 추가만 하는 문장들이라 재실행 안전(044 선례와 같다).
 -- 칸(컬럼) 추가는 없다 — QR 경로는 influencer.payment_methods(jsonb) 안에 들어간다.
 -- 이 파일은 버킷과 접근 정책만 만든다. apply-migrations.sh가 전 파일을 재실행하므로 모든 문장은 멱등.
 

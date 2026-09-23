@@ -29,7 +29,7 @@ function qrPath(influencerId: string, ext: string): string {
 //
 // uploadPaymentQrBytes·downloadPaymentQrBytes는 우리 사용자의 로그인 세션이 없는 자리에서 불린다
 // (uploadPaymentQrBytes는 정정 API — 그쪽이 베어러 키로 부르는 외부 라우트, downloadPaymentQrBytes는
-// 그쪽에 바이트를 흘려보내는 외부 라우트). storage.objects의 RLS 정책(마이그레이션 058)은
+// 그쪽에 바이트를 흘려보내는 외부 라우트). storage.objects의 RLS 정책(마이그레이션 059)은
 // `to authenticated`만 허용하므로 로그인 세션이 없는 anon 키 클라이언트로는 통과하지 못한다.
 // 그래서 이 둘은 taskProof.ts의 브라우저 클라이언트 대신, 같은 파일이 이미 쓰는 서비스 롤 관리자
 // 클라이언트로 RLS를 우회한다. uploadPaymentQr·signPaymentQrUrl은 화면(로그인 세션이 있는 브라우저)

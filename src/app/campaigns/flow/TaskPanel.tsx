@@ -25,6 +25,7 @@ import type { useCampaignTaskActions } from '../useCampaignTaskActions';
 import { DraftMode, type DraftTab } from './draft/DraftMode';
 import { PanelSection } from './panel/PanelSection';
 import { StageTypeBox } from './panel/StageTypeBox';
+import { InfluencerSummary } from './panel/InfluencerSummary';
 
 // 편집 패널(b-task-7-brief.md §2) — 작업 하나(edit)와 새 작업(new)을 같은 골격에서 다룬다. 칸 순서는
 // PANEL_FIELD_ORDER(campaignFlowView) 하나뿐 — 여기서 다시 적지 않는다. 저장은 두 갈래:
@@ -373,19 +374,23 @@ export function TaskPanel({
     const cancelled = t.cancelledAt !== null;
     switch (field) {
       case 'influencer': {
-        if (cancelled) return <span className="text-content text-x-muted">{t.influencerHandle ? `@${t.influencerHandle}` : '미정'}</span>;
+        if (cancelled) {
+          return t.influencerHandle
+            ? <InfluencerSummary handle={t.influencerHandle} option={optionForHandle(t.influencerHandle)} muted />
+            : <span className="text-content text-x-muted">미정</span>;
+        }
         if (t.influencerHandle) {
+          const opt = optionForHandle(t.influencerHandle);
           // 게시된 작업은 교체 자체가 서버 가드(POSTED_TASK_MESSAGE)에 막혀 있다 — FlowRowMenu의 prePost
           // 게이트와 같은 조건. 여기서 숨기지 않고 disabled로만 두면 눌렀을 때 400이 나는 거짓 어포던스가 된다.
-          if (t.postedAt) return <span className="text-content">@{t.influencerHandle}</span>;
+          if (t.postedAt) return <InfluencerSummary handle={t.influencerHandle} option={opt} />;
           const disabledReason = replaceDisabledReason(t, today);
           return (
             <div>
-              <span className="flex items-center justify-between gap-2 text-content">
-                <span>@{t.influencerHandle}</span>
-                {/* [해제]는 [바꾸기]와 같은 판정(replaceDisabledReason)으로 막는다 — 방문한 인플루언서를
-                    떼면 서버가 거절하는 것과 같은 조작이라 이유 문구도 같아야 한다(라벨-값 일치). */}
-                <span className="flex shrink-0 items-center gap-2">
+              {/* [해제]는 [바꾸기]와 같은 판정(replaceDisabledReason)으로 막는다 — 방문한 인플루언서를
+                  떼면 서버가 거절하는 것과 같은 조작이라 이유 문구도 같아야 한다(라벨-값 일치). */}
+              <InfluencerSummary handle={t.influencerHandle} option={opt} actions={
+                <>
                   <button type="button" onClick={() => onReplace(t)} disabled={!!disabledReason} title={disabledReason ?? undefined}
                           className="text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
                     바꾸기
@@ -394,8 +399,8 @@ export function TaskPanel({
                           className="text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
                     해제
                   </button>
-                </span>
-              </span>
+                </>
+              } />
               {/* title만으로 끝내지 않는다(UX 원칙 2·5) — 비활성 이유를 보이는 문구로도 말한다 */}
               {disabledReason && <p className="mt-1 text-ui text-x-muted">{disabledReason}</p>}
             </div>
@@ -520,11 +525,22 @@ export function TaskPanel({
         if (newDraft) {
           return (
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center rounded-lg border border-x-border-strong bg-x-hover px-2.5 py-2 text-content text-x-secondary">
-                {handle ? `@${handle}` : '미정'}
-              </span>
-              <span title="원고를 떼면 바꿀 수 있어요" aria-label="원고를 떼면 바꿀 수 있어요" className="text-ui text-x-muted">🔒 ⓘ</span>
+              {handle
+                ? <InfluencerSummary handle={handle} option={optionForHandle(handle)} muted />
+                : <span className="text-content text-x-muted">미정</span>}
+              <span title="원고를 떼면 바꿀 수 있어요" aria-label="원고를 떼면 바꿀 수 있어요" className="cursor-help text-ui text-x-muted">🔒 ⓘ</span>
             </div>
+          );
+        }
+        // 배정 직후에도 입력칸 대신 요약을 보여준다 — [바꾸기]는 서버를 부르지 않고 핸들을 비워 입력칸으로 되돌린다
+        // (Task 7의 비용 초기화가 commitNewHandle('')에 이미 있어 여기서 다시 만들지 않는다).
+        if (handle) {
+          return (
+            <InfluencerSummary handle={handle} option={optionForHandle(handle)} actions={
+              <button type="button" onClick={() => commitNewHandle('')} className="text-ui text-x-secondary hover:underline">
+                바꾸기
+              </button>
+            } />
           );
         }
         return (

@@ -41,7 +41,7 @@ export interface PaymentMethod {
   email?: string;               // paypal: email 또는 paypalId 중 하나 필수
   paypalId?: string;            // PayPal.me 아이디(paypal.me/<id>) — 이메일 대신 아이디로 받는 인플이 있다
   identifier?: string;          // paypay 수취 식별 정보 — 선택(미확정)
-  qr?: string;                  // paypay QR 이미지의 저장소 경로 — 선택. 절대 URL이 아니다(058)
+  qr?: string;                  // paypay QR 이미지의 저장소 경로 — 선택. 절대 URL이 아니다(059)
   bank?: string;
   branch?: string;
   account?: string;

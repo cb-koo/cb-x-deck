@@ -118,7 +118,7 @@ test('planRosterOverwrite: patch가 명부 수단과 안 맞으면 invalid(같�
   assert.deepEqual(plan, { skip: 'invalid' });
 });
 
-// 058: qr 병합 시 fee·memo·isDefault가 사라지는 회귀를 막는다 — 09-22에 정산 정정이 명부를 덮으며
+// 059: qr 병합 시 fee·memo·isDefault가 사라지는 회귀를 막는다 — 09-22에 정산 정정이 명부를 덮으며
 // 명부에만 있는 값(수수료 설정)을 지울 뻔한 것과 같은 종류의 버그라 별도 테스트로 남긴다.
 test('planRosterOverwrite: qr만 고쳐도 fee·memo는 보존한다', () => {
   const pmPaypay: PaymentMethod = {

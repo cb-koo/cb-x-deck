@@ -64,7 +64,7 @@ export function CostConfirmField({
           <input disabled placeholder="₩" aria-label={label}
                  className="h-10 w-full rounded-md border border-dashed border-x-border-strong bg-x-surface px-3 text-content text-x-muted" />
         )}
-        <p className="mt-1 text-caption text-x-muted">{disabledReason}</p>
+        <p className="mt-1 text-ui text-x-muted">{disabledReason}</p>
       </div>
     );
   }
@@ -160,7 +160,7 @@ export function CostConfirmField({
         )}
       </div>
       {(err ?? externalError) && <p role="alert" className="mt-1 text-ui text-red-600">{err ?? externalError}</p>}
-      {statusText && <p className={`mt-1 text-caption ${amber ? 'text-amber-700' : 'text-x-muted'}`}>{statusText}</p>}
+      {statusText && <p className={`mt-1 text-ui ${amber ? 'text-amber-700' : 'text-x-muted'}`}>{statusText}</p>}
       {dialog && option && (
         <PriceProfileDialog scenario={dialog.scenario} handle={option.handle} type={type}
                             profile={profile} entered={dialog.entered}

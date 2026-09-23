@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import type { DraftRow } from '@/lib/draftStore';
@@ -242,9 +242,12 @@ export function TaskPanel({
   // fill로 이 신호를 보낸다(위 formHandleFill 주석) — commitNewHandle로 기존 핸들 입력과 같은 검증·저장
   // 경로를 탄다(새 로직이 아니다). handle이 null이면(카드에서 해제) 빈 문자열로 — commitNewHandle('')은
   // 이미 '비우기'로 정의돼 있다(handle 커밋 함수 본문 참고).
+  // useEffectEvent — commitNewHandle이 지금 handle을 읽으므로(같은 사람이면 비용을 안 비운다) 최신 값을 보되,
+  // 이펙트는 fill 신호가 올 때만 돈다.
+  const fillHandle = useEffectEvent((h: string) => commitNewHandle(h));
   useEffect(() => {
     if (!formHandleFill) return;
-    commitNewHandle(formHandleFill.handle ?? '');
+    fillHandle(formHandleFill.handle ?? '');
   }, [formHandleFill]);
 
   // 바깥을 누르면 닫는다(koo 09-19). 예외 셋: ① 패널 안 ② 표의 행 — 다른 작업으로 갈아타는 동작이라 행이 직접
@@ -294,15 +297,20 @@ export function TaskPanel({
       ? { taskId: next.taskId, label: c ? candidateLabel(c) : '선택한 작업', sub: c && c.campaignId !== campaign.id ? c.campaignName : null, posted: !!c?.postedAt, postUrl: c ? c.postUrl : undefined }
       : current);
   }
+  // 지금 핸들의 명부 값 — 비용 칸과 [만들기]의 프로필 질문이 같은 조회를 쓴다
+  function optionForHandle(h: string): InfluencerOption | undefined {
+    return h ? influencerOptions.find((o) => o.handle.toLowerCase() === h.toLowerCase()) : undefined;
+  }
   function commitNewHandle(raw: string) {
     const v = raw.trim();
     if (!v) { setHandle(''); setHandleInput(''); setHandleErr(null); setNewCost(null); return; }
     const p = parseXHandle(v);
     if (!p.ok) { setHandleErr(handleParseMessage(p.reason)); return; }
+    // 사람이 실제로 바뀔 때만 앞사람 기준 비용을 버린다 — 비용 칸이 다시 마운트되며 새 사람의 프로필 단가를
+    // 올린다. 같은 핸들이 다시 커밋되면(블러마다 부른다) 비우지 않는다: 비우면 칸엔 금액이 보이는데 [만들기]는
+    // 비용 없이 저장하거나, 다시 마운트될 때 입력한 금액이 프로필 단가로 조용히 바뀐다(설계 §8 '보이는 값 저장').
+    if (p.handle.toLowerCase() !== handle.toLowerCase()) { setNewCost(null); setCostErr(null); }
     setHandle(p.handle); setHandleInput(p.handle); setHandleErr(null);
-    // 여기서 newCost를 비우지 않는다 — 사람이 바뀌면 비용 칸이 key(handle)로 다시 마운트되며 새 사람의 프로필
-    // 단가(없으면 null)를 올려 앞사람 값을 덮는다. 같은 핸들이 다시 커밋되면(블러마다 부른다) 칸은 그대로라
-    // 여기서 비우면 칸엔 금액이 보이는데 [만들기]는 비용 없이 저장한다(설계 §8 '보이는 값 저장').
   }
   async function submitNew(more: boolean) {
     if (!newType || busy) return;
@@ -316,7 +324,7 @@ export function TaskPanel({
       draftId: newDraft?.id ?? null,
     });
     // 보이는 값을 그대로 저장하고, 프로필과 다르거나 프로필에 없으면 만든 뒤 한 번 묻는다(판정은 [확인]과 같은 함수)
-    const opt = handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined;
+    const opt = optionForHandle(handle);
     const prompt = profilePromptFor({ option: opt, type: newType, cost: newCost });
     const result = await onCreate(body, more, prompt && opt && newCost ? { option: opt, cost: newCost, type: newType, ...prompt } : null);
     setBusy(false);
@@ -524,14 +532,15 @@ export function TaskPanel({
         );
       case 'cost': {
         // 명부 값(option)은 handle이 정해졌을 때만 있다 — 미정이면 disabledReason으로 비활성(브리프 §5).
-        const opt = handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined;
+        const opt = optionForHandle(handle);
         return (
-          // key=handle — 인플루언서가 바뀌면(미정 → 배정 포함) 새 프로필 단가로 다시 초기화한다(마운트 시 한 번만
-          // 채우는 필드라 안 그러면 방금 배정한 인플의 단가 제안이 안 보인다). key에 옵션 도착 여부도 넣는다 —
-          // 인플 목록이 늦게 오면 빈 칸으로 마운트돼 '보이는 값 저장'이 비용 없이 저장된다(설계 §8). 목록이 오면
-          // 다시 마운트돼 채워진다. 유형도 넣는다 — 유형을 바꿔도 이 칸은 그대로 남아(같은 'cost' 칸) 앞 유형의 단가가
-          // 새 유형의 비용으로 조용히 저장된다. draft 모드라 [확인]이 없고 값이 바뀔 때마다 newCost로 올라온다.
-          <CostConfirmField key={`${handle}:${newType}:${opt ? 'o' : '-'}`} mode="draft" value={null} option={opt} type={newType as TaskType}
+          // 초기값은 부모의 newCost(없으면 프로필 단가) — 원고 모드를 다녀오면 폼이 언마운트됐다 다시 마운트되는데,
+          // 그때 입력한 금액이 프로필 단가로 조용히 바뀌지 않게 한다. 'invalid'는 값으로 못 옮겨 비운 채 넘긴다
+          // (다시 마운트되면 보이는 값 — 프로필 단가 또는 빈 칸 — 이 다시 올라와 '보이는 값 = 저장 값'이 유지된다).
+          // key: 인플·유형이 바뀌면(그때 newCost는 위에서 비운다) 새 프로필 단가로 다시 채운다. 옵션 도착 여부도
+          // 넣는다 — 인플 목록이 늦게 오면 빈 칸으로 마운트됐다가, 목록이 오면 다시 마운트돼 채워진다(설계 §8).
+          // draft 모드라 [확인]이 없고 값이 바뀔 때마다 newCost로 올라온다.
+          <CostConfirmField key={`${handle}:${newType}:${opt ? 'o' : '-'}`} mode="draft" value={newCost !== 'invalid' ? newCost : null} option={opt} type={newType as TaskType}
                             label={fieldLabel('cost', newType as TaskType)} error={costErr}
                             onDraftChange={(v) => { setNewCost(v); setCostErr(null); }}
                             onSave={async () => true}
@@ -717,7 +726,7 @@ export function TaskPanel({
               ) : (
                 <div role="group" aria-label="작업 유형" className="mt-1 inline-flex overflow-hidden rounded-lg border border-x-border-strong">
                   {DISPLAY_TYPE_ORDER.map((k) => (
-                    <button key={k} type="button" aria-pressed={newType === k} onClick={() => setNewType(k)} disabled={busy}
+                    <button key={k} type="button" aria-pressed={newType === k} onClick={() => { if (k !== newType) { setNewCost(null); setCostErr(null); } setNewType(k); }} disabled={busy}
                             className={`border-r border-x-border-strong px-3.5 py-2 text-content last:border-r-0 disabled:opacity-50 ${newType === k ? 'bg-x-text text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
                       {TASK_TYPE_LABEL[k]}
                     </button>

@@ -1057,7 +1057,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                             profile={pricePrompt.profile} entered={pricePrompt.cost}
                             onAnswer={(toProfile) => {
                               const p = pricePrompt; setPricePrompt(null);
-                              if (toProfile) void saveProfilePricing(p.option, p.cost, p.type).then((ok) => { if (ok) show('프로필 단가도 바꿨어요'); });
+                              if (toProfile) void saveProfilePricing(p.option, p.cost, p.type).then((ok) => { if (ok) show('프로필에도 저장했어요'); });
                             }} />
       )}
       {postedFor && (

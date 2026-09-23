@@ -158,6 +158,26 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 - **왜 302 리다이렉트가 아니라 바이트를 그대로 주는가:** 302는 그쪽 HTTP 클라이언트가 리다이렉트를 따라가야 하고, 안 따라가면 저희가 알 수 없는 실패가 됩니다. 증빙은 스크린샷 한 장(버킷 상한 10MB)이라 바이트로 주는 편이 모호함이 없습니다.
 - **이 호출도 저희 쪽 호출 기록에 남습니다.** 이 API의 용도가 "지급 전 확인"이므로, **그쪽이 언제 이 증빙을 열어봤는지가 저희 쪽에 기록되는 것 자체가 근거**가 될 수 있습니다.
 
+## 4-2. `GET /api/external/settlement/requests/{request_id}/payment-qr` — PayPay QR 이미지 (2026-09-22 추가)
+
+인플루언서 중에는 PayPay 수취 식별값(`identifier`) 대신, 또는 그것과 함께 **수취 QR 이미지만** 주는 경우가 있다. 그 QR을 이 엔드포인트로 내려받는다. §4-1(증빙)과 같은 형식이다.
+
+```
+GET /api/external/settlement/requests/{request_id}/payment-qr
+Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
+```
+
+| 응답 | 조건 |
+|---|---|
+| **200** | QR이 있음. 본문은 이미지 바이트 그대로, `Content-Type: image/jpeg` \| `image/png` \| `image/webp` |
+| **404** | 아래 세 경우 중 하나 — ① 요청이 없음 ② 있어도 결제 수단에 QR이 등록되어 있지 않음 ③ QR 경로는 있는데 저장소에서 찾지 못함(드묾). 저희 쪽 기록에는 셋을 구분해 남기지만 **응답은 셋 다 같은 404**다(본문 없음) |
+| **401** | 키 불일치. 본문 없음 |
+
+모든 응답에 `Cache-Control: no-store`가 붙는다(§2와 동일).
+
+- **`payment_method.qr_url`(§5)이 항상 이 주소다.** §4-1과 같은 이유로 서명 URL이 아니라 고정 주소를 준다 — 열 때마다 저희 쪽에서 새로 서명하므로 만료가 없다.
+- 이 호출도 저희 쪽 호출 기록에 남는다(§4-1과 동일).
+
 ## 5. Item 필드
 
 `GET` 목록의 `items[]`, `GET` 단건의 `item`, `POST` 응답의 `request`가 전부 같은 모양(`Item`)을 쓴다 — 세 곳이 서로 다른 모양을 낼 수 없다.
@@ -208,6 +228,7 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 | `proof.uploaded_at` | string(ISO 8601) | | 스크린샷을 올린 시각. |
 | `proof.uploaded_by` | string | | 스크린샷을 올린 사람 이름. |
 | `payment_method` | object(문자열 값만) | 아니오 | 결제 수단 스냅샷. **`type`(`"paypal"` \| `"paypay"` \| `"bank"`)·`holder`(수취인)·`currency`(`"KRW"` \| `"JPY"`)는 항상 있다** — 결제 수단이 없는 작업은 요청을 만들 수 없기 때문. 나머지 `email`, `paypal_id`, `identifier`, `bank`, `branch`, `account`는 수단 종류에 따라 있는 키만 내려온다(paypal: `email` 또는 `paypal_id`, paypay: `identifier`(**2026-09-03부터 새 요청에서는 항상 있음** — 없는 PayPay 인플루언서는 요청을 만들 수 없게 막았다. 그 전 요청에만 빠져 있을 수 있다), bank: `bank`·`account`·`branch`(일본 계좌만)). 전부 snake_case(원본 `paypalId` → `paypal_id`). **값이 없는 키는 `null`이 아니라 키 자체가 없다.** |
+| `payment_method.qr_url` | string | 예 | **PayPay에서 QR로 받는 경우**(2026-09-22 추가). 이 주소로 `GET`하면 이미지가 온다(§4-2) — `proof.url`과 같은 방식으로 고정 주소이고 서명 URL이 아니라 만료되지 않는다. **값이 없으면 키 자체가 없다**(QR을 등록하지 않았거나, PayPay가 아닌 수단). `identifier`(수취 식별값)와 둘 중 하나만 있어도 되고 둘 다 있을 수도 있다. |
 | `requester.name` | string | 아니오 | 요청자 이름. |
 | `requester.email` | string \| null | 예 | 운영에서는 요청자가 로그인한 멤버라 사실상 항상 값이 있다(멤버 계정이 삭제된 경우에만 `null`). **스테이징의 슬랙 이관 데이터는 요청자에 멤버 계정이 없어 전부 `null`** — 스테이징에서 이 필드로 매핑을 검증하지 말 것. |
 | `requester.slack_id` | string \| null | 예 | 우리 쪽에 Slack ID가 등록된 요청자만 값이 있다(스테이징 이관 데이터는 전부 `null`). 없으면 `email`로 Slack `users.lookupByEmail`을 쓰면 된다. **`payer`/`cc`에 대응하는 필드는 없다** — 아래 참고. |
@@ -330,7 +351,7 @@ Content-Type: application/json
 | `correction_id` | 예 | string(uuid) | 그쪽이 발급한 정정 식별자. **멱등 키이자 회신 상관관계 키** — 반영 뒤 Item의 `payment_method_correction.correction_id`로 되돌아온다. 요청 하나에 한 번만 쓴다(다른 요청에 재사용하면 400 `field: "correction_id"`). |
 | `base_source_revision` | 예 | number(정수 ≥ 0) | 정정이 기준한 Item의 `revision`. 저희 현재 값과 다르면 **409 `revision-mismatch`**. |
 | `base_source_updated_at` | 예 | string(ISO 8601) | 기준한 Item의 `updated_at`. **형식만 검사하고 판정에는 쓰지 않는다**(정보용·로그용) — 그쪽 자신의 상태 POST도 저희 `updated_at`을 갱신하므로 정확히 일치하기를 요구하면 정상 흐름에서도 거절이 난다. 동시성 판정은 `base_source_revision`으로 충분하다(취소는 `status`, 지급 완료는 `settlement.status`가 따로 막는다). |
-| `payment_method` | 예 | object | **바뀐 키만** 담는다(부분 전송). 허용 키 7개: `holder`·`paypal_id`·`email`·`identifier`·`bank`·`branch`·`account`. 값은 문자열(앞뒤 공백 제거, ≤200자). **`type`·`currency`는 보낼 수 없다**(400) — 수단 종류·통화를 바꾸는 것은 다른 의무라 `on_hold` + `note`로 알려 달라. 7개 밖의 키·비어 있는 객체도 400. **비우기(`null` 또는 `""`)는 선택 항목만**: `branch`, 그리고 PayPal의 `email`·`paypal_id`(둘 중 하나는 남아야 한다). 그 외 키를 비우면 400. |
+| `payment_method` | 예 | object | **바뀐 키만** 담는다(부분 전송). 허용 키 8개: `holder`·`paypal_id`·`email`·`identifier`·`bank`·`branch`·`account`·`qr`. 값은 문자열(앞뒤 공백 제거, ≤200자) — **단 `qr`만 예외**: **data URI(base64)로 보낸다**(외부 URL은 받지 않는다 — 예: `data:image/png;base64,…`), 상한 5MB, 형식 JPG·PNG·WebP만. **`type`·`currency`는 보낼 수 없다**(400) — 수단 종류·통화를 바꾸는 것은 다른 의무라 `on_hold` + `note`로 알려 달라. 8개 밖의 키·비어 있는 객체도 400. **비우기(`null` 또는 `""`)는 선택 항목만**: `branch`, PayPal의 `email`·`paypal_id`(둘 중 하나는 남아야 한다), 그리고 **`qr`**(`null`로 보내면 지워진다 — 잘못 올린 QR을 되돌릴 길). 그 외 키를 비우면 400. |
 | `operator` | **예** | `{ id: string, name: string }` (각 ≤100자) | 정정을 실행한 그쪽 담당자. 상태 POST(§6)에서는 선택이지만 정정은 사람이 하는 일이라 **필수** — 없으면 400 `field: "operator"`. 저희 화면과 명부 활동 기록에 "정산 쪽이 수취 정보를 고쳤어요 · {name}"로 보인다. |
 | `reason` | 예 | string, ≤500자 | 정정 사유(자유 텍스트). 저희 화면·활동 기록에 그대로 보인다. |
 | `idempotency_key` | 아니오 | string(≤200자) \| null | 재전송 안전 키. 같은 요청 안에서 같은 키가 이미 반영됐으면 **다시 적용하지 않고 최초 결과를 돌려준다**(아래 규칙 3). `correction_id`만으로도 멱등이므로 없어도 된다. |
@@ -393,7 +414,7 @@ curl -sS -X POST "$BASE/api/external/settlement/requests/$REQUEST_ID/payment-inf
 - 하위 호환을 깨는 변경은 이 경로를 그대로 두고 새 `/v2` 경로로 낸다. 이 문서·엔드포인트가 예고 없이 모양을 바꾸는 일은 없다.
 - 이 API에는 `event_id`나 웹훅이 없다(§1). HMAC 서명도 쓰지 않는다 — 웹훅이 없으므로 필요하지 않다.
 - 담당자·연락 채널은 운영 단계에서 별도 안내한다.
-- **개정 기록.** 2026-09-01 `payout.gross_krw` 추가 / 2026-09-02 `proof`·`GET …/proof` 추가, 증빙만 최신값(§3-2) / 2026-09-02 요청 생성 사전 차단(RT `proof`·그 외 `reference_url` 필수) / 2026-09-03 PayPay `identifier` 필수, `payment_method` 빈 키 생략 명시 / 2026-09-07 상태 POST `operator` 선택 필드, 모르는 키 무시 명시 / **2026-09-07 제자리 수정(§3-1 개정, `revision` 의미 변경, `revised_at` 추가, 상태 POST `revision` 필수·409 `revision-mismatch`) — 2026-09-08 양쪽 스위치 ON, 전환 완료.** / 2026-09-09 상태 POST `paid_amount_usd` 선택 필드 수용, Item `settlement.paid_amount_usd` 되비침 추가. / 2026-09-09 `paid_amount_jpy`·`paid_currency` 선택 필드 수용(외화는 paid에서만·한 요청에 하나·보낸 것만 갱신), Item `settlement.paid_amount_jpy` 되비침 추가. / **2026-09-14 Item에 `campaign.starts_on`·`campaign.ends_on`(캠페인 기간)·`posted_on`(게시일, RT 외)·`confirmed_on`(RT 확인일) 추가 — 전부 요청 시점 스냅샷, 기존 요청은 현재값으로 백필. 키만 늘었고 기존 키·의미 변화 없음.** / **2026-09-21 `POST …/payment-info`(§6-1) 신설 — 그쪽 09-21 요청 수용. 같은 요청의 `payment_method`만 정정, `revision`·`settlement.*` 불변, 멱등(`correction_id`·`idempotency_key`), 409 코드는 §6과 같은 세 가지. 200 응답은 `{ applied, correction_id, request }`로 `version`이 없다(그쪽 엄격 파서, 이 엔드포인트만의 예외). Item에 `payment_method_correction`(정정 표식)·`influencer.display_name`(명부 표시명, 최신값) 추가 — 키만 늘었고 기존 키·의미 변화 없음.** / **2026-09-22 정정이 고친 항목을 인플루언서 명부(원본)의 해당 수단에도 함께 반영으로 변경(§6-1) — 이전엔 요청에만 반영. 그쪽 API 요청·응답·판정은 불변, 저희 쪽 수신 후 처리만 달라졌다.**
+- **개정 기록.** 2026-09-01 `payout.gross_krw` 추가 / 2026-09-02 `proof`·`GET …/proof` 추가, 증빙만 최신값(§3-2) / 2026-09-02 요청 생성 사전 차단(RT `proof`·그 외 `reference_url` 필수) / 2026-09-03 PayPay `identifier` 필수, `payment_method` 빈 키 생략 명시 / 2026-09-07 상태 POST `operator` 선택 필드, 모르는 키 무시 명시 / **2026-09-07 제자리 수정(§3-1 개정, `revision` 의미 변경, `revised_at` 추가, 상태 POST `revision` 필수·409 `revision-mismatch`) — 2026-09-08 양쪽 스위치 ON, 전환 완료.** / 2026-09-09 상태 POST `paid_amount_usd` 선택 필드 수용, Item `settlement.paid_amount_usd` 되비침 추가. / 2026-09-09 `paid_amount_jpy`·`paid_currency` 선택 필드 수용(외화는 paid에서만·한 요청에 하나·보낸 것만 갱신), Item `settlement.paid_amount_jpy` 되비침 추가. / **2026-09-14 Item에 `campaign.starts_on`·`campaign.ends_on`(캠페인 기간)·`posted_on`(게시일, RT 외)·`confirmed_on`(RT 확인일) 추가 — 전부 요청 시점 스냅샷, 기존 요청은 현재값으로 백필. 키만 늘었고 기존 키·의미 변화 없음.** / **2026-09-21 `POST …/payment-info`(§6-1) 신설 — 그쪽 09-21 요청 수용. 같은 요청의 `payment_method`만 정정, `revision`·`settlement.*` 불변, 멱등(`correction_id`·`idempotency_key`), 409 코드는 §6과 같은 세 가지. 200 응답은 `{ applied, correction_id, request }`로 `version`이 없다(그쪽 엄격 파서, 이 엔드포인트만의 예외). Item에 `payment_method_correction`(정정 표식)·`influencer.display_name`(명부 표시명, 최신값) 추가 — 키만 늘었고 기존 키·의미 변화 없음.** / **2026-09-22 정정이 고친 항목을 인플루언서 명부(원본)의 해당 수단에도 함께 반영으로 변경(§6-1) — 이전엔 요청에만 반영. 그쪽 API 요청·응답·판정은 불변, 저희 쪽 수신 후 처리만 달라졌다.** / **2026-09-22 PayPay QR 이미지 지원 — Item `payment_method.qr_url`(§5)·`GET …/payment-qr`(§4-2) 신설, `POST …/payment-info`(§6-1) 허용 키에 `qr` 추가(data URI(base64)로 보낸다, 5MB·JPG·PNG·WebP, `null`로 지운다). 키만 늘었고 기존 키·의미 변화 없음.**
 
 ## 9. curl 예시
 

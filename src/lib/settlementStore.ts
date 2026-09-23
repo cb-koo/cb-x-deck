@@ -641,13 +641,6 @@ export type CorrectionResult =
   | { kind: 'conflict'; code: 'request-cancelled' | 'paid-locked' | 'revision-mismatch'; row: PaymentRequestRow }
   | { kind: 'invalid'; field: string; error: string }
   | 'not-found';
-// QR 정정 처리(route.ts)가 저장소에 올리기 전에 필요 — 정정 트랜잭션보다 먼저, 별도 조회로 가볍게 구한다.
-export async function influencerIdOfRequest(sql: postgres.Sql, id: string): Promise<string | null> {
-  if (!isUuidLike(id)) return null;
-  const r = await sql<Array<{ influencer_id: string }>>`select influencer_id from payment_request where id = ${id}`;
-  return r[0]?.influencer_id ?? null;
-}
-
 // QR 업로드는 저장소 비용이 드니, 어차피 거절되거나(취소·지급완료·판 불일치·다른 요청에 쓴 correction_id) 이미 적용된 재전송이면
 // 올리지 않는다(리뷰 2026-09-23 Important 1·2). 잠금 없이 가볍게 미리 본 결과일 뿐 — **최종 판정은 여전히
 // applyPaymentMethodCorrection의 `for update` 트랜잭션**이 한다(경합 방어, §4-1은 여기서 다시 옮기지 않는다).

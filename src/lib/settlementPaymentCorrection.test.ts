@@ -193,6 +193,20 @@ test('parsePaymentInfoCorrection — qr도 MAX_PAYMENT_QR_BYTES를 훨씬 넘는
   const r = parsePaymentInfoCorrection(body({ payment_method: { qr: tooBig } }));
   assert.ok(!r.ok); assert.equal(r.field, 'payment_method.qr');
 });
+// 리뷰 2026-09-23 Minor 2: 일부 base64 인코더는 76자마다 개행을 넣는다(RFC 2045 관행). 5MB에 가까운 이미지면
+// 그 개행만 약 9만 자가 붙어, 개행을 안 뺀 원문 길이로 재면 실제로는 상한 이내인 이미지가 여기서 먼저 400으로
+// 막혔었다(고친 뒤: 공백을 턴 뒤 길이로 잰다) — 그 경계를 재현한다.
+test('parsePaymentInfoCorrection — qr에 76자마다 개행이 섞여도(인코더 관행) 통과한다', () => {
+  // settlementPaymentCorrection.ts의 QR_VALUE_MAX와 같은 식(비공개 상수라 여기서 다시 계산) — 상한 바로 아래로
+  // raw base64 길이를 잡는다(접두어 여유를 감안해 2000자 낮춤).
+  const qrValueMax = Math.ceil(MAX_PAYMENT_QR_BYTES / 3) * 4 + 256;
+  const rawB64 = 'A'.repeat(qrValueMax - 2000);
+  const wrapped = rawB64.match(/.{1,76}/g)!.join('\n');       // 76자마다 개행 — 약 (길이/76)개가 붙는다
+  const withNewlines = `data:image/png;base64,${wrapped}`;
+  assert.ok(withNewlines.length > qrValueMax, '개행을 더하면 옛 기준(원문 길이)은 이미 넘는 크기여야 재현이 된다');
+  const r = parsePaymentInfoCorrection(body({ payment_method: { qr: withNewlines } }));
+  assert.ok(r.ok, r.ok ? undefined : `${r.field}: ${r.error}`);
+});
 
 // ── 리뷰 2026-09-23 Critical 2: 호출 기록 본문에 base64가 남으면 안 된다 ──
 test('maskQrInRawBody — payment_method.qr의 base64를 길이 표시로 치환하고 다른 값은 그대로 둔다', () => {

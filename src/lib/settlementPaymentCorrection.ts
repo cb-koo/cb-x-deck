@@ -90,7 +90,13 @@ export function parsePaymentInfoCorrection(body: unknown): CorrectionParse {
     if (v !== null && typeof v !== 'string') return bad(`payment_method.${k}`, '문자열이어야 해요');
     const t = v === null ? '' : v.trim();
     const max = key === 'qr' ? QR_VALUE_MAX : VALUE_MAX;
-    if (t.length > max) return bad(`payment_method.${k}`, `${max}자를 넘어요`);
+    // qr만 공백을 턴 뒤 길이로 상한을 잰다(리뷰 2026-09-23 Minor 2). 일부 인코더는 base64를 76자마다 개행하는
+    // 관행이 있어(RFC 2045) 5MB 이미지면 개행만 약 9만 자가 붙는데, QR_VALUE_MAX의 여유(256자)로는 그걸
+    // 못 견딘다 — parseQrDataUri는 어차피 이 개행을 지우고 바이트를 재므로(§ 위 DATA_URI_RE), 여기서도 개행을
+    // 뺀 길이로 재야 "실제로는 5MB 이하인데 개행 때문에 여기서 먼저 400"이 나지 않는다. qr이 아닌 항목(홀더명 등)은
+    // 원문 그대로 200자를 지킨다 — 그런 값에서 공백은 사용자가 실제로 입력한 문자일 수 있어 무시하면 안 된다.
+    const len = key === 'qr' ? t.replace(/\s+/g, '').length : t.length;
+    if (len > max) return bad(`payment_method.${k}`, `${max}자를 넘어요`);
     if (!t.length) {
       if (!REMOVABLE.has(key)) return bad(`payment_method.${k}`, '비워 둘 수 없는 항목이에요');
       patch[key] = null;

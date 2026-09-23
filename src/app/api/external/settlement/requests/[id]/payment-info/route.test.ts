@@ -166,8 +166,11 @@ test('POST payment-info — 수 KB짜리 QR data URI가 200자 제한에 막히�
   const roster = (await sql<Array<{ payment_methods: Array<{ isDefault: boolean; qr?: string }> }>>`select payment_methods from influencer where handle = ${H('qr1')}`)[0].payment_methods;
   assert.equal(roster.find((m) => m.isDefault)!.qr, savedQr);
 
-  // Important 2: 같은 correction_id로 다시 보내면(멱등 재전송) 저장된 경로가 안 바뀐다 — 업로드를 건너뛰었다는
-  // 간접 확인(재업로드했다면 매번 새 uuid 경로가 생겨 값이 달라졌을 것).
+  // Important 2: 같은 correction_id로 다시 보내면(멱등 재전송) 저장된 경로가 안 바뀐다.
+  // 주의(재리뷰 2026-09-23): 이 assert는 "재전송이 이력을 새로 안 쓴다"만 확인한다 — applyPaymentMethodCorrection의
+  // replayed 분기가 patch를 아예 안 쓰기 때문에, 재전송 때 실제로 업로드를 건너뛰었든 안 뛰었든(새 경로를 만들고
+  // 버렸든) 여기 결과는 똑같다. 즉 이 테스트는 precheckCorrectionForQrUpload(업로드 자체를 생략하는 최적화)를
+  // 검증하지 못한다 — 그 최적화는 settlementStore.test.ts의 precheckCorrectionForQrUpload 단위 테스트가 직접 본다.
   const replay = await call(req.id, body({ correction_id: qrCid, payment_method: { qr: qrDataUri(6) }, reason: 'QR 갱신' }));
   assert.equal(replay.status, 200);
   const [corrAfterReplay] = await sql<Array<{ patch: { qr?: string } }>>`select patch from payment_request_payment_correction where id = ${qrCid}`;
@@ -185,7 +188,7 @@ test('POST payment-info — QR이 5MB를 넘으면 400으로 거절하고 저장
   assert.equal(row.payment_method.qr, undefined, '거절된 정정은 요청에 반영되면 안 된다');
 });
 
-test('POST payment-info — 취소된 요청이면 QR을 저장소에 올리지 않고 409로 거절한다(Important 1)', async () => {
+test('POST payment-info — 취소된 요청이면 QR 정정을 반영하지 않고 409로 거절한다(Important 1)', async () => {
   const req = await requestFor('qr3', 'qr3', { type: 'paypay' });
   await sql`update payment_request set status = 'cancelled' where id = ${req.id}`;
   const before = (await sql<Array<{ payment_methods: unknown[] }>>`select payment_methods from influencer where handle = ${H('qr3')}`)[0];
@@ -193,7 +196,10 @@ test('POST payment-info — 취소된 요청이면 QR을 저장소에 올리지 
   assert.equal(res.status, 409);
   const j = await res.json();
   assert.equal(j.code, 'request-cancelled');
-  // 명부가 그대로다 — 거절될 정정이 업로드·반영을 만들지 않았다는 간접 확인.
+  // 명부가 그대로다 — 거절될 정정이 요청·명부 어느 쪽도 바꾸지 않았다는 확인. 주의(재리뷰 2026-09-23): 이 assert는
+  // applyPaymentMethodCorrection이 취소 상태면 애초에 patch/명부를 안 쓰기 때문에 항상 성립한다 — precheck로
+  // 업로드 자체를 건너뛰었는지는 이걸로 못 가린다(precheckCorrectionForQrUpload를 지워 매번 업로드해도 이 assert는
+  // 그대로 통과한다). 업로드 생략은 settlementStore.test.ts의 precheckCorrectionForQrUpload 단위 테스트가 직접 본다.
   const after = (await sql<Array<{ payment_methods: unknown[] }>>`select payment_methods from influencer where handle = ${H('qr3')}`)[0];
   assert.deepEqual(after.payment_methods, before.payment_methods);
 });

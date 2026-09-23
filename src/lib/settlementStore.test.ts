@@ -12,7 +12,7 @@ import {
   getSettlementSettings, saveSettlementSettings, listSettlementVersions, lastQuoteRtCategory, listCandidates,
   createRequests, cancelRequest, listRequests, settlementByTaskIds, SettlementCreateError,
   listForExport, getForExport, applyExternalStatus, ackDiff, unackDiff,
-  reviseRequest, previewRevision, listRevisions, applyPaymentMethodCorrection,
+  reviseRequest, previewRevision, listRevisions, applyPaymentMethodCorrection, precheckCorrectionForQrUpload,
 } from './settlementStore.ts';
 import type { CreateItemInput, PaymentRequestRow } from './settlementStore.ts';
 import { encodeCursor, decodeCursor, toExternalItem } from './settlementExternal.ts';
@@ -1038,3 +1038,64 @@ test('applyPaymentMethodCorrection — qr을 null로 지운다', () => revisionO
   assert.ok(r !== 'not-found' && r.kind === 'applied');
   assert.equal((await listRequests(sql, { taskId: row.taskId! }))[0].paymentMethod.qr, undefined);
 }));
+
+// ── precheckCorrectionForQrUpload 단위 테스트(재리뷰 2026-09-23 Important 1) ──
+// 이 함수는 QR 업로드(저장소 쓰기)를 시작하기 전에 "어차피 거절되거나 재적용되지 않을 정정"인지 가볍게 미리 본다
+// (취소·지급완료·판 불일치·이미 적용된 correction_id·idempotency_key). route.test.ts의 취소·재전송 테스트는 이
+// 최적화 자체를 검증하지 못한다 — precheckCorrectionForQrUpload를 통째로 지워도(=매번 업로드해도) 그 테스트들은
+// 그대로 통과한다(취소는 애초에 patch/명부를 안 쓰고, 재전송은 멱등 분기가 patch를 다시 안 쓰기 때문에 결과가
+// 업로드 여부와 무관하다). 라우트 레벨에서 "업로드가 실제로 없었다"를 확인하려면 storage 버킷을 조회해야 하는데,
+// 그건 이 파일의 다른 DB 테스트들처럼 느려지고 버킷 상태에 기대는 만큼 불안정해진다 — precheck는 DB만 보는 순수
+// 판정 함수이므로 여기서 입력 → proceed를 직접 확인하는 편이 더 정확하고 빠르다(권장 경로 (나)).
+test('precheckCorrectionForQrUpload — 취소된 요청은 proceed:false', () => revisionOn(async () => {
+  const { row, member } = await requestFor('pre1', 'pre1', { type: 'paypay' });
+  await cancelRequest(sql, row.id, '중복', member);
+  const pre = await precheckCorrectionForQrUpload(sql, row.id, corr({ qr: 'x' }, { correctionId: CID(20) }));
+  assert.deepEqual(pre, { influencerId: row.influencerId, proceed: false });
+}));
+
+test('precheckCorrectionForQrUpload — 지급 완료된 요청은 proceed:false', () => revisionOn(async () => {
+  const { row } = await requestFor('pre2', 'pre2', { type: 'paypay' });
+  await applyExternalStatus(sql, row.id, upd('paid', '2026-09-21T05:00:00Z', { paidAmountKrw: row.grossKrw, paidAt: '2026-09-21T04:59:00Z', revision: 0 }));
+  const pre = await precheckCorrectionForQrUpload(sql, row.id, corr({ qr: 'x' }, { correctionId: CID(21) }));
+  assert.deepEqual(pre, { influencerId: row.influencerId, proceed: false });
+}));
+
+test('precheckCorrectionForQrUpload — 정정이 기준한 판(revision)이 지금과 다르면 proceed:false', () => revisionOn(async () => {
+  const { row } = await requestFor('pre3', 'pre3', { type: 'paypay' });
+  const pre = await precheckCorrectionForQrUpload(sql, row.id, corr({ qr: 'x' }, { baseRevision: 9, correctionId: CID(22) }));
+  assert.deepEqual(pre, { influencerId: row.influencerId, proceed: false });
+}));
+
+test('precheckCorrectionForQrUpload — 이미 적용된 correction_id(재전송)는 proceed:false', () => revisionOn(async () => {
+  const { row } = await requestFor('pre4', 'pre4', { type: 'paypay' });
+  const applied = await applyPaymentMethodCorrection(sql, row.id, corr({ holder: '새 이름' }, { correctionId: CID(23) }));
+  assert.ok(applied !== 'not-found' && applied.kind === 'applied');
+  const pre = await precheckCorrectionForQrUpload(sql, row.id, corr({ qr: 'x' }, { correctionId: CID(23) }));
+  assert.deepEqual(pre, { influencerId: row.influencerId, proceed: false }, '같은 correction_id면 재전송으로 보고 업로드를 건너뛴다');
+}));
+
+test('precheckCorrectionForQrUpload — 다른 correction_id라도 이미 쓴 idempotency_key면 재전송으로 본다', () => revisionOn(async () => {
+  const { row } = await requestFor('pre5', 'pre5', { type: 'paypay' });
+  const applied = await applyPaymentMethodCorrection(sql, row.id, corr({ holder: '새 이름' }, { correctionId: CID(24), idempotencyKey: 'pre5-key' }));
+  assert.ok(applied !== 'not-found' && applied.kind === 'applied');
+  const pre = await precheckCorrectionForQrUpload(sql, row.id, corr({ qr: 'x' }, { correctionId: CID(25), idempotencyKey: 'pre5-key' }));
+  assert.deepEqual(pre, { influencerId: row.influencerId, proceed: false });
+}));
+
+test('precheckCorrectionForQrUpload — 거절될 이유가 없으면 proceed:true', () => revisionOn(async () => {
+  const { row } = await requestFor('pre6', 'pre6', { type: 'paypay' });
+  const pre = await precheckCorrectionForQrUpload(sql, row.id, corr({ qr: 'x' }, { correctionId: CID(26) }));
+  assert.deepEqual(pre, { influencerId: row.influencerId, proceed: true });
+}));
+
+test('precheckCorrectionForQrUpload — 없는 요청·uuid 형식이 아닌 id는 influencerId:null, proceed:false', async () => {
+  assert.deepEqual(
+    await precheckCorrectionForQrUpload(sql, '00000000-0000-0000-0000-000000000000', corr({ qr: 'x' }, { correctionId: CID(27) })),
+    { influencerId: null, proceed: false },
+  );
+  assert.deepEqual(
+    await precheckCorrectionForQrUpload(sql, 'nope', corr({ qr: 'x' }, { correctionId: CID(28) })),
+    { influencerId: null, proceed: false },
+  );
+});

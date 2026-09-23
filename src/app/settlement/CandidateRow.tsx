@@ -72,7 +72,7 @@ export function CandidateRow({ c, edit, categories, selected, failure, proofSign
           <span key={i.code} className={i.level === 'blocked' ? 'text-red-700' : 'text-amber-700'}>
             {i.text}
             {i.code === 'no-payment-method' && <> · <Link href="/influencers" className="underline">프로필에서 등록 →</Link></>}
-            {i.code === 'paypay-no-identifier' && <> · <Link href="/influencers" className="underline">프로필에서 채우기 →</Link></>}
+            {i.code === 'paypay-no-receiving-info' && <> · <Link href="/influencers" className="underline">프로필에서 채우기 →</Link></>}
             {i.code === 'no-influencer' && <> · <Link href="/influencers" className="underline">명부 →</Link></>}
             {i.code === 'no-proof' && <> · <Link href={`/campaigns?id=${c.campaignId}`} className="underline">캠페인에서 채우기 →</Link></>}
           </span>
@@ -85,6 +85,7 @@ export function CandidateRow({ c, edit, categories, selected, failure, proofSign
 }
 function identOf(m: NonNullable<SettlementCandidate['method']>): string {
   if (m.type === 'paypal') return m.email ?? (m.paypalId ? `paypal.me/${m.paypalId}` : '');
-  if (m.type === 'paypay') return m.identifier ?? '미입력';
+  // qr(저장소 경로)이 있으면 송금 가능한 상태다 — identifier가 없다고 "미입력"으로 보이면 거짓 표시다(원칙 4)
+  if (m.type === 'paypay') return m.identifier ?? (m.qr ? 'QR 등록됨' : '미입력');
   return `${m.bank ?? ''} ${m.account ?? ''}`.trim();
 }

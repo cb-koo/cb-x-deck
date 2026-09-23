@@ -130,15 +130,22 @@ test('assessReadiness — 증빙 없는 RT는 🔴, 요청을 막는다', () => 
 });
 
 // 09-03 koo: 그쪽이 "PayPay 수취 식별값 없으면 송금 불가"로 확정 → 우리도 요청 단계에서 막는다
-test('assessReadiness — PayPay인데 수취 식별 정보가 없으면 🔴, 있으면 통과', () => {
+// 09-23 실사용 발견(paypay-qr): QR 이미지도 대안 수취 정보다 — identifier·qr 중 하나만 있어도 통과해야 한다.
+test('assessReadiness — PayPay인데 수취 정보(식별 정보·QR 둘 다)가 없으면 🔴, 하나라도 있으면 통과', () => {
   const base = { inRoster: true, category: 'X', referenceUrl: 'https://x.com/1', referenceRequired: true, removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false };
   const missing = assessReadiness({ ...base, method: paypay });
   assert.equal(missing.level, 'blocked');
-  const issue = missing.issues.find((i) => i.code === 'paypay-no-identifier')!;
+  const issue = missing.issues.find((i) => i.code === 'paypay-no-receiving-info')!;
   assert.equal(issue.level, 'blocked');
   assert.match(issue.text, /PayPay 수취 정보를 넣어야 요청할 수 있어요/);
-  const has = assessReadiness({ ...base, method: { ...paypay, identifier: '090-1234-5678' } });
-  assert.equal(has.level, 'ready');
+  assert.match(issue.text, /식별 정보나 QR 이미지 중 하나/);   // UX 원칙 ②: 무엇을 하면 되는지(QR도 대안)까지 말한다
+  const hasIdentifier = assessReadiness({ ...base, method: { ...paypay, identifier: '090-1234-5678' } });
+  assert.equal(hasIdentifier.level, 'ready');
+  // 이번 브랜치의 핵심 누락 — QR만 있어도(identifier 없이) 통과해야 한다
+  const hasQrOnly = assessReadiness({ ...base, method: { ...paypay, qr: 'inf-1/aaa.png' } });
+  assert.equal(hasQrOnly.level, 'ready');
+  const hasBoth = assessReadiness({ ...base, method: { ...paypay, identifier: '090-1234-5678', qr: 'inf-1/aaa.png' } });
+  assert.equal(hasBoth.level, 'ready');
 });
 
 test('assessReadiness — 참고 링크 없음은 필수 유형(투고·인용RT·방문)이면 🔴, RT면 🟡', () => {
@@ -185,6 +192,14 @@ test('snapshot — 필드 선별·양식 8번 문자열', () => {
   assert.equal(describeSnapshot(toMethodSnapshot(paypal)), 'PayPal | SAWADA KEIKO | ucymk@gmail.com');
   assert.equal(describeSnapshot(toMethodSnapshot({ ...paypal, email: undefined, paypalId: 'keiko' })), 'PayPal | SAWADA KEIKO | paypal.me/keiko');
   assert.equal(describeSnapshot(toMethodSnapshot(paypay)), 'PayPay | A | ');
+});
+
+// 09-23: QR만 있고 식별 정보가 없을 때 슬랙 줄이 빈칸으로 나가면 "왜 비었지?"가 된다 — qr 저장소 경로를 그대로 싣지 않고 "QR 등록됨"으로 감싼다
+test('describeSnapshot — PayPay가 QR만 있으면(식별 정보 없이) "QR 등록됨"이 뜬다, 저장소 경로는 새지 않는다', () => {
+  const qrOnly = { ...paypay, identifier: undefined, qr: 'inf-1/aaa.png' };
+  const line = describeSnapshot(toMethodSnapshot(qrOnly));
+  assert.equal(line, 'PayPay | A | QR 등록됨');
+  assert.doesNotMatch(line, /inf-1\/aaa\.png/);
 });
 
 test('toMethodSnapshot — qr 경로를 스냅샷에 싣는다 (스펙 §3-1)', () => {

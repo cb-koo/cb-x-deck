@@ -72,7 +72,7 @@ export function referenceUrlFor(t: { type: TaskType; postUrl: string | null; tar
 
 // ── 신호등(§3-7) ──
 export type ReadinessLevel = 'ready' | 'warn' | 'blocked';
-export type IssueCode = 'no-influencer' | 'no-payment-method' | 'no-category' | 'no-reference' | 'removed' | 'paypay-no-identifier' | 'no-client' | 'no-proof';
+export type IssueCode = 'no-influencer' | 'no-payment-method' | 'no-category' | 'no-reference' | 'removed' | 'paypay-no-receiving-info' | 'no-client' | 'no-proof';
 export interface ReadinessIssue { level: 'warn' | 'blocked'; code: IssueCode; text: string }
 // 클릭 전에 미리 보여준다(UX 원칙 ②) — createRequests의 거절 사유(settlementStore)와 문구를 맞춘다(042)
 // 클라이언트 지정은 캠페인 생성 시점에만 가능(수정 UI 없음·parseCampaignPatch가 clientId를 의도적으로 무시) — 클라이언트가 삭제되면
@@ -103,7 +103,10 @@ export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | 
   if (i.proofMissing) issues.push(NO_PROOF_ISSUE);
   if (i.removedAt) issues.push({ level: 'warn', code: 'removed', text: `게시 내려짐 ${monthDay(i.removedAt)}${i.removedReason ? ` · ${i.removedReason}` : ''}` });
   // 09-03 koo: 그쪽이 "PayPay 수취 식별값 없으면 송금을 시작할 수 없다"로 확정 → 🔴. 채우는 곳은 인플루언서 프로필의 결제 수단.
-  if (i.method?.type === 'paypay' && !i.method.identifier) issues.push({ level: 'blocked', code: 'paypay-no-identifier', text: 'PayPay 수취 정보를 넣어야 요청할 수 있어요 — 정산 쪽이 이 값 없이는 송금하지 못해요' });
+  // 09-23 koo(실사용 발견): QR 이미지도 대안 수취 정보다(paypay-qr 브랜치) — 식별 정보·QR 둘 다 없을 때만 막는다.
+  //   둘 중 하나라도 있으면 정산 쪽이 스캔/입력해 송금할 수 있다. 코드(paypay-no-receiving-info)도 "식별값 전용"이 아니라
+  //   "수취 정보 전체가 비었다"는 뜻으로 이름을 바꿨다 — 옛 이름을 그대로 두면 조건과 이름이 어긋나 다음에 읽는 사람이 오판한다.
+  if (i.method?.type === 'paypay' && !i.method.identifier && !i.method.qr) issues.push({ level: 'blocked', code: 'paypay-no-receiving-info', text: 'PayPay 수취 정보를 넣어야 요청할 수 있어요 — 식별 정보나 QR 이미지 중 하나가 있어야 정산 쪽이 송금할 수 있어요' });
   const level: ReadinessLevel = issues.some((x) => x.level === 'blocked') ? 'blocked' : issues.length ? 'warn' : 'ready';
   return { level, issues };
 }
@@ -142,10 +145,12 @@ export function toMethodSnapshot(m: PaymentMethod): PaymentMethodSnapshot {
   return s;
 }
 // 슬랙 양식 8번 `수단 | 수취인 | 식별정보` — 실데이터 형식 그대로(계좌는 은행 / 지점 / 번호, 지점 없으면 빈칸 유지)
+// paypay는 identifier가 없어도 qr만으로 송금 가능한 상태일 수 있다(09-23) — 그때 빈칸으로 나가면 "왜 비었지?"가 되므로
+// qr 저장소 경로는 그대로 노출하지 않고 "QR 등록됨"으로 감싼다.
 export function describeSnapshot(m: PaymentMethodSnapshot): string {
   let ident = '';
   if (m.type === 'paypal') ident = m.email ?? (m.paypalId ? `paypal.me/${m.paypalId}` : '');
-  else if (m.type === 'paypay') ident = m.identifier ?? '';
+  else if (m.type === 'paypay') ident = m.identifier ?? (m.qr ? 'QR 등록됨' : '');
   else ident = `${m.bank ?? ''} / ${m.branch ?? ''} / ${m.account ?? ''}`;
   return `${PAYMENT_TYPE_LABEL[m.type]} | ${m.holder} | ${ident}`;
 }

@@ -28,6 +28,20 @@ test('draftFirstMediaUrl: 첫 포스트 첫 미디어 url, 없으면 null', () =
   assert.equal(draftFirstMediaUrl({ content: { posts: [] }, edited: null }), null);
 });
 
+// 리뷰 발견: media 키 자체가 없는 옛 원고(jsonb 모양 미보증)에서 media[0]에 그냥 접근해 죽었다 —
+// FlowDetail.mergeRow가 다시 쓰기·재생성 응답마다 부르는 함수라 실사용에서 바로 터진다.
+// postNoMedia를 변수로 두는 이유: 리터럴로 바로 넘기면 known-property 체크가 text를 걸러낸다(타입은
+// media만 선언) — 실제 jsonb 행은 text와 media를 같이 갖되 media만 없는 모양이라 그 실물을 흉내낸다.
+test('draftFirstMediaUrl: media 키 자체가 없는 옛 원고 — 죽지 않고 null', () => {
+  const postNoMedia: { text?: string; media?: Array<{ url: string }> } = { text: '본문' };
+  assert.equal(draftFirstMediaUrl({ content: { posts: [postNoMedia] }, edited: null }), null);
+  assert.equal(draftFirstMediaUrl({ content: { posts: [{}] }, edited: null }), null);           // text도 media도 없음
+});
+
+test('draftPreviewFull: text 키 자체가 없어도 죽지 않고 빈 값 취급(null)', () => {
+  assert.equal(draftPreviewFull({ content: { posts: [{}] }, edited: null }), null);
+});
+
 test('draftKoLine: 캐시 없으면 null, 있으면 첫 줄만', () => {
   assert.equal(draftKoLine({ koLatest: null }), null);
   assert.equal(draftKoLine({ koLatest: ['첫 줄\n둘째 줄'] }), '첫 줄');

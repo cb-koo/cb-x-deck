@@ -1,7 +1,9 @@
 import { DRAFT_STATUSES, type DraftStatus } from '@/lib/draftStatus';
 
 // 뷰 공용 파생 — 테이블·칸반이 같은 계산을 쓰도록 순수 함수로 (스펙 2차 §draftViews)
-interface PreviewSource { posts: Array<{ text: string }> }
+// text·media 둘 다 optional로 둔다 — jsonb 모양은 보증되지 않는다(media 없는 옛 원고가 실제로 있다,
+// 리뷰 발견: draftFirstMediaUrl이 media[0]에서 그냥 죽었었다). 옵셔널 체이닝이 그 전제로 짜여 있다.
+interface PreviewSource { posts: Array<{ text?: string }> }
 
 export function draftPreviewLine(d: { content: PreviewSource; edited: PreviewSource | null }): string {
   const text = (d.edited ?? d.content).posts[0]?.text ?? '';
@@ -15,11 +17,12 @@ export function draftPreviewFull(d: { content: PreviewSource; edited: PreviewSou
   return text.trim() ? text : null;
 }
 
-interface PreviewMediaSource { posts: Array<{ media: Array<{ url: string }> }> }
+interface PreviewMediaSource { posts: Array<{ media?: Array<{ url: string }> }> }
 
 // TaskRow.draftFirstImage와 같은 계산(첫 포스트 첫 미디어 url) — mergeRow가 draft 편집 직후 표를 맞추는 용도.
+// media 키 자체가 없는 옛 원고가 있다 — media?.[0]으로 옵셔널 체이닝을 한 단 더 걸어야 안 죽는다.
 export function draftFirstMediaUrl(d: { content: PreviewMediaSource; edited: PreviewMediaSource | null }): string | null {
-  return (d.edited ?? d.content).posts[0]?.media[0]?.url ?? null;
+  return (d.edited ?? d.content).posts[0]?.media?.[0]?.url ?? null;
 }
 
 // 캐시된 한국어 대역의 첫 줄 — 없으면 null(호출부가 원문 미리보기로 폴백)

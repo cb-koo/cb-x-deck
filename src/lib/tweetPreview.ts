@@ -14,7 +14,7 @@ import { mapRawTweet } from './mappers.ts';
 // 서버 호출부·테스트는 그대로 이 파일을 쓴다.
 export { quotedFromTweet, type TweetPreview } from './tweetPreviewShape.ts';
 
-// X 상세 조회(getTweetDetail)만 실패해도 던지는 전용 오류 — 그 앞뒤의 DB 읽기·upsert 실패와 섞이면
+// X 클라이언트 생성·상세 조회(getTweetDetail) 실패에만 던지는 전용 오류 — 그 앞뒤의 DB 읽기·upsert 실패와 섞이면
 // 안 된다. 이 오류만 "확인하지 못했어요 — 잠시 후 다시 시도해 주세요" 문구로 잡히고, DB 오류 등 그 밖의
 // 예외는 그대로 위로 전파돼(500) 조용히 400으로 둔갑하지 않는다.
 export class TweetFetchError extends Error {

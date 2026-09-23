@@ -8,6 +8,20 @@ export function draftPreviewLine(d: { content: PreviewSource; edited: PreviewSou
   return (text.split('\n')[0] ?? '').trim();
 }
 
+// campaignTaskStore.toRow의 draftPreview와 같은 게이트(전문, 자르지 않음·빈 값은 null) — 패널 카드가
+// 다시 쓰기·재생성 직후에도 표(작업 행)와 같은 문구를 보이려면 이 규칙을 공유해야 한다(TaskRow.draftPreview).
+export function draftPreviewFull(d: { content: PreviewSource; edited: PreviewSource | null }): string | null {
+  const text = (d.edited ?? d.content).posts[0]?.text ?? '';
+  return text.trim() ? text : null;
+}
+
+interface PreviewMediaSource { posts: Array<{ media: Array<{ url: string }> }> }
+
+// TaskRow.draftFirstImage와 같은 계산(첫 포스트 첫 미디어 url) — mergeRow가 draft 편집 직후 표를 맞추는 용도.
+export function draftFirstMediaUrl(d: { content: PreviewMediaSource; edited: PreviewMediaSource | null }): string | null {
+  return (d.edited ?? d.content).posts[0]?.media[0]?.url ?? null;
+}
+
 // 캐시된 한국어 대역의 첫 줄 — 없으면 null(호출부가 원문 미리보기로 폴백)
 export function draftKoLine(d: { koLatest: string[] | null }): string | null {
   const t = d.koLatest?.[0];

@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { draftPreviewLine, draftKoLine, draftLabel, sortDrafts, groupByStatus, searchDrafts, filterByProcedure, filterByPeriod, procedureOptions, applyPeriod, formatPeriodLabel, isRangeInverted } from './draftViews.ts';
+import { draftPreviewLine, draftPreviewFull, draftFirstMediaUrl, draftKoLine, draftLabel, sortDrafts, groupByStatus, searchDrafts, filterByProcedure, filterByPeriod, procedureOptions, applyPeriod, formatPeriodLabel, isRangeInverted } from './draftViews.ts';
 import type { DraftStatus } from './draftStatus.ts';
 
 const post = (text: string) => ({ posts: [{ text }] });
+const postWithMedia = (text: string, media: Array<{ url: string }>) => ({ posts: [{ text, media }] });
 const row = (over: Partial<{ id: string; createdAt: string; clientId: string | null; status: DraftStatus }>) => ({
   id: 'x', createdAt: '2026-08-10T00:00:00Z', clientId: null, status: 'draft' as DraftStatus, ...over,
 });
@@ -12,6 +13,19 @@ test('draftPreviewLine: 편집본 우선, 첫 줄만, 공백 정리', () => {
   assert.equal(draftPreviewLine({ content: post('원문 첫 줄\n둘째 줄'), edited: null }), '원문 첫 줄');
   assert.equal(draftPreviewLine({ content: post('원문'), edited: post('  편집본 첫 줄  \n둘째') }), '편집본 첫 줄');
   assert.equal(draftPreviewLine({ content: { posts: [] }, edited: null }), '');
+});
+
+test('draftPreviewFull: 편집본 우선, 전문(자르지 않음), 빈 값은 null — campaignTaskStore.toRow.draftPreview와 같은 게이트', () => {
+  assert.equal(draftPreviewFull({ content: post('첫 줄\n둘째 줄'), edited: null }), '첫 줄\n둘째 줄');
+  assert.equal(draftPreviewFull({ content: post('원문'), edited: post('편집본\n둘째') }), '편집본\n둘째');
+  assert.equal(draftPreviewFull({ content: { posts: [] }, edited: null }), null);
+  assert.equal(draftPreviewFull({ content: post('   '), edited: null }), null);
+});
+
+test('draftFirstMediaUrl: 첫 포스트 첫 미디어 url, 없으면 null', () => {
+  assert.equal(draftFirstMediaUrl({ content: postWithMedia('t', [{ url: 'drafts/a/1.jpg' }]), edited: null }), 'drafts/a/1.jpg');
+  assert.equal(draftFirstMediaUrl({ content: postWithMedia('t', []), edited: null }), null);
+  assert.equal(draftFirstMediaUrl({ content: { posts: [] }, edited: null }), null);
 });
 
 test('draftKoLine: 캐시 없으면 null, 있으면 첫 줄만', () => {

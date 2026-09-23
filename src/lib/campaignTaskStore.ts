@@ -30,6 +30,8 @@ export interface TaskRow {
   createdAt: string; updatedAt: string;
   draftStatus: DraftStatus | null; draftLabel: string | null;   // 붙은 원고 요약 — 표의 '원고' 열
   draftFirstLine: string | null;   // 붙은 원고 본문 첫 줄(v2 표의 원고 칸, R26) — 제목이 아니라 내용
+  draftPreview: string | null;      // 붙은 원고 첫 포스트 전문 — 패널 원고 카드(2줄 말줄임은 화면이 한다, 설계 §7)
+  draftFirstImage: string | null;   // 첫 포스트 첫 미디어 url — 원고 이미지는 비공개 버킷 경로라 화면이 서명해서 쓴다
   // 대상 작업 요약(§4-1 'RT/인용RT 대상' 열) — 다른 캠페인이면 campaignName으로 구분해 보인다
   // cancelledAt은 대상 작업 자체의 취소 여부(R19) — 이 작업(RT/인용RT)이 취소된 게 아니라 가리키는 대상이 취소됐음을 안다.
   // postedAt(I3) — 대상이 게시 확인은 됐는데 링크가 아직 없는 상태를 "게시 확인 전"이라고 잘못 말하지
@@ -70,6 +72,7 @@ type Row = {
   cancelled_draft_id: string | null; cancelled_draft_title: string | null;
   created_at: Date; updated_at: Date;
   draft_status: DraftStatus | null; draft_title: string | null; draft_ko_title: string | null; draft_first_line: string | null;
+  draft_first_image: string | null;
   tg_id: string | null; tg_type: TaskType | null; tg_handle: string | null; tg_campaign_id: string | null; tg_campaign_name: string | null; tg_post_url: string | null;
   tg_posted_at: string | null; tg_cancelled_at: string | null;
 };
@@ -100,6 +103,8 @@ const toRow = (r: Row): TaskRow => ({
   createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
   draftStatus: r.draft_id ? r.draft_status : null, draftLabel: r.draft_id ? labelOf(r) : null,
   draftFirstLine: r.draft_id ? firstLineOf(r) : null,
+  draftPreview: r.draft_id ? (r.draft_first_line?.trim() ? r.draft_first_line : null) : null,
+  draftFirstImage: r.draft_id ? r.draft_first_image : null,
   target: r.tg_id ? {
     taskId: r.tg_id, type: r.tg_type as TaskType, influencerHandle: r.tg_handle,
     campaignId: r.tg_campaign_id as string, campaignName: r.tg_campaign_name as string, postUrl: r.tg_post_url,
@@ -118,6 +123,7 @@ const SELECT = (sql: postgres.Sql) => sql`
          t.cancelled_draft_id, t.cancelled_draft_title,
          d.status as draft_status, d.title as draft_title, d.ko_title as draft_ko_title,
          coalesce(d.edited, d.content)->'posts'->0->>'text' as draft_first_line,
+         coalesce(d.edited, d.content)->'posts'->0->'media'->0->>'url' as draft_first_image,
          tg.id as tg_id, tg.type as tg_type, tg.influencer_handle as tg_handle, tg.campaign_id as tg_campaign_id,
          tgc.name as tg_campaign_name, tg.post_url as tg_post_url, to_char(tg.posted_at, 'YYYY-MM-DD') as tg_posted_at,
          to_char(tg.cancelled_at, 'YYYY-MM-DD') as tg_cancelled_at

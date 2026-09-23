@@ -15,7 +15,7 @@ import { getTask } from './campaignTaskStore.ts';
 import { targetUrlOf, TARGETABLE_TYPES } from './campaignJudgment.ts';
 import { parseTweetLink } from './tweetLink.ts';
 import { makeClient, type GetxapiClient } from './getxapi.ts';
-import { fetchTweetCached } from './tweetPreview.ts';
+import { fetchTweetCached, TweetFetchError } from './tweetPreview.ts';
 import { isUuidLike } from './uuid.ts';
 
 export const CONTENT_MODEL = () => process.env.CONTENT_MODEL ?? 'claude-opus-5';
@@ -91,7 +91,10 @@ async function loadQuoteTarget(
   // 조회를 한다. upsert는 캐시 갱신일 뿐 library_item을 만들지 않는다.
   let r;
   try { r = await fetchTweetCached(sql, tweetId, xClient ?? makeClient()); }
-  catch { throw new GenerateInputError('인용RT 대상 게시물을 확인하지 못했어요 — 잠시 후 다시 시도해 주세요'); }
+  catch (e) {
+    if (e instanceof TweetFetchError) throw new GenerateInputError('인용RT 대상 게시물을 확인하지 못했어요 — 잠시 후 다시 시도해 주세요');
+    throw e; // DB 오류 등은 그대로 전파 — 400으로 둔갑시키지 않는다
+  }
   if (r.kind === 'unavailable') {
     throw new GenerateInputError('인용RT 대상 게시물을 읽을 수 없어요 — 삭제되었거나 공개 범위를 확인해 주세요');
   }

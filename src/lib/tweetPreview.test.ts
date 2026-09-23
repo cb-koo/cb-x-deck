@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { loadTweetPreview, quotedFromTweet } from './tweetPreview.ts';
+import { loadTweetPreview, quotedFromTweet, TweetFetchError } from './tweetPreview.ts';
 
 const sql = getSql();
 const ids: string[] = [];
@@ -53,9 +53,27 @@ test('5) 빈 본문 응답(리트윗은 아님) → noText', async () => {
   assert.equal(r.kind, 'noText');
 });
 
+test('5b) mapRawTweet이 아예 null(핸들 없음) → noText', async () => {
+  const id = nextId();
+  const client = { getTweetDetail: async () => ({ id, text: '본문은 있지만 핸들이 없음' }) };
+  const r = await loadTweetPreview(sql, `https://x.com/a/status/${id}`, client);
+  assert.equal(r.kind, 'noText');
+});
+
 test('6) 다른 게시물 id로 응답 → mismatch', async () => {
   const id = nextId();
   const client = { getTweetDetail: async () => rawOf('999999999999999', '다른 글') };
   const r = await loadTweetPreview(sql, `https://x.com/a/status/${id}`, client);
   assert.equal(r.kind, 'mismatch');
+});
+
+test('7) getTweetDetail이 던지면 TweetFetchError로 감싸 올린다(cause 보존)', async () => {
+  const id = nextId();
+  const upstream = new Error('upstream unavailable');
+  const client = { getTweetDetail: async () => { throw upstream; } };
+  await assert.rejects(loadTweetPreview(sql, `https://x.com/a/status/${id}`, client), (e: unknown) => {
+    assert.ok(e instanceof TweetFetchError);
+    assert.equal(e.cause, upstream);
+    return true;
+  });
 });

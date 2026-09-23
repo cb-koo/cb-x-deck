@@ -23,12 +23,24 @@ export type TweetPreview =
   | { kind: 'mismatch' }
   | { kind: 'badLink' };
 
+// X 상세 조회(getTweetDetail)만 실패해도 던지는 전용 오류 — 그 앞뒤의 DB 읽기·upsert 실패와 섞이면
+// 안 된다. 이 오류만 "확인하지 못했어요 — 잠시 후 다시 시도해 주세요" 문구로 잡히고, DB 오류 등 그 밖의
+// 예외는 그대로 위로 전파돼(500) 조용히 400으로 둔갑하지 않는다.
+export class TweetFetchError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'TweetFetchError';
+  }
+}
+
 export async function fetchTweetCached(
   sql: postgres.Sql, tweetId: string, client: Pick<GetxapiClient, 'getTweetDetail'>,
 ): Promise<TweetPreview> {
   const cached = (await getTweetsByIds(sql, [tweetId]))[0] ?? null;
   if (cached && cached.text.trim()) return { kind: 'ok', tweet: cached };
-  const raw = await client.getTweetDetail(tweetId); // 실패(throw)는 부르는 쪽이 문구를 정한다
+  let raw;
+  try { raw = await client.getTweetDetail(tweetId); }
+  catch (e) { throw new TweetFetchError('getTweetDetail failed', { cause: e }); }
   if (!raw) return { kind: 'unavailable' }; // 삭제·비공개
   if (raw.retweeted_tweet) return { kind: 'repost' }; // 순수 리트윗 — 원문이 아니다
   const mapped = mapRawTweet(raw);

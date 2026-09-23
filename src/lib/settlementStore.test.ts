@@ -5,13 +5,14 @@ import { createClient, deleteClient } from './clientStore.ts';
 import { createCampaign, updateCampaign } from './campaignStore.ts';
 import { createTasks, updateTask, getTask, deleteTask } from './campaignTaskStore.ts';
 import { createInfluencer, updatePaymentMethods, deleteInfluencer } from './influencerStore.ts';
+import type { PaymentMethodInput } from './influencerPayment.ts';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettings.ts';
 import { isSettlementCandidate } from './campaignJudgment.ts';
 import {
   getSettlementSettings, saveSettlementSettings, listSettlementVersions, lastQuoteRtCategory, listCandidates,
   createRequests, cancelRequest, listRequests, settlementByTaskIds, SettlementCreateError,
   listForExport, getForExport, applyExternalStatus, ackDiff, unackDiff,
-  reviseRequest, previewRevision, listRevisions, applyPaymentMethodCorrection,
+  reviseRequest, previewRevision, listRevisions, applyPaymentMethodCorrection, precheckCorrectionForQrUpload,
 } from './settlementStore.ts';
 import type { CreateItemInput, PaymentRequestRow } from './settlementStore.ts';
 import { encodeCursor, decodeCursor, toExternalItem } from './settlementExternal.ts';
@@ -351,11 +352,22 @@ test('취소 — 그쪽이 지급 완료한 요청은 paid-locked, 트리거가 
   assert.equal(badge.externalStatus, 'paid');
 });
 
-async function requestFor(handle: string, campSuffix: string) {
+// method를 주면 PayPal 기본 수단 대신 그 수단(예: PayPay + QR)을 명부 기본 수단으로 심는다.
+// 기존 호출부는 인자를 안 주면 지금과 같게(influencerWithPaypal) 동작한다.
+type MethodSeed = Partial<PaymentMethodInput> & { type: PaymentMethodInput['type'] };
+async function requestFor(handle: string, campSuffix: string, method?: MethodSeed) {
   const m = await ensureMember();
   const c = await createClient(sql, P + '클라' + campSuffix);
   const camp = await createCampaign(sql, base(c.id, c.name, campSuffix, 'visit'));
-  await influencerWithPaypal(H(handle));
+  if (method) {
+    const { row: inf } = await createInfluencer(sql, { handle: H(handle), createdBy: null });
+    // 요청 생성 관문(settlementCalc — paypay-no-receiving-info)은 identifier나 qr 중 하나를 요구한다.
+    // 이 픽스처는 identifier를 채워 그 관문을 통과시킨다 — qr만 있는 경우는 settlementCalc.test.ts가 따로 본다.
+    const input: PaymentMethodInput = { holder: 'KEIKO', currency: method.type === 'paypay' ? 'JPY' : 'KRW', ...(method.type === 'paypay' ? { identifier: H(handle) } : {}), ...method };
+    await updatePaymentMethods(sql, inf.id, { kind: 'add', input, makeDefault: true }, null);
+  } else {
+    await influencerWithPaypal(H(handle));
+  }
   const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H(handle), cost: { amount: 30000, currency: 'KRW' } }] });
   await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: 'https://x.com/r/status/1' });
   const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
@@ -992,3 +1004,99 @@ test('applyPaymentMethodCorrection — 명부 반영(057): 고친 항목만 명�
   const hist2 = await sql<Array<{ roster_applied: boolean; roster_skip_reason: string | null }>>`select roster_applied, roster_skip_reason from payment_request_payment_correction where request_id = ${row2.id}`;
   assert.equal(hist2[0].roster_applied, false); assert.equal(hist2[0].roster_skip_reason, 'no_method');
 }));
+
+// CID(1)·CID(2)는 앞 테스트가 이미 썼다 — correction_id는 DB 전체에서 한 번만 쓸 수 있으므로
+// 저장에 성공하는 테스트는 자기 번호를 써야 한다(파일 상단 CID 주석 참고). 여기는 10번대를 쓴다.
+test('applyPaymentMethodCorrection — QR 정정이 요청과 명부에 함께 반영된다', () => revisionOn(async () => {
+  const { row } = await requestFor('qr1', 'qr1', { type: 'paypay', qr: 'seed/old.png' });
+  const r = await applyPaymentMethodCorrection(sql, row.id, corr({ qr: 'seed/new.png' }, { correctionId: CID(10) }));
+  assert.ok(r !== 'not-found' && r.kind === 'applied' && r.rosterApplied === true);
+
+  const after = (await listRequests(sql, { taskId: row.taskId! }))[0];
+  assert.equal(after.paymentMethod.qr, 'seed/new.png');
+  assert.equal(after.revision, 0);                       // 정정은 판을 올리지 않는다
+
+  const inf = await sql<Array<{ payment_methods: Array<Record<string, unknown>> }>>`
+    select payment_methods from influencer where id = ${row.influencerId}`;
+  const pm = inf[0].payment_methods.find((m) => m.type === 'paypay')!;
+  assert.equal(pm.qr, 'seed/new.png');                   // 명부에도 반영
+  assert.equal(pm.isDefault, true);                      // 명부에만 있는 값은 보존
+}));
+
+test('applyPaymentMethodCorrection — holder만 고쳐도 QR이 남는다 (스펙 §3-1)', () => revisionOn(async () => {
+  const { row } = await requestFor('qr2', 'qr2', { type: 'paypay', qr: 'seed/keep.png' });
+  const r = await applyPaymentMethodCorrection(sql, row.id, corr({ holder: '새 이름' }, { correctionId: CID(11) }));
+  assert.ok(r !== 'not-found' && r.kind === 'applied');
+
+  const after = (await listRequests(sql, { taskId: row.taskId! }))[0];
+  assert.equal(after.paymentMethod.holder, '새 이름');
+  assert.equal(after.paymentMethod.qr, 'seed/keep.png');  // ← 네 곳 중 하나라도 빠지면 여기서 undefined
+}));
+
+test('applyPaymentMethodCorrection — qr을 null로 지운다', () => revisionOn(async () => {
+  const { row } = await requestFor('qr3', 'qr3', { type: 'paypay', qr: 'seed/gone.png' });
+  const r = await applyPaymentMethodCorrection(sql, row.id, corr({ qr: null }, { correctionId: CID(12) }));
+  assert.ok(r !== 'not-found' && r.kind === 'applied');
+  assert.equal((await listRequests(sql, { taskId: row.taskId! }))[0].paymentMethod.qr, undefined);
+}));
+
+// ── precheckCorrectionForQrUpload 단위 테스트(재리뷰 2026-09-23 Important 1) ──
+// 이 함수는 QR 업로드(저장소 쓰기)를 시작하기 전에 "어차피 거절되거나 재적용되지 않을 정정"인지 가볍게 미리 본다
+// (취소·지급완료·판 불일치·이미 적용된 correction_id·idempotency_key). route.test.ts의 취소·재전송 테스트는 이
+// 최적화 자체를 검증하지 못한다 — precheckCorrectionForQrUpload를 통째로 지워도(=매번 업로드해도) 그 테스트들은
+// 그대로 통과한다(취소는 애초에 patch/명부를 안 쓰고, 재전송은 멱등 분기가 patch를 다시 안 쓰기 때문에 결과가
+// 업로드 여부와 무관하다). 라우트 레벨에서 "업로드가 실제로 없었다"를 확인하려면 storage 버킷을 조회해야 하는데,
+// 그건 이 파일의 다른 DB 테스트들처럼 느려지고 버킷 상태에 기대는 만큼 불안정해진다 — precheck는 DB만 보는 순수
+// 판정 함수이므로 여기서 입력 → proceed를 직접 확인하는 편이 더 정확하고 빠르다(권장 경로 (나)).
+test('precheckCorrectionForQrUpload — 취소된 요청은 proceed:false', () => revisionOn(async () => {
+  const { row, member } = await requestFor('pre1', 'pre1', { type: 'paypay' });
+  await cancelRequest(sql, row.id, '중복', member);
+  const pre = await precheckCorrectionForQrUpload(sql, row.id, corr({ qr: 'x' }, { correctionId: CID(20) }));
+  assert.deepEqual(pre, { influencerId: row.influencerId, proceed: false });
+}));
+
+test('precheckCorrectionForQrUpload — 지급 완료된 요청은 proceed:false', () => revisionOn(async () => {
+  const { row } = await requestFor('pre2', 'pre2', { type: 'paypay' });
+  await applyExternalStatus(sql, row.id, upd('paid', '2026-09-21T05:00:00Z', { paidAmountKrw: row.grossKrw, paidAt: '2026-09-21T04:59:00Z', revision: 0 }));
+  const pre = await precheckCorrectionForQrUpload(sql, row.id, corr({ qr: 'x' }, { correctionId: CID(21) }));
+  assert.deepEqual(pre, { influencerId: row.influencerId, proceed: false });
+}));
+
+test('precheckCorrectionForQrUpload — 정정이 기준한 판(revision)이 지금과 다르면 proceed:false', () => revisionOn(async () => {
+  const { row } = await requestFor('pre3', 'pre3', { type: 'paypay' });
+  const pre = await precheckCorrectionForQrUpload(sql, row.id, corr({ qr: 'x' }, { baseRevision: 9, correctionId: CID(22) }));
+  assert.deepEqual(pre, { influencerId: row.influencerId, proceed: false });
+}));
+
+test('precheckCorrectionForQrUpload — 이미 적용된 correction_id(재전송)는 proceed:false', () => revisionOn(async () => {
+  const { row } = await requestFor('pre4', 'pre4', { type: 'paypay' });
+  const applied = await applyPaymentMethodCorrection(sql, row.id, corr({ holder: '새 이름' }, { correctionId: CID(23) }));
+  assert.ok(applied !== 'not-found' && applied.kind === 'applied');
+  const pre = await precheckCorrectionForQrUpload(sql, row.id, corr({ qr: 'x' }, { correctionId: CID(23) }));
+  assert.deepEqual(pre, { influencerId: row.influencerId, proceed: false }, '같은 correction_id면 재전송으로 보고 업로드를 건너뛴다');
+}));
+
+test('precheckCorrectionForQrUpload — 다른 correction_id라도 이미 쓴 idempotency_key면 재전송으로 본다', () => revisionOn(async () => {
+  const { row } = await requestFor('pre5', 'pre5', { type: 'paypay' });
+  const applied = await applyPaymentMethodCorrection(sql, row.id, corr({ holder: '새 이름' }, { correctionId: CID(24), idempotencyKey: 'pre5-key' }));
+  assert.ok(applied !== 'not-found' && applied.kind === 'applied');
+  const pre = await precheckCorrectionForQrUpload(sql, row.id, corr({ qr: 'x' }, { correctionId: CID(25), idempotencyKey: 'pre5-key' }));
+  assert.deepEqual(pre, { influencerId: row.influencerId, proceed: false });
+}));
+
+test('precheckCorrectionForQrUpload — 거절될 이유가 없으면 proceed:true', () => revisionOn(async () => {
+  const { row } = await requestFor('pre6', 'pre6', { type: 'paypay' });
+  const pre = await precheckCorrectionForQrUpload(sql, row.id, corr({ qr: 'x' }, { correctionId: CID(26) }));
+  assert.deepEqual(pre, { influencerId: row.influencerId, proceed: true });
+}));
+
+test('precheckCorrectionForQrUpload — 없는 요청·uuid 형식이 아닌 id는 influencerId:null, proceed:false', async () => {
+  assert.deepEqual(
+    await precheckCorrectionForQrUpload(sql, '00000000-0000-0000-0000-000000000000', corr({ qr: 'x' }, { correctionId: CID(27) })),
+    { influencerId: null, proceed: false },
+  );
+  assert.deepEqual(
+    await precheckCorrectionForQrUpload(sql, 'nope', corr({ qr: 'x' }, { correctionId: CID(28) })),
+    { influencerId: null, proceed: false },
+  );
+});

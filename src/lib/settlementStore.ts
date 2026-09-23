@@ -641,6 +641,31 @@ export type CorrectionResult =
   | { kind: 'conflict'; code: 'request-cancelled' | 'paid-locked' | 'revision-mismatch'; row: PaymentRequestRow }
   | { kind: 'invalid'; field: string; error: string }
   | 'not-found';
+// QR 업로드는 저장소 비용이 드니, 어차피 거절되거나(취소·지급완료·판 불일치·다른 요청에 쓴 correction_id) 이미 적용된 재전송이면
+// 올리지 않는다(리뷰 2026-09-23 Important 1·2). 잠금 없이 가볍게 미리 본 결과일 뿐 — **최종 판정은 여전히
+// applyPaymentMethodCorrection의 `for update` 트랜잭션**이 한다(경합 방어, §4-1은 여기서 다시 옮기지 않는다).
+// 이 함수가 'proceed'라고 했는데 그 사이 상태가 바뀌어도(레이스) 안전하다 — 업로드는 됐지만 트랜잭션이 거절하면
+// 고아 파일로 남을 뿐이다(비공개 버킷, route.ts 상단 주석과 같은 논리). 반대로 'skip'인데 실제로는 통과할 값을
+// 놓치는 경우는 없다 — 여기 조건은 applyPaymentMethodCorrection이 보는 조건의 부분집합이다.
+export interface CorrectionUploadPrecheck { influencerId: string | null; proceed: boolean }
+export async function precheckCorrectionForQrUpload(sql: postgres.Sql, id: string, c: PaymentInfoCorrection): Promise<CorrectionUploadPrecheck> {
+  if (!isUuidLike(id)) return { influencerId: null, proceed: false };
+  const rows = await sql<Array<{ influencer_id: string; status: string; external_status: string | null; revision: number }>>`
+    select influencer_id, status, external_status, revision from payment_request where id = ${id}`;
+  if (!rows.length) return { influencerId: null, proceed: false };
+  const cur = rows[0];
+  const seen = await sql<Array<{ request_id: string }>>`
+    select request_id from payment_request_payment_correction
+     where id = ${c.correctionId}
+        or (${c.idempotencyKey !== null} and request_id = ${id} and idempotency_key = ${c.idempotencyKey})
+     limit 1`;
+  if (seen.length) return { influencerId: cur.influencer_id, proceed: false };   // 재전송(또는 남이 이미 쓴 correction_id) — 어차피 안 쓴다
+  if (cur.status === 'cancelled' || cur.external_status === 'paid') return { influencerId: cur.influencer_id, proceed: false };
+  const exposedRevision = isRevisionV2() ? cur.revision : 0;
+  if (c.baseRevision !== exposedRevision) return { influencerId: cur.influencer_id, proceed: false };
+  return { influencerId: cur.influencer_id, proceed: true };
+}
+
 export async function applyPaymentMethodCorrection(sql: postgres.Sql, id: string, c: PaymentInfoCorrection): Promise<CorrectionResult> {
   if (!isUuidLike(id)) return 'not-found';
   return await sql.begin(async (tx0) => {

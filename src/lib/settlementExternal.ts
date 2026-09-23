@@ -73,6 +73,9 @@ export function toExternalItem(e: ExportRow, origin: string): ExternalItem {
   const r = e.row;
   const pm: Record<string, string> = {};
   for (const [k, v] of Object.entries(r.paymentMethod)) if (typeof v === 'string' && SNAKE_PM[k]) pm[SNAKE_PM[k]] = v;
+  // QR은 경로 대신 고정 주소를 싣는다 — 서명 URL은 만료되므로 목록을 캐시해 두면 죽은 링크가 된다(§4-1과 같은 판단, proof와 동일).
+  // qr은 SNAKE_PM에 없어 위 루프에서 이미 빠진다(저장소 경로가 그대로 새지 않는다) — 여기서 qr_url만 따로 얹는다.
+  if (r.paymentMethod.qr) pm.qr_url = `${origin}/api/external/settlement/requests/${r.id}/payment-qr`;
   return {
     // revision(스펙 2026-09-07 §2): 스위치 꺼짐 = 옛 의미(0 요청/1 취소, 그쪽 옛 파서가 0|1만 받는다) / 켜짐 = 수정 횟수(취소 여부는 status로만)
     request_id: r.id, revision: isRevisionV2() ? r.revision : (r.status === 'cancelled' ? 1 : 0), revised_at: isRevisionV2() ? r.revisedAt : null,

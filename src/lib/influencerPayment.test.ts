@@ -23,6 +23,10 @@ function paypalInput(overrides: Partial<PaymentMethodInput> = {}): PaymentMethod
   return { type: 'paypal', holder: 'SAWADA KEIKO', currency: 'JPY', email: 'sawada@example.com', ...overrides };
 }
 
+function paypayInput(overrides: Partial<PaymentMethodInput> = {}): PaymentMethodInput {
+  return { type: 'paypay', holder: 'A', currency: 'JPY', ...overrides };
+}
+
 // ---- parsePaymentMethodInput ----
 
 test('parsePaymentMethodInput: 유형 누락/오류', () => {
@@ -206,6 +210,21 @@ test('applyPaymentOp update: 유형 변경 시 옛 필드는 드롭된다', () =
   assert.equal(updated.email, paypalInput().email);
   const typeField = changes[0].fields!.find((f) => f.field === 'type');
   assert.deepEqual(typeField, { field: 'type', from: PAYMENT_TYPE_LABEL.bank, to: PAYMENT_TYPE_LABEL.paypal });
+});
+
+test('applyPaymentOp update: qr만 바뀌어도 적용된다(DIFF_FIELDS 누락 시 no-op — 명부 자동 반영·057이 이 경로를 탄다)', () => {
+  const list = applyPaymentOp([], { kind: 'add', input: paypayInput({ identifier: 'ident-1', qr: 'inf-1/old.png' }) }, NOW, newId).list;
+  const { list: after, changes } = applyPaymentOp(
+    list,
+    { kind: 'update', id: list[0].id, input: paypayInput({ identifier: 'ident-1', qr: 'inf-1/new.png' }) },
+    '2026-08-27T01:00:00.000Z',
+    newId,
+  );
+  assert.equal(changes.length, 1, 'qr만 바뀌었어도 변경으로 기록돼야 한다');
+  assert.equal(after[0].qr, 'inf-1/new.png', '리스트에도 새 qr이 반영돼야 한다');
+  const qrField = changes[0].fields!.find((f) => f.field === 'qr');
+  assert.deepEqual(qrField, { field: 'qr', from: 'inf-1/old.png', to: 'inf-1/new.png' });
+  assert.ok('qr' in PAYMENT_FIELD_LABEL);
 });
 
 test('applyPaymentOp update: 존재하지 않는 id는 PAYMENT_NOT_FOUND를 던진다', () => {

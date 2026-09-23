@@ -98,6 +98,19 @@ test('toExternalItem — proof 있으면 고정 엔드포인트 URL(origin은 �
   assert.equal(it.proof!.url.includes('task/tt/ff.png'), false);
 });
 
+// PayPay QR(스펙 2026-09-22): payment_method.qr은 우리 내부 저장소 경로라 그대로 내보내지 않는다.
+// 대신 고정 엔드포인트 qr_url을 싣는다 — proof와 같은 이유(§4-1, 서명 URL은 만료되므로 캐시된 목록의 링크가 죽는다).
+test('toExternalItem — QR이 있으면 payment_method.qr_url에 고정 주소를 싣는다(경로는 내보내지 않는다)', () => {
+  const withQr: PaymentRequestRow = { ...row, paymentMethod: { type: 'paypay', holder: '이름', currency: 'JPY', qr: 'inf-1/a.png' } };
+  const it = toExternalItem({ row: withQr, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null, influencerDisplayName: null }, ORIGIN);
+  assert.equal(it.payment_method.qr_url, `${ORIGIN}/api/external/settlement/requests/${ID}/payment-qr`);
+  assert.equal(it.payment_method.qr, undefined);   // 저장소 경로는 내보내지 않는다
+});
+test('toExternalItem — QR이 없으면 qr_url 키가 없다', () => {
+  const it = toExternalItem({ row, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null, influencerDisplayName: null }, ORIGIN);
+  assert.equal(it.payment_method.qr_url, undefined);
+});
+
 test('parseStatusUpdate — 정상·정규화', () => {
   const r = parseStatusUpdate({ status: 'paid', updated_at: '2026-08-30T05:00:00Z', paid_amount_krw: 29700, paid_at: '2026-08-30T05:00:00+09:00', note: ' 환율 ', external_id: 'X-1' });
   assert.ok(r.ok);

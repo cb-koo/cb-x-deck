@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePaymentInfoCorrection, mergePaymentMethodCorrection, planRosterOverwrite } from './settlementPaymentCorrection.ts';
+import { parsePaymentInfoCorrection, mergePaymentMethodCorrection, planRosterOverwrite, maskQrInRawBody } from './settlementPaymentCorrection.ts';
 import type { PaymentMethodSnapshot } from './settlementCalc.ts';
 import type { PaymentMethod } from './influencerPayment.ts';
+import { applyPaymentOp } from './influencerPayment.ts';
+import { MAX_PAYMENT_QR_BYTES } from './paymentQrInput.ts';
 
 const CID = '22222222-3333-4444-8555-666666666666';
 const op = { id: '8f2c9e10-1b2a-4c3d-9e4f-000000000001', name: '정산 담당' };
@@ -114,4 +116,118 @@ test('planRosterOverwrite: 같은 종류가 여럿인데 일치가 유일하지 
 test('planRosterOverwrite: patch가 명부 수단과 안 맞으면 invalid(같은 종류가 없어 기본 수단에 얹었으나 검사 실패)', () => {
   const plan = planRosterOverwrite([pmBank()], beforePaypal, { email: 'new@x.com' });   // 계좌 수단만 있는데 paypal 정정
   assert.deepEqual(plan, { skip: 'invalid' });
+});
+
+// 058: qr 병합 시 fee·memo·isDefault가 사라지는 회귀를 막는다 — 09-22에 정산 정정이 명부를 덮으며
+// 명부에만 있는 값(수수료 설정)을 지울 뻔한 것과 같은 종류의 버그라 별도 테스트로 남긴다.
+test('planRosterOverwrite: qr만 고쳐도 fee·memo는 보존한다', () => {
+  const pmPaypay: PaymentMethod = {
+    id: 'p1', type: 'paypay', isDefault: true, holder: '山田', currency: 'JPY',
+    identifier: 'ident-1', qr: 'inf-1/old.png',
+    fee: { mode: 'fixed', amount: 165 }, memo: '유지', updatedAt: '2026-01-01T00:00:00Z',
+  };
+  const beforePaypay: PaymentMethodSnapshot = {
+    type: 'paypay', holder: '山田', currency: 'JPY', identifier: 'ident-1', qr: 'inf-1/old.png',
+  };
+  const plan = planRosterOverwrite([pmPaypay], beforePaypay, { qr: 'inf-1/new.png' });
+  assert.ok('op' in plan);
+  assert.equal(plan.op.input.qr, 'inf-1/new.png');                                    // 고친 항목은 반영
+  assert.deepEqual(plan.op.input.fee, { mode: 'fixed', amount: 165 });                // 명부에만 있던 fee 보존
+  assert.equal(plan.op.input.memo, '유지');                                            // 명부에만 있던 memo 보존
+
+  // isDefault는 planRosterOverwrite가 아니라 applyPaymentOp(update)가 지킨다 — 그 경로까지 확인해야
+  // "값은 안 사라졌지만 기본 수단 표시가 풀렸다" 같은 회귀를 놓치지 않는다.
+  const { list } = applyPaymentOp([pmPaypay], plan.op, '2026-09-22T00:00:00.000Z', () => 'unused');
+  assert.equal(list[0].isDefault, true);
+});
+
+test('mergePaymentMethodCorrection — holder만 고쳐도 기존 qr이 남는다 (스펙 §3-1)', () => {
+  const before = { type: 'paypay' as const, holder: '옛 이름', currency: 'JPY' as const,
+                   identifier: 'ident-1', qr: 'inf-1/aaa.png' };
+  const r = mergePaymentMethodCorrection(before, { holder: '새 이름' });
+  assert.ok(r.ok);
+  assert.equal(r.after.holder, '새 이름');
+  assert.equal(r.after.qr, 'inf-1/aaa.png');       // ← 사라지면 안 된다
+  assert.equal(r.after.identifier, 'ident-1');
+});
+
+test('mergePaymentMethodCorrection — qr을 바꾸고 지울 수 있다', () => {
+  const before = { type: 'paypay' as const, holder: '이름', currency: 'JPY' as const, qr: 'inf-1/old.png' };
+  const changed = mergePaymentMethodCorrection(before, { qr: 'inf-1/new.png' });
+  assert.ok(changed.ok);
+  assert.equal(changed.after.qr, 'inf-1/new.png');
+
+  const removed = mergePaymentMethodCorrection(before, { qr: null });
+  assert.ok(removed.ok);
+  assert.equal(removed.after.qr, undefined);
+});
+
+test('mergePaymentMethodCorrection — PayPal·계좌 수단에 qr은 거절', () => {
+  const paypal = { type: 'paypal' as const, holder: '이름', currency: 'JPY' as const, email: 'a@b.com' };
+  const r = mergePaymentMethodCorrection(paypal, { qr: 'x/y.png' });
+  assert.ok(!r.ok);
+  assert.equal(r.field, 'payment_method.qr');
+});
+
+test('mergePaymentMethodCorrection — qr 변경이 활동 기록 fields에 남는다', () => {
+  const before = { type: 'paypay' as const, holder: '이름', currency: 'JPY' as const, qr: 'inf-1/old.png' };
+  const r = mergePaymentMethodCorrection(before, { qr: 'inf-1/new.png' });
+  assert.ok(r.ok);
+  assert.ok(r.fields.some((f) => f.field === 'qr' && f.to === 'inf-1/new.png'));
+});
+
+// ── 리뷰 2026-09-23 Critical 1: qr은 200자 제한이 아니라 MAX_PAYMENT_QR_BYTES에서 파생된 별도 상한을 쓴다 ──
+const dataUri = (kb: number) => `data:image/png;base64,${'A'.repeat(kb * 1024)}`;
+test('parsePaymentInfoCorrection — 수 KB짜리 qr data URI는 200자 제한에 막히지 않는다', () => {
+  const r = parsePaymentInfoCorrection(body({ payment_method: { qr: dataUri(3) } }));   // 3KB 본문, data URI로는 수 KB
+  assert.ok(r.ok);
+  assert.equal(r.correction.patch.qr, dataUri(3));
+});
+test('parsePaymentInfoCorrection — 다른 키(holder 등)는 여전히 200자에서 막힌다', () => {
+  const r = parsePaymentInfoCorrection(body({ payment_method: { holder: 'x'.repeat(201) } }));
+  assert.ok(!r.ok); assert.equal(r.field, 'payment_method.holder');
+});
+test('parsePaymentInfoCorrection — qr도 MAX_PAYMENT_QR_BYTES를 훨씬 넘는 길이는 거절한다', () => {
+  // base64 길이가 바이트 상한의 4/3배를 넉넉히 넘도록 — data URI 접두어를 빼도 상한을 넘는다.
+  const tooBig = `data:image/png;base64,${'A'.repeat(Math.ceil((MAX_PAYMENT_QR_BYTES * 4) / 3) + 10000)}`;
+  const r = parsePaymentInfoCorrection(body({ payment_method: { qr: tooBig } }));
+  assert.ok(!r.ok); assert.equal(r.field, 'payment_method.qr');
+});
+// 리뷰 2026-09-23 Minor 2: 일부 base64 인코더는 76자마다 개행을 넣는다(RFC 2045 관행). 5MB에 가까운 이미지면
+// 그 개행만 약 9만 자가 붙어, 개행을 안 뺀 원문 길이로 재면 실제로는 상한 이내인 이미지가 여기서 먼저 400으로
+// 막혔었다(고친 뒤: 공백을 턴 뒤 길이로 잰다) — 그 경계를 재현한다.
+test('parsePaymentInfoCorrection — qr에 76자마다 개행이 섞여도(인코더 관행) 통과한다', () => {
+  // settlementPaymentCorrection.ts의 QR_VALUE_MAX와 같은 식(비공개 상수라 여기서 다시 계산) — 상한 바로 아래로
+  // raw base64 길이를 잡는다(접두어 여유를 감안해 2000자 낮춤).
+  const qrValueMax = Math.ceil(MAX_PAYMENT_QR_BYTES / 3) * 4 + 256;
+  const rawB64 = 'A'.repeat(qrValueMax - 2000);
+  const wrapped = rawB64.match(/.{1,76}/g)!.join('\n');       // 76자마다 개행 — 약 (길이/76)개가 붙는다
+  const withNewlines = `data:image/png;base64,${wrapped}`;
+  assert.ok(withNewlines.length > qrValueMax, '개행을 더하면 옛 기준(원문 길이)은 이미 넘는 크기여야 재현이 된다');
+  const r = parsePaymentInfoCorrection(body({ payment_method: { qr: withNewlines } }));
+  assert.ok(r.ok, r.ok ? undefined : `${r.field}: ${r.error}`);
+});
+
+// ── 리뷰 2026-09-23 Critical 2: 호출 기록 본문에 base64가 남으면 안 된다 ──
+test('maskQrInRawBody — payment_method.qr의 base64를 길이 표시로 치환하고 다른 값은 그대로 둔다', () => {
+  const raw = JSON.stringify({ correction_id: 'x', payment_method: { qr: dataUri(2), holder: '山田' }, reason: '테스트' });
+  const masked = maskQrInRawBody(raw);
+  assert.ok(!masked.includes('AAAA'), 'base64 본문이 남아있으면 안 된다');
+  const parsed = JSON.parse(masked);
+  assert.equal(parsed.payment_method.holder, '山田');   // 다른 값은 그대로
+  assert.equal(parsed.correction_id, 'x');
+  assert.match(parsed.payment_method.qr, /qr 이미지/);
+});
+test('maskQrInRawBody — qr이 없으면 원본 그대로 돌려준다', () => {
+  const raw = JSON.stringify({ payment_method: { account: '1234567' } });
+  assert.equal(maskQrInRawBody(raw), raw);
+});
+test('maskQrInRawBody — 빈 문자열은 그대로', () => {
+  assert.equal(maskQrInRawBody(''), '');
+});
+test('maskQrInRawBody — JSON 파싱이 안 되는 본문도 base64를 남기지 않는다', () => {
+  const raw = `{not json but "qr":"${dataUri(1)}", broken`;
+  const masked = maskQrInRawBody(raw);
+  assert.ok(!masked.includes('AAAA'), '깨진 JSON이어도 base64가 남으면 안 된다');
+  assert.match(masked, /qr 이미지/);
 });

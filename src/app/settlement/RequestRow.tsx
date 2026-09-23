@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui';
 import type { PaymentRequestRow } from '@/lib/settlementStore';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
@@ -8,6 +8,7 @@ import { formatMoney } from '@/lib/influencerPricing';
 import { describeSnapshot } from '@/lib/settlementCalc';
 import { displayStatus, TONE_CLASS, paidText } from '@/lib/settlementDisplay';
 import { proofUploadedLine } from '@/lib/taskProofGuard';
+import { signPaymentQrUrl } from '@/lib/paymentQr';
 import { ImageLightbox } from '@/components/ImageLightbox';
 import { PartnerResultBlock } from './PartnerResultBlock';
 import { RevisionHistory } from './RevisionHistory';
@@ -63,9 +64,20 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
             {/* 정산 쪽이 이번 건의 수취 정보를 고친 경우(056·057) — 이제 이 요청과 인플루언서 명부에 함께 반영된다(고친 항목만 병합).
                 더는 명부를 따로 확인할 필요가 없다. [고친 값으로 다시 반영]도 명부가 이미 같은 값이라 되돌아가지 않는다. */}
             <Item k="결제수단" v={describeSnapshot(r.paymentMethod)}
-                  sub={r.paymentMethodCorrection
-                    ? <span className="text-x-secondary">정산 쪽이 수취 정보를 고쳤어요 · {r.paymentMethodCorrection.byName} · {new Date(r.paymentMethodCorrection.at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{r.paymentMethodCorrection.reason ? <> — {r.paymentMethodCorrection.reason}</> : null}
-                        <span className="block text-x-muted">이 요청과 인플루언서 명부에 함께 반영됐어요</span></span>
+                  sub={(r.paymentMethodCorrection || r.paymentMethod.qr)
+                    ? <>
+                        {r.paymentMethodCorrection && (
+                          <span className="text-x-secondary">정산 쪽이 수취 정보를 고쳤어요 · {r.paymentMethodCorrection.byName} · {new Date(r.paymentMethodCorrection.at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{r.paymentMethodCorrection.reason ? <> — {r.paymentMethodCorrection.reason}</> : null}
+                            <span className="block text-x-muted">이 요청과 인플루언서 명부에 함께 반영됐어요</span></span>
+                        )}
+                        {/* QR만 주는 인플이 있어 명부와 같은 모양의 미리보기를 여기서도 보여준다 — 보낼 때 무엇이
+                            나가는지 요청을 펼친 자리에서 바로 확인할 수 있어야 한다(스펙 2026-09-22). */}
+                        {r.paymentMethod.qr && (
+                          <div className={r.paymentMethodCorrection ? 'mt-1.5' : undefined}>
+                            <QrPreviewCell path={r.paymentMethod.qr} />
+                          </div>
+                        )}
+                      </>
                     : undefined} />
             {/* 증빙 2026-09-01-proof-to-partner-design.md §6: 투고·인용RT·방문은 이 링크(인플루언서 본인 게시물)가
                 정산 쪽 확인 자료다 — RT는 아니다(원본 트윗이라 증거가 안 된다, 아래 증빙 줄 참고). */}
@@ -115,4 +127,32 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
 }
 function Item({ k, v, sub }: { k: string; v: React.ReactNode; sub?: React.ReactNode }) {
   return (<><dt className="text-x-secondary">{k}</dt><dd className="min-w-0">{v}{sub && <div className="text-x-muted">{sub}</div>}</dd></>);
+}
+
+// 명부(PaymentSection.tsx QrPreviewCell)와 같은 모양 — 마운트 시 한 번 서명해 작은 미리보기를
+// 보여주고 눌러서 확대만 한다. 호출부가 key={path}로 그리지 않지만 path가 요청 하나에 고정이라
+// (수단이 바뀌면 새 요청) 재서명이 필요 없다.
+function QrPreviewCell({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [zoom, setZoom] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    signPaymentQrUrl(path)
+      .then((u) => { if (!cancelled) setUrl(u); })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, [path]);
+
+  if (failed) return <span className="text-x-muted">미리보기를 불러오지 못했어요</span>;
+  if (!url) return <span className="text-x-muted">불러오는 중…</span>;
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt="QR 이미지" onClick={() => setZoom(true)}
+           className="h-[72px] w-[72px] cursor-zoom-in rounded-md border border-x-border bg-white object-contain" />
+      {zoom && <ImageLightbox urls={[url]} index={0} onIndexChange={() => {}} onClose={() => setZoom(false)} />}
+    </>
+  );
 }

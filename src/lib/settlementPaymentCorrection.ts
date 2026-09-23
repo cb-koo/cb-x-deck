@@ -7,24 +7,31 @@ import { toMethodSnapshot, type PaymentMethodSnapshot } from './settlementCalc.t
 import { PAYMENT_TYPE_LABEL, parsePaymentMethodInput, getDefaultPaymentMethod, type PaymentMethodType, type PaymentMethod, type PaymentMethodInput, type PaymentOp } from './influencerPayment.ts';
 import { isUuidLike } from './uuid.ts';
 import { parseOperatorField, parseIsoField, type StatusOperator } from './settlementExternal.ts';
+import { MAX_PAYMENT_QR_BYTES } from './paymentQrInput.ts';
 
-// 그쪽이 보내는 7키(snake_case). type·currency는 없다 — 수단 종류·통화를 바꾸는 것은 다른 의무라 on_hold + note로 알려 달라고 했다.
-export const CORRECTION_KEYS = ['holder', 'paypal_id', 'email', 'identifier', 'bank', 'branch', 'account'] as const;
+// 그쪽이 보내는 8키(snake_case). type·currency는 없다 — 수단 종류·통화를 바꾸는 것은 다른 의무라 on_hold + note로 알려 달라고 했다.
+export const CORRECTION_KEYS = ['holder', 'paypal_id', 'email', 'identifier', 'qr', 'bank', 'branch', 'account'] as const;
 export type CorrectionKey = (typeof CORRECTION_KEYS)[number];
 const TO_CAMEL: Record<CorrectionKey, Exclude<keyof PaymentMethodSnapshot, 'type' | 'currency'>> = {
-  holder: 'holder', paypal_id: 'paypalId', email: 'email', identifier: 'identifier', bank: 'bank', branch: 'branch', account: 'account',
+  holder: 'holder', paypal_id: 'paypalId', email: 'email', identifier: 'identifier', qr: 'qr', bank: 'bank', branch: 'branch', account: 'account',
 };
 // 수단 종류별로 고칠 수 있는 키. 다른 종류의 키(예: PayPal 수단에 bank)는 조용히 버리지 않고 400 — "정정했다고 믿은 값이 반영되지 않음"이 가장 나쁜 실패다.
 const ALLOWED_BY_TYPE: Record<PaymentMethodType, readonly CorrectionKey[]> = {
   paypal: ['holder', 'email', 'paypal_id'],
-  paypay: ['holder', 'identifier'],
+  paypay: ['holder', 'identifier', 'qr'],
   bank: ['holder', 'bank', 'branch', 'account'],
 };
 // 비워서(null·"") 지울 수 있는 키 — 선택 항목만. paypal의 email·paypal_id는 둘 중 하나만 남으면 된다(influencerPayment 규칙이 다시 검사한다).
-const REMOVABLE: ReadonlySet<CorrectionKey> = new Set(['branch', 'email', 'paypal_id']);
+// qr을 넣는 이유: 잘못 올린 QR을 되돌릴 길이 필요하다.
+const REMOVABLE: ReadonlySet<CorrectionKey> = new Set(['branch', 'email', 'paypal_id', 'qr']);
 const VALUE_MAX = 200;
 const REASON_MAX = 500;
 const IDEM_MAX = 200;
+// qr은 다른 키(홀더명·계좌번호 등)와 자릿수가 다른 값이다 — 200자 제한을 그대로 적용하면 실제 QR(수 KB~수십 KB)이
+// 전부 400으로 막힌다(리뷰 2026-09-23 Critical 1). 상한은 paymentQrInput.ts의 MAX_PAYMENT_QR_BYTES(바이트 상한, 저장소에
+// 넣기 직전 다시 검사)에서 파생시킨다 — 숫자를 두 곳에 따로 적지 않는다. base64는 3바이트→4글자(올림), 여기에
+// "data:image/webp;base64," 같은 data URI 접두어 + 개행 등 여유를 크게 잡아 더한다.
+const QR_VALUE_MAX = Math.ceil(MAX_PAYMENT_QR_BYTES / 3) * 4 + 256;
 
 export interface PaymentInfoCorrection {
   correctionId: string;                                   // 그쪽 발급 uuid — 회신 상관관계·멱등 키
@@ -37,6 +44,31 @@ export interface PaymentInfoCorrection {
 }
 export type CorrectionParse = { ok: true; correction: PaymentInfoCorrection } | { ok: false; field: string; error: string };
 const bad = (field: string, error: string): CorrectionParse => ({ ok: false, field, error });
+
+// 호출 기록(external_api_log.body)에 base64가 새지 않게 payment_method.qr 값을 지운다(리뷰 2026-09-23 Critical 2).
+// route.ts가 recordExternalCallSafe에 원본 요청 본문(raw)을 넘기기 직전에 항상 이 함수를 거친다.
+// 순수 함수 — DB·저장소 없이 테스트할 수 있다.
+function qrPlaceholder(qr: string): string {
+  return `<qr 이미지 ${qr.length}자>`;
+}
+export function maskQrInRawBody(raw: string): string {
+  if (!raw) return raw;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const pm = (parsed as Record<string, unknown>).payment_method;
+      if (pm !== null && typeof pm === 'object' && !Array.isArray(pm) && typeof (pm as Record<string, unknown>).qr === 'string') {
+        (pm as Record<string, unknown>).qr = qrPlaceholder((pm as Record<string, unknown>).qr as string);
+        return JSON.stringify(parsed);
+      }
+    }
+    return raw;   // JSON은 맞지만 payment_method.qr이 문자열이 아니다 — 지울 게 없다
+  } catch {
+    // 깨진 JSON(그쪽이 잘못 보낸 본문) — 그래도 raw를 그대로 흘려보내면 이 함수를 만든 이유가 없다.
+    // "qr":"<값>" 모양만 정규식으로 찾아 값만 치환한다(base64 data URI에는 따옴표가 안 나온다).
+    return raw.replace(/("qr"\s*:\s*")([^"]*)(")/, (_m, pre: string, val: string, post: string) => `${pre}${qrPlaceholder(val)}${post}`);
+  }
+}
 
 export function parsePaymentInfoCorrection(body: unknown): CorrectionParse {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('body', 'JSON 객체여야 해요');
@@ -57,7 +89,14 @@ export function parsePaymentInfoCorrection(body: unknown): CorrectionParse {
     if (v === undefined) continue;
     if (v !== null && typeof v !== 'string') return bad(`payment_method.${k}`, '문자열이어야 해요');
     const t = v === null ? '' : v.trim();
-    if (t.length > VALUE_MAX) return bad(`payment_method.${k}`, `${VALUE_MAX}자를 넘어요`);
+    const max = key === 'qr' ? QR_VALUE_MAX : VALUE_MAX;
+    // qr만 공백을 턴 뒤 길이로 상한을 잰다(리뷰 2026-09-23 Minor 2). 일부 인코더는 base64를 76자마다 개행하는
+    // 관행이 있어(RFC 2045) 5MB 이미지면 개행만 약 9만 자가 붙는데, QR_VALUE_MAX의 여유(256자)로는 그걸
+    // 못 견딘다 — parseQrDataUri는 어차피 이 개행을 지우고 바이트를 재므로(§ 위 DATA_URI_RE), 여기서도 개행을
+    // 뺀 길이로 재야 "실제로는 5MB 이하인데 개행 때문에 여기서 먼저 400"이 나지 않는다. qr이 아닌 항목(홀더명 등)은
+    // 원문 그대로 200자를 지킨다 — 그런 값에서 공백은 사용자가 실제로 입력한 문자일 수 있어 무시하면 안 된다.
+    const len = key === 'qr' ? t.replace(/\s+/g, '').length : t.length;
+    if (len > max) return bad(`payment_method.${k}`, `${max}자를 넘어요`);
     if (!t.length) {
       if (!REMOVABLE.has(key)) return bad(`payment_method.${k}`, '비워 둘 수 없는 항목이에요');
       patch[key] = null;
@@ -95,7 +134,7 @@ export type CorrectionMerge =
 export function mergePaymentMethodCorrection(before: PaymentMethodSnapshot, patch: PaymentInfoCorrection['patch']): CorrectionMerge {
   const allowed = ALLOWED_BY_TYPE[before.type];
   const merged: Record<string, unknown> = { type: before.type, holder: before.holder, currency: before.currency };
-  for (const k of ['email', 'paypalId', 'identifier', 'bank', 'branch', 'account'] as const) if (before[k]) merged[k] = before[k];
+  for (const k of ['email', 'paypalId', 'identifier', 'bank', 'branch', 'account', 'qr'] as const) if (before[k]) merged[k] = before[k];
   for (const [k, v] of Object.entries(patch) as Array<[CorrectionKey, string | null | undefined]>) {
     if (v === undefined) continue;
     if (!allowed.includes(k)) return { ok: false, field: `payment_method.${k}`, error: `${PAYMENT_TYPE_LABEL[before.type]} 수단에는 없는 항목이에요 — ${allowed.join('·')}만 고칠 수 있어요` };
@@ -105,9 +144,9 @@ export function mergePaymentMethodCorrection(before: PaymentMethodSnapshot, patc
   const parsed = parsePaymentMethodInput(merged);
   if (typeof parsed === 'string') return { ok: false, field: 'payment_method', error: parsed };
   const after: PaymentMethodSnapshot = { type: parsed.type, holder: parsed.holder, currency: parsed.currency };
-  for (const k of ['email', 'paypalId', 'identifier', 'bank', 'branch', 'account'] as const) if (parsed[k]) after[k] = parsed[k];
+  for (const k of ['email', 'paypalId', 'identifier', 'bank', 'branch', 'account', 'qr'] as const) if (parsed[k]) after[k] = parsed[k];
   const fields: CorrectionFieldDiff[] = [];
-  for (const k of ['holder', 'email', 'paypalId', 'identifier', 'bank', 'branch', 'account'] as const) {
+  for (const k of ['holder', 'email', 'paypalId', 'identifier', 'bank', 'branch', 'account', 'qr'] as const) {
     const a = before[k] ?? null, b = after[k] ?? null;
     if (a !== b) fields.push({ field: k, from: a, to: b });
   }

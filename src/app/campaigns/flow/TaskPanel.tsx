@@ -28,6 +28,11 @@ import { StageTypeBox } from './panel/StageTypeBox';
 import { InfluencerSummary } from './panel/InfluencerSummary';
 import { PaymentLine } from './panel/PaymentLine';
 import { usePaymentView } from './panel/usePaymentView';
+import { useTweetPreview } from './panel/useTweetPreview';
+import { DraftSummaryCard } from './panel/DraftSummaryCard';
+import { DraftEntryButtons } from './panel/DraftEntryButtons';
+import { TargetPreview } from './panel/TargetPreview';
+import { targetPreviewState, targetPreviewStateOfValue } from '@/lib/targetPreviewView';
 
 // 편집 패널(b-task-7-brief.md §2) — 작업 하나(edit)와 새 작업(new)을 같은 골격에서 다룬다. 칸 순서는
 // PANEL_FIELD_ORDER(campaignFlowView) 하나뿐 — 여기서 다시 적지 않는다. 저장은 두 갈래:
@@ -196,6 +201,21 @@ export function TaskPanel({
   const payHandle = task ? task.influencerHandle : (handle || null);
   const payRefresh = task ? `${task.settlement?.status ?? ''}:${task.settlement?.externalStatus ?? ''}:${task.updatedAt}` : '';
   const pay = usePaymentView(payHandle, task?.id ?? null, payRefresh);
+
+  // ── 인용·RT 대상 미리보기(설계 §7-1) — 훅이라 여기서 한 번 부른다. 판정은 targetPreviewView 하나(편집=작업 행,
+  // 새 작업=로컬 target). 인용RT면 원고 카드 안(2줄)에, 아니면 대상 칸 안(3줄 + 첫 이미지)에 같은 결과를 그린다.
+  const tState = task ? targetPreviewState(task) : targetPreviewStateOfValue(target);
+  const tPrev = useTweetPreview(tState.kind === 'link' && !task?.cancelledAt ? tState.url : null);   // 취소된 작업은 글자만 보여 준다
+  const isQuote = (task?.type ?? newType) === 'quoteRt';
+  // 인용 미리보기의 작성자 줄 = 이 작업의 인플(실제 게시 모습, §7-1) — 명부 값은 optionForHandle과 같은 조회
+  const authorHandle = task ? task.influencerHandle : (handle || null);
+  const authorOpt = authorHandle ? optionForHandle(authorHandle) : undefined;   // function 선언이라 호이스팅된다
+  const author = authorHandle ? { name: authorOpt?.name?.trim() || `@${authorHandle}`, handle: authorHandle, avatarUrl: authorOpt?.avatarUrl } : undefined;
+  const quoteNode = isQuote && tState.kind !== 'none' ? <TargetPreview state={tState} {...tPrev} lines={2} /> : undefined;
+  // 대상 칸 안의 단독 카드(3줄) — 원고가 붙은 인용RT는 원고 카드가 이미 보여 주므로 대상 칸엔 링크 줄만 둔다
+  const targetCard = (hasDraft: boolean) => (isQuote && hasDraft) || tState.kind === 'none'
+    ? null
+    : <div className="mt-2.5"><TargetPreview state={tState} {...tPrev} lines={3} /></div>;
 
   // 새 작업 모드에서 값이 하나라도 채워졌으면(유형은 빼고) Esc·[✕]로 닫을 때 경고 없이 사라지지 않게 한 번
   // 묻는다(I1) — DraftWriteModal의 dirty 관례와 같다. handleInput은 아직 커밋 전(엔터·블러 전) 값도 잡는다 —
@@ -447,39 +467,18 @@ export function TaskPanel({
       case 'draft': {
         if (cancelled) return <span className="text-content text-x-muted">{t.cancelledDraftTitle ? `원고 있었음: ${t.cancelledDraftTitle}` : '—'}</span>;
         if (t.draftId) {
+          // [열기]는 setDraftTab 없이 연다 — 붙어 있으면 탭 대신 카드가 뜬다(DraftMode)
           return (
-            <div className="flex flex-wrap items-center justify-between gap-2 text-content">
-              <span className="min-w-0 truncate" title={t.draftLabel ?? ''}>
-                {t.draftLabel ?? '(제목 없음)'}{t.draftStatus && <span className="text-ui text-x-muted"> · {STATUS_LABEL[t.draftStatus]}</span>}
-              </span>
-              <span className="flex shrink-0 items-center gap-3 text-ui">
-                {/* setDraftTab 없이 연다 — 붙어 있으면 탭 대신 카드가 뜬다(DraftMode) */}
-                <button type="button" onClick={() => setDraftMode('draft')} className="text-x-blue-text hover:underline">열기</button>
-                <button type="button" onClick={() => onDetachDraft(t)} className="text-x-secondary hover:underline">떼기</button>
-              </span>
-            </div>
+            <DraftSummaryCard title={t.draftLabel ?? '(제목 없음)'} status={t.draftStatus ? STATUS_LABEL[t.draftStatus] : null}
+                              preview={t.draftPreview} image={t.draftFirstImage} quote={quoteNode} author={author}
+                              onOpen={() => setDraftMode('draft')} onDetach={() => onDetachDraft(t)} />
           );
         }
-        return (
-          <div>
-            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-content">
-              <button type="button" onClick={() => { setDraftTab('generate'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-blue-text hover:underline">AI로 만들기</button>
-              <span aria-hidden className="text-x-muted">·</span>
-              <button type="button" onClick={() => { setDraftTab('write'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">직접 쓰기</button>
-              <span aria-hidden className="text-x-muted">·</span>
-              <button type="button" onClick={() => { setDraftTab('pick'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">
-                있는 원고 고르기{pickCount !== null ? ` ${pickCount}` : ''}
-              </button>
-            </span>
-            <p className="mt-1 text-ui text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
-          </div>
-        );
+        // 비어 있으면 세 입구 버튼만(설계 §10 — 도움말 없음)
+        return <DraftEntryButtons pickCount={pickCount} onPick={(tab) => { setDraftTab(tab); setDraftMode('draft'); }} />;
       }
       case 'target': {
-        if (!cancelled) return <>{slots.target}</>;
+        if (!cancelled) return <>{slots.target}{targetCard(!!t.draftId)}</>;
         const tgt = targetLabel(t, campaign.id);
         return <span className={`text-content ${tgt.muted ? 'text-x-muted' : ''}`}>{tgt.text}{tgt.sub && ` · ${tgt.sub}`}</span>;
       }
@@ -590,7 +589,12 @@ export function TaskPanel({
         );
       }
       case 'target':
-        return <TargetPicker value={target} clientId={campaign.clientId} campaignId={campaign.id} onChange={(next) => void resolveNewTarget(next)} />;
+        return (
+          <>
+            <TargetPicker value={target} clientId={campaign.clientId} campaignId={campaign.id} onChange={(next) => void resolveNewTarget(next)} />
+            {targetCard(!!newDraft)}
+          </>
+        );
       case 'scheduled':
         return (
           <ScheduledOnField value={scheduledOn} overdueDays={null}
@@ -627,51 +631,33 @@ export function TaskPanel({
         // 원고 칸(스펙 §4-1) — 모양은 편집 패널(renderEditField 'draft')과 같다. 다른 점은 [떼기]가
         // 서버 detach가 아니라 폼에서 내려놓는 것뿐이다(위 detachNewDraft) — 아직 어디에도 안 붙어서다.
         if (newDraft) {
+          const first = (newDraft.edited ?? newDraft.content).posts[0];
+          // [열기]는 setDraftTab 없이 연다 — 이미 골라 둔 원고면 탭 대신 카드가 뜬다(Task 4의 attached 판정).
+          // 아래 도움말은 §10 표에 없는 문구라 유지한다 — [만들기]의 결과를 알려 주는 유일한 줄이다.
           return (
             <div>
-              <div className="flex flex-wrap items-center justify-between gap-2 text-content">
-                <span className="min-w-0 truncate" title={draftLabel(newDraft).text}>
-                  {draftLabel(newDraft).text}
-                  <span className="text-ui text-x-muted"> · {STATUS_LABEL[newDraft.status]}</span>
-                </span>
-                <span className="flex shrink-0 items-center gap-3 text-ui">
-                  {/* setDraftTab 없이 연다 — 이미 골라 둔 원고면 탭 대신 카드가 뜬다(Task 4의 attached 판정) */}
-                  <button type="button" onClick={() => setDraftMode('draft')} className="text-x-blue-text hover:underline">열기</button>
-                  <button type="button" onClick={detachNewDraft} className="text-x-secondary hover:underline">떼기</button>
-                </span>
-              </div>
+              <DraftSummaryCard title={draftLabel(newDraft).text} status={STATUS_LABEL[newDraft.status]}
+                                preview={first?.text || null} image={first?.media[0]?.url ?? null} quote={quoteNode} author={author}
+                                onOpen={() => setDraftMode('draft')} onDetach={detachNewDraft} detachLabel="떼기" />
               <p className="mt-1 text-ui text-x-muted">만들기를 누르면 이 원고가 함께 붙어요</p>
             </div>
           );
         }
         return (
           <div>
-            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-content">
-              <button type="button" onClick={() => { setDraftTab('generate'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-blue-text hover:underline">AI로 만들기</button>
-              <span aria-hidden className="text-x-muted">·</span>
-              <button type="button" onClick={() => { setDraftTab('write'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">직접 쓰기</button>
-              <span aria-hidden className="text-x-muted">·</span>
-              <button type="button" onClick={() => { setDraftTab('pick'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">
-                있는 원고 고르기{pickCount !== null ? ` ${pickCount}` : ''}
-              </button>
-            </span>
+            <DraftEntryButtons pickCount={pickCount} onPick={(tab) => { setDraftTab(tab); setDraftMode('draft'); }} />
             {/* 409(Task 5 §3) — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져갔다. 서버 문구를 그대로
                 옮기지 않고 이 자리에서 사실만 말한다: 원고는 지워지지 않았고, 다시 고르면 된다. 중립
-                도움말(비워 둬요)과 같은 회색·자리라 못 보고 지나치기 쉬웠다(최종 리뷰 §3) — 경고 톤
+                도움말(비워 둬요, §10으로 지금은 없다)과 같은 회색·자리라 못 보고 지나치기 쉬웠다(최종 리뷰 §3) — 경고 톤
                 (이 저장소의 amber 계열, 정산 경고와 같은 색)과 role="alert"로 눈에 띄게 한다. "다시
                 고르기"는 텍스트만으로는 링크처럼 보이는데 아무 동작이 없었다(거짓 어포던스) — 실제로
                 '있는 원고 고르기' 탭을 여는 버튼으로 고친다. */}
-            {draftGone ? (
+            {draftGone && (
               <p role="alert" className="mt-1 text-ui text-amber-700">
                 다른 작업에 붙었어요 —{' '}
                 <button type="button" onClick={() => { setDraftTab('pick'); setDraftMode('draft'); }}
                         className="underline hover:text-amber-800">다시 고르기</button>
               </p>
-            ) : (
-              <p className="mt-1 text-ui text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
             )}
           </div>
         );

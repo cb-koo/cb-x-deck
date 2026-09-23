@@ -197,10 +197,13 @@ export function TaskPanel({
   const [noteBuf, setNoteBuf] = useState(task?.note ?? '');
 
   // ── 비용 · 정산 상자의 결제 수단 한 줄(설계 §8-1) — 훅이라 렌더 함수(renderEditField 등) 밖, 여기서 한 번 부른다.
-  // refreshKey: 정산 요청 상태(우리·그쪽)나 작업이 바뀌면 다시 부른다 — 요청이 생기면 명부 수단 대신 요청 스냅샷이 사실이다.
-  const payHandle = task ? task.influencerHandle : (handle || null);
-  const payRefresh = task ? `${task.settlement?.status ?? ''}:${task.settlement?.externalStatus ?? ''}:${task.updatedAt}` : '';
-  const pay = usePaymentView(payHandle, task?.id ?? null, payRefresh);
+  // refreshKey: 정산 요청 상태(우리·그쪽)가 바뀌면 다시 부른다 — 요청이 생기면 명부 수단 대신 요청 스냅샷이 사실이다.
+  // 취소된 작업은 정산할 일이 없어 부르지도 보이지도 않는다(핸들 null).
+  // panelHandle = 이 패널의 인플(편집=작업 행, 새 작업=입력 칸) — 결제 수단 줄과 인용 미리보기의 작성자 줄이 같이 쓴다.
+  const panelHandle = task ? task.influencerHandle : (handle || null);
+  const payCancelled = !!task?.cancelledAt;
+  const payRefresh = task ? `${task.settlement?.status ?? ''}:${task.settlement?.externalStatus ?? ''}` : '';
+  const pay = usePaymentView(payCancelled ? null : panelHandle, task?.id ?? null, payRefresh);
 
   // ── 인용·RT 대상 미리보기(설계 §7-1) — 훅이라 여기서 한 번 부른다. 판정은 targetPreviewView 하나(편집=작업 행,
   // 새 작업=로컬 target). 인용RT면 원고 카드 안(2줄)에, 아니면 대상 칸 안(3줄 + 첫 이미지)에 같은 결과를 그린다.
@@ -208,9 +211,9 @@ export function TaskPanel({
   const tPrev = useTweetPreview(tState.kind === 'link' && !task?.cancelledAt ? tState.url : null);   // 취소된 작업은 글자만 보여 준다
   const isQuote = (task?.type ?? newType) === 'quoteRt';
   // 인용 미리보기의 작성자 줄 = 이 작업의 인플(실제 게시 모습, §7-1) — 명부 값은 optionForHandle과 같은 조회
-  const authorHandle = task ? task.influencerHandle : (handle || null);
-  const authorOpt = authorHandle ? optionForHandle(authorHandle) : undefined;   // function 선언이라 호이스팅된다
-  const author = authorHandle ? { name: authorOpt?.name?.trim() || `@${authorHandle}`, handle: authorHandle, avatarUrl: authorOpt?.avatarUrl } : undefined;
+  const authorOpt = panelHandle ? optionForHandle(panelHandle) : undefined;   // function 선언이라 호이스팅된다
+  // 표시 이름이 없으면 name=null — 카드가 @핸들을 한 번만 그린다(InfluencerSummary와 같은 규칙)
+  const author = panelHandle ? { name: authorOpt?.name?.trim() || null, handle: panelHandle, avatarUrl: authorOpt?.avatarUrl } : undefined;
   const quoteNode = isQuote && tState.kind !== 'none' ? <TargetPreview state={tState} {...tPrev} lines={2} /> : undefined;
   // 대상 칸 안의 단독 카드(3줄) — 원고가 붙은 인용RT는 원고 카드가 이미 보여 주므로 대상 칸엔 링크 줄만 둔다
   const targetCard = (hasDraft: boolean) => (isQuote && hasDraft) || tState.kind === 'none'
@@ -403,10 +406,15 @@ export function TaskPanel({
   function costBox(amount: ReactNode): ReactNode {
     return (
       <div>
-        <p className="mb-1.5 text-ui font-semibold text-x-secondary">금액</p>
+        <p className="mb-1.5 text-[14px] font-semibold text-x-secondary">금액</p>
         {amount}
-        <p className="mb-1.5 mt-3.5 text-ui font-semibold text-x-secondary">결제 수단</p>
-        {payHandle ? <PaymentLine {...pay} /> : <p className="text-content text-x-muted">인플 선택 후</p>}
+        {/* 취소된 작업은 정산할 일이 없어 결제 수단 줄 자체를 두지 않는다 */}
+        {!payCancelled && (
+          <>
+            <p className="mb-1.5 mt-3.5 text-[14px] font-semibold text-x-secondary">결제 수단</p>
+            {panelHandle ? <PaymentLine {...pay} /> : <p className="text-content text-x-muted">인플 선택 후</p>}
+          </>
+        )}
       </div>
     );
   }

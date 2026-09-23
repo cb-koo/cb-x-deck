@@ -14,7 +14,7 @@ import {
   PANEL_FIELD_ORDER, DISPLAY_TYPE_ORDER, costCell, replaceDisabledReason, detachConfirmMessage, profilePromptFor, type FlowRow, type PanelField,
 } from '@/lib/campaignFlowView';
 import { STATUS_LABEL } from '@/lib/draftStatus';
-import { draftLabel } from '@/lib/draftViews';
+import { draftLabel, draftPreviewFull, draftFirstMediaUrl } from '@/lib/draftViews';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
 import { InfluencerField } from '@/components/InfluencerField';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
@@ -631,14 +631,13 @@ export function TaskPanel({
         // 원고 칸(스펙 §4-1) — 모양은 편집 패널(renderEditField 'draft')과 같다. 다른 점은 [떼기]가
         // 서버 detach가 아니라 폼에서 내려놓는 것뿐이다(위 detachNewDraft) — 아직 어디에도 안 붙어서다.
         if (newDraft) {
-          const first = (newDraft.edited ?? newDraft.content).posts[0];
           // [열기]는 setDraftTab 없이 연다 — 이미 골라 둔 원고면 탭 대신 카드가 뜬다(Task 4의 attached 판정).
           // 아래 도움말은 §10 표에 없는 문구라 유지한다 — [만들기]의 결과를 알려 주는 유일한 줄이다.
           return (
             <div>
               <DraftSummaryCard title={draftLabel(newDraft).text} status={STATUS_LABEL[newDraft.status]}
-                                preview={first?.text || null} image={first?.media[0]?.url ?? null} quote={quoteNode} author={author}
-                                onOpen={() => setDraftMode('draft')} onDetach={detachNewDraft} detachLabel="떼기" />
+                                preview={draftPreviewFull(newDraft)} image={draftFirstMediaUrl(newDraft)} quote={quoteNode} author={author}
+                                onOpen={() => setDraftMode('draft')} onDetach={detachNewDraft} />
               <p className="mt-1 text-ui text-x-muted">만들기를 누르면 이 원고가 함께 붙어요</p>
             </div>
           );

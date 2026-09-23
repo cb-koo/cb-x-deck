@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import type { InfluencerOption } from '@/lib/draftTypes';
-import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
+import type { TaskType } from '@/lib/campaignJudgment';
 import {
   CURRENCIES, CURRENCY_LABEL, AMOUNT_MESSAGE, parseAmount, formatAmount, suggestTaskCost,
   type TaskCost, type Currency,
@@ -119,7 +119,7 @@ export function CostConfirmField({
     if (profile && (scenario === 'differs' || scenario === 'currency-mismatch')) {
       const diff = scenario === 'currency-mismatch'
         ? `프로필 단가는 ${CURRENCY_LABEL[profile.currency]}로 적혀 있어요`
-        : `프로필 단가 ${formatAmount(profile.amount, profile.currency)}과 다름`;
+        : `프로필 ${formatAmount(profile.amount, profile.currency)}`;   // §10 — '다름'은 주황색이 말한다
       statusText = `✓ 확정 · ${diff}${note}`;
       amber = true;
     } else {
@@ -128,9 +128,9 @@ export function CostConfirmField({
   } else if (entered === null) {
     statusText = profile ? '금액을 넣어 주세요' : '프로필에 단가 없음 — 직접 입력';
   } else if (scenario === 'same') {
-    statusText = `프로필 단가 · ${TASK_TYPE_LABEL[type]}`;
+    statusText = '프로필 단가';
   } else if (scenario === 'differs' && profile) {
-    statusText = `프로필 단가 ${formatAmount(profile.amount, profile.currency)}과 다름`;
+    statusText = `프로필 ${formatAmount(profile.amount, profile.currency)}`;   // 확정 뒤 문구(위)와 같은 말
     amber = true;
   } else if (scenario === 'no-profile') {
     statusText = '프로필에 단가 없음';

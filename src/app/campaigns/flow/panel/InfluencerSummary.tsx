@@ -8,7 +8,7 @@ export function InfluencerSummary({ handle, option, muted = false, actions }: {
 }) {
   const name = option?.name?.trim();
   return (
-    <div className={`flex items-center gap-3 ${muted ? 'opacity-60' : ''}`}>
+    <div className={`flex min-w-0 items-center gap-3 ${muted ? 'opacity-60' : ''}`}>
       <Avatar url={option?.avatarUrl} name={name || handle} size={36} />
       <div className="min-w-0">
         {name

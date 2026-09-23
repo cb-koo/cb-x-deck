@@ -4,24 +4,15 @@
 // 게시물 id는 링크 그대로 쓴다 — 리포스트 링크를 원본으로 바꿔 보여주면 미리보기와 원고 생성(id 그대로
 // 대조하는 loadQuoteTarget)이 서로 다른 게시물을 가리키게 된다.
 import type postgres from 'postgres';
-import type { DeckTweet, DeckQuoted } from './types.ts';
+import type { TweetPreview } from './tweetPreviewShape.ts';
 import { parseTweetLink } from './tweetLink.ts';
 import { getTweetsByIds, upsertTweets } from './tweetStore.ts';
 import { makeClient, type GetxapiClient } from './getxapi.ts';
 import { mapRawTweet } from './mappers.ts';
 
-// mismatch: 캐시 미스라 다시 부른 X 상세가 요청한 tweetId와 다른 게시물을 돌려준 경우.
-// (원고 생성 쪽의 기존 문구 "게시물이 바뀌었어요 — 대상 링크를 다시 확인해 주세요"를 보존하려고 따로 둔다.)
-// noText: 리트윗은 아니지만 매핑에 실패했거나 본문이 비어 보여줄 내용이 없는 경우. repost와는 미리보기
-// 화면의 안내 문구가 다르다(§7-1 "리포스트 링크예요 — 원본 게시물 링크로 바꿔 주세요"는 순수 리트윗 전용,
-// 본문이 없는 경우에 같은 문구를 쓰면 존재하지 않는 원본을 찾으라는 셈이 된다) — 그래서 따로 둔다.
-export type TweetPreview =
-  | { kind: 'ok'; tweet: DeckTweet }
-  | { kind: 'repost' }
-  | { kind: 'noText' }
-  | { kind: 'unavailable' }
-  | { kind: 'mismatch' }
-  | { kind: 'badLink' };
+// 화면(클라이언트 번들)이 쓰는 모양·변환은 서버 import가 없는 tweetPreviewShape.ts에 둔다 — 여기서 다시 내보내
+// 서버 호출부·테스트는 그대로 이 파일을 쓴다.
+export { quotedFromTweet, type TweetPreview } from './tweetPreviewShape.ts';
 
 // X 상세 조회(getTweetDetail)만 실패해도 던지는 전용 오류 — 그 앞뒤의 DB 읽기·upsert 실패와 섞이면
 // 안 된다. 이 오류만 "확인하지 못했어요 — 잠시 후 다시 시도해 주세요" 문구로 잡히고, DB 오류 등 그 밖의
@@ -56,9 +47,4 @@ export async function loadTweetPreview(
   const p = parseTweetLink(url);
   if (!p.ok) return { kind: 'badLink' };
   return fetchTweetCached(sql, p.tweetId, client ?? makeClient());
-}
-
-// 보관함의 인용 카드(QuotedCard)는 DeckQuoted + enriched를 받는다 — 캐시의 DeckTweet을 그 모양으로 옮긴다.
-export function quotedFromTweet(t: DeckTweet): DeckQuoted & { enriched: DeckTweet } {
-  return { id: t.tweetId, text: t.text, userName: t.authorName, screenName: t.authorHandle, enriched: t };
 }

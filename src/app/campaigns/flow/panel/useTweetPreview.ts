@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
-import type { TweetPreview } from '@/lib/tweetPreview';
+import type { TweetPreview } from '@/lib/tweetPreviewShape';
 
 // 인용·RT 대상 게시물 미리보기(설계 §7-1) — usePaymentView와 같은 모양. 같은 url은 모듈 캐시로 세션 동안 한 번만 부른다.
 // ok가 아닌 결과(unavailable·repost·badLink 등)도 캐시에 넣는다 — 삭제·비공개 게시물은 서버 캐시에 안 남아

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui';
 import { InfoTip } from '@/components/InfoTip';
 import type { FlowStats } from '@/lib/campaignFlowView';
 import { CURRENCIES, formatAmount, formatMoneyBy, moneyParts, type MoneyByCurrency } from '@/lib/campaignCost';
-import { toKrw, periodLabel, type CampaignPeriodBudget } from '@/lib/clientBudget';
+import { toKrw, periodLabel, remainingOf, badgeText, type CampaignPeriodBudget } from '@/lib/clientBudget';
 import { formatPct } from '@/lib/performanceJudgment';
 
 // 요약 카드 3장(작업·성과·비용) — 클러터로 반려된 초안 뒤 정해진 모양(b-task-11-brief.md):
@@ -50,6 +50,10 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
   const wOthers = hasBudgetBar ? segWidth((budget!.othersKrw / amount!) * 100) : 0;
   const wSpent = hasBudgetBar ? segWidth((spentKrw / amount!) * 100) : 0;
   const wPlanned = hasBudgetBar ? segWidth((Math.max(0, plannedKrw - spentKrw) / amount!) * 100) : 0;
+  // 잔액 = 예산 − (다른 캠페인 몫 + 이 캠페인 계획). 카드 큰 숫자는 "얼마 남았나"가 먼저 보여야 한다 —
+  // 예산 총액만 크게 보여주면 왼쪽 소진/계획 숫자와 나란히 붙어 마치 하나의 분수처럼 오독된다(koo 09-23 피드백).
+  const remaining = amount !== null ? remainingOf(amount, budget!.othersKrw + plannedKrw) : null;
+  const over = remaining !== null && remaining < 0;
   const budgetTip = hasBudgetBar
     ? `${periodLabel(budget!.period!)} 예산 ${formatAmount(amount!, 'KRW')} · 회색은 기간 내 다른 캠페인 계획 ${formatAmount(budget!.othersKrw, 'KRW')} · 인플별 추가 비용은 계획에 포함 · 송금 수수료 미포함`
     : undefined;
@@ -122,19 +126,26 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
             </p>
             <p className="mt-1 text-ui text-x-secondary">소진 / 계획</p>
           </div>
-          <div className="shrink-0 text-right">
+          <div className="shrink-0 border-l border-x-border pl-4 text-right">
             {amount !== null ? (
-              <p className="text-[26px] font-bold leading-tight tabular-nums">{formatAmount(amount, 'KRW')}</p>
+              <>
+                <p className={`text-[26px] font-bold leading-tight tabular-nums ${over ? 'text-red-700' : ''}`}>
+                  {over ? `−${formatAmount(-remaining!, 'KRW')}` : formatAmount(remaining!, 'KRW')}
+                </p>
+                <p className="mt-1 text-ui text-x-secondary">이번 기간 잔액</p>
+                <p className="mt-1 text-caption text-x-muted">{periodLabel(budget!.period!)} 예산 {formatAmount(amount, 'KRW')}</p>
+                {budget!.badge && <p className="text-caption text-x-secondary">{badgeText(budget!.badge)}</p>}
+              </>
             ) : (
-              <p className="text-[26px] font-bold leading-tight tabular-nums text-x-muted">—</p>
-            )}
-            <p className="mt-1 text-ui text-x-secondary">
-              {amount !== null
-                ? `${periodLabel(budget!.period!)} 예산`
-                : (clientId
+              <>
+                <p className="text-[26px] font-bold leading-tight tabular-nums text-x-muted">—</p>
+                <p className="mt-1 text-ui text-x-secondary">
+                  {clientId
                     ? <Link href={`/clients?client=${clientId}`} className="text-x-blue-text hover:underline">예산 미설정</Link>
-                    : '예산 미설정')}
-            </p>
+                    : '예산 미설정'}
+                </p>
+              </>
+            )}
           </div>
         </div>
         {hasBudgetBar && (

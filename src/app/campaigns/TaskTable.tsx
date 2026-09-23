@@ -19,7 +19,7 @@ import {
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, targetLabel, typeFooterLabel, handleInitial } from '@/lib/campaignTableView';
 import type { useCampaignTaskActions } from './useCampaignTaskActions';
-import type { TaskType } from '@/lib/campaignJudgment';
+import { TYPE_CHIP } from '@/lib/flowChips';
 
 // 작업 표(스펙 §4-1, 시안 task-table-v4) — 표 하나·열 7개 고정·행은 만든 순(밀림도 자리를 바꾸지 않고 강조만 한다).
 // 판정은 campaignJudgment, 문구는 campaignTableView, 여기는 그리기만. 저장은 actions(PATCH tasks/[taskId]).
@@ -30,9 +30,6 @@ const SORT_KEYS: TaskSortKey[] = ['created', 'scheduled', 'stage', 'influencer']
 const TH = 'px-3.5 py-2 font-normal';
 const TD = 'px-3.5 py-3.5 align-middle';
 const MIN_TABLE_WIDTH = 1260;
-const TYPE_CHIP: Record<TaskType, string> = {
-  post: 'bg-[#e8f0fe] text-[#1d4ed8]', quoteRt: 'bg-[#f3e8ff] text-[#7e22ce]', rt: 'bg-[#e6f6ee] text-[#15803d]', visit: 'bg-[#fff4e5] text-[#b45309]',
-};
 const MENU_W = 176;
 const MENU_H = 128;  // 항목 3개 + 패딩 근사 — flip 판단에만 쓰므로 근사치로 충분하다(CostPopover 관례)
 

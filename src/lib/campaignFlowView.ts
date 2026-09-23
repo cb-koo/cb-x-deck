@@ -3,7 +3,8 @@ import {
   flowStage, FLOW_STAGES, FLOW_STAGE_LABEL, isTaskExcluded, isSettlementCandidate, isTaskOverdue,
   TASK_TYPES, TASK_TYPE_LABEL, formatDateKo, daysBetweenDates, type FlowStage, type TaskType,
 } from './campaignJudgment.ts';
-import { formatAmount, formatMoneyBy, sumMoney, type MoneyByCurrency, type TaskCost } from './campaignCost.ts';
+import { formatAmount, formatMoneyBy, sumMoney, suggestTaskCost, normalizeCurrency, type MoneyByCurrency, type TaskCost } from './campaignCost.ts';
+import type { InfluencerOption } from './draftTypes.ts';
 import type { CancelReason } from './campaignTaskInput.ts';
 import { toKrw } from './clientBudget.ts';
 import { rate } from './performanceJudgment.ts';
@@ -122,6 +123,22 @@ export function costConfirmScenario({ profile, entered }: { profile: TaskCost | 
   if (!profile) return 'no-profile';
   if (profile.currency !== entered.currency) return 'currency-mismatch';
   return profile.amount === entered.amount ? 'same' : 'differs';
+}
+
+// 비용을 확정한 뒤 "프로필에도 반영할까요?"를 물을지(설계 §8) — CostConfirmField.confirm()과 새 작업의 [만들기] 뒤가
+// 같은 판정을 쓴다. 명부 밖(id 없음)·통화 불일치·같은 값이면 묻지 않는다.
+export function profilePromptFor({ option, type, cost }: { option: InfluencerOption | undefined; type: TaskType; cost: TaskCost | null }):
+  { scenario: 'differs' | 'no-profile'; profile: TaskCost | null } | null {
+  if (!cost || !option?.id) return null;
+  const profile = suggestTaskCost(option.pricing, type);
+  const scenario = costConfirmScenario({ profile, entered: cost });
+  if (scenario === 'differs') return { scenario, profile };
+  if (scenario === 'no-profile') {
+    // 프로필에 이미 다른 유형 단가(=다른 통화)가 있으면 덮어쓰지 않는다 — 프로필 통화는 하나뿐이다(normalizeCurrency)
+    if (option.pricing && normalizeCurrency(option.pricing) !== cost.currency) return null;
+    return { scenario, profile: null };
+  }
+  return null;
 }
 
 // ── 하단 줄·카드(§3-2 하단 한 줄, §3-3) — 모집단은 취소 제외(R17) ──

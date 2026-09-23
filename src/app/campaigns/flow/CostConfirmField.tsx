@@ -1,12 +1,12 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
 import {
-  CURRENCIES, CURRENCY_LABEL, AMOUNT_MESSAGE, parseAmount, formatAmount, suggestTaskCost, normalizeCurrency,
+  CURRENCIES, CURRENCY_LABEL, AMOUNT_MESSAGE, parseAmount, formatAmount, suggestTaskCost,
   type TaskCost, type Currency,
 } from '@/lib/campaignCost';
-import { costConfirmScenario } from '@/lib/campaignFlowView';
+import { costConfirmScenario, profilePromptFor } from '@/lib/campaignFlowView';
 import { Button } from '@/components/ui';
 import { PriceProfileDialog } from './PriceProfileDialog';
 
@@ -17,8 +17,10 @@ import { PriceProfileDialog } from './PriceProfileDialog';
 // 확정 뒤 프로필과 다르거나(differs) 프로필에 단가가 없으면(no-profile) "프로필도 바꿀까요"를 그 다음에 묻는다 —
 // 이 작업의 저장 자체는 그 답과 무관하게 이미 끝나 있다(질문에 답하지 않고 닫아도 이 작업 비용은 남는다).
 // 통화가 다르면(currency-mismatch) 아예 묻지 않는다 — 단위가 다른 값을 프로필에 덮어쓰는 건 위험하다(koo 결정).
+// mode='draft'(새 작업, 설계 §8) — [확인]이 없다: 보이는 값이 곧 [만들기]에 실릴 값이라 입력할 때마다
+// onDraftChange로 부모에 올리고, 프로필 반영 질문은 만든 뒤 부모(FlowDetail)가 한 번 묻는다.
 export function CostConfirmField({
-  value, option, type, label, onSave, onSaveProfile, disabledReason,
+  value, option, type, label, onSave, onSaveProfile, disabledReason, mode = 'confirm', onDraftChange, error: externalError,
 }: {
   value: TaskCost | null;                 // 저장된(=확정된) 값 — edit: task.cost, new: 패널 로컬 상태
   option: InfluencerOption | undefined;   // 배정된 인플루언서(명부에 있을 때만 id가 있다)
@@ -27,6 +29,9 @@ export function CostConfirmField({
   onSave: (cost: TaskCost) => Promise<boolean>;
   onSaveProfile: (option: InfluencerOption, cost: TaskCost) => Promise<boolean>;
   disabledReason?: string;                // 있으면 칸을 비활성으로 그리고 이 문구를 보여준다(인플 미정 등)
+  mode?: 'confirm' | 'draft';
+  onDraftChange?: (v: TaskCost | null | 'invalid') => void;   // draft 모드만 — 빈 칸 null, 못 읽는 값 'invalid'
+  error?: string | null;                  // 부모가 정한 오류(draft 모드의 [만들기] 때 'invalid')
 }) {
   const profile = suggestTaskCost(option?.pricing, type);
   const [amount, setAmount] = useState(() => String(value?.amount ?? profile?.amount ?? ''));
@@ -35,6 +40,18 @@ export function CostConfirmField({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');   // '✓ 확정' 옆 한 줄 — 프로필 갱신 결과·명부 밖 사유·통화 불일치 사유
   const [dialog, setDialog] = useState<{ scenario: 'differs' | 'no-profile'; entered: TaskCost } | null>(null);
+
+  // draft 모드에서 지금 보이는 값을 부모에 올린다 — 이펙트에서 setState하지 않으려고 핸들러와 마운트 때 부른다.
+  const report = (a: string, c: Currency) => {
+    if (mode !== 'draft' || !onDraftChange || disabledReason) return;
+    if (a.trim() === '') { onDraftChange(null); return; }
+    const n = parseAmount(a);
+    onDraftChange(n === null ? 'invalid' : { amount: n, currency: c });
+  };
+  // 마운트 때 초기값(프로필 단가)을 한 번 올린다 — 부모 콜백 호출일 뿐 이 컴포넌트의 setState가 아니다.
+  // 부모는 key(핸들·옵션 도착)로 다시 마운트해 새 초기값을 받는다.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 마운트 때 초기값을 한 번 올린다
+  useEffect(() => { report(amount, currency); }, []);
 
   if (disabledReason) {
     // I4 — 저장된 비용(value)이 있으면 빈 점선 상자로 지우지 않는다: 표는 값을 보여주는데 패널만 빈칸이면
@@ -71,13 +88,11 @@ export function CostConfirmField({
     if (scenario === 'currency-mismatch') { setNote(' · 통화가 달라 프로필엔 반영 안 돼요'); return; }
     if (scenario !== 'differs' && scenario !== 'no-profile') return;   // same이면 물을 게 없다
     if (!option?.id) { setNote(' · 명부에 없는 인플루언서라 프로필엔 저장 못 해요'); return; }
-    // no-profile이라도 프로필에 이미 다른 유형 단가(=다른 통화)가 있으면 그 통화를 덮어쓰지 않는다 — 프로필의
-    // 통화는 하나뿐이라(normalizeCurrency) 여기서 바꾸면 이미 있던 다른 유형 단가까지 통화가 같이 바뀐 것처럼 읽힌다.
-    if (scenario === 'no-profile' && option.pricing && normalizeCurrency(option.pricing) !== entered.currency) {
-      setNote(' · 통화가 달라 프로필엔 반영 안 돼요');
-      return;
-    }
-    setDialog({ scenario, entered });
+    // 물을지 말지는 profilePromptFor 하나로(새 작업의 [만들기] 뒤와 같은 판정) — 여기까지 왔는데 null이면
+    // no-profile인데 프로필에 이미 다른 통화 단가가 있는 경우뿐이다(프로필 통화는 하나라 덮어쓰지 않는다).
+    const prompt = profilePromptFor({ option, type, cost: entered });
+    if (!prompt) { setNote(' · 통화가 달라 프로필엔 반영 안 돼요'); return; }
+    setDialog({ scenario: prompt.scenario, entered });
   }
 
   async function answerDialog(toProfile: boolean) {
@@ -90,7 +105,13 @@ export function CostConfirmField({
 
   let statusText: string;
   let amber = false;
-  if (saved) {
+  if (mode === 'draft') {
+    // 새 작업(§10) — 확정 개념이 없어 '✓ 확정'·'다름' 경고 대신 출처만 짧게 말한다
+    statusText = entered === null && amount.trim() === '' ? (profile ? '' : '프로필에 단가 없음')
+      : scenario === 'same' ? '프로필 단가'
+      : scenario === 'differs' && profile ? `프로필 ${formatAmount(profile.amount, profile.currency)}`
+      : '';
+  } else if (saved) {
     // 확정된 값이라도 "지금 배정된 인플루언서"의 프로필 단가와 다르면 그 사실을 덧붙인다 — 교체·재배정 뒤
     // 앞사람 기준 금액이 그대로 남아 있어도 화면이 '✓ 확정'만 보여줘 조용히 틀린 값이 되는 문제(Task 8 리뷰
     // Minor)를 막는다. profile은 이미 "지금" 배정된 인플의 단가(위 option prop이 그 인플이다).
@@ -122,22 +143,23 @@ export function CostConfirmField({
     <div>
       <div className="flex items-center gap-2">
         <input inputMode="numeric" aria-label={label} value={amount}
-               onChange={(e) => { setAmount(e.target.value); setErr(null); }}
-               onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void confirm(); }}
+               onChange={(e) => { setAmount(e.target.value); setErr(null); report(e.target.value, currency); }}
+               onKeyDown={(e) => { if (mode === 'confirm' && e.key === 'Enter' && !e.nativeEvent.isComposing) void confirm(); }}
                placeholder="0"
                className={`h-10 flex-1 rounded-md border px-3 text-content tabular-nums outline-none focus:border-x-blue ${
-                 saved ? 'border-x-border-strong' : 'border-dashed border-x-border-strong text-x-secondary'}`} />
-        <select value={currency} aria-label={`${label} 통화`} onChange={(e) => { setCurrency(e.target.value as Currency); setErr(null); }}
+                 saved || mode === 'draft' ? 'border-x-border-strong' : 'border-dashed border-x-border-strong text-x-secondary'}`} />
+        <select value={currency} aria-label={`${label} 통화`}
+                onChange={(e) => { const next = e.target.value as Currency; setCurrency(next); setErr(null); report(amount, next); }}
                 className="h-10 rounded-md border border-x-border-strong bg-white px-2 text-content outline-none focus:border-x-blue">
           {CURRENCIES.map((c) => <option key={c} value={c}>{CURRENCY_LABEL[c]}</option>)}
         </select>
-        {!saved && (
+        {mode === 'confirm' && !saved && (
           <Button onClick={() => void confirm()} disabled={parsed === null || busy} className="h-10 px-3.5 text-ui">
             {busy ? '확인 중…' : '확인'}
           </Button>
         )}
       </div>
-      {err && <p role="alert" className="mt-1 text-caption text-red-600">{err}</p>}
+      {(err ?? externalError) && <p role="alert" className="mt-1 text-ui text-red-600">{err ?? externalError}</p>}
       {statusText && <p className={`mt-1 text-caption ${amber ? 'text-amber-700' : 'text-x-muted'}`}>{statusText}</p>}
       {dialog && option && (
         <PriceProfileDialog scenario={dialog.scenario} handle={option.handle} type={type}

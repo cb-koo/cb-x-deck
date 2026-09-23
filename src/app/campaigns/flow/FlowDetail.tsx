@@ -40,7 +40,8 @@ import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar } from './FlowFilterBar';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
-import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM, type FormDraftContext } from './TaskPanel';
+import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM, type FormDraftContext, type PricePrompt } from './TaskPanel';
+import { PriceProfileDialog } from './PriceProfileDialog';
 import { CostConfirmField } from './CostConfirmField';
 import { TargetLinkField } from './TargetLinkField';
 import { PostedDialog } from './PostedDialog';
@@ -168,6 +169,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const [linkFor, setLinkFor] = useState<FlowRow | null>(null);
   const [cancelFor, setCancelFor] = useState<FlowRow | null>(null);
   const [replaceFor, setReplaceFor] = useState<FlowRow | null>(null);
+  // 새 작업을 만든 뒤 "프로필에도 반영할까요?"(설계 §8) — 만들기는 이미 끝났고, 답은 프로필만 바꾼다
+  const [pricePrompt, setPricePrompt] = useState<PricePrompt | null>(null);
   // 원고 카드에서 고른 핸들을 교체 다이얼로그가 이어받게(있음+다른 핸들, koo QA) — 행 메뉴로 열 때는 없다(빈 입력부터).
   const [replaceInitialHandle, setReplaceInitialHandle] = useState<string | null>(null);
   // 원고 모드(§5) — '있는 원고 고르기' 입구 라벨의 개수와 pick 탭의 후보에 쓴다. 캠페인 단위로 한 번 읽고,
@@ -516,7 +519,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // (주인이 이 컴포넌트라서) — TaskPanel은 다시 고를 수 있게 빈 칸을 보여준다. 가져간 원고는 후보(있는
   // 원고 고르기) 목록에서도 빠져야 한다 — onAttachFailed(아래 775줄 부근)의 같은 409 회복과 같은 이유로
   // 상세·후보를 다시 읽는다(최종 리뷰 §1, 안 그러면 화면에 남은 그 원고를 다시 골라 또 409를 받는다).
-  const createTask = useCallback(async (body: TaskCreateRequest, more: boolean): Promise<'ok' | 'draft-taken' | 'error'> => {
+  const createTask = useCallback(async (body: TaskCreateRequest, more: boolean, prompt: PricePrompt | null): Promise<'ok' | 'draft-taken' | 'error'> => {
     const r = await createTasksApi(id, body);
     if (!r.ok) {
       if (r.status === 409 && body.draftId) { setFormDraft(null); void load(); void reloadCandidates(); return 'draft-taken'; }
@@ -530,6 +533,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     // more(만들고 하나 더) — 폼을 비울 때 고른 원고도 비운다(스펙 §4-5, 유형은 TaskPanel이 유지한다).
     // more가 아니면 만든 작업으로 패널을 바꾼다 — isNew가 꺼지며 formDraft를 비우는 효과(위)가 대신 돈다.
     if (more) setFormDraft(null); else openPanel(r.data.tasks[0].id);
+    if (prompt) setPricePrompt(prompt);
     return 'ok';
   }, [id, show, load, onChanged, openPanel, reloadCandidates]);
 
@@ -1044,10 +1048,18 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                    // 패널 위에 뜬 다른 레이어(편집 모달·한 번에 만들기·게시 확인·게시물 연결·취소·교체·
                    // 원고 모드의 레퍼런스 고르기·링크 추가)가 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를
                    // 닫는 Esc 한 번에 패널까지 같이 닫힌다(리뷰 지적 1, Critical).
-                   overlayOpen={!!editing || bulkOpen || !!postedFor || removedOpen || !!linkFor || !!cancelFor || !!replaceFor || draftOverlayOpen}
+                   overlayOpen={!!editing || bulkOpen || !!postedFor || removedOpen || !!linkFor || !!cancelFor || !!replaceFor || draftOverlayOpen || !!pricePrompt}
                    onDirtyChange={onNewDirtyChange} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
+      {pricePrompt && (
+        <PriceProfileDialog scenario={pricePrompt.scenario} handle={pricePrompt.option.handle} type={pricePrompt.type}
+                            profile={pricePrompt.profile} entered={pricePrompt.cost}
+                            onAnswer={(toProfile) => {
+                              const p = pricePrompt; setPricePrompt(null);
+                              if (toProfile) void saveProfilePricing(p.option, p.cost, p.type).then((ok) => { if (ok) show('프로필 단가도 바꿨어요'); });
+                            }} />
+      )}
       {postedFor && (
         <PostedDialog task={postedFor} today={data.today}
                       onClose={() => setPostedFor(null)}

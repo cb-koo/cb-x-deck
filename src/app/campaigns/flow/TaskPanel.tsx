@@ -5,13 +5,13 @@ import type { InfluencerOption } from '@/lib/draftTypes';
 import type { DraftRow } from '@/lib/draftStore';
 import { fetchTasksTargets, type TaskCreateRequest } from '@/lib/campaignApi';
 import { buildTaskCreateBody } from '@/lib/taskCreateBody';
-import type { TaskCost } from '@/lib/campaignCost';
+import { AMOUNT_MESSAGE, type TaskCost } from '@/lib/campaignCost';
 import {
   flowStage, FLOW_STAGE_LABEL, TASK_TYPE_LABEL, isOutOfRange, formatDateKo, type TaskType,
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, targetLabel } from '@/lib/campaignTableView';
 import {
-  PANEL_FIELD_ORDER, DISPLAY_TYPE_ORDER, costCell, replaceDisabledReason, detachConfirmMessage, type FlowRow, type PanelField,
+  PANEL_FIELD_ORDER, DISPLAY_TYPE_ORDER, costCell, replaceDisabledReason, detachConfirmMessage, profilePromptFor, type FlowRow, type PanelField,
 } from '@/lib/campaignFlowView';
 import { STATUS_LABEL } from '@/lib/draftStatus';
 import { draftLabel } from '@/lib/draftViews';
@@ -31,7 +31,7 @@ import { DraftMode, type DraftTab } from './draft/DraftMode';
 //    (중간에 실패해도 빈 작업이 안 남는다, 결정 3).
 // 비용 칸(Task 8)은 edit 모드만 slots.cost(부모 FlowDetail이 채운다, task.cost·onSaveProfile 클로저가 필요해서)를
 // 쓰고, new 모드는 이 파일이 직접 CostConfirmField를 그린다 — 로컬 상태(newCost)가 이 파일에만 있어서다
-// (onSave가 로컬 setCost만 하고 true를 돌려주면 확정된다, 저장은 [만들기]에서 한 번에). 대상 칸(Task 9)도 같은
+// (draft 모드 — [확인] 없이 보이는 값이 newCost로 올라오고 [만들기]에서 한 번에 저장, 설계 §8). 대상 칸(Task 9)도 같은
 // 나눔: edit는 slots.target(TargetLinkField, actions.changeTarget 클로저가 필요), new는 TargetPicker를 직접
 // 그려 로컬 상태(target)로 들고 있다가 [만들기]에서 targetTaskId/targetTweetUrl로 함께 보낸다. 게시 확인도
 // 같은 이유로 slots.posted(다이얼로그는 FlowDetail이 연다, Task 10의 행 메뉴와 같은 다이얼로그를 쓴다).
@@ -44,6 +44,8 @@ type PanelMode = { kind: 'edit'; task: FlowRow; index: number; total: number } |
 // 폼 맥락(Task 4, 스펙 §4-6) — 새 작업 폼의 인플루언서·유형·대상을 FlowDetail에 알려, 그쪽이 원고 모드
 // 세 갈래(폼 호스트)를 이 값으로 만든다. TaskPanel의 로컬 상태(newType·handle·target)를 그대로 옮긴 것뿐이라
 // 새 상태 보관소가 아니다 — target은 인용RT의 targetRef 계산(대상 링크가 있을 때만)에만 쓰인다.
+// 새 작업을 만든 뒤 "프로필에도 반영할까요?"를 한 번 묻는 데 필요한 것(설계 §8) — 판정은 profilePromptFor.
+export type PricePrompt = { option: InfluencerOption; cost: TaskCost; type: TaskType; scenario: 'differs' | 'no-profile'; profile: TaskCost | null };
 export type FormDraftContext = { type: TaskType | null; handle: string | null; target: TargetValue };
 
 // 직접 쓰기에서 떠나기 전 확인(리뷰 지적 4) — 기존 두 번째 입구 DraftWriteModal.requestClose와 글자 하나까지
@@ -68,7 +70,7 @@ export function TaskPanel({
   onNext: () => void;
   // 'draft-taken' — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져간 409(Task 5 §3). 'error'는 그 밖의
   // 실패(토스트는 FlowDetail이 띄운다). 'ok'만 성공 — more일 때만 폼에 남는다(그 갈래는 이 컴포넌트가 비운다).
-  onCreate: (body: TaskCreateRequest, more: boolean) => Promise<'ok' | 'draft-taken' | 'error'>;
+  onCreate: (body: TaskCreateRequest, more: boolean, prompt: PricePrompt | null) => Promise<'ok' | 'draft-taken' | 'error'>;
   menu: ReactNode;   // 헤더 ··· — edit 모드에만 채워진다(Task 10, FlowRowMenu). 원고 모드에서는 숨긴다(작업 동작이라서).
   // 원고 모드로 들어가라는 요청(행 메뉴 등 패널 바깥에서 왔을 수 있다, C 원고 모드 §Step1). seq가 매번 바뀌어야
   // 이미 같은 작업의 패널이 열려 있을 때(키 리마운트가 안 일어난다)도 같은 탭을 다시 요청하면 반영된다.
@@ -159,7 +161,9 @@ export function TaskPanel({
   const [handleInput, setHandleInput] = useState('');
   const [handle, setHandle] = useState('');
   const [handleErr, setHandleErr] = useState<string | null>(null);
-  const [newCost, setNewCost] = useState<TaskCost | null>(null);
+  // 새 작업 비용 = 칸에 보이는 값(설계 §8) — 'invalid'는 못 읽는 금액(입력은 했으니 isFormFieldsFilled엔 참)
+  const [newCost, setNewCost] = useState<TaskCost | null | 'invalid'>(null);
+  const [costErr, setCostErr] = useState<string | null>(null);
   // 대상(Task 9) — TargetPicker는 taskId만 돌려준다. 접힌 카드에 보여줄 라벨·게시 여부는 후보 목록에서
   // 다시 찾는다(TaskAddModal의 resolveTarget과 같은 패턴, 한 번 더 조회해도 50건 안에 있다).
   const [target, setTarget] = useState<TargetValue>(null);
@@ -272,7 +276,7 @@ export function TaskPanel({
 
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
-    setScheduledOn(null); setVisitOn(null); setNote(''); setNewCost(null); setTarget(null);
+    setScheduledOn(null); setVisitOn(null); setNote(''); setNewCost(null); setCostErr(null); setTarget(null);
     // 409 문구(draftGone)는 newDraft가 "들어올 때"만 꺼진다(위 이펙트) — [만들고 하나 더]로 새 빈 폼을
     // 열면 newDraft가 애초에 안 들어오므로 그 이펙트가 안 돈다. 여기서 직접 꺼야 새 폼에 옛 충돌 문구가
     // 남지 않는다(최종 리뷰 §2).
@@ -296,11 +300,13 @@ export function TaskPanel({
     const p = parseXHandle(v);
     if (!p.ok) { setHandleErr(handleParseMessage(p.reason)); return; }
     setHandle(p.handle); setHandleInput(p.handle); setHandleErr(null);
-    // 사람이 바뀌면 앞사람 단가로 확인한 비용은 버린다 — 안 그러면 새 사람의 단가와 비교도 없이 '확정'으로 넘어간다(R24).
-    setNewCost(null);
+    // 여기서 newCost를 비우지 않는다 — 사람이 바뀌면 비용 칸이 key(handle)로 다시 마운트되며 새 사람의 프로필
+    // 단가(없으면 null)를 올려 앞사람 값을 덮는다. 같은 핸들이 다시 커밋되면(블러마다 부른다) 칸은 그대로라
+    // 여기서 비우면 칸엔 금액이 보이는데 [만들기]는 비용 없이 저장한다(설계 §8 '보이는 값 저장').
   }
   async function submitNew(more: boolean) {
     if (!newType || busy) return;
+    if (newCost === 'invalid') { setCostErr(AMOUNT_MESSAGE); return; }
     setBusy(true);
     // 본문 조립은 buildTaskCreateBody 하나로(Task 1) — 서버 제약(draftId는 1명 이하·count와 배타)을 여기서
     // 다시 만들지 않는다. handle은 '' | string인데 draftId는 string | null이 필요해 handle || null로 맞춘다.
@@ -309,7 +315,10 @@ export function TaskPanel({
       scheduledOn, visitOn, note, target,
       draftId: newDraft?.id ?? null,
     });
-    const result = await onCreate(body, more);
+    // 보이는 값을 그대로 저장하고, 프로필과 다르거나 프로필에 없으면 만든 뒤 한 번 묻는다(판정은 [확인]과 같은 함수)
+    const opt = handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined;
+    const prompt = profilePromptFor({ option: opt, type: newType, cost: newCost });
+    const result = await onCreate(body, more, prompt && opt && newCost ? { option: opt, cost: newCost, type: newType, ...prompt } : null);
     setBusy(false);
     if (result === 'draft-taken') { setDraftGone(true); return; }   // FlowDetail이 이미 formDraft를 비웠다
     if (result === 'ok' && more) resetNewFields();   // 유형은 유지 — 같은 유형을 연달아 만드는 게 실제 사용 패턴(결정 4). 원고는 FlowDetail이 비운다(스펙 §4-5)
@@ -518,11 +527,16 @@ export function TaskPanel({
         const opt = handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined;
         return (
           // key=handle — 인플루언서가 바뀌면(미정 → 배정 포함) 새 프로필 단가로 다시 초기화한다(마운트 시 한 번만
-          // 채우는 필드라 안 그러면 방금 배정한 인플의 단가 제안이 안 보인다).
-          <CostConfirmField key={handle} value={newCost} option={opt} type={newType as TaskType} label={fieldLabel('cost', newType as TaskType)}
-                            onSave={async (c) => { setNewCost(c); return true; }}
+          // 채우는 필드라 안 그러면 방금 배정한 인플의 단가 제안이 안 보인다). key에 옵션 도착 여부도 넣는다 —
+          // 인플 목록이 늦게 오면 빈 칸으로 마운트돼 '보이는 값 저장'이 비용 없이 저장된다(설계 §8). 목록이 오면
+          // 다시 마운트돼 채워진다. 유형도 넣는다 — 유형을 바꿔도 이 칸은 그대로 남아(같은 'cost' 칸) 앞 유형의 단가가
+          // 새 유형의 비용으로 조용히 저장된다. draft 모드라 [확인]이 없고 값이 바뀔 때마다 newCost로 올라온다.
+          <CostConfirmField key={`${handle}:${newType}:${opt ? 'o' : '-'}`} mode="draft" value={null} option={opt} type={newType as TaskType}
+                            label={fieldLabel('cost', newType as TaskType)} error={costErr}
+                            onDraftChange={(v) => { setNewCost(v); setCostErr(null); }}
+                            onSave={async () => true}
                             onSaveProfile={(o, c) => onSaveProfilePricing(o, c, newType as TaskType)}
-                            disabledReason={handle ? undefined : '인플을 정하면 프로필 단가로 채워요'} />
+                            disabledReason={handle ? undefined : '인플 선택 후'} />
         );
       }
       case 'target':

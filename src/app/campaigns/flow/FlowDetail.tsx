@@ -1039,7 +1039,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                              ? (
                                <div>
                                  <Button variant="subtle" disabled title="인플루언서를 먼저 정해요" className="h-9 px-3.5 text-ui">게시 확인</Button>
-                                 <p className="mt-1 text-caption text-x-muted">인플루언서를 먼저 정해요</p>
+                                 <p className="mt-1 text-ui text-x-muted">인플 선택 후</p>
                                </div>
                              )
                              : <Button variant="subtle" onClick={() => setPostedFor(panelTask)} className="h-9 px-3.5 text-ui">게시 확인</Button>))

@@ -7,7 +7,7 @@ import { fetchTasksTargets, type TaskCreateRequest } from '@/lib/campaignApi';
 import { buildTaskCreateBody } from '@/lib/taskCreateBody';
 import { AMOUNT_MESSAGE, type TaskCost } from '@/lib/campaignCost';
 import {
-  flowStage, FLOW_STAGE_LABEL, TASK_TYPE_LABEL, isOutOfRange, formatDateKo, type TaskType,
+  TASK_TYPE_LABEL, isOutOfRange, formatDateKo, type TaskType,
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, targetLabel } from '@/lib/campaignTableView';
 import {
@@ -23,6 +23,8 @@ import { CostConfirmField } from './CostConfirmField';
 import { TargetPicker, candidateLabel, type TargetValue } from '../TargetPicker';
 import type { useCampaignTaskActions } from '../useCampaignTaskActions';
 import { DraftMode, type DraftTab } from './draft/DraftMode';
+import { PanelSection } from './panel/PanelSection';
+import { StageTypeBox } from './panel/StageTypeBox';
 
 // 편집 패널(b-task-7-brief.md §2) — 작업 하나(edit)와 새 작업(new)을 같은 골격에서 다룬다. 칸 순서는
 // PANEL_FIELD_ORDER(campaignFlowView) 하나뿐 — 여기서 다시 적지 않는다. 저장은 두 갈래:
@@ -395,7 +397,7 @@ export function TaskPanel({
                 </span>
               </span>
               {/* title만으로 끝내지 않는다(UX 원칙 2·5) — 비활성 이유를 보이는 문구로도 말한다 */}
-              {disabledReason && <p className="mt-1 text-caption text-x-muted">{disabledReason}</p>}
+              {disabledReason && <p className="mt-1 text-ui text-x-muted">{disabledReason}</p>}
             </div>
           );
         }
@@ -405,7 +407,7 @@ export function TaskPanel({
                              onChange={(v) => { setEditHandleInput(v); setEditHandleErr(null); }} error={editHandleErr}
                              onEnter={(v) => void commitEditHandle(t, v)} onBlur={(v) => void commitEditHandle(t, v)} />
             {/* C1-b가 이 배정을 이제 서버에서 허용한다 — 왜 이 칸이 아직 남아 있는지, 채우면 뭐가 달라지는지 알린다 */}
-            {t.postedAt && <p className="mt-1 text-caption text-x-muted">게시 확인된 작업이에요 — 누가 올렸는지 적으면 정산 후보에 잡혀요. 한 번 적으면 바꿀 수 없어요</p>}
+            {t.postedAt && <p className="mt-1 text-ui text-x-muted">게시 확인된 작업이에요 — 누가 올렸는지 적으면 정산 후보에 잡혀요. 한 번 적으면 바꿀 수 없어요</p>}
           </div>
         );
       }
@@ -444,7 +446,7 @@ export function TaskPanel({
                 있는 원고 고르기{pickCount !== null ? ` ${pickCount}` : ''}
               </button>
             </span>
-            <p className="mt-1 text-caption text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
+            <p className="mt-1 text-ui text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
           </div>
         );
       }
@@ -464,15 +466,15 @@ export function TaskPanel({
         if (cancelled) {
           return (
             <div className="grid grid-cols-2 gap-3">
-              <div><p className="text-caption text-x-muted">방문일</p><p className="mt-0.5 text-content text-x-muted">{t.visitOn ? formatDateKo(t.visitOn) : '미정'}</p></div>
-              <div><p className="text-caption text-x-muted">게시 예정일</p><p className="mt-0.5 text-content text-x-muted">{t.scheduledOn ? formatDateKo(t.scheduledOn) : '미정'}</p></div>
+              <div><p className="text-ui text-x-muted">방문일</p><p className="mt-0.5 text-content text-x-muted">{t.visitOn ? formatDateKo(t.visitOn) : '미정'}</p></div>
+              <div><p className="text-ui text-x-muted">게시 예정일</p><p className="mt-0.5 text-content text-x-muted">{t.scheduledOn ? formatDateKo(t.scheduledOn) : '미정'}</p></div>
             </div>
           );
         }
         return (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-caption text-x-muted">방문일 — 지나면 인플루언서를 바꿀 수 없어요</p>
+              <p className="text-ui text-x-muted">방문일 <span title="방문일이 지나면 인플루언서를 바꿀 수 없어요" className="cursor-help text-x-muted">ⓘ</span></p>
               <div className="mt-0.5">
                 <ScheduledOnField value={t.visitOn} overdueDays={null}
                                  outOfRange={isOutOfRange(t.visitOn, campaign.startsOn, campaign.endsOn)}
@@ -480,7 +482,7 @@ export function TaskPanel({
               </div>
             </div>
             <div>
-              <p className="text-caption text-x-muted">게시 예정일</p>
+              <p className="text-ui text-x-muted">게시 예정일</p>
               <div className="mt-0.5">
                 <ScheduledOnField value={t.scheduledOn} overdueDays={taskOverdueDays(t, today)}
                                  outOfRange={isOutOfRange(t.scheduledOn, campaign.startsOn, campaign.endsOn)}
@@ -521,7 +523,7 @@ export function TaskPanel({
               <span className="inline-flex items-center rounded-lg border border-x-border-strong bg-x-hover px-2.5 py-2 text-content text-x-secondary">
                 {handle ? `@${handle}` : '미정'}
               </span>
-              <span className="text-caption text-x-muted">원고를 떼면 바꿀 수 있어요</span>
+              <span title="원고를 떼면 바꿀 수 있어요" aria-label="원고를 떼면 바꿀 수 있어요" className="text-ui text-x-muted">🔒 ⓘ</span>
             </div>
           );
         }
@@ -560,7 +562,7 @@ export function TaskPanel({
         return (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-caption text-x-muted">방문일</p>
+              <p className="text-ui text-x-muted">방문일</p>
               <div className="mt-0.5">
                 <ScheduledOnField value={visitOn} overdueDays={null}
                                  outOfRange={isOutOfRange(visitOn, campaign.startsOn, campaign.endsOn)}
@@ -568,7 +570,7 @@ export function TaskPanel({
               </div>
             </div>
             <div>
-              <p className="text-caption text-x-muted">게시 예정일</p>
+              <p className="text-ui text-x-muted">게시 예정일</p>
               <div className="mt-0.5">
                 <ScheduledOnField value={scheduledOn} overdueDays={null}
                                  outOfRange={isOutOfRange(scheduledOn, campaign.startsOn, campaign.endsOn)}
@@ -599,7 +601,7 @@ export function TaskPanel({
                   <button type="button" onClick={detachNewDraft} className="text-x-secondary hover:underline">떼기</button>
                 </span>
               </div>
-              <p className="mt-1 text-caption text-x-muted">만들기를 누르면 이 원고가 함께 붙어요</p>
+              <p className="mt-1 text-ui text-x-muted">만들기를 누르면 이 원고가 함께 붙어요</p>
             </div>
           );
         }
@@ -624,13 +626,13 @@ export function TaskPanel({
                 고르기"는 텍스트만으로는 링크처럼 보이는데 아무 동작이 없었다(거짓 어포던스) — 실제로
                 '있는 원고 고르기' 탭을 여는 버튼으로 고친다. */}
             {draftGone ? (
-              <p role="alert" className="mt-1 text-caption text-amber-700">
+              <p role="alert" className="mt-1 text-ui text-amber-700">
                 다른 작업에 붙었어요 —{' '}
                 <button type="button" onClick={() => { setDraftTab('pick'); setDraftMode('draft'); }}
                         className="underline hover:text-amber-800">다시 고르기</button>
               </p>
             ) : (
-              <p className="mt-1 text-caption text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
+              <p className="mt-1 text-ui text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
             )}
           </div>
         );
@@ -638,11 +640,11 @@ export function TaskPanel({
     }
   }
 
-  const crumb = task ? `${FLOW_STAGE_LABEL[flowStage(task, task.settlement)]} · ${TASK_TYPE_LABEL[task.type]}` : '새 작업';
   const title: ReactNode = task
     ? (task.influencerHandle ? `@${task.influencerHandle}` : <span className="text-x-muted">인플루언서 미정</span>)
     : (newType ? `새 ${TASK_TYPE_LABEL[newType]} 작업` : '어떤 작업인가요?');
-  // 원고 모드 헤더 — 작업 정보(단계·유형)는 이미 봤으니 크럼 자리는 뒤로가기로 바꾸고, 제목은 원고 쪽으로 말한다.
+  // 헤더는 제목 한 줄뿐이다 — 단계·유형은 본문 첫 상자(StageTypeBox)가 보여 준다(설계 §3). 원고 모드만 제목 위에
+  // 뒤로가기 줄을 두고, 제목은 원고 쪽으로 말한다.
   // 새 작업 폼(Task 4)도 같은 모양 — newType은 여기 도달할 때 항상 정해져 있다(원고 칸은 유형을 고른
   // 뒤에만 뜬다, inDraftMode 주석 참고).
   const draftTitle = task
@@ -663,11 +665,11 @@ export function TaskPanel({
                         className="text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
                   ← 작업으로
                 </button>
-                {draftBusy && <span className="text-caption text-x-muted">{draftBusy.label}</span>}
+                {draftBusy && <span className="text-ui text-x-muted">{draftBusy.label}</span>}
               </span>
             )
-            : <p className="text-ui text-x-secondary">{crumb}</p>}
-          <h2 className="mt-0.5 truncate text-[20px]">{inDraftMode ? draftTitle : title}</h2>
+            : null}
+          <h2 className={`truncate text-[20px] ${inDraftMode ? 'mt-0.5' : ''}`}>{inDraftMode ? draftTitle : title}</h2>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {/* ···(작업 메뉴)는 원고 모드에서 숨긴다 — 전부 작업 단위 동작이라 원고를 보는 중엔 부를 일이 없다 */}
@@ -676,7 +678,9 @@ export function TaskPanel({
         </div>
       </div>
 
-      <div className="flex-1 space-y-5 overflow-y-auto px-6 py-4">
+      {/* 작업 모드 본문은 회색 바탕 위 칸별 흰 상자(PanelSection)다(설계 §4). 원고 모드는 이 칸 구조가 아니라
+          탭·카드 화면이라 예전 흰 바탕·여백을 그대로 둔다 — 회색 위에 탭이 떠 보이지 않게. */}
+      <div className={`flex-1 overflow-y-auto py-4 ${inDraftMode ? 'space-y-5 px-6' : 'space-y-2.5 bg-x-surface px-4'}`}>
         {inDraftMode ? (
           <DraftMode attached={task ? !!task.draftId : !!newDraft} tab={draftTab} onTab={requestTabChange} busy={draftBusy} pickCount={pickCount}
                      card={draftCard}
@@ -688,43 +692,35 @@ export function TaskPanel({
             {task.cancelledAt && (
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-ui text-slate-600">취소된 작업이에요 — ··· 메뉴의 [되돌리기]로 살릴 수 있어요</p>
             )}
+            <StageTypeBox task={task} />
             {PANEL_FIELD_ORDER[task.type].map((field) => (
-              <div key={field}>
-                <p className="text-ui text-x-secondary">{fieldLabel(field, task.type)}</p>
-                <div className="mt-1">{renderEditField(field, task)}</div>
-              </div>
+              <PanelSection key={field} title={fieldLabel(field, task.type)}>{renderEditField(field, task)}</PanelSection>
             ))}
             {/* 게시 확인 — PANEL_FIELD_ORDER에 없는 칸이다(모든 유형에 있고, 취소된 작업엔 없다). 다이얼로그는
                 FlowDetail이 열고(이 버튼과 행 메뉴(FlowRowMenu)의 [게시 확인]이 같은 상태를 연다, Task 10)
                 값·증빙 라이트박스도 그쪽 클로저가 필요해 slots.posted로 받는다(slots.cost와 같은 이유) —
                 FlowDetail이 취소된 작업이면 null을 준다. */}
-            {slots.posted && (
-              <div>
-                <p className="text-ui text-x-secondary">게시</p>
-                <div className="mt-1">{slots.posted}</div>
-              </div>
-            )}
+            {slots.posted && <PanelSection title="게시">{slots.posted}</PanelSection>}
           </>
         ) : (
           <>
-            <div>
-              <p className="text-ui text-x-secondary">유형</p>
+            <PanelSection title="유형">
               {/* 원고가 들어오면 유형도 칩(읽기 전용)으로 바꾼다(스펙 §4-3) — RT로 바꾸면 이미 고른 원고를
                   어떻게 할지가 모호해진다. 한 마운트 안에서는 newType이 항상 먼저 있다(원고 칸은 유형을
                   고른 뒤에만 뜬다) — 단, newDraft는 FlowDetail(formDraft)이 들고 있어 패널이 새로 열려도
                   (행 전환·재오픈으로 key가 바뀌어도) 안 비워지면 newType=null인 채로 newDraft만 남을 수
                   있다. FlowDetail이 패널을 닫거나 다른 행으로 옮길 때 formDraft를 비우는 것이 전제다(Task 4). */}
               {newDraft ? (
-                <div className="mt-1 flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   <span className="inline-flex items-center rounded-lg border border-x-border-strong bg-x-hover px-3.5 py-2 text-content text-x-secondary">
                     {/* newType은 이 분기(newDraft가 있음)에서 항상 정해져 있다(원고 칸은 유형을 고른 뒤에만
                         뜬다) — 그래도 `as TaskType`로 그 가드를 무시하지 않는다(최종 리뷰 §4, as는 지뢰). */}
                     {newType ? TASK_TYPE_LABEL[newType] : null}
                   </span>
-                  <span className="text-caption text-x-muted">원고를 떼면 바꿀 수 있어요</span>
+                  <span title="원고를 떼면 바꿀 수 있어요" aria-label="원고를 떼면 바꿀 수 있어요" className="text-ui text-x-muted">🔒 ⓘ</span>
                 </div>
               ) : (
-                <div role="group" aria-label="작업 유형" className="mt-1 inline-flex overflow-hidden rounded-lg border border-x-border-strong">
+                <div role="group" aria-label="작업 유형" className="inline-flex overflow-hidden rounded-lg border border-x-border-strong">
                   {DISPLAY_TYPE_ORDER.map((k) => (
                     <button key={k} type="button" aria-pressed={newType === k} onClick={() => { if (k !== newType) { setNewCost(null); setCostErr(null); } setNewType(k); }} disabled={busy}
                             className={`border-r border-x-border-strong px-3.5 py-2 text-content last:border-r-0 disabled:opacity-50 ${newType === k ? 'bg-x-text text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
@@ -733,12 +729,9 @@ export function TaskPanel({
                   ))}
                 </div>
               )}
-            </div>
+            </PanelSection>
             {newFieldOrder.map((field) => (
-              <div key={field}>
-                <p className="text-ui text-x-secondary">{fieldLabel(field, newType as TaskType)}</p>
-                <div className="mt-1">{renderNewField(field)}</div>
-              </div>
+              <PanelSection key={field} title={fieldLabel(field, newType as TaskType)}>{renderNewField(field)}</PanelSection>
             ))}
           </>
         )}
@@ -749,7 +742,7 @@ export function TaskPanel({
           // 원고 모드에서는 이전/다음 대신 이것 하나 — 작업 사이 이동은 작업 모드의 일이다.
           // 생성 중엔 이 버튼도 막는다(리뷰 지적 2, 위 헤더 ← 작업으로와 같은 이유·같은 문구).
           <div className="ml-auto flex items-center gap-2">
-            {draftBusy && <span className="text-caption text-x-muted">{draftBusy.label}</span>}
+            {draftBusy && <span className="text-ui text-x-muted">{draftBusy.label}</span>}
             <Button onClick={requestDraftModeExit} disabled={!!draftBusy} className="h-9 px-3.5 text-ui">작업으로</Button>
           </div>
         ) : task ? (
@@ -762,7 +755,6 @@ export function TaskPanel({
           </div>
         ) : (
           <>
-            <p className="text-ui text-x-muted">{newType ? '비어 있는 칸은 나중에 채워도 돼요' : '유형을 먼저 골라요'}</p>
             <div className="ml-auto flex items-center gap-2">
               <Button onClick={() => void submitNew(true)} disabled={!newType || busy} className="h-9 px-3.5 text-ui">만들고 하나 더</Button>
               <Button variant="primary" onClick={() => void submitNew(false)} disabled={!newType || busy} className="h-9 px-3.5 text-ui">

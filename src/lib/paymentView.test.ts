@@ -13,11 +13,20 @@ const pm = (p: Partial<PaymentMethod>): PaymentMethod => ({
 
 test('2) 요청 스냅샷이 있으면 그것이 우선(단계 정산·완료)', () => {
   const v = buildPaymentView({
-    request: { method: { type: 'paypal', holder: 'Sakura', currency: 'JPY', email: 'old@x.com' }, fee: null },
+    request: { method: { type: 'paypal', holder: 'Sakura', currency: 'JPY', email: 'old@x.com' }, fee: null, paid: false },
     roster: { methods: [pm({ email: 'new@x.com' })] },
   });
   assert.equal(v.state, 'requested');
   assert.ok(v.state === 'requested' && v.label.includes('old@x.com'));
+  assert.ok(v.state === 'requested' && v.paid === false);
+});
+
+test('2b) 정산 프로덕트가 지급 완료를 보낸 요청이면 paid(단계 완료와 같은 판정)', () => {
+  const v = buildPaymentView({
+    request: { method: { type: 'paypal', holder: 'Sakura', currency: 'JPY', email: 'old@x.com' }, fee: null, paid: true },
+    roster: null,
+  });
+  assert.ok(v.state === 'requested' && v.paid === true);
 });
 
 test('3) 명부 밖 / 수단 없음 / 기본 수단', () => {

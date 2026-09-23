@@ -11,9 +11,10 @@ export function PaymentLine({ view, loading, failed }: { view: PaymentView | nul
     case 'requested':
       return (
         <div className="flex flex-wrap items-center gap-2">
-          {view.state === 'requested' && (
-            <span title="요청에 담긴 수단이에요 — 바꾸려면 정산 화면에서 요청을 취소해요" aria-label="요청에 담긴 수단이에요 — 바꾸려면 정산 화면에서 요청을 취소해요" className="cursor-help text-ui text-x-secondary">🔒 정산 요청됨 ⓘ</span>
-          )}
+          {/* 정산 프로덕트가 지급 완료를 보낸 건(단계 완료)은 '요청됨'이 아니라 '지급 완료' — 취소할 요청도 더는 없다 */}
+          {view.state === 'requested' && (view.paid
+            ? <span title="이 수단으로 지급이 끝났어요" aria-label="이 수단으로 지급이 끝났어요" className="cursor-help text-ui text-x-secondary">🔒 지급 완료 ⓘ</span>
+            : <span title="요청에 담긴 수단이에요 — 바꾸려면 정산 화면에서 요청을 취소해요" aria-label="요청에 담긴 수단이에요 — 바꾸려면 정산 화면에서 요청을 취소해요" className="cursor-help text-ui text-x-secondary">🔒 정산 요청됨 ⓘ</span>)}
           <span className="min-w-0 truncate text-content" title={view.label}>{view.label}</span>
           <span className={`whitespace-nowrap rounded-full border px-2.5 py-0.5 text-ui ${view.fee.cb ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-x-border bg-x-surface text-x-secondary'}`}>
             {view.fee.text}

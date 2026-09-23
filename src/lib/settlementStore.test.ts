@@ -361,7 +361,8 @@ async function requestFor(handle: string, campSuffix: string, method?: MethodSee
   const camp = await createCampaign(sql, base(c.id, c.name, campSuffix, 'visit'));
   if (method) {
     const { row: inf } = await createInfluencer(sql, { handle: H(handle), createdBy: null });
-    // identifier는 요청 생성 관문(settlementCalc — paypay-no-identifier)이 요구한다. qr만으로는 후보가 되지 못한다.
+    // 요청 생성 관문(settlementCalc — paypay-no-receiving-info)은 identifier나 qr 중 하나를 요구한다.
+    // 이 픽스처는 identifier를 채워 그 관문을 통과시킨다 — qr만 있는 경우는 settlementCalc.test.ts가 따로 본다.
     const input: PaymentMethodInput = { holder: 'KEIKO', currency: method.type === 'paypay' ? 'JPY' : 'KRW', ...(method.type === 'paypay' ? { identifier: H(handle) } : {}), ...method };
     await updatePaymentMethods(sql, inf.id, { kind: 'add', input, makeDefault: true }, null);
   } else {

@@ -7,6 +7,7 @@ import { toMethodSnapshot, type PaymentMethodSnapshot } from './settlementCalc.t
 import { PAYMENT_TYPE_LABEL, parsePaymentMethodInput, getDefaultPaymentMethod, type PaymentMethodType, type PaymentMethod, type PaymentMethodInput, type PaymentOp } from './influencerPayment.ts';
 import { isUuidLike } from './uuid.ts';
 import { parseOperatorField, parseIsoField, type StatusOperator } from './settlementExternal.ts';
+import { MAX_PAYMENT_QR_BYTES } from './paymentQrInput.ts';
 
 // 그쪽이 보내는 8키(snake_case). type·currency는 없다 — 수단 종류·통화를 바꾸는 것은 다른 의무라 on_hold + note로 알려 달라고 했다.
 export const CORRECTION_KEYS = ['holder', 'paypal_id', 'email', 'identifier', 'qr', 'bank', 'branch', 'account'] as const;
@@ -26,6 +27,11 @@ const REMOVABLE: ReadonlySet<CorrectionKey> = new Set(['branch', 'email', 'paypa
 const VALUE_MAX = 200;
 const REASON_MAX = 500;
 const IDEM_MAX = 200;
+// qr은 다른 키(홀더명·계좌번호 등)와 자릿수가 다른 값이다 — 200자 제한을 그대로 적용하면 실제 QR(수 KB~수십 KB)이
+// 전부 400으로 막힌다(리뷰 2026-09-23 Critical 1). 상한은 paymentQrInput.ts의 MAX_PAYMENT_QR_BYTES(바이트 상한, 저장소에
+// 넣기 직전 다시 검사)에서 파생시킨다 — 숫자를 두 곳에 따로 적지 않는다. base64는 3바이트→4글자(올림), 여기에
+// "data:image/webp;base64," 같은 data URI 접두어 + 개행 등 여유를 크게 잡아 더한다.
+const QR_VALUE_MAX = Math.ceil(MAX_PAYMENT_QR_BYTES / 3) * 4 + 256;
 
 export interface PaymentInfoCorrection {
   correctionId: string;                                   // 그쪽 발급 uuid — 회신 상관관계·멱등 키
@@ -38,6 +44,31 @@ export interface PaymentInfoCorrection {
 }
 export type CorrectionParse = { ok: true; correction: PaymentInfoCorrection } | { ok: false; field: string; error: string };
 const bad = (field: string, error: string): CorrectionParse => ({ ok: false, field, error });
+
+// 호출 기록(external_api_log.body)에 base64가 새지 않게 payment_method.qr 값을 지운다(리뷰 2026-09-23 Critical 2).
+// route.ts가 recordExternalCallSafe에 원본 요청 본문(raw)을 넘기기 직전에 항상 이 함수를 거친다.
+// 순수 함수 — DB·저장소 없이 테스트할 수 있다.
+function qrPlaceholder(qr: string): string {
+  return `<qr 이미지 ${qr.length}자>`;
+}
+export function maskQrInRawBody(raw: string): string {
+  if (!raw) return raw;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const pm = (parsed as Record<string, unknown>).payment_method;
+      if (pm !== null && typeof pm === 'object' && !Array.isArray(pm) && typeof (pm as Record<string, unknown>).qr === 'string') {
+        (pm as Record<string, unknown>).qr = qrPlaceholder((pm as Record<string, unknown>).qr as string);
+        return JSON.stringify(parsed);
+      }
+    }
+    return raw;   // JSON은 맞지만 payment_method.qr이 문자열이 아니다 — 지울 게 없다
+  } catch {
+    // 깨진 JSON(그쪽이 잘못 보낸 본문) — 그래도 raw를 그대로 흘려보내면 이 함수를 만든 이유가 없다.
+    // "qr":"<값>" 모양만 정규식으로 찾아 값만 치환한다(base64 data URI에는 따옴표가 안 나온다).
+    return raw.replace(/("qr"\s*:\s*")([^"]*)(")/, (_m, pre: string, val: string, post: string) => `${pre}${qrPlaceholder(val)}${post}`);
+  }
+}
 
 export function parsePaymentInfoCorrection(body: unknown): CorrectionParse {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('body', 'JSON 객체여야 해요');
@@ -58,7 +89,8 @@ export function parsePaymentInfoCorrection(body: unknown): CorrectionParse {
     if (v === undefined) continue;
     if (v !== null && typeof v !== 'string') return bad(`payment_method.${k}`, '문자열이어야 해요');
     const t = v === null ? '' : v.trim();
-    if (t.length > VALUE_MAX) return bad(`payment_method.${k}`, `${VALUE_MAX}자를 넘어요`);
+    const max = key === 'qr' ? QR_VALUE_MAX : VALUE_MAX;
+    if (t.length > max) return bad(`payment_method.${k}`, `${max}자를 넘어요`);
     if (!t.length) {
       if (!REMOVABLE.has(key)) return bad(`payment_method.${k}`, '비워 둘 수 없는 항목이에요');
       patch[key] = null;

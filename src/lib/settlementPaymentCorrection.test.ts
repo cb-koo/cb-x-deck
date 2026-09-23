@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePaymentInfoCorrection, mergePaymentMethodCorrection, planRosterOverwrite } from './settlementPaymentCorrection.ts';
+import { parsePaymentInfoCorrection, mergePaymentMethodCorrection, planRosterOverwrite, maskQrInRawBody } from './settlementPaymentCorrection.ts';
 import type { PaymentMethodSnapshot } from './settlementCalc.ts';
 import type { PaymentMethod } from './influencerPayment.ts';
 import { applyPaymentOp } from './influencerPayment.ts';
+import { MAX_PAYMENT_QR_BYTES } from './paymentQrInput.ts';
 
 const CID = '22222222-3333-4444-8555-666666666666';
 const op = { id: '8f2c9e10-1b2a-4c3d-9e4f-000000000001', name: '정산 담당' };
@@ -173,4 +174,46 @@ test('mergePaymentMethodCorrection — qr 변경이 활동 기록 fields에 남�
   const r = mergePaymentMethodCorrection(before, { qr: 'inf-1/new.png' });
   assert.ok(r.ok);
   assert.ok(r.fields.some((f) => f.field === 'qr' && f.to === 'inf-1/new.png'));
+});
+
+// ── 리뷰 2026-09-23 Critical 1: qr은 200자 제한이 아니라 MAX_PAYMENT_QR_BYTES에서 파생된 별도 상한을 쓴다 ──
+const dataUri = (kb: number) => `data:image/png;base64,${'A'.repeat(kb * 1024)}`;
+test('parsePaymentInfoCorrection — 수 KB짜리 qr data URI는 200자 제한에 막히지 않는다', () => {
+  const r = parsePaymentInfoCorrection(body({ payment_method: { qr: dataUri(3) } }));   // 3KB 본문, data URI로는 수 KB
+  assert.ok(r.ok);
+  assert.equal(r.correction.patch.qr, dataUri(3));
+});
+test('parsePaymentInfoCorrection — 다른 키(holder 등)는 여전히 200자에서 막힌다', () => {
+  const r = parsePaymentInfoCorrection(body({ payment_method: { holder: 'x'.repeat(201) } }));
+  assert.ok(!r.ok); assert.equal(r.field, 'payment_method.holder');
+});
+test('parsePaymentInfoCorrection — qr도 MAX_PAYMENT_QR_BYTES를 훨씬 넘는 길이는 거절한다', () => {
+  // base64 길이가 바이트 상한의 4/3배를 넉넉히 넘도록 — data URI 접두어를 빼도 상한을 넘는다.
+  const tooBig = `data:image/png;base64,${'A'.repeat(Math.ceil((MAX_PAYMENT_QR_BYTES * 4) / 3) + 10000)}`;
+  const r = parsePaymentInfoCorrection(body({ payment_method: { qr: tooBig } }));
+  assert.ok(!r.ok); assert.equal(r.field, 'payment_method.qr');
+});
+
+// ── 리뷰 2026-09-23 Critical 2: 호출 기록 본문에 base64가 남으면 안 된다 ──
+test('maskQrInRawBody — payment_method.qr의 base64를 길이 표시로 치환하고 다른 값은 그대로 둔다', () => {
+  const raw = JSON.stringify({ correction_id: 'x', payment_method: { qr: dataUri(2), holder: '山田' }, reason: '테스트' });
+  const masked = maskQrInRawBody(raw);
+  assert.ok(!masked.includes('AAAA'), 'base64 본문이 남아있으면 안 된다');
+  const parsed = JSON.parse(masked);
+  assert.equal(parsed.payment_method.holder, '山田');   // 다른 값은 그대로
+  assert.equal(parsed.correction_id, 'x');
+  assert.match(parsed.payment_method.qr, /qr 이미지/);
+});
+test('maskQrInRawBody — qr이 없으면 원본 그대로 돌려준다', () => {
+  const raw = JSON.stringify({ payment_method: { account: '1234567' } });
+  assert.equal(maskQrInRawBody(raw), raw);
+});
+test('maskQrInRawBody — 빈 문자열은 그대로', () => {
+  assert.equal(maskQrInRawBody(''), '');
+});
+test('maskQrInRawBody — JSON 파싱이 안 되는 본문도 base64를 남기지 않는다', () => {
+  const raw = `{not json but "qr":"${dataUri(1)}", broken`;
+  const masked = maskQrInRawBody(raw);
+  assert.ok(!masked.includes('AAAA'), '깨진 JSON이어도 base64가 남으면 안 된다');
+  assert.match(masked, /qr 이미지/);
 });

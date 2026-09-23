@@ -5,6 +5,9 @@ import { createClient } from '@/lib/clientStore';
 import { createCampaign } from '@/lib/campaignStore';
 import { createTasks, updateTask } from '@/lib/campaignTaskStore';
 import { createInfluencer, updatePaymentMethods } from '@/lib/influencerStore';
+import type { PaymentMethodInput } from '@/lib/influencerPayment';
+import { MAX_PAYMENT_QR_BYTES } from '@/lib/paymentQrInput';
+import { listExternalLog } from '@/lib/externalApiLog';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from '@/lib/settlementSettings';
 import { listCandidates, createRequests, getSettlementSettings, saveSettlementSettings } from '@/lib/settlementStore';
 import { POST } from './route.ts';
@@ -36,12 +39,17 @@ async function ensureMember() {
   memberId = m.id;
   return { id: memberId, name: P + '멤버' };
 }
-async function requestFor(handle: string, suffix: string) {
+// method를 주면 (예: PayPay + identifier) 그 수단을 명부 기본 수단으로 심는다 — QR 테스트용(리뷰 2026-09-23).
+// 인자를 안 주면 지금까지와 똑같이 계좌 수단을 쓴다(기존 테스트 그대로 통과).
+async function requestFor(handle: string, suffix: string, method?: Partial<PaymentMethodInput> & { type: PaymentMethodInput['type'] }) {
   const m = await ensureMember();
   const c = await createClient(sql, P + '클라' + suffix);
   const camp = await createCampaign(sql, { clientId: c.id, clientName: c.name, name: P + suffix, nameEn: `${P.toLowerCase()}-${suffix}`, startsOn: '2026-08-31', endsOn: '2026-09-06', kind: 'visit' as const, note: '', createdBy: null });
   const { row: inf } = await createInfluencer(sql, { handle: H(handle), createdBy: null });
-  await updatePaymentMethods(sql, inf.id, { kind: 'add', input: { type: 'bank', holder: '山田 太郎', currency: 'JPY', bank: 'みずほ', branch: '渋谷', account: '1234567' }, makeDefault: true }, null);
+  const input: PaymentMethodInput = method
+    ? { holder: 'KEIKO', currency: method.type === 'paypay' ? 'JPY' : 'KRW', ...(method.type === 'paypay' ? { identifier: H(handle) } : {}), ...method }
+    : { type: 'bank', holder: '山田 太郎', currency: 'JPY', bank: 'みずほ', branch: '渋谷', account: '1234567' };
+  await updatePaymentMethods(sql, inf.id, { kind: 'add', input, makeDefault: true }, null);
   const [t] = await createTasks(sql, camp.id, { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, type: 'post', items: [{ handle: H(handle), cost: { amount: 30000, currency: 'KRW' } }] });
   await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: 'https://x.com/r/status/1' });
   const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
@@ -59,6 +67,8 @@ const body = (over: Record<string, unknown> = {}) => ({
 after(async () => {
   if (savedBefore) await saveSettlementSettings(sql, savedBefore, null);
   await sql`delete from settlement_setting_version where settings->>'marker' = ${P}`;
+  await sql`delete from external_api_log where request_id in (select id from payment_request where influencer_handle like ${P + '%'})`;
+  await sql`delete from payment_request_payment_correction where request_id in (select id from payment_request where influencer_handle like ${P + '%'})`;
   await sql`delete from payment_request where influencer_handle like ${P + '%'}`;
   await sql`delete from campaign_task where campaign_id in (select id from campaign where name like ${P + '%'})`;
   await sql`delete from campaign where name like ${P + '%'}`;
@@ -103,4 +113,87 @@ test('POST payment-info — 200은 { applied: true, correction_id, request } 세
   assert.equal(stale.status, 409);
   const sj = await stale.json();
   assert.equal(sj.code, 'revision-mismatch'); assert.ok(sj.request && sj.request.request_id === req.id); assert.equal(typeof sj.error, 'string');
+});
+
+// ── 리뷰 2026-09-23: 실제 base64로 라우트를 때린다 ──
+// 여태 store 계층 테스트만 있었다(짧은 경로 문자열 'seed/old.png'을 직접 넣음) — 200자 제한이 진짜 base64로
+// 라우트에 들어올 때 막는지, 호출 기록에 base64가 새는지는 이 테스트가 생기기 전까지 아무 것도 확인하지 않았다.
+// 호출 기록(external_api_log) insert는 recordExternalCallSafe 안에서 await 없이 fire-and-forget으로 실행된다
+// (요청 컨텍스트 밖이라 next/server의 after()를 못 쓰고 그냥 던진다, 별도 풀 getUsageSql로) — 응답이 와도 insert가
+// 끝났다는 보장이 없다. 조회는 같은 DB를 보는 앱 풀(sql)로 해도 된다(연결 풀만 다를 뿐 같은 테이블).
+async function waitForLog(requestId: string, statusCode: number): Promise<{ body: string | null }> {
+  for (let i = 0; i < 40; i++) {
+    const rows = await listExternalLog(sql, { requestId, method: 'POST' });
+    const hit = rows.find((r) => r.statusCode === statusCode);
+    if (hit) return hit;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`external_api_log에 requestId=${requestId} statusCode=${statusCode} 행이 안 나타났다`);
+}
+// 실제 이미지는 아니지만(내용은 임의 바이트) data URI 모양·크기는 진짜 QR 스크린샷과 같은 자릿수(수 KB) —
+// parseQrDataUri는 이미지 내용을 검사하지 않고 base64 디코드 가능 여부·mime·크기만 본다.
+const qrDataUri = (kb: number) => `data:image/png;base64,${Buffer.alloc(kb * 1024, 65).toString('base64')}`;
+
+test('POST payment-info — 수 KB짜리 QR data URI가 200자 제한에 막히지 않고 경로로 저장된다, 정정 이력·호출 기록 어디에도 base64가 안 남는다', async () => {
+  const req = await requestFor('qr1', 'qr1', { type: 'paypay' });
+  const qrCid = '22222222-3333-4444-8555-000000000010';
+  const qr = qrDataUri(4);   // 4KB — 200자 제한이면 즉시 400이 났을 크기
+  const res = await call(req.id, body({ correction_id: qrCid, payment_method: { qr }, reason: 'QR 갱신' }));
+  assert.equal(res.status, 200, `200이어야 하는데 ${res.status}: ${JSON.stringify(await res.clone().json().catch(() => null))}`);
+  const j = await res.json();
+  assert.equal(j.applied, true);
+  // 응답에는 qr 원본이 아예 없다 — settlementExternal.toExternalItem이 저장소 경로 대신 qr_url(서명 URL 발급용
+  // 라우트)만 내보낸다(§77-78 참고, "저장소 경로가 그대로 새지 않는다"). 여기서는 그 경로가 base64가 아님을
+  // DB에서 직접 확인한다.
+  assert.equal(j.request.payment_method.qr, undefined, '응답에 qr 원본 경로가 노출되면 안 된다');
+  assert.ok(typeof j.request.payment_method.qr_url === 'string' && j.request.payment_method.qr_url.includes('/payment-qr'));
+
+  // 정정 이력(payment_request_payment_correction)의 patch·before·after 어디에도 base64가 없다 — 경로만 있다.
+  const [corr] = await sql<Array<{ patch: { qr?: string }; before: { qr?: string }; after: { qr?: string } }>>`
+    select patch, before, after from payment_request_payment_correction where id = ${qrCid}`;
+  const savedQr = corr.patch.qr;
+  assert.ok(savedQr && !savedQr.startsWith('data:') && savedQr.length < 200, `저장된 값은 짧은 경로여야 한다: ${savedQr}`);
+  assert.equal(corr.after.qr, savedQr);
+  assert.ok(!JSON.stringify(corr).includes('base64'), '정정 이력에 base64가 남으면 안 된다');
+
+  // 호출 기록(external_api_log.body)에도 base64가 없다 — 경로 또는 마스킹 표시만 있어야 한다.
+  const log = await waitForLog(req.id, 200);
+  assert.ok(log.body, '기록에 본문이 남아야 한다(마스킹된 채로)');
+  assert.ok(!log.body!.includes('base64'), `호출 기록에 base64가 남으면 안 된다: ${log.body!.slice(0, 100)}`);
+  assert.match(log.body!, /qr 이미지/);
+
+  // 명부(원본) 기본 수단도 경로로 반영된다(057과 같은 경로) — 여기도 base64가 아니다.
+  const roster = (await sql<Array<{ payment_methods: Array<{ isDefault: boolean; qr?: string }> }>>`select payment_methods from influencer where handle = ${H('qr1')}`)[0].payment_methods;
+  assert.equal(roster.find((m) => m.isDefault)!.qr, savedQr);
+
+  // Important 2: 같은 correction_id로 다시 보내면(멱등 재전송) 저장된 경로가 안 바뀐다 — 업로드를 건너뛰었다는
+  // 간접 확인(재업로드했다면 매번 새 uuid 경로가 생겨 값이 달라졌을 것).
+  const replay = await call(req.id, body({ correction_id: qrCid, payment_method: { qr: qrDataUri(6) }, reason: 'QR 갱신' }));
+  assert.equal(replay.status, 200);
+  const [corrAfterReplay] = await sql<Array<{ patch: { qr?: string } }>>`select patch from payment_request_payment_correction where id = ${qrCid}`;
+  assert.equal(corrAfterReplay.patch.qr, savedQr, '재전송이 이력을 새로 쓰지 않는다(멱등) — 경로가 그대로');
+});
+
+test('POST payment-info — QR이 5MB를 넘으면 400으로 거절하고 저장하지 않는다', async () => {
+  const req = await requestFor('qr2', 'qr2', { type: 'paypay' });
+  const tooBig = qrDataUri(Math.ceil(MAX_PAYMENT_QR_BYTES / 1024) + 1024);   // 상한보다 1MB 더 크게
+  const res = await call(req.id, body({ correction_id: '22222222-3333-4444-8555-000000000011', payment_method: { qr: tooBig }, reason: 'QR 갱신' }));
+  assert.equal(res.status, 400);
+  const j = await res.json();
+  assert.equal(j.field, 'payment_method.qr');
+  const [row] = await sql<Array<{ payment_method: { qr?: string } }>>`select payment_method from payment_request where id = ${req.id}`;
+  assert.equal(row.payment_method.qr, undefined, '거절된 정정은 요청에 반영되면 안 된다');
+});
+
+test('POST payment-info — 취소된 요청이면 QR을 저장소에 올리지 않고 409로 거절한다(Important 1)', async () => {
+  const req = await requestFor('qr3', 'qr3', { type: 'paypay' });
+  await sql`update payment_request set status = 'cancelled' where id = ${req.id}`;
+  const before = (await sql<Array<{ payment_methods: unknown[] }>>`select payment_methods from influencer where handle = ${H('qr3')}`)[0];
+  const res = await call(req.id, body({ correction_id: '22222222-3333-4444-8555-000000000012', payment_method: { qr: qrDataUri(3) }, reason: 'QR 갱신' }));
+  assert.equal(res.status, 409);
+  const j = await res.json();
+  assert.equal(j.code, 'request-cancelled');
+  // 명부가 그대로다 — 거절될 정정이 업로드·반영을 만들지 않았다는 간접 확인.
+  const after = (await sql<Array<{ payment_methods: unknown[] }>>`select payment_methods from influencer where handle = ${H('qr3')}`)[0];
+  assert.deepEqual(after.payment_methods, before.payment_methods);
 });

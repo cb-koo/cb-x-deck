@@ -166,6 +166,13 @@ export function formatFee(fee: PaymentFee | undefined, currency: Currency): stri
   return `송금 수수료 CB 부담 · ${formatMoney(fee.amount, currency)}`;
 }
 
+// 작업 패널 수수료 칩 — formatFee와 같은 말에서 '송금 수수료 '만 뺀 짧은 판(§8-1). cb=true면 화면이 주황으로.
+export function feeShortLabel(fee: PaymentFee | null | undefined, currency: Currency): { text: string; cb: boolean } {
+  const long = formatFee(fee ?? undefined, currency);
+  if (!long) return { text: '인플 부담', cb: false };
+  return { text: long.replace(/^송금 수수료 /, '').replace(' · ', ' '), cb: true };
+}
+
 export function getDefaultPaymentMethod(list: PaymentMethod[]): PaymentMethod | null {
   return list.find((m) => m.isDefault) ?? null;
 }

@@ -19,7 +19,7 @@ import {
   flowStage, FLOW_STAGES, TASK_TYPE_LABEL, formatDateKo, isTaskExcluded,
   deriveTaskInfluencers, taskCampaignTotal, targetUrlOf, type TaskType, type FlowStage,
 } from '@/lib/campaignJudgment';
-import { draftLabel, draftPreviewLine } from '@/lib/draftViews';
+import { draftLabel, draftPreviewLine, draftPreviewFull, draftFirstMediaUrl } from '@/lib/draftViews';
 import { targetLabel } from '@/lib/campaignTableView';
 import { parseTweetLink } from '@/lib/tweetLink';
 import { pickedHandleNotice, type DraftHost } from '@/lib/draftHost';
@@ -40,7 +40,8 @@ import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar } from './FlowFilterBar';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
-import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM, type FormDraftContext } from './TaskPanel';
+import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM, type FormDraftContext, type PricePrompt } from './TaskPanel';
+import { PriceProfileDialog } from './PriceProfileDialog';
 import { CostConfirmField } from './CostConfirmField';
 import { TargetLinkField } from './TargetLinkField';
 import { PostedDialog } from './PostedDialog';
@@ -168,6 +169,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const [linkFor, setLinkFor] = useState<FlowRow | null>(null);
   const [cancelFor, setCancelFor] = useState<FlowRow | null>(null);
   const [replaceFor, setReplaceFor] = useState<FlowRow | null>(null);
+  // 새 작업을 만든 뒤 "프로필에도 반영할까요?"(설계 §8) — 만들기는 이미 끝났고, 답은 프로필만 바꾼다
+  const [pricePrompt, setPricePrompt] = useState<PricePrompt | null>(null);
   // 원고 카드에서 고른 핸들을 교체 다이얼로그가 이어받게(있음+다른 핸들, koo QA) — 행 메뉴로 열 때는 없다(빈 입력부터).
   const [replaceInitialHandle, setReplaceInitialHandle] = useState<string | null>(null);
   // 원고 모드(§5) — '있는 원고 고르기' 입구 라벨의 개수와 pick 탭의 후보에 쓴다. 캠페인 단위로 한 번 읽고,
@@ -516,7 +519,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // (주인이 이 컴포넌트라서) — TaskPanel은 다시 고를 수 있게 빈 칸을 보여준다. 가져간 원고는 후보(있는
   // 원고 고르기) 목록에서도 빠져야 한다 — onAttachFailed(아래 775줄 부근)의 같은 409 회복과 같은 이유로
   // 상세·후보를 다시 읽는다(최종 리뷰 §1, 안 그러면 화면에 남은 그 원고를 다시 골라 또 409를 받는다).
-  const createTask = useCallback(async (body: TaskCreateRequest, more: boolean): Promise<'ok' | 'draft-taken' | 'error'> => {
+  const createTask = useCallback(async (body: TaskCreateRequest, more: boolean, prompt: PricePrompt | null): Promise<'ok' | 'draft-taken' | 'error'> => {
     const r = await createTasksApi(id, body);
     if (!r.ok) {
       if (r.status === 409 && body.draftId) { setFormDraft(null); void load(); void reloadCandidates(); return 'draft-taken'; }
@@ -530,6 +533,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     // more(만들고 하나 더) — 폼을 비울 때 고른 원고도 비운다(스펙 §4-5, 유형은 TaskPanel이 유지한다).
     // more가 아니면 만든 작업으로 패널을 바꾼다 — isNew가 꺼지며 formDraft를 비우는 효과(위)가 대신 돈다.
     if (more) setFormDraft(null); else openPanel(r.data.tasks[0].id);
+    if (prompt) setPricePrompt(prompt);
     return 'ok';
   }, [id, show, load, onChanged, openPanel, reloadCandidates]);
 
@@ -604,8 +608,13 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     // 식을 여기 다시 적지 않고 draftViews.draftPreviewLine을 쓴다 — 같은 규칙이 이미 테스트까지 있고(draftViews.test.ts),
     // 손으로 베낀 사본이 늘수록 서버와 어긋나도 아무도 모른다(Task 6 리뷰 Important 1).
     const firstLine = draftPreviewLine(row) || null;
+    // 패널 원고 카드(§7)의 draftPreview·draftFirstImage도 여기서 맞춘다 — 안 맞추면 다시 쓰기·재생성
+    // 직후 새로고침 전까지 표/카드가 옛 본문·이미지를 계속 보여준다(draftFirstLine과 같은 이유, 위 주석).
     setTasks((cur) => cur.map((t) => (t.draftId === row.id
-      ? { ...t, draftStatus: row.status, draftLabel: draftLabel(row).text, draftFirstLine: firstLine }
+      ? {
+          ...t, draftStatus: row.status, draftLabel: draftLabel(row).text, draftFirstLine: firstLine,
+          draftPreview: draftPreviewFull(row), draftFirstImage: draftFirstMediaUrl(row),
+        }
       : t)));
   }
   async function patchDraft(d: DraftRow, body: DraftPatchBody) {
@@ -649,7 +658,9 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     setFormDraft((cur) => (cur?.id === d.id ? null : cur));
     // draftFirstLine도 같이 비운다 — 남겨두면 draftId는 null이라 칸은 '미정'으로 보이지만, 검색(matchesSearch)은
     // draftId와 무관하게 draftFirstLine을 그대로 훑어 지워진 원고의 옛 첫 줄로 걸릴 수 있다.
-    setTasks((cur) => cur.map((t) => (t.draftId === d.id ? { ...t, draftId: null, draftStatus: null, draftLabel: null, draftFirstLine: null } : t)));
+    setTasks((cur) => cur.map((t) => (t.draftId === d.id
+      ? { ...t, draftId: null, draftStatus: null, draftLabel: null, draftFirstLine: null, draftPreview: null, draftFirstImage: null }
+      : t)));
     show(d.taskId ? '원고를 삭제했어요 — 작업은 남아 있어요' : '원고를 삭제했어요');
     onChanged();
     // 지운 원고가 어느 배치(batch)에 속했으면, 그 배치의 다른 원고들은 '형제 시안'이었다가 이 원고가
@@ -971,7 +982,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                                           label={panelTask.type === 'visit' ? '예산' : '비용'}
                                           onSave={(c) => actions.changeCost(panelTask, c)}
                                           onSaveProfile={(opt, c) => saveProfilePricing(opt, c, panelTask.type)}
-                                          disabledReason={panelTask.influencerHandle ? undefined : '인플을 정하면 프로필 단가로 채워요'} />
+                                          disabledReason={panelTask.influencerHandle ? undefined : ''} />
                        : null,
                      // 대상은 링크 하나로 통일한다(Task 9) — actions.changeTarget이 taskId/url/null 셋을 받는다.
                      target: panelTask
@@ -1028,7 +1039,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                              ? (
                                <div>
                                  <Button variant="subtle" disabled title="인플루언서를 먼저 정해요" className="h-9 px-3.5 text-ui">게시 확인</Button>
-                                 <p className="mt-1 text-caption text-x-muted">인플루언서를 먼저 정해요</p>
+                                 <p className="mt-1 text-ui text-x-muted">인플 선택 후</p>
                                </div>
                              )
                              : <Button variant="subtle" onClick={() => setPostedFor(panelTask)} className="h-9 px-3.5 text-ui">게시 확인</Button>))
@@ -1037,10 +1048,18 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                    // 패널 위에 뜬 다른 레이어(편집 모달·한 번에 만들기·게시 확인·게시물 연결·취소·교체·
                    // 원고 모드의 레퍼런스 고르기·링크 추가)가 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를
                    // 닫는 Esc 한 번에 패널까지 같이 닫힌다(리뷰 지적 1, Critical).
-                   overlayOpen={!!editing || bulkOpen || !!postedFor || removedOpen || !!linkFor || !!cancelFor || !!replaceFor || draftOverlayOpen}
+                   overlayOpen={!!editing || bulkOpen || !!postedFor || removedOpen || !!linkFor || !!cancelFor || !!replaceFor || draftOverlayOpen || !!pricePrompt}
                    onDirtyChange={onNewDirtyChange} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
+      {pricePrompt && (
+        <PriceProfileDialog scenario={pricePrompt.scenario} handle={pricePrompt.option.handle} type={pricePrompt.type}
+                            profile={pricePrompt.profile} entered={pricePrompt.cost}
+                            onAnswer={(toProfile) => {
+                              const p = pricePrompt; setPricePrompt(null);
+                              if (toProfile) void saveProfilePricing(p.option, p.cost, p.type).then((ok) => { if (ok) show('프로필에도 저장했어요'); });
+                            }} />
+      )}
       {postedFor && (
         <PostedDialog task={postedFor} today={data.today}
                       onClose={() => setPostedFor(null)}

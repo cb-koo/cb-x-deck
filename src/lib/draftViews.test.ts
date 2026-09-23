@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { draftPreviewLine, draftKoLine, draftLabel, sortDrafts, groupByStatus, searchDrafts, filterByProcedure, filterByPeriod, procedureOptions, applyPeriod, formatPeriodLabel, isRangeInverted } from './draftViews.ts';
+import { draftPreviewLine, draftPreviewFull, draftFirstMediaUrl, draftKoLine, draftLabel, sortDrafts, groupByStatus, searchDrafts, filterByProcedure, filterByPeriod, procedureOptions, applyPeriod, formatPeriodLabel, isRangeInverted } from './draftViews.ts';
 import type { DraftStatus } from './draftStatus.ts';
 
 const post = (text: string) => ({ posts: [{ text }] });
+const postWithMedia = (text: string, media: Array<{ url: string }>) => ({ posts: [{ text, media }] });
 const row = (over: Partial<{ id: string; createdAt: string; clientId: string | null; status: DraftStatus }>) => ({
   id: 'x', createdAt: '2026-08-10T00:00:00Z', clientId: null, status: 'draft' as DraftStatus, ...over,
 });
@@ -12,6 +13,33 @@ test('draftPreviewLine: 편집본 우선, 첫 줄만, 공백 정리', () => {
   assert.equal(draftPreviewLine({ content: post('원문 첫 줄\n둘째 줄'), edited: null }), '원문 첫 줄');
   assert.equal(draftPreviewLine({ content: post('원문'), edited: post('  편집본 첫 줄  \n둘째') }), '편집본 첫 줄');
   assert.equal(draftPreviewLine({ content: { posts: [] }, edited: null }), '');
+});
+
+test('draftPreviewFull: 편집본 우선, 전문(자르지 않음), 빈 값은 null — campaignTaskStore.toRow.draftPreview와 같은 게이트', () => {
+  assert.equal(draftPreviewFull({ content: post('첫 줄\n둘째 줄'), edited: null }), '첫 줄\n둘째 줄');
+  assert.equal(draftPreviewFull({ content: post('원문'), edited: post('편집본\n둘째') }), '편집본\n둘째');
+  assert.equal(draftPreviewFull({ content: { posts: [] }, edited: null }), null);
+  assert.equal(draftPreviewFull({ content: post('   '), edited: null }), null);
+});
+
+test('draftFirstMediaUrl: 첫 포스트 첫 미디어 url, 없으면 null', () => {
+  assert.equal(draftFirstMediaUrl({ content: postWithMedia('t', [{ url: 'drafts/a/1.jpg' }]), edited: null }), 'drafts/a/1.jpg');
+  assert.equal(draftFirstMediaUrl({ content: postWithMedia('t', []), edited: null }), null);
+  assert.equal(draftFirstMediaUrl({ content: { posts: [] }, edited: null }), null);
+});
+
+// 리뷰 발견: media 키 자체가 없는 옛 원고(jsonb 모양 미보증)에서 media[0]에 그냥 접근해 죽었다 —
+// FlowDetail.mergeRow가 다시 쓰기·재생성 응답마다 부르는 함수라 실사용에서 바로 터진다.
+// postNoMedia를 변수로 두는 이유: 리터럴로 바로 넘기면 known-property 체크가 text를 걸러낸다(타입은
+// media만 선언) — 실제 jsonb 행은 text와 media를 같이 갖되 media만 없는 모양이라 그 실물을 흉내낸다.
+test('draftFirstMediaUrl: media 키 자체가 없는 옛 원고 — 죽지 않고 null', () => {
+  const postNoMedia: { text?: string; media?: Array<{ url: string }> } = { text: '본문' };
+  assert.equal(draftFirstMediaUrl({ content: { posts: [postNoMedia] }, edited: null }), null);
+  assert.equal(draftFirstMediaUrl({ content: { posts: [{}] }, edited: null }), null);           // text도 media도 없음
+});
+
+test('draftPreviewFull: text 키 자체가 없어도 죽지 않고 빈 값 취급(null)', () => {
+  assert.equal(draftPreviewFull({ content: { posts: [{}] }, edited: null }), null);
 });
 
 test('draftKoLine: 캐시 없으면 null, 있으면 첫 줄만', () => {

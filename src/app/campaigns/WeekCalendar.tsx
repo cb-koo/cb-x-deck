@@ -3,11 +3,12 @@ import { useState, useRef } from 'react';
 import type { CampaignTaskItem, CampaignRow } from '@/lib/campaignStore';
 import {
   isOutOfRange, formatDateKo, taskStage, isTaskExcluded, matchesTaskFilter,
-  TASK_STAGE_LABEL, TASK_TYPE_LABEL, type TaskStage, type StageFilter, type TaskType,
+  TASK_STAGE_LABEL, TASK_TYPE_LABEL, type TaskStage, type StageFilter,
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, overdueSuffix, NO_SCHEDULE_LABEL } from '@/lib/campaignTableView';
 import { weekRows, calendarGrid, dateAnchorLabel, type CalendarKind } from '@/lib/campaignCalendar';
 import { TASK_STAGE_BAR_HEX, OVERDUE_BAR_HEX } from '@/components/DraftStatusChip';
+import { TYPE_CHIP } from '@/lib/flowChips';
 
 // 달력 보기(스펙 §3-2) — "달력처럼 안 보인다"는 오너 피드백을 해부학 수준에서 고친 판(리서치 docs/research/calendar-view-ui-research-20260826.md §3, 대안 1).
 // 바뀐 뼈대: ① 캠페인이 걸치는 주를 ◀ ▶ 없이 아래로 쌓는다(주 페이징 = "이번 주만 보이는 목록"처럼 읽힌다)
@@ -34,10 +35,6 @@ const WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일'];
 const SAT_TEXT = 'text-[#5b7fae]';
 const SUN_TEXT = 'text-[#c4576b]';
 const dowText = (i: number) => (i === 5 ? SAT_TEXT : i === 6 ? SUN_TEXT : 'text-x-muted');
-// 유형 칩 — 표(TaskTable)와 같은 색이라 표에서 달력으로 와도 같은 유형이 같은 색으로 읽힌다. 카드가 좁아 12px.
-const TYPE_CHIP: Record<TaskType, string> = {
-  post: 'bg-[#e8f0fe] text-[#1d4ed8]', quoteRt: 'bg-[#f3e8ff] text-[#7e22ce]', rt: 'bg-[#e6f6ee] text-[#15803d]', visit: 'bg-[#fff4e5] text-[#b45309]',
-};
 // 접힘 상태 기억 — 미정 섹션을 접어두는 건 작업 방식 선호라 기억한다([표 | 주간 달력] 저장 관례).
 // 서버 렌더에서는 이 컴포넌트가 아예 안 그려진다(CampaignDetail은 로드 뒤에만 마운트) → hydration 불일치가 없다.
 const COLLAPSE_KEY = 'campaign-unscheduled-collapsed';

@@ -34,7 +34,7 @@ export function DraftMode({ attached, tab, onTab, busy, pickCount, card, generat
           </button>
         ))}
         {/* title만으로 끝내지 않는다(UX 원칙 2·5, 거짓 어포던스 금지) — 탭이 막힌 보이는 이유를 한 줄로 둔다 */}
-        {busy && <span className="ml-auto shrink-0 text-caption text-x-muted">{busy.label}</span>}
+        {busy && <span className="ml-auto shrink-0 text-ui text-x-muted">{busy.label}</span>}
       </div>
       {tab === 'generate' ? generate : tab === 'write' ? write : pick}
     </div>

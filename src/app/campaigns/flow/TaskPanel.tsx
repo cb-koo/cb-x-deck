@@ -1,20 +1,20 @@
 'use client';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import type { DraftRow } from '@/lib/draftStore';
 import { fetchTasksTargets, type TaskCreateRequest } from '@/lib/campaignApi';
 import { buildTaskCreateBody } from '@/lib/taskCreateBody';
-import type { TaskCost } from '@/lib/campaignCost';
+import { AMOUNT_MESSAGE, type TaskCost } from '@/lib/campaignCost';
 import {
-  flowStage, FLOW_STAGE_LABEL, TASK_TYPE_LABEL, isOutOfRange, formatDateKo, type TaskType,
+  TASK_TYPE_LABEL, isOutOfRange, formatDateKo, type TaskType,
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, targetLabel } from '@/lib/campaignTableView';
 import {
-  PANEL_FIELD_ORDER, DISPLAY_TYPE_ORDER, costCell, replaceDisabledReason, detachConfirmMessage, type FlowRow, type PanelField,
+  PANEL_FIELD_ORDER, DISPLAY_TYPE_ORDER, costCell, replaceDisabledReason, detachConfirmMessage, profilePromptFor, type FlowRow, type PanelField,
 } from '@/lib/campaignFlowView';
 import { STATUS_LABEL } from '@/lib/draftStatus';
-import { draftLabel } from '@/lib/draftViews';
+import { draftLabel, draftPreviewFull, draftFirstMediaUrl } from '@/lib/draftViews';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
 import { InfluencerField } from '@/components/InfluencerField';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
@@ -23,6 +23,16 @@ import { CostConfirmField } from './CostConfirmField';
 import { TargetPicker, candidateLabel, type TargetValue } from '../TargetPicker';
 import type { useCampaignTaskActions } from '../useCampaignTaskActions';
 import { DraftMode, type DraftTab } from './draft/DraftMode';
+import { PanelSection } from './panel/PanelSection';
+import { StageTypeBox } from './panel/StageTypeBox';
+import { InfluencerSummary } from './panel/InfluencerSummary';
+import { PaymentLine } from './panel/PaymentLine';
+import { usePaymentView } from './panel/usePaymentView';
+import { useTweetPreview } from './panel/useTweetPreview';
+import { DraftSummaryCard } from './panel/DraftSummaryCard';
+import { DraftEntryButtons } from './panel/DraftEntryButtons';
+import { TargetPreview } from './panel/TargetPreview';
+import { targetPreviewState, targetPreviewStateOfValue } from '@/lib/targetPreviewView';
 
 // 편집 패널(b-task-7-brief.md §2) — 작업 하나(edit)와 새 작업(new)을 같은 골격에서 다룬다. 칸 순서는
 // PANEL_FIELD_ORDER(campaignFlowView) 하나뿐 — 여기서 다시 적지 않는다. 저장은 두 갈래:
@@ -31,7 +41,7 @@ import { DraftMode, type DraftTab } from './draft/DraftMode';
 //    (중간에 실패해도 빈 작업이 안 남는다, 결정 3).
 // 비용 칸(Task 8)은 edit 모드만 slots.cost(부모 FlowDetail이 채운다, task.cost·onSaveProfile 클로저가 필요해서)를
 // 쓰고, new 모드는 이 파일이 직접 CostConfirmField를 그린다 — 로컬 상태(newCost)가 이 파일에만 있어서다
-// (onSave가 로컬 setCost만 하고 true를 돌려주면 확정된다, 저장은 [만들기]에서 한 번에). 대상 칸(Task 9)도 같은
+// (draft 모드 — [확인] 없이 보이는 값이 newCost로 올라오고 [만들기]에서 한 번에 저장, 설계 §8). 대상 칸(Task 9)도 같은
 // 나눔: edit는 slots.target(TargetLinkField, actions.changeTarget 클로저가 필요), new는 TargetPicker를 직접
 // 그려 로컬 상태(target)로 들고 있다가 [만들기]에서 targetTaskId/targetTweetUrl로 함께 보낸다. 게시 확인도
 // 같은 이유로 slots.posted(다이얼로그는 FlowDetail이 연다, Task 10의 행 메뉴와 같은 다이얼로그를 쓴다).
@@ -44,6 +54,8 @@ type PanelMode = { kind: 'edit'; task: FlowRow; index: number; total: number } |
 // 폼 맥락(Task 4, 스펙 §4-6) — 새 작업 폼의 인플루언서·유형·대상을 FlowDetail에 알려, 그쪽이 원고 모드
 // 세 갈래(폼 호스트)를 이 값으로 만든다. TaskPanel의 로컬 상태(newType·handle·target)를 그대로 옮긴 것뿐이라
 // 새 상태 보관소가 아니다 — target은 인용RT의 targetRef 계산(대상 링크가 있을 때만)에만 쓰인다.
+// 새 작업을 만든 뒤 "프로필에도 반영할까요?"를 한 번 묻는 데 필요한 것(설계 §8) — 판정은 profilePromptFor.
+export type PricePrompt = { option: InfluencerOption; cost: TaskCost; type: TaskType; scenario: 'differs' | 'no-profile'; profile: TaskCost | null };
 export type FormDraftContext = { type: TaskType | null; handle: string | null; target: TargetValue };
 
 // 직접 쓰기에서 떠나기 전 확인(리뷰 지적 4) — 기존 두 번째 입구 DraftWriteModal.requestClose와 글자 하나까지
@@ -68,7 +80,7 @@ export function TaskPanel({
   onNext: () => void;
   // 'draft-taken' — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져간 409(Task 5 §3). 'error'는 그 밖의
   // 실패(토스트는 FlowDetail이 띄운다). 'ok'만 성공 — more일 때만 폼에 남는다(그 갈래는 이 컴포넌트가 비운다).
-  onCreate: (body: TaskCreateRequest, more: boolean) => Promise<'ok' | 'draft-taken' | 'error'>;
+  onCreate: (body: TaskCreateRequest, more: boolean, prompt: PricePrompt | null) => Promise<'ok' | 'draft-taken' | 'error'>;
   menu: ReactNode;   // 헤더 ··· — edit 모드에만 채워진다(Task 10, FlowRowMenu). 원고 모드에서는 숨긴다(작업 동작이라서).
   // 원고 모드로 들어가라는 요청(행 메뉴 등 패널 바깥에서 왔을 수 있다, C 원고 모드 §Step1). seq가 매번 바뀌어야
   // 이미 같은 작업의 패널이 열려 있을 때(키 리마운트가 안 일어난다)도 같은 탭을 다시 요청하면 반영된다.
@@ -159,7 +171,9 @@ export function TaskPanel({
   const [handleInput, setHandleInput] = useState('');
   const [handle, setHandle] = useState('');
   const [handleErr, setHandleErr] = useState<string | null>(null);
-  const [newCost, setNewCost] = useState<TaskCost | null>(null);
+  // 새 작업 비용 = 칸에 보이는 값(설계 §8) — 'invalid'는 못 읽는 금액(입력은 했으니 isFormFieldsFilled엔 참)
+  const [newCost, setNewCost] = useState<TaskCost | null | 'invalid'>(null);
+  const [costErr, setCostErr] = useState<string | null>(null);
   // 대상(Task 9) — TargetPicker는 taskId만 돌려준다. 접힌 카드에 보여줄 라벨·게시 여부는 후보 목록에서
   // 다시 찾는다(TaskAddModal의 resolveTarget과 같은 패턴, 한 번 더 조회해도 50건 안에 있다).
   const [target, setTarget] = useState<TargetValue>(null);
@@ -181,6 +195,30 @@ export function TaskPanel({
   const [editHandleInput, setEditHandleInput] = useState('');
   const [editHandleErr, setEditHandleErr] = useState<string | null>(null);
   const [noteBuf, setNoteBuf] = useState(task?.note ?? '');
+
+  // ── 비용 · 정산 상자의 결제 수단 한 줄(설계 §8-1) — 훅이라 렌더 함수(renderEditField 등) 밖, 여기서 한 번 부른다.
+  // refreshKey: 정산 요청 상태(우리·그쪽)가 바뀌면 다시 부른다 — 요청이 생기면 명부 수단 대신 요청 스냅샷이 사실이다.
+  // 취소된 작업은 정산할 일이 없어 부르지도 보이지도 않는다(핸들 null).
+  // panelHandle = 이 패널의 인플(편집=작업 행, 새 작업=입력 칸) — 결제 수단 줄과 인용 미리보기의 작성자 줄이 같이 쓴다.
+  const panelHandle = task ? task.influencerHandle : (handle || null);
+  const payCancelled = !!task?.cancelledAt;
+  const payRefresh = task ? `${task.settlement?.status ?? ''}:${task.settlement?.externalStatus ?? ''}` : '';
+  const pay = usePaymentView(payCancelled ? null : panelHandle, task?.id ?? null, payRefresh);
+
+  // ── 인용·RT 대상 미리보기(설계 §7-1) — 훅이라 여기서 한 번 부른다. 판정은 targetPreviewView 하나(편집=작업 행,
+  // 새 작업=로컬 target). 인용RT면 원고 카드 안(2줄)에, 아니면 대상 칸 안(3줄 + 첫 이미지)에 같은 결과를 그린다.
+  const tState = task ? targetPreviewState(task) : targetPreviewStateOfValue(target);
+  const tPrev = useTweetPreview(tState.kind === 'link' && !task?.cancelledAt ? tState.url : null);   // 취소된 작업은 글자만 보여 준다
+  const isQuote = (task?.type ?? newType) === 'quoteRt';
+  // 인용 미리보기의 작성자 줄 = 이 작업의 인플(실제 게시 모습, §7-1) — 명부 값은 optionForHandle과 같은 조회
+  const authorOpt = panelHandle ? optionForHandle(panelHandle) : undefined;   // function 선언이라 호이스팅된다
+  // 표시 이름이 없으면 name=null — 카드가 @핸들을 한 번만 그린다(InfluencerSummary와 같은 규칙)
+  const author = panelHandle ? { name: authorOpt?.name?.trim() || null, handle: panelHandle, avatarUrl: authorOpt?.avatarUrl } : undefined;
+  const quoteNode = isQuote && tState.kind !== 'none' ? <TargetPreview state={tState} {...tPrev} lines={2} /> : undefined;
+  // 대상 칸 안의 단독 카드(3줄) — 원고가 붙은 인용RT는 원고 카드가 이미 보여 주므로 대상 칸엔 링크 줄만 둔다
+  const targetCard = (hasDraft: boolean) => (isQuote && hasDraft) || tState.kind === 'none'
+    ? null
+    : <div className="mt-2.5"><TargetPreview state={tState} {...tPrev} lines={3} /></div>;
 
   // 새 작업 모드에서 값이 하나라도 채워졌으면(유형은 빼고) Esc·[✕]로 닫을 때 경고 없이 사라지지 않게 한 번
   // 묻는다(I1) — DraftWriteModal의 dirty 관례와 같다. handleInput은 아직 커밋 전(엔터·블러 전) 값도 잡는다 —
@@ -238,9 +276,12 @@ export function TaskPanel({
   // fill로 이 신호를 보낸다(위 formHandleFill 주석) — commitNewHandle로 기존 핸들 입력과 같은 검증·저장
   // 경로를 탄다(새 로직이 아니다). handle이 null이면(카드에서 해제) 빈 문자열로 — commitNewHandle('')은
   // 이미 '비우기'로 정의돼 있다(handle 커밋 함수 본문 참고).
+  // useEffectEvent — commitNewHandle이 지금 handle을 읽으므로(같은 사람이면 비용을 안 비운다) 최신 값을 보되,
+  // 이펙트는 fill 신호가 올 때만 돈다.
+  const fillHandle = useEffectEvent((h: string) => commitNewHandle(h));
   useEffect(() => {
     if (!formHandleFill) return;
-    commitNewHandle(formHandleFill.handle ?? '');
+    fillHandle(formHandleFill.handle ?? '');
   }, [formHandleFill]);
 
   // 바깥을 누르면 닫는다(koo 09-19). 예외 셋: ① 패널 안 ② 표의 행 — 다른 작업으로 갈아타는 동작이라 행이 직접
@@ -272,7 +313,7 @@ export function TaskPanel({
 
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
-    setScheduledOn(null); setVisitOn(null); setNote(''); setNewCost(null); setTarget(null);
+    setScheduledOn(null); setVisitOn(null); setNote(''); setNewCost(null); setCostErr(null); setTarget(null);
     // 409 문구(draftGone)는 newDraft가 "들어올 때"만 꺼진다(위 이펙트) — [만들고 하나 더]로 새 빈 폼을
     // 열면 newDraft가 애초에 안 들어오므로 그 이펙트가 안 돈다. 여기서 직접 꺼야 새 폼에 옛 충돌 문구가
     // 남지 않는다(최종 리뷰 §2).
@@ -290,17 +331,24 @@ export function TaskPanel({
       ? { taskId: next.taskId, label: c ? candidateLabel(c) : '선택한 작업', sub: c && c.campaignId !== campaign.id ? c.campaignName : null, posted: !!c?.postedAt, postUrl: c ? c.postUrl : undefined }
       : current);
   }
+  // 지금 핸들의 명부 값 — 비용 칸과 [만들기]의 프로필 질문이 같은 조회를 쓴다
+  function optionForHandle(h: string): InfluencerOption | undefined {
+    return h ? influencerOptions.find((o) => o.handle.toLowerCase() === h.toLowerCase()) : undefined;
+  }
   function commitNewHandle(raw: string) {
     const v = raw.trim();
     if (!v) { setHandle(''); setHandleInput(''); setHandleErr(null); setNewCost(null); return; }
     const p = parseXHandle(v);
     if (!p.ok) { setHandleErr(handleParseMessage(p.reason)); return; }
+    // 사람이 실제로 바뀔 때만 앞사람 기준 비용을 버린다 — 비용 칸이 다시 마운트되며 새 사람의 프로필 단가를
+    // 올린다. 같은 핸들이 다시 커밋되면(블러마다 부른다) 비우지 않는다: 비우면 칸엔 금액이 보이는데 [만들기]는
+    // 비용 없이 저장하거나, 다시 마운트될 때 입력한 금액이 프로필 단가로 조용히 바뀐다(설계 §8 '보이는 값 저장').
+    if (p.handle.toLowerCase() !== handle.toLowerCase()) { setNewCost(null); setCostErr(null); }
     setHandle(p.handle); setHandleInput(p.handle); setHandleErr(null);
-    // 사람이 바뀌면 앞사람 단가로 확인한 비용은 버린다 — 안 그러면 새 사람의 단가와 비교도 없이 '확정'으로 넘어간다(R24).
-    setNewCost(null);
   }
   async function submitNew(more: boolean) {
     if (!newType || busy) return;
+    if (newCost === 'invalid') { setCostErr(AMOUNT_MESSAGE); return; }
     setBusy(true);
     // 본문 조립은 buildTaskCreateBody 하나로(Task 1) — 서버 제약(draftId는 1명 이하·count와 배타)을 여기서
     // 다시 만들지 않는다. handle은 '' | string인데 draftId는 string | null이 필요해 handle || null로 맞춘다.
@@ -309,7 +357,10 @@ export function TaskPanel({
       scheduledOn, visitOn, note, target,
       draftId: newDraft?.id ?? null,
     });
-    const result = await onCreate(body, more);
+    // 보이는 값을 그대로 저장하고, 프로필과 다르거나 프로필에 없으면 만든 뒤 한 번 묻는다(판정은 [확인]과 같은 함수)
+    const opt = optionForHandle(handle);
+    const prompt = profilePromptFor({ option: opt, type: newType, cost: newCost });
+    const result = await onCreate(body, more, prompt && opt && newCost ? { option: opt, cost: newCost, type: newType, ...prompt } : null);
     setBusy(false);
     if (result === 'draft-taken') { setDraftGone(true); return; }   // FlowDetail이 이미 formDraft를 비웠다
     if (result === 'ok' && more) resetNewFields();   // 유형은 유지 — 같은 유형을 연달아 만드는 게 실제 사용 패턴(결정 4). 원고는 FlowDetail이 비운다(스펙 §4-5)
@@ -340,7 +391,7 @@ export function TaskPanel({
   function fieldLabel(field: PanelField, type: TaskType): string {
     switch (field) {
       case 'influencer': return '인플루언서';
-      case 'cost': return type === 'visit' ? '예산' : '비용';
+      case 'cost': return type === 'visit' ? '예산 · 정산' : '비용 · 정산';
       case 'draft': return '원고';
       case 'target': return `${TASK_TYPE_LABEL[type]} 대상`;
       case 'scheduled': return '게시 예정일';
@@ -349,24 +400,47 @@ export function TaskPanel({
     }
   }
 
+  // 비용 · 정산 상자 본문(설계 §8·§10) — 두 모드 공통 모양: 금액 + 결제 수단 한 줄. 인플 미정이면 '인플 선택 후'는
+  // 결제 수단 줄에서 한 번만 말하고, 금액 칸은 문구 없는 비활성(disabledReason='')으로 둔다.
+  // 소제목에 '· 이 작업에만 적용'은 아직 붙이지 않는다 — 수단 선택(2단계)이 들어와야 참이 되는 말이다(UX 원칙 4).
+  function costBox(amount: ReactNode): ReactNode {
+    return (
+      <div>
+        <p className="mb-1.5 text-[14px] font-semibold text-x-secondary">금액</p>
+        {amount}
+        {/* 취소된 작업은 정산할 일이 없어 결제 수단 줄 자체를 두지 않는다 */}
+        {!payCancelled && (
+          <>
+            <p className="mb-1.5 mt-3.5 text-[14px] font-semibold text-x-secondary">결제 수단</p>
+            {panelHandle ? <PaymentLine {...pay} /> : <p className="text-content text-x-muted">인플 선택 후</p>}
+          </>
+        )}
+      </div>
+    );
+  }
+
   // ── 편집 모드 칸 ──
   function renderEditField(field: PanelField, t: FlowRow): ReactNode {
     const cancelled = t.cancelledAt !== null;
     switch (field) {
       case 'influencer': {
-        if (cancelled) return <span className="text-content text-x-muted">{t.influencerHandle ? `@${t.influencerHandle}` : '미정'}</span>;
+        if (cancelled) {
+          return t.influencerHandle
+            ? <InfluencerSummary handle={t.influencerHandle} option={optionForHandle(t.influencerHandle)} muted />
+            : <span className="text-content text-x-muted">미정</span>;
+        }
         if (t.influencerHandle) {
+          const opt = optionForHandle(t.influencerHandle);
           // 게시된 작업은 교체 자체가 서버 가드(POSTED_TASK_MESSAGE)에 막혀 있다 — FlowRowMenu의 prePost
           // 게이트와 같은 조건. 여기서 숨기지 않고 disabled로만 두면 눌렀을 때 400이 나는 거짓 어포던스가 된다.
-          if (t.postedAt) return <span className="text-content">@{t.influencerHandle}</span>;
+          if (t.postedAt) return <InfluencerSummary handle={t.influencerHandle} option={opt} />;
           const disabledReason = replaceDisabledReason(t, today);
           return (
             <div>
-              <span className="flex items-center justify-between gap-2 text-content">
-                <span>@{t.influencerHandle}</span>
-                {/* [해제]는 [바꾸기]와 같은 판정(replaceDisabledReason)으로 막는다 — 방문한 인플루언서를
-                    떼면 서버가 거절하는 것과 같은 조작이라 이유 문구도 같아야 한다(라벨-값 일치). */}
-                <span className="flex shrink-0 items-center gap-2">
+              {/* [해제]는 [바꾸기]와 같은 판정(replaceDisabledReason)으로 막는다 — 방문한 인플루언서를
+                  떼면 서버가 거절하는 것과 같은 조작이라 이유 문구도 같아야 한다(라벨-값 일치). */}
+              <InfluencerSummary handle={t.influencerHandle} option={opt} actions={
+                <>
                   <button type="button" onClick={() => onReplace(t)} disabled={!!disabledReason} title={disabledReason ?? undefined}
                           className="text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
                     바꾸기
@@ -375,10 +449,10 @@ export function TaskPanel({
                           className="text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
                     해제
                   </button>
-                </span>
-              </span>
+                </>
+              } />
               {/* title만으로 끝내지 않는다(UX 원칙 2·5) — 비활성 이유를 보이는 문구로도 말한다 */}
-              {disabledReason && <p className="mt-1 text-caption text-x-muted">{disabledReason}</p>}
+              {disabledReason && <p className="mt-1 text-ui text-x-muted">{disabledReason}</p>}
             </div>
           );
         }
@@ -388,51 +462,31 @@ export function TaskPanel({
                              onChange={(v) => { setEditHandleInput(v); setEditHandleErr(null); }} error={editHandleErr}
                              onEnter={(v) => void commitEditHandle(t, v)} onBlur={(v) => void commitEditHandle(t, v)} />
             {/* C1-b가 이 배정을 이제 서버에서 허용한다 — 왜 이 칸이 아직 남아 있는지, 채우면 뭐가 달라지는지 알린다 */}
-            {t.postedAt && <p className="mt-1 text-caption text-x-muted">게시 확인된 작업이에요 — 누가 올렸는지 적으면 정산 후보에 잡혀요. 한 번 적으면 바꿀 수 없어요</p>}
+            {t.postedAt && <p className="mt-1 text-ui text-x-muted">게시 확인된 작업이에요 — 누가 올렸는지 적으면 정산 후보에 잡혀요. 한 번 적으면 바꿀 수 없어요</p>}
           </div>
         );
       }
       case 'cost': {
-        if (!cancelled) return <>{slots.cost}</>;
-        const cc = costCell(t, null);
-        return <span className={`text-content ${cc.tone === 'muted' ? 'text-x-muted' : cc.tone === 'struck' ? 'text-x-muted line-through' : ''}`}>{cc.text}</span>;
+        const cc = cancelled ? costCell(t, null) : null;
+        return costBox(cc
+          ? <span className={`text-content ${cc.tone === 'muted' ? 'text-x-muted' : cc.tone === 'struck' ? 'text-x-muted line-through' : ''}`}>{cc.text}</span>
+          : <>{slots.cost}</>);
       }
       case 'draft': {
         if (cancelled) return <span className="text-content text-x-muted">{t.cancelledDraftTitle ? `원고 있었음: ${t.cancelledDraftTitle}` : '—'}</span>;
         if (t.draftId) {
+          // [열기]는 setDraftTab 없이 연다 — 붙어 있으면 탭 대신 카드가 뜬다(DraftMode)
           return (
-            <div className="flex flex-wrap items-center justify-between gap-2 text-content">
-              <span className="min-w-0 truncate" title={t.draftLabel ?? ''}>
-                {t.draftLabel ?? '(제목 없음)'}{t.draftStatus && <span className="text-ui text-x-muted"> · {STATUS_LABEL[t.draftStatus]}</span>}
-              </span>
-              <span className="flex shrink-0 items-center gap-3 text-ui">
-                {/* setDraftTab 없이 연다 — 붙어 있으면 탭 대신 카드가 뜬다(DraftMode) */}
-                <button type="button" onClick={() => setDraftMode('draft')} className="text-x-blue-text hover:underline">열기</button>
-                <button type="button" onClick={() => onDetachDraft(t)} className="text-x-secondary hover:underline">떼기</button>
-              </span>
-            </div>
+            <DraftSummaryCard title={t.draftLabel ?? '(제목 없음)'} status={t.draftStatus ? STATUS_LABEL[t.draftStatus] : null}
+                              preview={t.draftPreview} image={t.draftFirstImage} quote={quoteNode} author={author}
+                              onOpen={() => setDraftMode('draft')} onDetach={() => onDetachDraft(t)} />
           );
         }
-        return (
-          <div>
-            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-content">
-              <button type="button" onClick={() => { setDraftTab('generate'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-blue-text hover:underline">AI로 만들기</button>
-              <span aria-hidden className="text-x-muted">·</span>
-              <button type="button" onClick={() => { setDraftTab('write'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">직접 쓰기</button>
-              <span aria-hidden className="text-x-muted">·</span>
-              <button type="button" onClick={() => { setDraftTab('pick'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">
-                있는 원고 고르기{pickCount !== null ? ` ${pickCount}` : ''}
-              </button>
-            </span>
-            <p className="mt-1 text-caption text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
-          </div>
-        );
+        // 비어 있으면 세 입구 버튼만(설계 §10 — 도움말 없음)
+        return <DraftEntryButtons pickCount={pickCount} onPick={(tab) => { setDraftTab(tab); setDraftMode('draft'); }} />;
       }
       case 'target': {
-        if (!cancelled) return <>{slots.target}</>;
+        if (!cancelled) return <>{slots.target}{targetCard(!!t.draftId)}</>;
         const tgt = targetLabel(t, campaign.id);
         return <span className={`text-content ${tgt.muted ? 'text-x-muted' : ''}`}>{tgt.text}{tgt.sub && ` · ${tgt.sub}`}</span>;
       }
@@ -447,15 +501,15 @@ export function TaskPanel({
         if (cancelled) {
           return (
             <div className="grid grid-cols-2 gap-3">
-              <div><p className="text-caption text-x-muted">방문일</p><p className="mt-0.5 text-content text-x-muted">{t.visitOn ? formatDateKo(t.visitOn) : '미정'}</p></div>
-              <div><p className="text-caption text-x-muted">게시 예정일</p><p className="mt-0.5 text-content text-x-muted">{t.scheduledOn ? formatDateKo(t.scheduledOn) : '미정'}</p></div>
+              <div><p className="text-ui text-x-muted">방문일</p><p className="mt-0.5 text-content text-x-muted">{t.visitOn ? formatDateKo(t.visitOn) : '미정'}</p></div>
+              <div><p className="text-ui text-x-muted">게시 예정일</p><p className="mt-0.5 text-content text-x-muted">{t.scheduledOn ? formatDateKo(t.scheduledOn) : '미정'}</p></div>
             </div>
           );
         }
         return (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-caption text-x-muted">방문일 — 지나면 인플루언서를 바꿀 수 없어요</p>
+              <p className="text-ui text-x-muted">방문일 <span title="방문일이 지나면 인플루언서를 바꿀 수 없어요" aria-label="방문일이 지나면 인플루언서를 바꿀 수 없어요" className="cursor-help text-x-muted">ⓘ</span></p>
               <div className="mt-0.5">
                 <ScheduledOnField value={t.visitOn} overdueDays={null}
                                  outOfRange={isOutOfRange(t.visitOn, campaign.startsOn, campaign.endsOn)}
@@ -463,7 +517,7 @@ export function TaskPanel({
               </div>
             </div>
             <div>
-              <p className="text-caption text-x-muted">게시 예정일</p>
+              <p className="text-ui text-x-muted">게시 예정일</p>
               <div className="mt-0.5">
                 <ScheduledOnField value={t.scheduledOn} overdueDays={taskOverdueDays(t, today)}
                                  outOfRange={isOutOfRange(t.scheduledOn, campaign.startsOn, campaign.endsOn)}
@@ -501,11 +555,22 @@ export function TaskPanel({
         if (newDraft) {
           return (
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center rounded-lg border border-x-border-strong bg-x-hover px-2.5 py-2 text-content text-x-secondary">
-                {handle ? `@${handle}` : '미정'}
-              </span>
-              <span className="text-caption text-x-muted">원고를 떼면 바꿀 수 있어요</span>
+              {handle
+                ? <InfluencerSummary handle={handle} option={optionForHandle(handle)} muted />
+                : <span className="text-content text-x-muted">미정</span>}
+              <span title="원고를 떼면 바꿀 수 있어요" aria-label="원고를 떼면 바꿀 수 있어요" className="cursor-help text-ui text-x-muted">🔒 ⓘ</span>
             </div>
+          );
+        }
+        // 배정 직후에도 입력칸 대신 요약을 보여준다 — [바꾸기]는 서버를 부르지 않고 핸들을 비워 입력칸으로 되돌린다
+        // (Task 7의 비용 초기화가 commitNewHandle('')에 이미 있어 여기서 다시 만들지 않는다).
+        if (handle) {
+          return (
+            <InfluencerSummary handle={handle} option={optionForHandle(handle)} actions={
+              <button type="button" onClick={() => commitNewHandle('')} className="text-ui text-x-secondary hover:underline">
+                바꾸기
+              </button>
+            } />
           );
         }
         return (
@@ -514,19 +579,30 @@ export function TaskPanel({
                            onEnter={commitNewHandle} onBlur={commitNewHandle} />
         );
       case 'cost': {
-        // 명부 값(option)은 handle이 정해졌을 때만 있다 — 미정이면 disabledReason으로 비활성(브리프 §5).
-        const opt = handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined;
-        return (
-          // key=handle — 인플루언서가 바뀌면(미정 → 배정 포함) 새 프로필 단가로 다시 초기화한다(마운트 시 한 번만
-          // 채우는 필드라 안 그러면 방금 배정한 인플의 단가 제안이 안 보인다).
-          <CostConfirmField key={handle} value={newCost} option={opt} type={newType as TaskType} label={fieldLabel('cost', newType as TaskType)}
-                            onSave={async (c) => { setNewCost(c); return true; }}
+        // 명부 값(option)은 handle이 정해졌을 때만 있다 — 미정이면 문구 없는 비활성(disabledReason='', 이유는 결제 수단 줄이 말한다).
+        const opt = optionForHandle(handle);
+        return costBox(
+          // 초기값은 부모의 newCost(없으면 프로필 단가) — 원고 모드를 다녀오면 폼이 언마운트됐다 다시 마운트되는데,
+          // 그때 입력한 금액이 프로필 단가로 조용히 바뀌지 않게 한다. 'invalid'는 값으로 못 옮겨 비운 채 넘긴다
+          // (다시 마운트되면 보이는 값 — 프로필 단가 또는 빈 칸 — 이 다시 올라와 '보이는 값 = 저장 값'이 유지된다).
+          // key: 인플·유형이 바뀌면(그때 newCost는 위에서 비운다) 새 프로필 단가로 다시 채운다. 옵션 도착 여부도
+          // 넣는다 — 인플 목록이 늦게 오면 빈 칸으로 마운트됐다가, 목록이 오면 다시 마운트돼 채워진다(설계 §8).
+          // draft 모드라 [확인]이 없고 값이 바뀔 때마다 newCost로 올라온다.
+          <CostConfirmField key={`${handle}:${newType}:${opt ? 'o' : '-'}`} mode="draft" value={newCost !== 'invalid' ? newCost : null} option={opt} type={newType as TaskType}
+                            label={newType === 'visit' ? '예산' : '비용'} error={costErr}
+                            onDraftChange={(v) => { setNewCost(v); setCostErr(null); }}
+                            onSave={async () => true}
                             onSaveProfile={(o, c) => onSaveProfilePricing(o, c, newType as TaskType)}
-                            disabledReason={handle ? undefined : '인플을 정하면 프로필 단가로 채워요'} />
+                            disabledReason={handle ? undefined : ''} />
         );
       }
       case 'target':
-        return <TargetPicker value={target} clientId={campaign.clientId} campaignId={campaign.id} onChange={(next) => void resolveNewTarget(next)} />;
+        return (
+          <>
+            <TargetPicker value={target} clientId={campaign.clientId} campaignId={campaign.id} onChange={(next) => void resolveNewTarget(next)} />
+            {targetCard(!!newDraft)}
+          </>
+        );
       case 'scheduled':
         return (
           <ScheduledOnField value={scheduledOn} overdueDays={null}
@@ -537,7 +613,7 @@ export function TaskPanel({
         return (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-caption text-x-muted">방문일</p>
+              <p className="text-ui text-x-muted">방문일</p>
               <div className="mt-0.5">
                 <ScheduledOnField value={visitOn} overdueDays={null}
                                  outOfRange={isOutOfRange(visitOn, campaign.startsOn, campaign.endsOn)}
@@ -545,7 +621,7 @@ export function TaskPanel({
               </div>
             </div>
             <div>
-              <p className="text-caption text-x-muted">게시 예정일</p>
+              <p className="text-ui text-x-muted">게시 예정일</p>
               <div className="mt-0.5">
                 <ScheduledOnField value={scheduledOn} overdueDays={null}
                                  outOfRange={isOutOfRange(scheduledOn, campaign.startsOn, campaign.endsOn)}
@@ -563,51 +639,32 @@ export function TaskPanel({
         // 원고 칸(스펙 §4-1) — 모양은 편집 패널(renderEditField 'draft')과 같다. 다른 점은 [떼기]가
         // 서버 detach가 아니라 폼에서 내려놓는 것뿐이다(위 detachNewDraft) — 아직 어디에도 안 붙어서다.
         if (newDraft) {
+          // [열기]는 setDraftTab 없이 연다 — 이미 골라 둔 원고면 탭 대신 카드가 뜬다(Task 4의 attached 판정).
+          // 아래 도움말은 §10 표에 없는 문구라 유지한다 — [만들기]의 결과를 알려 주는 유일한 줄이다.
           return (
             <div>
-              <div className="flex flex-wrap items-center justify-between gap-2 text-content">
-                <span className="min-w-0 truncate" title={draftLabel(newDraft).text}>
-                  {draftLabel(newDraft).text}
-                  <span className="text-ui text-x-muted"> · {STATUS_LABEL[newDraft.status]}</span>
-                </span>
-                <span className="flex shrink-0 items-center gap-3 text-ui">
-                  {/* setDraftTab 없이 연다 — 이미 골라 둔 원고면 탭 대신 카드가 뜬다(Task 4의 attached 판정) */}
-                  <button type="button" onClick={() => setDraftMode('draft')} className="text-x-blue-text hover:underline">열기</button>
-                  <button type="button" onClick={detachNewDraft} className="text-x-secondary hover:underline">떼기</button>
-                </span>
-              </div>
-              <p className="mt-1 text-caption text-x-muted">만들기를 누르면 이 원고가 함께 붙어요</p>
+              <DraftSummaryCard title={draftLabel(newDraft).text} status={STATUS_LABEL[newDraft.status]}
+                                preview={draftPreviewFull(newDraft)} image={draftFirstMediaUrl(newDraft)} quote={quoteNode} author={author}
+                                onOpen={() => setDraftMode('draft')} onDetach={detachNewDraft} />
+              <p className="mt-1 text-ui text-x-muted">만들기를 누르면 함께 붙어요</p>
             </div>
           );
         }
         return (
           <div>
-            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-content">
-              <button type="button" onClick={() => { setDraftTab('generate'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-blue-text hover:underline">AI로 만들기</button>
-              <span aria-hidden className="text-x-muted">·</span>
-              <button type="button" onClick={() => { setDraftTab('write'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">직접 쓰기</button>
-              <span aria-hidden className="text-x-muted">·</span>
-              <button type="button" onClick={() => { setDraftTab('pick'); setDraftMode('draft'); }}
-                      className="whitespace-nowrap text-x-muted hover:text-x-secondary hover:underline">
-                있는 원고 고르기{pickCount !== null ? ` ${pickCount}` : ''}
-              </button>
-            </span>
+            <DraftEntryButtons pickCount={pickCount} onPick={(tab) => { setDraftTab(tab); setDraftMode('draft'); }} />
             {/* 409(Task 5 §3) — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져갔다. 서버 문구를 그대로
                 옮기지 않고 이 자리에서 사실만 말한다: 원고는 지워지지 않았고, 다시 고르면 된다. 중립
-                도움말(비워 둬요)과 같은 회색·자리라 못 보고 지나치기 쉬웠다(최종 리뷰 §3) — 경고 톤
+                도움말(비워 둬요, §10으로 지금은 없다)과 같은 회색·자리라 못 보고 지나치기 쉬웠다(최종 리뷰 §3) — 경고 톤
                 (이 저장소의 amber 계열, 정산 경고와 같은 색)과 role="alert"로 눈에 띄게 한다. "다시
                 고르기"는 텍스트만으로는 링크처럼 보이는데 아무 동작이 없었다(거짓 어포던스) — 실제로
                 '있는 원고 고르기' 탭을 여는 버튼으로 고친다. */}
-            {draftGone ? (
-              <p role="alert" className="mt-1 text-caption text-amber-700">
+            {draftGone && (
+              <p role="alert" className="mt-1 text-ui text-amber-700">
                 다른 작업에 붙었어요 —{' '}
                 <button type="button" onClick={() => { setDraftTab('pick'); setDraftMode('draft'); }}
                         className="underline hover:text-amber-800">다시 고르기</button>
               </p>
-            ) : (
-              <p className="mt-1 text-caption text-x-muted">인플루언서가 직접 쓰면 비워 둬요</p>
             )}
           </div>
         );
@@ -615,11 +672,11 @@ export function TaskPanel({
     }
   }
 
-  const crumb = task ? `${FLOW_STAGE_LABEL[flowStage(task, task.settlement)]} · ${TASK_TYPE_LABEL[task.type]}` : '새 작업';
   const title: ReactNode = task
     ? (task.influencerHandle ? `@${task.influencerHandle}` : <span className="text-x-muted">인플루언서 미정</span>)
     : (newType ? `새 ${TASK_TYPE_LABEL[newType]} 작업` : '어떤 작업인가요?');
-  // 원고 모드 헤더 — 작업 정보(단계·유형)는 이미 봤으니 크럼 자리는 뒤로가기로 바꾸고, 제목은 원고 쪽으로 말한다.
+  // 헤더는 제목 한 줄뿐이다 — 단계·유형은 본문 첫 상자(StageTypeBox)가 보여 준다(설계 §3). 원고 모드만 제목 위에
+  // 뒤로가기 줄을 두고, 제목은 원고 쪽으로 말한다.
   // 새 작업 폼(Task 4)도 같은 모양 — newType은 여기 도달할 때 항상 정해져 있다(원고 칸은 유형을 고른
   // 뒤에만 뜬다, inDraftMode 주석 참고).
   const draftTitle = task
@@ -640,11 +697,11 @@ export function TaskPanel({
                         className="text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
                   ← 작업으로
                 </button>
-                {draftBusy && <span className="text-caption text-x-muted">{draftBusy.label}</span>}
+                {draftBusy && <span className="text-ui text-x-muted">{draftBusy.label}</span>}
               </span>
             )
-            : <p className="text-ui text-x-secondary">{crumb}</p>}
-          <h2 className="mt-0.5 truncate text-[20px]">{inDraftMode ? draftTitle : title}</h2>
+            : null}
+          <h2 className={`truncate text-[20px] ${inDraftMode ? 'mt-0.5' : ''}`}>{inDraftMode ? draftTitle : title}</h2>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {/* ···(작업 메뉴)는 원고 모드에서 숨긴다 — 전부 작업 단위 동작이라 원고를 보는 중엔 부를 일이 없다 */}
@@ -653,69 +710,63 @@ export function TaskPanel({
         </div>
       </div>
 
-      <div className="flex-1 space-y-5 overflow-y-auto px-6 py-4">
+      {/* 작업 모드 본문은 회색 바탕 위 칸별 흰 상자(PanelSection)다(설계 §4). 원고 모드는 이 칸 구조가 아니라
+          탭·카드 화면이라 예전 흰 바탕·여백을 그대로 둔다 — 회색 위에 탭이 떠 보이지 않게. */}
+      <div className="flex-1 space-y-2.5 overflow-y-auto bg-x-surface px-4 py-4">
         {inDraftMode ? (
-          <DraftMode attached={task ? !!task.draftId : !!newDraft} tab={draftTab} onTab={requestTabChange} busy={draftBusy} pickCount={pickCount}
-                     card={draftCard}
-                     generate={draftGenerate}
-                     write={draftWrite}
-                     pick={draftPick} />
+          // 원고 모드도 작업 모드와 같은 회색 바탕 + 흰 상자(koo 09-24) — DraftMode의 탭 줄은 -mx-6으로 상자 가장자리까지 닿는다(px-6 전제)
+          <section className="rounded-xl border border-x-border bg-white px-6 py-4">
+            <DraftMode attached={task ? !!task.draftId : !!newDraft} tab={draftTab} onTab={requestTabChange} busy={draftBusy} pickCount={pickCount}
+                       card={draftCard}
+                       generate={draftGenerate}
+                       write={draftWrite}
+                       pick={draftPick} />
+          </section>
         ) : task ? (
           <>
             {task.cancelledAt && (
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-ui text-slate-600">취소된 작업이에요 — ··· 메뉴의 [되돌리기]로 살릴 수 있어요</p>
             )}
+            <StageTypeBox task={task} />
             {PANEL_FIELD_ORDER[task.type].map((field) => (
-              <div key={field}>
-                <p className="text-ui text-x-secondary">{fieldLabel(field, task.type)}</p>
-                <div className="mt-1">{renderEditField(field, task)}</div>
-              </div>
+              <PanelSection key={field} title={fieldLabel(field, task.type)}>{renderEditField(field, task)}</PanelSection>
             ))}
             {/* 게시 확인 — PANEL_FIELD_ORDER에 없는 칸이다(모든 유형에 있고, 취소된 작업엔 없다). 다이얼로그는
                 FlowDetail이 열고(이 버튼과 행 메뉴(FlowRowMenu)의 [게시 확인]이 같은 상태를 연다, Task 10)
                 값·증빙 라이트박스도 그쪽 클로저가 필요해 slots.posted로 받는다(slots.cost와 같은 이유) —
                 FlowDetail이 취소된 작업이면 null을 준다. */}
-            {slots.posted && (
-              <div>
-                <p className="text-ui text-x-secondary">게시</p>
-                <div className="mt-1">{slots.posted}</div>
-              </div>
-            )}
+            {slots.posted && <PanelSection title="게시">{slots.posted}</PanelSection>}
           </>
         ) : (
           <>
-            <div>
-              <p className="text-ui text-x-secondary">유형</p>
+            <PanelSection title="유형">
               {/* 원고가 들어오면 유형도 칩(읽기 전용)으로 바꾼다(스펙 §4-3) — RT로 바꾸면 이미 고른 원고를
                   어떻게 할지가 모호해진다. 한 마운트 안에서는 newType이 항상 먼저 있다(원고 칸은 유형을
                   고른 뒤에만 뜬다) — 단, newDraft는 FlowDetail(formDraft)이 들고 있어 패널이 새로 열려도
                   (행 전환·재오픈으로 key가 바뀌어도) 안 비워지면 newType=null인 채로 newDraft만 남을 수
                   있다. FlowDetail이 패널을 닫거나 다른 행으로 옮길 때 formDraft를 비우는 것이 전제다(Task 4). */}
               {newDraft ? (
-                <div className="mt-1 flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   <span className="inline-flex items-center rounded-lg border border-x-border-strong bg-x-hover px-3.5 py-2 text-content text-x-secondary">
                     {/* newType은 이 분기(newDraft가 있음)에서 항상 정해져 있다(원고 칸은 유형을 고른 뒤에만
                         뜬다) — 그래도 `as TaskType`로 그 가드를 무시하지 않는다(최종 리뷰 §4, as는 지뢰). */}
                     {newType ? TASK_TYPE_LABEL[newType] : null}
                   </span>
-                  <span className="text-caption text-x-muted">원고를 떼면 바꿀 수 있어요</span>
+                  <span title="원고를 떼면 바꿀 수 있어요" aria-label="원고를 떼면 바꿀 수 있어요" className="text-ui text-x-muted">🔒 ⓘ</span>
                 </div>
               ) : (
-                <div role="group" aria-label="작업 유형" className="mt-1 inline-flex overflow-hidden rounded-lg border border-x-border-strong">
+                <div role="group" aria-label="작업 유형" className="inline-flex overflow-hidden rounded-lg border border-x-border-strong">
                   {DISPLAY_TYPE_ORDER.map((k) => (
-                    <button key={k} type="button" aria-pressed={newType === k} onClick={() => setNewType(k)} disabled={busy}
+                    <button key={k} type="button" aria-pressed={newType === k} onClick={() => { if (k !== newType) { setNewCost(null); setCostErr(null); } setNewType(k); }} disabled={busy}
                             className={`border-r border-x-border-strong px-3.5 py-2 text-content last:border-r-0 disabled:opacity-50 ${newType === k ? 'bg-x-text text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
                       {TASK_TYPE_LABEL[k]}
                     </button>
                   ))}
                 </div>
               )}
-            </div>
+            </PanelSection>
             {newFieldOrder.map((field) => (
-              <div key={field}>
-                <p className="text-ui text-x-secondary">{fieldLabel(field, newType as TaskType)}</p>
-                <div className="mt-1">{renderNewField(field)}</div>
-              </div>
+              <PanelSection key={field} title={fieldLabel(field, newType as TaskType)}>{renderNewField(field)}</PanelSection>
             ))}
           </>
         )}
@@ -726,7 +777,7 @@ export function TaskPanel({
           // 원고 모드에서는 이전/다음 대신 이것 하나 — 작업 사이 이동은 작업 모드의 일이다.
           // 생성 중엔 이 버튼도 막는다(리뷰 지적 2, 위 헤더 ← 작업으로와 같은 이유·같은 문구).
           <div className="ml-auto flex items-center gap-2">
-            {draftBusy && <span className="text-caption text-x-muted">{draftBusy.label}</span>}
+            {draftBusy && <span className="text-ui text-x-muted">{draftBusy.label}</span>}
             <Button onClick={requestDraftModeExit} disabled={!!draftBusy} className="h-9 px-3.5 text-ui">작업으로</Button>
           </div>
         ) : task ? (
@@ -739,7 +790,8 @@ export function TaskPanel({
           </div>
         ) : (
           <>
-            <p className="text-ui text-x-muted">{newType ? '비어 있는 칸은 나중에 채워도 돼요' : '유형을 먼저 골라요'}</p>
+            {/* 막힌 이유만 한 줄(§10 규칙 ②) — 유형 전엔 두 버튼이 비활성이라 왜 안 눌리는지는 말한다 */}
+            {!newType && <p className="text-ui text-x-muted">유형을 먼저 골라요</p>}
             <div className="ml-auto flex items-center gap-2">
               <Button onClick={() => void submitNew(true)} disabled={!newType || busy} className="h-9 px-3.5 text-ui">만들고 하나 더</Button>
               <Button variant="primary" onClick={() => void submitNew(false)} disabled={!newType || busy} className="h-9 px-3.5 text-ui">

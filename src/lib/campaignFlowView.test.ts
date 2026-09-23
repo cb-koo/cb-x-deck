@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   EMPTY_FLOW_FILTER, matchesFlowFilter, matchesSearch, matchesExtra, filterCount, filterSummary,
   nextSort, sortFlowRows, dateCell, draftCell, costCell, flowFooter, flowStats, taskPerfExtra, settleWaitCount, restoreMessage, PANEL_FIELD_ORDER,
-  costConfirmScenario, detachConfirmMessage,
+  costConfirmScenario, profilePromptFor, detachConfirmMessage,
 } from './campaignFlowView.ts';
 import type { CampaignTaskItem } from './campaignStore.ts';
 
@@ -13,7 +13,8 @@ const mk = (p: Partial<CampaignTaskItem>): CampaignTaskItem => ({
   id: `t${++n}`, campaignId: 'c', influencerHandle: null, type: 'post', draftId: null, targetTaskId: null, targetTweetUrl: null,
   postUrl: null, postedAt: null, postedSource: null, removedAt: null, removedReason: '', scheduledOn: null, visitOn: null, cost: null, note: '',
   proof: null, cancelledAt: null, cancelReason: null, cancelNote: '', cancelledDraftId: null, cancelledDraftTitle: null,
-  createdAt: `2026-09-01T00:00:${String(n).padStart(2, '0')}Z`, updatedAt: '', draftStatus: null, draftLabel: null, draftFirstLine: null, target: null,
+  createdAt: `2026-09-01T00:00:${String(n).padStart(2, '0')}Z`, updatedAt: '', draftStatus: null, draftLabel: null, draftFirstLine: null,
+  draftPreview: null, draftFirstImage: null, target: null,
   published: false, perf: null, linkClicks: null, settlement: null, ...p,
 });
 
@@ -167,4 +168,17 @@ test('11) 원고 칸은 본문 첫 줄을 쓴다 — 첫 줄이 갱신되면 표
   const t = mk({ draftId: 'd', draftLabel: '제목', draftFirstLine: '옛 첫 줄' });
   assert.equal(draftCell(t).text, '옛 첫 줄');
   assert.equal(draftCell({ ...t, draftFirstLine: '새 첫 줄' }).text, '새 첫 줄');
+});
+
+test('profilePromptFor — CostConfirmField.confirm과 같은 규칙', () => {
+  const opt = { id: 'i1', handle: 'a', pricing: { post: 50000, currency: 'KRW' } } as const;
+  assert.equal(profilePromptFor({ option: opt, type: 'post', cost: { amount: 50000, currency: 'KRW' } }), null);          // 같음
+  assert.deepEqual(profilePromptFor({ option: opt, type: 'post', cost: { amount: 40000, currency: 'KRW' } }),
+    { scenario: 'differs', profile: { amount: 50000, currency: 'KRW' } });
+  assert.equal(profilePromptFor({ option: opt, type: 'post', cost: { amount: 400, currency: 'JPY' } }), null);            // 통화 다름
+  assert.equal(profilePromptFor({ option: { handle: 'a', pricing: opt.pricing }, type: 'post', cost: { amount: 1, currency: 'KRW' } }), null); // 명부 밖(id 없음)
+  assert.deepEqual(profilePromptFor({ option: { id: 'i1', handle: 'a' }, type: 'rt', cost: { amount: 1000, currency: 'KRW' } }),
+    { scenario: 'no-profile', profile: null });
+  assert.equal(profilePromptFor({ option: { id: 'i1', handle: 'a', pricing: { currency: 'JPY' } }, type: 'rt', cost: { amount: 1000, currency: 'KRW' } }), null); // 단가 없음 + 프로필 통화 다름
+  assert.equal(profilePromptFor({ option: opt, type: 'post', cost: null }), null);
 });

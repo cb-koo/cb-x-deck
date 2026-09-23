@@ -13,7 +13,8 @@ export type ReferenceMode = 'off' | 'form' | 'angle' | 'both';
 // 인플루언서 목록 DB가 생기면 그쪽이 채운다.
 // pricing: 인플 단가(influencer.pricing, 032) — 캠페인 작업 비용 제안 소스(campaignCost.suggestTaskCost).
 // 자동완성 후보를 받는 화면이 배정 직후 그대로 제안에 쓴다. 없으면(명부에 없는 핸들) 제안 없음.
-export interface InfluencerOption { id?: string; handle: string; name?: string; pricing?: Pricing }
+// avatarUrl: 프로필 사진(§6, 작업 패널 인플 칸용) — 결제 수단 정보는 여기 싣지 않는다.
+export interface InfluencerOption { id?: string; handle: string; name?: string; avatarUrl?: string; pricing?: Pricing }
 
 // 생성 시점 레퍼런스 스냅샷 — 메모는 이후 수정될 수 있으므로 생성에 쓴 것을 박제(근거 풋터 재현)
 export interface RefSnapshot {

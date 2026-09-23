@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePaymentMethodInput, applyPaymentOp, describeMethod, formatFee, getDefaultPaymentMethod,
+  parsePaymentMethodInput, applyPaymentOp, describeMethod, formatFee, feeShortLabel, getDefaultPaymentMethod,
   settlementBadge,
   PAYMENT_TYPE_LABEL, PAYMENT_FIELD_LABEL, PAYMENT_NOT_FOUND,
   type PaymentMethod, type PaymentMethodInput,
@@ -315,6 +315,14 @@ test('formatFee: 부재는 null, grossUp/fixed 문구', () => {
   assert.equal(formatFee(undefined, 'KRW'), null);
   assert.equal(formatFee({ mode: 'grossUp', percent: 5 }, 'KRW'), '송금 수수료 CB 부담 · 5%');
   assert.equal(formatFee({ mode: 'fixed', amount: 165 }, 'JPY'), '송금 수수료 CB 부담 · 165엔');
+});
+
+test('feeShortLabel: 수수료 짧은 말 — 인플 부담 / CB 비율 / CB 고정액(작업 패널 §8-1)', () => {
+  assert.deepEqual(feeShortLabel(undefined, 'JPY'), { text: '인플 부담', cb: false });
+  assert.deepEqual(feeShortLabel(null, 'JPY'), { text: '인플 부담', cb: false });
+  assert.deepEqual(feeShortLabel({ mode: 'grossUp', percent: 3 }, 'JPY'), { text: 'CB 부담 3%', cb: true });
+  assert.equal(feeShortLabel({ mode: 'fixed', amount: 300 }, 'JPY').text.startsWith('CB 부담 '), true);
+  assert.equal(feeShortLabel({ mode: 'fixed', amount: 300 }, 'JPY').cb, true);
 });
 
 test('getDefaultPaymentMethod: 있으면 반환, 없으면 null', () => {

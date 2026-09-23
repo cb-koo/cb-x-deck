@@ -228,3 +228,22 @@ test('8) createTasks — items N개(뼈대)는 N행, 전부 미배정·비용 �
   assert.ok(rows.every((r) => r.influencerHandle === null && r.cost === null && r.draftFirstLine === null));
   assert.ok(rows[0].createdAt <= rows[1].createdAt && rows[1].createdAt <= rows[2].createdAt);
 });
+
+test('12) 원고 미리보기 — 첫 포스트 전문과 첫 이미지', async () => {
+  const c = await createClient(sql, P + '클라미리보기');
+  const camp = await mkCampaign(c.id, c.name, 'preview');
+  const d = await mkDraft(c.id, c.name, {
+    content: { posts: [{ text: '첫 줄\n둘째 줄', media: [{ type: 'photo', url: 'drafts/abc/1.jpg', videoUrl: null }] }, { text: '두 번째 포스트', media: [] }] },
+  });
+  const [t] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', items: [] });
+  await attachDraft(sql, t.id, d);
+  const got = await getTask(sql, t.id);
+  assert.equal(got?.draftPreview, '첫 줄\n둘째 줄');
+  assert.equal(got?.draftFirstImage, 'drafts/abc/1.jpg');
+  assert.equal(got?.draftFirstLine, '첫 줄');   // 표의 원고 열은 그대로
+
+  const [bare] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', items: [] });
+  const none = await getTask(sql, bare.id);
+  assert.equal(none?.draftPreview, null);
+  assert.equal(none?.draftFirstImage, null);
+});

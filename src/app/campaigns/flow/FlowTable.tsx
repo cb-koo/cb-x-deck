@@ -4,11 +4,12 @@ import {
   nextSort, dateCell, draftCell, costCell, taskPerfExtra, FLOW_SORT_LABEL,
   type FlowRow, type FlowSort, type FlowSortKey,
 } from '@/lib/campaignFlowView';
-import { flowStage, FLOW_STAGE_LABEL, TASK_TYPE_LABEL, type FlowStage, type TaskType } from '@/lib/campaignJudgment';
+import { flowStage, FLOW_STAGE_LABEL, TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { suggestTaskCost } from '@/lib/campaignCost';
 import { num } from '@/lib/campaignTableView';
 import { formatPct } from '@/lib/performanceJudgment';
 import type { InfluencerOption } from '@/lib/draftTypes';
+import { STAGE_CHIP, TYPE_CHIP } from '@/lib/flowChips';
 
 // 표 6열(단계·유형·인플·원고·게시 예정일·비용) + 조회·좋아요·북마크 3열(koo 09-22: 원래 6열 고정이던 것을
 // 깨고 추가 — CampaignTaskItem에 이미 실려 오는 perf 값을 그리기만 한다, TaskTable.tsx와 같은 패턴) +
@@ -57,14 +58,6 @@ function resolveWidth(map: Record<string, number>, key: string): number {
   return typeof v === 'number' && v > 0 ? v : (DEFAULT_WIDTH[key] ?? 120);
 }
 
-const STAGE_CHIP: Record<FlowStage, string> = {
-  prep: 'bg-x-surface text-x-secondary', handed: 'bg-[#e8f0fe] text-[#1d4ed8]', posted: 'bg-[#e6f6ee] text-[#15803d]',
-  settle: 'bg-[#f3e8ff] text-[#7e22ce]', done: 'bg-x-text text-white', canc: 'bg-slate-50 text-slate-400 line-through',
-};
-// TaskTable.tsx의 TYPE_CHIP과 같은 값 — 그 파일의 비공개 상수라 복사한다(import하지 않는다, b-task-6-brief.md §2).
-const TYPE_CHIP: Record<TaskType, string> = {
-  post: 'bg-[#e8f0fe] text-[#1d4ed8]', quoteRt: 'bg-[#f3e8ff] text-[#7e22ce]', rt: 'bg-[#e6f6ee] text-[#15803d]', visit: 'bg-[#fff4e5] text-[#b45309]',
-};
 // 날짜·비용 칸의 색 — 색만으로 구분한다(행 배경·막대·'오늘' 강조는 두지 않는다)
 const DATE_TONE: Record<'late' | 'posted' | 'plain' | 'muted', string> = { late: 'text-red-600', posted: 'text-x-blue-text', plain: '', muted: 'text-x-muted' };
 const COST_TONE: Record<'plain' | 'muted' | 'struck' | 'suggested', string> = { plain: 'tabular-nums', muted: 'text-x-muted', struck: 'text-x-muted line-through', suggested: 'text-x-muted' };

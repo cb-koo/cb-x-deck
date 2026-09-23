@@ -13,23 +13,7 @@ import { DealTab } from './DealTab';
 import { CampaignSection } from './CampaignSection';
 import { PANEL } from './profileShared';
 import type { InfluencerDetail } from '@/lib/influencerStore';
-
-// 아바타 — 없으면 이니셜 원. 프로필 사진은 X CDN 원본이라 next/image 최적화 대상이 아니다.
-export function Avatar({ url, name, size }: { url: string | null; name: string; size: number }) {
-  const style = { width: size, height: size };
-  if (url) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element -- X CDN 원본 URL
-      <img src={url} alt="" style={style} className="shrink-0 rounded-full object-cover" />
-    );
-  }
-  return (
-    <span style={style} aria-hidden
-          className="flex shrink-0 items-center justify-center rounded-full bg-x-border-strong font-bold text-white">
-      <span style={{ fontSize: Math.round(size * 0.42) }}>{name.replace(/^@/, '').slice(0, 1).toUpperCase()}</span>
-    </span>
-  );
-}
+import { Avatar } from '@/components/Avatar';
 
 type Msg = { tone: 'ok' | 'warn' | 'err'; text: string };
 const MSG_STYLE: Record<Msg['tone'], string> = {

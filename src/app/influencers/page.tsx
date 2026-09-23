@@ -9,7 +9,8 @@ import { judgeContact } from '@/lib/influencerJudgment';
 import { settlementBadge } from '@/lib/influencerPayment';
 import { AddInfluencersDialog } from './AddInfluencersDialog';
 import { BulkAnalyzeDialog, useBulkState } from './BulkAnalyzeDialog';
-import { Avatar, InfluencerProfile } from './InfluencerProfile';
+import { InfluencerProfile } from './InfluencerProfile';
+import { Avatar } from '@/components/Avatar';
 import { mergeQuery, parseTab, tabQuery, type TabKey } from '@/lib/profileTabs';
 import type { InfluencerRow } from '@/lib/influencerStore';
 

@@ -712,13 +712,16 @@ export function TaskPanel({
 
       {/* 작업 모드 본문은 회색 바탕 위 칸별 흰 상자(PanelSection)다(설계 §4). 원고 모드는 이 칸 구조가 아니라
           탭·카드 화면이라 예전 흰 바탕·여백을 그대로 둔다 — 회색 위에 탭이 떠 보이지 않게. */}
-      <div className={`flex-1 overflow-y-auto py-4 ${inDraftMode ? 'space-y-5 px-6' : 'space-y-2.5 bg-x-surface px-4'}`}>
+      <div className="flex-1 space-y-2.5 overflow-y-auto bg-x-surface px-4 py-4">
         {inDraftMode ? (
-          <DraftMode attached={task ? !!task.draftId : !!newDraft} tab={draftTab} onTab={requestTabChange} busy={draftBusy} pickCount={pickCount}
-                     card={draftCard}
-                     generate={draftGenerate}
-                     write={draftWrite}
-                     pick={draftPick} />
+          // 원고 모드도 작업 모드와 같은 회색 바탕 + 흰 상자(koo 09-24) — DraftMode의 탭 줄은 -mx-6으로 상자 가장자리까지 닿는다(px-6 전제)
+          <section className="rounded-xl border border-x-border bg-white px-6 py-4">
+            <DraftMode attached={task ? !!task.draftId : !!newDraft} tab={draftTab} onTab={requestTabChange} busy={draftBusy} pickCount={pickCount}
+                       card={draftCard}
+                       generate={draftGenerate}
+                       write={draftWrite}
+                       pick={draftPick} />
+          </section>
         ) : task ? (
           <>
             {task.cancelledAt && (

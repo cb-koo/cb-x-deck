@@ -90,7 +90,7 @@ async function loadQuoteTarget(
   // 캐시가 있으면 우선 쓰고, 없거나 본문이 비어 있으면 사용자가 생성 버튼을 누른 이 시점에만 X 상세
   // 조회를 한다. upsert는 캐시 갱신일 뿐 library_item을 만들지 않는다.
   let r;
-  try { r = await fetchTweetCached(sql, tweetId, xClient ?? makeClient()); }
+  try { r = await fetchTweetCached(sql, tweetId, xClient ?? makeClient); }
   catch (e) {
     if (e instanceof TweetFetchError) throw new GenerateInputError('인용RT 대상 게시물을 확인하지 못했어요 — 잠시 후 다시 시도해 주세요');
     throw e; // DB 오류 등은 그대로 전파 — 400으로 둔갑시키지 않는다

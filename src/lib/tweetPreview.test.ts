@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
-import { loadTweetPreview, quotedFromTweet, TweetFetchError } from './tweetPreview.ts';
+import { fetchTweetCached, loadTweetPreview, quotedFromTweet, TweetFetchError } from './tweetPreview.ts';
 
 const sql = getSql();
 const ids: string[] = [];
@@ -74,6 +74,21 @@ test('7) getTweetDetail이 던지면 TweetFetchError로 감싸 올린다(cause �
   await assert.rejects(loadTweetPreview(sql, `https://x.com/a/status/${id}`, client), (e: unknown) => {
     assert.ok(e instanceof TweetFetchError);
     assert.equal(e.cause, upstream);
+    return true;
+  });
+});
+
+test('8) 클라이언트를 만드는 함수는 캐시 미스에만 부른다 — 적중이면 만들지 않고, 만들다 실패하면 TweetFetchError', async () => {
+  const id = nextId();
+  let made = 0;
+  const factory = () => { made++; return { getTweetDetail: async () => rawOf(id, '대상 본문') }; };
+  assert.equal((await fetchTweetCached(sql, id, factory)).kind, 'ok');
+  assert.equal((await fetchTweetCached(sql, id, factory)).kind, 'ok');
+  assert.equal(made, 1);
+  const missing = new Error('GETXAPI_KEY not set');
+  await assert.rejects(fetchTweetCached(sql, nextId(), () => { throw missing; }), (e: unknown) => {
+    assert.ok(e instanceof TweetFetchError);
+    assert.equal(e.cause, missing);
     return true;
   });
 });

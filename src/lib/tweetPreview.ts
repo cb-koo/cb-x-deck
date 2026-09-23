@@ -24,13 +24,17 @@ export class TweetFetchError extends Error {
   }
 }
 
+type DetailClient = Pick<GetxapiClient, 'getTweetDetail'>;
+
+// client는 객체 또는 만드는 함수 — 캐시 적중이면 X 클라이언트를 만들지 않는다(makeClient는 키를 읽는다).
+// 만드는 것도 try 안에서 한다: 키 누락 같은 생성 실패도 X 조회 실패(TweetFetchError)로 본다(옛 loadQuoteTarget과 같다).
 export async function fetchTweetCached(
-  sql: postgres.Sql, tweetId: string, client: Pick<GetxapiClient, 'getTweetDetail'>,
+  sql: postgres.Sql, tweetId: string, client: DetailClient | (() => DetailClient),
 ): Promise<TweetPreview> {
   const cached = (await getTweetsByIds(sql, [tweetId]))[0] ?? null;
   if (cached && cached.text.trim()) return { kind: 'ok', tweet: cached };
   let raw;
-  try { raw = await client.getTweetDetail(tweetId); }
+  try { raw = await (typeof client === 'function' ? client() : client).getTweetDetail(tweetId); }
   catch (e) { throw new TweetFetchError('getTweetDetail failed', { cause: e }); }
   if (!raw) return { kind: 'unavailable' }; // 삭제·비공개
   if (raw.retweeted_tweet) return { kind: 'repost' }; // 순수 리트윗 — 원문이 아니다
@@ -42,9 +46,9 @@ export async function fetchTweetCached(
 }
 
 export async function loadTweetPreview(
-  sql: postgres.Sql, url: string, client?: Pick<GetxapiClient, 'getTweetDetail'>,
+  sql: postgres.Sql, url: string, client?: DetailClient,
 ): Promise<TweetPreview> {
   const p = parseTweetLink(url);
   if (!p.ok) return { kind: 'badLink' };
-  return fetchTweetCached(sql, p.tweetId, client ?? makeClient());
+  return fetchTweetCached(sql, p.tweetId, client ?? makeClient);
 }

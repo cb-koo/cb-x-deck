@@ -6,7 +6,7 @@ import { MediaGrid } from './MediaGrid';
 import { TweetText } from './TweetText';
 
 // 실제 X 인용 카드 레이아웃: 아바타+이름+@핸들+날짜 헤더 → 본문 → 미디어.
-// 박스 전체 클릭 = 인용 원문 (중첩 <a> 회피를 위해 div onClick — 내부 링크은 TweetText가 전파 차단)
+// 박스 전체 클릭 = 인용 원문 (중첩 <a> 회피를 위해 div onClick — 내부 링크는 TweetText가 전파 차단)
 // collapsible(보관함 밀도 모드): 접힘=본문 2줄+클릭하면 펼침(첫 클릭이 안전), 펼침=클릭이 원문 열기(기존 동작 복원)+별도 접기
 // lines·firstImageOnly·hideMedia·flush는 작업 패널의 인용 미리보기용(설계 §7-1) — 기본값은 보관함 동작 그대로.
 export function QuotedCard({ quoted, translation, collapsible = false, lines, firstImageOnly = false, hideMedia = false, flush = false }: { quoted: DeckQuoted & { enriched?: DeckTweet | null }; translation?: string | null; collapsible?: boolean; lines?: 2 | 3; firstImageOnly?: boolean; hideMedia?: boolean; flush?: boolean }) {

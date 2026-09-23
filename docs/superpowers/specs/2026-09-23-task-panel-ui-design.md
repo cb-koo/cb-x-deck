@@ -59,6 +59,7 @@ koo(09-23) 지적 네 가지 + 대화 중 추가 세 가지:
 - 배정됨: `[원형 사진 36px] 표시 이름(15px semibold) / @핸들(13px x-secondary)` + 오른쪽 `[바꾸기]`(지금 버튼 그대로, 비활성 이유 문구도 그대로).
   - 사진 없음(명부 160명 중 14명): 이니셜 원. 인플 명부 화면의 `Avatar`(`src/app/influencers/InfluencerProfile.tsx:18`)를 `src/components/Avatar.tsx`로 옮겨 공용으로 쓴다.
   - 표시 이름이 없으면 `@핸들` 한 줄만.
+  - 지금 있는 동작은 그대로 옮긴다: `[해제]`(TaskPanel:357), 게시 후엔 버튼 없이 표시만, 미배정인데 게시 확인된 작업에 배정할 때의 '한 번 적으면 바꿀 수 없어요' 확인 — 게이팅된 '등록하고 배정'도 이 확인을 거친다.
 - 미배정·입력 중: 지금의 `InfluencerField` 그대로(2단계에서 게이팅 추가, §9).
 - 새 작업에서 원고가 붙어 잠긴 상태: 잠긴 칩 대신 같은 사진+이름 카드를 회색으로 + "원고를 떼면 바꿀 수 있어요".
 - 데이터: `listOptions`(`influencerStore.ts:397`, `/api/drafts/influencers`)에 **`avatarUrl`만** 추가 → `InfluencerOption.avatarUrl?`. 결제 수단은 넣지 않는다(§8 데이터 참고).
@@ -68,7 +69,7 @@ koo(09-23) 지적 네 가지 + 대화 중 추가 세 가지:
 **붙어 있을 때** — 작은 카드(테두리 상자 안의 상자, 모서리 10px):
 - 1줄: 원고 제목(`draftLabel`, 15px semibold) + 상태 배지(`STATUS_LABEL`).
 - 2줄: 본문 첫 포스트 앞부분 2줄 말줄임(14px `x-secondary`).
-- 오른쪽: 첫 이미지 썸네일 52px(없으면 자리 없음).
+- 오른쪽: 첫 이미지 썸네일 52px(없으면 자리 없음). 원고 이미지는 비공개 버킷의 **저장소 경로**라(`draftMedia.ts:124`) 그대로 `<img src>`에 못 쓴다 — `useSignedMedia`(FlowDetail의 `proofUrls`와 같은 방식)로 서명 URL을 받아 쓴다.
 - 아래: `열기` · `떼기` (지금과 같은 동작).
 - 새 작업(폼에서 고른 원고)도 같은 카드 + 도움말 "만들기를 누르면 이 원고가 함께 붙어요"(지금 문구).
 - 데이터: `campaignTaskStore.ts:120`의 `draft_first_line`은 이미 첫 포스트 전문이다(첫 줄 자르기는 `firstLineOf`). FlowRow에 `draftPreview`(첫 포스트 전문, 표시 쪽에서 2줄 clamp)와 `draftFirstImage`(`coalesce(d.edited, d.content)->'posts'->0->'media'->0->>'url'`)를 추가한다. 표의 원고 열(`draftFirstLine`)은 그대로. 새 작업 쪽은 이미 `DraftRow` 전체를 갖고 있어 조회 추가 없음.
@@ -82,13 +83,13 @@ koo(09-23) 지적 네 가지 + 대화 중 추가 세 가지:
 
 - **인용RT + 원고가 붙어 있음:** 원고 카드 안을 X 게시 미리보기로 — 인플 사진·이름·핸들 → 원고 본문(2줄) → 그 아래 **인용 카드**(대상 게시물의 작성자 사진·이름·@핸들·날짜·본문 2줄). X에 올라갈 모습 그대로. 이때 `인용RT 대상` 칸은 한 줄(`이 캠페인의 @핸들 투고` / 외부 링크면 `@작성자 게시물`) + `[바꾸기]`만.
 - **인용RT인데 원고 없음 / RT:** 인용 카드를 `대상` 칸 안에 보여준다(RT는 원고 칸이 없으므로 항상 이 모양). 본문 3줄 + 첫 이미지.
-- 카드 컴포넌트: 보관함의 `QuotedCard`(`src/components/QuotedCard.tsx`)를 재사용 — 새로 만들지 않는다. 카드를 누르면 원문이 새 탭으로(QuotedCard 기존 동작).
-- 상태: 대상 작업이 아직 게시 전 → 점선 상자 "게시되면 여기에 보여요" / 불러오는 중 → "게시물 불러오는 중…" / 삭제·비공개 → "게시물을 불러올 수 없어요" + 원래 링크 / 대상 미정 → 지금의 대상 입력(TargetLinkField·TargetPicker).
-- 데이터: 대상 URL은 `targetUrlOf()`(작업 대상이면 그 작업의 `postUrl`, 아니면 `targetTweetUrl`)로 정한다. 새 조회 창구 `GET /api/tweets/by-link?url=` — 트윗 캐시(`getTweetsByIds`)를 먼저 보고, 없거나 본문이 비었을 때만 `getTweetDetail` 1회 후 `upsertTweets`(generate.ts `loadQuoteTarget`과 같은 규칙, 보관함 항목은 만들지 않는다). 그래서 X 조회는 게시물당 처음 한 번뿐. 새 작업(로컬 target)도 같은 창구를 쓴다. 리포스트 링크는 원본으로(addByLink 규칙).
+- 카드 컴포넌트: 보관함의 `QuotedCard`(`src/components/QuotedCard.tsx`)를 재사용 — 새로 만들지 않는다. 카드를 누르면 원문이 새 탭으로(QuotedCard 기존 동작). 필요한 손질: `DeckTweet` → `{id, text, userName, screenName, enriched}` 변환, 줄 수 prop(2·3줄 — 지금은 collapsible만 2줄이고 그땐 클릭이 펼치기로 바뀐다), 첫 이미지만 보이는 prop, 바깥 여백(`mt-3` 고정) prop.
+- 상태: 대상 작업이 아직 게시 전(또는 게시 확인됐지만 링크 없음 — 판정은 `postedAt`이 아니라 `postUrl`, campaignTaskStore:36) → 점선 상자 "게시되면 여기에 보여요" / 대상 작업이 취소됨 → 회색 "대상 작업이 취소됐어요 — 바꾸기" / 대상이 다른 캠페인 작업이면 한 줄에 캠페인 이름(`targetLabel` sub) / 불러오는 중 → "게시물 불러오는 중…" / 삭제·비공개 → "게시물을 불러올 수 없어요" + 원래 링크 / 대상 미정 → 지금의 대상 입력(TargetLinkField·TargetPicker).
+- 데이터: 대상 URL은 `targetUrlOf()`(작업 대상이면 그 작업의 `postUrl`, 아니면 `targetTweetUrl`)로 정한다. 새 조회 창구 `GET /api/tweets/by-link?url=` — 트윗 캐시(`getTweetsByIds`)를 먼저 보고, 없거나 본문이 비었을 때만 `getTweetDetail` 1회 후 `upsertTweets`(generate.ts `loadQuoteTarget`과 같은 규칙, 보관함 항목은 만들지 않는다). 그래서 X 조회는 게시물당 처음 한 번뿐. 새 작업(로컬 target)도 같은 창구를 쓴다. 게시물 id는 **링크 그대로** 쓴다(원고 생성의 `loadQuoteTarget`이 id가 다르면 거부하므로, 미리보기가 원본을 보여주면 생성만 실패하는 어긋남이 생긴다). 순수 리포스트 링크면 "리포스트 링크예요 — 원본 게시물 링크로 바꿔 주세요". 삭제·비공개는 캐시에 안 남아 열 때마다 X를 다시 부르므로, 화면(FlowDetail)이 URL별 결과를 세션 동안 기억해 같은 패널 재오픈에 다시 부르지 않는다. `loadQuoteTarget`의 조회·캐시 부분은 공용 함수로 떼어 두 곳이 같이 쓴다.
 
 ## 8. 비용 · 정산 칸
 
-칸 제목을 `비용 · 정산`으로. 안은 두 줄 격자.
+칸 제목을 `비용 · 정산`으로(방문협찬은 `예산 · 정산` — 지금 라벨 `예산`을 따른다). 안은 두 줄 격자.
 
 - `금액` — 지금의 `CostConfirmField`(edit: `slots.cost`, new: 직접 렌더) 그대로.
 - **새 작업의 금액 저장 방식 변경(koo 09-23 결정, 1단계):** 지금은 [확인]을 눌러야만 `newCost`가 잡혀, 프로필 단가가 칸에 보이는데도 [만들기]만 누르면 비용 없이 만들어진다(보이는 값 ≠ 저장되는 값). 바꾼다 — [만들기]·[만들고 하나 더]는 **칸에 보이는 금액·통화**를 함께 보낸다(`CostConfirmField`가 현재 입력값을 부모에 올린다).
@@ -96,6 +97,7 @@ koo(09-23) 지적 네 가지 + 대화 중 추가 세 가지:
   - 프로필 단가와 다른 금액을 [확인] 없이 [만들기]로 보내면 **작업 비용만** 저장하고 "프로필에도 반영할까요?"는 묻지 않는다([확인]을 누른 경우만 지금처럼 묻는다).
   - 새 작업에서는 금액 칸의 [확인] 버튼과 점선(미확정) 표시를 없앤다 — [만들기]가 곧 확정이라 두 번 확정하는 셈이 된다. 기존 작업 편집은 칸마다 바로 저장하는 모드라 지금처럼 [확인] 유지.
   - 쓰던 방식이 바뀌므로 `updates.ts`에 적는다.
+  - 인플 목록(`influencerOptions`)이 늦게 도착하면 금액 칸이 빈 채로 마운트돼(프로필 단가는 마운트 때 한 번만 채운다) '보이는 값 저장'이 비용 없이 저장된다 → 목록 도착 후 다시 채워지게(마운트 key에 목록 도착 여부 포함). 금액 오류 문구는 [만들기]에서도 띄울 수 있게 `error` prop을 연다.
 - `결제 수단` — 아래 §8-1~3.
 
 ### 8-1. 표시 (1단계)
@@ -108,14 +110,16 @@ koo(09-23) 지적 네 가지 + 대화 중 추가 세 가지:
   - 인플 미배정: 칸 자체를 회색 "인플을 정하면 보여요".
   - 정산 요청을 보낸 뒤(단계 `정산`·`완료`): 요청 스냅샷의 수단을 보여주고 고정. 도움말 "요청에 담긴 수단이에요 — 바꾸려면 정산 화면에서 요청을 취소해요".
   - 명부에 없는 핸들: 결제 수단 칸에서는 다루지 않는다(§9에서 인플 칸이 처리). 칸은 "인플을 명부에 등록하면 보여요".
-- **데이터:** 결제 수단(계좌번호 포함)을 `listOptions`에 싣지 않는다 — 그 응답은 원고 생성 화면도 매번 받는다. 패널이 배정된 명부 인플을 열 때 `GET /api/influencers/[id]`(`getInfluencerDetail`)를 한 번 부르고 FlowDetail이 id별로 캐시한다. 정산 요청 후 스냅샷은 지금 FlowRow의 `settlement`(`SettlementBadge`, `campaignTaskStore.ts:348`)에 없다 — `settlementByTaskIds`가 `payment_request.payment_method`(040 스냅샷)도 함께 읽어 `SettlementBadge.paymentMethod`로 싣는다. '요청 후' 판정은 단계 판정과 같은 조건(`status = 'requested'`이고 `externalStatus ≠ 'cancelled'`, 즉 단계 `정산`·`완료`).
+- **데이터:** 결제 수단(계좌번호 포함)을 `listOptions`에 싣지 않는다 — 그 응답은 원고 생성 화면도 매번 받는다. 패널이 배정된 명부 인플을 열 때 **새 가벼운 조회 `GET /api/influencers/[id]/payment-methods`**(지금은 POST/PATCH/DELETE만 있다)를 부르고 FlowDetail이 id별로 캐시한다. `GET /api/influencers/[id]`는 로그·원고 50건·분석까지 6개 쿼리라 패널마다 부르기엔 무겁다. 권한은 `listOptions`와 같은 `requireAllowedUser`. 정산 요청 후 스냅샷은 FlowRow에 싣지 않는다 — `settlementByTaskIds`는 캠페인 목록의 모든 행에 붙어 나가므로(campaignStore:285) 계좌번호·이메일이 전 작업분 새어 나간다. 요청 뒤 상태의 패널은 열 때 그 작업의 요청 한 건에서 `describe` 문자열 + `payment_request.fee`만 받는다(스냅샷엔 fee·id가 없다, `toMethodSnapshot`). '요청 후' 판정은 단계 판정과 같은 조건(`status = 'requested'`이고 `externalStatus ≠ 'cancelled'`, 즉 단계 `정산`·`완료`).
 
 ### 8-2. 작업별 선택 (2단계, koo 결정: "이 작업만")
 
 - 수단 2개 이상(명부 10명): 드롭다운. 항목 = `✓ PayPal · sakura@… · 기본 · 인플 부담`, 맨 아래 `+ 새 결제 수단 등록`. 도움말 "바꾸면 이 작업의 정산에만 적용돼요. 인플 프로필의 기본 수단은 그대로예요".
 - 저장: **마이그레이션 060** — `alter table campaign_task add column if not exists payment_method_id text` (추가만, 1회 머지, AGENTS.md 규칙). 값은 인플 `payment_methods[].id` **참조**(스냅샷 아님 — 스냅샷은 정산 요청 때 이미 뜬다). null = 기본 수단.
 - edit 모드: 고르는 즉시 PATCH(다른 칸과 같은 낙관적 갱신). new 모드: 로컬로 들고 있다가 [만들기]에 함께.
-- 인플을 바꾸면(바꾸기·배정 변경) `payment_method_id`를 null로 되돌린다 — 다른 사람의 수단 id가 남으면 안 된다(서버에서 보장).
+- 인플을 바꾸면 `payment_method_id`를 null로 되돌린다 — 다른 사람의 수단 id가 남으면 안 된다(서버에서 보장): `updateTask`에서 `influencerHandle`이 **대소문자 말고 실제로** 바뀔 때, `replaceInfluencer`(campaignTaskStore:500). `renameInfluencer`(influencerStore:322)는 같은 사람이라 유지 — 그래서 DB 트리거로 하지 않는다.
+- 서버 검증: PATCH·생성 모두 id가 배정된 인플의 현재 `payment_methods[]`에 있는지 확인(없으면 400). **활성 정산 요청이 있으면 `paymentMethodId` 변경을 서버가 거부**한다 — `reviseRequest`(settlementStore:563)가 후보를 다시 계산하므로 UI 잠금만으로는 다음 수정 때 스냅샷이 조용히 바뀐다.
+- 배관: `parseTaskPatch`(campaignTaskInput:164) · `TaskPatch`/`updateTask` · `TaskCreateInput.items`/`createTasks` · `buildTaskCreateBody` · Row/SELECT · `CandRow`/`CANDIDATE_BASE`(settlementStore:57-77). `taskPaymentMethod`는 `rowToCandidate` 안에서 불러 생성·수정(revise)·`expected` 대조를 한 번에 덮는다. `campaignStore:136`은 클라이언트 예산 패널의 수수료 합계(`feeKrw`)에도 쓰인다.
 - **정산 후보 계산:** `settlementStore.ts:102`와 `campaignStore.ts:136`(캠페인 수수료 합계)이 `getDefaultPaymentMethod` 대신 공용 함수 `taskPaymentMethod(methods, task.paymentMethodId)`를 쓴다 — 고른 id가 목록에 있으면 그것, 없으면 기본. `settlementStore.ts:237`의 `expected.paymentMethodId` 대조는 그대로 동작(같은 id 체계).
 - **고른 수단이 나중에 삭제되면:** 기본 수단으로 돌아가고, 패널이 주황으로 "고른 수단이 삭제돼 기본 수단으로 정산돼요"를 보여준다. 정산 후보 화면에는 이번에 표시하지 않는다(백로그).
 - 정산 요청 후엔 선택 불가(§8-1 고정 상태).
@@ -123,7 +127,7 @@ koo(09-23) 지적 네 가지 + 대화 중 추가 세 가지:
 ### 8-3. 신규 등록 (2단계)
 
 - 입구: 수단 없음 상태의 `[+ 결제 수단 등록]`, 수단 1개일 때 옆 작은 링크 `+ 다른 수단 등록`, 드롭다운 맨 아래 항목.
-- 폼: 인플 프로필의 `MethodForm`(`src/app/influencers/PaymentSection.tsx:331`)을 그대로 팝업(다이얼로그)에 띄운다 — 폼을 새로 짓지 않는다. 저장은 기존 `POST /api/influencers/[id]/payment-methods`. 등록 결과는 인플 프로필에도 그대로 남는다(같은 데이터).
+- 폼: 인플 프로필의 `MethodForm`(`src/app/influencers/PaymentSection.tsx:331`)을 팝업(다이얼로그)에 띄운다 — 폼을 새로 짓지 않는다. 지금은 비공개이고 입력 상태·검증·`send()`가 `PaymentSection`(80-130) 안에 있어, 이 셋을 함께 떼어 공용으로 만든다(프로필 화면도 같은 것을 쓰게). 새로 생긴 수단 id는 응답 배열을 등록 전과 비교해 찾는다. 저장은 기존 `POST /api/influencers/[id]/payment-methods`. 등록 결과는 인플 프로필에도 그대로 남는다(같은 데이터).
 - 첫 수단이면 자동 기본(기존 규칙). 두 번째 이상을 등록하면 **이 작업의 선택으로 바로 잡는다**(방금 이 작업 때문에 등록했을 것이므로).
 - 패널 위에 뜬 다이얼로그 동안은 패널 Esc를 끈다(`overlayOpen` 관례).
 
@@ -134,12 +138,13 @@ koo(09-23) 지적 네 가지 + 대화 중 추가 세 가지:
 
 ## 9. 명부 게이팅 + 등록하고 배정 (2단계)
 
-- 적용 범위: 작업 패널의 인플루언서 칸(edit·new) + 패널의 `[바꾸기]`가 여는 `ReplaceDialog`. `InfluencerField`는 다른 화면(원고 생성·링크 만들기·TaskAddModal·InfluencerChip)도 쓰므로 **prop 하나(`rosterOnly`)로 켠다** — 컴포넌트를 복제하지 않는다.
+- 적용 범위: 작업 패널의 인플루언서 칸(edit·new) + 패널의 `[바꾸기]`가 여는 `ReplaceDialog`. `InfluencerField`는 지금 브라우저 기본 `<datalist>`라(`InfluencerField.tsx:47`) 사진·이름·단가 행과 '등록하고 배정' 행을 그릴 수 없다 → **목록을 직접 그리는 콤보박스로 다시 만든다**(`role="listbox"` — 패널 바깥 클릭 예외(TaskPanel:255)가 이 역할로 판정한다). 다른 화면(원고 생성·링크 만들기·TaskAddModal·InfluencerChip)은 지금 동작(자유 입력) 그대로 두고, 게이팅은 `rosterOnly` prop으로만 켠다. 확정 로직은 필드가 아니라 `commitNewHandle`·`commitEditHandle`·`ReplaceDialog.resolveHandle`에 있어 세 곳 모두에 게이팅을 넣는다. 명부에 있는 핸들은 blur로도 확정(지금과 같음).
+- `influencerOptions`를 못 읽었으면(실패 시 빈 배열) 모든 핸들이 '명부 밖'으로 보인다 → 이때는 게이팅을 끄고 지금처럼 자유 입력 + "명부를 불러오지 못했어요" 한 줄.
 - 동작(시안 influencer-v1):
   1. 입력하면 명부 후보(사진·이름·핸들·단가).
   2. 명부에 없는 핸들이면 후보 자리에 `@핸들 명부에 등록하고 배정` 한 줄 + "X에서 프로필(사진·이름)을 불러와요". Enter/blur로는 배정하지 않는다(X 조회 비용 → 누르는 opt-in, UX 원칙 6). 도움말 "명부에 없는 인플은 배정할 수 없어요 — 정산할 때 결제 수단을 붙일 곳이 없어서예요".
   3. 누르면 그 줄에 `불러오는 중…`, `POST /api/influencers` → 성공(`created:true` 또는 대소문자만 다른 기존 행 `created:false`도 성공) → `influencerOptions` 다시 읽기(FlowDetail:331 경로) → 배정.
-  4. 실패: X에 없는 계정 → 빨강 "X에서 이 계정을 찾을 수 없어요 — 철자를 확인해 주세요"; 조회 실패(502) → 서버 문구(`LOOKUP_FAILED`) 그대로 + 다시 시도 가능. 둘 다 배정하지 않는다.
+  4. 실패: X에 없는 계정 → 서버 문구(`api/influencers:48`)를 그대로 빨강으로(화면에서 새로 짓지 않는다); 조회 실패(502) → 서버 문구(`LOOKUP_FAILED`) 그대로 + 다시 시도 가능. 둘 다 배정하지 않는다.
 - **예전에 명부 없이 배정된 작업(현재 8건):** 인플 칸에 이니셜 원 + `@핸들` + 주황 "명부에 없는 인플이에요 — 등록하면 프로필과 결제 수단을 쓸 수 있어요" + `[명부에 등록]`(3과 같은 호출, 배정은 이미 돼 있으니 등록만). 자동 정리는 하지 않는다(오타 핸들 `coco`·`kero`·`ngm` 등 — 사람이 판단).
 - 서버 규칙은 바꾸지 않는다 — 서버는 계속 명부 밖 핸들을 받는다.
 
@@ -174,6 +179,7 @@ koo(09-23) 지적 네 가지 + 대화 중 추가 세 가지:
 
 ## 12. 검증
 
+- 기타: `TYPE_CHIP`은 4벌(FlowTable·TaskTable·WeekCalendar·TargetPicker)이라 공용화 때 모두 옮긴다 · `Avatar` 이동 시 `influencers/page.tsx:12` import 갱신, 이미지 로드 실패(`onError`) 시 이니셜로 · FlowRow 픽스처는 `campaignFlowView.test.ts`·`campaignTaskCancel.test.ts` 둘.
 - 순수 로직 테스트(tsx 단일 파일): `taskPaymentMethod`(고른 id 있음/삭제됨/null), 칩 색 표 공용화 후 표·패널 동일, FlowRow 새 필드 매핑(`campaignFlowView.test.ts`의 `mk()` 픽스처 갱신).
 - DB 통합 테스트(연습용 DB): 060 적용 후 정산 후보가 고른 수단을 쓰는지, 인플 변경 시 `payment_method_id`가 비는지.
 - 전체 `npm test`(연습용 DB) + 타입 검사 + 린트 기준선(24개) 유지.

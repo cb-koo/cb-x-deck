@@ -124,7 +124,7 @@ export function TargetLinkField({ task, campaign, onChange }: {
           </div>
           {/* 체크만 하고 작업을 안 고르면 저장할 칸이 없다(스키마를 안 바꾼다) — 다시 열면 '미정'으로 보인다는
               한계를 여기서 한 줄로, 사실대로 알린다(M5 — 저장된다고 말하지 않는다). */}
-          <p className="mt-1 text-caption text-x-muted">어느 작업인지 고르면 기억해요 — 체크만 하면 저장되지 않아요</p>
+          <p className="mt-1 text-ui text-x-muted">어느 작업인지 고르면 기억해요 — 체크만 하면 저장되지 않아요</p>
         </div>
       )}
     </div>

@@ -107,11 +107,11 @@ export function CostConfirmField({
   let statusText: string;
   let amber = false;
   if (mode === 'draft') {
-    // 새 작업(§10) — 확정 개념이 없어 '✓ 확정'·'다름' 경고 대신 출처만 짧게 말한다
-    statusText = entered === null && amount.trim() === '' ? (profile ? '' : '프로필에 단가 없음')
+    // 새 작업(§10) — [확인]이 없다. 프로필 단가 그대로면 출처만, 사람이 금액을 고쳤으면 "어디서 저장되나"만 말한다
+    // (koo 09-24: 금액을 넣어도 [확인]이 안 보여 저장되는지 헷갈렸다). 프로필과 다르면 만든 뒤 한 번 묻는다(Task 7).
+    statusText = entered === null ? (amount.trim() === '' && !profile ? '프로필에 단가 없음' : '')
       : scenario === 'same' ? '프로필 단가'
-      : scenario === 'differs' && profile ? `프로필 ${formatAmount(profile.amount, profile.currency)}`
-      : '';
+      : '만들기를 누르면 저장돼요';
   } else if (saved) {
     // 확정된 값이라도 "지금 배정된 인플루언서"의 프로필 단가와 다르면 그 사실을 덧붙인다 — 교체·재배정 뒤
     // 앞사람 기준 금액이 그대로 남아 있어도 화면이 '✓ 확정'만 보여줘 조용히 틀린 값이 되는 문제(Task 8 리뷰

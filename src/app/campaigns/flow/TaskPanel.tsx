@@ -646,7 +646,7 @@ export function TaskPanel({
               <DraftSummaryCard title={draftLabel(newDraft).text} status={STATUS_LABEL[newDraft.status]}
                                 preview={draftPreviewFull(newDraft)} image={draftFirstMediaUrl(newDraft)} quote={quoteNode} author={author}
                                 onOpen={() => setDraftMode('draft')} onDetach={detachNewDraft} />
-              <p className="mt-1 text-ui text-x-muted">만들기를 누르면 이 원고가 함께 붙어요</p>
+              <p className="mt-1 text-ui text-x-muted">만들기를 누르면 함께 붙어요</p>
             </div>
           );
         }
@@ -790,6 +790,8 @@ export function TaskPanel({
           </div>
         ) : (
           <>
+            {/* 막힌 이유만 한 줄(§10 규칙 ②) — 유형 전엔 두 버튼이 비활성이라 왜 안 눌리는지는 말한다 */}
+            {!newType && <p className="text-ui text-x-muted">유형을 먼저 골라요</p>}
             <div className="ml-auto flex items-center gap-2">
               <Button onClick={() => void submitNew(true)} disabled={!newType || busy} className="h-9 px-3.5 text-ui">만들고 하나 더</Button>
               <Button variant="primary" onClick={() => void submitNew(false)} disabled={!newType || busy} className="h-9 px-3.5 text-ui">

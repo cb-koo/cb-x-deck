@@ -3,6 +3,7 @@
 // campaignTaskStore ↔ draftStore 순환이 생긴다(campaignTaskStore.ts 머리 주석). 명부는 SQL 한 줄로 직접 본다.
 import type postgres from 'postgres';
 import { PAYMENT_NOT_FOUND, type PaymentMethod } from './influencerPayment.ts';   // 순수 모듈 — 잎 성질 유지
+import { PAYMENT_METHOD_NO_INFLUENCER_MESSAGE } from './campaignTaskInput.ts';   // 순수 모듈(스토어는 type만) — 순환 없음
 
 // 라우트가 400으로 돌려주는 문구 — 무엇을 하면 되는지까지 말한다(옛 /campaigns 화면도 이 문구를 그대로 띄운다)
 export const ROSTER_REQUIRED_MESSAGE = '명부에 없는 인플이에요 — 명부에 먼저 등록해 주세요';
@@ -16,12 +17,11 @@ export async function rosterHandleOf(sql: postgres.Sql, handle: string): Promise
 
 // 라우트 문구 — 결제 수단(설계 §8-2). 409는 잠금, 400은 고를 수 없는 경우.
 export const PAYMENT_METHOD_LOCKED_MESSAGE = '정산 요청된 작업이에요 — 결제 수단을 바꾸려면 정산 화면에서 요청을 먼저 취소해 주세요';
-export const PAYMENT_METHOD_OWNER_MESSAGE = '인플루언서를 먼저 정해 주세요 — 결제 수단은 배정된 인플의 것만 고를 수 있어요';
 
 // 작업이 고를 결제 수단이 그 인플의 지금 목록에 있는가(설계 §8-2). 오류 문구 또는 null.
-// 명부 밖 핸들이면 고를 수단 자체가 없다 — '없음'과 같은 문구(새로고침하면 화면이 명부 상태를 다시 보여 준다).
+// 인플이 없으면 parseTaskPatch와 같은 문구(요청 모양과 무관하게 한 문구). 명부 밖 핸들이면 고를 수단 자체가 없다 — '없음'과 같은 문구(새로고침하면 화면이 명부 상태를 다시 보여 준다).
 export async function checkTaskPaymentMethod(sql: postgres.Sql, handle: string | null, methodId: string): Promise<string | null> {
-  if (!handle) return PAYMENT_METHOD_OWNER_MESSAGE;
+  if (!handle) return PAYMENT_METHOD_NO_INFLUENCER_MESSAGE;
   const rows = await sql<Array<{ payment_methods: unknown }>>`
     select payment_methods from influencer where lower(handle) = lower(${handle}) limit 1`;
   const list = Array.isArray(rows[0]?.payment_methods) ? (rows[0].payment_methods as PaymentMethod[]) : [];

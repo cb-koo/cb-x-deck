@@ -2,7 +2,7 @@ import type { PaymentView } from '@/lib/paymentView';
 import { resolvePaymentChoice, choiceToStored, canChoosePayment } from '@/lib/paymentChoice';
 
 // '결제 수단' 한 줄(설계 §8-1~3·§10) — 평소엔 수단 + 수수료 칩만. 막힘·주의만 짧게. CB 부담은 비용이 늘어나는 쪽이라 주황.
-// 수단 2개 이상이면 드롭다운(이 작업만, 맨 아래 '+ 새 결제 수단 등록'), 1개면 글자 + '+ 다른 수단 등록', 없으면 '결제 수단 없음' + [+ 등록].
+// 수단 2개 이상이면 드롭다운(이 작업만, 맨 아래 '+ 새 결제 수단 등록'), 1개면 글자 + 오른쪽 '다른 수단 등록', 없으면 '결제 수단 없음' + [+ 등록].
 // 이 작업의 수단은 resolvePaymentChoice(= 정산 후보와 같은 taskPaymentMethod) 하나로 정한다 — 조회가 판정한 view.label이 아니라
 // 지금 들고 있는 chosenId로 다시 고른다(고른 직후 캐시된 옛 보기여도 고른 수단이 보인다, 새 작업은 서버가 선택을 모른다).
 // 고를 수 있는지는 canChoosePayment 하나 — 소제목 옆 '· 이 작업에만 적용'(TaskPanel)과 같은 판정이다.
@@ -73,7 +73,8 @@ export function PaymentLine({ view, loading, failed, chosenId = null, onChoose, 
           <span className="min-w-0 truncate text-content" title={shown.label}>{shown.label}</span>
           <span className={chipCls(shown.fee.cb)}>{shown.fee.text}</span>
           {fb}
-          {onRegister && <button type="button" onClick={onRegister} className="text-ui text-x-blue-text hover:underline">+ 다른 수단 등록</button>}
+          {/* 패널의 다른 보조 동작([바꾸기]·[해제])과 같은 모양 — 회색 글자, 줄 오른쪽 끝(koo 09-25) */}
+          {onRegister && <button type="button" onClick={onRegister} className="ml-auto shrink-0 text-ui text-x-secondary hover:underline">다른 수단 등록</button>}
         </div>
       );
     }

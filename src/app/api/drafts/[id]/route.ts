@@ -11,6 +11,7 @@ import { normalizeDraftMedia } from '@/lib/draftMediaGuard';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, DRAFT_ATTACHED_MESSAGE, TASK_HAS_DRAFT_MESSAGE, CANCELLED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
 import { attachDraft, detachDraft, TaskAttachError } from '@/lib/campaignTaskStore';
+import { rosterHandleOf, ROSTER_REQUIRED_MESSAGE } from '@/lib/taskAssignGate';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAllowedUser();
@@ -42,7 +43,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
   const inf = normalizeInfluencerPatch(body.influencerHandle);
   if (!inf.ok) return NextResponse.json({ error: inf.message }, { status: 400 });
-  const influencerHandle = inf.value;
+  let influencerHandle = inf.value;
   // 작업 — undefined=건드리지 않음 · null=떼기 · uuid=붙이기(스펙 2026-08-28 §5)
   const taskId = parseTaskIdPatch(body.taskId);
   if (!taskId.ok) return NextResponse.json({ error: taskId.message }, { status: 400 });
@@ -70,12 +71,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     derivedFormat = formatForPosts((body.edited as DraftContent).posts.length);
   }
   const sql = getSql();
-  const result = await sql.begin(async (tx0): Promise<'ok' | 'no-draft' | 'no-task' | 'draft-attached' | 'task-has-draft' | 'task-cancelled'> => {
+  const result = await sql.begin(async (tx0): Promise<'ok' | 'no-draft' | 'no-task' | 'draft-attached' | 'task-has-draft' | 'task-cancelled' | 'not-in-roster'> => {
     const tx = tx0 as unknown as postgres.Sql; // 저장소 선례: generate.ts:127
     // 동시 PATCH가 스테일 스냅샷으로 로그를 쓰지 않도록 행을 잠그고 읽는다 (리뷰 반영)
     await tx`select id from draft where id = ${id} for update`;
     const before = await getDraft(tx, id);
     if (!before) return 'no-draft';
+    // 명부 게이팅(설계 §9 ④·⑤) — 원고에 사람을 새로 넣거나 바꿀 때만. 해제(null)·같은 사람은 판정하지 않는다.
+    // 명부에 있으면 명부 표기로 저장한다. 문자열 return이라 커밋되지만 아직 아무것도 쓰지 않았다(위의 행 잠금 select뿐).
+    if (influencerHandle) {
+      const canon = await rosterHandleOf(tx, influencerHandle);
+      if (!canon && influencerHandle.toLowerCase() !== (before.influencerHandle ?? '').toLowerCase()) return 'not-in-roster';
+      if (canon) influencerHandle = canon;
+    }
     // 붙이기/떼기를 updateDraft보다 먼저 — 실패 시 문자열 return이라 트랜잭션은 커밋된다(postgres.js).
     // 뒤에 두면 이 커밋이 updateDraft만 남긴 반쪽 변경이 된다.
     let syncHandle = influencerHandle; // syncInfluencerOnDraftUpdate에 넘길 값 — 기본은 이 PATCH의 배정값
@@ -110,6 +118,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     await syncInfluencerOnDraftUpdate(tx, { before, influencerHandle: syncHandle, status: body.status as string | undefined, actorId: gate.member.id });
     return 'ok';
   });
+  if (result === 'not-in-roster') return NextResponse.json({ error: ROSTER_REQUIRED_MESSAGE }, { status: 400 });
   if (result === 'no-task') return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 400 });
   if (result === 'draft-attached') return NextResponse.json({ error: DRAFT_ATTACHED_MESSAGE }, { status: 409 });
   if (result === 'task-has-draft') return NextResponse.json({ error: TASK_HAS_DRAFT_MESSAGE }, { status: 409 });

@@ -10,6 +10,7 @@ import { parseTaskPatch, proofGateError, influencerChangeGuard, TASK_NOT_FOUND_M
 import { getDraft, updateDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 import { kstToday } from '@/lib/datetime';
+import { rosterHandleOf, checkTaskPaymentMethod, hasLiveRequest, ROSTER_REQUIRED_MESSAGE, PAYMENT_METHOD_LOCKED_MESSAGE } from '@/lib/taskAssignGate';
 
 const notFound = () => NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 404 });
 
@@ -40,6 +41,24 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
   if (patch.influencerHandle !== undefined) {
     const g = influencerChangeGuard(cur, patch.influencerHandle, kstToday());
     if (g) return NextResponse.json({ error: g }, { status: 400 });
+  }
+  // 명부 게이팅(설계 §9 ②) — 사람을 새로 넣거나 바꿀 때만 판정한다. 해제(null)·같은 사람(대소문자만 다름)은 통과,
+  // 이미 명부 밖으로 저장된 행의 메모·비용 편집은 influencerHandle을 안 보내므로 여기 오지 않는다. 명부에 있으면 명부 표기로.
+  if (patch.influencerHandle) {
+    const canon = await rosterHandleOf(sql, patch.influencerHandle);
+    const changes = patch.influencerHandle.toLowerCase() !== (cur.influencerHandle ?? '').toLowerCase();
+    if (!canon && changes) return NextResponse.json({ error: ROSTER_REQUIRED_MESSAGE }, { status: 400 });
+    if (canon) patch.influencerHandle = canon;
+  }
+  // 결제 수단(설계 §8-2) — 살아 있는 요청이 있으면 바꾸지 못한다(제자리 수정이 스냅샷을 조용히 바꾼다).
+  // 값이 있으면 이 요청 뒤의 인플(같이 바꾸면 새 사람, 안 보냈으면 저장된 사람 — 없으면 '먼저 정해 주세요')의 지금 목록에 있어야 한다.
+  if (patch.paymentMethodId !== undefined) {
+    if (await hasLiveRequest(sql, taskId)) return NextResponse.json({ error: PAYMENT_METHOD_LOCKED_MESSAGE }, { status: 409 });
+    if (patch.paymentMethodId !== null) {
+      const owner = patch.influencerHandle !== undefined ? patch.influencerHandle : cur.influencerHandle;
+      const err = await checkTaskPaymentMethod(sql, owner, patch.paymentMethodId);
+      if (err) return NextResponse.json({ error: err }, { status: 400 });
+    }
   }
   if (patch.visitOn && cur.type !== 'visit') return NextResponse.json({ error: VISIT_ON_MESSAGE }, { status: 400 });
   // ── RT 증빙 3규칙 (스펙 §5) — 판정은 순수 함수 campaignTaskInput.proofGateError로 뺐다(리뷰 Critical:

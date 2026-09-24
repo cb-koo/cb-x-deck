@@ -16,6 +16,7 @@ import {
 import { STATUS_LABEL } from '@/lib/draftStatus';
 import { draftLabel, draftPreviewFull, draftFirstMediaUrl } from '@/lib/draftViews';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
+import { findRosterOption, type RosterGate } from '@/lib/rosterPick';
 import { InfluencerField } from '@/components/InfluencerField';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
 import { Button } from '@/components/ui';
@@ -66,7 +67,7 @@ export type FormDraftContext = { type: TaskType | null; handle: string | null; t
 export const DRAFT_WRITE_LOST_CONFIRM = '작성 중인 원고가 있어요. 닫으면 저장되지 않고 사라져요. 닫을까요?';
 
 export function TaskPanel({
-  mode, campaign, today, influencerOptions, actions, onClose, onPrev, onNext, onCreate,
+  mode, campaign, today, influencerOptions, roster, rosterVersion, actions, onClose, onPrev, onNext, onCreate,
   menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftPick, draftBusy, closeConfirm, moveConfirm, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
   newDraft, onNewDraftChange, onNewContextChange, formHandleFill,
 }: {
@@ -74,6 +75,9 @@ export function TaskPanel({
   campaign: CampaignRow;
   today: string;
   influencerOptions: InfluencerOption[];
+  // 명부 관문(설계 §9) — 인플 칸이 명부에서 고르거나 '명부에 등록하고 배정'만 된다. FlowDetail의 useInfluencerRoster가 준다.
+  roster: RosterGate;
+  rosterVersion: number;   // 명부 등록이 성공할 때마다 오른다 — 결제 수단 보기('명부에 등록하면 보여요')를 다시 읽는 키
   actions: ReturnType<typeof useCampaignTaskActions>;
   onClose: () => void;
   onPrev: () => void;
@@ -195,6 +199,9 @@ export function TaskPanel({
   const [editHandleInput, setEditHandleInput] = useState('');
   const [editHandleErr, setEditHandleErr] = useState<string | null>(null);
   const [noteBuf, setNoteBuf] = useState(task?.note ?? '');
+  // 이미 명부 밖으로 배정된 작업의 [명부에 등록](§9) — 등록만 한다(배정은 이미 돼 있다)
+  const [regBusy, setRegBusy] = useState(false);
+  const [regErr, setRegErr] = useState<string | null>(null);
 
   // ── 비용 · 정산 상자의 결제 수단 한 줄(설계 §8-1) — 훅이라 렌더 함수(renderEditField 등) 밖, 여기서 한 번 부른다.
   // refreshKey: 정산 요청 상태(우리·그쪽)가 바뀌면 다시 부른다 — 요청이 생기면 명부 수단 대신 요청 스냅샷이 사실이다.
@@ -202,7 +209,8 @@ export function TaskPanel({
   // panelHandle = 이 패널의 인플(편집=작업 행, 새 작업=입력 칸) — 결제 수단 줄과 인용 미리보기의 작성자 줄이 같이 쓴다.
   const panelHandle = task ? task.influencerHandle : (handle || null);
   const payCancelled = !!task?.cancelledAt;
-  const payRefresh = task ? `${task.settlement?.status ?? ''}:${task.settlement?.externalStatus ?? ''}` : '';
+  // 명부 등록(rosterVersion)도 키에 넣는다 — 명부 밖이던 인플을 등록하면 '명부에 등록하면 보여요'가 실제 수단으로 바뀌어야 한다.
+  const payRefresh = task ? `${task.settlement?.status ?? ''}:${task.settlement?.externalStatus ?? ''}:${rosterVersion}` : `${rosterVersion}`;
   const pay = usePaymentView(payCancelled ? null : panelHandle, task?.id ?? null, payRefresh);
 
   // ── 인용·RT 대상 미리보기(설계 §7-1) — 훅이라 여기서 한 번 부른다. 판정은 targetPreviewView 하나(편집=작업 행,
@@ -278,7 +286,13 @@ export function TaskPanel({
   // 이미 '비우기'로 정의돼 있다(handle 커밋 함수 본문 참고).
   // useEffectEvent — commitNewHandle이 지금 handle을 읽으므로(같은 사람이면 비용을 안 비운다) 최신 값을 보되,
   // 이펙트는 fill 신호가 올 때만 돈다.
-  const fillHandle = useEffectEvent((h: string) => commitNewHandle(h));
+  // 명부 밖 핸들(예전 원고의 주인)은 채우지 않는다 — 서버 attachDraft도 그 핸들로 작업을 채우지 않는다(설계 §9).
+  // 명부가 아직이면(읽는 중·실패) 판정하지 않고 그대로 둔다 — 판정은 [만들기]에서 서버가 한다.
+  // 이 길은 onCommit이 아니라 이펙트라(렌더 뒤) 방금 등록한 사람도 새 목록으로 본다.
+  const fillHandle = useEffectEvent((h: string) => {
+    if (h && roster.status === 'ok' && !findRosterOption(influencerOptions, h)) return;
+    commitNewHandle(h);
+  });
   useEffect(() => {
     if (!formHandleFill) return;
     fillHandle(formHandleFill.handle ?? '');
@@ -366,17 +380,25 @@ export function TaskPanel({
     if (result === 'ok' && more) resetNewFields();   // 유형은 유지 — 같은 유형을 연달아 만드는 게 실제 사용 패턴(결정 4). 원고는 FlowDetail이 비운다(스펙 §4-5)
   }
 
-  async function commitEditHandle(t: FlowRow, raw: string) {
-    const v = raw.trim();
-    if (!v) return;
-    const p = parseXHandle(v);
-    if (!p.ok) { setEditHandleErr(handleParseMessage(p.reason)); return; }
+  // h는 명부 표기 핸들(InfluencerField가 명부 판정을 끝낸 값, '등록하고 배정'도 같은 길) 또는 ''(비움 — 아무것도 안 한다).
+  // 다시 판정하지 않는다(Global Constraints) — '등록하고 배정' 직후엔 이 클로저의 명부 목록이 등록 전 것이다.
+  async function commitEditHandle(t: FlowRow, h: string) {
+    if (!h) return;
     setEditHandleErr(null);
     // 게시된 작업의 최초 배정은 저장하는 순간 잠긴다(서버가 그 뒤의 변경·해제를 거절한다) — 오타 한 번이
     // 삭제·재생성 말고는 되돌릴 수 없는 상태를 만들므로, 블러로 조용히 저장하지 않고 한 번 묻는다.
-    if (t.postedAt && !window.confirm(`@${p.handle}로 저장할까요?\n\n게시된 작업이라 나중에 바꿀 수 없어요.`)) return;
-    const ok = await actions.assignInfluencer(t, p.handle, { autoCost: false });   // 비용은 [확인]이 확정한다(R24)
+    if (t.postedAt && !window.confirm(`@${h}로 저장할까요?\n\n게시된 작업이라 나중에 바꿀 수 없어요.`)) return;
+    // 낙관 갱신이 행에 핸들을 먼저 얹어 입력칸이 요약으로 바뀐다(언마운트) — 그래서 비우는 것은 성공 뒤에만.
+    // 실패하면 되돌아온 입력칸에 친 값이 그대로 남는다.
+    const ok = await actions.assignInfluencer(t, h, { autoCost: false });   // 비용은 [확인]이 확정한다(R24)
     if (ok) setEditHandleInput('');
+  }
+  // 명부 밖으로 이미 배정된 작업의 [명부에 등록] — 성공하면 훅이 명부를 다시 읽어 사진·이름이 뜨고 '명부에 없음'이 사라진다
+  async function registerExisting(h: string) {
+    setRegBusy(true); setRegErr(null);
+    const r = await roster.register(h);
+    setRegBusy(false);
+    if (!r.ok) setRegErr(r.error);   // 서버 문구 그대로(X에 없는 계정·조회 실패) — 다시 누를 수 있다
   }
 
   // 인플루언서 해제(koo 09-19 결정 2) — 뼈대에 사람을 잘못 넣었을 때 다른 사람 이름을 대지 않고 미정으로
@@ -431,16 +453,28 @@ export function TaskPanel({
         }
         if (t.influencerHandle) {
           const opt = optionForHandle(t.influencerHandle);
+          // 이미 명부 밖으로 배정된 작업(설계 §9, 9월 2주차 5건) — 자동 정리는 하지 않고 표시 + [명부에 등록].
+          // 명부를 아직 못 읽었으면(읽는 중·실패) 모두 명부 밖으로 보이므로 말하지 않는다.
+          const outside = !opt && roster.status === 'ok';
+          const note = outside ? '명부에 없음' : undefined;
+          const registerBtn = outside ? (
+            <button type="button" onClick={() => void registerExisting(t.influencerHandle as string)} disabled={regBusy}
+                    className="text-ui text-x-blue-text hover:underline disabled:cursor-default disabled:text-x-muted disabled:no-underline">
+              {regBusy ? '불러오는 중…' : '명부에 등록'}
+            </button>
+          ) : null;
+          const regLine = regErr && <p role="alert" className="mt-1 text-ui text-red-600">{regErr}</p>;
           // 게시된 작업은 교체 자체가 서버 가드(POSTED_TASK_MESSAGE)에 막혀 있다 — FlowRowMenu의 prePost
           // 게이트와 같은 조건. 여기서 숨기지 않고 disabled로만 두면 눌렀을 때 400이 나는 거짓 어포던스가 된다.
-          if (t.postedAt) return <InfluencerSummary handle={t.influencerHandle} option={opt} />;
+          if (t.postedAt) return <div><InfluencerSummary handle={t.influencerHandle} option={opt} note={note} actions={registerBtn} />{regLine}</div>;
           const disabledReason = replaceDisabledReason(t, today);
           return (
             <div>
               {/* [해제]는 [바꾸기]와 같은 판정(replaceDisabledReason)으로 막는다 — 방문한 인플루언서를
                   떼면 서버가 거절하는 것과 같은 조작이라 이유 문구도 같아야 한다(라벨-값 일치). */}
-              <InfluencerSummary handle={t.influencerHandle} option={opt} actions={
+              <InfluencerSummary handle={t.influencerHandle} option={opt} note={note} actions={
                 <>
+                  {registerBtn}
                   <button type="button" onClick={() => onReplace(t)} disabled={!!disabledReason} title={disabledReason ?? undefined}
                           className="text-ui text-x-secondary hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline">
                     바꾸기
@@ -453,14 +487,16 @@ export function TaskPanel({
               } />
               {/* title만으로 끝내지 않는다(UX 원칙 2·5) — 비활성 이유를 보이는 문구로도 말한다 */}
               {disabledReason && <p className="mt-1 text-ui text-x-muted">{disabledReason}</p>}
+              {regLine}
             </div>
           );
         }
         return (
           <div>
             <InfluencerField value={editHandleInput} options={influencerOptions} hideLabel hideHelp
+                             roster={roster} commitOnBlur priceType={t.type}
                              onChange={(v) => { setEditHandleInput(v); setEditHandleErr(null); }} error={editHandleErr}
-                             onEnter={(v) => void commitEditHandle(t, v)} onBlur={(v) => void commitEditHandle(t, v)} />
+                             onCommit={(h) => void commitEditHandle(t, h)} />
             {/* C1-b가 이 배정을 이제 서버에서 허용한다 — 왜 이 칸이 아직 남아 있는지, 채우면 뭐가 달라지는지 알린다 */}
             {t.postedAt && <p className="mt-1 text-ui text-x-muted">게시 확인된 작업이에요 — 누가 올렸는지 적으면 정산 후보에 잡혀요. 한 번 적으면 바꿀 수 없어요</p>}
           </div>
@@ -574,9 +610,11 @@ export function TaskPanel({
           );
         }
         return (
+          // roster 모드의 확정은 명부 표기 핸들 — commitNewHandle이 지금처럼 비용 초기화를 태우고 handle을 채워 입력칸이 요약으로 바뀐다
           <InfluencerField value={handleInput} options={influencerOptions} hideLabel hideHelp
+                           roster={roster} commitOnBlur priceType={newType ?? undefined}
                            onChange={(v) => { setHandleInput(v); setHandleErr(null); }} error={handleErr}
-                           onEnter={commitNewHandle} onBlur={commitNewHandle} />
+                           onCommit={commitNewHandle} />
         );
       case 'cost': {
         // 명부 값(option)은 handle이 정해졌을 때만 있다 — 미정이면 문구 없는 비활성(disabledReason='', 이유는 결제 수단 줄이 말한다).

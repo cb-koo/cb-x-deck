@@ -27,6 +27,7 @@ import { Button, PANEL } from '@/components/ui';
 import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/components/DraftCard';
 import { DraftEditModal } from '@/components/DraftEditModal';
 import { useSignedTaskProofUrls } from '@/components/useSignedTaskProofUrls';
+import { useInfluencerRoster } from '@/components/useInfluencerRoster';
 import { ImageLightbox } from '@/components/ImageLightbox';
 import {
   EMPTY_FLOW_FILTER, matchesFlowFilter, sortFlowRows, flowStats, settleWaitCount, flowFooter, filterSummary,
@@ -60,8 +61,8 @@ import { DraftPick } from './draft/DraftPick';
 // 표는 작업 표(TaskTable) 대신 단계 기반 표(FlowTable, Task 6)고 달력·인플루언서별 비용 표는 없다(R10 — 단일 표 화면).
 // 필터·정렬·패널 열림은 campaignFlowView(Task 2)의 순수 함수로 판정한다 — 이 파일은 상태만 쥐고 계산은 그쪽에 맡긴다.
 //
-// 원고 카드(패널의 원고 모드가 그린다)·patchCampaign·removeCampaign·요청 토큰(reqRef)·influencerOptions 로드는
-// CampaignDetail과 그대로다 — 코드와 함께 그 이유를 설명하는 주석도 옮겼다. clientData는 로딩/실패/성공
+// 원고 카드(패널의 원고 모드가 그린다)·patchCampaign·removeCampaign·요청 토큰(reqRef)은
+// CampaignDetail과 그대로다(명부 읽기는 공용 훅 useInfluencerRoster로 옮겼다, 설계 §9) — 코드와 함께 그 이유를 설명하는 주석도 옮겼다. clientData는 로딩/실패/성공
 // 셋을 구분하도록 이 화면에서 갈렸다(리뷰 지적 4) — CampaignDetail은 손대지 않는다.
 
 // 다른 작업으로 넘어가며 작성 중인 걸 잃는 경우의 확인 문구(Task 4d §2·§3) — TaskPanel의
@@ -114,7 +115,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const [data, setData] = useState<DetailState | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
-  const [influencerOptions, setInfluencerOptions] = useState<InfluencerOption[]>([]);
+  // 명부(배정 후보 + 단가·사진) — 읽기·등록은 공용 훅 하나(설계 §9). version은 등록할 때마다 올라 패널의 결제 수단 보기를 다시 읽게 한다.
+  const { options: influencerOptions, gate: rosterGate, reload: reloadRoster, version: rosterVersion } = useInfluencerRoster();
   // undefined=아직 못 읽음(로딩 중), null=읽다가 실패, 객체=성공(리뷰 지적 4 — 실패를 로딩 중이라고 말하지 않는다)
   const [clientData, setClientData] = useState<ClientData | null | undefined>(undefined);
   // 원고 카드 — 패널이 보여줄 작업에 붙은 원고 한 건. 작업 목록엔 본문이 없어 열 때 받아 온다.
@@ -283,11 +285,6 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     void reloadCandidates();
   }, [reloadCandidates]);
 
-  // 배정 자동완성 후보(+단가) — 실패해도 빈 목록(자유 입력은 그대로 동작, generate 관례)
-  useEffect(() => {
-    apiFetch('/api/drafts/influencers').then((r) => (r.ok ? r.json() : [])).catch(() => [])
-      .then((inf) => setInfluencerOptions(Array.isArray(inf) ? inf : []));
-  }, []);
   // 금지 표현(DraftCard 검수 표식) — 이 캠페인의 클라이언트 하나만 필요하다. 클라가 없거나 실패하면 표식 없음.
   const clientId = data?.campaign.clientId ?? null;
   useEffect(() => {
@@ -328,12 +325,10 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     if (!option.id) { show('이 인플루언서는 명부에 없어 프로필을 바꿀 수 없어요'); return false; }
     const r = await patchInfluencerPricingApi(option.id, { [type]: cost.amount, currency: cost.currency });
     if (!r.ok) { show(r.error); return false; }
-    // 재조회 실패면 들고 있던 후보를 유지한다 — 빈 배열로 덮으면 저장은 성공했는데 화면의 자동완성·단가 제안이
-    // 통째로 사라져(새로고침 전까지) 사용자가 원인을 짚을 수 없다.
-    const inf: unknown = await apiFetch('/api/drafts/influencers').then((res) => (res.ok ? res.json() : null)).catch(() => null);
-    if (Array.isArray(inf) && inf.length) setInfluencerOptions(inf as InfluencerOption[]);
+    // 새 단가가 바로 보이게 명부를 다시 읽는다 — 재조회가 실패(응답 없음)하면 훅이 들고 있던 목록을 유지한다
+    await reloadRoster();
     return true;
-  }, [show]);
+  }, [show, reloadRoster]);
 
   // ── 이 화면의 파생값(§4-2·§4-3) — 필터·정렬·통계는 campaignFlowView의 순수 함수로 계산한다. 여기서 다시 판정하지 않는다. ──
   // shown = 필터·정렬을 적용한 표시 순서. 표가 그리는 순서이자 패널의 이전/다음이 걷는 순서다(하나의 소스).
@@ -692,7 +687,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                  }); }}
                  onChangeTitle={(next) => void patchDraft(d, { title: next ?? '' })}
                  siblingTotal={null}
-                 influencerOptions={influencerOptions}
+                 influencerOptions={influencerOptions} roster={rosterGate}
                  // 배정은 작업의 값이다(§2-5) — 카드에서 바꿔도 저장되는 곳은 이 원고가 붙은 작업이고,
                  // 카드 표시만 같은 값으로 맞춰 둔다(작업이 없으면 배정할 곳도 없다).
                  // 이미 인플이 있는 작업에서 (대소문자 무시하고) '다른' 핸들을 고르면 배정 API를 부르지
@@ -964,6 +959,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
         <TaskPanel key={isNew ? 'new' : (panelTaskId ?? 'none')}
                    mode={isNew ? { kind: 'new' } : { kind: 'edit', task: panelTask as FlowRow, index: panelIndex, total: shown.length }}
                    campaign={data.campaign} today={data.today} influencerOptions={influencerOptions} actions={actions}
+                   roster={rosterGate} rosterVersion={rosterVersion}
                    onClose={() => setPanel(null)} onPrev={onPanelPrev} onNext={onPanelNext} onCreate={createTask}
                    menu={panelTask ? renderMenu(panelTask) : null}
                    draftOpen={draftOpenReq} pickCount={pickCount} draftCard={draftCard}
@@ -1089,7 +1085,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                       }} />
       )}
       {replaceFor && (
-        <ReplaceDialog task={replaceFor} influencerOptions={influencerOptions} initialHandle={replaceInitialHandle ?? undefined}
+        <ReplaceDialog task={replaceFor} influencerOptions={influencerOptions} roster={rosterGate} initialHandle={replaceInitialHandle ?? undefined}
                        onClose={() => { setReplaceFor(null); setReplaceInitialHandle(null); }}
                        onConfirm={async (body) => { await flowActions.replace(replaceFor, body); }} />
       )}

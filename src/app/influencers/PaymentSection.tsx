@@ -1,82 +1,14 @@
 'use client';
-import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui';
-import { CURRENCY_LABEL, CURRENCY_SYMBOL, type Currency } from '@/lib/influencerPricing';
-import {
-  PAYMENT_TYPES, PAYMENT_TYPE_LABEL, describeMethod, formatFee, parsePaymentMethodInput,
-  type PaymentMethod, type PaymentMethodType,
-} from '@/lib/influencerPayment';
+import { CURRENCY_SYMBOL } from '@/lib/influencerPricing';
+import { PAYMENT_TYPE_LABEL, describeMethod, formatFee, type PaymentMethod } from '@/lib/influencerPayment';
+import { holderLabel, methodDraftOf, parseMethodDraft, type MethodDraft } from '@/lib/paymentMethodDraft';
+import { MethodForm, usePaymentMethodSend } from '@/components/PaymentMethodForm';
 import { signPaymentQrUrl } from '@/lib/paymentQr';
 import { ImageLightbox } from '@/components/ImageLightbox';
-import { PaymentQrField } from './PaymentQrField';
-import { PANEL, PANEL_TITLE, errOf, useErrorReport } from './profileShared';
+import { PANEL, PANEL_TITLE, useErrorReport } from './profileShared';
 import type { InfluencerLogRow } from '@/lib/influencerStore';
-
-const CURRENCIES: readonly Currency[] = ['KRW', 'JPY'];
-
-// 수취인 칸의 이름은 유형에 따라 바뀐다 — 계좌이체에서 '수취인명'은 정산 담당이 쓰는 말이 아니다.
-const holderLabel = (t: PaymentMethodType) => (t === 'bank' ? '예금주' : '수취인명');
-
-type FeeMode = 'none' | 'grossUp' | 'fixed';
-const FEE_MODE_LABEL: Record<FeeMode, string> = {
-  none: '인플 부담',
-  grossUp: 'CB 부담 (비율)',
-  fixed: 'CB 부담 (고정액)',
-};
-
-interface Draft {
-  type: PaymentMethodType; holder: string; currency: Currency;
-  email: string; paypalId: string; identifier: string; qr: string;
-  bank: string; branch: string; account: string;
-  feeMode: FeeMode; feePercent: string; feeAmount: string;
-  memo: string; makeDefault: boolean;
-}
-
-function draftOf(m: PaymentMethod | null): Draft {
-  return {
-    // 새 수단의 기본값: 유형은 목록 첫 번째, 통화는 ¥ — 이 통화는 '인플이 받는 돈의 통화(지급 통화)'라
-    // 단가(₩ 기본, 캠페인 관리 기준)와 다른 질문이다. 실데이터 91건 중 84건이 엔화(koo 결정 08-27).
-    type: m?.type ?? PAYMENT_TYPES[0],
-    holder: m?.holder ?? '',
-    currency: m?.currency ?? 'JPY',
-    email: m?.email ?? '',
-    paypalId: m?.paypalId ?? '',
-    identifier: m?.identifier ?? '',
-    qr: m?.qr ?? '',
-    bank: m?.bank ?? '',
-    branch: m?.branch ?? '',
-    account: m?.account ?? '',
-    feeMode: m?.fee?.mode ?? 'none',
-    feePercent: m?.fee?.mode === 'grossUp' ? String(m.fee.percent) : '5',
-    feeAmount: m?.fee?.mode === 'fixed' ? String(m.fee.amount) : '',
-    memo: m?.memo ?? '',
-    makeDefault: false,
-  };
-}
-
-// 빈 칸은 0이 아니라 "안 적음" — Number('')=0이면 수수료 금액을 비워도 0원으로 통과해 버린다.
-function numOf(s: string): number {
-  const t = s.replace(/[,\s]/g, '');
-  return t === '' ? NaN : Number(t);
-}
-
-// 폼 값 → 라우트에 보낼 입력. 유형에 맞지 않는 칸도 그대로 실어 보내고, 버리는 일은 lib의
-// parsePaymentMethodInput이 한다 — 클라이언트와 서버가 같은 한 벌 규칙을 쓴다(문구도 같아진다).
-function inputOf(d: Draft): unknown {
-  const fee = d.feeMode === 'grossUp' ? { mode: 'grossUp', percent: numOf(d.feePercent) }
-    : d.feeMode === 'fixed' ? { mode: 'fixed', amount: numOf(d.feeAmount) }
-      : undefined;
-  return {
-    type: d.type, holder: d.holder, currency: d.currency,
-    email: d.email, paypalId: d.paypalId, identifier: d.identifier, qr: d.qr,
-    bank: d.bank, branch: d.branch, account: d.account,
-    fee, memo: d.memo,
-  };
-}
-
-const FIELD = 'w-full rounded-lg border border-x-border-strong px-2.5 py-1.5 text-ui outline-none focus:border-x-blue';
-const FIELD_LABEL = 'block text-caption text-x-secondary';
 
 export function PaymentSection({ id, methods, onSaved, onErrorChange }: {
   id: string;
@@ -86,11 +18,11 @@ export function PaymentSection({ id, methods, onSaved, onErrorChange }: {
 }) {
   // 폼은 한 번에 하나 — 'add' 또는 수정 중인 수단 id. 카드 자리에서 펼쳐진다.
   const [editing, setEditing] = useState<'add' | { id: string } | null>(null);
-  const [draft, setDraft] = useState<Draft>(() => draftOf(null));
+  const [draft, setDraft] = useState<MethodDraft>(() => methodDraftOf(null));
   // 오류 슬롯 2개 — 폼 안(검증·저장 실패)과 목록 동작(기본으로·삭제)을 섞으면 어느 것이 실패했는지 흐려진다.
   const [formErr, setFormErr] = useState<string | null>(null);
   const [listErr, setListErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { busy, send: sendRaw } = usePaymentMethodSend(id);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);   // `${수단 id}:${필드}` — 한 카드에 복사 값이 둘일 수 있다
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -100,42 +32,25 @@ export function PaymentSection({ id, methods, onSaved, onErrorChange }: {
 
   const isFirst = methods.length === 0;
 
-  async function send(
-    method: 'POST' | 'PATCH' | 'DELETE',
-    body: unknown,
-    setErr: (v: string | null) => void,
-  ): Promise<boolean> {
-    if (busy) return false;
-    setBusy(true);
-    try {
-      const r = await apiFetch(`/api/influencers/${id}/payment-methods`, {
-        method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      });
-      if (!r.ok) { setErr(await errOf(r)); return false; }
-      const b = (await r.json()) as { paymentMethods: PaymentMethod[]; logs: InfluencerLogRow[] };
-      // 응답은 배열 전체 스냅샷이라 그대로 교체한다(스펙 §2) — 서버가 행 잠금으로 직렬화하므로 병합이 필요 없다.
-      setErr(null);
-      setFormErr(null);
-      setListErr(null);
-      onSaved(b.paymentMethods, b.logs);
-      return true;
-    } catch {
-      setErr('결제 수단을 저장하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
-      return false;
-    } finally {
-      setBusy(false);
-    }
+  // 저장 요청 자체는 공용 훅(usePaymentMethodSend)이 한다 — 여기는 오류 칸 두 개(폼·목록)에 결과를 나눠 담는다.
+  // 응답은 배열 전체 스냅샷이라 그대로 교체한다(스펙 §2) — 서버가 행 잠금으로 직렬화하므로 병합이 필요 없다.
+  async function send(method: 'POST' | 'PATCH' | 'DELETE', body: unknown, setErr: (v: string | null) => void): Promise<boolean> {
+    const r = await sendRaw(method, body);
+    if (!r.ok) { if (r.error !== null) setErr(r.error); return false; }
+    setErr(null); setFormErr(null); setListErr(null);
+    onSaved(r.paymentMethods, r.logs);
+    return true;
   }
 
   function openAdd() {
-    setDraft({ ...draftOf(null), makeDefault: methods.length === 0 });
+    setDraft({ ...methodDraftOf(null), makeDefault: methods.length === 0 });
     setFormErr(null);
     setConfirmId(null);
     setEditing('add');
   }
 
   function openEdit(m: PaymentMethod) {
-    setDraft(draftOf(m));
+    setDraft(methodDraftOf(m));
     setFormErr(null);
     setConfirmId(null);
     setEditing({ id: m.id });
@@ -143,7 +58,7 @@ export function PaymentSection({ id, methods, onSaved, onErrorChange }: {
 
   async function submit(target: 'add' | { id: string }) {
     // 클라이언트 검증도 서버와 같은 함수로 — 문구가 갈리지 않는다(스펙 §3 "클라이언트 먼저, 서버 동일 규칙").
-    const parsed = parsePaymentMethodInput(inputOf(draft));
+    const parsed = parseMethodDraft(draft);
     if (typeof parsed === 'string') { setFormErr(parsed); return; }
     const ok = target === 'add'
       ? await send('POST', { input: parsed, makeDefault: isFirst || draft.makeDefault }, setFormErr)
@@ -325,165 +240,5 @@ function QrPreviewCell({ path }: { path: string }) {
            className="h-[72px] w-[72px] cursor-zoom-in rounded-md border border-x-border bg-white object-contain" />
       {zoom && <ImageLightbox urls={[url]} index={0} onIndexChange={() => {}} onClose={() => setZoom(false)} />}
     </>
-  );
-}
-
-function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, error, influencerId, onSubmit, onCancel }: {
-  draft: Draft; setDraft: (fn: (d: Draft) => Draft) => void;
-  isFirst: boolean;            // 명부에 수단이 하나도 없는 상태 — 첫 수단은 무조건 기본이 된다
-  showDefaultCheck: boolean;   // 추가 폼에만. 수정은 기본 지정을 카드의 '기본으로'가 맡는다
-  busy: boolean; error: string | null;
-  influencerId: string;        // paypay QR 업로드 경로에 쓴다
-  onSubmit: () => void; onCancel: () => void;
-}) {
-  const uid = useId();
-  const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
-  // PayPay는 통화를 고를 수 없다 — 화면 값도 서버 규칙(항상 JPY)에서 파생시켜 라벨과 값을 일치시킨다.
-  const currency: Currency = draft.type === 'paypay' ? 'JPY' : draft.currency;
-
-  // 2열 격자 한 벌로 — 칸마다 폭이 달라 들쭉날쭉하던 배열(피드백)을 같은 폭의 칸으로 맞춘다.
-  // 폼 전체는 max-w-2xl: 넓은 화면에서 입력칸이 화면 끝까지 늘어나면 라벨과 값이 멀어져 읽기 어렵다.
-  const CELL = 'min-w-0';
-  const SPAN2 = 'min-w-0 sm:col-span-2';
-  return (
-    <div className="rounded-lg border border-x-border-strong bg-white px-4 py-3">
-      {error && <p role="alert" className="mb-2 text-ui text-red-600">{error}</p>}
-
-      <div className="grid max-w-2xl grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
-        <div className={CELL}>
-          <label className={FIELD_LABEL} htmlFor={`${uid}-type`}>결제 수단</label>
-          <select id={`${uid}-type`} value={draft.type} disabled={busy}
-                  onChange={(e) => set('type', e.target.value as PaymentMethodType)}
-                  className={`${FIELD} bg-white`}>
-            {PAYMENT_TYPES.map((t) => <option key={t} value={t}>{PAYMENT_TYPE_LABEL[t]}</option>)}
-          </select>
-        </div>
-        <div className={CELL}>
-          <label className={FIELD_LABEL} htmlFor={`${uid}-currency`}>지급 통화</label>
-          <select id={`${uid}-currency`} value={currency} disabled={busy || draft.type === 'paypay'}
-                  onChange={(e) => set('currency', e.target.value as Currency)}
-                  className={`${FIELD} bg-white disabled:bg-x-surface disabled:text-x-secondary`}>
-            {CURRENCIES.map((c) => (
-              <option key={c} value={c}>{`${CURRENCY_SYMBOL[c]} ${c === 'JPY' ? '엔화' : '원화'}`}</option>
-            ))}
-          </select>
-          {/* 단가·캠페인은 원화 기준인데 여기만 ¥가 기본이라 "왜 다르지?"가 된다 — 환산 규칙까지 한 줄로(UX 원칙 2·5) */}
-          <p className="mt-0.5 text-caption text-x-muted">
-            {draft.type === 'paypay' ? 'PayPay는 엔화로만 보내요' : '인플이 받는 통화예요. 캠페인 비용은 원화로 관리하고, 정산 때 10원 = 1엔으로 환산해요.'}
-          </p>
-        </div>
-
-        <div className={SPAN2}>
-          <label className={FIELD_LABEL} htmlFor={`${uid}-holder`}>{holderLabel(draft.type)}</label>
-          <input id={`${uid}-holder`} value={draft.holder} disabled={busy}
-                 onChange={(e) => set('holder', e.target.value)} className={FIELD} />
-        </div>
-
-        {draft.type === 'paypal' && (
-          <>
-            <div className={CELL}>
-              <label className={FIELD_LABEL} htmlFor={`${uid}-email`}>이메일</label>
-              <input id={`${uid}-email`} value={draft.email} disabled={busy} inputMode="email"
-                     onChange={(e) => set('email', e.target.value)} className={FIELD} />
-            </div>
-            <div className={CELL}>
-              <label className={FIELD_LABEL} htmlFor={`${uid}-paypalId`}>PayPal.me 아이디</label>
-              <input id={`${uid}-paypalId`} value={draft.paypalId} disabled={busy} placeholder="paypal.me/ 뒤의 아이디"
-                     onChange={(e) => set('paypalId', e.target.value)} className={FIELD} />
-              <p className="mt-0.5 text-caption text-x-muted">이메일과 아이디 중 하나만 있어도 보낼 수 있어요.</p>
-            </div>
-          </>
-        )}
-
-        {draft.type === 'paypay' && (
-          <div className={SPAN2}>
-            <p className={FIELD_LABEL}>받을 정보 <span className="text-x-muted font-normal">(둘 중 하나만 있어도 돼요)</span></p>
-            <div className="mt-1 space-y-3 rounded-lg border border-x-border p-3">
-              <div>
-                <label className={FIELD_LABEL} htmlFor={`${uid}-identifier`}>수취 식별 정보</label>
-                <input id={`${uid}-identifier`} value={draft.identifier} disabled={busy}
-                       onChange={(e) => set('identifier', e.target.value)} className={FIELD} />
-              </div>
-              <div>
-                <p className={FIELD_LABEL}>QR 이미지</p>
-                <PaymentQrField influencerId={influencerId} value={draft.qr} disabled={busy}
-                                onChange={(path) => set('qr', path)} />
-              </div>
-            </div>
-            <p className="mt-0.5 text-caption text-x-muted">
-              아직 못 받았으면 비워두셔도 돼요 — 정산 쪽에서 확인되면 그때 채우면 됩니다.
-            </p>
-          </div>
-        )}
-
-        {draft.type === 'bank' && (
-          <>
-            <div className={CELL}>
-              <label className={FIELD_LABEL} htmlFor={`${uid}-bank`}>은행</label>
-              <input id={`${uid}-bank`} value={draft.bank} disabled={busy}
-                     onChange={(e) => set('bank', e.target.value)} className={FIELD} />
-            </div>
-            <div className={CELL}>
-              <label className={FIELD_LABEL} htmlFor={`${uid}-branch`}>지점 (선택)</label>
-              <input id={`${uid}-branch`} value={draft.branch} disabled={busy}
-                     onChange={(e) => set('branch', e.target.value)} className={FIELD} />
-            </div>
-            <div className={SPAN2}>
-              <label className={FIELD_LABEL} htmlFor={`${uid}-account`}>계좌번호</label>
-              <input id={`${uid}-account`} value={draft.account} disabled={busy}
-                     onChange={(e) => set('account', e.target.value)} className={FIELD} />
-            </div>
-          </>
-        )}
-
-        <div className={CELL}>
-          <label className={FIELD_LABEL} htmlFor={`${uid}-fee`}>송금 수수료</label>
-          <select id={`${uid}-fee`} value={draft.feeMode} disabled={busy}
-                  onChange={(e) => set('feeMode', e.target.value as FeeMode)}
-                  className={`${FIELD} bg-white`}>
-            {(Object.keys(FEE_MODE_LABEL) as FeeMode[]).map((k) => (
-              <option key={k} value={k}>{FEE_MODE_LABEL[k]}</option>
-            ))}
-          </select>
-        </div>
-        {/* 수수료 값 칸은 처리 방식이 있을 때만 — 없을 때는 옆 칸을 비워 격자 리듬을 지킨다 */}
-        {draft.feeMode === 'grossUp' && (
-          <div className={CELL}>
-            <label className={FIELD_LABEL} htmlFor={`${uid}-percent`}>비율 (%)</label>
-            <input id={`${uid}-percent`} value={draft.feePercent} disabled={busy} inputMode="decimal"
-                   onChange={(e) => set('feePercent', e.target.value)} className={`${FIELD} text-right`} />
-          </div>
-        )}
-        {draft.feeMode === 'fixed' && (
-          <div className={CELL}>
-            <label className={FIELD_LABEL} htmlFor={`${uid}-amount`}>고정액 ({CURRENCY_LABEL[currency]})</label>
-            <input id={`${uid}-amount`} value={draft.feeAmount} disabled={busy} inputMode="numeric"
-                   onChange={(e) => set('feeAmount', e.target.value)} className={`${FIELD} text-right`} />
-          </div>
-        )}
-        {draft.feeMode === 'none' && <div className="hidden sm:block" aria-hidden />}
-
-        <div className={SPAN2}>
-          <label className={FIELD_LABEL} htmlFor={`${uid}-memo`}>메모 (선택)</label>
-          <input id={`${uid}-memo`} value={draft.memo} disabled={busy} maxLength={200}
-                 placeholder="예: 월말 정산 희망"
-                 onChange={(e) => set('memo', e.target.value)} className={FIELD} />
-        </div>
-      </div>
-
-      {showDefaultCheck && (
-        <label className="mt-3 flex items-center gap-2 text-ui text-x-secondary">
-          <input type="checkbox" checked={isFirst || draft.makeDefault} disabled={busy || isFirst}
-                 onChange={(e) => set('makeDefault', e.target.checked)} />
-          기본 수단으로
-          {isFirst && <span className="text-caption text-x-muted">첫 수단은 기본이 돼요</span>}
-        </label>
-      )}
-
-      <div className="mt-3 flex items-center gap-1.5">
-        <Button variant="primary" onClick={onSubmit} disabled={busy}>{busy ? '저장 중…' : '저장'}</Button>
-        <Button variant="subtle" onClick={onCancel} disabled={busy}>취소</Button>
-      </div>
-    </div>
   );
 }

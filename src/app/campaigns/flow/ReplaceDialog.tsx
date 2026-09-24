@@ -63,7 +63,9 @@ export function ReplaceDialog({ task, influencerOptions, roster, initialHandle, 
     const same = !!h && !!task.influencerHandle && h.toLowerCase() === task.influencerHandle.toLowerCase();
     setHandle(same ? '' : h); setHandleInput(h);
     setHandleErr(same ? SAME_PERSON_MESSAGE : null);
-    if (h && !same) setCostChoice('keep');   // 사람이 바뀌면 새 단가 선택은 다시 기본값(유지)부터
+    // 사람이 바뀌면 새 단가 선택은 다시 기본값(유지)부터 — 같은 사람이 다시 확정될 때(칸을 떠날 때마다 blur가 확정한다)는
+    // 고른 '새 단가로'를 되돌리지 않는다(안 그러면 [교체하기]를 누르는 순간의 blur가 선택을 조용히 '유지'로 바꾼다)
+    if (h && !same && h.toLowerCase() !== handle.toLowerCase()) setCostChoice('keep');
   }
 
   const option = handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined;

@@ -177,6 +177,17 @@ export function getDefaultPaymentMethod(list: PaymentMethod[]): PaymentMethod | 
   return list.find((m) => m.isDefault) ?? null;
 }
 
+// 이 작업에 쓸 결제 수단(설계 §8-2) — 작업이 고른 id가 지금 목록에 있으면 그것, 없으면(null이거나 그 사이 지워짐) 기본 수단.
+// 정산 후보·제자리 수정(reviseRequest)·캠페인 수수료 합계·작업 패널 표시가 이 하나를 쓴다 — 판정을 두 벌로 두지 않는다.
+// 제네릭인 이유: 패널은 계좌번호를 뺀 요약(PaymentChoice, paymentChoice.ts)에 같은 규칙을 적용한다.
+export function taskPaymentMethod<T extends { id: string; isDefault: boolean }>(list: T[], chosenId: string | null | undefined): T | null {
+  if (chosenId) {
+    const hit = list.find((m) => m.id === chosenId);
+    if (hit) return hit;
+  }
+  return list.find((m) => m.isDefault) ?? null;
+}
+
 // 명부 목록 배지 문구 — InfluencerRow.settlement(기본 결제 수단의 통화·수수료만)에서 파생.
 // 계좌·이메일 등은 settlement에 애초에 없으니 여기서도 다룰 일이 없다(스펙 §5-4).
 export function settlementBadge(

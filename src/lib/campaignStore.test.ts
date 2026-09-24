@@ -264,6 +264,21 @@ test('12-1) spendByPeriods — feeKrw·feeUnknown(인플 부담 0 · CB 비율 5
   assert.equal(spend.feeUnknown, 1);
 });
 
+test('12-2) spendByPeriods — 작업이 고른 결제 수단의 수수료로 합계(060), 고른 수단이 없어지면 기본 수단', async () => {
+  const c = await createClient(sql, P + '수수료클라2');
+  await createBudgetPeriod(sql, c.id, { startsOn: '2026-08-01', endsOn: '2026-08-31', amountKrw: 1 });
+  const period = (await listBudgetPeriods(sql, c.id))[0];
+  const camp = await createCampaign(sql, { ...base(c.id, c.name, 'fee2'), startsOn: '2026-08-12', endsOn: '2026-08-18' });
+  const { row: inf } = await createInfluencer(sql, { handle: P + '_pick', createdBy: null });
+  await updatePaymentMethods(sql, inf.id, { kind: 'add', input: { type: 'bank', holder: 'K', currency: 'JPY', bank: 'b', account: '1' }, makeDefault: true }, null);   // 기본 = 인플 부담
+  const r = await updatePaymentMethods(sql, inf.id, { kind: 'add', input: { type: 'bank', holder: 'K', currency: 'JPY', bank: 'b', account: '2', fee: { mode: 'fixed', amount: 165 } } }, null);
+  const cb = r.paymentMethods.find((x) => x.account === '2')!;
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: inf.handle, cost: { amount: 10_000, currency: 'JPY' }, paymentMethodId: cb.id }] });
+  assert.equal((await spendByPeriods(sql, c.id, [period])).get(period.id)!.feeKrw, 1_650);   // ¥165 × 10(12-1과 같은 환산)
+  await sql`update campaign_task set payment_method_id = 'gone' where id = ${t.id}`;
+  assert.equal((await spendByPeriods(sql, c.id, [period])).get(period.id)!.feeKrw, 0);        // 기본(인플 부담)으로
+});
+
 test('13) getCampaignDetail.budget — 기간에 귀속·othersKrw는 같은 기간 다른 캠페인 몫·클라 없으면 null·기간 밖이면 source none', async () => {
   const c = await createClient(sql, P + '예산클라2');
   await createBudgetPeriod(sql, c.id, { startsOn: '2026-08-01', endsOn: '2026-08-31', amountKrw: 2_500_000 });

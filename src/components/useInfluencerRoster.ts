@@ -41,8 +41,11 @@ export function useInfluencerRoster() {
       if (e instanceof Error && e.message === 'unauthorized') throw e;   // 로그인으로 보내는 중 — campaignApi.call과 같은 태도
       return { ok: false, error: '네트워크 오류가 났어요 — 연결을 확인하고 다시 시도해 주세요' };
     }
-    const r = await toApiResult<{ influencer: { handle: string } }>(res);
+    const r = await toApiResult<{ influencer: { handle: string } | null }>(res);
     if (!r.ok) return { ok: false, error: r.error };
+    // 개명 트윈 레이스(route.ts 55-76): 트랜잭션 중 그 행이 지워지면 200에 influencer:null이 온다 —
+    // 등록도 실패도 아닌 애매한 상태라 명부를 다시 읽고 사용자가 다시 시도하게 한다.
+    if (!r.data.influencer) { await reload(); return { ok: false, error: '명부를 다시 불러온 뒤 다시 시도해 주세요' }; }
     await reload();
     setVersion((v) => v + 1);
     return { ok: true, handle: r.data.influencer.handle };

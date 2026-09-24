@@ -34,6 +34,9 @@ export function InfluencerChip({ handle, options, onChange, label, roster }: {
   const [err, setErr] = useState<string | null>(null);
   const chipRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
+  // 지금 열려 있는 팝오버 한 번(열 때마다 새 객체, 닫으면 null) — 등록 중에 닫거나 취소했으면 늦게 온 확정을 버린다.
+  // 콤보박스도 언마운트로 스스로 버리지만, 이 칩이 '닫힌 뒤엔 배정하지 않는다'를 직접 쥔다. 쓰기는 핸들러에서만.
+  const sessionRef = useRef<object | null>(null);
 
   // 칩의 화면 좌표에 팝오버를 고정한다. 카드 안에 absolute로 넣지 않는 이유는 두 가지다 —
   // 카드 루트가 overflow-hidden이라 짧은 카드에서는 잘리고, 이 카드는 peek 오버레이(z-40) 안에서도
@@ -54,6 +57,7 @@ export function InfluencerChip({ handle, options, onChange, label, roster }: {
     // activeElement가 body로 튕긴다(useDismissible 선례). 바깥을 눌러 닫을 때는 사용자가 방금 누른 곳에서
     // 초점을 뺏지 않도록, 초점이 팝오버 안에 있을 때만 칩으로 되돌린다.
     if (popRef.current?.contains(document.activeElement)) chipRef.current?.focus();
+    sessionRef.current = null;
     setOpen(false);
   }, []);
 
@@ -61,6 +65,7 @@ export function InfluencerChip({ handle, options, onChange, label, roster }: {
     setValue(handle ?? '');   // 열 때마다 현재 배정에서 다시 시작 — 지난번에 취소한 입력이 남지 않는다
     setErr(null);
     place();
+    sessionRef.current = {};
     setOpen(true);
   }
 
@@ -95,6 +100,7 @@ export function InfluencerChip({ handle, options, onChange, label, roster }: {
   // '등록하고 배정'은 await 뒤 같은 틱에 이 함수를 부르는데, 그때 이 클로저의 options는 등록 전 목록이라
   // 다시 판정하면 방금 등록한 사람이 '명부 밖'으로 나와 저장이 안 된다. ''는 비우기(= 배정 해제).
   function commitRoster(h: string) {
+    if (!sessionRef.current) return;   // 이미 닫혔다(취소·바깥 클릭·Esc) — 사용자가 마음을 바꿨다
     const next = h || null;
     if (bulk || next !== handle) onChange(next);
     close();

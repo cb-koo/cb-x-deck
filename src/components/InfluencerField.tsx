@@ -1,9 +1,9 @@
 'use client';
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import type { TaskType } from '@/lib/campaignJudgment';
 import { formatAmount, suggestTaskCost } from '@/lib/campaignCost';
-import { resolveRosterInput, rosterSuggestions, ROSTER_FAILED_MESSAGE, type RosterGate } from '@/lib/rosterPick';
+import { resolveRosterInput, rosterSuggestions, shouldCommitRegistration, ROSTER_FAILED_MESSAGE, type RosterGate } from '@/lib/rosterPick';
 import { Avatar } from '@/components/Avatar';
 
 // 원고를 게시할 인플루언서 한 명 — X 핸들 한 칸 (스펙 2026-08-11 §D).
@@ -99,14 +99,27 @@ function RosterCombobox({ value, options, onChange, error, autoFocus, hideLabel,
   const [active, setActive] = useState(-1);   // 방향키로 고른 후보(-1 = 없음)
   const [localErr, setLocalErr] = useState<string | null>(null);
   const [reg, setReg] = useState<{ handle: string; busy: boolean; error: string | null } | null>(null);
+  // 늦게 온 등록 응답 막기 — 지금 유효한 등록 요청(없으면 null)과 마운트 여부. 쓰기는 핸들러·이펙트 정리에서만(렌더 중 읽지 않는다).
+  const regTokenRef = useRef<object | null>(null);
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; regTokenRef.current = null; };   // 칸이 닫히면(칩 취소·바깥 클릭) 진행 중 등록은 무효
+  }, []);
+  // 칸 값이 밖에서 바뀌면(등록 중엔 입력칸이 읽기 전용이라 바뀌었다면 부모가 바꾼 것) 진행 중 등록은 무효 — setState 없는 정리만
+  useEffect(() => () => { regTokenRef.current = null; }, [value]);
+  const busy = !!reg?.busy;   // 등록은 한 번에 하나 — 도는 동안 입력칸은 읽기 전용, 등록 줄은 전부 비활성
 
   const resolved = resolveRosterInput(value, options, roster.status);
   const list = roster.status === 'ok' ? rosterSuggestions(options, value) : [];
   const outside = resolved.kind === 'outside' ? resolved.handle : null;
   // 등록 상태는 그 핸들에만 붙는다 — 다른 핸들로 고쳐 치면 옛 '불러오는 중…'·오류가 남지 않는다
   const regFor = reg && outside && reg.handle.toLowerCase() === outside.toLowerCase() ? reg : null;
-  const showList = open && list.length > 0;
+  const showList = open && list.length > 0 && !busy;   // 등록 중엔 다른 후보를 고를 수 없다
   const shownErr = regFor?.error ?? localErr ?? error;
+  // 명부 상태 안내(실패·읽는 중)는 한 번만 — 칩 [저장]이 같은 문구를 오류로 올렸으면(빨강) 안내 줄은 숨긴다
+  const statusMsg = roster.status === 'failed' ? ROSTER_FAILED_MESSAGE : resolved.kind === 'unavailable' ? resolved.message : null;
+  const showStatus = statusMsg !== null && shownErr !== statusMsg;
 
   // 고른 핸들을 입력칸에도 명부 표기로 채운다 — 안 채우면 친 글자('coc')가 남아, 한 칸짜리 폼에서 나중 blur가
   // 그 글자를 다시 판정해 방금 고른 사람을 다른 사람(정확히 'coc'인 명부 행)으로 덮을 수 있다.
@@ -119,8 +132,23 @@ function RosterCombobox({ value, options, onChange, error, autoFocus, hideLabel,
     // outside·unavailable — 확정하지 않는다. 등록 줄·안내 줄이 이미 이유를 말한다.
   }
   async function registerAndPick(h: string) {
+    if (regTokenRef.current) return;   // 이미 하나 도는 중 — 두 번째 POST를 내지 않는다
+    const token = {};
+    regTokenRef.current = token;
     setReg({ handle: h, busy: true, error: null });
-    const r = await roster.register(h);
+    let r: Awaited<ReturnType<RosterGate['register']>>;
+    try { r = await roster.register(h); }
+    catch (e) {   // 로그인으로 보내는 중(unauthorized) — 잠금만 풀고 그대로 던진다
+      if (regTokenRef.current === token) regTokenRef.current = null;
+      if (mountedRef.current) setReg(null);
+      throw e;
+    }
+    if (!shouldCommitRegistration(token, regTokenRef.current, mountedRef.current)) {
+      // 그사이 마음을 바꿨다(칸 닫힘·값이 밖에서 바뀜) — 배정하지 않는다. 칸이 살아 있으면 '불러오는 중'만 푼다
+      if (mountedRef.current) setReg(null);
+      return;
+    }
+    regTokenRef.current = null;
     if (!r.ok) { setReg({ handle: h, busy: false, error: r.error }); return; }   // 서버 문구 그대로(X에 없는 계정·조회 실패) — 다시 누를 수 있다
     setReg(null);
     pick(r.handle);
@@ -129,21 +157,24 @@ function RosterCombobox({ value, options, onChange, error, autoFocus, hideLabel,
   return (
     <div>
       <label htmlFor={inputId} className={hideLabel ? 'sr-only' : 'block text-ui text-x-muted'}>게시할 인플루언서</label>
-      <input id={inputId} role="combobox" aria-expanded={showList} aria-controls={listId} aria-autocomplete="list"
+      <input id={inputId} role="combobox" aria-expanded={showList} aria-controls={showList ? listId : undefined} aria-autocomplete="list"
              aria-activedescendant={showList && active >= 0 ? `${listId}-${active}` : undefined}
-             value={value} autoFocus={autoFocus} placeholder="@핸들 또는 프로필 링크 붙여넣기"
+             value={value} readOnly={busy} autoFocus={autoFocus} placeholder="@핸들 또는 프로필 링크 붙여넣기"
              onChange={(e) => { onChange(e.target.value); setOpen(true); setActive(-1); setLocalErr(null); }}
              onFocus={() => setOpen(true)}
-             onBlur={(e) => { setOpen(false); if (commitOnBlur) commitTyped(e.currentTarget.value); }}
+             onBlur={(e) => { setOpen(false); setActive(-1); if (commitOnBlur && !busy) commitTyped(e.currentTarget.value); }}
              onKeyDown={(e) => {
                // 한글·일본어 조합을 확정하는 Enter가 저장으로 새면 안 된다(저장소 관례: nativeEvent.isComposing)
                if (e.nativeEvent.isComposing) return;
-               if (e.key === 'ArrowDown' && list.length) { e.preventDefault(); setOpen(true); setActive((i) => Math.min(i + 1, list.length - 1)); return; }
-               if (e.key === 'ArrowUp' && list.length) { e.preventDefault(); setActive((i) => Math.max(i - 1, 0)); return; }
+               // 목록이 닫혀 있으면 ↑/↓는 다시 열기만 한다 — 보이지 않는 후보를 고른 상태로 두지 않는다
+               if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && list.length && !showList) { e.preventDefault(); setOpen(true); setActive(-1); return; }
+               if (e.key === 'ArrowDown' && showList) { e.preventDefault(); setActive((i) => Math.min(i + 1, list.length - 1)); return; }
+               if (e.key === 'ArrowUp' && showList) { e.preventDefault(); setActive((i) => Math.max(i - 1, 0)); return; }
                // 목록이 열려 있으면 Esc는 목록만 닫는다 — 패널·교체 창의 document Esc까지 가지 않게 전파를 끊는다
-               if (e.key === 'Escape' && showList) { e.stopPropagation(); setOpen(false); return; }
+               if (e.key === 'Escape' && showList) { e.stopPropagation(); setOpen(false); setActive(-1); return; }
                if (e.key === 'Enter') {
                  e.preventDefault();
+                 if (busy) return;   // 등록이 도는 중엔 다른 확정을 받지 않는다
                  if (showList && active >= 0 && list[active]) pick(list[active].handle);
                  else commitTyped(e.currentTarget.value);   // 값은 state가 아니라 입력칸에서 읽는다(목록을 고른 직후 state가 늦다)
                }
@@ -174,15 +205,13 @@ function RosterCombobox({ value, options, onChange, error, autoFocus, hideLabel,
       )}
       {/* 등록 줄은 listbox 밖의 진짜 버튼이다 — 키보드(Tab)로도 닿고, 명시적으로 눌러야만 X 조회가 나간다 */}
       {outside && (
-        <button type="button" onMouseDown={(e) => e.preventDefault()} disabled={!!regFor?.busy}
+        <button type="button" onMouseDown={(e) => e.preventDefault()} disabled={busy}
                 onClick={() => void registerAndPick(outside)}
                 className="mt-1 flex min-h-11 w-full items-center rounded-lg border border-dashed border-x-border-strong px-3 text-left text-content text-x-blue-text hover:bg-x-hover disabled:cursor-default disabled:text-x-muted">
           {regFor?.busy ? '불러오는 중…' : `@${outside} 명부에 등록하고 배정`}
         </button>
       )}
-      {roster.status === 'failed'
-        ? <p className="mt-1 text-ui text-amber-700">{ROSTER_FAILED_MESSAGE}</p>
-        : resolved.kind === 'unavailable' && <p className="mt-1 text-ui text-x-muted">{resolved.message}</p>}
+      {showStatus && <p className={`mt-1 text-ui ${roster.status === 'failed' ? 'text-amber-700' : 'text-x-muted'}`}>{statusMsg}</p>}
       {/* role="alert": 오류는 버튼(등록·저장)을 누른 뒤 뜬다 — 포커스가 버튼에 있어 describedby만으로는 안 읽힌다 */}
       {shownErr && <p id={errId} role="alert" className="mt-1 text-ui text-red-600">{shownErr}</p>}
     </div>

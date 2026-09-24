@@ -5,7 +5,8 @@ import { TASK_TYPE_LABEL, formatDateKo } from '@/lib/campaignJudgment';
 import { formatAmount, suggestTaskCost, type TaskCost } from '@/lib/campaignCost';
 import type { CancelReason } from '@/lib/campaignTaskInput';
 import type { InfluencerOption } from '@/lib/draftTypes';
-import { resolveRosterInput, type RosterGate } from '@/lib/rosterPick';
+import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
+import type { RosterGate } from '@/lib/rosterPick';
 import { InfluencerField } from '@/components/InfluencerField';
 import { Button } from '@/components/ui';
 
@@ -14,28 +15,27 @@ import { Button } from '@/components/ui';
 // 그 선택지 자체를 감춘다 — 통화 단위가 다른 값을 슬쩍 밀어 넣지 않는다(koo 결정, 리뷰 carried-over 2).
 // onConfirm은 flowActions.replace를 감싼 것 — CancelDialog·BulkCreateDialog와 같은 관례로 제출 뒤 결과와
 // 무관하게 닫는다(성공·실패는 토스트가 말한다).
-// 카드에서 미리 골라 넘어온 핸들(initialHandle)을 명부로 판정한다 — 입력칸에서 친 값은 콤보박스가 이미 판정을
-// 끝내고 명부 표기로 넘기므로(commitHandle) 여기를 다시 타지 않는다(Global Constraints — 다시 판정하면 '등록하고 배정'
-// 직후 옛 목록 때문에 방금 등록한 사람이 명부 밖으로 나온다). 같은 사람 문구는 두 길이 같은 것을 쓴다.
-// 명부 밖이면 확정하지 않는다(handle '') — 입력칸의 '명부에 등록하고 배정' 줄이 다음 행동을 말한다(설계 §9 ③).
+// 카드에서 미리 골라 넘어온 핸들(initialHandle)의 형식·같은 사람만 본다 — 명부 판정은 다시 하지 않는다. 그 값은
+// 원고 카드 칩(명부 모드)이 이미 판정을 끝낸 명부 표기다(Global Constraints: onCommit은 명부 표기를 믿는다 — '등록하고
+// 배정' 직후엔 받는 쪽 목록이 등록 전 것일 수 있어 다시 판정하면 방금 등록한 사람이 명부 밖으로 나온다).
+// 입력칸에서 친 값도 콤보박스가 판정을 끝내고 넘긴다(commitHandle). 같은 사람 문구는 두 길이 같은 것을 쓴다.
 const SAME_PERSON_MESSAGE = '같은 인플루언서예요 — 바꿀 사람을 골라요';
-function resolveHandle(raw: string, currentHandle: string | null, options: InfluencerOption[], roster: RosterGate): { handle: string; handleInput: string; handleErr: string | null } {
-  const r = resolveRosterInput(raw, options, roster.status);
-  if (r.kind === 'empty') return { handle: '', handleInput: '', handleErr: null };
-  if (r.kind === 'invalid' || r.kind === 'unavailable') return { handle: '', handleInput: raw, handleErr: r.message };
-  if (r.kind === 'outside') return { handle: '', handleInput: raw, handleErr: null };
-  if (currentHandle && r.handle.toLowerCase() === currentHandle.toLowerCase()) {
-    return { handle: '', handleInput: r.handle, handleErr: SAME_PERSON_MESSAGE };
+function resolveHandle(raw: string, currentHandle: string | null): { handle: string; handleInput: string; handleErr: string | null } {
+  const v = raw.trim();
+  if (!v) return { handle: '', handleInput: '', handleErr: null };
+  const p = parseXHandle(v);
+  if (!p.ok) return { handle: '', handleInput: raw, handleErr: handleParseMessage(p.reason) };
+  if (currentHandle && p.handle.toLowerCase() === currentHandle.toLowerCase()) {
+    return { handle: '', handleInput: p.handle, handleErr: SAME_PERSON_MESSAGE };
   }
-  return { handle: r.handle, handleInput: r.handle, handleErr: null };
+  return { handle: p.handle, handleInput: p.handle, handleErr: null };
 }
 
 export function ReplaceDialog({ task, influencerOptions, roster, initialHandle, onClose, onConfirm }: {
   task: FlowRow;
   influencerOptions: InfluencerOption[];
   roster: RosterGate;   // 명부 관문(설계 §9) — 새 사람은 명부에서 고르거나 '명부에 등록하고 배정'만 된다
-  // 원고 카드에서 이미 고른 핸들(선택) — 있으면 입력칸에 미리 채운 채 연다. 판정은 resolveHandle(명부 판정 +
-  // 같은 사람) — 입력칸의 확정(commitHandle)은 콤보박스가 명부 판정을 끝낸 값이라 같은 사람 확인만 한다.
+  // 원고 카드에서 이미 고른 핸들(선택, 명부 표기) — 있으면 입력칸에 미리 채운 채 연다. 형식·같은 사람만 본다(resolveHandle).
   initialHandle?: string;
   onClose: () => void;
   onConfirm: (body: { handle: string; cost?: TaskCost | null; reason?: CancelReason | null; note?: string }) => Promise<void>;
@@ -43,7 +43,7 @@ export function ReplaceDialog({ task, influencerOptions, roster, initialHandle, 
   // 다이얼로그는 열릴 때마다 새로 마운트된다(FlowDetail이 {replaceFor && <ReplaceDialog .../>}로 그린다) —
   // 그래서 마운트 시 한 번 계산하는 이 값은 매번 다시 여는 것과 같다(리렌더마다 다시 계산돼도 useState
   // 초기값 인자로만 쓰이므로 첫 렌더 뒤로는 영향이 없다).
-  const initial = initialHandle ? resolveHandle(initialHandle, task.influencerHandle, influencerOptions, roster) : { handle: '', handleInput: '', handleErr: null };
+  const initial = initialHandle ? resolveHandle(initialHandle, task.influencerHandle) : { handle: '', handleInput: '', handleErr: null };
   const [handleInput, setHandleInput] = useState(initial.handleInput);
   const [handle, setHandle] = useState(initial.handle);
   const [handleErr, setHandleErr] = useState<string | null>(initial.handleErr);

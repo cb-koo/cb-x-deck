@@ -64,6 +64,9 @@ export type FormDraftContext = { type: TaskType | null; handle: string | null; t
 // 기능으로 읽는다. export하는 이유 — FlowDetail이 이 값을 그대로 가져다 패널 닫기 자리의 closeConfirm을
 // 만든다(Task 4e — 원고가 작성 중일 때 닫는 동작에 쓸 문장은 이 상수 하나뿐이라 FlowDetail이 새로 짓지
 // 않고 가져다 쓴다).
+// 새 작업 [만들기] — 인플 칸에 친 글자가 확정되지 않았을 때(명부에서 고르지도 등록하지도 않았다)
+const UNCOMMITTED_HANDLE_MESSAGE = '인플을 목록에서 고르거나 명부에 등록해 주세요';
+
 export const DRAFT_WRITE_LOST_CONFIRM = '작성 중인 원고가 있어요. 닫으면 저장되지 않고 사라져요. 닫을까요?';
 
 export function TaskPanel({
@@ -197,7 +200,6 @@ export function TaskPanel({
 
   // ── 편집 모드 로컬 상태 — 미배정 인플 입력 버퍼, 메모 입력 버퍼(값이 바뀌었을 때만 저장) ──
   const [editHandleInput, setEditHandleInput] = useState('');
-  const [editHandleErr, setEditHandleErr] = useState<string | null>(null);
   const [noteBuf, setNoteBuf] = useState(task?.note ?? '');
   // 이미 명부 밖으로 배정된 작업의 [명부에 등록](§9) — 등록만 한다(배정은 이미 돼 있다)
   const [regBusy, setRegBusy] = useState(false);
@@ -362,6 +364,10 @@ export function TaskPanel({
   }
   async function submitNew(more: boolean) {
     if (!newType || busy) return;
+    // 친 글자가 확정되지 않은 채(명부 밖·형식 오류 등) 남아 있으면 미정 작업으로 조용히 만들지 않는다 — 칸 아래 한 줄로
+    // 다음 행동을 말한다. 글자를 지우면 지금처럼 미정으로 만들 수 있다. 원고가 붙어 칸이 잠겼으면(newDraft) 입력칸이
+    // 안 보이므로 보지 않는다.
+    if (!newDraft && !handle && handleInput.trim()) { setHandleErr(UNCOMMITTED_HANDLE_MESSAGE); return; }
     if (newCost === 'invalid') { setCostErr(AMOUNT_MESSAGE); return; }
     setBusy(true);
     // 본문 조립은 buildTaskCreateBody 하나로(Task 1) — 서버 제약(draftId는 1명 이하·count와 배타)을 여기서
@@ -384,7 +390,6 @@ export function TaskPanel({
   // 다시 판정하지 않는다(Global Constraints) — '등록하고 배정' 직후엔 이 클로저의 명부 목록이 등록 전 것이다.
   async function commitEditHandle(t: FlowRow, h: string) {
     if (!h) return;
-    setEditHandleErr(null);
     // 게시된 작업의 최초 배정은 저장하는 순간 잠긴다(서버가 그 뒤의 변경·해제를 거절한다) — 오타 한 번이
     // 삭제·재생성 말고는 되돌릴 수 없는 상태를 만들므로, 블러로 조용히 저장하지 않고 한 번 묻는다.
     if (t.postedAt && !window.confirm(`@${h}로 저장할까요?\n\n게시된 작업이라 나중에 바꿀 수 없어요.`)) return;
@@ -394,11 +399,17 @@ export function TaskPanel({
     if (ok) setEditHandleInput('');
   }
   // 명부 밖으로 이미 배정된 작업의 [명부에 등록] — 성공하면 훅이 명부를 다시 읽어 사진·이름이 뜨고 '명부에 없음'이 사라진다
-  async function registerExisting(h: string) {
+  async function registerExisting(t: FlowRow, h: string) {
     setRegBusy(true); setRegErr(null);
     const r = await roster.register(h);
     setRegBusy(false);
-    if (!r.ok) setRegErr(r.error);   // 서버 문구 그대로(X에 없는 계정·조회 실패) — 다시 누를 수 있다
+    if (!r.ok) { setRegErr(r.error); return; }   // 서버 문구 그대로(X에 없는 계정·조회 실패) — 다시 누를 수 있다
+    // 명부 표기가 대소문자만 다르면(이미 있던 행) 작업의 표기도 명부 표기로 맞춘다 — 같은 사람이라 서버가 허용하고
+    // 결제 수단 선택도 유지된다(저장 표기는 명부 표기, Global Constraints). 게시된 작업은 서버가 인플 칸을 잠가 두므로
+    // 건드리지 않는다(표시는 대소문자 무관 조회라 그대로 명부 행을 찾는다). 다른 사람이 오는 일은 없다(등록은 같은 핸들).
+    if (r.handle !== h && r.handle.toLowerCase() === h.toLowerCase() && !t.postedAt) {
+      await actions.assignInfluencer(t, r.handle, { autoCost: false });
+    }
   }
 
   // 인플루언서 해제(koo 09-19 결정 2) — 뼈대에 사람을 잘못 넣었을 때 다른 사람 이름을 대지 않고 미정으로
@@ -458,7 +469,7 @@ export function TaskPanel({
           const outside = !opt && roster.status === 'ok';
           const note = outside ? '명부에 없음' : undefined;
           const registerBtn = outside ? (
-            <button type="button" onClick={() => void registerExisting(t.influencerHandle as string)} disabled={regBusy}
+            <button type="button" onClick={() => void registerExisting(t, t.influencerHandle as string)} disabled={regBusy}
                     className="text-ui text-x-blue-text hover:underline disabled:cursor-default disabled:text-x-muted disabled:no-underline">
               {regBusy ? '불러오는 중…' : '명부에 등록'}
             </button>
@@ -495,7 +506,7 @@ export function TaskPanel({
           <div>
             <InfluencerField value={editHandleInput} options={influencerOptions} hideLabel hideHelp
                              roster={roster} commitOnBlur priceType={t.type}
-                             onChange={(v) => { setEditHandleInput(v); setEditHandleErr(null); }} error={editHandleErr}
+                             onChange={setEditHandleInput} error={null}
                              onCommit={(h) => void commitEditHandle(t, h)} />
             {/* C1-b가 이 배정을 이제 서버에서 허용한다 — 왜 이 칸이 아직 남아 있는지, 채우면 뭐가 달라지는지 알린다 */}
             {t.postedAt && <p className="mt-1 text-ui text-x-muted">게시 확인된 작업이에요 — 누가 올렸는지 적으면 정산 후보에 잡혀요. 한 번 적으면 바꿀 수 없어요</p>}

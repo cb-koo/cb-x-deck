@@ -28,11 +28,13 @@ import type { DraftRow } from '@/lib/draftStore';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { ReferenceRow } from '@/lib/referenceStore';
 import type { DraftStatus } from '@/lib/draftStatus';
-import type { InfluencerOption, DraftContent } from '@/lib/draftTypes';
+import type { DraftContent } from '@/lib/draftTypes';
 import type { CampaignRow } from '@/lib/campaignStore';
 import { fetchCampaigns, fetchCampaignDetail, createTasksApi } from '@/lib/campaignApi';
 import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
 import { kstToday } from '@/lib/datetime';
+import { useInfluencerRoster } from '@/components/useInfluencerRoster';
+import { findRosterOption } from '@/lib/rosterPick';
 
 const COMPOSER_KEY = 'cbx-composer'; // 직전 설정 유지 (스펙 §4 "바꾸기 — 직전 값 유지")
 // 보기 방식 — 렌즈(필터)와 달리 작업 방식 선호라 저장한다 (스펙 2차 §확정 결정)
@@ -51,7 +53,8 @@ function Workbench() {
   const searchParams = useSearchParams();
   const [clients, setClients] = useState<Array<{ client: ClientRow; procedures: ProcedureRow[] }>>([]);
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
-  const [influencerOptions, setInfluencerOptions] = useState<InfluencerOption[]>([]); // 편집창 자동완성 후보
+  // 명부(배정 후보 + 단가·사진) — 읽기·등록은 공용 훅 하나(설계 §9). 실패와 빈 목록을 구분해 게이팅이 오판하지 않게 한다.
+  const { options: influencerOptions, gate: rosterGate } = useInfluencerRoster();
   const [loaded, setLoaded] = useState(false);
   // 초안(loaded)과 별도 추적 — 로딩을 API별로 독립시키면서 'loaded면 clients도 있다'는 가정이 깨졌다.
   // 이 플래그 없이 loaded로 온보딩 배너를 걸면, clients가 아직 오는 중(2~20초)에 "클라이언트를 먼저
@@ -194,11 +197,6 @@ function Workbench() {
       setComposer((cur) => (cur.clientId && !(c as Array<{ client: ClientRow }>).some((x) => x.client.id === cur.clientId)
         ? { ...cur, clientId: null, procedureIds: [] } : cur));
     }).catch(() => setToast('클라이언트 목록을 불러오지 못했어요 — 원고 생성 시 클라이언트를 고를 수 없어요'));
-
-    // 자동완성은 편의일 뿐이라 실패해도 빈 목록으로 삼킨다 — 자유 입력이라는 본 기능은 그대로 동작하므로
-    // 여기서 토스트를 띄우면, 쓸 수 있는 걸 못 쓰는 것처럼 보이게 만든다 (스펙 §G).
-    apiFetch('/api/drafts/influencers').then((r) => (r.ok ? r.json() : [])).catch(() => [])
-      .then((inf) => setInfluencerOptions(Array.isArray(inf) ? inf : []));
 
     // 캠페인 목록 — 카드 작업 칸·표 열·필터의 소스. 실패해도 원고 열람은 막지 않는다(작업 칸이 '없음'만 보인다).
     fetchCampaigns().then((r) => {
@@ -668,10 +666,17 @@ function Workbench() {
       // 작업 만들기 + 이 원고 붙이기를 한 트랜잭션으로(서버가 draftId를 받아 처리) — 따로 하면 작업만
       // 만들고 붙임에 실패했을 때 원고 없는 고아 작업이 남는다(리뷰 발견).
       // 새 작업은 이 원고의 배정 인플루언서로 만든다 — 미배정이면 미배정 작업 한 건(items 비면 서버가 1행을 만든다)
+      // 명부 밖 핸들(예전 원고에 남은 것)은 사람 줄에 싣지 않는다 — 서버가 거절한다(설계 §9). 빈 줄로 만들면
+      // 미배정 작업 + 이 원고 붙이기가 되고, 붙일 때 attachDraft가 명부 밖 핸들을 채우지 않아 미배정으로 남는다(같은 규칙).
+      // 명부를 아직 못 읽었으면(불러오는 중·실패 — 목록이 비어 모두 명부 밖으로 보인다) 판정하지 않고 핸들을 그대로 싣는다
+      // — 판정은 서버가 하고, 명부 밖이면 서버 문구가 토스트로 뜬다.
+      const known = rosterGate.status === 'ok';
+      const outside = !!d.influencerHandle && known && !findRosterOption(influencerOptions, d.influencerHandle);
       const r = await createTasksApi(campaignId, {
-        type, draftId: d.id, influencers: d.influencerHandle ? [{ handle: d.influencerHandle }] : [],
+        type, draftId: d.id, influencers: d.influencerHandle && !outside ? [{ handle: d.influencerHandle }] : [],
       });
-      if (!r.ok) { setToast(r.error); return false; }   // 409(이미 다른 작업에 붙음)도 이 문구로 충분하다
+      if (!r.ok) { setToast(r.error); return false; }   // 409(이미 다른 작업에 붙음)·400(명부 밖)도 서버 문구 그대로
+      if (outside) setToast('작업을 만들었어요 — 명부에 없는 인플이라 배정은 비워 뒀어요');
       const updated = await apiFetch(`/api/drafts/${d.id}`).then((res) => (res.ok ? res.json() : null)).catch(() => null);
       if (updated) setDrafts((cur) => cur.map((x) => (x.id === d.id ? (updated as DraftRow) : x)));
       return true;
@@ -939,7 +944,7 @@ function Workbench() {
                        onChangeStatus={(s) => changeStatus(d, s)}
                        onChangeTitle={(next) => changeTitle(d, next)}
                        siblingTotal={d.batchId ? siblingCount(drafts, d.batchId) : null}
-                       influencerOptions={influencerOptions}
+                       influencerOptions={influencerOptions} roster={rosterGate}
                        onAssignInfluencer={(next) => assignInfluencer(d, next)}
                        onSaveMedia={(next) => saveDraftMedia(d, next)}
                        mediaDropNotice={mediaDrop?.draftId === d.id ? mediaDrop.notice : null}
@@ -963,7 +968,7 @@ function Workbench() {
               <ShowMoreButton total={orderedDrafts.length} shown={shownDrafts.length}
                               onMore={() => setShownCount((n) => n + PAGE_STEP)} />
               {selectedIds.size > 0 && (
-                <BulkActionBar count={selectedIds.size} options={influencerOptions}
+                <BulkActionBar count={selectedIds.size} options={influencerOptions} roster={rosterGate}
                                linksText={selectedLinksText}
                                onStatus={bulkStatus} onInfluencer={bulkInfluencer}
                                onDelete={() => requestRemove(drafts.filter((d) => selectedIds.has(d.id)))}
@@ -1003,7 +1008,7 @@ function Workbench() {
                        onChangeStatus={(s) => changeStatus(peeked, s)}
                        onChangeTitle={(next) => changeTitle(peeked, next)}
                        siblingTotal={peeked.batchId ? siblingCount(drafts, peeked.batchId) : null}
-                       influencerOptions={influencerOptions}
+                       influencerOptions={influencerOptions} roster={rosterGate}
                        onAssignInfluencer={(next) => assignInfluencer(peeked, next)}
                        onSaveMedia={(next) => saveDraftMedia(peeked, next)}
                        mediaDropNotice={mediaDrop?.draftId === peeked.id ? mediaDrop.notice : null}

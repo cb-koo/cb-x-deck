@@ -76,6 +76,9 @@ export function InfluencerChip({ handle, options, onChange, label, roster }: {
     let next: string | null = null;
     if (typed) {
       if (roster) {
+        // 지금 배정 그대로 [저장] — 명부 밖으로 남아 있는 옛 배정이어도 같은 사람이라 서버도 받는다. 판정 없이 닫는다
+        // (대소문자 무관, 서버 비교와 같은 기준). 일괄 모드엔 '지금 배정'이 없다.
+        if (!bulk && typed.toLowerCase() === (handle ?? '').toLowerCase()) { close(); return; }
         // 명부 모드 — 명부 표기로만 저장한다. 명부 밖이면 닫지 않고 등록 줄을 가리킨다(거짓 성공 방지)
         const r = resolveRosterInput(typed, options, roster.status);
         if (r.kind === 'invalid' || r.kind === 'unavailable') { setErr(r.message); return; }
@@ -89,7 +92,8 @@ export function InfluencerChip({ handle, options, onChange, label, roster }: {
       }
     }
     // 바뀐 게 없으면 부모를 부르지 않는다 — 같은 값으로 PATCH를 한 번 더 보낼 이유가 없다.
-    // 대소문자는 그대로 보존해 비교한다(Hadakan__ → hadakan__ 도 사용자가 의도한 표기 변경이다).
+    // 대소문자는 그대로 보존해 비교한다(Hadakan__ → hadakan__ 도 사용자가 의도한 표기 변경이다). 명부 모드는 위에서
+    // 대소문자 무관으로 먼저 걸렀고, 저장 표기는 명부 표기라 여기 오는 값은 이미 명부 표기다.
     // 단 일괄 배정(label 모드)에는 '현재 값'이라는 게 없다 — handle이 늘 null이라 이 비교를 그대로
     // 두면 빈 칸 저장(=여러 건 배정 해제)이 null !== null에 걸려 아무 일도 일어나지 않는다.
     if (bulk || next !== handle) onChange(next);

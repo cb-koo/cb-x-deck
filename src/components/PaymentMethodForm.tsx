@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useId, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { errOf } from '@/lib/responseError';
 import { Button } from '@/components/ui';
 import { CURRENCY_LABEL, CURRENCY_SYMBOL, type Currency } from '@/lib/influencerPricing';
 import { PAYMENT_TYPES, PAYMENT_TYPE_LABEL, type PaymentMethod, type PaymentMethodType } from '@/lib/influencerPayment';
@@ -32,11 +33,7 @@ export function usePaymentMethodSend(influencerId: string) {
       const r = await apiFetch(`/api/influencers/${influencerId}/payment-methods`, {
         method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
-      if (!r.ok) {
-        // 서버가 준 오류 문구를 그대로 쓴다 — 원인을 넘겨짚지 않는다(profileShared.errOf와 같은 규칙)
-        const error = ((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`;
-        return { ok: false, error };
-      }
+      if (!r.ok) return { ok: false, error: await errOf(r) };
       const b = (await r.json()) as { paymentMethods: PaymentMethod[]; logs: InfluencerLogRow[] };
       return { ok: true, paymentMethods: b.paymentMethods, logs: b.logs };
     } catch {

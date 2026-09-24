@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MethodForm, usePaymentMethodSend } from '@/components/PaymentMethodForm';
 import { methodDraftOf, newMethodIdOf, parseMethodDraft, type MethodDraft } from '@/lib/paymentMethodDraft';
@@ -20,6 +20,9 @@ export function PaymentMethodDialog({ influencerId, handle, isFirst, beforeIds, 
   const [draft, setDraft] = useState<MethodDraft>(() => ({ ...methodDraftOf(null), makeDefault: isFirst }));
   const [err, setErr] = useState<string | null>(null);
   const { busy, send } = usePaymentMethodSend(influencerId);
+  // 바깥(어두운 바탕) 닫기는 누른 곳과 뗀 곳이 둘 다 바탕일 때만 — 입력칸에서 글자를 드래그로 고르다 바탕에서 떼면
+  // click이 바탕에 떨어져 쓰던 폼이 닫힌다. pointerdown 대상을 ref에 적어 두고 click 때 비교한다.
+  const downOnBackdrop = useRef(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing && !busy) onClose(); };
@@ -37,8 +40,14 @@ export function PaymentMethodDialog({ influencerId, handle, isFirst, beforeIds, 
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-6" onClick={() => { if (!busy) onClose(); }}>
-      <div role="dialog" aria-modal="true" aria-label="결제 수단 등록" className="w-full max-w-[560px] rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-6"
+         onPointerDown={(e) => { downOnBackdrop.current = e.target === e.currentTarget; }}
+         onClick={(e) => {
+           const both = downOnBackdrop.current && e.target === e.currentTarget;
+           downOnBackdrop.current = false;
+           if (both && !busy) onClose();
+         }}>
+      <div role="dialog" aria-modal="true" aria-label="결제 수단 등록" className="w-full max-w-[560px] rounded-2xl bg-white p-5">
         <div className="flex items-center justify-between">
           <h2 className="text-[17px]">@{handle} 결제 수단 등록</h2>
           <button type="button" onClick={onClose} disabled={busy} aria-label="닫기" className="text-[18px] text-x-muted hover:text-x-text">✕</button>

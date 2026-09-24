@@ -193,7 +193,10 @@ export function TaskPanel({
   // 새 작업에서 고른 결제 수단(§8-2) — 만들기 전까지 로컬. 사람이 바뀌면 비운다(다른 사람의 수단 id가 남으면 안 된다)
   const [newMethodId, setNewMethodId] = useState<string | null>(null);
   // 결제 수단 등록 창(§8-3)과, 등록·선택 실패 뒤 결제 수단 보기를 다시 읽는 키
-  const [payDialog, setPayDialog] = useState(false);
+  // 창을 열 때 보기에서 필요한 값을 떠 둔다(스냅샷) — 창이 떠 있는 동안 보기가 다시 읽혀도(명부 갱신·409 뒤 등) 창이
+  // 언마운트돼 입력이 날아가거나, 창은 사라졌는데 패널 Esc만 꺼진 채 남지 않게. null = 닫힘.
+  const [payDialog, setPayDialog] = useState<{ influencerId: string; handle: string; isFirst: boolean; beforeIds: string[] } | null>(null);
+  const payDialogOpen = payDialog !== null;
   const [payVersion, setPayVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   // 409(Task 5 §3) — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져갔다는 사실을 원고 칸 자리에서
@@ -316,7 +319,7 @@ export function TaskPanel({
   // 패널 밖이라, 안 빼면 팝오버를 누르는 순간 패널이 닫힌다. 패널 위에 모달이 떠 있으면(overlayOpen) 리스너를 끈다.
   useEffect(() => {
     // 결제 수단 등록 창(payDialog)도 패널 위 오버레이다 — 창 바깥(어두운 바탕)을 눌러 창을 닫을 때 패널까지 닫히지 않게
-    if (overlayOpen || draftBusy || payDialog) return;   // 시안을 만드는 동안은 바깥을 눌러도 안 닫는다(위 draftBusy 주석)
+    if (overlayOpen || draftBusy || payDialogOpen) return;   // 시안을 만드는 동안은 바깥을 눌러도 안 닫는다(위 draftBusy 주석)
     const onDown = (e: PointerEvent) => {
       const t = e.target as HTMLElement | null;
       if (!t) return;
@@ -327,17 +330,17 @@ export function TaskPanel({
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
-  }, [requestClose, overlayOpen, draftBusy, payDialog]);
+  }, [requestClose, overlayOpen, draftBusy, payDialogOpen]);
 
   // Esc는 패널만 닫는다 — 안에서 열린 팝오버(예정일 달력 등)는 capture에서 stopPropagation하므로 그쪽이 먼저 먹는다.
   // 패널 위의 오버레이(모달 등)가 떠 있으면 이 리스너 자체를 끈다 — 안 그러면 그 오버레이를 닫는 Esc가
   // 패널까지 같이 닫혀 버린다(overlayOpen이 true인 동안 통째로 끈다). draftBusy도 같은 이유로 끈다.
   useEffect(() => {
-    if (overlayOpen || draftBusy || payDialog) return;   // payDialog: 등록 창의 Esc는 창만 닫는다
+    if (overlayOpen || draftBusy || payDialogOpen) return;   // payDialogOpen: 등록 창의 Esc는 창만 닫는다
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) requestClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [requestClose, overlayOpen, draftBusy, payDialog]);
+  }, [requestClose, overlayOpen, draftBusy, payDialogOpen]);
 
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
@@ -465,15 +468,20 @@ export function TaskPanel({
   // 등록 뒤(§8-3): 그 인플의 보기를 전부 버리고 다시 읽는다(고를 목록이 늘었다). 두 번째 이상이면 이 작업의 선택으로 바로
   // 잡는다(방금 이 작업 때문에 등록했을 것이므로). 새 수단을 기본으로 만들었으면 null(= 기본을 따른다) — choiceToStored와 같은 규칙.
   function onMethodRegistered(list: PaymentMethod[], newId: string | null) {
-    setPayDialog(false);
+    setPayDialog(null);
     if (panelHandle) dropPaymentView(panelHandle);
     setPayVersion((v) => v + 1);
     const created = newId ? list.find((m) => m.id === newId) : undefined;
     if (list.length >= 2 && created) choosePayment(created.isDefault ? null : created.id);
   }
   const canRegisterMethod = pay.view?.state === 'ok' || pay.view?.state === 'none';
-  const openPayDialog = useCallback(() => setPayDialog(true), []);
-  const closePayDialog = useCallback(() => setPayDialog(false), []);   // 창의 Esc 이펙트가 렌더마다 다시 걸리지 않게 고정
+  // 등록 입구는 'ok'·'none'에서만 그려지므로(canRegisterMethod) 그 두 상태에서만 창을 연다
+  function openPayDialog() {
+    const v = pay.view;
+    if (!panelHandle || !v || (v.state !== 'ok' && v.state !== 'none')) return;
+    setPayDialog({ influencerId: v.influencerId, handle: panelHandle, isFirst: v.state === 'none', beforeIds: v.state === 'ok' ? v.choices.map((c) => c.id) : [] });
+  }
+  const closePayDialog = useCallback(() => setPayDialog(null), []);   // 창의 Esc 이펙트가 렌더마다 다시 걸리지 않게 고정
 
   // 비용 · 정산 상자 본문(설계 §8·§10) — 두 모드 공통 모양: 금액 + 결제 수단 한 줄. 인플 미정이면 '인플 선택 후'는
   // 결제 수단 줄에서 한 번만 말하고, 금액 칸은 문구 없는 비활성(disabledReason='')으로 둔다.
@@ -900,10 +908,10 @@ export function TaskPanel({
         )}
       </div>
 
-      {/* 결제 수단 등록 창(§8-3) — body로 포털된다(PaymentMethodDialog 머리 주석). 등록 입구가 있는 두 상태에서만 */}
-      {payDialog && panelHandle && pay.view && (pay.view.state === 'ok' || pay.view.state === 'none') && (
-        <PaymentMethodDialog influencerId={pay.view.influencerId} handle={panelHandle} isFirst={pay.view.state === 'none'}
-                             beforeIds={pay.view.state === 'ok' ? pay.view.choices.map((c) => c.id) : []}
+      {/* 결제 수단 등록 창(§8-3) — body로 포털된다(PaymentMethodDialog 머리 주석). 연 순간의 스냅샷(payDialog)으로 그린다 */}
+      {payDialog && (
+        <PaymentMethodDialog influencerId={payDialog.influencerId} handle={payDialog.handle} isFirst={payDialog.isFirst}
+                             beforeIds={payDialog.beforeIds}
                              onClose={closePayDialog} onSaved={onMethodRegistered} />
       )}
     </aside>

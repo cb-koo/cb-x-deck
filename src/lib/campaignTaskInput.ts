@@ -34,6 +34,19 @@ export const REMOVED_WITHOUT_POSTED_MESSAGE = '게시 확인이 없는 작업이
 export const DATE_MESSAGE = '날짜는 YYYY-MM-DD 형식이어야 해요';
 function fail<T>(message: string): Parsed<T> { return { ok: false, message }; }
 
+export const PAYMENT_METHOD_ID_MESSAGE = '결제 수단 값이 올바르지 않아요';
+// 인플루언서 없이 결제 수단만 오면(§8-2 리뷰 추가) — 인플이 없는 작업엔 걸 곳이 없다. null(기본 수단으로 되돌리기)은
+// '고른 수단'이 아니라서 걸리지 않는다.
+export const PAYMENT_METHOD_NO_INFLUENCER_MESSAGE = '인플루언서가 없으면 결제 수단을 정할 수 없어요 — 먼저 인플루언서를 배정해 주세요';
+// 결제 수단 id(§8-2) — 인플 payment_methods[].id(jsonb 안의 uuid 문자열)라 uuid 컬럼 캐스팅이 없다. 모양만 본다:
+// 공백 없는 64자 이하 문자열. 목록에 실제로 있는지는 라우트가 인플 명부를 보고 판정한다(taskAssignGate.checkTaskPaymentMethod).
+// null·'' = 기본 수단으로 되돌리기.
+function parsePaymentMethodId(v: unknown): Parsed<string | null> {
+  if (v === null || v === '') return { ok: true, value: null };
+  if (typeof v === 'string' && v.length <= 64 && !/\s/.test(v)) return { ok: true, value: v };
+  return fail(PAYMENT_METHOD_ID_MESSAGE);
+}
+
 export const CANCELLED_TASK_MESSAGE = '취소된 작업이에요 — 되돌린 뒤 고쳐 주세요';
 export const CANCEL_POSTED_MESSAGE = '이미 게시된 작업은 취소할 수 없어요 — 내림으로 처리해 주세요';
 export const POST_CANCELLED_MESSAGE = '취소된 작업이에요 — 되돌린 뒤 게시 확인해 주세요';
@@ -115,7 +128,7 @@ export const COUNT_WITH_ITEMS_MESSAGE = '개수로 만들 때는 인플루언서
 export interface TaskCreateBody {
   type: TaskType; targetTaskId: string | null; targetTweetUrl: string | null; draftId: string | null;
   scheduledOn: string | null; visitOn: string | null; note: string; cost: TaskCost | null;
-  influencers: Array<{ handle: string; cost: TaskCost | null; scheduledOn: string | null; visitOn: string | null }>;
+  influencers: Array<{ handle: string; cost: TaskCost | null; scheduledOn: string | null; visitOn: string | null; paymentMethodId?: string }>;
   count: number | null;   // 뼈대 N개 한 번에 만들기(§4-1) — influencers 비고 draftId 없을 때만
 }
 export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
@@ -135,14 +148,16 @@ export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
   const raw = Array.isArray(b.influencers) ? b.influencers : [];
   const influencers: TaskCreateBody['influencers'] = [];
   for (const it of raw) {
-    const o = (it ?? {}) as { handle?: unknown; cost?: unknown; scheduledOn?: unknown; visitOn?: unknown };
+    const o = (it ?? {}) as { handle?: unknown; cost?: unknown; scheduledOn?: unknown; visitOn?: unknown; paymentMethodId?: unknown };
     const h = parseXHandle(String(o.handle ?? ''));
     if (!h.ok) return fail(handleParseMessage(h.reason));
     const c = o.cost === undefined ? { ok: true as const, value: null } : parseTaskCost(o.cost); if (!c.ok) return c;
     const s = dateOrNull(o.scheduledOn); if (!s.ok) return s;
     const v = dateOrNull(o.visitOn); if (!v.ok) return v;
     if (v.value && b.type !== 'visit') return fail(VISIT_ON_MESSAGE);
-    influencers.push({ handle: h.handle, cost: c.value, scheduledOn: s.value, visitOn: v.value });
+    const pm = o.paymentMethodId === undefined ? { ok: true as const, value: null } : parsePaymentMethodId(o.paymentMethodId); if (!pm.ok) return pm;
+    // 수단을 고른 줄만 키를 싣는다 — 안 고른 줄의 모양은 지금과 같게(기존 deepEqual 테스트·로그 모양 유지)
+    influencers.push({ handle: h.handle, cost: c.value, scheduledOn: s.value, visitOn: v.value, ...(pm.value ? { paymentMethodId: pm.value } : {}) });
   }
   if (draftId.value && influencers.length > 1) return fail(DRAFT_MULTI_MESSAGE);
   let count: number | null = null;
@@ -193,6 +208,10 @@ export function parseTaskPatch(body: unknown): Parsed<TaskPatchParsed> {
     else if (isTaskProofPath(b.proof)) out.proofUrl = b.proof;
     else return fail(PROOF_VALUE_MESSAGE);
   }
+  if ('paymentMethodId' in b) { const r = parsePaymentMethodId(b.paymentMethodId); if (!r.ok) return r; out.paymentMethodId = r.value; }
+  // 리뷰 추가 요구: 이번 요청이 인플루언서를 떼면서(null) 동시에 결제 수단을 고르면(실제 id) 거절 —
+  // 걸 사람이 없는 결제 수단이다. null(기본 수단으로)은 '고른 수단'이 아니라 걸리지 않는다.
+  if (out.paymentMethodId != null && out.influencerHandle === null) return fail(PAYMENT_METHOD_NO_INFLUENCER_MESSAGE);
   return { ok: true, value: out };
 }
 

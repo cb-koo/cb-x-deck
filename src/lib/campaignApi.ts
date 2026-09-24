@@ -66,7 +66,7 @@ export interface TaskCreateRequest {
   type: TaskType; targetTaskId?: string | null; targetTweetUrl?: string | null; draftId?: string | null;
   scheduledOn?: string | null; visitOn?: string | null; note?: string; cost?: TaskCost | null;
   // 날짜는 사람별(줄) 값이 먼저 — 위의 scheduledOn/visitOn은 줄에 값이 없을 때·미배정일 때의 기본값
-  influencers: Array<{ handle: string; cost?: TaskCost | null; scheduledOn?: string | null; visitOn?: string | null }>;
+  influencers: Array<{ handle: string; cost?: TaskCost | null; scheduledOn?: string | null; visitOn?: string | null; paymentMethodId?: string | null }>;
   count?: number;   // 뼈대 N개(§4-1 한 번에 만들기) — influencers 비고 draftId 없을 때만
 }
 export type TaskPatchRequest = {
@@ -74,6 +74,7 @@ export type TaskPatchRequest = {
   postUrl?: string | null; postedAt?: string; removedAt?: string | null; removedReason?: string;
   scheduledOn?: string | null; visitOn?: string | null; cost?: TaskCost | null; note?: string;
   proof?: string | null;   // 스토리지 경로 또는 null(떼기). 올린 사람·시각은 서버가 채운다
+  paymentMethodId?: string | null;   // 이 작업에만 쓸 결제 수단(§8-2) — null = 기본 수단으로. 인플이 바뀌면 서버가 비운다
 };
 export const createTasksApi = (campaignId: string, body: TaskCreateRequest) =>
   call<{ tasks: TaskRow[] }>(`/api/campaigns/${campaignId}/tasks`, json('POST', body));

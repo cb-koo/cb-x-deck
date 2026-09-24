@@ -7,6 +7,14 @@ import type { PaymentView } from '@/lib/paymentView';
 // 이전/다음으로 오가며 같은 인플을 다시 볼 때 매번 부르지 않게. refreshKey는 정산 요청 상태가 바뀌면 달라진다.
 const cache = new Map<string, PaymentView>();
 
+// 결제 수단을 고르거나(그 작업) 새로 등록하면(그 인플의 모든 작업 — 고를 목록이 늘었다) 캐시된 보기를 버린다.
+// 부르는 쪽(TaskPanel)의 refreshKey(payVersion)는 패널이 다시 마운트되면 0으로 돌아가 옛 키가 되살아나므로,
+// 키만 올리면 다음에 패널을 다시 열 때 고르기 전 보기를 캐시에서 꺼낸다. taskId를 빼면 그 인플 전부.
+export function dropPaymentView(handle: string, taskId?: string | null) {
+  const prefix = taskId === undefined ? `${handle.toLowerCase()}|` : `${handle.toLowerCase()}|${taskId ?? ''}|`;
+  for (const k of [...cache.keys()]) if (k.startsWith(prefix)) cache.delete(k);
+}
+
 export function usePaymentView(handle: string | null, taskId: string | null, refreshKey: string) {
   const key = handle ? `${handle.toLowerCase()}|${taskId ?? ''}|${refreshKey}` : '';
   const [state, setState] = useState<{ key: string; view: PaymentView | null; failed: boolean }>(

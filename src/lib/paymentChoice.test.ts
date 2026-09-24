@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toPaymentChoices, resolvePaymentChoice, choiceToStored } from './paymentChoice.ts';
+import { toPaymentChoices, resolvePaymentChoice, choiceToStored, canChoosePayment } from './paymentChoice.ts';
 import type { PaymentMethod } from './influencerPayment.ts';
 
 const pm = (p: Partial<PaymentMethod>): PaymentMethod => ({
@@ -27,4 +27,15 @@ test('3) 고른 값 → 저장 값 — 기본 수단을 고르면 null(= 기본�
   assert.equal(choiceToStored(c, 'a'), null);
   assert.equal(choiceToStored(c, 'b'), 'b');
   assert.equal(choiceToStored(c, 'nope'), null);
+});
+
+test('4) 고를 수 있을 때 — 수단 2개 이상인 ok 상태만(드롭다운과 소제목의 \'· 이 작업에만 적용\'이 같은 판정을 쓴다)', () => {
+  const c = toPaymentChoices(list);
+  const ok = (choices: typeof c) => ({ state: 'ok' as const, label: 'x', fee: c[0].fee, influencerId: 'i', choices, fallback: false });
+  assert.equal(canChoosePayment(ok(c)), true);
+  assert.equal(canChoosePayment(ok([c[0]])), false);
+  assert.equal(canChoosePayment({ state: 'requested', label: 'x', fee: c[0].fee, paid: false }), false);
+  assert.equal(canChoosePayment({ state: 'none', influencerId: 'i' }), false);
+  assert.equal(canChoosePayment({ state: 'notInRoster' }), false);
+  assert.equal(canChoosePayment(null), false);
 });

@@ -28,7 +28,10 @@ import { PanelSection } from './panel/PanelSection';
 import { StageTypeBox } from './panel/StageTypeBox';
 import { InfluencerSummary } from './panel/InfluencerSummary';
 import { PaymentLine } from './panel/PaymentLine';
-import { usePaymentView } from './panel/usePaymentView';
+import { PaymentMethodDialog } from './panel/PaymentMethodDialog';
+import { usePaymentView, dropPaymentView } from './panel/usePaymentView';
+import { canChoosePayment } from '@/lib/paymentChoice';
+import type { PaymentMethod } from '@/lib/influencerPayment';
 import { useTweetPreview } from './panel/useTweetPreview';
 import { DraftSummaryCard } from './panel/DraftSummaryCard';
 import { DraftEntryButtons } from './panel/DraftEntryButtons';
@@ -187,6 +190,11 @@ export function TaskPanel({
   const [scheduledOn, setScheduledOn] = useState<string | null>(null);
   const [visitOn, setVisitOn] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  // 새 작업에서 고른 결제 수단(§8-2) — 만들기 전까지 로컬. 사람이 바뀌면 비운다(다른 사람의 수단 id가 남으면 안 된다)
+  const [newMethodId, setNewMethodId] = useState<string | null>(null);
+  // 결제 수단 등록 창(§8-3)과, 등록·선택 실패 뒤 결제 수단 보기를 다시 읽는 키
+  const [payDialog, setPayDialog] = useState(false);
+  const [payVersion, setPayVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   // 409(Task 5 §3) — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져갔다는 사실을 원고 칸 자리에서
   // 직접 말한다(서버 문구를 그대로 토스트로 흘리지 않는다). newDraft는 FlowDetail이 주인인 외부 상태라
@@ -212,7 +220,10 @@ export function TaskPanel({
   const panelHandle = task ? task.influencerHandle : (handle || null);
   const payCancelled = !!task?.cancelledAt;
   // 명부 등록(rosterVersion)도 키에 넣는다 — 명부 밖이던 인플을 등록하면 '명부에 등록하면 보여요'가 실제 수단으로 바뀌어야 한다.
-  const payRefresh = task ? `${task.settlement?.status ?? ''}:${task.settlement?.externalStatus ?? ''}:${rosterVersion}` : `${rosterVersion}`;
+  // payVersion — 이 패널에서 결제 수단을 새로 등록했거나 고르기가 거절됐을 때(아래 onMethodRegistered·choosePayment) 다시 읽는다.
+  const payRefresh = task
+    ? `${task.settlement?.status ?? ''}:${task.settlement?.externalStatus ?? ''}:${rosterVersion}:${payVersion}`
+    : `${rosterVersion}:${payVersion}`;
   const pay = usePaymentView(payCancelled ? null : panelHandle, task?.id ?? null, payRefresh);
 
   // ── 인용·RT 대상 미리보기(설계 §7-1) — 훅이라 여기서 한 번 부른다. 판정은 targetPreviewView 하나(편집=작업 행,
@@ -304,7 +315,8 @@ export function TaskPanel({
   // 처리한다 ③ 포털로 body에 붙는 팝오버·메뉴·툴팁(비용·인플·필터·행 메뉴·ⓘ) — 패널에서 연 것인데 DOM 상으로는
   // 패널 밖이라, 안 빼면 팝오버를 누르는 순간 패널이 닫힌다. 패널 위에 모달이 떠 있으면(overlayOpen) 리스너를 끈다.
   useEffect(() => {
-    if (overlayOpen || draftBusy) return;   // 시안을 만드는 동안은 바깥을 눌러도 안 닫는다(위 draftBusy 주석)
+    // 결제 수단 등록 창(payDialog)도 패널 위 오버레이다 — 창 바깥(어두운 바탕)을 눌러 창을 닫을 때 패널까지 닫히지 않게
+    if (overlayOpen || draftBusy || payDialog) return;   // 시안을 만드는 동안은 바깥을 눌러도 안 닫는다(위 draftBusy 주석)
     const onDown = (e: PointerEvent) => {
       const t = e.target as HTMLElement | null;
       if (!t) return;
@@ -315,21 +327,21 @@ export function TaskPanel({
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
-  }, [requestClose, overlayOpen, draftBusy]);
+  }, [requestClose, overlayOpen, draftBusy, payDialog]);
 
   // Esc는 패널만 닫는다 — 안에서 열린 팝오버(예정일 달력 등)는 capture에서 stopPropagation하므로 그쪽이 먼저 먹는다.
   // 패널 위의 오버레이(모달 등)가 떠 있으면 이 리스너 자체를 끈다 — 안 그러면 그 오버레이를 닫는 Esc가
   // 패널까지 같이 닫혀 버린다(overlayOpen이 true인 동안 통째로 끈다). draftBusy도 같은 이유로 끈다.
   useEffect(() => {
-    if (overlayOpen || draftBusy) return;
+    if (overlayOpen || draftBusy || payDialog) return;   // payDialog: 등록 창의 Esc는 창만 닫는다
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) requestClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [requestClose, overlayOpen, draftBusy]);
+  }, [requestClose, overlayOpen, draftBusy, payDialog]);
 
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
-    setScheduledOn(null); setVisitOn(null); setNote(''); setNewCost(null); setCostErr(null); setTarget(null);
+    setScheduledOn(null); setVisitOn(null); setNote(''); setNewCost(null); setCostErr(null); setTarget(null); setNewMethodId(null);
     // 409 문구(draftGone)는 newDraft가 "들어올 때"만 꺼진다(위 이펙트) — [만들고 하나 더]로 새 빈 폼을
     // 열면 newDraft가 애초에 안 들어오므로 그 이펙트가 안 돈다. 여기서 직접 꺼야 새 폼에 옛 충돌 문구가
     // 남지 않는다(최종 리뷰 §2).
@@ -353,13 +365,14 @@ export function TaskPanel({
   }
   function commitNewHandle(raw: string) {
     const v = raw.trim();
-    if (!v) { setHandle(''); setHandleInput(''); setHandleErr(null); setNewCost(null); return; }
+    if (!v) { setHandle(''); setHandleInput(''); setHandleErr(null); setNewCost(null); setNewMethodId(null); return; }
     const p = parseXHandle(v);
     if (!p.ok) { setHandleErr(handleParseMessage(p.reason)); return; }
     // 사람이 실제로 바뀔 때만 앞사람 기준 비용을 버린다 — 비용 칸이 다시 마운트되며 새 사람의 프로필 단가를
     // 올린다. 같은 핸들이 다시 커밋되면(블러마다 부른다) 비우지 않는다: 비우면 칸엔 금액이 보이는데 [만들기]는
     // 비용 없이 저장하거나, 다시 마운트될 때 입력한 금액이 프로필 단가로 조용히 바뀐다(설계 §8 '보이는 값 저장').
-    if (p.handle.toLowerCase() !== handle.toLowerCase()) { setNewCost(null); setCostErr(null); }
+    // 고른 결제 수단도 같이 버린다 — 다른 사람의 수단 id가 남으면 서버가 거절한다(§8-2)
+    if (p.handle.toLowerCase() !== handle.toLowerCase()) { setNewCost(null); setCostErr(null); setNewMethodId(null); }
     setHandle(p.handle); setHandleInput(p.handle); setHandleErr(null);
   }
   async function submitNew(more: boolean) {
@@ -376,6 +389,7 @@ export function TaskPanel({
       type: newType, handle: handle || null, cost: newCost,
       scheduledOn, visitOn, note, target,
       draftId: newDraft?.id ?? null,
+      paymentMethodId: newMethodId,
     });
     // 보이는 값을 그대로 저장하고, 프로필과 다르거나 프로필에 없으면 만든 뒤 한 번 묻는다(판정은 [확인]과 같은 함수)
     const opt = optionForHandle(handle);
@@ -433,9 +447,37 @@ export function TaskPanel({
     }
   }
 
+  // 이 작업의 결제 수단(§8-2) — 편집은 작업 행 값, 새 작업은 로컬 값. 고르면 편집은 즉시 PATCH(다른 칸과 같은 낙관적 갱신,
+  // 실패하면 서버 문구 토스트 + 되돌림 — 요청 뒤 409 포함), 새 작업은 [만들기]에 함께 보낸다.
+  // 실제로 다른 값일 때만 보낸다 — 활성 정산 요청이 있으면 서버는 같은 값의 재전송도 거절한다.
+  // 성공하면 보기를 다시 읽지 않는다(PaymentLine이 chosenId로 다시 고른다 — 다시 읽으면 드롭다운이 '불러오는 중…'으로 깜빡인다).
+  // 캐시만 버려 다음에 이 작업을 다시 열 때 새로 읽게 한다. 거절되면(그 사이 정산 요청이 생긴 409 등) 지금 사실을 다시 읽는다.
+  const chosenMethodId = task ? task.paymentMethodId : newMethodId;
+  function choosePayment(stored: string | null) {
+    if (!task) { setNewMethodId(stored); return; }
+    if (stored === task.paymentMethodId) return;
+    const h = task.influencerHandle;
+    void actions.patch(task, { paymentMethodId: stored }, { paymentMethodId: stored }).then((ok) => {
+      if (h) dropPaymentView(h, task.id);
+      if (!ok) setPayVersion((v) => v + 1);
+    });
+  }
+  // 등록 뒤(§8-3): 그 인플의 보기를 전부 버리고 다시 읽는다(고를 목록이 늘었다). 두 번째 이상이면 이 작업의 선택으로 바로
+  // 잡는다(방금 이 작업 때문에 등록했을 것이므로). 새 수단을 기본으로 만들었으면 null(= 기본을 따른다) — choiceToStored와 같은 규칙.
+  function onMethodRegistered(list: PaymentMethod[], newId: string | null) {
+    setPayDialog(false);
+    if (panelHandle) dropPaymentView(panelHandle);
+    setPayVersion((v) => v + 1);
+    const created = newId ? list.find((m) => m.id === newId) : undefined;
+    if (list.length >= 2 && created) choosePayment(created.isDefault ? null : created.id);
+  }
+  const canRegisterMethod = pay.view?.state === 'ok' || pay.view?.state === 'none';
+  const openPayDialog = useCallback(() => setPayDialog(true), []);
+  const closePayDialog = useCallback(() => setPayDialog(false), []);   // 창의 Esc 이펙트가 렌더마다 다시 걸리지 않게 고정
+
   // 비용 · 정산 상자 본문(설계 §8·§10) — 두 모드 공통 모양: 금액 + 결제 수단 한 줄. 인플 미정이면 '인플 선택 후'는
   // 결제 수단 줄에서 한 번만 말하고, 금액 칸은 문구 없는 비활성(disabledReason='')으로 둔다.
-  // 소제목에 '· 이 작업에만 적용'은 아직 붙이지 않는다 — 수단 선택(2단계)이 들어와야 참이 되는 말이다(UX 원칙 4).
+  // 소제목 옆 '· 이 작업에만 적용'은 고를 수 있을 때만(canChoosePayment).
   function costBox(amount: ReactNode): ReactNode {
     return (
       <div>
@@ -444,8 +486,15 @@ export function TaskPanel({
         {/* 취소된 작업은 정산할 일이 없어 결제 수단 줄 자체를 두지 않는다 */}
         {!payCancelled && (
           <>
-            <p className="mb-1.5 mt-3.5 text-[14px] font-semibold text-x-secondary">결제 수단</p>
-            {panelHandle ? <PaymentLine {...pay} /> : <p className="text-content text-x-muted">인플 선택 후</p>}
+            <p className="mb-1.5 mt-3.5 text-[14px] font-semibold text-x-secondary">
+              결제 수단
+              {/* 고를 수 있을 때만 적용 범위를 말한다(§10 '결제 수단(평소)', UX 원칙 4) */}
+              {canChoosePayment(pay.view) && <span className="text-ui font-normal text-x-muted"> · 이 작업에만 적용</span>}
+            </p>
+            {panelHandle
+              ? <PaymentLine {...pay} chosenId={chosenMethodId} onChoose={choosePayment}
+                             onRegister={canRegisterMethod ? openPayDialog : undefined} />
+              : <p className="text-content text-x-muted">인플 선택 후</p>}
           </>
         )}
       </div>
@@ -850,6 +899,13 @@ export function TaskPanel({
           </>
         )}
       </div>
+
+      {/* 결제 수단 등록 창(§8-3) — body로 포털된다(PaymentMethodDialog 머리 주석). 등록 입구가 있는 두 상태에서만 */}
+      {payDialog && panelHandle && pay.view && (pay.view.state === 'ok' || pay.view.state === 'none') && (
+        <PaymentMethodDialog influencerId={pay.view.influencerId} handle={panelHandle} isFirst={pay.view.state === 'none'}
+                             beforeIds={pay.view.state === 'ok' ? pay.view.choices.map((c) => c.id) : []}
+                             onClose={closePayDialog} onSaved={onMethodRegistered} />
+      )}
     </aside>
   );
 }

@@ -16,7 +16,7 @@ import {
 import { STATUS_LABEL } from '@/lib/draftStatus';
 import { draftLabel, draftPreviewFull, draftFirstMediaUrl } from '@/lib/draftViews';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
-import { findRosterOption, type RosterGate } from '@/lib/rosterPick';
+import { findRosterOption, resolveRosterInput, type RosterGate } from '@/lib/rosterPick';
 import { InfluencerField } from '@/components/InfluencerField';
 import { ScheduledOnField } from '@/components/ScheduledOnField';
 import { Button } from '@/components/ui';
@@ -383,21 +383,31 @@ export function TaskPanel({
     // 친 글자가 확정되지 않은 채(명부 밖·형식 오류 등) 남아 있으면 미정 작업으로 조용히 만들지 않는다 — 칸 아래 한 줄로
     // 다음 행동을 말한다. 글자를 지우면 지금처럼 미정으로 만들 수 있다. 원고가 붙어 칸이 잠겼으면(newDraft) 입력칸이
     // 안 보이므로 보지 않는다.
-    if (!newDraft && !handle && handleInput.trim()) { setHandleErr(UNCOMMITTED_HANDLE_MESSAGE); return; }
-    if (newCost === 'invalid') { setCostErr(AMOUNT_MESSAGE); return; }
+    // 단 친 글자가 명부 핸들과 정확히 맞으면 여기서 확정하고 진행한다 — 블러가 클릭보다 늦게 오는 브라우저(Safari 등)에서
+    // 막히지 않게. 등록 직후의 확정이 아니라(그 길은 onCommit) 지금 렌더의 명부로 판정해도 안전하다.
+    // 이 호출의 본문은 아래 지역 값으로 만든다 — 상태 갱신은 다음 렌더에야 보인다.
+    let useHandle = handle, useCost = newCost, useMethodId = newMethodId;
+    if (!newDraft && !handle && handleInput.trim()) {
+      const r = resolveRosterInput(handleInput, influencerOptions, roster.status);
+      if (r.kind !== 'roster') { setHandleErr(UNCOMMITTED_HANDLE_MESSAGE); return; }
+      commitNewHandle(r.handle);   // 상태는 블러와 같은 길로(미정 → 사람이라 비용·결제 수단을 비운다)
+      // 같은 초기화를 이 호출에도 — 미정일 때 비용 칸은 잠겨 있어 보이던 값도 빈 칸이다(보이는 값 = 저장 값)
+      useHandle = r.handle; useCost = null; useMethodId = null;
+    }
+    if (useCost === 'invalid') { setCostErr(AMOUNT_MESSAGE); return; }
     setBusy(true);
     // 본문 조립은 buildTaskCreateBody 하나로(Task 1) — 서버 제약(draftId는 1명 이하·count와 배타)을 여기서
     // 다시 만들지 않는다. handle은 '' | string인데 draftId는 string | null이 필요해 handle || null로 맞춘다.
     const body = buildTaskCreateBody({
-      type: newType, handle: handle || null, cost: newCost,
+      type: newType, handle: useHandle || null, cost: useCost,
       scheduledOn, visitOn, note, target,
       draftId: newDraft?.id ?? null,
-      paymentMethodId: newMethodId,
+      paymentMethodId: useMethodId,
     });
     // 보이는 값을 그대로 저장하고, 프로필과 다르거나 프로필에 없으면 만든 뒤 한 번 묻는다(판정은 [확인]과 같은 함수)
-    const opt = optionForHandle(handle);
-    const prompt = profilePromptFor({ option: opt, type: newType, cost: newCost });
-    const result = await onCreate(body, more, prompt && opt && newCost ? { option: opt, cost: newCost, type: newType, ...prompt } : null);
+    const opt = optionForHandle(useHandle);
+    const prompt = profilePromptFor({ option: opt, type: newType, cost: useCost });
+    const result = await onCreate(body, more, prompt && opt && useCost ? { option: opt, cost: useCost, type: newType, ...prompt } : null);
     setBusy(false);
     if (result === 'draft-taken') { setDraftGone(true); return; }   // FlowDetail이 이미 formDraft를 비웠다
     if (result === 'ok' && more) resetNewFields();   // 유형은 유지 — 같은 유형을 연달아 만드는 게 실제 사용 패턴(결정 4). 원고는 FlowDetail이 비운다(스펙 §4-5)

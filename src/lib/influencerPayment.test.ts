@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePaymentMethodInput, applyPaymentOp, describeMethod, formatFee, feeShortLabel, getDefaultPaymentMethod,
+  parsePaymentMethodInput, applyPaymentOp, describeMethod, formatFee, feeShortLabel, getDefaultPaymentMethod, taskPaymentMethod,
   settlementBadge,
   PAYMENT_TYPE_LABEL, PAYMENT_FIELD_LABEL, PAYMENT_NOT_FOUND,
   type PaymentMethod, type PaymentMethodInput,
@@ -329,6 +329,15 @@ test('getDefaultPaymentMethod: 있으면 반환, 없으면 null', () => {
   assert.equal(getDefaultPaymentMethod([]), null);
   const list = applyPaymentOp([], { kind: 'add', input: bankInput() }, NOW, newId).list;
   assert.equal(getDefaultPaymentMethod(list), list[0]);
+});
+
+test('taskPaymentMethod: 고른 id가 있으면 그것, 지워졌거나 null이면 기본, 비면 null', () => {
+  const list = [{ id: 'a', isDefault: true }, { id: 'b', isDefault: false }];
+  assert.equal(taskPaymentMethod(list, 'b')?.id, 'b');
+  assert.equal(taskPaymentMethod(list, 'gone')?.id, 'a');   // 고른 수단이 나중에 지워짐 → 기본(설계 §8-2)
+  assert.equal(taskPaymentMethod(list, null)?.id, 'a');
+  assert.equal(taskPaymentMethod(list, undefined)?.id, 'a');
+  assert.equal(taskPaymentMethod([], 'b'), null);
 });
 
 test('settlementBadge: 명부 목록 배지 5케이스', () => {

@@ -15,7 +15,7 @@ import { listBudgetPeriods } from './budgetPeriodStore.ts';
 import {
   campaignPeriodBudget, periodFor, toKrw, JPY_TO_KRW, type PeriodSpend, type SpanningCampaign, type CampaignPeriodBudget,
 } from './clientBudget.ts';
-import { getDefaultPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
+import { taskPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
 import { computeMoney } from './settlementCalc.ts';
 
 export { CAMPAIGN_KINDS, CAMPAIGN_KIND_LABEL, type CampaignKind } from './campaignJudgment.ts';
@@ -68,7 +68,7 @@ type CRow = {
   created_at: Date; updated_at: Date; task_count: string | number;
 };
 type TotalRow = { campaign_id: string; currency: string; amount: string | number };
-type FeeRow = { campaign_id: string; cost: unknown; payment_methods: unknown };
+type FeeRow = { campaign_id: string; cost: unknown; payment_methods: unknown; payment_method_id: string | null };
 type CicRow = { id: string; campaign_id: string; influencer_handle: string; extra_costs: unknown; note: string; updated_at: Date };
 
 // totalsFor의 캠페인별 결과 — money(통화별 합계)에 수수료 합계(원화, §3-2 예상치)를 더한 것.
@@ -119,10 +119,10 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
     out.set(r.campaign_id, t);
   }
 
-  // 작업마다 그 인플의 기본 결제 수단을 조인해 온다 — SQL은 조회만, 수수료 계산은 순수 함수 computeMoney를 그대로 쓴다
+  // 작업마다 작업이 고른 결제 수단(없으면 기본)을 조인해 온다 — SQL은 조회만, 수수료 계산은 순수 함수 computeMoney를 그대로 쓴다
   // (정산 화면과 같은 계산, 스펙 §3-2). 결제 수단이 없으면(인플 미등록 포함) 수수료 0 + feeUnknown 1.
   const feeRows = await sql<FeeRow[]>`
-    select t.campaign_id, t.cost, i.payment_methods
+    select t.campaign_id, t.cost, i.payment_methods, t.payment_method_id
       from campaign_task t
       left join influencer i on lower(i.handle) = lower(t.influencer_handle)
      where t.campaign_id = any(${ids}::uuid[]) and t.cost is not null and t.cancelled_at is null`;
@@ -133,7 +133,7 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
     // 화면의 "미확인 N건은 단가만 넣었어요"가 실제와 어긋난다.
     if (!parsed.ok || !parsed.value) { t.feeUnknown += 1; out.set(r.campaign_id, t); continue; }
     const methods = Array.isArray(r.payment_methods) ? (r.payment_methods as PaymentMethod[]) : [];
-    const method = getDefaultPaymentMethod(methods);
+    const method = taskPaymentMethod(methods, r.payment_method_id);   // 작업이 고른 수단(060) — 정산 후보와 같은 규칙
     if (!method) { t.feeUnknown += 1; out.set(r.campaign_id, t); continue; }
     const money = computeMoney(parsed.value, method.currency, method.fee, JPY_TO_KRW);
     t.feeKrw += method.currency === 'JPY' ? money.feeAmount * JPY_TO_KRW : money.feeAmount;

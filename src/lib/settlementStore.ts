@@ -7,7 +7,7 @@ import type { Currency } from './influencerPricing.ts';
 import type { PaymentFee } from './influencerPayment.ts';
 import type { TaskType, CampaignKind } from './campaignJudgment.ts';
 import { isDateOnlyString } from './campaignJudgment.ts';   // 'YYYY-MM-DD' + 실제 달력일 검증(캠페인 라우트 가드)
-import { getDefaultPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
+import { taskPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
 import { insertAutoLog, overwriteRosterFromCorrectionInTx, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
 import { computeCandidate, effectiveIssues, toMethodSnapshot, NO_CLIENT_TEXT, NO_INFLUENCER_TEXT, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
@@ -58,14 +58,14 @@ type CandRow = {
   id: string; type: TaskType; influencer_handle: string; cost: unknown; post_url: string | null; target_tweet_url: string | null;
   target_post_url: string | null; posted_at: string; removed_at: string | null; removed_reason: string; draft_label: string | null;
   campaign_id: string; campaign_name: string; kind: CampaignKind | null; client_id: string | null; client_name: string | null;
-  influencer_id: string | null; payment_methods: unknown; proof: unknown;
+  influencer_id: string | null; payment_methods: unknown; proof: unknown; payment_method_id: string | null;
   campaign_starts_on: string; campaign_ends_on: string;   // 요청 스냅샷용 캠페인 기간(054)
 };
 // 후보 조건은 campaignJudgment.isSettlementCandidate와 같은 정의 — 스토어 테스트가 대조한다
 const CANDIDATE_BASE = (sql: postgres.Sql) => sql`
   select t.id, t.type, t.influencer_handle, t.cost, t.post_url, t.target_tweet_url, tg.post_url as target_post_url,
          to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, to_char(t.removed_at, 'YYYY-MM-DD') as removed_at, t.removed_reason,
-         coalesce(d.title, d.ko_title) as draft_label, t.proof,
+         coalesce(d.title, d.ko_title) as draft_label, t.proof, t.payment_method_id,
          c.id as campaign_id, c.name as campaign_name, c.kind, c.client_id, c.client_name,
          to_char(c.starts_on, 'YYYY-MM-DD') as campaign_starts_on, to_char(c.ends_on, 'YYYY-MM-DD') as campaign_ends_on,
          i.id as influencer_id, i.payment_methods
@@ -99,7 +99,8 @@ function rowToCandidate(r: CandRow, cost: TaskCost, settings: SettlementSettings
   return computeCandidate({
     task: { id: r.id, type: r.type, influencerHandle: r.influencer_handle, cost, postUrl: r.post_url, targetTweetUrl: r.target_tweet_url, targetPostUrl: r.target_post_url, postedAt: r.posted_at, removedAt: r.removed_at, removedReason: r.removed_reason, draftLabel: r.draft_label, proof: taskProofOf(r.proof) },
     campaign: { id: r.campaign_id, name: r.campaign_name, kind: r.kind, clientId: r.client_id, clientName: r.client_name ?? '기타' },
-    influencer: { inRoster: r.influencer_id !== null, method: r.influencer_id ? getDefaultPaymentMethod(methods) : null },
+    // 작업이 고른 수단(060, 설계 §8-2) — 없거나 지워졌으면 기본. 생성·제자리 수정(reviseRequest)·expected 대조가 전부 이 한 줄을 지난다.
+    influencer: { inRoster: r.influencer_id !== null, method: r.influencer_id ? taskPaymentMethod(methods, r.payment_method_id) : null },
     settings, lastQuoteRtCategory: lastQ, today,
   });
 }

@@ -1100,3 +1100,15 @@ test('precheckCorrectionForQrUpload — 없는 요청·uuid 형식이 아닌 id�
     { influencerId: null, proceed: false },
   );
 });
+
+// ── Task 6(작업 패널 2단계) — 결제 수단 잠금 조건. 병합을 쉽게 하려고 import까지 이 블록에 둔다(ES import는 호이스팅된다).
+import { hasLiveRequest } from './taskAssignGate.ts';
+test('hasLiveRequest — 요청 중이면 참, 우리가 취소하거나 그쪽이 취소하면 거짓(작업 패널 잠금·단계 판정과 같은 조건)', async () => {
+  const { row, task, member } = await requestFor('live', 'live');
+  assert.equal(await hasLiveRequest(sql, task.id), true);
+  await cancelRequest(sql, row.id, '테스트', member);
+  assert.equal(await hasLiveRequest(sql, task.id), false);
+  const b = await requestFor('live2', 'live2');
+  await sql`update payment_request set external_status = 'cancelled', external_updated_at = now() where id = ${b.row.id}`;
+  assert.equal(await hasLiveRequest(sql, b.task.id), false);
+});

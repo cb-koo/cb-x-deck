@@ -10,6 +10,7 @@ import { parseTaskCreate, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, DRAFT_ATT
 import { CAMPAIGN_NOT_FOUND_MESSAGE } from '@/lib/campaignInput';
 import { getDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
+import { rosterHandleOf, checkTaskPaymentMethod, ROSTER_REQUIRED_MESSAGE } from '@/lib/taskAssignGate';
 
 const notFound = () => NextResponse.json({ error: CAMPAIGN_NOT_FOUND_MESSAGE }, { status: 404 });
 
@@ -24,6 +25,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const v = parsed.value;
   const sql = getSql();
   if (!(await getCampaign(sql, id))) return notFound();
+  // 명부 게이팅(설계 §9 ①·⑤-a) — 사람을 넣는 줄은 명부에 있어야 한다. 저장 표기는 명부 표기로.
+  // 고른 결제 수단(§8-2)은 그 사람의 지금 목록에 있어야 한다.
+  for (const it of v.influencers) {
+    const canon = await rosterHandleOf(sql, it.handle);
+    if (!canon) return NextResponse.json({ error: ROSTER_REQUIRED_MESSAGE }, { status: 400 });
+    it.handle = canon;
+    if (it.paymentMethodId) {
+      const err = await checkTaskPaymentMethod(sql, canon, it.paymentMethodId);
+      if (err) return NextResponse.json({ error: err }, { status: 400 });
+    }
+  }
   if (v.targetTaskId) {
     const target = await getTask(sql, v.targetTaskId);
     if (!target) return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 400 });

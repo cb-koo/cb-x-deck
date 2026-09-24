@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
+import { resolveRosterInput, findRosterOption, ROSTER_OUTSIDE_MESSAGE, type RosterGate } from '@/lib/rosterPick';
 import { InfluencerField } from './InfluencerField';
 
 // 카드에서 바로 배정 — 상태 칩과 같은 자리(도구층 스트립)에서 "누구에게"를 한 번의 클릭으로 고친다.
@@ -13,14 +14,17 @@ import { InfluencerField } from './InfluencerField';
 
 const POP_W = 288;   // px. Tailwind 임의값 대신 상수 — 화면 밖으로 나가지 않게 좌표를 잴 때 같은 수가 필요하다.
 const POP_H = 210;   // 라벨+입력+도움말+버튼 줄의 높이 상한. 위/아래 뒤집기 '판단'에만 쓰므로 근사치로 충분하다.
+const POP_H_ROSTER = 400;   // 명부 모드는 후보 6행 + 등록 줄이 흐름 안에 붙는다 — 위/아래 뒤집기 판단용 근사치
 
-export function InfluencerChip({ handle, options, onChange, label }: {
+export function InfluencerChip({ handle, options, onChange, label, roster }: {
   handle: string | null;                     // null = 미배정
   options: InfluencerOption[];
   onChange: (next: string | null) => void;   // 정규화된 핸들, 또는 null(배정 해제)
   // 일괄 배정 바처럼 "이 한 건"이 아닌 자리에서 버튼 글자를 바꿔 단다. 없으면 카드용 기본 문구.
   // 검증·정규화·후보 제안은 그대로 공유한다 — 일괄 배정에만 따로 입력칸을 만들면 규칙이 갈라진다.
   label?: string;
+  // 주면 명부 게이팅(설계 §9 ④⑤) — 명부 밖 핸들은 저장하지 않고 등록 줄로 보낸다. 안 주면 지금 동작(자유 입력).
+  roster?: RosterGate;
 }) {
   // label이 있으면 "여러 건에 한꺼번에" 모드다 — 이 칩이 특정 원고의 현재 배정을 대변하지 않는다.
   const bulk = label !== undefined;
@@ -30,6 +34,9 @@ export function InfluencerChip({ handle, options, onChange, label }: {
   const [err, setErr] = useState<string | null>(null);
   const chipRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
+  // 지금 열려 있는 팝오버 한 번(열 때마다 새 객체, 닫으면 null) — 등록 중에 닫거나 취소했으면 늦게 온 확정을 버린다.
+  // 콤보박스도 언마운트로 스스로 버리지만, 이 칩이 '닫힌 뒤엔 배정하지 않는다'를 직접 쥔다. 쓰기는 핸들러에서만.
+  const sessionRef = useRef<object | null>(null);
 
   // 칩의 화면 좌표에 팝오버를 고정한다. 카드 안에 absolute로 넣지 않는 이유는 두 가지다 —
   // 카드 루트가 overflow-hidden이라 짧은 카드에서는 잘리고, 이 카드는 peek 오버레이(z-40) 안에서도
@@ -40,15 +47,17 @@ export function InfluencerChip({ handle, options, onChange, label }: {
     // 카드는 최대 600px이고 스트립은 좁다 — 왼쪽 맞춤 + 화면 경계 클램프면 카드 밖으로 삐져나가지 않는다.
     const left = Math.min(Math.max(8, r.left), Math.max(8, window.innerWidth - POP_W - 8));
     const below = r.bottom + 4;
-    const flip = below + POP_H > window.innerHeight && r.top - POP_H - 4 > 0;
-    setPos({ top: flip ? r.top - POP_H - 4 : below, left });
-  }, []);
+    const popH = roster ? POP_H_ROSTER : POP_H;
+    const flip = below + popH > window.innerHeight && r.top - popH - 4 > 0;
+    setPos({ top: flip ? r.top - popH - 4 : below, left });
+  }, [roster]);
 
   const close = useCallback(() => {
     // 초점을 먼저 옮기고 나서 닫는다 — 사라진 뒤에 부르면 이미 없는 요소를 향해 부르는 셈이라
     // activeElement가 body로 튕긴다(useDismissible 선례). 바깥을 눌러 닫을 때는 사용자가 방금 누른 곳에서
     // 초점을 뺏지 않도록, 초점이 팝오버 안에 있을 때만 칩으로 되돌린다.
     if (popRef.current?.contains(document.activeElement)) chipRef.current?.focus();
+    sessionRef.current = null;
     setOpen(false);
   }, []);
 
@@ -56,6 +65,7 @@ export function InfluencerChip({ handle, options, onChange, label }: {
     setValue(handle ?? '');   // 열 때마다 현재 배정에서 다시 시작 — 지난번에 취소한 입력이 남지 않는다
     setErr(null);
     place();
+    sessionRef.current = {};
     setOpen(true);
   }
 
@@ -65,15 +75,33 @@ export function InfluencerChip({ handle, options, onChange, label }: {
     // 이 순서가 뒤집히면 배정을 지우려는 사용자가 "계정 핸들이나 프로필 링크를 넣어주세요"를 보게 된다.
     let next: string | null = null;
     if (typed) {
-      const parsed = parseXHandle(typed);
-      // 형식이 틀리면 닫지 않는다 — 닫아버리면 안 저장된 채로 저장된 것처럼 보인다(거짓 성공 방지).
-      if (!parsed.ok) { setErr(handleParseMessage(parsed.reason)); return; }
-      next = parsed.handle;
+      if (roster) {
+        // 명부 모드 — 명부 표기로만 저장한다. 명부 밖이면 닫지 않고 등록 줄을 가리킨다(거짓 성공 방지)
+        const r = resolveRosterInput(typed, options, roster.status);
+        if (r.kind === 'invalid' || r.kind === 'unavailable') { setErr(r.message); return; }
+        if (r.kind === 'outside') { setErr(ROSTER_OUTSIDE_MESSAGE); return; }
+        next = r.kind === 'roster' ? r.handle : null;
+      } else {
+        const parsed = parseXHandle(typed);
+        // 형식이 틀리면 닫지 않는다 — 닫아버리면 안 저장된 채로 저장된 것처럼 보인다(거짓 성공 방지).
+        if (!parsed.ok) { setErr(handleParseMessage(parsed.reason)); return; }
+        next = parsed.handle;
+      }
     }
     // 바뀐 게 없으면 부모를 부르지 않는다 — 같은 값으로 PATCH를 한 번 더 보낼 이유가 없다.
     // 대소문자는 그대로 보존해 비교한다(Hadakan__ → hadakan__ 도 사용자가 의도한 표기 변경이다).
     // 단 일괄 배정(label 모드)에는 '현재 값'이라는 게 없다 — handle이 늘 null이라 이 비교를 그대로
     // 두면 빈 칸 저장(=여러 건 배정 해제)이 null !== null에 걸려 아무 일도 일어나지 않는다.
+    if (bulk || next !== handle) onChange(next);
+    close();
+  }
+
+  // 명부 모드의 확정(후보 클릭·Enter·'등록하고 배정') — 콤보박스가 이미 명부 판정을 끝낸 명부 표기 핸들이 온다. 다시 판정하지 않는다:
+  // '등록하고 배정'은 await 뒤 같은 틱에 이 함수를 부르는데, 그때 이 클로저의 options는 등록 전 목록이라
+  // 다시 판정하면 방금 등록한 사람이 '명부 밖'으로 나와 저장이 안 된다. ''는 비우기(= 배정 해제).
+  function commitRoster(h: string) {
+    if (!sessionRef.current) return;   // 이미 닫혔다(취소·바깥 클릭·Esc) — 사용자가 마음을 바꿨다
+    const next = h || null;
     if (bulk || next !== handle) onChange(next);
     close();
   }
@@ -128,7 +156,10 @@ export function InfluencerChip({ handle, options, onChange, label }: {
                        : 'border-dashed border-x-border-strong text-x-muted hover:bg-x-hover hover:text-x-secondary'
               }`}>
         {label ? <>{label} <span aria-hidden className="text-x-muted">⌄</span></>
-               : (handle ? <>@{handle} <span aria-hidden className="text-x-muted">⌄</span></> : '+ 인플루언서')}
+               : (handle
+                   // 예전 원고에 남은 명부 밖 핸들(§9 "원고 쪽") — 명부를 읽은 뒤에만 말한다(읽는 중·실패면 모두 밖으로 보인다)
+                   ? <>@{handle}{roster && roster.status === 'ok' && !findRosterOption(options, handle) && <span className="text-amber-700"> · 명부에 없음</span>} <span aria-hidden className="text-x-muted">⌄</span></>
+                   : '+ 인플루언서')}
       </button>
 
       {open && createPortal(
@@ -141,8 +172,10 @@ export function InfluencerChip({ handle, options, onChange, label }: {
           <InfluencerField value={value} options={options} error={err} autoFocus
                            // 고치는 중에도 빨간 문구가 붙어 있으면 "고쳤는데 여전히 틀렸다"로 읽힌다 — 타이핑과 함께 지운다.
                            onChange={(v) => { setValue(v); setErr(null); }}
-                           // 제안 목록에서 Enter로 고른 직후에는 state가 아직 그 값이 아니다 — 입력칸의 현재 값으로 저장한다.
-                           onEnter={(v) => save(v)} />
+                           {...(roster
+                             ? { roster, onCommit: commitRoster }
+                             // 제안 목록에서 Enter로 고른 직후에는 state가 아직 그 값이 아니다 — 입력칸의 현재 값으로 저장한다.
+                             : { onEnter: (v: string) => save(v) })} />
           {/* '지우려면 어떻게 하지'로 막히지 않게. 칸이 빈 순간엔 저장 버튼이 스스로 '배정 해제'라고 말하므로 그때는 숨긴다. */}
           {(handle || bulk) && typed !== '' && (
             <p className="mt-1.5 text-caption text-x-muted">칸을 비우고 저장하면 배정이 해제돼요</p>

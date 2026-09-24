@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveRosterInput, rosterSuggestions, findRosterOption, ROSTER_FAILED_MESSAGE, ROSTER_LOADING_MESSAGE } from './rosterPick.ts';
+import { resolveRosterInput, rosterSuggestions, findRosterOption, ROSTER_FAILED_MESSAGE, ROSTER_LOADING_MESSAGE, shouldCommitRegistration } from './rosterPick.ts';
 
 const opts = [
   { id: '1', handle: 'Sakura_jp', name: '사쿠라' },
@@ -32,4 +32,15 @@ test('3) 후보 — 핸들·이름 부분 일치, 정확히 같은 것 → 앞�
   assert.equal(rosterSuggestions(many, 'aa').length, 6);
   assert.deepEqual(rosterSuggestions([{ handle: 'xmika' }, { handle: 'mikan' }, { handle: 'mika' }], 'mika').map((o) => o.handle), ['mika', 'mikan', 'xmika']);
   assert.equal(findRosterOption(opts, 'MIKA')?.id, '3');
+});
+
+test('4) 등록하고 배정 — 응답이 왔을 때 그 요청이 아직 유효하고 칸이 살아 있을 때만 배정한다', () => {
+  const mine = {};
+  assert.equal(shouldCommitRegistration(mine, mine, true), true);
+  // 그사이 칸이 닫혔다(칩 취소·바깥 클릭 — 언마운트)
+  assert.equal(shouldCommitRegistration(mine, mine, false), false);
+  // 그사이 무효화됐다(칸 값이 밖에서 바뀜 — 토큰을 비움)
+  assert.equal(shouldCommitRegistration(mine, null, true), false);
+  // 그사이 다른 요청이 현재가 됐다
+  assert.equal(shouldCommitRegistration(mine, {}, true), false);
 });

@@ -58,3 +58,10 @@ export function rosterSuggestions(options: InfluencerOption[], raw: string, limi
     .slice(0, limit)
     .map((x) => x.o);
 }
+
+// '등록하고 배정'의 응답이 왔을 때 배정해도 되는가 — 등록(X 조회)은 수 초 걸린다. 그사이 칸이 닫혔거나(칩 취소·바깥 클릭),
+// 칸 값이 밖에서 바뀌었거나(토큰 비움), 다른 요청이 현재가 됐으면 사용자가 마음을 바꾼 것이다 — 늦게 온 응답으로 배정하지 않는다.
+// 토큰은 요청마다 새 객체(동일성 비교), current는 입력칸이 ref로 쥔 '지금 유효한 요청'(없으면 null).
+export function shouldCommitRegistration(mine: object, current: object | null, mounted: boolean): boolean {
+  return mounted && current !== null && current === mine;
+}

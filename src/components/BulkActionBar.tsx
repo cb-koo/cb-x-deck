@@ -3,13 +3,14 @@ import { useState } from 'react';
 import { DRAFT_STATUSES, STATUS_LABEL, type DraftStatus } from '@/lib/draftStatus';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { InfluencerChip } from '@/components/InfluencerChip';
+import type { RosterGate } from '@/lib/rosterPick';
 
 // 표 뷰에서 여러 건을 고르면 뜨는 바. 결과 패널 스크롤 컨테이너 하단에 sticky로 붙는다 —
 // 50행을 내려가 고른 뒤 액션을 찾아 다시 올라오는 일이 없도록.
 // 표시 전용이다: 판단(형제 시안 경고)과 저장(낙관적 갱신·롤백)은 전부 페이지가 한다.
 // 칩 규격(13px·높이 32px·테두리)은 DraftStatusChip·InfluencerChip과 같다 — 같은 성격의
 // "내가 정하는 것"이 화면마다 다른 덩치로 보이지 않게.
-export function BulkActionBar({ count, options, linksText, onStatus, onInfluencer, onDelete, onClear }: {
+export function BulkActionBar({ count, options, linksText, onStatus, onInfluencer, onDelete, onClear, roster }: {
   count: number;
   options: InfluencerOption[];
   // 고른 원고들의 "제목 + 링크" 묶음. 문구를 만드는 규칙은 draftShare가 쥐고, 여기는 복사만 한다.
@@ -18,6 +19,7 @@ export function BulkActionBar({ count, options, linksText, onStatus, onInfluence
   onInfluencer: (handle: string | null) => void;
   onDelete: () => void;
   onClear: () => void;
+  roster?: RosterGate;   // 명부 게이팅(설계 §9 ⑤) — 주는 화면에서만 켜진다
 }) {
   // 클립보드와 피드백을 이 컴포넌트가 함께 쥔다 — 페이지로 나누면 '복사됨' 표시가 눌린 버튼과
   // 떨어진 곳에서 관리돼 어긋나기 쉽다. 카드의 링크 복사 버튼과 같은 방식(잠깐 체크 표시)이다.
@@ -51,7 +53,7 @@ export function BulkActionBar({ count, options, linksText, onStatus, onInfluence
           '카드에서 한 건 배정'인데 화면 어디에도 그 말이 없었다.
           그래서 카드에서 쓰는 칩을 그대로 쓴다 — 핸들 검증·프로필 링크 붙여넣기·후보 제안이
           이미 들어 있고, 규칙이 두 벌로 갈라지지 않는다. 오타 방지는 실행 직전 확인창이 맡는다. */}
-      <InfluencerChip handle={null} options={options} onChange={onInfluencer} label="인플루언서 배정" />
+      <InfluencerChip handle={null} options={options} onChange={onInfluencer} label="인플루언서 배정" roster={roster} />
 
       {/* 링크 복사 — 상태·배정과 달리 원고를 바꾸지 않고 밖으로 가져가는 액션이라 삭제 앞에 둔다.
           "제목 + 링크"로 복사되므로 받는 사람이 열어보기 전에도 뭐가 뭔지 안다. */}

@@ -12,7 +12,7 @@ test('1) 고를 목록 — 요약 한 줄 + 수수료 칩 + 기본 여부(계좌
   const c = toPaymentChoices(list);
   assert.deepEqual(c.map((x) => [x.id, x.isDefault]), [['a', true], ['b', false]]);
   assert.ok(c[0].label.startsWith('PayPal'));
-  assert.deepEqual(c[1].fee, { text: 'CB 부담 3%', cb: true });
+  assert.deepEqual(c[1].fee, { text: '수수료 3% 부담', cb: true });
 });
 
 test('2) 이 작업의 수단 — 고른 것 / 없으면 기본 / 고른 게 지워졌으면 기본 + fallback', () => {

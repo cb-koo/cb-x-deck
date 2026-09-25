@@ -40,11 +40,11 @@ test('3) 명부 밖 / 수단 없음 / 기본 수단 + 고를 목록 + 고른 수
 
   const v = buildPaymentView({ request: null, roster: { id: 'inf1', methods }, chosenId: null });
   assert.equal(v.state, 'ok');
-  assert.ok(v.state === 'ok' && v.label.startsWith('PayPal') && v.fee.text === '인플 부담' && v.fallback === false);   // 고른 게 없으면 기본
+  assert.ok(v.state === 'ok' && v.label.startsWith('PayPal') && v.fee.text === '수수료 부담 없음' && v.fallback === false);   // 고른 게 없으면 기본
   assert.ok(v.state === 'ok' && v.influencerId === 'inf1' && v.choices.map((c) => c.id).join(',') === 'a,b');
 
   const chosen = buildPaymentView({ request: null, roster: { id: 'inf1', methods }, chosenId: 'a' });
-  assert.ok(chosen.state === 'ok' && chosen.label.startsWith('PayPay') && chosen.fee.text === 'CB 부담 3%' && chosen.fallback === false);
+  assert.ok(chosen.state === 'ok' && chosen.label.startsWith('PayPay') && chosen.fee.text === '수수료 3% 부담' && chosen.fallback === false);
 
   const gone = buildPaymentView({ request: null, roster: { id: 'inf1', methods }, chosenId: 'gone' });
   assert.ok(gone.state === 'ok' && gone.label.startsWith('PayPal') && gone.fallback === true);   // 고른 게 지워졌다 → 기본 + fallback

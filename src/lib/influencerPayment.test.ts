@@ -318,10 +318,10 @@ test('formatFee: 부재는 null, grossUp/fixed 문구', () => {
 });
 
 test('feeShortLabel: 수수료 짧은 말 — 인플 부담 / CB 비율 / CB 고정액(작업 패널 §8-1)', () => {
-  assert.deepEqual(feeShortLabel(undefined, 'JPY'), { text: '인플 부담', cb: false });
-  assert.deepEqual(feeShortLabel(null, 'JPY'), { text: '인플 부담', cb: false });
-  assert.deepEqual(feeShortLabel({ mode: 'grossUp', percent: 3 }, 'JPY'), { text: 'CB 부담 3%', cb: true });
-  assert.equal(feeShortLabel({ mode: 'fixed', amount: 300 }, 'JPY').text.startsWith('CB 부담 '), true);
+  assert.deepEqual(feeShortLabel(undefined, 'JPY'), { text: '수수료 부담 없음', cb: false });
+  assert.deepEqual(feeShortLabel(null, 'JPY'), { text: '수수료 부담 없음', cb: false });
+  assert.deepEqual(feeShortLabel({ mode: 'grossUp', percent: 3 }, 'JPY'), { text: '수수료 3% 부담', cb: true });
+  assert.deepEqual(feeShortLabel({ mode: 'fixed', amount: 300 }, 'JPY'), { text: '수수료 300엔 부담', cb: true });
   assert.equal(feeShortLabel({ mode: 'fixed', amount: 300 }, 'JPY').cb, true);
 });
 

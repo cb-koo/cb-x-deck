@@ -463,7 +463,7 @@ export function TaskPanel({
   // 이 작업의 결제 수단(§8-2) — 편집은 작업 행 값, 새 작업은 로컬 값. 고르면 편집은 즉시 PATCH(다른 칸과 같은 낙관적 갱신,
   // 실패하면 서버 문구 토스트 + 되돌림 — 요청 뒤 409 포함), 새 작업은 [만들기]에 함께 보낸다.
   // 실제로 다른 값일 때만 보낸다 — 활성 정산 요청이 있으면 서버는 같은 값의 재전송도 거절한다.
-  // 성공하면 보기를 다시 읽지 않는다(PaymentLine이 chosenId로 다시 고른다 — 다시 읽으면 드롭다운이 '불러오는 중…'으로 깜빡인다).
+  // 성공하면 보기를 다시 읽지 않는다(PaymentLine이 chosenId로 다시 고른다 — 다시 읽으면 결제 수단 줄이 '불러오는 중…'으로 깜빡인다).
   // 캐시만 버려 다음에 이 작업을 다시 열 때 새로 읽게 한다. 거절되면(그 사이 정산 요청이 생긴 409 등) 지금 사실을 다시 읽는다.
   const chosenMethodId = task ? task.paymentMethodId : newMethodId;
   function choosePayment(stored: string | null) {

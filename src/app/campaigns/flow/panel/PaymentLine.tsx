@@ -33,11 +33,15 @@ export function PaymentLine({ view, loading, failed, chosenId = null, onChoose, 
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
   // 목록 밖을 누르면 닫는다 — 패널 안쪽이라 패널은 안 닫힌다. setState는 이벤트 핸들러 안에서만.
+  // Esc는 목록만 닫는다 — 패널의 Esc(문서 bubble 단계)보다 먼저 받도록 capture 단계에서 멈춘다. 초점이 [바꾸기] 버튼에
+  // 있어도(목록 밖) 잡히게 문서에 건다(InfluencerChip과 같은 방식).
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => { if (!boxRef.current?.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) { e.stopPropagation(); setOpen(false); } };
     document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey, true);
+    return () => { document.removeEventListener('pointerdown', onDown); document.removeEventListener('keydown', onKey, true); };
   }, [open]);
 
   if (loading) return <p className="text-content text-x-muted">불러오는 중…</p>;
@@ -86,8 +90,7 @@ export function PaymentLine({ view, loading, failed, chosenId = null, onChoose, 
             </Line>
             {fb}
             {open && (
-              <div className="mt-2 overflow-hidden rounded-lg border border-x-border-strong bg-white shadow-md"
-                   onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } }}>
+              <div className="mt-2 overflow-hidden rounded-lg border border-x-border-strong bg-white shadow-md">
                 <ul role="listbox" aria-label="이 작업의 결제 수단">
                   {view.choices.map((c) => {
                     const on = c.id === shown.id;
@@ -110,7 +113,7 @@ export function PaymentLine({ view, loading, failed, chosenId = null, onChoose, 
                 </ul>
                 {onRegister && (
                   <button type="button" onClick={() => { setOpen(false); onRegister(); }}
-                          className="w-full px-3 py-2.5 text-left text-ui font-semibold text-x-blue-text hover:bg-x-hover">+ 새 결제 수단 등록</button>
+                          className="min-h-11 w-full px-3 py-2.5 text-left text-ui font-semibold text-x-blue-text hover:bg-x-hover">+ 새 결제 수단 등록</button>
                 )}
               </div>
             )}

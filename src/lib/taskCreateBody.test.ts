@@ -32,3 +32,10 @@ test('대상은 작업 선택과 링크 둘 중 하나로만 실린다', () => {
   assert.equal(buildTaskCreateBody({ ...base, type: 'rt', target: { taskId: 't-1' } }).targetTaskId, 't-1');
   assert.equal(buildTaskCreateBody({ ...base, type: 'rt', target: { url: 'https://x.com/a/status/1' } }).targetTweetUrl, 'https://x.com/a/status/1');
 });
+
+test('고른 결제 수단은 사람 줄에 실린다 — 사람이 없으면 보내지 않는다', () => {
+  const b = buildTaskCreateBody({ ...base, handle: 'asyako0520', paymentMethodId: 'm-2' });
+  assert.deepEqual(b.influencers, [{ handle: 'asyako0520', cost: null, paymentMethodId: 'm-2' }]);
+  assert.deepEqual(buildTaskCreateBody({ ...base, paymentMethodId: 'm-2' }).influencers, []);
+  assert.deepEqual(buildTaskCreateBody({ ...base, handle: 'asyako0520', paymentMethodId: null }).influencers, [{ handle: 'asyako0520', cost: null }]);
+});

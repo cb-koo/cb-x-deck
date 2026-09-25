@@ -12,6 +12,7 @@ import { isUuidLike } from '@/lib/uuid';
 import { LIST_CAP } from '@/lib/draftPaging';
 import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, TASK_HAS_DRAFT_MESSAGE, DRAFT_ATTACHED_MESSAGE, CANCELLED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
 import { getTask, TaskAttachError } from '@/lib/campaignTaskStore';
+import { rosterHandleOf, ROSTER_REQUIRED_MESSAGE } from '@/lib/taskAssignGate';
 
 export async function GET(req: Request) {
   const gate = await requireAllowedUser();
@@ -127,6 +128,13 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: '바꿀 내용이 없어요' }, { status: 400 });
   }
   const sql = getSql();
+  // 명부 게이팅(설계 §9 — 일괄 배정 바도 사람이 입력하는 인플 칸이다). 여러 건에 한 사람이라 '같은 사람' 예외 없이 판정한다.
+  let bulkHandle = inf.value;
+  if (bulkHandle) {
+    const canon = await rosterHandleOf(sql, bulkHandle);
+    if (!canon) return NextResponse.json({ error: ROSTER_REQUIRED_MESSAGE }, { status: 400 });
+    bulkHandle = canon;
+  }
   // 갱신과 자동 로그(influencerSync)를 같은 트랜잭션에 — 단건 PATCH와 같은 원칙(스펙 §5).
   // UPDATE는 여전히 한 문장이고, 로그 insert N개는 같은 커넥션 위의 짧은 문장들이라
   // updateDraftsBulk가 피하려던 "커넥션 N개 동시 점유"와는 다르다.
@@ -135,11 +143,11 @@ export async function PATCH(req: Request) {
     const befores = await getDraftsByIdsForUpdate(tx, parsed.ids);
     await updateDraftsBulk(tx, parsed.ids, {
       status: body.status as DraftStatus | undefined,
-      ...(inf.value !== undefined ? { influencerHandle: inf.value } : {}),
+      ...(bulkHandle !== undefined ? { influencerHandle: bulkHandle } : {}),
     });
     for (const before of befores) {
       await syncInfluencerOnDraftUpdate(tx, {
-        before, influencerHandle: inf.value,
+        before, influencerHandle: bulkHandle,
         status: body.status as string | undefined, actorId: gate.member.id,
       });
     }

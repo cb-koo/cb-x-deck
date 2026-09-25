@@ -1100,3 +1100,36 @@ test('precheckCorrectionForQrUpload — 없는 요청·uuid 형식이 아닌 id�
     { influencerId: null, proceed: false },
   );
 });
+
+test('작업별 결제 수단(060) — 후보·요청 스냅샷이 작업이 고른 수단을 쓰고, 고른 수단이 지워지면 기본 수단으로', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라PM');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'pm', 'visit'));
+  const inf = await influencerWithPaypal(H('pm'));   // 기본 = PayPal ¥ CB 5%
+  const added = await updatePaymentMethods(sql, inf.id, { kind: 'add', input: { type: 'bank', holder: 'K', currency: 'KRW', bank: '국민', account: '123' } }, null);
+  const bank = added.paymentMethods.find((x) => x.type === 'bank')!;
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H('pm'), cost: { amount: 30000, currency: 'KRW' }, paymentMethodId: bank.id }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: 'https://x.com/pm/status/1' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  assert.equal(cand.method?.id, bank.id);
+  assert.equal(cand.money?.payoutCurrency, 'KRW');
+  const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
+  const [row] = await createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-28');   // expected.paymentMethodId 대조도 같은 id라 통과
+  assert.equal(row.paymentMethod.type, 'bank');
+  await cancelRequest(sql, row.id, '테스트', m);
+  await updatePaymentMethods(sql, inf.id, { kind: 'remove', id: bank.id }, null);
+  const again = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  assert.equal(again.method?.type, 'paypal');   // 고른 수단이 지워지면 기본(PayPal)으로 정산된다
+});
+
+// ── Task 6(작업 패널 2단계) — 결제 수단 잠금 조건. 병합을 쉽게 하려고 import까지 이 블록에 둔다(ES import는 호이스팅된다).
+import { hasLiveRequest } from './taskAssignGate.ts';
+test('hasLiveRequest — 요청 중이면 참, 우리가 취소하거나 그쪽이 취소하면 거짓(작업 패널 잠금·단계 판정과 같은 조건)', async () => {
+  const { row, task, member } = await requestFor('live', 'live');
+  assert.equal(await hasLiveRequest(sql, task.id), true);
+  await cancelRequest(sql, row.id, '테스트', member);
+  assert.equal(await hasLiveRequest(sql, task.id), false);
+  const b = await requestFor('live2', 'live2');
+  await sql`update payment_request set external_status = 'cancelled', external_updated_at = now() where id = ${b.row.id}`;
+  assert.equal(await hasLiveRequest(sql, b.task.id), false);
+});

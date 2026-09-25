@@ -6,6 +6,7 @@ import { tweetPermalink } from './tweetLink.ts';
 import { isUuidLike } from './uuid.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
 import { influencerChangeGuard, POSTED_TASK_MESSAGE, type CancelReason } from './campaignTaskInput.ts';
+import { rosterHandleOf } from './taskAssignGate.ts';   // 잎 모듈 — 순환 없음(그 파일 머리 주석)
 // draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
 // getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
 import type { DraftRow } from './draftStore.ts';
@@ -24,6 +25,7 @@ export interface TaskRow {
   removedAt: string | null; removedReason: string;
   scheduledOn: string | null; visitOn: string | null; cost: TaskCost | null; note: string;
   proof: TaskProof | null;   // RT 증빙 스크린샷 1장(스펙 2026-08-31 §4-2). RT 아닌 유형은 늘 null
+  paymentMethodId: string | null;   // 이 작업에만 쓸 결제 수단(060) — 인플 payment_methods[].id 참조, null = 기본 수단(설계 §8-2)
   // 취소(055, ADR 0002) — 삭제가 아니라 상태. cancelledDraft*는 되돌리기용 스냅샷(떼어낸 원고 id·제목)
   cancelledAt: string | null; cancelReason: CancelReason | null; cancelNote: string;
   cancelledDraftId: string | null; cancelledDraftTitle: string | null;
@@ -42,7 +44,7 @@ export interface TaskCreateInput {
   type: TaskType; targetTaskId: string | null; targetTweetUrl: string | null; draftId: string | null;
   scheduledOn: string | null; visitOn: string | null; note: string; createdBy: string | null;
   // 비면 미배정 1행. 줄의 날짜(scheduledOn·visitOn)가 있으면 그게 이기고, 없으면 위의 입력값을 쓴다 — 인플마다 게시일이 다르다.
-  items: Array<{ handle: string | null; cost: TaskCost | null; scheduledOn?: string | null; visitOn?: string | null }>;
+  items: Array<{ handle: string | null; cost: TaskCost | null; scheduledOn?: string | null; visitOn?: string | null; paymentMethodId?: string | null }>;
 }
 export interface TaskPatch {
   influencerHandle?: string | null; targetTaskId?: string | null; targetTweetUrl?: string | null;
@@ -50,6 +52,7 @@ export interface TaskPatch {
   removedAt?: string | null; removedReason?: string;
   scheduledOn?: string | null; visitOn?: string | null; cost?: TaskCost | null; note?: string;
   proof?: TaskProof | null;   // 3값: undefined 유지 · null 떼기 · 값 설정
+  paymentMethodId?: string | null;   // 3값: undefined 유지 · null 기본 수단으로 · id 설정. 인플이 실제로 바뀌면 updateTask가 비운다
 }
 export interface TargetCandidate {
   taskId: string; type: TaskType; influencerHandle: string | null; campaignId: string; campaignName: string;
@@ -67,7 +70,7 @@ type Row = {
   draft_id: string | null; target_task_id: string | null; target_tweet_url: string | null;
   post_url: string | null; posted_at: string | null; posted_source: 'auto' | 'manual' | null;
   removed_at: string | null; removed_reason: string;
-  scheduled_on: string | null; visit_on: string | null; cost: unknown; note: string; proof: unknown;
+  scheduled_on: string | null; visit_on: string | null; cost: unknown; note: string; proof: unknown; payment_method_id: string | null;
   cancelled_at: string | null; cancel_reason: CancelReason | null; cancel_note: string;
   cancelled_draft_id: string | null; cancelled_draft_title: string | null;
   created_at: Date; updated_at: Date;
@@ -98,6 +101,7 @@ const toRow = (r: Row): TaskRow => ({
   removedAt: r.removed_at, removedReason: r.removed_reason,
   scheduledOn: r.scheduled_on, visitOn: r.visit_on, cost: costOf(r.cost), note: r.note,
   proof: taskProofOf(r.proof),
+  paymentMethodId: r.payment_method_id,
   cancelledAt: r.cancelled_at, cancelReason: r.cancel_reason, cancelNote: r.cancel_note,
   cancelledDraftId: r.cancelled_draft_id, cancelledDraftTitle: r.cancelled_draft_title,
   createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
@@ -118,7 +122,7 @@ const SELECT = (sql: postgres.Sql) => sql`
          t.post_url, to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, t.posted_source,
          to_char(t.removed_at, 'YYYY-MM-DD') as removed_at, t.removed_reason,
          to_char(t.scheduled_on, 'YYYY-MM-DD') as scheduled_on, to_char(t.visit_on, 'YYYY-MM-DD') as visit_on,
-         t.cost, t.note, t.proof, t.created_at, t.updated_at,
+         t.cost, t.note, t.proof, t.payment_method_id, t.created_at, t.updated_at,
          to_char(t.cancelled_at, 'YYYY-MM-DD') as cancelled_at, t.cancel_reason, t.cancel_note,
          t.cancelled_draft_id, t.cancelled_draft_title,
          d.status as draft_status, d.title as draft_title, d.ko_title as draft_ko_title,
@@ -159,10 +163,11 @@ export async function createTasks(sql: postgres.Sql, campaignId: string, input: 
       // created_at asc 정렬이 삽입 순서를 보장하지 못한다(§1 테스트로 발견). clock_timestamp()는 문장마다 진행한다.
       const rows = await tx<Array<{ id: string }>>`
         insert into campaign_task (campaign_id, influencer_handle, type, target_task_id, target_tweet_url,
-                                   scheduled_on, visit_on, cost, note, created_by, created_at)
+                                   scheduled_on, visit_on, cost, note, created_by, payment_method_id, created_at)
         values (${campaignId}, ${it.handle}, ${input.type}, ${input.targetTaskId}, ${input.targetTweetUrl},
                 ${it.scheduledOn ?? input.scheduledOn}::date, ${it.visitOn ?? input.visitOn}::date,
-                ${it.cost ? tx.json(it.cost as never) : null}, ${input.note}, ${input.createdBy}, clock_timestamp())
+                ${it.cost ? tx.json(it.cost as never) : null}, ${input.note}, ${input.createdBy},
+                ${it.paymentMethodId ?? null}::text, clock_timestamp())
         returning id`;
       ids.push(rows[0].id);
     }
@@ -178,6 +183,8 @@ export async function createTasks(sql: postgres.Sql, campaignId: string, input: 
 // postedAt은 null을 받지 않는다(게시 확인은 되돌리지 않는다, §3-4) — 타입이 막는다.
 export async function updateTask(sql: postgres.Sql, id: string, patch: TaskPatch): Promise<boolean> {
   if (!isUuidLike(id)) return false;
+  // 결제 수단(§8-2): 명시값이 먼저. 명시가 없고 인플이 대소문자 말고 실제로 바뀌면 비운다 — 다른 사람의 수단 id가 남으면 안 된다.
+  // SET 식은 모두 옛 행 값을 본다(Postgres) — 아래 payment_method_id 식의 influencer_handle은 이번 갱신 전 값이다.
   const rows = await sql`update campaign_task set
       influencer_handle = case when ${patch.influencerHandle !== undefined} then ${patch.influencerHandle ?? null}::text else influencer_handle end,
       target_task_id    = case when ${patch.targetTaskId !== undefined} then ${patch.targetTaskId ?? null}::uuid else target_task_id end,
@@ -192,6 +199,11 @@ export async function updateTask(sql: postgres.Sql, id: string, patch: TaskPatch
       cost              = case when ${patch.cost !== undefined} then ${patch.cost ? sql.json(patch.cost as never) : null}::jsonb else cost end,
       note              = coalesce(${patch.note ?? null}::text, note),
       proof             = case when ${patch.proof !== undefined} then ${patch.proof ? sql.json(patch.proof as never) : null}::jsonb else proof end,
+      payment_method_id = case
+        when ${patch.paymentMethodId !== undefined} then ${patch.paymentMethodId ?? null}::text
+        when ${patch.influencerHandle !== undefined}
+             and lower(coalesce(${patch.influencerHandle ?? null}::text, '')) <> lower(coalesce(influencer_handle, '')) then null
+        else payment_method_id end,
       updated_at = now()
     where id = ${id} and (${patch.postedAt ?? null}::date is null or cancelled_at is null) returning id`;
   // R17 — 게시 확인(postedAt)만 취소 작업에 막는다. 메모 등 나머지 편집은 취소 중에도 허용된다(R18)라
@@ -223,9 +235,12 @@ export async function attachDraft(sql: postgres.Sql, taskId: string, draftId: st
   if (d.length === 0) throw new TaskAttachError('no-task');
   const taskHandle = t[0].influencer_handle;
   const draftHandle = d[0].influencer_handle;
+  // 명부 게이팅(설계 §9) — 원고 쪽 핸들로 미배정 작업을 채우는 것은 그 핸들이 명부에 있을 때만, 명부 표기로.
+  // 명부 밖이면 작업은 미배정 그대로 두고 붙이기는 성공한다. 원고의 옛 핸들은 건드리지 않는다(기존 데이터 보존).
+  const fill = !taskHandle && draftHandle ? await rosterHandleOf(sql, draftHandle) : null;
   try {
     await sql`update campaign_task set draft_id = ${draftId},
-        influencer_handle = coalesce(influencer_handle, ${draftHandle}), updated_at = now() where id = ${taskId}`;
+        influencer_handle = coalesce(influencer_handle, ${fill}::text), updated_at = now() where id = ${taskId}`;
   } catch (e) {
     // 위 taken 체크는 동시 요청 사이에서 경합을 완전히 막지 못한다(같은 원고를 두 작업이 동시에 붙이면
     // 둘 다 통과할 수 있다) — unique partial index가 최후 방어선. 진 쪽은 23505를 문구 있는 오류로 바꿔 던진다.
@@ -503,7 +518,8 @@ export async function replaceInfluencer(
     // 같은 인플루언서 재선택은 no-op이다(ADR 0005 표 "같은 인플 재선택" — 변경 없음). 표기(대소문자)만
     // 다른 재입력도 여기 해당한다 — 흔적 정리·비용 변경·원고 강등·로그를 전부 건너뛴다.
     if ((cur.influencer_handle ?? '').toLowerCase() === input.handle.toLowerCase()) return 'ok';
-    await tx`update campaign_task set influencer_handle = ${input.handle},
+    // 사람이 실제로 바뀌는 자리(같은 사람 재선택은 위에서 이미 no-op으로 끝났다) — 앞사람이 고른 결제 수단은 비운다(§8-2)
+    await tx`update campaign_task set influencer_handle = ${input.handle}, payment_method_id = null,
         cost = case when ${input.cost !== undefined} then ${input.cost ? tx.json(input.cost as never) : null}::jsonb else cost end,
         updated_at = now() where id = ${id}`;
     const traces = await clearOldInfluencerTraces(tx, id);

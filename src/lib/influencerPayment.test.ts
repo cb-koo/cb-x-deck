@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parsePaymentMethodInput, applyPaymentOp, describeMethod, formatFee, feeShortLabel, getDefaultPaymentMethod,
+  parsePaymentMethodInput, applyPaymentOp, describeMethod, formatFee, feeShortLabel, getDefaultPaymentMethod, taskPaymentMethod,
   settlementBadge,
   PAYMENT_TYPE_LABEL, PAYMENT_FIELD_LABEL, PAYMENT_NOT_FOUND,
   type PaymentMethod, type PaymentMethodInput,
@@ -318,10 +318,10 @@ test('formatFee: 부재는 null, grossUp/fixed 문구', () => {
 });
 
 test('feeShortLabel: 수수료 짧은 말 — 인플 부담 / CB 비율 / CB 고정액(작업 패널 §8-1)', () => {
-  assert.deepEqual(feeShortLabel(undefined, 'JPY'), { text: '인플 부담', cb: false });
-  assert.deepEqual(feeShortLabel(null, 'JPY'), { text: '인플 부담', cb: false });
-  assert.deepEqual(feeShortLabel({ mode: 'grossUp', percent: 3 }, 'JPY'), { text: 'CB 부담 3%', cb: true });
-  assert.equal(feeShortLabel({ mode: 'fixed', amount: 300 }, 'JPY').text.startsWith('CB 부담 '), true);
+  assert.deepEqual(feeShortLabel(undefined, 'JPY'), { text: '수수료 부담 없음', cb: false });
+  assert.deepEqual(feeShortLabel(null, 'JPY'), { text: '수수료 부담 없음', cb: false });
+  assert.deepEqual(feeShortLabel({ mode: 'grossUp', percent: 3 }, 'JPY'), { text: '수수료 3% 부담', cb: true });
+  assert.deepEqual(feeShortLabel({ mode: 'fixed', amount: 300 }, 'JPY'), { text: '수수료 300엔 부담', cb: true });
   assert.equal(feeShortLabel({ mode: 'fixed', amount: 300 }, 'JPY').cb, true);
 });
 
@@ -329,6 +329,15 @@ test('getDefaultPaymentMethod: 있으면 반환, 없으면 null', () => {
   assert.equal(getDefaultPaymentMethod([]), null);
   const list = applyPaymentOp([], { kind: 'add', input: bankInput() }, NOW, newId).list;
   assert.equal(getDefaultPaymentMethod(list), list[0]);
+});
+
+test('taskPaymentMethod: 고른 id가 있으면 그것, 지워졌거나 null이면 기본, 비면 null', () => {
+  const list = [{ id: 'a', isDefault: true }, { id: 'b', isDefault: false }];
+  assert.equal(taskPaymentMethod(list, 'b')?.id, 'b');
+  assert.equal(taskPaymentMethod(list, 'gone')?.id, 'a');   // 고른 수단이 나중에 지워짐 → 기본(설계 §8-2)
+  assert.equal(taskPaymentMethod(list, null)?.id, 'a');
+  assert.equal(taskPaymentMethod(list, undefined)?.id, 'a');
+  assert.equal(taskPaymentMethod([], 'b'), null);
 });
 
 test('settlementBadge: 명부 목록 배지 5케이스', () => {

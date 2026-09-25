@@ -15,12 +15,13 @@ export type TaskCreateFormState = {
   note: string;
   target: { taskId: string } | { url: string } | null;
   draftId: string | null;
+  paymentMethodId?: string | null;   // 새 작업 폼에서 고른 결제 수단(§8-2) — 사람 줄에 싣는다. 기본 수단이면 null(안 보냄)
 };
 
 export function buildTaskCreateBody(input: TaskCreateFormState): TaskCreateRequest {
   return {
     type: input.type,
-    influencers: input.handle ? [{ handle: input.handle, cost: input.cost }] : [],
+    influencers: input.handle ? [{ handle: input.handle, cost: input.cost, ...(input.paymentMethodId ? { paymentMethodId: input.paymentMethodId } : {}) }] : [],
     ...(input.handle ? {} : { cost: input.cost ?? undefined }),
     scheduledOn: input.scheduledOn, visitOn: input.type === 'visit' ? input.visitOn : null,
     note: input.note,

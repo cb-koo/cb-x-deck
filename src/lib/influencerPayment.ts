@@ -167,13 +167,27 @@ export function formatFee(fee: PaymentFee | undefined, currency: Currency): stri
 }
 
 // 작업 패널 수수료 칩 — formatFee와 같은 말에서 '송금 수수료 '만 뺀 짧은 판(§8-1). cb=true면 화면이 주황으로.
+// 작업 패널 수수료 칩(koo 09-25) — 우리(CB)가 송금 수수료를 부담하는지 여부로 말한다: '수수료 부담 없음'(인플이 낸다) /
+// '수수료 3% 부담'·'수수료 300엔 부담'(우리가 낸다). cb=true면 비용이 늘어나는 쪽이라 화면이 주황으로.
+// 인플 프로필 화면의 폼·카드 문구(formatFee — 인플 부담 / CB 부담)는 그대로다.
 export function feeShortLabel(fee: PaymentFee | null | undefined, currency: Currency): { text: string; cb: boolean } {
-  const long = formatFee(fee ?? undefined, currency);
-  if (!long) return { text: '인플 부담', cb: false };
-  return { text: long.replace(/^송금 수수료 /, '').replace(' · ', ' '), cb: true };
+  if (!fee) return { text: '수수료 부담 없음', cb: false };
+  const amount = fee.mode === 'grossUp' ? `${fee.percent}%` : formatMoney(fee.amount, currency);
+  return { text: `수수료 ${amount} 부담`, cb: true };
 }
 
 export function getDefaultPaymentMethod(list: PaymentMethod[]): PaymentMethod | null {
+  return list.find((m) => m.isDefault) ?? null;
+}
+
+// 이 작업에 쓸 결제 수단(설계 §8-2) — 작업이 고른 id가 지금 목록에 있으면 그것, 없으면(null이거나 그 사이 지워짐) 기본 수단.
+// 정산 후보·제자리 수정(reviseRequest)·캠페인 수수료 합계·작업 패널 표시가 이 하나를 쓴다 — 판정을 두 벌로 두지 않는다.
+// 제네릭인 이유: 패널은 계좌번호를 뺀 요약(PaymentChoice, paymentChoice.ts)에 같은 규칙을 적용한다.
+export function taskPaymentMethod<T extends { id: string; isDefault: boolean }>(list: T[], chosenId: string | null | undefined): T | null {
+  if (chosenId) {
+    const hit = list.find((m) => m.id === chosenId);
+    if (hit) return hit;
+  }
   return list.find((m) => m.isDefault) ?? null;
 }
 

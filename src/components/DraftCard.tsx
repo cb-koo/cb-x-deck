@@ -19,6 +19,7 @@ import { ImageLightbox } from '@/components/ImageLightbox';
 import { useTranslations } from '@/components/useTranslations';
 import { DraftStatusChip } from '@/components/DraftStatusChip';
 import { InfluencerChip } from '@/components/InfluencerChip';
+import type { RosterGate } from '@/lib/rosterPick';
 import { DraftTitleField } from '@/components/DraftTitleField';
 import { TrackingLinkSection } from '@/components/TrackingLinkSection';
 import { draftLabel } from '@/lib/draftViews';
@@ -168,7 +169,7 @@ function MediaOverlayActions({ canDetach, isGif, onDetach, onDownload, onCopy, o
 }
 
 // 초안 카드 — X 실측(600px·radius16·아바타40·본문 15/20). 지표·배지·이미지 자리 없음(없는 데이터는 자리도 안 만듦)
-export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, onChangeTitle, siblingTotal, influencerOptions, onAssignInfluencer, onSaveMedia, mediaDropNotice, onDismissMediaDrop, task }: {
+export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDelete, onRegenPost, regenBusyIndex, onDismissFlag, onRestoreAllFlags, onChangeStatus, onChangeTitle, siblingTotal, influencerOptions, onAssignInfluencer, onSaveMedia, mediaDropNotice, onDismissMediaDrop, task, roster }: {
   draft: DraftRow; banned: string[];
   onEdit: () => void; onRewrite: (feedback: string, baseIndex: number) => void; rewriteBusy: boolean;
   onDelete: () => void; onRegenPost: (index: number) => void; regenBusyIndex: number | null;
@@ -181,6 +182,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
   siblingTotal: number | null; // 다중 시안 형제 수 (batch 없으면 null)
   influencerOptions: InfluencerOption[]; // 배정 자동완성 후보 — 편집 모달에서 옮겨온 배선
   onAssignInfluencer: (next: string | null) => void;
+  roster?: RosterGate; // 명부 게이팅(설계 §9 ④⑤) — 주는 화면에서만 켜진다(옛 /campaigns는 안 준다)
   // 이미지 첨부·떼기 즉시 저장 (설계 §확정 판단) — 낙관적 갱신·롤백은 페이지가 한다(assignInfluencer와 같은 패턴)
   onSaveMedia: (next: DraftContent) => void;
   // 방금 다시 쓰기로 이미지가 빠졌다는 사실 (설계 §H-1). '방금'이라는 사건이라 카드가 스스로 알 수 없다 —
@@ -457,7 +459,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
       <div className="flex flex-wrap items-center gap-2 border-b border-x-border bg-x-surface px-4 py-2">
         <DraftStatusChip status={draft.status} onChange={onChangeStatus} />
         {/* 인플루언서 배정 — 상태와 나란히 "누구에게·어디까지"를 한 자리에서 (스펙 §F). 편집 모달을 열지 않고 카드에서 바로 배정 — 미배정 표시도 칩이 알아서 그린다 */}
-        <InfluencerChip handle={draft.influencerHandle} options={influencerOptions} onChange={onAssignInfluencer} />
+        <InfluencerChip handle={draft.influencerHandle} options={influencerOptions} onChange={onAssignInfluencer} roster={roster} />
         {/* 작업 소속(스펙 2026-08-28 §5) — 인플루언서 칸 옆 "누구에게 · 어느 작업으로". 배선한 호스트에서만 보인다 */}
         {task && (
           <DraftTaskField draft={draft} campaigns={task.campaigns} today={task.today}

@@ -6,6 +6,7 @@ import { formatAmount, suggestTaskCost, type TaskCost } from '@/lib/campaignCost
 import type { CancelReason } from '@/lib/campaignTaskInput';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { parseXHandle, handleParseMessage } from '@/lib/xHandle';
+import type { RosterGate } from '@/lib/rosterPick';
 import { InfluencerField } from '@/components/InfluencerField';
 import { Button } from '@/components/ui';
 
@@ -14,24 +15,27 @@ import { Button } from '@/components/ui';
 // 그 선택지 자체를 감춘다 — 통화 단위가 다른 값을 슬쩍 밀어 넣지 않는다(koo 결정, 리뷰 carried-over 2).
 // onConfirm은 flowActions.replace를 감싼 것 — CancelDialog·BulkCreateDialog와 같은 관례로 제출 뒤 결과와
 // 무관하게 닫는다(성공·실패는 토스트가 말한다).
-// 핸들 하나를 검증·정규화한다 — 사용자가 친 값이든(commitHandle) 카드에서 미리 골라 넘어온 값이든
-// (initialHandle) 같은 길을 지나야 한다(koo QA 지적: 두 번 고르게 하지 않되 검증은 다르게 타면 안 된다).
+// 카드에서 미리 골라 넘어온 핸들(initialHandle)의 형식·같은 사람만 본다 — 명부 판정은 다시 하지 않는다. 그 값은
+// 원고 카드 칩(명부 모드)이 이미 판정을 끝낸 명부 표기다(Global Constraints: onCommit은 명부 표기를 믿는다 — '등록하고
+// 배정' 직후엔 받는 쪽 목록이 등록 전 것일 수 있어 다시 판정하면 방금 등록한 사람이 명부 밖으로 나온다).
+// 입력칸에서 친 값도 콤보박스가 판정을 끝내고 넘긴다(commitHandle). 같은 사람 문구는 두 길이 같은 것을 쓴다.
+const SAME_PERSON_MESSAGE = '같은 인플루언서예요 — 바꿀 사람을 골라요';
 function resolveHandle(raw: string, currentHandle: string | null): { handle: string; handleInput: string; handleErr: string | null } {
   const v = raw.trim();
   if (!v) return { handle: '', handleInput: '', handleErr: null };
   const p = parseXHandle(v);
   if (!p.ok) return { handle: '', handleInput: raw, handleErr: handleParseMessage(p.reason) };
   if (currentHandle && p.handle.toLowerCase() === currentHandle.toLowerCase()) {
-    return { handle: '', handleInput: raw, handleErr: '같은 인플루언서예요 — 바꿀 사람을 골라요' };
+    return { handle: '', handleInput: p.handle, handleErr: SAME_PERSON_MESSAGE };
   }
   return { handle: p.handle, handleInput: p.handle, handleErr: null };
 }
 
-export function ReplaceDialog({ task, influencerOptions, initialHandle, onClose, onConfirm }: {
+export function ReplaceDialog({ task, influencerOptions, roster, initialHandle, onClose, onConfirm }: {
   task: FlowRow;
   influencerOptions: InfluencerOption[];
-  // 원고 카드에서 이미 고른 핸들(선택) — 있으면 입력칸에 미리 채운 채 연다. 검증은 resolveHandle 하나로
-  // commitHandle과 공유한다(아래) — 초기값만 다른 길을 타면 카드에서 고른 값이 여기선 다르게 판정될 수 있다.
+  roster: RosterGate;   // 명부 관문(설계 §9) — 새 사람은 명부에서 고르거나 '명부에 등록하고 배정'만 된다
+  // 원고 카드에서 이미 고른 핸들(선택, 명부 표기) — 있으면 입력칸에 미리 채운 채 연다. 형식·같은 사람만 본다(resolveHandle).
   initialHandle?: string;
   onClose: () => void;
   onConfirm: (body: { handle: string; cost?: TaskCost | null; reason?: CancelReason | null; note?: string }) => Promise<void>;
@@ -54,10 +58,14 @@ export function ReplaceDialog({ task, influencerOptions, initialHandle, onClose,
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose, busy]);
 
-  function commitHandle(raw: string) {
-    const r = resolveHandle(raw, task.influencerHandle);
-    setHandle(r.handle); setHandleInput(r.handleInput); setHandleErr(r.handleErr);
-    if (r.handle) setCostChoice('keep');   // 사람이 바뀌면 새 단가 선택은 다시 기본값(유지)부터
+  // h = 명부 표기 핸들(InfluencerField가 판정을 끝낸 값, '등록하고 배정' 포함) 또는 ''(비움). 같은 사람 확인만 여기서.
+  function commitHandle(h: string) {
+    const same = !!h && !!task.influencerHandle && h.toLowerCase() === task.influencerHandle.toLowerCase();
+    setHandle(same ? '' : h); setHandleInput(h);
+    setHandleErr(same ? SAME_PERSON_MESSAGE : null);
+    // 사람이 바뀌면 새 단가 선택은 다시 기본값(유지)부터 — 같은 사람이 다시 확정될 때(칸을 떠날 때마다 blur가 확정한다)는
+    // 고른 '새 단가로'를 되돌리지 않는다(안 그러면 [교체하기]를 누르는 순간의 blur가 선택을 조용히 '유지'로 바꾼다)
+    if (h && !same && h.toLowerCase() !== handle.toLowerCase()) setCostChoice('keep');
   }
 
   const option = handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined;
@@ -96,9 +104,11 @@ export function ReplaceDialog({ task, influencerOptions, initialHandle, onClose,
         <div className="mt-3">
           <p className="text-ui text-x-secondary">새 인플루언서</p>
           <div className="mt-1">
+            {/* onChange에서 setHandle('') — 확정한 뒤 다시 고쳐 치면 [교체하기]가 옛 사람으로 나가지 않게 */}
             <InfluencerField value={handleInput} options={influencerOptions} hideLabel
-                             onChange={(v) => { setHandleInput(v); setHandleErr(null); }} error={handleErr}
-                             onEnter={commitHandle} onBlur={commitHandle} />
+                             roster={roster} commitOnBlur priceType={task.type}
+                             onChange={(v) => { setHandleInput(v); setHandleErr(null); setHandle(''); }} error={handleErr}
+                             onCommit={commitHandle} />
           </div>
         </div>
 

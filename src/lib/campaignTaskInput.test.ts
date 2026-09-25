@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTaskCreate, parseTaskPatch, proofGateError, normalizeTargetTweetUrl, parseTaskIdPatch, TASK_TYPE_MESSAGE, TARGET_MESSAGE, POST_URL_MESSAGE, VISIT_ON_MESSAGE, DRAFT_MULTI_MESSAGE, POSTED_AT_NULL_MESSAGE, DATE_MESSAGE, influencerChangeGuard, CANCELLED_TASK_MESSAGE, POSTED_TASK_MESSAGE, REPLACE_AFTER_VISIT_MESSAGE, REPLACE_REQUIRED_MESSAGE } from './campaignTaskInput.ts';
+import { parseTaskCreate, parseTaskPatch, proofGateError, normalizeTargetTweetUrl, parseTaskIdPatch, TASK_TYPE_MESSAGE, TARGET_MESSAGE, POST_URL_MESSAGE, VISIT_ON_MESSAGE, DRAFT_MULTI_MESSAGE, POSTED_AT_NULL_MESSAGE, DATE_MESSAGE, influencerChangeGuard, CANCELLED_TASK_MESSAGE, POSTED_TASK_MESSAGE, REPLACE_AFTER_VISIT_MESSAGE, REPLACE_REQUIRED_MESSAGE, PAYMENT_METHOD_ID_MESSAGE, PAYMENT_METHOD_NO_INFLUENCER_MESSAGE } from './campaignTaskInput.ts';
 import { PROOF_VALUE_MESSAGE, PROOF_ONLY_RT_MESSAGE, PROOF_KEEP_MESSAGE, PROOF_REQUIRED_MESSAGE } from './taskProofGuard.ts';
 
 const U = '11111111-1111-1111-1111-111111111111';
@@ -182,4 +182,46 @@ test('parseTaskCreate — count: 인플·원고 없는 뼈대만 1~20, 그 외�
   assert.equal(parseTaskCreate({ ...base, count: 21 }).ok, false);
   assert.equal(parseTaskCreate({ ...base, count: 2, influencers: [{ handle: 'a' }] }).ok, false);
   assert.equal(parseTaskCreate({ ...base, count: 2, draftId: '00000000-0000-0000-0000-000000000000' }).ok, false);
+});
+
+test('결제 수단 id(§8-2) — 패치: 온 키만, null·빈 문자열 = 기본으로, 모양이 틀리면 문구', () => {
+  const a = parseTaskPatch({ paymentMethodId: 'b9f0c1d2-0000-4000-8000-000000000001' });
+  assert.ok(a.ok && a.value.paymentMethodId === 'b9f0c1d2-0000-4000-8000-000000000001');
+  const b = parseTaskPatch({ paymentMethodId: null });
+  assert.ok(b.ok && b.value.paymentMethodId === null);
+  const c = parseTaskPatch({ paymentMethodId: '' });
+  assert.ok(c.ok && c.value.paymentMethodId === null);
+  const d = parseTaskPatch({ note: 'x' });
+  assert.ok(d.ok && !('paymentMethodId' in d.value));
+  assert.deepEqual(parseTaskPatch({ paymentMethodId: 3 }), { ok: false, message: PAYMENT_METHOD_ID_MESSAGE });
+  assert.deepEqual(parseTaskPatch({ paymentMethodId: 'a b' }), { ok: false, message: PAYMENT_METHOD_ID_MESSAGE });
+  assert.deepEqual(parseTaskPatch({ paymentMethodId: 'x'.repeat(65) }), { ok: false, message: PAYMENT_METHOD_ID_MESSAGE });
+});
+
+test('결제 수단 id(§8-2) — 생성: 사람 줄에 있으면 싣고, 없으면 키 자체가 없다', () => {
+  const ok = parseTaskCreate({ type: 'post', influencers: [{ handle: 'Rio', paymentMethodId: 'm-1' }, { handle: 'sora' }] });
+  assert.ok(ok.ok);
+  if (ok.ok) {
+    assert.equal(ok.value.influencers[0].paymentMethodId, 'm-1');
+    assert.equal('paymentMethodId' in ok.value.influencers[1], false);
+  }
+  assert.deepEqual(parseTaskCreate({ type: 'post', influencers: [{ handle: 'Rio', paymentMethodId: 7 }] }), { ok: false, message: PAYMENT_METHOD_ID_MESSAGE });
+  // 리뷰 추가 요구: paymentMethodId는 핸들 없는 줄엔 실릴 자리가 없다 — 핸들 파싱이 먼저 실패하므로
+  // (이 규칙 전용 가드가 새로 필요하지 않다. 문구는 핸들 오류 문구이지 PAYMENT_METHOD_ID_MESSAGE가 아니다)
+  assert.equal(parseTaskCreate({ type: 'post', influencers: [{ paymentMethodId: 'm-1' }] }).ok, false);
+});
+
+test('결제 수단 id(§8-2, 리뷰 추가) — 패치: 인플루언서를 같이 떼면서 결제 수단(실제 id)을 주면 거절', () => {
+  assert.deepEqual(
+    parseTaskPatch({ paymentMethodId: 'b9f0c1d2-0000-4000-8000-000000000001', influencerHandle: null }),
+    { ok: false, message: PAYMENT_METHOD_NO_INFLUENCER_MESSAGE },
+  );
+  // 둘 다 비우기(기본 수단으로 + 인플 해제)는 허용 — null은 '고른 수단'이 아니다
+  const cleared = parseTaskPatch({ paymentMethodId: null, influencerHandle: null });
+  assert.ok(cleared.ok && cleared.value.paymentMethodId === null && cleared.value.influencerHandle === null);
+  // 인플루언서를 유지·배정하면서 결제 수단을 주는 건 정상
+  const withHandle = parseTaskPatch({ paymentMethodId: 'x', influencerHandle: 'Rio' });
+  assert.ok(withHandle.ok && withHandle.value.paymentMethodId === 'x' && withHandle.value.influencerHandle === 'Rio');
+  // 모양이 틀린 값은 콤보 검사보다 먼저 문구가 나온다(값 검증이 우선)
+  assert.deepEqual(parseTaskPatch({ paymentMethodId: 3, influencerHandle: null }), { ok: false, message: PAYMENT_METHOD_ID_MESSAGE });
 });

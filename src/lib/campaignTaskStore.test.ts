@@ -5,9 +5,11 @@ import { createClient } from './clientStore.ts';
 import { createCampaign } from './campaignStore.ts';
 import { insertDraft, updateDraft, getDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
+import { createInfluencer } from './influencerStore.ts';
 import {
   createTasks, listTasksByCampaign, getTask, findTaskByDraft, updateTask, deleteTask, attachDraft, detachDraft,
   listTargetCandidates, listTargetingHandles, markPosted, countTasksForCampaignDelete, cutoverDraftsToTasks, TaskAttachError,
+  replaceInfluencer,
 } from './campaignTaskStore.ts';
 
 const sql = getSql();
@@ -20,6 +22,7 @@ after(async () => {
   await sql`delete from draft where direction like ${P + '%'}`;
   await sql`delete from campaign where name like ${P + '%'}`;
   await sql`delete from client where name like ${P + '%'}`;
+  await sql`delete from influencer where handle like ${P + '%'}`;
   await sql.end();
 });
 
@@ -89,10 +92,11 @@ test('2) 원고 붙이기 — 요약 파생, 원고 1개 = 작업 1개(unique), 
   await assert.rejects(attachDraft(sql, '00000000-0000-0000-0000-000000000000', other), (e: unknown) => e instanceof TaskAttachError && e.code === 'no-task');
   assert.equal(await detachDraft(sql, draftId), true);
   assert.equal((await getTask(sql, t.id))!.draftId, null);
-  // 원고 인플이 있고 작업이 비어 있으면 붙일 때 작업 쪽으로 채운다
-  await updateDraft(sql, other, { influencerHandle: 'hana' });
+  // 원고 인플이 명부에 있고 작업이 비어 있으면 붙일 때 작업 쪽으로 채운다 — 명부 표기로(설계 §9)
+  await createInfluencer(sql, { handle: P + 'Hana', createdBy: null });
+  await updateDraft(sql, other, { influencerHandle: P + 'hana' });
   await attachDraft(sql, t2.id, other);
-  assert.equal((await getTask(sql, t2.id))!.influencerHandle, 'hana');
+  assert.equal((await getTask(sql, t2.id))!.influencerHandle, P + 'Hana');
   // createTasks에 draftId를 주면 생성과 동시에 붙는다
   const third = await mkDraft(c.id, c.name);
   const [t3] = await createTasks(sql, camp.id, { ...baseInput, type: 'visit', draftId: third, items: [{ handle: 'kei', cost: null }] });
@@ -246,4 +250,40 @@ test('12) 원고 미리보기 — 첫 포스트 전문과 첫 이미지', async 
   const none = await getTask(sql, bare.id);
   assert.equal(none?.draftPreview, null);
   assert.equal(none?.draftFirstImage, null);
+});
+
+test('060) 작업별 결제 수단 — 생성·패치 왕복, 인플이 실제로 바뀌면 비고 대소문자만 바뀌면 유지, 교체도 비운다', async () => {
+  const c = await createClient(sql, P + '클라pm');
+  const camp = await mkCampaign(c.id, c.name, 'pm');
+  const [t] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', items: [{ handle: 'pmA', cost: null, paymentMethodId: 'm-1' }] });
+  assert.equal(t.paymentMethodId, 'm-1');
+  await updateTask(sql, t.id, { note: '메모' });
+  assert.equal((await getTask(sql, t.id))!.paymentMethodId, 'm-1');        // 다른 칸 패치는 그대로
+  await updateTask(sql, t.id, { influencerHandle: 'PMA' });
+  assert.equal((await getTask(sql, t.id))!.paymentMethodId, 'm-1');        // 대소문자만 바뀜 = 같은 사람
+  await updateTask(sql, t.id, { paymentMethodId: 'm-2' });
+  assert.equal((await getTask(sql, t.id))!.paymentMethodId, 'm-2');
+  await updateTask(sql, t.id, { paymentMethodId: null });
+  assert.equal((await getTask(sql, t.id))!.paymentMethodId, null);         // null = 기본 수단으로
+  await updateTask(sql, t.id, { paymentMethodId: 'm-3' });
+  await updateTask(sql, t.id, { influencerHandle: null });
+  assert.equal((await getTask(sql, t.id))!.paymentMethodId, null);         // 해제 = 실제로 바뀜
+  await updateTask(sql, t.id, { influencerHandle: 'pmA', paymentMethodId: 'm-4' });
+  assert.equal((await getTask(sql, t.id))!.paymentMethodId, 'm-4');        // 한 요청에 둘 다 오면 명시값이 이긴다
+  const r = await replaceInfluencer(sql, t.id, { handle: 'pmB', cost: undefined, reason: null, note: '', actorId: null, today: '2026-09-24' });
+  assert.equal(r, 'ok');
+  assert.equal((await getTask(sql, t.id))!.paymentMethodId, null);         // 다른 사람의 수단 id가 남으면 안 된다
+});
+
+test('명부 게이팅 — attachDraft: 원고 핸들이 명부 밖이면 미배정 작업을 채우지 않는다(붙이기는 성공, 원고 핸들은 그대로)', async () => {
+  const c = await createClient(sql, P + '클라명부');
+  const camp = await mkCampaign(c.id, c.name, 'roster');
+  const [t] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', items: [] });
+  const d = await mkDraft(c.id, c.name);
+  await updateDraft(sql, d, { influencerHandle: P + 'coco' });
+  await attachDraft(sql, t.id, d);
+  const got = await getTask(sql, t.id);
+  assert.equal(got!.draftId, d);
+  assert.equal(got!.influencerHandle, null);
+  assert.equal((await getDraft(sql, d))!.influencerHandle, P + 'coco');   // 기존 데이터는 바꾸지 않는다
 });

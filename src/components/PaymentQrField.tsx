@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { uploadPaymentQr, signPaymentQrUrl, paymentQrValidationError, ALLOWED_PAYMENT_QR_MIME } from '@/lib/paymentQr';
 import { ImageLightbox } from '@/components/ImageLightbox';
+import { pasteBlockedByModal } from '@/components/pasteModalGuard';
 
 // PayPay 수취 QR 첨부 칸 — src/components/TaskProofField.tsx(RT 증빙)를 그대로 본떴다. 다른 점은
 // influencerId를 쓰고 버킷이 payment-qr이라는 것, 그리고 값이 string(빈 문자열=없음)이라는 것뿐이다
@@ -21,6 +22,7 @@ export function PaymentQrField({ influencerId, value, disabled, onChange }: {
   const [err, setErr] = useState('');
   const [zoom, setZoom] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     return () => { if (preview) URL.revokeObjectURL(preview.url); };
@@ -60,6 +62,7 @@ export function PaymentQrField({ influencerId, value, disabled, onChange }: {
     const onPaste = (e: ClipboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (pasteBlockedByModal(rootRef.current)) return;   // 위에 다른 모달이 떠 있으면 그 모달 몫(TaskProofField와 대칭)
       const file = Array.from(e.clipboardData?.files ?? [])[0];
       if (!file) return;
       e.preventDefault();
@@ -73,7 +76,7 @@ export function PaymentQrField({ influencerId, value, disabled, onChange }: {
   const blocked = !!disabled || busy;
 
   return (
-    <div className="mt-1">
+    <div ref={rootRef} className="mt-1">
       {value ? (
         shown ? (
           <div className="flex items-center gap-2">

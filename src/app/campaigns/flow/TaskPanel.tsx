@@ -325,6 +325,9 @@ export function TaskPanel({
       if (!t) return;
       if (panelRef.current?.contains(t)) return;
       if (t.closest('[data-flow-row]')) return;
+      // 왼쪽 캠페인 목록 — 다른 캠페인으로 가는 동작이라 목록(page.tsx select)이 직접 처리한다. 여기서 확인 창을
+      // 띄우면 그 클릭이 사라져 캠페인이 안 바뀌고, 한 번 더 누르면 확인이 또 뜬다(koo 09-27).
+      if (t.closest('[data-campaign-list]')) return;
       if (t.closest('[role="dialog"],[role="menu"],[role="tooltip"],[role="listbox"]')) return;
       requestClose();
     };

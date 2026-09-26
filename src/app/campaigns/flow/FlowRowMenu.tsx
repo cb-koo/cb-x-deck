@@ -40,7 +40,7 @@ function MenuButton({ onClick, danger, disabled, reason, children }: {
 }
 
 export interface FlowRowMenuActions {
-  posted: (t: FlowRow) => void;         // 게시 확인 다이얼로그 열기
+  posted: (t: FlowRow) => void;         // 게시 확인 — 이 행의 패널을 열고 '게시' 칸으로(팝업 없음, koo 09-26)
   schedule: (t: FlowRow) => void;       // 예정일 바꾸기 — 오른쪽 패널 열기(§3-2)
   // 원고 열기·있는 원고 고르기·AI로 만들기 — 셋 다 이 행의 패널을 원고 모드로 연다(C 원고 모드). 화면 밖(/generate)
   // 이나 별도 모달로 보내지 않는다 — 한 화면에서 두 갈래가 생기면 사용자는 어느 쪽이 맞는지 모른다.

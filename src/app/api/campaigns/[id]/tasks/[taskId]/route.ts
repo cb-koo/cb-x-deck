@@ -6,7 +6,7 @@ import { isUuidLike } from '@/lib/uuid';
 import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces } from '@/lib/campaignTaskStore';
 import type { TaskPatch } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
-import { parseTaskPatch, proofGateError, influencerChangeGuard, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE, CANCELLED_TASK_MESSAGE, POST_CANCELLED_MESSAGE } from '@/lib/campaignTaskInput';
+import { parseTaskPatch, proofGateError, influencerChangeGuard, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE, CANCELLED_TASK_MESSAGE, POST_CANCELLED_MESSAGE, postedAtFromLinkGate } from '@/lib/campaignTaskInput';
 import { getDraft, updateDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 import { kstToday } from '@/lib/datetime';
@@ -65,6 +65,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
   //    패치 전 증빙만 보면 한 요청에 postedAt+proof:null을 합쳐 보내는 우회가 뚫린다. 반드시 패치 후 상태로 본다.
   const gateError = proofGateError(cur, patch);
   if (gateError) return NextResponse.json({ error: gateError }, { status: 400 });
+  // ── 게시일은 링크에서(koo 09-26 결정 1) — 투고·인용RT·방문협찬은 링크가 있어야 게시 확인되고, 날짜는 클라가
+  //    보낸 값 대신 트윗 id에서 정한다(서버가 기준). RT는 보낸 날짜 그대로. 판정은 순수 함수(proofGateError와 같은 이유).
+  const postedOn = postedAtFromLinkGate(cur, patch);
+  if (!postedOn.ok) return NextResponse.json({ error: postedOn.message }, { status: 400 });
+  if (postedOn.value !== undefined) patch.postedAt = postedOn.value;
   const { proofUrl, ...rest } = patch;
   const taskPatch: TaskPatch = { ...rest };
   if (proofUrl !== undefined) {

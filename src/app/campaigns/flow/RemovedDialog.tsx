@@ -4,9 +4,8 @@ import type { FlowRow } from '@/lib/campaignFlowView';
 import { TASK_TYPE_LABEL, formatDateKo } from '@/lib/campaignJudgment';
 import { RemovedForm } from '../PostedCell';
 
-// 게시 내림 표시(koo 09-19 결정 3) — PostedDialog와 같은 골격(요약 줄·폼·안내)으로 맞춘다(새로 디자인하지
-// 않는다). 폼은 기존 화면의 RemovedForm을 그대로 쓴다(PostedDialog가 PostedForm을 쓰는 것과 같은 이유 —
-// 문구·검증·증빙 칸 동작이 두 화면에서 갈라지면 안 된다). 패널의 [내림 표시] 버튼과 이 다이얼로그를 여는
+// 게시 내림 표시(koo 09-19 결정 3) — 요약 줄·폼·안내 골격(없어진 게시 확인 다이얼로그와 같던 모양)을 그대로 둔다(새로
+// 디자인하지 않는다). 폼은 기존 화면의 RemovedForm을 그대로 쓴다(문구·검증·증빙 칸 동작이 두 화면에서 갈라지면 안 된다). 패널의 [내림 표시] 버튼과 이 다이얼로그를 여는
 // 조건은 항상 "게시됐고 아직 내려지지 않음"(FlowDetail이 그 조건에서만 연다) — 취소된 작업엔 두지 않는다(R18).
 export function RemovedDialog({ task, today, proofSignedUrl, onClose, onSetProof, onSubmit }: {
   task: FlowRow;

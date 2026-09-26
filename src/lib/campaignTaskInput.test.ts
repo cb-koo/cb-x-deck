@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTaskCreate, parseTaskPatch, proofGateError, normalizeTargetTweetUrl, parseTaskIdPatch, TASK_TYPE_MESSAGE, TARGET_MESSAGE, POST_URL_MESSAGE, VISIT_ON_MESSAGE, DRAFT_MULTI_MESSAGE, POSTED_AT_NULL_MESSAGE, DATE_MESSAGE, influencerChangeGuard, CANCELLED_TASK_MESSAGE, POSTED_TASK_MESSAGE, REPLACE_AFTER_VISIT_MESSAGE, REPLACE_REQUIRED_MESSAGE, PAYMENT_METHOD_ID_MESSAGE, PAYMENT_METHOD_NO_INFLUENCER_MESSAGE } from './campaignTaskInput.ts';
+import { parseTaskCreate, parseTaskPatch, proofGateError, normalizeTargetTweetUrl, parseTaskIdPatch, TASK_TYPE_MESSAGE, TARGET_MESSAGE, POST_URL_MESSAGE, VISIT_ON_MESSAGE, DRAFT_MULTI_MESSAGE, POSTED_AT_NULL_MESSAGE, DATE_MESSAGE, influencerChangeGuard, CANCELLED_TASK_MESSAGE, POSTED_TASK_MESSAGE, REPLACE_AFTER_VISIT_MESSAGE, REPLACE_REQUIRED_MESSAGE, PAYMENT_METHOD_ID_MESSAGE, PAYMENT_METHOD_NO_INFLUENCER_MESSAGE, postedAtFromLinkGate, POST_URL_REQUIRED_MESSAGE } from './campaignTaskInput.ts';
 import { PROOF_VALUE_MESSAGE, PROOF_ONLY_RT_MESSAGE, PROOF_KEEP_MESSAGE, PROOF_REQUIRED_MESSAGE } from './taskProofGuard.ts';
 
 const U = '11111111-1111-1111-1111-111111111111';
@@ -224,4 +224,37 @@ test('결제 수단 id(§8-2, 리뷰 추가) — 패치: 인플루언서를 같�
   assert.ok(withHandle.ok && withHandle.value.paymentMethodId === 'x' && withHandle.value.influencerHandle === 'Rio');
   // 모양이 틀린 값은 콤보 검사보다 먼저 문구가 나온다(값 검증이 우선)
   assert.deepEqual(parseTaskPatch({ paymentMethodId: 3, influencerHandle: null }), { ok: false, message: PAYMENT_METHOD_ID_MESSAGE });
+});
+
+// ── postedAtFromLinkGate — 투고·인용RT·방문협찬의 게시일은 링크(트윗 id)에서 정한다(koo 09-26 결정 1) ──
+// 라우트 테스트 하네스가 없어 proofGateError처럼 순수 함수로 판정한다. 픽스처 id는 tweetPostedOn.test.ts와 같다(한국 9/24 00:00).
+const LINK_0924 = 'https://x.com/sakura_tokyo/status/2102774990238646272';
+const LINK_0923 = 'https://x.com/sakura_tokyo/status/2102774990234451968';
+
+test('postedAtFromLinkGate — 게시 확인이 아닌 패치는 건드리지 않는다(값 없음)', () => {
+  assert.deepEqual(postedAtFromLinkGate({ type: 'post', postUrl: null }, { note: 'x' } as never), { ok: true, value: undefined });
+  assert.deepEqual(postedAtFromLinkGate({ type: 'post', postUrl: null }, { postUrl: LINK_0924 }), { ok: true, value: undefined });
+});
+
+test('postedAtFromLinkGate — 투고·인용RT·방문협찬은 링크가 없으면 거절', () => {
+  for (const type of ['post', 'quoteRt', 'visit'] as const) {
+    assert.deepEqual(postedAtFromLinkGate({ type, postUrl: null }, { postedAt: '2026-09-25' }), { ok: false, message: POST_URL_REQUIRED_MESSAGE });
+    // 같은 요청이 링크를 비우면(null) 저장된 링크가 있어도 거절 — 패치 후 상태로 본다
+    assert.deepEqual(postedAtFromLinkGate({ type, postUrl: LINK_0923 }, { postedAt: '2026-09-25', postUrl: null }), { ok: false, message: POST_URL_REQUIRED_MESSAGE });
+  }
+});
+
+test('postedAtFromLinkGate — 보낸 날짜는 무시하고 링크의 한국 날짜로 정한다', () => {
+  assert.deepEqual(postedAtFromLinkGate({ type: 'post', postUrl: null }, { postedAt: '2026-01-01', postUrl: LINK_0924 }), { ok: true, value: '2026-09-24' });
+  assert.deepEqual(postedAtFromLinkGate({ type: 'visit', postUrl: null }, { postedAt: '2026-09-24', postUrl: LINK_0923 }), { ok: true, value: '2026-09-23' });
+  // 링크를 이번에 안 보냈으면 저장된 링크에서
+  assert.deepEqual(postedAtFromLinkGate({ type: 'quoteRt', postUrl: LINK_0923 }, { postedAt: '2026-09-30' }), { ok: true, value: '2026-09-23' });
+});
+
+test('postedAtFromLinkGate — 날짜를 알 수 없는 링크(스노플레이크 이전 id)는 링크 형식 오류로 거절', () => {
+  assert.deepEqual(postedAtFromLinkGate({ type: 'post', postUrl: null }, { postedAt: '2026-09-24', postUrl: 'https://x.com/jack/status/20' }), { ok: false, message: POST_URL_MESSAGE });
+});
+
+test('postedAtFromLinkGate — RT는 지금처럼 사람이 적은 날짜 그대로(링크 불필요)', () => {
+  assert.deepEqual(postedAtFromLinkGate({ type: 'rt', postUrl: null }, { postedAt: '2026-09-25' }), { ok: true, value: '2026-09-25' });
 });

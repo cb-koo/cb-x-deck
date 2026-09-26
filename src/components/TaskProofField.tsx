@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { uploadTaskProof, taskProofValidationError, downloadTaskProof, taskProofFilename } from '@/lib/taskProof';
 import { ImageLightbox } from '@/components/ImageLightbox';
+import { pasteBlockedByModal } from '@/components/pasteModalGuard';
 
 // RT 증빙 첨부 칸 — 붙여넣기가 주 경로다(스크린샷은 거의 항상 클립보드에 있다). 파일을 고르거나
 // 붙여넣는 순간 바로 올라가고, 저장(부모의 onChange가 하는 PATCH 등 실제 반영)은 부모가 판단한다.
@@ -27,6 +28,7 @@ export function TaskProofField({
   const [err, setErr] = useState('');
   const [zoom, setZoom] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   // preview가 바뀌거나(새로 올려 교체) 컴포넌트가 사라질 때 이전 objectURL을 걷는다 — 누수 방지.
   // 만드는 자리(put)에서 직접 걷지 않고 여기 한 곳에서만 걷어 두 번 걷거나 빠뜨릴 일이 없게 한다:
@@ -65,6 +67,8 @@ export function TaskProofField({
     const onPaste = (e: ClipboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      // 이 칸 위에 다른 모달이 떠 있으면 그 모달 몫이다(pasteModalGuard 주석)
+      if (pasteBlockedByModal(rootRef.current)) return;
       const file = Array.from(e.clipboardData?.files ?? [])[0];
       if (!file) return;   // 텍스트 붙여넣기는 그냥 흘려보낸다
       e.preventDefault();
@@ -78,7 +82,7 @@ export function TaskProofField({
   const blocked = disabled || busy;
 
   return (
-    <div className="mt-2">
+    <div ref={rootRef} className="mt-2">
       <p className="text-ui text-x-secondary">
         증빙 스크린샷 {required && <span className="text-red-600">필수</span>}
       </p>

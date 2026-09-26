@@ -69,7 +69,8 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
     setNote: (t: Item, note: string) => patch(t, { note }, { note }),
     // 게시 확인 — 사람이 찍은 것이라 postedSource는 'manual'(수집기가 찾은 것은 'auto', 표에 회색 태그로 구분).
     // 링크를 함께 넣으면 [게시물 연결(트래킹)]과 같은 등록까지 한다(스펙 §3-4) — 서버가 task_id를 붙이고
-    // post_url·posted_at은 coalesce라 사람이 찍은 날짜가 이긴다. 등록만 실패해도 게시 확인은 이미 저장됐다.
+    // post_url·posted_at은 coalesce라 이미 저장된 게시 확인 날짜가 이긴다(투고·인용RT·방문협찬은 그 날짜도 서버가 링크에서
+    // 정한 값이다 — postedAtFromLinkGate, 사람이 적은 날짜는 RT만). 등록만 실패해도 게시 확인은 이미 저장됐다.
     // RT는 증빙(proof)이 함께 와야 서버가 받는다(RT 증빙 스펙 §5).
     markPosted: async (t: Item, date: string, postUrl?: string, proof?: string) => {
       const ok = await patch(t, { postedAt: date, ...(postUrl ? { postUrl } : {}), ...(proof ? { proof } : {}) },

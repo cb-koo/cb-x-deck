@@ -907,6 +907,8 @@ test('applyPaymentMethodCorrection — 수취 정보만 바뀌고 revision·금�
   const { row } = await requestFor('pc1', 'pc1');
   await applyExternalStatus(sql, row.id, upd('scheduled', '2026-09-21T04:00:00Z', { externalId: 'CBX-260921-001', revision: 0, operator: { id: 'op', name: '전태정' } }));
   const before = (await listRequests(sql, { taskId: row.taskId! }))[0];
+  // 준비 단계(명부에 수단 등록)가 이미 payment_method_changed 한 줄을 남긴다 — 정정 전 줄 수를 기준으로 삼는다.
+  const changedBefore = (await sql`select 1 from influencer_log where influencer_id = ${row.influencerId} and event_type = 'payment_method_changed'`).length;
   const r = await applyPaymentMethodCorrection(sql, row.id, corr({ email: `${H('pc1')}.fixed@x.com` }, { idempotencyKey: 'idem-1' }));
   assert.ok(r !== 'not-found' && r.kind === 'applied' && r.correctionId === CID(1));
   const after = r.row;
@@ -931,8 +933,9 @@ test('applyPaymentMethodCorrection — 수취 정보만 바뀌고 revision·금�
   const rosterMethods = (await sql<Array<{ payment_methods: Array<{ isDefault: boolean; email?: string }> }>>`select payment_methods from influencer where id = ${row.influencerId}`)[0].payment_methods;
   assert.equal(rosterMethods.find((m) => m.isDefault)!.email, `${H('pc1')}.fixed@x.com`, '명부 기본 수단이 정정 값으로 덮였다');
   // 명부 반영은 payment_corrected 한 줄(rosterApplied=true)로만 남긴다 — 별도 payment_method_changed 줄을 만들지 않는다(정정 1건이 두 줄로 보이지 않게).
+  // 준비 단계의 한 줄은 있어도 되고, 정정 뒤에 늘어나지만 않으면 된다(예전엔 0을 기대해 준비 단계의 줄까지 세서 늘 실패했다).
   const autoLogs = await sql`select 1 from influencer_log where influencer_id = ${row.influencerId} and event_type = 'payment_method_changed'`;
-  assert.equal(autoLogs.length, 0, '명부 반영은 정정 줄로 합치고 별도 결제수단 변경 줄을 남기지 않는다');
+  assert.equal(autoLogs.length, changedBefore, '명부 반영은 정정 줄로 합치고 별도 결제수단 변경 줄을 남기지 않는다');
   assert.equal(logs[0].payload.rosterApplied, true);
   // 같은 correction_id 재전송 → replayed, 쓰기 없음(updated_at 그대로·이력 1건). 같은 idempotency_key에 다른 correction_id도 replayed(최초 id 반환)
   const again = await applyPaymentMethodCorrection(sql, row.id, corr({ email: 'other@x.com' }));

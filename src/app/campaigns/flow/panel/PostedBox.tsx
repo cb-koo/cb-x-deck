@@ -78,7 +78,8 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
           )}
         </p>
         {previewUrl && (
-          <div className="mt-2.5"><TargetPreview state={{ kind: 'link', url: previewUrl }} {...prev} lines={3} /></div>
+          <div className="mt-2.5"><TargetPreview state={{ kind: 'link', url: previewUrl }} {...prev} lines={3}
+                                                repostMessage="리포스트 링크로 게시 확인됐어요 — 원본 게시물이 아니라 카드를 보여줄 수 없어요" /></div>
         )}
         {isRt && (
           task.proof
@@ -140,8 +141,8 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
             {busy ? '저장 중…' : '게시 확인'}
           </Button>
         </div>
-        {/* 비활성 이유를 툴팁에만 두지 않는다(터치·키보드 사용자에겐 안 보인다) — 막힌 상태의 한 줄 */}
-        {!pendingProof && <p className="mt-1 text-right text-ui text-x-muted">{PROOF_REQUIRED_MESSAGE}</p>}
+        {/* 막힌 이유 한 줄은 TaskProofField가 이미 보여준다(required && !value의 안내 + '필수') — 여기서 또 적으면
+            두 줄이 된다(리뷰 M5). 버튼 title은 남긴다. */}
       </div>
     );
   }
@@ -149,7 +150,11 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
   // ── 투고·인용RT·방문협찬 — 링크만, 게시일은 링크에서 ──
   // 버튼은 지금 칸의 글자로 판정한다 — 링크를 치고 곧바로 버튼을 눌러도(누르는 순간 블러로 확정) 막히지 않게.
   const typed = text.trim() ? judgeLink(text.trim()) : null;
-  const canSubmit = !!typed?.ok && !busy;
+  // 순수 리포스트 링크는 막는다(리뷰 M1) — 투고·인용RT·방문협찬은 인플 본인의 게시물이어야 하고, 리포스트 id는
+  // 리포스트한 시각이라 게시일도 틀린다. 미리보기 결과(kind 'repost')로만 안다 — 불러오는 중엔 막지 않는다.
+  // 안내 줄은 카드 자리의 기존 문구('리포스트 링크예요 — 원본 게시물 링크로 바꿔 주세요')가 맡는다.
+  const isRepost = !!link?.ok && !!typed?.ok && typed.url === link.url && prev.preview?.kind === 'repost';
+  const canSubmit = !!typed?.ok && !isRepost && !busy;
   const shownErr = link && !link.ok ? link.message : '';
   return (
     <div ref={rootRef}>

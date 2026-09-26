@@ -11,6 +11,11 @@ test('postedOnFromTweetId — 한국 자정 경계: 직전 1ms는 전날, 자정
   assert.equal(postedOnFromTweetId('2102774990238646272'), '2026-09-24');
 });
 
+// X 공식 문서(Twitter IDs)의 예시 id — 2018-10-10T20:19:24.581Z 생성, 한국으로는 10/11 05:19
+test('postedOnFromTweetId — X 문서 예시 id', () => {
+  assert.equal(postedOnFromTweetId('1050118621198921728'), '2018-10-11');
+});
+
 test('postedOnFromTweetId — 하위 22비트(작업자·순번)는 날짜에 영향이 없다', () => {
   // 자정 id + (2^22 - 1): 같은 ms 안의 마지막 순번 — 여전히 9/24
   assert.equal(postedOnFromTweetId('2102774990242840575'), '2026-09-24');

@@ -1002,7 +1002,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                                     onMarkPosted={(date, url, proof) => actions.markPosted(panelTask, date, url, proof)}
                                     onZoomProof={setZoomUrl}
                                     onOpenRemoved={() => setRemovedOpen(true)}
-                                    onUnmarkRemoved={() => void actions.unmarkRemoved(panelTask)} />
+                                    onUnmarkRemoved={() => void actions.unmarkRemoved(panelTask)}
+                                    onCancel={() => menuActions.cancel(panelTask)} />
                        : null,
                    }}
                    // 패널 위에 뜬 다른 레이어(편집 모달·한 번에 만들기·내림 표시·게시물 연결·취소·교체·

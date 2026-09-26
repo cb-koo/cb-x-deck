@@ -16,6 +16,8 @@ import { useTweetPreview } from './useTweetPreview';
 //    (tweetPostedOn — 서버 판정 campaignTaskInput.postedAtFromLinkGate와 같은 함수), 그 게시물을 카드로 미리 본다.
 //  · RT: 자기 게시물이 없다 — 지금처럼 날짜를 적고 증빙 스크린샷(필수)을 넣는다(PostedForm과 같은 칸).
 //  · 게시 뒤: 날짜 줄 + (RT 아니면) 게시물 카드, RT면 증빙 보기/없음, 그리고 내림 표시·취소.
+//  · 게시 전: 맨 아래 [진행 안 됨으로 취소] — 게시 뒤의 [내림 표시]와 같은 자리·모양(koo 09-26). 행 메뉴의
+//    [작업 취소]와 같은 창(CancelDialog)을 연다. 메뉴에만 있던 때는 아무도 못 찾아 메모로 '섭외 불성립'을 적었다.
 // 미리보기(X 조회)는 붙여넣기·칸 벗어남·Enter로 "확정된" 링크에서만 부른다 — 한 글자씩 칠 때마다 id의 앞부분도
 // 올바른 id라 매 글자 조회가 나간다(AGENTS.md UX 원칙 6, 비용 유발 호출).
 // focus: 행 메뉴 [게시 확인]이 이 칸을 열라고 한 신호 — 한 번 쓰고 onFocused로 부모가 지운다(다른 작업에
@@ -23,7 +25,7 @@ import { useTweetPreview } from './useTweetPreview';
 const input = 'h-10 w-full rounded-md border bg-white px-2.5 text-content outline-none focus:border-x-blue';
 const subTitle = 'mb-1.5 text-[14px] font-semibold text-x-secondary';
 
-export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMarkPosted, onZoomProof, onOpenRemoved, onUnmarkRemoved }: {
+export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMarkPosted, onZoomProof, onOpenRemoved, onUnmarkRemoved, onCancel }: {
   task: FlowRow;
   today: string;
   proofSignedUrl: string | null;
@@ -33,6 +35,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
   onZoomProof: (url: string) => void;
   onOpenRemoved: () => void;
   onUnmarkRemoved: () => void;
+  onCancel: () => void;
 }) {
   const isRt = task.type === 'rt';
   const [text, setText] = useState('');
@@ -108,12 +111,19 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
     );
   }
 
+  // ── 게시 전 공통 — 진행이 안 된 작업(거절·무응답 등)을 여기서 바로 취소한다 ──
+  const cancelBtn = (
+    <button type="button" onClick={onCancel} title="거절·무응답 등으로 진행이 안 된 작업이에요 — 취소해도 되돌릴 수 있어요"
+            className="mt-3 block text-ui text-x-secondary hover:underline">진행 안 됨으로 취소</button>
+  );
+
   // ── 인플 미정 — 여기서 게시 확인되면 배정·교체·취소·정산이 전부 막혀 복구 길이 없다(C1-a, 행 메뉴 prePost 게이트와 같은 조건) ──
   if (task.influencerHandle === null) {
     return (
       <div ref={rootRef}>
         <Button variant="subtle" disabled title="인플루언서를 먼저 정해요" className="h-9 px-3.5 text-ui">게시 확인</Button>
         <p className="mt-1 text-ui text-x-muted">인플 선택 후</p>
+        {cancelBtn}
       </div>
     );
   }
@@ -143,6 +153,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
         </div>
         {/* 막힌 이유 한 줄은 TaskProofField가 이미 보여준다(required && !value의 안내 + '필수') — 여기서 또 적으면
             두 줄이 된다(리뷰 M5). 버튼 title은 남긴다. */}
+        {cancelBtn}
       </div>
     );
   }
@@ -186,6 +197,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
           <div className="mt-2.5"><TargetPreview state={{ kind: 'link', url: link.url }} {...prev} lines={3} /></div>
         </>
       )}
+      {cancelBtn}
     </div>
   );
 }

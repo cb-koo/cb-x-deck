@@ -1,7 +1,7 @@
 // 캠페인 v2(ADR 0003) — 기존 /campaigns와 병존. 좌측 목록·생성은 같은 부품, 상세만 FlowDetail.
 'use client';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useToast } from '@/lib/toastContext';
 import { kstToday } from '@/lib/datetime';
 import type { CampaignRow } from '@/lib/campaignStore';
@@ -27,8 +27,15 @@ export default function CampaignsFlowPage() {
 }
 
 function CampaignsFlowSplit() {
-  const router = useRouter();
+  // 캠페인 전환은 서버를 거치지 않는다(koo 09-27 '가끔 눌러도 안 움직임') — router.replace는 주소만 바꿔도
+  // 서버 왕복(로그인 확인 + 화면 조각)을 기다린 뒤에야 화면을 바꾸고, 그동안 아무 표시가 없다. 그 응답은 브라우저
+  // 캐시 대상이라 예전 '20초 멈춤'(proxy.ts의 /api no-store 주석)과 같은 대기에도 걸린다. 이 화면은 데이터를
+  // 브라우저에서 따로 읽으므로(fetchCampaigns·FlowDetail) 그 왕복이 필요 없다 — 기본 history API는 Next 라우터와
+  // 연동돼 useSearchParams가 그대로 따라온다(node_modules/next/dist/docs … linking-and-navigating 'Native History API').
   const pathname = usePathname();
+  const setUrlId = useCallback((id: string | null) => {
+    window.history.replaceState(null, '', id ? `${pathname}?id=${id}` : pathname);
+  }, [pathname]);
   const searchParams = useSearchParams();
   const urlId = searchParams.get('id');
   const { show } = useToast();
@@ -42,8 +49,8 @@ function CampaignsFlowSplit() {
   const toggleListCollapsed = useCallback(() => {
     setListCollapsed((v) => { const next = !v; saveListCollapsed(next); return next; });
   }, []);
-  // 방금 내가 지운 캠페인 id — router.replace(URL에서 ?id= 제거)와 load()의 재조회가 어느 쪽이 먼저 반영될지는
-  // 보장되지 않는다(Next 라우터 전환은 비동기). load()가 먼저 rows를 갈아치우면 urlId는 아직 지운 id를 들고 있어
+  // 방금 내가 지운 캠페인 id — 주소 바꾸기(URL에서 ?id= 제거)와 load()의 재조회가 어느 쪽이 먼저 반영될지는
+  // 보장되지 않는다(useSearchParams 반영은 다음 렌더). load()가 먼저 rows를 갈아치우면 urlId는 아직 지운 id를 들고 있어
   // picked.missing이 true가 되어 "찾을 수 없어요" 토스트가 뜬다 — 방금 지운 사람에게는 오경보다. 순서를 맞추는 대신
   // "이 id는 내가 막 지웠다"를 기억해 그 한 번만 토스트를 건너뛴다(정말 낯선 ?id=는 그대로 토스트).
   const justDeletedRef = useRef<string | null>(null);
@@ -75,23 +82,25 @@ function CampaignsFlowSplit() {
       if (urlId === justDeletedRef.current) justDeletedRef.current = null;   // 방금 지운 id라 오경보 — 소모하고 넘어간다
       else show('링크가 가리키는 캠페인을 찾을 수 없어요 — 삭제됐을 수 있어요. 첫 캠페인을 열었어요');
     }
-    if (picked.id && picked.id !== urlId) router.replace(`${pathname}?id=${picked.id}`, { scroll: false });
-    else if (!picked.id && urlId) router.replace(pathname, { scroll: false });
-  }, [loaded, loadErr, picked, urlId, pathname, router, show]);
+    if (picked.id && picked.id !== urlId) setUrlId(picked.id);
+    else if (!picked.id && urlId) setUrlId(null);
+  }, [loaded, loadErr, picked, urlId, setUrlId, show]);
 
   // 작성 중인 컴포저가 있으면 확인한다(Task 4d §6) — 문구는 FlowDetail이 이미 고른 것을 그대로 쓴다(새로
   // 짓지 않는다, 브리프 지시). 여기서 읽는 leaveConfirmRef.current는 클릭 핸들러 안이라 렌더 중이 아니다
   // (React Compiler 규칙 위반 아님).
   const select = useCallback((id: string) => {
     if (leaveConfirmRef.current && !window.confirm(leaveConfirmRef.current)) return;
-    router.replace(`${pathname}?id=${id}`, { scroll: false });
-  }, [router, pathname]);
+    setUrlId(id);
+  }, [setUrlId]);
 
   return (
     // 상세는 연회색 바닥(bg-x-surface) 위 흰 패널들(FlowDetail) — 왼쪽 목록은 흰 배경 + 세로 구분선 그대로다(/campaigns와 같은 부품).
     // min-h-full: 내용이 짧아도 회색이 화면 아래까지 내려가야 한다(GlobalShell의 스크롤 컨테이너 높이를 채운다).
     <div className="flex min-h-full">
-      <aside className={`sticky top-0 max-h-screen shrink-0 self-start overflow-y-auto border-r border-x-border bg-white transition-[width] ${listCollapsed ? 'w-11 px-1 py-4' : 'w-[280px] px-3 py-5'}`}>
+      {/* data-campaign-list: 작업 패널의 '바깥 누르면 닫기'가 이 목록은 건너뛴다(TaskPanel) — 거기서 확인 창이 뜨면
+          그 클릭이 사라져 캠페인이 안 바뀌었다. 작성 중 확인은 select가 한 번만 묻는다(FlowDetail이 문장을 올린다). */}
+      <aside data-campaign-list className={`sticky top-0 max-h-screen shrink-0 self-start overflow-y-auto border-r border-x-border bg-white transition-[width] ${listCollapsed ? 'w-11 px-1 py-4' : 'w-[280px] px-3 py-5'}`}>
         {listCollapsed ? (
           // 접힘 = 펼치기 버튼만 있는 얇은 레일(~44px) — 목록 대신 상세가 폭을 가져간다.
           <div className="flex flex-col items-center gap-2">
@@ -124,8 +133,8 @@ function CampaignsFlowSplit() {
           <FlowDetail key={picked.id} id={picked.id}
                       onChanged={() => void load()}
                       onDeleted={() => {
-                        justDeletedRef.current = picked.id;   // load()가 router.replace보다 먼저 반영돼도 이 id는 오경보 대상에서 뺀다
-                        router.replace(pathname, { scroll: false });
+                        justDeletedRef.current = picked.id;   // load()가 주소 바꾸기보다 먼저 반영돼도 이 id는 오경보 대상에서 뺀다
+                        setUrlId(null);
                         void load();
                       }}
                       onLeaveConfirmChange={onComposerLeaveConfirmChange} />

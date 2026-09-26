@@ -230,7 +230,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 작성 중일 때도 "원고가 있어요"라고 말하는 거짓말이 된다(Task 4d §3이 막던 것과 같은 모양). 언마운트
   // 되면 null로 정리한다(DraftWrite·DraftGenerate의 onDirtyChange 정리 관례와 같다) — 안 그러면 캠페인을
   // 지운 직후처럼 이 컴포넌트가 사라진 뒤에도 부모가 옛 문장을 들고 있어 다음 전환에 엉뚱한 확인이 뜬다.
-  useEffect(() => { onLeaveConfirmChange?.(draftWriteDirty ? draftSwitchConfirm : null); }, [draftWriteDirty, draftSwitchConfirm, onLeaveConfirmChange]);
+  // 올리는 이펙트는 isNew·newLeaveMsg 뒤에 있다(아래 onNewDirtyChange 옆).
   useEffect(() => () => onLeaveConfirmChange?.(null), [onLeaveConfirmChange]);
   // 레퍼런스 고르기 시트·링크 추가 모달이 원고 모드 안에서 떠 있는 동안(리뷰 지적 1, Critical) — 두 오버레이는
   // document keydown을 버블 단계에서 듣고 stopPropagation을 안 해서, 먼저 등록된 패널의 Esc가 패널째로 닫아
@@ -441,7 +441,14 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 고정돼 있으면 원고만 고르고 칸은 비운 경우 거짓말이 된다(원고는 '있는 원고 고르기'에 남아 안 사라진다).
   // TaskPanel.requestClose가 쓰는 것과 같은 조각(newDirtyParts)이고, 어미만 여기서 다르게 붙인다.
   const newDirtyRef = useRef<string | null>(null);
-  const onNewDirtyChange = useCallback((msg: string | null) => { newDirtyRef.current = msg; }, []);
+  // 같은 값을 상태로도 든다 — 캠페인 전환 확인 문장(onLeaveConfirmChange)을 다시 올리려면 렌더가 필요하다.
+  const [newLeaveMsg, setNewLeaveMsg] = useState<string | null>(null);
+  const onNewDirtyChange = useCallback((msg: string | null) => { newDirtyRef.current = msg; setNewLeaveMsg(msg); }, []);
+  // 새 작업 폼에 입력 중이어도 올린다(koo 09-27) — 목록 클릭을 패널의 '바깥 누르면 닫기'가 더는 받지 않으므로
+  // (TaskPanel data-campaign-list) 그 확인을 page.tsx의 select가 대신 묻는다. 원고 작성 중이면 그 문장이 먼저다.
+  useEffect(() => {
+    onLeaveConfirmChange?.(draftWriteDirty ? draftSwitchConfirm : isNew && newLeaveMsg ? `${newLeaveMsg} 다른 캠페인으로 갈까요?` : null);
+  }, [draftWriteDirty, draftSwitchConfirm, isNew, newLeaveMsg, onLeaveConfirmChange]);
   // 원고 모드로 열어라(행 메뉴 등 패널 바깥에서 온 요청) — 이 작업의 패널을 열고, seq를 올려 TaskPanel에
   // "지금 이 탭으로 원고 모드를 열어라"를 전달한다(이미 같은 작업 패널이 열려 있으면 key 리마운트가 없어
   // seq가 없으면 두 번째 요청이 무시된다). 표가 흐려질 뿐 막히진 않으므로(결정 3) 새 작업 dirty 확인도

@@ -48,7 +48,7 @@ import { targetPreviewState, targetPreviewStateOfValue } from '@/lib/targetPrevi
 // (draft 모드 — [확인] 없이 보이는 값이 newCost로 올라오고 [만들기]에서 한 번에 저장, 설계 §8). 대상 칸(Task 9)도 같은
 // 나눔: edit는 slots.target(TargetLinkField, actions.changeTarget 클로저가 필요), new는 TargetPicker를 직접
 // 그려 로컬 상태(target)로 들고 있다가 [만들기]에서 targetTaskId/targetTweetUrl로 함께 보낸다. 게시 확인도
-// 같은 이유로 slots.posted(다이얼로그는 FlowDetail이 연다, Task 10의 행 메뉴와 같은 다이얼로그를 쓴다).
+// 같은 이유로 slots.posted(FlowDetail이 panel/PostedBox를 채운다 — 행 메뉴 [게시 확인]은 이 칸으로 스크롤한다).
 // 취소된 작업(cancelledAt)의 편집기는 메모 한 칸뿐(R18) — 나머지는 값만 보여준다(거짓 어포던스 금지).
 // 인플루언서 [바꾸기](교체, ADR 0005)는 Task 10에서 다이얼로그(ReplaceDialog)가 생겨 여기 버튼이 붙었다 —
 // 게시 후·방문 지남·미배정 조건은 replaceDisabledReason(campaignFlowView) 하나로 행 메뉴(FlowRowMenu)와
@@ -847,10 +847,9 @@ export function TaskPanel({
             {PANEL_FIELD_ORDER[task.type].map((field) => (
               <PanelSection key={field} title={fieldLabel(field, task.type)}>{renderEditField(field, task)}</PanelSection>
             ))}
-            {/* 게시 확인 — PANEL_FIELD_ORDER에 없는 칸이다(모든 유형에 있고, 취소된 작업엔 없다). 다이얼로그는
-                FlowDetail이 열고(이 버튼과 행 메뉴(FlowRowMenu)의 [게시 확인]이 같은 상태를 연다, Task 10)
-                값·증빙 라이트박스도 그쪽 클로저가 필요해 slots.posted로 받는다(slots.cost와 같은 이유) —
-                FlowDetail이 취소된 작업이면 null을 준다. */}
+            {/* 게시 확인 — PANEL_FIELD_ORDER에 없는 칸이다(모든 유형에 있고, 취소된 작업엔 없다). 입력·값·증빙
+                라이트박스(panel/PostedBox)는 FlowDetail의 클로저(actions·proofUrls)가 필요해 slots.posted로 받는다
+                (slots.cost와 같은 이유) — FlowDetail이 취소된 작업이면 null을 준다. */}
             {slots.posted && <PanelSection title="게시">{slots.posted}</PanelSection>}
           </>
         ) : (

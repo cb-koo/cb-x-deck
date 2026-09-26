@@ -53,6 +53,13 @@ export function formatDateKo(date: string): string {
   const dow = new Date(t).getUTCDay();
   return `${dateOnlyMonthDay(asDateOnly(date))} ${DOW_KO[dow]}`;
 }
+/** '9월 24일 (목)' / withDow=false면 '9월 24일' — 작업 패널 게시 칸(게시일·링크에서 확인). 시간대 시프트 없음. */
+export function formatDateKoLong(date: string, withDow = true): string {
+  const t = Date.parse(date + 'T00:00:00Z');
+  if (Number.isNaN(t)) return '';
+  const md = `${Number(date.slice(5, 7))}월 ${Number(date.slice(8, 10))}일`;
+  return withDow ? `${md} (${DOW_KO[new Date(t).getUTCDay()]})` : md;
+}
 
 // ─────────────────────────── 캠페인 상태·유형 ───────────────────────────
 // 기간에서 파생, 수동 상태 없음(라벨-값 일치, 스펙 §10)

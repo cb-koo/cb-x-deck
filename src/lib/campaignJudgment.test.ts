@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isDateOnlyString, addDays, daysBetweenDates, weekStartOf, weekDays, nextWeekRange, formatDateKo,
+  isDateOnlyString, addDays, daysBetweenDates, weekStartOf, weekDays, nextWeekRange, formatDateKo, formatDateKoLong,
   campaignStatus, isOutOfRange, isCampaignKind,
   suggestCampaignName, suggestCampaignCode, draftWriteHref,
 } from './campaignJudgment.ts';
@@ -67,4 +67,11 @@ test('5) 작업 맥락을 실은 원고 화면 주소', () => {
   );
   // 예상 밖 문자가 들어와도 주소가 깨지지 않는다
   assert.equal(draftWriteHref('a&b', 'c d'), '/generate?task=a%26b&campaign=c%20d');
+});
+
+test('formatDateKoLong — 게시 칸의 "9월 24일 (목)"·"9월 24일", 시간대 시프트 없음, 잘못된 값은 빈 문자열', () => {
+  assert.equal(formatDateKoLong('2026-09-24'), '9월 24일 (목)');
+  assert.equal(formatDateKoLong('2026-09-23'), '9월 23일 (수)');
+  assert.equal(formatDateKoLong('2026-01-01', false), '1월 1일');
+  assert.equal(formatDateKoLong('nope'), '');
 });

@@ -17,10 +17,10 @@ import { PROOF_REQUIRED_MESSAGE, proofUploadedLine } from '@/lib/taskProofGuard'
 const POP_W = 320;
 const POP_H = 380;
 
-// 게시 확인 폼 — 표의 팝오버(PostedCell)와 캠페인 v2 패널의 다이얼로그(flow/PostedDialog)가 같은 폼을
-// 쓴다(b-task-9-brief.md §2) — 문구·검증·버튼 라벨·증빙 필수 규칙을 두 벌로 만들면 RT 증빙 규칙이 갈라진다.
-// 제출 성공 뒤 창을 닫을지는 onSubmit을 받은 쪽이 정한다(이 폼은 스스로 닫지 않는다) — 팝오버는 즉시 닫고
-// 다이얼로그도 마찬가지로 즉시 닫는다(성공 여부와 무관하게, 표의 기존 관례 그대로).
+// 게시 확인 폼 — 옛 화면(/campaigns) 표의 팝오버(PostedCell) 전용. 캠페인 v2는 패널의 '게시' 칸
+// (flow/panel/PostedBox)으로 옮겼다(koo 09-26 — 투고·인용RT·방문협찬은 링크에서 게시일). 이 화면은 곧 걷어낼
+// 예정이라 다시 디자인하지 않는다: 링크 없이 보내면 서버가 거절하고(postedAtFromLinkGate) 그 문구가 토스트로 뜬다.
+// 제출 성공 뒤 창을 닫을지는 onSubmit을 받은 쪽이 정한다(이 폼은 스스로 닫지 않는다) — 팝오버는 즉시 닫는다.
 export function PostedForm({ task, today, onSubmit, onCancel, submitLabel = '게시됨으로 표시' }: {
   task: CampaignTaskItem; today: string;
   onSubmit: (date: string, postUrl?: string, proof?: string) => void;

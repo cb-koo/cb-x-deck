@@ -16,7 +16,7 @@ import {
 } from '@/lib/campaignApi';
 import type { TaskCost } from '@/lib/campaignCost';
 import {
-  flowStage, FLOW_STAGES, TASK_TYPE_LABEL, formatDateKo, isTaskExcluded,
+  flowStage, FLOW_STAGES, TASK_TYPE_LABEL, isTaskExcluded,
   deriveTaskInfluencers, taskCampaignTotal, targetUrlOf, type TaskType, type FlowStage,
 } from '@/lib/campaignJudgment';
 import { draftLabel, draftPreviewLine, draftPreviewFull, draftFirstMediaUrl } from '@/lib/draftViews';
@@ -45,7 +45,7 @@ import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM, type FormDraftContext, type PriceP
 import { PriceProfileDialog } from './PriceProfileDialog';
 import { CostConfirmField } from './CostConfirmField';
 import { TargetLinkField } from './TargetLinkField';
-import { PostedDialog } from './PostedDialog';
+import { PostedBox } from './panel/PostedBox';
 import { RemovedDialog } from './RemovedDialog';
 import { BulkCreateDialog } from './BulkCreateDialog';
 import { FlowRowMenu, type FlowRowMenuActions } from './FlowRowMenu';
@@ -157,14 +157,16 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const [sort, setSort] = useState<FlowSort>({ key: null, dir: 1 });
   const [panel, setPanel] = useState<Panel>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
-  // 게시 확인 다이얼로그(Task 9) — 패널의 [게시] 버튼과 행 메뉴(FlowRowMenu)의 [게시 확인]이 둘 다 이 상태를
-  // 연다(Task 10). RT 증빙 라이트박스는 TaskTable과 같은 관례(useSignedTaskProofUrls로 배치 서명 + zoomUrl 하나).
-  const [postedFor, setPostedFor] = useState<FlowRow | null>(null);
-  // 게시 내림 표시 다이얼로그(koo 09-19 결정 3) — 패널의 [내림 표시] 버튼이 연다. PostedDialog와 같은
-  // 자리. [내림 표시]는 항상 지금 패널이 보여주는 작업(panelTask)에서만 열리므로 대상은 boolean 하나로
-  // 충분하다 — postedFor처럼 클릭 시점 작업을 따로 들고 있으면, 다이얼로그 안에서 증빙을 올려도(그
-  // setProof는 data.tasks만 갱신) 그 스냅샷은 갱신되지 않아 옛 화면(PostedCell, task가 살아있는 prop)과
-  // 동작이 달라진다.
+  // 게시 확인은 팝업 없이 패널의 '게시' 칸(PostedBox)에서 한다(koo 09-26). 행 메뉴(FlowRowMenu)의 [게시 확인]은
+  // 그 작업의 패널을 열고 이 신호로 '게시' 칸까지 스크롤·포커스한다 — 값은 작업 id, PostedBox가 한 번 쓰고
+  // clearPostedFocus로 지운다(다른 작업에 갔다 돌아와 다시 마운트돼도 옛 신호로 또 움직이지 않게).
+  // RT 증빙 라이트박스는 TaskTable과 같은 관례(useSignedTaskProofUrls로 배치 서명 + zoomUrl 하나).
+  const [postedFocusId, setPostedFocusId] = useState<string | null>(null);
+  const clearPostedFocus = useCallback(() => setPostedFocusId(null), []);
+  // 게시 내림 표시 다이얼로그(koo 09-19 결정 3) — 패널의 [내림 표시] 버튼이 연다. [내림 표시]는 항상 지금
+  // 패널이 보여주는 작업(panelTask)에서만 열리므로 대상은 boolean 하나로 충분하다 — 클릭 시점 작업을 따로
+  // 들고 있으면, 다이얼로그 안에서 증빙을 올려도(그 setProof는 data.tasks만 갱신) 그 스냅샷은 갱신되지 않아
+  // 옛 화면(PostedCell, task가 살아있는 prop)과 동작이 달라진다.
   const [removedOpen, setRemovedOpen] = useState(false);
   const [zoomUrl, setZoomUrl] = useState<string | null>(null);
   // 게시물 연결(트래킹)·취소·교체(Task 10) — 셋 다 ··· 메뉴에서만 연다(행·패널 공용, FlowRowMenu)
@@ -410,7 +412,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 같이 물으면 저장 직후 스스로를 지운다는 거짓 경고가 된다(isNewDirty 확인은 openDraftMode·onRowClick이
   // 각자 진다). 문구는 '닫을까요?'가 아니라 '열까요?' 쪽이다(Task 4d §2) — 이 함수는 패널을 닫지 않고
   // 다른 작업으로 바꾼다.
-  const openPanel = useCallback((taskId: string) => {
+  // 열었는지를 돌려준다 — 확인 창에서 [취소]하면 false(행 메뉴 [게시 확인]이 그때는 포커스 신호를 안 보낸다).
+  const openPanel = useCallback((taskId: string): boolean => {
     // 지금 패널이 보여주는 바로 그 작업을 다시 누른 것이면 draftSwitchConfirm("다른 작업을 열까요?")을
     // 쓰지 않는다(리뷰 지적 4) — 다른 작업을 여는 게 아니라 그 작업의 작업 모드로 돌아가는 것이라 그
     // 문장은 사실이 아니다. 그렇다고 묻지 않는 것은 아니다 — 이 자리가 보내는 tab:null 신호를 TaskPanel의
@@ -419,10 +422,11 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     // ("← 작업으로")가 같은 전환에 쓰는 moveConfirm("나갈까요?")을 여기서도 그대로 쓴다(새 문장을 짓지
     // 않는다, 다른 작업이면 지금처럼 draftSwitchConfirm).
     const msg = taskId === panelTaskId ? moveConfirm : draftSwitchConfirm;
-    if (draftWriteDirty && msg && !window.confirm(msg)) return;
+    if (draftWriteDirty && msg && !window.confirm(msg)) return false;
     draftOpenSeqRef.current += 1;
     setDraftOpenReq({ tab: null, seq: draftOpenSeqRef.current });
     setPanel({ taskId });
+    return true;
   }, [panelTaskId, draftWriteDirty, draftSwitchConfirm, moveConfirm]);
   // + 작업 추가(Task 4c §1 — 4b가 안 막았던 문) — 같은 확인. isNewDirty는 필요 없다(이미 새 작업 모드일 때
   // 다시 눌러도 key가 그대로 'new'라 TaskPanel이 리마운트되지 않고, 로컬 입력은 그대로 남는다).
@@ -476,7 +480,12 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 콜백들은 전부 "다이얼로그/모달을 연다" 또는 "확인 뒤 바로 실행한다" 둘 중 하나 — 실제 저장은 flowActions
   // (취소·되돌리기·교체, Task 7)나 actions.remove(useCampaignTaskActions)가 한다.
   const menuActions: FlowRowMenuActions = useMemo(() => ({
-    posted: (t) => setPostedFor(t),
+    // 게시 확인 — 그 작업의 패널을 열고 '게시' 칸으로(팝업 없음, koo 09-26). 새 작업 폼 dirty 확인은
+    // onRowClick·openDraftMode와 같은 규칙(표는 흐릴 뿐 막히지 않는다), 원고 작성 중 확인은 openPanel이 진다.
+    posted: (t) => {
+      if (isNew && newDirtyRef.current && !window.confirm(`${newDirtyRef.current} 다른 작업을 열까요?`)) return;
+      if (openPanel(t.id)) setPostedFocusId(t.id);
+    },
     schedule: (t) => openPanel(t.id),
     openDraftMode,
     linkPost: (t) => setLinkFor(t),
@@ -498,7 +507,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
         if (ok && t.draftId) void reloadCandidates();
       });
     },
-  }), [openPanel, openDraftMode, flowActions, actions, panelTaskId, reloadCandidates, confirmLoseDraftFor]);
+  }), [isNew, openPanel, openDraftMode, flowActions, actions, panelTaskId, reloadCandidates, confirmLoseDraftFor]);
   const renderMenu = useCallback((t: FlowRow): ReactNode => (
     <FlowRowMenu task={t} today={data?.today ?? ''} on={menuActions} />
   ), [menuActions, data?.today]);
@@ -984,67 +993,22 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                      target: panelTask
                        ? <TargetLinkField task={panelTask} campaign={data.campaign} onChange={(next) => void actions.changeTarget(panelTask, next)} />
                        : null,
-                     // 게시 확인(Task 9) — 취소된 작업엔 아무것도 주지 않는다(패널이 칸 자체를 그리지 않는다).
-                     // 게시 전이면 다이얼로그를 여는 버튼, 게시됐으면 값(+RT 증빙 라이트박스)을 보여준다.
+                     // 게시 칸(koo 09-26 posted-inline) — 취소된 작업엔 아무것도 주지 않는다(패널이 칸 자체를 그리지 않는다).
+                     // 게시 전 입력·게시 뒤 값·증빙 라이트박스·내림 표시는 전부 PostedBox가 그린다.
                      posted: panelTask && !panelTask.cancelledAt
-                       ? (panelTask.postedAt
-                           ? (
-                             <div>
-                               <p className="text-content">
-                                 게시 {formatDateKo(panelTask.postedAt)}
-                                 {panelTask.postUrl && (
-                                   <> · <a href={panelTask.postUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline">게시물 보기 ↗</a></>
-                                 )}
-                               </p>
-                               {panelTask.type === 'rt' && (
-                                 panelTask.proof
-                                   ? (() => {
-                                       const url = proofUrls[panelTask.proof!.url];
-                                       return (
-                                         <button type="button" disabled={!url} onClick={() => url && setZoomUrl(url)}
-                                                 title={url ? '증빙 스크린샷 — 눌러서 크게 보기' : '증빙 스크린샷 불러오는 중…'}
-                                                 className="mt-1 rounded bg-slate-100 px-1.5 py-0.5 text-[12px] text-slate-600 hover:bg-slate-200 disabled:cursor-default disabled:opacity-70 disabled:hover:bg-slate-100">
-                                           증빙 보기
-                                         </button>
-                                       );
-                                     })()
-                                   : <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[12px] text-amber-700">증빙 없음</span>
-                               )}
-                               {/* 게시 내림(koo 09-19 결정 3) — 기존 화면(PostedCell)에 있던 표시·되돌리기가
-                                   v2에도 있어야 한다. v2만 쓰는 사람이 적을 데가 없으면 정산 판단에 쓰이는
-                                   정보가 사라진다. 되돌리기는 확인 없이 즉시(되돌리는 동작이라 R18과 같은 결). */}
-                               {panelTask.removedAt ? (
-                                 <div className="mt-2">
-                                   <p className="text-content">
-                                     내림 {formatDateKo(panelTask.removedAt)}
-                                     {panelTask.removedReason && ` · ${panelTask.removedReason}`}
-                                   </p>
-                                   <button type="button" onClick={() => void actions.unmarkRemoved(panelTask)}
-                                           className="mt-1 text-ui text-x-secondary hover:underline">내림 취소</button>
-                                 </div>
-                               ) : (
-                                 <button type="button" onClick={() => setRemovedOpen(true)}
-                                         className="mt-2 block text-ui text-x-secondary hover:underline">내림 표시</button>
-                               )}
-                             </div>
-                           )
-                           : (panelTask.influencerHandle === null
-                             // C1-a — 미배정 작업이 여기서 게시 확인되면 인플 배정·교체·취소·정산이 전부
-                             // 막혀 삭제 말고는 복구 길이 없다(b-final-fix-brief.md C1). 행 메뉴(FlowRowMenu)의
-                             // prePost 게이트와 같은 조건 — 그쪽만 막으면 패널에서 여전히 뚫린다.
-                             ? (
-                               <div>
-                                 <Button variant="subtle" disabled title="인플루언서를 먼저 정해요" className="h-9 px-3.5 text-ui">게시 확인</Button>
-                                 <p className="mt-1 text-ui text-x-muted">인플 선택 후</p>
-                               </div>
-                             )
-                             : <Button variant="subtle" onClick={() => setPostedFor(panelTask)} className="h-9 px-3.5 text-ui">게시 확인</Button>))
+                       ? <PostedBox task={panelTask} today={data.today}
+                                    proofSignedUrl={panelTask.proof ? proofUrls[panelTask.proof.url] ?? null : null}
+                                    focus={postedFocusId === panelTask.id} onFocused={clearPostedFocus}
+                                    onMarkPosted={(date, url, proof) => actions.markPosted(panelTask, date, url, proof)}
+                                    onZoomProof={setZoomUrl}
+                                    onOpenRemoved={() => setRemovedOpen(true)}
+                                    onUnmarkRemoved={() => void actions.unmarkRemoved(panelTask)} />
                        : null,
                    }}
-                   // 패널 위에 뜬 다른 레이어(편집 모달·한 번에 만들기·게시 확인·게시물 연결·취소·교체·
+                   // 패널 위에 뜬 다른 레이어(편집 모달·한 번에 만들기·내림 표시·게시물 연결·취소·교체·
                    // 원고 모드의 레퍼런스 고르기·링크 추가)가 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를
                    // 닫는 Esc 한 번에 패널까지 같이 닫힌다(리뷰 지적 1, Critical).
-                   overlayOpen={!!editing || bulkOpen || !!postedFor || removedOpen || !!linkFor || !!cancelFor || !!replaceFor || draftOverlayOpen || !!pricePrompt}
+                   overlayOpen={!!editing || bulkOpen || removedOpen || !!linkFor || !!cancelFor || !!replaceFor || draftOverlayOpen || !!pricePrompt}
                    onDirtyChange={onNewDirtyChange} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
@@ -1055,11 +1019,6 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                               const p = pricePrompt; setPricePrompt(null);
                               if (toProfile) void saveProfilePricing(p.option, p.cost, p.type).then((ok) => { if (ok) show('프로필에도 저장했어요'); });
                             }} />
-      )}
-      {postedFor && (
-        <PostedDialog task={postedFor} today={data.today}
-                      onClose={() => setPostedFor(null)}
-                      onSubmit={(date, url, proof) => void actions.markPosted(postedFor, date, url, proof)} />
       )}
       {removedOpen && panelTask && (
         <RemovedDialog task={panelTask} today={data.today} proofSignedUrl={panelTask.proof ? proofUrls[panelTask.proof.url] ?? null : null}

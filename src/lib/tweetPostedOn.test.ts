@@ -11,7 +11,7 @@ test('postedOnFromTweetId — 한국 자정 경계: 직전 1ms는 전날, 자정
   assert.equal(postedOnFromTweetId('2102774990238646272'), '2026-09-24');
 });
 
-// X 공식 문서(Twitter IDs)의 예시 id — 2018-10-10T20:19:24.581Z 생성, 한국으로는 10/11 05:19
+// X 공식 문서(Twitter IDs)의 예시 id — 2018-10-10T20:19:24.211Z 생성, 한국으로는 10/11 05:19
 test('postedOnFromTweetId — X 문서 예시 id', () => {
   assert.equal(postedOnFromTweetId('1050118621198921728'), '2018-10-11');
 });

@@ -6,6 +6,7 @@ import type { TaskPatch } from './campaignTaskStore.ts';
 import { parseTweetLink, tweetPermalink } from './tweetLink.ts';
 import { parseXHandle, handleParseMessage } from './xHandle.ts';
 import { isUuidLike } from './uuid.ts';
+import { postedOnFromTweetLink } from './tweetPostedOn.ts';
 import { isTaskProofPath, isTaskProofPathFor, PROOF_VALUE_MESSAGE, PROOF_ONLY_RT_MESSAGE, PROOF_KEEP_MESSAGE, PROOF_REQUIRED_MESSAGE, type TaskProof } from './taskProofGuard.ts';
 
 export const TASK_ID_MESSAGE = '작업 값이 올바르지 않아요';
@@ -25,6 +26,7 @@ export const TASK_TYPE_MESSAGE = '작업 유형 값이 올바르지 않아요';
 export const TARGET_MESSAGE = 'RT 대상 링크가 X 게시물 주소가 아니에요';
 // 같은 파서를 쓰지만 사용자가 채운 칸이 다르다 — 게시물 링크 오류에 'RT 대상'이라고 말하면 어느 칸을 고칠지 알 수 없다
 export const POST_URL_MESSAGE = '게시물 링크가 X 게시물 주소가 아니에요';
+export const POST_URL_REQUIRED_MESSAGE = '게시물 링크를 넣어 주세요 — 게시일은 링크에서 정해져요';
 export const TARGET_TYPE_MESSAGE = 'RT 작업은 대상이 될 수 없어요 — 투고·인용RT·방문협찬 작업을 골라 주세요';
 export const TARGET_SELF_MESSAGE = '작업이 자기 자신을 대상으로 가질 수 없어요';
 export const VISIT_ON_MESSAGE = '방문일은 방문협찬 작업에만 있어요';
@@ -234,4 +236,21 @@ export function proofGateError(
   // ④ 필수 — 새로 게시됨이 되는 RT는 패치 후 증빙이 있어야 한다
   if (patch.postedAt && !cur.postedAt && cur.type === 'rt' && !proofAfter) return PROOF_REQUIRED_MESSAGE;
   return null;
+}
+
+// 게시 확인(사람이 찍는 PATCH 경로)의 게시일 — 투고·인용RT·방문협찬은 링크(트윗 id)에서 정하고, 보낸 날짜는
+// 무시한다(koo 09-26 결정 1, 서버가 기준). RT는 자기 게시물이 없어 지금처럼 사람이 적은 날짜 그대로다.
+// 링크는 proofGateError와 같은 이유로 "패치 후 상태"로 본다 — 이번 요청이 안 보냈으면 저장된 링크, null이면 지운 것.
+// 반환 value: 저장할 postedAt(게시 확인 패치가 아니면 undefined). 라우트가 patch.postedAt을 이 값으로 바꾼다.
+export function postedAtFromLinkGate(
+  cur: { type: TaskType; postUrl: string | null },
+  patch: { postedAt?: string; postUrl?: string | null },
+): Parsed<string | undefined> {
+  if (patch.postedAt === undefined) return { ok: true, value: undefined };
+  if (cur.type === 'rt') return { ok: true, value: patch.postedAt };
+  const url = patch.postUrl !== undefined ? patch.postUrl : cur.postUrl;
+  if (!url) return fail(POST_URL_REQUIRED_MESSAGE);
+  // parseTaskPatch가 이미 모양을 봤다 — 여기서 null이면 날짜를 알 수 없는 id(스노플레이크 이전)다
+  const postedOn = postedOnFromTweetLink(url);
+  return postedOn ? { ok: true, value: postedOn } : fail(POST_URL_MESSAGE);
 }

@@ -36,7 +36,7 @@ export function CampaignSection({ campaigns }: { campaigns: InfluencerCampaignIt
             const status = campaignStatus(c.startsOn, c.endsOn, today);
             return (
               <li key={c.id}>
-                <Link href={`/campaigns?id=${c.id}`}
+                <Link href={`/campaigns/flow?id=${c.id}`}
                       className="flex items-center gap-3 rounded-lg border border-x-border px-3 py-3 hover:bg-x-hover">
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-content font-medium">{c.name}</span>

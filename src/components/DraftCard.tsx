@@ -486,7 +486,7 @@ export function DraftCard({ draft, banned, onEdit, onRewrite, rewriteBusy, onDel
             {overdue !== null && <span className="font-bold text-red-700"> · {overdue}일 지남</span>}
           </span>
           <span>비용 {draft.cost ? formatAmount(draft.cost.amount, draft.cost.currency) : '없음'}</span>
-          <Link href={`/campaigns?id=${draft.campaignId ?? ''}`} className="text-x-blue-text hover:underline">작업에서 고치기 ↗</Link>
+          <Link href={`/campaigns/flow?id=${draft.campaignId ?? ''}`} className="text-x-blue-text hover:underline">작업에서 고치기 ↗</Link>
         </div>
       )}
       {/* 원고 이름 — 도구층의 둘째 줄. 칩과 같은 줄에 두지 않는 이유는 제목이 최대 80자라

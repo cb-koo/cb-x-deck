@@ -837,7 +837,7 @@ function Workbench() {
             <span className="ml-auto flex items-center gap-1.5">
               {/* 다 쓰고 돌아가는 것과 '역시 나중에' 하고 돌아가는 것이 같은 자리다 — 붙기 전에도 보인다.
                   Link인 이유는 새 탭으로도 열 수 있게 하기 위해서다. */}
-              <Link href={`/campaigns?id=${taskCtx.campaign.id}`}
+              <Link href={`/campaigns/flow?id=${taskCtx.campaign.id}`}
                     className="whitespace-nowrap rounded-full border border-x-blue/40 px-2.5 py-0.5 text-ui hover:bg-white">
                 ← {taskCtx.campaign.name} 캠페인으로 돌아가기
               </Link>

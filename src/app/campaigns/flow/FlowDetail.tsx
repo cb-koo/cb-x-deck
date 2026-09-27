@@ -41,6 +41,7 @@ import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar } from './FlowFilterBar';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
+import { BudgetStrip } from './BudgetStrip';
 import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM, type FormDraftContext, type PricePrompt } from './TaskPanel';
 import { PriceProfileDialog } from './PriceProfileDialog';
 import { CostConfirmField } from './CostConfirmField';
@@ -951,9 +952,15 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                         onDelete={() => void removeCampaign()} />
       </div>
       <div className={PANEL}>
-        <FlowCards stats={stats} plannedTotal={plannedTotal} budget={data.budget} clientId={data.campaign.clientId}
+        <FlowCards stats={stats} plannedTotal={plannedTotal}
                    cancelledCount={cancelledCount} refreshing={refreshing} onRefresh={() => void onRefresh()} />
       </div>
+      {/* 이 기간 클라이언트 예산 — 캠페인 카드와 층이 달라 칸을 나눈다(koo 09-27 A안). 클라이언트 없는 캠페인엔 없다. */}
+      {data.budget && (
+        <div className={PANEL}>
+          <BudgetStrip budget={data.budget} clientId={data.campaign.clientId} spent={stats.spent} plannedTotal={plannedTotal} />
+        </div>
+      )}
       <div className={PANEL}>
         {/* [+ 작업 추가]는 오른쪽 패널을 새 작업 모드로 연다(Task 7). [한 번에 만들기]는 아직 뒤에 창이 없다(Task 7). */}
         <div className="flex flex-wrap items-center gap-2">

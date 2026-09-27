@@ -16,7 +16,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const periods = await listBudgetPeriods(sql, id);
   const spend = await spendByPeriods(sql, id, periods);
   const rows = periods.map((p) => {
-    const s = spend.get(p.id) ?? { total: {}, campaignCount: 0, feeKrw: 0, feeUnknown: 0, spanning: [] };
+    const s = spend.get(p.id) ?? { total: {}, spent: {}, campaignCount: 0, feeKrw: 0, feeUnknown: 0, spanning: [] };
     return periodRow(p, s, s.spanning);
   });
   return NextResponse.json({ rows });

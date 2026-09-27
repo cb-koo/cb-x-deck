@@ -68,12 +68,12 @@ type CRow = {
   created_at: Date; updated_at: Date; task_count: string | number;
 };
 type TotalRow = { campaign_id: string; currency: string; amount: string | number };
-type FeeRow = { campaign_id: string; cost: unknown; payment_methods: unknown; payment_method_id: string | null };
+type FeeRow = { campaign_id: string; cost: unknown; payment_methods: unknown; payment_method_id: string | null; posted: boolean };
 type CicRow = { id: string; campaign_id: string; influencer_handle: string; extra_costs: unknown; note: string; updated_at: Date };
 
 // totalsFor의 캠페인별 결과 — money(통화별 합계)에 수수료 합계(원화, §3-2 예상치)를 더한 것.
 // feeUnknown은 결제 수단이 없어 수수료를 구하지 못한 작업 수(화면이 "수수료 미확인 N건" 문구로 밝힌다).
-interface CampaignTotals { money: MoneyByCurrency; feeKrw: number; feeUnknown: number }
+interface CampaignTotals { money: MoneyByCurrency; spent: MoneyByCurrency; feeKrw: number; feeUnknown: number }   // spent = 게시 확인된 작업 비용(집행)
 
 // jsonb 모양은 보증되지 않는다 — 검증 통과분만(draftStore.costOf와 같은 태도)
 function extraCostsOf(v: unknown): ExtraCost[] {
@@ -114,7 +114,7 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
     ) t group by campaign_id, currency`;
   for (const r of rows) {
     if (!isCurrency(r.currency)) continue; // 알 수 없는 통화는 합계에 섣불리 넣지 않는다
-    const t = out.get(r.campaign_id) ?? { money: {}, feeKrw: 0, feeUnknown: 0 };
+    const t = out.get(r.campaign_id) ?? { money: {}, spent: {}, feeKrw: 0, feeUnknown: 0 };
     t.money[r.currency] = (t.money[r.currency] ?? 0) + Number(r.amount); // sum(bigint)는 문자열로 온다
     out.set(r.campaign_id, t);
   }
@@ -122,16 +122,18 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
   // 작업마다 작업이 고른 결제 수단(없으면 기본)을 조인해 온다 — SQL은 조회만, 수수료 계산은 순수 함수 computeMoney를 그대로 쓴다
   // (정산 화면과 같은 계산, 스펙 §3-2). 결제 수단이 없으면(인플 미등록 포함) 수수료 0 + feeUnknown 1.
   const feeRows = await sql<FeeRow[]>`
-    select t.campaign_id, t.cost, i.payment_methods, t.payment_method_id
+    select t.campaign_id, t.cost, i.payment_methods, t.payment_method_id, t.posted_at is not null as posted
       from campaign_task t
       left join influencer i on lower(i.handle) = lower(t.influencer_handle)
      where t.campaign_id = any(${ids}::uuid[]) and t.cost is not null and t.cancelled_at is null`;
   for (const r of feeRows) {
-    const t = out.get(r.campaign_id) ?? { money: {}, feeKrw: 0, feeUnknown: 0 };
+    const t = out.get(r.campaign_id) ?? { money: {}, spent: {}, feeKrw: 0, feeUnknown: 0 };
     const parsed = parseTaskCost(r.cost ?? null);
     // 비용 모양이 깨진 건도 '수수료 미확인'으로 센다 — 단가에는 SQL 캐스팅으로 잡히는데 여기서 조용히 빠지면
     // 화면의 "미확인 N건은 단가만 넣었어요"가 실제와 어긋난다.
     if (!parsed.ok || !parsed.value) { t.feeUnknown += 1; out.set(r.campaign_id, t); continue; }
+    // 집행(koo 09-27) — 게시 확인된 작업의 비용. 수수료는 얹지 않는다(계획 money와 같은 정의, 그 부분집합).
+    if (r.posted) t.spent = mergeMoney(t.spent, { [parsed.value.currency]: parsed.value.amount });
     const methods = Array.isArray(r.payment_methods) ? (r.payment_methods as PaymentMethod[]) : [];
     const method = taskPaymentMethod(methods, r.payment_method_id);   // 작업이 고른 수단(060) — 정산 후보와 같은 규칙
     if (!method) { t.feeUnknown += 1; out.set(r.campaign_id, t); continue; }
@@ -154,13 +156,14 @@ export async function spendByPeriods(
   const totals = await totalsFor(sql, camps.map((c) => c.id));
   const out = new Map<string, PeriodSpend & { spanning: SpanningCampaign[] }>();
   for (const period of periods) {
-    let cur: PeriodSpend = { total: {}, campaignCount: 0, feeKrw: 0, feeUnknown: 0 };
+    let cur: PeriodSpend = { total: {}, spent: {}, campaignCount: 0, feeKrw: 0, feeUnknown: 0 };
     const spanning: SpanningCampaign[] = [];
     for (const c of camps) {
       if (c.starts_on < period.startsOn || c.starts_on > period.endsOn) continue;
       const t = totals.get(c.id);
       cur = {
         total: mergeMoney(cur.total, t?.money ?? {}),
+        spent: mergeMoney(cur.spent, t?.spent ?? {}),
         campaignCount: cur.campaignCount + 1,
         feeKrw: cur.feeKrw + (t?.feeKrw ?? 0),
         feeUnknown: cur.feeUnknown + (t?.feeUnknown ?? 0),
@@ -307,7 +310,9 @@ export async function getCampaignDetail(
     const periods = await listBudgetPeriods(sql, campaign.clientId);
     const period = periodFor(periods, campaign.startsOn);
     const spend = period ? (await spendByPeriods(sql, campaign.clientId, [period])).get(period.id) : undefined;
-    budget = campaignPeriodBudget(period, spend, spend?.spanning ?? [], toKrw(campaign.total).krw);
+    // 이 캠페인 집행 — spendByPeriods(totalsFor)와 같은 정의(게시 확인·취소 아님·비용 있음). othersSpentKrw = 기간 집행 − 이 몫.
+    const mySpent = sumMoney(items.flatMap((t) => (t.postedAt && !t.cancelledAt && t.cost ? [t.cost] : [])));
+    budget = campaignPeriodBudget(period, spend, spend?.spanning ?? [], toKrw(campaign.total).krw, toKrw(mySpent).krw);
   }
 
   return {

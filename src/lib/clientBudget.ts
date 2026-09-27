@@ -14,7 +14,8 @@ export const PERIOD_ORDER_MESSAGE = '종료일이 시작일보다 앞이에요';
 export interface BudgetPeriod { id: string; startsOn: string; endsOn: string; amountKrw: number }
 export type BudgetSource = 'period' | 'none';
 
-export interface PeriodSpend { total: MoneyByCurrency; campaignCount: number; feeKrw: number; feeUnknown: number }
+// spent = 그중 게시 확인된 작업 비용(집행) — total(계획)의 부분집합. 추가 비용은 게시와 무관한 돈이라 total에만 든다(koo 09-27).
+export interface PeriodSpend { total: MoneyByCurrency; spent: MoneyByCurrency; campaignCount: number; feeKrw: number; feeUnknown: number }
 // 기간에 귀속된 캠페인 중 이 기간 종료일 뒤까지 이어지는 것들 — 초과 원인 배지용(스펙 §4, §7)
 export interface SpanningCampaign { id: string; endsOn: string }
 
@@ -62,17 +63,38 @@ export function periodRow(period: BudgetPeriod, spend: PeriodSpend, spanning: Sp
 export interface CampaignPeriodBudget {
   period: BudgetPeriod | null; source: BudgetSource;
   othersKrw: number; campaignCount: number; badge: OverageBadge | null;   // badge는 이 기간 전체 상태(이 캠페인만의 것이 아니다)
+  othersSpentKrw: number;   // 같은 기간 다른 캠페인의 집행(게시 확인된 작업 비용) — othersKrw(계획)의 부분
 }
 export function campaignPeriodBudget(
   period: BudgetPeriod | null, spend: PeriodSpend | undefined, spanning: SpanningCampaign[], thisCampaignKrw: number,
+  thisCampaignSpentKrw = 0,
 ): CampaignPeriodBudget {
-  if (period === null) return { period: null, source: 'none', othersKrw: 0, campaignCount: 0, badge: null };
+  if (period === null) return { period: null, source: 'none', othersKrw: 0, campaignCount: 0, badge: null, othersSpentKrw: 0 };
   const { krw } = toKrw(spend?.total ?? {});
   const remaining = remainingOf(period.amountKrw, krw);
   return {
     period, source: 'period', othersKrw: Math.max(0, krw - thisCampaignKrw),
     campaignCount: spend?.campaignCount ?? 0, badge: overageBadge(remaining, spanning),
+    othersSpentKrw: Math.max(0, toKrw(spend?.spent ?? {}).krw - thisCampaignSpentKrw),
   };
+}
+
+// 이 기간 예산을 네 조각으로 나눈다(캠페인 v2 예산 줄, koo 09-27) — 예산 = 집행 + 예정 + 남음.
+// 집행 = 게시 확인된 작업 비용, 예정 = 계획 중 아직 게시 전(추가 비용 포함). 잔액은 막대 위 두 지점이다:
+// 집행이 끝나는 곳(지금 남은 예산)과 예정까지 끝나는 곳(예정까지 쓰면 남는 예산). 음수는 초과 — 자르지 않는다.
+export interface BudgetBreakdown {
+  othersSpent: number; thisSpent: number; thisPending: number; othersPending: number;
+  remainingNow: number; remainingAfterPlan: number;
+}
+export function budgetBreakdown(amountKrw: number, o: {
+  othersPlannedKrw: number; othersSpentKrw: number; thisPlannedKrw: number; thisSpentKrw: number;
+}): BudgetBreakdown {
+  const othersSpent = Math.max(0, o.othersSpentKrw);
+  const thisSpent = Math.max(0, o.thisSpentKrw);
+  const othersPending = Math.max(0, o.othersPlannedKrw - othersSpent);
+  const thisPending = Math.max(0, o.thisPlannedKrw - thisSpent);
+  const remainingNow = amountKrw - othersSpent - thisSpent;
+  return { othersSpent, thisSpent, thisPending, othersPending, remainingNow, remainingAfterPlan: remainingNow - thisPending - othersPending };
 }
 
 // 'M/D' — 시간대 시프트 없음('YYYY-MM-DD' 문자열 슬라이스만, datetime.ts date-only 계열과 같은 태도)

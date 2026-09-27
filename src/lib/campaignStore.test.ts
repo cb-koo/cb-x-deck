@@ -209,7 +209,7 @@ test('12) spendByPeriods — 시작일이 속한 기간으로 묶고 totalsFor�
   const aug1 = await createCampaign(sql, { ...base(c.id, c.name, 'm1'), startsOn: '2026-08-03', endsOn: '2026-08-09' });
   const aug2 = await createCampaign(sql, { ...base(c.id, c.name, 'm2'), startsOn: '2026-08-31', endsOn: '2026-09-06' }); // 8월 기간을 넘어 9월까지
   await createCampaign(sql, { ...base(c.id, c.name, 'm3'), startsOn: '2026-09-01', endsOn: '2026-09-07' });
-  await createTasks(sql, aug1.id, { ...tin, type: 'post', items: [{ handle: 'hana', cost: { amount: 300_000, currency: 'KRW' } }] });
+  const [t300] = await createTasks(sql, aug1.id, { ...tin, type: 'post', items: [{ handle: 'hana', cost: { amount: 300_000, currency: 'KRW' } }] });
   const [skip] = await createTasks(sql, aug1.id, { ...tin, type: 'post', items: [{ handle: 'hana', cost: { amount: 777_777, currency: 'KRW' } }] });
   await updateDraft(sql, await mkDraft(c.id, c.name, skip.id), { status: 'unused' });
   const [cancTask] = await createTasks(sql, aug1.id, { ...tin, type: 'post', items: [{ handle: 'hana', cost: { amount: 999_999, currency: 'KRW' } }] });
@@ -220,12 +220,18 @@ test('12) spendByPeriods — 시작일이 속한 기간으로 묶고 totalsFor�
   const all = await spendByPeriods(sql, c.id, periods);
   const augSpend = all.get(aug.id)!;
   assert.deepEqual(augSpend.total, { KRW: 1_097_777, JPY: 95_000 });
+  assert.deepEqual(augSpend.spent, {});                 // 집행 = 게시 확인된 작업 비용 — 아직 없다
   assert.equal(augSpend.campaignCount, 2);              // aug1 + aug2(시작일이 8/31이라 8월 기간에 귀속)
   assert.deepEqual(augSpend.spanning, [{ id: aug2.id, endsOn: '2026-09-06' }]);   // aug2는 9월까지 이어짐
   const sepSpend = all.get(sep.id)!;
   assert.deepEqual(sepSpend.total, {});
   assert.equal(sepSpend.campaignCount, 1);              // m3만(aug2는 8월 기간 몫)
   assert.deepEqual(sepSpend.spanning, []);
+
+  // 집행(koo 09-27) — 게시 확인된 작업 비용만. 추가 비용(교통비)·취소 작업은 들지 않는다
+  await sql`update campaign_task set posted_at = '2026-08-05' where id = ${t300.id}`;
+  await sql`update campaign_task set posted_at = null where id = ${cancTask.id}`;
+  assert.deepEqual((await spendByPeriods(sql, c.id, periods)).get(aug.id)!.spent, { KRW: 300_000 });
 
   // 다른 클라이언트의 캠페인은 섞이지 않는다
   const other = await createClient(sql, P + '남의클라');
@@ -285,20 +291,26 @@ test('13) getCampaignDetail.budget — 기간에 귀속·othersKrw는 같은 기
   const a = await createCampaign(sql, { ...base(c.id, c.name, 'b1'), startsOn: '2026-08-03', endsOn: '2026-08-09' });
   const b = await createCampaign(sql, { ...base(c.id, c.name, 'b2'), startsOn: '2026-08-17', endsOn: '2026-08-23' });
   await createTasks(sql, a.id, { ...tin, type: 'post', items: [{ handle: 'hana', cost: { amount: 1_200_000, currency: 'KRW' } }] });
-  await createTasks(sql, b.id, { ...tin, type: 'post', items: [{ handle: 'mika', cost: { amount: 65_000, currency: 'JPY' } }] });   // 650,000원
+  const [bTask] = await createTasks(sql, b.id, { ...tin, type: 'post', items: [{ handle: 'mika', cost: { amount: 65_000, currency: 'JPY' } }] });   // 650,000원
 
   const detA = (await getCampaignDetail(sql, a.id, T))!;
   assert.equal(detA.budget!.period!.amountKrw, 2_500_000);
   assert.equal(detA.budget!.source, 'period');
   assert.equal(detA.budget!.othersKrw, 650_000);
   assert.equal(detA.budget!.campaignCount, 2);
+  assert.equal(detA.budget!.othersSpentKrw, 0);        // 다른 캠페인(b)은 아직 게시 전 — 집행 0
   const detB = (await getCampaignDetail(sql, b.id, T))!;
   assert.equal(detB.budget!.othersKrw, 1_200_000);
+
+  // 집행(koo 09-27) — b의 작업이 게시되면 a가 보는 '다른 캠페인 집행'이 650,000원, b 자신의 몫은 빠진다
+  await sql`update campaign_task set posted_at = '2026-08-18' where id = ${bTask.id}`;
+  assert.equal((await getCampaignDetail(sql, a.id, T))!.budget!.othersSpentKrw, 650_000);
+  assert.equal((await getCampaignDetail(sql, b.id, T))!.budget!.othersSpentKrw, 0);
 
   // 9월은 기간이 없으므로 source none
   const s = await createCampaign(sql, { ...base(c.id, c.name, 'b3'), startsOn: '2026-09-07', endsOn: '2026-09-13' });
   const detS = (await getCampaignDetail(sql, s.id, T))!;
-  assert.deepEqual(detS.budget, { period: null, source: 'none', othersKrw: 0, campaignCount: 0, badge: null });
+  assert.deepEqual(detS.budget, { period: null, source: 'none', othersKrw: 0, campaignCount: 0, badge: null, othersSpentKrw: 0 });
 
   // 클라이언트를 지우면(client_id set null) budget은 null
   await deleteClient(sql, c.id);

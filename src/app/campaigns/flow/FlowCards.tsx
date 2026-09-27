@@ -1,10 +1,9 @@
 'use client';
-import Link from 'next/link';
 import { Button } from '@/components/ui';
 import { InfoTip } from '@/components/InfoTip';
 import type { FlowStats } from '@/lib/campaignFlowView';
-import { CURRENCIES, formatAmount, formatMoneyBy, moneyParts, type MoneyByCurrency } from '@/lib/campaignCost';
-import { toKrw, periodLabel, remainingOf, badgeText, type CampaignPeriodBudget } from '@/lib/clientBudget';
+import { CURRENCIES, formatMoneyBy, moneyParts, type MoneyByCurrency } from '@/lib/campaignCost';
+import { toKrw } from '@/lib/clientBudget';
 import { formatPct } from '@/lib/performanceJudgment';
 
 // 요약 카드 3장(작업·성과·비용) — 클러터로 반려된 초안 뒤 정해진 모양(b-task-11-brief.md):
@@ -24,11 +23,13 @@ function diffMoney(a: MoneyByCurrency, b: MoneyByCurrency): MoneyByCurrency {
   return out;
 }
 
-export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCount, refreshing, onRefresh }: {
+// 예정(아직 게시 전) 빗금 — 카드와 예산 줄(BudgetStrip)이 같은 무늬를 쓴다: 진한 = 집행, 빗금 = 예정.
+export const PENDING_BLUE = 'bg-[repeating-linear-gradient(135deg,#8ecdf8_0_4px,#d2ecfd_4px_8px)]';
+export const PENDING_GRAY = 'bg-[repeating-linear-gradient(135deg,#c4ccd2_0_4px,#e6eaed_4px_8px)]';
+
+export function FlowCards({ stats, plannedTotal, cancelledCount, refreshing, onRefresh }: {
   stats: FlowStats;
   plannedTotal: MoneyByCurrency;   // 계획(작업 비용 + 인플별 추가 비용) — stats.plannedCost(작업 비용만)와는 다른 숫자(위 주석)
-  budget: CampaignPeriodBudget | null;   // 클라이언트가 없거나 예산 기간 미설정이면 null이 아니라 period만 null로 온다(clientBudget.ts)
-  clientId: string | null;
   cancelledCount: number;
   refreshing: boolean;
   onRefresh: () => void;
@@ -39,24 +40,10 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
   const hasExtra = moneyParts(extraCost).length > 0;
   const costTip = hasExtra ? `추가 비용 ${formatMoneyBy(extraCost)}은 계획에 포함` : undefined;
 
-  const amount = budget?.period ? budget.period.amountKrw : null;
-  const hasBudgetBar = amount !== null && amount > 0;
-  // 막대는 예산이 전체 길이 — 회색(이달 다른 캠페인 계획) → 진한 파랑(이 캠페인 소진) → 연한 파랑(이 캠페인 계획 잔여) → 빈칸(남음) 순.
-  // 소진이 계획을 넘거나 계획이 예산을 넘어도 막대는 100%에서 잘린다 — 숫자는 실제 값 그대로 보여주고(아래), 여기 폭만 클램프한다.
-  let usedPct = 0;
-  const segWidth = (pct: number) => { const w = Math.max(0, Math.min(100 - usedPct, pct)); usedPct += w; return w; };
+  // 이 캠페인 막대 — 계획이 전체 길이, 진한 파랑 = 집행, 빗금 = 예정(아직 게시 전). 통화가 섞이면 원화 환산으로 비율만 낸다.
   const spentKrw = toKrw(stats.spent).krw;
   const plannedKrw = toKrw(plannedTotal).krw;
-  const wOthers = hasBudgetBar ? segWidth((budget!.othersKrw / amount!) * 100) : 0;
-  const wSpent = hasBudgetBar ? segWidth((spentKrw / amount!) * 100) : 0;
-  const wPlanned = hasBudgetBar ? segWidth((Math.max(0, plannedKrw - spentKrw) / amount!) * 100) : 0;
-  // 잔액 = 예산 − (다른 캠페인 몫 + 이 캠페인 계획). 카드 큰 숫자는 "얼마 남았나"가 먼저 보여야 한다 —
-  // 예산 총액만 크게 보여주면 왼쪽 소진/계획 숫자와 나란히 붙어 마치 하나의 분수처럼 오독된다(koo 09-23 피드백).
-  const remaining = amount !== null ? remainingOf(amount, budget!.othersKrw + plannedKrw) : null;
-  const over = remaining !== null && remaining < 0;
-  const budgetTip = hasBudgetBar
-    ? `${periodLabel(budget!.period!)} 예산 ${formatAmount(amount!, 'KRW')} · 회색은 기간 내 다른 캠페인 계획 ${formatAmount(budget!.othersKrw, 'KRW')} · 인플별 추가 비용은 계획에 포함 · 송금 수수료 미포함`
-    : undefined;
+  const spentPct = plannedKrw > 0 ? Math.min(100, (spentKrw / plannedKrw) * 100) : 0;
 
   return (
     <div className="grid grid-cols-[0.9fr_1.4fr_1.1fr] gap-0">
@@ -114,45 +101,19 @@ export function FlowCards({ stats, plannedTotal, budget, clientId, cancelledCoun
         </div>
       </div>
 
-      {/* 비용 */}
+      {/* 비용 — 이 캠페인만(집행 / 계획). 이 기간 클라이언트 예산은 카드 아래 BudgetStrip이 따로 말한다(koo 09-27 A안) */}
       <div className="border-l border-x-border px-5 first:border-l-0 first:pl-0 last:pr-0">
         <p className="flex items-center gap-1.5 text-ui text-x-secondary">
-          비용{costTip || budgetTip ? <InfoTip text={[costTip, budgetTip].filter(Boolean).join(' · ')} label="비용 카드 설명 보기" /> : null}
+          비용<InfoTip text={['집행 = 게시 확인된 작업 비용 · 계획 = 취소 뺀 전체 작업 비용', costTip].filter(Boolean).join(' · ')} label="비용 카드 설명 보기" />
         </p>
-        <div className="mt-1 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[26px] font-bold leading-tight tabular-nums">
-              {formatMoneyBy(stats.spent)} <span className="text-content font-normal text-x-muted">/ {formatMoneyBy(plannedTotal)}</span>
-            </p>
-            <p className="mt-1 text-ui text-x-secondary">소진 / 계획</p>
-          </div>
-          <div className="shrink-0 border-l border-x-border pl-4 text-right">
-            {amount !== null ? (
-              <>
-                <p className={`text-[26px] font-bold leading-tight tabular-nums ${over ? 'text-red-700' : ''}`}>
-                  {over ? `−${formatAmount(-remaining!, 'KRW')}` : formatAmount(remaining!, 'KRW')}
-                </p>
-                <p className="mt-1 text-ui text-x-secondary">이번 기간 잔액</p>
-                <p className="mt-1 text-caption text-x-muted">{periodLabel(budget!.period!)} 예산 {formatAmount(amount, 'KRW')}</p>
-                {budget!.badge && <p className="text-caption text-x-secondary">{badgeText(budget!.badge)}</p>}
-              </>
-            ) : (
-              <>
-                <p className="text-[26px] font-bold leading-tight tabular-nums text-x-muted">—</p>
-                <p className="mt-1 text-ui text-x-secondary">
-                  {clientId
-                    ? <Link href={`/clients?client=${clientId}`} className="text-x-blue-text hover:underline">예산 미설정</Link>
-                    : '예산 미설정'}
-                </p>
-              </>
-            )}
-          </div>
-        </div>
-        {hasBudgetBar && (
+        <p className="mt-1 text-[26px] font-bold leading-tight tabular-nums">
+          {formatMoneyBy(stats.spent)} <span className="text-content font-normal text-x-muted">/ {formatMoneyBy(plannedTotal)}</span>
+        </p>
+        <p className="mt-1 text-ui text-x-secondary">집행 / 계획</p>
+        {plannedKrw > 0 && (
           <div className="mt-2 flex h-1.5 overflow-hidden rounded bg-x-border">
-            <div className="h-full bg-x-border-strong" style={{ width: `${wOthers}%` }} />
-            <div className="h-full bg-x-blue" style={{ width: `${wSpent}%` }} />
-            <div className="h-full bg-x-blue/30" style={{ width: `${wPlanned}%` }} />
+            <div className="h-full bg-x-blue" style={{ width: `${spentPct}%` }} />
+            <div className={`h-full flex-1 ${PENDING_BLUE}`} />
           </div>
         )}
       </div>

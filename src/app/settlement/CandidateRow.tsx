@@ -74,7 +74,7 @@ export function CandidateRow({ c, edit, categories, selected, failure, proofSign
             {i.code === 'no-payment-method' && <> · <Link href="/influencers" className="underline">프로필에서 등록 →</Link></>}
             {i.code === 'paypay-no-receiving-info' && <> · <Link href="/influencers" className="underline">프로필에서 채우기 →</Link></>}
             {i.code === 'no-influencer' && <> · <Link href="/influencers" className="underline">명부 →</Link></>}
-            {i.code === 'no-proof' && <> · <Link href={`/campaigns?id=${c.campaignId}`} className="underline">캠페인에서 채우기 →</Link></>}
+            {i.code === 'no-proof' && <> · <Link href={`/campaigns/flow?id=${c.campaignId}`} className="underline">캠페인에서 채우기 →</Link></>}
           </span>
         ))}
         {failure && <span role="alert" className="text-red-700 font-medium">{failure}</span>}

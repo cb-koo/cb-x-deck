@@ -62,9 +62,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
   // 캠페인이 맨 위 — 콘텐츠 생성·인플루언서·트래킹 셋을 묶는 상위 개념이다(캠페인 스펙 §3-1).
   // 인플루언서 명부도 워크스페이스 밖 — 원고를 누구에게 줄지는 워크스페이스와 무관한 사람 정보다(스펙 §3)
   const globalNav = [
-    { href: '/campaigns', label: '캠페인', Ic: CampaignIcon },
-    // 캠페인 v2(ADR 0003) — 새 업무흐름 화면, 자리 잡으면 위 캠페인을 대체
-    { href: '/campaigns/flow', label: '캠페인 v2', Ic: CampaignIcon },
+    // 캠페인 v2(ADR 0003)가 '캠페인' 자리를 이어받았다(koo 09-27) — 주소는 /campaigns/flow 그대로, 옛 화면(/campaigns)은 아래 '보관'
+    { href: '/campaigns/flow', label: '캠페인', Ic: CampaignIcon },
     // 정산은 캠페인 바로 아래 — 만든 것(작업) → 돈 보내는 것(요청) 순으로 읽힌다(정산 스펙 §4)
     { href: '/settlement', label: '정산', Ic: CampaignIcon },
     { href: '/generate', label: '콘텐츠 생성', Ic: PenIcon },
@@ -82,6 +81,11 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
   const settingsNav = [
     { href: '/clients', label: '클라이언트', Ic: ClinicIcon },
     { href: '/prompt', label: '프롬프트', Ic: PromptIcon },
+  ];
+
+  // 보관 — 새 화면으로 대체돼 매일 쓰지 않지만 아직 지우지 않은 옛 화면(koo 09-27). 설정 아래, 맨 끝.
+  const archivedNav = [
+    { href: '/campaigns', label: '캠페인 (이전)', Ic: CampaignIcon },
   ];
 
   return (
@@ -138,6 +142,15 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
         {globalNav.length > 0 && <div className="my-2 border-t border-x-border" />}
         <p className="mb-1 px-1 text-caption text-x-muted">설정</p>
         {settingsNav.map((n) => (
+          <Link key={n.href} href={n.href} onNavigate={guardedNavigate(n.href)}
+                aria-current={pathname === n.href ? 'page' : undefined}
+                className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
+            <n.Ic className="h-[18px] w-[18px]" />{n.label}
+          </Link>
+        ))}
+        <div className="my-2 border-t border-x-border" />
+        <p className="mb-1 px-1 text-caption text-x-muted">보관</p>
+        {archivedNav.map((n) => (
           <Link key={n.href} href={n.href} onNavigate={guardedNavigate(n.href)}
                 aria-current={pathname === n.href ? 'page' : undefined}
                 className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>

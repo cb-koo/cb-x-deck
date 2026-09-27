@@ -13,6 +13,17 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
+    date: '2026-09-27', type: '개선',
+    title: "캠페인 v2가 사이드바의 '캠페인'이 됐어요",
+    summary: "사이드바 '캠페인'을 누르면 이제 새 캠페인 화면(예전 캠페인 v2)이 열려요. 예전 캠페인 화면은 지우지 않고 맨 아래 '보관' 칸으로 옮겼어요.",
+    bullets: [
+      "쓰던 방식이 바뀐 것: 사이드바에서 '캠페인 v2' 메뉴가 없어지고 '캠페인'이 새 화면을 열어요",
+      "쓰던 방식이 바뀐 것: 예전 캠페인 화면은 사이드바 맨 아래 '보관 › 캠페인 (이전)'에서 열 수 있어요",
+      '정산·콘텐츠 생성·인플루언서·원고 카드에서 캠페인으로 가는 링크도 이제 새 캠페인 화면을 열어요',
+    ],
+    link: { label: '캠페인', href: '/campaigns/flow' },
+  },
+  {
     date: '2026-09-27', type: '새 기능',
     title: '구글폼 등 다른 곳에서 이미 지급한 작업을 \'다른 곳에서 정산함\'으로 표시할 수 있어요',
     summary: '덱 밖에서 지급을 끝낸 작업이 정산 대기에 계속 떠 있으면 요청을 또 보내 두 번 지급할 수 있어요. 작업 패널의 비용 · 정산 칸에서 표시하면 정산 대기에서 빠지고, 그 작업으로는 정산 요청을 보낼 수 없게 돼요.',
@@ -22,7 +33,7 @@ export const UPDATES: UpdateEntry[] = [
       '잘못 표시했으면 같은 자리의 [되돌리기]로 지우면 다시 정산 대기에 올라와요',
       '9월 1주차(슬랙·구글폼으로 진행한 주)를 이 표시와 함께 덱에 넣어, 9월 월간 집행액이 1주차부터 채워져요',
     ],
-    link: { label: '캠페인 v2', href: '/campaigns/flow' },
+    link: { label: '캠페인', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-27', type: '수정',
@@ -31,7 +42,7 @@ export const UPDATES: UpdateEntry[] = [
     bullets: [
       '새 작업을 입력하거나 원고를 쓰는 중에 다른 캠페인을 누르면 확인 창이 한 번만 뜨고, [확인]하면 바로 그 캠페인으로 가요 — 예전엔 확인한 뒤에도 한 번 더 눌러야 했어요',
     ],
-    link: { label: '캠페인 v2', href: '/campaigns/flow' },
+    link: { label: '캠페인', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-26', type: '개선',
@@ -42,7 +53,7 @@ export const UPDATES: UpdateEntry[] = [
       '취소한 작업은 표에 \'취소\'로 남고, ··· 메뉴의 [되돌리기]로 언제든 살릴 수 있어요',
       '표의 ··· 메뉴 [작업 취소]도 그대로 쓸 수 있어요',
     ],
-    link: { label: '캠페인 v2', href: '/campaigns/flow' },
+    link: { label: '캠페인', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-26', type: '개선',
@@ -55,7 +66,7 @@ export const UPDATES: UpdateEntry[] = [
       '게시 확인한 뒤에도 게시 칸에 그 게시물이 카드로 보여요',
       'RT는 지금처럼 게시된 날을 적고 증빙 스크린샷을 넣어요',
     ],
-    link: { label: '캠페인 v2', href: '/campaigns/flow' },
+    link: { label: '캠페인', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-26', type: '개선',
@@ -70,7 +81,7 @@ export const UPDATES: UpdateEntry[] = [
       '이미 명부 밖 인플로 배정된 작업은 그대로 두고, 인플 칸에 "명부에 없음"과 [명부에 등록]을 보여줘요',
       '쓰던 방식이 바뀐 것: 콘텐츠 생성에서 명부에 없는 인플의 원고로 작업을 만들면 인플 없이(미배정) 만들어요',
     ],
-    link: { label: '캠페인 v2', href: '/campaigns/flow' },
+    link: { label: '캠페인', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-24', type: '개선',
@@ -82,7 +93,7 @@ export const UPDATES: UpdateEntry[] = [
       '비용 칸에서 결제 수단과 수수료를 누가 내는지 바로 보여요 — 정산 요청을 보낸 작업은 "정산 요청됨", 지급이 끝난 작업은 "지급 완료"로 표시돼요',
       '쓰던 방식이 바뀐 것: 새 작업에서 비용 칸에 보이는 금액이 [만들기]를 누르면 그대로 저장돼요(예전엔 [확인]을 따로 눌러야 했어요). 프로필 단가와 다르면 만든 뒤 프로필에도 반영할지 물어봐요',
     ],
-    link: { label: '캠페인 v2', href: '/campaigns/flow' },
+    link: { label: '캠페인', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-23', type: '개선',
@@ -114,7 +125,7 @@ export const UPDATES: UpdateEntry[] = [
       '캠페인 상단 성과 카드에도 같은 방식으로 CPV·좋아요율·북마크율이 추가됐어요',
       '쓰던 방식이 바뀐 것: 작업 표 열 너비를 이제 직접 끌어서 조절할 수 있어요 — 조절한 너비는 그대로 기억되고, 더블클릭하면 기본값으로 돌아가요',
     ],
-    link: { label: '캠페인 v2', href: '/campaigns/flow' },
+    link: { label: '캠페인', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-22', type: '개선',
@@ -124,7 +135,7 @@ export const UPDATES: UpdateEntry[] = [
       '쓰던 방식이 바뀐 것: 클라이언트는 생성 후 못 고치던 유일한 항목이었는데, 이제 다른 항목과 똑같이 눌러서 바꿀 수 있어요',
       '클라이언트를 바꾸면 그 캠페인의 예산 잔액·작업 대상 후보 목록이 새 클라이언트 기준으로 바로 바뀌어요 — 바꾸기 전에 한 번 더 확인을 물어요',
     ],
-    link: { label: '캠페인 v2', href: '/campaigns/flow' },
+    link: { label: '캠페인', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-22', type: '내부',
@@ -158,7 +169,7 @@ export const UPDATES: UpdateEntry[] = [
       '원문을 불러와도 보관함에는 자동으로 추가하지 않아요. 대상 글을 확인할 수 없으면 이유를 알려 드리고 생성을 멈춰요',
       '아직 게시되지 않아 링크가 없는 대상은 그 사실을 안내하고, 다른 참고 자료와 방향성으로 초안을 만들 수 있어요',
     ],
-    link: { label: '캠페인 v2', href: '/campaigns/flow' },
+    link: { label: '캠페인', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-21', type: '개선',
@@ -171,7 +182,7 @@ export const UPDATES: UpdateEntry[] = [
       "폼을 닫아도 만들어 둔 원고는 사라지지 않아요 — '있는 원고 고르기'에 남아요",
       '[만들고 하나 더]로 이어 만들면 원고 칸도 함께 비워져요',
     ],
-    link: { label: '캠페인 v2', href: '/campaigns/flow' },
+    link: { label: '캠페인', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-21', type: '새 기능',
@@ -195,7 +206,7 @@ export const UPDATES: UpdateEntry[] = [
       '직접 쓰기는 X에 올리는 화면과 같은 모양이에요 — 글자 수, 스레드, 이미지를 그대로 보면서 써요',
       '붙인 뒤에는 그 자리에서 다시 쓰기·번역·이미지·상태까지 손볼 수 있어요',
     ],
-    link: { label: '캠페인 v2', href: '/campaigns/flow' },
+    link: { label: '캠페인', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-19', type: '새 기능',
@@ -209,7 +220,7 @@ export const UPDATES: UpdateEntry[] = [
       '위 카드 3장: 게시 / 계획 작업 수 · 조회·좋아요·북마크 합계([업데이트]로 다시 조회) · 소진 / 계획 비용과 이달 예산',
       '정산 요청은 지금처럼 정산 화면에서 — 표 위 "정산 대기 N건" 링크가 그 캠페인만 골라 열어요',
     ],
-    link: { label: '캠페인 v2', href: '/campaigns/flow' },
+    link: { label: '캠페인', href: '/campaigns/flow' },
   },
   {
     date: '2026-09-19', type: '내부',

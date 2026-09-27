@@ -149,7 +149,7 @@ export function DraftTaskField({ draft, campaigns, today, onAttach, onDetach, on
       <span className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-x-border-strong bg-white px-2.5 text-ui">
         <span className="text-x-secondary">작업:</span>
         {/* 캠페인 화면으로 — 예정일·비용·게시 확인은 전부 그쪽이 고치는 자리다 */}
-        <Link href={`/campaigns?id=${draft.campaignId ?? ''}`}
+        <Link href={`/campaigns/flow?id=${draft.campaignId ?? ''}`}
               title="이 작업이 있는 캠페인 화면으로 — 예정일·비용은 거기서 고쳐요"
               className="font-bold text-x-blue-text hover:underline">
           {draft.campaignName ?? '캠페인'} · {typeLabel}{draft.influencerHandle ? ` @${draft.influencerHandle}` : ''} ↗

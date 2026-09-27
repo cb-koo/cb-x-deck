@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import type { CampaignTaskItem } from '@/lib/campaignStore';
 import type { TaskCost } from '@/lib/campaignCost';
 import type { CancelReason } from '@/lib/campaignTaskInput';
-import { cancelTaskApi, restoreTaskApi, replaceInfluencerApi } from '@/lib/campaignApi';
+import { cancelTaskApi, restoreTaskApi, replaceInfluencerApi, settleElsewhereApi, unsettleElsewhereApi } from '@/lib/campaignApi';
 import { restoreMessage } from '@/lib/campaignFlowView';
 
 // 취소·되돌리기·교체(ADR 0002·0005)는 PATCH가 아니라 액션 라우트 — 원고 상태·증빙·로그·정산 배지까지 서버가 한 트랜잭션으로
@@ -25,6 +25,21 @@ export function useFlowTaskActions({ campaignId, show, reload, onChanged }: {
       if (!r.ok) { show(r.error); return false; }
       await reload(); onChanged();
       show(restoreMessage(r.data.draft));
+      return true;
+    },
+    // 다른 곳에서 정산함(061) — 단계·정산 대기 수·정산 배지가 함께 바뀌므로 상세를 다시 읽는다
+    settleElsewhere: async (t: CampaignTaskItem, note: string) => {
+      const r = await settleElsewhereApi(campaignId, t.id, { note });
+      if (!r.ok) { show(r.error); return false; }
+      await reload(); onChanged();
+      show('다른 곳에서 정산함으로 표시했어요 — 정산 대기에서 빠지고, 비용은 집행액에 그대로 잡혀요');
+      return true;
+    },
+    unsettleElsewhere: async (t: CampaignTaskItem) => {
+      const r = await unsettleElsewhereApi(campaignId, t.id);
+      if (!r.ok) { show(r.error); return false; }
+      await reload(); onChanged();
+      show('표시를 되돌렸어요 — 다시 정산 대기에 올라와요');
       return true;
     },
     replace: async (t: CampaignTaskItem, body: { handle: string; cost?: TaskCost | null; reason?: CancelReason | null; note?: string }) => {

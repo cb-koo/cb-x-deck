@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { getSql } from '@/lib/db';
 import { createClient } from '@/lib/clientStore';
 import { createCampaign } from '@/lib/campaignStore';
-import { createTasks, updateTask } from '@/lib/campaignTaskStore';
+import { createTasks, updateTask, markSettledElsewhere } from '@/lib/campaignTaskStore';
 import { createInfluencer, updatePaymentMethods } from '@/lib/influencerStore';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from '@/lib/settlementSettings';
 import { getSettlementSettings, saveSettlementSettings, listCandidates, createRequests, cancelRequest } from '@/lib/settlementStore';
@@ -183,4 +183,35 @@ test('limit=1 — 페이지네이션: totalPages 올라가고 data는 1건', asy
   assert.ok(body.total >= 2);
   assert.ok(body.totalPages >= 2, '2건 이상을 1건씩 나누면 페이지가 2 이상');
   assert.equal((body.data as Row[]).length, 1);
+});
+
+test('다른 곳에서 정산한 작업(061)도 나간다 — 요청 없이 작업 비용(원화 환산)·작업 id·같은 귀속일 규칙', async () => {
+  const m = await member();
+  const CLINIC_SE = `${P}se`;
+  const c = await createClient(sql, P + '클라SE');
+  await sql`update client set clinic_code = ${CLINIC_SE} where id = ${c.id}`;
+  const camp = await createCampaign(sql, campBase(c.id, c.name, 'SE'));   // 시작일 08-31
+  const base = { targetTaskId: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null };
+  const [q] = await createTasks(sql, camp.id, { ...base, targetTweetUrl: null, type: 'quoteRt', items: [{ handle: H('seQ'), cost: { amount: 5000, currency: 'JPY' } }] });
+  const [r] = await createTasks(sql, camp.id, { ...base, targetTweetUrl: 'https://x.com/target/status/1', type: 'rt', items: [{ handle: H('seR'), cost: { amount: 30000, currency: 'KRW' } }] });
+  const [plain] = await createTasks(sql, camp.id, { ...base, targetTweetUrl: null, type: 'quoteRt', items: [{ handle: H('seP'), cost: { amount: 9000, currency: 'KRW' } }] });
+  await updateTask(sql, q.id, { postedAt: '2026-09-02', postedSource: 'manual', postUrl: 'https://x.com/q/status/1' });
+  await updateTask(sql, r.id, { postedAt: '2026-09-03', postedSource: 'manual', proof: { url: `task/${r.id}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png`, by: null, byName: '박구건', at: '2026-09-03T01:00:00.000Z' } });
+  await updateTask(sql, plain.id, { postedAt: '2026-09-02', postedSource: 'manual', postUrl: 'https://x.com/p/status/1' });   // 표시 없음·요청 없음 → 안 나간다
+  for (const t of [q, r]) assert.equal(await markSettledElsewhere(sql, t.id, { note: '구글폼', by: m, today: '2026-09-27' }), 'ok');
+
+  const res = await GET(req('?from=2026-08-31&to=2026-09-06'));
+  assert.equal(res.status, 200);
+  const rows = ((await res.json()).data as Row[]).filter((d) => d.clinicId === CLINIC_SE);
+  assert.equal(rows.length, 2, '표시한 2건만 — 표시도 요청도 없는 작업은 빠진다');
+  const byId = new Map(rows.map((x) => [x.id, x]));
+  const rq = byId.get(`xdeck:${q.id}`)!;
+  assert.equal(rq.category, 'x_content_quote_rt');
+  assert.equal(rq.timestamp, '2026-09-02 00:00:00', '인용RT 귀속일=게시일');
+  assert.equal(rq.amountKrw, 50000, '엔화는 1엔=10원(예산과 같은 환산)');
+  assert.equal(rq.currency, 'JPY'); assert.equal(rq.originalAmount, 5000);
+  const rr = byId.get(`xdeck:${r.id}`)!;
+  assert.equal(rr.category, 'x_secondary_viral');
+  assert.equal(rr.timestamp, '2026-08-31 00:00:00', 'RT 귀속일=캠페인 시작일');
+  assert.equal(rr.amountKrw, 30000);
 });

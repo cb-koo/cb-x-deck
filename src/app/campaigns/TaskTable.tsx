@@ -15,7 +15,7 @@ import { suggestTaskCost, formatMoneyBy, type TaskCost } from '@/lib/campaignCos
 import { displayStatus, TONE_CLASS } from '@/lib/settlementDisplay';
 import {
   sortTasks, matchesTaskFilter, isTaskExcluded, isOutOfRange, targetStatus, TARGETING_TYPES, draftWriteHref,
-  TASK_TYPE_LABEL, TASK_SORT_LABEL, STAGE_FILTER_LABEL, formatDateKo, type TaskSortKey, type StageFilter, type TypeSubtotal, type TaskSummary,
+  TASK_TYPE_LABEL, TASK_SORT_LABEL, STAGE_FILTER_LABEL, formatDateKo, SETTLED_ELSEWHERE_LABEL, type TaskSortKey, type StageFilter, type TypeSubtotal, type TaskSummary,
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, targetLabel, typeFooterLabel, handleInitial } from '@/lib/campaignTableView';
 import type { useCampaignTaskActions } from './useCampaignTaskActions';
@@ -220,6 +220,13 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                         {cancelled
                           ? <span className="tabular-nums text-x-muted line-through">{t.cost ? formatMoneyBy({ [t.cost.currency]: t.cost.amount }) : '—'}</span>
                           : <CostPopover value={t.cost} suggestion={suggestion} onChange={(next: TaskCost | null) => void actions.changeCost(t, next)} compact />}
+                        {/* 다른 곳에서 정산함(061) — 요청이 없으니 정산 화면으로 가는 링크 없이 배지만 */}
+                        {!t.settlement && t.settledElsewhereAt && (
+                          <span className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${TONE_CLASS.done}`}
+                                title={`${t.settledElsewhereNote || '앱 밖'}에서 정산했어요${t.settledElsewhereByName ? ` (${t.settledElsewhereByName})` : ''}`}>
+                            {SETTLED_ELSEWHERE_LABEL} {formatDateKo(t.settledElsewhereAt)}
+                          </span>
+                        )}
                         {t.settlement && (() => { const st = displayStatus(t.settlement, 'campaign'); return (
                           <Link href={`/settlement?tab=requests&task=${t.id}`} className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${TONE_CLASS[st.tone]}`} title={st.title}>{st.label}</Link>
                         ); })()}

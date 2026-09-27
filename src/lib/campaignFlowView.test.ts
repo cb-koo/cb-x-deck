@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EMPTY_FLOW_FILTER, matchesFlowFilter, matchesSearch, matchesExtra, filterCount, filterSummary,
-  nextSort, sortFlowRows, dateCell, draftCell, costCell, flowFooter, flowStats, taskPerfExtra, settleWaitCount, restoreMessage, PANEL_FIELD_ORDER,
+  nextSort, sortFlowRows, dateCell, draftCell, costCell, flowFooter, flowStats, taskPerfExtra, settleWaitCount, isSettleWaiting, restoreMessage, PANEL_FIELD_ORDER,
   costConfirmScenario, profilePromptFor, detachConfirmMessage,
 } from './campaignFlowView.ts';
 import type { CampaignTaskItem } from './campaignStore.ts';
@@ -12,7 +12,7 @@ let n = 0;
 const mk = (p: Partial<CampaignTaskItem>): CampaignTaskItem => ({
   id: `t${++n}`, campaignId: 'c', influencerHandle: null, type: 'post', draftId: null, targetTaskId: null, targetTweetUrl: null,
   postUrl: null, postedAt: null, postedSource: null, removedAt: null, removedReason: '', scheduledOn: null, visitOn: null, cost: null, note: '',
-  proof: null, paymentMethodId: null, cancelledAt: null, cancelReason: null, cancelNote: '', cancelledDraftId: null, cancelledDraftTitle: null,
+  proof: null, paymentMethodId: null, cancelledAt: null, cancelReason: null, cancelNote: '', cancelledDraftId: null, cancelledDraftTitle: null, settledElsewhereAt: null, settledElsewhereNote: '', settledElsewhereByName: null,
   createdAt: `2026-09-01T00:00:${String(n).padStart(2, '0')}Z`, updatedAt: '', draftStatus: null, draftLabel: null, draftFirstLine: null,
   draftPreview: null, draftFirstImage: null, target: null,
   published: false, perf: null, linkClicks: null, settlement: null, ...p,
@@ -123,6 +123,11 @@ test('8) 하단 줄·요약 줄·카드 숫자·정산 대기 — 취소 제외,
   assert.deepEqual(taskPerfExtra(rows[0]), { cpvKrw: 800, likeRate: 0.03, bookmarkRate: 0.01 });
   assert.deepEqual(taskPerfExtra(rows[1]), { cpvKrw: null, likeRate: null, bookmarkRate: null }); // 성과 스냅샷 없음
   assert.equal(settleWaitCount(rows), 2);
+  // 다른 곳에서 정산함(061) — 정산 대기에서 빠진다(패널 입구도 같은 판정 isSettleWaiting)
+  const waiting = rows.filter(isSettleWaiting);
+  assert.equal(waiting.length, 2);
+  assert.equal(settleWaitCount([{ ...waiting[0], settledElsewhereAt: '2026-09-27' }, waiting[1]]), 1);
+  assert.equal(isSettleWaiting({ ...waiting[0], settledElsewhereAt: '2026-09-27' }), false);
   const f = EMPTY_FLOW_FILTER();
   assert.equal(filterSummary(f, 4, 4), '전체 4건');
   f.stages.add('posted'); f.q = 'a';

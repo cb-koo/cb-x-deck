@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { createClient, deleteClient } from './clientStore.ts';
 import { createCampaign, updateCampaign } from './campaignStore.ts';
-import { createTasks, updateTask, getTask, deleteTask } from './campaignTaskStore.ts';
+import { createTasks, updateTask, getTask, deleteTask, markSettledElsewhere, clearSettledElsewhere } from './campaignTaskStore.ts';
 import { createInfluencer, updatePaymentMethods, deleteInfluencer } from './influencerStore.ts';
 import type { PaymentMethodInput } from './influencerPayment.ts';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettings.ts';
@@ -1135,4 +1135,51 @@ test('hasLiveRequest — 요청 중이면 참, 우리가 취소하거나 그쪽�
   const b = await requestFor('live2', 'live2');
   await sql`update payment_request set external_status = 'cancelled', external_updated_at = now() where id = ${b.row.id}`;
   assert.equal(await hasLiveRequest(sql, b.task.id), false);
+});
+
+test('다른 곳에서 정산함(061) — 후보에서 빠지고(SQL=순수 함수), 요청은 거절, 되돌리면 다시 후보', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라SE');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'se'));
+  await influencerWithPaypal(H('se'));
+  const [t, tPre] = await createTasks(sql, camp.id, { ...tin, type: 'quoteRt', items: [
+    { handle: H('se'), cost: { amount: 60000, currency: 'KRW' } },
+    { handle: H('se'), cost: { amount: 10000, currency: 'KRW' } },
+  ] });
+  // 게시 전은 표시할 수 없다(지급할 일이 아직 없다)
+  assert.equal(await markSettledElsewhere(sql, tPre.id, { note: '', by: m, today: '2026-09-27' }), 'not-posted');
+  await updateTask(sql, t.id, { postedAt: '2026-09-02', postedSource: 'manual', postUrl: 'https://x.com/se/status/1' });
+  const candIds = async () => (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-09-27')).map((x) => x.taskId);
+  assert.ok((await candIds()).includes(t.id));
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-09-27')).find((x) => x.taskId === t.id)!;
+
+  assert.equal(await markSettledElsewhere(sql, t.id, { note: '구글폼', by: m, today: '2026-09-27' }), 'ok');
+  assert.equal(await markSettledElsewhere(sql, t.id, { note: '구글폼', by: m, today: '2026-09-27' }), 'already');
+  const marked = (await getTask(sql, t.id))!;
+  assert.equal(marked.settledElsewhereAt, '2026-09-27'); assert.equal(marked.settledElsewhereNote, '구글폼'); assert.equal(marked.settledElsewhereByName, m.name);
+  // SQL 후보 조건과 순수 함수가 같은 답(§2-4 대조 규칙)
+  assert.equal(isSettlementCandidate(marked), false);
+  assert.ok(!(await candIds()).includes(t.id));
+  // 표시가 붙은 뒤 들어온 요청은 이중 지급 경고로 거절된다
+  await assert.rejects(createRequests(sql, [itemOf(cand, SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!.sendAs)], m, '2026-09-27'), (e: unknown) => {
+    assert.ok(e instanceof SettlementCreateError);
+    assert.match(e.failures[0].reason, /다른 곳에서 이미 정산한 작업이에요 \(구글폼\) — 요청을 보내면 두 번 지급돼요/);
+    return true;
+  });
+  // check 제약 — 게시 확인 없는 작업엔 칸만 직접 찍어도 막힌다(최후 방어)
+  await assert.rejects(sql`update campaign_task set settled_elsewhere_at = '2026-09-27' where id = ${tPre.id}`, /campaign_task_settled_elsewhere_posted/);
+
+  assert.equal(await clearSettledElsewhere(sql, t.id), 'ok');
+  assert.equal(await clearSettledElsewhere(sql, t.id), 'not-settled');
+  const cleared = (await getTask(sql, t.id))!;
+  assert.equal(cleared.settledElsewhereAt, null); assert.equal(cleared.settledElsewhereNote, ''); assert.equal(cleared.settledElsewhereByName, null);
+  assert.ok((await candIds()).includes(t.id));
+  assert.equal(await markSettledElsewhere(sql, '00000000-0000-0000-0000-000000000000', { note: '', by: m, today: '2026-09-27' }), 'not-found');
+});
+
+test('다른 곳에서 정산함(061) — 살아있는 요청이 있으면 거절, 요청을 취소하면 표시할 수 있다', async () => {
+  const { row, task, member } = await requestFor('sereq', 'sereq');
+  assert.equal(await markSettledElsewhere(sql, task.id, { note: '', by: member, today: '2026-09-27' }), 'has-request');
+  await cancelRequest(sql, row.id, '테스트', member);
+  assert.equal(await markSettledElsewhere(sql, task.id, { note: '', by: member, today: '2026-09-27' }), 'ok');
 });

@@ -72,7 +72,7 @@ x-api-key: <API 키>
 | `timestamp` | KST `YYYY-MM-DD 00:00:00` — **귀속일**(§4.2). 게시일엔 시각이 없어 항상 `00:00:00`. 제자리 수정에도 안 바뀐다 |
 | `clinicId` | LINE 슬러그(§6). `client.id` 고정 매핑 우선, 없으면 `clinic_code` 폴백 |
 | `clinic` | 클라이언트 한글명(요청 시점 스냅샷). 폴백용 |
-| `id` | `xdeck:<payment_request.uuid>`. 추적·중복제거용 |
+| `id` | `xdeck:<payment_request.uuid>`. 추적·중복제거용. **다른 곳에서 정산한 작업(§4.4)은 `xdeck:<campaign_task.uuid>`** — 같은 uuid 공간이라 겹치지 않는다 |
 | `currency` | 지급(요청) 통화(`payout_currency`) |
 | `originalAmount` | 환산 전 지급액(`amount_gross`, 요청 통화). 참고용, 집계엔 미사용 |
 | `splitCount` | 항상 1 — 우리 요청은 이미 클리닉 단위라 배분이 없다 |
@@ -92,13 +92,28 @@ x-api-key: <API 키>
   - `rt`: `campaign_starts_on ?? created_at`
   - 그 외: `task_posted_on ?? campaign_starts_on ?? created_at`
 - 필요한 컬럼(`task_posted_on`·`campaign_starts_on`)은 마이그레이션 054(koo 2026-09-14)에 이미 있다 — 새 마이그레이션 없음.
-- 게시일은 date라 시각이 없으므로 `timestamp`는 항상 `YYYY-MM-DD 00:00:00`. WHERE·ORDER BY·SELECT가 모두 같은 귀속일 식을 써 필터·표시·정렬이 함께 움직인다(`src/lib/settlementStore.ts` `listMarketingCosts`의 `attrDate`).
+- 게시일은 date라 시각이 없으므로 `timestamp`는 항상 `YYYY-MM-DD 00:00:00`. WHERE·ORDER BY·SELECT가 모두 같은 귀속일 칸을 써 필터·표시·정렬이 함께 움직인다(`src/lib/settlementStore.ts` `MARKETING_COST_SOURCE`의 `attr_date`).
 
 ### 4.3 집계에 넣는 행의 조건
 
 - `status <> 'cancelled'`(취소만 제외). 그쪽 정산 프로덕트가 취소한 건도 `status='cancelled'`로 떨어져 한 조건이 둘을 덮는다. (§7-6: `status`는 DB CHECK로 `{requested, cancelled}` 뿐이라 `= 'requested'`와 현재 동일하나, 미래 상태값 추가에 안전하도록 `<> 'cancelled'` 채택.)
 - `client.id` 고정 매핑 또는 `client.clinic_code`가 있는 클라이언트만(둘 다 없으면 그쪽이 집계에서 제외하므로 애초에 안 보낸다 — §6).
 - 자동 테스트 픽스처는 제외(2026-09-09 사고 재발 방지 — 정산 API와 같은 필터).
+
+### 4.4 다른 곳에서 정산한 작업 (2026-09-27 추가, koo 결정)
+
+앱 밖(구글폼 등)에서 이미 지급을 끝낸 작업은 정산 요청이 없다(요청을 만들면 정산 프로덕트가 또 지급한다). 작업에 **'다른 곳에서 정산함'** 표시(마이그레이션 061 `campaign_task.settled_elsewhere_at`)를 붙이면 요청 대신 작업에서 행을 만든다. 첫 사례: 9월1주차(09-01~09-06) 18건.
+
+| 필드 | 요청 행과 다른 점 |
+|---|---|
+| `id` | `xdeck:<campaign_task.uuid>` |
+| `amountKrw` | 송금액(수수료 포함)을 모른다 — **작업 비용**을 원화로(엔화는 1엔=10원, 클라이언트 예산과 같은 환산) |
+| `currency`·`originalAmount` | 작업 비용의 통화·금액 |
+| `timestamp` | 같은 귀속일 규칙 — `rt`는 캠페인 시작일, 그 외는 작업 게시일 |
+
+- 조건: 표시 있음 + 취소 아님 + 게시 확인 + 비용 있음. 클리닉 매핑·기간·픽스처 조건은 §4.3과 같다.
+- 표시는 살아있는 정산 요청이 없을 때만 붙일 수 있어 한 작업이 요청 행과 작업 행으로 두 번 나가지 않는다.
+- 표시를 되돌리면 그 행은 다음 조회부터 사라진다(그쪽은 매번 새로 당겨가므로 별도 삭제 통지 없음).
 
 ## 5. `category` enum (작업 유형 → 키)
 

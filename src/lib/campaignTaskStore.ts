@@ -29,6 +29,8 @@ export interface TaskRow {
   // 취소(055, ADR 0002) — 삭제가 아니라 상태. cancelledDraft*는 되돌리기용 스냅샷(떼어낸 원고 id·제목)
   cancelledAt: string | null; cancelReason: CancelReason | null; cancelNote: string;
   cancelledDraftId: string | null; cancelledDraftTitle: string | null;
+  // 다른 곳에서 정산함(061) — 앱 밖(구글폼 등)에서 지급을 끝냈다는 표시. 붙으면 정산 후보가 아니고 단계는 '완료'
+  settledElsewhereAt: string | null; settledElsewhereNote: string; settledElsewhereByName: string | null;
   createdAt: string; updatedAt: string;
   draftStatus: DraftStatus | null; draftLabel: string | null;   // 붙은 원고 요약 — 표의 '원고' 열
   draftFirstLine: string | null;   // 붙은 원고 본문 첫 줄(v2 표의 원고 칸, R26) — 제목이 아니라 내용
@@ -73,6 +75,7 @@ type Row = {
   scheduled_on: string | null; visit_on: string | null; cost: unknown; note: string; proof: unknown; payment_method_id: string | null;
   cancelled_at: string | null; cancel_reason: CancelReason | null; cancel_note: string;
   cancelled_draft_id: string | null; cancelled_draft_title: string | null;
+  settled_elsewhere_at: string | null; settled_elsewhere_note: string; settled_elsewhere_by_name: string | null;
   created_at: Date; updated_at: Date;
   draft_status: DraftStatus | null; draft_title: string | null; draft_ko_title: string | null; draft_first_line: string | null;
   draft_first_image: string | null;
@@ -104,6 +107,7 @@ const toRow = (r: Row): TaskRow => ({
   paymentMethodId: r.payment_method_id,
   cancelledAt: r.cancelled_at, cancelReason: r.cancel_reason, cancelNote: r.cancel_note,
   cancelledDraftId: r.cancelled_draft_id, cancelledDraftTitle: r.cancelled_draft_title,
+  settledElsewhereAt: r.settled_elsewhere_at, settledElsewhereNote: r.settled_elsewhere_note, settledElsewhereByName: r.settled_elsewhere_by_name,
   createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
   draftStatus: r.draft_id ? r.draft_status : null, draftLabel: r.draft_id ? labelOf(r) : null,
   draftFirstLine: r.draft_id ? firstLineOf(r) : null,
@@ -125,6 +129,7 @@ const SELECT = (sql: postgres.Sql) => sql`
          t.cost, t.note, t.proof, t.payment_method_id, t.created_at, t.updated_at,
          to_char(t.cancelled_at, 'YYYY-MM-DD') as cancelled_at, t.cancel_reason, t.cancel_note,
          t.cancelled_draft_id, t.cancelled_draft_title,
+         to_char(t.settled_elsewhere_at, 'YYYY-MM-DD') as settled_elsewhere_at, t.settled_elsewhere_note, t.settled_elsewhere_by_name,
          d.status as draft_status, d.title as draft_title, d.ko_title as draft_ko_title,
          coalesce(d.edited, d.content)->'posts'->0->>'text' as draft_first_line,
          coalesce(d.edited, d.content)->'posts'->0->'media'->0->>'url' as draft_first_image,
@@ -465,6 +470,44 @@ export async function restoreTask(sql: postgres.Sql, id: string): Promise<{ resu
       throw e;
     }
   });
+}
+
+// ─────────────────────────── 다른 곳에서 정산함 (061) ───────────────────────────
+// 앱 밖(구글폼 등)에서 이미 지급한 작업 표시. 게시 확인된 살아있는 작업만, 살아있는 정산 요청이 없을 때만 —
+// 요청이 있으면 두 정산 상태가 부딪힌다(요청을 먼저 취소해야 한다). 살아있음 = taskAssignGate.hasLiveRequest와 같은 정의
+// (requested이고 그쪽이 취소하지 않음). 조건부 UPDATE + check 제약이 경합의 최후 방어다(cancelTask와 같은 태도).
+export type SettleElsewhereResult = 'ok' | 'not-found' | 'not-posted' | 'cancelled' | 'already' | 'has-request';
+export async function markSettledElsewhere(
+  sql: postgres.Sql, id: string, input: { note: string; by: { id: string; name: string } | null; today: string },
+): Promise<SettleElsewhereResult> {
+  if (!isUuidLike(id)) return 'not-found';
+  return sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    const cur = await tx<Array<{ posted_at: string | null; cancelled_at: string | null; settled_elsewhere_at: string | null }>>`
+      select posted_at, cancelled_at, settled_elsewhere_at from campaign_task where id = ${id} for update`;
+    if (cur.length === 0) return 'not-found';
+    if (cur[0].cancelled_at) return 'cancelled';
+    if (!cur[0].posted_at) return 'not-posted';
+    if (cur[0].settled_elsewhere_at) return 'already';
+    const live = await tx`select 1 from payment_request
+      where task_id = ${id} and status = 'requested' and coalesce(external_status, '') <> 'cancelled' limit 1`;
+    if (live.length > 0) return 'has-request';
+    const rows = await tx`update campaign_task set
+        settled_elsewhere_at = ${input.today}::date, settled_elsewhere_note = ${input.note},
+        settled_elsewhere_by = ${input.by?.id ?? null}, settled_elsewhere_by_name = ${input.by?.name ?? null}, updated_at = now()
+      where id = ${id} and posted_at is not null and cancelled_at is null and settled_elsewhere_at is null returning id`;
+    return rows.length === 0 ? 'already' : 'ok';
+  });
+}
+// 되돌리기 — 표시만 지운다. 그 뒤로는 다시 정산 후보가 된다.
+export async function clearSettledElsewhere(sql: postgres.Sql, id: string): Promise<'ok' | 'not-found' | 'not-settled'> {
+  if (!isUuidLike(id)) return 'not-found';
+  const cur = await sql<Array<{ settled_elsewhere_at: string | null }>>`select settled_elsewhere_at from campaign_task where id = ${id}`;
+  if (cur.length === 0) return 'not-found';
+  if (!cur[0].settled_elsewhere_at) return 'not-settled';
+  await sql`update campaign_task set settled_elsewhere_at = null, settled_elsewhere_note = '',
+      settled_elsewhere_by = null, settled_elsewhere_by_name = null, updated_at = now() where id = ${id}`;
+  return 'ok';
 }
 
 // ─────────────────────────── 인플루언서 교체 (ADR 0005) ───────────────────────────

@@ -188,3 +188,14 @@ test('summarizeTaskPerf — 북마크도 합산, 취소 작업은 제외', () =>
   ]);
   assert.equal(s.views, 150); assert.equal(s.likes, 5); assert.equal(s.bookmarks, 3); assert.equal(s.publishedCount, 2);
 });
+
+test('다른 곳에서 정산함(061) — 정산 후보가 아니고 단계는 완료', () => {
+  const c = { postedAt: '2026-09-02', cost: { amount: 60000, currency: 'KRW' as const }, influencerHandle: 'a', removedAt: null, cancelledAt: null };
+  assert.equal(isSettlementCandidate(c), true);                                          // 표시 없음(선택 입력 생략) = 종전 그대로
+  assert.equal(isSettlementCandidate({ ...c, settledElsewhereAt: null }), true);
+  assert.equal(isSettlementCandidate({ ...c, settledElsewhereAt: '2026-09-27' }), false);
+  const t = { type: 'quoteRt' as const, draftStatus: null, postedAt: '2026-09-02', removedAt: null, scheduledOn: null, visitOn: null, cancelledAt: null, influencerHandle: 'a' };
+  assert.equal(flowStage(t, null), 'posted');
+  assert.equal(flowStage({ ...t, settledElsewhereAt: '2026-09-27' }, null), 'done');
+  assert.equal(flowStage({ ...t, removedAt: '2026-09-04', settledElsewhereAt: '2026-09-27' }, null), 'done');   // 내려져도 지급은 끝났다
+});

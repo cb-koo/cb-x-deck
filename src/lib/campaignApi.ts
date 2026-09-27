@@ -87,6 +87,11 @@ export const cancelTaskApi = (campaignId: string, taskId: string, body: { reason
   call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/cancel`, json('POST', body));
 export const restoreTaskApi = (campaignId: string, taskId: string) =>
   call<{ task: TaskRow; draft: 'reattached' | 'taken' | 'gone' | 'none' }>(`/api/campaigns/${campaignId}/tasks/${taskId}/restore`, { method: 'POST' });
+// 다른 곳에서 정산함(061) — 표시(POST)·되돌리기(DELETE). 게시·취소·살아있는 요청을 서버가 다시 검사한다
+export const settleElsewhereApi = (campaignId: string, taskId: string, body: { note: string }) =>
+  call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/settled-elsewhere`, json('POST', body));
+export const unsettleElsewhereApi = (campaignId: string, taskId: string) =>
+  call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/settled-elsewhere`, { method: 'DELETE' });
 // 인플루언서 교체(ADR 0005) — PATCH가 아니라 액션 라우트(다른 인플로 바꾸는 유일한 경로)
 export const replaceInfluencerApi = (campaignId: string, taskId: string, body: { handle: string; cost?: TaskCost | null; reason?: CancelReason | null; note?: string }) =>
   call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/replace`, json('POST', body));

@@ -6,7 +6,8 @@ import { parseTaskCost, type TaskCost } from './campaignCost.ts';
 import type { Currency } from './influencerPricing.ts';
 import type { PaymentFee } from './influencerPayment.ts';
 import type { TaskType, CampaignKind } from './campaignJudgment.ts';
-import { isDateOnlyString } from './campaignJudgment.ts';   // 'YYYY-MM-DD' + 실제 달력일 검증(캠페인 라우트 가드)
+import { isDateOnlyString, SETTLED_ELSEWHERE_TEXT } from './campaignJudgment.ts';
+import { JPY_TO_KRW } from './clientBudget.ts';   // 다른 곳에서 정산한 작업의 원화 환산(예산과 같은 1엔=10원)   // 'YYYY-MM-DD' + 실제 달력일 검증(캠페인 라우트 가드)
 import { taskPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
 import { insertAutoLog, overwriteRosterFromCorrectionInTx, type PaymentLogPayload } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type SettlementSettings } from './settlementSettings.ts';
@@ -74,7 +75,8 @@ const CANDIDATE_BASE = (sql: postgres.Sql) => sql`
     left join campaign_task tg on tg.id = t.target_task_id
     left join draft d on d.id = t.draft_id
     left join influencer i on lower(i.handle) = lower(t.influencer_handle)
-   where t.cancelled_at is null and t.posted_at is not null and t.cost is not null and t.influencer_handle is not null`;
+   where t.cancelled_at is null and t.settled_elsewhere_at is null
+     and t.posted_at is not null and t.cost is not null and t.influencer_handle is not null`;
 // 검토 대기 목록용 — 활성 요청이 있는 작업은 뺀다. 제자리 수정(reviseRequest)은 활성 요청의 작업을 다시 계산해야 하므로 CANDIDATE_BASE를 쓴다.
 const CANDIDATE_SQL = (sql: postgres.Sql) => sql`${CANDIDATE_BASE(sql)}
      and not exists (select 1 from payment_request r where r.task_id = t.id and r.status = 'requested')`;
@@ -214,7 +216,11 @@ export async function createRequests(
     const r = byTask.get(item.taskId);
     if (!r) {   // 후보가 아니거나(게시 취소·비용 삭제) 이미 활성 요청이 있다
       const active = isUuidLike(item.taskId) ? await sql<Array<{ requester_name: string }>>`select requester_name from payment_request where task_id = ${item.taskId} and status = 'requested'` : [];
-      failures.push({ taskId: item.taskId, reason: active.length ? `이미 요청됐어요 (${active[0].requester_name})` : '지금은 정산 후보가 아니에요 — 목록을 다시 확인해 주세요' });
+      const elsewhere = !active.length && isUuidLike(item.taskId)
+        ? await sql<Array<{ note: string }>>`select settled_elsewhere_note as note from campaign_task where id = ${item.taskId} and settled_elsewhere_at is not null` : [];
+      failures.push({ taskId: item.taskId, reason: active.length ? `이미 요청됐어요 (${active[0].requester_name})`
+        : elsewhere.length ? `${SETTLED_ELSEWHERE_TEXT}${elsewhere[0].note ? ` (${elsewhere[0].note})` : ''} — 요청을 보내면 두 번 지급돼요`
+        : '지금은 정산 후보가 아니에요 — 목록을 다시 확인해 주세요' });
       continue;
     }
     // 계약 보증(042 §4-8): 저장되는 순간 클라이언트·인플 ID는 non-null이어야 한다 — 화면 신호등(no-client)이 먼저 막지만, 여기서 다시 막는다
@@ -397,37 +403,53 @@ export interface MarketingCostPage { items: MarketingCostSource[]; total: number
 //  · rt(RT)는 실제 리트윗 시각(posted_at)이 없고 확인일뿐이라 캠페인 시작일(campaign_starts_on)에 앵커링한다.
 //  · 그 외(post·quoteRt·visit)는 작업 게시일(task_posted_on)이 기준.
 //  · 054 백필 전 옛 요청은 스냅샷이 null일 수 있어 created_at(서울 자정 기준 date)으로 폴백 — 날짜가 비어 누락되지 않게.
-// WHERE·ORDER·SELECT가 모두 이 식을 써야 필터와 표시가 어긋나지 않는다(변경요청 §3).
-const attrDate = (sql: postgres.Sql) => sql`
-      case when r.task_type = 'rt'
-           then coalesce(r.campaign_starts_on, (r.created_at at time zone 'Asia/Seoul')::date)
-           else coalesce(r.task_posted_on, r.campaign_starts_on, (r.created_at at time zone 'Asia/Seoul')::date)
-      end`;
+// 아래 원천 두 갈래(요청·다른 곳에서 정산함)가 각자 이 규칙으로 attr_date를 만들고, WHERE·ORDER·SELECT는 그 한 칸만 쓴다(변경요청 §3).
+//
+// 원천(MARKETING_COST_SOURCE) = 정산 요청 ∪ 다른 곳에서 정산한 작업(061, koo 2026-09-27 "포함한다").
+//  · 요청: 취소만 제외(status <> 'cancelled') — 확정본 §7-3. status는 DB CHECK로 {requested, cancelled} 두 값뿐이라 지금은 status='requested'와 동일하지만,
+//    미래에 상태값이 추가돼도 "취소 아닌 것 전부"라는 뜻이 안 흔들리게 <> 'cancelled'로 둔다. 지급 완료는 별도 컬럼(external_status)이라 여기 안 걸린다.
+//  · 다른 곳에서 정산한 작업: 요청이 없어 송금액(수수료 포함)을 모른다 — 작업 비용을 원화로(1엔=10원, 예산과 같은 환산) 보낸다.
+//    id는 작업 id다(요청 id와 같은 uuid 공간이라 겹치지 않는다). 표시는 살아있는 요청이 없을 때만 붙으므로 한 작업이 두 번 나가지 않는다.
+const MARKETING_COST_SOURCE = (sql: postgres.Sql) => sql`(
+      select r.id, r.task_type,
+             case when r.task_type = 'rt'
+                  then coalesce(r.campaign_starts_on, (r.created_at at time zone 'Asia/Seoul')::date)
+                  else coalesce(r.task_posted_on, r.campaign_starts_on, (r.created_at at time zone 'Asia/Seoul')::date)
+             end as attr_date,
+             r.client_id, c.clinic_code, r.client_name, r.gross_krw::bigint as gross_krw, r.amount_gross, r.payout_currency, r.influencer_handle
+        from payment_request r join client c on c.id = r.client_id
+       where r.status <> 'cancelled'
+      union all
+      select t.id, t.type,
+             case when t.type = 'rt' then cp.starts_on else t.posted_at end,
+             cp.client_id, c.clinic_code, coalesce(cp.client_name, c.name),
+             (t.cost->>'amount')::bigint * (case when t.cost->>'currency' = 'JPY' then ${JPY_TO_KRW} else 1 end),
+             (t.cost->>'amount')::int, t.cost->>'currency', t.influencer_handle
+        from campaign_task t join campaign cp on cp.id = t.campaign_id join client c on c.id = cp.client_id
+       where t.settled_elsewhere_at is not null and t.cancelled_at is null and t.posted_at is not null and t.cost is not null
+    ) u`;
 export async function listMarketingCosts(sql: postgres.Sql, q: MarketingCostQuery): Promise<MarketingCostPage> {
   const offset = (q.page - 1) * q.limit;
-  //  · 취소만 제외(status <> 'cancelled') — 확정본 §7-3. status는 DB CHECK로 {requested, cancelled} 두 값뿐이라 지금은 status='requested'와 동일하지만,
-  //    미래에 상태값이 추가돼도 "취소 아닌 것 전부"라는 뜻이 안 흔들리게 <> 'cancelled'로 둔다. 지급 완료는 별도 컬럼(external_status)이라 여기 안 걸린다.
   //  · clinicId가 붙는 클라이언트만 — 고정 UUID 매핑(MAPPED_CLIENT_IDS)이거나 clinic_code가 있는 것. 둘 다 없으면 그쪽이 집계에서 제외하므로 애초에 안 보낸다(스펙 §5).
-  //  · 기간은 귀속일(attrDate, date) BETWEEN from..to(양끝 포함). from/to도 date라 그대로 비교한다.
-  //  · 자동 테스트 픽스처는 제외(fixtureFilter — influencer_handle은 client와 겹치지 않아 별칭 없이 해석된다).
+  //  · 기간은 귀속일(attr_date, date) BETWEEN from..to(양끝 포함). from/to도 date라 그대로 비교한다.
+  //  · 자동 테스트 픽스처는 제외(fixtureFilter — influencer_handle은 u에만 있어 별칭 없이 해석된다).
   const where = sql`
-      r.status <> 'cancelled'
-      and (c.clinic_code is not null or r.client_id in ${sql(MAPPED_CLIENT_IDS)})
-      and ${attrDate(sql)} >= ${q.from}::date
-      and ${attrDate(sql)} <= ${q.to}::date
+      (u.clinic_code is not null or u.client_id in ${sql(MAPPED_CLIENT_IDS)})
+      and u.attr_date >= ${q.from}::date
+      and u.attr_date <= ${q.to}::date
       ${fixtureFilter(sql)}`;
   const [countRow] = await sql<Array<{ n: string }>>`
-    select count(*)::text as n from payment_request r join client c on c.id = r.client_id where ${where}`;
+    select count(*)::text as n from ${MARKETING_COST_SOURCE(sql)} where ${where}`;
   const total = Number(countRow?.n ?? 0);
   //  · timestamp는 귀속일(date)을 계약 형식 'YYYY-MM-DD 00:00:00'으로 — 게시일엔 시각이 없다(변경요청 §3).
-  //  · 정렬도 귀속일 + id 보조정렬(페이지 간 누락/중복 방지). WHERE와 같은 식을 써 필터·표시·정렬이 함께 움직인다.
+  //  · 정렬도 귀속일 + id 보조정렬(페이지 간 누락/중복 방지). WHERE와 같은 칸을 써 필터·표시·정렬이 함께 움직인다.
   const rows = await sql<Array<{ id: string; task_type: TaskType; timestamp_kst: string; client_id: string; clinic_code: string | null; client_name: string; gross_krw: string | number; amount_gross: number; payout_currency: Currency }>>`
-    select r.id, r.task_type,
-           to_char(${attrDate(sql)}, 'YYYY-MM-DD') || ' 00:00:00' as timestamp_kst,
-           r.client_id, c.clinic_code, r.client_name, r.gross_krw, r.amount_gross, r.payout_currency
-      from payment_request r join client c on c.id = r.client_id
+    select u.id, u.task_type,
+           to_char(u.attr_date, 'YYYY-MM-DD') || ' 00:00:00' as timestamp_kst,
+           u.client_id, u.clinic_code, u.client_name, u.gross_krw, u.amount_gross, u.payout_currency
+      from ${MARKETING_COST_SOURCE(sql)}
      where ${where}
-     order by ${attrDate(sql)}, r.id
+     order by u.attr_date, u.id
      limit ${q.limit} offset ${offset}`;
   return {
     total,

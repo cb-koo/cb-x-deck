@@ -50,6 +50,8 @@ import { RemovedDialog } from './RemovedDialog';
 import { BulkCreateDialog } from './BulkCreateDialog';
 import { FlowRowMenu, type FlowRowMenuActions } from './FlowRowMenu';
 import { CancelDialog } from './CancelDialog';
+import { SettleElsewhereDialog } from './SettleElsewhereDialog';
+import { SettledElsewhereLine } from './panel/SettledElsewhereLine';
 import { ReplaceDialog } from './ReplaceDialog';
 import { useFlowTaskActions } from './useFlowTaskActions';
 import { type DraftTab } from './draft/DraftMode';
@@ -172,6 +174,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 게시물 연결(트래킹)·취소·교체(Task 10) — 셋 다 ··· 메뉴에서만 연다(행·패널 공용, FlowRowMenu)
   const [linkFor, setLinkFor] = useState<FlowRow | null>(null);
   const [cancelFor, setCancelFor] = useState<FlowRow | null>(null);
+  const [settleFor, setSettleFor] = useState<FlowRow | null>(null);   // 다른 곳에서 정산함(061) 확인창
   const [replaceFor, setReplaceFor] = useState<FlowRow | null>(null);
   // 새 작업을 만든 뒤 "프로필에도 반영할까요?"(설계 §8) — 만들기는 이미 끝났고, 답은 프로필만 바꾼다
   const [pricePrompt, setPricePrompt] = useState<PricePrompt | null>(null);
@@ -1012,11 +1015,16 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                                     onUnmarkRemoved={() => void actions.unmarkRemoved(panelTask)}
                                     onCancel={() => menuActions.cancel(panelTask)} />
                        : null,
+                     // 다른 곳에서 정산함(061) — 취소된 작업엔 TaskPanel이 그리지 않는다
+                     settled: panelTask
+                       ? <SettledElsewhereLine task={panelTask} onOpen={() => setSettleFor(panelTask)}
+                                               onUndo={() => void flowActions.unsettleElsewhere(panelTask)} />
+                       : null,
                    }}
                    // 패널 위에 뜬 다른 레이어(편집 모달·한 번에 만들기·내림 표시·게시물 연결·취소·교체·
                    // 원고 모드의 레퍼런스 고르기·링크 추가)가 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를
                    // 닫는 Esc 한 번에 패널까지 같이 닫힌다(리뷰 지적 1, Critical).
-                   overlayOpen={!!editing || bulkOpen || removedOpen || !!linkFor || !!cancelFor || !!replaceFor || draftOverlayOpen || !!pricePrompt}
+                   overlayOpen={!!editing || bulkOpen || removedOpen || !!linkFor || !!cancelFor || !!settleFor || !!replaceFor || draftOverlayOpen || !!pricePrompt}
                    onDirtyChange={onNewDirtyChange} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
@@ -1050,6 +1058,10 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                         // 취소는 붙어 있던 원고를 뗀다(서버, cancelTask) — 후보로 다시 잡혀야 '있는 원고 고르기 n'이 맞다.
                         if (ok && cancelFor.draftId) void reloadCandidates();
                       }} />
+      )}
+      {settleFor && (
+        <SettleElsewhereDialog task={settleFor} onClose={() => setSettleFor(null)}
+                               onConfirm={async (note) => { await flowActions.settleElsewhere(settleFor, note); }} />
       )}
       {replaceFor && (
         <ReplaceDialog task={replaceFor} influencerOptions={influencerOptions} roster={rosterGate} initialHandle={replaceInitialHandle ?? undefined}

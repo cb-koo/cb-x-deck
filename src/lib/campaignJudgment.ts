@@ -329,9 +329,16 @@ export function countsByTypeLabel(counts: Partial<Record<TaskType, number>>): st
 }
 // 정산 후보(정산 스펙 §2-4) — settlementStore.CANDIDATE_BASE와 같은 정의, 스토어 테스트가 대조한다. 취소는 게시와 상호 배제라
 // 이론상 겹치지 않지만 의도를 코드로 남긴다. 내려짐(removed_at)은 판단 참고 정보라 조건에 넣지 않는다(koo 08-27).
-export function isSettlementCandidate(t: { postedAt: string | null; cost: TaskCost | null; influencerHandle: string | null; removedAt: string | null; cancelledAt: string | null }): boolean {
-  return t.cancelledAt === null && t.postedAt !== null && t.cost !== null && t.influencerHandle !== null;
+// 다른 곳에서 정산함(061)은 이미 지급이 끝난 작업이라 후보가 아니다 — 요청을 또 보내면 이중 지급이다.
+// settledElsewhereAt은 선택 입력(없음 = 표시 없음) — TaskRow는 늘 채워서 넘긴다.
+export function isSettlementCandidate(t: { postedAt: string | null; cost: TaskCost | null; influencerHandle: string | null; removedAt: string | null; cancelledAt: string | null; settledElsewhereAt?: string | null }): boolean {
+  return t.cancelledAt === null && !t.settledElsewhereAt && t.postedAt !== null && t.cost !== null && t.influencerHandle !== null;
 }
+
+// 다른 곳에서 정산함(061) — 화면·서버 거절 문구가 같은 말을 쓰게 한 곳에 둔다.
+export const SETTLED_ELSEWHERE_LABEL = '다른 곳에서 정산함';
+export const SETTLED_ELSEWHERE_TEXT = '다른 곳에서 이미 정산한 작업이에요';
+export const SETTLED_ELSEWHERE_NOTE_MAX = 100;
 
 // ─────────────────────────── 6단계(캠페인 v2 §3-1, R21) ───────────────────────────
 // 저장하지 않고 파생. 위에서부터 먼저 맞는 것. 정산 요청 상태(그쪽 external_status)는 settlementByTaskIds 결과를 받는다.
@@ -339,8 +346,10 @@ export type FlowStage = 'prep' | 'handed' | 'posted' | 'settle' | 'done' | 'canc
 export const FLOW_STAGES: readonly FlowStage[] = ['prep', 'handed', 'posted', 'settle', 'done', 'canc'];
 export const FLOW_STAGE_LABEL: Record<FlowStage, string> = { prep: '준비', handed: '전달', posted: '게시', settle: '정산', done: '완료', canc: '취소' };
 export interface FlowSettlementInput { status: 'requested' | 'cancelled'; externalStatus: string | null }
-export function flowStage(t: TaskStageInput & { influencerHandle: string | null }, settlement: FlowSettlementInput | null): FlowStage {
+export function flowStage(t: TaskStageInput & { influencerHandle: string | null; settledElsewhereAt?: string | null }, settlement: FlowSettlementInput | null): FlowStage {
   if (t.cancelledAt) return 'canc';
+  // 다른 곳에서 정산함(061) — 앱 밖에서 지급까지 끝났다. 표시는 살아있는 요청이 없을 때만 붙으므로 요청 상태와 겹치지 않는다.
+  if (t.settledElsewhereAt) return 'done';
   // 그쪽이 취소한 요청(externalStatus 'cancelled')은 정산 목록에 없다 — 다시 게시로(§3-1). 우리가 취소한 요청(status 'cancelled')도 같다.
   if (settlement?.status === 'requested' && settlement.externalStatus !== 'cancelled') {
     return settlement.externalStatus === 'paid' ? 'done' : 'settle';

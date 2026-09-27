@@ -200,8 +200,11 @@ export function taskPerfExtra(t: FlowRow): { cpvKrw: number | null; likeRate: nu
   };
 }
 // 정산 대기 = 정산 후보인데 활성 요청이 없는 것. 우리가 취소했거나 그쪽이 취소한 요청은 후보로 돌아온다(§3-1 정산 정의).
-export const settleWaitCount = (rows: FlowRow[]) => rows.filter((t) =>
-  isSettlementCandidate(t) && (!t.settlement || t.settlement.status === 'cancelled' || t.settlement.externalStatus === 'cancelled')).length;
+// 다른 곳에서 정산함(061)은 isSettlementCandidate가 이미 뺀다. 패널의 [다른 곳에서 정산함] 입구도 이 판정을 쓴다 —
+// 대기 수에 잡히는 작업에만 입구가 보여야 라벨과 값이 맞는다(UX 원칙 4).
+export const isSettleWaiting = (t: FlowRow): boolean =>
+  isSettlementCandidate(t) && (!t.settlement || t.settlement.status === 'cancelled' || t.settlement.externalStatus === 'cancelled');
+export const settleWaitCount = (rows: FlowRow[]) => rows.filter(isSettleWaiting).length;
 
 // 인플루언서 교체 버튼 활성 조건(Task 10, ··· 메뉴·패널 [바꾸기] 공용) — 서버 가드(influencerChangeGuard의
 // REPLACE_AFTER_VISIT_MESSAGE와 같은 조건)를 화면에서 먼저 판정해 비활성 문구로 보여준다(거짓 어포던스 금지).

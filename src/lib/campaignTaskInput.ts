@@ -1,7 +1,7 @@
 // 작업 API 입력 검증 — 순수(DB 없음). 라우트 4곳(작업 생성·패치, 원고 PATCH·POST의 taskId)이 같은 규칙을 쓴다.
 import type { Parsed, TaskCost } from './campaignCost.ts';
 import { parseTaskCost } from './campaignCost.ts';
-import { isTaskType, isDateOnlyString, type TaskType } from './campaignJudgment.ts';
+import { isTaskType, isDateOnlyString, SETTLED_ELSEWHERE_NOTE_MAX, type TaskType } from './campaignJudgment.ts';
 import type { TaskPatch } from './campaignTaskStore.ts';
 import { parseTweetLink, tweetPermalink } from './tweetLink.ts';
 import { parseXHandle, handleParseMessage } from './xHandle.ts';
@@ -94,6 +94,19 @@ export type CancelReason = typeof CANCEL_REASONS[number];
 export const isCancelReason = (v: unknown): v is CancelReason => typeof v === 'string' && (CANCEL_REASONS as readonly string[]).includes(v);
 
 // 취소 요청 본문 — reason은 없어도(단순 취소) 되고, 셋 중 하나여야 한다.
+// 다른 곳에서 정산함(061) — 어디서 정산했는지 한 줄. 비워도 된다.
+export const SETTLE_ELSEWHERE_NOTE_MESSAGE = `어디서 정산했는지는 ${SETTLED_ELSEWHERE_NOTE_MAX}자 안으로 적어 주세요`;
+export const SETTLE_ELSEWHERE_NOT_POSTED_MESSAGE = '게시 확인이 된 작업만 다른 곳에서 정산함으로 표시할 수 있어요';
+export const SETTLE_ELSEWHERE_HAS_REQUEST_MESSAGE = '이 작업엔 이미 정산 요청이 있어요 — 요청을 먼저 취소해야 다른 곳에서 정산함으로 표시할 수 있어요';
+export const SETTLE_ELSEWHERE_ALREADY_MESSAGE = '이미 다른 곳에서 정산함으로 표시된 작업이에요 — 화면을 새로고침해 주세요';
+export const SETTLE_ELSEWHERE_NOT_SET_MESSAGE = '다른 곳에서 정산함 표시가 없는 작업이에요 — 화면을 새로고침해 주세요';
+export function parseSettleElsewhereBody(body: unknown): Parsed<{ note: string }> {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const note = typeof b.note === 'string' ? b.note.trim() : '';
+  if (note.length > SETTLED_ELSEWHERE_NOTE_MAX) return fail(SETTLE_ELSEWHERE_NOTE_MESSAGE);
+  return { ok: true, value: { note } };
+}
+
 export function parseCancelBody(body: unknown): Parsed<{ reason: CancelReason | null; note: string }> {
   const b = (body ?? {}) as Record<string, unknown>;
   let reason: CancelReason | null = null;

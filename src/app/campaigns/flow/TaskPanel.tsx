@@ -124,7 +124,8 @@ export function TaskPanel({
   // new 모드의 CostConfirmField가 이 파일 안에서 직접 만들어지는 이유는 위 주석 — 그래서 프로필 반영 저장만
   // 콜백으로 받는다(option.id·pricing patch·influencerOptions 재조회는 FlowDetail 쪽이 쥔 것들이라서).
   onSaveProfilePricing: (option: InfluencerOption, cost: TaskCost, type: TaskType) => Promise<boolean>;
-  slots: { cost: ReactNode; target: ReactNode; posted: ReactNode };
+  // settled — 비용 · 정산 상자 맨 아래 '다른 곳에서 정산함' 줄(061, panel/SettledElsewhereLine). 다이얼로그가 FlowDetail에 있어 slot으로 받는다
+  slots: { cost: ReactNode; target: ReactNode; posted: ReactNode; settled: ReactNode };
   // 패널 위에 뜬 다른 오버레이(편집 모달·한 번에 만들기 등)가 있는 동안은 패널의 Esc를 끈다 —
   // 안 그러면 그 레이어를 닫는 Esc 한 번에 오버레이와 패널이 같이 닫힌다(generate 관례: 겹친 레이어는 위부터 하나씩).
   overlayOpen: boolean;
@@ -221,7 +222,8 @@ export function TaskPanel({
   // 취소된 작업은 정산할 일이 없어 부르지도 보이지도 않는다(핸들 null).
   // panelHandle = 이 패널의 인플(편집=작업 행, 새 작업=입력 칸) — 결제 수단 줄과 인용 미리보기의 작성자 줄이 같이 쓴다.
   const panelHandle = task ? task.influencerHandle : (handle || null);
-  const payCancelled = !!task?.cancelledAt;
+  // 다른 곳에서 정산함(061)도 같다 — 이미 지급이 끝나 결제 수단을 고를 일이 없다(고르는 칸을 두면 거짓 어포던스)
+  const payCancelled = !!task?.cancelledAt || !!task?.settledElsewhereAt;
   // 명부 등록(rosterVersion)도 키에 넣는다 — 명부 밖이던 인플을 등록하면 '명부에 등록하면 보여요'가 실제 수단으로 바뀌어야 한다.
   // payVersion — 이 패널에서 결제 수단을 새로 등록했거나 고르기가 거절됐을 때(아래 onMethodRegistered·choosePayment) 다시 읽는다.
   const payRefresh = task
@@ -499,7 +501,7 @@ export function TaskPanel({
   // 비용 · 정산 상자 본문(설계 §8·§10) — 두 모드 공통 모양: 금액 + 결제 수단 한 줄. 인플 미정이면 '인플 선택 후'는
   // 결제 수단 줄에서 한 번만 말하고, 금액 칸은 문구 없는 비활성(disabledReason='')으로 둔다.
   // 소제목 옆 '· 이 작업에만 적용'은 고를 수 있을 때만(canChoosePayment).
-  function costBox(amount: ReactNode): ReactNode {
+  function costBox(amount: ReactNode, after?: ReactNode): ReactNode {
     return (
       <div>
         <p className="mb-1.5 text-[14px] font-semibold text-x-secondary">금액</p>
@@ -518,6 +520,7 @@ export function TaskPanel({
               : <p className="text-content text-x-muted">인플 선택 후</p>}
           </>
         )}
+        {after}
       </div>
     );
   }
@@ -587,7 +590,7 @@ export function TaskPanel({
         const cc = cancelled ? costCell(t, null) : null;
         return costBox(cc
           ? <span className={`text-content ${cc.tone === 'muted' ? 'text-x-muted' : cc.tone === 'struck' ? 'text-x-muted line-through' : ''}`}>{cc.text}</span>
-          : <>{slots.cost}</>);
+          : <>{slots.cost}</>, cancelled ? null : slots.settled);
       }
       case 'draft': {
         if (cancelled) return <span className="text-content text-x-muted">{t.cancelledDraftTitle ? `원고 있었음: ${t.cancelledDraftTitle}` : '—'}</span>;

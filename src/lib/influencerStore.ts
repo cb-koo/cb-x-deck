@@ -396,10 +396,11 @@ export async function insertAutoLog(sql: postgres.Sql, input: {
 // pricing도 함께 — 캠페인 비용 제안(스펙 §3-2 비용 셀)이 배정 직후 단가를 알아야 한다. 컬럼은 032(pricing jsonb not null default '{}').
 // 사진 URL은 작업 패널 인플 칸용(§6) — 결제 수단은 싣지 않는다(원고 생성 화면도 이 응답을 매번 받는다).
 export async function listOptions(sql: postgres.Sql): Promise<InfluencerOption[]> {
-  const rows = await sql<Array<{ id: string; handle: string; display_name: string | null; avatar_url: string | null; pricing: Pricing | null }>>`
-    select id, handle, display_name, avatar_url, pricing from influencer order by lower(handle)`;
+  const rows = await sql<Array<{ id: string; handle: string; display_name: string | null; avatar_url: string | null; x_user_id: string | null; pricing: Pricing | null }>>`
+    select id, handle, display_name, avatar_url, x_user_id, pricing from influencer order by lower(handle)`;
   return rows.map((r) => ({
-    id: r.id, handle: r.handle, name: r.display_name ?? undefined, avatarUrl: r.avatar_url ?? undefined, pricing: r.pricing ?? undefined,
+    id: r.id, handle: r.handle, name: r.display_name ?? undefined, avatarUrl: r.avatar_url ?? undefined,
+    xUserId: r.x_user_id ?? undefined, pricing: r.pricing ?? undefined,
   }));
 }
 

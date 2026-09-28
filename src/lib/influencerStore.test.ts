@@ -275,6 +275,8 @@ test('9) listOptions: 표시 이름은 있으면 name, 없으면 undefined', asy
   const b = opts.find((o) => o.handle === P + 'optB');
   assert.equal(a!.name, 'ゆい');
   assert.equal(b!.name, undefined);
+  assert.equal(a!.xUserId, '888' + process.pid);   // DM 바로가기용 X 숫자 ID(koo 09-28) — 스냅샷이 채운 값
+  assert.equal(b!.xUserId, undefined);
 
   const ours = opts.filter((o) => o.handle.toLowerCase().startsWith(P.toLowerCase()));
   const sorted = [...ours].sort((x, y) => x.handle.toLowerCase().localeCompare(y.handle.toLowerCase()));

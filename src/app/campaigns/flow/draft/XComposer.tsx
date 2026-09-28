@@ -126,7 +126,10 @@ export function XComposer({ handle, author, posts, onChange, onPickImages, disab
               {/* 쓰는 만큼 자란다(field-sizing) — 크기 조절 손잡이는 없앤다(koo 09-28). 지원 안 하는 브라우저는 rows 계산이 받친다 */}
               <textarea value={p.text} rows={Math.max(3, p.text.split('\n').length + 1)}
                         onChange={(e) => updateText(i, e.target.value)} onFocus={() => setActive(i)} disabled={disabled}
-                        className="mt-0.5 w-full resize-none bg-transparent text-[20px] leading-7 outline-none [field-sizing:content] placeholder:text-x-muted disabled:opacity-60"
+                        // 전역 :focus-visible 테두리(globals.css)는 글상자엔 마우스 클릭에도 뜬다 — 이 본문은 깜빡이는 커서가 이미
+                        // 초점을 보여주고 X 작성 화면에도 테두리가 없어 이 칸만 끈다(인라인이라 레이어 밖 전역 규칙을 이긴다).
+                        style={{ outline: 'none' }}
+                        className="mt-0.5 min-h-[84px] w-full resize-none bg-transparent text-[20px] leading-7 [field-sizing:content] placeholder:text-x-muted disabled:opacity-60"
                         placeholder="원고를 써 주세요" autoFocus={i === 0 || i === posts.length - 1 && i === activeIdx}
                         aria-label={posts.length > 1 ? `본문 ${i + 1}번째 칸` : '본문'} />
 

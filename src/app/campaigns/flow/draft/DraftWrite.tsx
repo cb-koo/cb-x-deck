@@ -5,7 +5,7 @@ import type { DraftRow } from '@/lib/draftStore';
 import type { DraftHost } from '@/lib/draftHost';
 import { createManualDraftApi, patchDraftApi } from '@/lib/campaignApi';
 import { uploadPendingDraftImage } from '@/lib/draftMedia';
-import { composerCanSave, type ComposerPost } from '@/lib/draftPickView';
+import { composerCanSave, composerOverLimit, type ComposerPost } from '@/lib/draftPickView';
 import { Button } from '@/components/ui';
 import { XComposer } from './XComposer';
 
@@ -175,7 +175,8 @@ export function DraftWrite({ host, author, clientId, onAttached, onAttachFailed,
   }
 
   const ok = composerCanSave(posts);
-  // 아직 아무것도 손대지 않은 첫 화면(칸 하나·빈 글·이미지 없음)에서는 "글자 수가 넘거나 빈 칸이 있어요"를
+  const overLimit = composerOverLimit(posts);
+  // 아직 아무것도 손대지 않은 첫 화면(칸 하나·빈 글·이미지 없음)에서는 "빈 칸이 있어요"를
   // 띄우지 않는다(리뷰 minor) — 사실이지만 가만히 있는 화면에 오류처럼 읽힌다. untouched는 이 조건(칸
   // 하나·빈 글·이미지 없음) 그 자체를 매번 다시 계산한다 — 뭔가 쳤다가도 빈 칸 하나로 완전히 되돌리면
   // untouched가 다시 참이 되어 문구가 도로 숨는다(계속 편집 중이라도 그 순간의 모양이 처음과 같으면 같은
@@ -201,12 +202,14 @@ export function DraftWrite({ host, author, clientId, onAttached, onAttachFailed,
           // XComposer 안(structureLockedReason)이 이미 같은 사실을 보여준다 — 여기서 또 말하지 않는다.
           ? null
           : uploadingTotal > 0
-            // 본문이 비었거나 글자 수가 넘었으면 업로드가 끝나도 저장할 수 없다 — 두 조건을 합쳐서 말한다(리뷰 minor).
-            ? <span className="text-ui text-x-muted">{ok ? '이미지를 올리는 중이에요 — 끝나면 저장할 수 있어요' : '이미지를 올리는 중이에요 · 글자 수가 넘거나 빈 칸이 있어요'}</span>
+            // 본문이 비었으면 업로드가 끝나도 저장할 수 없다 — 두 조건을 합쳐서 말한다(리뷰 minor).
+            ? <span className="text-ui text-x-muted">{ok ? '이미지를 올리는 중이에요 — 끝나면 저장할 수 있어요' : '이미지를 올리는 중이에요 · 빈 칸이 있어요'}</span>
             // createdDraftId 케이스는 XComposer 안(structureLockedReason)이 이미 같은 문장을 보여준다 —
             // 여기서 또 그리면 화면에 같은 문장이 두 번 겹친다(자문 리뷰). 한 곳(composerDisabledReason의
             // 출처)에서만 말한다.
-            : (!ok && !untouched) && <span className="text-ui text-x-muted">글자 수가 넘거나 빈 칸이 있어요</span>}
+            : (!ok && !untouched) ? <span className="text-ui text-x-muted">빈 칸이 있어요</span>
+            // 글자 수 초과는 막지 않는다(koo 09-28) — 저장은 되지만 X에 그대로는 못 올린다는 사실만 알린다.
+            : overLimit && !createdDraftId && !saveResultUnknown && <span className="text-ui text-amber-700">글자 수가 넘었어요 — 저장은 되지만 X에 올리기 전에 줄여야 해요</span>}
         <Button variant="primary" disabled={composing || attached || saveResultUnknown || !ok} onClick={() => void save()} className="h-10 shrink-0 px-5 text-content font-bold">
           {attached ? (host.kind === 'form' ? '골랐어요' : '붙였어요')
             : saveResultUnknown ? '확인 못 했어요' : busy ? '저장 중…' : createdDraftId ? '붙이기 다시 시도'

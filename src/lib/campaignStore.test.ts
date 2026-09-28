@@ -232,6 +232,13 @@ test('12) spendByPeriods — 시작일이 속한 기간으로 묶고 totalsFor�
   await sql`update campaign_task set posted_at = '2026-08-05' where id = ${t300.id}`;
   await sql`update campaign_task set posted_at = null where id = ${cancTask.id}`;
   assert.deepEqual((await spendByPeriods(sql, c.id, periods)).get(aug.id)!.spent, { KRW: 300_000 });
+  // 캠페인별 몫(koo 09-28 펼치기) — 이름·작업 수·집행, 캠페인 줄의 합 = 기간 합
+  const augCamps = (await spendByPeriods(sql, c.id, periods)).get(aug.id)!.campaigns!;
+  const m1 = augCamps.find((x) => x.id === aug1.id)!;
+  assert.equal(m1.name, base(c.id, c.name, 'm1').name);
+  assert.deepEqual([m1.planned, m1.posted, m1.cancelled], [2, 1, 1]);   // 300,000(게시)·777,777 = 계획 2, 취소 1
+  assert.deepEqual(m1.spent, { KRW: 300_000 });
+  assert.equal(augCamps.length, 2);
 
   // 다른 클라이언트의 캠페인은 섞이지 않는다
   const other = await createClient(sql, P + '남의클라');

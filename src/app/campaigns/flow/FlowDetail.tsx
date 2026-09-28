@@ -852,6 +852,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const draftWrite: ReactNode = panelTask
     ? (
       <DraftWrite host={{ kind: 'task', taskId: panelTask.id, draftId: panelTask.draftId, influencerHandle: panelTask.influencerHandle }}
+                  author={optionFor(panelTask.influencerHandle)}
                   clientId={clientId}
                   onAttached={onDraftAttached} onAttachFailed={onAttachFailed} onSavedUnattached={() => void reloadCandidates()}
                   onBusyChange={setDraftWriteBusy} onDirtyChange={setDraftWriteOnlyDirty} />
@@ -862,6 +863,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
       // 실패했을 때만 쓰는 신호라 폼에서는 안 불린다. 대신 onChosen이 '이미 저장된 원고'를 알리는 유일한
       // 신호라, 여기서 reloadCandidates까지 겸한다(안 그러면 저장한 원고가 '있는 원고 고르기'에 안 뜬다).
       <DraftWrite host={formHost}
+                  author={optionFor(formHost.influencerHandle)}
                   clientId={clientId}
                   onAttached={onDraftAttached} onAttachFailed={onAttachFailed} onSavedUnattached={() => void reloadCandidates()}
                   onBusyChange={setDraftWriteBusy} onDirtyChange={setDraftWriteOnlyDirty}

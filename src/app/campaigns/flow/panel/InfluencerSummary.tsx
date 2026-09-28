@@ -2,6 +2,7 @@
 import type { ReactNode } from 'react';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { Avatar } from '@/components/Avatar';
+import { BlueCheckIcon } from '@/components/XIcons';
 import { xDmTarget, openXDmWindow } from '@/lib/xDm';
 
 // 배정된 인플 한 줄(설계 §6) — 사진 36px + 표시 이름 / @핸들. 이름이 없으면 @핸들 한 줄. 명부 밖이면 option이 없어 이니셜 원.
@@ -15,9 +16,11 @@ export function InfluencerSummary({ handle, option, muted = false, actions, note
     <div className={`flex min-w-0 items-center gap-3 ${muted ? 'opacity-60' : ''}`}>
       <Avatar url={option?.avatarUrl} name={name || handle} size={36} />
       <div className="min-w-0">
-        {name
-          ? <><p className="truncate text-content font-semibold">{name}</p><p className="truncate text-ui text-x-secondary">@{handle}</p></>
-          : <p className="truncate text-content font-semibold">@{handle}</p>}
+        <p className="flex min-w-0 items-center gap-1 text-content font-semibold">
+          <span className="truncate">{name || `@${handle}`}</span>
+          {option?.blueVerified && <BlueCheckIcon className="h-4 w-4" />}
+        </p>
+        {name && <p className="truncate text-ui text-x-secondary">@{handle}</p>}
         {note && <p className="text-ui text-amber-700">{note}</p>}
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-3">

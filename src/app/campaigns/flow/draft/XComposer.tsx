@@ -5,7 +5,7 @@ import { selectDraftImages, MAX_MEDIA_PER_POST } from '@/lib/draftMedia';
 import type { ComposerPost } from '@/lib/draftPickView';
 import { useSignedMedia } from '@/components/useSignedMedia';
 import { MediaGrid } from '@/components/MediaGrid';
-import { MediaIcon } from '@/components/XIcons';
+import { MediaIcon, BlueCheckIcon } from '@/components/XIcons';
 import { Avatar } from '@/components/Avatar';
 
 // 직접 쓰기(§5-2) — X 작성 화면의 모양을 가져온 컴포저. DraftWriteModal(기존 두 번째 입구)과 갈리는
@@ -17,7 +17,7 @@ import { Avatar } from '@/components/Avatar';
 export function XComposer({ handle, author, posts, onChange, onPickImages, disabledReason }: {
   handle: string | null;
   // 명부의 표시 이름·프로필 사진(koo 09-28) — 패널 인플루언서 칸과 같은 데이터(FlowDetail.optionFor). 없으면 첫 글자.
-  author?: { name?: string; avatarUrl?: string };
+  author?: { name?: string; avatarUrl?: string; blueVerified?: boolean };
   posts: ComposerPost[];
   onChange: (next: ComposerPost[]) => void;
   onPickImages: (postIndex: number, files: File[]) => void;
@@ -109,7 +109,9 @@ export function XComposer({ handle, author, posts, onChange, onPickImages, disab
               <div className="flex items-baseline gap-1.5">
                 <p className="min-w-0 truncate text-content">
                   {handle
-                    ? (name ? <><b className="font-bold">{name}</b> <span className="text-x-secondary">@{handle}</span></> : <b className="font-bold">@{handle}</b>)
+                    ? <>{name ? <b className="font-bold">{name}</b> : <b className="font-bold">@{handle}</b>}
+                        {author?.blueVerified && <> <BlueCheckIcon className="inline h-4 w-4 align-[-3px]" /></>}
+                        {name && <> <span className="text-x-secondary">@{handle}</span></>}</>
                     : <span className="text-x-muted">인플루언서 미정</span>}
                 </p>
                 {posts.length > 1 && <span className="shrink-0 text-ui font-semibold tabular-nums text-x-muted">{i + 1}/{posts.length}</span>}

@@ -73,6 +73,7 @@ export interface InfluencerRow {
   id: string; handle: string; xUserId: string | null;
   displayName: string | null; avatarUrl: string | null; bio: string | null;
   followersCount: number | null; profileRefreshedAt: string | null;
+  blueVerified: boolean | null;  // X 블루마크 스냅샷(062) — null = 미조회(칸이 생기기 전 조회 포함)
   tags: string[]; note: string; createdAt: string;
   lastLogAt: string | null;  // 파생: 로그 최신행(all kind) — 라벨은 "마지막 기록" (스펙 §2)
   draftCount: number;        // 파생: lower(handle) 조인 count
@@ -109,6 +110,7 @@ type IRow = {
   id: string; handle: string; x_user_id: string | null;
   display_name: string | null; avatar_url: string | null; bio: string | null;
   followers_count: number | null; profile_refreshed_at: Date | null;
+  is_blue_verified: boolean | null;
   tags: string[]; note: string; created_at: Date;
   last_log_at: Date | null; draft_count: string | number;
   last_contact_at: Date | null;
@@ -134,6 +136,7 @@ const toRow = (r: IRow): InfluencerRow => ({
   displayName: r.display_name, avatarUrl: r.avatar_url, bio: r.bio,
   followersCount: r.followers_count,
   profileRefreshedAt: r.profile_refreshed_at ? new Date(r.profile_refreshed_at).toISOString() : null,
+  blueVerified: r.is_blue_verified,
   tags: r.tags, note: r.note, createdAt: new Date(r.created_at).toISOString(),
   lastLogAt: r.last_log_at ? new Date(r.last_log_at).toISOString() : null,
   draftCount: Number(r.draft_count), // count(*)는 bigint → postgres.js가 문자열로 준다
@@ -157,7 +160,7 @@ const toLog = (r: LRow): InfluencerLogRow => ({
 // last_contact_at은 kind='manual'만 — auto 이벤트는 "연락"이 아니다(라벨-값 일치, 스펙 §①).
 const SELECT = (sql: postgres.Sql) => sql`
   select i.id, i.handle, i.x_user_id, i.display_name, i.avatar_url, i.bio, i.followers_count,
-         i.profile_refreshed_at, i.tags, i.note, i.created_at,
+         i.profile_refreshed_at, i.is_blue_verified, i.tags, i.note, i.created_at,
          (select max(l.created_at) from influencer_log l where l.influencer_id = i.id) as last_log_at,
          (select count(*) from draft d where lower(d.influencer_handle) = lower(i.handle)) as draft_count,
          (select max(l2.created_at) from influencer_log l2
@@ -186,10 +189,10 @@ export async function createInfluencer(
   const s = input.snapshot ?? null;
   const rows = await sql<Array<{ id: string }>>`
     insert into influencer (handle, created_by, x_user_id, display_name, avatar_url, bio, followers_count,
-                            profile_refreshed_at)
+                            is_blue_verified, profile_refreshed_at)
     values (${input.handle}, ${input.createdBy}, ${s?.id ?? null}, ${s?.name ?? null},
             ${s?.profilePicture ?? null}, ${s?.description ?? null}, ${s?.followers ?? null},
-            ${s ? sql`now()` : null})
+            ${s?.isBlueVerified ?? null}, ${s ? sql`now()` : null})
     returning id`;
   const row = await findInfluencerById(sql, rows[0].id);
   return { row: row as InfluencerRow, created: true };
@@ -292,6 +295,7 @@ export async function applyProfileSnapshot(sql: postgres.Sql, id: string, info: 
       avatar_url = ${info.profilePicture},
       bio = ${info.description},
       followers_count = ${info.followers},
+      is_blue_verified = ${info.isBlueVerified ?? null},
       profile_refreshed_at = now()
     where id = ${id}`;
 }
@@ -396,11 +400,12 @@ export async function insertAutoLog(sql: postgres.Sql, input: {
 // pricing도 함께 — 캠페인 비용 제안(스펙 §3-2 비용 셀)이 배정 직후 단가를 알아야 한다. 컬럼은 032(pricing jsonb not null default '{}').
 // 사진 URL은 작업 패널 인플 칸용(§6) — 결제 수단은 싣지 않는다(원고 생성 화면도 이 응답을 매번 받는다).
 export async function listOptions(sql: postgres.Sql): Promise<InfluencerOption[]> {
-  const rows = await sql<Array<{ id: string; handle: string; display_name: string | null; avatar_url: string | null; x_user_id: string | null; pricing: Pricing | null }>>`
-    select id, handle, display_name, avatar_url, x_user_id, pricing from influencer order by lower(handle)`;
+  const rows = await sql<Array<{ id: string; handle: string; display_name: string | null; avatar_url: string | null; x_user_id: string | null; pricing: Pricing | null; is_blue_verified: boolean | null }>>`
+    select id, handle, display_name, avatar_url, x_user_id, pricing, is_blue_verified from influencer order by lower(handle)`;
   return rows.map((r) => ({
     id: r.id, handle: r.handle, name: r.display_name ?? undefined, avatarUrl: r.avatar_url ?? undefined,
     xUserId: r.x_user_id ?? undefined, pricing: r.pricing ?? undefined,
+    blueVerified: r.is_blue_verified ?? undefined,
   }));
 }
 

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { formatKoCount } from '@/lib/formatKo';
+import { BlueCheckIcon } from '@/components/XIcons';
 import { relTime } from '@/lib/relTime';
 import { isProfileStale, judgeContact, summarizeDraftStatuses } from '@/lib/influencerJudgment';
 import type { TabKey } from '@/lib/profileTabs';
@@ -132,7 +133,10 @@ export function InfluencerProfile({ id, onChanged, onDeleted, tab, onTabChange }
         <div className="flex items-start gap-3">
           <Avatar url={inf.avatarUrl} name={inf.displayName ?? inf.handle} size={48} />
           <div className="min-w-0 flex-1">
-            <h1 className="min-w-0 truncate text-[20px] font-bold">{inf.displayName ?? `@${inf.handle}`}</h1>
+            <h1 className="flex min-w-0 items-center gap-1 text-[20px] font-bold">
+              <span className="min-w-0 truncate">{inf.displayName ?? `@${inf.handle}`}</span>
+              {inf.blueVerified && <BlueCheckIcon className="h-5 w-5" />}
+            </h1>
             <p className="flex flex-wrap items-baseline gap-x-2 text-ui text-x-secondary">
               <a href={`https://x.com/${inf.handle}`} target="_blank" rel="noopener noreferrer"
                  className="text-x-blue-text hover:underline">@{inf.handle} ↗</a>
@@ -143,6 +147,10 @@ export function InfluencerProfile({ id, onChanged, onDeleted, tab, onTabChange }
               {/* 갱신 넛지(스펙 §④) — 경고색을 쓰지 않는다. 비용 유발 액션(X 1회 조회)을 재촉하는 것처럼
                   읽히면 안 되고, 지금 보이는 값이 언제 것인지만 알려주면 된다. */}
               {stale && <span className="text-caption text-x-secondary">오래된 정보예요 — 갱신 권장</span>}
+              {/* 블루마크 칸(062)은 이 기능 전에 조회한 계정엔 비어 있다 — '없음'으로 읽히지 않게 모른다고 말한다 */}
+              {inf.profileRefreshedAt && inf.blueVerified === null && (
+                <span className="text-caption text-x-muted">블루마크 여부는 프로필을 갱신하면 보여요</span>
+              )}
             </p>
             {inf.bio && <p className="mt-1 whitespace-pre-wrap text-ui leading-relaxed text-x-secondary">{inf.bio}</p>}
           </div>

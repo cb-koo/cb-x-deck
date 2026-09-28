@@ -15,12 +15,13 @@ import { XComposer } from './XComposer';
 // 아직 원고가 없으므로 draftId가 필요한 uploadDraftImage 대신 쓴다), 저장 버튼은 본문과 이미 올라간
 // 이미지를 함께 실어 원고 생성 + 작업 붙이기를 한 번에 끝낸다(DraftGenerate처럼 "만들고 → 고르고 →
 // 붙이고" 세 단계가 아니다 — 여기엔 고를 시안이 없다).
-export function DraftWrite({ host, clientId, onAttached, onAttachFailed, onSavedUnattached, onBusyChange, onDirtyChange, onChosen }: {
+export function DraftWrite({ host, author, clientId, onAttached, onAttachFailed, onSavedUnattached, onBusyChange, onDirtyChange, onChosen }: {
   // 이 원고 모드가 저장된 작업 밑에서 열렸는지(저장 뒤 그 작업에 붙인다), 아직 안 만든 새 작업 폼 밑에서
   // 열렸는지(붙일 작업이 없으므로 저장까지만 하고 onChosen으로 고른 사실을 올린다) — draftHost.ts 참고.
   // 이 컴포넌트가 쓰는 필드는 host.kind === 'task'일 때의 taskId·influencerHandle 둘뿐이다(확인됨).
   // influencerHandle은 host.kind === 'form'일 때도 온다(컴포저의 아바타·핸들 표시에 그대로 쓴다).
   host: DraftHost;
+  author?: { name?: string; avatarUrl?: string };   // 컴포저 머리줄의 이름·사진(명부) — XComposer로 그대로
   clientId: string | null;
   // 붙이기 성공 뒤 부모(FlowDetail)가 상세를 다시 읽는다 — DraftGenerate의 onAttached와 똑같은 계약
   // (재조회 성공 여부를 돌려준다). 재조회가 실패하면 여기서도 잠금을 풀고 새로고침을 안내한다.
@@ -192,24 +193,25 @@ export function DraftWrite({ host, clientId, onAttached, onAttachFailed, onSaved
 
   return (
     <div>
-      <XComposer handle={host.influencerHandle} posts={posts} onChange={setPosts}
+      <XComposer handle={host.influencerHandle} author={author} posts={posts} onChange={setPosts}
                  onPickImages={onPickImages} disabledReason={composerDisabledReason} />
-      <div className="mt-3 flex items-center gap-2">
-        <Button variant="primary" disabled={composing || attached || saveResultUnknown || !ok} onClick={() => void save()} className="h-10 px-4 text-content">
-          {attached ? (host.kind === 'form' ? '골랐어요' : '붙였어요')
-            : saveResultUnknown ? '확인 못 했어요' : busy ? '저장 중…' : createdDraftId ? '붙이기 다시 시도'
-            : (host.kind === 'form' ? '저장하고 쓰기' : '저장하고 붙이기')}
-        </Button>
+      {/* 저장은 X의 [게시하기] 자리(오른쪽 아래) — 막힌 이유는 버튼 왼쪽 한 줄(koo 09-28) */}
+      <div className="mt-2 flex items-center justify-end gap-3">
         {attached
           // XComposer 안(structureLockedReason)이 이미 같은 사실을 보여준다 — 여기서 또 말하지 않는다.
           ? null
           : uploadingTotal > 0
             // 본문이 비었거나 글자 수가 넘었으면 업로드가 끝나도 저장할 수 없다 — 두 조건을 합쳐서 말한다(리뷰 minor).
-            ? <span className="text-caption text-x-muted">{ok ? '이미지를 올리는 중이에요 — 끝나면 저장할 수 있어요' : '이미지를 올리는 중이에요 · 글자 수가 넘거나 빈 칸이 있어요'}</span>
+            ? <span className="text-ui text-x-muted">{ok ? '이미지를 올리는 중이에요 — 끝나면 저장할 수 있어요' : '이미지를 올리는 중이에요 · 글자 수가 넘거나 빈 칸이 있어요'}</span>
             // createdDraftId 케이스는 XComposer 안(structureLockedReason)이 이미 같은 문장을 보여준다 —
             // 여기서 또 그리면 화면에 같은 문장이 두 번 겹친다(자문 리뷰). 한 곳(composerDisabledReason의
             // 출처)에서만 말한다.
-            : (!ok && !untouched) && <span className="text-caption text-x-muted">글자 수가 넘거나 빈 칸이 있어요</span>}
+            : (!ok && !untouched) && <span className="text-ui text-x-muted">글자 수가 넘거나 빈 칸이 있어요</span>}
+        <Button variant="primary" disabled={composing || attached || saveResultUnknown || !ok} onClick={() => void save()} className="h-10 shrink-0 px-5 text-content font-bold">
+          {attached ? (host.kind === 'form' ? '골랐어요' : '붙였어요')
+            : saveResultUnknown ? '확인 못 했어요' : busy ? '저장 중…' : createdDraftId ? '붙이기 다시 시도'
+            : (host.kind === 'form' ? '저장하고 쓰기' : '저장하고 붙이기')}
+        </Button>
       </div>
     </div>
   );

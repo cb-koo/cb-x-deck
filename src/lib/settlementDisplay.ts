@@ -9,8 +9,9 @@ export type DisplayTone = 'blue' | 'warn' | 'done' | 'gray';
 export interface StatusSource {
   status: SettlementBadgeStatus; externalStatus: ExternalStatus | null; externalNote: string | null; externalUpdatedAt: string | null;
   createdAt: string; cancelledAt: string | null;
-  // 차액 판정 입력 — 그쪽 실지급액을 우리가 실제로 보낸 금액과 비교한다
+  // 차액 판정 입력 — 그쪽 실지급액을 우리가 실제로 보낸 금액과 '보낸 통화'로 비교한다(payoutDiff)
   paidAmountKrw: number | null; grossKrw: number; diffAckAt: string | null;
+  payoutCurrency: 'KRW' | 'JPY'; amountGross: number; paidAmountJpy: number | null;
   // 제자리 수정(2026-09-07): 고친 횟수·마지막 고친 시각. 캠페인 표 배지 소스엔 없을 수 있어 선택
   revision?: number; revisedAt?: string | null;
 }
@@ -26,18 +27,29 @@ export const TONE_CLASS: Record<DisplayTone, string> = {
 const NOTE_PREVIEW = 20;
 const preview = (note: string | null) => (note ? (note.length > NOTE_PREVIEW ? `${note.slice(0, NOTE_PREVIEW)}…` : note) : null);
 
-// 차액 = 그쪽 실지급액 − 우리가 실제로 보낸 금액. 아직 지급 전이면 null.
-export function paidDiff(s: Pick<StatusSource, 'paidAmountKrw' | 'grossKrw'>): number | null {
-  return s.paidAmountKrw === null ? null : s.paidAmountKrw - s.grossKrw;
+// 차액 = 그쪽 실지급액 − 우리가 실제로 보낸 금액, **보낸 통화로**(koo 09-28). 원화끼리 비교하면 요청 때의 고정 환율
+// (1엔 = JPY_TO_KRW원)과 정산 쪽 실제 환율 차이가 전부 차액으로 잡혀 거의 모든 엔화 건이 경고였다(09-28 23건 전부 환율 차이).
+//  · 원화로 보낸 건: 원화끼리(실지급 원화 − 송금액 원화)
+//  · 엔화로 보낸 건: 그쪽이 엔화 실지급을 알려 줬을 때만 엔화끼리. 달러(PayPal)로 보냈거나 엔화 값이 없으면 비교하지 않는다(null) —
+//    원화 차이는 환율 차이라 참고 정보(fxDiffKrw)로만 보인다. PayPal 오지급이 실제로 생기면 그쪽에 엔화 기준값도 보내 달라고 한다.
+// 아직 지급 전이면 null.
+export interface PayoutDiff { amount: number; currency: 'KRW' | 'JPY' }
+export function payoutDiff(s: Pick<StatusSource, 'paidAmountKrw' | 'grossKrw' | 'payoutCurrency' | 'amountGross' | 'paidAmountJpy'>): PayoutDiff | null {
+  if (s.payoutCurrency === 'KRW') return s.paidAmountKrw === null ? null : { amount: s.paidAmountKrw - s.grossKrw, currency: 'KRW' };
+  return s.paidAmountJpy === null ? null : { amount: s.paidAmountJpy - s.amountGross, currency: 'JPY' };
+}
+// 환율 차이(원화) — 엔화로 보낸 건의 '실지급 원화 − 요청 원화'. 경고가 아니라 참고(회색). 원화 지급이면 null(환율이 없다).
+export function fxDiffKrw(s: Pick<StatusSource, 'paidAmountKrw' | 'grossKrw' | 'payoutCurrency'>): number | null {
+  return s.payoutCurrency === 'JPY' && s.paidAmountKrw !== null ? s.paidAmountKrw - s.grossKrw : null;
 }
 
-// 차액이 있는 지급인가 — 지급 완료 + 실지급액 있음 + 차액 ≠ 0. 취소된 요청은 대상이 아니다.
+// 차액이 있는 지급인가 — 지급 완료 + 보낸 통화로 비교 가능 + 차액 ≠ 0. 취소된 요청은 대상이 아니다.
 // 화면 배지(needsDiffAck)와 서버의 확인 가드(settlementStore.ackDiff)가 이 한 함수를 쓴다 — 판정이 두 곳에
 // 따로 있으면 한쪽만 바뀌어 어긋난다(09-02 순액·송금액 결함과 같은 종류). 기준(예: 1원 이내 무시)을 바꿀 자리도 여기 하나.
-export function hasPaidDiff(s: Pick<StatusSource, 'status' | 'externalStatus' | 'paidAmountKrw' | 'grossKrw'>): boolean {
+export function hasPaidDiff(s: Pick<StatusSource, 'status' | 'externalStatus' | 'paidAmountKrw' | 'grossKrw' | 'payoutCurrency' | 'amountGross' | 'paidAmountJpy'>): boolean {
   if (s.status === 'cancelled' || s.externalStatus !== 'paid') return false;
-  const d = paidDiff(s);
-  return d !== null && d !== 0;
+  const d = payoutDiff(s);
+  return d !== null && d.amount !== 0;
 }
 
 // 담당자 확인이 필요한가 — 차액 있음 + 아직 확인 안 함.
@@ -83,10 +95,10 @@ export function displayStatus(s: StatusSource, where: 'list' | 'campaign'): Stat
     }
     case 'paid': return { key, tone: 'done', label: `지급 완료 ${extDay}`, title: '지급이 끝났어요' };
     case 'paid_diff': {
-      const d = paidDiff(s) ?? 0;
-      const 적게많게 = d < 0 ? '적게' : '많게';
+      const d = payoutDiff(s);
+      const 적게많게 = (d?.amount ?? 0) < 0 ? '적게' : '많게';
       return { key, tone: 'warn', label: campaign ? '정산 차액 확인 필요' : '지급 완료 · 차액 확인 필요',
-               title: `요청한 송금액보다 ${Math.abs(d).toLocaleString('ko-KR')}원 ${적게많게} 지급됐어요 — 확인해 주세요` };
+               title: `요청한 송금액보다 ${d ? formatMoney(Math.abs(d.amount), d.currency) : ''} ${적게많게} 지급됐어요 — 확인해 주세요` };
     }
     case 'cancelled': return { key, tone: 'gray', label: campaign ? '취소됨' : `취소됨 ${kstMonthDay(s.cancelledAt)}`, title: '요청이 취소됐어요' };
   }

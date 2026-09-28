@@ -8,6 +8,7 @@ import { RequestRow } from './RequestRow';
 import { CancelDialog } from './CancelDialog';
 import { ReviseDialog } from './ReviseDialog';
 import { uniqPairs } from './uniqPairs';
+import { HEAD, GROUP, groupByCampaign } from './tableStyle';
 import { STATUS_GROUP_OPTIONS, inGroup, keyOf, needsDiffAck, type StatusGroup } from '@/lib/settlementDisplay';
 import { kstDate } from '@/lib/datetime';
 
@@ -112,12 +113,31 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
           {rows.length === 0 ? '아직 만든 요청이 없어요 — 검토 대기에서 골라 만들어요' : '조건에 맞는 요청이 없어요'}
         </p>
       ) : (
-        <ul className="mt-3 divide-y divide-x-border rounded-xl border border-x-border bg-white">
-          {filtered.map((r) => (
-            <RequestRow key={r.id} r={r} open={open === r.id} proofSignedUrl={r.proof ? proofUrls[r.proof.url] ?? null : null} revisionEnabled={revisionEnabled}
-                        onToggle={() => setOpen(open === r.id ? null : r.id)} onCancel={() => setCancelling(r)} onRevise={() => setRevising(r)} onChanged={() => void load()} />
-          ))}
-        </ul>
+        // 표 — 캠페인별로 묶고 클라이언트·캠페인 이름은 묶음 머리에 한 번만(koo 09-28 '한눈에'). 칸마다 값 하나.
+        <div className="mt-3 overflow-x-auto rounded-xl border border-x-border bg-white">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr>
+                <th className={HEAD}>인플루언서</th><th className={HEAD}>유형</th>
+                <th className={`${HEAD} text-right`}>요청액</th><th className={`${HEAD} text-right`}>송금액</th>
+                <th className={`${HEAD} border-l text-right`}>실지급</th><th className={`${HEAD} text-right`}>차액</th>
+                <th className={HEAD}>결제 수단</th><th className={HEAD}>마감</th><th className={HEAD}>상태</th><th className={HEAD} aria-label="펼치기" />
+              </tr>
+            </thead>
+            {groupByCampaign(filtered).map((g) => (
+              <tbody key={g.key}>
+                <tr><td colSpan={10} className={GROUP}>
+                  <b className="font-semibold text-x-text">{g.campaignName}</b>
+                  <span className="text-x-muted"> · {g.clientName} · {g.rows.length}건</span>
+                </td></tr>
+                {g.rows.map((r) => (
+                  <RequestRow key={r.id} r={r} open={open === r.id} proofSignedUrl={r.proof ? proofUrls[r.proof.url] ?? null : null} revisionEnabled={revisionEnabled}
+                              onToggle={() => setOpen(open === r.id ? null : r.id)} onCancel={() => setCancelling(r)} onRevise={() => setRevising(r)} onChanged={() => void load()} />
+                ))}
+              </tbody>
+            ))}
+          </table>
+        </div>
       )}
       {cancelling && <CancelDialog target={cancelling} onConfirm={doCancel} onClose={() => setCancelling(null)} />}
       {revising && <ReviseDialog target={revising} onClose={() => setRevising(null)}

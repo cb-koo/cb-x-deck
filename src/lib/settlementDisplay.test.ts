@@ -1,10 +1,10 @@
 // src/lib/settlementDisplay.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { displayStatus, inGroup, paidText, paidDiff, needsDiffAck, hasPaidDiff, usdText, type StatusSource } from './settlementDisplay.ts';
+import { displayStatus, inGroup, paidText, payoutDiff, fxDiffKrw, needsDiffAck, hasPaidDiff, usdText, type StatusSource } from './settlementDisplay.ts';
 
 const base: StatusSource = { status: 'requested', externalStatus: null, externalNote: null, externalUpdatedAt: null, createdAt: '2026-08-28T03:00:00Z', cancelledAt: null,
-  paidAmountKrw: null, grossKrw: 31650, diffAckAt: null };
+  paidAmountKrw: null, grossKrw: 31650, diffAckAt: null, payoutCurrency: 'KRW', amountGross: 31650, paidAmountJpy: null };   // 기존 테스트는 원화 지급 기준
 const ext = (externalStatus: StatusSource['externalStatus'], note: string | null = null): StatusSource => ({ ...base, externalStatus, externalNote: note, externalUpdatedAt: '2026-08-29T03:00:00Z' });
 
 test('displayStatus — 우리·그쪽 조합 → 라벨 하나(요청 내역)', () => {
@@ -75,9 +75,10 @@ test('차액 확인 — 지급 완료 필터에 차액 건도 포함된다', () 
   assert.ok(inGroup('paid_diff', ''));
 });
 
-test('paidDiff / needsDiffAck', () => {
-  assert.equal(paidDiff({ paidAmountKrw: null, grossKrw: 31650 }), null);
-  assert.equal(paidDiff({ paidAmountKrw: 30000, grossKrw: 31650 }), -1650);
+test('payoutDiff / needsDiffAck — 원화 지급은 원화끼리', () => {
+  const krw = { payoutCurrency: 'KRW' as const, amountGross: 31650, paidAmountJpy: null };
+  assert.equal(payoutDiff({ ...krw, paidAmountKrw: null, grossKrw: 31650 }), null);
+  assert.deepEqual(payoutDiff({ ...krw, paidAmountKrw: 30000, grossKrw: 31650 }), { amount: -1650, currency: 'KRW' });
   assert.equal(needsDiffAck(paidWith(30000)), true);
   assert.equal(needsDiffAck(paidWith(31650)), false);
   assert.equal(needsDiffAck(ext('scheduled')), false);
@@ -108,4 +109,25 @@ test('usdText — PayPal 달러 실지급액 표기(소수 둘째 자리, 천 �
   assert.equal(usdText(18.62), '$18.62');
   assert.equal(usdText(1234.5), '$1,234.50');
   assert.equal(usdText(20), '$20.00');
+});
+
+test('엔화로 보낸 건은 엔화끼리 — 원화 차이는 환율 차이(참고)라 경고가 아니다(koo 09-28)', () => {
+  // 운영 실례: 5,000엔 요청(원화 50,000 = 1엔 10원), 그쪽 엔화 5,000·원화 42,993(실제 환율 8.6)
+  const jpy: StatusSource = { ...ext('paid'), payoutCurrency: 'JPY', amountGross: 5000, grossKrw: 50000, paidAmountKrw: 42993, paidAmountJpy: 5000 };
+  assert.deepEqual(payoutDiff(jpy), { amount: 0, currency: 'JPY' });
+  assert.equal(hasPaidDiff(jpy), false);
+  assert.equal(displayStatus(jpy, 'list').key, 'paid');
+  assert.equal(fxDiffKrw(jpy), -7007);
+  // 엔화가 실제로 덜 나갔으면 그때만 차액 — 엔화로 말한다
+  const short: StatusSource = { ...jpy, paidAmountJpy: 4500 };
+  assert.deepEqual(payoutDiff(short), { amount: -500, currency: 'JPY' });
+  assert.equal(needsDiffAck(short), true);
+  assert.match(displayStatus(short, 'list').title, /500엔 적게/);
+  // PayPal(달러로 지급 — 엔화 실지급 없음): 비교하지 않는다, 원화 차이는 참고만
+  const usd: StatusSource = { ...jpy, paidAmountJpy: null, paidAmountKrw: 43600 };
+  assert.equal(payoutDiff(usd), null);
+  assert.equal(hasPaidDiff(usd), false);
+  assert.equal(fxDiffKrw(usd), -6400);
+  // 원화 지급엔 환율 차이가 없다
+  assert.equal(fxDiffKrw({ payoutCurrency: 'KRW', paidAmountKrw: 30000, grossKrw: 31650 }), null);
 });

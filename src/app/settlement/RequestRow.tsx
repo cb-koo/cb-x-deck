@@ -6,7 +6,9 @@ import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPE_LABEL } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
 import { describeSnapshot } from '@/lib/settlementCalc';
-import { displayStatus, TONE_CLASS, paidText } from '@/lib/settlementDisplay';
+import { displayStatus, TONE_CLASS, payoutDiff, fxDiffKrw } from '@/lib/settlementDisplay';
+import { formatDateKo } from '@/lib/campaignJudgment';
+import { CELL, NUM, TYPE_CHIP, METHOD_CHIP, signedMoney } from './tableStyle';
 import { proofUploadedLine } from '@/lib/taskProofGuard';
 import { signPaymentQrUrl } from '@/lib/paymentQr';
 import { ImageLightbox } from '@/components/ImageLightbox';
@@ -19,22 +21,37 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
   const paid = r.externalStatus === 'paid';
   const st = displayStatus(r, 'list');
   const costAmount = r.costCurrency === 'KRW' ? r.amountKrw : Math.round(r.amountKrw / r.rateKrwPerJpy);
-  const base = r.costCurrency === r.payoutCurrency ? formatMoney(r.amountNet, r.payoutCurrency) : `${formatMoney(costAmount, r.costCurrency)} → ${formatMoney(r.amountNet, r.payoutCurrency)}`;
+  // 표 한 줄 = 요청 하나, 칸마다 값 하나(koo 09-28) — 숫자 칸은 오른쪽 정렬·숫자 하나. 수수료는 송금액에 합치고 내역은 title로.
+  const sendTitle = r.feeAmount > 0 ? `순액 ${formatMoney(r.amountNet, r.payoutCurrency)} + 송금 수수료 ${formatMoney(r.feeAmount, r.payoutCurrency)}` : undefined;
+  const hasPaid = paid && r.paidAmountKrw !== null;
+  const diff = hasPaid ? payoutDiff(r) : null;          // 보낸 통화로 본 진짜 차액(주황)
+  const fx = hasPaid ? fxDiffKrw(r) : null;             // 엔화 건의 원화 차이 = 환율(회색 참고)
+  const rateText = hasPaid && r.payoutCurrency === 'JPY' ? `실제 ${(r.paidAmountKrw! / r.amountGross).toFixed(2)}원/엔 · 요청은 1엔 = ${r.rateKrwPerJpy}원` : undefined;
+  const foreignPaid = r.paidAmountJpy !== null ? `엔화 ${formatMoney(r.paidAmountJpy, 'JPY')}로 송금됨` : r.paidAmountUsd !== null ? `달러 $${r.paidAmountUsd}로 송금됨` : undefined;
   return (
-    <li className="px-4 py-3" style={{ minHeight: 76 }}>
-      <button type="button" onClick={onToggle} aria-expanded={open} className="block w-full text-left text-[15px]">
-        <div className="flex items-center gap-3">
-          <span className="font-semibold">@{r.influencerHandle}</span>
-          <span className="rounded-full border border-x-border px-2 py-0.5 text-ui">{TASK_TYPE_LABEL[r.taskType]}</span>
-          <span className="text-x-secondary truncate">{r.clientName} · {r.campaignName}</span>
-          <span className="ml-auto tabular-nums font-medium whitespace-nowrap">{base}{r.feeAmount > 0 && <span className="ml-1 text-x-muted font-normal">+ {r.feeAmount.toLocaleString('ko-KR')}</span>}</span>
-          <span className="text-ui text-x-secondary whitespace-nowrap">{PAYMENT_TYPE_LABEL[r.paymentMethod.type]}</span>
-          <span className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${TONE_CLASS[st.tone]}`} title={st.title}>{st.label}</span>
-        </div>
-        <div className="mt-1 pl-0 text-ui text-x-muted">마감 {r.deadlineOn} · 요청자 {r.requesterName}{paid && r.paidAmountKrw !== null && <> · {paidText(r.grossKrw, r.paidAmountKrw)}</>}</div>
-      </button>
+    <>
+      <tr onClick={onToggle} aria-expanded={open} className={`cursor-pointer text-[15px] hover:bg-x-hover ${open ? 'bg-x-hover/60' : ''}`}>
+        <td className={`${CELL} font-semibold`}>@{r.influencerHandle}</td>
+        <td className={CELL}><span className={TYPE_CHIP[r.taskType]}>{TASK_TYPE_LABEL[r.taskType]}</span></td>
+        <td className={`${CELL} ${NUM}`}>{formatMoney(costAmount, r.costCurrency)}</td>
+        <td className={`${CELL} ${NUM}`} title={sendTitle}>{formatMoney(r.amountGross, r.payoutCurrency)}</td>
+        {/* 옅은 세로선 — 왼쪽은 '요청한 값', 오른쪽은 정산 쪽이 알려 준 '실제 결과' */}
+        <td className={`${CELL} ${NUM} border-l border-x-border`} title={foreignPaid}>{hasPaid ? formatMoney(r.paidAmountKrw!, 'KRW') : <span className="text-x-muted">—</span>}</td>
+        <td className={`${CELL} ${NUM}`}>
+          {diff && diff.amount !== 0
+            ? <span className="text-amber-700" title="요청한 송금액과 실제로 보낸 금액이 달라요 — 확인해 주세요">{signedMoney(diff.amount, diff.currency)}</span>
+            : fx !== null && fx !== 0
+              ? <span className="text-x-muted" title={`환율 차이 — ${rateText}. 송금은 요청대로 됐어요`}>{signedMoney(fx, 'KRW')}</span>
+              : <span className="text-x-muted">—</span>}
+        </td>
+        <td className={CELL}><span className={METHOD_CHIP}>{PAYMENT_TYPE_LABEL[r.paymentMethod.type]}</span></td>
+        <td className={`${CELL} text-x-secondary`}>{formatDateKo(r.deadlineOn)}</td>
+        <td className={CELL}><span className={`rounded-full px-2.5 py-0.5 text-ui whitespace-nowrap ${TONE_CLASS[st.tone]}`} title={st.title}>{st.label}</span></td>
+        <td className={`${CELL} w-8 text-x-muted`} aria-hidden>{open ? '▾' : '▸'}</td>
+      </tr>
       {open && (
-        <div className="mt-3 rounded-xl bg-x-surface p-4 text-ui">
+        <tr><td colSpan={10} className="px-4 pb-4">
+        <div className="rounded-xl bg-x-surface p-4 text-ui">
           <dl className="grid grid-cols-[96px_1fr] gap-x-4 gap-y-1.5">
             <Item k="요청자" v={r.requesterName} />
             <Item k="클리닉" v={r.clientName} />
@@ -120,9 +137,10 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
               ))}
           </div>
         </div>
+        {zoom && proofSignedUrl && <ImageLightbox urls={[proofSignedUrl]} index={0} onIndexChange={() => {}} onClose={() => setZoom(false)} />}
+        </td></tr>
       )}
-      {zoom && proofSignedUrl && <ImageLightbox urls={[proofSignedUrl]} index={0} onIndexChange={() => {}} onClose={() => setZoom(false)} />}
-    </li>
+    </>
   );
 }
 function Item({ k, v, sub }: { k: string; v: React.ReactNode; sub?: React.ReactNode }) {

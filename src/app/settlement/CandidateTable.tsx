@@ -10,6 +10,7 @@ import { TASK_TYPES, TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgme
 import { PAYMENT_TYPES, PAYMENT_TYPE_LABEL, type PaymentMethodType } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
 import { useSignedTaskProofUrls } from '@/components/useSignedTaskProofUrls';
+import { HEAD, GROUP, groupByCampaign } from './tableStyle';
 import { CandidateRow, type RowEdit } from './CandidateRow';
 import { CreateConfirmDialog } from './CreateConfirmDialog';
 import { effectiveReadiness } from './readinessView';
@@ -129,19 +130,47 @@ export function CandidateTable({ onCreated, initialCampaignId }: { onCreated?: (
       {rows.length === 0 ? (
         <p className="mt-6 rounded-xl border border-dashed border-x-border p-8 text-center text-ui text-x-muted">게시 확인된 작업이 없어요 — 캠페인에서 게시된 날을 적으면 여기 나타나요</p>
       ) : (
-        <ul className="mt-3 divide-y divide-x-border rounded-xl border border-x-border bg-white">
-          {rows.map((c) => (
-            <CandidateRow key={c.taskId} c={c} edit={edits[c.taskId]} categories={cats} failure={failures[c.taskId]}
-                          selected={selected.has(c.taskId)}
-                          proofSignedUrl={c.proof ? proofUrls[c.proof.url] ?? null : null}
-                          onEdit={(e) => {
-                            setEdits((p) => ({ ...p, [c.taskId]: e }));
-                            // 분류를 비우는 등으로 즉시 🔴가 되면 체크도 같이 풀어 준다(라벨-값 불일치 방지, §4 리뷰)
-                            if (effectiveReadiness(c, e) === 'blocked') setSelected((p) => { const n = new Set(p); n.delete(c.taskId); return n; });
-                          }}
-                          onToggle={(on) => setSelected((p) => { const n = new Set(p); if (on) n.add(c.taskId); else n.delete(c.taskId); return n; })} />
-          ))}
-        </ul>
+        // 표 — 캠페인별로 묶고 클라이언트·캠페인 이름은 묶음 머리에 한 번만(koo 09-28). 묶음 머리 ☐ = 그 캠페인에서 보낼 수 있는 행 전체.
+        <div className="mt-3 overflow-x-auto rounded-xl border border-x-border bg-white">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr>
+                <th className={HEAD} aria-label="선택" />
+                <th className={HEAD}>인플루언서</th><th className={HEAD}>유형</th>
+                <th className={`${HEAD} text-right`}>요청액</th><th className={`${HEAD} text-right`}>송금액</th>
+                <th className={HEAD}>결제 수단</th><th className={HEAD}>분류</th><th className={HEAD}>마감</th>
+                <th className={HEAD}>게시물</th><th className={HEAD}>상태</th>
+              </tr>
+            </thead>
+            {groupByCampaign(rows).map((g) => {
+              const pickable = g.rows.filter((c) => effectiveReadiness(c, edits[c.taskId]) !== 'blocked').map((c) => c.taskId);
+              const allOn = pickable.length > 0 && pickable.every((id) => selected.has(id));
+              return (
+                <tbody key={g.key}>
+                  <tr><td colSpan={10} className={GROUP}>
+                    <span className="flex items-center gap-3">
+                      <input type="checkbox" className="h-4 w-4" checked={allOn} disabled={pickable.length === 0}
+                             aria-label={`${g.campaignName} 보낼 수 있는 ${pickable.length}건 모두 선택`}
+                             onChange={(e) => setSelected((p) => { const n = new Set(p); for (const id of pickable) { if (e.target.checked) n.add(id); else n.delete(id); } return n; })} />
+                      <span><b className="font-semibold text-x-text">{g.campaignName}</b><span className="text-x-muted"> · {g.clientName} · {g.rows.length}건</span></span>
+                    </span>
+                  </td></tr>
+                  {g.rows.map((c) => (
+                    <CandidateRow key={c.taskId} c={c} edit={edits[c.taskId]} categories={cats} failure={failures[c.taskId]}
+                                  selected={selected.has(c.taskId)}
+                                  proofSignedUrl={c.proof ? proofUrls[c.proof.url] ?? null : null}
+                                  onEdit={(e) => {
+                                    setEdits((p) => ({ ...p, [c.taskId]: e }));
+                                    // 분류를 비우는 등으로 즉시 🔴가 되면 체크도 같이 풀어 준다(라벨-값 불일치 방지, §4 리뷰)
+                                    if (effectiveReadiness(c, e) === 'blocked') setSelected((p) => { const n = new Set(p); n.delete(c.taskId); return n; });
+                                  }}
+                                  onToggle={(on) => setSelected((p) => { const n = new Set(p); if (on) n.add(c.taskId); else n.delete(c.taskId); return n; })} />
+                  ))}
+                </tbody>
+              );
+            })}
+          </table>
+        </div>
       )}
       {/* 하단 고정 바 — 지급 통화별 합계, 0인 통화는 생략 */}
       <div className="sticky bottom-0 mt-4 flex items-center justify-between rounded-xl border border-x-border bg-white px-4 py-3 shadow-sm">

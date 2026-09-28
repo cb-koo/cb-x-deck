@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   JPY_TO_KRW, BUDGET_AMOUNT_MESSAGE, PERIOD_DATE_MESSAGE, PERIOD_ORDER_MESSAGE,
-  toKrw, remainingOf, periodFor, overageBadge, periodRow, campaignPeriodBudget,
+  toKrw, remainingOf, periodFor, overageBadge, periodRow, campaignPeriodBudget, budgetBreakdown,
   periodLabel, periodLabelFull, budgetTipText, badgeText, budgetJudgment, parseBudgetAmount, parseBudgetPeriodInput,
   type BudgetPeriod, type PeriodSpend, type SpanningCampaign,
 } from './clientBudget.ts';
@@ -10,7 +10,7 @@ import {
 const period = (id: string, startsOn: string, endsOn: string, amountKrw: number): BudgetPeriod =>
   ({ id, startsOn, endsOn, amountKrw });
 const spend = (over: Partial<PeriodSpend> = {}): PeriodSpend =>
-  ({ total: {}, campaignCount: 0, feeKrw: 0, feeUnknown: 0, ...over });
+  ({ total: {}, spent: {}, campaignCount: 0, feeKrw: 0, feeUnknown: 0, ...over });
 
 test('1) toKrw — 엔화는 1엔=JPY_TO_KRW원으로 환산해 합산, 엔화 원금은 따로 알려준다', () => {
   assert.equal(JPY_TO_KRW, 10);
@@ -61,11 +61,11 @@ test('5) periodRow — 계산·초과 배지 결합', () => {
 
 test('6) campaignPeriodBudget — 기간 없으면 source none, 있으면 othersKrw·배지', () => {
   const none = campaignPeriodBudget(null, undefined, [], 0);
-  assert.deepEqual(none, { period: null, source: 'none', othersKrw: 0, campaignCount: 0, badge: null });
+  assert.deepEqual(none, { period: null, source: 'none', othersKrw: 0, campaignCount: 0, badge: null, othersSpentKrw: 0 });
 
   const p = period('p1', '2026-08-01', '2026-08-31', 3_000_000);
-  const b = campaignPeriodBudget(p, spend({ total: { KRW: 1_850_000 }, campaignCount: 2 }), [], 1_200_000);
-  assert.deepEqual(b, { period: p, source: 'period', othersKrw: 650_000, campaignCount: 2, badge: null });
+  const b = campaignPeriodBudget(p, spend({ total: { KRW: 1_850_000 }, spent: { KRW: 1_000_000, JPY: 10_000 }, campaignCount: 2 }), [], 1_200_000, 700_000);
+  assert.deepEqual(b, { period: p, source: 'period', othersKrw: 650_000, campaignCount: 2, badge: null, othersSpentKrw: 400_000 });   // 1,100,000 − 700,000
 
   // 이 기간이 마이너스이고 걸치는 캠페인이 있으면 카드에도 같은 배지가 뜬다(기간 전체 상태)
   const over = campaignPeriodBudget(period('p2', '2026-08-01', '2026-08-31', 1_000_000),
@@ -108,4 +108,14 @@ test('10) parseBudgetPeriodInput — 날짜 형식·순서·금액 검증', () =
   assert.deepEqual(parseBudgetPeriodInput({ startsOn: '2026-09-01', endsOn: '2026-09-01', amountKrw: 1 }).ok, true);  // 하루짜리 허용
   assert.deepEqual(parseBudgetPeriodInput({ startsOn: '2026-09-01', endsOn: '2026-09-30', amountKrw: -1 }),
     { ok: false, message: BUDGET_AMOUNT_MESSAGE });
+});
+
+test('6-1) budgetBreakdown — 예산 = 집행 + 예정 + 남음, 잔액 두 지점(미모드림 9월 실제 숫자)', () => {
+  const b = budgetBreakdown(2_500_000, { othersPlannedKrw: 1_245_000, othersSpentKrw: 1_245_000, thisPlannedKrw: 310_000, thisSpentKrw: 270_000 });
+  assert.deepEqual(b, { othersSpent: 1_245_000, thisSpent: 270_000, thisPending: 40_000, othersPending: 0, remainingNow: 985_000, remainingAfterPlan: 945_000 });
+  // 초과 — 음수를 그대로 둔다(화면이 '초과'로 읽는다)
+  const over = budgetBreakdown(1_000_000, { othersPlannedKrw: 600_000, othersSpentKrw: 300_000, thisPlannedKrw: 700_000, thisSpentKrw: 500_000 });
+  assert.equal(over.remainingNow, 200_000);
+  assert.equal(over.remainingAfterPlan, -300_000);
+  assert.equal(over.othersPending, 300_000);
 });

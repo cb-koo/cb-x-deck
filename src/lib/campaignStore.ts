@@ -55,6 +55,7 @@ export interface CampaignDetail {
   deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number };   // 삭제 확인 문구의 숫자(§4-4) — 미사용 포함 전수
   today: string;                       // 판정에 쓴 '오늘'(서울) — 클라가 같은 기준으로 다시 그릴 수 있게 함께 내려준다
   budget: CampaignPeriodBudget | null;  // 이 캠페인이 속한 기간의 클라이언트 예산(스펙 2026-09-22 §5-2). 클라 없으면 null
+  perfUpdatedAt: string | null;         // 이 캠페인 게시물 성과를 가장 최근에 불러온 때(자동 수집 포함, koo 09-28) — 한 번도 없으면 null
 }
 
 export interface InfluencerCampaignItem {
@@ -250,7 +251,12 @@ export async function deleteCampaign(
   return del.length > 0 ? { deleted: true, ...info } : { deleted: false, taskCount: 0, detachedTargets: 0, activeRequests: 0 };
 }
 
-type PerfRow = { task_id: string; post_count: number; views: string | number | null; likes: string | number | null; bookmarks: string | number | null };
+// 가장 늦은 시각(ISO) — 없으면 null. postgres.js는 timestamptz를 Date로 준다.
+function latestIso(ds: Array<Date | null>): string | null {
+  const ms = ds.filter((d): d is Date => d !== null).map((d) => d.getTime());
+  return ms.length ? new Date(Math.max(...ms)).toISOString() : null;
+}
+type PerfRow = { task_id: string; post_count: number; views: string | number | null; likes: string | number | null; bookmarks: string | number | null; captured_at: Date | null };
 type ClickRow = { draft_id: string; clicks: string | number | null };
 
 export async function getCampaignDetail(
@@ -264,10 +270,11 @@ export async function getCampaignDetail(
   // 성과: 게시물은 작업에 붙는다(§2-4). 한 작업에 게시물이 여러 개면(tracked_post는 tweet_id만 unique)
   // 각 게시물의 최신 스냅샷을 합산한다. 최신 1건은 lateral(trackingStore 관례) — 스냅샷 없는 게시물은 sum에서 null로 빠진다.
   const perfRows = await sql<PerfRow[]>`
-    select tp.task_id, count(tp.id)::int as post_count, sum(s.views) as views, sum(s.likes) as likes, sum(s.bookmarks) as bookmarks
+    select tp.task_id, count(tp.id)::int as post_count, sum(s.views) as views, sum(s.likes) as likes, sum(s.bookmarks) as bookmarks,
+           max(s.captured_at) as captured_at
       from tracked_post tp
       left join lateral (
-        select views, likes, bookmarks from post_metric_snapshot where tracked_post_id = tp.id
+        select views, likes, bookmarks, captured_at from post_metric_snapshot where tracked_post_id = tp.id
         order by captured_at desc limit 1
       ) s on true
      where tp.task_id in (select t.id from campaign_task t where t.campaign_id = ${id})
@@ -317,6 +324,7 @@ export async function getCampaignDetail(
 
   return {
     campaign, tasks: items, costRows,
+    perfUpdatedAt: latestIso(perfRows.map((r) => r.captured_at)),
     summary: summarizeTasks(items, today),
     influencers: deriveTaskInfluencers(items, costRows),
     byType: subtotalsByType(items),

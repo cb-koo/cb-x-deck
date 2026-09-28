@@ -96,7 +96,8 @@ const DRAFT_DIRECTION_DISCARD_CONFIRM = '쓰던 방향성이 있어요. 계속�
 interface DetailState {
   campaign: CampaignRow; tasks: CampaignTaskItem[]; costRows: InfluencerCostRow[];
   deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number }; today: string;
-  budget: CampaignPeriodBudget | null;   // 이 기간 클라이언트 예산(서버 판정) — 카드의 '예산 기간 잔액'
+  budget: CampaignPeriodBudget | null;   // 이 기간 클라이언트 예산(서버 판정) — 예산 줄(BudgetStrip)
+  perfUpdatedAt: string | null;          // 성과 최종 업데이트 시각 — 성과 카드 ↻ 옆
 }
 type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 // 오른쪽 패널이 여는 대상 — 기존 작업(taskId) 또는 새 작업(fresh). 둘 다 아니면 패널이 닫혀 있다.
@@ -251,8 +252,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     const r = await fetchCampaignDetail(id);
     if (token !== reqRef.current) return r.ok;   // 그 사이 다른 캠페인(또는 새 로드)이 시작됐다 — 이 응답은 화면의 것이 아니다(더 새 로드가 마무리한다)
     if (r.ok) {
-      const { campaign, tasks, costRows, deleteInfo, today, budget } = r.data;   // 카드·필터 집계는 아래 useMemo가 같은 함수로 다시 만든다
-      setData({ campaign, tasks, costRows, deleteInfo, today, budget });
+      const { campaign, tasks, costRows, deleteInfo, today, budget, perfUpdatedAt } = r.data;   // 카드·필터 집계는 아래 useMemo가 같은 함수로 다시 만든다
+      setData({ campaign, tasks, costRows, deleteInfo, today, budget, perfUpdatedAt });
       setLoadErr(false);
     } else {
       setLoadErr(true);   // 실패를 빈 상태로 위장하지 않는다
@@ -952,7 +953,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                         onDelete={() => void removeCampaign()} />
       </div>
       <div className={PANEL}>
-        <FlowCards stats={stats} plannedTotal={plannedTotal}
+        <FlowCards stats={stats} plannedTotal={plannedTotal} perfUpdatedAt={data.perfUpdatedAt}
                    cancelledCount={cancelledCount} refreshing={refreshing} onRefresh={() => void onRefresh()} />
       </div>
       {/* 이 기간 클라이언트 예산 — 캠페인 카드와 층이 달라 칸을 나눈다(koo 09-27 A안). 클라이언트 없는 캠페인엔 없다. */}

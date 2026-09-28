@@ -43,51 +43,52 @@ export function BudgetStrip({ budget, clientId, spent, plannedTotal }: {
     { key: 'tp', v: b.thisPending, cls: PENDING_BLUE, label: '이 캠페인 예정' },
     { key: 'op', v: b.othersPending, cls: PENDING_GRAY, label: '다른 캠페인 예정' },
   ].map((s) => ({ ...s, width: w(s.v) }));
-  const pending = b.thisPending + b.othersPending;
   const tip = `캠페인은 시작일이 속한 기간에 전액 잡혀요 · 집행 = 게시 확인된 작업 비용, 예정 = 아직 게시 전 작업 비용과 인플별 추가 비용 · `
     + `엔화는 1엔 = ${JPY_TO_KRW}원으로 환산 · 송금 수수료는 빠져 있어요`;
 
+  // 세 줄로 끝낸다(koo 09-28 '예산 칸이 너무 큼') — ① 예산 + 잔액 두 개 ② 막대 ③ 범례. 잔액 숫자는 카드의 큰 숫자(26px)가
+  // 아니라 본문 굵은 글씨 — 이 줄은 캠페인 카드 아래의 보조 층이라 위 카드보다 무거우면 안 된다.
+  const remain = (label: string, v: number) => (
+    <span className="whitespace-nowrap">
+      <span className="text-x-secondary">{label}</span>{' '}
+      <b className={`font-bold tabular-nums ${v < 0 ? 'text-red-700' : ''}`}>{sign(v)}</b>
+    </span>
+  );
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="flex items-center gap-1.5 text-content">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-content">
+        <p className="flex items-center gap-1.5">
           <span className="text-x-secondary">{periodLabel(budget.period)} 예산</span>
           <b className="font-bold tabular-nums">{formatAmount(amount, 'KRW')}</b>
           <span className="text-ui text-x-muted">· 캠페인 {budget.campaignCount}개</span>
           <InfoTip text={tip} label="예산 줄 설명 보기" />
         </p>
-        {budgetHref && <Link href={budgetHref} className="shrink-0 text-ui text-x-secondary hover:underline">클라이언트 예산 ↗</Link>}
+        <p className="flex items-baseline gap-3">
+          {remain('지금 남은 예산', b.remainingNow)}
+          <span aria-hidden className="text-x-border-strong">|</span>
+          {remain('예정까지 쓰면', b.remainingAfterPlan)}
+        </p>
       </div>
 
-      <div className="mt-2.5 flex h-2.5 overflow-hidden rounded-full bg-x-border">
+      <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-x-border">
         {segs.map((s) => s.width > 0 && <div key={s.key} className={`h-full ${s.cls}`} style={{ width: `${s.width}%` }} />)}
       </div>
-      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-ui text-x-secondary">
-        {segs.filter((s) => s.v > 0).map((s) => (
-          <li key={s.key} className="flex items-center gap-1.5">
-            <span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-sm ${s.cls}`} />
-            {s.label} <span className="tabular-nums text-x-text">{formatAmount(s.v, 'KRW')}</span>
-          </li>
-        ))}
-        {b.remainingAfterPlan > 0 && (
-          <li className="flex items-center gap-1.5">
-            <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-sm border border-x-border-strong bg-x-border" />남음
-          </li>
-        )}
-      </ul>
-
-      <div className="mt-3.5 grid grid-cols-2">
-        <div className="pr-4">
-          <p className={`text-[26px] font-bold leading-tight tabular-nums ${b.remainingNow < 0 ? 'text-red-700' : ''}`}>{sign(b.remainingNow)}</p>
-          <p className="mt-1 text-ui text-x-secondary">지금 남은 예산 <span className="text-x-muted">· 예산 − 집행</span></p>
-        </div>
-        <div className="border-l border-x-border pl-4">
-          <p className={`text-[26px] font-bold leading-tight tabular-nums ${b.remainingAfterPlan < 0 ? 'text-red-700' : ''}`}>{sign(b.remainingAfterPlan)}</p>
-          <p className="mt-1 text-ui text-x-secondary">
-            예정까지 쓰면 남는 예산 <span className="text-x-muted">· {pending > 0 ? `예정 ${formatAmount(pending, 'KRW')} 더 빠짐` : '예정 없음'}</span>
-          </p>
-          {budget.badge && <p className="mt-1 text-ui text-x-secondary">{badgeText(budget.badge)}</p>}
-        </div>
+      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-ui text-x-secondary">
+        <ul className="flex flex-wrap gap-x-4 gap-y-1">
+          {segs.filter((s) => s.v > 0).map((s) => (
+            <li key={s.key} className="flex items-center gap-1.5">
+              <span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-sm ${s.cls}`} />
+              {s.label} <span className="tabular-nums text-x-text">{formatAmount(s.v, 'KRW')}</span>
+            </li>
+          ))}
+          {b.remainingAfterPlan > 0 && (
+            <li className="flex items-center gap-1.5">
+              <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-sm border border-x-border-strong bg-x-border" />남음
+            </li>
+          )}
+          {budget.badge && <li>{badgeText(budget.badge)}</li>}
+        </ul>
+        {budgetHref && <Link href={budgetHref} className="shrink-0 hover:underline">클라이언트 예산 ↗</Link>}
       </div>
     </div>
   );

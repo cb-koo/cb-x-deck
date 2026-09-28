@@ -21,7 +21,7 @@ export function DraftWrite({ host, author, clientId, onAttached, onAttachFailed,
   // 이 컴포넌트가 쓰는 필드는 host.kind === 'task'일 때의 taskId·influencerHandle 둘뿐이다(확인됨).
   // influencerHandle은 host.kind === 'form'일 때도 온다(컴포저의 아바타·핸들 표시에 그대로 쓴다).
   host: DraftHost;
-  author?: { name?: string; avatarUrl?: string };   // 컴포저 머리줄의 이름·사진(명부) — XComposer로 그대로
+  author?: { name?: string; avatarUrl?: string; blueVerified?: boolean };   // 컴포저 머리줄의 이름·사진(명부) — XComposer로 그대로
   clientId: string | null;
   // 붙이기 성공 뒤 부모(FlowDetail)가 상세를 다시 읽는다 — DraftGenerate의 onAttached와 똑같은 계약
   // (재조회 성공 여부를 돌려준다). 재조회가 실패하면 여기서도 잠금을 풀고 새로고침을 안내한다.

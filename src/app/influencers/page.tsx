@@ -11,6 +11,7 @@ import { AddInfluencersDialog } from './AddInfluencersDialog';
 import { BulkAnalyzeDialog, useBulkState } from './BulkAnalyzeDialog';
 import { InfluencerProfile } from './InfluencerProfile';
 import { Avatar } from '@/components/Avatar';
+import { BlueCheckIcon } from '@/components/XIcons';
 import { mergeQuery, parseTab, tabQuery, type TabKey } from '@/lib/profileTabs';
 import type { InfluencerRow } from '@/lib/influencerStore';
 
@@ -284,6 +285,7 @@ function RosterRow({ row, active, onSelect, now }: { row: InfluencerRow; active:
       <span className="min-w-0 flex-1">
         <span className={`flex items-baseline gap-1.5 text-ui font-semibold ${active ? 'text-x-blue-text' : ''}`}>
           <span className="min-w-0 truncate">{row.displayName ?? `@${row.handle}`}</span>
+          {row.blueVerified && <BlueCheckIcon className="h-4 w-4" />}
           {row.displayName && <span className="min-w-0 shrink truncate text-caption font-normal text-x-muted">@{row.handle}</span>}
         </span>
         <span className="block text-caption text-x-muted">

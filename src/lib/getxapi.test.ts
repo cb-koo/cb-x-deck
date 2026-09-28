@@ -53,6 +53,17 @@ test('getUserInfo: data 언래핑', async () => {
   assert.equal(u.id, '99');
   assert.equal(u.followers, 5);
   assert.equal(u.description, '뷰티 인플루언서');
+  assert.equal(u.isBlueVerified, null, '응답에 칸이 없으면 모름(null)');
+});
+
+test('getUserInfo: 블루마크(isBlueVerified) true/false를 그대로 싣는다', async () => {
+  const { fn } = fakeFetch([
+    { status: 200, body: { data: { id: '1', userName: 'x', isVerified: false, isBlueVerified: true } } },
+    { status: 200, body: { data: { id: '2', userName: 'y', isBlueVerified: false } } },
+  ]);
+  const c = new GetxapiClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {} });
+  assert.equal((await c.getUserInfo('x')).isBlueVerified, true);
+  assert.equal((await c.getUserInfo('y')).isBlueVerified, false);
 });
 
 test('getUserInfo: description 없으면 null', async () => {

@@ -90,7 +90,9 @@ test('4) applyProfileSnapshot: x_user_id·스냅샷 4종·조회 시각', async 
     followers: 12345,
     profilePicture: 'https://example.com/a.jpg',
     description: '美容好き',
+    isBlueVerified: true,
   };
+  assert.equal(row.blueVerified, null, '조회 전엔 블루마크를 모른다');
   await applyProfileSnapshot(sql, row.id, info);
 
   const got = await findInfluencerById(sql, row.id);
@@ -99,6 +101,7 @@ test('4) applyProfileSnapshot: x_user_id·스냅샷 4종·조회 시각', async 
   assert.equal(got!.avatarUrl, 'https://example.com/a.jpg');
   assert.equal(got!.bio, '美容好き');
   assert.equal(got!.followersCount, 12345);
+  assert.equal(got!.blueVerified, true);
   assert.ok(got!.profileRefreshedAt, 'profileRefreshedAt not null');
   assert.ok(Date.now() - new Date(got!.profileRefreshedAt!).getTime() < 60_000);
 
@@ -112,6 +115,7 @@ test('4) applyProfileSnapshot: x_user_id·스냅샷 4종·조회 시각', async 
   assert.equal(born.row.bio, '美容好き');
   assert.equal(born.row.followersCount, 12345);
   assert.equal(born.row.avatarUrl, 'https://example.com/a.jpg');
+  assert.equal(born.row.blueVerified, true);
   assert.ok(born.row.profileRefreshedAt, '스냅샷과 함께 만들면 조회 시각도 찍힌다');
 });
 

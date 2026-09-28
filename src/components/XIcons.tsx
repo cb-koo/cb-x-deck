@@ -132,3 +132,12 @@ export const CampaignIcon = ({ className }: { className?: string }) => (
 export const TrendIcon = ({ className }: { className?: string }) => (
   <Icon className={className} d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z" />
 );
+
+// X 블루마크(인증 배지) — 이름 바로 뒤에 붙인다. 색은 X와 같은 파랑, 크기는 이름 글자에 맞춘다(기본 18px).
+// 뜻을 모르는 사람을 위해 title로 풀어 쓴다(AGENTS 원칙 5).
+export const BlueCheckIcon = ({ className }: { className?: string }) => (
+  <span role="img" aria-label="블루마크" title="블루마크 계정 — X Premium 구독 중이라 긴 글을 쓸 수 있어요"
+        className="inline-flex shrink-0 self-center text-[#1d9bf0]">
+    <Icon className={className} d="M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81c-.66-1.31-1.91-2.19-3.34-2.19s-2.67.88-3.33 2.19c-1.4-.46-2.91-.2-3.92.81s-1.26 2.52-.8 3.91c-1.31.67-2.2 1.91-2.2 3.34s.89 2.67 2.2 3.34c-.46 1.39-.21 2.9.8 3.91s2.52 1.26 3.91.81c.67 1.31 1.91 2.19 3.34 2.19s2.68-.88 3.34-2.19c1.39.45 2.9.2 3.91-.81s1.27-2.52.81-3.91c1.31-.67 2.19-1.91 2.19-3.34zm-11.71 4.2L6.8 12.46l1.41-1.42 2.26 2.26 4.8-5.23 1.47 1.36-6.2 6.77z" />
+  </span>
+);

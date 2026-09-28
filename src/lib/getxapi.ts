@@ -17,6 +17,8 @@ export interface UserInfo {
   followers: number | null;
   profilePicture: string | null;
   description: string | null;
+  // 블루마크(X Premium 인증 체크) — 응답에 칸이 없으면 null(모름). 선택 필드: 테스트 스텁·워치리스트는 쓰지 않는다.
+  isBlueVerified?: boolean | null;
 }
 
 export interface UsersPage {
@@ -75,6 +77,7 @@ export class GetxapiClient {
       followers: typeof d.followers === 'number' ? d.followers : null,
       profilePicture: typeof d.profilePicture === 'string' ? d.profilePicture : null,
       description: typeof d.description === 'string' ? d.description : null,
+      isBlueVerified: typeof d.isBlueVerified === 'boolean' ? d.isBlueVerified : null,
     };
   }
 

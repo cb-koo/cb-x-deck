@@ -5,6 +5,7 @@ import type { TaskType } from '@/lib/campaignJudgment';
 import { formatAmount, suggestTaskCost } from '@/lib/campaignCost';
 import { resolveRosterInput, rosterSuggestions, shouldCommitRegistration, ROSTER_FAILED_MESSAGE, type RosterGate } from '@/lib/rosterPick';
 import { Avatar } from '@/components/Avatar';
+import { BlueCheckIcon } from '@/components/XIcons';
 
 // 원고를 게시할 인플루언서 한 명 — X 핸들 한 칸 (스펙 2026-08-11 §D).
 //
@@ -195,7 +196,9 @@ function RosterCombobox({ value, options, onChange, error, autoFocus, hideLabel,
                   className={`flex min-h-11 cursor-pointer items-center gap-2.5 px-3 py-1.5 ${i === active ? 'bg-x-hover' : 'hover:bg-x-hover'}`}>
                 <Avatar url={o.avatarUrl} name={name || o.handle} size={28} />
                 <span className="min-w-0 flex-1 truncate text-content">
-                  {name ? <><b className="font-semibold">{name}</b> <span className="text-ui text-x-secondary">@{o.handle}</span></> : <b className="font-semibold">@{o.handle}</b>}
+                  {name ? <b className="font-semibold">{name}</b> : <b className="font-semibold">@{o.handle}</b>}
+                  {o.blueVerified && <> <BlueCheckIcon className="inline h-4 w-4 align-[-3px]" /></>}
+                  {name && <> <span className="text-ui text-x-secondary">@{o.handle}</span></>}
                 </span>
                 {price && <span className="shrink-0 text-ui text-x-secondary">{formatAmount(price.amount, price.currency)}</span>}
               </li>

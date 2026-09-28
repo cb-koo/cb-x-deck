@@ -725,7 +725,7 @@ test('applyExternalStatus — paid_amount_usd를 저장하고, 다음 전이에�
   assert.ok(paid !== 'not-found' && paid.kind === 'applied');
   const p = (paid as { row: PaymentRequestRow }).row;
   assert.equal(p.paidAmountKrw, 25934); assert.equal(p.paidAmountUsd, 18.62);
-  assert.equal(hasPaidDiff(p), true);   // 차액 판정은 원화(gross_krw 31580 vs 25934)
+  assert.equal(hasPaidDiff(p), false);  // 달러로 지급(PayPal)은 보낸 통화(엔)로 비교할 값이 없어 차액 판정하지 않는다 — 원화 차이는 환율(koo 09-28)
   // paid → paid 정정: 달러도 함께 바뀐다
   const fix = await applyExternalStatus(sql, row.id, upd('paid', '2026-09-08T12:00:00Z', { paidAmountKrw: 31580, paidAmountUsd: 22.7, paidAt: '2026-09-08T11:12:00Z' }));
   const f = (fix as { row: PaymentRequestRow }).row;
@@ -837,7 +837,7 @@ test('차액 확인 — 확인·취소가 되고 updated_at을 건드리지 않�
   const { row } = await requestFor('diffack2', 'diffack2');
   // 그쪽이 송금액보다 적게 지급한 상황을 만든다
   await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
-    paidAmountKrw: row.grossKrw - 1650, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: null, paidCurrency: null });
+    paidAmountKrw: row.grossKrw - 1650, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: row.amountGross - 165, paidCurrency: null });
   const [before] = await listRequests(sql, { taskId: row.taskId! });
 
   const acked = await ackDiff(sql, row.id, { name: '박구건' });
@@ -858,9 +858,22 @@ test('차액 확인 — 차액이 없으면 확인할 것이 없다', async () =
   assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
 });
 
+test('차액 확인 — 엔화가 요청대로 나갔으면 원화가 달라도(환율) 확인할 것이 없다(koo 09-28)', async () => {
+  const { row } = await requestFor('diffack7', 'diffack7');
+  assert.equal(row.payoutCurrency, 'JPY');
+  await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
+    paidAmountKrw: Math.round(row.grossKrw * 0.86), paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: row.amountGross, paidCurrency: 'JPY' });
+  assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
+  // 달러로 지급(PayPal) — 엔화 값이 없어 비교하지 않는다
+  await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T02:00:00Z', note: null,
+    paidAmountKrw: Math.round(row.grossKrw * 0.87), paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null, paidAmountUsd: 30.5, paidAmountJpy: null, paidCurrency: 'USD' });
+  assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
+});
+
 test('차액 확인 — 그쪽이 금액을 정정하면 확인이 풀린다', async () => {
   const { row } = await requestFor('diffack4', 'diffack4');
-  const paid = (krw: number, at: string) => applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: at, note: null, paidAmountKrw: krw, paidAt: at, externalId: null, operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: null, paidCurrency: null });
+  // 엔화로 보낸 요청이라 차액은 엔화로 판정한다(koo 09-28) — 엔화 실지급을 함께 보낸다
+  const paid = (krw: number, at: string) => applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: at, note: null, paidAmountKrw: krw, paidAt: at, externalId: null, operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: row.amountGross - Math.round((row.grossKrw - krw) / 10), paidCurrency: null });
 
   await paid(row.grossKrw - 1650, '2026-09-01T01:00:00Z');
   await ackDiff(sql, row.id, { name: '박구건' });

@@ -492,7 +492,7 @@ export async function applyExternalStatus(sql: postgres.Sql, id: string, u: Stat
       await cancelInTx(tx, id, { id: null, name: '정산 프로덕트' }, u.note ?? '정산에서 취소');
     }
     // 실지급액이 바뀌면 이전 차액 확인은 무효다(다른 금액에 대한 확인이었다). 사람이 잊지 않게 여기서 강제한다.
-    const paidAmountChanged = u.paidAmountKrw !== c.paid_amount_krw;
+
     // 외화 실지급액(050·051)은 "보낸 것만 갱신"한다 — 외화 없이 온 정정(구버전 전송)이 저장된 외화를 지우지 않게(그쪽 요청 22 §3·§4).
     // 한 요청에 외화는 하나: USD가 오면 JPY를 지우고, JPY가 오면 USD를 지운다. paid_currency가 명시되면 그 통화로 확정(KRW면 둘 다 지움).
     const clearUsd = u.paidCurrency === 'KRW' || u.paidCurrency === 'JPY' || u.paidAmountJpy !== null;
@@ -501,6 +501,8 @@ export async function applyExternalStatus(sql: postgres.Sql, id: string, u: Stat
     const keepJpy = c.paid_amount_jpy === null ? null : Number(c.paid_amount_jpy);
     const nextUsd = u.paidAmountUsd !== null ? u.paidAmountUsd : clearUsd ? null : keepUsd;
     const nextJpy = u.paidAmountJpy !== null ? u.paidAmountJpy : clearJpy ? null : keepJpy;
+    // 엔화 실지급도 차액 판정 입력이다(payoutDiff, koo 09-28) — 원화든 엔화든 바뀌면 이전 확인은 다른 금액에 대한 확인이다.
+    const paidAmountChanged = u.paidAmountKrw !== c.paid_amount_krw || nextJpy !== keepJpy;
     await tx`
       update payment_request
          set external_status = ${u.status}, paid_amount_krw = ${u.paidAmountKrw}, paid_amount_usd = ${nextUsd}, paid_amount_jpy = ${nextJpy}, paid_at = ${u.paidAt}, external_note = ${u.note},
@@ -538,7 +540,8 @@ export async function ackDiff(sql: postgres.Sql, id: string, by: { name: string 
     update payment_request
        set diff_ack_at = now(), diff_ack_by_name = ${by.name}
      where id = ${id} and status <> 'cancelled' and external_status = 'paid'
-       and paid_amount_krw = ${row.paidAmountKrw}`;
+       and paid_amount_krw = ${row.paidAmountKrw}
+       and paid_amount_jpy is not distinct from ${row.paidAmountJpy}`;
   if (res.count === 0) return 'no-diff';
   const [saved] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
   return toRequest(saved);

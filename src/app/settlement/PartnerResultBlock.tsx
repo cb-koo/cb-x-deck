@@ -4,7 +4,7 @@ import { Button } from '@/components/ui';
 import type { PaymentRequestRow } from '@/lib/settlementStore';
 import { formatMoney } from '@/lib/influencerPricing';
 import { kstDateTime } from '@/lib/datetime';
-import { paidDiff, needsDiffAck, EXTERNAL_STATUS_LABEL, usdText } from '@/lib/settlementDisplay';
+import { payoutDiff, fxDiffKrw, needsDiffAck, EXTERNAL_STATUS_LABEL, usdText } from '@/lib/settlementDisplay';
 import { ackDiffApi, unackDiffApi } from '@/lib/settlementApi';
 
 // 요청 펼침의 두 번째 블록 — '정산 프로덕트가 보낸 결과'. 위 블록(우리가 보낸 요청 내용)과 시각적으로 분리해서
@@ -30,7 +30,8 @@ export function PartnerResultBlock({ r, onChanged }: { r: PaymentRequestRow; onC
     );
   }
 
-  const diff = paidDiff(r);
+  const diff = payoutDiff(r);
+  const fx = fxDiffKrw(r);
   const needsAck = needsDiffAck(r);
 
   async function run(kind: 'ack' | 'unack') {
@@ -66,8 +67,12 @@ export function PartnerResultBlock({ r, onChanged }: { r: PaymentRequestRow; onC
             <div className="font-medium">{formatMoney(r.paidAmountKrw, 'KRW')}</div>
             {r.paidAmountUsd !== null && <div className="text-x-secondary">달러 {usdText(r.paidAmountUsd)}로 송금됨 <span className="text-x-muted">· 원화는 정산 쪽 환산값</span></div>}
             {r.paidAmountJpy !== null && <div className="text-x-secondary">엔화 {formatMoney(r.paidAmountJpy, 'JPY')}로 송금됨 <span className="text-x-muted">· 원화는 정산 쪽 환산값</span></div>}
-            {diff !== null && diff !== 0 && (
-              <div className="text-amber-700">우리가 보낸 송금액 {formatMoney(r.grossKrw, 'KRW')}보다 {Math.abs(diff).toLocaleString('ko-KR')}원 {diff < 0 ? '적어요' : '많아요'}</div>
+            {/* 진짜 차액은 보낸 통화로(주황), 엔화 건의 원화 차이는 환율 차이(회색 참고) — koo 09-28 */}
+            {diff !== null && diff.amount !== 0 && (
+              <div className="text-amber-700">요청한 송금액 {formatMoney(diff.currency === 'JPY' ? r.amountGross : r.grossKrw, diff.currency)}보다 {formatMoney(Math.abs(diff.amount), diff.currency)} {diff.amount < 0 ? '적어요' : '많아요'}</div>
+            )}
+            {fx !== null && fx !== 0 && (
+              <div className="text-x-muted">환율 차이 {fx < 0 ? '−' : '+'}{formatMoney(Math.abs(fx), 'KRW')} · 요청은 1엔 = {r.rateKrwPerJpy}원, 실제 {(r.paidAmountKrw! / r.amountGross).toFixed(2)}원/엔 — 확인할 차액이 아니에요</div>
             )}
           </dd>
         </>}
@@ -91,7 +96,7 @@ export function PartnerResultBlock({ r, onChanged }: { r: PaymentRequestRow; onC
         </div>
       )}
 
-      {r.diffAckAt && diff !== null && diff !== 0 && (
+      {r.diffAckAt && diff !== null && diff.amount !== 0 && (
         <div className="mt-3 flex items-center justify-between gap-3 text-ui">
           <span className="text-x-secondary">차액 확인 · 확인함 · {r.diffAckByName} · {kstDateTime(r.diffAckAt)}</span>
           <Button onClick={() => void run('unack')} disabled={busy}>확인 취소</Button>

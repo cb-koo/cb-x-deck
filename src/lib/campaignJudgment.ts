@@ -104,7 +104,8 @@ export interface PerfSummary { publishedCount: number; views: number | null; lik
 export interface CostRowInput { influencerHandle: string; extraCosts: ExtraCost[]; note: string }
 
 // ─────────────────────────── 이름·코드 제안(§2-1) ───────────────────────────
-// '{클라} {M월 N주}' — 캠페인 첫 주(월~일, startsOn을 포함하는 주)의 목요일로 월/주차를 정한다.
+// '{클라}_{M월N주차}' — 운영 중인 캠페인 이름(예: 미모드림_9월4주차)과 같은 모양(koo 09-28).
+// 캠페인 첫 주(월~일, startsOn을 포함하는 주)의 목요일로 월/주차를 정한다.
 // 시작일(또는 그 주의 월요일) 자체를 기준으로 삼으면, 다음 주 월요일이 그 달 29~31일에
 // 떨어지는 달이 잦아 달력일 기준이 실무에서 부르는 주차 표기와 어긋난다 — 그 주의 '무게 중심'인
 // 목요일을 쓰면 어느 요일에 시작해도 같은 주는 항상 같은 라벨을 받는다.
@@ -112,9 +113,9 @@ export function suggestCampaignName(clientName: string, startsOn: string): strin
   const thursday = addDays(weekStartOf(startsOn), 3);
   const month = Number(thursday.slice(5, 7));
   const week = Math.floor((Number(thursday.slice(8, 10)) - 1) / 7) + 1;
-  const base = `${month}월 ${week}주`;
+  const base = `${month}월${week}주차`;
   const name = clientName.trim();
-  return name ? `${name} ${base}` : base;
+  return name ? `${name}_${base}` : base;
 }
 // '{클라 영문 소문자}-{YYYYMMDD}', 영문명이 없으면 '{YYYYMMDD}'. checkCampaign 규칙(영어·숫자·._-, 공백→하이픈)으로
 // 정리하므로 제안값은 항상 검사를 통과한다 — 통과 못 하는 경우(이론상 없음)엔 날짜만 남긴다.

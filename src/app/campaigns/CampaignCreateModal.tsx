@@ -58,7 +58,7 @@ export function CampaignCreateModal({ today, onClose, onCreated }: {
   }, [onClose, busy]);
 
   const client = clients.find((c) => c.id === clientId) ?? null;
-  const suggestedName = suggestCampaignName(client?.name ?? '', startsOn);   // '{클라} {M월 N주}'
+  const suggestedName = suggestCampaignName(client?.name ?? '', startsOn);   // '{클라}_{M월N주차}'
   const suggestedCode = suggestCampaignCode(client?.nameEn ?? '', startsOn); // '{영문 소문자}-{YYYYMMDD}' / 영문 없으면 날짜만
   const nameValue = nameTouched ? name : suggestedName;
   const codeValue = codeTouched ? code : suggestedCode;

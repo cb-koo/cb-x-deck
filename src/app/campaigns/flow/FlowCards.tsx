@@ -33,6 +33,10 @@ function updatedLabel(iso: string): string {
   return `${Number(k.slice(5, 7))}/${Number(k.slice(8, 10))} ${k.slice(11, 16)}`;
 }
 
+// 한 칸 — 쌓였을 때는 위 구분선, 가로일 때는 왼쪽 구분선(첫 칸은 없음)
+const CELL = 'min-w-0 border-t border-x-border py-4 first:border-t-0 first:pt-0 last:pb-0 '
+  + '@[860px]:border-t-0 @[860px]:border-l @[860px]:px-5 @[860px]:py-0 @[860px]:first:border-l-0 @[860px]:first:pl-0 @[860px]:last:pr-0';
+
 export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, refreshing, onRefresh }: {
   stats: FlowStats;
   plannedTotal: MoneyByCurrency;   // 계획(작업 비용 + 인플별 추가 비용) — stats.plannedCost(작업 비용만)와는 다른 숫자(위 주석)
@@ -53,10 +57,13 @@ export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, 
   const spentPct = plannedKrw > 0 ? Math.min(100, (spentKrw / plannedKrw) * 100) : 0;
 
   return (
-    <div className="grid grid-cols-[0.9fr_1.4fr_1.1fr] gap-0">
+    // 카드 줄이 좁으면(860px 미만 — 창이 좁거나 오른쪽 패널이 열렸을 때) 세 카드를 세로로 쌓는다. 가로 3칸을 억지로
+    // 유지하면 성과 숫자가 서로 겹치고 비용 숫자가 줄바꿈됐다(koo 09-28 화면). 폭은 창이 아니라 이 줄의 폭으로 판단한다.
+    <div className="@container">
+    <div className="grid grid-cols-1 @[860px]:grid-cols-[0.9fr_1.4fr_1.1fr]">
       {/* 작업 — 게시 / 계획이 주인공, 취소는 옆 칸에 한 단계 작게(koo 09-28). 계획은 취소를 뺀 수(비용 카드의 '계획'과 같은 기준).
           취소는 0건이어도 보인다 — 세 숫자가 늘 같은 자리에 있어야 비교된다. */}
-      <div className="border-l border-x-border px-5 first:border-l-0 first:pl-0 last:pr-0">
+      <div className={CELL}>
         <p className="flex items-center gap-1.5 text-ui text-x-secondary">
           작업<InfoTip text="계획은 취소를 뺀 작업 수예요 · 막대는 계획 중 게시된 비율" label="작업 카드 설명 보기" />
         </p>
@@ -79,13 +86,13 @@ export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, 
 
       {/* 성과 — [업데이트] 글자 버튼 대신 ↻ 아이콘 + 최종 업데이트 시각(koo 09-28). 버튼은 머리줄 높이를 늘리지 않게(-my-1)
           두어, 세 지표의 숫자 줄이 옆 카드의 큰 숫자 줄과 같은 높이에서 시작한다. 지표 셋은 칸을 3등분해 고르게 놓는다. */}
-      <div className="border-l border-x-border px-5 first:border-l-0 first:pl-0 last:pr-0">
+      <div className={CELL}>
         <div className="flex items-center justify-between gap-2">
           <p className="flex items-center gap-1.5 text-ui text-x-secondary">
-            성과<InfoTip text={`게시물 링크가 있는 ${stats.perf.withPerf}건 합계${stats.perf.noLink ? ` · 링크 없는 게시물 ${stats.perf.noLink}건은 합계 밖` : ''}`} label="성과 카드 설명 보기" />
+            <span className="whitespace-nowrap">성과</span><InfoTip text={`게시물 링크가 있는 ${stats.perf.withPerf}건 합계${stats.perf.noLink ? ` · 링크 없는 게시물 ${stats.perf.noLink}건은 합계 밖` : ''}`} label="성과 카드 설명 보기" />
           </p>
           <div className="-my-1 flex items-center gap-2">
-            <span className="text-ui text-x-muted tabular-nums">
+            <span className="whitespace-nowrap text-ui text-x-muted tabular-nums">
               {refreshing ? '불러오는 중…' : perfUpdatedAt ? `${updatedLabel(perfUpdatedAt)} 업데이트` : '아직 불러오지 않았어요'}
             </span>
             {/* 게시된 작업이 하나도 없을 때만 막는다 — withPerf(스냅샷이 잡힌 수)로 막으면, 연결은 돼 있는데 아직
@@ -120,7 +127,7 @@ export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, 
       </div>
 
       {/* 비용 — 이 캠페인만(집행 / 계획). 이 기간 클라이언트 예산은 카드 아래 BudgetStrip이 따로 말한다(koo 09-27 A안) */}
-      <div className="border-l border-x-border px-5 first:border-l-0 first:pl-0 last:pr-0">
+      <div className={CELL}>
         <p className="flex items-center gap-1.5 text-ui text-x-secondary">
           비용<InfoTip text={['집행 = 게시 확인된 작업 비용 · 계획 = 취소 뺀 전체 작업 비용', costTip].filter(Boolean).join(' · ')} label="비용 카드 설명 보기" />
         </p>
@@ -135,6 +142,7 @@ export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, 
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }

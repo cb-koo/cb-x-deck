@@ -54,15 +54,24 @@ export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, 
 
   return (
     <div className="grid grid-cols-[0.9fr_1.4fr_1.1fr] gap-0">
-      {/* 작업 */}
+      {/* 작업 — 게시 / 계획이 주인공, 취소는 옆 칸에 한 단계 작게(koo 09-28). 계획은 취소를 뺀 수(비용 카드의 '계획'과 같은 기준).
+          취소는 0건이어도 보인다 — 세 숫자가 늘 같은 자리에 있어야 비교된다. */}
       <div className="border-l border-x-border px-5 first:border-l-0 first:pl-0 last:pr-0">
         <p className="flex items-center gap-1.5 text-ui text-x-secondary">
-          작업{cancelledCount ? <InfoTip text={`취소 ${cancelledCount}건은 빼고 셉니다`} label="작업 카드 설명 보기" /> : null}
+          작업<InfoTip text="계획은 취소를 뺀 작업 수예요 · 막대는 계획 중 게시된 비율" label="작업 카드 설명 보기" />
         </p>
-        <p className="mt-1 text-[26px] font-bold leading-tight tabular-nums">
-          {stats.posted} <span className="text-content font-normal text-x-muted">/ {stats.planned}</span>
-        </p>
-        <p className="mt-1 text-ui text-x-secondary">게시</p>
+        <div className="mt-1 flex items-start gap-4">
+          <div>
+            <p className="text-[26px] font-bold leading-tight tabular-nums">
+              {stats.posted} <span className="text-content font-normal text-x-muted">/ {stats.planned}</span>
+            </p>
+            <p className="mt-1 text-ui text-x-secondary">게시 / 계획</p>
+          </div>
+          <div className="border-l border-x-border pl-4">
+            <p className={`text-[20px] font-bold leading-[1.3] tabular-nums ${cancelledCount ? 'text-x-secondary' : 'text-x-muted'}`}>{cancelledCount}</p>
+            <p className="mt-1 text-ui text-x-secondary">취소</p>
+          </div>
+        </div>
         <div className="mt-2 h-1.5 rounded bg-x-border">
           <div className="h-full rounded bg-x-text" style={{ width: `${postedPct}%` }} />
         </div>

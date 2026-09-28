@@ -58,8 +58,8 @@ function ClientsSplit() {
     if (!loaded || loadErr || rows.length === 0 || selected) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 폴백 안내는 URL 교체와 함께 1회 설정 (기존 코드베이스 관례)
     if (urlId) setNotice('링크가 가리키는 클라이언트를 찾을 수 없어 첫 번째 클라이언트를 표시했어요.');
-    router.replace(`${pathname}?client=${rows[0].client.id}`);
-  }, [loaded, loadErr, rows, selected, urlId, pathname, router]);
+    window.history.replaceState(null, '', `${pathname}?client=${rows[0].client.id}`);
+  }, [loaded, loadErr, rows, selected, urlId, pathname]);
 
   // 탭 닫기·새로고침 유실 방지 (페이지 내 전환은 selectClient 모달이 담당)
   useEffect(() => {
@@ -78,9 +78,16 @@ function ClientsSplit() {
     return true;
   }), []);
 
+  // 클라이언트 전환은 서버를 거치지 않는다(koo 09-28 '누르면 바로 안 넘어감', 캠페인 목록과 같은 원인·같은 해법 —
+  // campaigns/flow/page.tsx setUrlId). router.replace는 ?client=만 바꿔도 서버 왕복(로그인 확인 + 화면 조각)을 기다린 뒤
+  // 화면을 바꾸고 그동안 아무 표시가 없다. 이 화면은 데이터를 브라우저에서 읽으므로(/api/clients) 왕복이 필요 없다 —
+  // 기본 history API는 Next 라우터와 연동돼 useSearchParams가 그대로 따라온다.
+  function setUrlClient(id: string | null) {
+    window.history.replaceState(null, '', id ? `${pathname}?client=${id}` : pathname);
+  }
   function applySelect(id: string) {
     setNotice('');
-    router.replace(`${pathname}?client=${id}`);
+    setUrlClient(id);
   }
   function selectClient(id: string) {
     if (id === urlId) return;
@@ -129,7 +136,7 @@ function ClientsSplit() {
 
   // 삭제 후: 쿼리를 비우면 폴백 effect가 첫 번째(남은 것)를 안내 없이 선택한다
   function handleDeleted() {
-    router.replace(pathname);
+    setUrlClient(null);
     load();
   }
 

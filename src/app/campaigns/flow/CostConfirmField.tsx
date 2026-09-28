@@ -36,7 +36,9 @@ export function CostConfirmField({
 }) {
   const profile = suggestTaskCost(option?.pricing, type);
   const [amount, setAmount] = useState(() => String(value?.amount ?? profile?.amount ?? ''));
-  const [currency, setCurrency] = useState<Currency>(() => value?.currency ?? profile?.currency ?? 'KRW');
+  // 기본 통화는 엔(koo 09-28) — 저장된 값 → 프로필 단가의 통화 → 엔 순. 프로필의 '통화 없음 = 원' 규칙(normalizeCurrency)은
+  // 저장된 단가의 뜻이라 바꾸지 않는다 — 여기는 둘 다 없을 때 처음 보이는 선택만이다.
+  const [currency, setCurrency] = useState<Currency>(() => value?.currency ?? profile?.currency ?? 'JPY');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');   // '✓ 확정' 옆 한 줄 — 프로필 갱신 결과·명부 밖 사유·통화 불일치 사유
@@ -62,7 +64,7 @@ export function CostConfirmField({
         {value ? (
           <p className="flex h-10 items-center text-content tabular-nums">{formatAmount(value.amount, value.currency)}</p>
         ) : (
-          <input disabled placeholder="₩" aria-label={label}
+          <input disabled placeholder="¥" aria-label={label}
                  className="h-10 w-full rounded-md border border-dashed border-x-border-strong bg-x-surface px-3 text-content text-x-muted" />
         )}
         {disabledReason && <p className="mt-1 text-ui text-x-muted">{disabledReason}</p>}

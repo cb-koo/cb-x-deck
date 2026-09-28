@@ -74,7 +74,7 @@ type CicRow = { id: string; campaign_id: string; influencer_handle: string; extr
 
 // totalsFor의 캠페인별 결과 — money(통화별 합계)에 수수료 합계(원화, §3-2 예상치)를 더한 것.
 // feeUnknown은 결제 수단이 없어 수수료를 구하지 못한 작업 수(화면이 "수수료 미확인 N건" 문구로 밝힌다).
-interface CampaignTotals { money: MoneyByCurrency; spent: MoneyByCurrency; feeKrw: number; feeUnknown: number }   // spent = 게시 확인된 작업 비용(집행)
+interface CampaignTotals { money: MoneyByCurrency; spent: MoneyByCurrency; feeKrw: number; feeUnknown: number; spentFeeKrw: number }   // spent = 게시 확인된 작업 비용(집행)
 
 // jsonb 모양은 보증되지 않는다 — 검증 통과분만(draftStore.costOf와 같은 태도)
 function extraCostsOf(v: unknown): ExtraCost[] {
@@ -115,7 +115,7 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
     ) t group by campaign_id, currency`;
   for (const r of rows) {
     if (!isCurrency(r.currency)) continue; // 알 수 없는 통화는 합계에 섣불리 넣지 않는다
-    const t = out.get(r.campaign_id) ?? { money: {}, spent: {}, feeKrw: 0, feeUnknown: 0 };
+    const t = out.get(r.campaign_id) ?? { money: {}, spent: {}, feeKrw: 0, feeUnknown: 0, spentFeeKrw: 0 };
     t.money[r.currency] = (t.money[r.currency] ?? 0) + Number(r.amount); // sum(bigint)는 문자열로 온다
     out.set(r.campaign_id, t);
   }
@@ -128,7 +128,7 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
       left join influencer i on lower(i.handle) = lower(t.influencer_handle)
      where t.campaign_id = any(${ids}::uuid[]) and t.cost is not null and t.cancelled_at is null`;
   for (const r of feeRows) {
-    const t = out.get(r.campaign_id) ?? { money: {}, spent: {}, feeKrw: 0, feeUnknown: 0 };
+    const t = out.get(r.campaign_id) ?? { money: {}, spent: {}, feeKrw: 0, feeUnknown: 0, spentFeeKrw: 0 };
     const parsed = parseTaskCost(r.cost ?? null);
     // 비용 모양이 깨진 건도 '수수료 미확인'으로 센다 — 단가에는 SQL 캐스팅으로 잡히는데 여기서 조용히 빠지면
     // 화면의 "미확인 N건은 단가만 넣었어요"가 실제와 어긋난다.
@@ -139,7 +139,9 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
     const method = taskPaymentMethod(methods, r.payment_method_id);   // 작업이 고른 수단(060) — 정산 후보와 같은 규칙
     if (!method) { t.feeUnknown += 1; out.set(r.campaign_id, t); continue; }
     const money = computeMoney(parsed.value, method.currency, method.fee, JPY_TO_KRW);
-    t.feeKrw += method.currency === 'JPY' ? money.feeAmount * JPY_TO_KRW : money.feeAmount;
+    const feeKrw = method.currency === 'JPY' ? money.feeAmount * JPY_TO_KRW : money.feeAmount;
+    t.feeKrw += feeKrw;
+    if (r.posted) t.spentFeeKrw += feeKrw;   // 집행에 붙는 수수료 — '수수료 포함' 기준의 집행
     out.set(r.campaign_id, t);
   }
   return out;
@@ -151,13 +153,20 @@ async function totalsFor(sql: postgres.Sql, ids: string[]): Promise<Map<string, 
 export async function spendByPeriods(
   sql: postgres.Sql, clientId: string, periods: Array<{ id: string; startsOn: string; endsOn: string }>,
 ): Promise<Map<string, PeriodSpend & { spanning: SpanningCampaign[] }>> {
-  const camps = await sql<Array<{ id: string; starts_on: string; ends_on: string }>>`
-    select id, to_char(starts_on, 'YYYY-MM-DD') as starts_on, to_char(ends_on, 'YYYY-MM-DD') as ends_on
+  const camps = await sql<Array<{ id: string; name: string; starts_on: string; ends_on: string }>>`
+    select id, name, to_char(starts_on, 'YYYY-MM-DD') as starts_on, to_char(ends_on, 'YYYY-MM-DD') as ends_on
       from campaign where client_id = ${clientId}`;
   const totals = await totalsFor(sql, camps.map((c) => c.id));
+  // 캠페인별 작업 수(펼친 줄의 '게시 5/5 · 취소 3') — 계획은 취소 제외, 캠페인 화면 작업 카드와 같은 기준
+  const counts = new Map((await sql<Array<{ campaign_id: string; planned: number; posted: number; cancelled: number }>>`
+    select campaign_id,
+           count(*) filter (where cancelled_at is null)::int as planned,
+           count(*) filter (where cancelled_at is null and posted_at is not null)::int as posted,
+           count(*) filter (where cancelled_at is not null)::int as cancelled
+      from campaign_task where campaign_id = any(${camps.map((c) => c.id)}::uuid[]) group by campaign_id`).map((r) => [r.campaign_id, r]));
   const out = new Map<string, PeriodSpend & { spanning: SpanningCampaign[] }>();
   for (const period of periods) {
-    let cur: PeriodSpend = { total: {}, spent: {}, campaignCount: 0, feeKrw: 0, feeUnknown: 0 };
+    let cur: PeriodSpend = { total: {}, spent: {}, campaignCount: 0, feeKrw: 0, feeUnknown: 0, spentFeeKrw: 0, campaigns: [] };
     const spanning: SpanningCampaign[] = [];
     for (const c of camps) {
       if (c.starts_on < period.startsOn || c.starts_on > period.endsOn) continue;
@@ -168,6 +177,12 @@ export async function spendByPeriods(
         campaignCount: cur.campaignCount + 1,
         feeKrw: cur.feeKrw + (t?.feeKrw ?? 0),
         feeUnknown: cur.feeUnknown + (t?.feeUnknown ?? 0),
+        spentFeeKrw: (cur.spentFeeKrw ?? 0) + (t?.spentFeeKrw ?? 0),
+        campaigns: [...(cur.campaigns ?? []), {
+          id: c.id, name: c.name, startsOn: c.starts_on, endsOn: c.ends_on,
+          total: t?.money ?? {}, spent: t?.spent ?? {}, feeKrw: t?.feeKrw ?? 0, spentFeeKrw: t?.spentFeeKrw ?? 0,
+          planned: counts.get(c.id)?.planned ?? 0, posted: counts.get(c.id)?.posted ?? 0, cancelled: counts.get(c.id)?.cancelled ?? 0,
+        }],
       };
       if (c.ends_on > period.endsOn) spanning.push({ id: c.id, endsOn: c.ends_on });
     }

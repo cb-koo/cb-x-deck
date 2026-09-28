@@ -15,7 +15,17 @@ export interface BudgetPeriod { id: string; startsOn: string; endsOn: string; am
 export type BudgetSource = 'period' | 'none';
 
 // spent = 그중 게시 확인된 작업 비용(집행) — total(계획)의 부분집합. 추가 비용은 게시와 무관한 돈이라 total에만 든다(koo 09-27).
-export interface PeriodSpend { total: MoneyByCurrency; spent: MoneyByCurrency; campaignCount: number; feeKrw: number; feeUnknown: number }
+export interface PeriodSpend {
+  total: MoneyByCurrency; spent: MoneyByCurrency; campaignCount: number; feeKrw: number; feeUnknown: number;
+  spentFeeKrw?: number;                  // 집행(게시된 작업)에 붙는 송금 수수료 — '수수료 포함' 기준의 집행
+  campaigns?: PeriodCampaignSpend[];     // 이 기간에 귀속된 캠페인별 몫(koo 09-28 예산 기간 펼치기)
+}
+// 기간에 귀속된 캠페인 하나의 몫 — total·spent·수수료는 totalsFor와 같은 정의라 합하면 기간 값과 같다.
+export interface PeriodCampaignSpend {
+  id: string; name: string; startsOn: string; endsOn: string;
+  total: MoneyByCurrency; spent: MoneyByCurrency; feeKrw: number; spentFeeKrw: number;
+  planned: number; posted: number; cancelled: number;   // 작업 수 — 계획(취소 제외)·게시·취소
+}
 // 기간에 귀속된 캠페인 중 이 기간 종료일 뒤까지 이어지는 것들 — 초과 원인 배지용(스펙 §4, §7)
 export interface SpanningCampaign { id: string; endsOn: string }
 
@@ -48,6 +58,14 @@ export interface PeriodRow {
   // 지출 기준 토글 — 단가(spentKrw)는 그대로 두고, 수수료 포함 값은 화면이 remainingOf(amountKrw, spentWithFeeKrw)로 다시 낸다
   spentWithFeeKrw: number; feeKrw: number; feeUnknown: number;
   badge: OverageBadge | null;            // 단가 기준 remaining으로 계산 — 토글해도 안 바뀐다
+  execKrw: number; execWithFeeKrw: number;   // 집행(게시 확인된 작업 비용) — 지출(계획) 아래 작은 줄
+  campaigns: PeriodCampaignRow[];        // 펼치면 보이는 캠페인 줄 — 최근 시작한 것이 위
+}
+export interface PeriodCampaignRow {
+  id: string; name: string; startsOn: string; endsOn: string;
+  plannedKrw: number; plannedWithFeeKrw: number; execKrw: number; execWithFeeKrw: number;
+  planned: number; posted: number; cancelled: number;
+  spansTo: string | null;                // 기간 종료일 뒤까지 이어지면 캠페인 종료일(이름 옆 'M/D까지')
 }
 export function periodRow(period: BudgetPeriod, spend: PeriodSpend, spanning: SpanningCampaign[]): PeriodRow {
   const { krw, jpyIncluded } = toKrw(spend.total);
@@ -56,6 +74,16 @@ export function periodRow(period: BudgetPeriod, spend: PeriodSpend, spanning: Sp
     period, spentKrw: krw, jpyIncluded, campaignCount: spend.campaignCount,
     remaining, spentWithFeeKrw: krw + spend.feeKrw, feeKrw: spend.feeKrw, feeUnknown: spend.feeUnknown,
     badge: overageBadge(remaining, spanning),
+    execKrw: toKrw(spend.spent).krw, execWithFeeKrw: toKrw(spend.spent).krw + (spend.spentFeeKrw ?? 0),
+    campaigns: (spend.campaigns ?? []).map((c) => {
+      const plannedKrw = toKrw(c.total).krw; const execKrw = toKrw(c.spent).krw;
+      return {
+        id: c.id, name: c.name, startsOn: c.startsOn, endsOn: c.endsOn,
+        plannedKrw, plannedWithFeeKrw: plannedKrw + c.feeKrw, execKrw, execWithFeeKrw: execKrw + c.spentFeeKrw,
+        planned: c.planned, posted: c.posted, cancelled: c.cancelled,
+        spansTo: c.endsOn > period.endsOn ? c.endsOn : null,
+      };
+    }).sort((a, b) => (a.startsOn < b.startsOn ? 1 : a.startsOn > b.startsOn ? -1 : a.name.localeCompare(b.name))),
   };
 }
 

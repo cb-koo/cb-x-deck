@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button, PANEL_SPLIT, PANEL_TITLE } from '@/components/ui';
 import { InfoTip } from '@/components/InfoTip';
@@ -205,11 +206,19 @@ function PeriodRowView({ clientId, row, basis, editing, onEdit, onClose, onChang
     } finally { busy.current = false; }
   }
 
-  const spentKrw = basis === 'unit' ? row.spentKrw : row.spentWithFeeKrw;
-  const remaining = basis === 'unit' ? row.remaining : remainingOf(period.amountKrw, row.spentWithFeeKrw);
+  // 실 지출(집행) = 게시 확인된 작업 비용이 주인공, 계획(취소 뺀 전체 작업 + 추가 비용)은 참고용 작은 회색 줄(koo 09-28).
+  // 계획이 집행과 같으면(끝난 기간 대부분) 참고 줄을 숨긴다 — 같은 숫자를 두 번 보여주지 않는다.
+  const fee = basis === 'withFee';
+  const planKrw = fee ? row.spentWithFeeKrw : row.spentKrw;
+  const execKrw = fee ? row.execWithFeeKrw : row.execKrw;
+  const remaining = remainingOf(period.amountKrw, execKrw);                 // 지금 남은 예산
+  const remainingPlan = remainingOf(period.amountKrw, planKrw);             // 계획대로 다 쓰면
+  const hasPending = planKrw !== execKrw;
   const over = remaining < 0;
+  const [open, setOpen] = useState(false);
 
   return (
+    <>
     <tr className="border-t border-x-border align-top">
       <td className="py-3.5 pr-4">
         {editing ? (
@@ -253,22 +262,58 @@ function PeriodRowView({ clientId, row, basis, editing, onEdit, onClose, onChang
         )}
       </td>
       <td className="py-3.5 pr-4 tabular-nums">
-        {formatAmount(spentKrw, 'KRW')}
-        <span className="ml-1.5 text-x-muted">· {row.campaignCount === 0 ? '캠페인 없음' : `캠페인 ${row.campaignCount}개`}</span>
+        {formatAmount(execKrw, 'KRW')}
+        {row.campaignCount === 0
+          ? <span className="ml-1.5 text-x-muted">· 캠페인 없음</span>
+          : (
+            <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
+                    className="ml-1.5 text-x-blue-text hover:underline">
+              · 캠페인 {row.campaignCount}개 {open ? '▴' : '▾'}
+            </button>
+          )}
+        {hasPending && <p className="text-ui text-x-muted">계획 {formatAmount(planKrw, 'KRW')}</p>}
         {row.jpyIncluded > 0 && (
           <p className="text-ui text-x-muted">엔화 {formatAmount(row.jpyIncluded, 'JPY')} 포함({formatAmount(row.jpyIncluded * JPY_TO_KRW, 'KRW')}으로 환산)</p>
         )}
-        {basis === 'withFee' && (row.feeKrw > 0 || row.feeUnknown > 0) && (
+        {fee && (row.feeKrw > 0 || row.feeUnknown > 0) && (
           <p className="text-ui text-x-muted">
-            송금 수수료 {formatAmount(row.feeKrw, 'KRW')} 포함
+            송금 수수료 포함
             {row.feeUnknown > 0 && ` · 수수료 미확인 ${row.feeUnknown}건은 단가만 넣었어요`}
           </p>
         )}
       </td>
       <td className={`py-3.5 tabular-nums ${over ? 'font-bold text-red-700' : ''}`}>
         {budgetJudgment(remaining)}
+        {hasPending && <p className="text-ui font-normal text-x-muted">계획대로 쓰면 {budgetJudgment(remainingPlan)}</p>}
         {row.badge && <p className="text-ui font-normal text-x-secondary">{badgeText(row.badge)}</p>}
       </td>
     </tr>
+    {/* 펼친 캠페인 줄 — 부모와 같은 4칸을 따른다: 기간 칸에 이름·기간·게시 진행, 지출 칸에 집행(+ 계획 참고). 예산·잔액은 캠페인 값이 없어 비운다 */}
+    {open && row.campaigns.map((c, i) => {
+      const cPlan = fee ? c.plannedWithFeeKrw : c.plannedKrw;
+      const cExec = fee ? c.execWithFeeKrw : c.execKrw;
+      const last = i === row.campaigns.length - 1;
+      return (
+        <tr key={c.id} className={`border-t border-x-border/60 bg-x-surface align-top text-ui ${last ? 'border-b border-x-border' : ''}`}>
+          <td className="py-2.5 pl-4 pr-4">
+            <Link href={`/campaigns/flow?id=${c.id}`} className="text-content text-x-text hover:underline">{c.name}</Link>
+            {c.spansTo && <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-px text-ui text-amber-700">{shortMd(c.spansTo)}까지</span>}
+            <p className="text-x-muted">
+              {shortMd(c.startsOn)}~{shortMd(c.endsOn)} · 게시 {c.posted}/{c.planned}{c.cancelled ? ` · 취소 ${c.cancelled}` : ''}
+            </p>
+          </td>
+          <td />
+          <td className="py-2.5 pr-4 tabular-nums">
+            <span className="text-content">{formatAmount(cExec, 'KRW')}</span>
+            {cPlan !== cExec && <p className="text-x-muted">계획 {formatAmount(cPlan, 'KRW')}</p>}
+          </td>
+          <td />
+        </tr>
+      );
+    })}
+    </>
   );
 }
+
+// 'M/D' — 캠페인 줄의 기간·'M/D까지' 표시(시간대 시프트 없는 문자열 슬라이스)
+function shortMd(d: string): string { return `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`; }

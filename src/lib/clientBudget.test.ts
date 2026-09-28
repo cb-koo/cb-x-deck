@@ -119,3 +119,22 @@ test('6-1) budgetBreakdown — 예산 = 집행 + 예정 + 남음, 잔액 두 지
   assert.equal(over.remainingAfterPlan, -300_000);
   assert.equal(over.othersPending, 300_000);
 });
+
+test('6-2) periodRow — 집행(execKrw)과 캠페인 줄: 최근 시작이 위, 기간 넘는 캠페인은 spansTo, 수수료 포함 값', () => {
+  const p = period('p9', '2026-09-01', '2026-09-30', 2_500_000);
+  const c = (id: string, name: string, startsOn: string, endsOn: string, plan: number, exec: number, feeAll = 0, feeExec = 0) =>
+    ({ id, name, startsOn, endsOn, total: { KRW: plan }, spent: { KRW: exec }, feeKrw: feeAll, spentFeeKrw: feeExec, planned: 5, posted: 4, cancelled: 1 });
+  const r = periodRow(p, spend({
+    total: { KRW: 750_000 }, spent: { KRW: 650_000 }, campaignCount: 2, feeKrw: 3_000, spentFeeKrw: 2_000,
+    campaigns: [c('a', 'A_9월1주차', '2026-08-31', '2026-09-06', 400_000, 400_000), c('b', 'B_9월5주차', '2026-09-28', '2026-10-04', 350_000, 250_000, 3_000, 2_000)],
+  }), []);
+  assert.equal(r.execKrw, 650_000);
+  assert.equal(r.execWithFeeKrw, 652_000);
+  assert.deepEqual(r.campaigns.map((x) => x.id), ['b', 'a']);            // 최근 시작이 위
+  assert.equal(r.campaigns[0].spansTo, '2026-10-04');                     // 기간 종료일(9/30) 뒤까지
+  assert.equal(r.campaigns[1].spansTo, null);
+  assert.deepEqual([r.campaigns[0].plannedKrw, r.campaigns[0].execKrw, r.campaigns[0].plannedWithFeeKrw, r.campaigns[0].execWithFeeKrw], [350_000, 250_000, 353_000, 252_000]);
+  // 캠페인 줄 합 = 기간 값(같은 계산)
+  assert.equal(r.campaigns.reduce((n, x) => n + x.execKrw, 0), r.execKrw);
+  assert.equal(r.campaigns.reduce((n, x) => n + x.plannedKrw, 0), r.spentKrw);
+});

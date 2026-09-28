@@ -270,10 +270,14 @@ export function DraftGenerate({
     '옵션에서 고른 시술',
     bannedCount ? `금지 표현 ${bannedCount}개${folded.constraintsOn ? '' : '(지금은 끔)'}` : null,
   ].filter(Boolean).join(' · ');
-  const quoteLine = !quoteTarget ? null
-    : quoteTarget.unknownLink ? <><b className="font-semibold text-x-text">인용할 글</b> — 만들 때 대상 작업의 게시 링크를 확인해 그 글에 덧붙여 써요</>
-    : quoteTarget.tweetId ? <><b className="font-semibold text-x-text">인용할 글</b> {quoteTarget.label} — 이 글에 덧붙여 써요</>
-    : <><b className="font-semibold text-x-text">인용할 글 미정</b> — 인용RT 대상이 정해지면 그 글에 덧붙여 써요</>;
+  // 인용할 글은 '참고할 글'과 역할이 다르다(koo 09-28) — 참고할 글은 말투·구성의 본보기, 인용할 글은 내용에 덧붙여 쓸 대상
+  // (generatePrompt.quoteTargetPromptBlock). 같은 상자에 두면 추가 버튼으로 넣는 글과 같은 종류처럼 보여 섹션을 따로 둔다.
+  // 이 화면에서 고치는 값이 아니다 — 작업의 인용RT 대상에서 정한다.
+  const quoteBody = !quoteTarget ? null
+    : quoteTarget.unknownLink ? <>만들 때 대상 작업의 게시 링크를 확인해 그 글에 덧붙여 써요</>
+    : quoteTarget.tweetId ? <><b className="font-semibold text-x-text">{quoteTarget.label}</b>
+        {' · '}<a href={`https://x.com/i/status/${quoteTarget.tweetId}`} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline">게시물 보기 ↗</a></>
+    : <>아직 정해지지 않았어요 — 작업의 인용RT 대상에서 정하면 그 글에 덧붙여 써요</>;
   const secHead = (title: string, right: string, desc: string) => (
     <>
       <div className="flex items-baseline justify-between"><p className="text-content font-bold">{title}</p><span className="text-ui text-x-muted">{right}</span></div>
@@ -333,12 +337,16 @@ export function DraftGenerate({
   return (
     <div>
       <div className="space-y-5">
+        {quoteBody && (
+          <section>
+            {secHead('인용할 글', '작업에서 정해요', 'AI가 이 글의 내용에 덧붙여 인용RT 원고를 써요')}
+            <p className="flex gap-2 rounded-xl border border-x-border bg-x-surface px-3 py-2.5 text-ui text-x-secondary"><span aria-hidden>🔗</span><span>{quoteBody}</span></p>
+          </section>
+        )}
+
         <section>
           {secHead('참고할 글', ordinaryRefs.length ? `${ordinaryRefs.length}개` : '선택', 'AI가 이 글들의 말투·구성을 참고해 써요')}
           <div className="overflow-hidden rounded-xl border border-x-border">
-            {quoteLine && (
-              <p className="flex gap-2 border-b border-x-border bg-x-surface px-3 py-2.5 text-ui text-x-secondary"><span aria-hidden>🔗</span><span>{quoteLine}</span></p>
-            )}
             {ordinaryRefs.length === 0
               ? <p className="border-b border-x-border/60 px-3 py-3.5 text-center text-ui text-x-muted">아직 고른 글이 없어요</p>
               : ordinaryRefs.map((r) => (

@@ -94,17 +94,17 @@ export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, 
           </div>
         </div>
         <div className="mt-1 grid grid-cols-3 gap-4">
+          {/* 비율은 숫자 옆 괄호가 아니라 아래 설명 줄로 — 3등분 칸에서 26px 숫자 + 괄호가 옆 칸을 밀었다(09-28 확인) */}
           {([
-            ['조회(CPV)', stats.perf.views, stats.cpvKrw !== null ? `${stats.cpvKrw.toFixed(1)}원` : null],
-            ['좋아요(좋아요율)', stats.perf.likes, stats.likeRate !== null ? formatPct(stats.likeRate, 1) : null],
-            ['북마크(북마크율)', stats.perf.bookmarks, stats.bookmarkRate !== null ? formatPct(stats.bookmarkRate, 1) : null],
+            ['조회', stats.perf.views, stats.cpvKrw !== null ? `CPV ${stats.cpvKrw.toFixed(1)}원` : null],
+            ['좋아요', stats.perf.likes, stats.likeRate !== null ? `좋아요율 ${formatPct(stats.likeRate, 1)}` : null],
+            ['북마크', stats.perf.bookmarks, stats.bookmarkRate !== null ? `북마크율 ${formatPct(stats.bookmarkRate, 1)}` : null],
           ] as const).map(([label, v, sub]) => (
             <div key={label} className="min-w-0">
-              <p className="whitespace-nowrap text-[26px] font-bold leading-tight tabular-nums">
+              <p className="text-[26px] font-bold leading-tight tabular-nums">
                 {v !== null ? v.toLocaleString('ko-KR') : <span className="text-x-muted">—</span>}
-                {sub && <span className="text-content font-normal text-x-muted">({sub})</span>}
               </p>
-              <p className="mt-1 text-ui text-x-secondary">{label}</p>
+              <p className="mt-1 truncate text-ui text-x-secondary">{label}{sub && <span className="text-x-muted"> · {sub}</span>}</p>
             </div>
           ))}
         </div>

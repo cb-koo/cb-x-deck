@@ -67,17 +67,15 @@ export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, 
         <p className="flex items-center gap-1.5 text-ui text-x-secondary">
           작업<InfoTip text="계획은 취소를 뺀 작업 수예요 · 막대는 계획 중 게시된 비율" label="작업 카드 설명 보기" />
         </p>
-        <div className="mt-1 flex items-start gap-4">
-          <div>
-            <p className="text-[26px] font-bold leading-tight tabular-nums">
-              {stats.posted} <span className="text-content font-normal text-x-muted">/ {stats.planned}</span>
-            </p>
-            <p className="mt-1 text-ui text-x-secondary">게시 / 계획</p>
-          </div>
-          <div className="border-l border-x-border pl-4">
-            <p className={`text-[20px] font-bold leading-[1.3] tabular-nums ${cancelledCount ? 'text-x-secondary' : 'text-x-muted'}`}>{cancelledCount}</p>
-            <p className="mt-1 text-ui text-x-secondary">취소</p>
-          </div>
+        {/* 2×2 격자 — 숫자 줄은 밑줄(baseline)을 맞추고, 취소는 막대 오른쪽 끝에 맞춰 붙인다(koo 09-28 '균형·비율').
+            게시가 주인공이라 26px, 취소는 한 단계 작게·회색. 라벨 줄도 같은 높이에서 좌우로 나뉜다. */}
+        <div className="mt-1 grid grid-cols-[1fr_auto] items-baseline gap-x-4">
+          <p className="text-[26px] font-bold leading-tight tabular-nums">
+            {stats.posted} <span className="text-content font-normal text-x-muted">/ {stats.planned}</span>
+          </p>
+          <p className={`text-right text-[20px] font-bold leading-tight tabular-nums ${cancelledCount ? 'text-x-secondary' : 'text-x-muted'}`}>{cancelledCount}</p>
+          <p className="mt-1 text-ui text-x-secondary">게시 / 계획</p>
+          <p className="mt-1 text-right text-ui text-x-secondary">취소</p>
         </div>
         <div className="mt-2 h-1.5 rounded bg-x-border">
           <div className="h-full rounded bg-x-text" style={{ width: `${postedPct}%` }} />

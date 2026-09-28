@@ -175,7 +175,8 @@ export function DraftWrite({ host, author, clientId, onAttached, onAttachFailed,
   }
 
   const ok = composerCanSave(posts);
-  const overLimit = composerOverLimit(posts);
+  // 블루마크 계정은 긴 글을 올릴 수 있어 경고하지 않는다(koo 09-28 — 별도 상한도 두지 않는다)
+  const overLimit = !author?.blueVerified && composerOverLimit(posts);
   // 아직 아무것도 손대지 않은 첫 화면(칸 하나·빈 글·이미지 없음)에서는 "빈 칸이 있어요"를
   // 띄우지 않는다(리뷰 minor) — 사실이지만 가만히 있는 화면에 오류처럼 읽힌다. untouched는 이 조건(칸
   // 하나·빈 글·이미지 없음) 그 자체를 매번 다시 계산한다 — 뭔가 쳤다가도 빈 칸 하나로 완전히 되돌리면

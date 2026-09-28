@@ -93,7 +93,8 @@ export function XComposer({ handle, author, posts, onChange, onPickImages, disab
       {posts.map((p, i) => {
         const len = xWeightedLength(p.text);
         const remain = X_MAX_WEIGHTED - len;
-        const over = remain < 0;
+        // 블루마크 계정은 280을 넘겨도 X에 올릴 수 있다 — 넘음 표시(빨강·음수·'N자 넘음')를 하지 않는다(koo 09-28)
+        const over = !author?.blueVerified && remain < 0;
         const full = p.media.length >= MAX_MEDIA_PER_POST;
         const media = signedPosts[i]?.media ?? p.media;
         const isActive = i === activeIdx;
@@ -167,7 +168,7 @@ export function XComposer({ handle, author, posts, onChange, onPickImages, disab
                   {p.media.length > 0 && <span className="text-ui tabular-nums text-x-muted">{p.media.length}/{MAX_MEDIA_PER_POST}</span>}
                   <span className="ml-auto flex shrink-0 items-center gap-1.5">
                     {/* 원형 카운터 — 남은 글자가 20 이하면 숫자를 같이 보여준다(X와 같은 규칙) */}
-                    <span className={`text-ui tabular-nums ${over ? 'text-red-600' : 'text-x-muted'}`}>{remain <= 20 ? remain : ''}</span>
+                    <span className={`text-ui tabular-nums ${over ? 'text-red-600' : 'text-x-muted'}`}>{remain <= 20 && (over || remain >= 0) ? remain : ''}</span>
                     <svg viewBox="0 0 20 20" className="h-6 w-6 -rotate-90" aria-hidden>
                       <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" className="text-x-border" strokeWidth="2" />
                       <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2"

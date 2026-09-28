@@ -16,6 +16,8 @@ import { RefPickerSheet, MAX_REFS_UI } from '@/components/RefPickerSheet';
 import { AddByLinkModal, type AddedByLink } from '@/components/AddByLinkModal';
 import { LAST_WS_KEY } from '@/components/GlobalShell';
 import { Button } from '@/components/ui';
+import { Avatar } from '@/components/Avatar';
+import { InfoTip } from '@/components/InfoTip';
 
 // 원고 모드 · AI로 만들기(C 원고 모드 Task 3) — 패널 안에서 시안을 만들고 하나를 그 작업에 붙인다.
 // 첫 화면은 매번 바뀌는 레퍼런스·방향성 둘뿐(브리프 §5-1). 시술·형식·제약은 ▸ 설정으로 접고 클라이언트별
@@ -260,127 +262,143 @@ export function DraftGenerate({
     if (!(await onAttached(r.data))) { setAttaching(null); show('붙였어요 — 화면을 새로고침해 주세요'); }
   }
 
-  const procNames = procedures.filter((p) => folded.procedureIds.includes(p.id)).map((p) => p.name);
-  const settingsSummary = [
-    procNames.length ? `시술 ${procNames.join('·')}` : '시술 없음',
-    folded.format === 'single' ? '단문' : '스레드',
-    `시안 ${count}개`,
-    // 금지 표현이 0건이면 켜도 프롬프트에 실리는 게 없다 — 적용되지 않는 보호를 적용됐다고 말하지 않는다.
-    // 모르는 동안(bannedCount === null)에도 항목 자체를 뺀다 — 켰다고도 껐다고도 말하지 않는다(3c 리뷰 지적 2).
-    bannedCount ? `제약 ${folded.constraintsOn ? '켬' : '끔'}` : null,
+  // 배치(koo 09-28 v4) — 섹션마다 제목(오른쪽 '선택'·개수) → 한 줄 설명 → 내용 상자. 옵션은 접지 않는다(세 줄뿐이라
+  // 접으면 요약 줄이 실제 값과 두 번 나왔다). 파랑은 실행 버튼에만 — 선택 토글은 검정(파랑 채운 '단문'이 실행처럼 보였다).
+  const clientName = clientData?.client.name ?? null;
+  const reflectTip = [
+    clientName ? `${clientName} 소개·의사 정보` : null,
+    '옵션에서 고른 시술',
+    bannedCount ? `금지 표현 ${bannedCount}개${folded.constraintsOn ? '' : '(지금은 끔)'}` : null,
   ].filter(Boolean).join(' · ');
+  const quoteLine = !quoteTarget ? null
+    : quoteTarget.unknownLink ? <><b className="font-semibold text-x-text">인용할 글</b> — 만들 때 대상 작업의 게시 링크를 확인해 그 글에 덧붙여 써요</>
+    : quoteTarget.tweetId ? <><b className="font-semibold text-x-text">인용할 글</b> {quoteTarget.label} — 이 글에 덧붙여 써요</>
+    : <><b className="font-semibold text-x-text">인용할 글 미정</b> — 인용RT 대상이 정해지면 그 글에 덧붙여 써요</>;
+  const secHead = (title: string, right: string, desc: string) => (
+    <>
+      <div className="flex items-baseline justify-between"><p className="text-content font-bold">{title}</p><span className="text-ui text-x-muted">{right}</span></div>
+      <p className="mb-2.5 text-ui text-x-muted">{desc}</p>
+    </>
+  );
+  const optRow = (label: string, control: React.ReactNode, last = false) => (
+    <div className={`flex min-h-12 items-center justify-between gap-3 px-3 ${last ? '' : 'border-b border-x-border/60'}`}>
+      <span className="text-content">{label}</span>{control}
+    </div>
+  );
+  const optRows: Array<{ label: string; node: React.ReactNode }> = [
+    { label: '형식', node: (
+      <span className="inline-flex overflow-hidden rounded-lg border border-x-border-strong text-ui">
+        {(['single', 'thread'] as const).map((f) => (
+          <button key={f} type="button" aria-pressed={folded.format === f} onClick={() => updateFolded({ ...folded, format: f })}
+                  className={`px-3.5 py-1.5 ${folded.format === f ? 'bg-x-text font-semibold text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
+            {f === 'single' ? '단문' : '스레드'}
+          </button>
+        ))}
+      </span>
+    ) },
+    { label: '시안 수', node: (
+      <span className="inline-flex items-center rounded-lg border border-x-border-strong text-ui">
+        <button type="button" aria-label="시안 하나 줄이기" disabled={count <= 1} onClick={() => setCount(Math.max(1, count - 1))} className="px-3 py-1.5 text-x-secondary hover:bg-x-hover disabled:opacity-40">−</button>
+        <span className="min-w-8 border-x border-x-border/60 py-1.5 text-center tabular-nums" aria-live="polite">{count}</span>
+        <button type="button" aria-label="시안 하나 늘리기" disabled={count >= 5} onClick={() => setCount(Math.min(5, count + 1))} className="px-3 py-1.5 text-x-secondary hover:bg-x-hover disabled:opacity-40">+</button>
+      </span>
+    ) },
+  ];
+  if (procedures.length > 0) optRows.push({ label: '시술', node: (
+    <span className="flex flex-wrap justify-end gap-1.5">
+      {procedures.map((p) => {
+        const on = folded.procedureIds.includes(p.id);
+        return (
+          <button key={p.id} type="button" aria-pressed={on}
+                  onClick={() => updateFolded({ ...folded, procedureIds: on ? folded.procedureIds.filter((x) => x !== p.id) : [...folded.procedureIds, p.id] })}
+                  className={`inline-flex h-7 items-center rounded-full border px-3 text-ui ${on ? 'border-x-blue bg-x-blue/10 font-semibold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
+            {on && '✓ '}{p.name}
+          </button>
+        );
+      })}
+    </span>
+  ) });
+  // 금지 표현이 등록돼 있을 때만 — 0건이면 켜도 달라지는 게 없어 줄 자체를 두지 않는다(적용되지 않는 보호를 적용됐다고 말하지 않는다)
+  if (bannedCount) optRows.push({ label: '금지 표현 피하기', node: (
+    <span className="inline-flex overflow-hidden rounded-lg border border-x-border-strong text-ui">
+      {([true, false] as const).map((v) => (
+        <button key={String(v)} type="button" aria-pressed={folded.constraintsOn === v} onClick={() => updateFolded({ ...folded, constraintsOn: v })}
+                className={`px-3.5 py-1.5 ${folded.constraintsOn === v ? 'bg-x-text font-semibold text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
+          {v ? '켬' : '끔'}
+        </button>
+      ))}
+    </span>
+  ) });
 
   return (
-    <div className="space-y-4">
-      {clientData?.client.name && <p className="text-caption text-x-muted">{clientData.client.name} 정보를 반영해서 만들어요</p>}
-
-      <div className="space-y-1">
-        <p className="text-ui text-x-secondary">레퍼런스 <span className="text-x-muted">이 글들을 참고해서 써요</span></p>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {quoteTarget && <span className="rounded-full bg-x-surface px-2.5 py-1 text-ui text-x-secondary">🔗 인용 대상 · {quoteTarget.label}</span>}
-          {ordinaryRefs.map((r) => (
-            <span key={r.tweetId} className="inline-flex items-center gap-1 rounded-full bg-x-surface px-2.5 py-1 text-ui">
-              {r.authorHandle ? `@${r.authorHandle}` : '레퍼런스'}
-              <button type="button" onClick={() => setRefs((cur) => cur.filter((x) => x.tweetId !== r.tweetId))} aria-label="레퍼런스 빼기">✕</button>
-            </span>
-          ))}
-          <Button variant="subtle" className="h-8 px-2.5" onClick={() => setPickerOpen(true)}>+ 보관함에서</Button>
-          <Button variant="subtle" className="h-8 px-2.5" onClick={() => setLinkOpen(true)}>+ 링크</Button>
-        </div>
-        {quoteTarget && <p className="text-caption text-x-muted">{quoteTarget.unknownLink
-          ? '시안을 만들 때 대상 작업의 게시 링크를 확인해요. 링크가 있으면 그 글에 덧붙일 내용을 쓰고, 아직 없으면 다른 참고 자료와 방향성으로 초안을 만들어요.'
-          : quoteTarget.tweetId
-          ? '시안을 만들 때 대상 글을 불러와, 그 글에 덧붙일 내용을 써요. 보관함에 저장하지 않아도 돼요.'
-          : '대상 게시물 링크가 아직 없어요. 지금은 다른 참고 자료와 방향성으로 초안을 만들 수 있어요.'}</p>}
-      </div>
-
-      <label className="block">
-        <span className="text-ui text-x-secondary">방향성</span>
-        <textarea value={direction} onChange={(e) => setDirection(e.target.value)} rows={3}
-                  placeholder="예: 시술 후 3일차 실제 느낌, 담담한 톤, 가격 언급 없이"
-                  className="mt-1 w-full resize-none rounded-md border border-x-border-strong px-3 py-2 text-content outline-none focus:border-x-blue" />
-      </label>
-
-      <details className="group border-t border-x-border pt-3">
-        <summary className="cursor-pointer list-none text-ui text-x-secondary">
-          {/* group-open: 열렸을 때 ▸를 90도 돌려 방향을 맞춘다(리뷰 지적 6 — 열어도 안 돌아가던 것) */}
-          <span className="inline-block transition-transform group-open:rotate-90">▸</span> 설정 <span className="text-x-muted">{settingsSummary}</span>
-        </summary>
-        <div className="mt-3 space-y-3.5">
-          {procedures.length > 0 && (
-            <div>
-              <p className="text-ui text-x-secondary">시술</p>
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {procedures.map((p) => {
-                  const on = folded.procedureIds.includes(p.id);
-                  return (
-                    <button key={p.id} type="button"
-                            onClick={() => updateFolded({ ...folded, procedureIds: on ? folded.procedureIds.filter((x) => x !== p.id) : [...folded.procedureIds, p.id] })}
-                            className={`inline-flex h-7 items-center rounded-full border px-3 text-ui ${on ? 'border-x-blue bg-x-blue/10 font-medium text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
-                      {p.name}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          <div>
-            <p className="text-ui text-x-secondary">형식</p>
-            <div className="mt-1.5 flex gap-1.5">
-              {(['single', 'thread'] as const).map((f) => (
-                <button key={f} type="button" onClick={() => updateFolded({ ...folded, format: f })}
-                        className={`inline-flex h-8 flex-1 items-center justify-center rounded-lg border text-ui ${folded.format === f ? 'border-x-blue bg-x-blue font-bold text-white' : 'border-x-border-strong bg-white text-x-secondary hover:bg-x-hover'}`}>
-                  {f === 'single' ? '단문' : '스레드'}
-                </button>
+    <div>
+      <div className="space-y-5">
+        <section>
+          {secHead('참고할 글', ordinaryRefs.length ? `${ordinaryRefs.length}개` : '선택', 'AI가 이 글들의 말투·구성을 참고해 써요')}
+          <div className="overflow-hidden rounded-xl border border-x-border">
+            {quoteLine && (
+              <p className="flex gap-2 border-b border-x-border bg-x-surface px-3 py-2.5 text-ui text-x-secondary"><span aria-hidden>🔗</span><span>{quoteLine}</span></p>
+            )}
+            {ordinaryRefs.length === 0
+              ? <p className="border-b border-x-border/60 px-3 py-3.5 text-center text-ui text-x-muted">아직 고른 글이 없어요</p>
+              : ordinaryRefs.map((r) => (
+                <div key={r.tweetId} className="flex items-center gap-2.5 border-b border-x-border/60 px-3 py-2.5">
+                  <Avatar url={r.authorAvatarUrl} name={r.authorName || r.authorHandle || '?'} size={28} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-ui font-semibold">{r.authorHandle ? `@${r.authorHandle}` : '레퍼런스'}</span>
+                    <span className="block truncate text-ui text-x-muted">{r.text}</span>
+                  </span>
+                  <button type="button" onClick={() => setRefs((cur) => cur.filter((x) => x.tweetId !== r.tweetId))} aria-label="참고할 글 빼기" className="shrink-0 px-1 text-x-muted hover:text-x-text">✕</button>
+                </div>
               ))}
+            <div className="grid grid-cols-2">
+              <button type="button" onClick={() => setPickerOpen(true)} title="리서치에서 보관함에 저장해 둔 트윗 목록에서 골라요"
+                      className="flex h-11 items-center justify-center gap-1.5 text-ui font-semibold hover:bg-x-hover">📁 보관함에서 고르기</button>
+              <button type="button" onClick={() => setLinkOpen(true)} title="X 게시물 링크를 붙여 넣어 바로 참고할 글로 넣어요"
+                      className="flex h-11 items-center justify-center gap-1.5 border-l border-x-border text-ui font-semibold hover:bg-x-hover">🔗 X 게시물 링크 붙여넣기</button>
             </div>
           </div>
-          <label className="flex items-center justify-between gap-2">
-            <span className="text-ui text-x-secondary">시안 수</span>
-            <span className="flex items-center gap-1.5">
-              <input type="number" min={1} max={5} value={count}
-                     onChange={(e) => setCount(Math.min(5, Math.max(1, Math.trunc(Number(e.target.value) || 1))))}
-                     className="h-9 w-14 rounded-lg border border-x-border-strong bg-white px-2 text-center text-ui outline-none focus:border-x-blue" />
-              <span className="text-ui text-x-secondary">개</span>
-            </span>
-          </label>
-          {/* 금지 표현이 0건이거나 아직 모르면 잠근다(DraftComposer.tsx:224와 같은 규칙) — 켜도 아무 일이
-              없는데(또는 실제론 있는데 없다고 잘못 말하고) 켤 수 있게 두면 지켜지는 줄 알고 안심하게 된다.
-              title만으로 끝내지 않고 보이는 이유를 붙인다(3c 리뷰 지적 2 — 불러오는 중에 '없다'고 말하던 것). */}
-          <label className={`flex items-center gap-2 ${!bannedCount ? 'opacity-60' : ''}`}>
-            <input type="checkbox" checked={folded.constraintsOn} disabled={!bannedCount}
-                   onChange={(e) => updateFolded({ ...folded, constraintsOn: e.target.checked })} className="h-4 w-4 shrink-0" />
-            <span className="text-ui text-x-text">의료광고 제약(금지 표현) 피하기</span>
-          </label>
-          {bannedCount === null && !clientLoadFailed && (
-            <p className="-mt-2 text-caption text-x-muted">클라이언트 정보를 불러오는 중이에요</p>
-          )}
-          {clientLoadFailed && (
-            <p className="-mt-2 text-caption text-x-muted">클라이언트 정보를 불러오지 못했어요 — 새로고침해 주세요</p>
-          )}
-          {bannedCount === 0 && (
-            <p className="-mt-2 text-caption text-x-muted">등록된 금지 표현이 없어 지금은 켜도 달라지는 게 없어요</p>
-          )}
-        </div>
-      </details>
+        </section>
 
-      <div className="flex items-center gap-2 pt-1">
-        <Button variant="primary" disabled={busy || !ok} onClick={() => void run()} className="h-10 px-4 text-content">
-          {busy ? '만드는 중…' : `시안 ${count}개 만들기`}
-        </Button>
-        {/* DraftComposer.tsx(ComposerFooter)와 같은 문구 — 시안 수만큼 비용이 늘어난다는 걸 값으로도 말한다(리뷰 지적 3).
-            소요 시간도 함께 — 만드는 중엔 Esc가 말없이 먹히므로 얼마나 걸리는지 알아야 한다. */}
-        <span className="text-caption text-x-muted">{COST_CAPTION}{count > 1 ? ` × ${count}` : ''} · 15~30초</span>
+        <section>
+          {secHead('방향성', '선택', '무엇을, 어떤 톤으로 쓸지 한두 줄로')}
+          <textarea value={direction} onChange={(e) => setDirection(e.target.value)} rows={3} aria-label="방향성"
+                    placeholder="예: 시술 후 3일차 실제 느낌, 담담한 톤, 가격 언급 없이"
+                    className="w-full resize-none rounded-xl border border-x-border-strong px-3 py-2.5 text-content outline-none focus:border-x-blue" />
+        </section>
+
+        <section>
+          <p className="mb-2.5 text-content font-bold">옵션</p>
+          <div className="rounded-xl border border-x-border">
+            {optRows.map((o, i) => <div key={o.label}>{optRow(o.label, o.node, i === optRows.length - 1)}</div>)}
+          </div>
+          {clientLoadFailed && <p className="mt-1.5 text-ui text-x-muted">클라이언트 정보를 불러오지 못했어요 — 새로고침해 주세요</p>}
+        </section>
       </div>
-      {(quoteTarget?.tweetId || quoteTarget?.unknownLink) && <p className="text-caption text-x-muted">저장된 대상 본문이 없으면 X에서 불러와요. 게시물 조회 1회에 약 $0.001이 추가돼요.</p>}
-      {tooManyRefs ? <p role="alert" className="text-caption text-red-600">인용 대상 포함 {refCount}건이에요. {MAX_REFS_UI}건 이내로 줄이면 만들 수 있어요.</p>
-        : !ok && <p className="text-caption text-x-muted">클라이언트·레퍼런스·방향성 중 하나는 있어야 만들 수 있어요</p>}
-      {/* 표의 다른 행을 누르면 패널이 통째로 리마운트돼 막을 수 없다 — 그래서 미리 말한다(리뷰 지적 2).
-          실제로 그렇게 동작한다: onGenerated가 클로저에서 불려 후보 목록이 갱신된다. */}
-      {busy && <p className="text-caption text-x-muted">화면을 떠나도 만들어진 시안은 ‘있는 원고 고르기’에 남아요</p>}
+
+      {/* 아래 줄 — 왼쪽 무엇이 반영되는지(ⓘ에 목록), 오른쪽 실행 + 비용·시간(비용이 드는 버튼이라 누르기 전에 보인다, UX 원칙 6) */}
+      <div className="mt-5 flex items-start justify-between gap-3 border-t border-x-border pt-3">
+        <p className="flex items-center gap-1.5 pt-2.5 text-ui text-x-muted">
+          {clientName ? `${clientName} 정보를 반영해요` : '클라이언트 정보를 반영해요'}
+          <InfoTip text={`반영하는 것: ${reflectTip}`} label="반영하는 정보 보기" />
+        </p>
+        <div className="shrink-0 text-right">
+          <Button variant="primary" disabled={busy || !ok} onClick={() => void run()} className="h-10 px-5 text-content font-bold">
+            {busy ? '만드는 중…' : `시안 ${count}개 만들기`}
+          </Button>
+          <p className="mt-1 text-ui text-x-muted">15~30초 · {COST_CAPTION.replace(/^생성\s*/, '')}{count > 1 ? ` × ${count}` : ''}</p>
+        </div>
+      </div>
+      <div className="mt-2 space-y-1 text-right">
+        {(quoteTarget?.tweetId || quoteTarget?.unknownLink) && <p className="text-ui text-x-muted">저장된 대상 본문이 없으면 X에서 불러와요(게시물 조회 1회 ≈ $0.001)</p>}
+        {tooManyRefs ? <p role="alert" className="text-ui text-red-600">인용할 글 포함 {refCount}건이에요. {MAX_REFS_UI}건 이내로 줄이면 만들 수 있어요.</p>
+          : !ok && <p className="text-ui text-x-muted">참고할 글·방향성 중 하나를 넣거나 클라이언트를 정하면 만들 수 있어요</p>}
+        {/* 표의 다른 행을 누르면 패널이 통째로 리마운트돼 막을 수 없다 — 그래서 미리 말한다(리뷰 지적 2). */}
+        {busy && <p className="text-ui text-x-muted">화면을 떠나도 만들어진 시안은 ‘있는 원고 고르기’에 남아요</p>}
+      </div>
 
       {variants.length > 0 && (
-        <div className="space-y-2 border-t border-x-border pt-3">
+        <div className="mt-4 space-y-2 border-t border-x-border pt-3">
           <p className="text-ui text-x-secondary">만들어진 시안 <span className="text-x-muted">
             {host.kind === 'form' ? '하나를 골라 써요 · 다듬기는 고른 뒤에' : '하나를 골라 붙여요 · 다듬기는 붙인 뒤에'}
           </span></p>

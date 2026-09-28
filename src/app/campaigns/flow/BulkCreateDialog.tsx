@@ -47,7 +47,10 @@ export function BulkCreateDialog({ onClose, onCreate }: {
           {DISPLAY_TYPE_ORDER.map((type) => (
             <label key={type} className="flex items-center justify-between gap-3 text-content">
               <span>{TASK_TYPE_LABEL[type]}</span>
-              <input type="number" inputMode="numeric" min={0} max={MAX} value={counts[type]}
+              {/* 0은 값이 아니라 자리표시(placeholder)로 보인다 — 값 0을 든 채 3을 치면 브라우저가 '03'을 그대로 남겨
+                  0을 블록 지정해야 했다(koo 09-28). 비우면 0으로 센다. 칸에 들어오면 전체 선택해 바로 덮어쓴다. */}
+              <input type="number" inputMode="numeric" min={0} max={MAX} value={counts[type] === 0 ? '' : counts[type]} placeholder="0"
+                     onFocus={(e) => e.target.select()}
                      onChange={(e) => setCounts((cur) => ({ ...cur, [type]: clamp(Number(e.target.value)) }))}
                      aria-label={`${TASK_TYPE_LABEL[type]} 개수`}
                      className="h-10 w-20 rounded-md border border-x-border-strong bg-white px-2 text-right text-content outline-none focus:border-x-blue" />

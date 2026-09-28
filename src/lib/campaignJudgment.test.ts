@@ -45,13 +45,14 @@ test('3) 기간 밖 — 경고 표시용 판정(경계 포함, 예정일 없으�
   assert.equal(isOutOfRange(null, '2026-08-24', '2026-09-06'), false);
 });
 
-test('4) 이름·코드 제안 — {클라} {M월 N주}(그 주의 목요일 기준), {영문 소문자}-{YYYYMMDD}, 영문 없으면 날짜만, 규칙 위반 문자 제거', () => {
-  assert.equal(suggestCampaignName('리프팅클리닉', '2026-08-24'), '리프팅클리닉 8월 4주'); // 월, 그 주 목요일=8/27
-  assert.equal(suggestCampaignName('  ', '2026-09-01'), '9월 1주');
-  assert.equal(suggestCampaignName('A', '2026-08-07'), 'A 8월 1주');
-  assert.equal(suggestCampaignName('A', '2026-08-08'), 'A 8월 1주'); // 토 — 8/7과 같은 주(목=8/6)라 주차도 같다
-  assert.equal(suggestCampaignName('A', '2026-08-31'), 'A 9월 1주'); // 월, 그 주 목요일=9/3 — 달이 넘어간다
-  assert.equal(suggestCampaignName('A', '2026-08-27'), 'A 8월 4주'); // 목요일 그 자체
+test('4) 이름·코드 제안 — {클라}_{M월N주차}(그 주의 목요일 기준), {영문 소문자}-{YYYYMMDD}, 영문 없으면 날짜만, 규칙 위반 문자 제거', () => {
+  assert.equal(suggestCampaignName('리프팅클리닉', '2026-08-24'), '리프팅클리닉_8월4주차'); // 월, 그 주 목요일=8/27
+  assert.equal(suggestCampaignName('  ', '2026-09-01'), '9월1주차');
+  assert.equal(suggestCampaignName('A', '2026-08-07'), 'A_8월1주차');
+  assert.equal(suggestCampaignName('A', '2026-08-08'), 'A_8월1주차'); // 토 — 8/7과 같은 주(목=8/6)라 주차도 같다
+  assert.equal(suggestCampaignName('미모드림', '2026-09-21'), '미모드림_9월4주차');   // 운영 중인 이름과 같은 모양(koo 09-28)
+  assert.equal(suggestCampaignName('A', '2026-08-31'), 'A_9월1주차'); // 월, 그 주 목요일=9/3 — 달이 넘어간다
+  assert.equal(suggestCampaignName('A', '2026-08-27'), 'A_8월4주차'); // 목요일 그 자체
   assert.equal(suggestCampaignCode('Lifting Clinic', '2026-08-24'), 'lifting-clinic-20260824');
   assert.equal(suggestCampaignCode('', '2026-08-24'), '20260824');
   assert.equal(suggestCampaignCode('클리닉', '2026-08-24'), '20260824'); // 비영문만이면 날짜만

@@ -120,7 +120,7 @@ export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, 
               <p className="text-[26px] font-bold leading-tight tabular-nums">
                 {v !== null ? v.toLocaleString('ko-KR') : <span className="text-x-muted">—</span>}
               </p>
-              <p className="mt-1 truncate text-ui text-x-secondary">{label}{sub && <span className="text-x-muted"> · {sub}</span>}</p>
+              <p className="mt-1 truncate text-ui text-x-secondary" title={sub ? `${label} · ${sub}` : label}>{label}{sub && <span className="text-x-muted"> · {sub}</span>}</p>
             </div>
           ))}
         </div>

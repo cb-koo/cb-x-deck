@@ -29,14 +29,16 @@ export function searchDraftCandidates(rows: DraftRow[], q: string): DraftRow[] {
 // 칸을 지우거나 옮길 때 이 값도 함께 따라가므로 따로 청소할 필요가 없다.
 export interface ComposerPost { text: string; media: DeckMedia[]; uploading: number }
 
-// 직접 쓰기(§5-2) 저장 판정 — 스레드의 모든 칸이 비지 않고 각 칸이 X 상한 안이어야 한다.
-// 빈 칸을 허용하면 X에 올릴 수 없는 글이 저장되고, 사용자는 저장된 뒤에야 안다.
-// 판정도 저장과 같은 문자열(trim)을 잰다(리뷰 minor) — 안 그러면 뒤 공백만 있는 글이 "글자 수 초과"로
-// 잘못 막히거나, 반대로 트림하면 상한 안인데 원문 기준으로는 넘는다고 잘못 통과시킬 수 있다.
+// 직접 쓰기(§5-2) 저장 판정 — 스레드의 모든 칸이 비지 않아야 한다. 빈 칸을 허용하면 X에 올릴 수 없는
+// 글이 저장되고, 사용자는 저장된 뒤에야 안다. X 글자 수 상한은 막지 않는다(koo 09-28) — 넘은 글도 일단
+// 저장해 두고 나중에 줄이는 흐름이 실제 업무라, 상한은 composerOverLimit으로 경고만 한다(다른 입구
+// DraftWriteModal·DraftEditModal과 같은 규칙). 판정은 저장과 같은 문자열(trim)을 잰다(리뷰 minor).
 export function composerCanSave(posts: ComposerPost[]): boolean {
   if (posts.length === 0) return false;
-  return posts.every((p) => {
-    const t = p.text.trim();
-    return t.length > 0 && xWeightedLength(t) <= X_MAX_WEIGHTED;
-  });
+  return posts.every((p) => p.text.trim().length > 0);
+}
+
+// X 글자 수 상한을 넘은 칸이 있는지 — 저장은 막지 않고 경고 문구에만 쓴다. 저장과 같은 trim 기준.
+export function composerOverLimit(posts: ComposerPost[]): boolean {
+  return posts.some((p) => xWeightedLength(p.text.trim()) > X_MAX_WEIGHTED);
 }

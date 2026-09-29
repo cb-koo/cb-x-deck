@@ -13,7 +13,7 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
-    date: '2026-09-28', type: '개선',
+    date: '2026-09-29', type: '개선',
     title: '원고 AI로 만들기 화면을 알아보기 쉽게 정리했어요',
     summary: "작업 패널의 AI로 만들기가 '(인용할 글) · 참고할 글 · 방향성 · 옵션' 칸으로 정리됐어요. 칸마다 무엇을 하는지 한 줄 설명이 있고, 꼭 채워야 하는 칸이 아니면 '선택'이라고 보여요.",
     bullets: [

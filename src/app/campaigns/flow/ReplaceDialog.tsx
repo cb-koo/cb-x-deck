@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { CANCEL_REASON_CHIPS, type FlowRow } from '@/lib/campaignFlowView';
-import { TASK_TYPE_LABEL, formatDateKo } from '@/lib/campaignJudgment';
+import { TASK_TYPE_LABEL, formatDateTimeKo } from '@/lib/campaignJudgment';
 import { formatAmount, suggestTaskCost, type TaskCost } from '@/lib/campaignCost';
 import type { CancelReason } from '@/lib/campaignTaskInput';
 import type { InfluencerOption } from '@/lib/draftTypes';
@@ -86,7 +86,7 @@ export function ReplaceDialog({ task, influencerOptions, roster, initialHandle, 
 
   const who = task.influencerHandle ? `@${task.influencerHandle}` : '미배정';
   const costText = task.cost ? formatAmount(task.cost.amount, task.cost.currency) : '비용 미정';
-  const summary = `${TASK_TYPE_LABEL[task.type]} · ${who} · 예정 ${task.scheduledOn ? formatDateKo(task.scheduledOn) : '미정'} · ${costText}`;
+  const summary = `${TASK_TYPE_LABEL[task.type]} · ${who} · 예정 ${task.scheduledOn ? formatDateTimeKo(task.scheduledOn, task.type === 'visit' ? task.scheduledTime : null) : '미정'} · ${costText}`;
   // 해당되는 항목만 보인다(브리프 결정 3) — 없는 얘기를 하면 뭘 잃는지 헷갈린다
   const notice = '작업·대상·예정일은 그대로예요.'
     + (task.type === 'rt' && task.proof ? ' 올려둔 RT 증빙은 지워져요.' : '')

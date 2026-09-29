@@ -759,9 +759,11 @@ export function TaskPanel({
                                  outOfRange={isOutOfRange(visitOn, campaign.startsOn, campaign.endsOn)}
                                  ariaLabel="방문일" onChange={(next) => { setVisitOn(next); if (next === null) setVisitTime(null); }} />
               </div>
+              {/* 새 폼은 key를 주지 않는다 — commitOnChange라 값이 바뀔 때마다 key가 바뀌면 입력 중에 칸이 다시 마운트돼
+                  분 두 번째 자리가 사라진다(15:30 → 15:03). 버퍼가 늘 부모 값과 같아 되맞출 일도 없다 */}
               {visitOn && (
                 <div className="mt-1.5">
-                  <TimeField key={`vt:${visitTime ?? ''}`} value={visitTime} ariaLabel="방문 시간" commitOnChange onCommit={setVisitTime} />
+                  <TimeField value={visitTime} ariaLabel="방문 시간" commitOnChange onCommit={setVisitTime} />
                 </div>
               )}
             </div>
@@ -774,7 +776,7 @@ export function TaskPanel({
               </div>
               {scheduledOn && (
                 <div className="mt-1.5">
-                  <TimeField key={`st:${scheduledTime ?? ''}`} value={scheduledTime} ariaLabel="게시 예정 시간" commitOnChange onCommit={setScheduledTime} />
+                  <TimeField value={scheduledTime} ariaLabel="게시 예정 시간" commitOnChange onCommit={setScheduledTime} />
                 </div>
               )}
             </div>

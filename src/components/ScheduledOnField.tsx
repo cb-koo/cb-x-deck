@@ -62,7 +62,7 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
   // 읽기 상태 — hover 배경 + 클릭이 곧 편집(이건 '동작'이라 hover 신호를 둔다). 표 셀 안(compact)의 트리거는
   // 행 높이 52px가 이미 터치 타깃을 보장하므로 h-10 규칙에서 예외로 둔다 — 나머지(카드 도구층 등)는 h-10.
   const box = bare
-    ? `flex h-10 w-full px-3 text-ui ${tone}`
+    ? `flex h-10 w-full items-center px-3 text-ui ${tone}`
     : compact
     ? `rounded-md px-1.5 py-1 text-content ${tone}`
     : `h-10 rounded-lg border px-2.5 text-ui ${value ? 'border-x-border-strong bg-white' : 'border-dashed border-x-border-strong'} ${tone}`;
@@ -71,7 +71,13 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
     <button type="button" onClick={() => setEditing(true)} aria-label={label}
             title={value ? `${label} — 눌러서 바꾸기` : `${label}을 정하면 밀림 여부를 알려줘요`}
             className={`inline-flex cursor-pointer items-center gap-1 text-left hover:bg-x-hover ${box}`}>
-      <span className="tabular-nums">{value ? formatDateKo(value) : bare ? '+ 날짜 정하기' : (compact ? (emptyLabel ?? NO_SCHEDULE_LABEL) : '+ 예정일')}</span>
+      {/* bare(일정 상자 안): 아래 시간 줄의 시계 아이콘과 짝을 맞춘 달력 아이콘 */}
+      {bare && (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className="mr-1.5 h-4 w-4 shrink-0 text-x-secondary">
+          <rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" />
+        </svg>
+      )}
+      <span className="tabular-nums">{value ? formatDateKo(value) : bare ? '날짜 정하기' : (compact ? (emptyLabel ?? NO_SCHEDULE_LABEL) : '+ 예정일')}</span>
       {overdueDays !== null ? <span className="font-normal">· {overdueSuffix(overdueDays)}</span> : null}
       {outOfRange && <span className="rounded bg-amber-100 px-1 text-ui font-normal text-amber-800" title="캠페인 기간 밖 날짜예요 — 저장은 되지만 표시로 알려요">기간 밖</span>}
     </button>

@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import type { DraftRow } from '@/lib/draftStore';
@@ -7,7 +7,7 @@ import { fetchTasksTargets, type TaskCreateRequest } from '@/lib/campaignApi';
 import { buildTaskCreateBody } from '@/lib/taskCreateBody';
 import { AMOUNT_MESSAGE, type TaskCost } from '@/lib/campaignCost';
 import {
-  TASK_TYPE_LABEL, isOutOfRange, formatDateKo, type TaskType,
+  TASK_TYPE_LABEL, isOutOfRange, formatDateKo, formatDateTimeKo, type TaskType,
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, targetLabel } from '@/lib/campaignTableView';
 import {
@@ -25,6 +25,8 @@ import { TargetPicker, candidateLabel, type TargetValue } from '../TargetPicker'
 import type { useCampaignTaskActions } from '../useCampaignTaskActions';
 import { DraftMode, type DraftTab } from './draft/DraftMode';
 import { PanelSection } from './panel/PanelSection';
+import { TimeField } from './panel/TimeField';
+import { AgreementField } from './panel/AgreementField';
 import { StageTypeBox } from './panel/StageTypeBox';
 import { InfluencerSummary } from './panel/InfluencerSummary';
 import { PaymentLine } from './panel/PaymentLine';
@@ -190,6 +192,9 @@ export function TaskPanel({
   const [target, setTarget] = useState<TargetValue>(null);
   const [scheduledOn, setScheduledOn] = useState<string | null>(null);
   const [visitOn, setVisitOn] = useState<string | null>(null);
+  // 방문협찬의 시간(063) — 날짜가 있을 때만 칸이 보이고, 날짜를 지우면 같이 비운다(서버의 '날짜 없으면 시간 없음'과 같게)
+  const [visitTime, setVisitTime] = useState<string | null>(null);
+  const [scheduledTime, setScheduledTime] = useState<string | null>(null);
   const [note, setNote] = useState('');
   // 새 작업에서 고른 결제 수단(§8-2) — 만들기 전까지 로컬. 사람이 바뀌면 비운다(다른 사람의 수단 id가 남으면 안 된다)
   const [newMethodId, setNewMethodId] = useState<string | null>(null);
@@ -349,7 +354,7 @@ export function TaskPanel({
 
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
-    setScheduledOn(null); setVisitOn(null); setNote(''); setNewCost(null); setCostErr(null); setTarget(null); setNewMethodId(null);
+    setScheduledOn(null); setVisitOn(null); setVisitTime(null); setScheduledTime(null); setNote(''); setNewCost(null); setCostErr(null); setTarget(null); setNewMethodId(null);
     // 409 문구(draftGone)는 newDraft가 "들어올 때"만 꺼진다(위 이펙트) — [만들고 하나 더]로 새 빈 폼을
     // 열면 newDraft가 애초에 안 들어오므로 그 이펙트가 안 돈다. 여기서 직접 꺼야 새 폼에 옛 충돌 문구가
     // 남지 않는다(최종 리뷰 §2).
@@ -405,7 +410,7 @@ export function TaskPanel({
     // 다시 만들지 않는다. handle은 '' | string인데 draftId는 string | null이 필요해 handle || null로 맞춘다.
     const body = buildTaskCreateBody({
       type: newType, handle: useHandle || null, cost: useCost,
-      scheduledOn, visitOn, note, target,
+      scheduledOn, visitOn, visitTime, scheduledTime, note, target,
       draftId: newDraft?.id ?? null,
       paymentMethodId: useMethodId,
     });
@@ -621,8 +626,8 @@ export function TaskPanel({
         if (cancelled) {
           return (
             <div className="grid grid-cols-2 gap-3">
-              <div><p className="text-ui text-x-muted">방문일</p><p className="mt-0.5 text-content text-x-muted">{t.visitOn ? formatDateKo(t.visitOn) : '미정'}</p></div>
-              <div><p className="text-ui text-x-muted">게시 예정일</p><p className="mt-0.5 text-content text-x-muted">{t.scheduledOn ? formatDateKo(t.scheduledOn) : '미정'}</p></div>
+              <div><p className="text-ui text-x-muted">방문일</p><p className="mt-0.5 text-content text-x-muted">{t.visitOn ? formatDateTimeKo(t.visitOn, t.visitTime) : '미정'}</p></div>
+              <div><p className="text-ui text-x-muted">게시 예정일</p><p className="mt-0.5 text-content text-x-muted">{t.scheduledOn ? formatDateTimeKo(t.scheduledOn, t.scheduledTime) : '미정'}</p></div>
             </div>
           );
         }
@@ -635,6 +640,13 @@ export function TaskPanel({
                                  outOfRange={isOutOfRange(t.visitOn, campaign.startsOn, campaign.endsOn)}
                                  ariaLabel="방문일" onChange={(next) => void actions.changeVisitOn(t, next)} />
               </div>
+              {/* 시간은 날짜에 붙는다 — 날짜가 있을 때만 칸을 둔다(서버도 날짜 없는 시간은 받지 않는다) */}
+              {t.visitOn && (
+                <div className="mt-1.5">
+                  <TimeField key={`vt:${t.visitTime ?? ''}`} value={t.visitTime} ariaLabel="방문 시간"
+                             onCommit={(next) => void actions.changeVisitTime(t, next)} />
+                </div>
+              )}
             </div>
             <div>
               <p className="text-ui text-x-muted">게시 예정일</p>
@@ -643,6 +655,12 @@ export function TaskPanel({
                                  outOfRange={isOutOfRange(t.scheduledOn, campaign.startsOn, campaign.endsOn)}
                                  emptyLabel="미정" onChange={(next) => void actions.changeScheduledOn(t, next)} />
               </div>
+              {t.scheduledOn && (
+                <div className="mt-1.5">
+                  <TimeField key={`st:${t.scheduledTime ?? ''}`} value={t.scheduledTime} ariaLabel="게시 예정 시간"
+                             onCommit={(next) => void actions.changeScheduledTime(t, next)} />
+                </div>
+              )}
             </div>
           </div>
         );
@@ -739,16 +757,26 @@ export function TaskPanel({
               <div className="mt-0.5">
                 <ScheduledOnField value={visitOn} overdueDays={null}
                                  outOfRange={isOutOfRange(visitOn, campaign.startsOn, campaign.endsOn)}
-                                 ariaLabel="방문일" onChange={setVisitOn} />
+                                 ariaLabel="방문일" onChange={(next) => { setVisitOn(next); if (next === null) setVisitTime(null); }} />
               </div>
+              {visitOn && (
+                <div className="mt-1.5">
+                  <TimeField key={`vt:${visitTime ?? ''}`} value={visitTime} ariaLabel="방문 시간" commitOnChange onCommit={setVisitTime} />
+                </div>
+              )}
             </div>
             <div>
               <p className="text-ui text-x-muted">게시 예정일</p>
               <div className="mt-0.5">
                 <ScheduledOnField value={scheduledOn} overdueDays={null}
                                  outOfRange={isOutOfRange(scheduledOn, campaign.startsOn, campaign.endsOn)}
-                                 emptyLabel="미정" onChange={setScheduledOn} />
+                                 emptyLabel="미정" onChange={(next) => { setScheduledOn(next); if (next === null) setScheduledTime(null); }} />
               </div>
+              {scheduledOn && (
+                <div className="mt-1.5">
+                  <TimeField key={`st:${scheduledTime ?? ''}`} value={scheduledTime} ariaLabel="게시 예정 시간" commitOnChange onCommit={setScheduledTime} />
+                </div>
+              )}
             </div>
           </div>
         );
@@ -851,7 +879,16 @@ export function TaskPanel({
             )}
             <StageTypeBox task={task} />
             {PANEL_FIELD_ORDER[task.type].map((field) => (
-              <PanelSection key={field} title={fieldLabel(field, task.type)}>{renderEditField(field, task)}</PanelSection>
+              <Fragment key={field}>
+                <PanelSection title={fieldLabel(field, task.type)}>{renderEditField(field, task)}</PanelSection>
+                {/* 협찬 동의서(063) — 방문협찬만, 일정 상자 바로 아래. 새 작업 폼엔 없다(올릴 경로가 작업 id에 묶여 있어 만든 뒤에 붙인다) */}
+                {field === 'dates' && task.type === 'visit' && (
+                  <PanelSection title="협찬 동의서">
+                    <AgreementField taskId={task.id} value={task.agreement} disabled={!!task.cancelledAt}
+                                    onChange={(next) => actions.setAgreement(task, next)} />
+                  </PanelSection>
+                )}
+              </Fragment>
             ))}
             {/* 게시 확인 — PANEL_FIELD_ORDER에 없는 칸이다(모든 유형에 있고, 취소된 작업엔 없다). 입력·값·증빙
                 라이트박스(panel/PostedBox)는 FlowDetail의 클로저(actions·proofUrls)가 필요해 slots.posted로 받는다

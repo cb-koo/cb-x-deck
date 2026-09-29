@@ -18,6 +18,10 @@ export function isDateOnlyString(v: unknown): v is string {
   const t = Date.parse(v + 'T00:00:00Z');
   return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === v;
 }
+// 방문협찬의 시간(063) — 'HH:MM', 00:00~23:59, 한국 벽시계 시각. 초는 받지 않는다(분 단위 자유 입력, koo 09-29 결정 2)
+export function isTimeString(v: unknown): v is string {
+  return typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+}
 // 'YYYY-MM-DD'를 UTC 자정으로 읽어 일수만 더한다 — 달력일 문자열의 산술일 뿐, 시간대 변환이 아니다(kstDayRange 관례).
 // 반환은 DateOnly — 이후 주 계산이 이 값을 다시 date-only 함수(weekRangeLabel 등)에 넘겨도 타입이 막아준다.
 export function addDays(date: string, n: number): DateOnly {
@@ -52,6 +56,11 @@ export function formatDateKo(date: string): string {
   if (Number.isNaN(t)) return '';
   const dow = new Date(t).getUTCDay();
   return `${dateOnlyMonthDay(asDateOnly(date))} ${DOW_KO[dow]}`;
+}
+/** '9/26 토 14:00' — 방문협찬의 방문일·게시 예정일. 시간이 없으면 formatDateKo와 같다(시간 미정은 따로 말하지 않는다). */
+export function formatDateTimeKo(date: string, time: string | null | undefined): string {
+  const d = formatDateKo(date);
+  return d && time ? `${d} ${time}` : d;
 }
 /** '9월 24일 (목)' / withDow=false면 '9월 24일' — 작업 패널 게시 칸(게시일·링크에서 확인). 시간대 시프트 없음. */
 export function formatDateKoLong(date: string, withDow = true): string {

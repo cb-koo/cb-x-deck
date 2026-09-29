@@ -275,6 +275,63 @@ test('060) 작업별 결제 수단 — 생성·패치 왕복, 인플이 실제�
   assert.equal((await getTask(sql, t.id))!.paymentMethodId, null);         // 다른 사람의 수단 id가 남으면 안 된다
 });
 
+test('063) 방문협찬 시간·동의서 — 생성·패치 왕복, 날짜를 지우면 시간도 비고, 사람이 바뀌면 동의서가 떨어진다', async () => {
+  const c = await createClient(sql, P + '클라vt');
+  const camp = await mkCampaign(c.id, c.name, 'vt');
+  // 생성 — 시간은 날짜가 있는 줄에만 들어간다(방문일 없는 줄의 방문 시간은 버린다)
+  const [t, noVisit] = await createTasks(sql, camp.id, {
+    ...baseInput, type: 'visit', scheduledOn: '2026-09-05', visitTime: '14:00', scheduledTime: '09:30',
+    items: [{ handle: 'vtA', cost: null, visitOn: '2026-09-03' }, { handle: 'vtB', cost: null }],
+  });
+  assert.equal(t.visitTime, '14:00');
+  assert.equal(t.scheduledTime, '09:30');
+  assert.equal(noVisit.visitTime, null);           // 방문일이 없는 줄
+  assert.equal(noVisit.scheduledTime, '09:30');
+  assert.equal(t.agreement, null);
+  // 패치 3값 — 다른 칸 패치는 그대로, 값 설정, null 지움
+  await updateTask(sql, t.id, { note: '메모' });
+  assert.equal((await getTask(sql, t.id))!.visitTime, '14:00');
+  await updateTask(sql, t.id, { visitTime: '18:05', scheduledTime: null });
+  let row = (await getTask(sql, t.id))!;
+  assert.equal(row.visitTime, '18:05');
+  assert.equal(row.scheduledTime, null);
+  // 날짜만 바꾸면 시간은 남는다 · 날짜를 지우면 시간도 지운다(한 요청에 시간을 같이 보내도)
+  await updateTask(sql, t.id, { visitOn: '2026-09-04' });
+  assert.equal((await getTask(sql, t.id))!.visitTime, '18:05');
+  await updateTask(sql, t.id, { visitOn: null, visitTime: '10:00' });
+  row = (await getTask(sql, t.id))!;
+  assert.equal(row.visitOn, null);
+  assert.equal(row.visitTime, null);
+  await updateTask(sql, t.id, { scheduledTime: '11:00' });
+  await updateTask(sql, t.id, { scheduledOn: null });
+  assert.equal((await getTask(sql, t.id))!.scheduledTime, null);
+  // 동의서 — 저장·다시 읽기·지우기
+  const agreement = {
+    url: `task/${t.id}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.pdf`, name: '협찬 동의서.pdf', size: 12345, mime: 'application/pdf',
+    by: null, byName: '박구건', at: '2026-09-29T01:00:00.000Z',
+  };
+  await updateTask(sql, t.id, { agreement });
+  assert.deepEqual((await getTask(sql, t.id))!.agreement, agreement);
+  await updateTask(sql, t.id, { note: '다른 칸' });
+  assert.deepEqual((await getTask(sql, t.id))!.agreement, agreement);   // undefined = 유지
+  await updateTask(sql, t.id, { agreement: null });
+  assert.equal((await getTask(sql, t.id))!.agreement, null);
+  // jsonb에 깨진 값 → null로 읽는다
+  await sql`update campaign_task set agreement = ${sql.json({ url: 'https://evil.example/a.pdf' } as never)} where id = ${t.id}`;
+  assert.equal((await getTask(sql, t.id))!.agreement, null);
+  // 사람이 바뀌면(교체) 동의서는 떨어지고, 방문 시간은 작업의 일정이라 남는다
+  await updateTask(sql, t.id, { agreement, visitOn: '2026-09-10', visitTime: '15:00' });
+  const r = await replaceInfluencer(sql, t.id, { handle: 'vtC', cost: undefined, reason: null, note: '', actorId: null, today: '2026-09-01' });
+  assert.equal(r, 'ok');
+  row = (await getTask(sql, t.id))!;
+  assert.equal(row.agreement, null);
+  assert.equal(row.visitTime, '15:00');
+  // DB 최후 방어 — 방문협찬이 아닌 작업엔 시간·동의서를 넣을 수 없다(23514)
+  const [post] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', scheduledOn: '2026-09-05', items: [] });
+  await assert.rejects(updateTask(sql, post.id, { scheduledTime: '10:00' }), (e: unknown) => (e as { code?: string }).code === '23514');
+  await assert.rejects(updateTask(sql, post.id, { agreement }), (e: unknown) => (e as { code?: string }).code === '23514');
+});
+
 test('명부 게이팅 — attachDraft: 원고 핸들이 명부 밖이면 미배정 작업을 채우지 않는다(붙이기는 성공, 원고 핸들은 그대로)', async () => {
   const c = await createClient(sql, P + '클라명부');
   const camp = await mkCampaign(c.id, c.name, 'roster');

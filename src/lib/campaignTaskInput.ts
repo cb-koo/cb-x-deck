@@ -1,13 +1,14 @@
 // 작업 API 입력 검증 — 순수(DB 없음). 라우트 4곳(작업 생성·패치, 원고 PATCH·POST의 taskId)이 같은 규칙을 쓴다.
 import type { Parsed, TaskCost } from './campaignCost.ts';
 import { parseTaskCost } from './campaignCost.ts';
-import { isTaskType, isDateOnlyString, SETTLED_ELSEWHERE_NOTE_MAX, type TaskType } from './campaignJudgment.ts';
+import { isTaskType, isDateOnlyString, isTimeString, SETTLED_ELSEWHERE_NOTE_MAX, type TaskType } from './campaignJudgment.ts';
 import type { TaskPatch } from './campaignTaskStore.ts';
 import { parseTweetLink, tweetPermalink } from './tweetLink.ts';
 import { parseXHandle, handleParseMessage } from './xHandle.ts';
 import { isUuidLike } from './uuid.ts';
 import { postedOnFromTweetLink } from './tweetPostedOn.ts';
 import { isTaskProofPath, isTaskProofPathFor, PROOF_VALUE_MESSAGE, PROOF_ONLY_RT_MESSAGE, PROOF_KEEP_MESSAGE, PROOF_REQUIRED_MESSAGE, type TaskProof } from './taskProofGuard.ts';
+import { parseTaskAgreementInput, isTaskAgreementPathFor, AGREEMENT_VALUE_MESSAGE, AGREEMENT_ONLY_VISIT_MESSAGE, type TaskAgreementInput } from './taskAgreementGuard.ts';
 
 export const TASK_ID_MESSAGE = '작업 값이 올바르지 않아요';
 export const TASK_NOT_FOUND_MESSAGE = '작업을 찾을 수 없어요 — 삭제됐을 수 있어요. 화면을 새로고침해 주세요';
@@ -34,6 +35,11 @@ export const DRAFT_MULTI_MESSAGE = '원고는 한 사람에게만 붙일 수 있
 export const POSTED_AT_NULL_MESSAGE = '게시 확인은 지울 수 없어요 — 잘못 찍었으면 작업을 삭제하고 다시 만들어 주세요';
 export const REMOVED_WITHOUT_POSTED_MESSAGE = '게시 확인이 없는 작업이에요 — 게시 내림은 게시된 작업에만 표시할 수 있어요';
 export const DATE_MESSAGE = '날짜는 YYYY-MM-DD 형식이어야 해요';
+// 방문협찬의 시간(063, koo 09-29 결정 1·2)
+export const TIME_MESSAGE = '시간은 00:00~23:59 사이로 적어 주세요';
+export const TIME_ONLY_VISIT_MESSAGE = '시간은 방문협찬 작업에만 정할 수 있어요';
+export const VISIT_TIME_NO_DATE_MESSAGE = '방문일을 먼저 정해 주세요 — 시간은 날짜에 붙어요';
+export const SCHEDULED_TIME_NO_DATE_MESSAGE = '게시 예정일을 먼저 정해 주세요 — 시간은 날짜에 붙어요';
 function fail<T>(message: string): Parsed<T> { return { ok: false, message }; }
 
 export const PAYMENT_METHOD_ID_MESSAGE = '결제 수단 값이 올바르지 않아요';
@@ -130,6 +136,11 @@ const dateOrNull = (v: unknown): Parsed<string | null> => {
   if (v === undefined || v === null || v === '') return { ok: true, value: null };
   return isDateOnlyString(v) ? { ok: true, value: v } : fail(DATE_MESSAGE);
 };
+// 시간 — 없음·null·''는 시간 미정(null). 'HH:MM'만 받는다(초가 붙은 값은 화면이 만들지 않는다)
+const timeOrNull = (v: unknown): Parsed<string | null> => {
+  if (v === undefined || v === null || v === '') return { ok: true, value: null };
+  return isTimeString(v) ? { ok: true, value: v } : fail(TIME_MESSAGE);
+};
 const uuidOrNull = (v: unknown, message: string): Parsed<string | null> => {
   if (v === undefined || v === null || v === '') return { ok: true, value: null };
   return typeof v === 'string' && isUuidLike(v) ? { ok: true, value: v } : fail(message);
@@ -143,6 +154,8 @@ export const COUNT_WITH_ITEMS_MESSAGE = '개수로 만들 때는 인플루언서
 export interface TaskCreateBody {
   type: TaskType; targetTaskId: string | null; targetTweetUrl: string | null; draftId: string | null;
   scheduledOn: string | null; visitOn: string | null; note: string; cost: TaskCost | null;
+  // 방문협찬의 시간(063) — 모든 줄에 같이 들어가고, 날짜가 없는 줄에는 스토어가 넣지 않는다
+  visitTime: string | null; scheduledTime: string | null;
   influencers: Array<{ handle: string; cost: TaskCost | null; scheduledOn: string | null; visitOn: string | null; paymentMethodId?: string }>;
   count: number | null;   // 뼈대 N개 한 번에 만들기(§4-1) — influencers 비고 draftId 없을 때만
 }
@@ -159,6 +172,9 @@ export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
   const scheduledOn = dateOrNull(b.scheduledOn); if (!scheduledOn.ok) return scheduledOn;
   const visitOn = dateOrNull(b.visitOn); if (!visitOn.ok) return visitOn;
   if (visitOn.value && b.type !== 'visit') return fail(VISIT_ON_MESSAGE);
+  const visitTime = timeOrNull(b.visitTime); if (!visitTime.ok) return visitTime;
+  const scheduledTime = timeOrNull(b.scheduledTime); if (!scheduledTime.ok) return scheduledTime;
+  if ((visitTime.value || scheduledTime.value) && b.type !== 'visit') return fail(TIME_ONLY_VISIT_MESSAGE);
   const cost = b.cost === undefined ? { ok: true as const, value: null } : parseTaskCost(b.cost); if (!cost.ok) return cost;
   const raw = Array.isArray(b.influencers) ? b.influencers : [];
   const influencers: TaskCreateBody['influencers'] = [];
@@ -183,12 +199,14 @@ export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
   }
   return { ok: true, value: {
     type: b.type, targetTaskId: targetTaskId.value, targetTweetUrl, draftId: draftId.value,
-    scheduledOn: scheduledOn.value, visitOn: visitOn.value, note: typeof b.note === 'string' ? b.note.trim() : '', cost: cost.value, influencers, count,
+    scheduledOn: scheduledOn.value, visitOn: visitOn.value, note: typeof b.note === 'string' ? b.note.trim() : '', cost: cost.value,
+    visitTime: visitTime.value, scheduledTime: scheduledTime.value, influencers, count,
   } };
 }
 
 // 파서는 멤버를 모르므로 증빙은 경로만 넘긴다 — 라우트가 by/byName/at을 붙여 TaskPatch.proof를 만든다(§5-1).
-export type TaskPatchParsed = Omit<TaskPatch, 'proof'> & { proofUrl?: string | null };
+// 협찬 동의서(063)도 같다 — {경로·이름·크기·형식}만 받고, 올린 사람·시각은 라우트가 붙여 TaskPatch.agreement로.
+export type TaskPatchParsed = Omit<TaskPatch, 'proof' | 'agreement'> & { proofUrl?: string | null; agreementInput?: TaskAgreementInput | null };
 
 // 온 키만 결과에 실린다(undefined=건드리지 않음) — 스토어 updateTask의 3값 규칙과 맞물린다
 export function parseTaskPatch(body: unknown): Parsed<TaskPatchParsed> {
@@ -216,6 +234,12 @@ export function parseTaskPatch(body: unknown): Parsed<TaskPatchParsed> {
   if ('removedReason' in b) out.removedReason = typeof b.removedReason === 'string' ? b.removedReason.trim() : '';
   if ('scheduledOn' in b) { const r = dateOrNull(b.scheduledOn); if (!r.ok) return r; out.scheduledOn = r.value; }
   if ('visitOn' in b) { const r = dateOrNull(b.visitOn); if (!r.ok) return r; out.visitOn = r.value; }
+  if ('visitTime' in b) { const r = timeOrNull(b.visitTime); if (!r.ok) return r; out.visitTime = r.value; }
+  if ('scheduledTime' in b) { const r = timeOrNull(b.scheduledTime); if (!r.ok) return r; out.scheduledTime = r.value; }
+  if ('agreement' in b) {
+    if (b.agreement === null) out.agreementInput = null;
+    else { const a = parseTaskAgreementInput(b.agreement); if (!a) return fail(AGREEMENT_VALUE_MESSAGE); out.agreementInput = a; }
+  }
   if ('cost' in b) { const c = parseTaskCost(b.cost); if (!c.ok) return c; out.cost = c.value; }
   if ('note' in b) out.note = typeof b.note === 'string' ? b.note.trim() : '';
   if ('proof' in b) {
@@ -248,6 +272,27 @@ export function proofGateError(
   if (patch.proofUrl === null && cur.postedAt) return PROOF_KEEP_MESSAGE;
   // ④ 필수 — 새로 게시됨이 되는 RT는 패치 후 증빙이 있어야 한다
   if (patch.postedAt && !cur.postedAt && cur.type === 'rt' && !proofAfter) return PROOF_REQUIRED_MESSAGE;
+  return null;
+}
+
+// 방문협찬 전용 칸(063)의 판정 — 유형을 아는 건 라우트뿐이라(파서는 행을 모른다) proofGateError처럼 순수 함수로 뺀다.
+// 시간·동의서는 방문협찬에만. 시간은 "패치 후" 날짜가 있어야 붙는다(날짜를 같은 요청에 지우면 스토어가 시간도 지운다).
+// 키가 오기만 해도(null 포함) 방문협찬이 아니면 거절한다 — 화면은 다른 유형에 이 칸을 그리지 않는다.
+export function visitOnlyGateError(
+  cur: { id: string; type: TaskType; visitOn: string | null; scheduledOn: string | null },
+  patch: { visitOn?: string | null; scheduledOn?: string | null; visitTime?: string | null; scheduledTime?: string | null; agreementInput?: TaskAgreementInput | null },
+): string | null {
+  if (cur.type !== 'visit') {
+    if (patch.visitTime !== undefined || patch.scheduledTime !== undefined) return TIME_ONLY_VISIT_MESSAGE;
+    if (patch.agreementInput !== undefined) return AGREEMENT_ONLY_VISIT_MESSAGE;
+    return null;
+  }
+  // 이 작업의 동의서인가 — 모양만 맞는 남의 경로를 막는다(proofGateError ②와 같은 이유)
+  if (patch.agreementInput && !isTaskAgreementPathFor(cur.id, patch.agreementInput.path)) return AGREEMENT_VALUE_MESSAGE;
+  const visitOnAfter = patch.visitOn !== undefined ? patch.visitOn : cur.visitOn;
+  const scheduledOnAfter = patch.scheduledOn !== undefined ? patch.scheduledOn : cur.scheduledOn;
+  if (patch.visitTime && !visitOnAfter) return VISIT_TIME_NO_DATE_MESSAGE;
+  if (patch.scheduledTime && !scheduledOnAfter) return SCHEDULED_TIME_NO_DATE_MESSAGE;
   return null;
 }
 

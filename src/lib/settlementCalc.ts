@@ -72,7 +72,7 @@ export function referenceUrlFor(t: { type: TaskType; postUrl: string | null; tar
 
 // ── 신호등(§3-7) ──
 export type ReadinessLevel = 'ready' | 'warn' | 'blocked';
-export type IssueCode = 'no-influencer' | 'no-payment-method' | 'no-category' | 'no-reference' | 'removed' | 'paypay-no-receiving-info' | 'no-client' | 'no-proof';
+export type IssueCode = 'no-influencer' | 'no-payment-method' | 'no-category' | 'no-reference' | 'removed' | 'paypay-no-receiving-info' | 'no-client' | 'no-proof' | 'no-agreement';
 export interface ReadinessIssue { level: 'warn' | 'blocked'; code: IssueCode; text: string }
 // 클릭 전에 미리 보여준다(UX 원칙 ②) — createRequests의 거절 사유(settlementStore)와 문구를 맞춘다(042)
 // 클라이언트 지정은 캠페인 생성 시점에만 가능(수정 UI 없음·parseCampaignPatch가 clientId를 의도적으로 무시) — 클라이언트가 삭제되면
@@ -85,6 +85,9 @@ const monthDay = (ymd: string) => `${Number(ymd.slice(5, 7))}-${Number(ymd.slice
 // 이 두 이슈는 화면(effectiveIssues)과 서버(createRequests)가 같은 객체를 쓴다 — 문구·수준이 한 곳에서만 바뀌게.
 const NO_CATEGORY_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-category', text: '분류를 골라 주세요' };
 const NO_PROOF_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-proof', text: '증빙 스크린샷을 넣어야 요청할 수 있어요 — 정산 쪽이 지급 전에 확인해요' };
+// 방문협찬 협찬 동의서(063, koo 09-29 결정 4) — 없어도 막지 않는다. 확인만 시킨다(🟡). 정산 프로덕트로는 보내지 않는다(결정 5)
+// — 그래서 후보에 동의서 객체를 싣지 않고 "없다"는 사실만 판정에 넣는다(요청 스냅샷·외부 직렬화로 새어 나갈 길이 없다).
+export const NO_AGREEMENT_ISSUE: ReadinessIssue = { level: 'warn', code: 'no-agreement', text: '협찬 동의서가 없어요 — 요청은 만들 수 있어요' };
 function referenceIssue(required: boolean): ReadinessIssue {
   return required
     ? { level: 'blocked', code: 'no-reference', text: '참고 링크를 넣어 주세요 — 정산 쪽이 이 링크로 게시를 확인해요' }
@@ -93,7 +96,7 @@ function referenceIssue(required: boolean): ReadinessIssue {
 // 참고 링크가 확인 자료인 유형 — RT만 아니다(RT의 링크는 클리닉 원본 트윗; 스펙 3-6, 슬랙 RT 405건 중 350건이 링크 없이 갔다)
 export const referenceRequiredFor = (type: TaskType): boolean => type !== 'rt';
 
-export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; referenceRequired: boolean; removedAt: string | null; removedReason: string; clientId: string | null; proofMissing: boolean }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
+export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; referenceRequired: boolean; removedAt: string | null; removedReason: string; clientId: string | null; proofMissing: boolean; agreementMissing?: boolean }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
   const issues: ReadinessIssue[] = [];
   if (!i.inRoster) issues.push({ level: 'blocked', code: 'no-influencer', text: NO_INFLUENCER_TEXT });
   else if (!i.method) issues.push({ level: 'blocked', code: 'no-payment-method', text: '결제 수단이 없어요 — 프로필에서 등록해 주세요' });
@@ -101,6 +104,7 @@ export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | 
   if (!i.category) issues.push(NO_CATEGORY_ISSUE);
   if (!i.referenceUrl) issues.push(referenceIssue(i.referenceRequired));
   if (i.proofMissing) issues.push(NO_PROOF_ISSUE);
+  if (i.agreementMissing) issues.push(NO_AGREEMENT_ISSUE);
   if (i.removedAt) issues.push({ level: 'warn', code: 'removed', text: `게시 내려짐 ${monthDay(i.removedAt)}${i.removedReason ? ` · ${i.removedReason}` : ''}` });
   // 09-03 koo: 그쪽이 "PayPay 수취 식별값 없으면 송금을 시작할 수 없다"로 확정 → 🔴. 채우는 곳은 인플루언서 프로필의 결제 수단.
   // 09-23 koo(실사용 발견): QR 이미지도 대안 수취 정보다(paypay-qr 브랜치) — 식별 정보·QR 둘 다 없을 때만 막는다.
@@ -157,7 +161,8 @@ export function describeSnapshot(m: PaymentMethodSnapshot): string {
 
 // ── 후보 한 건(§2-4 + §3 전부) ──
 export interface CandidateInput {
-  task: { id: string; type: TaskType; influencerHandle: string; cost: TaskCost; postUrl: string | null; targetTweetUrl: string | null; targetPostUrl: string | null; postedAt: string; removedAt: string | null; removedReason: string; draftLabel: string | null; proof: TaskProof | null };
+  task: { id: string; type: TaskType; influencerHandle: string; cost: TaskCost; postUrl: string | null; targetTweetUrl: string | null; targetPostUrl: string | null; postedAt: string; removedAt: string | null; removedReason: string; draftLabel: string | null; proof: TaskProof | null;
+    hasAgreement: boolean };   // 협찬 동의서가 붙어 있는가(방문협찬만 의미) — 동의서 자체는 후보에 싣지 않는다(위 NO_AGREEMENT_ISSUE)
   campaign: { id: string; name: string; kind: CampaignKind | null; clientId: string | null; clientName: string };
   influencer: { inRoster: boolean; method: PaymentMethod | null };
   settings: SettlementSettings; lastQuoteRtCategory: string | null; today: string;
@@ -178,7 +183,8 @@ export function computeCandidate(i: CandidateInput): SettlementCandidate {
   const referenceDefault = referenceUrlFor(task);
   // RT만 증빙을 요구한다(RT 증빙 스펙 결정 3) — 투고·인용RT는 post_url이 증거다. 없으면 🔴(09-02, 그쪽이 받지 않는 요청은 만들지 않는다)
   const proofMissing = task.type === 'rt' && !task.proof;
-  const r = assessReadiness({ inRoster: influencer.inRoster, method, category: categoryDefault, referenceUrl: referenceDefault, referenceRequired: referenceRequiredFor(task.type), removedAt: task.removedAt, removedReason: task.removedReason, clientId: campaign.clientId, proofMissing });
+  const agreementMissing = task.type === 'visit' && !task.hasAgreement;
+  const r = assessReadiness({ inRoster: influencer.inRoster, method, category: categoryDefault, referenceUrl: referenceDefault, referenceRequired: referenceRequiredFor(task.type), removedAt: task.removedAt, removedReason: task.removedReason, clientId: campaign.clientId, proofMissing, agreementMissing });
   return {
     taskId: task.id, campaignId: campaign.id, campaignName: campaign.name, clientId: campaign.clientId, clientName: campaign.clientName, campaignKind: campaign.kind,
     influencerHandle: task.influencerHandle, taskType: task.type, postedAt: task.postedAt, removedAt: task.removedAt, removedReason: task.removedReason, draftLabel: task.draftLabel,

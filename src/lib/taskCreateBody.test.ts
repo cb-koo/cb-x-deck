@@ -39,3 +39,14 @@ test('고른 결제 수단은 사람 줄에 실린다 — 사람이 없으면 �
   assert.deepEqual(buildTaskCreateBody({ ...base, paymentMethodId: 'm-2' }).influencers, []);
   assert.deepEqual(buildTaskCreateBody({ ...base, handle: 'asyako0520', paymentMethodId: null }).influencers, [{ handle: 'asyako0520', cost: null }]);
 });
+
+test('063) 시간은 방문협찬이고 그 날짜가 있을 때만 실린다 — 다른 유형의 본문 모양은 그대로', () => {
+  const v = buildTaskCreateBody({ ...base, type: 'visit', visitOn: '2026-09-25', scheduledOn: '2026-09-27', visitTime: '14:00', scheduledTime: '09:30' });
+  assert.equal(v.visitTime, '14:00');
+  assert.equal(v.scheduledTime, '09:30');
+  const noDate = buildTaskCreateBody({ ...base, type: 'visit', visitTime: '14:00', scheduledTime: '09:30' });
+  assert.equal('visitTime' in noDate, false);
+  assert.equal('scheduledTime' in noDate, false);
+  const post = buildTaskCreateBody({ ...base, scheduledOn: '2026-09-27', scheduledTime: '09:30' });
+  assert.equal('scheduledTime' in post, false);
+});

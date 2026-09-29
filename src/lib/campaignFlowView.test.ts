@@ -12,7 +12,7 @@ let n = 0;
 const mk = (p: Partial<CampaignTaskItem>): CampaignTaskItem => ({
   id: `t${++n}`, campaignId: 'c', influencerHandle: null, type: 'post', draftId: null, targetTaskId: null, targetTweetUrl: null,
   postUrl: null, postedAt: null, postedSource: null, removedAt: null, removedReason: '', scheduledOn: null, visitOn: null, cost: null, note: '',
-  proof: null, paymentMethodId: null, cancelledAt: null, cancelReason: null, cancelNote: '', cancelledDraftId: null, cancelledDraftTitle: null, settledElsewhereAt: null, settledElsewhereNote: '', settledElsewhereByName: null,
+  proof: null, visitTime: null, scheduledTime: null, agreement: null, paymentMethodId: null, cancelledAt: null, cancelReason: null, cancelNote: '', cancelledDraftId: null, cancelledDraftTitle: null, settledElsewhereAt: null, settledElsewhereNote: '', settledElsewhereByName: null,
   createdAt: `2026-09-01T00:00:${String(n).padStart(2, '0')}Z`, updatedAt: '', draftStatus: null, draftLabel: null, draftFirstLine: null,
   draftPreview: null, draftFirstImage: null, target: null,
   published: false, perf: null, linkClicks: null, settlement: null, ...p,
@@ -186,4 +186,17 @@ test('profilePromptFor — CostConfirmField.confirm과 같은 규칙', () => {
     { scenario: 'no-profile', profile: null });
   assert.equal(profilePromptFor({ option: { id: 'i1', handle: 'a', pricing: { currency: 'JPY' } }, type: 'rt', cost: { amount: 1000, currency: 'KRW' } }), null); // 단가 없음 + 프로필 통화 다름
   assert.equal(profilePromptFor({ option: opt, type: 'post', cost: null }), null);
+});
+
+test('063) dateCell — 방문협찬은 게시 예정 시간을 붙이고(밀림 D+n은 날짜로만), 다른 유형은 시간을 무시한다', () => {
+  assert.equal(dateCell(mk({ type: 'visit', scheduledOn: '2026-09-26', scheduledTime: '14:00' }), T).text, '9/26 토 14:00');
+  assert.deepEqual(dateCell(mk({ type: 'visit', scheduledOn: '2026-09-16', scheduledTime: '23:59' }), T), { text: '9/16 수 23:59 · D+2', tone: 'late' });
+  assert.equal(dateCell(mk({ type: 'visit', scheduledOn: '2026-09-26', scheduledTime: null }), T).text, '9/26 토');
+  assert.equal(dateCell(mk({ type: 'post', scheduledOn: '2026-09-26', scheduledTime: '14:00' }), T).text, '9/26 토');
+});
+
+test('063) 해제 확인 — 방문협찬에 동의서가 있으면 떼어진다고 말하고, 없으면 말하지 않는다', () => {
+  const agreement = { url: 'u', name: 'a.pdf', size: 1, mime: 'application/pdf', by: null, byName: '', at: '' };
+  assert.equal(detachConfirmMessage({ type: 'visit', proof: null, draftStatus: null, agreement }), '인플루언서를 미정으로 되돌려요.\n올려둔 협찬 동의서도 떼어져요.');
+  assert.equal(detachConfirmMessage({ type: 'visit', proof: null, draftStatus: null, agreement: null }), '인플루언서를 미정으로 되돌려요.');
 });

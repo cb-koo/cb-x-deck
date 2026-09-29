@@ -52,6 +52,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const tasks = await createTasks(sql, id, {
       type: v.type, targetTaskId: v.targetTaskId, targetTweetUrl: v.targetTweetUrl, draftId: v.draftId,
       scheduledOn: v.scheduledOn, visitOn: v.visitOn, note: v.note, createdBy: gate.member.id,
+      visitTime: v.visitTime, scheduledTime: v.scheduledTime,   // 방문협찬만(parseTaskCreate가 다른 유형을 거절했다)
       items: v.count ? Array.from({ length: v.count }, () => ({ handle: null, cost: v.cost }))
            : v.influencers.length ? v.influencers : (v.cost ? [{ handle: null, cost: v.cost }] : []),
     });

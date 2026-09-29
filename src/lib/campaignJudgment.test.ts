@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isDateOnlyString, addDays, daysBetweenDates, weekStartOf, weekDays, nextWeekRange, formatDateKo, formatDateKoLong,
+  isDateOnlyString, isTimeString, formatDateTimeKo, addDays, daysBetweenDates, weekStartOf, weekDays, nextWeekRange, formatDateKo, formatDateKoLong,
   campaignStatus, isOutOfRange, isCampaignKind,
   suggestCampaignName, suggestCampaignCode, draftWriteHref,
 } from './campaignJudgment.ts';
@@ -75,4 +75,16 @@ test('formatDateKoLong — 게시 칸의 "9월 24일 (목)"·"9월 24일", 시�
   assert.equal(formatDateKoLong('2026-09-23'), '9월 23일 (수)');
   assert.equal(formatDateKoLong('2026-01-01', false), '1월 1일');
   assert.equal(formatDateKoLong('nope'), '');
+});
+
+test('063) isTimeString — HH:MM 00:00~23:59만', () => {
+  for (const ok of ['00:00', '09:05', '14:00', '23:59']) assert.equal(isTimeString(ok), true, ok);
+  for (const bad of ['24:00', '9:05', '14:60', '14:00:00', '14-00', ' 14:00', '', null, 1400]) assert.equal(isTimeString(bad), false, String(bad));
+});
+
+test('063) formatDateTimeKo — 시간이 있으면 날짜 뒤에 붙고, 없으면 formatDateKo와 같다', () => {
+  assert.equal(formatDateTimeKo('2026-09-26', '14:00'), '9/26 토 14:00');
+  assert.equal(formatDateTimeKo('2026-09-26', null), formatDateKo('2026-09-26'));
+  assert.equal(formatDateTimeKo('2026-09-26', undefined), '9/26 토');
+  assert.equal(formatDateTimeKo('bad', '14:00'), '');   // 날짜가 깨지면 시간만 떠 있지 않는다
 });

@@ -180,6 +180,32 @@ test('요청 스냅샷 — 만든 시점의 증빙이 요청 행에 복사된다
   assert.deepEqual(reloaded.proof, proof);
 });
 
+test('063) 방문협찬 동의서 — 없으면 🟡 확인 필요지만 요청은 만들어지고, 있으면 경고가 없다 · 요청·외부 항목엔 동의서가 실리지 않는다', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라Agr');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'agr', 'visit'));
+  await influencerWithPaypal(H('agr1')); await influencerWithPaypal(H('agr2'));
+  const [t1, t2] = await createTasks(sql, camp.id, { ...tin, type: 'visit', visitOn: '2026-08-25', items: [
+    { handle: H('agr1'), cost: { amount: 50000, currency: 'KRW' } }, { handle: H('agr2'), cost: { amount: 50000, currency: 'KRW' } },
+  ] });
+  for (const [i, t] of [t1, t2].entries()) await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: `https://x.com/agr/status/${i + 1}` });
+  const agreement = { url: `task/${t2.id}/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.pdf`, name: `${P}-동의서.pdf`, size: 1000, mime: 'application/pdf', by: null, byName: '박구건', at: '2026-08-26T01:00:00.000Z' };
+  await updateTask(sql, t2.id, { agreement });
+  const cands = await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28');
+  const c1 = cands.find((x) => x.taskId === t1.id)!, c2 = cands.find((x) => x.taskId === t2.id)!;
+  assert.equal(c1.readiness, 'warn');                                     // 결정 4: 막지 않는다
+  assert.deepEqual(c1.issues.map((i) => [i.code, i.level]), [['no-agreement', 'warn']]);
+  assert.equal(c2.readiness, 'ready');
+  assert.equal(c2.issues.length, 0);
+  const rows = await createRequests(sql, [itemOf(c1, c1.categoryDefault!), itemOf(c2, c2.categoryDefault!)], m, '2026-08-28');
+  assert.equal(rows.length, 2);                                           // 동의서 없는 건도 요청이 만들어진다
+  // 결정 5: 정산 프로덕트로 가지 않는다 — 요청 스냅샷에도, 외부 항목에도 동의서 흔적이 없다
+  const r2 = rows.find((r) => r.taskId === t2.id)!;
+  assert.equal(JSON.stringify(r2).includes('동의서'), false);
+  const ext = toExternalItem((await getForExport(sql, r2.id))!, 'https://x.example');
+  assert.equal(JSON.stringify(ext).includes('agreement') || JSON.stringify(ext).includes('동의서'), false);
+});
+
 test('생성 — 전체 검증: 하나라도 실패면 0건 저장, 건별 이유', async () => {
   const m = await ensureMember();
   const c = await createClient(sql, P + '클라C');

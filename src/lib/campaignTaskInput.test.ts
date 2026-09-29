@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { visitOnlyGateError, TIME_MESSAGE, TIME_ONLY_VISIT_MESSAGE, VISIT_TIME_NO_DATE_MESSAGE, SCHEDULED_TIME_NO_DATE_MESSAGE } from './campaignTaskInput.ts';
+import { AGREEMENT_VALUE_MESSAGE, AGREEMENT_ONLY_VISIT_MESSAGE } from './taskAgreementGuard.ts';
 import { parseTaskCreate, parseTaskPatch, proofGateError, normalizeTargetTweetUrl, parseTaskIdPatch, TASK_TYPE_MESSAGE, TARGET_MESSAGE, POST_URL_MESSAGE, VISIT_ON_MESSAGE, DRAFT_MULTI_MESSAGE, POSTED_AT_NULL_MESSAGE, DATE_MESSAGE, influencerChangeGuard, CANCELLED_TASK_MESSAGE, POSTED_TASK_MESSAGE, REPLACE_AFTER_VISIT_MESSAGE, REPLACE_REQUIRED_MESSAGE, PAYMENT_METHOD_ID_MESSAGE, PAYMENT_METHOD_NO_INFLUENCER_MESSAGE, postedAtFromLinkGate, POST_URL_REQUIRED_MESSAGE } from './campaignTaskInput.ts';
 import { PROOF_VALUE_MESSAGE, PROOF_ONLY_RT_MESSAGE, PROOF_KEEP_MESSAGE, PROOF_REQUIRED_MESSAGE } from './taskProofGuard.ts';
 
@@ -257,4 +259,51 @@ test('postedAtFromLinkGate — 날짜를 알 수 없는 링크(스노플레이�
 
 test('postedAtFromLinkGate — RT는 지금처럼 사람이 적은 날짜 그대로(링크 불필요)', () => {
   assert.deepEqual(postedAtFromLinkGate({ type: 'rt', postUrl: null }, { postedAt: '2026-09-25' }), { ok: true, value: '2026-09-25' });
+});
+
+// ── 063 방문협찬 시간·동의서 ──
+const VT = '11111111-2222-3333-4444-555555555555';
+const VF = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const AG = { path: `task/${VT}/${VF}.pdf`, name: '동의서.pdf', size: 1000, mime: 'application/pdf' };
+
+test('063) 생성 — 시간은 HH:MM, 방문협찬만(다른 유형이면 거절), 빈 값은 미정', () => {
+  const v = parseTaskCreate({ type: 'visit', visitOn: '2026-09-26', visitTime: '14:00', scheduledTime: '' });
+  assert.ok(v.ok);
+  if (v.ok) { assert.equal(v.value.visitTime, '14:00'); assert.equal(v.value.scheduledTime, null); }
+  assert.deepEqual(parseTaskCreate({ type: 'visit', visitTime: '24:00' }), { ok: false, message: TIME_MESSAGE });
+  assert.deepEqual(parseTaskCreate({ type: 'post', scheduledOn: '2026-09-26', scheduledTime: '14:00' }), { ok: false, message: TIME_ONLY_VISIT_MESSAGE });
+  const post = parseTaskCreate({ type: 'post' });
+  assert.ok(post.ok && post.value.visitTime === null && post.value.scheduledTime === null);
+});
+
+test('063) 패치 파싱 — 시간 3값·형식, 동의서는 {경로·이름·크기·형식} | null', () => {
+  assert.deepEqual(parseTaskPatch({ visitTime: '09:05', scheduledTime: null }), { ok: true, value: { visitTime: '09:05', scheduledTime: null } });
+  assert.deepEqual(parseTaskPatch({ visitTime: '' }), { ok: true, value: { visitTime: null } });
+  assert.deepEqual(parseTaskPatch({ visitTime: '9:5' }), { ok: false, message: TIME_MESSAGE });
+  assert.deepEqual(parseTaskPatch({ scheduledTime: '14:00:00' }), { ok: false, message: TIME_MESSAGE });
+  assert.deepEqual(parseTaskPatch({ agreement: AG }), { ok: true, value: { agreementInput: AG } });
+  assert.deepEqual(parseTaskPatch({ agreement: null }), { ok: true, value: { agreementInput: null } });
+  assert.deepEqual(parseTaskPatch({ agreement: 'https://evil.example/a.pdf' }), { ok: false, message: AGREEMENT_VALUE_MESSAGE });
+  assert.deepEqual(parseTaskPatch({ agreement: { ...AG, mime: 'text/html' } }), { ok: false, message: AGREEMENT_VALUE_MESSAGE });
+});
+
+test('063) visitOnlyGateError — 방문협찬만, 이 작업의 동의서만, 시간은 패치 후 날짜가 있어야', () => {
+  const visit = { id: VT, type: 'visit' as const, visitOn: '2026-09-26', scheduledOn: null };
+  const post = { id: VT, type: 'post' as const, visitOn: null, scheduledOn: '2026-09-26' };
+  // 다른 유형 — 키가 오기만 해도(null 포함) 거절
+  assert.equal(visitOnlyGateError(post, { scheduledTime: '14:00' }), TIME_ONLY_VISIT_MESSAGE);
+  assert.equal(visitOnlyGateError(post, { scheduledTime: null }), TIME_ONLY_VISIT_MESSAGE);
+  assert.equal(visitOnlyGateError(post, { agreementInput: AG }), AGREEMENT_ONLY_VISIT_MESSAGE);
+  assert.equal(visitOnlyGateError(post, { agreementInput: null }), AGREEMENT_ONLY_VISIT_MESSAGE);
+  assert.equal(visitOnlyGateError(post, { scheduledOn: null }), null);   // 날짜만 바꾸는 건 그대로
+  // 방문협찬 — 동의서 경로는 이 작업 것이어야
+  assert.equal(visitOnlyGateError(visit, { agreementInput: AG }), null);
+  assert.equal(visitOnlyGateError({ ...visit, id: '99999999-2222-3333-4444-555555555555' }, { agreementInput: AG }), AGREEMENT_VALUE_MESSAGE);
+  assert.equal(visitOnlyGateError(visit, { agreementInput: null }), null);
+  // 시간 — 저장된 날짜 또는 같은 요청의 날짜가 있어야 한다
+  assert.equal(visitOnlyGateError(visit, { visitTime: '14:00' }), null);
+  assert.equal(visitOnlyGateError(visit, { visitOn: null, visitTime: '14:00' }), VISIT_TIME_NO_DATE_MESSAGE);
+  assert.equal(visitOnlyGateError(visit, { scheduledTime: '14:00' }), SCHEDULED_TIME_NO_DATE_MESSAGE);
+  assert.equal(visitOnlyGateError(visit, { scheduledOn: '2026-09-28', scheduledTime: '14:00' }), null);
+  assert.equal(visitOnlyGateError(visit, { scheduledTime: null }), null);   // 비우기는 날짜와 무관
 });

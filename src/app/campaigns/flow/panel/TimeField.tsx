@@ -48,7 +48,9 @@ export function TimeField({ value, ariaLabel, onCommit, commitOnChange }: {
              onChange={(e) => { setBuf(e.target.value); if (commitOnChange) commit(e.target.value); }}
              onBlur={() => { if (!commitOnChange) commit(buf); if (!buf) setOpen(false); }}
              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.currentTarget.blur(); }}
-             className="h-10 min-w-0 flex-1 bg-transparent text-ui tabular-nums outline-none" />
+             // 초점 표시는 감싼 DateTimeBox의 파란 테두리(focus-within)가 한다 — 전역 :focus-visible 사각형이 안에 또 그려지지 않게(인라인이 레이어 밖 전역 규칙을 이긴다)
+             style={{ outline: 'none' }}
+             className="h-10 min-w-0 flex-1 bg-transparent text-ui tabular-nums" />
     </Row>
   );
 }

@@ -41,7 +41,7 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
       // compact(표 셀)는 py-1로 여유를 둬 h-10 입력이 들어가도 행이 48px 밑을 유지한다(표 자체 높이는 여기서 손대지 않는다)
       <span className={bare ? 'flex w-full items-center gap-1 pr-1' : `inline-flex items-center gap-1.5 ${compact ? 'py-1' : ''}`}
             onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setEditing(false); }}>
-        <input ref={inputRef} type="date" value={value ?? ''} aria-label="게시 예정일"
+        <input ref={inputRef} type="date" value={value ?? ''} aria-label="게시 예정일" style={bare ? { outline: 'none' } : undefined}
                onChange={(e) => { onChange(e.target.value || null); setEditing(false); }}
                onKeyDown={(e) => {
                  if (e.key === 'Escape' && !e.nativeEvent.isComposing) { e.stopPropagation(); setEditing(false); }   // 취소 — 모달까지 닫지 않는다

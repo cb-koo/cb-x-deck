@@ -539,14 +539,13 @@ export async function clearSettledElsewhere(sql: postgres.Sql, id: string): Prom
 }
 
 // ─────────────────────────── 인플루언서 교체 (ADR 0005) ───────────────────────────
-// 옛 인플루언서의 흔적 정리(ADR 0005 표) — 해제·교체가 같이 쓴다: RT 증빙·방문협찬 동의서 제거, 붙은 원고가 '전달됨'이면 '사용 확정'으로.
+// 옛 인플루언서의 흔적 정리(ADR 0005 표) — 해제·교체가 같이 쓴다: RT 증빙 제거, 붙은 원고가 '전달됨'이면 '사용 확정'으로.
 // 원고 status 변경은 draftStore.updateDraft를 거쳐야 하므로 여기서는 값만 돌려주고 호출자(라우트/replaceInfluencer)가 처리한다.
 export async function clearOldInfluencerTraces(tx: postgres.Sql, id: string): Promise<{ draftId: string | null; draftWasDelivered: boolean }> {
   const cur = await tx<Array<{ draft_id: string | null; status: string | null }>>`
     select t.draft_id, d.status from campaign_task t left join draft d on d.id = t.draft_id where t.id = ${id}`;
   await tx`update campaign_task set proof = null, updated_at = now() where id = ${id} and type = 'rt'`;
-  // 협찬 동의서는 그 사람이 서명한 것이다 — 사람이 바뀌면 남기지 않는다(RT 증빙과 같은 판단). 방문 시간은 작업의 일정이라 둔다.
-  await tx`update campaign_task set agreement = null, updated_at = now() where id = ${id} and type = 'visit' and agreement is not null`;
+  // 협찬 동의서는 해제·교체해도 남긴다(koo 09-29) — 받아 둔 서류가 사람 변경으로 사라지면 안 된다. 필요하면 패널에서 바꾸거나 지운다.
   return { draftId: cur[0]?.draft_id ?? null, draftWasDelivered: cur[0]?.status === 'delivered' };
 }
 

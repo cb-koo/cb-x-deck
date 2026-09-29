@@ -195,8 +195,8 @@ test('063) dateCell — 방문협찬은 게시 예정 시간을 붙이고(밀림
   assert.equal(dateCell(mk({ type: 'post', scheduledOn: '2026-09-26', scheduledTime: '14:00' }), T).text, '9/26 토');
 });
 
-test('063) 해제 확인 — 방문협찬에 동의서가 있으면 떼어진다고 말하고, 없으면 말하지 않는다', () => {
+test('063) 해제 확인 — 방문협찬에 동의서가 있으면 남는다고 말하고, 없으면 말하지 않는다', () => {
   const agreement = { url: 'u', name: 'a.pdf', size: 1, mime: 'application/pdf', by: null, byName: '', at: '' };
-  assert.equal(detachConfirmMessage({ type: 'visit', proof: null, draftStatus: null, agreement }), '인플루언서를 미정으로 되돌려요.\n올려둔 협찬 동의서도 떼어져요.');
+  assert.equal(detachConfirmMessage({ type: 'visit', proof: null, draftStatus: null, agreement }), '인플루언서를 미정으로 되돌려요.\n올려둔 협찬 동의서는 그대로 남아요.');
   assert.equal(detachConfirmMessage({ type: 'visit', proof: null, draftStatus: null, agreement: null }), '인플루언서를 미정으로 되돌려요.');
 });

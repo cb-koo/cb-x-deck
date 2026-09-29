@@ -90,7 +90,7 @@ export function ReplaceDialog({ task, influencerOptions, roster, initialHandle, 
   // 해당되는 항목만 보인다(브리프 결정 3) — 없는 얘기를 하면 뭘 잃는지 헷갈린다
   const notice = '작업·대상·예정일은 그대로예요.'
     + (task.type === 'rt' && task.proof ? ' 올려둔 RT 증빙은 지워져요.' : '')
-    + (task.type === 'visit' && task.agreement ? ' 올려둔 협찬 동의서는 떼어져요 — 새 인플루언서에게 다시 받아 올려 주세요.' : '')
+    + (task.type === 'visit' && task.agreement ? ' 올려둔 협찬 동의서는 그대로 남아요 — 필요하면 패널에서 바꿔 주세요.' : '')
     + (task.draftStatus === 'delivered' ? ` 원고 상태는 '전달됨'에서 '사용 확정'으로 돌아가요.` : '');
 
   return (

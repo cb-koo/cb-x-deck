@@ -275,7 +275,7 @@ test('060) 작업별 결제 수단 — 생성·패치 왕복, 인플이 실제�
   assert.equal((await getTask(sql, t.id))!.paymentMethodId, null);         // 다른 사람의 수단 id가 남으면 안 된다
 });
 
-test('063) 방문협찬 시간·동의서 — 생성·패치 왕복, 날짜를 지우면 시간도 비고, 사람이 바뀌면 동의서가 떨어진다', async () => {
+test('063) 방문협찬 시간·동의서 — 생성·패치 왕복, 날짜를 지우면 시간도 비고, 사람이 바뀌어도 동의서는 남는다', async () => {
   const c = await createClient(sql, P + '클라vt');
   const camp = await mkCampaign(c.id, c.name, 'vt');
   // 생성 — 시간은 날짜가 있는 줄에만 들어간다(방문일 없는 줄의 방문 시간은 버린다)
@@ -319,12 +319,12 @@ test('063) 방문협찬 시간·동의서 — 생성·패치 왕복, 날짜를 �
   // jsonb에 깨진 값 → null로 읽는다
   await sql`update campaign_task set agreement = ${sql.json({ url: 'https://evil.example/a.pdf' } as never)} where id = ${t.id}`;
   assert.equal((await getTask(sql, t.id))!.agreement, null);
-  // 사람이 바뀌면(교체) 동의서는 떨어지고, 방문 시간은 작업의 일정이라 남는다
+  // 사람이 바뀌어도(교체) 동의서와 방문 시간은 남는다(koo 09-29 — 받아 둔 서류를 사람 변경으로 지우지 않는다)
   await updateTask(sql, t.id, { agreement, visitOn: '2026-09-10', visitTime: '15:00' });
   const r = await replaceInfluencer(sql, t.id, { handle: 'vtC', cost: undefined, reason: null, note: '', actorId: null, today: '2026-09-01' });
   assert.equal(r, 'ok');
   row = (await getTask(sql, t.id))!;
-  assert.equal(row.agreement, null);
+  assert.equal(row.agreement?.url, agreement.url);
   assert.equal(row.visitTime, '15:00');
   // DB 최후 방어 — 방문협찬이 아닌 작업엔 시간·동의서를 넣을 수 없다(23514)
   const [post] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', scheduledOn: '2026-09-05', items: [] });

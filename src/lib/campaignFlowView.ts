@@ -220,11 +220,11 @@ export function replaceDisabledReason(t: FlowRow, today: string): string | null 
 // 해제 확인 문구(koo 09-19 결정 2) — 실제로 일어날 일만 말한다. 서버(clearOldInfluencerTraces·
 // PATCH 라우트)가 하는 일과 정확히 맞춘다: RT는 옛 증빙을 조건 없이 지우고, 전달된 원고는 사용
 // 확정으로 되돌린다. 비용은 작업의 값이라 그대로 남는다 — 문구에 넣지 않는다(브리프 결정 3).
-// 방문협찬의 협찬 동의서(063)도 그 사람이 서명한 것이라 서버가 같이 뗀다 — 있으면 말한다(없는 것을 지운다고 하지 않는다).
+// 방문협찬의 협찬 동의서(063)는 해제해도 남는다(koo 09-29) — 있으면 남는다고 말한다(지워질까 걱정하지 않게).
 export function detachConfirmMessage(t: Pick<FlowRow, 'type' | 'proof' | 'draftStatus'> & { agreement?: FlowRow['agreement'] }): string {
   const lines = ['인플루언서를 미정으로 되돌려요.'];
   if (t.type === 'rt' && t.proof) lines.push('올려둔 RT 증빙도 지워져요.');
-  if (t.type === 'visit' && t.agreement) lines.push('올려둔 협찬 동의서도 떼어져요.');
+  if (t.type === 'visit' && t.agreement) lines.push('올려둔 협찬 동의서는 그대로 남아요.');
   if (t.draftStatus === 'delivered') lines.push("원고 상태는 '전달됨'에서 '사용 확정'으로 돌아가요.");
   return lines.join('\n');
 }

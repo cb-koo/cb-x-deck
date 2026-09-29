@@ -109,7 +109,7 @@ export function AgreementField({ taskId, value, disabled, onChange }: {
       </PanelSection>
       {over && (
         // 놓는 자리 표시 — 상자 전체를 덮는다(pointer-events-none: 표시가 drop 이벤트를 가로채지 않게)
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl border-2 border-dashed border-x-blue bg-[#f0f8fe]/95 text-content font-semibold text-x-blue-text">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl border-2 border-dashed border-x-blue bg-[#f0f8fe] text-content font-semibold text-x-blue-text">
           여기에 놓으면 {value ? '새 파일로 바꿔요' : '올려요'}
         </div>
       )}

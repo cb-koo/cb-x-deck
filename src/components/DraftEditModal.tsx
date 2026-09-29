@@ -9,6 +9,7 @@ import { textsChanged } from '@/lib/draftUi';
 import { draftLabel } from '@/lib/draftViews';
 import { addSlot, removeSlot } from '@/lib/draftFormat';
 import { uploadDraftImage, selectDraftImages, MAX_MEDIA_PER_POST } from '@/lib/draftMedia';
+import { imageFilesFromClipboard } from '@/lib/clipboardImages';
 import { useSignedMedia } from '@/components/useSignedMedia';
 import { MediaGrid } from '@/components/MediaGrid';
 import { InfoTip } from '@/components/InfoTip';
@@ -270,6 +271,8 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
                   ) : (
                     <textarea value={texts[i]} rows={Math.max(3, texts[i].split('\n').length + 1)}
                               onChange={(e) => setTexts(texts.map((t, j) => (j === i ? e.target.value : t)))}
+                              // ⌘V에 이미지가 있으면 이 칸에 이미지로(koo 09-29) — 버튼·끌어다 놓기와 같은 attachFiles. 글자면 그대로
+                              onPaste={(e) => { const imgs = imageFilesFromClipboard(e.clipboardData); if (imgs.length === 0) return; e.preventDefault(); void attachFiles(i, imgs); }}
                               className="w-full resize-y text-[20px] leading-6 outline-none placeholder:text-x-muted"
                               placeholder="본문을 입력하세요" autoFocus={i === 0} />
                   )}
@@ -295,7 +298,7 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
                         {/* X 컴포저 하단 바의 미디어 버튼 그대로 — 20px 글리프 + 32px 원형 히트 영역 + 파랑 10% 호버.
                             테두리 달린 작은 글자 버튼으로 먼저 냈다가 "너무 작아서 보이지 않는다"는 피드백을 받아 바꿨다. */}
                         <button type="button" onClick={() => fileInputs.current[i]?.click()}
-                                disabled={mediaBusy || full} aria-label="이미지 첨부"
+                                disabled={mediaBusy || full} aria-label="이미지 첨부" title="이미지 첨부 — 본문에 ⌘V로 붙여 넣어도 돼요"
                                 className="inline-flex h-8 w-8 items-center justify-center rounded-full text-x-blue hover:bg-x-blue/10 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent">
                           <MediaIcon className="h-5 w-5" />
                         </button>

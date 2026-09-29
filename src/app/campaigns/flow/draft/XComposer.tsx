@@ -7,6 +7,7 @@ import { useSignedMedia } from '@/components/useSignedMedia';
 import { MediaGrid } from '@/components/MediaGrid';
 import { MediaIcon, BlueCheckIcon } from '@/components/XIcons';
 import { Avatar } from '@/components/Avatar';
+import { imageFilesFromClipboard } from '@/lib/clipboardImages';
 
 // 직접 쓰기(§5-2) — X 작성 화면의 모양을 가져온 컴포저. DraftWriteModal(기존 두 번째 입구)과 갈리는
 // 지점 하나: 저장 전엔 서버를 안 부르는 DraftWriteModal과 달리, 이미지는 고르는 순간 올라간다.
@@ -129,6 +130,8 @@ export function XComposer({ handle, author, posts, onChange, onPickImages, disab
               {/* 쓰는 만큼 자란다(field-sizing) — 크기 조절 손잡이는 없앤다(koo 09-28). 지원 안 하는 브라우저는 rows 계산이 받친다 */}
               <textarea value={p.text} rows={Math.max(3, p.text.split('\n').length + 1)}
                         onChange={(e) => updateText(i, e.target.value)} onFocus={() => setActive(i)} disabled={disabled}
+                        // ⌘V에 이미지가 있으면 이 칸에 이미지로(koo 09-29) — 고르기와 같은 pickFiles(장수·형식·업로드 중 검사 그대로). 글자면 그대로
+                        onPaste={(e) => { const imgs = imageFilesFromClipboard(e.clipboardData); if (imgs.length === 0) return; e.preventDefault(); pickFiles(i, imgs); }}
                         // 전역 :focus-visible 테두리(globals.css)는 글상자엔 마우스 클릭에도 뜬다 — 이 본문은 깜빡이는 커서가 이미
                         // 초점을 보여주고 X 작성 화면에도 테두리가 없어 이 칸만 끈다(인라인이라 레이어 밖 전역 규칙을 이긴다).
                         style={{ outline: 'none' }}
@@ -160,7 +163,7 @@ export function XComposer({ handle, author, posts, onChange, onPickImages, disab
                 <div className="mt-2 flex items-center gap-1 border-t border-x-border pt-2">
                   <button type="button" onClick={() => fileInputs.current[i]?.click()}
                           disabled={disabled || full || p.uploading > 0} aria-label="이미지 첨부"
-                          title={p.uploading > 0 ? '올리는 중이에요 — 끝나면 이어서 올려주세요' : full ? `트윗당 ${MAX_MEDIA_PER_POST}장까지예요` : '이미지 첨부'}
+                          title={p.uploading > 0 ? '올리는 중이에요 — 끝나면 이어서 올려주세요' : full ? `트윗당 ${MAX_MEDIA_PER_POST}장까지예요` : '이미지 첨부 — 본문에 ⌘V로 붙여 넣어도 돼요'}
                           className="inline-flex h-9 w-9 items-center justify-center rounded-full text-x-blue hover:bg-x-blue/10 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent">
                     <MediaIcon className="h-5 w-5" />
                   </button>

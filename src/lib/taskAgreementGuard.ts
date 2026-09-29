@@ -72,3 +72,19 @@ export const AGREEMENT_ONLY_VISIT_MESSAGE = '협찬 동의서는 방문협찬 �
 export function agreementLine(a: Pick<TaskAgreement, 'name' | 'byName' | 'at'>): string {
   return [a.name, a.byName || null, kstMonthDay(a.at)].filter(Boolean).join(' · ');
 }
+
+// 파일 카드(koo 09-29) — 파일명과 나머지(올린 사람·날짜·크기)를 두 줄로 나눈다. 한 줄에 '·'로 이어 붙이면 어디까지가 파일명인지 안 읽혔다.
+// 올린 직후(낙관값)는 이름이 비어 있다 — 빈 조각은 뺀다.
+export function agreementMeta(a: Pick<TaskAgreement, 'byName' | 'at' | 'size'>): string {
+  const day = kstMonthDay(a.at);
+  return [a.byName || null, day ? `${day} 올림` : null, a.size > 0 ? formatBytes(a.size) : null].filter(Boolean).join(' · ');
+}
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n}B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)}KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)}MB`;
+}
+// 파일 형식 딱지 — 허용 형식은 셋뿐(PDF·JPG·PNG). 모르는 값이면 '파일'
+export function agreementKind(mime: string): 'PDF' | 'JPG' | 'PNG' | '파일' {
+  return mime === 'application/pdf' ? 'PDF' : mime === 'image/jpeg' ? 'JPG' : mime === 'image/png' ? 'PNG' : '파일';
+}

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { PanelSection } from './PanelSection';
 import type { TaskAgreement, TaskAgreementInput } from '@/lib/taskAgreementGuard';
-import { agreementLine } from '@/lib/taskAgreementGuard';
+import { agreementMeta, agreementKind } from '@/lib/taskAgreementGuard';
 import { uploadTaskAgreement, openTaskAgreement, taskAgreementValidationError, TASK_AGREEMENT_ACCEPT } from '@/lib/taskAgreement';
 
 // 방문협찬 협찬 동의서 칸(063, koo 09-29) — 작업 하나에 파일 하나. 없어도 아무것도 막지 않는다(결정 4): 없으면 '동의서 없음'을
@@ -73,36 +73,66 @@ export function AgreementField({ taskId, value, disabled, onChange }: {
     },
   } : {};
   const blocked = disabled || busy;
-  const btn = 'text-ui hover:underline disabled:cursor-not-allowed disabled:text-x-muted disabled:no-underline';
 
   return (
     <div className="relative" {...dropProps}>
       <PanelSection title="협찬 동의서">
       {busy ? (
-        <p className="text-content text-x-muted">올리는 중…</p>
+        <div className="flex h-[62px] items-center gap-3 rounded-lg border border-x-border bg-x-surface/60 px-3">
+          <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-x-border-strong border-t-x-blue" />
+          <span className="text-content text-x-secondary">올리는 중…</span>
+        </div>
       ) : value ? (
-        <div className="flex items-center gap-3">
-          {/* 올린 직후(낙관값)는 올린 사람 이름이 아직 비어 있다 — agreementLine이 빈 이름을 빼고 그린다 */}
-          <p className="min-w-0 flex-1 truncate text-content" title={value.name}>{agreementLine(value)}</p>
-          <span className="flex shrink-0 items-center gap-3">
-            <button type="button" onClick={() => void view(value.url)} className={`${btn} text-x-blue-text`}>보기</button>
-            {!disabled && <button type="button" onClick={pick} disabled={blocked} className={`${btn} text-x-secondary`}>바꾸기</button>}
-            {!disabled && <button type="button" onClick={remove} disabled={blocked} className={`${btn} text-x-muted hover:text-red-600`}>지우기</button>}
+        // 파일 카드(koo 09-29) — 형식 딱지 | 파일명(굵게) / 올린 사람·날짜·크기(회색 둘째 줄) | 버튼. 버튼은 모양으로 무게를 나눈다:
+        // [보기]가 주 동작(테두리), [바꾸기]는 옅은 버튼, 지우기는 휴지통 아이콘(되돌릴 수 없는 쪽이라 가장 작게, 누르면 확인).
+        <div className="flex items-center gap-3 rounded-lg border border-x-border bg-x-surface/60 px-3 py-2.5">
+          <span aria-hidden className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ui font-bold ${agreementKind(value.mime) === 'PDF' ? 'bg-red-50 text-red-600' : 'bg-x-blue/10 text-x-blue-text'}`}>
+            {agreementKind(value.mime)}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-content font-semibold" title={value.name}>{value.name}</span>
+            <span className="block truncate text-ui text-x-muted">{agreementMeta(value)}</span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5">
+            <button type="button" onClick={() => void view(value.url)}
+                    className="h-8 rounded-full border border-x-border-strong bg-white px-3 text-ui font-semibold text-x-text hover:bg-x-hover">보기 ↗</button>
+            {!disabled && (
+              <button type="button" onClick={pick} disabled={blocked}
+                      className="h-8 rounded-full px-3 text-ui text-x-secondary hover:bg-x-hover disabled:cursor-not-allowed disabled:opacity-50">바꾸기</button>
+            )}
+            {!disabled && (
+              <button type="button" onClick={remove} disabled={blocked} aria-label="동의서 지우기" title="동의서 지우기"
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-x-muted hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="h-4 w-4">
+                  <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
+                </svg>
+              </button>
+            )}
           </span>
         </div>
       ) : (
-        <div className="flex items-center gap-3">
-          <p className={`flex-1 text-content ${disabled ? 'text-x-muted' : 'text-amber-700'}`}>동의서 없음</p>
+        // 빈 상태도 같은 카드 자리·크기(점선) — 올리기 전·후가 같은 모양이라 어디에 무엇이 들어갈지 보인다. 점선 = 끌어다 놓는 자리.
+        <div className={`flex items-center gap-3 rounded-lg border border-dashed px-3 py-2.5 ${disabled ? 'border-x-border' : 'border-x-border-strong'}`}>
+          <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-x-surface text-x-muted">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+              <path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+            </svg>
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className={`block text-content font-semibold ${disabled ? 'text-x-muted' : 'text-amber-700'}`}>
+              동의서 없음{!disabled && <span className="font-normal text-x-muted"> · 없어도 정산은 돼요</span>}
+            </span>
+            {/* 행동 전 기대(UX 원칙 2) — 어떻게 올리는지·어떤 파일인지 */}
+            {!disabled && <span className="block text-ui text-x-muted">끌어다 놓거나 눌러서 올려요 · PDF·JPG·PNG, 10MB까지</span>}
+          </span>
           {!disabled && (
             <button type="button" onClick={pick} disabled={blocked}
-                    className="h-9 shrink-0 rounded-full border border-x-border-strong px-3.5 text-ui text-x-text hover:bg-x-hover disabled:cursor-not-allowed disabled:opacity-50">
+                    className="h-8 shrink-0 rounded-full border border-x-border-strong bg-white px-3 text-ui font-semibold text-x-text hover:bg-x-hover disabled:cursor-not-allowed disabled:opacity-50">
               파일 첨부
             </button>
           )}
         </div>
       )}
-      {/* 행동 전 기대(UX 원칙 2) — 어떤 파일을 받는지와 없어도 된다는 것, 한 줄로(koo 문구 규칙: 평소엔 짧게) */}
-      {!value && !disabled && !busy && <p className="mt-1 text-ui text-x-muted">끌어다 놓거나 눌러서 올려요 · PDF·JPG·PNG, 10MB까지 · 없어도 정산은 돼요</p>}
       {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
       <input ref={inputRef} type="file" accept={TASK_AGREEMENT_ACCEPT} className="hidden"
              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void put(f); }} />

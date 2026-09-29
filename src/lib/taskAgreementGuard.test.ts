@@ -2,8 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isTaskAgreementPath, isTaskAgreementPathFor, parseTaskAgreementInput, taskAgreementOf, agreementLine,
-  MAX_TASK_AGREEMENT_BYTES, TASK_AGREEMENT_NAME_MAX,
-} from './taskAgreementGuard.ts';
+  MAX_TASK_AGREEMENT_BYTES, TASK_AGREEMENT_NAME_MAX, agreementMeta, formatBytes, agreementKind } from './taskAgreementGuard.ts';
 
 const TASK = '11111111-2222-3333-4444-555555555555';
 const OTHER = '99999999-2222-3333-4444-555555555555';
@@ -51,4 +50,14 @@ test('063) 표시 한 줄 — 파일명 · 올린 사람 · M/D(KST), 이름이 
   // 09-28 15:30Z = KST 09-29 00:30 — UTC로 자르면 하루 전(9/28)으로 보인다
   assert.equal(agreementLine({ name: '동의서.pdf', byName: '박구건', at: '2026-09-28T15:30:00.000Z' }), '동의서.pdf · 박구건 · 9/29');
   assert.equal(agreementLine({ name: '동의서.pdf', byName: '', at: '2026-09-29T01:00:00.000Z' }), '동의서.pdf · 9/29');
+});
+
+test('파일 카드 — 둘째 줄(올린 사람·날짜·크기)과 형식 딱지', () => {
+  assert.equal(agreementMeta({ byName: '박구건', at: '2026-09-29T01:00:00.000Z', size: 250_880 }), '박구건 · 9/29 올림 · 245KB');
+  assert.equal(agreementMeta({ byName: '', at: '2026-09-29T01:00:00.000Z', size: 0 }), '9/29 올림');   // 올린 직후 낙관값
+  assert.equal(formatBytes(900), '900B');
+  assert.equal(formatBytes(3.4 * 1024 * 1024), '3.4MB');
+  assert.equal(agreementKind('application/pdf'), 'PDF');
+  assert.equal(agreementKind('image/jpeg'), 'JPG');
+  assert.equal(agreementKind('text/plain'), '파일');
 });

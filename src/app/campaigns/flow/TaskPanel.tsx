@@ -873,10 +873,9 @@ export function TaskPanel({
                 <PanelSection title={fieldLabel(field, task.type)}>{renderEditField(field, task)}</PanelSection>
                 {/* 협찬 동의서(063) — 방문협찬만, 일정 상자 바로 아래. 새 작업 폼엔 없다(올릴 경로가 작업 id에 묶여 있어 만든 뒤에 붙인다) */}
                 {field === 'dates' && task.type === 'visit' && (
-                  <PanelSection title="협찬 동의서">
-                    <AgreementField taskId={task.id} value={task.agreement} disabled={!!task.cancelledAt}
-                                    onChange={(next) => actions.setAgreement(task, next)} />
-                  </PanelSection>
+                  // 상자(PanelSection)는 AgreementField가 그린다 — 상자 전체가 파일을 끌어다 놓는 자리라서
+                  <AgreementField taskId={task.id} value={task.agreement} disabled={!!task.cancelledAt}
+                                  onChange={(next) => actions.setAgreement(task, next)} />
                 )}
               </Fragment>
             ))}

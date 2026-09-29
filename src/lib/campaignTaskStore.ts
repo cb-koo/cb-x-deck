@@ -5,6 +5,7 @@ import { TARGETABLE_TYPES, type TaskType } from './campaignJudgment.ts';
 import { tweetPermalink } from './tweetLink.ts';
 import { isUuidLike } from './uuid.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
+import { taskAgreementOf, type TaskAgreement } from './taskAgreementGuard.ts';
 import { influencerChangeGuard, POSTED_TASK_MESSAGE, type CancelReason } from './campaignTaskInput.ts';
 import { rosterHandleOf } from './taskAssignGate.ts';   // 잎 모듈 — 순환 없음(그 파일 머리 주석)
 // draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
@@ -25,6 +26,10 @@ export interface TaskRow {
   removedAt: string | null; removedReason: string;
   scheduledOn: string | null; visitOn: string | null; cost: TaskCost | null; note: string;
   proof: TaskProof | null;   // RT 증빙 스크린샷 1장(스펙 2026-08-31 §4-2). RT 아닌 유형은 늘 null
+  // 방문협찬만(063, koo 09-29) — 방문일·게시 예정일의 시간('HH:MM', KST 벽시계)과 협찬 동의서 1장. 다른 유형은 늘 null.
+  // 시간은 표시·저장용 — 밀림·정렬·달력·정산 판정은 날짜 칸만 본다. 날짜가 없으면 시간도 없다(updateTask가 지킨다).
+  visitTime: string | null; scheduledTime: string | null;
+  agreement: TaskAgreement | null;
   paymentMethodId: string | null;   // 이 작업에만 쓸 결제 수단(060) — 인플 payment_methods[].id 참조, null = 기본 수단(설계 §8-2)
   // 취소(055, ADR 0002) — 삭제가 아니라 상태. cancelledDraft*는 되돌리기용 스냅샷(떼어낸 원고 id·제목)
   cancelledAt: string | null; cancelReason: CancelReason | null; cancelNote: string;
@@ -47,6 +52,8 @@ export interface TaskCreateInput {
   scheduledOn: string | null; visitOn: string | null; note: string; createdBy: string | null;
   // 비면 미배정 1행. 줄의 날짜(scheduledOn·visitOn)가 있으면 그게 이기고, 없으면 위의 입력값을 쓴다 — 인플마다 게시일이 다르다.
   items: Array<{ handle: string | null; cost: TaskCost | null; scheduledOn?: string | null; visitOn?: string | null; paymentMethodId?: string | null }>;
+  // 방문협찬의 시간(063) — 모든 줄에 같이 들어간다. 그 줄의 날짜가 비면 넣지 않는다(날짜 없는 시간은 없다)
+  visitTime?: string | null; scheduledTime?: string | null;
 }
 export interface TaskPatch {
   influencerHandle?: string | null; targetTaskId?: string | null; targetTweetUrl?: string | null;
@@ -54,6 +61,9 @@ export interface TaskPatch {
   removedAt?: string | null; removedReason?: string;
   scheduledOn?: string | null; visitOn?: string | null; cost?: TaskCost | null; note?: string;
   proof?: TaskProof | null;   // 3값: undefined 유지 · null 떼기 · 값 설정
+  // 방문협찬(063) — 3값. 날짜를 null로 지우면 그 날짜의 시간도 같이 비운다(이번 요청이 시간을 보냈어도)
+  visitTime?: string | null; scheduledTime?: string | null;
+  agreement?: TaskAgreement | null;
   paymentMethodId?: string | null;   // 3값: undefined 유지 · null 기본 수단으로 · id 설정. 인플이 실제로 바뀌면 updateTask가 비운다
 }
 export interface TargetCandidate {
@@ -73,6 +83,7 @@ type Row = {
   post_url: string | null; posted_at: string | null; posted_source: 'auto' | 'manual' | null;
   removed_at: string | null; removed_reason: string;
   scheduled_on: string | null; visit_on: string | null; cost: unknown; note: string; proof: unknown; payment_method_id: string | null;
+  visit_time: string | null; scheduled_time: string | null; agreement: unknown;
   cancelled_at: string | null; cancel_reason: CancelReason | null; cancel_note: string;
   cancelled_draft_id: string | null; cancelled_draft_title: string | null;
   settled_elsewhere_at: string | null; settled_elsewhere_note: string; settled_elsewhere_by_name: string | null;
@@ -104,6 +115,7 @@ const toRow = (r: Row): TaskRow => ({
   removedAt: r.removed_at, removedReason: r.removed_reason,
   scheduledOn: r.scheduled_on, visitOn: r.visit_on, cost: costOf(r.cost), note: r.note,
   proof: taskProofOf(r.proof),
+  visitTime: r.visit_time, scheduledTime: r.scheduled_time, agreement: taskAgreementOf(r.agreement),
   paymentMethodId: r.payment_method_id,
   cancelledAt: r.cancelled_at, cancelReason: r.cancel_reason, cancelNote: r.cancel_note,
   cancelledDraftId: r.cancelled_draft_id, cancelledDraftTitle: r.cancelled_draft_title,
@@ -127,6 +139,7 @@ const SELECT = (sql: postgres.Sql) => sql`
          to_char(t.removed_at, 'YYYY-MM-DD') as removed_at, t.removed_reason,
          to_char(t.scheduled_on, 'YYYY-MM-DD') as scheduled_on, to_char(t.visit_on, 'YYYY-MM-DD') as visit_on,
          t.cost, t.note, t.proof, t.payment_method_id, t.created_at, t.updated_at,
+         to_char(t.visit_time, 'HH24:MI') as visit_time, to_char(t.scheduled_time, 'HH24:MI') as scheduled_time, t.agreement,
          to_char(t.cancelled_at, 'YYYY-MM-DD') as cancelled_at, t.cancel_reason, t.cancel_note,
          t.cancelled_draft_id, t.cancelled_draft_title,
          to_char(t.settled_elsewhere_at, 'YYYY-MM-DD') as settled_elsewhere_at, t.settled_elsewhere_note, t.settled_elsewhere_by_name,
@@ -163,16 +176,22 @@ export async function createTasks(sql: postgres.Sql, campaignId: string, input: 
   await sql.begin(async (tx0) => {
     const tx = tx0 as unknown as postgres.Sql;
     for (const it of items) {
+      // 이 줄의 실제 날짜 — 시간은 날짜가 있는 줄에만 넣는다(updateTask의 '날짜 없으면 시간 없음'과 같은 불변식)
+      const scheduledOn = it.scheduledOn ?? input.scheduledOn;
+      const visitOn = it.visitOn ?? input.visitOn;
       // created_at은 column default now()가 아니라 clock_timestamp()를 명시로 쓴다 — 같은 트랜잭션 안에서
       // now()는 트랜잭션 시작 시각으로 고정돼(N행이 전부 같은 타임스탬프) listTasksByCampaign의
       // created_at asc 정렬이 삽입 순서를 보장하지 못한다(§1 테스트로 발견). clock_timestamp()는 문장마다 진행한다.
       const rows = await tx<Array<{ id: string }>>`
         insert into campaign_task (campaign_id, influencer_handle, type, target_task_id, target_tweet_url,
-                                   scheduled_on, visit_on, cost, note, created_by, payment_method_id, created_at)
+                                   scheduled_on, visit_on, cost, note, created_by, payment_method_id,
+                                   visit_time, scheduled_time, created_at)
         values (${campaignId}, ${it.handle}, ${input.type}, ${input.targetTaskId}, ${input.targetTweetUrl},
-                ${it.scheduledOn ?? input.scheduledOn}::date, ${it.visitOn ?? input.visitOn}::date,
+                ${scheduledOn}::date, ${visitOn}::date,
                 ${it.cost ? tx.json(it.cost as never) : null}, ${input.note}, ${input.createdBy},
-                ${it.paymentMethodId ?? null}::text, clock_timestamp())
+                ${it.paymentMethodId ?? null}::text,
+                ${visitOn ? (input.visitTime ?? null) : null}::time, ${scheduledOn ? (input.scheduledTime ?? null) : null}::time,
+                clock_timestamp())
         returning id`;
       ids.push(rows[0].id);
     }
@@ -204,6 +223,12 @@ export async function updateTask(sql: postgres.Sql, id: string, patch: TaskPatch
       cost              = case when ${patch.cost !== undefined} then ${patch.cost ? sql.json(patch.cost as never) : null}::jsonb else cost end,
       note              = coalesce(${patch.note ?? null}::text, note),
       proof             = case when ${patch.proof !== undefined} then ${patch.proof ? sql.json(patch.proof as never) : null}::jsonb else proof end,
+      -- 날짜를 지우는 요청이면 시간도 지운다 — 이 분기가 명시 시간보다 먼저라 한 요청에 둘을 같이 보내도 null이 된다
+      visit_time        = case when ${patch.visitOn === null} then null
+                               when ${patch.visitTime !== undefined} then ${patch.visitTime ?? null}::time else visit_time end,
+      scheduled_time    = case when ${patch.scheduledOn === null} then null
+                               when ${patch.scheduledTime !== undefined} then ${patch.scheduledTime ?? null}::time else scheduled_time end,
+      agreement         = case when ${patch.agreement !== undefined} then ${patch.agreement ? sql.json(patch.agreement as never) : null}::jsonb else agreement end,
       payment_method_id = case
         when ${patch.paymentMethodId !== undefined} then ${patch.paymentMethodId ?? null}::text
         when ${patch.influencerHandle !== undefined}
@@ -520,6 +545,7 @@ export async function clearOldInfluencerTraces(tx: postgres.Sql, id: string): Pr
   const cur = await tx<Array<{ draft_id: string | null; status: string | null }>>`
     select t.draft_id, d.status from campaign_task t left join draft d on d.id = t.draft_id where t.id = ${id}`;
   await tx`update campaign_task set proof = null, updated_at = now() where id = ${id} and type = 'rt'`;
+  // 협찬 동의서는 해제·교체해도 남긴다(koo 09-29) — 받아 둔 서류가 사람 변경으로 사라지면 안 된다. 필요하면 패널에서 바꾸거나 지운다.
   return { draftId: cur[0]?.draft_id ?? null, draftWasDelivered: cur[0]?.status === 'delivered' };
 }
 

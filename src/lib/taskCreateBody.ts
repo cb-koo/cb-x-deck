@@ -12,6 +12,9 @@ export type TaskCreateFormState = {
   cost: TaskCost | null;
   scheduledOn: string | null;
   visitOn: string | null;
+  // 방문협찬의 시간(063) — 'HH:MM' | null. 다른 유형이거나 날짜가 없으면 보내지 않는다
+  visitTime?: string | null;
+  scheduledTime?: string | null;
   note: string;
   target: { taskId: string } | { url: string } | null;
   draftId: string | null;
@@ -24,6 +27,9 @@ export function buildTaskCreateBody(input: TaskCreateFormState): TaskCreateReque
     influencers: input.handle ? [{ handle: input.handle, cost: input.cost, ...(input.paymentMethodId ? { paymentMethodId: input.paymentMethodId } : {}) }] : [],
     ...(input.handle ? {} : { cost: input.cost ?? undefined }),
     scheduledOn: input.scheduledOn, visitOn: input.type === 'visit' ? input.visitOn : null,
+    // 값이 있을 때만 키를 싣는다 — 다른 유형의 본문 모양은 지금과 같게(기존 deepEqual 테스트·서버의 유형 검사)
+    ...(input.type === 'visit' && input.visitOn && input.visitTime ? { visitTime: input.visitTime } : {}),
+    ...(input.type === 'visit' && input.scheduledOn && input.scheduledTime ? { scheduledTime: input.scheduledTime } : {}),
     note: input.note,
     ...(input.target && 'taskId' in input.target ? { targetTaskId: input.target.taskId } : {}),
     ...(input.target && 'url' in input.target ? { targetTweetUrl: input.target.url } : {}),

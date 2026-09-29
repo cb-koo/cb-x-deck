@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { CANCEL_REASON_CHIPS, type FlowRow } from '@/lib/campaignFlowView';
-import { TASK_TYPE_LABEL, formatDateKo } from '@/lib/campaignJudgment';
+import { TASK_TYPE_LABEL, formatDateTimeKo } from '@/lib/campaignJudgment';
 import { formatAmount } from '@/lib/campaignCost';
 import type { CancelReason } from '@/lib/campaignTaskInput';
 import { Button } from '@/components/ui';
@@ -35,7 +35,7 @@ export function CancelDialog({ task, onClose, onConfirm }: {
 
   const who = task.influencerHandle ? `@${task.influencerHandle}` : '미배정';
   const cost = task.cost ? formatAmount(task.cost.amount, task.cost.currency) : '비용 미정';
-  const summary = `${TASK_TYPE_LABEL[task.type]} · ${who} · 예정 ${task.scheduledOn ? formatDateKo(task.scheduledOn) : '미정'} · ${cost}`;
+  const summary = `${TASK_TYPE_LABEL[task.type]} · ${who} · 예정 ${task.scheduledOn ? formatDateTimeKo(task.scheduledOn, task.type === 'visit' ? task.scheduledTime : null) : '미정'} · ${cost}`;
   const notice = `취소한 작업은 표에 '취소'로 남고 되돌릴 수 있어요. 비용 합계·밀림에서는 빠져요.`
     + (task.draftId ? ` 붙어 있던 원고 "${task.draftLabel ?? '(제목 없음)'}"는 떼어져 다른 작업에 쓸 수 있어요.` : '');
 

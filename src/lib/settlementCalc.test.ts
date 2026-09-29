@@ -13,7 +13,7 @@ const paypal: PaymentMethod = { id: 'pm1', type: 'paypal', isDefault: true, hold
 // computeCandidate 최소 입력 — 유형·증빙만 바꿔 가며 no-proof 판정을 본다(다른 필드는 readiness에 영향 없게 다 채운다)
 function candInput(over: { type: TaskType; proof: TaskProof | null }) {
   return {
-    task: { id: 't-proof', type: over.type, influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' as const }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: over.proof },
+    task: { id: 't-proof', type: over.type, influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' as const }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: over.proof, hasAgreement: false },
     campaign: { id: 'c1', name: 'N', kind: 'content' as const, clientId: 'cl1', clientName: '기타' },
     influencer: { inRoster: true, method: paypal },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
@@ -210,7 +210,7 @@ test('toMethodSnapshot — qr 경로를 스냅샷에 싣는다 (스펙 §3-1)', 
 
 test('computeCandidate — 전부 합친 한 건', () => {
   const c = computeCandidate({
-    task: { id: 't1', type: 'quoteRt', influencerHandle: 'seikeinu', cost: { amount: 30000, currency: 'KRW' }, postUrl: 'https://x.com/seikeinu/status/9', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: '원고 A', proof: null },
+    task: { id: 't1', type: 'quoteRt', influencerHandle: 'seikeinu', cost: { amount: 30000, currency: 'KRW' }, postUrl: 'https://x.com/seikeinu/status/9', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: '원고 A', proof: null, hasAgreement: false },
     campaign: { id: 'c1', name: '손유나 9월 1주', kind: 'content', clientId: 'cl1', clientName: '닥터손유나클리닉' },
     influencer: { inRoster: true, method: { ...paypal, fee: { mode: 'grossUp', percent: 5 } } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: SETTLEMENT_DEFAULTS.categories[2].sendAs, today: '2026-08-28',
@@ -224,7 +224,7 @@ test('computeCandidate — 전부 합친 한 건', () => {
   assert.equal(c.purposeText, '닥터손유나클리닉 정보성 콘텐츠 Viral 협찬');
   assert.equal(c.readiness, 'ready');
   const blocked = computeCandidate({
-    task: { id: 't2', type: 'rt', influencerHandle: 'nobody', cost: { amount: 20000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null },
+    task: { id: 't2', type: 'rt', influencerHandle: 'nobody', cost: { amount: 20000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null, hasAgreement: false },
     campaign: { id: 'c1', name: 'N', kind: null, clientId: null, clientName: '기타' },
     influencer: { inRoster: false, method: null }, settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
   });
@@ -234,7 +234,7 @@ test('computeCandidate — 전부 합친 한 건', () => {
 
 test('effectiveReadiness/effectiveIssues — 분류를 지우면 즉시 🔴, 서버 no-category를 사람이 채우면 해제, warn은 유지', () => {
   const filled = computeCandidate({
-    task: { id: 't3', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null },
+    task: { id: 't3', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null, hasAgreement: false },
     campaign: { id: 'c1', name: 'N', kind: 'content', clientId: 'cl1', clientName: '기타' },
     influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
@@ -246,7 +246,7 @@ test('effectiveReadiness/effectiveIssues — 분류를 지우면 즉시 🔴, �
   assert.deepEqual(effectiveIssues(filled, { category: null }).map((i) => i.code), ['no-category']);
   // 서버 no-category(분류 기본값 없음) + 사람이 골랐으면 더 이상 blocked가 아니다
   const empty = computeCandidate({
-    task: { id: 't4', type: 'quoteRt', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null },
+    task: { id: 't4', type: 'quoteRt', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1', targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null, hasAgreement: false },
     campaign: { id: 'c1', name: 'N', kind: 'content', clientId: 'cl1', clientName: '기타' },
     influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
@@ -257,7 +257,7 @@ test('effectiveReadiness/effectiveIssues — 분류를 지우면 즉시 🔴, �
   assert.deepEqual(effectiveIssues(empty, { category: SETTLEMENT_DEFAULTS.categories[0].sendAs }).map((i) => i.code), []);
   // 투고에 참고 링크가 없으면 🔴 — 사람이 행에서 링크를 넣으면 즉시 풀리고, 지우면 다시 막힌다(분류 칸과 같은 방식)
   const noLink = computeCandidate({
-    task: { id: 't5', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null },
+    task: { id: 't5', type: 'post', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null, proof: null, hasAgreement: false },
     campaign: { id: 'c1', name: 'N', kind: 'content', clientId: 'cl1', clientName: '기타' },
     influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
@@ -273,11 +273,27 @@ test('effectiveReadiness/effectiveIssues — 분류를 지우면 즉시 🔴, �
   // RT는 링크가 없어도 🟡(원본 트윗은 확인 자료가 아니다 — 증빙이 그 역할)
   const rtNoLink = computeCandidate({
     task: { id: 't6', type: 'rt', influencerHandle: 'a', cost: { amount: 10000, currency: 'KRW' }, postUrl: null, targetTweetUrl: null, targetPostUrl: null, postedAt: '2026-08-27', removedAt: null, removedReason: '', draftLabel: null,
-            proof: { url: 'task/11111111-2222-3333-4444-555555555555/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png', by: null, byName: '박구건', at: '2026-08-31T01:00:00.000Z' } },
+            proof: { url: 'task/11111111-2222-3333-4444-555555555555/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png', by: null, byName: '박구건', at: '2026-08-31T01:00:00.000Z' }, hasAgreement: false },
     campaign: { id: 'c1', name: 'N', kind: 'content', clientId: 'cl1', clientName: '기타' },
     influencer: { inRoster: true, method: { id: 'pm1', type: 'paypal', isDefault: true, holder: 'A', currency: 'JPY', email: 'a@x.com', updatedAt: '2026-08-27T00:00:00.000Z' } },
     settings: SETTLEMENT_DEFAULTS, lastQuoteRtCategory: null, today: '2026-08-28',
   });
   assert.equal(effectiveReadiness(rtNoLink, { category: rtNoLink.categoryDefault, referenceUrl: '' }), 'warn');
   assert.deepEqual(effectiveIssues(rtNoLink, { category: rtNoLink.categoryDefault, referenceUrl: '' }).map((i) => i.code), ['no-reference']);
+});
+
+test('063) 방문협찬 동의서 — 없으면 🟡 no-agreement(요청은 막지 않는다), 있으면 없음, 다른 유형은 무관', () => {
+  const visit = (hasAgreement: boolean) => { const b = candInput({ type: 'visit', proof: null }); return { ...b, task: { ...b.task, hasAgreement } }; };
+  const missing = computeCandidate(visit(false));
+  const issue = missing.issues.find((i) => i.code === 'no-agreement');
+  assert.deepEqual(issue, { level: 'warn', code: 'no-agreement', text: '협찬 동의서가 없어요 — 요청은 만들 수 있어요' });
+  assert.equal(missing.readiness, 'warn');                      // 결정 4: 절대 🔴가 아니다
+  assert.equal(effectiveReadiness(missing, { category: missing.categoryDefault }), 'warn');
+  assert.equal('agreement' in missing, false);                  // 결정 5: 후보(→ 요청 스냅샷·외부)에 동의서를 싣지 않는다
+  const has = computeCandidate(visit(true));
+  assert.equal(has.issues.some((i) => i.code === 'no-agreement'), false);
+  assert.equal(has.readiness, 'ready');
+  for (const type of ['post', 'quoteRt'] as const) {
+    assert.equal(computeCandidate(candInput({ type, proof: null })).issues.some((i) => i.code === 'no-agreement'), false, type);
+  }
 });

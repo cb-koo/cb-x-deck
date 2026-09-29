@@ -4,6 +4,7 @@ import type { CampaignTaskItem } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { suggestTaskCost, type TaskCost } from '@/lib/campaignCost';
 import { patchTaskApi, deleteTaskApi, registerTrackedPostApi, type TaskPatchRequest } from '@/lib/campaignApi';
+import type { TaskAgreementInput } from '@/lib/taskAgreementGuard';
 
 // 작업 편집은 전부 PATCH /api/campaigns/[id]/tasks/[taskId] 하나로 간다(스펙 §6). 낙관적 갱신 + "이 요청이 세팅한 값이
 // 아직 표시 중일 때만" 롤백/덮어쓰기 — 응답은 보낸 순서대로 오지 않는다.
@@ -59,8 +60,17 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
       if ('taskId' in next) return patch(t, { targetTaskId: next.taskId }, { targetTaskId: next.taskId, targetTweetUrl: null, target: null });
       return patch(t, { targetTweetUrl: next.url }, { targetTweetUrl: next.url, targetTaskId: null, target: null });
     },
-    changeScheduledOn: (t: Item, next: string | null) => patch(t, { scheduledOn: next }, { scheduledOn: next }),
-    changeVisitOn: (t: Item, next: string | null) => patch(t, { visitOn: next }, { visitOn: next }),
+    // 날짜를 지우면 서버가 그 날짜의 시간도 비운다(063) — 낙관값에도 같이 넣어야 응답 전까지 시간만 남아 보이지 않는다
+    changeScheduledOn: (t: Item, next: string | null) =>
+      patch(t, { scheduledOn: next }, { scheduledOn: next, ...(next === null && t.scheduledTime ? { scheduledTime: null } : {}) }),
+    changeVisitOn: (t: Item, next: string | null) =>
+      patch(t, { visitOn: next }, { visitOn: next, ...(next === null && t.visitTime ? { visitTime: null } : {}) }),
+    // 방문협찬의 시간(063) — 'HH:MM' | null(시간 미정)
+    changeVisitTime: (t: Item, next: string | null) => patch(t, { visitTime: next }, { visitTime: next }),
+    changeScheduledTime: (t: Item, next: string | null) => patch(t, { scheduledTime: next }, { scheduledTime: next }),
+    // 협찬 동의서(063) — 올린 파일 정보 | null(떼기). 낙관값의 by/byName/at은 응답이 진짜 값으로 덮는다(setProof와 같은 방식)
+    setAgreement: (t: Item, a: TaskAgreementInput | null) =>
+      patch(t, { agreement: a }, { agreement: a ? { url: a.path, name: a.name, size: a.size, mime: a.mime, by: null, byName: '', at: new Date().toISOString() } : null }),
     changeCost: async (t: Item, next: TaskCost | null) => {
       const ok = await patch(t, { cost: next }, { cost: next });
       if (ok) onChanged();   // 합계가 목록 보조줄에도 실린다

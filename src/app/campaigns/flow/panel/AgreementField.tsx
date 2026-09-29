@@ -70,8 +70,8 @@ export function AgreementField({ taskId, value, disabled, onChange }: {
           )}
         </div>
       )}
-      {/* 행동 전 기대(UX 원칙 2) — 없어도 된다는 것과, 어떤 파일을 받는지 */}
-      {!value && !disabled && !busy && <p className="mt-1 text-ui text-x-muted">받은 동의서(PDF·jpg·png, 10MB까지)를 올려 두면 정산 검토에서 확인 표시가 사라져요 — 없어도 정산은 돼요</p>}
+      {/* 행동 전 기대(UX 원칙 2) — 어떤 파일을 받는지와 없어도 된다는 것, 한 줄로(koo 문구 규칙: 평소엔 짧게) */}
+      {!value && !disabled && !busy && <p className="mt-1 text-ui text-x-muted">PDF·JPG·PNG, 10MB까지 · 없어도 정산은 돼요</p>}
       {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
       <input ref={inputRef} type="file" accept={TASK_AGREEMENT_ACCEPT} className="hidden"
              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void put(f); }} />

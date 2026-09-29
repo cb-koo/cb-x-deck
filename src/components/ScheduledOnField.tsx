@@ -7,7 +7,7 @@ import { NO_SCHEDULE_LABEL, overdueSuffix } from '@/lib/campaignTableView';
 // Atlassian Inline Edit 골격(읽기 뷰 클릭 → 편집 뷰, 커밋하면 다시 읽기 뷰) — 상시 ✕는 없앴다(QA 1라운드):
 // 뜻이 안 보이는 아이콘이 모든 행에 떠 있었고, 지움은 편집 상태 안의 '지우기' 라벨 버튼(null 저장, §2-3 null=지움)으로 옮겼다.
 // 밀림(overdueDays)·기간 밖(outOfRange) 판정은 호출부가 campaignJudgment로 계산해 넘긴다 — 이 칸은 게시됨 여부를 모른다.
-export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, compact, emptyLabel, ariaLabel }: {
+export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, compact, emptyLabel, ariaLabel, bare }: {
   value: string | null;          // 'YYYY-MM-DD' | null
   overdueDays: number | null;    // 호출부가 taskOverdueDays()로 계산해 넘긴다(밀림 아니면 null)
   outOfRange: boolean;           // 캠페인 기간 밖 — 경고 표시만, 저장 차단 없음(§2-4)
@@ -18,6 +18,8 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
   emptyLabel?: string;
   // 방문협찬 행처럼 같은 칸이 두 번(방문·게시) 나올 때 버튼의 aria-label/title을 구분한다. 기본은 기존 문구 그대로.
   ariaLabel?: string;
+  // 테두리 없이 상자 한 줄로(작업 패널 방문협찬 일정 — 날짜·시간을 한 상자 두 줄로 묶는 DateTimeBox 안, koo 09-29)
+  bare?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -37,7 +39,7 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
     return (
       // 포커스가 이 묶음(입력 ↔ '지우기') 밖으로 나갈 때만 편집을 닫는다 — 입력에서 버튼으로 옮기다 닫히면 지우기를 못 누른다
       // compact(표 셀)는 py-1로 여유를 둬 h-10 입력이 들어가도 행이 48px 밑을 유지한다(표 자체 높이는 여기서 손대지 않는다)
-      <span className={`inline-flex items-center gap-1.5 ${compact ? 'py-1' : ''}`}
+      <span className={bare ? 'flex w-full items-center gap-1 pr-1' : `inline-flex items-center gap-1.5 ${compact ? 'py-1' : ''}`}
             onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setEditing(false); }}>
         <input ref={inputRef} type="date" value={value ?? ''} aria-label="게시 예정일"
                onChange={(e) => { onChange(e.target.value || null); setEditing(false); }}
@@ -45,13 +47,13 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
                  if (e.key === 'Escape' && !e.nativeEvent.isComposing) { e.stopPropagation(); setEditing(false); }   // 취소 — 모달까지 닫지 않는다
                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) setEditing(false);
                }}
-               className="h-10 rounded-md border border-x-border-strong bg-white px-2 text-ui outline-none focus:border-x-blue" />
+               className={bare ? 'h-10 min-w-0 flex-1 bg-transparent px-3 text-ui outline-none' : 'h-10 rounded-md border border-x-border-strong bg-white px-2 text-ui outline-none focus:border-x-blue'} />
         {value && (
           // mouseDown 기본동작(포커스 이동)을 막아야 blur → 편집 닫힘이 클릭보다 먼저 일어나지 않는다
           <button type="button" onMouseDown={(e) => e.preventDefault()}
                   onClick={() => { onChange(null); setEditing(false); }}
                   title={`예정일을 지우면 달력의 '${NO_SCHEDULE_LABEL}' 열로 가요`}
-                  className="flex h-10 shrink-0 items-center justify-center rounded-full px-3 text-content text-x-secondary hover:bg-red-50 hover:text-red-700">지우기</button>
+                  className={`flex shrink-0 items-center justify-center rounded-full px-3 text-x-secondary hover:bg-red-50 hover:text-red-700 ${bare ? 'h-8 text-ui' : 'h-10 text-content'}`}>지우기</button>
         )}
       </span>
     );
@@ -59,7 +61,9 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
 
   // 읽기 상태 — hover 배경 + 클릭이 곧 편집(이건 '동작'이라 hover 신호를 둔다). 표 셀 안(compact)의 트리거는
   // 행 높이 52px가 이미 터치 타깃을 보장하므로 h-10 규칙에서 예외로 둔다 — 나머지(카드 도구층 등)는 h-10.
-  const box = compact
+  const box = bare
+    ? `flex h-10 w-full px-3 text-ui ${tone}`
+    : compact
     ? `rounded-md px-1.5 py-1 text-content ${tone}`
     : `h-10 rounded-lg border px-2.5 text-ui ${value ? 'border-x-border-strong bg-white' : 'border-dashed border-x-border-strong'} ${tone}`;
   const label = ariaLabel ?? '게시 예정일';
@@ -67,7 +71,7 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
     <button type="button" onClick={() => setEditing(true)} aria-label={label}
             title={value ? `${label} — 눌러서 바꾸기` : `${label}을 정하면 밀림 여부를 알려줘요`}
             className={`inline-flex cursor-pointer items-center gap-1 text-left hover:bg-x-hover ${box}`}>
-      <span className="tabular-nums">{value ? formatDateKo(value) : (compact ? (emptyLabel ?? NO_SCHEDULE_LABEL) : '+ 예정일')}</span>
+      <span className="tabular-nums">{value ? formatDateKo(value) : bare ? '+ 날짜 정하기' : (compact ? (emptyLabel ?? NO_SCHEDULE_LABEL) : '+ 예정일')}</span>
       {overdueDays !== null ? <span className="font-normal">· {overdueSuffix(overdueDays)}</span> : null}
       {outOfRange && <span className="rounded bg-amber-100 px-1 text-ui font-normal text-amber-800" title="캠페인 기간 밖 날짜예요 — 저장은 되지만 표시로 알려요">기간 밖</span>}
     </button>

@@ -26,6 +26,7 @@ import type { useCampaignTaskActions } from '../useCampaignTaskActions';
 import { DraftMode, type DraftTab } from './draft/DraftMode';
 import { PanelSection } from './panel/PanelSection';
 import { TimeField } from './panel/TimeField';
+import { DateTimeBox } from './panel/DateTimeBox';
 import { AgreementField } from './panel/AgreementField';
 import { StageTypeBox } from './panel/StageTypeBox';
 import { InfluencerSummary } from './panel/InfluencerSummary';
@@ -636,31 +637,24 @@ export function TaskPanel({
             <div>
               <p className="text-ui text-x-muted">방문일 <span title="방문일이 지나면 인플루언서를 바꿀 수 없어요" aria-label="방문일이 지나면 인플루언서를 바꿀 수 없어요" className="cursor-help text-x-muted">ⓘ</span></p>
               <div className="mt-0.5">
-                <ScheduledOnField value={t.visitOn} overdueDays={null}
-                                 outOfRange={isOutOfRange(t.visitOn, campaign.startsOn, campaign.endsOn)}
-                                 ariaLabel="방문일" onChange={(next) => void actions.changeVisitOn(t, next)} />
+                <DateTimeBox empty={!t.visitOn}
+                  date={<ScheduledOnField bare value={t.visitOn} overdueDays={null}
+                                          outOfRange={isOutOfRange(t.visitOn, campaign.startsOn, campaign.endsOn)}
+                                          ariaLabel="방문일" onChange={(next) => void actions.changeVisitOn(t, next)} />}
+                  time={t.visitOn ? <TimeField key={`vt:${t.visitTime ?? ''}`} value={t.visitTime} ariaLabel="방문 시간"
+                                               onCommit={(next) => void actions.changeVisitTime(t, next)} /> : null} />
               </div>
-              {/* 시간은 날짜에 붙는다 — 날짜가 있을 때만 칸을 둔다(서버도 날짜 없는 시간은 받지 않는다) */}
-              {t.visitOn && (
-                <div className="mt-1.5">
-                  <TimeField key={`vt:${t.visitTime ?? ''}`} value={t.visitTime} ariaLabel="방문 시간"
-                             onCommit={(next) => void actions.changeVisitTime(t, next)} />
-                </div>
-              )}
             </div>
             <div>
               <p className="text-ui text-x-muted">게시 예정일</p>
               <div className="mt-0.5">
-                <ScheduledOnField value={t.scheduledOn} overdueDays={taskOverdueDays(t, today)}
-                                 outOfRange={isOutOfRange(t.scheduledOn, campaign.startsOn, campaign.endsOn)}
-                                 emptyLabel="미정" onChange={(next) => void actions.changeScheduledOn(t, next)} />
+                <DateTimeBox empty={!t.scheduledOn}
+                  date={<ScheduledOnField bare value={t.scheduledOn} overdueDays={taskOverdueDays(t, today)}
+                                          outOfRange={isOutOfRange(t.scheduledOn, campaign.startsOn, campaign.endsOn)}
+                                          emptyLabel="미정" onChange={(next) => void actions.changeScheduledOn(t, next)} />}
+                  time={t.scheduledOn ? <TimeField key={`st:${t.scheduledTime ?? ''}`} value={t.scheduledTime} ariaLabel="게시 예정 시간"
+                                                   onCommit={(next) => void actions.changeScheduledTime(t, next)} /> : null} />
               </div>
-              {t.scheduledOn && (
-                <div className="mt-1.5">
-                  <TimeField key={`st:${t.scheduledTime ?? ''}`} value={t.scheduledTime} ariaLabel="게시 예정 시간"
-                             onCommit={(next) => void actions.changeScheduledTime(t, next)} />
-                </div>
-              )}
             </div>
           </div>
         );
@@ -755,30 +749,24 @@ export function TaskPanel({
             <div>
               <p className="text-ui text-x-muted">방문일</p>
               <div className="mt-0.5">
-                <ScheduledOnField value={visitOn} overdueDays={null}
-                                 outOfRange={isOutOfRange(visitOn, campaign.startsOn, campaign.endsOn)}
-                                 ariaLabel="방문일" onChange={(next) => { setVisitOn(next); if (next === null) setVisitTime(null); }} />
+                {/* 새 폼은 TimeField에 key를 주지 않는다 — commitOnChange라 값이 바뀔 때마다 key가 바뀌면 입력 중에 칸이 다시 마운트돼
+                    분 두 번째 자리가 사라진다(15:30 → 15:03). 버퍼가 늘 부모 값과 같아 되맞출 일도 없다 */}
+                <DateTimeBox empty={!visitOn}
+                  date={<ScheduledOnField bare value={visitOn} overdueDays={null}
+                                          outOfRange={isOutOfRange(visitOn, campaign.startsOn, campaign.endsOn)}
+                                          ariaLabel="방문일" onChange={(next) => { setVisitOn(next); if (next === null) setVisitTime(null); }} />}
+                  time={visitOn ? <TimeField value={visitTime} ariaLabel="방문 시간" commitOnChange onCommit={setVisitTime} /> : null} />
               </div>
-              {/* 새 폼은 key를 주지 않는다 — commitOnChange라 값이 바뀔 때마다 key가 바뀌면 입력 중에 칸이 다시 마운트돼
-                  분 두 번째 자리가 사라진다(15:30 → 15:03). 버퍼가 늘 부모 값과 같아 되맞출 일도 없다 */}
-              {visitOn && (
-                <div className="mt-1.5">
-                  <TimeField value={visitTime} ariaLabel="방문 시간" commitOnChange onCommit={setVisitTime} />
-                </div>
-              )}
             </div>
             <div>
               <p className="text-ui text-x-muted">게시 예정일</p>
               <div className="mt-0.5">
-                <ScheduledOnField value={scheduledOn} overdueDays={null}
-                                 outOfRange={isOutOfRange(scheduledOn, campaign.startsOn, campaign.endsOn)}
-                                 emptyLabel="미정" onChange={(next) => { setScheduledOn(next); if (next === null) setScheduledTime(null); }} />
+                <DateTimeBox empty={!scheduledOn}
+                  date={<ScheduledOnField bare value={scheduledOn} overdueDays={null}
+                                          outOfRange={isOutOfRange(scheduledOn, campaign.startsOn, campaign.endsOn)}
+                                          emptyLabel="미정" onChange={(next) => { setScheduledOn(next); if (next === null) setScheduledTime(null); }} />}
+                  time={scheduledOn ? <TimeField value={scheduledTime} ariaLabel="게시 예정 시간" commitOnChange onCommit={setScheduledTime} /> : null} />
               </div>
-              {scheduledOn && (
-                <div className="mt-1.5">
-                  <TimeField value={scheduledTime} ariaLabel="게시 예정 시간" commitOnChange onCommit={setScheduledTime} />
-                </div>
-              )}
             </div>
           </div>
         );

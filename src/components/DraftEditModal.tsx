@@ -298,7 +298,7 @@ export function DraftEditModal({ draft, onClose, onSaved, onMediaSaved }: {
                         {/* X 컴포저 하단 바의 미디어 버튼 그대로 — 20px 글리프 + 32px 원형 히트 영역 + 파랑 10% 호버.
                             테두리 달린 작은 글자 버튼으로 먼저 냈다가 "너무 작아서 보이지 않는다"는 피드백을 받아 바꿨다. */}
                         <button type="button" onClick={() => fileInputs.current[i]?.click()}
-                                disabled={mediaBusy || full} aria-label="이미지 첨부" title="이미지 첨부 — 본문에 ⌘V로 붙여 넣어도 돼요"
+                                disabled={mediaBusy || full} aria-label="이미지 첨부" title="이미지 첨부 — 본문에 ⌘V로 붙여 넣거나 끌어다 놓아도 돼요"
                                 className="inline-flex h-8 w-8 items-center justify-center rounded-full text-x-blue hover:bg-x-blue/10 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent">
                           <MediaIcon className="h-5 w-5" />
                         </button>

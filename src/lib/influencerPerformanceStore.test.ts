@@ -56,6 +56,8 @@ test('취소 제외·게시물 여러 개는 최신 스냅샷 합·명부 조인
   assert.equal(rio.tasks.length, 1);                 // 취소 작업은 없다
   const t = rio.tasks[0];
   assert.equal(t.campaignName, P + '캠');
+  assert.equal(t.clientId, c.id);                   // 클라이언트 필터용 스냅샷(스펙 §15-3)
+  assert.equal(t.clientName, c.name);
   assert.equal(t.postedAt, '2026-09-03');
   assert.deepEqual(t.cost, { amount: 1000, currency: 'JPY' });
   assert.equal(t.removedAt, '2026-09-07');

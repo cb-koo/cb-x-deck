@@ -2,13 +2,15 @@
 // 저장소가 넘긴 "작업 + 작업별 최신 스냅샷 합"을 인플 1행으로 요약하고, 정렬·주소 쿼리를 맡는다. 화면이 전환·정렬 때 바로 부른다.
 import { median } from './analysisStats.ts';
 import { toKrw } from './clientBudget.ts';
-import type { TaskType } from './campaignJudgment.ts';
+import { TASK_TYPES, TASK_TYPE_LABEL, type TaskType } from './campaignJudgment.ts';
+import { kstDaysAgo } from './datetime.ts';
 import type { TaskCost } from './campaignCost.ts';
 
 export interface PerfTaskMetrics { postCount: number; views: number | null; likes: number | null; replies: number | null; bookmarks: number | null; retweets: number | null; quotes: number | null }
 export interface PerfTask {
   id: string; campaignId: string; campaignName: string; type: TaskType; postedAt: string | null; postUrl: string | null;
   removedAt: string | null; removedReason: string;   // 게시 내림일·사유 — 있으면 성과 표본에서 뺀다(스펙 §12-4)
+  clientId: string | null; clientName: string | null; // 캠페인의 클라이언트 스냅샷 — 클라이언트 필터용(스펙 §15-3)
   cost: TaskCost | null; metrics: PerfTaskMetrics | null;
 }
 export interface PerfInfluencerInput { handle: string; influencerId: string | null; displayName: string | null; avatarUrl: string | null; isBlueVerified: boolean | null; tasks: PerfTask[] }
@@ -120,8 +122,65 @@ export function sortPerfRows(rows: PerfRow[], key: SortKey, dir: SortDir, agg: A
   });
 }
 
-export interface PerfQuery { sort: SortKey; dir: SortDir; agg: Agg }
-export const DEFAULT_QUERY: PerfQuery = { sort: 'views', dir: 'desc', agg: 'median' };
+// ── 필터·검색(스펙 §15) ──
+// ② 성과 범위 바꾸기(기간·클라이언트·유형) = 작업을 먼저 거른 뒤 다시 집계 / ① 사람 좁히기(검색·최소 게시 수) = 행만 거른다
+export type Period = 'all' | '30' | '90';
+export type MinPosted = 1 | 2 | 3;
+export interface PerfFilter { q: string; period: Period; client: string; type: TaskType | ''; min: MinPosted }
+export const EMPTY_FILTER: PerfFilter = { q: '', period: 'all', client: '', type: '', min: 1 };
+export const PERIOD_LABEL: Record<Period, string> = { all: '전체 기간', '30': '최근 30일', '90': '최근 90일' };
+export const MIN_LABEL: Record<MinPosted, string> = { 1: '게시 1건 이상', 2: '게시 2건 이상', 3: '게시 3건 이상' };
+
+// 기간 시작일(서울) — '최근 N일'은 오늘 포함 N일이라 N-1일 전부터. 전체 기간이면 null.
+export function periodSince(period: Period, now: () => number = Date.now): string | null {
+  return period === 'all' ? null : kstDaysAgo(Number(period) - 1, now);
+}
+
+// ② — 기간이 켜지면 게시일이 없는 작업(게시 전·링크만 있고 날짜 없음)은 기간 안인지 알 수 없어 뺀다
+export function filterTasks(tasks: PerfTask[], f: PerfFilter, since: string | null): PerfTask[] {
+  return tasks.filter((t) =>
+    (since === null || (t.postedAt !== null && t.postedAt >= since))
+    && (f.client === '' || t.clientId === f.client)
+    && (f.type === '' || t.type === f.type));
+}
+
+const normQ = (q: string) => q.trim().replace(/^@/, '').toLowerCase();
+const postedTotal = (r: PerfRow) => Object.values(r.typeCounts).reduce((a, b) => a + b, 0);
+
+// ① — 숫자는 그대로, 행만 거른다. 최소 게시 수는 ②를 거친 뒤의 게시한 작업 수 기준
+export function filterRows(rows: PerfRow[], f: PerfFilter): PerfRow[] {
+  const q = normQ(f.q);
+  return rows.filter((r) =>
+    (q === '' || r.handle.toLowerCase().includes(q) || (r.displayName ?? '').toLowerCase().includes(q))
+    && postedTotal(r) >= f.min);
+}
+
+// 화면이 부르는 한 번 — ② 작업 필터 → 집계(게시 0건이 된 인플은 buildPerfRows가 뺀다) → ① 행 필터
+export function buildFilteredRows(inputs: PerfInfluencerInput[], f: PerfFilter, since: string | null): PerfRow[] {
+  const scoped = f.client === '' && f.type === '' && since === null
+    ? inputs : inputs.map((inf) => ({ ...inf, tasks: filterTasks(inf.tasks, f, since) }));
+  return filterRows(buildPerfRows(scoped), f);
+}
+
+export const isScopeOn = (f: PerfFilter) => f.period !== 'all' || f.client !== '' || f.type !== '';
+export const isFilterOn = (f: PerfFilter) => isScopeOn(f) || normQ(f.q) !== '' || f.min !== 1;
+
+// 표 위 요약 한 줄(스펙 §15-2) — 무엇으로 계산했는지 + 누구를 좁혔는지 + 몇 명
+export function filterSummary(f: PerfFilter, clientName: string, n: number): string {
+  const parts: string[] = [];
+  if (isScopeOn(f)) {
+    const scope = [f.client !== '' ? clientName : '', f.period !== 'all' ? PERIOD_LABEL[f.period] : '', f.type !== '' ? TASK_TYPE_LABEL[f.type] : '']
+      .filter(Boolean).join(' · ');
+    parts.push(`${scope} 게시물만으로 계산했어요`);
+  }
+  if (f.q.trim() !== '') parts.push(`'${f.q.trim()}' 검색`);
+  if (f.min !== 1) parts.push(MIN_LABEL[f.min]);
+  parts.push(`${n}명`);
+  return parts.join(' · ');
+}
+
+export interface PerfQuery extends PerfFilter { sort: SortKey; dir: SortDir; agg: Agg }
+export const DEFAULT_QUERY: PerfQuery = { sort: 'views', dir: 'desc', agg: 'median', ...EMPTY_FILTER };
 const SORT_KEYS: readonly SortKey[] = [...METRIC_KEYS, 'campaigns', 'lastPosted', 'n_post', 'n_quoteRt', 'n_rt', 'n_visit'];
 
 export function parsePerfQuery(get: (k: string) => string | null): PerfQuery {
@@ -130,12 +189,24 @@ export function parsePerfQuery(get: (k: string) => string | null): PerfQuery {
   const d = get('dir');
   const dir: SortDir = d === 'asc' || d === 'desc' ? d : firstDir(sort);
   const agg: Agg = get('agg') === 'mean' ? 'mean' : 'median';
-  return { sort, dir, agg };
+  const p = get('period');
+  const period: Period = p === '30' || p === '90' ? p : 'all';
+  const t = get('type');
+  const type = TASK_TYPES.includes(t as TaskType) ? (t as TaskType) : '';
+  const mn = get('min');
+  const min: MinPosted = mn === '2' ? 2 : mn === '3' ? 3 : 1;
+  // client는 여기서 검증할 수 없다(목록이 데이터에 있음) — 모르는 id는 화면이 '전체 클라이언트'로 취급한다
+  return { sort, dir, agg, q: get('q') ?? '', period, client: get('client') ?? '', type, min };
 }
 
 // 기본값인 키는 주소에서 뺀다 — 처음 들어온 주소가 깨끗하게
 export function perfQueryString(q: PerfQuery): string {
   const p = new URLSearchParams();
+  if (q.q.trim() !== '') p.set('q', q.q.trim());
+  if (q.period !== 'all') p.set('period', q.period);
+  if (q.client !== '') p.set('client', q.client);
+  if (q.type !== '') p.set('type', q.type);
+  if (q.min !== 1) p.set('min', String(q.min));
   if (q.sort !== DEFAULT_QUERY.sort) p.set('sort', q.sort);
   if (q.dir !== firstDir(q.sort)) p.set('dir', q.dir);
   if (q.agg !== DEFAULT_QUERY.agg) p.set('agg', q.agg);

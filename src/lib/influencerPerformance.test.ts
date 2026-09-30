@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   summarizeInfluencer, sortPerfRows, firstDir, parsePerfQuery, perfQueryString, DEFAULT_QUERY,
   taskEngagement, taskCpv, formatMetric, buildPerfRows, taskPerfState,
-  type PerfTask, type PerfInfluencerInput, type PerfTaskMetrics,
+  periodSince, filterTasks, filterRows, buildFilteredRows, filterSummary, isFilterOn, EMPTY_FILTER,
+  type PerfTask, type PerfFilter, type PerfInfluencerInput, type PerfTaskMetrics,
 } from './influencerPerformance.ts';
 
 const m = (views: number | null, x: Partial<PerfTaskMetrics> = {}): PerfTaskMetrics =>
@@ -12,7 +13,7 @@ let seq = 0;
 const task = (x: Partial<PerfTask> = {}): PerfTask => ({
   id: 't' + ++seq, campaignId: 'c1', campaignName: '캠1', type: 'quoteRt', postedAt: '2026-09-10',
   postUrl: 'https://x.com/a/status/1', cost: { amount: 10000, currency: 'KRW' }, metrics: m(1000),
-  removedAt: null, removedReason: '', ...x,
+  removedAt: null, removedReason: '', clientId: 'k1', clientName: '백수약국', ...x,
 });
 const inf = (tasks: PerfTask[], x: Partial<PerfInfluencerInput> = {}): PerfInfluencerInput =>
   ({ handle: 'rio', influencerId: 'i1', displayName: '리오', avatarUrl: null, isBlueVerified: false, tasks, ...x });
@@ -157,14 +158,14 @@ test('첫 정렬 방향 — 조회당 비용만 낮은 순', () => {
 });
 
 test('주소 쿼리 — 왕복·틀린 값은 기본값·기본값은 생략', () => {
-  const q = { sort: 'cpv' as const, dir: 'asc' as const, agg: 'mean' as const };
+  const q = { ...DEFAULT_QUERY, sort: 'cpv' as const, dir: 'asc' as const, agg: 'mean' as const };
   const s = perfQueryString(q);
   const p = new URLSearchParams(s);
   assert.deepEqual(parsePerfQuery((k) => p.get(k)), q);
   assert.equal(perfQueryString(DEFAULT_QUERY), '');
   assert.deepEqual(parsePerfQuery((k) => ({ sort: 'zzz', dir: 'up', agg: 'x' } as Record<string, string>)[k] ?? null), DEFAULT_QUERY);
   // sort만 있고 dir이 없으면 그 열의 첫 방향
-  assert.deepEqual(parsePerfQuery((k) => (k === 'sort' ? 'cpv' : null)), { sort: 'cpv', dir: 'asc', agg: 'median' });
+  assert.deepEqual(parsePerfQuery((k) => (k === 'sort' ? 'cpv' : null)), { ...DEFAULT_QUERY, sort: 'cpv', dir: 'asc' });
 });
 
 test('표시 포맷', () => {
@@ -178,4 +179,105 @@ test('표시 포맷', () => {
   assert.equal(formatMetric('views', 528625), '528,625');
   assert.equal(formatMetric('views', 5611.4), '5,611');
   assert.equal(formatMetric('bookmarks', 1234), '1,234');
+});
+
+// ── 필터·검색(스펙 §15) ──
+const NOW = () => Date.parse('2026-09-30T03:00:00Z');   // 서울 2026-09-30 12:00
+const f = (x: Partial<PerfFilter> = {}): PerfFilter => ({ ...EMPTY_FILTER, ...x });
+
+test('기간 — 오늘 포함 N일: 오늘·N-1일 전은 들고 N일 전은 빠진다, 게시 전 작업도 빠진다', () => {
+  assert.equal(periodSince('all', NOW), null);
+  assert.equal(periodSince('30', NOW), '2026-09-01');
+  assert.equal(periodSince('90', NOW), '2026-07-03');
+  const ts = [
+    task({ id: 'today', postedAt: '2026-09-30' }), task({ id: 'edge', postedAt: '2026-09-01' }),
+    task({ id: 'out', postedAt: '2026-08-31' }), task({ id: 'planned', postedAt: null, postUrl: null, metrics: null }),
+    task({ id: 'linkOnly', postedAt: null }),      // 링크만 있어 '게시됨'이지만 게시일이 없다 → 기간 기준으로 판단 불가라 뺀다
+  ];
+  assert.deepEqual(filterTasks(ts, f({ period: '30' }), periodSince('30', NOW)).map((t) => t.id), ['today', 'edge']);
+  // 기간 전체면 게시 전 작업도 그대로(펼친 목록에 보인다)
+  assert.equal(filterTasks(ts, f(), null).length, 5);
+});
+
+test('클라이언트·유형 필터 — 작업을 거른다', () => {
+  const ts = [task({ id: 'a', clientId: 'k1' }), task({ id: 'b', clientId: 'k2' }), task({ id: 'c', clientId: null }),
+    task({ id: 'd', clientId: 'k1', type: 'rt' })];
+  assert.deepEqual(filterTasks(ts, f({ client: 'k1' }), null).map((t) => t.id), ['a', 'd']);
+  assert.deepEqual(filterTasks(ts, f({ type: 'rt' }), null).map((t) => t.id), ['d']);
+  assert.deepEqual(filterTasks(ts, f({ client: 'k1', type: 'quoteRt' }), null).map((t) => t.id), ['a']);
+});
+
+test('②가 걸리면 건수·캠페인 수·최근 게시일·성과·작업 목록이 모두 걸러진 작업 기준, 게시 0건이 된 인플은 빠진다', () => {
+  const rows = buildFilteredRows([
+    inf([
+      task({ id: 'a', campaignId: 'c1', clientId: 'k1', postedAt: '2026-09-20', metrics: m(1000) }),
+      task({ id: 'b', campaignId: 'c2', clientId: 'k2', postedAt: '2026-09-25', metrics: m(9000) }),
+      task({ id: 'c', campaignId: 'c3', clientId: 'k1', type: 'rt', postedAt: '2026-09-10', postUrl: null, metrics: null }),
+    ], { handle: 'rio' }),
+    inf([task({ clientId: 'k2' })], { handle: 'other' }),
+  ], f({ client: 'k1' }), null);
+  assert.deepEqual(rows.map((r) => r.handle), ['rio']);
+  const r = rows[0];
+  assert.deepEqual(r.typeCounts, { post: 0, quoteRt: 1, rt: 1, visit: 0 });
+  assert.equal(r.campaignCount, 2);
+  assert.equal(r.lastPostedAt, '2026-09-20');
+  assert.equal(r.stats.views.median, 1000);
+  assert.equal(r.stats.views.n, 1);
+  assert.deepEqual(r.tasks.map((t) => t.id), ['a', 'c']);
+});
+
+test('필터 없음 = 기존 buildPerfRows와 같다', () => {
+  const inputs = [inf([task(), task({ postedAt: null, postUrl: null, metrics: null })]), inf([task({ postedAt: null, postUrl: null })], { handle: 'planned' })];
+  assert.deepEqual(buildFilteredRows(inputs, EMPTY_FILTER, null), buildPerfRows(inputs));
+});
+
+test('검색 — 핸들·표시 이름, 대소문자 무시, 앞뒤 공백·앞 @ 무시, 부분 일치', () => {
+  const rows = buildPerfRows([
+    inf([task()], { handle: 'RioSeoul', displayName: '리오' }),
+    inf([task()], { handle: 'mina', displayName: '미나 Kim' }),
+    inf([task()], { handle: 'ghost', displayName: null }),
+  ]);
+  const hs = (q: string) => filterRows(rows, f({ q })).map((r) => r.handle);
+  assert.deepEqual(hs('rios'), ['RioSeoul']);
+  assert.deepEqual(hs('  @RIO '), ['RioSeoul']);
+  assert.deepEqual(hs('리오'), ['RioSeoul']);
+  assert.deepEqual(hs('kim'), ['mina']);
+  assert.deepEqual(hs('   '), ['RioSeoul', 'mina', 'ghost']);
+  assert.deepEqual(hs('zzz'), []);
+});
+
+test('최소 게시 수 — 필터 적용 후 게시한 작업 수 기준', () => {
+  const inputs = [
+    inf([task({ clientId: 'k1' }), task({ clientId: 'k2' }), task({ clientId: 'k2', type: 'rt' })], { handle: 'three' }),
+    inf([task(), task({ postedAt: null, postUrl: null, metrics: null })], { handle: 'onePosted' }),
+  ];
+  assert.deepEqual(buildFilteredRows(inputs, f({ min: 2 }), null).map((r) => r.handle), ['three']);
+  assert.deepEqual(buildFilteredRows(inputs, f({ min: 3 }), null).map((r) => r.handle), ['three']);
+  // 클라이언트 k2로 거르면 three는 2건 → 3건 이상에서 빠진다
+  assert.deepEqual(buildFilteredRows(inputs, f({ client: 'k2', min: 3 }), null).map((r) => r.handle), []);
+  assert.deepEqual(buildFilteredRows(inputs, f({ client: 'k2', min: 2 }), null).map((r) => r.handle), ['three']);
+});
+
+test('주소 쿼리 — 필터 키 왕복·기본값 생략·틀린 값은 기본값·정렬 키와 함께', () => {
+  const q = { ...DEFAULT_QUERY, sort: 'cpv' as const, dir: 'asc' as const, q: '리오', period: '90' as const, client: 'k1', type: 'visit' as const, min: 3 as const };
+  const s = perfQueryString(q);
+  const p = new URLSearchParams(s);
+  assert.deepEqual(parsePerfQuery((k) => p.get(k)), q);
+  assert.equal(p.get('period'), '90');
+  assert.equal(p.get('min'), '3');
+  assert.equal(perfQueryString({ ...DEFAULT_QUERY, q: '   ' }), '');   // 공백뿐인 검색은 주소에 안 남긴다
+  const bad: Record<string, string> = { period: '7', type: 'story', min: '9', client: '' };
+  assert.deepEqual(parsePerfQuery((k) => bad[k] ?? null), DEFAULT_QUERY);
+  assert.deepEqual(parsePerfQuery((k) => (k === 'min' ? '1' : null)), DEFAULT_QUERY);
+});
+
+test('필터 켜짐 여부·요약 문구', () => {
+  assert.equal(isFilterOn(EMPTY_FILTER), false);
+  assert.equal(isFilterOn(f({ q: '  ' })), false);
+  assert.equal(isFilterOn(f({ min: 2 })), true);
+  assert.equal(filterSummary(f({ client: 'k1', period: '30', type: 'post' }), '백수약국', 4),
+    '백수약국 · 최근 30일 · 투고 게시물만으로 계산했어요 · 4명');
+  assert.equal(filterSummary(f({ period: '90' }), '', 12), '최근 90일 게시물만으로 계산했어요 · 12명');
+  assert.equal(filterSummary(f({ q: ' 리오 ', min: 2 }), '', 1), "'리오' 검색 · 게시 2건 이상 · 1명");
+  assert.equal(filterSummary(f({ type: 'rt', min: 3 }), '', 2), 'RT 게시물만으로 계산했어요 · 게시 3건 이상 · 2명');
 });

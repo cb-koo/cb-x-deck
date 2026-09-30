@@ -172,5 +172,9 @@ test('표시 포맷', () => {
   assert.equal(formatMetric('engagement', 0.0254), '2.5%');
   assert.equal(formatMetric('cpv', 4.06), '4.1원');
   assert.equal(formatMetric('likes', 210.5), '211');
-  assert.equal(formatMetric('views', 12000), '1.2만');
+  // 큰 수는 축약 없이 쉼표 전체 숫자(스펙 §13.3)
+  assert.equal(formatMetric('views', 12000), '12,000');
+  assert.equal(formatMetric('views', 528625), '528,625');
+  assert.equal(formatMetric('views', 5611.4), '5,611');
+  assert.equal(formatMetric('bookmarks', 1234), '1,234');
 });

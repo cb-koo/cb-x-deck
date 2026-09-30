@@ -2,7 +2,6 @@
 // 저장소가 넘긴 "작업 + 작업별 최신 스냅샷 합"을 인플 1행으로 요약하고, 정렬·주소 쿼리를 맡는다. 화면이 전환·정렬 때 바로 부른다.
 import { median } from './analysisStats.ts';
 import { toKrw } from './clientBudget.ts';
-import { formatKoCount } from './formatKo.ts';
 import type { TaskType } from './campaignJudgment.ts';
 import type { TaskCost } from './campaignCost.ts';
 
@@ -147,5 +146,6 @@ export function formatMetric(key: MetricKey, v: number | null): string {
   if (v === null) return '—';
   if (key === 'engagement') return `${(v * 100).toFixed(1)}%`;
   if (key === 'cpv') return `${v.toFixed(1)}원`;
-  return formatKoCount(Math.round(v));
+  // 건수 지표는 축약 없이 쉼표 전체 숫자 — '1.2만'보다 비교가 정확하다(스펙 §13.3)
+  return Math.round(v).toLocaleString('ko-KR');
 }

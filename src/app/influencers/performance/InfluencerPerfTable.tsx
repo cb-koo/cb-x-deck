@@ -1,7 +1,8 @@
-// 인플루언서 성과 표 — 인플 1명 = 한 줄, 성과 지표를 묶음(이력·게시한 작업·노출·참여율·반응·확산)으로 나란히. 스펙 2026-09-30 §4·§5·§12
+// 인플루언서 성과 표 — 인플 1명 = 한 줄, 성과 지표를 묶음(이력·게시한 작업·노출·참여율·반응·확산)으로 나란히. 스펙 2026-09-30 §4·§5·§12·§13
+// 펼친 작업은 같은 표의 행(같은 colgroup)으로 넣는다 — 작업 숫자가 부모 숫자와 같은 세로줄에 선다(스펙 §13.2).
 // 표 모양은 정산 표 공용 모양(HEAD·CELL·NUM)을 그대로 쓴다 — 다른 화면 표와 같아 보이게(스펙 §12-1).
 'use client';
-import { Fragment, type ReactNode } from 'react';
+import { Fragment } from 'react';
 import Link from 'next/link';
 import { Avatar } from '@/components/Avatar';
 import { BlueCheckIcon } from '@/components/XIcons';
@@ -10,7 +11,7 @@ import { DISPLAY_TYPE_ORDER } from '@/lib/campaignFlowView';
 import { formatAmount } from '@/lib/campaignCost';
 import { HEAD, CELL, NUM } from '@/app/settlement/tableStyle';
 import {
-  formatMetric, taskEngagement, taskPerfState, isPosted,
+  formatMetric, taskEngagement, taskCpv, taskPerfState, isPosted,
   type PerfRow, type PerfTask, type SortKey, type Agg, type MetricKey, type SortDir,
 } from '@/lib/influencerPerformance';
 
@@ -21,18 +22,21 @@ interface Group { label: string; cols: Col[] }
 const ENGAGEMENT_HELP = '공개 반응(좋아요·답글·북마크·RT·인용) ÷ 조회 · X 분석 화면보다 낮게 나와요 (클릭 수 미포함)';
 // 표를 한 화면에 맞추려 폭을 줄였다(스펙 리뷰 09-30) — 1440px 노트북(사이드바 208px 제외)에서 가로 스크롤 없이 전 열이 보이게.
 // 게시한 작업 묶음은 유형별 라벨 길이가 달라 균일 폭이 아니다 — '인용RT'·'방문협찬'은 좁히면 헤더 글자가 넘쳐 실측(13px)으로 늘렸다.
+// QA 2차(스펙 §13.3): 큰 수를 전체 숫자로 보이며 폭을 다시 나눴다(합계 1168px 유지, 15px 시스템 글꼴 실측).
+// 반응·확산 64→68('1,234' 41px + 여백 24px), 조회 96→88('528,625' 60px), 조회당 비용 88→80('999.9원' 54px),
+// 캠페인 60→56·최근 게시일 88→80(머리 글자 기준), 남은 8px은 인플 칸(펼친 행의 캠페인 이름)에.
 const TASK_TYPE_COL_WIDTH: Record<TaskType, number> = { post: 52, quoteRt: 68, rt: 48, visit: 72 };
 const GROUPS: Group[] = [
-  { label: '이력', cols: [{ key: 'campaigns', label: '캠페인', width: 60 }, { key: 'lastPosted', label: '최근 게시일', width: 88 }] },
+  { label: '이력', cols: [{ key: 'campaigns', label: '캠페인', width: 56 }, { key: 'lastPosted', label: '최근 게시일', width: 80 }] },
   // '게시한 작업' — 예정 작업은 세지 않아 캠페인 화면(예정 포함) 건수와 다를 수 있음을 이름으로 드러낸다(스펙 §12-3)
   { label: '게시한 작업', cols: DISPLAY_TYPE_ORDER.map((t) => ({ key: `n_${t}` as SortKey, label: TASK_TYPE_LABEL[t], width: TASK_TYPE_COL_WIDTH[t] })) },
-  { label: '노출', cols: [{ key: 'views', label: '조회', width: 96 }, { key: 'cpv', label: '조회당 비용', width: 88 }] },
+  { label: '노출', cols: [{ key: 'views', label: '조회', width: 88 }, { key: 'cpv', label: '조회당 비용', width: 80 }] },
   { label: '', cols: [{ key: 'engagement', label: '참여율', width: 76, help: ENGAGEMENT_HELP }] },
-  { label: '반응', cols: [{ key: 'likes', label: '좋아요', width: 64 }, { key: 'replies', label: '답글', width: 64 }, { key: 'bookmarks', label: '북마크', width: 64 }] },
-  { label: '확산', cols: [{ key: 'retweets', label: 'RT수', width: 64 }, { key: 'quotes', label: '인용수', width: 64 }] },
+  { label: '반응', cols: [{ key: 'likes', label: '좋아요', width: 68 }, { key: 'replies', label: '답글', width: 68 }, { key: 'bookmarks', label: '북마크', width: 68 }] },
+  { label: '확산', cols: [{ key: 'retweets', label: 'RT수', width: 68 }, { key: 'quotes', label: '인용수', width: 68 }] },
 ];
 const METRIC_COLS = new Set<SortKey>(['views', 'cpv', 'engagement', 'likes', 'replies', 'bookmarks', 'retweets', 'quotes']);
-const NAME_WIDTH = 200;
+const NAME_WIDTH = 208;
 const md = (ymd: string | null) => (ymd ? `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}` : '—');
 
 // 묶음 첫 칸 = 왼쪽 흐린 구분선(머리·몸통 모두) — 세로선은 묶음 경계에만(스펙 §12-1). 첫 묶음(이력)은 sticky 인플 칸의
@@ -132,7 +136,7 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
                             className="flex w-full min-w-0 items-center gap-2 text-left">
                       <span aria-hidden className="w-3 shrink-0 text-[10px] text-x-muted">{open ? '▼' : '▶'}</span>
                       <Avatar url={r.avatarUrl} name={name} size={28} />
-                      <span className="truncate font-bold">@{r.handle}</span>
+                      <span className="truncate font-medium">@{r.handle}</span>
                       {r.isBlueVerified && <BlueCheckIcon className="h-4 w-4 shrink-0" />}
                     </button>
                   </td>
@@ -145,19 +149,7 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
                     );
                   })}
                 </tr>
-                {open && (
-                  <tr>
-                    <td colSpan={1 + ALL_COLS.length} className="border-b border-x-border bg-x-surface px-4 pb-4 pt-2">
-                      <ExpandedTasks tasks={r.tasks} />
-                      {r.influencerId && (
-                        <Link href={`/influencers?i=${r.influencerId}`}
-                              className="mt-3 inline-block text-ui font-semibold text-x-blue-text hover:underline">
-                          인플루언서 프로필 열기 →
-                        </Link>
-                      )}
-                    </td>
-                  </tr>
-                )}
+                {open && <TaskRows row={r} />}
               </Fragment>
             );
           })}
@@ -167,89 +159,92 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
   );
 }
 
-// 펼친 행 — 작업 목록(스펙 §5). 성과 열 순서는 위 표 성과 묶음과 같다(눈으로 따라 내려가며 비교).
-// 작업 목록엔 조회당 비용 칸이 없다 — 비용·조회 칸으로 대신(스펙 §5), 그래서 여기 키에는 'cpv'가 없다.
-type TaskMetricKey = Exclude<MetricKey, 'cpv'>;
-const TASK_METRICS: Array<{ key: TaskMetricKey; label: string }> = [
-  { key: 'views', label: '조회' }, { key: 'engagement', label: '참여율' },
-  { key: 'likes', label: '좋아요' }, { key: 'replies', label: '답글' }, { key: 'bookmarks', label: '북마크' },
-  { key: 'retweets', label: 'RT수' }, { key: 'quotes', label: '인용수' },
-];
-const TASK_COLS: Array<{ label: string; width: number; right?: boolean }> = [
-  { label: '날짜', width: 72 }, { label: '캠페인', width: 240 }, { label: '유형', width: 80 }, { label: '비용', width: 104, right: true },
-  ...TASK_METRICS.map((m) => ({ label: m.label, width: m.key === 'views' ? 96 : 72, right: true })),
-  { label: '게시물', width: 64 },
-];
-const TASK_TABLE_WIDTH = TASK_COLS.reduce((s, c) => s + c.width, 0);
+// 펼친 행 — 작업마다 부모와 같은 표의 한 행(스펙 §13.2). 순서는 게시일 내림차순·게시 전은 맨 아래(summarizeInfluencer가 정렬).
+// 자식 행에는 클릭 핸들러가 없다 — 펼치기/접기는 부모 행만 한다. 배경은 부모보다 한 톤 흐리게(x-surface, 불투명 — sticky 칸 뒤가 비치지 않게).
+const CHILD_BG = 'bg-x-surface';
+const CHILD_CELL = `${CELL} h-10!`;
+// 게시한 작업 4열(투고~방문협찬)을 합친 한 칸 = '유형 · 비용'
+const TASK_TYPE_SPAN = DISPLAY_TYPE_ORDER.length;
+const TYPE_FIRST_KEY = `n_${DISPLAY_TYPE_ORDER[0]}` as SortKey;
+// 노출~확산 열 = 작업의 성과 값 자리(부모와 같은 열 순서)
+const PERF_COLS = ALL_COLS.filter((c) => METRIC_COLS.has(c.key));
 
-function taskMetricText(t: PerfTask, key: TaskMetricKey): string {
+function taskMetricText(t: PerfTask, key: MetricKey): string {
   if (key === 'engagement') return formatMetric('engagement', taskEngagement(t.metrics));
+  if (key === 'cpv') return formatMetric('cpv', taskCpv(t));
   return formatMetric(key, t.metrics?.[key] ?? null);
 }
 
-function ExpandedTasks({ tasks }: { tasks: PerfTask[] }) {
-  const cell = 'h-11 whitespace-nowrap px-3';
+// 성과가 없는 작업의 사유(스펙 §13.2 우선순위) — 삭제됨 > RT 안내 > 게시 전(—) > 수집 전
+function reasonCell(t: PerfTask): { text: string; title?: string } | null {
+  switch (taskPerfState(t)) {
+    case 'removed':
+      return {
+        text: t.removedReason ? `삭제됨 · ${t.removedReason}` : '삭제됨',
+        title: `${t.removedAt ? `${md(t.removedAt)} 게시물이 내려가` : '게시물이 내려가'} 평균·중앙값에서 빠졌어요`,
+      };
+    case 'rt': return { text: 'RT는 조회가 원글에 쌓여요' };
+    case 'unposted': return { text: '—' };   // 게시일 칸이 이미 '게시 전'이라고 말한다
+    case 'uncollected': return { text: '수집 전', title: '조회 수치가 아직 없어 평균·중앙값에서 빠졌어요' };
+    default: return null;
+  }
+}
+
+function TaskRows({ row }: { row: PerfRow }) {
   return (
-    <table className="table-fixed border-collapse bg-white text-ui" style={{ width: TASK_TABLE_WIDTH }}>
-      <colgroup>{TASK_COLS.map((c) => <col key={c.label} style={{ width: c.width }} />)}</colgroup>
-      <thead>
-        <tr>
-          {TASK_COLS.map((c) => (
-            <th key={c.label} scope="col" className={`${HEAD} py-2! ${c.right ? 'text-right' : ''}`}>
-              {c.label}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {tasks.map((t) => {
-          const posted = isPosted(t);
-          const span = TASK_METRICS.length;
-          const state = taskPerfState(t);
-          let perf: ReactNode;
-          if (state === 'removed') {
-            // 삭제된 게시물 — 조회가 남아 있어도 평균·중앙값에서 뺐다(스펙 §12-4). 사유가 있으면 붙인다.
-            const label = t.removedReason ? `삭제됨 · ${t.removedReason}` : '삭제됨';
-            perf = (
-              <td colSpan={span} className={`${cell} truncate text-center text-x-muted`}
-                  title={`${t.removedAt ? `${md(t.removedAt)} 게시물이 내려가` : '게시물이 내려가'} 평균·중앙값에서 빠졌어요`}>
-                {label}
-              </td>
-            );
-          } else if (state === 'rt') {
-            perf = <td colSpan={span} className={`${cell} text-center text-x-muted`}>RT는 조회가 원글에 쌓여요</td>;
-          } else if (state === 'unposted') {
-            perf = TASK_METRICS.map((m) => <td key={m.key} className={`${cell} text-right text-x-muted`}>—</td>);
-          } else if (state === 'uncollected') {
-            perf = (
-              <td colSpan={span} className={`${cell} text-center text-x-muted`} title="조회 수치가 아직 없어 평균·중앙값에서 빠졌어요">
-                수집 전
-              </td>
-            );
-          } else {
-            perf = TASK_METRICS.map((m) => (
-              <td key={m.key} className={`${cell} text-right tabular-nums`}><Val v={taskMetricText(t, m.key)} /></td>
-            ));
-          }
-          return (
-            <tr key={t.id} className="border-b border-x-border last:border-b-0">
-              <td className={`${cell} tabular-nums ${t.postedAt ? '' : 'text-x-muted'}`}>{t.postedAt ? md(t.postedAt) : posted ? '—' : '게시 전'}</td>
-              <td className={`${cell} truncate`} title={t.campaignName}>{t.campaignName}</td>
-              <td className={cell}>{TASK_TYPE_LABEL[t.type]}</td>
-              <td className={`${cell} text-right tabular-nums`}>
-                {t.cost ? formatAmount(t.cost.amount, t.cost.currency) : <span className="text-x-muted">—</span>}
-              </td>
-              {perf}
-              <td className={cell}>
+    <>
+      {row.tasks.map((t) => {
+        const reason = reasonCell(t);
+        const typeCost = t.cost
+          ? `${TASK_TYPE_LABEL[t.type]} · ${formatAmount(t.cost.amount, t.cost.currency)}`
+          : TASK_TYPE_LABEL[t.type];
+        return (
+          <tr key={t.id} className={CHILD_BG}>
+            {/* 인플 칸 = 캠페인 이름(들여쓰기·한 줄 말줄임) + ↗ 원 게시물 */}
+            <td className={`${CHILD_CELL} sticky left-0 z-10 ${CHILD_BG} ${STICKY_EDGE}`}>
+              <div className="flex min-w-0 items-center gap-1 pl-5">
+                <span className="truncate" title={t.campaignName}>{t.campaignName}</span>
                 {t.postUrl && (
-                  <a href={t.postUrl} target="_blank" rel="noopener noreferrer" title="X 게시물 새 창으로 열기"
-                     className="text-x-blue-text hover:underline">↗</a>
+                  <a href={t.postUrl} target="_blank" rel="noopener noreferrer"
+                     title="X 게시물 새 창으로 열기" aria-label={`${t.campaignName} X 게시물 새 창으로 열기`}
+                     onClick={(e) => e.stopPropagation()}
+                     className="shrink-0 px-1 text-x-blue-text hover:underline">↗</a>
                 )}
+              </div>
+            </td>
+            {/* 캠페인 열은 비움 · 최근 게시일 열 = 그 작업의 게시일 */}
+            <td className={CHILD_CELL} />
+            <td className={`${CHILD_CELL} ${NUM} ${t.postedAt ? '' : 'text-x-muted'}`}>
+              {t.postedAt ? md(t.postedAt) : isPosted(t) ? '—' : '게시 전'}
+            </td>
+            <td colSpan={TASK_TYPE_SPAN}
+                className={`${CHILD_CELL} truncate ${GROUP_FIRST.has(TYPE_FIRST_KEY) ? DIVIDER : ''}`} title={typeCost}>
+              {typeCost}
+            </td>
+            {reason ? (
+              <td colSpan={PERF_COLS.length} title={reason.title}
+                  className={`${CHILD_CELL} truncate text-center text-x-muted ${DIVIDER}`}>
+                {reason.text}
               </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+            ) : PERF_COLS.map((c) => (
+              <td key={c.key} className={`${CHILD_CELL} ${NUM} ${GROUP_FIRST.has(c.key) ? DIVIDER : ''}`}>
+                <Val v={taskMetricText(t, c.key as MetricKey)} />
+              </td>
+            ))}
+          </tr>
+        );
+      })}
+      {row.influencerId && (
+        <tr className={CHILD_BG}>
+          <td className={`${CHILD_CELL} sticky left-0 z-10 ${CHILD_BG} ${STICKY_EDGE}`}>
+            <Link href={`/influencers?i=${row.influencerId}`}
+                  className="pl-5 text-ui font-semibold text-x-blue-text hover:underline">
+              인플루언서 프로필 열기 →
+            </Link>
+          </td>
+          <td colSpan={ALL_COLS.length} className={CHILD_CELL} />
+        </tr>
+      )}
+    </>
   );
 }

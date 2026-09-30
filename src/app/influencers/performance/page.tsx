@@ -59,7 +59,7 @@ function PerfView() {
   return (
     <main className="mx-auto max-w-none px-6 py-8">
       <h1 className="mb-1 text-[20px] font-bold">인플루언서 성과</h1>
-      <p className="mb-4 text-ui text-x-muted">캠페인에 참여한 인플의 게시물 성과를 비교해요. 열 이름을 누르면 그 기준으로 줄을 세워요.</p>
+      <p className="mb-4 text-ui text-x-muted">캠페인에서 게시까지 한 인플의 게시물 성과를 비교해요. 열 이름을 누르면 그 기준으로 줄을 세워요.</p>
 
       {!loaded && <p className="py-8 text-center text-ui text-x-muted">불러오는 중…</p>}
       {loaded && loadErr && (
@@ -70,7 +70,7 @@ function PerfView() {
       )}
       {loaded && !loadErr && rows.length === 0 && (
         <p className="py-8 text-center text-ui text-x-secondary">
-          아직 캠페인 작업이 없어요 — 캠페인에서 작업을 만들고 게시되면 여기에 성과가 모여요{' '}
+          아직 게시된 캠페인 작업이 없어요 — 캠페인에서 작업이 게시되면 여기에 성과가 모여요{' '}
           <Link href="/campaigns/flow" className="text-x-blue-text hover:underline">캠페인으로 →</Link>
         </p>
       )}

@@ -37,6 +37,8 @@ test('취소 제외·게시물 여러 개는 최신 스냅샷 합·명부 조인
   await createTasks(sql, camp.id, { ...base, type: 'rt', items: [{ handle: P + 'ghost', cost: null }] });
   await sql`update campaign_task set cancelled_at = now() where id = ${cancelled.id}`;
   await sql`update campaign_task set posted_at = '2026-09-03', post_url = 'https://x.com/r/status/1' where id = ${q1.id}`;
+  // 게시 내림 — 날짜·사유를 그대로 넘긴다(표본 제외는 계산 쪽 몫, 스펙 §12-4)
+  await sql`update campaign_task set removed_at = '2026-09-07', removed_reason = '광고 표기 누락' where id = ${q1.id}`;
 
   // 작업 q1에 게시물 2개 — 각자 최신 스냅샷만 합산
   const [tp1] = await sql<Array<{ id: string }>>`insert into tracked_post (tweet_id, author_handle, text, task_id) values (${P + 'x1'}, 'rio', '', ${q1.id}) returning id`;
@@ -56,10 +58,14 @@ test('취소 제외·게시물 여러 개는 최신 스냅샷 합·명부 조인
   assert.equal(t.campaignName, P + '캠');
   assert.equal(t.postedAt, '2026-09-03');
   assert.deepEqual(t.cost, { amount: 1000, currency: 'JPY' });
+  assert.equal(t.removedAt, '2026-09-07');
+  assert.equal(t.removedReason, '광고 표기 누락');
   assert.deepEqual(t.metrics, { postCount: 2, views: 120, likes: 6, replies: 1, bookmarks: 2, retweets: 1, quotes: 1 });
 
   const ghost = mine.find((r) => r.handle === P + 'ghost')!;
   assert.equal(ghost.influencerId, null);
   assert.equal(ghost.tasks[0].type, 'rt');
   assert.equal(ghost.tasks[0].metrics, null);        // 게시물 없음
+  assert.equal(ghost.tasks[0].removedAt, null);
+  assert.equal(ghost.tasks[0].removedReason, '');   // 기본값 ''
 });

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   summarizeInfluencer, sortPerfRows, firstDir, parsePerfQuery, perfQueryString, DEFAULT_QUERY,
-  taskEngagement, taskCpv, formatMetric, viewsSampleNote,
+  taskEngagement, taskCpv, formatMetric, buildPerfRows, taskPerfState,
   type PerfTask, type PerfInfluencerInput, type PerfTaskMetrics,
 } from './influencerPerformance.ts';
 
@@ -11,7 +11,8 @@ const m = (views: number | null, x: Partial<PerfTaskMetrics> = {}): PerfTaskMetr
 let seq = 0;
 const task = (x: Partial<PerfTask> = {}): PerfTask => ({
   id: 't' + ++seq, campaignId: 'c1', campaignName: '캠1', type: 'quoteRt', postedAt: '2026-09-10',
-  postUrl: 'https://x.com/a/status/1', cost: { amount: 10000, currency: 'KRW' }, metrics: m(1000), ...x,
+  postUrl: 'https://x.com/a/status/1', cost: { amount: 10000, currency: 'KRW' }, metrics: m(1000),
+  removedAt: null, removedReason: '', ...x,
 });
 const inf = (tasks: PerfTask[], x: Partial<PerfInfluencerInput> = {}): PerfInfluencerInput =>
   ({ handle: 'rio', influencerId: 'i1', displayName: '리오', avatarUrl: null, isBlueVerified: false, tasks, ...x });
@@ -27,7 +28,6 @@ test('RT는 건수에만 — 성과 표본에서 빠진다', () => {
 test('RT만 한 인플은 성과 전부 null·n 0', () => {
   const r = summarizeInfluencer(inf([task({ type: 'rt' }), task({ type: 'rt' })]));
   for (const s of Object.values(r.stats)) { assert.equal(s.median, null); assert.equal(s.mean, null); assert.equal(s.n, 0); }
-  assert.equal(r.postedContentTasks, 0);
 });
 
 test('중앙값·평균 — 짝수 표본', () => {
@@ -36,18 +36,56 @@ test('중앙값·평균 — 짝수 표본', () => {
   assert.equal(r.stats.views.mean, 500);
 });
 
-test('조회 null 작업은 표본 제외 + 표본/게시된 게시물 작업 표시', () => {
+test('조회 null 작업은 표본 제외', () => {
   const r = summarizeInfluencer(inf([task({ metrics: m(1000) }), task({ metrics: m(null) }), task({ metrics: null })]));
   assert.equal(r.stats.views.n, 1);
-  assert.equal(r.postedContentTasks, 3);
-  assert.equal(viewsSampleNote(r), '1/3');
+  assert.equal(r.typeCounts.quoteRt, 3);         // 게시는 했으니 건수엔 센다
 });
 
-test('게시 전 작업은 표본 분모(게시된 게시물 작업)에 안 들어간다', () => {
-  const r = summarizeInfluencer(inf([task({ metrics: m(1000) }), task({ postedAt: null, postUrl: null, metrics: null })]));
-  assert.equal(r.typeCounts.quoteRt, 2);         // 작업 건수엔 들어간다
-  assert.equal(r.postedContentTasks, 1);
-  assert.equal(viewsSampleNote(r), null);        // 어긋남 없음 → 표시 안 함
+test('유형별 건수는 게시된 작업만(RT 포함) — 예정 작업은 안 센다(스펙 §12-3)', () => {
+  const r = summarizeInfluencer(inf([
+    task({ metrics: m(1000) }),
+    task({ postedAt: null, postUrl: null, metrics: null }),                 // 예정
+    task({ postedAt: null, postUrl: 'https://x.com/a/status/2' }),          // 링크만 있어도 게시
+    task({ type: 'rt', postedAt: '2026-09-11', postUrl: null, metrics: null }),
+    task({ type: 'rt', postedAt: null, postUrl: null, metrics: null }),     // 예정 RT
+  ]));
+  assert.equal(r.typeCounts.quoteRt, 2);
+  assert.equal(r.typeCounts.rt, 1);
+  assert.equal(r.tasks.length, 5);               // 펼친 목록엔 예정 작업도 그대로
+});
+
+test('삭제된 게시물 — 성과 표본에서 빠지고 건수엔 센다(스펙 §12-4)', () => {
+  const r = summarizeInfluencer(inf([
+    task({ metrics: m(1000) }),
+    task({ metrics: m(999999), removedAt: '2026-09-15', removedReason: '광고 표기 누락' }),
+  ]));
+  assert.equal(r.typeCounts.quoteRt, 2);
+  assert.equal(r.stats.views.n, 1);
+  assert.equal(r.stats.views.median, 1000);
+  assert.equal(r.stats.cpv.n, 1);
+  assert.equal(r.stats.engagement.n, 1);
+  assert.equal(r.stats.likes.n, 1);
+});
+
+test('대상 행 = 게시된 작업이 1건 이상인 인플(스펙 §12-3)', () => {
+  const rows = buildPerfRows([
+    inf([task()], { handle: 'posted' }),
+    inf([task({ postedAt: null, postUrl: null, metrics: null })], { handle: 'planned' }),
+    inf([task({ type: 'rt', postedAt: '2026-09-11', postUrl: null, metrics: null })], { handle: 'rtOnly' }),
+  ]);
+  assert.deepEqual(rows.map((r) => r.handle), ['posted', 'rtOnly']);
+});
+
+test('펼침 성과 자리 — 삭제됨이 수집 전보다 우선', () => {
+  assert.equal(taskPerfState(task({ removedAt: '2026-09-15', metrics: null })), 'removed');
+  assert.equal(taskPerfState(task({ removedAt: '2026-09-15', metrics: m(1000) })), 'removed');
+  assert.equal(taskPerfState(task({ type: 'rt', removedAt: '2026-09-15' })), 'removed');
+  assert.equal(taskPerfState(task({ type: 'rt' })), 'rt');
+  assert.equal(taskPerfState(task({ postedAt: null, postUrl: null, metrics: null })), 'unposted');
+  assert.equal(taskPerfState(task({ metrics: m(null) })), 'uncollected');
+  assert.equal(taskPerfState(task({ metrics: null })), 'uncollected');
+  assert.equal(taskPerfState(task()), 'ok');
 });
 
 test('참여율 = 공개 반응 5종 ÷ 조회, 작업별 비율의 중앙값(합의 비율 아님)', () => {
@@ -74,12 +112,13 @@ test('조회당 비용 — 엔화 1엔=10원, 비용 null·조회 0 제외', () 
   assert.equal(taskCpv(task({ type: 'rt' })), null);   // RT 비용은 조회당 비용에 안 섞는다
 });
 
-test('캠페인 수는 서로 다른 캠페인, 최근 게시일은 게시된 작업만', () => {
+test('캠페인 수는 게시된 작업이 있는 서로 다른 캠페인, 최근 게시일은 게시된 작업만', () => {
   const r = summarizeInfluencer(inf([
     task({ campaignId: 'c1', postedAt: '2026-09-03' }), task({ campaignId: 'c1', postedAt: '2026-09-20' }),
     task({ campaignId: 'c2', postedAt: null, postUrl: null, metrics: null }),
+    task({ campaignId: 'c3', type: 'rt', postedAt: '2026-09-05', postUrl: null, metrics: null }),
   ]));
-  assert.equal(r.campaignCount, 2);
+  assert.equal(r.campaignCount, 2);                // c1·c3 — 예정만 있는 c2는 안 센다
   assert.equal(r.lastPostedAt, '2026-09-20');
   assert.equal(summarizeInfluencer(inf([task({ postedAt: null })])).lastPostedAt, null);
 });

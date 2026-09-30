@@ -7,7 +7,7 @@ import { parseTaskCost, type TaskCost } from './campaignCost.ts';
 
 type Row = {
   id: string; campaign_id: string; campaign_name: string; type: TaskType; influencer_handle: string;
-  posted_at: string | null; post_url: string | null; cost: unknown;
+  posted_at: string | null; post_url: string | null; removed_at: string | null; removed_reason: string; cost: unknown;
   post_count: number; views: string | null; likes: string | null; replies: string | null;
   bookmarks: string | null; retweets: string | null; quotes: string | null;
   influencer_id: string | null; roster_handle: string | null; display_name: string | null;
@@ -21,6 +21,7 @@ export async function listInfluencerPerformance(sql: postgres.Sql): Promise<Perf
   const rows = await sql<Row[]>`
     select t.id, t.campaign_id, c.name as campaign_name, t.type, t.influencer_handle,
            to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, t.post_url, t.cost,
+           to_char(t.removed_at, 'YYYY-MM-DD') as removed_at, t.removed_reason,
            p.post_count, p.views, p.likes, p.replies, p.bookmarks, p.retweets, p.quotes,
            i.id as influencer_id, i.handle as roster_handle, i.display_name, i.avatar_url, i.is_blue_verified
       from campaign_task t
@@ -52,7 +53,8 @@ export async function listInfluencerPerformance(sql: postgres.Sql): Promise<Perf
     }
     const task: PerfTask = {
       id: r.id, campaignId: r.campaign_id, campaignName: r.campaign_name, type: r.type,
-      postedAt: r.posted_at, postUrl: r.post_url, cost: costOf(r.cost),
+      postedAt: r.posted_at, postUrl: r.post_url, removedAt: r.removed_at, removedReason: r.removed_reason,
+      cost: costOf(r.cost),
       metrics: r.post_count > 0 ? {
         postCount: r.post_count, views: num(r.views), likes: num(r.likes), replies: num(r.replies),
         bookmarks: num(r.bookmarks), retweets: num(r.retweets), quotes: num(r.quotes),

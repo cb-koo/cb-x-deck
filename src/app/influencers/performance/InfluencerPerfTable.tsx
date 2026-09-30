@@ -1,4 +1,5 @@
-// 인플루언서 성과 표 — 인플 1명 = 한 줄, 성과 지표를 묶음(이력·작업·노출·참여율·반응·확산)으로 나란히. 스펙 2026-09-30 §4·§5
+// 인플루언서 성과 표 — 인플 1명 = 한 줄, 성과 지표를 묶음(이력·게시한 작업·노출·참여율·반응·확산)으로 나란히. 스펙 2026-09-30 §4·§5·§12
+// 표 모양은 정산 표 공용 모양(HEAD·CELL·NUM)을 그대로 쓴다 — 다른 화면 표와 같아 보이게(스펙 §12-1).
 'use client';
 import { Fragment, type ReactNode } from 'react';
 import Link from 'next/link';
@@ -7,22 +8,24 @@ import { BlueCheckIcon } from '@/components/XIcons';
 import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
 import { DISPLAY_TYPE_ORDER } from '@/lib/campaignFlowView';
 import { formatAmount } from '@/lib/campaignCost';
+import { HEAD, CELL, NUM } from '@/app/settlement/tableStyle';
 import {
-  formatMetric, viewsSampleNote, taskEngagement, CONTENT_TYPES,
+  formatMetric, taskEngagement, taskPerfState, isPosted,
   type PerfRow, type PerfTask, type SortKey, type Agg, type MetricKey, type SortDir,
 } from '@/lib/influencerPerformance';
 
 interface Col { key: SortKey; label: string; width: number; help?: string }
 interface Group { label: string; cols: Col[] }
 
-// 묶음 순서(스펙 §4): 이력 · 작업 · 노출 · 참여율 · 반응 · 확산 — 관련 지표끼리 붙인다(koo 09-30)
+// 묶음 순서(스펙 §4): 이력 · 게시한 작업 · 노출 · 참여율 · 반응 · 확산 — 관련 지표끼리 붙인다(koo 09-30)
 const ENGAGEMENT_HELP = '공개 반응(좋아요·답글·북마크·RT·인용) ÷ 조회 · X 분석 화면보다 낮게 나와요 (클릭 수 미포함)';
 // 표를 한 화면에 맞추려 폭을 줄였다(스펙 리뷰 09-30) — 1440px 노트북(사이드바 208px 제외)에서 가로 스크롤 없이 전 열이 보이게.
-// 작업 묶음은 유형별 라벨 길이가 달라 균일 폭이 아니다 — '인용RT'·'방문협찬'은 좁히면 헤더 글자가 넘쳐 실측(Geist 13px bold)으로 늘렸다.
+// 게시한 작업 묶음은 유형별 라벨 길이가 달라 균일 폭이 아니다 — '인용RT'·'방문협찬'은 좁히면 헤더 글자가 넘쳐 실측(13px)으로 늘렸다.
 const TASK_TYPE_COL_WIDTH: Record<TaskType, number> = { post: 52, quoteRt: 68, rt: 48, visit: 72 };
 const GROUPS: Group[] = [
   { label: '이력', cols: [{ key: 'campaigns', label: '캠페인', width: 60 }, { key: 'lastPosted', label: '최근 게시일', width: 88 }] },
-  { label: '작업', cols: DISPLAY_TYPE_ORDER.map((t) => ({ key: `n_${t}` as SortKey, label: TASK_TYPE_LABEL[t], width: TASK_TYPE_COL_WIDTH[t] })) },
+  // '게시한 작업' — 예정 작업은 세지 않아 캠페인 화면(예정 포함) 건수와 다를 수 있음을 이름으로 드러낸다(스펙 §12-3)
+  { label: '게시한 작업', cols: DISPLAY_TYPE_ORDER.map((t) => ({ key: `n_${t}` as SortKey, label: TASK_TYPE_LABEL[t], width: TASK_TYPE_COL_WIDTH[t] })) },
   { label: '노출', cols: [{ key: 'views', label: '조회', width: 96 }, { key: 'cpv', label: '조회당 비용', width: 88 }] },
   { label: '', cols: [{ key: 'engagement', label: '참여율', width: 76, help: ENGAGEMENT_HELP }] },
   { label: '반응', cols: [{ key: 'likes', label: '좋아요', width: 64 }, { key: 'replies', label: '답글', width: 64 }, { key: 'bookmarks', label: '북마크', width: 64 }] },
@@ -32,13 +35,16 @@ const METRIC_COLS = new Set<SortKey>(['views', 'cpv', 'engagement', 'likes', 're
 const NAME_WIDTH = 200;
 const md = (ymd: string | null) => (ymd ? `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}` : '—');
 
-// 묶음 첫 칸 = 왼쪽 구분선(머리·몸통 모두) — 묶음이 눈으로 갈라져 보이게. 첫 묶음(이력)은 sticky 인플 칸의
+// 묶음 첫 칸 = 왼쪽 흐린 구분선(머리·몸통 모두) — 세로선은 묶음 경계에만(스펙 §12-1). 첫 묶음(이력)은 sticky 인플 칸의
 // 오른쪽 그림자 선이 이미 경계를 그어주므로 겹치는 이중선을 만들지 않는다.
 const GROUP_FIRST = new Set<SortKey>(GROUPS.slice(1).map((g) => g.cols[0].key));
+const DIVIDER = 'border-l border-l-x-border';
 const ALL_COLS = GROUPS.flatMap((g) => g.cols);
 const TABLE_WIDTH = NAME_WIDTH + ALL_COLS.reduce((s, c) => s + c.width, 0);
 // 고정 열 오른쪽 구분선 — border-collapse에서 border는 sticky와 같이 안 움직여 그림자 선으로 긋는다
-const STICKY_EDGE = 'shadow-[inset_-1px_0_0_var(--color-x-border-strong)]';
+const STICKY_EDGE = 'shadow-[inset_-1px_0_0_var(--color-x-border)]';
+// 묶음 이름 줄 — 열 머리(HEAD)와 같은 배경 위에 작고 흐리게. 아래선 없이 열 이름 줄과 한 덩어리로 보이게.
+const GROUP_HEAD = 'whitespace-nowrap bg-x-surface px-2 pb-0 pt-2 text-center text-caption font-medium text-x-muted';
 
 const isCountKey = (key: SortKey): boolean => key.startsWith('n_');
 
@@ -67,16 +73,16 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
           <col style={{ width: NAME_WIDTH }} />
           {ALL_COLS.map((c) => <col key={c.key} style={{ width: c.width }} />)}
         </colgroup>
-        <thead className="text-ui text-x-secondary">
+        <thead>
           {/* 1줄 = 묶음 이름 */}
           <tr>
-            <th rowSpan={2} scope="col"
-                className={`sticky left-0 z-20 whitespace-nowrap border-b border-x-border-strong bg-white px-4 py-2.5 text-left font-bold ${STICKY_EDGE}`}>
+            {/* HEAD의 bg-x-surface는 불투명 — 가로 스크롤 때 밑으로 지나가는 칸이 비치지 않는다 */}
+            <th rowSpan={2} scope="col" className={`${HEAD} sticky left-0 z-20 ${STICKY_EDGE}`}>
               인플
             </th>
             {GROUPS.map((g, i) => (
               <th key={g.cols[0].key} colSpan={g.cols.length} scope="colgroup"
-                  className={`whitespace-nowrap border-b border-x-border pb-1 pt-2 text-center text-ui font-medium text-x-muted ${i > 0 ? 'border-l' : ''}`}>
+                  className={`${GROUP_HEAD} ${i > 0 ? DIVIDER : ''}`}>
                 {g.label}
               </th>
             ))}
@@ -89,11 +95,12 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
               return (
                 <th key={c.key} scope="col"
                     aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                    className={`whitespace-nowrap border-b border-x-border-strong p-0 font-bold ${GROUP_FIRST.has(c.key) ? 'border-l border-l-x-border' : ''}`}>
-                  {/* 정렬 화살표는 절대 위치(레이아웃 폭을 차지하지 않음) + 헤더 여백 축소(px-2) — 64px처럼 좁은 칸에서
+                    className={`${HEAD} p-0! ${GROUP_FIRST.has(c.key) ? DIVIDER : ''}`}>
+                  {/* 여백은 칸(th)이 아니라 버튼이 가진다(p-0!로 HEAD 여백을 끔) — 누르는 영역이 칸 전체.
+                      정렬 화살표는 절대 위치(레이아웃 폭을 차지하지 않음) + 좁은 여백(px-2) — 64px처럼 좁은 칸에서
                       화살표가 라벨을 밀어 왼쪽 구분선 밖으로 넘치는 것을 막는다(스펙 리뷰 09-30 fix round 2) */}
                   <button type="button" onClick={() => onSort(c.key)} title={c.help} aria-describedby={helpId}
-                          className={`relative flex h-10 w-full items-center justify-end gap-0.5 px-2 hover:text-x-text ${active ? 'text-x-text' : ''}`}>
+                          className={`relative flex h-9 w-full items-center justify-end gap-0.5 px-2 font-semibold hover:text-x-text ${active ? 'text-x-text' : ''}`}>
                     {c.label}
                     {c.help && <span aria-hidden className="text-caption text-x-muted">ⓘ</span>}
                     {active && (
@@ -113,38 +120,34 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
           {rows.map((r) => {
             const open = expanded.has(r.handle);
             const name = r.displayName || r.handle;
-            const note = viewsSampleNote(r);
             return (
               <Fragment key={r.handle}>
                 {/* 행 전체 클릭 = 펼치기. 키보드는 이름 칸 버튼(클릭이 행으로 올라가 한 번만 토글된다) */}
                 <tr onClick={() => onToggle(r.handle)}
-                    className="group h-12 cursor-pointer border-b border-x-border hover:bg-x-hover">
-                  <td className={`sticky left-0 z-10 bg-white px-4 group-hover:bg-x-hover ${STICKY_EDGE}`}>
+                    className="group cursor-pointer hover:bg-x-hover">
+                  {/* 인플 칸 = 사진 + @핸들 하나만 — 이름은 마우스를 올리면(title) 보인다(이름·핸들이 둘 다 잘리던 문제, 스펙 §12-1) */}
+                  <td className={`${CELL} sticky left-0 z-10 bg-white group-hover:bg-x-hover ${STICKY_EDGE}`}
+                      title={r.displayName ? `${r.displayName} (@${r.handle})` : `@${r.handle}`}>
                     <button type="button" aria-expanded={open} aria-label={`${name} 작업 ${open ? '접기' : '펼치기'}`}
                             className="flex w-full min-w-0 items-center gap-2 text-left">
                       <span aria-hidden className="w-3 shrink-0 text-[10px] text-x-muted">{open ? '▼' : '▶'}</span>
                       <Avatar url={r.avatarUrl} name={name} size={28} />
-                      <span className="truncate font-semibold">{name}</span>
-                      {r.isBlueVerified && <BlueCheckIcon className="h-4 w-4" />}
-                      {r.displayName && <span className="truncate text-ui text-x-muted">@{r.handle}</span>}
+                      <span className="truncate font-bold">@{r.handle}</span>
+                      {r.isBlueVerified && <BlueCheckIcon className="h-4 w-4 shrink-0" />}
                     </button>
                   </td>
                   {ALL_COLS.map((c) => {
                     const text = cellText(r, c.key, agg);
                     return (
-                      <td key={c.key}
-                          className={`whitespace-nowrap px-3 text-right tabular-nums ${GROUP_FIRST.has(c.key) ? 'border-l border-x-border' : ''}`}>
+                      <td key={c.key} className={`${CELL} ${NUM} ${GROUP_FIRST.has(c.key) ? DIVIDER : ''}`}>
                         <Val v={text} muted={isCountKey(c.key) ? text === '0' : undefined} />
-                        {c.key === 'views' && note && (
-                          <span className="ml-1 text-ui text-x-muted" title="조회가 수집된 게시물 / 게시된 게시물">{note} 수집</span>
-                        )}
                       </td>
                     );
                   })}
                 </tr>
                 {open && (
-                  <tr className="border-b border-x-border-strong">
-                    <td colSpan={1 + ALL_COLS.length} className="bg-x-surface px-4 pb-4 pt-2">
+                  <tr>
+                    <td colSpan={1 + ALL_COLS.length} className="border-b border-x-border bg-x-surface px-4 pb-4 pt-2">
                       <ExpandedTasks tasks={r.tasks} />
                       {r.influencerId && (
                         <Link href={`/influencers?i=${r.influencerId}`}
@@ -189,11 +192,10 @@ function ExpandedTasks({ tasks }: { tasks: PerfTask[] }) {
   return (
     <table className="table-fixed border-collapse bg-white text-ui" style={{ width: TASK_TABLE_WIDTH }}>
       <colgroup>{TASK_COLS.map((c) => <col key={c.label} style={{ width: c.width }} />)}</colgroup>
-      <thead className="text-x-secondary">
+      <thead>
         <tr>
           {TASK_COLS.map((c) => (
-            <th key={c.label} scope="col"
-                className={`h-9 whitespace-nowrap border-b border-x-border-strong px-3 font-bold ${c.right ? 'text-right' : 'text-left'}`}>
+            <th key={c.label} scope="col" className={`${HEAD} py-2! ${c.right ? 'text-right' : ''}`}>
               {c.label}
             </th>
           ))}
@@ -201,15 +203,24 @@ function ExpandedTasks({ tasks }: { tasks: PerfTask[] }) {
       </thead>
       <tbody>
         {tasks.map((t) => {
-          const posted = t.postedAt !== null || t.postUrl !== null;
-          const content = CONTENT_TYPES.includes(t.type);
+          const posted = isPosted(t);
           const span = TASK_METRICS.length;
+          const state = taskPerfState(t);
           let perf: ReactNode;
-          if (t.type === 'rt') {
+          if (state === 'removed') {
+            // 삭제된 게시물 — 조회가 남아 있어도 평균·중앙값에서 뺐다(스펙 §12-4). 사유가 있으면 붙인다.
+            const label = t.removedReason ? `삭제됨 · ${t.removedReason}` : '삭제됨';
+            perf = (
+              <td colSpan={span} className={`${cell} truncate text-center text-x-muted`}
+                  title={`${t.removedAt ? `${md(t.removedAt)} 게시물이 내려가` : '게시물이 내려가'} 평균·중앙값에서 빠졌어요`}>
+                {label}
+              </td>
+            );
+          } else if (state === 'rt') {
             perf = <td colSpan={span} className={`${cell} text-center text-x-muted`}>RT는 조회가 원글에 쌓여요</td>;
-          } else if (content && !posted) {
+          } else if (state === 'unposted') {
             perf = TASK_METRICS.map((m) => <td key={m.key} className={`${cell} text-right text-x-muted`}>—</td>);
-          } else if (t.metrics?.views == null) {
+          } else if (state === 'uncollected') {
             perf = (
               <td colSpan={span} className={`${cell} text-center text-x-muted`} title="조회 수치가 아직 없어 평균·중앙값에서 빠졌어요">
                 수집 전

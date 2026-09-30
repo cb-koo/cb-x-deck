@@ -5,6 +5,9 @@ import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { findTrackedPostById, linkTrackedPost, deleteTrackedPost, setRole, TrackingLinkError, trackingLinkMessage, TRACKING_LINK_CANCELLED_MESSAGE } from '@/lib/trackingStore';
 import { POST_ROLES, type PostRole } from '@/lib/postRole';
+import { guardTaskLink, guardDraftLink } from '@/lib/postAttach';
+import { authorVerdictMessage } from '@/lib/postAuthor';
+import { fetchPost } from '@/lib/postMetrics';
 
 // tracked_post.id는 uuid 컬럼이라 형식이 아닌 값은 "없음"이 아니라 캐스팅 오류(22P02 → 500)가 된다.
 // 조회 전에 끊어서 404로 답한다(influencers [id] 관례).
@@ -43,7 +46,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const sql = getSql();
-  if (!(await findTrackedPostById(sql, id))) return notFound();
+  const tp = await findTrackedPostById(sql, id);
+  if (!tp) return notFound();
+  // 작업에 붙는 연결이면 작성자 확인(다른 인플의 게시물 차단 스펙 §3 ②④) — 원고 연결은 그 원고가 작업에 붙어 있을 때만.
+  // 연결 해제(null)는 판정하지 않는다.
+  if (typeof link.v === 'string') {
+    const author = { tweetId: tp.tweetId, authorHandle: tp.authorHandle };
+    const v = link.key === 'taskId'
+      ? await guardTaskLink(sql, link.v, author, { fetchPost })
+      : await guardDraftLink(sql, link.v, author, { fetchPost });
+    if (v.kind !== 'ok') return NextResponse.json(authorVerdictMessage(v), { status: 400 });
+  }
 
   try {
     const linked = await sql.begin(async (tx0) => linkTrackedPost(

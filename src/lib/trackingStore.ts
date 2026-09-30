@@ -171,34 +171,36 @@ export async function setRole(sql: postgres.Sql, trackedPostId: string, role: Po
 
 // 명부+첫 스냅샷을 한 트랜잭션으로 — 등록은 항상 측정과 함께다(등록만 하고 지표 없는 상태는 없다).
 // tweet_id 충돌 시(동시 등록 경합의 최후 방어) 스냅샷을 만들지 않고 기존 행을 그대로 돌려준다.
-export async function addTrackedPost(sql: postgres.Sql, args: {
+export type AddTrackedPostArgs = {
   tweetId: string; authorHandle: string | null; text: string; postedAt: string | null;
   createdBy: string | null; metrics: PostMetrics; raw: unknown;
-}): Promise<{ created: boolean; row: TrackedPostRow }> {
-  return sql.begin(async (tx) => {
-    const ins = await tx<Array<{ id: string }>>`
-      insert into tracked_post (tweet_id, author_handle, text, posted_at, created_by)
-      values (${args.tweetId}, ${args.authorHandle}, ${args.text}, ${args.postedAt}, ${args.createdBy})
-      on conflict (tweet_id) do nothing
-      returning id`;
+};
+export async function addTrackedPost(sql: postgres.Sql, args: AddTrackedPostArgs): Promise<{ created: boolean; row: TrackedPostRow }> {
+  return sql.begin(async (tx) => insertTrackedPost(tx as unknown as postgres.Sql, args));
+}
 
-    // sql.begin의 tx는 TransactionSql — postgres.Sql과 호환되지만 타입이 별도라 캐스트한다(생성기 선례).
-    const txSql = tx as unknown as postgres.Sql;
+// addTrackedPost의 몸통 — 이미 열린 트랜잭션 안에서 쓴다(postgres.js의 트랜잭션 핸들엔 begin이 없다).
+// 게시 확인(postAttach.attachPostToTask)이 작업 저장·등록·연결을 한 트랜잭션으로 묶으려고 뺐다.
+export async function insertTrackedPost(tx: postgres.Sql, args: AddTrackedPostArgs): Promise<{ created: boolean; row: TrackedPostRow }> {
+  const ins = await tx<Array<{ id: string }>>`
+    insert into tracked_post (tweet_id, author_handle, text, posted_at, created_by)
+    values (${args.tweetId}, ${args.authorHandle}, ${args.text}, ${args.postedAt}, ${args.createdBy})
+    on conflict (tweet_id) do nothing
+    returning id`;
 
-    if (ins.length === 0) {
-      const existing = await findByTweetId(txSql, args.tweetId);
-      return { created: false, row: existing as TrackedPostRow };
-    }
+  if (ins.length === 0) {
+    const existing = await findByTweetId(tx, args.tweetId);
+    return { created: false, row: existing as TrackedPostRow };
+  }
 
-    const id = ins[0].id;
-    const m = args.metrics;
-    await tx`insert into post_metric_snapshot (tracked_post_id, views, likes, retweets, replies, bookmarks, quotes, raw)
-      values (${id}, ${m.views}, ${m.likes}, ${m.retweets}, ${m.replies}, ${m.bookmarks}, ${m.quotes},
-              ${args.raw ? tx.json(args.raw as never) : null})`;
+  const id = ins[0].id;
+  const m = args.metrics;
+  await tx`insert into post_metric_snapshot (tracked_post_id, views, likes, retweets, replies, bookmarks, quotes, raw)
+    values (${id}, ${m.views}, ${m.likes}, ${m.retweets}, ${m.replies}, ${m.bookmarks}, ${m.quotes},
+            ${args.raw ? tx.json(args.raw as never) : null})`;
 
-    const row = await findTrackedPostById(txSql, id);
-    return { created: true, row: row as TrackedPostRow };
-  });
+  const row = await findTrackedPostById(tx, id);
+  return { created: true, row: row as TrackedPostRow };
 }
 
 // 스냅샷 추가 + unavailable_at을 null로(복귀 수용 — 스펙): 다시 측정이 됐다는 것 자체가 복귀 증거다.

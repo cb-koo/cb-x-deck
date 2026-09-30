@@ -3,7 +3,7 @@ import { useCallback, useMemo, type Dispatch, type SetStateAction } from 'react'
 import type { CampaignTaskItem } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { suggestTaskCost, type TaskCost } from '@/lib/campaignCost';
-import { patchTaskApi, deleteTaskApi, registerTrackedPostApi, type TaskPatchRequest } from '@/lib/campaignApi';
+import { patchTaskApi, deleteTaskApi, type TaskPatchRequest } from '@/lib/campaignApi';
 import type { TaskAgreementInput } from '@/lib/taskAgreementGuard';
 
 // 작업 편집은 전부 PATCH /api/campaigns/[id]/tasks/[taskId] 하나로 간다(스펙 §6). 낙관적 갱신 + "이 요청이 세팅한 값이
@@ -78,19 +78,15 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
     },
     setNote: (t: Item, note: string) => patch(t, { note }, { note }),
     // 게시 확인 — 사람이 찍은 것이라 postedSource는 'manual'(수집기가 찾은 것은 'auto', 표에 회색 태그로 구분).
-    // 링크를 함께 넣으면 [게시물 연결(트래킹)]과 같은 등록까지 한다(스펙 §3-4) — 서버가 task_id를 붙이고
-    // post_url·posted_at은 coalesce라 이미 저장된 게시 확인 날짜가 이긴다(투고·인용RT·방문협찬은 그 날짜도 서버가 링크에서
-    // 정한 값이다 — postedAtFromLinkGate, 사람이 적은 날짜는 RT만). 등록만 실패해도 게시 확인은 이미 저장됐다.
+    // 링크를 함께 넣으면 서버가 같은 요청 안에서 작성자 확인(= 배정 인플의 글인지) → 저장 → 트래킹 등록·연결까지 한다
+    // (다른 인플의 게시물 차단 스펙 §3 ①). 작성자가 다르거나 확인이 안 되면 아무것도 저장되지 않고 서버 문구가 토스트로 뜬다
+    // (patch가 r.error를 보여 준다). 투고·인용RT·방문협찬의 게시일은 서버가 링크에서 정한다(postedAtFromLinkGate).
     // RT는 증빙(proof)이 함께 와야 서버가 받는다(RT 증빙 스펙 §5).
     markPosted: async (t: Item, date: string, postUrl?: string, proof?: string) => {
       const ok = await patch(t, { postedAt: date, ...(postUrl ? { postUrl } : {}), ...(proof ? { proof } : {}) },
                              { postedAt: date, postedSource: 'manual', published: true, ...(postUrl ? { postUrl } : {}),
                                ...(proof ? { proof: { url: proof, by: null, byName: '', at: new Date().toISOString() } } : {}) });
       if (!ok) return false;
-      if (postUrl) {
-        const reg = await registerTrackedPostApi(postUrl, t.id);
-        if (!reg.ok) show('게시 확인은 저장됐어요 — 트래킹 등록은 실패했어요. 행 메뉴 [게시물 연결(트래킹)]로 다시 시도할 수 있어요');
-      }
       onChanged();
       return true;
     },

@@ -7,6 +7,8 @@ import { fetchPost } from '@/lib/postMetrics';
 import { addTrackedPost, findByTweetId, findTrackedPostById, linkTrackedPost, listTrackedPosts, TrackingLinkError, trackingLinkMessage, TRACKING_LINK_CANCELLED_MESSAGE } from '@/lib/trackingStore';
 import { TASK_ID_MESSAGE } from '@/lib/campaignTaskInput';
 import { isUuidLike } from '@/lib/uuid';
+import { guardTaskLink } from '@/lib/postAttach';
+import { authorVerdictMessage } from '@/lib/postAuthor';
 
 // 등록 시점의 '없음'은 삭제·비공개 외에 주소 오타일 수도 있다(QA 08-15 — 주소 일부를 바꿔 넣은 사례).
 // 사용자가 가장 먼저 고칠 수 있는 원인(주소)을 앞에 말한다. 이미 추적 중인 행의 배지 문구와는 다르다 —
@@ -41,10 +43,22 @@ export async function POST(req: Request) {
   const existing = await findByTweetId(sql, parsed.tweetId);
   let row = existing;
   let created = false;
+  if (existing && taskId) {
+    // 작업에 붙이기 전 작성자 확인(다른 인플의 게시물 차단 스펙 §3 ②③) — 저장된 작성자로 먼저, 필요하면 조회
+    const v = await guardTaskLink(sql, taskId, { tweetId: existing.tweetId, authorHandle: existing.authorHandle }, { fetchPost });
+    if (v.kind !== 'ok') return NextResponse.json(authorVerdictMessage(v), { status: 400 });
+  }
   if (!existing) {
     const result = await fetchPost(parsed.tweetId);
     if (result.kind === 'unavailable') return NextResponse.json({ error: UNAVAILABLE }, { status: 404 });
     if (result.kind === 'error') return NextResponse.json({ error: FETCH_FAILED }, { status: 502 });
+    // 작업으로 들어온 등록이면 등록 전에 판정한다 — 남의 게시물이 트래킹 목록에 주인 없이 남지 않게. 방금 조회한 값이라 다시 부르지 않는다.
+    if (taskId) {
+      const v = await guardTaskLink(sql, taskId, {
+        tweetId: result.post.tweetId, authorHandle: result.post.authorHandle, authorUserId: result.post.authorUserId,
+      }, { fetchPost });
+      if (v.kind !== 'ok') return NextResponse.json(authorVerdictMessage(v), { status: 400 });
+    }
 
     const added = await addTrackedPost(sql, {
       tweetId: result.post.tweetId, authorHandle: result.post.authorHandle,

@@ -41,6 +41,8 @@ function PerfView() {
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로드, setState는 전부 비동기 콜백(influencers/page.tsx 관례)
   useEffect(() => { load(); }, [load]);
+  // 재시도 — 에러를 지우고 로딩 표시로 되돌린 뒤 다시 부른다. loaded=false인 동안 버튼이 사라져 중복 요청을 막는다.
+  const retry = () => { setLoaded(false); setLoadErr(false); void load(); };
 
   const apply = (next: PerfQuery) => {
     setQuery(next);
@@ -55,7 +57,7 @@ function PerfView() {
   const sorted = useMemo(() => sortPerfRows(rows, query.sort, query.dir, query.agg), [rows, query]);
 
   return (
-    <main className="mx-auto max-w-[1280px] px-6 py-8">
+    <main className="mx-auto max-w-none px-6 py-8">
       <h1 className="mb-1 text-[20px] font-bold">인플루언서 성과</h1>
       <p className="mb-4 text-ui text-x-muted">캠페인에 참여한 인플의 게시물 성과를 비교해요. 열 이름을 누르면 그 기준으로 줄을 세워요.</p>
 
@@ -63,7 +65,7 @@ function PerfView() {
       {loaded && loadErr && (
         <div className="py-8 text-center">
           <p className="mb-2 text-ui text-x-secondary">성과를 불러오지 못했어요</p>
-          <Button onClick={() => void load()}>다시 시도</Button>
+          <Button onClick={retry}>다시 시도</Button>
         </div>
       )}
       {loaded && !loadErr && rows.length === 0 && (

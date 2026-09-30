@@ -17,20 +17,24 @@ interface Group { label: string; cols: Col[] }
 
 // 묶음 순서(스펙 §4): 이력 · 작업 · 노출 · 참여율 · 반응 · 확산 — 관련 지표끼리 붙인다(koo 09-30)
 const ENGAGEMENT_HELP = '공개 반응(좋아요·답글·북마크·RT·인용) ÷ 조회 · X 분석 화면보다 낮게 나와요 (클릭 수 미포함)';
+// 표를 한 화면에 맞추려 폭을 줄였다(스펙 리뷰 09-30) — 1440px 노트북(사이드바 208px 제외)에서 가로 스크롤 없이 전 열이 보이게.
+// 작업 묶음은 유형별 라벨 길이가 달라 균일 폭이 아니다 — '인용RT'·'방문협찬'은 좁히면 헤더 글자가 넘쳐 실측(Geist 13px bold)으로 늘렸다.
+const TASK_TYPE_COL_WIDTH: Record<TaskType, number> = { post: 52, quoteRt: 68, rt: 48, visit: 72 };
 const GROUPS: Group[] = [
-  { label: '이력', cols: [{ key: 'campaigns', label: '캠페인', width: 72 }, { key: 'lastPosted', label: '최근 게시일', width: 96 }] },
-  { label: '작업', cols: DISPLAY_TYPE_ORDER.map((t) => ({ key: `n_${t}` as SortKey, label: TASK_TYPE_LABEL[t], width: 72 })) },
-  { label: '노출', cols: [{ key: 'views', label: '조회', width: 104 }, { key: 'cpv', label: '조회당 비용', width: 96 }] },
-  { label: '', cols: [{ key: 'engagement', label: '참여율', width: 80, help: ENGAGEMENT_HELP }] },
-  { label: '반응', cols: [{ key: 'likes', label: '좋아요', width: 72 }, { key: 'replies', label: '답글', width: 64 }, { key: 'bookmarks', label: '북마크', width: 72 }] },
+  { label: '이력', cols: [{ key: 'campaigns', label: '캠페인', width: 60 }, { key: 'lastPosted', label: '최근 게시일', width: 88 }] },
+  { label: '작업', cols: DISPLAY_TYPE_ORDER.map((t) => ({ key: `n_${t}` as SortKey, label: TASK_TYPE_LABEL[t], width: TASK_TYPE_COL_WIDTH[t] })) },
+  { label: '노출', cols: [{ key: 'views', label: '조회', width: 96 }, { key: 'cpv', label: '조회당 비용', width: 88 }] },
+  { label: '', cols: [{ key: 'engagement', label: '참여율', width: 76, help: ENGAGEMENT_HELP }] },
+  { label: '반응', cols: [{ key: 'likes', label: '좋아요', width: 64 }, { key: 'replies', label: '답글', width: 64 }, { key: 'bookmarks', label: '북마크', width: 64 }] },
   { label: '확산', cols: [{ key: 'retweets', label: 'RT수', width: 64 }, { key: 'quotes', label: '인용수', width: 64 }] },
 ];
 const METRIC_COLS = new Set<SortKey>(['views', 'cpv', 'engagement', 'likes', 'replies', 'bookmarks', 'retweets', 'quotes']);
-const NAME_WIDTH = 220;
+const NAME_WIDTH = 200;
 const md = (ymd: string | null) => (ymd ? `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}` : '—');
 
-// 묶음 첫 칸 = 왼쪽 구분선(머리·몸통 모두) — 묶음이 눈으로 갈라져 보이게
-const GROUP_FIRST = new Set<SortKey>(GROUPS.map((g) => g.cols[0].key));
+// 묶음 첫 칸 = 왼쪽 구분선(머리·몸통 모두) — 묶음이 눈으로 갈라져 보이게. 첫 묶음(이력)은 sticky 인플 칸의
+// 오른쪽 그림자 선이 이미 경계를 그어주므로 겹치는 이중선을 만들지 않는다.
+const GROUP_FIRST = new Set<SortKey>(GROUPS.slice(1).map((g) => g.cols[0].key));
 const ALL_COLS = GROUPS.flatMap((g) => g.cols);
 const TABLE_WIDTH = NAME_WIDTH + ALL_COLS.reduce((s, c) => s + c.width, 0);
 // 고정 열 오른쪽 구분선 — border-collapse에서 border는 sticky와 같이 안 움직여 그림자 선으로 긋는다
@@ -67,9 +71,9 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
                 className={`sticky left-0 z-20 whitespace-nowrap border-b border-x-border-strong bg-white px-4 py-2.5 text-left font-bold ${STICKY_EDGE}`}>
               인플
             </th>
-            {GROUPS.map((g) => (
+            {GROUPS.map((g, i) => (
               <th key={g.cols[0].key} colSpan={g.cols.length} scope="colgroup"
-                  className="whitespace-nowrap border-b border-l border-x-border pb-1 pt-2 text-center text-ui font-medium text-x-muted">
+                  className={`whitespace-nowrap border-b border-x-border pb-1 pt-2 text-center text-ui font-medium text-x-muted ${i > 0 ? 'border-l' : ''}`}>
                 {g.label}
               </th>
             ))}
@@ -78,16 +82,18 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
           <tr>
             {ALL_COLS.map((c) => {
               const active = sort === c.key;
+              const helpId = c.help ? `${c.key}-help` : undefined;
               return (
-                <th key={c.key} scope="col" title={c.help}
+                <th key={c.key} scope="col"
                     aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                     className={`whitespace-nowrap border-b border-x-border-strong p-0 font-bold ${GROUP_FIRST.has(c.key) ? 'border-l border-l-x-border' : ''}`}>
-                  <button type="button" onClick={() => onSort(c.key)} title={c.help}
+                  <button type="button" onClick={() => onSort(c.key)} title={c.help} aria-describedby={helpId}
                           className={`flex h-10 w-full items-center justify-end gap-0.5 px-3 hover:text-x-text ${active ? 'text-x-text' : ''}`}>
                     {c.label}
                     {c.help && <span aria-hidden className="text-caption text-x-muted">ⓘ</span>}
                     {active && <span aria-hidden className="text-[10px]">{dir === 'asc' ? '▲' : '▼'}</span>}
                   </button>
+                  {c.help && <span id={helpId} className="sr-only">{c.help}</span>}
                 </th>
               );
             })}
@@ -146,7 +152,9 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
 }
 
 // 펼친 행 — 작업 목록(스펙 §5). 성과 열 순서는 위 표 성과 묶음과 같다(눈으로 따라 내려가며 비교).
-const TASK_METRICS: Array<{ key: MetricKey; label: string }> = [
+// 작업 목록엔 조회당 비용 칸이 없다 — 비용·조회 칸으로 대신(스펙 §5), 그래서 여기 키에는 'cpv'가 없다.
+type TaskMetricKey = Exclude<MetricKey, 'cpv'>;
+const TASK_METRICS: Array<{ key: TaskMetricKey; label: string }> = [
   { key: 'views', label: '조회' }, { key: 'engagement', label: '참여율' },
   { key: 'likes', label: '좋아요' }, { key: 'replies', label: '답글' }, { key: 'bookmarks', label: '북마크' },
   { key: 'retweets', label: 'RT수' }, { key: 'quotes', label: '인용수' },
@@ -158,9 +166,8 @@ const TASK_COLS: Array<{ label: string; width: number; right?: boolean }> = [
 ];
 const TASK_TABLE_WIDTH = TASK_COLS.reduce((s, c) => s + c.width, 0);
 
-function taskMetricText(t: PerfTask, key: MetricKey): string {
+function taskMetricText(t: PerfTask, key: TaskMetricKey): string {
   if (key === 'engagement') return formatMetric('engagement', taskEngagement(t.metrics));
-  if (key === 'cpv') return '—'; // 작업 목록엔 조회당 비용 칸이 없다 — 비용·조회 칸으로 대신(스펙 §5)
   return formatMetric(key, t.metrics?.[key] ?? null);
 }
 
@@ -202,7 +209,7 @@ function ExpandedTasks({ tasks }: { tasks: PerfTask[] }) {
           }
           return (
             <tr key={t.id} className="border-b border-x-border last:border-b-0">
-              <td className={`${cell} tabular-nums ${t.postedAt ? '' : 'text-x-muted'}`}>{t.postedAt ? md(t.postedAt) : '게시 전'}</td>
+              <td className={`${cell} tabular-nums ${t.postedAt ? '' : 'text-x-muted'}`}>{t.postedAt ? md(t.postedAt) : posted ? '—' : '게시 전'}</td>
               <td className={`${cell} truncate`} title={t.campaignName}>{t.campaignName}</td>
               <td className={cell}>{TASK_TYPE_LABEL[t.type]}</td>
               <td className={`${cell} text-right tabular-nums`}>

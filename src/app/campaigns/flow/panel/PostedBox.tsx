@@ -6,6 +6,7 @@ import { parseTweetLink, tweetLinkParseMessage } from '@/lib/tweetLink';
 import { postedOnFromTweetLink } from '@/lib/tweetPostedOn';
 import { normalizeTargetTweetUrl, DATE_MESSAGE, POST_URL_MESSAGE } from '@/lib/campaignTaskInput';
 import { PROOF_REQUIRED_MESSAGE } from '@/lib/taskProofGuard';
+import { judgePostAuthor, authorVerdictMessage } from '@/lib/postAuthor';
 import { TaskProofField } from '@/components/TaskProofField';
 import { Button } from '@/components/ui';
 import { TargetPreview } from './TargetPreview';
@@ -125,11 +126,12 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
   );
 
   // ── 인플 미정 — 여기서 게시 확인되면 배정·교체·취소·정산이 전부 막혀 복구 길이 없다(C1-a, 행 메뉴 prePost 게이트와 같은 조건) ──
+  // 안내 문구는 postAuthor.ts의 unassigned 문구(spec §4)와 같은 말을 쓴다 — 서버 거절 문구와 화면 안내가 어긋나지 않게.
   if (task.influencerHandle === null) {
     return (
       <div ref={rootRef}>
         <Button variant="subtle" disabled title="인플루언서를 먼저 정해요" className="h-9 px-3.5 text-ui">게시 확인</Button>
-        <p className="mt-1 text-ui text-x-muted">인플 선택 후</p>
+        <p className="mt-1 text-ui text-x-muted">{authorVerdictMessage({ kind: 'unassigned' }).error}</p>
         {cancelBtn}
       </div>
     );
@@ -172,7 +174,16 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
   // 리포스트한 시각이라 게시일도 틀린다. 미리보기 결과(kind 'repost')로만 안다 — 불러오는 중엔 막지 않는다.
   // 안내 줄은 카드 자리의 기존 문구('리포스트 링크예요 — 원본 게시물 링크로 바꿔 주세요')가 맡는다.
   const isRepost = !!link?.ok && !!typed?.ok && typed.url === link.url && prev.preview?.kind === 'repost';
-  const canSubmit = !!typed?.ok && !isRepost && !busy;
+  // 작성자 확인(spec §4·§5) — 미리보기가 'ok'로 온 뒤에만 판정한다. 조회 실패·불러오는 중엔 버튼을 막지 않는다(서버가 최종 판정, §5).
+  // 화면 비교는 핸들만(고유번호는 서버만 안다) — task.influencerHandle은 여기 도달했다는 것 자체로 null이 아니다(위 인플 미정 분기가 먼저 걸러낸다).
+  const authorVerdict = link?.ok && prev.preview?.kind === 'ok'
+    ? judgePostAuthor({
+        author: { handle: prev.preview.tweet.authorHandle, userId: null },
+        assigned: { handle: task.influencerHandle, xUserId: null },
+      })
+    : null;
+  const authorMismatch = authorVerdict?.kind === 'mismatch' ? authorVerdictMessage(authorVerdict) : null;
+  const canSubmit = !!typed?.ok && !isRepost && !authorMismatch && !busy;
   const shownErr = link && !link.ok ? link.message : '';
   return (
     <div ref={rootRef}>
@@ -188,7 +199,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
                onBlur={(e) => commit(e.target.value)}
                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); commit(text); } }}
                className={`${input} min-w-0 flex-1 ${shownErr ? 'border-red-500' : 'border-x-border-strong'}`} />
-        <Button variant="primary" disabled={!canSubmit}
+        <Button variant="primary" disabled={!canSubmit} title={authorMismatch ? authorMismatch.error : undefined}
                 onClick={() => { if (typed?.ok) { commit(text); void submit(typed.postedOn, typed.url); } }}
                 className="h-10 shrink-0 px-4 text-ui">
           {busy ? '저장 중…' : '게시 확인'}
@@ -202,6 +213,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
             <span className="text-ui text-x-muted"> · 링크에서 확인</span>
           </p>
           <div className="mt-2.5"><TargetPreview state={{ kind: 'link', url: link.url }} {...prev} lines={3} /></div>
+          {authorMismatch && <p role="alert" className="mt-1.5 text-ui text-red-600">{authorMismatch.error}</p>}
         </>
       )}
       {cancelBtn}

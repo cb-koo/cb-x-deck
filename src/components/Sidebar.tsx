@@ -68,6 +68,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     { href: '/settlement', label: '정산', Ic: CampaignIcon },
     { href: '/generate', label: '콘텐츠 생성', Ic: PenIcon },
     { href: '/influencers', label: '인플루언서', Ic: UserIcon },
+    // 인플루언서 성과 — 명부(한 명씩 관리)와 달리 여럿을 성과로 줄 세워 섭외할 인플을 고르는 곳(스펙 2026-09-30 §6)
+    { href: '/influencers/performance', label: '인플루언서 성과', Ic: TrendIcon },
     // 트래킹도 워크스페이스 밖 — 게시된 게시물의 반응은 리서치 덱이 아니라 우리가 낸 원고에 딸린 결과다.
     // 인플루언서 다음: 원고를 누구에게 줬는지 → 그게 어떻게 됐는지 순서로 읽힌다.
     { href: '/tracking', label: '트래킹', Ic: ViewIcon },

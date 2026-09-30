@@ -5,7 +5,7 @@ import { fetchPost } from './postMetrics.ts';
 
 const RAW = {
   id: '123', text: '테스트 본문', createdAt: 'Mon Jul 06 12:00:00 +0000 2026',
-  author: { userName: 'someone' },
+  author: { userName: 'someone', id: '3073254355' },
   viewCount: 1000, likeCount: 10, retweetCount: 2, replyCount: 1, quoteCount: 0, bookmarkCount: 5,
 };
 const mk = (fn: (u: string) => Promise<Response>) =>
@@ -17,7 +17,15 @@ test('ok: 지표 6종·핸들·본문·게시시각 매핑', async () => {
   if (r.kind !== 'ok') return;
   assert.deepEqual(r.post.metrics, { views: 1000, likes: 10, retweets: 2, replies: 1, bookmarks: 5, quotes: 0 });
   assert.equal(r.post.authorHandle, 'someone');
+  assert.equal(r.post.authorUserId, '3073254355');
   assert.equal(r.post.postedAt, '2026-07-06T12:00:00.000Z');
+});
+
+test('ok: author.id가 없으면 authorUserId는 null(핸들만 있는 응답도 흡수)', async () => {
+  const raw = { ...RAW, author: { userName: 'someone' } };
+  const r = await fetchPost('123', mk(async () => new Response(JSON.stringify({ data: raw }), { status: 200 })));
+  assert.equal(r.kind, 'ok');
+  if (r.kind === 'ok') assert.equal(r.post.authorUserId, null);
 });
 
 test('unavailable: 404는 삭제·비공개 — error와 절대 섞이지 않는다', async () => {

@@ -32,6 +32,7 @@ function toIso(v: unknown): string | null {
 export interface FetchedPost {
   tweetId: string;
   authorHandle: string | null;
+  authorUserId: string | null; // 작성자 계정 고유번호(author.id) — 핸들 변경에도 안전한 비교용(postAuthor.ts). 저장은 안 함
   text: string;
   postedAt: string | null; // ISO
   metrics: PostMetrics;
@@ -71,6 +72,7 @@ export async function fetchPost(tweetId: string, client?: GetxapiClient): Promis
     post: {
       tweetId: id,
       authorHandle: str(author?.userName),
+      authorUserId: str(author?.id),
       text: str(t.text) ?? '',
       postedAt: toIso(t.createdAt),
       metrics: {

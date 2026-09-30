@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import {
-  sortPerfRows, parsePerfQuery, perfQueryString, firstDir, buildFilteredRows, periodRange, isFilterOn, filterSummary,
+  sortPerfRows, parsePerfQuery, perfQueryString, firstDir, buildFilteredRows, isFilterOn, filterSummary,
   optionCounts, isPosted, EMPTY_FILTER,
   type PerfInfluencerInput, type PerfQuery, type PerfFilter, type SortKey, type Agg,
 } from '@/lib/influencerPerformance';
@@ -78,11 +78,8 @@ function PerfView() {
   const onToggle = (h: string) => setExpanded((s) => { const n = new Set(s); if (n.has(h)) n.delete(h); else n.add(h); return n; });
 
   const hasAny = useMemo(() => inputs.some((inf) => inf.tasks.some(isPosted)), [inputs]);
-  const { period, from, to } = view;
-  // 오늘 기준이라 렌더마다 새로 만들지 않게 기간 값이 바뀔 때만 계산한다
-  const range = useMemo(() => periodRange({ period, from, to }), [period, from, to]);
-  const filtered = useMemo(() => buildFilteredRows(inputs, view, range), [inputs, view, range]);
-  const counts = useMemo(() => optionCounts(inputs, view, range), [inputs, view, range]);
+  const filtered = useMemo(() => buildFilteredRows(inputs, view), [inputs, view]);
+  const counts = useMemo(() => optionCounts(inputs, view), [inputs, view]);
   const sorted = useMemo(() => sortPerfRows(filtered, view.sort, view.dir, view.agg), [filtered, view]);
   const filterOn = isFilterOn(view);
   const clientNames = clients.filter((c) => view.clientIds.includes(c.id)).map((c) => c.name);

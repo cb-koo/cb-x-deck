@@ -1,4 +1,4 @@
-// 인플루언서 성과 표 — 인플 1명 = 한 줄, 성과 지표를 묶음(이력·게시한 작업·노출·참여율·반응·확산)으로 나란히. 스펙 2026-09-30 §4·§5·§12·§13
+// 인플루언서 성과 표 — 인플 1명 = 한 줄, 성과 지표를 묶음(이력·게시한 작업·노출·참여율·반응·확산)으로 나란히. 스펙 2026-09-30 §4·§5·§12·§13·§14
 // 펼친 작업은 같은 표의 행(같은 colgroup)으로 넣는다 — 작업 숫자가 부모 숫자와 같은 세로줄에 선다(스펙 §13.2).
 // 표 모양은 정산 표 공용 모양(HEAD·CELL·NUM)을 그대로 쓴다 — 다른 화면 표와 같아 보이게(스펙 §12-1).
 'use client';
@@ -126,19 +126,32 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
             const name = r.displayName || r.handle;
             return (
               <Fragment key={r.handle}>
-                {/* 행 전체 클릭 = 펼치기. 키보드는 이름 칸 버튼(클릭이 행으로 올라가 한 번만 토글된다) */}
+                {/* 행 전체 클릭 = 펼치기. 키보드는 이름 칸 버튼(클릭이 행으로 올라가 한 번만 토글된다).
+                    펼친 행만 옅은 파랑(스펙 §14, #f2f8fd) — 불투명색을 쓴다(bg-x-blue/5는 반투명이라 sticky 칸과 겹쳐 두 배로
+                    진해지고, 가로 스크롤 때 밑 칸이 비친다 — HEAD·기존 CHILD_BG가 불투명을 쓰는 이유와 같다).
+                    hover는 더 진한 같은 계열의 불투명색으로, 파랑이 지워지지 않게 */}
                 <tr onClick={() => onToggle(r.handle)}
-                    className="group cursor-pointer hover:bg-x-hover">
-                  {/* 인플 칸 = 사진 + @핸들 하나만 — 이름은 마우스를 올리면(title) 보인다(이름·핸들이 둘 다 잘리던 문제, 스펙 §12-1) */}
-                  <td className={`${CELL} sticky left-0 z-10 bg-white group-hover:bg-x-hover ${STICKY_EDGE}`}
+                    className={`group cursor-pointer ${open ? 'bg-[#f2f8fd] hover:bg-[#e8f3fc]' : 'hover:bg-x-hover'}`}>
+                  {/* 인플 칸 = 사진 + @핸들 하나만 — 이름은 마우스를 올리면(title) 보인다(이름·핸들이 둘 다 잘리던 문제, 스펙 §12-1).
+                      @핸들은 명부에 있으면(influencerId) 프로필 링크 — 펼침 버튼 밖에 둬(버튼 안에 링크는 안 되는 HTML) 클릭이 이동만 하고 토글은 안 되게(스펙 §14) */}
+                  <td className={`${CELL} sticky left-0 z-10 ${STICKY_EDGE} ${open ? 'bg-[#f2f8fd] group-hover:bg-[#e8f3fc]' : 'bg-white group-hover:bg-x-hover'}`}
                       title={r.displayName ? `${r.displayName} (@${r.handle})` : `@${r.handle}`}>
-                    <button type="button" aria-expanded={open} aria-label={`${name} 작업 ${open ? '접기' : '펼치기'}`}
-                            className="flex w-full min-w-0 items-center gap-2 text-left">
-                      <span aria-hidden className="w-3 shrink-0 text-[10px] text-x-muted">{open ? '▼' : '▶'}</span>
-                      <Avatar url={r.avatarUrl} name={name} size={28} />
-                      <span className="truncate font-medium">@{r.handle}</span>
+                    <div className="flex w-full min-w-0 items-center gap-2">
+                      <button type="button" aria-expanded={open} aria-label={`${name} 작업 ${open ? '접기' : '펼치기'}`}
+                              className="flex min-w-0 shrink-0 items-center gap-2 text-left">
+                        <span aria-hidden className="w-3 shrink-0 text-[10px] text-x-muted">{open ? '▼' : '▶'}</span>
+                        <Avatar url={r.avatarUrl} name={name} size={28} />
+                      </button>
+                      {r.influencerId ? (
+                        <Link href={`/influencers?i=${r.influencerId}`} onClick={(e) => e.stopPropagation()}
+                              className="truncate font-medium hover:underline">
+                          @{r.handle}
+                        </Link>
+                      ) : (
+                        <span className="truncate font-medium">@{r.handle}</span>
+                      )}
                       {r.isBlueVerified && <BlueCheckIcon className="h-4 w-4 shrink-0" />}
-                    </button>
+                    </div>
                   </td>
                   {ALL_COLS.map((c) => {
                     const text = cellText(r, c.key, agg);
@@ -160,9 +173,15 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
 }
 
 // 펼친 행 — 작업마다 부모와 같은 표의 한 행(스펙 §13.2). 순서는 게시일 내림차순·게시 전은 맨 아래(summarizeInfluencer가 정렬).
-// 자식 행에는 클릭 핸들러가 없다 — 펼치기/접기는 부모 행만 한다. 배경은 부모보다 한 톤 흐리게(x-surface, 불투명 — sticky 칸 뒤가 비치지 않게).
-const CHILD_BG = 'bg-x-surface';
+// 자식 행에는 클릭 핸들러가 없다 — 펼치기/접기는 부모 행만 한다.
+// 흰 바탕·글자 한 단계 흐리게(text-x-secondary)·14px(스펙 §14) — 색·크기는 행(tr)에 둬 자식 칸이 물려받게 하고,
+// 값 없음(text-x-muted)·↗ 링크(text-x-blue-text) 같은 칸별 글자색은 그 칸 자신에 그대로 둬 상속을 덮어쓰게 한다.
+const CHILD_ROW = 'bg-white text-x-secondary text-[14px]';
+const CHILD_BG = 'bg-white';
 const CHILD_CELL = `${CELL} h-10!`;
+// 묶음 끝(그 인플의 마지막 작업 행) 아래는 진한 선으로 다음 인플과 구분(스펙 §14).
+// border-b- 만 지정(양쪽 다 지정하는 border- 대신) — DIVIDER의 왼쪽 세로 구분선(border-l-x-border) 색은 그대로 둔다.
+const LAST_ROW_BORDER = 'border-b-x-border-strong!';
 // 게시한 작업 4열(투고~방문협찬)을 합친 한 칸 = '유형 · 비용'
 const TASK_TYPE_SPAN = DISPLAY_TYPE_ORDER.length;
 const TYPE_FIRST_KEY = `n_${DISPLAY_TYPE_ORDER[0]}` as SortKey;
@@ -193,15 +212,17 @@ function reasonCell(t: PerfTask): { text: string; title?: string } | null {
 function TaskRows({ row }: { row: PerfRow }) {
   return (
     <>
-      {row.tasks.map((t) => {
+      {row.tasks.map((t, i) => {
         const reason = reasonCell(t);
         const typeCost = t.cost
           ? `${TASK_TYPE_LABEL[t.type]} · ${formatAmount(t.cost.amount, t.cost.currency)}`
           : TASK_TYPE_LABEL[t.type];
+        const last = i === row.tasks.length - 1;
+        const border = last ? LAST_ROW_BORDER : '';
         return (
-          <tr key={t.id} className={CHILD_BG}>
+          <tr key={t.id} className={CHILD_ROW}>
             {/* 인플 칸 = 캠페인 이름(들여쓰기·한 줄 말줄임) + ↗ 원 게시물 */}
-            <td className={`${CHILD_CELL} sticky left-0 z-10 ${CHILD_BG} ${STICKY_EDGE}`}>
+            <td className={`${CHILD_CELL} sticky left-0 z-10 ${CHILD_BG} ${STICKY_EDGE} ${border}`}>
               <div className="flex min-w-0 items-center gap-1 pl-5">
                 <span className="truncate" title={t.campaignName}>{t.campaignName}</span>
                 {t.postUrl && (
@@ -213,38 +234,27 @@ function TaskRows({ row }: { row: PerfRow }) {
               </div>
             </td>
             {/* 캠페인 열은 비움 · 최근 게시일 열 = 그 작업의 게시일 */}
-            <td className={CHILD_CELL} />
-            <td className={`${CHILD_CELL} ${NUM} ${t.postedAt ? '' : 'text-x-muted'}`}>
+            <td className={`${CHILD_CELL} ${border}`} />
+            <td className={`${CHILD_CELL} ${NUM} ${border} ${t.postedAt ? '' : 'text-x-muted'}`}>
               {t.postedAt ? md(t.postedAt) : isPosted(t) ? '—' : '게시 전'}
             </td>
             <td colSpan={TASK_TYPE_SPAN}
-                className={`${CHILD_CELL} truncate ${GROUP_FIRST.has(TYPE_FIRST_KEY) ? DIVIDER : ''}`} title={typeCost}>
+                className={`${CHILD_CELL} truncate ${border} ${GROUP_FIRST.has(TYPE_FIRST_KEY) ? DIVIDER : ''}`} title={typeCost}>
               {typeCost}
             </td>
             {reason ? (
               <td colSpan={PERF_COLS.length} title={reason.title}
-                  className={`${CHILD_CELL} truncate text-center text-x-muted ${DIVIDER}`}>
+                  className={`${CHILD_CELL} truncate text-center text-x-muted ${border} ${DIVIDER}`}>
                 {reason.text}
               </td>
             ) : PERF_COLS.map((c) => (
-              <td key={c.key} className={`${CHILD_CELL} ${NUM} ${GROUP_FIRST.has(c.key) ? DIVIDER : ''}`}>
+              <td key={c.key} className={`${CHILD_CELL} ${NUM} ${border} ${GROUP_FIRST.has(c.key) ? DIVIDER : ''}`}>
                 <Val v={taskMetricText(t, c.key as MetricKey)} />
               </td>
             ))}
           </tr>
         );
       })}
-      {row.influencerId && (
-        <tr className={CHILD_BG}>
-          <td className={`${CHILD_CELL} sticky left-0 z-10 ${CHILD_BG} ${STICKY_EDGE}`}>
-            <Link href={`/influencers?i=${row.influencerId}`}
-                  className="pl-5 text-ui font-semibold text-x-blue-text hover:underline">
-              인플루언서 프로필 열기 →
-            </Link>
-          </td>
-          <td colSpan={ALL_COLS.length} className={CHILD_CELL} />
-        </tr>
-      )}
     </>
   );
 }

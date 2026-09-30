@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   summarizeInfluencer, sortPerfRows, firstDir, parsePerfQuery, perfQueryString, DEFAULT_QUERY,
   taskEngagement, taskCpv, formatMetric, buildPerfRows, taskPerfState,
-  periodSince, filterTasks, filterRows, buildFilteredRows, filterSummary, isFilterOn, EMPTY_FILTER,
+  periodRange, filterTasks, filterRows, buildFilteredRows, filterSummary, isFilterOn, EMPTY_FILTER,
+  normalizeMinPosted, optionCounts, selectionLabel, periodLabel, customDateHint, toggleType,
   type PerfTask, type PerfFilter, type PerfInfluencerInput, type PerfTaskMetrics,
 } from './influencerPerformance.ts';
 
@@ -181,30 +182,64 @@ test('표시 포맷', () => {
   assert.equal(formatMetric('bookmarks', 1234), '1,234');
 });
 
-// ── 필터·검색(스펙 §15) ──
+// ── 필터·검색(스펙 §15·§16) ──
 const NOW = () => Date.parse('2026-09-30T03:00:00Z');   // 서울 2026-09-30 12:00
 const f = (x: Partial<PerfFilter> = {}): PerfFilter => ({ ...EMPTY_FILTER, ...x });
+const ids = (ts: PerfTask[]) => ts.map((t) => t.id);
 
-test('기간 — 오늘 포함 N일: 오늘·N-1일 전은 들고 N일 전은 빠진다, 게시 전 작업도 빠진다', () => {
-  assert.equal(periodSince('all', NOW), null);
-  assert.equal(periodSince('30', NOW), '2026-09-01');
-  assert.equal(periodSince('90', NOW), '2026-07-03');
+test('기간 빠른 선택 — 오늘 포함 N일: 오늘·N-1일 전은 들고 N일 전은 빠진다, 게시일 없는 작업도 빠진다', () => {
+  assert.equal(periodRange(f(), NOW), null);
+  assert.deepEqual(periodRange(f({ period: '7' }), NOW), { from: '2026-09-24', to: null });
+  assert.deepEqual(periodRange(f({ period: '30' }), NOW), { from: '2026-09-01', to: null });
+  assert.deepEqual(periodRange(f({ period: '60' }), NOW), { from: '2026-08-02', to: null });
+  assert.deepEqual(periodRange(f({ period: '90' }), NOW), { from: '2026-07-03', to: null });
   const ts = [
-    task({ id: 'today', postedAt: '2026-09-30' }), task({ id: 'edge', postedAt: '2026-09-01' }),
-    task({ id: 'out', postedAt: '2026-08-31' }), task({ id: 'planned', postedAt: null, postUrl: null, metrics: null }),
+    task({ id: 'today', postedAt: '2026-09-30' }), task({ id: 'd6', postedAt: '2026-09-24' }), task({ id: 'd7', postedAt: '2026-09-23' }),
+    task({ id: 'd59', postedAt: '2026-08-02' }), task({ id: 'd60', postedAt: '2026-08-01' }),
+    task({ id: 'planned', postedAt: null, postUrl: null, metrics: null }),
     task({ id: 'linkOnly', postedAt: null }),      // 링크만 있어 '게시됨'이지만 게시일이 없다 → 기간 기준으로 판단 불가라 뺀다
   ];
-  assert.deepEqual(filterTasks(ts, f({ period: '30' }), periodSince('30', NOW)).map((t) => t.id), ['today', 'edge']);
+  assert.deepEqual(ids(filterTasks(ts, f({ period: '7' }), periodRange(f({ period: '7' }), NOW))), ['today', 'd6']);
+  assert.deepEqual(ids(filterTasks(ts, f({ period: '60' }), periodRange(f({ period: '60' }), NOW))), ['today', 'd6', 'd7', 'd59']);
   // 기간 전체면 게시 전 작업도 그대로(펼친 목록에 보인다)
-  assert.equal(filterTasks(ts, f(), null).length, 5);
+  assert.equal(filterTasks(ts, f(), null).length, 7);
 });
 
-test('클라이언트·유형 필터 — 작업을 거른다', () => {
+test('기간 직접 지정 — 시작·종료 둘 다 포함, 한쪽만이거나 거꾸로면 적용 안 함', () => {
+  const r = periodRange(f({ from: '2026-09-01', to: '2026-09-10' }), NOW);
+  assert.deepEqual(r, { from: '2026-09-01', to: '2026-09-10' });
+  const ts = [task({ id: 'before', postedAt: '2026-08-31' }), task({ id: 'start', postedAt: '2026-09-01' }),
+    task({ id: 'end', postedAt: '2026-09-10' }), task({ id: 'after', postedAt: '2026-09-11' })];
+  assert.deepEqual(ids(filterTasks(ts, f(), r)), ['start', 'end']);
+  assert.deepEqual(periodRange(f({ from: '2026-09-05', to: '2026-09-05' }), NOW), { from: '2026-09-05', to: '2026-09-05' });
+  assert.equal(periodRange(f({ from: '2026-09-01' }), NOW), null);
+  assert.equal(periodRange(f({ to: '2026-09-10' }), NOW), null);
+  assert.equal(periodRange(f({ from: '2026-09-10', to: '2026-09-01' }), NOW), null);
+  assert.equal(isFilterOn(f({ from: '2026-09-01' })), false);
+  assert.equal(isFilterOn(f({ from: '2026-09-01', to: '2026-09-10' })), true);
+  assert.equal(customDateHint(f()), null);
+  assert.equal(customDateHint(f({ from: '2026-09-01' })), '종료일도 골라 주세요');
+  assert.equal(customDateHint(f({ to: '2026-09-10' })), '시작일도 골라 주세요');
+  assert.equal(customDateHint(f({ from: '2026-09-10', to: '2026-09-01' })), '시작일이 종료일보다 늦어요');
+  assert.equal(customDateHint(f({ from: '2026-09-01', to: '2026-09-10' })), null);
+});
+
+test('기간 문구 — 최근 N일 / M/D~M/D', () => {
+  assert.equal(periodLabel(f()), null);
+  assert.equal(periodLabel(f({ period: '60' })), '최근 60일');
+  assert.equal(periodLabel(f({ from: '2026-09-01', to: '2026-09-30' })), '9/1~9/30');
+  assert.equal(periodLabel(f({ from: '2026-09-01' })), null);
+});
+
+test('클라이언트·유형 복수 선택 — 선택 안은 OR, 필터 사이는 AND', () => {
   const ts = [task({ id: 'a', clientId: 'k1' }), task({ id: 'b', clientId: 'k2' }), task({ id: 'c', clientId: null }),
-    task({ id: 'd', clientId: 'k1', type: 'rt' })];
-  assert.deepEqual(filterTasks(ts, f({ client: 'k1' }), null).map((t) => t.id), ['a', 'd']);
-  assert.deepEqual(filterTasks(ts, f({ type: 'rt' }), null).map((t) => t.id), ['d']);
-  assert.deepEqual(filterTasks(ts, f({ client: 'k1', type: 'quoteRt' }), null).map((t) => t.id), ['a']);
+    task({ id: 'd', clientId: 'k1', type: 'rt' }), task({ id: 'e', clientId: 'k3', type: 'visit' })];
+  assert.deepEqual(ids(filterTasks(ts, f({ clientIds: ['k1'] }), null)), ['a', 'd']);
+  assert.deepEqual(ids(filterTasks(ts, f({ clientIds: ['k1', 'k2'] }), null)), ['a', 'b', 'd']);
+  assert.deepEqual(ids(filterTasks(ts, f({ types: ['rt'] }), null)), ['d']);
+  assert.deepEqual(ids(filterTasks(ts, f({ types: ['rt', 'visit'] }), null)), ['d', 'e']);
+  assert.deepEqual(ids(filterTasks(ts, f({ clientIds: ['k1', 'k3'], types: ['quoteRt', 'visit'] }), null)), ['a', 'e']);
+  assert.deepEqual(ids(filterTasks(ts, f({ clientIds: [], types: [] }), null)), ['a', 'b', 'c', 'd', 'e']);
 });
 
 test('②가 걸리면 건수·캠페인 수·최근 게시일·성과·작업 목록이 모두 걸러진 작업 기준, 게시 0건이 된 인플은 빠진다', () => {
@@ -215,7 +250,7 @@ test('②가 걸리면 건수·캠페인 수·최근 게시일·성과·작업 �
       task({ id: 'c', campaignId: 'c3', clientId: 'k1', type: 'rt', postedAt: '2026-09-10', postUrl: null, metrics: null }),
     ], { handle: 'rio' }),
     inf([task({ clientId: 'k2' })], { handle: 'other' }),
-  ], f({ client: 'k1' }), null);
+  ], f({ clientIds: ['k1'] }), null);
   assert.deepEqual(rows.map((r) => r.handle), ['rio']);
   const r = rows[0];
   assert.deepEqual(r.typeCounts, { post: 0, quoteRt: 1, rt: 1, visit: 0 });
@@ -246,38 +281,112 @@ test('검색 — 핸들·표시 이름, 대소문자 무시, 앞뒤 공백·앞 
   assert.deepEqual(hs('zzz'), []);
 });
 
+test('최소 게시 수 정규화 — 비움·0·음수·소수는 1, 정수는 그대로', () => {
+  for (const raw of ['', '0', '-1', '1.5', 'abc', '1', ' ']) assert.equal(normalizeMinPosted(raw), 1, `'${raw}'`);
+  assert.equal(normalizeMinPosted('3'), 3);
+  assert.equal(normalizeMinPosted(' 12 '), 12);
+  assert.equal(normalizeMinPosted(null), 1);
+});
+
 test('최소 게시 수 — 필터 적용 후 게시한 작업 수 기준', () => {
   const inputs = [
     inf([task({ clientId: 'k1' }), task({ clientId: 'k2' }), task({ clientId: 'k2', type: 'rt' })], { handle: 'three' }),
     inf([task(), task({ postedAt: null, postUrl: null, metrics: null })], { handle: 'onePosted' }),
   ];
-  assert.deepEqual(buildFilteredRows(inputs, f({ min: 2 }), null).map((r) => r.handle), ['three']);
-  assert.deepEqual(buildFilteredRows(inputs, f({ min: 3 }), null).map((r) => r.handle), ['three']);
+  assert.deepEqual(buildFilteredRows(inputs, f({ minPosted: 2 }), null).map((r) => r.handle), ['three']);
+  assert.deepEqual(buildFilteredRows(inputs, f({ minPosted: 3 }), null).map((r) => r.handle), ['three']);
+  assert.deepEqual(buildFilteredRows(inputs, f({ minPosted: 4 }), null).map((r) => r.handle), []);
   // 클라이언트 k2로 거르면 three는 2건 → 3건 이상에서 빠진다
-  assert.deepEqual(buildFilteredRows(inputs, f({ client: 'k2', min: 3 }), null).map((r) => r.handle), []);
-  assert.deepEqual(buildFilteredRows(inputs, f({ client: 'k2', min: 2 }), null).map((r) => r.handle), ['three']);
+  assert.deepEqual(buildFilteredRows(inputs, f({ clientIds: ['k2'], minPosted: 3 }), null).map((r) => r.handle), []);
+  assert.deepEqual(buildFilteredRows(inputs, f({ clientIds: ['k2'], minPosted: 2 }), null).map((r) => r.handle), ['three']);
 });
 
-test('주소 쿼리 — 필터 키 왕복·기본값 생략·틀린 값은 기본값·정렬 키와 함께', () => {
-  const q = { ...DEFAULT_QUERY, sort: 'cpv' as const, dir: 'asc' as const, q: '리오', period: '90' as const, client: 'k1', type: 'visit' as const, min: 3 as const };
+test('항목별 숫자 — 다른 필터(기간·다른 쪽 선택·검색) 기준 게시된 작업 수, 자기 선택은 무시', () => {
+  const inputs = [
+    inf([
+      task({ clientId: 'k1', type: 'quoteRt', postedAt: '2026-09-20' }),
+      task({ clientId: 'k1', type: 'visit', postedAt: '2026-09-21' }),
+      task({ clientId: 'k2', type: 'quoteRt', postedAt: '2026-08-01' }),               // 기간 밖
+      task({ clientId: 'k2', type: 'quoteRt', postedAt: null, postUrl: null, metrics: null }), // 게시 전 — 안 센다
+    ], { handle: 'rio' }),
+    inf([task({ clientId: 'k2', type: 'rt', postedAt: '2026-09-25', postUrl: null })], { handle: 'mina' }),
+  ];
+  const all = optionCounts(inputs, f(), null);
+  assert.deepEqual(all.client, { k1: 2, k2: 2 });
+  assert.deepEqual(all.type, { post: 0, quoteRt: 2, rt: 1, visit: 1 });
+  // 유형을 고르면 클라이언트 숫자가 그 유형 기준으로, 유형 숫자는 자기 선택과 무관
+  const byType = optionCounts(inputs, f({ types: ['quoteRt'] }), null);
+  assert.deepEqual(byType.client, { k1: 1, k2: 1 });
+  assert.deepEqual(byType.type, { post: 0, quoteRt: 2, rt: 1, visit: 1 });
+  // 클라이언트를 고르면 유형 숫자가 그 클라이언트 기준
+  assert.deepEqual(optionCounts(inputs, f({ clientIds: ['k1'] }), null).type, { post: 0, quoteRt: 1, rt: 0, visit: 1 });
+  // 기간·검색도 반영
+  const r30 = periodRange(f({ period: '30' }), NOW);
+  assert.deepEqual(optionCounts(inputs, f({ period: '30' }), r30).client, { k1: 2, k2: 1 });
+  assert.deepEqual(optionCounts(inputs, f({ q: 'mina' }), null).client, { k2: 1 });
+});
+
+test('선택 문구 — 없음=전체, 클라이언트는 2개부터 외 N, 유형은 2개까지 나열', () => {
+  assert.equal(selectionLabel([], 1), '전체');
+  assert.equal(selectionLabel(['백수약국'], 1), '백수약국');
+  assert.equal(selectionLabel(['백수약국', '더스퀘어치과'], 1), '백수약국 외 1');
+  assert.equal(selectionLabel(['인용RT', '방문협찬'], 2), '인용RT, 방문협찬');
+  assert.equal(selectionLabel(['투고', '인용RT', '방문협찬'], 2), '투고 외 2');
+});
+
+test('유형 토글은 표시 순서를 지킨다', () => {
+  assert.deepEqual(toggleType(['visit'], 'quoteRt'), ['quoteRt', 'visit']);
+  assert.deepEqual(toggleType(['quoteRt', 'visit'], 'quoteRt'), ['visit']);
+});
+
+test('주소 쿼리 — 필터 키 왕복·기본값 생략·정렬 키와 함께', () => {
+  const q = { ...DEFAULT_QUERY, sort: 'cpv' as const, dir: 'asc' as const, q: '리오', period: '60' as const,
+    clientIds: ['k2', 'k1'], types: ['quoteRt', 'visit'] as PerfFilter['types'], minPosted: 3 };
   const s = perfQueryString(q);
+  assert.match(s, /client=k2,k1/);                 // 쉼표 그대로(스펙 §16 주소 모양)
+  assert.match(s, /type=quoteRt,visit/);
   const p = new URLSearchParams(s);
   assert.deepEqual(parsePerfQuery((k) => p.get(k)), q);
-  assert.equal(p.get('period'), '90');
+  assert.equal(p.get('period'), '60');
   assert.equal(p.get('min'), '3');
-  assert.equal(perfQueryString({ ...DEFAULT_QUERY, q: '   ' }), '');   // 공백뿐인 검색은 주소에 안 남긴다
-  const bad: Record<string, string> = { period: '7', type: 'story', min: '9', client: '' };
-  assert.deepEqual(parsePerfQuery((k) => bad[k] ?? null), DEFAULT_QUERY);
-  assert.deepEqual(parsePerfQuery((k) => (k === 'min' ? '1' : null)), DEFAULT_QUERY);
+  // 직접 지정
+  const c = { ...DEFAULT_QUERY, from: '2026-09-01', to: '2026-09-30' };
+  const cs = perfQueryString(c);
+  assert.equal(cs, 'from=2026-09-01&to=2026-09-30');
+  assert.deepEqual(parsePerfQuery((k) => new URLSearchParams(cs).get(k)), c);
+  for (const n of ['7', '30', '90'] as const) assert.equal(perfQueryString({ ...DEFAULT_QUERY, period: n }), `period=${n}`);
+  // 기본값은 생략
+  assert.equal(perfQueryString(DEFAULT_QUERY), '');
+  assert.equal(perfQueryString({ ...DEFAULT_QUERY, q: '   ', minPosted: 1, clientIds: [], types: [] }), '');
+});
+
+test('주소 쿼리 — 모르는 값은 버린다', () => {
+  const bad: Record<string, string> = { period: '14', type: 'story,visit,,visit', min: '0', client: ',k1,,k1', from: '2026-13-01', to: 'yesterday' };
+  const got = parsePerfQuery((k) => bad[k] ?? null);
+  assert.deepEqual(got, { ...DEFAULT_QUERY, types: ['visit'], clientIds: ['k1'] });
+  assert.deepEqual(parsePerfQuery((k) => ({ type: 'visit,quoteRt' } as Record<string, string>)[k] ?? null).types, ['quoteRt', 'visit']);
+  assert.deepEqual(parsePerfQuery((k) => (k === 'min' ? '1.5' : null)), DEFAULT_QUERY);
+  assert.equal(parsePerfQuery((k) => (k === 'min' ? '4' : null)).minPosted, 4);
+  // 날짜가 있으면 빠른 선택은 꺼진다(둘은 함께 켜지지 않는다), 거꾸로 된 날짜는 버린다
+  const both: Record<string, string> = { period: '30', from: '2026-09-01', to: '2026-09-10' };
+  assert.deepEqual(parsePerfQuery((k) => both[k] ?? null), { ...DEFAULT_QUERY, from: '2026-09-01', to: '2026-09-10' });
+  const rev: Record<string, string> = { from: '2026-09-10', to: '2026-09-01' };
+  assert.deepEqual(parsePerfQuery((k) => rev[k] ?? null), DEFAULT_QUERY);
 });
 
 test('필터 켜짐 여부·요약 문구', () => {
   assert.equal(isFilterOn(EMPTY_FILTER), false);
   assert.equal(isFilterOn(f({ q: '  ' })), false);
-  assert.equal(isFilterOn(f({ min: 2 })), true);
-  assert.equal(filterSummary(f({ client: 'k1', period: '30', type: 'post' }), '백수약국', 4),
+  assert.equal(isFilterOn(f({ minPosted: 2 })), true);
+  assert.equal(isFilterOn(f({ types: ['rt'] })), true);
+  assert.equal(filterSummary(f({ clientIds: ['k1', 'k2'], from: '2026-09-01', to: '2026-09-30', types: ['quoteRt'] }), ['백수약국', '더스퀘어치과'], 12),
+    '백수약국 외 1 · 9/1~9/30 · 인용RT 게시물만으로 계산했어요 · 12명');
+  assert.equal(filterSummary(f({ clientIds: ['k1'], period: '30', types: ['post'] }), ['백수약국'], 4),
     '백수약국 · 최근 30일 · 투고 게시물만으로 계산했어요 · 4명');
-  assert.equal(filterSummary(f({ period: '90' }), '', 12), '최근 90일 게시물만으로 계산했어요 · 12명');
-  assert.equal(filterSummary(f({ q: ' 리오 ', min: 2 }), '', 1), "'리오' 검색 · 게시 2건 이상 · 1명");
-  assert.equal(filterSummary(f({ type: 'rt', min: 3 }), '', 2), 'RT 게시물만으로 계산했어요 · 게시 3건 이상 · 2명');
+  assert.equal(filterSummary(f({ period: '90' }), [], 12), '최근 90일 게시물만으로 계산했어요 · 12명');
+  assert.equal(filterSummary(f({ types: ['quoteRt', 'visit'] }), [], 3), '인용RT, 방문협찬 게시물만으로 계산했어요 · 3명');
+  assert.equal(filterSummary(f({ q: ' 리오 ', minPosted: 2 }), [], 1), "'리오' 검색 · 게시 2건 이상 · 1명");
+  assert.equal(filterSummary(f({ types: ['rt'], minPosted: 3 }), [], 2), 'RT 게시물만으로 계산했어요 · 게시 3건 이상 · 2명');
+  // 한쪽 날짜만 = 적용 전이라 문구에 없다
+  assert.equal(filterSummary(f({ from: '2026-09-01', minPosted: 2 }), [], 5), '게시 2건 이상 · 5명');
 });

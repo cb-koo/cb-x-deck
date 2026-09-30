@@ -6,8 +6,8 @@ import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import {
-  sortPerfRows, parsePerfQuery, perfQueryString, firstDir, buildFilteredRows, periodSince, isFilterOn, filterSummary,
-  isPosted, EMPTY_FILTER,
+  sortPerfRows, parsePerfQuery, perfQueryString, firstDir, buildFilteredRows, periodRange, isFilterOn, filterSummary,
+  optionCounts, isPosted, EMPTY_FILTER,
   type PerfInfluencerInput, type PerfQuery, type PerfFilter, type SortKey, type Agg,
 } from '@/lib/influencerPerformance';
 import { InfluencerPerfTable } from './InfluencerPerfTable';
@@ -52,9 +52,11 @@ function PerfView() {
     for (const inf of inputs) for (const t of inf.tasks) if (t.clientId && !m.has(t.clientId)) m.set(t.clientId, t.clientName ?? '(이름 없음)');
     return [...m].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   }, [inputs]);
-  // 주소의 client가 목록에 없으면(삭제·오타) '전체 클라이언트'로 — 틀린 쿼리는 기본값(스펙 §4-5)
-  const view = useMemo<PerfQuery>(
-    () => (query.client === '' || clients.some((c) => c.id === query.client) ? query : { ...query, client: '' }), [query, clients]);
+  // 주소의 client 중 목록에 없는 id(삭제·오타)는 버린다 — 틀린 쿼리는 기본값(스펙 §4-5·§16)
+  const view = useMemo<PerfQuery>(() => {
+    const known = query.clientIds.filter((id) => clients.some((c) => c.id === id));
+    return known.length === query.clientIds.length ? query : { ...query, clientIds: known };
+  }, [query, clients]);
 
   const urlTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (urlTimer.current) clearTimeout(urlTimer.current); }, []);
@@ -76,11 +78,14 @@ function PerfView() {
   const onToggle = (h: string) => setExpanded((s) => { const n = new Set(s); if (n.has(h)) n.delete(h); else n.add(h); return n; });
 
   const hasAny = useMemo(() => inputs.some((inf) => inf.tasks.some(isPosted)), [inputs]);
-  const since = periodSince(view.period);
-  const filtered = useMemo(() => buildFilteredRows(inputs, view, since), [inputs, view, since]);
+  const { period, from, to } = view;
+  // 오늘 기준이라 렌더마다 새로 만들지 않게 기간 값이 바뀔 때만 계산한다
+  const range = useMemo(() => periodRange({ period, from, to }), [period, from, to]);
+  const filtered = useMemo(() => buildFilteredRows(inputs, view, range), [inputs, view, range]);
+  const counts = useMemo(() => optionCounts(inputs, view, range), [inputs, view, range]);
   const sorted = useMemo(() => sortPerfRows(filtered, view.sort, view.dir, view.agg), [filtered, view]);
   const filterOn = isFilterOn(view);
-  const clientName = clients.find((c) => c.id === view.client)?.name ?? '';
+  const clientNames = clients.filter((c) => view.clientIds.includes(c.id)).map((c) => c.name);
 
   return (
     <main className="mx-auto max-w-none px-6 py-8">
@@ -102,11 +107,11 @@ function PerfView() {
       )}
       {loaded && !loadErr && hasAny && (<>
         <div className="mb-3 space-y-2">
-          <PerfFilterBar filter={view} clients={clients} onChange={onFilter} agg={view.agg} onAgg={setAgg} />
+          <PerfFilterBar filter={view} clients={clients} counts={counts} onChange={onFilter} agg={view.agg} onAgg={setAgg} />
           {/* 무엇으로 계산했는지 한 줄(스펙 §15-2) — 필터가 없으면 줄 자체가 없다. 0명이면 아래 빈 상태가 대신 말한다 */}
           {filterOn && sorted.length > 0 && (
             <p className="flex flex-wrap items-center gap-x-2 text-ui text-x-muted">
-              <span>{filterSummary(view, clientName, sorted.length)}</span>
+              <span>{filterSummary(view, clientNames, sorted.length)}</span>
               <button type="button" onClick={clearFilter} className="text-x-blue-text hover:underline">필터 지우기</button>
             </p>
           )}

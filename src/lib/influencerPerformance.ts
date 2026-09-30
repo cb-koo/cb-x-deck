@@ -122,59 +122,125 @@ export function sortPerfRows(rows: PerfRow[], key: SortKey, dir: SortDir, agg: A
   });
 }
 
-// ── 필터·검색(스펙 §15) ──
+// ── 필터·검색(스펙 §15·§16) ──
 // ② 성과 범위 바꾸기(기간·클라이언트·유형) = 작업을 먼저 거른 뒤 다시 집계 / ① 사람 좁히기(검색·최소 게시 수) = 행만 거른다
-export type Period = 'all' | '30' | '90';
-export type MinPosted = 1 | 2 | 3;
-export interface PerfFilter { q: string; period: Period; client: string; type: TaskType | ''; min: MinPosted }
-export const EMPTY_FILTER: PerfFilter = { q: '', period: 'all', client: '', type: '', min: 1 };
-export const PERIOD_LABEL: Record<Period, string> = { all: '전체 기간', '30': '최근 30일', '90': '최근 90일' };
-export const MIN_LABEL: Record<MinPosted, string> = { 1: '게시 1건 이상', 2: '게시 2건 이상', 3: '게시 3건 이상' };
+export type PeriodPreset = '7' | '30' | '60' | '90';
+export type Period = 'all' | PeriodPreset;
+export const PERIOD_PRESETS: readonly PeriodPreset[] = ['7', '30', '60', '90'];
+// 기간 = 빠른 선택(period) 또는 직접 지정(from~to, 둘 다 있어야 적용). 둘은 함께 켜지지 않는다 — 날짜를 고르면 period는 'all'
+// clientIds·types는 비면 전체, 선택 안 OR·필터 사이 AND. minPosted는 정규화된 정수 ≥1(1 = 필터 없음)
+export interface PerfFilter { q: string; period: Period; from: string; to: string; clientIds: string[]; types: TaskType[]; minPosted: number }
+export const EMPTY_FILTER: PerfFilter = { q: '', period: 'all', from: '', to: '', clientIds: [], types: [], minPosted: 1 };
+// 유형은 늘 표시 순서로 들고 다닌다 — 주소·요약 문구가 누른 순서에 따라 흔들리지 않게
+const TYPE_ORDER: readonly TaskType[] = ['post', 'quoteRt', 'rt', 'visit'];
 
-// 기간 시작일(서울) — '최근 N일'은 오늘 포함 N일이라 N-1일 전부터. 전체 기간이면 null.
-export function periodSince(period: Period, now: () => number = Date.now): string | null {
-  return period === 'all' ? null : kstDaysAgo(Number(period) - 1, now);
+export interface DateRange { from: string; to: string | null }   // 서울 게시일 YYYY-MM-DD, 양 끝 포함. to null = 끝 없음
+
+const customOn = (f: Pick<PerfFilter, 'from' | 'to'>) => f.from !== '' && f.to !== '' && f.from <= f.to;
+
+// 적용 중인 기간 — 빠른 선택 '최근 N일'은 오늘 포함 N일이라 N-1일 전부터. 직접 지정은 둘 다 있고 순서가 맞을 때만. 없으면 null.
+export function periodRange(f: Pick<PerfFilter, 'period' | 'from' | 'to'>, now: () => number = Date.now): DateRange | null {
+  if (customOn(f)) return { from: f.from, to: f.to };
+  if (f.from !== '' || f.to !== '') return null;          // 한쪽만 고른 중 — 적용 전
+  return f.period === 'all' ? null : { from: kstDaysAgo(Number(f.period) - 1, now), to: null };
 }
 
+// 직접 지정이 반쪽일 때 입력 옆 흐린 안내(스펙 §16) — 적용 중이거나 비었으면 null
+export function customDateHint(f: Pick<PerfFilter, 'from' | 'to'>): string | null {
+  if (f.from !== '' && f.to === '') return '종료일도 골라 주세요';
+  if (f.from === '' && f.to !== '') return '시작일도 골라 주세요';
+  if (f.from !== '' && f.to !== '' && f.from > f.to) return '시작일이 종료일보다 늦어요';
+  return null;
+}
+
+const md = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
+// 요약 줄의 기간 — '최근 30일' 또는 '9/1~9/30'. 적용 중인 기간이 없으면 null
+export function periodLabel(f: Pick<PerfFilter, 'period' | 'from' | 'to'>): string | null {
+  if (customOn(f)) return `${md(f.from)}~${md(f.to)}`;
+  if (f.from !== '' || f.to !== '' || f.period === 'all') return null;
+  return `최근 ${f.period}일`;
+}
+
+// 복수 선택 버튼·요약 문구 — 없음 '전체', maxListed개까지 나열, 넘으면 '첫 이름 외 N'(클라이언트 1·유형 2, 스펙 §16)
+export function selectionLabel(names: string[], maxListed: number): string {
+  if (names.length === 0) return '전체';
+  if (names.length <= maxListed) return names.join(', ');
+  return `${names[0]} 외 ${names.length - 1}`;
+}
+export const typeNames = (types: TaskType[]) => types.map((t) => TASK_TYPE_LABEL[t]);
+
+export function toggleType(types: TaskType[], t: TaskType): TaskType[] {
+  const next = types.includes(t) ? types.filter((x) => x !== t) : [...types, t];
+  return TYPE_ORDER.filter((x) => next.includes(x));
+}
+
+// 최소 게시 수 — 비움·0·음수·소수·숫자 아님은 1(= 필터 없음). 입력칸은 친 그대로 두고 적용값만 이걸로
+export function normalizeMinPosted(raw: string | number | null): number {
+  const n = typeof raw === 'number' ? raw : raw === null || raw.trim() === '' ? NaN : Number(raw);
+  return Number.isInteger(n) && n >= 1 ? n : 1;
+}
+
+const inRange = (t: PerfTask, r: DateRange | null) =>
+  r === null || (t.postedAt !== null && t.postedAt >= r.from && (r.to === null || t.postedAt <= r.to));
+const clientOk = (t: PerfTask, f: PerfFilter) => f.clientIds.length === 0 || (t.clientId !== null && f.clientIds.includes(t.clientId));
+const typeOk = (t: PerfTask, f: PerfFilter) => f.types.length === 0 || f.types.includes(t.type);
+
 // ② — 기간이 켜지면 게시일이 없는 작업(게시 전·링크만 있고 날짜 없음)은 기간 안인지 알 수 없어 뺀다
-export function filterTasks(tasks: PerfTask[], f: PerfFilter, since: string | null): PerfTask[] {
-  return tasks.filter((t) =>
-    (since === null || (t.postedAt !== null && t.postedAt >= since))
-    && (f.client === '' || t.clientId === f.client)
-    && (f.type === '' || t.type === f.type));
+export function filterTasks(tasks: PerfTask[], f: PerfFilter, range: DateRange | null): PerfTask[] {
+  return tasks.filter((t) => inRange(t, range) && clientOk(t, f) && typeOk(t, f));
 }
 
 const normQ = (q: string) => q.trim().replace(/^@/, '').toLowerCase();
+const matchesQ = (who: { handle: string; displayName: string | null }, q: string) =>
+  q === '' || who.handle.toLowerCase().includes(q) || (who.displayName ?? '').toLowerCase().includes(q);
 const postedTotal = (r: PerfRow) => Object.values(r.typeCounts).reduce((a, b) => a + b, 0);
 
 // ① — 숫자는 그대로, 행만 거른다. 최소 게시 수는 ②를 거친 뒤의 게시한 작업 수 기준
 export function filterRows(rows: PerfRow[], f: PerfFilter): PerfRow[] {
   const q = normQ(f.q);
-  return rows.filter((r) =>
-    (q === '' || r.handle.toLowerCase().includes(q) || (r.displayName ?? '').toLowerCase().includes(q))
-    && postedTotal(r) >= f.min);
+  return rows.filter((r) => matchesQ(r, q) && postedTotal(r) >= f.minPosted);
 }
 
+const isScopeOn = (f: PerfFilter, range: DateRange | null) => range !== null || f.clientIds.length > 0 || f.types.length > 0;
+
 // 화면이 부르는 한 번 — ② 작업 필터 → 집계(게시 0건이 된 인플은 buildPerfRows가 뺀다) → ① 행 필터
-export function buildFilteredRows(inputs: PerfInfluencerInput[], f: PerfFilter, since: string | null): PerfRow[] {
-  const scoped = f.client === '' && f.type === '' && since === null
-    ? inputs : inputs.map((inf) => ({ ...inf, tasks: filterTasks(inf.tasks, f, since) }));
+export function buildFilteredRows(inputs: PerfInfluencerInput[], f: PerfFilter, range: DateRange | null): PerfRow[] {
+  const scoped = isScopeOn(f, range) ? inputs.map((inf) => ({ ...inf, tasks: filterTasks(inf.tasks, f, range) })) : inputs;
   return filterRows(buildPerfRows(scoped), f);
 }
 
-export const isScopeOn = (f: PerfFilter) => f.period !== 'all' || f.client !== '' || f.type !== '';
-export const isFilterOn = (f: PerfFilter) => isScopeOn(f) || normQ(f.q) !== '' || f.min !== 1;
-
-// 표 위 요약 한 줄(스펙 §15-2) — 무엇으로 계산했는지 + 누구를 좁혔는지 + 몇 명
-export function filterSummary(f: PerfFilter, clientName: string, n: number): string {
-  const parts: string[] = [];
-  if (isScopeOn(f)) {
-    const scope = [f.client !== '' ? clientName : '', f.period !== 'all' ? PERIOD_LABEL[f.period] : '', f.type !== '' ? TASK_TYPE_LABEL[f.type] : '']
-      .filter(Boolean).join(' · ');
-    parts.push(`${scope} 게시물만으로 계산했어요`);
+// 팝오버 항목 오른쪽 숫자(스펙 §16) — 그 항목을 골랐을 때 들어오는 게시된 작업 수.
+// 다른 필터(기간·반대편 선택·검색)는 반영하고 자기 쪽 선택은 무시한다. 최소 게시 수는 사람 단위라 작업 수에 안 섞는다.
+export function optionCounts(inputs: PerfInfluencerInput[], f: PerfFilter, range: DateRange | null): { client: Record<string, number>; type: Record<TaskType, number> } {
+  const client: Record<string, number> = {};
+  const type: Record<TaskType, number> = { post: 0, quoteRt: 0, rt: 0, visit: 0 };
+  const q = normQ(f.q);
+  for (const inf of inputs) {
+    if (!matchesQ(inf, q)) continue;
+    for (const t of inf.tasks) {
+      if (!isPosted(t) || !inRange(t, range)) continue;
+      if (t.clientId !== null && typeOk(t, f)) client[t.clientId] = (client[t.clientId] ?? 0) + 1;
+      if (clientOk(t, f)) type[t.type] += 1;
+    }
   }
+  return { client, type };
+}
+
+export const isFilterOn = (f: PerfFilter) => isScopeOn(f, periodRange(f)) || normQ(f.q) !== '' || f.minPosted !== 1;
+
+// 표 위 요약 한 줄(스펙 §15-2·§16) — 무엇으로 계산했는지 + 누구를 좁혔는지 + 몇 명.
+// clientNames = 고른 클라이언트 이름(목록 순서). 버튼과 같은 규칙으로 줄인다.
+export function filterSummary(f: PerfFilter, clientNames: string[], n: number): string {
+  const parts: string[] = [];
+  const period = periodLabel(f);
+  const scope = [
+    f.clientIds.length > 0 ? selectionLabel(clientNames, 1) : '',
+    period ?? '',
+    f.types.length > 0 ? selectionLabel(typeNames(f.types), 2) : '',
+  ].filter(Boolean).join(' · ');
+  if (scope !== '') parts.push(`${scope} 게시물만으로 계산했어요`);
   if (f.q.trim() !== '') parts.push(`'${f.q.trim()}' 검색`);
-  if (f.min !== 1) parts.push(MIN_LABEL[f.min]);
+  if (f.minPosted !== 1) parts.push(`게시 ${f.minPosted}건 이상`);
   parts.push(`${n}명`);
   return parts.join(' · ');
 }
@@ -183,34 +249,47 @@ export interface PerfQuery extends PerfFilter { sort: SortKey; dir: SortDir; agg
 export const DEFAULT_QUERY: PerfQuery = { sort: 'views', dir: 'desc', agg: 'median', ...EMPTY_FILTER };
 const SORT_KEYS: readonly SortKey[] = [...METRIC_KEYS, 'campaigns', 'lastPosted', 'n_post', 'n_quoteRt', 'n_rt', 'n_visit'];
 
+// 실제로 있는 날짜만(2026-02-31·형식 틀림은 버린다)
+const validYmd = (s: string | null): string => {
+  if (s === null || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s ? s : '';
+};
+const csv = (s: string | null) => [...new Set((s ?? '').split(',').map((x) => x.trim()).filter(Boolean))];
+
 export function parsePerfQuery(get: (k: string) => string | null): PerfQuery {
   const s = get('sort');
   const sort = SORT_KEYS.includes(s as SortKey) ? (s as SortKey) : DEFAULT_QUERY.sort;
   const d = get('dir');
   const dir: SortDir = d === 'asc' || d === 'desc' ? d : firstDir(sort);
   const agg: Agg = get('agg') === 'mean' ? 'mean' : 'median';
+  let from = validYmd(get('from'));
+  let to = validYmd(get('to'));
+  if (from !== '' && to !== '' && from > to) { from = ''; to = ''; }
   const p = get('period');
-  const period: Period = p === '30' || p === '90' ? p : 'all';
-  const t = get('type');
-  const type = TASK_TYPES.includes(t as TaskType) ? (t as TaskType) : '';
-  const mn = get('min');
-  const min: MinPosted = mn === '2' ? 2 : mn === '3' ? 3 : 1;
-  // client는 여기서 검증할 수 없다(목록이 데이터에 있음) — 모르는 id는 화면이 '전체 클라이언트'로 취급한다
-  return { sort, dir, agg, q: get('q') ?? '', period, client: get('client') ?? '', type, min };
+  // 날짜가 있으면 빠른 선택은 꺼진 상태(화면에서도 둘은 함께 켜지지 않는다)
+  const period: Period = from === '' && to === '' && PERIOD_PRESETS.includes(p as PeriodPreset) ? (p as PeriodPreset) : 'all';
+  const tset = csv(get('type'));
+  const types = TYPE_ORDER.filter((t) => tset.includes(t) && TASK_TYPES.includes(t));
+  // client는 여기서 검증할 수 없다(목록이 데이터에 있음) — 모르는 id는 화면이 목록과 맞춰 버린다
+  const clientIds = csv(get('client'));
+  return { sort, dir, agg, q: get('q') ?? '', period, from, to, clientIds, types, minPosted: normalizeMinPosted(get('min')) };
 }
 
-// 기본값인 키는 주소에서 뺀다 — 처음 들어온 주소가 깨끗하게
+// 기본값인 키는 주소에서 뺀다 — 처음 들어온 주소가 깨끗하게. 복수 값은 쉼표로(client=a,b)
 export function perfQueryString(q: PerfQuery): string {
   const p = new URLSearchParams();
   if (q.q.trim() !== '') p.set('q', q.q.trim());
   if (q.period !== 'all') p.set('period', q.period);
-  if (q.client !== '') p.set('client', q.client);
-  if (q.type !== '') p.set('type', q.type);
-  if (q.min !== 1) p.set('min', String(q.min));
+  if (q.from !== '') p.set('from', q.from);
+  if (q.to !== '') p.set('to', q.to);
+  if (q.clientIds.length > 0) p.set('client', q.clientIds.join(','));
+  if (q.types.length > 0) p.set('type', q.types.join(','));
+  if (q.minPosted !== 1) p.set('min', String(q.minPosted));
   if (q.sort !== DEFAULT_QUERY.sort) p.set('sort', q.sort);
   if (q.dir !== firstDir(q.sort)) p.set('dir', q.dir);
   if (q.agg !== DEFAULT_QUERY.agg) p.set('agg', q.agg);
-  return p.toString();
+  return p.toString().replace(/%2C/g, ',');
 }
 
 export function formatMetric(key: MetricKey, v: number | null): string {

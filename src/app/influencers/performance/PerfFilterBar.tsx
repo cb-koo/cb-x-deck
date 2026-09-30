@@ -1,6 +1,6 @@
 // 인플루언서 성과 — 표 위 필터 한 줄(스펙 §17). 검색 · 클라이언트 · 유형 · 게시 [n]건 이상 ··· 오른쪽 끝 중앙값/평균.
 // 한 줄 안 컨트롤은 전부 h-8·같은 테두리(x-border-strong)라 높이·선 굵기가 맞는다.
-// 켜진 필터는 테두리·글자를 파랑으로 한 단계(배경은 그대로). 좁으면 줄바꿈(가로 스크롤 없음).
+// 켜진 필터는 테두리·글자를 파랑으로 한 단계(배경은 그대로, 게시 n건은 숫자 칸 테두리만). 좁으면 줄바꿈(가로 스크롤 없음).
 // 복수 선택 팝오버는 캠페인 FlowFilterBar의 체크박스 행·팝오버 골격(바깥 클릭·Esc capture·스크롤 닫기·createPortal·좌표 클램프)과
 // 같다 — 새로 발명하지 않는다. 기간 필터는 뺐다(스펙 §17 — 작업 데이터가 9월 한 달뿐이라 비교 기준이 안 된다).
 'use client';
@@ -17,15 +17,17 @@ import {
 const CTRL = 'h-8 rounded-lg border bg-white text-ui';
 const tone = (on: boolean) => (on ? 'border-x-blue text-x-blue-text' : 'border-x-border-strong text-x-text');
 const AGGS: Array<[Agg, string]> = [['median', '중앙값'], ['mean', '평균']];
+const AGG_HELP = '기본은 중앙값 — 한 번 크게 터진 글에 덜 흔들려요. 평균은 전체 합 ÷ 게시물 수';
+const AGG_HELP_ID = 'perf-agg-help';
 
 export interface ClientOption { id: string; name: string }
 
 // 세그먼트 — 이 화면의 중앙값/평균 토글과 같은 규격(h-8·text-ui), 고른 칸만 파랑 채움
-function Segment<T extends string>({ label, items, value, onPick }: {
-  label: string; items: ReadonlyArray<[T, string]>; value: T; onPick: (v: T) => void;
+function Segment<T extends string>({ label, items, value, onPick, describedBy }: {
+  label: string; items: ReadonlyArray<[T, string]>; value: T; onPick: (v: T) => void; describedBy?: string;
 }) {
   return (
-    <div role="group" aria-label={label} className="flex h-8 w-fit overflow-hidden rounded-lg border border-x-border-strong">
+    <div role="group" aria-label={label} aria-describedby={describedBy} className="flex h-8 w-fit overflow-hidden rounded-lg border border-x-border-strong">
       {items.map(([v, text], i) => (
         <button key={v} type="button" onClick={() => onPick(v)} aria-pressed={value === v}
                 className={`h-full px-3 text-ui ${i > 0 ? 'border-l border-x-border-strong' : ''} ${value === v ? 'bg-x-blue font-bold text-white' : 'bg-white text-x-secondary hover:bg-x-hover'}`}>
@@ -153,7 +155,8 @@ export function PerfFilterBar({ filter, clients, counts, onChange, agg, onAgg }:
                    items={DISPLAY_TYPE_ORDER.map((t) => ({ key: t, label: TASK_TYPE_LABEL[t], count: counts.type[t] }))}
                    selected={filter.types} onToggle={(t) => onChange({ types: toggleType(filter.types, t) })}
                    onClear={() => onChange({ types: [] })} />
-      <label className={`flex items-center gap-1.5 text-ui ${minOn ? 'text-x-blue-text' : 'text-x-secondary'}`}
+      {/* 글자(게시·건 이상)는 늘 회색 — 켜졌을 때 파랗게 하면 링크처럼 보인다. 켜짐은 숫자 칸 테두리만(스펙 §18-6) */}
+      <label className="flex items-center gap-1.5 text-ui text-x-secondary"
              title="게시한 작업이 이만큼 이상인 인플만 보여요 — 숫자는 바뀌지 않아요">
         게시
         <input type="number" min={1} step={1} inputMode="numeric" aria-label="최소 게시 수"
@@ -164,14 +167,16 @@ export function PerfFilterBar({ filter, clients, counts, onChange, agg, onAgg }:
                  if (n !== filter.minPosted) onChange({ minPosted: n });
                }}
                onBlur={() => setMinRaw(null)}
-               className={`${CTRL} w-14 px-2 text-center tabular-nums outline-none focus:border-x-blue ${tone(minOn)}`} />
+               className={`${CTRL} w-14 px-2 text-center tabular-nums text-x-text outline-none focus:border-x-blue ${minOn ? 'border-x-blue' : 'border-x-border-strong'}`} />
         건 이상
       </label>
 
       {/* 오른쪽 끝 — 성과 열 전체와 정렬이 이 기준으로 바뀐다(스펙 §4-2) */}
-      <div className="ml-auto flex items-center gap-3">
-        <span className="text-ui text-x-muted">기본은 중앙값 — 한 번 크게 터진 글에 덜 흔들려요</span>
-        <Segment label="성과 기준" items={AGGS} value={agg} onPick={onAgg} />
+      {/* 도움말은 긴 문장 대신 토글 옆 ⓘ 하나 — 마우스를 올리면(title) 보이고, 화면 읽기는 sr-only로(참여율 머리와 같은 방식, 스펙 §18-7) */}
+      <div className="ml-auto flex items-center gap-1.5">
+        <Segment label="성과 기준" items={AGGS} value={agg} onPick={onAgg} describedBy={AGG_HELP_ID} />
+        <span aria-hidden title={AGG_HELP} className="cursor-help text-caption text-x-muted">ⓘ</span>
+        <span id={AGG_HELP_ID} className="sr-only">{AGG_HELP}</span>
       </div>
     </div>
   );

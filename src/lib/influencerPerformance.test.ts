@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   summarizeInfluencer, sortPerfRows, firstDir, parsePerfQuery, perfQueryString, DEFAULT_QUERY,
-  taskEngagement, taskCpv, formatMetric, buildPerfRows, taskPerfState,
+  taskEngagement, taskCpv, formatMetric, buildPerfRows, taskPerfState, perfEmptyReason,
   filterTasks, filterRows, buildFilteredRows, filterSummary, isFilterOn, EMPTY_FILTER,
   normalizeMinPosted, optionCounts, selectionLabel, toggleType,
   type PerfTask, type PerfFilter, type PerfInfluencerInput, type PerfTaskMetrics,
@@ -180,6 +180,26 @@ test('표시 포맷', () => {
   assert.equal(formatMetric('views', 528625), '528,625');
   assert.equal(formatMetric('views', 5611.4), '5,611');
   assert.equal(formatMetric('bookmarks', 1234), '1,234');
+});
+
+test('참여율 0.1% 미만은 둘째 자리 — 0으로 뭉개지지 않게(스펙 §18-2)', () => {
+  assert.equal(formatMetric('engagement', 0.0003), '0.03%');
+  assert.equal(formatMetric('engagement', 0.00096), '0.10%');
+  assert.equal(formatMetric('engagement', 0), '0.0%');
+  assert.equal(formatMetric('engagement', 0.001), '0.1%');
+  assert.equal(formatMetric('engagement', 0.0123), '1.2%');
+});
+
+test('성과 없는 이유 — 성과가 있으면 null, RT만 > 삭제 > 수집 전(스펙 §18-4)', () => {
+  const RT = 'RT만 진행해 성과가 없어요 — 조회는 원글에 쌓여요';
+  assert.equal(perfEmptyReason(summarizeInfluencer(inf([task()]))), null);
+  // 삭제된 것이 있어도 다른 게시물 성과가 있으면 이유를 말하지 않는다
+  assert.equal(perfEmptyReason(summarizeInfluencer(inf([task(), task({ removedAt: '2026-09-12' })]))), null);
+  assert.equal(perfEmptyReason(summarizeInfluencer(inf([task({ type: 'rt' }), task({ type: 'rt' })]))), RT);
+  // 게시물 작업이 예정뿐이면 아직 RT만 한 것
+  assert.equal(perfEmptyReason(summarizeInfluencer(inf([task({ type: 'rt' }), task({ postedAt: null, postUrl: null, metrics: null })]))), RT);
+  assert.equal(perfEmptyReason(summarizeInfluencer(inf([task({ removedAt: '2026-09-12' }), task({ metrics: null })]))), '게시물이 삭제됐어요');
+  assert.equal(perfEmptyReason(summarizeInfluencer(inf([task({ metrics: null }), task({ type: 'rt' })]))), '성과 수집 전이에요');
 });
 
 // ── 필터·검색(스펙 §15·§16·§17 — 기간 필터는 뺐다) ──

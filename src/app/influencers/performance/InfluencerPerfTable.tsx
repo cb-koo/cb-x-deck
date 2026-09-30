@@ -11,7 +11,7 @@ import { DISPLAY_TYPE_ORDER } from '@/lib/campaignFlowView';
 import { formatAmount } from '@/lib/campaignCost';
 import { HEAD, CELL, NUM } from '@/app/settlement/tableStyle';
 import {
-  formatMetric, taskEngagement, taskCpv, taskPerfState, isPosted,
+  formatMetric, taskEngagement, taskCpv, taskPerfState, isPosted, perfEmptyReason,
   type PerfRow, type PerfTask, type SortKey, type Agg, type MetricKey, type SortDir,
 } from '@/lib/influencerPerformance';
 
@@ -51,6 +51,9 @@ const STICKY_EDGE = 'shadow-[inset_-1px_0_0_var(--color-x-border)]';
 const GROUP_HEAD = 'whitespace-nowrap bg-x-surface px-2 pb-0 pt-2 text-center text-caption font-medium text-x-muted';
 
 const isCountKey = (key: SortKey): boolean => key.startsWith('n_');
+// 노출~확산 열 = 성과 값 자리(부모·자식 행 같은 열 순서). 성과 열은 표 끝에 붙어 있어 나머지 열 뒤에 합친 칸 하나로 대신할 수 있다
+const PERF_COLS = ALL_COLS.filter((c) => METRIC_COLS.has(c.key));
+const NON_PERF_COLS = ALL_COLS.filter((c) => !METRIC_COLS.has(c.key));
 
 function cellText(r: PerfRow, key: SortKey, agg: Agg): string {
   if (METRIC_COLS.has(key)) return formatMetric(key as MetricKey, r.stats[key as MetricKey][agg]);
@@ -71,16 +74,22 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
   expanded: Set<string>; onToggle: (handle: string) => void;
 }) {
   return (
-    <div className="w-full overflow-x-auto rounded-xl border border-x-border">
-      <table className="table-fixed border-collapse text-content" style={{ width: `max(${TABLE_WIDTH}px, 100%)` }}>
+    // 표 칸이 가로·세로 스크롤을 모두 맡는다 — overflow-x만 두면 thead의 sticky top이 이 칸에 갇혀 안 걸린다(스펙 §18-1).
+    // 높이는 page.tsx의 세로 flex가 남은 화면만큼으로 줄인다(min-h-0).
+    // border-separate(간격 0): border-collapse에선 선이 sticky 칸과 같이 안 움직여 머리 아래선이 스크롤 때 떨어진다.
+    // 칸마다 아래선·왼쪽 구분선만 있어 겹치는 선이 없으니 모양은 collapse와 같다.
+    <div className="min-h-0 w-full overflow-auto rounded-xl border border-x-border">
+      <table className="table-fixed border-separate border-spacing-0 text-content" style={{ width: `max(${TABLE_WIDTH}px, 100%)` }}>
         <colgroup>
           <col style={{ width: NAME_WIDTH }} />
           {ALL_COLS.map((c) => <col key={c.key} style={{ width: c.width }} />)}
         </colgroup>
-        <thead>
+        {/* 머리 두 줄을 thead째 위에 고정 — 줄마다 top을 재지 않아도 둘이 함께 붙는다. z-30 > 몸통 고정 열(z-10) */}
+        <thead className="sticky top-0 z-30">
           {/* 1줄 = 묶음 이름 */}
           <tr>
             {/* HEAD의 bg-x-surface는 불투명 — 가로 스크롤 때 밑으로 지나가는 칸이 비치지 않는다 */}
+            {/* 모서리 칸 = 위(thead)·왼쪽 둘 다 고정, thead 안에서 가장 위(z-20) — 가로 스크롤 때 묶음 이름 칸이 밑으로 지나간다 */}
             <th rowSpan={2} scope="col" className={`${HEAD} sticky left-0 z-20 ${STICKY_EDGE}`}>
               인플
             </th>
@@ -124,6 +133,7 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
           {rows.map((r) => {
             const open = expanded.has(r.handle);
             const name = r.displayName || r.handle;
+            const emptyReason = perfEmptyReason(r);
             return (
               <Fragment key={r.handle}>
                 {/* 행 전체 클릭 = 펼치기. 키보드는 이름 칸 버튼(클릭이 행으로 올라가 한 번만 토글된다).
@@ -132,15 +142,16 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
                     hover는 더 진한 같은 계열의 불투명색으로, 파랑이 지워지지 않게 */}
                 <tr onClick={() => onToggle(r.handle)}
                     className={`group cursor-pointer ${open ? 'bg-[#f2f8fd] hover:bg-[#e8f3fc]' : 'hover:bg-x-hover'}`}>
-                  {/* 인플 칸 = 사진 + @핸들 하나만 — 이름은 마우스를 올리면(title) 보인다(이름·핸들이 둘 다 잘리던 문제, 스펙 §12-1).
+                  {/* 인플 칸 = 사진 + @핸들 하나만 — 핸들 전체·이름은 마우스를 올리면(title) 보인다(스펙 §12-1·§18-3).
+                      사진 24px·좁은 간격으로 핸들 글자 폭을 조금 더 확보(칸 폭 208px은 그대로).
                       @핸들은 명부에 있으면(influencerId) 프로필 링크 — 펼침 버튼 밖에 둬(버튼 안에 링크는 안 되는 HTML) 클릭이 이동만 하고 토글은 안 되게(스펙 §14) */}
                   <td className={`${CELL} sticky left-0 z-10 ${STICKY_EDGE} ${open ? 'bg-[#f2f8fd] group-hover:bg-[#e8f3fc]' : 'bg-white group-hover:bg-x-hover'}`}
-                      title={r.displayName ? `${r.displayName} (@${r.handle})` : `@${r.handle}`}>
-                    <div className="flex w-full min-w-0 items-center gap-2">
+                      title={r.displayName ? `@${r.handle} · ${r.displayName}` : `@${r.handle}`}>
+                    <div className="flex w-full min-w-0 items-center gap-1.5">
                       <button type="button" aria-expanded={open} aria-label={`${name} 작업 ${open ? '접기' : '펼치기'}`}
-                              className="flex min-w-0 shrink-0 items-center gap-2 text-left">
+                              className="flex min-w-0 shrink-0 items-center gap-1 text-left">
                         <span aria-hidden className="w-3 shrink-0 text-[10px] text-x-muted">{open ? '▼' : '▶'}</span>
-                        <Avatar url={r.avatarUrl} name={name} size={28} />
+                        <Avatar url={r.avatarUrl} name={name} size={24} />
                       </button>
                       {r.influencerId ? (
                         <Link href={`/influencers?i=${r.influencerId}`} onClick={(e) => e.stopPropagation()}
@@ -153,7 +164,7 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
                       {r.isBlueVerified && <BlueCheckIcon className="h-4 w-4 shrink-0" />}
                     </div>
                   </td>
-                  {ALL_COLS.map((c) => {
+                  {(emptyReason ? NON_PERF_COLS : ALL_COLS).map((c) => {
                     const text = cellText(r, c.key, agg);
                     return (
                       <td key={c.key} className={`${CELL} ${NUM} ${GROUP_FIRST.has(c.key) ? DIVIDER : ''}`}>
@@ -161,6 +172,14 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
                       </td>
                     );
                   })}
+                  {/* 성과 8칸이 전부 비면 '—' 여덟 개 대신 노출~확산을 합친 한 칸에 이유 한 줄(스펙 §18-4).
+                      왼쪽 구분선은 노출 묶음 경계 그대로. 정렬 시 값 없음 → 맨 아래 규칙은 그대로다 */}
+                  {emptyReason && (
+                    <td colSpan={PERF_COLS.length} title={emptyReason}
+                        className={`${CELL} truncate text-center text-x-muted ${DIVIDER}`}>
+                      {emptyReason}
+                    </td>
+                  )}
                 </tr>
                 {open && <TaskRows row={r} />}
               </Fragment>
@@ -185,8 +204,6 @@ const LAST_ROW_BORDER = 'border-b-x-border-strong!';
 // 게시한 작업 4열(투고~방문협찬)을 합친 한 칸 = '유형 · 비용'
 const TASK_TYPE_SPAN = DISPLAY_TYPE_ORDER.length;
 const TYPE_FIRST_KEY = `n_${DISPLAY_TYPE_ORDER[0]}` as SortKey;
-// 노출~확산 열 = 작업의 성과 값 자리(부모와 같은 열 순서)
-const PERF_COLS = ALL_COLS.filter((c) => METRIC_COLS.has(c.key));
 
 function taskMetricText(t: PerfTask, key: MetricKey): string {
   if (key === 'engagement') return formatMetric('engagement', taskEngagement(t.metrics));
@@ -221,9 +238,9 @@ function TaskRows({ row }: { row: PerfRow }) {
         const border = last ? LAST_ROW_BORDER : '';
         return (
           <tr key={t.id} className={CHILD_ROW}>
-            {/* 인플 칸 = 캠페인 이름(들여쓰기·한 줄 말줄임) + ↗ 원 게시물 */}
+            {/* 인플 칸 = 캠페인 이름(들여쓰기 pl-4 = 부모 행 사진 왼쪽 끝: 화살표 12px + 간격 4px · 한 줄 말줄임) + ↗ 원 게시물 */}
             <td className={`${CHILD_CELL} sticky left-0 z-10 ${CHILD_BG} ${STICKY_EDGE} ${border}`}>
-              <div className="flex min-w-0 items-center gap-1 pl-5">
+              <div className="flex min-w-0 items-center gap-1 pl-4">
                 <span className="truncate" title={t.campaignName}>{t.campaignName}</span>
                 {t.postUrl && (
                   <a href={t.postUrl} target="_blank" rel="noopener noreferrer"

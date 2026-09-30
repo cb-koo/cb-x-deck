@@ -6,8 +6,8 @@ import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import {
-  sortPerfRows, parsePerfQuery, perfQueryString, firstDir, buildFilteredRows, isFilterOn, filterSummary,
-  optionCounts, isPosted, EMPTY_FILTER,
+  sortPerfRows, parsePerfQuery, perfQueryString, firstDir, buildFilteredRows, buildPerfRows, isFilterOn, filterSummary,
+  optionCounts, EMPTY_FILTER,
   type PerfInfluencerInput, type PerfQuery, type PerfFilter, type SortKey, type Agg,
 } from '@/lib/influencerPerformance';
 import { InfluencerPerfTable } from './InfluencerPerfTable';
@@ -77,7 +77,9 @@ function PerfView() {
   const clearFilter = () => apply({ ...view, ...EMPTY_FILTER });   // 정렬·중앙값/평균은 그대로
   const onToggle = (h: string) => setExpanded((s) => { const n = new Set(s); if (n.has(h)) n.delete(h); else n.add(h); return n; });
 
-  const hasAny = useMemo(() => inputs.some((inf) => inf.tasks.some(isPosted)), [inputs]);
+  // 필터 전 전체 인원(게시한 작업이 있는 인플) — 제목 옆 숫자. 필터 결과 인원은 요약 줄이 말한다(스펙 §18-5)
+  const total = useMemo(() => buildPerfRows(inputs).length, [inputs]);
+  const hasAny = total > 0;
   const filtered = useMemo(() => buildFilteredRows(inputs, view), [inputs, view]);
   const counts = useMemo(() => optionCounts(inputs, view), [inputs, view]);
   const sorted = useMemo(() => sortPerfRows(filtered, view.sort, view.dir, view.agg), [filtered, view]);
@@ -85,9 +87,14 @@ function PerfView() {
   const clientNames = clients.filter((c) => view.clientIds.includes(c.id)).map((c) => c.name);
 
   return (
-    <main className="mx-auto max-w-none px-6 py-8">
-      <h1 className="mb-1 text-[20px] font-bold">인플루언서 성과</h1>
-      <p className="mb-4 text-ui text-x-muted">캠페인에서 게시까지 한 인플의 게시물 성과를 비교해요. 열 이름을 누르면 그 기준으로 줄을 세워요.</p>
+    // 화면 높이를 채우는 세로 flex — 표 칸만 남은 높이 안에서 스크롤해 열 머리가 위에 고정된다(스펙 §18-1).
+    // h-full = GlobalShell 스크롤 래퍼(h-screen flex의 늘어난 칸)의 높이. 위 줄들은 shrink-0, 표 칸은 min-h-0으로 줄어든다 —
+    // 요약 줄이 생기고 사라져도 높이 계산식 없이 맞는다. 표가 짧으면 표 칸은 내용 높이 그대로(빈 테두리가 바닥까지 늘지 않는다).
+    <main className="mx-auto flex h-full max-w-none flex-col px-6 py-8">
+      <h1 className="mb-1 shrink-0 text-[20px] font-bold">
+        인플루언서 성과 {hasAny && <span className="text-ui font-normal text-x-secondary">{total}</span>}
+      </h1>
+      <p className="mb-4 shrink-0 text-ui text-x-muted">캠페인에서 게시까지 한 인플의 게시물 성과를 비교해요. 열 이름을 누르면 그 기준으로 줄을 세워요.</p>
 
       {!loaded && <p className="py-8 text-center text-ui text-x-muted">불러오는 중…</p>}
       {loaded && loadErr && (
@@ -103,7 +110,7 @@ function PerfView() {
         </p>
       )}
       {loaded && !loadErr && hasAny && (<>
-        <div className="mb-3 space-y-2">
+        <div className="mb-3 shrink-0 space-y-2">
           <PerfFilterBar filter={view} clients={clients} counts={counts} onChange={onFilter} agg={view.agg} onAgg={setAgg} />
           {/* 무엇으로 계산했는지 한 줄(스펙 §15-2) — 필터가 없으면 줄 자체가 없다. 0명이면 아래 빈 상태가 대신 말한다 */}
           {filterOn && sorted.length > 0 && (
@@ -114,7 +121,7 @@ function PerfView() {
           )}
         </div>
         {sorted.length === 0 ? (
-          <div className="rounded-xl border border-x-border py-12 text-center">
+          <div className="shrink-0 rounded-xl border border-x-border py-12 text-center">
             <p className="mb-1.5 text-ui text-x-secondary">조건에 맞는 인플이 없어요</p>
             <button type="button" onClick={clearFilter} className="text-ui text-x-blue-text hover:underline">필터 지우기</button>
           </div>

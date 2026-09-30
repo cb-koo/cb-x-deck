@@ -93,6 +93,16 @@ export function taskPerfState(t: PerfTask): TaskPerfState {
   return 'ok';
 }
 
+// 부모 행 성과 칸이 전부 '—'일 때 그 이유 한 줄(스펙 §18-4) — 성과가 하나라도 있으면 null.
+// 우선: 게시한 게시물 작업이 없음(RT만) > 삭제된 게시물 있음 > 수집 전. 조회 표본이 비면 성과 8칸이 모두 비므로 views.n으로 판정한다.
+export function perfEmptyReason(r: PerfRow): string | null {
+  if (r.stats.views.n > 0) return null;
+  const content = r.tasks.filter((t) => isContent(t) && isPosted(t));
+  if (content.length === 0) return 'RT만 진행해 성과가 없어요 — 조회는 원글에 쌓여요';
+  if (content.some((t) => t.removedAt !== null)) return '게시물이 삭제됐어요';
+  return '성과 수집 전이에요';
+}
+
 // 첫 클릭은 "좋은 쪽부터" — 조회당 비용만 싼 쪽이 좋다(스펙 §4)
 export const firstDir = (key: SortKey): SortDir => (key === 'cpv' ? 'asc' : 'desc');
 
@@ -245,7 +255,8 @@ export function perfQueryString(q: PerfQuery): string {
 
 export function formatMetric(key: MetricKey, v: number | null): string {
   if (v === null) return '—';
-  if (key === 'engagement') return `${(v * 100).toFixed(1)}%`;
+  // 0.1% 미만(0 제외)은 둘째 자리까지 — '0.0%'로 뭉개져 반응이 없던 것처럼 읽히지 않게(스펙 §18-2, 조회당 비용과 같은 태도)
+  if (key === 'engagement') return `${(v * 100).toFixed(v > 0 && v < 0.001 ? 2 : 1)}%`;
   // 1원 미만은 둘째 자리까지 — 100만 조회 게시물이 '0.0원'으로 보여 공짜처럼 읽히던 것(koo QA 09-30)
   if (key === 'cpv') return `${v.toFixed(v < 1 ? 2 : 1)}원`;
   // 건수 지표는 축약 없이 쉼표 전체 숫자 — '1.2만'보다 비교가 정확하다(스펙 §13.3)

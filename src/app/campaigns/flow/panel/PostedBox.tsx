@@ -176,7 +176,8 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
   const isRepost = !!link?.ok && !!typed?.ok && typed.url === link.url && prev.preview?.kind === 'repost';
   // 작성자 확인(spec §4·§5) — 미리보기가 'ok'로 온 뒤에만 판정한다. 조회 실패·불러오는 중엔 버튼을 막지 않는다(서버가 최종 판정, §5).
   // 화면 비교는 핸들만(고유번호는 서버만 안다) — task.influencerHandle은 여기 도달했다는 것 자체로 null이 아니다(위 인플 미정 분기가 먼저 걸러낸다).
-  const authorVerdict = link?.ok && prev.preview?.kind === 'ok'
+  // 칸 글자가 확정된 링크와 같을 때만 — 다른 링크를 치는 중에 옛 링크의 불일치로 버튼이 막혀 있지 않게(isRepost와 같은 조건, 최종 리뷰)
+  const authorVerdict = link?.ok && !!typed?.ok && typed.url === link.url && prev.preview?.kind === 'ok'
     ? judgePostAuthor({
         author: { handle: prev.preview.tweet.authorHandle, userId: null },
         assigned: { handle: task.influencerHandle, xUserId: null },

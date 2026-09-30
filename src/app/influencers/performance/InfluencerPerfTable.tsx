@@ -40,16 +40,19 @@ const TABLE_WIDTH = NAME_WIDTH + ALL_COLS.reduce((s, c) => s + c.width, 0);
 // 고정 열 오른쪽 구분선 — border-collapse에서 border는 sticky와 같이 안 움직여 그림자 선으로 긋는다
 const STICKY_EDGE = 'shadow-[inset_-1px_0_0_var(--color-x-border-strong)]';
 
+const isCountKey = (key: SortKey): boolean => key.startsWith('n_');
+
 function cellText(r: PerfRow, key: SortKey, agg: Agg): string {
   if (METRIC_COLS.has(key)) return formatMetric(key as MetricKey, r.stats[key as MetricKey][agg]);
   if (key === 'campaigns') return String(r.campaignCount);
   if (key === 'lastPosted') return md(r.lastPostedAt);
-  const n = r.typeCounts[key.slice(2) as TaskType];
-  return n ? String(n) : '—';
+  // 작업 건수는 항상 셀 수 있는 값(0건도 '앎')이라 '—'(모름)를 쓰지 않는다 — 0도 숫자로, 흐린 색만 유지
+  return String(r.typeCounts[key.slice(2) as TaskType]);
 }
 
-// 값 없음('—')은 흐리게 — 숫자와 섞여도 눈이 숫자에만 가게
-const Val = ({ v }: { v: string }) => (v === '—' ? <span className="text-x-muted">—</span> : <>{v}</>);
+// 값 없음('—')과 건수 0은 흐리게 — 숫자와 섞여도 눈이 값 있는 숫자에만 가게
+const Val = ({ v, muted }: { v: string; muted?: boolean }) =>
+  (muted ?? v === '—') ? <span className="text-x-muted">{v}</span> : <>{v}</>;
 
 export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, onToggle }: {
   rows: PerfRow[];              // 이미 정렬된 배열 — 여기서 순서를 바꾸지 않는다(PerformanceTable 관례)
@@ -87,11 +90,18 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
                 <th key={c.key} scope="col"
                     aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                     className={`whitespace-nowrap border-b border-x-border-strong p-0 font-bold ${GROUP_FIRST.has(c.key) ? 'border-l border-l-x-border' : ''}`}>
+                  {/* 정렬 화살표는 절대 위치(레이아웃 폭을 차지하지 않음) + 헤더 여백 축소(px-2) — 64px처럼 좁은 칸에서
+                      화살표가 라벨을 밀어 왼쪽 구분선 밖으로 넘치는 것을 막는다(스펙 리뷰 09-30 fix round 2) */}
                   <button type="button" onClick={() => onSort(c.key)} title={c.help} aria-describedby={helpId}
-                          className={`flex h-10 w-full items-center justify-end gap-0.5 px-3 hover:text-x-text ${active ? 'text-x-text' : ''}`}>
+                          className={`relative flex h-10 w-full items-center justify-end gap-0.5 px-2 hover:text-x-text ${active ? 'text-x-text' : ''}`}>
                     {c.label}
                     {c.help && <span aria-hidden className="text-caption text-x-muted">ⓘ</span>}
-                    {active && <span aria-hidden className="text-[10px]">{dir === 'asc' ? '▲' : '▼'}</span>}
+                    {active && (
+                      <span aria-hidden
+                            className="pointer-events-none absolute right-0.5 top-1/2 -translate-y-1/2 text-[10px]">
+                        {dir === 'asc' ? '▲' : '▼'}
+                      </span>
+                    )}
                   </button>
                   {c.help && <span id={helpId} className="sr-only">{c.help}</span>}
                 </th>
@@ -119,15 +129,18 @@ export function InfluencerPerfTable({ rows, agg, sort, dir, onSort, expanded, on
                       {r.displayName && <span className="truncate text-ui text-x-muted">@{r.handle}</span>}
                     </button>
                   </td>
-                  {ALL_COLS.map((c) => (
-                    <td key={c.key}
-                        className={`whitespace-nowrap px-3 text-right tabular-nums ${GROUP_FIRST.has(c.key) ? 'border-l border-x-border' : ''}`}>
-                      <Val v={cellText(r, c.key, agg)} />
-                      {c.key === 'views' && note && (
-                        <span className="ml-1 text-ui text-x-muted" title="조회가 수집된 게시물 / 게시된 게시물">{note}</span>
-                      )}
-                    </td>
-                  ))}
+                  {ALL_COLS.map((c) => {
+                    const text = cellText(r, c.key, agg);
+                    return (
+                      <td key={c.key}
+                          className={`whitespace-nowrap px-3 text-right tabular-nums ${GROUP_FIRST.has(c.key) ? 'border-l border-x-border' : ''}`}>
+                        <Val v={text} muted={isCountKey(c.key) ? text === '0' : undefined} />
+                        {c.key === 'views' && note && (
+                          <span className="ml-1 text-ui text-x-muted" title="조회가 수집된 게시물 / 게시된 게시물">{note} 수집</span>
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
                 {open && (
                   <tr className="border-b border-x-border-strong">

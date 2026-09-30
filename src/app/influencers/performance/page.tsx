@@ -77,7 +77,7 @@ function PerfView() {
       {loaded && !loadErr && rows.length > 0 && (<>
         {/* 표 위 오른쪽 — 성과 열 전체와 정렬이 이 기준으로 바뀐다(스펙 §4-2) */}
         <div className="mb-3 flex items-center justify-end gap-3">
-          <span className="text-ui text-x-muted">중앙값: 한 번 크게 터진 글에 덜 흔들려요</span>
+          <span className="text-ui text-x-muted">기본은 중앙값 — 한 번 크게 터진 글에 덜 흔들려요</span>
           <div role="group" aria-label="성과 기준" className="flex h-8 w-fit overflow-hidden rounded-lg border border-x-border-strong">
             {AGGS.map(([v, label], i) => (
               <button key={v} type="button" onClick={() => setAgg(v)} aria-pressed={query.agg === v}

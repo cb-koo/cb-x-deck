@@ -145,7 +145,8 @@ export function perfQueryString(q: PerfQuery): string {
 export function formatMetric(key: MetricKey, v: number | null): string {
   if (v === null) return '—';
   if (key === 'engagement') return `${(v * 100).toFixed(1)}%`;
-  if (key === 'cpv') return `${v.toFixed(1)}원`;
+  // 1원 미만은 둘째 자리까지 — 100만 조회 게시물이 '0.0원'으로 보여 공짜처럼 읽히던 것(koo QA 09-30)
+  if (key === 'cpv') return `${v.toFixed(v < 1 ? 2 : 1)}원`;
   // 건수 지표는 축약 없이 쉼표 전체 숫자 — '1.2만'보다 비교가 정확하다(스펙 §13.3)
   return Math.round(v).toLocaleString('ko-KR');
 }

@@ -171,6 +171,7 @@ test('표시 포맷', () => {
   assert.equal(formatMetric('views', null), '—');
   assert.equal(formatMetric('engagement', 0.0254), '2.5%');
   assert.equal(formatMetric('cpv', 4.06), '4.1원');
+  assert.equal(formatMetric('cpv', 0.0095), '0.01원');   // 1원 미만은 0.0원으로 뭉개지지 않게 둘째 자리까지
   assert.equal(formatMetric('likes', 210.5), '211');
   // 큰 수는 축약 없이 쉼표 전체 숫자(스펙 §13.3)
   assert.equal(formatMetric('views', 12000), '12,000');

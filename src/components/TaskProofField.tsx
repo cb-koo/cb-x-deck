@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { uploadTaskProof, taskProofValidationError, downloadTaskProof, taskProofFilename } from '@/lib/taskProof';
 import { ImageLightbox } from '@/components/ImageLightbox';
 import { pasteBlockedByModal } from '@/components/pasteModalGuard';
-import { FILE_BTN_PRIMARY, FILE_BTN_LIGHT, FILE_BTN_TRASH, TRASH_ICON_PATH } from '@/components/fileFieldButtons';
+import { FILE_BTN_PRIMARY, FILE_BTN_LIGHT, FILE_BTN_TRASH, FILE_BTN_ICON, TRASH_ICON_PATH, DOWNLOAD_ICON_PATH } from '@/components/fileFieldButtons';
+import { kstMonthDay } from '@/lib/datetime';
 
 // RT 증빙 첨부 칸 — 붙여넣기가 주 경로다(스크린샷은 거의 항상 클립보드에 있다). 파일을 고르거나
 // 붙여넣는 순간 바로 올라가고, 저장(부모의 onChange가 하는 PATCH 등 실제 반영)은 부모가 판단한다.
@@ -12,13 +13,15 @@ import { FILE_BTN_PRIMARY, FILE_BTN_LIGHT, FILE_BTN_TRASH, TRASH_ICON_PATH } fro
 // [바꾸기] 한 동작이다: 누르면 '교체 대기' 상자가 열리고, 그 상태에서만 붙여넣기(⌘V)·고르기를 받는다. 새 파일이 올라가
 // 저장되는 순간 바뀌고, 그 전까지(실패 포함) 원래 증빙이 그대로 남는다. 옛 화면(PostedCell)도 같은 동작이다(화면마다 갈라지지 않게).
 export function TaskProofField({
-  taskId, value, signedUrl, postedAt, influencerHandle, required, canRemove, disabled, onChange,
+  taskId, value, signedUrl, postedAt, influencerHandle, uploaded, required, canRemove, disabled, onChange,
 }: {
   taskId: string;
   value: string | null; // 저장된 스토리지 경로
   signedUrl: string | null; // 부모가 useSignedTaskProofUrls로 배치 서명해 넘긴 표시용 URL(없으면 미리보기만)
   postedAt: string | null; // 파일명용
   influencerHandle: string | null; // 파일명용
+  // 카드 둘째 줄 '박구건 · 9/30 올림'(task.proof의 byName·at) — 모르면(저장 전 폼 값 등) 그 줄을 생략한다
+  uploaded?: { byName: string; at: string } | null;
   required: boolean; // true면 '필수' 표시 + 안내 문구
   canRemove: boolean; // false면 [지우기] 없음(게시됨인 RT — 비우지 못하고 바꾸기만)
   disabled: boolean;
@@ -139,63 +142,73 @@ export function TaskProofField({
   const startReplace = () => { setErr(''); setFlash(null); setReplacingFor(taskId); };
   const download = () => { if (value) void downloadTaskProof(value, taskProofFilename({ postedAt, influencerHandle, url: value })); };
 
-  // 버튼 줄 — 크게 보기(주, 테두리) · 바꾸기 · 받기(보조, 옅은) · 지우기(휴지통). 교체 대기 중엔 [바꾸기]를 숨긴다(상자의 [취소]가 대신한다).
-  const buttons = (canZoom: boolean) => (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-      {canZoom && <button type="button" onClick={() => setZoom(true)} className={FILE_BTN_PRIMARY}>크게 보기</button>}
-      {!replacing && (
-        <button ref={changeBtnRef} type="button" disabled={blocked} onClick={startReplace}
-                title="새 스크린샷으로 바꿔요 — 다 올라가기 전까지 지금 증빙은 그대로예요" className={FILE_BTN_LIGHT}>바꾸기</button>
-      )}
-      {value && <button type="button" onClick={download} title="증빙 스크린샷 내려받기" className={FILE_BTN_LIGHT}>받기</button>}
-      {canRemove && !replacing && (
-        <button type="button" disabled={blocked} onClick={() => { setPreview(null); void onChange(null); }}
-                aria-label="증빙 지우기" title="증빙 지우기" className={FILE_BTN_TRASH}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="h-4 w-4">
-            <path d={TRASH_ICON_PATH} />
-          </svg>
-        </button>
-      )}
-    </div>
-  );
+  // 카드 둘째 줄 — 동의서 카드(agreementMeta)와 같은 모양: '올린 사람 · M/D 올림'. 둘 다 모르면 줄 자체를 생략한다.
+  const day = uploaded ? kstMonthDay(uploaded.at) : '';
+  const meta = uploaded ? [uploaded.byName || null, day ? `${day} 올림` : null].filter(Boolean).join(' · ') : '';
 
   return (
     <div ref={rootRef} className="mt-2">
-      <p className="text-ui text-x-secondary">
-        증빙 스크린샷 {required && <span className="text-red-600">필수</span>}
-      </p>
-      {shown ? (
-        <div className="mt-1 flex items-center gap-3">
-          {/* 썸네일도 눌러서 크게 본다 — 키보드는 옆의 [크게 보기]가 맡는다(같은 동작이 Tab에 두 번 걸리지 않게) */}
-          <button type="button" tabIndex={-1} onClick={() => setZoom(true)} aria-hidden
-                  className="h-16 w-16 shrink-0 cursor-zoom-in overflow-hidden rounded-md border border-x-border">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={shown} alt="" className="h-full w-full object-cover" />
-          </button>
-          {buttons(true)}
-        </div>
-      ) : value ? (
-        // value(저장된 경로)는 있는데 보여줄 이미지가 아직(또는 영구히) 없는 상태 — 서명 URL이 늦거나
-        // useSignedTaskProofUrls가 실패를 삼켜 조용히 비어 있을 수 있다. 이때 붙여넣기 상자를 그리면
-        // "증빙이 없다"고 거짓말하는 셈이라(이 화면 바로 아래 캡션은 "있다"고 말한다), 있다는 사실을
-        // 정직하게 말하고 바꾸기·받기만 계속 쓸 수 있게 둔다(받기는 value만 있으면 원본을 내려받는다).
-        <div className="mt-1 flex items-center gap-3">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md border border-x-border bg-x-surface text-center text-[11px] leading-tight text-x-muted">
-            불러오는 중…
-          </div>
-          <div className="min-w-0">
-            <p className="mb-1 text-ui text-x-secondary">증빙 스크린샷이 있어요 — 미리보기를 불러오는 중이에요</p>
-            {buttons(false)}
-          </div>
+      {value ? (
+        // 파일 카드(koo 10-01 시안 A) — 동의서 카드와 같은 모양·같은 클래스: 썸네일 | 제목(굵게) / 올린 사람·날짜(회색) | 버튼.
+        // 버튼은 역할로 무게를 나눈다: [보기](주, 테두리) · [바꾸기](옅은) · 받기(⤓ 아이콘) · 지우기(휴지통, 게시 전 폼에서만).
+        // 좁은 칸(옛 화면 팝오버 320px)에선 버튼 묶음이 다음 줄 오른쪽으로 내려간다 — 제목이 잘려 '…'만 남지 않게.
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-x-border bg-x-surface/60 px-3 py-2.5">
+          <span className="flex min-w-[11rem] flex-1 items-center gap-3">
+            {shown ? (
+              // 썸네일도 눌러서 크게 본다 — 키보드는 옆의 [보기]가 맡는다(같은 동작이 Tab에 두 번 걸리지 않게)
+              <button type="button" tabIndex={-1} onClick={() => setZoom(true)} aria-hidden
+                      className="h-11 w-11 shrink-0 cursor-zoom-in overflow-hidden rounded-md border border-x-border bg-white">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={shown} alt="" className="h-full w-full object-cover" />
+              </button>
+            ) : (
+              // value(저장된 경로)는 있는데 보여줄 이미지가 아직(또는 영구히) 없는 상태 — 서명 URL이 늦거나
+              // useSignedTaskProofUrls가 실패를 삼켜 조용히 비어 있을 수 있다. 붙여넣기 상자를 그리면 "증빙이 없다"고
+              // 거짓말하는 셈이라 카드는 그대로 두고 썸네일 자리만 '불러오는 중'으로 둔다(받기는 value만 있으면 원본을 내려받는다).
+              <span aria-label="미리보기를 불러오는 중" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-x-border bg-white">
+                <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-x-border-strong border-t-x-blue" />
+              </span>
+            )}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-content font-semibold">RT 증빙 스크린샷</span>
+              {meta && <span className="block truncate text-ui text-x-muted">{meta}</span>}
+            </span>
+          </span>
+          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            {shown && <button type="button" onClick={() => setZoom(true)} className={FILE_BTN_PRIMARY}>보기</button>}
+            {/* 교체 대기 중엔 [바꾸기]를 숨긴다(상자의 [취소]가 대신한다) */}
+            {!replacing && (
+              <button ref={changeBtnRef} type="button" disabled={blocked} onClick={startReplace}
+                      title="새 스크린샷으로 바꿔요 — 다 올라가기 전까지 지금 증빙은 그대로예요" className={FILE_BTN_LIGHT}>바꾸기</button>
+            )}
+            <button type="button" onClick={download} aria-label="받기" title="받기 — 증빙 스크린샷 내려받기" className={FILE_BTN_ICON}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="h-4 w-4">
+                <path d={DOWNLOAD_ICON_PATH} />
+              </svg>
+            </button>
+            {canRemove && !replacing && (
+              <button type="button" disabled={blocked} onClick={() => { setPreview(null); void onChange(null); }}
+                      aria-label="증빙 지우기" title="증빙 지우기" className={FILE_BTN_TRASH}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="h-4 w-4">
+                  <path d={TRASH_ICON_PATH} />
+                </svg>
+              </button>
+            )}
+          </span>
         </div>
       ) : (
-        // 붙여넣기는 위 이펙트가 문서에서 받는다(포커스와 무관) — 이 버튼은 파일 고르기 담당이다.
-        // div+role="button"이 아니라 실제 <button>을 써서 Enter·스페이스로도 열리게 한다(이 저장소는
-        // role="button"을 키보드 조작 없이 쓰지 않는다).
-        <button type="button" disabled={blocked} onClick={() => inputRef.current?.click()}
-                className="mt-1 block w-full rounded-lg border border-dashed border-x-border-strong px-3 py-4 text-center text-ui text-x-secondary hover:bg-x-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-x-blue disabled:cursor-not-allowed disabled:opacity-50">
-          {busy ? '올리는 중…' : '붙여넣기(⌘V) 또는 눌러서 파일 고르기'}
-        </button>
+        <>
+          <p className="text-ui text-x-secondary">
+            증빙 스크린샷 {required && <span className="text-red-600">필수</span>}
+          </p>
+          {/* 붙여넣기는 위 이펙트가 문서에서 받는다(포커스와 무관) — 이 버튼은 파일 고르기 담당이다.
+              div+role="button"이 아니라 실제 <button>을 써서 Enter·스페이스로도 열리게 한다(이 저장소는
+              role="button"을 키보드 조작 없이 쓰지 않는다). */}
+          <button type="button" disabled={blocked} onClick={() => inputRef.current?.click()}
+                  className="mt-1 block w-full rounded-lg border border-dashed border-x-border-strong px-3 py-4 text-center text-ui text-x-secondary hover:bg-x-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-x-blue disabled:cursor-not-allowed disabled:opacity-50">
+            {busy ? '올리는 중…' : '붙여넣기(⌘V) 또는 눌러서 파일 고르기'}
+          </button>
+        </>
       )}
       {replacing && (
         // 교체 대기 — '지금 붙여넣으면 바뀐다'가 보이게 파란 점선 상자. 상자 자체가 <button>(눌러서 고르기), 옆에 [취소].

@@ -8,7 +8,7 @@ import { stageTag } from '@/lib/campaignTableView';
 import { parseTweetLink, tweetLinkParseMessage } from '@/lib/tweetLink';
 import { DATE_MESSAGE } from '@/lib/campaignTaskInput';
 import { TaskProofField } from '@/components/TaskProofField';
-import { PROOF_REQUIRED_MESSAGE, proofUploadedLine } from '@/lib/taskProofGuard';
+import { PROOF_REQUIRED_MESSAGE } from '@/lib/taskProofGuard';
 
 // 단계 셀(스펙 §3-4·§4-1) — 칩은 값만('게시됨 9/3'), 부가 정보는 옆의 회색 태그. 누르면 지금 상태에서 할 수 있는 것만 보이는 팝오버.
 // 게시 확인 자체는 되돌리지 않는다 — 잘못 찍었으면 작업을 지우고 다시 만든다(팝오버 문구가 그렇게 말한다).
@@ -123,14 +123,11 @@ export function RemovedForm({ task, today, proofSignedUrl, onSetProof, onSubmit,
       {task.type === 'rt' && (
         <TaskProofField taskId={task.id} value={task.proof?.url ?? null} signedUrl={proofSignedUrl}
                         postedAt={task.postedAt} influencerHandle={task.influencerHandle}
+                        uploaded={task.proof ? { byName: task.proof.byName, at: task.proof.at } : null}
                         required={false} canRemove={false} disabled={false}
                         onChange={(p) => onSetProof(p)} />
       )}
-      {/* '누가 언제 올림' — 세 화면(이 칸·내려짐 칸·정산 요청 상세)이 같은 문구 함수를 쓴다(리뷰 수정 5).
-          proofUploadedLine이 KST 기준 날짜를 계산한다(.slice(0, 10) UTC 절단 버그, 리뷰 수정 2). */}
-      {task.type === 'rt' && task.proof && (
-        <p className="mt-0.5 text-ui text-x-muted">{proofUploadedLine(task.proof.byName, task.proof.at)}</p>
-      )}
+      {/* '누가 언제 올림'은 증빙 카드 둘째 줄이 보여준다(uploaded, koo 10-01 시안 A) — 따로 한 줄을 또 적지 않는다 */}
       {task.postUrl && <a href={task.postUrl} target="_blank" rel="noreferrer" className="mt-2 block text-ui text-x-blue-text hover:underline">게시물 보기 ↗</a>}
       {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
       <div className="mt-2 flex items-center gap-2">
@@ -234,12 +231,9 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
               {task.type === 'rt' && (
                 <TaskProofField taskId={task.id} value={task.proof?.url ?? null} signedUrl={proofSignedUrl}
                                 postedAt={task.postedAt} influencerHandle={task.influencerHandle}
+                                uploaded={task.proof ? { byName: task.proof.byName, at: task.proof.at } : null}
                                 required={false} canRemove={false} disabled={false}
                                 onChange={(p) => onSetProof(p)} />
-              )}
-              {/* 내려짐 분기도 게시됨 분기와 같은 '누가 언제 올림' 문구를 쓴다 — 이전엔 여기만 빠져 있었다(리뷰 수정 5). */}
-              {task.type === 'rt' && task.proof && (
-                <p className="mt-0.5 text-ui text-x-muted">{proofUploadedLine(task.proof.byName, task.proof.at)}</p>
               )}
               <p className="mt-1 text-ui text-x-muted">잘못 표시했으면 취소할 수 있어요</p>
               <div className="mt-2 flex items-center gap-2">

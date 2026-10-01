@@ -11,6 +11,10 @@ import { getDraft, updateDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 import { kstToday } from '@/lib/datetime';
 import { rosterHandleOf, checkTaskPaymentMethod, hasLiveRequest, ROSTER_REQUIRED_MESSAGE, PAYMENT_METHOD_LOCKED_MESSAGE } from '@/lib/taskAssignGate';
+import { attachPostToTask, guardFirstAssign } from '@/lib/postAttach';
+import { authorVerdictMessage, firstAssignMismatchMessage } from '@/lib/postAuthor';
+import { fetchPost } from '@/lib/postMetrics';
+import { TrackingLinkError, trackingLinkMessage } from '@/lib/trackingStore';
 
 const notFound = () => NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 404 });
 
@@ -49,6 +53,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
     const changes = patch.influencerHandle.toLowerCase() !== (cur.influencerHandle ?? '').toLowerCase();
     if (!canon && changes) return NextResponse.json({ error: ROSTER_REQUIRED_MESSAGE }, { status: 400 });
     if (canon) patch.influencerHandle = canon;
+  }
+  // 게시된 미배정 작업의 최초 배정(가드가 허용하는 유일한 게시 후 배정) — 붙은 게시물이 있으면 그 작성자여야 한다
+  // (다른 인플의 게시물 차단 스펙 §3 ⑤, 옛 데이터 방어). 명부 표기로 맞춘 뒤에 본다.
+  if (patch.influencerHandle && cur.postedAt && cur.influencerHandle === null) {
+    const v = await guardFirstAssign(sql, taskId, patch.influencerHandle, { fetchPost });
+    if (v.kind === 'mismatch') return NextResponse.json({ error: firstAssignMismatchMessage(v.authorHandle), code: 'author-mismatch' }, { status: 400 });
+    if (v.kind !== 'ok') return NextResponse.json(authorVerdictMessage(v), { status: 400 });
   }
   // 결제 수단(설계 §8-2) — 살아 있는 요청이 있으면 바꾸지 못한다(제자리 수정이 스냅샷을 조용히 바꾼다).
   // 값이 있으면 이 요청 뒤의 인플(같이 바꾸면 새 사람, 안 보냈으면 저장된 사람 — 없으면 '먼저 정해 주세요')의 지금 목록에 있어야 한다.
@@ -98,29 +109,40 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
   } else if (patch.targetTweetUrl) {
     taskPatch.targetTaskId = null;
   }
+  // 트랜잭션 몸통 — 게시물 링크가 오면 attachPostToTask가 같은 트랜잭션 안에서 이걸 먼저 돌린 뒤 작성자를 판정하고
+  // 트래킹 등록·연결까지 한다(다른 인플의 게시물 차단 스펙 §3 ①). 링크가 없으면 그냥 이 몸통만 한 트랜잭션으로.
+  const apply = async (tx: postgres.Sql) => {
+    // updateTask의 where절이 R17 가드를 건다(게시 확인만) — 읽기~쓰기 사이 취소가 끼어들면 false가
+    // 온다. 트랜잭션을 throw로 끊어 흔적 정리·원고 동기화까지 반쪽으로 남지 않게 한다(라우트가 409로).
+    const ok = await updateTask(tx, taskId, taskPatch);
+    // false의 다른 원인은 "행이 없음"(동시 삭제) — 그건 아래 getTask → 404 문구가 맞다. 게시 확인 패치일 때만 취소 경합.
+    if (!ok && taskPatch.postedAt !== undefined) throw new TaskUpdateRaceError();
+    // 해제(인플 → 없음)도 옛 사람 흔적을 정리한다 — "해제 → 재배정"으로 교체 규칙을 우회할 수 없게(ADR 0005 표)
+    if (patch.influencerHandle === null && cur.influencerHandle) {
+      const traces = await clearOldInfluencerTraces(tx, taskId);
+      if (traces.draftId && traces.draftWasDelivered) await updateDraft(tx, traces.draftId, { status: 'approved' });
+    }
+    if (patch.influencerHandle !== undefined && cur.draftId) {
+      const before = await getDraft(tx, cur.draftId);
+      if (before && (before.influencerHandle ?? '').toLowerCase() !== (patch.influencerHandle ?? '').toLowerCase()) {
+        await updateDraft(tx, cur.draftId, { influencerHandle: patch.influencerHandle });
+        await syncInfluencerOnDraftUpdate(tx, { before, influencerHandle: patch.influencerHandle, status: undefined, actorId: gate.member.id });
+      }
+    }
+  };
+  // RT는 자기 게시물이 없다 — 링크 판정·트래킹 연결 대상이 아니다(기존 규칙 그대로). 링크 지우기(null)도 판정 없음.
+  const attachUrl = patch.postUrl && cur.type !== 'rt' ? patch.postUrl : null;
   try {
-    await sql.begin(async (tx0) => {
-      const tx = tx0 as unknown as postgres.Sql;
-      // updateTask의 where절이 R17 가드를 건다(게시 확인만) — 읽기~쓰기 사이 취소가 끼어들면 false가
-      // 온다. 트랜잭션을 throw로 끊어 흔적 정리·원고 동기화까지 반쪽으로 남지 않게 한다(라우트가 409로).
-      const ok = await updateTask(tx, taskId, taskPatch);
-      // false의 다른 원인은 "행이 없음"(동시 삭제) — 그건 아래 getTask → 404 문구가 맞다. 게시 확인 패치일 때만 취소 경합.
-      if (!ok && taskPatch.postedAt !== undefined) throw new TaskUpdateRaceError();
-      // 해제(인플 → 없음)도 옛 사람 흔적을 정리한다 — "해제 → 재배정"으로 교체 규칙을 우회할 수 없게(ADR 0005 표)
-      if (patch.influencerHandle === null && cur.influencerHandle) {
-        const traces = await clearOldInfluencerTraces(tx, taskId);
-        if (traces.draftId && traces.draftWasDelivered) await updateDraft(tx, traces.draftId, { status: 'approved' });
-      }
-      if (patch.influencerHandle !== undefined && cur.draftId) {
-        const before = await getDraft(tx, cur.draftId);
-        if (before && (before.influencerHandle ?? '').toLowerCase() !== (patch.influencerHandle ?? '').toLowerCase()) {
-          await updateDraft(tx, cur.draftId, { influencerHandle: patch.influencerHandle });
-          await syncInfluencerOnDraftUpdate(tx, { before, influencerHandle: patch.influencerHandle, status: undefined, actorId: gate.member.id });
-        }
-      }
-    });
+    if (attachUrl) {
+      const r = await attachPostToTask(sql, taskId, attachUrl, { fetchPost }, { createdBy: gate.member.id, apply });
+      if (!r.ok) return NextResponse.json({ error: r.error, code: r.code }, { status: 400 });
+    } else {
+      await sql.begin(async (tx0) => apply(tx0 as unknown as postgres.Sql));
+    }
   } catch (e) {
     if (e instanceof TaskUpdateRaceError) return NextResponse.json({ error: POST_CANCELLED_MESSAGE }, { status: 409 });
+    // 게시물 연결 규칙(RT·취소 작업) — 위 가드가 먼저 걸러 거의 나지 않지만 500 대신 문구로
+    if (e instanceof TrackingLinkError) return NextResponse.json({ error: trackingLinkMessage(e) }, { status: 400 });
     // 최후 방어 — DB check(경합의 다른 경로)를 밟아도 500 대신 문구로.
     if (e instanceof postgres.PostgresError && e.code === '23514') {
       return NextResponse.json({ error: POST_CANCELLED_MESSAGE }, { status: 409 });

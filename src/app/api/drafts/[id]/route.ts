@@ -10,7 +10,9 @@ import { formatForPosts } from '@/lib/draftFormat';
 import { normalizeDraftMedia } from '@/lib/draftMediaGuard';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 import { parseTaskIdPatch, TASK_NOT_FOUND_MESSAGE, DRAFT_ATTACHED_MESSAGE, TASK_HAS_DRAFT_MESSAGE, CANCELLED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
-import { attachDraft, detachDraft, TaskAttachError } from '@/lib/campaignTaskStore';
+import { attachDraft, detachDraft, TaskAttachError, DraftAttachAuthorError } from '@/lib/campaignTaskStore';
+import { prefetchAttachAuthors } from '@/lib/postAttach';
+import { fetchPost } from '@/lib/postMetrics';
 import { rosterHandleOf, ROSTER_REQUIRED_MESSAGE } from '@/lib/taskAssignGate';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -71,6 +73,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     derivedFormat = formatForPosts((body.edited as DraftContent).posts.length);
   }
   const sql = getSql();
+  // 붙이기가 게시물 붙은 미배정 작업의 인플을 원고의 인플로 채우게 되면 그 게시물 작성자여야 한다(다른 인플의 게시물 차단
+  // 스펙 §9-2). 판정은 attachDraft가 잠근 행으로 하고, 필요한 X 조회는 여기 트랜잭션 밖에서 미리 한다(채움이 없으면 조회 0).
+  const liveAuthors = typeof taskId.value === 'string' ? await prefetchAttachAuthors(sql, taskId.value, id, { fetchPost }) : undefined;
   const result = await sql.begin(async (tx0): Promise<'ok' | 'no-draft' | 'no-task' | 'draft-attached' | 'task-has-draft' | 'task-cancelled' | 'not-in-roster'> => {
     const tx = tx0 as unknown as postgres.Sql; // 저장소 선례: generate.ts:127
     // 동시 PATCH가 스테일 스냅샷으로 로그를 쓰지 않도록 행을 잠그고 읽는다 (리뷰 반영)
@@ -89,7 +94,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     let syncHandle = influencerHandle; // syncInfluencerOnDraftUpdate에 넘길 값 — 기본은 이 PATCH의 배정값
     if (taskId.value === null) await detachDraft(tx, id);
     else if (taskId.value !== undefined) {
-      try { await attachDraft(tx, taskId.value, id); }
+      try { await attachDraft(tx, taskId.value, id, { liveAuthors }); }
       catch (e) { if (e instanceof TaskAttachError) return e.code; throw e; }
       // attachDraft가 작업의 핸들을 원고에 직접 update할 수 있다(campaignTaskStore, updateDraft를 거치지
       // 않음) — 이 PATCH가 배정을 건드리지 않았다면(influencerHandle===undefined) 로그가 안 남는다.
@@ -117,7 +122,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     });
     await syncInfluencerOnDraftUpdate(tx, { before, influencerHandle: syncHandle, status: body.status as string | undefined, actorId: gate.member.id });
     return 'ok';
+  }).catch((e: unknown) => {
+    // 작성자 불일치·확인 불가 — 던져서 트랜잭션이 통째로 롤백됐다(그 전엔 행 잠금 select뿐이라 잃는 것도 없다)
+    if (e instanceof DraftAttachAuthorError) return e;
+    throw e;
   });
+  if (result instanceof DraftAttachAuthorError) return NextResponse.json({ error: result.message, code: result.code }, { status: 400 });
   if (result === 'not-in-roster') return NextResponse.json({ error: ROSTER_REQUIRED_MESSAGE }, { status: 400 });
   if (result === 'no-task') return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 400 });
   if (result === 'draft-attached') return NextResponse.json({ error: DRAFT_ATTACHED_MESSAGE }, { status: 409 });

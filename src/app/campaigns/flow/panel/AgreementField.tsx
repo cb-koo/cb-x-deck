@@ -3,17 +3,23 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { PanelSection } from './PanelSection';
 import type { TaskAgreement, TaskAgreementInput } from '@/lib/taskAgreementGuard';
 import { agreementMeta, agreementKind } from '@/lib/taskAgreementGuard';
-import { uploadTaskAgreement, openTaskAgreement, taskAgreementValidationError, TASK_AGREEMENT_ACCEPT } from '@/lib/taskAgreement';
+import { uploadTaskAgreement, openTaskAgreement, taskAgreementValidationError, agreementPasteName, TASK_AGREEMENT_ACCEPT } from '@/lib/taskAgreement';
+import { kstToday } from '@/lib/datetime';
+import { pasteBlockedByModal } from '@/components/pasteModalGuard';
+import { FILE_BTN_PRIMARY, FILE_BTN_LIGHT, FILE_BTN_TRASH, TRASH_ICON_PATH } from '@/components/fileFieldButtons';
 
 // 방문협찬 협찬 동의서 칸(063, koo 09-29) — 작업 하나에 파일 하나. 없어도 아무것도 막지 않는다(결정 4): 없으면 '동의서 없음'을
 // 알리고 [파일 첨부]만 둔다. 정산 검토 대기에도 🟡 '협찬 동의서가 없어요'가 뜨지만 요청은 만들 수 있다.
 // 파일을 고르는 순간 바로 올라가고, 저장(PATCH)은 부모(onChange = actions.setAgreement)가 한다 — TaskProofField와 같은 나눔.
 // PDF가 주라 미리보기 대신 파일명·올린 사람·날짜 한 줄로 알아보고, [보기]는 새 탭에서 연다.
 // 끌어다 놓기(koo 09-29): '협찬 동의서' 상자 전체가 놓는 자리 — 파일을 끌고 들어오면 상자가 파랗게 바뀌고 '여기에 놓으면 올려요'.
-// 이미 동의서가 있으면 바꿀지 한 번 묻는다(잘못 끌어다 놓아 바뀌는 것을 막는다). 붙여넣기는 두지 않는다(받은 파일이지 스크린샷이 아니다).
+// 이미 동의서가 있으면 바꿀지 한 번 묻는다(잘못 끌어다 놓아 바뀌는 것을 막는다).
+// 붙여넣기(koo 10-01): 동의서는 대부분 이미지(카톡·라인으로 받은 사진)라 ⌘V로도 받는다 — 이 칸이 화면에 있는 동안 문서 붙여넣기를 듣는다
+// (TaskProofField와 같은 방식·같은 가드). 붙여 넣은 파일은 브라우저가 'image.png'로 이름을 줘서 '동의서_@핸들_YYYYMMDD'로 지어 올린다.
 // 이 칸이 상자(PanelSection)까지 그린다 — 놓는 자리가 상자 전체여야 하는데 상자는 부모 쪽에 있으면 이벤트를 받을 수 없다.
-export function AgreementField({ taskId, value, disabled, onChange }: {
+export function AgreementField({ taskId, influencerHandle, value, disabled, onChange }: {
   taskId: string;
+  influencerHandle: string | null;   // 붙여 넣은 파일의 이름용
   value: TaskAgreement | null;
   disabled: boolean;   // 취소된 작업 — 값만 보여준다(거짓 어포던스 금지)
   onChange: (next: TaskAgreementInput | null) => Promise<boolean>;
@@ -21,6 +27,7 @@ export function AgreementField({ taskId, value, disabled, onChange }: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   async function put(file: File) {
     if (busy) return;
@@ -58,6 +65,30 @@ export function AgreementField({ taskId, value, disabled, onChange }: {
     return () => { window.removeEventListener('dragover', block); window.removeEventListener('drop', block); };
   }, []);
   const canDrop = !disabled && !busy;
+  // 붙여넣기 — 받을 수 있을 때만 듣는다. 입력 칸·편집 영역(메모·원고 등)으로 향한 붙여넣기는 건드리지 않고, 위에 다른 모달이 떠 있으면
+  // 그 모달 몫(pasteModalGuard). 다른 칸이 먼저 받은 붙여넣기(defaultPrevented)는 건너뛴다 — 한 이미지가 두 칸에 올라가지 않게.
+  // put·value는 렌더마다 새로 잡히므로 ref로 최신 것을 읽는다(리스너를 매 렌더 붙였다 떼지 않게).
+  const latest = useRef({ put, value, influencerHandle });
+  useEffect(() => { latest.current = { put, value, influencerHandle }; });
+  useEffect(() => {
+    if (!canDrop) return;
+    const onPaste = (e: ClipboardEvent) => {
+      if (e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (pasteBlockedByModal(rootRef.current)) return;
+      const file = Array.from(e.clipboardData?.files ?? [])[0];
+      if (!file) return;   // 텍스트 붙여넣기는 그냥 흘려보낸다
+      e.preventDefault();
+      const { put: upload, value: cur, influencerHandle: handle } = latest.current;
+      if (cur && !window.confirm(`지금 동의서(${cur.name})를 새 ${file.type.startsWith('image/') ? '이미지' : '파일'}로 바꿀까요?`)) return;
+      // 형식이 틀리면 원래 이름 그대로 넘겨 검증 문구를 띄운다(이름 짓기는 허용 형식만)
+      const named = taskAgreementValidationError(file) ? file : new File([file], agreementPasteName(handle, kstToday(), file.type), { type: file.type });
+      void upload(named);
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [canDrop]);
   const dropProps = canDrop ? {
     onDragEnter: (e: DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); depth.current += 1; setOver(true); },
     onDragOver: (e: DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; },
@@ -75,7 +106,7 @@ export function AgreementField({ taskId, value, disabled, onChange }: {
   const blocked = disabled || busy;
 
   return (
-    <div className="relative" {...dropProps}>
+    <div ref={rootRef} className="relative" {...dropProps}>
       <PanelSection title="협찬 동의서">
       {busy ? (
         <div className="flex h-[62px] items-center gap-3 rounded-lg border border-x-border bg-x-surface/60 px-3">
@@ -95,16 +126,16 @@ export function AgreementField({ taskId, value, disabled, onChange }: {
           </span>
           <span className="flex shrink-0 items-center gap-1.5">
             <button type="button" onClick={() => void view(value.url)}
-                    className="h-8 rounded-full border border-x-border-strong bg-white px-3 text-ui font-semibold text-x-text hover:bg-x-hover">보기 ↗</button>
+                    className={FILE_BTN_PRIMARY}>보기 ↗</button>
             {!disabled && (
               <button type="button" onClick={pick} disabled={blocked}
-                      className="h-8 rounded-full px-3 text-ui text-x-secondary hover:bg-x-hover disabled:cursor-not-allowed disabled:opacity-50">바꾸기</button>
+                      className={FILE_BTN_LIGHT}>바꾸기</button>
             )}
             {!disabled && (
               <button type="button" onClick={remove} disabled={blocked} aria-label="동의서 지우기" title="동의서 지우기"
-                      className="flex h-8 w-8 items-center justify-center rounded-full text-x-muted hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50">
+                      className={FILE_BTN_TRASH}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="h-4 w-4">
-                  <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
+                  <path d={TRASH_ICON_PATH} />
                 </svg>
               </button>
             )}
@@ -123,11 +154,15 @@ export function AgreementField({ taskId, value, disabled, onChange }: {
               동의서 없음{!disabled && <span className="font-normal text-x-muted"> · 없어도 정산은 돼요</span>}
             </span>
             {/* 행동 전 기대(UX 원칙 2) — 어떻게 올리는지·어떤 파일인지 */}
-            {!disabled && <span className="block text-ui text-x-muted">끌어다 놓거나 눌러서 올려요 · PDF·JPG·PNG, 10MB까지</span>}
+            {!disabled && (
+              <>
+                <span className="block text-ui text-x-secondary">붙여넣기(⌘V) · 끌어다 놓기 · 눌러서 고르기</span>
+                <span className="block text-ui text-x-muted">PDF·JPG·PNG, 10MB까지</span>
+              </>
+            )}
           </span>
           {!disabled && (
-            <button type="button" onClick={pick} disabled={blocked}
-                    className="h-8 shrink-0 rounded-full border border-x-border-strong bg-white px-3 text-ui font-semibold text-x-text hover:bg-x-hover disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" onClick={pick} disabled={blocked} className={FILE_BTN_PRIMARY}>
               파일 첨부
             </button>
           )}

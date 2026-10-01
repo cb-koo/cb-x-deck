@@ -16,7 +16,7 @@ import { useTweetPreview } from './useTweetPreview';
 //  · 투고·인용RT·방문협찬: 게시일을 적지 않는다. 게시물 링크를 붙이면 트윗 id에서 한국 날짜가 나오고
 //    (tweetPostedOn — 서버 판정 campaignTaskInput.postedAtFromLinkGate와 같은 함수), 그 게시물을 카드로 미리 본다.
 //  · RT: 자기 게시물이 없다 — 지금처럼 날짜를 적고 증빙 스크린샷(필수)을 넣는다(PostedForm과 같은 칸).
-//  · 게시 뒤: 날짜 줄 + (RT 아니면) 게시물 카드, RT면 증빙 보기/없음, 그리고 내림 표시·취소.
+//  · 게시 뒤: 날짜 줄 + (RT 아니면) 게시물 카드, RT면 증빙 칸(TaskProofField — 크게 보기·바꾸기·받기, 없으면 올리기), 그리고 내림 표시·취소.
 //  · 게시 전: 맨 아래 구분선 + [✕ 진행 안 됨](koo 09-26 시안 A). 행 메뉴의
 //    [작업 취소]와 같은 창(CancelDialog)을 연다. 메뉴에만 있던 때는 아무도 못 찾아 메모로 '섭외 불성립'을 적었다.
 // 미리보기(X 조회)는 붙여넣기·칸 벗어남·Enter로 "확정된" 링크에서만 부른다 — 한 글자씩 칠 때마다 id의 앞부분도
@@ -26,14 +26,14 @@ import { useTweetPreview } from './useTweetPreview';
 const input = 'h-10 w-full rounded-md border bg-white px-2.5 text-content outline-none focus:border-x-blue';
 const subTitle = 'mb-1.5 text-[14px] font-semibold text-x-secondary';
 
-export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMarkPosted, onZoomProof, onOpenRemoved, onUnmarkRemoved, onCancel }: {
+export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMarkPosted, onSetProof, onOpenRemoved, onUnmarkRemoved, onCancel }: {
   task: FlowRow;
   today: string;
   proofSignedUrl: string | null;
   focus: boolean;
   onFocused: () => void;
   onMarkPosted: (date: string, postUrl?: string, proof?: string) => Promise<boolean>;
-  onZoomProof: (url: string) => void;
+  onSetProof: (path: string | null) => Promise<boolean>;   // 게시된 RT의 증빙 바꾸기(actions.setProof) — 저장 결과를 돌려준다
   onOpenRemoved: () => void;
   onUnmarkRemoved: () => void;
   onCancel: () => void;
@@ -85,16 +85,15 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
           <div className="mt-2.5"><TargetPreview state={{ kind: 'link', url: previewUrl }} {...prev} lines={3}
                                                 repostMessage="리포스트 링크로 게시 확인됐어요 — 원본 게시물이 아니라 카드를 보여줄 수 없어요" /></div>
         )}
+        {/* RT 증빙(koo 10-01) — 썸네일 + [크게 보기·바꾸기·받기]. 게시된 RT는 서버가 증빙 비우기를 거절하므로 지우기는 없다(canRemove=false) —
+            '지우고 다시 올리기'는 [바꾸기]로 연 교체 상자에 새 스크린샷을 붙여넣는 한 동작이다. 증빙이 없는 옛 데이터면 올리기 상자가 바로 뜬다.
+            key를 주지 않는다 — 실패한 바꾸기가 롤백되면 TaskProofField가 옛 이미지(signedUrl)로 알아서 돌아간다(PostedCell과 같은 이유). */}
+        {isRt && !task.proof && <p className="mt-2 text-ui text-amber-700">증빙 없음 — 지금 채울 수 있어요</p>}
         {isRt && (
-          task.proof
-            ? (
-              <button type="button" disabled={!proofSignedUrl} onClick={() => proofSignedUrl && onZoomProof(proofSignedUrl)}
-                      title={proofSignedUrl ? '증빙 스크린샷 — 눌러서 크게 보기' : '증빙 스크린샷 불러오는 중…'}
-                      className="mt-1 rounded bg-slate-100 px-1.5 py-0.5 text-ui text-slate-600 hover:bg-slate-200 disabled:cursor-default disabled:opacity-70 disabled:hover:bg-slate-100">
-                증빙 보기
-              </button>
-            )
-            : <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-ui text-amber-700">증빙 없음</span>
+          <TaskProofField taskId={task.id} value={task.proof?.url ?? null} signedUrl={proofSignedUrl}
+                          postedAt={task.postedAt} influencerHandle={task.influencerHandle}
+                          required={false} canRemove={false} disabled={false}
+                          onChange={(p) => onSetProof(p)} />
         )}
         {/* 게시 내림(koo 09-19 결정 3) — 되돌리기는 확인 없이 즉시(되돌리는 동작이라 R18과 같은 결) */}
         {task.removedAt ? (

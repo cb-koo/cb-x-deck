@@ -16,6 +16,10 @@ import { FILE_BTN_PRIMARY, FILE_BTN_LIGHT, FILE_BTN_TRASH, TRASH_ICON_PATH } fro
 // 이미 동의서가 있으면 바꿀지 한 번 묻는다(잘못 끌어다 놓아 바뀌는 것을 막는다).
 // 붙여넣기(koo 10-01): 동의서는 대부분 이미지(카톡·라인으로 받은 사진)라 ⌘V로도 받는다 — 이 칸이 화면에 있는 동안 문서 붙여넣기를 듣는다
 // (TaskProofField와 같은 방식·같은 가드). 붙여 넣은 파일은 브라우저가 'image.png'로 이름을 줘서 '동의서_@핸들_YYYYMMDD'로 지어 올린다.
+// 붙여넣기는 이미지(jpg·png)만 받는다 — PDF는 끌어다 놓거나 파일 고르기로. macOS Finder에서 PDF를 복사(⌘C)하면
+// 클립보드에 진짜 파일이 아니라 아이콘 그림(image/png)만 오는 경우가 있어, 그걸 진짜 스크린샷인 양 받으면 안
+// 열리는 '동의서.png'가 올라간다(리뷰 수정 2). 'Files' 종류와 함께 .pdf로 끝나는 파일 경로가 실려 있으면
+// 그 신호로 보고 안내만 한다.
 // 이 칸이 상자(PanelSection)까지 그린다 — 놓는 자리가 상자 전체여야 하는데 상자는 부모 쪽에 있으면 이벤트를 받을 수 없다.
 export function AgreementField({ taskId, influencerHandle, value, disabled, onChange }: {
   taskId: string;
@@ -77,12 +81,22 @@ export function AgreementField({ taskId, influencerHandle, value, disabled, onCh
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
       if (pasteBlockedByModal(rootRef.current)) return;
-      const file = Array.from(e.clipboardData?.files ?? [])[0];
+      const dt = e.clipboardData;
+      const file = Array.from(dt?.files ?? [])[0];
       if (!file) return;   // 텍스트 붙여넣기는 그냥 흘려보낸다
+      // macOS Finder에서 PDF를 복사하면 진짜 파일 대신 아이콘 그림(image/png)이 오기도 한다 — 'Files' 종류와
+      // 함께 .pdf로 끝나는 파일 경로(text/uri-list·text/plain)가 실려 있으면 그 신호로 보고 안내만 한다(리뷰 수정 2).
+      const fileRef = (dt?.getData('text/uri-list') || dt?.getData('text/plain') || '').trim();
+      const looksLikePdf = file.type === 'application/pdf' || (Array.from(dt?.types ?? []).includes('Files') && /\.pdf$/i.test(fileRef));
+      if (looksLikePdf) {
+        e.preventDefault();
+        setErr('PDF는 끌어다 놓거나 눌러서 골라 주세요');
+        return;
+      }
+      if (!file.type.startsWith('image/')) return;   // 이미지가 아니면 흘려보낸다(다른 칸 몫일 수 있다) — webp 등 허용 밖 이미지는 올려서 형식 안내를 보여준다
       e.preventDefault();
       const { put: upload, value: cur, influencerHandle: handle } = latest.current;
-      if (cur && !window.confirm(`지금 동의서(${cur.name})를 새 ${file.type.startsWith('image/') ? '이미지' : '파일'}로 바꿀까요?`)) return;
-      // 형식이 틀리면 원래 이름 그대로 넘겨 검증 문구를 띄운다(이름 짓기는 허용 형식만)
+      if (cur && !window.confirm(`지금 동의서(${cur.name})를 새 이미지로 바꿀까요?`)) return;
       const named = taskAgreementValidationError(file) ? file : new File([file], agreementPasteName(handle, kstToday(), file.type), { type: file.type });
       void upload(named);
     };
@@ -156,7 +170,7 @@ export function AgreementField({ taskId, influencerHandle, value, disabled, onCh
             {/* 행동 전 기대(UX 원칙 2) — 어떻게 올리는지·어떤 파일인지 */}
             {!disabled && (
               <>
-                <span className="block text-ui text-x-secondary">붙여넣기(⌘V) · 끌어다 놓기 · 눌러서 고르기</span>
+                <span className="block text-ui text-x-secondary">이미지 붙여넣기(⌘V) · 끌어다 놓기 · 눌러서 고르기</span>
                 <span className="block text-ui text-x-muted">PDF·JPG·PNG, 10MB까지</span>
               </>
             )}

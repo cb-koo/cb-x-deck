@@ -40,7 +40,7 @@ export function agreementPasteName(handle: string | null, today: string, mime: s
   return `동의서_${h ? `@${h}_` : ''}${today.replaceAll('-', '')}${ext ? `.${ext}` : ''}`;
 }
 
-// 표시할 파일명 —너무 긴 이름은 서버가 거절하므로(TASK_AGREEMENT_NAME_MAX) 확장자를 살려 앞을 자른다
+// 표시할 파일명 — 너무 긴 이름은 서버가 거절하므로(TASK_AGREEMENT_NAME_MAX) 확장자를 살려 앞을 자른다
 export function agreementDisplayName(name: string): string {
   const n = name.trim() || '협찬 동의서';
   if (n.length <= TASK_AGREEMENT_NAME_MAX) return n;

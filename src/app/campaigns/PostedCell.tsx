@@ -89,7 +89,7 @@ export function PostedForm({ task, today, onSubmit, onCancel, submitLabel = '게
 // (onSetProof, 별개의 PATCH) 옛 화면 그대로 제출과 분리해 둔다.
 export function RemovedForm({ task, today, proofSignedUrl, onSetProof, onSubmit, onCancel }: {
   task: CampaignTaskItem; today: string; proofSignedUrl: string | null;
-  onSetProof: (path: string | null) => void;
+  onSetProof: (path: string | null) => Promise<boolean>;   // 저장 결과를 돌려준다 — TaskProofField가 저장이 끝날 때까지 기다린다
   onSubmit: (date: string, reason: string) => void;
   onCancel: () => void;
 }) {
@@ -146,7 +146,7 @@ export function PostedCell({ task, today, proofSignedUrl, onMarkPosted, onMarkRe
   onMarkPosted: (date: string, postUrl?: string, proof?: string) => void;
   onMarkRemoved: (date: string, reason: string) => void;
   onUnmarkRemoved: () => void;
-  onSetProof: (path: string | null) => void;
+  onSetProof: (path: string | null) => Promise<boolean>;   // 저장 결과를 돌려준다 — TaskProofField가 저장이 끝날 때까지 기다린다
 }) {
   const stage = taskStage(task, today);
   const tag = stageTag(task);

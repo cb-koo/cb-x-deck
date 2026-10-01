@@ -12,7 +12,7 @@ export function RemovedDialog({ task, today, proofSignedUrl, onClose, onSetProof
   today: string;
   proofSignedUrl: string | null;
   onClose: () => void;
-  onSetProof: (path: string | null) => void;
+  onSetProof: (path: string | null) => Promise<boolean>;   // 저장 결과를 돌려준다 — TaskProofField가 저장이 끝날 때까지 기다린다
   onSubmit: (date: string, reason: string) => void;
 }) {
   useEffect(() => {

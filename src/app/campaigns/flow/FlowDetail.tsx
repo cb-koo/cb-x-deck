@@ -1047,7 +1047,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
       {removedOpen && panelTask && (
         <RemovedDialog task={panelTask} today={data.today} proofSignedUrl={panelTask.proof ? proofUrls[panelTask.proof.url] ?? null : null}
                        onClose={() => setRemovedOpen(false)}
-                       onSetProof={(p) => void actions.setProof(panelTask, p)}
+                       onSetProof={(p) => actions.setProof(panelTask, p)}
                        onSubmit={(date, reason) => void actions.markRemoved(panelTask, date, reason)} />
       )}
       {linkFor && (

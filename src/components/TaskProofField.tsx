@@ -75,7 +75,11 @@ export function TaskProofField({
         return;
       }
       setReplacingFor(null);
-      if (isReplace) setFlash({ taskId, text: '증빙을 바꿨어요' });
+      if (isReplace) {
+        setFlash({ taskId, text: '증빙을 바꿨어요' });
+        // [바꾸기]는 교체 상자가 닫힌 뒤에 다시 그려진다 — 취소와 같은 방식으로 포커스를 돌려준다(리뷰 수정 3)
+        requestAnimationFrame(() => changeBtnRef.current?.focus());
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : '올리지 못했어요 — 다시 시도해주세요';
       setErr(isReplace ? `${msg} · 원래 증빙은 그대로예요` : msg);
@@ -204,9 +208,11 @@ export function TaskProofField({
           <button type="button" disabled={busy} onClick={cancelReplace} className={`${FILE_BTN_LIGHT} self-center`}>취소</button>
         </div>
       )}
-      {flash && flash.taskId === taskId && (
-        <p role="status" className="mt-1 text-ui font-semibold text-green-700">✓ {flash.text}</p>
-      )}
+      {/* 늘 떠 있는 상태 알림칸(리뷰 수정 3) — 성공 때만 새로 넣지 않는다. 막 생긴 role="status"는 스크린
+          리더가 놓칠 수 있어, 칸 자체는 늘 DOM에 두고 글만 채운다(BulkAnalyzeDialog와 같은 관례). */}
+      <p role="status" className={`mt-1 text-ui font-semibold text-green-700 ${flash && flash.taskId === taskId ? '' : 'sr-only'}`}>
+        {flash && flash.taskId === taskId ? `✓ ${flash.text}` : ''}
+      </p>
       {required && !value && (
         <p className="mt-1 text-ui text-x-muted">인플루언서 피드에서 RT가 보이는 화면을 찍어주세요 — 계정 이름과 RT 표시가 함께 보이면 좋아요</p>
       )}

@@ -5,7 +5,7 @@ import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { findTrackedPostById, linkTrackedPost, deleteTrackedPost, setRole, TrackingLinkError, trackingLinkMessage, TRACKING_LINK_CANCELLED_MESSAGE } from '@/lib/trackingStore';
 import { POST_ROLES, type PostRole } from '@/lib/postRole';
-import { guardTaskLink, guardDraftLink } from '@/lib/postAttach';
+import { judgeTaskLink, judgeDraftLink, linkTrackedPostGuarded, TaskChangedError, type TaskSeen } from '@/lib/postAttach';
 import { authorVerdictMessage } from '@/lib/postAuthor';
 import { fetchPost } from '@/lib/postMetrics';
 
@@ -50,21 +50,27 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (!tp) return notFound();
   // 작업에 붙는 연결이면 작성자 확인(다른 인플의 게시물 차단 스펙 §3 ②④) — 원고 연결은 그 원고가 작업에 붙어 있을 때만.
   // 연결 해제(null)는 판정하지 않는다.
+  let seen: TaskSeen = null;
   if (typeof link.v === 'string') {
     const author = { tweetId: tp.tweetId, authorHandle: tp.authorHandle };
-    const v = link.key === 'taskId'
-      ? await guardTaskLink(sql, link.v, author, { fetchPost })
-      : await guardDraftLink(sql, link.v, author, { fetchPost });
-    if (v.kind !== 'ok') return NextResponse.json(authorVerdictMessage(v), { status: 400 });
+    const j = link.key === 'taskId'
+      ? await judgeTaskLink(sql, link.v, author, { fetchPost })
+      : await judgeDraftLink(sql, link.v, author, { fetchPost });
+    if (j.verdict.kind !== 'ok') return NextResponse.json(authorVerdictMessage(j.verdict), { status: 400 });
+    seen = j.seen;
   }
 
   try {
-    const linked = await sql.begin(async (tx0) => linkTrackedPost(
-      tx0 as unknown as postgres.Sql, id,
-      link.key === 'taskId' ? { taskId: link.v as string | null } : { draftId: link.v as string | null },
-    ));
+    // 연결은 판정 때 본 작업이 그대로일 때만 — 같은 트랜잭션에서 작업 행을 잠그고 다시 본다(§9-1). 해제(null)는 그대로.
+    const target = link.v;
+    const linked = typeof target === 'string'
+      ? await linkTrackedPostGuarded(sql, id, link.key === 'taskId' ? { taskId: target } : { draftId: target }, seen)
+      : await sql.begin(async (tx0) => linkTrackedPost(
+        tx0 as unknown as postgres.Sql, id, link.key === 'taskId' ? { taskId: null } : { draftId: null },
+      ));
     if (!linked) return notFound();
   } catch (e) {
+    if (e instanceof TaskChangedError) return NextResponse.json({ error: e.message, code: e.code }, { status: 400 });
     // RT 작업엔 자기 게시물이 없다 — 연결하면 증빙 없이 게시됨이 된다(§5).
     if (e instanceof TrackingLinkError) return NextResponse.json({ error: trackingLinkMessage(e) }, { status: 400 });
     // 존재하지 않는 원고/작업 id를 연결하려 하면 FK 위반(23503, linkTrackedPost는 작업 쪽을 같은 code로 직접 던진다) — 사용자 잘못이니 400으로 알린다.

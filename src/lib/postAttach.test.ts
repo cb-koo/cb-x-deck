@@ -6,11 +6,15 @@ import { createClient } from './clientStore.ts';
 import { createCampaign } from './campaignStore.ts';
 import { insertDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
-import { createTasks, getTask, updateTask, attachDraft } from './campaignTaskStore.ts';
+import { createTasks, getTask, updateTask, attachDraft, detachDraft, DraftAttachAuthorError } from './campaignTaskStore.ts';
 import { addTrackedPost, findByTweetId } from './trackingStore.ts';
 import type { FetchPostResult } from './postMetrics.ts';
 import { postedOnFromTweetId } from './tweetPostedOn.ts';
-import { attachPostToTask, guardTaskLink, guardDraftLink, guardFirstAssign, type Deps } from './postAttach.ts';
+import {
+  attachPostToTask, guardTaskLink, guardDraftLink, guardFirstAssign, judgeTaskLink, judgeDraftLink,
+  linkTrackedPostGuarded, TaskChangedError, TASK_CHANGED_MESSAGE, prefetchAttachAuthors, type Deps,
+} from './postAttach.ts';
+import { firstAssignMismatchMessage } from './postAuthor.ts';
 
 const sql = getSql();
 const P = 'tpat' + process.pid;
@@ -291,4 +295,186 @@ test('⑤ guardFirstAssign — 붙은 게시물의 작성자와 다른 인플은
   assert.deepEqual(await guardFirstAssign(sql, task.id, author, deps), { kind: 'ok' });
   const { task: bare } = await setup('post', null);
   assert.deepEqual(await guardFirstAssign(sql, bare.id, other, deps), { kind: 'ok' });
+});
+
+// ── §9-1 판정과 연결 사이의 인플 변경(동시 작업) ──
+// 판정 결과(seen)를 연결 트랜잭션에 넘기는 모양이라, 판정 → (다른 사람의 변경을 SQL로 흉내) → 연결 순서로 경합을 그대로 재현한다.
+
+async function trackedPost(authorHandle: string | null) {
+  const id = newTweetId();
+  const r = await addTrackedPost(sql, { tweetId: id, authorHandle, text: '연결 대상', postedAt: null, createdBy: null, metrics: M, raw: null });
+  return r.row;
+}
+const taskIdOf = async (tpId: string) =>
+  (await sql<Array<{ task_id: string | null }>>`select task_id from tracked_post where id = ${tpId}`)[0].task_id;
+
+test('§9-1 작업 연결 — 판정 뒤 바뀐 게 없으면 연결된다', async () => {
+  const me = P + 'e1';
+  await roster(me, null);
+  const { task } = await setup('post', me);
+  const tp = await trackedPost(me);
+  const { deps } = fakeFetch({});
+  const j = await judgeTaskLink(sql, task.id, { tweetId: tp.tweetId, authorHandle: tp.authorHandle }, deps);
+  assert.deepEqual(j.verdict, { kind: 'ok' });
+  assert.equal(await linkTrackedPostGuarded(sql, tp.id, { taskId: task.id }, j.seen), true);
+  assert.equal(await taskIdOf(tp.id), task.id);
+});
+
+test('§9-1 작업 연결 — 판정 뒤 그사이 인플이 바뀌면 task-changed로 거절, 아무것도 안 바뀐다', async () => {
+  const me = P + 'e2'; const other = P + 'e3';
+  await roster(me, null); await roster(other, null);
+  const { task } = await setup('post', me);
+  const tp = await trackedPost(me);
+  const { deps } = fakeFetch({});
+  const j = await judgeTaskLink(sql, task.id, { tweetId: tp.tweetId, authorHandle: tp.authorHandle }, deps);
+  assert.deepEqual(j.verdict, { kind: 'ok' });
+  await sql`update campaign_task set influencer_handle = ${other} where id = ${task.id}`;   // 다른 사람의 변경
+  await assert.rejects(linkTrackedPostGuarded(sql, tp.id, { taskId: task.id }, j.seen), (e: unknown) => {
+    assert.ok(e instanceof TaskChangedError);
+    assert.equal(e.code, 'task-changed');
+    assert.equal(e.message, TASK_CHANGED_MESSAGE);
+    return true;
+  });
+  assert.equal(await taskIdOf(tp.id), null);
+  const after = await getTask(sql, task.id);
+  assert.equal(after?.postUrl, null);
+  assert.equal(after?.postedAt, null);
+  // 핸들 대소문자만 다른 건 변경이 아니다(명부 표기 정규화)
+  await sql`update campaign_task set influencer_handle = ${me} where id = ${task.id}`;
+  const j2 = await judgeTaskLink(sql, task.id, { tweetId: tp.tweetId, authorHandle: tp.authorHandle }, deps);
+  await sql`update campaign_task set influencer_handle = ${me.toUpperCase()} where id = ${task.id}`;
+  assert.equal(await linkTrackedPostGuarded(sql, tp.id, { taskId: task.id }, j2.seen), true);
+});
+
+test('§9-1 작업 연결 — 없는 작업은 기존 규칙(23503)대로 올라간다', async () => {
+  const tp = await trackedPost('a');
+  const { deps } = fakeFetch({});
+  const ghost = '00000000-0000-4000-8000-000000000000';
+  const j = await judgeTaskLink(sql, ghost, { tweetId: tp.tweetId, authorHandle: 'a' }, deps);
+  await assert.rejects(linkTrackedPostGuarded(sql, tp.id, { taskId: ghost }, j.seen), (e: unknown) => (e as { code?: string }).code === '23503');
+});
+
+test('§9-1 원고 연결 — 판정 뒤 원고가 다른 작업으로 옮겨 가거나 새로 붙으면 task-changed', async () => {
+  const me = P + 'e4'; const other = P + 'e5';
+  await roster(me, null); await roster(other, null);
+  const { task: mine, clientId, clientName } = await setup('post', me);
+  const { task: theirs } = await setup('post', other);
+  const draftId = await insertDraft(sql, {
+    clientId, clientName, procedureNames: [], direction: P + '방향e', format: 'single', referenceMode: 'off', refs: [],
+    content, model: null, memberId: null,
+  });
+  await attachDraft(sql, mine.id, draftId);
+  const tp = await trackedPost(me);
+  const { deps } = fakeFetch({});
+  const j = await judgeDraftLink(sql, draftId, { tweetId: tp.tweetId, authorHandle: tp.authorHandle }, deps);
+  assert.deepEqual(j.verdict, { kind: 'ok' });
+  await detachDraft(sql, draftId);
+  await attachDraft(sql, theirs.id, draftId);   // 그사이 원고가 @other 작업으로
+  await assert.rejects(linkTrackedPostGuarded(sql, tp.id, { draftId }, j.seen), TaskChangedError);
+  assert.equal(await taskIdOf(tp.id), null);
+
+  // 판정 때 작업 없는 원고였는데 그사이 작업에 붙었다 — 판정을 다시 받아야 한다
+  await detachDraft(sql, draftId);
+  const j2 = await judgeDraftLink(sql, draftId, { tweetId: tp.tweetId, authorHandle: 'Qni6F' }, deps);
+  assert.deepEqual(j2, { verdict: { kind: 'ok' }, seen: null });
+  await attachDraft(sql, theirs.id, draftId);
+  await assert.rejects(linkTrackedPostGuarded(sql, tp.id, { draftId }, j2.seen), TaskChangedError);
+  assert.equal(await taskIdOf(tp.id), null);
+
+  // 바뀐 게 없으면 원고 연결은 작업까지 붙인다
+  const j3 = await judgeDraftLink(sql, draftId, { tweetId: tp.tweetId, authorHandle: other }, deps);
+  assert.deepEqual(j3.verdict, { kind: 'ok' });
+  assert.equal(await linkTrackedPostGuarded(sql, tp.id, { draftId }, j3.seen), true);
+  assert.equal(await taskIdOf(tp.id), theirs.id);
+});
+
+// ── §9-2 원고 붙이기가 게시물 붙은 미배정 작업의 인플을 채울 때 ──
+
+async function unassignedWithPost(authorHandle: string | null) {
+  const s = await setup('post', null);
+  const tp = await trackedPost(authorHandle);
+  await sql`update tracked_post set task_id = ${s.task.id} where id = ${tp.id}`;   // 옛 데이터 — 입구로는 못 만든다
+  return { ...s, tp };
+}
+async function draftWith(handle: string | null, s: { clientId: string; clientName: string }) {
+  const id = await insertDraft(sql, {
+    clientId: s.clientId, clientName: s.clientName, procedureNames: [], direction: P + '방향f', format: 'single',
+    referenceMode: 'off', refs: [], content, model: null, memberId: null,
+  });
+  if (handle) await sql`update draft set influencer_handle = ${handle} where id = ${id}`;
+  return id;
+}
+
+test('§9-2 attachDraft — 원고의 인플이 붙은 게시물 작성자와 다르면 거절, 아무것도 안 바뀐다', async () => {
+  const author = P + 'f1'; const other = P + 'f2';
+  await roster(author, null); await roster(other, null);
+  const s = await unassignedWithPost(author);
+  const draftId = await draftWith(other, s);
+  await assert.rejects(attachDraft(sql, s.task.id, draftId), (e: unknown) => {
+    assert.ok(e instanceof DraftAttachAuthorError);
+    assert.equal(e.code, 'author-mismatch');
+    assert.equal(e.message, firstAssignMismatchMessage(author));
+    return true;
+  });
+  const t = await getTask(sql, s.task.id);
+  assert.equal(t?.draftId, null);
+  assert.equal(t?.influencerHandle, null);
+});
+
+test('§9-2 attachDraft — 같은 인플이면 붙이고 인플을 채운다, 게시물 없으면 판정 없이 채운다', async () => {
+  const author = P + 'f3';
+  await roster(author, null);
+  const s = await unassignedWithPost(author.toUpperCase());
+  const draftId = await draftWith(author, s);
+  await attachDraft(sql, s.task.id, draftId);
+  const t = await getTask(sql, s.task.id);
+  assert.equal(t?.draftId, draftId);
+  assert.equal(t?.influencerHandle, author);
+
+  const bare = await setup('post', null);
+  const d2 = await draftWith(author, bare);
+  await attachDraft(sql, bare.task.id, d2);
+  assert.equal((await getTask(sql, bare.task.id))?.influencerHandle, author);
+});
+
+test('§9-2 attachDraft — 이미 배정된 작업은 채우지 않으니 판정도 없다(기존 그대로)', async () => {
+  const me = P + 'f4';
+  await roster(me, null);
+  const s = await setup('post', me);
+  const tp = await trackedPost('Qni6F');
+  await sql`update tracked_post set task_id = ${s.task.id} where id = ${tp.id}`;
+  const draftId = await draftWith(P + 'f5', s);
+  await attachDraft(sql, s.task.id, draftId);
+  const t = await getTask(sql, s.task.id);
+  assert.equal(t?.draftId, draftId);
+  assert.equal(t?.influencerHandle, me);
+});
+
+test('§9-2 attachDraft — 저장된 옛 핸들·명부 고유번호는 미리 조회한 실제 작성자로 판정(트랜잭션 밖에서 조회)', async () => {
+  // 저장된 핸들이 옛 핸들 — 미리 조회 없으면 저장값으로 판정(불일치), 조회하면 실제 작성자가 같아 통과
+  const me = P + 'f6';
+  await roster(me, null);
+  const s = await unassignedWithPost('old_handle');
+  const draftId = await draftWith(me, s);
+  await assert.rejects(attachDraft(sql, s.task.id, draftId), DraftAttachAuthorError);
+  const { deps, calls } = fakeFetch({ [s.tp.tweetId]: { handle: me, userId: null } });
+  const live = await prefetchAttachAuthors(sql, s.task.id, draftId, deps);
+  assert.deepEqual(calls, [s.tp.tweetId]);
+  await attachDraft(sql, s.task.id, draftId, { liveAuthors: live });
+  assert.equal((await getTask(sql, s.task.id))?.influencerHandle, me);
+
+  // 명부에 고유번호가 있으면 번호로 — 미리 조회가 없거나 실패면 unverified, 번호가 다르면 mismatch
+  const you = P + 'f7';
+  await roster(you, '9001');
+  const s2 = await unassignedWithPost(you);
+  const d2 = await draftWith(you, s2);
+  await assert.rejects(attachDraft(sql, s2.task.id, d2), (e: unknown) => e instanceof DraftAttachAuthorError && e.code === 'author-unverified');
+  const bad = fakeFetch({ [s2.tp.tweetId]: { handle: you, userId: '9002' } });
+  await assert.rejects(
+    attachDraft(sql, s2.task.id, d2, { liveAuthors: await prefetchAttachAuthors(sql, s2.task.id, d2, bad.deps) }),
+    (e: unknown) => e instanceof DraftAttachAuthorError && e.code === 'author-mismatch',
+  );
+  const good = fakeFetch({ [s2.tp.tweetId]: { handle: 'renamed', userId: '9001' } });
+  await attachDraft(sql, s2.task.id, d2, { liveAuthors: await prefetchAttachAuthors(sql, s2.task.id, d2, good.deps) });
+  assert.equal((await getTask(sql, s2.task.id))?.influencerHandle, you);
 });

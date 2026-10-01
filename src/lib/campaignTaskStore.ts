@@ -8,6 +8,7 @@ import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
 import { taskAgreementOf, type TaskAgreement } from './taskAgreementGuard.ts';
 import { influencerChangeGuard, POSTED_TASK_MESSAGE, type CancelReason } from './campaignTaskInput.ts';
 import { rosterHandleOf } from './taskAssignGate.ts';   // 잎 모듈 — 순환 없음(그 파일 머리 주석)
+import { judgeStoredAuthor, authorVerdictMessage, firstAssignMismatchMessage, type AuthorVerdict, type LiveAuthor } from './postAuthor.ts';   // 순수 모듈 — 순환 없음
 // draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
 // getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
 import type { DraftRow } from './draftStore.ts';
@@ -76,6 +77,21 @@ export class TaskAttachError extends Error {
     this.name = 'TaskAttachError';
   }
 }
+// 원고 붙이기가 게시물 붙은 미배정 작업의 인플을 채우려는데 그 게시물의 작성자가 아니다(다른 인플의 게시물 차단 스펙 §9-2).
+// TaskAttachError와 따로 둔다 — 그쪽 code는 라우트들이 문구로 바꾸는 닫힌 목록이다. 이건 문구를 직접 들고 400으로 간다.
+export class DraftAttachAuthorError extends Error {
+  readonly code: 'author-mismatch' | 'author-unverified' | 'task-unassigned';
+  constructor(v: Exclude<AuthorVerdict, { kind: 'ok' }>) {
+    const m = v.kind === 'mismatch'
+      ? { error: firstAssignMismatchMessage(v.authorHandle), code: 'author-mismatch' as const }
+      : authorVerdictMessage(v);
+    super(m.error);
+    this.code = m.code;
+    this.name = 'DraftAttachAuthorError';
+  }
+}
+// 트랜잭션 밖에서 미리 받아 둔 게시물 실제 작성자(tweetId → 작성자 | 'failed'), postAttach.prefetchAttachAuthors가 만든다
+export type LiveAuthors = Map<string, LiveAuthor | 'failed'>;
 
 type Row = {
   id: string; campaign_id: string; influencer_handle: string | null; type: TaskType;
@@ -251,7 +267,11 @@ export async function deleteTask(sql: postgres.Sql, id: string): Promise<boolean
 
 // 원고 붙이기 — 원고 1개 = 작업 1개(unique partial index가 최후 방어, 여기서는 문구 있는 오류로 먼저 끊는다).
 // 인플 동기화(값은 하나, §4-3): 작업에 인플이 있으면 원고에 채우고, 작업이 비어 있고 원고에 있으면 작업에 채운다.
-export async function attachDraft(sql: postgres.Sql, taskId: string, draftId: string): Promise<void> {
+// 작성자 확인(§9-2): 채움이 일어나고 작업에 게시물(tracked_post)이 붙어 있으면 채울 인플이 그 작성자여야 한다 —
+// 게시 후 최초 배정(⑤)과 같은 판정. 잠근 작업 행 위에서 네트워크 없이 본다: opts.liveAuthors(밖에서 미리 조회)가
+// 있으면 실제 작성자로, 없으면 저장된 핸들로(명부 고유번호가 있는데 실제 작성자가 없으면 확인 불가 → 막는다).
+// 거절이면 DraftAttachAuthorError — 아직 아무것도 쓰지 않았다.
+export async function attachDraft(sql: postgres.Sql, taskId: string, draftId: string, opts: { liveAuthors?: LiveAuthors } = {}): Promise<void> {
   if (!isUuidLike(taskId) || !isUuidLike(draftId)) throw new TaskAttachError('no-task');
   const t = await sql<Array<{ id: string; draft_id: string | null; influencer_handle: string | null; cancelled_at: string | null }>>`
     select id, draft_id, influencer_handle, cancelled_at from campaign_task where id = ${taskId} for update`;
@@ -268,6 +288,18 @@ export async function attachDraft(sql: postgres.Sql, taskId: string, draftId: st
   // 명부 게이팅(설계 §9) — 원고 쪽 핸들로 미배정 작업을 채우는 것은 그 핸들이 명부에 있을 때만, 명부 표기로.
   // 명부 밖이면 작업은 미배정 그대로 두고 붙이기는 성공한다. 원고의 옛 핸들은 건드리지 않는다(기존 데이터 보존).
   const fill = !taskHandle && draftHandle ? await rosterHandleOf(sql, draftHandle) : null;
+  if (fill) {
+    const posts = await sql<Array<{ tweet_id: string; author_handle: string | null }>>`
+      select tweet_id, author_handle from tracked_post where task_id = ${taskId} order by created_at asc`;
+    if (posts.length) {
+      const r = await sql<Array<{ x_user_id: string | null }>>`select x_user_id from influencer where lower(handle) = lower(${fill}) limit 1`;
+      const assigned = { handle: fill, xUserId: r[0]?.x_user_id || null };
+      for (const p of posts) {
+        const v = judgeStoredAuthor(assigned, p.author_handle || null, opts.liveAuthors?.get(p.tweet_id));
+        if (v.kind !== 'ok') throw new DraftAttachAuthorError(v);
+      }
+    }
+  }
   try {
     await sql`update campaign_task set draft_id = ${draftId},
         influencer_handle = coalesce(influencer_handle, ${fill}::text), updated_at = now() where id = ${taskId}`;
@@ -495,6 +527,8 @@ export async function restoreTask(sql: postgres.Sql, id: string): Promise<{ resu
     } catch (e) {
       // 'task-cancelled'는 여기 오지 않는다 — 위에서 이미 cancelled_at을 null로 만든 뒤 재부착하므로.
       if (e instanceof TaskAttachError) return { result: 'ok', draft: 'taken' };   // 세이브포인트만 롤백됨 — 복원은 유지
+      // 붙은 게시물의 작성자가 아닌 원고(§9-2, 옛 데이터) — 재부착만 포기하고 복원은 유지한다(못 붙인 건 같은 처리)
+      if (e instanceof DraftAttachAuthorError) return { result: 'ok', draft: 'taken' };
       throw e;
     }
   });

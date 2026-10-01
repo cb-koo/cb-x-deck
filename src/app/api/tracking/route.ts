@@ -4,10 +4,10 @@ import { getSql } from '@/lib/db';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { parseTweetLink, tweetLinkParseMessage } from '@/lib/tweetLink';
 import { fetchPost } from '@/lib/postMetrics';
-import { addTrackedPost, findByTweetId, findTrackedPostById, linkTrackedPost, listTrackedPosts, TrackingLinkError, trackingLinkMessage, TRACKING_LINK_CANCELLED_MESSAGE } from '@/lib/trackingStore';
+import { addTrackedPost, findByTweetId, findTrackedPostById, listTrackedPosts, TrackingLinkError, trackingLinkMessage, TRACKING_LINK_CANCELLED_MESSAGE } from '@/lib/trackingStore';
 import { TASK_ID_MESSAGE } from '@/lib/campaignTaskInput';
 import { isUuidLike } from '@/lib/uuid';
-import { guardTaskLink } from '@/lib/postAttach';
+import { judgeTaskLink, linkTrackedPostGuarded, TaskChangedError, type TaskSeen } from '@/lib/postAttach';
 import { authorVerdictMessage } from '@/lib/postAuthor';
 
 // 등록 시점의 '없음'은 삭제·비공개 외에 주소 오타일 수도 있다(QA 08-15 — 주소 일부를 바꿔 넣은 사례).
@@ -43,10 +43,13 @@ export async function POST(req: Request) {
   const existing = await findByTweetId(sql, parsed.tweetId);
   let row = existing;
   let created = false;
+  // 판정 때 본 작업의 모습 — 연결 트랜잭션이 잠근 행과 비교해 그사이 인플 변경을 막는다(스펙 §9-1)
+  let seen: TaskSeen = null;
   if (existing && taskId) {
     // 작업에 붙이기 전 작성자 확인(다른 인플의 게시물 차단 스펙 §3 ②③) — 저장된 작성자로 먼저, 필요하면 조회
-    const v = await guardTaskLink(sql, taskId, { tweetId: existing.tweetId, authorHandle: existing.authorHandle }, { fetchPost });
-    if (v.kind !== 'ok') return NextResponse.json(authorVerdictMessage(v), { status: 400 });
+    const j = await judgeTaskLink(sql, taskId, { tweetId: existing.tweetId, authorHandle: existing.authorHandle }, { fetchPost });
+    if (j.verdict.kind !== 'ok') return NextResponse.json(authorVerdictMessage(j.verdict), { status: 400 });
+    seen = j.seen;
   }
   if (!existing) {
     const result = await fetchPost(parsed.tweetId);
@@ -54,10 +57,11 @@ export async function POST(req: Request) {
     if (result.kind === 'error') return NextResponse.json({ error: FETCH_FAILED }, { status: 502 });
     // 작업으로 들어온 등록이면 등록 전에 판정한다 — 남의 게시물이 트래킹 목록에 주인 없이 남지 않게. 방금 조회한 값이라 다시 부르지 않는다.
     if (taskId) {
-      const v = await guardTaskLink(sql, taskId, {
+      const j = await judgeTaskLink(sql, taskId, {
         tweetId: result.post.tweetId, authorHandle: result.post.authorHandle, authorUserId: result.post.authorUserId,
       }, { fetchPost });
-      if (v.kind !== 'ok') return NextResponse.json(authorVerdictMessage(v), { status: 400 });
+      if (j.verdict.kind !== 'ok') return NextResponse.json(authorVerdictMessage(j.verdict), { status: 400 });
+      seen = j.seen;
     }
 
     const added = await addTrackedPost(sql, {
@@ -71,8 +75,11 @@ export async function POST(req: Request) {
 
   if (taskId) {
     try {
-      await sql.begin(async (tx0) => linkTrackedPost(tx0 as unknown as postgres.Sql, row!.id, { taskId }));
+      // 연결 트랜잭션에서 작업 행을 잠그고 판정 때와 같은지 다시 본 뒤 연결한다(§9-1).
+      // 등록(첫 측정)은 따로 끝났으니 그사이 바뀌어 거절돼도 등록은 남는다(RT·취소 거절과 같은 태도).
+      await linkTrackedPostGuarded(sql, row!.id, { taskId }, seen);
     } catch (e) {
+      if (e instanceof TaskChangedError) return NextResponse.json({ error: e.message, code: e.code }, { status: 400 });
       // RT 작업엔 자기 게시물이 없다 — 연결하면 증빙 없이 게시됨이 된다(§5). 등록(첫 측정)은 그대로 두고 연결만 거절한다.
       if (e instanceof TrackingLinkError) return NextResponse.json({ error: trackingLinkMessage(e) }, { status: 400 });
       // 존재하지 않는 작업 id를 연결하려 하면 FK 위반(23503, linkTrackedPost는 직접 같은 code로 던지기도 한다) — 사용자 잘못이니 400으로 알린다.

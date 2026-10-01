@@ -78,3 +78,27 @@ export function authorVerdictMessage(v: Exclude<AuthorVerdict, { kind: 'ok' }>):
 export function firstAssignMismatchMessage(authorHandle: string): string {
   return `이 작업에 붙은 게시물은 @${stripAt(authorHandle)}의 글이에요 — 그 인플로 배정해 주세요`;
 }
+
+// ── 저장된 작성자 + (미리) 받아 온 실제 작성자로 판정 — 네트워크 없이(트랜잭션 안에서 쓸 수 있게) ──
+// 조회는 호출자가 트랜잭션 밖에서 한다(postAttach). 여기는 그 결과로 판정만.
+
+export type LiveAuthor = { handle: string | null; userId: string | null };
+
+// live: 받아 온 실제 작성자 / 'failed' 조회 실패 / undefined 조회 안 함(둘은 같게 다룬다).
+// 실제 작성자가 있으면 그걸로. 없으면 명부 고유번호가 없을 때만 저장된 핸들로 본다 — 고유번호가 있으면
+// 저장값(핸들)으로는 번호를 비교할 수 없어 확인 불가(unverified, koo 결정: 막는다).
+export function judgeStoredAuthor(
+  assigned: { handle: string | null; xUserId: string | null },
+  storedHandle: string | null,
+  live: LiveAuthor | 'failed' | undefined,
+): AuthorVerdict {
+  if (assigned.handle === null) return { kind: 'unassigned' };
+  if (live !== undefined && live !== 'failed') return judgePostAuthor({ author: live, assigned });
+  if (assigned.xUserId === null && storedHandle) return judgePostAuthor({ author: { handle: storedHandle, userId: null }, assigned });
+  return { kind: 'unverified' };
+}
+
+// 저장값만으로 통과하지 못하면 실제 작성자를 받아 와야 한다(명부 고유번호 비교·옛 핸들 구제).
+export function needsLiveAuthor(assigned: { handle: string | null; xUserId: string | null }, storedHandle: string | null): boolean {
+  return assigned.handle !== null && judgeStoredAuthor(assigned, storedHandle, undefined).kind !== 'ok';
+}

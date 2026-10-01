@@ -874,13 +874,13 @@ export function TaskPanel({
                 {/* 협찬 동의서(063) — 방문협찬만, 일정 상자 바로 아래. 새 작업 폼엔 없다(올릴 경로가 작업 id에 묶여 있어 만든 뒤에 붙인다) */}
                 {field === 'dates' && task.type === 'visit' && (
                   // 상자(PanelSection)는 AgreementField가 그린다 — 상자 전체가 파일을 끌어다 놓는 자리라서
-                  <AgreementField taskId={task.id} value={task.agreement} disabled={!!task.cancelledAt}
+                  <AgreementField taskId={task.id} influencerHandle={task.influencerHandle} value={task.agreement} disabled={!!task.cancelledAt}
                                   onChange={(next) => actions.setAgreement(task, next)} />
                 )}
               </Fragment>
             ))}
             {/* 게시 확인 — PANEL_FIELD_ORDER에 없는 칸이다(모든 유형에 있고, 취소된 작업엔 없다). 입력·값·증빙
-                라이트박스(panel/PostedBox)는 FlowDetail의 클로저(actions·proofUrls)가 필요해 slots.posted로 받는다
+                칸(panel/PostedBox)는 FlowDetail의 클로저(actions·proofUrls)가 필요해 slots.posted로 받는다
                 (slots.cost와 같은 이유) — FlowDetail이 취소된 작업이면 null을 준다. */}
             {slots.posted && <PanelSection title="게시">{slots.posted}</PanelSection>}
           </>

@@ -31,6 +31,15 @@ export function agreementExtension(file: { name: string; type: string }): string
   return (TASK_AGREEMENT_EXTENSIONS as readonly string[]).includes(ext) ? ext : (MIME_EXT[file.type] ?? 'pdf');
 }
 
+// 붙여 넣은 동의서의 이름(koo 10-01) — 클립보드 이미지는 브라우저가 'image.png' 같은 이름을 줘서 무엇인지 안 읽힌다.
+// '동의서_@핸들_YYYYMMDD.확장자'(today는 서울 날짜 YYYY-MM-DD — 부모가 kstToday로 넘긴다), 핸들이 없으면 '동의서_YYYYMMDD'.
+// 확장자는 형식에서(허용 밖 형식이면 확장자 없이 — 올리기 전 검증이 먼저 거른다). 끌어다 놓기·파일 고르기는 원래 이름을 쓴다.
+export function agreementPasteName(handle: string | null, today: string, mime: string): string {
+  const h = (handle ?? '').trim().replace(/^@+/, '');
+  const ext = MIME_EXT[mime];
+  return `동의서_${h ? `@${h}_` : ''}${today.replaceAll('-', '')}${ext ? `.${ext}` : ''}`;
+}
+
 // 표시할 파일명 — 너무 긴 이름은 서버가 거절하므로(TASK_AGREEMENT_NAME_MAX) 확장자를 살려 앞을 자른다
 export function agreementDisplayName(name: string): string {
   const n = name.trim() || '협찬 동의서';

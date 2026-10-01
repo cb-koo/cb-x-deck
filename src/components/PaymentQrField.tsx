@@ -60,6 +60,7 @@ export function PaymentQrField({ influencerId, value, disabled, onChange }: {
   useEffect(() => {
     if (disabled || value) return;
     const onPaste = (e: ClipboardEvent) => {
+      if (e.defaultPrevented) return;   // 다른 첨부 칸이 먼저 받은 붙여넣기(TaskProofField·AgreementField와 대칭)
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
       if (pasteBlockedByModal(rootRef.current)) return;   // 위에 다른 모달이 떠 있으면 그 모달 몫(TaskProofField와 대칭)

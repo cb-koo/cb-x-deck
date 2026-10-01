@@ -28,7 +28,6 @@ import { DraftCard, droppedMediaOnRewrite, type MediaDropNotice } from '@/compon
 import { DraftEditModal } from '@/components/DraftEditModal';
 import { useSignedTaskProofUrls } from '@/components/useSignedTaskProofUrls';
 import { useInfluencerRoster } from '@/components/useInfluencerRoster';
-import { ImageLightbox } from '@/components/ImageLightbox';
 import {
   EMPTY_FLOW_FILTER, matchesFlowFilter, sortFlowRows, flowStats, settleWaitCount, flowFooter, filterSummary,
   FLOW_SORT_LABEL, DISPLAY_TYPE_ORDER, matchesExtra, EXTRA_FILTERS, replaceDisabledReason,
@@ -164,7 +163,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 게시 확인은 팝업 없이 패널의 '게시' 칸(PostedBox)에서 한다(koo 09-26). 행 메뉴(FlowRowMenu)의 [게시 확인]은
   // 그 작업의 패널을 열고 이 신호로 '게시' 칸까지 스크롤·포커스한다 — 값은 작업 id, PostedBox가 한 번 쓰고
   // clearPostedFocus로 지운다(다른 작업에 갔다 돌아와 다시 마운트돼도 옛 신호로 또 움직이지 않게).
-  // RT 증빙 라이트박스는 TaskTable과 같은 관례(useSignedTaskProofUrls로 배치 서명 + zoomUrl 하나).
+  // RT 증빙은 useSignedTaskProofUrls로 배치 서명해 PostedBox에 넘긴다(크게 보기·바꾸기는 PostedBox 안의 TaskProofField가 한다).
   const [postedFocusId, setPostedFocusId] = useState<string | null>(null);
   const clearPostedFocus = useCallback(() => setPostedFocusId(null), []);
   // 게시 내림 표시 다이얼로그(koo 09-19 결정 3) — 패널의 [내림 표시] 버튼이 연다. [내림 표시]는 항상 지금
@@ -172,7 +171,6 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 들고 있으면, 다이얼로그 안에서 증빙을 올려도(그 setProof는 data.tasks만 갱신) 그 스냅샷은 갱신되지 않아
   // 옛 화면(PostedCell, task가 살아있는 prop)과 동작이 달라진다.
   const [removedOpen, setRemovedOpen] = useState(false);
-  const [zoomUrl, setZoomUrl] = useState<string | null>(null);
   // 게시물 연결(트래킹)·취소·교체(Task 10) — 셋 다 ··· 메뉴에서만 연다(행·패널 공용, FlowRowMenu)
   const [linkFor, setLinkFor] = useState<FlowRow | null>(null);
   const [cancelFor, setCancelFor] = useState<FlowRow | null>(null);
@@ -1014,13 +1012,13 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                        ? <TargetLinkField task={panelTask} campaign={data.campaign} onChange={(next) => void actions.changeTarget(panelTask, next)} />
                        : null,
                      // 게시 칸(koo 09-26 posted-inline) — 취소된 작업엔 아무것도 주지 않는다(패널이 칸 자체를 그리지 않는다).
-                     // 게시 전 입력·게시 뒤 값·증빙 라이트박스·내림 표시는 전부 PostedBox가 그린다.
+                     // 게시 전 입력·게시 뒤 값·증빙(크게 보기·바꾸기)·내림 표시는 전부 PostedBox가 그린다.
                      posted: panelTask && !panelTask.cancelledAt
                        ? <PostedBox task={panelTask} today={data.today}
                                     proofSignedUrl={panelTask.proof ? proofUrls[panelTask.proof.url] ?? null : null}
                                     focus={postedFocusId === panelTask.id} onFocused={clearPostedFocus}
                                     onMarkPosted={(date, url, proof) => actions.markPosted(panelTask, date, url, proof)}
-                                    onZoomProof={setZoomUrl}
+                                    onSetProof={(p) => actions.setProof(panelTask, p)}
                                     onOpenRemoved={() => setRemovedOpen(true)}
                                     onUnmarkRemoved={() => void actions.unmarkRemoved(panelTask)}
                                     onCancel={() => menuActions.cancel(panelTask)} />
@@ -1049,10 +1047,9 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
       {removedOpen && panelTask && (
         <RemovedDialog task={panelTask} today={data.today} proofSignedUrl={panelTask.proof ? proofUrls[panelTask.proof.url] ?? null : null}
                        onClose={() => setRemovedOpen(false)}
-                       onSetProof={(p) => void actions.setProof(panelTask, p)}
+                       onSetProof={(p) => actions.setProof(panelTask, p)}
                        onSubmit={(date, reason) => void actions.markRemoved(panelTask, date, reason)} />
       )}
-      {zoomUrl && <ImageLightbox urls={[zoomUrl]} index={0} onIndexChange={() => {}} onClose={() => setZoomUrl(null)} />}
       {linkFor && (
         <LinkPostModal task={linkFor} onClose={() => setLinkFor(null)}
                        onLinked={() => {

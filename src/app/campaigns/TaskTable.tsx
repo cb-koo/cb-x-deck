@@ -195,7 +195,7 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                                   onMarkPosted={(date, url, proof) => void actions.markPosted(t, date, url, proof)}
                                   onMarkRemoved={(date, reason) => void actions.markRemoved(t, date, reason)}
                                   onUnmarkRemoved={() => void actions.unmarkRemoved(t)}
-                                  onSetProof={(path) => void actions.setProof(t, path)} />
+                                  onSetProof={(path) => actions.setProof(t, path)} />
                       {/* RT 증빙 표시 — 게시 확인 전에는 아무것도 없다(증빙은 게시 확인과 함께 생긴다). 썸네일을 늘어놓아
                           행을 빽빽하게 만들지 않고 작은 태그 하나로 대신하며, 누르면 ImageLightbox로 확대한다.
                           서명 URL이 아직 안 왔을 때도 '증빙 보기'로 자리를 채운다(눌러도 반응 없을 뿐) —

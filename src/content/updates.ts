@@ -13,7 +13,7 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
-    date: '2026-09-30', type: '개선',
+    date: '2026-10-01', type: '개선',
     title: '다른 인플의 게시물은 작업에 붙지 않아요',
     summary: '게시 확인·게시물 연결을 할 때 그 게시물을 실제로 쓴 사람이 이 작업에 배정된 인플과 같은지 확인해요. 다르면 붙지 않고 이유를 바로 알려줘요.',
     bullets: [

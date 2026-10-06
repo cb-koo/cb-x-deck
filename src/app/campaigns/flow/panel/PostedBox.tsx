@@ -94,12 +94,13 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
             </span>
           )}
         </div>
-        {/* 인플 본인 댓글(추가 콘텐츠, koo 10-06 시안 A) — 있으면 본 게시물 카드가 X 본인 스레드 모양으로 길어진다(PostThread).
-            본 게시물을 못 불러왔으면(불러오는 중·실패·리포스트) 지금의 안내 상자 아래에 댓글 글만 같은 모양으로. 댓글이 없으면 지금 카드 그대로.
+        {/* 게시된 본 게시물 + 인플 본인 댓글(추가 콘텐츠) — X 본인 스레드 모양(PostThread, koo 10-06 시안 A).
+            §10(koo 10-06, X 비교): 게시된 게시물은 댓글이 없어도 X처럼 전부(본문 전체·사진 전부·인용한 글 카드) — 그래서 미리보기가 되면 늘 PostThread.
+            본 게시물을 못 불러왔으면(불러오는 중·실패·리포스트) 지금의 안내 상자 아래에 댓글 글만 같은 모양으로.
             RT엔 자기 게시물이 없어 붙지 않는다 */}
-        {previewUrl && (hasReplies && prev.preview?.kind === 'ok' ? (
+        {previewUrl && (prev.preview?.kind === 'ok' ? (
           <div className="mt-2.5">
-            <PostThread main={prev.preview.tweet} replies={task.replies} fallbackHandle={task.influencerHandle}
+            <PostThread main={prev.preview.tweet} replies={hasReplies ? task.replies : []} fallbackHandle={task.influencerHandle}
                         mainStats={{ views: task.perf?.views ?? prev.preview.tweet.metrics.views, likes: task.perf?.likes ?? prev.preview.tweet.metrics.likes }} />
           </div>
         ) : (

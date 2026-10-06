@@ -14,6 +14,27 @@ export function toIso(v: unknown): string | null {
   return Number.isNaN(ms) ? null : new Date(ms).toISOString();
 }
 
+// 사진·영상 — 덱 카드(MediaGrid)와 작업 패널 댓글(스냅샷 raw)이 같은 규칙을 쓴다. url 없는 항목은 버린다.
+export function mapMedia(raw: { media?: unknown }): DeckMedia[] {
+  const mediaRaw = Array.isArray(raw.media) ? (raw.media as Array<Record<string, unknown>>) : [];
+  return mediaRaw
+    .filter((m) => str(m.url))
+    .map((m) => ({ type: str(m.type) ?? 'photo', url: str(m.url)!, videoUrl: str(m.video_url) }));
+}
+
+// 인용한 글 — 덱의 인용 카드(QuotedCard)와 작업 패널 댓글이 같은 규칙을 쓴다.
+export function mapQuoted(raw: { quoted_tweet?: unknown }): DeckQuoted | null {
+  const q = raw.quoted_tweet as Record<string, unknown> | undefined | null;
+  if (!q || !str(q.id)) return null;
+  const qUser = q.user as Record<string, unknown> | undefined;
+  // 검색 응답 실키는 name/screen_name (userName은 과거 데이터·타 엔드포인트 폴백)
+  return {
+    id: str(q.id)!, text: str(q.text) ?? '',
+    userName: str(qUser?.name) ?? str(qUser?.userName),
+    screenName: str(qUser?.screen_name),
+  };
+}
+
 export function mapRawTweet(raw: RawTweet): DeckTweet | null {
   const id = str(raw.id);
   const author = raw.author as Record<string, unknown> | undefined;
@@ -21,22 +42,8 @@ export function mapRawTweet(raw: RawTweet): DeckTweet | null {
   if (!id || !handle) return null;
   if (raw.retweeted_tweet) return null; // 순수 리트윗은 벤치마크 대상 아님
 
-  const mediaRaw = Array.isArray(raw.media) ? (raw.media as Array<Record<string, unknown>>) : [];
-  const media: DeckMedia[] = mediaRaw
-    .filter((m) => str(m.url))
-    .map((m) => ({ type: str(m.type) ?? 'photo', url: str(m.url)!, videoUrl: str(m.video_url) }));
-
-  let quoted: DeckQuoted | null = null;
-  const q = raw.quoted_tweet as Record<string, unknown> | undefined | null;
-  if (q && str(q.id)) {
-    const qUser = q.user as Record<string, unknown> | undefined;
-    // 검색 응답 실키는 name/screen_name (userName은 과거 데이터·타 엔드포인트 폴백)
-    quoted = {
-      id: str(q.id)!, text: str(q.text) ?? '',
-      userName: str(qUser?.name) ?? str(qUser?.userName),
-      screenName: str(qUser?.screen_name),
-    };
-  }
+  const media = mapMedia(raw);
+  const quoted = mapQuoted(raw);
 
   return {
     tweetId: id,

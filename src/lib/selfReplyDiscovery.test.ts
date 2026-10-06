@@ -145,6 +145,8 @@ test('게시 확인 뒤 — 같은 작성자 고유번호의 댓글만 작업에
   assert.equal(item.replies[0].views, 42);
   assert.equal(item.replies[0].link, 'https://pages.s.gy/thesquaredc_jp');
   assert.equal(item.replies[0].url, link(a.handle, reply));
+  assert.deepEqual(item.replies[0].media, []);
+  assert.equal(item.replies[0].quoted, null);
   const perf = (await listInfluencerPerformance(sql)).find((r) => r.handle === a.handle)!;
   assert.equal(perf.tasks[0].metrics?.views, 1000);
   assert.equal(perf.tasks[0].metrics?.postCount, 2);
@@ -168,6 +170,19 @@ test('깨진 글자 — 상세 조회 본문이 깨졌고(�) 스레드 응답 
   assert.equal((await findByTweetId(sql, clean))?.text, '見積もりだけでも');
   assert.equal((await findByTweetId(sql, clean))?.metrics?.views, 42);   // 지표는 상세 조회 값 그대로
   assert.equal((await findByTweetId(sql, bothBad))?.text, '見\uFFFDもり');   // 둘 다 깨졌으면 그대로 붙인다
+});
+
+test('패널 — 댓글의 사진 전부·인용 글은 최신 스냅샷 raw(상세 조회)에서 덱과 같은 규칙으로(스펙 §10)', async () => {
+  const { task, a, mainId } = await postedTask('post');
+  const reply = newTweetId();
+  const r = { ...tw(reply, a, 'Tue Oct 06 10:04:54 +0000 2026', 42, true, '사진 https://t.co/abc', mainId),
+    media: [{ type: 'photo', url: 'https://pbs.twimg.com/1.jpg' }, { type: 'photo', url: 'https://pbs.twimg.com/2.jpg' }],
+    quoted_tweet: { id: '2106418858815009095', text: '인용 본문', user: { name: 'なす', screen_name: 'nasu_seikei' } } };
+  const { deps } = fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, 'Tue Oct 06 08:40:28 +0000 2026', 1000, false), r] } });
+  assert.equal(await discoverSelfReplies(sql, task.id, deps), 1);
+  const item = (await getCampaignDetail(sql, task.campaignId))!.tasks.find((t) => t.id === task.id)!;
+  assert.deepEqual(item.replies[0].media.map((m) => m.url), ['https://pbs.twimg.com/1.jpg', 'https://pbs.twimg.com/2.jpg']);
+  assert.deepEqual(item.replies[0].quoted, { id: '2106418858815009095', text: '인용 본문', userName: 'なす', screenName: 'nasu_seikei' });
 });
 
 test('게시 확인 뒤 — 스레드 조회 실패는 조용히 0(게시 확인은 이미 끝났다)', async () => {

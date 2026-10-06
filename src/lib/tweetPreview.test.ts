@@ -6,7 +6,11 @@ import { fetchTweetCached, loadTweetPreview, quotedFromTweet, TweetFetchError } 
 const sql = getSql();
 const ids: string[] = [];
 const nextId = () => { const id = `96${process.pid}${ids.length + 1}00000`; ids.push(id); return id; };
-after(async () => { await sql`delete from tweet where tweet_id = any(${ids})`; await sql.end(); });
+after(async () => {
+  await sql`delete from tweet where tweet_id = any(${ids})`;
+  await sql`delete from quoted_tweet where id = any(${ids})`;
+  await sql.end();
+});
 
 // raw 모양은 generateQuoteTarget.test.ts의 가짜 getTweetDetail 응답을 그대로 복사해 쓴다.
 const rawOf = (id: string, text: string) => ({ id, text, author: { userName: 'target' } });
@@ -110,4 +114,24 @@ test('10) 두 번 다 깨지면 깨진 본문 그대로(ok) — 정상이면 한
   assert.equal(r.kind, 'ok');
   if (r.kind === 'ok') assert.equal(r.tweet.text, '見\uFFFDもり');
   assert.equal(calls, 2);
+});
+
+test('11) 미리보기는 인용한 글도 한 번 채워 온다(작성자 사진·날짜·사진) — 두 번째부터는 X를 부르지 않는다', async () => {
+  const id = nextId(); const qId = nextId();
+  const calls: string[] = [];
+  const client = { getTweetDetail: async (t: string) => {
+    calls.push(t);
+    return t === id
+      ? { ...rawOf(id, '본문 https://t.co/x'), quoted_tweet: { id: qId, text: '인용', user: { name: 'なす', screen_name: 'q' } } }
+      : { ...rawOf(qId, '인용 원문'), author: { userName: 'q', profilePicture: 'https://pbs.twimg.com/p.jpg' }, media: [{ type: 'photo', url: 'https://pbs.twimg.com/q.jpg' }] };
+  } };
+  const url = `https://x.com/clinic/status/${id}`;
+  const a = await loadTweetPreview(sql, url, client);
+  assert.equal(a.kind, 'ok');
+  if (a.kind !== 'ok') return;
+  const enriched = (a.tweet.quoted as { enriched?: { media: unknown[]; authorAvatarUrl: string | null } | null }).enriched;
+  assert.equal(enriched?.authorAvatarUrl, 'https://pbs.twimg.com/p.jpg');
+  assert.equal(enriched?.media.length, 1);
+  await loadTweetPreview(sql, url, client);
+  assert.deepEqual(calls, [id, qId]);
 });

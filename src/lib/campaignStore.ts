@@ -19,6 +19,8 @@ import { taskPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
 import { computeMoney } from './settlementCalc.ts';
 import { pickTaskMainPost, firstLinkOf } from './selfReplies.ts';
 import { tweetPermalink } from './tweetLink.ts';
+import { mapMedia, mapQuoted } from './mappers.ts';
+import type { DeckMedia, DeckQuoted } from './types.ts';
 
 export { CAMPAIGN_KINDS, CAMPAIGN_KIND_LABEL, type CampaignKind } from './campaignJudgment.ts';
 
@@ -42,6 +44,8 @@ export interface TaskReply {
   views: number | null; likes: number | null;   // 최신 스냅샷(스레드 카드의 '조회 N · 좋아요 N' — 작업 지표엔 더하지 않는다)
   link: string | null;                 // 댓글에 든 링크 — selfReplies.firstLinkOf
   url: string;                         // X에서 열기
+  media: DeckMedia[];                  // 사진·영상 전부 — 최신 스냅샷 raw(상세 조회)에서 덱과 같은 규칙(mapMedia)으로(스펙 §10)
+  quoted: DeckQuoted | null;           // 인용한 글 — 같은 raw에서 mapQuoted로
 }
 // 상세 표의 한 행 — TaskRow + 게시 확인 + 성과.
 export interface CampaignTaskItem extends TaskRow {
@@ -284,7 +288,7 @@ function latestIso(ds: Array<Date | null>): string | null {
 }
 type PostRow = {
   task_id: string; tweet_id: string; author_handle: string | null; text: string; posted_at: Date | null; is_reply: boolean | null;
-  raw_urls: unknown; views: string | number | null; likes: number | null; bookmarks: number | null; captured_at: Date | null;
+  raw_urls: unknown; raw_media: unknown; raw_quoted: unknown; views: string | number | null; likes: number | null; bookmarks: number | null; captured_at: Date | null;
 };
 const numOrNull = (v: string | number | null) => (v === null ? null : Number(v)); // bigint는 문자열
 
@@ -298,6 +302,7 @@ function taskPostsView(postUrl: string | null, rows: PostRow[]): { perf: Campaig
     .map((p): TaskReply => ({
       tweetId: p.tweetId, text: p.text, postedAt: p.postedAt, views: numOrNull(p.views), likes: p.likes,
       link: firstLinkOf(p.text, p.raw_urls), url: tweetPermalink(p.author_handle, p.tweetId),
+      media: mapMedia({ media: p.raw_media }), quoted: mapQuoted({ quoted_tweet: p.raw_quoted }),
     }));
   return {
     perf: { postCount: posts.length, views: numOrNull(main.views), likes: main.likes, bookmarks: main.bookmarks },
@@ -319,7 +324,7 @@ export async function getCampaignDetail(
   // 최신 1건은 lateral(trackingStore 관례) — 스냅샷 없는 게시물은 지표가 null.
   const postRows = await sql<PostRow[]>`
     select tp.task_id, tp.tweet_id, tp.author_handle, tp.text, tp.posted_at, (s.raw->>'isReply')::boolean as is_reply,
-           s.raw #> '{entities,urls}' as raw_urls, s.views, s.likes, s.bookmarks, s.captured_at
+           s.raw #> '{entities,urls}' as raw_urls, s.raw -> 'media' as raw_media, s.raw -> 'quoted_tweet' as raw_quoted, s.views, s.likes, s.bookmarks, s.captured_at
       from tracked_post tp
       left join lateral (
         select views, likes, bookmarks, captured_at, raw from post_metric_snapshot where tracked_post_id = tp.id

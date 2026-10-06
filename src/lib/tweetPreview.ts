@@ -10,6 +10,7 @@ import { getTweetsByIds, upsertTweets } from './tweetStore.ts';
 import { makeClient, type GetxapiClient } from './getxapi.ts';
 import { mapRawTweet } from './mappers.ts';
 import { getTweetDetailUngarbled } from './garbledText.ts';
+import { enrichQuoted } from './quotedEnrich.ts';
 
 // 화면(클라이언트 번들)이 쓰는 모양·변환은 서버 import가 없는 tweetPreviewShape.ts에 둔다 — 여기서 다시 내보내
 // 서버 호출부·테스트는 그대로 이 파일을 쓴다.
@@ -47,10 +48,20 @@ export async function fetchTweetCached(
   return { kind: 'ok', tweet: mapped };
 }
 
+// 미리보기(작업 패널·인용 대상)는 인용한 글도 X처럼 보여준다(스펙 self-replies §10) — 캐시(quoted_tweet)에 없으면 한 번 채운다
+// (덱 새로고침·링크 추가와 같은 enrichQuoted — 글당 평생 1회, 삭제·비공개는 기록돼 다시 안 부른다). 베스트 에포트: 실패해도
+// 인용 카드는 본문만으로 그려진다. 원고 생성(loadQuoteTarget)은 fetchTweetCached를 바로 쓰므로 여기 영향이 없다.
 export async function loadTweetPreview(
   sql: postgres.Sql, url: string, client?: DetailClient,
 ): Promise<TweetPreview> {
   const p = parseTweetLink(url);
   if (!p.ok) return { kind: 'badLink' };
-  return fetchTweetCached(sql, p.tweetId, client ?? makeClient);
+  let made: DetailClient | null = client ?? null;
+  const getClient = () => (made ??= makeClient());
+  const r = await fetchTweetCached(sql, p.tweetId, getClient);
+  if (r.kind !== 'ok' || !r.tweet.quoted || (r.tweet.quoted as { enriched?: unknown }).enriched) return r;
+  try { await enrichQuoted(sql, getClient(), [r.tweet.quoted.id], { cap: 1 }); }
+  catch (e) { console.error(`loadTweetPreview quoted(${r.tweet.quoted.id}) failed:`, e); return r; }   // 클라이언트 생성 실패 등
+  const again = (await getTweetsByIds(sql, [p.tweetId]))[0] ?? null;
+  return again ? { kind: 'ok', tweet: again } : r;
 }

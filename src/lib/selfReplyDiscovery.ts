@@ -3,7 +3,8 @@
 // X 조회는 주입한다(deps) — 라우트는 진짜 getxapi, 테스트는 대역.
 import type postgres from 'postgres';
 import type { SearchPage } from './getxapi.ts';
-import type { FetchPostResult } from './postMetrics.ts';
+import type { FetchPostResult, FetchedPost } from './postMetrics.ts';
+import { hasReplacementChar } from './garbledText.ts';
 import { pickSelfReplies, mainAuthorIdOf } from './selfReplies.ts';
 import { parseTweetLink } from './tweetLink.ts';
 import { appendSnapshot, insertTrackedPost, linkTrackedPost, markUnavailable, TrackingLinkError } from './trackingStore.ts';
@@ -42,11 +43,14 @@ async function loadTask(sql: postgres.Sql, taskId: string): Promise<TaskWithPost
 // 고유번호로 — 추가 조회 없이) → 한 트랜잭션에서 작업 행 잠금·모습 확인(assertTaskUnchanged) → 등록 → 연결.
 // 잠금 순서 작업 → 게시물(postAttach와 같음). 이미 트래킹 중인 트윗: 작업·원고 어디에도 안 붙어 있으면 연결만, 어느 작업이나
 // 원고에 붙어 있으면 건드리지 않는다(작업 없이 원고에만 붙은 게시물의 원고 연결을 덮어쓰지 않는다).
-// 붙였으면 true.
-async function attachSelfReply(sql: postgres.Sql, taskId: string, tweetId: string, deps: ThreadDeps, createdBy: string | null): Promise<boolean> {
+// 본문: 상세 조회 본문이 깨졌고(�, fetchPost가 한 번 더 조회해도) 스레드 응답의 같은 글 본문이 정상이면 그걸 저장한다(스펙 §10) —
+// 지표·raw는 상세 조회 값 그대로. 붙였으면 true.
+async function attachSelfReply(sql: postgres.Sql, taskId: string, fromThread: FetchedPost, deps: ThreadDeps, createdBy: string | null): Promise<boolean> {
+  const tweetId = fromThread.tweetId;
   const r = await deps.fetchPost(tweetId);
   if (r.kind !== 'ok' || r.post.tweetId !== tweetId) return false;   // 리포스트 래퍼로 풀린 경우 등 — 댓글이 아니다
   const p = r.post;
+  const text = hasReplacementChar(p.text) && fromThread.text && !hasReplacementChar(fromThread.text) ? fromThread.text : p.text;
   const { verdict, seen } = await judgeTaskLink(sql, taskId, { tweetId: p.tweetId, authorHandle: p.authorHandle, authorUserId: p.authorUserId }, deps);
   if (verdict.kind !== 'ok') return false;
   try {
@@ -54,7 +58,7 @@ async function attachSelfReply(sql: postgres.Sql, taskId: string, tweetId: strin
       const tx = tx0 as unknown as postgres.Sql;
       await assertTaskUnchanged(tx, { taskId }, seen);
       const { created, row } = await insertTrackedPost(tx, {
-        tweetId: p.tweetId, authorHandle: p.authorHandle, text: p.text, postedAt: p.postedAt,
+        tweetId: p.tweetId, authorHandle: p.authorHandle, text, postedAt: p.postedAt,
         createdBy, metrics: p.metrics, raw: p.raw,
       });
       if (!created && (row.taskId || row.draftId)) return false;
@@ -81,7 +85,7 @@ async function attachFromThread(sql: postgres.Sql, task: TaskWithPosts, mainTwee
   let added = 0;
   for (const c of candidates) {
     if (skip.has(c.tweetId)) continue;
-    if (await attachSelfReply(sql, task.id, c.tweetId, deps, createdBy)) added += 1;
+    if (await attachSelfReply(sql, task.id, c, deps, createdBy)) added += 1;
   }
   return added;
 }

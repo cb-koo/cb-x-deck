@@ -92,3 +92,22 @@ test('8) 클라이언트를 만드는 함수는 캐시 미스에만 부른다 �
     return true;
   });
 });
+
+test('9) 깨진 글자(U+FFFD) 응답이면 한 번 더 조회해 정상 본문을 저장한다', async () => {
+  const id = nextId();
+  let calls = 0;
+  const client = { getTweetDetail: async () => { calls++; return rawOf(id, calls === 1 ? '見\uFFFDもり' : '見積もり'); } };
+  const r = await fetchTweetCached(sql, id, client);
+  assert.equal(r.kind, 'ok');
+  if (r.kind === 'ok') assert.equal(r.tweet.text, '見積もり');
+  assert.equal(calls, 2);
+});
+
+test('10) 두 번 다 깨지면 깨진 본문 그대로(ok) — 정상이면 한 번만 조회', async () => {
+  const id = nextId();
+  let calls = 0;
+  const r = await fetchTweetCached(sql, id, { getTweetDetail: async () => { calls++; return rawOf(id, '見\uFFFDもり'); } });
+  assert.equal(r.kind, 'ok');
+  if (r.kind === 'ok') assert.equal(r.tweet.text, '見\uFFFDもり');
+  assert.equal(calls, 2);
+});

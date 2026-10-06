@@ -9,6 +9,7 @@ import { parseTweetLink } from './tweetLink.ts';
 import { getTweetsByIds, upsertTweets } from './tweetStore.ts';
 import { makeClient, type GetxapiClient } from './getxapi.ts';
 import { mapRawTweet } from './mappers.ts';
+import { getTweetDetailUngarbled } from './garbledText.ts';
 
 // 화면(클라이언트 번들)이 쓰는 모양·변환은 서버 import가 없는 tweetPreviewShape.ts에 둔다 — 여기서 다시 내보내
 // 서버 호출부·테스트는 그대로 이 파일을 쓴다.
@@ -34,7 +35,8 @@ export async function fetchTweetCached(
   const cached = (await getTweetsByIds(sql, [tweetId]))[0] ?? null;
   if (cached && cached.text.trim()) return { kind: 'ok', tweet: cached };
   let raw;
-  try { raw = await (typeof client === 'function' ? client() : client).getTweetDetail(tweetId); }
+  // 본문이 깨져(�) 오면 한 번 더 조회한다(스펙 self-replies §10) — 캐시에 깨진 본문이 박히지 않게
+  try { raw = await getTweetDetailUngarbled(typeof client === 'function' ? client() : client, tweetId); }
   catch (e) { throw new TweetFetchError('getTweetDetail failed', { cause: e }); }
   if (!raw) return { kind: 'unavailable' }; // 삭제·비공개
   if (raw.retweeted_tweet) return { kind: 'repost' }; // 순수 리트윗 — 원문이 아니다

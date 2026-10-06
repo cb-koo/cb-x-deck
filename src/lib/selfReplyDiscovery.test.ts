@@ -58,7 +58,7 @@ const detailOf = (t: RawTweet): RawTweet => ({
 // 상세 모양 detailOf). 부른 횟수를 센다.
 function fakeDeps(opts: {
   threads?: Record<string, RawTweet[] | 'throw'>;
-  posts?: Record<string, { handle: string; uid: string; views?: number } | 'unavailable' | 'error'>;
+  posts?: Record<string, { handle: string; uid: string; views?: number; text?: string } | 'unavailable' | 'error'>;
 }) {
   const threadCalls: string[] = [];
   const fetchCalls: string[] = [];
@@ -80,7 +80,7 @@ function fakeDeps(opts: {
       if (v === 'error') return { kind: 'error' };
       if (v === 'unavailable') return { kind: 'unavailable' };
       return { kind: 'ok', post: {
-        tweetId: id, authorHandle: v.handle, authorUserId: v.uid, text: '본문', postedAt: '2026-10-06T03:00:00.000Z',
+        tweetId: id, authorHandle: v.handle, authorUserId: v.uid, text: v.text ?? '본문', postedAt: '2026-10-06T03:00:00.000Z',
         metrics: { ...M0, views: v.views ?? M0.views }, raw: { id, isReply: false },
       } };
     },
@@ -148,6 +148,26 @@ test('게시 확인 뒤 — 같은 작성자 고유번호의 댓글만 작업에
   const perf = (await listInfluencerPerformance(sql)).find((r) => r.handle === a.handle)!;
   assert.equal(perf.tasks[0].metrics?.views, 1000);
   assert.equal(perf.tasks[0].metrics?.postCount, 2);
+});
+
+test('깨진 글자 — 상세 조회 본문이 깨졌고(�) 스레드 응답 본문이 정상이면 스레드 본문으로 등록한다(스펙 §10)', async () => {
+  const { task, a, mainId } = await postedTask('post');
+  const clean = newTweetId(); const bothBad = newTweetId();
+  const { deps } = fakeDeps({
+    threads: { [mainId!]: [
+      tw(mainId!, a, 'Tue Oct 06 08:40:28 +0000 2026', 1000, false),
+      tw(clean, a, 'Tue Oct 06 10:04:54 +0000 2026', 42, true, '見積もりだけでも', mainId),
+      tw(bothBad, a, 'Tue Oct 06 10:30:00 +0000 2026', 9, true, '見\uFFFDもり', clean),
+    ] },
+    posts: {
+      [clean]: { handle: a.handle, uid: a.uid, views: 42, text: '見\uFFFD\uFFFDもりだけでも' },
+      [bothBad]: { handle: a.handle, uid: a.uid, views: 9, text: '見\uFFFDもり' },
+    },
+  });
+  assert.equal(await discoverSelfReplies(sql, task.id, deps), 2);
+  assert.equal((await findByTweetId(sql, clean))?.text, '見積もりだけでも');
+  assert.equal((await findByTweetId(sql, clean))?.metrics?.views, 42);   // 지표는 상세 조회 값 그대로
+  assert.equal((await findByTweetId(sql, bothBad))?.text, '見\uFFFDもり');   // 둘 다 깨졌으면 그대로 붙인다
 });
 
 test('게시 확인 뒤 — 스레드 조회 실패는 조용히 0(게시 확인은 이미 끝났다)', async () => {

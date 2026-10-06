@@ -4,6 +4,7 @@
 
 import type { RawTweet, GetxapiClient } from './getxapi.ts';
 import { makeClient, GetxapiAuthError } from './getxapi.ts';
+import { getTweetDetailUngarbled } from './garbledText.ts';
 
 // 지표 6종 — 전부 null 허용: 수집 출처가 일부 지표를 안 주는 경우를 흡수한다.
 export interface PostMetrics {
@@ -50,7 +51,7 @@ export async function fetchPost(tweetId: string, client?: GetxapiClient): Promis
   let raw: RawTweet | null;
   try {
     const c = client ?? makeClient(); // makeClient()도 try 안 — 키 누락 같은 생성 실패도 error로 보고한다(api/influencers/route.ts와 동일 계약)
-    raw = await c.getTweetDetail(tweetId);
+    raw = await getTweetDetailUngarbled(c, tweetId);   // 본문이 깨져(�) 오면 한 번 더 조회(스펙 self-replies §10)
   } catch (e) {
     // GetxapiAuthError를 포함해 모든 예외는 error — 인증 실패를 "게시물 없음"으로 격하하지 않는다.
     console.error(`fetchPost(${tweetId}) failed:`, e instanceof GetxapiAuthError ? e.message : e);

@@ -13,6 +13,7 @@ import { insertDraft } from './draftStore.ts';
 import { insertLink } from './linkStore.ts';
 import type { RawTweet, SearchPage } from './getxapi.ts';
 import { discoverSelfReplies, refreshCampaignPerf, type ThreadDeps } from './selfReplyDiscovery.ts';
+import { listContentRows } from './performanceStore.ts';
 
 const sql = getSql();
 const P = 'tsrd' + process.pid;
@@ -42,8 +43,9 @@ after(async () => {
 });
 
 // 스레드 응답의 트윗 하나(10-06 실제 응답 모양)
-const tw = (id: string, a: { handle: string; uid: string }, createdAt: string, views: number, isReply: boolean, text = '본문'): RawTweet => ({
-  id, text, createdAt, isReply, inReplyToId: null, author: { userName: a.handle, id: a.uid },
+// inReplyTo: 답글이 달린 트윗(본인 댓글 사슬 판정 — pickSelfReplies)
+const tw = (id: string, a: { handle: string; uid: string }, createdAt: string, views: number, isReply: boolean, text = '본문', inReplyTo: string | null = null): RawTweet => ({
+  id, text, createdAt, isReply, inReplyToId: inReplyTo, author: { userName: a.handle, id: a.uid },
   viewCount: views, likeCount: 1, retweetCount: 0, replyCount: 0, bookmarkCount: 0, quoteCount: 0, media: [],
 });
 
@@ -117,9 +119,9 @@ test('게시 확인 뒤 — 같은 작성자 고유번호의 댓글만 작업에
   const reply = newTweetId(); const stranger = newTweetId(); const imposter = newTweetId();
   const { deps, threadCalls, fetchCalls } = fakeDeps({ threads: { [mainId!]: [
     tw(mainId!, a, 'Tue Oct 06 08:40:28 +0000 2026', 1027, false),
-    tw(reply, a, 'Tue Oct 06 10:04:54 +0000 2026', 42, true, '相談会 🦷https://pages.s.gy/thesquaredc_jp'),
-    tw(stranger, { handle: 'someone', uid: '1' }, 'Tue Oct 06 10:10:00 +0000 2026', 5, true),
-    tw(imposter, { handle: a.handle, uid: '999' }, 'Tue Oct 06 10:20:00 +0000 2026', 5, true),   // 핸들만 같은 남
+    tw(reply, a, 'Tue Oct 06 10:04:54 +0000 2026', 42, true, '相談会 🦷https://pages.s.gy/thesquaredc_jp', mainId),
+    tw(stranger, { handle: 'someone', uid: '1' }, 'Tue Oct 06 10:10:00 +0000 2026', 5, true, '본문', mainId),
+    tw(imposter, { handle: a.handle, uid: '999' }, 'Tue Oct 06 10:20:00 +0000 2026', 5, true, '본문', mainId),   // 핸들만 같은 남
   ] } });
   assert.equal(await discoverSelfReplies(sql, task.id, deps), 1);
   assert.deepEqual(threadCalls, [mainId]);
@@ -166,9 +168,9 @@ test('↻ — 지표는 게시물별 상세 조회로, 스레드 1회로는 새 
   const { campaignId, task, a, mainId } = await postedTask('post');
   const r1 = newTweetId(); const r2 = newTweetId();
   const t0 = 'Tue Oct 06 03:00:00 +0000 2026';   // 본 게시물 게시 시각 = 등록 때 값(대역 fetchPost의 postedAt)
-  await discoverSelfReplies(sql, task.id, fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, t0, 1000, false), tw(r1, a, 'Tue Oct 06 04:00:00 +0000 2026', 30, true)] } }).deps);
+  await discoverSelfReplies(sql, task.id, fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, t0, 1000, false), tw(r1, a, 'Tue Oct 06 04:00:00 +0000 2026', 30, true, '본문', mainId)] } }).deps);
   const { deps, threadCalls, fetchCalls } = fakeDeps({ threads: { [mainId!]: [
-    tw(mainId!, a, t0, 2000, false), tw(r1, a, 'Tue Oct 06 04:00:00 +0000 2026', 50, true), tw(r2, a, 'Tue Oct 06 07:00:00 +0000 2026', 7, true),
+    tw(mainId!, a, t0, 2000, false), tw(r1, a, 'Tue Oct 06 04:00:00 +0000 2026', 50, true, '본문', mainId), tw(r2, a, 'Tue Oct 06 07:00:00 +0000 2026', 7, true, '본문', r1),   // r2는 r1에 이어 단 댓글
   ] } });
   const res = await refreshCampaignPerf(sql, campaignId, deps);
   assert.deepEqual(res, { total: 2, refreshed: 2, unavailable: 0, failed: 0, newReplies: 1 });
@@ -183,12 +185,13 @@ test('↻ — 지표는 게시물별 상세 조회로, 스레드 1회로는 새 
   assert.deepEqual(item.replies.map((x) => [x.tweetId, x.afterMain]), [[r1, '1시간'], [r2, '4시간']]);
 });
 
-test('↻ — 스레드 조회가 실패하면 그 작업은 게시물별 상세 조회로(삭제 판정 유지)', async () => {
+test('↻ — 본 게시물이 없어지면 스레드는 보지 않고 상세 조회의 삭제 판정만(복귀도 그대로)', async () => {
   const { campaignId, a, mainId } = await postedTask('post');
-  const { deps, fetchCalls } = fakeDeps({ threads: {}, posts: { [mainId!]: 'unavailable' } });
+  const { deps, fetchCalls, threadCalls } = fakeDeps({ threads: {}, posts: { [mainId!]: 'unavailable' } });
   const res = await refreshCampaignPerf(sql, campaignId, deps);
   assert.deepEqual(res, { total: 1, refreshed: 0, unavailable: 1, failed: 0, newReplies: 0 });
   assert.deepEqual(fetchCalls, [mainId]);
+  assert.deepEqual(threadCalls, []);   // 본 게시물이 방금 '없음'이면 스레드는 보지 않는다(헛조회 비용)
   assert.ok((await findByTweetId(sql, mainId!))?.unavailableAt);
   // 복귀: 다음 ↻에서 다시 측정되면 unavailable이 풀린다(appendSnapshot 규칙)
   await refreshCampaignPerf(sql, campaignId, fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, 'Tue Oct 06 08:00:00 +0000 2026', 3000, false)] } }).deps);
@@ -200,7 +203,7 @@ test('↻ — 지운 댓글은 상세 조회가 삭제로 판정한다', async (
   const { campaignId, task, a, mainId } = await postedTask('post');
   const r1 = newTweetId();
   const t0 = 'Tue Oct 06 08:00:00 +0000 2026';
-  await discoverSelfReplies(sql, task.id, fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, t0, 1000, false), tw(r1, a, t0, 30, true)] } }).deps);
+  await discoverSelfReplies(sql, task.id, fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, t0, 1000, false), tw(r1, a, t0, 30, true, '본문', mainId)] } }).deps);
   const { deps, fetchCalls } = fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, t0, 1100, false)] }, posts: { [r1]: 'unavailable' } });
   const res = await refreshCampaignPerf(sql, campaignId, deps);
   assert.deepEqual(res, { total: 2, refreshed: 1, unavailable: 1, failed: 0, newReplies: 0 });
@@ -218,7 +221,7 @@ test('다른 작업에 붙은 트윗은 건드리지 않는다 · 작업 없이 
   await addTrackedPost(sql, { tweetId: loose, authorHandle: one.a.handle, text: '', postedAt: null, createdBy: null, metrics: { ...M0, views: 6 }, raw: null });
   const t0 = 'Tue Oct 06 08:00:00 +0000 2026';
   const { deps } = fakeDeps({ threads: { [one.mainId!]: [
-    tw(one.mainId!, one.a, t0, 1000, false), tw(taken, one.a, t0, 99, true), tw(loose, one.a, t0, 77, true),
+    tw(one.mainId!, one.a, t0, 1000, false), tw(taken, one.a, t0, 99, true, '본문', one.mainId), tw(loose, one.a, t0, 77, true, '본문', one.mainId),
   ] } });
   const res = await refreshCampaignPerf(sql, one.campaignId, deps);
   assert.equal(res.newReplies, 1);
@@ -260,7 +263,7 @@ test('↻ 뒤에도 트래킹 링크가 든 댓글은 link 역할 그대로(스�
   await sql`update tracked_post set draft_id = ${d} where tweet_id = ${mainId!}`;
   const reply = newTweetId();
   const t0 = 'Tue Oct 06 03:00:00 +0000 2026';
-  const thread = { [mainId!]: [tw(mainId!, a, t0, 1000, false), tw(reply, a, 'Tue Oct 06 05:00:00 +0000 2026', 40, true, `相談会 ${short}`)] };
+  const thread = { [mainId!]: [tw(mainId!, a, t0, 1000, false), tw(reply, a, 'Tue Oct 06 05:00:00 +0000 2026', 40, true, `相談会 ${short}`, mainId)] };
   assert.equal(await discoverSelfReplies(sql, task.id, fakeDeps({ threads: thread }).deps), 1);
   assert.equal((await findByTweetId(sql, reply))?.derivedRole, 'link');
   assert.equal((await findByTweetId(sql, mainId!))?.derivedRole, 'main');
@@ -276,4 +279,65 @@ test('↻ 뒤에도 트래킹 링크가 든 댓글은 link 역할 그대로(스�
   // 패널 링크 칩도 그대로
   const item = (await getCampaignDetail(sql, campaignId))!.tasks.find((t) => t.id === task.id)!;
   assert.equal(item.replies[0].link, short);
+});
+
+test('작업 없이 원고에만 붙은 트윗은 건드리지 않는다(원고 연결을 덮어쓰지 않는다)', async () => {
+  const { task, a, mainId } = await postedTask('post');
+  const d = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [], direction: P + 'dr', format: 'single',
+    referenceMode: 'off', refs: [], content: { posts: [{ text: '본문', media: [] }] }, model: null, memberId: null,
+  });
+  const onDraft = newTweetId();
+  const { row } = await addTrackedPost(sql, { tweetId: onDraft, authorHandle: a.handle, text: '', postedAt: null, createdBy: null, metrics: { ...M0, views: 4 }, raw: null });
+  await sql.begin(async (tx) => { await linkTrackedPost(tx as unknown as typeof sql, row.id, { draftId: d }); });
+  const t0 = 'Tue Oct 06 03:00:00 +0000 2026';
+  const { deps, fetchCalls } = fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, t0, 1000, false), tw(onDraft, a, 'Tue Oct 06 04:00:00 +0000 2026', 9, true, '본문', mainId)] } });
+  assert.equal(await discoverSelfReplies(sql, task.id, deps), 0);
+  assert.deepEqual(fetchCalls, []);
+  const after = await findByTweetId(sql, onDraft);
+  assert.equal(after?.taskId, null);
+  assert.equal(after?.draftId, d);
+});
+
+test('↻ — 댓글 찾기는 discoveryDeps로(지표 조회와 따로)', async () => {
+  const { campaignId, task, a, mainId } = await postedTask('post');
+  const r1 = newTweetId();
+  const t0 = 'Tue Oct 06 03:00:00 +0000 2026';
+  const metrics = fakeDeps({ posts: { [mainId!]: { handle: a.handle, uid: a.uid, views: 1500 } } });
+  const disc = fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, t0, 1000, false), tw(r1, a, 'Tue Oct 06 04:00:00 +0000 2026', 30, true, '본문', mainId)] } });
+  const res = await refreshCampaignPerf(sql, campaignId, metrics.deps, null, disc.deps);
+  assert.deepEqual(res, { total: 1, refreshed: 1, unavailable: 0, failed: 0, newReplies: 1 });
+  assert.deepEqual(metrics.threadCalls, []);
+  assert.deepEqual(metrics.fetchCalls, [mainId]);
+  assert.deepEqual(disc.threadCalls, [mainId]);
+  assert.deepEqual(disc.fetchCalls, [r1]);
+  assert.equal((await findByTweetId(sql, r1))?.taskId, task.id);
+});
+
+// 최종 리뷰: 본 게시물에 트래킹 링크를 넣고 댓글엔 안 넣은 경우 — 콘텐츠 성과도 캠페인 화면처럼 게시물 링크의 트윗이 main
+test('콘텐츠 성과 — 링크 든 본 게시물 + 링크 없는 본인 댓글이면 본 게시물이 main(게시물 링크 기준)', async () => {
+  const { task, a, mainId } = await postedTask('post');
+  const d = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [], direction: P + 'pm', format: 'single',
+    referenceMode: 'off', refs: [], content: { posts: [{ text: '본문', media: [] }] }, model: null, memberId: null,
+  });
+  const short = `https://cb.link/${P}pm`;
+  const camp = P + 'pmcamp';
+  await insertLink(sql, {
+    code: P + 'pm', landingUrl: 'https://c.example.com/', longUrl: 'https://c.example.com/?utm_content=y',
+    shortUrl: short, shortioLinkId: 'lnk_pm' + P, utmCampaign: camp,
+    influencerHandle: a.handle, utmContent: `${a.handle}-pm${P}`, draftId: d, clientId: null, clientName: null, createdBy: null,
+  });
+  await sql`update campaign_task set draft_id = ${d} where id = ${task.id}`;
+  await sql`update tracked_post set draft_id = ${d} where tweet_id = ${mainId!}`;
+  const reply = newTweetId();
+  const t0 = 'Tue Oct 06 03:00:00 +0000 2026';
+  const thread = { [mainId!]: [tw(mainId!, a, t0, 1000, false, `本文 ${short}`), tw(reply, a, 'Tue Oct 06 05:00:00 +0000 2026', 40, true, '相談会', mainId)] };
+  assert.equal(await discoverSelfReplies(sql, task.id, fakeDeps({ threads: thread }).deps), 1);
+  // 본 게시물 최신 스냅샷을 링크가 든 상세 조회 모양으로(↻ 한 번)
+  await refreshCampaignPerf(sql, task.campaignId, fakeDeps({ threads: thread }).deps);
+  const [row] = await listContentRows(sql, camp, { since: null, until: null });
+  assert.equal(row.views, 1000);
+  assert.deepEqual(row.posts.map((x) => [x.tweetId, x.role]), [[mainId, 'main'], [reply, 'thread']]);
+  assert.equal((await findByTweetId(sql, mainId!))?.derivedRole, 'main');
 });

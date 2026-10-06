@@ -175,11 +175,13 @@ export class GetxapiClient {
   }
 }
 
-export function makeClient(): GetxapiClient {
+// maxRetries: best-effort 조회(인플 본인 댓글 찾기 등)는 429·5xx 재시도로 오래 붙잡히지 않게 작게 준다.
+export function makeClient(opts: { maxRetries?: number } = {}): GetxapiClient {
   const apiKey = process.env.GETXAPI_KEY;
   if (!apiKey) throw new Error('GETXAPI_KEY not set');
   return new GetxapiClient({
     apiKey,
+    ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
     onUsage: (ev) => recordUsageSafe({ api: 'getxapi', operation: ev.operation, ok: ev.ok, httpStatus: ev.status, units: 1 }),
   });
 }

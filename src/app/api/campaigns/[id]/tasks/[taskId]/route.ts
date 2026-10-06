@@ -159,15 +159,25 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
 
 // 게시 확인 직후 인플 본인 댓글(추가 콘텐츠)을 찾아 붙인다(self-replies 스펙 §3) — best-effort: 게시 확인은 이미
 // 커밋됐고, 여기 실패(키 없음·조회 오류)는 응답을 바꾸지 않는다. 다음 성과 [업데이트](↻)가 다시 찾는다.
+// 응답을 오래 붙잡지 않게: 재시도는 1회로 줄이고(429 대기 누적 방지), 전체 대기도 FIND_SELF_REPLIES_TIMEOUT_MS에서 끊는다
+// (끊긴 뒤 남은 일은 그대로 끝나거나 버려진다 — 어느 쪽이든 다음 ↻가 다시 찾는다).
+const FIND_SELF_REPLIES_TIMEOUT_MS = 8000;
 async function findSelfReplies(taskId: string, memberId: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const client = makeClient();
-    await discoverSelfReplies(getSql(), taskId, {
+    const client = makeClient({ maxRetries: 1 });
+    const work = discoverSelfReplies(getSql(), taskId, {
       fetchPost: (tweetId) => fetchPost(tweetId, client),
       getTweetThread: (tweetId) => client.getTweetThread(tweetId),
     }, memberId);
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(() => { console.error(`findSelfReplies(${taskId}) timed out`); resolve(); }, FIND_SELF_REPLIES_TIMEOUT_MS);
+    });
+    await Promise.race([work, timeout]);
   } catch (e) {
     console.error(`findSelfReplies(${taskId}) failed:`, e);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

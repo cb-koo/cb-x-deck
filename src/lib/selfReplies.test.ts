@@ -40,7 +40,7 @@ test('pickSelfReplies — 같은 작성자 고유번호만·본 게시물 제외
 });
 
 test('pickSelfReplies — 본 게시물보다 먼저 쓴 같은 스레드의 글은 뺀다', () => {
-  const before = { ...REPLY, id: '4', createdAt: 'Tue Oct 06 07:00:00 +0000 2026' };
+  const before = { ...REPLY, id: '4', createdAt: 'Tue Oct 06 07:00:00 +0000 2026' };   // 부모는 본 게시물이지만 더 이르다
   const r = pickSelfReplies({ tweets: [before, MAIN, REPLY], mainTweetId: MAIN.id, mainAuthorId: AUTHOR.id, trackedIds: new Set() });
   assert.deepEqual(r.map((p) => p.tweetId), [REPLY.id]);
 });
@@ -49,6 +49,19 @@ test('pickSelfReplies — 게시 순으로', () => {
   const late = { ...REPLY, id: '5', createdAt: 'Tue Oct 06 12:00:00 +0000 2026' };
   const r = pickSelfReplies({ tweets: [MAIN, late, REPLY], mainTweetId: MAIN.id, mainAuthorId: AUTHOR.id, trackedIds: new Set() });
   assert.deepEqual(r.map((p) => p.tweetId), [REPLY.id, '5']);
+});
+
+test('pickSelfReplies — 본 게시물에서 이어지는 본인 댓글 사슬만(팬 댓글에 단 답글·부모 모름은 뺀다)', () => {
+  const FAN = { ...REPLY, id: '10', inReplyToId: MAIN.id, author: { userName: 'fan', id: '2' } };
+  const toFan = { ...REPLY, id: '11', inReplyToId: '10', createdAt: 'Tue Oct 06 11:00:00 +0000 2026' };        // 팬에게 단 답글
+  const chained = { ...REPLY, id: '12', inReplyToId: REPLY.id, createdAt: 'Tue Oct 06 12:00:00 +0000 2026' };  // 본인 댓글에 이어 단 댓글
+  const orphan = { ...REPLY, id: '13', inReplyToId: null, createdAt: 'Tue Oct 06 13:00:00 +0000 2026' };
+  // 응답 순서가 뒤섞여도(자식이 부모보다 먼저) 사슬로 잇는다
+  const r = pickSelfReplies({ tweets: [chained, MAIN, FAN, toFan, orphan, REPLY], mainTweetId: MAIN.id, mainAuthorId: AUTHOR.id, trackedIds: new Set() });
+  assert.deepEqual(r.map((p) => p.tweetId), [REPLY.id, '12']);
+  // 이미 트래킹 중인 본인 댓글도 사슬은 잇는다(그 아래 새 댓글은 붙는다)
+  const r2 = pickSelfReplies({ tweets: [MAIN, REPLY, chained], mainTweetId: MAIN.id, mainAuthorId: AUTHOR.id, trackedIds: new Set([REPLY.id]) });
+  assert.deepEqual(r2.map((p) => p.tweetId), ['12']);
 });
 
 test('mainAuthorIdOf — 스레드에서 본 게시물의 작성자 고유번호, 없으면 null', () => {

@@ -18,7 +18,9 @@ export function mainAuthorIdOf(tweets: RawTweet[], mainTweetId: string): string 
 }
 
 // 붙일 본인 댓글 — 작성자 고유번호가 본 게시물 작성자와 같고(핸들은 보지 않는다 — 바뀔 수 있다), 본 게시물이 아니며,
-// 본 게시물보다 앞서 쓴 글이 아니고, 아직 트래킹에 없는 트윗. 게시 순. (후보 고르기만 — 등록·스냅샷은 상세 조회 값으로, selfReplyDiscovery)
+// 본 게시물보다 앞서 쓴 글이 아니고, 본 게시물에서 이어지는 본인 댓글 사슬 위에 있으며(inReplyToId가 본 게시물이거나
+// 이미 사슬에 든 본인 댓글 — 아래쪽 팬 댓글에 단 답글은 추가 콘텐츠가 아니다), 아직 트래킹에 없는 트윗. 게시 순.
+// (후보 고르기만 — 등록·스냅샷은 상세 조회 값으로, selfReplyDiscovery)
 export function pickSelfReplies(args: {
   tweets: RawTweet[]; mainTweetId: string; mainAuthorId: string | null; trackedIds: ReadonlySet<string>;
 }): FetchedPost[] {
@@ -28,15 +30,24 @@ export function pickSelfReplies(args: {
   // 본 게시물보다 먼저 쓴 글은 "추가 콘텐츠"가 아니다(시각을 모르면 거르지 않는다).
   const mainRaw = tweets.find((t) => idOf(t.id) === mainTweetId);
   const mainAt = mainRaw ? postFromRaw(mainRaw)?.postedAt ?? null : null;
-  const out: FetchedPost[] = [];
+  const own: Array<{ p: FetchedPost; parent: string | null }> = [];
   for (const t of tweets) {
     const p = postFromRaw(t);
-    if (!p || p.tweetId === mainTweetId || trackedIds.has(p.tweetId)) continue;
+    if (!p || p.tweetId === mainTweetId) continue;
     if (authorIdOf(t) !== mainAuthorId) continue;
     if (mainAt && p.postedAt && Date.parse(p.postedAt) < Date.parse(mainAt)) continue;
-    if (out.some((o) => o.tweetId === p.tweetId)) continue;
-    out.push(p);
+    if (own.some((o) => o.p.tweetId === p.tweetId)) continue;
+    own.push({ p, parent: idOf(t.inReplyToId) });
   }
+  // 사슬: 본 게시물에서 출발해 본인 댓글로만 이어 간다(이미 트래킹 중인 댓글도 사슬은 잇는다). 응답 순서와 무관하게 더 못 늘 때까지.
+  const chain = new Set<string>([mainTweetId]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const o of own) {
+      if (!chain.has(o.p.tweetId) && o.parent && chain.has(o.parent)) { chain.add(o.p.tweetId); grew = true; }
+    }
+  }
+  const out = own.filter((o) => chain.has(o.p.tweetId) && !trackedIds.has(o.p.tweetId)).map((o) => o.p);
   return out.sort((a, b) => ts(a.postedAt) - ts(b.postedAt));
 }
 

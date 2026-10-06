@@ -32,9 +32,14 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     throw e;
   }
   const c = client;
+  // 댓글 찾기(best-effort)는 재시도를 1회로 줄인 클라이언트로 — 429 대기가 작업마다 쌓여 ↻가 오래 걸리지 않게
+  const d = makeClient({ maxRetries: 1 });
   const r = await refreshCampaignPerf(sql, id, {
     fetchPost: (tweetId) => fetchPost(tweetId, c),
     getTweetThread: (tweetId) => c.getTweetThread(tweetId),
-  }, gate.member.id);
+  }, gate.member.id, {
+    fetchPost: (tweetId) => fetchPost(tweetId, d),
+    getTweetThread: (tweetId) => d.getTweetThread(tweetId),
+  });
   return NextResponse.json(r);
 }

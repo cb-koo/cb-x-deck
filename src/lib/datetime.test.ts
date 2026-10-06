@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  asDateOnly, kstDate, kstDateTime, kstShort, kstMonthDay, kstMonthDayKo,
+  asDateOnly, kstDate, kstDateTime, kstShort, kstMonthDay, kstMonthDayKo, kstMonthDayTimeKo,
   kstToday, kstDaysAgo, kstTodayStart, kstDaysAgoStart, kstMonthStart, kstDayRange,
   dateOnlyMonthDay, weekRangeLabel,
 } from './datetime.ts';
@@ -80,4 +80,11 @@ test('date-only 계열: 시간대 시프트를 하지 않는다', () => {
   assert.equal(dateOnlyMonthDay(asDateOnly('2026-01-01')), '1/1');   // 시프트가 들어가면 12/31이 된다
   assert.equal(weekRangeLabel(asDateOnly('2026-06-15')), '6/15~21');
   assert.equal(weekRangeLabel(asDateOnly('2026-06-29')), '6/29~7/5'); // 월이 바뀌면 월까지 적는다
+});
+
+test('kstMonthDayTimeKo — 스레드 카드의 게시 시각(서울, 날짜가 넘어가는 경계 포함)', () => {
+  assert.equal(kstMonthDayTimeKo('2026-10-06T08:40:28Z'), '10월 6일 17:40');
+  assert.equal(kstMonthDayTimeKo('2026-07-06T23:29:44.000Z'), '7월 7일 08:29');   // UTC로 자르면 7월 6일이 된다
+  assert.equal(kstMonthDayTimeKo(null), '');
+  assert.equal(kstMonthDayTimeKo('nope'), '');
 });

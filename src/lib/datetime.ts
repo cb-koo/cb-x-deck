@@ -59,6 +59,14 @@ export function kstMonthDayKo(iso: string | null): string {
   return `${Number(k.slice(5, 7))}월 ${Number(k.slice(8, 10))}일`;
 }
 
+/** M월 D일 HH:mm (한국). 스레드 카드의 글마다 게시 시각(X 스레드처럼 실제 시각). */
+export function kstMonthDayTimeKo(iso: string | null): string {
+  if (!iso) return '';
+  const k = toKstIso(iso);
+  if (!k) return '';
+  return `${Number(k.slice(5, 7))}월 ${Number(k.slice(8, 10))}일 ${k.slice(11, 16)}`;
+}
+
 /**
  * 오늘(한국) YYYY-MM-DD. '오늘'을 UTC로 자르면 한국 새벽 0~9시에 어제가 된다.
  * now는 시계 주입 지점 — 실제 호출부는 인자를 넘기지 않아 기본값(실제 시계)으로 지금까지와 동일하게 동작한다.

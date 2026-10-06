@@ -17,7 +17,7 @@ import {
 } from './clientBudget.ts';
 import { taskPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
 import { computeMoney } from './settlementCalc.ts';
-import { pickTaskMainPost, firstLinkOf, gapLabel } from './selfReplies.ts';
+import { pickTaskMainPost, firstLinkOf } from './selfReplies.ts';
 import { tweetPermalink } from './tweetLink.ts';
 
 export { CAMPAIGN_KINDS, CAMPAIGN_KIND_LABEL, type CampaignKind } from './campaignJudgment.ts';
@@ -39,10 +39,9 @@ export interface CampaignPerf { postCount: number; views: number | null; likes: 
 // 작업에 붙은 본 게시물 외 게시물 — 대부분 인플 본인 댓글(추가 콘텐츠). 패널이 '인플 댓글 N개'로 따로 보여준다(§6).
 export interface TaskReply {
   tweetId: string; text: string; postedAt: string | null;   // ISO
-  views: number | null;                // 최신 스냅샷
-  link: string | null;                 // 댓글에 든 링크(있으면 칩) — selfReplies.firstLinkOf
+  views: number | null; likes: number | null;   // 최신 스냅샷(스레드 카드의 '조회 N · 좋아요 N' — 작업 지표엔 더하지 않는다)
+  link: string | null;                 // 댓글에 든 링크 — selfReplies.firstLinkOf
   url: string;                         // X에서 열기
-  afterMain: string | null;            // '1시간 24분' — 본 게시물 뒤 걸린 시간(gapLabel), 모르면 null
 }
 // 상세 표의 한 행 — TaskRow + 게시 확인 + 성과.
 export interface CampaignTaskItem extends TaskRow {
@@ -297,9 +296,8 @@ function taskPostsView(postUrl: string | null, rows: PostRow[]): { perf: Campaig
   const replies = posts.filter((p) => p !== main)
     .sort((a, b) => (a.postedAt ? Date.parse(a.postedAt) : Infinity) - (b.postedAt ? Date.parse(b.postedAt) : Infinity))
     .map((p): TaskReply => ({
-      tweetId: p.tweetId, text: p.text, postedAt: p.postedAt, views: numOrNull(p.views),
+      tweetId: p.tweetId, text: p.text, postedAt: p.postedAt, views: numOrNull(p.views), likes: p.likes,
       link: firstLinkOf(p.text, p.raw_urls), url: tweetPermalink(p.author_handle, p.tweetId),
-      afterMain: gapLabel(main.postedAt, p.postedAt),
     }));
   return {
     perf: { postCount: posts.length, views: numOrNull(main.views), likes: main.likes, bookmarks: main.bookmarks },

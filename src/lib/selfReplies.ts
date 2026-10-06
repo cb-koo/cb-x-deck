@@ -1,7 +1,7 @@
 // 인플 본인 댓글(추가 콘텐츠) — 순수 함수 모음(스펙 2026-10-06-self-replies-design.md).
 //  · pickSelfReplies: 스레드 응답에서 "그 작업에 붙일 본인 댓글"을 고른다(§3).
 //  · pickTaskMainPost: 작업 지표를 낼 게시물 하나 — 게시물 링크(post_url)가 가리키는 트윗(§5).
-//  · firstLinkOf·gapLabel: 패널의 댓글 줄 표시 재료(§6).
+//  · firstLinkOf: 댓글에 든 링크 하나.
 import type { RawTweet } from './getxapi.ts';
 import { postFromRaw, type FetchedPost } from './postMetrics.ts';
 import { parseTweetLink } from './tweetLink.ts';
@@ -76,17 +76,4 @@ export function firstLinkOf(text: string, rawUrls: unknown): string | null {
     if (!/^https?:\/\/t\.co\//i.test(u)) return u;
   }
   return null;
-}
-
-// "본 게시물 {이것} 뒤" — 1분 안 / M분 / N시간 / N시간 M분 / N일 M시간. 시각을 모르거나 거꾸로면 null.
-export function gapLabel(mainPostedAt: string | null, replyPostedAt: string | null): string | null {
-  if (!mainPostedAt || !replyPostedAt) return null;
-  const ms = Date.parse(replyPostedAt) - Date.parse(mainPostedAt);
-  if (!Number.isFinite(ms) || ms < 0) return null;
-  const min = Math.floor(ms / 60000);
-  if (min < 1) return '1분 안';
-  const h = Math.floor(min / 60), m = min % 60;
-  if (h >= 24) { const d = Math.floor(h / 24), hh = h % 24; return hh ? `${d}일 ${hh}시간` : `${d}일`; }
-  if (h === 0) return `${m}분`;
-  return m ? `${h}시간 ${m}분` : `${h}시간`;
 }

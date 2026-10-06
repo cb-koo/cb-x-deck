@@ -182,7 +182,7 @@ test('↻ — 지표는 게시물별 상세 조회로, 스레드 1회로는 새 
   assert.equal((await findByTweetId(sql, r2))?.taskId, task.id);
   const item = (await getCampaignDetail(sql, campaignId))!.tasks.find((t) => t.id === task.id)!;
   assert.equal(item.perf?.views, 2000);   // 댓글 지표(50·7)는 더하지 않는다
-  assert.deepEqual(item.replies.map((x) => [x.tweetId, x.afterMain]), [[r1, '1시간'], [r2, '4시간']]);
+  assert.deepEqual(item.replies.map((x) => [x.tweetId, x.views]), [[r1, 50], [r2, 7]]);   // 게시 순, 댓글마다 자기 지표
 });
 
 test('↻ — 본 게시물이 없어지면 스레드는 보지 않고 상세 조회의 삭제 판정만(복귀도 그대로)', async () => {

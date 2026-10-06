@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  pickSelfReplies, mainAuthorIdOf, pickTaskMainPost, firstLinkOf, gapLabel,
+  pickSelfReplies, mainAuthorIdOf, pickTaskMainPost, firstLinkOf,
 } from './selfReplies.ts';
 
 // 10-06 실제 응답(get_tweet_thread 2107390523338313767)의 모양을 줄인 것
@@ -96,14 +96,4 @@ test('firstLinkOf — URL 엔티티 먼저, 없으면 본문의 링크(t.co는 �
   assert.equal(firstLinkOf('링크 http://example.com/a). 끝', []), 'http://example.com/a');
   assert.equal(firstLinkOf('', []), null);
   assert.equal(firstLinkOf('', [{ expanded_url: 'javascript:alert(1)' }]), null);   // 화면 href — http(s)만
-});
-
-test('gapLabel — 본 게시물 뒤 걸린 시간', () => {
-  assert.equal(gapLabel('2026-10-06T08:40:28Z', '2026-10-06T10:04:54Z'), '1시간 24분');
-  assert.equal(gapLabel('2026-10-06T08:00:00Z', '2026-10-06T08:35:10Z'), '35분');
-  assert.equal(gapLabel('2026-10-06T08:00:00Z', '2026-10-06T10:00:30Z'), '2시간');
-  assert.equal(gapLabel('2026-10-06T08:00:00Z', '2026-10-06T08:00:20Z'), '1분 안');
-  assert.equal(gapLabel('2026-10-05T08:00:00Z', '2026-10-06T11:00:00Z'), '1일 3시간');
-  assert.equal(gapLabel(null, '2026-10-06T08:00:00Z'), null);
-  assert.equal(gapLabel('2026-10-06T09:00:00Z', '2026-10-06T08:00:00Z'), null);   // 거꾸로면 말하지 않는다
 });

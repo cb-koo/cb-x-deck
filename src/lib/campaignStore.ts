@@ -17,6 +17,10 @@ import {
 } from './clientBudget.ts';
 import { taskPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
 import { computeMoney } from './settlementCalc.ts';
+import { pickTaskMainPost, firstLinkOf } from './selfReplies.ts';
+import { tweetPermalink } from './tweetLink.ts';
+import { mapMedia, mapQuoted } from './mappers.ts';
+import type { DeckMedia, DeckQuoted } from './types.ts';
 
 export { CAMPAIGN_KINDS, CAMPAIGN_KIND_LABEL, type CampaignKind } from './campaignJudgment.ts';
 
@@ -32,11 +36,22 @@ export interface CampaignRow {
   total: MoneyByCurrency;               // 파생: 작업 비용(취소 제외) + 추가 비용, 통화별
 }
 
+// postCount = 작업에 붙은 게시물 수(댓글 포함). 지표는 본 게시물 하나의 값이다(self-replies 스펙 §5 — 댓글은 더하지 않는다).
 export interface CampaignPerf { postCount: number; views: number | null; likes: number | null; bookmarks: number | null }
+// 작업에 붙은 본 게시물 외 게시물 — 대부분 인플 본인 댓글(추가 콘텐츠). 패널이 '인플 댓글 N개'로 따로 보여준다(§6).
+export interface TaskReply {
+  tweetId: string; text: string; postedAt: string | null;   // ISO
+  views: number | null; likes: number | null;   // 최신 스냅샷(스레드 카드의 '조회 N · 좋아요 N' — 작업 지표엔 더하지 않는다)
+  link: string | null;                 // 댓글에 든 링크 — selfReplies.firstLinkOf
+  url: string;                         // X에서 열기
+  media: DeckMedia[];                  // 사진·영상 전부 — 최신 스냅샷 raw(상세 조회)에서 덱과 같은 규칙(mapMedia)으로(스펙 §10)
+  quoted: DeckQuoted | null;           // 인용한 글 — 같은 raw에서 mapQuoted로
+}
 // 상세 표의 한 행 — TaskRow + 게시 확인 + 성과.
 export interface CampaignTaskItem extends TaskRow {
   published: boolean;              // = postedAt !== null (게시 확인이 판정한다, tracked_post 유무가 아니다 — §2-5)
-  perf: CampaignPerf | null;       // tracked_post.task_id 최신 스냅샷(lateral) 합. 스냅샷 없으면 views/likes null
+  perf: CampaignPerf | null;       // 본 게시물(post_url의 트윗) 최신 스냅샷(lateral). 게시물이 없으면 null, 스냅샷 없으면 views/likes null
+  replies: TaskReply[];            // 본 게시물 외에 붙은 게시물(인플 본인 댓글) — 지표 합산 안 함
   linkClicks: number | null;       // 붙은 원고의 tracking_link 최신 스냅샷 합 — 게시 여부와 무관(요약 카드 합계용, §5)
   settlement: SettlementBadge | null;   // 표의 정산 배지(정산 스펙 §4-4) — settlementByTaskIds
 }
@@ -271,7 +286,29 @@ function latestIso(ds: Array<Date | null>): string | null {
   const ms = ds.filter((d): d is Date => d !== null).map((d) => d.getTime());
   return ms.length ? new Date(Math.max(...ms)).toISOString() : null;
 }
-type PerfRow = { task_id: string; post_count: number; views: string | number | null; likes: string | number | null; bookmarks: string | number | null; captured_at: Date | null };
+type PostRow = {
+  task_id: string; tweet_id: string; author_handle: string | null; text: string; posted_at: Date | null; is_reply: boolean | null;
+  raw_urls: unknown; raw_media: unknown; raw_quoted: unknown; views: string | number | null; likes: number | null; bookmarks: number | null; captured_at: Date | null;
+};
+const numOrNull = (v: string | number | null) => (v === null ? null : Number(v)); // bigint는 문자열
+
+// 작업 하나의 게시물들 → 작업 지표(본 게시물 하나) + 나머지(인플 본인 댓글 등, 게시 순). 게시물이 없으면 perf null.
+function taskPostsView(postUrl: string | null, rows: PostRow[]): { perf: CampaignPerf | null; replies: TaskReply[] } {
+  const posts = rows.map((r) => ({ ...r, tweetId: r.tweet_id, postedAt: r.posted_at ? new Date(r.posted_at).toISOString() : null, isReply: r.is_reply }));
+  const main = pickTaskMainPost(postUrl, posts);
+  if (!main) return { perf: null, replies: [] };
+  const replies = posts.filter((p) => p !== main)
+    .sort((a, b) => (a.postedAt ? Date.parse(a.postedAt) : Infinity) - (b.postedAt ? Date.parse(b.postedAt) : Infinity))
+    .map((p): TaskReply => ({
+      tweetId: p.tweetId, text: p.text, postedAt: p.postedAt, views: numOrNull(p.views), likes: p.likes,
+      link: firstLinkOf(p.text, p.raw_urls), url: tweetPermalink(p.author_handle, p.tweetId),
+      media: mapMedia({ media: p.raw_media }), quoted: mapQuoted({ quoted_tweet: p.raw_quoted }),
+    }));
+  return {
+    perf: { postCount: posts.length, views: numOrNull(main.views), likes: main.likes, bookmarks: main.bookmarks },
+    replies,
+  };
+}
 type ClickRow = { draft_id: string; clicks: string | number | null };
 
 export async function getCampaignDetail(
@@ -282,18 +319,19 @@ export async function getCampaignDetail(
   if (!campaign) return null;
   const tasks = await listTasksByCampaign(sql, id);
 
-  // 성과: 게시물은 작업에 붙는다(§2-4). 한 작업에 게시물이 여러 개면(tracked_post는 tweet_id만 unique)
-  // 각 게시물의 최신 스냅샷을 합산한다. 최신 1건은 lateral(trackingStore 관례) — 스냅샷 없는 게시물은 sum에서 null로 빠진다.
-  const perfRows = await sql<PerfRow[]>`
-    select tp.task_id, count(tp.id)::int as post_count, sum(s.views) as views, sum(s.likes) as likes, sum(s.bookmarks) as bookmarks,
-           max(s.captured_at) as captured_at
+  // 성과: 게시물은 작업에 붙는다(§2-4). 한 작업에 게시물이 여러 개여도(인플 본인 댓글·스레드) 작업 지표는 본 게시물 하나 —
+  // 게시물 링크(post_url)가 가리키는 트윗(self-replies 스펙 §5, pickTaskMainPost). 댓글 지표는 더하지 않고 replies로 따로 준다.
+  // 최신 1건은 lateral(trackingStore 관례) — 스냅샷 없는 게시물은 지표가 null.
+  const postRows = await sql<PostRow[]>`
+    select tp.task_id, tp.tweet_id, tp.author_handle, tp.text, tp.posted_at, (s.raw->>'isReply')::boolean as is_reply,
+           s.raw #> '{entities,urls}' as raw_urls, s.raw -> 'media' as raw_media, s.raw -> 'quoted_tweet' as raw_quoted, s.views, s.likes, s.bookmarks, s.captured_at
       from tracked_post tp
       left join lateral (
-        select views, likes, bookmarks, captured_at from post_metric_snapshot where tracked_post_id = tp.id
+        select views, likes, bookmarks, captured_at, raw from post_metric_snapshot where tracked_post_id = tp.id
         order by captured_at desc limit 1
       ) s on true
      where tp.task_id in (select t.id from campaign_task t where t.campaign_id = ${id})
-     group by tp.task_id`;
+     order by tp.created_at asc`;
   // 링크 클릭은 아직 원고 기준이다(tracking_link.draft_id) — 작업에 붙은 원고를 통해 잇는다(§5)
   const clickRows = await sql<ClickRow[]>`
     select l.draft_id, sum(s.total_clicks) as clicks
@@ -304,18 +342,20 @@ export async function getCampaignDetail(
       ) s on true
      where l.draft_id in (select t.draft_id from campaign_task t where t.campaign_id = ${id} and t.draft_id is not null)
      group by l.draft_id`;
-  const perfMap = new Map(perfRows.map((r) => [r.task_id, r]));
+  const postsByTask = new Map<string, PostRow[]>();
+  for (const r of postRows) { const l = postsByTask.get(r.task_id); if (l) l.push(r); else postsByTask.set(r.task_id, [r]); }
   const clickMap = new Map(clickRows.map((r) => [r.draft_id, r]));
   const num = (v: string | number | null) => (v === null ? null : Number(v)); // sum(bigint)는 문자열
   const badges = await settlementByTaskIds(sql, tasks.map((t) => t.id));   // 표의 정산 배지(정산 스펙 §4-4)
 
   const items: CampaignTaskItem[] = tasks.map((t) => {
-    const p = perfMap.get(t.id);
+    const { perf, replies } = taskPostsView(t.postUrl, postsByTask.get(t.id) ?? []);
     const c = t.draftId ? clickMap.get(t.draftId) : undefined;
     return {
       ...t,
       published: t.postedAt !== null,   // 게시 확인이 판정한다 — 게시물이 아직 안 붙었어도 게시됨(§2-5)
-      perf: p ? { postCount: p.post_count, views: num(p.views), likes: num(p.likes), bookmarks: num(p.bookmarks) } : null,
+      perf,
+      replies,
       linkClicks: c ? num(c.clicks) : null,
       settlement: badges.get(t.id) ?? null,
     };
@@ -339,7 +379,7 @@ export async function getCampaignDetail(
 
   return {
     campaign, tasks: items, costRows,
-    perfUpdatedAt: latestIso(perfRows.map((r) => r.captured_at)),
+    perfUpdatedAt: latestIso(postRows.map((r) => r.captured_at)),
     summary: summarizeTasks(items, today),
     influencers: deriveTaskInfluencers(items, costRows),
     byType: subtotalsByType(items),

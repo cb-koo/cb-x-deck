@@ -1,15 +1,19 @@
 // 인플루언서 성과 — 취소 안 된 배정 작업 + 작업별 최신 스냅샷 합 + 명부를 한 번에 읽어 인플별로 묶는다(스펙 §7).
-// 작업 지표는 캠페인 화면(campaignStore.getCampaignDetail)과 같은 방식 — 게시물마다 최신 1건(lateral)을 합산해 두 화면 숫자가 같다.
+// 작업 지표는 캠페인 화면(campaignStore.getCampaignDetail)과 같은 방식 — 본 게시물(post_url의 트윗, pickTaskMainPost) 하나의
+// 최신 1건(lateral)이라 두 화면 숫자가 같다. 인플 본인 댓글 등 나머지 게시물은 더하지 않는다(self-replies 스펙 §5).
 import type postgres from 'postgres';
 import type { PerfInfluencerInput, PerfTask } from './influencerPerformance.ts';
 import type { TaskType } from './campaignJudgment.ts';
 import { parseTaskCost, type TaskCost } from './campaignCost.ts';
+import { pickTaskMainPost } from './selfReplies.ts';
 
+type PostRow = {
+  task_id: string; tweet_id: string; posted_at: Date | null; is_reply: boolean | null;
+  views: string | number | null; likes: number | null; replies: number | null; bookmarks: number | null; retweets: number | null; quotes: number | null;
+};
 type Row = {
   id: string; campaign_id: string; campaign_name: string; client_id: string | null; client_name: string | null; type: TaskType; influencer_handle: string;
   posted_at: string | null; post_url: string | null; removed_at: string | null; removed_reason: string; cost: unknown;
-  post_count: number; views: string | null; likes: string | null; replies: string | null;
-  bookmarks: string | null; retweets: string | null; quotes: string | null;
   influencer_id: string | null; roster_handle: string | null; display_name: string | null;
   avatar_url: string | null; is_blue_verified: boolean | null;
 };
@@ -22,23 +26,25 @@ export async function listInfluencerPerformance(sql: postgres.Sql): Promise<Perf
     select t.id, t.campaign_id, c.name as campaign_name, c.client_id, c.client_name, t.type, t.influencer_handle,
            to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, t.post_url, t.cost,
            to_char(t.removed_at, 'YYYY-MM-DD') as removed_at, t.removed_reason,
-           p.post_count, p.views, p.likes, p.replies, p.bookmarks, p.retweets, p.quotes,
            i.id as influencer_id, i.handle as roster_handle, i.display_name, i.avatar_url, i.is_blue_verified
       from campaign_task t
       join campaign c on c.id = t.campaign_id
-      left join lateral (
-        select count(tp.id)::int as post_count, sum(s.views) as views, sum(s.likes) as likes, sum(s.replies) as replies,
-               sum(s.bookmarks) as bookmarks, sum(s.retweets) as retweets, sum(s.quotes) as quotes
-          from tracked_post tp
-          left join lateral (
-            select views, likes, replies, bookmarks, retweets, quotes from post_metric_snapshot
-             where tracked_post_id = tp.id order by captured_at desc limit 1
-          ) s on true
-         where tp.task_id = t.id
-      ) p on true
       left join influencer i on lower(i.handle) = lower(t.influencer_handle)
      where t.cancelled_at is null and t.influencer_handle is not null
      order by t.created_at`;
+  const postRows = await sql<PostRow[]>`
+    select tp.task_id, tp.tweet_id, tp.posted_at, (s.raw->>'isReply')::boolean as is_reply,
+           s.views, s.likes, s.replies, s.bookmarks, s.retweets, s.quotes
+      from tracked_post tp
+      join campaign_task t on t.id = tp.task_id
+      left join lateral (
+        select views, likes, replies, bookmarks, retweets, quotes, raw from post_metric_snapshot
+         where tracked_post_id = tp.id order by captured_at desc limit 1
+      ) s on true
+     where t.cancelled_at is null and t.influencer_handle is not null
+     order by tp.created_at asc`;
+  const postsByTask = new Map<string, PostRow[]>();
+  for (const r of postRows) { const l = postsByTask.get(r.task_id); if (l) l.push(r); else postsByTask.set(r.task_id, [r]); }
 
   const byHandle = new Map<string, PerfInfluencerInput>();
   for (const r of rows) {
@@ -56,12 +62,21 @@ export async function listInfluencerPerformance(sql: postgres.Sql): Promise<Perf
       postedAt: r.posted_at, postUrl: r.post_url, removedAt: r.removed_at, removedReason: r.removed_reason,
       clientId: r.client_id, clientName: r.client_name,
       cost: costOf(r.cost),
-      metrics: r.post_count > 0 ? {
-        postCount: r.post_count, views: num(r.views), likes: num(r.likes), replies: num(r.replies),
-        bookmarks: num(r.bookmarks), retweets: num(r.retweets), quotes: num(r.quotes),
-      } : null,
+      metrics: metricsOf(r.post_url, postsByTask.get(r.id) ?? []),
     };
     inf.tasks.push(task);
   }
   return [...byHandle.values()];
+}
+
+// 작업 지표 = 본 게시물 하나(postCount는 붙은 게시물 수 — 댓글 포함). 게시물이 없으면 null.
+function metricsOf(postUrl: string | null, rows: PostRow[]): PerfTask['metrics'] {
+  const main = pickTaskMainPost(postUrl, rows.map((r) => ({
+    ...r, tweetId: r.tweet_id, postedAt: r.posted_at ? new Date(r.posted_at).toISOString() : null, isReply: r.is_reply,
+  })));
+  if (!main) return null;
+  return {
+    postCount: rows.length, views: num(main.views), likes: main.likes, replies: main.replies,
+    bookmarks: main.bookmarks, retweets: main.retweets, quotes: main.quotes,
+  };
 }

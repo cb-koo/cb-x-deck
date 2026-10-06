@@ -11,6 +11,7 @@ import { TaskProofField } from '@/components/TaskProofField';
 import { Button } from '@/components/ui';
 import { TargetPreview } from './TargetPreview';
 import { useTweetPreview } from './useTweetPreview';
+import { PostThread } from './PostThread';
 
 // 작업 패널의 '게시' 칸(koo 09-26 posted-inline) — 팝업(PostedDialog) 없이 칸 안에서 게시 확인까지 끝낸다.
 //  · 투고·인용RT·방문협찬: 게시일을 적지 않는다. 게시물 링크를 붙이면 트윗 id에서 한국 날짜가 나오고
@@ -75,6 +76,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
 
   // ── 게시 뒤 ──
   if (task.postedAt) {
+    const hasReplies = !isRt && task.replies.length > 0;
     return (
       <div ref={rootRef}>
         {/* 첫 줄: 게시일 + (RT면) 증빙 상태 딱지(koo 10-01 시안 A) — 칸을 열자마자 '증빙이 있나'가 보이게.
@@ -92,9 +94,23 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
             </span>
           )}
         </div>
-        {previewUrl && (
+        {/* 게시된 본 게시물 + 인플 본인 댓글(추가 콘텐츠) — X 본인 스레드 모양(PostThread, koo 10-06 시안 A).
+            §10(koo 10-06, X 비교): 게시된 게시물은 댓글이 없어도 X처럼 전부(본문 전체·사진 전부·인용한 글 카드) — 그래서 미리보기가 되면 늘 PostThread.
+            본 게시물을 못 불러왔으면(불러오는 중·실패·리포스트) 지금의 안내 상자 아래에 댓글 글만 같은 모양으로.
+            RT엔 자기 게시물이 없어 붙지 않는다 */}
+        {previewUrl && (prev.preview?.kind === 'ok' ? (
+          <div className="mt-2.5">
+            <PostThread main={prev.preview.tweet} replies={hasReplies ? task.replies : []} fallbackHandle={task.influencerHandle}
+                        mainStats={{ views: task.perf?.views ?? prev.preview.tweet.metrics.views, likes: task.perf?.likes ?? prev.preview.tweet.metrics.likes }} />
+          </div>
+        ) : (
           <div className="mt-2.5"><TargetPreview state={{ kind: 'link', url: previewUrl }} {...prev} lines={3}
                                                 repostMessage="리포스트 링크로 게시 확인됐어요 — 원본 게시물이 아니라 카드를 보여줄 수 없어요" /></div>
+        ))}
+        {hasReplies && !(previewUrl && prev.preview?.kind === 'ok') && (
+          <div className="mt-2.5">
+            <PostThread main={null} replies={task.replies} fallbackHandle={task.influencerHandle} mainStats={{ views: null, likes: null }} />
+          </div>
         )}
         {/* RT 증빙(koo 10-01) — 파일 카드: 썸네일 | 제목·올린 정보 | [보기·바꾸기·받기]. 게시된 RT는 서버가 증빙 비우기를 거절하므로 지우기는 없다(canRemove=false) —
             '지우고 다시 올리기'는 [바꾸기]로 연 교체 상자에 새 스크린샷을 붙여넣는 한 동작이다. 증빙이 없는 옛 데이터면 올리기 상자가 바로 뜬다

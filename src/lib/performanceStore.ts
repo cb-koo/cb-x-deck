@@ -2,7 +2,7 @@
 // 성과 화면의 읽기 모델 — 콘텐츠(=링크) 한 행에 원고·게시물(역할)·클릭·랜딩 도착/탭을 모은다.
 // 설계: docs/superpowers/specs/2026-08-25-landing-events-design.md §읽기 모델
 import type postgres from 'postgres';
-import { assignRoles, type PostRole } from './postRole.ts';
+import { assignRoles, taskMainTweetIdOf, type PostRole } from './postRole.ts';
 import { rangeWindow, statsByUtmContent, unlinkedStats, type Range, type UnlinkedStats, type Window } from './landingEventStore.ts';
 
 // 캠페인 select의 '모든 캠페인' 값 — utm_campaign에 이 문자열을 쓰는 캠페인은 없다(checkCampaign이 영문·숫자·하이픈만 허용해도 'all'은 가능하므로, 충돌 시 그 캠페인은 목록에서 개별 선택이 안 된다는 한계는 받아들인다).
@@ -46,6 +46,7 @@ type LinkRow = {
 type PostRow = {
   id: string; tweet_id: string; author_handle: string | null; draft_id: string; posted_at: Date | null; role: PostRole | null;
   views: string | number | null; captured_at: Date | null; is_reply: boolean | null; raw_urls: unknown;
+  post_url: string | null;   // 붙은 작업의 게시물 링크 — 본 게시물 고정(taskMainTweetIdOf)
 };
 
 // campaign이 null이면 모든 캠페인의 링크(전체 합산 보기).
@@ -65,8 +66,10 @@ export async function listContentRows(sql: postgres.Sql, campaign: string | null
   const draftIds = [...new Set(links.map((l) => l.draft_id).filter((v): v is string => v !== null))];
   const posts = draftIds.length === 0 ? [] : await sql<PostRow[]>`
     select tp.id, tp.tweet_id, tp.author_handle, tp.draft_id, tp.posted_at, tp.role,
-           s.views, s.captured_at, (s.raw->>'isReply')::boolean as is_reply, s.raw #> '{entities,urls}' as raw_urls
+           s.views, s.captured_at, (s.raw->>'isReply')::boolean as is_reply, s.raw #> '{entities,urls}' as raw_urls,
+           ct.post_url
       from tracked_post tp
+      left join campaign_task ct on ct.id = tp.task_id
       left join lateral (select views, captured_at, raw from post_metric_snapshot where tracked_post_id = tp.id order by captured_at desc limit 1) s on true
      where tp.draft_id = any(${draftIds}::uuid[])`;
   // 역할 판정에는 그 원고의 링크 전부(다른 캠페인 포함)가 필요하다
@@ -84,8 +87,12 @@ export async function listContentRows(sql: postgres.Sql, campaign: string | null
       role: p.role, rawUrls: p.raw_urls, isReply: p.is_reply,
       views: p.views === null ? null : Number(p.views), // bigint는 문자열로 온다(trackingStore 관례)
       capturedAt: p.captured_at ? new Date(p.captured_at).toISOString() : null,
+      postUrl: p.post_url,
     }));
-    const roled = l.draft_id ? assignRoles(mine, allLinks.filter((x) => x.draft_id === l.draft_id).map((x) => x.short_url)) : [];
+    // 본 게시물 = 작업의 게시물 링크가 가리키는 트윗(캠페인 화면과 같은 게시물) — 그게 트래킹 링크를 담고 있어도 main
+    const roled = l.draft_id
+      ? assignRoles(mine, allLinks.filter((x) => x.draft_id === l.draft_id).map((x) => x.short_url), taskMainTweetIdOf(mine))
+      : [];
     const main = roled.find((p) => p.role === 'main') ?? null;
     const st = stats.get(l.utm_key);
     const captured = [l.click_captured_at ? new Date(l.click_captured_at).toISOString() : null, main?.capturedAt ?? null]

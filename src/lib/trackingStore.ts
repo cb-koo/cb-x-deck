@@ -1,6 +1,6 @@
 import type postgres from 'postgres';
 import type { PostMetrics } from './postMetrics.ts';
-import { assignRoles, type PostRole } from './postRole.ts';
+import { assignRoles, taskMainTweetIdOf, type PostRole } from './postRole.ts';
 import { tweetPermalink } from './tweetLink.ts';
 import { isUuidLike } from './uuid.ts';
 
@@ -94,10 +94,11 @@ function stripInternal(
 async function attachDerivedRoles(sql: postgres.Sql, rows: Array<TrackedPostRow & { _isReply: boolean | null; _rawUrls: unknown }>): Promise<TrackedPostRow[]> {
   const draftIds = [...new Set(rows.map((r) => r.draftId).filter((v): v is string => v !== null))];
   if (draftIds.length === 0) return rows.map((r) => stripInternal(r, null));
-  const siblings = await sql<Array<{ id: string; tweet_id: string; draft_id: string; posted_at: Date | null; role: PostRole | null; is_reply: boolean | null; raw_urls: unknown }>>`
+  const siblings = await sql<Array<{ id: string; tweet_id: string; draft_id: string; posted_at: Date | null; role: PostRole | null; is_reply: boolean | null; raw_urls: unknown; post_url: string | null }>>`
     select tp.id, tp.tweet_id, tp.draft_id, tp.posted_at, tp.role,
-           (s.raw->>'isReply')::boolean as is_reply, s.raw #> '{entities,urls}' as raw_urls
+           (s.raw->>'isReply')::boolean as is_reply, s.raw #> '{entities,urls}' as raw_urls, ct.post_url
       from tracked_post tp
+      left join campaign_task ct on ct.id = tp.task_id
       left join lateral (select raw from post_metric_snapshot where tracked_post_id = tp.id order by captured_at desc limit 1) s on true
      where tp.draft_id = any(${draftIds}::uuid[])`;
   const links = await sql<Array<{ draft_id: string; short_url: string }>>`
@@ -106,10 +107,11 @@ async function attachDerivedRoles(sql: postgres.Sql, rows: Array<TrackedPostRow 
   for (const draftId of draftIds) {
     const posts = siblings.filter((s) => s.draft_id === draftId).map((s) => ({
       id: s.id, tweetId: s.tweet_id, postedAt: s.posted_at ? new Date(s.posted_at).toISOString() : null,
-      role: s.role, rawUrls: s.raw_urls, isReply: s.is_reply,
+      role: s.role, rawUrls: s.raw_urls, isReply: s.is_reply, postUrl: s.post_url,
     }));
     const shortUrls = links.filter((l) => l.draft_id === draftId).map((l) => l.short_url);
-    for (const p of assignRoles(posts, shortUrls)) derived.set(p.id, p.role);
+    // 콘텐츠 성과(performanceStore)와 같은 판정 — 작업의 게시물 링크가 가리키는 트윗은 링크를 담아도 main
+    for (const p of assignRoles(posts, shortUrls, taskMainTweetIdOf(posts))) derived.set(p.id, p.role);
   }
   return rows.map((r) => stripInternal(r, r.draftId ? derived.get(r.id) ?? null : null));
 }

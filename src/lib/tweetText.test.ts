@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenizeTweetText } from './tweetText.ts';
+import { tokenizeTweetText, stripTrailingMediaLink } from './tweetText.ts';
 
 test('평문은 text 토큰 하나', () => {
   assert.deepEqual(tokenizeTweetText('こんにちは'), [{ type: 'text', value: 'こんにちは' }]);
@@ -48,4 +48,19 @@ test('혼합: 줄바꿈 유지, 토큰 순서 보존', () => {
 
 test('빈 문자열 → 빈 배열', () => {
   assert.deepEqual(tokenizeTweetText(''), []);
+});
+
+// X는 사진·영상·인용 글에 붙는 본문 끝 t.co 링크를 숨긴다(스펙 self-replies §10)
+test('본문 끝 미디어 t.co: 사진·인용이 있을 때만 숨긴다', () => {
+  const t = '審美は韓国おすすめ https://t.co/K2bOdsXwvi';
+  assert.equal(stripTrailingMediaLink(t, { hasMedia: true, hasQuoted: false }), '審美は韓国おすすめ');
+  assert.equal(stripTrailingMediaLink(t, { hasMedia: false, hasQuoted: true }), '審美は韓国おすすめ');
+  assert.equal(stripTrailingMediaLink(t, { hasMedia: false, hasQuoted: false }), t);   // 미디어가 없으면 진짜 링크일 수 있다
+});
+
+test('본문 끝 미디어 t.co: 끝의 하나만, 중간 링크·t.co 아닌 링크는 그대로', () => {
+  assert.equal(stripTrailingMediaLink('a https://t.co/x1 b https://t.co/x2', { hasMedia: true, hasQuoted: false }), 'a https://t.co/x1 b');
+  const reply = '特典変わるらしい。\n\n🦷https://pages.s.gy/thesquaredc_jp';
+  assert.equal(stripTrailingMediaLink(reply, { hasMedia: true, hasQuoted: true }), reply);
+  assert.equal(stripTrailingMediaLink('https://t.co/only', { hasMedia: true, hasQuoted: false }), '');
 });

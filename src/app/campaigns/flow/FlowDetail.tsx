@@ -366,7 +366,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     setRefreshing(false);
     show(r.data.total === 0
       ? '조회할 게시물이 없었어요'
-      : `게시물 ${r.data.refreshed}건을 다시 조회했어요${r.data.unavailable ? ` · ${r.data.unavailable}건은 찾을 수 없어요` : ''}${r.data.failed ? ` · ${r.data.failed}건은 실패했어요` : ''}`);
+      : `게시물 ${r.data.refreshed}건을 다시 조회했어요${r.data.newReplies ? ` · 인플 댓글 ${r.data.newReplies}개를 새로 찾아 붙였어요` : ''}${r.data.unavailable ? ` · ${r.data.unavailable}건은 찾을 수 없어요` : ''}${r.data.failed ? ` · ${r.data.failed}건은 실패했어요` : ''}`);
   }, [id, show, load]);
 
   // 오른쪽 패널 — 이전/다음은 shown(표시 순서, 결정 4)을 걷지만, 패널이 보여줄 작업 자체는 data.tasks에서 찾는다.
@@ -1017,6 +1017,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                        ? <PostedBox task={panelTask} today={data.today}
                                     proofSignedUrl={panelTask.proof ? proofUrls[panelTask.proof.url] ?? null : null}
                                     focus={postedFocusId === panelTask.id} onFocused={clearPostedFocus}
+                                    // 링크로 게시 확인하면 서버가 본 게시물 성과와 인플 본인 댓글을 붙인다(self-replies §3) — 응답 전에 끝나고,
+                                    // actions.markPosted가 링크가 있으면 상세를 다시 읽으니 그대로 보인다
                                     onMarkPosted={(date, url, proof) => actions.markPosted(panelTask, date, url, proof)}
                                     onSetProof={(p) => actions.setProof(panelTask, p)}
                                     onOpenRemoved={() => setRemovedOpen(true)}

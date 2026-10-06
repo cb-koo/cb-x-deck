@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { mapRawTweet, mapRawUser } from './mappers.ts';
+import { mapRawTweet, mapRawUser, mapMedia, mapQuoted } from './mappers.ts';
 
 const fixture = JSON.parse(readFileSync('fixtures/search-response.json', 'utf8'));
 
@@ -76,4 +76,16 @@ test('mapRawUser: bio 빈 문자열은 null, isBlueVerified/isVerified 각각 tr
   assert.equal(mapRawUser({ userName: 'u', isBlueVerified: true })!.verified, true);
   assert.equal(mapRawUser({ userName: 'u', isVerified: true })!.verified, true);
   assert.equal(mapRawUser({ userName: 'u', isBlueVerified: false, isVerified: false })!.verified, false);
+});
+
+// 작업 패널 댓글(스냅샷 raw의 media·quoted_tweet만 읽는다)이 덱과 같은 규칙을 쓴다(스펙 self-replies §10)
+test('mapMedia·mapQuoted: 상세 조회 raw의 사진 전부·인용 글', () => {
+  const raw = {
+    media: [{ type: 'photo', url: 'https://pbs.twimg.com/a.jpg', video_url: null }, { type: 'photo', url: 'https://pbs.twimg.com/b.jpg' }, { type: 'photo' }],
+    quoted_tweet: { id: '2106418858815009095', text: '男性側がみんな歯並びいいの好感度高い', user: { name: 'なす', screen_name: 'nasu_seikei' } },
+  };
+  assert.deepEqual(mapMedia(raw).map((m) => m.url), ['https://pbs.twimg.com/a.jpg', 'https://pbs.twimg.com/b.jpg']);
+  assert.deepEqual(mapQuoted(raw), { id: '2106418858815009095', text: '男性側がみんな歯並びいいの好感度高い', userName: 'なす', screenName: 'nasu_seikei' });
+  assert.deepEqual(mapMedia({}), []);
+  assert.equal(mapQuoted({ quoted_tweet: null }), null);
 });

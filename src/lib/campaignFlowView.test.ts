@@ -15,7 +15,7 @@ const mk = (p: Partial<CampaignTaskItem>): CampaignTaskItem => ({
   proof: null, visitTime: null, scheduledTime: null, agreement: null, paymentMethodId: null, cancelledAt: null, cancelReason: null, cancelNote: '', cancelledDraftId: null, cancelledDraftTitle: null, settledElsewhereAt: null, settledElsewhereNote: '', settledElsewhereByName: null,
   createdAt: `2026-09-01T00:00:${String(n).padStart(2, '0')}Z`, updatedAt: '', draftStatus: null, draftLabel: null, draftFirstLine: null,
   draftPreview: null, draftFirstImage: null, target: null,
-  published: false, perf: null, linkClicks: null, settlement: null, ...p,
+  published: false, perf: null, replies: [], linkClicks: null, settlement: null, ...p,
 });
 
 test('1) 필터 — 묶음 안 OR, 묶음 사이 AND, 빈 필터는 전부 통과', () => {

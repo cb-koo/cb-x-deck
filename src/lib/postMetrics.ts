@@ -62,28 +62,30 @@ export async function fetchPost(tweetId: string, client?: GetxapiClient): Promis
   // 여기서도 raw가 리포스트 래퍼면 원본 트윗으로 갈아탄다. tweetId가 요청한 값과 달라질 수 있는데,
   // 그 흡수는 addTrackedPost의 유니크 제약 폴백("이미 추적 중이에요")이 이미 처리한다.
   const t = (raw.retweeted_tweet as RawTweet | undefined) ?? raw;
+  const post = postFromRaw(t);
+  return post ? { kind: 'ok', post } : { kind: 'error' }; // id 없음 = 응답은 왔는데 기형 — 삭제 확정이 아니라 판단 불가
+}
 
+// 트윗 원본 하나 → FetchedPost. 상세 조회(fetchPost)와 스레드 조회(selfReplyDiscovery)가 같은 규칙을 쓴다.
+// 리포스트 래퍼 풀기는 호출자 몫(fetchPost만 필요 — 스레드의 트윗은 작성자 본인 글이라 래퍼가 아니다). id가 없으면 null.
+export function postFromRaw(t: RawTweet): FetchedPost | null {
   const id = str(t.id);
-  if (!id) return { kind: 'error' }; // 응답은 왔는데 기형 — 삭제 확정이 아니라 판단 불가
-
+  if (!id) return null;
   const author = t.author as Record<string, unknown> | undefined;
   return {
-    kind: 'ok',
-    post: {
-      tweetId: id,
-      authorHandle: str(author?.userName),
-      authorUserId: str(author?.id),
-      text: str(t.text) ?? '',
-      postedAt: toIso(t.createdAt),
-      metrics: {
-        views: num(t.viewCount),
-        likes: num(t.likeCount),
-        retweets: num(t.retweetCount),
-        replies: num(t.replyCount),
-        bookmarks: num(t.bookmarkCount),
-        quotes: num(t.quoteCount),
-      },
-      raw: t, // 저장 payload는 실제 지표를 낸 트윗(t)과 일치시킨다 — 래퍼(raw)를 저장하면 나중에 봤을 때 지표와 안 맞는다
+    tweetId: id,
+    authorHandle: str(author?.userName),
+    authorUserId: str(author?.id),
+    text: str(t.text) ?? '',
+    postedAt: toIso(t.createdAt),
+    metrics: {
+      views: num(t.viewCount),
+      likes: num(t.likeCount),
+      retweets: num(t.retweetCount),
+      replies: num(t.replyCount),
+      bookmarks: num(t.bookmarkCount),
+      quotes: num(t.quoteCount),
     },
+    raw: t, // 저장 payload는 실제 지표를 낸 트윗(t)과 일치시킨다 — 래퍼(raw)를 저장하면 나중에 봤을 때 지표와 안 맞는다
   };
 }

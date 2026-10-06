@@ -14,6 +14,8 @@ import { rosterHandleOf, checkTaskPaymentMethod, hasLiveRequest, ROSTER_REQUIRED
 import { attachPostToTask, guardFirstAssign } from '@/lib/postAttach';
 import { authorVerdictMessage, firstAssignMismatchMessage } from '@/lib/postAuthor';
 import { fetchPost } from '@/lib/postMetrics';
+import { makeClient } from '@/lib/getxapi';
+import { discoverSelfReplies } from '@/lib/selfReplyDiscovery';
 import { TrackingLinkError, trackingLinkMessage } from '@/lib/trackingStore';
 
 const notFound = () => NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 404 });
@@ -136,6 +138,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
     if (attachUrl) {
       const r = await attachPostToTask(sql, taskId, attachUrl, { fetchPost }, { createdBy: gate.member.id, apply });
       if (!r.ok) return NextResponse.json({ error: r.error, code: r.code }, { status: 400 });
+      await findSelfReplies(taskId, gate.member.id);
     } else {
       await sql.begin(async (tx0) => apply(tx0 as unknown as postgres.Sql));
     }
@@ -152,6 +155,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
   const updated = await getTask(sql, taskId);
   if (!updated) return notFound();
   return NextResponse.json(updated);
+}
+
+// 게시 확인 직후 인플 본인 댓글(추가 콘텐츠)을 찾아 붙인다(self-replies 스펙 §3) — best-effort: 게시 확인은 이미
+// 커밋됐고, 여기 실패(키 없음·조회 오류)는 응답을 바꾸지 않는다. 다음 성과 [업데이트](↻)가 다시 찾는다.
+async function findSelfReplies(taskId: string, memberId: string) {
+  try {
+    const client = makeClient();
+    await discoverSelfReplies(getSql(), taskId, {
+      fetchPost: (tweetId) => fetchPost(tweetId, client),
+      getTweetThread: (tweetId) => client.getTweetThread(tweetId),
+    }, memberId);
+  } catch (e) {
+    console.error(`findSelfReplies(${taskId}) failed:`, e);
+  }
 }
 
 // 삭제 — 원고 set null·참조 set null·tracked_post.task_id set null은 FK. 멱등(이미 없으면 deleted:false).

@@ -104,7 +104,7 @@ export const replaceInfluencerApi = (campaignId: string, taskId: string, body: {
 export const checkPostedApi = (campaignId: string) => call<CheckPostedResult>(`/api/campaigns/${campaignId}/check-posted`, { method: 'POST' });
 // 성과 [업데이트](v2 §3-3) — 비용 유발(게시물당 API 1회), 버튼 opt-in
 export const refreshCampaignPerfApi = (campaignId: string) =>
-  call<{ total: number; refreshed: number; unavailable: number; failed: number }>(`/api/campaigns/${campaignId}/perf-refresh`, { method: 'POST' });
+  call<{ total: number; refreshed: number; unavailable: number; failed: number; newReplies: number }>(`/api/campaigns/${campaignId}/perf-refresh`, { method: 'POST' });
 
 // ── 원고(기존 라우트 — 값은 하나, 캠페인 전용 경로 없음 §2-5) ──
 export interface DraftPatchBody {

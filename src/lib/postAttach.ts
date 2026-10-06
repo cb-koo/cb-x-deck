@@ -175,16 +175,22 @@ export async function linkTrackedPostGuarded(
 ): Promise<boolean> {
   return await sql.begin(async (tx0) => {
     const tx = tx0 as unknown as postgres.Sql;
-    let now: TaskSeen;
-    if ('taskId' in link) now = seenOf(await assignedOf(tx, link.taskId, true));
-    else {
-      const r = await tx<Array<{ id: string; influencer_handle: string | null; type: string; cancelled_at: Date | null }>>`
-        select id, influencer_handle, type, cancelled_at from campaign_task where draft_id = ${link.draftId} for update`;
-      now = r[0] ? { taskId: r[0].id, handle: nz(r[0].influencer_handle), type: r[0].type, cancelled: r[0].cancelled_at !== null } : null;
-    }
-    if (!sameSeen(seen, now)) throw new TaskChangedError();
+    await assertTaskUnchanged(tx, link, seen);
     return linkTrackedPost(tx, trackedPostId, link);
   }) as unknown as boolean;
+}
+
+// linkTrackedPostGuarded의 확인 절반 — 열린 트랜잭션 안에서 작업 행을 잠그고 판정 때 본 모습과 같은지 본다.
+// 다르면 TaskChangedError. 인플 본인 댓글 붙이기(selfReplyDiscovery)가 등록과 연결을 한 트랜잭션에 묶으려고 뺐다.
+export async function assertTaskUnchanged(tx: postgres.Sql, link: { taskId: string } | { draftId: string }, seen: TaskSeen): Promise<void> {
+  let now: TaskSeen;
+  if ('taskId' in link) now = seenOf(await assignedOf(tx, link.taskId, true));
+  else {
+    const r = await tx<Array<{ id: string; influencer_handle: string | null; type: string; cancelled_at: Date | null }>>`
+      select id, influencer_handle, type, cancelled_at from campaign_task where draft_id = ${link.draftId} for update`;
+    now = r[0] ? { taskId: r[0].id, handle: nz(r[0].influencer_handle), type: r[0].type, cancelled: r[0].cancelled_at !== null } : null;
+  }
+  if (!sameSeen(seen, now)) throw new TaskChangedError();
 }
 
 // ⑤ 게시된 미배정 작업의 최초 배정 — 붙은 게시물이 있으면 새 인플이 그 작성자여야 한다(옛 데이터 방어).

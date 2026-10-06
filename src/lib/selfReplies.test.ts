@@ -39,6 +39,12 @@ test('pickSelfReplies — 같은 작성자 고유번호만·본 게시물 제외
   assert.deepEqual(pickSelfReplies({ tweets: [{ author: AUTHOR }], mainTweetId: MAIN.id, mainAuthorId: AUTHOR.id, trackedIds: new Set() }), []);
 });
 
+test('pickSelfReplies — 본 게시물보다 먼저 쓴 같은 스레드의 글은 뺀다', () => {
+  const before = { ...REPLY, id: '4', createdAt: 'Tue Oct 06 07:00:00 +0000 2026' };
+  const r = pickSelfReplies({ tweets: [before, MAIN, REPLY], mainTweetId: MAIN.id, mainAuthorId: AUTHOR.id, trackedIds: new Set() });
+  assert.deepEqual(r.map((p) => p.tweetId), [REPLY.id]);
+});
+
 test('pickSelfReplies — 게시 순으로', () => {
   const late = { ...REPLY, id: '5', createdAt: 'Tue Oct 06 12:00:00 +0000 2026' };
   const r = pickSelfReplies({ tweets: [MAIN, late, REPLY], mainTweetId: MAIN.id, mainAuthorId: AUTHOR.id, trackedIds: new Set() });

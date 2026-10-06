@@ -18,17 +18,22 @@ export function mainAuthorIdOf(tweets: RawTweet[], mainTweetId: string): string 
 }
 
 // 붙일 본인 댓글 — 작성자 고유번호가 본 게시물 작성자와 같고(핸들은 보지 않는다 — 바뀔 수 있다), 본 게시물이 아니며,
-// 아직 트래킹에 없는 트윗. 지표는 스레드 응답의 값(첫 스냅샷, 별도 상세 조회 없이). 게시 순.
+// 본 게시물보다 앞서 쓴 글이 아니고, 아직 트래킹에 없는 트윗. 지표는 스레드 응답의 값(첫 스냅샷, 별도 상세 조회 없이). 게시 순.
 export function pickSelfReplies(args: {
   tweets: RawTweet[]; mainTweetId: string; mainAuthorId: string | null; trackedIds: ReadonlySet<string>;
 }): FetchedPost[] {
   const { tweets, mainTweetId, mainAuthorId, trackedIds } = args;
   if (!mainAuthorId) return [];
+  // 스레드 조회는 본 게시물이 낀 스레드 전체를 준다 — 본 게시물이 인플의 앞선 스레드에 단 답글이면 그 앞 글들도 온다.
+  // 본 게시물보다 먼저 쓴 글은 "추가 콘텐츠"가 아니다(시각을 모르면 거르지 않는다).
+  const mainRaw = tweets.find((t) => idOf(t.id) === mainTweetId);
+  const mainAt = mainRaw ? postFromRaw(mainRaw)?.postedAt ?? null : null;
   const out: FetchedPost[] = [];
   for (const t of tweets) {
     const p = postFromRaw(t);
     if (!p || p.tweetId === mainTweetId || trackedIds.has(p.tweetId)) continue;
     if (authorIdOf(t) !== mainAuthorId) continue;
+    if (mainAt && p.postedAt && Date.parse(p.postedAt) < Date.parse(mainAt)) continue;
     if (out.some((o) => o.tweetId === p.tweetId)) continue;
     out.push(p);
   }

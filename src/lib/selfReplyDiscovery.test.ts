@@ -8,7 +8,9 @@ import { createTasks, getTask } from './campaignTaskStore.ts';
 import { findByTweetId, addTrackedPost, linkTrackedPost } from './trackingStore.ts';
 import { listInfluencerPerformance } from './influencerPerformanceStore.ts';
 import { attachPostToTask } from './postAttach.ts';
-import type { FetchPostResult } from './postMetrics.ts';
+import { postFromRaw, type FetchPostResult } from './postMetrics.ts';
+import { insertDraft } from './draftStore.ts';
+import { insertLink } from './linkStore.ts';
 import type { RawTweet, SearchPage } from './getxapi.ts';
 import { discoverSelfReplies, refreshCampaignPerf, type ThreadDeps } from './selfReplyDiscovery.ts';
 
@@ -29,9 +31,11 @@ const newTweetId = () => {
 const link = (handle: string, id: string) => `https://x.com/${handle}/status/${id}`;
 
 after(async () => {
+  await sql`delete from tracking_link where utm_campaign like ${P + '%'}`;
   await sql`delete from tracked_post where tweet_id = any(${made}::text[])`;
   await sql`delete from campaign_task where campaign_id in (select id from campaign where name like ${P + '%'})`;
   await sql`delete from campaign where name like ${P + '%'}`;
+  await sql`delete from draft where direction like ${P + '%'}`;
   await sql`delete from client where name like ${P + '%'}`;
   await sql`delete from influencer where handle like ${P + '%'}`;
   await sql.end();
@@ -43,7 +47,13 @@ const tw = (id: string, a: { handle: string; uid: string }, createdAt: string, v
   viewCount: views, likeCount: 1, retweetCount: 0, replyCount: 0, bookmarkCount: 0, quoteCount: 0, media: [],
 });
 
-// 대역 — 스레드는 main id별 응답(또는 'throw'), 상세 조회는 tweetId별. 부른 횟수를 센다.
+// 상세 조회 응답 — 스레드 응답과 달리 링크 정보 칸(entities.urls)이 있다(실제 getxapi 상세 응답 모양). 본문 속 URL로 채운다.
+const detailOf = (t: RawTweet): RawTweet => ({
+  ...t, entities: { urls: (String(t.text ?? '').match(/https?:\/\/\S+/g) ?? []).map((u) => ({ expanded_url: u })) },
+});
+
+// 대역 — 스레드는 main id별 응답(또는 'throw'), 상세 조회는 tweetId별(posts가 없으면 스레드 응답 속 같은 트윗의
+// 상세 모양 detailOf). 부른 횟수를 센다.
 function fakeDeps(opts: {
   threads?: Record<string, RawTweet[] | 'throw'>;
   posts?: Record<string, { handle: string; uid: string; views?: number } | 'unavailable' | 'error'>;
@@ -60,7 +70,12 @@ function fakeDeps(opts: {
     fetchPost: async (id: string): Promise<FetchPostResult> => {
       fetchCalls.push(id);
       const v = opts.posts?.[id];
-      if (v === undefined || v === 'error') return { kind: 'error' };
+      if (v === undefined) {
+        const t = Object.values(opts.threads ?? {}).flatMap((x) => (x === 'throw' ? [] : x)).find((x) => x.id === id);
+        const post = t ? postFromRaw(detailOf(t)) : null;
+        return post ? { kind: 'ok', post } : { kind: 'error' };
+      }
+      if (v === 'error') return { kind: 'error' };
       if (v === 'unavailable') return { kind: 'unavailable' };
       return { kind: 'ok', post: {
         tweetId: id, authorHandle: v.handle, authorUserId: v.uid, text: '본문', postedAt: '2026-10-06T03:00:00.000Z',
@@ -97,7 +112,7 @@ async function postedTask(type: 'post' | 'quoteRt' | 'rt' = 'post') {
 }
 const latestViews = async (tweetId: string) => (await findByTweetId(sql, tweetId))?.metrics?.views ?? null;
 
-test('게시 확인 뒤 — 같은 작성자 고유번호의 댓글만 작업에 붙는다(첫 스냅샷 = 스레드 지표)·게시물 링크는 그대로', async () => {
+test('게시 확인 뒤 — 같은 작성자 고유번호의 댓글만 작업에 붙는다(첫 스냅샷 = 상세 조회)·게시물 링크는 그대로', async () => {
   const { task, a, mainId } = await postedTask('quoteRt');
   const reply = newTweetId(); const stranger = newTweetId(); const imposter = newTweetId();
   const { deps, threadCalls, fetchCalls } = fakeDeps({ threads: { [mainId!]: [
@@ -108,7 +123,7 @@ test('게시 확인 뒤 — 같은 작성자 고유번호의 댓글만 작업에
   ] } });
   assert.equal(await discoverSelfReplies(sql, task.id, deps), 1);
   assert.deepEqual(threadCalls, [mainId]);
-  assert.deepEqual(fetchCalls, []);   // 작성자 판정은 스레드의 고유번호로(추가 조회 없음)
+  assert.deepEqual(fetchCalls, [reply]);   // 남의 트윗은 스레드의 고유번호로 걸러 상세 조회도 안 한다
   const tp = await findByTweetId(sql, reply);
   assert.equal(tp?.taskId, task.id);
   assert.equal(tp?.metrics?.views, 42);
@@ -147,7 +162,7 @@ test('RT·없는 작업은 스레드를 보지 않는다', async () => {
   assert.deepEqual(threadCalls, []);
 });
 
-test('↻ — 작업당 스레드 1회로 본 게시물·아는 댓글을 스냅샷하고 새 댓글을 붙인다(상세 조회 0회)', async () => {
+test('↻ — 지표는 게시물별 상세 조회로, 스레드 1회로는 새 댓글만 찾아 붙인다', async () => {
   const { campaignId, task, a, mainId } = await postedTask('post');
   const r1 = newTweetId(); const r2 = newTweetId();
   const t0 = 'Tue Oct 06 03:00:00 +0000 2026';   // 본 게시물 게시 시각 = 등록 때 값(대역 fetchPost의 postedAt)
@@ -158,7 +173,7 @@ test('↻ — 작업당 스레드 1회로 본 게시물·아는 댓글을 스냅
   const res = await refreshCampaignPerf(sql, campaignId, deps);
   assert.deepEqual(res, { total: 2, refreshed: 2, unavailable: 0, failed: 0, newReplies: 1 });
   assert.deepEqual(threadCalls, [mainId]);
-  assert.deepEqual(fetchCalls, []);
+  assert.deepEqual(fetchCalls, [mainId, r1, r2]);
   assert.equal(await latestViews(mainId!), 2000);
   assert.equal(await latestViews(r1), 50);
   assert.equal(await latestViews(r2), 7);
@@ -175,13 +190,13 @@ test('↻ — 스레드 조회가 실패하면 그 작업은 게시물별 상세
   assert.deepEqual(res, { total: 1, refreshed: 0, unavailable: 1, failed: 0, newReplies: 0 });
   assert.deepEqual(fetchCalls, [mainId]);
   assert.ok((await findByTweetId(sql, mainId!))?.unavailableAt);
-  // 복귀: 다음 ↻에서 스레드로 측정되면 unavailable이 풀린다(appendSnapshot 규칙)
+  // 복귀: 다음 ↻에서 다시 측정되면 unavailable이 풀린다(appendSnapshot 규칙)
   await refreshCampaignPerf(sql, campaignId, fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, 'Tue Oct 06 08:00:00 +0000 2026', 3000, false)] } }).deps);
   assert.equal((await findByTweetId(sql, mainId!))?.unavailableAt, null);
   assert.equal(await latestViews(mainId!), 3000);
 });
 
-test('↻ — 스레드에 없는 아는 댓글(지운 댓글)은 상세 조회로 확인한다', async () => {
+test('↻ — 지운 댓글은 상세 조회가 삭제로 판정한다', async () => {
   const { campaignId, task, a, mainId } = await postedTask('post');
   const r1 = newTweetId();
   const t0 = 'Tue Oct 06 08:00:00 +0000 2026';
@@ -189,7 +204,7 @@ test('↻ — 스레드에 없는 아는 댓글(지운 댓글)은 상세 조회�
   const { deps, fetchCalls } = fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, t0, 1100, false)] }, posts: { [r1]: 'unavailable' } });
   const res = await refreshCampaignPerf(sql, campaignId, deps);
   assert.deepEqual(res, { total: 2, refreshed: 1, unavailable: 1, failed: 0, newReplies: 0 });
-  assert.deepEqual(fetchCalls, [r1]);
+  assert.deepEqual(fetchCalls, [mainId, r1]);
   assert.ok((await findByTweetId(sql, r1))?.unavailableAt);
 });
 
@@ -225,4 +240,40 @@ test('↻ — RT 작업의 옛 게시물은 스레드 없이 상세 조회로', 
   assert.deepEqual(res, { total: 1, refreshed: 1, unavailable: 0, failed: 0, newReplies: 0 });
   assert.deepEqual(threadCalls, []);
   assert.deepEqual(fetchCalls, [id]);
+});
+
+// 회귀(10-06): 스레드 응답엔 entities가 없다 — 그 raw로 스냅샷하면 트래킹 링크 댓글의 자동 역할이 link → thread로 바뀌어
+// 콘텐츠 성과·랜딩 퍼널 귀속이 깨진다. 붙일 때도 ↻ 뒤에도 최신 스냅샷은 상세 조회 raw(entities 포함)여야 한다.
+test('↻ 뒤에도 트래킹 링크가 든 댓글은 link 역할 그대로(스냅샷 raw = 상세 조회)', async () => {
+  const { campaignId, task, a, mainId } = await postedTask('post');
+  const d = await insertDraft(sql, {
+    clientId: null, clientName: null, procedureNames: [], direction: P + 'role', format: 'single',
+    referenceMode: 'off', refs: [], content: { posts: [{ text: '본문', media: [] }] }, model: null, memberId: null,
+  });
+  const short = `https://cb.link/${P}rl`;
+  await insertLink(sql, {
+    code: P + 'rl', landingUrl: 'https://c.example.com/', longUrl: 'https://c.example.com/?utm_content=x',
+    shortUrl: short, shortioLinkId: 'lnk_' + P, utmCampaign: P + 'camp',
+    influencerHandle: a.handle, utmContent: `${a.handle}-${P}`, draftId: d, clientId: null, clientName: null, createdBy: null,
+  });
+  await sql`update campaign_task set draft_id = ${d} where id = ${task.id}`;
+  await sql`update tracked_post set draft_id = ${d} where tweet_id = ${mainId!}`;
+  const reply = newTweetId();
+  const t0 = 'Tue Oct 06 03:00:00 +0000 2026';
+  const thread = { [mainId!]: [tw(mainId!, a, t0, 1000, false), tw(reply, a, 'Tue Oct 06 05:00:00 +0000 2026', 40, true, `相談会 ${short}`)] };
+  assert.equal(await discoverSelfReplies(sql, task.id, fakeDeps({ threads: thread }).deps), 1);
+  assert.equal((await findByTweetId(sql, reply))?.derivedRole, 'link');
+  assert.equal((await findByTweetId(sql, mainId!))?.derivedRole, 'main');
+
+  const res = await refreshCampaignPerf(sql, campaignId, fakeDeps({ threads: thread }).deps);
+  assert.deepEqual(res, { total: 2, refreshed: 2, unavailable: 0, failed: 0, newReplies: 0 });
+  assert.equal((await findByTweetId(sql, reply))?.derivedRole, 'link');
+  assert.equal((await findByTweetId(sql, mainId!))?.derivedRole, 'main');
+  const [snap] = await sql<Array<{ urls: unknown }>>`
+    select s.raw #> '{entities,urls}' as urls from post_metric_snapshot s join tracked_post tp on tp.id = s.tracked_post_id
+     where tp.tweet_id = ${reply} order by s.captured_at desc limit 1`;
+  assert.deepEqual(snap.urls, [{ expanded_url: short }]);
+  // 패널 링크 칩도 그대로
+  const item = (await getCampaignDetail(sql, campaignId))!.tasks.find((t) => t.id === task.id)!;
+  assert.equal(item.replies[0].link, short);
 });

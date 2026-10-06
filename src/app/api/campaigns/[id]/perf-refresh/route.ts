@@ -9,8 +9,8 @@ import { makeClient, GetxapiAuthError } from '@/lib/getxapi';
 import { refreshCampaignPerf } from '@/lib/selfReplyDiscovery';
 
 // 성과 [업데이트](캠페인 v2 §3-3) — 이 캠페인의 게시 확인된 작업에 붙은 게시물을 다시 조회해 스냅샷을 쌓는다.
-// 작업당 본 게시물 스레드 조회 1회로 본 게시물·인플 본인 댓글을 함께 재고, 새 본인 댓글을 붙인다(self-replies 스펙 §4 —
-// 실패하면 게시물별 상세 조회로 대신한다, selfReplyDiscovery.refreshCampaignPerf).
+// 지표는 게시물별 상세 조회로 재고, 작업당 본 게시물 스레드 조회 1회로 새 인플 본인 댓글을 찾아 붙인다(self-replies 스펙 §4 —
+// 스레드 실패는 ↻를 막지 않는다, selfReplyDiscovery.refreshCampaignPerf).
 // 비용 유발 — 버튼 opt-in(UX 원칙 6). 개별 실패는 건너뛰고 숫자로 돌려준다(틀린 기록보다 빈 기록, 트래킹 스펙).
 // 게시물이 많은 캠페인은 순차 조회가 기본 실행 시간 상한을 넘을 수 있다 — reports/sync 크론과 같은 여유(M7).
 export const maxDuration = 300;

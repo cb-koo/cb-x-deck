@@ -18,7 +18,7 @@ export function mainAuthorIdOf(tweets: RawTweet[], mainTweetId: string): string 
 }
 
 // 붙일 본인 댓글 — 작성자 고유번호가 본 게시물 작성자와 같고(핸들은 보지 않는다 — 바뀔 수 있다), 본 게시물이 아니며,
-// 본 게시물보다 앞서 쓴 글이 아니고, 아직 트래킹에 없는 트윗. 지표는 스레드 응답의 값(첫 스냅샷, 별도 상세 조회 없이). 게시 순.
+// 본 게시물보다 앞서 쓴 글이 아니고, 아직 트래킹에 없는 트윗. 게시 순. (후보 고르기만 — 등록·스냅샷은 상세 조회 값으로, selfReplyDiscovery)
 export function pickSelfReplies(args: {
   tweets: RawTweet[]; mainTweetId: string; mainAuthorId: string | null; trackedIds: ReadonlySet<string>;
 }): FetchedPost[] {

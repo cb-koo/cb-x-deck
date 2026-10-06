@@ -1,9 +1,9 @@
-// 인플 본인 댓글(추가 콘텐츠)을 찾아 작업에 붙이기 + 캠페인 성과 [업데이트](↻)의 스레드 조회
+// 인플 본인 댓글(추가 콘텐츠)을 찾아 작업에 붙이기 + 캠페인 성과 [업데이트](↻)
 // (스펙 2026-10-06-self-replies-design.md §3·§4). 네트워크(X 조회)는 전부 트랜잭션 밖에서 한다.
 // X 조회는 주입한다(deps) — 라우트는 진짜 getxapi, 테스트는 대역.
 import type postgres from 'postgres';
 import type { SearchPage } from './getxapi.ts';
-import { postFromRaw, type FetchPostResult, type FetchedPost } from './postMetrics.ts';
+import type { FetchPostResult } from './postMetrics.ts';
 import { pickSelfReplies, mainAuthorIdOf } from './selfReplies.ts';
 import { parseTweetLink } from './tweetLink.ts';
 import { appendSnapshot, insertTrackedPost, linkTrackedPost, markUnavailable, TrackingLinkError } from './trackingStore.ts';
@@ -36,10 +36,16 @@ async function loadTask(sql: postgres.Sql, taskId: string): Promise<TaskWithPost
   return { id: t[0].id, type: t[0].type, cancelled: t[0].cancelled_at !== null, postUrl: t[0].post_url, posts: posts.map((p) => ({ id: p.id, tweetId: p.tweet_id })) };
 }
 
-// 댓글 하나를 작업에 붙인다 — 작성자 판정은 기존 가드(judgeTaskLink, 고유번호를 넘겨 조회 없이) → 한 트랜잭션에서
-// 작업 행 잠금·모습 확인(assertTaskUnchanged) → 등록(첫 스냅샷 = 스레드 지표) → 연결. 잠금 순서 작업 → 게시물(postAttach와 같음).
-// 이미 트래킹 중인 트윗: 작업이 없으면 연결만, 어느 작업에든 붙어 있으면 건드리지 않는다. 붙였으면 true.
-async function attachSelfReply(sql: postgres.Sql, taskId: string, p: FetchedPost, deps: ThreadDeps, createdBy: string | null): Promise<boolean> {
+// 댓글 하나를 작업에 붙인다 — 스레드는 "찾기"에만 쓰고, 등록·첫 스냅샷은 게시물별 상세 조회(fetchPost)의 값으로 한다
+// (§4: 스레드 응답엔 링크 정보 칸 entities가 없어, 그 raw로 스냅샷하면 링크 댓글이 link가 아닌 thread로 판정된다).
+// 상세 조회가 실패·없음이면 이번엔 건너뛴다(다음 ↻에서 다시 찾는다). 작성자 판정은 기존 가드(judgeTaskLink, 상세 조회의
+// 고유번호로 — 추가 조회 없이) → 한 트랜잭션에서 작업 행 잠금·모습 확인(assertTaskUnchanged) → 등록 → 연결.
+// 잠금 순서 작업 → 게시물(postAttach와 같음). 이미 트래킹 중인 트윗: 작업이 없으면 연결만, 어느 작업에든 붙어 있으면 건드리지 않는다.
+// 붙였으면 true.
+async function attachSelfReply(sql: postgres.Sql, taskId: string, tweetId: string, deps: ThreadDeps, createdBy: string | null): Promise<boolean> {
+  const r = await deps.fetchPost(tweetId);
+  if (r.kind !== 'ok' || r.post.tweetId !== tweetId) return false;   // 리포스트 래퍼로 풀린 경우 등 — 댓글이 아니다
+  const p = r.post;
   const { verdict, seen } = await judgeTaskLink(sql, taskId, { tweetId: p.tweetId, authorHandle: p.authorHandle, authorUserId: p.authorUserId }, deps);
   if (verdict.kind !== 'ok') return false;
   try {
@@ -67,14 +73,14 @@ async function attachFromThread(sql: postgres.Sql, task: TaskWithPosts, mainTwee
     tweets, mainTweetId, mainAuthorId: mainAuthorIdOf(tweets, mainTweetId), trackedIds: new Set(task.posts.map((p) => p.tweetId)),
   });
   if (candidates.length === 0) return 0;
-  // 다른 작업에 붙어 있는 트윗은 판정 조회조차 하지 않는다(attachSelfReply 안에서도 막지만 미리 거른다)
+  // 다른 작업에 붙어 있는 트윗은 상세 조회조차 하지 않는다(attachSelfReply 안에서도 막지만 미리 거른다)
   const elsewhere = await sql<Array<{ tweet_id: string }>>`
     select tweet_id from tracked_post where tweet_id = any(${candidates.map((c) => c.tweetId)}::text[]) and task_id is not null`;
   const skip = new Set(elsewhere.map((r) => r.tweet_id));
   let added = 0;
   for (const c of candidates) {
     if (skip.has(c.tweetId)) continue;
-    if (await attachSelfReply(sql, task.id, c, deps, createdBy)) added += 1;
+    if (await attachSelfReply(sql, task.id, c.tweetId, deps, createdBy)) added += 1;
   }
   return added;
 }
@@ -97,9 +103,9 @@ export async function discoverSelfReplies(sql: postgres.Sql, taskId: string, dep
 export interface PerfRefreshResult { total: number; refreshed: number; unavailable: number; failed: number; newReplies: number }
 
 // 성과 [업데이트](↻) — 이 캠페인의 게시 확인된·취소 아닌 작업에 붙은 게시물(listTrackedPostIdsForCampaign과 같은 모집단).
-// 작업마다 본 게시물 스레드를 한 번 조회해 본 게시물·아는 댓글을 스레드 지표로 스냅샷하고 새 본인 댓글을 붙인다.
-// 스레드에 없는 게시물(지운 댓글 등)·스레드 조회 실패·RT·링크 없는 작업은 기존 방식(게시물별 상세 조회)으로 —
-// 삭제·비공개 판정(markUnavailable)은 그쪽이 그대로 한다. total·refreshed 등은 원래 붙어 있던 게시물 기준, 새 댓글은 newReplies.
+// 지표 기록은 기존과 똑같이 게시물별 상세 조회(fetchPost)로 한다 — 삭제·비공개 판정(markUnavailable)도 그쪽이 그대로.
+// 스레드 조회는 작업당 1회, 새 본인 댓글을 찾는 데만 쓴다(§4 — 스레드 응답엔 링크 정보 칸이 없어 스냅샷 raw로 쓰면
+// 링크 댓글 판정이 깨진다). 스레드 실패는 ↻를 막지 않는다. total·refreshed 등은 원래 붙어 있던 게시물 기준, 새 댓글은 newReplies.
 export async function refreshCampaignPerf(sql: postgres.Sql, campaignId: string, deps: ThreadDeps, createdBy: string | null = null): Promise<PerfRefreshResult> {
   const res: PerfRefreshResult = { total: 0, refreshed: 0, unavailable: 0, failed: 0, newReplies: 0 };
   if (!isUuidLike(campaignId)) return res;
@@ -116,35 +122,22 @@ export async function refreshCampaignPerf(sql: postgres.Sql, campaignId: string,
   }
   res.total = rows.length;
 
-  const perPost = async (p: TaskPost) => {
-    const r = await deps.fetchPost(p.tweetId);
-    if (r.kind === 'error') { res.failed += 1; return; }
-    if (r.kind === 'unavailable') { await markUnavailable(sql, p.id); res.unavailable += 1; return; }
-    await appendSnapshot(sql, p.id, r.post.metrics, r.post.raw);
-    res.refreshed += 1;
-  };
-
   for (const task of tasks.values()) {
-    const main = discoveryMainOf(task);
-    let tweets: SearchPage['tweets'] | null = null;
-    if (main) {
-      try { tweets = (await deps.getTweetThread(main)).tweets; }
-      catch (e) { console.error(`refreshCampaignPerf thread(${main}) failed:`, e); }
-    }
-    const inThread = new Map<string, FetchedPost>();
-    for (const raw of tweets ?? []) { const p = postFromRaw(raw); if (p) inThread.set(p.tweetId, p); }
-    // 본 게시물이 응답에 없으면 그 스레드 응답을 믿지 않는다 — 작업 전체를 기존 방식으로
-    if (!main || !inThread.has(main)) {
-      for (const p of task.posts) await perPost(p);
-      continue;
-    }
     for (const p of task.posts) {
-      const t = inThread.get(p.tweetId);
-      if (t) { await appendSnapshot(sql, p.id, t.metrics, t.raw); res.refreshed += 1; }
-      else await perPost(p);
+      const r = await deps.fetchPost(p.tweetId);
+      if (r.kind === 'error') { res.failed += 1; continue; }
+      if (r.kind === 'unavailable') { await markUnavailable(sql, p.id); res.unavailable += 1; continue; }
+      await appendSnapshot(sql, p.id, r.post.metrics, r.post.raw);
+      res.refreshed += 1;
     }
-    try { res.newReplies += await attachFromThread(sql, task, main, tweets ?? [], deps, createdBy); }
-    catch (e) { console.error(`refreshCampaignPerf attach(${task.id}) failed:`, e); }
+    const main = discoveryMainOf(task);
+    if (!main) continue;
+    try {
+      const { tweets } = await deps.getTweetThread(main);
+      res.newReplies += await attachFromThread(sql, task, main, tweets, deps, createdBy);
+    } catch (e) {
+      console.error(`refreshCampaignPerf discover(${task.id}) failed:`, e);
+    }
   }
   return res;
 }

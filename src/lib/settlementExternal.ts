@@ -58,9 +58,9 @@ export interface ExternalItem {
   payment_method: Record<string, string>;
   requester: { name: string; email: string | null; slack_id: string | null };
   note: string;
-  settlement: { status: ExternalStatus | null; paid_amount_krw: number | null; paid_amount_usd: number | null; paid_amount_jpy: number | null; paid_at: string | null; note: string | null; updated_at: string | null; external_id: string | null;
-    // 정산팀 적용 환율(066, 10-07) — 그쪽이 paid에 보낸 값의 되비침. 기존 키 뒤에 덧붙였다(키만 늘었고 기존 키·의미 불변)
-    paid_rate_krw_per_unit: number | null; paid_rate_date: string | null; paid_rate_source: string | null };
+  settlement: { status: ExternalStatus | null; paid_amount_krw: number | null; paid_amount_usd: number | null; paid_amount_jpy: number | null; paid_at: string | null; note: string | null; updated_at: string | null; external_id: string | null };
+  // 정산팀 적용 환율(066)은 되비침하지 않는다 — 10-07 settlement에 3키를 덧붙였다가 그쪽 엄격 스키마가 목록 수신을 통째로 거부했다(폴링 중단).
+  // 다시 넣으려면 그쪽이 먼저 스키마에 받아들인 뒤 합의하고 넣는다.
   // RT 지급 전 확인 자료(스펙 §3). null인 경우 둘: ①RT가 아닌 유형(reference_url로 확인) ②RT인데 아직 증빙이 없음.
   // url은 고정 엔드포인트(서명 URL이 아니다 — 서명 URL은 만료돼 캐시된 목록의 링크가 죽는다, 스펙 §4).
   proof: { url: string; uploaded_at: string; uploaded_by: string } | null;
@@ -101,8 +101,7 @@ export function toExternalItem(e: ExportRow, origin: string): ExternalItem {
     payment_method: pm,
     requester: { name: r.requesterName, email: e.requester.email, slack_id: e.requester.slackId },
     note: r.note,
-    settlement: { status: r.externalStatus, paid_amount_krw: r.paidAmountKrw, paid_amount_usd: r.paidAmountUsd, paid_amount_jpy: r.paidAmountJpy, paid_at: r.paidAt, note: r.externalNote, updated_at: r.externalUpdatedAt, external_id: r.externalId,
-      paid_rate_krw_per_unit: r.paidRateKrwPerUnit, paid_rate_date: r.paidRateDate, paid_rate_source: r.paidRateSource },
+    settlement: { status: r.externalStatus, paid_amount_krw: r.paidAmountKrw, paid_amount_usd: r.paidAmountUsd, paid_amount_jpy: r.paidAmountJpy, paid_at: r.paidAt, note: r.externalNote, updated_at: r.externalUpdatedAt, external_id: r.externalId },
     proof: e.proof ? { url: `${origin}/api/external/settlement/requests/${r.id}/proof`, uploaded_at: e.proof.at, uploaded_by: e.proof.byName } : null,
     payment_method_correction: r.paymentMethodCorrection
       ? { correction_id: r.paymentMethodCorrection.correctionId, at: r.paymentMethodCorrection.at, by_name: r.paymentMethodCorrection.byName }

@@ -1339,7 +1339,7 @@ test('066 환율 — 저장·되비침, 금액이 같고 환율만 붙은 재전
   assert.deepEqual(rateOf(listed), [9.1234, '2026-10-06', 'Frankfurter / ECB']); assert.equal(listed.diffAckKind, 'kept');
   const exp = await getForExport(sql, row.id);
   const it = toExternalItem(exp!, 'https://cb-x-deck.example');
-  assert.equal(it.settlement.paid_rate_krw_per_unit, 9.1234); assert.equal(it.settlement.paid_rate_date, '2026-10-06'); assert.equal(it.settlement.paid_rate_source, 'Frankfurter / ECB');
+  assert.ok(!('paid_rate_krw_per_unit' in it.settlement) && !('paid_rate_date' in it.settlement) && !('paid_rate_source' in it.settlement));   // 되비침 안 함(그쪽 엄격 스키마, 10-07 장애)
 });
 test('066 환율 — 외화 금액만 오면 비우고, 원화만 정정이면 유지, paid_currency KRW면 비운다', async () => {
   const { row } = await requestFor('rate2', 'rate2');

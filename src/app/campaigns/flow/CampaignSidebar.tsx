@@ -1,18 +1,17 @@
 'use client';
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import {
   campaignRowLabel, campaignSections, campaignsByClient, isLongCampaign, matchesCampaignQuery, splitClientRows, type WeekGroup,
 } from '@/lib/campaignListView';
 import { Button } from '@/components/ui';
 import { SidebarRow } from './sidebar/SidebarRow';
-import type { HeaderAction } from '../CampaignHeader';
 
 // 캠페인 v2 왼쪽 목록(스펙 2026-10-08 §2·§3) — 360px. 위: 제목·새 캠페인·검색·묶어 보기.
 // 주차로 묶으면 장기 캠페인 / 주차 캠페인 / 지난 캠페인 세 섹션, 클라이언트로 묶으면 클라이언트별 묶음(섹션 제목 없음).
 // 위계 3단계(시안 WeekMode/ClientMode): 섹션 제목(위 구분선) → 묶음 머리(맨 셰브론·회색 제목·숫자) → 들여 쓴 행.
 // 클라이언트 묶음 안은 진행 중·예정 먼저(장기 맨 위, 꼬리말 '장기'), 그다음 `지난` 라벨과 흐린 지난 행.
-// 묶기·순서·색 점 판단은 전부 campaignListView(순수 함수)가 하고, 여기선 펼침 상태·검색어·메뉴만 들고 그린다.
+// 묶기·순서·색 점 판단은 전부 campaignListView(순수 함수)가 하고, 여기선 펼침 상태·검색어만 들고 그린다.
 // 옛 /campaigns 화면은 CampaignList를 그대로 쓴다(이 부품은 v2 전용).
 
 type GroupBy = 'week' | 'client';
@@ -26,20 +25,16 @@ function saveGroupBy(v: GroupBy) {
 // 지난 캠페인은 최근 2개 주차만, 나머지는 '더 보기'(§2)
 const PAST_SHOWN = 2;
 
-export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSelect, onCreate, onRetry, onCollapse, onMenuAction }: {
+export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSelect, onCreate, onRetry, onCollapse }: {
   rows: CampaignRow[]; selectedId: string | null; today: string;
   loaded: boolean; loadErr: boolean;
   onSelect: (id: string) => void; onCreate: () => void; onRetry: () => void; onCollapse: () => void;
-  onMenuAction: (id: string, action: HeaderAction['kind']) => void;
 }) {
   const [groupBy, setGroupBy] = useState<GroupBy>(() => readGroupBy());
   const [q, setQ] = useState('');
   // 사용자가 직접 접거나 편 묶음만 기억한다 — 나머지는 기본값(스펙 §3-2·§3-4)을 따른다.
   const [openOverride, setOpenOverride] = useState<Record<string, boolean>>({});
   const [showAllPast, setShowAllPast] = useState(false);
-  const [menuFor, setMenuFor] = useState<string | null>(null);
-  // 메뉴의 바깥 클릭·Esc 리스너가 이 함수에 걸려 있다 — 렌더마다 새 함수면 목록 새로고침 때 리스너가 다시 붙으며 포커스가 첫 항목으로 튄다
-  const closeMenu = useCallback(() => setMenuFor(null), []);
 
   const searching = q.trim() !== '';
   const filtered = useMemo(() => (searching ? rows.filter((c) => matchesCampaignQuery(c, q)) : rows), [rows, q, searching]);
@@ -68,12 +63,9 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
     const suffix = byClient && isLongCampaign(c) ? '장기' : label.suffix;
     return (
       <SidebarRow key={c.id} c={c} title={label.title} suffix={suffix} today={today}
-                  selected={c.id === selectedId} menuOpen={menuFor === c.id}
+                  selected={c.id === selectedId}
                   top={opts?.top} past={opts?.past}
-                  onSelect={() => onSelect(c.id)}
-                  onMenuToggle={() => setMenuFor((m) => (m === c.id ? null : c.id))}
-                  onMenuClose={closeMenu}
-                  onAction={(a) => { setMenuFor(null); onMenuAction(c.id, a); }} />
+                  onSelect={() => onSelect(c.id)} />
     );
   };
 

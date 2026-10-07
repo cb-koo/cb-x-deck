@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import type { ClientRow } from '@/lib/clientStore';
 import { checkPeriod, parseCampaignPatch, NAME_MAX, type CampaignPatchInput } from '@/lib/campaignInput';
@@ -43,19 +43,13 @@ function ReadValue({ onEdit, title, mono, children }: {
   );
 }
 
-// 바깥(캠페인 v2 왼쪽 목록의 ⋯ 메뉴)에서 여는 편집 — 새 편집 화면 없이 이 머리글의 기존 상태를 연다(목록 개편 스펙 §3-5).
-// seq는 같은 항목을 연달아 골라도 다시 열리게 하는 표식이다.
-export type HeaderAction = { kind: 'name' | 'client' | 'delete'; seq: number };
-
-export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete, action, onActionDone }: {
+export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete }: {
   campaign: CampaignRow;
   // 삭제 시 실제로 지워질 작업 수·대상 미정이 되는 다른 캠페인 작업 수 — 삭제 확인 문구가 말하는 그 숫자들
   deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number };
   today: string;
   onPatch: (patch: CampaignPatchInput) => Promise<boolean>;
   onDelete: () => void;
-  action?: HeaderAction | null;
-  onActionDone?: () => void;   // 한 번 실행했으면 부모가 신호를 지운다 — 다시 그려져도 삭제 확인이 또 뜨지 않게
 }) {
   const [edit, setEdit] = useState<Field | null>(null);
   const [name, setName] = useState(campaign.name);
@@ -165,21 +159,6 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete,
     if (window.confirm(
       `'${campaign.name}' 캠페인을 삭제할까요?\n\n작업 ${deleteInfo.taskCount}개가 함께 지워져요. 원고는 남아요 — 예정일·비용은 작업과 함께 사라져요.${deleteInfo.detachedTargets > 0 ? `\n다른 캠페인 작업 ${deleteInfo.detachedTargets}건의 대상이 '대상 미정'으로 바뀌어요.` : ''}\n실행 취소는 없어요.`)) onDelete();
   }
-
-  // 메뉴에서 고른 편집 실행 — 이름은 이름 칸(기간 칸은 바로 아래에서 이어 고친다), 클라이언트는 선택 칸,
-  // 삭제는 머리글 메뉴의 '캠페인 삭제'와 같은 확인(정산 보호 포함). useEffectEvent: 최신 campaign·deleteInfo를 보되 신호가 올 때만 돈다.
-  const runAction = useEffectEvent((kind: HeaderAction['kind']) => {
-    onActionDone?.();
-    if (kind === 'delete') confirmDelete();
-    else open(kind);
-  });
-  // 이미 실행한 신호(seq)는 다시 실행하지 않는다 — 개발 모드 StrictMode의 이펙트 두 번 실행·늦은 재도착에도 삭제 확인이 한 번만 뜬다.
-  const lastSeqRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!action || lastSeqRef.current === action.seq) return;
-    lastSeqRef.current = action.seq;
-    runAction(action.kind);
-  }, [action]);
 
   return (
     <header>

@@ -11,7 +11,6 @@ import { Button } from '@/components/ui';
 import { CampaignCreateModal } from '../CampaignCreateModal';
 import { FlowDetail } from './FlowDetail';
 import { CampaignSidebar } from './CampaignSidebar';
-import type { HeaderAction } from '../CampaignHeader';
 
 // 좌측 목록 접기/펼치기 — /campaigns와 같은 키를 쓴다(같은 목록이라 접힘 상태를 공유한다, CampaignsSplit 관례).
 const LIST_COLLAPSED_KEY = 'campaigns-list-collapsed';
@@ -90,29 +89,10 @@ function CampaignsFlowSplit() {
   // 작성 중인 컴포저가 있으면 확인한다(Task 4d §6) — 문구는 FlowDetail이 이미 고른 것을 그대로 쓴다(새로
   // 짓지 않는다, 브리프 지시). 여기서 읽는 leaveConfirmRef.current는 클릭 핸들러 안이라 렌더 중이 아니다
   // (React Compiler 규칙 위반 아님).
-  const select = useCallback((id: string): boolean => {
-    if (leaveConfirmRef.current && !window.confirm(leaveConfirmRef.current)) return false;
+  const select = useCallback((id: string) => {
+    if (leaveConfirmRef.current && !window.confirm(leaveConfirmRef.current)) return;
     setUrlId(id);
-    return true;
   }, [setUrlId]);
-  // 목록 ⋯ 메뉴(스펙 §3-5) — 새 편집 화면 없이 그 캠페인을 열고 상세 머리글(CampaignHeader)의 기존 편집 상태를 연다.
-  // 한 번만 쓰는 신호다: 머리글이 실행하면 onHeaderActionDone으로 지운다(새로고침·재마운트로 삭제 확인이 또 뜨지 않게).
-  // 같은 메뉴를 연달아 골라도 다시 열리도록 seq를 붙인다(draftOpenReq와 같은 관례).
-  const [headerAction, setHeaderAction] = useState<{ id: string; kind: HeaderAction['kind']; seq: number } | null>(null);
-  const headerActionSeqRef = useRef(0);
-  const onMenuAction = useCallback((id: string, kind: HeaderAction['kind']) => {
-    if (id !== picked.id && !select(id)) return;   // 작성 중 확인에서 '취소'하면 아무것도 열지 않는다
-    headerActionSeqRef.current += 1;
-    setHeaderAction({ id, kind, seq: headerActionSeqRef.current });
-  }, [picked.id, select]);
-  const onHeaderActionDone = useCallback(() => setHeaderAction(null), []);
-  // 다른 캠페인으로 옮겨 가면(생성 후 선택·뒤로/앞으로 가기 등 어떤 길이든) 못 쓴 신호는 버린다 — 나중에 그 캠페인으로
-  // 돌아왔을 때 늦게 실행되지 않게. picked.id가 바뀔 때만 돈다: 메뉴가 신호를 세우며 주소를 바꾸는 따라잡기 렌더에서는
-  // picked.id가 신호의 id로 바뀌므로 지우지 않는다.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 이동 시 한 번 신호 정리, 같은 값이면 상태가 안 바뀐다
-    setHeaderAction((a) => (a && a.id !== picked.id ? null : a));
-  }, [picked.id]);
 
   return (
     // 상세는 연회색 바닥(bg-x-surface) 위 흰 패널들(FlowDetail) — 왼쪽 목록은 흰 배경 + 세로 구분선 그대로다(/campaigns와 같은 부품).
@@ -132,8 +112,8 @@ function CampaignsFlowSplit() {
           </div>
         ) : (
           <CampaignSidebar rows={rows} selectedId={picked.id} today={today} loaded={loaded} loadErr={loadErr}
-                           onSelect={(id) => { setHeaderAction(null); select(id); }} onCreate={() => setCreating(true)} onRetry={() => void load()}
-                           onCollapse={toggleListCollapsed} onMenuAction={onMenuAction} />
+                           onSelect={select} onCreate={() => setCreating(true)} onRetry={() => void load()}
+                           onCollapse={toggleListCollapsed} />
         )}
       </aside>
       <main className="min-w-0 flex-1 bg-x-surface">
@@ -152,9 +132,7 @@ function CampaignsFlowSplit() {
                         setUrlId(null);
                         void load();
                       }}
-                      onLeaveConfirmChange={onComposerLeaveConfirmChange}
-                      headerAction={headerAction?.id === picked.id ? headerAction : null}
-                      onHeaderActionDone={onHeaderActionDone} />
+                      onLeaveConfirmChange={onComposerLeaveConfirmChange} />
         )}
       </main>
       {creating && (

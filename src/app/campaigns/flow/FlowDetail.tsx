@@ -36,7 +36,7 @@ import {
   type FlowRow, type FlowFilter, type FlowSort, type ExtraFilter,
 } from '@/lib/campaignFlowView';
 import { POSTED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
-import { CampaignHeader, type HeaderAction } from '../CampaignHeader';
+import { CampaignHeader } from '../CampaignHeader';
 import { useCampaignTaskActions } from '../useCampaignTaskActions';
 import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar } from './FlowFilterBar';
@@ -120,7 +120,7 @@ function PendingRequestNote({ task }: { task: FlowRow }) {
   );
 }
 
-export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange, headerAction, onHeaderActionDone }: {
+export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   id: string;
   onChanged: () => void;      // 목록(왼쪽) 새로고침 — 이름·작업 수·합계가 바뀌면 목록 보조줄도 움직여야 한다
   onDeleted: () => void;
@@ -131,9 +131,6 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange, hea
   // 작성 중인지 모르므로, boolean만 받으면 원고용 문장 하나로 고정해야 해서 생성 탭이 작성 중일 때도
   // "원고가 있어요"라는 거짓을 말하게 된다(Task 4d §3과 같은 문제, 아래 draftSwitchConfirm 참고).
   onLeaveConfirmChange?: (confirmMessage: string | null) => void;
-  // 왼쪽 목록 ⋯ 메뉴가 고른 편집(이름·클라이언트·삭제) — 머리글에 그대로 넘긴다(목록 개편 스펙 §3-5)
-  headerAction?: HeaderAction | null;
-  onHeaderActionDone?: () => void;
 }) {
   const { show } = useToast();
   const [data, setData] = useState<DetailState | null>(null);
@@ -980,7 +977,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange, hea
       )}
       <div className={PANEL}>
         <CampaignHeader campaign={data.campaign} deleteInfo={data.deleteInfo} today={data.today} onPatch={patchCampaign}
-                        onDelete={() => void removeCampaign()} action={headerAction} onActionDone={onHeaderActionDone} />
+                        onDelete={() => void removeCampaign()} />
       </div>
       <div className={PANEL}>
         <FlowCards stats={stats} plannedTotal={plannedTotal} currency={costCurrency} onCurrencyChange={chooseCostCurrency} perfUpdatedAt={data.perfUpdatedAt}

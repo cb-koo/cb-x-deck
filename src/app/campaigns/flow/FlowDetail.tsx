@@ -106,6 +106,18 @@ type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 // 오른쪽 패널이 여는 대상 — 기존 작업(taskId) 또는 새 작업(fresh). 둘 다 아니면 패널이 닫혀 있다.
 type Panel = { taskId: string } | { fresh: true } | null;
 
+// 지급 전 요청이 붙은 작업의 금액을 고쳤을 때 패널에 띄우는 안내 — 요청 금액은 한 번만 계산한다.
+function PendingRequestNote({ task }: { task: FlowRow }) {
+  const pending = pendingRequestCost(task);
+  if (!pending) return null;
+  return (
+    <p className="mt-1.5 text-[14px] text-amber-700">
+      정산 요청은 아직 {formatAmount(pending.amount, pending.currency)}이에요 — 정산 화면에서 &apos;고친 값으로 다시 반영&apos;을 눌러 주세요{' '}
+      <Link href={`/settlement?tab=requests&task=${task.id}`} className="underline">정산 요청 보기</Link>
+    </p>
+  );
+}
+
 export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   id: string;
   onChanged: () => void;      // 목록(왼쪽) 새로고침 — 이름·작업 수·합계가 바뀌면 목록 보조줄도 움직여야 한다
@@ -1014,12 +1026,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                                                disabledReason={panelTask.influencerHandle ? undefined : ''}
                                                reasonRequired={isPaidBadge(panelTask.settlement)} />
                              {/* 지급 전 요청이 붙은 작업의 금액을 고쳤으면, 요청은 아직 옛 금액이다 — '고친 값으로 다시 반영'으로 안내(스펙 2026-10-07 §6) */}
-                             {pendingRequestCost(panelTask) && (
-                               <p className="mt-1.5 text-[14px] text-amber-700">
-                                 정산 요청은 아직 {formatAmount(pendingRequestCost(panelTask)!.amount, pendingRequestCost(panelTask)!.currency)}이에요 — 정산 화면에서 &apos;고친 값으로 다시 반영&apos;을 눌러 주세요{' '}
-                                 <Link href={`/settlement?tab=requests&task=${panelTask.id}`} className="underline">정산 요청 보기</Link>
-                               </p>
-                             )}
+                             <PendingRequestNote task={panelTask} />
                              <TaskCostHistory key={`${panelTask.id}:${panelTask.costChangeCount}`} campaignId={id} taskId={panelTask.id} count={panelTask.costChangeCount} />
                            </div>
                          )

@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { TaskChangeRow } from '@/lib/campaignTaskStore';
 import { fetchTaskChangesApi } from '@/lib/campaignApi';
 import { ChangeEntry } from '@/components/ChangeEntry';
@@ -10,14 +10,21 @@ export function TaskCostHistory({ campaignId, taskId, count }: { campaignId: str
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<TaskChangeRow[] | null>(null);
   const [err, setErr] = useState('');
+  const inFlight = useRef(false);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   if (count === 0) return null;
 
   async function toggle() {
     if (open) { setOpen(false); return; }
     setOpen(true);
-    if (rows) return;
-    const r = await fetchTaskChangesApi(campaignId, taskId);
-    if (r.ok) setRows(r.data.changes); else setErr(r.error);
+    if (rows || inFlight.current) return;
+    inFlight.current = true;
+    try {
+      const r = await fetchTaskChangesApi(campaignId, taskId);
+      if (!alive.current) return;
+      if (r.ok) { setErr(''); setRows(r.data.changes); } else setErr(r.error);
+    } finally { inFlight.current = false; }
   }
 
   return (

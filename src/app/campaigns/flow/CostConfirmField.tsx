@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import type { TaskType } from '@/lib/campaignJudgment';
 import {
@@ -8,7 +8,7 @@ import {
 } from '@/lib/campaignCost';
 import { costConfirmScenario, profilePromptFor } from '@/lib/campaignFlowView';
 import { Button } from '@/components/ui';
-import { PAID_COST_REASON_MESSAGE, COST_REASON_MAX } from '@/lib/campaignTaskInput';
+import { COST_REASON_MAX } from '@/lib/campaignTaskInput';
 import { PriceProfileDialog } from './PriceProfileDialog';
 
 // 비용 [확인](b-task-8-brief.md, koo 결정) — 배정된 인플루언서의 단가로 칸을 채워도 그건 제안일 뿐이다.
@@ -46,6 +46,7 @@ export function CostConfirmField({
   const [note, setNote] = useState('');   // '✓ 확정' 옆 한 줄 — 프로필 갱신 결과·명부 밖 사유·통화 불일치 사유
   const [dialog, setDialog] = useState<{ scenario: 'differs' | 'no-profile'; entered: TaskCost } | null>(null);
   const [reason, setReason] = useState('');   // 바꾸는 이유 — reasonRequired일 때만 쓴다
+  const reasonRef = useRef<HTMLInputElement>(null);   // 사유가 비었는데 확인을 누르면 문구를 또 띄우지 않고 이 칸으로 보낸다
 
   // draft 모드에서 지금 보이는 값을 부모에 올린다 — 이펙트에서 setState하지 않으려고 핸들러와 마운트 때 부른다.
   const report = (a: string, c: Currency) => {
@@ -85,7 +86,7 @@ export function CostConfirmField({
     if (busy) return;    // 연타로 같은 PATCH가 두 번 나가지 않게
     if (saved) return;   // 이미 확정된 값 그대로 — Enter가 다시 불러도 재저장·다이얼로그 재오픈을 막는다
     if (entered === null) { setErr(AMOUNT_MESSAGE); return; }
-    if (reasonRequired && !reason.trim()) { setErr(PAID_COST_REASON_MESSAGE); return; }
+    if (reasonRequired && !reason.trim()) { reasonRef.current?.focus(); return; }
     setErr(null);
     setBusy(true);
     const ok = await onSave(entered, reasonRequired ? reason.trim() : undefined);
@@ -171,15 +172,15 @@ export function CostConfirmField({
         <div className="mt-1.5">
           <p className="text-[14px] text-amber-700">지급이 끝난 작업이라 사유를 적어야 저장돼요</p>
           <label className="mt-1.5 block text-[14px] text-x-secondary">바꾸는 이유
-            <input value={reason} maxLength={COST_REASON_MAX}
+            <input ref={reasonRef} value={reason} maxLength={COST_REASON_MAX}
                    onChange={(e) => { setReason(e.target.value); setErr(null); }}
                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void confirm(); }}
                    className="mt-1 h-10 w-full rounded-md border border-x-border-strong px-3 text-content outline-none focus:border-x-blue" />
           </label>
         </div>
       )}
-      {(err ?? externalError) && <p role="alert" className="mt-1 text-ui text-red-600">{err ?? externalError}</p>}
-      {statusText && <p className={`mt-1 text-ui ${amber ? 'text-amber-700' : 'text-x-muted'}`}>{statusText}</p>}
+      {(err ?? externalError) && <p role="alert" className="mt-1 text-[14px] text-red-600">{err ?? externalError}</p>}
+      {statusText && <p className={`mt-1 text-[14px] ${amber ? 'text-amber-700' : 'text-x-muted'}`}>{statusText}</p>}
       {dialog && option && (
         <PriceProfileDialog scenario={dialog.scenario} handle={option.handle} type={type}
                             profile={profile} entered={dialog.entered}

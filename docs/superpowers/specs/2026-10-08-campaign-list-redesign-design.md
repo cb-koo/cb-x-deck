@@ -1,7 +1,7 @@
 # 캠페인 목록 개편 — 설계 (koo 10-07~08)
 
 - 브랜치 `cb-koo/campaign-list` (origin/main에서) · 서버 변경은 목록 조회 칸 추가만 · 마이그레이션 없음
-- 시안(확정): https://claude.ai/artifact/FRbWBuxZDGyJMm48GCf2BS — 1번 장면(목록), 2번 장면 중 ⋯ 메뉴(보관 부분 제외)
+- 시안(확정): https://claude.ai/artifact/FRbWBuxZDGyJMm48GCf2BS — 1번 장면(목록), 3·4번 장면(위계·클라이언트 모드 — 10-08 확정)
 - 리서치: ~/claude-outputs/20261007_캠페인목록_UI패턴_리서치.md
 
 ## 1. 왜

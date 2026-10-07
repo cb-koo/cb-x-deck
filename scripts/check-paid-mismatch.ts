@@ -32,7 +32,7 @@ const num = (v: string | number | null): number | null => (v === null ? null : N
       status: 'requested', externalStatus: 'paid', taskId: r.task_id, taskCost: costOf(r.task_cost),
       payoutCurrency: r.payout_currency, fee: r.fee, rateKrwPerJpy: Number(r.rate_krw_per_jpy),
       paidAmountKrw: r.paid_amount_krw, paidAmountJpy: num(r.paid_amount_jpy), paidAmountUsd: num(r.paid_amount_usd),
-      paidAt: r.paid_at ? new Date(r.paid_at).toISOString() : null, peerRatio: null,
+      paidAt: r.paid_at ? new Date(r.paid_at).toISOString() : null, peerRatio: null as number | null,
       diffAckKind: null, diffAckTaskCost: null,
     } satisfies MismatchSource & { id: string }));
     const byId = new Map(rows.map((r) => [r.id, r]));

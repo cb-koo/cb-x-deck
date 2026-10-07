@@ -3,10 +3,10 @@ import postgres from 'postgres';
 import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
-import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces } from '@/lib/campaignTaskStore';
+import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces, hasPaidRequest, logCostChangeInTx } from '@/lib/campaignTaskStore';
 import type { TaskPatch } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
-import { parseTaskPatch, proofGateError, visitOnlyGateError, influencerChangeGuard, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE, CANCELLED_TASK_MESSAGE, POST_CANCELLED_MESSAGE, postedAtFromLinkGate } from '@/lib/campaignTaskInput';
+import { parseTaskPatch, proofGateError, visitOnlyGateError, influencerChangeGuard, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE, CANCELLED_TASK_MESSAGE, POST_CANCELLED_MESSAGE, postedAtFromLinkGate, costReasonGateError } from '@/lib/campaignTaskInput';
 import { getDraft, updateDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 import { kstToday } from '@/lib/datetime';
@@ -33,7 +33,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
   const parsed = parseTaskPatch(await req.json().catch(() => ({})));
   if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: 400 });
   const patch = parsed.value;
-  if (Object.keys(patch).length === 0) return NextResponse.json({ error: '바꿀 내용이 없어요' }, { status: 400 });
+  if (Object.keys(patch).filter((k) => k !== 'costReason').length === 0) return NextResponse.json({ error: '바꿀 내용이 없어요' }, { status: 400 });
   const sql = getSql();
   const cur = await getTask(sql, taskId);
   if (!cur || cur.campaignId !== id) return notFound();
@@ -86,7 +86,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
   const postedOn = postedAtFromLinkGate(cur, patch);
   if (!postedOn.ok) return NextResponse.json({ error: postedOn.message }, { status: 400 });
   if (postedOn.value !== undefined) patch.postedAt = postedOn.value;
-  const { proofUrl, agreementInput, ...rest } = patch;
+  // 작업 금액 변경 이력(스펙 2026-10-07 §6) — 지급이 끝난 작업은 사유가 있어야 바꾼다(화면도 같은 문장으로 막는다)
+  if (patch.cost !== undefined) {
+    const reasonError = costReasonGateError({ before: cur.cost, next: patch.cost, hasPaidRequest: await hasPaidRequest(sql, taskId), reason: patch.costReason });
+    if (reasonError) return NextResponse.json({ error: reasonError }, { status: 400 });
+  }
+  const { proofUrl, agreementInput, costReason, ...rest } = patch;
   const taskPatch: TaskPatch = { ...rest };
   if (agreementInput !== undefined) {
     // 경로 검증은 visitOnlyGateError가 했다 — 올린 사람·시각은 서버만 안다(증빙과 같은 나눔)
@@ -114,6 +119,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; t
   // 트랜잭션 몸통 — 게시물 링크가 오면 attachPostToTask가 같은 트랜잭션 안에서 이걸 먼저 돌린 뒤 작성자를 판정하고
   // 트래킹 등록·연결까지 한다(다른 인플의 게시물 차단 스펙 §3 ①). 링크가 없으면 그냥 이 몸통만 한 트랜잭션으로.
   const apply = async (tx: postgres.Sql) => {
+    // 이력은 쓰기 직전·같은 트랜잭션 — 잠근 지금 값과 다를 때만 1행(출처 campaign)
+    if (taskPatch.cost !== undefined) {
+      await logCostChangeInTx(tx, taskId, taskPatch.cost, { source: 'campaign', reason: costReason ?? '', requestId: null, by: { id: gate.member.id, name: gate.member.name } });
+    }
     // updateTask의 where절이 R17 가드를 건다(게시 확인만) — 읽기~쓰기 사이 취소가 끼어들면 false가
     // 온다. 트랜잭션을 throw로 끊어 흔적 정리·원고 동기화까지 반쪽으로 남지 않게 한다(라우트가 409로).
     const ok = await updateTask(tx, taskId, taskPatch);

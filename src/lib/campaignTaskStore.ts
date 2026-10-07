@@ -1,6 +1,6 @@
 import postgres from 'postgres';
 import type { DraftStatus } from './draftStatus.ts';
-import { parseTaskCost, type TaskCost } from './campaignCost.ts';
+import { parseTaskCost, sameTaskCost, type TaskCost } from './campaignCost.ts';
 import { TARGETABLE_TYPES, type TaskType } from './campaignJudgment.ts';
 import { tweetPermalink } from './tweetLink.ts';
 import { isUuidLike } from './uuid.ts';
@@ -40,6 +40,7 @@ export interface TaskRow {
   cancelledDraftId: string | null; cancelledDraftTitle: string | null;
   // 다른 곳에서 정산함(061) — 앱 밖(구글폼 등)에서 지급을 끝냈다는 표시. 붙으면 정산 후보가 아니고 단계는 '완료'
   settledElsewhereAt: string | null; settledElsewhereNote: string; settledElsewhereByName: string | null;
+  costChangeCount: number;   // 작업 금액 변경 이력 행 수(065) — 작업 패널 '변경 이력 N'(0이면 숨김, 스펙 2026-10-07 §6)
   createdAt: string; updatedAt: string;
   draftStatus: DraftStatus | null; draftLabel: string | null;   // 붙은 원고 요약 — 표의 '원고' 열
   draftFirstLine: string | null;   // 붙은 원고 본문 첫 줄(v2 표의 원고 칸, R26) — 제목이 아니라 내용
@@ -105,7 +106,7 @@ type Row = {
   visit_time: string | null; scheduled_time: string | null; agreement: unknown;
   cancelled_at: string | null; cancel_reason: CancelReason | null; cancel_note: string;
   cancelled_draft_id: string | null; cancelled_draft_title: string | null;
-  settled_elsewhere_at: string | null; settled_elsewhere_note: string; settled_elsewhere_by_name: string | null;
+  settled_elsewhere_at: string | null; settled_elsewhere_note: string; settled_elsewhere_by_name: string | null; cost_change_count: number;
   created_at: Date; updated_at: Date;
   draft_status: DraftStatus | null; draft_title: string | null; draft_ko_title: string | null; draft_first_line: string | null;
   draft_first_image: string | null;
@@ -138,7 +139,7 @@ const toRow = (r: Row): TaskRow => ({
   paymentMethodId: r.payment_method_id,
   cancelledAt: r.cancelled_at, cancelReason: r.cancel_reason, cancelNote: r.cancel_note,
   cancelledDraftId: r.cancelled_draft_id, cancelledDraftTitle: r.cancelled_draft_title,
-  settledElsewhereAt: r.settled_elsewhere_at, settledElsewhereNote: r.settled_elsewhere_note, settledElsewhereByName: r.settled_elsewhere_by_name,
+  settledElsewhereAt: r.settled_elsewhere_at, settledElsewhereNote: r.settled_elsewhere_note, settledElsewhereByName: r.settled_elsewhere_by_name, costChangeCount: r.cost_change_count,
   createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
   draftStatus: r.draft_id ? r.draft_status : null, draftLabel: r.draft_id ? labelOf(r) : null,
   draftFirstLine: r.draft_id ? firstLineOf(r) : null,
@@ -162,6 +163,7 @@ const SELECT = (sql: postgres.Sql) => sql`
          to_char(t.cancelled_at, 'YYYY-MM-DD') as cancelled_at, t.cancel_reason, t.cancel_note,
          t.cancelled_draft_id, t.cancelled_draft_title,
          to_char(t.settled_elsewhere_at, 'YYYY-MM-DD') as settled_elsewhere_at, t.settled_elsewhere_note, t.settled_elsewhere_by_name,
+         (select count(*)::int from task_change c where c.task_id = t.id and c.field = 'cost') as cost_change_count,
          d.status as draft_status, d.title as draft_title, d.ko_title as draft_ko_title,
          coalesce(d.edited, d.content)->'posts'->0->>'text' as draft_first_line,
          coalesce(d.edited, d.content)->'posts'->0->'media'->0->>'url' as draft_first_image,
@@ -656,7 +658,7 @@ async function defaultReplaceDraftDeps(): Promise<ReplaceDraftDeps> {
 // 교체(ADR 0005) — 같은 작업 ID. for update 재검사 → 인플·비용 → 흔적 정리 → 원고 상태·인플 동기화 → 사유 로그. 한 트랜잭션.
 export async function replaceInfluencer(
   sql: postgres.Sql, id: string,
-  input: { handle: string; cost: TaskCost | null | undefined; reason: CancelReason | null; note: string; actorId: string | null; today: string },
+  input: { handle: string; cost: TaskCost | null | undefined; reason: CancelReason | null; note: string; actorId: string | null; actorName?: string; today: string },
   deps?: ReplaceDraftDeps,
 ): Promise<'ok' | 'not-found' | string> {
   if (!isUuidLike(id)) return 'not-found';
@@ -681,6 +683,10 @@ export async function replaceInfluencer(
     // 다른 재입력도 여기 해당한다 — 흔적 정리·비용 변경·원고 강등·로그를 전부 건너뛴다.
     if ((cur.influencer_handle ?? '').toLowerCase() === input.handle.toLowerCase()) return 'ok';
     // 사람이 실제로 바뀌는 자리(같은 사람 재선택은 위에서 이미 no-op으로 끝났다) — 앞사람이 고른 결제 수단은 비운다(§8-2)
+    // 금액도 바꾸면 이력 1행(출처 replace, 스펙 2026-10-07 §6). 게시 전 작업만 교체되므로 지급 완료 요청이 붙어 있을 수 없다 — 사유 관문 없음.
+    if (input.cost !== undefined) {
+      await logCostChangeInTx(tx, id, input.cost, { source: 'replace', reason: '', requestId: null, by: { id: input.actorId, name: input.actorName ?? '' } });
+    }
     await tx`update campaign_task set influencer_handle = ${input.handle}, payment_method_id = null,
         cost = case when ${input.cost !== undefined} then ${input.cost ? tx.json(input.cost as never) : null}::jsonb else cost end,
         updated_at = now() where id = ${id}`;
@@ -723,4 +729,21 @@ export async function listTaskChanges(sql: postgres.Sql, taskId: string): Promis
     id: r.id, taskId: r.task_id, before: costOf(r.before), after: costOf(r.after), source: r.source, reason: r.reason,
     requestId: r.request_id, byName: r.by_name, createdAt: new Date(r.created_at).toISOString(),
   }));
+}
+
+// 작업 금액을 바꾸는 쓰기 직전에, 같은 트랜잭션 안에서 부른다 — 작업 행을 잠그고 지금 값을 읽어 실제로 바뀔 때만 1행.
+// 쓰기가 뒤에서 실패하면 트랜잭션째 롤백되므로 이력만 남는 일은 없다.
+export async function logCostChangeInTx(tx: postgres.Sql, taskId: string, next: TaskCost | null, meta: TaskChangeMeta): Promise<void> {
+  const rows = await tx<Array<{ cost: unknown }>>`select cost from campaign_task where id = ${taskId} for update`;
+  if (!rows.length) return;
+  const before = costOf(rows[0].cost);
+  if (sameTaskCost(before, next)) return;
+  await insertTaskChange(tx, { taskId, before, after: next, ...meta });
+}
+
+// 지급이 끝난(정산팀 paid) 살아 있는 요청이 붙은 작업인가 — 금액 수정 사유 관문(costReasonGateError)의 입력
+export async function hasPaidRequest(sql: postgres.Sql, taskId: string): Promise<boolean> {
+  if (!isUuidLike(taskId)) return false;
+  const rows = await sql`select 1 from payment_request where task_id = ${taskId} and status <> 'cancelled' and external_status = 'paid' limit 1`;
+  return rows.length > 0;
 }

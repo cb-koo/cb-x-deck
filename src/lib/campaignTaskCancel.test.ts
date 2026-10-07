@@ -5,7 +5,7 @@ import { createClient } from './clientStore.ts';
 import { createCampaign } from './campaignStore.ts';
 import { insertDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
-import { createTasks, getTask, markPosted, listTargetCandidates, listTargetingHandles, cancelTask, restoreTask, attachDraft, replaceInfluencer, updateTask, TaskAttachError } from './campaignTaskStore.ts';
+import { createTasks, getTask, markPosted, listTargetCandidates, listTargetingHandles, cancelTask, restoreTask, attachDraft, replaceInfluencer, updateTask, listTaskChanges, TaskAttachError } from './campaignTaskStore.ts';
 import { linkTrackedPost, addTrackedPost, TrackingLinkError } from './trackingStore.ts';
 import { CANCEL_REASONS } from './campaignTaskInput.ts';
 import { ensureInfluencer } from './influencerStore.ts';
@@ -170,11 +170,15 @@ test('6) 교체 — 같은 행에서 인플만 바뀌고, 전달됨 원고는 �
   const draftId = await mkDraft(c.id, c.name, '전달된 원고');
   await updateDraft(sql, draftId, { status: 'delivered' });
   const [t] = await createTasks(sql, camp.id, { ...baseInput, type: 'post', draftId, scheduledOn: '2026-09-18', items: [{ handle: oldH, cost: { amount: 30000, currency: 'KRW' } }] });
-  const r = await replaceInfluencer(sql, t.id, { handle: newH, cost: { amount: 35000, currency: 'KRW' }, reason: 'no_response', note: '', actorId: null, today: '2026-09-16' });
+  const r = await replaceInfluencer(sql, t.id, { handle: newH, cost: { amount: 35000, currency: 'KRW' }, reason: 'no_response', note: '', actorId: null, actorName: '박구건', today: '2026-09-16' });
   assert.equal(r, 'ok');
   const g = await getTask(sql, t.id);
   assert.equal(g?.influencerHandle, newH);
   assert.deepEqual(g?.cost, { amount: 35000, currency: 'KRW' });
+  // 교체하면서 금액을 바꾸면 이력 1행(출처 replace, 스펙 2026-10-07 §6)
+  const changes = await listTaskChanges(sql, t.id);
+  assert.equal(changes.length, 1);
+  assert.deepEqual([changes[0].source, changes[0].byName, changes[0].before, changes[0].after], ['replace', '박구건', { amount: 30000, currency: 'KRW' }, { amount: 35000, currency: 'KRW' }]);
   assert.equal(g?.scheduledOn, '2026-09-18');                                  // 그대로
   assert.equal(g?.draftId, draftId);                                           // 원고는 따라간다
   assert.equal((await getDraft(sql, draftId))?.status, 'approved');            // 전달됨 → 사용 확정

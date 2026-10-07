@@ -24,7 +24,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; ta
   if (!canon && parsed.value.handle.toLowerCase() !== (cur.influencerHandle ?? '').toLowerCase()) {
     return NextResponse.json({ error: ROSTER_REQUIRED_MESSAGE }, { status: 400 });
   }
-  const r = await replaceInfluencer(sql, taskId, { ...parsed.value, handle: canon ?? parsed.value.handle, actorId: gate.member.id, today: kstToday() });
+  const r = await replaceInfluencer(sql, taskId, { ...parsed.value, handle: canon ?? parsed.value.handle, actorId: gate.member.id, actorName: gate.member.name, today: kstToday() });
   if (r === 'not-found') return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 404 });
   if (r !== 'ok') return NextResponse.json({ error: r }, { status: 400 });
   return NextResponse.json(await getTask(sql, taskId));

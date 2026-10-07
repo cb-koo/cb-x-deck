@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { createClient, deleteClient } from './clientStore.ts';
 import { createCampaign, updateCampaign } from './campaignStore.ts';
-import { createTasks, updateTask, getTask, deleteTask, markSettledElsewhere, clearSettledElsewhere, listTaskChanges } from './campaignTaskStore.ts';
+import { createTasks, updateTask, getTask, deleteTask, markSettledElsewhere, clearSettledElsewhere, listTaskChanges, hasPaidRequest, logCostChangeInTx } from './campaignTaskStore.ts';
 import { createInfluencer, updatePaymentMethods, deleteInfluencer } from './influencerStore.ts';
 import type { PaymentMethodInput } from './influencerPayment.ts';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettings.ts';
@@ -964,6 +964,27 @@ test('065 — 캠페인 배지도 같은 판정(지금 작업 금액·처리 기
   assert.deepEqual(badge.taskCost, { amount: 30000, currency: 'KRW' });
   assert.equal(badge.costCurrency, 'KRW'); assert.equal(badge.amountKrw, 30000);
   assert.equal(displayStatus(badge, 'campaign').label, '지급 금액 다름');
+});
+
+test('065 작업 금액 이력 — 바뀔 때만 1행·같은 값은 기록 없음 · hasPaidRequest는 지급 완료(취소 안 됨)만 · costChangeCount', async () => {
+  const { row, member } = await requestFor('rch1', 'rch1');
+  const taskId = row.taskId!;
+  const meta = { source: 'campaign' as const, reason: '단가 착오', requestId: null, by: member };
+  assert.equal(await hasPaidRequest(sql, taskId), false);
+  await paidJpy(row.id, 3158, 27000, '2026-10-07T03:00:00Z');
+  assert.equal(await hasPaidRequest(sql, taskId), true);
+  await sql.begin(async (tx) => { await logCostChangeInTx(tx as unknown as typeof sql, taskId, { amount: 30000, currency: 'KRW' }, meta); });
+  assert.equal((await listTaskChanges(sql, taskId)).length, 0, '같은 값은 이력이 없다');
+  await sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as typeof sql;
+    await logCostChangeInTx(tx, taskId, { amount: 32000, currency: 'KRW' }, meta);
+    await updateTask(tx, taskId, { cost: { amount: 32000, currency: 'KRW' } });
+  });
+  const ch = await listTaskChanges(sql, taskId);
+  assert.equal(ch.length, 1);
+  assert.deepEqual([ch[0].source, ch[0].reason, ch[0].byName, ch[0].requestId], ['campaign', '단가 착오', member.name, null]);
+  assert.deepEqual([ch[0].before, ch[0].after], [{ amount: 30000, currency: 'KRW' }, { amount: 32000, currency: 'KRW' }]);
+  assert.equal((await getTask(sql, taskId))!.costChangeCount, 1);
 });
 
 test('065 — 그대로 둠의 처리 기록에 옛 맞춤의 이전 금액이 섞이지 않는다(맞춤 → 정산팀 정정 → 그대로 둠)', async () => {

@@ -40,7 +40,9 @@ export function campaignRowLabel(
     const after = c.name.startsWith(prefix) ? c.name.slice(prefix.length).trim() : '';
     return { title: after || c.name, suffix: null };
   }
-  const rest = (c.name.startsWith(prefix) ? c.name.slice(prefix.length) : c.name).trim();
+  // {클라}_ 규칙을 안 따르는 이름은 캠페인 이름만 — 클라이언트 이름을 앞에 또 붙이면 '미모드림 · 미모드림의원 …'처럼 겹친다(koo 10-08)
+  if (!c.name.startsWith(prefix)) return { title: c.name.trim() || client, suffix: null };
+  const rest = c.name.slice(prefix.length).trim();
   if (!rest || rest === client || WEEKLY_SUFFIX.test(rest)) return { title: client, suffix: null };
   return { title: client, suffix: rest };
 }

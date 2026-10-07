@@ -91,12 +91,13 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
   const sectionTitle = (text: string, first: boolean, right?: ReactNode, toggle?: { open: boolean; onToggle: () => void }) => (
     <div className={`flex items-baseline justify-between px-4 pb-2 pt-5 ${first ? '' : 'mt-3 border-t border-[#eff3f4]'}`}>
       {toggle ? (
-        <h3 className="text-[13px] font-bold leading-4 tracking-[0.02em] text-[#0f1419]">
+        // 섹션 접기 — 화살표는 오른쪽 끝(koo 10-08: 왼쪽 화살표가 섹션 제목을 묶음 제목 자리로 밀어 위계가 흐려졌다). 줄 전체가 버튼.
+        <h3 className="flex-1 text-[13px] font-bold leading-4 tracking-[0.02em] text-[#0f1419]">
           <button type="button" onClick={toggle.onToggle} aria-expanded={toggle.open}
-                  className="-ml-1 inline-flex items-center gap-1 rounded px-1 hover:bg-[#f5f7f8]">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#536471" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden
-                 className={`transition-transform ${toggle.open ? 'rotate-90' : ''}`}><path d="M9 6l6 6-6 6" /></svg>
-            {text}
+                  className="flex w-full items-center justify-between text-left">
+            <span>{text}</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9aa5ad" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+                 className={`transition-transform ${toggle.open ? 'rotate-180' : ''}`}><path d="M6 9l6 6 6-6" /></svg>
           </button>
         </h3>
       ) : (

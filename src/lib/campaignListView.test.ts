@@ -45,6 +45,8 @@ test('campaignRowLabel', () => {
   assert.deepEqual(campaignRowLabel({ name: '더스퀘어치과_10월 도쿄상담회 플모', clientName: '더스퀘어치과' }), { title: '더스퀘어치과', suffix: '10월 도쿄상담회 플모' });
   assert.deepEqual(campaignRowLabel({ name: '백수약국_10월 방문협찬', clientName: '백수약국' }), { title: '백수약국', suffix: '10월 방문협찬' });
   assert.deepEqual(campaignRowLabel({ name: '10월2주차', clientName: null }), { title: '10월2주차', suffix: null });
+  // 이름이 {클라}_ 규칙을 안 따르면 클라이언트 이름을 붙이지 않고 캠페인 이름만(koo 10-08 — '미모드림 · 미모드림의원 10월 방…' 중복)
+  assert.deepEqual(campaignRowLabel({ name: '미모드림의원 10월 방문협찬', clientName: '미모드림' }), { title: '미모드림의원 10월 방문협찬', suffix: null });
 });
 
 const W2a = row('미모드림_10월2주차', '미모드림', '2026-10-05', '2026-10-11');

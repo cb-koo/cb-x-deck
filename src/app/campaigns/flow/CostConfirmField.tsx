@@ -8,6 +8,7 @@ import {
 } from '@/lib/campaignCost';
 import { costConfirmScenario, profilePromptFor } from '@/lib/campaignFlowView';
 import { Button } from '@/components/ui';
+import { PAID_COST_REASON_MESSAGE, COST_REASON_MAX } from '@/lib/campaignTaskInput';
 import { PriceProfileDialog } from './PriceProfileDialog';
 
 // 비용 [확인](b-task-8-brief.md, koo 결정) — 배정된 인플루언서의 단가로 칸을 채워도 그건 제안일 뿐이다.
@@ -20,19 +21,20 @@ import { PriceProfileDialog } from './PriceProfileDialog';
 // mode='draft'(새 작업, 설계 §8) — [확인]이 없다: 보이는 값이 곧 [만들기]에 실릴 값이라 입력할 때마다
 // onDraftChange로 부모에 올리고, 프로필 반영 질문은 만든 뒤 부모(FlowDetail)가 한 번 묻는다.
 export function CostConfirmField({
-  value, option, type, label, onSave, onSaveProfile, disabledReason, mode = 'confirm', onDraftChange, error: externalError,
+  value, option, type, label, onSave, onSaveProfile, disabledReason, mode = 'confirm', onDraftChange, error: externalError, reasonRequired = false,
 }: {
   value: TaskCost | null;                 // 저장된(=확정된) 값 — edit: task.cost, new: 패널 로컬 상태
   option: InfluencerOption | undefined;   // 배정된 인플루언서(명부에 있을 때만 id가 있다)
   type: TaskType;
   label: string;                          // '비용' | '예산' — 칸 위 라벨은 부모가 그리므로 여기선 접근성 라벨로만 쓴다
-  onSave: (cost: TaskCost) => Promise<boolean>;
+  onSave: (cost: TaskCost, reason?: string) => Promise<boolean>;   // reason — 지급 완료 작업의 '바꾸는 이유'(스펙 2026-10-07 §6)
   onSaveProfile: (option: InfluencerOption, cost: TaskCost) => Promise<boolean>;
   disabledReason?: string;                // 있으면 칸을 비활성으로 그리고 이 문구를 보여준다(인플 미정 등). ''이면 문구 없이 비활성만 —
                                           // 이유를 칸 밖(비용 · 정산 상자의 결제 수단 줄)에서 한 번만 말할 때(설계 §10)
   mode?: 'confirm' | 'draft';
   onDraftChange?: (v: TaskCost | null | 'invalid') => void;   // draft 모드만 — 빈 칸 null, 못 읽는 값 'invalid'
   error?: string | null;                  // 부모가 정한 오류(draft 모드의 [만들기] 때 'invalid')
+  reasonRequired?: boolean;               // 지급이 끝난 정산 요청이 붙은 작업 — 금액을 바꾸려면 사유를 적어야 저장(서버도 400)
 }) {
   const profile = suggestTaskCost(option?.pricing, type);
   const [amount, setAmount] = useState(() => String(value?.amount ?? profile?.amount ?? ''));
@@ -43,6 +45,7 @@ export function CostConfirmField({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');   // '✓ 확정' 옆 한 줄 — 프로필 갱신 결과·명부 밖 사유·통화 불일치 사유
   const [dialog, setDialog] = useState<{ scenario: 'differs' | 'no-profile'; entered: TaskCost } | null>(null);
+  const [reason, setReason] = useState('');   // 바꾸는 이유 — reasonRequired일 때만 쓴다
 
   // draft 모드에서 지금 보이는 값을 부모에 올린다 — 이펙트에서 setState하지 않으려고 핸들러와 마운트 때 부른다.
   const report = (a: string, c: Currency) => {
@@ -82,12 +85,14 @@ export function CostConfirmField({
     if (busy) return;    // 연타로 같은 PATCH가 두 번 나가지 않게
     if (saved) return;   // 이미 확정된 값 그대로 — Enter가 다시 불러도 재저장·다이얼로그 재오픈을 막는다
     if (entered === null) { setErr(AMOUNT_MESSAGE); return; }
+    if (reasonRequired && !reason.trim()) { setErr(PAID_COST_REASON_MESSAGE); return; }
     setErr(null);
     setBusy(true);
-    const ok = await onSave(entered);
+    const ok = await onSave(entered, reasonRequired ? reason.trim() : undefined);
     setBusy(false);
     if (!ok) return;   // 저장 실패 — 값은 그대로 미확정, 부모가 이미 오류를 토스트로 알린다
     setNote('');
+    setReason('');
     if (scenario === 'currency-mismatch') { setNote(' · 통화가 달라 프로필엔 반영 안 돼요'); return; }
     if (scenario !== 'differs' && scenario !== 'no-profile') return;   // same이면 물을 게 없다
     if (!option?.id) { setNote(' · 명부에 없는 인플루언서라 프로필엔 저장 못 해요'); return; }
@@ -157,11 +162,22 @@ export function CostConfirmField({
           {CURRENCIES.map((c) => <option key={c} value={c}>{CURRENCY_LABEL[c]}</option>)}
         </select>
         {mode === 'confirm' && !saved && (
-          <Button onClick={() => void confirm()} disabled={parsed === null || busy} className="h-10 px-3.5 text-ui">
+          <Button onClick={() => void confirm()} disabled={parsed === null || busy || (reasonRequired && !reason.trim())} className="h-10 px-3.5 text-ui">
             {busy ? '확인 중…' : '확인'}
           </Button>
         )}
       </div>
+      {reasonRequired && mode === 'confirm' && !saved && entered !== null && (
+        <div className="mt-1.5">
+          <p className="text-[14px] text-amber-700">지급이 끝난 작업이라 사유를 적어야 저장돼요</p>
+          <label className="mt-1.5 block text-[14px] text-x-secondary">바꾸는 이유
+            <input value={reason} maxLength={COST_REASON_MAX}
+                   onChange={(e) => { setReason(e.target.value); setErr(null); }}
+                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void confirm(); }}
+                   className="mt-1 h-10 w-full rounded-md border border-x-border-strong px-3 text-content outline-none focus:border-x-blue" />
+          </label>
+        </div>
+      )}
       {(err ?? externalError) && <p role="alert" className="mt-1 text-ui text-red-600">{err ?? externalError}</p>}
       {statusText && <p className={`mt-1 text-ui ${amber ? 'text-amber-700' : 'text-x-muted'}`}>{statusText}</p>}
       {dialog && option && (

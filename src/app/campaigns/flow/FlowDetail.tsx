@@ -52,6 +52,10 @@ import { FlowRowMenu, type FlowRowMenuActions } from './FlowRowMenu';
 import { CancelDialog } from './CancelDialog';
 import { SettleElsewhereDialog } from './SettleElsewhereDialog';
 import { SettledElsewhereLine } from './panel/SettledElsewhereLine';
+import Link from 'next/link';
+import { TaskCostHistory } from './panel/TaskCostHistory';
+import { isPaidBadge, pendingRequestCost } from '@/lib/settlementDisplay';
+import { formatAmount } from '@/lib/campaignCost';
 import { ReplaceDialog } from './ReplaceDialog';
 import { useFlowTaskActions } from './useFlowTaskActions';
 import { type DraftTab } from './draft/DraftMode';
@@ -101,6 +105,18 @@ interface DetailState {
 type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 // 오른쪽 패널이 여는 대상 — 기존 작업(taskId) 또는 새 작업(fresh). 둘 다 아니면 패널이 닫혀 있다.
 type Panel = { taskId: string } | { fresh: true } | null;
+
+// 지급 전 요청이 붙은 작업의 금액을 고쳤을 때 패널에 띄우는 안내 — 요청 금액은 한 번만 계산한다.
+function PendingRequestNote({ task }: { task: FlowRow }) {
+  const pending = pendingRequestCost(task);
+  if (!pending) return null;
+  return (
+    <p className="mt-1.5 text-[14px] text-amber-700">
+      정산 요청은 아직 {formatAmount(pending.amount, pending.currency)}이에요 — 정산 화면에서 &apos;고친 값으로 다시 반영&apos;을 눌러 주세요{' '}
+      <Link href={`/settlement?tab=requests&task=${task.id}`} className="underline">정산 요청 보기</Link>
+    </p>
+  );
+}
 
 export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   id: string;
@@ -1001,11 +1017,19 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                      // key=influencerHandle — 인플루언서가 바뀌면(미정 → 배정 포함) 새 프로필 단가로 다시
                      // 초기화한다(마운트 시 한 번만 채우는 필드라 안 그러면 방금 배정한 인플의 단가 제안이 안 보인다).
                      cost: panelTask
-                       ? <CostConfirmField key={panelTask.influencerHandle ?? ''} value={panelTask.cost} option={optionFor(panelTask.influencerHandle)} type={panelTask.type}
-                                          label={panelTask.type === 'visit' ? '예산' : '비용'}
-                                          onSave={(c) => actions.changeCost(panelTask, c)}
-                                          onSaveProfile={(opt, c) => saveProfilePricing(opt, c, panelTask.type)}
-                                          disabledReason={panelTask.influencerHandle ? undefined : ''} />
+                       ? (
+                           <div>
+                             <CostConfirmField key={panelTask.influencerHandle ?? ''} value={panelTask.cost} option={optionFor(panelTask.influencerHandle)} type={panelTask.type}
+                                               label={panelTask.type === 'visit' ? '예산' : '비용'}
+                                               onSave={(c, reason) => actions.changeCost(panelTask, c, reason)}
+                                               onSaveProfile={(opt, c) => saveProfilePricing(opt, c, panelTask.type)}
+                                               disabledReason={panelTask.influencerHandle ? undefined : ''}
+                                               reasonRequired={isPaidBadge(panelTask.settlement)} />
+                             {/* 지급 전 요청이 붙은 작업의 금액을 고쳤으면, 요청은 아직 옛 금액이다 — '고친 값으로 다시 반영'으로 안내(스펙 2026-10-07 §6) */}
+                             <PendingRequestNote task={panelTask} />
+                             <TaskCostHistory key={`${panelTask.id}:${panelTask.costChangeCount}`} campaignId={id} taskId={panelTask.id} count={panelTask.costChangeCount} />
+                           </div>
+                         )
                        : null,
                      // 대상은 링크 하나로 통일한다(Task 9) — actions.changeTarget이 taskId/url/null 셋을 받는다.
                      target: panelTask

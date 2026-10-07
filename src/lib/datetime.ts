@@ -145,6 +145,11 @@ export function dateOnlyMonthDay(d: DateOnly): string {
   return `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
 }
 
+/** M월 D일. 시간대 시프트 없음(정산 요청 마감처럼 날짜만 있는 값). */
+export function dateOnlyMonthDayKo(d: DateOnly): string {
+  return `${Number(d.slice(5, 7))}월 ${Number(d.slice(8, 10))}일`;
+}
+
 /** 주 시작일 → '6/15~21' (월이 바뀌면 '6/29~7/5'). 시간대 시프트 없음. */
 export function weekRangeLabel(weekStart: DateOnly): string {
   const s = new Date(weekStart + 'T00:00:00Z');

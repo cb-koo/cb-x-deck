@@ -10,7 +10,7 @@ import type { CampaignCreateInput, CampaignPatchInput } from './campaignInput.ts
 import type { ExtraCost, TaskCost } from './campaignCost.ts';
 import type { Pricing } from './influencerPricing.ts';
 import type { TrackedPostRow } from './trackingStore.ts';
-import type { TaskRow, TargetCandidate } from './campaignTaskStore.ts';
+import type { TaskRow, TargetCandidate, TaskChangeRow } from './campaignTaskStore.ts';
 import type { TaskType } from './campaignJudgment.ts';
 import type { CheckPostedResult } from './checkPosted.ts';
 import type { CancelReason } from './campaignTaskInput.ts';
@@ -75,6 +75,7 @@ export type TaskPatchRequest = {
   influencerHandle?: string | null; targetTaskId?: string | null; targetTweetUrl?: string | null;
   postUrl?: string | null; postedAt?: string; removedAt?: string | null; removedReason?: string;
   scheduledOn?: string | null; visitOn?: string | null; cost?: TaskCost | null; note?: string;
+  costReason?: string;   // 작업 금액을 바꾸는 이유 — 지급 완료된 작업은 필수(서버 400, 스펙 2026-10-07 §6)
   proof?: string | null;   // 스토리지 경로 또는 null(떼기). 올린 사람·시각은 서버가 채운다
   // 방문협찬만(063) — 시간 'HH:MM' | null(미정), 동의서는 올린 파일 정보 | null(떼기). 올린 사람·시각은 서버가 채운다
   visitTime?: string | null; scheduledTime?: string | null;
@@ -87,6 +88,8 @@ export const patchTaskApi = (campaignId: string, taskId: string, body: TaskPatch
   call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}`, json('PATCH', body));
 export const deleteTaskApi = (campaignId: string, taskId: string) =>
   call<{ ok: true; deleted: boolean }>(`/api/campaigns/${campaignId}/tasks/${taskId}`, { method: 'DELETE' });
+export const fetchTaskChangesApi = (campaignId: string, taskId: string) =>
+  call<{ changes: TaskChangeRow[] }>(`/api/campaigns/${campaignId}/tasks/${taskId}/changes`);
 // 취소·되돌리기(ADR 0002) — PATCH가 아니라 액션 라우트(스토어와 계약이 같다)
 export const cancelTaskApi = (campaignId: string, taskId: string, body: { reason: CancelReason | null; note: string }) =>
   call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/cancel`, json('POST', body));

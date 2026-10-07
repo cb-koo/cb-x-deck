@@ -71,8 +71,10 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
     // 협찬 동의서(063) — 올린 파일 정보 | null(떼기). 낙관값의 by/byName/at은 응답이 진짜 값으로 덮는다(setProof와 같은 방식)
     setAgreement: (t: Item, a: TaskAgreementInput | null) =>
       patch(t, { agreement: a }, { agreement: a ? { url: a.path, name: a.name, size: a.size, mime: a.mime, by: null, byName: '', at: new Date().toISOString() } : null }),
-    changeCost: async (t: Item, next: TaskCost | null) => {
-      const ok = await patch(t, { cost: next }, { cost: next });
+    // reason — 지급이 끝난 작업의 '바꾸는 이유'(스펙 2026-10-07 §6). 서버가 이력(task_change)에 남기고, 없으면 400으로 막는다.
+    // 이전 캠페인 화면(TaskTable의 CostPopover)은 사유 칸이 없어 지급 완료 작업이면 서버 문구가 토스트로 뜬다(보관 화면이라 둔다).
+    changeCost: async (t: Item, next: TaskCost | null, reason?: string) => {
+      const ok = await patch(t, { cost: next, ...(reason ? { costReason: reason } : {}) }, { cost: next });
       if (ok) onChanged();   // 합계가 목록 보조줄에도 실린다
       return ok;
     },

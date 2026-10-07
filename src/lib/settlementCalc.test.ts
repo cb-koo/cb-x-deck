@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   computeMoney, defaultDeadline, defaultCategory, itemText, purposeText, referenceUrlFor, assessReadiness,
-  toMethodSnapshot, describeSnapshot, computeCandidate, effectiveReadiness, effectiveIssues,
+  toMethodSnapshot, describeSnapshot, methodLine, computeCandidate, effectiveReadiness, effectiveIssues,
 } from './settlementCalc.ts';
 import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings } from './settlementSettings.ts';
 import type { PaymentMethod } from './influencerPayment.ts';
@@ -200,6 +200,17 @@ test('describeSnapshot — PayPay가 QR만 있으면(식별 정보 없이) "QR �
   const line = describeSnapshot(toMethodSnapshot(qrOnly));
   assert.equal(line, 'PayPay | A | QR 등록됨');
   assert.doesNotMatch(line, /inf-1\/aaa\.png/);
+});
+
+// 펼침의 결제 수단 줄(10-07 koo QA) — 슬랙 양식(`|`)이 아니라 ` · `로, 빈 칸은 빼고
+test('methodLine — 사람이 읽는 한 줄: ` · ` 구분·빈 칸 없음', () => {
+  assert.equal(methodLine(toMethodSnapshot(bankJp)), '계좌이체 · オオクボナナ · 三菱UFJ / 赤坂見附支店(064) / 0441321');
+  assert.equal(methodLine(toMethodSnapshot(bankKr)), '계좌이체 · KAWAGOE AMI · 신한 / 110543468512');
+  assert.equal(methodLine(toMethodSnapshot(paypal)), 'PayPal · SAWADA KEIKO · ucymk@gmail.com');
+  assert.equal(methodLine(toMethodSnapshot(paypay)), 'PayPay · A');
+  assert.equal(methodLine(toMethodSnapshot({ ...paypay, identifier: undefined, qr: 'inf-1/aaa.png' })), 'PayPay · A · QR 등록됨');
+  const line = methodLine({ type: 'paypay', holder: ' ', currency: 'JPY' });
+  assert.equal(line, 'PayPay'); assert.doesNotMatch(line, /\|/);
 });
 
 test('toMethodSnapshot — qr 경로를 스냅샷에 싣는다 (스펙 §3-1)', () => {

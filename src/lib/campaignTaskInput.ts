@@ -1,6 +1,6 @@
 // 작업 API 입력 검증 — 순수(DB 없음). 라우트 4곳(작업 생성·패치, 원고 PATCH·POST의 taskId)이 같은 규칙을 쓴다.
 import type { Parsed, TaskCost } from './campaignCost.ts';
-import { parseTaskCost } from './campaignCost.ts';
+import { parseTaskCost, sameTaskCost } from './campaignCost.ts';
 import { isTaskType, isDateOnlyString, isTimeString, SETTLED_ELSEWHERE_NOTE_MAX, type TaskType } from './campaignJudgment.ts';
 import type { TaskPatch } from './campaignTaskStore.ts';
 import { parseTweetLink, tweetPermalink } from './tweetLink.ts';
@@ -63,6 +63,8 @@ export const REPLACE_AFTER_VISIT_MESSAGE = '방문한 인플루언서가 게시�
 export const CANCEL_REASON_MESSAGE = '취소 사유 값이 올바르지 않아요';
 export const RESTORE_NOT_CANCELLED_MESSAGE = '취소된 작업이 아니에요';
 export const POSTED_TASK_MESSAGE = '이미 게시된 작업이에요 — 인플루언서를 바꿀 수 없어요';
+// 지급이 끝난 작업의 금액은 사유가 있어야 바꾼다(스펙 2026-10-07 §6·§9) — 캠페인 PATCH와 정산 화면 처리의 빈 사유가 같은 문장을 쓴다
+export const PAID_COST_REASON_MESSAGE = '지급이 끝난 작업이라 사유를 적어야 저장돼요';
 
 // 인플루언서 칸을 바꾸는 모든 요청(배정·해제·교체)에 같은 상태 제한(ADR 0005). PATCH는 "다른 인플로"를 막고 교체 라우트로 보낸다.
 export function influencerChangeGuard(
@@ -206,7 +208,9 @@ export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
 
 // 파서는 멤버를 모르므로 증빙은 경로만 넘긴다 — 라우트가 by/byName/at을 붙여 TaskPatch.proof를 만든다(§5-1).
 // 협찬 동의서(063)도 같다 — {경로·이름·크기·형식}만 받고, 올린 사람·시각은 라우트가 붙여 TaskPatch.agreement로.
-export type TaskPatchParsed = Omit<TaskPatch, 'proof' | 'agreement'> & { proofUrl?: string | null; agreementInput?: TaskAgreementInput | null };
+// costReason(스펙 2026-10-07 §6) — 작업 금액을 바꾸는 이유. 스토어 패치(TaskPatch)가 아니라 이력(task_change.reason)으로 간다.
+export type TaskPatchParsed = Omit<TaskPatch, 'proof' | 'agreement'> & { proofUrl?: string | null; agreementInput?: TaskAgreementInput | null; costReason?: string };
+export const COST_REASON_MAX = 200;
 
 // 온 키만 결과에 실린다(undefined=건드리지 않음) — 스토어 updateTask의 3값 규칙과 맞물린다
 export function parseTaskPatch(body: unknown): Parsed<TaskPatchParsed> {
@@ -241,6 +245,7 @@ export function parseTaskPatch(body: unknown): Parsed<TaskPatchParsed> {
     else { const a = parseTaskAgreementInput(b.agreement); if (!a) return fail(AGREEMENT_VALUE_MESSAGE); out.agreementInput = a; }
   }
   if ('cost' in b) { const c = parseTaskCost(b.cost); if (!c.ok) return c; out.cost = c.value; }
+  if ('costReason' in b) out.costReason = typeof b.costReason === 'string' ? b.costReason.trim().slice(0, COST_REASON_MAX) : '';
   if ('note' in b) out.note = typeof b.note === 'string' ? b.note.trim() : '';
   if ('proof' in b) {
     if (b.proof === null) out.proofUrl = null;
@@ -252,6 +257,14 @@ export function parseTaskPatch(body: unknown): Parsed<TaskPatchParsed> {
   // 걸 사람이 없는 결제 수단이다. null(기본 수단으로)은 '고른 수단'이 아니라 걸리지 않는다.
   if (out.paymentMethodId != null && out.influencerHandle === null) return fail(PAYMENT_METHOD_NO_INFLUENCER_MESSAGE);
   return { ok: true, value: out };
+}
+
+// 지급이 끝난 작업의 금액은 사유가 있어야 바꾼다(스펙 2026-10-07 §6). 실제로 바뀔 때만(같은 값 재전송·금액 없는 PATCH는 통과).
+// 라우트 하네스가 없어 순수 함수로 둔다 — 라우트는 hasPaidRequest를 읽어 넣기만 한다.
+export function costReasonGateError(i: { before: TaskCost | null; next: TaskCost | null | undefined; hasPaidRequest: boolean; reason: string | undefined }): string | null {
+  if (i.next === undefined || sameTaskCost(i.before, i.next)) return null;
+  if (i.hasPaidRequest && !(i.reason ?? '').trim()) return PAID_COST_REASON_MESSAGE;
+  return null;
 }
 
 // RT 증빙 3규칙의 판정 — 라우트에 테스트 하네스가 없어 순수 함수로 뺀다(리뷰에서 우회 구멍이 잡힌 자리).

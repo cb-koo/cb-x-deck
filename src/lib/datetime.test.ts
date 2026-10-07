@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   asDateOnly, kstDate, kstDateTime, kstShort, kstMonthDay, kstMonthDayKo, kstMonthDayTimeKo,
   kstToday, kstDaysAgo, kstTodayStart, kstDaysAgoStart, kstMonthStart, kstDayRange,
-  dateOnlyMonthDay, weekRangeLabel,
+  dateOnlyMonthDay, dateOnlyMonthDayKo, weekRangeLabel,
 } from './datetime.ts';
 
 // 한국 시간은 UTC+9 고정이므로 UTC 15:00이 KST 다음 날 00:00이다. 이 경계가 모듈 전체의 축이다.
@@ -78,6 +78,8 @@ test('kstDayRange: from~to가 걸치는 한국 달력일을 오름차순으로 �
 test('date-only 계열: 시간대 시프트를 하지 않는다', () => {
   assert.equal(dateOnlyMonthDay(asDateOnly('2026-07-13')), '7/13');
   assert.equal(dateOnlyMonthDay(asDateOnly('2026-01-01')), '1/1');   // 시프트가 들어가면 12/31이 된다
+  assert.equal(dateOnlyMonthDayKo(asDateOnly('2026-01-01')), '1월 1일');
+  assert.equal(dateOnlyMonthDayKo(asDateOnly('2026-09-04')), '9월 4일');
   assert.equal(weekRangeLabel(asDateOnly('2026-06-15')), '6/15~21');
   assert.equal(weekRangeLabel(asDateOnly('2026-06-29')), '6/29~7/5'); // 월이 바뀌면 월까지 적는다
 });

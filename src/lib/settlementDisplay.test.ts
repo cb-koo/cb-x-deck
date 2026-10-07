@@ -1,13 +1,15 @@
 // src/lib/settlementDisplay.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { displayStatus, inGroup, paidText, payoutDiff, fxDiffKrw, needsDiffAck, hasPaidDiff, usdText, type StatusSource } from './settlementDisplay.ts';
+import { displayStatus, inGroup, paidText, usdText, EXTERNAL_STATUS_LABEL, STATUS_GROUP_OPTIONS, paidSummary, requestSummarySub, type StatusSource } from './settlementDisplay.ts';
 
+// 원화 지급·수수료 없음 기준 — 작업 31,650원 = 송금 31,650원
 const base: StatusSource = { status: 'requested', externalStatus: null, externalNote: null, externalUpdatedAt: null, createdAt: '2026-08-28T03:00:00Z', cancelledAt: null,
-  paidAmountKrw: null, grossKrw: 31650, diffAckAt: null, payoutCurrency: 'KRW', amountGross: 31650, paidAmountJpy: null };   // 기존 테스트는 원화 지급 기준
+  paidAmountKrw: null, grossKrw: 31650, diffAckAt: null, payoutCurrency: 'KRW', amountGross: 31650, paidAmountJpy: null,
+  taskId: 't1', taskCost: { amount: 31650, currency: 'KRW' }, fee: null, rateKrwPerJpy: 10, diffAckKind: null, diffAckTaskCost: null, paidAmountUsd: null, paidAt: null };
 const ext = (externalStatus: StatusSource['externalStatus'], note: string | null = null): StatusSource => ({ ...base, externalStatus, externalNote: note, externalUpdatedAt: '2026-08-29T03:00:00Z' });
 
-test('displayStatus — 우리·그쪽 조합 → 라벨 하나(요청 내역)', () => {
+test('displayStatus — 우리·정산팀 조합 → 라벨 하나(요청 내역)', () => {
   assert.deepEqual([displayStatus(base, 'list').key, displayStatus(base, 'list').label, displayStatus(base, 'list').tone], ['requested', '요청됨 8/28', 'blue']);
   assert.equal(displayStatus(ext('received'), 'list').label, '정산 접수 8/29');
   assert.equal(displayStatus(ext('scheduled'), 'list').label, '지급 예정');
@@ -18,7 +20,6 @@ test('displayStatus — 우리·그쪽 조합 → 라벨 하나(요청 내역)',
   assert.equal(paid.label, '지급 완료 8/29'); assert.equal(paid.tone, 'done');
   const cancelled = displayStatus({ ...ext('cancelled'), status: 'cancelled', cancelledAt: '2026-08-30T03:00:00Z' }, 'list');
   assert.equal(cancelled.label, '취소됨 8/30'); assert.equal(cancelled.tone, 'gray');
-  // 우리가 취소했고 그쪽 상태가 뭐든 취소가 이긴다
   assert.equal(displayStatus({ ...ext('scheduled'), status: 'cancelled', cancelledAt: '2026-08-30T03:00:00Z' }, 'list').key, 'cancelled');
 });
 test('displayStatus — 캠페인 표 라벨', () => {
@@ -28,6 +29,11 @@ test('displayStatus — 캠페인 표 라벨', () => {
   assert.equal(displayStatus(ext('on_hold', '계좌'), 'campaign').label, '정산 보류 — 확인 필요');
   assert.equal(displayStatus(ext('paid'), 'campaign').label, '지급 완료 8/29');
   assert.equal(displayStatus({ ...base, status: 'cancelled', cancelledAt: '2026-08-30T03:00:00Z' }, 'campaign').label, '취소됨');
+});
+test('상태 라벨 — 정산팀 이름으로(§8-2)', () => {
+  assert.equal(EXTERNAL_STATUS_LABEL.cancelled, '정산팀이 취소');
+  assert.equal(STATUS_GROUP_OPTIONS.find((o) => o.value === 'paid_diff')?.label, '지급 금액 다름');
+  for (const s of [base, ext('received'), ext('scheduled'), ext('on_hold')]) assert.doesNotMatch(displayStatus(s, 'list').title, /정산 쪽|그쪽|정산 프로덕트/);
 });
 test('inGroup — 진행 중은 요청됨·접수·지급 예정', () => {
   assert.ok(inGroup('requested', 'active') && inGroup('received', 'active') && inGroup('scheduled', 'active'));
@@ -40,94 +46,70 @@ test('paidText — 차이 해석까지', () => {
   assert.equal(paidText(30000, 30300), '실지급 30,300원 (송금액 30,000원, +300)');
   assert.equal(paidText(30000, 30000), '실지급 30,000원');
 });
-test('paidText — 실제 송금액과 비교한다(수수료를 차액으로 오해하지 않는다)', () => {
-  // 8/31 실제 건: 순액 30,000 / 송금액 31,650 / 실지급 31,650 → 차액 없음
-  assert.equal(paidText(31650, 31650), '실지급 31,650원');
-  assert.equal(paidText(31650, 30000), '실지급 30,000원 (송금액 31,650원, −1,650)');
-  assert.equal(paidText(31650, 33000), '실지급 33,000원 (송금액 31,650원, +1,350)');
-});
 
-const paidWith = (paidAmountKrw: number, diffAckAt: string | null = null): StatusSource =>
-  ({ ...ext('paid'), paidAmountKrw, diffAckAt });
+const paidWith = (paidAmountKrw: number): StatusSource => ({ ...ext('paid'), paidAmountKrw });
 
-test('차액 확인 — 실지급액이 송금액과 다르고 미확인이면 확인 필요', () => {
+test('지급 금액 다름 — 작업 금액과 정산팀 지급이 다르면 paid_diff(요청 내역·캠페인 같은 라벨)', () => {
   assert.equal(displayStatus(paidWith(30000), 'list').key, 'paid_diff');
-  assert.equal(displayStatus(paidWith(30000), 'list').label, '지급 완료 · 차액 확인 필요');
+  assert.equal(displayStatus(paidWith(30000), 'list').label, '지급 금액 다름');
   assert.equal(displayStatus(paidWith(30000), 'list').tone, 'warn');
-  assert.equal(displayStatus(paidWith(30000), 'campaign').label, '정산 차액 확인 필요');
+  assert.equal(displayStatus(paidWith(30000), 'campaign').label, '지급 금액 다름');
 });
-
-test('차액 확인 — 차액 0이거나 이미 확인했으면 그냥 지급 완료', () => {
-  assert.equal(displayStatus(paidWith(31650), 'list').key, 'paid');
-  assert.equal(displayStatus(paidWith(30000, '2026-09-01T05:00:00Z'), 'list').key, 'paid');
-  assert.equal(displayStatus(paidWith(30000, '2026-09-01T05:00:00Z'), 'list').label, '지급 완료 8/29');
+test('지급 금액 다름 — 작업 금액을 지급에 맞추면 그냥 지급 완료(요청 금액은 그대로여도)', () => {
+  assert.equal(displayStatus({ ...paidWith(30000), taskCost: { amount: 30000, currency: 'KRW' } }, 'list').key, 'paid');
 });
-
-test('차액 확인 — 취소된 요청에는 뜨지 않는다', () => {
-  const s = { ...paidWith(30000), status: 'cancelled' as const, cancelledAt: '2026-08-30T03:00:00Z' };
-  assert.equal(displayStatus(s, 'list').key, 'cancelled');
+test('처리 기록 — 맞춤/그대로 둠은 요청 내역에 "지급 완료 · …", 캠페인 배지는 날짜', () => {
+  const kept: StatusSource = { ...paidWith(30000), diffAckAt: '2026-10-07T04:00:00Z', diffAckKind: 'kept', diffAckTaskCost: { amount: 31650, currency: 'KRW' } };
+  assert.equal(displayStatus(kept, 'list').key, 'paid');
+  assert.equal(displayStatus(kept, 'list').label, '지급 완료 · 그대로 둠');
+  assert.equal(displayStatus(kept, 'campaign').label, '지급 완료 8/29');
+  const matched: StatusSource = { ...paidWith(30000), taskCost: { amount: 30000, currency: 'KRW' }, diffAckAt: '2026-10-07T04:00:00Z', diffAckKind: 'matched', diffAckTaskCost: { amount: 30000, currency: 'KRW' } };
+  assert.equal(displayStatus(matched, 'list').label, '지급 완료 · 맞춤');
+  // 옛 확인(종류 없음)은 판정을 숨기지 않는다 — 작업 금액이 지급과 다르면 다시 처리할 일이다
+  assert.equal(displayStatus({ ...paidWith(30000), diffAckAt: '2026-09-01T05:00:00Z' }, 'list').key, 'paid_diff');
 });
-
-test('차액 확인 — 지급 완료 필터에 차액 건도 포함된다', () => {
-  assert.ok(inGroup('paid_diff', 'paid'), '차액 건도 지급 완료다 — 필터에서 사라지면 안 된다');
+test('지급 금액 다름 — 취소된 요청에는 뜨지 않는다 · 지급 완료 필터에 포함', () => {
+  assert.equal(displayStatus({ ...paidWith(30000), status: 'cancelled', cancelledAt: '2026-08-30T03:00:00Z' }, 'list').key, 'cancelled');
+  assert.ok(inGroup('paid_diff', 'paid'));
   assert.ok(inGroup('paid_diff', 'paid_diff'));
   assert.ok(!inGroup('paid', 'paid_diff'));
   assert.ok(inGroup('paid_diff', ''));
 });
-
-test('payoutDiff / needsDiffAck — 원화 지급은 원화끼리', () => {
-  const krw = { payoutCurrency: 'KRW' as const, amountGross: 31650, paidAmountJpy: null };
-  assert.equal(payoutDiff({ ...krw, paidAmountKrw: null, grossKrw: 31650 }), null);
-  assert.deepEqual(payoutDiff({ ...krw, paidAmountKrw: 30000, grossKrw: 31650 }), { amount: -1650, currency: 'KRW' });
-  assert.equal(needsDiffAck(paidWith(30000)), true);
-  assert.equal(needsDiffAck(paidWith(31650)), false);
-  assert.equal(needsDiffAck(ext('scheduled')), false);
-});
-
-test('hasPaidDiff — 화면(needsDiffAck)과 서버(ackDiff)가 같은 판정을 쓴다: 확인 여부만 빼고 같다', () => {
-  assert.equal(hasPaidDiff(paidWith(30000)), true);
-  assert.equal(hasPaidDiff(paidWith(31650)), false);          // 차액 0
-  assert.equal(hasPaidDiff(ext('scheduled')), false);          // 지급 전
-  assert.equal(hasPaidDiff({ ...paidWith(30000), status: 'cancelled' }), false);
-  // 이미 확인한 차액 건 — 차액은 여전히 있다(서버가 '확인할 게 없다'고 하면 안 된다), 화면 배지만 꺼진다
-  const acked = { ...paidWith(30000), diffAckAt: '2026-09-01T00:00:00.000Z' };
-  assert.equal(hasPaidDiff(acked), true);
-  assert.equal(needsDiffAck(acked), false);
-});
-
 test('displayStatus — 고친 요청은 "요청됨 · 2판 M/D"(revised_at), 안 고쳤으면 그대로', () => {
-  const plain = displayStatus({ ...base, externalStatus: null }, 'list');
-  assert.equal(plain.label, '요청됨 8/28');
+  assert.equal(displayStatus({ ...base, externalStatus: null }, 'list').label, '요청됨 8/28');
   const revised = displayStatus({ ...base, externalStatus: null, revision: 1, revisedAt: '2026-09-07T03:50:14.000Z' }, 'list');
   assert.equal(revised.label, '요청됨 · 2판 9/7');
   assert.match(revised.title, /고쳐서 다시 보낸 요청/);
-  // 캠페인 표 배지는 짧게 유지 — 판 표시는 요청 내역에서만
   assert.equal(displayStatus({ ...base, externalStatus: null, revision: 1, revisedAt: '2026-09-07T03:50:14.000Z' }, 'campaign').label, '정산 요청됨 8/28');
 });
-
 test('usdText — PayPal 달러 실지급액 표기(소수 둘째 자리, 천 단위 쉼표)', () => {
   assert.equal(usdText(18.62), '$18.62');
   assert.equal(usdText(1234.5), '$1,234.50');
   assert.equal(usdText(20), '$20.00');
 });
-
-test('엔화로 보낸 건은 엔화끼리 — 원화 차이는 환율 차이(참고)라 경고가 아니다(koo 09-28)', () => {
-  // 운영 실례: 5,000엔 요청(원화 50,000 = 1엔 10원), 그쪽 엔화 5,000·원화 42,993(실제 환율 8.6)
-  const jpy: StatusSource = { ...ext('paid'), payoutCurrency: 'JPY', amountGross: 5000, grossKrw: 50000, paidAmountKrw: 42993, paidAmountJpy: 5000 };
-  assert.deepEqual(payoutDiff(jpy), { amount: 0, currency: 'JPY' });
-  assert.equal(hasPaidDiff(jpy), false);
+test('엔화로 보낸 건 — 엔화 값이 요청대로면 원화가 달라도(환율) 지급 완료, 엔화가 다르면 지급 금액 다름', () => {
+  const jpy: StatusSource = { ...ext('paid'), payoutCurrency: 'JPY', amountGross: 5000, grossKrw: 50000, paidAmountKrw: 42993, paidAmountJpy: 5000, taskCost: { amount: 5000, currency: 'JPY' } };
   assert.equal(displayStatus(jpy, 'list').key, 'paid');
-  assert.equal(fxDiffKrw(jpy), -7007);
-  // 엔화가 실제로 덜 나갔으면 그때만 차액 — 엔화로 말한다
-  const short: StatusSource = { ...jpy, paidAmountJpy: 4500 };
-  assert.deepEqual(payoutDiff(short), { amount: -500, currency: 'JPY' });
-  assert.equal(needsDiffAck(short), true);
-  assert.match(displayStatus(short, 'list').title, /500엔 적게/);
-  // PayPal(달러로 지급 — 엔화 실지급 없음): 비교하지 않는다, 원화 차이는 참고만
-  const usd: StatusSource = { ...jpy, paidAmountJpy: null, paidAmountKrw: 43600 };
-  assert.equal(payoutDiff(usd), null);
-  assert.equal(hasPaidDiff(usd), false);
-  assert.equal(fxDiffKrw(usd), -6400);
-  // 원화 지급엔 환율 차이가 없다
-  assert.equal(fxDiffKrw({ payoutCurrency: 'KRW', paidAmountKrw: 30000, grossKrw: 31650 }), null);
+  assert.equal(displayStatus({ ...jpy, paidAmountJpy: 4500 }, 'list').key, 'paid_diff');
+  // 달러 지급(엔화 값 없음) — 비율 42,993 ÷ 50,000 = 0.86, 환율로 설명된다
+  assert.equal(displayStatus({ ...jpy, paidAmountJpy: null }, 'list').key, 'paid');
+});
+
+// 펼침 요약 카드(10-07 koo QA) — '정산팀 지급' 금액 + 보조 한 줄
+test('paidSummary — 지급 통화별 금액·보조 줄', () => {
+  const paid = { ...ext('paid'), paidAt: '2026-08-29T03:00:00Z' };
+  assert.deepEqual(paidSummary({ ...paid, paidAmountKrw: 31650 }), { amount: '31,650원', sub: null });
+  assert.deepEqual(paidSummary({ ...paid, payoutCurrency: 'JPY', paidAmountKrw: 42450, paidAmountJpy: 5000 }), { amount: '5,000엔', sub: '원화 42,450원 · 환율 1엔 = 8.49원' });
+  assert.deepEqual(paidSummary({ ...paid, payoutCurrency: 'JPY', paidAmountKrw: 139758, paidAmountUsd: 104.08 }), { amount: '139,758원', sub: '달러 $104.08로 송금 · 원화는 정산팀 환산값' });
+  assert.deepEqual(paidSummary({ ...paid, payoutCurrency: 'JPY', paidAmountKrw: 43000 }), { amount: '43,000원', sub: '원화는 정산팀 환산값' });
+});
+test('paidSummary — 지급 전이면 금액 없음 + 상태 문구', () => {
+  assert.deepEqual(paidSummary(base), { amount: null, sub: '정산팀이 아직 확인하지 않았어요' });
+  assert.deepEqual(paidSummary(ext('scheduled')), { amount: null, sub: '지급 예정' });
+  assert.deepEqual(paidSummary(ext('paid')), { amount: null, sub: '지급 완료' });   // 지급 원화가 아직 없음
+  assert.deepEqual(paidSummary({ ...base, status: 'cancelled', cancelledAt: '2026-08-30T03:00:00Z' }), { amount: null, sub: '취소됨 8/30' });
+});
+test('requestSummarySub — 엔화로 보낼 때만 요청 환율', () => {
+  assert.equal(requestSummarySub(base), '요청 송금액 31,650원');
+  assert.equal(requestSummarySub({ ...base, payoutCurrency: 'JPY', amountGross: 5000, rateKrwPerJpy: 10 }), '요청 송금액 5,000엔 · 환율 1엔 = 10원');
 });

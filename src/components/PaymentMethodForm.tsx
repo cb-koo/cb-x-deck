@@ -129,7 +129,7 @@ export function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, e
               </div>
             </div>
             <p className="mt-0.5 text-caption text-x-muted">
-              아직 못 받았으면 비워두셔도 돼요 — 정산 쪽에서 확인되면 그때 채우면 됩니다.
+              아직 못 받았으면 비워두셔도 돼요 — 정산팀에서 확인되면 그때 채우면 됩니다.
             </p>
           </div>
         )}

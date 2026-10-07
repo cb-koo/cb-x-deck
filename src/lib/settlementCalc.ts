@@ -5,6 +5,7 @@ import type { TaskCost } from './campaignCost.ts';
 import { PAYMENT_TYPE_LABEL, type PaymentMethod, type PaymentFee } from './influencerPayment.ts';
 import { defaultCategoryFor, visibleCategories, CATEGORY_ID_FEE, CATEGORY_ID_INFO, type SettlementSettings } from './settlementSettings.ts';
 import type { TaskProof } from './taskProofGuard.ts';
+import { JPY_TO_KRW } from './clientBudget.ts';   // 집행액 원화 환산 — 예산 화면과 같은 고정 환율
 
 // ── 금액(§3-1·3-2) ──
 export interface MoneyCalc {
@@ -23,6 +24,31 @@ export function computeMoney(cost: TaskCost, payoutCurrency: Currency, fee: Paym
   if (fee?.mode === 'grossUp') feeAmount = Math.round(net / (1 - fee.percent / 100)) - net;
   else if (fee?.mode === 'fixed') feeAmount = fee.amount;
   return { costAmount: cost.amount, costCurrency: cost.currency, amountKrw, payoutCurrency, rateKrwPerJpy: rate, amountNet: net, fee: fee ?? null, feeAmount, amountGross: net + feeAmount };
+}
+
+// ── 정산팀 지급 → 작업 금액 제안(스펙 2026-10-07 §5-1) — computeMoney의 거꾸로. 정확히 비교 가능한 지급만(원화 지급, 또는 엔화 지급 +
+// 엔화 값 있음). 달러·엔화 값 없음은 null — 환산값을 넣으면 틀린 금액이 그럴듯해 보인다(창은 비워 두고 직접 적게 한다).
+// 수수료: 정액은 빼고, 비율은 지급 × (1 − 비율) 반올림. 통화: 작업이 원화·지급이 엔화면 요청 환율을 곱하고, 반대면 나눈다(반올림).
+export interface PaidSuggestion { cost: TaskCost; paid: number; paidCurrency: Currency; feeAmount: number }
+export function suggestTaskCostFromPaid(i: { payoutCurrency: Currency; paidAmountKrw: number | null; paidAmountJpy: number | null; fee: PaymentFee | null; rateKrwPerJpy: number; taskCurrency: Currency }): PaidSuggestion | null {
+  const paid = i.payoutCurrency === 'KRW' ? i.paidAmountKrw : i.paidAmountJpy;
+  if (paid === null) return null;
+  let net: number;
+  if (i.fee?.mode === 'fixed') net = paid - i.fee.amount;
+  else if (i.fee?.mode === 'grossUp') net = Math.round(paid * (1 - i.fee.percent / 100));
+  else net = paid;
+  net = Math.max(0, net);
+  let amount: number;
+  if (i.taskCurrency === i.payoutCurrency) amount = net;
+  else if (i.taskCurrency === 'KRW') amount = Math.round(net * i.rateKrwPerJpy);
+  else amount = Math.round(net / i.rateKrwPerJpy);
+  return { cost: { amount, currency: i.taskCurrency }, paid, paidCurrency: i.payoutCurrency, feeAmount: paid - net };
+}
+
+// 작업 금액을 바꾸면 캠페인 집행액(원화 환산)이 얼마나 바뀌나 — 맞추기 창 하단 `{캠페인} 집행액이 {±n원} 돼요`
+export function budgetDeltaKrw(before: TaskCost | null, after: TaskCost): number {
+  const krw = (c: TaskCost) => (c.currency === 'KRW' ? c.amount : c.amount * JPY_TO_KRW);
+  return krw(after) - (before ? krw(before) : 0);
 }
 
 // ── 데드라인(§3-4, koo 2026-09-14 개정) — 요청일이 속한 주의 **다음 주 월요일**(그날 23:59까지; 날짜 필드라 그날 안이면 된다).
@@ -84,13 +110,13 @@ const monthDay = (ymd: string) => `${Number(ymd.slice(5, 7))}-${Number(ymd.slice
 //  · RT → 증빙 스크린샷(원본 트윗 링크는 증거가 아니다)  · 투고·인용RT·방문 → 인플루언서 본인 게시물 링크(reference_url)
 // 이 두 이슈는 화면(effectiveIssues)과 서버(createRequests)가 같은 객체를 쓴다 — 문구·수준이 한 곳에서만 바뀌게.
 const NO_CATEGORY_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-category', text: '분류를 골라 주세요' };
-const NO_PROOF_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-proof', text: '증빙 스크린샷을 넣어야 요청할 수 있어요 — 정산 쪽이 지급 전에 확인해요' };
+const NO_PROOF_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-proof', text: '증빙 스크린샷을 넣어야 요청할 수 있어요 — 정산팀이 지급 전에 확인해요' };
 // 방문협찬 협찬 동의서(063, koo 09-29 결정 4) — 없어도 막지 않는다. 확인만 시킨다(🟡). 정산 프로덕트로는 보내지 않는다(결정 5)
 // — 그래서 후보에 동의서 객체를 싣지 않고 "없다"는 사실만 판정에 넣는다(요청 스냅샷·외부 직렬화로 새어 나갈 길이 없다).
 export const NO_AGREEMENT_ISSUE: ReadinessIssue = { level: 'warn', code: 'no-agreement', text: '협찬 동의서가 없어요 — 요청은 만들 수 있어요' };
 function referenceIssue(required: boolean): ReadinessIssue {
   return required
-    ? { level: 'blocked', code: 'no-reference', text: '참고 링크를 넣어 주세요 — 정산 쪽이 이 링크로 게시를 확인해요' }
+    ? { level: 'blocked', code: 'no-reference', text: '참고 링크를 넣어 주세요 — 정산팀이 이 링크로 게시를 확인해요' }
     : { level: 'warn', code: 'no-reference', text: '참고 링크 없음' };
 }
 // 참고 링크가 확인 자료인 유형 — RT만 아니다(RT의 링크는 클리닉 원본 트윗; 스펙 3-6, 슬랙 RT 405건 중 350건이 링크 없이 갔다)
@@ -110,7 +136,7 @@ export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | 
   // 09-23 koo(실사용 발견): QR 이미지도 대안 수취 정보다(paypay-qr 브랜치) — 식별 정보·QR 둘 다 없을 때만 막는다.
   //   둘 중 하나라도 있으면 정산 쪽이 스캔/입력해 송금할 수 있다. 코드(paypay-no-receiving-info)도 "식별값 전용"이 아니라
   //   "수취 정보 전체가 비었다"는 뜻으로 이름을 바꿨다 — 옛 이름을 그대로 두면 조건과 이름이 어긋나 다음에 읽는 사람이 오판한다.
-  if (i.method?.type === 'paypay' && !i.method.identifier && !i.method.qr) issues.push({ level: 'blocked', code: 'paypay-no-receiving-info', text: 'PayPay 수취 정보를 넣어야 요청할 수 있어요 — 식별 정보나 QR 이미지 중 하나가 있어야 정산 쪽이 송금할 수 있어요' });
+  if (i.method?.type === 'paypay' && !i.method.identifier && !i.method.qr) issues.push({ level: 'blocked', code: 'paypay-no-receiving-info', text: 'PayPay 수취 정보를 넣어야 요청할 수 있어요 — 식별 정보나 QR 이미지 중 하나가 있어야 정산팀이 송금할 수 있어요' });
   const level: ReadinessLevel = issues.some((x) => x.level === 'blocked') ? 'blocked' : issues.length ? 'warn' : 'ready';
   return { level, issues };
 }
@@ -157,6 +183,17 @@ export function describeSnapshot(m: PaymentMethodSnapshot): string {
   else if (m.type === 'paypay') ident = m.identifier ?? (m.qr ? 'QR 등록됨' : '');
   else ident = `${m.bank ?? ''} / ${m.branch ?? ''} / ${m.account ?? ''}`;
   return `${PAYMENT_TYPE_LABEL[m.type]} | ${m.holder} | ${ident}`;
+}
+
+// 화면용 한 줄(정산 요청 펼침·작업 패널) — 슬랙 양식과 같은 정보를 ` · `로, 빈 칸은 뺀다(`PayPay | A | ` 같은 깨진 모양 방지, 10-07 koo QA).
+// 조각에서 바로 만든다 — describeSnapshot 문자열을 쪼개면 계좌의 빈 지점(` /  / `)이 남는다.
+export function methodLine(m: PaymentMethodSnapshot): string {
+  const t = (x: string | undefined) => (x ?? '').trim();
+  let ident = '';
+  if (m.type === 'paypal') ident = t(m.email) || (m.paypalId ? `paypal.me/${m.paypalId}` : '');
+  else if (m.type === 'paypay') ident = t(m.identifier) || (m.qr ? 'QR 등록됨' : '');
+  else ident = [t(m.bank), t(m.branch), t(m.account)].filter(Boolean).join(' / ');
+  return [PAYMENT_TYPE_LABEL[m.type], t(m.holder), ident].filter(Boolean).join(' · ');
 }
 
 // ── 후보 한 건(§2-4 + §3 전부) ──

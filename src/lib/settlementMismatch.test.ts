@@ -104,11 +104,11 @@ test('requestCostOf — 요청에 담긴 작업 금액(엔화는 원화 ÷ 요�
   assert.deepEqual(requestCostOf({ costCurrency: 'KRW', amountKrw: 50000, rateKrwPerJpy: 10 }), { amount: 50000, currency: 'KRW' });
 });
 
-test('paidFxRateText — 엔화로 보낸 건의 실제 환율(펼침 전용)', () => {
-  assert.equal(paidFxRateText({ payoutCurrency: 'JPY', paidAmountKrw: 42450, paidAmountJpy: 5000, amountGross: 5000 }), '1엔 = 8.49원');
-  assert.equal(paidFxRateText({ payoutCurrency: 'JPY', paidAmountKrw: 42450, paidAmountJpy: null, amountGross: 5000 }), '1엔 = 8.49원');
-  assert.equal(paidFxRateText({ payoutCurrency: 'KRW', paidAmountKrw: 30000, paidAmountJpy: null, amountGross: 30000 }), null);
-  assert.equal(paidFxRateText({ payoutCurrency: 'JPY', paidAmountKrw: null, paidAmountJpy: null, amountGross: 5000 }), null);
+test('paidFxRateText — 엔화 금액이 온 건의 실제 환율(펼침 전용)', () => {
+  assert.equal(paidFxRateText({ paidAmountKrw: 42450, paidAmountJpy: 5000 }), '환율 1엔 = 8.49원');
+  assert.equal(paidFxRateText({ paidAmountKrw: 42450, paidAmountJpy: null }), null);   // 달러·금액 없음 — 엔 환율이 없다
+  assert.equal(paidFxRateText({ paidAmountKrw: 30000, paidAmountJpy: null }), null);
+  assert.equal(paidFxRateText({ paidAmountKrw: null, paidAmountJpy: 5000 }), null);
 });
 
 test('partnerNameLabel — 저장된 옛 이름(정산 프로덕트)은 화면에서 정산팀으로', () => {

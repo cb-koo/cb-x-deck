@@ -228,12 +228,11 @@ export function requestCostOf(r: { costCurrency: Currency; amountKrw: number; ra
     : { amount: Math.round(r.amountKrw / r.rateKrwPerJpy), currency: 'JPY' };
 }
 
-// 엔화로 보낸 건의 실제 환율 — 표에서 뺀 회색 환율 차이 대신 펼침에서만 보인다(§8-4)
-export function paidFxRateText(s: { payoutCurrency: Currency; paidAmountKrw: number | null; paidAmountJpy: number | null; amountGross: number }): string | null {
-  if (s.payoutCurrency !== 'JPY' || s.paidAmountKrw === null) return null;
-  const jpy = s.paidAmountJpy ?? s.amountGross;
-  if (!jpy) return null;
-  return `1엔 = ${(s.paidAmountKrw / jpy).toFixed(2)}원`;
+// 정산팀이 엔화로 보낸 건의 실제 환율 — 표에서 뺀 회색 환율 차이 대신 펼침에서만 보인다(§8-4).
+// 엔화 금액이 와야만 만든다 — 달러로 보낸 건의 원화는 정산팀 환산값이라 엔 환율이 없다
+export function paidFxRateText(s: { paidAmountKrw: number | null; paidAmountJpy: number | null }): string | null {
+  if (s.paidAmountKrw === null || !s.paidAmountJpy) return null;
+  return `환율 1엔 = ${(s.paidAmountKrw / s.paidAmountJpy).toFixed(2)}원`;
 }
 
 // 정산팀 취소가 남긴 처리자 이름은 저장값이 '정산 프로덕트'다(정산팀 API로도 나가는 값이라 바꾸지 않는다) — 화면에서만 정산팀으로

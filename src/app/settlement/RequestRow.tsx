@@ -7,6 +7,7 @@ import { PAYMENT_TYPE_LABEL } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
 import { describeSnapshot } from '@/lib/settlementCalc';
 import { displayStatus, TONE_CLASS, taskPaidMismatch, requestCostOf, partnerNameLabel } from '@/lib/settlementDisplay';
+import { kstMonthDayTimeKo } from '@/lib/datetime';
 import { sameTaskCost } from '@/lib/campaignCost';
 import { CELL, COLS, NUM, TYPE_CHIP, METHOD_CHIP, signedMoney } from './tableStyle';
 import { proofUploadedLine } from '@/lib/taskProofGuard';
@@ -81,7 +82,7 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
                         v={r.grossKrw !== r.amountKrw ? `실지출 ${formatMoney(r.grossKrw, 'KRW')}` : formatMoney(r.amountKrw, 'KRW')}
                         sub={[
                           r.grossKrw !== r.amountKrw ? `단가 ${formatMoney(r.amountKrw, 'KRW')} + 송금 수수료 ${formatMoney(r.grossKrw - r.amountKrw, 'KRW')}` : null,
-                          `환율 ${r.rateKrwPerJpy}원 = 1엔`,
+                          `환율 1엔 = ${r.rateKrwPerJpy}원`,
                         ].filter(Boolean).join(' · ')} />
                 )}
                 <Item k="데드라인" v={r.deadlineOn} />
@@ -90,7 +91,7 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
                       sub={(r.paymentMethodCorrection || r.paymentMethod.qr)
                         ? <>
                             {r.paymentMethodCorrection && (
-                              <span className="text-x-secondary">정산팀이 수취 정보를 고쳤어요 · {r.paymentMethodCorrection.byName} · {new Date(r.paymentMethodCorrection.at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{r.paymentMethodCorrection.reason ? <> — {r.paymentMethodCorrection.reason}</> : null}
+                              <span className="text-x-secondary">정산팀이 수취 정보를 고쳤어요 · {r.paymentMethodCorrection.byName} · {kstMonthDayTimeKo(r.paymentMethodCorrection.at)}{r.paymentMethodCorrection.reason ? <> — {r.paymentMethodCorrection.reason}</> : null}
                                 <span className="block text-x-muted">이 요청과 인플루언서 명부에 함께 반영됐어요</span></span>
                             )}
                             {r.paymentMethod.qr && (
@@ -120,15 +121,15 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
                 <Item k="메모" v={r.note || '—'} />
               </dl>
               {/* 항목·목적은 정산팀에 나간 문구라 확인할 일이 있어 맨 아래 흐린 글씨로 남긴다(§8-6) */}
-              <p className="mt-2 text-x-muted">{r.itemText} · {r.purposeText}</p>
+              <p className="mt-2 text-x-muted">정산팀에 보낸 문구: {r.itemText} · {r.purposeText}</p>
             </section>
             <PartnerResultBlock r={r} />
           </div>
           <ReconcileRecord r={r} onChanged={onChanged} />
           <RevisionHistory r={r} />
           <div className="mt-3 flex items-center justify-between gap-3 text-x-muted">
-            <span>만든 사람 {r.requesterName} · {new Date(r.createdAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
-              {cancelled && <> · <span className="text-x-secondary">취소 · {partnerNameLabel(r.cancelledByName)} · {r.cancelledAt ? new Date(r.cancelledAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : ''} · {r.cancelReason}</span></>}
+            <span>만든 사람 {r.requesterName} · {kstMonthDayTimeKo(r.createdAt)}
+              {cancelled && <> · <span className="text-x-secondary">{['취소', partnerNameLabel(r.cancelledByName), kstMonthDayTimeKo(r.cancelledAt), r.cancelReason].filter(Boolean).join(' · ')}</span></>}
             </span>
             {!cancelled && (paid
               ? <span className="text-x-secondary">지급 완료된 요청은 취소·수정할 수 없어요 — 정산팀에 알려 주세요</span>

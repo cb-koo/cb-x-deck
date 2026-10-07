@@ -237,6 +237,9 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 | `settlement.paid_amount_krw` | number(정수) \| null | 예 | 그쪽이 보낸 실제 지급 원화 금액. `paid` 상태에서만 값이 있다. |
 | `settlement.paid_amount_usd` | number(소수 2자리) \| null | 예 | 그쪽이 보낸 달러 실지급액(PayPal 지급, 2026-09-09 추가). 그쪽이 `paid_amount_usd`를 보낸 경우에만 값이 있다. 되비침용 — 차액 판정은 `paid_amount_krw`로만 한다. |
 | `settlement.paid_amount_jpy` | number(정수) \| null | 예 | 그쪽이 보낸 엔화 실지급액(계좌(일본)·PayPay 지급, 2026-09-09 추가). 그쪽이 `paid_amount_jpy`를 보낸 경우에만 값이 있다. 한 요청에 `paid_amount_usd`와 동시에 값이 있지 않다. |
+| `settlement.paid_rate_krw_per_unit` | number \| null | 예 | 그쪽이 `paid`에 보낸 적용 환율 — 실지급 외화 1단위당 원화(엔이면 원/엔, 달러면 원/달러). 보낸 값 그대로(반올림 안 함). 2026-10-07 추가. 기록·표시용 — 차액 판정에 쓰지 않는다. |
+| `settlement.paid_rate_date` | string(`YYYY-MM-DD`) \| null | 예 | 그 환율의 공시 기준일(2026-10-07 추가). |
+| `settlement.paid_rate_source` | string \| null | 예 | 그 환율의 출처(그쪽 값 그대로, 예 `"Frankfurter / ECB"`, 2026-10-07 추가). |
 | `settlement.paid_at` | string(ISO 8601) \| null | 예 | 그쪽이 보낸 실제 지급 시각. |
 | `settlement.note` | string \| null | 예 | 그쪽이 상태와 함께 보낸 메모(보류 사유·차액 설명·취소 이유 등). |
 | `settlement.updated_at` | string(ISO 8601) \| null | 예 | 그쪽이 그 상태를 찍은 시각(POST 본문의 `updated_at` 되비침). |
@@ -287,6 +290,9 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 | `paid_amount_usd` | 아니오 | number(≥0, 소수 허용) | **PayPal 지급의 달러 실지급액**(2026-09-09). `paid`에서만 — 다른 상태에 보내면 400. `paid_amount_krw`와 **함께** 보낸다(원화 없이 외화만 오면 400 `paid_amount_krw`). 소수 셋째 자리부터 반올림. `paid_amount_jpy`와 동시에 보낼 수 없다. |
 | `paid_amount_jpy` | 아니오 | number(0 이상 안전 정수) | **계좌(일본)·PayPay 지급의 엔화 실지급액**(2026-09-09 그쪽 요청 22 수용). `paid`에서만. `null`·소수·문자열·2^53 초과는 400 `field: "paid_amount_jpy"`. 0은 유효(필드 존재로 판정). `paid_amount_usd`와 동시에 오면 400 `field: "paid_amount_jpy"`. |
 | `paid_currency` | 아니오 | `"KRW"` \| `"JPY"` \| `"USD"` | **실제 지급 통화 명시(저희 제안, 2026-09-09).** `paid`에서만. 보내면 그 통화로 확정한다 — `"KRW"`면 저장된 외화(USD·JPY)를 둘 다 지운다(계좌 엔화 지급을 원화 지급으로 정정할 때). 외화 필드와 어긋나면(예: `"USD"` + `paid_amount_jpy`) 400 `field: "paid_currency"`. **안 보내면 "부재는 의미 없음"** — 저장된 외화를 건드리지 않는다. 그래서 버전 게이트·전환 시점 합의 없이도 구버전 전송(외화 없는 원화 정정)이 외화를 지우지 않는다. |
+| `paid_rate_krw_per_unit` | 아니오 | number(>0, 소수 허용) | **적용 환율 — 실지급 외화 1단위당 원화**(2026-10-07 정산 미러 제안 수용). JPY 지급이면 원/엔(예 `9.1234`), USD 지급이면 원/달러(예 `1350.35`). 아래 세 필드 공통 규칙: ① `paid`에서만 — 다른 상태에 보내면 400(그 필드). ② **세 개를 함께** 보낸다 — 하나라도 키가 있으면(값이 `null`이어도) 나머지도 있어야 하고, 빠진 첫 필드로 400. 원화 지급처럼 환율이 없으면 `null`을 넣지 말고 **키 자체를 빼야** 한다. ③ 외화 금액(`paid_amount_jpy` 또는 `paid_amount_usd`)과 **함께** 보낸다 — 없으면 400 `field: "paid_rate_krw_per_unit"`. ④ `paid_currency: "KRW"`와 함께 오면 400 `field: "paid_rate_krw_per_unit"`. 0·음수·문자열·`null`은 400. |
+| `paid_rate_date` | 아니오 | string(`YYYY-MM-DD`) | 그 환율의 공시 기준일(송금일과 같거나 그 이전). 형식이 틀리거나 실제 없는 날짜(예 `2026-02-30`, `2026/10/06`)면 400 `field: "paid_rate_date"`. 규칙은 위 `paid_rate_krw_per_unit`과 같다. |
+| `paid_rate_source` | 아니오 | string, 1~100자(앞뒤 공백 제거) | 그 환율의 출처(현재 `"Frankfurter / ECB"`). 비었거나 100자를 넘으면 400 `field: "paid_rate_source"`. 저장만 하고 화면에는 쓰지 않는다. 규칙은 위 `paid_rate_krw_per_unit`과 같다. |
 | `external_id` | 아니오 | string, ≤100자 | 그쪽 자체 건 ID. |
 | `revision` | **전환 후 필수**(전환 전 무시) | number(정수 ≥ 0) | 그쪽이 마지막으로 받은 Item의 `revision`. 저희 현재 값과 다르면 **409 `revision-mismatch`**(아래 규칙 3-1) — 옛 판에 대한 늦은 상태가 새 판에 붙는 것을 막는다. |
 | `operator` | 아니오 | `{ id: string, name: string }` (각 ≤100자, 비어 있지 않음) | **이 상태 전이를 실행한 그쪽 결제 담당자**(2026-09-07 추가, 그쪽 09-04 요청). 사람이 실행한 전이(취소·보류·재개·지급·정정)에만 넣고, 자동 전이(수신 즉시 `received→scheduled`)에는 키를 넣지 않는다. 저희는 마지막으로 적용된 전이의 담당자를 요청에 남겨 화면에 "처리한 사람"으로 보인다. `null`은 "없음"과 같다. 모양이 틀리면 400 `{ field: "operator" }`. |
@@ -297,7 +303,7 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 
 | 순서 | 조건 | 결과 |
 |---|---|---|
-| 1 | 본문이 JSON 객체가 아님 / `status` 값이 5개 중 하나가 아님 / `updated_at`이 ISO 8601이 아님 / `note`·`external_id`가 최대 길이 초과 또는 문자열이 아님 / `operator`가 있는데 `{ id, name }` 모양이 아님 / (전환 후) `revision`이 정수가 아님 / `status: paid`인데 `paid_amount_krw`·`paid_at`이 없거나 형식이 틀림 / `paid_amount_usd`·`paid_amount_jpy`·`paid_currency`가 `paid`가 아닌 상태에 있음, 형식이 틀림, 서로 어긋남(USD·JPY 동시, 통화와 외화 불일치) | **400** `{ "error": "...", "field": "..." }` — 첫 번째로 걸리는 필드 하나만 알려준다 |
+| 1 | 본문이 JSON 객체가 아님 / `status` 값이 5개 중 하나가 아님 / `updated_at`이 ISO 8601이 아님 / `note`·`external_id`가 최대 길이 초과 또는 문자열이 아님 / `operator`가 있는데 `{ id, name }` 모양이 아님 / (전환 후) `revision`이 정수가 아님 / `status: paid`인데 `paid_amount_krw`·`paid_at`이 없거나 형식이 틀림 / `paid_amount_usd`·`paid_amount_jpy`·`paid_currency`가 `paid`가 아닌 상태에 있음, 형식이 틀림, 서로 어긋남(USD·JPY 동시, 통화와 외화 불일치) / `paid_rate_*`가 `paid`가 아닌 상태에 있음, 셋 중 일부만 있음, 형식이 틀림, 외화 금액 없이 옴, `paid_currency: "KRW"`와 함께 옴 | **400** `{ "error": "...", "field": "..." }` — 첫 번째로 걸리는 필드 하나만 알려준다 |
 | 2 | 본문이 유효한데 `request_id`가 uuid가 아니거나 존재하지 않음 | **404** |
 | 2-1 | (전환 후) 본문의 `revision`이 없음 → **400** `{ field: "revision" }` / 저희 현재 `revision`과 다름 → **409** `{ "error": "이 요청은 그 사이 고쳐졌어요 — 최신 내용으로 다시 확인해 주세요", "code": "revision-mismatch", "request": Item }`. 재전송하지 말고 `request`(최신 Item)로 다시 판단한다. (전환 전에는 `revision`을 무시한다.) |
 | 3 | 위 조건을 다 통과했지만, 보낸 `updated_at`이 **저장된 `settlement.updated_at`보다 이전이거나 같음** | **200** `{ "version": 1, "applied": false, "reason": "stale", "request": Item }` — 적용하지 않고 무시(재전송·순서 뒤바뀐 옛 변경 흡수) |
@@ -320,6 +326,10 @@ Authorization: Bearer <API 키>          ← 같은 키, 같은 헤더(§2)
 | stale(§6 규칙 3) | 아무것도 바꾸지 않음 |
 
 과거 금액을 환율로 역산해 외화를 만들지 않는다. 차액 판정(§5 "원화 집계")은 종전대로 `paid_amount_krw` vs `payout.gross_krw`.
+
+### 적용 환율의 저장 의미 (2026-10-07)
+
+`paid_rate_krw_per_unit`·`paid_rate_date`·`paid_rate_source`는 **기록·표시용이고 지급 금액 판정에는 쓰지 않는다**(원/달러 환율은 엔화 기준 요청과 비교할 수 없다). `paid` 적용 시: **보내면 세 칸을 덮어쓴다** / 환율 없이 **외화 금액만 오면** 세 칸을 `null`로 비운다(그 지급에 맞지 않는 옛 환율이 남지 않게) / `paid_currency: "KRW"`가 오면 비운다 / **외화 금액도 통화도 없는 본문**(구버전 전송·원화만 정정)이면 **기존 값을 유지**한다 — 외화 실지급액의 "보낸 것만 갱신"과 같은 규칙. 금액은 같고 환율만 달라진 재전송은 저희 쪽 처리 기록을 비우지 않는다. 이 기능을 켜기 전에 지급된 건은 소급하지 않는다(`null`로 남는다). 제자리 수정(§3-1)으로 `settlement.*`가 리셋될 때 함께 `null`이 된다.
 
 ### 그쪽에 요구하는 것 (반드시 지켜야 함)
 
@@ -414,7 +424,7 @@ curl -sS -X POST "$BASE/api/external/settlement/requests/$REQUEST_ID/payment-inf
 - 하위 호환을 깨는 변경은 이 경로를 그대로 두고 새 `/v2` 경로로 낸다. 이 문서·엔드포인트가 예고 없이 모양을 바꾸는 일은 없다.
 - 이 API에는 `event_id`나 웹훅이 없다(§1). HMAC 서명도 쓰지 않는다 — 웹훅이 없으므로 필요하지 않다.
 - 담당자·연락 채널은 운영 단계에서 별도 안내한다.
-- **개정 기록.** 2026-09-01 `payout.gross_krw` 추가 / 2026-09-02 `proof`·`GET …/proof` 추가, 증빙만 최신값(§3-2) / 2026-09-02 요청 생성 사전 차단(RT `proof`·그 외 `reference_url` 필수) / 2026-09-03 PayPay `identifier` 필수, `payment_method` 빈 키 생략 명시 / 2026-09-07 상태 POST `operator` 선택 필드, 모르는 키 무시 명시 / **2026-09-07 제자리 수정(§3-1 개정, `revision` 의미 변경, `revised_at` 추가, 상태 POST `revision` 필수·409 `revision-mismatch`) — 2026-09-08 양쪽 스위치 ON, 전환 완료.** / 2026-09-09 상태 POST `paid_amount_usd` 선택 필드 수용, Item `settlement.paid_amount_usd` 되비침 추가. / 2026-09-09 `paid_amount_jpy`·`paid_currency` 선택 필드 수용(외화는 paid에서만·한 요청에 하나·보낸 것만 갱신), Item `settlement.paid_amount_jpy` 되비침 추가. / **2026-09-14 Item에 `campaign.starts_on`·`campaign.ends_on`(캠페인 기간)·`posted_on`(게시일, RT 외)·`confirmed_on`(RT 확인일) 추가 — 전부 요청 시점 스냅샷, 기존 요청은 현재값으로 백필. 키만 늘었고 기존 키·의미 변화 없음.** / **2026-09-21 `POST …/payment-info`(§6-1) 신설 — 그쪽 09-21 요청 수용. 같은 요청의 `payment_method`만 정정, `revision`·`settlement.*` 불변, 멱등(`correction_id`·`idempotency_key`), 409 코드는 §6과 같은 세 가지. 200 응답은 `{ applied, correction_id, request }`로 `version`이 없다(그쪽 엄격 파서, 이 엔드포인트만의 예외). Item에 `payment_method_correction`(정정 표식)·`influencer.display_name`(명부 표시명, 최신값) 추가 — 키만 늘었고 기존 키·의미 변화 없음.** / **2026-09-22 정정이 고친 항목을 인플루언서 명부(원본)의 해당 수단에도 함께 반영으로 변경(§6-1) — 이전엔 요청에만 반영. 그쪽 API 요청·응답·판정은 불변, 저희 쪽 수신 후 처리만 달라졌다.** / **2026-09-22 PayPay QR 이미지 지원 — Item `payment_method.qr_url`(§5)·`GET …/payment-qr`(§4-2) 신설, `POST …/payment-info`(§6-1) 허용 키에 `qr` 추가(data URI(base64)로 보낸다, 5MB·JPG·PNG·WebP, `null`로 지운다). 키만 늘었고 기존 키·의미 변화 없음.**
+- **개정 기록.** 2026-09-01 `payout.gross_krw` 추가 / 2026-09-02 `proof`·`GET …/proof` 추가, 증빙만 최신값(§3-2) / 2026-09-02 요청 생성 사전 차단(RT `proof`·그 외 `reference_url` 필수) / 2026-09-03 PayPay `identifier` 필수, `payment_method` 빈 키 생략 명시 / 2026-09-07 상태 POST `operator` 선택 필드, 모르는 키 무시 명시 / **2026-09-07 제자리 수정(§3-1 개정, `revision` 의미 변경, `revised_at` 추가, 상태 POST `revision` 필수·409 `revision-mismatch`) — 2026-09-08 양쪽 스위치 ON, 전환 완료.** / 2026-09-09 상태 POST `paid_amount_usd` 선택 필드 수용, Item `settlement.paid_amount_usd` 되비침 추가. / 2026-09-09 `paid_amount_jpy`·`paid_currency` 선택 필드 수용(외화는 paid에서만·한 요청에 하나·보낸 것만 갱신), Item `settlement.paid_amount_jpy` 되비침 추가. / **2026-09-14 Item에 `campaign.starts_on`·`campaign.ends_on`(캠페인 기간)·`posted_on`(게시일, RT 외)·`confirmed_on`(RT 확인일) 추가 — 전부 요청 시점 스냅샷, 기존 요청은 현재값으로 백필. 키만 늘었고 기존 키·의미 변화 없음.** / **2026-09-21 `POST …/payment-info`(§6-1) 신설 — 그쪽 09-21 요청 수용. 같은 요청의 `payment_method`만 정정, `revision`·`settlement.*` 불변, 멱등(`correction_id`·`idempotency_key`), 409 코드는 §6과 같은 세 가지. 200 응답은 `{ applied, correction_id, request }`로 `version`이 없다(그쪽 엄격 파서, 이 엔드포인트만의 예외). Item에 `payment_method_correction`(정정 표식)·`influencer.display_name`(명부 표시명, 최신값) 추가 — 키만 늘었고 기존 키·의미 변화 없음.** / **2026-09-22 정정이 고친 항목을 인플루언서 명부(원본)의 해당 수단에도 함께 반영으로 변경(§6-1) — 이전엔 요청에만 반영. 그쪽 API 요청·응답·판정은 불변, 저희 쪽 수신 후 처리만 달라졌다.** / **2026-09-22 PayPay QR 이미지 지원 — Item `payment_method.qr_url`(§5)·`GET …/payment-qr`(§4-2) 신설, `POST …/payment-info`(§6-1) 허용 키에 `qr` 추가(data URI(base64)로 보낸다, 5MB·JPG·PNG·WebP, `null`로 지운다). 키만 늘었고 기존 키·의미 변화 없음.** / **2026-10-07 상태 POST `paid_rate_krw_per_unit`·`paid_rate_date`·`paid_rate_source` 선택 필드 수용(정산 미러 제안), Item `settlement`에 되비침 추가 — 키만 늘었고 기존 키·의미 변화 없음.**
 
 ## 9. curl 예시
 

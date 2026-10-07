@@ -54,11 +54,11 @@ export function SidebarRow({ c, title, suffix, today, selected, menuOpen, onSele
           {postedW > 0 && <i className="block h-full bg-x-blue" style={{ width: postedW }} />}
           {assignedW > 0 && <i className="block h-full bg-[#cfe6f7]" style={{ width: assignedW }} />}
         </span>
-        <span className={`w-16 shrink-0 whitespace-nowrap text-right text-[13.5px] tabular-nums text-x-secondary ${menuOpen ? 'invisible' : 'group-hover:invisible group-focus-within:invisible'}`}>
+        <span className={`w-16 shrink-0 whitespace-nowrap text-right text-[13.5px] tabular-nums text-x-secondary ${menuOpen ? 'invisible' : 'group-hover:invisible group-has-[:focus-visible]:invisible'}`}>
           {planned > 0 ? `게시 ${posted}/${planned}` : '작업 없음'}
         </span>
       </button>
-      <span className={`absolute right-3.5 top-2.5 ${menuOpen ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}>
+      <span className={`absolute right-3.5 top-2.5 ${menuOpen ? '' : 'opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100'}`}>
         <button type="button" onClick={onMenuToggle} aria-label={`${fullName} 캠페인 메뉴`}
                 aria-haspopup="menu" aria-expanded={menuOpen}
                 className={`flex h-8 w-8 items-center justify-center rounded-full text-x-text hover:bg-[#eff3f4] ${menuOpen ? 'bg-[#eff3f4]' : ''}`}>

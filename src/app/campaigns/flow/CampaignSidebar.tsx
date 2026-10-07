@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import {
   campaignRowLabel, campaignSections, campaignsByClient, matchesCampaignQuery, type WeekGroup,
@@ -35,6 +35,8 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
   const [openOverride, setOpenOverride] = useState<Record<string, boolean>>({});
   const [showAllPast, setShowAllPast] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // 메뉴의 바깥 클릭·Esc 리스너가 이 함수에 걸려 있다 — 렌더마다 새 함수면 목록 새로고침 때 리스너가 다시 붙으며 포커스가 첫 항목으로 튄다
+  const closeMenu = useCallback(() => setMenuFor(null), []);
 
   const searching = q.trim() !== '';
   const filtered = useMemo(() => (searching ? rows.filter((c) => matchesCampaignQuery(c, q)) : rows), [rows, q, searching]);
@@ -73,7 +75,7 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
                   selected={c.id === selectedId} menuOpen={menuFor === c.id}
                   onSelect={() => onSelect(c.id)}
                   onMenuToggle={() => setMenuFor((m) => (m === c.id ? null : c.id))}
-                  onMenuClose={() => setMenuFor(null)}
+                  onMenuClose={closeMenu}
                   onAction={(a) => { setMenuFor(null); onMenuAction(c.id, a); }} />
     );
   };

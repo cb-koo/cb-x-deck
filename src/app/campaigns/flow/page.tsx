@@ -113,7 +113,7 @@ function CampaignsFlowSplit() {
     <div className="flex min-h-full">
       {/* data-campaign-list: 작업 패널의 '바깥 누르면 닫기'가 이 목록은 건너뛴다(TaskPanel) — 거기서 확인 창이 뜨면
           그 클릭이 사라져 캠페인이 안 바뀌었다. 작성 중 확인은 select가 한 번만 묻는다(FlowDetail이 문장을 올린다). */}
-      <aside data-campaign-list className={`sticky top-0 max-h-screen shrink-0 self-start overflow-y-auto border-r border-x-border bg-white transition-[width] ${listCollapsed ? 'w-11 px-1 py-4' : 'h-screen w-[360px]'}`}>
+      <aside data-campaign-list className={`sticky top-0 max-h-screen shrink-0 self-start overflow-y-auto border-r border-x-border bg-white transition-[width] ${listCollapsed ? 'w-11 px-1 py-4' : 'w-[360px]'}`}>
         {listCollapsed ? (
           // 접힘 = 펼치기 버튼만 있는 얇은 레일(~44px) — 목록 대신 상세가 폭을 가져간다.
           <div className="flex flex-col items-center gap-2">
@@ -125,7 +125,7 @@ function CampaignsFlowSplit() {
           </div>
         ) : (
           <CampaignSidebar rows={rows} selectedId={picked.id} today={today} loaded={loaded} loadErr={loadErr}
-                           onSelect={(id) => { select(id); }} onCreate={() => setCreating(true)} onRetry={() => void load()}
+                           onSelect={(id) => { setHeaderAction(null); select(id); }} onCreate={() => setCreating(true)} onRetry={() => void load()}
                            onCollapse={toggleListCollapsed} onMenuAction={onMenuAction} />
         )}
       </aside>

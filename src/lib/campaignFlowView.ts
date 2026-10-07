@@ -6,7 +6,7 @@ import {
 import { formatAmount, sumMoney, suggestTaskCost, normalizeCurrency, type MoneyByCurrency, type TaskCost } from './campaignCost.ts';
 import type { InfluencerOption } from './draftTypes.ts';
 import type { CancelReason } from './campaignTaskInput.ts';
-import { toKrw, formatMoneyKrw } from './clientBudget.ts';
+import { toKrw, formatMoneyIn, type ViewCurrency } from './clientBudget.ts';
 import { rate } from './performanceJudgment.ts';
 
 // 캠페인 v2 화면(결정 문서 §3·§4)의 판정·문구 — 컴포넌트는 그리기만 한다. 단계는 flowStage 하나(R21), 모집단은 취소 제외(R17).
@@ -148,7 +148,7 @@ export function profilePromptFor({ option, type, cost }: { option: InfluencerOpt
 // TASK_TYPES(rt·quoteRt·post·visit)는 도메인 순서(단가 키 등)라 그대로 두고, 보이는 순서만 여기서 한 번 정한다:
 // 하단 한 줄과 필터 드롭다운이 같은 순서를 써야 화면 안에서 유형 나열이 두 가지로 갈리지 않는다(시안 F도 이 순서).
 export const DISPLAY_TYPE_ORDER: readonly TaskType[] = ['post', 'quoteRt', 'rt', 'visit'];
-export function flowFooter(rows: FlowRow[], today: string): string {
+export function flowFooter(rows: FlowRow[], today: string, currency: ViewCurrency = 'KRW'): string {
   const live = rows.filter((t) => !isTaskExcluded(t));
   const types = DISPLAY_TYPE_ORDER.filter((k) => live.some((t) => t.type === k)).map((k) => `${TASK_TYPE_LABEL[k]} ${live.filter((t) => t.type === k).length}`);
   const cost = sumMoney(live.flatMap((t) => (t.cost ? [t.cost] : [])));
@@ -157,7 +157,7 @@ export function flowFooter(rows: FlowRow[], today: string): string {
   const removed = live.filter((t) => t.removedAt).length;   // koo 09-19 결정 3 — 밀림과 같은 방식, 0이면 생략
   // M3 — 카드의 '계획'은 작업 비용 + 인플별 추가 비용인데 이 줄은 작업 비용만이다. 라벨이 같으면 두 숫자가
   // 다른 걸 두고 왜 다르냐는 질문이 나온다(FlowCards.tsx 상단 주석 참조).
-  const kc = formatMoneyKrw(cost);   // 원화 환산 총액이 앞, 통화 내역은 괄호(koo 10-07)
+  const kc = formatMoneyIn(cost, currency);   // 원화 환산 총액이 앞, 통화 내역은 괄호(koo 10-07)
   const costText = `${kc.approx ? '≈' : ''}${kc.total}${kc.breakdown ? ` (${kc.breakdown})` : ''}`;
   return [...types, `작업 비용 ${costText}`, `게시 ${posted} / ${live.length}`,
           ...(late ? [`밀림 ${late}`] : []), ...(removed ? [`내림 ${removed}`] : [])].join(' · ');

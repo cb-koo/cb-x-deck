@@ -7,7 +7,9 @@ import type { CampaignPatchInput } from '@/lib/campaignInput';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { DraftRow } from '@/lib/draftStore';
-import type { CampaignPeriodBudget } from '@/lib/clientBudget';
+import type { CampaignPeriodBudget, ViewCurrency } from '@/lib/clientBudget';
+
+const COST_CURRENCY_KEY = 'campaign-cost-currency';
 import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, patchInfluencerPricingApi,
   patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, refreshCampaignPerfApi,
@@ -355,6 +357,15 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // shown = 필터·정렬을 적용한 표시 순서. 표가 그리는 순서이자 패널의 이전/다음이 걷는 순서다(하나의 소스).
   const shown = useMemo(() => (data ? sortFlowRows(data.tasks.filter((t) => matchesFlowFilter(t, filter, data.today)), sort) : []), [data, filter, sort]);
   const stats = useMemo(() => (data ? flowStats(data.tasks) : null), [data]);
+  // 비용 카드·합계 줄이 보여 줄 통화(원화|엔화) — 선택은 브라우저에 기억(campaigns-list-collapsed와 같은 방식).
+  // 카드·합계는 상세를 불러온 뒤에야 그려지므로(서버 렌더 때는 data가 없다) 저장값을 처음부터 읽어도 서버·브라우저 출력이 어긋나지 않는다.
+  const [costCurrency, setCostCurrency] = useState<ViewCurrency>(() => {
+    try { return localStorage.getItem(COST_CURRENCY_KEY) === 'JPY' ? 'JPY' : 'KRW'; } catch { return 'KRW'; }
+  });
+  const chooseCostCurrency = useCallback((c: ViewCurrency) => {
+    setCostCurrency(c);
+    try { localStorage.setItem(COST_CURRENCY_KEY, c); } catch { /* 저장 못 해도 화면은 동작 */ }
+  }, []);
   // 계획 비용(카드용, b-task-11-brief.md §1) — stats.plannedCost(작업 비용만)와 달리 인플별 추가 비용까지 더한다.
   // /campaigns(CampaignDetail)의 '비용 합계'와 같은 함수라 두 화면이 같은 숫자를 말한다.
   const plannedTotal = useMemo(
@@ -369,7 +380,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     extra: Object.fromEntries(EXTRA_FILTERS.map((k) => [k, (data?.tasks ?? []).filter((t) => matchesExtra(t, k, data?.today ?? '')).length])) as Record<ExtraFilter, number>,
   }), [data]);
   const summary = useMemo(() => filterSummary(filter, shown.length, data?.tasks.length ?? 0), [filter, shown, data]);
-  const footer = useMemo(() => flowFooter(data?.tasks ?? [], data?.today ?? ''), [data]);
+  const footer = useMemo(() => flowFooter(data?.tasks ?? [], data?.today ?? '', costCurrency), [data, costCurrency]);
   const sortNote = sort.key ? `· ${FLOW_SORT_LABEL[sort.key]} ${sort.dir === 1 ? '오름차순' : '내림차순'}` : '· 만든 순';
   // 성과 [업데이트](비용 유발 — 게시물당 API 1회, UX 원칙 6 opt-in). 성공하면 상세를 다시 읽어야 새 스냅샷이 카드·표에 보인다.
   const cancelledCount = data?.tasks.filter(isTaskExcluded).length ?? 0;
@@ -969,7 +980,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                         onDelete={() => void removeCampaign()} />
       </div>
       <div className={PANEL}>
-        <FlowCards stats={stats} plannedTotal={plannedTotal} perfUpdatedAt={data.perfUpdatedAt}
+        <FlowCards stats={stats} plannedTotal={plannedTotal} currency={costCurrency} onCurrencyChange={chooseCostCurrency} perfUpdatedAt={data.perfUpdatedAt}
                    cancelledCount={cancelledCount} refreshing={refreshing} onRefresh={() => void onRefresh()} />
       </div>
       {/* 이 기간 클라이언트 예산 — 캠페인 카드와 층이 달라 칸을 나눈다(koo 09-27 A안). 클라이언트 없는 캠페인엔 없다. */}

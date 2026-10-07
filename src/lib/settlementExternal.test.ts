@@ -275,7 +275,15 @@ test('parseStatusUpdate — paid_rate_*: 하나라도 오면 셋 다 있어야 �
   assert.equal(rateField({ ...j, paid_rate_date: '2026-10-06' }), 'paid_rate_krw_per_unit');
   assert.equal(rateField({ ...j, paid_rate_krw_per_unit: 9.12, paid_rate_date: '2026-10-06' }), 'paid_rate_source');
   assert.equal(rateField({ ...j, paid_rate_source: 'Frankfurter / ECB' }), 'paid_rate_krw_per_unit');
-  assert.equal(rateField({ ...j, paid_rate_krw_per_unit: null, paid_rate_date: null, paid_rate_source: null }), 'paid_rate_krw_per_unit');   // 키는 있음 → 형식 오류
+  assert.equal(rateField({ ...j, paid_rate_krw_per_unit: 9.12, paid_rate_date: null, paid_rate_source: null }), 'paid_rate_date');   // 일부만 값 → 함께 보내 주세요
+  assert.equal(rateErr({ ...j, paid_rate_krw_per_unit: 9.12, paid_rate_date: null, paid_rate_source: null }), 'paid_rate_krw_per_unit·paid_rate_date·paid_rate_source는 함께 보내 주세요');
+  assert.equal(rateField({ ...j, paid_rate_krw_per_unit: null, paid_rate_date: '2026-10-06', paid_rate_source: 'x' }), 'paid_rate_krw_per_unit');
+});
+test('parseStatusUpdate — paid_rate_*: 세 키가 모두 null이면 환율 없음(400 아님)', () => {
+  const nulls = { paid_rate_krw_per_unit: null, paid_rate_date: null, paid_rate_source: null };
+  const jpy = parseStatusUpdate({ ...RATE_BASE, paid_amount_jpy: 5000, ...nulls }); assert.ok(jpy.ok); assert.equal(jpy.update.paidRate, null);
+  const krw = parseStatusUpdate({ ...RATE_BASE, paid_currency: 'KRW', ...nulls }); assert.ok(krw.ok); assert.equal(krw.update.paidRate, null);
+  const plain = parseStatusUpdate({ ...RATE_BASE, ...nulls }); assert.ok(plain.ok); assert.equal(plain.update.paidRate, null);
 });
 test('parseStatusUpdate — paid_rate_*: paid가 아니면 400(해당 필드)', () => {
   const b = { status: 'scheduled', updated_at: '2026-10-07T06:00:00Z' };

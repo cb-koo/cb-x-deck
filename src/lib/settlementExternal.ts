@@ -202,14 +202,14 @@ export function parseStatusUpdate(body: unknown): StatusParse {
     if ((c === 'USD' && hasJpy) || (c === 'JPY' && hasUsd) || (c === 'KRW' && (hasUsd || hasJpy))) return bad('paid_currency', '실제 지급 통화와 외화 금액 필드가 어긋나요');
     paidCurrency = c;
   }
-  // 적용 환율(선택, 10-07 정산 미러 제안 · koo 회신): 평면 키 3개, 셋은 함께 오거나 함께 없다. 키가 있으면(값 null 포함) '보낸 것'으로 본다.
+  // 적용 환율(선택, 10-07 정산 미러 제안 · koo 회신): 평면 키 3개, 셋은 함께 오거나 함께 없다. 값이 있는 키만 '보낸 것'으로 본다(세 키가 모두 null이면 안 보낸 것).
   //  paid에서만, 외화 금액(paid_amount_jpy·paid_amount_usd)과 함께만, 원화 지급(paid_currency KRW)에는 없음. 검증은 타입·0 초과·날짜 형식까지.
   const rateKeys = ['paid_rate_krw_per_unit', 'paid_rate_date', 'paid_rate_source'] as const;
-  const rateSent = rateKeys.filter((k) => o[k] !== undefined);
+  const rateSent = rateKeys.filter((k) => o[k] !== undefined && o[k] !== null);
   let paidRate: PaidRate | null = null;
   if (rateSent.length) {
     if (status !== 'paid') return bad(rateSent[0], '지급 완료(paid)에만 보낼 수 있어요');
-    const missing = rateKeys.find((k) => o[k] === undefined);
+    const missing = rateKeys.find((k) => o[k] === undefined || o[k] === null);
     if (missing) return bad(missing, 'paid_rate_krw_per_unit·paid_rate_date·paid_rate_source는 함께 보내 주세요');
     const rate = o.paid_rate_krw_per_unit;
     if (typeof rate !== 'number' || !Number.isFinite(rate) || rate <= 0) return bad('paid_rate_krw_per_unit', '0보다 큰 숫자여야 해요');

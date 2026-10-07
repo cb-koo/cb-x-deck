@@ -35,6 +35,8 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
   // 사용자가 직접 접거나 편 묶음만 기억한다 — 나머지는 기본값(스펙 §3-2·§3-4)을 따른다.
   const [openOverride, setOpenOverride] = useState<Record<string, boolean>>({});
   const [showAllPast, setShowAllPast] = useState(false);
+  // 장기·주차 섹션 접기(koo 10-08) — 기본은 펼침, 검색 중엔 항상 펼친다(일치하는 캠페인을 숨기지 않게)
+  const [sectionClosed, setSectionClosed] = useState<{ long: boolean; week: boolean }>({ long: false, week: false });
 
   const searching = q.trim() !== '';
   const filtered = useMemo(() => (searching ? rows.filter((c) => matchesCampaignQuery(c, q)) : rows), [rows, q, searching]);
@@ -86,12 +88,28 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
   );
 
   // 섹션 제목(L1) — 첫 섹션 말고는 위에 가는 구분선
-  const sectionTitle = (text: string, first: boolean, right?: ReactNode) => (
+  const sectionTitle = (text: string, first: boolean, right?: ReactNode, toggle?: { open: boolean; onToggle: () => void }) => (
     <div className={`flex items-baseline justify-between px-4 pb-2 pt-5 ${first ? '' : 'mt-3 border-t border-[#eff3f4]'}`}>
-      <h3 className="text-[13px] font-bold leading-4 tracking-[0.02em] text-[#0f1419]">{text}</h3>
+      {toggle ? (
+        // 섹션 접기 — 화살표는 오른쪽 끝(koo 10-08: 왼쪽 화살표가 섹션 제목을 묶음 제목 자리로 밀어 위계가 흐려졌다). 줄 전체가 버튼.
+        <h3 className="flex-1 text-[13px] font-bold leading-4 tracking-[0.02em] text-[#0f1419]">
+          <button type="button" onClick={toggle.onToggle} aria-expanded={toggle.open}
+                  className="flex w-full items-center justify-between text-left">
+            <span>{text}</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9aa5ad" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+                 className={`transition-transform ${toggle.open ? 'rotate-180' : ''}`}><path d="M6 9l6 6 6-6" /></svg>
+          </button>
+        </h3>
+      ) : (
+        <h3 className="text-[13px] font-bold leading-4 tracking-[0.02em] text-[#0f1419]">{text}</h3>
+      )}
       {right}
     </div>
   );
+  const sectionToggle = (key: 'long' | 'week') => ({
+    open: searching || !sectionClosed[key],
+    onToggle: () => setSectionClosed((v) => ({ ...v, [key]: !v[key] })),
+  });
 
   function renderWeekMode() {
     const { long, upcoming, past } = sections;
@@ -110,14 +128,14 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
       <>
         {long.length > 0 && (
           <section>
-            {sectionTitle('장기 캠페인', isFirst())}
-            {long.map((c) => renderRow(c, { top: true }))}
+            {sectionTitle('장기 캠페인', isFirst(), undefined, sectionToggle('long'))}
+            {sectionToggle('long').open && long.map((c) => renderRow(c, { top: true }))}
           </section>
         )}
         {weekGroups.length > 0 && (
           <section>
-            {sectionTitle('주차 캠페인', isFirst())}
-            {weekGroups.map((g) => renderGroup(g.key, g.label, g.rows, isOpen(g.key, weekDefaultOpen(g), g.rows), false, {
+            {sectionTitle('주차 캠페인', isFirst(), undefined, sectionToggle('week'))}
+            {sectionToggle('week').open && weekGroups.map((g) => renderGroup(g.key, g.label, g.rows, isOpen(g.key, weekDefaultOpen(g), g.rows), false, {
               empty: <p className="flex h-11 items-center pl-[34px] pr-4 text-[13.5px] text-[#6c7781]">아직 캠페인이 없어요</p>,
             }))}
           </section>

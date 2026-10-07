@@ -9,12 +9,12 @@ import { computeMoney } from './settlementCalc.ts';   // 순수 모듈 — 요�
 
 export type DisplayKey = 'requested' | 'received' | 'scheduled' | 'on_hold' | 'paid' | 'paid_diff' | 'cancelled';
 export type DisplayTone = 'blue' | 'warn' | 'done' | 'gray';
-export interface StatusSource {
-  status: SettlementBadgeStatus; externalStatus: ExternalStatus | null; externalNote: string | null; externalUpdatedAt: string | null;
+export interface StatusSource extends MismatchSource {
+  externalNote: string | null; externalUpdatedAt: string | null;
   createdAt: string; cancelledAt: string | null;
-  // 차액 판정 입력 — 그쪽 실지급액을 우리가 실제로 보낸 금액과 '보낸 통화'로 비교한다(payoutDiff)
+  // 송금액·옛 확인 시각 — 표시용(판정은 MismatchSource의 지금 작업 금액으로 taskPaidMismatch가 한다)
   paidAmountKrw: number | null; grossKrw: number; diffAckAt: string | null;
-  payoutCurrency: 'KRW' | 'JPY'; amountGross: number; paidAmountJpy: number | null;
+  payoutCurrency: Currency; amountGross: number; paidAmountJpy: number | null;
   // 제자리 수정(2026-09-07): 고친 횟수·마지막 고친 시각. 캠페인 표 배지 소스엔 없을 수 있어 선택
   revision?: number; revisedAt?: string | null;
 }
@@ -66,7 +66,7 @@ export function keyOf(s: StatusSource): DisplayKey {
     case 'received': return 'received';
     case 'scheduled': return 'scheduled';
     case 'on_hold': return 'on_hold';
-    case 'paid': return needsDiffAck(s) ? 'paid_diff' : 'paid';
+    case 'paid': return taskPaidMismatch(s) ? 'paid_diff' : 'paid';   // 작업 금액 vs 정산팀 지급(스펙 2026-10-07 §4)
     default: return 'requested';   // null, 또는 그쪽 cancelled인데 우리가 아직 requested(적용 직후엔 생기지 않는다)
   }
 }
@@ -74,7 +74,7 @@ export function keyOf(s: StatusSource): DisplayKey {
 // 그쪽 처리 상태의 평이한 라벨(날짜 없음) — 요청 펼침의 '정산 프로덕트가 보낸 결과' 블록 전용.
 // displayStatus()의 배지 라벨(날짜·차액 문구 포함)과는 쓰임이 달라 따로 둔다. 내부어(on_hold 등)를 밖으로 내보내지 않는 것은 여기도 동일.
 export const EXTERNAL_STATUS_LABEL: Record<ExternalStatus, string> = {
-  received: '정산 접수', scheduled: '지급 예정', paid: '지급 완료', on_hold: '보류', cancelled: '정산에서 취소',
+  received: '정산 접수', scheduled: '지급 예정', paid: '지급 완료', on_hold: '보류', cancelled: '정산팀이 취소',
 };
 
 export function displayStatus(s: StatusSource, where: 'list' | 'campaign'): StatusDisplay {
@@ -84,25 +84,25 @@ export function displayStatus(s: StatusSource, where: 'list' | 'campaign'): Stat
   switch (key) {
     case 'requested': {
       // 고친 요청(revision>0)은 요청 내역에서 "요청됨 · 2판 M/D"로 — 만든 날짜만 보이면 고친 뒤에도 아무 일 없어 보인다(스펙 2026-09-07 §6).
-      // 캠페인 표 배지는 짧게 유지한다.
       if (!campaign && (s.revision ?? 0) > 0 && s.revisedAt) {
-        return { key, tone: 'blue', label: `요청됨 · ${(s.revision ?? 0) + 1}판 ${kstMonthDay(s.revisedAt)}`, title: '고쳐서 다시 보낸 요청이에요 — 정산 쪽이 다시 검토 중' };
+        return { key, tone: 'blue', label: `요청됨 · ${(s.revision ?? 0) + 1}판 ${kstMonthDay(s.revisedAt)}`, title: '고쳐서 다시 보낸 요청이에요 — 정산팀이 다시 검토 중' };
       }
-      return { key, tone: 'blue', label: `${campaign ? '정산 ' : ''}요청됨 ${kstMonthDay(s.createdAt)}`, title: campaign ? '정산 요청됨 — 클릭하면 요청 내역으로' : '정산 쪽에서 아직 확인 전' };
+      return { key, tone: 'blue', label: `${campaign ? '정산 ' : ''}요청됨 ${kstMonthDay(s.createdAt)}`, title: campaign ? '정산 요청됨 — 클릭하면 요청 내역으로' : '정산팀이 아직 확인 전' };
     }
-    case 'received': return { key, tone: 'blue', label: `정산 접수 ${extDay}`, title: '정산 쪽이 요청을 접수했어요' };
-    case 'scheduled': return { key, tone: 'blue', label: '지급 예정', title: '정산 쪽이 지급을 예정해 두었어요' };
+    case 'received': return { key, tone: 'blue', label: `정산 접수 ${extDay}`, title: '정산팀이 요청을 접수했어요' };
+    case 'scheduled': return { key, tone: 'blue', label: '지급 예정', title: '정산팀이 지급을 예정해 두었어요' };
     case 'on_hold': {
       const p = preview(s.externalNote);
-      return { key, tone: 'warn', label: campaign ? '정산 보류 — 확인 필요' : (p ? `보류 · ${p}` : '보류'), title: s.externalNote ?? '정산 쪽이 보류했어요' };
+      return { key, tone: 'warn', label: campaign ? '정산 보류 — 확인 필요' : (p ? `보류 · ${p}` : '보류'), title: s.externalNote ?? '정산팀이 보류했어요' };
     }
-    case 'paid': return { key, tone: 'done', label: `지급 완료 ${extDay}`, title: '지급이 끝났어요' };
-    case 'paid_diff': {
-      const d = payoutDiff(s);
-      const 적게많게 = (d?.amount ?? 0) < 0 ? '적게' : '많게';
-      return { key, tone: 'warn', label: campaign ? '정산 차액 확인 필요' : '지급 완료 · 차액 확인 필요',
-               title: `요청한 송금액보다 ${d ? formatMoney(Math.abs(d.amount), d.currency) : ''} ${적게많게} 지급됐어요 — 확인해 주세요` };
+    case 'paid': {
+      // 처리한 건은 요청 내역에서 어떻게 처리했는지 말한다(§9 '표 상태(처리 후)'). 캠페인 배지는 짧게 날짜.
+      if (!campaign && s.diffAckKind === 'matched') return { key, tone: 'done', label: '지급 완료 · 맞춤', title: '지급이 끝났어요' };
+      if (!campaign && s.diffAckKind === 'kept') return { key, tone: 'done', label: '지급 완료 · 그대로 둠', title: '지급이 끝났어요' };
+      return { key, tone: 'done', label: `지급 완료 ${extDay}`, title: '지급이 끝났어요' };
     }
+    // 요청 내역 표에서는 이 배지 대신 [그대로 두기][지급 금액에 맞추기] 버튼이 보인다(§8-2) — 라벨은 캠페인 배지·필터와 같은 말
+    case 'paid_diff': return { key, tone: 'warn', label: '지급 금액 다름', title: '지급 금액 다름' };
     case 'cancelled': return { key, tone: 'gray', label: campaign ? '취소됨' : `취소됨 ${kstMonthDay(s.cancelledAt)}`, title: '요청이 취소됐어요' };
   }
 }
@@ -110,7 +110,7 @@ export function displayStatus(s: StatusSource, where: 'list' | 'campaign'): Stat
 export type StatusGroup = '' | 'active' | 'on_hold' | 'paid' | 'paid_diff' | 'cancelled';
 export const STATUS_GROUP_OPTIONS: ReadonlyArray<{ value: StatusGroup; label: string }> = [
   { value: '', label: '상태 전체' }, { value: 'active', label: '진행 중' }, { value: 'on_hold', label: '보류' },
-  { value: 'paid_diff', label: '차액 확인 필요' }, { value: 'paid', label: '지급 완료' }, { value: 'cancelled', label: '취소됨' },
+  { value: 'paid_diff', label: '지급 금액 다름' }, { value: 'paid', label: '지급 완료' }, { value: 'cancelled', label: '취소됨' },
 ];
 export function inGroup(key: DisplayKey, g: StatusGroup): boolean {
   if (g === '') return true;

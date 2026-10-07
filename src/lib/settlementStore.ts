@@ -2,7 +2,7 @@
 import postgres from 'postgres';
 import { kstToday } from './datetime.ts';
 import { isUuidLike } from './uuid.ts';
-import { parseTaskCost, type TaskCost } from './campaignCost.ts';
+import { parseTaskCost, sameTaskCost, type TaskCost } from './campaignCost.ts';
 import type { Currency } from './influencerPricing.ts';
 import type { PaymentFee } from './influencerPayment.ts';
 import type { TaskType, CampaignKind } from './campaignJudgment.ts';
@@ -14,11 +14,12 @@ import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type
 import { computeCandidate, effectiveIssues, toMethodSnapshot, NO_CLIENT_TEXT, NO_INFLUENCER_TEXT, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
 import { mergePaymentMethodCorrection, type PaymentInfoCorrection, type RosterSkipReason } from './settlementPaymentCorrection.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
-import { hasPaidDiff, needsPartnerConfirm } from './settlementDisplay.ts';
+import { hasPaidDiff, needsPartnerConfirm, taskPaidMismatch, type DiffAckKind } from './settlementDisplay.ts';
 import { isRevisionV2 } from './settlementRevisionFlag.ts';
 import { exportIncludesTestFixtures, TEST_FIXTURE_HANDLE_PG } from './settlementTestFixture.ts';
 import { effectiveIssues as gateIssues, type ReadinessIssue } from './settlementCalc.ts';   // 순수 모듈(campaignTaskStore는 type import만) — 화면 배지와 같은 차액 판정
 import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
+import { insertTaskChange } from './campaignTaskStore.ts';   // 이 파일은 이미 campaignTaskStore 값을 재수출한다(순환 없음)
 import type { Cursor, ExportRow, StatusUpdate } from './settlementExternal.ts';   // 타입만이라 순환 무해
 import { MAPPED_CLIENT_IDS, resolveClinicId, type MarketingCostSource } from './marketingCostExport.ts';   // 순수 모듈 — 순환 없음
 
@@ -130,6 +131,11 @@ export interface PaymentRequestRow {
   campaignStartsOn: string | null; campaignEndsOn: string | null; postedOn: string | null;
   // 정산 쪽이 마지막으로 보낸 수취 정보 정정(056, 그쪽 09-21 요청). null = 없음. 제자리 수정이 결제 수단을 명부에서 다시 스냅샷하면 null로 돌아간다.
   paymentMethodCorrection: PaymentMethodCorrectionMark | null;
+  // 065(스펙 2026-10-07) — 판정 입력은 '지금 작업 금액'. 스냅샷이 아니라 매번 작업 행에서 읽는다(작업이 지워졌거나 비면 null).
+  // 정산팀 내보내기(toExternalItem)는 칸을 하나씩 골라 만들므로 이 칸들은 밖으로 나가지 않는다.
+  taskCost: TaskCost | null;
+  diffAckKind: DiffAckKind | null; diffAckReason: string | null; diffAckTaskCost: TaskCost | null;
+  diffAckBeforeCost: TaskCost | null;   // '맞춤' 처리 때 바꾸기 전 작업 금액(task_change.before) — 처리 기록 문장용
 }
 export interface PaymentMethodCorrectionMark { correctionId: string; at: string; byId: string; byName: string; reason: string }
 export interface CreateItemInput {
@@ -155,6 +161,8 @@ type RRow = {
   revision: number; revised_at: Date | null; paid_amount_usd: string | number | null; paid_amount_jpy: string | number | null;
   campaign_starts_on: string | null; campaign_ends_on: string | null; task_posted_on: string | null;
   payment_method_correction: unknown;
+  diff_ack_kind: DiffAckKind | null; diff_ack_reason: string | null; diff_ack_task_cost: unknown;
+  task_cost: unknown; diff_ack_before_cost: unknown;
 };
 const R_SELECT = (sql: postgres.Sql) => sql`
   select id, task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type, category, category_default,
@@ -164,7 +172,10 @@ const R_SELECT = (sql: postgres.Sql) => sql`
          external_status, paid_amount_krw, paid_at, external_note, external_updated_at, influencer_id, category_option_id,
          diff_ack_at, diff_ack_by_name, external_operator_id, external_operator_name, revision, revised_at, paid_amount_usd, paid_amount_jpy,
          to_char(campaign_starts_on, 'YYYY-MM-DD') as campaign_starts_on, to_char(campaign_ends_on, 'YYYY-MM-DD') as campaign_ends_on, to_char(task_posted_on, 'YYYY-MM-DD') as task_posted_on,
-         payment_method_correction
+         payment_method_correction, diff_ack_kind, diff_ack_reason, diff_ack_task_cost,
+         (select t.cost from campaign_task t where t.id = payment_request.task_id) as task_cost,
+         (select c.before from task_change c where c.request_id = payment_request.id and c.source = 'settlement'
+           order by c.created_at desc limit 1) as diff_ack_before_cost
     from payment_request`;
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 // jsonb { correction_id, at, by_id, by_name, reason } → 화면 모양. 모양이 어긋난 값은 "없음"으로 읽는다(표식일 뿐, 이력 원본은 payment_request_payment_correction).
@@ -174,6 +185,7 @@ function correctionMarkOf(v: unknown): PaymentMethodCorrectionMark | null {
   if (typeof o.correction_id !== 'string' || typeof o.at !== 'string' || typeof o.by_name !== 'string') return null;
   return { correctionId: o.correction_id, at: o.at, byId: typeof o.by_id === 'string' ? o.by_id : '', byName: o.by_name, reason: typeof o.reason === 'string' ? o.reason : '' };
 }
+const costOrNull = (v: unknown): TaskCost | null => { const p = parseTaskCost(v ?? null); return p.ok ? p.value : null; };
 const toRequest = (r: RRow): PaymentRequestRow => ({
   id: r.id, taskId: r.task_id, campaignId: r.campaign_id, campaignName: r.campaign_name, clientId: r.client_id, clientName: r.client_name,
   influencerHandle: r.influencer_handle, taskType: r.task_type, category: r.category, categoryDefault: r.category_default, itemText: r.item_text, purposeText: r.purpose_text,
@@ -191,6 +203,9 @@ const toRequest = (r: RRow): PaymentRequestRow => ({
   paidAmountJpy: r.paid_amount_jpy === null ? null : Number(r.paid_amount_jpy),
   campaignStartsOn: r.campaign_starts_on, campaignEndsOn: r.campaign_ends_on, postedOn: r.task_posted_on,
   paymentMethodCorrection: correctionMarkOf(r.payment_method_correction),
+  taskCost: costOrNull(r.task_cost),
+  diffAckKind: r.diff_ack_kind, diffAckReason: r.diff_ack_reason, diffAckTaskCost: costOrNull(r.diff_ack_task_cost),
+  diffAckBeforeCost: costOrNull(r.diff_ack_before_cost),
 });
 
 const isHttpUrl = (u: string) => /^https?:\/\/\S+$/.test(u);
@@ -511,7 +526,10 @@ export async function applyExternalStatus(sql: postgres.Sql, id: string, u: Stat
              external_operator_id = ${u.operator?.id ?? null}, external_operator_name = ${u.operator?.name ?? null},
              sent_at = coalesce(sent_at, now()), updated_at = now(),
              diff_ack_at = case when ${paidAmountChanged} then null else diff_ack_at end,
-             diff_ack_by_name = case when ${paidAmountChanged} then null else diff_ack_by_name end
+             diff_ack_by_name = case when ${paidAmountChanged} then null else diff_ack_by_name end,
+             diff_ack_kind = case when ${paidAmountChanged} then null else diff_ack_kind end,
+             diff_ack_reason = case when ${paidAmountChanged} then null else diff_ack_reason end,
+             diff_ack_task_cost = case when ${paidAmountChanged} then null else diff_ack_task_cost end
        where id = ${id}`;
     const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;
     const row = toRequest(saved);
@@ -554,6 +572,81 @@ export async function unackDiff(sql: postgres.Sql, id: string): Promise<PaymentR
   if (!cur) return 'not-found';
   await sql`update payment_request set diff_ack_at = null, diff_ack_by_name = null where id = ${id}`;
   const [saved] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
+  return toRequest(saved);
+}
+
+// ── 정산팀 지급 금액 ≠ 작업 금액 처리(스펙 2026-10-07 §5) ──
+// 우리 내부 기록이다 — payment_request.updated_at을 건드리지 않는다(정산팀 폴링이 updated_at 커서로 집어가므로, 바꾸면 의미 없는 변경이 흘러간다).
+// 화면을 연 때의 값(expect: 작업 금액·지급 원화·지급 엔화)과 지금 값·판정이 그대로일 때만 쓴다 — 아니면 stale(§9 경합 오류).
+export interface ReconcileExpect { taskCost: TaskCost; paidAmountKrw: number; paidAmountJpy: number | null }
+export type ReconcileFailure = 'not-found' | 'stale';
+
+// 요청 → 작업 순으로 잠근다. R_SELECT의 task_cost는 잠그기 전에 읽은 값이라, 잠근 작업 행의 금액으로 다시 맞춘 뒤 판정한다.
+async function lockForReconcile(tx: postgres.Sql, id: string, expect: ReconcileExpect): Promise<PaymentRequestRow | ReconcileFailure> {
+  const cur = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id} for update`;
+  if (!cur.length) return 'not-found';
+  const row = toRequest(cur[0]);
+  if (!row.taskId) return 'not-found';
+  const t = await tx<Array<{ cost: unknown }>>`select cost from campaign_task where id = ${row.taskId} for update`;
+  if (!t.length) return 'not-found';
+  const locked: PaymentRequestRow = { ...row, taskCost: costOrNull(t[0].cost) };
+  if (!sameTaskCost(locked.taskCost, expect.taskCost)) return 'stale';
+  if (locked.paidAmountKrw !== expect.paidAmountKrw || locked.paidAmountJpy !== expect.paidAmountJpy) return 'stale';
+  if (!taskPaidMismatch(locked)) return 'stale';   // 판정은 settlementDisplay 한 곳 — 표 버튼과 같은 함수
+  return locked;
+}
+
+// 지급 금액에 맞추기 — 작업 금액 변경 + 이력 1행(출처 settlement, 요청 id) + 처리 기록(matched)을 한 트랜잭션으로
+export async function matchTaskCostToPaid(
+  sql: postgres.Sql, id: string, input: { expect: ReconcileExpect; newCost: TaskCost; reason: string }, by: { id: string; name: string },
+): Promise<PaymentRequestRow | ReconcileFailure> {
+  if (!isUuidLike(id)) return 'not-found';
+  return await sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    const g = await lockForReconcile(tx, id, input.expect);
+    if (typeof g === 'string') return g;
+    const taskId = g.taskId as string;
+    await tx`update campaign_task set cost = ${tx.json(input.newCost as never)}, updated_at = now() where id = ${taskId}`;
+    await insertTaskChange(tx, { taskId, before: input.expect.taskCost, after: input.newCost, source: 'settlement', reason: input.reason, requestId: id, by });
+    await tx`
+      update payment_request
+         set diff_ack_at = now(), diff_ack_by_name = ${by.name}, diff_ack_kind = 'matched',
+             diff_ack_reason = ${input.reason}, diff_ack_task_cost = ${tx.json(input.newCost as never)}
+       where id = ${id}`;
+    const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;
+    return toRequest(saved);
+  });
+}
+
+// 그대로 두기 — 작업은 안 바뀐다. 처리 때의 작업 금액을 남겨, 누가 나중에 작업 금액을 바꾸면 다시 뜨게 한다(§4-4)
+export async function keepTaskCost(
+  sql: postgres.Sql, id: string, input: { expect: ReconcileExpect; reason: string }, by: { name: string },
+): Promise<PaymentRequestRow | ReconcileFailure> {
+  if (!isUuidLike(id)) return 'not-found';
+  return await sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    const g = await lockForReconcile(tx, id, input.expect);
+    if (typeof g === 'string') return g;
+    await tx`
+      update payment_request
+         set diff_ack_at = now(), diff_ack_by_name = ${by.name}, diff_ack_kind = 'kept',
+             diff_ack_reason = ${input.reason}, diff_ack_task_cost = ${tx.json(input.expect.taskCost as never)}
+       where id = ${id}`;
+    const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;
+    return toRequest(saved);
+  });
+}
+
+// 처리 취소 — 그대로 두기만(§5-3). 맞춤은 이미 작업 금액이 바뀌었으므로 되돌리려면 캠페인 화면에서 금액을 고친다(그것도 이력에 남는다).
+export async function undoKeepTaskCost(sql: postgres.Sql, id: string): Promise<PaymentRequestRow | 'not-found' | 'not-kept'> {
+  if (!isUuidLike(id)) return 'not-found';
+  const res = await sql`
+    update payment_request
+       set diff_ack_at = null, diff_ack_by_name = null, diff_ack_kind = null, diff_ack_reason = null, diff_ack_task_cost = null
+     where id = ${id} and diff_ack_kind = 'kept'`;
+  const [saved] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
+  if (!saved) return 'not-found';
+  if (res.count === 0) return 'not-kept';
   return toRequest(saved);
 }
 
@@ -639,7 +732,7 @@ export async function reviseRequest(
              campaign_starts_on = ${t.dates.campaignStartsOn}, campaign_ends_on = ${t.dates.campaignEndsOn}, task_posted_on = ${t.dates.postedOn},
              revision = revision + 1, revised_at = now(), updated_at = now(),
              external_status = null, paid_amount_krw = null, paid_amount_usd = null, paid_amount_jpy = null, paid_at = null, external_note = null, external_updated_at = null,
-             external_operator_id = null, external_operator_name = null, diff_ack_at = null, diff_ack_by_name = null,
+             external_operator_id = null, external_operator_name = null, diff_ack_at = null, diff_ack_by_name = null, diff_ack_kind = null, diff_ack_reason = null, diff_ack_task_cost = null,
              payment_method_correction = null
        where id = ${id}`;
     const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${id}`;

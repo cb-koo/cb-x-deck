@@ -11,6 +11,8 @@ import { rosterHandleOf } from './taskAssignGate.ts';   // 잎 모듈 — 순환
 import { judgeStoredAuthor, authorVerdictMessage, firstAssignMismatchMessage, type AuthorVerdict, type LiveAuthor } from './postAuthor.ts';   // 순수 모듈 — 순환 없음
 // draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
 // getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
+import type { PaymentFee } from './influencerPayment.ts';
+import type { DiffAckKind } from './settlementDisplay.ts';   // 타입만 — settlementDisplay도 이 파일에서 타입만 가져온다
 import type { DraftRow } from './draftStore.ts';
 // influencerSync.ts 자체는 campaignTaskStore를 import하지 않지만, 전이 그래프까지 확인하면
 // campaignTaskStore → influencerSync → influencerStore(값 import: draftVersionHash from draftStore,
@@ -429,10 +431,16 @@ export type SettlementBadgeStatus = 'requested' | 'cancelled';
 export type ExternalStatus = 'received' | 'scheduled' | 'paid' | 'on_hold' | 'cancelled';
 export const EXTERNAL_STATUSES: readonly ExternalStatus[] = ['received', 'scheduled', 'paid', 'on_hold', 'cancelled'];
 export interface SettlementBadge {
+  taskId: string;
   status: SettlementBadgeStatus; createdAt: string; cancelledAt: string | null;
   externalStatus: ExternalStatus | null; externalNote: string | null; externalUpdatedAt: string | null;
   paidAmountKrw: number | null; grossKrw: number; diffAckAt: string | null;
-  payoutCurrency: 'KRW' | 'JPY'; amountGross: number; paidAmountJpy: number | null;   // 보낸 통화 기준 차액 판정(payoutDiff)
+  payoutCurrency: 'KRW' | 'JPY'; amountGross: number; paidAmountJpy: number | null;
+  // 065 판정 입력(스펙 2026-10-07 §4) — 지금 작업 금액·요청 스냅샷(수수료·환율)·처리 기록. 화면이 taskPaidMismatch로 배지를 정한다
+  taskCost: TaskCost | null; fee: PaymentFee | null; rateKrwPerJpy: number;
+  diffAckKind: DiffAckKind | null; diffAckTaskCost: TaskCost | null;
+  // 요청에 담긴 작업 금액(요청 시점) — 지급 전 요청이 있는 작업의 금액을 고친 뒤 안내(§6, pendingRequestCost)
+  costCurrency: 'KRW' | 'JPY'; amountKrw: number;
 }
 export async function settlementByTaskIds(sql: postgres.Sql, taskIds: string[]): Promise<Map<string, SettlementBadge>> {
   const ids = taskIds.filter(isUuidLike);
@@ -440,17 +448,25 @@ export async function settlementByTaskIds(sql: postgres.Sql, taskIds: string[]):
   const rows = await sql<Array<{ task_id: string; status: SettlementBadgeStatus; created_at: Date; cancelled_at: Date | null;
     external_status: ExternalStatus | null; external_note: string | null; external_updated_at: Date | null;
     paid_amount_krw: number | null; gross_krw: string | number; diff_ack_at: Date | null;
-    payout_currency: 'KRW' | 'JPY'; amount_gross: string | number; paid_amount_jpy: string | number | null }>>`
-    select distinct on (task_id) task_id, status, created_at, cancelled_at, external_status, external_note, external_updated_at,
-           paid_amount_krw, gross_krw, diff_ack_at, payout_currency, amount_gross, paid_amount_jpy
-      from payment_request where task_id in ${sql(ids)}
-     order by task_id, (status = 'requested') desc, created_at desc`;
+    payout_currency: 'KRW' | 'JPY'; amount_gross: string | number; paid_amount_jpy: string | number | null;
+    fee: PaymentFee | null; rate_krw_per_jpy: string | number; diff_ack_kind: DiffAckKind | null; diff_ack_task_cost: unknown;
+    cost_currency: 'KRW' | 'JPY'; amount_krw: string | number; task_cost: unknown }>>`
+    select distinct on (pr.task_id) pr.task_id, pr.status, pr.created_at, pr.cancelled_at, pr.external_status, pr.external_note, pr.external_updated_at,
+           pr.paid_amount_krw, pr.gross_krw, pr.diff_ack_at, pr.payout_currency, pr.amount_gross, pr.paid_amount_jpy,
+           pr.fee, pr.rate_krw_per_jpy, pr.diff_ack_kind, pr.diff_ack_task_cost, pr.cost_currency, pr.amount_krw,
+           (select t.cost from campaign_task t where t.id = pr.task_id) as task_cost
+      from payment_request pr where pr.task_id in ${sql(ids)}
+     order by pr.task_id, (pr.status = 'requested') desc, pr.created_at desc`;
   const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
   return new Map(rows.map((r) => [r.task_id, {
+    taskId: r.task_id,
     status: r.status, createdAt: new Date(r.created_at).toISOString(), cancelledAt: iso(r.cancelled_at),
     externalStatus: r.external_status, externalNote: r.external_note, externalUpdatedAt: iso(r.external_updated_at),
     paidAmountKrw: r.paid_amount_krw, grossKrw: Number(r.gross_krw), diffAckAt: iso(r.diff_ack_at),
     payoutCurrency: r.payout_currency, amountGross: Number(r.amount_gross), paidAmountJpy: r.paid_amount_jpy === null ? null : Number(r.paid_amount_jpy),
+    taskCost: costOf(r.task_cost), fee: r.fee, rateKrwPerJpy: Number(r.rate_krw_per_jpy),
+    diffAckKind: r.diff_ack_kind, diffAckTaskCost: costOf(r.diff_ack_task_cost),
+    costCurrency: r.cost_currency, amountKrw: Number(r.amount_krw),
   }]));
 }
 
@@ -641,4 +657,30 @@ export async function replaceInfluencer(
     }
     return 'ok';
   });
+}
+
+// ─────────────────────────── 작업 칸 변경 이력(065, 스펙 2026-10-07 §6) ───────────────────────────
+// 작업 금액을 바꾸는 모든 쓰기(캠페인 화면·인플 교체·정산 화면 맞추기)가 같은 트랜잭션에서 1행을 남긴다. 지우거나 고치는 함수는 없다.
+export type TaskChangeSource = 'campaign' | 'replace' | 'settlement';
+export interface TaskChangeMeta { source: TaskChangeSource; reason: string; requestId: string | null; by: { id: string | null; name: string } }
+export interface TaskChangeRow {
+  id: string; taskId: string; before: TaskCost | null; after: TaskCost | null;
+  source: TaskChangeSource; reason: string; requestId: string | null; byName: string; createdAt: string;
+}
+export async function insertTaskChange(tx: postgres.Sql, c: { taskId: string; before: TaskCost | null; after: TaskCost | null } & TaskChangeMeta): Promise<void> {
+  await tx`
+    insert into task_change (task_id, field, before, after, source, reason, request_id, by_member, by_name)
+    values (${c.taskId}, 'cost', ${c.before ? tx.json(c.before as never) : null}, ${c.after ? tx.json(c.after as never) : null},
+            ${c.source}, ${c.reason}, ${c.requestId}, ${c.by.id}, ${c.by.name})`;
+}
+export async function listTaskChanges(sql: postgres.Sql, taskId: string): Promise<TaskChangeRow[]> {
+  if (!isUuidLike(taskId)) return [];
+  const rows = await sql<Array<{ id: string; task_id: string; before: unknown; after: unknown; source: TaskChangeSource; reason: string; request_id: string | null; by_name: string; created_at: Date }>>`
+    select id, task_id, before, after, source, reason, request_id, by_name, created_at
+      from task_change where task_id = ${taskId} and field = 'cost'
+     order by created_at desc, id desc`;
+  return rows.map((r) => ({
+    id: r.id, taskId: r.task_id, before: costOf(r.before), after: costOf(r.after), source: r.source, reason: r.reason,
+    requestId: r.request_id, byName: r.by_name, createdAt: new Date(r.created_at).toISOString(),
+  }));
 }

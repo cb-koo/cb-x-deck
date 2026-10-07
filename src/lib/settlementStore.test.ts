@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { createClient, deleteClient } from './clientStore.ts';
 import { createCampaign, updateCampaign } from './campaignStore.ts';
-import { createTasks, updateTask, getTask, deleteTask, markSettledElsewhere, clearSettledElsewhere } from './campaignTaskStore.ts';
+import { createTasks, updateTask, getTask, deleteTask, markSettledElsewhere, clearSettledElsewhere, listTaskChanges } from './campaignTaskStore.ts';
 import { createInfluencer, updatePaymentMethods, deleteInfluencer } from './influencerStore.ts';
 import type { PaymentMethodInput } from './influencerPayment.ts';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettings.ts';
@@ -11,12 +11,12 @@ import { isSettlementCandidate } from './campaignJudgment.ts';
 import {
   getSettlementSettings, saveSettlementSettings, listSettlementVersions, lastQuoteRtCategory, listCandidates,
   createRequests, cancelRequest, listRequests, settlementByTaskIds, SettlementCreateError,
-  listForExport, getForExport, applyExternalStatus, ackDiff, unackDiff,
+  listForExport, getForExport, applyExternalStatus, matchTaskCostToPaid, keepTaskCost, undoKeepTaskCost,
   reviseRequest, previewRevision, listRevisions, applyPaymentMethodCorrection, precheckCorrectionForQrUpload,
 } from './settlementStore.ts';
 import type { CreateItemInput, PaymentRequestRow } from './settlementStore.ts';
 import { encodeCursor, decodeCursor, toExternalItem } from './settlementExternal.ts';
-import { hasPaidDiff } from './settlementDisplay.ts';
+import { taskPaidMismatch, displayStatus } from './settlementDisplay.ts';
 
 const sql = getSql();
 const P = 'tstl' + process.pid;
@@ -751,11 +751,11 @@ test('applyExternalStatus — paid_amount_usd를 저장하고, 다음 전이에�
   assert.ok(paid !== 'not-found' && paid.kind === 'applied');
   const p = (paid as { row: PaymentRequestRow }).row;
   assert.equal(p.paidAmountKrw, 25934); assert.equal(p.paidAmountUsd, 18.62);
-  assert.equal(hasPaidDiff(p), false);  // 달러로 지급(PayPal)은 보낸 통화(엔)로 비교할 값이 없어 차액 판정하지 않는다 — 원화 차이는 환율(koo 09-28)
+  assert.equal(taskPaidMismatch(p), null);  // 달러 지급은 원화 비율로 본다 — 25,934 ÷ 31,580 = 0.82, 환율로 설명된다(스펙 2026-10-07 §4)
   // paid → paid 정정: 달러도 함께 바뀐다
   const fix = await applyExternalStatus(sql, row.id, upd('paid', '2026-09-08T12:00:00Z', { paidAmountKrw: 31580, paidAmountUsd: 22.7, paidAt: '2026-09-08T11:12:00Z' }));
   const f = (fix as { row: PaymentRequestRow }).row;
-  assert.equal(f.paidAmountUsd, 22.7); assert.equal(hasPaidDiff(f), false);
+  assert.equal(f.paidAmountUsd, 22.7); assert.equal(taskPaidMismatch(f), null);   // 31,580 ÷ 31,580 = 1.00(경계 포함)
   const exp = await getForExport(sql, row.id); assert.equal(exp!.row.paidAmountUsd, 22.7);
   const [listed] = await listRequests(sql, { taskId: row.taskId! }); assert.equal(listed.paidAmountUsd, 22.7);
 });
@@ -859,77 +859,111 @@ test('046 — 차액 확인 칸이 요청 행에 실려 나온다(기본값 없�
   assert.equal(row.diffAckByName, null);
 });
 
-test('차액 확인 — 확인·취소가 되고 updated_at을 건드리지 않는다', async () => {
-  const { row } = await requestFor('diffack2', 'diffack2');
-  // 그쪽이 송금액보다 적게 지급한 상황을 만든다
-  await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
-    paidAmountKrw: row.grossKrw - 1650, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: row.amountGross - 165, paidCurrency: null });
+// ── 정산팀 지급 금액 ≠ 작업 금액 처리(065, 스펙 2026-10-07 §5·§10) ──
+// requestFor 픽스처: 작업 30,000원 · PayPal 엔화 · 비율 수수료 5% → 송금 3,158엔(원화 31,580)
+const paidJpy = (id: string, jpy: number, krw: number, at: string, note: string | null = null) =>
+  applyExternalStatus(sql, id, upd('paid', at, { paidAmountKrw: krw, paidAmountJpy: jpy, paidAt: at, ...(note ? { note } : {}) }));
+
+test('065 맞추기 — 작업 금액·이력·처리 기록이 한 번에, updated_at 그대로, 판정이 풀린다', async () => {
+  const { row, member } = await requestFor('rcm1', 'rcm1');
+  await paidJpy(row.id, 4000, 34000, '2026-10-07T03:00:00Z', '인용 6000엔');
   const [before] = await listRequests(sql, { taskId: row.taskId! });
+  assert.deepEqual(before.taskCost, { amount: 30000, currency: 'KRW' });
+  const mm = taskPaidMismatch(before);
+  assert.ok(mm && mm.kind === 'exact' && mm.diff === 842 && mm.currency === 'JPY');
+  assert.equal(displayStatus(before, 'list').key, 'paid_diff');
 
-  const acked = await ackDiff(sql, row.id, { name: '박구건' });
-  assert.notEqual(acked, 'not-found'); assert.notEqual(acked, 'no-diff');
-  const a = acked as PaymentRequestRow;
-  assert.ok(a.diffAckAt); assert.equal(a.diffAckByName, '박구건');
-  assert.equal(a.updatedAt, before.updatedAt, '확인은 그쪽 폴링에 흘러가면 안 된다');
-
-  const un = await unackDiff(sql, row.id) as PaymentRequestRow;
-  assert.equal(un.diffAckAt, null); assert.equal(un.diffAckByName, null);
-  assert.equal(un.updatedAt, before.updatedAt);
+  // 38,000원 → 3,800엔 → 송금 4,000엔 = 지급과 같다
+  const r = await matchTaskCostToPaid(sql, row.id, { expect: { taskCost: { amount: 30000, currency: 'KRW' }, paidAmountKrw: 34000, paidAmountJpy: 4000 }, newCost: { amount: 38000, currency: 'KRW' }, reason: '인용 6000엔' }, member);
+  assert.ok(typeof r !== 'string');
+  assert.deepEqual(r.taskCost, { amount: 38000, currency: 'KRW' });
+  assert.equal(r.diffAckKind, 'matched'); assert.equal(r.diffAckReason, '인용 6000엔'); assert.equal(r.diffAckByName, member.name); assert.ok(r.diffAckAt);
+  assert.deepEqual(r.diffAckTaskCost, { amount: 38000, currency: 'KRW' });
+  assert.deepEqual(r.diffAckBeforeCost, { amount: 30000, currency: 'KRW' });
+  assert.equal(r.updatedAt, before.updatedAt, '처리 기록은 정산팀 폴링에 흘러가면 안 된다');
+  assert.equal(taskPaidMismatch(r), null);
+  assert.equal(displayStatus(r, 'list').label, '지급 완료 · 맞춤');
+  assert.deepEqual((await getTask(sql, row.taskId!))!.cost, { amount: 38000, currency: 'KRW' });
+  const changes = await listTaskChanges(sql, row.taskId!);
+  assert.equal(changes.length, 1);
+  assert.deepEqual([changes[0].source, changes[0].requestId, changes[0].reason, changes[0].byName], ['settlement', row.id, '인용 6000엔', member.name]);
+  assert.deepEqual([changes[0].before, changes[0].after], [{ amount: 30000, currency: 'KRW' }, { amount: 38000, currency: 'KRW' }]);
+  // 맞춤은 처리 취소가 없다(§5-3)
+  assert.equal(await undoKeepTaskCost(sql, row.id), 'not-kept');
 });
 
-test('차액 확인 — 차액이 없으면 확인할 것이 없다', async () => {
-  const { row } = await requestFor('diffack3', 'diffack3');
-  await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
-    paidAmountKrw: row.grossKrw, paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: null, paidCurrency: null });
-  assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
+test('065 맞추기·그대로 두기 — 창을 연 뒤 작업 금액·지급 금액이 바뀌었거나 판정이 없으면 stale, 아무것도 안 바뀐다', async () => {
+  const { row, member } = await requestFor('rcm2', 'rcm2');
+  const expect = { taskCost: { amount: 30000, currency: 'KRW' as const }, paidAmountKrw: 34000, paidAmountJpy: 4000 };
+  // 지급 전 — 판정 없음
+  assert.equal(await keepTaskCost(sql, row.id, { expect, reason: '환율·송금 수수료 차이' }, member), 'stale');
+  await paidJpy(row.id, 4000, 34000, '2026-10-07T03:00:00Z');
+  assert.equal(await matchTaskCostToPaid(sql, row.id, { expect: { ...expect, taskCost: { amount: 29000, currency: 'KRW' } }, newCost: { amount: 38000, currency: 'KRW' }, reason: 'x' }, member), 'stale');
+  assert.equal(await matchTaskCostToPaid(sql, row.id, { expect: { ...expect, paidAmountJpy: 3900 }, newCost: { amount: 38000, currency: 'KRW' }, reason: 'x' }, member), 'stale');
+  assert.equal(await keepTaskCost(sql, row.id, { expect: { ...expect, paidAmountKrw: 1 }, reason: 'x' }, member), 'stale');
+  assert.equal(await matchTaskCostToPaid(sql, '00000000-0000-0000-0000-000000000000', { expect, newCost: { amount: 38000, currency: 'KRW' }, reason: 'x' }, member), 'not-found');
+  const [now] = await listRequests(sql, { taskId: row.taskId! });
+  assert.deepEqual(now.taskCost, { amount: 30000, currency: 'KRW' });
+  assert.equal(now.diffAckKind, null);
+  assert.equal((await listTaskChanges(sql, row.taskId!)).length, 0);
 });
 
-test('차액 확인 — 엔화가 요청대로 나갔으면 원화가 달라도(환율) 확인할 것이 없다(koo 09-28)', async () => {
-  const { row } = await requestFor('diffack7', 'diffack7');
-  assert.equal(row.payoutCurrency, 'JPY');
-  await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T01:00:00Z', note: null,
-    paidAmountKrw: Math.round(row.grossKrw * 0.86), paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: row.amountGross, paidCurrency: 'JPY' });
-  assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
-  // 달러로 지급(PayPal) — 엔화 값이 없어 비교하지 않는다
-  await applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: '2026-09-01T02:00:00Z', note: null,
-    paidAmountKrw: Math.round(row.grossKrw * 0.87), paidAt: '2026-09-01T00:59:00Z', externalId: null, operator: null, revision: null, paidAmountUsd: 30.5, paidAmountJpy: null, paidCurrency: 'USD' });
-  assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
+test('065 그대로 두기 — 작업은 그대로, 처리 기록만 · 처리 취소 · 작업 금액을 다시 바꾸면 다시 뜬다', async () => {
+  const { row, member } = await requestFor('rck1', 'rck1');
+  await paidJpy(row.id, 4000, 34000, '2026-10-07T03:00:00Z');
+  const [before] = await listRequests(sql, { taskId: row.taskId! });
+  const expect = { taskCost: { amount: 30000, currency: 'KRW' as const }, paidAmountKrw: 34000, paidAmountJpy: 4000 };
+  const k = await keepTaskCost(sql, row.id, { expect, reason: '추가 지급(별도 합의) — 인용 추가분' }, member);
+  assert.ok(typeof k !== 'string');
+  assert.equal(k.diffAckKind, 'kept'); assert.equal(k.diffAckReason, '추가 지급(별도 합의) — 인용 추가분');
+  assert.deepEqual(k.diffAckTaskCost, { amount: 30000, currency: 'KRW' });
+  assert.equal(k.updatedAt, before.updatedAt);
+  assert.equal(taskPaidMismatch(k), null);
+  assert.equal(displayStatus(k, 'list').label, '지급 완료 · 그대로 둠');
+  assert.deepEqual((await getTask(sql, row.taskId!))!.cost, { amount: 30000, currency: 'KRW' });
+  assert.equal((await listTaskChanges(sql, row.taskId!)).length, 0);
+
+  const u = await undoKeepTaskCost(sql, row.id);
+  assert.ok(typeof u !== 'string');
+  assert.equal(u.diffAckKind, null); assert.equal(u.diffAckAt, null); assert.equal(u.diffAckReason, null); assert.equal(u.diffAckTaskCost, null);
+  assert.equal(u.updatedAt, before.updatedAt);
+  assert.notEqual(taskPaidMismatch(u), null);
+  assert.equal(await undoKeepTaskCost(sql, row.id), 'not-kept');
+
+  await keepTaskCost(sql, row.id, { expect, reason: '환율·송금 수수료 차이' }, member);
+  await updateTask(sql, row.taskId!, { cost: { amount: 31000, currency: 'KRW' } });   // 처리 뒤 누가 작업 금액을 바꿨다(아직 지급과 다름)
+  const [again] = await listRequests(sql, { taskId: row.taskId! });
+  assert.equal(again.diffAckKind, 'kept');
+  assert.notEqual(taskPaidMismatch(again), null, '처리 때 작업 금액과 지금이 다르면 다시 뜬다');
 });
 
-test('차액 확인 — 그쪽이 금액을 정정하면 확인이 풀린다', async () => {
-  const { row } = await requestFor('diffack4', 'diffack4');
-  // 엔화로 보낸 요청이라 차액은 엔화로 판정한다(koo 09-28) — 엔화 실지급을 함께 보낸다
-  const paid = (krw: number, at: string) => applyExternalStatus(sql, row.id, { status: 'paid', updatedAt: at, note: null, paidAmountKrw: krw, paidAt: at, externalId: null, operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: row.amountGross - Math.round((row.grossKrw - krw) / 10), paidCurrency: null });
-
-  await paid(row.grossKrw - 1650, '2026-09-01T01:00:00Z');
-  await ackDiff(sql, row.id, { name: '박구건' });
-
-  // 같은 금액 재전송(더 늦은 시각) → 확인 유지
-  await paid(row.grossKrw - 1650, '2026-09-01T02:00:00Z');
-  assert.ok(((await listRequests(sql, { taskId: row.taskId! }))[0]).diffAckAt, '같은 금액이면 확인이 유지된다');
-
-  // 다른 금액으로 정정 → 확인 해제
-  await paid(row.grossKrw - 3000, '2026-09-01T03:00:00Z');
-  const after2 = (await listRequests(sql, { taskId: row.taskId! }))[0];
-  assert.equal(after2.diffAckAt, null, '금액이 바뀌면 이전 확인은 다른 금액에 대한 확인이다');
-  assert.equal(after2.diffAckByName, null);
+test('065 — 정산팀이 지급 금액을 정정하면 처리 기록이 통째로 비워진다', async () => {
+  const { row, member } = await requestFor('rck2', 'rck2');
+  await paidJpy(row.id, 4000, 34000, '2026-10-07T03:00:00Z');
+  await keepTaskCost(sql, row.id, { expect: { taskCost: { amount: 30000, currency: 'KRW' }, paidAmountKrw: 34000, paidAmountJpy: 4000 }, reason: '환율·송금 수수료 차이' }, member);
+  await paidJpy(row.id, 4000, 34000, '2026-10-07T04:00:00Z');   // 같은 금액 재전송 — 유지
+  assert.equal((await listRequests(sql, { taskId: row.taskId! }))[0].diffAckKind, 'kept');
+  await paidJpy(row.id, 4200, 35700, '2026-10-07T05:00:00Z');   // 금액 정정 — 비움
+  const [after] = await listRequests(sql, { taskId: row.taskId! });
+  assert.deepEqual([after.diffAckAt, after.diffAckByName, after.diffAckKind, after.diffAckReason, after.diffAckTaskCost], [null, null, null, null, null]);
 });
 
-test('ackDiff — 취소된 요청은 no-diff', async () => {
-  const { row, member } = await requestFor('diffack5', 'diffack5');
-  const cancelled = await cancelRequest(sql, row.id, '테스트', member);
-  assert.notEqual(cancelled, 'not-found'); assert.notEqual(cancelled, 'already-cancelled'); assert.notEqual(cancelled, 'paid-locked');
-  assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
+test('065 — 달러 지급은 비율로: 0.82는 같음, 2.63은 다름(saachan 모양)', async () => {
+  const { row } = await requestFor('rcu1', 'rcu1');
+  await applyExternalStatus(sql, row.id, upd('paid', '2026-10-07T03:00:00Z', { paidAmountKrw: 26000, paidAmountUsd: 18.62, paidAt: '2026-10-07T03:00:00Z' }));
+  assert.equal(taskPaidMismatch((await listRequests(sql, { taskId: row.taskId! }))[0]), null);
+  await applyExternalStatus(sql, row.id, upd('paid', '2026-10-07T04:00:00Z', { paidAmountKrw: 83000, paidAmountUsd: 59.4, paidAt: '2026-10-07T03:00:00Z' }));
+  const m = taskPaidMismatch((await listRequests(sql, { taskId: row.taskId! }))[0]);
+  assert.ok(m && m.kind === 'band' && m.diff === 83000 - 31580);
 });
 
-test('ackDiff — 아직 지급 완료가 아니면 no-diff', async () => {
-  const { row } = await requestFor('diffack6', 'diffack6');
-  assert.equal(row.externalStatus, null);
-  assert.equal(await ackDiff(sql, row.id, { name: '박구건' }), 'no-diff');
-});
-
-test('unackDiff — 없는 id는 not-found', async () => {
-  assert.equal(await unackDiff(sql, '00000000-0000-0000-0000-000000000000'), 'not-found');
+test('065 — 캠페인 배지도 같은 판정(지금 작업 금액·처리 기록이 실린다)', async () => {
+  const { row } = await requestFor('rcb1', 'rcb1');
+  await paidJpy(row.id, 4000, 34000, '2026-10-07T03:00:00Z');
+  const badge = (await settlementByTaskIds(sql, [row.taskId!])).get(row.taskId!)!;
+  assert.deepEqual(badge.taskCost, { amount: 30000, currency: 'KRW' });
+  assert.equal(badge.costCurrency, 'KRW'); assert.equal(badge.amountKrw, 30000);
+  assert.equal(displayStatus(badge, 'campaign').label, '지급 금액 다름');
 });
 
 // ── 정산 쪽 수취 정보 정정 회신(스펙 2026-09-21 §4, 그쪽 09-21 요청) ──

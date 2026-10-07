@@ -36,14 +36,20 @@ export function toKrw(total: MoneyByCurrency): { krw: number; jpyIncluded: numbe
 
 // 비용 표기 — 원화 환산 총액을 크게, 통화별 내역은 작게(koo 10-07). 환산은 toKrw 그대로라 예산 줄·CPV와 숫자가 맞는다.
 // approx = 엔화가 실제로 더해졌을 때만(0엔은 환산이 일어나지 않았다). breakdown = 엔화가 섞였을 때만 — 원화만이면 총액이 곧 내역이다.
-export function formatMoneyKrw(m: MoneyByCurrency): { total: string; approx: boolean; breakdown: string | null } {
+export type ViewCurrency = 'KRW' | 'JPY';
+export function formatMoneyIn(m: MoneyByCurrency, cur: ViewCurrency): { total: string; approx: boolean; breakdown: string | null } {
   if (moneyParts(m).length === 0) return { total: '—', approx: false, breakdown: null };
-  const approx = (m.JPY ?? 0) > 0;
+  // approx = 보기 통화가 아닌 쪽 금액이 실제로 더해졌을 때만(0은 환산이 일어나지 않았다)
+  const approx = cur === 'KRW' ? (m.JPY ?? 0) > 0 : (m.KRW ?? 0) > 0;
   const breakdown = approx
     ? moneyParts(m).map((p) => `${p.currency === 'KRW' ? '원화' : '엔화'} ${formatAmount(p.amount, p.currency)}`).join(' · ')
     : null;
-  return { total: formatAmount(toKrw(m).krw, 'KRW'), approx, breakdown };
+  const total = cur === 'KRW'
+    ? formatAmount(toKrw(m).krw, 'KRW')
+    : formatAmount(Math.round((m.JPY ?? 0) + (m.KRW ?? 0) / JPY_TO_KRW), 'JPY');
+  return { total, approx, breakdown };
 }
+export function formatMoneyKrw(m: MoneyByCurrency) { return formatMoneyIn(m, 'KRW'); }
 
 export function remainingOf(amountKrw: number, spentKrw: number): number {
   return amountKrw - spentKrw;

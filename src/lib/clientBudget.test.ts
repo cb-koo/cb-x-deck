@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   JPY_TO_KRW, BUDGET_AMOUNT_MESSAGE, PERIOD_DATE_MESSAGE, PERIOD_ORDER_MESSAGE,
-  toKrw, formatMoneyKrw, remainingOf, periodFor, overageBadge, periodRow, campaignPeriodBudget, budgetBreakdown,
+  toKrw, formatMoneyKrw, formatMoneyIn, remainingOf, periodFor, overageBadge, periodRow, campaignPeriodBudget, budgetBreakdown,
   periodLabel, periodLabelFull, budgetTipText, badgeText, budgetJudgment, parseBudgetAmount, parseBudgetPeriodInput,
   type BudgetPeriod, type PeriodSpend, type SpanningCampaign,
 } from './clientBudget.ts';
@@ -151,4 +151,23 @@ test('formatMoneyKrw — 원화 환산 총액(크게) + 통화 내역(작게)', 
   // 0엔은 환산이 일어나지 않았으니 ≈ 없음
   assert.deepEqual(formatMoneyKrw({ KRW: 1000, JPY: 0 }), { total: '1,000원', approx: false, breakdown: null });
   assert.deepEqual(formatMoneyKrw({ JPY: 0 }), { total: '0원', approx: false, breakdown: null });
+});
+
+test('formatMoneyIn — 보기 통화(원화|엔화)로 환산 총액 + 통화 내역', () => {
+  // 원화 보기는 formatMoneyKrw와 같다
+  assert.deepEqual(formatMoneyIn({ JPY: 95000, KRW: 360000 }, 'KRW'), formatMoneyKrw({ JPY: 95000, KRW: 360000 }));
+  // 엔화 보기: 원화만 → 환산(≈), 내역은 원화
+  assert.deepEqual(formatMoneyIn({ KRW: 360000 }, 'JPY'), { total: '36,000엔', approx: true, breakdown: '원화 360,000원' });
+  // 엔화만 → 환산 없음
+  assert.deepEqual(formatMoneyIn({ JPY: 95000 }, 'JPY'), { total: '95,000엔', approx: false, breakdown: null });
+  // 섞임: 95,000 + 36,000, 내역은 원화 → 엔화 순서
+  assert.deepEqual(formatMoneyIn({ JPY: 95000, KRW: 360000 }, 'JPY'), { total: '131,000엔', approx: true, breakdown: '원화 360,000원 · 엔화 95,000엔' });
+  // 반올림 — 12,345원 = 1,234.5엔 → 1,235엔
+  assert.equal(formatMoneyIn({ KRW: 12345 }, 'JPY').total, '1,235엔');
+  // 빈 값 — 두 통화 공통
+  assert.deepEqual(formatMoneyIn({}, 'JPY'), { total: '—', approx: false, breakdown: null });
+  assert.deepEqual(formatMoneyIn({}, 'KRW'), { total: '—', approx: false, breakdown: null });
+  // 0 — 환산이 일어나지 않았으니 ≈ 없음
+  assert.deepEqual(formatMoneyIn({ KRW: 0 }, 'JPY'), { total: '0엔', approx: false, breakdown: null });
+  assert.deepEqual(formatMoneyIn({ JPY: 0 }, 'JPY'), { total: '0엔', approx: false, breakdown: null });
 });

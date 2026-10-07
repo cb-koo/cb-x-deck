@@ -3,7 +3,7 @@ import { kstDateTime } from '@/lib/datetime';
 import { InfoTip } from '@/components/InfoTip';
 import type { FlowStats } from '@/lib/campaignFlowView';
 import { CURRENCIES, formatAmount, formatMoneyBy, moneyParts, type MoneyByCurrency } from '@/lib/campaignCost';
-import { toKrw, formatMoneyKrw, JPY_TO_KRW } from '@/lib/clientBudget';
+import { toKrw, formatMoneyIn, JPY_TO_KRW, type ViewCurrency } from '@/lib/clientBudget';
 import { formatPct } from '@/lib/performanceJudgment';
 
 // 요약 카드 3장(작업·성과·비용) — 클러터로 반려된 초안 뒤 정해진 모양(b-task-11-brief.md):
@@ -37,9 +37,11 @@ function updatedLabel(iso: string): string {
 const CELL = 'min-w-0 border-t border-x-border py-4 first:border-t-0 first:pt-0 last:pb-0 '
   + '@[860px]:border-t-0 @[860px]:border-l @[860px]:px-5 @[860px]:py-0 @[860px]:first:border-l-0 @[860px]:first:pl-0 @[860px]:last:pr-0';
 
-export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, refreshing, onRefresh }: {
+export function FlowCards({ stats, plannedTotal, currency, onCurrencyChange, perfUpdatedAt, cancelledCount, refreshing, onRefresh }: {
   stats: FlowStats;
   plannedTotal: MoneyByCurrency;   // 계획(작업 비용 + 인플별 추가 비용) — stats.plannedCost(작업 비용만)와는 다른 숫자(위 주석)
+  currency: ViewCurrency;          // 비용 카드가 보여 줄 통화 — 합계 줄(flowFooter)과 같은 값을 부모가 내려준다
+  onCurrencyChange: (c: ViewCurrency) => void;
   perfUpdatedAt: string | null;    // 성과를 가장 최근에 불러온 때(서버, 자동 수집 포함)
   cancelledCount: number;
   refreshing: boolean;
@@ -55,11 +57,15 @@ export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, 
   const spentKrw = toKrw(stats.spent).krw;
   const plannedKrw = toKrw(plannedTotal).krw;
   // 큰 숫자는 원화 환산 총액, 통화 내역은 작게(koo 10-07). 엔화가 어느 쪽에든 섞였을 때만 ≈ 한 번과 내역 줄을 붙인다.
-  const spentView = formatMoneyKrw(stats.spent);
-  const plannedView = formatMoneyKrw(plannedTotal);
-  const hasYen = spentView.approx || plannedView.approx;
+  const spentView = formatMoneyIn(stats.spent, currency);
+  const plannedView = formatMoneyIn(plannedTotal, currency);
+  const hasConv = spentView.approx || plannedView.approx;
   const partsText = (m: MoneyByCurrency) => moneyParts(m).map((p) => `${p.currency === 'KRW' ? '원화' : '엔화'} ${formatAmount(p.amount, p.currency)}`).join(' + ') || '—';
-  const breakdownText = hasYen ? `집행 ${partsText(stats.spent)} · 계획 ${partsText(plannedTotal)}` : null;
+  const convTip = currency === 'KRW'
+    ? `엔화는 1엔 = ${JPY_TO_KRW}원으로 환산해 더했어요 — 예산 화면과 같은 기준`
+    : `원화는 ${JPY_TO_KRW}원 = 1엔으로 환산해 더했어요 — 참고용이에요`;
+  const convShort = currency === 'KRW' ? `엔화는 1엔 = ${JPY_TO_KRW}원으로 계산` : `원화는 ${JPY_TO_KRW}원 = 1엔으로 계산`;
+  const breakdownText = hasConv ? `집행 ${partsText(stats.spent)} · 계획 ${partsText(plannedTotal)}` : null;
   const spentPct = plannedKrw > 0 ? Math.min(100, (spentKrw / plannedKrw) * 100) : 0;
 
   return (
@@ -132,13 +138,24 @@ export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, 
 
       {/* 비용 — 이 캠페인만(집행 / 계획). 이 기간 클라이언트 예산은 카드 아래 BudgetStrip이 따로 말한다(koo 09-27 A안) */}
       <div className={CELL}>
-        <p className="flex items-center gap-1.5 text-ui text-x-secondary">
-          비용<InfoTip text={['집행 = 게시 확인된 작업 비용 · 계획 = 취소 뺀 전체 작업 비용', costTip, `엔화는 1엔 = ${JPY_TO_KRW}원으로 환산해 더했어요 — 예산 화면과 같은 기준`].filter(Boolean).join(' · ')} label="비용 카드 설명 보기" />
-        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-ui text-x-secondary">
+            비용<InfoTip text={['집행 = 게시 확인된 작업 비용 · 계획 = 취소 뺀 전체 작업 비용', costTip, convTip].filter(Boolean).join(' · ')} label="비용 카드 설명 보기" />
+          </p>
+          {/* 합계를 볼 통화 — 표 아래 합계 줄도 같이 바뀐다. 작업 한 건의 금액·예산 줄은 원래 통화 그대로. */}
+          <div role="group" aria-label="합계를 볼 통화" className="-my-1 inline-flex overflow-hidden rounded-full border border-x-border-strong text-[14px] leading-none">
+            {([['KRW', '원화'], ['JPY', '엔화']] as const).map(([c, label]) => (
+              <button key={c} type="button" aria-pressed={currency === c} onClick={() => onCurrencyChange(c)}
+                      className={`px-3 py-1.5 ${currency === c ? 'bg-x-text font-bold text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="mt-1 text-[26px] font-bold leading-tight tabular-nums">
-          {hasYen && '≈'}{spentView.total} <span className="text-content font-normal text-x-muted">/ {plannedView.total}</span>
+          {hasConv && '≈'}{spentView.total} <span className="text-content font-normal text-x-muted">/ {plannedView.total}</span>
         </p>
-        <p className="mt-1 text-ui text-x-secondary">집행 / 계획{hasYen && ` · 엔화는 1엔 = ${JPY_TO_KRW}원으로 계산`}</p>
+        <p className="mt-1 text-ui text-x-secondary">집행 / 계획{hasConv && ` · ${convShort}`}</p>
         {breakdownText && <p className="mt-0.5 truncate text-ui text-x-muted" title={breakdownText}>{breakdownText}</p>}
         {plannedKrw > 0 && (
           <div className="mt-2 flex h-1.5 overflow-hidden rounded bg-x-border">

@@ -146,7 +146,7 @@ function MethodCard({ m, busy, copiedKey, confirming, fallbackLabel, onCopy, onS
   } else if (m.type === 'paypay') {
     rows.push(m.identifier
       ? { key: 'identifier', label: '수취 식별 정보', value: m.identifier, copy: m.identifier }
-      : { key: 'identifier', label: '수취 식별 정보', value: '미입력 — 정산 쪽에서 확인되면 적어 두세요', muted: true });
+      : { key: 'identifier', label: '수취 식별 정보', value: '미입력 — 정산팀에서 확인되면 적어 두세요', muted: true });
     // QR은 있을 때만 행을 만든다 — 둘 다 선택이라 둘 다 "미입력"이 뜨면 잔소리가 된다(스펙 §2)
     if (m.qr) rows.push({ key: 'qr', label: 'QR 이미지', value: null, qrPath: m.qr });
   } else {

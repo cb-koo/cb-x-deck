@@ -25,7 +25,7 @@ test('sanitize — 거절 사유', () => {
   assert.equal(typeof sanitizeSettlementSettings(null), 'string');
   assert.equal(sanitizeSettlementSettings({ categories: [], rateKrwPerJpy: 10 }), '분류가 하나 이상 필요해요');
   assert.equal(sanitizeSettlementSettings({ categories: [{ id: 'a', label: '', sendAs: 'X', hidden: false, defaultFor: [] }], rateKrwPerJpy: 10 }), '분류 이름을 입력해 주세요');
-  assert.equal(sanitizeSettlementSettings({ categories: [{ id: 'a', label: 'A', sendAs: '', hidden: false, defaultFor: [] }], rateKrwPerJpy: 10 }), '정산 쪽 이름을 입력해 주세요');
+  assert.equal(sanitizeSettlementSettings({ categories: [{ id: 'a', label: 'A', sendAs: '', hidden: false, defaultFor: [] }], rateKrwPerJpy: 10 }), '정산팀에 보내는 이름을 입력해 주세요');
   assert.equal(sanitizeSettlementSettings({ categories: [{ id: 'a', label: 'A', sendAs: 'X', hidden: false, defaultFor: ['rt'] }, { id: 'b', label: 'B', sendAs: 'Y', hidden: false, defaultFor: ['rt'] }], rateKrwPerJpy: 10 }), '한 유형은 한 분류의 기본값으로만 둘 수 있어요 (RT)');
   assert.equal(sanitizeSettlementSettings({ categories: [{ id: 'a', label: 'A', sendAs: 'X', hidden: false, defaultFor: [] }], rateKrwPerJpy: 0 }), '환율은 1 이상 정수예요');
   assert.equal(sanitizeSettlementSettings({ categories: [{ id: 'a', label: 'A', sendAs: 'X', hidden: false, defaultFor: [] }], rateKrwPerJpy: 10.5 }), '환율은 1 이상 정수예요');

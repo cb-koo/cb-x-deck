@@ -4,7 +4,7 @@ import { TASK_TYPES, TASK_TYPE_LABEL, type TaskType } from './campaignJudgment.t
 export interface SettlementCategory {
   id: string;            // 화면 편집용 안정 키(uuid 문자열이면 충분, 형식 검증 없음)
   label: string;         // 표시명
-  sendAs: string;        // 정산 쪽 이름 — payment_request.category에 스냅샷되는 값
+  sendAs: string;        // 정산팀에 보내는 이름 — payment_request.category에 스냅샷되는 값
   hidden: boolean;       // 새 요청 드롭다운에서만 숨김. 기존 요청 표시엔 영향 없음
   defaultFor: TaskType[];// 이 유형의 기본값. 한 유형은 한 옵션에만
 }
@@ -39,7 +39,7 @@ export function sanitizeSettlementSettings(v: unknown): SettlementSettings | str
     if (ids.has(id)) return '분류 id가 겹쳐요';
     ids.add(id);
     if (!label) return '분류 이름을 입력해 주세요';
-    if (!sendAs) return '정산 쪽 이름을 입력해 주세요';
+    if (!sendAs) return '정산팀에 보내는 이름을 입력해 주세요';
     const hidden = c.hidden === true;
     const defaultFor: TaskType[] = [];
     for (const t of Array.isArray(c.defaultFor) ? c.defaultFor : []) {

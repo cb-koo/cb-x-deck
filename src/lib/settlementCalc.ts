@@ -110,13 +110,13 @@ const monthDay = (ymd: string) => `${Number(ymd.slice(5, 7))}-${Number(ymd.slice
 //  · RT → 증빙 스크린샷(원본 트윗 링크는 증거가 아니다)  · 투고·인용RT·방문 → 인플루언서 본인 게시물 링크(reference_url)
 // 이 두 이슈는 화면(effectiveIssues)과 서버(createRequests)가 같은 객체를 쓴다 — 문구·수준이 한 곳에서만 바뀌게.
 const NO_CATEGORY_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-category', text: '분류를 골라 주세요' };
-const NO_PROOF_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-proof', text: '증빙 스크린샷을 넣어야 요청할 수 있어요 — 정산 쪽이 지급 전에 확인해요' };
+const NO_PROOF_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-proof', text: '증빙 스크린샷을 넣어야 요청할 수 있어요 — 정산팀이 지급 전에 확인해요' };
 // 방문협찬 협찬 동의서(063, koo 09-29 결정 4) — 없어도 막지 않는다. 확인만 시킨다(🟡). 정산 프로덕트로는 보내지 않는다(결정 5)
 // — 그래서 후보에 동의서 객체를 싣지 않고 "없다"는 사실만 판정에 넣는다(요청 스냅샷·외부 직렬화로 새어 나갈 길이 없다).
 export const NO_AGREEMENT_ISSUE: ReadinessIssue = { level: 'warn', code: 'no-agreement', text: '협찬 동의서가 없어요 — 요청은 만들 수 있어요' };
 function referenceIssue(required: boolean): ReadinessIssue {
   return required
-    ? { level: 'blocked', code: 'no-reference', text: '참고 링크를 넣어 주세요 — 정산 쪽이 이 링크로 게시를 확인해요' }
+    ? { level: 'blocked', code: 'no-reference', text: '참고 링크를 넣어 주세요 — 정산팀이 이 링크로 게시를 확인해요' }
     : { level: 'warn', code: 'no-reference', text: '참고 링크 없음' };
 }
 // 참고 링크가 확인 자료인 유형 — RT만 아니다(RT의 링크는 클리닉 원본 트윗; 스펙 3-6, 슬랙 RT 405건 중 350건이 링크 없이 갔다)
@@ -136,7 +136,7 @@ export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | 
   // 09-23 koo(실사용 발견): QR 이미지도 대안 수취 정보다(paypay-qr 브랜치) — 식별 정보·QR 둘 다 없을 때만 막는다.
   //   둘 중 하나라도 있으면 정산 쪽이 스캔/입력해 송금할 수 있다. 코드(paypay-no-receiving-info)도 "식별값 전용"이 아니라
   //   "수취 정보 전체가 비었다"는 뜻으로 이름을 바꿨다 — 옛 이름을 그대로 두면 조건과 이름이 어긋나 다음에 읽는 사람이 오판한다.
-  if (i.method?.type === 'paypay' && !i.method.identifier && !i.method.qr) issues.push({ level: 'blocked', code: 'paypay-no-receiving-info', text: 'PayPay 수취 정보를 넣어야 요청할 수 있어요 — 식별 정보나 QR 이미지 중 하나가 있어야 정산 쪽이 송금할 수 있어요' });
+  if (i.method?.type === 'paypay' && !i.method.identifier && !i.method.qr) issues.push({ level: 'blocked', code: 'paypay-no-receiving-info', text: 'PayPay 수취 정보를 넣어야 요청할 수 있어요 — 식별 정보나 QR 이미지 중 하나가 있어야 정산팀이 송금할 수 있어요' });
   const level: ReadinessLevel = issues.some((x) => x.level === 'blocked') ? 'blocked' : issues.length ? 'warn' : 'ready';
   return { level, issues };
 }

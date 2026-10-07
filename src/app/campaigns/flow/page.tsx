@@ -1,4 +1,4 @@
-// 캠페인 v2(ADR 0003) — 기존 /campaigns와 병존. 좌측 목록·생성은 같은 부품, 상세만 FlowDetail.
+// 캠페인 v2(ADR 0003) — 기존 /campaigns와 병존. 생성 창은 같은 부품, 좌측 목록은 CampaignSidebar(10-08 개편), 상세는 FlowDetail.
 'use client';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -8,9 +8,10 @@ import type { CampaignRow } from '@/lib/campaignStore';
 import { fetchCampaigns } from '@/lib/campaignApi';
 import { pickCampaignId } from '@/lib/campaignView';
 import { Button } from '@/components/ui';
-import { CampaignList } from '../CampaignList';
 import { CampaignCreateModal } from '../CampaignCreateModal';
 import { FlowDetail } from './FlowDetail';
+import { CampaignSidebar } from './CampaignSidebar';
+import type { RowMenuAction } from './sidebar/SidebarRow';
 
 // 좌측 목록 접기/펼치기 — /campaigns와 같은 키를 쓴다(같은 목록이라 접힘 상태를 공유한다, CampaignsSplit 관례).
 const LIST_COLLAPSED_KEY = 'campaigns-list-collapsed';
@@ -89,10 +90,22 @@ function CampaignsFlowSplit() {
   // 작성 중인 컴포저가 있으면 확인한다(Task 4d §6) — 문구는 FlowDetail이 이미 고른 것을 그대로 쓴다(새로
   // 짓지 않는다, 브리프 지시). 여기서 읽는 leaveConfirmRef.current는 클릭 핸들러 안이라 렌더 중이 아니다
   // (React Compiler 규칙 위반 아님).
-  const select = useCallback((id: string) => {
-    if (leaveConfirmRef.current && !window.confirm(leaveConfirmRef.current)) return;
+  const select = useCallback((id: string): boolean => {
+    if (leaveConfirmRef.current && !window.confirm(leaveConfirmRef.current)) return false;
     setUrlId(id);
+    return true;
   }, [setUrlId]);
+  // 목록 ⋯ 메뉴(스펙 §3-5) — 새 편집 화면 없이 그 캠페인을 열고 상세 머리글(CampaignHeader)의 기존 편집 상태를 연다.
+  // 한 번만 쓰는 신호다: 머리글이 실행하면 onHeaderActionDone으로 지운다(새로고침·재마운트로 삭제 확인이 또 뜨지 않게).
+  // 같은 메뉴를 연달아 골라도 다시 열리도록 seq를 붙인다(draftOpenReq와 같은 관례).
+  const [headerAction, setHeaderAction] = useState<{ id: string; kind: RowMenuAction; seq: number } | null>(null);
+  const headerActionSeqRef = useRef(0);
+  const onMenuAction = useCallback((id: string, kind: RowMenuAction) => {
+    if (id !== picked.id && !select(id)) return;   // 작성 중 확인에서 '취소'하면 아무것도 열지 않는다
+    headerActionSeqRef.current += 1;
+    setHeaderAction({ id, kind, seq: headerActionSeqRef.current });
+  }, [picked.id, select]);
+  const onHeaderActionDone = useCallback(() => setHeaderAction(null), []);
 
   return (
     // 상세는 연회색 바닥(bg-x-surface) 위 흰 패널들(FlowDetail) — 왼쪽 목록은 흰 배경 + 세로 구분선 그대로다(/campaigns와 같은 부품).
@@ -100,7 +113,7 @@ function CampaignsFlowSplit() {
     <div className="flex min-h-full">
       {/* data-campaign-list: 작업 패널의 '바깥 누르면 닫기'가 이 목록은 건너뛴다(TaskPanel) — 거기서 확인 창이 뜨면
           그 클릭이 사라져 캠페인이 안 바뀌었다. 작성 중 확인은 select가 한 번만 묻는다(FlowDetail이 문장을 올린다). */}
-      <aside data-campaign-list className={`sticky top-0 max-h-screen shrink-0 self-start overflow-y-auto border-r border-x-border bg-white transition-[width] ${listCollapsed ? 'w-11 px-1 py-4' : 'w-[280px] px-3 py-5'}`}>
+      <aside data-campaign-list className={`sticky top-0 max-h-screen shrink-0 self-start overflow-y-auto border-r border-x-border bg-white transition-[width] ${listCollapsed ? 'w-11 px-1 py-4' : 'h-screen w-[360px]'}`}>
         {listCollapsed ? (
           // 접힘 = 펼치기 버튼만 있는 얇은 레일(~44px) — 목록 대신 상세가 폭을 가져간다.
           <div className="flex flex-col items-center gap-2">
@@ -111,14 +124,9 @@ function CampaignsFlowSplit() {
             )}
           </div>
         ) : (
-          <>
-            <div className="mb-1 flex justify-end">
-              <button onClick={toggleListCollapsed} aria-label="목록 접기" title="목록 접기"
-                      className="flex h-8 w-8 items-center justify-center rounded-md text-x-muted hover:bg-x-hover">«</button>
-            </div>
-            <CampaignList rows={rows} selectedId={picked.id} today={today} loaded={loaded} loadErr={loadErr}
-                          onSelect={select} onCreate={() => setCreating(true)} onRetry={() => void load()} />
-          </>
+          <CampaignSidebar rows={rows} selectedId={picked.id} today={today} loaded={loaded} loadErr={loadErr}
+                           onSelect={(id) => { select(id); }} onCreate={() => setCreating(true)} onRetry={() => void load()}
+                           onCollapse={toggleListCollapsed} onMenuAction={onMenuAction} />
         )}
       </aside>
       <main className="min-w-0 flex-1 bg-x-surface">
@@ -137,7 +145,9 @@ function CampaignsFlowSplit() {
                         setUrlId(null);
                         void load();
                       }}
-                      onLeaveConfirmChange={onComposerLeaveConfirmChange} />
+                      onLeaveConfirmChange={onComposerLeaveConfirmChange}
+                      headerAction={headerAction?.id === picked.id ? headerAction : null}
+                      onHeaderActionDone={onHeaderActionDone} />
         )}
       </main>
       {creating && (

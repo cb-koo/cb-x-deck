@@ -40,7 +40,7 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
   const paidSum = paidSummary(r);
   return (
     <>
-      <tr onClick={onToggle} aria-expanded={open} className={`cursor-pointer text-[15px] hover:bg-x-hover ${open ? 'bg-x-hover/60' : ''}`}>
+      <tr onClick={onToggle} aria-expanded={open} className={`cursor-pointer text-[15px] hover:bg-x-hover ${open ? 'bg-x-surface' : ''}`}>
         <td className={`${CELL} font-semibold`}>@{r.influencerHandle}</td>
         <td className={CELL}><span className={TYPE_CHIP[r.taskType]}>{TASK_TYPE_LABEL[r.taskType]}</span></td>
         <td className={`${CELL} ${NUM}`}>
@@ -68,9 +68,9 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
         <td className={`${CELL} w-8 text-x-muted`} aria-hidden>{open ? '▾' : '▸'}</td>
       </tr>
       {open && (
-        <tr><td colSpan={COLS} className="px-4 pb-4">
+        <tr><td colSpan={COLS} className="border-b border-x-border bg-x-surface px-6 py-5">
         {/* 펼침(10-07 koo QA 시안 A) — 옅은 회색 바탕 위 흰 카드: 금액 비교 요약 → 두 카드(우리가 보낸 요청 / 정산팀이 보낸 결과) → 개정 이력 → 맨 아래 한 줄 */}
-        <div className="flex flex-col gap-4 rounded-[14px] bg-x-surface p-5">
+        <div className="flex flex-col gap-4">
           <section className="flex flex-col gap-4 rounded-xl border border-x-border bg-white px-[22px] py-[18px] md:flex-row md:items-center md:gap-0">
             <SummaryAmount label="작업 금액" amount={r.taskCost ? formatMoney(r.taskCost.amount, r.taskCost.currency) : null}
                            sub={requestSummarySub(r)} subTitle={sendTitle} />

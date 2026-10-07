@@ -5,6 +5,7 @@ import type { PaymentRequestRow } from '@/lib/settlementStore';
 import { CURRENCIES, CURRENCY_LABEL, parseAmount, sameTaskCost, type Currency, type TaskCost } from '@/lib/campaignCost';
 import { formatMoney } from '@/lib/influencerPricing';
 import { suggestTaskCostFromPaid, budgetDeltaKrw } from '@/lib/settlementCalc';
+import { withRo } from '@/lib/koreanParticle';
 import { usdText, RECONCILE_REASON_MAX } from '@/lib/settlementDisplay';
 import { matchTaskCostApi } from '@/lib/settlementApi';
 import { ReconcileHead } from './reconcileParts';
@@ -63,7 +64,7 @@ export function MatchDialog({ target, onDone, onClose }: { target: PaymentReques
         )}
         {!suggestion && (
           <p className="mt-1 text-ui text-amber-700">
-            {target.paidAmountUsd !== null && <>정산팀은 달러 {usdText(target.paidAmountUsd)}로 보냈어요. </>}
+            {target.paidAmountUsd !== null && <>정산팀은 달러 {withRo(usdText(target.paidAmountUsd))} 보냈어요. </>}
             원화 {formatMoney(target.paidAmountKrw ?? 0, 'KRW')}은 정산팀이 바꾼 값이라, 실제로 약속한 금액을 적어 주세요.
           </p>
         )}

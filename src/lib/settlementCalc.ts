@@ -5,6 +5,7 @@ import type { TaskCost } from './campaignCost.ts';
 import { PAYMENT_TYPE_LABEL, type PaymentMethod, type PaymentFee } from './influencerPayment.ts';
 import { defaultCategoryFor, visibleCategories, CATEGORY_ID_FEE, CATEGORY_ID_INFO, type SettlementSettings } from './settlementSettings.ts';
 import type { TaskProof } from './taskProofGuard.ts';
+import { JPY_TO_KRW } from './clientBudget.ts';   // 집행액 원화 환산 — 예산 화면과 같은 고정 환율
 
 // ── 금액(§3-1·3-2) ──
 export interface MoneyCalc {
@@ -23,6 +24,31 @@ export function computeMoney(cost: TaskCost, payoutCurrency: Currency, fee: Paym
   if (fee?.mode === 'grossUp') feeAmount = Math.round(net / (1 - fee.percent / 100)) - net;
   else if (fee?.mode === 'fixed') feeAmount = fee.amount;
   return { costAmount: cost.amount, costCurrency: cost.currency, amountKrw, payoutCurrency, rateKrwPerJpy: rate, amountNet: net, fee: fee ?? null, feeAmount, amountGross: net + feeAmount };
+}
+
+// ── 정산팀 지급 → 작업 금액 제안(스펙 2026-10-07 §5-1) — computeMoney의 거꾸로. 정확히 비교 가능한 지급만(원화 지급, 또는 엔화 지급 +
+// 엔화 값 있음). 달러·엔화 값 없음은 null — 환산값을 넣으면 틀린 금액이 그럴듯해 보인다(창은 비워 두고 직접 적게 한다).
+// 수수료: 정액은 빼고, 비율은 지급 × (1 − 비율) 반올림. 통화: 작업이 원화·지급이 엔화면 요청 환율을 곱하고, 반대면 나눈다(반올림).
+export interface PaidSuggestion { cost: TaskCost; paid: number; paidCurrency: Currency; feeAmount: number }
+export function suggestTaskCostFromPaid(i: { payoutCurrency: Currency; paidAmountKrw: number | null; paidAmountJpy: number | null; fee: PaymentFee | null; rateKrwPerJpy: number; taskCurrency: Currency }): PaidSuggestion | null {
+  const paid = i.payoutCurrency === 'KRW' ? i.paidAmountKrw : i.paidAmountJpy;
+  if (paid === null) return null;
+  let net: number;
+  if (i.fee?.mode === 'fixed') net = paid - i.fee.amount;
+  else if (i.fee?.mode === 'grossUp') net = Math.round(paid * (1 - i.fee.percent / 100));
+  else net = paid;
+  net = Math.max(0, net);
+  let amount: number;
+  if (i.taskCurrency === i.payoutCurrency) amount = net;
+  else if (i.taskCurrency === 'KRW') amount = Math.round(net * i.rateKrwPerJpy);
+  else amount = Math.round(net / i.rateKrwPerJpy);
+  return { cost: { amount, currency: i.taskCurrency }, paid, paidCurrency: i.payoutCurrency, feeAmount: paid - net };
+}
+
+// 작업 금액을 바꾸면 캠페인 집행액(원화 환산)이 얼마나 바뀌나 — 맞추기 창 하단 `{캠페인} 집행액이 {±n원} 돼요`
+export function budgetDeltaKrw(before: TaskCost | null, after: TaskCost): number {
+  const krw = (c: TaskCost) => (c.currency === 'KRW' ? c.amount : c.amount * JPY_TO_KRW);
+  return krw(after) - (before ? krw(before) : 0);
 }
 
 // ── 데드라인(§3-4, koo 2026-09-14 개정) — 요청일이 속한 주의 **다음 주 월요일**(그날 23:59까지; 날짜 필드라 그날 안이면 된다).

@@ -6,9 +6,9 @@ import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPE_LABEL } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
 import { describeSnapshot } from '@/lib/settlementCalc';
-import { displayStatus, TONE_CLASS, taskPaidMismatch, requestCostOf, usdText } from '@/lib/settlementDisplay';
+import { displayStatus, TONE_CLASS, taskPaidMismatch, requestCostOf } from '@/lib/settlementDisplay';
 import { sameTaskCost } from '@/lib/campaignCost';
-import { CELL, NUM, TYPE_CHIP, METHOD_CHIP, signedMoney } from './tableStyle';
+import { CELL, COLS, NUM, TYPE_CHIP, METHOD_CHIP, signedMoney } from './tableStyle';
 import { proofUploadedLine } from '@/lib/taskProofGuard';
 import { signPaymentQrUrl } from '@/lib/paymentQr';
 import { ImageLightbox } from '@/components/ImageLightbox';
@@ -31,12 +31,9 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
   // 표 한 줄 = 요청 하나, 칸마다 값 하나(koo 09-28) — 수수료는 송금액에 합치고 내역은 title로.
   const sendTitle = r.feeAmount > 0 ? `순액 ${formatMoney(r.amountNet, r.payoutCurrency)} + 송금 수수료 ${formatMoney(r.feeAmount, r.payoutCurrency)}` : undefined;
   const hasPaid = paid && r.paidAmountKrw !== null;
-  // 정산팀 지급 — 판정에 쓰는 통화로(원화 지급=원화, 엔화 지급+엔화 값=엔화, 그 밖=원화). 다른 통화 값은 title로
+  // 정산팀 지급 — 판정에 쓰는 통화로(원화 지급=원화, 엔화 지급+엔화 값=엔화, 그 밖=원화).
   const paidCell = !hasPaid ? null
     : r.payoutCurrency === 'JPY' && r.paidAmountJpy !== null ? formatMoney(r.paidAmountJpy, 'JPY') : formatMoney(r.paidAmountKrw as number, 'KRW');
-  const paidTitle = !hasPaid ? undefined
-    : r.paidAmountUsd !== null ? `달러 ${usdText(r.paidAmountUsd)}`
-    : r.paidAmountJpy !== null ? `원화 ${formatMoney(r.paidAmountKrw as number, 'KRW')}` : undefined;
   return (
     <>
       <tr onClick={onToggle} aria-expanded={open} className={`cursor-pointer text-[15px] hover:bg-x-hover ${open ? 'bg-x-hover/60' : ''}`}>
@@ -44,11 +41,11 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
         <td className={CELL}><span className={TYPE_CHIP[r.taskType]}>{TASK_TYPE_LABEL[r.taskType]}</span></td>
         <td className={`${CELL} ${NUM}`}>
           {r.taskCost ? formatMoney(r.taskCost.amount, r.taskCost.currency) : <span className="text-x-muted">—</span>}
-          {showReqCost && <span className="block text-caption text-x-muted">요청 {formatMoney(reqCost.amount, reqCost.currency)}</span>}
+          {showReqCost && <span className="block text-ui text-x-muted">요청 {formatMoney(reqCost.amount, reqCost.currency)}</span>}
         </td>
         <td className={`${CELL} ${NUM}`} title={sendTitle}>{formatMoney(r.amountGross, r.payoutCurrency)}</td>
         {/* 옅은 세로선 — 왼쪽은 우리가 보낸 값, 오른쪽은 정산팀이 알려 준 결과 */}
-        <td className={`${CELL} ${NUM} border-l border-x-border`} title={paidTitle}>{paidCell ?? <span className="text-x-muted">—</span>}</td>
+        <td className={`${CELL} ${NUM} border-l border-x-border`}>{paidCell ?? <span className="text-x-muted">—</span>}</td>
         <td className={`${CELL} ${NUM}`}>
           {mm ? <span className="text-amber-700">{signedMoney(mm.diff, mm.currency)}</span> : <span className="text-x-muted">—</span>}
         </td>
@@ -67,7 +64,7 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
         <td className={`${CELL} w-8 text-x-muted`} aria-hidden>{open ? '▾' : '▸'}</td>
       </tr>
       {open && (
-        <tr><td colSpan={9} className="px-4 pb-4">
+        <tr><td colSpan={COLS} className="px-4 pb-4">
         <div className="rounded-xl bg-x-surface p-4 text-ui">
           <dl className="grid grid-cols-[96px_1fr] gap-x-4 gap-y-1.5">
             <Item k="요청자" v={r.requesterName} />

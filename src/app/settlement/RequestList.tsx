@@ -10,12 +10,11 @@ import { ReviseDialog } from './ReviseDialog';
 import { MatchDialog } from './MatchDialog';
 import { KeepDialog } from './KeepDialog';
 import { uniqPairs } from './uniqPairs';
-import { HEAD, GROUP, groupByCampaign } from './tableStyle';
+import { HEAD, GROUP, COLS, groupByCampaign } from './tableStyle';
 import { STATUS_GROUP_OPTIONS, inGroup, keyOf, taskPaidMismatch, type StatusGroup } from '@/lib/settlementDisplay';
 import { kstDate } from '@/lib/datetime';
 
 const SEL = 'rounded-lg border border-x-border bg-white px-2.5 py-1.5 text-ui';
-const COLS = 9;   // 인플루언서 | 유형 | 작업 금액 | 송금액 | 정산팀 지급 | 차이 | 결제 수단 | 상태 · 처리 | ▸ (스펙 2026-10-07 §8-3)
 
 type RequestFilter = { clientId: string; campaignId: string; status: StatusGroup; from: string; to: string };
 const NO_FILTER: RequestFilter = { clientId: '', campaignId: '', status: '', from: '', to: '' };

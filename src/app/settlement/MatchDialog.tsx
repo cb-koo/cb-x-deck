@@ -22,7 +22,7 @@ export function MatchDialog({ target, onDone, onClose }: { target: PaymentReques
   });
   const [amount, setAmount] = useState(suggestion ? String(suggestion.cost.amount) : '');
   const [currency, setCurrency] = useState<Currency>(current.currency);
-  const [reason, setReason] = useState(target.externalNote ?? '');
+  const [reason, setReason] = useState((target.externalNote ?? '').slice(0, RECONCILE_REASON_MAX));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   useEffect(() => {
@@ -72,7 +72,7 @@ export function MatchDialog({ target, onDone, onClose }: { target: PaymentReques
                     value={reason} onChange={(e) => { setReason(e.target.value); setErr(''); }} />
         </label>
         {target.externalNote && <p className="mt-1 text-ui text-x-muted">정산팀 메모를 먼저 넣어 뒀어요. 고쳐 써도 돼요.</p>}
-        {changes && next && (
+        {changes && next && budgetDeltaKrw(current, next) !== 0 && (
           <p className="mt-3 text-ui text-x-secondary tabular-nums">{target.campaignName} 집행액이 {signedMoney(budgetDeltaKrw(current, next), 'KRW')} 돼요</p>
         )}
         {err && <p role="alert" className="mt-2 text-ui text-red-700">{err}</p>}

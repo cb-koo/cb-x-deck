@@ -35,8 +35,8 @@ export function SidebarRow({ c, title, suffix, today, selected, menuOpen, top = 
     <div className={`group relative mx-2 h-11 rounded-[8px] ${selected ? 'bg-[#eef1f3]' : menuOpen ? 'bg-[#f5f7f8]' : 'hover:bg-[#f5f7f8]'}`}>
       <button type="button" onClick={onSelect} aria-current={selected ? 'true' : undefined}
               className={`flex h-full w-full items-center pr-2 text-left text-[#0f1419] ${top ? 'pl-2' : 'pl-[26px]'}`}>
-        {/* 점 + 판단 말풍선 — 점 둘레 24px가 마우스 자리(7px 점만으론 맞추기 어렵다). 음수 여백으로 점 자리·간격(오른쪽 10px)은 시안 그대로. */}
-        <span className="group/dot relative ml-[-8.5px] mr-[1.5px] flex h-6 w-6 shrink-0 items-center justify-center">
+        {/* 점 + 판단 말풍선 — 점 둘레 23x24px가 마우스 자리(7px 점만으론 맞추기 어렵다). 음수 여백으로 점 자리·간격(오른쪽 10px)은 시안 그대로. */}
+        <span className="group/dot relative ml-[-8px] mr-[2px] flex h-6 w-[23px] shrink-0 items-center justify-center">
           <span aria-hidden className={`h-[7px] w-[7px] rounded-full ${DOT_STYLE[dot]}`} />
           <span className="sr-only">{reason}</span>
           <span aria-hidden

@@ -4,6 +4,7 @@ import type { PaymentRequestRow, RevisionHistoryRow } from '@/lib/settlementStor
 import { fetchRevisions } from '@/lib/settlementApi';
 import { formatMoney } from '@/lib/influencerPricing';
 import { ChangeEntry } from '@/components/ChangeEntry';
+import { CARD_BOX } from './expandStyle';
 
 // 개정 이력 블록(스펙 2026-09-07 §6) — 고친 요청에만. 모양은 작업 금액 변경 이력과 같다(시각·사람 / 전→후 / 사유, 스펙 2026-10-07 §8-6).
 export function RevisionHistory({ r }: { r: PaymentRequestRow }) {
@@ -16,10 +17,11 @@ export function RevisionHistory({ r }: { r: PaymentRequestRow }) {
   }, [r.id, r.revision]);
   if (r.revision === 0) return null;
   return (
-    <section className="mt-4 border-t border-x-border pt-3">
-      <h3 className="text-[14px] font-semibold">개정 이력 <span className="font-normal text-x-muted">· 지금은 {r.revision + 1}판</span></h3>
-      {!rows ? <p className="mt-1 text-[14px] text-x-muted">불러오는 중…</p> : (
-        <ol className="mt-1 divide-y divide-x-border/60">
+    // 고친 요청에만 — 펼침의 두 카드 아래 흰 카드 한 장(10-07 koo QA)
+    <section className={`${CARD_BOX} gap-1`}>
+      <h3 className="text-[16px] font-bold">개정 이력 <span className="text-[14px] font-normal text-x-muted">· 지금은 {r.revision + 1}판</span></h3>
+      {!rows ? <p className="text-[14px] text-x-muted">불러오는 중…</p> : (
+        <ol className="divide-y divide-x-border">
           {rows.map((h, i) => {
             const next = rows[i + 1]?.snapshot ?? r;   // 다음 판 = 이력의 다음 행, 마지막이면 지금 요청
             return (

@@ -1,7 +1,7 @@
 // src/lib/settlementDisplay.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { displayStatus, inGroup, paidText, usdText, EXTERNAL_STATUS_LABEL, STATUS_GROUP_OPTIONS, type StatusSource } from './settlementDisplay.ts';
+import { displayStatus, inGroup, paidText, usdText, EXTERNAL_STATUS_LABEL, STATUS_GROUP_OPTIONS, paidSummary, requestSummarySub, type StatusSource } from './settlementDisplay.ts';
 
 // 원화 지급·수수료 없음 기준 — 작업 31,650원 = 송금 31,650원
 const base: StatusSource = { status: 'requested', externalStatus: null, externalNote: null, externalUpdatedAt: null, createdAt: '2026-08-28T03:00:00Z', cancelledAt: null,
@@ -93,4 +93,23 @@ test('엔화로 보낸 건 — 엔화 값이 요청대로면 원화가 달라도
   assert.equal(displayStatus({ ...jpy, paidAmountJpy: 4500 }, 'list').key, 'paid_diff');
   // 달러 지급(엔화 값 없음) — 비율 42,993 ÷ 50,000 = 0.86, 환율로 설명된다
   assert.equal(displayStatus({ ...jpy, paidAmountJpy: null }, 'list').key, 'paid');
+});
+
+// 펼침 요약 카드(10-07 koo QA) — '정산팀 지급' 금액 + 보조 한 줄
+test('paidSummary — 지급 통화별 금액·보조 줄', () => {
+  const paid = { ...ext('paid'), paidAt: '2026-08-29T03:00:00Z' };
+  assert.deepEqual(paidSummary({ ...paid, paidAmountKrw: 31650 }), { amount: '31,650원', sub: null });
+  assert.deepEqual(paidSummary({ ...paid, payoutCurrency: 'JPY', paidAmountKrw: 42450, paidAmountJpy: 5000 }), { amount: '5,000엔', sub: '원화 42,450원 · 환율 1엔 = 8.49원' });
+  assert.deepEqual(paidSummary({ ...paid, payoutCurrency: 'JPY', paidAmountKrw: 139758, paidAmountUsd: 104.08 }), { amount: '139,758원', sub: '달러 $104.08로 송금 · 원화는 정산팀 환산값' });
+  assert.deepEqual(paidSummary({ ...paid, payoutCurrency: 'JPY', paidAmountKrw: 43000 }), { amount: '43,000원', sub: '원화는 정산팀 환산값' });
+});
+test('paidSummary — 지급 전이면 금액 없음 + 상태 문구', () => {
+  assert.deepEqual(paidSummary(base), { amount: null, sub: '정산팀이 아직 확인하지 않았어요' });
+  assert.deepEqual(paidSummary(ext('scheduled')), { amount: null, sub: '지급 예정' });
+  assert.deepEqual(paidSummary(ext('paid')), { amount: null, sub: '지급 완료' });   // 지급 원화가 아직 없음
+  assert.deepEqual(paidSummary({ ...base, status: 'cancelled', cancelledAt: '2026-08-30T03:00:00Z' }), { amount: null, sub: '취소됨 8/30' });
+});
+test('requestSummarySub — 엔화로 보낼 때만 요청 환율', () => {
+  assert.equal(requestSummarySub(base), '요청 송금액 31,650원');
+  assert.equal(requestSummarySub({ ...base, payoutCurrency: 'JPY', amountGross: 5000, rateKrwPerJpy: 10 }), '요청 송금액 5,000엔 · 환율 1엔 = 10원');
 });

@@ -235,6 +235,26 @@ export function paidFxRateText(s: { paidAmountKrw: number | null; paidAmountJpy:
   return `환율 1엔 = ${(s.paidAmountKrw / s.paidAmountJpy).toFixed(2)}원`;
 }
 
+// 펼침 요약 카드(10-07 koo QA) — '작업 금액' 아래 보조 줄. 요청 환율은 엔화로 보낼 때만 뜻이 있다(원화 건에 엔 환율이 보이면 모순).
+export function requestSummarySub(s: { payoutCurrency: Currency; amountGross: number; rateKrwPerJpy: number }): string {
+  const sent = `요청 송금액 ${formatMoney(s.amountGross, s.payoutCurrency)}`;
+  return s.payoutCurrency === 'JPY' ? `${sent} · 환율 1엔 = ${s.rateKrwPerJpy}원` : sent;
+}
+// 펼침 요약 카드의 '정산팀 지급' — 금액은 표의 '정산팀 지급' 칸과 같은 통화(원화 지급=원화, 엔화+엔화 값=엔화, 그 밖=원화).
+// 아직 지급 전이면 금액 없이 상태 문구만.
+export function paidSummary(s: StatusSource): { amount: string | null; sub: string | null } {
+  if (s.status === 'cancelled' || s.externalStatus !== 'paid' || s.paidAmountKrw === null) {
+    const sub = s.status === 'cancelled' ? displayStatus(s, 'list').label
+      : s.externalStatus ? EXTERNAL_STATUS_LABEL[s.externalStatus] : '정산팀이 아직 확인하지 않았어요';
+    return { amount: null, sub };
+  }
+  const krw = formatMoney(s.paidAmountKrw, 'KRW');
+  if (s.paidAmountUsd !== null) return { amount: krw, sub: `달러 ${usdText(s.paidAmountUsd)}로 송금 · 원화는 정산팀 환산값` };
+  if (s.payoutCurrency === 'KRW') return { amount: krw, sub: null };
+  if (s.paidAmountJpy !== null) return { amount: formatMoney(s.paidAmountJpy, 'JPY'), sub: [`원화 ${krw}`, paidFxRateText(s)].filter(Boolean).join(' · ') };
+  return { amount: krw, sub: '원화는 정산팀 환산값' };
+}
+
 // 정산팀 취소가 남긴 처리자 이름은 저장값이 '정산 프로덕트'다(정산팀 API로도 나가는 값이라 바꾸지 않는다) — 화면에서만 정산팀으로
 export const partnerNameLabel = (name: string | null): string | null => (name === '정산 프로덕트' ? '정산팀' : name);
 

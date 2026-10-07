@@ -5,9 +5,9 @@ import type { PaymentRequestRow } from '@/lib/settlementStore';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPE_LABEL } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
-import { describeSnapshot } from '@/lib/settlementCalc';
-import { displayStatus, TONE_CLASS, taskPaidMismatch, requestCostOf, partnerNameLabel } from '@/lib/settlementDisplay';
-import { kstMonthDayTimeKo } from '@/lib/datetime';
+import { methodLine } from '@/lib/settlementCalc';
+import { displayStatus, TONE_CLASS, taskPaidMismatch, requestCostOf, partnerNameLabel, paidSummary, requestSummarySub } from '@/lib/settlementDisplay';
+import { kstMonthDayTimeKo, asDateOnly, dateOnlyMonthDayKo } from '@/lib/datetime';
 import { sameTaskCost } from '@/lib/campaignCost';
 import { CELL, COLS, NUM, TYPE_CHIP, METHOD_CHIP, signedMoney } from './tableStyle';
 import { proofUploadedLine } from '@/lib/taskProofGuard';
@@ -16,6 +16,7 @@ import { ImageLightbox } from '@/components/ImageLightbox';
 import { PartnerResultBlock } from './PartnerResultBlock';
 import { RevisionHistory } from './RevisionHistory';
 import { ReconcileRecord } from './ReconcileRecord';
+import { CARD, CARD_HEAD, CARD_META, ROW, ROW_KEY, GROUP, GROUP_TITLE, DIVIDER, SUB } from './expandStyle';
 
 export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle, onCancel, onRevise, onMatch, onKeep, onChanged }: {
   r: PaymentRequestRow; open: boolean; proofSignedUrl: string | null; revisionEnabled: boolean;
@@ -36,6 +37,7 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
   // 정산팀 지급 — 판정에 쓰는 통화로(원화 지급=원화, 엔화 지급+엔화 값=엔화, 그 밖=원화).
   const paidCell = !hasPaid ? null
     : r.payoutCurrency === 'JPY' && r.paidAmountJpy !== null ? formatMoney(r.paidAmountJpy, 'JPY') : formatMoney(r.paidAmountKrw as number, 'KRW');
+  const paidSum = paidSummary(r);
   return (
     <>
       <tr onClick={onToggle} aria-expanded={open} className={`cursor-pointer text-[15px] hover:bg-x-hover ${open ? 'bg-x-hover/60' : ''}`}>
@@ -67,27 +69,27 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
       </tr>
       {open && (
         <tr><td colSpan={COLS} className="px-4 pb-4">
-        <div className="rounded-xl bg-x-surface p-4 text-[14px]">
-          {/* 좌우 두 블록(스펙 2026-10-07 §8-6) — 요청자·클리닉은 표·묶음 머리와 겹쳐 뺐다 */}
-          <div className="grid gap-6 md:grid-cols-2">
-            <section>
-              <h3 className="text-[14px] font-semibold">우리가 보낸 요청</h3>
-              <dl className="mt-2 grid grid-cols-[96px_1fr] gap-x-4 gap-y-1.5">
-                <Item k="분류" v={r.category} sub={r.categoryDefault && r.categoryDefault !== r.category ? `미리 채운 값: ${r.categoryDefault}` : undefined} />
-                {/* 금액은 통화별로 줄을 나눈다(koo 09-01). '원화' 줄은 엔화로 보낼 때만 */}
-                <Item k="송금액" v={formatMoney(r.amountGross, r.payoutCurrency)}
-                      sub={r.feeAmount > 0 ? `순액 ${formatMoney(r.amountNet, r.payoutCurrency)} + 송금 수수료 ${formatMoney(r.feeAmount, r.payoutCurrency)}` : undefined} />
-                {r.payoutCurrency === 'JPY' && (
-                  <Item k="원화"
-                        v={r.grossKrw !== r.amountKrw ? `실지출 ${formatMoney(r.grossKrw, 'KRW')}` : formatMoney(r.amountKrw, 'KRW')}
-                        sub={[
-                          r.grossKrw !== r.amountKrw ? `단가 ${formatMoney(r.amountKrw, 'KRW')} + 송금 수수료 ${formatMoney(r.grossKrw - r.amountKrw, 'KRW')}` : null,
-                          `환율 1엔 = ${r.rateKrwPerJpy}원`,
-                        ].filter(Boolean).join(' · ')} />
-                )}
-                <Item k="데드라인" v={r.deadlineOn} />
+        {/* 펼침(10-07 koo QA 시안 A) — 옅은 회색 바탕 위 흰 카드: 금액 비교 요약 → 두 카드(우리가 보낸 요청 / 정산팀이 보낸 결과) → 개정 이력 → 맨 아래 한 줄 */}
+        <div className="flex flex-col gap-4 rounded-[14px] bg-x-surface p-5">
+          <section className="flex flex-col gap-4 rounded-xl border border-x-border bg-white px-[22px] py-[18px] md:flex-row md:items-center md:gap-0">
+            <SummaryAmount label="작업 금액" amount={r.taskCost ? formatMoney(r.taskCost.amount, r.taskCost.currency) : null}
+                           sub={requestSummarySub(r)} subTitle={sendTitle} />
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                 aria-hidden className="hidden shrink-0 text-[#9aa5ad] md:mx-7 md:block"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+            <SummaryAmount label="정산팀 지급" amount={paidSum.amount} sub={paidSum.sub} warn={!!mm} />
+            <ReconcileRecord r={r} mismatch={!!mm} onKeep={onKeep} onMatch={onMatch} onChanged={onChanged} />
+          </section>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <section className={CARD}>
+              <div className={CARD_HEAD}>
+                <h3 className="text-[16px] font-bold">우리가 보낸 요청</h3>
+                <span className={CARD_META}>{[r.requesterName, kstMonthDayTimeKo(r.createdAt)].filter(Boolean).join(' · ')}</span>
+              </div>
+              <div className={GROUP}>
+                <div className={GROUP_TITLE}>지급 정보</div>
                 {/* 정산팀이 이번 건의 수취 정보를 고친 경우(056·057) — 이 요청과 인플루언서 명부에 함께 반영된다 */}
-                <Item k="결제수단" v={describeSnapshot(r.paymentMethod)}
+                <Item k="결제 수단" v={methodLine(r.paymentMethod)}
                       sub={(r.paymentMethodCorrection || r.paymentMethod.qr)
                         ? <>
                             {r.paymentMethodCorrection && (
@@ -101,8 +103,13 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
                             )}
                           </>
                         : undefined} />
-                <Item k="참고자료" v={r.referenceUrl ? <a href={r.referenceUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline break-all">{r.referenceUrl}</a> : '—'}
-                      sub={r.referenceUrl && r.taskType !== 'rt' ? '이 링크가 정산팀 확인 자료예요' : undefined} />
+                <Item k="마감" v={dateOnlyMonthDayKo(asDateOnly(r.deadlineOn))} />
+              </div>
+              <div className={DIVIDER} />
+              <div className={GROUP}>
+                <div className={GROUP_TITLE}>확인 자료</div>
+                <Item k="게시물" v={r.referenceUrl ? <a href={r.referenceUrl} target="_blank" rel="noreferrer" className="break-all text-x-blue-text hover:underline">{r.referenceUrl}</a> : <span className="text-x-muted">—</span>}
+                      sub={r.referenceUrl && r.taskType !== 'rt' ? '정산팀이 이 링크로 게시를 확인해요' : undefined} />
                 {/* 증빙이 필요 없는 유형엔 줄 자체를 안 그린다(리뷰 수정 4) */}
                 {(r.taskType === 'rt' || r.proof) && (
                   <Item k="증빙" v={r.proof
@@ -111,34 +118,46 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
                       ? <img src={proofSignedUrl} alt="증빙 스크린샷" onClick={() => setZoom(true)}
                              className="h-16 w-16 cursor-zoom-in rounded border border-x-border object-cover" />
                       : '있음')
-                    : '—'} sub={<>{r.proof ? proofUploadedLine(r.proof.byName, r.proof.at) : null}
-                                  <div className="text-x-muted">
+                    : <span className="text-x-muted">—</span>} sub={<>{r.proof ? proofUploadedLine(r.proof.byName, r.proof.at) : null}
+                                  <div>
                                     {r.taskType === 'rt'
                                       ? (r.proof ? '정산팀도 이 증빙을 봐요' : '증빙을 올리면 정산팀에도 자동으로 전달돼요')
                                       : '정산에는 안 보내요 (우리 보관용)'}
                                   </div></>} />
                 )}
-                <Item k="메모" v={r.note || '—'} />
-              </dl>
-              {/* 항목·목적은 정산팀에 나간 문구라 확인할 일이 있어 맨 아래 흐린 글씨로 남긴다(§8-6) */}
-              <p className="mt-2 text-x-muted">정산팀에 보낸 문구: {r.itemText} · {r.purposeText}</p>
+              </div>
+              <div className={DIVIDER} />
+              {/* 정산팀에 나간 문구 그대로 — 분류 / 항목 · 목적(확인할 일이 있어 남긴다) */}
+              <div className={GROUP}>
+                <div className={GROUP_TITLE}>정산팀에 보낸 문구</div>
+                <div className={`${SUB} leading-[1.55]`}>
+                  <div>{r.category}</div>
+                  <div>{r.itemText} · {r.purposeText}</div>
+                </div>
+              </div>
+              {r.note && (
+                <>
+                  <div className={DIVIDER} />
+                  <Item k="메모" v={r.note} />
+                </>
+              )}
             </section>
             <PartnerResultBlock r={r} />
           </div>
-          <ReconcileRecord r={r} onChanged={onChanged} />
+
           <RevisionHistory r={r} />
-          <div className="mt-3 flex items-center justify-between gap-3 text-x-muted">
-            <span>만든 사람 {r.requesterName} · {kstMonthDayTimeKo(r.createdAt)}
-              {cancelled && <> · <span className="text-x-secondary">{['취소', partnerNameLabel(r.cancelledByName), kstMonthDayTimeKo(r.cancelledAt), r.cancelReason].filter(Boolean).join(' · ')}</span></>}
-            </span>
-            {!cancelled && (paid
-              ? <span className="text-x-secondary">지급 완료된 요청은 취소·수정할 수 없어요 — 정산팀에 알려 주세요</span>
-              : (
-                <span className="flex items-center gap-2">
-                  {revisionEnabled && <Button onClick={onRevise} title="프로필·캠페인에서 고친 값을 이 요청에 반영해요 — 정산팀에는 같은 건의 수정으로 전달돼요">고친 값으로 다시 반영</Button>}
-                  <Button onClick={onCancel}>취소</Button>
-                </span>
-              ))}
+
+          <div className="flex flex-wrap items-center justify-end gap-3 text-[14px] text-x-muted">
+            {cancelled
+              ? <span>{['취소', partnerNameLabel(r.cancelledByName), kstMonthDayTimeKo(r.cancelledAt), r.cancelReason].filter(Boolean).join(' · ')}</span>
+              : paid
+                ? <span>지급이 끝난 요청은 취소하거나 고칠 수 없어요 — 정산팀에 알려 주세요</span>
+                : (
+                  <span className="flex items-center gap-2">
+                    {revisionEnabled && <Button onClick={onRevise} title="프로필·캠페인에서 고친 값을 이 요청에 반영해요 — 정산팀에는 같은 건의 수정으로 전달돼요">고친 값으로 다시 반영</Button>}
+                    <Button onClick={onCancel}>취소</Button>
+                  </span>
+                )}
           </div>
         </div>
         {zoom && proofSignedUrl && <ImageLightbox urls={[proofSignedUrl]} index={0} onIndexChange={() => {}} onClose={() => setZoom(false)} />}
@@ -147,8 +166,23 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
     </>
   );
 }
+// 펼침 요약 카드의 금액 한 칸 — 라벨(흐림) / 금액 22px 굵게 / 보조 한 줄. 금액이 없으면 '—'.
+function SummaryAmount({ label, amount, sub, subTitle, warn }: { label: string; amount: string | null; sub: string | null; subTitle?: string; warn?: boolean }) {
+  return (
+    <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <span className="text-[14px] text-x-muted">{label}</span>
+      <span className={`text-[22px] font-bold tabular-nums ${amount === null ? 'text-x-muted' : warn ? 'text-amber-700' : ''}`}>{amount ?? '—'}</span>
+      {sub && <span className="text-[14px] text-x-muted tabular-nums" title={subTitle}>{sub}</span>}
+    </div>
+  );
+}
 function Item({ k, v, sub }: { k: string; v: React.ReactNode; sub?: React.ReactNode }) {
-  return (<><dt className="text-x-secondary">{k}</dt><dd className="min-w-0">{v}{sub && <div className="text-x-muted">{sub}</div>}</dd></>);
+  return (
+    <div className={ROW}>
+      <span className={ROW_KEY}>{k}</span>
+      <div className="min-w-0">{v}{sub && <div className={SUB}>{sub}</div>}</div>
+    </div>
+  );
 }
 
 // 명부(PaymentSection.tsx QrPreviewCell)와 같은 모양 — 마운트 시 한 번 서명해 작은 미리보기를

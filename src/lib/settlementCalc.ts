@@ -185,6 +185,17 @@ export function describeSnapshot(m: PaymentMethodSnapshot): string {
   return `${PAYMENT_TYPE_LABEL[m.type]} | ${m.holder} | ${ident}`;
 }
 
+// 화면용 한 줄(정산 요청 펼침·작업 패널) — 슬랙 양식과 같은 정보를 ` · `로, 빈 칸은 뺀다(`PayPay | A | ` 같은 깨진 모양 방지, 10-07 koo QA).
+// 조각에서 바로 만든다 — describeSnapshot 문자열을 쪼개면 계좌의 빈 지점(` /  / `)이 남는다.
+export function methodLine(m: PaymentMethodSnapshot): string {
+  const t = (x: string | undefined) => (x ?? '').trim();
+  let ident = '';
+  if (m.type === 'paypal') ident = t(m.email) || (m.paypalId ? `paypal.me/${m.paypalId}` : '');
+  else if (m.type === 'paypay') ident = t(m.identifier) || (m.qr ? 'QR 등록됨' : '');
+  else ident = [t(m.bank), t(m.branch), t(m.account)].filter(Boolean).join(' / ');
+  return [PAYMENT_TYPE_LABEL[m.type], t(m.holder), ident].filter(Boolean).join(' · ');
+}
+
 // ── 후보 한 건(§2-4 + §3 전부) ──
 export interface CandidateInput {
   task: { id: string; type: TaskType; influencerHandle: string; cost: TaskCost; postUrl: string | null; targetTweetUrl: string | null; targetPostUrl: string | null; postedAt: string; removedAt: string | null; removedReason: string; draftLabel: string | null; proof: TaskProof | null;

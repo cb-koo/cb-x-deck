@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import {
-  cancelRequest, ackDiff, unackDiff, reviseRequest, matchTaskCostToPaid, keepTaskCost, undoKeepTaskCost,
+  cancelRequest, reviseRequest, matchTaskCostToPaid, keepTaskCost, undoKeepTaskCost,
   type RevisionEdits, type ReconcileExpect, type ReconcileFailure, type PaymentRequestRow,
 } from '@/lib/settlementStore';
 import { REVISION_FAILURE_MESSAGE } from '@/lib/settlementRevisionCopy';
@@ -35,15 +35,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
   const body = (await req.json().catch(() => ({}))) as { action?: unknown; reason?: unknown };
-
-  if (body.action === 'ack-diff' || body.action === 'unack-diff') {
-    const r = body.action === 'ack-diff'
-      ? await ackDiff(getSql(), id, { name: gate.member.name })
-      : await unackDiff(getSql(), id);
-    if (r === 'not-found') return NextResponse.json({ error: NOT_FOUND_MESSAGE }, { status: 404 });
-    if (r === 'no-diff') return NextResponse.json({ error: '확인할 차액이 없어요 — 화면을 새로고침해 주세요' }, { status: 409 });
-    return NextResponse.json(r);
-  }
 
   // 정산팀 지급 금액 ≠ 작업 금액 처리(스펙 2026-10-07 §5) — 판정·경합은 스토어(lockForReconcile), 여기는 입력 모양·HTTP 매핑만
   if (body.action === 'match-task-cost' || body.action === 'keep-task-cost') {

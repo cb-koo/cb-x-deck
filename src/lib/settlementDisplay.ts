@@ -30,36 +30,6 @@ export const TONE_CLASS: Record<DisplayTone, string> = {
 const NOTE_PREVIEW = 20;
 const preview = (note: string | null) => (note ? (note.length > NOTE_PREVIEW ? `${note.slice(0, NOTE_PREVIEW)}…` : note) : null);
 
-// 차액 = 그쪽 실지급액 − 우리가 실제로 보낸 금액, **보낸 통화로**(koo 09-28). 원화끼리 비교하면 요청 때의 고정 환율
-// (1엔 = JPY_TO_KRW원)과 정산 쪽 실제 환율 차이가 전부 차액으로 잡혀 거의 모든 엔화 건이 경고였다(09-28 23건 전부 환율 차이).
-//  · 원화로 보낸 건: 원화끼리(실지급 원화 − 송금액 원화)
-//  · 엔화로 보낸 건: 그쪽이 엔화 실지급을 알려 줬을 때만 엔화끼리. 달러(PayPal)로 보냈거나 엔화 값이 없으면 비교하지 않는다(null) —
-//    원화 차이는 환율 차이라 참고 정보(fxDiffKrw)로만 보인다. PayPal 오지급이 실제로 생기면 그쪽에 엔화 기준값도 보내 달라고 한다.
-// 아직 지급 전이면 null.
-export interface PayoutDiff { amount: number; currency: 'KRW' | 'JPY' }
-export function payoutDiff(s: Pick<StatusSource, 'paidAmountKrw' | 'grossKrw' | 'payoutCurrency' | 'amountGross' | 'paidAmountJpy'>): PayoutDiff | null {
-  if (s.payoutCurrency === 'KRW') return s.paidAmountKrw === null ? null : { amount: s.paidAmountKrw - s.grossKrw, currency: 'KRW' };
-  return s.paidAmountJpy === null ? null : { amount: s.paidAmountJpy - s.amountGross, currency: 'JPY' };
-}
-// 환율 차이(원화) — 엔화로 보낸 건의 '실지급 원화 − 요청 원화'. 경고가 아니라 참고(회색). 원화 지급이면 null(환율이 없다).
-export function fxDiffKrw(s: Pick<StatusSource, 'paidAmountKrw' | 'grossKrw' | 'payoutCurrency'>): number | null {
-  return s.payoutCurrency === 'JPY' && s.paidAmountKrw !== null ? s.paidAmountKrw - s.grossKrw : null;
-}
-
-// 차액이 있는 지급인가 — 지급 완료 + 보낸 통화로 비교 가능 + 차액 ≠ 0. 취소된 요청은 대상이 아니다.
-// 화면 배지(needsDiffAck)와 서버의 확인 가드(settlementStore.ackDiff)가 이 한 함수를 쓴다 — 판정이 두 곳에
-// 따로 있으면 한쪽만 바뀌어 어긋난다(09-02 순액·송금액 결함과 같은 종류). 기준(예: 1원 이내 무시)을 바꿀 자리도 여기 하나.
-export function hasPaidDiff(s: Pick<StatusSource, 'status' | 'externalStatus' | 'paidAmountKrw' | 'grossKrw' | 'payoutCurrency' | 'amountGross' | 'paidAmountJpy'>): boolean {
-  if (s.status === 'cancelled' || s.externalStatus !== 'paid') return false;
-  const d = payoutDiff(s);
-  return d !== null && d.amount !== 0;
-}
-
-// 담당자 확인이 필요한가 — 차액 있음 + 아직 확인 안 함.
-export function needsDiffAck(s: StatusSource): boolean {
-  return hasPaidDiff(s) && !s.diffAckAt;
-}
-
 export function keyOf(s: StatusSource): DisplayKey {
   if (s.status === 'cancelled') return 'cancelled';
   switch (s.externalStatus) {

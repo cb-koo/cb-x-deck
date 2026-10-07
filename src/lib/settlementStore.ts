@@ -14,7 +14,7 @@ import { SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, categoryBySendAs, type
 import { computeCandidate, effectiveIssues, toMethodSnapshot, NO_CLIENT_TEXT, NO_INFLUENCER_TEXT, type SettlementCandidate, type PaymentMethodSnapshot } from './settlementCalc.ts';
 import { mergePaymentMethodCorrection, type PaymentInfoCorrection, type RosterSkipReason } from './settlementPaymentCorrection.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
-import { hasPaidDiff, needsPartnerConfirm, taskPaidMismatch, type DiffAckKind } from './settlementDisplay.ts';
+import { needsPartnerConfirm, taskPaidMismatch, type DiffAckKind } from './settlementDisplay.ts';
 import { isRevisionV2 } from './settlementRevisionFlag.ts';
 import { exportIncludesTestFixtures, TEST_FIXTURE_HANDLE_PG } from './settlementTestFixture.ts';
 import { effectiveIssues as gateIssues, type ReadinessIssue } from './settlementCalc.ts';   // 순수 모듈(campaignTaskStore는 type import만) — 화면 배지와 같은 차액 판정
@@ -519,7 +519,7 @@ export async function applyExternalStatus(sql: postgres.Sql, id: string, u: Stat
     const keepJpy = c.paid_amount_jpy === null ? null : Number(c.paid_amount_jpy);
     const nextUsd = u.paidAmountUsd !== null ? u.paidAmountUsd : clearUsd ? null : keepUsd;
     const nextJpy = u.paidAmountJpy !== null ? u.paidAmountJpy : clearJpy ? null : keepJpy;
-    // 엔화 실지급도 차액 판정 입력이다(payoutDiff, koo 09-28) — 원화든 엔화든 바뀌면 이전 확인은 다른 금액에 대한 확인이다.
+    // 엔화 실지급도 차액 판정 입력이다(taskPaidMismatch, koo 09-28) — 원화든 엔화든 바뀌면 이전 확인은 다른 금액에 대한 확인이다.
     const paidAmountChanged = u.paidAmountKrw !== c.paid_amount_krw || nextJpy !== keepJpy;
     await tx`
       update payment_request
@@ -544,37 +544,6 @@ export async function applyExternalStatus(sql: postgres.Sql, id: string, u: Stat
     }
     return { kind: 'applied', row };
   });
-}
-
-// 차액 확인 — 우리 내부 표시다. updated_at을 건드리지 않는다(그쪽 폴링에 무의미한 변경이 흘러가면 안 된다).
-// 사유는 받지 않는다(koo 결정 09-01: 사유는 정산 쪽 메모만 쓴다).
-export async function ackDiff(sql: postgres.Sql, id: string, by: { name: string }): Promise<PaymentRequestRow | 'not-found' | 'no-diff'> {
-  if (!isUuidLike(id)) return 'not-found';
-  const [cur] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
-  if (!cur) return 'not-found';
-  const row = toRequest(cur);
-  if (!hasPaidDiff(row)) return 'no-diff';   // 화면이 노란 배지를 띄우는 판정과 같은 함수(settlementDisplay)
-  // 읽은 금액이 그대로일 때만 확인을 찍는다 — 그 사이 그쪽이 금액을 정정했으면 사람이 본 적 없는 금액이다.
-  // (위 사전 가드는 잠금 없이 읽은 값 기준이라 그 자체로는 경쟁을 막지 못한다 — 이 조건부 UPDATE가 실제 방어선이다.)
-  // WHERE는 차액을 다시 판정하지 않는다 — 판정한 그 행(상태·금액)이 그대로인지만 본다. 판정 기준은 hasPaidDiff 한 곳.
-  const res = await sql`
-    update payment_request
-       set diff_ack_at = now(), diff_ack_by_name = ${by.name}
-     where id = ${id} and status <> 'cancelled' and external_status = 'paid'
-       and paid_amount_krw = ${row.paidAmountKrw}
-       and paid_amount_jpy is not distinct from ${row.paidAmountJpy}`;
-  if (res.count === 0) return 'no-diff';
-  const [saved] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
-  return toRequest(saved);
-}
-
-export async function unackDiff(sql: postgres.Sql, id: string): Promise<PaymentRequestRow | 'not-found'> {
-  if (!isUuidLike(id)) return 'not-found';
-  const [cur] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
-  if (!cur) return 'not-found';
-  await sql`update payment_request set diff_ack_at = null, diff_ack_by_name = null where id = ${id}`;
-  const [saved] = await sql<RRow[]>`${R_SELECT(sql)} where id = ${id}`;
-  return toRequest(saved);
 }
 
 // ── 정산팀 지급 금액 ≠ 작업 금액 처리(스펙 2026-10-07 §5) ──

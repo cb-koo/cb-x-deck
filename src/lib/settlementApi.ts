@@ -42,8 +42,6 @@ export async function createRequestsApi(items: CreateItemInput[]): Promise<Creat
   }
 }
 export const cancelRequestApi = (id: string, reason: string) => call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'cancel', reason }));
-export const ackDiffApi = (id: string) => call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'ack-diff' }));
-export const unackDiffApi = (id: string) => call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'unack-diff' }));
 // 정산팀 지급 금액 ≠ 작업 금액 처리(스펙 2026-10-07 §5) — 창을 연 때의 작업 금액·지급 금액을 함께 보낸다(서버가 경합을 409로)
 const expectOf = (r: PaymentRequestRow) => ({ expectedTaskCost: r.taskCost, expectedPaidKrw: r.paidAmountKrw, expectedPaidJpy: r.paidAmountJpy });
 export const matchTaskCostApi = (r: PaymentRequestRow, newCost: TaskCost, reason: string) =>

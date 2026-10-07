@@ -2,7 +2,10 @@
 // 우리 상태(requested/cancelled) × 그쪽 상태(external_status) → 라벨. 내부어(on_hold 등)는 밖으로 나가지 않는다.
 import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
 import { kstMonthDay } from './datetime.ts';
-import { formatMoney } from './influencerPricing.ts';
+import { formatMoney, type Currency } from './influencerPricing.ts';
+import { sameTaskCost, type TaskCost } from './campaignCost.ts';
+import type { PaymentFee } from './influencerPayment.ts';
+import { computeMoney } from './settlementCalc.ts';   // 순수 모듈 — 요청을 만들 때와 같은 계산으로 기대 송금액을 낸다
 
 export type DisplayKey = 'requested' | 'received' | 'scheduled' | 'on_hold' | 'paid' | 'paid_diff' | 'cancelled';
 export type DisplayTone = 'blue' | 'warn' | 'done' | 'gray';
@@ -132,3 +135,97 @@ export const needsPartnerConfirm = (r: { externalStatus: ExternalStatus | null }
 
 // PayPal 달러 실지급액 표기(그쪽 09-09 paid_amount_usd). formatMoney는 KRW·JPY만 알아서 여기서 따로.
 export const usdText = (n: number): string => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// ── 정산팀 지급 금액 ≠ 작업 금액(스펙 2026-10-07 §4) ──
+// 이 함수 하나가 표 버튼·상단 안내·캠페인 배지·서버 가드(settlementStore.lockForReconcile)를 모두 정한다 — 판정이 두 곳이면 한쪽만 바뀐다.
+// 비교 대상은 '요청 금액'이 아니라 '지금 작업 금액'이다: 작업 금액을 고치면 표시가 저절로 풀린다(§3-1).
+export type DiffAckKind = 'matched' | 'kept';
+
+// 달러 지급·엔화 값 없는 지급은 정확히 비교할 수 없어 '환율로 설명되는가'로 본다 — 지급 원화 ÷ (기대 송금액 × 요청 환율).
+// 근거(§4-3): 정상 엔화 지급 84건 0.847~0.900(중앙 0.872), 오류 2건 1.27·2.65. 정산팀은 적용 환율을 보내지 않는다(koo 10-07).
+// 범위를 바꿀 자리는 여기 하나.
+export const FX_RATIO_BAND = { min: 0.8, max: 1.0 } as const;
+
+export interface MismatchSource {
+  status: SettlementBadgeStatus; externalStatus: ExternalStatus | null;
+  taskId: string | null; taskCost: TaskCost | null;              // 지금 작업 금액(작업이 지워졌거나 비면 null) — 스냅샷이 아니다
+  payoutCurrency: Currency; fee: PaymentFee | null; rateKrwPerJpy: number;   // 요청 스냅샷(보낸 통화·수수료·환율)
+  paidAmountKrw: number | null; paidAmountJpy: number | null;    // 정산팀 결과
+  diffAckKind: DiffAckKind | null; diffAckTaskCost: TaskCost | null;   // 처리 기록(065)
+}
+export type PaidMismatch =
+  | { kind: 'exact'; expectedGross: number; paid: number; diff: number; currency: Currency }   // 보낸 통화로 정확히 비교
+  | { kind: 'band'; expectedGross: number; ratio: number; diff: number; currency: 'KRW' };     // 비율로 본 것 — diff는 원화 차이
+
+// 처리 기록을 보지 않은 판정 — "차이가 있는가" 자체. 화면·서버는 아래 taskPaidMismatch를 쓴다.
+export function paidMismatch(s: MismatchSource): PaidMismatch | null {
+  if (s.status === 'cancelled' || s.externalStatus !== 'paid' || !s.taskId || !s.taskCost || s.paidAmountKrw === null) return null;
+  // 요청을 만들 때와 같은 계산을 지금 작업 금액으로 다시 한다(§4-2)
+  const expectedGross = computeMoney(s.taskCost, s.payoutCurrency, s.fee ?? undefined, s.rateKrwPerJpy).amountGross;
+  if (s.payoutCurrency === 'KRW') {
+    const diff = s.paidAmountKrw - expectedGross;
+    return diff === 0 ? null : { kind: 'exact', expectedGross, paid: s.paidAmountKrw, diff, currency: 'KRW' };
+  }
+  if (s.paidAmountJpy !== null) {
+    const diff = s.paidAmountJpy - expectedGross;
+    return diff === 0 ? null : { kind: 'exact', expectedGross, paid: s.paidAmountJpy, diff, currency: 'JPY' };
+  }
+  const expectedKrw = Math.round(expectedGross * s.rateKrwPerJpy);
+  const ratio = expectedKrw === 0 ? (s.paidAmountKrw === 0 ? 1 : Number.POSITIVE_INFINITY) : s.paidAmountKrw / expectedKrw;
+  if (ratio >= FX_RATIO_BAND.min && ratio <= FX_RATIO_BAND.max) return null;
+  return { kind: 'band', expectedGross, ratio, diff: s.paidAmountKrw - expectedKrw, currency: 'KRW' };
+}
+
+// 처리 기록이 있으면 숨긴다 — 단 처리 때의 작업 금액이 지금과 같을 때만(§4-4). 지급 금액 쪽은 정산팀이 금액을 정정하면
+// applyExternalStatus가 처리 기록을 통째로 비우므로 여기서 다시 볼 필요가 없다. 옛 확인(종류 null)은 숨기지 않는다.
+export function taskPaidMismatch(s: MismatchSource): PaidMismatch | null {
+  const m = paidMismatch(s);
+  if (!m) return null;
+  if (s.diffAckKind !== null && sameTaskCost(s.diffAckTaskCost, s.taskCost)) return null;
+  return m;
+}
+
+// 그대로 두기 사유(§5-2) — 저장값은 "선택지 — 메모" 한 문자열(처리 기록 문장 `사유: {선택지}{ — 메모}`가 그대로 쓴다).
+export const KEEP_REASONS = ['환율·송금 수수료 차이', '추가 지급(별도 합의)', '기타'] as const;
+export type KeepReason = typeof KEEP_REASONS[number];
+export const RECONCILE_REASON_MAX = 200;
+export function composeKeepReason(kind: unknown, memo: unknown): string | null {
+  if (typeof kind !== 'string' || !(KEEP_REASONS as readonly string[]).includes(kind)) return null;
+  const m = typeof memo === 'string' ? memo.trim() : '';
+  if (kind === '기타' && !m) return null;
+  const s = m ? `${kind} — ${m}` : kind;
+  return s.length > RECONCILE_REASON_MAX ? null : s;
+}
+
+// §9 경합 오류 — 서버(409)와 창이 같은 문장을 쓴다
+export const RECONCILE_STALE_MESSAGE = '그 사이 작업 금액이나 정산팀 지급 금액이 바뀌었어요 — 새로 고친 내용을 확인해 주세요';
+
+// 요청에 담긴 작업 금액(요청 시점). amount_krw = 작업 금액(원화) 또는 작업 금액(엔화) × 요청 환율(computeMoney)
+export function requestCostOf(r: { costCurrency: Currency; amountKrw: number; rateKrwPerJpy: number }): TaskCost {
+  return r.costCurrency === 'KRW'
+    ? { amount: r.amountKrw, currency: 'KRW' }
+    : { amount: Math.round(r.amountKrw / r.rateKrwPerJpy), currency: 'JPY' };
+}
+
+// 엔화로 보낸 건의 실제 환율 — 표에서 뺀 회색 환율 차이 대신 펼침에서만 보인다(§8-4)
+export function paidFxRateText(s: { payoutCurrency: Currency; paidAmountKrw: number | null; paidAmountJpy: number | null; amountGross: number }): string | null {
+  if (s.payoutCurrency !== 'JPY' || s.paidAmountKrw === null) return null;
+  const jpy = s.paidAmountJpy ?? s.amountGross;
+  if (!jpy) return null;
+  return `1엔 = ${(s.paidAmountKrw / jpy).toFixed(2)}원`;
+}
+
+// 정산팀 취소가 남긴 처리자 이름은 저장값이 '정산 프로덕트'다(정산팀 API로도 나가는 값이라 바꾸지 않는다) — 화면에서만 정산팀으로
+export const partnerNameLabel = (name: string | null): string | null => (name === '정산 프로덕트' ? '정산팀' : name);
+
+// 캠페인 배지(settlementByTaskIds) 기준 — 지급이 끝난 요청이 붙은 작업인가(작업 금액 수정에 사유 필수, §6)
+export function isPaidBadge(b: { status: SettlementBadgeStatus; externalStatus: ExternalStatus | null } | null): boolean {
+  return !!b && b.status === 'requested' && b.externalStatus === 'paid';
+}
+// 지급 전 살아 있는 요청의 금액이 지금 작업 금액과 다르면 그 요청 금액 — 작업 패널 안내 "정산 요청은 아직 {이전 금액}이에요"(§6)
+export function pendingRequestCost(t: { cost: TaskCost | null; settlement: { status: SettlementBadgeStatus; externalStatus: ExternalStatus | null; costCurrency: Currency; amountKrw: number; rateKrwPerJpy: number } | null }): TaskCost | null {
+  const b = t.settlement;
+  if (!b || b.status !== 'requested' || b.externalStatus === 'paid' || b.externalStatus === 'cancelled') return null;
+  const req = requestCostOf(b);
+  return sameTaskCost(req, t.cost) ? null : req;
+}

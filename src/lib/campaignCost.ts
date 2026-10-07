@@ -97,3 +97,9 @@ export function suggestTaskCost(pricing: Pricing | null | undefined, type: Price
   if (amount === null) return null;
   return { amount, currency: normalizeCurrency(pricing) };
 }
+
+// 작업 금액 두 개가 같은가 — 둘 다 없음(null)도 같다. 판정·이력·경합 확인이 같은 정의를 쓴다(스펙 2026-10-07 §4·§6).
+export function sameTaskCost(a: TaskCost | null, b: TaskCost | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.amount === b.amount && a.currency === b.currency;
+}

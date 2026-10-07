@@ -6,8 +6,8 @@ import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPE_LABEL } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
 import { describeSnapshot } from '@/lib/settlementCalc';
-import { displayStatus, TONE_CLASS, payoutDiff, fxDiffKrw } from '@/lib/settlementDisplay';
-import { formatDateKo } from '@/lib/campaignJudgment';
+import { displayStatus, TONE_CLASS, taskPaidMismatch, requestCostOf, usdText } from '@/lib/settlementDisplay';
+import { sameTaskCost } from '@/lib/campaignCost';
 import { CELL, NUM, TYPE_CHIP, METHOD_CHIP, signedMoney } from './tableStyle';
 import { proofUploadedLine } from '@/lib/taskProofGuard';
 import { signPaymentQrUrl } from '@/lib/paymentQr';
@@ -15,42 +15,59 @@ import { ImageLightbox } from '@/components/ImageLightbox';
 import { PartnerResultBlock } from './PartnerResultBlock';
 import { RevisionHistory } from './RevisionHistory';
 
-export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle, onCancel, onRevise, onChanged }: { r: PaymentRequestRow; open: boolean; proofSignedUrl: string | null; revisionEnabled: boolean; onToggle: () => void; onCancel: () => void; onRevise: () => void; onChanged: () => void }) {
+export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle, onCancel, onRevise, onMatch, onKeep, onChanged }: {
+  r: PaymentRequestRow; open: boolean; proofSignedUrl: string | null; revisionEnabled: boolean;
+  onToggle: () => void; onCancel: () => void; onRevise: () => void; onMatch: () => void; onKeep: () => void; onChanged: () => void;
+}) {
   const [zoom, setZoom] = useState(false);
   const cancelled = r.status === 'cancelled';
   const paid = r.externalStatus === 'paid';
   const st = displayStatus(r, 'list');
-  const costAmount = r.costCurrency === 'KRW' ? r.amountKrw : Math.round(r.amountKrw / r.rateKrwPerJpy);
-  // 표 한 줄 = 요청 하나, 칸마다 값 하나(koo 09-28) — 숫자 칸은 오른쪽 정렬·숫자 하나. 수수료는 송금액에 합치고 내역은 title로.
+  // 판정은 지금 작업 금액 vs 정산팀 지급(스펙 2026-10-07 §4) — '다름'이면 상태 칸에 배지 대신 두 버튼(§8-2)
+  const mm = taskPaidMismatch(r);
+  // '작업 금액' = 지금 작업 금액. 요청에 담긴 금액과 다르면 아래 작은 글씨로 `요청 {금액}`(§8-3)
+  const reqCost = requestCostOf(r);
+  const showReqCost = r.taskCost !== null && !sameTaskCost(r.taskCost, reqCost);
+  // 표 한 줄 = 요청 하나, 칸마다 값 하나(koo 09-28) — 수수료는 송금액에 합치고 내역은 title로.
   const sendTitle = r.feeAmount > 0 ? `순액 ${formatMoney(r.amountNet, r.payoutCurrency)} + 송금 수수료 ${formatMoney(r.feeAmount, r.payoutCurrency)}` : undefined;
   const hasPaid = paid && r.paidAmountKrw !== null;
-  const diff = hasPaid ? payoutDiff(r) : null;          // 보낸 통화로 본 진짜 차액(주황)
-  const fx = hasPaid ? fxDiffKrw(r) : null;             // 엔화 건의 원화 차이 = 환율(회색 참고)
-  const rateText = hasPaid && r.payoutCurrency === 'JPY' ? `실제 ${(r.paidAmountKrw! / r.amountGross).toFixed(2)}원/엔 · 요청은 1엔 = ${r.rateKrwPerJpy}원` : undefined;
-  const foreignPaid = r.paidAmountJpy !== null ? `엔화 ${formatMoney(r.paidAmountJpy, 'JPY')}로 송금됨` : r.paidAmountUsd !== null ? `달러 $${r.paidAmountUsd}로 송금됨` : undefined;
+  // 정산팀 지급 — 판정에 쓰는 통화로(원화 지급=원화, 엔화 지급+엔화 값=엔화, 그 밖=원화). 다른 통화 값은 title로
+  const paidCell = !hasPaid ? null
+    : r.payoutCurrency === 'JPY' && r.paidAmountJpy !== null ? formatMoney(r.paidAmountJpy, 'JPY') : formatMoney(r.paidAmountKrw as number, 'KRW');
+  const paidTitle = !hasPaid ? undefined
+    : r.paidAmountUsd !== null ? `달러 ${usdText(r.paidAmountUsd)}`
+    : r.paidAmountJpy !== null ? `원화 ${formatMoney(r.paidAmountKrw as number, 'KRW')}` : undefined;
   return (
     <>
       <tr onClick={onToggle} aria-expanded={open} className={`cursor-pointer text-[15px] hover:bg-x-hover ${open ? 'bg-x-hover/60' : ''}`}>
         <td className={`${CELL} font-semibold`}>@{r.influencerHandle}</td>
         <td className={CELL}><span className={TYPE_CHIP[r.taskType]}>{TASK_TYPE_LABEL[r.taskType]}</span></td>
-        <td className={`${CELL} ${NUM}`}>{formatMoney(costAmount, r.costCurrency)}</td>
-        <td className={`${CELL} ${NUM}`} title={sendTitle}>{formatMoney(r.amountGross, r.payoutCurrency)}</td>
-        {/* 옅은 세로선 — 왼쪽은 '요청한 값', 오른쪽은 정산 쪽이 알려 준 '실제 결과' */}
-        <td className={`${CELL} ${NUM} border-l border-x-border`} title={foreignPaid}>{hasPaid ? formatMoney(r.paidAmountKrw!, 'KRW') : <span className="text-x-muted">—</span>}</td>
         <td className={`${CELL} ${NUM}`}>
-          {diff && diff.amount !== 0
-            ? <span className="text-amber-700" title="요청한 송금액과 실제로 보낸 금액이 달라요 — 확인해 주세요">{signedMoney(diff.amount, diff.currency)}</span>
-            : fx !== null && fx !== 0
-              ? <span className="text-x-muted" title={`환율 차이 — ${rateText}. 송금은 요청대로 됐어요`}>{signedMoney(fx, 'KRW')}</span>
-              : <span className="text-x-muted">—</span>}
+          {r.taskCost ? formatMoney(r.taskCost.amount, r.taskCost.currency) : <span className="text-x-muted">—</span>}
+          {showReqCost && <span className="block text-caption text-x-muted">요청 {formatMoney(reqCost.amount, reqCost.currency)}</span>}
+        </td>
+        <td className={`${CELL} ${NUM}`} title={sendTitle}>{formatMoney(r.amountGross, r.payoutCurrency)}</td>
+        {/* 옅은 세로선 — 왼쪽은 우리가 보낸 값, 오른쪽은 정산팀이 알려 준 결과 */}
+        <td className={`${CELL} ${NUM} border-l border-x-border`} title={paidTitle}>{paidCell ?? <span className="text-x-muted">—</span>}</td>
+        <td className={`${CELL} ${NUM}`}>
+          {mm ? <span className="text-amber-700">{signedMoney(mm.diff, mm.currency)}</span> : <span className="text-x-muted">—</span>}
         </td>
         <td className={CELL}><span className={METHOD_CHIP}>{PAYMENT_TYPE_LABEL[r.paymentMethod.type]}</span></td>
-        <td className={`${CELL} text-x-secondary`}>{formatDateKo(r.deadlineOn)}</td>
-        <td className={CELL}><span className={`rounded-full px-2.5 py-0.5 text-ui whitespace-nowrap ${TONE_CLASS[st.tone]}`} title={st.title}>{st.label}</span></td>
+        <td className={CELL}>
+          {mm ? (
+            // 행 클릭(펼치기)과 겹치지 않게 — 버튼 줄에서 이벤트를 멈춘다. 확정(맞추기)이 오른쪽·진한 버튼
+            <span className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+              <Button onClick={onKeep}>그대로 두기</Button>
+              <Button variant="primary" onClick={onMatch}>지급 금액에 맞추기</Button>
+            </span>
+          ) : (
+            <span className={`rounded-full px-2.5 py-0.5 text-ui whitespace-nowrap ${TONE_CLASS[st.tone]}`} title={st.title}>{st.label}</span>
+          )}
+        </td>
         <td className={`${CELL} w-8 text-x-muted`} aria-hidden>{open ? '▾' : '▸'}</td>
       </tr>
       {open && (
-        <tr><td colSpan={10} className="px-4 pb-4">
+        <tr><td colSpan={9} className="px-4 pb-4">
         <div className="rounded-xl bg-x-surface p-4 text-ui">
           <dl className="grid grid-cols-[96px_1fr] gap-x-4 gap-y-1.5">
             <Item k="요청자" v={r.requesterName} />

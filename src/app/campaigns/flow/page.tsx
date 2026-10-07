@@ -1,4 +1,4 @@
-// 캠페인 v2(ADR 0003) — 기존 /campaigns와 병존. 좌측 목록·생성은 같은 부품, 상세만 FlowDetail.
+// 캠페인 v2(ADR 0003) — 기존 /campaigns와 병존. 생성 창은 같은 부품, 좌측 목록은 CampaignSidebar(10-08 개편), 상세는 FlowDetail.
 'use client';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -8,9 +8,9 @@ import type { CampaignRow } from '@/lib/campaignStore';
 import { fetchCampaigns } from '@/lib/campaignApi';
 import { pickCampaignId } from '@/lib/campaignView';
 import { Button } from '@/components/ui';
-import { CampaignList } from '../CampaignList';
 import { CampaignCreateModal } from '../CampaignCreateModal';
 import { FlowDetail } from './FlowDetail';
+import { CampaignSidebar } from './CampaignSidebar';
 
 // 좌측 목록 접기/펼치기 — /campaigns와 같은 키를 쓴다(같은 목록이라 접힘 상태를 공유한다, CampaignsSplit 관례).
 const LIST_COLLAPSED_KEY = 'campaigns-list-collapsed';
@@ -100,7 +100,7 @@ function CampaignsFlowSplit() {
     <div className="flex min-h-full">
       {/* data-campaign-list: 작업 패널의 '바깥 누르면 닫기'가 이 목록은 건너뛴다(TaskPanel) — 거기서 확인 창이 뜨면
           그 클릭이 사라져 캠페인이 안 바뀌었다. 작성 중 확인은 select가 한 번만 묻는다(FlowDetail이 문장을 올린다). */}
-      <aside data-campaign-list className={`sticky top-0 max-h-screen shrink-0 self-start overflow-y-auto border-r border-x-border bg-white transition-[width] ${listCollapsed ? 'w-11 px-1 py-4' : 'w-[280px] px-3 py-5'}`}>
+      <aside data-campaign-list className={`sticky top-0 max-h-screen shrink-0 self-start overflow-y-auto border-r border-x-border bg-white transition-[width] ${listCollapsed ? 'w-11 px-1 py-4' : 'w-[360px]'}`}>
         {listCollapsed ? (
           // 접힘 = 펼치기 버튼만 있는 얇은 레일(~44px) — 목록 대신 상세가 폭을 가져간다.
           <div className="flex flex-col items-center gap-2">
@@ -111,14 +111,9 @@ function CampaignsFlowSplit() {
             )}
           </div>
         ) : (
-          <>
-            <div className="mb-1 flex justify-end">
-              <button onClick={toggleListCollapsed} aria-label="목록 접기" title="목록 접기"
-                      className="flex h-8 w-8 items-center justify-center rounded-md text-x-muted hover:bg-x-hover">«</button>
-            </div>
-            <CampaignList rows={rows} selectedId={picked.id} today={today} loaded={loaded} loadErr={loadErr}
-                          onSelect={select} onCreate={() => setCreating(true)} onRetry={() => void load()} />
-          </>
+          <CampaignSidebar rows={rows} selectedId={picked.id} today={today} loaded={loaded} loadErr={loadErr}
+                           onSelect={select} onCreate={() => setCreating(true)} onRetry={() => void load()}
+                           onCollapse={toggleListCollapsed} />
         )}
       </aside>
       <main className="min-w-0 flex-1 bg-x-surface">

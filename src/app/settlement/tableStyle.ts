@@ -15,8 +15,9 @@ export const TYPE_CHIP: Record<TaskType, string> = Object.fromEntries(
 ) as Record<TaskType, string>;
 export const METHOD_CHIP = 'inline-block rounded-md border border-x-border px-2 py-0.5 text-ui text-x-secondary';
 
-// '+500엔' / '−7,007원' — 부호를 앞에(차액 칸은 숫자 하나)
+// '+500엔' / '−7,007원' — 부호를 앞에(차액 칸은 숫자 하나). 0은 부호 없이('−0원'이 되지 않게)
 export function signedMoney(n: number, currency: 'KRW' | 'JPY'): string {
+  if (n === 0) return formatMoney(0, currency);
   return `${n > 0 ? '+' : '−'}${formatMoney(Math.abs(n), currency)}`;
 }
 

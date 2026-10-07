@@ -12,7 +12,7 @@ import { judgeStoredAuthor, authorVerdictMessage, firstAssignMismatchMessage, ty
 // draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
 // getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
 import type { PaymentFee } from './influencerPayment.ts';
-import { peerRatios, bandRatio, type DiffAckKind, type MismatchSource } from './settlementDisplay.ts';   // settlementDisplay는 이 파일에서 타입만 가져온다 — 값 순환 없음
+import { peerRatios, bandRatio, type DiffAckKind, type MismatchSource } from './settlementDisplay.ts';   // settlementDisplay는 순수 모듈(이 파일을 import하지 않는다) — 값 순환 없음
 import { kstDate } from './datetime.ts';
 import type { DraftRow } from './draftStore.ts';
 // influencerSync.ts 자체는 campaignTaskStore를 import하지 않지만, 전이 그래프까지 확인하면

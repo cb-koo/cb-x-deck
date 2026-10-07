@@ -58,7 +58,9 @@ export interface ExternalItem {
   payment_method: Record<string, string>;
   requester: { name: string; email: string | null; slack_id: string | null };
   note: string;
-  settlement: { status: ExternalStatus | null; paid_amount_krw: number | null; paid_amount_usd: number | null; paid_amount_jpy: number | null; paid_at: string | null; note: string | null; updated_at: string | null; external_id: string | null };
+  settlement: { status: ExternalStatus | null; paid_amount_krw: number | null; paid_amount_usd: number | null; paid_amount_jpy: number | null; paid_at: string | null; note: string | null; updated_at: string | null; external_id: string | null;
+    // 정산팀 적용 환율(066, 10-07) — 그쪽이 paid에 보낸 값의 되비침. 기존 키 뒤에 덧붙였다(키만 늘었고 기존 키·의미 불변)
+    paid_rate_krw_per_unit: number | null; paid_rate_date: string | null; paid_rate_source: string | null };
   // RT 지급 전 확인 자료(스펙 §3). null인 경우 둘: ①RT가 아닌 유형(reference_url로 확인) ②RT인데 아직 증빙이 없음.
   // url은 고정 엔드포인트(서명 URL이 아니다 — 서명 URL은 만료돼 캐시된 목록의 링크가 죽는다, 스펙 §4).
   proof: { url: string; uploaded_at: string; uploaded_by: string } | null;
@@ -99,7 +101,8 @@ export function toExternalItem(e: ExportRow, origin: string): ExternalItem {
     payment_method: pm,
     requester: { name: r.requesterName, email: e.requester.email, slack_id: e.requester.slackId },
     note: r.note,
-    settlement: { status: r.externalStatus, paid_amount_krw: r.paidAmountKrw, paid_amount_usd: r.paidAmountUsd, paid_amount_jpy: r.paidAmountJpy, paid_at: r.paidAt, note: r.externalNote, updated_at: r.externalUpdatedAt, external_id: r.externalId },
+    settlement: { status: r.externalStatus, paid_amount_krw: r.paidAmountKrw, paid_amount_usd: r.paidAmountUsd, paid_amount_jpy: r.paidAmountJpy, paid_at: r.paidAt, note: r.externalNote, updated_at: r.externalUpdatedAt, external_id: r.externalId,
+      paid_rate_krw_per_unit: r.paidRateKrwPerUnit, paid_rate_date: r.paidRateDate, paid_rate_source: r.paidRateSource },
     proof: e.proof ? { url: `${origin}/api/external/settlement/requests/${r.id}/proof`, uploaded_at: e.proof.at, uploaded_by: e.proof.byName } : null,
     payment_method_correction: r.paymentMethodCorrection
       ? { correction_id: r.paymentMethodCorrection.correctionId, at: r.paymentMethodCorrection.at, by_name: r.paymentMethodCorrection.byName }
@@ -112,7 +115,10 @@ export type PaidCurrency = 'KRW' | 'JPY' | 'USD';
 export interface StatusOperator { id: string; name: string }   // 그 상태 전이를 실행한 그쪽 결제 담당자(09-04 그쪽 요청). 자동 전이엔 없다.
 export interface StatusUpdate { status: ExternalStatus; updatedAt: string; note: string | null; paidAmountKrw: number | null; paidAt: string | null; externalId: string | null; operator: StatusOperator | null; revision: number | null;
   // 외화 실지급액(선택, 09-09): USD는 PayPal, JPY는 계좌(일본)·PayPay. 한 요청에 하나만. paidCurrency는 우리 제안 — 명시하면 그 통화로 확정(KRW면 외화 둘 다 지움)
-  paidAmountUsd: number | null; paidAmountJpy: number | null; paidCurrency: PaidCurrency | null }
+  paidAmountUsd: number | null; paidAmountJpy: number | null; paidCurrency: PaidCurrency | null;
+  // 정산팀 적용 환율(선택, 10-07 정산 미러 제안): 외화 1단위당 원화·공시 기준일·출처. 기록·표시용 — 지급 금액 판정에는 쓰지 않는다
+  paidRate: PaidRate | null }
+export interface PaidRate { krwPerUnit: number; date: string; source: string }
 export type StatusParse = { ok: true; update: StatusUpdate } | { ok: false; field: string; error: string };
 const bad = (field: string, error: string): StatusParse => ({ ok: false, field, error });
 function isoOf(v: unknown): string | null {
@@ -141,6 +147,13 @@ export function parseOperatorField(v: unknown): StatusOperator | null | StatusPa
   return { id: (id as string).trim(), name: (name as string).trim() };
 }
 export function parseIsoField(v: unknown): string | null { return isoOf(v); }
+const RATE_SOURCE_MAX = 100;
+// 'YYYY-MM-DD'이고 실제 달력 날짜인가 — Date.parse는 2026-02-30을 3월 2일로 굴려 통과시키므로 왕복으로 확인한다
+function isCalendarDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
 export function parseStatusUpdate(body: unknown): StatusParse {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('body', 'JSON 객체여야 해요');
   const o = body as Record<string, unknown>;
@@ -189,6 +202,27 @@ export function parseStatusUpdate(body: unknown): StatusParse {
     if ((c === 'USD' && hasJpy) || (c === 'JPY' && hasUsd) || (c === 'KRW' && (hasUsd || hasJpy))) return bad('paid_currency', '실제 지급 통화와 외화 금액 필드가 어긋나요');
     paidCurrency = c;
   }
+  // 적용 환율(선택, 10-07 정산 미러 제안 · koo 회신): 평면 키 3개, 셋은 함께 오거나 함께 없다. 키가 있으면(값 null 포함) '보낸 것'으로 본다.
+  //  paid에서만, 외화 금액(paid_amount_jpy·paid_amount_usd)과 함께만, 원화 지급(paid_currency KRW)에는 없음. 검증은 타입·0 초과·날짜 형식까지.
+  const rateKeys = ['paid_rate_krw_per_unit', 'paid_rate_date', 'paid_rate_source'] as const;
+  const rateSent = rateKeys.filter((k) => o[k] !== undefined);
+  let paidRate: PaidRate | null = null;
+  if (rateSent.length) {
+    if (status !== 'paid') return bad(rateSent[0], '지급 완료(paid)에만 보낼 수 있어요');
+    const missing = rateKeys.find((k) => o[k] === undefined);
+    if (missing) return bad(missing, 'paid_rate_krw_per_unit·paid_rate_date·paid_rate_source는 함께 보내 주세요');
+    const rate = o.paid_rate_krw_per_unit;
+    if (typeof rate !== 'number' || !Number.isFinite(rate) || rate <= 0) return bad('paid_rate_krw_per_unit', '0보다 큰 숫자여야 해요');
+    const date = o.paid_rate_date;
+    if (typeof date !== 'string' || !isCalendarDate(date)) return bad('paid_rate_date', 'YYYY-MM-DD 날짜여야 해요');
+    const src = o.paid_rate_source;
+    const source = typeof src === 'string' ? src.trim() : '';
+    if (!source || source.length > RATE_SOURCE_MAX) return bad('paid_rate_source', `비어 있지 않은 ${RATE_SOURCE_MAX}자 이하 문자열이어야 해요`);
+    // 원화 지급 명시를 먼저 본다 — KRW에 외화 금액이 함께 오면 이미 위 paid_currency 검사에서 걸리므로, 여기 오는 KRW는 늘 외화 없음이다
+    if (paidCurrency === 'KRW') return bad('paid_rate_krw_per_unit', '원화 지급에는 환율을 보내지 않아요');
+    if (!hasUsd && !hasJpy) return bad('paid_rate_krw_per_unit', '외화 지급 금액(paid_amount_jpy·paid_amount_usd)과 함께 보내 주세요');
+    paidRate = { krwPerUnit: rate, date, source };
+  }
   // operator(선택): 있으면 { id, name } 모양만 받는다 — 그쪽 목 서버 규칙과 같다. null은 "없음". 본문의 그 외 모르는 키는 전부 무시한다.
   const operator = parseOperatorField(o.operator);
   if (isParse(operator)) return operator;
@@ -198,5 +232,5 @@ export function parseStatusUpdate(body: unknown): StatusParse {
     if (typeof o.revision !== 'number' || !Number.isInteger(o.revision) || o.revision < 0) return bad('revision', '0 이상의 정수여야 해요 — 마지막으로 받은 아이템의 revision 값');
     revision = o.revision;
   }
-  return { ok: true, update: { status: status as ExternalStatus, updatedAt, note, paidAmountKrw, paidAt, externalId, operator, revision, paidAmountUsd, paidAmountJpy, paidCurrency } };
+  return { ok: true, update: { status: status as ExternalStatus, updatedAt, note, paidAmountKrw, paidAt, externalId, operator, revision, paidAmountUsd, paidAmountJpy, paidCurrency, paidRate } };
 }

@@ -34,6 +34,7 @@ const row: PaymentRequestRow = {
   status: 'requested', cancelledAt: null, cancelledByName: null, cancelReason: null, sentAt: null, externalId: null, note: '',
   createdAt: '2026-08-28T00:00:00.000Z', updatedAt: '2026-08-28T00:00:00.000Z',
   externalStatus: null, paidAmountKrw: null, paidAt: null, externalNote: null, externalUpdatedAt: null, influencerId: 'inf', categoryOptionId: 'fee', diffAckAt: null, diffAckByName: null, externalOperatorId: null, externalOperatorName: null, revision: 0, revisedAt: null, paidAmountUsd: null, paidAmountJpy: null,
+  paidRateKrwPerUnit: null, paidRateDate: null, paidRateSource: null,
   campaignStartsOn: '2026-08-31', campaignEndsOn: '2026-09-06', postedOn: '2026-08-27', paymentMethodCorrection: null,
   taskCost: { amount: 30000, currency: 'KRW' }, diffAckKind: null, diffAckReason: null, diffAckTaskCost: null, diffAckBeforeCost: null,
 };
@@ -49,7 +50,7 @@ test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   assert.deepEqual(it.payment_method, { type: 'paypal', holder: 'KEIKO', currency: 'JPY', paypal_id: 'keiko' });
   assert.deepEqual(it.requester, { name: '모에카', email: 'a@b.c', slack_id: null });
   assert.equal(it.cancelled, null);
-  assert.deepEqual(it.settlement, { status: null, paid_amount_krw: null, paid_amount_usd: null, paid_amount_jpy: null, paid_at: null, note: null, updated_at: null, external_id: null });
+  assert.deepEqual(it.settlement, { status: null, paid_amount_krw: null, paid_amount_usd: null, paid_amount_jpy: null, paid_at: null, note: null, updated_at: null, external_id: null, paid_rate_krw_per_unit: null, paid_rate_date: null, paid_rate_source: null });
   assert.equal(it.deadline, '2026-08-29'); assert.equal(it.reference_url, null);
   // 증빙 없음(RT 아닌 유형이거나, RT인데 아직 없음) → proof는 null(스펙 §3)
   assert.equal(it.proof, null);
@@ -81,7 +82,7 @@ test('toExternalItem — 취소·지급 완료 되비침', () => {
   const it = toExternalItem({ row: r2, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null, influencerDisplayName: null }, ORIGIN);
   assert.equal(it.revision, 1);
   assert.deepEqual(it.cancelled, { at: '2026-08-29T01:00:00.000Z', by_name: '정산 프로덕트', reason: '중복' });
-  assert.deepEqual(it.settlement, { status: 'paid', paid_amount_krw: 29700, paid_amount_usd: null, paid_amount_jpy: null, paid_at: '2026-08-30T05:00:00.000Z', note: '환율', updated_at: '2026-08-30T05:00:00.000Z', external_id: 'X-1' });
+  assert.deepEqual(it.settlement, { status: 'paid', paid_amount_krw: 29700, paid_amount_usd: null, paid_amount_jpy: null, paid_at: '2026-08-30T05:00:00.000Z', note: '환율', updated_at: '2026-08-30T05:00:00.000Z', external_id: 'X-1', paid_rate_krw_per_unit: null, paid_rate_date: null, paid_rate_source: null });
 });
 
 test('toExternalItem — proof 있으면 고정 엔드포인트 URL(origin은 호출부가 넘긴 값)·업로더·시각을 싣는다', () => {
@@ -115,7 +116,7 @@ test('toExternalItem — QR이 없으면 qr_url 키가 없다', () => {
 test('parseStatusUpdate — 정상·정규화', () => {
   const r = parseStatusUpdate({ status: 'paid', updated_at: '2026-08-30T05:00:00Z', paid_amount_krw: 29700, paid_at: '2026-08-30T05:00:00+09:00', note: ' 환율 ', external_id: 'X-1' });
   assert.ok(r.ok);
-  assert.deepEqual(r.update, { status: 'paid', updatedAt: '2026-08-30T05:00:00.000Z', paidAmountKrw: 29700, paidAt: '2026-08-29T20:00:00.000Z', note: '환율', externalId: 'X-1', operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: null, paidCurrency: null });
+  assert.deepEqual(r.update, { status: 'paid', updatedAt: '2026-08-30T05:00:00.000Z', paidAmountKrw: 29700, paidAt: '2026-08-29T20:00:00.000Z', note: '환율', externalId: 'X-1', operator: null, revision: null, paidAmountUsd: null, paidAmountJpy: null, paidCurrency: null, paidRate: null });
   const h = parseStatusUpdate({ status: 'on_hold', updated_at: '2026-08-29T00:00:00Z', note: '계좌 확인' });
   assert.ok(h.ok); assert.equal(h.update.paidAmountKrw, null); assert.equal(h.update.externalId, null); assert.equal(h.update.operator, null);
 });
@@ -250,4 +251,70 @@ test('toExternalItem — payment_method_correction 표식·influencer.display_na
   assert.equal(it.payment_method.paypal_id, 'keiko2');
   assert.equal(it.revision, 0);   // 정정은 판을 올리지 않는다
   assert.deepEqual(it.influencer, { id: 'inf', handle: 'sawada_k', display_name: 'けいこ' });
+});
+
+// 10-07 정산 미러 제안: paid에 적용 환율 3필드(선택, 평면 키). 셋은 함께, 외화 금액과 함께, 원화 지급엔 없음. 기록·표시용(판정에 안 씀).
+const RATE_BASE = { status: 'paid', updated_at: '2026-10-07T06:00:00Z', paid_amount_krw: 45600, paid_at: '2026-10-07T05:59:00Z' };
+const RATE = { paid_rate_krw_per_unit: 9.1234, paid_rate_date: '2026-10-06', paid_rate_source: 'Frankfurter / ECB' };
+const rateField = (b: Record<string, unknown>) => { const r = parseStatusUpdate(b); assert.ok(!r.ok, JSON.stringify(b)); return r.field; };
+const rateErr = (b: Record<string, unknown>) => { const r = parseStatusUpdate(b); assert.ok(!r.ok); return r.error; };
+test('parseStatusUpdate — paid_rate_*: 엔화·달러 지급에 세 필드가 오면 paidRate로', () => {
+  const jpy = parseStatusUpdate({ ...RATE_BASE, paid_amount_jpy: 5000, ...RATE });
+  assert.ok(jpy.ok); assert.deepEqual(jpy.update.paidRate, { krwPerUnit: 9.1234, date: '2026-10-06', source: 'Frankfurter / ECB' });
+  const usd = parseStatusUpdate({ ...RATE_BASE, paid_amount_usd: 33.77, paid_currency: 'USD', paid_rate_krw_per_unit: 1350.35, paid_rate_date: '2026-10-06', paid_rate_source: '  Frankfurter / ECB  ' });
+  assert.ok(usd.ok); assert.deepEqual(usd.update.paidRate, { krwPerUnit: 1350.35, date: '2026-10-06', source: 'Frankfurter / ECB' });   // 앞뒤 공백 제거
+});
+test('parseStatusUpdate — paid_rate_*: 세 필드가 모두 없으면 기존과 같다(paidRate null)', () => {
+  const r = parseStatusUpdate({ ...RATE_BASE, paid_amount_jpy: 5000 }); assert.ok(r.ok); assert.equal(r.update.paidRate, null);
+  const krw = parseStatusUpdate(RATE_BASE); assert.ok(krw.ok); assert.equal(krw.update.paidRate, null);
+  const recv = parseStatusUpdate({ status: 'received', updated_at: '2026-10-07T06:00:00Z' }); assert.ok(recv.ok); assert.equal(recv.update.paidRate, null);
+});
+test('parseStatusUpdate — paid_rate_*: 하나라도 오면 셋 다 있어야 한다(빠진 첫 필드, null도 키 있음)', () => {
+  const j = { ...RATE_BASE, paid_amount_jpy: 5000 };
+  assert.equal(rateField({ ...j, paid_rate_krw_per_unit: 9.12 }), 'paid_rate_date');
+  assert.equal(rateField({ ...j, paid_rate_date: '2026-10-06' }), 'paid_rate_krw_per_unit');
+  assert.equal(rateField({ ...j, paid_rate_krw_per_unit: 9.12, paid_rate_date: '2026-10-06' }), 'paid_rate_source');
+  assert.equal(rateField({ ...j, paid_rate_source: 'Frankfurter / ECB' }), 'paid_rate_krw_per_unit');
+  assert.equal(rateField({ ...j, paid_rate_krw_per_unit: null, paid_rate_date: null, paid_rate_source: null }), 'paid_rate_krw_per_unit');   // 키는 있음 → 형식 오류
+});
+test('parseStatusUpdate — paid_rate_*: paid가 아니면 400(해당 필드)', () => {
+  const b = { status: 'scheduled', updated_at: '2026-10-07T06:00:00Z' };
+  assert.equal(rateField({ ...b, ...RATE }), 'paid_rate_krw_per_unit');
+  assert.equal(rateErr({ ...b, ...RATE }), '지급 완료(paid)에만 보낼 수 있어요');
+  assert.equal(rateField({ ...b, paid_rate_date: '2026-10-06' }), 'paid_rate_date');
+  assert.equal(rateField({ ...b, paid_rate_source: 'x' }), 'paid_rate_source');
+});
+test('parseStatusUpdate — paid_rate_krw_per_unit: 0보다 큰 유한 숫자만', () => {
+  const j = { ...RATE_BASE, paid_amount_jpy: 5000, ...RATE };
+  for (const bad of [0, -1, '9.12', Number.NaN, Number.POSITIVE_INFINITY, null]) {
+    assert.equal(rateField({ ...j, paid_rate_krw_per_unit: bad }), 'paid_rate_krw_per_unit', String(bad));
+  }
+  assert.equal(rateErr({ ...j, paid_rate_krw_per_unit: 0 }), '0보다 큰 숫자여야 해요');
+});
+test('parseStatusUpdate — paid_rate_date: YYYY-MM-DD 실제 달력 날짜만', () => {
+  const j = { ...RATE_BASE, paid_amount_jpy: 5000, ...RATE };
+  for (const bad of ['2026-02-30', '2026/10/06', '2026-10-6', '2026-10-06T00:00:00Z', '', 20261006, null]) {
+    assert.equal(rateField({ ...j, paid_rate_date: bad }), 'paid_rate_date', String(bad));
+  }
+  assert.equal(rateErr({ ...j, paid_rate_date: '2026-02-30' }), 'YYYY-MM-DD 날짜여야 해요');
+  const leap = parseStatusUpdate({ ...j, paid_rate_date: '2028-02-29' }); assert.ok(leap.ok);
+});
+test('parseStatusUpdate — paid_rate_source: 비지 않은 100자 이하 문자열', () => {
+  const j = { ...RATE_BASE, paid_amount_jpy: 5000, ...RATE };
+  for (const bad of ['', '   ', 1, null, 'x'.repeat(101)]) assert.equal(rateField({ ...j, paid_rate_source: bad }), 'paid_rate_source', String(bad));
+  assert.ok(parseStatusUpdate({ ...j, paid_rate_source: 'x'.repeat(100) }).ok);
+});
+test('parseStatusUpdate — paid_rate_*: 외화 지급 금액과 함께만, 원화 지급(paid_currency KRW)에는 못 보낸다', () => {
+  assert.equal(rateField({ ...RATE_BASE, ...RATE }), 'paid_rate_krw_per_unit');
+  assert.equal(rateErr({ ...RATE_BASE, ...RATE }), '외화 지급 금액(paid_amount_jpy·paid_amount_usd)과 함께 보내 주세요');
+  assert.equal(rateField({ ...RATE_BASE, paid_amount_usd: null, ...RATE }), 'paid_rate_krw_per_unit');   // null 달러는 '없음'
+  assert.equal(rateField({ ...RATE_BASE, paid_currency: 'KRW', ...RATE }), 'paid_rate_krw_per_unit');
+  assert.equal(rateErr({ ...RATE_BASE, paid_currency: 'KRW', ...RATE }), '원화 지급에는 환율을 보내지 않아요');
+});
+test('toExternalItem — settlement.paid_rate_* 되비침(기존 키 뒤에 덧붙임)', () => {
+  const r2: PaymentRequestRow = { ...row, externalStatus: 'paid', paidAmountKrw: 45600, paidAmountJpy: 5000, paidAt: '2026-10-07T05:59:00.000Z',
+    paidRateKrwPerUnit: 9.1234, paidRateDate: '2026-10-06', paidRateSource: 'Frankfurter / ECB' };
+  const it = toExternalItem({ row: r2, updatedAtUs: '1', requester: { email: null, slackId: null }, proof: null, influencerDisplayName: null }, ORIGIN);
+  assert.equal(it.settlement.paid_rate_krw_per_unit, 9.1234); assert.equal(it.settlement.paid_rate_date, '2026-10-06'); assert.equal(it.settlement.paid_rate_source, 'Frankfurter / ECB');
+  assert.deepEqual(Object.keys(it.settlement), ['status', 'paid_amount_krw', 'paid_amount_usd', 'paid_amount_jpy', 'paid_at', 'note', 'updated_at', 'external_id', 'paid_rate_krw_per_unit', 'paid_rate_date', 'paid_rate_source']);
 });

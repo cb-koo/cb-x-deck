@@ -404,9 +404,10 @@ async function requestFor(handle: string, campSuffix: string, method?: MethodSee
 const at = (s: string) => new Date(s).toISOString();
 // 제자리 수정 테스트는 스위치를 켜야 한다 — 비동기라 withRevisionV2를 못 쓰고 직접 env를 바꾼 뒤 finally로 복구
 async function revisionOn<T>(fn: () => Promise<T>): Promise<T> { const prev = process.env.SETTLEMENT_REVISION_V2; process.env.SETTLEMENT_REVISION_V2 = 'on'; try { return await fn(); } finally { if (prev === undefined) delete process.env.SETTLEMENT_REVISION_V2; else process.env.SETTLEMENT_REVISION_V2 = prev; } }
-const upd = (status: 'received' | 'scheduled' | 'paid' | 'on_hold' | 'cancelled', updatedAt: string, extra: Partial<{ note: string; paidAmountKrw: number; paidAt: string; externalId: string; operator: { id: string; name: string }; revision: number; paidAmountUsd: number; paidAmountJpy: number; paidCurrency: 'KRW' | 'JPY' | 'USD' }> = {}) => ({
+const upd = (status: 'received' | 'scheduled' | 'paid' | 'on_hold' | 'cancelled', updatedAt: string, extra: Partial<{ note: string; paidAmountKrw: number; paidAt: string; externalId: string; operator: { id: string; name: string }; revision: number; paidAmountUsd: number; paidAmountJpy: number; paidCurrency: 'KRW' | 'JPY' | 'USD'; paidRate: { krwPerUnit: number; date: string; source: string } }> = {}) => ({
   status, updatedAt: at(updatedAt), note: extra.note ?? null, paidAmountKrw: extra.paidAmountKrw ?? null, paidAt: extra.paidAt ? at(extra.paidAt) : null, externalId: extra.externalId ?? null,
   operator: extra.operator ?? null, revision: extra.revision ?? null, paidAmountUsd: extra.paidAmountUsd ?? null, paidAmountJpy: extra.paidAmountJpy ?? null, paidCurrency: extra.paidCurrency ?? null,
+  paidRate: extra.paidRate ?? null,
 });
 
 // 09-04 그쪽 요청: 사람이 실행한 전이의 담당자를 요청 행에 남겨 화면에 "누가 처리했는지"를 보인다. 자동 전이(operator 없음)가 오면 비운다.
@@ -1322,3 +1323,47 @@ test('다른 곳에서 정산함(061) — 살아있는 요청이 있으면 거�
   await cancelRequest(sql, row.id, '테스트', member);
   assert.equal(await markSettledElsewhere(sql, task.id, { note: '', by: member, today: '2026-09-27' }), 'ok');
 });
+
+// ── 정산팀 적용 환율(066, 10-07 정산 미러 제안) — 기록·표시용, 판정·처리 기록에 영향 없음 ──
+const RATE_JPY = { krwPerUnit: 9.1234, date: '2026-10-06', source: 'Frankfurter / ECB' };
+const rateOf = (r: PaymentRequestRow) => [r.paidRateKrwPerUnit, r.paidRateDate, r.paidRateSource];
+const applied = (r: Awaited<ReturnType<typeof applyExternalStatus>>) => (r as { row: PaymentRequestRow }).row;
+test('066 환율 — 저장·되비침, 금액이 같고 환율만 붙은 재전송은 처리 기록을 그대로 둔다', async () => {
+  const { row, member } = await requestFor('rate1', 'rate1');
+  await paidJpy(row.id, 4000, 34000, '2026-10-07T03:00:00Z');   // 환율 없이 먼저(구버전 모양)
+  await keepTaskCost(sql, row.id, { expect: { taskCost: { amount: 30000, currency: 'KRW' }, paidAmountKrw: 34000, paidAmountJpy: 4000 }, reason: '환율·송금 수수료 차이' }, member);
+  const r = applied(await applyExternalStatus(sql, row.id, upd('paid', '2026-10-07T04:00:00Z', { paidAmountKrw: 34000, paidAmountJpy: 4000, paidAt: '2026-10-07T03:00:00Z', paidRate: RATE_JPY })));
+  assert.deepEqual(rateOf(r), [9.1234, '2026-10-06', 'Frankfurter / ECB']);
+  assert.equal(r.diffAckKind, 'kept');   // 금액이 같으면 처리 기록 유지
+  const [listed] = await listRequests(sql, { taskId: row.taskId! });
+  assert.deepEqual(rateOf(listed), [9.1234, '2026-10-06', 'Frankfurter / ECB']); assert.equal(listed.diffAckKind, 'kept');
+  const exp = await getForExport(sql, row.id);
+  const it = toExternalItem(exp!, 'https://cb-x-deck.example');
+  assert.equal(it.settlement.paid_rate_krw_per_unit, 9.1234); assert.equal(it.settlement.paid_rate_date, '2026-10-06'); assert.equal(it.settlement.paid_rate_source, 'Frankfurter / ECB');
+});
+test('066 환율 — 외화 금액만 오면 비우고, 원화만 정정이면 유지, paid_currency KRW면 비운다', async () => {
+  const { row } = await requestFor('rate2', 'rate2');
+  const t = (h: string) => `2026-10-07T${h}:00Z`;
+  let r = applied(await applyExternalStatus(sql, row.id, upd('paid', t('06:00'), { paidAmountKrw: 45600, paidAmountJpy: 5000, paidAt: t('05:59'), paidRate: RATE_JPY })));
+  assert.deepEqual(rateOf(r), [9.1234, '2026-10-06', 'Frankfurter / ECB']);
+  // 원화만 정정(외화·통화 없음, 구버전 모양) → 유지
+  r = applied(await applyExternalStatus(sql, row.id, upd('paid', t('06:10'), { paidAmountKrw: 45700, paidAt: t('05:59') })));
+  assert.deepEqual(rateOf(r), [9.1234, '2026-10-06', 'Frankfurter / ECB']); assert.equal(r.paidAmountJpy, 5000);
+  // 외화 금액이 오는데 환율이 없음 → 그 지급에 맞지 않는 옛 환율을 비운다
+  r = applied(await applyExternalStatus(sql, row.id, upd('paid', t('06:20'), { paidAmountKrw: 45700, paidAmountJpy: 5000, paidAt: t('05:59') })));
+  assert.deepEqual(rateOf(r), [null, null, null]);
+  // 달러 지급으로 정정 + 환율 → 덮어씀
+  r = applied(await applyExternalStatus(sql, row.id, upd('paid', t('06:30'), { paidAmountKrw: 45600, paidAmountUsd: 33.77, paidAt: t('05:59'), paidRate: { krwPerUnit: 1350.35, date: '2026-10-05', source: 'Frankfurter / ECB' } })));
+  assert.deepEqual(rateOf(r), [1350.35, '2026-10-05', 'Frankfurter / ECB']);
+  // 원화 지급으로 정정(paid_currency KRW) → 비움
+  r = applied(await applyExternalStatus(sql, row.id, upd('paid', t('06:40'), { paidAmountKrw: 45600, paidAt: t('05:59'), paidCurrency: 'KRW' })));
+  assert.deepEqual(rateOf(r), [null, null, null]); assert.equal(r.paidAmountUsd, null);
+});
+test('066 환율 — reviseRequest(제자리 수정)가 정산팀 결과를 비울 때 환율도 비운다', () => revisionOn(async () => {
+  const { row, member } = await requestFor('rate3', 'rate3');
+  // 지급 완료 건은 수정이 막혀 있어(paid-locked) 실제 흐름으로는 환율이 남은 채 수정될 수 없다 — 리셋 범위를 못박기 위해 칸을 직접 채운다
+  await sql`update payment_request set paid_rate_krw_per_unit = 9.1234, paid_rate_date = '2026-10-06', paid_rate_source = 'Frankfurter / ECB' where id = ${row.id}`;
+  const r = await reviseRequest(sql, row.id, { expectedRevision: 0, reason: '재검토', edits: { category: row.category, deadlineOn: row.deadlineOn, referenceUrl: row.referenceUrl }, partnerConfirmed: true }, member);
+  assert.ok(typeof r === 'object');
+  assert.deepEqual(rateOf(r as PaymentRequestRow), [null, null, null]);
+}));

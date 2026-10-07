@@ -26,6 +26,8 @@ export { CAMPAIGN_KINDS, CAMPAIGN_KIND_LABEL, type CampaignKind } from './campai
 
 // 캠페인 = 클라이언트 1 × 기간 1 동안 나가는 작업 묶음(스펙 2026-08-28 §0). 상태·인플 목록·합계는 저장하지 않는다 —
 // 목록엔 SQL 집계(task_count·통화별 합계)만 붙이고, 상세의 판정은 campaignJudgment 순수 함수가 한다(서버·클라 동일).
+// planned = posted + assigned + unassigned (취소 제외). posted = 게시됨, assigned = 인플 배정·미게시, unassigned = 인플 미배정·미게시.
+export interface CampaignProgress { planned: number; posted: number; assigned: number; unassigned: number }
 export interface CampaignRow {
   id: string; clientId: string | null; clientName: string | null;
   name: string; nameEn: string;
@@ -33,6 +35,7 @@ export interface CampaignRow {
   kind: CampaignKind | null; note: string;
   createdAt: string; updatedAt: string; // ISO
   taskCount: number;                    // 파생: 취소 제외 작업 수(요약 N과 같은 모집단, R17)
+  progress: CampaignProgress;           // 파생: 취소 제외 작업의 게시·배정·미배정 수(목록 진행 막대)
   total: MoneyByCurrency;               // 파생: 작업 비용(취소 제외) + 추가 비용, 통화별
 }
 
@@ -82,6 +85,7 @@ type CRow = {
   id: string; client_id: string | null; client_name: string | null; name: string; name_en: string;
   starts_on: string; ends_on: string; kind: CampaignKind | null; note: string;
   created_at: Date; updated_at: Date; task_count: string | number;
+  posted_count: string | number; assigned_count: string | number; unassigned_count: string | number;
 };
 type TotalRow = { campaign_id: string; currency: string; amount: string | number };
 type FeeRow = { campaign_id: string; cost: unknown; payment_methods: unknown; payment_method_id: string | null; posted: boolean };
@@ -109,7 +113,13 @@ const SELECT = (sql: postgres.Sql) => sql`
          to_char(c.starts_on, 'YYYY-MM-DD') as starts_on, to_char(c.ends_on, 'YYYY-MM-DD') as ends_on,
          c.kind, c.note, c.created_at, c.updated_at,
          (select count(*) from campaign_task t
-           where t.campaign_id = c.id and t.cancelled_at is null) as task_count
+           where t.campaign_id = c.id and t.cancelled_at is null) as task_count,
+         (select count(*) from campaign_task t
+           where t.campaign_id = c.id and t.cancelled_at is null and t.posted_at is not null) as posted_count,
+         (select count(*) from campaign_task t
+           where t.campaign_id = c.id and t.cancelled_at is null and t.posted_at is null and t.influencer_handle is not null) as assigned_count,
+         (select count(*) from campaign_task t
+           where t.campaign_id = c.id and t.cancelled_at is null and t.posted_at is null and t.influencer_handle is null) as unassigned_count
     from campaign c`;
 
 // 통화별 합계 — 작업 비용(취소 제외) + 추가 비용을 SQL에서 통화별로 묶는다. 통화 간 합산은 하지 않는다.
@@ -213,6 +223,10 @@ async function toRows(sql: postgres.Sql, rows: CRow[]): Promise<CampaignRow[]> {
     startsOn: r.starts_on, endsOn: r.ends_on, kind: r.kind, note: r.note,
     createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
     taskCount: Number(r.task_count),
+    progress: {
+      planned: Number(r.posted_count) + Number(r.assigned_count) + Number(r.unassigned_count),
+      posted: Number(r.posted_count), assigned: Number(r.assigned_count), unassigned: Number(r.unassigned_count),
+    },
     total: totals.get(r.id)?.money ?? {},
   }));
 }

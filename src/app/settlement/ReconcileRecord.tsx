@@ -7,6 +7,7 @@ import { costText } from '@/lib/taskChangeView';
 import { undoKeepTaskCostApi } from '@/lib/settlementApi';
 
 const PILL = 'inline-flex self-start items-center rounded-full px-3 py-1 text-[14px] font-semibold';
+const BYAT = 'whitespace-nowrap text-[14px] text-x-muted';
 
 // 펼침 요약 카드의 '처리 칸'(10-07 koo QA, 스펙 §9) — 요약 카드 오른쪽 끝에 구분선과 함께 붙는다.
 // 판정이 '다름'이면(처리 기록이 있어도 작업 금액이 바뀌어 다시 다름이 된 경우·옛 확인 포함) 처리 기록 대신 '아직 처리하지 않았어요' + 두 버튼 —
@@ -46,18 +47,27 @@ export function ReconcileRecord({ r, mismatch, onKeep, onMatch, onChanged }: {
           </>
         ) : r.diffAckKind === 'matched' ? (
           <>
-            <span className={`${PILL} bg-emerald-50 text-emerald-700`}>지급 금액에 맞춤</span>
-            <span className="text-content tabular-nums">작업 금액을 {costText(r.diffAckBeforeCost)} → {costText(r.diffAckTaskCost)}로 바꿨어요 · {byAt}</span>
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className={`${PILL} bg-emerald-50 text-emerald-700`}>지급 금액에 맞춤</span>
+              <span className={BYAT}>{byAt}</span>
+            </span>
+            <span className="text-content tabular-nums">작업 금액을 {costText(r.diffAckBeforeCost)} → {costText(r.diffAckTaskCost)}로 바꿨어요</span>
             {r.diffAckReason && <span className="text-[14px] text-x-muted">사유: {r.diffAckReason}{fromNote ? ' (정산팀 메모)' : ''}</span>}
           </>
         ) : kept ? (
           <>
-            <span className={`${PILL} bg-slate-100 text-slate-700`}>그대로 두기로 함</span>
-            <span className="text-content tabular-nums">작업 금액 {costText(r.diffAckTaskCost)} 그대로 두기로 했어요 · {byAt}</span>
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className={`${PILL} bg-slate-100 text-slate-700`}>그대로 두기로 함</span>
+              <span className={BYAT}>{byAt}</span>
+            </span>
+            <span className="text-content tabular-nums">작업 금액 {costText(r.diffAckTaskCost)} 그대로 두기로 했어요</span>
             {r.diffAckReason && <span className="text-[14px] text-x-muted">사유: {r.diffAckReason}</span>}
           </>
         ) : (
-          <span className="text-content text-x-secondary">확인함 · {byAt}</span>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-x-muted">
+            <span>확인함</span>
+            <span className="whitespace-nowrap">{byAt}</span>
+          </span>
         )}
         {err && <p role="alert" className="text-[14px] text-red-700">{err}</p>}
       </div>

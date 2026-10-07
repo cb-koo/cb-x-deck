@@ -2,8 +2,8 @@
 import { kstDateTime } from '@/lib/datetime';
 import { InfoTip } from '@/components/InfoTip';
 import type { FlowStats } from '@/lib/campaignFlowView';
-import { CURRENCIES, formatMoneyBy, moneyParts, type MoneyByCurrency } from '@/lib/campaignCost';
-import { toKrw } from '@/lib/clientBudget';
+import { CURRENCIES, formatAmount, formatMoneyBy, moneyParts, type MoneyByCurrency } from '@/lib/campaignCost';
+import { toKrw, formatMoneyKrw, JPY_TO_KRW } from '@/lib/clientBudget';
 import { formatPct } from '@/lib/performanceJudgment';
 
 // 요약 카드 3장(작업·성과·비용) — 클러터로 반려된 초안 뒤 정해진 모양(b-task-11-brief.md):
@@ -54,6 +54,12 @@ export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, 
   // 이 캠페인 막대 — 계획이 전체 길이, 진한 파랑 = 집행, 빗금 = 예정(아직 게시 전). 통화가 섞이면 원화 환산으로 비율만 낸다.
   const spentKrw = toKrw(stats.spent).krw;
   const plannedKrw = toKrw(plannedTotal).krw;
+  // 큰 숫자는 원화 환산 총액, 통화 내역은 작게(koo 10-07). 엔화가 어느 쪽에든 섞였을 때만 ≈ 한 번과 내역 줄을 붙인다.
+  const spentView = formatMoneyKrw(stats.spent);
+  const plannedView = formatMoneyKrw(plannedTotal);
+  const hasYen = spentView.approx || plannedView.approx;
+  const partsText = (m: MoneyByCurrency) => moneyParts(m).map((p) => `${p.currency === 'KRW' ? '원화' : '엔화'} ${formatAmount(p.amount, p.currency)}`).join(' + ') || '—';
+  const breakdownText = hasYen ? `집행 ${partsText(stats.spent)} · 계획 ${partsText(plannedTotal)}` : null;
   const spentPct = plannedKrw > 0 ? Math.min(100, (spentKrw / plannedKrw) * 100) : 0;
 
   return (
@@ -127,12 +133,13 @@ export function FlowCards({ stats, plannedTotal, perfUpdatedAt, cancelledCount, 
       {/* 비용 — 이 캠페인만(집행 / 계획). 이 기간 클라이언트 예산은 카드 아래 BudgetStrip이 따로 말한다(koo 09-27 A안) */}
       <div className={CELL}>
         <p className="flex items-center gap-1.5 text-ui text-x-secondary">
-          비용<InfoTip text={['집행 = 게시 확인된 작업 비용 · 계획 = 취소 뺀 전체 작업 비용', costTip].filter(Boolean).join(' · ')} label="비용 카드 설명 보기" />
+          비용<InfoTip text={['집행 = 게시 확인된 작업 비용 · 계획 = 취소 뺀 전체 작업 비용', costTip, `엔화는 1엔 = ${JPY_TO_KRW}원으로 환산해 더했어요 — 예산 화면과 같은 기준`].filter(Boolean).join(' · ')} label="비용 카드 설명 보기" />
         </p>
         <p className="mt-1 text-[26px] font-bold leading-tight tabular-nums">
-          {formatMoneyBy(stats.spent)} <span className="text-content font-normal text-x-muted">/ {formatMoneyBy(plannedTotal)}</span>
+          {hasYen && '≈'}{spentView.total} <span className="text-content font-normal text-x-muted">/ {plannedView.total}</span>
         </p>
-        <p className="mt-1 text-ui text-x-secondary">집행 / 계획</p>
+        <p className="mt-1 text-ui text-x-secondary">집행 / 계획{hasYen && ` · 엔화는 1엔 = ${JPY_TO_KRW}원으로 계산`}</p>
+        {breakdownText && <p className="mt-0.5 truncate text-ui text-x-muted" title={breakdownText}>{breakdownText}</p>}
         {plannedKrw > 0 && (
           <div className="mt-2 flex h-1.5 overflow-hidden rounded bg-x-border">
             <div className="h-full bg-x-blue" style={{ width: `${spentPct}%` }} />

@@ -1,7 +1,7 @@
 // 클라이언트 예산 기간의 순수 로직 — 환율 상수, 원화 환산, 기간 찾기, 초과 배지, 표 행, 입력 검증.
 // 서버(스토어·라우트)와 화면(BudgetPanel·SummaryCards·FlowCards)이 같은 함수를 쓴다(스펙 2026-09-22 §4).
 // 037의 월 단위 모델(기본 예산+예외 달)을 완전히 대체한다 — 이 파일에 '기본값' 개념은 없다.
-import { parseAmount, formatAmount, type MoneyByCurrency, type Parsed } from './campaignCost.ts';
+import { parseAmount, formatAmount, moneyParts, type MoneyByCurrency, type Parsed } from './campaignCost.ts';
 import { isDateOnlyString } from './campaignJudgment.ts';
 
 // 환율 — 참고 환산(koo 결정 08-27: 1엔 = 10원 고정, 09-22 유지). 바꿀 자리는 여기 한 곳.
@@ -32,6 +32,17 @@ export interface SpanningCampaign { id: string; endsOn: string }
 export function toKrw(total: MoneyByCurrency): { krw: number; jpyIncluded: number } {
   const jpy = total.JPY ?? 0;
   return { krw: (total.KRW ?? 0) + jpy * JPY_TO_KRW, jpyIncluded: jpy };
+}
+
+// 비용 표기 — 원화 환산 총액을 크게, 통화별 내역은 작게(koo 10-07). 환산은 toKrw 그대로라 예산 줄·CPV와 숫자가 맞는다.
+// approx = 엔화가 실제로 더해졌을 때만(0엔은 환산이 일어나지 않았다). breakdown = 엔화가 섞였을 때만 — 원화만이면 총액이 곧 내역이다.
+export function formatMoneyKrw(m: MoneyByCurrency): { total: string; approx: boolean; breakdown: string | null } {
+  if (moneyParts(m).length === 0) return { total: '—', approx: false, breakdown: null };
+  const approx = (m.JPY ?? 0) > 0;
+  const breakdown = approx
+    ? moneyParts(m).map((p) => `${p.currency === 'KRW' ? '원화' : '엔화'} ${formatAmount(p.amount, p.currency)}`).join(' · ')
+    : null;
+  return { total: formatAmount(toKrw(m).krw, 'KRW'), approx, breakdown };
 }
 
 export function remainingOf(amountKrw: number, spentKrw: number): number {

@@ -144,6 +144,11 @@ test('8-b) 하단 줄 — 내려진 작업이 있으면 끝에 · 내림 N(밀�
   ];
   assert.equal(flowFooter(rows, T), '투고 2 · 작업 비용 130,000원 · 게시 2 / 2 · 내림 1');
   assert.equal(flowFooter([mk({ type: 'post', postedAt: '2026-09-11' })], T), '투고 1 · 작업 비용 — · 게시 1 / 1');
+  // 원화 환산 총액 먼저, 통화 내역은 괄호(koo 10-07)
+  const yen = (amount: number) => mk({ type: 'post', cost: { amount, currency: 'JPY' }, influencerHandle: 'y' });
+  const won = (amount: number) => mk({ type: 'post', cost: { amount, currency: 'KRW' }, influencerHandle: 'w' });
+  assert.equal(flowFooter([yen(95000)], T), '투고 1 · 작업 비용 ≈950,000원 (엔화 95,000엔) · 게시 0 / 1');
+  assert.equal(flowFooter([won(360000), yen(95000)], T), '투고 2 · 작업 비용 ≈1,310,000원 (원화 360,000원 · 엔화 95,000엔) · 게시 0 / 2');
 });
 
 test('9) 비용 확인 시나리오 — 같음 / 다름 / 프로필 없음 / 통화 다름 / 빈칸', () => {

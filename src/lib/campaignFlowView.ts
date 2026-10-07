@@ -3,10 +3,10 @@ import {
   flowStage, FLOW_STAGES, FLOW_STAGE_LABEL, isTaskExcluded, isSettlementCandidate, isTaskOverdue,
   TASK_TYPES, TASK_TYPE_LABEL, formatDateKo, formatDateTimeKo, daysBetweenDates, type FlowStage, type TaskType,
 } from './campaignJudgment.ts';
-import { formatAmount, formatMoneyBy, sumMoney, suggestTaskCost, normalizeCurrency, type MoneyByCurrency, type TaskCost } from './campaignCost.ts';
+import { formatAmount, sumMoney, suggestTaskCost, normalizeCurrency, type MoneyByCurrency, type TaskCost } from './campaignCost.ts';
 import type { InfluencerOption } from './draftTypes.ts';
 import type { CancelReason } from './campaignTaskInput.ts';
-import { toKrw } from './clientBudget.ts';
+import { toKrw, formatMoneyKrw } from './clientBudget.ts';
 import { rate } from './performanceJudgment.ts';
 
 // 캠페인 v2 화면(결정 문서 §3·§4)의 판정·문구 — 컴포넌트는 그리기만 한다. 단계는 flowStage 하나(R21), 모집단은 취소 제외(R17).
@@ -157,7 +157,9 @@ export function flowFooter(rows: FlowRow[], today: string): string {
   const removed = live.filter((t) => t.removedAt).length;   // koo 09-19 결정 3 — 밀림과 같은 방식, 0이면 생략
   // M3 — 카드의 '계획'은 작업 비용 + 인플별 추가 비용인데 이 줄은 작업 비용만이다. 라벨이 같으면 두 숫자가
   // 다른 걸 두고 왜 다르냐는 질문이 나온다(FlowCards.tsx 상단 주석 참조).
-  return [...types, `작업 비용 ${formatMoneyBy(cost)}`, `게시 ${posted} / ${live.length}`,
+  const kc = formatMoneyKrw(cost);   // 원화 환산 총액이 앞, 통화 내역은 괄호(koo 10-07)
+  const costText = `${kc.approx ? '≈' : ''}${kc.total}${kc.breakdown ? ` (${kc.breakdown})` : ''}`;
+  return [...types, `작업 비용 ${costText}`, `게시 ${posted} / ${live.length}`,
           ...(late ? [`밀림 ${late}`] : []), ...(removed ? [`내림 ${removed}`] : [])].join(' · ');
 }
 export interface FlowStats {

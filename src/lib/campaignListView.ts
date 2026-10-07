@@ -107,6 +107,18 @@ export function campaignsByClient<T extends { clientId: string | null; clientNam
   return groups.sort((a, b) => latest(b).localeCompare(latest(a)) || ko(a.label, b.label));
 }
 
+// 클라이언트 묶음 안 나누기(시안 ClientMode): 진행 중·예정(종료일 ≥ 오늘)이 먼저, 그 안에서 장기가 맨 위(나머지는 받은 순서 유지).
+// 지난(종료일 < 오늘)은 받은 순서 그대로 — `지난` 라벨 아래 흐리게 그린다.
+export function splitClientRows<T extends { startsOn: string; endsOn: string }>(
+  rows: T[], today: string,
+): { current: T[]; past: T[] } {
+  const live = rows.filter((r) => r.endsOn >= today);
+  return {
+    current: [...live.filter(isLongCampaign), ...live.filter((r) => !isLongCampaign(r))],
+    past: rows.filter((r) => r.endsOn < today),
+  };
+}
+
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, '');
 export function matchesCampaignQuery(c: { name: string; clientName: string | null }, q: string): boolean {
   const n = norm(q);

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   campaignDot, isLongCampaign, campaignRowLabel, campaignSections, campaignsByClient,
-  matchesCampaignQuery, weekKey, weekName,
+  matchesCampaignQuery, splitClientRows, weekKey, weekName,
 } from './campaignListView.ts';
 
 const TODAY = '2026-10-08'; // 목요일 — 10월 2주차(10/5~10/11)
@@ -148,4 +148,23 @@ test('campaignSections: 지난 주차 3개 이상은 최근 주가 위', () => {
   const w2 = row('a_9월2주차', 'a', '2026-09-07', '2026-09-13');
   const s = campaignSections([w2, W94, W1a, w3], TODAY);
   assert.deepEqual(s.past.map((g) => g.label), ['지난 주 · 10월1주차', '9월4주차', '9월3주차', '9월2주차']);
+});
+
+test('splitClientRows: 진행 중·예정 먼저(장기가 맨 위), 지난은 받은 순서 그대로', () => {
+  const wk = row('A_10월2주차', 'A', '2026-10-06', '2026-10-10');
+  const nx = row('A_10월3주차', 'A', '2026-10-13', '2026-10-17');
+  const lg = row('A_10월 방문협찬', 'A', '2026-10-01', '2026-10-31');
+  const todayEnd = row('A_당일 끝', 'A', '2026-10-05', '2026-10-08');
+  const p1 = row('A_10월1주차', 'A', '2026-09-29', '2026-10-03');
+  const p2 = row('A_9월4주차', 'A', '2026-09-22', '2026-09-26');
+  const { current, past } = splitClientRows([nx, wk, p1, lg, todayEnd, p2], TODAY);
+  assert.deepEqual(current.map((r) => r.name), ['A_10월 방문협찬', 'A_10월3주차', 'A_10월2주차', 'A_당일 끝']);
+  assert.deepEqual(past.map((r) => r.name), ['A_10월1주차', 'A_9월4주차']);
+});
+
+test('splitClientRows: 전부 지난 묶음이면 current가 비어 있다', () => {
+  const p1 = row('B_10월1주차', 'B', '2026-09-29', '2026-10-03');
+  const { current, past } = splitClientRows([p1], TODAY);
+  assert.deepEqual(current, []);
+  assert.deepEqual(past, [p1]);
 });

@@ -2,7 +2,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import {
-  campaignRowLabel, campaignSections, campaignsByClient, matchesCampaignQuery, type WeekGroup,
+  campaignRowLabel, campaignSections, campaignsByClient, isLongCampaign, matchesCampaignQuery, splitClientRows, type WeekGroup,
 } from '@/lib/campaignListView';
 import { Button } from '@/components/ui';
 import { SidebarRow } from './sidebar/SidebarRow';
@@ -10,6 +10,8 @@ import type { HeaderAction } from '../CampaignHeader';
 
 // 캠페인 v2 왼쪽 목록(스펙 2026-10-08 §2·§3) — 360px. 위: 제목·새 캠페인·검색·묶어 보기.
 // 주차로 묶으면 장기 캠페인 / 주차 캠페인 / 지난 캠페인 세 섹션, 클라이언트로 묶으면 클라이언트별 묶음(섹션 제목 없음).
+// 위계 3단계(시안 WeekMode/ClientMode): 섹션 제목(위 구분선) → 묶음 머리(맨 셰브론·회색 제목·숫자) → 들여 쓴 행.
+// 클라이언트 묶음 안은 진행 중·예정 먼저(장기 맨 위, 꼬리말 '장기'), 그다음 `지난` 라벨과 흐린 지난 행.
 // 묶기·순서·색 점 판단은 전부 campaignListView(순수 함수)가 하고, 여기선 펼침 상태·검색어·메뉴만 들고 그린다.
 // 옛 /campaigns 화면은 CampaignList를 그대로 쓴다(이 부품은 v2 전용).
 
@@ -59,11 +61,15 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
     return false;   // 지난 주차는 전부 접힘
   }
 
-  const renderRow = (c: CampaignRow) => {
-    const { title, suffix } = campaignRowLabel(c, { groupedByClient: groupBy === 'client' });
+  const renderRow = (c: CampaignRow, opts?: { top?: boolean; past?: boolean }) => {
+    const byClient = groupBy === 'client';
+    const label = campaignRowLabel(c, { groupedByClient: byClient });
+    // 클라이언트 묶음 안에선 장기 캠페인에 꼬리말 '장기'(주차 모드는 섹션 제목이 이미 말한다)
+    const suffix = byClient && isLongCampaign(c) ? '장기' : label.suffix;
     return (
-      <SidebarRow key={c.id} c={c} title={title} suffix={suffix} today={today}
+      <SidebarRow key={c.id} c={c} title={label.title} suffix={suffix} today={today}
                   selected={c.id === selectedId} menuOpen={menuFor === c.id}
+                  top={opts?.top} past={opts?.past}
                   onSelect={() => onSelect(c.id)}
                   onMenuToggle={() => setMenuFor((m) => (m === c.id ? null : c.id))}
                   onMenuClose={closeMenu}
@@ -71,27 +77,26 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
     );
   };
 
-  const renderGroup = (key: string, label: string, groupRows: CampaignRow[], open: boolean, past: boolean, empty?: ReactNode) => (
+  // body: 펼쳤을 때 그릴 내용(기본 = 들여 쓴 행 목록). 클라이언트 모드는 진행 중 / 지난을 나눠 그린다.
+  const renderGroup = (key: string, label: string, groupRows: CampaignRow[], open: boolean, past: boolean,
+                       opts?: { empty?: ReactNode; body?: ReactNode }) => (
     <div key={key}>
       <button type="button" onClick={() => toggle(key, open)} aria-expanded={open}
-              className="group/g flex h-11 w-full items-center gap-1.5 pl-[9px] pr-4 text-left">
-        <span aria-hidden className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full group-hover/g:bg-x-hover">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={past ? '#9aa5ad' : '#536471'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d={open ? 'M6 9l6 6 6-6' : 'M9 6l6 6-6 6'} />
-          </svg>
-        </span>
-        <span className={`truncate text-[15px] ${past ? 'font-medium text-x-muted' : 'font-semibold text-x-text'}`}>{label}</span>
-        <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[13px] leading-4 tabular-nums ${past ? 'bg-x-hover text-x-muted' : 'bg-[#f1f5f8] text-x-secondary'}`}>
-          {groupRows.length}개
-        </span>
+              className="flex h-10 w-full items-center gap-0.5 px-4 text-left">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={past ? '#9aa5ad' : '#536471'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">
+          <path d={open ? 'M6 9l6 6 6-6' : 'M9 6l6 6-6 6'} />
+        </svg>
+        <span className={`truncate whitespace-nowrap text-[14px] ${past ? 'font-medium text-[#9aa5ad]' : 'font-semibold text-[#536471]'}`}>{label}</span>
+        <span className="ml-auto shrink-0 text-[13px] tabular-nums text-[#9aa5ad]">{groupRows.length}</span>
       </button>
-      {open && (groupRows.length > 0 ? groupRows.map(renderRow) : empty)}
+      {open && (groupRows.length > 0 ? (opts?.body ?? groupRows.map((c) => renderRow(c))) : opts?.empty)}
     </div>
   );
 
+  // 섹션 제목(L1) — 첫 섹션 말고는 위에 가는 구분선
   const sectionTitle = (text: string, first: boolean, right?: ReactNode) => (
-    <div className={`flex items-baseline justify-between px-4 pb-2 ${first ? 'pt-3' : 'pt-5'}`}>
-      <h3 className="text-[13px] font-bold leading-4 tracking-[0.06em] text-x-muted">{text}</h3>
+    <div className={`flex items-baseline justify-between px-4 pb-2 pt-5 ${first ? '' : 'mt-3 border-t border-[#eff3f4]'}`}>
+      <h3 className="text-[13px] font-bold leading-4 tracking-[0.02em] text-[#0f1419]">{text}</h3>
       {right}
     </div>
   );
@@ -114,21 +119,22 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
         {long.length > 0 && (
           <section>
             {sectionTitle('장기 캠페인', isFirst())}
-            <div className="pb-1">{long.map(renderRow)}</div>
+            {long.map((c) => renderRow(c, { top: true }))}
           </section>
         )}
         {weekGroups.length > 0 && (
           <section>
             {sectionTitle('주차 캠페인', isFirst())}
-            {weekGroups.map((g) => renderGroup(g.key, g.label, g.rows, isOpen(g.key, weekDefaultOpen(g), g.rows), false,
-              <p className="flex h-11 items-center pl-[45px] pr-4 text-[14px] text-x-muted">아직 캠페인이 없어요</p>))}
+            {weekGroups.map((g) => renderGroup(g.key, g.label, g.rows, isOpen(g.key, weekDefaultOpen(g), g.rows), false, {
+              empty: <p className="flex h-11 items-center pl-[34px] pr-4 text-[13.5px] text-[#6c7781]">아직 캠페인이 없어요</p>,
+            }))}
           </section>
         )}
         {pastGroups.length > 0 && (
           <section>
             {sectionTitle('지난 캠페인', isFirst(), hasMorePast ? (
               <button type="button" onClick={() => setShowAllPast((v) => !v)} aria-expanded={showAllPast}
-                      className="text-[13px] text-x-blue-text hover:underline">
+                      className="text-[13px] font-normal tracking-normal text-[#1573ad] hover:underline">
                 {showAllPast ? '접기' : `더 보기 (${hiddenPast}주)`}
               </button>
             ) : undefined)}
@@ -143,49 +149,66 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
     const groups = searching ? byClient.filter((g) => g.rows.length > 0) : byClient;
     return (
       <div className="pt-2">
-        {groups.map((g) => renderGroup(g.key, g.label, g.rows, isOpen(g.key, g.open, g.rows), false))}
+        {groups.map((g, i) => {
+          const { current, past } = splitClientRows(g.rows, today);
+          const body = (
+            <>
+              {current.map((c) => renderRow(c))}
+              {past.length > 0 && <div className="pb-1 pl-[34px] pr-4 pt-[10px] text-[12.5px] font-medium leading-[14px] text-[#9aa5ad]">지난</div>}
+              {past.map((c) => renderRow(c, { past: true }))}
+            </>
+          );
+          return (
+            <div key={g.key}>
+              {i > 0 && <div aria-hidden className="mx-4 my-2 h-px bg-[#eff3f4]" />}
+              {renderGroup(g.key, g.label, g.rows, isOpen(g.key, g.open, g.rows), false, { body })}
+            </div>
+          );
+        })}
       </div>
     );
   }
 
   return (
     <div className="flex min-h-full flex-col">
-      <div className="sticky top-0 z-20 border-b border-x-border bg-white p-4">
-        <div className="flex h-9 items-center justify-between gap-2">
-          <h2 className="text-[20px] font-extrabold tracking-[-0.01em]">캠페인</h2>
-          <div className="flex items-center gap-1">
-            <button type="button" onClick={onCreate}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-full bg-x-text px-4 text-[14px] font-semibold text-white hover:bg-[#272c30]">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              새 캠페인
-            </button>
-            <button type="button" onClick={onCollapse} aria-label="목록 접기" title="목록 접기"
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-x-muted hover:bg-x-hover">«</button>
-          </div>
+      <div className="sticky top-0 z-20 border-b border-[#eff3f4] bg-white p-4">
+        <div className="flex h-8 items-center gap-2">
+          <h2 className="flex-1 text-[20px] font-extrabold tracking-[-0.01em] text-[#0f1419]">캠페인</h2>
+          <button type="button" onClick={onCreate}
+                  className="inline-flex h-8 items-center gap-[5px] rounded-full bg-[#0f1419] pl-[11px] pr-[14px] text-[13.5px] font-semibold text-white hover:bg-[#272c30]">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            새 캠페인
+          </button>
+          <button type="button" onClick={onCollapse} aria-label="목록 접기" title="목록 접기"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#536471] hover:bg-[#f5f7f8]">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" />
+            </svg>
+          </button>
         </div>
         <div className="relative mt-3">
           <label htmlFor="campaign-search" className="sr-only">캠페인 검색</label>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6c7781" strokeWidth="2" strokeLinecap="round" aria-hidden
-               className="pointer-events-none absolute left-[13px] top-3">
+               className="pointer-events-none absolute left-[13px] top-[11px]">
             <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
           </svg>
           <input id="campaign-search" type="text" value={q} onChange={(e) => setQ(e.target.value)}
                  onKeyDown={(e) => { if (e.key === 'Escape' && q) { e.stopPropagation(); setQ(''); } }}
                  placeholder="캠페인·클라이언트 검색"
-                 className="h-10 w-full rounded-[10px] border border-x-border bg-x-hover pl-[38px] pr-9 text-[14px] text-x-text outline-none focus:border-x-blue focus:bg-white" />
+                 className={`h-[38px] w-full rounded-[10px] border border-transparent bg-[#f5f7f8] pl-[38px] text-[14px] text-[#0f1419] outline-none placeholder:text-[#6c7781] focus:border-[#1d9bf0] focus:bg-white ${q ? 'pr-9' : 'pr-[14px]'}`} />
           {q && (
             <button type="button" onClick={() => setQ('')} aria-label="검색어 지우기"
-                    className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full text-x-muted hover:bg-x-border">✕</button>
+                    className="absolute right-1.5 top-[5px] flex h-7 w-7 items-center justify-center rounded-full text-x-muted hover:bg-x-border">✕</button>
           )}
         </div>
         <div className="mt-3 flex items-center gap-3">
-          <span className="text-[13px] text-x-muted">묶어 보기</span>
-          <div role="group" aria-label="묶어 보기" className="inline-flex h-8 rounded-full border border-x-border-strong p-0.5">
+          <span className="text-[13px] text-[#6c7781]">묶어 보기</span>
+          <div role="group" aria-label="묶어 보기" className="inline-flex h-8 gap-0.5 rounded-[9px] bg-[#f0f2f4] p-[3px]">
             {(['week', 'client'] as const).map((v) => (
               <button key={v} type="button" onClick={() => chooseGroupBy(v)} aria-pressed={groupBy === v}
-                      className={`rounded-full px-3 text-[13px] ${groupBy === v ? 'bg-x-text font-semibold text-white' : 'text-x-secondary hover:text-x-text'}`}>
+                      className={`rounded-[7px] px-[14px] text-[13.5px] ${groupBy === v ? 'bg-white font-semibold text-[#0f1419] shadow-[0_1px_2px_rgba(15,20,25,0.10),0_0_0_0.5px_rgba(15,20,25,0.06)]' : 'text-[#536471]'}`}>
                 {v === 'week' ? '주차' : '클라이언트'}
               </button>
             ))}
@@ -193,7 +216,7 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
         </div>
       </div>
 
-      <div className="flex-1 pb-6">
+      <div className="flex-1 pb-4">
         {!loaded && <p className="px-4 py-4 text-content text-x-muted">불러오는 중…</p>}
         {loaded && loadErr && (
           <div className="px-4 py-4">

@@ -103,6 +103,18 @@ test('paidSummary — 지급 통화별 금액·보조 줄', () => {
   assert.deepEqual(paidSummary({ ...paid, payoutCurrency: 'JPY', paidAmountKrw: 139758, paidAmountUsd: 104.08 }), { amount: '139,758원', sub: '달러 $104.08로 송금 · 원화는 정산팀 환산값' });
   assert.deepEqual(paidSummary({ ...paid, payoutCurrency: 'JPY', paidAmountKrw: 43000 }), { amount: '43,000원', sub: '원화는 정산팀 환산값' });
 });
+// 10-07 정산 미러: 정산팀이 보낸 적용 환율(066)이 있으면 그 값과 기준일을, 없으면 지금처럼(엔화=역산, 달러=환산값 안내). 출처는 화면에 안 쓴다.
+test('paidSummary — 정산팀이 보낸 환율이 있으면 그 값·기준일, 없으면 지금처럼', () => {
+  const paid = { ...ext('paid'), paidAt: '2026-10-07T03:00:00Z' };
+  const jpy = { ...paid, payoutCurrency: 'JPY' as const, paidAmountKrw: 45600, paidAmountJpy: 5000 };
+  assert.deepEqual(paidSummary({ ...jpy, paidRateKrwPerUnit: 9.1234, paidRateDate: '2026-10-06' }), { amount: '5,000엔', sub: '원화 45,600원 · 환율 1엔 = 9.12원 (10월 6일 기준)' });
+  assert.deepEqual(paidSummary({ ...jpy, paidRateKrwPerUnit: 9.1, paidRateDate: '2026-10-06' }), { amount: '5,000엔', sub: '원화 45,600원 · 환율 1엔 = 9.10원 (10월 6일 기준)' });
+  assert.deepEqual(paidSummary({ ...jpy, paidRateKrwPerUnit: null, paidRateDate: null }), { amount: '5,000엔', sub: '원화 45,600원 · 환율 1엔 = 9.12원' });   // 역산 45600/5000
+  const usd = { ...paid, payoutCurrency: 'JPY' as const, paidAmountKrw: 45600, paidAmountUsd: 33.77 };
+  assert.deepEqual(paidSummary({ ...usd, paidRateKrwPerUnit: 1350.35, paidRateDate: '2026-10-06' }), { amount: '45,600원', sub: '달러 $33.77로 송금 · 환율 1달러 = 1,350.35원 (10월 6일 기준)' });
+  assert.deepEqual(paidSummary({ ...usd, paidRateKrwPerUnit: null, paidRateDate: null }), { amount: '45,600원', sub: '달러 $33.77로 송금 · 원화는 정산팀 환산값' });
+  assert.deepEqual(paidSummary(usd), { amount: '45,600원', sub: '달러 $33.77로 송금 · 원화는 정산팀 환산값' });   // 칸이 없는 소스(옛 모양)도 지금처럼
+});
 test('paidSummary — 지급 전이면 금액 없음 + 상태 문구', () => {
   assert.deepEqual(paidSummary(base), { amount: null, sub: '정산팀이 아직 확인하지 않았어요' });
   assert.deepEqual(paidSummary(ext('scheduled')), { amount: null, sub: '지급 예정' });

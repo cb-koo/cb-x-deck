@@ -126,6 +126,8 @@ export interface PaymentRequestRow {
   revision: number; revisedAt: string | null;   // 제자리 수정 횟수·마지막 수정 시각(048). 0·null = 한 번도 안 고침
   paidAmountUsd: number | null;   // PayPal 지급의 달러 실지급액(050, 그쪽 09-09). 표시·되비침용, 차액 판정은 원화
   paidAmountJpy: number | null;   // 계좌(일본)·PayPay 지급의 엔화 실지급액(051). 한 요청에 외화는 하나
+  // 정산팀이 paid에 보낸 적용 환율(066, 10-07): 외화 1단위당 원화·공시 기준일(YYYY-MM-DD)·출처. 기록·표시용, 판정에 쓰지 않는다
+  paidRateKrwPerUnit: number | null; paidRateDate: string | null; paidRateSource: string | null;
   // 캠페인 기간·게시일 스냅샷(054, koo 09-14) — 그쪽 API의 campaign.starts_on/ends_on·posted_on/confirmed_on. 단가·수단과 같은 '요청 시점 값 고정'.
   // null은 백필 전 옛 요청(캠페인·작업이 지워진 경우)뿐 — 새 요청은 항상 채워진다(게시일 없는 작업은 후보가 못 된다).
   campaignStartsOn: string | null; campaignEndsOn: string | null; postedOn: string | null;
@@ -160,6 +162,7 @@ type RRow = {
   diff_ack_at: Date | null; diff_ack_by_name: string | null;
   external_operator_id: string | null; external_operator_name: string | null;
   revision: number; revised_at: Date | null; paid_amount_usd: string | number | null; paid_amount_jpy: string | number | null;
+  paid_rate_krw_per_unit: string | number | null; paid_rate_date: string | null; paid_rate_source: string | null;
   campaign_starts_on: string | null; campaign_ends_on: string | null; task_posted_on: string | null;
   payment_method_correction: unknown;
   diff_ack_kind: DiffAckKind | null; diff_ack_reason: string | null; diff_ack_task_cost: unknown;
@@ -172,6 +175,7 @@ const R_SELECT = (sql: postgres.Sql) => sql`
          status, cancelled_at, cancelled_by_name, cancel_reason, sent_at, external_id, note, created_at, updated_at,
          external_status, paid_amount_krw, paid_at, external_note, external_updated_at, influencer_id, category_option_id,
          diff_ack_at, diff_ack_by_name, external_operator_id, external_operator_name, revision, revised_at, paid_amount_usd, paid_amount_jpy,
+         paid_rate_krw_per_unit, to_char(paid_rate_date, 'YYYY-MM-DD') as paid_rate_date, paid_rate_source,
          to_char(campaign_starts_on, 'YYYY-MM-DD') as campaign_starts_on, to_char(campaign_ends_on, 'YYYY-MM-DD') as campaign_ends_on, to_char(task_posted_on, 'YYYY-MM-DD') as task_posted_on,
          payment_method_correction, diff_ack_kind, diff_ack_reason, diff_ack_task_cost,
          (select t.cost from campaign_task t where t.id = payment_request.task_id) as task_cost,
@@ -202,6 +206,8 @@ const toRequest = (r: RRow): PaymentRequestRow => ({
   revision: r.revision, revisedAt: iso(r.revised_at),
   paidAmountUsd: r.paid_amount_usd === null ? null : Number(r.paid_amount_usd),
   paidAmountJpy: r.paid_amount_jpy === null ? null : Number(r.paid_amount_jpy),
+  paidRateKrwPerUnit: r.paid_rate_krw_per_unit === null ? null : Number(r.paid_rate_krw_per_unit),
+  paidRateDate: r.paid_rate_date, paidRateSource: r.paid_rate_source,
   campaignStartsOn: r.campaign_starts_on, campaignEndsOn: r.campaign_ends_on, postedOn: r.task_posted_on,
   paymentMethodCorrection: correctionMarkOf(r.payment_method_correction),
   taskCost: costOf(r.task_cost),
@@ -521,9 +527,17 @@ export async function applyExternalStatus(sql: postgres.Sql, id: string, u: Stat
     const nextJpy = u.paidAmountJpy !== null ? u.paidAmountJpy : clearJpy ? null : keepJpy;
     // 엔화 실지급도 차액 판정 입력이다(taskPaidMismatch, koo 09-28) — 원화든 엔화든 바뀌면 이전 확인은 다른 금액에 대한 확인이다.
     const paidAmountChanged = u.paidAmountKrw !== c.paid_amount_krw || nextJpy !== keepJpy;
+    // 적용 환율(066): 보내면 덮어쓴다. 안 보냈는데 외화 금액이 왔거나 원화 지급(KRW)이면 비운다 — 그 지급에 맞지 않는 옛 환율이 남지 않게.
+    // 외화도 통화도 없는 본문(구버전·원화만 정정)은 그대로 둔다(외화 필드의 '보낸 것만 갱신'과 같은 정신). 판정 입력이 아니라 처리 기록은 건드리지 않는다.
+    const clearRate = u.paidAmountUsd !== null || u.paidAmountJpy !== null || u.paidCurrency === 'KRW';
+    const rate = u.paidRate
+      ? { krw: String(u.paidRate.krwPerUnit), date: u.paidRate.date, source: u.paidRate.source }
+      : clearRate ? { krw: null, date: null, source: null }
+      : { krw: c.paid_rate_krw_per_unit === null ? null : String(c.paid_rate_krw_per_unit), date: c.paid_rate_date, source: c.paid_rate_source };
     await tx`
       update payment_request
          set external_status = ${u.status}, paid_amount_krw = ${u.paidAmountKrw}, paid_amount_usd = ${nextUsd}, paid_amount_jpy = ${nextJpy}, paid_at = ${u.paidAt}, external_note = ${u.note},
+             paid_rate_krw_per_unit = ${rate.krw}::numeric, paid_rate_date = ${rate.date}::date, paid_rate_source = ${rate.source},
              external_updated_at = ${u.updatedAt}, external_id = coalesce(${u.externalId}, external_id),
              external_operator_id = ${u.operator?.id ?? null}, external_operator_name = ${u.operator?.name ?? null},
              sent_at = coalesce(sent_at, now()), updated_at = now(),
@@ -703,6 +717,7 @@ export async function reviseRequest(
              campaign_starts_on = ${t.dates.campaignStartsOn}, campaign_ends_on = ${t.dates.campaignEndsOn}, task_posted_on = ${t.dates.postedOn},
              revision = revision + 1, revised_at = now(), updated_at = now(),
              external_status = null, paid_amount_krw = null, paid_amount_usd = null, paid_amount_jpy = null, paid_at = null, external_note = null, external_updated_at = null,
+             paid_rate_krw_per_unit = null, paid_rate_date = null, paid_rate_source = null,
              external_operator_id = null, external_operator_name = null, diff_ack_at = null, diff_ack_by_name = null, diff_ack_kind = null, diff_ack_reason = null, diff_ack_task_cost = null,
              payment_method_correction = null
        where id = ${id}`;

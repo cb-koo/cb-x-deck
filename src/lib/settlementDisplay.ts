@@ -1,7 +1,7 @@
 // 정산 상태 표시는 한 자리, 파생값 하나(UX 원칙 4) — 요청 내역 배지·필터·캠페인 표 배지·펼침 문구가 전부 여기서 나온다.
 // 우리 상태(requested/cancelled) × 그쪽 상태(external_status) → 라벨. 내부어(on_hold 등)는 밖으로 나가지 않는다.
 import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
-import { kstMonthDay, kstDate } from './datetime.ts';
+import { kstMonthDay, kstDate, dateOnlyMonthDayKo, asDateOnly } from './datetime.ts';
 import { formatMoney, type Currency } from './influencerPricing.ts';
 import { sameTaskCost, type TaskCost } from './campaignCost.ts';
 import type { PaymentFee } from './influencerPayment.ts';
@@ -242,16 +242,23 @@ export function requestSummarySub(s: { payoutCurrency: Currency; amountGross: nu
 }
 // 펼침 요약 카드의 '정산팀 지급' — 금액은 표의 '정산팀 지급' 칸과 같은 통화(원화 지급=원화, 엔화+엔화 값=엔화, 그 밖=원화).
 // 아직 지급 전이면 금액 없이 상태 문구만.
-export function paidSummary(s: StatusSource): { amount: string | null; sub: string | null } {
+// 정산팀이 paid에 보낸 적용 환율(066) — 기록·표시용. 칸이 없는 소스(캠페인 배지 등)는 생략 = 없음. 출처는 화면에 쓰지 않는다(데이터만 보관).
+type PaidRateSource = { paidRateKrwPerUnit?: number | null; paidRateDate?: string | null };
+const RATE_FMT = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function partnerRateText(s: PaidRateSource, unit: '엔' | '달러'): string | null {
+  if (s.paidRateKrwPerUnit == null || !s.paidRateDate) return null;
+  return `환율 1${unit} = ${RATE_FMT.format(s.paidRateKrwPerUnit)}원 (${dateOnlyMonthDayKo(asDateOnly(s.paidRateDate))} 기준)`;
+}
+export function paidSummary(s: StatusSource & PaidRateSource): { amount: string | null; sub: string | null } {
   if (s.status === 'cancelled' || s.externalStatus !== 'paid' || s.paidAmountKrw === null) {
     const sub = s.status === 'cancelled' ? displayStatus(s, 'list').label
       : s.externalStatus ? EXTERNAL_STATUS_LABEL[s.externalStatus] : '정산팀이 아직 확인하지 않았어요';
     return { amount: null, sub };
   }
   const krw = formatMoney(s.paidAmountKrw, 'KRW');
-  if (s.paidAmountUsd !== null) return { amount: krw, sub: `달러 ${usdText(s.paidAmountUsd)}로 송금 · 원화는 정산팀 환산값` };
+  if (s.paidAmountUsd !== null) return { amount: krw, sub: `달러 ${usdText(s.paidAmountUsd)}로 송금 · ${partnerRateText(s, '달러') ?? '원화는 정산팀 환산값'}` };
   if (s.payoutCurrency === 'KRW') return { amount: krw, sub: null };
-  if (s.paidAmountJpy !== null) return { amount: formatMoney(s.paidAmountJpy, 'JPY'), sub: [`원화 ${krw}`, paidFxRateText(s)].filter(Boolean).join(' · ') };
+  if (s.paidAmountJpy !== null) return { amount: formatMoney(s.paidAmountJpy, 'JPY'), sub: [`원화 ${krw}`, partnerRateText(s, '엔') ?? paidFxRateText(s)].filter(Boolean).join(' · ') };
   return { amount: krw, sub: '원화는 정산팀 환산값' };
 }
 

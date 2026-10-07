@@ -18,6 +18,8 @@ create table if not exists task_change (
   created_at  timestamptz not null default now()
 );
 create index if not exists idx_task_change_task on task_change (task_id, created_at desc);
+-- 요청 목록이 요청마다 '맞춤 이전 금액'을 찾는다(settlementStore R_SELECT) — request_id로 바로 찾도록
+create index if not exists idx_task_change_request on task_change (request_id) where request_id is not null;
 
 -- 지급 금액 차이 처리 기록. 기존 diff_ack_at·diff_ack_by_name을 그대로 쓰고 종류·사유·처리 때 값을 더한다.
 -- 기존 확인 기록(종류 null)은 옛 기록으로 그대로 둔다 — 화면에 '확인함'으로만 보이고 판정을 숨기지 않는다(스펙 §7).

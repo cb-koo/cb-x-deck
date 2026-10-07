@@ -5,13 +5,14 @@ import { sameTaskCost } from './campaignCost.ts';
 import {
   paidMismatch, taskPaidMismatch, FX_RATIO_BAND, composeKeepReason, KEEP_REASONS, requestCostOf, paidFxRateText,
   partnerNameLabel, isPaidBadge, pendingRequestCost, type MismatchSource,
+  PEER_RATIO_TOLERANCE, PEER_MIN_COUNT, bandRatio, payRoute, peerRatios, withPeerRatios,
 } from './settlementDisplay.ts';
 
 // @17dsy_ 더스퀘어치과_10월1주차 인용RT — 작업 4,000엔, 정산팀 엔화 6,000엔 지급(메모 "인용 6000엔")
 const dsy: MismatchSource = {
   status: 'requested', externalStatus: 'paid', taskId: 't1', taskCost: { amount: 4000, currency: 'JPY' },
   payoutCurrency: 'JPY', fee: null, rateKrwPerJpy: 10, paidAmountKrw: 51000, paidAmountJpy: 6000,
-  diffAckKind: null, diffAckTaskCost: null,
+  diffAckKind: null, diffAckTaskCost: null, paidAmountUsd: null, paidAt: null,
 };
 // @saachan0013 더스퀘어치과_9월2주차 인용RT — 작업 50,000원, PayPal(5%) 달러 지급 $104.08 = 139,758원, 엔화 값 없음
 const saachan: MismatchSource = {
@@ -127,4 +128,102 @@ test('isPaidBadge / pendingRequestCost — 지급 전 살아 있는 요청의 �
   assert.equal(isPaidBadge({ ...badge, status: 'cancelled', externalStatus: 'paid' }), false);
   assert.equal(isPaidBadge(badge), false);
   assert.equal(isPaidBadge(null), false);
+});
+
+// ── 같은 날 지급분과 비교(koo 10-07, 스펙 §4-3 개정) ──
+// 달러 지급: 작업 5,000엔·수수료 없음·환율 10 → 기대 50,000원. 비율 = 지급 원화 ÷ 50,000.
+const usdRow = (id: string, ratio: number, paidAt: string = '2026-10-06T03:00:00Z', over: Partial<MismatchSource> = {}): MismatchSource & { id: string } => ({
+  ...dsy, id, taskId: 't-' + id, taskCost: { amount: 5000, currency: 'JPY' }, paidAmountJpy: null, paidAmountUsd: 300,
+  paidAmountKrw: Math.round(ratio * 50000), paidAt, ...over,
+});
+const judged = (rows: Array<MismatchSource & { id: string }>) => withPeerRatios(rows).map((r) => paidMismatch(r) !== null);
+
+test('PEER 상수 — 한 곳(±3%, 3건)', () => {
+  assert.equal(PEER_RATIO_TOLERANCE, 0.03);
+  assert.equal(PEER_MIN_COUNT, 3);
+});
+
+test('bandRatio·payRoute — band 대상만 비율을 낸다, 지급 방식은 달러 값 유무', () => {
+  assert.equal(bandRatio(usdRow('a', 0.885)), 0.885);
+  assert.equal(bandRatio({ ...usdRow('a', 0.885), paidAmountJpy: 4000 }), null);        // 엔화 금액 있음 = exact 분기
+  assert.equal(bandRatio({ ...usdRow('a', 0.885), externalStatus: 'scheduled' }), null);
+  assert.equal(bandRatio({ ...usdRow('a', 0.885), status: 'cancelled' }), null);
+  assert.equal(bandRatio({ ...usdRow('a', 0.885), taskCost: null }), null);
+  assert.equal(payRoute(usdRow('a', 0.885)), 'usd');
+  assert.equal(payRoute({ ...usdRow('a', 0.885), paidAmountUsd: null }), 'jpy-no-amount');
+});
+
+test('같은 날 달러 4건 — 0.885 정상 3건 + 2.655: 2.655 행만 다름', () => {
+  assert.deepEqual(judged([usdRow('a', 0.885), usdRow('b', 0.885), usdRow('c', 0.885), usdRow('d', 2.655)]), [false, false, false, true]);
+});
+
+test('같은 날 정상 3건 0.885 + 0.92(+4%): 0.92 행이 다름 — 고정 범위로는 통과했을 값', () => {
+  const rows = [usdRow('a', 0.885), usdRow('b', 0.885), usdRow('c', 0.885), usdRow('d', 0.92)];
+  assert.equal(paidMismatch(rows[3]), null, '고정 범위만으로는 같음');
+  assert.deepEqual(judged(rows), [false, false, false, true]);
+});
+
+test('같은 날 정상 3건 0.885 + 0.90(+1.7%): 다르지 않음', () => {
+  assert.deepEqual(judged([usdRow('a', 0.885), usdRow('b', 0.885), usdRow('c', 0.885), usdRow('d', 0.90)]), [false, false, false, false]);
+});
+
+test('같은 날 다른 건이 2건뿐 — peerRatio null → 고정 범위(0.92 같음, 1.05 다름)', () => {
+  const rows = [usdRow('a', 0.885), usdRow('b', 0.885), usdRow('c', 0.92)];
+  assert.equal(withPeerRatios(rows)[2].peerRatio, null);
+  assert.deepEqual(judged(rows), [false, false, false]);
+  assert.deepEqual(judged([usdRow('a', 0.885), usdRow('b', 0.885), usdRow('c', 1.05)]), [false, false, true]);
+});
+
+test('날짜는 서울 기준 — UTC로는 같은 날이어도 서울 23:59와 다음날 00:01은 다른 날', () => {
+  // 서울 10-06 23:59 = 10-06 14:59Z, 서울 10-07 00:01 = 10-06 15:01Z
+  const night = ['a', 'b', 'c', 'd'].map((id) => usdRow(id, 0.885, '2026-10-06T14:59:00Z'));
+  const next = usdRow('e', 0.92, '2026-10-06T15:01:00Z');
+  const m = peerRatios([...night, next]);
+  assert.equal(m.get('e'), null);                    // 다음 날 행은 비교 대상이 없다
+  assert.equal(m.get('a'), 0.885);                   // 앞 4건은 서로만 본다(e의 0.92가 끼지 않는다)
+  assert.equal(paidMismatch(withPeerRatios([...night, next])[4]), null, '고정 범위로 떨어져 통과');
+});
+
+test('paidAt이 없으면 비교 대상 없음', () => {
+  const m = peerRatios([usdRow('a', 0.885, null as unknown as string), usdRow('b', 0.885), usdRow('c', 0.885), usdRow('d', 0.885)]);
+  assert.equal(m.get('a'), null);
+  assert.equal(m.get('b'), null);   // 비교 가능한 다른 건이 2건뿐(paidAt 없는 a는 제외)
+});
+
+test('지급 방식이 다른 행은 peers에 안 들어간다', () => {
+  const rows = [usdRow('a', 0.885), usdRow('b', 0.885), usdRow('c', 0.885), usdRow('j', 0.885, undefined, { paidAmountUsd: null })];
+  const m = peerRatios(rows);
+  assert.equal(m.get('a'), null);   // 달러 방식 다른 건은 2건뿐
+  assert.equal(m.get('j'), null);   // 엔화금액없음 방식은 혼자
+});
+
+test('band 대상이 아닌 행(엔화 금액 있음·취소)은 peers에 안 들어간다', () => {
+  const rows = [usdRow('a', 0.885), usdRow('b', 0.885), usdRow('c', 0.885), usdRow('x', 0.885, undefined, { paidAmountJpy: 4000 }), usdRow('y', 0.885, undefined, { status: 'cancelled' })];
+  const m = peerRatios(rows);
+  assert.equal(m.get('a'), null);
+  assert.equal(m.get('x'), null);
+});
+
+test('자기 자신은 peers에서 제외 — 이상치 행의 기준은 나머지 3건', () => {
+  const rows = [usdRow('a', 0.8), usdRow('b', 0.8), usdRow('c', 0.9), usdRow('d', 1.0)];
+  const m = peerRatios(rows);
+  assert.equal(m.get('d'), 0.8);    // [0.8,0.8,0.9] 중앙값 — 자기를 넣었다면 0.85
+  assert.equal(m.get('a'), 0.9);    // [0.8,0.9,1.0]
+});
+
+test('짝수 개 중앙값 — 가운데 두 값의 평균', () => {
+  const rows = [usdRow('a', 0.8), usdRow('b', 0.86), usdRow('c', 0.88), usdRow('d', 0.9), usdRow('e', 0.5)];
+  assert.ok(Math.abs((peerRatios(rows).get('e') as number) - 0.87) < 1e-9);   // 다른 4건 [0.8,0.86,0.88,0.9] → (0.86+0.88)/2
+});
+
+test('peerRatio가 있으면 고정 범위 밖이어도 그 기준을 따른다(전부 0.95인 날 0.95는 같음)', () => {
+  const rows = [usdRow('a', 0.7), usdRow('b', 0.7), usdRow('c', 0.7), usdRow('d', 0.7)];
+  assert.deepEqual(judged(rows), [false, false, false, false]);
+});
+
+test('기대 원화 0(작업 금액 0) — 비율 무한대는 peer 계산에서 빠지고 판정은 다름', () => {
+  const zero = usdRow('z', 1, undefined, { taskCost: { amount: 0, currency: 'JPY' }, paidAmountKrw: 1000 });
+  const rows = [usdRow('a', 0.885), usdRow('b', 0.885), usdRow('c', 0.885), zero];
+  assert.equal(peerRatios(rows).get('a'), null);   // 비교 가능한 다른 건은 b·c 2건뿐
+  assert.deepEqual(judged(rows), [false, false, false, true]);
 });

@@ -6,7 +6,7 @@ import { displayStatus, inGroup, paidText, usdText, EXTERNAL_STATUS_LABEL, STATU
 // 원화 지급·수수료 없음 기준 — 작업 31,650원 = 송금 31,650원
 const base: StatusSource = { status: 'requested', externalStatus: null, externalNote: null, externalUpdatedAt: null, createdAt: '2026-08-28T03:00:00Z', cancelledAt: null,
   paidAmountKrw: null, grossKrw: 31650, diffAckAt: null, payoutCurrency: 'KRW', amountGross: 31650, paidAmountJpy: null,
-  taskId: 't1', taskCost: { amount: 31650, currency: 'KRW' }, fee: null, rateKrwPerJpy: 10, diffAckKind: null, diffAckTaskCost: null };
+  taskId: 't1', taskCost: { amount: 31650, currency: 'KRW' }, fee: null, rateKrwPerJpy: 10, diffAckKind: null, diffAckTaskCost: null, paidAmountUsd: null, paidAt: null };
 const ext = (externalStatus: StatusSource['externalStatus'], note: string | null = null): StatusSource => ({ ...base, externalStatus, externalNote: note, externalUpdatedAt: '2026-08-29T03:00:00Z' });
 
 test('displayStatus — 우리·정산팀 조합 → 라벨 하나(요청 내역)', () => {

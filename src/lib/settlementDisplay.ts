@@ -1,7 +1,7 @@
 // 정산 상태 표시는 한 자리, 파생값 하나(UX 원칙 4) — 요청 내역 배지·필터·캠페인 표 배지·펼침 문구가 전부 여기서 나온다.
 // 우리 상태(requested/cancelled) × 그쪽 상태(external_status) → 라벨. 내부어(on_hold 등)는 밖으로 나가지 않는다.
 import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.ts';
-import { kstMonthDay } from './datetime.ts';
+import { kstMonthDay, kstDate } from './datetime.ts';
 import { formatMoney, type Currency } from './influencerPricing.ts';
 import { sameTaskCost, type TaskCost } from './campaignCost.ts';
 import type { PaymentFee } from './influencerPayment.ts';
@@ -145,17 +145,67 @@ export type DiffAckKind = 'matched' | 'kept';
 // 근거(§4-3): 정상 엔화 지급 84건 0.847~0.900(중앙 0.872), 오류 2건 1.27·2.65. 정산팀은 적용 환율을 보내지 않는다(koo 10-07).
 // 범위를 바꿀 자리는 여기 하나.
 export const FX_RATIO_BAND = { min: 0.8, max: 1.0 } as const;
+// 같은 날·같은 지급 방식의 다른 건들 비율 중앙값과 ±3% 넘게 벗어나면 다름(koo 10-07). 다른 건이 3건 미만이면 위 고정 범위로.
+// 근거: 같은 지급일 안에서는 비율이 거의 같고(09-14 0.885 / 09-21 0.899~0.900 / 09-28 0.872 / 10-06 0.862~0.863) 날짜를 넘으면 4% 넘게 움직여,
+// 고정 범위로는 +13%·−9% 이내 오지급을 놓친다.
+export const PEER_RATIO_TOLERANCE = 0.03;
+export const PEER_MIN_COUNT = 3;
 
 export interface MismatchSource {
   status: SettlementBadgeStatus; externalStatus: ExternalStatus | null;
   taskId: string | null; taskCost: TaskCost | null;              // 지금 작업 금액(작업이 지워졌거나 비면 null) — 스냅샷이 아니다
   payoutCurrency: Currency; fee: PaymentFee | null; rateKrwPerJpy: number;   // 요청 스냅샷(보낸 통화·수수료·환율)
   paidAmountKrw: number | null; paidAmountJpy: number | null;    // 정산팀 결과
+  paidAmountUsd: number | null; paidAt: string | null;           // 같은 날·같은 방식 비교용(지급 방식 = 달러 값 유무, 날짜 = paidAt의 서울 날짜)
+  peerRatio?: number | null;                                     // 같은 날 다른 건들의 비율 중앙값 — withPeerRatios/저장소가 채운다(생략 = null = 고정 범위)
   diffAckKind: DiffAckKind | null; diffAckTaskCost: TaskCost | null;   // 처리 기록(065)
 }
 export type PaidMismatch =
   | { kind: 'exact'; expectedGross: number; paid: number; diff: number; currency: Currency }   // 보낸 통화로 정확히 비교
   | { kind: 'band'; expectedGross: number; ratio: number; diff: number; currency: 'KRW' };     // 비율로 본 것 — diff는 원화 차이
+
+// 비율 = 지급 원화 ÷ (기대 송금액 × 요청 환율) — 식은 여기 한 곳(band 판정과 peer 비율이 같이 쓴다)
+function ratioOf(paidKrw: number, expectedGross: number, rate: number): number {
+  const expectedKrw = Math.round(expectedGross * rate);
+  return expectedKrw === 0 ? (paidKrw === 0 ? 1 : Number.POSITIVE_INFINITY) : paidKrw / expectedKrw;
+}
+const isBandTarget = (s: MismatchSource): boolean =>
+  s.status !== 'cancelled' && s.externalStatus === 'paid' && !!s.taskId && !!s.taskCost && s.paidAmountKrw !== null
+  && s.payoutCurrency === 'JPY' && s.paidAmountJpy === null;
+// band 분기로 가는 행이면 그 비율, 아니면 null
+export function bandRatio(s: MismatchSource): number | null {
+  if (!isBandTarget(s)) return null;
+  const expectedGross = computeMoney(s.taskCost as TaskCost, s.payoutCurrency, s.fee ?? undefined, s.rateKrwPerJpy).amountGross;
+  return ratioOf(s.paidAmountKrw as number, expectedGross, s.rateKrwPerJpy);
+}
+export type PayRoute = 'usd' | 'jpy-no-amount';
+export const payRoute = (s: Pick<MismatchSource, 'paidAmountUsd'>): PayRoute => (s.paidAmountUsd !== null ? 'usd' : 'jpy-no-amount');
+
+const median = (xs: number[]): number => {
+  const v = [...xs].sort((a, b) => a - b); const m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+};
+// 행마다 같은 날(서울)·같은 방식의 다른 band 대상 행들 비율의 중앙값. 3건 미만이면 null. 비율이 무한대인 행(기대 원화 0)은 비교 대상에서 뺀다.
+export function peerRatios<T extends MismatchSource & { id: string }>(rows: readonly T[]): Map<string, number | null> {
+  const groups = new Map<string, Array<{ id: string; ratio: number }>>();
+  const keyOf = (r: T): string | null => (r.paidAt ? `${kstDate(r.paidAt)}|${payRoute(r)}` : null);
+  for (const r of rows) {
+    const k = keyOf(r); const ratio = bandRatio(r);
+    if (k === null || ratio === null || !Number.isFinite(ratio)) continue;
+    const g = groups.get(k) ?? []; g.push({ id: r.id, ratio }); groups.set(k, g);
+  }
+  const out = new Map<string, number | null>();
+  for (const r of rows) {
+    const k = keyOf(r);
+    const others = k !== null && bandRatio(r) !== null ? (groups.get(k) ?? []).filter((g) => g.id !== r.id) : [];
+    out.set(r.id, others.length >= PEER_MIN_COUNT ? median(others.map((g) => g.ratio)) : null);
+  }
+  return out;
+}
+export function withPeerRatios<T extends MismatchSource & { id: string }>(rows: readonly T[]): T[] {
+  const m = peerRatios(rows);
+  return rows.map((r) => ({ ...r, peerRatio: m.get(r.id) ?? null }));
+}
 
 // 처리 기록을 보지 않은 판정 — "차이가 있는가" 자체. 화면·서버는 아래 taskPaidMismatch를 쓴다.
 export function paidMismatch(s: MismatchSource): PaidMismatch | null {
@@ -170,10 +220,11 @@ export function paidMismatch(s: MismatchSource): PaidMismatch | null {
     const diff = s.paidAmountJpy - expectedGross;
     return diff === 0 ? null : { kind: 'exact', expectedGross, paid: s.paidAmountJpy, diff, currency: 'JPY' };
   }
-  const expectedKrw = Math.round(expectedGross * s.rateKrwPerJpy);
-  const ratio = expectedKrw === 0 ? (s.paidAmountKrw === 0 ? 1 : Number.POSITIVE_INFINITY) : s.paidAmountKrw / expectedKrw;
-  if (ratio >= FX_RATIO_BAND.min && ratio <= FX_RATIO_BAND.max) return null;
-  return { kind: 'band', expectedGross, ratio, diff: s.paidAmountKrw - expectedKrw, currency: 'KRW' };
+  const ratio = ratioOf(s.paidAmountKrw, expectedGross, s.rateKrwPerJpy);
+  const peer = s.peerRatio ?? null;
+  const same = peer !== null ? Math.abs(ratio / peer - 1) <= PEER_RATIO_TOLERANCE : ratio >= FX_RATIO_BAND.min && ratio <= FX_RATIO_BAND.max;
+  if (same) return null;
+  return { kind: 'band', expectedGross, ratio, diff: s.paidAmountKrw - Math.round(expectedGross * s.rateKrwPerJpy), currency: 'KRW' };
 }
 
 // 처리 기록이 있으면 숨긴다 — 단 처리 때의 작업 금액이 지금과 같을 때만(§4-4). 지급 금액 쪽은 정산팀이 금액을 정정하면

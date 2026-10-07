@@ -966,6 +966,51 @@ test('065 — 캠페인 배지도 같은 판정(지금 작업 금액·처리 기
   assert.equal(displayStatus(badge, 'campaign').label, '지급 금액 다름');
 });
 
+test('065 — 그대로 둠의 처리 기록에 옛 맞춤의 이전 금액이 섞이지 않는다(맞춤 → 정산팀 정정 → 그대로 둠)', async () => {
+  const { row, member } = await requestFor('rcm3', 'rcm3');
+  await paidJpy(row.id, 4000, 34000, '2026-10-07T03:00:00Z');
+  const m = await matchTaskCostToPaid(sql, row.id, { expect: { taskCost: { amount: 30000, currency: 'KRW' }, paidAmountKrw: 34000, paidAmountJpy: 4000 }, newCost: { amount: 38000, currency: 'KRW' }, reason: '인용 6000엔' }, member);
+  assert.ok(typeof m !== 'string'); assert.deepEqual(m.diffAckBeforeCost, { amount: 30000, currency: 'KRW' });
+  await paidJpy(row.id, 4200, 35700, '2026-10-07T05:00:00Z');   // 정산팀 정정 — 처리 기록 비움(이력 행은 남는다)
+  const k = await keepTaskCost(sql, row.id, { expect: { taskCost: { amount: 38000, currency: 'KRW' }, paidAmountKrw: 35700, paidAmountJpy: 4200 }, reason: '환율·송금 수수료 차이' }, member);
+  assert.ok(typeof k !== 'string');
+  assert.equal(k.diffAckKind, 'kept');
+  assert.equal(k.diffAckBeforeCost, null);
+});
+
+// ── 같은 날 지급분과 비교(koo 10-07) — 요청 목록·캠페인 배지·서버 가드가 같은 peer로 판정한다 ──
+// 기대 송금 3,158엔 → 31,580원. 비율 0.885 = 27,948원, 0.92 = 29,054원. 다른 테스트 행과 안 겹치게 먼 날짜를 쓴다.
+const PEER_DAY = '2031-03-04T03:00:00Z';
+const peerCase = async (tag: string) => {
+  const rows = [] as Array<Awaited<ReturnType<typeof requestFor>>>;
+  for (let i = 1; i <= 4; i++) {
+    const r = await requestFor(`${tag}${i}`, `${tag}${i}`);
+    await applyExternalStatus(sql, r.row.id, upd('paid', PEER_DAY, { paidAmountKrw: i === 4 ? 29054 : 27948, paidAmountUsd: 200, paidAt: PEER_DAY }));
+    rows.push(r);
+  }
+  return rows;
+};
+
+test('065 같은 날 비교 — 목록·배지·서버 가드가 같은 날 정상 3건을 기준으로 0.92를 다름으로 본다', async () => {
+  const rows = await peerCase('pr');
+  const odd = rows[3], ok = rows[0];
+  // 목록 — 필터(taskId)로 한 건만 읽어도 같은 날 다른 건을 읽어 판정한다
+  const [listed] = await listRequests(sql, { taskId: odd.row.taskId! });
+  assert.ok(listed.peerRatio !== null && listed.peerRatio !== undefined && Math.abs(listed.peerRatio - 0.885) < 0.001);
+  assert.equal(displayStatus(listed, 'list').key, 'paid_diff');
+  const [listedOk] = await listRequests(sql, { taskId: ok.row.taskId! });
+  assert.equal(displayStatus(listedOk, 'list').key, 'paid');
+  // 캠페인 배지
+  const badges = await settlementByTaskIds(sql, [odd.row.taskId!, ok.row.taskId!]);
+  assert.equal(displayStatus(badges.get(odd.row.taskId!)!, 'campaign').label, '지급 금액 다름');
+  assert.notEqual(displayStatus(badges.get(ok.row.taskId!)!, 'campaign').label, '지급 금액 다름');
+  // 서버 가드 — 정상 행은 판정이 없어 stale, 0.92 행은 그대로 두기 저장이 통과한다
+  const keep = (r: typeof odd, krw: number) => keepTaskCost(sql, r.row.id, { expect: { taskCost: { amount: 30000, currency: 'KRW' }, paidAmountKrw: krw, paidAmountJpy: null }, reason: '환율·송금 수수료 차이' }, r.member);
+  assert.equal(await keep(ok, 27948), 'stale');
+  const k = await keep(odd, 29054);
+  assert.ok(typeof k !== 'string'); assert.equal(k.diffAckKind, 'kept');
+});
+
 // ── 정산 쪽 수취 정보 정정 회신(스펙 2026-09-21 §4, 그쪽 09-21 요청) ──
 const CID = (n: number) => `22222222-3333-4444-8555-${String(n).padStart(12, '0')}`;
 // correction_id는 정정 이력 표의 기본키 = DB 전체에서 한 번만 쓴다. before()의 정리는 실행당 1회뿐이라,

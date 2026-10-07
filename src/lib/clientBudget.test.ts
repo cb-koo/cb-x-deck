@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   JPY_TO_KRW, BUDGET_AMOUNT_MESSAGE, PERIOD_DATE_MESSAGE, PERIOD_ORDER_MESSAGE,
-  toKrw, remainingOf, periodFor, overageBadge, periodRow, campaignPeriodBudget, budgetBreakdown,
+  toKrw, formatMoneyKrw, remainingOf, periodFor, overageBadge, periodRow, campaignPeriodBudget, budgetBreakdown,
   periodLabel, periodLabelFull, budgetTipText, badgeText, budgetJudgment, parseBudgetAmount, parseBudgetPeriodInput,
   type BudgetPeriod, type PeriodSpend, type SpanningCampaign,
 } from './clientBudget.ts';
@@ -137,4 +137,18 @@ test('6-2) periodRow — 집행(execKrw)과 캠페인 줄: 최근 시작이 위,
   // 캠페인 줄 합 = 기간 값(같은 계산)
   assert.equal(r.campaigns.reduce((n, x) => n + x.execKrw, 0), r.execKrw);
   assert.equal(r.campaigns.reduce((n, x) => n + x.plannedKrw, 0), r.spentKrw);
+});
+
+test('formatMoneyKrw — 원화 환산 총액(크게) + 통화 내역(작게)', () => {
+  // 원화만: 환산 아님, 내역 없음
+  assert.deepEqual(formatMoneyKrw({ KRW: 360000 }), { total: '360,000원', approx: false, breakdown: null });
+  // 엔화만: 1엔 = 10원
+  assert.deepEqual(formatMoneyKrw({ JPY: 95000 }), { total: '950,000원', approx: true, breakdown: '엔화 95,000엔' });
+  // 섞임: 원화 → 엔화 순서
+  assert.deepEqual(formatMoneyKrw({ JPY: 95000, KRW: 360000 }), { total: '1,310,000원', approx: true, breakdown: '원화 360,000원 · 엔화 95,000엔' });
+  // 빈 값
+  assert.deepEqual(formatMoneyKrw({}), { total: '—', approx: false, breakdown: null });
+  // 0엔은 환산이 일어나지 않았으니 ≈ 없음
+  assert.deepEqual(formatMoneyKrw({ KRW: 1000, JPY: 0 }), { total: '1,000원', approx: false, breakdown: null });
+  assert.deepEqual(formatMoneyKrw({ JPY: 0 }), { total: '0원', approx: false, breakdown: null });
 });

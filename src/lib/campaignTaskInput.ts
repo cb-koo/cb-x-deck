@@ -63,6 +63,8 @@ export const REPLACE_AFTER_VISIT_MESSAGE = '방문한 인플루언서가 게시�
 export const CANCEL_REASON_MESSAGE = '취소 사유 값이 올바르지 않아요';
 export const RESTORE_NOT_CANCELLED_MESSAGE = '취소된 작업이 아니에요';
 export const POSTED_TASK_MESSAGE = '이미 게시된 작업이에요 — 인플루언서를 바꿀 수 없어요';
+// 지급이 끝난 작업의 금액은 사유가 있어야 바꾼다(스펙 2026-10-07 §6·§9) — 캠페인 PATCH와 정산 화면 처리의 빈 사유가 같은 문장을 쓴다
+export const PAID_COST_REASON_MESSAGE = '지급이 끝난 작업이라 사유를 적어야 저장돼요';
 
 // 인플루언서 칸을 바꾸는 모든 요청(배정·해제·교체)에 같은 상태 제한(ADR 0005). PATCH는 "다른 인플로"를 막고 교체 라우트로 보낸다.
 export function influencerChangeGuard(

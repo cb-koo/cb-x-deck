@@ -6,6 +6,8 @@ import type { SettlementSettings } from './settlementSettings.ts';
 import type { PaymentRequestRow, CreateItemInput, RequestFilter, SettlementVersionRow, RevisionEdits, RevisionTarget, RevisionHistoryRow } from './settlementStore.ts';
 import type { ReadinessIssue } from './settlementCalc.ts';
 import type { ExternalLogRow } from './externalLogCopy.ts';
+import type { TaskCost } from './campaignCost.ts';
+import type { KeepReason } from './settlementDisplay.ts';
 
 export type CreateFailure = { taskId: string; reason: string };
 export type CreateResult = ApiResult<{ created: PaymentRequestRow[] }> & { failures?: CreateFailure[] };
@@ -42,6 +44,14 @@ export async function createRequestsApi(items: CreateItemInput[]): Promise<Creat
 export const cancelRequestApi = (id: string, reason: string) => call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'cancel', reason }));
 export const ackDiffApi = (id: string) => call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'ack-diff' }));
 export const unackDiffApi = (id: string) => call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'unack-diff' }));
+// 정산팀 지급 금액 ≠ 작업 금액 처리(스펙 2026-10-07 §5) — 창을 연 때의 작업 금액·지급 금액을 함께 보낸다(서버가 경합을 409로)
+const expectOf = (r: PaymentRequestRow) => ({ expectedTaskCost: r.taskCost, expectedPaidKrw: r.paidAmountKrw, expectedPaidJpy: r.paidAmountJpy });
+export const matchTaskCostApi = (r: PaymentRequestRow, newCost: TaskCost, reason: string) =>
+  call<PaymentRequestRow>(`/api/settlement/requests/${r.id}`, json('PATCH', { action: 'match-task-cost', ...expectOf(r), newCost, reason }));
+export const keepTaskCostApi = (r: PaymentRequestRow, reasonKind: KeepReason, memo: string) =>
+  call<PaymentRequestRow>(`/api/settlement/requests/${r.id}`, json('PATCH', { action: 'keep-task-cost', ...expectOf(r), reasonKind, memo }));
+export const undoKeepTaskCostApi = (id: string) =>
+  call<PaymentRequestRow>(`/api/settlement/requests/${id}`, json('PATCH', { action: 'undo-keep-task-cost' }));
 export const fetchSettlementSettings = () => call<{ settings: SettlementSettings; versions: SettlementVersionRow[] }>('/api/settlement/settings');
 export const saveSettlementSettingsApi = (settings: SettlementSettings) => call<{ settings: SettlementSettings }>('/api/settlement/settings', json('PUT', { settings }));
 export const fetchExternalLog = (f: { method?: 'GET' | 'POST'; rejectedOnly?: boolean; correctionsOnly?: boolean; request?: string } = {}) => {

@@ -118,3 +118,34 @@ test('matchesCampaignQuery: 대소문자·공백 무시, 이름·클라이언트
   assert.equal(matchesCampaignQuery({ name: 'x', clientName: '가' }, 'zz'), false);
   assert.equal(matchesCampaignQuery({ name: 'x', clientName: null }, '   '), true);
 });
+
+test('campaignRowLabel: 클라이언트로 묶으면 {클라}_ 뒤 부분만', () => {
+  const g = { groupedByClient: true };
+  assert.deepEqual(campaignRowLabel({ name: '미모드림_10월2주차', clientName: '미모드림' }, g), { title: '10월2주차', suffix: null });
+  assert.deepEqual(campaignRowLabel({ name: '백수약국_10월 방문협찬', clientName: '백수약국' }, g), { title: '10월 방문협찬', suffix: null });
+  // 딱 '{클라}_'뿐이면 빈 제목이 되지 않게 이름 전체
+  assert.deepEqual(campaignRowLabel({ name: '미모드림_', clientName: '미모드림' }, g), { title: '미모드림_', suffix: null });
+  assert.deepEqual(campaignRowLabel({ name: '미모드림_   ', clientName: '미모드림' }, g), { title: '미모드림_   ', suffix: null });
+  // 앞뒤 공백은 자른다
+  assert.deepEqual(campaignRowLabel({ name: '미모드림_  10월2주차  ', clientName: '미모드림' }, g), { title: '10월2주차', suffix: null });
+  assert.deepEqual(campaignRowLabel({ name: '미모드림_10월2주차', clientName: '  미모드림 ' }, g), { title: '10월2주차', suffix: null });
+  // 접두어가 없으면 이름 전체
+  assert.deepEqual(campaignRowLabel({ name: '특별 프로모션', clientName: '미모드림' }, g), { title: '특별 프로모션', suffix: null });
+  // 클라이언트 없음
+  assert.deepEqual(campaignRowLabel({ name: '10월2주차', clientName: null }, g), { title: '10월2주차', suffix: null });
+});
+
+test('campaignSections: 이번 주 안에 끝난 장기는 이번 주 묶음에 남는다', () => {
+  const endedEarly = row('백수약국_장기', '백수약국', '2026-09-20', '2026-10-06'); // 장기, 화요일에 종료
+  const s = campaignSections([endedEarly, W2a], TODAY);
+  assert.deepEqual(s.long, []);
+  assert.deepEqual(s.upcoming[0].rows.map((r) => r.name), ['미모드림_10월2주차', '백수약국_장기']);
+  assert.equal(s.past.length, 0);
+});
+
+test('campaignSections: 지난 주차 3개 이상은 최근 주가 위', () => {
+  const w3 = row('a_9월3주차', 'a', '2026-09-14', '2026-09-20');
+  const w2 = row('a_9월2주차', 'a', '2026-09-07', '2026-09-13');
+  const s = campaignSections([w2, W94, W1a, w3], TODAY);
+  assert.deepEqual(s.past.map((g) => g.label), ['지난 주 · 10월1주차', '9월4주차', '9월3주차', '9월2주차']);
+});

@@ -173,9 +173,12 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete,
     if (kind === 'delete') confirmDelete();
     else open(kind);
   });
+  // 이미 실행한 신호(seq)는 다시 실행하지 않는다 — 개발 모드 StrictMode의 이펙트 두 번 실행·늦은 재도착에도 삭제 확인이 한 번만 뜬다.
+  const lastSeqRef = useRef<number | null>(null);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 바깥 메뉴 신호(seq)를 한 번 받아 편집 칸을 여는 것 — 렌더 중엔 열 수 없다(클라이언트 목록 받기·확인 창이 부수효과)
-    if (action) runAction(action.kind);
+    if (!action || lastSeqRef.current === action.seq) return;
+    lastSeqRef.current = action.seq;
+    runAction(action.kind);
   }, [action]);
 
   return (

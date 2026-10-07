@@ -5,7 +5,8 @@ import {
   campaignRowLabel, campaignSections, campaignsByClient, matchesCampaignQuery, type WeekGroup,
 } from '@/lib/campaignListView';
 import { Button } from '@/components/ui';
-import { SidebarRow, type RowMenuAction } from './sidebar/SidebarRow';
+import { SidebarRow } from './sidebar/SidebarRow';
+import type { HeaderAction } from '../CampaignHeader';
 
 // 캠페인 v2 왼쪽 목록(스펙 2026-10-08 §2·§3) — 360px. 위: 제목·새 캠페인·검색·묶어 보기.
 // 주차로 묶으면 장기 캠페인 / 주차 캠페인 / 지난 캠페인 세 섹션, 클라이언트로 묶으면 클라이언트별 묶음(섹션 제목 없음).
@@ -27,7 +28,7 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
   rows: CampaignRow[]; selectedId: string | null; today: string;
   loaded: boolean; loadErr: boolean;
   onSelect: (id: string) => void; onCreate: () => void; onRetry: () => void; onCollapse: () => void;
-  onMenuAction: (id: string, action: RowMenuAction) => void;
+  onMenuAction: (id: string, action: HeaderAction['kind']) => void;
 }) {
   const [groupBy, setGroupBy] = useState<GroupBy>(() => readGroupBy());
   const [q, setQ] = useState('');
@@ -58,18 +59,8 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
     return false;   // 지난 주차는 전부 접힘
   }
 
-  // 클라이언트로 묶으면 행 제목 자리에 클라이언트 이름이 반복된다 — 묶음 제목이 이미 말하므로 캠페인 이름에서
-  // '{클라이언트}_'를 뗀 나머지(주차·꼬리말)를 보여 준다.
-  function rowLabel(c: CampaignRow): { title: string; suffix: string | null } {
-    if (groupBy === 'client' && c.clientName && c.name.startsWith(`${c.clientName}_`)) {
-      return { title: c.name.slice(c.clientName.length + 1), suffix: null };
-    }
-    if (groupBy === 'client' && c.clientName) return { title: c.name, suffix: null };
-    return campaignRowLabel(c);
-  }
-
   const renderRow = (c: CampaignRow) => {
-    const { title, suffix } = rowLabel(c);
+    const { title, suffix } = campaignRowLabel(c, { groupedByClient: groupBy === 'client' });
     return (
       <SidebarRow key={c.id} c={c} title={title} suffix={suffix} today={today}
                   selected={c.id === selectedId} menuOpen={menuFor === c.id}
@@ -114,6 +105,8 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
     const pastLimit = searching || showAllPast ? pastGroups.length : Math.max(PAST_SHOWN, selectedPastIdx + 1);
     const visiblePast = pastGroups.slice(0, pastLimit);
     const hasMorePast = !searching && pastGroups.length > PAST_SHOWN;
+    // 더 보기 N = 선택된 주가 강제로 펼쳐 둔 것까지 빼고 아직 숨겨진 지난 주 수
+    const hiddenPast = Math.max(0, pastGroups.length - Math.max(PAST_SHOWN, selectedPastIdx + 1));
     let first = true;
     const isFirst = () => { const f = first; first = false; return f; };
     return (
@@ -136,7 +129,7 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
             {sectionTitle('지난 캠페인', isFirst(), hasMorePast ? (
               <button type="button" onClick={() => setShowAllPast((v) => !v)} aria-expanded={showAllPast}
                       className="text-[13px] text-x-blue-text hover:underline">
-                {showAllPast ? '접기' : `더 보기 (${pastGroups.length - PAST_SHOWN}주)`}
+                {showAllPast ? '접기' : `더 보기 (${hiddenPast}주)`}
               </button>
             ) : undefined)}
             {visiblePast.map((g) => renderGroup(g.key, g.label, g.rows, isOpen(g.key, false, g.rows), true))}

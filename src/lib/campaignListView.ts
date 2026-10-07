@@ -28,10 +28,18 @@ export function isLongCampaign(c: { startsOn: string; endsOn: string }): boolean
 
 const WEEKLY_SUFFIX = /^\d+월\d+주차$/;
 // '{클라}_{M월N주차}'면 클라 이름만, 아니면 클라 이름 + 꼬리말('{클라}_'을 뗀 나머지). 클라이언트가 없으면 이름 전체.
-export function campaignRowLabel(c: { name: string; clientName: string | null }): { title: string; suffix: string | null } {
+// groupedByClient(클라이언트 묶음 안의 행): 묶음 제목이 클라이언트를 이미 말하므로 '{클라}_' 뒤 부분만 제목으로 쓴다.
+// 접두어가 없거나 뗀 나머지가 비면 이름 전체.
+export function campaignRowLabel(
+  c: { name: string; clientName: string | null }, opts?: { groupedByClient?: boolean },
+): { title: string; suffix: string | null } {
   const client = c.clientName?.trim();
   if (!client) return { title: c.name, suffix: null };
   const prefix = `${client}_`;
+  if (opts?.groupedByClient) {
+    const after = c.name.startsWith(prefix) ? c.name.slice(prefix.length).trim() : '';
+    return { title: after || c.name, suffix: null };
+  }
   const rest = (c.name.startsWith(prefix) ? c.name.slice(prefix.length) : c.name).trim();
   if (!rest || rest === client || WEEKLY_SUFFIX.test(rest)) return { title: client, suffix: null };
   return { title: client, suffix: rest };

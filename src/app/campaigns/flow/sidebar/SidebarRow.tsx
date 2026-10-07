@@ -1,13 +1,14 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
+import type { HeaderAction } from '../../CampaignHeader';
 import { campaignDot, type CampaignDot } from '@/lib/campaignListView';
 
 // 캠페인 목록 한 행(스펙 §3-3) — 색 점 + 이름(+꼬리말) + 진행 막대 + `게시 n/m`, 한 줄 52px.
 // 마우스를 올리거나 포커스가 들어오면 `게시 n/m` 자리에 ⋯ 버튼(§3-5). 선택 버튼과 ⋯ 버튼은 형제다 —
 // 버튼 안에 버튼을 넣을 수 없어서 ⋯는 행 오른쪽 위에 겹쳐 놓는다.
 
-export type RowMenuAction = 'name' | 'client' | 'delete';
+type RowMenuAction = HeaderAction['kind'];
 
 // 점 색 — 바탕 + 25% 고리(시안 .dot). 색은 판단(campaignDot)이 정하고 여기선 칠하기만 한다.
 const DOT_STYLE: Record<CampaignDot, string> = {

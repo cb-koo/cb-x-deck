@@ -115,8 +115,8 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
                      if (e.key === 'Escape') setEditingName(false);
                    }}
                    className="w-full max-w-[320px] rounded-lg border border-x-border-strong bg-white px-3 py-1.5 text-content outline-none focus:border-x-blue" />
-            <Button variant="primary" className="shrink-0 whitespace-nowrap" onClick={saveRename}>저장</Button>
-            <Button variant="ghost" className="shrink-0 whitespace-nowrap" onClick={() => setEditingName(false)}>취소</Button>
+            <Button type="button" variant="ghost" className="shrink-0 whitespace-nowrap" onClick={() => setEditingName(false)}>취소</Button>
+            <Button type="button" variant="primary" className="shrink-0 whitespace-nowrap" onClick={saveRename}>저장</Button>
           </div>
         ) : (
           <>
@@ -174,11 +174,10 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
                    className="mb-3 w-full rounded-lg border border-x-border-strong px-3 py-1.5 text-content outline-none focus:border-x-blue" />
             {deleteErr && <p className="mb-2 text-caption text-red-500">{deleteErr}</p>}
             <div className="flex justify-end gap-2">
-              <Button onClick={() => { setDeleting(false); setDeleteErr(''); }}>취소</Button>
-              <button onClick={confirmDelete} disabled={confirmText !== client.name}
-                      className="rounded-full bg-x-pink px-3 py-1 text-ui font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50">
+              <Button type="button" onClick={() => { setDeleting(false); setDeleteErr(''); }}>취소</Button>
+              <Button type="button" variant="danger" onClick={confirmDelete} disabled={confirmText !== client.name}>
                 삭제
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -322,8 +321,8 @@ function ProcedureCard({ proc, register, onChanged }: {
         </button>
         {confirmDel ? (
           <span className="flex shrink-0 items-center gap-2 text-caption">
-            <button onClick={remove} className="rounded bg-red-600 px-2 py-0.5 text-white">삭제 확정</button>
-            <button onClick={() => setConfirmDel(false)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
+            <button type="button" onClick={() => setConfirmDel(false)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
+            <button type="button" onClick={remove} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">삭제 확정</button>
           </span>
         ) : (
           <button onClick={() => setConfirmDel(true)} className="shrink-0 text-caption text-x-muted hover:text-red-500">삭제</button>

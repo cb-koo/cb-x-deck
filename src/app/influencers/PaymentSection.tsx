@@ -202,11 +202,10 @@ function MethodCard({ m, busy, copiedKey, confirming, fallbackLabel, onCopy, onS
             {fallbackLabel && <span className="text-x-muted">{` 기본 수단이라 지우면 다음 수단(${fallbackLabel})이 기본이 돼요.`}</span>}
           </p>
           <div className="mt-1.5 flex items-center gap-1.5">
-            <button onClick={onDelete} disabled={busy} aria-label={`${label} 정말 삭제`}
-                    className="rounded-full bg-red-600 px-3 py-1 text-ui font-medium text-white hover:bg-red-700 disabled:opacity-50">
+            <Button type="button" variant="subtle" onClick={onCancelDelete} disabled={busy}>취소</Button>
+            <Button type="button" variant="danger" onClick={onDelete} disabled={busy} aria-label={`${label} 정말 삭제`}>
               {busy ? '삭제 중…' : '정말 삭제'}
-            </button>
-            <Button variant="subtle" onClick={onCancelDelete} disabled={busy}>취소</Button>
+            </Button>
           </div>
         </div>
       )}

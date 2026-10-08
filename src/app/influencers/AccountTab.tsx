@@ -174,10 +174,10 @@ function DangerZone({ id, logCount, onDeleted }: { id: string; logCount: number;
         <div>
           <p className="text-ui">기록 {logCount}건도 함께 지워져요. 원고의 배정 표기는 남아요.</p>
           <div className="mt-2 flex items-center gap-2">
-            <button onClick={remove} className="rounded-full bg-x-pink px-3 py-1 text-ui font-medium text-white hover:opacity-90">
+            <Button type="button" variant="ghost" onClick={() => setConfirming(false)}>취소</Button>
+            <Button type="button" variant="danger" onClick={remove}>
               명부에서 제거
-            </button>
-            <Button variant="ghost" onClick={() => setConfirming(false)}>취소</Button>
+            </Button>
           </div>
         </div>
       ) : (

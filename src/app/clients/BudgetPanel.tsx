@@ -151,8 +151,8 @@ function AddPeriodRow({ clientId, onDone }: { clientId: string; onDone: (ok: boo
             <span>원</span>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="primary" onClick={save}>저장</Button>
-            <Button variant="ghost" onClick={() => void onDone(false)}>취소</Button>
+            <Button type="button" variant="ghost" onClick={() => void onDone(false)}>취소</Button>
+            <Button type="button" variant="primary" onClick={save}>저장</Button>
           </div>
           {err && <p className="text-caption text-red-500">{err}</p>}
         </div>
@@ -240,18 +240,18 @@ function PeriodRowView({ clientId, row, basis, editing, onEdit, onClose, onChang
               <span>원</span>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="primary" onClick={save}>저장</Button>
-              <Button variant="ghost" onClick={onClose}>취소</Button>
               {!confirmDel && (
-                <button onClick={() => setConfirmDel(true)} className="text-caption text-x-secondary hover:text-red-500">삭제</button>
+                <button type="button" onClick={() => setConfirmDel(true)} className="mr-auto text-caption text-x-secondary hover:text-red-500">삭제</button>
               )}
+              <Button type="button" variant="ghost" onClick={onClose} className={confirmDel ? 'ml-auto' : ''}>취소</Button>
+              <Button type="button" variant="primary" onClick={save}>저장</Button>
             </div>
             {confirmDel && (
               <div className="space-y-1">
                 <p className="text-caption text-x-secondary">이 기간을 지우면 여기 속한 캠페인은 예산 미설정이 돼요</p>
                 <div className="flex items-center gap-2">
-                  <button onClick={remove} className="rounded bg-red-600 px-2 py-0.5 text-caption text-white">삭제 확정</button>
-                  <button onClick={() => setConfirmDel(false)} className="rounded border border-x-border-strong px-2 py-0.5 text-caption">취소</button>
+                  <button type="button" onClick={() => setConfirmDel(false)} className="rounded border border-x-border-strong px-2 py-0.5 text-caption">취소</button>
+                  <button type="button" onClick={remove} className="rounded bg-red-600 px-2 py-0.5 text-caption text-white hover:bg-red-700">삭제 확정</button>
                 </div>
               </div>
             )}

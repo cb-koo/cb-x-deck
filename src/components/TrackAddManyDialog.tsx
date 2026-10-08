@@ -101,12 +101,12 @@ export function TrackAddManyDialog({ onClose, onAddOne }: {
             <p className="mt-1 text-caption text-x-muted">
               위에서부터 한 줄씩 지표를 가져와 목록에 추가하고, 결과를 줄마다 보여줘요.
             </p>
-            <div className="mt-4 flex items-center gap-3">
+            <div className="mt-4 flex items-center justify-end gap-3">
+              <Button type="button" onClick={onClose}>취소</Button>
               {/* 비용 유발 액션은 버튼에 값을 적어 opt-in으로(UX 원칙 6) */}
-              <Button variant="primary" onClick={start} disabled={lineCount === 0}>
+              <Button type="button" variant="primary" onClick={start} disabled={lineCount === 0}>
                 {lineCount > 1 ? `추적 시작 (${lineCount}건 — API 호출 ${lineCount}회)` : '추적 시작'}
               </Button>
-              <button onClick={onClose} className="text-ui text-x-secondary">취소</button>
             </div>
           </>
         ) : (
@@ -123,14 +123,14 @@ export function TrackAddManyDialog({ onClose, onAddOne }: {
                 </li>
               ))}
             </ul>
-            <div className="mt-4 flex items-center gap-3">
-              {failed > 0 && !running && (
-                <Button variant="primary" onClick={retryFailed}>실패한 {failed}줄 다시 시도</Button>
-              )}
-              <Button variant={failed > 0 && !running ? 'subtle' : 'primary'} onClick={onClose} disabled={running}>
+            <div className="mt-4 flex items-center justify-end gap-3">
+              {running && <Button type="button" onClick={onClose}>그만두고 닫기</Button>}
+              <Button type="button" variant={failed > 0 && !running ? 'subtle' : 'primary'} onClick={onClose} disabled={running}>
                 {running ? '처리 중…' : '닫기'}
               </Button>
-              {running && <button onClick={onClose} className="text-ui text-x-secondary">그만두고 닫기</button>}
+              {failed > 0 && !running && (
+                <Button type="button" variant="primary" onClick={retryFailed}>실패한 {failed}줄 다시 시도</Button>
+              )}
             </div>
           </>
         )}

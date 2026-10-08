@@ -18,7 +18,7 @@ import {
 } from '@/lib/campaignApi';
 import type { TaskCost } from '@/lib/campaignCost';
 import {
-  flowStage, FLOW_STAGES, TASK_TYPE_LABEL, isTaskExcluded,
+  flowStage, FLOW_STAGES, TASK_TYPE_LABEL,
   deriveTaskInfluencers, taskCampaignTotal, targetUrlOf, type TaskType, type FlowStage,
 } from '@/lib/campaignJudgment';
 import { draftLabel, draftPreviewLine, draftPreviewFull, draftFirstMediaUrl } from '@/lib/draftViews';
@@ -42,7 +42,6 @@ import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar } from './FlowFilterBar';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
-import { BudgetStrip } from './BudgetStrip';
 import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM, type FormDraftContext, type PricePrompt } from './TaskPanel';
 import { PriceProfileDialog } from './PriceProfileDialog';
 import { CostConfirmField } from './CostConfirmField';
@@ -101,7 +100,7 @@ const DRAFT_DIRECTION_DISCARD_CONFIRM = '쓰던 방향성이 있어요. 계속�
 interface DetailState {
   campaign: CampaignRow; tasks: CampaignTaskItem[]; costRows: InfluencerCostRow[];
   deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number }; today: string;
-  budget: CampaignPeriodBudget | null;   // 이 기간 클라이언트 예산(서버 판정) — 예산 줄(BudgetStrip)
+  budget: CampaignPeriodBudget | null;   // 이 기간 클라이언트 예산(서버 판정) — 클라이언트 예산 카드(BudgetCard)
   perfUpdatedAt: string | null;          // 성과 최종 업데이트 시각 — 성과 카드 ↻ 옆
 }
 type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
@@ -383,7 +382,6 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const footer = useMemo(() => flowFooter(data?.tasks ?? [], data?.today ?? '', costCurrency), [data, costCurrency]);
   const sortNote = sort.key ? `· ${FLOW_SORT_LABEL[sort.key]} ${sort.dir === 1 ? '오름차순' : '내림차순'}` : '· 만든 순';
   // 성과 [업데이트](비용 유발 — 게시물당 API 1회, UX 원칙 6 opt-in). 성공하면 상세를 다시 읽어야 새 스냅샷이 카드·표에 보인다.
-  const cancelledCount = data?.tasks.filter(isTaskExcluded).length ?? 0;
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -975,20 +973,19 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
           <Button variant="subtle" className="ml-auto shrink-0 bg-white" onClick={() => void load()}>다시 시도</Button>
         </div>
       )}
-      <div className={PANEL}>
-        <CampaignHeader campaign={data.campaign} deleteInfo={data.deleteInfo} today={data.today} onPatch={patchCampaign}
-                        onDelete={() => void removeCampaign()} />
-      </div>
-      <div className={PANEL}>
-        <FlowCards stats={stats} plannedTotal={plannedTotal} currency={costCurrency} onCurrencyChange={chooseCostCurrency} perfUpdatedAt={data.perfUpdatedAt}
-                   cancelledCount={cancelledCount} refreshing={refreshing} onRefresh={() => void onRefresh()} />
-      </div>
-      {/* 이 기간 클라이언트 예산 — 캠페인 카드와 층이 달라 칸을 나눈다(koo 09-27 A안). 클라이언트 없는 캠페인엔 없다. */}
-      {data.budget && (
-        <div className={PANEL}>
-          <BudgetStrip budget={data.budget} clientId={data.campaign.clientId} spent={stats.spent} plannedTotal={plannedTotal} />
+      {/* 머리 + 카드 2×2(koo 10-08 시안) — 둘 사이 12px, 카드와 작업 목록 사이 16px */}
+      <div className="mb-[16px] space-y-[12px]">
+        <div className={`${PANEL} py-[15px]`}>
+          <CampaignHeader campaign={data.campaign} deleteInfo={data.deleteInfo} today={data.today} onPatch={patchCampaign}
+                          onDelete={() => void removeCampaign()} />
         </div>
-      )}
+        {/* 클라이언트 예산은 네 번째 카드(클라이언트 없는 캠페인엔 없다). 작업 현황의 알약은 아래 목록 필터의 단계 묶음을 바꾼다. */}
+        <FlowCards stats={stats} plannedTotal={plannedTotal} currency={costCurrency} onCurrencyChange={chooseCostCurrency} perfUpdatedAt={data.perfUpdatedAt}
+                   refreshing={refreshing} onRefresh={() => void onRefresh()}
+                   stageCounts={counts.stage} lateCount={counts.extra.late}
+                   stages={filter.stages} onStagesChange={(stages) => setFilter((f) => ({ ...f, stages }))}
+                   budget={data.budget} clientId={data.campaign.clientId} />
+      </div>
       <div className={PANEL}>
         {/* [+ 작업 추가]는 오른쪽 패널을 새 작업 모드로 연다(Task 7). [한 번에 만들기]는 아직 뒤에 창이 없다(Task 7). */}
         <div className="flex flex-wrap items-center gap-2">

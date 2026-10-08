@@ -12,6 +12,8 @@ export async function proxy(request: NextRequest) {
   // 브릿지 서버의 이벤트 push — 세션 쿠키가 없어 갱신할 것도 없고, 인가는 라우트가 시크릿으로 한다.
   // 아래 getUser()는 요청마다 인증 서버 왕복이라 이벤트 1건마다 붙일 이유가 없다(스펙 §수집 API).
   if (request.nextUrl.pathname === '/api/landing-events') return NextResponse.next({ request });
+  // 성과 자동 측정 — DB 예약 실행이 5분마다 부른다. 세션이 없고 인가는 라우트가 시크릿으로 한다(위와 같은 이유).
+  if (request.nextUrl.pathname === '/api/tracking/auto-measure') return NextResponse.next({ request });
 
   let response = NextResponse.next({ request });
 

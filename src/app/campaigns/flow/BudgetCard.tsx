@@ -63,13 +63,14 @@ export function BudgetCard({ budget, clientId, spent, plannedTotal }: {
   return (
     <section aria-label="클라이언트 예산" className={CARD}>
       {head(periodLabel(budget.period), tip)}
-      {/* 결과 두 개 — 좁으면 두 번째가 아래로 내려간다(숫자가 카드 밖으로 넘치지 않게) */}
-      <div className="mt-[4px] flex flex-wrap items-end gap-y-[4px]">
-        <div className="mr-[20px]">
+      {/* 결과 두 개 — 좁은 카드(안쪽 400px 미만)에선 두 번째가 아래로 내려가고 구분선이 위 가는 선이 된다.
+          넓어도 금액이 길면(초과 등) flex-wrap이 받아 준다 — 숫자가 카드 밖으로 넘치지 않게 */}
+      <div className="mt-[4px] flex flex-wrap items-end gap-y-[4px] @max-[400px]:flex-col @max-[400px]:items-stretch @max-[400px]:gap-y-[6px]">
+        <div className="mr-[20px] @max-[400px]:mr-0">
           <div className="text-[13px] leading-[18px] text-x-muted">현재 남은 예산</div>
-          <div className={`${BIG} ${now.over ? 'text-red-700' : ''}`}>{now.text}</div>
+          <div className={`${BIG} whitespace-nowrap ${now.over ? 'text-red-700' : ''}`}>{now.text}</div>
         </div>
-        <div className="border-l border-x-border pl-[20px]">
+        <div className="border-l border-x-border pl-[20px] @max-[400px]:border-l-0 @max-[400px]:border-t @max-[400px]:pl-0 @max-[400px]:pt-[6px]">
           <div className="flex items-center gap-[2px] text-[13px] leading-[18px] text-x-muted">
             전체 작업 완료 후 남은 예산
             <InfoTip text={`잡혀 있는 작업(게시 전 ${won(pendingTotal)})까지 모두 게시되면 남는 금액이에요`} label="전체 작업 완료 후 남은 예산 설명 보기" />
@@ -88,9 +89,10 @@ export function BudgetCard({ budget, clientId, spent, plannedTotal }: {
           <div className={TBL_HEAD} /><div className={TBL_HEAD}>집행</div><div className={TBL_HEAD}>예정</div>
           <div className={TBL_KEY}>다른 캠페인</div>{cell(b.othersSpent, C_OTHERS_SPENT)}{cell(b.othersPending, C_OTHERS_PENDING)}
           <div className={TBL_KEY}>이 캠페인</div>{cell(b.thisSpent, C_THIS_SPENT)}{cell(b.thisPending, C_THIS_PENDING)}
+          {/* 남음은 예정 칸이 비어 있다 — 좁은 카드에선 두 칸을 합쳐 오른쪽 끝에 둔다('초과'가 붙은 긴 금액이 집행 칸 폭을 키우지 않게) */}
           <div className={TBL_KEY}>남음</div>
-          <div className={`${TBL_VAL} ${after.over ? 'text-red-700' : ''}`}><i aria-hidden className={`${SWATCH} ${C_REST}`} />{after.text}</div>
-          <div className={TBL_VAL} />
+          <div className={`${TBL_VAL} @max-[400px]:col-span-2 ${after.over ? 'text-red-700' : ''}`}><i aria-hidden className={`${SWATCH} ${C_REST}`} />{after.text}</div>
+          <div className={`${TBL_VAL} @max-[400px]:hidden`} />
         </div>
         <p className="mt-[4px] whitespace-nowrap text-[13px] leading-[18px] text-x-muted">기간 예산 {won(amount)} · 캠페인 {budget.campaignCount}개</p>
         {budget.badge && <p className="text-[13px] leading-[18px] text-x-muted">{badgeText(budget.badge)}</p>}

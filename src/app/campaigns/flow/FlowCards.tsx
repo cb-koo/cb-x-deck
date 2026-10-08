@@ -9,7 +9,7 @@ import { formatPct } from '@/lib/performanceJudgment';
 import { isPillActive, nextStagesForPill, pillCount, costTableRows, pctLabelLeft, type StagePill } from '@/lib/flowCards';
 import { BudgetCard } from './BudgetCard';
 import {
-  CARD, LABEL_ROW, LABEL_WRAP, LABEL, BIG, COMP, BAR, TBL, TBL_HEAD, TBL_KEY, TBL_VAL, C_THIS_SPENT, C_THIS_PENDING,
+  CARD, LABEL_ROW, LABEL_WRAP, LABEL, BIG, BIG_NUM, COMP, BAR, TBL, TBL_HEAD, TBL_KEY, TBL_VAL, C_THIS_SPENT, C_THIS_PENDING,
 } from './cardStyles';
 
 // 카드 2×2(koo 10-08 시안 B): 작업 현황 | 성과 / 캠페인 비용 | 클라이언트 예산. 같은 줄의 두 카드는 높이가 같다.
@@ -74,15 +74,16 @@ export function FlowCards({
   const costRows = costTableRows(stats.spent, plannedTotal);
 
   return (
-    // 폭은 창이 아니라 이 영역의 폭으로 판단한다(오른쪽 패널이 열리면 좁아진다). 800px 미만이면 한 줄에 한 장 —
-    // 예산·비용 카드의 표(라벨 + 130px 두 칸)가 카드 폭 약 390px를 요구해서(시안 글꼴로 실측, 10-08).
+    // 폭은 창이 아니라 이 영역의 폭으로 판단한다(오른쪽 패널이 열리면 좁아진다). 600px 이상이면 두 장씩(카드 약 294px~) —
+    // 1280px 노트북의 상세 폭(약 660~700px)에서도 2열. 좁은 카드는 카드 안에서 줄을 바꿔 넘치지 않는다(카드별 @container, 10-08 실측).
     <div className="@container">
-    <div className="grid grid-cols-1 gap-[12px] @[800px]:grid-cols-2">
+    <div className="grid grid-cols-1 gap-[12px] @[600px]:grid-cols-2">
       {/* 작업 현황 — 게시 / 계획(취소 뺀 수)이 주인공. 오른쪽 알약은 누르면 아래 목록을 그 조건으로 거른다(다시 누르면 해제). */}
       <section aria-label="작업 현황" className={CARD}>
         <div className={LABEL_ROW}><span className={LABEL}>작업 현황</span></div>
-        <div className="mt-[4px] flex items-center justify-between gap-[12px]">
-          <p className={BIG}>{stats.posted}<span className={COMP}>/ {stats.planned} 게시</span></p>
+        {/* 좁은 카드에선 알약이 큰 숫자 아래 줄로 내려간다 */}
+        <div className="mt-[4px] flex flex-wrap items-center justify-between gap-x-[12px] gap-y-[6px]">
+          <p className={BIG}><span className={BIG_NUM}>{stats.posted}</span><span className={COMP}>/ {stats.planned} 게시</span></p>
           <span className="inline-flex items-center gap-[8px]">
             {PILLS.map(([pill, label]) => {
               const n = pillCount(stageCounts, pill);
@@ -131,18 +132,20 @@ export function FlowCards({
             </button>
           </span>
         </div>
-        <div className="mt-[2px] grid grid-cols-3 gap-[16px]">
+        {/* 넓으면 3등분(시안). 좁은 카드(안쪽 400px 미만)는 숫자를 22px(안쪽 280px 미만은 20px)로 줄이고 칸을 내용 폭으로 —
+            6자리 조회수도 들어가게(실측: 카드 294px에서 22px는 여유 0). 설명 줄은 비율 부분이 다음 줄로 내려간다 */}
+        <div className="mt-[2px] grid grid-cols-3 gap-[16px] @max-[400px]:grid-cols-[repeat(3,auto)] @max-[400px]:justify-between @max-[400px]:gap-x-[8px]">
           {([
             ['조회', stats.perf.views, stats.cpvKrw !== null ? `CPV ${stats.cpvKrw.toFixed(1)}원` : null, '조회 1회에 든 비용'],
             ['좋아요', stats.perf.likes, stats.likeRate !== null ? formatPct(stats.likeRate, 1) : null, '좋아요율(조회 대비)'],
             ['북마크', stats.perf.bookmarks, stats.bookmarkRate !== null ? formatPct(stats.bookmarkRate, 1) : null, '북마크율(조회 대비)'],
           ] as const).map(([label, v, sub, subTitle]) => (
-            <div key={label} className="min-w-0">
-              <p className="text-[28px] font-extrabold leading-[34px] tabular-nums">
+            <div key={label} className="min-w-0 @max-[400px]:min-w-auto">
+              <p className="whitespace-nowrap text-[28px] font-extrabold leading-[34px] tabular-nums @max-[400px]:text-[22px] @max-[400px]:leading-[28px] @max-[280px]:text-[20px] @max-[280px]:leading-[26px]">
                 {v !== null ? v.toLocaleString('ko-KR') : <span className="text-x-muted">—</span>}
               </p>
-              <p className="mt-[2px] truncate text-[14px] leading-[18px] text-x-secondary" title={sub ? `${label} · ${subTitle} ${sub}` : label}>
-                {label}{sub && <span className="text-[13px] text-x-muted"> · {sub}</span>}
+              <p className="mt-[2px] truncate text-[14px] leading-[18px] text-x-secondary @max-[400px]:whitespace-normal" title={sub ? `${label} · ${subTitle} ${sub}` : label}>
+                {label}{sub && <> <span className="whitespace-nowrap text-[13px] text-x-muted">· {sub}</span></>}
               </p>
             </div>
           ))}
@@ -150,7 +153,7 @@ export function FlowCards({
       </section>
 
       {/* 캠페인 비용 — 이 캠페인만(집행 / 계획). 클라이언트 없는 캠페인은 네 번째 칸이 없어 이 카드가 한 줄을 다 쓴다. */}
-      <section aria-label="캠페인 비용" className={`${CARD} ${budget ? '' : '@[800px]:col-span-2'}`}>
+      <section aria-label="캠페인 비용" className={`${CARD} ${budget ? '' : '@[600px]:col-span-2'}`}>
         <div className={LABEL_ROW}>
           <span className={LABEL_WRAP}>
             <span className={LABEL}>캠페인 비용</span>
@@ -167,7 +170,7 @@ export function FlowCards({
           </div>
         </div>
         <p className={`mt-[4px] ${BIG}`}>
-          {hasConv && '≈'}{spentView.total}<span className={COMP}>/ {plannedView.total} 계획</span>
+          <span className={BIG_NUM}>{hasConv && '≈'}{spentView.total}</span><span className={COMP}>/ {plannedView.total} 계획</span>
         </p>
         {plannedKrw > 0 && (
           // 비율 글자는 집행 칸 끝에 붙어 같이 움직인다(양 끝에서는 막대 밖으로 나가지 않게 가둔다)

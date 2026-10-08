@@ -203,10 +203,9 @@ function MethodCard({ m, busy, copiedKey, confirming, fallbackLabel, onCopy, onS
           </p>
           <div className="mt-1.5 flex items-center gap-1.5">
             <Button type="button" variant="subtle" onClick={onCancelDelete} disabled={busy}>취소</Button>
-            <button type="button" onClick={onDelete} disabled={busy} aria-label={`${label} 정말 삭제`}
-                    className="rounded bg-red-600 px-3 py-1 text-ui font-medium text-white hover:bg-red-700 disabled:opacity-50">
+            <Button type="button" variant="danger" onClick={onDelete} disabled={busy} aria-label={`${label} 정말 삭제`}>
               {busy ? '삭제 중…' : '정말 삭제'}
-            </button>
+            </Button>
           </div>
         </div>
       )}

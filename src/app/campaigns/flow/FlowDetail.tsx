@@ -988,9 +988,10 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
       </div>
       <div className={PANEL}>
         {/* [+ 작업 추가]는 오른쪽 패널을 새 작업 모드로 연다(Task 7). [한 번에 만들기]는 아직 뒤에 창이 없다(Task 7). */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="primary" onClick={openNew} className="h-9 px-3.5 text-ui">+ 작업 추가</Button>
+        {/* 오른쪽 정렬(koo 10-08) — 주 버튼(+ 작업 추가)이 맨 오른쪽(확정 버튼은 오른쪽 규칙) */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="subtle" onClick={openBulk} className="h-9 px-3.5 text-ui">한 번에 만들기</Button>
+          <Button variant="primary" onClick={openNew} className="h-9 px-3.5 text-ui">+ 작업 추가</Button>
         </div>
         <div className="mt-3.5">
           <FlowFilterBar filter={filter} onChange={setFilter} counts={counts} summary={summary}

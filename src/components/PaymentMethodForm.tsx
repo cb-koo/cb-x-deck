@@ -199,8 +199,8 @@ export function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, e
       )}
 
       <div className="mt-3 flex items-center gap-1.5">
-        <Button variant="primary" onClick={onSubmit} disabled={busy}>{busy ? '저장 중…' : '저장'}</Button>
-        <Button variant="subtle" onClick={onCancel} disabled={busy}>취소</Button>
+        <Button type="button" variant="subtle" onClick={onCancel} disabled={busy}>취소</Button>
+        <Button type="button" variant="primary" onClick={onSubmit} disabled={busy}>{busy ? '저장 중…' : '저장'}</Button>
       </div>
     </div>
   );

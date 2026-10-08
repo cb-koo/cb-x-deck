@@ -181,8 +181,8 @@ export default function WorkspacesPage() {
                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) createWs(); }}
                  placeholder="새 워크스페이스 이름"
                  className="w-full rounded-lg border border-x-border-strong bg-transparent px-3 py-1.5 text-content outline-none focus:border-x-blue" />
-          <Button variant="primary" className="shrink-0 whitespace-nowrap" onClick={createWs}>만들기</Button>
-          <Button variant="ghost" className="shrink-0 whitespace-nowrap" onClick={() => { setAdding(false); setNewName(''); }}>취소</Button>
+          <Button type="button" variant="ghost" className="shrink-0 whitespace-nowrap" onClick={() => { setAdding(false); setNewName(''); }}>취소</Button>
+          <Button type="button" variant="primary" className="shrink-0 whitespace-nowrap" onClick={createWs}>만들기</Button>
         </div>
       )}
       {err && <p className="mb-2 text-caption text-red-500">{err}</p>}
@@ -222,8 +222,8 @@ export default function WorkspacesPage() {
                        }}
                        className="w-full rounded-lg border border-x-border-strong bg-white px-3 py-1.5 text-content outline-none focus:border-x-blue" />
                 {/* shrink-0 없으면 w-full 입력창이 버튼을 눌러 글자가 세로로 꺾인다 */}
-                <Button variant="primary" className="shrink-0 whitespace-nowrap" onClick={() => saveRename(w.id)}>저장</Button>
-                <Button variant="ghost" className="shrink-0 whitespace-nowrap" onClick={() => setEditingId(null)}>취소</Button>
+                <Button type="button" variant="ghost" className="shrink-0 whitespace-nowrap" onClick={() => setEditingId(null)}>취소</Button>
+                <Button type="button" variant="primary" className="shrink-0 whitespace-nowrap" onClick={() => saveRename(w.id)}>저장</Button>
               </div>
             ) : (
               <>
@@ -270,11 +270,10 @@ export default function WorkspacesPage() {
                    className="mb-3 w-full rounded-lg border border-x-border-strong px-3 py-1.5 text-content outline-none focus:border-x-blue" />
             {deleteErr && <p className="mb-2 text-caption text-red-500">{deleteErr}</p>}
             <div className="flex justify-end gap-2">
-              <Button onClick={() => { setDeleting(null); setDeleteErr(''); }}>취소</Button>
-              <button onClick={confirmDelete} disabled={confirmText !== deleting.name}
-                      className="rounded-full bg-x-pink px-3 py-1 text-ui font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50">
+              <Button type="button" onClick={() => { setDeleting(null); setDeleteErr(''); }}>취소</Button>
+              <Button type="button" variant="danger" onClick={confirmDelete} disabled={confirmText !== deleting.name}>
                 삭제
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -245,11 +245,11 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
 
             {err && <p className="mt-2 text-caption text-red-600">{err}</p>}
 
-            <div className="mt-4 flex items-center gap-3">
-              <Button variant="primary" onClick={() => void submit()} disabled={!canSubmit}>
+            <div className="mt-4 flex items-center justify-end gap-3">
+              <Button type="button" onClick={onClose} disabled={busy}>취소</Button>
+              <Button type="button" variant="primary" onClick={() => void submit()} disabled={!canSubmit}>
                 {busy ? '만드는 중…' : '짧은 링크 만들기'}
               </Button>
-              <button onClick={onClose} disabled={busy} className="text-ui text-x-secondary disabled:opacity-40">취소</button>
             </div>
             {!canSubmit && !busy && disabledReason && (
               <p className="mt-1.5 text-caption text-x-muted">{disabledReason}</p>

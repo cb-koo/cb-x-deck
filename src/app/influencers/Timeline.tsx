@@ -268,8 +268,8 @@ function LogItem({ id, log, onRemoved }: { id: string; log: InfluencerLogRow; on
         {/* 지울 수 있는 건 사람이 쓴 기록뿐 — 자동 기록은 사실이라 버튼 자체를 두지 않는다 */}
         {confirming ? (
           <span className="flex shrink-0 items-center gap-1.5 text-caption">
-            <button onClick={remove} className="rounded bg-red-600 px-2 py-0.5 text-white">지우기</button>
-            <button onClick={() => setConfirming(false)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
+            <button type="button" onClick={() => setConfirming(false)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
+            <button type="button" onClick={remove} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">지우기</button>
           </span>
         ) : (
           <button onClick={() => setConfirming(true)} aria-label="이 기록 지우기"

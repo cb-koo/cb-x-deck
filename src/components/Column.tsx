@@ -317,8 +317,8 @@ export function Column({ column, isNew, index, total, onEdit, onDelete, onPickTa
           <div className="mb-1 rounded border border-red-300 bg-red-50 p-2 text-caption">
             <p className="mb-1 text-red-600">컬럼 “{column.title}”을 삭제할까요? 보관함에 저장한 후보는 그대로 유지돼요.</p>
             <div className="flex gap-1">
-              <button onClick={onDelete} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">삭제</button>
-              <button onClick={() => setConfirmingDelete(false)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
+              <button type="button" onClick={() => setConfirmingDelete(false)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
+              <button type="button" onClick={onDelete} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">삭제</button>
             </div>
           </div>
         )}

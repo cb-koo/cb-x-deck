@@ -160,8 +160,8 @@ function ClientsSplit() {
                    placeholder="새 클라이언트 이름"
                    className="w-full rounded-lg border border-x-border-strong px-2.5 py-1.5 text-ui outline-none focus:border-x-blue" />
             <div className="mt-1.5 flex gap-1.5">
-              <Button variant="primary" onClick={createClient}>만들기</Button>
-              <Button variant="ghost" onClick={() => { setAdding(false); setNewName(''); }}>취소</Button>
+              <Button type="button" variant="ghost" onClick={() => { setAdding(false); setNewName(''); }}>취소</Button>
+              <Button type="button" variant="primary" onClick={createClient}>만들기</Button>
             </div>
           </div>
         )}

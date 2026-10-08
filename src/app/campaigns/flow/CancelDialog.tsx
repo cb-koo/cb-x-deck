@@ -72,8 +72,8 @@ export function CancelDialog({ task, onClose, onConfirm }: {
         </div>
 
         <div className="mt-4 flex justify-end gap-2.5">
-          <Button onClick={onClose} disabled={busy} className="h-10 px-4 text-content">닫기</Button>
-          <Button variant="primary" onClick={() => void submit()} disabled={busy} className="h-10 px-4 text-content">
+          <Button type="button" onClick={onClose} disabled={busy} className="h-10 px-4 text-content">닫기</Button>
+          <Button type="button" variant="danger" onClick={() => void submit()} disabled={busy} className="h-10 px-4 text-content">
             {busy ? '취소하는 중…' : '❌ 취소하기'}
           </Button>
         </div>

@@ -1,5 +1,5 @@
 // 리포트 글 상세 패널(스펙 2026-10-09 §10) — 리포트의 어느 차트에서든 글을 누르면 오른쪽에 열린다.
-// 읽는 순서 = 판단에 필요한 순서: 이 글은 잘됐나(판정·핵심 숫자) → 신규 인입에 영향이 있었나 → 실제 글 → 조회가 늘어난 속도.
+// 정보는 종류별로 두 묶음 — 성과(숫자는 전부 여기, 글 대신 그림: 비교 막대·인입 막대·성장 곡선) → 게시글(X 원문 그대로).
 // 머리글(누구·어느 캠페인)과 버튼은 스크롤해도 고정. 작업·캠페인·지표는 현황 응답에 있고, 글 원문과 측정 이력만 열 때 부른다.
 'use client';
 import { useEffect, useState } from 'react';
@@ -18,6 +18,7 @@ import { GrowthCurves } from '@/components/charts/GrowthCurves';
 import { useWidth } from '@/components/charts/ChartCard';
 import { C, NUM, compact } from '@/components/charts/tokens';
 import { normalRange, verdictOf } from '@/components/charts/normal';
+import { LikeIcon, RepostIcon, ReplyIcon } from '@/components/XIcons';
 
 type Snap = { capturedAt: string; metrics: { views: number | null } };
 const MIN_COMPARE = 4;      // 비교할 다른 글이 이보다 적으면 많다/적다 판정을 하지 않는다
@@ -138,17 +139,25 @@ function PostDetail({ s, p }: { s: ClientStatus; p: StatusPost }) {
     return () => { alive = false; };
   }, [p.id]);
 
-  // 판정 기준 = 북마크(신규 인입과 가장 잘 맞는 반응). 문장에도 '북마크'라고 쓴다 — 계산과 말이 같아야 한다.
+  // 판정 기준 = 북마크(신규 인입과 가장 잘 맞는 반응) — 칩 글자도 '북마크'라고 쓴다(계산과 말이 같게)
   const others = s.posts.filter((o) => o.id !== p.id);
   const rank = [...s.posts].sort((a, b) => b.bookmarks - a.bookmarks).findIndex((o) => o.id === p.id) + 1;
   const band = others.length >= MIN_COMPARE ? normalRange(others.map((o) => o.bookmarks)) : null;
   const v = band ? verdictOf(p.bookmarks, band) : null;
-  const verdict = v === 'above' ? '북마크가 많은 편이에요' : v === 'below' ? '북마크가 적은 편이에요' : v === 'normal' ? '북마크가 보통이에요' : '비교할 글이 아직 적어요';
+
+  const rate = (o: StatusPost) => (o.views ? (o.bookmarks / o.views) * 100 : 0);
+  const cpb = (o: StatusPost) => (o.costKrw > 0 && o.bookmarks > 0 ? o.costKrw / o.bookmarks : null);
+  const rows: CompareRow[] = [
+    { label: '조회', value: p.views, others: others.map((o) => o.views), fmt: compact },
+    { label: '북마크', value: p.bookmarks, others: others.map((o) => o.bookmarks), fmt: (n) => NUM.format(n) },
+    { label: '북마크율', value: rate(p), others: others.map(rate), fmt: (n) => `${n.toFixed(2)}%` },
+  ];
+  const myCpb = cpb(p), otherCpb = others.map(cpb).filter((n): n is number => n !== null);
+  if (myCpb !== null && otherCpb.length) rows.push({ label: '북마크 1개 비용', value: myCpb, others: otherCpb, fmt: won, lowerBetter: true });
 
   // 신규 인입 효과 — 성적표와 같은 계산(게시 묶음의 인입 증가를 북마크 비율로 나눈 추정)
   const group = s.groups.find((g) => g.posts.some((x) => (x as WithId).id === p.id));
   const mine = group?.posts.find((x) => (x as WithId).id === p.id);
-  const windowEnd = group ? group.to : null;
 
   const hours = (iso: string) => (Date.parse(iso) - Date.parse(p.postedAt)) / 3600e3;
   const points: Array<[number, number]> = (snaps ?? []).filter((x) => x.metrics.views !== null)
@@ -158,107 +167,188 @@ function PostDetail({ s, p }: { s: ClientStatus; p: StatusPost }) {
 
   return (
     <div className="flex flex-col">
-      {/* 1. 이 글은 잘됐나 */}
-      <section className="px-5 pb-5 pt-4">
-        <h3 className="text-[18px] font-bold">{verdict}</h3>
-        <p className="text-[14px] text-x-secondary">이 클라이언트 최근 8주 글 {s.posts.length}개 중 {rank}위</p>
-        {band && <PositionStrip values={others.map((o) => o.bookmarks)} value={p.bookmarks} band={band} />}
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          <Stat label="조회" value={compact(p.views)} />
-          <Stat label="북마크" value={NUM.format(p.bookmarks)} sub={p.views ? `조회의 ${((p.bookmarks / p.views) * 100).toFixed(2)}%` : undefined} strong />
-          <Stat label="북마크 1개 비용" value={p.costKrw > 0 && p.bookmarks ? won(p.costKrw / p.bookmarks) : '—'}
-            sub={p.costKrw > 0 ? (p.views ? `조회 1회 ${won(p.costKrw / p.views)}` : undefined) : '비용 없음'} />
+      {/* ── 성과: 숫자는 모두 여기, 그림으로 ── */}
+      <GroupHead title="성과" right={p.capturedAt ? `${when(p.capturedAt)} 측정` : '측정 전'} />
+      <div className="flex flex-col gap-6 px-5 pb-6 pt-4">
+        <div>
+          <SubHead label="다른 글과 비교" right={<><VerdictChip v={v} />{' '}<span className="text-[13px] tabular-nums text-x-secondary">북마크 {rank}위 / {s.posts.length}</span></>} />
+          <CompareBars rows={rows} />
+          <div className="mt-1.5 flex items-center gap-4 text-[12px] text-x-muted">
+            <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-4 rounded-sm" style={{ background: C.primary }} />이 글</span>
+            <span className="flex items-center gap-1.5"><i className="inline-block h-3 w-0.5" style={{ background: C.text }} />이 클라이언트 글 가운데값</span>
+          </div>
+          <Reactions p={p} />
         </div>
-        <p className="mt-3 text-[14px] tabular-nums text-x-secondary">
-          좋아요 {NUM.format(p.likes)} · 리포스트 {NUM.format(p.retweets)} · 인용 {NUM.format(p.quotes)} · 답글 {NUM.format(p.replies)}
-        </p>
-        <p className="mt-1 text-[13px] text-x-muted">
-          {p.costKrw > 0 ? `비용 ${NUM.format(p.costKrw)}원 · ` : ''}{p.capturedAt ? `${when(p.capturedAt)} 측정` : '아직 측정 전'}
-        </p>
-      </section>
 
-      {/* 2. 신규 인입에 영향이 있었나 */}
-      <section className="border-t border-x-border px-5 py-5">
-        <h3 className="text-[16px] font-semibold">신규 인입에 준 영향</h3>
-        {group && mine && windowEnd ? (
-          <>
-            <p className="mt-2 text-[22px] font-bold tabular-nums" style={{ color: mine.estLift > 0 ? C.primaryDeep : C.secondary }}>
-              {signed(mine.estLift)}{group.posts.length > 1 ? <span className="ml-1.5 text-[14px] font-normal text-x-muted">추정</span> : null}
-            </p>
-            <p className="mt-1 text-[14px] leading-relaxed text-x-secondary">
-              {group.lift > 0
-                ? `${span([group.from, windowEnd])} 신규 인입이 평소보다 ${group.lift}명 많았어요.`
-                : `${span([group.from, windowEnd])} 신규 인입은 평소와 비슷했어요.`}
-              {group.posts.length > 1 ? ` 같은 때 올린 글 ${group.posts.length}개의 북마크 비율로 나눈 값이에요.` : ''}
-            </p>
-          </>
-        ) : (
-          <p className="mt-2 text-[14px] leading-relaxed text-x-secondary">북마크가 {MIN_BOOKMARKS}개 미만이라 계산하지 않았어요. 신규 인입은 클리닉 전체 숫자라 반응이 작은 글의 몫은 가려낼 수 없어요.</p>
-        )}
-      </section>
+        <div>
+          <SubHead label="신규 인입 변화" right={group && group.posts.length > 1 ? <span className="text-[12px] text-x-muted">함께 올린 글 {group.posts.length}개 · 북마크 비율로 나눔</span> : null} />
+          <div className="flex items-end gap-4">
+            <div className="w-[92px] shrink-0">
+              {group && mine ? (
+                <>
+                  <div className="text-[26px] font-bold leading-none tabular-nums" style={{ color: mine.estLift > 0 ? C.primaryDeep : C.secondary }}>{signed(mine.estLift)}</div>
+                  <div className="mt-1 text-[12px] text-x-muted">평소 대비{group.posts.length > 1 ? ' · 추정' : ''}</div>
+                </>
+              ) : (
+                <>
+                  <div className="text-[26px] font-bold leading-none text-x-muted">—</div>
+                  <div className="mt-1 text-[12px] text-x-muted">북마크 {MIN_BOOKMARKS} 미만 · 계산 안 함</div>
+                </>
+              )}
+            </div>
+            <MiniInflow s={s} from={group?.from ?? p.date} to={group?.to ?? p.date} postDate={p.date} active={!!group} />
+          </div>
+        </div>
 
-      {/* 3. 실제 글 */}
-      <section className="border-t border-x-border px-5 py-5">
-        <h3 className="mb-3 text-[16px] font-semibold">게시글</h3>
+        <div>
+          <SubHead label="조회 증가 속도" right={snaps && snaps.length ? <span className="text-[12px] text-x-muted">측정 {snaps.length}회</span> : null} />
+          {snaps === null && <div className="h-[220px] animate-pulse rounded-lg bg-x-surface" />}
+          {snaps !== null && !drawable && <div className="flex h-[88px] items-center justify-center rounded-lg bg-x-surface text-[13px] text-x-muted">측정이 적어 그래프 없음</div>}
+          {snaps !== null && drawable && (
+            <>
+              <div className="mb-1 flex items-center gap-4 text-[12px] text-x-muted">
+                <span className="flex items-center gap-1.5"><i className="inline-block h-0.5 w-4" style={{ background: C.primary }} />이 글</span>
+                <span className="flex items-center gap-1.5"><i className="inline-block h-px w-4" style={{ background: C.neutralBar }} />최근 2주 다른 글</span>
+                <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-4 rounded-sm" style={{ background: C.band }} />다른 글 절반</span>
+              </div>
+              <GrowthCurves curves={curves} highlightId={p.id} height={220} showLabel={false} />
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── 게시글: X에서 보이는 그대로 ── */}
+      <GroupHead title="게시글" />
+      <div className="px-5 pb-6 pt-4">
         {p.unavailable
-          ? <Notice>삭제됐거나 비공개로 바뀐 글이에요. 위 숫자는 마지막으로 잰 값이에요.</Notice>
-          : loading ? <Notice>글을 불러오는 중…</Notice>
-          : failed || !preview || preview.kind !== 'ok' ? <Notice>글을 불러오지 못했어요. 아래 [X에서 보기]로 확인해 주세요.</Notice>
+          ? <Notice>삭제·비공개된 글 · 성과는 마지막 측정값</Notice>
+          : loading ? <div className="h-40 animate-pulse rounded-2xl bg-x-surface" />
+          : failed || !preview || preview.kind !== 'ok' ? <Notice>글을 불러오지 못했어요 · 아래 [X에서 보기]</Notice>
           : <XPost t={preview.tweet} postedAt={p.postedAt} />}
-      </section>
-
-      {/* 4. 조회가 늘어난 속도 */}
-      <section className="border-t border-x-border px-5 py-5">
-        <h3 className="text-[16px] font-semibold">조회가 늘어난 속도</h3>
-        {snaps === null && <p className="mt-2 text-[14px] text-x-muted">불러오는 중…</p>}
-        {snaps !== null && !drawable && <p className="mt-2 text-[14px] text-x-secondary">측정 기록이 {snaps.length}번뿐이라 그래프를 그릴 수 없어요.</p>}
-        {snaps !== null && drawable && (
-          <>
-            <p className="mt-1 text-[13px] text-x-muted">파란 선이 이 글, 회색 선은 최근 2주에 올린 다른 글이에요.</p>
-            <div className="mt-2"><GrowthCurves curves={curves} highlightId={p.id} height={220} showLabel={false} /></div>
-          </>
-        )}
-      </section>
+      </div>
     </div>
   );
 }
 
-function Stat({ label, value, sub, strong }: { label: string; value: string; sub?: string; strong?: boolean }) {
+// 정보 묶음 머리 — 회색 띠로 '성과'와 '게시글'을 확실히 나눈다
+function GroupHead({ title, right }: { title: string; right?: string }) {
   return (
-    <div className="min-w-0">
-      <div className="text-[13px] text-x-muted">{label}</div>
-      <div className={`text-[20px] font-bold tabular-nums ${strong ? 'text-x-blue-text' : ''}`}>{value}</div>
-      {sub && <div className="truncate text-[12px] text-x-muted">{sub}</div>}
+    <div className="flex items-center justify-between border-y border-x-border bg-x-surface px-5 py-2">
+      <span className="text-[15px] font-bold">{title}</span>
+      {right && <span className="text-[12px] text-x-muted">{right}</span>}
+    </div>
+  );
+}
+function SubHead({ label, right }: { label: string; right?: React.ReactNode }) {
+  return (
+    <div className="mb-2.5 flex items-center justify-between gap-2">
+      <span className="text-[14px] font-semibold text-x-secondary">{label}</span>
+      {right && <span className="flex items-center gap-1.5">{right}</span>}
+    </div>
+  );
+}
+
+const VERDICT_CHIP = {
+  above: { text: '북마크 많음', bg: '#e8f5fe', fg: C.primaryDeep },
+  normal: { text: '북마크 보통', bg: '#eef1f3', fg: C.secondary },
+  below: { text: '북마크 적음', bg: '#fff4e0', fg: '#a15c00' },
+} as const;
+function VerdictChip({ v }: { v: 'above' | 'normal' | 'below' | null }) {
+  if (!v) return <span className="rounded-full bg-x-surface px-2 py-0.5 text-[12px] text-x-muted">비교할 글 적음</span>;
+  const c = VERDICT_CHIP[v];
+  return <span className="rounded-full px-2 py-0.5 text-[12px] font-semibold" style={{ background: c.bg, color: c.fg }}>{c.text}</span>;
+}
+
+// 다른 글과 비교 막대 — 한 줄 = 지표 하나. 막대 = 이 글, 검은 세로선 = 이 클라이언트 글 가운데값.
+// 글마다 수십~수백 배 차이라 로그 눈금. 가운데값보다 좋으면 파랑, 아니면 회색(비용은 낮을수록 좋음).
+type CompareRow = { label: string; value: number; others: number[]; fmt: (n: number) => string; lowerBetter?: boolean };
+const median = (vs: number[]) => { const a = [...vs].sort((x, y) => x - y); const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+function CompareBars({ rows }: { rows: CompareRow[] }) {
+  const [ref, width] = useWidth<HTMLDivElement>();
+  const labelW = 92, valueW = 72, rowH = 30;
+  const plotW = Math.max(width - labelW - valueW, 10);
+  return (
+    <div ref={ref} style={{ height: rows.length * rowH }}>
+      {width > 0 && (
+        <svg width={width} height={rows.length * rowH} role="img" aria-label="다른 글과 비교">
+          {rows.map((r, i) => {
+            const all = [r.value, ...r.others].filter((n) => n > 0);
+            const lo = Math.min(...all) * 0.8, hi = Math.max(...all) * 1.05;
+            const x = scaleLog().domain([Math.max(lo, 1e-6), Math.max(hi, lo * 10)]).range([0, plotW]).clamp(true);
+            const m = r.others.length ? median(r.others) : null;
+            const good = m === null ? true : r.lowerBetter ? r.value <= m : r.value >= m;
+            const cy = i * rowH + rowH / 2;
+            const fillW = r.value > 0 ? Math.max(3, x(r.value)) : 0;
+            return (
+              <g key={r.label}>
+                <text x={0} y={cy + 4} fontSize={13} fill={C.secondary}>{r.label}</text>
+                <rect x={labelW} y={cy - 5} width={plotW} height={10} rx={5} fill="#eef1f3" />
+                <rect x={labelW} y={cy - 5} width={fillW} height={10} rx={5} fill={good ? C.primary : C.neutralBar} />
+                {m !== null && m > 0 && <line x1={labelW + x(m)} x2={labelW + x(m)} y1={cy - 9} y2={cy + 9} stroke={C.text} strokeWidth={2} strokeLinecap="round" />}
+                <text x={width} y={cy + 5} textAnchor="end" fontSize={14} fontWeight={700} fill={good ? C.primaryDeep : C.text}>{r.fmt(r.value)}</text>
+              </g>
+            );
+          })}
+        </svg>
+      )}
+    </div>
+  );
+}
+
+// 나머지 반응 — X 아이콘 줄처럼 아이콘 + 숫자. 비용은 오른쪽 끝.
+function Reactions({ p }: { p: StatusPost }) {
+  const items: Array<[React.ReactNode, number, string]> = [
+    [<LikeIcon key="l" className="h-4 w-4" />, p.likes, '좋아요'],
+    [<RepostIcon key="r" className="h-4 w-4" />, p.retweets, '리포스트'],
+    [<span key="q" className="text-[15px] leading-none">❝</span>, p.quotes, '인용'],
+    [<ReplyIcon key="c" className="h-4 w-4" />, p.replies, '답글'],
+  ];
+  return (
+    <div className="mt-3 flex items-center justify-between border-t border-x-border pt-3 text-[14px] tabular-nums text-x-secondary">
+      <div className="flex items-center gap-4">
+        {items.map(([icon, n, label]) => <span key={label} title={label} className="flex items-center gap-1">{icon}{NUM.format(n)}</span>)}
+      </div>
+      <span title="이 작업 비용">{p.costKrw > 0 ? `비용 ${compact(p.costKrw)}원` : '비용 없음'}</span>
+    </div>
+  );
+}
+
+// 게시 앞뒤 신규 인입 — 막대 = 하루, 회색 띠 = 평소, 파란 막대 = 효과를 센 기간(게시~다음 날), ▲ = 게시일.
+function MiniInflow({ s, from, to, postDate, active }: { s: ClientStatus; from: string; to: string; postDate: string; active: boolean }) {
+  const [ref, width] = useWidth<HTMLDivElement>();
+  const H = 96, padT = 14, padB = 18, plotH = H - padT - padB;
+  const i0 = Math.max(0, s.days.indexOf(from) - 3), i1 = Math.min(s.days.length - 1, (s.days.indexOf(to) < 0 ? s.days.indexOf(from) : s.days.indexOf(to)) + 3);
+  if (s.days.indexOf(from) < 0) return <div className="flex h-[96px] flex-1 items-center justify-center rounded-lg bg-x-surface text-[12px] text-x-muted">8주 범위 밖 게시</div>;
+  const days = s.days.slice(i0, i1 + 1), vals = s.dailyNew.slice(i0, i1 + 1);
+  const band = normalRange(s.dailyNew);
+  const max = Math.max(band[1], ...vals.map((v) => v ?? 0), 1);
+  const y = (n: number) => padT + plotH - (n / max) * plotH;
+  const step = width / days.length, bw = Math.max(4, step * 0.62);
+  return (
+    <div ref={ref} className="min-w-0 flex-1" style={{ height: H }}>
+      {width > 0 && (
+        <svg width={width} height={H} role="img" aria-label="게시 앞뒤 신규 인입">
+          <rect x={0} y={y(band[1])} width={width} height={Math.max(1, y(band[0]) - y(band[1]))} fill={C.band} />
+          {days.map((d, k) => {
+            const n = vals[k] ?? 0, cx = step * k + step / 2, inWin = active && d >= from && d <= to;
+            return (
+              <g key={d}>
+                <rect x={cx - bw / 2} y={y(n)} width={bw} height={Math.max(0, padT + plotH - y(n))} rx={2} fill={inWin ? C.primary : C.neutralBar} />
+                {inWin && <text x={cx} y={y(n) - 3} textAnchor="middle" fontSize={11} fontWeight={700} fill={C.primaryDeep}>{n}</text>}
+                {d === postDate && <text x={cx} y={H - 4} textAnchor="middle" fontSize={11} fill={C.primaryDeep}>▲{mdLabel(d)}</text>}
+              </g>
+            );
+          })}
+          <line x1={0} x2={width} y1={padT + plotH} y2={padT + plotH} stroke={C.axis} />
+          <text x={width} y={y(band[1]) - 3} textAnchor="end" fontSize={10} fill={C.secondary}>평소</text>
+        </svg>
+      )}
     </div>
   );
 }
 
 function Notice({ children }: { children: React.ReactNode }) {
   return <p className="rounded-2xl border border-dashed border-x-border-strong px-4 py-4 text-center text-[14px] text-x-secondary">{children}</p>;
-}
-
-// 이 글이 다른 글들 사이 어디쯤인지 — 회색 점 = 다른 글, 띠 = 다른 글 절반이 모인 범위, 파란 점 = 이 글. 북마크는 글마다 수백 배 차이라 로그 눈금.
-function PositionStrip({ values, value, band }: { values: number[]; value: number; band: [number, number] }) {
-  const [ref, width] = useWidth<HTMLDivElement>();
-  const H = 44, cy = 16;
-  const lo = Math.max(1, Math.min(value, ...values)), hi = Math.max(lo * 10, value, ...values);
-  const x = scaleLog().domain([lo, hi]).range([8, Math.max(width - 8, 9)]).clamp(true);
-  const xv = (n: number) => x(Math.max(n, lo));
-  return (
-    <div ref={ref} className="mt-3" style={{ height: H }}>
-      {width > 0 && (
-        <svg width={width} height={H} role="img" aria-label={`북마크 ${value}, 다른 글 절반은 ${band[0]}~${band[1]}`}>
-          <rect x={xv(band[0])} y={cy - 9} width={Math.max(2, xv(band[1]) - xv(band[0]))} height={18} rx={4} fill={C.band} />
-          <line x1={8} x2={width - 8} y1={cy} y2={cy} stroke={C.grid} />
-          {values.map((n, i) => <circle key={i} cx={xv(n)} cy={cy} r={3.5} fill={C.neutralBar} />)}
-          <circle cx={xv(value)} cy={cy} r={6.5} fill={C.primary} stroke="#fff" strokeWidth={2} />
-          <text x={8} y={H - 2} fontSize={11} fill={C.muted}>{NUM.format(lo)}</text>
-          <text x={(xv(band[0]) + xv(band[1])) / 2} y={H - 2} fontSize={11} fill={C.secondary} textAnchor="middle">다른 글 절반</text>
-          <text x={width - 8} y={H - 2} fontSize={11} fill={C.muted} textAnchor="end">{NUM.format(hi)}</text>
-        </svg>
-      )}
-    </div>
-  );
 }
 
 // X 원문 모양 그대로 — 아바타·이름·핸들, 본문 전체(자르지 않음), 이미지 전부(누르면 크게), 인용한 글, 게시 시각 줄.

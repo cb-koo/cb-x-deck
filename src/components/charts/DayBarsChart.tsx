@@ -64,8 +64,8 @@ export function DayBarsChart({ days, values, band, highlightAbove, events, dimBe
                   {e.count > 1 && r(e.weight) >= 9 && <text x={cx(e.date)} y={stripH / 2 + 10} textAnchor="middle" fontSize={11} fontWeight={700} fill="#fff">{e.count}</text>}
                 </g>
               ))}
-              {fitLabels(events, cx, plotW).map((e) => (
-                <text key={e.date} x={cx(e.date)} y={12} textAnchor="middle" fontSize={T.label} fill={C.secondary}>{e.label}</text>
+              {fitLabels(events, cx, plotW).map(({ e, x: lx }) => (
+                <text key={e.date} x={lx} y={12} textAnchor="middle" fontSize={T.label} fill={C.secondary}>{e.label}</text>
               ))}
               <line x1={0} x2={plotW} y1={stripH} y2={stripH} stroke={C.grid} />
             </g>
@@ -124,14 +124,15 @@ function postRows(label: string, ev: DayEvent | undefined): TipRow[] {
 
 // 이름표가 겹치면 북마크(weight) 큰 것부터 자리를 차지하고 겹치는 것은 뺀다 — 차트 폭이 줄어도(옆 패널이 열려도) 안 겹친다.
 // 글자 폭은 정확히 잴 수 없어 대략값(한 글자 ≈ 0.62em)으로 본다.
-function fitLabels(events: DayEvent[], cx: (d: string) => number, plotW: number): DayEvent[] {
+function fitLabels(events: DayEvent[], cx: (d: string) => number, plotW: number): Array<{ e: DayEvent; x: number }> {
   const placed: Array<[number, number]> = [];
-  const out: DayEvent[] = [];
+  const out: Array<{ e: DayEvent; x: number }> = [];
   for (const e of [...events].filter((ev) => ev.label).sort((a, b) => b.weight - a.weight)) {
-    const w = (e.label as string).length * T.label * 0.62, c = cx(e.date);
-    const l = c - w / 2 - 6, r = c + w / 2 + 6;
-    if (l < 0 || r > plotW || placed.some(([pl, pr]) => l < pr && r > pl)) continue;
-    placed.push([l, r]); out.push(e);
+    const half = ((e.label as string).length * T.label * 0.62) / 2 + 6;
+    const x = Math.min(Math.max(cx(e.date), half), plotW - half); // 가장자리 글은 안쪽으로 밀어 넣는다
+    const l = x - half, r = x + half;
+    if (placed.some(([pl, pr]) => l < pr && r > pl)) continue;
+    placed.push([l, r]); out.push({ e, x });
   }
   return out;
 }

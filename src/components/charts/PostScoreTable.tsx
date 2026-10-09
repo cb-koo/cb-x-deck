@@ -25,7 +25,7 @@ function LiftBar({ lift, max }: { lift: number; max: number }) {
   );
 }
 
-export function PostScoreTable({ groups, baseText }: { groups: PostGroup[]; baseText: string }) {
+export function PostScoreTable({ groups }: { groups: PostGroup[] }) {
   const sorted = [...groups].sort((a, b) => b.lift - a.lift);
   const maxBm = Math.max(1, ...groups.map((g) => g.bookmarks));
   const maxLift = Math.max(1, ...groups.map((g) => Math.abs(g.lift)));
@@ -40,7 +40,7 @@ export function PostScoreTable({ groups, baseText }: { groups: PostGroup[]; base
             <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 12, alignItems: 'center', minHeight: 52 }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{g.posts[0].handle}</div>
-                <div style={{ fontSize: 12, color: C.muted }}>{span(g)} 게시{g.posts.length > 1 ? <> · 글 {g.posts.length}개 <span style={{ color: C.primaryDeep }}>▾ 펼치기</span></> : ''}</div>
+                <div style={{ fontSize: 12, color: C.muted }}>{span(g)} 게시{g.posts.length > 1 ? <> · <span style={{ color: C.primaryDeep }}>글 {g.posts.length}개 ▾</span></> : ''}</div>
               </div>
               <div style={{ textAlign: 'right', fontSize: 13, color: C.secondary, fontVariantNumeric: 'tabular-nums' }}>{compact(g.views)}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -62,12 +62,10 @@ export function PostScoreTable({ groups, baseText }: { groups: PostGroup[]; base
                   <div style={{ color: C.secondary }}>추정 <b style={{ color: C.text }}>{signed(p.estLift)}</b></div>
                 </div>
               ))}
-              <div style={{ fontSize: 12, color: C.muted }}>추정 = 묶음의 인입 증가를 북마크 비율로 나눈 값이에요. 실제 글별 효과는 알 수 없어요.</div>
             </div>
           )}
         </details>
       ))}
-      <div style={{ fontSize: 12, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>{baseText}</div>
     </div>
   );
 }

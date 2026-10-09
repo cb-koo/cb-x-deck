@@ -7,8 +7,8 @@ import { barPath } from './DayBarsChart';
 // 범주(주) 막대 — 값은 막대 위에 직접. 마지막(이번 기간)만 주색. band = 평소 범위 띠.
 // 보조 줄(sub): 막대 아래 두 번째 지표(예: 북마크당 비용). subLabel로 이름과 "낮을수록 좋음" 같은 방향을 밝히고,
 // subWarn이 true인 값만 경고색 — 회색 속에 이상치가 묻히지 않게.
-export function CategoryBars({ labels, values, band, height = 180, format = (v: number) => NUM.format(v), sub, subLabel, subWarn }: {
-  labels: string[]; values: number[]; band?: [number, number]; height?: number; format?: (v: number) => string;
+export function CategoryBars({ labels, values, band, bandLabel, height = 180, format = (v: number) => NUM.format(v), sub, subLabel, subWarn }: {
+  labels: string[]; values: number[]; band?: [number, number]; bandLabel?: string; height?: number; format?: (v: number) => string;
   sub?: string[]; subLabel?: string; subWarn?: boolean[];
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
@@ -23,6 +23,7 @@ export function CategoryBars({ labels, values, band, height = 180, format = (v: 
       {width > 0 && (
         <svg width={width} height={height} role="img" aria-label={labels.map((l, i) => `${l} ${format(values[i])}`).join(', ')}>
           {band && <rect x={0} y={y(band[1])} width={width} height={Math.max(1, y(band[0]) - y(band[1]))} fill={C.band} />}
+          {band && bandLabel && <text x={4} y={y(band[1]) + 13} fontSize={11} fill={C.muted}>{bandLabel}</text>}
           {values.map((v, i) => (
             <g key={labels[i]}>
               <path d={barPath(x(labels[i]) ?? 0, y(v), x.bandwidth(), plotBottom - y(v), 3)} fill={i === last ? C.primary : C.neutralBar} />

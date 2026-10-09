@@ -13,12 +13,12 @@ export type DayNote = { date: string; text: string };
 type Props = {
   days: string[]; values: Array<number | null>; band?: [number, number]; highlightAbove?: number;
   events?: DayEvent[]; dimBefore?: string; dimText?: string;
-  notes?: DayNote[]; valueName: string; height?: number;
+  notes?: DayNote[]; valueName: string; height?: number; bandLabel?: string;
 };
 
 const STRIP = 78;
 
-export function DayBarsChart({ days, values, band, highlightAbove, events, dimBefore, dimText, notes = [], valueName, height = 190 }: Props) {
+export function DayBarsChart({ days, values, band, highlightAbove, events, dimBefore, dimText, notes = [], valueName, height = 190, bandLabel }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const stripH = events ? STRIP : 0;
@@ -67,6 +67,7 @@ export function DayBarsChart({ days, values, band, highlightAbove, events, dimBe
             </g>
           )}
           {band && <rect x={dimEnd} y={y(band[1])} width={plotW - dimEnd} height={Math.max(1, y(band[0]) - y(band[1]))} fill={C.band} />}
+          {band && bandLabel && <text x={plotW - 4} y={y(band[1]) - 4} textAnchor="end" fontSize={11} fill={C.muted}>{bandLabel}</text>}
           {[max / 2, max].map((t) => (
             <g key={t}>
               <line x1={0} x2={plotW} y1={y(t)} y2={y(t)} stroke={C.grid} strokeDasharray={S.gridDash} />

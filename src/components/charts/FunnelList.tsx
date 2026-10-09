@@ -28,13 +28,11 @@ export function FunnelList({ steps, compareName }: { steps: FunnelStep[]; compar
                 <b style={{ fontVariantNumeric: 'tabular-nums' }}>{s.count === null ? '—' : `${NUM.format(s.count)}명`}</b> {s.name}
                 {s.inProgress && <span style={{ marginLeft: 6, fontSize: 12, color: '#8a4b08' }}>진행 중</span>}
               </div>
-              {s.sub && <div style={{ fontSize: 12, color: C.muted }}>{s.sub}</div>}
               {ofFirst !== null && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                <div title={i === 0 ? '기준 100%' : `신규 인입의 ${Math.round(ofFirst)}%`} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
                   <div style={{ flex: 1, height: 8, background: '#e6ebee', borderRadius: 4 }}>
                     <div style={{ width: `${Math.max(1, Math.min(100, ofFirst))}%`, height: 8, background: C.primary, borderRadius: 4 }} />
                   </div>
-                  <span style={{ fontSize: 12, color: C.muted, width: 92, fontVariantNumeric: 'tabular-nums' }}>{i === 0 ? '기준 100%' : `신규 인입의 ${Math.round(ofFirst)}%`}</span>
                 </div>
               )}
             </div>

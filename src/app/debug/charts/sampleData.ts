@@ -69,7 +69,7 @@ export const funnel = [ // 9월 vs 8월(월 스냅샷, 접수일 기준)
   { name: '신규 인입', count: 158, prevCount: 97, sub: 'LINE에 처음 말을 건 사람' },
   { name: '상담', count: 115, prevCount: 39, sub: 'CS가 문의·예약 상담으로 표시' },
   { name: '예약', count: 26, prevCount: 24, sub: 'LINE 계정 기준 · 9월 실주 23건' },
-  { name: '방문', count: 9, prevCount: 22, sub: '10/7 기준 · 19명은 아직 방문 전', inProgress: true },
+  { name: '방문', count: 9, prevCount: 22, inProgress: true },
 ];
 
 export const cohortColumns = ['1일 안', '3일 안', '7일 안', '30일 안'];

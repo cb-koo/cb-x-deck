@@ -7,7 +7,7 @@ import { barPath } from './DayBarsChart';
 import { niceMax } from './TimeCompareChart';
 
 // 세로 막대(전수 검토 #3·4) — 한 계열이면 음수 허용(0 기준선, 늘면 주색·줄면 중립), 여러 계열이면 누적.
-// null = 기록 없음(막대 대신 옅은 칸 + '기록 없음'), partialLast = 마지막 구간이 아직 진행 중(흐리게 + '집계 중').
+// null = 기록 없음(이어진 구간을 옅은 띠 하나 + '기록 없음'), partialLast = 마지막 구간이 아직 진행 중(흐리게 + '집계 중').
 // 단일 계열은 막대 위에 값을 직접 적는다(축 대신).
 export type ColumnSeries = { name: string; values: Array<number | null>; color: string };
 type Props = { labels: string[]; series: ColumnSeries[]; height?: number; partialLast?: boolean; format?: (v: number) => string; unit?: string };
@@ -28,10 +28,22 @@ export function ColumnChart({ labels, series, height = 200, partialLast, unit = 
   const fmt = (v: number) => `${NUM.format(Math.round(v))}${unit}`;
   const mid = (l: string) => (x(l) ?? 0) + x.bandwidth() / 2;
   const isPartial = (i: number) => partialLast && i === labels.length - 1;
+  // 이어진 '기록 없음' 구간은 한 덩어리로(칸마다 반복하면 무거워 보임)
+  const nullRuns: Array<[number, number]> = [];
+  labels.forEach((_, i) => { if (!allNull(i)) return; const last = nullRuns[nullRuns.length - 1]; if (last && last[1] === i - 1) last[1] = i; else nullRuns.push([i, i]); });
   return (
     <div ref={ref} style={{ position: 'relative', height }}>
       {width > 0 && (
         <svg width={width} height={height} role="img" aria-label={series.map((s) => s.name).join(', ')} onMouseLeave={() => setHover(null)}>
+          {nullRuns.map(([a, b]) => {
+            const x0 = (x(labels[a]) ?? 0) - (x.step() * x.paddingInner()) / 2, x1 = (x(labels[b]) ?? 0) + x.bandwidth() + (x.step() * x.paddingInner()) / 2;
+            return (
+              <g key={a}>
+                <rect x={Math.max(0, x0)} y={padT} width={x1 - Math.max(0, x0)} height={height - padB - padT} fill="#f1f4f6" rx={4} />
+                <text x={(Math.max(0, x0) + x1) / 2} y={(padT + height - padB) / 2} textAnchor="middle" fontSize={12} fill={C.muted}>기록 없음</text>
+              </g>
+            );
+          })}
           {[yMin, 0, yMax].filter((t, k, a) => a.indexOf(t) === k).map((t) => (
             <g key={t}>
               <line x1={0} x2={plotW} y1={y(t)} y2={y(t)} stroke={t === 0 ? C.axis : C.grid} strokeDasharray={t === 0 ? undefined : S.gridDash} />
@@ -40,12 +52,7 @@ export function ColumnChart({ labels, series, height = 200, partialLast, unit = 
           ))}
           {labels.map((l, i) => {
             const xx = x(l) ?? 0, w = x.bandwidth();
-            if (allNull(i)) return (
-              <g key={l} onMouseEnter={() => setHover(i)}>
-                <rect x={xx} y={padT} width={w} height={height - padB - padT} fill="#f0f3f5" rx={3} />
-                <text x={xx + w / 2} y={y(0) - 6} textAnchor="middle" fontSize={10} fill={C.muted}>없음</text>
-              </g>
-            );
+            if (allNull(i)) return <rect key={l} x={xx} y={padT} width={w} height={height - padB - padT} fill="transparent" onMouseEnter={() => setHover(i)} />;
             let acc = 0;
             return (
               <g key={l} opacity={isPartial(i) ? 0.45 : hover === null || hover === i ? 1 : 0.6} onMouseEnter={() => setHover(i)}>
@@ -68,7 +75,7 @@ export function ColumnChart({ labels, series, height = 200, partialLast, unit = 
             );
           })}
           {labels.map((l, i) => (i % Math.ceil(labels.length / 8) === 0 || i === labels.length - 1) && (
-            <text key={l} x={mid(l)} y={height - 6} textAnchor="middle" fontSize={T.axis} fill={i === labels.length - 1 ? C.text : C.muted}>{isPartial(i) ? `${l} 집계 중` : l}</text>
+            <text key={l} x={i === 0 ? (x(l) ?? 0) : mid(l)} y={height - 6} textAnchor={i === 0 ? 'start' : 'middle'} fontSize={T.axis} fill={i === labels.length - 1 ? C.text : C.muted}>{isPartial(i) ? `${l} 집계 중` : l}</text>
           ))}
         </svg>
       )}

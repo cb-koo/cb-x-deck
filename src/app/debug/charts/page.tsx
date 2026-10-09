@@ -203,7 +203,7 @@ export default function ChartKitSample() {
           </ChartCard>
 
           <ChartCard icon={Icon.funnel} title="선 + 기준 띠 · 취소·노쇼율"
-            headline="취소·노쇼율은 대체로 업계 통상 범위 안팎이에요"
+            headline="8월 첫 주(50%)를 빼면 0~13% 사이에서 움직여요"
             info={{ what: '주별 (취소+노쇼) ÷ 전체 예약', read: ['회색 띠 = 업계 통상 5~8%', '끊긴 곳 = 예약 5건 미만이라 비움'], note: ['예약이 적은 주는 한두 건으로 크게 흔들려요'] }}>
             <LineChart labels={P.weeks} series={[{ name: '취소·노쇼', values: P.cancelRate }]} band={{ range: [5, 8], label: '업계 통상 5~8%' }} unit="%" />
           </ChartCard>

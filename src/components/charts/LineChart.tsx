@@ -53,7 +53,7 @@ export function LineChart({ labels, series, height = 220, band, unit = '', yMax 
             </g>
           ))}
           {labels.map((l, i) => (i % Math.ceil(labels.length / 8) === 0 || i === labels.length - 1) && (
-            <text key={l} x={x(l)} y={height - 6} textAnchor="middle" fontSize={T.axis} fill={i === labels.length - 1 ? C.text : C.muted}>{l}</text>
+            <text key={l} x={x(l)} y={height - 6} textAnchor={i === 0 ? 'start' : 'middle'} fontSize={T.axis} fill={i === labels.length - 1 ? C.text : C.muted}>{l}</text>
           ))}
           {hover !== null && <line x1={x(labels[hover])} x2={x(labels[hover])} y1={padT} y2={padT + plotH} stroke={C.axis} />}
           {series.map((s, i) => (

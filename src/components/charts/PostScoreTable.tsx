@@ -25,7 +25,8 @@ function LiftBar({ lift, max }: { lift: number; max: number }) {
   );
 }
 
-export function PostScoreTable({ groups }: { groups: PostGroup[] }) {
+// onSelectPost: 글(id 있는 것)을 누르면 상세를 연다 — 글 하나짜리 묶음은 줄 전체, 여러 개면 펼친 글 줄.
+export function PostScoreTable({ groups, onSelectPost }: { groups: PostGroup[]; onSelectPost?: (id: string) => void }) {
   const sorted = [...groups].sort((a, b) => b.lift - a.lift);
   const maxBm = Math.max(1, ...groups.map((g) => g.bookmarks));
   const maxLift = Math.max(1, ...groups.map((g) => Math.abs(g.lift)));
@@ -36,10 +37,11 @@ export function PostScoreTable({ groups }: { groups: PostGroup[] }) {
       </div>
       {sorted.map((g, i) => (
         <details key={g.from} style={{ borderTop: i ? '1px solid #eceff1' : 'none' }}>
-          <summary style={{ listStyle: 'none', cursor: g.posts.length > 1 ? 'pointer' : 'default' }}>
+          <summary style={{ listStyle: 'none', cursor: g.posts.length > 1 || (onSelectPost && g.posts[0].id) ? 'pointer' : 'default' }}
+                   onClick={g.posts.length === 1 && onSelectPost && g.posts[0].id ? (e) => { e.preventDefault(); onSelectPost(g.posts[0].id as string); } : undefined}>
             <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 12, alignItems: 'center', minHeight: 52 }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 14, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{g.posts[0].handle}</div>
+                <div style={{ fontSize: 14, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{g.posts[0].handle}{g.posts.length === 1 && onSelectPost && g.posts[0].id ? <span style={{ color: C.primaryDeep, marginLeft: 6 }}>›</span> : null}</div>
                 <div style={{ fontSize: 12, color: C.muted }}>{span(g)} 게시{g.posts.length > 1 ? <> · <span style={{ color: C.primaryDeep }}>글 {g.posts.length}개 ▾</span></> : ''}</div>
               </div>
               <div style={{ textAlign: 'right', fontSize: 13, color: C.secondary, fontVariantNumeric: 'tabular-nums' }}>{compact(g.views)}</div>
@@ -55,8 +57,9 @@ export function PostScoreTable({ groups }: { groups: PostGroup[] }) {
           {g.posts.length > 1 && (
             <div style={{ margin: '0 0 10px 12px', padding: '8px 12px', background: '#fff', borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {g.posts.map((p) => (
-                <div key={p.handle + p.date} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) 64px minmax(0,1fr) minmax(0,1.1fr)', gap: 12, fontSize: 13, alignItems: 'center' }}>
-                  <div style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{p.handle} <span style={{ color: C.muted, fontSize: 12 }}>{md(p.date)}</span></div>
+                <div key={p.handle + p.date} onClick={onSelectPost && p.id ? () => onSelectPost(p.id as string) : undefined}
+                     style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) 64px minmax(0,1fr) minmax(0,1.1fr)', gap: 12, fontSize: 13, alignItems: 'center', cursor: onSelectPost && p.id ? 'pointer' : undefined, minHeight: 28 }}>
+                  <div style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{p.handle} <span style={{ color: C.muted, fontSize: 12 }}>{md(p.date)}</span>{onSelectPost && p.id ? <span style={{ color: C.primaryDeep, marginLeft: 6 }}>›</span> : null}</div>
                   <div style={{ textAlign: 'right', color: C.secondary, fontVariantNumeric: 'tabular-nums' }}>{compact(p.views)}</div>
                   <div style={{ fontVariantNumeric: 'tabular-nums' }}>{NUM.format(p.bookmarks)} <span style={{ color: C.muted, fontSize: 12 }}>({Math.round(p.share * 100)}%)</span></div>
                   <div style={{ color: C.secondary }}>추정 <b style={{ color: C.text }}>{signed(p.estLift)}</b></div>

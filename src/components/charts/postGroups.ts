@@ -5,7 +5,7 @@
 // 3) 북마크가 minBookmarks 미만인 글은 영향이 작다고 보고 묶음 판단에서 뺀다(매일 올라오는 작은 글이 모든 날을 한 덩어리로 잇지 않게).
 // 4) 묶음 안 글별 몫은 북마크 비율로 나눈 '추정'이다 — 화면에 반드시 '추정'으로 표기.
 
-export type PostInput = { handle: string; date: string; views: number; bookmarks: number };
+export type PostInput = { id?: string; handle: string; date: string; views: number; bookmarks: number }; // id: 누르면 글 상세를 여는 화면용(선택)
 export type GroupPost = PostInput & { share: number; estLift: number };
 export type PostGroup = { from: string; to: string; windowDays: number; inflow: number; lift: number; views: number; bookmarks: number; posts: GroupPost[] };
 

@@ -17,6 +17,7 @@ import { BulletList } from '@/components/charts/BulletList';
 import { NUM, compact } from '@/components/charts/tokens';
 import { NORMAL_RULE, normalRange, spikeThreshold, verdictOf, VERDICT_TEXT } from '@/components/charts/normal';
 import { DecisionChip } from '../DecisionChip';
+import { PostPanel } from '../PostPanel';
 
 const WEEKS_SHOWN = 8;
 const DECISIONS: Decision[] = ['keep', 'watch', 'adjust', 'hold'];
@@ -72,6 +73,9 @@ export default function ClientStatusPage({ params }: { params: Promise<{ clientI
 }
 
 function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => void }) {
+  // 글 상세 패널 — 어느 차트에서 눌렀든 같은 패널(스펙 §10). 여러 글이면 목록부터.
+  const [sel, setSel] = useState<{ ids: string[]; picked: string | null } | null>(null);
+  const openPosts = (ids: string[]) => setSel({ ids, picked: ids.length === 1 ? ids[0] : null });
   const n = s.weeks.length;
   const labels = s.weekLabels.slice(-WEEKS_SHOWN);
   const inflow8 = s.newInflow.slice(-WEEKS_SHOWN).map((v) => v ?? 0);
@@ -98,7 +102,7 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
     }
     return days.map(({ date, ps, bm }) => ({ date, weight: bm, count: ps.length,
       label: labeled.has(date) ? `@${ps[0].handle} 북마크 ${NUM.format(bm)}` : undefined,
-      posts: ps.map((p) => ({ handle: p.handle, bookmarks: p.bookmarks, views: p.views })) }));
+      posts: ps.map((p) => ({ id: p.id, handle: p.handle, bookmarks: p.bookmarks, views: p.views })) }));
   }, [s.posts]);
 
   const bubbles = useMemo<Bubble[]>(() => s.groups.map((g) => {
@@ -112,7 +116,7 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
           { label: '조회', value: compact(g.views) },
           { label: '북마크', value: `${NUM.format(g.bookmarks)} (${g.views ? ((g.bookmarks / g.views) * 100).toFixed(2) : '0'}%)` },
         ],
-        note: g.posts.length > 1 ? `글 ${g.posts.length}개 묶음 — 글별 몫은 성적표에서 펼쳐 보기` : undefined,
+        note: g.posts.length > 1 ? `글 ${g.posts.length}개 묶음 — 누르면 글 목록이 열려요` : '누르면 글 상세가 열려요',
       },
     };
   }), [s.groups]);
@@ -159,9 +163,9 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
 
       <ChartCard icon={Icon.users} title="게시물과 신규 인입 · 일별 8주"
         headline={bestG && bestG.lift > 0 ? `${span(bestG)} 게시 뒤 신규 인입이 평소보다 ${bestG.lift}명 늘었어요` : '게시 뒤 신규 인입이 눈에 띄게 늘어난 때는 없었어요'}
-        info={{ what: '게시한 날과 그 뒤 하루하루의 신규 인입', read: ['위 원 = 게시한 날, 크기 = 그날 글들의 북마크 합', '원 안 숫자 = 그날 올린 글 수', `파란 막대 = 크게 튄 날(하루 ${spikeThreshold(dayBand)}명 넘음)`], calc: [`평소 하루 ${dayBand[0]}~${dayBand[1]}명 (${NORMAL_RULE})`, '크게 튄 날 = 평소 위쪽 끝의 2배를 넘는 날'], note: recordsFrom ? [`${mdLabel(recordsFrom)} 전은 우리 게시 기록이 없어 흐리게 표시해요`] : undefined }}>
+        info={{ what: '게시한 날과 그 뒤 하루하루의 신규 인입', read: ['위 원 = 게시한 날, 크기 = 그날 글들의 북마크 합 (누르면 글 상세)', '원 안 숫자 = 그날 올린 글 수', `파란 막대 = 크게 튄 날(하루 ${spikeThreshold(dayBand)}명 넘음)`], calc: [`평소 하루 ${dayBand[0]}~${dayBand[1]}명 (${NORMAL_RULE})`, '크게 튄 날 = 평소 위쪽 끝의 2배를 넘는 날'], note: recordsFrom ? [`${mdLabel(recordsFrom)} 전은 우리 게시 기록이 없어 흐리게 표시해요`] : undefined }}>
         <DayBarsChart days={s.days} values={s.dailyNew} band={dayBand} bandLabel="평소" highlightAbove={spikeThreshold(dayBand)} events={events}
-          dimBefore={recordsFrom && recordsFrom > s.days[0] ? recordsFrom : undefined} dimText="게시 기록 없음" valueName="신규 인입" height={200} />
+          dimBefore={recordsFrom && recordsFrom > s.days[0] ? recordsFrom : undefined} dimText="게시 기록 없음" valueName="신규 인입" height={200} onSelectPosts={openPosts} />
       </ChartCard>
 
       <div className="grid items-start gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
@@ -170,16 +174,17 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
           info={{
             what: '게시 묶음마다 신규 인입이 평소보다 얼마나 늘었나',
             calc: ['묶음 = 게시일이 하루 안팎인 글들', `인입 증가 = 묶음 기간 신규 인입 − 평소 하루 ${s.typicalDay}명 × 일수`, `북마크 50 미만 글 ${s.smallPostCount}개는 영향이 작아 제외`],
-            read: ['줄을 누르면 묶음 안 글이 펼쳐져요', '글별 숫자는 북마크 비율로 나눈 추정이에요'],
+            read: ['글을 누르면 오른쪽에 글 상세가 열려요', '여러 글 묶음은 줄을 누르면 펼쳐져요', '글별 숫자는 북마크 비율로 나눈 추정이에요'],
             note: ['신규 인입은 클리닉 전체 합계라 글 하나의 효과는 직접 잴 수 없어요'],
           }}>
-          {s.groups.length ? <PostScoreTable groups={s.groups} /> : <p className="text-ui text-x-muted">최근 8주 우리 글 {s.posts.length}개 — 모두 북마크 50 미만이에요.</p>}
+          {s.groups.length ? <PostScoreTable groups={s.groups} onSelectPost={(id) => openPosts([id])} /> : <p className="text-ui text-x-muted">최근 8주 우리 글 {s.posts.length}개 — 모두 북마크 50 미만이에요.</p>}
         </ChartCard>
 
         <ChartCard icon={Icon.scatter} title="조회와 인입의 관계 · 게시 묶음별"
           headline={s.groups.length < 3 ? '묶음이 3개 미만이라 경향을 보기 어려워요' : '오른쪽 위로 갈수록 조회도 인입도 많았던 묶음이에요'}
-          info={{ what: '게시 묶음마다 조회수와 신규 인입 증가를 한 점으로', read: ['오른쪽일수록 조회가 많은 묶음', '위쪽일수록 인입이 많이 늘어난 묶음', '원이 클수록 북마크가 많음'], calc: ['가로 눈금은 한 칸마다 10배', '인입 증가는 성적표와 같은 셈법'] }}>
-          {s.groups.length ? <BubbleScatter points={bubbles} xName="조회수" yName="인입 증가(명)" height={300} /> : <p className="text-ui text-x-muted">표시할 묶음이 없어요.</p>}
+          info={{ what: '게시 묶음마다 조회수와 신규 인입 증가를 한 점으로', read: ['오른쪽일수록 조회가 많은 묶음', '위쪽일수록 인입이 많이 늘어난 묶음', '원이 클수록 북마크가 많음', '원을 누르면 글 상세가 열려요'], calc: ['가로 눈금은 한 칸마다 10배', '인입 증가는 성적표와 같은 셈법'] }}>
+          {s.groups.length ? <BubbleScatter points={bubbles} xName="조회수" yName="인입 증가(명)" height={300}
+            onSelect={(gid) => { const g = s.groups.find((x) => x.from === gid); if (g) openPosts(g.posts.map((p) => p.id).filter((v): v is string => !!v)); }} /> : <p className="text-ui text-x-muted">표시할 묶음이 없어요.</p>}
         </ChartCard>
       </div>
 
@@ -196,10 +201,11 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
 
         <ChartCard icon={Icon.users} title="경과 시간별 누적 조회 · 최근 2주 게시물"
           headline={highlight ? `가장 크게 자란 글은 @${highlight.label} (${mdLabel(highlight.date)})` : '최근 2주 측정 기록이 있는 글이 없어요'}
-          info={{ what: '게시 후 시간이 지나며 조회가 어떻게 쌓였나', read: ['파란 선 = 가장 크게 자란 글', '회색 선 = 다른 글', '회색 띠 = 같은 시각 다른 글들의 가운데 절반'], calc: ['가로·세로 모두 눈금마다 배로 늘어요', '측정은 게시 후 15분~7일 자동 측정 기록'] }}>
-          {highlight ? <GrowthCurves curves={s.growth} highlightId={highlight.id} height={260} /> : <p className="text-ui text-x-muted">게시물이 등록되면 자동 측정이 쌓여 여기 그려져요.</p>}
+          info={{ what: '게시 후 시간이 지나며 조회가 어떻게 쌓였나', read: ['파란 선 = 가장 크게 자란 글', '회색 선 = 다른 글 (선을 누르면 글 상세)', '회색 띠 = 같은 시각 다른 글들의 가운데 절반'], calc: ['가로·세로 모두 눈금마다 배로 늘어요', '측정은 게시 후 15분~7일 자동 측정 기록'] }}>
+          {highlight ? <GrowthCurves curves={s.growth} highlightId={highlight.id} height={260} onSelect={(id) => openPosts([id])} /> : <p className="text-ui text-x-muted">게시물이 등록되면 자동 측정이 쌓여 여기 그려져요.</p>}
         </ChartCard>
       </div>
+      {sel && <PostPanel s={s} ids={sel.ids} picked={sel.picked} onPick={(id) => setSel({ ...sel, picked: id })} onClose={() => setSel(null)} />}
     </div>
   );
 }

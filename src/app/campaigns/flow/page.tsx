@@ -125,7 +125,7 @@ function CampaignsFlowSplit() {
           </div>
         )}
         {picked.id && (
-          <FlowDetail key={picked.id} id={picked.id}
+          <FlowDetail key={picked.id} id={picked.id} initialTaskId={picked.id === urlId ? searchParams.get('task') : null}
                       onChanged={() => void load()}
                       onDeleted={() => {
                         justDeletedRef.current = picked.id;   // load()가 주소 바꾸기보다 먼저 반영돼도 이 id는 오경보 대상에서 뺀다

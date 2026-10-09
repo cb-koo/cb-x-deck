@@ -8,17 +8,18 @@ import { niceMax } from './TimeCompareChart';
 // 일별 막대 + (선택) 위쪽 게시물 줄 — 같은 날짜 축에 위아래로 놓아 "게시 → 반응" 시차를 보여 준다.
 // 사용자 관점 검토(10-09): 원은 한 가지만 뜻한다(크기 = 북마크 수). 같은 날 글은 한 원으로 합친다.
 // 기록이 없는 구간(dimBefore 이전)은 막대를 흐리게 하고 강조하지 않는다 — 원인 정보 없는 강조는 의문만 남긴다.
-export type DayEvent = { date: string; weight: number; count: number; label?: string; posts: Array<{ handle: string; bookmarks: number; views: number }> };
+export type DayEvent = { date: string; weight: number; count: number; label?: string; posts: Array<{ id?: string; handle: string; bookmarks: number; views: number }> };
 export type DayNote = { date: string; text: string };
 type Props = {
   days: string[]; values: Array<number | null>; band?: [number, number]; highlightAbove?: number;
   events?: DayEvent[]; dimBefore?: string; dimText?: string;
   notes?: DayNote[]; valueName: string; height?: number; bandLabel?: string;
+  onSelectPosts?: (ids: string[]) => void; // 게시 원을 누르면 그날 글 id들(있을 때만 원이 눌린다)
 };
 
 const STRIP = 78;
 
-export function DayBarsChart({ days, values, band, highlightAbove, events, dimBefore, dimText, notes = [], valueName, height = 190, bandLabel }: Props) {
+export function DayBarsChart({ days, values, band, highlightAbove, events, dimBefore, dimText, notes = [], valueName, height = 190, bandLabel, onSelectPosts }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const stripH = events ? STRIP : 0;
@@ -55,7 +56,8 @@ export function DayBarsChart({ days, values, band, highlightAbove, events, dimBe
             <g>
               {dimText && dimEnd > 0 && <text x={dimEnd / 2} y={stripH / 2 + 4} textAnchor="middle" fontSize={T.label} fill={C.muted}>{dimText}</text>}
               {[...events].sort((a, b) => b.weight - a.weight).map((e) => (
-                <g key={e.date}>
+                <g key={e.date} style={{ cursor: onSelectPosts ? 'pointer' : undefined }}
+                   onClick={onSelectPosts ? () => { const ids = e.posts.map((p) => p.id).filter((v): v is string => !!v); if (ids.length) onSelectPosts(ids); } : undefined}>
                   <circle cx={cx(e.date)} cy={stripH / 2 + 6} r={Math.max(3, r(e.weight))} fill={C.primaryDeep} fillOpacity={0.55} stroke="#fff" strokeWidth={1} />
                   {e.count > 1 && r(e.weight) >= 9 && <text x={cx(e.date)} y={stripH / 2 + 10} textAnchor="middle" fontSize={11} fontWeight={700} fill="#fff">{e.count}</text>}
                 </g>
@@ -100,6 +102,7 @@ export function DayBarsChart({ days, values, band, highlightAbove, events, dimBe
               ...postRows('전날 게시', hover > 0 ? evByDay.get(days[hover - 1]) : undefined),
               ...postRows('이날 게시', evByDay.get(days[hover])),
             ]}
+            note={onSelectPosts && evByDay.get(days[hover]) ? '위 원을 누르면 글 상세를 볼 수 있어요' : undefined}
           />
         </Tip>
       )}

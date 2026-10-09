@@ -27,7 +27,7 @@ function interp(points: Array<[number, number]>, h: number): number | null {
 }
 const q = (s: number[], p: number) => { const i = (s.length - 1) * p, a = Math.floor(i); return s[a] + (s[Math.ceil(i)] - s[a]) * (i - a); };
 
-export function GrowthCurves({ curves, highlightId, height = 280 }: { curves: Curve[]; highlightId: string; height?: number }) {
+export function GrowthCurves({ curves, highlightId, height = 280, onSelect }: { curves: Curve[]; highlightId: string; height?: number; onSelect?: (id: string) => void }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const axisW = 44, padB = 26, padT = 14, labelW = 70;
@@ -75,6 +75,10 @@ export function GrowthCurves({ curves, highlightId, height = 280 }: { curves: Cu
           {hl && <path d={mk(hlPts) ?? ''} fill="none" stroke={C.primary} strokeWidth={2.5} strokeLinejoin="round" />}
           {hl && hlPts.map(([h, v], i) => <circle key={i} cx={x(h)} cy={y(v)} r={2.5} fill={C.primary} />)}
           {hlLast && <text x={x(hlLast[0]) + 8} y={y(hlLast[1]) + 4} fontSize={12} fontWeight={700} fill={C.primaryDeep}>{hl?.label}</text>}
+          {onSelect && curves.map((c) => ( // 선이 가늘어 누르기 어렵다 — 투명한 굵은 선을 위에 깐다
+            <path key={'hit' + c.id} d={mk(c.points.filter(([h, v]) => h >= 1 && v > 0)) ?? ''} fill="none" stroke="transparent" strokeWidth={12}
+                  style={{ cursor: 'pointer', pointerEvents: 'stroke' }} onClick={() => onSelect(c.id)} />
+          ))}
           {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={padT} y2={padT + plotH} stroke={C.axis} />}
         </svg>
       )}

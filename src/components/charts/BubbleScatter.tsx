@@ -10,7 +10,7 @@ import { useWidth, Tip, TipBody, type TipData } from './ChartCard';
 export type Bubble = { id: string; x: number; y: number; size: number; label?: string; strong?: boolean; tip: TipData };
 type Props = { points: Bubble[]; xName: string; yName: string; height?: number; zeroLabel?: string };
 
-export function BubbleScatter({ points, xName, yName, height = 300, zeroLabel = '평소와 같음' }: Props) {
+export function BubbleScatter({ points, xName, yName, height = 300, zeroLabel = '평소와 같음', onSelect }: Props & { onSelect?: (id: string) => void }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<string | null>(null);
   const axisW = 36, padB = 44, padT = 28;
@@ -44,7 +44,8 @@ export function BubbleScatter({ points, xName, yName, height = 300, zeroLabel = 
             <circle key={p.id} cx={x(p.x)} cy={y(p.y)} r={r(p.size)}
                     fill={p.strong ? C.primary : C.primaryDeep} fillOpacity={(p.strong ? 0.75 : 0.32) * (hover && hover !== p.id ? 0.35 : 1)}
                     stroke={hover === p.id ? C.text : '#fff'} strokeWidth={hover === p.id ? 1.5 : 1}
-                    onMouseEnter={() => setHover(p.id)} onMouseLeave={() => setHover(null)} style={{ cursor: 'default' }} />
+                    onMouseEnter={() => setHover(p.id)} onMouseLeave={() => setHover(null)}
+                    onClick={onSelect ? () => onSelect(p.id) : undefined} style={{ cursor: onSelect ? 'pointer' : 'default' }} />
           ))}
           {points.filter((p) => p.label).map((p) => {
             const right = x(p.x) < plotW * 0.6;

@@ -119,8 +119,11 @@ function PendingRequestNote({ task }: { task: FlowRow }) {
   );
 }
 
-export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
+export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange, initialTaskId }: {
   id: string;
+  // 주소의 ?task= — 다른 화면(클라이언트 현황의 글 상세)에서 '이 작업 열기'로 들어올 때 그 작업 패널을 연 채 시작한다.
+  // 없는 작업이면 panelTask가 null이라 패널이 안 뜬다(아래 panelOpen과 같은 규칙).
+  initialTaskId?: string | null;
   onChanged: () => void;      // 목록(왼쪽) 새로고침 — 이름·작업 수·합계가 바뀌면 목록 보조줄도 움직여야 한다
   onDeleted: () => void;
   // 직접 쓰기·생성 탭이 작성 중이면 그때 띄울 확인 문장을 부모(page.tsx)에 올린다(Task 4d §6) — 왼쪽
@@ -175,7 +178,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 이 화면만의 상태 — 필터·정렬·오른쪽 패널·"한 번에 만들기" 열림(§4-2, §4-3, koo 09-18)
   const [filter, setFilter] = useState<FlowFilter>(EMPTY_FLOW_FILTER);
   const [sort, setSort] = useState<FlowSort>({ key: null, dir: 1 });
-  const [panel, setPanel] = useState<Panel>(null);
+  const [panel, setPanel] = useState<Panel>(() => (initialTaskId ? { taskId: initialTaskId } : null));
   const [bulkOpen, setBulkOpen] = useState(false);
   // 게시 확인은 팝업 없이 패널의 '게시' 칸(PostedBox)에서 한다(koo 09-26). 행 메뉴(FlowRowMenu)의 [게시 확인]은
   // 그 작업의 패널을 열고 이 신호로 '게시' 칸까지 스크롤·포커스한다 — 값은 작업 id, PostedBox가 한 번 쓰고

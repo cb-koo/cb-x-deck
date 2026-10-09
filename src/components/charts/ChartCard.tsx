@@ -69,7 +69,7 @@ export function Legend({ items, align = 'end' }: { items: LegendItem[]; align?: 
   );
 }
 
-// ? 설명 창 — 줄글 대신 정해진 칸: 뜻(한 줄) / 계산 / 보는 법 / 주의(각 항목 짧은 줄 목록).
+// ? 설명 창 — 줄글 대신 정해진 칸: 뜻(한 줄) / 보는 법 / 계산 / 주의(각 항목 짧은 줄 목록). 읽는 순서 = 무엇 → 어떻게 보나 → 어떻게 셌나 → 조심할 점.
 export type Info = { what: string; calc?: string[]; read?: string[]; note?: string[] };
 function InfoButton({ info }: { info: Info }) {
   const [open, setOpen] = useState(false);
@@ -85,8 +85,13 @@ function InfoButton({ info }: { info: Info }) {
   const sec = (label: string, items?: string[]) => items && items.length > 0 && (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: C.secondary }}>{label}</div>
-      <ul style={{ margin: 0, paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 3 }}>
-        {items.map((t) => <li key={t} style={{ fontSize: 13, color: C.text, lineHeight: 1.45 }}>{t}</li>)}
+      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {items.map((t) => (
+          <li key={t} style={{ display: 'flex', gap: 8, fontSize: 13, color: C.text, lineHeight: 1.45 }}>
+            <span aria-hidden="true" style={{ flex: 'none', width: 4, height: 4, borderRadius: 999, background: C.muted, marginTop: 8 }} />
+            <span>{t}</span>
+          </li>
+        ))}
       </ul>
     </div>
   );
@@ -98,8 +103,8 @@ function InfoButton({ info }: { info: Info }) {
         <div id={id} role="dialog" style={{ position: 'absolute', right: 0, top: 28, width: 300, zIndex: 5, background: '#fff', borderRadius: 10,
           boxShadow: '0 8px 24px rgba(15,20,25,.14)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: C.text, lineHeight: 1.45 }}>{info.what}</div>
-          {sec('계산', info.calc)}
           {sec('보는 법', info.read)}
+          {sec('계산', info.calc)}
           {sec('주의', info.note)}
         </div>
       )}

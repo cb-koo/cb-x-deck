@@ -67,7 +67,7 @@ export function DayBarsChart({ days, values, band, highlightAbove, events, dimBe
             </g>
           )}
           {band && <rect x={dimEnd} y={y(band[1])} width={plotW - dimEnd} height={Math.max(1, y(band[0]) - y(band[1]))} fill={C.band} />}
-          {band && bandLabel && <text x={plotW - 4} y={y(band[1]) - 4} textAnchor="end" fontSize={11} fill={C.muted}>{bandLabel}</text>}
+          {band && bandLabel && <text x={plotW - 4} y={y(band[1]) - 4} textAnchor="end" fontSize={11} fill={C.secondary} stroke="#f7f9f9" strokeWidth={3} paintOrder="stroke">{bandLabel}</text>}
           {[max / 2, max].map((t) => (
             <g key={t}>
               <line x1={0} x2={plotW} y1={y(t)} y2={y(t)} stroke={C.grid} strokeDasharray={S.gridDash} />

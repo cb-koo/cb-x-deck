@@ -23,7 +23,6 @@ export function CategoryBars({ labels, values, band, bandLabel, height = 180, fo
       {width > 0 && (
         <svg width={width} height={height} role="img" aria-label={labels.map((l, i) => `${l} ${format(values[i])}`).join(', ')}>
           {band && <rect x={0} y={y(band[1])} width={width} height={Math.max(1, y(band[0]) - y(band[1]))} fill={C.band} />}
-          {band && bandLabel && <text x={4} y={y(band[1]) + 13} fontSize={11} fill={C.muted}>{bandLabel}</text>}
           {values.map((v, i) => (
             <g key={labels[i]}>
               <path d={barPath(x(labels[i]) ?? 0, y(v), x.bandwidth(), plotBottom - y(v), 3)} fill={i === last ? C.primary : C.neutralBar} />
@@ -36,6 +35,7 @@ export function CategoryBars({ labels, values, band, bandLabel, height = 180, fo
             </g>
           ))}
           <line x1={0} x2={width} y1={plotBottom} y2={plotBottom} stroke={C.axis} />
+          {band && bandLabel && <text x={4} y={y(band[1]) + 13} fontSize={11} fill={C.secondary} stroke="#f7f9f9" strokeWidth={3} paintOrder="stroke">{bandLabel}</text>}
           {sub && subLabel && <line x1={0} x2={width} y1={height - padB - 2} y2={height - padB - 2} stroke="#e6ebee" />}
         </svg>
       )}

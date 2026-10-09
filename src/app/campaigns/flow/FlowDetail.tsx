@@ -178,7 +178,10 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange, ini
   // 이 화면만의 상태 — 필터·정렬·오른쪽 패널·"한 번에 만들기" 열림(§4-2, §4-3, koo 09-18)
   const [filter, setFilter] = useState<FlowFilter>(EMPTY_FLOW_FILTER);
   const [sort, setSort] = useState<FlowSort>({ key: null, dir: 1 });
-  const [panel, setPanel] = useState<Panel>(() => (initialTaskId ? { taskId: initialTaskId } : null));
+  const [panel, setPanel] = useState<Panel>(null);
+  // ?task= — 아래 id 전환 리셋이 패널을 비울 때 이 값으로 대신 연다. FlowDetail은 캠페인마다 key로 새로 그려져
+  // 그 리셋은 마운트당 한 번이라(개발 모드 이중 실행 포함) 소모하지 않아도 다시 열리는 일이 없다.
+  const initialTaskRef = useRef(initialTaskId ?? null);
   const [bulkOpen, setBulkOpen] = useState(false);
   // 게시 확인은 팝업 없이 패널의 '게시' 칸(PostedBox)에서 한다(koo 09-26). 행 메뉴(FlowRowMenu)의 [게시 확인]은
   // 그 작업의 패널을 열고 이 신호로 '게시' 칸까지 스크롤·포커스한다 — 값은 작업 id, PostedBox가 한 번 쓰고
@@ -284,7 +287,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange, ini
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- id 전환 시의 리셋이 목적이라 동기 setState가 맞다(그 뒤 로드는 비동기 콜백)
     setData(null); setLoaded(false); setLoadErr(false);
-    setPanel(null);   // 다른 캠페인의 작업 id를 들고 있던 패널이 새 캠페인 화면에 남지 않게
+    setPanel(initialTaskRef.current ? { taskId: initialTaskRef.current } : null);   // 다른 캠페인의 작업 id를 들고 있던 패널이 새 캠페인 화면에 남지 않게(주소로 받은 작업만 예외)
     setCandidates(undefined);   // 다른 캠페인의 후보가 이 캠페인 화면에 남지 않게 — 로딩 중이지 실패가 아니다
     void load();
   }, [load]);

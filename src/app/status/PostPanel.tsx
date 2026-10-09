@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { scaleLog } from 'd3-scale';
 import { apiFetch } from '@/lib/apiFetch';
-import type { ClientStatus, StatusPost } from '@/lib/clientStatusStore';
+import type { ClientStatus, StatusPost, PoolPost } from '@/lib/clientStatusStore';
 import type { DeckTweet } from '@/lib/types';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { mdLabel } from '@/lib/clientStatus';
@@ -17,11 +17,10 @@ import { ImageLightbox } from '@/components/ImageLightbox';
 import { GrowthCurves } from '@/components/charts/GrowthCurves';
 import { useWidth } from '@/components/charts/ChartCard';
 import { C, NUM, compact } from '@/components/charts/tokens';
-import { normalRange, verdictOf } from '@/components/charts/normal';
+import { normalRange } from '@/components/charts/normal';
 import { LikeIcon, RepostIcon, ReplyIcon } from '@/components/XIcons';
 
 type Snap = { capturedAt: string; metrics: { views: number | null } };
-const MIN_COMPARE = 4;      // 비교할 다른 글이 이보다 적으면 많다/적다 판정을 하지 않는다
 const MIN_BOOKMARKS = 50;   // 성적표(postGroups)와 같은 기준 — 이 미만 글은 인입 효과를 따로 세지 않는다
 
 const WD = '일월화수목금토';
@@ -139,21 +138,19 @@ function PostDetail({ s, p }: { s: ClientStatus; p: StatusPost }) {
     return () => { alive = false; };
   }, [p.id]);
 
-  // 판정 기준 = 북마크(신규 인입과 가장 잘 맞는 반응) — 칩 글자도 '북마크'라고 쓴다(계산과 말이 같게)
-  const others = s.posts.filter((o) => o.id !== p.id);
-  const rank = [...s.posts].sort((a, b) => b.bookmarks - a.bookmarks).findIndex((o) => o.id === p.id) + 1;
-  const band = others.length >= MIN_COMPARE ? normalRange(others.map((o) => o.bookmarks)) : null;
-  const v = band ? verdictOf(p.bookmarks, band) : null;
-
-  const rate = (o: StatusPost) => (o.views ? (o.bookmarks / o.views) * 100 : 0);
-  const cpb = (o: StatusPost) => (o.costKrw > 0 && o.bookmarks > 0 ? o.costKrw / o.bookmarks : null);
-  const rows: CompareRow[] = [
-    { label: '조회', value: p.views, others: others.map((o) => o.views), fmt: compact },
-    { label: '북마크', value: p.bookmarks, others: others.map((o) => o.bookmarks), fmt: (n) => NUM.format(n) },
-    { label: '북마크율', value: rate(p), others: others.map(rate), fmt: (n) => `${n.toFixed(2)}%` },
-  ];
-  const myCpb = cpb(p), otherCpb = others.map(cpb).filter((n): n is number => n !== null);
-  if (myCpb !== null && otherCpb.length) rows.push({ label: '북마크 1개 비용', value: myCpb, others: otherCpb, fmt: won, lowerBetter: true });
+  // 비교 — 기준 시점 값(북마크 3일·조회 7일)으로, 같은 작업 유형끼리. 이 클라이언트 글이 모자라면 LINE 연동 클라이언트 전체에서.
+  const me = s.pool.find((x) => x.id === p.id) ?? null;
+  const cmp = compareSet(s, p, me);
+  const tier = me && !me.measuring && me.bm3 ? tierOf(me.bm3.value, cmp.set.map((x) => (x.bm3 as Horizon).value)) : null;
+  const rate = (x: PoolPost) => (x.views7?.value && x.bm3 ? (x.bm3.value / x.views7.value) * 100 : null);
+  const cpb = (x: PoolPost) => (x.costKrw > 0 && x.bm3?.value ? x.costKrw / x.bm3.value : null);
+  const vals = (f: (x: PoolPost) => number | null) => cmp.set.map(f).filter((n): n is number => n !== null);
+  const rows: CompareRow[] = me ? [
+    { label: '조회 · 7일', value: me.views7?.value ?? 0, est: !!me.views7?.est, others: vals((x) => x.views7?.value ?? null), fmt: compact },
+    { label: '북마크 · 3일', value: me.bm3?.value ?? 0, est: !!me.bm3?.est, others: vals((x) => x.bm3?.value ?? null), fmt: (n) => NUM.format(n) },
+    { label: '북마크율', value: rate(me) ?? 0, est: !!(me.views7?.est || me.bm3?.est), others: vals(rate), fmt: (n) => `${n.toFixed(2)}%` },
+  ] : [];
+  if (me && cpb(me) !== null && vals(cpb).length) rows.push({ label: '북마크 1개 비용', value: cpb(me) as number, est: !!me.bm3?.est, others: vals(cpb), fmt: won, lowerBetter: true });
 
   // 신규 인입 효과 — 성적표와 같은 계산(게시 묶음의 인입 증가를 북마크 비율로 나눈 추정)
   const group = s.groups.find((g) => g.posts.some((x) => (x as WithId).id === p.id));
@@ -171,12 +168,14 @@ function PostDetail({ s, p }: { s: ClientStatus; p: StatusPost }) {
       <GroupHead title="성과" right={p.capturedAt ? `${when(p.capturedAt)} 측정` : '측정 전'} />
       <div className="flex flex-col gap-6 px-5 pb-6 pt-4">
         <div>
-          <SubHead label="다른 글과 비교" right={<><VerdictChip v={v} />{' '}<span className="text-[13px] tabular-nums text-x-secondary">북마크 {rank}위 / {s.posts.length}</span></>} />
-          <CompareBars rows={rows} />
-          <div className="mt-1.5 flex items-center gap-4 text-[12px] text-x-muted">
+          <SubHead label="다른 글과 비교" right={<TierChip tier={tier} measuring={!!me?.measuring} />} />
+          {rows.length ? <CompareBars rows={rows} /> : <div className="rounded-lg bg-x-surface py-6 text-center text-[13px] text-x-muted">측정 기록 없음</div>}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-x-muted">
             <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-4 rounded-sm" style={{ background: C.primary }} />이 글</span>
-            <span className="flex items-center gap-1.5"><i className="inline-block h-3 w-0.5" style={{ background: C.text }} />이 클라이언트 글 가운데값</span>
+            <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-4 rounded-sm border border-dashed" style={{ borderColor: C.primary, background: '#e8f5fe' }} />예상(기준 시점 전)</span>
+            <span className="flex items-center gap-1.5"><i className="inline-block h-3 w-0.5" style={{ background: C.text }} />가운데값</span>
           </div>
+          <p className="mt-1 text-[12px] text-x-muted">{cmp.label} {cmp.set.length}개와 비교</p>
           <Reactions p={p} />
         </div>
 
@@ -199,6 +198,19 @@ function PostDetail({ s, p }: { s: ClientStatus; p: StatusPost }) {
             <MiniInflow s={s} from={group?.from ?? p.date} to={group?.to ?? p.date} postDate={p.date} active={!!group} />
           </div>
         </div>
+
+        <div>
+          <SubHead label="팔로워 대비 확산" right={me?.followers && me.views7 ? <SpreadChip ratio={me.views7.value / me.followers} typical={cmp.typicalRatio} /> : null} />
+          {me?.followers && me.views7 ? <FollowerSpread set={cmp.spreadSet} me={me} typical={cmp.typicalRatio} />
+            : <div className="rounded-lg bg-x-surface py-5 text-center text-[13px] text-x-muted">팔로워 정보 없음</div>}
+        </div>
+
+        {cmp.sameTarget.length >= SAME_TARGET_MIN && me && (
+          <div>
+            <SubHead label="같은 원글을 인용한 글" right={<span className="text-[13px] tabular-nums text-x-secondary">{cmp.sameTarget.findIndex((x) => x.id === me.id) + 1}위 / {cmp.sameTarget.length}</span>} />
+            <SameTarget list={cmp.sameTarget} meId={me.id} />
+          </div>
+        )}
 
         <div>
           <SubHead label="조회 증가 속도" right={snaps && snaps.length ? <span className="text-[12px] text-x-muted">측정 {snaps.length}회</span> : null} />
@@ -248,20 +260,9 @@ function SubHead({ label, right }: { label: string; right?: React.ReactNode }) {
   );
 }
 
-const VERDICT_CHIP = {
-  above: { text: '북마크 많음', bg: '#e8f5fe', fg: C.primaryDeep },
-  normal: { text: '북마크 보통', bg: '#eef1f3', fg: C.secondary },
-  below: { text: '북마크 적음', bg: '#fff4e0', fg: '#a15c00' },
-} as const;
-function VerdictChip({ v }: { v: 'above' | 'normal' | 'below' | null }) {
-  if (!v) return <span className="rounded-full bg-x-surface px-2 py-0.5 text-[12px] text-x-muted">비교할 글 적음</span>;
-  const c = VERDICT_CHIP[v];
-  return <span className="rounded-full px-2 py-0.5 text-[12px] font-semibold" style={{ background: c.bg, color: c.fg }}>{c.text}</span>;
-}
-
 // 다른 글과 비교 막대 — 한 줄 = 지표 하나. 막대 = 이 글, 검은 세로선 = 이 클라이언트 글 가운데값.
 // 글마다 수십~수백 배 차이라 로그 눈금. 가운데값보다 좋으면 파랑, 아니면 회색(비용은 낮을수록 좋음).
-type CompareRow = { label: string; value: number; others: number[]; fmt: (n: number) => string; lowerBetter?: boolean };
+type CompareRow = { label: string; value: number; others: number[]; fmt: (n: number) => string; lowerBetter?: boolean; est?: boolean };
 const median = (vs: number[]) => { const a = [...vs].sort((x, y) => x - y); const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
 function CompareBars({ rows }: { rows: CompareRow[] }) {
   const [ref, width] = useWidth<HTMLDivElement>();
@@ -283,9 +284,11 @@ function CompareBars({ rows }: { rows: CompareRow[] }) {
               <g key={r.label}>
                 <text x={0} y={cy + 4} fontSize={13} fill={C.secondary}>{r.label}</text>
                 <rect x={labelW} y={cy - 5} width={plotW} height={10} rx={5} fill="#eef1f3" />
-                <rect x={labelW} y={cy - 5} width={fillW} height={10} rx={5} fill={good ? C.primary : C.neutralBar} />
+                {r.est
+                  ? <rect x={labelW + 0.5} y={cy - 4.5} width={Math.max(0, fillW - 1)} height={9} rx={4.5} fill={good ? '#e8f5fe' : '#f3f5f6'} stroke={good ? C.primary : C.neutralBar} strokeDasharray="3 2" />
+                  : <rect x={labelW} y={cy - 5} width={fillW} height={10} rx={5} fill={good ? C.primary : C.neutralBar} />}
                 {m !== null && m > 0 && <line x1={labelW + x(m)} x2={labelW + x(m)} y1={cy - 9} y2={cy + 9} stroke={C.text} strokeWidth={2} strokeLinecap="round" />}
-                <text x={width} y={cy + 5} textAnchor="end" fontSize={14} fontWeight={700} fill={good ? C.primaryDeep : C.text}>{r.fmt(r.value)}</text>
+                <text x={width} y={cy + 5} textAnchor="end" fontSize={14} fontWeight={700} fill={good ? C.primaryDeep : C.text}>{r.est ? '≈' : ''}{r.fmt(r.value)}</text>
               </g>
             );
           })}
@@ -343,6 +346,108 @@ function MiniInflow({ s, from, to, postDate, active }: { s: ClientStatus; from: 
           <text x={width} y={y(band[1]) - 3} textAnchor="end" fontSize={10} fill={C.secondary}>평소</text>
         </svg>
       )}
+    </div>
+  );
+}
+
+// ── 비교 규칙 ──
+type Horizon = { value: number; est: boolean };
+const CLIENT_MIN = 8;        // 이 클라이언트 같은 유형 글이 이보다 적으면 전체 클라이언트와 비교
+const SAME_TARGET_MIN = 3;   // 같은 원글 인용 글이 이 이상일 때만 순위
+const TYPE_LABEL = (t: string) => TASK_TYPE_LABEL[t as keyof typeof TASK_TYPE_LABEL] ?? t;
+function compareSet(s: ClientStatus, p: StatusPost, me: PoolPost | null) {
+  const ok = (x: PoolPost) => x.id !== p.id && x.type === p.taskType && !x.measuring && !!x.bm3 && !!x.views7;
+  const mine = s.pool.filter((x) => ok(x) && x.clientId === s.client.id);
+  const useAll = mine.length < CLIENT_MIN;
+  const set = useAll ? s.pool.filter(ok) : mine;
+  const spreadSet = set.filter((x) => x.followers && x.views7);
+  const ratios = spreadSet.map((x) => (x.views7 as Horizon).value / (x.followers as number));
+  const sameTarget = me?.targetKey
+    ? s.pool.filter((x) => x.targetKey === me.targetKey && x.bm3 && !x.measuring).sort((a, b) => (b.bm3 as Horizon).value - (a.bm3 as Horizon).value)
+    : [];
+  return {
+    set, spreadSet, sameTarget,
+    label: useAll ? `전체 클라이언트 ${TYPE_LABEL(p.taskType)}` : `${s.client.name} ${TYPE_LABEL(p.taskType)}`,
+    typicalRatio: ratios.length ? median(ratios) : null,
+  };
+}
+type Tier = { kind: 'hit' | 'normal' | 'weak'; pct: number };
+/** 히트 = 상위 10%, 부진 = 하위 25%, 그 사이 보통 — 성과가 소수 히트에 몰리는 바이럴 특성(10-09 데이터) */
+function tierOf(v: number, others: number[]): Tier | null {
+  if (others.length < 4) return null;
+  const top = (others.filter((o) => o > v).length + 1) / (others.length + 1);
+  const bottom = (others.filter((o) => o < v).length + 1) / (others.length + 1);
+  if (top <= 0.1) return { kind: 'hit', pct: Math.round(top * 100) };
+  if (bottom <= 0.25) return { kind: 'weak', pct: Math.round(bottom * 100) };
+  return { kind: 'normal', pct: Math.round(top * 100) };
+}
+function TierChip({ tier, measuring }: { tier: Tier | null; measuring: boolean }) {
+  const base = 'rounded-full px-2.5 py-0.5 text-[12px] font-semibold';
+  if (measuring) return <span className={base} style={{ background: '#eef1f3', color: C.secondary }}>측정 중</span>;
+  if (!tier) return <span className={base} style={{ background: '#eef1f3', color: C.muted }}>비교할 글 적음</span>;
+  if (tier.kind === 'hit') return <span className={base} style={{ background: C.primary, color: '#fff' }}>히트 · 상위 {tier.pct}%</span>;
+  if (tier.kind === 'weak') return <span className={base} style={{ background: '#fff4e0', color: '#a15c00' }}>부진 · 하위 {tier.pct}%</span>;
+  return <span className={base} style={{ background: '#eef1f3', color: C.secondary }}>보통 · 상위 {tier.pct}%</span>;
+}
+function SpreadChip({ ratio, typical }: { ratio: number; typical: number | null }) {
+  const up = typical !== null && ratio >= typical;
+  return <span className="rounded-full px-2.5 py-0.5 text-[12px] font-semibold tabular-nums" style={{ background: up ? '#e8f5fe' : '#eef1f3', color: up ? C.primaryDeep : C.secondary }}>
+    팔로워의 {ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}배 도달</span>;
+}
+
+// 팔로워 대비 확산 — 가로 = 팔로워, 세로 = 조회(7일), 둘 다 로그. 점선 = 보통 확산(팔로워 × 가운데 배수). 선 위 = 팔로워 밖까지 퍼짐.
+function FollowerSpread({ set, me, typical }: { set: PoolPost[]; me: PoolPost; typical: number | null }) {
+  const [ref, width] = useWidth<HTMLDivElement>();
+  const H = 170, padL = 6, padR = 44, padT = 8, padB = 22;
+  const pts = [...set, me].filter((x) => x.followers && x.views7);
+  const fx = pts.map((x) => x.followers as number), vy = pts.map((x) => (x.views7 as Horizon).value);
+  const x = scaleLog().domain([Math.min(...fx) * 0.8, Math.max(...fx) * 1.2]).range([padL, Math.max(width - padR, padL + 1)]);
+  const y = scaleLog().domain([Math.max(1, Math.min(...vy) * 0.7), Math.max(...vy) * 1.4]).range([H - padB, padT]);
+  const [d0, d1] = x.domain();
+  const line = typical ? [[d0, d0 * typical], [d1, d1 * typical]] : null;
+  const tick = (n: number) => (n >= 10000 ? `${Math.round(n / 10000)}만` : n >= 1000 ? `${Math.round(n / 1000)}천` : String(Math.round(n)));
+  return (
+    <div ref={ref} style={{ height: H }}>
+      {width > 0 && (
+        <svg width={width} height={H} role="img" aria-label="팔로워 대비 조회">
+          <defs><clipPath id="spread-clip"><rect x={padL} y={padT} width={width - padL - padR} height={H - padT - padB} /></clipPath></defs>
+          <line x1={padL} x2={width - padR} y1={H - padB} y2={H - padB} stroke={C.axis} />
+          {line && <line clipPath="url(#spread-clip)" x1={x(line[0][0])} y1={y(line[0][1])} x2={x(line[1][0])} y2={y(line[1][1])} stroke={C.secondary} strokeDasharray="4 4" />}
+          {set.filter((p) => p.followers && p.views7).map((p) => <circle key={p.id} cx={x(p.followers as number)} cy={y((p.views7 as Horizon).value)} r={4} fill={C.neutralBar} />)}
+          <circle cx={x(me.followers as number)} cy={y((me.views7 as Horizon).value)} r={7} fill={C.primary} stroke="#fff" strokeWidth={2} />
+          <text x={padL} y={H - 6} fontSize={11} fill={C.muted}>팔로워 {tick(d0)}</text>
+          <text x={width - padR} y={H - 6} fontSize={11} fill={C.muted} textAnchor="end">{tick(d1)}</text>
+          <text x={width} y={padT + 10} fontSize={11} fill={C.muted} textAnchor="end">조회 {tick(y.domain()[1])}</text>
+          <text x={width} y={H - padB} fontSize={11} fill={C.muted} textAnchor="end">{tick(y.domain()[0])}</text>
+        </svg>
+      )}
+      <div className="-mt-1 flex items-center gap-4 text-[12px] text-x-muted">
+        <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: C.primary }} />이 글</span>
+        <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full" style={{ background: C.neutralBar }} />다른 글</span>
+        {typical && <span className="flex items-center gap-1.5"><i className="inline-block w-4 border-t border-dashed" style={{ borderColor: C.secondary }} />보통 확산(팔로워×{typical.toFixed(1)})</span>}
+      </div>
+    </div>
+  );
+}
+
+// 같은 원글을 인용한 글 — 북마크(3일) 막대로 줄 세우기, 이 글은 파랑
+function SameTarget({ list, meId }: { list: PoolPost[]; meId: string }) {
+  const top = list.slice(0, 6);
+  const shown = top.some((x) => x.id === meId) ? top : [...top.slice(0, 5), list.find((x) => x.id === meId) as PoolPost];
+  const max = Math.max(1, ...list.map((x) => (x.bm3 as Horizon).value));
+  return (
+    <div className="flex flex-col gap-1.5">
+      {shown.map((x) => {
+        const mine = x.id === meId, v = (x.bm3 as Horizon).value;
+        return (
+          <div key={x.id} className="grid items-center gap-2 text-[13px]" style={{ gridTemplateColumns: '112px 1fr 56px' }}>
+            <span className={`truncate ${mine ? 'font-semibold text-x-text' : 'text-x-secondary'}`}>@{x.handle}</span>
+            <span className="h-2 rounded-full bg-[#eef1f3]"><span className="block h-2 rounded-full" style={{ width: `${(v / max) * 100}%`, background: mine ? C.primary : C.neutralBar }} /></span>
+            <span className={`text-right tabular-nums ${mine ? 'font-bold text-x-blue-text' : 'text-x-secondary'}`}>{NUM.format(v)}</span>
+          </div>
+        );
+      })}
+      <p className="text-[12px] text-x-muted">북마크 · 게시 3일 기준</p>
     </div>
   );
 }

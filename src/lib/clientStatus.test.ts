@@ -37,3 +37,15 @@ test('주별 X 집계: 게시일 주로 묶고 북마크당 비용', () => {
   assert.deepEqual(r.costPerBookmark, [null, 300]);
   assert.deepEqual(sum4([1, 1, 1, 1, 2, null, 2, 2]), { recent: 6, prev: 4 });
 });
+
+import { valueAtHorizon, shareAt, ACCRUAL_DEFAULT, H_BOOKMARKS, H_VIEWS } from './clientStatus';
+test('기준 시점 값: 보간·지난 값·예상값', () => {
+  // 앞뒤 측정 → 직선 보간
+  assert.equal(valueAtHorizon([[48, 80], [96, 100]], H_BOOKMARKS, 'bookmarks', ACCRUAL_DEFAULT)?.value, 90);
+  // 기준 시점 뒤 측정만 → 그 값(예상 아님)
+  assert.deepEqual(valueAtHorizon([[300, 500]], H_VIEWS, 'views', ACCRUAL_DEFAULT), { value: 500, est: false });
+  // 1일 측정만 → 조회 61% 지점이므로 예상 = 610/0.61
+  assert.deepEqual(valueAtHorizon([[24, 610]], H_VIEWS, 'views', ACCRUAL_DEFAULT), { value: 1000, est: true });
+  assert.equal(shareAt(ACCRUAL_DEFAULT, 200, 'views'), 1);
+  assert.equal(valueAtHorizon([], H_VIEWS, 'views', ACCRUAL_DEFAULT), null);
+});

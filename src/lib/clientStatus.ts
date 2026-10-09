@@ -69,3 +69,41 @@ export function sum4(values: Array<number | null>): { recent: number; prev: numb
   const s = (a: Array<number | null>) => a.reduce<number>((acc, v) => acc + (v ?? 0), 0);
   return { recent: s(values.slice(-4)), prev: s(values.slice(-8, -4)) };
 }
+
+// ── 게시물 기준 시점 값(스펙 §10 비교 규칙, 10-09 데이터 확인) ──
+// 북마크는 게시 3일이면 96%가 쌓이고 조회는 7일 내내 는다 → 북마크는 3일, 조회는 7일 값으로 비교한다.
+// 아직 그 시점이 안 된 글은 '누적 비율'로 나눈 예상값(est). 마지막 측정이 게시 24시간 전이면 판정하지 않는다(measuring).
+export const H_BOOKMARKS = 72;
+export const H_VIEWS = 168;
+export const MIN_MEASURE_H = 24;
+export type Accrual = Array<{ h: number; views: number; bookmarks: number }>; // h 오름차순, 값 = 최종 대비 비율
+/** 운영 측정 기록 중앙값(10-09, 33개 글) — 표본이 모자라는 구간은 이 값을 쓴다 */
+export const ACCRUAL_DEFAULT: Accrual = [
+  { h: 12, views: 0.51, bookmarks: 0.5 }, { h: 24, views: 0.61, bookmarks: 0.7 }, { h: 48, views: 0.78, bookmarks: 0.89 },
+  { h: 72, views: 0.87, bookmarks: 0.96 }, { h: 120, views: 0.92, bookmarks: 1 },
+];
+/** h시간 시점의 누적 비율 — 표 사이는 직선 보간, 표 끝 뒤는 기준 시점에서 1이 되게 */
+export function shareAt(acc: Accrual, h: number, key: 'views' | 'bookmarks'): number {
+  const end = key === 'views' ? H_VIEWS : H_BOOKMARKS;
+  const pts: Array<[number, number]> = [[0, 0], ...acc.map((a): [number, number] => [a.h, Math.min(1, a[key])]), [Math.max(end, acc[acc.length - 1]?.h ?? 0) + 1e-9, 1]];
+  if (h >= pts[pts.length - 1][0]) return 1;
+  for (let i = 1; i < pts.length; i++) {
+    const [h0, s0] = pts[i - 1], [h1, s1] = pts[i];
+    if (h <= h1) return s0 + ((s1 - s0) * (h - h0)) / (h1 - h0 || 1);
+  }
+  return 1;
+}
+/** 기준 시점 H의 값 — 앞뒤 측정이 있으면 보간, 뒤만 있으면 그 값, 앞만 있으면 누적 비율로 나눈 예상값 */
+export function valueAtHorizon(points: Array<[number, number]>, H: number, key: 'views' | 'bookmarks', acc: Accrual): { value: number; est: boolean } | null {
+  const pts = points.filter(([h, v]) => h >= 0 && v !== null && Number.isFinite(v)).sort((a, b) => a[0] - b[0]);
+  if (!pts.length) return null;
+  const after = pts.find(([h]) => h >= H);
+  const before = [...pts].reverse().find(([h]) => h < H);
+  if (after && before) {
+    const [h0, v0] = before, [h1, v1] = after;
+    return { value: Math.round(v0 + ((v1 - v0) * (H - h0)) / (h1 - h0 || 1)), est: false };
+  }
+  if (after) return { value: after[1], est: false };
+  const [h, v] = pts[pts.length - 1];
+  return { value: Math.round(v / Math.max(0.05, shareAt(acc, h, key))), est: true };
+}

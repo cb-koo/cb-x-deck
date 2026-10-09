@@ -1,6 +1,7 @@
 // 클라이언트 현황 — DB 읽기·판정 기록(스펙 2026-10-09-client-status-design.md §4·6). 계산은 clientStatus.ts(순수).
 import type postgres from 'postgres';
-import { addDays, baseWeekStart, weekStarts, mdLabel, suggestDecision, weeklyX, sum4, isDecision, type Decision, type Suggestion } from './clientStatus.ts';
+import { addDays, baseWeekStart, weekStarts, mdLabel, suggestDecision, weeklyX, sum4, isDecision, type Decision, type Suggestion,
+  valueAtHorizon, ACCRUAL_DEFAULT, H_BOOKMARKS, H_VIEWS, MIN_MEASURE_H, type Accrual } from './clientStatus.ts';
 import { groupPosts, type PostGroup } from '../components/charts/postGroups.ts';
 import { typical } from '../components/charts/normal.ts';
 
@@ -23,6 +24,14 @@ export interface StatusPost {
   capturedAt: string | null; unavailable: boolean;
 }
 export interface GrowthCurve { id: string; label: string; date: string; bookmarks: number; points: Array<[number, number]> }
+// 비교용 게시물(글 상세 패널의 '다른 글과 비교'·'팔로워 대비 확산'·'같은 원글') — LINE 연동 클라이언트 전체, 같은 8주.
+// 값은 기준 시점 값(북마크 3일·조회 7일). est = 아직 그 시점 전이라 누적 비율로 나눈 예상값. measuring = 마지막 측정이 게시 24시간 전.
+export interface Horizon { value: number; est: boolean }
+export interface PoolPost {
+  id: string; clientId: string; clientName: string; type: string; handle: string; targetKey: string | null;
+  followers: number | null; costKrw: number; views7: Horizon | null; bm3: Horizon | null; measuring: boolean;
+}
+
 export interface ClientStatus {
   client: { id: string; name: string };
   baseWeek: { start: string; end: string };
@@ -34,6 +43,7 @@ export interface ClientStatus {
   growth: GrowthCurve[];
   budget: { label: string; total: number; spent: number; planned: number; pace: number } | null;
   suggestion: Suggestion; reservers4: number; reserversPrev4: number; posts2w: number;
+  pool: PoolPost[]; accrual: Accrual;
   funnel4: { newInflow: [number, number]; consulted: [number, number]; reservers: [number, number] };
   review: ReviewRow | null; lastReview: ReviewRow | null;
 }
@@ -104,6 +114,8 @@ export async function loadClientStatus(sql: postgres.Sql, clientId: string, toda
   const x = weeklyX(weeks, posts, costs);
 
   const recentPosts = posts.filter((p) => p.date >= dayFrom);
+  const accrual = await loadAccrual(sql);
+  const pool = await loadPostPool(sql, dayFrom, baseEnd, accrual);
   const typicalDay = typical(dailyNew);
   const groups = groupPosts(recentPosts, new Map(days.map((d, i) => [d, dailyNew[i] ?? 0])), typicalDay, MIN_BOOKMARKS);
   const smallPostCount = recentPosts.filter((p) => p.bookmarks < MIN_BOOKMARKS).length;
@@ -153,7 +165,7 @@ export async function loadClientStatus(sql: postgres.Sql, clientId: string, toda
   return {
     client: { id: c.id, name: c.name }, baseWeek: { start: base, end: baseEnd },
     weeks, weekLabels: weeks.map(mdLabel), newInflow, inflow, consulted, reservers, days, dailyNew,
-    x, posts: recentPosts, groups, smallPostCount, typicalDay, growth, budget,
+    x, posts: recentPosts, groups, smallPostCount, typicalDay, growth, budget, pool, accrual,
     suggestion, reservers4: r4.recent, reserversPrev4: r4.prev, posts2w,
     funnel4: { newInflow: s4(newInflow), consulted: s4(consulted), reservers: s4(reservers) },
     review: rv(base), lastReview: rv(addDays(base, -7)),
@@ -191,4 +203,58 @@ export async function listStatusRows(sql: postgres.Sql, today: string): Promise<
   }));
   const base = baseWeekStart(today);
   return { baseWeek: { start: base, end: addDays(base, 6) }, rows, unlinked };
+}
+
+const COST_JPY = 10;
+const tweetMs = (id: string) => Number((BigInt(id) >> BigInt(22)) + BigInt(1288834974657));
+
+/** 누적 비율 표 — 운영 측정 기록에서 다시 계산한다(게시 6일 넘어 잰 값을 최종으로 보고, 구간별 중앙값).
+ *  구간에 글이 5개 미만이면 기본값(ACCRUAL_DEFAULT)을 쓴다. 자동 측정이 쌓일수록 정확해진다. */
+export async function loadAccrual(sql: postgres.Sql): Promise<Accrual> {
+  const rows = await sql<Array<{ h: number; n: number; views: string | null; bookmarks: string | null }>>`
+    with tp as (select id, to_timestamp(((tweet_id::numeric / 4194304)::bigint + 1288834974657) / 1000.0) tw from tracked_post where tweet_id ~ '^\\d{15,}$'),
+    s as (select s.tracked_post_id id, extract(epoch from s.captured_at - tp.tw) / 3600 h, s.views, s.bookmarks from post_metric_snapshot s join tp on tp.id = s.tracked_post_id),
+    fin as (select distinct on (id) id, views fv, bookmarks fb from s where h >= 144 order by id, h desc),
+    b as (select case when h < 18 then 12 when h < 36 then 24 when h < 60 then 48 when h < 96 then 72 else 120 end hb, s.views::numeric / nullif(fv, 0) vs, s.bookmarks::numeric / nullif(fb, 0) bs, s.id
+          from s join fin using (id) where s.h >= 6 and s.h < 144 and fv > 0 and fb > 0)
+    select hb as h, count(distinct id)::int as n, percentile_cont(0.5) within group (order by vs) as views, percentile_cont(0.5) within group (order by bs) as bookmarks
+    from b group by hb order by hb`;
+  const table = ACCRUAL_DEFAULT.map((d) => {
+    const r = rows.find((x) => Number(x.h) === d.h);
+    return r && r.n >= 5 && r.views !== null && r.bookmarks !== null ? { h: d.h, views: Math.min(1, Number(r.views)), bookmarks: Math.min(1, Number(r.bookmarks)) } : d;
+  });
+  // 누적은 줄지 않는다 — 구간마다 글 묶음이 달라 중앙값이 뒤집히면 앞 구간 값으로 올린다
+  for (let i = 1; i < table.length; i++) table[i] = { h: table[i].h, views: Math.max(table[i].views, table[i - 1].views), bookmarks: Math.max(table[i].bookmarks, table[i - 1].bookmarks) };
+  return table;
+}
+
+/** 비교용 게시물 — LINE 연동 클라이언트 전체에서 [from, to]에 게시된 우리 작업 글(취소·삭제 제외) */
+export async function loadPostPool(sql: postgres.Sql, from: string, to: string, acc: Accrual): Promise<PoolPost[]> {
+  const rows = await sql<Array<{ tp_id: string; tweet_id: string; client_id: string; client_name: string; type: string; h: string | null; target: string | null; followers: number | null; cost: { amount?: number; currency?: string } | null }>>`
+    select tp.id as tp_id, tp.tweet_id, c.id as client_id, c.name as client_name, t.type, t.influencer_handle as h,
+      coalesce(substring(t.target_tweet_url from 'status/(\\d+)'), t.target_task_id::text) as target, i.followers_count as followers, t.cost
+    from campaign_task t join campaign cp on cp.id = t.campaign_id join client c on c.id = cp.client_id
+    join tracked_post tp on tp.task_id = t.id and t.post_url ~ ('/status/' || tp.tweet_id || '([/?#]|$)')
+    left join influencer i on lower(i.handle) = lower(t.influencer_handle)
+    where c.clinic_code is not null and t.removed_at is null and t.cancelled_at is null and tp.tweet_id ~ '^\\d{15,}$'
+      and (to_timestamp(((tp.tweet_id::numeric / 4194304)::bigint + 1288834974657) / 1000.0) at time zone 'Asia/Seoul')::date between ${from} and ${to}`;
+  if (!rows.length) return [];
+  const snaps = await sql<Array<{ id: string; at: Date; views: string | null; bookmarks: number | null }>>`
+    select tracked_post_id as id, captured_at as at, views, bookmarks from post_metric_snapshot where tracked_post_id in ${sql(rows.map((r) => r.tp_id))}`;
+  type SnapRow = { id: string; at: Date; views: string | null; bookmarks: number | null };
+  const by = new Map<string, SnapRow[]>();
+  for (const x of snaps) by.set(x.id, [...(by.get(x.id) ?? []), x]);
+  return rows.map((r) => {
+    const t0 = tweetMs(r.tweet_id);
+    const ss = (by.get(r.tp_id) ?? []).map((x) => ({ h: (new Date(x.at).getTime() - t0) / 3600e3, views: x.views === null ? null : Number(x.views), bm: x.bookmarks }));
+    const vPts = ss.filter((x) => x.views !== null).map((x): [number, number] => [x.h, x.views as number]);
+    const bPts = ss.filter((x) => x.bm !== null).map((x): [number, number] => [x.h, x.bm as number]);
+    const lastH = Math.max(-1, ...ss.map((x) => x.h));
+    return {
+      id: r.tp_id, clientId: r.client_id, clientName: r.client_name, type: r.type, handle: r.h ?? '', targetKey: r.target,
+      followers: r.followers, costKrw: r.cost?.amount ? Number(r.cost.amount) * (r.cost.currency === 'JPY' ? COST_JPY : 1) : 0,
+      views7: valueAtHorizon(vPts, H_VIEWS, 'views', acc), bm3: valueAtHorizon(bPts, H_BOOKMARKS, 'bookmarks', acc),
+      measuring: lastH < MIN_MEASURE_H,
+    };
+  });
 }

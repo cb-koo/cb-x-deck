@@ -32,7 +32,10 @@ function prodSql(): postgres.Sql {
     const postIds = posts.map((p) => p.id as string);
     const metrics = postIds.length ? await s<Row[]>`select * from post_metric_snapshot where tracked_post_id in ${s(postIds)}` : [];
     const budgets = await s<Row[]>`select * from client_budget_period where client_id in ${s(ids)}`;
-    return { clients, snaps, camps, tasks, posts, metrics, budgets };
+    // 인플 프로필(팔로워·이름·사진)만 — 결제 수단·메모 등은 옮기지 않는다(글 상세의 '팔로워 대비 확산'용)
+    const handles = [...new Set(tasks.map((t) => String(t.influencer_handle ?? '').toLowerCase()).filter(Boolean))];
+    const infl = handles.length ? await s<Row[]>`select handle, display_name, avatar_url, followers_count from influencer where lower(handle) in ${s(handles)}` : [];
+    return { clients, snaps, camps, tasks, posts, metrics, budgets, infl };
   });
   await src.end();
 
@@ -58,8 +61,12 @@ function prodSql(): postgres.Sql {
   for (const t of data.tasks) if (t.target_task_id && taskSet.has(t.target_task_id)) await dst`update campaign_task set target_task_id = ${t.target_task_id as string} where id = ${t.id as string}`;
   await insert('tracked_post', data.posts.map((p) => ({ ...p, created_by: null, draft_id: null })));
   await insert('post_metric_snapshot', data.metrics);
+  for (const i of data.infl) {
+    await dst`insert into influencer (handle, display_name, avatar_url, followers_count) values (${i.handle as string}, ${i.display_name as string | null}, ${i.avatar_url as string | null}, ${i.followers_count as number | null})
+      on conflict (lower(handle)) do update set followers_count = excluded.followers_count, display_name = coalesce(influencer.display_name, excluded.display_name), avatar_url = coalesce(influencer.avatar_url, excluded.avatar_url)`;
+  }
   await insert('client_budget_period', data.budgets.filter((b) => map.has(b.client_id as string)).map((b) => ({ ...b, client_id: map.get(b.client_id as string) })));
 
-  console.log(`복사 완료 — 클라이언트 ${map.size} · 리포트 ${data.snaps.length} · 캠페인 ${data.camps.length} · 작업 ${data.tasks.length} · 게시물 ${data.posts.length} · 측정 ${data.metrics.length} · 예산 ${data.budgets.length}`);
+  console.log(`복사 완료 — 클라이언트 ${map.size} · 리포트 ${data.snaps.length} · 캠페인 ${data.camps.length} · 작업 ${data.tasks.length} · 게시물 ${data.posts.length} · 측정 ${data.metrics.length} · 예산 ${data.budgets.length} · 인플 ${data.infl.length}`);
   await dst.end();
 })().catch((e) => { console.error(e); process.exit(1); });

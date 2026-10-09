@@ -97,15 +97,24 @@ export function DayBarsChart({ days, values, band, highlightAbove, events, dimBe
             rows={[
               { label: valueName, value: `${values[hover] ?? '—'}명`, strong: true, tone: hot(hover) ? 'up' : undefined },
               ...(band ? [{ label: '평소 하루', value: `${band[0]}~${band[1]}명`, tone: 'muted' as const }] : []),
-              ...((evByDay.get(days[hover])?.posts.length ?? 0) > 0 ? [{ label: `이날 게시 ${evByDay.get(days[hover])?.posts.length}개`, value: '', section: true }] : []),
-              ...((evByDay.get(days[hover])?.posts ?? []).slice(0, 3).map((p): TipRow => ({ label: `@${p.handle}`, value: `북마크 ${NUM.format(p.bookmarks)}` }))),
+              ...postRows('전날 게시', hover > 0 ? evByDay.get(days[hover - 1]) : undefined),
+              ...postRows('이날 게시', evByDay.get(days[hover])),
             ]}
-            note={(evByDay.get(days[hover])?.posts.length ?? 0) > 3 ? `외 ${(evByDay.get(days[hover])?.posts.length ?? 0) - 3}개` : undefined}
           />
         </Tip>
       )}
     </div>
   );
+}
+
+// 상세의 게시 줄 — 반응은 보통 다음 날 나오므로 '전날 게시'를 먼저, 북마크 많은 2개까지만.
+function postRows(label: string, ev: DayEvent | undefined): TipRow[] {
+  if (!ev || ev.posts.length === 0) return [];
+  const more = ev.posts.length > 2 ? ` · 외 ${ev.posts.length - 2}개` : '';
+  return [
+    { label: `${label} ${ev.posts.length}개${more}`, value: '', section: true },
+    ...ev.posts.slice(0, 2).map((p): TipRow => ({ label: `@${p.handle}`, value: `북마크 ${NUM.format(p.bookmarks)}` })),
+  ];
 }
 
 function short(d: string) { const [, m, dd] = d.split('-'); return `${Number(m)}/${Number(dd)}`; }

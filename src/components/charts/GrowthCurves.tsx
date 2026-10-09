@@ -31,7 +31,7 @@ function interp(points: Array<[number, number]>, h: number): number | null {
 }
 const q = (s: number[], p: number) => { const i = (s.length - 1) * p, a = Math.floor(i); return s[a] + (s[Math.ceil(i)] - s[a]) * (i - a); };
 
-// showLabel: 강조 선 끝 이름표 — 좁은 자리에서 세로 눈금과 겹치면 끄고 범례 문장으로 대신한다.
+// showLabel: 강조 선 끝 이름표·띠 이름표 — 좁은 자리에서 겹치면 끄고 차트 위 범례로 대신한다.
 export function GrowthCurves({ curves, highlightId, height = 280, onSelect, showLabel = true }: { curves: Curve[]; highlightId: string; height?: number; onSelect?: (id: string) => void; showLabel?: boolean }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
@@ -76,7 +76,7 @@ export function GrowthCurves({ curves, highlightId, height = 280, onSelect, show
           ))}
           <line x1={0} x2={plotW} y1={padT + plotH} y2={padT + plotH} stroke={C.axis} />
           {bandPath && <path d={bandPath} fill={C.band} />}
-          {bandPts.length > 0 && <text x={x(bandPts[bandPts.length - 1].h) + 6} y={y(bandPts[bandPts.length - 1].lo) + 4} fontSize={11} fill={C.secondary}>다른 글 가운데 절반</text>}
+          {showLabel && bandPts.length > 0 && <text x={x(bandPts[bandPts.length - 1].h) + 6} y={y(bandPts[bandPts.length - 1].lo) + 4} fontSize={11} fill={C.secondary}>다른 글 가운데 절반</text>}
           {curves.filter((c) => c.id !== highlightId).map((c) => (
             <path key={c.id} d={mk(c.points.filter(([h, v]) => h >= 1 && v > 0)) ?? ''} fill="none" stroke={C.neutralBar} strokeWidth={1} opacity={0.8} />
           ))}

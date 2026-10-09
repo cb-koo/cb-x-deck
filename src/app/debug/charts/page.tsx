@@ -40,7 +40,7 @@ export default function ChartKitSample() {
               currentName="9/28 주" previousName="9/21 주" unit="명" />
           </ChartCard>
 
-          <ChartCard icon={Icon.bookmark} title="X 북마크" value="3,110" valueSub="북마크당 100원" delta={<Delta value={((3110 - 354) / 354) * 100} />}
+          <ChartCard icon={Icon.bookmark} title="X 북마크" value="3,110" valueSub="직전 4주 평균 1,424" delta={<Delta value={((3110 - 1424) / 1424) * 100} />}
             subtitle="주별 북마크" definition="그 주에 올린 게시물의 북마크 합계. 9월 글은 마지막 측정값, 10월부터 게시 7일 시점 값"
             footnote="막대 아래 = 북마크 1개당 집행 비용">
             <CategoryBars labels={D.weeklyX.labels} values={D.weeklyX.bookmarks} sub={D.weeklyX.costPerBookmark.map((v) => `${v}원`)} />
@@ -61,8 +61,8 @@ export default function ChartKitSample() {
 
         <ChartCard icon={Icon.users} title="게시물과 신규 인입" subtitle="반응 좋은 글이 나온 날, 신규 인입이 튀어요"
           definition="위: 게시물(원 크기 = 조회수, 진하기 = 북마크율). 아래: 하루 신규 인입. 같은 날짜 축, 세로선 = 주 구분"
-          legend={<Legend items={[{ label: '게시물 (진할수록 북마크율 높음)', kind: 'dot', color: C.primaryDeep }, { label: '평소보다 많은 날', kind: 'bar', color: C.primary }, { label: '그 외', kind: 'bar', color: C.neutralBar }, { label: '평소 하루 2~5명', kind: 'band', color: C.band }]} />}>
-          <DayBarsChart days={D.days} values={D.dailyInflow} band={D.dailyBand} events={D.postEvents}
+          legend={<Legend items={[{ label: '게시물 (진할수록 북마크율 높음)', kind: 'dot', color: C.primaryDeep }, { label: '크게 튄 날 (하루 10명 넘음)', kind: 'bar', color: C.primary }, { label: '그 외', kind: 'bar', color: C.neutralBar }, { label: '평소 하루 2~5명', kind: 'band', color: C.band }]} />}>
+          <DayBarsChart days={D.days} values={D.dailyInflow} band={D.dailyBand} highlightAbove={D.dailySpike} events={D.postEvents}
             eventEmpty={{ until: '2026-08-31', text: '캠페인 기록 없음 (9월부터 기록)' }} notes={D.dayNotes} valueName="신규 인입" height={200} />
         </ChartCard>
 

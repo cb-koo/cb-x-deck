@@ -13,7 +13,7 @@ type Props = { points: Bubble[]; xName: string; yName: string; height?: number; 
 export function BubbleScatter({ points, xName, yName, height = 300, zeroLabel = '평소와 같음' }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<string | null>(null);
-  const axisW = 36, padB = 26, padT = 28;
+  const axisW = 36, padB = 44, padT = 28;
   const plotW = Math.max(width - axisW, 0), plotH = height - padB - padT;
   const xs = points.map((p) => p.x), ys = points.map((p) => p.y);
   const x = scaleLog().domain([Math.min(...xs) * 0.7, Math.max(...xs) * 1.4]).range([12, plotW - 12]);
@@ -33,12 +33,12 @@ export function BubbleScatter({ points, xName, yName, height = 300, zeroLabel = 
               <text x={width} y={y(t) + 4} textAnchor="end" fontSize={T.axis} fill={C.muted}>{t > 0 ? `+${t}` : t}</text>
             </g>
           ))}
-          <text x={4} y={y(0) - 6} fontSize={T.label} fill={C.muted}>{zeroLabel}</text>
+          <text x={plotW} y={y(0) - 6} textAnchor="end" fontSize={T.label} fill={C.muted}>{zeroLabel}</text>
           <line x1={0} x2={plotW} y1={padT + plotH} y2={padT + plotH} stroke={C.axis} />
           {xTicks.map((t) => (
-            <text key={t} x={x(t)} y={height - 6} textAnchor="middle" fontSize={T.axis} fill={C.muted}>{compact(t)}</text>
+            <text key={t} x={x(t)} y={padT + plotH + 18} textAnchor="middle" fontSize={T.axis} fill={C.muted}>{compact(t)}</text>
           ))}
-          <text x={plotW} y={height - 6} textAnchor="end" fontSize={T.axis} fill={C.muted}>{xName} →</text>
+          <text x={plotW} y={height - 4} textAnchor="end" fontSize={T.axis} fill={C.muted}>{xName} →</text>
           <text x={4} y={12} fontSize={T.axis} fill={C.muted}>↑ {yName}</text>
           {[...points].sort((a, b) => b.size - a.size).map((p) => (
             <circle key={p.id} cx={x(p.x)} cy={y(p.y)} r={r(p.size)}

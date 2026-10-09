@@ -14,7 +14,7 @@ export function FunnelList({ steps, compareName }: { steps: FunnelStep[]; compar
         const rate = before && s.count !== null ? (s.count / before) * 100 : null;
         const chg = s.prevCount && s.count !== null ? ((s.count - s.prevCount) / s.prevCount) * 100 : null;
         return (
-          <div key={s.name} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 72px 92px', alignItems: 'center', gap: 12, minHeight: 52, borderTop: i ? `1px solid #eceff1` : 'none', padding: '6px 0' }}>
+          <div key={s.name} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 56px 76px', alignItems: 'center', gap: 12, minHeight: 52, borderTop: i ? `1px solid #eceff1` : 'none', padding: '6px 0' }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 14, color: C.text }}>{s.name}</div>
               <div style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>{s.count === null ? '—' : `${NUM.format(s.count)}명`}{s.sub ? ` · ${s.sub}` : ''}</div>
@@ -28,7 +28,7 @@ export function FunnelList({ steps, compareName }: { steps: FunnelStep[]; compar
               {rate === null ? '' : `${Math.round(rate)}%`}
             </div>
             <div style={{ textAlign: 'right' }} title={`${compareName} 대비`}>
-              {chg !== null ? <span style={{ fontSize: 13 }}><Delta value={chg} /></span> : null}
+              {chg !== null ? <Delta value={chg} size={14} /> : null}
             </div>
           </div>
         );

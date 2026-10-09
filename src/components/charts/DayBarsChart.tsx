@@ -10,14 +10,14 @@ import { niceMax } from './TimeCompareChart';
 export type DayEvent = { date: string; size: number; intensity: number; label?: string; tip: string[] };
 export type DayNote = { date: string; text: string; tone?: 'up' | 'flat' };
 type Props = {
-  days: string[]; values: Array<number | null>; band?: [number, number];
+  days: string[]; values: Array<number | null>; band?: [number, number]; highlightAbove?: number;
   events?: DayEvent[]; eventEmpty?: { until: string; text: string };
   notes?: DayNote[]; valueName: string; height?: number;
 };
 
 const STRIP = 84;
 
-export function DayBarsChart({ days, values, band, events, eventEmpty, notes = [], valueName, height = 190 }: Props) {
+export function DayBarsChart({ days, values, band, highlightAbove, events, eventEmpty, notes = [], valueName, height = 190 }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const stripH = events ? STRIP : 0;
@@ -31,7 +31,8 @@ export function DayBarsChart({ days, values, band, events, eventEmpty, notes = [
   const cx = (d: string) => (x(d) ?? 0) + x.bandwidth() / 2;
   const mondays = days.filter((d) => new Date(d + 'T00:00:00Z').getUTCDay() === 1);
   const total = stripH + height;
-  const hot = (v: number | null) => v !== null && band !== undefined && v > band[1];
+  // 강조는 아껴서(Material) — 평소 범위 위가 아니라 '크게 튄 날'(highlightAbove 초과)만 주색
+  const hot = (v: number | null) => v !== null && highlightAbove !== undefined && v > highlightAbove;
   const evByDay = new Map<string, DayEvent[]>();
   (events ?? []).forEach((e) => evByDay.set(e.date, [...(evByDay.get(e.date) ?? []), e]));
   const emptyEnd = eventEmpty ? (x(eventEmpty.until) ?? 0) : 0;
@@ -98,7 +99,7 @@ export function DayBarsChart({ days, values, band, events, eventEmpty, notes = [
       {hover !== null && width > 0 && (
         <Tip x={cx(days[hover])} y={y(values[hover] ?? 0)} width={width}>
           <div style={{ fontWeight: 600 }}>{short(days[hover])} ({'일월화수목금토'[new Date(days[hover] + 'T00:00:00Z').getUTCDay()]})</div>
-          <div>{valueName}: <b>{values[hover] ?? '—'}</b>{band && values[hover] !== null && (hot(values[hover]) ? ' · 평소보다 많음' : '')}</div>
+          <div>{valueName}: <b>{values[hover] ?? '—'}</b>{values[hover] !== null && (hot(values[hover]) ? ' · 크게 튄 날' : band && (values[hover] as number) > band[1] ? ' · 평소보다 많음' : '')}</div>
           {(evByDay.get(days[hover]) ?? []).map((e, k) => <div key={k} style={{ color: C.secondary }}>{e.tip.join(' · ')}</div>)}
         </Tip>
       )}

@@ -19,14 +19,14 @@ export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, n
 }
 
 // 증감 — 색만으로 의미를 전하지 않는다(화살표 필수). good: 늘어나는 게 좋은 지표면 'up'(비용류는 'down').
-export function Delta({ value, good = 'up', suffix = '%' }: { value: number | null; good?: 'up' | 'down'; suffix?: string }) {
-  if (value === null || !Number.isFinite(value)) return <span style={{ fontSize: T.delta, color: C.muted }}>—</span>;
+export function Delta({ value, good = 'up', suffix = '%', size = T.delta }: { value: number | null; good?: 'up' | 'down'; suffix?: string; size?: number }) {
+  if (value === null || !Number.isFinite(value)) return <span style={{ fontSize: size, color: C.muted }}>—</span>;
   const up = value > 0;
   const flat = value === 0;
   const color = flat ? C.muted : (up === (good === 'up') ? C.up : C.down);
   return (
-    <span style={{ fontSize: T.delta, fontWeight: 600, color, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-      {flat ? '→' : up ? '↑' : '↓'} {Math.abs(Math.round(value * 10) / 10)}{suffix}
+    <span style={{ fontSize: size, fontWeight: 600, color, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+      {flat ? '→' : up ? '↑' : '↓'} {Math.abs(value) >= 10 ? Math.round(Math.abs(value)) : Math.round(Math.abs(value) * 10) / 10}{suffix}
     </span>
   );
 }

@@ -8,6 +8,7 @@ const START = Date.UTC(2026, 7, 10); // 8/10 월
 export const days = Array.from({ length: 56 }, (_, i) => new Date(START + i * 864e5).toISOString().slice(0, 10));
 export const dailyInflow = [2,7,2,14,8,5,4,1,1,3,4,5,1,4,2,1,4,3,1,0,1,2,0,4,2,7,2,1,6,5,1,14,5,4,4,3,3,3,17,19,3,6,2,7,4,2,0,3,3,6,11,11,8,5,0,3];
 export const dailyBand: [number, number] = [2, 5]; // 8주 하루값의 가운데 절반(25~75%)
+export const dailySpike = 10; // 8주 하루값 상위 10% 경계 — 이보다 많은 날만 강조
 
 const P: Array<[string, string, number, number, number]> = [ // 계정, 게시일, 조회, 좋아요, 북마크
   ['mpchan_a','2026-09-01',1055849,876,734], ['mtn4j','2026-09-02',36443,185,137], ['hinachan___','2026-09-02',4253,9,3],
@@ -19,7 +20,7 @@ const P: Array<[string, string, number, number, number]> = [ // 계정, 게시�
   ['nako_beauty','2026-09-27',1857,12,2], ['minchannell','2026-09-28',9939,78,18], ['Purichan_seikei','2026-09-28',1006143,4955,2438],
   ['aik_ooooo','2026-09-29',3511,24,14], ['17dsy_','2026-09-29',4969,19,21], ['Purichan_seikei','2026-09-30',137674,1245,619],
 ];
-const LABEL: Record<string, string> = { 'mpchan_a': 'mpchan_a', 'chingcehansuki': 'chingce', '4nAtumilK_4HInE': '4nAtumilK', 'Purichan_seikei|2026-09-28': 'Purichan' };
+const LABEL: Record<string, string> = { 'mpchan_a': 'mpchan_a · 인입 변화 없음', 'chingcehansuki': 'chingce', '4nAtumilK_4HInE': '4nAtumilK', 'Purichan_seikei|2026-09-28': 'Purichan' };
 export const postEvents: DayEvent[] = P.map(([h, d, v, l, b]) => ({
   date: d, size: v, intensity: v ? Math.min(1, (b / v) / 0.0075) : 0,
   label: LABEL[`${h}|${d}`] ?? (v > 100000 && h !== 'Purichan_seikei' ? LABEL[h] : undefined),
@@ -28,7 +29,6 @@ export const postEvents: DayEvent[] = P.map(([h, d, v, l, b]) => ({
 export const dayNotes: DayNote[] = [
   { date: '2026-09-18', text: '이틀간 36명', tone: 'up' },
   { date: '2026-09-29', text: '이틀간 17명', tone: 'up' },
-  { date: '2026-09-02', text: '106만 조회 뒤 변화 없음', tone: 'flat' },
 ];
 
 // 게시물별: 게시 당일~다음 날 신규 인입 − 직전 14일 하루 평균 × 2
@@ -59,7 +59,7 @@ export const funnel = [ // 9월 vs 8월(월 스냅샷, 접수일 기준)
   { name: '신규 인입', count: 158, prevCount: 97, sub: 'LINE에 처음 말을 건 사람' },
   { name: '상담', count: 115, prevCount: 39, sub: 'CS가 문의·예약 상담으로 표시' },
   { name: '예약자', count: 26, prevCount: 24, sub: 'LINE 계정 기준' },
-  { name: '방문', count: 9, prevCount: 22, sub: '10/7 기준 · 19명은 방문 예정' },
+  { name: '방문', count: 9, prevCount: null, sub: '10/7 기준 · 19명은 방문 예정이라 8월과 비교하지 않음' },
 ];
 
 export const cohortColumns = ['1일 안', '3일 안', '7일 안', '14일 안', '30일 안'];

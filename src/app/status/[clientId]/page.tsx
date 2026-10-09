@@ -57,8 +57,7 @@ const span = (g: { posts: Array<{ date: string }> }) => {
   const ds = g.posts.map((p) => p.date).sort();
   return ds[0] === ds[ds.length - 1] ? mdLabel(ds[0]) : `${mdLabel(ds[0])}~${mdLabel(ds[ds.length - 1])}`;
 };
-const LABEL_MIN_BM = 1000;
-const LABEL_GAP_DAYS = 10; // 이름표끼리 겹치지 않게 — 10일 안에 더 큰 날이 있으면 이름표를 뺀다
+const LABEL_MIN_BM = 1000; // 겹치는 이름표는 차트가 북마크 큰 순으로 알아서 뺀다(DayBarsChart fitLabels)
 
 export default function ClientStatusPage({ params }: { params: Promise<{ clientId: string }> }) {
   const { clientId } = use(params);
@@ -112,13 +111,8 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
     const byDay = new Map<string, ClientStatus['posts']>();
     for (const p of s.posts) byDay.set(p.date, [...(byDay.get(p.date) ?? []), p]);
     const days = [...byDay.entries()].map(([date, ps]) => ({ date, ps: [...ps].sort((a, b) => b.bookmarks - a.bookmarks), bm: ps.reduce((a, p) => a + p.bookmarks, 0) }));
-    const labeled = new Set<string>();
-    for (const d of [...days].sort((a, b) => b.bm - a.bm)) {
-      if (d.bm < LABEL_MIN_BM) break;
-      if ([...labeled].every((o) => Math.abs(Date.parse(o) - Date.parse(d.date)) >= LABEL_GAP_DAYS * 864e5)) labeled.add(d.date);
-    }
     return days.map(({ date, ps, bm }) => ({ date, weight: bm, count: ps.length,
-      label: labeled.has(date) ? `@${ps[0].handle} 북마크 ${NUM.format(bm)}` : undefined,
+      label: bm >= LABEL_MIN_BM ? `@${ps[0].handle} 북마크 ${NUM.format(bm)}` : undefined,
       posts: ps.map((p) => ({ id: p.id, handle: p.handle, bookmarks: p.bookmarks, views: p.views })) }));
   }, [s.posts]);
 

@@ -264,6 +264,8 @@ function PositionStrip({ values, value, band }: { values: number[]; value: numbe
 function XPost({ t, postedAt }: { t: DeckTweet; postedAt: string }) {
   const [zoom, setZoom] = useState<number | null>(null);
   const imgs = t.media.slice(0, 4);
+  // X는 이미지·인용 글을 가리키는 끝 t.co 링크를 본문에서 감춘다 — 같은 모양으로
+  const text = imgs.length || t.quoted ? t.text.replace(/\s*https:\/\/t\.co\/\w+\s*$/, '') : t.text;
   return (
     <article className="text-[15px] text-x-text">
       <div className="flex items-center gap-2.5">
@@ -274,7 +276,7 @@ function XPost({ t, postedAt }: { t: DeckTweet; postedAt: string }) {
           <div className="truncate text-x-secondary">@{t.authorHandle}</div>
         </div>
       </div>
-      <TweetText text={t.text} className="mt-3 text-[16px] leading-[1.45]" />
+      <TweetText text={text} className="mt-3 text-[16px] leading-[1.45]" />
       {imgs.length > 0 && (
         <div className={`mt-3 grid ${imgs.length === 1 ? 'grid-cols-1' : 'grid-cols-2'} gap-0.5 overflow-hidden rounded-2xl border border-x-border-strong`}>
           {imgs.map((m, i) => (

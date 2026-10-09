@@ -64,7 +64,7 @@ export function DayBarsChart({ days, values, band, highlightAbove, events, dimBe
                   {e.count > 1 && r(e.weight) >= 9 && <text x={cx(e.date)} y={stripH / 2 + 10} textAnchor="middle" fontSize={11} fontWeight={700} fill="#fff">{e.count}</text>}
                 </g>
               ))}
-              {events.filter((e) => e.label).map((e) => (
+              {fitLabels(events, cx, plotW).map((e) => (
                 <text key={e.date} x={cx(e.date)} y={12} textAnchor="middle" fontSize={T.label} fill={C.secondary}>{e.label}</text>
               ))}
               <line x1={0} x2={plotW} y1={stripH} y2={stripH} stroke={C.grid} />
@@ -120,6 +120,20 @@ function postRows(label: string, ev: DayEvent | undefined): TipRow[] {
     { label: `${label} ${ev.posts.length}개${more}`, value: '', section: true },
     ...ev.posts.slice(0, 2).map((p): TipRow => ({ label: `@${p.handle}`, value: `북마크 ${NUM.format(p.bookmarks)}` })),
   ];
+}
+
+// 이름표가 겹치면 북마크(weight) 큰 것부터 자리를 차지하고 겹치는 것은 뺀다 — 차트 폭이 줄어도(옆 패널이 열려도) 안 겹친다.
+// 글자 폭은 정확히 잴 수 없어 대략값(한 글자 ≈ 0.62em)으로 본다.
+function fitLabels(events: DayEvent[], cx: (d: string) => number, plotW: number): DayEvent[] {
+  const placed: Array<[number, number]> = [];
+  const out: DayEvent[] = [];
+  for (const e of [...events].filter((ev) => ev.label).sort((a, b) => b.weight - a.weight)) {
+    const w = (e.label as string).length * T.label * 0.62, c = cx(e.date);
+    const l = c - w / 2 - 6, r = c + w / 2 + 6;
+    if (l < 0 || r > plotW || placed.some(([pl, pr]) => l < pr && r > pl)) continue;
+    placed.push([l, r]); out.push(e);
+  }
+  return out;
 }
 
 function short(d: string) { const [, m, dd] = d.split('-'); return `${Number(m)}/${Number(dd)}`; }

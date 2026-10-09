@@ -37,8 +37,9 @@ export default function ChartKitSample() {
   const ov = D.overview.map((o) => { const band = normalRange(o.weekly); const now = o.weekly.at(-1) as number; return { ...o, band, now, v: verdictOf(now, band) }; });
   const aboveNames = ov.filter((o) => o.v === 'above').map((o) => o.name);
   // 게시물
-  const best = [...D.postScores].sort((a, b) => b.lift - a.lift)[0];
-  const mp = D.postScores.find((p) => p.handle === 'mpchan_a');
+  const bestG = [...D.postGroupsData].sort((a, b) => b.lift - a.lift)[0];
+  const bestP = bestG.posts[0];
+  const mpG = D.postGroupsData.find((g) => g.posts.some((p) => p.handle === 'mpchan_a'));
   // 코호트 평균(인원 20명 이상 주만)
   const big = D.cohortRows.filter((r) => r.n >= 20);
   const avgAt = (c: number) => { const v = big.filter((r) => r.cells[c] !== null); const n = v.reduce((s, r) => s + r.n, 0); return v.length >= 2 && n ? Math.round(v.reduce((s, r) => s + (r.cells[c] as number) * r.n, 0) / n) : null; };
@@ -97,15 +98,15 @@ export default function ChartKitSample() {
         </ChartCard>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: 16, alignItems: 'start' }}>
-          <ChartCard icon={Icon.list} title="게시물 성적표 · 조회 2만 이상"
-            headline={<>인입을 가장 많이 늘린 글은 {best.handle.replace(/_4HInE$/, '')} (+{best.lift}명){mp ? ` — 조회 ${Math.round(mp.views / 10000)}만인 mpchan_a는 효과가 없었어요` : ''}</>}
-            caution="같은 날·다음 날 다른 글이 있으면 효과를 나눌 수 없어요. 그런 글은 막대를 흐리게 표시했어요."
-            definition={`인입 증가 = 게시 당일~다음 날 신규 인입 − 평소 하루(${D.typicalDay}명) × 2`}>
-            <PostScoreTable rows={D.postScores} baseText={`인입 증가 = 게시 당일~다음 날 신규 인입 − 평소 하루 ${D.typicalDay}명 × 2`} />
+          <ChartCard icon={Icon.list} title="게시물 성적표 · 게시 묶음별"
+            headline={<>인입을 가장 많이 늘린 건 {bestP.handle.replace(/_4HInE$/, '')}가 있던 묶음(+{bestG.lift}명){mpG && mpG.lift <= 0 ? ` — 조회 106만 mpchan_a 묶음은 효과가 없었어요` : ''}</>}
+            caution="신규 인입은 클리닉 전체 합계라 글 하나의 효과는 직접 잴 수 없어요. 하루 안팎으로 함께 올라간 글은 한 묶음으로 세고, 묶음 안 글별 몫은 '추정'으로만 보여 줘요."
+            definition={`묶음 = 게시일 차이가 하루 이하인 글들(북마크 ${D.MIN_BOOKMARKS} 미만 글 제외). 인입 증가 = 묶음 기간(첫 게시일~마지막 게시 다음 날) 신규 인입 − 평소 하루(${D.typicalDay}명) × 일수`}>
+            <PostScoreTable groups={D.postGroupsData} baseText={`인입 증가 = 묶음 기간 신규 인입 − 평소 하루 ${D.typicalDay}명 × 일수 · 북마크 ${D.MIN_BOOKMARKS} 미만 글 ${D.smallPostCount}개는 영향이 작아 제외`} />
             <details style={{ marginTop: 12 }}>
               <summary style={{ fontSize: 13, color: C.primaryDeep, cursor: 'pointer' }}>조회수와 인입의 관계를 그래프로 보기</summary>
               <div style={{ marginTop: 8 }}>
-                <BubbleScatter points={D.bubbles} xName="조회수 (눈금마다 10배)" yName="인입 증가(명)" />
+                <BubbleScatter points={D.bubbles} xName="조회수 (눈금마다 10배)" yName="인입 증가(명, 묶음이면 추정)" />
               </div>
             </details>
           </ChartCard>

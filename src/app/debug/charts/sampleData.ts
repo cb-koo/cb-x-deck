@@ -3,7 +3,7 @@
 import type { DayEvent, DayNote } from '@/components/charts/DayBarsChart';
 import type { Bubble } from '@/components/charts/BubbleScatter';
 import type { CohortRow } from '@/components/charts/CohortGrid';
-import type { PostScore } from '@/components/charts/PostScoreTable';
+import { groupPosts, type PostGroup } from '@/components/charts/postGroups';
 import { typical } from '@/components/charts/normal';
 
 const START = Date.UTC(2026, 7, 10); // 8/10 월
@@ -43,22 +43,18 @@ export const dayNotes: DayNote[] = [
   { date: '2026-09-29', text: '이틀간 17명' },
 ];
 
-// 인입 증가 = 게시 당일~다음 날 신규 인입 − 평소 하루(8주 가운데값) × 2
+// 게시 묶음(postGroups.ts) — 효과 창(당일+다음 날)이 겹치는 글은 한 묶음, 인입 증가는 묶음마다 한 번. 북마크 50 미만 글은 제외.
 export const typicalDay = typical(dailyInflow); // 3명
-const idx = (d: string) => days.indexOf(d);
-const lift = (d: string) => (dailyInflow[idx(d)] ?? 0) + (dailyInflow[idx(d) + 1] ?? 0) - typicalDay * 2;
-const OVERLAP: Record<string, string> = {
-  '2026-09-01': '다음 날 글 3개와 겹침', '2026-09-02': '같은 날 글 3개', '2026-09-09': '같은 날 글 2개',
-  '2026-09-16': '다음 날 4nAtumilK와 겹침', '2026-09-27': '같은 날 글 3개 · 다음 날 Purichan', '2026-09-28': '같은 날 글 2개', '2026-09-30': '전날 글 2개와 겹침',
-};
-export const postScores: PostScore[] = P.filter((p) => p[2] >= 20000).map((p) => ({
-  handle: p[0], date: md(p[1]), views: p[2], bookmarks: p[4], lift: lift(p[1]), overlap: OVERLAP[p[1]],
-}));
-export const bubbles: Bubble[] = postScores.map((s) => ({
-  id: s.handle + s.date, x: s.views, y: s.lift, size: s.bookmarks, strong: s.lift >= 9 && !s.overlap?.includes('같은 날 글 3'),
-  label: s.bookmarks >= 1000 || s.views > 900000 ? `${shortName(s.handle)} · 북마크 ${fmt(s.bookmarks)}` : undefined,
-  tip: [`@${s.handle} · ${s.date}`, `조회 ${fmt(s.views)} · 북마크 ${fmt(s.bookmarks)}`, `인입 증가 ${s.lift > 0 ? '+' : ''}${s.lift}명${s.overlap ? ` (${s.overlap})` : ''}`],
-}));
+export const MIN_BOOKMARKS = 50;
+const dailyMap = new Map(days.map((d, i) => [d, dailyInflow[i]]));
+export const postGroupsData: PostGroup[] = groupPosts(P.map((p) => ({ handle: p[0], date: p[1], views: p[2], bookmarks: p[4] })), dailyMap, typicalDay, MIN_BOOKMARKS);
+export const smallPostCount = P.filter((p) => p[4] < MIN_BOOKMARKS).length;
+export const bubbles: Bubble[] = postGroupsData.flatMap((g) => g.posts.map((p) => ({
+  id: p.handle + p.date, x: p.views, y: p.estLift, size: p.bookmarks, strong: p.estLift >= 9,
+  label: p.bookmarks >= 1000 || p.views > 900000 ? `${shortName(p.handle)} · 북마크 ${fmt(p.bookmarks)}` : undefined,
+  tip: [`@${p.handle} · ${md(p.date)}`, `조회 ${fmt(p.views)} · 북마크 ${fmt(p.bookmarks)}`,
+    g.posts.length > 1 ? `인입 증가 추정 ${p.estLift > 0 ? '+' : ''}${p.estLift}명 (묶음 ${g.lift > 0 ? '+' : ''}${g.lift}명 중 북마크 ${Math.round(p.share * 100)}%)` : `인입 증가 ${p.estLift > 0 ? '+' : ''}${p.estLift}명`],
+})));
 
 export const weeks = ['8/10', '8/17', '8/24', '8/31', '9/7', '9/14', '9/21', '9/28'];
 export const weeklyInflow = [42, 19, 12, 18, 39, 54, 21, 44];

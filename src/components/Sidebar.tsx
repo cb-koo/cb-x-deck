@@ -62,6 +62,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
   // 캠페인이 맨 위 — 콘텐츠 생성·인플루언서·트래킹 셋을 묶는 상위 개념이다(캠페인 스펙 §3-1).
   // 인플루언서 명부도 워크스페이스 밖 — 원고를 누구에게 줄지는 워크스페이스와 무관한 사람 정보다(스펙 §3)
   const globalNav = [
+    // 클라이언트 현황이 맨 위 — 매주 캠페인 방향(유지·조정)을 정하는 출발점이고, 결정이 아래 캠페인 작업으로 이어진다(스펙 2026-10-09 §8)
+    { href: '/status', label: '클라이언트 현황', Ic: ReportIcon },
     // 캠페인 v2(ADR 0003)가 '캠페인' 자리를 이어받았다(koo 09-27) — 주소는 /campaigns/flow 그대로, 옛 화면(/campaigns)은 아래 '보관'
     { href: '/campaigns/flow', label: '캠페인', Ic: CampaignIcon },
     // 정산은 캠페인 바로 아래 — 만든 것(작업) → 돈 보내는 것(요청) 순으로 읽힌다(정산 스펙 §4)

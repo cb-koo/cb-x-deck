@@ -12,7 +12,8 @@ export type Curve = { id: string; label: string; points: Array<[number, number]>
 const TICKS_H = [1, 2, 4, 8, 12, 24, 48, 72, 168];
 const TICKS_NARROW = [1, 4, 24, 72, 168]; // 좁은 자리(글 상세 패널 등)에선 이름표가 겹쳐 줄인다
 const NARROW_W = 420;
-const BAND_MIN_POINTS = 4; // 띠는 측정이 촘촘한 글로만 — 듬성한 글이 시각마다 들락날락하면 띠가 톱니가 된다
+const BAND_MIN_POINTS = 4; // 띠는 측정이 촘촘한 글로만
+const BAND_MIN_CURVES = 3;
 const hLabel = (h: number) => (h < 24 ? `${h}시간` : h === 168 ? '7일' : `${h / 24}일`);
 
 function interp(points: Array<[number, number]>, h: number): number | null {
@@ -30,7 +31,8 @@ function interp(points: Array<[number, number]>, h: number): number | null {
 }
 const q = (s: number[], p: number) => { const i = (s.length - 1) * p, a = Math.floor(i); return s[a] + (s[Math.ceil(i)] - s[a]) * (i - a); };
 
-export function GrowthCurves({ curves, highlightId, height = 280, onSelect }: { curves: Curve[]; highlightId: string; height?: number; onSelect?: (id: string) => void }) {
+// showLabel: 강조 선 끝 이름표 — 좁은 자리에서 세로 눈금과 겹치면 끄고 범례 문장으로 대신한다.
+export function GrowthCurves({ curves, highlightId, height = 280, onSelect, showLabel = true }: { curves: Curve[]; highlightId: string; height?: number; onSelect?: (id: string) => void; showLabel?: boolean }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const axisW = 44, padB = 26, padT = 14, labelW = 70;
@@ -44,7 +46,8 @@ export function GrowthCurves({ curves, highlightId, height = 280, onSelect }: { 
   // 띠: 각 눈금 시각에서 다른 글들의 가운데 절반(3개 이상 있을 때만)
   const ticks = plotW < NARROW_W ? TICKS_NARROW : TICKS_H;
   const dense = curves.filter((c) => c.id !== highlightId && c.points.filter(([h]) => h >= 1).length >= BAND_MIN_POINTS);
-  const bandPts = TICKS_H.map((h) => { const vs = dense.map((c) => interp(c.points, h)).filter((v): v is number => v !== null).sort((a, b) => a - b); return vs.length >= 3 ? { h, lo: q(vs, 0.25), hi: q(vs, 0.75), n: vs.length } : null; }).filter((b): b is { h: number; lo: number; hi: number; n: number } => b !== null);
+  // 띠는 같은 글 묶음으로만 그린다 — 시각마다 재어진 글이 달라지면(들락날락) 띠가 톱니가 된다. 그래서 촘촘히 잰 글이 모두 값이 있는 시각만 쓴다.
+  const bandPts = dense.length < BAND_MIN_CURVES ? [] : TICKS_H.map((h) => { const vs = dense.map((c) => interp(c.points, h)); if (vs.some((v) => v === null)) return null; const sv = (vs as number[]).sort((a, b) => a - b); return { h, lo: q(sv, 0.25), hi: q(sv, 0.75), n: sv.length }; }).filter((b): b is { h: number; lo: number; hi: number; n: number } => b !== null);
   const bandPath = bandPts.length > 1 ? `M${bandPts.map((b) => `${x(b.h)},${y(b.hi)}`).join('L')}L${[...bandPts].reverse().map((b) => `${x(b.h)},${y(b.lo)}`).join('L')}Z` : '';
   const hl = curves.find((c) => c.id === highlightId);
   const hlPts = hl ? hl.points.filter(([h]) => h >= 1) : [];
@@ -79,7 +82,7 @@ export function GrowthCurves({ curves, highlightId, height = 280, onSelect }: { 
           ))}
           {hl && <path d={mk(hlPts) ?? ''} fill="none" stroke={C.primary} strokeWidth={2.5} strokeLinejoin="round" />}
           {hl && hlPts.map(([h, v], i) => <circle key={i} cx={x(h)} cy={y(v)} r={2.5} fill={C.primary} />)}
-          {hlLast && <text x={x(hlLast[0]) + 8} y={y(hlLast[1]) + 4} fontSize={12} fontWeight={700} fill={C.primaryDeep}>{hl?.label}</text>}
+          {showLabel && hlLast && <text x={x(hlLast[0]) + 8} y={y(hlLast[1]) + 4} fontSize={12} fontWeight={700} fill={C.primaryDeep}>{hl?.label}</text>}
           {onSelect && curves.map((c) => ( // 선이 가늘어 누르기 어렵다 — 투명한 굵은 선을 위에 깐다
             <path key={'hit' + c.id} d={mk(c.points.filter(([h, v]) => h >= 1 && v > 0)) ?? ''} fill="none" stroke="transparent" strokeWidth={12}
                   style={{ cursor: 'pointer', pointerEvents: 'stroke' }} onClick={() => onSelect(c.id)} />

@@ -146,7 +146,7 @@ function PostDetail({ s, p }: { s: ClientStatus; p: StatusPost }) {
         {snaps !== null && drawable && (
           <>
             <p className="mt-1 text-[13px] text-x-muted">파란 선 = 이 글 · 회색 = 최근 2주 다른 글 · 측정 {snaps.length}번</p>
-            <div className="mt-2"><GrowthCurves curves={curves} highlightId={p.id} height={220} /></div>
+            <div className="mt-2"><GrowthCurves curves={curves} highlightId={p.id} height={220} showLabel={false} /></div>
           </>
         )}
       </section>

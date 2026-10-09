@@ -33,7 +33,8 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const when = (iso: string) => { const p = parts(iso); return `${p.m}/${p.day}(${p.wd}) ${pad(p.h)}:${pad(p.min)}`; };
 /** X 원문 아래 시각 줄 — 오후 7:18 · 2026년 9월 9일 */
 const xWhen = (iso: string) => { const p = parts(iso); return `${p.h < 12 ? '오전' : '오후'} ${p.h % 12 || 12}:${pad(p.min)} · ${p.y}년 ${p.m}월 ${p.day}일`; };
-const won = (n: number) => `${n < 10 ? n.toFixed(1) : NUM.format(Math.round(n))}원`;
+// 단가는 1원 아래도 흔하다(조회당) — 1원 미만은 소수 둘째, 10원 미만은 첫째 자리까지
+const won = (n: number) => `${n < 1 ? n.toFixed(2) : n < 10 ? n.toFixed(1) : NUM.format(Math.round(n))}원`;
 const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n)}명`;
 const span = (dates: string[]) => { const d = [...dates].sort(); return d[0] === d[d.length - 1] ? mdLabel(d[0]) : `${mdLabel(d[0])}~${mdLabel(d[d.length - 1])}`; };
 type WithId = { id?: string };

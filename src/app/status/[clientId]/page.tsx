@@ -260,7 +260,7 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
   );
 }
 
-const fmtX = (n: number) => (n >= 10 ? NUM.format(Math.round(n)) : n.toFixed(1));
+const fmtX = (n: number) => (n >= 10 ? NUM.format(Math.round(n)) : n === 0 ? '0' : n.toFixed(1));
 function revenueHeadline(now: number, prev: number, visit: number): string {
   if (now === 0 && visit > 0) return `새 예약 매출은 없고, 이전 예약의 방문 ${man(visit)}원만 있어요`;
   if (prev === 0) return now > 0 ? `최근 4주 예약 매출 ${man(now)}원` : '최근 8주 예약 매출이 없어요';

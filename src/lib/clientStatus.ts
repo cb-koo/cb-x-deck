@@ -58,7 +58,7 @@ export function suggestDecision(i: VerdictInput): Suggestion {
   if (vLast === 'below' && vPrev === 'below') return out('adjust', '신규 인입이 2주 연속 평소보다 적어요', [{ stage: 'campaign', text: '인입 감소' }]);
   if (i.reserversPrev4 >= RULE_RESERVE_MIN_PREV && i.reservers4 * 2 <= i.reserversPrev4) {
     // 사람은 오는데 예약만 줄었다면 캠페인 문제가 아니다 — 캠페인은 유지하고 상담→예약을 점검
-    if (vLast === 'above' || vLast === 'normal') return out('keep', '인입은 평소 이상인데 예약이 절반 이하로 줄었어요', [{ stage: 'conversion', text: '예약 전환 점검' }]);
+    if (vLast === 'above' || vLast === 'normal') return out('keep', '지난주 인입은 평소 이상인데, 최근 4주 예약이 직전 4주의 절반 이하예요', [{ stage: 'conversion', text: '예약 전환 점검' }]);
     return out('adjust', '신규 인입과 예약이 함께 줄었어요', [{ stage: 'campaign', text: '인입·예약 감소' }]);
   }
   if (i.posts2w === 0) return out('watch', 'X 게시가 2주째 없어요', [{ stage: 'campaign', text: '게시 없음' }]);

@@ -9,6 +9,14 @@ import { PostScoreTable } from '@/components/charts/PostScoreTable';
 import { C, NUM } from '@/components/charts/tokens';
 import { NORMAL_RULE, normalRange, spikeThreshold, verdictOf, VERDICT_TEXT, VERDICT_SHORT } from '@/components/charts/normal';
 import * as D from './sampleData';
+import * as P from './partsData';
+import { SegmentedBar, SegmentLegend } from '@/components/charts/SegmentedBar';
+import { BarList } from '@/components/charts/BarList';
+import { LineChart } from '@/components/charts/LineChart';
+import { ColumnChart } from '@/components/charts/ColumnChart';
+import { BarSparkline } from '@/components/charts/BarSparkline';
+import { Donut } from '@/components/charts/Donut';
+import { CalendarHeatmap } from '@/components/charts/CalendarHeatmap';
 
 // 차트 키트 샘플(2026-10-09) — 실제 부품 + 미모드림 실제 집계값. 사이드바 미노출(주소로만, 로그인 필요).
 // 글 줄이기 원칙: 카드 = 결론 한 줄 + 숫자. 뜻·계산·보는 법·주의는 ? 설명 창(항목별 짧은 줄). 다음 행동은 규칙에 걸린 카드에만.
@@ -130,6 +138,121 @@ export default function ChartKitSample() {
           }}>
           <CohortGrid columns={D.cohortColumns} rows={D.cohortRows} max={50} minN={20} />
         </ChartCard>
+        </div>
+
+        <div style={{ marginTop: 32, borderTop: '1px solid #e6ebee', paddingTop: 24 }}>
+          <div style={{ fontSize: 13, color: C.muted }}>기존 화면(리포트·캠페인·인플루언서·덱·사용량·트래킹)에 쓰는 부품 · 실제 데이터</div>
+          <h2 style={{ margin: '4px 0 0', fontSize: 20, fontWeight: 800 }}>기존 화면용 부품</h2>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 16, alignItems: 'start' }}>
+          <ChartCard icon={Icon.list} title="구간 막대 · 캠페인 카드"
+            headline="작업 8개 중 4개 게시, 비용은 계획의 64% 집행"
+            info={{ what: '진행 막대·구간 진행 막대·미니 막대를 하나의 부품으로', read: ['진한 파랑 = 끝난 것(게시·집행)', '연한 파랑 = 예정', '% 라벨은 끝난 구간 끝을 따라 움직여요'] }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <div style={{ fontSize: 13, color: C.secondary, marginBottom: 6 }}>작업 현황 · 게시 {P.campaign.posted} / {P.campaign.live}</div>
+                <SegmentedBar total={P.campaign.live} segments={[{ value: P.campaign.posted, color: C.primary, label: '게시' }]} />
+              </div>
+              <div>
+                <div style={{ fontSize: 13, color: C.secondary, marginBottom: 2 }}>캠페인 비용 · 집행 {NUM.format(P.campaign.spent)}원 / 계획 {NUM.format(P.campaign.planned)}원</div>
+                <SegmentedBar total={P.campaign.planned} pct={{ upTo: 0 }} segments={[{ value: P.campaign.spent, color: C.primary, label: '집행' }, { value: P.campaign.planned - P.campaign.spent, color: '#cfe6f7', label: '예정' }]} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <div style={{ fontSize: 13, color: C.secondary, marginBottom: 4 }}>캠페인 목록 미니 막대</div>
+                {P.campaignRows.map((r) => (
+                  <div key={r.name} style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 32, fontSize: 13 }}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+                    <SegmentedBar size="mini" total={r.live} segments={[{ value: r.posted, color: C.primary, label: '게시' }, { value: r.assigned - r.posted, color: '#cfe6f7', label: '배정' }]} />
+                    <span style={{ width: 32, textAlign: 'right', color: C.secondary, fontVariantNumeric: 'tabular-nums' }}>{r.posted}/{r.live}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </ChartCard>
+
+          <ChartCard icon={Icon.calendar} title="구간 막대 · 클라이언트 예산"
+            value={`${NUM.format(P.budget.total - P.budget.othersSpent - P.budget.othersPending - P.budget.thisSpent - P.budget.thisPending)}원`} valueSub="남을 예산"
+            headline="모든 작업을 마쳐도 예산의 74%가 남아요"
+            info={{ what: '이 기간 예산이 어디에 쓰였고 쓰일지', read: ['왼쪽부터 다른 캠페인 집행 → 예정 → 이 캠페인 집행 → 예정', '빈 칸 = 남는 예산'], calc: ['남을 예산 = 예산 − 모든 집행 − 모든 예정'] }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <SegmentedBar total={P.budget.total} segments={[
+                { value: P.budget.othersSpent, color: '#536471', label: '다른 캠페인 집행' }, { value: P.budget.othersPending, color: '#c9d3d9', label: '다른 캠페인 예정' },
+                { value: P.budget.thisSpent, color: C.primary, label: '이 캠페인 집행' }, { value: P.budget.thisPending, color: '#cfe6f7', label: '이 캠페인 예정' }]} />
+              <SegmentLegend unit="원" items={[
+                { label: '다른 캠페인 집행', value: P.budget.othersSpent, color: '#536471' }, { label: '다른 캠페인 예정', value: P.budget.othersPending, color: '#c9d3d9' },
+                { label: '이 캠페인 집행', value: P.budget.thisSpent, color: C.primary }, { label: '이 캠페인 예정', value: P.budget.thisPending, color: '#cfe6f7' }]} />
+              <div style={{ fontSize: 13, color: C.secondary, marginTop: 8 }}>매출 구성 · 미모드림 9월(방문일 기준)</div>
+              <SegmentedBar inBar total={P.revenueSept.first + P.revenueSept.repeat} segments={[{ value: P.revenueSept.first, color: C.primaryDeep, label: '초진' }, { value: P.revenueSept.repeat, color: '#7cc4f4', label: '재진' }]} />
+              <SegmentLegend unit="원" items={[{ label: '초진', value: P.revenueSept.first, color: C.primaryDeep }, { label: '재진', value: P.revenueSept.repeat, color: '#7cc4f4' }]} />
+            </div>
+          </ChartCard>
+
+          <ChartCard icon={Icon.bookmark} title="막대 목록 · 순위"
+            headline="9월 북마크는 Purichan과 4nAtumilK가 이끌었어요"
+            info={{ what: '항목별 값을 큰 순서로', read: ['1위만 주색, 나머지는 연하게', '값은 오른쪽 글자'], note: ['지점별 매출·기능별 비용·주간 추이에도 같은 부품'] }}>
+            <BarList items={P.influencerBookmarks} />
+          </ChartCard>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: 16, alignItems: 'start' }}>
+          <ChartCard icon={Icon.users} title="다계열 선 · 인입·상담·예약자"
+            headline="9월부터 인입과 상담이 함께 늘었어요"
+            info={{ what: '주별 인입·상담·예약자 수(미모드림)', read: ['계열 이름은 선 끝에', '마우스를 올리면 그 주 세 값을 함께 보여 줘요'], calc: ['인입 = 대화가 있었던 사람(기존 고객 포함)', '예약자 = LINE 계정 기준'] }}>
+            <LineChart labels={P.weeks} series={[{ name: '인입', values: P.inflow }, { name: '상담', values: P.consulted }, { name: '예약자', values: P.reservers }]} />
+          </ChartCard>
+
+          <ChartCard icon={Icon.funnel} title="선 + 기준 띠 · 취소·노쇼율"
+            headline="취소·노쇼율은 대체로 업계 통상 범위 안팎이에요"
+            info={{ what: '주별 (취소+노쇼) ÷ 전체 예약', read: ['회색 띠 = 업계 통상 5~8%', '끊긴 곳 = 예약 5건 미만이라 비움'], note: ['예약이 적은 주는 한두 건으로 크게 흔들려요'] }}>
+            <LineChart labels={P.weeks} series={[{ name: '취소·노쇼', values: P.cancelRate }]} band={{ range: [5, 8], label: '업계 통상 5~8%' }} unit="%" />
+          </ChartCard>
+
+          <ChartCard icon={Icon.users} title="세로 막대 · 음수 · 기록 없음"
+            headline="LINE 친구 증감은 8월 말부터 기록돼요"
+            info={{ what: '주별 LINE 친구 증감', read: ['옅은 칸 + 없음 = 기록 없음(0이 아니라 모름)', '막대 위 숫자 = 그 주 값'] }}>
+            <ColumnChart labels={P.weeks} series={[{ name: '친구 증감', values: P.followerChange, color: C.primary }]} />
+          </ChartCard>
+
+          <ChartCard icon={Icon.users} title="세로 막대 · 음수"
+            headline="신규 인입은 주마다 크게 오르내려요"
+            info={{ what: '신규 인입의 전주 대비 증감', read: ['위 = 늘어난 주(주색)', '아래 = 줄어든 주(회색)'] }}>
+            <ColumnChart labels={P.weeks.slice(1)} series={[{ name: '전주 대비', values: P.newDiff, color: C.primary }]} unit="명" />
+          </ChartCard>
+
+          <ChartCard icon={Icon.bookmark} title="누적 세로 막대 · 매출 초진/재진"
+            headline="9/28 주 접수 매출이 12주 중 가장 커요"
+            info={{ what: '주별 접수 기준 매출(만원)', read: ['진한 = 초진, 연한 = 재진', '마우스를 올리면 합계도 보여요'] }}>
+            <ColumnChart labels={P.weeks} series={[{ name: '초진', values: P.revFirst, color: C.primaryDeep }, { name: '재진', values: P.revRepeat, color: '#7cc4f4' }]} unit="만" />
+          </ChartCard>
+
+          <ChartCard icon={Icon.grid} title="도넛 · 9월 작업 유형"
+            headline="9월 작업의 79%가 인용RT였어요"
+            info={{ what: '9월에 시작한 캠페인의 작업 유형 구성(취소 제외)', read: ['큰 조각부터 12시 방향', '오른쪽 목록 = 건수와 비율'] }}>
+            <Donut items={P.taskTypes} centerLabel="작업" />
+          </ChartCard>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: 16, alignItems: 'start' }}>
+          <ChartCard icon={Icon.calendar} title="달력 히트맵 · 일별 신규 인입"
+            headline="튄 날이 9월 중순과 말에 몰려 있어요"
+            info={{ what: '미모드림 8주 하루 신규 인입', read: ['열 = 주, 행 = 요일', '진할수록 많음', '칸에 마우스를 올리면 값이 보여요'], calc: ['색 단계는 0을 뺀 값의 4분위로 나눔'] }}>
+            <CalendarHeatmap days={D.days} values={D.dailyInflow} valueName="신규 인입" unit="명" />
+          </ChartCard>
+
+          <ChartCard icon={Icon.list} title="작은 막대 추이 · 표 한 줄"
+            headline="최근 7일 신규 인입"
+            info={{ what: '표 한 줄 안에 넣는 7일 막대', read: ['마지막 날만 주색', '막대에 마우스를 올리면 값'] }}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {P.clientDaily.map((c, i) => (
+                <div key={c.name} style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 44, borderTop: i ? '1px solid #eceff1' : 'none', fontSize: 14 }}>
+                  <span style={{ flex: 1 }}>{c.name}</span>
+                  <BarSparkline values={c.values} labels={P.last7} unit="명" />
+                  <b style={{ width: 40, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.values.reduce((a, b) => a + b, 0)}명</b>
+                </div>
+              ))}
+            </div>
+          </ChartCard>
         </div>
       </div>
     </main>

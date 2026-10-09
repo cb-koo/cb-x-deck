@@ -17,6 +17,10 @@ import { BulletList } from '@/components/charts/BulletList';
 import { NUM, compact } from '@/components/charts/tokens';
 import { NORMAL_RULE, normalRange, spikeThreshold, verdictOf, VERDICT_TEXT } from '@/components/charts/normal';
 import { DecisionChip } from '../DecisionChip';
+import { StageChips } from '../StageChips';
+import { RevenueWeeks, RoasBars, man } from '../RevenueWeeks';
+import { SegmentedBar } from '@/components/charts/SegmentedBar';
+import { countTotal, type StatusCounts, type Stage } from '@/lib/clientStatus';
 import { PostPanel } from '../PostPanel';
 
 const WEEKS_SHOWN = 8;
@@ -136,6 +140,7 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
   const highlight = [...s.growth].sort((a, b) => (b.points.at(-1)?.[1] ?? 0) - (a.points.at(-1)?.[1] ?? 0))[0];
   const [f, c, r] = [s.funnel4.newInflow, s.funnel4.consulted, s.funnel4.reservers];
   const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
+  const res = s.result;
 
   return (
     <div className="mt-3 flex flex-col gap-4" style={{ paddingRight: sel && wide ? PANEL_W + 16 : 0, transition: 'padding-right 150ms' }}>
@@ -145,6 +150,49 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
       </div>
 
       <ReviewPanel s={s} onSaved={onSaved} />
+
+      {/* ── 결과: 이번 결정에서 가장 무거운 신호(예약·매출·비용 대비) ── */}
+      <SectionHead stage="result" title="결과 · 예약 매출" checks={s.suggestion.checks} />
+      <div className="grid items-start gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
+        <ChartCard icon={Icon.calendar} title="예약 매출 · 주별" value={`${man(res.revenue4)}원`} valueSub="최근 4주 · 접수일 기준"
+          delta={<Delta diff={Math.round((res.revenue4 - res.revenuePrev4) / 1e4)} unit="만" good="up" base={`직전 4주 ${man(res.revenuePrev4)}원`} />}
+          headline={revenueHeadline(res.revenue4, res.revenuePrev4, res.visitRevenue4)}
+          info={{ what: 'LINE으로 들어온 예약의 금액(클리닉 전체)', read: ['막대 = 접수일 기준 — 그 주에 받은 예약 금액(확정+방문)', '선 = 방문일 기준 — 그 주에 실제 방문한 금액', '점선 = 최근 2주 — 접수일 기준은 취소·실주로 줄 수 있고, 방문일 기준은 방문이 이어져 늘어요'], calc: ['금액은 예약 금액(실제 결제 금액이 아님)', '예약에서 방문까지 가운데값 약 2주'] }}>
+          <RevenueWeeks labels={labels} created={s.revenueCreated.slice(-WEEKS_SHOWN)} visit={s.revenueVisit.slice(-WEEKS_SHOWN)} />
+        </ChartCard>
+        <ChartCard icon={Icon.bookmark} title="작업 비용 대비 매출 · 4주"
+          value={res.roas4 === null ? '—' : `${fmtX(res.roas4)}배`}
+          delta={res.roas4 !== null && res.roasPrev4 !== null ? <Delta diff={Math.round((res.roas4 - res.roasPrev4) * 10) / 10} unit="배" good="up" base={`직전 4주 ${fmtX(res.roasPrev4)}배`} /> : undefined}
+          headline={res.roas4 === null ? '최근 4주 게시한 작업 비용이 없어요' : res.roas4 < 1 ? '작업 비용보다 예약 매출이 적어요' : `작업 비용 1원에 예약 매출 ${fmtX(res.roas4)}원`}
+          caution="클리닉 LINE 예약 매출 전체 ÷ 우리 작업 비용 — 우리 글만의 성과가 아니라 방향을 보는 숫자예요"
+          info={{ what: '최근 4주 예약 매출(접수일 기준)을 같은 4주 동안 게시한 우리 작업 비용으로 나눈 값', calc: ['비용 = 이 클라이언트 작업 중 그 4주에 게시된 것의 비용(엔 ×10원)', '리포트(/reports)의 ROAS와 다를 수 있어요 — 그쪽 분모는 외부 마케팅비 전체', '주별로는 게시→예약 시차로 흔들려 4주 합으로만 봐요'] }}>
+          <RoasBars revenue={res.revenue4} cost={res.cost4} />
+        </ChartCard>
+      </div>
+
+      {/* ── 전환: 인입이 예약까지 이어졌나(CS 구간) ── */}
+      <SectionHead stage="conversion" title="전환 · 인입에서 예약까지" checks={s.suggestion.checks} />
+      <div className="grid items-start gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
+        <ChartCard icon={Icon.funnel} title="고객 흐름 · 최근 4주"
+          headline={`신규 인입 ${f[0]}명 중 상담 ${pct(c[0], f[0])}%, 예약 ${pct(r[0], f[0])}% (직전 4주 ${pct(r[1], f[1])}%)`}
+          info={{ what: '최근 4주 신규 인입에서 예약까지 단계별 사람 수', read: ['막대 = 신규 인입 대비 남은 비율', '앞 단계에서 = 바로 앞 단계 중 넘어온 비율', '증감에 마우스를 올리면 직전 4주 값이 보여요'], calc: ['상담 = CS가 문의·예약 상담으로 표시한 사람', '예약 = LINE 계정 기준 예약자(접수일 기준)'], note: ['첫 문의 후 예약까지 보통 3일 안 — 최근 주 예약은 조금 더 늘 수 있어요'] }}>
+          <FunnelList compareName="직전 4주" steps={[
+            { name: '신규 인입', count: f[0], prevCount: f[1], sub: 'LINE에 처음 말을 건 사람' },
+            { name: '상담', count: c[0], prevCount: c[1], sub: 'CS가 문의·예약 상담으로 표시' },
+            { name: '예약', count: r[0], prevCount: r[1], sub: 'LINE 계정 기준' },
+          ]} />
+        </ChartCard>
+
+        <ChartCard icon={Icon.list} title={`예약 상태 · ${mdLabel(res.settled.from)}~${mdLabel(res.settled.to)} 접수`}
+          value={res.settled.lostRate === null ? '—' : `실주 ${Math.round(res.settled.lostRate * 100)}%`}
+          headline={res.settled.lostRate === null ? '예약이 5건 미만이라 실주율을 보지 않아요' : res.settled.lostRate >= 0.4 ? '예약 문의의 상당수가 성사되지 않았어요' : '실주는 낮은 편이에요'}
+          info={{ what: '그 4주에 접수된 예약이 지금 어떤 상태인지', calc: ['최근 2주는 빼요 — 실주는 CS가 후속 연락 뒤에 표시해 늦게 정리돼요', '실주율 = 실주 ÷ 전체 예약 건수'], read: [`방문 예정 확정 예약 ${res.upcomingConfirmed ?? '—'}건(지금 기준)`] }}>
+          <StatusBar c={res.settled.status} />
+        </ChartCard>
+      </div>
+
+      {/* ── 캠페인: X 바이럴이 사람을 데려왔나 ── */}
+      <SectionHead stage="campaign" title="캠페인 · X 성과와 신규 인입" checks={s.suggestion.checks} />
 
       <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))' }}>
         <ChartCard icon={Icon.users} title="신규 인입 · 주별" value={inflowNow === null ? '—' : `${inflowNow}명`}
@@ -200,17 +248,7 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
         </ChartCard>
       </div>
 
-      <div className="grid items-start gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
-        <ChartCard icon={Icon.funnel} title="고객 흐름 · 최근 4주"
-          headline={`신규 인입 ${f[0]}명 중 상담 ${pct(c[0], f[0])}%, 예약 ${pct(r[0], f[0])}% (직전 4주 ${pct(r[1], f[1])}%)`}
-          info={{ what: '최근 4주 신규 인입에서 예약까지 단계별 사람 수', read: ['막대 = 신규 인입 대비 남은 비율', '앞 단계에서 = 바로 앞 단계 중 넘어온 비율', '증감에 마우스를 올리면 직전 4주 값이 보여요'], calc: ['상담 = CS가 문의·예약 상담으로 표시한 사람', '예약 = LINE 계정 기준 예약자(접수일 기준)'], note: ['첫 문의 후 예약까지 보통 3일 안 — 최근 주 예약은 조금 더 늘 수 있어요'] }}>
-          <FunnelList compareName="직전 4주" steps={[
-            { name: '신규 인입', count: f[0], prevCount: f[1], sub: 'LINE에 처음 말을 건 사람' },
-            { name: '상담', count: c[0], prevCount: c[1], sub: 'CS가 문의·예약 상담으로 표시' },
-            { name: '예약', count: r[0], prevCount: r[1], sub: 'LINE 계정 기준' },
-          ]} />
-        </ChartCard>
-
+      <div>
         <ChartCard icon={Icon.users} title="경과 시간별 누적 조회 · 최근 2주 게시물"
           headline={highlight ? `가장 크게 자란 글은 @${highlight.label} (${mdLabel(highlight.date)})` : '최근 2주 측정 기록이 있는 글이 없어요'}
           info={{ what: '게시 후 시간이 지나며 조회가 어떻게 쌓였나', read: ['파란 선 = 가장 크게 자란 글', '회색 선 = 다른 글 (선을 누르면 글 상세)', '회색 띠 = 같은 시각 다른 글들의 가운데 절반'], calc: ['가로·세로 모두 눈금마다 배로 늘어요', '측정은 게시 후 15분~7일 자동 측정 기록'] }}>
@@ -218,6 +256,49 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
         </ChartCard>
       </div>
       {sel && <PostPanel s={s} ids={sel.ids} picked={sel.picked} onPick={(id) => setSel({ ...sel, picked: id })} onClose={() => setSel(null)} />}
+    </div>
+  );
+}
+
+const fmtX = (n: number) => (n >= 10 ? NUM.format(Math.round(n)) : n.toFixed(1));
+function revenueHeadline(now: number, prev: number, visit: number): string {
+  if (now === 0 && visit > 0) return `새 예약 매출은 없고, 이전 예약의 방문 ${man(visit)}원만 있어요`;
+  if (prev === 0) return now > 0 ? `최근 4주 예약 매출 ${man(now)}원` : '최근 8주 예약 매출이 없어요';
+  const r = Math.round(((now - prev) / prev) * 100);
+  return r >= 10 ? `직전 4주보다 ${r}% 늘었어요` : r <= -10 ? `직전 4주보다 ${-r}% 줄었어요` : '직전 4주와 비슷해요';
+}
+
+const STAGE_BAR: Record<Stage, string> = { campaign: '#1d9bf0', conversion: '#6b3fc8', result: '#d97706' };
+// 구간 머리 — 왼쪽 색 막대(구간 색 = 점검 칩 색) + 제목 + 그 구간의 점검 칩
+function SectionHead({ stage, title, checks }: { stage: Stage; title: string; checks: ClientStatus['suggestion']['checks'] }) {
+  const mine = checks.filter((c) => c.stage === stage);
+  return (
+    <div className="mt-4 flex items-center gap-3">
+      <span className="h-5 w-1 rounded-full" style={{ background: STAGE_BAR[stage] }} />
+      <h2 className="text-[18px] font-bold">{title}</h2>
+      <StageChips checks={mine} max={3} />
+    </div>
+  );
+}
+
+const STATUS_SEG: Array<[keyof StatusCounts, string, string]> = [
+  ['visited', '방문', '#1573ad'], ['confirmed', '확정(방문 전)', '#8ecdf8'], ['reviewing', '검토 중', '#c9d3d9'],
+  ['lost', '실주', '#6b3fc8'], ['cancelled', '취소', '#e2a3a3'], ['noshow', '노쇼', '#dc2626'],
+];
+function StatusBar({ c }: { c: StatusCounts }) {
+  const total = countTotal(c);
+  if (!total) return <p className="text-[13px] text-x-muted">이 기간 예약이 없어요</p>;
+  return (
+    <div className="flex flex-col gap-3">
+      <SegmentedBar inBar total={total} segments={STATUS_SEG.map(([k, label, color]) => ({ value: c[k], color, label }))} />
+      <div className="grid grid-cols-3 gap-x-3 gap-y-1.5 text-[13px]">
+        {STATUS_SEG.map(([k, label, color]) => (
+          <span key={k} className="flex items-center gap-1.5 tabular-nums" style={{ opacity: c[k] ? 1 : 0.45 }}>
+            <i className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: color }} />{label} <b>{c[k]}</b>
+          </span>
+        ))}
+      </div>
+      <p className="text-[12px] text-x-muted">전체 {total}건</p>
     </div>
   );
 }
@@ -253,6 +334,7 @@ function ReviewPanel({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) 
         <span className="text-ui text-x-secondary">
           규칙 제안: <b>{DECISION_LABEL[s.suggestion.decision]}</b> — {s.suggestion.reason}
         </span>
+        <StageChips checks={s.suggestion.checks} max={4} />
       </div>
       {s.review && (
         <p className="mt-1 text-[13px] text-x-muted">

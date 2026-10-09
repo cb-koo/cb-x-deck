@@ -1,7 +1,7 @@
 // 클라이언트 현황 — DB 읽기·판정 기록(스펙 2026-10-09-client-status-design.md §4·6). 계산은 clientStatus.ts(순수).
 import type postgres from 'postgres';
 import { addDays, baseWeekStart, weekStarts, mdLabel, suggestDecision, weeklyX, sum4, isDecision, type Decision, type Suggestion,
-  valueAtHorizon, ACCRUAL_DEFAULT, H_BOOKMARKS, H_VIEWS, MIN_MEASURE_H, type Accrual } from './clientStatus.ts';
+  valueAtHorizon, ACCRUAL_DEFAULT, H_BOOKMARKS, H_VIEWS, MIN_MEASURE_H, type Accrual, type Check, type StatusCounts, countTotal } from './clientStatus.ts';
 import { groupPosts, type PostGroup } from '../components/charts/postGroups.ts';
 import { typical } from '../components/charts/normal.ts';
 
@@ -32,6 +32,17 @@ export interface PoolPost {
   followers: number | null; costKrw: number; views7: Horizon | null; bm3: Horizon | null; measuring: boolean;
 }
 
+export type { StatusCounts } from './clientStatus.ts';
+export interface ResultSummary {
+  revenue4: number; revenuePrev4: number;        // 접수일 기준 예약 매출
+  visitRevenue4: number; visitRevenuePrev4: number;
+  cost4: number; costPrev4: number;              // 우리 작업 비용(게시일 기준, 엔 ×10)
+  roas4: number | null; roasPrev4: number | null; // 매출 ÷ 작업 비용 — 비용 0이면 null
+  status4: StatusCounts;                         // 최근 4주 예약 상태 합
+  settled: { status: StatusCounts; lostRate: number | null; from: string; to: string };   // 실주가 정리된 4주(2주 이상 지난 주)
+  upcomingConfirmed: number | null;              // 방문 예정 확정 예약(최신 주 값)
+}
+
 export interface ClientStatus {
   client: { id: string; name: string };
   baseWeek: { start: string; end: string };
@@ -45,6 +56,10 @@ export interface ClientStatus {
   suggestion: Suggestion; reservers4: number; reserversPrev4: number; posts2w: number;
   pool: PoolPost[]; accrual: Accrual;
   funnel4: { newInflow: [number, number]; consulted: [number, number]; reservers: [number, number] };
+  // 결과 구간 — 예약 매출 두 기준(접수일 = 예약을 받은 주, 예정 포함·바뀔 수 있음 / 방문일 = 실제 방문한 주, 최근 주는 진행 중)
+  revenueCreated: Array<number | null>; revenueVisit: Array<number | null>;
+  statusWeeks: Array<StatusCounts | null>;   // 접수일 기준 예약 상태(주별)
+  result: ResultSummary;
   review: ReviewRow | null; lastReview: ReviewRow | null;
 }
 
@@ -83,6 +98,14 @@ export async function loadClientStatus(sql: postgres.Sql, clientId: string, toda
   const inflow = weeks.map((w) => f(w, ['funnel', 'active_customers']));
   const consulted = weeks.map((w) => f(w, ['funnel', 'consulted_customers']));
   const reservers = weeks.map((w) => f(w, ['funnel', 'reservers', 'by_line_id']));
+  const revenueCreated = weeks.map((w) => f(w, ['reservations', 'created_at', 'revenue', 'total']));
+  const revenueVisit = weeks.map((w) => f(w, ['reservations', 'reservation_date', 'revenue', 'total']));
+  const statusWeeks = weeks.map((w): StatusCounts | null => {
+    if (!wk.has(w)) return null;
+    const g = (k: keyof StatusCounts) => f(w, ['reservations', 'created_at', 'status_counts', k]) ?? 0;
+    return { visited: g('visited'), confirmed: g('confirmed'), reviewing: g('reviewing'), lost: g('lost'), cancelled: g('cancelled'), noshow: g('noshow') };
+  });
+  const upcomingConfirmed = f(base, ['reservations', 'upcoming_confirmed']);
   const dm = new Map(dayRows.map((r) => [isoDate(r.period_start), num(r.nc)]));
   const dailyNew = days.map((d) => dm.get(d) ?? null);
 
@@ -155,7 +178,9 @@ export async function loadClientStatus(sql: postgres.Sql, clientId: string, toda
 
   const r4 = sum4(reservers);
   const posts2w = x.postCount.slice(-2).reduce((a, b) => a + b, 0);
-  const suggestion = suggestDecision({ newInflow: newInflow.slice(-8), reservers4: r4.recent, reserversPrev4: r4.prev, posts2w });
+  const result = summarizeResult(weeks, revenueCreated, revenueVisit, x.cost, statusWeeks, upcomingConfirmed);
+  const suggestion = suggestDecision({ newInflow: newInflow.slice(-8), reservers4: r4.recent, reserversPrev4: r4.prev, posts2w,
+    revenue4: result.revenue4, revenuePrev4: result.revenuePrev4, roas4: result.roas4, lostRate: result.settled.lostRate });
   const s4 = (a: Array<number | null>): [number, number] => { const v = sum4(a); return [v.recent, v.prev]; };
 
   const reviews = await sql<ReviewDb[]>`select week_start, verdict, suggested, memo, decided_by_name, decided_at from client_weekly_review
@@ -168,6 +193,7 @@ export async function loadClientStatus(sql: postgres.Sql, clientId: string, toda
     x, posts: recentPosts, groups, smallPostCount, typicalDay, growth, budget, pool, accrual,
     suggestion, reservers4: r4.recent, reserversPrev4: r4.prev, posts2w,
     funnel4: { newInflow: s4(newInflow), consulted: s4(consulted), reservers: s4(reservers) },
+    revenueCreated, revenueVisit, statusWeeks, result,
     review: rv(base), lastReview: rv(addDays(base, -7)),
   };
 }
@@ -189,6 +215,7 @@ export interface StatusRow {
   newInflow8: number[]; band: [number, number] | null; newInflowLast: number | null;
   bookmarksLast: number; bookmarksPrev: number; postsLast: number;
   reservers4: number; reserversPrev4: number;
+  checks: Check[]; revenue4: number; revenuePrev4: number; roas4: number | null;
 }
 export async function listStatusRows(sql: postgres.Sql, today: string): Promise<{ baseWeek: { start: string; end: string }; rows: StatusRow[]; unlinked: string[] }> {
   const { linked, unlinked } = await listStatusClients(sql);
@@ -200,6 +227,7 @@ export async function listStatusRows(sql: postgres.Sql, today: string): Promise<
     newInflow8: s.newInflow.slice(-8).map((v) => v ?? 0), band: s.suggestion.band, newInflowLast: s.newInflow[s.newInflow.length - 1],
     bookmarksLast: s.x.bookmarks[s.x.bookmarks.length - 1], bookmarksPrev: s.x.bookmarks[s.x.bookmarks.length - 2], postsLast: s.x.postCount[s.x.postCount.length - 1],
     reservers4: s.reservers4, reserversPrev4: s.reserversPrev4,
+    checks: s.suggestion.checks, revenue4: s.result.revenue4, revenuePrev4: s.result.revenuePrev4, roas4: s.result.roas4,
   }));
   const base = baseWeekStart(today);
   return { baseWeek: { start: base, end: addDays(base, 6) }, rows, unlinked };
@@ -257,4 +285,30 @@ export async function loadPostPool(sql: postgres.Sql, from: string, to: string, 
       measuring: lastH < MIN_MEASURE_H,
     };
   });
+}
+
+const ZERO: StatusCounts = { visited: 0, confirmed: 0, reviewing: 0, lost: 0, cancelled: 0, noshow: 0 };
+const addCounts = (a: StatusCounts, b: StatusCounts | null): StatusCounts => (b ? {
+  visited: a.visited + b.visited, confirmed: a.confirmed + b.confirmed, reviewing: a.reviewing + b.reviewing,
+  lost: a.lost + b.lost, cancelled: a.cancelled + b.cancelled, noshow: a.noshow + b.noshow } : a);
+const SETTLE_WEEKS = 2;   // 실주는 CS가 후속 연락 뒤에 표시해 늦게 정리된다 — 최근 2주는 실주율에서 뺀다
+
+/** 결과 구간 4주 요약 — 매출은 접수일 기준이 대표, 비용은 우리 작업 비용(게시일 기준). 비용 0인 기간의 비율은 null(—). */
+export function summarizeResult(weeks: string[], revCreated: Array<number | null>, revVisit: Array<number | null>, cost: number[],
+  statusWeeks: Array<StatusCounts | null>, upcomingConfirmed: number | null): ResultSummary {
+  const n = weeks.length;
+  const sum = (a: Array<number | null>, from: number, to: number) => a.slice(Math.max(0, from), Math.max(0, to)).reduce<number>((t, v) => t + (v ?? 0), 0);
+  const revenue4 = sum(revCreated, n - 4, n), revenuePrev4 = sum(revCreated, n - 8, n - 4);
+  const cost4 = sum(cost, n - 4, n), costPrev4 = sum(cost, n - 8, n - 4);
+  const sFrom = n - 4 - SETTLE_WEEKS, sTo = n - SETTLE_WEEKS;
+  const settledStatus = statusWeeks.slice(Math.max(0, sFrom), sTo).reduce(addCounts, ZERO);
+  const settledTotal = countTotal(settledStatus);
+  return {
+    revenue4, revenuePrev4, visitRevenue4: sum(revVisit, n - 4, n), visitRevenuePrev4: sum(revVisit, n - 8, n - 4),
+    cost4, costPrev4,
+    roas4: cost4 > 0 ? revenue4 / cost4 : null, roasPrev4: costPrev4 > 0 ? revenuePrev4 / costPrev4 : null,
+    status4: statusWeeks.slice(n - 4).reduce(addCounts, ZERO),
+    settled: { status: settledStatus, lostRate: settledTotal >= 5 ? settledStatus.lost / settledTotal : null, from: weeks[Math.max(0, sFrom)], to: addDays(weeks[sTo - 1], 6) },
+    upcomingConfirmed,
+  };
 }

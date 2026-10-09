@@ -15,7 +15,12 @@ test('판정 규칙 v1 — 위에서부터 처음 맞는 규칙', () => {
   assert.equal(suggestDecision({ ...base, newInflow: [null, null, 10, 12, 11] }).decision, 'hold');
   // 평소 범위 [19,43] — 마지막 두 주가 아래
   assert.equal(suggestDecision({ ...base, newInflow: [42, 19, 12, 18, 39, 54, 10, 9] }).decision, 'adjust');
-  assert.equal(suggestDecision({ ...base, newInflow: [42, 19, 12, 18, 39, 54, 21, 44], reservers4: 4, reserversPrev4: 9 }).reason, '최근 4주 예약이 직전 4주의 절반 이하예요');
+  // 예약 절반 이하 + 인입은 평소 이상 → 캠페인 유지 + 전환 점검(닥터손유나 사례)
+  const conv = suggestDecision({ ...base, newInflow: [42, 19, 12, 18, 39, 54, 21, 44], reservers4: 4, reserversPrev4: 9 });
+  assert.equal(conv.decision, 'keep');
+  assert.deepEqual(conv.checks.map((c) => c.stage), ['conversion']);
+  // 예약 절반 이하 + 인입도 낮음(한 주만 아래) → 캠페인 조정
+  assert.equal(suggestDecision({ ...base, newInflow: [42, 19, 12, 18, 39, 54, 30, 9], reservers4: 4, reserversPrev4: 9 }).decision, 'adjust');
   assert.equal(suggestDecision({ ...base, newInflow: [42, 19, 12, 18, 39, 54, 21, 30], posts2w: 0 }).decision, 'watch');
   const keep = suggestDecision({ ...base, newInflow: [42, 19, 12, 18, 39, 54, 21, 44] });
   assert.equal(keep.decision, 'keep');
@@ -48,4 +53,12 @@ test('기준 시점 값: 보간·지난 값·예상값', () => {
   assert.deepEqual(valueAtHorizon([[24, 610]], H_VIEWS, 'views', ACCRUAL_DEFAULT), { value: 1000, est: true });
   assert.equal(shareAt(ACCRUAL_DEFAULT, 200, 'views'), 1);
   assert.equal(valueAtHorizon([], H_VIEWS, 'views', ACCRUAL_DEFAULT), null);
+});
+
+test('구간 점검: 실주·매출·비용 대비 매출', () => {
+  const base = { newInflow: [10, 10, 10, 10, 10], reservers4: 10, reserversPrev4: 10, posts2w: 2 };
+  const s = suggestDecision({ ...base, lostRate: 0.5, revenue4: 1_000_000, revenuePrev4: 3_000_000, roas4: 0.6 });
+  assert.equal(s.decision, 'keep');
+  assert.deepEqual(s.checks.map((c) => `${c.stage}:${c.text}`), ['conversion:실주 50%', 'result:매출 절반 이하', 'result:비용보다 매출 적음']);
+  assert.deepEqual(suggestDecision({ ...base, lostRate: null, roas4: null }).checks, []);
 });

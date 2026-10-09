@@ -28,26 +28,51 @@ export interface VerdictInput {
   newInflow: Array<number | null>;   // 주별(오래된 순, 마지막 = 기준 주)
   reservers4: number; reserversPrev4: number;
   posts2w: number;                    // 최근 2주 X 게시 수
+  // 결과 구간(v2) — 없으면 그 점검은 건너뛴다
+  revenue4?: number; revenuePrev4?: number;   // 예약 매출(접수일 기준) 최근 4주·직전 4주
+  roas4?: number | null;                      // 작업 비용 대비 매출(4주) — 비용 0이면 null
+  lostRate?: number | null;                   // 실주율 — 실주가 정리된 주(2주 이상 지난 4주)만
 }
-export interface Suggestion { decision: Decision; reason: string; inflowVerdict: Verdict | null; band: [number, number] | null }
+// 판정은 '캠페인을 어떻게 할지'. 퍼널의 다른 구간 신호는 점검(check)으로 따로 붙여 '어디를 볼지'를 알려 준다.
+export type Stage = 'campaign' | 'conversion' | 'result';
+export const STAGE_LABEL: Record<Stage, string> = { campaign: '캠페인', conversion: '전환', result: '결과' };
+export interface Check { stage: Stage; text: string }
+export interface Suggestion { decision: Decision; reason: string; inflowVerdict: Verdict | null; band: [number, number] | null; checks: Check[] }
 
 export const RULE_MIN_WEEKS = 4;
 export const RULE_RESERVE_MIN_PREV = 4;
+export const RULE_LOST_RATE = 0.4;        // 실주율이 이 이상이면 전환 점검(v2 출발값 — 몇 주 써 보며 다듬는다)
+export const RULE_LOST_MIN = 5;           // 실주율은 예약이 이만큼은 있어야 본다
+export const RULE_REVENUE_MIN_PREV = 1_000_000;
 
-/** 판정 규칙 v1 — 위에서부터 처음 맞는 규칙(스펙 §5). 기준값은 몇 주 써 보며 다듬는다. */
+/** 판정 규칙 v2 — 위에서부터 처음 맞는 규칙이 판정, 점검은 해당하는 것 전부(스펙 §5). */
 export function suggestDecision(i: VerdictInput): Suggestion {
+  const checks = stageChecks(i);
   const known = i.newInflow.filter((v): v is number => v !== null);
-  if (known.length < RULE_MIN_WEEKS) return { decision: 'hold', reason: `판단할 데이터가 ${RULE_MIN_WEEKS}주 미만이에요`, inflowVerdict: null, band: null };
+  if (known.length < RULE_MIN_WEEKS) return { decision: 'hold', reason: `판단할 데이터가 ${RULE_MIN_WEEKS}주 미만이에요`, inflowVerdict: null, band: null, checks };
   const band = normalRange(i.newInflow.slice(-8));
   const last = i.newInflow[i.newInflow.length - 1], prev = i.newInflow[i.newInflow.length - 2];
   const vLast = last === null ? null : verdictOf(last, band);
   const vPrev = prev === null || prev === undefined ? null : verdictOf(prev, band);
-  if (vLast === 'below' && vPrev === 'below') return { decision: 'adjust', reason: '신규 인입이 2주 연속 평소보다 적어요', inflowVerdict: vLast, band };
-  if (i.reserversPrev4 >= RULE_RESERVE_MIN_PREV && i.reservers4 * 2 <= i.reserversPrev4)
-    return { decision: 'adjust', reason: '최근 4주 예약이 직전 4주의 절반 이하예요', inflowVerdict: vLast, band };
-  if (i.posts2w === 0) return { decision: 'watch', reason: 'X 게시가 2주째 없어요', inflowVerdict: vLast, band };
-  if (vLast === 'above') return { decision: 'keep', reason: '신규 인입이 평소보다 많아요', inflowVerdict: vLast, band };
-  return { decision: 'keep', reason: '평소 범위예요', inflowVerdict: vLast, band };
+  const out = (decision: Decision, reason: string, extra: Check[] = []): Suggestion => ({ decision, reason, inflowVerdict: vLast, band, checks: [...extra, ...checks] });
+  if (vLast === 'below' && vPrev === 'below') return out('adjust', '신규 인입이 2주 연속 평소보다 적어요', [{ stage: 'campaign', text: '인입 감소' }]);
+  if (i.reserversPrev4 >= RULE_RESERVE_MIN_PREV && i.reservers4 * 2 <= i.reserversPrev4) {
+    // 사람은 오는데 예약만 줄었다면 캠페인 문제가 아니다 — 캠페인은 유지하고 상담→예약을 점검
+    if (vLast === 'above' || vLast === 'normal') return out('keep', '인입은 평소 이상인데 예약이 절반 이하로 줄었어요', [{ stage: 'conversion', text: '예약 전환 점검' }]);
+    return out('adjust', '신규 인입과 예약이 함께 줄었어요', [{ stage: 'campaign', text: '인입·예약 감소' }]);
+  }
+  if (i.posts2w === 0) return out('watch', 'X 게시가 2주째 없어요', [{ stage: 'campaign', text: '게시 없음' }]);
+  if (vLast === 'above') return out('keep', '신규 인입이 평소보다 많아요');
+  return out('keep', '평소 범위예요');
+}
+
+/** 판정과 별개인 구간 점검 — 전환(실주)·결과(매출·비용) */
+function stageChecks(i: VerdictInput): Check[] {
+  const c: Check[] = [];
+  if (i.lostRate !== undefined && i.lostRate !== null && i.lostRate >= RULE_LOST_RATE) c.push({ stage: 'conversion', text: `실주 ${Math.round(i.lostRate * 100)}%` });
+  if (i.revenue4 !== undefined && i.revenuePrev4 !== undefined && i.revenuePrev4 >= RULE_REVENUE_MIN_PREV && i.revenue4 * 2 <= i.revenuePrev4) c.push({ stage: 'result', text: '매출 절반 이하' });
+  if (i.roas4 !== undefined && i.roas4 !== null && i.roas4 < 1) c.push({ stage: 'result', text: '비용보다 매출 적음' });
+  return c;
 }
 
 // ── 주별 집계 ──
@@ -107,3 +132,7 @@ export function valueAtHorizon(points: Array<[number, number]>, H: number, key: 
   const [h, v] = pts[pts.length - 1];
   return { value: Math.round(v / Math.max(0.05, shareAt(acc, h, key))), est: true };
 }
+
+// ── 예약 상태(접수일 기준) ──
+export interface StatusCounts { visited: number; confirmed: number; reviewing: number; lost: number; cancelled: number; noshow: number }
+export const countTotal = (c: StatusCounts) => c.visited + c.confirmed + c.reviewing + c.lost + c.cancelled + c.noshow;

@@ -37,7 +37,13 @@ const Icon = {
 };
 
 const fmtLift = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n)}명`;
-const span = (g: { from: string; to: string }) => (g.from === g.to ? mdLabel(g.from) : `${mdLabel(g.from)}~${mdLabel(g.to)}`);
+// 묶음의 게시일 범위(글 기준) — g.to는 인입을 세는 창의 끝(다음 날 포함)이라 '게시' 날짜로 쓰면 성적표와 어긋난다
+const span = (g: { posts: Array<{ date: string }> }) => {
+  const ds = g.posts.map((p) => p.date).sort();
+  return ds[0] === ds[ds.length - 1] ? mdLabel(ds[0]) : `${mdLabel(ds[0])}~${mdLabel(ds[ds.length - 1])}`;
+};
+const LABEL_MIN_BM = 1000;
+const LABEL_GAP_DAYS = 10; // 이름표끼리 겹치지 않게 — 10일 안에 더 큰 날이 있으면 이름표를 뺀다
 
 export default function ClientStatusPage({ params }: { params: Promise<{ clientId: string }> }) {
   const { clientId } = use(params);
@@ -84,12 +90,15 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
   const events = useMemo<DayEvent[]>(() => {
     const byDay = new Map<string, ClientStatus['posts']>();
     for (const p of s.posts) byDay.set(p.date, [...(byDay.get(p.date) ?? []), p]);
-    return [...byDay.entries()].map(([date, ps]) => {
-      const sorted = [...ps].sort((a, b) => b.bookmarks - a.bookmarks);
-      const bm = ps.reduce((a, p) => a + p.bookmarks, 0);
-      return { date, weight: bm, count: ps.length, label: bm >= 1000 ? `${sorted[0].handle} 북마크 ${NUM.format(bm)}` : undefined,
-        posts: sorted.map((p) => ({ handle: p.handle, bookmarks: p.bookmarks, views: p.views })) };
-    });
+    const days = [...byDay.entries()].map(([date, ps]) => ({ date, ps: [...ps].sort((a, b) => b.bookmarks - a.bookmarks), bm: ps.reduce((a, p) => a + p.bookmarks, 0) }));
+    const labeled = new Set<string>();
+    for (const d of [...days].sort((a, b) => b.bm - a.bm)) {
+      if (d.bm < LABEL_MIN_BM) break;
+      if ([...labeled].every((o) => Math.abs(Date.parse(o) - Date.parse(d.date)) >= LABEL_GAP_DAYS * 864e5)) labeled.add(d.date);
+    }
+    return days.map(({ date, ps, bm }) => ({ date, weight: bm, count: ps.length,
+      label: labeled.has(date) ? `@${ps[0].handle} 북마크 ${NUM.format(bm)}` : undefined,
+      posts: ps.map((p) => ({ handle: p.handle, bookmarks: p.bookmarks, views: p.views })) }));
   }, [s.posts]);
 
   const bubbles = useMemo<Bubble[]>(() => s.groups.map((g) => {

@@ -205,7 +205,7 @@ function PostDetail({ s, p }: { s: ClientStatus; p: StatusPost }) {
             : <div className="rounded-lg bg-x-surface py-5 text-center text-[13px] text-x-muted">팔로워 정보 없음</div>}
         </div>
 
-        {cmp.sameTarget.length >= SAME_TARGET_MIN && me && (
+        {me && cmp.sameTarget.length >= SAME_TARGET_MIN && cmp.sameTarget.some((x) => x.id === me.id) && (
           <div>
             <SubHead label="같은 원글을 인용한 글" right={<span className="text-[13px] tabular-nums text-x-secondary">{cmp.sameTarget.findIndex((x) => x.id === me.id) + 1}위 / {cmp.sameTarget.length}</span>} />
             <SameTarget list={cmp.sameTarget} meId={me.id} />
@@ -362,7 +362,8 @@ function compareSet(s: ClientStatus, p: StatusPost, me: PoolPost | null) {
   const set = useAll ? s.pool.filter(ok) : mine;
   const spreadSet = set.filter((x) => x.followers && x.views7);
   const ratios = spreadSet.map((x) => (x.views7 as Horizon).value / (x.followers as number));
-  const sameTarget = me?.targetKey
+  // 이 글이 측정 중이거나 값이 없으면 순위를 매길 수 없다 — 목록에 이 글이 있을 때만 보여 준다
+  const sameTarget = me?.targetKey && !me.measuring && me.bm3
     ? s.pool.filter((x) => x.targetKey === me.targetKey && x.bm3 && !x.measuring).sort((a, b) => (b.bm3 as Horizon).value - (a.bm3 as Horizon).value)
     : [];
   return {
@@ -433,7 +434,8 @@ function FollowerSpread({ set, me, typical }: { set: PoolPost[]; me: PoolPost; t
 // 같은 원글을 인용한 글 — 북마크(3일) 막대로 줄 세우기, 이 글은 파랑
 function SameTarget({ list, meId }: { list: PoolPost[]; meId: string }) {
   const top = list.slice(0, 6);
-  const shown = top.some((x) => x.id === meId) ? top : [...top.slice(0, 5), list.find((x) => x.id === meId) as PoolPost];
+  const mine = list.find((x) => x.id === meId);
+  const shown = top.some((x) => x.id === meId) || !mine ? top : [...top.slice(0, 5), mine];
   const max = Math.max(1, ...list.map((x) => (x.bm3 as Horizon).value));
   return (
     <div className="flex flex-col gap-1.5">

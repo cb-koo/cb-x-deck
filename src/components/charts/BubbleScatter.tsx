@@ -33,7 +33,7 @@ export function BubbleScatter({ points, xName, yName, height = 300, zeroLabel = 
               <text x={width} y={y(t) + 4} textAnchor="end" fontSize={T.axis} fill={C.muted}>{t > 0 ? `+${t}` : t}</text>
             </g>
           ))}
-          <text x={plotW} y={y(0) - 6} textAnchor="end" fontSize={T.label} fill={C.muted}>{zeroLabel}</text>
+          <text x={4} y={y(0) + 16} fontSize={T.label} fill={C.muted}>{zeroLabel}</text>
           <line x1={0} x2={plotW} y1={padT + plotH} y2={padT + plotH} stroke={C.axis} />
           {xTicks.map((t) => (
             <text key={t} x={x(t)} y={padT + plotH + 18} textAnchor="middle" fontSize={T.axis} fill={C.muted}>{compact(t)}</text>

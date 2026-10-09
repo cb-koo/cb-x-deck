@@ -1,12 +1,12 @@
 'use client';
 import { useState } from 'react';
 import { scaleLinear, scalePoint } from 'd3-scale';
-import { line, curveMonotoneX } from 'd3-shape';
+import { line, curveLinear } from 'd3-shape';
 import { C, S, T, NUM } from './tokens';
 import { useWidth, Tip } from './ChartCard';
 
 // 기간 비교 선 — 이번 기간 = 주색 실선, 비교 기간 = 같은 색 연한 점선(레퍼런스·Material: 색을 늘리지 않고 선 모양으로 구분).
-// 단조 곡선(curveMonotoneX)만 쓴다 — 실제로 없는 값을 지나가는 과장 곡선 금지. 세로축 값은 오른쪽, 격자는 점선 3줄.
+// 직선으로 잇는다 — 곡선은 측정하지 않은 사이 값을 지나가는 것처럼 보인다(10-09 검토). 세로축 값은 오른쪽, 격자는 점선 3줄.
 type Props = { labels: string[]; current: Array<number | null>; previous?: Array<number | null>; height?: number;
   currentName: string; previousName?: string; unit?: string };
 
@@ -20,7 +20,7 @@ export function TimeCompareChart({ labels, current, previous, height = 180, curr
   const x = scalePoint<string>().domain(labels).range([8, plotW - 8]);
   const y = scaleLinear().domain([0, max]).range([padT + plotH, padT]);
   const ticks = [0, max / 3, (2 * max) / 3, max];
-  const mk = line<number | null>().defined((v) => v !== null).x((_, i) => x(labels[i]) ?? 0).y((v) => y(v ?? 0)).curve(curveMonotoneX);
+  const mk = line<number | null>().defined((v) => v !== null).x((_, i) => x(labels[i]) ?? 0).y((v) => y(v ?? 0)).curve(curveLinear);
   return (
     <div ref={ref} style={{ position: 'relative', height }}>
       {width > 0 && (

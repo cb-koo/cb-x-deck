@@ -1,6 +1,6 @@
 'use client';
 import { scaleLinear } from 'd3-scale';
-import { line, curveMonotoneX } from 'd3-shape';
+import { line, curveLinear } from 'd3-shape';
 import { C } from './tokens';
 
 // 작은 추이선 — 표 한 줄 안에서 8주 흐름. 평소 범위 띠 + 마지막 점만 주색 강조(Tufte 스파크라인).
@@ -8,7 +8,7 @@ export function Sparkline({ values, band, width = 96, height = 30 }: { values: n
   const max = Math.max(1, ...values, band?.[1] ?? 0);
   const x = scaleLinear().domain([0, values.length - 1]).range([2, width - 5]);
   const y = scaleLinear().domain([0, max]).range([height - 3, 3]);
-  const d = line<number>().x((_, i) => x(i)).y((v) => y(v)).curve(curveMonotoneX)(values) ?? '';
+  const d = line<number>().x((_, i) => x(i)).y((v) => y(v)).curve(curveLinear)(values) ?? '';
   const last = values.length - 1;
   return (
     <svg width={width} height={height} aria-hidden="true">

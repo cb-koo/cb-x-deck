@@ -54,7 +54,7 @@ export function BubbleScatter({ points, xName, yName, height = 300, zeroLabel = 
         </svg>
       )}
       {h && width > 0 && (
-        <Tip x={x(h.x)} y={y(h.y) - r(h.size)} width={width}>
+        <Tip x={x(h.x)} y={y(h.y) - r(h.size)} yBelow={y(h.y) + r(h.size)} width={width}>
           <TipBody {...h.tip} />
         </Tip>
       )}

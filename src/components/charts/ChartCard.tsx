@@ -143,10 +143,12 @@ export function ChartCard({ icon, title, value, valueSub, delta, headline, info,
 
 // 마우스 올림 상세 — 카드 안 절대 위치. 내용은 TipBody 형식(제목 → 부제 → 이름·값 줄 → 메모)으로 통일.
 const TIP_W = 248;
-export function Tip({ x, y, width, children }: { x: number; y: number; width: number; children: ReactNode }) {
+// 위쪽 공간(y)이 상세 창 높이보다 작으면 아래(yBelow)로 뒤집어 카드 밖으로 잘리지 않게.
+export function Tip({ x, y, yBelow, width, children }: { x: number; y: number; yBelow?: number; width: number; children: ReactNode }) {
   const left = Math.min(Math.max(x - TIP_W / 2, 0), Math.max(width - TIP_W, 0));
+  const flip = y < 150 && yBelow !== undefined;
   return (
-    <div role="status" style={{ position: 'absolute', left, top: Math.max(y - 10, 0), transform: 'translateY(-100%)', width: TIP_W, pointerEvents: 'none',
+    <div role="status" style={{ position: 'absolute', left, top: flip ? (yBelow as number) + 10 : Math.max(y - 10, 0), transform: flip ? 'none' : 'translateY(-100%)', width: TIP_W, pointerEvents: 'none',
       background: '#fff', borderRadius: 10, boxShadow: '0 6px 20px rgba(15,20,25,.14)', padding: '10px 12px', color: C.text, zIndex: 3 }}>
       {children}
     </div>

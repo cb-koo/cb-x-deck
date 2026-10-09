@@ -90,7 +90,7 @@ export function DayBarsChart({ days, values, band, highlightAbove, events, dimBe
         </svg>
       )}
       {hover !== null && width > 0 && (
-        <Tip x={cx(days[hover])} y={y(values[hover] ?? 0)} width={width}>
+        <Tip x={cx(days[hover])} y={y(values[hover] ?? 0)} yBelow={y(0) - 40} width={width}>
           <TipBody
             title={`${short(days[hover])} (${'일월화수목금토'[new Date(days[hover] + 'T00:00:00Z').getUTCDay()]})`}
             sub={hot(hover) ? '크게 튄 날' : dimmed(hover) ? '게시 기록 없는 기간' : band && (values[hover] ?? 0) > band[1] ? '평소보다 많은 날' : undefined}

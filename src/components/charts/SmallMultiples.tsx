@@ -13,7 +13,7 @@ export function SmallMultiples({ items, labels, unit = '', shared = true, height
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
       {items.map((it) => {
         const vals = it.values.filter((v): v is number => v !== null);
-        const band = normalRange(it.values);
+        const band = normalRange(it.values.slice(-8)); // 키트 규칙: 평소 = 최근 8주
         const last = it.values[it.values.length - 1];
         const v = last === null ? null : verdictOf(last, band);
         const max = shared ? globalMax : Math.max(1, ...vals);
@@ -36,7 +36,7 @@ export function SmallMultiples({ items, labels, unit = '', shared = true, height
               <text x={0} y={height + 13} fontSize={10} fill={C.muted}>{labels[0]}</text>
               <text x={W} y={height + 13} fontSize={10} fill={C.text} textAnchor="end">{labels[n - 1]}</text>
             </svg>
-            <div style={{ fontSize: 11, color: C.muted }}>평소 {band[0]}~{band[1]}{unit}</div>
+            <div style={{ fontSize: 11, color: C.muted }}>평소(최근 8주) {band[0]}~{band[1]}{unit}</div>
           </div>
         );
       })}

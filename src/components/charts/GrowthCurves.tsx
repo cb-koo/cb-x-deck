@@ -33,7 +33,7 @@ export function GrowthCurves({ curves, highlightId, height = 280 }: { curves: Cu
   const axisW = 44, padB = 26, padT = 14, labelW = 70;
   const plotW = Math.max(width - axisW - labelW, 0), plotH = height - padB - padT;
   const all = curves.flatMap((c) => c.points.filter(([h, v]) => h >= 1 && v > 0).map(([, v]) => v));
-  const yLo = Math.pow(10, Math.floor(Math.log10(Math.max(1, Math.min(...all))))), yHi = Math.pow(10, Math.ceil(Math.log10(Math.max(10, ...all))));
+  const yLo = Math.pow(10, Math.floor(Math.log10(Math.max(1, Math.min(...all))))), yHi = Math.max(10, ...all) * 1.6; // 위는 최댓값 조금 위까지만
   const x = scaleLog().domain([1, 168]).range([0, plotW]).clamp(true);
   const y = scaleLog().domain([yLo, yHi]).range([padT + plotH, padT]);
   const yTicks: number[] = []; for (let v = yLo; v <= yHi; v *= 10) yTicks.push(v);

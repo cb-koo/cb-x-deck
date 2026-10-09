@@ -292,7 +292,7 @@ export default function ChartKitSample() {
         </ChartCard>
 
         <ChartCard icon={Icon.grid} title="작은 차트 나란히 · 클라이언트별 신규 인입 12주"
-          headline="같은 눈금으로 보면 미모드림만 9월에 크게 늘었어요"
+          headline="같은 눈금으로 보면 9월에 크게 늘어난 건 미모드림이에요"
           info={{ what: '같은 지표를 클라이언트마다 같은 모양·같은 세로 눈금으로', read: ['파란 막대 = 지난주', '회색 띠 = 그 클라이언트의 평소 범위', '세로 눈금을 공유해서 크기를 바로 비교할 수 있어요'] }}>
           <SmallMultiples items={X.multiples} labels={X.multiWeeks} unit="명" />
         </ChartCard>

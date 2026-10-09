@@ -16,7 +16,7 @@ const median = (vs: number[]) => { const s = [...vs].sort((a, b) => a - b); cons
 export function DotStrip({ rows, unit = '', ticks }: { rows: StripRow[]; unit?: string; ticks: number[] }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<{ r: number; d: Dot } | null>(null);
-  const labelW = 96, rowH = 40, padT = 6, padB = 26;
+  const labelW = 104, rowH = 52, padT = 6, padB = 26;
   const plotW = Math.max(width - labelW - 8, 0);
   const all = rows.flatMap((r) => r.dots.map((d) => d.v)).filter((v) => v > 0);
   const x = scaleLog().domain([Math.min(ticks[0], ...all), Math.max(ticks[ticks.length - 1], ...all)]).range([0, plotW]).clamp(true);

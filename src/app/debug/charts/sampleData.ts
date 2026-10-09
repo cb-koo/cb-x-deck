@@ -30,12 +30,12 @@ const shortName = (h: string) => h.replace(/_4HInE$/, '').replace(/_seikei$/, ''
 const byDay = new Map<string, Post[]>();
 P.forEach((p) => byDay.set(p[1], [...(byDay.get(p[1]) ?? []), p]));
 export const postEvents: DayEvent[] = [...byDay.entries()].map(([date, ps]) => {
-  const top = [...ps].sort((a, b) => b[4] - a[4])[0];
+  const sorted = [...ps].sort((a, b) => b[4] - a[4]);
   const bm = ps.reduce((s, p) => s + p[4], 0);
   return {
     date, weight: bm, count: ps.length,
-    label: bm >= 1000 ? `${shortName(top[0])} 북마크 ${fmt(top[4])}` : undefined,
-    tip: ps.map((p) => `@${p[0]} · 북마크 ${fmt(p[4])} · 조회 ${fmt(p[2])}`),
+    label: bm >= 1000 ? `${shortName(sorted[0][0])} 북마크 ${fmt(sorted[0][4])}` : undefined,
+    posts: sorted.map((p) => ({ handle: p[0], bookmarks: p[4], views: p[2] })),
   };
 });
 export const dayNotes: DayNote[] = [
@@ -49,12 +49,27 @@ export const MIN_BOOKMARKS = 50;
 const dailyMap = new Map(days.map((d, i) => [d, dailyInflow[i]]));
 export const postGroupsData: PostGroup[] = groupPosts(P.map((p) => ({ handle: p[0], date: p[1], views: p[2], bookmarks: p[4] })), dailyMap, typicalDay, MIN_BOOKMARKS);
 export const smallPostCount = P.filter((p) => p[4] < MIN_BOOKMARKS).length;
-export const bubbles: Bubble[] = postGroupsData.flatMap((g) => g.posts.map((p) => ({
-  id: p.handle + p.date, x: p.views, y: p.estLift, size: p.bookmarks, strong: p.estLift >= 9,
-  label: p.bookmarks >= 1000 || p.views > 900000 ? `${shortName(p.handle)} · 북마크 ${fmt(p.bookmarks)}` : undefined,
-  tip: [`@${p.handle} · ${md(p.date)}`, `조회 ${fmt(p.views)} · 북마크 ${fmt(p.bookmarks)}`,
-    g.posts.length > 1 ? `인입 증가 추정 ${p.estLift > 0 ? '+' : ''}${p.estLift}명 (묶음 ${g.lift > 0 ? '+' : ''}${g.lift}명 중 북마크 ${Math.round(p.share * 100)}%)` : `인입 증가 ${p.estLift > 0 ? '+' : ''}${p.estLift}명`],
-})));
+// 관계 차트 점 = 게시 묶음 하나(성적표와 같은 단위, 추정값 없이 실제로 센 값만)
+const span = (g: PostGroup) => { const last = g.posts.reduce((m, p) => (p.date > m ? p.date : m), g.from); return g.from === last ? md(g.from) : `${md(g.from)}~${md(last)}`; };
+const compactKo = (n: number) => (n >= 10000 ? `${(Math.round(n / 1000) / 10).toLocaleString('ko-KR')}만` : fmt(n));
+export const bubbles: Bubble[] = postGroupsData.map((g) => {
+  const top = g.posts[0];
+  const more = g.posts.length > 1 ? ` 외 ${g.posts.length - 1}` : '';
+  return {
+    id: g.from, x: g.views, y: g.lift, size: g.bookmarks, strong: g.lift >= 9,
+    label: `${shortName(top.handle)}${more}`,
+    tip: {
+      title: `@${top.handle}${g.posts.length > 1 ? ` 외 ${g.posts.length - 1}개` : ''}`,
+      sub: `${span(g)} 게시`,
+      rows: [
+        { label: '인입 증가 (평소 대비)', value: `${g.lift > 0 ? '+' : g.lift < 0 ? '−' : ''}${Math.abs(g.lift)}명`, strong: true, tone: g.lift > 0 ? 'up' : 'muted' },
+        { label: '조회', value: compactKo(g.views) },
+        { label: '북마크', value: `${fmt(g.bookmarks)} (${(g.bookmarks / g.views * 100).toFixed(2)}%)` },
+      ],
+      note: g.posts.length > 1 ? `글 ${g.posts.length}개 묶음 — 글별 몫은 성적표에서 펼쳐 보기` : undefined,
+    },
+  };
+});
 
 export const weeks = ['8/10', '8/17', '8/24', '8/31', '9/7', '9/14', '9/21', '9/28'];
 export const weeklyInflow = [42, 19, 12, 18, 39, 54, 21, 44];

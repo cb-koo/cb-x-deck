@@ -141,13 +141,40 @@ export function ChartCard({ icon, title, value, valueSub, delta, headline, info,
   );
 }
 
-// 마우스 올림 상세 — 카드 안 절대 위치.
+// 마우스 올림 상세 — 카드 안 절대 위치. 내용은 TipBody 형식(제목 → 부제 → 이름·값 줄 → 메모)으로 통일.
+const TIP_W = 248;
 export function Tip({ x, y, width, children }: { x: number; y: number; width: number; children: ReactNode }) {
-  const left = Math.min(Math.max(x - 100, 0), Math.max(width - 200, 0));
+  const left = Math.min(Math.max(x - TIP_W / 2, 0), Math.max(width - TIP_W, 0));
   return (
-    <div role="status" style={{ position: 'absolute', left, top: Math.max(y - 8, 0), transform: 'translateY(-100%)', width: 200, pointerEvents: 'none',
-      background: '#fff', borderRadius: 8, boxShadow: '0 4px 16px rgba(15,20,25,.12)', padding: '8px 10px', fontSize: 12, color: C.text, lineHeight: 1.5, zIndex: 2 }}>
+    <div role="status" style={{ position: 'absolute', left, top: Math.max(y - 10, 0), transform: 'translateY(-100%)', width: TIP_W, pointerEvents: 'none',
+      background: '#fff', borderRadius: 10, boxShadow: '0 6px 20px rgba(15,20,25,.14)', padding: '10px 12px', color: C.text, zIndex: 3 }}>
       {children}
+    </div>
+  );
+}
+
+// 상세 내용 형식 — 줄글 금지. 제목(무엇) · 부제(언제) · 이름/값 줄(값은 오른쪽 정렬, 핵심 값만 굵게) · 메모(있으면, 맨 아래 흐리게).
+export type TipRow = { label: string; value: string; strong?: boolean; tone?: 'up' | 'down' | 'muted'; section?: boolean };
+export type TipData = { title: string; sub?: string; rows: TipRow[]; note?: string };
+export function TipBody({ title, sub, rows, note }: TipData) {
+  const toneColor = { up: C.primaryDeep, down: '#a14d00', muted: C.muted } as const;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+        {sub && <div style={{ fontSize: 12, color: C.muted }}>{sub}</div>}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, borderTop: '1px solid #eef1f3', paddingTop: 6 }}>
+        {rows.map((r, i) => r.section
+          ? <div key={i} style={{ fontSize: 11, fontWeight: 700, color: C.muted, marginTop: 4 }}>{r.label}</div>
+          : (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, lineHeight: 1.45 }}>
+              <span style={{ color: C.secondary, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span>
+              <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: r.strong ? 700 : 500, color: r.tone ? toneColor[r.tone] : C.text }}>{r.value}</span>
+            </div>
+          ))}
+      </div>
+      {note && <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.45, borderTop: '1px solid #eef1f3', paddingTop: 6 }}>{note}</div>}
     </div>
   );
 }

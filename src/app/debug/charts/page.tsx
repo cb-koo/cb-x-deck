@@ -19,6 +19,7 @@ const Icon = {
   calendar: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></svg>,
   list: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" /></svg>,
   funnel: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"><path d="M3.5 5h17l-6.5 7.5V19l-4 1.5v-8z" /></svg>,
+  scatter: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 4v16h16" /><circle cx="9" cy="14" r="1.6" /><circle cx="13" cy="9" r="2.2" /><circle cx="17.5" cy="12" r="1.4" /></svg>,
   grid: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.5" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.5" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.5" /></svg>,
 };
 
@@ -91,13 +92,21 @@ export default function ChartKitSample() {
               note: ['신규 인입은 클리닉 전체 합계라 글 하나의 효과는 직접 잴 수 없어요'],
             }}>
             <PostScoreTable groups={D.postGroupsData} />
-            <details style={{ marginTop: 12 }}>
-              <summary style={{ fontSize: 13, color: C.primaryDeep, cursor: 'pointer' }}>조회수와 인입의 관계 그래프로 보기</summary>
-              <div style={{ marginTop: 8 }}>
-                <BubbleScatter points={D.bubbles} xName="조회수 (눈금마다 10배)" yName="인입 증가(명)" />
-              </div>
-            </details>
           </ChartCard>
+
+          <ChartCard icon={Icon.scatter} title="조회와 인입의 관계 · 게시 묶음별"
+            headline="조회가 많다고 인입이 느는 건 아니에요"
+            info={{
+              what: '게시 묶음마다 조회수와 신규 인입 증가를 한 점으로',
+              read: ['오른쪽일수록 조회가 많은 묶음', '위쪽일수록 인입이 많이 늘어난 묶음', '원이 클수록 북마크가 많음', '원에 마우스를 올리면 상세가 보여요'],
+              calc: ['가로 눈금은 한 칸마다 10배(1만 → 10만 → 100만)', '인입 증가는 성적표와 같은 셈법'],
+              note: ['묶음이 5개뿐이라 경향을 보는 용도예요'],
+            }}>
+            <BubbleScatter points={D.bubbles} xName="조회수" yName="인입 증가(명)" height={320} />
+          </ChartCard>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: 16, alignItems: 'start' }}>
 
           <ChartCard icon={Icon.funnel} title="9월 고객 흐름 · 8월 비교"
             headline="상담은 크게 늘었는데(+76명), 예약은 +2명에 그쳤어요"
@@ -110,7 +119,6 @@ export default function ChartKitSample() {
             action="9월 실주 23건 — 상담에서 예약으로 못 넘어간 이유를 CS와 확인해요">
             <FunnelList steps={D.funnel} compareName="8월" />
           </ChartCard>
-        </div>
 
         <ChartCard icon={Icon.grid} title="첫 문의 후 예약까지 · 주별 누적"
           headline="예약하는 사람은 대부분 첫 문의 3일 안에 해요"
@@ -122,6 +130,7 @@ export default function ChartKitSample() {
           }}>
           <CohortGrid columns={D.cohortColumns} rows={D.cohortRows} max={50} minN={20} />
         </ChartCard>
+        </div>
       </div>
     </main>
   );

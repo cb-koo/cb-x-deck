@@ -2,13 +2,13 @@
 import { useState } from 'react';
 import { scaleBand, scaleLinear, scaleSqrt } from 'd3-scale';
 import { C, S, T, NUM, compact } from './tokens';
-import { useWidth, Tip } from './ChartCard';
+import { useWidth, Tip, TipBody, type TipRow } from './ChartCard';
 import { niceMax } from './TimeCompareChart';
 
 // 일별 막대 + (선택) 위쪽 게시물 줄 — 같은 날짜 축에 위아래로 놓아 "게시 → 반응" 시차를 보여 준다.
 // 사용자 관점 검토(10-09): 원은 한 가지만 뜻한다(크기 = 북마크 수). 같은 날 글은 한 원으로 합친다.
 // 기록이 없는 구간(dimBefore 이전)은 막대를 흐리게 하고 강조하지 않는다 — 원인 정보 없는 강조는 의문만 남긴다.
-export type DayEvent = { date: string; weight: number; count: number; label?: string; tip: string[] };
+export type DayEvent = { date: string; weight: number; count: number; label?: string; posts: Array<{ handle: string; bookmarks: number; views: number }> };
 export type DayNote = { date: string; text: string };
 type Props = {
   days: string[]; values: Array<number | null>; band?: [number, number]; highlightAbove?: number;
@@ -91,9 +91,17 @@ export function DayBarsChart({ days, values, band, highlightAbove, events, dimBe
       )}
       {hover !== null && width > 0 && (
         <Tip x={cx(days[hover])} y={y(values[hover] ?? 0)} width={width}>
-          <div style={{ fontWeight: 600 }}>{short(days[hover])} ({'일월화수목금토'[new Date(days[hover] + 'T00:00:00Z').getUTCDay()]})</div>
-          <div>{valueName}: <b>{values[hover] ?? '—'}명</b>{hot(hover) ? ' · 크게 튄 날' : ''}{dimmed(hover) ? ' · 게시 기록 없는 기간' : ''}</div>
-          {evByDay.get(days[hover])?.tip.map((t, k) => <div key={k} style={{ color: C.secondary }}>{t}</div>)}
+          <TipBody
+            title={`${short(days[hover])} (${'일월화수목금토'[new Date(days[hover] + 'T00:00:00Z').getUTCDay()]})`}
+            sub={hot(hover) ? '크게 튄 날' : dimmed(hover) ? '게시 기록 없는 기간' : band && (values[hover] ?? 0) > band[1] ? '평소보다 많은 날' : undefined}
+            rows={[
+              { label: valueName, value: `${values[hover] ?? '—'}명`, strong: true, tone: hot(hover) ? 'up' : undefined },
+              ...(band ? [{ label: '평소 하루', value: `${band[0]}~${band[1]}명`, tone: 'muted' as const }] : []),
+              ...((evByDay.get(days[hover])?.posts.length ?? 0) > 0 ? [{ label: `이날 게시 ${evByDay.get(days[hover])?.posts.length}개`, value: '', section: true }] : []),
+              ...((evByDay.get(days[hover])?.posts ?? []).slice(0, 3).map((p): TipRow => ({ label: `@${p.handle}`, value: `북마크 ${NUM.format(p.bookmarks)}` }))),
+            ]}
+            note={(evByDay.get(days[hover])?.posts.length ?? 0) > 3 ? `외 ${(evByDay.get(days[hover])?.posts.length ?? 0) - 3}개` : undefined}
+          />
         </Tip>
       )}
     </div>

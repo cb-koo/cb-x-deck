@@ -2,12 +2,12 @@
 import { useState } from 'react';
 import { scaleLinear, scaleLog, scaleSqrt } from 'd3-scale';
 import { C, S, T, compact } from './tokens';
-import { useWidth, Tip } from './ChartCard';
+import { useWidth, Tip, TipBody, type TipData } from './ChartCard';
 
 // 게시물 산점도 — 상관을 보는 차트(Material: correlation = scatter/bubble). 점 하나 = 게시물 하나.
 // 가로 = 조회(로그, 차이가 수백 배라), 세로 = 반응 지표, 원 크기 = 세 번째 값(면적 비례). 0 기준선은 점선 + 직접 라벨.
-// 이름표는 강조할 점에만 직접 붙인다(범례 대신). 나머지는 마우스 올림.
-export type Bubble = { id: string; x: number; y: number; size: number; label?: string; strong?: boolean; tip: string[] };
+// 이름표는 직접 붙인다(범례 대신). 마우스를 올리면 그 점만 또렷하게, 나머지는 흐리게 + 정리된 상세(TipBody).
+export type Bubble = { id: string; x: number; y: number; size: number; label?: string; strong?: boolean; tip: TipData };
 type Props = { points: Bubble[]; xName: string; yName: string; height?: number; zeroLabel?: string };
 
 export function BubbleScatter({ points, xName, yName, height = 300, zeroLabel = '평소와 같음' }: Props) {
@@ -42,20 +42,20 @@ export function BubbleScatter({ points, xName, yName, height = 300, zeroLabel = 
           <text x={4} y={12} fontSize={T.axis} fill={C.muted}>↑ {yName}</text>
           {[...points].sort((a, b) => b.size - a.size).map((p) => (
             <circle key={p.id} cx={x(p.x)} cy={y(p.y)} r={r(p.size)}
-                    fill={p.strong ? C.primary : C.primaryDeep} fillOpacity={p.strong ? 0.75 : 0.28}
+                    fill={p.strong ? C.primary : C.primaryDeep} fillOpacity={(p.strong ? 0.75 : 0.32) * (hover && hover !== p.id ? 0.35 : 1)}
                     stroke={hover === p.id ? C.text : '#fff'} strokeWidth={hover === p.id ? 1.5 : 1}
                     onMouseEnter={() => setHover(p.id)} onMouseLeave={() => setHover(null)} style={{ cursor: 'default' }} />
           ))}
           {points.filter((p) => p.label).map((p) => {
             const right = x(p.x) < plotW * 0.6;
             return <text key={p.id} x={x(p.x) + (right ? r(p.size) + 6 : -(r(p.size) + 6))} y={y(p.y) + 4}
-                         textAnchor={right ? 'start' : 'end'} fontSize={T.label} fontWeight={p.strong ? 700 : 400} fill={C.text}>{p.label}</text>;
+                         textAnchor={right ? 'start' : 'end'} fontSize={T.label} fontWeight={p.strong ? 700 : 400} fill={C.text} opacity={hover && hover !== p.id ? 0.35 : 1}>{p.label}</text>;
           })}
         </svg>
       )}
       {h && width > 0 && (
         <Tip x={x(h.x)} y={y(h.y) - r(h.size)} width={width}>
-          {h.tip.map((t, i) => <div key={i} style={i === 0 ? { fontWeight: 600 } : undefined}>{t}</div>)}
+          <TipBody {...h.tip} />
         </Tip>
       )}
     </div>

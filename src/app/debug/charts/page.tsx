@@ -41,7 +41,7 @@ export default function ChartKitSample() {
   const mp = D.postScores.find((p) => p.handle === 'mpchan_a');
   // 코호트 평균(인원 20명 이상 주만)
   const big = D.cohortRows.filter((r) => r.n >= 20);
-  const avgAt = (c: number) => { const v = big.filter((r) => r.cells[c] !== null); const n = v.reduce((s, r) => s + r.n, 0); return n ? Math.round(v.reduce((s, r) => s + (r.cells[c] as number) * r.n, 0) / n) : null; };
+  const avgAt = (c: number) => { const v = big.filter((r) => r.cells[c] !== null); const n = v.reduce((s, r) => s + r.n, 0); return v.length >= 2 && n ? Math.round(v.reduce((s, r) => s + (r.cells[c] as number) * r.n, 0) / n) : null; };
 
   return (
     <main style={{ background: '#fff', minHeight: '100vh', color: C.text }}>
@@ -118,8 +118,8 @@ export default function ChartKitSample() {
         </div>
 
         <ChartCard icon={Icon.grid} title="첫 문의 후 예약까지 · 첫 문의 주별 누적"
-          headline={<>예약하는 사람은 대부분 첫 문의 3일 안에 해요 <span style={{ color: C.muted, fontWeight: 400 }}>(평균 3일 안 {avgAt(1)}% → 30일 안 {avgAt(3)}%)</span></>}
-          definition="그 주에 처음 문의한 사람 중 N일 안에 예약한 비율. 빈칸 = 아직 그만큼 시간이 지나지 않음. 평균은 인원 20명 이상인 주만, 인원 가중."
+          headline={<>예약하는 사람은 대부분 첫 문의 3일 안에 해요 <span style={{ color: C.muted, fontWeight: 400 }}>(평균 3일 안 {avgAt(1)}%, 7일 안 {avgAt(2)}% — 그 뒤로는 거의 늘지 않아요)</span></>}
+          definition="그 주에 처음 문의한 사람 중 N일 안에 예약한 비율. 빈칸 = 아직 그만큼 시간이 지나지 않음. 평균은 인원 20명 이상인 주가 2개 이상일 때만, 인원 가중."
           footnote="LINE 대시보드 일회성 분석(10/9). 리포트 자동 반영은 LINE 쪽 연동 후.">
           <CohortGrid columns={D.cohortColumns} rows={D.cohortRows} max={50} minN={20} />
         </ChartCard>

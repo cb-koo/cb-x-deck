@@ -11,7 +11,7 @@ export function CohortGrid({ columns, rows, max, minN = 20 }: { columns: string[
   const avg = columns.map((_, c) => {
     const v = rows.filter((r) => r.n >= minN).map((r) => ({ v: r.cells[c], n: r.n })).filter((x) => x.v !== null) as Array<{ v: number; n: number }>;
     const n = v.reduce((s, x) => s + x.n, 0);
-    return n ? v.reduce((s, x) => s + x.v * x.n, 0) / n : null;
+    return v.length >= 2 && n ? v.reduce((s, x) => s + x.v * x.n, 0) / n : null; // 한 주뿐이면 평균이라 부르지 않는다
   });
   const color = (v: number) => HEAT[Math.min(HEAT.length - 1, Math.floor((v / top) * (HEAT.length - 0.001)))];
   const grid = `110px 52px repeat(${columns.length}, minmax(52px, 1fr))`;

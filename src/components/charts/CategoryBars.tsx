@@ -19,7 +19,7 @@ export function CategoryBars({ labels, values, band, height = 180, format = (v: 
   const last = labels.length - 1;
   const mid = (l: string) => (x(l) ?? 0) + x.bandwidth() / 2;
   return (
-    <div ref={ref} style={{ height }}>
+    <div ref={ref} style={{ minHeight: height }}>
       {width > 0 && (
         <svg width={width} height={height} role="img" aria-label={labels.map((l, i) => `${l} ${format(values[i])}`).join(', ')}>
           {band && <rect x={0} y={y(band[1])} width={width} height={Math.max(1, y(band[0]) - y(band[1]))} fill={C.band} />}

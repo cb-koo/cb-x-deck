@@ -51,8 +51,9 @@ export function PostPanel({ s, ids, picked, onPick, onClose }: {
   const find = (id: string) => s.posts.find((p) => p.id === id);
   const listed = ids.map(find).filter((p): p is StatusPost => !!p);
   const post = picked ? find(picked) ?? null : null;
-  // 이전·다음 = 이 클라이언트 글 전체를 북마크 많은 순으로
-  const order = [...s.posts].sort((a, b) => b.bookmarks - a.bookmarks);
+  // 이전·다음 = 이 클라이언트 글 전체를 북마크(게시 3일 값 — 판정과 같은 기준, 없으면 최신값) 많은 순으로
+  const bm = (x: StatusPost) => s.pool.find((q) => q.id === x.id)?.bm3?.value ?? x.bookmarks;
+  const order = [...s.posts].sort((a, b) => bm(b) - bm(a));
   const at = post ? order.findIndex((p) => p.id === post.id) : -1;
 
   return (

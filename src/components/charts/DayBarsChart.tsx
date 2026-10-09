@@ -15,11 +15,12 @@ type Props = {
   events?: DayEvent[]; dimBefore?: string; dimText?: string;
   notes?: DayNote[]; valueName: string; height?: number; bandLabel?: string;
   onSelectPosts?: (ids: string[]) => void; // 게시 원을 누르면 그날 글 id들(있을 때만 원이 눌린다)
+  selectedPostIds?: string[];               // 글 상세 패널에 열린 글 — 그 글이 든 원에 테두리
 };
 
 const STRIP = 78;
 
-export function DayBarsChart({ days, values, band, highlightAbove, events, dimBefore, dimText, notes = [], valueName, height = 190, bandLabel, onSelectPosts }: Props) {
+export function DayBarsChart({ days, values, band, highlightAbove, events, dimBefore, dimText, notes = [], valueName, height = 190, bandLabel, onSelectPosts, selectedPostIds = [] }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const stripH = events ? STRIP : 0;
@@ -58,7 +59,8 @@ export function DayBarsChart({ days, values, band, highlightAbove, events, dimBe
               {[...events].sort((a, b) => b.weight - a.weight).map((e) => (
                 <g key={e.date} style={{ cursor: onSelectPosts ? 'pointer' : undefined }}
                    onClick={onSelectPosts ? () => { const ids = e.posts.map((p) => p.id).filter((v): v is string => !!v); if (ids.length) onSelectPosts(ids); } : undefined}>
-                  <circle cx={cx(e.date)} cy={stripH / 2 + 6} r={Math.max(3, r(e.weight))} fill={C.primaryDeep} fillOpacity={0.55} stroke="#fff" strokeWidth={1} />
+                  <circle cx={cx(e.date)} cy={stripH / 2 + 6} r={Math.max(3, r(e.weight))} fill={C.primaryDeep} fillOpacity={0.55}
+                          stroke={e.posts.some((p) => p.id && selectedPostIds.includes(p.id)) ? C.text : '#fff'} strokeWidth={e.posts.some((p) => p.id && selectedPostIds.includes(p.id)) ? 2 : 1} />
                   {e.count > 1 && r(e.weight) >= 9 && <text x={cx(e.date)} y={stripH / 2 + 10} textAnchor="middle" fontSize={11} fontWeight={700} fill="#fff">{e.count}</text>}
                 </g>
               ))}

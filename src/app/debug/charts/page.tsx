@@ -10,6 +10,11 @@ import { C, NUM } from '@/components/charts/tokens';
 import { NORMAL_RULE, normalRange, spikeThreshold, verdictOf, VERDICT_TEXT, VERDICT_SHORT } from '@/components/charts/normal';
 import * as D from './sampleData';
 import * as P from './partsData';
+import * as X from './extrasData';
+import { GrowthCurves } from '@/components/charts/GrowthCurves';
+import { BulletList } from '@/components/charts/BulletList';
+import { DotStrip, Histogram } from '@/components/charts/Distribution';
+import { SmallMultiples } from '@/components/charts/SmallMultiples';
 import { SegmentedBar, SegmentLegend } from '@/components/charts/SegmentedBar';
 import { BarList } from '@/components/charts/BarList';
 import { LineChart } from '@/components/charts/LineChart';
@@ -254,6 +259,43 @@ export default function ChartKitSample() {
             </div>
           </ChartCard>
         </div>
+
+        <div style={{ marginTop: 32, borderTop: '1px solid #e6ebee', paddingTop: 24 }}>
+          <div style={{ fontSize: 13, color: C.muted }}>아직 쓰지 않지만 곧 쓸 차트 · 실제 데이터</div>
+          <h2 style={{ margin: '4px 0 0', fontSize: 20, fontWeight: 800 }}>추가 차트</h2>
+        </div>
+
+        <ChartCard icon={Icon.users} title="경과 시간별 누적 조회 · 9/25~10/8 게시물"
+          headline="Purichan 9/28 글은 첫날부터 다른 글들과 전혀 다른 속도로 컸어요"
+          info={{ what: '게시 후 시간이 지나며 조회가 어떻게 쌓였나', read: ['파란 선 = 강조한 글', '회색 선 = 다른 글', '회색 띠 = 같은 시각 다른 글들의 가운데 절반', '마우스를 올리면 그 시각 값과 비교가 보여요'], calc: ['가로·세로 모두 눈금마다 배로 늘어요(1·2·4·8시간…, 1천·1만·10만…)', '측정은 게시 후 15분~7일 자동 측정 기록'], note: ['10월 초 글부터 측정이 촘촘해요. 그 전 글은 측정 간격이 들쭉날쭉해요'] }}>
+          <GrowthCurves curves={X.curves} highlightId={X.highlightCurve} />
+        </ChartCard>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: 16, alignItems: 'start' }}>
+          <ChartCard icon={Icon.calendar} title="불릿 · 10월 예산 소진 속도 (10/9 기준)"
+            headline="더스퀘어치과만 적정 속도, 나머지 3곳은 집행이 느려요"
+            info={{ what: '이번 기간 예산을 날짜에 맞게 쓰고 있나', read: ['진한 파랑 = 집행', '연한 파랑 = 예정까지 포함', '검은 세로선 = 오늘 기준 적정 소진선'], calc: ['적정 = 기간이 지난 비율 × 예산', '집행이 적정보다 10%p 넘게 낮으면 느림, 높으면 빠름'] }}>
+            <BulletList rows={X.budgets} />
+          </ChartCard>
+
+          <ChartCard icon={Icon.funnel} title="히스토그램 · 첫 문의 후 방문까지"
+            headline="가장 많은 건 첫 문의 후 15~30일에 방문(31%)"
+            info={{ what: '미모드림 고객이 첫 문의 후 며칠 만에 방문했나', read: ['막대 위 = 전체 중 비율', '파란 막대 = 가운데값(17일)이 든 구간'], note: ['LINE 대시보드 일회성 분석(10/9)'] }}>
+            <Histogram buckets={X.leadBuckets} medianIndex={3} unit="명" />
+          </ChartCard>
+        </div>
+
+        <ChartCard icon={Icon.scatter} title="점 분포 · 9월 게시물 조회당 비용"
+          headline="같은 클라이언트 안에서도 조회당 비용이 100배 넘게 차이 나요"
+          info={{ what: '9월 인용RT 게시물 하나하나의 조회당 비용', read: ['점 하나 = 게시물 하나', '검은 세로 막대 = 그 클라이언트의 가운데값', '점에 마우스를 올리면 상세'], calc: ['조회당 비용 = 작업 비용 ÷ 마지막으로 잰 조회', '가로 눈금은 칸마다 10배'] }}>
+          <DotStrip rows={X.cpvRows} unit="원" ticks={[0.1, 1, 10, 100]} />
+        </ChartCard>
+
+        <ChartCard icon={Icon.grid} title="작은 차트 나란히 · 클라이언트별 신규 인입 12주"
+          headline="같은 눈금으로 보면 미모드림만 9월에 크게 늘었어요"
+          info={{ what: '같은 지표를 클라이언트마다 같은 모양·같은 세로 눈금으로', read: ['파란 막대 = 지난주', '회색 띠 = 그 클라이언트의 평소 범위', '세로 눈금을 공유해서 크기를 바로 비교할 수 있어요'] }}>
+          <SmallMultiples items={X.multiples} labels={X.multiWeeks} unit="명" />
+        </ChartCard>
       </div>
     </main>
   );

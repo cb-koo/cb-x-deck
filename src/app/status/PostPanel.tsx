@@ -21,6 +21,8 @@ const kst = (iso: string, withTime = true) => new Date(iso).toLocaleString('ko-K
   timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', weekday: 'short', ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}),
 });
 const won = (n: number) => `${NUM.format(Math.round(n))}원`;
+// 단가는 1원 안팎이 흔하다(조회당) — 10원 미만은 소수 첫째 자리까지
+const unitWon = (n: number) => `${n < 10 ? n.toFixed(1) : NUM.format(Math.round(n))}원`;
 
 // ids = 누른 자리의 글들(같은 날 여러 개일 수 있음), picked = 그중 고른 한 개. 여러 개에서 고른 뒤엔 '← 글 목록'으로 돌아간다.
 export function PostPanel({ s, ids, picked, onPick, onClose }: { s: ClientStatus; ids: string[]; picked: string | null; onPick: (id: string | null) => void; onClose: () => void }) {
@@ -131,7 +133,7 @@ function PostDetail({ s, p }: { s: ClientStatus; p: StatusPost }) {
         </div>
         {p.costKrw > 0 && (
           <p className="mt-2 text-[14px] tabular-nums text-x-secondary">
-            조회 1회당 <b className="text-x-text">{p.views ? won(p.costKrw / p.views) : '—'}</b> · 북마크 1개당 <b className="text-x-text">{p.bookmarks ? won(p.costKrw / p.bookmarks) : '—'}</b>
+            조회 1회당 <b className="text-x-text">{p.views ? unitWon(p.costKrw / p.views) : '—'}</b> · 북마크 1개당 <b className="text-x-text">{p.bookmarks ? unitWon(p.costKrw / p.bookmarks) : '—'}</b>
           </p>
         )}
         <p className="mt-1 text-[13px] text-x-muted">{p.capturedAt ? `${kst(p.capturedAt)}에 잰 값` : '아직 측정 전이에요'}</p>

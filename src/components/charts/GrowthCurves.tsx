@@ -10,6 +10,9 @@ import { useWidth, Tip, TipBody } from './ChartCard';
 // 측정 시점은 자동 측정 일정(게시 후 15분~7일)에 맞춰 들어온다. 1시간 전 측정은 너무 작아 그리지 않는다.
 export type Curve = { id: string; label: string; points: Array<[number, number]> };
 const TICKS_H = [1, 2, 4, 8, 12, 24, 48, 72, 168];
+const TICKS_NARROW = [1, 4, 24, 72, 168]; // 좁은 자리(글 상세 패널 등)에선 이름표가 겹쳐 줄인다
+const NARROW_W = 420;
+const BAND_MIN_POINTS = 4; // 띠는 측정이 촘촘한 글로만 — 듬성한 글이 시각마다 들락날락하면 띠가 톱니가 된다
 const hLabel = (h: number) => (h < 24 ? `${h}시간` : h === 168 ? '7일' : `${h / 24}일`);
 
 function interp(points: Array<[number, number]>, h: number): number | null {
@@ -39,7 +42,9 @@ export function GrowthCurves({ curves, highlightId, height = 280, onSelect }: { 
   const yTicks: number[] = []; for (let v = yLo; v <= yHi; v *= 10) yTicks.push(v);
   const mk = line<[number, number]>().x(([h]) => x(h)).y(([, v]) => y(Math.max(v, yLo))).curve(curveLinear);
   // 띠: 각 눈금 시각에서 다른 글들의 가운데 절반(3개 이상 있을 때만)
-  const bandPts = TICKS_H.map((h) => { const vs = curves.filter((c) => c.id !== highlightId).map((c) => interp(c.points, h)).filter((v): v is number => v !== null).sort((a, b) => a - b); return vs.length >= 3 ? { h, lo: q(vs, 0.25), hi: q(vs, 0.75), n: vs.length } : null; }).filter((b): b is { h: number; lo: number; hi: number; n: number } => b !== null);
+  const ticks = plotW < NARROW_W ? TICKS_NARROW : TICKS_H;
+  const dense = curves.filter((c) => c.id !== highlightId && c.points.filter(([h]) => h >= 1).length >= BAND_MIN_POINTS);
+  const bandPts = TICKS_H.map((h) => { const vs = dense.map((c) => interp(c.points, h)).filter((v): v is number => v !== null).sort((a, b) => a - b); return vs.length >= 3 ? { h, lo: q(vs, 0.25), hi: q(vs, 0.75), n: vs.length } : null; }).filter((b): b is { h: number; lo: number; hi: number; n: number } => b !== null);
   const bandPath = bandPts.length > 1 ? `M${bandPts.map((b) => `${x(b.h)},${y(b.hi)}`).join('L')}L${[...bandPts].reverse().map((b) => `${x(b.h)},${y(b.lo)}`).join('L')}Z` : '';
   const hl = curves.find((c) => c.id === highlightId);
   const hlPts = hl ? hl.points.filter(([h]) => h >= 1) : [];
@@ -60,7 +65,7 @@ export function GrowthCurves({ curves, highlightId, height = 280, onSelect }: { 
               <text x={width} y={y(v) + 4} textAnchor="end" fontSize={T.axis} fill={C.muted}>{compact(v)}</text>
             </g>
           ))}
-          {TICKS_H.map((h) => (
+          {ticks.map((h) => (
             <g key={h}>
               <line x1={x(h)} x2={x(h)} y1={padT + plotH} y2={padT + plotH + 4} stroke={C.axis} />
               <text x={x(h)} y={height - 6} textAnchor={h === 1 ? 'start' : 'middle'} fontSize={T.axis} fill={h === 24 || h === 168 ? C.text : C.muted}>{hLabel(h)}</text>

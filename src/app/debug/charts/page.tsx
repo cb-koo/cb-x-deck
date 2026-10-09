@@ -57,7 +57,7 @@ export default function ChartKitSample() {
             headline={<>지난주 신규 인입은 {VERDICT_TEXT[inflowV]} <span style={{ color: C.muted, fontWeight: 400 }}>(평소 {inflowBand[0]}~{inflowBand[1]}명)</span></>}
             definition="그 주에 LINE으로 처음 말을 건 사람 수. 기존 고객 재문의는 빼요."
             legend={<Legend items={[{ label: '지난주', kind: 'bar', color: C.primary }, { label: `평소 ${inflowBand[0]}~${inflowBand[1]}명`, kind: 'band', color: C.band }]} />}>
-            <CategoryBars labels={D.weeks} values={D.weeklyInflow} band={inflowBand} format={(v) => `${v}`} />
+            <CategoryBars labels={D.weeks} values={D.weeklyInflow} band={inflowBand} />
           </ChartCard>
 
           <ChartCard icon={Icon.bookmark} title="X 북마크 · 주별" value={NUM.format(bmNow)}

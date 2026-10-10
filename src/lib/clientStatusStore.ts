@@ -4,7 +4,7 @@ import { addDays, mdLabel, suggestDecision, weeklyX, sum4, isDecision, type Deci
   valueAtHorizon, ACCRUAL_DEFAULT, H_BOOKMARKS, H_VIEWS, MIN_MEASURE_H, type Accrual, type Check, type StatusCounts, countTotal, type ReviewSnapshot } from './clientStatus.ts';
 import { groupPosts, type PostGroup } from '../components/charts/postGroups.ts';
 import { campaignWeeksBack, prevCampaignWeek, type CampaignWeek } from './campaignWeek.ts';
-import { defaultPeriod, periodParam, periodLabel, isInProgress, stepPeriod, canStepNext, type Period } from './reportPeriod.ts';
+import { defaultPeriod, periodParam, periodLabel, isInProgress, stepPeriod, canStepNext, switchKind, type Period } from './reportPeriod.ts';
 import { typical } from '../components/charts/normal.ts';
 
 const WEEKS = 12;
@@ -13,6 +13,8 @@ const GROWTH_DAYS = 14;
 const MIN_BOOKMARKS = 50;
 const JPY_TO_KRW = 10;
 
+/** 작업 비용(원) — 엔은 ×10 */
+export const krw = (cost: { amount?: number; currency?: string } | null) => (cost?.amount ? Number(cost.amount) * (cost.currency === 'JPY' ? JPY_TO_KRW : 1) : 0);
 const isoDate = (v: Date | string) => (v instanceof Date ? v : new Date(v)).toISOString().slice(0, 10);
 const num = (v: unknown): number | null => (v === null || v === undefined || v === '' ? null : Number(v));
 
@@ -46,10 +48,12 @@ export interface ResultSummary {
 }
 
 // 화면이 기간 선택기를 그리는 데 필요한 것 — 계산은 서버(reportPeriod.ts)가 하고 화면은 그대로 쓴다
-export interface PeriodInfo { kind: 'week' | 'month'; param: string; label: string; start: string; end: string; days: number; inProgress: boolean; prevParam: string; nextParam: string | null }
+export interface PeriodInfo { kind: 'week' | 'month'; param: string; label: string; start: string; end: string; days: number; inProgress: boolean; prevParam: string; nextParam: string | null; altParam: string; latestParam: string }
 export function periodInfo(p: Period, today: string): PeriodInfo {
   return { kind: p.kind, param: periodParam(p), label: periodLabel(p), start: p.start, end: p.end, days: p.days, inProgress: isInProgress(p, today),
-    prevParam: periodParam(stepPeriod(p, -1)), nextParam: canStepNext(p, today) ? periodParam(stepPeriod(p, 1)) : null };
+    prevParam: periodParam(stepPeriod(p, -1)), nextParam: canStepNext(p, today) ? periodParam(stepPeriod(p, 1)) : null,
+    altParam: periodParam(switchKind(p, p.kind === 'week' ? 'month' : 'week', today)),   // 주간 ↔ 월간 전환 때 같은 시점
+    latestParam: periodParam(defaultPeriod(p.kind, today)) };                           // 끝난 가장 최근 기간
 }
 // 주차 하나의 리포트 값을 어디서 가져왔나 — cweek(캠페인 주차 그대로) > week(월~일이 꽉 찬 주) > days(일별 합산: 사람 수는 근사)
 export type WeekSource = 'cweek' | 'week' | 'days' | null;
@@ -122,31 +126,7 @@ export async function loadClientStatus(sql: postgres.Sql, clientId: string, toda
   const upcomingConfirmed = recs[recs.length - 1].upcoming;
   const dailyNew = days.map((d) => num(dayMap.get(d)?.nc));
 
-  // 우리 게시물·비용 — 이 클라이언트의 캠페인 작업(취소·삭제 제외). 게시 시각은 게시물 번호에서(KST 날짜).
-  const from = weeks[0];
-  const taskRows = await sql<Array<{
-    task_id: string; type: string; campaign_id: string; campaign_name: string; tp_id: string | null; tweet_id: string | null; unavailable_at: Date | null;
-    h: string | null; cost: { amount?: number; currency?: string } | null; posted_on: Date | null; tw_day: Date | null; tw: Date | null;
-    views: string | null; bookmarks: number | null; likes: number | null; retweets: number | null; replies: number | null; quotes: number | null; captured_at: Date | null;
-  }>>`
-    select t.id as task_id, t.type, cp.id as campaign_id, cp.name as campaign_name, tp.id as tp_id, tp.tweet_id, tp.unavailable_at,
-      t.influencer_handle as h, t.cost, (t.posted_at at time zone 'Asia/Seoul')::date as posted_on,
-      (to_timestamp((((substring(t.post_url from 'status/(\\d+)'))::numeric / 4194304)::bigint + 1288834974657) / 1000.0) at time zone 'Asia/Seoul')::date as tw_day,
-      to_timestamp((((substring(t.post_url from 'status/(\\d+)'))::numeric / 4194304)::bigint + 1288834974657) / 1000.0) as tw,
-      s.views, s.bookmarks, s.likes, s.retweets, s.replies, s.quotes, s.captured_at
-    from campaign_task t join campaign cp on cp.id = t.campaign_id
-    left join tracked_post tp on tp.task_id = t.id and t.post_url ~ ('/status/' || tp.tweet_id || '([/?#]|$)')
-    left join lateral (select views, bookmarks, likes, retweets, replies, quotes, captured_at from post_metric_snapshot s where s.tracked_post_id = tp.id order by captured_at desc limit 1) s on true
-    where cp.client_id = ${c.id} and t.removed_at is null and t.cancelled_at is null and t.posted_at is not null
-      and (t.posted_at at time zone 'Asia/Seoul')::date >= ${from}`;
-  const krw = (cost: { amount?: number; currency?: string } | null) => (cost?.amount ? Number(cost.amount) * (cost.currency === 'JPY' ? JPY_TO_KRW : 1) : 0);
-  const posts: StatusPost[] = taskRows.filter((r) => r.tw_day && r.tp_id && r.views !== null).map((r) => ({
-    id: r.tp_id as string, tweetId: r.tweet_id as string, handle: r.h ?? '', date: isoDate(r.tw_day as Date), postedAt: new Date(r.tw as Date).toISOString(),
-    views: Number(r.views), bookmarks: Number(r.bookmarks ?? 0), likes: r.likes ?? 0, retweets: r.retweets ?? 0, replies: r.replies ?? 0, quotes: r.quotes ?? 0,
-    taskId: r.task_id, taskType: r.type, campaignId: r.campaign_id, campaignName: r.campaign_name, costKrw: krw(r.cost),
-    capturedAt: r.captured_at ? new Date(r.captured_at).toISOString() : null, unavailable: !!r.unavailable_at,
-  }));
-  const costs = taskRows.filter((r) => r.posted_on).map((r) => ({ date: isoDate(r.posted_on as Date), krw: krw(r.cost) }));
+  const { posts, costs } = await loadClientPosts(sql, c.id, weeks[0]);
   const x = weeklyX(wks, posts, costs);
 
   const recentPosts = posts.filter((p) => p.date >= dayFrom && p.date <= baseEnd);   // 기간 뒤에 올린 글은 빼고
@@ -343,14 +323,14 @@ export function summarizeResult(weeks: Array<{ start: string; end: string }>, re
   };
 }
 
-type DayRow = { nc: string | null; act: string | null; con: string | null; rsv: string | null; rc: string | null; rv: string | null; st: Record<string, number> | null };
-interface WeekRecord {
+export type DayRow = { nc: string | null; act: string | null; con: string | null; rsv: string | null; rc: string | null; rv: string | null; st: Record<string, number> | null };
+export interface WeekRecord {
   source: WeekSource; newInflow: number | null; inflow: number | null; consulted: number | null; reservers: number | null;
   revCreated: number | null; revVisit: number | null; status: StatusCounts | null; upcoming: number | null;
 }
 const at = (o: unknown, path: string[]) => { let v: unknown = o; for (const k of path) v = v && typeof v === 'object' ? (v as Record<string, unknown>)[k] : undefined; return num(v); };
 /** 주차 하나의 값 — 스냅샷이 있으면 그대로, 없으면 일별을 더한다(신규 인입·매출·예약 상태는 정확, 인입·상담·예약자 같은 사람 수는 같은 사람이 겹쳐 근사). */
-function weekRecord(w: CampaignWeek, payload: Record<string, unknown> | undefined, kind: 'cweek' | 'week', dayMap: Map<string, DayRow>): WeekRecord {
+export function weekRecord(w: { start: string; end: string }, payload: Record<string, unknown> | undefined, kind: 'cweek' | 'week', dayMap: Map<string, DayRow>): WeekRecord {
   if (payload) {
     const st = (k: keyof StatusCounts) => at(payload, ['reservations', 'created_at', 'status_counts', k]) ?? 0;
     return {
@@ -371,4 +351,32 @@ function weekRecord(w: CampaignWeek, payload: Record<string, unknown> | undefine
     status: { visited: st('visited'), confirmed: st('confirmed'), reviewing: st('reviewing'), lost: st('lost'), cancelled: st('cancelled'), noshow: st('noshow') },
     upcoming: null,
   };
+}
+
+/** 우리 게시물·비용 — 이 클라이언트의 캠페인 작업(취소·삭제 제외, from 이후 게시). 게시 시각은 게시물 번호에서(KST 날짜).
+ *  주간·월간 보기가 같이 쓴다. 비용은 게시일 기준(엔 ×10). */
+export async function loadClientPosts(sql: postgres.Sql, clientId: string, from: string): Promise<{ posts: StatusPost[]; costs: Array<{ date: string; krw: number }> }> {
+  const taskRows = await sql<Array<{
+    task_id: string; type: string; campaign_id: string; campaign_name: string; tp_id: string | null; tweet_id: string | null; unavailable_at: Date | null;
+    h: string | null; cost: { amount?: number; currency?: string } | null; posted_on: Date | null; tw_day: Date | null; tw: Date | null;
+    views: string | null; bookmarks: number | null; likes: number | null; retweets: number | null; replies: number | null; quotes: number | null; captured_at: Date | null;
+  }>>`
+    select t.id as task_id, t.type, cp.id as campaign_id, cp.name as campaign_name, tp.id as tp_id, tp.tweet_id, tp.unavailable_at,
+      t.influencer_handle as h, t.cost, (t.posted_at at time zone 'Asia/Seoul')::date as posted_on,
+      (to_timestamp((((substring(t.post_url from 'status/(\\d+)'))::numeric / 4194304)::bigint + 1288834974657) / 1000.0) at time zone 'Asia/Seoul')::date as tw_day,
+      to_timestamp((((substring(t.post_url from 'status/(\\d+)'))::numeric / 4194304)::bigint + 1288834974657) / 1000.0) as tw,
+      s.views, s.bookmarks, s.likes, s.retweets, s.replies, s.quotes, s.captured_at
+    from campaign_task t join campaign cp on cp.id = t.campaign_id
+    left join tracked_post tp on tp.task_id = t.id and t.post_url ~ ('/status/' || tp.tweet_id || '([/?#]|$)')
+    left join lateral (select views, bookmarks, likes, retweets, replies, quotes, captured_at from post_metric_snapshot s where s.tracked_post_id = tp.id order by captured_at desc limit 1) s on true
+    where cp.client_id = ${clientId} and t.removed_at is null and t.cancelled_at is null and t.posted_at is not null
+      and (t.posted_at at time zone 'Asia/Seoul')::date >= ${from}`;
+  const posts: StatusPost[] = taskRows.filter((r) => r.tw_day && r.tp_id && r.views !== null).map((r) => ({
+    id: r.tp_id as string, tweetId: r.tweet_id as string, handle: r.h ?? '', date: isoDate(r.tw_day as Date), postedAt: new Date(r.tw as Date).toISOString(),
+    views: Number(r.views), bookmarks: Number(r.bookmarks ?? 0), likes: r.likes ?? 0, retweets: r.retweets ?? 0, replies: r.replies ?? 0, quotes: r.quotes ?? 0,
+    taskId: r.task_id, taskType: r.type, campaignId: r.campaign_id, campaignName: r.campaign_name, costKrw: krw(r.cost),
+    capturedAt: r.captured_at ? new Date(r.captured_at).toISOString() : null, unavailable: !!r.unavailable_at,
+  }));
+  const costs = taskRows.filter((r) => r.posted_on).map((r) => ({ date: isoDate(r.posted_on as Date), krw: krw(r.cost) }));
+  return { posts, costs };
 }

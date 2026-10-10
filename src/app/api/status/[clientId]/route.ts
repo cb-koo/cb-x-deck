@@ -4,6 +4,7 @@ import { requireAllowedUser } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { kstToday } from '@/lib/datetime';
 import { loadClientStatus } from '@/lib/clientStatusStore';
+import { loadClientMonth } from '@/lib/clientMonthStore';
 import { parsePeriod } from '@/lib/reportPeriod';
 
 const NOT_FOUND = () => NextResponse.json({ error: '리포트가 연결된 클라이언트가 아니에요' }, { status: 404 });
@@ -15,6 +16,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ clientId: strin
   const { clientId } = await ctx.params;
   if (!isUuidLike(clientId)) return NOT_FOUND();
   const today = kstToday();
-  const s = await loadClientStatus(getSql(), clientId, today, parsePeriod(new URL(req.url).searchParams.get('period'), today));
-  return s ? NextResponse.json(s) : NOT_FOUND();
+  const period = parsePeriod(new URL(req.url).searchParams.get('period'), today);
+  if (period.kind === 'month') {
+    const m = await loadClientMonth(getSql(), clientId, today, period);
+    return m ? NextResponse.json(m) : NOT_FOUND();
+  }
+  const s = await loadClientStatus(getSql(), clientId, today, period);
+  return s ? NextResponse.json({ kind: 'week', ...s }) : NOT_FOUND();
 }

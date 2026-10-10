@@ -155,3 +155,13 @@ export interface ReviewSnapshot {
   roas4: number | null; lostRate: number | null;
   checks: Check[]; reason: string;
 }
+
+// ── 월 방향(큰 방향, 클라이언트 월간 보고에 맞춤 — koo 10-10) ──
+export type Direction = 'expand' | 'keep' | 'shrink' | 'pivot';
+export const DIRECTIONS: Direction[] = ['expand', 'keep', 'shrink', 'pivot'];
+export const DIRECTION_LABEL: Record<Direction, string> = { expand: '확대', keep: '유지', shrink: '축소', pivot: '전환' };
+export const DIRECTION_HELP: Record<Direction, string> = {
+  expand: '예산·물량을 늘림', keep: '지금 규모 그대로', shrink: '예산·물량을 줄임', pivot: '방식 자체를 바꿈(콘텐츠 방향·채널 등)',
+};
+export const isDirection = (v: unknown): v is Direction => v === 'expand' || v === 'keep' || v === 'shrink' || v === 'pivot';
+export interface MonthSnapshot { newInflow: number | null; revenue: number | null; roas: number | null; budgetUsed: number | null; weekVerdicts: Partial<Record<Decision, number>> }

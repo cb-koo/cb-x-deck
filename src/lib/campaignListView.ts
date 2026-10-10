@@ -1,5 +1,6 @@
 // 캠페인 목록(v2 왼쪽) 순수 규칙 — 스펙 2026-10-08-campaign-list-redesign §3. 화면·서버 공용(의존 없음).
-import { addDays, daysBetweenDates, suggestCampaignName, weekStartOf } from './campaignJudgment.ts';
+import { daysBetweenDates } from './campaignJudgment.ts';
+import { campaignWeekOf, nextCampaignWeek, prevCampaignWeek, campaignWeekName } from './campaignWeek.ts';
 import type { CampaignProgress } from './campaignStore.ts';
 
 export type CampaignDot = 'grey' | 'green' | 'yellow' | 'red';
@@ -47,9 +48,9 @@ export function campaignRowLabel(
   return { title: client, suffix: rest };
 }
 
-export const weekKey = (date: string): string => weekStartOf(date);
-// 캠페인 이름 규칙과 같은 목요일 판정(suggestCampaignName) — 클라이언트 없이 호출하면 'M월N주차'만 나온다.
-export const weekName = (date: string): string => suggestCampaignName('', date);
+// 묶음 = 캠페인 주차(월~일을 달이 바뀌는 날에서 자름 — campaignWeek.ts, koo 10-10). 키는 그 주차의 첫날.
+export const weekKey = (date: string): string => campaignWeekOf(date).start;
+export const weekName = (date: string): string => campaignWeekName(campaignWeekOf(date));
 
 export interface WeekGroup<T> { key: string; label: string; tone: 'current' | 'upcoming' | 'past'; rows: T[] }
 export interface CampaignSections<T> { long: T[]; upcoming: WeekGroup<T>[]; past: WeekGroup<T>[] }
@@ -59,9 +60,10 @@ const ko = (a: string | null, b: string | null) => (a ?? '').localeCompare(b ?? 
 export function campaignSections<T extends { name: string; clientName: string | null; startsOn: string; endsOn: string }>(
   rows: T[], today: string,
 ): CampaignSections<T> {
-  const thisWeek = weekKey(today);
-  const nextWeek = addDays(thisWeek, 7) as string;
-  const lastWeek = addDays(thisWeek, -7) as string;
+  const cur = campaignWeekOf(today);
+  const thisWeek = cur.start;
+  const nextWeek = nextCampaignWeek(cur).start;
+  const lastWeek = prevCampaignWeek(cur).start;
 
   const long = rows.filter((r) => isLongCampaign(r) && r.endsOn >= today)
     .sort((a, b) => a.startsOn.localeCompare(b.startsOn) || ko(a.name, b.name));

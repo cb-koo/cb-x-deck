@@ -10,11 +10,12 @@ const P = (posted: number, assigned: number, unassigned: number) => ({ planned: 
 const row = (name: string, clientName: string | null, startsOn: string, endsOn: string, clientId: string | null = clientName ? `id-${clientName}` : null) =>
   ({ name, clientName, clientId, startsOn, endsOn });
 
-test('weekKey·weekName: 월요일 키, 목요일 판정 주차 이름', () => {
+test('weekKey·weekName: 캠페인 주차(월 경계에서 자름) 첫날 키·이름', () => {
   assert.equal(weekKey('2026-10-08'), '2026-10-05');
   assert.equal(weekKey('2026-10-11'), '2026-10-05');
   assert.equal(weekName('2026-10-08'), '10월2주차');
-  assert.equal(weekName('2026-09-28'), '10월1주차'); // 월 9/28 → 목 10/1
+  assert.equal(weekName('2026-09-28'), '9월5주차');   // 9/28~9/30 — 운영 이름(koo 10-10)
+  assert.equal(weekKey('2026-10-03'), '2026-10-01');
   assert.equal(weekName('2026-10-04'), '10월1주차');
   assert.equal(weekName('2026-09-21'), '9월4주차');
 });
@@ -52,7 +53,7 @@ test('campaignRowLabel', () => {
 const W2a = row('미모드림_10월2주차', '미모드림', '2026-10-05', '2026-10-11');
 const W2b = row('가나다치과_10월2주차', '가나다치과', '2026-10-05', '2026-10-11');
 const LONG = row('백수약국_10월 방문협찬', '백수약국', '2026-10-01', '2026-10-31');
-const W1a = row('미모드림_10월1주차', '미모드림', '2026-09-28', '2026-09-30');
+const W1a = row('미모드림_9월5주차', '미모드림', '2026-09-28', '2026-09-30');
 const W1b = row('가나다치과_10월1주차', '가나다치과', '2026-10-01', '2026-10-04');
 const W94 = row('미모드림_9월4주차', '미모드림', '2026-09-21', '2026-09-27');
 
@@ -65,10 +66,11 @@ test('campaignSections: 장기·이번 주·다음 주(0개)·지난 주', () =>
   ]);
   assert.deepEqual(s.upcoming[0].rows, [W2b, W2a]); // 클라이언트 가나다순
   assert.deepEqual(s.past.map((g) => [g.label, g.tone, g.rows.length]), [
-    ['지난 주 · 10월1주차', 'past', 2],
+    ['지난 주 · 10월1주차', 'past', 1],
+    ['9월5주차', 'past', 1],
     ['9월4주차', 'past', 1],
   ]);
-  assert.deepEqual(s.past[0].rows, [W1b, W1a]);
+  assert.deepEqual(s.past[0].rows, [W1b]);
 });
 
 test('campaignSections: 다음 주·그 뒤 주차, 같은 클라이언트는 시작일순', () => {
@@ -82,10 +84,10 @@ test('campaignSections: 다음 주·그 뒤 주차, 같은 클라이언트는 �
 });
 
 test('campaignSections: 끝난 장기는 끝난 날의 주차로 지난 캠페인', () => {
-  const ended = row('백수약국_9월 방문협찬', '백수약국', '2026-09-01', '2026-09-30'); // 9/30 = 10월1주차 주(9/28~)
+  const ended = row('백수약국_9월 방문협찬', '백수약국', '2026-09-01', '2026-09-30'); // 9/30 = 9월5주차(9/28~9/30)
   const s = campaignSections([ended, LONG], TODAY);
   assert.deepEqual(s.long, [LONG]);
-  assert.deepEqual(s.past.map((g) => [g.label, g.rows]), [['지난 주 · 10월1주차', [ended]]]);
+  assert.deepEqual(s.past.map((g) => [g.label, g.rows]), [['9월5주차', [ended]]]);
 });
 
 test('campaignSections: 비어도 이번 주·다음 주는 있다 / 장기 없으면 빈 배열', () => {
@@ -149,7 +151,7 @@ test('campaignSections: 지난 주차 3개 이상은 최근 주가 위', () => {
   const w3 = row('a_9월3주차', 'a', '2026-09-14', '2026-09-20');
   const w2 = row('a_9월2주차', 'a', '2026-09-07', '2026-09-13');
   const s = campaignSections([w2, W94, W1a, w3], TODAY);
-  assert.deepEqual(s.past.map((g) => g.label), ['지난 주 · 10월1주차', '9월4주차', '9월3주차', '9월2주차']);
+  assert.deepEqual(s.past.map((g) => g.label), ['9월5주차', '9월4주차', '9월3주차', '9월2주차']); // 10월1주차가 비어 '지난 주' 묶음 없음
 });
 
 test('splitClientRows: 진행 중·예정 먼저(장기가 맨 위), 지난은 받은 순서 그대로', () => {

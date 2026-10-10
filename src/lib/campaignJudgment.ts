@@ -7,6 +7,7 @@ import { STATUS_LABEL, type DraftStatus } from './draftStatus.ts';
 import { checkCampaign } from './trackingLink.ts';
 import { sumMoney, mergeMoney, type ExtraCost, type MoneyByCurrency, type TaskCost } from './campaignCost.ts';
 import { PRICE_TYPES, PRICE_TYPE_LABEL, type PriceType } from './influencerPricing.ts';
+import { campaignWeekOf, nextCampaignWeek, campaignWeekName } from './campaignWeek.ts';
 
 const DAY_MS = 86_400_000;
 
@@ -42,10 +43,10 @@ export function weekStartOf(date: string): DateOnly {
 export function weekDays(weekStart: string): DateOnly[] {
   return Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 }
-// 새 캠페인 기본 기간 = 다음 월~일(스펙 §3-3)
+// 새 캠페인 기본 기간 = 다음 캠페인 주차(월~일, 달이 바뀌면 거기서 잘림 — campaignWeek.ts, koo 10-10)
 export function nextWeekRange(today: string): { startsOn: DateOnly; endsOn: DateOnly } {
-  const startsOn = addDays(weekStartOf(today), 7);
-  return { startsOn, endsOn: addDays(startsOn, 6) };
+  const w = nextCampaignWeek(campaignWeekOf(today));
+  return { startsOn: asDateOnly(w.start), endsOn: asDateOnly(w.end) };
 }
 const DOW_KO = ['일', '월', '화', '수', '목', '금', '토'];
 /** '8/26 수' — 표 예정일 칸·달력 헤더·밀림 문구. M/D는 datetime.ts의 date-only 표기를 그대로 쓴다. */
@@ -113,16 +114,11 @@ export interface PerfSummary { publishedCount: number; views: number | null; lik
 export interface CostRowInput { influencerHandle: string; extraCosts: ExtraCost[]; note: string }
 
 // ─────────────────────────── 이름·코드 제안(§2-1) ───────────────────────────
-// '{클라}_{M월N주차}' — 운영 중인 캠페인 이름(예: 미모드림_9월4주차)과 같은 모양(koo 09-28).
-// 캠페인 첫 주(월~일, startsOn을 포함하는 주)의 목요일로 월/주차를 정한다.
-// 시작일(또는 그 주의 월요일) 자체를 기준으로 삼으면, 다음 주 월요일이 그 달 29~31일에
-// 떨어지는 달이 잦아 달력일 기준이 실무에서 부르는 주차 표기와 어긋난다 — 그 주의 '무게 중심'인
-// 목요일을 쓰면 어느 요일에 시작해도 같은 주는 항상 같은 라벨을 받는다.
+// '{클라}_{M월N주차}' — 운영 중인 캠페인 이름(예: 미모드림_9월4주차)과 같은 모양.
+// 주차 = 실제 운영 규칙(월~일 주를 달이 바뀌는 날에서 잘라 그 달 N주차, campaignWeek.ts — koo 10-10).
+// 09-28에 정한 '그 주 목요일이 속한 달' 규칙은 운영과 달라(9/28~9/30을 10월로 셈) 바꿨다.
 export function suggestCampaignName(clientName: string, startsOn: string): string {
-  const thursday = addDays(weekStartOf(startsOn), 3);
-  const month = Number(thursday.slice(5, 7));
-  const week = Math.floor((Number(thursday.slice(8, 10)) - 1) / 7) + 1;
-  const base = `${month}월${week}주차`;
+  const base = campaignWeekName(campaignWeekOf(startsOn));
   const name = clientName.trim();
   return name ? `${name}_${base}` : base;
 }

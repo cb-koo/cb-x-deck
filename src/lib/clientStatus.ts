@@ -26,6 +26,8 @@ export const isDecision = (v: unknown): v is Decision => v === 'keep' || v === '
 
 export interface VerdictInput {
   newInflow: Array<number | null>;   // 주별(오래된 순, 마지막 = 기준 주)
+  weekDays?: number[];               // 주차마다 일수(캠페인 주차는 달 경계에서 잘려 3~7일) — 없으면 모두 7일
+  days4?: number; daysPrev4?: number; // 최근 4주차·직전 4주차의 일수 — 길이가 다르면 하루 평균으로 비교
   reservers4: number; reserversPrev4: number;
   posts2w: number;                    // 최근 2주 X 게시 수
   // 결과 구간(v2) — 없으면 그 점검은 건너뛴다
@@ -50,13 +52,16 @@ export function suggestDecision(i: VerdictInput): Suggestion {
   const checks = stageChecks(i);
   const known = i.newInflow.filter((v): v is number => v !== null);
   if (known.length < RULE_MIN_WEEKS) return { decision: 'hold', reason: `판단할 데이터가 ${RULE_MIN_WEEKS}주 미만이에요`, inflowVerdict: null, band: null, checks };
-  const band = normalRange(i.newInflow.slice(-8));
-  const last = i.newInflow[i.newInflow.length - 1], prev = i.newInflow[i.newInflow.length - 2];
+  // 짧은 주차(3~4일)가 늘 '평소보다 적음'이 되지 않게 7일 환산(값 × 7 ÷ 일수)으로 본다. 꽉 찬 주는 그대로라 band도 주 단위.
+  const rates = per7(i.newInflow, i.weekDays);
+  const band = normalRange(rates.slice(-8));
+  const last = rates[rates.length - 1], prev = rates[rates.length - 2];
   const vLast = last === null ? null : verdictOf(last, band);
   const vPrev = prev === null || prev === undefined ? null : verdictOf(prev, band);
   const out = (decision: Decision, reason: string, extra: Check[] = []): Suggestion => ({ decision, reason, inflowVerdict: vLast, band, checks: [...extra, ...checks] });
   if (vLast === 'below' && vPrev === 'below') return out('adjust', '신규 인입이 2주 연속 평소보다 적어요', [{ stage: 'campaign', text: '인입 감소' }]);
-  if (i.reserversPrev4 >= RULE_RESERVE_MIN_PREV && i.reservers4 * 2 <= i.reserversPrev4) {
+  const d4 = i.days4 ?? 28, dPrev = i.daysPrev4 ?? 28;
+  if (i.reserversPrev4 >= RULE_RESERVE_MIN_PREV && (i.reservers4 / d4) * 2 <= i.reserversPrev4 / dPrev) {
     // 사람은 오는데 예약만 줄었다면 캠페인 문제가 아니다 — 캠페인은 유지하고 상담→예약을 점검
     if (vLast === 'above' || vLast === 'normal') return out('keep', '지난주 인입은 평소 이상인데, 최근 4주 예약이 직전 4주의 절반 이하예요', [{ stage: 'conversion', text: '예약 전환 점검' }]);
     return out('adjust', '신규 인입과 예약이 함께 줄었어요', [{ stage: 'campaign', text: '인입·예약 감소' }]);
@@ -67,10 +72,16 @@ export function suggestDecision(i: VerdictInput): Suggestion {
 }
 
 /** 판정과 별개인 구간 점검 — 전환(실주)·결과(매출·비용) */
+/** 주차별 값 → 7일 환산(값 × 7 ÷ 그 주차 일수). 일수가 없거나 7이면 그대로. */
+export function per7(values: Array<number | null>, days?: number[]): Array<number | null> {
+  return values.map((v, k) => { const d = days?.[k] ?? 7; return v === null ? null : d === 7 ? v : Math.round(((v * 7) / d) * 10) / 10; });
+}
+
 function stageChecks(i: VerdictInput): Check[] {
   const c: Check[] = [];
+  const d4 = i.days4 ?? 28, dPrev = i.daysPrev4 ?? 28;
   if (i.lostRate !== undefined && i.lostRate !== null && i.lostRate >= RULE_LOST_RATE) c.push({ stage: 'conversion', text: `실주 ${Math.round(i.lostRate * 100)}%` });
-  if (i.revenue4 !== undefined && i.revenuePrev4 !== undefined && i.revenuePrev4 >= RULE_REVENUE_MIN_PREV && i.revenue4 * 2 <= i.revenuePrev4) c.push({ stage: 'result', text: '매출 절반 이하' });
+  if (i.revenue4 !== undefined && i.revenuePrev4 !== undefined && i.revenuePrev4 >= RULE_REVENUE_MIN_PREV && (i.revenue4 / d4) * 2 <= i.revenuePrev4 / dPrev) c.push({ stage: 'result', text: '매출 절반 이하' });
   if (i.roas4 !== undefined && i.roas4 !== null && i.roas4 < 1) c.push({ stage: 'result', text: '비용보다 매출 적음' });
   return c;
 }
@@ -78,13 +89,13 @@ function stageChecks(i: VerdictInput): Check[] {
 // ── 주별 집계 ──
 export interface PostLite { date: string; views: number | null; bookmarks: number | null }
 export interface CostLite { date: string; krw: number }
-/** 게시물·비용을 주(월요일)별로 묶는다. 범위 밖은 버린다. */
-export function weeklyX(weeks: string[], posts: PostLite[], costs: CostLite[]) {
-  const idx = new Map(weeks.map((w, i) => [w, i]));
+/** 게시물·비용을 주차(시작~끝 날짜)별로 묶는다. 범위 밖은 버린다. 주차는 오래된 순. */
+export function weeklyX(weeks: Array<{ start: string; end: string }>, posts: PostLite[], costs: CostLite[]) {
+  const at = (d: string) => weeks.findIndex((w) => d >= w.start && d <= w.end);
   const n = weeks.length;
   const views = Array<number>(n).fill(0), bookmarks = Array<number>(n).fill(0), postCount = Array<number>(n).fill(0), cost = Array<number>(n).fill(0);
-  for (const p of posts) { const i = idx.get(mondayOf(p.date)); if (i === undefined) continue; postCount[i]++; views[i] += p.views ?? 0; bookmarks[i] += p.bookmarks ?? 0; }
-  for (const c of costs) { const i = idx.get(mondayOf(c.date)); if (i !== undefined) cost[i] += c.krw; }
+  for (const p of posts) { const i = at(p.date); if (i < 0) continue; postCount[i]++; views[i] += p.views ?? 0; bookmarks[i] += p.bookmarks ?? 0; }
+  for (const c of costs) { const i = at(c.date); if (i >= 0) cost[i] += c.krw; }
   const costPerBookmark = cost.map((c, i) => (bookmarks[i] > 0 && c > 0 ? Math.round(c / bookmarks[i]) : null));
   return { views, bookmarks, postCount, cost, costPerBookmark };
 }

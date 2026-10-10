@@ -34,7 +34,7 @@ test('예약 규칙은 직전 4주가 적으면(4명 미만) 걸지 않는다', 
 });
 
 test('주별 X 집계: 게시일 주로 묶고 북마크당 비용', () => {
-  const w = ['2026-09-21', '2026-09-28'];
+  const w = [{ start: '2026-09-21', end: '2026-09-27' }, { start: '2026-09-28', end: '2026-10-04' }];
   const r = weeklyX(w, [{ date: '2026-09-28', views: 100, bookmarks: 10 }, { date: '2026-10-04', views: 50, bookmarks: 0 }, { date: '2026-09-01', views: 1, bookmarks: 1 }],
     [{ date: '2026-09-29', krw: 3000 }, { date: '2026-09-22', krw: 500 }]);
   assert.deepEqual(r.views, [0, 150]);
@@ -61,4 +61,13 @@ test('구간 점검: 실주·매출·비용 대비 매출', () => {
   assert.equal(s.decision, 'keep');
   assert.deepEqual(s.checks.map((c) => `${c.stage}:${c.text}`), ['conversion:실주 50%', 'result:매출 절반 이하', 'result:비용보다 매출 적음']);
   assert.deepEqual(suggestDecision({ ...base, lostRate: null, roas4: null }).checks, []);
+});
+
+test('짧은 주차는 7일 환산으로 — 3일짜리 주가 길이만으로 부진이 되지 않는다', () => {
+  // 7일 주 21명, 마지막 두 주는 3일 9명·4일 12명 = 7일 환산 21명으로 같음
+  const s = suggestDecision({ newInflow: [21, 21, 21, 21, 21, 21, 9, 12], weekDays: [7, 7, 7, 7, 7, 7, 3, 4], reservers4: 10, reserversPrev4: 10, posts2w: 2 });
+  assert.equal(s.decision, 'keep');
+  assert.equal(s.inflowVerdict, 'normal');
+  // 같은 숫자를 7일로 보면 2주 연속 적음 → 조정 검토
+  assert.equal(suggestDecision({ newInflow: [21, 21, 21, 21, 21, 21, 9, 12], reservers4: 10, reserversPrev4: 10, posts2w: 2 }).decision, 'adjust');
 });

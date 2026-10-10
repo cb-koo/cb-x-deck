@@ -1,34 +1,46 @@
 // 클라이언트 현황 — 전체 보기. 지난주 결과로 클라이언트마다 캠페인 방향(유지·관찰·조정)을 정하는 출발점. 스펙 2026-10-09 §3
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
-import { DECISION_ORDER, mdLabel } from '@/lib/clientStatus';
+import { DECISION_ORDER } from '@/lib/clientStatus';
 import { StageChips } from './StageChips';
-import type { StatusRow } from '@/lib/clientStatusStore';
+import type { StatusRow, PeriodInfo } from '@/lib/clientStatusStore';
+import { PeriodNav, setPeriodInUrl } from './PeriodNav';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { Delta } from '@/components/charts/ChartCard';
 import { NUM } from '@/components/charts/tokens';
 import { DecisionChip } from './DecisionChip';
 
-type Data = { baseWeek: { start: string; end: string }; rows: StatusRow[]; unlinked: string[] };
+type Data = { baseWeek: { start: string; end: string }; period: PeriodInfo; rows: StatusRow[]; unlinked: string[] };
 
 // 한 줄 6칸(koo: 한 행 정보 6개 이하) — 판정 칸에 칩·구간 점검·이유를 함께, 예약·매출은 한 칸에
 const COLS = 'minmax(110px,0.8fr) minmax(300px,2.4fr) 132px minmax(120px,0.8fr) minmax(190px,1.1fr) 92px';
 const man = (n: number) => (n >= 1e8 ? `${(n / 1e8).toFixed(1)}억` : `${NUM.format(Math.round(n / 1e4))}만`);
 
 export default function StatusOverviewPage() {
+  // useSearchParams는 Suspense 경계 필수(influencers/page.tsx 관례)
+  return <Suspense><Overview /></Suspense>;
+}
+
+function Overview() {
+  const sp = useSearchParams();
+  const [period, setPeriod] = useState<string | null>(() => sp.get('period'));
+  const [latest, setLatest] = useState<string | undefined>(undefined);
   const [data, setData] = useState<Data | null>(null);
   const [err, setErr] = useState(false);
   const load = useCallback(async () => {
     try {
-      const r = await apiFetch('/api/status');
+      const r = await apiFetch(`/api/status${period ? `?period=${encodeURIComponent(period)}` : ''}`);
       if (!r.ok) throw new Error(String(r.status));
-      setData((await r.json()) as Data);
+      const d = (await r.json()) as Data;
+      setData(d);
+      if (!period) setLatest(d.period.param);   // 처음 연 기간 = 최근 끝난 주차
       setErr(false);
     } catch { setErr(true); }
-  }, []);
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로드, setState는 전부 비동기 콜백(influencers/page.tsx 관례)
+  }, [period]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- 기간이 바뀔 때마다 로드, setState는 전부 비동기 콜백(influencers/page.tsx 관례)
   useEffect(() => { load(); }, [load]);
 
   // 손볼 곳이 위로 — 조정 검토 → 관찰 → 보류 → 유지
@@ -38,9 +50,8 @@ export default function StatusOverviewPage() {
   return (
     <main className="mx-auto max-w-[1180px] px-6 py-8">
       <h1 className="mb-1 text-[20px] font-bold">클라이언트 현황</h1>
-      <p className="mb-5 text-ui text-x-muted">
-        {data ? `${mdLabel(data.baseWeek.start)}~${mdLabel(data.baseWeek.end)} 결과로 ` : ''}클라이언트마다 이번 주 캠페인 방향을 정해요. 줄을 누르면 근거 차트와 판정 확정 화면이 열려요.
-      </p>
+      <p className="mb-4 text-ui text-x-muted">클라이언트마다 그 주차 결과로 캠페인 방향을 정해요. 줄을 누르면 근거 차트와 판정 확정 화면이 열려요.</p>
+      {data && <div className="mb-4"><PeriodNav info={data.period} latestParam={latest} onChange={(p) => { setPeriodInUrl(p); setData(null); setPeriod(p); }} /></div>}
 
       {err && (
         <div className="py-8 text-center">
@@ -54,7 +65,8 @@ export default function StatusOverviewPage() {
         <>
           {rows.length > 0 && (
             <p className="mb-3 text-ui text-x-secondary">
-              {open === 0 ? '이번 주 판정을 모두 확정했어요' : `확정 안 한 클라이언트 ${open}곳 — 점선 칩은 규칙이 제안한 판정이에요`}
+              {data.period.inProgress ? '진행 중인 주차예요 — 숫자는 지금까지 쌓인 값이고, 판정은 주차가 끝난 뒤에 해요'
+                : open === 0 ? '이 주차 판정을 모두 확정했어요' : `확정 안 한 클라이언트 ${open}곳 — 점선 칩은 규칙이 제안한 판정이에요`}
             </p>
           )}
           <div className="overflow-x-auto rounded-xl border border-x-border">
@@ -63,7 +75,7 @@ export default function StatusOverviewPage() {
                 <span>클라이언트</span><span>판정 · 볼 곳</span><span>신규 인입 · 8주</span><span>X 반응 · 지난주</span><span>예약 · 매출 · 4주</span><span title="클리닉 LINE 예약 매출 ÷ 우리 작업 비용">비용 대비 매출</span>
               </div>
               {rows.map((r) => (
-                <Link key={r.id} href={`/status/${r.id}`} className="grid items-center gap-4 border-b border-x-border px-4 text-[15px] last:border-b-0 hover:bg-x-hover"
+                <Link key={r.id} href={`/status/${r.id}?period=${data.period.param}`} className="grid items-center gap-4 border-b border-x-border px-4 text-[15px] last:border-b-0 hover:bg-x-hover"
                   style={{ gridTemplateColumns: COLS, minHeight: 56 }}>
                   <span className="truncate font-semibold">{r.name}</span>
                   <span className="flex min-w-0 items-center gap-2">

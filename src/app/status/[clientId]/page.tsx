@@ -1,9 +1,10 @@
 // 클라이언트 현황 — 상세. 판정(규칙 제안 → 사람이 확정) + 근거 차트. 스펙 2026-10-09 §3·5·6
 'use client';
-import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, use, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
-import { DECISION_LABEL, mdLabel, type Decision } from '@/lib/clientStatus';
+import { DECISION_LABEL, mdLabel, per7, type Decision } from '@/lib/clientStatus';
 import type { ClientStatus, ReviewRow } from '@/lib/clientStatusStore';
 import { Button } from '@/components/ui';
 import { ChartCard, Delta } from '@/components/charts/ChartCard';
@@ -22,6 +23,7 @@ import { RevenueWeeks, RoasBars, man } from '../RevenueWeeks';
 import { SegmentedBar } from '@/components/charts/SegmentedBar';
 import { countTotal, type StatusCounts, type Stage } from '@/lib/clientStatus';
 import { PostPanel } from '../PostPanel';
+import { PeriodNav, setPeriodInUrl } from '../PeriodNav';
 
 const WEEKS_SHOWN = 8;
 const PANEL_W = 460;      // PostPanel 너비와 같게
@@ -65,31 +67,38 @@ const LABEL_MIN_BM = 1000; // 겹치는 이름표는 차트가 북마크 큰 순
 
 export default function ClientStatusPage({ params }: { params: Promise<{ clientId: string }> }) {
   const { clientId } = use(params);
+  // useSearchParams는 Suspense 경계 필수
+  return <Suspense><StatusDetail clientId={clientId} /></Suspense>;
+}
+
+function StatusDetail({ clientId }: { clientId: string }) {
+  const sp = useSearchParams();
+  const [period, setPeriod] = useState<string | null>(() => sp.get('period'));
   const [s, setS] = useState<ClientStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
-      const r = await apiFetch(`/api/status/${clientId}`);
+      const r = await apiFetch(`/api/status/${clientId}${period ? `?period=${encodeURIComponent(period)}` : ''}`);
       if (r.status === 404) { setErr('리포트가 연결된 클라이언트가 아니에요'); return; }
       if (!r.ok) throw new Error(String(r.status));
       setS((await r.json()) as ClientStatus);
       setErr(null);
     } catch { setErr('현황을 불러오지 못했어요'); }
-  }, [clientId]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 로드, setState는 전부 비동기 콜백
+  }, [clientId, period]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- 기간이 바뀔 때마다 로드, setState는 전부 비동기 콜백
   useEffect(() => { load(); }, [load]);
 
   return (
     <main className="mx-auto max-w-[1180px] px-6 py-8">
-      <Link href="/status" className="text-ui text-x-blue-text hover:underline">← 클라이언트 현황</Link>
+      <Link href={`/status${s ? `?period=${s.period.param}` : period ? `?period=${period}` : ''}`} className="text-ui text-x-blue-text hover:underline">← 클라이언트 현황</Link>
       {err && <p className="py-10 text-center text-ui text-x-secondary">{err}</p>}
       {!s && !err && <p className="py-10 text-center text-ui text-x-muted">불러오는 중…</p>}
-      {s && <Detail s={s} onSaved={(review) => setS({ ...s, review })} />}
+      {s && <Detail key={s.period.param} s={s} onSaved={(review) => setS({ ...s, review })} onPeriod={(p) => { setPeriodInUrl(p); setS(null); setPeriod(p); }} />}
     </main>
   );
 }
 
-function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => void }) {
+function Detail({ s, onSaved, onPeriod }: { s: ClientStatus; onSaved: (r: ReviewRow) => void; onPeriod: (param: string) => void }) {
   // 글 상세 패널 — 어느 차트에서 눌렀든 같은 패널(스펙 §10). 여러 글이면 목록부터.
   const [sel, setSel] = useState<{ ids: string[]; picked: string | null } | null>(null);
   const openPosts = (ids: string[]) => setSel({ ids, picked: ids.length === 1 ? ids[0] : null });
@@ -98,9 +107,14 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
   const wide = useWideScreen();
   const n = s.weeks.length;
   const labels = s.weekLabels.slice(-WEEKS_SHOWN);
-  const inflow8 = s.newInflow.slice(-WEEKS_SHOWN).map((v) => v ?? 0);
+  // 주차는 달 경계에서 잘려 3~7일 — 신규 인입은 7일 환산으로 그리고(판정과 같은 단위), 짧은 주차 아래에 실제 일수·값을 적는다
+  const days8 = s.weekDays.slice(-WEEKS_SHOWN);
+  const inflow8 = per7(s.newInflow.slice(-WEEKS_SHOWN), days8).map((v) => v ?? 0);
   const inflowBand = s.suggestion.band ?? normalRange(inflow8);
   const inflowNow = s.newInflow[n - 1], inflowPrev = s.newInflow[n - 2];
+  const now7 = per7([inflowNow], [s.weekDays[n - 1]])[0], prev7 = per7([inflowPrev], [s.weekDays[n - 2]])[0];
+  const shortSub = days8.map((d, i) => (d === 7 ? '' : `${d}일 ${s.newInflow[n - WEEKS_SHOWN + i] ?? '—'}명`));
+  const approx = s.weekSource.slice(-8).some((x) => x === 'days');
   const bm8 = s.x.bookmarks.slice(-WEEKS_SHOWN);
   const bmNow = s.x.bookmarks[n - 1], bmPrev = s.x.bookmarks[n - 2];
   const postedWeeks = bm8.filter((_, i) => s.x.postCount[n - WEEKS_SHOWN + i] > 0);
@@ -146,7 +160,7 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
     <div className="mt-3 flex flex-col gap-4" style={{ paddingRight: sel && wide ? PANEL_W + 16 : 0, transition: 'padding-right 150ms' }}>
       <div>
         <h1 className="text-[22px] font-bold">{s.client.name}</h1>
-        <p className="text-ui text-x-muted">{mdLabel(s.baseWeek.start)}~{mdLabel(s.baseWeek.end)} 결과 기준 · 이번 주 캠페인 방향을 정해요</p>
+        <div className="mt-2"><PeriodNav info={s.period} onChange={onPeriod} /></div>
       </div>
 
       <ReviewPanel s={s} onSaved={onSaved} />
@@ -154,11 +168,11 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
       {/* ── 결과: 이번 결정에서 가장 무거운 신호(예약·매출·비용 대비) ── */}
       <SectionHead stage="result" title="결과 · 예약 매출" checks={s.suggestion.checks} />
       <div className="grid items-start gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
-        <ChartCard icon={Icon.calendar} title="예약 매출 · 주별" value={`${man(res.revenue4)}원`} valueSub="최근 4주 · 접수일 기준"
+        <ChartCard icon={Icon.calendar} title="예약 매출 · 주별" value={`${man(res.revenue4)}원`} valueSub={`최근 4주차 ${mdLabel(s.weeks[n - 4])}~${mdLabel(s.baseWeek.end)} · 접수일 기준`}
           delta={<Delta diff={Math.round((res.revenue4 - res.revenuePrev4) / 1e4)} unit="만" good="up" base={`직전 4주 ${man(res.revenuePrev4)}원`} />}
           headline={revenueHeadline(res.revenue4, res.revenuePrev4, res.visitRevenue4)}
           info={{ what: 'LINE으로 들어온 예약의 금액(클리닉 전체)', read: ['막대 = 접수일 기준 — 그 주에 받은 예약 금액(확정+방문)', '선 = 방문일 기준 — 그 주에 실제 방문한 금액', '점선 = 최근 2주 — 접수일 기준은 취소·실주로 줄 수 있고, 방문일 기준은 방문이 이어져 늘어요'], calc: ['금액은 예약 금액(실제 결제 금액이 아님)', '예약에서 방문까지 가운데값 약 2주'] }}>
-          <RevenueWeeks labels={labels} created={s.revenueCreated.slice(-WEEKS_SHOWN)} visit={s.revenueVisit.slice(-WEEKS_SHOWN)} />
+          <RevenueWeeks labels={labels} created={s.revenueCreated.slice(-WEEKS_SHOWN)} visit={s.revenueVisit.slice(-WEEKS_SHOWN)} days={days8} />
         </ChartCard>
         <ChartCard icon={Icon.bookmark} title="작업 비용 대비 매출 · 4주"
           value={res.roas4 === null ? '—' : `${fmtX(res.roas4)}배`}
@@ -173,7 +187,8 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
       {/* ── 전환: 인입이 예약까지 이어졌나(CS 구간) ── */}
       <SectionHead stage="conversion" title="전환 · 인입에서 예약까지" checks={s.suggestion.checks} />
       <div className="grid items-start gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))' }}>
-        <ChartCard icon={Icon.funnel} title="고객 흐름 · 최근 4주"
+        <ChartCard icon={Icon.funnel} title="고객 흐름 · 최근 4주차"
+          caution={approx ? '일부 주차는 일별 기록을 더한 값이라 상담·예약자 수가 실제보다 조금 많을 수 있어요(같은 사람이 여러 날에 걸침)' : undefined}
           headline={`신규 인입 ${f[0]}명 중 상담 ${pct(c[0], f[0])}%, 예약 ${pct(r[0], f[0])}% (직전 4주 ${pct(r[1], f[1])}%)`}
           info={{ what: '최근 4주 신규 인입에서 예약까지 단계별 사람 수', read: ['막대 = 신규 인입 대비 남은 비율', '앞 단계에서 = 바로 앞 단계 중 넘어온 비율', '증감에 마우스를 올리면 직전 4주 값이 보여요'], calc: ['상담 = CS가 문의·예약 상담으로 표시한 사람', '예약 = LINE 계정 기준 예약자(접수일 기준)'], note: ['첫 문의 후 예약까지 보통 3일 안 — 최근 주 예약은 조금 더 늘 수 있어요'] }}>
           <FunnelList compareName="직전 4주" steps={[
@@ -195,25 +210,27 @@ function Detail({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => vo
       <SectionHead stage="campaign" title="캠페인 · X 성과와 신규 인입" checks={s.suggestion.checks} />
 
       <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))' }}>
-        <ChartCard icon={Icon.users} title="신규 인입 · 주별" value={inflowNow === null ? '—' : `${inflowNow}명`}
-          delta={inflowNow !== null && inflowPrev !== null ? <Delta diff={inflowNow - inflowPrev} unit="명" good="up" base={`그 전주 ${inflowPrev}명`} /> : undefined}
-          headline={inflowNow === null ? '지난주 신규 인입 기록이 없어요' : `지난주 신규 인입은 ${VERDICT_TEXT[verdictOf(inflowNow, inflowBand)]}`}
-          info={{ what: '그 주에 LINE으로 처음 말을 건 사람 수', calc: ['기존 고객 재문의는 빼요', NORMAL_RULE], read: ['파란 막대 = 지난주', '회색 띠 = 평소 범위'] }}>
-          <CategoryBars labels={labels} values={inflow8} band={inflowBand} bandLabel={`평소 ${inflowBand[0]}~${inflowBand[1]}`} />
+        <ChartCard icon={Icon.users} title="신규 인입 · 주차별" value={inflowNow === null ? '—' : `${inflowNow}명`}
+          valueSub={s.weekDays[n - 1] === 7 ? undefined : `${s.weekDays[n - 1]}일 · 7일 환산 ${now7 ?? '—'}명`}
+          delta={now7 !== null && prev7 !== null ? <Delta diff={Math.round(now7 - prev7)} unit="명" good="up" base={`직전 주차 7일 환산 ${prev7}명`} /> : undefined}
+          headline={now7 === null ? '이 주차 신규 인입 기록이 없어요' : `이 주차 신규 인입은 ${VERDICT_TEXT[verdictOf(now7, inflowBand)]}`}
+          info={{ what: '그 주차에 LINE으로 처음 말을 건 사람 수', calc: ['기존 고객 재문의는 빼요', NORMAL_RULE, '주차는 달이 바뀌는 날에서 잘려 3~7일 — 막대와 평소 범위는 7일 환산(값 × 7 ÷ 일수)'], read: ['파란 막대 = 이 주차', '회색 띠 = 평소 범위', '막대 아래 = 짧은 주차의 실제 일수·인원'] }}>
+          <CategoryBars labels={labels} values={inflow8} band={inflowBand} bandLabel={`평소 ${inflowBand[0]}~${inflowBand[1]}`}
+            sub={shortSub.some(Boolean) ? shortSub : undefined} subLabel={shortSub.some(Boolean) ? '짧은 주차의 실제 일수·인원' : undefined} />
         </ChartCard>
 
-        <ChartCard icon={Icon.bookmark} title="X 북마크 · 주별" value={NUM.format(bmNow)}
-          delta={<Delta diff={bmNow - bmPrev} good="up" base={`그 전주 ${NUM.format(bmPrev)}`} />}
-          headline={s.x.postCount[n - 1] === 0 ? '지난주엔 X 게시가 없었어요' : bmBand ? `지난주 북마크는 ${VERDICT_TEXT[verdictOf(bmNow, bmBand)]}` : `지난주 글 ${s.x.postCount[n - 1]}개, 북마크 ${NUM.format(bmNow)}`}
+        <ChartCard icon={Icon.bookmark} title="X 북마크 · 주차별" value={NUM.format(bmNow)}
+          delta={<Delta diff={bmNow - bmPrev} good="up" base={`직전 주차 ${NUM.format(bmPrev)}`} />}
+          headline={s.x.postCount[n - 1] === 0 ? '이 주차엔 X 게시가 없었어요' : bmBand ? `이 주차 북마크는 ${VERDICT_TEXT[verdictOf(bmNow, bmBand)]}` : `이 주차 글 ${s.x.postCount[n - 1]}개, 북마크 ${NUM.format(bmNow)}`}
           info={{ what: '그 주에 올린 우리 게시물의 북마크 합계', calc: ['게시물마다 마지막으로 잰 값', '게시 주는 게시 시각(서울) 기준', '평소 범위는 게시가 있던 주가 4주 이상일 때만'], read: ['아래 줄 = 북마크 1개당 집행 비용(낮을수록 좋음)', '⚠ = 평소보다 비싼 주'], note: ['북마크가 신규 인입과 가장 잘 맞는 반응 지표예요'] }}>
           <CategoryBars labels={labels} values={bm8} band={bmBand} bandLabel="평소"
             sub={cpb8.map((v) => (v === null ? '—' : `${NUM.format(v)}원`))} subWarn={cpb8.map((v) => v !== null && !!cpbBand && v > cpbBand[1])}
             subLabel="북마크 1개당 비용 · 낮을수록 좋음" />
         </ChartCard>
 
-        <ChartCard icon={Icon.calendar} title={s.budget ? `예산 · ${s.budget.label}` : '예산'}
+        <ChartCard icon={Icon.calendar} title={s.budget ? `예산 · ${s.budget.label} · 오늘 기준` : '예산 · 오늘 기준'}
           headline={s.budget ? budgetHeadline(s.budget) : '오늘이 포함된 예산 기간이 없어요'}
-          info={{ what: '이번 기간 예산을 날짜에 맞게 쓰고 있나', read: ['진한 파랑 = 집행(게시까지 끝난 작업)', '연한 파랑 = 예정까지 포함', '검은 세로선 = 오늘 기준 적정 소진선'], calc: ['기간에 시작한 캠페인의 작업 비용 합(엔은 ×10원)', '적정 = 기간이 지난 비율 × 예산'] }}>
+          info={{ what: '오늘이 든 예산 기간에 예산을 날짜에 맞게 쓰고 있나 — 위에서 고른 주차와 상관없이 늘 오늘 기준',  read: ['진한 파랑 = 집행(게시까지 끝난 작업)', '연한 파랑 = 예정까지 포함', '검은 세로선 = 오늘 기준 적정 소진선'], calc: ['기간에 시작한 캠페인의 작업 비용 합(엔은 ×10원)', '적정 = 기간이 지난 비율 × 예산'] }}>
           {s.budget
             ? <BulletList rows={[{ label: '이번 기간', total: s.budget.total, spent: s.budget.spent, planned: s.budget.planned, pace: s.budget.pace }]} />
             : <p className="text-ui text-x-muted">클라이언트 설정에서 예산 기간을 넣으면 여기서 소진 속도를 볼 수 있어요.</p>}
@@ -319,17 +336,24 @@ function ReviewPanel({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) 
   const save = async () => {
     setSaving(true); setMsg(null);
     try {
-      const r = await apiFetch(`/api/status/${s.client.id}/review`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ verdict, memo }) });
+      const r = await apiFetch(`/api/status/${s.client.id}/review`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ verdict, memo, period: s.period.param }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setMsg(j.error ?? '저장하지 못했어요'); return; }
       onSaved(j as ReviewRow);
     } catch { setMsg('저장하지 못했어요 — 다시 시도해 주세요'); } finally { setSaving(false); }
   };
 
+  if (s.period.inProgress) return (
+    <section className="rounded-xl border border-dashed border-x-border-strong bg-white p-5">
+      <span className="text-[16px] font-semibold">이 주차 판정</span>
+      <p className="mt-1 text-[14px] text-x-secondary">진행 중인 주차예요. 아래 숫자는 지금까지 쌓인 값이고, 판정은 주차가 끝난 뒤({mdLabel(s.period.end)} 다음 날)부터 할 수 있어요.</p>
+    </section>
+  );
+
   return (
     <section className="rounded-xl border border-x-border bg-white p-5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="text-[16px] font-semibold">이번 주 판정</span>
+        <span className="text-[16px] font-semibold">이 주차 판정</span>
         {s.review ? <DecisionChip decision={s.review.verdict} /> : <DecisionChip decision={s.suggestion.decision} draft />}
         <span className="text-ui text-x-secondary">
           규칙 제안: <b>{DECISION_LABEL[s.suggestion.decision]}</b> — {s.suggestion.reason}
@@ -353,11 +377,11 @@ function ReviewPanel({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) 
         ))}
       </div>
       <textarea value={memo} onChange={(e) => setMemo(e.target.value)} rows={2} maxLength={1000}
-        placeholder="왜 이렇게 정했는지, 이번 주에 무엇을 할지 (선택) — 예: 상담 단계 이탈 확인, 다음 주 인플 2명 교체"
+        placeholder="왜 이렇게 정했는지, 다음 주차에 무엇을 할지 (선택) — 예: 상담 단계 이탈 확인, 다음 주차 인플 2명 교체"
         className="mt-3 w-full rounded-lg border border-x-border px-3 py-2 text-[15px] focus:border-x-blue focus:outline-none" />
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <span className="text-[13px] text-x-muted">
-          {s.lastReview ? <>지난주 판정: <b>{DECISION_LABEL[s.lastReview.verdict]}</b>{s.lastReview.memo ? ` — ${s.lastReview.memo}` : ''}</> : '지난주 판정 기록이 없어요'}
+          {s.lastReview ? <>직전 주차 판정: <b>{DECISION_LABEL[s.lastReview.verdict]}</b>{s.lastReview.memo ? ` — ${s.lastReview.memo}` : ''}</> : '직전 주차 판정 기록이 없어요'}
         </span>
         <span className="flex items-center gap-3">
           {msg && <span className="text-[13px] text-red-600">{msg}</span>}

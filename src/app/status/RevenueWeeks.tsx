@@ -10,9 +10,10 @@ const RECENT = 2;
 const VISIT = '#536471';
 export const man = (n: number) => (n >= 1e8 ? `${(n / 1e8).toFixed(1)}억` : `${NUM.format(Math.round(n / 1e4))}만`);
 
-export function RevenueWeeks({ labels, created, visit, height = 190 }: { labels: string[]; created: Array<number | null>; visit: Array<number | null>; height?: number }) {
+export function RevenueWeeks({ labels, created, visit, days, height = 190 }: { labels: string[]; created: Array<number | null>; visit: Array<number | null>; days?: number[]; height?: number }) {
   const [ref, width] = useWidth<HTMLDivElement>();
-  const padT = 18, padB = 22, axisW = 40;
+  const short = !!days?.some((d) => d < 7);
+  const padT = 18, padB = short ? 34 : 22, axisW = 40;
   const plotW = Math.max(width - axisW, 10), plotH = height - padT - padB;
   const max = Math.max(1, ...created.map((v) => v ?? 0), ...visit.map((v) => v ?? 0));
   const x = scaleBand<string>().domain(labels).range([0, plotW]).paddingInner(0.3).paddingOuter(0.15);
@@ -50,7 +51,8 @@ export function RevenueWeeks({ labels, created, visit, height = 190 }: { labels:
             })}
             {vpts.map((p, i) => p && <circle key={'c' + i} cx={p[0]} cy={p[1]} r={3} fill={recent(i) ? '#fff' : VISIT} stroke={VISIT} strokeWidth={1.5} />)}
             <line x1={0} x2={plotW} y1={padT + plotH} y2={padT + plotH} stroke={C.axis} />
-            {labels.map((l, i) => <text key={l} x={cx(i)} y={height - 6} textAnchor="middle" fontSize={11} fill={i === labels.length - 1 ? C.text : C.muted}>{l}</text>)}
+            {labels.map((l, i) => <text key={l} x={cx(i)} y={height - (short ? 18 : 6)} textAnchor="middle" fontSize={11} fill={i === labels.length - 1 ? C.text : C.muted}>{l}</text>)}
+            {short && days?.map((d, i) => d < 7 && <text key={'d' + i} x={cx(i)} y={height - 5} textAnchor="middle" fontSize={10} fill={C.muted}>{d}일</text>)}
           </svg>
         )}
       </div>

@@ -1,8 +1,10 @@
 // 클라이언트 현황 — DB 읽기·판정 기록(스펙 2026-10-09-client-status-design.md §4·6). 계산은 clientStatus.ts(순수).
 import type postgres from 'postgres';
-import { addDays, baseWeekStart, weekStarts, mdLabel, suggestDecision, weeklyX, sum4, isDecision, type Decision, type Suggestion,
+import { addDays, mdLabel, suggestDecision, weeklyX, sum4, isDecision, type Decision, type Suggestion,
   valueAtHorizon, ACCRUAL_DEFAULT, H_BOOKMARKS, H_VIEWS, MIN_MEASURE_H, type Accrual, type Check, type StatusCounts, countTotal } from './clientStatus.ts';
 import { groupPosts, type PostGroup } from '../components/charts/postGroups.ts';
+import { campaignWeeksBack, prevCampaignWeek, type CampaignWeek } from './campaignWeek.ts';
+import { defaultPeriod, periodParam, periodLabel, isInProgress, stepPeriod, canStepNext, type Period } from './reportPeriod.ts';
 import { typical } from '../components/charts/normal.ts';
 
 const WEEKS = 12;
@@ -43,9 +45,20 @@ export interface ResultSummary {
   upcomingConfirmed: number | null;              // 방문 예정 확정 예약(최신 주 값)
 }
 
+// 화면이 기간 선택기를 그리는 데 필요한 것 — 계산은 서버(reportPeriod.ts)가 하고 화면은 그대로 쓴다
+export interface PeriodInfo { kind: 'week' | 'month'; param: string; label: string; start: string; end: string; days: number; inProgress: boolean; prevParam: string; nextParam: string | null }
+export function periodInfo(p: Period, today: string): PeriodInfo {
+  return { kind: p.kind, param: periodParam(p), label: periodLabel(p), start: p.start, end: p.end, days: p.days, inProgress: isInProgress(p, today),
+    prevParam: periodParam(stepPeriod(p, -1)), nextParam: canStepNext(p, today) ? periodParam(stepPeriod(p, 1)) : null };
+}
+// 주차 하나의 리포트 값을 어디서 가져왔나 — cweek(캠페인 주차 그대로) > week(월~일이 꽉 찬 주) > days(일별 합산: 사람 수는 근사)
+export type WeekSource = 'cweek' | 'week' | 'days' | null;
+
 export interface ClientStatus {
   client: { id: string; name: string };
   baseWeek: { start: string; end: string };
+  period: PeriodInfo;
+  weekDays: number[]; weekSource: WeekSource[];
   weeks: string[]; weekLabels: string[];
   newInflow: Array<number | null>; inflow: Array<number | null>; consulted: Array<number | null>; reservers: Array<number | null>;
   days: string[]; dailyNew: Array<number | null>;
@@ -75,39 +88,39 @@ type ReviewDb = { week_start: Date; verdict: string; suggested: string; memo: st
 const toReview = (r: ReviewDb | undefined): ReviewRow | null => (r && isDecision(r.verdict) && isDecision(r.suggested)
   ? { verdict: r.verdict, suggested: r.suggested, memo: r.memo, decidedByName: r.decided_by_name, decidedAt: new Date(r.decided_at).toISOString() } : null);
 
-export async function loadClientStatus(sql: postgres.Sql, clientId: string, today: string): Promise<ClientStatus | null> {
+export async function loadClientStatus(sql: postgres.Sql, clientId: string, today: string, period?: Period): Promise<ClientStatus | null> {
   const c = (await sql<Array<{ id: string; name: string; clinic_code: string | null }>>`select id, name, clinic_code from client where id = ${clientId}`)[0];
   if (!c || !c.clinic_code) return null;
-  const base = baseWeekStart(today);
-  const baseEnd = addDays(base, 6);
-  const weeks = weekStarts(base, WEEKS);
+  const per = period && period.kind === 'week' ? period : defaultPeriod('week', today);
+  if (per.kind !== 'week') return null;
+  const wks = campaignWeeksBack(per.week, WEEKS);
+  const weeks = wks.map((w) => w.start), weekDays = wks.map((w) => w.days);
+  const base = per.start, baseEnd = per.end;
   const dayFrom = addDays(baseEnd, -(DAYS - 1));
   const days = Array.from({ length: DAYS }, (_, i) => addDays(dayFrom, i));
+  const firstDay = weeks[0] < dayFrom ? weeks[0] : dayFrom;
 
-  const [weekRows, dayRows] = await Promise.all([
+  const [cweekRows, weekRows, dayRows] = await Promise.all([
     sql<Array<{ period_start: Date; payload: Record<string, unknown> }>>`
-      select period_start, payload from report_snapshot where clinic_code = ${c.clinic_code} and granularity = 'week'
-        and period_start between ${weeks[0]} and ${base}`,
-    sql<Array<{ period_start: Date; nc: string | null }>>`
-      select period_start, payload->'funnel'->>'new_customers' as nc from report_snapshot where clinic_code = ${c.clinic_code} and granularity = 'day'
-        and period_start between ${dayFrom} and ${baseEnd}`,
+      select period_start, payload from report_snapshot where clinic_code = ${c.clinic_code} and granularity = 'cweek' and period_start in ${sql(weeks)}`,
+    sql<Array<{ period_start: Date; payload: Record<string, unknown> }>>`
+      select period_start, payload from report_snapshot where clinic_code = ${c.clinic_code} and granularity = 'week' and period_start in ${sql(weeks)}`,
+    sql<Array<{ period_start: Date; nc: string | null; act: string | null; con: string | null; rsv: string | null; rc: string | null; rv: string | null; st: Record<string, number> | null }>>`
+      select period_start, payload->'funnel'->>'new_customers' as nc, payload->'funnel'->>'active_customers' as act,
+        payload->'funnel'->>'consulted_customers' as con, payload->'funnel'->'reservers'->>'by_line_id' as rsv,
+        payload->'reservations'->'created_at'->'revenue'->>'total' as rc, payload->'reservations'->'reservation_date'->'revenue'->>'total' as rv,
+        payload->'reservations'->'created_at'->'status_counts' as st
+      from report_snapshot where clinic_code = ${c.clinic_code} and granularity = 'day' and period_start between ${firstDay} and ${baseEnd}`,
   ]);
-  const wk = new Map(weekRows.map((r) => [isoDate(r.period_start), r.payload]));
-  const f = (w: string, path: string[]) => { let v: unknown = wk.get(w); for (const k of path) v = v && typeof v === 'object' ? (v as Record<string, unknown>)[k] : undefined; return num(v); };
-  const newInflow = weeks.map((w) => f(w, ['funnel', 'new_customers']));
-  const inflow = weeks.map((w) => f(w, ['funnel', 'active_customers']));
-  const consulted = weeks.map((w) => f(w, ['funnel', 'consulted_customers']));
-  const reservers = weeks.map((w) => f(w, ['funnel', 'reservers', 'by_line_id']));
-  const revenueCreated = weeks.map((w) => f(w, ['reservations', 'created_at', 'revenue', 'total']));
-  const revenueVisit = weeks.map((w) => f(w, ['reservations', 'reservation_date', 'revenue', 'total']));
-  const statusWeeks = weeks.map((w): StatusCounts | null => {
-    if (!wk.has(w)) return null;
-    const g = (k: keyof StatusCounts) => f(w, ['reservations', 'created_at', 'status_counts', k]) ?? 0;
-    return { visited: g('visited'), confirmed: g('confirmed'), reviewing: g('reviewing'), lost: g('lost'), cancelled: g('cancelled'), noshow: g('noshow') };
-  });
-  const upcomingConfirmed = f(base, ['reservations', 'upcoming_confirmed']);
-  const dm = new Map(dayRows.map((r) => [isoDate(r.period_start), num(r.nc)]));
-  const dailyNew = days.map((d) => dm.get(d) ?? null);
+  const cweekMap = new Map(cweekRows.map((r) => [isoDate(r.period_start), r.payload]));
+  const weekMap = new Map(weekRows.map((r) => [isoDate(r.period_start), r.payload]));
+  const dayMap = new Map(dayRows.map((r) => [isoDate(r.period_start), r]));
+  const recs = wks.map((w) => weekRecord(w, cweekMap.get(w.start) ?? (w.days === 7 ? weekMap.get(w.start) : undefined), cweekMap.has(w.start) ? 'cweek' : 'week', dayMap));
+  const weekSource = recs.map((r) => r.source);
+  const newInflow = recs.map((r) => r.newInflow), inflow = recs.map((r) => r.inflow), consulted = recs.map((r) => r.consulted), reservers = recs.map((r) => r.reservers);
+  const revenueCreated = recs.map((r) => r.revCreated), revenueVisit = recs.map((r) => r.revVisit), statusWeeks = recs.map((r) => r.status);
+  const upcomingConfirmed = recs[recs.length - 1].upcoming;
+  const dailyNew = days.map((d) => num(dayMap.get(d)?.nc));
 
   // 우리 게시물·비용 — 이 클라이언트의 캠페인 작업(취소·삭제 제외). 게시 시각은 게시물 번호에서(KST 날짜).
   const from = weeks[0];
@@ -134,16 +147,16 @@ export async function loadClientStatus(sql: postgres.Sql, clientId: string, toda
     capturedAt: r.captured_at ? new Date(r.captured_at).toISOString() : null, unavailable: !!r.unavailable_at,
   }));
   const costs = taskRows.filter((r) => r.posted_on).map((r) => ({ date: isoDate(r.posted_on as Date), krw: krw(r.cost) }));
-  const x = weeklyX(weeks, posts, costs);
+  const x = weeklyX(wks, posts, costs);
 
-  const recentPosts = posts.filter((p) => p.date >= dayFrom);
+  const recentPosts = posts.filter((p) => p.date >= dayFrom && p.date <= baseEnd);   // 기간 뒤에 올린 글은 빼고
   const accrual = await loadAccrual(sql);
   const pool = await loadPostPool(sql, dayFrom, baseEnd, accrual);
   const typicalDay = typical(dailyNew);
   const groups = groupPosts(recentPosts, new Map(days.map((d, i) => [d, dailyNew[i] ?? 0])), typicalDay, MIN_BOOKMARKS);
   const smallPostCount = recentPosts.filter((p) => p.bookmarks < MIN_BOOKMARKS).length;
 
-  // 성장 곡선 — 최근 14일 게시물의 측정 기록 전체
+  // 성장 곡선 — 기간 끝까지 14일 동안 게시된 글의 측정 기록 전체
   const gRows = await sql<Array<{ tp_id: string; h: string | null; tw: Date; captured_at: Date; views: number }>>`
     with p as (
       select tp.id as tp_id, t.influencer_handle as h,
@@ -152,7 +165,7 @@ export async function loadClientStatus(sql: postgres.Sql, clientId: string, toda
       join tracked_post tp on tp.task_id = t.id and t.post_url ~ ('/status/' || tp.tweet_id || '([/?#]|$)')
       where cp.client_id = ${c.id} and t.removed_at is null and t.cancelled_at is null)
     select p.tp_id, p.h, p.tw, s.captured_at, s.views from p join post_metric_snapshot s on s.tracked_post_id = p.tp_id
-    where p.tw >= ${addDays(today, -GROWTH_DAYS)}::date order by p.tp_id, s.captured_at`;
+    where p.tw >= ${addDays(baseEnd, -(GROWTH_DAYS - 1))}::date and p.tw < ${addDays(baseEnd, 1)}::date order by p.tp_id, s.captured_at`;
   const gMap = new Map<string, GrowthCurve>();
   for (const r of gRows) {
     const g = gMap.get(r.tp_id) ?? { id: r.tp_id, label: r.h ?? '', date: isoDate(r.tw), bookmarks: 0, points: [] };
@@ -178,23 +191,27 @@ export async function loadClientStatus(sql: postgres.Sql, clientId: string, toda
 
   const r4 = sum4(reservers);
   const posts2w = x.postCount.slice(-2).reduce((a, b) => a + b, 0);
-  const result = summarizeResult(weeks, revenueCreated, revenueVisit, x.cost, statusWeeks, upcomingConfirmed);
-  const suggestion = suggestDecision({ newInflow: newInflow.slice(-8), reservers4: r4.recent, reserversPrev4: r4.prev, posts2w,
+  const result = summarizeResult(wks, revenueCreated, revenueVisit, x.cost, statusWeeks, upcomingConfirmed);
+  const days4 = weekDays.slice(-4).reduce((a, b) => a + b, 0), daysPrev4 = weekDays.slice(-8, -4).reduce((a, b) => a + b, 0);
+  const inProgress = isInProgress(per, today);
+  const judged = suggestDecision({ newInflow: newInflow.slice(-8), weekDays: weekDays.slice(-8), days4, daysPrev4, reservers4: r4.recent, reserversPrev4: r4.prev, posts2w,
     revenue4: result.revenue4, revenuePrev4: result.revenuePrev4, roas4: result.roas4, lostRate: result.settled.lostRate });
+  // 진행 중인 주차는 덜 찬 숫자라 판정하지 않는다(점검 칩도 보이지 않게)
+  const suggestion: Suggestion = inProgress ? { ...judged, decision: 'hold', reason: '진행 중인 주차라 판정하지 않아요', checks: [] } : judged;
   const s4 = (a: Array<number | null>): [number, number] => { const v = sum4(a); return [v.recent, v.prev]; };
 
   const reviews = await sql<ReviewDb[]>`select week_start, verdict, suggested, memo, decided_by_name, decided_at from client_weekly_review
-    where client_id = ${c.id} and week_start in (${base}, ${addDays(base, -7)})`;
+    where client_id = ${c.id} and week_start in (${base}, ${prevCampaignWeek(per.week).start})`;
   const rv = (w: string) => toReview(reviews.find((r) => isoDate(r.week_start) === w));
 
   return {
-    client: { id: c.id, name: c.name }, baseWeek: { start: base, end: baseEnd },
+    client: { id: c.id, name: c.name }, baseWeek: { start: base, end: baseEnd }, period: periodInfo(per, today), weekDays, weekSource,
     weeks, weekLabels: weeks.map(mdLabel), newInflow, inflow, consulted, reservers, days, dailyNew,
     x, posts: recentPosts, groups, smallPostCount, typicalDay, growth, budget, pool, accrual,
     suggestion, reservers4: r4.recent, reserversPrev4: r4.prev, posts2w,
     funnel4: { newInflow: s4(newInflow), consulted: s4(consulted), reservers: s4(reservers) },
     revenueCreated, revenueVisit, statusWeeks, result,
-    review: rv(base), lastReview: rv(addDays(base, -7)),
+    review: rv(base), lastReview: rv(prevCampaignWeek(per.week).start),
   };
 }
 
@@ -217,9 +234,10 @@ export interface StatusRow {
   reservers4: number; reserversPrev4: number;
   checks: Check[]; revenue4: number; revenuePrev4: number; roas4: number | null;
 }
-export async function listStatusRows(sql: postgres.Sql, today: string): Promise<{ baseWeek: { start: string; end: string }; rows: StatusRow[]; unlinked: string[] }> {
+export async function listStatusRows(sql: postgres.Sql, today: string, period?: Period): Promise<{ baseWeek: { start: string; end: string }; period: PeriodInfo; rows: StatusRow[]; unlinked: string[] }> {
   const { linked, unlinked } = await listStatusClients(sql);
-  const all = (await Promise.all(linked.map((c) => loadClientStatus(sql, c.id, today)))).filter((s): s is ClientStatus => s !== null);
+  const per = period && period.kind === 'week' ? period : defaultPeriod('week', today);
+  const all = (await Promise.all(linked.map((c) => loadClientStatus(sql, c.id, today, per)))).filter((s): s is ClientStatus => s !== null);
   const rows = all.map((s): StatusRow => ({
     id: s.client.id, name: s.client.name,
     decision: s.review?.verdict ?? s.suggestion.decision, confirmed: !!s.review,
@@ -229,8 +247,7 @@ export async function listStatusRows(sql: postgres.Sql, today: string): Promise<
     reservers4: s.reservers4, reserversPrev4: s.reserversPrev4,
     checks: s.suggestion.checks, revenue4: s.result.revenue4, revenuePrev4: s.result.revenuePrev4, roas4: s.result.roas4,
   }));
-  const base = baseWeekStart(today);
-  return { baseWeek: { start: base, end: addDays(base, 6) }, rows, unlinked };
+  return { baseWeek: { start: per.start, end: per.end }, period: periodInfo(per, today), rows, unlinked };
 }
 
 const COST_JPY = 10;
@@ -294,7 +311,7 @@ const addCounts = (a: StatusCounts, b: StatusCounts | null): StatusCounts => (b 
 const SETTLE_WEEKS = 2;   // 실주는 CS가 후속 연락 뒤에 표시해 늦게 정리된다 — 최근 2주는 실주율에서 뺀다
 
 /** 결과 구간 4주 요약 — 매출은 접수일 기준이 대표, 비용은 우리 작업 비용(게시일 기준). 비용 0인 기간의 비율은 null(—). */
-export function summarizeResult(weeks: string[], revCreated: Array<number | null>, revVisit: Array<number | null>, cost: number[],
+export function summarizeResult(weeks: Array<{ start: string; end: string }>, revCreated: Array<number | null>, revVisit: Array<number | null>, cost: number[],
   statusWeeks: Array<StatusCounts | null>, upcomingConfirmed: number | null): ResultSummary {
   const n = weeks.length;
   const sum = (a: Array<number | null>, from: number, to: number) => a.slice(Math.max(0, from), Math.max(0, to)).reduce<number>((t, v) => t + (v ?? 0), 0);
@@ -308,7 +325,37 @@ export function summarizeResult(weeks: string[], revCreated: Array<number | null
     cost4, costPrev4,
     roas4: cost4 > 0 ? revenue4 / cost4 : null, roasPrev4: costPrev4 > 0 ? revenuePrev4 / costPrev4 : null,
     status4: statusWeeks.slice(n - 4).reduce(addCounts, ZERO),
-    settled: { status: settledStatus, lostRate: settledTotal >= 5 ? settledStatus.lost / settledTotal : null, from: weeks[Math.max(0, sFrom)], to: addDays(weeks[sTo - 1], 6) },
+    settled: { status: settledStatus, lostRate: settledTotal >= 5 ? settledStatus.lost / settledTotal : null, from: weeks[Math.max(0, sFrom)].start, to: weeks[sTo - 1].end },
     upcomingConfirmed,
+  };
+}
+
+type DayRow = { nc: string | null; act: string | null; con: string | null; rsv: string | null; rc: string | null; rv: string | null; st: Record<string, number> | null };
+interface WeekRecord {
+  source: WeekSource; newInflow: number | null; inflow: number | null; consulted: number | null; reservers: number | null;
+  revCreated: number | null; revVisit: number | null; status: StatusCounts | null; upcoming: number | null;
+}
+const at = (o: unknown, path: string[]) => { let v: unknown = o; for (const k of path) v = v && typeof v === 'object' ? (v as Record<string, unknown>)[k] : undefined; return num(v); };
+/** 주차 하나의 값 — 스냅샷이 있으면 그대로, 없으면 일별을 더한다(신규 인입·매출·예약 상태는 정확, 인입·상담·예약자 같은 사람 수는 같은 사람이 겹쳐 근사). */
+function weekRecord(w: CampaignWeek, payload: Record<string, unknown> | undefined, kind: 'cweek' | 'week', dayMap: Map<string, DayRow>): WeekRecord {
+  if (payload) {
+    const st = (k: keyof StatusCounts) => at(payload, ['reservations', 'created_at', 'status_counts', k]) ?? 0;
+    return {
+      source: kind, newInflow: at(payload, ['funnel', 'new_customers']), inflow: at(payload, ['funnel', 'active_customers']),
+      consulted: at(payload, ['funnel', 'consulted_customers']), reservers: at(payload, ['funnel', 'reservers', 'by_line_id']),
+      revCreated: at(payload, ['reservations', 'created_at', 'revenue', 'total']), revVisit: at(payload, ['reservations', 'reservation_date', 'revenue', 'total']),
+      status: { visited: st('visited'), confirmed: st('confirmed'), reviewing: st('reviewing'), lost: st('lost'), cancelled: st('cancelled'), noshow: st('noshow') },
+      upcoming: at(payload, ['reservations', 'upcoming_confirmed']),
+    };
+  }
+  const rows: DayRow[] = [];
+  for (let d = w.start; d <= w.end; d = addDays(d, 1)) { const r = dayMap.get(d); if (r) rows.push(r); }
+  if (!rows.length) return { source: null, newInflow: null, inflow: null, consulted: null, reservers: null, revCreated: null, revVisit: null, status: null, upcoming: null };
+  const sum = (k: keyof Omit<DayRow, 'st'>) => rows.reduce((a, r) => a + (num(r[k]) ?? 0), 0);
+  const st = (k: keyof StatusCounts) => rows.reduce((a, r) => a + Number(r.st?.[k] ?? 0), 0);
+  return {
+    source: 'days', newInflow: sum('nc'), inflow: sum('act'), consulted: sum('con'), reservers: sum('rsv'), revCreated: sum('rc'), revVisit: sum('rv'),
+    status: { visited: st('visited'), confirmed: st('confirmed'), reviewing: st('reviewing'), lost: st('lost'), cancelled: st('cancelled'), noshow: st('noshow') },
+    upcoming: null,
   };
 }

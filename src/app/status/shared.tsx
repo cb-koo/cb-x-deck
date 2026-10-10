@@ -53,6 +53,10 @@ export function StatusBar({ c }: { c: StatusCounts }) {
 
 export function budgetHeadline(b: { total: number; spent: number; planned: number; pace: number }): string {
   const gap = b.total ? b.spent / b.total - b.pace : 0;
+  if (b.pace >= 1) {   // 끝난 기간 — 속도가 아니라 얼마나 썼나
+    const left = b.total - b.spent;
+    return left > 0 ? `예산의 ${Math.round((b.spent / (b.total || 1)) * 100)}%를 썼어요 — ${NUM.format(Math.round(left / 1e4))}만원 남음` : `예산을 다 썼어요${left < 0 ? ` — ${NUM.format(Math.round(-left / 1e4))}만원 초과` : ''}`;
+  }
   const state = gap < -0.1 ? '집행이 느려요' : gap > 0.1 ? '집행이 빨라요' : '적정 속도예요';
   return `${state} — 집행 ${Math.round((b.spent / (b.total || 1)) * 100)}% · 예정 포함 ${Math.round((b.planned / (b.total || 1)) * 100)}%`;
 }

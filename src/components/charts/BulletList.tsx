@@ -14,7 +14,9 @@ export function BulletList({ rows, paceLabel = '오늘 기준 적정' }: { rows:
       {rows.map((r, i) => {
         const pct = (v: number) => (r.total > 0 ? Math.min(100, (v / r.total) * 100) : 0);
         const gap = r.total > 0 ? r.spent / r.total - r.pace : 0;
-        const verdict = gap < -PACE_TOL ? { v: 'below' as const, t: '집행 느림' } : gap > PACE_TOL ? { v: 'above' as const, t: '집행 빠름' } : { v: 'normal' as const, t: '적정' };
+        // 끝난 기간(pace 1)은 속도가 아니라 결과 — '덜 씀/더 씀'
+        const done = r.pace >= 1;
+        const verdict = gap < -PACE_TOL ? { v: 'below' as const, t: done ? '덜 씀' : '집행 느림' } : gap > PACE_TOL ? { v: 'above' as const, t: done ? '더 씀' : '집행 빠름' } : { v: 'normal' as const, t: '적정' };
         return (
           <div key={r.label} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 120px) minmax(0,1fr) auto', alignItems: 'center', gap: 14, minHeight: 64, borderTop: i ? '1px solid #eceff1' : 'none' }}>
             <div style={{ minWidth: 0 }}>

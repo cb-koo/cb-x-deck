@@ -6,11 +6,11 @@ import { scaleBand, scaleLinear } from 'd3-scale';
 import { useWidth } from '@/components/charts/ChartCard';
 import { C, NUM } from '@/components/charts/tokens';
 
-const RECENT = 2;
 const VISIT = '#536471';
 export const man = (n: number) => (n >= 1e8 ? `${(n / 1e8).toFixed(1)}억` : `${NUM.format(Math.round(n / 1e4))}만`);
 
-export function RevenueWeeks({ labels, created, visit, days, height = 190 }: { labels: string[]; created: Array<number | null>; visit: Array<number | null>; days?: number[]; height?: number }) {
+// recent: 끝에서 몇 칸을 '바뀔 수 있음'(점선)으로 — 주차는 2(예약→방문 약 2주), 월은 1. recentLabel은 범례 글자.
+export function RevenueWeeks({ labels, created, visit, days, height = 190, recent: RECENT = 2, recentLabel = '최근 2주' }: { labels: string[]; created: Array<number | null>; visit: Array<number | null>; days?: number[]; height?: number; recent?: number; recentLabel?: string }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const short = !!days?.some((d) => d < 7);
   const padT = 18, padB = short ? 34 : 22, axisW = 40;
@@ -59,7 +59,7 @@ export function RevenueWeeks({ labels, created, visit, days, height = 190 }: { l
       <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-x-muted">
         <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3 rounded-sm" style={{ background: C.primary }} />접수일 기준</span>
         <span className="flex items-center gap-1.5"><i className="inline-block w-4 border-t-2" style={{ borderColor: VISIT }} />방문일 기준</span>
-        <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3 rounded-sm border border-dashed" style={{ borderColor: C.primary, background: '#e8f5fe' }} />최근 {RECENT}주 · 바뀔 수 있음</span>
+        <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-3 rounded-sm border border-dashed" style={{ borderColor: C.primary, background: '#e8f5fe' }} />{recentLabel} · 바뀔 수 있음</span>
       </div>
     </div>
   );

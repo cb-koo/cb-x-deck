@@ -40,8 +40,8 @@ export function MonthView({ m, onSaved, onPeriod }: { m: ClientMonth; onSaved: (
         <ChartCard icon={Icon.calendar} title="예약 매출 · 월별" value={cur.rec.revCreated === null ? '—' : `${man(cur.rec.revCreated)}원`} valueSub="접수일 기준"
           delta={cur.rec.revCreated !== null && prev?.rec.revCreated != null ? <Delta diff={Math.round((cur.rec.revCreated - prev.rec.revCreated) / 1e4)} unit="만" good="up" base={`전월 ${man(prev.rec.revCreated)}원`} /> : undefined}
           headline={cur.rec.revCreated === null ? '이 달 매출 기록이 없어요' : changeText(revPct) || `이 달 예약 매출 ${man(cur.rec.revCreated)}원`}
-          info={{ what: 'LINE으로 들어온 예약의 금액(클리닉 전체)', read: ['막대 = 접수일 기준', '선 = 방문일 기준', '점선 = 최근 달 — 접수일 기준은 취소·실주로 줄 수 있고, 방문일 기준은 늘어요'], calc: ['금액은 예약 금액(실제 결제 금액이 아님)'] }}>
-          <RevenueWeeks labels={labels} created={m.months.map((x) => x.rec.revCreated)} visit={m.months.map((x) => x.rec.revVisit)} />
+          info={{ what: 'LINE으로 들어온 예약의 금액(클리닉 전체)', read: ['막대 = 접수일 기준', '선 = 방문일 기준', '점선 = 이 달 — 접수일 기준은 취소·실주로 줄 수 있고, 방문일 기준은 늘어요'], calc: ['금액은 예약 금액(실제 결제 금액이 아님)'] }}>
+          <RevenueWeeks labels={labels} created={m.months.map((x) => x.rec.revCreated)} visit={m.months.map((x) => x.rec.revVisit)} recent={1} recentLabel="이 달" />
         </ChartCard>
         <ChartCard icon={Icon.bookmark} title="작업 비용 대비 매출 · 이 달"
           value={cur.roas === null ? '—' : `${fmtX(cur.roas)}배`}
@@ -55,7 +55,7 @@ export function MonthView({ m, onSaved, onPeriod }: { m: ClientMonth; onSaved: (
           headline={m.budget ? budgetHeadline(m.budget) : '이 달과 겹치는 예산 기간이 없어요'}
           info={{ what: '이 달 예산을 날짜에 맞게 썼나', read: ['진한 파랑 = 집행(게시까지 끝난 작업)', '연한 파랑 = 예정까지 포함', '검은 세로선 = 적정 소진선(끝난 달은 끝)'], calc: ['기간에 시작한 캠페인의 작업 비용 합(엔은 ×10원)'] }}>
           {m.budget
-            ? <BulletList rows={[{ label: '이 달', total: m.budget.total, spent: m.budget.spent, planned: m.budget.planned, pace: m.budget.pace }]} />
+            ? <BulletList rows={[{ label: '이 달', total: m.budget.total, spent: m.budget.spent, planned: m.budget.planned, pace: m.budget.pace }]} paceLabel={m.period.inProgress ? '오늘 기준 적정' : '기간 끝 기준'} />
             : <p className="text-ui text-x-muted">클라이언트 설정에서 예산 기간을 넣으면 여기서 소진을 볼 수 있어요.</p>}
         </ChartCard>
       </div>

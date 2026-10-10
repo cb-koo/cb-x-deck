@@ -92,3 +92,9 @@ test('요약 캐시 — 왕복 + upsert 갱신 + TTL 판정은 호출부 몫(fet
   assert.equal(fresh!.payload.meta.generated_at, '2026-08-02T00:00:00Z');
   assert.ok(Date.now() - new Date(fresh!.fetchedAt).getTime() < 5000); // upsert가 fetched_at도 갱신
 });
+
+test('planSyncTasks — 달 경계에서 잘린 캠페인 주차(cweek)만 더한다', () => {
+  const tasks = planSyncTasks({ clinicCodes: ['a'], todayKst: '2026-10-06', windowDays: 14, stored: new Map() });
+  const cw = tasks.filter((t) => t.granularity === 'cweek').map((t) => `${t.start}~${t.end}`).sort();
+  assert.deepEqual(cw, ['2026-09-28~2026-09-30', '2026-10-01~2026-10-04']);   // 꽉 찬 9/22~9/27은 주별로 충분
+});

@@ -1,7 +1,7 @@
 // 클라이언트 현황 — DB 읽기·판정 기록(스펙 2026-10-09-client-status-design.md §4·6). 계산은 clientStatus.ts(순수).
 import type postgres from 'postgres';
 import { addDays, mdLabel, suggestDecision, weeklyX, sum4, isDecision, type Decision, type Suggestion,
-  valueAtHorizon, ACCRUAL_DEFAULT, H_BOOKMARKS, H_VIEWS, MIN_MEASURE_H, type Accrual, type Check, type StatusCounts, countTotal } from './clientStatus.ts';
+  valueAtHorizon, ACCRUAL_DEFAULT, H_BOOKMARKS, H_VIEWS, MIN_MEASURE_H, type Accrual, type Check, type StatusCounts, countTotal, type ReviewSnapshot } from './clientStatus.ts';
 import { groupPosts, type PostGroup } from '../components/charts/postGroups.ts';
 import { campaignWeeksBack, prevCampaignWeek, type CampaignWeek } from './campaignWeek.ts';
 import { defaultPeriod, periodParam, periodLabel, isInProgress, stepPeriod, canStepNext, type Period } from './reportPeriod.ts';
@@ -16,7 +16,7 @@ const JPY_TO_KRW = 10;
 const isoDate = (v: Date | string) => (v instanceof Date ? v : new Date(v)).toISOString().slice(0, 10);
 const num = (v: unknown): number | null => (v === null || v === undefined || v === '' ? null : Number(v));
 
-export interface ReviewRow { verdict: Decision; suggested: Decision; memo: string; decidedByName: string; decidedAt: string }
+export interface ReviewRow { verdict: Decision; suggested: Decision; memo: string; decidedByName: string; decidedAt: string; snapshot: ReviewSnapshot | null }
 // 게시물 한 건 — 리포트의 글 상세 패널(스펙 2026-10-09 §10)이 추가 조회 없이 바로 그릴 수 있게 작업·캠페인·지표를 같이 싣는다.
 // 측정 이력·글 본문(이미지)만 패널을 열 때 따로 부른다.
 export interface StatusPost {
@@ -84,9 +84,9 @@ export async function listStatusClients(sql: postgres.Sql): Promise<{ linked: Ar
   };
 }
 
-type ReviewDb = { week_start: Date; verdict: string; suggested: string; memo: string; decided_by_name: string; decided_at: Date };
+type ReviewDb = { week_start: Date; verdict: string; suggested: string; memo: string; decided_by_name: string; decided_at: Date; snapshot: ReviewSnapshot | null };
 const toReview = (r: ReviewDb | undefined): ReviewRow | null => (r && isDecision(r.verdict) && isDecision(r.suggested)
-  ? { verdict: r.verdict, suggested: r.suggested, memo: r.memo, decidedByName: r.decided_by_name, decidedAt: new Date(r.decided_at).toISOString() } : null);
+  ? { verdict: r.verdict, suggested: r.suggested, memo: r.memo, decidedByName: r.decided_by_name, decidedAt: new Date(r.decided_at).toISOString(), snapshot: r.snapshot ?? null } : null);
 
 export async function loadClientStatus(sql: postgres.Sql, clientId: string, today: string, period?: Period): Promise<ClientStatus | null> {
   const c = (await sql<Array<{ id: string; name: string; clinic_code: string | null }>>`select id, name, clinic_code from client where id = ${clientId}`)[0];
@@ -200,7 +200,7 @@ export async function loadClientStatus(sql: postgres.Sql, clientId: string, toda
   const suggestion: Suggestion = inProgress ? { ...judged, decision: 'hold', reason: '진행 중인 주차라 판정하지 않아요', checks: [] } : judged;
   const s4 = (a: Array<number | null>): [number, number] => { const v = sum4(a); return [v.recent, v.prev]; };
 
-  const reviews = await sql<ReviewDb[]>`select week_start, verdict, suggested, memo, decided_by_name, decided_at from client_weekly_review
+  const reviews = await sql<ReviewDb[]>`select week_start, verdict, suggested, memo, decided_by_name, decided_at, snapshot from client_weekly_review
     where client_id = ${c.id} and week_start in (${base}, ${prevCampaignWeek(per.week).start})`;
   const rv = (w: string) => toReview(reviews.find((r) => isoDate(r.week_start) === w));
 
@@ -215,13 +215,26 @@ export async function loadClientStatus(sql: postgres.Sql, clientId: string, toda
   };
 }
 
-export async function saveReview(sql: postgres.Sql, input: { clientId: string; weekStart: string; verdict: Decision; suggested: Decision; memo: string; by: { id: string; name: string } | null }): Promise<ReviewRow> {
+/** 확정 순간의 핵심 숫자 — 화면이 본 것과 같은 계산 결과에서 뽑는다 */
+export function reviewSnapshot(s: ClientStatus): ReviewSnapshot {
+  const n = s.newInflow.length;
+  return {
+    newInflow: s.newInflow[n - 1], days: s.weekDays[n - 1], reservers4: s.reservers4, revenue4: s.result.revenue4,
+    roas4: s.result.roas4, lostRate: s.result.settled.lostRate, checks: s.suggestion.checks, reason: s.suggestion.reason,
+  };
+}
+
+export async function saveReview(sql: postgres.Sql, input: {
+  clientId: string; weekStart: string; weekEnd?: string; verdict: Decision; suggested: Decision; memo: string;
+  by: { id: string; name: string } | null; snapshot?: ReviewSnapshot | null;
+}): Promise<ReviewRow> {
+  const snap = input.snapshot ? sql.json(input.snapshot as never) : null;
   const r = (await sql<ReviewDb[]>`
-    insert into client_weekly_review (client_id, week_start, verdict, suggested, memo, decided_by, decided_by_name)
-    values (${input.clientId}, ${input.weekStart}, ${input.verdict}, ${input.suggested}, ${input.memo}, ${input.by?.id ?? null}, ${input.by?.name ?? ''})
+    insert into client_weekly_review (client_id, week_start, period_end, verdict, suggested, memo, decided_by, decided_by_name, snapshot)
+    values (${input.clientId}, ${input.weekStart}, ${input.weekEnd ?? null}, ${input.verdict}, ${input.suggested}, ${input.memo}, ${input.by?.id ?? null}, ${input.by?.name ?? ''}, ${snap})
     on conflict (client_id, week_start) do update set verdict = excluded.verdict, suggested = excluded.suggested, memo = excluded.memo,
-      decided_by = excluded.decided_by, decided_by_name = excluded.decided_by_name, decided_at = now()
-    returning week_start, verdict, suggested, memo, decided_by_name, decided_at`)[0];
+      decided_by = excluded.decided_by, decided_by_name = excluded.decided_by_name, decided_at = now(), period_end = excluded.period_end, snapshot = excluded.snapshot
+    returning week_start, verdict, suggested, memo, decided_by_name, decided_at, snapshot`)[0];
   return toReview(r) as ReviewRow;
 }
 

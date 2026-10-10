@@ -326,6 +326,33 @@ function budgetHeadline(b: NonNullable<ClientStatus['budget']>): string {
   return `${state} — 집행 ${Math.round((b.spent / (b.total || 1)) * 100)}% · 예정 포함 ${Math.round((b.planned / (b.total || 1)) * 100)}%`;
 }
 
+// 확정 당시 → 지금 — 예약 데이터는 나중에 바뀐다(실주 표시·취소). 바뀐 숫자만 칩으로, 없으면 한 줄.
+function SnapshotDiff({ s }: { s: ClientStatus }) {
+  const snap = s.review?.snapshot;
+  if (!snap) return null;
+  const n = s.newInflow.length;
+  const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%`);
+  const x = (v: number | null) => (v === null ? '—' : `${fmtX(v)}배`);
+  const items: Array<[string, string, string]> = [
+    ['신규 인입', `${snap.newInflow ?? '—'}명`, `${s.newInflow[n - 1] ?? '—'}명`],
+    ['예약 · 4주차', `${snap.reservers4}명`, `${s.reservers4}명`],
+    ['예약 매출 · 4주차', `${man(snap.revenue4)}원`, `${man(s.result.revenue4)}원`],
+    ['비용 대비 매출', x(snap.roas4), x(s.result.roas4)],
+    ['실주율', pct(snap.lostRate), pct(s.result.settled.lostRate)],
+  ];
+  const changed = items.filter(([, a, b]) => a !== b);
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px]">
+      <span className="text-x-muted">확정 당시 → 지금</span>
+      {changed.length === 0
+        ? <span className="text-x-secondary">숫자가 그대로예요</span>
+        : changed.map(([label, a, b]) => (
+          <span key={label} className="rounded-md bg-x-surface px-2 py-0.5 tabular-nums text-x-secondary">{label} <span className="text-x-muted">{a}</span> → <b className="text-x-text">{b}</b></span>
+        ))}
+    </div>
+  );
+}
+
 function ReviewPanel({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) => void }) {
   const [verdict, setVerdict] = useState<Decision>(s.review?.verdict ?? s.suggestion.decision);
   const [memo, setMemo] = useState(s.review?.memo ?? '');
@@ -366,6 +393,7 @@ function ReviewPanel({ s, onSaved }: { s: ClientStatus; onSaved: (r: ReviewRow) 
           {s.review.verdict !== s.review.suggested ? ` · 규칙 제안(${DECISION_LABEL[s.review.suggested]})과 다르게 정함` : ''}
         </p>
       )}
+      {s.review?.snapshot && <SnapshotDiff s={s} />}
 
       <div className="mt-4 flex flex-wrap gap-2" role="radiogroup" aria-label="판정">
         {DECISIONS.map((d) => (

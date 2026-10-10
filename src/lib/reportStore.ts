@@ -1,6 +1,11 @@
 import type postgres from 'postgres';
 import type { ReportBundles, ReportResponse, ReportUnit } from './reportApi.ts';
 import { addDays, bucketRanges } from './reportSeries.ts';
+import { campaignWeekOf, nextCampaignWeek } from './campaignWeek.ts';
+
+// 저장 단위 — ReportUnit(일·주·월, /reports 화면이 고르는 단위)에 '캠페인 주차'(월 경계에서 잘린 주, 클라이언트 현황 전용)를 더한다.
+// cweek은 /reports 단위 목록에 넣지 않는다(그 화면의 기간 계산이 모른다).
+export type SnapshotGranularity = ReportUnit | 'cweek';
 
 export interface SnapshotRow {
   clinicCode: string; granularity: ReportUnit; periodStart: string; periodEnd: string;
@@ -17,7 +22,7 @@ const toRow = (r: SRow): SnapshotRow => ({
   payload: r.payload, fetchedAt: new Date(r.fetched_at).toISOString(),
 });
 
-export async function upsertSnapshot(sql: postgres.Sql, row: Omit<SnapshotRow, 'fetchedAt'>): Promise<void> {
+export async function upsertSnapshot(sql: postgres.Sql, row: Omit<SnapshotRow, 'fetchedAt' | 'granularity'> & { granularity: SnapshotGranularity }): Promise<void> {
   await sql`insert into report_snapshot (clinic_code, granularity, period_start, period_end, payload, fetched_at)
     values (${row.clinicCode}, ${row.granularity}, ${row.periodStart}, ${row.periodEnd}, ${sql.json(row.payload as never)}, now())
     on conflict (clinic_code, granularity, period_start)
@@ -35,8 +40,8 @@ export async function getSnapshots(
   return rows.map(toRow);
 }
 
-export interface SyncTask { clinicCode: string; granularity: ReportUnit; start: string; end: string }
-export const taskKey = (t: { clinicCode: string; granularity: ReportUnit; start: string }) =>
+export interface SyncTask { clinicCode: string; granularity: SnapshotGranularity; start: string; end: string }
+export const taskKey = (t: { clinicCode: string; granularity: SnapshotGranularity; start: string }) =>
   `${t.clinicCode}|${t.granularity}|${t.start}`;
 
 export async function getStoredFetchedAt(
@@ -69,6 +74,9 @@ export function planSyncTasks(opts: {
     for (const g of ['week', 'month'] as const)
       for (const b of bucketRanges(winStart, yesterday, g))
         if (b.end < todayKst) candidates.push({ clinicCode, granularity: g, start: b.start, end: b.end });
+    // 캠페인 주차 중 달 경계에서 잘린 주(3~6일)만 — 꽉 찬 월~일은 주별 스냅샷과 같아 다시 부르지 않는다
+    for (let w = campaignWeekOf(winStart); w.start <= yesterday; w = nextCampaignWeek(w))
+      if (w.days < 7 && w.start >= winStart && w.end < todayKst) candidates.push({ clinicCode, granularity: 'cweek', start: w.start, end: w.end });
   }
   const revDate = (d: string) => String(99999999 - Number(d.replaceAll('-', '')));
   const clinicIdx = new Map(clinicCodes.map((c, i) => [c, i]));

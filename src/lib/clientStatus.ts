@@ -147,3 +147,11 @@ export function valueAtHorizon(points: Array<[number, number]>, H: number, key: 
 // ── 예약 상태(접수일 기준) ──
 export interface StatusCounts { visited: number; confirmed: number; reviewing: number; lost: number; cancelled: number; noshow: number }
 export const countTotal = (c: StatusCounts) => c.visited + c.confirmed + c.reviewing + c.lost + c.cancelled + c.noshow;
+
+// ── 판정 확정 때 본 숫자(스냅샷, koo 10-10) — 예약 데이터는 나중에 바뀌므로(실주 표시·취소) 그때 숫자를 남겨 '당시 vs 지금'으로 돌아본다 ──
+export interface ReviewSnapshot {
+  newInflow: number | null; days: number;          // 그 주차 신규 인입·일수
+  reservers4: number; revenue4: number;            // 최근 4주차
+  roas4: number | null; lostRate: number | null;
+  checks: Check[]; reason: string;
+}

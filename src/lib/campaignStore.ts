@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import { kstToday } from './datetime.ts';
+import { kstDate, kstToday } from './datetime.ts';
 import { isUuidLike } from './uuid.ts';
 import {
   parseExtraCosts, parseTaskCost, sumMoney, mergeMoney, isCurrency, type ExtraCost, type MoneyByCurrency,
@@ -17,11 +17,17 @@ import {
 } from './clientBudget.ts';
 import { taskPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
 import { computeMoney } from './settlementCalc.ts';
+import { pickTaskMainPost, firstLinkOf } from './selfReplies.ts';
+import { parseTweetLink, tweetPermalink } from './tweetLink.ts';
+import { mapMedia, mapQuoted } from './mappers.ts';
+import type { DeckMedia, DeckQuoted } from './types.ts';
 
 export { CAMPAIGN_KINDS, CAMPAIGN_KIND_LABEL, type CampaignKind } from './campaignJudgment.ts';
 
 // 캠페인 = 클라이언트 1 × 기간 1 동안 나가는 작업 묶음(스펙 2026-08-28 §0). 상태·인플 목록·합계는 저장하지 않는다 —
 // 목록엔 SQL 집계(task_count·통화별 합계)만 붙이고, 상세의 판정은 campaignJudgment 순수 함수가 한다(서버·클라 동일).
+// planned = posted + assigned + unassigned (취소 제외). posted = 게시됨, assigned = 인플 배정·미게시, unassigned = 인플 미배정·미게시.
+export interface CampaignProgress { planned: number; posted: number; assigned: number; unassigned: number }
 export interface CampaignRow {
   id: string; clientId: string | null; clientName: string | null;
   name: string; nameEn: string;
@@ -29,19 +35,37 @@ export interface CampaignRow {
   kind: CampaignKind | null; note: string;
   createdAt: string; updatedAt: string; // ISO
   taskCount: number;                    // 파생: 취소 제외 작업 수(요약 N과 같은 모집단, R17)
+  progress: CampaignProgress;           // 파생: 취소 제외 작업의 게시·배정·미배정 수(목록 진행 막대)
   total: MoneyByCurrency;               // 파생: 작업 비용(취소 제외) + 추가 비용, 통화별
 }
 
+// postCount = 작업에 붙은 게시물 수(댓글 포함). 지표는 본 게시물 하나의 값이다(self-replies 스펙 §5 — 댓글은 더하지 않는다).
 export interface CampaignPerf { postCount: number; views: number | null; likes: number | null; bookmarks: number | null }
+// 작업에 붙은 본 게시물 외 게시물 — 대부분 인플 본인 댓글(추가 콘텐츠). 패널이 '인플 댓글 N개'로 따로 보여준다(§6).
+export interface TaskReply {
+  tweetId: string; text: string; postedAt: string | null;   // ISO
+  views: number | null; likes: number | null;   // 최신 스냅샷(스레드 카드의 '조회 N · 좋아요 N' — 작업 지표엔 더하지 않는다)
+  link: string | null;                 // 댓글에 든 링크 — selfReplies.firstLinkOf
+  url: string;                         // X에서 열기
+  media: DeckMedia[];                  // 사진·영상 전부 — 최신 스냅샷 raw(상세 조회)에서 덱과 같은 규칙(mapMedia)으로(스펙 §10)
+  quoted: DeckQuoted | null;           // 인용한 글 — 같은 raw에서 mapQuoted로
+  unseenSince: string | null;          // X에서 안 보이기 시작한 때(확정된 것만, ISO) — 링크 댓글이 사라지면 패널이 알린다(2026-10-12)
+}
 // 상세 표의 한 행 — TaskRow + 게시 확인 + 성과.
 export interface CampaignTaskItem extends TaskRow {
   published: boolean;              // = postedAt !== null (게시 확인이 판정한다, tracked_post 유무가 아니다 — §2-5)
-  perf: CampaignPerf | null;       // tracked_post.task_id 최신 스냅샷(lateral) 합. 스냅샷 없으면 views/likes null
+  perf: CampaignPerf | null;       // 본 게시물(post_url의 트윗) 최신 스냅샷(lateral). 게시물이 없으면 null, 스냅샷 없으면 views/likes null
+  replies: TaskReply[];            // 본 게시물 외에 붙은 게시물(인플 본인 댓글) — 지표 합산 안 함
   linkClicks: number | null;       // 붙은 원고의 tracking_link 최신 스냅샷 합 — 게시 여부와 무관(요약 카드 합계용, §5)
   settlement: SettlementBadge | null;   // 표의 정산 배지(정산 스펙 §4-4) — settlementByTaskIds
   // 방문 예약(064) — null 예약 없음 · 'waiting' 대기 · 'confirmed' 확정. 예약 테이블이 없는 DB(설정 적용 전)면 칸 자체가 없다(undefined) —
   // 그때는 표의 '대기' 표시와 카드 클릭의 예약 창을 모두 쓰지 않는다(reservationByTaskIds).
   reservation?: 'waiting' | 'confirmed' | null;
+  // 본 게시물이 X에서 안 보이기 시작한 때(확정된 것만, ISO — 1시간 뒤 다시 봐도 없을 때 처음 없던 시각, trackingStore.recordMissing).
+  // 표의 '(안 보임)'·패널 딱지·내림 날짜 미리 채우기가 이 값을 쓴다. 내림 표시와는 따로다 — 내림은 사람이 정한다(2026-10-12)
+  unseenSince: string | null;
+  // 내림 표시 뒤에도 본 게시물이 X에서 보인 마지막 확인 시각(ISO) — 내림 줄이 '[내림 취소]할지' 알려 준다. 내림이 아니면 null
+  seenAfterRemovedAt: string | null;
 }
 export interface InfluencerCostRow {
   id: string; campaignId: string; influencerHandle: string;
@@ -70,6 +94,7 @@ type CRow = {
   id: string; client_id: string | null; client_name: string | null; name: string; name_en: string;
   starts_on: string; ends_on: string; kind: CampaignKind | null; note: string;
   created_at: Date; updated_at: Date; task_count: string | number;
+  posted_count: string | number; assigned_count: string | number; unassigned_count: string | number;
 };
 type TotalRow = { campaign_id: string; currency: string; amount: string | number };
 type FeeRow = { campaign_id: string; cost: unknown; payment_methods: unknown; payment_method_id: string | null; posted: boolean };
@@ -97,7 +122,13 @@ const SELECT = (sql: postgres.Sql) => sql`
          to_char(c.starts_on, 'YYYY-MM-DD') as starts_on, to_char(c.ends_on, 'YYYY-MM-DD') as ends_on,
          c.kind, c.note, c.created_at, c.updated_at,
          (select count(*) from campaign_task t
-           where t.campaign_id = c.id and t.cancelled_at is null) as task_count
+           where t.campaign_id = c.id and t.cancelled_at is null) as task_count,
+         (select count(*) from campaign_task t
+           where t.campaign_id = c.id and t.cancelled_at is null and t.posted_at is not null) as posted_count,
+         (select count(*) from campaign_task t
+           where t.campaign_id = c.id and t.cancelled_at is null and t.posted_at is null and t.influencer_handle is not null) as assigned_count,
+         (select count(*) from campaign_task t
+           where t.campaign_id = c.id and t.cancelled_at is null and t.posted_at is null and t.influencer_handle is null) as unassigned_count
     from campaign c`;
 
 // 통화별 합계 — 작업 비용(취소 제외) + 추가 비용을 SQL에서 통화별로 묶는다. 통화 간 합산은 하지 않는다.
@@ -201,6 +232,10 @@ async function toRows(sql: postgres.Sql, rows: CRow[]): Promise<CampaignRow[]> {
     startsOn: r.starts_on, endsOn: r.ends_on, kind: r.kind, note: r.note,
     createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
     taskCount: Number(r.task_count),
+    progress: {
+      planned: Number(r.posted_count) + Number(r.assigned_count) + Number(r.unassigned_count),
+      posted: Number(r.posted_count), assigned: Number(r.assigned_count), unassigned: Number(r.unassigned_count),
+    },
     total: totals.get(r.id)?.money ?? {},
   }));
 }
@@ -274,14 +309,47 @@ function latestIso(ds: Array<Date | null>): string | null {
   const ms = ds.filter((d): d is Date => d !== null).map((d) => d.getTime());
   return ms.length ? new Date(Math.max(...ms)).toISOString() : null;
 }
-type PerfRow = { task_id: string; post_count: number; views: string | number | null; likes: string | number | null; bookmarks: string | number | null; captured_at: Date | null };
+type PostRow = {
+  task_id: string; tweet_id: string; author_handle: string | null; text: string; posted_at: Date | null; is_reply: boolean | null;
+  raw_urls: unknown; raw_media: unknown; raw_quoted: unknown; views: string | number | null; likes: number | null; bookmarks: number | null; captured_at: Date | null;
+  unavailable_at: Date | null;   // 새 규칙(두 번 확인, 069)으로 확정된 것만 — 옛 한 번짜리 기록은 select가 null로 준다
+  missing_since: Date | null;    // 지금 안 보이는 중(확정 전 포함)
+};
+const numOrNull = (v: string | number | null) => (v === null ? null : Number(v)); // bigint는 문자열
+
+// 작업 하나의 게시물들 → 작업 지표(본 게시물 하나) + 나머지(인플 본인 댓글 등, 게시 순). 게시물이 없으면 perf null.
+const isoOrNull = (d: Date | null) => (d ? new Date(d).toISOString() : null);
+type TaskPostsView = { perf: CampaignPerf | null; replies: TaskReply[]; unseenSince: string | null; mainCapturedAt: string | null; mainMissing: boolean };
+function taskPostsView(postUrl: string | null, rows: PostRow[]): TaskPostsView {
+  const posts = rows.map((r) => ({ ...r, tweetId: r.tweet_id, postedAt: r.posted_at ? new Date(r.posted_at).toISOString() : null, isReply: r.is_reply }));
+  const main = pickTaskMainPost(postUrl, posts);
+  if (!main) return { perf: null, replies: [], unseenSince: null, mainCapturedAt: null, mainMissing: false };
+  // 안 보임은 게시물 링크(post_url)가 가리키는 그 트윗일 때만 — 자동 측정·정산 경고와 같은 본 게시물(링크가 다른 트윗이면 셋이 어긋난다)
+  const parsed = postUrl ? parseTweetLink(postUrl) : null;
+  const linked = !!parsed?.ok && parsed.tweetId === main.tweetId;
+  const replies = posts.filter((p) => p !== main)
+    .sort((a, b) => (a.postedAt ? Date.parse(a.postedAt) : Infinity) - (b.postedAt ? Date.parse(b.postedAt) : Infinity))
+    .map((p): TaskReply => ({
+      tweetId: p.tweetId, text: p.text, postedAt: p.postedAt, views: numOrNull(p.views), likes: p.likes,
+      link: firstLinkOf(p.text, p.raw_urls), url: tweetPermalink(p.author_handle, p.tweetId),
+      media: mapMedia({ media: p.raw_media }), quoted: mapQuoted({ quoted_tweet: p.raw_quoted }),
+      unseenSince: isoOrNull(p.unavailable_at),
+    }));
+  return {
+    perf: { postCount: posts.length, views: numOrNull(main.views), likes: main.likes, bookmarks: main.bookmarks },
+    replies,
+    unseenSince: linked ? isoOrNull(main.unavailable_at) : null,
+    mainCapturedAt: isoOrNull(main.captured_at),
+    mainMissing: main.missing_since !== null,
+  };
+}
 type ClickRow = { draft_id: string; clicks: string | number | null };
 
 // 방문 작업의 예약 상태(064) — 읽기만 한다. 예약 기능이 꺼져 있으면(extensionProductApi.productFeatures와 같은 조건: 환경 변수,
 // 예약 테이블 존재) null(상태를 모름)을 돌려준다 — 테이블이 없는 DB에서도 캠페인 화면은 열려야 한다.
 // 예약 종료는 작업 취소로 함께 기록되므로(reservationCommands) 여기서 따로 보지 않는다.
 async function reservationByTaskIds(sql: postgres.Sql, taskIds: string[]): Promise<Map<string, 'waiting' | 'confirmed'> | null> {
-  if (process.env.NODE_ENV !== 'development' && process.env.EXTENSION_PRODUCT_ENABLED !== 'true') return null;
+  if (process.env.EXTENSION_PRODUCT_ENABLED === 'false') return null;   // 기본 켜짐 — extensionProductApi.productFeatures와 같은 조건
   const [{ ready }] = await sql<Array<{ ready: boolean }>>`select to_regclass('public.visit_reservation') is not null as ready`;
   if (!ready) return null;
   const ids = taskIds.filter(isUuidLike);
@@ -299,18 +367,20 @@ export async function getCampaignDetail(
   if (!campaign) return null;
   const tasks = await listTasksByCampaign(sql, id);
 
-  // 성과: 게시물은 작업에 붙는다(§2-4). 한 작업에 게시물이 여러 개면(tracked_post는 tweet_id만 unique)
-  // 각 게시물의 최신 스냅샷을 합산한다. 최신 1건은 lateral(trackingStore 관례) — 스냅샷 없는 게시물은 sum에서 null로 빠진다.
-  const perfRows = await sql<PerfRow[]>`
-    select tp.task_id, count(tp.id)::int as post_count, sum(s.views) as views, sum(s.likes) as likes, sum(s.bookmarks) as bookmarks,
-           max(s.captured_at) as captured_at
+  // 성과: 게시물은 작업에 붙는다(§2-4). 한 작업에 게시물이 여러 개여도(인플 본인 댓글·스레드) 작업 지표는 본 게시물 하나 —
+  // 게시물 링크(post_url)가 가리키는 트윗(self-replies 스펙 §5, pickTaskMainPost). 댓글 지표는 더하지 않고 replies로 따로 준다.
+  // 최신 1건은 lateral(trackingStore 관례) — 스냅샷 없는 게시물은 지표가 null.
+  const postRows = await sql<PostRow[]>`
+    select tp.task_id, tp.tweet_id, tp.author_handle, tp.text, tp.posted_at, tp.missing_since,
+           case when tp.missing_since is not null then tp.unavailable_at end as unavailable_at, (s.raw->>'isReply')::boolean as is_reply,
+           s.raw #> '{entities,urls}' as raw_urls, s.raw -> 'media' as raw_media, s.raw -> 'quoted_tweet' as raw_quoted, s.views, s.likes, s.bookmarks, s.captured_at
       from tracked_post tp
       left join lateral (
-        select views, likes, bookmarks, captured_at from post_metric_snapshot where tracked_post_id = tp.id
+        select views, likes, bookmarks, captured_at, raw from post_metric_snapshot where tracked_post_id = tp.id
         order by captured_at desc limit 1
       ) s on true
      where tp.task_id in (select t.id from campaign_task t where t.campaign_id = ${id})
-     group by tp.task_id`;
+     order by tp.created_at asc`;
   // 링크 클릭은 아직 원고 기준이다(tracking_link.draft_id) — 작업에 붙은 원고를 통해 잇는다(§5)
   const clickRows = await sql<ClickRow[]>`
     select l.draft_id, sum(s.total_clicks) as clicks
@@ -321,22 +391,27 @@ export async function getCampaignDetail(
       ) s on true
      where l.draft_id in (select t.draft_id from campaign_task t where t.campaign_id = ${id} and t.draft_id is not null)
      group by l.draft_id`;
-  const perfMap = new Map(perfRows.map((r) => [r.task_id, r]));
+  const postsByTask = new Map<string, PostRow[]>();
+  for (const r of postRows) { const l = postsByTask.get(r.task_id); if (l) l.push(r); else postsByTask.set(r.task_id, [r]); }
   const clickMap = new Map(clickRows.map((r) => [r.draft_id, r]));
   const num = (v: string | number | null) => (v === null ? null : Number(v)); // sum(bigint)는 문자열
   const badges = await settlementByTaskIds(sql, tasks.map((t) => t.id));   // 표의 정산 배지(정산 스펙 §4-4)
   const reservations = await reservationByTaskIds(sql, tasks.filter((t) => t.type === 'visit').map((t) => t.id));
 
   const items: CampaignTaskItem[] = tasks.map((t) => {
-    const p = perfMap.get(t.id);
+    const { perf, replies, unseenSince, mainCapturedAt, mainMissing } = taskPostsView(t.postUrl, postsByTask.get(t.id) ?? []);
     const c = t.draftId ? clickMap.get(t.draftId) : undefined;
     return {
       ...t,
       published: t.postedAt !== null,   // 게시 확인이 판정한다 — 게시물이 아직 안 붙었어도 게시됨(§2-5)
-      perf: p ? { postCount: p.post_count, views: num(p.views), likes: num(p.likes), bookmarks: num(p.bookmarks) } : null,
+      perf,
+      replies,
       linkClicks: c ? num(c.clicks) : null,
       settlement: badges.get(t.id) ?? null,
       ...(reservations && t.type === 'visit' ? { reservation: reservations.get(t.id) ?? null } : {}),
+      unseenSince,
+      // 내림 날(서울) 다음 날 이후에 잰 값이 있고 지금 안 보이는 중(확정 전 포함)이 아니면 — 그날 안의 측정은 내리기 전일 수 있어 세지 않는다
+      seenAfterRemovedAt: t.removedAt && !mainMissing && mainCapturedAt && kstDate(mainCapturedAt) > t.removedAt ? mainCapturedAt : null,
     };
   });
 
@@ -358,7 +433,7 @@ export async function getCampaignDetail(
 
   return {
     campaign, tasks: items, costRows,
-    perfUpdatedAt: latestIso(perfRows.map((r) => r.captured_at)),
+    perfUpdatedAt: latestIso(postRows.map((r) => r.captured_at)),
     summary: summarizeTasks(items, today),
     influencers: deriveTaskInfluencers(items, costRows),
     byType: subtotalsByType(items),

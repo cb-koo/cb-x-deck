@@ -2,6 +2,8 @@
 // 저장하지 않고 읽기 시점에 판정한다: 등록 순서(링크보다 게시물이 먼저 등록된 경우)에 좌우되지 않고,
 // 링크가 나중에 생겨도 다음 읽기에서 바로 맞는다. 사람이 고친 값(role)만 영구다.
 // 설계: docs/superpowers/specs/2026-08-25-landing-events-design.md §역할 판정
+import { parseTweetLink } from './tweetLink.ts';
+
 export type PostRole = 'main' | 'thread' | 'link';
 export const POST_ROLES: readonly PostRole[] = ['main', 'thread', 'link'];
 
@@ -40,21 +42,35 @@ function containsShortUrl(rawUrls: unknown, shortNorm: Set<string>): boolean {
 
 const ts = (iso: string | null) => (iso ? Date.parse(iso) : Number.POSITIVE_INFINITY); // 시각 없음은 맨 뒤
 
+// 작업의 게시물 링크(post_url)가 가리키는 트윗 — 그 원고의 게시물 중 하나면 그 tweetId(여럿이면 가장 이른 것), 아니면 null.
+// assignRoles의 mainTweetId 재료: 캠페인 화면(pickTaskMainPost)과 같은 본 게시물을 고르게 한다(self-replies §5).
+export function taskMainTweetIdOf(posts: Array<{ tweetId: string; postedAt: string | null; postUrl: string | null }>): string | null {
+  const hits = posts.filter((p) => {
+    if (!p.postUrl) return false;
+    const parsed = parseTweetLink(p.postUrl);
+    return parsed.ok && parsed.tweetId === p.tweetId;
+  });
+  return hits.sort((a, b) => ts(a.postedAt) - ts(b.postedAt))[0]?.tweetId ?? null;
+}
+
 // 출력 순서 = 화면의 스레드 읽기 흐름 순서: main → thread(게시 순) → link.
-export function assignRoles<T extends RolePostInput>(posts: T[], shortUrls: string[]): Array<T & { role: PostRole }> {
+// mainTweetId(작업의 게시물 링크가 가리키는 트윗)를 주면 그 트윗이 링크를 담고 있어도 main이다 — 본 게시물에 트래킹 링크를
+// 넣고 댓글엔 안 넣은 경우 댓글이 main이 되던 것을 막는다. 사람이 고친 값(role)은 여전히 이긴다.
+export function assignRoles<T extends RolePostInput>(posts: T[], shortUrls: string[], mainTweetId: string | null = null): Array<T & { role: PostRole }> {
   if (posts.length === 0) return [];
   const shortNorm = new Set(shortUrls.map(normalizeUrl));
   const fixed = new Map<string, PostRole>();
   for (const p of posts) if (p.role) fixed.set(p.tweetId, p.role);
 
-  // 1) 저장값 우선, 2) 링크 포함 → link
+  // 1) 저장값 우선, 2) 작업의 본 게시물(mainTweetId) → main, 3) 링크 포함 → link
   const auto = posts.filter((p) => !fixed.has(p.tweetId));
-  const links = auto.filter((p) => containsShortUrl(p.rawUrls, shortNorm));
+  const pinned = mainTweetId ? auto.find((p) => p.tweetId === mainTweetId) : undefined;
+  const links = auto.filter((p) => p !== pinned && containsShortUrl(p.rawUrls, shortNorm));
   const rest = auto.filter((p) => !links.includes(p));
 
-  // 3) main = isReply=false가 있으면 그중 가장 이른 것, 없으면 가장 이른 것
+  // 4) main = 고정된 본 게시물, 없으면 isReply=false 중 가장 이른 것, 없으면 가장 이른 것
   const sorted = [...rest].sort((a, b) => ts(a.postedAt) - ts(b.postedAt));
-  const main = sorted.find((p) => p.isReply === false) ?? sorted[0];
+  const main = pinned ?? sorted.find((p) => p.isReply === false) ?? sorted[0];
 
   const roleOf = (p: T): PostRole => fixed.get(p.tweetId) ?? (links.includes(p) ? 'link' : p === main ? 'main' : 'thread');
   const roled = posts.map((p) => ({ ...p, role: roleOf(p) }));

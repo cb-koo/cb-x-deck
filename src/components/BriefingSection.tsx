@@ -630,8 +630,8 @@ export function BriefingSection({ wsId }: { wsId: string }) {
                       {confirmingDeleteId === b.id ? (
                         <span className="ml-auto flex shrink-0 items-center gap-1 text-xs">
                           <span className="text-red-600">삭제할까요?</span>
-                          <button onClick={() => remove(b.id)} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">삭제</button>
-                          <button onClick={() => setConfirmingDeleteId(null)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
+                          <button type="button" onClick={() => setConfirmingDeleteId(null)} className="rounded border border-x-border-strong px-2 py-0.5">취소</button>
+                          <button type="button" onClick={() => remove(b.id)} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">삭제</button>
                         </span>
                       ) : (
                         <>

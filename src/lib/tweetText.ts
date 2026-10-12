@@ -35,3 +35,11 @@ export function tokenizeTweetText(text: string): TweetTextToken[] {
   if (last < text.length) out.push({ type: 'text', value: text.slice(last) });
   return out;
 }
+
+// X는 사진·영상·인용 글이 붙은 게시물의 본문 끝 t.co 링크(미디어·인용을 가리키는 링크)를 숨긴다 — 그 자리는 사진 격자·인용 카드가 대신한다.
+// 끝의 t.co 하나만 지운다(본문 중간 링크·t.co가 아닌 링크는 그대로). 사진·인용이 없으면 진짜 링크일 수 있어 그대로 둔다.
+const TRAILING_TCO_RE = /\s*https?:\/\/t\.co\/\w+\s*$/;
+export function stripTrailingMediaLink(text: string, has: { hasMedia: boolean; hasQuoted: boolean }): string {
+  if (!has.hasMedia && !has.hasQuoted) return text;
+  return text.replace(TRAILING_TCO_RE, '');
+}

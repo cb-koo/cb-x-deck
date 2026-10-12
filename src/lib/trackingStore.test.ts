@@ -9,7 +9,7 @@ import { createCampaign } from './campaignStore.ts';
 import { createTasks, getTask, cancelTask } from './campaignTaskStore.ts';
 import {
   addTrackedPost, listTrackedPosts, findByTweetId, findTrackedPostById,
-  appendSnapshot, markUnavailable, linkTrackedPost, deleteTrackedPost, listSnapshots, setRole,
+  appendSnapshot, recordMissing, linkTrackedPost, deleteTrackedPost, listSnapshots, setRole,
   listTrackedPostIdsForCampaign,
   TrackingLinkError,
 } from './trackingStore.ts';
@@ -50,17 +50,31 @@ test('2) 같은 tweet_id 재등록은 created:false + 기존 행', async () => {
   assert.equal(snaps.length, 1); // 중복 등록이 스냅샷을 또 만들지 않는다
 });
 
-test('3) 스냅샷 추가 → 최신값 갱신, 볼 수 없음 기록·복귀', async () => {
+test('3) 스냅샷 추가 → 최신값 갱신, 볼 수 없음은 1시간 뒤 두 번째 "없음"에 확정·복귀(2026-10-12)', async () => {
   const { row } = await addTrackedPost(sql, { tweetId: P + '3', authorHandle: null, text: '', postedAt: null, createdBy: null, metrics: M, raw: null });
-  await markUnavailable(sql, row.id);
+  const missing = async () => (await sql<Array<{ missing_since: Date | null; missing_checked_at: Date | null }>>`
+    select missing_since, missing_checked_at from tracked_post where id = ${row.id}`)[0];
+  // 처음 "없음" — 확정하지 않고 처음 본 시각만
+  await recordMissing(sql, row.id);
+  assert.equal((await findTrackedPostById(sql, row.id))!.unavailableAt, null);
+  assert.ok((await missing()).missing_since);
+  // 1시간 안의 또 한 번(수동 ↻ 연타 등)도 확정이 아니다
+  await recordMissing(sql, row.id);
+  assert.equal((await findTrackedPostById(sql, row.id))!.unavailableAt, null);
+  // 처음 없던 때로부터 1시간이 넘어 또 없으면 확정 — 확정 시각은 처음 없던 시각
+  const first = new Date(Date.now() - 2 * 60 * 60_000);
+  await sql`update tracked_post set missing_since = ${first} where id = ${row.id}`;
+  await recordMissing(sql, row.id);
   const dead = await findTrackedPostById(sql, row.id);
-  assert.ok(dead!.unavailableAt);
-  await markUnavailable(sql, row.id); // 두 번째 호출이 시각을 덮어쓰지 않는다
+  assert.equal(dead!.unavailableAt, first.toISOString());
+  await recordMissing(sql, row.id); // 확정 뒤의 호출은 시각을 덮어쓰지 않는다(확인 시각만 갱신)
   assert.equal((await findTrackedPostById(sql, row.id))!.unavailableAt, dead!.unavailableAt);
-  await appendSnapshot(sql, row.id, { ...M, views: 999 }, null); // 복귀
+  assert.ok((await missing()).missing_checked_at! > first);
+  await appendSnapshot(sql, row.id, { ...M, views: 999 }, null); // 복귀 — 세 칸을 모두 비운다
   const back = await findTrackedPostById(sql, row.id);
   assert.equal(back!.metrics!.views, 999);
   assert.equal(back!.unavailableAt, null);
+  assert.deepEqual(await missing(), { missing_since: null, missing_checked_at: null });
 });
 
 test('4) 원고 연결·해제, findByTweetId, 삭제 cascade', async () => {

@@ -115,6 +115,9 @@ test('2) 상세 — 작업 목록·게시됨(posted_at)·성과(task_id)·링크
   const listed = (await listCampaigns(sql)).find((x) => x.id === camp.id)!;
   assert.equal(listed.taskCount, 4);   // 미사용 +1, 취소 제외 — 요약 카드 total(4)과 같은 모집단
   assert.deepEqual(listed.total, { JPY: 34000, KRW: 5000 });
+  assert.deepEqual(listed.progress, { planned: 4, posted: 1, assigned: 3, unassigned: 0 });   // 취소(mio) 제외, rt1만 게시
+  await sql`update campaign_task set influencer_handle = null where id = ${rt2.id}`;
+  assert.deepEqual((await getCampaign(sql, camp.id))!.progress, { planned: 4, posted: 1, assigned: 2, unassigned: 1 });   // 단건도 같은 정의
 });
 
 test('3) 인플 프로필 참여 캠페인 — 작업 기준(lower), 유형별 건수, 비용 행만 있는 캠페인도', async () => {

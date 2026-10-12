@@ -44,8 +44,8 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
         <div className="border-t border-red-300 bg-red-50 p-2 text-caption">
           <p className="mb-1 text-red-600">내 코멘트를 삭제할까요? 메모가 사라져요. (트윗은 팀 보관함에 남아요)</p>
           <div className="flex gap-1">
-            <button onClick={() => { setConfirming(false); doUnsave(); }} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">코멘트 삭제</button>
-            <button onClick={() => setConfirming(false)} className="rounded border border-x-border-strong px-2 py-0.5">그대로 두기</button>
+            <button type="button" onClick={() => setConfirming(false)} className="rounded border border-x-border-strong px-2 py-0.5">그대로 두기</button>
+            <button type="button" onClick={() => { setConfirming(false); doUnsave(); }} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">코멘트 삭제</button>
           </div>
         </div>
       )}
@@ -73,8 +73,8 @@ export function CandidateCard({ entry, meId, wsId, onChanged, onRemoveTeam, tran
             이 트윗을 팀 보관함에서 뺄까요?{entry.candidates.length > 0 ? ` 팀원 ${entry.candidates.length}명의 코멘트도 함께 삭제됩니다.` : ''} (실행취소 가능)
           </p>
           <div className="flex gap-1">
-            <button onClick={() => { setRemovingTeam(false); onRemoveTeam(entry.tweet.tweetId); }} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">팀에서 빼기</button>
-            <button onClick={() => setRemovingTeam(false)} className="rounded border border-x-border-strong px-2 py-0.5">그대로 두기</button>
+            <button type="button" onClick={() => setRemovingTeam(false)} className="rounded border border-x-border-strong px-2 py-0.5">그대로 두기</button>
+            <button type="button" onClick={() => { setRemovingTeam(false); onRemoveTeam(entry.tweet.tweetId); }} className="rounded bg-red-600 px-2 py-0.5 text-white hover:bg-red-700">팀에서 빼기</button>
           </div>
         </div>
       )}
@@ -132,9 +132,9 @@ function MyComment({ entry: e, onChanged, onUnsave }: { entry: CandidateRow; onC
         <CommentByline entry={e} />
         {editing ? (
           <div className="flex items-center gap-1">
-            <button onClick={save} disabled={saving}
+            <button type="button" onClick={cancel} className="rounded px-2 py-1 text-caption text-x-muted hover:bg-x-hover">취소</button>
+            <button type="button" onClick={save} disabled={saving}
                     className="rounded px-2 py-1 text-caption font-medium text-x-blue-text hover:bg-x-hover disabled:opacity-40">{saving ? '저장 중…' : '저장'}</button>
-            <button onClick={cancel} className="rounded px-2 py-1 text-caption text-x-muted hover:bg-x-hover">취소</button>
           </div>
         ) : (
           <div className="flex items-center gap-1">

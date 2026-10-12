@@ -65,7 +65,7 @@ test('describeExternalCall — ok, 단건 조회(그 외)', () => {
 
 test('describeExternalCall — unauthorized', () => {
   const r = describeExternalCall(row({ outcome: 'unauthorized' }));
-  assert.equal(r.line, 'API 키가 맞지 않아 거부했어요 — 정산 프로덕트에 운영 키를 다시 확인해 달라고 알려 주세요');
+  assert.equal(r.line, 'API 키가 맞지 않아 거부했어요 — 정산팀에 운영 키를 다시 확인해 달라고 알려 주세요');
   assert.equal(r.tone, 'bad');
 });
 
@@ -122,9 +122,9 @@ test('describeCaller — Mozilla(브라우저)', () => {
   assert.deepEqual(r, { label: '브라우저', kind: 'us' });
 });
 
-test('describeCaller — 그 외(node 등)는 정산 프로덕트로 추정', () => {
+test('describeCaller — 그 외(node 등)는 정산팀으로 추정', () => {
   const r = describeCaller({ userAgent: 'node-fetch/1.0', ip: null });
-  assert.deepEqual(r, { label: '정산 프로덕트', kind: 'partner' });
+  assert.deepEqual(r, { label: '정산팀', kind: 'partner' });
 });
 
 // --- describeTarget ---

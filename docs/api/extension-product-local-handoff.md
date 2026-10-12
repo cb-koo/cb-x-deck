@@ -27,7 +27,7 @@
 - 저장 요청은 `Content-Type: application/json`, `Idempotency-Key: <새 UUID>`가 필요하다. 같은 저장을 재시도할 때는 같은 키·내용·버전을 보낸다. 입력 또는 저장 대상이 바뀌면 새 키를 만든다.
 - 기존 기록 수정에는 `If-Match: "<version>"`도 필요하다. 생성은 제외하며 기존 task에 예약을 연결할 때는 `target.expectedTaskVersion`을 보낸다.
 - 개별 자원 응답은 현재 `version` 또는 `revision`에 대응하는 `ETag`를 제공한다. task와 reservation의 version은 서로 다르다.
-- `/session`의 `featureFlags.writes/reservations/consents`를 보고 쓰기 화면을 연다(`writes`가 false면 모든 비GET이 `503 SERVER_NOT_READY`). 개발 환경은 065 준비 후 활성화한다. 운영 활성화는 `EXTENSION_PRODUCT_ENABLED=true` 설정을 별도로 요구한다.
+- `/session`의 `featureFlags.writes/reservations/consents`를 보고 쓰기 화면을 연다(`writes`가 false면 모든 비GET이 `503 SERVER_NOT_READY`). 064·070 테이블이 있으면 기본으로 켜진다(2026-10-12 결정). 비상시 `EXTENSION_PRODUCT_ENABLED=false`로 끈다.
 
 다른 담당자가 먼저 저장한 경우 `409 VERSION_CONFLICT`다. 입력을 지우지 말고 최신 GET 결과와 비교한 뒤 새 버전·새 키로 저장한다. 같은 키로 다른 입력을 보내면 `409 IDEMPOTENCY_KEY_REUSED`, 이미 예약이 연결된 작업은 `409 RESERVATION_ALREADY_EXISTS`, 준비가 안 된 서버는 `503 SERVER_NOT_READY`다.
 

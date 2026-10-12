@@ -76,7 +76,7 @@
 
 ### A-1. [필수] 기능 플래그와 쓰기 게이트
 
-- 서버 `GET /session`은 `featureFlags: { writes, reservations, consents }`를 준다(`src/app/api/extension/v1/session/route.ts`). handoff 문서의 `features`라는 이름은 틀렸다. 지금은 세 값이 항상 같지만(테이블 존재 && `EXTENSION_PRODUCT_ENABLED` 또는 개발 환경) 웹은 `reservations`로 예약 UI를, `consents`로 동의서를 가린다. 익스텐션도 `writes`만 보지 말고 셋을 각각 쓴다(`extension/live.ts:25`).
+- 서버 `GET /session`은 `featureFlags: { writes, reservations, consents }`를 준다(`src/app/api/extension/v1/session/route.ts`). handoff 문서의 `features`라는 이름은 틀렸다. 지금은 세 값이 항상 같지만(테이블 존재 && `EXTENSION_PRODUCT_ENABLED`가 false가 아님) 웹은 `reservations`로 예약 UI를, `consents`로 동의서를 가린다. 익스텐션도 `writes`만 보지 말고 셋을 각각 쓴다(`extension/live.ts:25`).
 - 서버는 `writes`가 false면 **모든 비GET**에 `SERVER_NOT_READY` 503 '예약 기능의 서버 준비가 아직 끝나지 않았어요. 관리자에게 설정 적용을 요청해 주세요.'를 준다. 카드의 `방문완료`가 `writesReady` 검사 없이 호출된다(`ExtensionApp.tsx:219-230`). 게이트에 넣는다.
 - `supportedClientVersions`는 서버가 읽지 않는 안내값이다(`X-Client-Version` 미검사). 비교 로직은 필요 없다.
 
@@ -409,7 +409,7 @@ A로 확정되면 A-6과 B-10을 그대로 적용한다. B로 가면 A-6은 빼�
 
 ## 6. 연동 확인 체크리스트 (수동)
 
-서버는 `EXTENSION_PRODUCT_ENABLED=true`(또는 개발 환경) + 064·065 적용 상태여야 한다. `GET /session`의 `featureFlags.writes`가 true인지 먼저 본다.
+서버는 064·070 적용 상태면 기본으로 켜진다(`EXTENSION_PRODUCT_ENABLED=false`일 때만 꺼짐, 2026-10-12 결정). `GET /session`의 `featureFlags.writes`가 true인지 먼저 본다.
 
 1. 확정된 예약에서 `[예약 수정]` → 사유 창 → '인플루언서 요청' → 수정 창에 딱지 '인플루언서 요청 · 현재 n/3회' → 희망 시술만 바꿔 저장 → 변경 내역에 '고객 요청 변경 · {이름}' + '시술: A → B', 요약 n+1/3.
 2. 같은 예약에서 '내 입력 정정'으로 저장 → 횟수 그대로, 제목 '내 입력 정정'.
@@ -427,7 +427,7 @@ A로 확정되면 A-6과 B-10을 그대로 적용한다. B로 가면 A-6은 빼�
 
 ## 7. 출처
 
-- 서버: `src/lib/extensionProductApi.ts`, `productCommand.ts`, `reservationCommands.ts`, `reservationPolicy.ts`, `reservationSheet.ts`, `reservationStore.ts`, `reservationAgreement.ts`, `reservationExtraction.ts`, `reservationWriteGuard.ts`, `clinicStore.ts`, `clinicHours.ts`, `extensionApi.ts`, `extensionAuth.ts`, `extensionTasks.ts`, `src/app/api/extension/v1/**`, `src/app/api/campaigns/[id]/tasks/[taskId]/cancel/route.ts`, `migrations/064_visit_reservation.sql`, `065_extension_product_settings.sql`.
+- 서버: `src/lib/extensionProductApi.ts`, `productCommand.ts`, `reservationCommands.ts`, `reservationPolicy.ts`, `reservationSheet.ts`, `reservationStore.ts`, `reservationAgreement.ts`, `reservationExtraction.ts`, `reservationWriteGuard.ts`, `clinicStore.ts`, `clinicHours.ts`, `extensionApi.ts`, `extensionAuth.ts`, `extensionTasks.ts`, `src/app/api/extension/v1/**`, `src/app/api/campaigns/[id]/tasks/[taskId]/cancel/route.ts`, `migrations/064_visit_reservation.sql`, `070_extension_product_settings.sql`.
 - 웹 화면: `src/components/reservations/{ReservationSection,ChangeReasonDialog,ScheduleEditorDialog,NewReservationDialog}.tsx`, `src/app/campaigns/flow/{TaskPanel,CancelDialog}.tsx`, `panel/{StageTypeBox,AgreementField}.tsx`, `src/lib/{campaignFlowView,taskSectionView}.ts`.
 - 익스텐션: `cb_x_extension/src/api/{client,contracts}.ts`, `src/extension/{background,messages,request,live,format,ExtensionApp,PartnerPanel,TaskDialog,ReservationDialog,ConsentField,ToolDialogs}.tsx|ts`, `src/reservationUtils.ts`, `docs/implementation/2026-10-06-*.md`.
 - 기존 문서: `docs/api/extension-product-local-handoff.md`, `docs/api/extension-v1-local-test.md`, `docs/superpowers/plans/2026-10-04-*.md`, `docs/mockups/x-extension-web-20261004.md`.

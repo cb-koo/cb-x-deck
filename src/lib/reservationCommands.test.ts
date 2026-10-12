@@ -16,8 +16,8 @@ import { createClientSheet, readClientSheetInputs } from './reservationSheet.ts'
 import { kstToday } from './datetime.ts';
 import type { Member } from './types.ts';
 
-// 쓰기 경로는 운영 플래그(또는 개발 환경)로 열린다(productFeatures). 테스트 프로세스는 둘 다 아니므로 여기서 켠다 — 값은 호출 시점에 읽는다.
-process.env.EXTENSION_PRODUCT_ENABLED = 'true';
+// 쓰기 경로는 기본 켜짐(productFeatures). 바깥 환경이 비상 스위치(=false)를 켜 뒀어도 이 테스트는 돌게 지운다.
+delete process.env.EXTENSION_PRODUCT_ENABLED;
 
 const sql = getSql();
 const P = 'trsv' + process.pid;   // 핸들은 15자 제한 — 'trsv' + pid(5자리) + 접미어 4자

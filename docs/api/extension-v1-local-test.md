@@ -6,7 +6,7 @@
 
  > **현재 준비 상태 (2026-10-06)**
 > 로컬 개발 서버의 `.env.local`은 공유 staging DB를 사용한다. 구현을 위해 구조를 조회한 결과 064 예약 테이블은 있고, 065 클리닉 설정·첨부 요청 테이블은 없다. 새 저장 기능은 준비 전 `SERVER_NOT_READY`로 응답하며 `/session`의 `features`는 false다.
-> `migrations/065_extension_product_settings.sql` 적용 후 개발 서버에서는 새 저장 기능을 사용할 수 있다. 이 작업에서 공유 DB 적용과 테스트 실행은 하지 않았다.
+> `migrations/070_extension_product_settings.sql` 적용 후 개발 서버에서는 새 저장 기능을 사용할 수 있다. 이 작업에서 공유 DB 적용과 테스트 실행은 하지 않았다.
 >
 > **staging Supabase·DB는 레포·Supabase 소유자의 자원이다.** 소유자 항목은 직접 바꾸지 않고 요청한다.
 
@@ -35,7 +35,7 @@
 > staging Supabase(`zatrinmwpqarjhkarubj`) → Authentication → URL Configuration → Redirect URLs에 아래 값을 추가해 주세요. 크롬 확장 로그인 로컬 테스트용이고, Site URL은 바꾸지 않아도 돼요.
 > `https://naopbhcnpgofjmhaagpijcjcbijacacb.chromiumapp.org/**`
 
-> 로컬에서 새 화면과 익스텐션 저장 기능을 테스트하려고 합니다. 공유 staging에 `migrations/065_extension_product_settings.sql`만 적용해 주세요. 063 동의서 저장소·064 예약 구조가 선행 조건입니다. 클리닉 설정·양식·빠른 메시지 저장 구조와 메모·단가 버전 관리를 추가하며 샘플 데이터는 넣지 않습니다.
+> 로컬에서 새 화면과 익스텐션 저장 기능을 테스트하려고 합니다. 공유 staging에 `migrations/070_extension_product_settings.sql`만 적용해 주세요. 063 동의서 저장소·064 예약 구조가 선행 조건입니다. 클리닉 설정·양식·빠른 메시지 저장 구조와 메모·단가 버전 관리를 추가하며 샘플 데이터는 넣지 않습니다.
 
 ## 1 준비물 — 🧑‍💻 나
 
@@ -216,7 +216,7 @@ cd cb-x-deck
 set -a
 source .env.local
 set +a
-psql -v ON_ERROR_STOP=1 --single-transaction -f migrations/065_extension_product_settings.sql
+psql -v ON_ERROR_STOP=1 --single-transaction -f migrations/070_extension_product_settings.sql
 ```
 
 065는 저장 테이블·첨부 요청 관리·예약 양식 연결과 메모·단가 버전 트리거를 추가한다. 새 테이블에는 클라이언트 직접 접근 대신 인증된 서버 API를 사용한다. 기존 `task-agreement` 비공개 버킷을 사용하며 새 버킷·샘플 설정·공휴일 데이터는 만들지 않는다.

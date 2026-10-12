@@ -11,7 +11,7 @@ const mk = (p: Partial<CampaignTaskItem>): CampaignTaskItem => ({
   postUrl: null, postedAt: null, postedSource: null, removedAt: null, removedReason: '', scheduledOn: null, visitOn: null, cost: null, note: '',
   proof: null, visitTime: null, scheduledTime: null, agreement: null, paymentMethodId: null, cancelledAt: null, cancelReason: null, cancelNote: '', cancelledDraftId: null, cancelledDraftTitle: null, settledElsewhereAt: null, settledElsewhereNote: '', settledElsewhereByName: null,
   createdAt: '', updatedAt: '', draftStatus: null, draftLabel: null, draftFirstLine: null,
-  draftPreview: null, draftFirstImage: null, target: null,
+  draftPreview: null, draftFirstImage: null, target: null, costChangeCount: 0, replies: [], unseenSince: null, seenAfterRemovedAt: null,
   published: false, perf: null, linkClicks: null, settlement: null, ...p,
 });
 const keys: TaskSectionKey[] = ['history', 'consent', 'money', 'draft', 'memo', 'posting'];

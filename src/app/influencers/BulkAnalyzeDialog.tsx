@@ -124,15 +124,9 @@ export function BulkAnalyzeDialog({ rows, onClose, onFinished }: {
               이 탭을 열어둔 동안 진행돼요. 중간에 닫아도 끝난 계정은 저장돼 있고, 다시 실행하면 남은 계정만 이어서 해요.
             </p>
 
-            <div className="mt-4 flex items-center gap-3">
-              {/* 비용이 드는 액션이라 사용자가 대상·비용·시간을 본 뒤에만 시작한다(opt-in) */}
-              <Button variant="primary" autoFocus disabled={n === 0}
-                      onClick={() => { void runBulk(targets, onFinished).catch(() => {}); }}>
-                시작
-              </Button>
-              <button onClick={close} className="text-ui text-x-secondary">취소</button>
+            <div className="mt-4 flex items-center justify-end gap-3">
               {n === 0 && (
-                <span className="text-caption text-x-muted">
+                <span className="mr-auto text-caption text-x-muted">
                   {/* 라벨-값 일치: 대상 0의 원인 3분기 — 명부 자체가 빔 / 포함 켜도 없음 / 꺼서 없음 */}
                   {rows.length === 0 ? (
                     '명부에 계정이 없어요'
@@ -143,6 +137,12 @@ export function BulkAnalyzeDialog({ rows, onClose, onFinished }: {
                   )}
                 </span>
               )}
+              <Button type="button" onClick={close}>취소</Button>
+              {/* 비용이 드는 액션이라 사용자가 대상·비용·시간을 본 뒤에만 시작한다(opt-in) */}
+              <Button type="button" variant="primary" autoFocus disabled={n === 0}
+                      onClick={() => { void runBulk(targets, onFinished).catch(() => {}); }}>
+                시작
+              </Button>
             </div>
           </>
         ) : (
@@ -174,21 +174,21 @@ export function BulkAnalyzeDialog({ rows, onClose, onFinished }: {
               </>
             )}
 
-            <div className="mt-4 flex items-center gap-3">
-              {!bulk.running && bulk.failed.length > 0 && (
-                <Button variant="primary" onClick={() => { void runBulk(bulk.failed, onFinished).catch(() => {}); }}>
-                  재시도 ({bulk.failed.length}계정)
-                </Button>
-              )}
+            <div className="mt-4 flex items-center justify-end gap-3">
               {/* 완료 후 다음 회차로 — 확인 화면으로 돌아간다(재시도와 별개로 항상 노출) */}
               {!bulk.running && (
-                <button onClick={resetBulk} className="text-ui text-x-secondary hover:underline">
+                <button type="button" onClick={resetBulk} className="mr-auto text-ui text-x-secondary hover:underline">
                   새로 시작
                 </button>
               )}
-              <Button variant={!bulk.running && bulk.failed.length > 0 ? 'subtle' : 'primary'} onClick={close}>
+              <Button type="button" variant={!bulk.running && bulk.failed.length > 0 ? 'subtle' : 'primary'} onClick={close}>
                 {bulk.running ? '닫아두고 계속하기' : '닫기'}
               </Button>
+              {!bulk.running && bulk.failed.length > 0 && (
+                <Button type="button" variant="primary" onClick={() => { void runBulk(bulk.failed, onFinished).catch(() => {}); }}>
+                  재시도 ({bulk.failed.length}계정)
+                </Button>
+              )}
             </div>
           </>
         )}

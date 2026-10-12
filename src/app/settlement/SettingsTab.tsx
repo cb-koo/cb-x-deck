@@ -54,13 +54,13 @@ export function SettingsTab() {
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-ui">
             <thead className="text-left text-x-secondary">
-              <tr><th className="py-2 pr-3">표시명</th><th className="py-2 pr-3">정산 쪽 이름</th><th className="py-2 pr-3">기본값으로 쓰는 유형</th><th className="py-2 pr-3">숨김</th></tr>
+              <tr><th className="py-2 pr-3">표시명</th><th className="py-2 pr-3">정산팀에 보내는 이름</th><th className="py-2 pr-3">기본값으로 쓰는 유형</th><th className="py-2 pr-3">숨김</th></tr>
             </thead>
             <tbody>
               {s.categories.map((c) => (
                 <tr key={c.id} className={`border-t border-x-border ${c.hidden ? 'text-x-muted' : ''}`}>
                   <td className="py-2 pr-3 min-w-[180px]"><input className={FIELD} value={c.label} onChange={(e) => patchCat(c.id, { label: e.target.value })} aria-label="표시명" /></td>
-                  <td className="py-2 pr-3 min-w-[280px]"><input className={FIELD} value={c.sendAs} onChange={(e) => patchCat(c.id, { sendAs: e.target.value })} aria-label="정산 쪽 이름" /></td>
+                  <td className="py-2 pr-3 min-w-[280px]"><input className={FIELD} value={c.sendAs} onChange={(e) => patchCat(c.id, { sendAs: e.target.value })} aria-label="정산팀에 보내는 이름" /></td>
                   <td className="py-2 pr-3 whitespace-nowrap">
                     {TASK_TYPES.map((t) => (
                       <label key={t} className="mr-3 inline-flex items-center gap-1">

@@ -3,12 +3,13 @@ import {
   flowStage, FLOW_STAGES, FLOW_STAGE_LABEL, isTaskExcluded, isSettlementCandidate, isTaskOverdue,
   TASK_TYPES, TASK_TYPE_LABEL, formatDateKo, formatDateTimeKo, daysBetweenDates, type FlowStage, type TaskType,
 } from './campaignJudgment.ts';
-import { formatAmount, formatMoneyBy, sumMoney, suggestTaskCost, normalizeCurrency, type MoneyByCurrency, type TaskCost } from './campaignCost.ts';
+import { formatAmount, sumMoney, suggestTaskCost, normalizeCurrency, type MoneyByCurrency, type TaskCost } from './campaignCost.ts';
 import type { InfluencerOption } from './draftTypes.ts';
 import type { CancelReason } from './campaignTaskInput.ts';
-import { toKrw } from './clientBudget.ts';
+import { toKrw, formatMoneyIn, type ViewCurrency } from './clientBudget.ts';
 import { rate } from './performanceJudgment.ts';
 import type { VisitPhase } from './reservationPolicy.ts';
+import { kstDateTime, kstMonthDay } from './datetime.ts';
 
 // 캠페인 v2 화면(결정 문서 §3·§4)의 판정·문구 — 컴포넌트는 그리기만 한다. 단계는 flowStage 하나(R21), 모집단은 취소 제외(R17).
 export type FlowRow = CampaignTaskItem;
@@ -113,12 +114,20 @@ export function sortFlowRows<T extends FlowRow>(rows: T[], sort: FlowSort): T[] 
   });
 }
 
+// 안 보임 딱지 문구 — '10/12 14:00부터 안 보임'(한국 시각). 패널의 본 게시물·링크 댓글이 같은 말을 쓴다(2026-10-12)
+export function unseenLabel(iso: string): string {
+  return `${kstMonthDay(iso)} ${kstDateTime(iso).slice(11)}부터 안 보임`;
+}
+
 // ── 칸 문구(R26·R27) ──
-export function dateCell(t: FlowRow, today: string): { text: string; tone: 'late' | 'posted' | 'plain' | 'muted' } {
-  if (t.cancelledAt) return { text: `${formatDateKo(t.cancelledAt)} 취소`, tone: 'muted' };
+export function dateCell(t: FlowRow, today: string): { text: string; tone: 'late' | 'posted' | 'plain' | 'muted' | 'unseen' } {
+  // 상태 꼬리표는 괄호로 — '10/9 목 (안 보임)'(koo 10-12). 취소·내림·안 보임이 같은 모양이다.
+  if (t.cancelledAt) return { text: `${formatDateKo(t.cancelledAt)} (취소)`, tone: 'muted' };
   // 내림은 게시일 파랑과 구분되는 톤(muted)이되, 글자로도 적는다(koo 09-19 결정 3) — 정산 판단에 쓰이는
   // 정보라 색만으로 표시하면 처음 보는 사람은 놓친다(화면 규칙: 정보는 글자로).
-  if (t.postedAt && t.removedAt) return { text: `${formatDateKo(t.postedAt)} · 내림`, tone: 'muted' };
+  if (t.postedAt && t.removedAt) return { text: `${formatDateKo(t.postedAt)} (내림)`, tone: 'muted' };
+  // 안 보임 = 본 게시물이 X에서 사라진 것이 확정됨(2026-10-12). 사람이 내림으로 정하기 전까지는 '확인할 일'이라 주황.
+  if (t.postedAt && t.unseenSince) return { text: `${formatDateKo(t.postedAt)} (안 보임)`, tone: 'unseen' };
   if (t.postedAt) return { text: formatDateKo(t.postedAt), tone: 'posted' };
   if (!t.scheduledOn) return { text: '미정', tone: 'muted' };
   // 방문협찬은 게시 예정 시간이 있으면 붙인다(063) — 밀림(D+n) 판정은 날짜만 본다
@@ -129,6 +138,9 @@ export function dateCell(t: FlowRow, today: string): { text: string; tone: 'late
 export const CANCEL_REASON_CHIPS: ReadonlyArray<{ value: CancelReason; label: string }> = [
   { value: 'declined', label: '🙅 거절' }, { value: 'no_response', label: '🔇 무응답' }, { value: 'other', label: '📝 기타' },
 ];   // 가안(§8) — 이모지는 koo 확정 뒤 여기 한 곳만 바꾼다
+// 게시 내림 사유 빠른 고르기(koo 10-12) — 고르면 사유 칸에 그 글자가 들어간다(저장은 지금처럼 글자 그대로, 고쳐 써도 된다).
+// 내림은 협의로도 이슈로도 일어난다(유지 의무 기간 없음) — 정산 화면이 이 사유를 보고 판단한다.
+export const REMOVED_REASON_CHIPS: readonly string[] = ['협의 후 내림', '이슈로 내림', '인플 임의 삭제', '계정 잠금'];
 export const cancelReasonLabel = (r: CancelReason | null) => CANCEL_REASON_CHIPS.find((c) => c.value === r)?.label ?? null;
 export function draftCell(t: FlowRow): { text: string; muted: boolean; title: string } {
   if (t.cancelledAt) {
@@ -177,17 +189,20 @@ export function profilePromptFor({ option, type, cost }: { option: InfluencerOpt
 // TASK_TYPES(rt·quoteRt·post·visit)는 도메인 순서(단가 키 등)라 그대로 두고, 보이는 순서만 여기서 한 번 정한다:
 // 하단 한 줄과 필터 드롭다운이 같은 순서를 써야 화면 안에서 유형 나열이 두 가지로 갈리지 않는다(시안 F도 이 순서).
 export const DISPLAY_TYPE_ORDER: readonly TaskType[] = ['post', 'quoteRt', 'rt', 'visit'];
-export function flowFooter(rows: FlowRow[], today: string): string {
+export function flowFooter(rows: FlowRow[], today: string, currency: ViewCurrency = 'KRW'): string {
   const live = rows.filter((t) => !isTaskExcluded(t));
   const types = DISPLAY_TYPE_ORDER.filter((k) => live.some((t) => t.type === k)).map((k) => `${TASK_TYPE_LABEL[k]} ${live.filter((t) => t.type === k).length}`);
   const cost = sumMoney(live.flatMap((t) => (t.cost ? [t.cost] : [])));
   const posted = live.filter((t) => t.postedAt).length;
   const late = live.filter((t) => isTaskOverdue(t, today)).length;
   const removed = live.filter((t) => t.removedAt).length;   // koo 09-19 결정 3 — 밀림과 같은 방식, 0이면 생략
+  const unseen = live.filter((t) => !t.removedAt && t.unseenSince).length;   // 안 보임(내림으로 정하기 전) — 같은 방식(2026-10-12)
   // M3 — 카드의 '계획'은 작업 비용 + 인플별 추가 비용인데 이 줄은 작업 비용만이다. 라벨이 같으면 두 숫자가
   // 다른 걸 두고 왜 다르냐는 질문이 나온다(FlowCards.tsx 상단 주석 참조).
-  return [...types, `작업 비용 ${formatMoneyBy(cost)}`, `게시 ${posted} / ${live.length}`,
-          ...(late ? [`밀림 ${late}`] : []), ...(removed ? [`내림 ${removed}`] : [])].join(' · ');
+  const kc = formatMoneyIn(cost, currency);   // 원화 환산 총액이 앞, 통화 내역은 괄호(koo 10-07)
+  const costText = `${kc.approx ? '≈' : ''}${kc.total}${kc.breakdown ? ` (${kc.breakdown})` : ''}`;
+  return [...types, `작업 비용 ${costText}`, `게시 ${posted} / ${live.length}`,
+          ...(late ? [`밀림 ${late}`] : []), ...(unseen ? [`안 보임 ${unseen}`] : []), ...(removed ? [`내림 ${removed}`] : [])].join(' · ');
 }
 export interface FlowStats {
   planned: number; posted: number;

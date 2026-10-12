@@ -1,3 +1,4 @@
+-- 070(원래 065 — main의 065_settlement_diff_reconcile와 번호 충돌로 머지 시 rename, SQL은 동일·연습용 DB 적용 완료. 032 선례):
 -- 웹과 확장이 함께 읽는 운영 설정. 샘플 데이터는 넣지 않는다.
 alter table influencer add column if not exists note_version integer not null default 1;
 alter table influencer add column if not exists pricing_version integer not null default 1;

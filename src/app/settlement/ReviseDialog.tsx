@@ -79,7 +79,7 @@ export function ReviseDialog({ target, onDone, onClose }: { target: PaymentReque
       <div role="dialog" aria-modal="true" aria-label="고친 값으로 다시 반영" className="w-full max-w-[640px] rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-[16px] font-semibold">고친 값으로 다시 반영할까요?</h2>
         <p className="mt-1 text-ui text-x-secondary">@{target.influencerHandle} · {target.clientName} · {target.campaignName}</p>
-        <p className="mt-2 text-ui text-x-muted">프로필·캠페인에서 고친 값을 이 요청에 반영해요. 요청 번호와 정산 쪽 건 번호는 그대로이고, 정산 쪽에는 같은 건의 수정으로 전달돼 처음부터 다시 검토해요.</p>
+        <p className="mt-2 text-ui text-x-muted">프로필·캠페인에서 고친 값을 이 요청에 반영해요. 요청 번호와 정산팀 건 번호는 그대로이고, 정산팀에는 같은 건의 수정으로 전달돼 처음부터 다시 검토해요.</p>
 
         {/* 지금 값 → 고쳤을 때 값 */}
         <div className="mt-4 grid grid-cols-[88px_1fr_1fr] gap-x-4 gap-y-1.5 text-ui">
@@ -118,15 +118,15 @@ export function ReviseDialog({ target, onDone, onClose }: { target: PaymentReque
         {/* 정산 쪽이 이 건의 수취 정보를 고친 뒤(056·057)라면, 이제 인플루언서 명부에도 같은 값이 반영돼 있다 — 다시 반영해도 고친 값이 유지된다(옛날처럼 되돌아가지 않는다). */}
         {target.paymentMethodCorrection && (
           <div className="mt-4 rounded-lg bg-x-surface p-3 text-ui text-x-secondary">
-            <p>정산 쪽이 이 요청의 수취 정보를 고쳤어요({target.paymentMethodCorrection.byName}{target.paymentMethodCorrection.reason ? <> — {target.paymentMethodCorrection.reason}</> : null}). 인플루언서 명부에도 같은 값이 반영돼 있어, <b>다시 반영해도 고친 값이 그대로 유지돼요.</b></p>
+            <p>정산팀이 이 요청의 수취 정보를 고쳤어요({target.paymentMethodCorrection.byName}{target.paymentMethodCorrection.reason ? <> — {target.paymentMethodCorrection.reason}</> : null}). 인플루언서 명부에도 같은 값이 반영돼 있어, <b>다시 반영해도 고친 값이 그대로 유지돼요.</b></p>
           </div>
         )}
         {confirmNeeded && (
           <div className="mt-4 rounded-lg bg-amber-50 p-3 text-ui text-amber-800">
-            <p>정산 쪽이 이미 처리한 요청이에요(지금 {target.externalStatus ? EXTERNAL_STATUS_LABEL[target.externalStatus] : ''}). 송금이 진행 중일 수 있으니 <b>슬랙으로 정산 담당자에게 먼저 확인</b>하고 반영해 주세요.</p>
+            <p>정산팀이 이미 처리한 요청이에요(지금 {target.externalStatus ? EXTERNAL_STATUS_LABEL[target.externalStatus] : ''}). 송금이 진행 중일 수 있으니 <b>슬랙으로 정산팀에 먼저 확인</b>하고 반영해 주세요.</p>
             <label className="mt-2 flex items-center gap-2">
               <input type="checkbox" className="h-4 w-4" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-              정산 담당자에게 확인했어요 — 고쳐도 된다고 했어요
+              정산팀에 확인했어요 — 고쳐도 된다고 했어요
             </label>
           </div>
         )}

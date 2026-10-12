@@ -113,9 +113,9 @@ export function AddInfluencersDialog({ onClose, onFinished }: {
             <p className="mt-1 text-caption text-x-muted">
               추가할 때 계정마다 X에 한 번 물어 이름·프로필 사진·팔로워를 채워둬요. 위에서부터 한 줄씩 처리하고 결과를 줄마다 보여줘요.
             </p>
-            <div className="mt-4 flex items-center gap-3">
-              <Button variant="primary" onClick={start} disabled={text.trim() === ''}>명부에 추가</Button>
-              <button onClick={onClose} className="text-ui text-x-secondary">취소</button>
+            <div className="mt-4 flex items-center justify-end gap-3">
+              <Button type="button" onClick={onClose}>취소</Button>
+              <Button type="button" variant="primary" onClick={start} disabled={text.trim() === ''}>명부에 추가</Button>
             </div>
           </>
         ) : (
@@ -132,14 +132,14 @@ export function AddInfluencersDialog({ onClose, onFinished }: {
                 </li>
               ))}
             </ul>
-            <div className="mt-4 flex items-center gap-3">
-              {failed > 0 && !running && (
-                <Button variant="primary" onClick={retryFailed}>실패한 {failed}줄 다시 시도</Button>
-              )}
-              <Button variant={failed > 0 && !running ? 'subtle' : 'primary'} onClick={onClose} disabled={running}>
+            <div className="mt-4 flex items-center justify-end gap-3">
+              {running && <Button type="button" onClick={onClose}>그만두고 닫기</Button>}
+              <Button type="button" variant={failed > 0 && !running ? 'subtle' : 'primary'} onClick={onClose} disabled={running}>
                 {running ? '처리 중…' : '닫기'}
               </Button>
-              {running && <button onClick={onClose} className="text-ui text-x-secondary">그만두고 닫기</button>}
+              {failed > 0 && !running && (
+                <Button type="button" variant="primary" onClick={retryFailed}>실패한 {failed}줄 다시 시도</Button>
+              )}
             </div>
           </>
         )}

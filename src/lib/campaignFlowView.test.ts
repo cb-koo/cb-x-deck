@@ -4,6 +4,7 @@ import {
   EMPTY_FLOW_FILTER, matchesFlowFilter, matchesSearch, matchesExtra, filterCount, filterSummary,
   nextSort, sortFlowRows, dateCell, draftCell, costCell, flowFooter, flowStats, taskPerfExtra, settleWaitCount, isSettleWaiting, restoreMessage, PANEL_FIELD_ORDER,
   costConfirmScenario, profilePromptFor, detachConfirmMessage, flowStageLabel, awaitsReservation, visitStep, VISIT_STEPS, VISIT_STEP_LABEL,
+  unseenLabel, REMOVED_REASON_CHIPS,
 } from './campaignFlowView.ts';
 import { flowStage } from './campaignJudgment.ts';
 import type { CampaignTaskItem } from './campaignStore.ts';
@@ -13,10 +14,10 @@ let n = 0;
 const mk = (p: Partial<CampaignTaskItem>): CampaignTaskItem => ({
   id: `t${++n}`, campaignId: 'c', influencerHandle: null, type: 'post', draftId: null, targetTaskId: null, targetTweetUrl: null,
   postUrl: null, postedAt: null, postedSource: null, removedAt: null, removedReason: '', scheduledOn: null, visitOn: null, cost: null, note: '',
-  proof: null, visitTime: null, scheduledTime: null, agreement: null, paymentMethodId: null, cancelledAt: null, cancelReason: null, cancelNote: '', cancelledDraftId: null, cancelledDraftTitle: null, settledElsewhereAt: null, settledElsewhereNote: '', settledElsewhereByName: null,
+  proof: null, visitTime: null, scheduledTime: null, agreement: null, paymentMethodId: null, cancelledAt: null, cancelReason: null, cancelNote: '', cancelledDraftId: null, cancelledDraftTitle: null, settledElsewhereAt: null, settledElsewhereNote: '', settledElsewhereByName: null, costChangeCount: 0,
   createdAt: `2026-09-01T00:00:${String(n).padStart(2, '0')}Z`, updatedAt: '', draftStatus: null, draftLabel: null, draftFirstLine: null,
   draftPreview: null, draftFirstImage: null, target: null,
-  published: false, perf: null, linkClicks: null, settlement: null, ...p,
+  published: false, perf: null, replies: [], linkClicks: null, settlement: null, unseenSince: null, seenAfterRemovedAt: null, ...p,
 });
 
 test('1) 필터 — 묶음 안 OR, 묶음 사이 AND, 빈 필터는 전부 통과', () => {
@@ -76,9 +77,19 @@ test('5) 날짜 칸 — 지남 빨강 D+N, 오늘·예정 기본, 게시된 건 
   assert.deepEqual(dateCell(mk({ scheduledOn: T }), T), { text: '9/18 금', tone: 'plain' });
   assert.deepEqual(dateCell(mk({ scheduledOn: '2026-09-15', postedAt: '2026-09-16' }), T), { text: '9/16 수', tone: 'posted' });
   assert.deepEqual(dateCell(mk({}), T), { text: '미정', tone: 'muted' });
-  assert.deepEqual(dateCell(mk({ cancelledAt: '2026-09-17', scheduledOn: '2026-09-15' }), T), { text: '9/17 목 취소', tone: 'muted' });
-  // 내림(koo 09-19 결정 3) — 게시일 파랑과 구분되는 톤이되, 색만이 아니라 글자로도 적는다
-  assert.deepEqual(dateCell(mk({ postedAt: '2026-09-16', removedAt: '2026-09-17' }), T), { text: '9/16 수 · 내림', tone: 'muted' });
+  assert.deepEqual(dateCell(mk({ cancelledAt: '2026-09-17', scheduledOn: '2026-09-15' }), T), { text: '9/17 목 (취소)', tone: 'muted' });
+  // 내림(koo 09-19 결정 3) — 게시일 파랑과 구분되는 톤이되, 색만이 아니라 글자로도 적는다. 꼬리표는 괄호(koo 10-12)
+  assert.deepEqual(dateCell(mk({ postedAt: '2026-09-16', removedAt: '2026-09-17' }), T), { text: '9/16 수 (내림)', tone: 'muted' });
+});
+
+test('5-b) 날짜 칸 — 본 게시물이 X에서 안 보이면 (안 보임) 주황, 사람이 내림으로 정하면 (내림)이 이긴다(2026-10-12)', () => {
+  const since = '2026-09-17T05:00:00.000Z';
+  assert.deepEqual(dateCell(mk({ postedAt: '2026-09-16', unseenSince: since }), T), { text: '9/16 수 (안 보임)', tone: 'unseen' });
+  assert.deepEqual(dateCell(mk({ postedAt: '2026-09-16', unseenSince: since, removedAt: '2026-09-17' }), T), { text: '9/16 수 (내림)', tone: 'muted' });
+  // 딱지 문구는 한국 시각 — UTC 05:00 = 서울 14:00
+  assert.equal(unseenLabel(since), '9/17 14:00부터 안 보임');
+  assert.equal(unseenLabel('2026-09-17T16:30:00.000Z'), '9/18 01:30부터 안 보임');   // 자정 넘김
+  assert.deepEqual([...REMOVED_REASON_CHIPS], ['협의 후 내림', '이슈로 내림', '인플 임의 삭제', '계정 잠금']);
 });
 
 test('6) 원고 칸 — 첫 줄, RT는 —, 없으면 미정, 취소는 사유·메모·있었던 원고', () => {
@@ -144,7 +155,18 @@ test('8-b) 하단 줄 — 내려진 작업이 있으면 끝에 · 내림 N(밀�
     mk({ type: 'post', cost: { amount: 50000, currency: 'KRW' }, postedAt: '2026-09-11', influencerHandle: 'b' }),
   ];
   assert.equal(flowFooter(rows, T), '투고 2 · 작업 비용 130,000원 · 게시 2 / 2 · 내림 1');
+  // 안 보임(2026-10-12) — 내림 앞에, 내림으로 정한 건 내림으로만 센다
+  const withUnseen = [...rows, mk({ type: 'post', postedAt: '2026-09-12', unseenSince: '2026-09-13T00:00:00Z', influencerHandle: 'c' }),
+    mk({ type: 'post', postedAt: '2026-09-12', unseenSince: '2026-09-13T00:00:00Z', removedAt: '2026-09-14', influencerHandle: 'd' })];
+  assert.equal(flowFooter(withUnseen, T), '투고 4 · 작업 비용 130,000원 · 게시 4 / 4 · 안 보임 1 · 내림 2');
   assert.equal(flowFooter([mk({ type: 'post', postedAt: '2026-09-11' })], T), '투고 1 · 작업 비용 — · 게시 1 / 1');
+  // 원화 환산 총액 먼저, 통화 내역은 괄호(koo 10-07)
+  const yen = (amount: number) => mk({ type: 'post', cost: { amount, currency: 'JPY' }, influencerHandle: 'y' });
+  const won = (amount: number) => mk({ type: 'post', cost: { amount, currency: 'KRW' }, influencerHandle: 'w' });
+  assert.equal(flowFooter([yen(95000)], T), '투고 1 · 작업 비용 ≈950,000원 (엔화 95,000엔) · 게시 0 / 1');
+  assert.equal(flowFooter([won(360000), yen(95000)], T), '투고 2 · 작업 비용 ≈1,310,000원 (원화 360,000원 · 엔화 95,000엔) · 게시 0 / 2');
+  // 엔화 보기 — 원화는 10원 = 1엔으로 환산
+  assert.equal(flowFooter([won(360000), yen(95000)], T, 'JPY'), '투고 2 · 작업 비용 ≈131,000엔 (원화 360,000원 · 엔화 95,000엔) · 게시 0 / 2');
 });
 
 test('9) 비용 확인 시나리오 — 같음 / 다름 / 프로필 없음 / 통화 다름 / 빈칸', () => {

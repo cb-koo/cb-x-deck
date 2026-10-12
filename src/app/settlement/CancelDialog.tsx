@@ -33,8 +33,8 @@ export function CancelDialog({ target, onConfirm, onClose }: { target: PaymentRe
         <p className="mt-2 text-ui text-x-muted">취소해도 기록은 남아요(누가·언제·왜). 이 작업은 다시 검토 대기에 나타나요.</p>
         {err && <p role="alert" className="mt-2 text-ui text-red-700">{err}</p>}
         <div className="mt-4 flex justify-end gap-2">
-          <Button onClick={onClose} disabled={busy}>닫기</Button>
-          <Button variant="primary" onClick={go} disabled={busy}>{busy ? '취소하는 중…' : '취소 확정'}</Button>
+          <Button type="button" onClick={onClose} disabled={busy}>닫기</Button>
+          <Button type="button" variant="danger" onClick={go} disabled={busy}>{busy ? '취소하는 중…' : '취소 확정'}</Button>
         </div>
       </div>
     </div>

@@ -173,12 +173,12 @@ export function RefPickerSheet({ open, onClose, lastWsId, selectedIds, seedRows,
             {MAX_REFS_UI}건까지 고를 수 있어요. 더 넣으면 원고가 레퍼런스 문구를 그대로 베낄 위험이 커져요 — 서로 다른 앵글로 3~5건이 가장 좋아요.
           </p>
           <div className="flex items-center gap-3">
-            <Button variant="primary" onClick={() => { onApply(sel.map((id) => cacheRef.current.get(id)).filter((r): r is ReferenceRow => !!r)); onClose(); }}>
+            <button type="button" onClick={() => { setAddNotice(null); setAddOpen(true); }} className="text-ui text-x-blue-text hover:underline">🔗 링크로 추가</button>
+            <span className="mr-auto text-caption text-x-muted">선택은 다음 생성에도 유지돼요</span>
+            <Button type="button" onClick={onClose}>취소</Button>
+            <Button type="button" variant="primary" onClick={() => { onApply(sel.map((id) => cacheRef.current.get(id)).filter((r): r is ReferenceRow => !!r)); onClose(); }}>
               {sel.length}건 적용
             </Button>
-            <button onClick={onClose} className="text-ui text-x-secondary">취소</button>
-            <button onClick={() => { setAddNotice(null); setAddOpen(true); }} className="text-ui text-x-blue-text hover:underline">🔗 링크로 추가</button>
-            <span className="ml-auto text-caption text-x-muted">선택은 다음 생성에도 유지돼요</span>
           </div>
         </div>
       </div>

@@ -6,6 +6,8 @@ import type { TaskType } from '@/lib/campaignJudgment';
 
 export const CELL = 'h-12 whitespace-nowrap border-b border-x-border/60 px-3 align-middle';
 export const HEAD = 'whitespace-nowrap border-b border-x-border bg-x-surface px-3 py-2.5 text-left text-ui font-semibold text-x-secondary';
+// 표 열 수 — 인플루언서 | 유형 | 작업 금액 | 송금액 | 정산팀 지급 | 차이 | 결제 수단 | 상태 · 처리 | ▸ (스펙 2026-10-07 §8-3)
+export const COLS = 9;
 export const NUM = 'text-right tabular-nums';
 export const GROUP = 'border-b border-x-border bg-x-surface px-3 py-2 text-ui';
 export const TYPE_CHIP: Record<TaskType, string> = Object.fromEntries(
@@ -13,8 +15,9 @@ export const TYPE_CHIP: Record<TaskType, string> = Object.fromEntries(
 ) as Record<TaskType, string>;
 export const METHOD_CHIP = 'inline-block rounded-md border border-x-border px-2 py-0.5 text-ui text-x-secondary';
 
-// '+500엔' / '−7,007원' — 부호를 앞에(차액 칸은 숫자 하나)
+// '+500엔' / '−7,007원' — 부호를 앞에(차액 칸은 숫자 하나). 0은 부호 없이('−0원'이 되지 않게)
 export function signedMoney(n: number, currency: 'KRW' | 'JPY'): string {
+  if (n === 0) return formatMoney(0, currency);
   return `${n > 0 ? '+' : '−'}${formatMoney(Math.abs(n), currency)}`;
 }
 

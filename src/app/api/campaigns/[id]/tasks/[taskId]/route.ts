@@ -4,10 +4,10 @@ import postgres from 'postgres';
 import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
-import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces } from '@/lib/campaignTaskStore';
+import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces, hasPaidRequest, logCostChangeInTx } from '@/lib/campaignTaskStore';
 import type { TaskPatch } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
-import { parseTaskPatch, proofGateError, visitOnlyGateError, influencerChangeGuard, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE, CANCELLED_TASK_MESSAGE, POST_CANCELLED_MESSAGE, postedAtFromLinkGate } from '@/lib/campaignTaskInput';
+import { parseTaskPatch, proofGateError, visitOnlyGateError, influencerChangeGuard, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE, CANCELLED_TASK_MESSAGE, POST_CANCELLED_MESSAGE, postedAtFromLinkGate, costReasonGateError } from '@/lib/campaignTaskInput';
 import { getDraft, updateDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 import { kstToday } from '@/lib/datetime';
@@ -15,6 +15,8 @@ import { rosterHandleOf, checkTaskPaymentMethod, hasLiveRequest, ROSTER_REQUIRED
 import { attachPostToTask, guardFirstAssign } from '@/lib/postAttach';
 import { authorVerdictMessage, firstAssignMismatchMessage } from '@/lib/postAuthor';
 import { fetchPost } from '@/lib/postMetrics';
+import { makeClient } from '@/lib/getxapi';
+import { discoverSelfReplies } from '@/lib/selfReplyDiscovery';
 import { TrackingLinkError, trackingLinkMessage } from '@/lib/trackingStore';
 
 const notFound = () => NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 404 });
@@ -32,7 +34,7 @@ async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; 
   const parsed = parseTaskPatch(await req.json().catch(() => ({})));
   if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: 400 });
   const patch = parsed.value;
-  if (Object.keys(patch).length === 0) return NextResponse.json({ error: '바꿀 내용이 없어요' }, { status: 400 });
+  if (Object.keys(patch).filter((k) => k !== 'costReason').length === 0) return NextResponse.json({ error: '바꿀 내용이 없어요' }, { status: 400 });
   const sql = getSql();
   const cur = await getTask(sql, taskId);
   if (!cur || cur.campaignId !== id) return notFound();
@@ -85,7 +87,12 @@ async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; 
   const postedOn = postedAtFromLinkGate(cur, patch);
   if (!postedOn.ok) return NextResponse.json({ error: postedOn.message }, { status: 400 });
   if (postedOn.value !== undefined) patch.postedAt = postedOn.value;
-  const { proofUrl, agreementInput, ...rest } = patch;
+  // 작업 금액 변경 이력(스펙 2026-10-07 §6) — 지급이 끝난 작업은 사유가 있어야 바꾼다(화면도 같은 문장으로 막는다)
+  if (patch.cost !== undefined) {
+    const reasonError = costReasonGateError({ before: cur.cost, next: patch.cost, hasPaidRequest: await hasPaidRequest(sql, taskId), reason: patch.costReason });
+    if (reasonError) return NextResponse.json({ error: reasonError }, { status: 400 });
+  }
+  const { proofUrl, agreementInput, costReason, ...rest } = patch;
   const taskPatch: TaskPatch = { ...rest };
   if (agreementInput !== undefined) {
     // 경로 검증은 visitOnlyGateError가 했다 — 올린 사람·시각은 서버만 안다(증빙과 같은 나눔)
@@ -113,6 +120,10 @@ async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; 
   // 트랜잭션 몸통 — 게시물 링크가 오면 attachPostToTask가 같은 트랜잭션 안에서 이걸 먼저 돌린 뒤 작성자를 판정하고
   // 트래킹 등록·연결까지 한다(다른 인플의 게시물 차단 스펙 §3 ①). 링크가 없으면 그냥 이 몸통만 한 트랜잭션으로.
   const apply = async (tx: postgres.Sql) => {
+    // 이력은 쓰기 직전·같은 트랜잭션 — 잠근 지금 값과 다를 때만 1행(출처 campaign)
+    if (taskPatch.cost !== undefined) {
+      await logCostChangeInTx(tx, taskId, taskPatch.cost, { source: 'campaign', reason: costReason ?? '', requestId: null, by: { id: gate.member.id, name: gate.member.name } });
+    }
     // updateTask의 where절이 R17 가드를 건다(게시 확인만) — 읽기~쓰기 사이 취소가 끼어들면 false가
     // 온다. 트랜잭션을 throw로 끊어 흔적 정리·원고 동기화까지 반쪽으로 남지 않게 한다(라우트가 409로).
     const ok = await updateTask(tx, taskId, taskPatch);
@@ -137,6 +148,7 @@ async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; 
     if (attachUrl) {
       const r = await attachPostToTask(sql, taskId, attachUrl, { fetchPost }, { createdBy: gate.member.id, apply });
       if (!r.ok) return NextResponse.json({ error: r.error, code: r.code }, { status: 400 });
+      await findSelfReplies(taskId, gate.member.id);
     } else {
       await sql.begin(async (tx0) => apply(tx0 as unknown as postgres.Sql));
     }
@@ -153,6 +165,30 @@ async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; 
   const updated = await getTask(sql, taskId);
   if (!updated) return notFound();
   return NextResponse.json(updated);
+}
+
+// 게시 확인 직후 인플 본인 댓글(추가 콘텐츠)을 찾아 붙인다(self-replies 스펙 §3) — best-effort: 게시 확인은 이미
+// 커밋됐고, 여기 실패(키 없음·조회 오류)는 응답을 바꾸지 않는다. 다음 성과 [업데이트](↻)가 다시 찾는다.
+// 응답을 오래 붙잡지 않게: 재시도는 1회로 줄이고(429 대기 누적 방지), 전체 대기도 FIND_SELF_REPLIES_TIMEOUT_MS에서 끊는다
+// (끊긴 뒤 남은 일은 그대로 끝나거나 버려진다 — 어느 쪽이든 다음 ↻가 다시 찾는다).
+const FIND_SELF_REPLIES_TIMEOUT_MS = 8000;
+async function findSelfReplies(taskId: string, memberId: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const client = makeClient({ maxRetries: 1 });
+    const work = discoverSelfReplies(getSql(), taskId, {
+      fetchPost: (tweetId) => fetchPost(tweetId, client),
+      getTweetThread: (tweetId) => client.getTweetThread(tweetId),
+    }, memberId);
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(() => { console.error(`findSelfReplies(${taskId}) timed out`); resolve(); }, FIND_SELF_REPLIES_TIMEOUT_MS);
+    });
+    await Promise.race([work, timeout]);
+  } catch (e) {
+    console.error(`findSelfReplies(${taskId}) failed:`, e);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // 삭제 — 원고 set null·참조 set null·tracked_post.task_id set null은 FK. 멱등(이미 없으면 deleted:false).

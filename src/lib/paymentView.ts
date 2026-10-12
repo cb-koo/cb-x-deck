@@ -2,7 +2,7 @@
 // 요청을 보낸 뒤(단계 정산·완료)에는 요청에 담긴 스냅샷이 사실이다 — 명부 수단이 그 뒤에 바뀌어도 송금은 스냅샷대로 간다.
 import type postgres from 'postgres';
 import { feeShortLabel, type PaymentMethod, type PaymentFee } from './influencerPayment.ts';
-import { describeSnapshot, type PaymentMethodSnapshot } from './settlementCalc.ts';
+import { methodLine, type PaymentMethodSnapshot } from './settlementCalc.ts';
 import { toPaymentChoices, resolvePaymentChoice, type FeeChip, type PaymentChoice } from './paymentChoice.ts';
 import { isUuidLike } from './uuid.ts';
 
@@ -23,8 +23,8 @@ export function buildPaymentView(input: {
 }): PaymentView {
   if (input.request) {
     const m = input.request.method;
-    // describeSnapshot은 슬랙 양식(`수단 | 수취인 | 식별`)이라 패널 한 줄엔 ' · '로 바꿔 쓴다
-    return { state: 'requested', label: describeSnapshot(m).split(' | ').filter(Boolean).join(' · '), fee: feeShortLabel(input.request.fee, m.currency), paid: input.request.paid };
+    // 슬랙 양식(describeSnapshot) 대신 화면용 한 줄 — 정산 요청 펼침과 같은 모양
+    return { state: 'requested', label: methodLine(m), fee: feeShortLabel(input.request.fee, m.currency), paid: input.request.paid };
   }
   if (!input.roster) return { state: 'notInRoster' };
   // "이 작업의 수단" 판정은 taskPaymentMethod 하나(resolvePaymentChoice가 그 위에 얹은 것) — 여기서 다시 만들지 않는다(전역 제약).

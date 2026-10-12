@@ -146,11 +146,11 @@ export function CampaignCreateModal({ today, onClose, onCreated }: {
                   className="mt-0.5 w-full resize-y rounded-md border border-x-border-strong bg-white px-2.5 py-2 text-content outline-none focus:border-x-blue" />
 
         {err && <p role="alert" className="mt-2 text-ui text-red-600">{err}</p>}
-        <div className="mt-4 flex items-center gap-3">
-          <Button variant="primary" onClick={() => void submit()} disabled={!canSubmit} className="h-10 px-4 text-content">
+        <div className="mt-4 flex items-center justify-end gap-3">
+          <Button type="button" onClick={onClose} disabled={busy} className="h-10 px-4 text-content">취소</Button>
+          <Button type="button" variant="primary" onClick={() => void submit()} disabled={!canSubmit} className="h-10 px-4 text-content">
             {busy ? '만드는 중…' : '캠페인 만들기'}
           </Button>
-          <button onClick={onClose} disabled={busy} className="h-10 text-ui text-x-secondary disabled:opacity-40">취소</button>
         </div>
         {!canSubmit && !busy && reason && <p className="mt-1.5 text-ui text-x-muted">{reason}</p>}
       </div>

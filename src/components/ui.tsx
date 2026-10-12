@@ -1,12 +1,13 @@
 'use client';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
-// 경량 디자인 시스템 (spec §5) — 덱의 버튼은 이 4변형만 사용
-// primary = 파랑(주요·비용 액션 1개), subtle = 테두리, ghost = 호버만, icon = 원형 아이콘
+// 경량 디자인 시스템 (spec §5) — 덱의 버튼은 이 5변형만 사용
+// primary = 파랑(주요·비용 액션 1개), subtle = 테두리, ghost = 호버만, icon = 원형 아이콘, danger = 되돌릴 수 없는 행동(삭제·제거·취소 확정)
 const VARIANT = {
   primary: 'bg-x-blue px-3 py-1 font-medium text-white hover:bg-x-blue-hover',
   subtle: 'border border-x-border-strong bg-white px-3 py-1 hover:bg-x-hover',
   ghost: 'px-2.5 py-1 text-x-secondary hover:bg-x-text/5',
+  danger: 'bg-red-600 px-3 py-1 font-medium text-white hover:bg-red-700',
   icon: 'p-1.5 text-x-secondary hover:bg-x-blue/10 hover:text-x-blue-text',
 } as const;
 

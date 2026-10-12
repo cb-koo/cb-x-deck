@@ -19,7 +19,9 @@ import { deleteTask, hasActiveRequest } from './campaignTaskStore.ts';
 export async function productFeatures(sql: postgres.Sql) {
   const [row] = await sql<Array<{ ready: boolean }>>`select to_regclass('visit_reservation') is not null and to_regclass('clinic_settings') is not null
     and to_regclass('reservation_agreement_upload') is not null as ready`;
-  const enabled = process.env.NODE_ENV === 'development' || process.env.EXTENSION_PRODUCT_ENABLED === 'true';
+  // 기본 켜짐(2026-10-12 결정) — 환경변수 없이 배포 즉시 쓴다. EXTENSION_PRODUCT_ENABLED=false 를 넣었을 때만 끈다(비상 스위치).
+  // 테이블이 없는 DB(064·070 적용 전)에서는 ready=false 라 여전히 숨긴다.
+  const enabled = process.env.EXTENSION_PRODUCT_ENABLED !== 'false';
   return { writes: !!row?.ready && enabled, reservations: !!row?.ready && enabled, consents: !!row?.ready && enabled };
 }
 type Reply = { data: unknown; status?: number; version?: number };

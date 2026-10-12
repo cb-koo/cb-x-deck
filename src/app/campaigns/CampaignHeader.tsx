@@ -18,8 +18,9 @@ import { InfoTip } from '@/components/InfoTip';
 //
 // 저장은 부모(onPatch → PATCH /api/campaigns/[id])가 하고 boolean으로 결과를 준다 — 실패하면 입력을 남긴다(거짓 성공 방지).
 // 검증은 서버 라우트와 같은 함수(parseCampaignPatch·checkPeriod) — 문구가 두 벌이 되지 않는다.
+// 진행 중 색은 상세 상단 시안(10-08) 값 그대로 — 예정·종료는 시안에 없어 기존 색 유지
 const STATUS_STYLE = {
-  upcoming: 'bg-x-blue/10 text-x-blue-text', active: 'bg-green-100 text-green-800', ended: 'bg-x-border/60 text-x-secondary',
+  upcoming: 'bg-x-blue/10 text-x-blue-text', active: 'bg-[#e6f6ee] text-[#15803d]', ended: 'bg-x-border/60 text-x-secondary',
 } as const;
 // 편집 상태의 입력 — 읽기 상태에는 테두리가 없다(폼처럼 보이지 않게). 높이는 40px(h-10) 이상(가독성 기준).
 const INPUT = 'h-10 rounded-md border border-x-border-strong bg-white px-2.5 text-content outline-none focus:border-x-blue';
@@ -31,17 +32,33 @@ const PERIOD_TIP = "기간을 줄여 예정일이 밖으로 나가도 막지 않
 const CLIENT_CHANGE_CONFIRM = '클라이언트를 바꾸면 예산·대상 후보가 새 클라이언트 기준으로 바뀌어요. 계속할까요?';
 
 // 읽기 상태의 값 — 클릭이 곧 편집이라 hover 배경 + 연필로 '누를 수 있음'을 알린다(버튼이라 Tab·Enter로도 열린다).
-function ReadValue({ onEdit, title, mono, children }: {
-  onEdit: () => void; title: string; mono?: boolean; children: ReactNode;
+// 연필은 값 오른쪽에 띄워(absolute) 항목 사이 간격을 밀지 않는다 — 접힌 머리(10-08 시안)의 한 줄 정보 줄을 지킨다.
+function ReadValue({ onEdit, title, className, children }: {
+  onEdit: () => void; title: string; className: string; children: ReactNode;
 }) {
   return (
     <button type="button" onClick={onEdit} title={title}
-            className={`group -mx-1 inline-flex min-h-8 max-w-full items-center gap-1.5 rounded px-1 py-1 text-left text-content hover:bg-x-hover ${mono ? 'font-mono' : ''}`}>
-      <span className="truncate">{children}</span>
-      <span aria-hidden className="shrink-0 text-ui text-x-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">✎</span>
+            className={`group relative inline-flex min-w-0 max-w-full items-center text-left ${className}`}>
+      {children}
+      <span aria-hidden className="pointer-events-none absolute left-full top-1/2 ml-0.5 -translate-y-1/2 text-[13px] text-x-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">✎</span>
     </button>
   );
 }
+
+// 시안의 선 아이콘(stroke 1.8) — 클라이언트(건물)·기간(달력)·코드(#)·메모(쪽지)
+const ICON = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const;
+const IconClient = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" {...ICON} className="shrink-0 text-x-muted"><path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16" /><path d="M15 9h4a1 1 0 0 1 1 1v11" /><path d="M3 21h18M8 8h3M8 12h3M8 16h3" /></svg>
+);
+const IconCalendar = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" {...ICON} className="shrink-0 text-x-muted"><rect x="3.5" y="5" width="17" height="15.5" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></svg>
+);
+const IconHash = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" {...ICON} className="shrink-0 text-x-muted"><path d="M9 4 7 20M17 4l-2 16M4 9h16M3 15h16" /></svg>
+);
+const IconNote = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" {...ICON} className="mt-[2px] shrink-0 text-x-muted"><path d="M5 4h14v11l-5 5H5z" /><path d="M14 20v-5h5M8.5 9h7M8.5 12.5h4" /></svg>
+);
 
 export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete }: {
   campaign: CampaignRow;
@@ -160,132 +177,132 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete 
       `'${campaign.name}' 캠페인을 삭제할까요?\n\n작업 ${deleteInfo.taskCount}개가 함께 지워져요. 원고는 남아요 — 예정일·비용은 작업과 함께 사라져요.${deleteInfo.detachedTargets > 0 ? `\n다른 캠페인 작업 ${deleteInfo.detachedTargets}건의 대상이 '대상 미정'으로 바뀌어요.` : ''}\n실행 취소는 없어요.`)) onDelete();
   }
 
+  // 접힌 머리(koo 10-08 시안 A): 1줄 이름·상태·메뉴 / 2줄 클라이언트·기간·코드 / 3줄 메모 전체(빈 메모면 줄 없음).
+  // 라벨 블록(기간/코드 라벨 위·값 아래)을 아이콘으로 바꿔 높이를 줄였다 — 값마다 클릭 편집·검증·오류 줄은 그대로.
   return (
-    <header>
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            {edit === 'name' ? (
-              <input autoFocus value={name} maxLength={NAME_MAX} onChange={(e) => setName(e.target.value)}
-                     onBlur={() => void saveName()}
-                     onKeyDown={(e) => {
-                       if (e.key === 'Enter' && !e.nativeEvent.isComposing) void saveName();
-                       if (e.key === 'Escape') { setName(campaign.name); cancel(); }
-                     }}
-                     aria-label="캠페인 이름" className={`${INPUT} h-11 min-w-[260px] text-[20px] font-bold`} />
-            ) : (
-              <button type="button" onClick={() => open('name')} title="눌러서 이름 바꾸기"
-                      className="max-w-full truncate rounded-md px-1 text-left text-[20px] font-bold hover:bg-x-hover">{campaign.name}</button>
-            )}
-            <span className={`rounded-full px-2.5 py-0.5 text-ui font-bold ${STATUS_STYLE[status]}`}>{CAMPAIGN_STATUS_LABEL[status]}</span>
-            {edit === 'client' ? (
-              <select autoFocus value={campaign.clientId ?? ''} onChange={(e) => void saveClient(e.target.value)}
-                      onBlur={closeOnLeave}
-                      onKeyDown={(e) => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) cancel(); }}
-                      aria-label="클라이언트" className={`${INPUT} h-8 text-ui`}>
-                <option value="" disabled>{clientsLoaded ? '클라이언트 선택' : '불러오는 중…'}</option>
-                {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            ) : (
-              <ReadValue onEdit={() => open('client')} title="클라이언트 — 눌러서 바꾸기">
-                <span className="text-ui text-x-secondary">{campaign.clientName ?? '클라이언트 없음'}</span>
-              </ReadValue>
-            )}
+    <header className="flex flex-col gap-[4px]">
+      <div className="flex min-h-[28px] items-center gap-[10px]">
+        {edit === 'name' ? (
+          <input autoFocus value={name} maxLength={NAME_MAX} onChange={(e) => setName(e.target.value)}
+                 onBlur={() => void saveName()}
+                 onKeyDown={(e) => {
+                   if (e.key === 'Enter' && !e.nativeEvent.isComposing) void saveName();
+                   if (e.key === 'Escape') { setName(campaign.name); cancel(); }
+                 }}
+                 aria-label="캠페인 이름" className={`${INPUT} h-11 min-w-0 flex-1 text-[20px] font-extrabold sm:max-w-[520px]`} />
+        ) : (
+          <button type="button" onClick={() => open('name')} title="눌러서 이름 바꾸기"
+                  className="-mx-1 min-w-0 truncate rounded-md px-1 text-left text-[20px] font-extrabold leading-[28px] text-x-text hover:bg-x-hover">{campaign.name}</button>
+        )}
+        <span className={`shrink-0 whitespace-nowrap rounded-full px-[10px] py-[3px] text-[13px] font-bold leading-[18px] ${STATUS_STYLE[status]}`}>{CAMPAIGN_STATUS_LABEL[status]}</span>
+        <span className="flex-1" />
+        {/* 헤더 오른쪽은 메뉴(메모 추가·삭제)뿐 — '+ 작업 추가'는 표 바로 위 툴바에 있다(작업을 보면서 누르는 버튼) */}
+        <details ref={menuRef} className="relative -mr-[6px] shrink-0">
+          <summary aria-label="캠페인 메뉴" title="캠페인 메뉴"
+                   className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-full text-x-secondary hover:bg-x-hover [&::-webkit-details-marker]:hidden">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden><path d="M5 12h.01M12 12h.01M19 12h.01" /></svg>
+          </summary>
+          <div className="absolute right-0 z-10 mt-1 w-44 rounded-lg border border-x-border-strong bg-white p-1 shadow-lg">
+            {!showNote ? (
+              <button type="button"
+                      onClick={() => { if (menuRef.current) menuRef.current.open = false; open('note'); }}
+                      className="block w-full rounded px-2.5 py-2 text-left text-ui text-x-text hover:bg-x-hover">메모 추가</button>
+            ) : null}
+            <button type="button" onClick={confirmDelete} className="block w-full rounded px-2.5 py-2 text-left text-ui text-red-700 hover:bg-red-50">캠페인 삭제</button>
           </div>
-          {errLine('name')}
-
-          {/* 라벨 위·값 아래 블록형(QA 3라운드 결정 A) — 글자만 한 줄이면 값 시작점을 눈이 못 찾는다 */}
-          <div className="mt-3 flex flex-wrap items-center border-t border-x-border pt-2">
-            <div className="flex min-h-[52px] flex-col justify-center gap-0.5 py-1 pl-0 pr-5">
-              <span className="flex items-center gap-1 text-[13px] text-x-secondary">
-                기간
-                <InfoTip text={PERIOD_TIP} label="기간 설명 보기" />
-              </span>
-              {edit === 'period' ? (
-                <span className="flex flex-wrap items-center gap-1.5" onBlur={closeOnLeave}
-                      onKeyDown={(e) => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) cancel(); }}>
-                  <input autoFocus type="date" value={campaign.startsOn} aria-label="시작일" className={INPUT}
-                         onChange={(e) => { if (e.target.value) void savePatch({ startsOn: e.target.value }, 'period'); }} />
-                  <span className="text-x-secondary">~</span>
-                  <input type="date" value={campaign.endsOn} aria-label="종료일" className={INPUT}
-                         onChange={(e) => { if (e.target.value) void savePatch({ endsOn: e.target.value }, 'period'); }} />
-                </span>
-              ) : (
-                <ReadValue onEdit={() => open('period')} title="캠페인 기간 — 눌러서 바꾸기">
-                  <span className="text-[16px] font-semibold">{formatDateKo(campaign.startsOn)} ~ {formatDateKo(campaign.endsOn)}</span>
-                  <span className="ml-1.5 text-[13px] font-normal text-x-secondary">· {days}일</span>
-                </ReadValue>
-              )}
-              {errLine('period')}
-            </div>
-
-            {/* 캠페인 유형은 아래 콘텐츠 표의 유형 열로 판단(koo 결정 08-26) — 시딩 등 성격은 캠페인명으로 표현 */}
-
-            <span aria-hidden className="h-7 w-px shrink-0 self-center bg-x-border" />
-
-            <div className="flex min-h-[52px] flex-col justify-center gap-0.5 py-1 pl-5">
-              <span className="text-[13px] text-x-secondary">코드</span>
-              {edit === 'code' ? (
-                <input autoFocus value={code} onChange={(e) => { setCode(e.target.value); setErr(null); }}
-                       onBlur={() => void saveCode()}
-                       onKeyDown={(e) => {
-                         if (e.key === 'Enter' && !e.nativeEvent.isComposing) void saveCode();
-                         if (e.key === 'Escape') { setCode(campaign.nameEn); cancel(); }
-                       }}
-                       aria-label="영문 코드" autoCapitalize="none" spellCheck={false} className={`${INPUT} w-[240px] font-mono`} />
-              ) : (
-                <span className="flex items-center gap-1.5">
-                  <ReadValue mono onEdit={() => open('code')}
-                             title="트래킹 링크의 캠페인명(utm_campaign) 기본값이에요 — 눌러서 바꾸기">
-                    <span className="text-[15px] font-semibold tabular-nums">{campaign.nameEn}</span>
-                  </ReadValue>
-                  <button type="button" onClick={copyCode} aria-label={copied ? '복사됨' : '복사'}
-                          title={copied ? '복사됨' : '영문 코드 복사'}
-                          className="shrink-0 rounded-md px-1.5 py-1 text-ui text-x-muted hover:bg-x-hover hover:text-x-text">
-                    {copied ? '✓' : '⧉'}
-                  </button>
-                </span>
-              )}
-              {errLine('code')}
-            </div>
-          </div>
-
-          {/* 메모 — 값이 있을 때만 보인다. 빈 칸을 상시 노출하면 채워야 할 것처럼 보이고 높이를 먹는다(QA 2라운드 결정 A). 없으면 [···] 메뉴의 '메모 추가'로 연다 */}
-          {showNote ? (
-            <div className="mt-2">
-              <p className="mb-1.5 text-ui font-bold text-x-secondary">메모</p>
-              {edit === 'note' ? (
-                <textarea autoFocus value={note} rows={3} onChange={(e) => setNote(e.target.value)}
-                          onBlur={() => void saveNote()}
-                          onKeyDown={(e) => { if (e.key === 'Escape') { setNote(campaign.note); cancel(); } }}
-                          aria-label="캠페인 메모" placeholder="메모를 적어 두세요"
-                          className="w-full resize-y rounded-xl border border-x-border-strong bg-white px-4 py-3 text-content outline-none focus:border-x-blue" />
-              ) : (
-                <button type="button" onClick={() => open('note')} title="눌러서 메모 편집"
-                        className="block w-full whitespace-pre-wrap rounded-xl bg-x-surface px-4 py-3 text-left text-content hover:bg-x-border/60">
-                  {campaign.note}
-                </button>
-              )}
-              {errLine('note')}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          {/* 헤더 오른쪽은 메뉴(메모 추가·삭제)뿐 — '+ 작업 추가'는 표 바로 위 툴바에 있다(작업을 보면서 누르는 버튼) */}
-          <details ref={menuRef} className="relative">
-            <summary aria-label="캠페인 메뉴" className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-full border border-x-border-strong text-x-secondary hover:bg-x-hover">···</summary>
-            <div className="absolute right-0 z-10 mt-1 w-44 rounded-lg border border-x-border-strong bg-white p-1 shadow-lg">
-              {!showNote ? (
-                <button type="button"
-                        onClick={() => { if (menuRef.current) menuRef.current.open = false; open('note'); }}
-                        className="block w-full rounded px-2.5 py-2 text-left text-ui text-x-text hover:bg-x-hover">메모 추가</button>
-              ) : null}
-              <button type="button" onClick={confirmDelete} className="block w-full rounded px-2.5 py-2 text-left text-ui text-red-700 hover:bg-red-50">캠페인 삭제</button>
-            </div>
-          </details>
-        </div>
+        </details>
       </div>
+      {errLine('name')}
+
+      {/* 정보 줄 — 좁은 화면에선 감겨서 코드가 다음 줄로 간다(시안 Narrow) */}
+      <div className="flex min-h-[20px] flex-wrap items-center gap-x-[18px] gap-y-[4px] whitespace-nowrap text-[14px] text-x-secondary">
+        {edit === 'client' ? (
+          <select autoFocus value={campaign.clientId ?? ''} onChange={(e) => void saveClient(e.target.value)}
+                  onBlur={closeOnLeave}
+                  onKeyDown={(e) => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) cancel(); }}
+                  aria-label="클라이언트" className={`${INPUT} h-8 text-ui`}>
+            <option value="" disabled>{clientsLoaded ? '클라이언트 선택' : '불러오는 중…'}</option>
+            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        ) : (
+          <ReadValue onEdit={() => open('client')} title="클라이언트 — 눌러서 바꾸기"
+                     className="h-[24px] gap-[6px] rounded-full bg-x-surface pl-[7px] pr-[9px] text-[14px] font-semibold text-x-text hover:bg-x-border">
+            <IconClient />
+            <span className="truncate">{campaign.clientName ?? '클라이언트 없음'}</span>
+          </ReadValue>
+        )}
+
+        {edit === 'period' ? (
+          <span className="flex flex-wrap items-center gap-1.5" onBlur={closeOnLeave}
+                onKeyDown={(e) => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) cancel(); }}>
+            <IconCalendar />
+            <input autoFocus type="date" value={campaign.startsOn} aria-label="시작일" className={INPUT}
+                   onChange={(e) => { if (e.target.value) void savePatch({ startsOn: e.target.value }, 'period'); }} />
+            <span className="text-x-secondary">~</span>
+            <input type="date" value={campaign.endsOn} aria-label="종료일" className={INPUT}
+                   onChange={(e) => { if (e.target.value) void savePatch({ endsOn: e.target.value }, 'period'); }} />
+            <InfoTip text={PERIOD_TIP} label="기간 설명 보기" />
+          </span>
+        ) : (
+          <ReadValue onEdit={() => open('period')} title={`캠페인 기간 — 눌러서 바꾸기\n${PERIOD_TIP}`}
+                     className="-mx-1 gap-[6px] rounded px-1 hover:bg-x-hover">
+            <IconCalendar />
+            <span className="text-x-text">{formatDateKo(campaign.startsOn)} ~ {formatDateKo(campaign.endsOn)}</span>
+            <span>· {days}일</span>
+          </ReadValue>
+        )}
+
+        {/* 캠페인 유형은 아래 콘텐츠 표의 유형 열로 판단(koo 결정 08-26) — 시딩 등 성격은 캠페인명으로 표현 */}
+
+        {edit === 'code' ? (
+          <span className="inline-flex items-center gap-[6px]">
+            <IconHash />
+            <input autoFocus value={code} onChange={(e) => { setCode(e.target.value); setErr(null); }}
+                   onBlur={() => void saveCode()}
+                   onKeyDown={(e) => {
+                     if (e.key === 'Enter' && !e.nativeEvent.isComposing) void saveCode();
+                     if (e.key === 'Escape') { setCode(campaign.nameEn); cancel(); }
+                   }}
+                   aria-label="영문 코드" autoCapitalize="none" spellCheck={false} className={`${INPUT} w-[240px] font-mono`} />
+          </span>
+        ) : (
+          // 복사 버튼은 시안에 없어 평소엔 숨기고, 코드에 마우스를 올리거나 Tab으로 오면 보인다(줄 끝이라 자리를 밀지 않는다)
+          <span className="group/code inline-flex min-w-0 items-center gap-1">
+            <ReadValue onEdit={() => open('code')} title="영문 코드 — 트래킹 링크의 캠페인명(utm_campaign) 기본값이에요. 눌러서 바꾸기"
+                       className="-mx-1 gap-[6px] rounded px-1 hover:bg-x-hover">
+              <IconHash />
+              <span className="truncate font-mono text-[13px] text-x-muted">{campaign.nameEn}</span>
+            </ReadValue>
+            <button type="button" onClick={copyCode} aria-label={copied ? '복사됨' : '영문 코드 복사'}
+                    title={copied ? '복사됨' : '영문 코드 복사'}
+                    className={`ml-4 shrink-0 rounded-md px-1.5 text-ui text-x-muted transition-opacity hover:bg-x-hover hover:text-x-text focus-visible:opacity-100 group-hover/code:opacity-100 ${copied ? 'opacity-100' : 'opacity-0'}`}>
+              {copied ? '✓' : '⧉'}
+            </button>
+          </span>
+        )}
+      </div>
+      {errLine('period')}
+      {errLine('code')}
+
+      {/* 메모 — 값이 있을 때만 보인다(전체, 줄바꿈 유지·자르지 않음). 빈 칸을 상시 노출하면 채워야 할 것처럼 보이고 높이를 먹는다(QA 2라운드 결정 A). 없으면 [⋯] 메뉴의 '메모 추가'로 연다 */}
+      {showNote ? (
+        <div>
+          {edit === 'note' ? (
+            <textarea autoFocus value={note} rows={3} onChange={(e) => setNote(e.target.value)}
+                      onBlur={() => void saveNote()}
+                      onKeyDown={(e) => { if (e.key === 'Escape') { setNote(campaign.note); cancel(); } }}
+                      aria-label="캠페인 메모" placeholder="메모를 적어 두세요"
+                      className="mt-1 w-full resize-y rounded-xl border border-x-border-strong bg-white px-4 py-3 text-content outline-none focus:border-x-blue" />
+          ) : (
+            <button type="button" onClick={() => open('note')} title="메모 — 눌러서 편집"
+                    className="-mx-1 flex w-[calc(100%+0.5rem)] items-start gap-[6px] rounded px-1 text-left text-[14px] leading-[20px] text-x-secondary hover:bg-x-hover">
+              <IconNote />
+              <span className="min-w-0 whitespace-pre-line break-words">{campaign.note}</span>
+            </button>
+          )}
+          {errLine('note')}
+        </div>
+      ) : null}
     </header>
   );
 }

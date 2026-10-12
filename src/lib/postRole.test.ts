@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assignRoles, normalizeUrl, urlsOf } from './postRole.ts';
+import { assignRoles, normalizeUrl, urlsOf, taskMainTweetIdOf } from './postRole.ts';
 
 const SHORT = 'https://cb.link/tavemo';
 const p = (tweetId: string, postedAt: string | null, over: Partial<{ role: 'main'|'thread'|'link'|null; rawUrls: unknown; isReply: boolean | null }> = {}) =>
@@ -51,4 +51,37 @@ test('normalizeUrl: 쿼리·해시는 무시한다 — X가 붙인 ?ref= 꼬리�
 test('postedAt이 없는 게시물은 main이 되지 않고 맨 뒤로 간다', () => {
   const r = assignRoles([p('n', null), p('a', '2026-08-24T00:00:00Z'), p('b', '2026-08-24T00:01:00Z')], []);
   assert.deepEqual(r.map((x) => [x.tweetId, x.role]), [['a', 'main'], ['b', 'thread'], ['n', 'thread']]);
+});
+
+// self-replies 최종 리뷰: 본 게시물에 트래킹 링크를 넣고 댓글엔 안 넣으면 댓글이 main이 되던 문제 —
+// 작업의 게시물 링크(post_url)가 가리키는 트윗은 링크를 담아도 main(캠페인 화면과 같은 게시물).
+test('mainTweetId: 링크를 담은 본 게시물은 main 그대로, 링크 없는 본인 댓글은 thread', () => {
+  const posts = [
+    p('m', '2026-10-06T08:40:00Z', { isReply: false, rawUrls: [{ expanded_url: SHORT }] }),
+    p('r', '2026-10-06T10:04:00Z', { isReply: true }),
+  ];
+  assert.deepEqual(assignRoles(posts, [SHORT], 'm').map((x) => [x.tweetId, x.role]), [['m', 'main'], ['r', 'thread']]);
+  // mainTweetId가 없으면 예전 규칙(링크 포함 → link)
+  assert.deepEqual(assignRoles(posts, [SHORT]).map((x) => [x.tweetId, x.role]), [['r', 'main'], ['m', 'link']]);
+  // 링크 든 다른 댓글은 여전히 link
+  const withLinkReply = [...posts, p('l', '2026-10-06T11:00:00Z', { isReply: true, rawUrls: [{ expanded_url: SHORT }] })];
+  assert.deepEqual(assignRoles(withLinkReply, [SHORT], 'm').map((x) => [x.tweetId, x.role]), [['m', 'main'], ['r', 'thread'], ['l', 'link']]);
+  // 사람이 고친 값은 이긴다
+  const fixed = [{ ...posts[0], role: 'link' as const }, posts[1]];
+  assert.deepEqual(assignRoles(fixed, [SHORT], 'm').map((x) => [x.tweetId, x.role]), [['r', 'main'], ['m', 'link']]);
+  // 원고에 없는 tweetId면 무시
+  assert.deepEqual(assignRoles(posts, [SHORT], 'zzz').map((x) => [x.tweetId, x.role]), [['r', 'main'], ['m', 'link']]);
+});
+
+test('taskMainTweetIdOf: 작업 게시물 링크가 자기 트윗을 가리키는 게시물(여럿이면 가장 이른 것)', () => {
+  const u = (id: string) => `https://x.com/a/status/${id}?s=20`;
+  assert.equal(taskMainTweetIdOf([
+    { tweetId: '200', postedAt: '2026-10-06T09:00:00Z', postUrl: u('100') },   // 같은 작업의 댓글
+    { tweetId: '100', postedAt: '2026-10-06T08:00:00Z', postUrl: u('100') },
+  ]), '100');
+  assert.equal(taskMainTweetIdOf([{ tweetId: '1', postedAt: null, postUrl: null }, { tweetId: '2', postedAt: null, postUrl: '엉뚱' }]), null);
+  assert.equal(taskMainTweetIdOf([
+    { tweetId: '300', postedAt: '2026-10-06T09:00:00Z', postUrl: u('300') },
+    { tweetId: '100', postedAt: '2026-10-06T08:00:00Z', postUrl: u('100') },
+  ]), '100');
 });

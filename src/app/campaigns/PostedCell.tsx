@@ -9,6 +9,8 @@ import { parseTweetLink, tweetLinkParseMessage } from '@/lib/tweetLink';
 import { DATE_MESSAGE } from '@/lib/campaignTaskInput';
 import { TaskProofField } from '@/components/TaskProofField';
 import { PROOF_REQUIRED_MESSAGE } from '@/lib/taskProofGuard';
+import { kstDate } from '@/lib/datetime';
+import { REMOVED_REASON_CHIPS } from '@/lib/campaignFlowView';
 
 // 단계 셀(스펙 §3-4·§4-1) — 칩은 값만('게시됨 9/3'), 부가 정보는 옆의 회색 태그. 누르면 지금 상태에서 할 수 있는 것만 보이는 팝오버.
 // 게시 확인 자체는 되돌리지 않는다 — 잘못 찍었으면 작업을 지우고 다시 만든다(팝오버 문구가 그렇게 말한다).
@@ -93,7 +95,8 @@ export function RemovedForm({ task, today, proofSignedUrl, onSetProof, onSubmit,
   onSubmit: (date: string, reason: string) => void;
   onCancel: () => void;
 }) {
-  const [date, setDate] = useState(today);
+  // 안 보임이 확정된 글이면 처음 안 보인 날(서울)로 채워 연다(2026-10-12) — 실제로 내려간 날에 가장 가깝다
+  const [date, setDate] = useState(() => (task.unseenSince ? kstDate(task.unseenSince) : today));
   const [reason, setReason] = useState(task.removedReason);
   const [err, setErr] = useState('');
   const input = 'mt-0.5 h-10 w-full rounded-md border border-x-border-strong bg-white px-2.5 text-content outline-none focus:border-x-blue';
@@ -110,9 +113,21 @@ export function RemovedForm({ task, today, proofSignedUrl, onSetProof, onSubmit,
       <label className="mt-2 block text-ui text-x-secondary">내려진 날
         <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setErr(''); }} className={input} />
       </label>
-      <label className="mt-2 block text-ui text-x-secondary">사유 <span className="text-x-muted">선택</span>
-        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="본인 요청" className={input} />
-      </label>
+      {/* 사유 — 빠른 고르기 칩이 위, 글자 칸이 아래(시안 v2). 칩은 작업 취소 창과 같은 모양(고르면 파랑), 다시 누르면 비운다 */}
+      <div className="mt-2">
+        <p id="removed-reason-label" className="text-ui text-x-secondary">사유 <span className="text-x-muted">선택</span></p>
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {REMOVED_REASON_CHIPS.map((c) => (
+            <button key={c} type="button" aria-pressed={reason.trim() === c}
+                    onClick={() => setReason((cur) => (cur.trim() === c ? '' : c))}
+                    className={`rounded-full border px-2.5 py-1 text-ui ${
+                      reason.trim() === c ? 'border-x-blue bg-x-blue/10 text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
+              {c}
+            </button>
+          ))}
+        </div>
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="본인 요청" aria-labelledby="removed-reason-label" className={input.replace('mt-0.5', 'mt-1.5')} />
+      </div>
       {/* 안내 문구는 첨부 칸 '위'에 온다 — 읽는 순서상 상자보다 먼저 와야 한다(리뷰 수정 4). */}
       {task.type === 'rt' && !task.proof && (
         <p className="mt-0.5 text-ui text-amber-700">증빙 없음 — 지금 채울 수 있어요</p>

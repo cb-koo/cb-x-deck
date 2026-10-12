@@ -111,22 +111,24 @@ export function CandidateTable({ onCreated, initialCampaignId }: { onCreated?: (
   return (
     <section>
       <div className="flex flex-wrap items-center gap-2">
-        <select className={SEL} value={filter.clientId} onChange={(e) => { setFilter({ ...filter, clientId: e.target.value, campaignId: '' }); setDeepLinkNote(''); }} aria-label="클라이언트">
-          <option value="">클라이언트 전체</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-        </select>
-        <select className={SEL} value={filter.campaignId} onChange={(e) => { setFilter({ ...filter, campaignId: e.target.value }); setDeepLinkNote(''); }} aria-label="캠페인">
-          <option value="">캠페인 전체</option>{campaigns.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-        </select>
-        <select className={SEL} value={filter.type} onChange={(e) => { setFilter({ ...filter, type: e.target.value as '' | TaskType }); setDeepLinkNote(''); }} aria-label="유형">
-          <option value="">유형 전체</option>{TASK_TYPES.map((t) => <option key={t} value={t}>{TASK_TYPE_LABEL[t]}</option>)}
-        </select>
-        <select className={SEL} value={filter.method} onChange={(e) => { setFilter({ ...filter, method: e.target.value as '' | PaymentMethodType }); setDeepLinkNote(''); }} aria-label="결제 수단">
-          <option value="">결제 수단 전체</option>{PAYMENT_TYPES.map((t) => <option key={t} value={t}>{PAYMENT_TYPE_LABEL[t]}</option>)}
-        </select>
-        <span className="ml-auto text-ui text-x-muted" title="요청한 주의 다음 주 월요일까지. 급한 건은 행에서 마감을 직접 당겨 주세요">기본 마감 {deadlineLabel(rows[0]?.deadlineDefault ?? data.today)} · 다음 주 월요일</span>
+        <h2 className="text-[16px] font-semibold">검토 대기 {rows.length}</h2>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <select className={SEL} value={filter.clientId} onChange={(e) => { setFilter({ ...filter, clientId: e.target.value, campaignId: '' }); setDeepLinkNote(''); }} aria-label="클라이언트">
+            <option value="">클라이언트 전체</option>{clients.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+          <select className={SEL} value={filter.campaignId} onChange={(e) => { setFilter({ ...filter, campaignId: e.target.value }); setDeepLinkNote(''); }} aria-label="캠페인">
+            <option value="">캠페인 전체</option>{campaigns.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+          <select className={SEL} value={filter.type} onChange={(e) => { setFilter({ ...filter, type: e.target.value as '' | TaskType }); setDeepLinkNote(''); }} aria-label="유형">
+            <option value="">유형 전체</option>{TASK_TYPES.map((t) => <option key={t} value={t}>{TASK_TYPE_LABEL[t]}</option>)}
+          </select>
+          <select className={SEL} value={filter.method} onChange={(e) => { setFilter({ ...filter, method: e.target.value as '' | PaymentMethodType }); setDeepLinkNote(''); }} aria-label="결제 수단">
+            <option value="">결제 수단 전체</option>{PAYMENT_TYPES.map((t) => <option key={t} value={t}>{PAYMENT_TYPE_LABEL[t]}</option>)}
+          </select>
+          <span className="text-ui text-x-muted" title="요청한 주의 다음 주 월요일까지. 급한 건은 행에서 마감을 직접 당겨 주세요">기본 마감 {deadlineLabel(rows[0]?.deadlineDefault ?? data.today)} · 다음 주 월요일</span>
+        </div>
       </div>
       {deepLinkNote && <p className="mt-2 text-ui text-x-muted">{deepLinkNote}</p>}
-      <h2 className="mt-4 text-[16px] font-semibold">검토 대기 {rows.length}</h2>
       {rows.length === 0 ? (
         <p className="mt-6 rounded-xl border border-dashed border-x-border p-8 text-center text-ui text-x-muted">게시 확인된 작업이 없어요 — 캠페인에서 게시된 날을 적으면 여기 나타나요</p>
       ) : (
@@ -137,7 +139,7 @@ export function CandidateTable({ onCreated, initialCampaignId }: { onCreated?: (
               <tr>
                 <th className={HEAD} aria-label="선택" />
                 <th className={HEAD}>인플루언서</th><th className={HEAD}>유형</th>
-                <th className={`${HEAD} text-right`}>요청액</th><th className={`${HEAD} text-right`}>송금액</th>
+                <th className={`${HEAD} text-right`}>작업 금액</th><th className={`${HEAD} text-right`}>송금액</th>
                 <th className={HEAD}>결제 수단</th><th className={HEAD}>분류</th><th className={HEAD}>마감</th>
                 <th className={HEAD}>게시물</th><th className={HEAD}>상태</th>
               </tr>

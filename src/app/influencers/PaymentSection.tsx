@@ -146,7 +146,7 @@ function MethodCard({ m, busy, copiedKey, confirming, fallbackLabel, onCopy, onS
   } else if (m.type === 'paypay') {
     rows.push(m.identifier
       ? { key: 'identifier', label: '수취 식별 정보', value: m.identifier, copy: m.identifier }
-      : { key: 'identifier', label: '수취 식별 정보', value: '미입력 — 정산 쪽에서 확인되면 적어 두세요', muted: true });
+      : { key: 'identifier', label: '수취 식별 정보', value: '미입력 — 정산팀에서 확인되면 적어 두세요', muted: true });
     // QR은 있을 때만 행을 만든다 — 둘 다 선택이라 둘 다 "미입력"이 뜨면 잔소리가 된다(스펙 §2)
     if (m.qr) rows.push({ key: 'qr', label: 'QR 이미지', value: null, qrPath: m.qr });
   } else {
@@ -202,11 +202,10 @@ function MethodCard({ m, busy, copiedKey, confirming, fallbackLabel, onCopy, onS
             {fallbackLabel && <span className="text-x-muted">{` 기본 수단이라 지우면 다음 수단(${fallbackLabel})이 기본이 돼요.`}</span>}
           </p>
           <div className="mt-1.5 flex items-center gap-1.5">
-            <button onClick={onDelete} disabled={busy} aria-label={`${label} 정말 삭제`}
-                    className="rounded-full bg-red-600 px-3 py-1 text-ui font-medium text-white hover:bg-red-700 disabled:opacity-50">
+            <Button type="button" variant="subtle" onClick={onCancelDelete} disabled={busy}>취소</Button>
+            <Button type="button" variant="danger" onClick={onDelete} disabled={busy} aria-label={`${label} 정말 삭제`}>
               {busy ? '삭제 중…' : '정말 삭제'}
-            </button>
-            <Button variant="subtle" onClick={onCancelDelete} disabled={busy}>취소</Button>
+            </Button>
           </div>
         </div>
       )}

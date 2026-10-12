@@ -64,11 +64,11 @@ export function LinkPostModal({ task, onClose, onLinked }: {
                className="mt-2 h-10 w-full rounded-lg border border-x-border-strong bg-white px-3 text-content outline-none focus:border-x-blue" />
         {showParseErr && <p className="mt-1 text-ui text-red-600">{tweetLinkParseMessage(parsed.ok ? 'invalid' : parsed.reason)}</p>}
         {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
-        <div className="mt-4 flex items-center gap-3">
-          <Button variant="primary" onClick={() => void submit()} disabled={!parsed.ok || busy} className="h-10 px-4 text-content">
+        <div className="mt-4 flex items-center justify-end gap-3">
+          <Button type="button" onClick={onClose} disabled={busy} className="h-10 px-4 text-content">취소</Button>
+          <Button type="button" variant="primary" onClick={() => void submit()} disabled={!parsed.ok || busy} className="h-10 px-4 text-content">
             {busy ? '연결하는 중…' : '연결'}
           </Button>
-          <button onClick={onClose} disabled={busy} className="h-10 px-2 text-ui text-x-secondary disabled:opacity-40">취소</button>
         </div>
       </div>
     </div>

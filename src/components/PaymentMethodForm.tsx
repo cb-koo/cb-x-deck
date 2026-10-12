@@ -129,7 +129,7 @@ export function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, e
               </div>
             </div>
             <p className="mt-0.5 text-caption text-x-muted">
-              아직 못 받았으면 비워두셔도 돼요 — 정산 쪽에서 확인되면 그때 채우면 됩니다.
+              아직 못 받았으면 비워두셔도 돼요 — 정산팀에서 확인되면 그때 채우면 됩니다.
             </p>
           </div>
         )}
@@ -199,8 +199,8 @@ export function MethodForm({ draft, setDraft, isFirst, showDefaultCheck, busy, e
       )}
 
       <div className="mt-3 flex items-center gap-1.5">
-        <Button variant="primary" onClick={onSubmit} disabled={busy}>{busy ? '저장 중…' : '저장'}</Button>
-        <Button variant="subtle" onClick={onCancel} disabled={busy}>취소</Button>
+        <Button type="button" variant="subtle" onClick={onCancel} disabled={busy}>취소</Button>
+        <Button type="button" variant="primary" onClick={onSubmit} disabled={busy}>{busy ? '저장 중…' : '저장'}</Button>
       </div>
     </div>
   );

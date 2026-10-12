@@ -8,7 +8,9 @@ import type { CampaignPatchInput } from '@/lib/campaignInput';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import type { DraftRow } from '@/lib/draftStore';
-import type { CampaignPeriodBudget } from '@/lib/clientBudget';
+import type { CampaignPeriodBudget, ViewCurrency } from '@/lib/clientBudget';
+
+const COST_CURRENCY_KEY = 'campaign-cost-currency';
 import {
   fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, patchInfluencerPricingApi,
   patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, refreshCampaignPerfApi,
@@ -17,7 +19,7 @@ import {
 } from '@/lib/campaignApi';
 import type { TaskCost } from '@/lib/campaignCost';
 import {
-  flowStage, FLOW_STAGES, TASK_TYPE_LABEL, isTaskExcluded,
+  flowStage, FLOW_STAGES, TASK_TYPE_LABEL,
   deriveTaskInfluencers, taskCampaignTotal, targetUrlOf, type TaskType, type FlowStage,
 } from '@/lib/campaignJudgment';
 import { draftLabel, draftPreviewLine, draftPreviewFull, draftFirstMediaUrl } from '@/lib/draftViews';
@@ -41,7 +43,6 @@ import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar } from './FlowFilterBar';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
-import { BudgetStrip } from './BudgetStrip';
 import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM, type FormDraftContext, type PricePrompt } from './TaskPanel';
 import { visitPhaseFromRow, type TaskSectionKey, type TaskSectionPrefs } from '@/lib/taskSectionView';
 import { loadProductFeatures, useProductFeatures } from '@/lib/extensionProductClient';
@@ -56,6 +57,9 @@ import { FlowRowMenu, type FlowRowMenuActions } from './FlowRowMenu';
 import { CancelDialog } from './CancelDialog';
 import { SettleElsewhereDialog } from './SettleElsewhereDialog';
 import { SettledElsewhereLine } from './panel/SettledElsewhereLine';
+import { TaskCostHistory } from './panel/TaskCostHistory';
+import { isPaidBadge, pendingRequestCost } from '@/lib/settlementDisplay';
+import { formatAmount } from '@/lib/campaignCost';
 import { ReplaceDialog } from './ReplaceDialog';
 import { useFlowTaskActions } from './useFlowTaskActions';
 import { type DraftTab } from './draft/DraftMode';
@@ -99,12 +103,24 @@ const DRAFT_DIRECTION_DISCARD_CONFIRM = '쓰던 방향성이 있어요. 계속�
 interface DetailState {
   campaign: CampaignRow; tasks: CampaignTaskItem[]; costRows: InfluencerCostRow[];
   deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number }; today: string;
-  budget: CampaignPeriodBudget | null;   // 이 기간 클라이언트 예산(서버 판정) — 예산 줄(BudgetStrip)
+  budget: CampaignPeriodBudget | null;   // 이 기간 클라이언트 예산(서버 판정) — 클라이언트 예산 카드(BudgetCard)
   perfUpdatedAt: string | null;          // 성과 최종 업데이트 시각 — 성과 카드 ↻ 옆
 }
 type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 // 오른쪽 패널이 여는 대상 — 기존 작업(taskId) 또는 새 작업(fresh). 둘 다 아니면 패널이 닫혀 있다.
 type Panel = { taskId: string } | { fresh: true } | null;
+
+// 지급 전 요청이 붙은 작업의 금액을 고쳤을 때 패널에 띄우는 안내 — 요청 금액은 한 번만 계산한다.
+function PendingRequestNote({ task }: { task: FlowRow }) {
+  const pending = pendingRequestCost(task);
+  if (!pending) return null;
+  return (
+    <p className="mt-1.5 text-[14px] text-amber-700">
+      정산 요청은 아직 {formatAmount(pending.amount, pending.currency)}이에요 — 정산 화면에서 &apos;고친 값으로 다시 반영&apos;을 눌러 주세요{' '}
+      <Link href={`/settlement?tab=requests&task=${task.id}`} className="underline">정산 요청 보기</Link>
+    </p>
+  );
+}
 
 export function FlowDetail({ id, linkedTaskId = null, personId = null, personHandle = null, onChanged, onDeleted, onLeaveConfirmChange }: {
   id: string;
@@ -355,6 +371,15 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
   // shown = 필터·정렬을 적용한 표시 순서. 표가 그리는 순서이자 패널의 이전/다음이 걷는 순서다(하나의 소스).
   const shown = useMemo(() => (data ? sortFlowRows(data.tasks.filter((t) => (allPeople || !personHandle || t.influencerHandle?.toLowerCase() === personHandle.toLowerCase()) && matchesFlowFilter(t, filter, data.today)), sort) : []), [data, filter, sort, personHandle, allPeople]);
   const stats = useMemo(() => (data ? flowStats(data.tasks) : null), [data]);
+  // 비용 카드·합계 줄이 보여 줄 통화(원화|엔화) — 선택은 브라우저에 기억(campaigns-list-collapsed와 같은 방식).
+  // 카드·합계는 상세를 불러온 뒤에야 그려지므로(서버 렌더 때는 data가 없다) 저장값을 처음부터 읽어도 서버·브라우저 출력이 어긋나지 않는다.
+  const [costCurrency, setCostCurrency] = useState<ViewCurrency>(() => {
+    try { return localStorage.getItem(COST_CURRENCY_KEY) === 'JPY' ? 'JPY' : 'KRW'; } catch { return 'KRW'; }
+  });
+  const chooseCostCurrency = useCallback((c: ViewCurrency) => {
+    setCostCurrency(c);
+    try { localStorage.setItem(COST_CURRENCY_KEY, c); } catch { /* 저장 못 해도 화면은 동작 */ }
+  }, []);
   // 계획 비용(카드용, b-task-11-brief.md §1) — stats.plannedCost(작업 비용만)와 달리 인플별 추가 비용까지 더한다.
   // /campaigns(CampaignDetail)의 '비용 합계'와 같은 함수라 두 화면이 같은 숫자를 말한다.
   const plannedTotal = useMemo(
@@ -369,10 +394,9 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
     extra: Object.fromEntries(EXTRA_FILTERS.map((k) => [k, (data?.tasks ?? []).filter((t) => matchesExtra(t, k, data?.today ?? '')).length])) as Record<ExtraFilter, number>,
   }), [data]);
   const summary = useMemo(() => filterSummary(filter, shown.length, data?.tasks.length ?? 0), [filter, shown, data]);
-  const footer = useMemo(() => flowFooter(data?.tasks ?? [], data?.today ?? ''), [data]);
+  const footer = useMemo(() => flowFooter(data?.tasks ?? [], data?.today ?? '', costCurrency), [data, costCurrency]);
   const sortNote = sort.key ? `· ${FLOW_SORT_LABEL[sort.key]} ${sort.dir === 1 ? '오름차순' : '내림차순'}` : '· 만든 순';
   // 성과 [업데이트](비용 유발 — 게시물당 API 1회, UX 원칙 6 opt-in). 성공하면 상세를 다시 읽어야 새 스냅샷이 카드·표에 보인다.
-  const cancelledCount = data?.tasks.filter(isTaskExcluded).length ?? 0;
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -382,7 +406,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
     setRefreshing(false);
     show(r.data.total === 0
       ? '조회할 게시물이 없었어요'
-      : `게시물 ${r.data.refreshed}건을 다시 조회했어요${r.data.unavailable ? ` · ${r.data.unavailable}건은 찾을 수 없어요` : ''}${r.data.failed ? ` · ${r.data.failed}건은 실패했어요` : ''}`);
+      : `게시물 ${r.data.refreshed}건을 다시 조회했어요${r.data.newReplies ? ` · 인플 댓글 ${r.data.newReplies}개를 새로 찾아 붙였어요` : ''}${r.data.unavailable ? ` · ${r.data.unavailable}건은 찾을 수 없어요` : ''}${r.data.failed ? ` · ${r.data.failed}건은 실패했어요` : ''}`);
   }, [id, show, load]);
 
   // 오른쪽 패널 — 이전/다음은 shown(표시 순서, 결정 4)을 걷지만, 패널이 보여줄 작업 자체는 data.tasks에서 찾는다.
@@ -1002,25 +1026,25 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
           <Button variant="subtle" className="ml-auto shrink-0 bg-white" onClick={() => void load()}>다시 시도</Button>
         </div>
       )}
-      <div className={PANEL}>
-        <CampaignHeader campaign={data.campaign} deleteInfo={data.deleteInfo} today={data.today} onPatch={patchCampaign}
-                        onDelete={() => void removeCampaign()} />
-      </div>
-      <div className={PANEL}>
-        <FlowCards stats={stats} plannedTotal={plannedTotal} perfUpdatedAt={data.perfUpdatedAt}
-                   cancelledCount={cancelledCount} refreshing={refreshing} onRefresh={() => void onRefresh()} />
-      </div>
-      {/* 이 기간 클라이언트 예산 — 캠페인 카드와 층이 달라 칸을 나눈다(koo 09-27 A안). 클라이언트 없는 캠페인엔 없다. */}
-      {data.budget && (
-        <div className={PANEL}>
-          <BudgetStrip budget={data.budget} clientId={data.campaign.clientId} spent={stats.spent} plannedTotal={plannedTotal} />
+      {/* 머리 + 카드 2×2(koo 10-08 시안) — 둘 사이 12px, 카드와 작업 목록 사이 16px */}
+      <div className="mb-[16px] space-y-[12px]">
+        <div className={`${PANEL} py-[15px]`}>
+          <CampaignHeader campaign={data.campaign} deleteInfo={data.deleteInfo} today={data.today} onPatch={patchCampaign}
+                          onDelete={() => void removeCampaign()} />
         </div>
-      )}
+        {/* 클라이언트 예산은 네 번째 카드(클라이언트 없는 캠페인엔 없다). 작업 현황의 알약은 아래 목록 필터의 단계 묶음을 바꾼다. */}
+        <FlowCards stats={stats} plannedTotal={plannedTotal} currency={costCurrency} onCurrencyChange={chooseCostCurrency} perfUpdatedAt={data.perfUpdatedAt}
+                   refreshing={refreshing} onRefresh={() => void onRefresh()}
+                   stageCounts={counts.stage} lateCount={counts.extra.late}
+                   stages={filter.stages} onStagesChange={(stages) => setFilter((f) => ({ ...f, stages }))}
+                   budget={data.budget} clientId={data.campaign.clientId} />
+      </div>
       <div className={PANEL}>
         {/* [+ 작업 추가]는 오른쪽 패널을 새 작업 모드로 연다(Task 7). [한 번에 만들기]는 아직 뒤에 창이 없다(Task 7). */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="primary" onClick={openNew} className="h-9 px-3.5 text-ui">+ 작업 추가</Button>
+        {/* 오른쪽 정렬(koo 10-08) — 주 버튼(+ 작업 추가)이 맨 오른쪽(확정 버튼은 오른쪽 규칙) */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="subtle" onClick={openBulk} className="h-9 px-3.5 text-ui">한 번에 만들기</Button>
+          <Button variant="primary" onClick={openNew} className="h-9 px-3.5 text-ui">+ 작업 추가</Button>
         </div>
         <div className="mt-3.5">
           <FlowFilterBar filter={filter} onChange={setFilter} counts={counts} summary={summary}
@@ -1058,11 +1082,19 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                      // key=influencerHandle — 인플루언서가 바뀌면(미정 → 배정 포함) 새 프로필 단가로 다시
                      // 초기화한다(마운트 시 한 번만 채우는 필드라 안 그러면 방금 배정한 인플의 단가 제안이 안 보인다).
                      cost: panelTask
-                       ? <CostConfirmField key={panelTask.influencerHandle ?? ''} value={panelTask.cost} option={optionFor(panelTask.influencerHandle)} type={panelTask.type}
-                                          label={panelTask.type === 'visit' ? '예산' : '비용'}
-                                          onSave={(c) => actions.changeCost(panelTask, c)}
-                                          onSaveProfile={(opt, c) => saveProfilePricing(opt, c, panelTask.type)}
-                                          disabledReason={panelTask.influencerHandle ? undefined : ''} />
+                       ? (
+                           <div>
+                             <CostConfirmField key={panelTask.influencerHandle ?? ''} value={panelTask.cost} option={optionFor(panelTask.influencerHandle)} type={panelTask.type}
+                                               label={panelTask.type === 'visit' ? '예산' : '비용'}
+                                               onSave={(c, reason) => actions.changeCost(panelTask, c, reason)}
+                                               onSaveProfile={(opt, c) => saveProfilePricing(opt, c, panelTask.type)}
+                                               disabledReason={panelTask.influencerHandle ? undefined : ''}
+                                               reasonRequired={isPaidBadge(panelTask.settlement)} />
+                             {/* 지급 전 요청이 붙은 작업의 금액을 고쳤으면, 요청은 아직 옛 금액이다 — '고친 값으로 다시 반영'으로 안내(스펙 2026-10-07 §6) */}
+                             <PendingRequestNote task={panelTask} />
+                             <TaskCostHistory key={`${panelTask.id}:${panelTask.costChangeCount}`} campaignId={id} taskId={panelTask.id} count={panelTask.costChangeCount} />
+                           </div>
+                         )
                        : null,
                      // 대상은 링크 하나로 통일한다(Task 9) — actions.changeTarget이 taskId/url/null 셋을 받는다.
                      target: panelTask
@@ -1074,6 +1106,8 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                        ? <PostedBox task={panelTask} today={data.today}
                                     proofSignedUrl={panelTask.proof ? proofUrls[panelTask.proof.url] ?? null : null}
                                     focus={postedFocusId === panelTask.id} onFocused={clearPostedFocus}
+                                    // 링크로 게시 확인하면 서버가 본 게시물 성과와 인플 본인 댓글을 붙인다(self-replies §3) — 응답 전에 끝나고,
+                                    // actions.markPosted가 링크가 있으면 상세를 다시 읽으니 그대로 보인다
                                     onMarkPosted={(date, url, proof) => actions.markPosted(panelTask, date, url, proof)}
                                     onSetProof={(p) => actions.setProof(panelTask, p)}
                                     onOpenRemoved={() => setRemovedOpen(true)}

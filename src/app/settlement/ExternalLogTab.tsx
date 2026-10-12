@@ -32,7 +32,7 @@ export function ExternalLogTab({ focusRequestId }: { focusRequestId: string | nu
 
   return (
     <section>
-      <p className="text-ui text-x-muted">정산 프로덕트가 우리 서버를 호출한 기록이에요. &quot;보냈는데 안 보인다&quot;는 상황이 생기면 여기서 확인해요.</p>
+      <p className="text-ui text-x-muted">정산팀이 우리 서버를 호출한 기록이에요. &quot;보냈는데 안 보인다&quot;는 상황이 생기면 여기서 확인해요.</p>
       <p className="mt-1 text-ui text-x-muted">호출자는 프로그램 이름으로 추정한 값이에요 — <strong className="font-semibold">행을 누르면</strong> 호출 경로·IP·프로그램 이름 전문이 펼쳐져요.</p>
       <p className="mt-1 text-ui text-x-muted">기록은 8/31 저녁부터 남아요 — 그 직후 며칠은 빠진 호출이 있을 수 있어요.</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -58,7 +58,7 @@ export function ExternalLogTab({ focusRequestId }: { focusRequestId: string | nu
       )}
       {rows.length === 0 ? (
         <p className="mt-6 rounded-xl border border-dashed border-x-border p-8 text-center text-ui text-x-muted">
-          아직 정산 프로덕트가 호출한 기록이 없어요.
+          아직 정산팀이 호출한 기록이 없어요.
         </p>
       ) : (
         <div className="mt-3 overflow-x-auto">
@@ -123,8 +123,8 @@ export function ExternalLogTab({ focusRequestId }: { focusRequestId: string | nu
                             <Item k="호출" v={`${row.method} ${row.path}`} />
                             <Item k="쿼리" v={row.query ?? '—'} />
                             <Item k="대상 요청 번호" v={row.requestId ?? '—'} className="break-all" />
-                            <Item k="정산 프로덕트가 보낸 상태" v={row.sentStatus ?? '—'} />
-                            <Item k="정산 프로덕트가 보낸 내용" v={row.body
+                            <Item k="정산팀이 보낸 상태" v={row.sentStatus ?? '—'} />
+                            <Item k="정산팀이 보낸 내용" v={row.body
                               ? <pre className="overflow-x-auto whitespace-pre-wrap break-all text-ui">{prettyBody(row.body)}</pre>
                               : '—'} />
                             <Item k="응답" v={`${row.statusCode} · ${row.outcome}`} />

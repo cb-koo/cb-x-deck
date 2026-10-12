@@ -96,11 +96,11 @@ export function AddByLinkModal({ open, onClose, fixedWsId, defaultWsId, onAdded 
 
         {serverErr && <p className="mt-2 text-caption text-red-600">{serverErr}</p>}
 
-        <div className="mt-4 flex items-center gap-3">
-          <Button variant="primary" onClick={() => void submit()} disabled={!parsed.ok || !wsId || busy}>
+        <div className="mt-4 flex items-center justify-end gap-3">
+          <Button type="button" onClick={onClose}>취소</Button>
+          <Button type="button" variant="primary" onClick={() => void submit()} disabled={!parsed.ok || !wsId || busy}>
             {busy ? '가져오는 중…' : '보관함에 추가'}
           </Button>
-          <button onClick={onClose} className="text-ui text-x-secondary">취소</button>
         </div>
       </div>
     </div>

@@ -129,7 +129,7 @@ export default function ChartKitSample() {
               calc: ['상담 = CS가 문의·예약 상담으로 표시한 사람', '예약 = LINE 계정 기준 예약자', '예약·방문은 접수일 기준'],
               note: ['방문은 아직 진행 중이라 8월과 비교하지 않아요'],
             }}
-            action="9월 불발 23건 — 상담에서 예약으로 못 넘어간 이유를 CS와 확인해요">
+            action="9월 미예약 23건 — 상담에서 예약으로 못 넘어간 이유를 CS와 확인해요">
             <FunnelList steps={D.funnel} compareName="8월" />
           </ChartCard>
 

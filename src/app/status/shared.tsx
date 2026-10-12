@@ -31,7 +31,7 @@ export function SectionHead({ stage, title, checks }: { stage: Stage; title: str
 
 const STATUS_SEG: Array<[keyof StatusCounts, string, string]> = [
   ['visited', '방문', '#1573ad'], ['confirmed', '확정(방문 전)', '#8ecdf8'], ['reviewing', '검토 중', '#c9d3d9'],
-  ['lost', '불발', '#6b3fc8'], ['cancelled', '취소', '#e2a3a3'], ['noshow', '노쇼', '#dc2626'],
+  ['lost', '미예약', '#6b3fc8'], ['cancelled', '취소', '#e2a3a3'], ['noshow', '노쇼', '#dc2626'],
 ];
 export function StatusBar({ c }: { c: StatusCounts }) {
   const total = countTotal(c);

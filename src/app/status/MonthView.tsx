@@ -40,7 +40,7 @@ export function MonthView({ m, onSaved, onPeriod }: { m: ClientMonth; onSaved: (
         <ChartCard icon={Icon.calendar} title="예약 매출 · 월별" value={cur.rec.revCreated === null ? '—' : `${man(cur.rec.revCreated)}원`} valueSub="접수일 기준"
           delta={cur.rec.revCreated !== null && prev?.rec.revCreated != null ? <Delta diff={Math.round((cur.rec.revCreated - prev.rec.revCreated) / 1e4)} unit="만" good="up" base={`전월 ${man(prev.rec.revCreated)}원`} /> : undefined}
           headline={cur.rec.revCreated === null ? '이 달 매출 기록이 없어요' : changeText(revPct) || `이 달 예약 매출 ${man(cur.rec.revCreated)}원`}
-          info={{ what: 'LINE으로 들어온 예약의 금액(클리닉 전체)', read: ['막대 = 접수일 기준', '선 = 방문일 기준', '점선 = 이 달 — 접수일 기준은 취소·불발로 줄 수 있고, 방문일 기준은 늘어요'], calc: ['금액은 예약 금액(실제 결제 금액이 아님)'] }}>
+          info={{ what: 'LINE으로 들어온 예약의 금액(클리닉 전체)', read: ['막대 = 접수일 기준', '선 = 방문일 기준', '점선 = 이 달 — 접수일 기준은 취소·미예약으로 줄 수 있고, 방문일 기준은 늘어요'], calc: ['금액은 예약 금액(실제 결제 금액이 아님)'] }}>
           <RevenueWeeks labels={labels} created={m.months.map((x) => x.rec.revCreated)} visit={m.months.map((x) => x.rec.revVisit)} recent={1} recentLabel="이 달" />
         </ChartCard>
         <ChartCard icon={Icon.bookmark} title="작업 비용 대비 매출 · 이 달"
@@ -72,7 +72,7 @@ export function MonthView({ m, onSaved, onPeriod }: { m: ClientMonth; onSaved: (
           ]} />
         </ChartCard>
         <ChartCard icon={Icon.list} title="예약 상태 · 이 달 접수"
-          info={{ what: '이 달 접수된 예약이 지금 어떤 상태인지', calc: ['불발 = 문의는 왔지만 예약이 성사되지 않은 건(CS가 표시) — 취소·노쇼와는 달라요', '불발은 CS가 후속 연락 뒤에 표시해 늦게 정리돼요 — 끝난 지 2주가 안 된 달은 불발이 덜 잡혀 있어요'] }}>
+          info={{ what: '이 달 접수된 예약이 지금 어떤 상태인지', calc: ['미예약 = 문의는 왔지만 예약이 성사되지 않은 건(CS가 표시) — 취소·노쇼와는 달라요', '미예약은 CS가 후속 연락 뒤에 표시해 늦게 정리돼요 — 끝난 지 2주가 안 된 달은 미예약이 덜 잡혀 있어요'] }}>
           {status ? <StatusBar c={status} /> : <p className="text-[13px] text-x-muted">이 달 예약 기록이 없어요</p>}
         </ChartCard>
       </div>

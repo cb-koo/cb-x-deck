@@ -35,7 +35,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ clientId: strin
   const s = await loadClientStatus(sql, clientId, today, period);
   if (!s) return NextResponse.json({ error: '리포트가 연결된 클라이언트가 아니에요' }, { status: 404 });
   if (s.period.inProgress) return NextResponse.json({ error: '진행 중인 주차는 끝난 뒤에 확정할 수 있어요' }, { status: 400 });
-  // 확정 순간의 숫자를 함께 남긴다 — 예약 데이터는 나중에 바뀌어(불발 표시·취소) 그때 판단 근거를 다시 볼 수 있게(koo 10-10)
+  // 확정 순간의 숫자를 함께 남긴다 — 예약 데이터는 나중에 바뀌어(미예약 표시·취소) 그때 판단 근거를 다시 볼 수 있게(koo 10-10)
   const review = await saveReview(sql, { clientId, weekStart: s.baseWeek.start, weekEnd: s.baseWeek.end, verdict: body.verdict, suggested: s.suggestion.decision, memo,
     by, snapshot: reviewSnapshot(s) });
   return NextResponse.json(review);

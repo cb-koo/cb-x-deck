@@ -33,7 +33,7 @@ export interface VerdictInput {
   // 결과 구간(v2) — 없으면 그 점검은 건너뛴다
   revenue4?: number; revenuePrev4?: number;   // 예약 매출(접수일 기준) 최근 4주·직전 4주
   roas4?: number | null;                      // 작업 비용 대비 매출(4주) — 비용 0이면 null
-  lostRate?: number | null;                   // 불발률 — 불발이 정리된 주(2주 이상 지난 4주)만
+  lostRate?: number | null;                   // 미예약 비율 — 미예약이 정리된 주(2주 이상 지난 4주)만
 }
 // 판정은 '캠페인을 어떻게 할지'. 퍼널의 다른 구간 신호는 점검(check)으로 따로 붙여 '어디를 볼지'를 알려 준다.
 export type Stage = 'campaign' | 'conversion' | 'result';
@@ -43,8 +43,8 @@ export interface Suggestion { decision: Decision; reason: string; inflowVerdict:
 
 export const RULE_MIN_WEEKS = 4;
 export const RULE_RESERVE_MIN_PREV = 4;
-export const RULE_LOST_RATE = 0.4;        // 불발률이 이 이상이면 전환 점검(v2 출발값 — 몇 주 써 보며 다듬는다)
-export const RULE_LOST_MIN = 5;           // 불발률은 예약이 이만큼은 있어야 본다
+export const RULE_LOST_RATE = 0.4;        // 미예약 비율이 이 이상이면 전환 점검(v2 출발값 — 몇 주 써 보며 다듬는다)
+export const RULE_LOST_MIN = 5;           // 미예약 비율은 예약이 이만큼은 있어야 본다
 export const RULE_REVENUE_MIN_PREV = 1_000_000;
 
 /** 판정 규칙 v2 — 위에서부터 처음 맞는 규칙이 판정, 점검은 해당하는 것 전부(스펙 §5). */
@@ -71,7 +71,7 @@ export function suggestDecision(i: VerdictInput): Suggestion {
   return out('keep', '평소 범위예요');
 }
 
-/** 판정과 별개인 구간 점검 — 전환(불발)·결과(매출·비용) */
+/** 판정과 별개인 구간 점검 — 전환(미예약)·결과(매출·비용) */
 /** 주차별 값 → 7일 환산(값 × 7 ÷ 그 주차 일수). 일수가 없거나 7이면 그대로. */
 export function per7(values: Array<number | null>, days?: number[]): Array<number | null> {
   return values.map((v, k) => { const d = days?.[k] ?? 7; return v === null ? null : d === 7 ? v : Math.round(((v * 7) / d) * 10) / 10; });
@@ -80,7 +80,7 @@ export function per7(values: Array<number | null>, days?: number[]): Array<numbe
 function stageChecks(i: VerdictInput): Check[] {
   const c: Check[] = [];
   const d4 = i.days4 ?? 28, dPrev = i.daysPrev4 ?? 28;
-  if (i.lostRate !== undefined && i.lostRate !== null && i.lostRate >= RULE_LOST_RATE) c.push({ stage: 'conversion', text: `불발 ${Math.round(i.lostRate * 100)}%` });
+  if (i.lostRate !== undefined && i.lostRate !== null && i.lostRate >= RULE_LOST_RATE) c.push({ stage: 'conversion', text: `미예약 ${Math.round(i.lostRate * 100)}%` });
   if (i.revenue4 !== undefined && i.revenuePrev4 !== undefined && i.revenuePrev4 >= RULE_REVENUE_MIN_PREV && (i.revenue4 / d4) * 2 <= i.revenuePrev4 / dPrev) c.push({ stage: 'result', text: '매출 절반 이하' });
   if (i.roas4 !== undefined && i.roas4 !== null && i.roas4 < 1) c.push({ stage: 'result', text: '비용보다 매출 적음' });
   return c;
@@ -148,7 +148,7 @@ export function valueAtHorizon(points: Array<[number, number]>, H: number, key: 
 export interface StatusCounts { visited: number; confirmed: number; reviewing: number; lost: number; cancelled: number; noshow: number }
 export const countTotal = (c: StatusCounts) => c.visited + c.confirmed + c.reviewing + c.lost + c.cancelled + c.noshow;
 
-// ── 판정 확정 때 본 숫자(스냅샷, koo 10-10) — 예약 데이터는 나중에 바뀌므로(불발 표시·취소) 그때 숫자를 남겨 '당시 vs 지금'으로 돌아본다 ──
+// ── 판정 확정 때 본 숫자(스냅샷, koo 10-10) — 예약 데이터는 나중에 바뀌므로(미예약 표시·취소) 그때 숫자를 남겨 '당시 vs 지금'으로 돌아본다 ──
 export interface ReviewSnapshot {
   newInflow: number | null; days: number;          // 그 주차 신규 인입·일수
   reservers4: number; revenue4: number;            // 최근 4주차

@@ -55,11 +55,11 @@ test('기준 시점 값: 보간·지난 값·예상값', () => {
   assert.equal(valueAtHorizon([], H_VIEWS, 'views', ACCRUAL_DEFAULT), null);
 });
 
-test('구간 점검: 불발·매출·비용 대비 매출', () => {
+test('구간 점검: 미예약·매출·비용 대비 매출', () => {
   const base = { newInflow: [10, 10, 10, 10, 10], reservers4: 10, reserversPrev4: 10, posts2w: 2 };
   const s = suggestDecision({ ...base, lostRate: 0.5, revenue4: 1_000_000, revenuePrev4: 3_000_000, roas4: 0.6 });
   assert.equal(s.decision, 'keep');
-  assert.deepEqual(s.checks.map((c) => `${c.stage}:${c.text}`), ['conversion:불발 50%', 'result:매출 절반 이하', 'result:비용보다 매출 적음']);
+  assert.deepEqual(s.checks.map((c) => `${c.stage}:${c.text}`), ['conversion:미예약 50%', 'result:매출 절반 이하', 'result:비용보다 매출 적음']);
   assert.deepEqual(suggestDecision({ ...base, lostRate: null, roas4: null }).checks, []);
 });
 

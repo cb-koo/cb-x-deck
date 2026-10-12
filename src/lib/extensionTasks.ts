@@ -26,6 +26,8 @@ export interface TaskFacts {
   hasConsent: boolean;
   visitCompletedAt: string | null;
   settlement: FlowSettlementInput | null;
+  // 다른 곳에서 정산함(061) — 없으면 flowStage가 지급 완료를 모르고 '게시'에 머문다.
+  settledElsewhereAt?: string | null;
   endKind: StoredEndKind | null;
   // visitAt = 시트의 희망 일시(서울 'YYYY-MM-DDTHH:mm', 없으면 '')
   reservation: { confirmed: boolean; visitAt: string; deadlineMode: DeadlineMode } | null;

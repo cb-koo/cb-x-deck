@@ -79,7 +79,7 @@ test('blockingIssues — 내림·안 보임은 막는 이유가 아니다(확인
 
 import { removalAfterSend, requesterLabel } from './settlementAuto.ts';
 test('removalAfterSend — 지급 전이면 할 일, 지급 후면 기록, 확인했으면 기록, 취소면 없음', () => {
-  const base = { status: 'requested', externalStatus: 'scheduled', removalAckAt: null, removalAckByName: null, taskRemovedAt: '2026-10-14', taskRemovedReason: '이슈로 내림', taskUnseenOn: null, createdVia: 'auto' as const, createdAt: '2026-10-12T00:00:00.000Z' };
+  const base = { status: 'requested', externalStatus: 'scheduled', removalAckAt: null, removalAckByName: null, taskRemovedAt: '2026-10-14', taskRemovedReason: '이슈로 내림', taskUnseenOn: null, sentRemovedOn: null, sentUnseenOn: null };
   assert.equal(removalAfterSend(base)?.kind, 'act');
   assert.match(removalAfterSend(base)!.text, /10\/14에 글이 내려갔어요 \(이슈로 내림\)/);
   assert.equal(removalAfterSend({ ...base, externalStatus: 'paid' })?.kind, 'info');
@@ -88,8 +88,9 @@ test('removalAfterSend — 지급 전이면 할 일, 지급 후면 기록, 확�
   assert.equal(removalAfterSend({ ...base, taskRemovedAt: null }), null);
   assert.match(removalAfterSend({ ...base, taskRemovedAt: null, taskUnseenOn: '2026-10-13' })!.text, /10\/13부터 글이 안 보여요/);
   // 사람이 [확인하고 보내기]로 보낸 건 — 보낸 날까지의 내림은 이미 본 것
-  assert.equal(removalAfterSend({ ...base, createdVia: 'manual', taskRemovedAt: '2026-10-12' }), null);
-  assert.equal(removalAfterSend({ ...base, createdVia: 'manual', taskRemovedAt: '2026-10-13' })?.kind, 'act');
+  assert.equal(removalAfterSend({ ...base, sentRemovedOn: '2026-10-14' }), null);
+  // 보낸 뒤에 과거 날짜로 내림을 적어도 알린다(날짜 크기로 가르지 않는다)
+  assert.equal(removalAfterSend({ ...base, taskRemovedAt: '2026-10-10' })?.kind, 'act');
 });
 test('requesterLabel — 자동은 풀어 쓴다', () => {
   assert.equal(requesterLabel({ createdVia: 'manual', requesterName: '박구건', requesterMemberId: 'm' }), '박구건');

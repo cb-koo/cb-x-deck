@@ -131,16 +131,14 @@ export async function runAutoSend(sql: postgres.Sql, now: Date = new Date(), opt
   const fixtures = exportIncludesTestFixtures() ? sql`` : sql`and t.influencer_handle !~ ${TEST_FIXTURE_HANDLE_PG}`;
   // campaignIds는 테스트 전용 좁힘 — 연습용 DB의 다른 데이터(스테이징 QA)를 건드리지 않게
   const only = opts.campaignIds ? sql`and t.campaign_id in ${sql(opts.campaignIds.length ? opts.campaignIds : ['00000000-0000-0000-0000-000000000000'])}` : sql``;
-  const due = await sql<Array<{ id: string }>>`
-    select t.id from campaign_task t
-     where t.cancelled_at is null and t.settled_elsewhere_at is null
-       and t.posted_at is not null and t.cost is not null and t.influencer_handle is not null
-       and t.settle_hold_at is null
-       and coalesce(t.posted_confirmed_at, (t.posted_at::timestamp at time zone 'Asia/Seoul')) < ${lastMondaySeven(now)}
-       and not exists (select 1 from payment_request r where r.task_id = t.id)   -- 활성 요청도, 취소 이력도 없는 것만
-       ${fixtures} ${only}
-     order by t.posted_at, t.created_at, t.id
-     limit ${limit}`;
+  // 후보 전체를 한 번에 분류한 뒤 '기다림 + 이번 회차'만 보낸다 — 막힌·확인 필요 작업이 앞자리를 차지해
+  // 뒤의 작업이 영영 안 나가는 일이 없게(리뷰 10-12). 취소 이력·멈춤은 분류가 '멈춘 작업'으로 뺀다.
+  const settings = await getSettlementSettings(sql);
+  const rows = await sql<CandRow[]>`${CANDIDATE_SQL(sql)} ${fixtures} ${only} order by t.posted_at asc, t.created_at asc, t.id asc`;
+  const due = rows.map((r) => toRow(r, settings, now))
+    .filter((x): x is PendingRow => x !== null && x.group === 'waiting' && isDue(new Date(x.confirmedAt), now))
+    .slice(0, limit)
+    .map((x) => ({ id: x.cand.taskId }));
   let sent = 0, skipped = 0, failed = 0;
   const errors: Array<{ taskId: string; error: string }> = [];
   for (const d of due) {
@@ -162,12 +160,17 @@ export async function runAutoSend(sql: postgres.Sql, now: Date = new Date(), opt
 // [보내지 않기] — 게시 확인된 작업에만. 이미 보낸 작업은 요청 내역에서 취소한다.
 export async function holdTask(sql: postgres.Sql, taskId: string, member: { id: string; name: string }, reason: string): Promise<boolean> {
   if (!isUuidLike(taskId)) return false;
-  const rows = await sql`update campaign_task set settle_hold_at = now(), settle_hold_by = ${member.id}, settle_hold_by_name = ${member.name},
-      settle_hold_reason = ${reason.trim().slice(0, HOLD_REASON_MAX)}
-    where id = ${taskId} and posted_at is not null and cancelled_at is null
-      and not exists (select 1 from payment_request r where r.task_id = campaign_task.id and r.status = 'requested')
-    returning id`;
-  return rows.length > 0;
+  // sendTask와 같은 작업 행 잠금 — 동시에 보내지면 보낸 뒤에 멈춤이 남지 않게(리뷰 10-12)
+  return sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    await tx`select id from campaign_task where id = ${taskId} for update`;
+    const rows = await tx`update campaign_task set settle_hold_at = now(), settle_hold_by = ${member.id}, settle_hold_by_name = ${member.name},
+        settle_hold_reason = ${reason.trim().slice(0, HOLD_REASON_MAX)}
+      where id = ${taskId} and posted_at is not null and cancelled_at is null
+        and not exists (select 1 from payment_request r where r.task_id = campaign_task.id and r.status = 'requested')
+      returning id`;
+    return rows.length > 0;
+  });
 }
 
 // 보낸 뒤 내려감 [그대로 두기] — updated_at을 건드리지 않는다(정산팀 폴링에 흐르지 않게, 스펙 §3)

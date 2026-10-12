@@ -159,6 +159,7 @@ export interface PaymentRequestRow {
   removalAckAt: string | null; removalAckByName: string | null;   // 보낸 뒤 내려감 [그대로 두기]
   // 지금 작업 상태(스냅샷 아님) — 보낸 뒤 글이 내려가거나 안 보이면 요청 내역이 알린다
   taskRemovedAt: string | null; taskRemovedReason: string; taskUnseenOn: string | null;
+  sentRemovedOn: string | null; sentUnseenOn: string | null;   // 보낼 때 이미 있던 내림·안 보임(사람이 보고 보낸 것) — 이것과 다를 때만 알린다
 }
 export interface PaymentMethodCorrectionMark { correctionId: string; at: string; byId: string; byName: string; reason: string }
 export interface CreateItemInput {
@@ -189,6 +190,7 @@ type RRow = {
   task_cost: unknown; diff_ack_before_cost: unknown;
   created_via: 'manual' | 'auto'; removal_ack_at: Date | null; removal_ack_by_name: string | null;
   task_removed_at: string | null; task_removed_reason: string | null; task_unseen_on: string | null;
+  sent_removed_on: string | null; sent_unseen_on: string | null;
 };
 const R_SELECT = (sql: postgres.Sql) => sql`
   select id, task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type, category, category_default,
@@ -205,6 +207,7 @@ const R_SELECT = (sql: postgres.Sql) => sql`
            (select c.before from task_change c where c.request_id = payment_request.id and c.source = 'settlement'
              order by c.created_at desc limit 1) end as diff_ack_before_cost,
          created_via, removal_ack_at, removal_ack_by_name,
+         to_char(sent_removed_on, 'YYYY-MM-DD') as sent_removed_on, to_char(sent_unseen_on, 'YYYY-MM-DD') as sent_unseen_on,
          (select to_char(t.removed_at, 'YYYY-MM-DD') from campaign_task t where t.id = payment_request.task_id) as task_removed_at,
          (select t.removed_reason from campaign_task t where t.id = payment_request.task_id) as task_removed_reason,
          (select to_char(min(tp.unavailable_at) at time zone 'Asia/Seoul', 'YYYY-MM-DD') from campaign_task t join tracked_post tp on tp.task_id = t.id
@@ -242,6 +245,7 @@ const toRequest = (r: RRow): PaymentRequestRow => ({
   diffAckBeforeCost: costOf(r.diff_ack_before_cost),
   createdVia: r.created_via, removalAckAt: iso(r.removal_ack_at), removalAckByName: r.removal_ack_by_name,
   taskRemovedAt: r.task_removed_at, taskRemovedReason: r.task_removed_reason ?? '', taskUnseenOn: r.task_unseen_on,
+  sentRemovedOn: r.sent_removed_on, sentUnseenOn: r.sent_unseen_on,
 });
 
 // 요청 한 건 insert + 인플 활동 기록 — 사람이 고른 일괄 생성(createRequests)과 자동 전송(sendTask)이 같은 길을 지난다.
@@ -256,12 +260,12 @@ export async function insertRequestInTx(tx: postgres.Sql, i: {
     insert into payment_request (task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type,
       category, category_default, item_text, purpose_text, amount_krw, cost_currency, payout_currency, rate_krw_per_jpy,
       amount_net, fee, fee_amount, amount_gross, deadline_on, reference_url, proof, payment_method, requester_member_id, requester_name,
-      influencer_id, category_option_id, campaign_starts_on, campaign_ends_on, task_posted_on, created_via)
+      influencer_id, category_option_id, campaign_starts_on, campaign_ends_on, task_posted_on, created_via, sent_removed_on, sent_unseen_on)
     values (${cand.taskId}, ${cand.campaignId}, ${cand.campaignName}, ${cand.clientId}, ${cand.clientName}, ${cand.influencerHandle}, ${cand.taskType},
       ${i.category}, ${cand.categoryDefault}, ${cand.itemText}, ${cand.purposeText}, ${m.amountKrw}, ${m.costCurrency}, ${m.payoutCurrency}, ${m.rateKrwPerJpy},
       ${m.amountNet}, ${m.fee ? tx.json(asJson(m.fee)) : null}, ${m.feeAmount}, ${m.amountGross}, ${i.deadlineOn}, ${i.referenceUrl}, ${cand.proof ? tx.json(asJson(cand.proof)) : null},
       ${tx.json(asJson(toMethodSnapshot(pm)))}, ${i.requester.id}, ${i.requester.name},
-      ${r.influencer_id}, ${i.catId}, ${r.campaign_starts_on}, ${r.campaign_ends_on}, ${r.posted_at}, ${i.via})
+      ${r.influencer_id}, ${i.catId}, ${r.campaign_starts_on}, ${r.campaign_ends_on}, ${r.posted_at}, ${i.via}, ${r.removed_at}, ${r.unseen_on})
     returning id`;
   const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${ins[0].id}`;
   const row = toRequest(saved);

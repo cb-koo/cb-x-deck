@@ -1,7 +1,6 @@
 // 정산 요청 자동 전송(스펙 2026-10-12 §2·§4) — 순수. 언제 보내는지와 어느 묶음인지를 한 곳에서 정한다.
 // 서버 스윕(runAutoSend)·정산 화면 묶음·캠페인 필터 줄이 모두 이 판정을 쓴다(라벨-값 일치, UX 원칙 4).
 import type { SettlementCandidate, IssueCode, ReadinessIssue } from './settlementCalc.ts';
-import { kstDate } from './datetime.ts';
 
 const KST_MS = 9 * 3_600_000;
 const DAY_MS = 86_400_000;
@@ -71,14 +70,12 @@ export function blockingIssues(c: SettlementCandidate): ReadinessIssue[] {
 export function removalAfterSend(r: {
   status: string; externalStatus: string | null; removalAckAt: string | null; removalAckByName: string | null;
   taskRemovedAt: string | null; taskRemovedReason: string; taskUnseenOn: string | null;
-  createdVia: 'manual' | 'auto'; createdAt: string;
+  sentRemovedOn: string | null; sentUnseenOn: string | null;
 }): { kind: 'act' | 'info' | 'acked'; text: string } | null {
   if (r.status === 'cancelled') return null;
-  // 사람이 보낸 건은 그날까지 내려간 걸 보고 보냈다([확인하고 보내기]) — 그 뒤에 내려간 것만 알린다.
-  // 자동으로 보낸 건은 내림·안 보임이면 애초에 안 나가므로 보인 내림은 전부 보낸 뒤다.
-  const sentOn = kstDate(r.createdAt);
-  const after = (d: string | null) => d !== null && (r.createdVia === 'auto' || d > sentOn);
-  r = { ...r, taskRemovedAt: after(r.taskRemovedAt) ? r.taskRemovedAt : null, taskUnseenOn: after(r.taskUnseenOn) ? r.taskUnseenOn : null };
+  // 보낼 때 이미 있던 내림·안 보임은 사람이 보고 보낸 것([확인하고 보내기]) — 그 뒤에 새로 생긴 것만 알린다.
+  // 날짜 크기로 가르지 않는다: 내림 날짜는 나중에 과거 날짜로 적힐 수 있다(리뷰 10-12).
+  r = { ...r, taskRemovedAt: r.taskRemovedAt !== r.sentRemovedOn ? r.taskRemovedAt : null, taskUnseenOn: r.taskUnseenOn !== r.sentUnseenOn ? r.taskUnseenOn : null };
   const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
   const what = r.taskRemovedAt ? `${md(r.taskRemovedAt)}에 글이 내려갔어요${r.taskRemovedReason ? ` (${r.taskRemovedReason})` : ''}`
     : r.taskUnseenOn ? `${md(r.taskUnseenOn)}부터 글이 안 보여요` : null;

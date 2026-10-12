@@ -80,7 +80,7 @@ export function PendingTab({ initialCampaignId, onGoRequests }: { initialCampaig
       {attention.length > 0 && (
         <Group title={`확인이 필요해요 ${attention.length}`} sub="지급 전에 글이 내려가거나 안 보여요 — 보낼지 정해 주세요"
                foot="협의해서 내린 거면 [확인하고 보내기]. 지급하지 않을 거면 [보내지 않기]로 멈추고, 작업 자체가 무효면 캠페인에서 작업을 취소해요.">
-          <Head cols={['인플루언서', '유형', '캠페인', '작업 금액', '게시 확인', '상황', '']} />
+          <Head cols={['인플루언서', '유형', '캠페인', '작업 금액', '게시일', '상황', '']} />
           <tbody>
             {attention.map((r) => (
               <Row key={r.cand.taskId} r={r} err={rowErr[r.cand.taskId]} extra={r.blocking.length > 0 ? <Issues issues={r.blocking} campaignId={r.cand.campaignId} prefix="보내려면 먼저: " /> : null}>
@@ -103,7 +103,7 @@ export function PendingTab({ initialCampaignId, onGoRequests }: { initialCampaig
 
       {blocked.length > 0 && (
         <Group title={`고쳐야 보내져요 ${blocked.length}`} sub="고치면 5분 안에 자동으로 넘어가요(이번 주 월요일 전에 확인된 작업은 바로, 그 뒤 확인된 작업은 다음 월요일)">
-          <Head cols={['인플루언서', '유형', '캠페인', '작업 금액', '게시 확인', '못 넘어간 이유']} />
+          <Head cols={['인플루언서', '유형', '캠페인', '작업 금액', '게시일', '못 넘어간 이유']} />
           <tbody>
             {blocked.map((r) => (
               <Row key={r.cand.taskId} r={r} err={rowErr[r.cand.taskId]}>
@@ -199,7 +199,7 @@ function Group({ title, sub, foot, children }: { title: string; sub: string; foo
 function Head({ cols }: { cols: string[] }) {
   return <thead><tr>{cols.map((c, i) => <th key={i} className={`${HEAD} ${c === '작업 금액' || c === '송금액' ? 'text-right' : ''}`} aria-label={c || '처리'}>{c}</th>)}</tr></thead>;
 }
-// 공통 앞 칸 4~5개(인플·유형·캠페인·작업 금액·게시 확인) + 묶음별 칸. 막힌 이유·오류는 행 아래 한 줄.
+// 공통 앞 칸 4~5개(인플·유형·캠페인·작업 금액·게시일) + 묶음별 칸. 막힌 이유·오류는 행 아래 한 줄.
 function Row({ r, err, extra, noConfirm, children }: { r: PendingRow; err?: string; extra?: ReactNode; noConfirm?: boolean; children: ReactNode }) {
   const c = r.cand;
   const sub = extra || err;

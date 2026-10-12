@@ -8,7 +8,10 @@
 alter table campaign_task add column if not exists posted_confirmed_at timestamptz;
 create or replace function campaign_task_stamp_posted_confirmed() returns trigger language plpgsql as $$
 begin
-  if new.posted_at is not null and new.posted_confirmed_at is null
+  -- 게시 확인을 비우면 시각도 비운다 — 다시 확인할 때 새 시각이 찍혀야 "다음 월요일" 규칙이 맞다
+  if new.posted_at is null then
+    new.posted_confirmed_at := null;
+  elsif new.posted_confirmed_at is null
      and (tg_op = 'INSERT' or old.posted_at is null) then
     new.posted_confirmed_at := now();
   end if;
@@ -29,6 +32,12 @@ alter table campaign_task
 alter table payment_request add column if not exists created_via text not null default 'manual';
 alter table payment_request drop constraint if exists payment_request_created_via_check;
 alter table payment_request add constraint payment_request_created_via_check check (created_via in ('manual', 'auto')) not valid;
+
+-- 보낼 때 이미 내려가 있었나(사람이 [확인하고 보내기]로 보낸 건) — 그 뒤에 새로 생긴 내림·안 보임만 알린다.
+-- 내림 날짜는 사람이 나중에 과거 날짜로 적을 수 있어서 날짜 비교로는 못 가른다(리뷰 10-12).
+alter table payment_request
+  add column if not exists sent_removed_on date,
+  add column if not exists sent_unseen_on  date;
 
 -- 보낸 뒤 글이 내려감 → [그대로 두기] 기록. updated_at은 건드리지 않는다(정산팀 폴링에 흐르지 않게).
 alter table payment_request

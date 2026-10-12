@@ -384,7 +384,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
       const rows = r.data.rows;
       setPendingByTask(new Map(rows.map((x) => [x.cand.taskId, x])));
       setSettle({ needsAction: rows.filter((x) => x.group === 'attention' || x.group === 'blocked').length,
-                  waiting: rows.filter((x) => x.group === 'waiting').length, nextSendAt: r.data.summary.nextSendAt });
+                  waiting: rows.filter((x) => x.group === 'waiting').length, dueNow: rows.some((x) => x.group === 'waiting' && x.sendAt === null),
+                  nextSendAt: r.data.summary.nextSendAt });
     });
     return () => { off = true; };
   }, [data, id]);

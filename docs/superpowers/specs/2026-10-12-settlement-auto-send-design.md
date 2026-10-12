@@ -29,6 +29,8 @@
 - `campaign_task.settle_hold_at timestamptz, settle_hold_by uuid, settle_hold_by_name text, settle_hold_reason text` — [보내지 않기].
 - `payment_request.created_via text not null default 'manual'` (`check in ('manual','auto') not valid`).
 - `payment_request.removal_ack_at timestamptz, removal_ack_by_name text` — 보낸 뒤 내려감 [그대로 두기].
+- `payment_request.sent_removed_on date, sent_unseen_on date` — 보낼 때 이미 있던 내림·안 보임. 이것과 다를 때만 "보낸 뒤 내려감"을 알린다(내림 날짜는 과거로 적힐 수 있어 날짜 비교로는 못 가른다).
+- 트리거는 posted_at이 비면 확인 시각도 비운다(다시 확인하면 새로 찍힌다).
 - `settlement_auto_run(id, started_at, finished_at, sent int, failed int, detail jsonb)` — 마지막 확인 시각·실패 표시용. 7일 지난 행은 실행 때 지운다.
 
 처리 기록 칸 쓰기(멈춤·확인)는 `payment_request.updated_at`을 바꾸지 않는다 → 정산팀 폴링에 흐르지 않는다.
@@ -47,7 +49,7 @@
 
 - `sendTask(sql, taskId, { via, requester, allowAttention, allowStopped })` — **한 건 = 한 트랜잭션**. 작업 행 `for update`로 잠근 뒤 후보 재계산 → 검증(기존 createRequests 검증부 공유) → insert. 23505(활성 요청 유니크)는 "이미 나감". [보내기]는 멈춤을 지운다.
 - `runAutoSend(sql, now)` — due 목록을 한 건씩 `sendTask(via:'auto')`. 한 건 실패는 기록하고 다음 건. 실행 기록 1행.
-- 기존 `createRequests`·`POST /api/settlement/requests`는 남긴다(사용처는 사라짐, 다음 정리 대상).
+- 기존 `createRequests`(스토어)는 테스트·제자리 수정과 공유하는 검증 때문에 남기고, 화면이 쓰던 `POST /api/settlement/requests`·`GET /api/settlement/candidates`는 없앤다(규칙을 우회한 일괄 생성 입구를 남기지 않는다).
 - 테스트 픽스처 핸들은 스윕 대상에서 뺀다(`TEST_FIXTURE_HANDLE_PG`).
 
 ## 6. 라우트
@@ -72,5 +74,6 @@
 ## 8. 배포 순서
 
 1. 머지 → 운영 빌드가 070 적용 → 코드 배포. 이 시점엔 예약 실행이 없어 자동 전송은 안 일어난다(화면은 바뀜, [지금 보내기]로 수동 가능).
-2. koo 확인 후 운영 DB에 `settlement-auto-send-cron.sql` 1회 실행 → 다음 월요일 07:00부터 자동.
-3. 연습용 DB는 스테이징 주소로 같은 스크립트(QA용).
+2. **켜기 전 미리보기:** 배포 뒤 '정산 요청 대기' 화면의 '다음 월요일에 보내요(곧 보내요)' 묶음이 곧 켜질 때 나갈 목록이다. 070 이전에 게시 확인된 작업은 확인 시각이 없어 게시일로 판정되므로 거의 전부 '곧 보내요'가 된다 — 다른 곳에서 이미 지급한 건이 섞여 있으면 [다른 곳에서 정산함]이나 [보내지 않기]로 먼저 뺀다(운영 10-12 기준 후보 0건).
+3. koo 확인 후 운영 DB에 `settlement-auto-send-cron.sql` 1회 실행 → 그 뒤 첫 실행부터 자동(이미 지난 월요일 기준으로 판정).
+4. 연습용 DB는 스테이징 주소로 같은 스크립트(QA용).

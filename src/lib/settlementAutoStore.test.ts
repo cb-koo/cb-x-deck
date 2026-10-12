@@ -200,3 +200,41 @@ test('보낸 뒤 내려감 — 요청 행이 지금 작업의 내림을 보여 �
   assert.equal(after1.removalAckByName, member.name);
   assert.equal(after1.updatedAt, row.updatedAt);
 });
+
+test('게시 확인을 비우면 확인 시각도 비고, 다시 확인하면 새로 찍힌다', async () => {
+  const camp = await campaign();
+  await influencer(H('reset'));
+  const t = await postedQuote(camp.id, H('reset'), null);
+  await sql`update campaign_task set posted_confirmed_at = '2026-01-01T00:00:00Z' where id = ${t.id}`;
+  await sql`update campaign_task set posted_at = null where id = ${t.id}`;
+  const [a] = await sql<Array<{ at: Date | null }>>`select posted_confirmed_at as at from campaign_task where id = ${t.id}`;
+  assert.equal(a.at, null);
+  await markPosted(sql, [t.id], '2026-10-12', 'manual');
+  const [b] = await sql<Array<{ at: Date | null }>>`select posted_confirmed_at as at from campaign_task where id = ${t.id}`;
+  assert.ok(b.at && b.at.getTime() > Date.parse('2026-10-01'));
+});
+
+test('막힌 작업이 앞에 쌓여도 뒤의 보낼 작업은 나간다', async () => {
+  const camp = await campaign();
+  await influencer(H('front'), false); await influencer(H('back'));
+  await postedQuote(camp.id, H('front'), null);   // 결제 수단 없음 — 먼저 게시됨
+  await sql`update campaign_task set posted_at = '2026-10-01' where campaign_id = ${camp.id}`;
+  const back = await postedQuote(camp.id, H('back'), null);
+  const r = await runAutoSend(sql, afterNextMonday(), { campaignIds: [camp.id], limit: 1 });
+  assert.equal(r.sent, 1);
+  assert.equal((await listRequests(sql, { taskId: back.id })).length, 1);
+});
+
+test('[확인하고 보내기]로 보낸 건 — 보낼 때 있던 내림은 다시 알리지 않고, 그 뒤 새로 적은 내림은 알린다', async () => {
+  const camp = await campaign();
+  await influencer(H('seen'));
+  const t = await postedQuote(camp.id, H('seen'), null);
+  await updateTask(sql, t.id, { removedAt: '2026-10-11' });
+  const s = await sendTask(sql, t.id, { via: 'manual', member });
+  assert.ok(s.ok);
+  assert.equal(s.request.sentRemovedOn, '2026-10-11');
+  await updateTask(sql, t.id, { removedAt: '2026-10-09' });   // 나중에 더 이른 날짜로 고쳐 적음
+  const [row] = await listRequests(sql, { taskId: t.id });
+  assert.equal(row.taskRemovedAt, '2026-10-09');
+  assert.equal(row.sentRemovedOn, '2026-10-11');
+});

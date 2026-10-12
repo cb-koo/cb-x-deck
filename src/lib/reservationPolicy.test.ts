@@ -89,8 +89,9 @@ test('허용 행동: 대기·확정 전·방문 당일·방문 후·게시 후·
   assert.deepEqual(allowedVisitActions(confirmed(), 0, '2026-10-28'), [
     'edit_reservation', 'cancel', 'complete_visit', 'visit_no_show', 'manage_consent',
   ]);
-  assert.deepEqual(allowedVisitActions(confirmed(), 0, '2026-10-29'), ['edit_reservation', 'visit_no_show', 'upload_no_show', 'manage_consent']);
-  assert.deepEqual(allowedVisitActions(confirmed({ visitCompletedAt: 'x' }), 0, '2026-10-28'), ['edit_reservation', 'visit_no_show', 'upload_no_show', 'manage_consent']);
+  // 방문 후(날짜 경과·수동 완료)에는 게시 확인(confirm_post)이 열린다 — reservationCommands.confirmVisitPost가 이 값을 본다
+  assert.deepEqual(allowedVisitActions(confirmed(), 0, '2026-10-29'), ['edit_reservation', 'confirm_post', 'visit_no_show', 'upload_no_show', 'manage_consent']);
+  assert.deepEqual(allowedVisitActions(confirmed({ visitCompletedAt: 'x' }), 0, '2026-10-28'), ['edit_reservation', 'confirm_post', 'visit_no_show', 'upload_no_show', 'manage_consent']);
   assert.deepEqual(allowedVisitActions(confirmed({ postedAt: 'x' }), 0, '2026-10-29'), ['correct_reservation', 'manage_consent']);
   assert.deepEqual(allowedVisitActions(confirmed({ endKind: 'cancelled' }), 0, '2026-10-20'), []);
   assert.deepEqual(allowedVisitActions(confirmed({ postedAt: 'x', noCost: true }), 0, '2026-10-29'), ['manage_consent']);

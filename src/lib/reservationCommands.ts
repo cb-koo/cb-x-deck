@@ -86,13 +86,15 @@ export async function createReservation(sql: postgres.Sql, req: Request, actor: 
       if (!Number.isInteger(expected)) throw new ProductError('VERSION_REQUIRED', '작업의 최신 내용을 불러와 주세요.', 428);
       expectVersion(task.version, expected as number);
     }
+    // 중복 검사를 단계 판정보다 먼저 한다 — 예약이 붙은 작업은 단계가 대기·확정이라 add_reservation이 빠지는데, 그러면 원인이
+    // 'STATE_CHANGED'로 뭉개져 handoff 문서·익스텐션 코드 목록의 RESERVATION_ALREADY_EXISTS가 영영 안 난다(통합 테스트 1이 확인한다).
+    if ((await tx`select id from visit_reservation where task_id = ${taskId}`).length) throw new ProductError('RESERVATION_ALREADY_EXISTS', '이미 예약이 연결된 작업이에요.', 409);
     const { fact, personId } = await taskFact(tx, taskId);
     if (!personId || !task.influencer_handle) throw new ProductError('PERSON_REQUIRED', '등록된 인플루언서를 작업에 배정한 뒤 예약을 추가해 주세요.', 422);
     if (!allowedVisitActions(fact, fact.requestCount, kstToday()).includes('add_reservation')) throw new ProductError('STATE_CHANGED', '이 작업에는 예약을 추가할 수 없어요.', 409);
     const location = await tx`select l.id from clinic_location l join campaign c on c.client_id = l.client_id
       where l.id = ${locationId} and c.id = ${task.campaign_id}`;
     if (!location.length) throw new ProductError('LOCATION_MISMATCH', '이 캠페인의 클리닉 본점을 선택해 주세요.', 422);
-    if ((await tx`select id from visit_reservation where task_id = ${taskId}`).length) throw new ProductError('RESERVATION_ALREADY_EXISTS', '이미 예약이 연결된 작업이에요.', 409);
     const mode = deadlineMode(body, 'default'), sheet = policy(applyDeadlineMode(finalSheet, mode));
     checkedHandle(sheet, task.influencer_handle);
     let revisionId: string | null = null;

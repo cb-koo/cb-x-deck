@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { getColumn } from '@/lib/columnStore';
 import { deriveTopics, classifyTweets, MAX_ANALYSIS_TWEETS } from '@/lib/pillar';
+import { MODEL } from '@/lib/suggest';
 import { computePillarStats, type PillarPayload } from '@/lib/pillarStats';
 import { getAnalysis, saveAnalysis, addAssignments, listAnalysisTweets, pruneStaleAssignments } from '@/lib/pillarStore';
 import type postgres from 'postgres';
@@ -83,7 +84,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!derived) return NextResponse.json({ error: '분석 실패 — 다시 시도해주세요' }, { status: 502 });
   await saveAnalysis(sql, {
     columnId: id, topics: derived.topics, sampleSize: tweets.length,
-    model: process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001',
+    model: MODEL(),   // pillar.ts가 실제로 부른 모델과 같은 출처(기본값을 두 곳에 두지 않는다)
     assignments: derived.assignments,
   });
   return NextResponse.json(await payload(sql, id));

@@ -15,9 +15,14 @@ test('anthropic haiku: 입력 $1/출력 $5 per 1M', () => {
   assert.equal(c, 6); // 1*1 + 1*5
 });
 
-test('anthropic 모델 미상/누락이면 haiku 단가로 폴백', () => {
+test('anthropic haiku 5.5: 입력 $0.10/출력 $0.50 per 1M', () => {
+  const c = rowCostUsd({ api: 'anthropic', operation: 'anthropic.suggest', model: 'claude-haiku-5-5', calls: 1, inputTokens: 1_000_000, outputTokens: 1_000_000 });
+  assert.equal(c, 0.6); // 1*0.1 + 1*0.5
+});
+
+test('anthropic 모델 미상/누락이면 앱 기본 모델(haiku 5.5) 단가로 폴백', () => {
   const c = rowCostUsd({ api: 'anthropic', operation: 'anthropic.suggest', model: null, calls: 1, inputTokens: 2_000_000, outputTokens: 0 });
-  assert.equal(c, 2);
+  assert.equal(c, 0.2);
 });
 
 test('formatMoney: 1달러 미만은 4자리, 이상은 2자리', () => {

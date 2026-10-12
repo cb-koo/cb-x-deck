@@ -26,7 +26,7 @@ export async function extractKeywords(
   client?: AnthropicLike,
 ): Promise<ExtractedKeywords> {
   const res = await callLLM('anthropic.research',
-    { model: MODEL(), max_tokens: 1000, messages: [{ role: 'user', content: EXTRACT_PROMPT(article.title, article.text) }] }, client);
+    { model: MODEL(), max_tokens: 2000, messages: [{ role: 'user', content: EXTRACT_PROMPT(article.title, article.text) }] }, client);
   const json = extractJson(res);
   if (!json || typeof json !== 'object') return { keywords: [], hooks: [] };
   const o = json as Record<string, unknown>;

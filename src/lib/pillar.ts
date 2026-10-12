@@ -75,7 +75,7 @@ export async function deriveTopics(
 ): Promise<{ topics: PillarTopic[]; assignments: Assignment[] } | null> {
   const tweets = tweetsIn.slice(0, MAX_ANALYSIS_TWEETS);
   const res = await callLLM('anthropic.pillar',
-    { model: MODEL(), max_tokens: 4000, messages: [{ role: 'user', content: DERIVE_PROMPT(tweetLines(tweets), tweets.length) }] }, client);
+    { model: MODEL(), max_tokens: 6000, messages: [{ role: 'user', content: DERIVE_PROMPT(tweetLines(tweets), tweets.length) }] }, client);
   const j = extractJson(res) as { topics?: unknown; assignments?: unknown } | null;
   if (!j) return null;
   const topics = parseTopics(j.topics);
@@ -92,7 +92,7 @@ export async function classifyTweets(
   const tweets = tweetsIn.slice(0, MAX_ANALYSIS_TWEETS);
   if (topics.length === 0 || tweets.length === 0) return [];
   const res = await callLLM('anthropic.pillar',
-    { model: MODEL(), max_tokens: 2000, messages: [{ role: 'user', content: CLASSIFY_PROMPT(topics, tweetLines(tweets)) }] }, client);
+    { model: MODEL(), max_tokens: 4000, messages: [{ role: 'user', content: CLASSIFY_PROMPT(topics, tweetLines(tweets)) }] }, client);
   const j = extractJson(res) as { assignments?: unknown } | null;
   if (!j) return [];
   return parseAssignments(j.assignments, topics, tweets);

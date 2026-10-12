@@ -42,7 +42,13 @@ export async function callLLM(
   client?: AnthropicLike,
 ): Promise<LLMResponse> {
   const c = client ?? (new Anthropic() as unknown as AnthropicLike);
+  // Haiku 5.5는 사고(adaptive thinking)가 기본으로 켜지고 그 토큰이 max_tokens에 포함된다. 이 앱의 Haiku 호출은 전부 4.5에서 사고 없이 돌던
+  // 짧은 JSON 추출·번역이라, 호출부가 따로 정하지 않으면 effort를 'low'로 둔다(마이그레이션 가이드: 사고 없이 돌던 요청은 낮은 effort).
+  // thinking 파라미터는 보내지 않는다(기본 adaptive). 응답은 모든 호출부가 type==='text' 블록을 골라 읽으므로 사고 블록이 앞에 와도 안전하다.
+  const effortDefault = /^claude-haiku-5/.test(params.model) && params.output_config === undefined
+    ? { output_config: { effort: 'low' } } : {};
   const safe = {
+    ...effortDefault,
     ...params,
     messages: params.messages.map((m) =>
       m && typeof m === 'object' && 'content' in m

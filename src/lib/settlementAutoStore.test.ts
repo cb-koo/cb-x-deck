@@ -24,6 +24,7 @@ const SETTINGS = {
 let member = { id: '', name: P + '멤버' };
 let creator = { id: '', name: P + '만든사람' };
 let clientId = '', clientName = '';
+const runIds: string[] = [];   // 이 파일의 스윕 실행 기록 — after가 지운다(화면의 '마지막 확인'이 테스트 실행으로 바뀌지 않게)
 
 before(async () => {
   await sql`delete from settlement_setting_version where settings->>'marker' = ${P}`;
@@ -45,7 +46,7 @@ after(async () => {
   await sql`delete from client where name like ${P + '%'}`;
   await sql`delete from influencer_log where influencer_id in (select id from influencer where handle like ${P + '%'})`;
   await sql`delete from influencer where handle like ${P + '%'}`;
-  await sql`delete from settlement_auto_run where detail::text like ${'%' + P + '%'}`;
+  if (runIds.length) await sql`delete from settlement_auto_run where id in ${sql(runIds)}`;
   await sql`delete from member where name like ${P + '%'}`;
   await sql.end();
 });
@@ -65,6 +66,7 @@ async function postedQuote(campId: string, handle: string, createdBy: string | n
   await updateTask(sql, t.id, { postedAt: '2026-10-09', postedSource: 'manual', postUrl: `https://x.com/${handle}/status/1${seq}` });
   return t;
 }
+async function sweep(now: Date, opts: Parameters<typeof runAutoSend>[2]) { const r = await runAutoSend(sql, now, opts); runIds.push(r.runId); return r; }
 const afterNextMonday = () => new Date(nextMondaySeven(new Date()).getTime() + 60_000);
 
 test('게시 확인 시각 — 트리거가 처음 확인할 때만 찍고, 날짜를 고쳐도 그대로', async () => {
@@ -110,9 +112,9 @@ test('주간 스윕 — 월요일 7시 전엔 안 보내고, 지나면 기다림
   const t2 = await postedQuote(camp.id, H('s2'), creator.id);
   const t3 = await postedQuote(camp.id, H('s3'), creator.id);
   await updateTask(sql, t3.id, { removedAt: '2026-10-11' });
-  const early = await runAutoSend(sql, new Date(), { campaignIds: [camp.id] });
+  const early = await sweep(new Date(), { campaignIds: [camp.id] });
   assert.equal(early.sent, 0);
-  const r = await runAutoSend(sql, afterNextMonday(), { campaignIds: [camp.id] });
+  const r = await sweep(afterNextMonday(), { campaignIds: [camp.id] });
   assert.equal(r.sent, 1); assert.equal(r.failed, 0);
   const reqs = await listRequests(sql, { campaignId: camp.id });
   assert.equal(reqs.length, 1);
@@ -122,7 +124,7 @@ test('주간 스윕 — 월요일 7시 전엔 안 보내고, 지나면 기다림
   assert.equal(reqs[0].requesterName, creator.name);
   assert.ok(![t2.id, t3.id].includes(reqs[0].taskId!));
   // 다시 돌려도 같은 건을 또 만들지 않는다
-  assert.equal((await runAutoSend(sql, afterNextMonday(), { campaignIds: [camp.id] })).sent, 0);
+  assert.equal((await sweep(afterNextMonday(), { campaignIds: [camp.id] })).sent, 0);
   // 정산팀이 가져가는 데이터에는 자동 표식이 없다(10-07 엄격 스키마)
   const exp = await getForExport(sql, reqs[0].id);
   assert.ok(exp);
@@ -138,7 +140,7 @@ test('요청 취소된 작업은 자동으로 다시 보내지 않고 멈춘 작
   assert.ok(sent.ok);
   assert.equal(sent.request.requesterName, creator.name);
   assert.equal(typeof (await cancelRequest(sql, sent.request.id, '금액 잘못 적음', member)) === 'object', true);
-  assert.equal((await runAutoSend(sql, afterNextMonday(), { campaignIds: [camp.id] })).sent, 0);
+  assert.equal((await sweep(afterNextMonday(), { campaignIds: [camp.id] })).sent, 0);
   const { rows } = await listPending(sql, new Date(), camp.id);
   assert.equal(rows[0].group, 'stopped');
   assert.equal(rows[0].state.cancelled?.reason, '금액 잘못 적음');
@@ -220,7 +222,7 @@ test('막힌 작업이 앞에 쌓여도 뒤의 보낼 작업은 나간다', asyn
   await postedQuote(camp.id, H('front'), null);   // 결제 수단 없음 — 먼저 게시됨
   await sql`update campaign_task set posted_at = '2026-10-01' where campaign_id = ${camp.id}`;
   const back = await postedQuote(camp.id, H('back'), null);
-  const r = await runAutoSend(sql, afterNextMonday(), { campaignIds: [camp.id], limit: 1 });
+  const r = await sweep(afterNextMonday(), { campaignIds: [camp.id], limit: 1 });
   assert.equal(r.sent, 1);
   assert.equal((await listRequests(sql, { taskId: back.id })).length, 1);
 });

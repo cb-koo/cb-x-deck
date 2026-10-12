@@ -5,7 +5,7 @@ import { getSql } from './db.ts';
 import { createClient } from './clientStore.ts';
 import { createCampaign, getCampaignDetail } from './campaignStore.ts';
 import { createTasks, getTask } from './campaignTaskStore.ts';
-import { findByTweetId, addTrackedPost, linkTrackedPost } from './trackingStore.ts';
+import { findByTweetId, addTrackedPost, linkTrackedPost, appendSnapshot } from './trackingStore.ts';
 import { listInfluencerPerformance } from './influencerPerformanceStore.ts';
 import { attachPostToTask } from './postAttach.ts';
 import { postFromRaw, type FetchPostResult } from './postMetrics.ts';
@@ -113,6 +113,7 @@ async function postedTask(type: 'post' | 'quoteRt' | 'rt' = 'post') {
   return { campaignId: camp.id, task, a, mainId };
 }
 const latestViews = async (tweetId: string) => (await findByTweetId(sql, tweetId))?.metrics?.views ?? null;
+const missingSince = async (tweetId: string) => (await sql<Array<{ missing_since: Date | null }>>`select missing_since from tracked_post where tweet_id = ${tweetId}`)[0]?.missing_since ?? null;
 
 test('게시 확인 뒤 — 같은 작성자 고유번호의 댓글만 작업에 붙는다(첫 스냅샷 = 상세 조회)·게시물 링크는 그대로', async () => {
   const { task, a, mainId } = await postedTask('quoteRt');
@@ -227,11 +228,44 @@ test('↻ — 본 게시물이 없어지면 스레드는 보지 않고 상세 �
   assert.deepEqual(res, { total: 1, refreshed: 0, unavailable: 1, failed: 0, newReplies: 0 });
   assert.deepEqual(fetchCalls, [mainId]);
   assert.deepEqual(threadCalls, []);   // 본 게시물이 방금 '없음'이면 스레드는 보지 않는다(헛조회 비용)
-  assert.ok((await findByTweetId(sql, mainId!))?.unavailableAt);
-  // 복귀: 다음 ↻에서 다시 측정되면 unavailable이 풀린다(appendSnapshot 규칙)
+  // 한 번의 "없음"은 확정이 아니다 — 처음 본 시각만 남고, 1시간 뒤 두 번째 "없음"에 확정된다(trackingStore.recordMissing, 2026-10-12)
+  assert.equal((await findByTweetId(sql, mainId!))?.unavailableAt, null);
+  assert.ok(await missingSince(mainId!));
+  // 복귀: 다음 ↻에서 다시 측정되면 안 보임 기록이 풀린다(appendSnapshot 규칙)
   await refreshCampaignPerf(sql, campaignId, fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, 'Tue Oct 06 08:00:00 +0000 2026', 3000, false)] } }).deps);
   assert.equal((await findByTweetId(sql, mainId!))?.unavailableAt, null);
+  assert.equal(await missingSince(mainId!), null);
   assert.equal(await latestViews(mainId!), 3000);
+});
+
+test('상세 — 확정된 안 보임만 화면 값이 되고(본 게시물·댓글 따로), 내림 다음 날 이후 보이면 seenAfterRemovedAt(2026-10-12)', async () => {
+  const { campaignId, task, a, mainId } = await postedTask('post');
+  const r1 = newTweetId();
+  const t0 = 'Tue Oct 06 08:00:00 +0000 2026';
+  await discoverSelfReplies(sql, task.id, fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, t0, 1000, false), tw(r1, a, t0, 30, true, '본문', mainId)] } }).deps);
+  const item = async () => (await getCampaignDetail(sql, campaignId))!.tasks.find((t) => t.id === task.id)!;
+  // 확정 전(missing_since만)은 화면에 안 나온다
+  await sql`update tracked_post set missing_since = now(), missing_checked_at = now() where tweet_id = ${mainId!}`;
+  assert.equal((await item()).unseenSince, null);
+  // 확정 — 본 게시물만
+  const since = new Date('2026-10-12T05:00:00Z');
+  await sql`update tracked_post set unavailable_at = ${since} where tweet_id = ${mainId!}`;
+  let it = await item();
+  assert.equal(it.unseenSince, since.toISOString());
+  assert.deepEqual(it.replies.map((r) => r.unseenSince), [null]);
+  // 내림 표시(오늘, 서울) — 안 보이는 동안엔 seenAfterRemovedAt 없음
+  await sql`update campaign_task set removed_at = (now() at time zone 'Asia/Seoul')::date where id = ${task.id}`;
+  assert.equal((await item()).seenAfterRemovedAt, null);
+  // 다시 보임 — 내림 당일 측정은 내리기 전일 수 있어 세지 않고, 다음 날 이후 측정이면 알려 준다
+  const tp = (await findByTweetId(sql, mainId!))!;
+  await appendSnapshot(sql, tp.id, { views: 1, likes: 0, retweets: 0, replies: 0, bookmarks: 0, quotes: 0 }, null);
+  it = await item();
+  assert.equal(it.unseenSince, null);
+  assert.equal(it.seenAfterRemovedAt, null);
+  const next = new Date(Date.now() + 24 * 60 * 60_000);
+  await sql`update post_metric_snapshot set captured_at = ${next} where id = (
+    select id from post_metric_snapshot where tracked_post_id = ${tp.id} order by captured_at desc limit 1)`;
+  assert.equal((await item()).seenAfterRemovedAt, next.toISOString());
 });
 
 test('↻ — 지운 댓글은 상세 조회가 삭제로 판정한다', async () => {
@@ -243,7 +277,7 @@ test('↻ — 지운 댓글은 상세 조회가 삭제로 판정한다', async (
   const res = await refreshCampaignPerf(sql, campaignId, deps);
   assert.deepEqual(res, { total: 2, refreshed: 1, unavailable: 1, failed: 0, newReplies: 0 });
   assert.deepEqual(fetchCalls, [mainId, r1]);
-  assert.ok((await findByTweetId(sql, r1))?.unavailableAt);
+  assert.ok(await missingSince(r1));   // 확정 전(1시간 뒤 다시 본다)
 });
 
 test('다른 작업에 붙은 트윗은 건드리지 않는다 · 작업 없이 트래킹 중인 트윗은 연결만', async () => {

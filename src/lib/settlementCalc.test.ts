@@ -109,6 +109,12 @@ test('assessReadiness — 🔴 > 🟡, 문구 나열', () => {
   const warn = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: null, referenceRequired: false, removedAt: '2026-08-27', removedReason: '', clientId: 'cl1', proofMissing: false });
   assert.equal(warn.level, 'warn');
   assert.deepEqual(warn.issues.map((i) => i.code), ['no-reference', 'removed']);
+  // 안 보임(2026-10-12) — 내림으로 정하기 전엔 '게시물 안 보임'(막지 않음), 내림으로 정했으면 '게시 내려짐'만
+  const unseen = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', referenceRequired: true, removedAt: null, removedReason: '', clientId: 'cl1', proofMissing: false, unseenOn: '2026-10-12' });
+  assert.equal(unseen.level, 'warn');
+  assert.deepEqual(unseen.issues.map((i) => [i.code, i.text]), [['unseen', '게시물 안 보임 10-12']]);
+  const both = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', referenceRequired: true, removedAt: '2026-10-13', removedReason: '협의 후 내림', clientId: 'cl1', proofMissing: false, unseenOn: '2026-10-12' });
+  assert.deepEqual(both.issues.map((i) => i.code), ['removed']);
   const noClient = assessReadiness({ inRoster: true, method: paypal, category: 'X', referenceUrl: 'https://x.com/1', referenceRequired: true, removedAt: null, removedReason: '', clientId: null, proofMissing: false });
   assert.equal(noClient.level, 'blocked');
   assert.deepEqual(noClient.issues.map((i) => i.code), ['no-client']);

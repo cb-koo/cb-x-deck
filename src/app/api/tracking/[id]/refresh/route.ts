@@ -3,7 +3,7 @@ import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { fetchPost } from '@/lib/postMetrics';
-import { findTrackedPostById, markUnavailable, appendSnapshot } from '@/lib/trackingStore';
+import { findTrackedPostById, recordMissing, appendSnapshot } from '@/lib/trackingStore';
 
 const FETCH_FAILED = '지표를 가져오지 못했어요 — 잠시 후 다시 시도해 주세요';
 
@@ -20,7 +20,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
   const result = await fetchPost(row.tweetId);
   if (result.kind === 'error') return NextResponse.json({ error: FETCH_FAILED }, { status: 502 });
-  if (result.kind === 'unavailable') await markUnavailable(sql, id);
+  if (result.kind === 'unavailable') await recordMissing(sql, id);
   else await appendSnapshot(sql, id, result.post.metrics, result.post.raw);
   return NextResponse.json({ row: await findTrackedPostById(sql, id) });
 }

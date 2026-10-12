@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dueCheckpoint, tweetIdToDate, CHECKPOINTS_MS, LAST_CHECKPOINT_MS } from './autoMeasure';
+import { dueCheckpoint, dueWatch, tweetIdToDate, CHECKPOINTS_MS, LAST_CHECKPOINT_MS, type WatchState } from './autoMeasure';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -47,4 +47,37 @@ test('게시물 번호에서 게시 시각을 꺼낸다', () => {
   assert.ok(d);
   assert.equal(d!.toISOString().slice(0, 16), '2026-09-08T10:21');
   assert.equal(tweetIdToDate('abc'), null);
+});
+
+// ── 안 보임 확인(2026-10-12) ──
+const st = (p: Partial<WatchState>): WatchState => ({ kind: 'main', postedAt: posted, lastCapturedAt: null, missingCheckedAt: null, unavailableAt: null, ...p });
+
+test('보이는 본 게시물은 측정 시점 일정 그대로', () => {
+  assert.deepEqual(dueWatch(st({ lastCapturedAt: at(5 * MIN) }), at(31 * MIN)), { reason: 'checkpoint', checkpointMs: 30 * MIN });
+  assert.equal(dueWatch(st({ lastCapturedAt: at(30 * MIN) }), at(40 * MIN)), null);
+});
+
+test('처음 "없음" 뒤엔 1시간 뒤에 한 번 더 본다(확정 전) — 그 사이엔 측정 시점이 와도 부르지 않는다', () => {
+  const s = st({ lastCapturedAt: at(3 * HOUR), missingCheckedAt: at(4 * HOUR + MIN) });
+  assert.equal(dueWatch(s, at(4 * HOUR + 30 * MIN)), null);
+  assert.deepEqual(dueWatch(s, at(5 * HOUR + MIN)), { reason: 'confirm' });
+});
+
+test('확정된 뒤엔 하루 한 번 다시 본다', () => {
+  const s = st({ missingCheckedAt: at(DAY), unavailableAt: at(DAY - HOUR) });
+  assert.equal(dueWatch(s, at(DAY + 23 * HOUR)), null);
+  assert.deepEqual(dueWatch(s, at(2 * DAY)), { reason: 'recheck' });
+  // 이 기능 전에 한 번의 "없음"으로 찍힌 옛 값(확인 시각 없음)은 그 시각부터 하루
+  assert.deepEqual(dueWatch(st({ unavailableAt: at(DAY) }), at(2 * DAY)), { reason: 'recheck' });
+});
+
+test('링크 댓글은 측정 시점 대신 하루 한 번 살아 있나 본다', () => {
+  assert.deepEqual(dueWatch(st({ kind: 'link' }), at(MIN)), { reason: 'daily' });
+  assert.equal(dueWatch(st({ kind: 'link', lastCapturedAt: at(HOUR) }), at(DAY)), null);
+  assert.deepEqual(dueWatch(st({ kind: 'link', lastCapturedAt: at(HOUR) }), at(DAY + HOUR)), { reason: 'daily' });
+});
+
+test('게시 후 7일+1시간이 지나면 아무것도 보지 않는다', () => {
+  assert.equal(dueWatch(st({ unavailableAt: at(5 * DAY) }), at(7 * DAY + 2 * HOUR)), null);
+  assert.equal(dueWatch(st({ kind: 'link' }), at(7 * DAY + 2 * HOUR)), null);
 });

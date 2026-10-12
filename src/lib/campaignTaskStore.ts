@@ -7,8 +7,10 @@ import { isUuidLike } from './uuid.ts';
 import { taskProofOf, type TaskProof } from './taskProofGuard.ts';
 import { taskAgreementOf, type TaskAgreement } from './taskAgreementGuard.ts';
 import { influencerChangeGuard, POSTED_TASK_MESSAGE, type CancelReason } from './campaignTaskInput.ts';
-import { rosterHandleOf } from './taskAssignGate.ts';   // 잎 모듈 — 순환 없음(그 파일 머리 주석)
+import { rosterHandleOf, hasLiveRequest } from './taskAssignGate.ts';   // 잎 모듈 — 순환 없음(그 파일 머리 주석)
 import { judgeStoredAuthor, authorVerdictMessage, firstAssignMismatchMessage, type AuthorVerdict, type LiveAuthor } from './postAuthor.ts';   // 순수 모듈 — 순환 없음
+import { reservationWriteGuard } from './reservationWriteGuard.ts';
+import { ProductError } from './productCommand.ts';
 // draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
 // getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
 import type { PaymentFee } from './influencerPayment.ts';
@@ -29,6 +31,7 @@ export interface TaskRow {
   postUrl: string | null; postedAt: string | null; postedSource: 'auto' | 'manual' | null;
   removedAt: string | null; removedReason: string;
   scheduledOn: string | null; visitOn: string | null; cost: TaskCost | null; note: string;
+  noCost?: boolean; version?: number;
   proof: TaskProof | null;   // RT 증빙 스크린샷 1장(스펙 2026-08-31 §4-2). RT 아닌 유형은 늘 null
   // 방문협찬만(063, koo 09-29) — 방문일·게시 예정일의 시간('HH:MM', KST 벽시계)과 협찬 동의서 1장. 다른 유형은 늘 null.
   // 시간은 표시·저장용 — 밀림·정렬·달력·정산 판정은 날짜 칸만 본다. 날짜가 없으면 시간도 없다(updateTask가 지킨다).
@@ -65,6 +68,7 @@ export interface TaskPatch {
   postUrl?: string | null; postedAt?: string; postedSource?: 'auto' | 'manual';
   removedAt?: string | null; removedReason?: string;
   scheduledOn?: string | null; visitOn?: string | null; cost?: TaskCost | null; note?: string;
+  noCost?: boolean;
   proof?: TaskProof | null;   // 3값: undefined 유지 · null 떼기 · 값 설정
   // 방문협찬(063) — 3값. 날짜를 null로 지우면 그 날짜의 시간도 같이 비운다(이번 요청이 시간을 보냈어도)
   visitTime?: string | null; scheduledTime?: string | null;
@@ -104,6 +108,7 @@ type Row = {
   removed_at: string | null; removed_reason: string;
   scheduled_on: string | null; visit_on: string | null; cost: unknown; note: string; proof: unknown; payment_method_id: string | null;
   visit_time: string | null; scheduled_time: string | null; agreement: unknown;
+  no_cost: boolean; version: number;
   cancelled_at: string | null; cancel_reason: CancelReason | null; cancel_note: string;
   cancelled_draft_id: string | null; cancelled_draft_title: string | null;
   settled_elsewhere_at: string | null; settled_elsewhere_note: string; settled_elsewhere_by_name: string | null; cost_change_count: number;
@@ -134,6 +139,7 @@ const toRow = (r: Row): TaskRow => ({
   postUrl: r.post_url, postedAt: r.posted_at, postedSource: r.posted_source,
   removedAt: r.removed_at, removedReason: r.removed_reason,
   scheduledOn: r.scheduled_on, visitOn: r.visit_on, cost: costOf(r.cost), note: r.note,
+  noCost: r.no_cost, version: r.version,
   proof: taskProofOf(r.proof),
   visitTime: r.visit_time, scheduledTime: r.scheduled_time, agreement: taskAgreementOf(r.agreement),
   paymentMethodId: r.payment_method_id,
@@ -160,6 +166,8 @@ const SELECT = (sql: postgres.Sql) => sql`
          to_char(t.scheduled_on, 'YYYY-MM-DD') as scheduled_on, to_char(t.visit_on, 'YYYY-MM-DD') as visit_on,
          t.cost, t.note, t.proof, t.payment_method_id, t.created_at, t.updated_at,
          to_char(t.visit_time, 'HH24:MI') as visit_time, to_char(t.scheduled_time, 'HH24:MI') as scheduled_time, t.agreement,
+         coalesce((to_jsonb(t)->>'no_cost')::boolean, false) as no_cost,
+         coalesce((to_jsonb(t)->>'version')::integer, 1) as version,
          to_char(t.cancelled_at, 'YYYY-MM-DD') as cancelled_at, t.cancel_reason, t.cancel_note,
          t.cancelled_draft_id, t.cancelled_draft_title,
          to_char(t.settled_elsewhere_at, 'YYYY-MM-DD') as settled_elsewhere_at, t.settled_elsewhere_note, t.settled_elsewhere_by_name,
@@ -228,6 +236,15 @@ export async function createTasks(sql: postgres.Sql, campaignId: string, input: 
 // postedAt은 null을 받지 않는다(게시 확인은 되돌리지 않는다, §3-4) — 타입이 막는다.
 export async function updateTask(sql: postgres.Sql, id: string, patch: TaskPatch): Promise<boolean> {
   if (!isUuidLike(id)) return false;
+  const [current] = await sql<Array<{ no_cost: boolean }>>`select coalesce((to_jsonb(t)->>'no_cost')::boolean, false) as no_cost from campaign_task t where id = ${id} for update`;
+  if (patch.noCost === true) patch = { ...patch, cost: null };
+  else if (current?.no_cost && patch.noCost !== false && patch.cost != null)
+    throw new ProductError('INVALID_INPUT', '금액을 입력하려면 비용 없음 설정을 먼저 해제해 주세요.', 409);
+  await reservationWriteGuard(sql, id, 'patch', patch as Record<string, unknown>);
+  // 금액 자체는 정산 상태와 무관하게 바꿀 수 있다 — 요청 중이면 정산 화면의 '고친 값으로 다시 반영', 지급 후면 사유 필수(065, 라우트가 검사).
+  // '비용 없음' 토글만 살아 있는 요청(요청 중·지급 전) 동안 막는다 — 금액을 null로 만들어 후보·스냅샷 계산이 조용히 어긋난다.
+  if (patch.noCost !== undefined && await hasLiveRequest(sql, id))
+    throw new ProductError('ACTIVE_SETTLEMENT', '정산 요청 중인 작업의 비용 여부는 바꿀 수 없어요. 정산 요청을 먼저 확인해 주세요.', 409);
   // 결제 수단(§8-2): 명시값이 먼저. 명시가 없고 인플이 대소문자 말고 실제로 바뀌면 비운다 — 다른 사람의 수단 id가 남으면 안 된다.
   // SET 식은 모두 옛 행 값을 본다(Postgres) — 아래 payment_method_id 식의 influencer_handle은 이번 갱신 전 값이다.
   const rows = await sql`update campaign_task set
@@ -260,12 +277,14 @@ export async function updateTask(sql: postgres.Sql, id: string, patch: TaskPatch
   // R17 — 게시 확인(postedAt)만 취소 작업에 막는다. 메모 등 나머지 편집은 취소 중에도 허용된다(R18)라
   // 조건을 postedAt 유무로 좁힌다(전면 cancelled_at is null이면 메모 편집까지 막는다). false는 "그 사이
   // 취소됨"(경합) 신호 — 호출자(라우트)가 409로 매핑한다.
+  if (patch.noCost !== undefined && rows.length) await sql`update campaign_task set no_cost = ${patch.noCost} where id = ${id}`;
   return rows.length > 0;
 }
 
 // 삭제 — 원고 set null·참조 작업 target set null·tracked_post.task_id set null은 전부 FK가 한다
 export async function deleteTask(sql: postgres.Sql, id: string): Promise<boolean> {
   if (!isUuidLike(id)) return false;
+  await reservationWriteGuard(sql, id, 'delete');
   const rows = await sql`delete from campaign_task where id = ${id} returning id`;
   return rows.length > 0;
 }
@@ -525,26 +544,37 @@ export async function cancelTask(
     const cur = await tx<Array<{ posted_at: string | null; cancelled_at: string | null; draft_id: string | null; influencer_handle: string | null; type: TaskType; campaign_id: string }>>`
       select posted_at, cancelled_at, draft_id, influencer_handle, type, campaign_id from campaign_task where id = ${id} for update`;
     if (cur.length === 0) return 'not-found';
+    await reservationWriteGuard(tx, id, 'cancel');
     if (cur[0].cancelled_at) return 'already';
     if (cur[0].posted_at) return 'posted';
-    const draftId = cur[0].draft_id;
-    let title: string | null = null;
-    if (draftId) {
-      const d = await tx<Array<{ title: string | null; ko_title: string | null; first: string | null }>>`
-        select title, ko_title, coalesce(edited, content)->'posts'->0->>'text' as first from draft where id = ${draftId}`;
-      const first = (d[0]?.first ?? '').split('\n')[0].trim();
-      title = d[0]?.title?.trim() || d[0]?.ko_title || (first ? (first.length > 60 ? first.slice(0, 60) + '…' : first) : null);
-    }
-    const rows = await tx`update campaign_task set
-        cancelled_at = ${input.today}::date, cancel_reason = ${input.reason}, cancel_note = ${input.note},
-        draft_id = null, cancelled_draft_id = ${draftId}, cancelled_draft_title = ${title}, updated_at = now()
-      where id = ${id} and posted_at is null and cancelled_at is null returning id`;
-    if (rows.length === 0) return 'posted';   // 그 사이 게시 확인이 들어왔다
+    if (!(await markTaskCancelled(tx, id, input))) return 'posted';   // 그 사이 게시 확인이 들어왔다
     if ((input.reason === 'declined' || input.reason === 'no_response') && cur[0].influencer_handle) {
       await logTaskDeclined(tx, { handle: cur[0].influencer_handle, taskId: id, campaignId: cur[0].campaign_id, taskType: cur[0].type, reason: input.reason, action: 'cancel', actorId: input.actorId });
     }
     return 'ok';
   });
+}
+
+// 취소 컬럼 + 원고 떼기 + 제목 스냅샷 한 묶음 — cancelTask(일반 취소)와 예약 종료(reservationCommands의 /end·웹 취소 창)가 같은 효과를 낸다.
+// 조건부 UPDATE(posted_at is null and cancelled_at is null)라 그 사이 게시 확인이 들어오면 false — 호출한 쪽이 처리한다. 타임라인 로그는 호출한 쪽.
+export async function markTaskCancelled(tx: postgres.Sql, id: string, input: { reason: CancelReason | null; note: string; today: string }): Promise<boolean> {
+  const [cur] = await tx<Array<{ draft_id: string | null }>>`select draft_id from campaign_task where id = ${id}`;
+  const draftId = cur?.draft_id ?? null;
+  const title = await cancelledDraftTitle(tx, draftId);
+  const rows = await tx`update campaign_task set
+      cancelled_at = ${input.today}::date, cancel_reason = ${input.reason}, cancel_note = ${input.note},
+      draft_id = null, cancelled_draft_id = ${draftId}, cancelled_draft_title = ${title}, updated_at = now()
+    where id = ${id} and posted_at is null and cancelled_at is null returning id`;
+  return rows.length > 0;
+}
+
+// 취소되는 작업에서 떼는 원고의 제목 스냅샷(cancelled_draft_title) — 되돌리기 안내용. cancelTask와 예약 종료(reservationCommands)가 같은 규칙을 쓴다.
+export async function cancelledDraftTitle(tx: postgres.Sql, draftId: string | null): Promise<string | null> {
+  if (!draftId) return null;
+  const d = await tx<Array<{ title: string | null; ko_title: string | null; first: string | null }>>`
+    select title, ko_title, coalesce(edited, content)->'posts'->0->>'text' as first from draft where id = ${draftId}`;
+  const first = (d[0]?.first ?? '').split('\n')[0].trim();
+  return d[0]?.title?.trim() || d[0]?.ko_title || (first ? (first.length > 60 ? first.slice(0, 60) + '…' : first) : null);
 }
 
 // 거절·무응답을 인플루언서 타임라인에 — 명부에 없는 핸들은 기록하지 않는다(해제·전달과 같은 태도, influencerSync).
@@ -569,6 +599,7 @@ export async function restoreTask(sql: postgres.Sql, id: string): Promise<{ resu
     const cur = await tx<Array<{ cancelled_at: string | null; cancelled_draft_id: string | null; cancelled_draft_title: string | null }>>`
       select cancelled_at, cancelled_draft_id, cancelled_draft_title from campaign_task where id = ${id} for update`;
     if (cur.length === 0) return { result: 'not-found', draft: 'none' };
+    await reservationWriteGuard(tx, id, 'restore');
     if (!cur[0].cancelled_at) return { result: 'not-cancelled', draft: 'none' };
     const draftId = cur[0].cancelled_draft_id;
     // cancelled_draft_id는 on delete set null(055) — 원고가 지워지면 취소 스냅샷이 잡히기도 전에 이미 null이 된다.
@@ -669,6 +700,7 @@ export async function replaceInfluencer(
       select to_char(posted_at,'YYYY-MM-DD') as posted_at, to_char(cancelled_at,'YYYY-MM-DD') as cancelled_at, type, to_char(visit_on,'YYYY-MM-DD') as visit_on, influencer_handle, campaign_id
         from campaign_task where id = ${id} for update`;
     if (rows.length === 0) return 'not-found';
+    await reservationWriteGuard(tx, id, 'replace');
     const cur = rows[0];
     // 게시된 작업은 교체하지 않는다(ADR 0005 "게시 전만"). 공용 가드는 게시된 **미배정** 작업의 최초 배정을
     // 허용하도록 열려 있으므로(C1-b), 교체 라우트는 자기 규칙을 여기서 직접 든다 — 안 그러면 API로 게시된

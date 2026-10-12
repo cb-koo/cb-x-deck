@@ -5,6 +5,9 @@ import { Button, PANEL, PANEL_SPLIT, PANEL_TITLE } from '@/components/ui';
 import { procedureSummary } from '@/lib/clientSummary';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import { BudgetPanel } from './BudgetPanel';
+import { useSearchParams } from 'next/navigation';
+import { ClinicSettingsTab, type ClinicTab } from './ClinicSettingsTab';
+import { useProductFeatures } from '@/lib/extensionProductClient';
 
 // 부모(page)가 미저장 확인·일괄 저장에 쓰는 핸들
 export interface DetailHandle { isDirty: () => boolean; saveAll: () => Promise<boolean> }
@@ -64,6 +67,25 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
   const [newProc, setNewProc] = useState('');
   const addingProc = useRef(false);
   const [err, setErr] = useState('');
+  // 탭(기본 정보 / 운영시간 / 방문 안내·양식) — ?tab=으로 바로 열 수 있다(작업 상세의 '클리닉 양식 설정' 링크).
+  // 탭은 숨기기만 하고 내리지 않는다 — 다른 탭을 보고 와도 저장 전 입력(레지스트리 dirty)이 남아야 한다.
+  // 클리닉 탭은 새 기능이 켜졌을 때만(설정 적용 전·운영 비활성이면 기본 정보만 — 저장할 곳이 없다).
+  const searchParams = useSearchParams();
+  const features = useProductFeatures();
+  const clinicEnabled = !!features?.reservations;
+  const [tab, setTab] = useState<'basic' | ClinicTab>(() => {
+    const t = searchParams.get('tab'); return t === 'hours' || t === 'forms' ? t : 'basic';
+  });
+  const [clinicTab, setClinicTab] = useState<ClinicTab>(tab === 'basic' ? 'hours' : tab);
+  const [clinicOpened, setClinicOpened] = useState(tab !== 'basic');
+  const shownTab = clinicEnabled ? tab : 'basic';
+  const chooseTab = useCallback((next: 'basic' | ClinicTab) => {
+    setTab(next);
+    if (next !== 'basic') { setClinicTab(next); setClinicOpened(true); }
+    const url = new URL(window.location.href);
+    if (next === 'basic') url.searchParams.delete('tab'); else url.searchParams.set('tab', next);
+    window.history.replaceState(null, '', url);
+  }, []);
 
   async function saveRename() {
     const name = editName.trim();
@@ -133,6 +155,19 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
       {err && <p className="mt-2 text-ui text-red-500">{err}</p>}
       </div>
 
+      <nav className="flex gap-1 border-b border-x-border" aria-label="클라이언트 설정 항목">
+        {([['basic', '기본 정보'], ...(clinicEnabled ? [['hours', '운영시간'], ['forms', '방문 안내·양식']] as const : [])] as const).map(([value, label]) => (
+          <button key={value} type="button" onClick={() => chooseTab(value)} aria-current={shownTab === value ? 'page' : undefined}
+                  className={`-mb-px border-b-2 px-3 py-2 text-content ${shownTab === value ? 'border-x-blue font-semibold text-x-text' : 'border-transparent text-x-secondary hover:text-x-text'}`}>
+            {label}
+          </button>
+        ))}
+      </nav>
+      {clinicEnabled && clinicOpened && (
+        <div className={shownTab === 'basic' ? 'hidden' : undefined}><ClinicSettingsTab key={client.id} clientId={client.id} tab={clinicTab} register={register} /></div>
+      )}
+
+      <div className={shownTab === 'basic' ? 'space-y-5' : 'hidden'}>
       <BasicInfoEditor key={client.id} client={client} register={register} onSaved={onChanged} />
 
       <div className={PANEL_SPLIT}>
@@ -157,6 +192,7 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
       </div>
 
       <BudgetPanel client={client} onChanged={onChanged} />
+      </div>
 
       {deleting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setDeleting(false); setDeleteErr(''); }}>

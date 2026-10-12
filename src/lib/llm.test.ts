@@ -68,3 +68,16 @@ test('추가 파라미터(system·output_config)가 SDK 호출에 그대로 전�
   assert.equal(received.system, 'SYS');
   assert.ok(received.output_config);
 });
+
+// Haiku 5.5(사고 기본 ON)는 호출부가 effort를 안 정하면 'low'로 보낸다. 다른 모델과 명시한 호출은 건드리지 않는다.
+test('effort 기본값: Haiku 5.x에만 low를 붙이고, 명시한 값과 다른 모델은 그대로', async () => {
+  const sent: Record<string, unknown>[] = [];
+  const client: AnthropicLike = { messages: { async create(p: object) { sent.push(p as Record<string, unknown>); return { content: [{ type: 'text', text: '{}' }] }; } } };
+  const msgs = [{ role: 'user', content: 'x' }];
+  await callLLM('t', { model: 'claude-haiku-5-5', max_tokens: 10, messages: msgs }, client);
+  await callLLM('t', { model: 'claude-haiku-5-5', max_tokens: 10, messages: msgs, output_config: { effort: 'medium' } }, client);
+  await callLLM('t', { model: 'claude-haiku-4-5', max_tokens: 10, messages: msgs }, client);
+  await callLLM('t', { model: 'claude-opus-5', max_tokens: 10, messages: msgs }, client);
+  assert.deepEqual(sent.map((p) => p.output_config), [{ effort: 'low' }, { effort: 'medium' }, undefined, undefined]);
+  assert.ok(sent.every((p) => !('thinking' in p)), 'thinking 파라미터는 보내지 않는다(기본 adaptive)');
+});

@@ -3,7 +3,9 @@ export type { AnthropicLike };
 
 export interface KwPair { ja: string; ko: string }
 
-export const MODEL = () => process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001';
+// 앱 공용 소형 모델(키워드 추천·번역·브리핑·주제 분류·리서치 추출·예약 파싱). 2026-10-12 Haiku 4.5 → 5.5:
+// 입력 $0.10/출력 $0.50 per 1M(4.5의 1/10), 같은 글이 토큰 약 30% 더 나오고, 사고(thinking)가 기본으로 켜진다 — effort 기본값은 llm.ts가 'low'로 둔다.
+export const MODEL = () => process.env.ANTHROPIC_MODEL ?? 'claude-haiku-5-5';
 
 const PROMPT = (keyword: string) => `당신은 일본 뷰티/미용의료 X(트위터) 검색 전문가입니다.
 검색 키워드: "${keyword}" (한국어일 수도, 일본어일 수도 있음)
@@ -46,7 +48,7 @@ export async function suggestKeywords(
   client?: AnthropicLike,
 ): Promise<{ variants: KwPair[]; adjacent: KwPair[] }> {
   const res = await callLLM('anthropic.suggest',
-    { model: MODEL(), max_tokens: 800, messages: [{ role: 'user', content: PROMPT(keyword) }] }, client);
+    { model: MODEL(), max_tokens: 2000, messages: [{ role: 'user', content: PROMPT(keyword) }] }, client);
   const j = extractJson(res) as { variants?: unknown; adjacent?: unknown } | null;
   if (!j) return { variants: [], adjacent: [] };
   return { variants: pairs(j.variants), adjacent: pairs(j.adjacent) };
@@ -57,7 +59,7 @@ export async function translateKeyword(
   client?: AnthropicLike,
 ): Promise<KwPair | null> {
   const res = await callLLM('anthropic.translateKeyword',
-    { model: MODEL(), max_tokens: 200, messages: [{ role: 'user', content: TRANSLATE_PROMPT(keyword) }] }, client);
+    { model: MODEL(), max_tokens: 1000, messages: [{ role: 'user', content: TRANSLATE_PROMPT(keyword) }] }, client);
   const j = extractJson(res) as { ja?: unknown; ko?: unknown } | null;
   if (!j || typeof j.ja !== 'string' || j.ja.length === 0) return null;
   return { ja: j.ja, ko: typeof j.ko === 'string' && j.ko ? j.ko : keyword };
@@ -73,7 +75,7 @@ export async function translateTags(
 ): Promise<Record<string, string>> {
   if (tags.length === 0) return {};
   const res = await callLLM('anthropic.translateTags',
-    { model: MODEL(), max_tokens: 600, messages: [{ role: 'user', content: TAGS_PROMPT(tags) }] }, client);
+    { model: MODEL(), max_tokens: 1500, messages: [{ role: 'user', content: TAGS_PROMPT(tags) }] }, client);
   const j = extractJson(res);
   if (!j || typeof j !== 'object' || Array.isArray(j)) return {};
   const out: Record<string, string> = {};

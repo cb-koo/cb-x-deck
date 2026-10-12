@@ -1,3 +1,4 @@
+import { productWebBoundary } from '@/lib/productWebBoundary';
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
@@ -8,7 +9,7 @@ import { parseReplaceBody, TASK_NOT_FOUND_MESSAGE } from '@/lib/campaignTaskInpu
 import { rosterHandleOf, ROSTER_REQUIRED_MESSAGE } from '@/lib/taskAssignGate';
 
 // 인플루언서 교체(ADR 0005) — 같은 작업 ID. 상태 제한·흔적 정리·사유 로그를 서버가 한 트랜잭션으로 보장한다.
-export async function POST(req: Request, ctx: { params: Promise<{ id: string; taskId: string }> }) {
+async function POSTInternal(req: Request, ctx: { params: Promise<{ id: string; taskId: string }> }) {
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id, taskId } = await ctx.params;
@@ -29,3 +30,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string; ta
   if (r !== 'ok') return NextResponse.json({ error: r }, { status: 400 });
   return NextResponse.json(await getTask(sql, taskId));
 }
+
+export const POST = productWebBoundary(POSTInternal);

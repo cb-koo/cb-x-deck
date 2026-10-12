@@ -1,10 +1,10 @@
 'use client';
 import { useRef, useState, type ReactNode } from 'react';
 import {
-  nextSort, dateCell, draftCell, costCell, taskPerfExtra, FLOW_SORT_LABEL,
+  nextSort, dateCell, draftCell, costCell, taskPerfExtra, FLOW_SORT_LABEL, flowStageLabel,
   type FlowRow, type FlowSort, type FlowSortKey,
 } from '@/lib/campaignFlowView';
-import { flowStage, FLOW_STAGE_LABEL, TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
+import { flowStage, TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { suggestTaskCost } from '@/lib/campaignCost';
 import { num } from '@/lib/campaignTableView';
 import { formatPct } from '@/lib/performanceJudgment';
@@ -205,7 +205,7 @@ export function FlowTable({ rows, total, today, influencerOptions, sort, onSortC
             return (
               <tr key={t.id} data-flow-row onClick={() => onRowClick(t)}
                   className={`h-11 cursor-pointer border-b border-x-border whitespace-nowrap hover:bg-x-hover ${t.id === selectedId ? 'bg-x-blue/5' : ''} ${cancelled ? 'opacity-60' : ''}`}>
-                <td className="px-3"><span className={`rounded-full px-2 py-0.5 text-ui ${STAGE_CHIP[stage]}`}>{FLOW_STAGE_LABEL[stage]}</span></td>
+                <td className="px-3"><span className={`rounded-full px-2 py-0.5 text-ui ${STAGE_CHIP[stage]}`}>{flowStageLabel(t, stage)}</span></td>
                 <td className="px-3"><span className={`inline-block min-w-[56px] rounded-full px-2 py-0.5 text-center text-ui ${TYPE_CHIP[t.type]}`}>{TASK_TYPE_LABEL[t.type]}</span></td>
                 <td className="px-3">{t.influencerHandle ? `@${t.influencerHandle}` : <span className="text-x-muted">미정</span>}</td>
                 <td className="px-3 truncate" title={d.title}><span className={d.muted ? 'text-x-muted' : ''}>{d.text}</span></td>

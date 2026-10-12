@@ -7,11 +7,11 @@ import { fetchTasksTargets, type TaskCreateRequest } from '@/lib/campaignApi';
 import { buildTaskCreateBody } from '@/lib/taskCreateBody';
 import { AMOUNT_MESSAGE, type TaskCost } from '@/lib/campaignCost';
 import {
-  TASK_TYPE_LABEL, isOutOfRange, formatDateKo, formatDateTimeKo, type TaskType,
+  TASK_TYPE_LABEL, isOutOfRange, formatDateKo, formatDateTimeKo, flowStage, type TaskType,
 } from '@/lib/campaignJudgment';
 import { taskOverdueDays, targetLabel } from '@/lib/campaignTableView';
 import {
-  PANEL_FIELD_ORDER, DISPLAY_TYPE_ORDER, costCell, replaceDisabledReason, detachConfirmMessage, profilePromptFor, type FlowRow, type PanelField,
+  PANEL_FIELD_ORDER, DISPLAY_TYPE_ORDER, costCell, replaceDisabledReason, detachConfirmMessage, profilePromptFor, awaitsReservation, type FlowRow, type PanelField,
 } from '@/lib/campaignFlowView';
 import { STATUS_LABEL } from '@/lib/draftStatus';
 import { draftLabel, draftPreviewFull, draftFirstMediaUrl } from '@/lib/draftViews';
@@ -24,10 +24,17 @@ import { CostConfirmField } from './CostConfirmField';
 import { TargetPicker, candidateLabel, type TargetValue } from '../TargetPicker';
 import type { useCampaignTaskActions } from '../useCampaignTaskActions';
 import { DraftMode, type DraftTab } from './draft/DraftMode';
-import { PanelSection } from './panel/PanelSection';
+import { PanelSection, SectionBadge, type SectionDisclosure } from './panel/PanelSection';
+import { taskSectionOpen, visitPhaseFromRow, type TaskSectionKey, type TaskSectionPrefs } from '@/lib/taskSectionView';
+import { ENDED_PHASES, type VisitPhase } from '@/lib/reservationPolicy';
 import { TimeField } from './panel/TimeField';
 import { DateTimeBox } from './panel/DateTimeBox';
 import { AgreementField } from './panel/AgreementField';
+import { ReservationSection } from '@/components/reservations/ReservationSection';
+import { NewReservationDialog } from '@/components/reservations/NewReservationDialog';
+import type { TaskDto } from '@/lib/extensionTasks';
+import { apiFetch } from '@/lib/apiFetch';
+import { productFetch, useProductFeatures } from '@/lib/extensionProductClient';
 import { StageTypeBox } from './panel/StageTypeBox';
 import { InfluencerSummary } from './panel/InfluencerSummary';
 import { PaymentLine } from './panel/PaymentLine';
@@ -78,9 +85,24 @@ export const DRAFT_WRITE_LOST_CONFIRM = '작성 중인 원고가 있어요. 닫�
 export function TaskPanel({
   mode, campaign, today, influencerOptions, roster, rosterVersion, actions, onClose, onPrev, onNext, onCreate,
   menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftPick, draftBusy, closeConfirm, moveConfirm, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
-  newDraft, onNewDraftChange, onNewContextChange, formHandleFill,
+  newDraft, onNewDraftChange, onNewContextChange, formHandleFill, onReservationChanged, onCreateForReservation, onReservationCreated, autoReserve = false,
+  sectionPrefs, onSectionChange, onCancelTask,
 }: {
   mode: PanelMode;
+  // 예약·비용 없음 저장 뒤 표·패널을 다시 읽는다(FlowDetail load) — 예약 저장은 작업의 방문일·업로드 기한도 바꾼다.
+  onReservationChanged: () => Promise<void>;
+  // 새 방문협찬 폼의 [예약폼 작성] 창(NewReservationDialog)이 쓴다 — 작업만 만들고 패널은 그대로 둔다(예약을 이어 저장해야 해서).
+  // 실패 문구(토스트)는 FlowDetail이 띄우고 null을 돌려준다. reserved — 예약까지 저장했으면 그 작업 패널로, 1단계 [닫기]로
+  // 작업만 '대기'로 만들었으면 패널을 닫는다(그 작업 패널을 열면 예약 창이 곧바로 다시 뜬다 — 아래 카드 자동 열기).
+  onCreateForReservation: (body: TaskCreateRequest) => Promise<{ id: string; version: number | null } | null>;
+  onReservationCreated: (taskId: string, prompt: PricePrompt | null, reserved: boolean) => void;
+  autoReserve?: boolean;   // 표에서 카드를 눌러 연 패널 — 예약 없는 방문 작업이면 예약 창을 '예약 파싱'부터 연다
+  // 방문협찬 패널의 접히는 상자(목업 x-extension, lib/taskSectionView) — 사람이 직접 접고 편 기록. 주인은 FlowDetail(작업 id별) —
+  // 다른 작업을 다녀와도(패널은 key로 다시 마운트된다) 직접 펼친 상자가 그대로 펼쳐져 있어야 해서다.
+  sectionPrefs: TaskSectionPrefs;
+  onSectionChange: (key: TaskSectionKey, open: boolean, phase: VisitPhase) => void;
+  // 일정 상자의 [✕ 진행 안 됨](방문협찬) — 게시 칸의 그 버튼과 같은 취소 창(CancelDialog)을 연다. FlowDetail의 menuActions.cancel
+  onCancelTask: (t: FlowRow) => void;
   campaign: CampaignRow;
   today: string;
   influencerOptions: InfluencerOption[];
@@ -204,6 +226,11 @@ export function TaskPanel({
   // 언마운트돼 입력이 날아가거나, 창은 사라졌는데 패널 Esc만 꺼진 채 남지 않게. null = 닫힘.
   const [payDialog, setPayDialog] = useState<{ influencerId: string; handle: string; isFirst: boolean; beforeIds: string[] } | null>(null);
   const payDialogOpen = payDialog !== null;
+  // 예약 창(NewReservationDialog) — 새 작업 폼에선 [예약폼 작성]이, 예약 없는 방문 작업 카드에선 카드를 연 순간(아래 이펙트)과
+  // '이 작업에 예약 추가'가 연다. 열린 동안 패널의 바깥 클릭·Esc 닫기를 끈다(결제 수단 창과 같은 관례). 창의 Esc·✕는 창만 닫는다.
+  const [reserveOpen, setReserveOpen] = useState(false);
+  // 일정 상자의 달력 창(ScheduleEditorDialog, ReservationSection 안) — 떠 있는 동안 패널의 Esc·바깥 클릭을 끈다
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [payVersion, setPayVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   // 409(Task 5 §3) — 고르고 [만들기] 사이에 다른 작업이 그 원고를 가져갔다는 사실을 원고 칸 자리에서
@@ -219,6 +246,26 @@ export function TaskPanel({
   // ── 편집 모드 로컬 상태 — 미배정 인플 입력 버퍼, 메모 입력 버퍼(값이 바뀌었을 때만 저장) ──
   const [editHandleInput, setEditHandleInput] = useState('');
   const [noteBuf, setNoteBuf] = useState(task?.note ?? '');
+  // 예약 영역(ReservationSection)에서 작성 중인 입력 — 닫기·다른 작업·원고 화면으로 넘어갈 때 한 번 묻는다.
+  const [reservationDirty, setReservationDirty] = useState(false);
+  const reservationDirtyMsg = reservationDirty ? '작성 중인 예약 정보가 사라져요.' : null;
+  const [noCostBusy, setNoCostBusy] = useState(false), [noCostError, setNoCostError] = useState('');
+  const productFeatures = useProductFeatures();   // 비용 없음 체크는 새 기능이 켜진 뒤에만(설정 적용 전엔 저장할 칸이 없다)
+  // ── 접히는 상자(목업 x-extension) — 방문협찬 + 예약 기능이 켜진 뒤에만. 일정 상자는 늘 펼치고, 예약 변경 내역부터 게시까지가 접힌다.
+  // 단계는 서버 값(ReservationSection이 올린다)이 먼저, 오기 전엔 행으로 어림한다(visitPhaseFromRow) — 첫 그림부터 맞는 상자가 펼쳐지게.
+  const [serverPhase, setServerPhase] = useState<VisitPhase | null>(null);
+  const visitPhaseNow: VisitPhase | null = task?.type === 'visit' ? (serverPhase ?? visitPhaseFromRow(task, today)) : null;
+  const collapsible = visitPhaseNow !== null && productFeatures?.reservations === true;
+  const disclosure = (key: TaskSectionKey): SectionDisclosure | undefined => {
+    if (!collapsible || visitPhaseNow === null) return undefined;
+    const phase = visitPhaseNow;
+    const open = taskSectionOpen(phase, key, sectionPrefs);
+    return { open, onToggle: () => onSectionChange(key, !open, phase) };
+  };
+  // 잠김(목업 locked) — 끝난 작업(취소·노쇼·완료)은 접힌 버튼 글자가 '관리'·'추가'가 아니라 '보기'고, '챙기라'는 딱지도 안 붙는다.
+  // 노쇼로 끝난 방문 작업은 cancelledAt이 없어 서버 단계(ENDED_PHASES)로 본다.
+  const sectionLocked = !!task && (!!task.cancelledAt || flowStage(task, task.settlement) === 'done'
+    || (visitPhaseNow !== null && ENDED_PHASES.includes(visitPhaseNow)));
   // 이미 명부 밖으로 배정된 작업의 [명부에 등록](§9) — 등록만 한다(배정은 이미 돼 있다)
   const [regBusy, setRegBusy] = useState(false);
   const [regErr, setRegErr] = useState<string | null>(null);
@@ -279,14 +326,21 @@ export function TaskPanel({
   // 원고를 고른 채 닫으면 문구가 갈린다(Task 3 §4, 사실만 말한다) — 입력칸이 채워졌으면 "사라져요", 원고가
   // 있으면 "'있는 원고 고르기'에 남아요"(잃지 않는다), 둘 다면 두 문장을 이어 잃는 것과 안 잃는 것을 함께 말한다.
   const requestClose = useCallback(() => {
+    if (reservationDirtyMsg && !window.confirm(`${reservationDirtyMsg} 닫을까요?`)) return;
     const dirtyMsg = newDirtyParts();
     if (dirtyMsg && !window.confirm(`${dirtyMsg} 닫을까요?`)) return;
     if (closeConfirm !== null && !window.confirm(closeConfirm)) return;
     onClose();
-  }, [newDirtyParts, closeConfirm, onClose]);
+  }, [newDirtyParts, closeConfirm, onClose, reservationDirtyMsg]);
   // FlowDetail이 표의 다른 행을 클릭했을 때 같은 확인을 거치려면 지금 dirty 여부를 알아야 한다(I1-3) —
   // 이 컴포넌트 밖에서 못 보는 로컬 상태라 바뀔 때마다 콜백으로 올려 보낸다.
-  useEffect(() => { onDirtyChange?.(newDirtyParts()); }, [newDirtyParts, onDirtyChange]);
+  useEffect(() => { onDirtyChange?.(reservationDirtyMsg ?? newDirtyParts()); }, [newDirtyParts, onDirtyChange, reservationDirtyMsg]);
+  // 기존 작업의 원고 화면 입구 — 예약 입력 중이면 먼저 묻는다(원고 화면으로 바뀌면 예약 영역이 내려가 입력이 사라진다).
+  const enterDraftMode = (tab?: DraftTab) => {
+    if (reservationDirtyMsg && !window.confirm(`${reservationDirtyMsg} 원고 화면을 열까요?`)) return;
+    if (tab) setDraftTab(tab);
+    setDraftMode('draft');
+  };
   // 탭 전환 · ← 작업으로 · 푸터 작업으로(리뷰 지적 4) — 탭을 바꾸거나 원고 모드를 나가면 DraftWrite가
   // 언마운트돼 친 글과 이미 올라간 이미지가 확인 없이 사라진다. 문구는 패널 닫기와 다르다(moveConfirm,
   // Task 4e) — 닫는 게 아니라 자리를 옮기는 동작이라서다.
@@ -327,7 +381,7 @@ export function TaskPanel({
   // 패널 밖이라, 안 빼면 팝오버를 누르는 순간 패널이 닫힌다. 패널 위에 모달이 떠 있으면(overlayOpen) 리스너를 끈다.
   useEffect(() => {
     // 결제 수단 등록 창(payDialog)도 패널 위 오버레이다 — 창 바깥(어두운 바탕)을 눌러 창을 닫을 때 패널까지 닫히지 않게
-    if (overlayOpen || draftBusy || payDialogOpen) return;   // 시안을 만드는 동안은 바깥을 눌러도 안 닫는다(위 draftBusy 주석)
+    if (overlayOpen || draftBusy || payDialogOpen || reserveOpen || scheduleOpen) return;   // 시안을 만드는 동안은 바깥을 눌러도 안 닫는다(위 draftBusy 주석)
     const onDown = (e: PointerEvent) => {
       const t = e.target as HTMLElement | null;
       if (!t) return;
@@ -341,17 +395,17 @@ export function TaskPanel({
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
-  }, [requestClose, overlayOpen, draftBusy, payDialogOpen]);
+  }, [requestClose, overlayOpen, draftBusy, payDialogOpen, reserveOpen, scheduleOpen]);
 
   // Esc는 패널만 닫는다 — 안에서 열린 팝오버(예정일 달력 등)는 capture에서 stopPropagation하므로 그쪽이 먼저 먹는다.
   // 패널 위의 오버레이(모달 등)가 떠 있으면 이 리스너 자체를 끈다 — 안 그러면 그 오버레이를 닫는 Esc가
   // 패널까지 같이 닫혀 버린다(overlayOpen이 true인 동안 통째로 끈다). draftBusy도 같은 이유로 끈다.
   useEffect(() => {
-    if (overlayOpen || draftBusy || payDialogOpen) return;   // payDialogOpen: 등록 창의 Esc는 창만 닫는다
+    if (overlayOpen || draftBusy || payDialogOpen || reserveOpen || scheduleOpen) return;   // payDialogOpen: 등록 창의 Esc는 창만 닫는다
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing) requestClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [requestClose, overlayOpen, draftBusy, payDialogOpen]);
+  }, [requestClose, overlayOpen, draftBusy, payDialogOpen, reserveOpen, scheduleOpen]);
 
   function resetNewFields() {
     setHandleInput(''); setHandle(''); setHandleErr(null);
@@ -422,6 +476,55 @@ export function TaskPanel({
     setBusy(false);
     if (result === 'draft-taken') { setDraftGone(true); return; }   // FlowDetail이 이미 formDraft를 비웠다
     if (result === 'ok' && more) resetNewFields();   // 유형은 유지 — 같은 유형을 연달아 만드는 게 실제 사용 패턴(결정 4). 원고는 FlowDetail이 비운다(스펙 §4-5)
+  }
+
+  // [예약폼 작성] — 친 글자가 아직 확정 전이면 [만들기]와 같은 규칙으로 명부에서 확정한 뒤 창을 연다(명부 밖이면 칸 아래 한 줄).
+  function openReservation() {
+    if (!handle) {
+      const r = resolveRosterInput(handleInput, influencerOptions, roster.status);
+      if (r.kind !== 'roster') { setHandleErr(UNCOMMITTED_HANDLE_MESSAGE); return; }
+      commitNewHandle(r.handle);
+    }
+    if (newCost === 'invalid') { setCostErr(AMOUNT_MESSAGE); return; }
+    setReserveOpen(true);
+  }
+  // 창의 [파싱 결과 복사하기]가 부른다 — 본문은 [만들기]와 같은 조립(buildTaskCreateBody). 일정 칸이 없으므로 날짜는 비어 있고,
+  // 방문일·업로드 기한은 이어서 저장하는 예약이 채운다. 예약 연결에는 작업 버전이 필요해 응답에 없으면 한 번 더 읽는다.
+  async function createForReservation(): Promise<{ id: string; version: number } | null> {
+    if (!newType || newCost === 'invalid') return null;
+    const body = buildTaskCreateBody({
+      type: newType, handle: handle || null, cost: newCost,
+      scheduledOn, visitOn, visitTime, scheduledTime, note, target,
+      draftId: newDraft?.id ?? null, paymentMethodId: newMethodId,
+    });
+    const made = await onCreateForReservation(body);
+    if (!made) return null;
+    if (made.version !== null) return { id: made.id, version: made.version };
+    try { return { id: made.id, version: (await productFetch<TaskDto>(`tasks/${made.id}`)).version }; }
+    catch { return null; }
+  }
+  // 작업이 만들어진 뒤(예약까지 저장했거나, 1단계 [닫기]로 작업만 '대기'로 만듦) — [만들기]처럼 프로필 단가 질문을 함께 넘긴다
+  function finishReservation(taskId: string, reserved: boolean) {
+    setReserveOpen(false);
+    const opt = optionForHandle(handle), cost = newCost === 'invalid' ? null : newCost;
+    const prompt = newType ? profilePromptFor({ option: opt, type: newType, cost }) : null;
+    onReservationCreated(taskId, prompt && opt && cost && newType ? { option: opt, cost, type: newType, ...prompt } : null, reserved);
+  }
+  // 표에서 예약 없는 방문 작업 카드를 누르면 예약 창을 '예약 파싱' 단계로 바로 연다(1단계 [닫기]로 '대기'에 둔 작업을 이어 가는 길).
+  // 카드 클릭(autoReserve)일 때만, 패널 한 번 마운트에 한 번 — 창을 닫은 뒤 저장으로 다시 읽어도 또 뜨지 않는다.
+  // 기능 확인(useProductFeatures)이 비동기라 결과가 온 뒤에 연다.
+  const autoReserved = useRef(false);
+  useEffect(() => {
+    if (!autoReserve || autoReserved.current || !task || productFeatures?.reservations !== true) return;
+    autoReserved.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 카드 클릭 신호와 기능 확인이 모두 온 뒤 한 번만 여는 자리다
+    if (awaitsReservation(task)) setReserveOpen(true);
+  }, [autoReserve, task, productFeatures]);
+  // 기존 작업에 붙일 때의 버전 — 행에 없으면(예전 DB) 한 번 더 읽는다
+  async function existingTaskRef(t: FlowRow): Promise<{ id: string; version: number } | null> {
+    if (typeof t.version === 'number') return { id: t.id, version: t.version };
+    try { return { id: t.id, version: (await productFetch<TaskDto>(`tasks/${t.id}`)).version }; }
+    catch { return null; }
   }
 
   // h는 명부 표기 핸들(InfluencerField가 명부 판정을 끝낸 값, '등록하고 배정'도 같은 길) 또는 ''(비움 — 아무것도 안 한다).
@@ -531,6 +634,45 @@ export function TaskPanel({
     );
   }
 
+  // ── 접힌 상자의 요약 한 줄과 버튼 글자(목업 x-extension TaskMoney·TaskDraft·메모·TaskPosting의 summary·actionLabel) ──
+  // 예산 · 정산: 금액 · 지급 상태, 결제 수단이 없으면 딱지. 원고: 제목 · 상태. 메모: 글. 게시: 확인 여부.
+  function sectionHead(key: Exclude<TaskSectionKey, 'history' | 'consent'>, t: FlowRow): { summary: ReactNode; actionLabel: string } {
+    const stage = flowStage(t, t.settlement);
+    switch (key) {
+      case 'money': {
+        const status = t.cancelledAt ? '종료' : t.noCost ? '정산 제외' : stage === 'done' ? '지급 완료' : stage === 'settle' ? '정산 요청 중' : '지급 전';
+        return {
+          summary: <>
+            <span>{costCell(t, null).text} · {status}</span>
+            {!t.noCost && !sectionLocked && pay.view?.state === 'none' && <SectionBadge tone="amber">결제 수단 미등록</SectionBadge>}
+          </>,
+          actionLabel: sectionLocked ? '보기' : '관리',
+        };
+      }
+      case 'draft': {
+        const label = t.cancelledAt
+          ? (t.cancelledDraftTitle ? `원고 있었음: ${t.cancelledDraftTitle}` : '연결된 원고 없음')
+          : t.draftId ? `${t.draftLabel ?? '(제목 없음)'}${t.draftStatus ? ` · ${STATUS_LABEL[t.draftStatus]}` : ''}` : '연결된 원고 없음';
+        return { summary: <span title={label}>{label}</span>, actionLabel: t.draftId || sectionLocked ? '보기' : '원고 추가' };
+      }
+      case 'memo':
+        return { summary: <span title={noteBuf}>{noteBuf || '메모 없음'}</span>, actionLabel: sectionLocked ? '보기' : t.note ? '수정' : '추가' };
+      case 'posting':
+        return { summary: <span>{t.postedAt ? '게시 확인 완료' : '게시물 미등록'}</span>, actionLabel: t.postedAt ? '보기' : '링크 입력' };
+    }
+  }
+
+  // 접히는 상자 하나 — 접기 대상이 아니면(다른 유형·기능 꺼짐) disclosure가 없어 예전 상자 그대로다. id는 revealSection의 스크롤 목적지
+  function sectionBox(key: Exclude<TaskSectionKey, 'history' | 'consent'>, t: FlowRow, title: string, children: ReactNode): ReactNode {
+    const d = disclosure(key);
+    const head = d ? sectionHead(key, t) : null;
+    return <PanelSection id={`task-${key}`} title={title} disclosure={d} summary={head?.summary} actionLabel={head?.actionLabel}>{children}</PanelSection>;
+  }
+  // 일정 상자의 '지금 할 일' 버튼(목업 reveal) — 그 상자를 펼치고(직접 펼친 것과 같은 기록) 거기로 스크롤한다
+  function revealSection(key: TaskSectionKey) {
+    if (visitPhaseNow !== null) onSectionChange(key, true, visitPhaseNow);
+    requestAnimationFrame(() => document.getElementById(`task-${key}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+  }
   // ── 편집 모드 칸 ──
   function renderEditField(field: PanelField, t: FlowRow): ReactNode {
     const cancelled = t.cancelledAt !== null;
@@ -594,9 +736,27 @@ export function TaskPanel({
       }
       case 'cost': {
         const cc = cancelled ? costCell(t, null) : null;
-        return costBox(cc
+        // 비용 없음(064, 방문협찬) — 금액 0·미정과 다른 명시 값. 게시 확인되면 완료, 정산 후보에서 빠진다. 정산 요청 중엔 못 바꾼다(서버도 막는다).
+        const noCostToggle = !cancelled && t.type === 'visit' && productFeatures?.reservations ? (
+          <div className="mb-3">
+            <label className="flex items-center gap-2 text-content">
+              <input type="checkbox" checked={!!t.noCost} disabled={noCostBusy || t.settlement?.status === 'requested'}
+                     onChange={(e) => {
+                       const checked = e.target.checked; setNoCostBusy(true); setNoCostError('');
+                       void apiFetch(`/api/campaigns/${campaign.id}/tasks/${t.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ noCost: checked }) })
+                         .then(async (r) => { if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? '비용 여부를 저장하지 못했어요.'); await onReservationChanged(); })
+                         .catch((err) => setNoCostError(err instanceof Error ? err.message : '비용 여부를 저장하지 못했어요.'))
+                         .finally(() => setNoCostBusy(false));
+                     }} />
+              비용 없음
+            </label>
+            <p className="mt-0.5 text-ui text-x-muted">{t.settlement?.status === 'requested' ? '정산 요청 중이라 바꿀 수 없어요' : '체크하면 금액을 비우고, 게시 확인 시 완료돼 정산 요청에서 빠져요'}</p>
+            {noCostError && <p role="alert" className="mt-1 text-ui text-red-600">{noCostError}</p>}
+          </div>
+        ) : null;
+        return <>{noCostToggle}{costBox(cc
           ? <span className={`text-content ${cc.tone === 'muted' ? 'text-x-muted' : cc.tone === 'struck' ? 'text-x-muted line-through' : ''}`}>{cc.text}</span>
-          : <>{slots.cost}</>, cancelled ? null : slots.settled);
+          : t.noCost ? <p className="text-content">비용 없음 · 정산 요청 제외</p> : <>{slots.cost}</>, cancelled ? null : slots.settled)}</>;
       }
       case 'draft': {
         if (cancelled) return <span className="text-content text-x-muted">{t.cancelledDraftTitle ? `원고 있었음: ${t.cancelledDraftTitle}` : '—'}</span>;
@@ -605,11 +765,11 @@ export function TaskPanel({
           return (
             <DraftSummaryCard title={t.draftLabel ?? '(제목 없음)'} status={t.draftStatus ? STATUS_LABEL[t.draftStatus] : null}
                               preview={t.draftPreview} image={t.draftFirstImage} quote={quoteNode} author={author}
-                              onOpen={() => setDraftMode('draft')} onDetach={() => onDetachDraft(t)} />
+                              onOpen={() => enterDraftMode()} onDetach={() => onDetachDraft(t)} />
           );
         }
         // 비어 있으면 세 입구 버튼만(설계 §10 — 도움말 없음)
-        return <DraftEntryButtons pickCount={pickCount} onPick={(tab) => { setDraftTab(tab); setDraftMode('draft'); }} />;
+        return <DraftEntryButtons pickCount={pickCount} onPick={(tab) => enterDraftMode(tab)} />;
       }
       case 'target': {
         if (!cancelled) return <>{slots.target}{targetCard(!!t.draftId)}</>;
@@ -651,7 +811,7 @@ export function TaskPanel({
                 <DateTimeBox empty={!t.scheduledOn}
                   date={<ScheduledOnField bare value={t.scheduledOn} overdueDays={taskOverdueDays(t, today)}
                                           outOfRange={isOutOfRange(t.scheduledOn, campaign.startsOn, campaign.endsOn)}
-                                          emptyLabel="미정" onChange={(next) => void actions.changeScheduledOn(t, next)} />}
+                                          onChange={(next) => void actions.changeScheduledOn(t, next)} />}
                   time={t.scheduledOn ? <TimeField key={`st:${t.scheduledTime ?? ''}`} value={t.scheduledTime} ariaLabel="게시 예정 시간"
                                                    onCommit={(next) => void actions.changeScheduledTime(t, next)} /> : null} />
               </div>
@@ -677,7 +837,13 @@ export function TaskPanel({
   }
 
   // 새 작업 칸 — 원고 칸도 그대로 쓴다(스펙 §4-1). RT는 PANEL_FIELD_ORDER.rt에 'draft'가 없어 자동으로 빠진다.
-  const newFieldOrder: PanelField[] = newType ? PANEL_FIELD_ORDER[newType] : [];
+  // 방문협찬은 예약 기능이 켜져 있으면 일정·원고 칸을 빼고 [예약하기]로 간다 — 방문일·업로드 기한은 예약(응답 파싱)이 정하고,
+  // 원고는 방문 뒤의 일이라 만든 작업 패널에서 붙인다. 기능이 꺼져 있으면(설정 적용 전) 예약이 대신할 자리가 없어 예전 칸 그대로.
+  // 이미 고른 원고(newDraft)가 있으면 원고 칸은 남긴다 — 숨기면 [만들기]가 보이지 않는 원고를 함께 붙인다.
+  const reservationMode = newType === 'visit' && productFeatures?.reservations === true;
+  const newFieldOrder: PanelField[] = newType
+    ? PANEL_FIELD_ORDER[newType].filter((f) => !(reservationMode && (f === 'dates' || (f === 'draft' && !newDraft))))
+    : [];
   function renderNewField(field: PanelField): ReactNode {
     switch (field) {
       case 'influencer':
@@ -764,7 +930,7 @@ export function TaskPanel({
                 <DateTimeBox empty={!scheduledOn}
                   date={<ScheduledOnField bare value={scheduledOn} overdueDays={null}
                                           outOfRange={isOutOfRange(scheduledOn, campaign.startsOn, campaign.endsOn)}
-                                          emptyLabel="미정" onChange={(next) => { setScheduledOn(next); if (next === null) setScheduledTime(null); }} />}
+                                          onChange={(next) => { setScheduledOn(next); if (next === null) setScheduledTime(null); }} />}
                   time={scheduledOn ? <TimeField value={scheduledTime} ariaLabel="게시 예정 시간" commitOnChange onCommit={setScheduledTime} /> : null} />
               </div>
             </div>
@@ -867,22 +1033,35 @@ export function TaskPanel({
             {task.cancelledAt && (
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-ui text-slate-600">취소된 작업이에요 — ··· 메뉴의 [되돌리기]로 살릴 수 있어요</p>
             )}
-            <StageTypeBox task={task} />
+            <StageTypeBox task={task} phase={visitPhaseNow} />
             {PANEL_FIELD_ORDER[task.type].map((field) => (
               <Fragment key={field}>
-                <PanelSection title={fieldLabel(field, task.type)}>{renderEditField(field, task)}</PanelSection>
+                {/* 방문협찬의 일정은 예약과 한 상자다(일정·예약 → 예약 변경 내역) — 예약이 없거나 예약 기능이 꺼져 있으면 기존 일정 칸 그대로.
+                    방문협찬의 예산 · 정산·원고·메모는 접히는 상자(목업 x-extension, disclosure) — 안의 모양은 그대로고 요약 줄과 접기만 붙는다. */}
+                {field === 'dates' && task.type === 'visit'
+                  ? <ReservationSection task={task} campaign={campaign} dateEditor={renderEditField('dates', task)}
+                                        onChangeDate={(field, next) => field === 'visitOn' ? actions.changeVisitOn(task, next) : actions.changeScheduledOn(task, next)}
+                                        onChanged={onReservationChanged} onDirtyChange={setReservationDirty}
+                                        onAddReservation={() => setReserveOpen(true)}
+                                        historyDisclosure={disclosure('history')} onPhase={setServerPhase} onReveal={revealSection}
+                                        onCancelTask={task.cancelledAt ? undefined : () => onCancelTask(task)} onOverlayChange={setScheduleOpen} />
+                  : field === 'cost' ? sectionBox('money', task, fieldLabel(field, task.type), renderEditField(field, task))
+                  : field === 'draft' ? sectionBox('draft', task, fieldLabel(field, task.type), renderEditField(field, task))
+                  : field === 'note' ? sectionBox('memo', task, fieldLabel(field, task.type), renderEditField(field, task))
+                  : <PanelSection title={fieldLabel(field, task.type)}>{renderEditField(field, task)}</PanelSection>}
                 {/* 협찬 동의서(063) — 방문협찬만, 일정 상자 바로 아래. 새 작업 폼엔 없다(올릴 경로가 작업 id에 묶여 있어 만든 뒤에 붙인다) */}
                 {field === 'dates' && task.type === 'visit' && (
                   // 상자(PanelSection)는 AgreementField가 그린다 — 상자 전체가 파일을 끌어다 놓는 자리라서
                   <AgreementField taskId={task.id} influencerHandle={task.influencerHandle} value={task.agreement} disabled={!!task.cancelledAt}
-                                  onChange={(next) => actions.setAgreement(task, next)} />
+                                  onChange={(next) => actions.setAgreement(task, next)} disclosure={disclosure('consent')} locked={sectionLocked} />
                 )}
               </Fragment>
             ))}
             {/* 게시 확인 — PANEL_FIELD_ORDER에 없는 칸이다(모든 유형에 있고, 취소된 작업엔 없다). 입력·값·증빙
                 칸(panel/PostedBox)는 FlowDetail의 클로저(actions·proofUrls)가 필요해 slots.posted로 받는다
-                (slots.cost와 같은 이유) — FlowDetail이 취소된 작업이면 null을 준다. */}
-            {slots.posted && <PanelSection title="게시">{slots.posted}</PanelSection>}
+                (slots.cost와 같은 이유) — FlowDetail이 취소된 작업이면 null을 준다. 방문협찬은 접히는 상자(disclosure) —
+                안의 [게시 확인]·미리보기·[✕ 진행 안 됨]·내림 표시는 그대로다. */}
+            {slots.posted && sectionBox('posting', task, '게시', slots.posted)}
           </>
         ) : (
           <>
@@ -939,16 +1118,37 @@ export function TaskPanel({
           <>
             {/* 막힌 이유만 한 줄(§10 규칙 ②) — 유형 전엔 두 버튼이 비활성이라 왜 안 눌리는지는 말한다 */}
             {!newType && <p className="text-ui text-x-muted">유형을 먼저 골라요</p>}
+            {/* 예약은 등록된 인플루언서에게만 연결된다(서버 PERSON_REQUIRED) — 누르기 전에 이유를 말한다 */}
+            {reservationMode && !handle && !handleInput.trim() && <p className="text-ui text-x-muted">인플루언서를 고르면 예약폼을 작성할 수 있어요</p>}
             <div className="ml-auto flex items-center gap-2">
               <Button onClick={() => void submitNew(true)} disabled={!newType || busy} className="h-9 px-3.5 text-ui">만들고 하나 더</Button>
-              <Button variant="primary" onClick={() => void submitNew(false)} disabled={!newType || busy} className="h-9 px-3.5 text-ui">
+              <Button variant={reservationMode ? undefined : 'primary'} onClick={() => void submitNew(false)} disabled={!newType || busy} className="h-9 px-3.5 text-ui">
                 {busy ? '만드는 중…' : '만들기'}
               </Button>
+              {/* [예약폼 작성] — 목업 '방문 예약 등록' 창(1 고객 양식 → 2 응답 파싱). 작업은 창의 마지막 저장에서 예약과 함께 만든다 */}
+              {reservationMode && (
+                <Button variant="primary" onClick={openReservation} disabled={busy || (!handle && !handleInput.trim())}
+                        title="고객 예약 양식을 보내고, 받은 응답으로 예약을 등록해요" className="h-9 px-3.5 text-ui">
+                  예약폼 작성
+                </Button>
+              )}
             </div>
           </>
         )}
       </div>
 
+      {reserveOpen && !task && handle && (
+        <NewReservationDialog campaign={campaign} handle={handle}
+                              personId={optionForHandle(handle)?.id ?? null} personName={optionForHandle(handle)?.name ?? null}
+                              createTask={createForReservation} onDone={finishReservation} onClose={() => setReserveOpen(false)} />
+      )}
+      {reserveOpen && task?.influencerHandle && (
+        <NewReservationDialog campaign={campaign} handle={task.influencerHandle}
+                              personId={optionForHandle(task.influencerHandle)?.id ?? null} personName={optionForHandle(task.influencerHandle)?.name ?? null}
+                              existing={{ label: `${TASK_TYPE_LABEL[task.type]} · @${task.influencerHandle} · 예약 전` }}
+                              createTask={() => existingTaskRef(task)}
+                              onDone={() => { setReserveOpen(false); void onReservationChanged(); }} onClose={() => setReserveOpen(false)} />
+      )}
       {/* 결제 수단 등록 창(§8-3) — body로 포털된다(PaymentMethodDialog 머리 주석). 연 순간의 스냅샷(payDialog)으로 그린다 */}
       {payDialog && (
         <PaymentMethodDialog influencerId={payDialog.influencerId} handle={payDialog.handle} isFirst={payDialog.isFirst}

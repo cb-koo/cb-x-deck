@@ -1,3 +1,4 @@
+import { productWebBoundary } from '@/lib/productWebBoundary';
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
@@ -19,12 +20,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   return NextResponse.json(detail);
 }
 
-export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
   if (!isUuidLike(id)) return notFound();
-  const body = (await req.json().catch(() => ({}))) as { note?: unknown; tags?: unknown; pricing?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { note?: unknown; tags?: unknown; pricing?: unknown; noteVersion?: number; pricingVersion?: number };
+  if ([body.noteVersion, body.pricingVersion].some((v) => v !== undefined && (!Number.isInteger(v) || v < 1)))
+    return NextResponse.json({ error: '최신 내용을 불러온 뒤 다시 저장해 주세요' }, { status: 400 });
 
   // undefined = 건드리지 않음. 값이 왔다면 형식을 여기서 확정한다(스토어는 검증하지 않는다).
   if (body.note !== undefined && typeof body.note !== 'string') {
@@ -48,10 +51,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   await updateInfluencer(sql, id, {
     note: body.note as string | undefined,
     tags: body.tags as string[] | undefined,
-  });
+  }, body.noteVersion);
   let pricingResult: Awaited<ReturnType<typeof updatePricing>> | null = null;
   if (pricingPatch !== null) {
-    pricingResult = await updatePricing(sql, id, pricingPatch, gate.member.id);
+    pricingResult = await updatePricing(sql, id, pricingPatch, gate.member.id, body.pricingVersion);
   }
   const row = await findInfluencerById(sql, id);
   return NextResponse.json(pricingResult
@@ -59,7 +62,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     : row);
 }
 
-export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+async function DELETEInternal(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
@@ -67,3 +70,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   await deleteInfluencer(getSql(), id); // 없는 행을 지워도 성공 — 삭제는 멱등
   return NextResponse.json({ ok: true });
 }
+
+export const PATCH = productWebBoundary(PATCHInternal);
+
+export const DELETE = productWebBoundary(DELETEInternal);

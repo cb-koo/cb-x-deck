@@ -1,3 +1,4 @@
+import { productWebBoundary } from '@/lib/productWebBoundary';
 import { NextResponse } from 'next/server';
 import postgres from 'postgres';
 import { getSql } from '@/lib/db';
@@ -25,7 +26,7 @@ const notFound = () => NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { st
 class TaskUpdateRaceError extends Error {}
 
 // 작업 패치(스펙 §6) — 3값 규칙. 인플 변경은 붙은 원고에도 전파(값은 하나) + 배정 자동 로그.
-export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; taskId: string }> }) {
+async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; taskId: string }> }) {
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id, taskId } = await ctx.params;
@@ -191,7 +192,7 @@ async function findSelfReplies(taskId: string, memberId: string) {
 }
 
 // 삭제 — 원고 set null·참조 set null·tracked_post.task_id set null은 FK. 멱등(이미 없으면 deleted:false).
-export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string; taskId: string }> }) {
+async function DELETEInternal(_req: Request, ctx: { params: Promise<{ id: string; taskId: string }> }) {
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id, taskId } = await ctx.params;
@@ -205,3 +206,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string;
   }
   return NextResponse.json({ ok: true, deleted: await deleteTask(sql, taskId) });
 }
+
+export const PATCH = productWebBoundary(PATCHInternal);
+
+export const DELETE = productWebBoundary(DELETEInternal);

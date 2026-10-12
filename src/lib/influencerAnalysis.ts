@@ -34,7 +34,7 @@ const TOP_SAMPLE = 10;
 const RT_TOPICS_MAX = 10;      // 저장하는 퍼나르는 주제 수(화면은 상위 5만 쓴다)
 const RT_TOPICS_SYNTH = 5;     // 종합 프롬프트에 넣는 수
 
-export const CLASSIFY_MODEL = () => process.env.ANALYSIS_CLASSIFY_MODEL ?? 'claude-haiku-4-5';
+export const CLASSIFY_MODEL = () => process.env.ANALYSIS_CLASSIFY_MODEL ?? 'claude-haiku-5-5';   // 2026-10-12 Haiku 4.5 → 5.5(suggest.ts MODEL 주석)
 export const SYNTH_MODEL = () => process.env.ANALYSIS_SYNTH_MODEL ?? 'claude-sonnet-5';
 
 export interface AnalysisChat {
@@ -267,7 +267,7 @@ async function normalizeTags(
       operation: 'anthropic.influencerNormalize', model: CLASSIFY_MODEL(),
       system: NORMALIZE_SYSTEM,
       user: '태그 목록:\n' + JSON.stringify({ direct: dCounts, rt: rCounts }),
-      maxTokens: 2000, schema: normalizeSchema,
+      maxTokens: 4000, schema: normalizeSchema,   // Haiku 5.5: 사고 토큰이 상한에 포함된다
     });
     const j = JSON.parse(text) as { direct?: unknown; rt?: unknown };
     return { direct: canonicalMap(j.direct), rt: canonicalMap(j.rt) };

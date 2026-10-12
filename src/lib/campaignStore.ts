@@ -58,6 +58,9 @@ export interface CampaignTaskItem extends TaskRow {
   replies: TaskReply[];            // 본 게시물 외에 붙은 게시물(인플 본인 댓글) — 지표 합산 안 함
   linkClicks: number | null;       // 붙은 원고의 tracking_link 최신 스냅샷 합 — 게시 여부와 무관(요약 카드 합계용, §5)
   settlement: SettlementBadge | null;   // 표의 정산 배지(정산 스펙 §4-4) — settlementByTaskIds
+  // 방문 예약(064) — null 예약 없음 · 'waiting' 대기 · 'confirmed' 확정. 예약 테이블이 없는 DB(설정 적용 전)면 칸 자체가 없다(undefined) —
+  // 그때는 표의 '대기' 표시와 카드 클릭의 예약 창을 모두 쓰지 않는다(reservationByTaskIds).
+  reservation?: 'waiting' | 'confirmed' | null;
   // 본 게시물이 X에서 안 보이기 시작한 때(확정된 것만, ISO — 1시간 뒤 다시 봐도 없을 때 처음 없던 시각, trackingStore.recordMissing).
   // 표의 '(안 보임)'·패널 딱지·내림 날짜 미리 채우기가 이 값을 쓴다. 내림 표시와는 따로다 — 내림은 사람이 정한다(2026-10-12)
   unseenSince: string | null;
@@ -342,6 +345,20 @@ function taskPostsView(postUrl: string | null, rows: PostRow[]): TaskPostsView {
 }
 type ClickRow = { draft_id: string; clicks: string | number | null };
 
+// 방문 작업의 예약 상태(064) — 읽기만 한다. 예약 기능이 꺼져 있으면(extensionProductApi.productFeatures와 같은 조건: 환경 변수,
+// 예약 테이블 존재) null(상태를 모름)을 돌려준다 — 테이블이 없는 DB에서도 캠페인 화면은 열려야 한다.
+// 예약 종료는 작업 취소로 함께 기록되므로(reservationCommands) 여기서 따로 보지 않는다.
+async function reservationByTaskIds(sql: postgres.Sql, taskIds: string[]): Promise<Map<string, 'waiting' | 'confirmed'> | null> {
+  if (process.env.EXTENSION_PRODUCT_ENABLED === 'false') return null;   // 기본 켜짐 — extensionProductApi.productFeatures와 같은 조건
+  const [{ ready }] = await sql<Array<{ ready: boolean }>>`select to_regclass('public.visit_reservation') is not null as ready`;
+  if (!ready) return null;
+  const ids = taskIds.filter(isUuidLike);
+  if (!ids.length) return new Map();
+  const rows = await sql<Array<{ task_id: string; confirmed: boolean }>>`
+    select task_id, confirmed_at is not null as confirmed from visit_reservation where task_id in ${sql(ids)}`;
+  return new Map(rows.map((r) => [r.task_id, r.confirmed ? 'confirmed' : 'waiting']));
+}
+
 export async function getCampaignDetail(
   sql: postgres.Sql, id: string, today: string = kstToday(),
 ): Promise<CampaignDetail | null> {
@@ -379,6 +396,7 @@ export async function getCampaignDetail(
   const clickMap = new Map(clickRows.map((r) => [r.draft_id, r]));
   const num = (v: string | number | null) => (v === null ? null : Number(v)); // sum(bigint)는 문자열
   const badges = await settlementByTaskIds(sql, tasks.map((t) => t.id));   // 표의 정산 배지(정산 스펙 §4-4)
+  const reservations = await reservationByTaskIds(sql, tasks.filter((t) => t.type === 'visit').map((t) => t.id));
 
   const items: CampaignTaskItem[] = tasks.map((t) => {
     const { perf, replies, unseenSince, mainCapturedAt, mainMissing } = taskPostsView(t.postUrl, postsByTask.get(t.id) ?? []);
@@ -390,6 +408,7 @@ export async function getCampaignDetail(
       replies,
       linkClicks: c ? num(c.clicks) : null,
       settlement: badges.get(t.id) ?? null,
+      ...(reservations && t.type === 'visit' ? { reservation: reservations.get(t.id) ?? null } : {}),
       unseenSince,
       // 내림 날(서울) 다음 날 이후에 잰 값이 있고 지금 안 보이는 중(확정 전 포함)이 아니면 — 그날 안의 측정은 내리기 전일 수 있어 세지 않는다
       seenAfterRemovedAt: t.removedAt && !mainMissing && mainCapturedAt && kstDate(mainCapturedAt) > t.removedAt ? mainCapturedAt : null,

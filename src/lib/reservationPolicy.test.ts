@@ -84,7 +84,7 @@ test('확정 방문일 다음 날 00:00(서울)에 방문으로 바뀌고, 대�
 });
 
 test('허용 행동: 대기·확정 전·방문 당일·방문 후·게시 후·종료를 구분한다', () => {
-  assert.deepEqual(allowedVisitActions(facts(), 0, '2026-10-20'), ['edit_reservation', 'confirm', 'cancel']);
+  assert.deepEqual(allowedVisitActions(facts(), 0, '2026-10-20'), ['edit_reservation', 'confirm', 'cancel', 'manage_consent']);
   assert.deepEqual(allowedVisitActions(confirmed(), 0, '2026-10-20'), ['edit_reservation', 'cancel', 'manage_consent']);
   assert.deepEqual(allowedVisitActions(confirmed(), 0, '2026-10-28'), [
     'edit_reservation', 'cancel', 'complete_visit', 'visit_no_show', 'manage_consent',
@@ -93,7 +93,7 @@ test('허용 행동: 대기·확정 전·방문 당일·방문 후·게시 후·
   assert.deepEqual(allowedVisitActions(confirmed({ visitCompletedAt: 'x' }), 0, '2026-10-28'), ['edit_reservation', 'visit_no_show', 'upload_no_show', 'manage_consent']);
   assert.deepEqual(allowedVisitActions(confirmed({ postedAt: 'x' }), 0, '2026-10-29'), ['correct_reservation', 'manage_consent']);
   assert.deepEqual(allowedVisitActions(confirmed({ endKind: 'cancelled' }), 0, '2026-10-20'), []);
-  assert.deepEqual(allowedVisitActions(confirmed({ postedAt: 'x', noCost: true }), 0, '2026-10-29'), []);
+  assert.deepEqual(allowedVisitActions(confirmed({ postedAt: 'x', noCost: true }), 0, '2026-10-29'), ['manage_consent']);
 });
 
 test('예약 없는 기존 방문 작업: 예약 추가 + 방문 전이면 취소, 방문 기록이 지났으면 업로드 노쇼', () => {

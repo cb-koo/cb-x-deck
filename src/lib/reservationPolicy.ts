@@ -57,7 +57,7 @@ export type VisitAction =
   | 'confirm_post'
   | 'visit_no_show'
   | 'upload_no_show'
-  | 'manage_consent'
+  | 'manage_consent'        // 동의서 첨부·교체·제거 — 취소·노쇼로 끝나기 전 어느 단계든(웹 레거시 정책, parity 문서 D-1)
   | 'stop_for_change_limit';
 
 // 판정에 필요한 사실만. 모두 저장된 값에서 뽑는다 — 클라이언트가 보낸 phase·count·paid는 받지 않는다(API 계획 §6).
@@ -108,7 +108,7 @@ export function allowedVisitActions(f: VisitTaskFacts, requestCount: number, tod
     case 'unregistered':
       return legacyVisited(f, today) ? ['add_reservation', 'upload_no_show'] : ['add_reservation', 'cancel'];
     case 'waiting':
-      return withStop(['edit_reservation', 'confirm', 'cancel']);
+      return withStop(['edit_reservation', 'confirm', 'cancel', 'manage_consent']);
     case 'confirmed': {
       const visitDay = !!f.reservation && visitDateOf(f.reservation.visitAt) === today;
       return withStop([
@@ -124,6 +124,9 @@ export function allowedVisitActions(f: VisitTaskFacts, requestCount: number, tod
     case 'uploaded':
     case 'settling':
       return ['correct_reservation', 'manage_consent'];
+    // 완료된 작업도 동의서는 챙길 수 있다 — 웹 동의서 칸은 취소된 작업(cancelled_at)만 막는다. 취소·노쇼 종료는 아래 default.
+    case 'completed':
+      return ['manage_consent'];
     default:
       return [];
   }

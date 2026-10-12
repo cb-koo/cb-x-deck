@@ -22,7 +22,8 @@ async function editable(tx: postgres.Sql, id: string, expected: number) {
   if (!reservation) throw productMissing();
   expectVersion(reservation.version, expected);
   const detail = await reservationDetail(tx, id, '');
-  if (!detail.allowedActions.includes('manage_consent')) throw new ProductError('STATE_CHANGED', '확정 후 진행 중인 예약에서 동의서를 변경할 수 있어요.', 409);
+  // 취소·노쇼로 끝난 예약만 막는다 — 대기·완료를 포함한 나머지 단계는 웹 동의서 칸과 같이 허용(parity 문서 D-1, 2026-10-07).
+  if (!detail.allowedActions.includes('manage_consent')) throw new ProductError('STATE_CHANGED', '취소되거나 노쇼로 끝난 예약에는 동의서를 변경할 수 없어요.', 409);
   return reservation;
 }
 export async function createAgreementUpload(tx: postgres.Sql, req: Request, id: string, raw: unknown, expected: number, actor: Member) {

@@ -4,12 +4,12 @@ import type { Member } from './types.ts';
 import { isUuidLike } from './uuid.ts';
 import { kstToday } from './datetime.ts';
 import { readClientSheetInputs, updateClientSheetInput, validDateTime, formatReservationName, splitReservationName, type ClientSheetEditFields } from './reservationSheet.ts';
-import { allowedVisitActions, applyDeadlineMode, checkCompleteVisit, checkEnd, checkStopForChangeLimit,
-  planReservationSave, STOP_FOR_LIMIT_REASON, visitPhase, type ChangeReason, type DeadlineMode, type ReservationEndKind } from './reservationPolicy.ts';
+import { allowedVisitActions, applyDeadlineMode, checkCompleteVisit, checkEnd, checkStopForChangeLimit, planReservationSave,
+  RESERVATION_END_KINDS, STOP_FOR_LIMIT_REASON, visitPhase, type ChangeReason, type DeadlineMode, type ReservationEndKind } from './reservationPolicy.ts';
 import { expectVersion, jsonValue, objectBody, ProductError, productMissing, productOperation, textValue, versionHeader } from './productCommand.ts';
 import { readReservation, reservationDetail, taskFact } from './reservationStore.ts';
-import { cancelledDraftTitle, logTaskDeclined, updateTask } from './campaignTaskStore.ts';   // 한 방향 의존 — campaignTaskStore는 이 파일을 모른다
-import { normalizeTargetTweetUrl, POST_URL_MESSAGE, type CancelReason } from './campaignTaskInput.ts';
+import { logTaskDeclined, markTaskCancelled, updateTask } from './campaignTaskStore.ts';   // 한 방향 의존 — campaignTaskStore는 이 파일을 모른다
+import { normalizeTargetTweetUrl, parseCancelBody, POST_URL_MESSAGE, type CancelReason } from './campaignTaskInput.ts';
 import type { TaskType } from './campaignJudgment.ts';
 import { attachFetchedPostToTask, AuthorRejected } from './postAttach.ts';
 import { authorVerdictMessage } from './postAuthor.ts';
@@ -152,25 +152,32 @@ export async function saveReservation(sql: postgres.Sql, req: Request, actor: Me
   });
 }
 
+// ─────────────────────────── 종료(취소·노쇼) ───────────────────────────
+// 입력은 웹 작업 취소 창('진행 안 됨')과 같은 모양: 사유 칩(거절·무응답·기타, 선택) + 한 줄 메모(선택). 종료 종류는 서버가 단계로 정한다 —
+// 취소 가능하면 '취소', 아니면 '업로드 노쇼'(방문했는데 진행이 안 됨), 그다음 방문일 당일만 가능한 '방문 노쇼'(parity 문서 D-3, 2026-10-07).
+// kind는 선택 — 익스텐션이 '방문 노쇼'를 명시해야 할 때만 보낸다(결정 대기). 보내면 그 종류를 단계 규칙(checkEnd)으로 검증한다.
+export interface EndTaskInput { reason: CancelReason | null; note: string; kind?: ReservationEndKind }
+const CANCEL_REASON_TEXT: Record<CancelReason, string> = { declined: '거절', no_response: '무응답', other: '기타' };
+export function parseEndBody(raw: unknown): EndTaskInput {
+  const body = objectBody(raw), parsed = parseCancelBody(body);
+  if (!parsed.ok) throw new ProductError('INVALID_INPUT', '취소 사유는 거절·무응답·기타 중에서 골라 주세요.');
+  if (body.kind !== undefined && !RESERVATION_END_KINDS.includes(body.kind as ReservationEndKind)) throw new ProductError('INVALID_INPUT', '종료 종류를 확인해 주세요.');
+  if (parsed.value.note.length > 3000) throw new ProductError('INVALID_INPUT', '메모는 3000자 안으로 적어 주세요.');
+  return { ...parsed.value, kind: body.kind as ReservationEndKind | undefined };
+}
+
 // 작업 패널 [진행 안 됨](작업 취소 창, 웹)이 예약이 연결된 방문 작업을 취소할 때 — 일반 취소(cancelTask)는 reservationWriteGuard가 거절하므로
-// 같은 창의 입력(사유 칩·메모)으로 예약 종료를 기록한다. 종류는 지금 단계에서 허용되는 것: 방문 전이면 '예약 취소', 방문 뒤면 '업로드 노쇼'
-// (방문했는데 진행이 안 된 것), 방문일 당일만 가능한 '방문 노쇼'는 그 다음. 종료 사유는 메모 → 사유 칩 글자 → '진행 안 됨' 순으로 채운다(서버가 빈 사유를 거절한다).
-// 예약 기록이 없는 작업이면 false — 호출한 쪽이 예전 취소를 그대로 한다. 버전·요청 번호는 여기서 만든다(화면은 작업 취소 창이라 모른다).
-const CANCEL_REASON_TEXT: Record<string, string> = { declined: '거절', no_response: '무응답', other: '기타' };
+// 같은 창의 입력으로 /end와 같은 종료 명령을 돌린다. 예약 기록이 없는 작업이면 false — 호출한 쪽이 예전 취소를 그대로 한다.
+// 버전·요청 번호는 여기서 만든다(화면은 작업 취소 창이라 모른다). 종류 판정은 명령 안(잠근 최신 행)에서 한다.
 export async function endReservedTaskByCancel(sql: postgres.Sql, req: Request, actor: Member, taskId: string,
-  input: { reason: string | null; note: string }): Promise<boolean> {
+  input: { reason: CancelReason | null; note: string }): Promise<boolean> {
   const [schema] = await sql<Array<{ ready: boolean }>>`select to_regclass('visit_reservation') is not null as ready`;
   if (!schema.ready) return false;
   const [state] = await sql<Array<{ reserved: boolean; version: number | null }>>`select
     exists(select 1 from visit_reservation where task_id = ${taskId}) as reserved, (select version from campaign_task where id = ${taskId}) as version`;
   if (!state?.reserved || state.version === null) return false;
-  const { fact } = await taskFact(sql, taskId);
-  const allowed = allowedVisitActions(fact, fact.requestCount, kstToday());
-  const kind: ReservationEndKind | null = allowed.includes('cancel') ? 'cancelled' : allowed.includes('upload_no_show') ? 'upload_no_show' : allowed.includes('visit_no_show') ? 'visit_no_show' : null;
-  if (!kind) throw new ProductError('STATE_CHANGED', '지금 단계에서는 취소할 수 없어요. 예약 상세를 확인해 주세요.', 409);
-  const reason = input.note.trim() || (input.reason ? CANCEL_REASON_TEXT[input.reason] : '') || '진행 안 됨';
   const synthetic = new Request(req.url, { method: 'POST', headers: { 'if-match': `"${state.version}"`, 'idempotency-key': `cancel-${randomUUID()}` } });
-  await visitTaskCommand(sql, synthetic, actor, taskId, { kind, reason }, 'end', undefined, { reason: (input.reason as CancelReason | null) ?? null });
+  await visitTaskCommand(sql, synthetic, actor, taskId, { reason: input.reason, note: input.note }, 'end');
   return true;
 }
 
@@ -204,10 +211,10 @@ export async function confirmVisitPost(sql: postgres.Sql, req: Request, actor: M
   }
 }
 
-// cancelInput — 웹의 작업 취소 창에서 온 종료(endReservedTaskByCancel): 일반 취소(cancelTask)와 같게 사유 칩을 남기고 원고를 떼며(스냅샷) 거절·무응답을 타임라인에 적는다.
 export async function visitTaskCommand(sql: postgres.Sql, req: Request, actor: Member, taskId: string, raw: unknown,
-  command: 'end' | 'complete-visit' | 'stop-for-change-limit', reservationId?: string, cancelInput?: { reason: CancelReason | null }) {
+  command: 'end' | 'complete-visit' | 'stop-for-change-limit', reservationId?: string) {
   uuid(taskId); const body = objectBody(raw), expected = versionHeader(req);
+  const endInput = command === 'end' ? parseEndBody(body) : null;   // 입력 모양은 트랜잭션 전에 거른다
   return productOperation(sql, actor, req, body, async (tx, operationId) => {
     const task = await lockReservationTask(tx, taskId);
     const rows = await tx<Array<{ id: string; version: number; sheet_text: string }>>`select id, version, sheet_text from visit_reservation where task_id = ${taskId} for update`;
@@ -215,35 +222,36 @@ export async function visitTaskCommand(sql: postgres.Sql, req: Request, actor: M
     if (reservationId && reservation?.id !== reservationId) throw productMissing();
     expectVersion(command === 'stop-for-change-limit' ? reservation?.version ?? 0 : task.version, expected);
     const { fact } = await taskFact(tx, taskId), today = kstToday();
+    const snapshot = () => tx.json(jsonValue({ visitOn: fact.visitOn, scheduledOn: fact.scheduledOn, cost: fact.cost, visitPhase: visitPhase(fact, today), visitCompletedAt: fact.visitCompletedAt }));
     if (command === 'complete-visit') {
       policy(checkCompleteVisit(fact, fact.requestCount, today));
       await tx`update campaign_task set visit_completed_at = now(), visit_completed_by = ${actor.id}, updated_at = now() where id = ${taskId}`;
-    } else {
-      let kind: string, reason: string;
-      if (command === 'stop-for-change-limit') {
-        policy(checkStopForChangeLimit(fact, fact.requestCount, today));
-        if (!reservation) throw productMissing();
-        kind = 'change_limit'; reason = STOP_FOR_LIMIT_REASON;
-        await tx`insert into reservation_change (reservation_id, event, reason, request_no, sheet_before, sheet_after, actor_id, actor_name, operation_id)
-          values (${reservation.id}, 'stop', 'customer_request', 4, ${reservation.sheet_text}, ${reservation.sheet_text}, ${actor.id}, ${actor.name}, ${operationId})`;
-      } else {
-        if (!['cancelled', 'visit_no_show', 'upload_no_show'].includes(String(body.kind))) throw new ProductError('INVALID_INPUT', '종료 종류를 선택해 주세요.');
-        const end = policy(checkEnd(fact, fact.requestCount, body.kind as ReservationEndKind, textValue(body.reason, '종료 사유', 3000), today));
-        kind = end.kind; reason = end.reason;
-      }
+    } else if (command === 'stop-for-change-limit') {
+      policy(checkStopForChangeLimit(fact, fact.requestCount, today));
+      if (!reservation) throw productMissing();
+      await tx`insert into reservation_change (reservation_id, event, reason, request_no, sheet_before, sheet_after, actor_id, actor_name, operation_id)
+        values (${reservation.id}, 'stop', 'customer_request', 4, ${reservation.sheet_text}, ${reservation.sheet_text}, ${actor.id}, ${actor.name}, ${operationId})`;
       await tx`insert into reservation_end (task_id, reservation_id, kind, reason, snapshot, ended_by, ended_by_name)
-        values (${taskId}, ${reservation?.id ?? null}, ${kind}, ${reason}, ${tx.json(jsonValue({ visitOn: fact.visitOn, scheduledOn: fact.scheduledOn, cost: fact.cost,
-          visitPhase: visitPhase(fact, today), visitCompletedAt: fact.visitCompletedAt }))}, ${actor.id}, ${actor.name})`;
-      if (cancelInput) {
-        const [cur] = await tx<Array<{ draft_id: string | null }>>`select draft_id from campaign_task where id = ${taskId}`;
-        const title = await cancelledDraftTitle(tx, cur?.draft_id ?? null);
-        await tx`update campaign_task set cancelled_at = ${today}::date, cancel_reason = ${cancelInput.reason ?? 'other'}, cancel_note = ${reason},
-          draft_id = null, cancelled_draft_id = ${cur?.draft_id ?? null}, cancelled_draft_title = ${title}, updated_at = now() where id = ${taskId}`;
-        if ((cancelInput.reason === 'declined' || cancelInput.reason === 'no_response') && task.influencer_handle) {
-          await logTaskDeclined(tx, { handle: task.influencer_handle, taskId, campaignId: task.campaign_id, taskType: task.type as TaskType, reason: cancelInput.reason, action: 'cancel', actorId: actor.id });
-        }
-      } else {
-        await tx`update campaign_task set cancelled_at = ${today}::date, cancel_reason = 'other', cancel_note = ${reason}, updated_at = now() where id = ${taskId}`;
+        values (${taskId}, ${reservation.id}, 'change_limit', ${STOP_FOR_LIMIT_REASON}, ${snapshot()}, ${actor.id}, ${actor.name})`;
+      await tx`update campaign_task set cancelled_at = ${today}::date, cancel_reason = 'other', cancel_note = ${STOP_FOR_LIMIT_REASON}, updated_at = now() where id = ${taskId}`;
+    } else {
+      // 종료 = 웹 작업 취소와 같은 효과: 취소 컬럼(사유 칩·메모)·원고 떼기·거절/무응답 타임라인. 예약이 있으면 종료 기록(reservation_end)을 더해
+      // 되돌릴 수 없게 하고, 예약 없는 방문 작업은 일반 취소와 똑같이 두어 되돌리기(restore)가 된다(reservationWriteGuard는 종료 기록만 본다).
+      const input = endInput!, allowed = allowedVisitActions(fact, fact.requestCount, today);
+      const reason = input.note || (input.reason ? CANCEL_REASON_TEXT[input.reason] : '') || '진행 안 됨';
+      if (reservation) {
+        const kind = input.kind ?? (allowed.includes('cancel') ? 'cancelled' : allowed.includes('upload_no_show') ? 'upload_no_show' : allowed.includes('visit_no_show') ? 'visit_no_show' : null);
+        if (!kind) throw new ProductError('STATE_CHANGED', '지금 단계에서는 취소할 수 없어요. 예약 상세를 확인해 주세요.', 409);
+        const end = policy(checkEnd(fact, fact.requestCount, kind, reason, today));
+        await tx`insert into reservation_end (task_id, reservation_id, kind, reason, snapshot, ended_by, ended_by_name)
+          values (${taskId}, ${reservation.id}, ${end.kind}, ${end.reason}, ${snapshot()}, ${actor.id}, ${actor.name})`;
+      } else if (!allowed.includes('cancel') && !allowed.includes('upload_no_show')) {
+        throw new ProductError('STATE_CHANGED', '지금 단계에서는 취소할 수 없어요. 작업 상태를 확인해 주세요.', 409);
+      }
+      if (!(await markTaskCancelled(tx, taskId, { reason: input.reason, note: input.note, today })))
+        throw new ProductError('STATE_CHANGED', '이미 게시됐거나 취소된 작업이에요. 최신 내용을 확인해 주세요.', 409);
+      if ((input.reason === 'declined' || input.reason === 'no_response') && task.influencer_handle) {
+        await logTaskDeclined(tx, { handle: task.influencer_handle, taskId, campaignId: task.campaign_id, taskType: task.type as TaskType, reason: input.reason, action: 'cancel', actorId: actor.id });
       }
     }
     if (reservation) {

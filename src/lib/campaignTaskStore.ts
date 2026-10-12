@@ -487,18 +487,25 @@ export async function cancelTask(
     await reservationWriteGuard(tx, id, 'cancel');
     if (cur[0].cancelled_at) return 'already';
     if (cur[0].posted_at) return 'posted';
-    const draftId = cur[0].draft_id;
-    const title = await cancelledDraftTitle(tx, draftId);
-    const rows = await tx`update campaign_task set
-        cancelled_at = ${input.today}::date, cancel_reason = ${input.reason}, cancel_note = ${input.note},
-        draft_id = null, cancelled_draft_id = ${draftId}, cancelled_draft_title = ${title}, updated_at = now()
-      where id = ${id} and posted_at is null and cancelled_at is null returning id`;
-    if (rows.length === 0) return 'posted';   // 그 사이 게시 확인이 들어왔다
+    if (!(await markTaskCancelled(tx, id, input))) return 'posted';   // 그 사이 게시 확인이 들어왔다
     if ((input.reason === 'declined' || input.reason === 'no_response') && cur[0].influencer_handle) {
       await logTaskDeclined(tx, { handle: cur[0].influencer_handle, taskId: id, campaignId: cur[0].campaign_id, taskType: cur[0].type, reason: input.reason, action: 'cancel', actorId: input.actorId });
     }
     return 'ok';
   });
+}
+
+// 취소 컬럼 + 원고 떼기 + 제목 스냅샷 한 묶음 — cancelTask(일반 취소)와 예약 종료(reservationCommands의 /end·웹 취소 창)가 같은 효과를 낸다.
+// 조건부 UPDATE(posted_at is null and cancelled_at is null)라 그 사이 게시 확인이 들어오면 false — 호출한 쪽이 처리한다. 타임라인 로그는 호출한 쪽.
+export async function markTaskCancelled(tx: postgres.Sql, id: string, input: { reason: CancelReason | null; note: string; today: string }): Promise<boolean> {
+  const [cur] = await tx<Array<{ draft_id: string | null }>>`select draft_id from campaign_task where id = ${id}`;
+  const draftId = cur?.draft_id ?? null;
+  const title = await cancelledDraftTitle(tx, draftId);
+  const rows = await tx`update campaign_task set
+      cancelled_at = ${input.today}::date, cancel_reason = ${input.reason}, cancel_note = ${input.note},
+      draft_id = null, cancelled_draft_id = ${draftId}, cancelled_draft_title = ${title}, updated_at = now()
+    where id = ${id} and posted_at is null and cancelled_at is null returning id`;
+  return rows.length > 0;
 }
 
 // 취소되는 작업에서 떼는 원고의 제목 스냅샷(cancelled_draft_title) — 되돌리기 안내용. cancelTask와 예약 종료(reservationCommands)가 같은 규칙을 쓴다.

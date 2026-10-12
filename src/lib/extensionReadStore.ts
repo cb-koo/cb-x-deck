@@ -61,7 +61,7 @@ type FactRow = {
   has_consent: boolean;
   created_at: string;
   target_task_id: string | null; target_tweet_url: string | null; target_handle: string | null; target_post_url: string | null; target_campaign_name: string | null;
-  visit_completed_at: string | null;
+  visit_completed_at: string | null; settled_elsewhere_at: string | null;
   r_id: string | null; r_confirmed: boolean | null; r_sheet: string | null; r_deadline_mode: DeadlineMode | null;
   end_kind: StoredEndKind | null; request_count: number;
 };
@@ -77,6 +77,7 @@ export async function loadTaskFacts(sql: postgres.Sql, handles: string[]): Promi
            to_char(t.cancelled_at, 'YYYY-MM-DD') as cancelled_at,
            to_char(t.scheduled_on, 'YYYY-MM-DD') as scheduled_on, to_char(t.visit_on, 'YYYY-MM-DD') as visit_on,
            t.cost, t.no_cost, t.version, t.visit_completed_at::text as visit_completed_at,
+           to_char(t.settled_elsewhere_at, 'YYYY-MM-DD') as settled_elsewhere_at,
            (t.agreement is not null) as has_consent,
            r.id as r_id, (r.confirmed_at is not null) as r_confirmed, r.sheet_text as r_sheet, r.deadline_mode as r_deadline_mode,
            e.kind as end_kind,
@@ -105,6 +106,7 @@ export async function loadTaskFacts(sql: postgres.Sql, handles: string[]): Promi
       hasConsent: r.has_consent,
       visitCompletedAt: r.visit_completed_at,
       settlement: s ? { status: s.status, externalStatus: s.externalStatus } : null,
+      settledElsewhereAt: r.settled_elsewhere_at,
       endKind: r.end_kind,
       reservation: r.r_id ? {
         confirmed: !!r.r_confirmed,

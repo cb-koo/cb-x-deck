@@ -13,7 +13,7 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
-    date: '2026-10-13', type: '새 기능',
+    date: '2026-10-12', type: '새 기능',
     title: '협찬 게시물이 X에서 사라지면 캠페인 화면에서 바로 알 수 있어요',
     summary: '인플이 글을 지우거나 계정을 잠가도 지금까지는 담당자가 알 길이 없었어요. 이제 게시 후 7일 동안 글이 X에서 안 보이면 작업 표·작업 패널·정산 화면에 표시해요. 내림으로 정하는 건 지금처럼 사람이 해요.',
     bullets: [

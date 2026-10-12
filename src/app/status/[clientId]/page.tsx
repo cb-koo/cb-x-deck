@@ -167,7 +167,7 @@ function Detail({ s, onSaved, onPeriod }: { s: ClientStatus; onSaved: (r: Review
         <ChartCard icon={Icon.calendar} title="예약 매출 · 주별" value={`${man(res.revenue4)}원`} valueSub={`최근 4주차 ${mdLabel(s.weeks[n - 4])}~${mdLabel(s.baseWeek.end)} · 접수일 기준`}
           delta={<Delta diff={Math.round((res.revenue4 - res.revenuePrev4) / 1e4)} unit="만" good="up" base={`직전 4주 ${man(res.revenuePrev4)}원`} />}
           headline={revenueHeadline(res.revenue4, res.revenuePrev4, res.visitRevenue4)}
-          info={{ what: 'LINE으로 들어온 예약의 금액(클리닉 전체)', read: ['막대 = 접수일 기준 — 그 주에 받은 예약 금액(확정+방문)', '선 = 방문일 기준 — 그 주에 실제 방문한 금액', '점선 = 최근 2주 — 접수일 기준은 취소·실주로 줄 수 있고, 방문일 기준은 방문이 이어져 늘어요'], calc: ['금액은 예약 금액(실제 결제 금액이 아님)', '예약에서 방문까지 가운데값 약 2주'] }}>
+          info={{ what: 'LINE으로 들어온 예약의 금액(클리닉 전체)', read: ['막대 = 접수일 기준 — 그 주에 받은 예약 금액(확정+방문)', '선 = 방문일 기준 — 그 주에 실제 방문한 금액', '점선 = 최근 2주 — 접수일 기준은 취소·불발로 줄 수 있고, 방문일 기준은 방문이 이어져 늘어요'], calc: ['금액은 예약 금액(실제 결제 금액이 아님)', '예약에서 방문까지 가운데값 약 2주'] }}>
           <RevenueWeeks labels={labels} created={s.revenueCreated.slice(-WEEKS_SHOWN)} visit={s.revenueVisit.slice(-WEEKS_SHOWN)} days={days8} />
         </ChartCard>
         <ChartCard icon={Icon.bookmark} title="작업 비용 대비 매출 · 4주"
@@ -195,9 +195,9 @@ function Detail({ s, onSaved, onPeriod }: { s: ClientStatus; onSaved: (r: Review
         </ChartCard>
 
         <ChartCard icon={Icon.list} title={`예약 상태 · ${mdLabel(res.settled.from)}~${mdLabel(res.settled.to)} 접수`}
-          value={res.settled.lostRate === null ? '—' : `실주 ${Math.round(res.settled.lostRate * 100)}%`}
-          headline={res.settled.lostRate === null ? '예약이 5건 미만이라 실주율을 보지 않아요' : res.settled.lostRate >= 0.4 ? '예약 문의의 상당수가 성사되지 않았어요' : '실주는 낮은 편이에요'}
-          info={{ what: '그 4주에 접수된 예약이 지금 어떤 상태인지', calc: ['최근 2주는 빼요 — 실주는 CS가 후속 연락 뒤에 표시해 늦게 정리돼요', '실주율 = 실주 ÷ 전체 예약 건수'], read: [`방문 예정 확정 예약 ${res.upcomingConfirmed ?? '—'}건(지금 기준)`] }}>
+          value={res.settled.lostRate === null ? '—' : `불발 ${Math.round(res.settled.lostRate * 100)}%`}
+          headline={res.settled.lostRate === null ? '예약이 5건 미만이라 불발률을 보지 않아요' : res.settled.lostRate >= 0.4 ? '예약 문의의 상당수가 성사되지 않았어요' : '불발은 낮은 편이에요'}
+          info={{ what: '그 4주에 접수된 예약이 지금 어떤 상태인지', calc: ['불발 = 문의는 왔지만 예약이 성사되지 않은 건(CS가 표시) — 취소·노쇼와는 달라요', '최근 2주는 빼요 — 불발은 CS가 후속 연락 뒤에 표시해 늦게 정리돼요', '불발률 = 불발 ÷ 전체 예약 건수'], read: [`방문 예정 확정 예약 ${res.upcomingConfirmed ?? '—'}건(지금 기준)`] }}>
           <StatusBar c={res.settled.status} />
         </ChartCard>
       </div>
@@ -280,7 +280,7 @@ function revenueHeadline(now: number, prev: number, visit: number): string {
   return r >= 10 ? `직전 4주보다 ${r}% 늘었어요` : r <= -10 ? `직전 4주보다 ${-r}% 줄었어요` : '직전 4주와 비슷해요';
 }
 
-// 확정 당시 → 지금 — 예약 데이터는 나중에 바뀐다(실주 표시·취소). 바뀐 숫자만 칩으로, 없으면 한 줄.
+// 확정 당시 → 지금 — 예약 데이터는 나중에 바뀐다(불발 표시·취소). 바뀐 숫자만 칩으로, 없으면 한 줄.
 function SnapshotDiff({ s }: { s: ClientStatus }) {
   const snap = s.review?.snapshot;
   if (!snap) return null;
@@ -292,7 +292,7 @@ function SnapshotDiff({ s }: { s: ClientStatus }) {
     ['예약 · 4주차', `${snap.reservers4}명`, `${s.reservers4}명`],
     ['예약 매출 · 4주차', `${man(snap.revenue4)}원`, `${man(s.result.revenue4)}원`],
     ['비용 대비 매출', x(snap.roas4), x(s.result.roas4)],
-    ['실주율', pct(snap.lostRate), pct(s.result.settled.lostRate)],
+    ['불발률', pct(snap.lostRate), pct(s.result.settled.lostRate)],
   ];
   const changed = items.filter(([, a, b]) => a !== b);
   return (

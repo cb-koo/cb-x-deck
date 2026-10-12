@@ -43,7 +43,7 @@ export interface ResultSummary {
   cost4: number; costPrev4: number;              // 우리 작업 비용(게시일 기준, 엔 ×10)
   roas4: number | null; roasPrev4: number | null; // 매출 ÷ 작업 비용 — 비용 0이면 null
   status4: StatusCounts;                         // 최근 4주 예약 상태 합
-  settled: { status: StatusCounts; lostRate: number | null; from: string; to: string };   // 실주가 정리된 4주(2주 이상 지난 주)
+  settled: { status: StatusCounts; lostRate: number | null; from: string; to: string };   // 불발이 정리된 4주(2주 이상 지난 주)
   upcomingConfirmed: number | null;              // 방문 예정 확정 예약(최신 주 값)
 }
 
@@ -301,7 +301,7 @@ const ZERO: StatusCounts = { visited: 0, confirmed: 0, reviewing: 0, lost: 0, ca
 const addCounts = (a: StatusCounts, b: StatusCounts | null): StatusCounts => (b ? {
   visited: a.visited + b.visited, confirmed: a.confirmed + b.confirmed, reviewing: a.reviewing + b.reviewing,
   lost: a.lost + b.lost, cancelled: a.cancelled + b.cancelled, noshow: a.noshow + b.noshow } : a);
-const SETTLE_WEEKS = 2;   // 실주는 CS가 후속 연락 뒤에 표시해 늦게 정리된다 — 최근 2주는 실주율에서 뺀다
+const SETTLE_WEEKS = 2;   // 불발은 CS가 후속 연락 뒤에 표시해 늦게 정리된다 — 최근 2주는 불발률에서 뺀다
 
 /** 결과 구간 4주 요약 — 매출은 접수일 기준이 대표, 비용은 우리 작업 비용(게시일 기준). 비용 0인 기간의 비율은 null(—). */
 export function summarizeResult(weeks: Array<{ start: string; end: string }>, revCreated: Array<number | null>, revVisit: Array<number | null>, cost: number[],

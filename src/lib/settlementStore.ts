@@ -56,7 +56,7 @@ export async function lastQuoteRtCategory(sql: postgres.Sql, requesterMemberId: 
   return rows.length ? rows[0].category : null;
 }
 
-type CandRow = {
+export type CandRow = {
   id: string; type: TaskType; influencer_handle: string; cost: unknown; post_url: string | null; target_tweet_url: string | null;
   target_post_url: string | null; posted_at: string; removed_at: string | null; removed_reason: string; draft_label: string | null;
   campaign_id: string; campaign_name: string; kind: CampaignKind | null; client_id: string | null; client_name: string | null;
@@ -64,6 +64,10 @@ type CandRow = {
   has_agreement: boolean;   // 협찬 동의서 유무만(063) — 파일 정보는 읽지 않는다(정산 쪽으로 가지 않는다, koo 결정 5)
   campaign_starts_on: string; campaign_ends_on: string;   // 요청 스냅샷용 캠페인 기간(054)
   unseen_on: string | null;   // 본 게시물이 X에서 안 보이기 시작한 날(서울) — 경고 판정에만(2026-10-12)
+  // 자동 전송(070, 스펙 2026-10-12) — 판정·표시에만. 요청 스냅샷에는 들어가지 않는다
+  posted_confirmed_at: Date | null; settle_hold_at: Date | null; settle_hold_by_name: string | null; settle_hold_reason: string | null;
+  auto_requester_id: string | null; auto_requester_name: string | null;   // 작업 만든 사람 → 없으면 캠페인 만든 사람
+  last_cancel_at: Date | null; last_cancel_by_name: string | null; last_cancel_reason: string | null;   // 가장 최근 취소된 요청(활성 요청이 없을 때만 의미)
 };
 // 후보 조건은 campaignJudgment.isSettlementCandidate와 같은 정의 — 스토어 테스트가 대조한다
 const CANDIDATE_BASE = (sql: postgres.Sql) => sql`
@@ -75,16 +79,23 @@ const CANDIDATE_BASE = (sql: postgres.Sql) => sql`
          i.id as influencer_id, i.payment_methods,
          (select to_char(min(tp.unavailable_at) at time zone 'Asia/Seoul', 'YYYY-MM-DD') from tracked_post tp
            where tp.task_id = t.id and t.post_url ~ ('/status/' || tp.tweet_id || '([/?#]|$)')
-             and tp.missing_since is not null) as unseen_on   -- 새 규칙(두 번 확인)으로 확정된 것만 — 옛 한 번짜리 기록은 뺀다(캠페인 화면과 같다)
+             and tp.missing_since is not null) as unseen_on,   -- 새 규칙(두 번 확인)으로 확정된 것만 — 옛 한 번짜리 기록은 뺀다(캠페인 화면과 같다)
+         t.posted_confirmed_at, t.settle_hold_at, t.settle_hold_by_name, t.settle_hold_reason,
+         coalesce(tm.id, cm.id) as auto_requester_id, coalesce(tm.name, cm.name) as auto_requester_name,
+         lc.cancelled_at as last_cancel_at, lc.cancelled_by_name as last_cancel_by_name, lc.cancel_reason as last_cancel_reason
     from campaign_task t
     join campaign c on c.id = t.campaign_id
     left join campaign_task tg on tg.id = t.target_task_id
     left join draft d on d.id = t.draft_id
     left join influencer i on lower(i.handle) = lower(t.influencer_handle)
+    left join member tm on tm.id = t.created_by
+    left join member cm on cm.id = c.created_by
+    left join lateral (select r.cancelled_at, r.cancelled_by_name, r.cancel_reason from payment_request r
+                        where r.task_id = t.id and r.status = 'cancelled' order by r.cancelled_at desc nulls last limit 1) lc on true
    where t.cancelled_at is null and t.settled_elsewhere_at is null
      and t.posted_at is not null and t.cost is not null and t.influencer_handle is not null`;
 // 검토 대기 목록용 — 활성 요청이 있는 작업은 뺀다. 제자리 수정(reviseRequest)은 활성 요청의 작업을 다시 계산해야 하므로 CANDIDATE_BASE를 쓴다.
-const CANDIDATE_SQL = (sql: postgres.Sql) => sql`${CANDIDATE_BASE(sql)}
+export const CANDIDATE_SQL = (sql: postgres.Sql) => sql`${CANDIDATE_BASE(sql)}
      and not exists (select 1 from payment_request r where r.task_id = t.id and r.status = 'requested')`;
 
 export async function listCandidates(
@@ -102,7 +113,7 @@ export async function listCandidates(
   }
   return out;
 }
-function rowToCandidate(r: CandRow, cost: TaskCost, settings: SettlementSettings, lastQ: string | null, today: string): SettlementCandidate {
+export function rowToCandidate(r: CandRow, cost: TaskCost, settings: SettlementSettings, lastQ: string | null, today: string): SettlementCandidate {
   const methods = Array.isArray(r.payment_methods) ? (r.payment_methods as PaymentMethod[]) : [];
   return computeCandidate({
     task: { id: r.id, type: r.type, influencerHandle: r.influencer_handle, cost, postUrl: r.post_url, targetTweetUrl: r.target_tweet_url, targetPostUrl: r.target_post_url, postedAt: r.posted_at, removedAt: r.removed_at, removedReason: r.removed_reason, draftLabel: r.draft_label, proof: taskProofOf(r.proof), hasAgreement: r.has_agreement, unseenOn: r.unseen_on },
@@ -143,6 +154,11 @@ export interface PaymentRequestRow {
   diffAckKind: DiffAckKind | null; diffAckReason: string | null; diffAckTaskCost: TaskCost | null;
   peerRatio?: number | null;   // 달러 지급 판정용 — 같은 날 다른 건 비율 중앙값(listRequests·reconcile 반환이 채움). 없으면 고정 범위
   diffAckBeforeCost: TaskCost | null;   // '맞춤' 처리 때 바꾸기 전 작업 금액(task_change.before) — 처리 기록 문장용
+  // 자동 전송(070, 스펙 2026-10-12) — 우리 화면에만. 정산팀 내보내기(toExternalItem)는 칸을 골라 만들어 밖으로 안 나간다
+  createdVia: 'manual' | 'auto';
+  removalAckAt: string | null; removalAckByName: string | null;   // 보낸 뒤 내려감 [그대로 두기]
+  // 지금 작업 상태(스냅샷 아님) — 보낸 뒤 글이 내려가거나 안 보이면 요청 내역이 알린다
+  taskRemovedAt: string | null; taskRemovedReason: string; taskUnseenOn: string | null;
 }
 export interface PaymentMethodCorrectionMark { correctionId: string; at: string; byId: string; byName: string; reason: string }
 export interface CreateItemInput {
@@ -171,6 +187,8 @@ type RRow = {
   payment_method_correction: unknown;
   diff_ack_kind: DiffAckKind | null; diff_ack_reason: string | null; diff_ack_task_cost: unknown;
   task_cost: unknown; diff_ack_before_cost: unknown;
+  created_via: 'manual' | 'auto'; removal_ack_at: Date | null; removal_ack_by_name: string | null;
+  task_removed_at: string | null; task_removed_reason: string | null; task_unseen_on: string | null;
 };
 const R_SELECT = (sql: postgres.Sql) => sql`
   select id, task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type, category, category_default,
@@ -185,7 +203,12 @@ const R_SELECT = (sql: postgres.Sql) => sql`
          (select t.cost from campaign_task t where t.id = payment_request.task_id) as task_cost,
          case when diff_ack_kind = 'matched' then
            (select c.before from task_change c where c.request_id = payment_request.id and c.source = 'settlement'
-             order by c.created_at desc limit 1) end as diff_ack_before_cost
+             order by c.created_at desc limit 1) end as diff_ack_before_cost,
+         created_via, removal_ack_at, removal_ack_by_name,
+         (select to_char(t.removed_at, 'YYYY-MM-DD') from campaign_task t where t.id = payment_request.task_id) as task_removed_at,
+         (select t.removed_reason from campaign_task t where t.id = payment_request.task_id) as task_removed_reason,
+         (select to_char(min(tp.unavailable_at) at time zone 'Asia/Seoul', 'YYYY-MM-DD') from campaign_task t join tracked_post tp on tp.task_id = t.id
+           where t.id = payment_request.task_id and t.post_url ~ ('/status/' || tp.tweet_id || '([/?#]|$)') and tp.missing_since is not null) as task_unseen_on
     from payment_request`;
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 // jsonb { correction_id, at, by_id, by_name, reason } → 화면 모양. 모양이 어긋난 값은 "없음"으로 읽는다(표식일 뿐, 이력 원본은 payment_request_payment_correction).
@@ -217,7 +240,35 @@ const toRequest = (r: RRow): PaymentRequestRow => ({
   taskCost: costOf(r.task_cost),
   diffAckKind: r.diff_ack_kind, diffAckReason: r.diff_ack_reason, diffAckTaskCost: costOf(r.diff_ack_task_cost),
   diffAckBeforeCost: costOf(r.diff_ack_before_cost),
+  createdVia: r.created_via, removalAckAt: iso(r.removal_ack_at), removalAckByName: r.removal_ack_by_name,
+  taskRemovedAt: r.task_removed_at, taskRemovedReason: r.task_removed_reason ?? '', taskUnseenOn: r.task_unseen_on,
 });
+
+// 요청 한 건 insert + 인플 활동 기록 — 사람이 고른 일괄 생성(createRequests)과 자동 전송(sendTask)이 같은 길을 지난다.
+// 호출자가 검증(후보·막힘·분류)을 끝낸 뒤 트랜잭션 안에서 부른다. 요청자 멤버가 없으면(자동 전송·만든 사람 탈퇴) id는 null, 이름만.
+export async function insertRequestInTx(tx: postgres.Sql, i: {
+  cand: SettlementCandidate; r: CandRow; catId: string; category: string; deadlineOn: string; referenceUrl: string | null;
+  requester: { id: string | null; name: string }; via: 'manual' | 'auto';
+}): Promise<PaymentRequestRow> {
+  const { cand, r } = i;
+  const m = cand.money!; const pm = cand.method!;
+  const ins = await tx<Array<{ id: string }>>`
+    insert into payment_request (task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type,
+      category, category_default, item_text, purpose_text, amount_krw, cost_currency, payout_currency, rate_krw_per_jpy,
+      amount_net, fee, fee_amount, amount_gross, deadline_on, reference_url, proof, payment_method, requester_member_id, requester_name,
+      influencer_id, category_option_id, campaign_starts_on, campaign_ends_on, task_posted_on, created_via)
+    values (${cand.taskId}, ${cand.campaignId}, ${cand.campaignName}, ${cand.clientId}, ${cand.clientName}, ${cand.influencerHandle}, ${cand.taskType},
+      ${i.category}, ${cand.categoryDefault}, ${cand.itemText}, ${cand.purposeText}, ${m.amountKrw}, ${m.costCurrency}, ${m.payoutCurrency}, ${m.rateKrwPerJpy},
+      ${m.amountNet}, ${m.fee ? tx.json(asJson(m.fee)) : null}, ${m.feeAmount}, ${m.amountGross}, ${i.deadlineOn}, ${i.referenceUrl}, ${cand.proof ? tx.json(asJson(cand.proof)) : null},
+      ${tx.json(asJson(toMethodSnapshot(pm)))}, ${i.requester.id}, ${i.requester.name},
+      ${r.influencer_id}, ${i.catId}, ${r.campaign_starts_on}, ${r.campaign_ends_on}, ${r.posted_at}, ${i.via})
+    returning id`;
+  const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${ins[0].id}`;
+  const row = toRequest(saved);
+  const payload: PaymentLogPayload = { requestId: row.id, amountGross: row.amountGross, currency: row.payoutCurrency, taskType: row.taskType };
+  if (r.influencer_id) await insertAutoLog(tx, { influencerId: r.influencer_id, eventType: 'payment_requested', draftId: null, draftTitle: null, payload, authorId: i.requester.id });
+  return row;
+}
 
 const isHttpUrl = (u: string) => /^https?:\/\/\S+$/.test(u);
 
@@ -278,23 +329,8 @@ export async function createRequests(
       const tx = tx0 as unknown as postgres.Sql;
       const out: PaymentRequestRow[] = [];
       for (const { item, cand, r, cat } of prepared) {
-        const m = cand.money!; const pm = cand.method!;
-        const ins = await tx<Array<{ id: string }>>`
-          insert into payment_request (task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type,
-            category, category_default, item_text, purpose_text, amount_krw, cost_currency, payout_currency, rate_krw_per_jpy,
-            amount_net, fee, fee_amount, amount_gross, deadline_on, reference_url, proof, payment_method, requester_member_id, requester_name,
-            influencer_id, category_option_id, campaign_starts_on, campaign_ends_on, task_posted_on)
-          values (${cand.taskId}, ${cand.campaignId}, ${cand.campaignName}, ${cand.clientId}, ${cand.clientName}, ${cand.influencerHandle}, ${cand.taskType},
-            ${item.category}, ${cand.categoryDefault}, ${cand.itemText}, ${cand.purposeText}, ${m.amountKrw}, ${m.costCurrency}, ${m.payoutCurrency}, ${m.rateKrwPerJpy},
-            ${m.amountNet}, ${m.fee ? tx.json(asJson(m.fee)) : null}, ${m.feeAmount}, ${m.amountGross}, ${item.deadlineOn}, ${item.referenceUrl || null}, ${cand.proof ? tx.json(asJson(cand.proof)) : null},
-            ${tx.json(asJson(toMethodSnapshot(pm)))}, ${member.id}, ${member.name},
-            ${r.influencer_id}, ${cat.id}, ${r.campaign_starts_on}, ${r.campaign_ends_on}, ${r.posted_at})
-          returning id`;
-        const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${ins[0].id}`;
-        const row = toRequest(saved);
-        const payload: PaymentLogPayload = { requestId: row.id, amountGross: row.amountGross, currency: row.payoutCurrency, taskType: row.taskType };
-        if (r.influencer_id) await insertAutoLog(tx, { influencerId: r.influencer_id, eventType: 'payment_requested', draftId: null, draftTitle: null, payload, authorId: member.id });
-        out.push(row);
+        out.push(await insertRequestInTx(tx, { cand, r, catId: cat.id, category: item.category, deadlineOn: item.deadlineOn, referenceUrl: item.referenceUrl || null,
+          requester: { id: member.id, name: member.name }, via: 'manual' }));
       }
       return out;
     });

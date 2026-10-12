@@ -18,6 +18,15 @@ export function parseObservedPerson(v: unknown): ObservedPerson {
   return { handle: m[1], ...(o.observedXUserId ? { observedXUserId: o.observedXUserId as string } : {}) };
 }
 
+export function parseBadgePerson(v: unknown): { handle?: string; observedXUserId?: string } {
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const o = v as Record<string, unknown>;
+    if (Object.keys(o).length === 1 && typeof o.observedXUserId === 'string' && X_USER_ID_RE.test(o.observedXUserId))
+      return { observedXUserId: o.observedXUserId };
+  }
+  return parseObservedPerson(v);
+}
+
 export async function readJson(req: Request): Promise<unknown> {
   try {
     return await req.json();

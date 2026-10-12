@@ -45,11 +45,22 @@ export async function findPeopleByHandles(sql: postgres.Sql, handles: string[]):
   return new Map(rows.map((r) => [r.handle.toLowerCase(), { id: r.id, handle: r.handle, xUserId: r.x_user_id }]));
 }
 
+export async function findPeopleByXUserIds(sql: postgres.Sql, ids: string[]) {
+  if (!ids.length) return new Map<string, { id: string; handle: string; xUserId: string }>();
+  const rows = await sql<Array<{ id: string; handle: string; x_user_id: string }>>`
+    select id, handle, x_user_id from influencer where x_user_id in ${sql(ids)}`;
+  // Ambiguous stored IDs must not attach one person's work to another conversation.
+  return new Map(rows.filter((r) => rows.filter((other) => other.x_user_id === r.x_user_id).length === 1)
+    .map((r) => [r.x_user_id, { id: r.id, handle: r.handle, xUserId: r.x_user_id }]));
+}
+
 type FactRow = {
   id: string; campaign_id: string; campaign_name: string; type: TaskType; influencer_handle: string | null;
   draft_status: DraftStatus | null; posted_at: string | null; post_url: string | null; removed_at: string | null; cancelled_at: string | null;
   scheduled_on: string | null; visit_on: string | null; cost: unknown; no_cost: boolean; version: number;
   has_consent: boolean;
+  created_at: string;
+  target_task_id: string | null; target_tweet_url: string | null; target_handle: string | null; target_post_url: string | null; target_campaign_name: string | null;
   visit_completed_at: string | null;
   r_id: string | null; r_confirmed: boolean | null; r_sheet: string | null; r_deadline_mode: DeadlineMode | null;
   end_kind: StoredEndKind | null; request_count: number;
@@ -59,7 +70,8 @@ type FactRow = {
 export async function loadTaskFacts(sql: postgres.Sql, handles: string[]): Promise<TaskFacts[]> {
   if (!handles.length) return [];
   const rows = await sql<FactRow[]>`
-    select t.id, t.campaign_id, c.name as campaign_name, t.type, t.influencer_handle,
+    select t.target_task_id, t.target_tweet_url, tg.influencer_handle as target_handle, tg.post_url as target_post_url, tc.name as target_campaign_name,
+           t.id, t.created_at::text as created_at, t.campaign_id, c.name as campaign_name, t.type, t.influencer_handle,
            case when t.draft_id is null then null else d.status end as draft_status,
            to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, t.post_url, to_char(t.removed_at, 'YYYY-MM-DD') as removed_at,
            to_char(t.cancelled_at, 'YYYY-MM-DD') as cancelled_at,
@@ -73,6 +85,8 @@ export async function loadTaskFacts(sql: postgres.Sql, handles: string[]): Promi
       from campaign_task t
       join campaign c on c.id = t.campaign_id
       left join draft d on d.id = t.draft_id
+      left join campaign_task tg on tg.id = t.target_task_id
+      left join campaign tc on tc.id = tg.campaign_id
       left join visit_reservation r on r.task_id = t.id
       left join reservation_end e on e.task_id = t.id and e.revoked_at is null
      where lower(t.influencer_handle) in ${sql(handles.map((h) => h.toLowerCase()))}`;
@@ -81,10 +95,12 @@ export async function loadTaskFacts(sql: postgres.Sql, handles: string[]): Promi
     const cost = parseTaskCost(r.cost ?? null);
     const s = settlements.get(r.id);
     return {
-      id: r.id, campaignId: r.campaign_id, campaignName: r.campaign_name, type: r.type,
+      id: r.id, createdAt: r.created_at ?? null, campaignId: r.campaign_id, campaignName: r.campaign_name, type: r.type,
       influencerHandle: r.influencer_handle, draftStatus: r.draft_status,
       postedAt: r.posted_at, postUrl: r.post_url, removedAt: r.removed_at, cancelledAt: r.cancelled_at,
       scheduledOn: r.scheduled_on, visitOn: r.visit_on,
+      target: r.target_task_id ? { label: [r.target_handle ? `@${r.target_handle}` : "담당자 미등록", r.target_campaign_name].filter(Boolean).join(" · "), url: r.target_post_url }
+        : r.target_tweet_url ? { label: r.target_tweet_url, url: r.target_tweet_url } : null,
       cost: cost.ok ? cost.value : null, noCost: r.no_cost, version: r.version,
       hasConsent: r.has_consent,
       visitCompletedAt: r.visit_completed_at,

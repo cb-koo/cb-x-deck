@@ -5,8 +5,9 @@ import { bearerToken, checkClaims, isExpiredJwt } from './extensionClaims.ts';
 import {
   classifyTask, compareClassified, decodeCursor, encodeCursor, pageOf, seoulIso, toTaskDto, type TaskFacts,
 } from './extensionTasks.ts';
-import { judgeIdentity } from './extensionReadStore.ts';
-import { parseObservedPerson } from './extensionInput.ts';
+import { findPeopleByXUserIds, judgeIdentity, loadTaskFacts } from './extensionReadStore.ts';
+import { parseBadgePerson, parseObservedPerson } from './extensionInput.ts';
+import type postgres from 'postgres';
 import { allowedExtensionOrigins, isSchemaNotReady } from './extensionApi.ts';
 import type { InfluencerRow } from './influencerStore.ts';
 
@@ -125,6 +126,69 @@ test('cursor·페이지: total은 전체, 마지막 페이지는 nextCursor 없�
   assert.equal(decodeCursor(null), 0);
   assert.equal(decodeCursor(encodeCursor(20)), 20);
   assert.equal(decodeCursor('bm9wZQ'), null);
+});
+
+test('DTO: 방문·업로드 D-day는 독립적으로 당일·미래·지난 날짜를 표시한다', () => {
+  for (const [today, expected] of [['2026-10-04', [4, 14]], ['2026-10-08', [0, 10]], ['2026-10-19', [-11, -1]]] as const) {
+    const t = task({ reservation: reservation('2026-10-08T16:00'), scheduledOn: '2026-10-18' });
+    const dto = toTaskDto(t, classifyTask(t, today), 'p1', today, 'https://deck.example');
+    assert.deepEqual([dto.visitDday, dto.uploadDday], expected);
+  }
+  const t = task();
+  const dto = toTaskDto(t, classifyTask(t, TODAY), 'p1', TODAY, 'https://deck.example');
+  assert.deepEqual([dto.visitDday, dto.uploadDday], [null, null]);
+});
+
+test('DTO: 일반 협찬은 방문 D-day 없이 게시 예정일·대상·해당 협찬 링크를 전달한다', () => {
+  for (const type of ['post', 'rt', 'quoteRt'] as const) {
+    const target = { label: '@hana · 10월 캠페인', url: 'https://x.com/hana/status/123' };
+    const t = task({ type, scheduledOn: '2026-10-18', target });
+    const dto = toTaskDto(t, classifyTask(t, TODAY), 'p1', TODAY, 'https://deck.example');
+    assert.deepEqual([dto.visitDday, dto.uploadDday, dto.scheduledOn, dto.target], [null, null, '2026-10-18', target]);
+    const url = new URL(dto.webUrl);
+    assert.equal(url.searchParams.get('id'), t.campaignId);
+    assert.equal(url.searchParams.get('task'), t.id);
+  }
+});
+
+test('배지 입력: 핸들 없이 큰 숫자 ID를 보존하고 모호한 입력을 거부한다', () => {
+  assert.deepEqual(parseBadgePerson({ observedXUserId: '9007199254740993' }), { observedXUserId: '9007199254740993' });
+  assert.deepEqual(parseBadgePerson({ handle: '@hana', observedXUserId: '42' }), { handle: 'hana', observedXUserId: '42' });
+  for (const bad of [{}, { observedXUserId: 42 }, { observedXUserId: '' }, { observedXUserId: '1'.repeat(26) }, { observedXUserId: '42', extra: true }]) {
+    assert.throws(() => parseBadgePerson(bad));
+  }
+});
+
+// SQL 응답만 대체한다. DB 연결이나 운영 데이터 변경 없이 조회 결과 변환을 검증한다.
+function fakeSql(results: unknown[][]): postgres.Sql {
+  return ((parts: unknown) => Array.isArray(parts) && 'raw' in parts ? Promise.resolve(results.shift() ?? []) : parts) as unknown as postgres.Sql;
+}
+
+test('숫자 ID 조회: 유일한 상대만 연결하고 중복 저장된 ID는 제외한다', async () => {
+  const sql = fakeSql([[
+    { id: 'p1', handle: 'hana', x_user_id: '9007199254740993' },
+    { id: 'p2', handle: 'yui', x_user_id: '42' },
+    { id: 'p3', handle: 'momo', x_user_id: '42' },
+  ]]);
+  const found = await findPeopleByXUserIds(sql, ['9007199254740993', '42']);
+  assert.deepEqual([...found.values()], [{ id: 'p1', handle: 'hana', xUserId: '9007199254740993' }]);
+  assert.equal((await findPeopleByXUserIds(fakeSql([]), [])).size, 0);
+});
+
+test('작업 조회: 내부 협찬 대상·외부 게시물 대상·미등록 대상을 구분한다', async () => {
+  const rows = [
+    { id: 't1', target_task_id: 'other', target_handle: 'hana', target_campaign_name: '10월', target_post_url: 'https://x.com/hana/status/123' },
+    { id: 't2', target_tweet_url: 'https://x.com/yui/status/456' },
+    { id: 't3' },
+    { id: 't4', target_task_id: 'unposted', target_handle: 'momo', target_campaign_name: '11월', target_post_url: null },
+  ];
+  const facts = await loadTaskFacts(fakeSql([rows]), ['hana']);
+  assert.deepEqual(facts.map((t) => t.target), [
+    { label: '@hana · 10월', url: 'https://x.com/hana/status/123' },
+    { label: 'https://x.com/yui/status/456', url: 'https://x.com/yui/status/456' },
+    null,
+    { label: '@momo · 11월', url: null },
+  ]);
 });
 
 const influencer = (xUserId: string | null) => ({ id: 'p1', handle: 'Hana', xUserId, displayName: '하나' }) as InfluencerRow;

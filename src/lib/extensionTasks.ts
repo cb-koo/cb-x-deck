@@ -30,6 +30,8 @@ export interface TaskFacts {
   // visitAt = 시트의 희망 일시(서울 'YYYY-MM-DDTHH:mm', 없으면 '')
   reservation: { confirmed: boolean; visitAt: string; deadlineMode: DeadlineMode } | null;
   requestCount: number;
+  createdAt?: string | null;
+  target?: { label: string; url: string | null } | null;
 }
 
 export interface TaskDto {
@@ -42,6 +44,11 @@ export interface TaskDto {
   postedAt: string | null; postUrl: string | null;
   dDay: number | null;   // ClassifiedTask.dDay — 배지와 같은 값. 확장이 날짜를 따로 계산하지 않게 서버가 준다
   webUrl: string;
+  createdAt: string | null;
+  scheduledOn: string | null;
+  target: { label: string; url: string | null } | null;
+  visitDday: number | null;
+  uploadDday: number | null;
 }
 
 export interface ClassifiedTask {
@@ -99,6 +106,7 @@ export function toTaskDto(t: TaskFacts, c: ClassifiedTask, personId: string, tod
   };
   return {
     id: t.id,
+    createdAt: t.createdAt ?? null,
     campaignId: t.campaignId,
     personId,
     title: `${t.campaignName} · ${TASK_TYPE_LABEL[t.type]}`,
@@ -110,6 +118,10 @@ export function toTaskDto(t: TaskFacts, c: ClassifiedTask, personId: string, tod
     currency: t.cost?.currency ?? null,
     visitAt: isVisit && t.reservation ? seoulIso(t.reservation.visitAt) : null,
     uploadDeadline: t.scheduledOn,
+    scheduledOn: t.scheduledOn,
+    target: t.target ?? null,
+    visitDday: isVisit && t.reservation?.visitAt ? daysBetweenDates(today, t.reservation.visitAt.slice(0, 10)) : null,
+    uploadDday: isVisit && t.scheduledOn ? daysBetweenDates(today, t.scheduledOn) : null,
     deadlineMode: t.reservation?.deadlineMode ?? 'default',
     hasConsent: t.hasConsent,
     postedAt: t.postedAt,

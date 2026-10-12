@@ -10,8 +10,8 @@ import { CANDIDATE_SQL, rowToCandidate, insertRequestInTx, getSettlementSettings
 import { pendingGroup, blockingIssues, confirmedInstant, isDue, sendAtFor, nextMondaySeven, lastMondaySeven, type PendingGroup, type PendingState } from './settlementAuto.ts';
 import { exportIncludesTestFixtures, TEST_FIXTURE_HANDLE_PG } from './settlementTestFixture.ts';
 
-export const AUTO_REQUESTER_FALLBACK = '자동 전송';   // 작업·캠페인을 만든 사람이 모두 없을 때 요청자 이름(멤버 없음)
-export const HOLD_REASON_MAX = 100;
+import { AUTO_REQUESTER_FALLBACK, HOLD_REASON_MAX } from './settlementAuto.ts';
+export { AUTO_REQUESTER_FALLBACK, HOLD_REASON_MAX };
 
 export interface PendingRow {
   cand: SettlementCandidate;
@@ -27,6 +27,7 @@ export interface PendingSummary {
   stopped: number;
   nextSendAt: string;           // 다음 월요일 07:00
   lastRunAt: string | null;     // 자동 전송이 마지막으로 확인한 시각(예약 실행이 없으면 null)
+  lastRunAgeMin: number | null; // 그게 몇 분 전인지 — 서버 시계로 계산(화면이 렌더 중에 시계를 읽지 않게)
   sentAutoToday: number;        // 오늘(서울) 자동으로 보낸 요청 수
 }
 
@@ -67,6 +68,7 @@ export async function listPending(sql: postgres.Sql, now: Date = new Date(), cam
       stopped: out.filter((x) => x.group === 'stopped').length,
       nextSendAt: nextMondaySeven(now).toISOString(),
       lastRunAt: iso(run[0]?.at ?? null),
+      lastRunAgeMin: run[0]?.at ? Math.floor((now.getTime() - new Date(run[0].at).getTime()) / 60_000) : null,
       sentAutoToday: Number(sent[0]?.n ?? 0),
     },
   };

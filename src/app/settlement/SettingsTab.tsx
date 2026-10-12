@@ -50,7 +50,8 @@ export function SettingsTab() {
     <div className="space-y-5">
       <section className={PANEL}>
         <h2 className={PANEL_TITLE}>분류</h2>
-        <p className="mt-1 text-ui text-x-muted">요청의 &apos;분류&apos; 칸에 고를 수 있는 목록이에요. 숨기면 새 요청에서만 사라지고, 이미 만든 요청은 그대로예요.</p>
+        <p className="mt-1 text-ui text-x-muted">정산 요청을 보낼 때 유형마다 &apos;기본값으로 쓰는 유형&apos;에 체크된 분류로 보내요. 숨기면 새 요청에서만 사라지고, 이미 보낸 요청은 그대로예요.</p>
+        <p className="mt-1 text-ui text-amber-700">기본 분류가 없는 유형은 자동으로 못 보내고 &apos;정산 요청 대기 › 고쳐야 보내져요&apos;에 남아요.</p>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-ui">
             <thead className="text-left text-x-secondary">

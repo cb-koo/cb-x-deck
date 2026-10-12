@@ -8,7 +8,7 @@ import {
 } from '@/lib/campaignFlowView';
 import { FLOW_STAGES, FLOW_STAGE_LABEL, TASK_TYPE_LABEL, type FlowStage, type TaskType } from '@/lib/campaignJudgment';
 
-// 필터 드롭다운 + 검색 + 요약/정렬 문구 + 정산 대기 바로가기(b-task-6-brief.md §1) — 한 줄(flex-wrap).
+// 필터 드롭다운 + 검색 + 요약/정렬 문구 + 정산 요청 대기 줄(b-task-6-brief.md §1, 2026-10-12 자동 전송) — 한 줄(flex-wrap).
 // 팝오버 골격(바깥 클릭·Esc capture·스크롤 닫기·createPortal·좌표 클램프)은 CostPopover와 같다 — 새로 발명하지 않는다.
 const POP_W = 260;
 const POP_H = 360;   // 세 묶음(단계 6·유형 4·추가 조건 3) + 제목 — flip 판정에만 쓰는 근사치(CostPopover 관례)
@@ -41,13 +41,18 @@ function FilterGroup<T extends string>({ title, items, checked, onToggle, classN
   );
 }
 
-export function FlowFilterBar({ filter, onChange, counts, summary, sortNote, settleWait, campaignId }: {
+// 정산 줄(스펙 2026-10-12 §7) — 할 일(확인 필요·막힘)이 있으면 주황 링크, 없으면 회색으로 자동 진행 상황만. 판정은 서버(정산 요청 대기)와 같다.
+export interface FlowSettleLine { needsAction: number; waiting: number; nextSendAt: string }
+const DOW = '일월화수목금토';
+const mondayLabel = (iso: string) => { const k = new Date(Date.parse(iso) + 9 * 3_600_000); return `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${DOW[k.getUTCDay()]} ${k.getUTCHours()}시`; };
+
+export function FlowFilterBar({ filter, onChange, counts, summary, sortNote, settle, campaignId }: {
   filter: FlowFilter;
   onChange: (f: FlowFilter) => void;
   counts: { stage: Record<FlowStage, number>; type: Record<TaskType, number>; extra: Record<ExtraFilter, number> };
   summary: string;
   sortNote: string;
-  settleWait: number;
+  settle: FlowSettleLine | null;   // null = 아직 못 읽음(줄을 비워 둔다 — 틀린 '없음'을 보이지 않게)
   campaignId: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -112,9 +117,12 @@ export function FlowFilterBar({ filter, onChange, counts, summary, sortNote, set
         <span className="ml-1.5 text-x-muted">{sortNote}</span>
       </span>
       <span className="ml-auto text-ui">
-        {settleWait > 0
-          ? <Link href={`/settlement?tab=candidates&campaign=${campaignId}`} className="text-x-blue-text hover:underline">정산 대기 {settleWait}건 · 정산에서 확인 →</Link>
-          : <span className="text-x-muted">정산 대기 없음</span>}
+        {settle === null ? null
+          : settle.needsAction > 0
+            ? <span className="text-amber-700">정산 확인 필요 {settle.needsAction}건 · <Link href={`/settlement?tab=candidates&campaign=${campaignId}`} className="text-x-blue-text hover:underline">정산에서 보기 →</Link></span>
+            : settle.waiting > 0
+              ? <span className="text-x-muted">정산 자동 진행 {settle.waiting}건 · {mondayLabel(settle.nextSendAt)}에 보내요</span>
+              : <span className="text-x-muted">정산 대기 없음</span>}
       </span>
       {open && createPortal(
         // tabIndex -1 + 열 때 focus(): 포털이라 DOM 끝에 붙어서, 포커스를 안 옮기면 키보드로 연 사용자의

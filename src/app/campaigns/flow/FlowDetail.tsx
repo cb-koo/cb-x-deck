@@ -31,7 +31,7 @@ import { DraftEditModal } from '@/components/DraftEditModal';
 import { useSignedTaskProofUrls } from '@/components/useSignedTaskProofUrls';
 import { useInfluencerRoster } from '@/components/useInfluencerRoster';
 import {
-  EMPTY_FLOW_FILTER, matchesFlowFilter, sortFlowRows, flowStats, settleWaitCount, flowFooter, filterSummary,
+  EMPTY_FLOW_FILTER, matchesFlowFilter, sortFlowRows, flowStats, flowFooter, filterSummary,
   FLOW_SORT_LABEL, DISPLAY_TYPE_ORDER, matchesExtra, EXTRA_FILTERS, replaceDisabledReason,
   type FlowRow, type FlowFilter, type FlowSort, type ExtraFilter,
 } from '@/lib/campaignFlowView';
@@ -39,7 +39,9 @@ import { POSTED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
 import { CampaignHeader } from '../CampaignHeader';
 import { useCampaignTaskActions } from '../useCampaignTaskActions';
 import { LinkPostModal } from '../LinkPostModal';
-import { FlowFilterBar } from './FlowFilterBar';
+import { FlowFilterBar, type FlowSettleLine } from './FlowFilterBar';
+import { fetchPending } from '@/lib/settlementApi';
+import type { PendingRow } from '@/lib/settlementAutoStore';
 import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
 import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM, type FormDraftContext, type PricePrompt } from './TaskPanel';
@@ -371,7 +373,21 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     () => (data ? taskCampaignTotal(deriveTaskInfluencers(data.tasks, data.costRows)) : {}),
     [data],
   );
-  const settleWait = useMemo(() => (data ? settleWaitCount(data.tasks) : 0), [data]);
+  // 정산 줄 — 정산 요청 대기 판정(서버)을 그대로 읽는다. 상세를 다시 읽을 때마다(data가 바뀔 때) 같이 다시 읽는다.
+  const [settle, setSettle] = useState<FlowSettleLine | null>(null);
+  const [pendingByTask, setPendingByTask] = useState<Map<string, PendingRow>>(new Map());
+  useEffect(() => {
+    if (!data) return;
+    let off = false;
+    void fetchPending(id).then((r) => {
+      if (off || !r.ok) return;
+      const rows = r.data.rows;
+      setPendingByTask(new Map(rows.map((x) => [x.cand.taskId, x])));
+      setSettle({ needsAction: rows.filter((x) => x.group === 'attention' || x.group === 'blocked').length,
+                  waiting: rows.filter((x) => x.group === 'waiting').length, nextSendAt: r.data.summary.nextSendAt });
+    });
+    return () => { off = true; };
+  }, [data, id]);
   // 필터 드롭다운의 칩 개수 — "그 조건 하나만 켰을 때의 건수"(다른 묶음과 교차시키지 않는다, b-task-6-brief.md 명확화 3)
   const counts = useMemo(() => ({
     stage: Object.fromEntries(FLOW_STAGES.map((k) => [k, (data?.tasks ?? []).filter((t) => flowStage(t, t.settlement) === k).length])) as Record<FlowStage, number>,
@@ -995,7 +1011,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
         </div>
         <div className="mt-3.5">
           <FlowFilterBar filter={filter} onChange={setFilter} counts={counts} summary={summary}
-                         sortNote={sortNote} settleWait={settleWait} campaignId={id} />
+                         sortNote={sortNote} settle={settle} campaignId={id} />
         </div>
         {/* 패널이 열려 있는 동안 표를 흐리게 — 스크림은 두지 않는다(다른 행을 눌러도 패널이 그 작업으로 바뀌어야 한다, 결정 3) */}
         <div className={panelOpen ? 'mt-3.5 opacity-60 transition-opacity' : 'mt-3.5'}>
@@ -1060,7 +1076,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                        : null,
                      // 다른 곳에서 정산함(061) — 취소된 작업엔 TaskPanel이 그리지 않는다
                      settled: panelTask
-                       ? <SettledElsewhereLine task={panelTask} onOpen={() => setSettleFor(panelTask)}
+                       ? <SettledElsewhereLine task={panelTask} pending={pendingByTask.get(panelTask.id) ?? null} onOpen={() => setSettleFor(panelTask)}
                                                onUndo={() => void flowActions.unsettleElsewhere(panelTask)} />
                        : null,
                    }}

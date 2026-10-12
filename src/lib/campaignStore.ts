@@ -18,7 +18,7 @@ import {
 import { taskPaymentMethod, type PaymentMethod } from './influencerPayment.ts';
 import { computeMoney } from './settlementCalc.ts';
 import { pickTaskMainPost, firstLinkOf } from './selfReplies.ts';
-import { tweetPermalink } from './tweetLink.ts';
+import { parseTweetLink, tweetPermalink } from './tweetLink.ts';
 import { mapMedia, mapQuoted } from './mappers.ts';
 import type { DeckMedia, DeckQuoted } from './types.ts';
 
@@ -309,17 +309,21 @@ function latestIso(ds: Array<Date | null>): string | null {
 type PostRow = {
   task_id: string; tweet_id: string; author_handle: string | null; text: string; posted_at: Date | null; is_reply: boolean | null;
   raw_urls: unknown; raw_media: unknown; raw_quoted: unknown; views: string | number | null; likes: number | null; bookmarks: number | null; captured_at: Date | null;
-  unavailable_at: Date | null;
+  unavailable_at: Date | null;   // 새 규칙(두 번 확인, 069)으로 확정된 것만 — 옛 한 번짜리 기록은 select가 null로 준다
+  missing_since: Date | null;    // 지금 안 보이는 중(확정 전 포함)
 };
 const numOrNull = (v: string | number | null) => (v === null ? null : Number(v)); // bigint는 문자열
 
 // 작업 하나의 게시물들 → 작업 지표(본 게시물 하나) + 나머지(인플 본인 댓글 등, 게시 순). 게시물이 없으면 perf null.
 const isoOrNull = (d: Date | null) => (d ? new Date(d).toISOString() : null);
-type TaskPostsView = { perf: CampaignPerf | null; replies: TaskReply[]; unseenSince: string | null; mainCapturedAt: string | null };
+type TaskPostsView = { perf: CampaignPerf | null; replies: TaskReply[]; unseenSince: string | null; mainCapturedAt: string | null; mainMissing: boolean };
 function taskPostsView(postUrl: string | null, rows: PostRow[]): TaskPostsView {
   const posts = rows.map((r) => ({ ...r, tweetId: r.tweet_id, postedAt: r.posted_at ? new Date(r.posted_at).toISOString() : null, isReply: r.is_reply }));
   const main = pickTaskMainPost(postUrl, posts);
-  if (!main) return { perf: null, replies: [], unseenSince: null, mainCapturedAt: null };
+  if (!main) return { perf: null, replies: [], unseenSince: null, mainCapturedAt: null, mainMissing: false };
+  // 안 보임은 게시물 링크(post_url)가 가리키는 그 트윗일 때만 — 자동 측정·정산 경고와 같은 본 게시물(링크가 다른 트윗이면 셋이 어긋난다)
+  const parsed = postUrl ? parseTweetLink(postUrl) : null;
+  const linked = !!parsed?.ok && parsed.tweetId === main.tweetId;
   const replies = posts.filter((p) => p !== main)
     .sort((a, b) => (a.postedAt ? Date.parse(a.postedAt) : Infinity) - (b.postedAt ? Date.parse(b.postedAt) : Infinity))
     .map((p): TaskReply => ({
@@ -331,8 +335,9 @@ function taskPostsView(postUrl: string | null, rows: PostRow[]): TaskPostsView {
   return {
     perf: { postCount: posts.length, views: numOrNull(main.views), likes: main.likes, bookmarks: main.bookmarks },
     replies,
-    unseenSince: isoOrNull(main.unavailable_at),
+    unseenSince: linked ? isoOrNull(main.unavailable_at) : null,
     mainCapturedAt: isoOrNull(main.captured_at),
+    mainMissing: main.missing_since !== null,
   };
 }
 type ClickRow = { draft_id: string; clicks: string | number | null };
@@ -349,7 +354,8 @@ export async function getCampaignDetail(
   // 게시물 링크(post_url)가 가리키는 트윗(self-replies 스펙 §5, pickTaskMainPost). 댓글 지표는 더하지 않고 replies로 따로 준다.
   // 최신 1건은 lateral(trackingStore 관례) — 스냅샷 없는 게시물은 지표가 null.
   const postRows = await sql<PostRow[]>`
-    select tp.task_id, tp.tweet_id, tp.author_handle, tp.text, tp.posted_at, tp.unavailable_at, (s.raw->>'isReply')::boolean as is_reply,
+    select tp.task_id, tp.tweet_id, tp.author_handle, tp.text, tp.posted_at, tp.missing_since,
+           case when tp.missing_since is not null then tp.unavailable_at end as unavailable_at, (s.raw->>'isReply')::boolean as is_reply,
            s.raw #> '{entities,urls}' as raw_urls, s.raw -> 'media' as raw_media, s.raw -> 'quoted_tweet' as raw_quoted, s.views, s.likes, s.bookmarks, s.captured_at
       from tracked_post tp
       left join lateral (
@@ -375,7 +381,7 @@ export async function getCampaignDetail(
   const badges = await settlementByTaskIds(sql, tasks.map((t) => t.id));   // 표의 정산 배지(정산 스펙 §4-4)
 
   const items: CampaignTaskItem[] = tasks.map((t) => {
-    const { perf, replies, unseenSince, mainCapturedAt } = taskPostsView(t.postUrl, postsByTask.get(t.id) ?? []);
+    const { perf, replies, unseenSince, mainCapturedAt, mainMissing } = taskPostsView(t.postUrl, postsByTask.get(t.id) ?? []);
     const c = t.draftId ? clickMap.get(t.draftId) : undefined;
     return {
       ...t,
@@ -385,8 +391,8 @@ export async function getCampaignDetail(
       linkClicks: c ? num(c.clicks) : null,
       settlement: badges.get(t.id) ?? null,
       unseenSince,
-      // 내림 날(서울) 다음 날 이후에 잰 값이 있고 지금 안 보임이 아니면 — 그날 안의 측정은 내리기 전일 수 있어 세지 않는다
-      seenAfterRemovedAt: t.removedAt && !unseenSince && mainCapturedAt && kstDate(mainCapturedAt) > t.removedAt ? mainCapturedAt : null,
+      // 내림 날(서울) 다음 날 이후에 잰 값이 있고 지금 안 보이는 중(확정 전 포함)이 아니면 — 그날 안의 측정은 내리기 전일 수 있어 세지 않는다
+      seenAfterRemovedAt: t.removedAt && !mainMissing && mainCapturedAt && kstDate(mainCapturedAt) > t.removedAt ? mainCapturedAt : null,
     };
   });
 

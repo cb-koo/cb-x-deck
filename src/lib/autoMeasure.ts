@@ -31,6 +31,8 @@ export function dueCheckpoint(postedAt: Date, lastCapturedAt: Date | null, now: 
 export const MISSING_CONFIRM_MS = HOUR;
 export const MISSING_RECHECK_MS = DAY;
 export const WATCH_WINDOW_MS = LAST_CHECKPOINT_MS + HOUR;
+// 끝 무렵에 처음 "없음"을 본 글도 확정 확인 한 번은 하도록 그만큼 더 본다(확정 확인만 — 측정·재확인은 WATCH_WINDOW_MS에서 멈춘다)
+export const WATCH_QUERY_WINDOW_MS = WATCH_WINDOW_MS + MISSING_CONFIRM_MS;
 
 // 잴 게시물 하나의 상태. kind: main = 작업의 본 게시물(시점 일정대로), link = 링크가 든 인플 본인 댓글(하루 한 번 살아 있나만).
 export interface WatchState {
@@ -44,7 +46,9 @@ export type WatchDue = { reason: 'checkpoint'; checkpointMs: number } | { reason
 
 // 지금 조회할 이유 — 없으면 null. 안 보이는 중이면 측정 일정 대신 확인 일정을 따른다.
 export function dueWatch(s: WatchState, now: Date): WatchDue | null {
-  if (now.getTime() - s.postedAt.getTime() > WATCH_WINDOW_MS) return null;
+  const age = now.getTime() - s.postedAt.getTime();
+  const pending = s.missingCheckedAt !== null && s.unavailableAt === null;
+  if (age > (pending ? WATCH_QUERY_WINDOW_MS : WATCH_WINDOW_MS)) return null;
   const lastMiss = s.missingCheckedAt ?? s.unavailableAt;
   if (lastMiss) {
     const since = now.getTime() - lastMiss.getTime();

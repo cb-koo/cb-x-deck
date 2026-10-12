@@ -77,7 +77,11 @@ test('링크 댓글은 측정 시점 대신 하루 한 번 살아 있나 본다'
   assert.deepEqual(dueWatch(st({ kind: 'link', lastCapturedAt: at(HOUR) }), at(DAY + HOUR)), { reason: 'daily' });
 });
 
-test('게시 후 7일+1시간이 지나면 아무것도 보지 않는다', () => {
+test('게시 후 7일+1시간이 지나면 아무것도 보지 않는다 — 끝 무렵에 처음 본 "없음"의 확정 확인 한 번만 예외', () => {
   assert.equal(dueWatch(st({ unavailableAt: at(5 * DAY) }), at(7 * DAY + 2 * HOUR)), null);
   assert.equal(dueWatch(st({ kind: 'link' }), at(7 * DAY + 2 * HOUR)), null);
+  // 7일+50분에 처음 "없음" → 7일+1시간50분에 확정 확인(그 뒤로는 끝)
+  const late = st({ missingCheckedAt: at(7 * DAY + 50 * MIN) });
+  assert.deepEqual(dueWatch(late, at(7 * DAY + 111 * MIN)), { reason: 'confirm' });
+  assert.equal(dueWatch(late, at(7 * DAY + 2 * HOUR + MIN)), null);
 });

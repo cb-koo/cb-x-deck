@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import { dueWatch, tweetIdToDate, WATCH_WINDOW_MS, type WatchDue } from './autoMeasure.ts';
+import { dueWatch, tweetIdToDate, WATCH_QUERY_WINDOW_MS, type WatchDue } from './autoMeasure.ts';
 import { firstLinkOf } from './selfReplies.ts';
 
 // 자동 측정 대상 = 캠페인 작업에 붙은 게시물 중
@@ -16,7 +16,7 @@ type Row = {
 };
 
 export async function listDueMeasurements(sql: postgres.Sql, now: Date, limit: number): Promise<DueMeasurement[]> {
-  const windowStart = new Date(now.getTime() - WATCH_WINDOW_MS);
+  const windowStart = new Date(now.getTime() - WATCH_QUERY_WINDOW_MS);
   const rows = await sql<Row[]>`
     select tp.id, tp.tweet_id, tp.text, tp.posted_at, tp.missing_checked_at, tp.unavailable_at,
            coalesce(t.post_url ~ ('/status/' || tp.tweet_id || '([/?#]|$)'), false) as is_main,

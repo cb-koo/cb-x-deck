@@ -244,8 +244,11 @@ test('상세 — 확정된 안 보임만 화면 값이 되고(본 게시물·댓
   const t0 = 'Tue Oct 06 08:00:00 +0000 2026';
   await discoverSelfReplies(sql, task.id, fakeDeps({ threads: { [mainId!]: [tw(mainId!, a, t0, 1000, false), tw(r1, a, t0, 30, true, '본문', mainId)] } }).deps);
   const item = async () => (await getCampaignDetail(sql, campaignId))!.tasks.find((t) => t.id === task.id)!;
-  // 확정 전(missing_since만)은 화면에 안 나온다
-  await sql`update tracked_post set missing_since = now(), missing_checked_at = now() where tweet_id = ${mainId!}`;
+  // 이 기능 전의 한 번짜리 기록(unavailable_at만, missing_since 없음)은 화면에 안 나온다 — 일시 오류였을 수 있다
+  await sql`update tracked_post set unavailable_at = now() where tweet_id = ${mainId!}`;
+  assert.equal((await item()).unseenSince, null);
+  // 확정 전(missing_since만)도 안 나온다
+  await sql`update tracked_post set unavailable_at = null, missing_since = now(), missing_checked_at = now() where tweet_id = ${mainId!}`;
   assert.equal((await item()).unseenSince, null);
   // 확정 — 본 게시물만
   const since = new Date('2026-10-12T05:00:00Z');
@@ -253,6 +256,11 @@ test('상세 — 확정된 안 보임만 화면 값이 되고(본 게시물·댓
   let it = await item();
   assert.equal(it.unseenSince, since.toISOString());
   assert.deepEqual(it.replies.map((r) => r.unseenSince), [null]);
+  // 게시물 링크가 다른 트윗을 가리키면(본 게시물을 대체 규칙으로 고른 경우) 안 보임을 말하지 않는다 — 자동 측정·정산 경고와 같은 본 게시물만
+  const url = (await getTask(sql, task.id))!.postUrl;
+  await sql`update campaign_task set post_url = 'https://x.com/u/status/1' where id = ${task.id}`;
+  assert.equal((await item()).unseenSince, null);
+  await sql`update campaign_task set post_url = ${url} where id = ${task.id}`;
   // 내림 표시(오늘, 서울) — 안 보이는 동안엔 seenAfterRemovedAt 없음
   await sql`update campaign_task set removed_at = (now() at time zone 'Asia/Seoul')::date where id = ${task.id}`;
   assert.equal((await item()).seenAfterRemovedAt, null);
@@ -266,6 +274,9 @@ test('상세 — 확정된 안 보임만 화면 값이 되고(본 게시물·댓
   await sql`update post_metric_snapshot set captured_at = ${next} where id = (
     select id from post_metric_snapshot where tracked_post_id = ${tp.id} order by captured_at desc limit 1)`;
   assert.equal((await item()).seenAfterRemovedAt, next.toISOString());
+  // 그 뒤 X가 다시 "없음"이라 하면(확정 전이라도) 'X에서 보여요'는 내린다
+  await sql`update tracked_post set missing_since = now(), missing_checked_at = now() where tweet_id = ${mainId!}`;
+  assert.equal((await item()).seenAfterRemovedAt, null);
 });
 
 test('↻ — 지운 댓글은 상세 조회가 삭제로 판정한다', async () => {

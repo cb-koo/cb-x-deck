@@ -74,7 +74,8 @@ const CANDIDATE_BASE = (sql: postgres.Sql) => sql`
          to_char(c.starts_on, 'YYYY-MM-DD') as campaign_starts_on, to_char(c.ends_on, 'YYYY-MM-DD') as campaign_ends_on,
          i.id as influencer_id, i.payment_methods,
          (select to_char(min(tp.unavailable_at) at time zone 'Asia/Seoul', 'YYYY-MM-DD') from tracked_post tp
-           where tp.task_id = t.id and t.post_url ~ ('/status/' || tp.tweet_id || '([/?#]|$)')) as unseen_on
+           where tp.task_id = t.id and t.post_url ~ ('/status/' || tp.tweet_id || '([/?#]|$)')
+             and tp.missing_since is not null) as unseen_on   -- 새 규칙(두 번 확인)으로 확정된 것만 — 옛 한 번짜리 기록은 뺀다(캠페인 화면과 같다)
     from campaign_task t
     join campaign c on c.id = t.campaign_id
     left join campaign_task tg on tg.id = t.target_task_id

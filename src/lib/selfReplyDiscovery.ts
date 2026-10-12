@@ -7,7 +7,7 @@ import type { FetchPostResult, FetchedPost } from './postMetrics.ts';
 import { hasReplacementChar } from './garbledText.ts';
 import { pickSelfReplies, mainAuthorIdOf } from './selfReplies.ts';
 import { parseTweetLink } from './tweetLink.ts';
-import { appendSnapshot, insertTrackedPost, linkTrackedPost, markUnavailable, TrackingLinkError } from './trackingStore.ts';
+import { appendSnapshot, insertTrackedPost, linkTrackedPost, recordMissing, TrackingLinkError } from './trackingStore.ts';
 import { judgeTaskLink, assertTaskUnchanged, TaskChangedError } from './postAttach.ts';
 import { isUuidLike } from './uuid.ts';
 
@@ -108,7 +108,7 @@ export async function discoverSelfReplies(sql: postgres.Sql, taskId: string, dep
 export interface PerfRefreshResult { total: number; refreshed: number; unavailable: number; failed: number; newReplies: number }
 
 // 성과 [업데이트](↻) — 이 캠페인의 게시 확인된·취소 아닌 작업에 붙은 게시물(listTrackedPostIdsForCampaign과 같은 모집단).
-// 지표 기록은 기존과 똑같이 게시물별 상세 조회(fetchPost)로 한다 — 삭제·비공개 판정(markUnavailable)도 그쪽이 그대로.
+// 지표 기록은 기존과 똑같이 게시물별 상세 조회(fetchPost)로 한다 — 삭제·비공개 판정(recordMissing)도 그쪽이 그대로.
 // 스레드 조회는 작업당 1회, 새 본인 댓글을 찾는 데만 쓴다(§4 — 스레드 응답엔 링크 정보 칸이 없어 스냅샷 raw로 쓰면
 // 링크 댓글 판정이 깨진다). 스레드 실패는 ↻를 막지 않는다. total·refreshed 등은 원래 붙어 있던 게시물 기준, 새 댓글은 newReplies.
 // 본 게시물이 방금 '없음'(삭제·비공개)으로 나온 작업은 스레드를 보지 않는다(헛조회 비용). discoveryDeps: 댓글 찾기에 쓸
@@ -136,7 +136,7 @@ export async function refreshCampaignPerf(
     for (const p of task.posts) {
       const r = await deps.fetchPost(p.tweetId);
       if (r.kind === 'error') { res.failed += 1; continue; }
-      if (r.kind === 'unavailable') { await markUnavailable(sql, p.id); res.unavailable += 1; goneNow.add(p.tweetId); continue; }
+      if (r.kind === 'unavailable') { await recordMissing(sql, p.id); res.unavailable += 1; goneNow.add(p.tweetId); continue; }
       await appendSnapshot(sql, p.id, r.post.metrics, r.post.raw);
       res.refreshed += 1;
     }

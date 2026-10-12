@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { DeckMedia, DeckQuoted, DeckTweet, StoredTweet } from '@/lib/types';
 import type { TaskReply } from '@/lib/campaignStore';
 import { kstMonthDayTimeKo } from '@/lib/datetime';
+import { unseenLabel } from '@/lib/campaignFlowView';
 import { MediaGrid } from '@/components/MediaGrid';
 import { TweetText } from '@/components/TweetText';
 import { QuotedCard } from '@/components/QuotedCard';
@@ -15,9 +16,12 @@ import { stripTrailingMediaLink } from '@/lib/tweetText';
 // 접지 않는다. 카드 테두리·둥글기·글자 크기는 QuotedCard(본 게시물 카드)와 같다 — 댓글이 붙어도 같은 카드가 길어진 것처럼 보이게.
 // 댓글이 없어도 게시된 본 게시물은 이 카드로 그린다(§10 — X처럼 전부). 도움말 줄은 댓글이 있을 때만.
 // main: 미리보기를 못 불러왔으면 null — 그땐 PostedBox가 위에 안내 상자를 두고 여기선 댓글 글만 그린다(핸들은 배정된 인플).
-export function PostThread({ main, mainStats, replies, fallbackHandle }: {
+// 안 보임(2026-10-12): X에서 사라진 글은 흐리게 — 숫자는 마지막으로 잰 값이라 그대로 진하게 둔다. 본 게시물의 딱지는 PostedBox 첫 줄에,
+// 댓글은 그 글의 숫자 줄 옆에 딱지를 붙인다(RT '증빙 없음' 딱지와 같은 모양).
+export function PostThread({ main, mainStats, mainUnseen = false, replies, fallbackHandle }: {
   main: DeckTweet | null;
   mainStats: { views: number | null; likes: number | null };
+  mainUnseen?: boolean;
   replies: TaskReply[];
   fallbackHandle: string | null;
 }) {
@@ -38,14 +42,15 @@ export function PostThread({ main, mainStats, replies, fallbackHandle }: {
                onKeyDown={(e) => { if (e.key === 'Enter') window.open(mainUrl, '_blank', 'noopener,noreferrer'); }}
                className="cursor-pointer transition-colors hover:bg-x-hover">
             <ThreadRow author={author} postedAt={main.tweetCreatedAt} first last={rows === 0}
-                       stats={mainStats}>
+                       stats={mainStats} dim={mainUnseen}>
               <ThreadBody text={main.text} media={main.media} quoted={main.quoted as StoredTweet['quoted']} />
             </ThreadRow>
           </div>
         )}
         {replies.map((r, i) => (
           <ThreadRow key={r.tweetId} author={author} postedAt={r.postedAt} first={!main && i === 0} last={i === rows - 1}
-                     stats={{ views: r.views, likes: r.likes }} openUrl={r.url}>
+                     stats={{ views: r.views, likes: r.likes }} openUrl={r.url} dim={!!r.unseenSince}
+                     badge={r.unseenSince ? unseenLabel(r.unseenSince) : null}>
             <ThreadBody text={r.text} media={r.media} quoted={r.quoted} />
           </ThreadRow>
         ))}
@@ -74,16 +79,22 @@ function ThreadBody({ text, media, quoted }: { text: string; media: DeckMedia[];
   );
 }
 
+// 안 보임 딱지 — RT '증빙 없음' 딱지(PostedBox)와 같은 주황 모양
+export const UNSEEN_BADGE = 'shrink-0 whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-ui font-semibold text-amber-700';
+
 const fmt = (n: number | null) => (n === null ? '—' : n.toLocaleString('ko-KR'));
 
-function ThreadRow({ author, postedAt, first, last, stats, openUrl, children }: {
+function ThreadRow({ author, postedAt, first, last, stats, openUrl, dim = false, badge = null, children }: {
   author: { name: string | null; handle: string | null; avatar: string | null };
   postedAt: string | null;
   first: boolean; last: boolean;
   stats: { views: number | null; likes: number | null };
   openUrl?: string;
+  dim?: boolean;              // X에서 안 보이는 글 — 사진·이름·본문만 흐리게
+  badge?: string | null;      // 숫자 줄 옆 딱지(안 보임)
   children: ReactNode;
 }) {
+  const fade = dim ? 'opacity-45' : '';
   const time = kstMonthDayTimeKo(postedAt);
   return (
     <div className={`flex gap-3 px-3 ${first ? 'pt-3' : 'pt-1'}`}>
@@ -91,13 +102,13 @@ function ThreadRow({ author, postedAt, first, last, stats, openUrl, children }: 
       <div className="flex w-9 shrink-0 flex-col items-center">
         {author.avatar
           // eslint-disable-next-line @next/next/no-img-element -- 외부 프로필 사진(QuotedCard와 같은 관례)
-          ? <img src={author.avatar} alt="" className="h-9 w-9 shrink-0 rounded-full" />
-          : <div className="h-9 w-9 shrink-0 rounded-full bg-x-border-strong" />}
+          ? <img src={author.avatar} alt="" className={`h-9 w-9 shrink-0 rounded-full ${fade}`} />
+          : <div className={`h-9 w-9 shrink-0 rounded-full bg-x-border-strong ${fade}`} />}
         {!last && <div aria-hidden className="mt-1 w-0.5 flex-1 rounded-full bg-x-border-strong" />}
       </div>
       <div className="min-w-0 flex-1 pb-3">
         <div className="flex min-w-0 items-center gap-1">
-          <span className="flex min-w-0 items-baseline gap-x-1 whitespace-nowrap">
+          <span className={`flex min-w-0 items-baseline gap-x-1 whitespace-nowrap ${fade}`}>
             {author.name && <span className="truncate font-bold text-x-text">{author.name}</span>}
             {author.handle && <span className="truncate text-x-secondary">@{author.handle}</span>}
             {time && <span className="shrink-0 text-x-secondary">· {time}</span>}
@@ -107,8 +118,11 @@ function ThreadRow({ author, postedAt, first, last, stats, openUrl, children }: 
                className="-my-1.5 -mr-1.5 ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-x-blue-text hover:bg-x-surface">↗</a>
           )}
         </div>
-        {children}
-        <p className="mt-1.5 text-[14px] text-x-secondary">조회 {fmt(stats.views)} · 좋아요 {fmt(stats.likes)}</p>
+        <div className={fade}>{children}</div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="text-[14px] text-x-secondary">조회 {fmt(stats.views)} · 좋아요 {fmt(stats.likes)}</p>
+          {badge && <span className={UNSEEN_BADGE}>{badge}</span>}
+        </div>
       </div>
     </div>
   );

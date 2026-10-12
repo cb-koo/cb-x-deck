@@ -11,7 +11,8 @@ import { TaskProofField } from '@/components/TaskProofField';
 import { Button } from '@/components/ui';
 import { TargetPreview } from './TargetPreview';
 import { useTweetPreview } from './useTweetPreview';
-import { PostThread } from './PostThread';
+import { PostThread, UNSEEN_BADGE } from './PostThread';
+import { unseenLabel } from '@/lib/campaignFlowView';
 
 // 작업 패널의 '게시' 칸(koo 09-26 posted-inline) — 팝업(PostedDialog) 없이 칸 안에서 게시 확인까지 끝낸다.
 //  · 투고·인용RT·방문협찬: 게시일을 적지 않는다. 게시물 링크를 붙이면 트윗 id에서 한국 날짜가 나오고
@@ -93,6 +94,8 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
               {task.proof ? '증빙 있음' : '증빙 없음'}
             </span>
           )}
+          {/* 안 보임(2026-10-12) — 같은 자리·같은 주황 딱지. 내림으로 정한 뒤엔 아래 내림 줄이 말하므로 붙이지 않는다 */}
+          {task.unseenSince && !task.removedAt && <span className={UNSEEN_BADGE}>{unseenLabel(task.unseenSince)}</span>}
         </div>
         {/* 게시된 본 게시물 + 인플 본인 댓글(추가 콘텐츠) — X 본인 스레드 모양(PostThread, koo 10-06 시안 A).
             §10(koo 10-06, X 비교): 게시된 게시물은 댓글이 없어도 X처럼 전부(본문 전체·사진 전부·인용한 글 카드) — 그래서 미리보기가 되면 늘 PostThread.
@@ -100,7 +103,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
             RT엔 자기 게시물이 없어 붙지 않는다 */}
         {previewUrl && (prev.preview?.kind === 'ok' ? (
           <div className="mt-2.5">
-            <PostThread main={prev.preview.tweet} replies={hasReplies ? task.replies : []} fallbackHandle={task.influencerHandle}
+            <PostThread main={prev.preview.tweet} mainUnseen={!!task.unseenSince} replies={hasReplies ? task.replies : []} fallbackHandle={task.influencerHandle}
                         mainStats={{ views: task.perf?.views ?? prev.preview.tweet.metrics.views, likes: task.perf?.likes ?? prev.preview.tweet.metrics.likes }} />
           </div>
         ) : (
@@ -131,6 +134,8 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
               <span className="min-w-0 text-content">
                 내림 {formatDateKo(task.removedAt)}
                 {task.removedReason && <span className="text-x-secondary"> · {task.removedReason}</span>}
+                {/* 내림 뒤에도 X에서 보이면 알려만 준다 — 풀지는 사람이 [내림 취소]로(2026-10-12) */}
+                {task.seenAfterRemovedAt && <span className="text-amber-700"> · X에서 보여요</span>}
               </span>
               <button type="button" onClick={onUnmarkRemoved} className={removedBtn}>내림 취소</button>
             </>

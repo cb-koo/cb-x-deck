@@ -63,6 +63,7 @@ type CandRow = {
   influencer_id: string | null; payment_methods: unknown; proof: unknown; payment_method_id: string | null;
   has_agreement: boolean;   // 협찬 동의서 유무만(063) — 파일 정보는 읽지 않는다(정산 쪽으로 가지 않는다, koo 결정 5)
   campaign_starts_on: string; campaign_ends_on: string;   // 요청 스냅샷용 캠페인 기간(054)
+  unseen_on: string | null;   // 본 게시물이 X에서 안 보이기 시작한 날(서울) — 경고 판정에만(2026-10-12)
 };
 // 후보 조건은 campaignJudgment.isSettlementCandidate와 같은 정의 — 스토어 테스트가 대조한다
 const CANDIDATE_BASE = (sql: postgres.Sql) => sql`
@@ -71,7 +72,10 @@ const CANDIDATE_BASE = (sql: postgres.Sql) => sql`
          coalesce(d.title, d.ko_title) as draft_label, t.proof, t.payment_method_id, (t.agreement is not null) as has_agreement,
          c.id as campaign_id, c.name as campaign_name, c.kind, c.client_id, c.client_name,
          to_char(c.starts_on, 'YYYY-MM-DD') as campaign_starts_on, to_char(c.ends_on, 'YYYY-MM-DD') as campaign_ends_on,
-         i.id as influencer_id, i.payment_methods
+         i.id as influencer_id, i.payment_methods,
+         (select to_char(min(tp.unavailable_at) at time zone 'Asia/Seoul', 'YYYY-MM-DD') from tracked_post tp
+           where tp.task_id = t.id and t.post_url ~ ('/status/' || tp.tweet_id || '([/?#]|$)')
+             and tp.missing_since is not null) as unseen_on   -- 새 규칙(두 번 확인)으로 확정된 것만 — 옛 한 번짜리 기록은 뺀다(캠페인 화면과 같다)
     from campaign_task t
     join campaign c on c.id = t.campaign_id
     left join campaign_task tg on tg.id = t.target_task_id
@@ -101,7 +105,7 @@ export async function listCandidates(
 function rowToCandidate(r: CandRow, cost: TaskCost, settings: SettlementSettings, lastQ: string | null, today: string): SettlementCandidate {
   const methods = Array.isArray(r.payment_methods) ? (r.payment_methods as PaymentMethod[]) : [];
   return computeCandidate({
-    task: { id: r.id, type: r.type, influencerHandle: r.influencer_handle, cost, postUrl: r.post_url, targetTweetUrl: r.target_tweet_url, targetPostUrl: r.target_post_url, postedAt: r.posted_at, removedAt: r.removed_at, removedReason: r.removed_reason, draftLabel: r.draft_label, proof: taskProofOf(r.proof), hasAgreement: r.has_agreement },
+    task: { id: r.id, type: r.type, influencerHandle: r.influencer_handle, cost, postUrl: r.post_url, targetTweetUrl: r.target_tweet_url, targetPostUrl: r.target_post_url, postedAt: r.posted_at, removedAt: r.removed_at, removedReason: r.removed_reason, draftLabel: r.draft_label, proof: taskProofOf(r.proof), hasAgreement: r.has_agreement, unseenOn: r.unseen_on },
     campaign: { id: r.campaign_id, name: r.campaign_name, kind: r.kind, clientId: r.client_id, clientName: r.client_name ?? '기타' },
     // 작업이 고른 수단(060, 설계 §8-2) — 없거나 지워졌으면 기본. 생성·제자리 수정(reviseRequest)·expected 대조가 전부 이 한 줄을 지난다.
     influencer: { inRoster: r.influencer_id !== null, method: r.influencer_id ? taskPaymentMethod(methods, r.payment_method_id) : null },

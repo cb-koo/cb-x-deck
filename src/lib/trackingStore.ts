@@ -205,7 +205,7 @@ export async function insertTrackedPost(tx: postgres.Sql, args: AddTrackedPostAr
   return { created: true, row: row as TrackedPostRow };
 }
 
-// 스냅샷 추가 + unavailable_at을 null로(복귀 수용 — 스펙): 다시 측정이 됐다는 것 자체가 복귀 증거다.
+// 스냅샷 추가 + 안 보임 기록을 전부 비운다(복귀 수용 — 스펙): 다시 측정이 됐다는 것 자체가 복귀 증거다.
 export async function appendSnapshot(
   sql: postgres.Sql, trackedPostId: string, metrics: PostMetrics, raw: unknown,
 ): Promise<void> {
@@ -213,13 +213,21 @@ export async function appendSnapshot(
     await tx`insert into post_metric_snapshot (tracked_post_id, views, likes, retweets, replies, bookmarks, quotes, raw)
       values (${trackedPostId}, ${metrics.views}, ${metrics.likes}, ${metrics.retweets}, ${metrics.replies},
               ${metrics.bookmarks}, ${metrics.quotes}, ${raw ? tx.json(raw as never) : null})`;
-    await tx`update tracked_post set unavailable_at = null where id = ${trackedPostId}`;
+    await tx`update tracked_post set unavailable_at = null, missing_since = null, missing_checked_at = null where id = ${trackedPostId}`;
   });
 }
 
-// 이미 기록돼 있으면 시각 유지(최초 확인 시각 보존) — coalesce가 두 번째 호출을 no-op으로 만든다.
-export async function markUnavailable(sql: postgres.Sql, trackedPostId: string): Promise<void> {
-  await sql`update tracked_post set unavailable_at = coalesce(unavailable_at, now()) where id = ${trackedPostId}`;
+// X가 "없음"이라고 했다(삭제·비공개·정지) — 한 번으로는 확정하지 않는다(2026-10-12, autoMeasure.MISSING_CONFIRM_MS).
+// 처음이면 missing_since만 찍고, 처음 없던 때로부터 1시간 넘게 지나 또 없으면 unavailable_at = 처음 없던 시각으로 확정한다.
+// 이미 확정됐으면 시각은 그대로(최초 시각 보존). 매번 missing_checked_at을 갱신해 다음 확인 때를 정한다.
+// 수동 ↻·트래킹 새로고침·자동 측정이 모두 이 함수를 쓴다 — 어디서 봤든 같은 규칙으로 확정된다.
+export async function recordMissing(sql: postgres.Sql, trackedPostId: string): Promise<void> {
+  await sql`update tracked_post set
+      unavailable_at = coalesce(unavailable_at,
+        case when missing_since is not null and missing_since <= now() - interval '1 hour' then missing_since end),
+      missing_since = coalesce(missing_since, now()),
+      missing_checked_at = now()
+    where id = ${trackedPostId}`;
 }
 
 // 게시물 연결 — 작업·원고 어느 쪽으로 연결하든 두 칸을 함께 맞춘다(캠페인 작업 스펙 §2-4 양방향 규칙).

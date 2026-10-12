@@ -59,7 +59,7 @@ function resolveWidth(map: Record<string, number>, key: string): number {
 }
 
 // 날짜·비용 칸의 색 — 색만으로 구분한다(행 배경·막대·'오늘' 강조는 두지 않는다)
-const DATE_TONE: Record<'late' | 'posted' | 'plain' | 'muted', string> = { late: 'text-red-600', posted: 'text-x-blue-text', plain: '', muted: 'text-x-muted' };
+const DATE_TONE: Record<'late' | 'posted' | 'plain' | 'muted' | 'unseen', string> = { late: 'text-red-600', posted: 'text-x-blue-text', plain: '', muted: 'text-x-muted', unseen: 'text-amber-700' };
 const COST_TONE: Record<'plain' | 'muted' | 'struck' | 'suggested', string> = { plain: 'tabular-nums', muted: 'text-x-muted', struck: 'text-x-muted line-through', suggested: 'text-x-muted' };
 
 export function FlowTable({ rows, total, today, influencerOptions, sort, onSortChange, footer, selectedId, onRowClick, renderMenu }: {

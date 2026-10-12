@@ -107,7 +107,7 @@ export async function appendClickSnapshot(
   });
 }
 
-// 이미 기록돼 있으면 시각 유지(최초 확인 시각 보존) — markUnavailable 관례.
+// 이미 기록돼 있으면 시각 유지(최초 확인 시각 보존). 링크는 한 번으로 확정한다(게시물의 trackingStore.recordMissing은 1시간 뒤 한 번 더 본다).
 export async function markLinkUnavailable(sql: postgres.Sql, trackingLinkId: string): Promise<void> {
   await sql`update tracking_link set unavailable_at = coalesce(unavailable_at, now()) where id = ${trackingLinkId}`;
 }

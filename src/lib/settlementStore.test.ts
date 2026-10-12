@@ -8,6 +8,7 @@ import { createInfluencer, updatePaymentMethods, deleteInfluencer } from './infl
 import type { PaymentMethodInput } from './influencerPayment.ts';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettings.ts';
 import { isSettlementCandidate } from './campaignJudgment.ts';
+import { addTrackedPost } from './trackingStore.ts';
 import {
   getSettlementSettings, saveSettlementSettings, listSettlementVersions, lastQuoteRtCategory, listCandidates,
   createRequests, cancelRequest, listRequests, settlementByTaskIds, SettlementCreateError,
@@ -127,6 +128,31 @@ async function ensureMember() {
 const itemOf = (c: { taskId: string; money: { amountGross: number; payoutCurrency: 'KRW' | 'JPY' } | null; method: { id: string } | null; deadlineDefault: string; referenceDefault: string | null }, category: string): CreateItemInput => ({
   taskId: c.taskId, category, deadlineOn: c.deadlineDefault, referenceUrl: c.referenceDefault,
   expected: { amountGross: c.money!.amountGross, payoutCurrency: c.money!.payoutCurrency, paymentMethodId: c.method!.id },
+});
+
+test('후보 — 본 게시물이 X에서 안 보임으로 확정되면 확인 필요(서울 날짜), 확정 전·댓글은 아니다(2026-10-12)', async () => {
+  const c = await createClient(sql, P + '클라U');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'u', null));
+  await influencerWithPaypal(H('unseen'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H('unseen'), cost: { amount: 10000, currency: 'KRW' } }] });
+  const mainId = `9${Date.now()}${process.pid}`;
+  await updateTask(sql, t.id, { postedAt: '2026-10-10', postedSource: 'manual', postUrl: `https://x.com/u/status/${mainId}` });
+  const M = { views: 1, likes: 0, retweets: 0, replies: 0, bookmarks: 0, quotes: 0 };
+  const { row: main } = await addTrackedPost(sql, { tweetId: mainId, authorHandle: 'u', text: '', postedAt: null, createdBy: null, metrics: M, raw: null });
+  const { row: reply } = await addTrackedPost(sql, { tweetId: mainId + '1', authorHandle: 'u', text: '', postedAt: null, createdBy: null, metrics: M, raw: null });
+  await sql`update tracked_post set task_id = ${t.id} where id in (${main.id}, ${reply.id})`;
+  try {
+    const cand = async () => (await listCandidates(sql, SETTLEMENT_DEFAULTS, null, '2026-10-12')).find((x) => x.taskId === t.id)!;
+    await sql`update tracked_post set unavailable_at = '2026-10-11T16:00:00Z' where id = ${reply.id}`;   // 댓글만 — 경고 아님
+    await sql`update tracked_post set missing_since = now(), missing_checked_at = now() where id = ${main.id}`;   // 확정 전 — 경고 아님
+    assert.ok(!(await cand()).issues.some((i) => i.code === 'unseen'));
+    await sql`update tracked_post set unavailable_at = '2026-10-11T16:00:00Z' where id = ${main.id}`;   // 서울 10-12 01:00
+    const u = await cand();
+    assert.equal(u.readiness, 'warn');
+    assert.deepEqual(u.issues.filter((i) => i.code === 'unseen').map((i) => i.text), ['게시물 안 보임 10-12']);
+  } finally {
+    await sql`delete from tracked_post where id in (${main.id}, ${reply.id})`;
+  }
 });
 
 test('생성 — 스냅샷·로그·후보에서 제외·배지', async () => {

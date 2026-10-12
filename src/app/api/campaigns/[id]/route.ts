@@ -1,3 +1,4 @@
+import { productWebBoundary } from '@/lib/productWebBoundary';
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
@@ -52,7 +53,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 // 작업은 함께 지워지고 원고는 남는다 — 지워질 작업 수·'대상 미정'이 될 참조 수를 응답에 함께 실어 보낸다(스펙 §4-4).
 // 확인 다이얼로그는 클라 몫. 이미 없어도 ok:true·deleted:false — 삭제는 멱등(influencers DELETE 관례).
 // 정산 보호(정산 스펙 §4-4) — 활성 요청이 붙은 작업이 하나라도 있으면 409로 막는다.
-export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+async function DELETEInternal(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
@@ -63,3 +64,5 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   }
   return NextResponse.json({ ok: true, ...result });
 }
+
+export const DELETE = productWebBoundary(DELETEInternal);

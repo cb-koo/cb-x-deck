@@ -8,9 +8,37 @@ import type { InfluencerOption } from './draftTypes.ts';
 import type { CancelReason } from './campaignTaskInput.ts';
 import { toKrw } from './clientBudget.ts';
 import { rate } from './performanceJudgment.ts';
+import type { VisitPhase } from './reservationPolicy.ts';
 
 // 캠페인 v2 화면(결정 문서 §3·§4)의 판정·문구 — 컴포넌트는 그리기만 한다. 단계는 flowStage 하나(R21), 모집단은 취소 제외(R17).
 export type FlowRow = CampaignTaskItem;
+
+// 단계 칩의 글자 — 방문협찬의 '준비'는 예약 단계로 말한다(목업 x-extension: 예약이 없거나 확정 전이면 '대기', 확정이면 '확정').
+// 단계 자체(flowStage — 정렬·필터·통계)는 그대로 두고 표시 글자만 바꾼다. 예약 상태를 모르는 DB(reservation 칸 없음)는 기존 글자.
+export function flowStageLabel(t: FlowRow, stage: FlowStage = flowStage(t, t.settlement)): string {
+  if (t.type === 'visit' && t.reservation !== undefined && stage === 'prep') return t.reservation === 'confirmed' ? '확정' : '대기';
+  return FLOW_STAGE_LABEL[stage];
+}
+// 방문협찬 패널의 단계 줄 — 공통 5단계 대신 예약 단계를 넣은 7단계(대기 → 확정 → 방문 → 전달 → 게시 → 정산 → 완료).
+// 방문 전까지는 예약 단계(대기·확정)가 지금 칩을 정하고, 방문 뒤부터 공통 단계(전달·게시·정산·완료)가 정한다 —
+// 방문보다 먼저 원고를 전달했어도 방문 전엔 '확정'이다(줄의 순서가 방문 → 전달이라 거꾸로 보이지 않게).
+// 표의 칩(flowStageLabel)은 그대로 공통 단계라, 전달된 원고가 있는 확정 예약은 표에선 '전달', 패널 줄에선 '확정'으로 보인다.
+// 취소·노쇼는 흐름 밖(null) — 상자는 칩 하나만 그린다.
+export type VisitStep = 'waiting' | 'confirmed' | 'visited' | 'handed' | 'posted' | 'settle' | 'done';
+export const VISIT_STEPS: readonly VisitStep[] = ['waiting', 'confirmed', 'visited', 'handed', 'posted', 'settle', 'done'];
+export const VISIT_STEP_LABEL: Record<VisitStep, string> = { waiting: '대기', confirmed: '확정', visited: '방문', handed: '전달', posted: '게시', settle: '정산', done: '완료' };
+export function visitStep(t: FlowRow, phase: VisitPhase): VisitStep | null {
+  const common = flowStage(t, t.settlement);
+  if (common === 'canc' || phase === 'cancelled' || phase === 'visit_no_show' || phase === 'upload_no_show') return null;
+  if (common === 'done' || phase === 'completed') return 'done';
+  if (common === 'settle' || phase === 'settling') return 'settle';
+  if (common === 'posted' || phase === 'uploaded') return 'posted';
+  if (phase === 'visited') return common === 'handed' ? 'handed' : 'visited';
+  return phase === 'confirmed' ? 'confirmed' : 'waiting';
+}
+// 카드를 눌렀을 때 예약 창을 '예약 파싱' 단계로 바로 열 작업 — 예약이 아직 없는 살아 있는 방문 작업(사람이 정해져 있어야 연결할 수 있다)
+export const awaitsReservation = (t: FlowRow) =>
+  t.type === 'visit' && t.reservation === null && !t.cancelledAt && !t.postedAt && !!t.influencerHandle;
 const stageOf = (t: FlowRow): FlowStage => flowStage(t, t.settlement);
 
 // ── 필터(R26): 드롭다운 하나, 세 묶음 — 묶음 안 OR, 묶음 사이 AND ──
@@ -113,6 +141,7 @@ export function draftCell(t: FlowRow): { text: string; muted: boolean; title: st
   return { text: '미정', muted: true, title: '' };
 }
 export function costCell(t: FlowRow, suggestion: TaskCost | null): { text: string; tone: 'plain' | 'muted' | 'struck' | 'suggested'; title?: string } {
+  if (t.noCost) return { text: '비용 없음', tone: t.cancelledAt ? 'struck' : 'plain' };
   if (t.cost) return { text: formatAmount(t.cost.amount, t.cost.currency), tone: t.cancelledAt ? 'struck' : 'plain' };
   if (!t.cancelledAt && suggestion) return { text: formatAmount(suggestion.amount, suggestion.currency), tone: 'suggested', title: '아직 확인 전 — 프로필 단가로 채운 값이에요' };
   return { text: '미정', tone: 'muted' };

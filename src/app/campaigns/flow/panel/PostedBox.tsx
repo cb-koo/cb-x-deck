@@ -28,7 +28,7 @@ const subTitle = 'mb-1.5 text-[14px] font-semibold text-x-secondary';
 // 내림 줄 버튼 — [✕ 진행 안 됨]과 같은 크기의 테두리 버튼(위험한 동작이 아니라 회색)
 const removedBtn = 'inline-flex h-9 shrink-0 items-center whitespace-nowrap rounded-full border border-x-border-strong bg-white px-3.5 text-[14px] font-semibold text-x-text hover:bg-x-hover';
 
-export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMarkPosted, onSetProof, onOpenRemoved, onUnmarkRemoved, onCancel }: {
+export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMarkPosted, onSetProof, onOpenRemoved, onUnmarkRemoved, onCancel, hideCancel = false }: {
   task: FlowRow;
   today: string;
   proofSignedUrl: string | null;
@@ -39,6 +39,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
   onOpenRemoved: () => void;
   onUnmarkRemoved: () => void;
   onCancel: () => void;
+  hideCancel?: boolean;   // 방문협찬(예약 기능 켜짐) — [✕ 진행 안 됨]이 일정 상자로 옮겨 가 여기선 그리지 않는다(같은 버튼이 두 번 보이지 않게)
 }) {
   const isRt = task.type === 'rt';
   const [text, setText] = useState('');
@@ -132,7 +133,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
   // ── 게시 전 공통 — 진행이 안 된 작업(거절·무응답 등)을 여기서 바로 취소한다 ──
   // 게시 칸 안을 구분선으로 나눠 '게시됨'과 '진행 안 됨' 두 결말을 보여준다(koo 09-26 시안 A). 빨간 테두리지만
   // 검은 [게시 확인]보다 약하게 — 주 동작과 헷갈리지 않게. 구분선은 섹션 안쪽 여백(px-4)까지 끝까지 긋는다.
-  const cancelBtn = (
+  const cancelBtn = hideCancel ? null : (
     <div className="-mx-4 mt-3.5 flex items-center justify-between gap-3 border-t border-x-border px-4 pt-3">
       <span className="text-[14px] text-x-secondary">진행이 안 됐다면</span>
       <button type="button" onClick={onCancel} title="거절·무응답 등으로 진행이 안 된 작업을 취소해요 — 취소해도 되돌릴 수 있어요"

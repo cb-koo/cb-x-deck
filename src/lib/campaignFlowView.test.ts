@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import {
   EMPTY_FLOW_FILTER, matchesFlowFilter, matchesSearch, matchesExtra, filterCount, filterSummary,
   nextSort, sortFlowRows, dateCell, draftCell, costCell, flowFooter, flowStats, taskPerfExtra, settleWaitCount, isSettleWaiting, restoreMessage, PANEL_FIELD_ORDER,
-  costConfirmScenario, profilePromptFor, detachConfirmMessage,
+  costConfirmScenario, profilePromptFor, detachConfirmMessage, flowStageLabel, awaitsReservation, visitStep, VISIT_STEPS, VISIT_STEP_LABEL,
 } from './campaignFlowView.ts';
+import { flowStage } from './campaignJudgment.ts';
 import type { CampaignTaskItem } from './campaignStore.ts';
 
 const T = '2026-09-18';
@@ -199,4 +200,42 @@ test('063) 해제 확인 — 방문협찬에 동의서가 있으면 남는다고
   const agreement = { url: 'u', name: 'a.pdf', size: 1, mime: 'application/pdf', by: null, byName: '', at: '' };
   assert.equal(detachConfirmMessage({ type: 'visit', proof: null, draftStatus: null, agreement }), '인플루언서를 미정으로 되돌려요.\n올려둔 협찬 동의서는 그대로 남아요.');
   assert.equal(detachConfirmMessage({ type: 'visit', proof: null, draftStatus: null, agreement: null }), '인플루언서를 미정으로 되돌려요.');
+});
+
+test('방문협찬 단계 글자 — 예약 없음·대기는 대기, 확정은 확정, 예약 상태를 모르면 기존 글자', () => {
+  assert.equal(flowStageLabel(mk({ type: 'visit', influencerHandle: 'a', reservation: null })), '대기');
+  assert.equal(flowStageLabel(mk({ type: 'visit', influencerHandle: 'a', reservation: 'waiting' })), '대기');
+  assert.equal(flowStageLabel(mk({ type: 'visit', influencerHandle: 'a', reservation: 'confirmed' })), '확정');
+  assert.equal(flowStageLabel(mk({ type: 'visit', influencerHandle: 'a' })), '준비');
+  assert.equal(flowStageLabel(mk({ type: 'visit', influencerHandle: 'a', reservation: null, postedAt: '2026-09-10' })), '게시');
+  assert.equal(flowStageLabel(mk({ type: 'post', reservation: null })), '준비');
+});
+
+test('방문협찬 패널 단계 줄 — 방문 전엔 예약 단계, 방문 뒤엔 공통 단계, 취소·노쇼는 흐름 밖', () => {
+  const v = (p: Partial<CampaignTaskItem>) => mk({ type: 'visit', influencerHandle: 'a', reservation: 'confirmed', ...p });
+  assert.deepEqual(VISIT_STEPS.map((s) => VISIT_STEP_LABEL[s]), ['대기', '확정', '방문', '전달', '게시', '정산', '완료']);
+  assert.equal(visitStep(v({ reservation: null }), 'unregistered'), 'waiting');
+  assert.equal(visitStep(v({ reservation: 'waiting' }), 'waiting'), 'waiting');
+  assert.equal(visitStep(v({}), 'confirmed'), 'confirmed');
+  // 방문 전에 원고를 전달했어도(공통 단계 '전달') 줄에서는 아직 '확정'
+  assert.equal(flowStage(v({ draftStatus: 'delivered' }), null), 'handed');   // 전제: 전달된 원고 = 공통 단계 '전달'
+  assert.equal(visitStep(v({ draftStatus: 'delivered' }), 'confirmed'), 'confirmed');
+  assert.equal(visitStep(v({}), 'visited'), 'visited');
+  assert.equal(visitStep(v({ draftStatus: 'delivered' }), 'visited'), 'handed');
+  assert.equal(visitStep(v({ postedAt: '2026-09-10' }), 'uploaded'), 'posted');
+  const settled = (externalStatus: 'received' | 'paid') => ({ status: 'requested', externalStatus } as CampaignTaskItem['settlement']);
+  assert.equal(visitStep(v({ postedAt: '2026-09-10', settlement: settled('received') }), 'settling'), 'settle');
+  assert.equal(visitStep(v({ postedAt: '2026-09-10', settlement: settled('paid') }), 'completed'), 'done');
+  assert.equal(visitStep(v({ postedAt: '2026-09-10', noCost: true }), 'completed'), 'done');
+  assert.equal(visitStep(v({ cancelledAt: '2026-09-10' }), 'cancelled'), null);
+  assert.equal(visitStep(v({}), 'visit_no_show'), null);
+  assert.equal(visitStep(v({}), 'upload_no_show'), null);
+});
+
+test('카드 클릭 시 예약 창 — 예약 없는 살아 있는 방문 작업만', () => {
+  assert.equal(awaitsReservation(mk({ type: 'visit', influencerHandle: 'a', reservation: null })), true);
+  assert.equal(awaitsReservation(mk({ type: 'visit', influencerHandle: 'a', reservation: 'waiting' })), false);
+  assert.equal(awaitsReservation(mk({ type: 'visit', influencerHandle: 'a' })), false);
+  assert.equal(awaitsReservation(mk({ type: 'visit', influencerHandle: null, reservation: null })), false);
+  assert.equal(awaitsReservation(mk({ type: 'visit', influencerHandle: 'a', reservation: null, cancelledAt: '2026-09-10' })), false);
 });

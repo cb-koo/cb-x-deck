@@ -11,6 +11,7 @@ import type { PaymentMethodSnapshot } from './settlementCalc.ts';
 import type { Activity, ContentType, TopicStat } from './analysisStats.ts';
 import { listInfluencerCampaigns, type InfluencerCampaignItem } from './campaignStore.ts';
 import type { TaskType } from './campaignJudgment.ts';
+import { expectVersion, ProductError } from './productCommand.ts';
 
 // 기록 채널 — 수동 한 줄 기록이 "어디서 오간 이야기인지" (스펙 §2)
 export type InfluencerChannel = 'dm' | 'line' | 'email' | 'other';
@@ -75,6 +76,7 @@ export interface InfluencerRow {
   followersCount: number | null; profileRefreshedAt: string | null;
   blueVerified: boolean | null;  // X 블루마크 스냅샷(062) — null = 미조회(칸이 생기기 전 조회 포함)
   tags: string[]; note: string; createdAt: string;
+  noteVersion?: number; pricingVersion?: number;
   lastLogAt: string | null;  // 파생: 로그 최신행(all kind) — 라벨은 "마지막 기록" (스펙 §2)
   draftCount: number;        // 파생: lower(handle) 조인 count
   lastContactAt: string | null;  // 파생: kind='manual' 로그만의 최신행 — "연락 기록" 축 (스펙 §① 라벨-값 일치)
@@ -112,6 +114,7 @@ type IRow = {
   followers_count: number | null; profile_refreshed_at: Date | null;
   is_blue_verified: boolean | null;
   tags: string[]; note: string; created_at: Date;
+  note_version: number; pricing_version: number;
   last_log_at: Date | null; draft_count: string | number;
   last_contact_at: Date | null;
   analyzed_at: Date | null; analysis_v2: boolean | null; // jsonb `?` — analysis가 null이면 결과도 null
@@ -138,6 +141,7 @@ const toRow = (r: IRow): InfluencerRow => ({
   profileRefreshedAt: r.profile_refreshed_at ? new Date(r.profile_refreshed_at).toISOString() : null,
   blueVerified: r.is_blue_verified,
   tags: r.tags, note: r.note, createdAt: new Date(r.created_at).toISOString(),
+  noteVersion: r.note_version, pricingVersion: r.pricing_version,
   lastLogAt: r.last_log_at ? new Date(r.last_log_at).toISOString() : null,
   draftCount: Number(r.draft_count), // count(*)는 bigint → postgres.js가 문자열로 준다
   lastContactAt: r.last_contact_at ? new Date(r.last_contact_at).toISOString() : null,
@@ -161,6 +165,8 @@ const toLog = (r: LRow): InfluencerLogRow => ({
 const SELECT = (sql: postgres.Sql) => sql`
   select i.id, i.handle, i.x_user_id, i.display_name, i.avatar_url, i.bio, i.followers_count,
          i.profile_refreshed_at, i.is_blue_verified, i.tags, i.note, i.created_at,
+         coalesce((to_jsonb(i)->>'note_version')::int, 1) as note_version,
+         coalesce((to_jsonb(i)->>'pricing_version')::int, 1) as pricing_version,
          (select max(l.created_at) from influencer_log l where l.influencer_id = i.id) as last_log_at,
          (select count(*) from draft d where lower(d.influencer_handle) = lower(i.handle)) as draft_count,
          (select max(l2.created_at) from influencer_log l2
@@ -275,15 +281,21 @@ export async function getInfluencerDetail(sql: postgres.Sql, id: string): Promis
 }
 
 export async function updateInfluencer(
-  sql: postgres.Sql, id: string, patch: { note?: string; tags?: string[] },
+  sql: postgres.Sql, id: string, patch: { note?: string; tags?: string[] }, expectedNoteVersion?: number,
 ): Promise<void> {
-  await sql`update influencer set
+  const changed = await sql`update influencer set
       note = coalesce(${patch.note ?? null}, note),
       tags = coalesce(${patch.tags ? sql.json(patch.tags) : null}, tags)
-    where id = ${id}`;
+    where id = ${id} and (${expectedNoteVersion ?? null}::int is null or coalesce((to_jsonb(influencer)->>'note_version')::int, 1) = ${expectedNoteVersion ?? null}) returning id`;
+  if (!changed.length && expectedNoteVersion !== undefined) throw new ProductError('VERSION_CONFLICT', '메모가 다른 곳에서 바뀌었어요. 내 입력을 보존했으니 최신 메모를 확인해 주세요.', 409);
 }
 
 export async function deleteInfluencer(sql: postgres.Sql, id: string): Promise<void> {
+  const [schema] = await sql<Array<{ ready: boolean }>>`select to_regclass('visit_reservation') is not null as ready`;
+  if (schema.ready && (await sql`select i.id from influencer i join campaign_task t on lower(t.influencer_handle) = lower(i.handle)
+    where i.id = ${id} and (exists(select 1 from visit_reservation r where r.task_id = t.id)
+      or exists(select 1 from reservation_end e where e.task_id = t.id)) limit 1`).length)
+    throw new ProductError('RESERVATION_COMMAND_REQUIRED', '예약 기록이 연결된 인플루언서는 명부에서 제거할 수 없어요.', 409);
   await sql`delete from influencer where id = ${id}`; // 로그는 cascade
 }
 
@@ -412,12 +424,13 @@ export async function listOptions(sql: postgres.Sql): Promise<InfluencerOption[]
 // 단가 병합 저장 — 행 잠금 후 diff라 동시 blur가 겹쳐도 로그·값이 어긋나지 않는다(스펙 §2).
 // 로그는 유형별 한 줄씩: 단가 칸 옆 이력 펼침이 priceType 단위로 필터하기 때문.
 export async function updatePricing(
-  sql: postgres.Sql, id: string, patch: Pricing, actorId: string | null,
+  sql: postgres.Sql, id: string, patch: Pricing, actorId: string | null, expectedVersion?: number, inTransaction = false,
 ): Promise<{ pricing: Pricing; logs: InfluencerLogRow[] }> {
-  return await sql.begin(async (tx) => {
-    const rows = await tx<Array<{ pricing: Pricing }>>`
-      select pricing from influencer where id = ${id} for update`;
+  const run = async (tx: postgres.Sql) => {
+    const rows = await tx<Array<{ pricing: Pricing; version: number }>>`
+      select pricing, coalesce((to_jsonb(influencer)->>'pricing_version')::int, 1) as version from influencer where id = ${id} for update`;
     if (rows.length === 0) throw new Error(`influencer not found: ${id}`);
+    if (expectedVersion !== undefined) expectVersion(rows[0].version, expectedVersion);
     const base = rows[0].pricing ?? {};
     const changes = diffPricing(base, patch);
     const merged = mergePricing(base, patch);
@@ -436,7 +449,8 @@ export async function updatePricing(
       ? (await tx<LRow[]>`${LOG_SELECT(tsql)} where l.id in ${tx(logIds)} order by l.created_at desc, l.id desc`).map(toLog)
       : [];
     return { pricing: merged, logs };
-  });
+  };
+  return inTransaction ? run(sql) : sql.begin((tx) => run(tx as unknown as postgres.Sql));
 }
 
 // 결제 수단 연산 저장 — 행 잠금 후 applyPaymentOp가 배열 전체를 다시 만든다(updatePricing과 같은 구조).

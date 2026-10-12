@@ -193,7 +193,7 @@ export function InfluencerProfile({ id, onChanged, onDeleted, tab, onTabChange }
                      // 패널 사이 간격은 ProfileTabs의 tabpanel space-y-5가 준다 — 여기서 따로 여백을 두지 않는다.
                      content: (
                        <>
-                         <CampaignSection campaigns={data.campaigns} />
+                         <CampaignSection campaigns={data.campaigns} personId={inf.id} handle={inf.handle} />
                          <ContentTab drafts={data.drafts} draftCount={inf.draftCount} />
                        </>
                      ),

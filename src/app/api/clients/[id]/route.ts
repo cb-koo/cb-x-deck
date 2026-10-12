@@ -1,3 +1,4 @@
+import { productWebBoundary } from '@/lib/productWebBoundary';
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { getClientWithProcedures, updateClient, deleteClient } from '@/lib/clientStore';
@@ -50,10 +51,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   return NextResponse.json(await getClientWithProcedures(getSql(), id));
 }
 
-export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+async function DELETEInternal(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
   await deleteClient(getSql(), id);
   return NextResponse.json({ ok: true });
 }
+
+export const DELETE = productWebBoundary(DELETEInternal);

@@ -17,7 +17,7 @@ export function DealTab({ id, data, onChanged, setData, reportError }: {
           PATCH 응답이 뒤섞여 도착해도 서로 다른 키끼리는 덮어쓰지 않고 병합만 된다 — 같은 키는
           busyKeys가 동시 전송 자체를 막아 직렬화한다. 다만 로그 prepend는 도착 순서대로라 병행 저장 시
           몇 ms 정도 시간순과 어긋나 보일 수 있으나(일시적 표시 문제) 감수한다. */}
-      <PricingSection id={id} pricing={data.pricing} logs={data.logs}
+      <PricingSection id={id} pricing={data.pricing} version={data.influencer.pricingVersion} logs={data.logs}
                       onSaved={(patch, newLogs) => {
                         setData((d) => (d ? { ...d, pricing: { ...d.pricing, ...patch }, logs: [...newLogs, ...d.logs] } : d));
                         // 단가 저장은 auto 로그를 남겨 last_log_at이 바뀐다 — 명부(왼쪽)도 같이 움직여야 한다.

@@ -1,0 +1,98 @@
+// Frontend-only demo contracts. These are not the production database schema.
+import type { FlowStage } from '@/lib/campaignJudgment';
+import type { DraftStatus } from '@/lib/draftStatus';
+export type Reason = 'customer_request' | 'correction' | 'waiting_edit';
+export const VISIT_STAGES = ['대기', '확정', '방문', '업로드', '정산', '완료'] as const;
+export type ReservationEndKind = '취소' | '노쇼' | '업로드 노쇼';
+export type Stage = (typeof VISIT_STAGES)[number] | ReservationEndKind;
+export type Difference = { field: string; label: string; before: string; after: string };
+export type Change = {
+  id: string;
+  reason: Reason;
+  at: string;
+  differences?: Difference[];
+  stopped?: boolean;
+};
+export type Consent = { name: string; size: number; url: string; uploadedAt?: string };
+export type TaskDraftContent = { title: string; body: string; status: DraftStatus; createdOn: string };
+export type AvailableDraft = TaskDraftContent & { id: string; personId: string };
+export type Reservation = {
+  branchId: string;
+  source: string;
+  sheet: string;
+  phase: 'waiting' | 'confirmed';
+  history: Change[];
+  consent?: Consent;
+};
+export type DemoTask = {
+  id: string;
+  campaignId: string;
+  personId: string;
+  type: 'visit' | 'post' | 'rt' | 'quoteRt';
+  flow: FlowStage;
+  visitOn: string;
+  scheduledOn: string;
+  scheduledTime?: string;
+  note: string;
+  amount: string;
+  currency: 'KRW' | 'JPY';
+  noCost: boolean;
+  posted: boolean;
+  postUrl?: string;
+  postedAt?: string;
+  paid: boolean;
+  settlementActive: boolean;
+  visited: boolean;
+  payment?: { method: string; holder: string; account: string; fee: string };
+  end?: { kind: ReservationEndKind; reason: string; at: string };
+  reservation?: Reservation;
+  draft?: TaskDraftContent;
+};
+export type Campaign = { id: string; name: string; clientId: string; startsOn: string; endsOn: string };
+export type Person = {
+  id: string;
+  name: string;
+  handle: string;
+  memo: string;
+  currency: 'KRW' | 'JPY';
+  pricing: Record<DemoTask['type'], string>;
+  priceHistory: { at: string; label: string; before: string; after: string }[];
+};
+export type DaySchedule = { closed: boolean; intervals: string };
+export type Branch = {
+  id: string;
+  clientId: string;
+  name: string;
+  scope: 'clinic' | 'branch';
+  setupPending: boolean;
+  order: number;
+  active: boolean;
+  week: DaySchedule[];
+  holiday: 'closed' | 'special' | 'unknown';
+  holidayHours: string;
+  exceptions: { date: string; closed: boolean; intervals: string; note: string }[];
+  naver: string;
+  google: string;
+  instructions: Record<'KO' | 'JA' | 'EN', string>;
+  form: string;
+  sheetTemplate: string;
+};
+export type ClinicInfo = { info: string; banned: string; memo: string };
+export type QuickMessage = {
+  id: string;
+  title: string;
+  language: 'KO' | 'JA' | 'EN';
+  body: string;
+  order: number;
+  active: boolean;
+};
+export type DemoData = {
+  tasks: DemoTask[];
+  draftLibrary: AvailableDraft[];
+  people: Person[];
+  branches: Branch[];
+  clinicInfo: Record<string, ClinicInfo>;
+  messages: QuickMessage[];
+};
+export type SaveMode = 'success' | 'failure' | 'conflict';
+export const TYPE_LABEL = { visit: '방문협찬', post: '투고', rt: 'RT', quoteRt: '인용RT' };

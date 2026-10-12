@@ -28,7 +28,7 @@ const OK: AuthorVerdict = { kind: 'ok' };
 // ── ① 게시 확인 ──
 
 // 판정 거절을 트랜잭션 밖으로 알리는 신호 — postgres.js는 콜백이 정상 return하면 커밋하므로 throw로 끊는다.
-class AuthorRejected extends Error {
+export class AuthorRejected extends Error {
   constructor(public verdict: Exclude<AuthorVerdict, { kind: 'ok' }>) { super(verdict.kind); }
 }
 
@@ -56,28 +56,31 @@ export async function attachPostToTask(
         const postedOn = postedOnFromTweetLink(postUrl);
         await updateTask(tx, taskId, { postUrl, ...(postedOn ? { postedAt: postedOn, postedSource: 'manual' as const } : {}) });
       }
-      const assigned = await assignedOf(tx, taskId, true);
-      if (!assigned) return;   // 그 사이 작업이 지워졌다 — 라우트가 404로(여기서 말할 것이 없다)
-      const verdict = judgePostAuthor({
-        author: fetched.kind === 'ok' ? { handle: nz(fetched.post.authorHandle), userId: nz(fetched.post.authorUserId) } : null,
-        assigned,
-      });
-      if (verdict.kind !== 'ok') throw new AuthorRejected(verdict);
-      if (fetched.kind !== 'ok') return;   // 타입 좁히기 — 판정이 ok면 조회는 성공이다
-      // 리포스트 링크면 fetchPost가 원본으로 갈아탄다 — 등록은 실제 지표를 낸 트윗(POST /api/tracking과 같은 규칙)
-      const p = fetched.post;
-      const { row } = await insertTrackedPost(tx, {
-        tweetId: p.tweetId, authorHandle: p.authorHandle, text: p.text, postedAt: p.postedAt,
-        createdBy: opts.createdBy ?? null, metrics: p.metrics, raw: p.raw,
-      });
-      // 작업 저장이 먼저라 linkTrackedPost의 보충(coalesce)은 방금 저장한 링크·게시일을 덮지 않는다
-      await linkTrackedPost(tx, row.id, { taskId });
+      await attachFetchedPostToTask(tx, taskId, fetched, opts.createdBy);
     });
   } catch (e) {
     if (e instanceof AuthorRejected) return { ok: false, ...authorVerdictMessage(e.verdict) };
     throw e;
   }
   return { ok: true };
+}
+
+// 웹 게시 확인과 확장의 중복 저장 방지 트랜잭션이 같은 작성자 판정·게시물 연결을 사용한다.
+export async function attachFetchedPostToTask(tx: postgres.Sql, taskId: string, fetched: FetchPostResult, createdBy?: string | null): Promise<void> {
+  const assigned = await assignedOf(tx, taskId, true);
+  if (!assigned) return;
+  const verdict = judgePostAuthor({
+    author: fetched.kind === 'ok' ? { handle: nz(fetched.post.authorHandle), userId: nz(fetched.post.authorUserId) } : null,
+    assigned,
+  });
+  if (verdict.kind !== 'ok') throw new AuthorRejected(verdict);
+  if (fetched.kind !== 'ok') return;
+  const p = fetched.post;
+  const { row } = await insertTrackedPost(tx, {
+    tweetId: p.tweetId, authorHandle: p.authorHandle, text: p.text, postedAt: p.postedAt,
+    createdBy: createdBy ?? null, metrics: p.metrics, raw: p.raw,
+  });
+  await linkTrackedPost(tx, row.id, { taskId });
 }
 
 // 작업의 배정 인플 + 명부 고유번호. 작업이 없으면 null. lock=true면 작업 행을 잠근다(트랜잭션 안에서만 의미).

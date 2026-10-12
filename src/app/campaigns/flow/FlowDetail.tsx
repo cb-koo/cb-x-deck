@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { useToast } from '@/lib/toastContext';
 import { apiFetch } from '@/lib/apiFetch';
+import Link from 'next/link';
 import type { CampaignRow, CampaignTaskItem, InfluencerCostRow } from '@/lib/campaignStore';
 import type { CampaignPatchInput } from '@/lib/campaignInput';
 import type { InfluencerOption } from '@/lib/draftTypes';
@@ -42,6 +43,9 @@ import { FlowTable } from './FlowTable';
 import { FlowCards } from './FlowCards';
 import { BudgetStrip } from './BudgetStrip';
 import { TaskPanel, DRAFT_WRITE_LOST_CONFIRM, type FormDraftContext, type PricePrompt } from './TaskPanel';
+import { visitPhaseFromRow, type TaskSectionKey, type TaskSectionPrefs } from '@/lib/taskSectionView';
+import { loadProductFeatures, useProductFeatures } from '@/lib/extensionProductClient';
+import type { VisitPhase } from '@/lib/reservationPolicy';
 import { PriceProfileDialog } from './PriceProfileDialog';
 import { CostConfirmField } from './CostConfirmField';
 import { TargetLinkField } from './TargetLinkField';
@@ -102,8 +106,10 @@ type ClientData = { client: ClientRow; procedures: ProcedureRow[] };
 // 오른쪽 패널이 여는 대상 — 기존 작업(taskId) 또는 새 작업(fresh). 둘 다 아니면 패널이 닫혀 있다.
 type Panel = { taskId: string } | { fresh: true } | null;
 
-export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
+export function FlowDetail({ id, linkedTaskId = null, personId = null, personHandle = null, onChanged, onDeleted, onLeaveConfirmChange }: {
   id: string;
+  linkedTaskId?: string | null;
+  personId?: string | null; personHandle?: string | null;
   onChanged: () => void;      // 목록(왼쪽) 새로고침 — 이름·작업 수·합계가 바뀌면 목록 보조줄도 움직여야 한다
   onDeleted: () => void;
   // 직접 쓰기·생성 탭이 작성 중이면 그때 띄울 확인 문장을 부모(page.tsx)에 올린다(Task 4d §6) — 왼쪽
@@ -159,6 +165,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const [filter, setFilter] = useState<FlowFilter>(EMPTY_FLOW_FILTER);
   const [sort, setSort] = useState<FlowSort>({ key: null, dir: 1 });
   const [panel, setPanel] = useState<Panel>(null);
+  const [allPeople, setAllPeople] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   // 게시 확인은 팝업 없이 패널의 '게시' 칸(PostedBox)에서 한다(koo 09-26). 행 메뉴(FlowRowMenu)의 [게시 확인]은
   // 그 작업의 패널을 열고 이 신호로 '게시' 칸까지 스크롤·포커스한다 — 값은 작업 id, PostedBox가 한 번 쓰고
@@ -166,6 +173,15 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // RT 증빙은 useSignedTaskProofUrls로 배치 서명해 PostedBox에 넘긴다(크게 보기·바꾸기는 PostedBox 안의 TaskProofField가 한다).
   const [postedFocusId, setPostedFocusId] = useState<string | null>(null);
   const clearPostedFocus = useCallback(() => setPostedFocusId(null), []);
+  // 방문협찬 패널의 접히는 상자 기록(목업 x-extension MockupApp.sectionPrefs, lib/taskSectionView) — 작업 id별. 패널이 아니라 여기 두는
+  // 이유: 직접 펼친 상자는 다른 작업을 다녀와도(패널은 key로 다시 마운트된다) 그대로 펼쳐져 있어야 해서다.
+  const [sectionPrefs, setSectionPrefs] = useState<Record<string, TaskSectionPrefs>>({});
+  // 기능 여부를 패널보다 먼저 읽어 둔다 — 패널은 이 값으로 상자를 접을지 정하는데, 열리는 순간 처음 읽으면 여섯 상자가 펼쳐졌다 접힌다
+  useEffect(() => { void loadProductFeatures(); }, []);
+  const productFeatures = useProductFeatures();   // 방문협찬의 [✕ 진행 안 됨] 자리 — 예약 기능이 켜져 있으면 일정 상자, 아니면 게시 칸(예전 그대로)
+  const setSectionPref = useCallback((taskId: string, key: TaskSectionKey, open: boolean, phase: VisitPhase) => {
+    setSectionPrefs((prev) => ({ ...prev, [taskId]: { ...prev[taskId], [key]: { open, phase } } }));
+  }, []);
   // 게시 내림 표시 다이얼로그(koo 09-19 결정 3) — 패널의 [내림 표시] 버튼이 연다. [내림 표시]는 항상 지금
   // 패널이 보여주는 작업(panelTask)에서만 열리므로 대상은 boolean 하나로 충분하다 — 클릭 시점 작업을 따로
   // 들고 있으면, 다이얼로그 안에서 증빙을 올려도(그 setProof는 data.tasks만 갱신) 그 스냅샷은 갱신되지 않아
@@ -337,7 +353,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
 
   // ── 이 화면의 파생값(§4-2·§4-3) — 필터·정렬·통계는 campaignFlowView의 순수 함수로 계산한다. 여기서 다시 판정하지 않는다. ──
   // shown = 필터·정렬을 적용한 표시 순서. 표가 그리는 순서이자 패널의 이전/다음이 걷는 순서다(하나의 소스).
-  const shown = useMemo(() => (data ? sortFlowRows(data.tasks.filter((t) => matchesFlowFilter(t, filter, data.today)), sort) : []), [data, filter, sort]);
+  const shown = useMemo(() => (data ? sortFlowRows(data.tasks.filter((t) => (allPeople || !personHandle || t.influencerHandle?.toLowerCase() === personHandle.toLowerCase()) && matchesFlowFilter(t, filter, data.today)), sort) : []), [data, filter, sort, personHandle, allPeople]);
   const stats = useMemo(() => (data ? flowStats(data.tasks) : null), [data]);
   // 계획 비용(카드용, b-task-11-brief.md §1) — stats.plannedCost(작업 비용만)와 달리 인플별 추가 비용까지 더한다.
   // /campaigns(CampaignDetail)의 '비용 합계'와 같은 함수라 두 화면이 같은 숫자를 말한다.
@@ -415,8 +431,11 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 같이 물으면 저장 직후 스스로를 지운다는 거짓 경고가 된다(isNewDirty 확인은 openDraftMode·onRowClick이
   // 각자 진다). 문구는 '닫을까요?'가 아니라 '열까요?' 쪽이다(Task 4d §2) — 이 함수는 패널을 닫지 않고
   // 다른 작업으로 바꾼다.
+  const newDirtyRef = useRef<string | null>(null);
   // 열었는지를 돌려준다 — 확인 창에서 [취소]하면 false(행 메뉴 [게시 확인]이 그때는 포커스 신호를 안 보낸다).
   const openPanel = useCallback((taskId: string): boolean => {
+    // 기존 작업 패널의 예약 입력 중(onDirtyChange)에도 다른 작업으로 넘어가기 전에 묻는다 — 새 작업 폼과 같은 문장 조각을 쓴다.
+    if (panelTaskId && taskId !== panelTaskId && newDirtyRef.current && !window.confirm(`${newDirtyRef.current} 다른 작업을 열까요?`)) return false;
     // 지금 패널이 보여주는 바로 그 작업을 다시 누른 것이면 draftSwitchConfirm("다른 작업을 열까요?")을
     // 쓰지 않는다(리뷰 지적 4) — 다른 작업을 여는 게 아니라 그 작업의 작업 모드로 돌아가는 것이라 그
     // 문장은 사실이 아니다. 그렇다고 묻지 않는 것은 아니다 — 이 자리가 보내는 tab:null 신호를 TaskPanel의
@@ -431,6 +450,14 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     setPanel({ taskId });
     return true;
   }, [panelTaskId, draftWriteDirty, draftSwitchConfirm, moveConfirm]);
+  const handledLinkRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!data || loadErr || !linkedTaskId || handledLinkRef.current === linkedTaskId) return;
+    // 서버에서 읽은 선택 캠페인의 작업만 열어 관계를 확인한다.
+    handledLinkRef.current = linkedTaskId;
+    if (!data.tasks.some((t) => t.id === linkedTaskId)) return;
+    openPanel(linkedTaskId);
+  }, [data, loadErr, linkedTaskId, openPanel]);
   // + 작업 추가(Task 4c §1 — 4b가 안 막았던 문) — 같은 확인. isNewDirty는 필요 없다(이미 새 작업 모드일 때
   // 다시 눌러도 key가 그대로 'new'라 TaskPanel이 리마운트되지 않고, 로컬 입력은 그대로 남는다).
   const openNew = useCallback(() => {
@@ -443,15 +470,15 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // boolean이 아니라 TaskPanel이 이미 고른 문장 조각을 받는다(Task 4 §6) — "입력한 내용이 사라져요"로
   // 고정돼 있으면 원고만 고르고 칸은 비운 경우 거짓말이 된다(원고는 '있는 원고 고르기'에 남아 안 사라진다).
   // TaskPanel.requestClose가 쓰는 것과 같은 조각(newDirtyParts)이고, 어미만 여기서 다르게 붙인다.
-  const newDirtyRef = useRef<string | null>(null);
+  // newDirtyRef는 openPanel보다 위에 선언한다(openPanel이 읽는다) — 설명은 onNewDirtyChange 옆 주석.
   // 같은 값을 상태로도 든다 — 캠페인 전환 확인 문장(onLeaveConfirmChange)을 다시 올리려면 렌더가 필요하다.
   const [newLeaveMsg, setNewLeaveMsg] = useState<string | null>(null);
   const onNewDirtyChange = useCallback((msg: string | null) => { newDirtyRef.current = msg; setNewLeaveMsg(msg); }, []);
   // 새 작업 폼에 입력 중이어도 올린다(koo 09-27) — 목록 클릭을 패널의 '바깥 누르면 닫기'가 더는 받지 않으므로
   // (TaskPanel data-campaign-list) 그 확인을 page.tsx의 select가 대신 묻는다. 원고 작성 중이면 그 문장이 먼저다.
   useEffect(() => {
-    onLeaveConfirmChange?.(draftWriteDirty ? draftSwitchConfirm : isNew && newLeaveMsg ? `${newLeaveMsg} 다른 캠페인으로 갈까요?` : null);
-  }, [draftWriteDirty, draftSwitchConfirm, isNew, newLeaveMsg, onLeaveConfirmChange]);
+    onLeaveConfirmChange?.(draftWriteDirty ? draftSwitchConfirm : newLeaveMsg ? `${newLeaveMsg} 다른 캠페인으로 갈까요?` : null);
+  }, [draftWriteDirty, draftSwitchConfirm, newLeaveMsg, onLeaveConfirmChange]);
   // 원고 모드로 열어라(행 메뉴 등 패널 바깥에서 온 요청) — 이 작업의 패널을 열고, seq를 올려 TaskPanel에
   // "지금 이 탭으로 원고 모드를 열어라"를 전달한다(이미 같은 작업 패널이 열려 있으면 key 리마운트가 없어
   // seq가 없으면 두 번째 요청이 무시된다). 표가 흐려질 뿐 막히진 않으므로(결정 3) 새 작업 dirty 확인도
@@ -462,18 +489,21 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 거치지 않는 별도 경로). isNew 쪽 문장은 새로 짓지 않고 이 파일에 이미 있는 것을 그대로 쓴다 — 아래
   // draftWriteDirty 쪽은 openPanel과 같은 draftSwitchConfirm(위에서 정의, Task 4d §2·§3)을 쓴다.
   const openDraftMode = useCallback((t: FlowRow, tab: DraftTab) => {
-    if (isNew && newDirtyRef.current && !window.confirm(`${newDirtyRef.current} 다른 작업을 열까요?`)) return;
+    if (newDirtyRef.current && !window.confirm(`${newDirtyRef.current} 원고 화면을 열까요?`)) return;
     // openPanel과 같은 규칙 — 같은 작업이면 다른 작업을 여는 게 아니라 그 작업 안에서 자리를 옮기는 것이다.
     const msg = t.id === panelTaskId ? moveConfirm : draftSwitchConfirm;
     if (draftWriteDirty && msg && !window.confirm(msg)) return;
     draftOpenSeqRef.current += 1;
     setDraftOpenReq({ tab, seq: draftOpenSeqRef.current });
     setPanel({ taskId: t.id });
-  }, [isNew, panelTaskId, draftWriteDirty, draftSwitchConfirm, moveConfirm]);
+  }, [panelTaskId, draftWriteDirty, draftSwitchConfirm, moveConfirm]);
   // draftWriteDirty 확인은 openPanel이 이미 진다(위 주석) — 여기서 또 물으면 같은 클릭에 확인창이 두 번 뜬다.
+  // 표에서 카드를 눌러 연 작업 — 예약 없는 방문 작업이면 패널이 예약 창을 '예약 파싱'부터 연다(TaskPanel autoReserve).
+  // 카드 클릭만이다: [만들기] 직후·이전/다음·링크로 연 패널에선 창을 띄우지 않는다(postedFocus와 같은 신호 모양).
+  const [autoReserveId, setAutoReserveId] = useState<string | null>(null);
   const onRowClick = useCallback((t: FlowRow) => {
     if (isNew && newDirtyRef.current && !window.confirm(`${newDirtyRef.current} 다른 작업을 열까요?`)) return;
-    openPanel(t.id);
+    setAutoReserveId(openPanel(t.id) ? t.id : null);
   }, [isNew, openPanel]);
   const onPanelPrev = useCallback(() => { if (panelIndex > 0) openPanel(shown[panelIndex - 1].id); }, [panelIndex, shown, openPanel]);
   const onPanelNext = useCallback(() => { if (panelIndex >= 0 && panelIndex < shown.length - 1) openPanel(shown[panelIndex + 1].id); }, [panelIndex, shown, openPanel]);
@@ -494,7 +524,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     // onRowClick·openDraftMode와 같은 규칙(표는 흐릴 뿐 막히지 않는다), 원고 작성 중 확인은 openPanel이 진다.
     posted: (t) => {
       if (isNew && newDirtyRef.current && !window.confirm(`${newDirtyRef.current} 다른 작업을 열까요?`)) return;
-      if (openPanel(t.id)) setPostedFocusId(t.id);
+      // 접힌 '게시' 상자로 스크롤하면 보이지 않는 곳에 멈춘다 — 먼저 펼친다(직접 펼친 것과 같은 기록이라 단계가 바뀌어도 유지)
+      if (openPanel(t.id)) { setSectionPref(t.id, 'posting', true, visitPhaseFromRow(t, data?.today ?? '')); setPostedFocusId(t.id); }
     },
     schedule: (t) => openPanel(t.id),
     openDraftMode,
@@ -517,7 +548,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
         if (ok && t.draftId) void reloadCandidates();
       });
     },
-  }), [isNew, openPanel, openDraftMode, flowActions, actions, panelTaskId, reloadCandidates, confirmLoseDraftFor]);
+  }), [isNew, openPanel, openDraftMode, flowActions, actions, panelTaskId, reloadCandidates, confirmLoseDraftFor, setSectionPref, data?.today]);
   const renderMenu = useCallback((t: FlowRow): ReactNode => (
     <FlowRowMenu task={t} today={data?.today ?? ''} on={menuActions} />
   ), [menuActions, data?.today]);
@@ -550,6 +581,25 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
     if (prompt) setPricePrompt(prompt);
     return 'ok';
   }, [id, show, load, onChanged, openPanel, reloadCandidates]);
+
+  // 새 방문협찬 폼의 [예약폼 작성] 창 — 작업만 만들고 패널은 새 작업 폼에 둔다(창이 이어서 예약을 저장한다).
+  const createForReservation = useCallback(async (body: TaskCreateRequest) => {
+    const r = await createTasksApi(id, body);
+    // 원고 409·후보 갱신은 createTask와 같은 규칙 — 원고 칸은 미리 고른 원고가 있을 때만 이 폼에 남는다
+    if (!r.ok) { if (r.status === 409 && body.draftId) { setFormDraft(null); void load(); void reloadCandidates(); } show(r.error); return null; }
+    await load(); onChanged();
+    if (body.draftId) void reloadCandidates();
+    const t = r.data.tasks[0];
+    return { id: t.id, version: typeof t.version === 'number' ? t.version : null };
+  }, [id, show, load, onChanged, reloadCandidates]);
+  // 예약까지 저장했으면 그 작업 패널로 — 예약이 업로드 기한을 바꿨으니 한 번 더 읽는다. 1단계 [닫기]로 작업만 '대기'로 만들었으면
+  // 패널을 닫는다 — 그 작업 패널을 열면 예약 창이 곧바로 다시 뜨기 때문이다(TaskPanel 카드 자동 열기). 응답이 오면 카드를 눌러 잇는다.
+  const reservationCreated = useCallback(async (taskId: string, prompt: PricePrompt | null, reserved: boolean) => {
+    await load(); onChanged();
+    if (reserved) openPanel(taskId);
+    else { setPanel(null); show("작업을 '대기'로 만들었어요 — 고객 응답이 오면 카드를 눌러 예약 파싱부터 이어서 해요"); }
+    if (prompt) setPricePrompt(prompt);
+  }, [load, onChanged, openPanel, show]);
 
   // 원고 떼기(패널의 [떼기]) — 확인 없이(원고는 남는다고 토스트가 말한다), 작업의 원고 칸만 비운다(§5)
   const detachDraft = useCallback(async (t: CampaignTaskItem) => {
@@ -942,6 +992,10 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
 
   return (
     <div className="min-w-0 space-y-5 p-5 pb-24">
+      {personId && personHandle && <div className="flex flex-wrap items-center gap-3 text-ui"><Link className="text-x-blue-text underline" href={`/influencers?i=${encodeURIComponent(personId)}&tab=content`}>← @{personHandle} 협업 콘텐츠로</Link><span className="text-x-secondary">{allPeople ? '캠페인 전체 작업' : `@${personHandle}의 작업만 보고 있어요`}</span><Button onClick={() => setAllPeople((v) => !v)}>{allPeople ? '이 사람 작업만 보기' : '전체 작업 보기'}</Button></div>}
+      {linkedTaskId && !data.tasks.some((t) => t.id === linkedTaskId) && (
+        <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-ui text-amber-800">이 캠페인에서 작업을 찾을 수 없어요. 삭제되었거나 다른 캠페인의 작업인지 링크를 확인해 주세요.</p>
+      )}
       {loadErr && (
         <div role="alert" className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-ui text-red-700">
           <span>새로고침에 실패했어요 — 표시된 정보가 최신이 아닐 수 있어요</span>
@@ -988,6 +1042,9 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                    campaign={data.campaign} today={data.today} influencerOptions={influencerOptions} actions={actions}
                    roster={rosterGate} rosterVersion={rosterVersion}
                    onClose={() => setPanel(null)} onPrev={onPanelPrev} onNext={onPanelNext} onCreate={createTask}
+                   onReservationChanged={async () => { await load(); onChanged(); }}
+                   autoReserve={!!panelTask && autoReserveId === panelTask.id}
+                   onCreateForReservation={createForReservation} onReservationCreated={(taskId, prompt, reserved) => void reservationCreated(taskId, prompt, reserved)}
                    menu={panelTask ? renderMenu(panelTask) : null}
                    draftOpen={draftOpenReq} pickCount={pickCount} draftCard={draftCard}
                    draftGenerate={draftGenerate} draftWrite={draftWrite} draftPick={draftPick} draftBusy={draftBusy} closeConfirm={closeConfirm} moveConfirm={moveConfirm}
@@ -1021,7 +1078,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                                     onSetProof={(p) => actions.setProof(panelTask, p)}
                                     onOpenRemoved={() => setRemovedOpen(true)}
                                     onUnmarkRemoved={() => void actions.unmarkRemoved(panelTask)}
-                                    onCancel={() => menuActions.cancel(panelTask)} />
+                                    onCancel={() => menuActions.cancel(panelTask)}
+                                    hideCancel={panelTask.type === 'visit' && productFeatures?.reservations === true} />
                        : null,
                      // 다른 곳에서 정산함(061) — 취소된 작업엔 TaskPanel이 그리지 않는다
                      settled: panelTask
@@ -1033,7 +1091,10 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                    // 원고 모드의 레퍼런스 고르기·링크 추가)가 있으면 패널의 Esc를 끈다 — 안 그러면 그 레이어를
                    // 닫는 Esc 한 번에 패널까지 같이 닫힌다(리뷰 지적 1, Critical).
                    overlayOpen={!!editing || bulkOpen || removedOpen || !!linkFor || !!cancelFor || !!settleFor || !!replaceFor || draftOverlayOpen || !!pricePrompt}
-                   onDirtyChange={onNewDirtyChange} />
+                   onDirtyChange={onNewDirtyChange}
+                   sectionPrefs={panelTask ? sectionPrefs[panelTask.id] ?? {} : {}}
+                   onSectionChange={(key, open, phase) => { if (panelTask) setSectionPref(panelTask.id, key, open, phase); }}
+                   onCancelTask={(t) => menuActions.cancel(t)} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
       {pricePrompt && (

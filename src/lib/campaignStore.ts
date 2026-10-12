@@ -39,6 +39,9 @@ export interface CampaignTaskItem extends TaskRow {
   perf: CampaignPerf | null;       // tracked_post.task_id 최신 스냅샷(lateral) 합. 스냅샷 없으면 views/likes null
   linkClicks: number | null;       // 붙은 원고의 tracking_link 최신 스냅샷 합 — 게시 여부와 무관(요약 카드 합계용, §5)
   settlement: SettlementBadge | null;   // 표의 정산 배지(정산 스펙 §4-4) — settlementByTaskIds
+  // 방문 예약(064) — null 예약 없음 · 'waiting' 대기 · 'confirmed' 확정. 예약 테이블이 없는 DB(설정 적용 전)면 칸 자체가 없다(undefined) —
+  // 그때는 표의 '대기' 표시와 카드 클릭의 예약 창을 모두 쓰지 않는다(reservationByTaskIds).
+  reservation?: 'waiting' | 'confirmed' | null;
 }
 export interface InfluencerCostRow {
   id: string; campaignId: string; influencerHandle: string;
@@ -274,6 +277,20 @@ function latestIso(ds: Array<Date | null>): string | null {
 type PerfRow = { task_id: string; post_count: number; views: string | number | null; likes: string | number | null; bookmarks: string | number | null; captured_at: Date | null };
 type ClickRow = { draft_id: string; clicks: string | number | null };
 
+// 방문 작업의 예약 상태(064) — 읽기만 한다. 예약 기능이 꺼져 있으면(extensionProductApi.productFeatures와 같은 조건: 환경 변수,
+// 예약 테이블 존재) null(상태를 모름)을 돌려준다 — 테이블이 없는 DB에서도 캠페인 화면은 열려야 한다.
+// 예약 종료는 작업 취소로 함께 기록되므로(reservationCommands) 여기서 따로 보지 않는다.
+async function reservationByTaskIds(sql: postgres.Sql, taskIds: string[]): Promise<Map<string, 'waiting' | 'confirmed'> | null> {
+  if (process.env.NODE_ENV !== 'development' && process.env.EXTENSION_PRODUCT_ENABLED !== 'true') return null;
+  const [{ ready }] = await sql<Array<{ ready: boolean }>>`select to_regclass('public.visit_reservation') is not null as ready`;
+  if (!ready) return null;
+  const ids = taskIds.filter(isUuidLike);
+  if (!ids.length) return new Map();
+  const rows = await sql<Array<{ task_id: string; confirmed: boolean }>>`
+    select task_id, confirmed_at is not null as confirmed from visit_reservation where task_id in ${sql(ids)}`;
+  return new Map(rows.map((r) => [r.task_id, r.confirmed ? 'confirmed' : 'waiting']));
+}
+
 export async function getCampaignDetail(
   sql: postgres.Sql, id: string, today: string = kstToday(),
 ): Promise<CampaignDetail | null> {
@@ -308,6 +325,7 @@ export async function getCampaignDetail(
   const clickMap = new Map(clickRows.map((r) => [r.draft_id, r]));
   const num = (v: string | number | null) => (v === null ? null : Number(v)); // sum(bigint)는 문자열
   const badges = await settlementByTaskIds(sql, tasks.map((t) => t.id));   // 표의 정산 배지(정산 스펙 §4-4)
+  const reservations = await reservationByTaskIds(sql, tasks.filter((t) => t.type === 'visit').map((t) => t.id));
 
   const items: CampaignTaskItem[] = tasks.map((t) => {
     const p = perfMap.get(t.id);
@@ -318,6 +336,7 @@ export async function getCampaignDetail(
       perf: p ? { postCount: p.post_count, views: num(p.views), likes: num(p.likes), bookmarks: num(p.bookmarks) } : null,
       linkClicks: c ? num(c.clicks) : null,
       settlement: badges.get(t.id) ?? null,
+      ...(reservations && t.type === 'visit' ? { reservation: reservations.get(t.id) ?? null } : {}),
     };
   });
 

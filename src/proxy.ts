@@ -9,9 +9,22 @@ const matchesPrefix = (pathname: string, prefix: string) =>
   pathname === prefix || pathname.startsWith(`${prefix}/`);
 
 export async function proxy(request: NextRequest) {
+  // Local, sample-only preview. No production route or API authentication is bypassed.
+  if (process.env.NODE_ENV === 'development' && request.nextUrl.pathname === '/mockup/x-extension') {
+    return NextResponse.next({ request });
+  }
+
   // 브릿지 서버의 이벤트 push — 세션 쿠키가 없어 갱신할 것도 없고, 인가는 라우트가 시크릿으로 한다.
   // 아래 getUser()는 요청마다 인증 서버 왕복이라 이벤트 1건마다 붙일 이유가 없다(스펙 §수집 API).
   if (request.nextUrl.pathname === '/api/landing-events') return NextResponse.next({ request });
+
+  // 확장 API — 쿠키를 쓰지 않는 Bearer 경로라 세션 쿠키 갱신을 건너뛴다. 인증 우회가 아니다:
+  // 이 prefix 아래의 모든 핸들러가 requireExtensionMember로 JWT를 검증한다(API 계획 §4-5). OPTIONS도 여기서 통과.
+  if (matchesPrefix(request.nextUrl.pathname, '/api/extension/v1')) {
+    const response = NextResponse.next({ request });
+    response.headers.set('cache-control', 'no-store');
+    return response;
+  }
 
   let response = NextResponse.next({ request });
 

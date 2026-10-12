@@ -38,6 +38,8 @@ function CampaignsFlowSplit() {
   }, [pathname]);
   const searchParams = useSearchParams();
   const urlId = searchParams.get('id');
+  const urlTaskId = searchParams.get('task');
+  const personId = searchParams.get('person'), personHandle = searchParams.get('handle');
   const { show } = useToast();
   const [rows, setRows] = useState<CampaignRow[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -78,13 +80,15 @@ function CampaignsFlowSplit() {
   // 무효 ?id= → 토스트 + 첫 캠페인(스펙 §7). URL도 고쳐 새로고침해도 같은 화면(clients 폴백 관례).
   useEffect(() => {
     if (!loaded || loadErr) return;
+    // 특정 작업 링크는 다른 캠페인으로 대체하지 않는다.
+    if (urlTaskId && (!urlId || picked.missing)) return;
     if (picked.missing) {
       if (urlId === justDeletedRef.current) justDeletedRef.current = null;   // 방금 지운 id라 오경보 — 소모하고 넘어간다
       else show('링크가 가리키는 캠페인을 찾을 수 없어요 — 삭제됐을 수 있어요. 첫 캠페인을 열었어요');
     }
     if (picked.id && picked.id !== urlId) setUrlId(picked.id);
     else if (!picked.id && urlId) setUrlId(null);
-  }, [loaded, loadErr, picked, urlId, setUrlId, show]);
+  }, [loaded, loadErr, picked, urlId, urlTaskId, setUrlId, show]);
 
   // 작성 중인 컴포저가 있으면 확인한다(Task 4d §6) — 문구는 FlowDetail이 이미 고른 것을 그대로 쓴다(새로
   // 짓지 않는다, 브리프 지시). 여기서 읽는 leaveConfirmRef.current는 클릭 핸들러 안이라 렌더 중이 아니다
@@ -122,6 +126,9 @@ function CampaignsFlowSplit() {
         )}
       </aside>
       <main className="min-w-0 flex-1 bg-x-surface">
+        {loaded && !loadErr && urlTaskId && (!urlId || picked.missing) && (
+          <p role="alert" className="px-6 py-6 text-content text-x-secondary">링크의 캠페인을 찾을 수 없어요. 캠페인과 작업 링크를 다시 확인해 주세요.</p>
+        )}
         {loaded && !loadErr && rows.length === 0 && (
           <div className="px-6 py-16 text-center">
             <p className="mb-1 text-content">아직 캠페인이 없어요</p>
@@ -129,8 +136,10 @@ function CampaignsFlowSplit() {
             <Button variant="primary" onClick={() => setCreating(true)} className="text-content">+ 새 캠페인</Button>
           </div>
         )}
-        {picked.id && (
+        {picked.id && !(urlTaskId && (!urlId || picked.missing)) && (
           <FlowDetail key={picked.id} id={picked.id}
+                      linkedTaskId={urlTaskId}
+                      personId={personId} personHandle={personHandle}
                       onChanged={() => void load()}
                       onDeleted={() => {
                         justDeletedRef.current = picked.id;   // load()가 주소 바꾸기보다 먼저 반영돼도 이 id는 오경보 대상에서 뺀다

@@ -77,7 +77,7 @@ export function ScheduledOnField({ value, overdueDays, outOfRange, onChange, com
           <rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" />
         </svg>
       )}
-      <span className="tabular-nums">{value ? formatDateKo(value) : bare ? '날짜 정하기' : (compact ? (emptyLabel ?? NO_SCHEDULE_LABEL) : '+ 예정일')}</span>
+      <span className="tabular-nums">{value ? formatDateKo(value) : bare ? (emptyLabel ?? '날짜 정하기') : (compact ? (emptyLabel ?? NO_SCHEDULE_LABEL) : '+ 예정일')}</span>
       {overdueDays !== null ? <span className="font-normal">· {overdueSuffix(overdueDays)}</span> : null}
       {outOfRange && <span className="rounded bg-amber-100 px-1 text-ui font-normal text-amber-800" title="캠페인 기간 밖 날짜예요 — 저장은 되지만 표시로 알려요">기간 밖</span>}
     </button>

@@ -31,6 +31,12 @@ export default function MessagesPage() {
     const value = await save<Message>(`quick-messages${draft.id ? `/${draft.id}` : ''}`, draft, draft.version, draft.id ? 'PATCH' : 'POST');
     open(value); setNotice('빠른 메시지를 저장했어요. 익스텐션에서 빠른 메시지를 다시 열면 반영돼요.'); await load();
   } catch (e) { setError(e instanceof Error ? e.message : '메시지를 저장하지 못했어요.'); } finally { setBusy(false); } }
+  async function remove() { if (!draft?.id || busy) return;
+    if (!window.confirm(`'${draft.title}' 메시지를 지울까요?\n익스텐션 목록에서도 바로 사라지고 되돌릴 수 없어요. 잠시 빼두기만 하려면 '익스텐션에서 사용'을 끄세요.`)) return;
+    setBusy(true); setError(''); try {
+      await save(`quick-messages/${draft.id}`, undefined, draft.version, 'DELETE');
+      setDraft(null); setBaseline(''); setNotice('빠른 메시지를 지웠어요. 익스텐션에서 빠른 메시지를 다시 열면 반영돼요.'); await load();
+    } catch (e) { setError(e instanceof Error ? e.message : '메시지를 지우지 못했어요.'); } finally { setBusy(false); } }
   // 목록 ▲▼ — 전체를 0부터 다시 번호 매기고 바뀐 행만 저장한다(초기엔 모두 0이라 첫 이동 때 전부 번호가 생긴다).
   // 편집 중인 메시지가 그 안에 있으면 순서·버전만 갱신해 입력은 지키고 다음 저장이 버전 충돌로 막히지 않게 한다.
   async function move(index: number, delta: number) {
@@ -91,7 +97,8 @@ export default function MessagesPage() {
         <div><label className="text-ui"><input type="checkbox" checked={draft.active} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} /> 익스텐션에서 사용</label>
           <p className="mt-1 text-caption text-x-muted">끄면 저장은 남고 익스텐션 목록에서만 숨겨져요. 잠시 빼둘 때 쓰세요.</p></div>
         <div className="flex items-center gap-3"><Button variant="primary" disabled={!draft.title.trim() || !draft.body.trim()} onClick={() => void store()}>{busy ? '저장 중…' : '메시지 저장'}</Button>
-          {dirty && !busy && <span className="text-caption text-x-muted">저장하지 않은 변경이 있어요.</span>}</div>
+          {dirty && !busy && <span className="text-caption text-x-muted">저장하지 않은 변경이 있어요.</span>}
+          {draft.id && <Button variant="danger" className="ml-auto" onClick={() => void remove()}>메시지 삭제</Button>}</div>
       </fieldset> : <div className={`${PANEL} text-ui text-x-secondary`}>왼쪽에서 메시지를 고르거나 새 메시지를 작성해 주세요.</div>}
     </div>
   </div></div>;

@@ -3,7 +3,7 @@ import { extHandle, extOk, extPreflight, ExtInputError } from '@/lib/extensionAp
 import { requireExtensionMember } from '@/lib/extensionAuth';
 import { parseBadgePerson, readJson } from '@/lib/extensionInput';
 import { findPeopleByHandles, findPeopleByXUserIds, loadTaskFacts } from '@/lib/extensionReadStore';
-import { BADGE_BATCH_LIMIT, classifyTask, toTaskDto } from '@/lib/extensionTasks';
+import { BADGE_BATCH_LIMIT, classifyTask, compareClassified, toTaskDto } from '@/lib/extensionTasks';
 import { kstToday } from '@/lib/datetime';
 
 export const OPTIONS = extPreflight;
@@ -26,19 +26,22 @@ export async function POST(req: Request) {
     return extOk(req, requestId, people.map((p) => {
       const row = p.handle ? found.get(p.handle.toLowerCase()) : byId.get(p.observedXUserId!);
       const identity = { handle: p.handle ?? row?.handle ?? null, ...(p.observedXUserId ? { observedXUserId: p.observedXUserId } : {}) };
-      if (!row) return { ...identity, status: 'unregistered', activeCount: 0, tasks: [] };
+      const empty = { ...identity, personId: null, asOfDate: today, activeCount: 0, activeVisitCount: 0, tasks: [] };
+      if (!row) return { ...empty, status: 'unregistered' };
       if (p.observedXUserId && row.xUserId && row.xUserId !== p.observedXUserId) {
-        return { ...identity, status: 'identity_mismatch', activeCount: 0, tasks: [] };
+        return { ...empty, status: 'identity_mismatch' };
       }
       const active = facts
         .filter((t) => t.influencerHandle?.toLowerCase() === row.handle.toLowerCase())
         .map((t) => ({ t, c: classifyTask(t, today) }))
-        .filter(({ c }) => c.bucket === 'active');
+        .filter(({ c }) => c.bucket === 'active')
+        .sort((a, b) => compareClassified({ id: a.t.id, c: a.c }, { id: b.t.id, c: b.c }));
       return {
-        ...identity, status: 'matched', activeCount: active.length,
+        ...identity, personId: row.id, asOfDate: today, status: 'matched', activeCount: active.length,
+        activeVisitCount: active.filter(({ t }) => t.type === 'visit').length,
         tasks: active.map(({ t, c }) => {
           const task = toTaskDto(t, c, row.id, today, new URL(req.url).origin);
-          return { taskId: t.id, createdAt: task.createdAt, kind: task.kind, title: task.title, visitPhase: c.visitPhase, flowStage: c.flowStage, dDay: c.dDay, visitDday: task.visitDday, uploadDday: task.uploadDday };
+          return { taskId: t.id, createdAt: task.createdAt, kind: task.kind, title: task.title, visitPhase: c.visitPhase, flowStage: c.flowStage, nextSchedule: task.nextSchedule, dDay: c.dDay, visitDday: task.visitDday, uploadDday: task.uploadDday };
         }),
       };
     }));

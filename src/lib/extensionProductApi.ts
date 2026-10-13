@@ -198,6 +198,16 @@ export async function extensionProductDispatch(req: Request, path: string[], act
         return saved;
       }), id ? 200 : 201);
     }
+    // 삭제 — 되돌릴 수 없고 익스텐션 목록에서도 바로 사라진다. 잠시 빼두기만 하려면 active=false(미사용)를 쓴다.
+    if (method === 'DELETE' && id && !action) {
+      uuid(id); const expected = versionHeader(req);
+      return reply(await productOperation(sql, actor, req, body, async (tx) => {
+        const [row] = await tx<Array<{ version: number }>>`select version from quick_message where id = ${id} for update`;
+        if (!row) throw productMissing(); expectVersion(row.version, expected);
+        await tx`delete from quick_message where id = ${id}`;
+        return { deleted: true };
+      }));
+    }
   }
   if (root === 'operations' && id === 'lookup' && method === 'POST') {
     const b = objectBody(body), operation = textValue(b.operation, '처리 종류', 500), key = textValue(b.key ?? b.idempotencyKey, '저장 요청 번호', 120);

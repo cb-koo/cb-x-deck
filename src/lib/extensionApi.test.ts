@@ -217,3 +217,27 @@ test('공통: 개발 확장 origin 기본 허용, 064 미적용 오류 식별', 
   assert.equal(isSchemaNotReady({ code: '42P01' }), true);
   assert.equal(isSchemaNotReady({ code: '23505' }), false);
 });
+
+test('방문 요약: 다음 미완료 일정만 DTO와 목록 정렬에 공유한다', () => {
+  const cases: Array<[Partial<TaskFacts>, string | null, number | null]> = [
+    [{ reservation: reservation('2026-10-08T16:00', false), scheduledOn: '2026-10-01' }, 'visit', 4],
+    [{ reservation: reservation('2026-10-01T16:00', false) }, 'visit', -3],
+    [{ reservation: reservation('2026-10-04T08:00'), scheduledOn: '2026-10-18' }, 'visit', 0],
+    [{ reservation: reservation('2026-10-03T16:00'), scheduledOn: '2026-10-18' }, 'upload', 14],
+    [{ reservation: reservation('2026-10-01T16:00'), scheduledOn: '2026-10-03' }, 'upload', -1],
+    [{ postedAt: '2026-10-01', scheduledOn: '2026-09-30' }, null, null],
+    [{ settlement: { status: 'requested', externalStatus: 'pending' }, scheduledOn: '2026-09-30' }, null, null],
+    [{ visitOn: '2026-09-30', scheduledOn: '2026-10-18' }, null, null],
+    [{ reservation: reservation('2026-02-30T16:00', false) }, null, null],
+    [{ reservation: reservation('2026-10-01T16:00'), scheduledOn: 'invalid' }, null, null],
+    [{ reservation: reservation('', false), scheduledOn: '2026-10-18' }, null, null],
+    [{ endKind: 'upload_no_show', scheduledOn: '2026-10-18' }, null, null],
+  ];
+  for (const [facts, kind, days] of cases) {
+    const t = task(facts), c = classifyTask(t, TODAY), dto = toTaskDto(t, c, 'p1', TODAY, 'https://deck.example');
+    assert.equal(dto.nextSchedule?.kind ?? null, kind);
+    assert.equal(dto.nextSchedule?.dDay ?? null, days);
+    assert.equal(c.dDay, days);
+    assert.equal(dto.nextSchedule?.on ?? null, c.nextDate);
+  }
+});

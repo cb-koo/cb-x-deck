@@ -60,6 +60,16 @@
 
 ## 주요 API
 
+### 대화 목록 협찬 요약 (2026-10-13)
+
+`POST /people/badges`의 상대별 응답에 `personId`(미등록·상대 불일치이면 `null`), `activeVisitCount`, `asOfDate`(서울 `YYYY-MM-DD`)를 추가했다. 기존 `activeCount`와 `tasks`는 여전히 **모든 종류**의 전체 진행 중 협찬이다. 확장은 방문협찬만 추려 `activeVisitCount`와 목록의 고유 작업 수를 맞추고, 대표 1건을 제외한 `+N`을 표시한다. 패널 첫 페이지 20건으로 이 전체 결과를 덮어쓰지 않는다.
+
+배지의 각 작업 및 작업 목록·상세의 `TaskDto`에 `nextSchedule: { kind: 'visit' | 'upload', on: 'YYYY-MM-DD', dDay: number } | null`을 추가했다. 대기·확정은 희망/방문일, 방문 단계는 업로드 기한이며, 게시·정산·완료·종료·예약 전에는 `null`이다. 잘못된 날짜도 `null`로 반환한다. `classifyTask`의 방문 `nextDate`·`dDay`와 동일한 계산을 쓴다. 비방문 협찬의 기존 `dDay` 계산은 바꾸지 않으며 `nextSchedule`은 `null`이다.
+
+날짜 오름차순(지난 일정부터), 날짜 없음은 뒤, 같으면 작업 ID 순이다. 추가 목록은 전체 응답을 재사용하고 작업을 선택할 때만 해당 상대를 다시 확인한 뒤 필요한 서버 페이지와 최신 상세를 조회한다. 완료·삭제된 작업은 다른 카드를 대신 강조하지 않고 갱신 안내를 보여준다. 계정 변경·대화 전환 시 이전 선택을 적용하지 않는다.
+
+서버를 먼저 배포한다. 확장에서는 새 필드 **누락**과 명시적인 `null`을 구별하고, 구 서버 응답에는 기존 배지를 유지한다. 새 계약의 전체 건수가 맞지 않으면 해당 상대만 한 번 재조회하고, 계속 실패하면 열린 목록에 재시도를 제공한다. DB 변경은 없다.
+
 아래 경로는 `/api/extension/v1` 기준이다. 기존 `/session`, `/people/resolve`, `/people/badges`, `/people/{id}/tasks`도 유지한다.
 
 | 요청 | 경로 | 입력·결과 |
@@ -80,6 +90,7 @@
 | PATCH | `/clinics/{id}/templates/form` 또는 `/sheet` | `{body}`, 각각의 revision. 변경 후 parserCompatible=false |
 | GET | `/quick-messages?language=JA&q=...` | `{items,total}`. 기본은 사용 중인 메시지만, 관리 화면은 includeInactive=true |
 | POST / PATCH | `/quick-messages` 또는 `/{id}` | `{title,language,body,order,active}`, 수정 시 version 필요 |
+| DELETE | `/quick-messages/{id}` | version(If-Match) 필요. 되돌릴 수 없음 — 잠시 숨기려면 PATCH로 active=false |
 | POST | `/reservation-extractions` | `{sourceText,personId,locationId}` → 202 `{id,status:'succeeded',result}`. 현재 요청 안에서 AI 추출을 마치며 예약 저장·확정은 하지 않음 |
 | GET | `/reservation-extractions/{id}` | 본인 결과만 1시간 동안 조회 가능 |
 | POST | `/reservations` | 아래 생성 예시. 대기 상태로 저장 |

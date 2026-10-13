@@ -1,6 +1,6 @@
 // 확장 API 작업 요약의 순수 판정 — DB 접근 없음. 목록 items·total·배지 activeCount가 모두 이 한 함수(classifyTask)의
 // bucket을 쓴다(계획 §11 '건수' 검증: 같은 조건). 방문 단계·허용 행동은 reservationPolicy, 공통 6단계는 flowStage를 그대로 쓴다.
-import { daysBetweenDates, flowStage, TASK_TYPE_LABEL, type FlowSettlementInput, type FlowStage, type TaskType } from './campaignJudgment.ts';
+import { daysBetweenDates, flowStage, isDateOnlyString, TASK_TYPE_LABEL, type FlowSettlementInput, type FlowStage, type TaskType } from './campaignJudgment.ts';
 import type { DraftStatus } from './draftStatus.ts';
 import type { TaskCost } from './campaignCost.ts';
 import {
@@ -36,6 +36,8 @@ export interface TaskFacts {
   target?: { label: string; url: string | null } | null;
 }
 
+export type NextSchedule = { kind: 'visit' | 'upload'; on: string; dDay: number };
+
 export interface TaskDto {
   id: string; campaignId: string; personId: string; title: string; kind: WireTaskKind;
   flowStage: FlowStage; visitPhase: VisitPhase | null;
@@ -45,6 +47,7 @@ export interface TaskDto {
   version: number; allowedActions: VisitAction[];
   postedAt: string | null; postUrl: string | null;
   dDay: number | null;   // ClassifiedTask.dDay — 배지와 같은 값. 확장이 날짜를 따로 계산하지 않게 서버가 준다
+  nextSchedule: NextSchedule | null;
   webUrl: string;
   createdAt: string | null;
   scheduledOn: string | null;
@@ -66,6 +69,13 @@ export function seoulIso(visitAt: string): string | null {
   return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(visitAt) ? `${visitAt}:00+09:00` : null;
 }
 
+// 업무 단계는 visitPhase가 결정한다. 이미 마친 일정이나 예약 없는 레거시 날짜를 다시 할 일로 만들지 않는다.
+export function nextVisitSchedule(t: TaskFacts, phase: VisitPhase | null, today: string): NextSchedule | null {
+  const kind = phase === 'waiting' || phase === 'confirmed' ? 'visit' : phase === 'visited' ? 'upload' : null;
+  const on = kind === 'visit' ? t.reservation?.visitAt.slice(0, 10) : kind === 'upload' ? t.scheduledOn : null;
+  return kind && isDateOnlyString(on) ? { kind, on, dDay: daysBetweenDates(today, on) } : null;
+}
+
 export function classifyTask(t: TaskFacts, today: string): ClassifiedTask {
   const stage = flowStage(t, t.settlement);
   if (t.type === 'visit') {
@@ -75,11 +85,8 @@ export function classifyTask(t: TaskFacts, today: string): ClassifiedTask {
       reservation: t.reservation ? { confirmed: t.reservation.confirmed, visitAt: t.reservation.visitAt } : null,
     }, today);
     const bucket: TaskBucket = phase === 'completed' ? 'completed' : ENDED_PHASES.includes(phase) ? 'ended' : 'active';
-    const visitDate = t.reservation?.visitAt ? t.reservation.visitAt.slice(0, 10) : null;
-    const nextDate = bucket !== 'active' ? null
-      : (phase === 'waiting' || phase === 'confirmed') && visitDate ? visitDate
-      : t.scheduledOn;
-    return { bucket, visitPhase: phase, flowStage: stage, nextDate, dDay: nextDate ? daysBetweenDates(today, nextDate) : null };
+    const schedule = nextVisitSchedule(t, phase, today);
+    return { bucket, visitPhase: phase, flowStage: stage, nextDate: schedule?.on ?? null, dDay: schedule?.dDay ?? null };
   }
   // 콘텐츠 작업: 취소 = 종료, 지급 완료 또는 비용 없음의 게시 확인 = 완료(계획 §2 완료·정산).
   const bucket: TaskBucket = stage === 'canc' ? 'ended'
@@ -131,6 +138,7 @@ export function toTaskDto(t: TaskFacts, c: ClassifiedTask, personId: string, tod
     version: t.version,
     allowedActions: isVisit ? allowedVisitActions(facts, t.requestCount, today) : [],
     dDay: c.dDay,
+    nextSchedule: isVisit ? nextVisitSchedule(t, c.visitPhase, today) : null,
     webUrl: `${origin}/campaigns/flow?id=${encodeURIComponent(t.campaignId)}&task=${encodeURIComponent(t.id)}`,
   };
 }

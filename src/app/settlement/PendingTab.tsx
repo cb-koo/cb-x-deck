@@ -20,10 +20,14 @@ const DOW = '일월화수목금토';
 const KST_MS = 9 * 3_600_000;
 const hhmm = (iso: string) => { const k = new Date(Date.parse(iso) + KST_MS); return `${String(k.getUTCHours()).padStart(2, '0')}:${String(k.getUTCMinutes()).padStart(2, '0')}`; };
 const dayLabel = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}(${DOW[new Date(`${ymd}T12:00:00Z`).getUTCDay()]})`;
-const GROUP_SUB: Record<PendingGroup, (s: PendingSummary) => string> = {
+const GROUP_SUB: Record<PendingGroup, (s: PendingSummary, rows: PendingRow[]) => string> = {
   attention: () => '지급 전에 글이 내려갔거나 안 보여요 · 보낼지 정해 주세요',
   blocked: () => '고치면 자동 전송돼요 · 행을 눌러 그 자리에서 고쳐요',
-  waiting: (s) => `${sendWhenLabel(s.nextSendAt)} 자동 전송`,
+  // 지난 월요일 전에 확인된 건(곧 전송)이 섞여 있으면 따로 센다 — 머리말 날짜와 행의 '곧 전송'이 엇갈려 보이지 않게(QA 10-13)
+  waiting: (s, rows) => {
+    const due = rows.filter((r) => r.sendAt === null).length;
+    return due ? `곧 전송 ${due}건 · 나머지 ${sendWhenLabel(s.nextSendAt)} 자동 전송` : `${sendWhenLabel(s.nextSendAt)} 자동 전송`;
+  },
   stopped: () => '자동 전송 안 함 · [보내기]로 바로 보내요',
 };
 
@@ -171,7 +175,7 @@ function Group({ g, rows, s, cols, children }: { g: PendingGroup; rows: PendingR
     <div className="mt-6">
       <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2 className="text-[16px] font-semibold">{GROUP_LABEL[g]} {rows.length}</h2>
-        <span className="text-ui text-x-muted">{GROUP_SUB[g](s)}</span>
+        <span className="text-ui text-x-muted">{GROUP_SUB[g](s, rows)}</span>
       </div>
       <div className="overflow-x-auto rounded-xl border border-x-border bg-white">
         <table className="w-full border-collapse">

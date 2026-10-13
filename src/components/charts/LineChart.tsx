@@ -16,10 +16,14 @@ type Props = { labels: string[]; series: LineSeries[]; height?: number; band?: {
 export function LineChart({ labels, series, height = 220, band, unit = '', yMax }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
-  const labelW = 64, axisW = 36, padB = 24, padT = 12;
-  const plotW = Math.max(width - axisW - labelW, 0), plotH = height - padB - padT;
+  const labelW = 64, padB = 24, padT = 12;
   const all = series.flatMap((s) => s.values).filter((v): v is number => v !== null);
   const max = yMax ?? niceMax(Math.max(1, ...all, band?.range[1] ?? 0));
+  // 세로축 칸 = 가장 긴 눈금 글자 폭(12px 숫자 ≈ 7px/자) — 다섯 자리 이상(60,000)이 끝 라벨을 덮지 않게
+  const axisW = Math.max(36, `${NUM.format(Math.round(max))}${unit}`.length * 7 + 8);
+  const plotW = Math.max(width - axisW - labelW, 0), plotH = height - padB - padT;
+  // 가로축 날짜 = 폭에 맞춰 솎는다(날짜 하나에 ≈ 48px) — 좁은 패널에서 날짜끼리 겹치지 않게
+  const step = Math.max(1, Math.ceil(labels.length / Math.max(2, Math.floor(plotW / 48))));
   const x = scalePoint<string>().domain(labels).range([6, plotW - 6]);
   const y = scaleLinear().domain([0, max]).range([padT + plotH, padT]);
   const ticks = [0, max / 2, max];
@@ -52,7 +56,7 @@ export function LineChart({ labels, series, height = 220, band, unit = '', yMax 
               <text x={width} y={y(t) + 4} textAnchor="end" fontSize={T.axis} fill={C.muted}>{NUM.format(Math.round(t))}{unit}</text>
             </g>
           ))}
-          {labels.map((l, i) => (i % Math.ceil(labels.length / 8) === 0 || i === labels.length - 1) && (
+          {labels.map((l, i) => ((i % step === 0 && labels.length - 1 - i >= step / 2) || i === labels.length - 1) && (
             <text key={l} x={x(l)} y={height - 6} textAnchor={i === 0 ? 'start' : 'middle'} fontSize={T.axis} fill={i === labels.length - 1 ? C.text : C.muted}>{l}</text>
           ))}
           {hover !== null && <line x1={x(labels[hover])} x2={x(labels[hover])} y1={padT} y2={padT + plotH} stroke={C.axis} />}

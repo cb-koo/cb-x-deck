@@ -24,7 +24,7 @@ export function TrendDetail({ row, summary, months, siblings, onSelect, onClose 
   const ranked = [...siblings].sort((a, b) => (b.summary.now ?? -1) - (a.summary.now ?? -1));
 
   return (
-    <aside className="flex w-[480px] shrink-0 flex-col overflow-y-auto border-l border-x-border bg-white">
+    <aside className="flex w-[clamp(560px,44vw,780px)] shrink-0 flex-col overflow-y-auto border-l border-x-border bg-white">
       <div className="sticky top-0 z-10 flex items-start gap-3 border-b border-x-border bg-white px-6 py-4">
         <div className="min-w-0">
           <p className="text-[18px] font-bold">{row.name}</p>
@@ -50,7 +50,7 @@ export function TrendDetail({ row, summary, months, siblings, onSelect, onClose 
                 ))}
               </div>
             </div>
-            <LineChart labels={labels} series={series} height={220} />
+            <LineChart labels={labels} series={series} height={260} />
             <p className="mt-2 text-ui text-x-muted">검색량은 구간으로 반올림된 값이라 달마다 계단처럼 튈 수 있어요. 판정은 3개월 평균으로 해요.</p>
           </div>
         )}
@@ -68,7 +68,7 @@ export function TrendDetail({ row, summary, months, siblings, onSelect, onClose 
 
         <div>
           <p className="mb-2 text-ui font-semibold text-x-secondary">
-            {siblings.every((s) => s.middle === row.middle) ? `같은 중분류(${row.middle})` : `같은 대분류(${row.major})`}에서 — 많이 찾는 순
+            {siblings.every((s) => s.middle === row.middle) ? `같은 묶음(${row.major} › ${row.middle})` : `같은 분류(${row.major})`}에서 — 많이 찾는 순
           </p>
           <ul className="divide-y divide-x-border/60 rounded-lg border border-x-border">
             {ranked.map((s) => (

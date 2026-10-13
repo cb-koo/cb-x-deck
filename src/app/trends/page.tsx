@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import snapshot from './snapshot.json';
 import { summarize, changeRank, type TrendState, type TrendSummary } from '@/lib/searchTrend';
+import { classify, categoryOrder } from '@/lib/procedureTaxonomy';
 import { TrendTable, MajorTable, type TrendRow, type MajorRow } from './TrendTable';
 import { TrendDetail } from './TrendDetail';
 
@@ -28,7 +29,17 @@ const LAST_LABEL = `${lastMonth.slice(0, 4)}년 ${Number(lastMonth.slice(5, 7))}
 const FETCHED = `${Number(DATA.fetchedAt.slice(5, 7))}/${Number(DATA.fetchedAt.slice(8, 10))}`;
 
 export default function TrendsPage() {
-  const rows: TrendRow[] = useMemo(() => DATA.procedures.map((p) => ({ ...p, summary: summarize(p.volumes, DATA.months) })), []);
+  // 분류는 일반적인 피부과 시술 분류로 다시 붙인다(시트 대분류·중분류는 용어 참고용). 같은 일본어 검색어는 한 줄만.
+  const rows: TrendRow[] = useMemo(() => {
+    const seen = new Set<string>();
+    return DATA.procedures.flatMap((p) => {
+      const key = p.jp.replace(/\s/g, '').toLowerCase();
+      if (seen.has(key)) return [];
+      seen.add(key);
+      const c = classify(p);
+      return [{ ...p, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub, summary: summarize(p.volumes, DATA.months) }];
+    });
+  }, []);
   const majors = useMemo(() => [...new Map(rows.map((r) => [r.major, r.majorOrder])).entries()].sort((a, b) => a[1] - b[1]).map(([m]) => m), [rows]);
 
   const [view, setView] = useState<'procedure' | 'major'>('procedure');
@@ -90,14 +101,14 @@ export default function TrendsPage() {
               {(['procedure', 'major'] as const).map((v) => (
                 <button key={v} role="tab" aria-selected={view === v} onClick={() => setView(v)}
                         className={`rounded-full px-3 py-1 ${view === v ? 'bg-x-text text-white' : 'text-x-secondary hover:bg-x-hover'}`}>
-                  {v === 'procedure' ? '시술별' : '대분류별'}
+                  {v === 'procedure' ? '시술별' : '분류별'}
                 </button>
               ))}
             </div>
             {view === 'procedure' && (<>
-              <select value={major} onChange={(e) => setMajor(e.target.value)} aria-label="대분류"
+              <select value={major} onChange={(e) => setMajor(e.target.value)} aria-label="분류"
                       className="h-8 rounded-full border border-x-border-strong bg-white px-3 text-ui">
-                <option value="">대분류 전체</option>
+                <option value="">분류 전체</option>
                 {majors.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="시술명·일본어로 찾기"
@@ -120,7 +131,7 @@ export default function TrendsPage() {
             </div>
           )}
           {view === 'major' && (
-            <p className="text-ui text-x-muted">대분류 합계는 한 사람이 여러 검색어로 찾으면 겹쳐 세져서 실제보다 커요. 방향과 늘어난·줄어든 시술 수로 보세요.</p>
+            <p className="text-ui text-x-muted">분류 합계는 한 사람이 여러 검색어로 찾으면 겹쳐 세져서 실제보다 커요. 방향과 늘어난·줄어든 시술 수로 보세요.</p>
           )}
         </div>
 

@@ -64,12 +64,12 @@ export function MajorTable({ rows, onOpen }: { rows: MajorRow[]; onOpen: (major:
       <table className="w-full border-separate border-spacing-0 text-[15px]">
         <thead className="sticky top-0 z-10">
           <tr>
-            <th className={HEAD}>대분류</th>
+            <th className={HEAD}>분류</th>
             <th className={`${HEAD} text-right`}>시술</th>
             <th className={`${HEAD} text-right`}>늘어남</th>
             <th className={`${HEAD} text-right`}>줄어듦</th>
             <th className={HEAD}>가장 많이 찾는 시술</th>
-            <th className={HEAD} title="대분류 안 검색어 합계의 1년 변화 — 겹쳐 세진 값이라 방향만 보세요">전체 방향</th>
+            <th className={HEAD} title="분류 안 검색어 합계의 1년 변화 — 겹쳐 세진 값이라 방향만 보세요">전체 방향</th>
           </tr>
         </thead>
         <tbody>

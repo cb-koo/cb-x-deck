@@ -37,7 +37,10 @@ test('급상승은 두 배 이상이고 월 1,000 이상일 때만', () => {
   assert.equal(summarize(shift(300, 900, 300), MONTHS).state, 'up');  // 세 배지만 1,000 미만
 });
 
-test('1년 전 0에서 새로 생긴 수요', () => {
+test('1년 전 소량(월 100 미만)이면 변화율 대신 신규', () => {
+  const t = summarize(shift(93, 8433, 93), MONTHS);
+  assert.equal(t.state, 'surge');
+  assert.equal(t.change, null);
   const s = summarize(shift(0, 2000, 0), MONTHS);
   assert.equal(s.state, 'surge');
   assert.equal(s.change, null);
@@ -50,6 +53,18 @@ test('꺾임 — 2년 전보다 크게 올랐지만 지난 12개월 최고치의
   const s = summarize(v, MONTHS);
   assert.equal(s.state, 'peaked');
   assert.equal(s.peak12, 9000);
+});
+
+test('지금이 1년 전의 20배 이상이면 신규(리투오 137 → 12,473)', () => {
+  const t = summarize(shift(137, 12473, 137), MONTHS);
+  assert.equal(t.state, 'surge');
+  assert.equal(t.change, null);
+});
+
+test('고점 대비 내려왔어도 지금 다시 오르는 중이면 하락 전환 아님(울쎄라 출렁임)', () => {
+  const v = flat(10000);
+  v.splice(24, 24, 20000, 20000, 20000, 30000, 30000, 30000, 30000, 30000, 30000, 30000, 30000, 30000, 30000, 30000, 30000, 46000, 30000, 30000, 30000, 30000, 30000, 32000, 32000, 32000);
+  assert.notEqual(summarize(v, MONTHS).state, 'peaked');
 });
 
 test('지난달이 최고치면 하락 전환이 아니라 상승 — 정점이 최근 3개월 앞에 있어야 꺾임(엠페이스 사례)', () => {

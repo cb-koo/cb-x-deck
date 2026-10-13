@@ -11,11 +11,12 @@ export type IntentInfo = {
   profile: Record<ProfileIntent, number> | null; prev: Record<ProfileIntent, number> | null;
   stage: Stage | null; prevStage: Stage | null; ambiguous: boolean; keywords: number;
   top: Partial<Record<ProfileIntent, Array<[string, number]>>>;
+  members?: Array<{ id: string; kr: string; jp: string; total: number[] }>;  // 같은 시술명 묶음의 검색어별 구성
 };
 
 export type TrendRow = {
   id: string; major: string; majorOrder: number; middle: string; name: string; kr: string; jp: string; en: string;
-  volumes: number[] | null; series: number[] | null; summary: TrendSummary;
+  volumes: number[] | null; series: number[] | null; summary: TrendSummary; searchText: string;
   intent: IntentInfo | null; korea: { now: number; yearAgo: number } | null;
 };
 
@@ -61,7 +62,7 @@ export function TrendTable({ rows, selectedId, onSelect }: { rows: TrendRow[]; s
                 <td className={`${CELL} ${NUM}`}>{s.state === 'nodata' ? <span className="text-x-muted">—</span> : fmtVolume(s.now)}</td>
                 <td className={CELL}>
                   <StateChip state={s.state} />
-                  {s.change !== null && s.state !== 'low' && <span className="ml-2 text-ui tabular-nums text-x-secondary">{fmtChange(s.change)}</span>}
+                  {s.state !== 'low' && s.state !== 'nodata' && <span className="ml-2 text-ui tabular-nums text-x-secondary" title={s.change === null ? '전년 동기 소량(월 100 미만) — 변화율 대신 신규' : undefined}>{fmtChange(s.change)}</span>}
                   {s.seasonMonth && <span className="ml-2 text-ui text-x-muted">성수기 {s.seasonMonth}월</span>}
                 </td>
                 <td className={`${CELL} ${NUM}`}><KoreaCell k={r.korea} /></td>

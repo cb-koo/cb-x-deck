@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { LineChart } from '@/components/charts/LineChart';
 import { SegmentedBar } from '@/components/charts/SegmentedBar';
+import { Sparkline } from '@/components/charts/Sparkline';
 import { describe, fmtVolume } from '@/lib/searchTrend';
 import { INTENT_LABEL, PROFILE_INTENTS, STAGE_LABEL, STAGE_HINT, type ProfileIntent } from '@/lib/searchIntent';
 import { StateChip, StageChip } from './StateChip';
@@ -45,6 +46,11 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
   ] : [];
   const korea = it?.korea ?? null;
   const showKorea = !!korea && korea.slice(from).some((v) => v >= 50);
+  // 대표 검색어(시트 일본어 키워드)가 0으로 오는 경우 — 키워드 플래너가 비슷한 표현을 다른 대표어로 합쳐 0을 준다(ニキビ治療 등)
+  const repZero = !row.volumes || row.volumes.slice(-3).every((v) => v === 0);
+  const members = it?.members ?? null;
+  const memberNow = (t: number[]) => t.slice(-3).reduce((a, b) => a + b, 0) / 3;
+  const memberSum = members ? members.reduce((a, m) => a + memberNow(m.total), 0) : 0;
   const ranked = [...siblings].sort((a, b) => (b.summary.now ?? -1) - (a.summary.now ?? -1));
 
   // 성격 문장 — 비중 큰 두 의도를 사용자 말로
@@ -74,6 +80,11 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
             <StageChip stage={it?.stage ?? null} />
           </div>
           <p className="mt-2 text-[15px] leading-relaxed">{describe(summary)} {characterText} {koreaText}</p>
+          {repZero && summary.state !== 'nodata' && (
+            <p className="mt-2 rounded-lg bg-x-surface px-3 py-2 text-ui text-x-secondary">
+              대표 검색어 {row.jp.split(' 외 ')[0]}는 키워드 플래너 값이 0(비슷한 표현을 다른 대표어로 합쳐 집계). 수치는 수식어·한국 조합 검색 기준이라 실제 수요보다 작을 수 있어요.
+            </p>
+          )}
           {it?.ambiguous && (
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-ui text-amber-800">
               동음이의 혼재: 시술명이 게임·상품·인명과 겹쳐요. 동음이의 검색은 제외했지만 시술명 단독 검색에는 섞여 있어 실제 수요보다 클 수 있어요.
@@ -117,6 +128,25 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
             <dd className="mt-0.5 text-[17px] font-semibold"><KoreaCell k={row.korea} /></dd>
           </div>
         </dl>
+
+        {members && (
+          <div>
+            <p className="mb-2 text-ui font-semibold text-x-secondary">검색어 구성 <span className="font-normal text-x-muted">· 같은 시술명의 제품·표기 변형, 최근 3개월 평균</span></p>
+            <ul className="divide-y divide-x-border/60 rounded-lg border border-x-border">
+              {[...members].sort((a, b) => memberNow(b.total) - memberNow(a.total)).map((m) => {
+                const v = memberNow(m.total);
+                return (
+                  <li key={m.id} className="flex h-11 items-center gap-3 px-3 text-[15px]">
+                    <span className="min-w-0 flex-1 truncate">{m.jp} <span className="text-ui text-x-muted">{m.kr}</span></span>
+                    <span className="tabular-nums text-x-secondary">{v > 0 ? fmtVolume(v) : <span className="text-ui text-x-muted">데이터 없음</span>}</span>
+                    <span className="w-10 text-right text-ui tabular-nums text-x-muted">{memberSum > 0 && v > 0 ? pct(v / memberSum) : ''}</span>
+                    <span className="w-[96px]">{v > 0 && <Sparkline values={m.total} width={96} height={24} />}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
 
         {it && prof && (
           <div>

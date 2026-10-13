@@ -36,18 +36,30 @@ const avg3 = (v: number[], end: number) => v.slice(end - 3, end).reduce((s, x) =
 export default function TrendsPage() {
   // 분류는 일반적인 피부과 시술 분류로 다시 붙인다(시트 대분류·중분류는 용어 참고용). 같은 일본어 검색어는 한 줄만.
   // 크기·방향은 검색어 묶음 전체(이름 + 수식어 + 한국 조합, 제외·다른 뜻 뺌)로 본다 — 묶음이 없으면 이름 검색으로.
+  // 같은 분류·같은 시술명(시트의 제품·표기 변형 행: 울쎄라/울쎄라프라임/울쎄라리프트)은 한 줄로 묶는다 — intent.json이 묶음 단위(첫 행 id)다.
   const rows: TrendRow[] = useMemo(() => {
     const seen = new Set<string>();
     const n = DATA.months.length;
-    return DATA.procedures.flatMap((p) => {
+    const fams = new Map<string, Proc[]>();
+    for (const p of DATA.procedures) {
       const key = p.jp.replace(/\s/g, '').toLowerCase();
-      if (seen.has(key)) return [];
+      if (seen.has(key)) continue;
       seen.add(key);
+      const fk = `${classify(p).category}|${p.name}`;
+      fams.set(fk, [...(fams.get(fk) ?? []), p]);
+    }
+    return [...fams.values()].map((ms) => {
+      const p = ms[0];
       const c = classify(p);
       const it = INTENT[p.id] ?? null;
       const series = it && it.total.some((x) => x > 0) ? it.total : p.volumes;
       const korea = it ? { now: avg3(it.korea, n), yearAgo: avg3(it.korea, n - 12) } : null;
-      return [{ ...p, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub, series, summary: summarize(series, DATA.months), intent: it, korea }];
+      return {
+        ...p, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub,
+        jp: ms.length > 1 ? `${p.jp} 외 ${ms.length - 1}` : p.jp,
+        searchText: ms.flatMap((m) => [m.name, m.kr, m.jp, m.en]).join(' ').toLowerCase(),
+        series, summary: summarize(series, DATA.months), intent: it, korea,
+      };
     });
   }, []);
   const majors = useMemo(() => [...new Map(rows.map((r) => [r.major, r.majorOrder])).entries()].sort((a, b) => a[1] - b[1]).map(([m]) => m), [rows]);
@@ -66,7 +78,7 @@ export default function TrendsPage() {
     const f = STATE_FILTERS.find((x) => x.key === stateFilter)!;
     const needle = q.trim().toLowerCase();
     const list = inMajor.filter((r) => f.match(r.summary.state)
-      && (!needle || [r.name, r.kr, r.jp, r.en, r.middle].some((t) => t.toLowerCase().includes(needle))));
+      && (!needle || r.searchText.includes(needle) || r.middle.toLowerCase().includes(needle)));
     const by: Record<SortKey, (a: TrendRow, b: TrendRow) => number> = {
       change: (a, b) => changeRank(b.summary) - changeRank(a.summary) || (b.summary.now ?? -1) - (a.summary.now ?? -1),
       volume: (a, b) => (b.summary.now ?? -1) - (a.summary.now ?? -1),

@@ -24,6 +24,7 @@ const SURGE = 1.0;
 const SURGE_MIN = 1000;
 const PEAKED_GROWTH = 0.5;
 const PEAKED_DROP = 0.7;
+const NEW_RATIO = 20;
 const SEASON_RATIO = 1.5;
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0);
@@ -38,16 +39,22 @@ export function summarize(values: number[] | null, months: string[]): TrendSumma
   const twoYearsAgo = n >= 27 ? avg(values.slice(n - 27, n - 24)) : null;
   const last12 = values.slice(n - 12);
   const peak12 = Math.max(...last12);
-  // 정점이 최근 3개월 '앞'에 있어야 꺾인 것 — 지난달이 최고치면 아직 오르는 중이다(10-13 엠페이스: 26.08 최고치인데 하락 전환으로 잘못 나옴)
-  const peakBeforeRecent = last12.lastIndexOf(peak12) < 9;
+  // 하락 전환의 고점은 3개월 평균의 최고치 — 단월 튐(울쎄라 25,780~46,880 출렁임)을 고점으로 삼지 않는다.
+  // 그 고점이 지금(최근 3개월 창)보다 앞이어야 꺾인 것 — 지난달까지 오르는 중이면 아님(10-13 엠페이스 오판 수정).
+  let peakRoll = 0, peakAt = -1;
+  for (let i = n - 12; i < n; i++) { const r = avg(values.slice(i - 2, i + 1)); if (r >= peakRoll) { peakRoll = r; peakAt = i; } }
+  const peakBeforeRecent = peakAt < n - 1;
   const seasonMonth = season(values, months);
   const base = { now, yearAgo, twoYearsAgo, peak12, seasonMonth };
   if (now < LOW) return { ...base, state: 'low', change: null };
-  const change = yearAgo > 0 ? now / yearAgo - 1 : null;
-  if (twoYearsAgo !== null && twoYearsAgo > 0 && now / twoYearsAgo - 1 >= PEAKED_GROWTH && peakBeforeRecent && now <= peak12 * PEAKED_DROP) {
+  // 1년 전이 소량(월 100 미만)이거나 지금이 1년 전의 20배 이상이면 변화율은 의미가 없다(리투오 137 → 12,473 = +9,000%)
+  // — '신규'로 본다(change = null)
+  const change = yearAgo >= LOW && now / yearAgo < NEW_RATIO ? now / yearAgo - 1 : null;
+  // 하락 전환은 지금 내려가는 중일 때만(최근 3개월 < 직전 3개월) — 출렁이는 시술(울쎄라)이 지난 고점 대비만으로 하락 전환이 되지 않게
+  if (twoYearsAgo !== null && twoYearsAgo > 0 && now / twoYearsAgo - 1 >= PEAKED_GROWTH && peakBeforeRecent && now <= peakRoll * PEAKED_DROP && now < avg(values.slice(n - 6, n - 3))) {
     return { ...base, state: 'peaked', change };
   }
-  if (change === null) return { ...base, state: now >= SURGE_MIN ? 'surge' : 'up', change };  // 1년 전 0 → 새로 생긴 수요
+  if (change === null) return { ...base, state: now >= SURGE_MIN ? 'surge' : 'up', change };  // 1년 전 소량 → 신규 수요
   if (change >= SURGE && now >= SURGE_MIN) return { ...base, state: 'surge', change };
   if (change >= MOVE) return { ...base, state: 'up', change };
   if (change <= -MOVE) return { ...base, state: 'down', change };
@@ -82,7 +89,7 @@ export function season(values: number[], months: string[]): number | null {
 
 const NUM = new Intl.NumberFormat('ko-KR');
 export const fmtVolume = (v: number | null) => (v === null ? '—' : NUM.format(Math.round(v)));
-export const fmtChange = (c: number | null) => (c === null ? '' : `${c > 0 ? '+' : c < 0 ? '−' : ''}${NUM.format(Math.round(Math.abs(c) * 100))}%`);
+export const fmtChange = (c: number | null) => (c === null ? '신규' : `${c > 0 ? '+' : c < 0 ? '−' : ''}${NUM.format(Math.round(Math.abs(c) * 100))}%`);
 
 // 숫자 뒤 조사 '로/으로' — 끝 발음이 받침(ㄹ 제외)이면 '으로': 0(십·백·천·만)·3(삼)·6(육)
 const ro = (v: number | null) => { const d = Math.round(v ?? 0) % 10; return d === 0 || d === 3 || d === 6 ? '으로' : '로'; };

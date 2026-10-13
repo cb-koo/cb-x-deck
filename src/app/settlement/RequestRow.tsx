@@ -17,12 +17,24 @@ import { PartnerResultBlock } from './PartnerResultBlock';
 import { RevisionHistory } from './RevisionHistory';
 import { ReconcileRecord } from './ReconcileRecord';
 import { CARD, CARD_HEAD, CARD_META, ROW, ROW_KEY, GROUP, GROUP_TITLE, DIVIDER, SUB } from './expandStyle';
+import { removalAfterSend, requesterLabel } from '@/lib/settlementAuto';
+import { ackRemovalApi } from '@/lib/settlementApi';
 
 export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle, onCancel, onRevise, onMatch, onKeep, onChanged }: {
   r: PaymentRequestRow; open: boolean; proofSignedUrl: string | null; revisionEnabled: boolean;
   onToggle: () => void; onCancel: () => void; onRevise: () => void; onMatch: () => void; onKeep: () => void; onChanged: () => void;
 }) {
   const [zoom, setZoom] = useState(false);
+  const [ackBusy, setAckBusy] = useState(false);
+  const [ackErr, setAckErr] = useState('');
+  // 보낸 뒤 글이 내려감(스펙 2026-10-12 §2-7) — 지급 전이면 행 아래 경고 + [그대로 두기]/[요청 취소], 지급 후면 기록 한 줄
+  const removal = removalAfterSend(r);
+  async function ack() {
+    setAckBusy(true); setAckErr('');
+    const res = await ackRemovalApi(r.id);
+    setAckBusy(false);
+    if (res.ok) onChanged(); else setAckErr(res.error);
+  }
   const cancelled = r.status === 'cancelled';
   const paid = r.externalStatus === 'paid';
   const st = displayStatus(r, 'list');
@@ -67,6 +79,20 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
         </td>
         <td className={`${CELL} w-8 text-x-muted`} aria-hidden>{open ? '▾' : '▸'}</td>
       </tr>
+      {removal && (
+        <tr>
+          <td colSpan={COLS} className="border-b border-x-border/60 px-3 pb-2.5 pt-1 text-ui">
+            {removal.kind === 'act' ? (
+              <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
+                <span className="min-w-0 flex-1">{removal.text}</span>
+                <Button onClick={() => void ack()} disabled={ackBusy} title="지급해도 괜찮으면 — 경고만 지우고 기록을 남겨요(정산팀에는 아무것도 가지 않아요)">{ackBusy ? '저장 중…' : '그대로 두기'}</Button>
+                <Button onClick={onCancel} disabled={ackBusy}>요청 취소</Button>
+                {ackErr && <span role="alert" className="w-full text-red-700">{ackErr}</span>}
+              </span>
+            ) : <span className="text-x-muted">{removal.text}</span>}
+          </td>
+        </tr>
+      )}
       {open && (
         <tr><td colSpan={COLS} className="border-b border-x-border bg-x-surface px-6 py-5">
         {/* 펼침(10-07 koo QA 시안 A) — 옅은 회색 바탕 위 흰 카드: 금액 비교 요약 → 두 카드(우리가 보낸 요청 / 정산팀이 보낸 결과) → 개정 이력 → 맨 아래 한 줄 */}
@@ -84,7 +110,7 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
             <section className={CARD}>
               <div className={CARD_HEAD}>
                 <h3 className="text-[16px] font-bold">우리가 보낸 요청</h3>
-                <span className={CARD_META}>{[r.requesterName, kstMonthDayTimeKo(r.createdAt)].filter(Boolean).join(' · ')}</span>
+                <span className={CARD_META}>{[requesterLabel(r), kstMonthDayTimeKo(r.createdAt)].filter(Boolean).join(' · ')}</span>
               </div>
               <div className={GROUP}>
                 <div className={GROUP_TITLE}>지급 정보</div>

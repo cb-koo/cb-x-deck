@@ -37,6 +37,7 @@ const row: PaymentRequestRow = {
   paidRateKrwPerUnit: null, paidRateDate: null, paidRateSource: null,
   campaignStartsOn: '2026-08-31', campaignEndsOn: '2026-09-06', postedOn: '2026-08-27', paymentMethodCorrection: null,
   taskCost: { amount: 30000, currency: 'KRW' }, diffAckKind: null, diffAckReason: null, diffAckTaskCost: null, diffAckBeforeCost: null,
+  createdVia: 'auto', removalAckAt: null, removalAckByName: null, taskRemovedAt: null, taskRemovedReason: '', taskUnseenOn: null, sentRemovedOn: null, sentUnseenOn: null,
 };
 test('toExternalItem — 금액 분리·snake_case·되비침 null', () => {
   const e: ExportRow = { row, updatedAtUs: '1', requester: { email: 'a@b.c', slackId: null }, proof: null, influencerDisplayName: null };

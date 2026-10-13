@@ -10,7 +10,7 @@ test('isTestFixtureHandle — 테스트 접두어+pid+_ 만 픽스처, 실제 �
   for (const real of ['tstl', 'tstlover', 'tsutaya_jp', 'aik_ooooo', 'b___zooly', '_____noay', '2024_0406', 'tcmp_real', 'tstl_abc']) assert.equal(isTestFixtureHandle(real), false, real);
 });
 test('픽스처 접두어 목록이 실제로 요청을 만드는 테스트 파일의 P 정의와 맞는다', () => {
-  const files = ['src/lib/settlementStore.test.ts', 'src/lib/campaignStore.test.ts', 'src/app/api/external/settlement/requests/[id]/proof/route.test.ts'];
+  const files = ['src/lib/settlementStore.test.ts', 'src/lib/campaignStore.test.ts', 'src/lib/settlementAutoStore.test.ts', 'src/app/api/external/settlement/requests/[id]/proof/route.test.ts'];
   for (const f of files) {
     const m = readFileSync(f, 'utf8').match(/^const P = '([a-z]+)' \+ process\.pid/m);
     assert.ok(m, `${f}: P 정의를 찾지 못함`);

@@ -28,7 +28,7 @@ export interface ExternalLogRow {
 // --- 순수 문구 함수 — 화면이 쓰는 사람 말 (UX 원칙 1·3: 내부어 금지, 판단까지 서술) ---
 
 const SENT_STATUS_LABEL: Record<string, string> = {
-  received: '접수', scheduled: '지급 예정', paid: '지급 완료', on_hold: '보류', cancelled: '취소',
+  received: '접수', scheduled: '지급 예정', paid: '지급 완료', on_hold: '지급 보류', cancelled: '취소',
 };
 
 function statusLabel(sentStatus: string | null): string {

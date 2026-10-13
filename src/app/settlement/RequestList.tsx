@@ -115,7 +115,7 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
       )}
       {filtered.length === 0 ? (
         <p className="mt-6 rounded-xl border border-dashed border-x-border p-8 text-center text-ui text-x-muted">
-          {rows.length === 0 ? '아직 만든 요청이 없어요 — 검토 대기에서 골라 만들어요' : '조건에 맞는 요청이 없어요'}
+          {rows.length === 0 ? '보낸 요청 없음 · 게시 확인된 작업은 매주 월요일 07:00 자동 전송돼요' : '조건에 맞는 요청이 없어요'}
         </p>
       ) : (
         // 표 — 캠페인별로 묶고 클라이언트·캠페인 이름은 묶음 머리에 한 번만(koo 09-28 '한눈에'). 칸마다 값 하나.

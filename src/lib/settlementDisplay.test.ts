@@ -14,8 +14,8 @@ test('displayStatus — 우리·정산팀 조합 → 라벨 하나(요청 내역
   assert.equal(displayStatus(ext('received'), 'list').label, '정산 접수 8/29');
   assert.equal(displayStatus(ext('scheduled'), 'list').label, '지급 예정');
   const hold = displayStatus(ext('on_hold', '계좌번호 다시 확인해 주세요 — 지점 코드가 없어요'), 'list');
-  assert.equal(hold.key, 'on_hold'); assert.equal(hold.tone, 'warn'); assert.equal(hold.label, '보류 · 계좌번호 다시 확인해 주세요 — 지점…');
-  assert.equal(displayStatus(ext('on_hold'), 'list').label, '보류');
+  assert.equal(hold.key, 'on_hold'); assert.equal(hold.tone, 'warn'); assert.equal(hold.label, '지급 보류 · 계좌번호 다시 확인해 주세요 — 지점…');
+  assert.equal(displayStatus(ext('on_hold'), 'list').label, '지급 보류');
   const paid = displayStatus(ext('paid'), 'list');
   assert.equal(paid.label, '지급 완료 8/29'); assert.equal(paid.tone, 'done');
   const cancelled = displayStatus({ ...ext('cancelled'), status: 'cancelled', cancelledAt: '2026-08-30T03:00:00Z' }, 'list');
@@ -26,7 +26,7 @@ test('displayStatus — 캠페인 표 라벨', () => {
   assert.equal(displayStatus(base, 'campaign').label, '정산 요청됨 8/28');
   assert.equal(displayStatus(ext('received'), 'campaign').label, '정산 접수 8/29');
   assert.equal(displayStatus(ext('scheduled'), 'campaign').label, '지급 예정');
-  assert.equal(displayStatus(ext('on_hold', '계좌'), 'campaign').label, '정산 보류 — 확인 필요');
+  assert.equal(displayStatus(ext('on_hold', '계좌'), 'campaign').label, '지급 보류 — 확인 필요');
   assert.equal(displayStatus(ext('paid'), 'campaign').label, '지급 완료 8/29');
   assert.equal(displayStatus({ ...base, status: 'cancelled', cancelledAt: '2026-08-30T03:00:00Z' }, 'campaign').label, '취소됨');
 });

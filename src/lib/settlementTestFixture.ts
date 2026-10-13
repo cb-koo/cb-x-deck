@@ -5,11 +5,11 @@
 // 그 모양을 외부 목록·단건 조회에서 걸러낸다. 테스트 프로세스 안(node --test가 심는 NODE_TEST_CONTEXT)에서는 걸러내지 않는다 —
 // 내보내기 테스트가 픽스처를 봐야 하기 때문. 배포된 서버에는 그 env가 없어 항상 걸러진다.
 //
-// 요청을 만드는 테스트 파일의 접두어만 나열한다(settlementStore.test 'tstl', proof 라우트 테스트 'tstpf', campaignStore.test 'tcmp').
+// 요청을 만드는 테스트 파일의 접두어만 나열한다(settlementStore.test 'tstl', proof 라우트 테스트 'tstpf', campaignStore.test 'tcmp', settlementAutoStore.test 'tsta').
 // 새 테스트 파일이 요청을 만들면 여기에 접두어를 추가한다 — settlementTestFixture.test.ts가 실제 P 정의와 대조한다.
-export const TEST_FIXTURE_HANDLE_RE = /^(tstl|tstpf|tcmp)\d+_/;
+export const TEST_FIXTURE_HANDLE_RE = /^(tstl|tstpf|tcmp|tsta)\d+_/;
 // postgres 정규식(!~)에 그대로 쓰는 문자열 — 위 RE와 같은 뜻이어야 한다
-export const TEST_FIXTURE_HANDLE_PG = '^(tstl|tstpf|tcmp)[0-9]+_';
+export const TEST_FIXTURE_HANDLE_PG = '^(tstl|tstpf|tcmp|tsta)[0-9]+_';
 
 export const isTestFixtureHandle = (handle: string): boolean => TEST_FIXTURE_HANDLE_RE.test(handle);
 

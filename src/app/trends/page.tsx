@@ -1,15 +1,19 @@
-// 검색 트렌드 — 시술마다 일본에서 얼마나 찾는지(수요)와 늘고 있는지(트렌드). 스펙 2026-10-13
-// 시안: 데이터는 10-13에 받은 실측 스냅샷(snapshot.json). 수집·저장(073)이 붙으면 API로 바꾼다.
+// 검색 트렌드 — 시술마다 일본에서 얼마나 찾는지(크기)·늘고 있는지(방향)·왜 찾는지(성격)·한국에서 받으려는 검색(한국). 스펙 2026-10-13
+// 시안: 데이터는 10-13 실측 스냅샷 — snapshot.json(시술 목록·이름 검색), intent.json(검색어 묶음을 태그해 모은 시술 단위 값).
+// 수집·저장(073)이 붙으면 API로 바꾼다.
 'use client';
 import { useMemo, useState } from 'react';
 import snapshot from './snapshot.json';
-import { summarize, changeRank, type TrendState, type TrendSummary } from '@/lib/searchTrend';
+import intentData from './intent.json';
+import { summarize, changeRank, type TrendState } from '@/lib/searchTrend';
 import { classify, categoryOrder } from '@/lib/procedureTaxonomy';
-import { TrendTable, MajorTable, type TrendRow, type MajorRow } from './TrendTable';
+import { TrendTable, MajorTable, type TrendRow, type MajorRow, type IntentInfo } from './TrendTable';
 import { TrendDetail } from './TrendDetail';
+import { TrendMap } from './TrendMap';
 
 type Proc = { id: string; major: string; majorOrder: number; middle: string; name: string; kr: string; jp: string; en: string; volumes: number[] | null };
 const DATA = snapshot as { market: string; fetchedAt: string; months: string[]; procedures: Proc[] };
+const INTENT = intentData as unknown as Record<string, IntentInfo>;
 
 type StateFilter = 'all' | 'rising' | 'falling' | 'flat' | 'quiet';
 const STATE_FILTERS: Array<{ key: StateFilter; label: string; match: (s: TrendState) => boolean }> = [
@@ -19,25 +23,31 @@ const STATE_FILTERS: Array<{ key: StateFilter; label: string; match: (s: TrendSt
   { key: 'flat', label: '유지', match: (s) => s === 'flat' },
   { key: 'quiet', label: '수요 적음 · 데이터 없음', match: (s) => s === 'low' || s === 'nodata' },
 ];
-type SortKey = 'change' | 'volume' | 'name';
+type SortKey = 'change' | 'volume' | 'korea' | 'name';
 const SORTS: Array<{ key: SortKey; label: string }> = [
-  { key: 'change', label: '변화 큰 순' }, { key: 'volume', label: '검색량 많은 순' }, { key: 'name', label: '이름 순' },
+  { key: 'change', label: '변화 큰 순' }, { key: 'volume', label: '검색량 많은 순' }, { key: 'korea', label: '한국 검색 많은 순' }, { key: 'name', label: '이름 순' },
 ];
 
 const lastMonth = DATA.months[DATA.months.length - 1];
 const LAST_LABEL = `${lastMonth.slice(0, 4)}년 ${Number(lastMonth.slice(5, 7))}월`;
 const FETCHED = `${Number(DATA.fetchedAt.slice(5, 7))}/${Number(DATA.fetchedAt.slice(8, 10))}`;
+const avg3 = (v: number[], end: number) => v.slice(end - 3, end).reduce((s, x) => s + x, 0) / 3;
 
 export default function TrendsPage() {
   // 분류는 일반적인 피부과 시술 분류로 다시 붙인다(시트 대분류·중분류는 용어 참고용). 같은 일본어 검색어는 한 줄만.
+  // 크기·방향은 검색어 묶음 전체(이름 + 수식어 + 한국 조합, 제외·다른 뜻 뺌)로 본다 — 묶음이 없으면 이름 검색으로.
   const rows: TrendRow[] = useMemo(() => {
     const seen = new Set<string>();
+    const n = DATA.months.length;
     return DATA.procedures.flatMap((p) => {
       const key = p.jp.replace(/\s/g, '').toLowerCase();
       if (seen.has(key)) return [];
       seen.add(key);
       const c = classify(p);
-      return [{ ...p, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub, summary: summarize(p.volumes, DATA.months) }];
+      const it = INTENT[p.id] ?? null;
+      const series = it && it.total.some((x) => x > 0) ? it.total : p.volumes;
+      const korea = it ? { now: avg3(it.korea, n), yearAgo: avg3(it.korea, n - 12) } : null;
+      return [{ ...p, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub, series, summary: summarize(series, DATA.months), intent: it, korea }];
     });
   }, []);
   const majors = useMemo(() => [...new Map(rows.map((r) => [r.major, r.majorOrder])).entries()].sort((a, b) => a[1] - b[1]).map(([m]) => m), [rows]);
@@ -48,6 +58,7 @@ export default function TrendsPage() {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<SortKey>('change');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mapOpen, setMapOpen] = useState(true);
 
   const inMajor = useMemo(() => rows.filter((r) => !major || r.major === major), [rows, major]);
   const counts = useMemo(() => Object.fromEntries(STATE_FILTERS.map((f) => [f.key, inMajor.filter((r) => f.match(r.summary.state)).length])) as Record<StateFilter, number>, [inMajor]);
@@ -59,6 +70,7 @@ export default function TrendsPage() {
     const by: Record<SortKey, (a: TrendRow, b: TrendRow) => number> = {
       change: (a, b) => changeRank(b.summary) - changeRank(a.summary) || (b.summary.now ?? -1) - (a.summary.now ?? -1),
       volume: (a, b) => (b.summary.now ?? -1) - (a.summary.now ?? -1),
+      korea: (a, b) => (b.korea?.now ?? -1) - (a.korea?.now ?? -1),
       name: (a, b) => a.name.localeCompare(b.name, 'ko'),
     };
     return [...list].sort(by[sort]);
@@ -67,14 +79,15 @@ export default function TrendsPage() {
   const majorRows: MajorRow[] = useMemo(() => majors.map((m) => {
     const list = rows.filter((r) => r.major === m);
     const live = list.filter((r) => r.summary.now !== null && r.summary.state !== 'low');
-    const sum = (k: 'now' | 'yearAgo') => live.reduce((s, r) => s + (r.summary[k] ?? 0), 0);
+    const changes = live.map((r) => r.summary.change).filter((c): c is number => c !== null).sort((a, b) => a - b);
     const top = [...live].sort((a, b) => (b.summary.now ?? 0) - (a.summary.now ?? 0))[0] ?? null;
     return {
       major: m, total: list.length,
       rising: list.filter((r) => r.summary.state === 'surge' || r.summary.state === 'up').length,
       falling: list.filter((r) => r.summary.state === 'down' || r.summary.state === 'peaked').length,
       top: top ? { name: top.name, now: top.summary.now ?? 0 } : null,
-      change: sum('yearAgo') > 0 ? sum('now') / sum('yearAgo') - 1 : null,
+      change: changes.length ? changes[Math.floor(changes.length / 2)] : null,
+      korea: list.reduce((s, r) => s + (r.korea?.now ?? 0), 0),
     };
   }), [majors, rows]);
 
@@ -86,13 +99,14 @@ export default function TrendsPage() {
   }, [rows, selected]);
 
   const openMajor = (m: string) => { setMajor(m); setView('procedure'); setStateFilter('all'); };
+  const toggle = (id: string) => setSelectedId(id === selectedId ? null : id);
 
   return (
     <div className="flex h-full min-h-0">
-      <main className="flex min-w-0 flex-1 flex-col px-6 py-8">
+      <main className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-8">
         <h1 className="mb-1 shrink-0 text-[20px] font-bold">검색 트렌드 <span className="text-ui font-normal text-x-secondary">일본 · 피부과 시술 {rows.length}</span></h1>
         <p className="mb-4 shrink-0 text-[15px] text-x-secondary">
-          일본 사람들이 구글에서 이 시술을 한 달에 몇 번 찾는지예요. {LAST_LABEL}까지 · {FETCHED}에 받음 · 매달 초 지난달 숫자가 더해져요.
+          일본 사람들이 구글에서 이 시술을 얼마나, 왜 찾는지예요. {LAST_LABEL}까지 · {FETCHED}에 받음 · 매달 초 지난달 숫자가 더해져요.
         </p>
 
         <div className="mb-3 shrink-0 space-y-2.5">
@@ -131,20 +145,23 @@ export default function TrendsPage() {
             </div>
           )}
           {view === 'major' && (
-            <p className="text-ui text-x-muted">분류 합계는 한 사람이 여러 검색어로 찾으면 겹쳐 세져서 실제보다 커요. 방향과 늘어난·줄어든 시술 수로 보세요.</p>
+            <p className="text-ui text-x-muted">분류 안 시술들의 1년 변화 가운데값이에요. 검색량 합계는 한 사람이 여러 검색어로 찾으면 겹쳐 세져서 쓰지 않아요.</p>
           )}
         </div>
+
+        {view === 'procedure' && shown.length > 0 && (
+          <TrendMap rows={shown} open={mapOpen} onToggle={() => setMapOpen(!mapOpen)} selectedId={selectedId} onSelect={toggle} />
+        )}
 
         {view === 'procedure'
           ? (shown.length === 0
               ? <div className="rounded-xl border border-x-border py-12 text-center text-ui text-x-secondary">조건에 맞는 시술이 없어요</div>
-              : <TrendTable rows={shown} selectedId={selectedId} onSelect={(id) => setSelectedId(id === selectedId ? null : id)} />)
+              : <TrendTable rows={shown} selectedId={selectedId} onSelect={toggle} />)
           : <MajorTable rows={majorRows} onOpen={openMajor} />}
       </main>
 
       {selected && (
-        <TrendDetail row={selected} summary={selected.summary as TrendSummary} months={DATA.months}
-                     siblings={siblings} onSelect={setSelectedId} onClose={() => setSelectedId(null)} />
+        <TrendDetail row={selected} months={DATA.months} siblings={siblings} onSelect={setSelectedId} onClose={() => setSelectedId(null)} />
       )}
     </div>
   );

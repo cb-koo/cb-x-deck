@@ -1,5 +1,7 @@
 // 판정 칩 — 색만으로 읽히지 않게 화살표·글자를 같이 쓴다.
 import { STATE_LABEL, type TrendState } from '@/lib/searchTrend';
+import { STAGE_LABEL, STAGE_HINT, type Stage } from '@/lib/searchIntent';
+
 
 const STYLE: Record<TrendState, string> = {
   surge: 'bg-green-100 text-green-800',
@@ -18,4 +20,17 @@ export function StateChip({ state }: { state: TrendState }) {
       {MARK[state] && <span className="mr-0.5">{MARK[state]}</span>}{STATE_LABEL[state]}
     </span>
   );
+}
+
+// 성격(단계) 칩 — 함께 찾는 말로 본 고객 여정 단계. 판단 보류면 대시.
+
+const STAGE_STYLE: Record<Stage, string> = {
+  learning: 'bg-sky-50 text-sky-800',
+  considering: 'bg-violet-50 text-violet-800',
+  choosing: 'bg-orange-50 text-orange-800',
+};
+
+export function StageChip({ stage }: { stage: Stage | null }) {
+  if (!stage) return <span className="text-ui text-x-muted" title="함께 찾는 말이 적어 판단을 보류해요">—</span>;
+  return <span title={STAGE_HINT[stage]} className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-ui font-medium ${STAGE_STYLE[stage]}`}>{STAGE_LABEL[stage]}</span>;
 }

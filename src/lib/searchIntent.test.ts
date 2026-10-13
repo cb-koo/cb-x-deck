@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tagKeyword, belongs, dedupe, aggregate, profile, stage, type KeywordSeries } from './searchIntent.ts';
+import { tagKeyword, belongs, ownerOf, dedupe, aggregate, profile, stage, ambiguous, type KeywordSeries } from './searchIntent.ts';
 
 const N = ['ポテンツァ'];
 
@@ -62,6 +62,29 @@ test('profile·stage — 비중이 가장 큰 단계, 수식어 적으면 판단
   const p = profile(a)!;
   assert.ok(Math.abs(p.effect - 0.5) < 1e-9);
   assert.equal(stage(p), 'considering');
+  // 부위·한국만 있으면 판단 보류
+  assert.equal(stage(profile(aggregate([S('n', 'name', 5000), S('c', 'concern', 900), S('k', 'korea', 100)], 24))), null);
   assert.equal(profile(aggregate([S('n', 'name', 5000), S('e', 'effect', 50)], 24)), null);
   assert.equal(stage(null), null);
+});
+
+test('다른 뜻 — 태그·전체에서 빠짐·비중 20% 이상이면 점검', () => {
+  assert.equal(tagKeyword('ポケモン スカーレット', ['スカーレット']), 'noise');
+  assert.equal(tagKeyword('モンブラン スターウォーカー', ['スターウォーカー']), 'noise');
+  const a = aggregate([S('n', 'name', 1000), S('p', 'noise', 400)], 24);
+  assert.equal(a.total[0], 1000);
+  assert.equal(ambiguous(a), true);
+  assert.equal(ambiguous(aggregate([S('n', 'name', 1000), S('p', 'noise', 100)], 24)), false);
+});
+
+test('ownerOf — 더 구체적인 시술 이름이 주인', () => {
+  const all = ['ボトックス', 'スキンボトックス', 'エラボトックス'];
+  assert.equal(ownerOf('スキン ボトックス 効果', all), 'スキンボトックス');
+  assert.equal(ownerOf('ボトックス 値段', all), 'ボトックス');
+  assert.equal(ownerOf('ダーマペン', all), null);
+});
+
+test('부위 — 手術는 부위가 아님, SBC는 장소', () => {
+  assert.notEqual(tagKeyword('ボトックス 手術', ['ボトックス']), 'concern');
+  assert.equal(tagKeyword('sbc リジュラン', ['リジュラン']), 'place');
 });

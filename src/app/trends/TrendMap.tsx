@@ -1,0 +1,53 @@
+// 시술 지도 — 점 하나 = 시술 하나. 가로 = 월 검색량(로그, 수백 배 차이라), 세로 = 1년 변화(%), 원 크기 = 한국 검색.
+// 네 칸으로 읽는다: 크고 늘어남(오른쪽 위) · 작지만 뜸(왼쪽 위) · 크지만 줄어듦(오른쪽 아래) · 작고 정체(왼쪽 아래).
+// 수요 적음·데이터 없음·다른 뜻 섞인 시술은 뺀다(숫자를 믿기 어려워 위치가 거짓말을 한다).
+'use client';
+import { BubbleScatter, type Bubble } from '@/components/charts/BubbleScatter';
+import { fmtVolume, fmtChange, STATE_LABEL } from '@/lib/searchTrend';
+import { STAGE_LABEL } from '@/lib/searchIntent';
+import type { TrendRow } from './TrendTable';
+
+const Y_MIN = -80, Y_MAX = 250;  // 세로축을 넘는 시술(리투오 +8,900% 등)은 끝에 붙이고 상세에서 실제 값을 보여 준다
+
+export function TrendMap({ rows, open, onToggle, selectedId, onSelect }: {
+  rows: TrendRow[]; open: boolean; onToggle: () => void; selectedId: string | null; onSelect: (id: string) => void;
+}) {
+  const live = rows.filter((r) => r.summary.now !== null && r.summary.change !== null && r.summary.state !== 'low' && !r.intent?.ambiguous);
+  const byVol = [...live].sort((a, b) => (b.summary.now ?? 0) - (a.summary.now ?? 0)).slice(0, 6).map((r) => r.id);
+  const byRise = [...live].filter((r) => (r.summary.now ?? 0) >= 1000).sort((a, b) => (b.summary.change ?? 0) - (a.summary.change ?? 0)).slice(0, 6).map((r) => r.id);
+  const labeled = new Set([...byVol, ...byRise]);
+  const points: Bubble[] = live.map((r) => {
+    const s = r.summary;
+    const ch = (s.change ?? 0) * 100;
+    return {
+      id: r.id, x: Math.max(100, s.now ?? 100), y: Math.max(Y_MIN, Math.min(Y_MAX, ch)), size: r.korea?.now ?? 0,
+      label: labeled.has(r.id) ? r.name : undefined, strong: s.state === 'surge' || s.state === 'up',
+      tip: {
+        title: r.name, sub: `${r.jp} · ${r.major}`,
+        rows: [
+          { label: '월 검색량', value: fmtVolume(s.now), strong: true },
+          { label: '1년 변화', value: `${fmtChange(s.change)} ${STATE_LABEL[s.state]}`, tone: ch >= 30 ? 'up' : ch <= -30 ? 'down' : undefined },
+          { label: '한국 검색', value: r.korea && r.korea.now >= 50 ? fmtVolume(r.korea.now) : '적음' },
+          { label: '성격', value: r.intent?.stage ? STAGE_LABEL[r.intent.stage] : '—' },
+        ],
+      },
+    };
+  });
+  return (
+    <section className="mb-4 shrink-0 rounded-xl border border-x-border bg-white">
+      <button onClick={onToggle} className="flex w-full items-center gap-2 px-5 py-3 text-left">
+        <span className="text-[16px] font-semibold">시술 지도</span>
+        <span className="text-ui text-x-muted">오른쪽일수록 많이 찾고, 위일수록 1년 새 늘었어요. 원이 클수록 한국 검색이 많아요.</span>
+        <span className="ml-auto text-ui text-x-secondary">{open ? '접기 ▴' : '펼치기 ▾'}</span>
+      </button>
+      {open && (
+        <div className="px-5 pb-4">
+          {points.length < 3
+            ? <p className="py-6 text-center text-ui text-x-muted">지도에 올릴 시술이 적어요(수요 적음·데이터 없음은 빼요)</p>
+            : <BubbleScatter points={points} xName="월 검색량" yName="1년 변화(%)" height={340} zeroLabel="1년 전과 같음" onSelect={onSelect} selectedId={selectedId} />}
+          <p className="mt-1 text-ui text-x-muted">세로 +{Y_MAX}% 넘게 오른 시술은 맨 위에 붙여요. 점을 누르면 상세가 열려요. 수요 적음·데이터 없음·다른 뜻 섞인 시술은 지도에서 빼요.</p>
+        </div>
+      )}
+    </section>
+  );
+}

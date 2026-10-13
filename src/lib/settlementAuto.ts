@@ -23,7 +23,7 @@ export function nextMondaySeven(now: Date): Date {
   return new Date(lastMondaySeven(now).getTime() + 7 * DAY_MS);
 }
 
-// 게시 확인 시각 — 070 이전 행은 비어 있어 게시일(서울 00:00)로 대신한다
+// 게시 확인 시각 — 071 이전 행은 비어 있어 게시일(서울 00:00)로 대신한다
 export function confirmedInstant(postedConfirmedAt: string | null, postedAt: string): Date {
   return postedConfirmedAt ? new Date(postedConfirmedAt) : new Date(Date.parse(`${postedAt}T00:00:00Z`) - KST_MS);
 }

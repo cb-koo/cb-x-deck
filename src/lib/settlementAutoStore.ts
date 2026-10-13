@@ -16,7 +16,7 @@ export { AUTO_REQUESTER_FALLBACK, HOLD_REASON_MAX };
 export interface PendingRow {
   cand: SettlementCandidate;
   group: PendingGroup;
-  confirmedAt: string;          // 게시 확인 시각(070 이전 행은 게시일 서울 00:00)
+  confirmedAt: string;          // 게시 확인 시각(071 이전 행은 게시일 서울 00:00)
   sendAt: string | null;        // waiting: 보내는 때. null = 이번 회차 대상(곧 나감)
   blocking: ReadinessIssue[];   // 사람이 [보내기]를 눌러도 막히는 이유(내림·안 보임 제외)
   state: PendingState;

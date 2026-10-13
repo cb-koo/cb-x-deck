@@ -64,7 +64,7 @@ export type CandRow = {
   has_agreement: boolean;   // 협찬 동의서 유무만(063) — 파일 정보는 읽지 않는다(정산 쪽으로 가지 않는다, koo 결정 5)
   campaign_starts_on: string; campaign_ends_on: string;   // 요청 스냅샷용 캠페인 기간(054)
   unseen_on: string | null;   // 본 게시물이 X에서 안 보이기 시작한 날(서울) — 경고 판정에만(2026-10-12)
-  // 자동 전송(070, 스펙 2026-10-12) — 판정·표시에만. 요청 스냅샷에는 들어가지 않는다
+  // 자동 전송(071, 스펙 2026-10-12) — 판정·표시에만. 요청 스냅샷에는 들어가지 않는다
   posted_confirmed_at: Date | null; settle_hold_at: Date | null; settle_hold_by_name: string | null; settle_hold_reason: string | null;
   auto_requester_id: string | null; auto_requester_name: string | null;   // 작업 만든 사람 → 없으면 캠페인 만든 사람
   last_cancel_at: Date | null; last_cancel_by_name: string | null; last_cancel_reason: string | null;   // 가장 최근 취소된 요청(활성 요청이 없을 때만 의미)
@@ -154,7 +154,7 @@ export interface PaymentRequestRow {
   diffAckKind: DiffAckKind | null; diffAckReason: string | null; diffAckTaskCost: TaskCost | null;
   peerRatio?: number | null;   // 달러 지급 판정용 — 같은 날 다른 건 비율 중앙값(listRequests·reconcile 반환이 채움). 없으면 고정 범위
   diffAckBeforeCost: TaskCost | null;   // '맞춤' 처리 때 바꾸기 전 작업 금액(task_change.before) — 처리 기록 문장용
-  // 자동 전송(070, 스펙 2026-10-12) — 우리 화면에만. 정산팀 내보내기(toExternalItem)는 칸을 골라 만들어 밖으로 안 나간다
+  // 자동 전송(071, 스펙 2026-10-12) — 우리 화면에만. 정산팀 내보내기(toExternalItem)는 칸을 골라 만들어 밖으로 안 나간다
   createdVia: 'manual' | 'auto';
   removalAckAt: string | null; removalAckByName: string | null;   // 보낸 뒤 내려감 [그대로 두기]
   // 지금 작업 상태(스냅샷 아님) — 보낸 뒤 글이 내려가거나 안 보이면 요청 내역이 알린다

@@ -38,7 +38,7 @@ test('isDue — 이번 주 월요일 7시 전에 확인된 것만, 놓쳐도 다
   assert.equal(sendAtFor(kst('2026-10-08T10:00:00'), kst('2026-10-14T15:00:00')), null);
 });
 
-test('confirmedInstant — 070 이전 행은 게시일 서울 00:00', () => {
+test('confirmedInstant — 071 이전 행은 게시일 서울 00:00', () => {
   assert.equal(confirmedInstant(null, '2026-10-10').toISOString(), kst('2026-10-10T00:00:00').toISOString());
   assert.equal(confirmedInstant('2026-10-10T05:00:00.000Z', '2026-10-09').toISOString(), '2026-10-10T05:00:00.000Z');
 });

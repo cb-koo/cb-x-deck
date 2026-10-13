@@ -12,7 +12,7 @@ export function reservationDeleteMessage(s: ReservationDeleteSummary): string {
       })()
     : '방문일 미정';
   const lines = [
-    `· 예약 ${when} · ${s.ended ? '종료됨' : s.confirmed ? '확정' : '대기 중'}`,
+    `· 예약: ${s.ended ? '종료됨' : s.confirmed ? '확정' : '대기 중'} · ${when}`,
     ...(s.changes > 0 ? [`· 예약 변경 내역 ${s.changes}건`] : []),
     ...(s.ended ? ['· 예약 종료(취소·노쇼) 기록'] : []),
     ...(s.uploads > 0 ? [`· 예약에 올린 동의서 파일 ${s.uploads}개`] : []),

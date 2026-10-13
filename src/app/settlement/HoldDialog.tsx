@@ -29,10 +29,10 @@ export function HoldDialog({ target, onDone, onClose }: { target: PendingRow; on
   const c = target.cand;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label="보류" className="w-full max-w-[460px] rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label="전송 보류" className="w-full max-w-[460px] rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
         <p className="text-ui text-x-secondary">{TASK_TYPE_LABEL[c.taskType]} · @{c.influencerHandle} · {c.campaignName}</p>
-        <h2 className="mt-1 text-[16px] font-semibold">보류</h2>
-        <p className="mt-1 text-ui text-x-secondary">자동 전송하지 않아요. 보류에서 [보내기]로 언제든 보낼 수 있어요.</p>
+        <h2 className="mt-1 text-[16px] font-semibold">전송 보류</h2>
+        <p className="mt-1 text-ui text-x-secondary">자동 전송하지 않아요. 전송 보류에서 [보내기]로 언제든 보낼 수 있어요.</p>
         <div className="mt-3 text-ui text-x-secondary">사유 <span className="text-red-600">필수</span></div>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {HOLD_REASON_CHIPS.map((k) => (

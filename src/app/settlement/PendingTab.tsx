@@ -71,7 +71,7 @@ export function PendingTab({ initialCampaignId, onGoRequests }: { initialCampaig
   const s = data.summary;
   const rowProps = (r: PendingRow) => ({ r, err: rowErr[r.cand.taskId], selected: open?.taskId === r.cand.taskId,
     onOpen: () => setOpen({ campaignId: r.cand.campaignId, taskId: r.cand.taskId }) });
-  const hold = (r: PendingRow) => <Button onClick={() => setHoldTarget(r)} disabled={busy !== null} title="자동으로 보내지 않고 보류에 둬요">보류</Button>;
+  const hold = (r: PendingRow) => <Button onClick={() => setHoldTarget(r)} disabled={busy !== null} title="자동으로 보내지 않고 전송 보류에 둬요">보류</Button>;
   const sendBtn = (r: PendingRow, label: string, title: string) => (
     <Button variant={r.group === 'attention' ? 'primary' : 'subtle'} onClick={() => void send(r)}
             disabled={busy !== null || r.blocking.length > 0} title={r.blocking.length ? `먼저 고쳐 주세요: ${shortReason(r.cand, 'blocked', r.blocking)}` : title}>
@@ -138,7 +138,7 @@ export function PendingTab({ initialCampaignId, onGoRequests }: { initialCampaig
         )}
       </Group>
 
-      {holdTarget && <HoldDialog target={holdTarget} onClose={() => setHoldTarget(null)} onDone={() => { setHoldTarget(null); show('보류했어요'); void load(); }} />}
+      {holdTarget && <HoldDialog target={holdTarget} onClose={() => setHoldTarget(null)} onDone={() => { setHoldTarget(null); show('전송 보류했어요'); void load(); }} />}
       {open && embed && (
         <FlowDetail key={open.campaignId} id={open.campaignId} embed={embed} onChanged={() => void load()} onDeleted={closePanel} />
       )}

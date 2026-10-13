@@ -91,7 +91,7 @@ export function requesterLabel(r: { createdVia: 'manual' | 'auto'; requesterName
 }
 
 // ── 짧은 표시(koo 10-13 QA: 동사형 대신 짧은 명사형, 의미는 분명하게) ──
-export const GROUP_LABEL: Record<PendingGroup, string> = { attention: '확인 필요', blocked: '보완 필요', waiting: '전송 예정', stopped: '보류' };
+export const GROUP_LABEL: Record<PendingGroup, string> = { attention: '확인 필요', blocked: '보완 필요', waiting: '전송 예정', stopped: '전송 보류' };   // '전송 보류' — 정산팀 '지급 보류'(보낸 뒤)와 단계로 구분(10-13)
 // 사유 한 칸 — 이슈 코드마다 짧은 말. 고치는 자리는 행을 눌러 여는 작업 패널이라 링크는 패널 밖(설정)만 단다.
 const SHORT: Partial<Record<IssueCode, string>> = {
   'no-influencer': '명부 미등록', 'no-payment-method': '결제 수단 없음', 'paypay-no-receiving-info': 'PayPay 수취 정보 없음',

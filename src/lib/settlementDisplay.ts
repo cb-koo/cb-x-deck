@@ -44,7 +44,7 @@ export function keyOf(s: StatusSource): DisplayKey {
 // 그쪽 처리 상태의 평이한 라벨(날짜 없음) — 요청 펼침의 '정산 프로덕트가 보낸 결과' 블록 전용.
 // displayStatus()의 배지 라벨(날짜·차액 문구 포함)과는 쓰임이 달라 따로 둔다. 내부어(on_hold 등)를 밖으로 내보내지 않는 것은 여기도 동일.
 export const EXTERNAL_STATUS_LABEL: Record<ExternalStatus, string> = {
-  received: '정산 접수', scheduled: '지급 예정', paid: '지급 완료', on_hold: '보류', cancelled: '정산팀이 취소',
+  received: '정산 접수', scheduled: '지급 예정', paid: '지급 완료', on_hold: '지급 보류', cancelled: '정산팀이 취소',   // '지급 보류' — 우리 쪽 '전송 보류'(보내기 전 멈춤)와 단계로 구분(koo 10-13)
 };
 
 export function displayStatus(s: StatusSource, where: 'list' | 'campaign'): StatusDisplay {
@@ -63,7 +63,7 @@ export function displayStatus(s: StatusSource, where: 'list' | 'campaign'): Stat
     case 'scheduled': return { key, tone: 'blue', label: '지급 예정', title: '정산팀이 지급을 예정해 두었어요' };
     case 'on_hold': {
       const p = preview(s.externalNote);
-      return { key, tone: 'warn', label: campaign ? '정산 보류 — 확인 필요' : (p ? `보류 · ${p}` : '보류'), title: s.externalNote ?? '정산팀이 보류했어요' };
+      return { key, tone: 'warn', label: campaign ? '지급 보류 — 확인 필요' : (p ? `지급 보류 · ${p}` : '지급 보류'), title: s.externalNote ?? '정산팀이 지급을 보류했어요' };
     }
     case 'paid': {
       // 처리한 건은 요청 내역에서 어떻게 처리했는지 말한다(§9 '표 상태(처리 후)'). 캠페인 배지는 짧게 날짜.
@@ -79,7 +79,7 @@ export function displayStatus(s: StatusSource, where: 'list' | 'campaign'): Stat
 
 export type StatusGroup = '' | 'active' | 'on_hold' | 'paid' | 'paid_diff' | 'cancelled';
 export const STATUS_GROUP_OPTIONS: ReadonlyArray<{ value: StatusGroup; label: string }> = [
-  { value: '', label: '상태 전체' }, { value: 'active', label: '진행 중' }, { value: 'on_hold', label: '보류' },
+  { value: '', label: '상태 전체' }, { value: 'active', label: '진행 중' }, { value: 'on_hold', label: '지급 보류' },
   { value: 'paid_diff', label: '지급 금액 다름' }, { value: 'paid', label: '지급 완료' }, { value: 'cancelled', label: '취소됨' },
 ];
 export function inGroup(key: DisplayKey, g: StatusGroup): boolean {

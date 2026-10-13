@@ -35,7 +35,7 @@ const row = (over: Partial<ExternalLogRow> = {}): ExternalLogRow => ({
 
 test('describeExternalCall — applied', () => {
   const r = describeExternalCall(row({ outcome: 'applied', sentStatus: 'on_hold' }));
-  assert.equal(r.line, "'보류'를 보냈어요 — 반영했어요");
+  assert.equal(r.line, "'지급 보류'를 보냈어요 — 반영했어요");
   assert.equal(r.tone, 'ok');
 });
 

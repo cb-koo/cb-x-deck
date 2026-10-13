@@ -6,7 +6,7 @@ import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
 import { kstDateTime } from '@/lib/datetime';
 
 // 작업 표 아래 '삭제한 작업 N건' — 누가 언제 무엇을 지웠는지(073, koo 10-13). 지운 기록이 없으면 아무것도 그리지 않는다.
-// refreshKey(작업 수)가 바뀌면 다시 읽는다 — 방금 지운 작업이 바로 목록에 붙는다.
+// refreshKey(삭제 성공 횟수)가 바뀌면 다시 읽는다 — 방금 지운 작업이 바로 목록에 붙는다.
 export function TaskDeletionLog({ campaignId, refreshKey }: { campaignId: string; refreshKey: number }) {
   const [items, setItems] = useState<TaskDeletionRow[]>([]);
   const [open, setOpen] = useState(false);

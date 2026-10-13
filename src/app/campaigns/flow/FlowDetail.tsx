@@ -339,6 +339,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
       .then((c) => setClientData(c as ClientData | null));
   }, [clientId]);
 
+  const [deletionsVersion, setDeletionsVersion] = useState(0);   // 작업 표 아래 '삭제한 작업' 다시 읽기 신호
   const setTasks: Dispatch<SetStateAction<CampaignTaskItem[]>> = useCallback((next) => {
     setData((cur) => (cur ? { ...cur, tasks: typeof next === 'function' ? next(cur.tasks) : next } : cur));
   }, []);
@@ -603,6 +604,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
       if (!confirmLoseDraftFor(t.id)) return;
       if (!t.reservation && !window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}`)) return;
       void actions.remove(t, confirmReservationDelete).then((ok) => {
+        if (ok) setDeletionsVersion((v) => v + 1);   // 삭제 기록은 서버 삭제가 끝난 뒤에 다시 읽는다(낙관적 행 제거 시점엔 아직 없다)
         if (ok && panelTaskId === t.id) setPanel(null);
         // 원고가 붙어 있던 작업을 지우면 원고는 남되(토스트) 작업 없는 상태가 된다 — 후보로 다시 잡혀야 한다.
         if (ok && t.draftId) void reloadCandidates();
@@ -1094,7 +1096,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                      sort={sort} onSortChange={setSort} footer={footer}
                      selectedId={panelTaskId} onRowClick={onRowClick} renderMenu={renderMenu} />
         </div>
-        <TaskDeletionLog campaignId={id} refreshKey={data.tasks.length} />
+        <TaskDeletionLog campaignId={id} refreshKey={deletionsVersion} />
       </div>
       </>}
 

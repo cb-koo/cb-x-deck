@@ -15,7 +15,7 @@ export type ProfileIntent = typeof PROFILE_INTENTS[number];
 const RULES: Array<[Intent, RegExp]> = [
   // 다른 뜻 — 시술 이름이 게임·문구·생활용품·회사·사람 이름과 겹친 검색(10-13 실측: スカーレット→포켓몬, スターウォーカー→만년필,
   // エアジェット→욕실 세제, ハーモニーカ→건반 하모니카, アグネス→사람, インフィニ→결혼상담소). 비중이 크면 시술에 점검 표시가 붙는다.
-  ['noise', /ポケモン|ボケモン|ポケットモンスター|ポケスペ|ネクサス|サガ|ゲーム|switch|ボールペン|万年筆|モンブラン|マジックリン|花王|お風呂|風呂|鍵盤|ピアニカ|アグネスラム|ユニセフ|カーペンター|加山雄三|宮崎美子|アメブロ|結婚|婚活|相談所|株式会社|トラベル|インフォメーション|塾/i],
+  ['noise', /ポケモン|ボケモン|ポケットモンスター|ポケスペ|ネクサス|サガ|ゲーム|switch|ボールペン|万年筆|モンブラン|マジックリン|花王|お風呂|風呂|鍵盤|ピアニカ|アグネスラム|ユニセフ|カーペンター|加山雄三|宮崎美子|アメブロ|結婚|婚活|相談所|株式会社|トラベル|インフォメーション|塾|教室|xbox|プレステ|ps[45]|ダウンロード|スマホ|iphone|ギャラクシー|モバイル|会社|ホールディングス|企業|バスツアー|登山|ランバン|セイコー|rcb/i],
   // 시술이 아닌 검색 — 화장품·쇼핑·집에서 하는 것(왁스·패치·가정용 기기)·다른 뜻
   ['exclude', /化粧水|美容液|クリーム|パック|シートマスク|アンプル|セラム|トナー|ローション|乳液|オールインワン|コスメ|ドラッグストア|楽天|amazon|アマゾン|qoo10|メルカリ|市販|株価|歌詞|ワックス|パッチ|家庭用|脱毛器|除毛|セルフ|自分で|化粧品|塗る/i],
   ['korea', /韓国|ソウル|江南|カンナム|明洞|ミョンドン|釜山|プサン|狎鴎亭|弘大|korea|seoul/i],
@@ -48,9 +48,19 @@ export function ownerOf(keyword: string, allNames: string[]): string | null {
 // 시술 형태만 덧붙인 말(リジュラン 注射·ミノキシジル 内服)은 사실상 이름 검색이다
 const FORM = /注射|治療|除去|施術|レーザー|医療|内服|外用薬|外用|塗り薬|飲み薬|錠|の|と/g;
 
+// 이름만 치면 다른 뜻이 대부분인 시술 — 이름 단독 검색은 다른 뜻으로 보고 수식어 붙은 검색(효과·값·병원 등)만 센다(10-14 점검).
+// フォトナ=포트나이트 약칭(6만), IPL=인도 크리켓 리그(13만), ジェネシス=회사, ジーニアス=학원, クラツー=여행사, ブルーローズ=꽃·상품,
+// ヴィヴァーチェ=미용실, スカーレット=포켓몬 등. 값은 그 이름과 붙었을 때만 다른 뜻인 수식어(フォトナ ダウンタイム = 게임 서버 점검).
+export const HOMONYM: Record<string, RegExp | null> = {
+  'フォトナ': /ダウンタイム/, 'ipl': null, 'ジェネシス': null, 'ジーニアス': null, 'クラツー': null, 'ブルーローズ': null,
+  'ヴィヴァーチェ': null, 'キャバーン': null, 'スカーレット': null, 'スターウォーカー': null, 'エアジェット': null,
+  'ハーモニーカ': null, 'アグネス': null, 'インフィニ': null,
+};
+
 export function tagKeyword(keyword: string, names: string[]): Intent {
   const k = norm(keyword);
-  if (names.some((n) => norm(n) === k)) return 'name';
+  if (names.some((n) => norm(n) === k)) return k in HOMONYM ? 'noise' : 'name';
+  if (names.some((n) => HOMONYM[norm(n)]?.test(k))) return 'noise';
   for (const [intent, re] of RULES) if (re.test(k)) return intent;
   const rest = names.reduce((s, n) => s.replace(norm(n), ''), k).replace(FORM, '');
   return rest === '' ? 'name' : 'other';

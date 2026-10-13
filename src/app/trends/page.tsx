@@ -48,14 +48,18 @@ export default function TrendsPage() {
       const fk = `${classify(p).category}|${p.name}`;
       fams.set(fk, [...(fams.get(fk) ?? []), p]);
     }
+    // 이름만 같고 다른 시술(포토나 레이저 / 포토나 4D, 인모드 / 바디 인모드)은 한국어 표기로 구분해 보여 준다
+    const nameCount = new Map<string, number>();
+    for (const ms of fams.values()) nameCount.set(ms[0].name, (nameCount.get(ms[0].name) ?? 0) + 1);
     return [...fams.values()].map((ms) => {
       const p = ms[0];
       const c = classify(p);
       const it = INTENT[p.id] ?? null;
-      const series = it && it.total.some((x) => x > 0) ? it.total : p.volumes;
+      // 묶음이 있으면 묶음만 — 이름 검색으로 되돌아가면 동음이의 시술(フォトナ=게임)이 다시 커진다
+      const series = it && (it.ambiguous || it.total.some((x) => x > 0)) ? it.total : p.volumes;
       const korea = it ? { now: avg3(it.korea, n), yearAgo: avg3(it.korea, n - 12) } : null;
       return {
-        ...p, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub,
+        ...p, name: (nameCount.get(p.name) ?? 0) > 1 ? p.kr.replace(/\s*\(.*\)$/, '') : p.name, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub,
         jp: ms.length > 1 ? `${p.jp} 외 ${ms.length - 1}` : p.jp,
         searchText: ms.flatMap((m) => [m.name, m.kr, m.jp, m.en]).join(' ').toLowerCase(),
         series, summary: summarize(series, DATA.months), intent: it, korea,

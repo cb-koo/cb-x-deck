@@ -77,6 +77,16 @@ test('다른 뜻 — 태그·전체에서 빠짐·비중 20% 이상이면 점검
   assert.equal(ambiguous(aggregate([S('n', 'name', 1000), S('p', 'noise', 100)], 24)), false);
 });
 
+test('이름 자체가 다른 뜻 — 이름 단독은 빼고 수식어 붙은 검색만 센다', () => {
+  assert.equal(tagKeyword('フォトナ', ['フォトナ']), 'noise');            // 포트나이트 약칭
+  assert.equal(tagKeyword('IPL', ['IPL']), 'noise');                      // 인도 크리켓 리그
+  assert.equal(tagKeyword('フォトナ ダウンタイム', ['フォトナ']), 'noise');  // 게임 서버 점검
+  assert.equal(tagKeyword('xbox フォトナ', ['フォトナ']), 'noise');
+  assert.equal(tagKeyword('フォトナ 値段', ['フォトナ']), 'cost');
+  assert.equal(tagKeyword('IPL 効果', ['IPL']), 'effect');
+  assert.equal(tagKeyword('インモード', ['インモード']), 'name');           // 다른 시술은 그대로
+});
+
 test('ownerOf — 더 구체적인 시술 이름이 주인', () => {
   const all = ['ボトックス', 'スキンボトックス', 'エラボトックス'];
   assert.equal(ownerOf('スキン ボトックス 効果', all), 'スキンボトックス');

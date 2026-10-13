@@ -67,6 +67,8 @@ const BY_NAME: Record<string, Classified> = {
   '바디톡신': { category: '보톡스', sub: '부위별' },
   '탈모PRP': { category: '탈모·두피', sub: '주사 치료' },
   '튼살': { category: '흉터·모공', sub: '흉터 치료' },
+  // 젠틀맥스프로는 일본에선 거의 제모 장비로 찾는다(검색 3.9만 대부분이 脱毛) — 색소 행에 제모 검색이 쌓이던 문제(10-14)
+  '젠틀맥스': { category: '제모', sub: '레이저 제모' },
 };
 
 // '0. 일반/증상'의 상위어(시트 '카테고리') — 그 분류의 대표 검색어로 보낸다.
@@ -77,12 +79,13 @@ const GENERAL_TERM: Record<string, Category> = {
 
 // '0. 일반/증상'의 고민(시트 '고민 해결') — '피부 고민'으로 모으고, 중분류는 고민 이름.
 export function classify(r: SheetRow): Classified {
+  // 이름 지정이 먼저 — 고민 행(튼살 肉割れ治療)과 시술 행(튼살 妊娠線レーザー)이 갈라져 '튼살'이 두 줄이 되지 않게
+  const byName = BY_NAME[r.name];
+  if (byName) return byName;
   if (r.major === '일반/증상') {
     if (r.middle === '카테고리') return { category: GENERAL_TERM[r.name] ?? '피부 고민', sub: '대표 검색어' };
     return { category: '피부 고민', sub: r.name };
   }
-  const byName = BY_NAME[r.name];
-  if (byName) return byName;
   // CO2로 떼어내는 병변(쥐젖·사마귀·비립종·검버섯·점) — 흉터 치료가 아니라 '점·사마귀 제거'
   if (r.middle === '병변 제거 (CO2)') return { category: '점·사마귀 제거', sub: r.name };
   if (r.kr === '점빼기') return { category: '점·사마귀 제거', sub: '점' };

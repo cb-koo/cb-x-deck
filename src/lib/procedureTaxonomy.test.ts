@@ -39,3 +39,12 @@ test('일반/증상 — 상위어는 해당 분류의 대표 검색어, 고민�
   assert.deepEqual(classify({ major: '일반/증상', middle: '카테고리', name: '보톡스', kr: '보톡스' }), { category: '보톡스', sub: '대표 검색어' });
   assert.deepEqual(classify({ major: '일반/증상', middle: '고민 해결', name: '기미', kr: '기미치료' }), { category: '피부 고민', sub: '기미' });
 });
+
+test('같은 시술명은 한 분류로 — 갈라지면 화면에 같은 이름이 두 줄(10-14 튼살·젠틀맥스)', () => {
+  // 이름만 같고 다른 시술: 포토나(색소 레이저 / 4D 리프팅)·인모드(얼굴 / 바디)·CO2레이저(프락셔널 / 점빼기) — 화면은 한국어 표기로 구분
+  const SPLIT_OK = new Set(['포토나', '인모드', 'CO2레이저']);
+  const cats = new Map<string, Set<string>>();
+  for (const p of snap.procedures) cats.set(p.name, (cats.get(p.name) ?? new Set()).add(classify(p).category));
+  const split = [...cats].filter(([n, c]) => c.size > 1 && !SPLIT_OK.has(n)).map(([n]) => n);
+  assert.deepEqual(split, []);
+});

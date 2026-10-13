@@ -87,7 +87,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
           )}
           {it?.ambiguous && (
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-ui text-amber-800">
-              동음이의 혼재: 시술명이 게임·상품·인명과 겹쳐요. 동음이의 검색은 제외했지만 시술명 단독 검색에는 섞여 있어 실제 수요보다 클 수 있어요.
+              동음이의 혼재: 시술명만 검색하면 게임·회사·상품 등 다른 뜻이 대부분이에요. 시술명 단독 검색은 빼고 효과·가격·병원 등이 붙은 검색만 셌어요 — 실제 수요보다 작게 잡혀요.
             </p>
           )}
         </div>

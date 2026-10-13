@@ -1,0 +1,112 @@
+// 검색 의도 — 시술 검색어 하나하나에 '왜 찾는지' 태그를 붙이고, 시술 단위로 모아 크기·방향·성격을 만든다. 스펙 2026-10-13 §2(2차 개정)
+// 규칙은 위에서부터 먼저 맞는 태그 하나. '효과 없다'(効果ない)가 효과가 아니라 불안이 되도록 불안을 효과보다 먼저 본다.
+
+export type Intent = 'exclude' | 'korea' | 'cost' | 'worry' | 'effect' | 'info' | 'place' | 'concern' | 'name' | 'other';
+
+export const INTENT_LABEL: Record<Intent, string> = {
+  korea: '한국', cost: '비용·구매', worry: '불안', effect: '효과·후기', info: '정보·비교', place: '장소', concern: '부위·대상',
+  name: '이름만', other: '기타', exclude: '제외',
+};
+
+// 성격 막대에 쓰는 순서(고객 여정: 알아보기 → 고민 → 고르기 → 한국)
+export const PROFILE_INTENTS = ['info', 'effect', 'worry', 'concern', 'cost', 'place', 'korea'] as const;
+export type ProfileIntent = typeof PROFILE_INTENTS[number];
+
+const RULES: Array<[Intent, RegExp]> = [
+  // 시술이 아닌 검색 — 화장품·쇼핑·집에서 하는 것(왁스·패치·가정용 기기)·다른 뜻
+  ['exclude', /化粧水|美容液|クリーム|パック|シートマスク|アンプル|セラム|トナー|ローション|乳液|オールインワン|コスメ|ドラッグストア|楽天|amazon|アマゾン|qoo10|メルカリ|市販|株価|歌詞|ワックス|パッチ|家庭用|脱毛器|除毛|セルフ|自分で/i],
+  ['korea', /韓国|ソウル|江南|カンナム|明洞|ミョンドン|釜山|プサン|狎鴎亭|弘大|korea|seoul/i],
+  // 비용·구매 — 약은 개인 수입 사이트(オオサカ堂)·통판으로 사는 수요도 여기
+  ['cost', /値段|料金|価格|相場|安い|格安|費用|モニター|キャンペーン|保険適用|保険|何円|万円|\d+円|オオサカ堂|個人輸入|通販|購入|処方/],
+  ['worry', /ダウンタイム|痛み|痛い|麻酔|副作用|失敗|後悔|腫れ|内出血|効果ない|効果なし|意味ない|危険|リスク|しこり|やめた|デメリット|トラブル|怖い|初期脱毛/],
+  ['effect', /効果|経過|ビフォーアフター|ビフォー|アフター|変化|持続|何回|回数|頻度|間隔|いつから|直後|翌日|結果|口コミ|ブログ|体験|レビュー|写真|画像|メリット/],
+  ['info', /とは|違い|比較|vs|どっち|どれ|おすすめ|種類|仕組み|ランキング|人気|やり方|方法|何科|向いてる|原因|治し方|治る|なぜ|理由/i],
+  ['place', /東京|大阪|名古屋|福岡|札幌|横浜|神戸|京都|仙台|広島|千葉|埼玉|渋谷|新宿|銀座|表参道|池袋|梅田|心斎橋|難波|天神|博多|近く|近所|クリニック|皮膚科|美容外科|品川|湘南|tcb|聖心|共立|リゼ|ゴリラ|フレイア/i],
+  // 부위·대상 — 어디에(얼굴·어깨·종아리…) 누가(남성·여성) 받나, 어떤 고민에 쓰나
+  ['concern', /目の下|ほうれい線|ニキビ跡|ニキビ|毛穴|たるみ|シワ|しわ|クマ|肝斑|シミ|しみ|赤み|赤ら顔|首|おでこ|額|あご|顎|エラ|頬|鼻|口|唇|目|まぶた|眉|小顔|フェイスライン|顔|全身|肩|ふくらはぎ|脚|足|背中|腕|手|二の腕|太もも|お腹|脇|ワキ|vio|ひげ|ヒゲ|髭|ガミー|傷跡|妊娠線|肉割れ|薄毛|メンズ|男性|女性|妊娠|授乳/i],
+];
+
+export const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
+
+// 이 시술의 검색어인가 — 이름(정규화)이 들어 있어야 한다. 연관 검색어엔 다른 시술 이름만 있는 것도 섞여 온다.
+export function belongs(keyword: string, names: string[]): boolean {
+  const k = norm(keyword);
+  return names.some((n) => n && k.includes(norm(n)));
+}
+
+// 시술 형태만 덧붙인 말(リジュラン 注射·ミノキシジル 内服)은 사실상 이름 검색이다
+const FORM = /注射|治療|除去|施術|レーザー|医療|内服|外用薬|外用|塗り薬|飲み薬|錠|の|と/g;
+
+export function tagKeyword(keyword: string, names: string[]): Intent {
+  const k = norm(keyword);
+  if (names.some((n) => norm(n) === k)) return 'name';
+  for (const [intent, re] of RULES) if (re.test(k)) return intent;
+  const rest = names.reduce((s, n) => s.replace(norm(n), ''), k).replace(FORM, '');
+  return rest === '' ? 'name' : 'other';
+}
+
+export interface KeywordSeries { text: string; intent: Intent; values: number[] }
+
+const avg = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0);
+
+// 어순·표기만 다른 검색어는 키워드 플래너가 같은 수치를 준다 — 48개월이 완전히 같으면 하나만 남긴다.
+// 작은 값(월평균 50 미만)은 우연히 같을 수 있어 건드리지 않는다.
+export function dedupe(list: KeywordSeries[]): KeywordSeries[] {
+  const seen = new Set<string>();
+  return list.filter((k) => {
+    if (k.intent === 'name' || avg(k.values) < 50) return true;
+    const key = k.values.join(',');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export interface Aggregate {
+  total: number[];                          // 제외를 뺀 전체(겹쳐 세진 최대치)
+  byIntent: Record<Intent, number[]>;
+  korea: number[];
+}
+
+export function aggregate(list: KeywordSeries[], months: number): Aggregate {
+  const zero = () => Array(months).fill(0) as number[];
+  const byIntent = Object.fromEntries((Object.keys(INTENT_LABEL) as Intent[]).map((i) => [i, zero()])) as Record<Intent, number[]>;
+  const total = zero();
+  for (const k of dedupe(list)) {
+    for (let m = 0; m < months; m++) {
+      const v = k.values[m] ?? 0;
+      byIntent[k.intent][m] += v;
+      if (k.intent !== 'exclude') total[m] += v;
+    }
+  }
+  return { total, byIntent, korea: byIntent.korea };
+}
+
+// 성격 — 최근 window개월 태그 비중(이름만·기타·제외 제외). 수식어 붙은 검색이 너무 적으면 null(판단 보류).
+export function profile(a: Aggregate, window = 12, from?: number): Record<ProfileIntent, number> | null {
+  const n = a.total.length;
+  const end = from === undefined ? n : from;
+  const sums = PROFILE_INTENTS.map((i) => a.byIntent[i].slice(Math.max(0, end - window), end).reduce((s, x) => s + x, 0));
+  const all = sums.reduce((s, x) => s + x, 0);
+  if (all / window < 100) return null;
+  return Object.fromEntries(PROFILE_INTENTS.map((i, k) => [i, sums[k] / all])) as Record<ProfileIntent, number>;
+}
+
+export type Stage = 'learning' | 'considering' | 'choosing';
+export const STAGE_LABEL: Record<Stage, string> = { learning: '알아보는 중', considering: '고민하는 중', choosing: '고르는 중' };
+export const STAGE_HINT: Record<Stage, string> = {
+  learning: '이게 뭔지·뭐가 다른지를 많이 찾아요',
+  considering: '효과·후기와 아픔·부작용을 많이 찾아요',
+  choosing: '값과 받을 곳을 많이 찾아요',
+};
+
+// 단계 — 알아보기(정보) · 고민(효과+불안+부위) · 고르기(비용+장소+한국) 중 비중이 가장 큰 쪽
+export function stage(p: Record<ProfileIntent, number> | null): Stage | null {
+  if (!p) return null;
+  const s: Record<Stage, number> = {
+    learning: p.info,
+    considering: p.effect + p.worry + p.concern,
+    choosing: p.cost + p.place + p.korea,
+  };
+  return (Object.keys(s) as Stage[]).sort((a, b) => s[b] - s[a])[0];
+}

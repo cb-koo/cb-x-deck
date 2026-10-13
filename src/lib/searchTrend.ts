@@ -4,7 +4,7 @@
 export type TrendState = 'surge' | 'up' | 'flat' | 'down' | 'peaked' | 'low' | 'nodata';
 
 export const STATE_LABEL: Record<TrendState, string> = {
-  surge: '급상승', up: '상승', flat: '유지', down: '하락', peaked: '꺾임', low: '수요 적음', nodata: '데이터 없음',
+  surge: '급상승', up: '상승', flat: '보합', down: '하락', peaked: '하락 전환', low: '소량', nodata: '데이터 없음',
 };
 
 export interface TrendSummary {

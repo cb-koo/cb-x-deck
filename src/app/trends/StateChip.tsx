@@ -31,6 +31,6 @@ const STAGE_STYLE: Record<Stage, string> = {
 };
 
 export function StageChip({ stage }: { stage: Stage | null }) {
-  if (!stage) return <span className="text-ui text-x-muted" title="함께 찾는 말이 적어 판단을 보류해요">—</span>;
+  if (!stage) return <span className="text-ui text-x-muted" title="연관 검색어 부족 — 판단 보류">—</span>;
   return <span title={STAGE_HINT[stage]} className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-ui font-medium ${STAGE_STYLE[stage]}`}>{STAGE_LABEL[stage]}</span>;
 }

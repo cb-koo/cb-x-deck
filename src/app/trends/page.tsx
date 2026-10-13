@@ -18,14 +18,14 @@ const INTENT = intentData as unknown as Record<string, IntentInfo>;
 type StateFilter = 'all' | 'rising' | 'falling' | 'flat' | 'quiet';
 const STATE_FILTERS: Array<{ key: StateFilter; label: string; match: (s: TrendState) => boolean }> = [
   { key: 'all', label: '전체', match: () => true },
-  { key: 'rising', label: '늘어나는 시술', match: (s) => s === 'surge' || s === 'up' },
-  { key: 'falling', label: '줄어드는 시술', match: (s) => s === 'down' || s === 'peaked' },
-  { key: 'flat', label: '유지', match: (s) => s === 'flat' },
-  { key: 'quiet', label: '수요 적음 · 데이터 없음', match: (s) => s === 'low' || s === 'nodata' },
+  { key: 'rising', label: '상승', match: (s) => s === 'surge' || s === 'up' },
+  { key: 'falling', label: '하락', match: (s) => s === 'down' || s === 'peaked' },
+  { key: 'flat', label: '보합', match: (s) => s === 'flat' },
+  { key: 'quiet', label: '소량 · 데이터 없음', match: (s) => s === 'low' || s === 'nodata' },
 ];
 type SortKey = 'change' | 'volume' | 'korea' | 'name';
 const SORTS: Array<{ key: SortKey; label: string }> = [
-  { key: 'change', label: '변화 큰 순' }, { key: 'volume', label: '검색량 많은 순' }, { key: 'korea', label: '한국 검색 많은 순' }, { key: 'name', label: '이름 순' },
+  { key: 'change', label: '변화율순' }, { key: 'volume', label: '검색량순' }, { key: 'korea', label: '한국 검색량순' }, { key: 'name', label: '이름순' },
 ];
 
 const lastMonth = DATA.months[DATA.months.length - 1];
@@ -106,7 +106,7 @@ export default function TrendsPage() {
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-8">
         <h1 className="mb-1 shrink-0 text-[20px] font-bold">검색 트렌드 <span className="text-ui font-normal text-x-secondary">일본 · 피부과 시술 {rows.length}</span></h1>
         <p className="mb-4 shrink-0 text-[15px] text-x-secondary">
-          일본 사람들이 구글에서 이 시술을 얼마나, 왜 찾는지예요. {LAST_LABEL}까지 · {FETCHED}에 받음 · 매달 초 지난달 숫자가 더해져요.
+          일본 구글 검색 기준 시술별 수요·추세·검색 의도. 기준월 {LAST_LABEL} · 수집 {FETCHED} · 매월 초 갱신
         </p>
 
         <div className="mb-3 shrink-0 space-y-2.5">
@@ -141,11 +141,11 @@ export default function TrendsPage() {
                   {f.label} <span className="tabular-nums opacity-70">{counts[f.key]}</span>
                 </button>
               ))}
-              <span className="ml-1 text-ui text-x-muted" title="최근 3개월 평균을 1년 전 같은 3개월과 비교해요. 검색량은 구간으로 반올림된 값이라 ±30% 안쪽은 '유지'로 봐요.">ⓘ 판정 기준</span>
+              <span className="ml-1 text-ui text-x-muted" title="최근 3개월 평균 vs 전년 동기 3개월 평균. 검색량은 구간 반올림값이라 ±30% 이내는 보합">ⓘ 판정 기준</span>
             </div>
           )}
           {view === 'major' && (
-            <p className="text-ui text-x-muted">분류 안 시술들의 1년 변화 가운데값이에요. 검색량 합계는 한 사람이 여러 검색어로 찾으면 겹쳐 세져서 쓰지 않아요.</p>
+            <p className="text-ui text-x-muted">분류별 전년 대비 변화율은 소속 시술의 중앙값. 검색량 합계는 중복 집계 우려로 미사용</p>
           )}
         </div>
 

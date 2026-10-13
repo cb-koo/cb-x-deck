@@ -4,8 +4,8 @@
 export type Intent = 'noise' | 'exclude' | 'korea' | 'cost' | 'worry' | 'effect' | 'info' | 'place' | 'concern' | 'name' | 'other';
 
 export const INTENT_LABEL: Record<Intent, string> = {
-  korea: '한국', cost: '비용·구매', worry: '불안', effect: '효과·후기', info: '정보·비교', place: '장소', concern: '부위·대상',
-  name: '이름만', other: '제품·기타', exclude: '제외(화장품·셀프)', noise: '다른 뜻',
+  korea: '한국', cost: '가격', worry: '부작용·통증', effect: '효과·후기', info: '개념·비교', place: '병원·지역', concern: '부위·대상',
+  name: '시술명 단독', other: '기타', exclude: '제외(화장품·셀프)', noise: '동음이의',
 };
 
 // 성격 막대에 쓰는 순서(고객 여정: 알아보기 → 고민 → 고르기 → 한국)
@@ -104,11 +104,12 @@ export function profile(a: Aggregate, window = 12, from?: number): Record<Profil
 }
 
 export type Stage = 'learning' | 'considering' | 'choosing';
-export const STAGE_LABEL: Record<Stage, string> = { learning: '알아보는 중', considering: '고민하는 중', choosing: '고르는 중' };
+// 관심 단계 — 고객 여정의 명사 이름(탐색 → 검토 → 결정)
+export const STAGE_LABEL: Record<Stage, string> = { learning: '탐색', considering: '검토', choosing: '결정' };
 export const STAGE_HINT: Record<Stage, string> = {
-  learning: '이게 뭔지·뭐가 다른지를 많이 찾아요',
-  considering: '효과·후기와 아픔·부작용을 많이 찾아요',
-  choosing: '값과 받을 곳을 많이 찾아요',
+  learning: '탐색 단계 — 개념·비교 검색 중심',
+  considering: '검토 단계 — 효과·후기, 부작용·통증 검색 중심',
+  choosing: '결정 단계 — 가격, 병원·지역 검색 중심',
 };
 
 // 단계 — 알아보기(정보) · 고민(효과+불안) · 고르기(비용+장소) 중 비중이 가장 큰 쪽.

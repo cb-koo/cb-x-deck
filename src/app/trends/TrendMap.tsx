@@ -26,9 +26,9 @@ export function TrendMap({ rows, open, onToggle, selectedId, onSelect }: {
         title: r.name, sub: `${r.jp} · ${r.major}`,
         rows: [
           { label: '월 검색량', value: fmtVolume(s.now), strong: true },
-          { label: '1년 변화', value: `${fmtChange(s.change)} ${STATE_LABEL[s.state]}`, tone: ch >= 30 ? 'up' : ch <= -30 ? 'down' : undefined },
-          { label: '한국 검색', value: r.korea && r.korea.now >= 50 ? fmtVolume(r.korea.now) : '적음' },
-          { label: '성격', value: r.intent?.stage ? STAGE_LABEL[r.intent.stage] : '—' },
+          { label: '전년 대비', value: `${fmtChange(s.change)} ${STATE_LABEL[s.state]}`, tone: ch >= 30 ? 'up' : ch <= -30 ? 'down' : undefined },
+          { label: '한국 검색량', value: r.korea && r.korea.now >= 50 ? fmtVolume(r.korea.now) : '소량' },
+          { label: '관심 단계', value: r.intent?.stage ? STAGE_LABEL[r.intent.stage] : '—' },
         ],
       },
     };
@@ -37,15 +37,15 @@ export function TrendMap({ rows, open, onToggle, selectedId, onSelect }: {
     <section className="mb-4 shrink-0 rounded-xl border border-x-border bg-white">
       <button onClick={onToggle} className="flex w-full items-center gap-2 px-5 py-3 text-left">
         <span className="text-[16px] font-semibold">시술 지도</span>
-        <span className="text-ui text-x-muted">오른쪽일수록 많이 찾고, 위일수록 1년 새 늘었어요. 원이 클수록 한국 검색이 많아요.</span>
+        <span className="text-ui text-x-muted">가로 검색량 · 세로 전년 대비 · 원 크기 한국 검색량</span>
         <span className="ml-auto text-ui text-x-secondary">{open ? '접기 ▴' : '펼치기 ▾'}</span>
       </button>
       {open && (
         <div className="px-5 pb-4">
           {points.length < 3
-            ? <p className="py-6 text-center text-ui text-x-muted">지도에 올릴 시술이 적어요(수요 적음·데이터 없음은 빼요)</p>
-            : <BubbleScatter points={points} xName="월 검색량" yName="1년 변화(%)" height={340} zeroLabel="1년 전과 같음" onSelect={onSelect} selectedId={selectedId} />}
-          <p className="mt-1 text-ui text-x-muted">세로 +{Y_MAX}% 넘게 오른 시술은 맨 위에 붙여요. 점을 누르면 상세가 열려요. 수요 적음·데이터 없음·다른 뜻 섞인 시술은 지도에서 빼요.</p>
+            ? <p className="py-6 text-center text-ui text-x-muted">표시 대상 부족(소량·데이터 없음 제외)</p>
+            : <BubbleScatter points={points} xName="월 검색량" yName="전년 대비(%)" height={340} zeroLabel="전년 수준" onSelect={onSelect} selectedId={selectedId} />}
+          <p className="mt-1 text-ui text-x-muted">+{Y_MAX}% 초과는 상단 고정 · 점 클릭 시 상세 · 소량·데이터 없음·동음이의 혼재 제외</p>
         </div>
       )}
     </section>

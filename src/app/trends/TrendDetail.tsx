@@ -21,7 +21,7 @@ const pct = (v: number) => `${Math.round(v * 100)}%`;
 function ProfileBar({ label, p }: { label: string; p: Record<ProfileIntent, number> }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="w-14 shrink-0 text-ui text-x-secondary">{label}</span>
+      <span className="w-16 shrink-0 text-ui text-x-secondary">{label}</span>
       <div className="min-w-0 flex-1">
         <SegmentedBar inBar total={1} segments={PROFILE_INTENTS.map((i) => ({ value: p[i], color: INTENT_COLOR[i], label: INTENT_LABEL[i] }))} />
       </div>
@@ -41,7 +41,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
   const labels = months.slice(from).map((m) => `${m.slice(2, 4)}.${m.slice(5, 7)}`);
   const series = vols ? [
     { name: '검색량', values: vols.slice(from) },
-    { name: '1년 전', dashed: true, color: '#8ecdf8', values: months.slice(from).map((_, i) => vols[from + i - 12] ?? null) },
+    { name: '전년', dashed: true, color: '#8ecdf8', values: months.slice(from).map((_, i) => vols[from + i - 12] ?? null) },
   ] : [];
   const korea = it?.korea ?? null;
   const showKorea = !!korea && korea.slice(from).some((v) => v >= 50);
@@ -51,11 +51,11 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
   const prof = it?.profile ?? null;
   const topTwo = prof ? PROFILE_INTENTS.filter((i) => i !== 'korea').sort((a, b) => prof[b] - prof[a]).slice(0, 2) : [];
   const characterText = it?.stage && prof
-    ? `함께 찾는 말은 ${topTwo.map((i) => `${INTENT_LABEL[i]}(${pct(prof[i])})`).join('·')}이 많아요 — ${STAGE_LABEL[it.stage]}이에요.`
-    : '함께 찾는 말이 적어 왜 찾는지는 판단을 보류해요.';
+    ? `검색 의도는 ${topTwo.map((i) => `${INTENT_LABEL[i]} ${pct(prof[i])}`).join(' · ')} 중심의 ${STAGE_LABEL[it.stage]} 단계예요.`
+    : '연관 검색어가 적어 관심 단계는 판단 보류예요.';
   const koreaText = row.korea && row.korea.now >= 50
-    ? `한국에서 받으려는 검색(韓国·ソウル·江南)은 한 달 ${fmtVolume(row.korea.now)}번이에요.`
-    : '한국에서 받으려는 검색은 아직 적어요.';
+    ? `한국 검색량(韓国·ソウル·江南)은 월 ${fmtVolume(row.korea.now)}이에요.`
+    : '한국 검색량은 아직 소량이에요.';
 
   return (
     <aside className="flex w-[clamp(560px,44vw,780px)] shrink-0 flex-col overflow-y-auto border-l border-x-border bg-white">
@@ -76,7 +76,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
           <p className="mt-2 text-[15px] leading-relaxed">{describe(summary)} {characterText} {koreaText}</p>
           {it?.ambiguous && (
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-ui text-amber-800">
-              이 이름은 게임·상품·사람 이름 같은 다른 뜻으로도 많이 검색돼요. 다른 뜻 검색은 빼고 셌지만, 이름만 검색한 수에는 섞여 있어 실제 시술 수요보다 클 수 있어요.
+              동음이의 혼재: 시술명이 게임·상품·인명과 겹쳐요. 동음이의 검색은 제외했지만 시술명 단독 검색에는 섞여 있어 실제 수요보다 클 수 있어요.
             </p>
           )}
         </div>
@@ -95,11 +95,11 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
             <LineChart labels={labels} series={series} height={240} />
             {showKorea && korea && (
               <div className="mt-4">
-                <p className="mb-1 text-ui font-semibold text-x-secondary">한국 검색 <span className="font-normal text-x-muted">· 韓国·ソウル·江南이 붙은 검색</span></p>
+                <p className="mb-1 text-ui font-semibold text-x-secondary">한국 검색량 <span className="font-normal text-x-muted">· 韓国·ソウル·江南 포함</span></p>
                 <LineChart labels={labels} series={[{ name: '한국', color: '#1f9d55', values: korea.slice(from) }]} height={140} />
               </div>
             )}
-            <p className="mt-2 text-ui text-x-muted">검색량은 구간으로 반올림된 값이라 달마다 계단처럼 튈 수 있어요. 판정은 3개월 평균으로 해요. 여러 검색어를 합쳐서 한 사람이 겹쳐 세질 수 있어요 — 크기보다 방향을 보세요.</p>
+            <p className="mt-2 text-ui text-x-muted">구간 반올림값이라 월별 계단형 변동 · 판정은 3개월 평균 · 검색어 합계라 중복 집계 가능(규모보다 추세 위주로)</p>
           </div>
         )}
 
@@ -109,23 +109,23 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
             <dd className="mt-0.5 text-[17px] font-semibold tabular-nums">{fmtVolume(summary.now)}</dd>
           </div>
           <div className="rounded-lg bg-x-surface px-3 py-2.5">
-            <dt className="text-ui text-x-muted">1년 전 같은 3개월</dt>
+            <dt className="text-ui text-x-muted">전년 동기 3개월 평균</dt>
             <dd className="mt-0.5 text-[17px] font-semibold tabular-nums">{fmtVolume(summary.yearAgo)}</dd>
           </div>
           <div className="rounded-lg bg-x-surface px-3 py-2.5">
-            <dt className="text-ui text-x-muted">한국 검색</dt>
+            <dt className="text-ui text-x-muted">한국 검색량</dt>
             <dd className="mt-0.5 text-[17px] font-semibold"><KoreaCell k={row.korea} /></dd>
           </div>
         </dl>
 
         {it && prof && (
           <div>
-            <p className="mb-1 text-ui font-semibold text-x-secondary">왜 찾나 — 함께 찾는 말의 비중</p>
-            {it.stage && <p className="mb-3 text-ui text-x-muted">{STAGE_LABEL[it.stage]}: {STAGE_HINT[it.stage]}
-              {it.prevStage && it.prevStage !== it.stage && <> · 1년 전엔 <b className="font-semibold text-x-secondary">{STAGE_LABEL[it.prevStage]}</b>이었어요</>}</p>}
+            <p className="mb-1 text-ui font-semibold text-x-secondary">검색 의도 비중</p>
+            {it.stage && <p className="mb-3 text-ui text-x-muted">{STAGE_HINT[it.stage]}
+              {it.prevStage && it.prevStage !== it.stage && <> · 전년 <b className="font-semibold text-x-secondary">{STAGE_LABEL[it.prevStage]}</b> 단계에서 변화</>}</p>}
             <div className="space-y-2">
-              <ProfileBar label="지금" p={prof} />
-              {it.prev && <ProfileBar label="1년 전" p={it.prev} />}
+              <ProfileBar label="최근 1년" p={prof} />
+              {it.prev && <ProfileBar label="전년" p={it.prev} />}
             </div>
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
               {PROFILE_INTENTS.map((i) => (
@@ -139,7 +139,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
 
         {it && Object.keys(it.top).length > 0 && (
           <div>
-            <p className="mb-2 text-ui font-semibold text-x-secondary">함께 찾는 말 — 최근 12개월 월평균</p>
+            <p className="mb-2 text-ui font-semibold text-x-secondary">연관 검색어 상위 · 최근 12개월 월평균</p>
             <div className="divide-y divide-x-border/60 rounded-lg border border-x-border">
               {PROFILE_INTENTS.filter((i) => it.top[i]?.length).map((i) => (
                 <div key={i} className="flex items-start gap-3 px-3 py-2.5">
@@ -159,7 +159,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
 
         <div>
           <p className="mb-2 text-ui font-semibold text-x-secondary">
-            {siblings.every((s) => s.middle === row.middle) ? `같은 묶음(${row.major} › ${row.middle})` : `같은 분류(${row.major})`}에서 — 많이 찾는 순
+            {siblings.every((s) => s.middle === row.middle) ? `같은 묶음(${row.major} › ${row.middle})` : `같은 분류(${row.major})`}내 검색량 순위
           </p>
           <ul className="divide-y divide-x-border/60 rounded-lg border border-x-border">
             {ranked.map((s) => (

@@ -36,12 +36,15 @@ export function summarize(values: number[] | null, months: string[]): TrendSumma
   const now = avg(values.slice(n - 3));
   const yearAgo = avg(values.slice(n - 15, n - 12));
   const twoYearsAgo = n >= 27 ? avg(values.slice(n - 27, n - 24)) : null;
-  const peak12 = Math.max(...values.slice(n - 12));
+  const last12 = values.slice(n - 12);
+  const peak12 = Math.max(...last12);
+  // 정점이 최근 3개월 '앞'에 있어야 꺾인 것 — 지난달이 최고치면 아직 오르는 중이다(10-13 엠페이스: 26.08 최고치인데 하락 전환으로 잘못 나옴)
+  const peakBeforeRecent = last12.lastIndexOf(peak12) < 9;
   const seasonMonth = season(values, months);
   const base = { now, yearAgo, twoYearsAgo, peak12, seasonMonth };
   if (now < LOW) return { ...base, state: 'low', change: null };
   const change = yearAgo > 0 ? now / yearAgo - 1 : null;
-  if (twoYearsAgo !== null && twoYearsAgo > 0 && now / twoYearsAgo - 1 >= PEAKED_GROWTH && now <= peak12 * PEAKED_DROP) {
+  if (twoYearsAgo !== null && twoYearsAgo > 0 && now / twoYearsAgo - 1 >= PEAKED_GROWTH && peakBeforeRecent && now <= peak12 * PEAKED_DROP) {
     return { ...base, state: 'peaked', change };
   }
   if (change === null) return { ...base, state: now >= SURGE_MIN ? 'surge' : 'up', change };  // 1년 전 0 → 새로 생긴 수요
@@ -52,6 +55,7 @@ export function summarize(values: number[] | null, months: string[]): TrendSumma
 }
 
 // 계절 — 최근 12개월 묶음 3개 중 2개 이상에서 같은 달(±1)이 정점이고, 정점이 그 해 평균의 1.5배 이상이면 그 달.
+// 추세가 강한 해는 뺀다(꾸준히 오르는 시술은 매년 마지막 달이 정점이 되어 계절처럼 보인다).
 export function season(values: number[], months: string[]): number | null {
   const peaks: number[] = [];
   for (let k = 0; k < 3; k++) {
@@ -61,6 +65,12 @@ export function season(values: number[], months: string[]): number | null {
     const win = values.slice(start, end);
     const a = avg(win);
     if (a < LOW) continue;
+    // 그 해 평균이 전년 평균의 1.5배 초과·2/3 미만이면 추세가 강한 해 — 정점이 계절이 아니라 추세라 빼고 본다.
+    // (해 안의 앞뒤 비교는 여름 시술의 여름 정점까지 추세로 오인해 쓰지 않는다)
+    if (start >= 12) {
+      const prevAvg = avg(values.slice(start - 12, start));
+      if (prevAvg > 0 && (a / prevAvg > 1.5 || a / prevAvg < 2 / 3)) continue;
+    }
     let best = 0;
     for (let i = 1; i < 12; i++) if (win[i] > win[best]) best = i;
     if (win[best] >= a * SEASON_RATIO) peaks.push(Number(months[start + best].slice(5, 7)));

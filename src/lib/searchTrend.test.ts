@@ -52,12 +52,26 @@ test('꺾임 — 2년 전보다 크게 올랐지만 지난 12개월 최고치의
   assert.equal(s.peak12, 9000);
 });
 
+test('지난달이 최고치면 하락 전환이 아니라 상승 — 정점이 최근 3개월 앞에 있어야 꺾임(엠페이스 사례)', () => {
+  const v = flat(150);
+  v.splice(24, 24, 110, 190, 110, 110, 600, 1100, 280, 300, 300, 1050, 1160, 1090, 910, 1300, 1790, 1930, 1950, 2850, 3740, 3870, 4670, 6130, 8550, 26970);
+  const s = summarize(v, MONTHS);
+  assert.equal(s.state, 'surge');
+  assert.equal(s.seasonMonth, null);  // 꾸준히 오르는 해의 마지막 달 정점은 계절이 아님
+});
+
 test('계절 — 3년 중 2년 이상 같은 달(±1) 정점이 평균 1.5배 이상', () => {
   const v = flat(1000);
   for (let i = 0; i < 48; i++) if (MONTHS[i].endsWith('-12')) v[i] = 3000;
   assert.equal(season(v, MONTHS), 12);
   assert.equal(summarize(v, MONTHS).seasonMonth, 12);
   assert.equal(season(flat(1000), MONTHS), null);
+});
+
+test('계절 — 여름 시술(7월 정점)은 해마다 같으면 성수기', () => {
+  const v = flat(1000);
+  for (let i = 0; i < 48; i++) if (MONTHS[i].endsWith('-07')) v[i] = 2500;
+  assert.equal(season(v, MONTHS), 7);
 });
 
 test('계절 — 12월과 1월은 ±1로 이어진 달', () => {

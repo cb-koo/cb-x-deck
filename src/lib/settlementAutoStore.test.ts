@@ -8,7 +8,7 @@ import { createInfluencer, updatePaymentMethods } from './influencerStore.ts';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettings.ts';
 import { getSettlementSettings, saveSettlementSettings, cancelRequest, listRequests, getForExport } from './settlementStore.ts';
 import { toExternalItem } from './settlementExternal.ts';
-import { listPending, sendTask, runAutoSend, holdTask, ackRemoval, AUTO_REQUESTER_FALLBACK } from './settlementAutoStore.ts';
+import { listPending, sendTask, runAutoSend, holdTask, ackRemoval, setAutoSend, AUTO_REQUESTER_FALLBACK } from './settlementAutoStore.ts';
 import { nextMondaySeven } from './settlementAuto.ts';
 
 const sql = getSql();
@@ -239,4 +239,22 @@ test('[확인하고 보내기]로 보낸 건 — 보낼 때 있던 내림은 다
   const [row] = await listRequests(sql, { taskId: t.id });
   assert.equal(row.taskRemovedAt, '2026-10-09');
   assert.equal(row.sentRemovedOn, '2026-10-11');
+});
+
+test('자동 전송 스위치 — 끄면 스윕이 아무것도 안 보내고(실행 기록은 남김), 켜면 다시 보낸다. 사람이 누르는 [보내기]는 상관없다', async () => {
+  const camp = await campaign();
+  await influencer(H('sw1')); await influencer(H('sw2'));
+  const t1 = await postedQuote(camp.id, H('sw1'), null);
+  const t2 = await postedQuote(camp.id, H('sw2'), null);
+  try {
+    const off = await setAutoSend(sql, false, member);
+    assert.equal(off.enabled, false); assert.equal(off.changedByName, member.name);
+    assert.equal((await listPending(sql, new Date(), camp.id)).summary.autoSendEnabled, false);
+    assert.equal((await sweep(afterNextMonday(), { campaignIds: [camp.id] })).sent, 0);
+    assert.equal((await listRequests(sql, { taskId: t1.id })).length, 0);
+    assert.ok((await sendTask(sql, t2.id, { via: 'manual', member })).ok);   // 꺼져 있어도 직접 보내기는 된다
+  } finally {
+    await setAutoSend(sql, true, member);
+  }
+  assert.equal((await sweep(afterNextMonday(), { campaignIds: [camp.id] })).sent, 1);
 });

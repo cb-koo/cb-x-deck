@@ -18,6 +18,10 @@ export async function PUT(req: Request) {
   const body = (await req.json().catch(() => ({}))) as { settings?: unknown };
   const clean = sanitizeSettlementSettings(body.settings);
   if (typeof clean === 'string') return NextResponse.json({ error: clean }, { status: 400 });
-  await saveSettlementSettings(getSql(), clean, gate.member.id);   // 저장자 = 서버가 해석한 멤버(프롬프트 설정 관례)
-  return NextResponse.json({ settings: clean });
+  // 자동 전송 스위치는 이 저장으로 바뀌지 않는다 — 화면이 오래된 값을 들고 [저장]해도 스위치를 되돌리지 않게 서버 값을 그대로 잇는다
+  const sql = getSql();
+  const cur = await getSettlementSettings(sql);
+  const next = cur.autoSend ? { ...clean, autoSend: cur.autoSend } : { categories: clean.categories, rateKrwPerJpy: clean.rateKrwPerJpy };
+  await saveSettlementSettings(sql, next, gate.member.id);   // 저장자 = 서버가 해석한 멤버(프롬프트 설정 관례)
+  return NextResponse.json({ settings: next });
 }

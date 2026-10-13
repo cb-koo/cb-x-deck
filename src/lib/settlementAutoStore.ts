@@ -4,9 +4,9 @@ import postgres from 'postgres';
 import { kstToday } from './datetime.ts';
 import { isUuidLike } from './uuid.ts';
 import { parseTaskCost } from './campaignCost.ts';
-import { categoryBySendAs } from './settlementSettings.ts';
+import { categoryBySendAs, autoSendEnabled, type AutoSendSwitch } from './settlementSettings.ts';
 import type { SettlementCandidate, ReadinessIssue } from './settlementCalc.ts';
-import { CANDIDATE_SQL, rowToCandidate, insertRequestInTx, getSettlementSettings, type CandRow, type PaymentRequestRow } from './settlementStore.ts';
+import { CANDIDATE_SQL, rowToCandidate, insertRequestInTx, getSettlementSettings, saveSettlementSettings, type CandRow, type PaymentRequestRow } from './settlementStore.ts';
 import { pendingGroup, blockingIssues, confirmedInstant, isDue, sendAtFor, nextMondaySeven, type PendingGroup, type PendingState } from './settlementAuto.ts';
 import { exportIncludesTestFixtures, TEST_FIXTURE_HANDLE_PG } from './settlementTestFixture.ts';
 
@@ -29,6 +29,8 @@ export interface PendingSummary {
   lastRunAt: string | null;     // 자동 전송이 마지막으로 확인한 시각(예약 실행이 없으면 null)
   lastRunAgeMin: number | null; // 그게 몇 분 전인지 — 서버 시계로 계산(화면이 렌더 중에 시계를 읽지 않게)
   sentAutoToday: number;        // 오늘(서울) 자동으로 보낸 요청 수
+  autoSendEnabled: boolean;     // 정산 설정의 자동 전송 스위치(없으면 켜짐)
+  autoSendSwitch: AutoSendSwitch | null;   // 마지막으로 바꾼 사람·시각(한 번도 안 바꿨으면 null)
 }
 
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
@@ -70,6 +72,8 @@ export async function listPending(sql: postgres.Sql, now: Date = new Date(), cam
       lastRunAt: iso(run[0]?.at ?? null),
       lastRunAgeMin: run[0]?.at ? Math.floor((now.getTime() - new Date(run[0].at).getTime()) / 60_000) : null,
       sentAutoToday: Number(sent[0]?.n ?? 0),
+      autoSendEnabled: autoSendEnabled(settings),
+      autoSendSwitch: settings.autoSend ?? null,
     },
   };
 }
@@ -128,12 +132,19 @@ export async function runAutoSend(sql: postgres.Sql, now: Date = new Date(), opt
   const limit = opts.limit ?? 200;
   const started = Date.now();
   const [run] = await sql<Array<{ id: string }>>`insert into settlement_auto_run (started_at) values (${now}) returning id`;
+  // 스위치가 꺼져 있으면 아무것도 보내지 않는다 — 실행 기록은 남긴다(화면의 '마지막 확인'이 살아 있어야 멈춤과 꺼짐을 가른다)
+  const switchSettings = await getSettlementSettings(sql);
+  if (!autoSendEnabled(switchSettings)) {
+    await sql`update settlement_auto_run set finished_at = now(), detail = ${sql.json({ disabled: true })} where id = ${run.id}`;
+    await sql`delete from settlement_auto_run where started_at < now() - interval '7 days'`;
+    return { runId: run.id, sent: 0, skipped: 0, failed: 0 };
+  }
   const fixtures = exportIncludesTestFixtures() ? sql`` : sql`and t.influencer_handle !~ ${TEST_FIXTURE_HANDLE_PG}`;
   // campaignIds는 테스트 전용 좁힘 — 연습용 DB의 다른 데이터(스테이징 QA)를 건드리지 않게
   const only = opts.campaignIds ? sql`and t.campaign_id in ${sql(opts.campaignIds.length ? opts.campaignIds : ['00000000-0000-0000-0000-000000000000'])}` : sql``;
   // 후보 전체를 한 번에 분류한 뒤 '기다림 + 이번 회차'만 보낸다 — 막힌·확인 필요 작업이 앞자리를 차지해
   // 뒤의 작업이 영영 안 나가는 일이 없게(리뷰 10-12). 취소 이력·멈춤은 분류가 '멈춘 작업'으로 뺀다.
-  const settings = await getSettlementSettings(sql);
+  const settings = switchSettings;
   const rows = await sql<CandRow[]>`${CANDIDATE_SQL(sql)} ${fixtures} ${only} order by t.posted_at asc, t.created_at asc, t.id asc`;
   const due = rows.map((r) => toRow(r, settings, now))
     .filter((x): x is PendingRow => x !== null && x.group === 'waiting' && isDue(new Date(x.confirmedAt), now))
@@ -179,4 +190,12 @@ export async function ackRemoval(sql: postgres.Sql, requestId: string, member: {
   const rows = await sql`update payment_request set removal_ack_at = now(), removal_ack_by_name = ${member.name}
     where id = ${requestId} and status = 'requested' and removal_ack_at is null returning id`;
   return rows.length > 0;
+}
+
+// 자동 전송 스위치(2026-10-13) — 지금 설정을 읽어 스위치만 바꿔 새 버전으로 저장한다(분류 편집 중인 화면 값과 섞이지 않게 서버에서 합친다)
+export async function setAutoSend(sql: postgres.Sql, enabled: boolean, member: { id: string; name: string }): Promise<AutoSendSwitch> {
+  const cur = await getSettlementSettings(sql);
+  const sw: AutoSendSwitch = { enabled, changedAt: new Date().toISOString(), changedByName: member.name };
+  await saveSettlementSettings(sql, { ...cur, autoSend: sw }, member.id);
+  return sw;
 }

@@ -46,3 +46,14 @@ test('visible/bySendAs/defaultFor — 숨김 처리', () => {
   assert.equal(categoryBySendAs(s, null), null);
   assert.equal(defaultCategoryFor(s, 'rt'), null);          // 숨긴 옵션은 기본값으로 쓰지 않는다
 });
+
+import { autoSendEnabled } from './settlementSettings.ts';
+test('자동 전송 스위치 — 없으면 켜짐, 있으면 그대로 잇고, 모양이 틀리면 버린다(2026-10-13)', () => {
+  const base = { categories: SETTLEMENT_DEFAULTS.categories, rateKrwPerJpy: 10 };
+  const a = sanitizeSettlementSettings(base);
+  assert.ok(typeof a !== 'string'); assert.equal(a.autoSend, undefined); assert.equal(autoSendEnabled(a), true);
+  const b = sanitizeSettlementSettings({ ...base, autoSend: { enabled: false, changedAt: '2026-10-13T05:00:00.000Z', changedByName: '박구건' } });
+  assert.ok(typeof b !== 'string'); assert.equal(autoSendEnabled(b), false); assert.equal(b.autoSend?.changedByName, '박구건');
+  const c = sanitizeSettlementSettings({ ...base, autoSend: { enabled: 'no' } });
+  assert.ok(typeof c !== 'string'); assert.equal(c.autoSend, undefined);
+});

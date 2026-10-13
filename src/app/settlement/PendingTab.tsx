@@ -25,6 +25,7 @@ const GROUP_SUB: Record<PendingGroup, (s: PendingSummary, rows: PendingRow[]) =>
   blocked: () => '고치면 자동 전송돼요 · 행을 눌러 그 자리에서 고쳐요',
   // 지난 월요일 전에 확인된 건(곧 전송)이 섞여 있으면 따로 센다 — 머리말 날짜와 행의 '곧 전송'이 엇갈려 보이지 않게(QA 10-13)
   waiting: (s, rows) => {
+    if (!s.autoSendEnabled) return '자동 전송 꺼짐 · [바로 보내기]로 직접 보내요';
     const due = rows.filter((r) => r.sendAt === null).length;
     return due ? `곧 전송 ${due}건 · 나머지 ${sendWhenLabel(s.nextSendAt)} 자동 전송` : `${sendWhenLabel(s.nextSendAt)} 자동 전송`;
   },
@@ -122,7 +123,7 @@ export function PendingTab({ initialCampaignId, onGoRequests }: { initialCampaig
           <Row key={r.cand.taskId} {...rowProps(r)}>
             <td className={`${CELL} ${NUM}`}>{r.cand.money ? formatMoney(r.cand.money.amountGross, r.cand.money.payoutCurrency) : '—'}</td>
             <td className={CELL}>{r.cand.method && <span className={METHOD_CHIP}>{PAYMENT_TYPE_LABEL[r.cand.method.type]}</span>}</td>
-            <td className={`${CELL} text-ui text-x-secondary`}>{r.sendAt ? sendWhenLabel(r.sendAt) : '곧 전송'}</td>
+            <td className={`${CELL} text-ui text-x-secondary`}>{!s.autoSendEnabled ? '자동 전송 꺼짐' : r.sendAt ? sendWhenLabel(r.sendAt) : '곧 전송'}</td>
             <Actions>{hold(r)}{sendBtn(r, '바로 보내기', '월요일까지 기다리지 않고 지금 보내요 — 요청자는 내 이름')}</Actions>
           </Row>
         )}
@@ -148,13 +149,15 @@ export function PendingTab({ initialCampaignId, onGoRequests }: { initialCampaig
 
 // 맨 위 한 줄 — 오늘 자동 전송 수 + 마지막 확인. 15분 넘게 확인이 없으면 빨간 줄(스펙 §7)
 function RunLine({ summary: s, onGoRequests }: { summary: PendingSummary; onGoRequests: () => void }) {
-  const stale = s.lastRunAgeMin !== null && s.lastRunAgeMin * 60_000 > AUTO_RUN_STALE_MS;
+  const stale = s.autoSendEnabled && s.lastRunAgeMin !== null && s.lastRunAgeMin * 60_000 > AUTO_RUN_STALE_MS;
   return (
     <p className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-ui ${stale ? 'text-red-700' : 'text-x-secondary'}`}>
       <span>오늘 자동 전송 <b className="font-semibold text-x-text">{s.sentAutoToday}건</b></span>
       <button type="button" onClick={onGoRequests} className="text-x-blue-text hover:underline">요청 내역 →</button>
-      {s.lastRunAt === null
-        ? <span className="text-x-muted">· 자동 전송 꺼짐 · 급하면 [바로 보내기]</span>
+      {!s.autoSendEnabled
+        ? <span className="text-amber-700">· 자동 전송 꺼짐 · <a href="/settlement?tab=settings" className="text-x-blue-text hover:underline">설정에서 켜기 →</a></span>
+        : s.lastRunAt === null
+        ? <span className="text-x-muted">· 자동 전송 준비 중 · 급하면 [바로 보내기]</span>
         : stale
           ? <span>· 자동 전송 {s.lastRunAgeMin}분째 응답 없음(마지막 {hhmm(s.lastRunAt)}) · 급하면 [바로 보내기]</span>
           : <span className="text-x-muted">· 마지막 확인 {hhmm(s.lastRunAt)}</span>}

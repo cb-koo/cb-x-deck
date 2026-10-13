@@ -8,7 +8,10 @@ export interface SettlementCategory {
   hidden: boolean;       // 새 요청 드롭다운에서만 숨김. 기존 요청 표시엔 영향 없음
   defaultFor: TaskType[];// 이 유형의 기본값. 한 유형은 한 옵션에만
 }
-export interface SettlementSettings { categories: SettlementCategory[]; rateKrwPerJpy: number }
+// 자동 전송 켜기/끄기(2026-10-13 koo) — 없으면 켜짐(배포 때 이미 켠 상태). 누가 언제 바꿨는지 함께 둔다(설정 버전 행은 분류 편집과 섞인다).
+export interface AutoSendSwitch { enabled: boolean; changedAt: string; changedByName: string }
+export interface SettlementSettings { categories: SettlementCategory[]; rateKrwPerJpy: number; autoSend?: AutoSendSwitch }
+export const autoSendEnabled = (s: SettlementSettings): boolean => s.autoSend?.enabled !== false;
 
 // 첫 화면부터 동작하는 기본값 — 슬랙 3채널 실데이터의 분류 3종. 인용RT는 어느 옵션에도 없다(요청자 최근 선택, calc §3-3).
 export const SETTLEMENT_DEFAULTS: SettlementSettings = {
@@ -27,7 +30,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 
 export function sanitizeSettlementSettings(v: unknown): SettlementSettings | string {
   if (!v || typeof v !== 'object') return '설정 형식이 올바르지 않아요';
-  const o = v as { categories?: unknown; rateKrwPerJpy?: unknown };
+  const o = v as { categories?: unknown; rateKrwPerJpy?: unknown; autoSend?: unknown };
   if (!Array.isArray(o.categories) || o.categories.length === 0) return '분류가 하나 이상 필요해요';
   const categories: SettlementCategory[] = [];
   const ids = new Set<string>();
@@ -53,7 +56,11 @@ export function sanitizeSettlementSettings(v: unknown): SettlementSettings | str
   }
   const rate = o.rateKrwPerJpy;
   if (typeof rate !== 'number' || !Number.isInteger(rate) || rate < 1) return '환율은 1 이상 정수예요';
-  return { categories, rateKrwPerJpy: rate };
+  const a = (o.autoSend ?? null) as { enabled?: unknown; changedAt?: unknown; changedByName?: unknown } | null;
+  const autoSend = a && typeof a.enabled === 'boolean'
+    ? { enabled: a.enabled, changedAt: typeof a.changedAt === 'string' ? a.changedAt : '', changedByName: typeof a.changedByName === 'string' ? a.changedByName : '' }
+    : undefined;
+  return autoSend ? { categories, rateKrwPerJpy: rate, autoSend } : { categories, rateKrwPerJpy: rate };
 }
 
 export function visibleCategories(s: SettlementSettings): SettlementCategory[] {

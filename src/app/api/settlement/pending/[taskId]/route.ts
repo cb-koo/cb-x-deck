@@ -3,8 +3,8 @@ import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { sendTask, holdTask, HOLD_REASON_MAX } from '@/lib/settlementAutoStore';
 
-// 정산 요청 대기 행 버튼(스펙 2026-10-12 §6) — send: [지금 보내기]·[확인하고 보내기]·[보내기](요청자 = 누른 사람),
-// hold: [보내지 않기](사유 필수). 판정은 서버가 다시 한다(화면을 우회해도 막힌 건은 못 보낸다).
+// 정산 요청 대기 행 버튼(스펙 2026-10-12 §6) — send: [바로 보내기]·[보내기](요청자 = 누른 사람),
+// hold: [보류](사유 필수). 판정은 서버가 다시 한다(화면을 우회해도 막힌 건은 못 보낸다).
 export async function POST(req: Request, ctx: { params: Promise<{ taskId: string }> }) {
   const gate = await requireMember();
   if (gate.response) return gate.response;

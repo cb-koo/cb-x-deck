@@ -81,12 +81,12 @@ import { removalAfterSend, requesterLabel } from './settlementAuto.ts';
 test('removalAfterSend — 지급 전이면 할 일, 지급 후면 기록, 확인했으면 기록, 취소면 없음', () => {
   const base = { status: 'requested', externalStatus: 'scheduled', removalAckAt: null, removalAckByName: null, taskRemovedAt: '2026-10-14', taskRemovedReason: '이슈로 내림', taskUnseenOn: null, sentRemovedOn: null, sentUnseenOn: null };
   assert.equal(removalAfterSend(base)?.kind, 'act');
-  assert.match(removalAfterSend(base)!.text, /10\/14에 글이 내려갔어요 \(이슈로 내림\)/);
+  assert.equal(removalAfterSend(base)!.text, '보낸 뒤 내림 10/14 · 이슈로 내림 · 지급 전 — 지급할지 정해 주세요');
   assert.equal(removalAfterSend({ ...base, externalStatus: 'paid' })?.kind, 'info');
   assert.equal(removalAfterSend({ ...base, removalAckAt: 'x', removalAckByName: 'M' })?.kind, 'acked');
   assert.equal(removalAfterSend({ ...base, status: 'cancelled' }), null);
   assert.equal(removalAfterSend({ ...base, taskRemovedAt: null }), null);
-  assert.match(removalAfterSend({ ...base, taskRemovedAt: null, taskUnseenOn: '2026-10-13' })!.text, /10\/13부터 글이 안 보여요/);
+  assert.match(removalAfterSend({ ...base, taskRemovedAt: null, taskUnseenOn: '2026-10-13' })!.text, /안 보임 10\/13~/);
   // 사람이 [확인하고 보내기]로 보낸 건 — 보낸 날까지의 내림은 이미 본 것
   assert.equal(removalAfterSend({ ...base, sentRemovedOn: '2026-10-14' }), null);
   // 보낸 뒤에 과거 날짜로 내림을 적어도 알린다(날짜 크기로 가르지 않는다)
@@ -94,6 +94,14 @@ test('removalAfterSend — 지급 전이면 할 일, 지급 후면 기록, 확�
 });
 test('requesterLabel — 자동은 풀어 쓴다', () => {
   assert.equal(requesterLabel({ createdVia: 'manual', requesterName: '박구건', requesterMemberId: 'm' }), '박구건');
-  assert.equal(requesterLabel({ createdVia: 'auto', requesterName: 'moeka', requesterMemberId: 'm' }), '자동 전송 · 작업 만든 사람 moeka');
+  assert.equal(requesterLabel({ createdVia: 'auto', requesterName: 'moeka', requesterMemberId: 'm' }), '자동 전송 · moeka');
   assert.equal(requesterLabel({ createdVia: 'auto', requesterName: '자동 전송', requesterMemberId: null }), '자동 전송');
+});
+
+import { shortReason, sendWhenLabel } from './settlementAuto.ts';
+test('shortReason·sendWhenLabel — 짧은 명사형', () => {
+  assert.equal(shortReason(cand({ method: null }), 'blocked', blockingIssues(cand({ method: null }))), '결제 수단 없음');
+  assert.equal(shortReason(cand({ type: 'visit' }), 'blocked', blockingIssues(cand({ type: 'visit' }))), '동의서 없음');
+  assert.equal(shortReason(cand({ removedAt: '2026-10-12' }), 'attention', []), '내림 10/12');
+  assert.equal(sendWhenLabel(kst('2026-10-19T07:00:00').toISOString()), '10/19(월) 07:00');
 });

@@ -6,7 +6,7 @@ import { HOLD_REASON_MAX } from '@/lib/settlementAuto';
 import { holdPendingApi } from '@/lib/settlementApi';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 
-// [보내지 않기](스펙 2026-10-12 §7) — 사유 칩은 아래 칸을 채워 줄 뿐, 직접 고쳐 써도 된다(작업 취소 창 칩과 같은 모양·koo 10-12 확정)
+// [보류](스펙 2026-10-12 §7, 10-13 명칭 짧게) — 사유 칩은 아래 칸을 채워 줄 뿐, 직접 고쳐 써도 된다(작업 취소 창 칩과 같은 모양·koo 10-12 확정)
 export const HOLD_REASON_CHIPS = ['인플과 금액 협의 중', '게시 내용 확인 중', '지급하지 않음'] as const;
 
 export function HoldDialog({ target, onDone, onClose }: { target: PendingRow; onDone: () => void; onClose: () => void }) {
@@ -29,10 +29,10 @@ export function HoldDialog({ target, onDone, onClose }: { target: PendingRow; on
   const c = target.cand;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label="보내지 않기" className="w-full max-w-[460px] rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label="보류" className="w-full max-w-[460px] rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
         <p className="text-ui text-x-secondary">{TASK_TYPE_LABEL[c.taskType]} · @{c.influencerHandle} · {c.campaignName}</p>
-        <h2 className="mt-1 text-[16px] font-semibold">보내지 않기</h2>
-        <p className="mt-1 text-ui text-x-secondary">자동으로 보내지 않고 &apos;멈춘 작업&apos;에 둬요. 나중에 [보내기]를 누르면 바로 보내요.</p>
+        <h2 className="mt-1 text-[16px] font-semibold">보류</h2>
+        <p className="mt-1 text-ui text-x-secondary">자동 전송하지 않아요. 보류에서 [보내기]로 언제든 보낼 수 있어요.</p>
         <div className="mt-3 text-ui text-x-secondary">사유 <span className="text-red-600">필수</span></div>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {HOLD_REASON_CHIPS.map((k) => (
@@ -45,7 +45,7 @@ export function HoldDialog({ target, onDone, onClose }: { target: PendingRow; on
         {err && <p role="alert" className="mt-2 text-ui text-red-700">{err}</p>}
         <div className="mt-4 flex justify-end gap-2">
           <Button type="button" onClick={onClose} disabled={busy}>닫기</Button>
-          <Button type="button" variant="primary" onClick={go} disabled={busy}>{busy ? '멈추는 중…' : '보내지 않기'}</Button>
+          <Button type="button" variant="primary" onClick={go} disabled={busy}>{busy ? '저장 중…' : '보류'}</Button>
         </div>
       </div>
     </div>

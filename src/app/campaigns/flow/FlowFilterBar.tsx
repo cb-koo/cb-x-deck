@@ -44,7 +44,7 @@ function FilterGroup<T extends string>({ title, items, checked, onToggle, classN
 // 정산 줄(스펙 2026-10-12 §7) — 할 일(확인 필요·막힘)이 있으면 주황 링크, 없으면 회색으로 자동 진행 상황만. 판정은 서버(정산 요청 대기)와 같다.
 export interface FlowSettleLine { needsAction: number; waiting: number; dueNow: boolean; nextSendAt: string }   // dueNow = 기다림 중 이번 회차 대상(곧 나감)이 있다
 const DOW = '일월화수목금토';
-const mondayLabel = (iso: string) => { const k = new Date(Date.parse(iso) + 9 * 3_600_000); return `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${DOW[k.getUTCDay()]} ${k.getUTCHours()}시`; };
+const mondayLabel = (iso: string) => { const k = new Date(Date.parse(iso) + 9 * 3_600_000); return `${k.getUTCMonth() + 1}/${k.getUTCDate()}(${DOW[k.getUTCDay()]})`; };
 
 export function FlowFilterBar({ filter, onChange, counts, summary, sortNote, settle, campaignId }: {
   filter: FlowFilter;
@@ -119,9 +119,9 @@ export function FlowFilterBar({ filter, onChange, counts, summary, sortNote, set
       <span className="ml-auto text-ui">
         {settle === null ? null
           : settle.needsAction > 0
-            ? <span className="text-amber-700">정산 확인 필요 {settle.needsAction}건 · <Link href={`/settlement?tab=candidates&campaign=${campaignId}`} className="text-x-blue-text hover:underline">정산에서 보기 →</Link></span>
+            ? <span className="text-amber-700">정산 확인·보완 {settle.needsAction}건 · <Link href={`/settlement?tab=candidates&campaign=${campaignId}`} className="text-x-blue-text hover:underline">정산에서 보기 →</Link></span>
             : settle.waiting > 0
-              ? <span className="text-x-muted">정산 자동 진행 {settle.waiting}건 · {settle.dueNow ? '곧 보내요' : `${mondayLabel(settle.nextSendAt)}에 보내요`}</span>
+              ? <span className="text-x-muted">정산 전송 예정 {settle.waiting}건 · {settle.dueNow ? '곧 전송' : `${mondayLabel(settle.nextSendAt)} 07:00`}</span>
               : <span className="text-x-muted">정산 대기 없음</span>}
       </span>
       {open && createPortal(

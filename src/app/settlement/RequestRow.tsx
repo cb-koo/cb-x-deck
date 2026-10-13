@@ -85,7 +85,7 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
             {removal.kind === 'act' ? (
               <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
                 <span className="min-w-0 flex-1">{removal.text}</span>
-                <Button onClick={() => void ack()} disabled={ackBusy} title="지급해도 괜찮아요 — 경고만 지우고 기록을 남겨요(정산팀에는 아무것도 가지 않아요)">{ackBusy ? '저장 중…' : '그대로 두기'}</Button>
+                <Button onClick={() => void ack()} disabled={ackBusy} title="지급해도 괜찮으면 — 경고만 지우고 기록을 남겨요(정산팀에는 아무것도 가지 않아요)">{ackBusy ? '저장 중…' : '그대로 두기'}</Button>
                 <Button onClick={onCancel} disabled={ackBusy}>요청 취소</Button>
                 {ackErr && <span role="alert" className="w-full text-red-700">{ackErr}</span>}
               </span>

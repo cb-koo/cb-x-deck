@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { isSettleWaiting, type FlowRow } from '@/lib/campaignFlowView';
 import { formatDateKo, SETTLED_ELSEWHERE_LABEL } from '@/lib/campaignJudgment';
 import type { PendingRow } from '@/lib/settlementAutoStore';
+import { GROUP_LABEL, shortReason, sendWhenLabel } from '@/lib/settlementAuto';
 
 // 비용 · 정산 상자 맨 아래 한 줄(061, koo 09-27 시안) — 앱 밖(구글폼 등)에서 이미 지급한 작업을 정산 대기에서 뺀다.
 //  · 표시가 있으면: ✓ 다른 곳에서 정산함 M/D · 메모 (표시한 사람) [되돌리기]
@@ -40,14 +41,12 @@ export function SettledElsewhereLine({ task, pending, onOpen, onUndo }: { task: 
   );
 }
 
-// 이 작업이 정산팀으로 언제 가는지(스펙 2026-10-12 §7) — 정산 요청 대기 묶음 판정 그대로
-const DOW = '일월화수목금토';
-const sendLabel = (iso: string) => { const k = new Date(Date.parse(iso) + 9 * 3_600_000); return `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${DOW[k.getUTCDay()]} ${k.getUTCHours()}시`; };
+// 이 작업이 정산팀으로 언제 가는지(스펙 2026-10-12 §7) — 정산 요청 대기 묶음 판정·명칭 그대로(10-13 짧게)
 function PendingLine({ p }: { p: PendingRow }) {
-  const link = <Link href={`/settlement?tab=candidates&campaign=${p.cand.campaignId}`} className="ml-1.5 text-x-blue-text hover:underline">정산에서 보기 →</Link>;
-  const text = p.group === 'waiting' ? <span className="text-x-secondary">{p.sendAt ? `${sendLabel(p.sendAt)}에 정산팀으로 자동으로 보내요` : '곧 정산팀으로 자동으로 보내요'}</span>
-    : p.group === 'attention' ? <span className="text-amber-700">글이 내려가거나 안 보여서 자동으로 안 보내요 — 보낼지 정해 주세요{link}</span>
-    : p.group === 'blocked' ? <span className="text-amber-700">{(p.blocking[0]?.text ?? '정보가 빠졌어요').split(' — ')[0]} · 고치면 자동으로 보내요{link}</span>
-    : <span className="text-x-secondary">자동 전송을 멈췄어요{link}</span>;
+  const link = <Link href={`/settlement?tab=candidates&campaign=${p.cand.campaignId}`} className="ml-1.5 text-x-blue-text hover:underline">정산 →</Link>;
+  const head = <span className="font-semibold">정산 {GROUP_LABEL[p.group]}</span>;
+  const text = p.group === 'waiting' ? <span className="text-x-secondary">{head} · {p.sendAt ? `${sendWhenLabel(p.sendAt)} 자동 전송` : '곧 전송'}</span>
+    : p.group === 'stopped' ? <span className="text-x-secondary">{head} · 자동 전송 안 함{link}</span>
+    : <span className="text-amber-700">{head} · {shortReason(p.cand, p.group, p.blocking)}{link}</span>;
   return <p className="-mx-4 mt-3.5 border-t border-x-border px-4 pt-3 text-[14px]">{text}</p>;
 }

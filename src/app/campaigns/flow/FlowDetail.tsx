@@ -121,8 +121,11 @@ function PendingRequestNote({ task }: { task: FlowRow }) {
   );
 }
 
-export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
+export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange, embed }: {
   id: string;
+  // 다른 화면(정산 요청 대기)에서 작업 패널만 띄울 때(koo 10-13) — 표·카드 없이 그 작업의 패널과 그 위 창들만 그린다.
+  // 수정·첨부·등록은 캠페인 화면과 같은 길(같은 부품·같은 액션)을 지난다. 패널을 닫거나 작업이 사라지면 onClose.
+  embed?: { taskId: string; onClose: () => void };
   onChanged: () => void;      // 목록(왼쪽) 새로고침 — 이름·작업 수·합계가 바뀌면 목록 보조줄도 움직여야 한다
   onDeleted: () => void;
   // 직접 쓰기·생성 탭이 작성 중이면 그때 띄울 확인 문장을 부모(page.tsx)에 올린다(Task 4d §6) — 왼쪽
@@ -418,6 +421,17 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   const panelTaskId = panel && 'taskId' in panel ? panel.taskId : null;
   const panelIndex = panelTaskId ? shown.findIndex((t) => t.id === panelTaskId) : -1;
   const panelTask = panelTaskId ? (data?.tasks.find((t) => t.id === panelTaskId) ?? null) : null;
+  // 끼워 넣기(embed) — 상세를 처음 읽으면 그 작업의 패널을 연다. 그 뒤 패널이 닫히면(작업 삭제·취소 등) 부모에 알린다.
+  const embedOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!embed || !data) return;
+    if (!embedOpenedRef.current) {
+      embedOpenedRef.current = true;
+      setPanel({ taskId: embed.taskId });
+      return;
+    }
+    if (!panelTaskId || !data.tasks.some((t) => t.id === panelTaskId)) embed.onClose();
+  }, [embed, data, panelTaskId]);
   // 표가 흐려지는 조건과 패널이 실제로 뜨는 조건은 항상 같아야 한다 — panelTaskId가 가리키는 작업이 다른 세션의
   // 삭제·취소로 data.tasks에서 사라지면(Task 10 삭제 등) panelTask가 null이 되는데, 그때 표만 흐리고 패널이
   // 없으면 "닫히지도 열리지도 않은" 상태로 보인다. 하나의 값으로 통일한다.
@@ -971,8 +985,9 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   // 모르므로 null(0이라고 거짓말하지 않는다, 결정 4) — 리뷰가 승인한 필터된 개수 계산은 그대로 둔다.
   const pickCount = candidates ? candidates.siblings.length + candidates.others.length : null;
 
-  if (!loaded) return <p className="px-6 py-6 text-content text-x-muted">불러오는 중…</p>;
+  if (!loaded) return embed ? null : <p className="px-6 py-6 text-content text-x-muted">불러오는 중…</p>;
   if (loadErr && !data) {
+    if (embed) return null;
     return (
       <div className="px-6 py-6">
         <p className="mb-2 text-content text-x-secondary" role="alert">캠페인을 불러오지 못했어요</p>
@@ -983,7 +998,8 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
   if (!data || !stats) return null;
 
   return (
-    <div className="min-w-0 space-y-5 p-5 pb-24">
+    <div className={embed ? undefined : 'min-w-0 space-y-5 p-5 pb-24'}>
+      {!embed && <>
       {loadErr && (
         <div role="alert" className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-ui text-red-700">
           <span>새로고침에 실패했어요 — 표시된 정보가 최신이 아닐 수 있어요</span>
@@ -1021,6 +1037,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                      selectedId={panelTaskId} onRowClick={onRowClick} renderMenu={renderMenu} />
         </div>
       </div>
+      </>}
 
       {/* key: 다른 작업으로(이전/다음) 또는 새 작업으로 넘어가면 패널의 로컬 입력 버퍼(인플 입력칸·메모 등)를
           통째로 새로 시작한다 — 안 그러면 직전 작업에서 치던 값이 다음 작업 화면에 잠깐 남는다. */}
@@ -1029,7 +1046,7 @@ export function FlowDetail({ id, onChanged, onDeleted, onLeaveConfirmChange }: {
                    mode={isNew ? { kind: 'new' } : { kind: 'edit', task: panelTask as FlowRow, index: panelIndex, total: shown.length }}
                    campaign={data.campaign} today={data.today} influencerOptions={influencerOptions} actions={actions}
                    roster={rosterGate} rosterVersion={rosterVersion}
-                   onClose={() => setPanel(null)} onPrev={onPanelPrev} onNext={onPanelNext} onCreate={createTask}
+                   onClose={embed ? embed.onClose : () => setPanel(null)} onPrev={onPanelPrev} onNext={onPanelNext} onCreate={createTask}
                    menu={panelTask ? renderMenu(panelTask) : null}
                    draftOpen={draftOpenReq} pickCount={pickCount} draftCard={draftCard}
                    draftGenerate={draftGenerate} draftWrite={draftWrite} draftPick={draftPick} draftBusy={draftBusy} closeConfirm={closeConfirm} moveConfirm={moveConfirm}

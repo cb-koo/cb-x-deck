@@ -7,7 +7,7 @@ import { parseTaskCost } from './campaignCost.ts';
 import { categoryBySendAs } from './settlementSettings.ts';
 import type { SettlementCandidate, ReadinessIssue } from './settlementCalc.ts';
 import { CANDIDATE_SQL, rowToCandidate, insertRequestInTx, getSettlementSettings, type CandRow, type PaymentRequestRow } from './settlementStore.ts';
-import { pendingGroup, blockingIssues, confirmedInstant, isDue, sendAtFor, nextMondaySeven, lastMondaySeven, type PendingGroup, type PendingState } from './settlementAuto.ts';
+import { pendingGroup, blockingIssues, confirmedInstant, isDue, sendAtFor, nextMondaySeven, type PendingGroup, type PendingState } from './settlementAuto.ts';
 import { exportIncludesTestFixtures, TEST_FIXTURE_HANDLE_PG } from './settlementTestFixture.ts';
 
 import { AUTO_REQUESTER_FALLBACK, HOLD_REASON_MAX } from './settlementAuto.ts';

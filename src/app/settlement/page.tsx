@@ -37,7 +37,7 @@ function SettlementInner() {
   return (
     <main className="mx-auto max-w-[1200px] px-6 py-6">
       <h1 className="text-[20px] font-bold">정산</h1>
-      <p className="mt-1 text-ui text-x-muted">게시 확인된 작업은 매주 월요일 오전 7시에 정산팀에 자동으로 보내요. 확인이 필요하거나 정보가 빠진 작업은 &apos;정산 요청 대기&apos;에 남아요.</p>
+      <p className="mt-1 text-ui text-x-muted">게시 확인된 작업은 매주 월요일 07:00 정산팀에 자동 전송돼요. 확인·보완이 필요한 작업은 정산 요청 대기에 남아요.</p>
       <nav className="mt-4 flex gap-1 border-b border-x-border" aria-label="정산 탭">
         {SETTLEMENT_TABS.map((t) => (
           <button key={t} type="button" onClick={() => setTab(t)} aria-current={tab === t ? 'page' : undefined}

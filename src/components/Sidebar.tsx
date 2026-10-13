@@ -66,6 +66,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     { href: '/campaigns/flow', label: '캠페인', Ic: CampaignIcon },
     // 정산은 캠페인 바로 아래 — 만든 것(작업) → 돈 보내는 것(요청) 순으로 읽힌다(정산 스펙 §4)
     { href: '/settlement', label: '정산', Ic: CampaignIcon },
+    // 검색 트렌드 — 일본에서 시술을 얼마나 찾는지(수요·트렌드). 무엇을 다룰지 보고 → 원고를 쓰는 순서라 콘텐츠 생성 위(스펙 2026-10-13 §5)
+    { href: '/trends', label: '검색 트렌드', Ic: TrendIcon },
     { href: '/generate', label: '콘텐츠 생성', Ic: PenIcon },
     { href: '/influencers', label: '인플루언서', Ic: UserIcon },
     // 인플루언서 성과 — 명부(한 명씩 관리)와 달리 여럿을 성과로 줄 세워 섭외할 인플을 고르는 곳(스펙 2026-09-30 §6)

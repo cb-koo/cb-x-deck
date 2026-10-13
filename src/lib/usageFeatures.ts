@@ -1,4 +1,5 @@
 const FEATURE: Record<string, string> = {
+  'reservation.extract': '예약 응답 정리',
   'getxapi.search': '트윗 검색',
   'getxapi.userTweets': '인플루언서 갱신',
   'getxapi.userInfo': '계정 조회',

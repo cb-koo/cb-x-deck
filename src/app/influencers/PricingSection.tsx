@@ -19,9 +19,10 @@ function parseAmount(s: string): number | null | undefined {
   return Number(t);
 }
 
-export function PricingSection({ id, pricing, logs, onSaved, onErrorChange }: {
+export function PricingSection({ id, pricing, version, logs, onSaved, onErrorChange }: {
   id: string;
   pricing: Pricing;
+  version?: number;
   logs: InfluencerLogRow[];
   onSaved: (patch: Partial<Pricing>, newLogs: InfluencerLogRow[]) => void;
   onErrorChange?: (v: boolean) => void;   // 이 탭이 숨어 있을 때 저장 실패를 탭 라벨이 대신 알린다
@@ -36,23 +37,25 @@ export function PricingSection({ id, pricing, logs, onSaved, onErrorChange }: {
   useErrorReport(Object.keys(err).length > 0, onErrorChange);
   // 행 단위 busy — 서로 다른 키(다른 행)의 동시 PATCH는 서버가 행 잠금하므로 안전, 같은 키만 중복 차단.
   const busyKeys = useRef(new Set<Key>());
+  const savedVersion = useRef(version);
 
   // 성공 여부를 돌려준다 — 실패했는데 입력칸을 되돌리면 "저장된 값"처럼 보인다(거짓 성공 방지).
   async function save(key: Key, patch: Pricing): Promise<boolean> {
-    if (busyKeys.current.has(key)) return false;
+    if (busyKeys.current.size > 0) return false;
     busyKeys.current.add(key);
     setSavingCount((n) => n + 1);
     try {
       const r = await apiFetch(`/api/influencers/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pricing: patch }),
+        body: JSON.stringify({ pricing: patch, pricingVersion: savedVersion.current }),
       });
       if (!r.ok) {
         const msg = ((await r.json().catch(() => ({}))) as { error?: string }).error ?? `오류 ${r.status}`;
         setErr((e) => ({ ...e, [key]: msg }));
         return false;
       }
-      const body = (await r.json()) as { pricing: Pricing; pricingLogs: InfluencerLogRow[] };
+      const body = (await r.json()) as { pricing: Pricing; pricingLogs: InfluencerLogRow[]; pricingVersion?: number };
+      savedVersion.current = body.pricingVersion;
       setErr((e) => { const n = { ...e }; delete n[key]; return n; });
       // 응답은 서버의 pricing 전체 스냅샷이지만, 여기서 그대로 부모에 덮어쓰면 서로 다른 행의 병행
       // PATCH 중 나중에 커밋된 요청의 응답이 먼저 도착했을 때 그 값을 되돌려버린다(행 잠금은 커밋

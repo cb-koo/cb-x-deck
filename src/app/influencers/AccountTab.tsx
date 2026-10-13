@@ -30,7 +30,7 @@ export function AccountTab({ id, data, onChanged, onDeleted, setData, reportErro
                          void onChanged();
                        }} />
       <TagEditor id={id} tags={inf.tags} onSaved={onChanged} onErrorChange={(v) => reportError('tags', v)} />
-      <NoteEditor id={id} note={inf.note} onErrorChange={(v) => reportError('note', v)} />
+      <NoteEditor id={id} note={inf.note} version={inf.noteVersion} onErrorChange={(v) => reportError('note', v)} />
       <Timeline id={id} logs={data.logs}
                 onAdded={(row) => { setData((d) => (d ? { ...d, logs: [row, ...d.logs] } : d)); onChanged(); }}
                 onRemoved={(logId) => {
@@ -106,31 +106,37 @@ function TagEditor({ id, tags, onSaved, onErrorChange }: {
 }
 
 // 고정 메모 — 타임라인이 "언제 무슨 일이 있었나"라면 여기는 "항상 기억해야 할 것"이다.
-function NoteEditor({ id, note, onErrorChange }: {
-  id: string; note: string; onErrorChange?: (v: boolean) => void;
+function NoteEditor({ id, note, version, onErrorChange }: {
+  id: string; note: string; version?: number; onErrorChange?: (v: boolean) => void;
 }) {
   const [text, setText] = useState(note);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
   useErrorReport(err !== '', onErrorChange);   // 숨은 탭의 저장 실패도 탭 라벨이 알린다
   const baseline = useRef(note);
+  const savedVersion = useRef(version);
+  const saving = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   async function saveOnBlur() {
     if (text === baseline.current) return;
+    if (saving.current) return;
+    saving.current = true;
     try {
       const r = await apiFetch(`/api/influencers/${id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: text }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: text, noteVersion: savedVersion.current }),
       });
       if (!r.ok) { setErr(await errOf(r)); return; }
+      const row = await r.json() as { noteVersion?: number };
+      savedVersion.current = row.noteVersion;
       baseline.current = text;
       setErr(''); setSaved(true);
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => setSaved(false), 2500);
     } catch {
       setErr('메모를 저장하지 못했어요 — 네트워크를 확인하고 다시 시도해 주세요');
-    }
+    } finally { saving.current = false; }
   }
 
   return (

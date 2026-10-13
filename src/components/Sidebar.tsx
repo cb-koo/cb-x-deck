@@ -82,6 +82,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
   // 설정 성격 화면(가끔 들어가 재료·규칙을 손보는 곳) — 매일 쓰는 작업 메뉴와 분리 (사이드바 개선 스펙)
   const settingsNav = [
     { href: '/clients', label: '클라이언트', Ic: ClinicIcon },
+    // 빠른 메시지 — 익스텐션(X 대화창)에서 꺼내 쓰는 팀 공용 안내 문구. 클라이언트 설정처럼 가끔 손보는 재료라 설정 묶음.
+    { href: '/quick-messages', label: '빠른 메시지', Ic: DocIcon },
     { href: '/prompt', label: '프롬프트', Ic: PromptIcon },
   ];
 

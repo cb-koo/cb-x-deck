@@ -169,7 +169,7 @@ export async function generateBriefing(
 
   const res = await callLLM('anthropic.briefing',
     // 4500: 트렌드 모듈 3~5개 JSON — 3000이면 잘려서 파싱 실패
-    { model: MODEL(), max_tokens: 4500, messages: [{ role: 'user', content: PROMPT(input.columnTitle, input.stats, lines, input.comparison ?? null) }] }, client);
+    { model: MODEL(), max_tokens: 6000, messages: [{ role: 'user', content: PROMPT(input.columnTitle, input.stats, lines, input.comparison ?? null) }] }, client);
   const j = extractJson(res) as Record<string, unknown> | null;
   if (!j) return null;
 

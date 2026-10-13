@@ -36,7 +36,11 @@ export function CancelDialog({ task, onClose, onConfirm }: {
   const who = task.influencerHandle ? `@${task.influencerHandle}` : '미배정';
   const cost = task.cost ? formatAmount(task.cost.amount, task.cost.currency) : '비용 미정';
   const summary = `${TASK_TYPE_LABEL[task.type]} · ${who} · 예정 ${task.scheduledOn ? formatDateTimeKo(task.scheduledOn, task.type === 'visit' ? task.scheduledTime : null) : '미정'} · ${cost}`;
-  const notice = `취소한 작업은 표에 '취소'로 남고 되돌릴 수 있어요. 비용 합계·밀림에서는 빠져요.`
+  // 예약이 연결된 방문 작업(reservation)은 서버가 예약 종료로 기록한다 — 예약 기록은 남지만 종료된 예약은 되돌리는 길이 없어 "되돌릴 수 있어요"가 거짓이 된다
+  const reserved = task.type === 'visit' && !!task.reservation;
+  const notice = (reserved
+    ? `취소한 작업은 표에 '취소'로 남아요. 예약 기록은 보존되지만 예약이 연결된 작업은 되돌릴 수 없어요. 비용 합계·밀림에서는 빠져요.`
+    : `취소한 작업은 표에 '취소'로 남고 되돌릴 수 있어요. 비용 합계·밀림에서는 빠져요.`)
     + (task.draftId ? ` 붙어 있던 원고 "${task.draftLabel ?? '(제목 없음)'}"는 떼어져 다른 작업에 쓸 수 있어요.` : '');
 
   return (

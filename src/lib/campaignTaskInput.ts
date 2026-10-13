@@ -245,6 +245,7 @@ export function parseTaskPatch(body: unknown): Parsed<TaskPatchParsed> {
     else { const a = parseTaskAgreementInput(b.agreement); if (!a) return fail(AGREEMENT_VALUE_MESSAGE); out.agreementInput = a; }
   }
   if ('cost' in b) { const c = parseTaskCost(b.cost); if (!c.ok) return c; out.cost = c.value; }
+  if ('noCost' in b) { if (typeof b.noCost !== 'boolean') return fail('비용 없음 여부를 확인해 주세요'); out.noCost = b.noCost; }
   if ('costReason' in b) out.costReason = typeof b.costReason === 'string' ? b.costReason.trim().slice(0, COST_REASON_MAX) : '';
   if ('note' in b) out.note = typeof b.note === 'string' ? b.note.trim() : '';
   if ('proof' in b) {

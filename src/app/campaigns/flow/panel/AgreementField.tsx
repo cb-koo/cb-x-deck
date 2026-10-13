@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, type DragEvent } from 'react';
-import { PanelSection } from './PanelSection';
+import { PanelSection, SectionBadge, type SectionDisclosure } from './PanelSection';
 import type { TaskAgreement, TaskAgreementInput } from '@/lib/taskAgreementGuard';
 import { agreementMeta, agreementKind } from '@/lib/taskAgreementGuard';
 import { uploadTaskAgreement, openTaskAgreement, taskAgreementValidationError, agreementPasteName, TASK_AGREEMENT_ACCEPT } from '@/lib/taskAgreement';
@@ -21,12 +21,16 @@ import { FILE_BTN_PRIMARY, FILE_BTN_LIGHT, FILE_BTN_TRASH, TRASH_ICON_PATH } fro
 // 열리는 '동의서.png'가 올라간다(리뷰 수정 2). 'Files' 종류와 함께 .pdf로 끝나는 파일 경로가 실려 있으면
 // 그 신호로 보고 안내만 한다.
 // 이 칸이 상자(PanelSection)까지 그린다 — 놓는 자리가 상자 전체여야 하는데 상자는 부모 쪽에 있으면 이벤트를 받을 수 없다.
-export function AgreementField({ taskId, influencerHandle, value, disabled, onChange }: {
+// 접기(목업 x-extension, disclosure): 접힌 요약은 파일명 또는 '동의서 미첨부' 딱지, 버튼 글자는 없으면 [첨부]·있으면 [보기]. 접힌 동안은
+// 붙여넣기·끌어다 놓기를 받지 않는다 — 안 보이는 칸에 ⌘V 한 번으로 동의서가 조용히 올라가면 안 된다(펼치면 그대로 받는다).
+export function AgreementField({ taskId, influencerHandle, value, disabled, onChange, disclosure, locked = false }: {
   taskId: string;
   influencerHandle: string | null;   // 붙여 넣은 파일의 이름용
   value: TaskAgreement | null;
   disabled: boolean;   // 취소된 작업 — 값만 보여준다(거짓 어포던스 금지)
   onChange: (next: TaskAgreementInput | null) => Promise<boolean>;
+  disclosure?: SectionDisclosure;
+  locked?: boolean;   // 끝난 작업(노쇼·완료 등, 목업 locked) — 접힌 요약에 '챙기라'는 노란 딱지·[첨부]를 보이지 않는다. 올리기 자체는 막지 않는다
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -68,7 +72,8 @@ export function AgreementField({ taskId, influencerHandle, value, disabled, onCh
     window.addEventListener('drop', block);
     return () => { window.removeEventListener('dragover', block); window.removeEventListener('drop', block); };
   }, []);
-  const canDrop = !disabled && !busy;
+  const expanded = disclosure?.open ?? true;
+  const canDrop = !disabled && !busy && expanded;
   // 붙여넣기 — 받을 수 있을 때만 듣는다. 입력 칸·편집 영역(메모·원고 등)으로 향한 붙여넣기는 건드리지 않고, 위에 다른 모달이 떠 있으면
   // 그 모달 몫(pasteModalGuard). 다른 칸이 먼저 받은 붙여넣기(defaultPrevented)는 건너뛴다 — 한 이미지가 두 칸에 올라가지 않게.
   // put·value는 렌더마다 새로 잡히므로 ref로 최신 것을 읽는다(리스너를 매 렌더 붙였다 떼지 않게).
@@ -121,7 +126,14 @@ export function AgreementField({ taskId, influencerHandle, value, disabled, onCh
 
   return (
     <div ref={rootRef} className="relative" {...dropProps}>
-      <PanelSection title="협찬 동의서">
+      <PanelSection id="task-consent" title="협찬 동의서" disclosure={disclosure} actionLabel={!value && !disabled && !locked ? '첨부' : '보기'}
+                    summary={<>
+                      {value
+                        ? <span title={value.name}>{value.name}</span>
+                        : <SectionBadge tone={disabled || locked ? 'plain' : 'amber'}>동의서 미첨부</SectionBadge>}
+                      {/* 접혀 있을 때만 — 펼치면 아래 본문의 같은 문구가 보이므로 두 번 알리지 않는다 */}
+                      {err && !expanded && <p role="alert" className="w-full text-red-600">{err}</p>}
+                    </>}>
       {busy ? (
         <div className="flex h-[62px] items-center gap-3 rounded-lg border border-x-border bg-x-surface/60 px-3">
           <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-x-border-strong border-t-x-blue" />

@@ -25,7 +25,7 @@
 
 ## 3. 데이터 (071)
 
-- `campaign_task.posted_confirmed_at timestamptz` — 게시 확인한 순간. **트리거**가 채운다(posted_at이 비었다가 채워지는 모든 경로: 게시 확인 버튼·날짜 편집·게시물 연결·일괄 적재·스크립트, 배포 중 옛 코드 포함). 기존 행은 비워 두고 판정에서 `coalesce(posted_confirmed_at, posted_at 서울 00:00)`.
+- `campaign_task.posted_confirmed_at timestamptz` — 게시 확인한 순간. **트리거**가 채운다(posted_at이 비었다가 채워지는 모든 경로: 게시 확인 버튼·날짜 편집·게시물 연결·일괄 적재·스크립트, 배포 중 옛 코드 포함). 기존 게시 행은 마이그레이션이 `updated_at`(확인 시각과 같거나 늦음)으로 채운다 — 게시일 00:00으로 대신하면 월요일에 확인된 작업이 켜자마자 나간다(운영 10-13 발견). 판정의 `coalesce(…, posted_at 서울 00:00)`는 안전장치로만 남긴다.
 - `campaign_task.settle_hold_at timestamptz, settle_hold_by uuid, settle_hold_by_name text, settle_hold_reason text` — [보내지 않기].
 - `payment_request.created_via text not null default 'manual'` (`check in ('manual','auto') not valid`).
 - `payment_request.removal_ack_at timestamptz, removal_ack_by_name text` — 보낸 뒤 내려감 [그대로 두기].
@@ -74,6 +74,6 @@
 ## 8. 배포 순서
 
 1. 머지 → 운영 빌드가 071 적용 → 코드 배포. 이 시점엔 예약 실행이 없어 자동 전송은 안 일어난다(화면은 바뀜, [지금 보내기]로 수동 가능).
-2. **켜기 전 미리보기:** 배포 뒤 '정산 요청 대기' 화면의 '다음 월요일에 보내요(곧 보내요)' 묶음이 곧 켜질 때 나갈 목록이다. 071 이전에 게시 확인된 작업은 확인 시각이 없어 게시일로 판정되므로 거의 전부 '곧 보내요'가 된다 — 다른 곳에서 이미 지급한 건이 섞여 있으면 [다른 곳에서 정산함]이나 [보내지 않기]로 먼저 뺀다(운영 10-12 기준 후보 0건).
+2. **켜기 전 미리보기:** 배포 뒤 '정산 요청 대기' 화면의 '다음 월요일에 보내요(곧 보내요)' 묶음이 곧 켜질 때 나갈 목록이다. 071 이전에 게시 확인된 작업은 마지막 수정 시각으로 판정된다 — 다른 곳에서 이미 지급한 건이 섞여 있으면 [다른 곳에서 정산함]이나 [보내지 않기]로 먼저 뺀다(운영 10-12 기준 후보 0건).
 3. koo 확인 후 운영 DB에 `settlement-auto-send-cron.sql` 1회 실행 → 그 뒤 첫 실행부터 자동(이미 지난 월요일 기준으로 판정).
 4. 연습용 DB는 스테이징 주소로 같은 스크립트(QA용).

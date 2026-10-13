@@ -4,7 +4,7 @@
 
 -- 게시 확인한 순간 — posted_at은 날짜뿐이라 "월요일 7시 전에 확인됐나"를 못 가른다.
 -- 트리거가 채운다: posted_at이 비었다가 채워지는 경로가 여럿이고(게시 확인·날짜 편집·게시물 연결·일괄 적재·스크립트),
--- 배포 중엔 옛 코드도 쓴다. 기존 행은 비워 둔다 — 판정이 posted_at(서울 00:00)으로 대신한다.
+-- 배포 중엔 옛 코드도 쓴다. 기존 행은 아래에서 마지막 수정 시각으로 채운다.
 alter table campaign_task add column if not exists posted_confirmed_at timestamptz;
 create or replace function campaign_task_stamp_posted_confirmed() returns trigger language plpgsql as $$
 begin
@@ -20,6 +20,11 @@ end $$;
 drop trigger if exists campaign_task_stamp_posted_confirmed on campaign_task;
 create trigger campaign_task_stamp_posted_confirmed before insert or update on campaign_task
   for each row execute function campaign_task_stamp_posted_confirmed();
+-- 기존 게시 행의 확인 시각 채우기 — 칸이 생기기 전 행은 확인 시각을 모른다. 게시일 00:00으로 대신하면 월요일에 확인된 작업이
+-- "월요일 7시 전 확인"으로 판정돼 켜자마자 나간다(운영 10-13: 10/12 게시 4건). 마지막 수정 시각은 확인 시각과 같거나 늦으므로
+-- 일찍 나가는 쪽으로는 틀리지 않는다. 비어 있는 행만 채우고 updated_at은 건드리지 않는다 — 다시 돌려도 결과가 같다(멱등).
+update campaign_task set posted_confirmed_at = updated_at
+ where posted_at is not null and posted_confirmed_at is null;
 
 -- [보내지 않기] — 자동으로 보내지 않고 '멈춘 작업'에 둔다. [보내기]가 지운다.
 alter table campaign_task

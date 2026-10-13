@@ -4,6 +4,7 @@ import type { CampaignTaskItem } from '@/lib/campaignStore';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { suggestTaskCost, type TaskCost } from '@/lib/campaignCost';
 import { patchTaskApi, deleteTaskApi, type TaskPatchRequest } from '@/lib/campaignApi';
+import type { ReservationDeleteSummary } from '@/lib/taskDeletionStore';
 import type { TaskAgreementInput } from '@/lib/taskAgreementGuard';
 
 // 작업 편집은 전부 PATCH /api/campaigns/[id]/tasks/[taskId] 하나로 간다(스펙 §6). 낙관적 갱신 + "이 요청이 세팅한 값이
@@ -98,12 +99,22 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
       patch(t, { proof: path }, { proof: path ? { url: path, by: null, byName: '', at: new Date().toISOString() } : null }),
     markRemoved: (t: Item, date: string, reason: string) => patch(t, { removedAt: date, removedReason: reason }, { removedAt: date, removedReason: reason }),
     unmarkRemoved: (t: Item) => patch(t, { removedAt: null, removedReason: '' }, { removedAt: null, removedReason: '' }),
-    // 삭제 — 행이 사라지는 변경이라 필드 롤백 대신 목록 복원으로 되돌린다(순서는 표 정렬이 다시 잡는다)
-    remove: async (t: Item) => {
+    // 삭제 — 행이 사라지는 변경이라 필드 롤백 대신 목록 복원으로 되돌린다(순서는 표 정렬이 다시 잡는다).
+    // 예약 기록이 있는 작업이면 서버가 지우지 않고 요약을 준다 → confirmReservation(확인 창)이 true일 때만 함께 지운다.
+    // 확인 창을 줄 수 없는 화면(옛 캠페인 화면)은 confirmReservation 없이 부르고, 서버 안내 문구가 토스트로 뜬다.
+    remove: async (t: Item, confirmReservation?: (s: ReservationDeleteSummary) => boolean) => {
       setTasks((cur) => cur.filter((x) => x.id !== t.id));
-      const r = await deleteTaskApi(campaignId, t.id);
+      const restore = () => setTasks((cur) => (cur.some((x) => x.id === t.id) ? cur : [...cur, t]));
+      let r = await deleteTaskApi(campaignId, t.id);
+      if (!r.ok && r.reservation && confirmReservation) {
+        restore();
+        if (!confirmReservation(r.reservation)) return false;
+        setTasks((cur) => cur.filter((x) => x.id !== t.id));
+        r = await deleteTaskApi(campaignId, t.id, true);
+        if (r.ok) { show('작업과 예약 기록을 지웠어요 — 삭제 기록은 캠페인 아래에 남아요'); onChanged(); return true; }
+      }
       if (r.ok) { show('작업을 지웠어요 — 원고는 남아 있어요'); onChanged(); return true; }
-      setTasks((cur) => (cur.some((x) => x.id === t.id) ? cur : [...cur, t]));
+      restore();
       show(r.error);
       return false;
     },

@@ -11,6 +11,7 @@ import type { ExtraCost, TaskCost } from './campaignCost.ts';
 import type { Pricing } from './influencerPricing.ts';
 import type { TrackedPostRow } from './trackingStore.ts';
 import type { TaskRow, TargetCandidate, TaskChangeRow } from './campaignTaskStore.ts';
+import type { ReservationDeleteSummary, TaskDeletionRow } from './taskDeletionStore.ts';
 import type { TaskType } from './campaignJudgment.ts';
 import type { CheckPostedResult } from './checkPosted.ts';
 import type { CancelReason } from './campaignTaskInput.ts';
@@ -86,8 +87,24 @@ export const createTasksApi = (campaignId: string, body: TaskCreateRequest) =>
   call<{ tasks: TaskRow[] }>(`/api/campaigns/${campaignId}/tasks`, json('POST', body));
 export const patchTaskApi = (campaignId: string, taskId: string, body: TaskPatchRequest) =>
   call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}`, json('PATCH', body));
-export const deleteTaskApi = (campaignId: string, taskId: string) =>
-  call<{ ok: true; deleted: boolean }>(`/api/campaigns/${campaignId}/tasks/${taskId}`, { method: 'DELETE' });
+// 예약 기록이 있는 방문 작업은 서버가 409 RESERVATION_DELETE_CONFIRM과 함께 지워질 예약 기록 요약을 준다 —
+// 그때 reservation을 돌려줘 화면이 확인 창을 띄우고, 확인하면 withReservation으로 다시 보낸다.
+export type DeleteTaskResult = ApiResult<{ ok: true; deleted: boolean }> & { reservation?: ReservationDeleteSummary };
+export async function deleteTaskApi(campaignId: string, taskId: string, withReservation = false): Promise<DeleteTaskResult> {
+  try {
+    const r = await apiFetch(`/api/campaigns/${campaignId}/tasks/${taskId}${withReservation ? '?withReservation=1' : ''}`, { method: 'DELETE' });
+    if (r.status === 409) {
+      const body = await r.clone().json().catch(() => null) as { code?: string; error?: string; reservation?: ReservationDeleteSummary } | null;
+      if (body?.code === 'RESERVATION_DELETE_CONFIRM' && body.reservation) return { ok: false, error: body.error ?? '', status: 409, reservation: body.reservation };
+    }
+    return await toApiResult<{ ok: true; deleted: boolean }>(r);
+  } catch (e) {
+    if (e instanceof Error && e.message === 'unauthorized') throw e;
+    return { ok: false, error: '네트워크 오류가 났어요 — 연결을 확인하고 다시 시도해 주세요', status: 0 };
+  }
+}
+export const fetchTaskDeletionsApi = (campaignId: string) =>
+  call<{ items: TaskDeletionRow[] }>(`/api/campaigns/${campaignId}/task-deletions`);
 export const fetchTaskChangesApi = (campaignId: string, taskId: string) =>
   call<{ changes: TaskChangeRow[] }>(`/api/campaigns/${campaignId}/tasks/${taskId}/changes`);
 // 취소·되돌리기(ADR 0002) — PATCH가 아니라 액션 라우트(스토어와 계약이 같다)

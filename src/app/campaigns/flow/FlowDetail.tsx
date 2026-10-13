@@ -38,6 +38,8 @@ import {
 } from '@/lib/campaignFlowView';
 import { POSTED_TASK_MESSAGE } from '@/lib/campaignTaskInput';
 import { CampaignHeader } from '../CampaignHeader';
+import { confirmReservationDelete } from '../reservationDeleteConfirm';
+import { TaskDeletionLog } from './TaskDeletionLog';
 import { useCampaignTaskActions } from '../useCampaignTaskActions';
 import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar, type FlowSettleLine } from './FlowFilterBar';
@@ -596,10 +598,11 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
     // 삭제는 기존 관례(CampaignDetail)와 같은 확인 문구 — actions.remove가 실제 삭제. 패널이 지금 이 작업을
     // 보고 있었으면(삭제된 작업 id로 남지 않게) 함께 닫는다. confirmLoseDraftFor가 먼저다 — 작성 중인 글을
     // 잃는 확인이, 작업 자체를 지울지 묻는 확인보다 앞서야 한다(최종 리뷰 §1).
+    // 예약이 붙은 방문 작업은 일반 확인을 건너뛴다 — 서버가 준 예약 기록 요약으로 더 자세한 확인 창 하나만 띄운다.
     remove: (t) => {
       if (!confirmLoseDraftFor(t.id)) return;
-      if (!window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}`)) return;
-      void actions.remove(t).then((ok) => {
+      if (!t.reservation && !window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}`)) return;
+      void actions.remove(t, confirmReservationDelete).then((ok) => {
         if (ok && panelTaskId === t.id) setPanel(null);
         // 원고가 붙어 있던 작업을 지우면 원고는 남되(토스트) 작업 없는 상태가 된다 — 후보로 다시 잡혀야 한다.
         if (ok && t.draftId) void reloadCandidates();
@@ -1091,6 +1094,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                      sort={sort} onSortChange={setSort} footer={footer}
                      selectedId={panelTaskId} onRowClick={onRowClick} renderMenu={renderMenu} />
         </div>
+        <TaskDeletionLog campaignId={id} refreshKey={data.tasks.length} />
       </div>
       </>}
 

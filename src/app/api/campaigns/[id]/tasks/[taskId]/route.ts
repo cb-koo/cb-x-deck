@@ -4,6 +4,7 @@ import postgres from 'postgres';
 import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
+import { reservationDeleteSummary } from '@/lib/taskDeletionStore';
 import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces, hasPaidRequest, logCostChangeInTx } from '@/lib/campaignTaskStore';
 import type { TaskPatch } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
@@ -192,7 +193,9 @@ async function findSelfReplies(taskId: string, memberId: string) {
 }
 
 // 삭제 — 원고 set null·참조 set null·tracked_post.task_id set null은 FK. 멱등(이미 없으면 deleted:false).
-async function DELETEInternal(_req: Request, ctx: { params: Promise<{ id: string; taskId: string }> }) {
+// 예약 기록이 있는 방문 작업은 ?withReservation=1(사용자가 확인 창에서 함께 지우기를 고름)일 때만 지운다 — 없으면
+// 409 RESERVATION_DELETE_CONFIRM + 무엇이 함께 지워지는지(reservation)를 돌려줘 화면이 확인 창을 띄운다.
+async function DELETEInternal(req: Request, ctx: { params: Promise<{ id: string; taskId: string }> }) {
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id, taskId } = await ctx.params;
@@ -204,7 +207,14 @@ async function DELETEInternal(_req: Request, ctx: { params: Promise<{ id: string
   if (await hasActiveRequest(sql, taskId)) {
     return NextResponse.json({ error: '정산 요청된 작업이에요 — 먼저 정산에서 요청을 취소해 주세요' }, { status: 409 });
   }
-  return NextResponse.json({ ok: true, deleted: await deleteTask(sql, taskId) });
+  const withReservation = new URL(req.url).searchParams.get('withReservation') === '1';
+  if (!withReservation) {
+    const reservation = await reservationDeleteSummary(sql, taskId);
+    if (reservation) {
+      return NextResponse.json({ error: '예약 기록이 있는 작업이에요 — 예약 기록까지 함께 지울지 확인해 주세요', code: 'RESERVATION_DELETE_CONFIRM', reservation }, { status: 409 });
+    }
+  }
+  return NextResponse.json({ ok: true, deleted: await deleteTask(sql, taskId, { actor: gate.member, withReservation }) });
 }
 
 export const PATCH = productWebBoundary(PATCHInternal);

@@ -28,6 +28,7 @@ import { WeekCalendar } from './WeekCalendar';
 import { SummaryCards } from './SummaryCards';
 import { TaskTable } from './TaskTable';
 import { InfluencerCostTable } from './InfluencerCostTable';
+import { confirmReservationDelete } from './reservationDeleteConfirm';
 import { useCampaignTaskActions } from './useCampaignTaskActions';
 import { TaskAddModal } from './TaskAddModal';
 import { AttachDraftModal } from './AttachDraftModal';
@@ -330,7 +331,7 @@ export function CampaignDetail({ id, campaigns, view, onViewChange, onChanged, o
                      onPickTarget={setTargetFor}
                      onLinkPost={setLinkFor}
                      onDelete={(t) => {
-                       if (window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}`)) void actions.remove(t);
+                       if (window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}`)) void actions.remove(t, confirmReservationDelete);
                      }} />
         ) : (
           <WeekCalendar rows={data.tasks} campaign={data.campaign} today={data.today} filter={filter}

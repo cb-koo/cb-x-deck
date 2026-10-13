@@ -10,6 +10,7 @@ import { createCampaign } from './campaignStore.ts';
 import { createInfluencer } from './influencerStore.ts';
 import { createMember } from './workspaceStore.ts';
 import { createTasks, getTask, updateTask, deleteTask, restoreTask } from './campaignTaskStore.ts';
+import { reservationDeleteSummary, listTaskDeletions } from './taskDeletionStore.ts';
 import { extensionProductDispatch } from './extensionProductApi.ts';
 import { ProductError } from './productCommand.ts';
 import { createClientSheet, readClientSheetInputs } from './reservationSheet.ts';
@@ -254,4 +255,68 @@ test('3) 방문 당일 확정 예약: 수동 방문 완료 후 종료하면 종�
   const [end] = await sql`select kind, reason from reservation_end where task_id = ${created.taskId}`;
   assert.equal(end.kind, 'upload_no_show');
   assert.equal(end.reason, '기타');   // 메모가 비면 사유 칩 문구가 종료 사유가 된다
+});
+
+// ─────────────────────────── 4) 예약 기록과 함께 지우기 + 삭제 기록(073) ───────────────────────────
+test('4) 예약이 연결된 작업은 확인(withReservation) 없이는 못 지우고, 확인하면 예약 기록까지 지우며 누가·언제·무엇을 남긴다', async () => {
+  base = kstToday();
+  const f = await fixture('e');
+  const created = await call<Detail>('POST', 'reservations', { key: randomUUID(), body: { locationId: f.locationId, sourceText: '', sheetText: sheet(f.handle, plusDays(20)),
+    target: { kind: 'createTask', campaignId: f.campaign.id, personId: f.person.id } } });
+  const confirmed = await call<Detail>('POST', `reservations/${created.id}/confirm`, { key: randomUUID(), version: created.version });
+  const ended = await call<Detail>('POST', `tasks/${created.taskId}/end`, { key: randomUUID(), version: confirmed.task.version, body: { reason: 'other', note: '테스트' } });
+  assert.equal(ended.phase, 'cancelled');
+
+  // 요약 — 확정·종료·변경 내역(생성·확정 2건)
+  const summary = await reservationDeleteSummary(sql, created.taskId);
+  assert.deepEqual({ ...summary, visitTime: undefined }, { confirmed: true, visitOn: plusDays(20), visitTime: undefined, changes: 2, ended: true, uploads: 0 });
+  assert.equal(summary?.visitTime, '16:00');
+
+  // 확인 없는 삭제(옛 화면·익스텐션)는 예전처럼 거절 — 아무것도 지워지지 않는다
+  await rejects(deleteTask(sql, created.taskId), 'RESERVATION_COMMAND_REQUIRED', 409);
+  await rejects(call('DELETE', `tasks/${created.taskId}`, { key: randomUUID(), version: (await getTask(sql, created.taskId))!.version }), 'RESERVATION_COMMAND_REQUIRED', 409);
+  assert.ok(await getTask(sql, created.taskId));
+  assert.equal((await sql`select 1 from campaign_task_deletion where task_id = ${created.taskId}`).length, 0);
+
+  // 확인하고 지우기 — 작업·예약·변경 내역·종료가 한 번에 사라지고, 삭제 기록에 담당자와 지운 내용이 남는다
+  assert.equal(await deleteTask(sql, created.taskId, { actor, withReservation: true }), true);
+  assert.equal(await getTask(sql, created.taskId), null);
+  assert.equal((await sql`select 1 from visit_reservation where id = ${created.id}`).length, 0);
+  assert.equal((await sql`select 1 from reservation_change where reservation_id = ${created.id}`).length, 0);
+  assert.equal((await sql`select 1 from reservation_end where task_id = ${created.taskId}`).length, 0);
+  const [log] = await sql<Array<{ with_reservation: boolean; deleted_by: string; deleted_by_name: string; influencer_handle: string; task_type: string; snapshot: { task: { id: string }; reservations: unknown[]; reservationChanges: unknown[]; reservationEnds: unknown[] } }>>`
+    select with_reservation, deleted_by, deleted_by_name, influencer_handle, task_type, snapshot from campaign_task_deletion where task_id = ${created.taskId}`;
+  assert.equal(log.with_reservation, true);
+  assert.equal(log.deleted_by, actor.id);
+  assert.equal(log.deleted_by_name, actor.name);
+  assert.equal(log.influencer_handle, f.handle);
+  assert.equal(log.task_type, 'visit');
+  assert.equal(log.snapshot.task.id, created.taskId);
+  assert.equal(log.snapshot.reservations.length, 1);
+  assert.equal(log.snapshot.reservationChanges.length, 2);
+  assert.equal(log.snapshot.reservationEnds.length, 1);
+  const listed = await listTaskDeletions(sql, f.campaign.id);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].deletedByName, actor.name);
+  assert.equal(listed[0].withReservation, true);
+
+  // 다시 지우기는 멱등(false), 기록도 늘지 않는다
+  assert.equal(await deleteTask(sql, created.taskId, { actor, withReservation: true }), false);
+  assert.equal((await listTaskDeletions(sql, f.campaign.id)).length, 1);
+});
+
+test('5) 예약 없는 작업 삭제도 기록이 남고, 익스텐션 삭제는 담당자를 남긴다', async () => {
+  base = kstToday();
+  const f = await fixture('f');
+  const [plain] = await createTasks(sql, f.campaign.id, { type: 'visit', targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: actor.id, items: [{ handle: f.handle, cost: null }] });
+  const [viaExt] = await createTasks(sql, f.campaign.id, { type: 'visit', targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: actor.id, items: [{ handle: f.handle, cost: null }] });
+  assert.equal(await deleteTask(sql, plain.id), true);
+  await call('DELETE', `tasks/${viaExt.id}`, { key: randomUUID(), version: (await getTask(sql, viaExt.id))!.version });
+  const rows = await sql<Array<{ task_id: string; with_reservation: boolean; deleted_by: string | null; deleted_by_name: string }>>`
+    select task_id, with_reservation, deleted_by, deleted_by_name from campaign_task_deletion where campaign_id = ${f.campaign.id}`;
+  const byTask = new Map(rows.map((r) => [r.task_id, r]));
+  assert.equal(byTask.get(plain.id)?.with_reservation, false);
+  assert.equal(byTask.get(plain.id)?.deleted_by, null);
+  assert.equal(byTask.get(viaExt.id)?.deleted_by, actor.id);
+  assert.equal(byTask.get(viaExt.id)?.deleted_by_name, actor.name);
 });

@@ -394,6 +394,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
   // 정산 줄 — 정산 요청 대기 판정(서버)을 그대로 읽는다. 상세를 다시 읽을 때마다(data가 바뀔 때) 같이 다시 읽는다.
   const [settle, setSettle] = useState<FlowSettleLine | null>(null);
   const [pendingByTask, setPendingByTask] = useState<Map<string, PendingRow>>(new Map());
+  const [autoOff, setAutoOff] = useState(false);
   useEffect(() => {
     if (!data) return;
     let off = false;
@@ -401,9 +402,10 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
       if (off || !r.ok) return;
       const rows = r.data.rows;
       setPendingByTask(new Map(rows.map((x) => [x.cand.taskId, x])));
+      setAutoOff(!r.data.summary.autoSendEnabled);
       setSettle({ needsAction: rows.filter((x) => x.group === 'attention' || x.group === 'blocked').length,
                   waiting: rows.filter((x) => x.group === 'waiting').length, dueNow: rows.some((x) => x.group === 'waiting' && x.sendAt === null),
-                  nextSendAt: r.data.summary.nextSendAt });
+                  nextSendAt: r.data.summary.nextSendAt, autoOff: !r.data.summary.autoSendEnabled });
     });
     return () => { off = true; };
   }, [data, id]);
@@ -1151,7 +1153,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                        : null,
                      // 다른 곳에서 정산함(061) — 취소된 작업엔 TaskPanel이 그리지 않는다
                      settled: panelTask
-                       ? <SettledElsewhereLine task={panelTask} pending={pendingByTask.get(panelTask.id) ?? null} onOpen={() => setSettleFor(panelTask)}
+                       ? <SettledElsewhereLine task={panelTask} pending={pendingByTask.get(panelTask.id) ?? null} autoOff={autoOff} onOpen={() => setSettleFor(panelTask)}
                                                onUndo={() => void flowActions.unsettleElsewhere(panelTask)} />
                        : null,
                    }}

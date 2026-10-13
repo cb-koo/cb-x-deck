@@ -2,11 +2,11 @@
 import { useEffect, useState } from 'react';
 import { Button, PANEL, PANEL_TITLE } from '@/components/ui';
 import { useToast } from '@/lib/toastContext';
-import { fetchSettlementSettings, saveSettlementSettingsApi } from '@/lib/settlementApi';
-import { sanitizeSettlementSettings, type SettlementSettings, type SettlementCategory } from '@/lib/settlementSettings';
+import { fetchSettlementSettings, saveSettlementSettingsApi, setAutoSendApi } from '@/lib/settlementApi';
+import { sanitizeSettlementSettings, autoSendEnabled, type SettlementSettings, type SettlementCategory, type AutoSendSwitch } from '@/lib/settlementSettings';
 import type { SettlementVersionRow } from '@/lib/settlementStore';
 import { TASK_TYPES, TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
-import { kstMonthDay } from '@/lib/datetime';
+import { kstMonthDay, kstMonthDayTimeKo } from '@/lib/datetime';
 
 const FIELD = 'rounded-lg border border-x-border bg-white px-2 py-1 text-ui w-full';
 
@@ -48,6 +48,7 @@ export function SettingsTab() {
 
   return (
     <div className="space-y-5">
+      <AutoSendSection on={autoSendEnabled(s)} sw={s.autoSend ?? null} onChanged={(sw) => { setS({ ...s, autoSend: sw }); show(sw.enabled ? '자동 전송을 켰어요' : '자동 전송을 껐어요'); }} />
       <section className={PANEL}>
         <h2 className={PANEL_TITLE}>분류</h2>
         <p className="mt-1 text-ui text-x-muted">정산 요청을 보낼 때 유형마다 &apos;기본값으로 쓰는 유형&apos;에 체크된 분류로 보내요. 숨기면 새 요청에서만 사라지고, 이미 보낸 요청은 그대로예요.</p>
@@ -76,7 +77,7 @@ export function SettingsTab() {
           </table>
         </div>
         <Button className="mt-3" onClick={add}>+ 분류 추가</Button>
-        <p className="mt-2 text-ui text-x-muted">인용RT는 기본값을 비워 두면 담당자가 마지막에 고른 분류로 미리 채워져요.</p>
+        <p className="mt-2 text-ui text-x-muted">유형마다 기본값을 하나씩 정해 두세요 — 정산 요청은 이 분류로 나가요.</p>
       </section>
       <section className={PANEL}>
         <h2 className={PANEL_TITLE}>환율</h2>
@@ -93,5 +94,41 @@ export function SettingsTab() {
         <Button variant="primary" onClick={save} disabled={busy}>{busy ? '저장 중…' : '저장'}</Button>
       </div>
     </div>
+  );
+}
+
+// 자동 전송 켜기/끄기(2026-10-13 koo) — 바로 저장된다(아래 [저장]과 따로). 켤 때는 한 번 더 묻는다: 이미 지난 월요일 전에 확인된
+// 작업('곧 전송')이 5분 안에 나간다. 끄면 예약 실행은 돌지만 아무것도 보내지 않는다. 행의 [보내기]·[바로 보내기]는 그대로 된다.
+function AutoSendSection({ on, sw, onChanged }: { on: boolean; sw: AutoSendSwitch | null; onChanged: (sw: AutoSendSwitch) => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  async function set(enabled: boolean) {
+    setBusy(true); setErr('');
+    const r = await setAutoSendApi(enabled);
+    setBusy(false); setConfirming(false);
+    if (r.ok) onChanged(r.data.autoSend); else setErr(r.error);
+  }
+  return (
+    <section className={PANEL}>
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className={PANEL_TITLE}>자동 전송</h2>
+        <span className={`rounded-full px-2.5 py-0.5 text-ui font-semibold ${on ? 'bg-emerald-50 text-emerald-700' : 'bg-x-surface text-x-secondary'}`}>{on ? '켜짐' : '꺼짐'}</span>
+        <span className="ml-auto flex items-center gap-2">
+          {on
+            ? <Button onClick={() => void set(false)} disabled={busy}>{busy ? '저장 중…' : '끄기'}</Button>
+            : confirming
+              ? <><Button onClick={() => setConfirming(false)} disabled={busy}>취소</Button><Button variant="primary" onClick={() => void set(true)} disabled={busy}>{busy ? '저장 중…' : '켜기'}</Button></>
+              : <Button variant="primary" onClick={() => setConfirming(true)}>켜기</Button>}
+        </span>
+      </div>
+      <p className="mt-1 text-ui text-x-muted">
+        {on ? '게시 확인된 작업을 매주 월요일 07:00 정산팀에 자동 전송해요. 끄면 정산 요청 대기에 그대로 남고, [보내기]·[바로 보내기]로 직접 보낼 수 있어요.'
+            : '자동 전송이 꺼져 있어요 — 정산 요청 대기의 작업은 [보내기]·[바로 보내기]로만 나가요.'}
+      </p>
+      {confirming && <p className="mt-1 text-ui text-amber-700">켜면 지난 월요일 07:00 전에 확인된 작업(곧 전송)이 5분 안에 정산팀으로 나가요.</p>}
+      {sw?.changedAt && <p className="mt-1 text-ui text-x-muted">마지막 변경 {kstMonthDayTimeKo(sw.changedAt)} · {sw.changedByName}</p>}
+      {err && <p role="alert" className="mt-1 text-ui text-red-700">{err}</p>}
+    </section>
   );
 }

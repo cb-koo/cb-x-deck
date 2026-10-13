@@ -9,7 +9,7 @@ import { GROUP_LABEL, shortReason, sendWhenLabel } from '@/lib/settlementAuto';
 //  · 표시가 있으면: ✓ 다른 곳에서 정산함 M/D · 메모 (표시한 사람) [되돌리기]
 //  · 정산 대기(게시 확인·비용·인플 있고 살아있는 요청 없음)일 때만 입구를 보인다 — 대기 수에 잡히는 작업에만(UX 원칙 4)
 //  · 그 밖(게시 전·요청 중·지급 완료)은 아무것도 그리지 않는다(거짓 어포던스 금지)
-export function SettledElsewhereLine({ task, pending, onOpen, onUndo }: { task: FlowRow; pending: PendingRow | null; onOpen: () => void; onUndo: () => void }) {
+export function SettledElsewhereLine({ task, pending, autoOff = false, onOpen, onUndo }: { task: FlowRow; pending: PendingRow | null; autoOff?: boolean; onOpen: () => void; onUndo: () => void }) {
   if (task.settledElsewhereAt) {
     return (
       <div className="-mx-4 mt-3.5 border-t border-x-border px-4 pt-3">
@@ -29,7 +29,7 @@ export function SettledElsewhereLine({ task, pending, onOpen, onUndo }: { task: 
   if (!isSettleWaiting(task)) return null;
   return (
     <>
-    {pending && <PendingLine p={pending} />}
+    {pending && <PendingLine p={pending} autoOff={autoOff} />}
     <div className="-mx-4 mt-3.5 flex items-center justify-between gap-3 border-t border-x-border px-4 pt-3">
       <span className="text-[14px] text-x-secondary">이미 구글폼 등 다른 곳에서 지급했다면</span>
       <button type="button" onClick={onOpen} title="정산 요청 대기에서 빼고, 이 작업으로 정산 요청을 보낼 수 없게 해요(자동 전송도 안 돼요)"
@@ -42,10 +42,10 @@ export function SettledElsewhereLine({ task, pending, onOpen, onUndo }: { task: 
 }
 
 // 이 작업이 정산팀으로 언제 가는지(스펙 2026-10-12 §7) — 정산 요청 대기 묶음 판정·명칭 그대로(10-13 짧게)
-function PendingLine({ p }: { p: PendingRow }) {
+function PendingLine({ p, autoOff }: { p: PendingRow; autoOff: boolean }) {
   const link = <Link href={`/settlement?tab=candidates&campaign=${p.cand.campaignId}`} className="ml-1.5 text-x-blue-text hover:underline">정산 →</Link>;
   const head = <span className="font-semibold">정산 {GROUP_LABEL[p.group]}</span>;
-  const text = p.group === 'waiting' ? <span className="text-x-secondary">{head} · {p.sendAt ? `${sendWhenLabel(p.sendAt)} 자동 전송` : '곧 전송'}</span>
+  const text = p.group === 'waiting' ? <span className="text-x-secondary">{head} · {autoOff ? '자동 전송 꺼짐' : p.sendAt ? `${sendWhenLabel(p.sendAt)} 자동 전송` : '곧 전송'}</span>
     : p.group === 'stopped' ? <span className="text-x-secondary">{head} · 자동 전송 안 함{link}</span>
     : <span className="text-amber-700">{head} · {shortReason(p.cand, p.group, p.blocking)}{link}</span>;
   return <p className="-mx-4 mt-3.5 border-t border-x-border px-4 pt-3 text-[14px]">{text}</p>;

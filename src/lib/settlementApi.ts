@@ -1,7 +1,7 @@
 // 정산 화면 전용 fetch 래퍼 — campaignApi와 같은 모양(ApiResult).
 import { apiFetch } from './apiFetch.ts';
 import { toApiResult, type ApiResult } from './campaignApi.ts';
-import type { SettlementSettings } from './settlementSettings.ts';
+import type { SettlementSettings, AutoSendSwitch } from './settlementSettings.ts';
 import type { PaymentRequestRow, RequestFilter, SettlementVersionRow, RevisionEdits, RevisionTarget, RevisionHistoryRow } from './settlementStore.ts';
 import type { ReadinessIssue } from './settlementCalc.ts';
 import type { ExternalLogRow } from './externalLogCopy.ts';
@@ -65,3 +65,4 @@ export const fetchPending = (campaignId?: string) =>
 export const sendPendingApi = (taskId: string) => call<{ ok: true; request: PaymentRequestRow }>(`/api/settlement/pending/${taskId}`, json('POST', { action: 'send' }));
 export const holdPendingApi = (taskId: string, reason: string) => call<{ ok: true }>(`/api/settlement/pending/${taskId}`, json('POST', { action: 'hold', reason }));
 export const ackRemovalApi = (requestId: string) => call<{ ok: true }>(`/api/settlement/requests/${requestId}/removal-ack`, json('POST', {}));
+export const setAutoSendApi = (enabled: boolean) => call<{ autoSend: AutoSendSwitch }>('/api/settlement/auto-send-switch', json('PUT', { enabled }));

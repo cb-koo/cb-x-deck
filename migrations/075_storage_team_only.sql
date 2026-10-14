@@ -31,6 +31,10 @@ $$;
 comment on function public.is_team_jwt() is
   '회사 계정 판정(src/lib/auth.ts isAllowedUser와 같은 규칙) — Storage 정책이 쓴다. 075.';
 
+-- 정책을 평가하는 authenticated가 이 함수를 실행할 수 있어야 한다. 기본값(PUBLIC에 EXECUTE)에 기대지 않고 적는다 —
+-- 빠지면 정책 평가가 오류가 나 팀원까지 전부 막힌다(fail closed). 재실행 안전.
+grant execute on function public.is_team_jwt() to authenticated;
+
 drop policy if exists "draft-media read" on storage.objects;
 create policy "draft-media read" on storage.objects
   for select to authenticated using (bucket_id = 'draft-media' and public.is_team_jwt());

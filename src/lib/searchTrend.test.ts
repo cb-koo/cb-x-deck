@@ -126,6 +126,28 @@ test('추세 한 줄 — 판단 먼저, 숫자는 괄호로', () => {
   assert.match(describe(summarize(shift(400, 1000, 400), MONTHS)), /^1년 전보다 2\.5배 .*증가세가 더 빨라짐/);  // 2배 이상은 '배'
 });
 
+test('한 달만 튀고 지난달 꺾였으면 급상승이 아니라 일시 급등(10-14 네오빔)', () => {
+  const v = flat(150);
+  v.splice(40, 8, 120, 130, 150, 130, 120, 150, 1320, 470);
+  const s = summarize(v, MONTHS);
+  assert.equal(s.state, 'spiked');
+  assert.equal(s.spike?.month, '2026-07');
+  assert.match(describe(s), /^7월에 한 달만 급등 후 하락 중/);
+});
+
+test('올랐다가 지난달 크게 꺾였으면(한 달 튐 아님) 하락 전환', () => {
+  const v = flat(300);
+  v.splice(42, 6, 400, 500, 700, 900, 1000, 500);
+  assert.equal(summarize(v, MONTHS).state, 'peaked');
+});
+
+test('오르는 중 소폭 출렁임은 그대로 상승', () => {
+  const v = flat(300);
+  v.splice(42, 6, 400, 500, 600, 700, 800, 700);
+  assert.notEqual(summarize(v, MONTHS).state, 'peaked');
+  assert.notEqual(summarize(v, MONTHS).state, 'spiked');
+});
+
 test('정렬 — 늘어난 쪽 먼저, 수요 적음·데이터 없음은 아래', () => {
   const up = summarize(shift(1000, 1500), MONTHS);
   const down = summarize(shift(1000, 500), MONTHS);

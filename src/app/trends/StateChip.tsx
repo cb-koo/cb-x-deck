@@ -9,10 +9,11 @@ const STYLE: Record<TrendState, string> = {
   flat: 'bg-x-surface text-x-secondary',
   down: 'bg-red-50 text-red-700',
   peaked: 'bg-amber-50 text-amber-800',
+  spiked: 'bg-amber-50 text-amber-800',
   low: 'text-x-muted',
   nodata: 'text-x-muted',
 };
-const MARK: Partial<Record<TrendState, string>> = { surge: '▲▲', up: '▲', down: '▼', peaked: '↘' };
+const MARK: Partial<Record<TrendState, string>> = { surge: '▲▲', up: '▲', down: '▼', peaked: '↘', spiked: '↗↘' };
 
 export function StateChip({ state }: { state: TrendState }) {
   return (

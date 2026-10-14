@@ -1,10 +1,10 @@
 // 검색 트렌드 판정 — 월별 검색량(키워드 플래너, 구간 반올림값)으로 수요의 크기·방향·계절을 정한다. 스펙 2026-10-13 §4
 // 라벨은 이 파일의 파생값 하나에서만 나온다(UX 원칙 4) — 화면이 따로 계산하지 않는다.
 
-export type TrendState = 'surge' | 'up' | 'flat' | 'down' | 'peaked' | 'low' | 'nodata';
+export type TrendState = 'surge' | 'up' | 'flat' | 'down' | 'peaked' | 'spiked' | 'low' | 'nodata';
 
 export const STATE_LABEL: Record<TrendState, string> = {
-  surge: '급상승', up: '상승', flat: '보합', down: '하락', peaked: '하락 전환', low: '소량', nodata: '데이터 없음',
+  surge: '급상승', up: '상승', flat: '보합', down: '하락', peaked: '하락 전환', spiked: '일시 급등', low: '소량', nodata: '데이터 없음',
 };
 
 export interface TrendSummary {
@@ -16,6 +16,8 @@ export interface TrendSummary {
   accel: number | null;       // 가속 — (최근 6개월 ÷ 직전 6개월) ÷ (1년 전 같은 비율). 1보다 크면 평소 이맘때보다 빨리 늘고 있다
   peak12: number | null;      // 지난 12개월 최고치
   seasonMonth: number | null; // 매년 많이 찾는 달(1~12)
+  last: number | null;        // 지난달 값
+  spike: { month: string; value: number; base: number } | null;  // 일시 급등한 달 · 그 값 · 급등 전 평소(앞 6개월 중간값)
 }
 
 // 판정 문턱 — 반올림 단계 하나가 약 20%라 ±30% 안쪽은 잡음으로 본다(스펙 §2-2)
@@ -31,13 +33,16 @@ const SURGE_MIN = 300;
 const PEAKED_GROWTH = 0.5;
 const PEAKED_DROP = 0.7;
 const NEW_RATIO = 20;
+const TURN_DROP = 0.6;    // 지난달이 최근 고점(지지난달·그 전 달)의 60% 이하면 꺾인 것
+const SPIKE_RATIO = 2.5;  // 그 고점이 앞 6개월 중간값의 2.5배 이상이면 한 달 튐
 const SEASON_RATIO = 1.5;
 
+const median = (xs: number[]) => { if (!xs.length) return 0; const s = [...xs].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 const avg = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0);
 
 // values = 오래된 달 → 최근 달. months = 같은 길이의 'YYYY-MM'.
 export function summarize(values: number[] | null, months: string[]): TrendSummary {
-  const empty: TrendSummary = { state: 'nodata', now: null, yearAgo: null, twoYearsAgo: null, change: null, accel: null, peak12: null, seasonMonth: null };
+  const empty: TrendSummary = { state: 'nodata', now: null, yearAgo: null, twoYearsAgo: null, change: null, accel: null, peak12: null, seasonMonth: null, last: null, spike: null };
   if (!values || values.length < 15) return empty;
   const n = values.length;
   const now = avg(values.slice(n - 3));
@@ -54,7 +59,8 @@ export function summarize(values: number[] | null, months: string[]): TrendSumma
   const n6 = avg(values.slice(n - 6)), p6 = avg(values.slice(n - 12, n - 6));
   const ln6 = n >= 24 ? avg(values.slice(n - 18, n - 12)) : 0, lp6 = n >= 24 ? avg(values.slice(n - 24, n - 18)) : 0;
   const accel = p6 >= LOW && ln6 > 0 && lp6 > 0 ? (n6 / p6) / (ln6 / lp6) : null;
-  const base = { now, yearAgo, twoYearsAgo, accel, peak12, seasonMonth };
+  const last = values[n - 1];
+  const base = { now, yearAgo, twoYearsAgo, accel, peak12, seasonMonth, last, spike: null };
   if (now < LOW) return { ...base, state: 'low', change: null };
   // 1년 전이 소량(월 100 미만)이거나 지금이 1년 전의 20배 이상이면 변화율은 의미가 없다(리투오 137 → 12,473 = +9,000%)
   // — '신규'로 본다(change = null)
@@ -63,9 +69,18 @@ export function summarize(values: number[] | null, months: string[]): TrendSumma
   if (twoYearsAgo !== null && twoYearsAgo > 0 && now / twoYearsAgo - 1 >= PEAKED_GROWTH && peakBeforeRecent && now <= peakRoll * PEAKED_DROP && now < avg(values.slice(n - 6, n - 3))) {
     return { ...base, state: 'peaked', change };
   }
-  if (change === null) return { ...base, state: now >= SURGE_MIN ? 'surge' : 'up', change };  // 1년 전 소량 → 신규 수요
-  if (change >= MOVE && accel !== null && accel >= ACCEL && n6 >= SURGE_MIN && n6 / ln6 >= ACCEL_YOY) return { ...base, state: 'surge', change };
-  if (change >= MOVE) return { ...base, state: 'up', change };
+  // 오름 판정(급상승·상승)은 지금도 오르는 중일 때만 — 평균은 높아도 지난달이 최근 고점의 60% 이하로 꺾였으면
+  // 태그가 그래프와 반대가 된다(10-14 네오빔: 150 → 7월 1,320 → 8월 470인데 급상승). 한 달만 튄 것이면 '일시 급등', 아니면 '하락 전환'.
+  const rising = (state: 'surge' | 'up'): TrendSummary => {
+    const at = values[n - 3] >= values[n - 2] ? n - 3 : n - 2;
+    if (!(last <= values[at] * TURN_DROP)) return { ...base, state, change };
+    const before = median(values.slice(at - 6, at));
+    if (before > 0 && values[at] >= before * SPIKE_RATIO) return { ...base, state: 'spiked', change, spike: { month: months[at], value: values[at], base: before } };
+    return { ...base, state: 'peaked', change };
+  };
+  if (change === null) return rising(now >= SURGE_MIN ? 'surge' : 'up');  // 1년 전 소량 → 신규 수요
+  if (change >= MOVE && accel !== null && accel >= ACCEL && n6 >= SURGE_MIN && n6 / ln6 >= ACCEL_YOY) return rising('surge');
+  if (change >= MOVE) return rising('up');
   if (change <= -MOVE) return { ...base, state: 'down', change };
   return { ...base, state: 'flat', change };
 }
@@ -109,7 +124,11 @@ export function describe(s: TrendSummary): string {
   switch (s.state) {
     case 'nodata': return '검색량 데이터 없음 — 검색어 표기 점검 필요';
     case 'low': return `검색 적음(월 ${fmtVolume(s.now)}) — 숫자가 작아 변화율은 보지 않음`;
-    case 'peaked': return `정점 지나 하락 중 (최근 1년 최고 월 ${fmtVolume(s.peak12)} → 지금 ${fmtVolume(s.now)})${season}`;
+    case 'peaked': return `정점 지나 하락 중 (최근 1년 최고 월 ${fmtVolume(s.peak12)} → 지난달 ${fmtVolume(s.last)})${season}`;
+    case 'spiked': return s.spike
+      ? `${Number(s.spike.month.slice(5, 7))}월에 한 달만 급등 후 하락 중 (평소 월 ${fmtVolume(s.spike.base)} → ${fmtVolume(s.spike.value)} → 지난달 ${fmtVolume(s.last)})`
+        + (s.yearAgo && s.last !== null && s.last >= s.yearAgo * 1.3 ? ` · 1년 전(월 ${fmtVolume(s.yearAgo)})보다는 높은 수준` : '')
+      : '한 달만 급등 후 하락 중';
   }
   if (s.change === null) return `새로 검색되기 시작한 시술 (1년 전 거의 없음 → 지금 월 ${fmtVolume(s.now)})${season}`;
   const pctText = `${Math.round(Math.abs(s.change) * 100)}%`;

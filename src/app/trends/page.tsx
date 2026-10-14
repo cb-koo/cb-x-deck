@@ -19,7 +19,7 @@ type StateFilter = 'all' | 'rising' | 'falling' | 'flat' | 'quiet';
 const STATE_FILTERS: Array<{ key: StateFilter; label: string; match: (s: TrendState) => boolean }> = [
   { key: 'all', label: '전체', match: () => true },
   { key: 'rising', label: '상승', match: (s) => s === 'surge' || s === 'up' },
-  { key: 'falling', label: '하락', match: (s) => s === 'down' || s === 'peaked' },
+  { key: 'falling', label: '하락', match: (s) => s === 'down' || s === 'peaked' || s === 'spiked' },
   { key: 'flat', label: '보합', match: (s) => s === 'flat' },
   { key: 'quiet', label: '소량 · 데이터 없음', match: (s) => s === 'low' || s === 'nodata' },
 ];
@@ -100,7 +100,7 @@ export default function TrendsPage() {
     return {
       major: m, total: list.length,
       rising: list.filter((r) => r.summary.state === 'surge' || r.summary.state === 'up').length,
-      falling: list.filter((r) => r.summary.state === 'down' || r.summary.state === 'peaked').length,
+      falling: list.filter((r) => r.summary.state === 'down' || r.summary.state === 'peaked' || r.summary.state === 'spiked').length,
       top: top ? { name: top.name, now: top.summary.now ?? 0 } : null,
       change: changes.length ? changes[Math.floor(changes.length / 2)] : null,
       korea: list.reduce((s, r) => s + (r.korea?.now ?? 0), 0),

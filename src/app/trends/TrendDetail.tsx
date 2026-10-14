@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { LineChart } from '@/components/charts/LineChart';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { describe, fmtVolume } from '@/lib/searchTrend';
-import { INTENT_LABEL, PROFILE_INTENTS, STAGE_LABEL, STAGE_HINT, type ProfileIntent } from '@/lib/searchIntent';
+import { INTENT_LABEL, PROFILE_INTENTS, STAGE_LABEL, type ProfileIntent } from '@/lib/searchIntent';
 import { StateChip, StageChip } from './StateChip';
 import type { TrendRow, IntentInfo } from './TrendTable';
 
@@ -29,7 +29,13 @@ const STAGE_PLAIN: Record<NonNullable<IntentInfo['stage']>, string> = {
 
 // 의도 한 줄(이름 · 비중 · 막대 · 전년 변화) 아래에 대표 검색어 줄 — 검색량을 앞에 두고 한국어·일본어를 바로 붙여
 // 한 덩어리로 읽히게(10-14 koo: 세 칸이 너무 떨어져 눈에 안 들어옴).
-function IntentRows({ now, prev, top }: { now: Share; prev: Share | null; top: IntentInfo['top'] }) {
+// 한국어 번역 앞의 시술명은 뺀다 — 줄마다 '리투오 ○○'가 반복되면 정작 다른 부분이 안 보인다(일본어 원문은 실제 검색어라 그대로)
+const stripName = (ko: string, names: string[]) => {
+  for (const n of names) if (ko.startsWith(`${n} `) && ko.length > n.length + 1) return ko.slice(n.length + 1);
+  return ko;
+};
+
+function IntentRows({ now, prev, top, names }: { now: Share; prev: Share | null; top: IntentInfo['top']; names: string[] }) {
   const list = LIST_INTENTS.filter((i) => (now[i] ?? 0) >= 0.005 || top[i]?.length).sort((a, b) => (now[b] ?? 0) - (now[a] ?? 0));
   return (
     <div className="divide-y divide-x-border/60 rounded-lg border border-x-border">
@@ -42,11 +48,11 @@ function IntentRows({ now, prev, top }: { now: Share; prev: Share | null; top: I
             <div className="flex items-center gap-3">
               <span className="w-[84px] shrink-0 text-[15px] font-medium">{INTENT_LABEL[i]}</span>
               <span className="w-10 shrink-0 text-right text-[15px] font-semibold tabular-nums">{pct(v)}</span>
-              <span className="h-2 w-[140px] shrink-0 overflow-hidden rounded-full bg-x-surface">
+              <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-x-surface">
                 <span className="block h-full rounded-full bg-x-blue" style={{ width: `${Math.round(v * 100)}%` }} />
               </span>
               {Math.abs(d) >= SHIFT && (
-                <span className={`text-ui tabular-nums ${d > 0 ? 'text-green-700' : 'text-red-600'}`}>
+                <span className={`shrink-0 text-ui tabular-nums ${d > 0 ? 'text-green-700' : 'text-red-600'}`}>
                   1년 전보다 {d > 0 ? '▲' : '▼'}{Math.round(Math.abs(d) * 100)}%p
                 </span>
               )}
@@ -57,7 +63,7 @@ function IntentRows({ now, prev, top }: { now: Share; prev: Share | null; top: I
                   <li key={t} className="flex items-baseline gap-3 text-ui">
                     <span className="w-[84px] shrink-0 text-right tabular-nums text-x-secondary">{fmtVolume(m)}</span>
                     <span className="min-w-0 truncate" title={ko ? `${ko} · ${t}` : t}>
-                      <span className="text-x-text">{ko || t}</span>
+                      <span className="text-x-text">{ko ? stripName(ko, names) : t}</span>
                       {ko && <span className="ml-2 text-x-muted">{t}</span>}
                     </span>
                   </li>
@@ -204,12 +210,9 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
           <div>
             <div className="mb-2 flex items-baseline gap-2">
               <p className="text-ui font-semibold text-x-secondary">검색 의도 · 최근 1년</p>
-              {it.stage && <span className="ml-auto text-ui text-x-muted" title={STAGE_HINT[it.stage]}>
-                <b className="font-semibold text-x-secondary">{STAGE_LABEL[it.stage]} 단계</b>
-                {it.prevStage && it.prevStage !== it.stage && <> (전년 {STAGE_LABEL[it.prevStage]})</>}
-              </span>}
             </div>
-            <IntentRows now={prof} prev={prevProf} top={it.top} />
+            <IntentRows now={prof} prev={prevProf} top={it.top}
+              names={[row.name, row.kr, ...(members ?? []).map((m) => m.kr)].filter(Boolean).sort((a, b) => b.length - a.length)} />
             <p className="mt-1.5 text-ui text-x-muted">검색어 앞 숫자는 최근 1년 월평균 검색량 · 1년 전보다 10%p 이상 바뀐 의도만 ▲▼ 표시</p>
           </div>
         )}

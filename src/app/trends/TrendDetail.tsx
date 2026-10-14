@@ -27,52 +27,63 @@ const STAGE_PLAIN: Record<NonNullable<IntentInfo['stage']>, string> = {
   learning: '시술 자체를 알아보는 단계', considering: '효과·부작용을 따져 보는 단계', choosing: '가격·병원을 고르는 단계',
 };  // 전년보다 10%p 이상 움직인 의도에만 ▲▼ — 나머지(대부분)는 표시 없이
 
-// 의도 한 줄(이름 · 비중 · 막대 · 전년 변화) 아래에 대표 검색어 줄 — 검색량을 앞에 두고 한국어·일본어를 바로 붙여
-// 한 덩어리로 읽히게(10-14 koo: 세 칸이 너무 떨어져 눈에 안 들어옴).
 // 한국어 번역 앞의 시술명은 뺀다 — 줄마다 '리투오 ○○'가 반복되면 정작 다른 부분이 안 보인다(일본어 원문은 실제 검색어라 그대로)
 const stripName = (ko: string, names: string[]) => {
   for (const n of names) if (ko.startsWith(`${n} `) && ko.length > n.length + 1) return ko.slice(n.length + 1);
   return ko;
 };
 
+// 검색 의도 표 — 의도 칸(이름·비중·막대·1년 변화)을 왼쪽에 세로로 묶고, 오른쪽에 대표 검색어(한국어·일본어·월평균) 열.
+// 선·열이 맞아 훑어 읽기 쉽게(10-14 koo가 세 안 중 고름, 막대는 유지).
 function IntentRows({ now, prev, top, names }: { now: Share; prev: Share | null; top: IntentInfo['top']; names: string[] }) {
   const list = LIST_INTENTS.filter((i) => (now[i] ?? 0) >= 0.005 || top[i]?.length).sort((a, b) => (now[b] ?? 0) - (now[a] ?? 0));
+  const th = 'border-b border-x-border px-3 py-2 text-left text-ui font-medium text-x-muted';
   return (
-    <div className="divide-y divide-x-border/60 rounded-lg border border-x-border">
-      {list.map((i) => {
-        const v = now[i] ?? 0;
-        const d = prev ? v - (prev[i] ?? 0) : 0;
-        const kws = top[i] ?? [];
-        return (
-          <div key={i} className="px-4 py-3">
-            <div className="flex items-center gap-3">
-              <span className="w-[84px] shrink-0 text-[15px] font-medium">{INTENT_LABEL[i]}</span>
-              <span className="w-10 shrink-0 text-right text-[15px] font-semibold tabular-nums">{pct(v)}</span>
-              <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-x-surface">
-                <span className="block h-full rounded-full bg-x-blue" style={{ width: `${Math.round(v * 100)}%` }} />
-              </span>
-              {Math.abs(d) >= SHIFT && (
-                <span className={`shrink-0 text-ui tabular-nums ${d > 0 ? 'text-green-700' : 'text-red-600'}`}>
-                  1년 전보다 {d > 0 ? '▲' : '▼'}{Math.round(Math.abs(d) * 100)}%p
-                </span>
-              )}
-            </div>
-            {kws.length > 0 && (
-              <ul className="mt-2 space-y-1">
-                {kws.map(([t, m, ko]) => (
-                  <li key={t} className="flex items-baseline gap-3 text-ui">
-                    <span className="w-[84px] shrink-0 text-right tabular-nums text-x-secondary">{fmtVolume(m)}</span>
-                    <span className="min-w-0 truncate" title={ko ? `${ko} · ${t}` : t}>
-                      <span className="text-x-text">{ko ? stripName(ko, names) : t}</span>
-                      {ko && <span className="ml-2 text-x-muted">{t}</span>}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        );
-      })}
+    <div className="overflow-hidden rounded-lg border border-x-border">
+      <table className="w-full border-collapse text-[15px]">
+        <thead>
+          <tr>
+            <th className={`${th} w-[150px]`}>의도 · 비중</th>
+            <th className={th}>검색어</th>
+            <th className={th}>일본어 원문</th>
+            <th className={`${th} w-[72px] text-right`}>월평균</th>
+          </tr>
+        </thead>
+        {list.map((i) => {
+          const v = now[i] ?? 0;
+          const d = prev ? v - (prev[i] ?? 0) : 0;
+          const kws: Array<[string, number, string?] | null> = top[i]?.length ? top[i]! : [null];
+          return (
+            <tbody key={i} className="border-t border-x-border first-of-type:border-t-0">
+              {kws.map((k, r) => (
+                <tr key={k?.[0] ?? 'none'}>
+                  {r === 0 && (
+                    <td rowSpan={kws.length} className="border-r border-x-border/60 px-3 py-2.5 align-top">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="font-medium">{INTENT_LABEL[i]}</span>
+                        <span className="font-semibold tabular-nums">{pct(v)}</span>
+                      </div>
+                      <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-x-surface">
+                        <span className="block h-full rounded-full bg-x-blue" style={{ width: `${Math.round(v * 100)}%` }} />
+                      </span>
+                      {Math.abs(d) >= SHIFT && (
+                        <span className={`mt-1 block text-ui tabular-nums ${d > 0 ? 'text-green-700' : 'text-red-600'}`}>
+                          1년 전보다 {d > 0 ? '▲' : '▼'}{Math.round(Math.abs(d) * 100)}%p
+                        </span>
+                      )}
+                    </td>
+                  )}
+                  {k ? (<>
+                    <td className="max-w-0 truncate px-3 py-1.5" title={k[2] || k[0]}>{k[2] ? stripName(k[2], names) : k[0]}</td>
+                    <td className="max-w-0 truncate px-3 py-1.5 text-ui text-x-muted" title={k[0]}>{k[2] ? k[0] : ''}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-x-secondary">{fmtVolume(k[1])}</td>
+                  </>) : <td colSpan={3} className="px-3 py-1.5 text-ui text-x-muted">대표 검색어 없음(월 10 미만)</td>}
+                </tr>
+              ))}
+            </tbody>
+          );
+        })}
+      </table>
     </div>
   );
 }
@@ -213,7 +224,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
             </div>
             <IntentRows now={prof} prev={prevProf} top={it.top}
               names={[row.name, row.kr, ...(members ?? []).map((m) => m.kr)].filter(Boolean).sort((a, b) => b.length - a.length)} />
-            <p className="mt-1.5 text-ui text-x-muted">검색어 앞 숫자는 최근 1년 월평균 검색량 · 1년 전보다 10%p 이상 바뀐 의도만 ▲▼ 표시</p>
+            <p className="mt-1.5 text-ui text-x-muted">월평균은 최근 1년 검색량 · 1년 전보다 10%p 이상 바뀐 의도만 ▲▼ 표시</p>
           </div>
         )}
 

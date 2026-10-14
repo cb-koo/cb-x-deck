@@ -101,6 +101,7 @@ export async function extensionProductDispatch(req: Request, path: string[], act
       return reply(await visitTaskCommand(sql, req, actor, id, body, action));
     if (method === 'POST' && action === 'confirm-post') return reply(await confirmVisitPost(sql, req, actor, id, body));
     // 작업 삭제 — 웹 삭제와 같은 규칙. 정산 요청 중이거나 예약 기록(예약·종료)이 남은 작업은 지우지 않는다(reservationWriteGuard).
+    // 예약 기록까지 함께 지우는 확인은 웹 캠페인 화면에만 있다(koo 10-13). 삭제 기록(073)에는 담당자가 남는다.
     if (method === 'DELETE' && !action) {
       const expected = versionHeader(req);
       return reply(await productOperation(sql, actor, req, body, async (tx) => {
@@ -108,7 +109,7 @@ export async function extensionProductDispatch(req: Request, path: string[], act
         if (!task) throw productMissing();
         expectVersion(task.version, expected);
         if (await hasActiveRequest(tx, id)) throw new ProductError('SETTLEMENT_REQUESTED', '정산 요청된 작업이에요. 먼저 웹의 정산에서 요청을 취소해 주세요.', 409);
-        return { deleted: await deleteTask(tx, id) };
+        return { deleted: await deleteTask(tx, id, { actor }) };
       }));
     }
   }

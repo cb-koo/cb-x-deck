@@ -10,6 +10,7 @@ import { influencerChangeGuard, POSTED_TASK_MESSAGE, type CancelReason } from '.
 import { rosterHandleOf, hasLiveRequest } from './taskAssignGate.ts';   // 잎 모듈 — 순환 없음(그 파일 머리 주석)
 import { judgeStoredAuthor, authorVerdictMessage, firstAssignMismatchMessage, type AuthorVerdict, type LiveAuthor } from './postAuthor.ts';   // 순수 모듈 — 순환 없음
 import { reservationWriteGuard } from './reservationWriteGuard.ts';
+import { reservationRecordsOf, hasReservationRecords, deleteReservationRecords, insertTaskDeletion } from './taskDeletionStore.ts';
 import { ProductError } from './productCommand.ts';
 // draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
 // getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
@@ -281,12 +282,26 @@ export async function updateTask(sql: postgres.Sql, id: string, patch: TaskPatch
   return rows.length > 0;
 }
 
-// 삭제 — 원고 set null·참조 작업 target set null·tracked_post.task_id set null은 전부 FK가 한다
-export async function deleteTask(sql: postgres.Sql, id: string): Promise<boolean> {
+// 삭제 — 원고 set null·참조 작업 target set null·tracked_post.task_id set null은 전부 FK가 한다.
+// 지울 때마다 삭제 기록(073)에 누가·언제·무엇을 남긴다. 예약 기록이 있는 작업은 withReservation(사용자 확인)일 때만
+// 예약 기록을 먼저 지우고 함께 지운다 — 없으면 예전처럼 reservationWriteGuard가 거절한다(익스텐션·옛 화면).
+// 이미 트랜잭션 안(익스텐션 productOperation)이면 그 트랜잭션을, 아니면 새로 연다.
+export async function deleteTask(sql: postgres.Sql, id: string, opts: { actor?: { id: string; name: string } | null; withReservation?: boolean } = {}): Promise<boolean> {
   if (!isUuidLike(id)) return false;
-  await reservationWriteGuard(sql, id, 'delete');
-  const rows = await sql`delete from campaign_task where id = ${id} returning id`;
-  return rows.length > 0;
+  const run = async (tx: postgres.Sql): Promise<boolean> => {
+    const [task] = await tx<Array<{ id: string; campaign_id: string; influencer_handle: string | null; type: string | null; row: unknown }>>`
+      select id, campaign_id, influencer_handle, type, to_jsonb(t) as row from campaign_task t where id = ${id} for update`;
+    if (!task) return false;
+    const records = await reservationRecordsOf(tx, id);
+    if (hasReservationRecords(records)) {
+      if (!opts.withReservation) await reservationWriteGuard(tx, id, 'delete');
+      await deleteReservationRecords(tx, id, records);
+    }
+    await insertTaskDeletion(tx, { task, taskRow: task.row, records, actor: opts.actor ?? null });
+    const rows = await tx`delete from campaign_task where id = ${id} returning id`;
+    return rows.length > 0;
+  };
+  return 'savepoint' in sql ? run(sql) : (sql.begin((tx) => run(tx as unknown as postgres.Sql)) as Promise<boolean>);
 }
 
 // 원고 붙이기 — 원고 1개 = 작업 1개(unique partial index가 최후 방어, 여기서는 문구 있는 오류로 먼저 끊는다).

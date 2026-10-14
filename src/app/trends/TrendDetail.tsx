@@ -5,8 +5,9 @@ import { useState } from 'react';
 import { LineChart } from '@/components/charts/LineChart';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { describe, fmtVolume } from '@/lib/searchTrend';
-import { INTENT_LABEL, PROFILE_INTENTS, STAGE_LABEL, type ProfileIntent } from '@/lib/searchIntent';
-import { StateChip, StageChip } from './StateChip';
+import { INTENT_LABEL, PROFILE_INTENTS, type ProfileIntent } from '@/lib/searchIntent';
+import { INTEREST_LABEL, INTEREST_CONTENT } from '@/lib/trendInterest';
+import { StateChip, InterestChip } from './StateChip';
 import { MED_MIX, SELF_MIX, type TrendRow, type IntentInfo } from './TrendTable';
 import { Button } from '@/components/ui';
 import { ProcedureForm, KeywordReview } from './TrendManage';
@@ -25,10 +26,7 @@ function shares(p: Record<ProfileIntent, number> | null): Share | null {
   return all > 0 ? Object.fromEntries(LIST_INTENTS.map((i) => [i, p[i] / all])) : null;
 }
 const SHIFT = 0.1;
-// 관심 단계를 처음 보는 사람 말로
-const STAGE_PLAIN: Record<NonNullable<IntentInfo['stage']>, string> = {
-  learning: '시술 자체를 알아보는 단계', considering: '효과·부작용을 따져 보는 단계', choosing: '가격·병원을 고르는 단계',
-};  // 전년보다 10%p 이상 움직인 의도에만 ▲▼ — 나머지(대부분)는 표시 없이
+// 전년보다 10%p 이상 움직인 의도에만 ▲▼ — 나머지(대부분)는 표시 없이
 
 // 한국어 번역 앞의 시술명은 뺀다 — 줄마다 '리투오 ○○'가 반복되면 정작 다른 부분이 안 보인다(일본어 원문은 실제 검색어라 그대로)
 const stripName = (ko: string, names: string[]) => {
@@ -169,11 +167,13 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose, onChange
               <span className="mr-2 align-[1px]"><StateChip state={summary.state} /></span>{describe(summary)}
             </SummaryLine>
             <SummaryLine label="의도">
-              {it?.stage && prof ? (<>
-                <span className="mr-2 align-[1px]"><StageChip stage={it.stage} /></span>
-                {STAGE_PLAIN[it.stage]} — {topTwo.map((i) => `${INTENT_LABEL[i]}(${pct(prof[i] ?? 0)})`).join('·')} 검색이 많음
-                {it.prevStage && it.prevStage !== it.stage && <span className="text-x-muted"> · 1년 전엔 {STAGE_LABEL[it.prevStage]} 단계</span>}
-              </>) : <span className="text-x-secondary">연관 검색어 부족 — 판단 보류</span>}
+              {/* 많이 찾는 것 — 평균 대비 두드러진 관심사와 맞는 콘텐츠 방향(10-15, '관심 단계' 대신) */}
+              {row.interest?.kind === 'standout' ? (<>
+                <span className="mr-2 align-[1px]"><InterestChip interest={row.interest} /></span>
+                {INTEREST_LABEL[row.interest.key]} 검색이 시술 평균의 {row.interest.ratio.toFixed(1)}배 → <b className="font-semibold">{INTEREST_CONTENT[row.interest.key]}</b>
+              </>) : row.interest && prof ? (
+                <span className="text-x-secondary">두드러진 관심사 없이 고르게 찾음 — {topTwo.map((i) => `${INTENT_LABEL[i]}(${pct(prof[i] ?? 0)})`).join('·')} 순</span>
+              ) : <span className="text-x-secondary">효과·가격 등이 붙은 검색이 적어(월 100건 미만) 판단 보류</span>}
             </SummaryLine>
             <SummaryLine label="한국">
               {!k || k.now < 50 ? <span className="text-x-secondary">한국에서 받으려는 검색은 아직 적음(월 50 미만)</span> : (<>
@@ -277,7 +277,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose, onChange
                   <span className="min-w-0 flex-1 truncate">{s.name}</span>
                   <span className="tabular-nums text-x-secondary">{s.summary.state === 'nodata' ? '—' : fmtVolume(s.summary.now)}</span>
                   <span className="w-[88px] text-right"><StateChip state={s.summary.state} /></span>
-                  <span className="w-[96px] text-right"><StageChip stage={s.intent?.stage ?? null} /></span>
+                  <span className="w-[120px] text-right"><InterestChip interest={s.interest} /></span>
                 </button>
               </li>
             ))}

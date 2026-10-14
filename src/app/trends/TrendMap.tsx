@@ -4,7 +4,7 @@
 'use client';
 import { BubbleScatter, type Bubble } from '@/components/charts/BubbleScatter';
 import { fmtVolume, fmtChange, STATE_LABEL } from '@/lib/searchTrend';
-import { STAGE_LABEL } from '@/lib/searchIntent';
+import { INTEREST_LABEL } from '@/lib/trendInterest';
 import type { TrendRow } from './TrendTable';
 
 const Y_MIN = -80, Y_MAX = 250;  // 세로축을 넘는 시술(리투오 +8,900% 등)은 끝에 붙이고 상세에서 실제 값을 보여 준다
@@ -27,7 +27,7 @@ export function TrendMap({ rows, open, onToggle, selectedId, onSelect }: {
           { label: '월 검색량', value: fmtVolume(s.now), strong: true },
           { label: '추세', value: `${STATE_LABEL[s.state]} · 1년 ${fmtChange(s.change)}`, tone: ch >= 30 ? 'up' : ch <= -30 ? 'down' : undefined },
           { label: '한국 검색량', value: r.korea && r.korea.now >= 50 ? fmtVolume(r.korea.now) : '소량' },
-          { label: '관심 단계', value: r.intent?.stage ? STAGE_LABEL[r.intent.stage] : '—' },
+          { label: '많이 찾는 것', value: r.interest?.kind === 'standout' ? `${INTEREST_LABEL[r.interest.key]} ${r.interest.ratio.toFixed(1)}배` : r.interest ? '고르게' : '검색 적음' },
         ],
       },
     };

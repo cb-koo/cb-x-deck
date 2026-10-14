@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { summarize, changeRank } from '@/lib/searchTrend';
 import { notableOf } from '@/lib/trendNotable';
+import { interestShares, interestBaseline, interestOf } from '@/lib/trendInterest';
 import { classify, categoryOrder } from '@/lib/procedureTaxonomy';
 import { TrendTable, MajorTable, MED_MIX, SORT_FIRST_DIR, type TrendRow, type MajorRow, type IntentInfo, type SortKey, type TableSort } from './TrendTable';
 import { TrendDetail } from './TrendDetail';
@@ -23,7 +24,7 @@ const STATE_FILTERS: Array<{ key: StateFilter; label: string; match: (r: TrendRo
   { key: 'flat', label: '보합', match: (r) => r.summary.state === 'flat' },
   { key: 'quiet', label: '소량 · 데이터 없음', match: (r) => r.summary.state === 'low' || r.summary.state === 'nodata' },
 ];
-const STAGE_RANK: Record<string, number> = { learning: 1, considering: 2, choosing: 3 };
+
 
 const avg3 = (v: number[], end: number) => v.slice(end - 3, end).reduce((s, x) => s + x, 0) / 3;
 
@@ -66,7 +67,7 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
     // 이름만 같고 다른 시술(포토나 레이저 / 포토나 4D, 인모드 / 바디 인모드)은 한국어 표기로 구분해 보여 준다
     const nameCount = new Map<string, number>();
     for (const ms of fams.values()) nameCount.set(ms[0].name, (nameCount.get(ms[0].name) ?? 0) + 1);
-    return [...fams.values()].map((ms) => {
+    const built = [...fams.values()].map((ms) => {
       const p = ms[0];
       const c = classify(p);
       const it = INTENT[p.id] ?? null;
@@ -80,9 +81,13 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
         ...p, baseName: p.name, name: (nameCount.get(p.name) ?? 0) > 1 ? p.kr.replace(/\s*\(.*\)$/, '') : p.name, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub,
         jp: ms.length > 1 ? `${p.jp} 외 ${ms.length - 1}` : p.jp,
         searchText: ms.flatMap((m) => [m.name, m.kr, m.jp, m.en]).join(' ').toLowerCase(),
-        series, summary, intent: it, korea, notable: notableOf(summary, series, it?.korea ?? null),
+        series, summary, intent: it, korea, notable: notableOf(summary, series, it?.korea ?? null), interest: null as TrendRow['interest'],
       };
     });
+    // 많이 찾는 것 — 평균은 비중이 있는 모든 시술로(필터와 상관없이 같은 기준)
+    const shares = built.map((r) => interestShares(r.intent?.profile ?? null));
+    const base = interestBaseline(shares);
+    return built.map((r, i) => ({ ...r, interest: interestOf(shares[i], base) }));
   }, [DATA, INTENT]);
   const majors = useMemo(() => [...new Map(rows.map((r) => [r.major, r.majorOrder])).entries()].sort((a, b) => a[1] - b[1]).map(([m]) => m), [rows]);
 
@@ -111,7 +116,7 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
       // 1년 변화 — 신규(1년 전 소량)는 가장 크게 늘어난 쪽으로 친다
       year: (r) => (r.summary.state === 'nodata' || r.summary.state === 'low' ? null : r.summary.change ?? Number.MAX_SAFE_INTEGER),
       korea: (r) => (r.korea && r.korea.now >= 50 ? r.korea.now : null),
-      stage: (r) => (r.intent?.stage ? STAGE_RANK[r.intent.stage] : null),
+      interest: (r) => (r.interest?.kind === 'standout' ? r.interest.ratio : r.interest ? 1 : null),
     };
     const get = val[sort.key], sign = sort.dir === 'asc' ? 1 : -1;
     return [...list].sort((a, b) => {

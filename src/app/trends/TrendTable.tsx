@@ -1,10 +1,11 @@
-// 검색 트렌드 표 — 시술 하나 = 한 줄(시술·월 검색량·추세(지금 방향)·1년 변화·한국 검색·관심 단계·4년 추이). 추세와 1년 변화는 따로 본다(koo 10-14). 표 모양은 정산 표 공용(HEAD·CELL·NUM).
+// 검색 트렌드 표 — 시술 하나 = 한 줄(시술·월 검색량·추세(지금 방향)·1년 변화·한국 검색·많이 찾는 것·4년 추이). 추세와 1년 변화는 따로 본다(koo 10-14). 표 모양은 정산 표 공용(HEAD·CELL·NUM).
 'use client';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { HEAD, CELL, NUM } from '@/app/settlement/tableStyle';
 import { fmtVolume, fmtChange, type TrendSummary } from '@/lib/searchTrend';
 import type { Stage, ProfileIntent } from '@/lib/searchIntent';
-import { StateChip, StageChip } from './StateChip';
+import { StateChip, InterestChip } from './StateChip';
+import type { Interest } from '@/lib/trendInterest';
 import { notableText, type Notable } from '@/lib/trendNotable';
 
 export type IntentInfo = {
@@ -22,7 +23,8 @@ export type TrendRow = {
   id: string; major: string; majorOrder: number; middle: string; name: string; kr: string; jp: string; en: string;
   volumes: number[] | null; series: number[] | null; summary: TrendSummary; searchText: string;
   baseName: string;
-  notable: Notable | null;  // 주목 시술(성장·한국 수요) — 지도 이름·굵은 점·필터  // 저장된 시술명(같은 이름이 두 분류에 있으면 화면 name은 한국어 표기로 바뀐다)
+  notable: Notable | null;
+  interest: Interest;  // 많이 찾는 것(평균 대비 두드러진 관심사) — '관심 단계'를 대신함(10-15)  // 주목 시술(성장·한국 수요) — 지도 이름·굵은 점·필터  // 저장된 시술명(같은 이름이 두 분류에 있으면 화면 name은 한국어 표기로 바뀐다)
   intent: IntentInfo | null; korea: { now: number; yearAgo: number } | null;
 };
 
@@ -44,11 +46,11 @@ export function KoreaCell({ k }: { k: TrendRow['korea'] }) {
 }
 
 // 정렬 — 머리를 누르면 그 열로, 같은 머리를 다시 누르면 반대 방향(koo 10-14). 값 없는 줄은 방향과 상관없이 아래.
-export type SortKey = 'name' | 'volume' | 'trend' | 'year' | 'korea' | 'stage';
+export type SortKey = 'name' | 'volume' | 'trend' | 'year' | 'korea' | 'interest';
 export type SortDir = 'asc' | 'desc';
 export interface TableSort { key: SortKey; dir: SortDir }
 // 처음 누를 때 방향 — 이름은 가나다순, 숫자·추세·단계는 큰 쪽(늘어나는 쪽·결정 단계)부터
-export const SORT_FIRST_DIR: Record<SortKey, SortDir> = { name: 'asc', volume: 'desc', trend: 'desc', year: 'desc', korea: 'desc', stage: 'desc' };
+export const SORT_FIRST_DIR: Record<SortKey, SortDir> = { name: 'asc', volume: 'desc', trend: 'desc', year: 'desc', korea: 'desc', interest: 'desc' };
 
 // 오른쪽 정렬 숫자 열 뒤에 왼쪽 정렬 칩·글자가 바로 붙어 경계가 안 보였다(10-14) — 숫자 열 오른쪽에 여백을 더 준다
 const NUM_GAP = 'pr-7';
@@ -90,7 +92,7 @@ export function TrendTable({ rows, selectedId, onSelect, sort, onSort }: {
             <SortTh k="trend" sort={sort} onSort={onSort} title="지금 방향 — 최근 3개월 vs 직전 3개월(해마다 반복되는 계절은 지우고 봄)">추세</SortTh>
             <SortTh k="year" sort={sort} onSort={onSort} align="right" title="최근 3개월 평균 vs 1년 전 같은 3개월 — 1년 전이 소량(월 100 미만)이면 신규">1년 변화</SortTh>
             <SortTh k="korea" sort={sort} onSort={onSort} align="right" title="韓国·ソウル·江南·明洞·弘大(ホンデ) 포함 검색의 최근 3개월 평균">한국 검색량</SortTh>
-            <SortTh k="stage" sort={sort} onSort={onSort} title="연관 검색어로 본 관심 단계 — 탐색(개념·비교) · 검토(효과·후기, 부작용·통증) · 결정(가격, 병원·지역)">관심 단계</SortTh>
+            <SortTh k="interest" sort={sort} onSort={onSort} title="시술 평균보다 유난히 많이 찾는 것(개념·비교 · 효과·후기 · 부작용·통증 · 가격 · 병원·지역) — 1.3배 이상이면 표시, 정렬은 몇 배인지 순">많이 찾는 것</SortTh>
             <th className={HEAD}>4년 추이</th>
           </tr>
         </thead>
@@ -126,7 +128,7 @@ export function TrendTable({ rows, selectedId, onSelect, sort, onSort }: {
                     ? <span className="text-ui text-amber-700" title={`시술명만 검색하면 다른 뜻이 대부분 — ${r.intent.serp?.note ?? ''}`}>⚠ 동음이의 혼재</span>
                     : (r.intent?.serp?.med ?? 0) >= MED_MIX
                       ? <span className="text-ui text-amber-700" title={`시술명 검색 결과 상위 20개 중 ${r.intent!.serp!.med}개가 다른 진료과(${r.intent!.serp!.note}) — 시술명 단독 검색은 빼고 효과·가격 등이 붙은 검색만 셈`}>⚠ 타 진료과 혼재</span>
-                      : <StageChip stage={r.intent?.stage ?? null} />}
+                      : <InterestChip interest={r.interest} />}
                 </td>
                 <td className={CELL}>
                   {r.series ? <Sparkline values={r.series} width={120} height={28} /> : <span className="text-ui text-x-muted">—</span>}

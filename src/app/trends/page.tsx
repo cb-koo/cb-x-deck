@@ -95,7 +95,8 @@ export default function TrendsPage() {
   const majorRows: MajorRow[] = useMemo(() => majors.map((m) => {
     const list = rows.filter((r) => r.major === m);
     const live = list.filter((r) => r.summary.now !== null && r.summary.state !== 'low');
-    const changes = live.map((r) => r.summary.change).filter((c): c is number => c !== null).sort((a, b) => a - b);
+    // 분류 추세도 태그와 같은 기준(지금 방향 = 최근 3개월 vs 직전 3개월) — 1년 변화로 상승·하락을 붙이면 시술 태그와 어긋난다
+    const changes = live.map((r) => r.summary.recent).filter((c): c is number => c !== null).sort((a, b) => a - b);
     const top = [...live].sort((a, b) => (b.summary.now ?? 0) - (a.summary.now ?? 0))[0] ?? null;
     return {
       major: m, total: list.length,
@@ -161,7 +162,7 @@ export default function TrendsPage() {
             </div>
           )}
           {view === 'major' && (
-            <p className="text-ui text-x-muted">분류별 전년 대비 변화율은 소속 시술의 중앙값. 검색량 합계는 중복 집계 우려로 미사용</p>
+            <p className="text-ui text-x-muted">분류 추세는 소속 시술의 최근 3개월 변화(직전 3개월 대비, 계절 감안) 중앙값. 검색량 합계는 중복 집계 우려로 미사용</p>
           )}
         </div>
 

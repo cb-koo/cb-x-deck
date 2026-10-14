@@ -98,7 +98,7 @@ export function MajorTable({ rows, onOpen }: { rows: MajorRow[]; onOpen: (major:
             <th className={`${HEAD} text-right`}>시술</th>
             <th className={`${HEAD} text-right`}>상승</th>
             <th className={`${HEAD} text-right`}>하락</th>
-            <th className={HEAD} title="소속 시술 전년 대비 변화율의 중앙값">변화율 중앙값</th>
+            <th className={HEAD} title="소속 시술의 최근 3개월 변화(직전 3개월 대비, 계절 감안) 중앙값 — 시술 태그와 같은 기준">최근 추세(중앙값)</th>
             <th className={HEAD}>최다 검색 시술</th>
           </tr>
         </thead>
@@ -111,8 +111,8 @@ export function MajorTable({ rows, onOpen }: { rows: MajorRow[]; onOpen: (major:
               <td className={`${CELL} ${NUM}`}>{r.falling ? <span className="text-red-600">{r.falling}</span> : <span className="text-x-muted">0</span>}</td>
               <td className={`${CELL} tabular-nums`}>
                 {r.change === null ? <span className="text-x-muted">—</span>
-                  : r.change >= 0.3 ? <span className="text-green-700">▲ 상승 {fmtChange(r.change)}</span>
-                  : r.change <= -0.3 ? <span className="text-red-600">▼ 하락 {fmtChange(r.change)}</span>
+                  : r.change >= 0.2 ? <span className="text-green-700">▲ 상승 {fmtChange(r.change)}</span>
+                  : r.change <= -0.2 ? <span className="text-red-600">▼ 하락 {fmtChange(r.change)}</span>
                   : <span className="text-x-secondary">― 보합 {fmtChange(r.change)}</span>}
               </td>
               <td className={CELL}>{r.top ? <>{r.top.name} <span className="ml-1 text-ui tabular-nums text-x-muted">{fmtVolume(r.top.now)}</span></> : <span className="text-x-muted">—</span>}</td>

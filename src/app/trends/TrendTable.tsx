@@ -14,6 +14,7 @@ export type IntentInfo = {
   members?: Array<{ id: string; kr: string; jp: string; total: number[] }>;  // 같은 시술명 묶음의 검색어별 구성
   // 시술명 검색 결과 구성 — 일본 사이트 이미지 검색 상위 20개를 피부과·미용 / 다른 진료과 / 화장품·셀프 / 무관한 뜻으로 나눈 수(10-14)
   serp?: { derm: number; med: number; self: number; unrelated: number; note: string };
+  noName: number[];  // 시술명 단독 검색을 뺀 합계 — 타 진료과 혼재 시술은 이것으로 크기·추세를 본다
 };
 
 export type TrendRow = {
@@ -79,7 +80,7 @@ export function TrendTable({ rows, selectedId, onSelect }: { rows: TrendRow[]; s
                   {r.intent?.ambiguous
                     ? <span className="text-ui text-amber-700" title={`시술명만 검색하면 다른 뜻이 대부분 — ${r.intent.serp?.note ?? ''}`}>⚠ 동음이의 혼재</span>
                     : (r.intent?.serp?.med ?? 0) >= MED_MIX
-                      ? <span className="text-ui text-amber-700" title={`시술명 검색 결과 상위 20개 중 ${r.intent!.serp!.med}개가 다른 진료과 — ${r.intent!.serp!.note}`}>⚠ 타 진료과 혼재</span>
+                      ? <span className="text-ui text-amber-700" title={`시술명 검색 결과 상위 20개 중 ${r.intent!.serp!.med}개가 다른 진료과(${r.intent!.serp!.note}) — 시술명 단독 검색은 빼고 효과·가격 등이 붙은 검색만 셈`}>⚠ 타 진료과 혼재</span>
                       : <StageChip stage={r.intent?.stage ?? null} />}
                 </td>
                 <td className={`${CELL} w-[136px]`}>

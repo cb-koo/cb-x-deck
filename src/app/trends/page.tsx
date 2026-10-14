@@ -7,7 +7,7 @@ import snapshot from './snapshot.json';
 import intentData from './intent.json';
 import { summarize, changeRank, type TrendState } from '@/lib/searchTrend';
 import { classify, categoryOrder } from '@/lib/procedureTaxonomy';
-import { TrendTable, MajorTable, type TrendRow, type MajorRow, type IntentInfo } from './TrendTable';
+import { TrendTable, MajorTable, MED_MIX, type TrendRow, type MajorRow, type IntentInfo } from './TrendTable';
 import { TrendDetail } from './TrendDetail';
 import { TrendMap } from './TrendMap';
 
@@ -56,7 +56,9 @@ export default function TrendsPage() {
       const c = classify(p);
       const it = INTENT[p.id] ?? null;
       // 묶음이 있으면 묶음만 — 이름 검색으로 되돌아가면 동음이의 시술(フォトナ=게임)이 다시 커진다
-      const series = it && (it.ambiguous || it.total.some((x) => x > 0)) ? it.total : p.volumes;
+      // 타 진료과 혼재(마운자로·PRP 등)는 시술명 단독 검색을 뺀다 — 내과·정형외과 수요가 크기 비교(검색량순·지도·분류 최다)를 좌우하지 않게(koo 10-14)
+      const medMix = !!it && !it.ambiguous && (it.serp?.med ?? 0) >= MED_MIX;
+      const series = it && (it.ambiguous || it.total.some((x) => x > 0)) ? (medMix ? it.noName : it.total) : p.volumes;
       const korea = it ? { now: avg3(it.korea, n), yearAgo: avg3(it.korea, n - 12) } : null;
       return {
         ...p, name: (nameCount.get(p.name) ?? 0) > 1 ? p.kr.replace(/\s*\(.*\)$/, '') : p.name, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub,

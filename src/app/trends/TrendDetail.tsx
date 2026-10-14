@@ -180,7 +180,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
           )}
           {!it?.ambiguous && it?.serp && it.serp.med >= MED_MIX && (
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-ui text-amber-800">
-              타 진료과 혼재: 시술명 검색 결과(일본 사이트 상위 20개) 중 {it.serp.med}개가 다른 진료과예요({it.serp.note}). 시술명만 검색한 수치엔 이 수요가 섞여 피부과 수요보다 크게 잡혀요.
+              타 진료과 혼재: 시술명 검색 결과(일본 사이트 상위 20개) 중 {it.serp.med}개가 다른 진료과예요({it.serp.note}). 그래서 시술명만 검색한 수치는 빼고 효과·가격·병원 등이 붙은 검색만 셌어요 — 실제 수요보다 작게 잡힐 수 있어요.
             </p>
           )}
           {!it?.ambiguous && it?.serp && it.serp.med < MED_MIX && it.serp.self >= SELF_MIX && (

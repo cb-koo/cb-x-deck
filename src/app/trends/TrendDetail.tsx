@@ -41,8 +41,12 @@ function IntentRows({ now, prev, top }: { now: Share; prev: Share | null; top: I
             <span className={`w-[52px] shrink-0 text-ui tabular-nums ${d > 0 ? 'text-green-700' : 'text-red-600'}`}>
               {Math.abs(d) >= SHIFT ? `${d > 0 ? '▲' : '▼'}${Math.round(Math.abs(d) * 100)}%p` : ''}
             </span>
-            <span className="min-w-0 flex-1 truncate text-ui text-x-muted" title={(top[i] ?? []).map(([t, m]) => `${t} ${fmtVolume(m)}`).join(' · ')}>
-              {(top[i] ?? []).slice(0, 2).map(([t, m]) => `${t} ${fmtVolume(m)}`).join(' · ')}
+            <span className="min-w-0 flex-1 truncate text-ui" title={(top[i] ?? []).map(([t, m, ko]) => `${ko ? `${ko} (${t})` : t} ${fmtVolume(m)}`).join('\n')}>
+              {(top[i] ?? []).slice(0, 2).map(([t, m, ko], k) => (
+                <span key={t}>{k > 0 && <span className="text-x-muted"> · </span>}
+                  {ko && <span className="text-x-secondary">{ko} </span>}<span className="text-x-muted">{t} {fmtVolume(m)}</span>
+                </span>
+              ))}
             </span>
           </div>
         );
@@ -82,7 +86,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
     ? `검색 의도는 ${topTwo.map((i) => `${INTENT_LABEL[i]} ${pct(prof[i] ?? 0)}`).join(' · ')} 중심의 ${STAGE_LABEL[it.stage]} 단계예요.`
     : '연관 검색어가 적어 관심 단계는 판단 보류예요.';
   const koreaText = row.korea && row.korea.now >= 50
-    ? `한국 검색량(韓国·ソウル·江南)은 월 ${fmtVolume(row.korea.now)}이에요.`
+    ? `한국 검색량(韓国·ソウル·江南·明洞·弘大)은 월 ${fmtVolume(row.korea.now)}이에요.`
     : '한국 검색량은 아직 소량이에요.';
 
   return (
@@ -128,7 +132,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
             <LineChart labels={labels} series={series} height={240} />
             {showKorea && korea && (
               <div className="mt-4">
-                <p className="mb-1 text-ui font-semibold text-x-secondary">한국 검색량 <span className="font-normal text-x-muted">· 韓国·ソウル·江南 포함</span></p>
+                <p className="mb-1 text-ui font-semibold text-x-secondary">한국 검색량 <span className="font-normal text-x-muted">· 韓国·ソウル·江南·明洞·弘大 포함</span></p>
                 <LineChart labels={labels} series={[{ name: '한국', color: '#1f9d55', values: korea.slice(from) }]} height={140} />
               </div>
             )}
@@ -180,7 +184,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
               </span>}
             </div>
             <IntentRows now={prof} prev={prevProf} top={it.top} />
-            <p className="mt-1.5 text-ui text-x-muted">▲▼ 전년보다 10%p 이상 바뀐 의도 · 오른쪽은 대표 검색어(월평균)</p>
+            <p className="mt-1.5 text-ui text-x-muted">▲▼ 전년보다 10%p 이상 바뀐 의도 · 오른쪽은 대표 검색어 — 한국어 번역 · 일본어 원문 · 월평균</p>
           </div>
         )}
 

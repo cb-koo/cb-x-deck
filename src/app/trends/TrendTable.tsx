@@ -10,7 +10,7 @@ export type IntentInfo = {
   total: number[]; korea: number[];
   profile: Record<ProfileIntent, number> | null; prev: Record<ProfileIntent, number> | null;
   stage: Stage | null; prevStage: Stage | null; ambiguous: boolean; keywords: number;
-  top: Partial<Record<ProfileIntent, Array<[string, number]>>>;
+  top: Partial<Record<ProfileIntent, Array<[jp: string, volume: number, ko?: string]>>>;  // ko = 한국어 번역
   members?: Array<{ id: string; kr: string; jp: string; total: number[] }>;  // 같은 시술명 묶음의 검색어별 구성
 };
 
@@ -42,7 +42,7 @@ export function TrendTable({ rows, selectedId, onSelect }: { rows: TrendRow[]; s
             <th className={HEAD}>시술</th>
             <th className={`${HEAD} text-right`} title="시술 관련 검색어 합계의 최근 3개월 평균(화장품·셀프·동음이의 제외)">월 검색량</th>
             <th className={HEAD}>전년 대비</th>
-            <th className={`${HEAD} text-right`} title="韓国·ソウル·江南 포함 검색의 최근 3개월 평균">한국 검색량</th>
+            <th className={`${HEAD} text-right`} title="韓国·ソウル·江南·明洞·弘大(ホンデ) 포함 검색의 최근 3개월 평균">한국 검색량</th>
             <th className={HEAD} title="연관 검색어로 본 관심 단계 — 탐색(개념·비교) · 검토(효과·후기, 부작용·통증) · 결정(가격, 병원·지역)">관심 단계</th>
             <th className={HEAD}>4년 추이</th>
           </tr>

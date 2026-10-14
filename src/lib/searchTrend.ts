@@ -100,23 +100,21 @@ const NUM = new Intl.NumberFormat('ko-KR');
 export const fmtVolume = (v: number | null) => (v === null ? '—' : NUM.format(Math.round(v)));
 export const fmtChange = (c: number | null) => (c === null ? '신규' : `${c > 0 ? '+' : c < 0 ? '−' : ''}${NUM.format(Math.round(Math.abs(c) * 100))}%`);
 
-// 숫자 뒤 조사 '로/으로' — 끝 발음이 받침(ㄹ 제외)이면 '으로': 0(십·백·천·만)·3(삼)·6(육)
-const ro = (v: number | null) => { const d = Math.round(v ?? 0) % 10; return d === 0 || d === 3 || d === 6 ? '으로' : '로'; };
-
-// 판정 문장 — 숫자에 해석을 붙인다(UX 원칙 3). 화면의 상세 머리와 같은 말.
+// 추세 한 줄 — 상세 패널 '추세' 줄. 숫자 → 판정 순서의 짧은 명사형(10-14 koo: 가독성·직관). 판정 칩과 같은 파생값에서 나온다.
 export function describe(s: TrendSummary): string {
-  const seasonText = s.seasonMonth ? ` 해마다 ${s.seasonMonth}월 무렵에 많이 찾아요.` : '';
+  const season = s.seasonMonth ? ` · 매년 ${s.seasonMonth}월 성수기` : '';
   switch (s.state) {
-    case 'nodata': return '키워드 플래너가 이 검색어의 검색량을 주지 않아요. 검색어 표기를 바꿔 볼 만해요.';
-    case 'low': return `한 달에 ${fmtVolume(s.now)}번 정도로 찾는 사람이 아직 적어요. 숫자가 작아 변화율은 보지 않아요.`;
-    case 'peaked': return `2년 전 ${fmtVolume(s.twoYearsAgo)}에서 크게 올랐다가, 지금은 최근 1년 최고치(${fmtVolume(s.peak12)})보다 낮은 ${fmtVolume(s.now)}${ro(s.now)} 내려오는 중이에요.${seasonText}`;
+    case 'nodata': return '키워드 플래너 값 없음 — 검색어 표기 점검 필요';
+    case 'low': return `월 ${fmtVolume(s.now)} — 소량이라 변화율 미산출`;
+    case 'peaked': return `2년 전 ${fmtVolume(s.twoYearsAgo)} → 최근 1년 최고 ${fmtVolume(s.peak12)} → 지금 ${fmtVolume(s.now)}, 하락 중${season}`;
   }
-  const from = `1년 새 ${fmtVolume(s.yearAgo)} → ${fmtVolume(s.now)}`;
+  if (s.change === null) return `1년 전엔 거의 찾지 않던 검색어 → 지금 월 ${fmtVolume(s.now)}, 신규 수요${season}`;
+  const from = `1년 새 ${fmtVolume(s.yearAgo)} → ${fmtVolume(s.now)} (${fmtChange(s.change)})`;
   switch (s.state) {
-    case 'surge': return s.change === null ? `1년 전엔 거의 찾지 않던 검색어인데, 지금은 한 달에 ${fmtVolume(s.now)}번 찾아요.${seasonText}` : `${from}${ro(s.now)} 늘었고(${fmtChange(s.change)}), 최근 6개월 증가 속도가 평소 이맘때보다 ${(s.accel ?? 0).toFixed(1)}배 빨라요.${seasonText}`;
-    case 'up': return `${from}${ro(s.now)} 늘고 있어요(${fmtChange(s.change)}).${seasonText}`;
-    case 'down': return `${from}${ro(s.now)} 줄고 있어요(${fmtChange(s.change)}).${seasonText}`;
-    default: return `${from}, 큰 변화 없이 유지돼요(${fmtChange(s.change)}).${seasonText}`;
+    case 'surge': return `${from} 증가, 최근 6개월 증가 속도가 평소의 ${(s.accel ?? 0).toFixed(1)}배${season}`;
+    case 'up': return `${from} 증가${season}`;
+    case 'down': return `${from} 감소${season}`;
+    default: return `${from}, 큰 변화 없음${season}`;
   }
 }
 

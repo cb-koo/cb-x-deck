@@ -115,16 +115,13 @@ test('계절 — 12월과 1월은 ±1로 이어진 달', () => {
   assert.notEqual(season(v, MONTHS), null);
 });
 
-test('판정 문장에 숫자와 판정이 같이 들어간다', () => {
+test('추세 한 줄 — 숫자와 판정을 짧은 명사형으로', () => {
   const s = summarize(shift(31100, 53167, 31100), MONTHS);
   assert.equal(s.state, 'up');
-  assert.equal(describe(s), '1년 새 31,100 → 53,167로 늘고 있어요(+71%).');
-});
-
-test('숫자 뒤 조사 — 끝자리 0·3·6은 으로', () => {
-  assert.match(describe(summarize(shift(1000, 2000), MONTHS)), /2,000으로/);
-  assert.match(describe(summarize(shift(1000, 1300), MONTHS)), /1,300으로/);
-  assert.match(describe(summarize(shift(1000, 1302), MONTHS)), /1,302로/);
+  assert.equal(describe(s), '1년 새 31,100 → 53,167 (+71%) 증가');
+  assert.equal(describe(summarize(shift(1000, 1100), MONTHS)), '1년 새 1,000 → 1,100 (+10%), 큰 변화 없음');
+  assert.equal(describe(summarize(shift(10, 90), MONTHS)), '월 90 — 소량이라 변화율 미산출');
+  assert.match(describe(summarize(shift(50, 250, 50), MONTHS)), /신규 수요/);  // 1년 전 소량 → % 대신 신규
 });
 
 test('정렬 — 늘어난 쪽 먼저, 수요 적음·데이터 없음은 아래', () => {

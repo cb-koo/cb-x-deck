@@ -1,13 +1,13 @@
-// 검색 트렌드 상세 — 판정 문장(크기·방향·성격·한국) → 월별 그래프(전체 / 한국) → 검색 의도(의도별 한 줄: 비중·전년 변화·대표 검색어) → 같은 묶음 비교.
+// 검색 트렌드 상세 — 요약 3줄(추세·의도·한국) → 월별 그래프(전체 / 한국) → 검색 의도(의도 한 줄 + 대표 검색어 줄: 한국어·일본어·검색량) → 같은 묶음 비교.
 // 스펙 2026-10-13 §5-2(3차)
 'use client';
 import { useState } from 'react';
 import { LineChart } from '@/components/charts/LineChart';
 import { Sparkline } from '@/components/charts/Sparkline';
-import { describe, fmtVolume } from '@/lib/searchTrend';
+import { describe, fmtVolume, fmtChange } from '@/lib/searchTrend';
 import { INTENT_LABEL, PROFILE_INTENTS, STAGE_LABEL, STAGE_HINT, type ProfileIntent } from '@/lib/searchIntent';
 import { StateChip, StageChip } from './StateChip';
-import { KoreaCell, type TrendRow, type IntentInfo } from './TrendTable';
+import type { TrendRow, IntentInfo } from './TrendTable';
 
 const PERIODS = [{ m: 12, label: '1년' }, { m: 24, label: '2년' }, { m: 48, label: '4년' }] as const;
 
@@ -23,7 +23,7 @@ function shares(p: Record<ProfileIntent, number> | null): Share | null {
 }
 const SHIFT = 0.1;  // 전년보다 10%p 이상 움직인 의도에만 ▲▼ — 나머지(대부분)는 표시 없이
 
-// 의도별 한 줄 — 이름 · 막대 · 비중 · 전년 변화 · 대표 검색어. 막대·범례·검색어 목록을 따로 두면 같은 7개를 세 번 읽어야 했다(10-14).
+// 의도 한 줄(이름 · 막대 · 비중 · 전년 변화) 아래에 대표 검색어를 한 줄씩(한국어 · 일본어 · 월평균) — 잘림 없이, 열을 맞춰 훑어 읽게(10-14).
 function IntentRows({ now, prev, top }: { now: Share; prev: Share | null; top: IntentInfo['top'] }) {
   const list = LIST_INTENTS.filter((i) => (now[i] ?? 0) >= 0.005 || top[i]?.length).sort((a, b) => (now[b] ?? 0) - (now[a] ?? 0));
   return (
@@ -31,26 +31,43 @@ function IntentRows({ now, prev, top }: { now: Share; prev: Share | null; top: I
       {list.map((i) => {
         const v = now[i] ?? 0;
         const d = prev ? v - (prev[i] ?? 0) : 0;
+        const kws = top[i] ?? [];
         return (
-          <div key={i} className="flex items-center gap-3 px-3 py-2.5">
-            <span className="w-[84px] shrink-0 text-ui text-x-secondary">{INTENT_LABEL[i]}</span>
-            <span className="h-2 w-[96px] shrink-0 overflow-hidden rounded-full bg-x-surface">
-              <span className="block h-full rounded-full bg-x-blue" style={{ width: `${Math.round(v * 100)}%` }} />
-            </span>
-            <span className="w-9 shrink-0 text-right text-ui font-medium tabular-nums">{pct(v)}</span>
-            <span className={`w-[52px] shrink-0 text-ui tabular-nums ${d > 0 ? 'text-green-700' : 'text-red-600'}`}>
-              {Math.abs(d) >= SHIFT ? `${d > 0 ? '▲' : '▼'}${Math.round(Math.abs(d) * 100)}%p` : ''}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-ui" title={(top[i] ?? []).map(([t, m, ko]) => `${ko ? `${ko} (${t})` : t} ${fmtVolume(m)}`).join('\n')}>
-              {(top[i] ?? []).slice(0, 2).map(([t, m, ko], k) => (
-                <span key={t}>{k > 0 && <span className="text-x-muted"> · </span>}
-                  {ko && <span className="text-x-secondary">{ko} </span>}<span className="text-x-muted">{t} {fmtVolume(m)}</span>
-                </span>
-              ))}
-            </span>
+          <div key={i} className="px-3 py-2.5">
+            <div className="flex items-center gap-3">
+              <span className="w-[84px] shrink-0 text-[15px] font-medium">{INTENT_LABEL[i]}</span>
+              <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-x-surface">
+                <span className="block h-full rounded-full bg-x-blue" style={{ width: `${Math.round(v * 100)}%` }} />
+              </span>
+              <span className="w-10 shrink-0 text-right text-[15px] font-semibold tabular-nums">{pct(v)}</span>
+              <span className={`w-[56px] shrink-0 text-ui tabular-nums ${d > 0 ? 'text-green-700' : 'text-red-600'}`}>
+                {Math.abs(d) >= SHIFT ? `${d > 0 ? '▲' : '▼'}${Math.round(Math.abs(d) * 100)}%p` : ''}
+              </span>
+            </div>
+            {kws.length > 0 && (
+              <ul className="mt-1.5 space-y-0.5 pl-[96px]">
+                {kws.map(([t, m, ko]) => (
+                  <li key={t} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_56px] items-baseline gap-3 text-ui">
+                    <span className="truncate text-x-text" title={ko || t}>{ko || t}</span>
+                    <span className="truncate text-x-muted" title={t}>{ko ? t : ''}</span>
+                    <span className="text-right tabular-nums text-x-secondary">{fmtVolume(m)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// 요약 한 줄 — 왼쪽 주제 이름(추세·의도·한국), 오른쪽 판정 칩 + 짧은 명사형 설명
+function SummaryLine({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 px-4 py-3">
+      <dt className="w-9 shrink-0 pt-0.5 text-ui font-semibold text-x-muted">{label}</dt>
+      <dd className="min-w-0 flex-1 text-[15px] leading-relaxed">{children}</dd>
     </div>
   );
 }
@@ -82,12 +99,10 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
   const prof = shares(it?.profile ?? null);
   const prevProf = shares(it?.prev ?? null);
   const topTwo = prof ? [...LIST_INTENTS].sort((a, b) => (prof[b] ?? 0) - (prof[a] ?? 0)).slice(0, 2) : [];
-  const characterText = it?.stage && prof
-    ? `검색 의도는 ${topTwo.map((i) => `${INTENT_LABEL[i]} ${pct(prof[i] ?? 0)}`).join(' · ')} 중심의 ${STAGE_LABEL[it.stage]} 단계예요.`
-    : '연관 검색어가 적어 관심 단계는 판단 보류예요.';
-  const koreaText = row.korea && row.korea.now >= 50
-    ? `한국 검색량(韓国·ソウル·江南·明洞·弘大)은 월 ${fmtVolume(row.korea.now)}이에요.`
-    : '한국 검색량은 아직 소량이에요.';
+  // 한국 — 숫자에 비중·1년 변화를 붙여 판단까지(UX 원칙 3)
+  const k = row.korea;
+  const kShare = k && summary.now ? k.now / summary.now : null;
+  const kChange = k && k.yearAgo >= 50 ? k.now / k.yearAgo - 1 : null;
 
   return (
     <aside className="flex w-[clamp(560px,44vw,780px)] shrink-0 flex-col overflow-y-auto border-l border-x-border bg-white">
@@ -101,11 +116,28 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
 
       <div className="space-y-7 px-6 py-5">
         <div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <StateChip state={summary.state} />
-            <StageChip stage={it?.stage ?? null} />
-          </div>
-          <p className="mt-2 text-[15px] leading-relaxed">{describe(summary)} {characterText} {koreaText}</p>
+          <dl className="divide-y divide-x-border/60 rounded-lg border border-x-border">
+            <SummaryLine label="추세">
+              <span className="mr-2 align-[1px]"><StateChip state={summary.state} /></span>{describe(summary)}
+            </SummaryLine>
+            <SummaryLine label="의도">
+              {it?.stage && prof ? (<>
+                <span className="mr-2 align-[1px]"><StageChip stage={it.stage} /></span>
+                {topTwo.map((i) => `${INTENT_LABEL[i]} ${pct(prof[i] ?? 0)}`).join(' · ')} 중심
+                {it.prevStage && it.prevStage !== it.stage && <span className="text-x-muted"> · 전년 {STAGE_LABEL[it.prevStage]} 단계</span>}
+              </>) : <span className="text-x-secondary">연관 검색어 부족 — 판단 보류</span>}
+            </SummaryLine>
+            <SummaryLine label="한국">
+              {!k || k.now < 50 ? <span className="text-x-secondary">월 50 미만 — 소량</span> : (<>
+                월 <b className="font-semibold tabular-nums">{fmtVolume(k.now)}</b>
+                {kShare !== null && kShare >= 0.005 && <span className="text-x-secondary"> · 전체의 {pct(kShare)}</span>}
+                <span className="text-x-secondary"> · </span>
+                {kChange === null ? <span className="text-green-700">1년 전 소량 → 신규</span>
+                  : Math.abs(kChange) < 0.3 ? <span className="text-x-secondary">1년 전과 비슷({fmtChange(kChange)})</span>
+                  : <span className={kChange > 0 ? 'text-green-700' : 'text-red-600'}>1년 전보다 {kChange > 0 ? '▲' : '▼'}{fmtChange(kChange).replace(/^[+−]/, '')}</span>}
+              </>)}
+            </SummaryLine>
+          </dl>
           {repZero && summary.state !== 'nodata' && (
             <p className="mt-2 rounded-lg bg-x-surface px-3 py-2 text-ui text-x-secondary">
               대표 검색어 {row.jp.split(' 외 ')[0]}는 키워드 플래너 값이 0(비슷한 표현을 다른 대표어로 합쳐 집계). 수치는 수식어·한국 조합 검색 기준이라 실제 수요보다 작을 수 있어요.
@@ -140,21 +172,6 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
           </div>
         )}
 
-        <dl className="grid grid-cols-3 gap-3">
-          <div className="rounded-lg bg-x-surface px-3 py-2.5">
-            <dt className="text-ui text-x-muted">최근 3개월 평균</dt>
-            <dd className="mt-0.5 text-[17px] font-semibold tabular-nums">{fmtVolume(summary.now)}</dd>
-          </div>
-          <div className="rounded-lg bg-x-surface px-3 py-2.5">
-            <dt className="text-ui text-x-muted">전년 동기 3개월 평균</dt>
-            <dd className="mt-0.5 text-[17px] font-semibold tabular-nums">{fmtVolume(summary.yearAgo)}</dd>
-          </div>
-          <div className="rounded-lg bg-x-surface px-3 py-2.5">
-            <dt className="text-ui text-x-muted">한국 검색량</dt>
-            <dd className="mt-0.5 text-[17px] font-semibold"><KoreaCell k={row.korea} /></dd>
-          </div>
-        </dl>
-
         {members && (
           <div>
             <p className="mb-2 text-ui font-semibold text-x-secondary">검색어 구성 <span className="font-normal text-x-muted">· 같은 시술명의 제품·표기 변형, 최근 3개월 평균</span></p>
@@ -163,7 +180,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
                 const v = memberNow(m.total);
                 return (
                   <li key={m.id} className="flex h-11 items-center gap-3 px-3 text-[15px]">
-                    <span className="min-w-0 flex-1 truncate">{m.jp} <span className="text-ui text-x-muted">{m.kr}</span></span>
+                    <span className="min-w-0 flex-1 truncate">{m.kr} <span className="text-ui text-x-muted">{m.jp}</span></span>
                     <span className="tabular-nums text-x-secondary">{v > 0 ? fmtVolume(v) : <span className="text-ui text-x-muted">데이터 없음</span>}</span>
                     <span className="w-10 text-right text-ui tabular-nums text-x-muted">{memberSum > 0 && v > 0 ? pct(v / memberSum) : ''}</span>
                     <span className="w-[96px]">{v > 0 && <Sparkline values={m.total} width={96} height={24} />}</span>
@@ -184,7 +201,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
               </span>}
             </div>
             <IntentRows now={prof} prev={prevProf} top={it.top} />
-            <p className="mt-1.5 text-ui text-x-muted">▲▼ 전년보다 10%p 이상 바뀐 의도 · 오른쪽은 대표 검색어 — 한국어 번역 · 일본어 원문 · 월평균</p>
+            <p className="mt-1.5 text-ui text-x-muted">▲▼ 전년보다 10%p 이상 바뀐 의도 · 검색어는 한국어 번역 · 일본어 원문 · 최근 1년 월평균</p>
           </div>
         )}
 

@@ -100,21 +100,24 @@ const NUM = new Intl.NumberFormat('ko-KR');
 export const fmtVolume = (v: number | null) => (v === null ? '—' : NUM.format(Math.round(v)));
 export const fmtChange = (c: number | null) => (c === null ? '신규' : `${c > 0 ? '+' : c < 0 ? '−' : ''}${NUM.format(Math.round(Math.abs(c) * 100))}%`);
 
-// 추세 한 줄 — 상세 패널 '추세' 줄. 숫자 → 판정 순서의 짧은 명사형(10-14 koo: 가독성·직관). 판정 칩과 같은 파생값에서 나온다.
+// 추세 한 줄 — 상세 패널 '추세' 줄. 판단을 먼저, 근거 숫자는 괄호로(10-14 koo: 처음 보는 사람도 바로 이해되게).
+// 2배 이상은 %보다 '배'가 직관적이다(+1,162% → 12.6배).
+const times = (c: number) => `${(1 + c).toFixed(1).replace(/\.0$/, '')}배`;
 export function describe(s: TrendSummary): string {
-  const season = s.seasonMonth ? ` · 매년 ${s.seasonMonth}월 성수기` : '';
+  const season = s.seasonMonth ? ` · 매년 ${s.seasonMonth}월에 검색 많음` : '';
+  const span = `월 ${fmtVolume(s.yearAgo)} → ${fmtVolume(s.now)}`;
   switch (s.state) {
-    case 'nodata': return '키워드 플래너 값 없음 — 검색어 표기 점검 필요';
-    case 'low': return `월 ${fmtVolume(s.now)} — 소량이라 변화율 미산출`;
-    case 'peaked': return `2년 전 ${fmtVolume(s.twoYearsAgo)} → 최근 1년 최고 ${fmtVolume(s.peak12)} → 지금 ${fmtVolume(s.now)}, 하락 중${season}`;
+    case 'nodata': return '검색량 데이터 없음 — 검색어 표기 점검 필요';
+    case 'low': return `검색 적음(월 ${fmtVolume(s.now)}) — 숫자가 작아 변화율은 보지 않음`;
+    case 'peaked': return `정점 지나 하락 중 (최근 1년 최고 월 ${fmtVolume(s.peak12)} → 지금 ${fmtVolume(s.now)})${season}`;
   }
-  if (s.change === null) return `1년 전엔 거의 찾지 않던 검색어 → 지금 월 ${fmtVolume(s.now)}, 신규 수요${season}`;
-  const from = `1년 새 ${fmtVolume(s.yearAgo)} → ${fmtVolume(s.now)} (${fmtChange(s.change)})`;
+  if (s.change === null) return `새로 검색되기 시작한 시술 (1년 전 거의 없음 → 지금 월 ${fmtVolume(s.now)})${season}`;
+  const pctText = `${Math.round(Math.abs(s.change) * 100)}%`;
   switch (s.state) {
-    case 'surge': return `${from} 증가, 최근 6개월 증가 속도가 평소의 ${(s.accel ?? 0).toFixed(1)}배${season}`;
-    case 'up': return `${from} 증가${season}`;
-    case 'down': return `${from} 감소${season}`;
-    default: return `${from}, 큰 변화 없음${season}`;
+    case 'surge': return `1년 전보다 ${s.change >= 1 ? times(s.change) : `${pctText} 증가`} (${span}) · 최근 6개월 들어 증가세가 더 빨라짐${season}`;
+    case 'up': return `1년 전보다 ${s.change >= 1 ? times(s.change) : `${pctText} 증가`} (${span})${season}`;
+    case 'down': return `1년 전보다 ${pctText} 감소 (${span})${season}`;
+    default: return `1년 전과 비슷 (${span}, ${fmtChange(s.change)})${season}`;
   }
 }
 

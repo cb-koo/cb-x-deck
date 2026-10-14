@@ -35,7 +35,7 @@ test('상승·하락 문턱 30%', () => {
 test('급상승 = 가속 — 최근에 오르기 시작함', () => {
   const s = summarize(shift(400, 1000, 400), MONTHS);
   assert.equal(s.state, 'surge');
-  assert.match(describe(s), /증가 속도/);
+  assert.match(describe(s), /증가세가 더 빨라짐/);
 });
 
 test('꾸준히 오르기만 하면 급상승이 아니라 상승(속도가 1년 전과 같음)', () => {
@@ -63,7 +63,7 @@ test('1년 전 소량(월 100 미만)이면 변화율 대신 신규', () => {
   const s = summarize(shift(0, 2000, 0), MONTHS);
   assert.equal(s.state, 'surge');
   assert.equal(s.change, null);
-  assert.match(describe(s), /거의 찾지 않던/);
+  assert.match(describe(s), /새로 검색되기 시작한/);
 });
 
 test('꺾임 — 2년 전보다 크게 올랐지만 지난 12개월 최고치의 70% 이하로 내려옴', () => {
@@ -115,13 +115,15 @@ test('계절 — 12월과 1월은 ±1로 이어진 달', () => {
   assert.notEqual(season(v, MONTHS), null);
 });
 
-test('추세 한 줄 — 숫자와 판정을 짧은 명사형으로', () => {
+test('추세 한 줄 — 판단 먼저, 숫자는 괄호로', () => {
   const s = summarize(shift(31100, 53167, 31100), MONTHS);
   assert.equal(s.state, 'up');
-  assert.equal(describe(s), '1년 새 31,100 → 53,167 (+71%) 증가');
-  assert.equal(describe(summarize(shift(1000, 1100), MONTHS)), '1년 새 1,000 → 1,100 (+10%), 큰 변화 없음');
-  assert.equal(describe(summarize(shift(10, 90), MONTHS)), '월 90 — 소량이라 변화율 미산출');
-  assert.match(describe(summarize(shift(50, 250, 50), MONTHS)), /신규 수요/);  // 1년 전 소량 → % 대신 신규
+  assert.equal(describe(s), '1년 전보다 71% 증가 (월 31,100 → 53,167)');
+  assert.equal(describe(summarize(shift(1000, 1100), MONTHS)), '1년 전과 비슷 (월 1,000 → 1,100, +10%)');
+  assert.equal(describe(summarize(shift(1000, 600), MONTHS)), '1년 전보다 40% 감소 (월 1,000 → 600)');
+  assert.match(describe(summarize(shift(10, 90), MONTHS)), /^검색 적음/);
+  assert.match(describe(summarize(shift(50, 250, 50), MONTHS)), /^새로 검색되기 시작한 시술/);
+  assert.match(describe(summarize(shift(400, 1000, 400), MONTHS)), /^1년 전보다 2\.5배 .*증가세가 더 빨라짐/);  // 2배 이상은 '배'
 });
 
 test('정렬 — 늘어난 쪽 먼저, 수요 적음·데이터 없음은 아래', () => {

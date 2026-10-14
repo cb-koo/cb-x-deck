@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { LineChart } from '@/components/charts/LineChart';
 import { Sparkline } from '@/components/charts/Sparkline';
-import { describe, fmtVolume, fmtChange } from '@/lib/searchTrend';
+import { describe, fmtVolume } from '@/lib/searchTrend';
 import { INTENT_LABEL, PROFILE_INTENTS, STAGE_LABEL, STAGE_HINT, type ProfileIntent } from '@/lib/searchIntent';
 import { StateChip, StageChip } from './StateChip';
 import type { TrendRow, IntentInfo } from './TrendTable';
@@ -21,9 +21,14 @@ function shares(p: Record<ProfileIntent, number> | null): Share | null {
   const all = LIST_INTENTS.reduce((s, i) => s + p[i], 0);
   return all > 0 ? Object.fromEntries(LIST_INTENTS.map((i) => [i, p[i] / all])) : null;
 }
-const SHIFT = 0.1;  // 전년보다 10%p 이상 움직인 의도에만 ▲▼ — 나머지(대부분)는 표시 없이
+const SHIFT = 0.1;
+// 관심 단계를 처음 보는 사람 말로
+const STAGE_PLAIN: Record<NonNullable<IntentInfo['stage']>, string> = {
+  learning: '시술 자체를 알아보는 단계', considering: '효과·부작용을 따져 보는 단계', choosing: '가격·병원을 고르는 단계',
+};  // 전년보다 10%p 이상 움직인 의도에만 ▲▼ — 나머지(대부분)는 표시 없이
 
-// 의도 한 줄(이름 · 막대 · 비중 · 전년 변화) 아래에 대표 검색어를 한 줄씩(한국어 · 일본어 · 월평균) — 잘림 없이, 열을 맞춰 훑어 읽게(10-14).
+// 의도 한 줄(이름 · 비중 · 막대 · 전년 변화) 아래에 대표 검색어 줄 — 검색량을 앞에 두고 한국어·일본어를 바로 붙여
+// 한 덩어리로 읽히게(10-14 koo: 세 칸이 너무 떨어져 눈에 안 들어옴).
 function IntentRows({ now, prev, top }: { now: Share; prev: Share | null; top: IntentInfo['top'] }) {
   const list = LIST_INTENTS.filter((i) => (now[i] ?? 0) >= 0.005 || top[i]?.length).sort((a, b) => (now[b] ?? 0) - (now[a] ?? 0));
   return (
@@ -33,24 +38,28 @@ function IntentRows({ now, prev, top }: { now: Share; prev: Share | null; top: I
         const d = prev ? v - (prev[i] ?? 0) : 0;
         const kws = top[i] ?? [];
         return (
-          <div key={i} className="px-3 py-2.5">
+          <div key={i} className="px-4 py-3">
             <div className="flex items-center gap-3">
               <span className="w-[84px] shrink-0 text-[15px] font-medium">{INTENT_LABEL[i]}</span>
-              <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-x-surface">
+              <span className="w-10 shrink-0 text-right text-[15px] font-semibold tabular-nums">{pct(v)}</span>
+              <span className="h-2 w-[140px] shrink-0 overflow-hidden rounded-full bg-x-surface">
                 <span className="block h-full rounded-full bg-x-blue" style={{ width: `${Math.round(v * 100)}%` }} />
               </span>
-              <span className="w-10 shrink-0 text-right text-[15px] font-semibold tabular-nums">{pct(v)}</span>
-              <span className={`w-[56px] shrink-0 text-ui tabular-nums ${d > 0 ? 'text-green-700' : 'text-red-600'}`}>
-                {Math.abs(d) >= SHIFT ? `${d > 0 ? '▲' : '▼'}${Math.round(Math.abs(d) * 100)}%p` : ''}
-              </span>
+              {Math.abs(d) >= SHIFT && (
+                <span className={`text-ui tabular-nums ${d > 0 ? 'text-green-700' : 'text-red-600'}`}>
+                  1년 전보다 {d > 0 ? '▲' : '▼'}{Math.round(Math.abs(d) * 100)}%p
+                </span>
+              )}
             </div>
             {kws.length > 0 && (
-              <ul className="mt-1.5 space-y-0.5 pl-[96px]">
+              <ul className="mt-2 space-y-1">
                 {kws.map(([t, m, ko]) => (
-                  <li key={t} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_56px] items-baseline gap-3 text-ui">
-                    <span className="truncate text-x-text" title={ko || t}>{ko || t}</span>
-                    <span className="truncate text-x-muted" title={t}>{ko ? t : ''}</span>
-                    <span className="text-right tabular-nums text-x-secondary">{fmtVolume(m)}</span>
+                  <li key={t} className="flex items-baseline gap-3 text-ui">
+                    <span className="w-[84px] shrink-0 text-right tabular-nums text-x-secondary">{fmtVolume(m)}</span>
+                    <span className="min-w-0 truncate" title={ko ? `${ko} · ${t}` : t}>
+                      <span className="text-x-text">{ko || t}</span>
+                      {ko && <span className="ml-2 text-x-muted">{t}</span>}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -123,18 +132,18 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
             <SummaryLine label="의도">
               {it?.stage && prof ? (<>
                 <span className="mr-2 align-[1px]"><StageChip stage={it.stage} /></span>
-                {topTwo.map((i) => `${INTENT_LABEL[i]} ${pct(prof[i] ?? 0)}`).join(' · ')} 중심
-                {it.prevStage && it.prevStage !== it.stage && <span className="text-x-muted"> · 전년 {STAGE_LABEL[it.prevStage]} 단계</span>}
+                {STAGE_PLAIN[it.stage]} — {topTwo.map((i) => `${INTENT_LABEL[i]}(${pct(prof[i] ?? 0)})`).join('·')} 검색이 많음
+                {it.prevStage && it.prevStage !== it.stage && <span className="text-x-muted"> · 1년 전엔 {STAGE_LABEL[it.prevStage]} 단계</span>}
               </>) : <span className="text-x-secondary">연관 검색어 부족 — 판단 보류</span>}
             </SummaryLine>
             <SummaryLine label="한국">
-              {!k || k.now < 50 ? <span className="text-x-secondary">월 50 미만 — 소량</span> : (<>
-                월 <b className="font-semibold tabular-nums">{fmtVolume(k.now)}</b>
-                {kShare !== null && kShare >= 0.005 && <span className="text-x-secondary"> · 전체의 {pct(kShare)}</span>}
+              {!k || k.now < 50 ? <span className="text-x-secondary">한국에서 받으려는 검색은 아직 적음(월 50 미만)</span> : (<>
+                한국에서 받으려는 검색 월 <b className="font-semibold tabular-nums">{fmtVolume(k.now)}</b>
+                {kShare !== null && kShare >= 0.005 && <span className="text-x-secondary"> (이 시술 검색의 {pct(kShare)})</span>}
                 <span className="text-x-secondary"> · </span>
-                {kChange === null ? <span className="text-green-700">1년 전 소량 → 신규</span>
-                  : Math.abs(kChange) < 0.3 ? <span className="text-x-secondary">1년 전과 비슷({fmtChange(kChange)})</span>
-                  : <span className={kChange > 0 ? 'text-green-700' : 'text-red-600'}>1년 전보다 {kChange > 0 ? '▲' : '▼'}{fmtChange(kChange).replace(/^[+−]/, '')}</span>}
+                {kChange === null ? <span className="text-green-700">1년 전엔 거의 없다가 새로 생김</span>
+                  : Math.abs(kChange) < 0.3 ? <span className="text-x-secondary">1년 전과 비슷</span>
+                  : <span className={kChange > 0 ? 'text-green-700' : 'text-red-600'}>1년 전보다 {kChange >= 1 ? `${(1 + kChange).toFixed(1).replace(/\.0$/, '')}배` : `${Math.round(Math.abs(kChange) * 100)}% ${kChange > 0 ? '증가' : '감소'}`}</span>}
               </>)}
             </SummaryLine>
           </dl>
@@ -201,7 +210,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
               </span>}
             </div>
             <IntentRows now={prof} prev={prevProf} top={it.top} />
-            <p className="mt-1.5 text-ui text-x-muted">▲▼ 전년보다 10%p 이상 바뀐 의도 · 검색어는 한국어 번역 · 일본어 원문 · 최근 1년 월평균</p>
+            <p className="mt-1.5 text-ui text-x-muted">검색어 앞 숫자는 최근 1년 월평균 검색량 · 1년 전보다 10%p 이상 바뀐 의도만 ▲▼ 표시</p>
           </div>
         )}
 

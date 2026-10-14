@@ -48,3 +48,8 @@ test('같은 시술명은 한 분류로 — 갈라지면 화면에 같은 이름
   const split = [...cats].filter(([n, c]) => c.size > 1 && !SPLIT_OK.has(n)).map(([n]) => n);
   assert.deepEqual(split, []);
 });
+
+test('앱에서 더한 시술 — 화면 분류 이름을 대분류로 쓰면 그대로', () => {
+  assert.deepEqual(classify({ major: '스킨부스터', middle: 'PLA', name: '리투오', kr: '리투오' }), { category: '스킨부스터', sub: 'PLA' });
+  assert.deepEqual(classify({ major: '리프팅', middle: '', name: '새 리프팅', kr: '' }), { category: '리프팅', sub: '새 리프팅' });
+});

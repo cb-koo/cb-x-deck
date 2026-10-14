@@ -20,6 +20,7 @@ export type IntentInfo = {
 export type TrendRow = {
   id: string; major: string; majorOrder: number; middle: string; name: string; kr: string; jp: string; en: string;
   volumes: number[] | null; series: number[] | null; summary: TrendSummary; searchText: string;
+  baseName: string;  // 저장된 시술명(같은 이름이 두 분류에 있으면 화면 name은 한국어 표기로 바뀐다)
   intent: IntentInfo | null; korea: { now: number; yearAgo: number } | null;
 };
 

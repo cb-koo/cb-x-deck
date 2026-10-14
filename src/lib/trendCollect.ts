@@ -135,6 +135,15 @@ export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { m
   return { did, latest: (await storedLatest(sql, market)) ?? stored };
 }
 
+// 시술 하나만 바로 수집 — 화면에서 시술을 더하거나 일본어 검색어를 고쳤을 때(약 5초). 끝나면 완성본을 다시 만든다.
+export async function collectProcedure(sql: postgres.Sql, kp: KpClient, market: string, id: string, now = new Date()): Promise<{ keywords: number }> {
+  const latest = await storedLatest(sql, market);
+  if (!latest) return { keywords: 0 };
+  const r = await widenIdeas(sql, kp, market, latest, now, () => 60_000, id);
+  await rebuildView(sql, market);
+  return { keywords: r.keywords };
+}
+
 async function storedLatest(sql: postgres.Sql, market: string): Promise<string | null> {
   const [r] = await sql<Array<{ last: string | null }>>`select doc->'months'->>-1 as last from trend_view where market = ${market}`;
   return r?.last ?? null;
@@ -174,9 +183,11 @@ async function refreshAll(sql: postgres.Sql, kp: KpClient, market: string, run: 
 }
 
 // 연관 검색어 넓히기 + 그 시술의 이름·수식어·한국 조합 검색량 — 오래된(또는 새) 시술부터 시간이 허락하는 만큼
-async function widenIdeas(sql: postgres.Sql, kp: KpClient, market: string, latest: string, now: Date, left: () => number) {
+async function widenIdeas(sql: postgres.Sql, kp: KpClient, market: string, latest: string, now: Date, left: () => number, onlyId?: string) {
   const from = addMonths(latest, -(WINDOW - 1));
-  const due = await sql<Array<{ id: string; jp: string }>>`select id, jp from trend_procedure where market = ${market} and not hidden
+  const due = onlyId
+    ? await sql<Array<{ id: string; jp: string }>>`select id, jp from trend_procedure where id = ${onlyId} and not hidden`
+    : await sql<Array<{ id: string; jp: string }>>`select id, jp from trend_procedure where market = ${market} and not hidden
     and (ideas_at is null or ideas_at < ${new Date(now.getTime() - IDEAS_EVERY_D * 864e5)}) order by ideas_at nulls first, id limit 40`;
   if (!due.length) return { procedures: 0, keywords: 0 };
   const owner = ownerResolver(await sql<Array<{ id: string; jp: string }>>`select id, jp from trend_procedure where market = ${market} and not hidden`);
@@ -195,7 +206,7 @@ async function widenIdeas(sql: postgres.Sql, kp: KpClient, market: string, lates
     keywords += await upsertKeywords(sql, market, rows);
     await sql`update trend_procedure set ideas_at = now() where id = ${p.id}`;
     procedures++;
-    await new Promise((r) => setTimeout(r, IDEAS_GAP_MS));
+    if (!onlyId) await new Promise((r) => setTimeout(r, IDEAS_GAP_MS));
   }
   return { procedures, keywords };
 }

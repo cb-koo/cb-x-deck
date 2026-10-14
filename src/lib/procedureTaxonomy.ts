@@ -91,6 +91,8 @@ export function classify(r: SheetRow): Classified {
   if (r.kr === '점빼기') return { category: '점·사마귀 제거', sub: '점' };
   // 기타 레이저의 홍조/여드름 장비(카프리·골드PTT·네오빔)는 여드름의 피지선 치료와 같은 시술
   if (r.major === '기타 레이저' && r.middle === '홍조/여드름') return { category: '여드름', sub: '피지선 치료' };
+  // 앱에서 더하거나 고친 시술은 화면 분류 이름을 그대로 대분류로 쓴다(시트 대분류 체계를 몰라도 되게)
+  if ((CATEGORIES as readonly string[]).includes(r.major)) return { category: r.major as Category, sub: r.middle || r.name };
   const category = MAJOR[r.major];
   if (!category) throw new Error(`분류 없음: ${r.major}`);
   return { category, sub: SUB[category]?.[r.middle] ?? r.middle };

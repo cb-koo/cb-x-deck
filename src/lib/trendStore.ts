@@ -1,6 +1,7 @@
 import type postgres from 'postgres';
 import { buildTrendView, type TrendProcedureInput, type TrendKeywordInput, type TrendSerp, type TrendViewDoc } from './trendBuild';
-import { norm, ownerOf, type Intent } from './searchIntent';
+import { norm, ownerOf, tagKeyword, type Intent } from './searchIntent';
+import { SERP_HOMONYM } from './trendBuild';
 
 // 검색 트렌드 저장(074) — 시술·검색어를 쓰고, 화면이 읽는 완성본(trend_view)을 다시 만든다.
 // 계산은 trendBuild(순수 함수)가 하고 이 모듈은 읽고 쓰기만 한다.
@@ -80,7 +81,8 @@ const addMonths = (ym: string, k: number) => { const [y, m] = ym.split('-').map(
 // 완성본 다시 만들기 — 가장 최근 48개월(검색어마다 시작 달이 달라도 같은 달끼리 맞춘다)
 export async function rebuildView(sql: postgres.Sql, market: string, window = 48): Promise<TrendViewDoc> {
   const procs = await sql<Array<{ id: string; major: string; major_order: number; middle: string; name: string; kr: string; jp: string; en: string; hidden: boolean; serp: TrendSerp | null }>>`
-    select id, major, major_order, middle, name, kr, jp, en, hidden, serp from trend_procedure where market = ${market} order by major_order, id`;
+    select id, major, major_order, middle, name, kr, jp, en, hidden, serp from trend_procedure where market = ${market}
+    order by major_order, case when id ~ '^p[0-9]+' then substring(id from '[0-9]+')::int else 1000000 end, id`;  // 시트 행 순서(p2 < p10), 앱에서 더한 건 뒤
   const kws = await sql<Array<{ text: string; procedure_id: string | null; source: TrendKeywordInput['source']; ko: string | null; intent_override: string | null; series: number[] | null; series_start: Date | null; fetched_at: Date | null }>>`
     select text, procedure_id, source, ko, intent_override, series, series_start, fetched_at from trend_keyword where market = ${market} order by id`;
   // 마지막 달 = 검색량이 있는 검색어들의 가장 늦은 달
@@ -107,4 +109,69 @@ export async function rebuildView(sql: postgres.Sql, market: string, window = 48
 export async function readView(sql: postgres.Sql, market: string): Promise<{ builtAt: string; doc: TrendViewDoc } | null> {
   const [r] = await sql<Array<{ built_at: Date; doc: TrendViewDoc }>>`select built_at, doc from trend_view where market = ${market}`;
   return r ? { builtAt: r.built_at.toISOString(), doc: r.doc } : null;
+}
+
+// ── 화면에서 고치기(상세 패널의 [수정]·검색어 점검) ──
+
+export interface FamilyKeyword {
+  id: string; text: string; ko: string | null; source: string; procedureId: string;
+  intent: Intent; override: Intent | null; avg12: number | null;  // avg12 null = 값 없음
+}
+
+// 묶음(같은 분류·같은 시술명)의 검색어 전부 — 지금 적용된 태그(사람이 고친 것 우선)와 최근 12개월 월평균
+export async function listFamilyKeywords(sql: postgres.Sql, market: string, procedureIds: string[]): Promise<FamilyKeyword[]> {
+  if (!procedureIds.length) return [];
+  const procs = await sql<Array<{ id: string; jp: string; serp: { unrelated?: number } | null }>>`
+    select id, jp, serp from trend_procedure where market = ${market} and id in ${sql(procedureIds)}`;
+  const homs = new Set(procs.filter((p) => (p.serp?.unrelated ?? 0) >= SERP_HOMONYM).map((p) => norm(p.jp)));
+  const jpOf = new Map(procs.map((p) => [p.id, p.jp]));
+  const rows = await sql<Array<{ id: string; text: string; ko: string | null; source: string; procedure_id: string; intent_override: string | null; series: number[] | null }>>`
+    select id, text, ko, source, procedure_id, intent_override, series from trend_keyword where market = ${market} and procedure_id in ${sql(procedureIds)}`;
+  return rows.map((r) => {
+    const avg12 = r.series ? r.series.slice(-12).reduce((a, b) => a + b, 0) / Math.min(12, r.series.length) : null;
+    const auto: Intent = r.source === 'korea' ? 'korea' : tagKeyword(r.text, [jpOf.get(r.procedure_id) ?? ''], homs);
+    return { id: String(r.id), text: r.text, ko: r.ko, source: r.source, procedureId: r.procedure_id,
+      intent: (r.intent_override as Intent | null) ?? auto, override: r.intent_override as Intent | null, avg12 };
+  }).sort((a, b) => (b.avg12 ?? -1) - (a.avg12 ?? -1));
+}
+
+export async function setKeywordIntent(sql: postgres.Sql, market: string, id: string, intent: Intent | null): Promise<boolean> {
+  const r = await sql`update trend_keyword set intent_override = ${intent} where market = ${market} and id = ${id}`;
+  return r.count > 0;
+}
+
+export interface ProcedurePatch { name?: string; kr?: string; jp?: string; en?: string; major?: string; middle?: string; hidden?: boolean }
+
+// 시술 고치기 — 시트에서 온 행은 처음 고치는 칸의 시트 원래 값을 sheet에 남긴다. 일본어 검색어가 바뀌면 다시 수집해야 한다(jpChanged).
+export async function updateProcedure(sql: postgres.Sql, market: string, id: string, patch: ProcedurePatch): Promise<{ found: boolean; jpChanged: boolean }> {
+  const [cur] = await sql<Array<Record<string, unknown> & { sheet: Record<string, unknown> | null }>>`
+    select name, kr, jp, en, major, middle, hidden, sheet from trend_procedure where market = ${market} and id = ${id}`;
+  if (!cur) return { found: false, jpChanged: false };
+  const fields = ['name', 'kr', 'jp', 'en', 'major', 'middle', 'hidden'] as const;
+  const next: Record<string, unknown> = {};
+  const sheet = { ...(cur.sheet ?? {}) };
+  for (const f of fields) {
+    const v = patch[f];
+    if (v === undefined || v === cur[f]) continue;
+    next[f] = typeof v === 'string' ? v.trim() : v;
+    if (/^p\d+/.test(id) && f !== 'hidden' && !(f in sheet)) sheet[f] = cur[f];
+  }
+  if (!Object.keys(next).length) return { found: true, jpChanged: false };
+  await sql`update trend_procedure set ${sql(next as Record<string, string | boolean>)}, sheet = ${Object.keys(sheet).length ? sql.json(sheet as postgres.JSONValue) : null},
+    ideas_at = ${'jp' in next ? null : sql`ideas_at`}, updated_at = now() where id = ${id}`;
+  if ('jp' in next || 'hidden' in next) await reassignOwners(sql, market);
+  return { found: true, jpChanged: 'jp' in next };
+}
+
+// 같은 일본어 검색어(띄어쓰기 무시)를 가진 다른 시술 — 있으면 검색어 주인이 섞이므로 추가·수정을 막는다
+export async function findJpConflict(sql: postgres.Sql, market: string, jp: string, exceptId?: string): Promise<{ id: string; name: string } | null> {
+  const rows = await sql<Array<{ id: string; name: string; jp: string }>>`select id, name, jp from trend_procedure where market = ${market} and not hidden`;
+  return rows.find((r) => r.id !== exceptId && norm(r.jp) === norm(jp)) ?? null;
+}
+
+export async function createProcedure(sql: postgres.Sql, market: string, p: { name: string; kr: string; jp: string; en: string; major: string; middle: string }): Promise<string> {
+  const id = `u${Date.now().toString(36)}`;
+  await upsertProcedures(sql, [{ id, market, major: p.major, majorOrder: 0, middle: p.middle, name: p.name, kr: p.kr, jp: p.jp, en: p.en, note: '앱에서 추가' }]);
+  await reassignOwners(sql, market);
+  return id;
 }

@@ -8,6 +8,8 @@ import { describe, fmtVolume } from '@/lib/searchTrend';
 import { INTENT_LABEL, PROFILE_INTENTS, STAGE_LABEL, type ProfileIntent } from '@/lib/searchIntent';
 import { StateChip, StageChip } from './StateChip';
 import { MED_MIX, SELF_MIX, type TrendRow, type IntentInfo } from './TrendTable';
+import { Button } from '@/components/ui';
+import { ProcedureForm, KeywordReview } from './TrendManage';
 
 const PERIODS = [{ m: 12, label: '1년' }, { m: 24, label: '2년' }, { m: 48, label: '4년' }] as const;
 
@@ -98,10 +100,11 @@ function SummaryLine({ label, children }: { label: string; children: React.React
   );
 }
 
-export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
-  row: TrendRow; months: string[]; siblings: TrendRow[]; onSelect: (id: string) => void; onClose: () => void;
+export function TrendDetail({ row, months, siblings, onSelect, onClose, onChanged }: {
+  row: TrendRow; months: string[]; siblings: TrendRow[]; onSelect: (id: string) => void; onClose: () => void; onChanged: () => Promise<void>;
 }) {
   const [period, setPeriod] = useState<12 | 24 | 48>(24);
+  const [editing, setEditing] = useState(false);  // 다른 시술을 열면 page가 key로 새로 그려 닫힌다
   const summary = row.summary;
   const it = row.intent;
   const vols = row.series;
@@ -138,10 +141,22 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
           <p className="text-[18px] font-bold">{row.name}</p>
           <p className="truncate text-ui text-x-muted">{row.jp}{row.en && ` · ${row.en}`} · {row.major} › {row.middle}</p>
         </div>
-        <button onClick={onClose} aria-label="닫기" className="ml-auto shrink-0 rounded-full px-2 py-1 text-x-secondary hover:bg-x-hover">✕</button>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          {!editing && <Button onClick={() => setEditing(true)}>수정</Button>}
+          <button onClick={onClose} aria-label="닫기" className="rounded-full px-2 py-1 text-x-secondary hover:bg-x-hover">✕</button>
+        </div>
       </div>
 
-      <div className="space-y-7 px-6 py-5">
+      {editing && (
+        <div className="px-6 py-5">
+          <ProcedureForm mode="edit" onCancel={() => setEditing(false)}
+            initial={{ name: row.baseName, category: row.major, sub: row.middle === row.baseName ? '' : row.middle, hidden: false,
+              members: (members ?? [{ id: row.id, kr: row.kr, jp: row.jp }]).map((m) => ({ id: m.id, kr: m.kr, jp: m.jp, en: m.id === row.id ? row.en : '' })) }}
+            onSaved={async () => { await onChanged(); setEditing(false); }} />
+        </div>
+      )}
+
+      <div className={editing ? 'hidden' : 'space-y-7 px-6 py-5'}>
         <div>
           <dl className="divide-y divide-x-border/60 rounded-lg border border-x-border">
             <SummaryLine label="추세">
@@ -241,6 +256,8 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
             <p className="mt-1.5 text-ui text-x-muted">월평균은 최근 1년 검색량 · 1년 전보다 10%p 이상 바뀐 의도만 ▲▼ 표시</p>
           </div>
         )}
+
+        <KeywordReview key={(members ?? [{ id: row.id }]).map((m) => m.id).join(',')} ids={(members ?? [{ id: row.id }]).map((m) => m.id)} onChanged={onChanged} />
 
         <div>
           <p className="mb-2 text-ui font-semibold text-x-secondary">

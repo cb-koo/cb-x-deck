@@ -7,6 +7,8 @@ import { classify, categoryOrder } from '@/lib/procedureTaxonomy';
 import { TrendTable, MajorTable, MED_MIX, type TrendRow, type MajorRow, type IntentInfo } from './TrendTable';
 import { TrendDetail } from './TrendDetail';
 import { TrendMap } from './TrendMap';
+import { ProcedureForm } from './TrendManage';
+import { Button } from '@/components/ui';
 
 type Proc = { id: string; major: string; majorOrder: number; middle: string; name: string; kr: string; jp: string; en: string; volumes: number[] | null };
 type TrendData = { market: string; fetchedAt: string; months: string[]; procedures: Proc[]; intent: Record<string, IntentInfo> };
@@ -26,20 +28,24 @@ const SORTS: Array<{ key: SortKey; label: string }> = [
 
 const avg3 = (v: number[], end: number) => v.slice(end - 3, end).reduce((s, x) => s + x, 0) / 3;
 
+async function fetchTrends(): Promise<TrendData> {
+  const r = await fetch('/api/trends?market=jp', { cache: 'no-store' });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error ?? '불러오지 못했어요');
+  return j;
+}
+
 export default function TrendsPage() {
   const [data, setData] = useState<TrendData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    fetch('/api/trends?market=jp', { cache: 'no-store' })
-      .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error ?? '불러오지 못했어요'); setData(j); })
-      .catch((e: Error) => setError(e.message));
-  }, []);
+  useEffect(() => { fetchTrends().then(setData).catch((e: Error) => setError(e.message)); }, []);
+  const load = async () => { try { setData(await fetchTrends()); } catch (e) { setError((e as Error).message); } };
   if (error) return <div className="px-6 py-8 text-[15px] text-x-secondary">검색 트렌드를 불러오지 못했어요 — {error}</div>;
   if (!data) return <div className="px-6 py-8 text-[15px] text-x-muted">검색 트렌드를 불러오는 중…</div>;
-  return <TrendsView data={data} />;
+  return <TrendsView data={data} reload={load} />;
 }
 
-function TrendsView({ data: DATA }: { data: TrendData }) {
+function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Promise<void> }) {
   const INTENT = DATA.intent;
   const lastMonth = DATA.months[DATA.months.length - 1];
   const LAST_LABEL = `${lastMonth.slice(0, 4)}년 ${Number(lastMonth.slice(5, 7))}월`;
@@ -71,7 +77,7 @@ function TrendsView({ data: DATA }: { data: TrendData }) {
       const series = it && (it.ambiguous || it.total.some((x) => x > 0)) ? (medMix ? it.noName : it.total) : p.volumes;
       const korea = it ? { now: avg3(it.korea, n), yearAgo: avg3(it.korea, n - 12) } : null;
       return {
-        ...p, name: (nameCount.get(p.name) ?? 0) > 1 ? p.kr.replace(/\s*\(.*\)$/, '') : p.name, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub,
+        ...p, baseName: p.name, name: (nameCount.get(p.name) ?? 0) > 1 ? p.kr.replace(/\s*\(.*\)$/, '') : p.name, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub,
         jp: ms.length > 1 ? `${p.jp} 외 ${ms.length - 1}` : p.jp,
         searchText: ms.flatMap((m) => [m.name, m.kr, m.jp, m.en]).join(' ').toLowerCase(),
         series, summary: summarize(series, DATA.months), intent: it, korea,
@@ -87,6 +93,7 @@ function TrendsView({ data: DATA }: { data: TrendData }) {
   const [sort, setSort] = useState<SortKey>('change');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mapOpen, setMapOpen] = useState(true);
+  const [adding, setAdding] = useState(false);
 
   const inMajor = useMemo(() => rows.filter((r) => !major || r.major === major), [rows, major]);
   const counts = useMemo(() => Object.fromEntries(STATE_FILTERS.map((f) => [f.key, inMajor.filter((r) => f.match(r.summary.state)).length])) as Record<StateFilter, number>, [inMajor]);
@@ -133,7 +140,10 @@ function TrendsView({ data: DATA }: { data: TrendData }) {
   return (
     <div className="flex h-full min-h-0">
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-8">
-        <h1 className="mb-1 shrink-0 text-[20px] font-bold">검색 트렌드 <span className="text-ui font-normal text-x-secondary">일본 · 피부과 시술 {rows.length}</span></h1>
+        <div className="mb-1 flex shrink-0 items-center gap-3">
+          <h1 className="text-[20px] font-bold">검색 트렌드 <span className="text-ui font-normal text-x-secondary">일본 · 피부과 시술 {rows.length}</span></h1>
+          <Button className="ml-auto" onClick={() => { setAdding(true); setSelectedId(null); }}>+ 시술 추가</Button>
+        </div>
         <p className="mb-4 shrink-0 text-[15px] text-x-secondary">
           일본 구글 검색 기준 시술별 수요·추세·검색 의도. 기준월 {LAST_LABEL} · 수집 {FETCHED} · 매월 초 갱신
         </p>
@@ -190,7 +200,24 @@ function TrendsView({ data: DATA }: { data: TrendData }) {
       </main>
 
       {selected && (
-        <TrendDetail row={selected} months={DATA.months} siblings={siblings} onSelect={setSelectedId} onClose={() => setSelectedId(null)} />
+        <TrendDetail key={selected.id} row={selected} months={DATA.months} siblings={siblings} onSelect={setSelectedId} onClose={() => setSelectedId(null)} onChanged={reload} />
+      )}
+      {adding && !selected && (
+        <aside className="flex w-[clamp(560px,44vw,780px)] shrink-0 flex-col overflow-y-auto border-l border-x-border bg-white">
+          <div className="sticky top-0 z-10 flex items-center border-b border-x-border bg-white px-6 py-4">
+            <p className="text-[18px] font-bold">시술 추가</p>
+            <button onClick={() => setAdding(false)} aria-label="닫기" className="ml-auto rounded-full px-2 py-1 text-x-secondary hover:bg-x-hover">✕</button>
+          </div>
+          <div className="px-6 py-5">
+            <ProcedureForm mode="add" onCancel={() => setAdding(false)}
+              initial={{ name: '', category: major || '', sub: '', hidden: false, members: [{ id: null, kr: '', jp: '', en: '' }] }}
+              onSaved={async (id) => {
+                await reload(); setAdding(false);
+                // 같은 분류·같은 이름이 이미 있으면 그 묶음으로 들어간다 — 묶음 첫 행을 연다
+                setSelectedId(id);
+              }} />
+          </div>
+        </aside>
       )}
     </div>
   );

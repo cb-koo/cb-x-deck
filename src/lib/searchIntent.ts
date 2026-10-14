@@ -58,9 +58,10 @@ export const HOMONYM: Record<string, RegExp | null> = {
   'デンシティ': null, 'シュリンク': null,  // 10-14: 일반 단어(density·수축 포장) — 일본 이미지 검색 상위가 포장재·가방
 };
 
-export function tagKeyword(keyword: string, names: string[]): Intent {
+// homonyms = 검색 결과로 확인한 '이름만 치면 다른 뜻' 시술명(정규화) — 수집 때 일본 사이트 이미지 검색 상위 20개 중 무관한 뜻이 10개 이상(10-14)
+export function tagKeyword(keyword: string, names: string[], homonyms: ReadonlySet<string> = new Set()): Intent {
   const k = norm(keyword);
-  if (names.some((n) => norm(n) === k)) return k in HOMONYM ? 'noise' : 'name';
+  if (names.some((n) => norm(n) === k)) return k in HOMONYM || homonyms.has(k) ? 'noise' : 'name';
   if (names.some((n) => HOMONYM[norm(n)]?.test(k))) return 'noise';
   for (const [intent, re] of RULES) if (re.test(k)) return intent;
   const rest = names.reduce((s, n) => s.replace(norm(n), ''), k).replace(FORM, '');

@@ -12,6 +12,8 @@ export type IntentInfo = {
   stage: Stage | null; prevStage: Stage | null; ambiguous: boolean; keywords: number;
   top: Partial<Record<ProfileIntent, Array<[jp: string, volume: number, ko?: string]>>>;  // ko = 한국어 번역
   members?: Array<{ id: string; kr: string; jp: string; total: number[] }>;  // 같은 시술명 묶음의 검색어별 구성
+  // 시술명 검색 결과 구성 — 일본 사이트 이미지 검색 상위 20개를 피부과·미용 / 다른 진료과 / 화장품·셀프 / 무관한 뜻으로 나눈 수(10-14)
+  serp?: { derm: number; med: number; self: number; unrelated: number; note: string };
 };
 
 export type TrendRow = {
@@ -21,6 +23,10 @@ export type TrendRow = {
 };
 
 // 한국 검색 — 월 50 미만은 '적음'(키워드 플래너가 작은 값을 0으로 합치는 일이 잦다)
+// 섞임 판정 — 무관한 뜻이 많으면 동음이의(집계에서 시술명 단독 제외), 다른 진료과가 8/20 이상이면 혼재 경고
+export const MED_MIX = 8;
+export const SELF_MIX = 10;
+
 export function KoreaCell({ k }: { k: TrendRow['korea'] }) {
   if (!k || k.now < 50) return <span className="text-ui text-x-muted">소량</span>;
   const c = k.yearAgo >= 50 ? k.now / k.yearAgo - 1 : null;
@@ -71,8 +77,10 @@ export function TrendTable({ rows, selectedId, onSelect }: { rows: TrendRow[]; s
                 <td className={`${CELL} ${NUM}`}><KoreaCell k={r.korea} /></td>
                 <td className={CELL}>
                   {r.intent?.ambiguous
-                    ? <span className="text-ui text-amber-700" title="시술명이 게임·상품·인명 등과 겹쳐 수치 신뢰도 낮음">⚠ 동음이의 혼재</span>
-                    : <StageChip stage={r.intent?.stage ?? null} />}
+                    ? <span className="text-ui text-amber-700" title={`시술명만 검색하면 다른 뜻이 대부분 — ${r.intent.serp?.note ?? ''}`}>⚠ 동음이의 혼재</span>
+                    : (r.intent?.serp?.med ?? 0) >= MED_MIX
+                      ? <span className="text-ui text-amber-700" title={`시술명 검색 결과 상위 20개 중 ${r.intent!.serp!.med}개가 다른 진료과 — ${r.intent!.serp!.note}`}>⚠ 타 진료과 혼재</span>
+                      : <StageChip stage={r.intent?.stage ?? null} />}
                 </td>
                 <td className={`${CELL} w-[136px]`}>
                   {r.series ? <Sparkline values={r.series} width={120} height={28} /> : <span className="text-ui text-x-muted">—</span>}

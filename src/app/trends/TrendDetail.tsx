@@ -7,7 +7,7 @@ import { Sparkline } from '@/components/charts/Sparkline';
 import { describe, fmtVolume } from '@/lib/searchTrend';
 import { INTENT_LABEL, PROFILE_INTENTS, STAGE_LABEL, type ProfileIntent } from '@/lib/searchIntent';
 import { StateChip, StageChip } from './StateChip';
-import type { TrendRow, IntentInfo } from './TrendTable';
+import { MED_MIX, SELF_MIX, type TrendRow, type IntentInfo } from './TrendTable';
 
 const PERIODS = [{ m: 12, label: '1년' }, { m: 24, label: '2년' }, { m: 48, label: '4년' }] as const;
 
@@ -175,7 +175,17 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
           )}
           {it?.ambiguous && (
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-ui text-amber-800">
-              동음이의 혼재: 시술명만 검색하면 게임·회사·상품 등 다른 뜻이 대부분이에요. 시술명 단독 검색은 빼고 효과·가격·병원 등이 붙은 검색만 셌어요 — 실제 수요보다 작게 잡혀요.
+              동음이의 혼재: 시술명만 검색하면 다른 뜻이 대부분이에요{it.serp?.note ? `(${it.serp.note})` : ''}. 시술명 단독 검색은 빼고 효과·가격·병원 등이 붙은 검색만 셌어요 — 실제 수요보다 작게 잡혀요.
+            </p>
+          )}
+          {!it?.ambiguous && it?.serp && it.serp.med >= MED_MIX && (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-ui text-amber-800">
+              타 진료과 혼재: 시술명 검색 결과(일본 사이트 상위 20개) 중 {it.serp.med}개가 다른 진료과예요({it.serp.note}). 시술명만 검색한 수치엔 이 수요가 섞여 피부과 수요보다 크게 잡혀요.
+            </p>
+          )}
+          {!it?.ambiguous && it?.serp && it.serp.med < MED_MIX && it.serp.self >= SELF_MIX && (
+            <p className="mt-2 rounded-lg bg-x-surface px-3 py-2 text-ui text-x-secondary">
+              제품 검색 혼재: 시술명 검색 결과(일본 사이트 상위 20개) 중 {it.serp.self}개가 화장품·가정용 기기·에스테예요. 시술명만 검색한 사람 일부는 시술이 아니라 제품을 찾는 사람이에요.
             </p>
           )}
         </div>

@@ -85,6 +85,9 @@ test('이름 자체가 다른 뜻 — 이름 단독은 빼고 수식어 붙은 �
   assert.equal(tagKeyword('フォトナ 値段', ['フォトナ']), 'cost');
   assert.equal(tagKeyword('IPL 効果', ['IPL']), 'effect');
   assert.equal(tagKeyword('インモード', ['インモード']), 'name');           // 다른 시술은 그대로
+  // 검색 결과로 확인한 동음이의(수집 때 넘김) — ディスポート는 시설·다트바가 상위 20개 전부
+  assert.equal(tagKeyword('ディスポート', ['ディスポート'], new Set(['ディスポート'])), 'noise');
+  assert.equal(tagKeyword('ディスポート 効果', ['ディスポート'], new Set(['ディスポート'])), 'effect');
 });
 
 test('ownerOf — 더 구체적인 시술 이름이 주인', () => {

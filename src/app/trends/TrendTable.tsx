@@ -59,7 +59,10 @@ export function TrendTable({ rows, selectedId, onSelect }: { rows: TrendRow[]; s
                   <span className="ml-2 text-ui text-x-muted">{r.jp}</span>
                   <span className="ml-2 text-ui text-x-muted">· {r.major}</span>
                 </td>
-                <td className={`${CELL} ${NUM}`}>{s.state === 'nodata' ? <span className="text-x-muted">—</span> : fmtVolume(s.now)}</td>
+                <td className={`${CELL} ${NUM}`}>
+                  {s.state === 'nodata' ? <span className="text-x-muted">—</span> : fmtVolume(s.now)}
+                  {s.state !== 'nodata' && !r.volumes && <span className="ml-0.5 text-x-muted" title="시술명 검색량은 키워드 플래너 값 없음 — 효과·가격 등이 붙은 검색만 합계라 실제보다 작음">*</span>}
+                </td>
                 <td className={CELL}>
                   <StateChip state={s.state} />
                   {s.state !== 'low' && s.state !== 'nodata' && <span className="ml-2 text-ui tabular-nums text-x-secondary" title={s.change === null ? '1년 전 소량(월 100 미만) — 변화율 대신 신규' : '1년 전 같은 3개월 대비'}>1년 {fmtChange(s.change)}</span>}

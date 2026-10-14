@@ -114,7 +114,8 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
   ] : [];
   const korea = it?.korea ?? null;
   const showKorea = !!korea && korea.slice(from).some((v) => v >= 50);
-  // 대표 검색어(시트 일본어 키워드)가 0으로 오는 경우 — 키워드 플래너가 비슷한 표현을 다른 대표어로 합쳐 0을 준다(ニキビ治療 등)
+  // 시술명 검색량이 없거나 0 — 52개는 키워드 플래너가 수치를 아예 주지 않는다(エラボトックス·ほくろ除去·ニキビ治療 등, 단독 조회·연관 검색어도 같음, 10-14 확인).
+  // 추정(구글 트렌드 환산)은 하지 않고 '값 없음'으로 둔다(koo 10-14)
   const repZero = !row.volumes || row.volumes.slice(-3).every((v) => v === 0);
   const members = it?.members ?? null;
   const memberNow = (t: number[]) => t.slice(-3).reduce((a, b) => a + b, 0) / 3;
@@ -166,7 +167,10 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
           </dl>
           {repZero && summary.state !== 'nodata' && (
             <p className="mt-2 rounded-lg bg-x-surface px-3 py-2 text-ui text-x-secondary">
-              대표 검색어 {row.jp.split(' 외 ')[0]}는 키워드 플래너 값이 0(비슷한 표현을 다른 대표어로 합쳐 집계). 수치는 수식어·한국 조합 검색 기준이라 실제 수요보다 작을 수 있어요.
+              {row.volumes
+                ? <>시술명({row.jp.split(' 외 ')[0]}) 검색량이 최근 0이에요.</>
+                : <>시술명({row.jp.split(' 외 ')[0]}) 검색량은 키워드 플래너가 값을 주지 않아요(값 없음 — 일본에서 많이 찾는 시술에도 생기는 제공 제한).</>}
+              {' '}수치는 효과·가격 등이 붙은 검색과 한국 조합 검색만 합친 값이라 실제 수요보다 작아요.
             </p>
           )}
           {it?.ambiguous && (

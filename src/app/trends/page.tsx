@@ -2,7 +2,8 @@
 // 데이터: 수집·수정 때 만들어 둔 완성본(trend_view, 074)을 /api/trends로 읽는다 — 시술 목록·이름 검색 + 묶음 단위 값(검색어 묶음을 태그해 모은 것).
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { summarize, changeRank, type TrendState } from '@/lib/searchTrend';
+import { summarize, changeRank } from '@/lib/searchTrend';
+import { notableOf } from '@/lib/trendNotable';
 import { classify, categoryOrder } from '@/lib/procedureTaxonomy';
 import { TrendTable, MajorTable, MED_MIX, SORT_FIRST_DIR, type TrendRow, type MajorRow, type IntentInfo, type SortKey, type TableSort } from './TrendTable';
 import { TrendDetail } from './TrendDetail';
@@ -13,13 +14,14 @@ import { Button } from '@/components/ui';
 type Proc = { id: string; major: string; majorOrder: number; middle: string; name: string; kr: string; jp: string; en: string; volumes: number[] | null };
 type TrendData = { market: string; fetchedAt: string; months: string[]; procedures: Proc[]; intent: Record<string, IntentInfo> };
 
-type StateFilter = 'all' | 'rising' | 'falling' | 'flat' | 'quiet';
-const STATE_FILTERS: Array<{ key: StateFilter; label: string; match: (s: TrendState) => boolean }> = [
+type StateFilter = 'all' | 'notable' | 'rising' | 'falling' | 'flat' | 'quiet';
+const STATE_FILTERS: Array<{ key: StateFilter; label: string; match: (r: TrendRow) => boolean }> = [
   { key: 'all', label: '전체', match: () => true },
-  { key: 'rising', label: '상승', match: (s) => s === 'surge' || s === 'up' },
-  { key: 'falling', label: '하락', match: (s) => s === 'down' || s === 'peaked' || s === 'spiked' },
-  { key: 'flat', label: '보합', match: (s) => s === 'flat' },
-  { key: 'quiet', label: '소량 · 데이터 없음', match: (s) => s === 'low' || s === 'nodata' },
+  { key: 'notable', label: '★ 주목', match: (r) => !!r.notable },
+  { key: 'rising', label: '상승', match: (r) => r.summary.state === 'surge' || r.summary.state === 'up' },
+  { key: 'falling', label: '하락', match: (r) => ['down', 'peaked', 'spiked'].includes(r.summary.state) },
+  { key: 'flat', label: '보합', match: (r) => r.summary.state === 'flat' },
+  { key: 'quiet', label: '소량 · 데이터 없음', match: (r) => r.summary.state === 'low' || r.summary.state === 'nodata' },
 ];
 const STAGE_RANK: Record<string, number> = { learning: 1, considering: 2, choosing: 3 };
 
@@ -73,11 +75,12 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
       const medMix = !!it && !it.ambiguous && (it.serp?.med ?? 0) >= MED_MIX;
       const series = it && (it.ambiguous || it.total.some((x) => x > 0)) ? (medMix ? it.noName : it.total) : p.volumes;
       const korea = it ? { now: avg3(it.korea, n), yearAgo: avg3(it.korea, n - 12) } : null;
+      const summary = summarize(series, DATA.months);
       return {
         ...p, baseName: p.name, name: (nameCount.get(p.name) ?? 0) > 1 ? p.kr.replace(/\s*\(.*\)$/, '') : p.name, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub,
         jp: ms.length > 1 ? `${p.jp} 외 ${ms.length - 1}` : p.jp,
         searchText: ms.flatMap((m) => [m.name, m.kr, m.jp, m.en]).join(' ').toLowerCase(),
-        series, summary: summarize(series, DATA.months), intent: it, korea,
+        series, summary, intent: it, korea, notable: notableOf(summary, series, it?.korea ?? null),
       };
     });
   }, [DATA, INTENT]);
@@ -94,11 +97,11 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
   const [adding, setAdding] = useState(false);
 
   const inMajor = useMemo(() => rows.filter((r) => !major || r.major === major), [rows, major]);
-  const counts = useMemo(() => Object.fromEntries(STATE_FILTERS.map((f) => [f.key, inMajor.filter((r) => f.match(r.summary.state)).length])) as Record<StateFilter, number>, [inMajor]);
+  const counts = useMemo(() => Object.fromEntries(STATE_FILTERS.map((f) => [f.key, inMajor.filter((r) => f.match(r)).length])) as Record<StateFilter, number>, [inMajor]);
   const shown = useMemo(() => {
     const f = STATE_FILTERS.find((x) => x.key === stateFilter)!;
     const needle = q.trim().toLowerCase();
-    const list = inMajor.filter((r) => f.match(r.summary.state)
+    const list = inMajor.filter((r) => f.match(r)
       && (!needle || r.searchText.includes(needle) || r.middle.toLowerCase().includes(needle)));
     // 열마다 비교할 값 — null(값 없음·소량)은 방향과 상관없이 맨 아래
     const val: Record<SortKey, (r: TrendRow) => number | string | null> = {

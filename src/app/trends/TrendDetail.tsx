@@ -10,6 +10,7 @@ import { StateChip, StageChip } from './StateChip';
 import { MED_MIX, SELF_MIX, type TrendRow, type IntentInfo } from './TrendTable';
 import { Button } from '@/components/ui';
 import { ProcedureForm, KeywordReview } from './TrendManage';
+import { notableText } from '@/lib/trendNotable';
 
 const PERIODS = [{ m: 12, label: '1년' }, { m: 24, label: '2년' }, { m: 48, label: '4년' }] as const;
 
@@ -159,6 +160,11 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose, onChange
       <div className={editing ? 'hidden' : 'space-y-7 px-6 py-5'}>
         <div>
           <dl className="divide-y divide-x-border/60 rounded-lg border border-x-border">
+            {row.notable && (
+              <SummaryLine label="주목">
+                <span className="mr-1 text-amber-600">★</span>{notableText(row.notable).join(' · ')}
+              </SummaryLine>
+            )}
             <SummaryLine label="추세">
               <span className="mr-2 align-[1px]"><StateChip state={summary.state} /></span>{describe(summary)}
             </SummaryLine>

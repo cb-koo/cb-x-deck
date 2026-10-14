@@ -5,6 +5,7 @@ import { HEAD, CELL, NUM } from '@/app/settlement/tableStyle';
 import { fmtVolume, fmtChange, type TrendSummary } from '@/lib/searchTrend';
 import type { Stage, ProfileIntent } from '@/lib/searchIntent';
 import { StateChip, StageChip } from './StateChip';
+import { notableText, type Notable } from '@/lib/trendNotable';
 
 export type IntentInfo = {
   total: number[]; korea: number[];
@@ -20,7 +21,8 @@ export type IntentInfo = {
 export type TrendRow = {
   id: string; major: string; majorOrder: number; middle: string; name: string; kr: string; jp: string; en: string;
   volumes: number[] | null; series: number[] | null; summary: TrendSummary; searchText: string;
-  baseName: string;  // 저장된 시술명(같은 이름이 두 분류에 있으면 화면 name은 한국어 표기로 바뀐다)
+  baseName: string;
+  notable: Notable | null;  // 주목 시술(성장·한국 수요) — 지도 이름·굵은 점·필터  // 저장된 시술명(같은 이름이 두 분류에 있으면 화면 name은 한국어 표기로 바뀐다)
   intent: IntentInfo | null; korea: { now: number; yearAgo: number } | null;
 };
 
@@ -101,6 +103,7 @@ export function TrendTable({ rows, selectedId, onSelect, sort, onSort }: {
                   className={`cursor-pointer ${on ? 'bg-x-blue/10' : 'hover:bg-x-hover'}`}>
                 <td className={`${CELL} truncate`} title={`${r.name} · ${r.jp} · ${r.major}`}>
                   <span className="font-medium">{r.name}</span>
+                  {r.notable && <span className="ml-1.5 text-amber-600" title={`주목 — ${notableText(r.notable).join(' · ')}`}>★</span>}
                   <span className="ml-2.5 text-ui text-x-muted">{r.jp}</span>
                   <span className="ml-2.5 text-ui text-x-muted">· {r.major}</span>
                 </td>

@@ -14,15 +14,13 @@ export function TrendMap({ rows, open, onToggle, selectedId, onSelect }: {
 }) {
   // 신규(전년 소량, change = null)는 맨 위에 붙인다 — 빼면 가장 크게 뜬 시술이 지도에서 사라진다
   const live = rows.filter((r) => r.summary.now !== null && r.summary.state !== 'low' && r.summary.state !== 'nodata' && !r.intent?.ambiguous);
-  const byVol = [...live].sort((a, b) => (b.summary.now ?? 0) - (a.summary.now ?? 0)).slice(0, 6).map((r) => r.id);
-  const byRise = [...live].filter((r) => (r.summary.now ?? 0) >= 1000).sort((a, b) => (b.summary.change ?? Infinity) - (a.summary.change ?? Infinity)).slice(0, 6).map((r) => r.id);
-  const labeled = new Set([...byVol, ...byRise]);
+  // 이름·굵은 점 = 주목 시술(성장·한국 수요, trendNotable) — 표의 ★·'주목' 필터와 같은 기준(10-15)
   const points: Bubble[] = live.map((r) => {
     const s = r.summary;
     const ch = s.change === null ? Y_MAX : s.change * 100;
     return {
       id: r.id, x: Math.max(100, s.now ?? 100), y: Math.max(Y_MIN, Math.min(Y_MAX, ch)), size: r.korea?.now ?? 0,
-      label: labeled.has(r.id) ? r.name : undefined, strong: s.state === 'surge' || s.state === 'up',
+      label: r.notable ? r.name : undefined, strong: !!r.notable,
       tip: {
         title: r.name, sub: `${r.jp} · ${r.major}`,
         rows: [
@@ -38,7 +36,7 @@ export function TrendMap({ rows, open, onToggle, selectedId, onSelect }: {
     <section className="mb-4 shrink-0 rounded-xl border border-x-border bg-white">
       <button onClick={onToggle} className="flex w-full items-center gap-2 px-5 py-3 text-left">
         <span className="text-[16px] font-semibold">시술 지도</span>
-        <span className="text-ui text-x-muted">가로 검색량 · 세로 전년 대비 · 원 크기 한국 검색량</span>
+        <span className="text-ui text-x-muted">가로 검색량 · 세로 1년 변화 · 원 크기 한국 검색량 · 이름 붙은 점 = ★ 주목</span>
         <span className="ml-auto text-ui text-x-secondary">{open ? '접기 ▴' : '펼치기 ▾'}</span>
       </button>
       {open && (
@@ -46,7 +44,7 @@ export function TrendMap({ rows, open, onToggle, selectedId, onSelect }: {
           {points.length < 3
             ? <p className="py-6 text-center text-ui text-x-muted">표시 대상 부족(소량·데이터 없음 제외)</p>
             : <BubbleScatter points={points} xName="월 검색량" yName="전년 대비(%)" height={340} zeroLabel="전년 수준" onSelect={onSelect} selectedId={selectedId} />}
-          <p className="mt-1 text-ui text-x-muted">+{Y_MAX}% 초과는 상단 고정 · 점 클릭 시 상세 · 소량·데이터 없음·동음이의 혼재 제외</p>
+          <p className="mt-1 text-ui text-x-muted">+{Y_MAX}% 초과·신규는 상단 고정 · 점 클릭 시 상세 · 소량·데이터 없음·동음이의 혼재 제외 · ★ 주목 = 1년 새 월 1,000건↑(+30%↑)·지금 유지, 또는 한국 검색 월 100건↑ 증가</p>
         </div>
       )}
     </section>

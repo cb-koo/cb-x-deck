@@ -1,10 +1,7 @@
 // 검색 트렌드 — 시술마다 일본에서 얼마나 찾는지(크기)·늘고 있는지(방향)·왜 찾는지(성격)·한국에서 받으려는 검색(한국). 스펙 2026-10-13
-// 시안: 데이터는 10-13 실측 스냅샷 — snapshot.json(시술 목록·이름 검색), intent.json(검색어 묶음을 태그해 모은 시술 단위 값).
-// 수집·저장(073)이 붙으면 API로 바꾼다.
+// 데이터: 수집·수정 때 만들어 둔 완성본(trend_view, 074)을 /api/trends로 읽는다 — 시술 목록·이름 검색 + 묶음 단위 값(검색어 묶음을 태그해 모은 것).
 'use client';
-import { useMemo, useState } from 'react';
-import snapshot from './snapshot.json';
-import intentData from './intent.json';
+import { useEffect, useMemo, useState } from 'react';
 import { summarize, changeRank, type TrendState } from '@/lib/searchTrend';
 import { classify, categoryOrder } from '@/lib/procedureTaxonomy';
 import { TrendTable, MajorTable, MED_MIX, type TrendRow, type MajorRow, type IntentInfo } from './TrendTable';
@@ -12,8 +9,7 @@ import { TrendDetail } from './TrendDetail';
 import { TrendMap } from './TrendMap';
 
 type Proc = { id: string; major: string; majorOrder: number; middle: string; name: string; kr: string; jp: string; en: string; volumes: number[] | null };
-const DATA = snapshot as { market: string; fetchedAt: string; months: string[]; procedures: Proc[] };
-const INTENT = intentData as unknown as Record<string, IntentInfo>;
+type TrendData = { market: string; fetchedAt: string; months: string[]; procedures: Proc[]; intent: Record<string, IntentInfo> };
 
 type StateFilter = 'all' | 'rising' | 'falling' | 'flat' | 'quiet';
 const STATE_FILTERS: Array<{ key: StateFilter; label: string; match: (s: TrendState) => boolean }> = [
@@ -28,15 +24,29 @@ const SORTS: Array<{ key: SortKey; label: string }> = [
   { key: 'change', label: '최근 추세순' }, { key: 'volume', label: '검색량순' }, { key: 'korea', label: '한국 검색량순' }, { key: 'name', label: '이름순' },
 ];
 
-const lastMonth = DATA.months[DATA.months.length - 1];
-const LAST_LABEL = `${lastMonth.slice(0, 4)}년 ${Number(lastMonth.slice(5, 7))}월`;
-const FETCHED = `${Number(DATA.fetchedAt.slice(5, 7))}/${Number(DATA.fetchedAt.slice(8, 10))}`;
 const avg3 = (v: number[], end: number) => v.slice(end - 3, end).reduce((s, x) => s + x, 0) / 3;
 
 export default function TrendsPage() {
+  const [data, setData] = useState<TrendData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    fetch('/api/trends?market=jp', { cache: 'no-store' })
+      .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error ?? '불러오지 못했어요'); setData(j); })
+      .catch((e: Error) => setError(e.message));
+  }, []);
+  if (error) return <div className="px-6 py-8 text-[15px] text-x-secondary">검색 트렌드를 불러오지 못했어요 — {error}</div>;
+  if (!data) return <div className="px-6 py-8 text-[15px] text-x-muted">검색 트렌드를 불러오는 중…</div>;
+  return <TrendsView data={data} />;
+}
+
+function TrendsView({ data: DATA }: { data: TrendData }) {
+  const INTENT = DATA.intent;
+  const lastMonth = DATA.months[DATA.months.length - 1];
+  const LAST_LABEL = `${lastMonth.slice(0, 4)}년 ${Number(lastMonth.slice(5, 7))}월`;
+  const FETCHED = `${Number(DATA.fetchedAt.slice(5, 7))}/${Number(DATA.fetchedAt.slice(8, 10))}`;
   // 분류는 일반적인 피부과 시술 분류로 다시 붙인다(시트 대분류·중분류는 용어 참고용). 같은 일본어 검색어는 한 줄만.
   // 크기·방향은 검색어 묶음 전체(이름 + 수식어 + 한국 조합, 제외·다른 뜻 뺌)로 본다 — 묶음이 없으면 이름 검색으로.
-  // 같은 분류·같은 시술명(시트의 제품·표기 변형 행: 울쎄라/울쎄라프라임/울쎄라리프트)은 한 줄로 묶는다 — intent.json이 묶음 단위(첫 행 id)다.
+  // 같은 분류·같은 시술명(시트의 제품·표기 변형 행: 울쎄라/울쎄라프라임/울쎄라리프트)은 한 줄로 묶는다 — 완성본의 intent가 묶음 단위(첫 행 id)다.
   const rows: TrendRow[] = useMemo(() => {
     const seen = new Set<string>();
     const n = DATA.months.length;
@@ -67,7 +77,7 @@ export default function TrendsPage() {
         series, summary: summarize(series, DATA.months), intent: it, korea,
       };
     });
-  }, []);
+  }, [DATA, INTENT]);
   const majors = useMemo(() => [...new Map(rows.map((r) => [r.major, r.majorOrder])).entries()].sort((a, b) => a[1] - b[1]).map(([m]) => m), [rows]);
 
   const [view, setView] = useState<'procedure' | 'major'>('procedure');

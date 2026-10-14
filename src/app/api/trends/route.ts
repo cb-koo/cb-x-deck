@@ -4,7 +4,7 @@ import { readView } from '@/lib/trendStore';
 import { requireAllowedUser } from '@/lib/authGuard';
 
 // 검색 트렌드 화면 데이터 — 수집·수정 때 미리 만들어 둔 완성본(trend_view)을 그대로 준다(스펙 2026-10-13 §7).
-// 약 260줄 × 48개월 묶음이라 압축 전 수 MB — 계산은 하지 않는다.
+// 약 260묶음 × 48개월이라 0.5MB 남짓(압축하면 훨씬 작다) — 계산은 하지 않는다.
 export async function GET(req: Request) {
   const gate = await requireAllowedUser();
   if (gate.response) return gate.response;

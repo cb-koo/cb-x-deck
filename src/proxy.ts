@@ -19,6 +19,8 @@ export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname === '/api/landing-events') return NextResponse.next({ request });
   // 성과 자동 측정 — DB 예약 실행이 5분마다 부른다. 세션이 없고 인가는 라우트가 시크릿으로 한다(위와 같은 이유).
   if (request.nextUrl.pathname === '/api/tracking/auto-measure') return NextResponse.next({ request });
+  // 검색 트렌드 자동 수집 — DB 예약 실행이 매시간 부른다(위와 같은 이유, 인가는 라우트가 시크릿으로).
+  if (request.nextUrl.pathname === '/api/trends/collect') return NextResponse.next({ request });
 
   // 확장 API — 쿠키를 쓰지 않는 Bearer 경로라 세션 쿠키 갱신을 건너뛴다. 인증 우회가 아니다:
   // 이 prefix 아래의 모든 핸들러가 requireExtensionMember로 JWT를 검증한다(API 계획 §4-5). OPTIONS도 여기서 통과.

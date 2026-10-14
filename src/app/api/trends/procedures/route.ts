@@ -6,7 +6,7 @@ import { CATEGORIES } from '@/lib/procedureTaxonomy';
 import { requireMember } from '@/lib/authGuard';
 
 // 시술 추가 — 저장하고 그 시술만 바로 수집한다(4년치 검색량·연관 검색어·수식어·한국 조합, 약 5초).
-export const maxDuration = 60;
+export const maxDuration = 300;  // 새 달이 나와 있으면 전체 갱신을 먼저 한다(1~2분, 한 달에 한 번)
 
 export async function POST(req: Request) {
   const gate = await requireMember();

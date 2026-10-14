@@ -84,7 +84,7 @@ export function toSeries(r: KpRow | undefined, from: string, to: string): number
 export interface CollectResult { did: string[]; latest: string | null; stoppedBy?: 'deadline' | 'rate-limit' }
 type Translate = (texts: string[], glossary: string) => Promise<Record<string, string>>;
 
-export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { market?: string; now?: Date; deadlineMs: number; translate?: Translate }): Promise<CollectResult> {
+export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { market?: string; now?: Date; deadlineMs: number; translate?: Translate; forceCheck?: boolean }): Promise<CollectResult> {
   const market = opts.market ?? 'jp';
   const now = opts.now ?? new Date();
   const t0 = Date.now();
@@ -99,7 +99,7 @@ export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { m
         and started_at > ${new Date(now.getTime() - 7 * 864e5)} order by started_at desc limit 1`;
     if (!run) {
       const [chk] = await sql<Array<{ started_at: Date }>>`select started_at from trend_run where market = ${market} and kind = 'check' order by started_at desc limit 1`;
-      if (!chk || now.getTime() - chk.started_at.getTime() > CHECK_EVERY_H * 36e5) {
+      if (opts.forceCheck || !chk || now.getTime() - chk.started_at.getTime() > CHECK_EVERY_H * 36e5) {
         const latest = await probeLatest(sql, kp, market, now);
         await sql`insert into trend_run (market, kind, started_at, finished_at, latest_month, detail) values (${market}, 'check', ${now}, now(), ${latest}, ${sql.json({ stored })})`;
         did.push(`새 달 확인(${latest ?? '응답 없음'}, 저장 ${stored ?? '없음'})`);
@@ -136,9 +136,21 @@ export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { m
 }
 
 // 시술 하나만 바로 수집 — 화면에서 시술을 더하거나 일본어 검색어를 고쳤을 때(약 5초). 끝나면 완성본을 다시 만든다.
+// 키워드 플래너에 새 달이 나와 있으면(예: 9월 값이 나온 뒤 월요일 갱신 전) 4년 창의 첫 달이 빠져 새 검색어가 전부 값 없음이 된다 —
+// 그럴 땐 전체 갱신을 먼저 끝내고(1~2분) 새 창으로 받는다(10-15).
 export async function collectProcedure(sql: postgres.Sql, kp: KpClient, market: string, id: string, now = new Date()): Promise<{ keywords: number }> {
-  const latest = await storedLatest(sql, market);
+  let latest = await storedLatest(sql, market);
   if (!latest) return { keywords: 0 };
+  const kpLatest = await probeLatest(sql, kp, market, now);
+  if (kpLatest && kpLatest > latest) {
+    const [run] = await sql<Array<{ id: string; latest_month: string; detail: { cursor?: number } | null }>>`
+      insert into trend_run (market, kind, started_at, latest_month, detail) values (${market}, 'refresh', ${now}, ${kpLatest}, ${sql.json({ cursor: 0, by: 'procedure' })}) returning id, latest_month, detail`;
+    const t0 = Date.now();
+    const done = await refreshAll(sql, kp, market, run, () => 240_000 - (Date.now() - t0));
+    if (!done.finished) throw new Error('새 달 전체 갱신을 다 못 끝냈어요 — 잠시 뒤 다시 저장해 주세요');
+    await rebuildView(sql, market);
+    latest = kpLatest;
+  }
   const r = await widenIdeas(sql, kp, market, latest, now, () => 60_000, id);
   await rebuildView(sql, market);
   return { keywords: r.keywords };
@@ -212,7 +224,7 @@ async function widenIdeas(sql: postgres.Sql, kp: KpClient, market: string, lates
 }
 
 // 화면에 보이는(의도별 상위) 검색어 중 번역이 없는 것 — 시술명(대표 검색어 = 한국어 시술명)을 용어집으로
-async function translateMissing(sql: postgres.Sql, market: string, translate: Translate): Promise<number> {
+export async function translateMissing(sql: postgres.Sql, market: string, translate: Translate): Promise<number> {
   const [v] = await sql<Array<{ doc: { intent: Record<string, { top: Record<string, Array<[string, number, string]>> }> } }>>`select doc from trend_view where market = ${market}`;
   if (!v) return 0;
   const shown = new Set<string>();

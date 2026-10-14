@@ -6,7 +6,7 @@ import { CATEGORIES } from '@/lib/procedureTaxonomy';
 import { requireMember } from '@/lib/authGuard';
 
 // 시술 고치기(상세 패널 [수정]) — 일본어 검색어가 바뀌면 그 시술만 바로 다시 수집하고(약 5초), 아니면 완성본만 다시 만든다.
-export const maxDuration = 60;
+export const maxDuration = 300;  // 새 달이 나와 있으면 전체 갱신을 먼저 한다(1~2분, 한 달에 한 번)
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireMember();

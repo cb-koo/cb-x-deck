@@ -85,9 +85,12 @@ export async function rebuildView(sql: postgres.Sql, market: string, window = 48
     order by major_order, case when id ~ '^p[0-9]+' then substring(id from '[0-9]+')::int else 1000000 end, id`;  // 시트 행 순서(p2 < p10), 앱에서 더한 건 뒤
   const kws = await sql<Array<{ text: string; procedure_id: string | null; source: TrendKeywordInput['source']; ko: string | null; intent_override: string | null; series: number[] | null; series_start: Date | null; fetched_at: Date | null }>>`
     select text, procedure_id, source, ko, intent_override, series, series_start, fetched_at from trend_keyword where market = ${market} order by id`;
-  // 마지막 달 = 검색량이 있는 검색어들의 가장 늦은 달
-  let last = '0000-00';
-  for (const k of kws) if (k.series && k.series_start) { const e = addMonths(monthOf(k.series_start), k.series.length - 1); if (e > last) last = e; }
+  // 마지막 달 = 마지막으로 끝난 전체 갱신(또는 처음 가져오기)의 달. 검색어마다 끝 달이 다를 수 있어(새 달이 나온 뒤 따로 받은 검색어)
+  // '가장 늦은 달'로 잡으면 나머지 1.6만 개가 그 달이 없어 전부 값 없음이 된다(10-15 9월 값이 나온 날 발견).
+  const [run] = await sql<Array<{ latest_month: string }>>`select latest_month from trend_run where market = ${market}
+    and kind in ('refresh', 'import') and finished_at is not null and latest_month is not null order by finished_at desc limit 1`;
+  let last = run?.latest_month ?? '0000-00';
+  if (!run) for (const k of kws) if (k.series && k.series_start) { const e = addMonths(monthOf(k.series_start), k.series.length - 1); if (e > last) last = e; }
   const months = Array.from({ length: window }, (_, i) => addMonths(last, i - window + 1));
   const align = (k: (typeof kws)[number]): number[] | null => {
     if (!k.series || !k.series_start) return null;

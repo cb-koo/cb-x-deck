@@ -32,9 +32,28 @@ test('상승·하락 문턱 30%', () => {
   assert.equal(summarize(shift(1000, 700), MONTHS).state, 'down');
 });
 
-test('급상승은 두 배 이상이고 월 1,000 이상일 때만', () => {
-  assert.equal(summarize(shift(400, 1000, 400), MONTHS).state, 'surge');
-  assert.equal(summarize(shift(300, 900, 300), MONTHS).state, 'up');  // 세 배지만 1,000 미만
+test('급상승 = 가속 — 최근에 오르기 시작함', () => {
+  const s = summarize(shift(400, 1000, 400), MONTHS);
+  assert.equal(s.state, 'surge');
+  assert.match(describe(s), /증가 속도/);
+});
+
+test('꾸준히 오르기만 하면 급상승이 아니라 상승(속도가 1년 전과 같음)', () => {
+  const v = Array.from({ length: 48 }, (_, i) => Math.round(1000 * 1.04 ** i));  // 매달 4%씩, 1년 +60%
+  const s = summarize(v, MONTHS);
+  assert.ok(s.change! > 0.5);
+  assert.equal(s.state, 'up');
+});
+
+test('계절 정점은 급상승이 아님 — 매년 같은 시기에 같은 만큼 오르면 가속 1', () => {
+  const v = flat(1000);
+  for (let i = 0; i < 48; i++) if (/-0[678]$/.test(MONTHS[i])) v[i] = 3000;  // 매년 6~8월
+  const s = summarize(v, MONTHS);
+  assert.notEqual(s.state, 'surge');
+});
+
+test('작은 시술(최근 6개월 월 300 미만)은 가속이어도 상승까지만', () => {
+  assert.equal(summarize(shift(120, 400, 120), MONTHS).state, 'up');
 });
 
 test('1년 전 소량(월 100 미만)이면 변화율 대신 신규', () => {

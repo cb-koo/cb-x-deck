@@ -13,6 +13,7 @@ export interface TrendSummary {
   yearAgo: number | null;     // 1년 전 같은 3개월 평균
   twoYearsAgo: number | null; // 2년 전 같은 3개월 평균
   change: number | null;      // now / yearAgo − 1 (수요 적음·1년 전 0이면 null)
+  accel: number | null;       // 가속 — (최근 6개월 ÷ 직전 6개월) ÷ (1년 전 같은 비율). 1보다 크면 평소 이맘때보다 빨리 늘고 있다
   peak12: number | null;      // 지난 12개월 최고치
   seasonMonth: number | null; // 매년 많이 찾는 달(1~12)
 }
@@ -20,8 +21,13 @@ export interface TrendSummary {
 // 판정 문턱 — 반올림 단계 하나가 약 20%라 ±30% 안쪽은 잡음으로 본다(스펙 §2-2)
 const LOW = 100;
 const MOVE = 0.3;
-const SURGE = 1.0;
-const SURGE_MIN = 1000;
+// 급상승 = 가속(10-14 리서치·백테스트): 전년 대비는 정확하지만 늦다. 최근 6개월이 직전 6개월보다 는 비율을
+// 1년 전 같은 시기의 비율로 나눠 계절을 지운다(여름 제모가 여름마다 급상승이 되지 않게). 3개월 창은 반올림 잡음에 흔들려
+// 6개월 뒤 유지율 73%, 6개월 창은 96%이면서 전년 대비보다 평균 3.6개월 먼저 잡았다. Spate(Rising Star/Sustained Riser)·
+// Exploding Topics(Exploding/Regular)처럼 '꾸준한 상승'(상승)과 '빨라지는 상승'(급상승)을 나눈다.
+const ACCEL = 1.5;
+const ACCEL_YOY = 1.3;
+const SURGE_MIN = 300;
 const PEAKED_GROWTH = 0.5;
 const PEAKED_DROP = 0.7;
 const NEW_RATIO = 20;
@@ -31,7 +37,7 @@ const avg = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.le
 
 // values = 오래된 달 → 최근 달. months = 같은 길이의 'YYYY-MM'.
 export function summarize(values: number[] | null, months: string[]): TrendSummary {
-  const empty: TrendSummary = { state: 'nodata', now: null, yearAgo: null, twoYearsAgo: null, change: null, peak12: null, seasonMonth: null };
+  const empty: TrendSummary = { state: 'nodata', now: null, yearAgo: null, twoYearsAgo: null, change: null, accel: null, peak12: null, seasonMonth: null };
   if (!values || values.length < 15) return empty;
   const n = values.length;
   const now = avg(values.slice(n - 3));
@@ -45,7 +51,10 @@ export function summarize(values: number[] | null, months: string[]): TrendSumma
   for (let i = n - 12; i < n; i++) { const r = avg(values.slice(i - 2, i + 1)); if (r >= peakRoll) { peakRoll = r; peakAt = i; } }
   const peakBeforeRecent = peakAt < n - 1;
   const seasonMonth = season(values, months);
-  const base = { now, yearAgo, twoYearsAgo, peak12, seasonMonth };
+  const n6 = avg(values.slice(n - 6)), p6 = avg(values.slice(n - 12, n - 6));
+  const ln6 = n >= 24 ? avg(values.slice(n - 18, n - 12)) : 0, lp6 = n >= 24 ? avg(values.slice(n - 24, n - 18)) : 0;
+  const accel = p6 >= LOW && ln6 > 0 && lp6 > 0 ? (n6 / p6) / (ln6 / lp6) : null;
+  const base = { now, yearAgo, twoYearsAgo, accel, peak12, seasonMonth };
   if (now < LOW) return { ...base, state: 'low', change: null };
   // 1년 전이 소량(월 100 미만)이거나 지금이 1년 전의 20배 이상이면 변화율은 의미가 없다(리투오 137 → 12,473 = +9,000%)
   // — '신규'로 본다(change = null)
@@ -55,7 +64,7 @@ export function summarize(values: number[] | null, months: string[]): TrendSumma
     return { ...base, state: 'peaked', change };
   }
   if (change === null) return { ...base, state: now >= SURGE_MIN ? 'surge' : 'up', change };  // 1년 전 소량 → 신규 수요
-  if (change >= SURGE && now >= SURGE_MIN) return { ...base, state: 'surge', change };
+  if (change >= MOVE && accel !== null && accel >= ACCEL && n6 >= SURGE_MIN && n6 / ln6 >= ACCEL_YOY) return { ...base, state: 'surge', change };
   if (change >= MOVE) return { ...base, state: 'up', change };
   if (change <= -MOVE) return { ...base, state: 'down', change };
   return { ...base, state: 'flat', change };
@@ -104,7 +113,7 @@ export function describe(s: TrendSummary): string {
   }
   const from = `1년 새 ${fmtVolume(s.yearAgo)} → ${fmtVolume(s.now)}`;
   switch (s.state) {
-    case 'surge': return s.change === null ? `1년 전엔 거의 찾지 않던 검색어인데, 지금은 한 달에 ${fmtVolume(s.now)}번 찾아요.${seasonText}` : `${from}${ro(s.now)} 크게 늘었어요(${fmtChange(s.change)}).${seasonText}`;
+    case 'surge': return s.change === null ? `1년 전엔 거의 찾지 않던 검색어인데, 지금은 한 달에 ${fmtVolume(s.now)}번 찾아요.${seasonText}` : `${from}${ro(s.now)} 늘었고(${fmtChange(s.change)}), 최근 6개월 증가 속도가 평소 이맘때보다 ${(s.accel ?? 0).toFixed(1)}배 빨라요.${seasonText}`;
     case 'up': return `${from}${ro(s.now)} 늘고 있어요(${fmtChange(s.change)}).${seasonText}`;
     case 'down': return `${from}${ro(s.now)} 줄고 있어요(${fmtChange(s.change)}).${seasonText}`;
     default: return `${from}, 큰 변화 없이 유지돼요(${fmtChange(s.change)}).${seasonText}`;

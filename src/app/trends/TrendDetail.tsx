@@ -1,31 +1,52 @@
-// 검색 트렌드 상세 — 판정 문장(크기·방향·성격·한국) → 월별 그래프(전체 / 한국) → 성격 막대(지금 vs 1년 전) → 함께 찾는 말 → 같은 묶음 비교.
+// 검색 트렌드 상세 — 판정 문장(크기·방향·성격·한국) → 월별 그래프(전체 / 한국) → 검색 의도(의도별 한 줄: 비중·전년 변화·대표 검색어) → 같은 묶음 비교.
 // 스펙 2026-10-13 §5-2(3차)
 'use client';
 import { useState } from 'react';
 import { LineChart } from '@/components/charts/LineChart';
-import { SegmentedBar } from '@/components/charts/SegmentedBar';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { describe, fmtVolume } from '@/lib/searchTrend';
 import { INTENT_LABEL, PROFILE_INTENTS, STAGE_LABEL, STAGE_HINT, type ProfileIntent } from '@/lib/searchIntent';
 import { StateChip, StageChip } from './StateChip';
-import { KoreaCell, type TrendRow } from './TrendTable';
+import { KoreaCell, type TrendRow, type IntentInfo } from './TrendTable';
 
 const PERIODS = [{ m: 12, label: '1년' }, { m: 24, label: '2년' }, { m: 48, label: '4년' }] as const;
 
-// 성격 색 — 고객 여정 순서대로 알아보기(하늘) → 고민(보라 계열) → 고르기(주황 계열) → 한국(초록). 칸 안에 %를 같이 적어 색만으로 읽지 않게.
-const INTENT_COLOR: Record<ProfileIntent, string> = {
-  info: '#7cc4f4', effect: '#8b7fd6', worry: '#5b4bb7', concern: '#c9d3d9', cost: '#f2a541', place: '#d9782b', korea: '#1f9d55',
-};
-
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
-function ProfileBar({ label, p }: { label: string; p: Record<ProfileIntent, number> }) {
+// 검색 의도 — 한국은 위 한국 검색량 그래프가 따로 보여 주므로 빼고, 나머지를 100%로 다시 나눈다
+type Share = Partial<Record<ProfileIntent, number>>;
+const LIST_INTENTS = PROFILE_INTENTS.filter((i) => i !== 'korea');
+function shares(p: Record<ProfileIntent, number> | null): Share | null {
+  if (!p) return null;
+  const all = LIST_INTENTS.reduce((s, i) => s + p[i], 0);
+  return all > 0 ? Object.fromEntries(LIST_INTENTS.map((i) => [i, p[i] / all])) : null;
+}
+const SHIFT = 0.1;  // 전년보다 10%p 이상 움직인 의도에만 ▲▼ — 나머지(대부분)는 표시 없이
+
+// 의도별 한 줄 — 이름 · 막대 · 비중 · 전년 변화 · 대표 검색어. 막대·범례·검색어 목록을 따로 두면 같은 7개를 세 번 읽어야 했다(10-14).
+function IntentRows({ now, prev, top }: { now: Share; prev: Share | null; top: IntentInfo['top'] }) {
+  const list = LIST_INTENTS.filter((i) => (now[i] ?? 0) >= 0.005 || top[i]?.length).sort((a, b) => (now[b] ?? 0) - (now[a] ?? 0));
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-16 shrink-0 text-ui text-x-secondary">{label}</span>
-      <div className="min-w-0 flex-1">
-        <SegmentedBar inBar total={1} segments={PROFILE_INTENTS.map((i) => ({ value: p[i], color: INTENT_COLOR[i], label: INTENT_LABEL[i] }))} />
-      </div>
+    <div className="divide-y divide-x-border/60 rounded-lg border border-x-border">
+      {list.map((i) => {
+        const v = now[i] ?? 0;
+        const d = prev ? v - (prev[i] ?? 0) : 0;
+        return (
+          <div key={i} className="flex items-center gap-3 px-3 py-2.5">
+            <span className="w-[84px] shrink-0 text-ui text-x-secondary">{INTENT_LABEL[i]}</span>
+            <span className="h-2 w-[96px] shrink-0 overflow-hidden rounded-full bg-x-surface">
+              <span className="block h-full rounded-full bg-x-blue" style={{ width: `${Math.round(v * 100)}%` }} />
+            </span>
+            <span className="w-9 shrink-0 text-right text-ui font-medium tabular-nums">{pct(v)}</span>
+            <span className={`w-[52px] shrink-0 text-ui tabular-nums ${d > 0 ? 'text-green-700' : 'text-red-600'}`}>
+              {Math.abs(d) >= SHIFT ? `${d > 0 ? '▲' : '▼'}${Math.round(Math.abs(d) * 100)}%p` : ''}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-ui text-x-muted" title={(top[i] ?? []).map(([t, m]) => `${t} ${fmtVolume(m)}`).join(' · ')}>
+              {(top[i] ?? []).slice(0, 2).map(([t, m]) => `${t} ${fmtVolume(m)}`).join(' · ')}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -54,10 +75,11 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
   const ranked = [...siblings].sort((a, b) => (b.summary.now ?? -1) - (a.summary.now ?? -1));
 
   // 성격 문장 — 비중 큰 두 의도를 사용자 말로
-  const prof = it?.profile ?? null;
-  const topTwo = prof ? PROFILE_INTENTS.filter((i) => i !== 'korea').sort((a, b) => prof[b] - prof[a]).slice(0, 2) : [];
+  const prof = shares(it?.profile ?? null);
+  const prevProf = shares(it?.prev ?? null);
+  const topTwo = prof ? [...LIST_INTENTS].sort((a, b) => (prof[b] ?? 0) - (prof[a] ?? 0)).slice(0, 2) : [];
   const characterText = it?.stage && prof
-    ? `검색 의도는 ${topTwo.map((i) => `${INTENT_LABEL[i]} ${pct(prof[i])}`).join(' · ')} 중심의 ${STAGE_LABEL[it.stage]} 단계예요.`
+    ? `검색 의도는 ${topTwo.map((i) => `${INTENT_LABEL[i]} ${pct(prof[i] ?? 0)}`).join(' · ')} 중심의 ${STAGE_LABEL[it.stage]} 단계예요.`
     : '연관 검색어가 적어 관심 단계는 판단 보류예요.';
   const koreaText = row.korea && row.korea.now >= 50
     ? `한국 검색량(韓国·ソウル·江南)은 월 ${fmtVolume(row.korea.now)}이에요.`
@@ -150,40 +172,15 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose }: {
 
         {it && prof && (
           <div>
-            <p className="mb-1 text-ui font-semibold text-x-secondary">검색 의도 비중</p>
-            {it.stage && <p className="mb-3 text-ui text-x-muted">{STAGE_HINT[it.stage]}
-              {it.prevStage && it.prevStage !== it.stage && <> · 전년 <b className="font-semibold text-x-secondary">{STAGE_LABEL[it.prevStage]}</b> 단계에서 변화</>}</p>}
-            <div className="space-y-2">
-              <ProfileBar label="최근 1년" p={prof} />
-              {it.prev && <ProfileBar label="전년" p={it.prev} />}
+            <div className="mb-2 flex items-baseline gap-2">
+              <p className="text-ui font-semibold text-x-secondary">검색 의도 · 최근 1년</p>
+              {it.stage && <span className="ml-auto text-ui text-x-muted" title={STAGE_HINT[it.stage]}>
+                <b className="font-semibold text-x-secondary">{STAGE_LABEL[it.stage]} 단계</b>
+                {it.prevStage && it.prevStage !== it.stage && <> (전년 {STAGE_LABEL[it.prevStage]})</>}
+              </span>}
             </div>
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-              {PROFILE_INTENTS.map((i) => (
-                <span key={i} className="flex items-center gap-1.5 text-ui text-x-secondary">
-                  <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: INTENT_COLOR[i] }} />{INTENT_LABEL[i]} <span className="tabular-nums text-x-muted">{pct(prof[i])}</span>
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {it && Object.keys(it.top).length > 0 && (
-          <div>
-            <p className="mb-2 text-ui font-semibold text-x-secondary">연관 검색어 상위 · 최근 12개월 월평균</p>
-            <div className="divide-y divide-x-border/60 rounded-lg border border-x-border">
-              {PROFILE_INTENTS.filter((i) => it.top[i]?.length).map((i) => (
-                <div key={i} className="flex items-start gap-3 px-3 py-2.5">
-                  <span className="mt-0.5 flex w-[80px] shrink-0 items-center gap-1.5 text-ui text-x-secondary">
-                    <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: INTENT_COLOR[i] }} />{INTENT_LABEL[i]}
-                  </span>
-                  <div className="flex min-w-0 flex-wrap gap-1.5">
-                    {(it.top[i] ?? []).map(([t, m]) => (
-                      <span key={t} className="rounded-md bg-x-surface px-2 py-0.5 text-ui">{t} <span className="tabular-nums text-x-muted">{fmtVolume(m)}</span></span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <IntentRows now={prof} prev={prevProf} top={it.top} />
+            <p className="mt-1.5 text-ui text-x-muted">▲▼ 전년보다 10%p 이상 바뀐 의도 · 오른쪽은 대표 검색어(월평균)</p>
           </div>
         )}
 

@@ -157,7 +157,7 @@ export default function TrendsPage() {
                   {f.label} <span className="tabular-nums opacity-70">{counts[f.key]}</span>
                 </button>
               ))}
-              <span className="ml-1 text-ui text-x-muted" title="최근 3개월 평균 vs 전년 동기 3개월 평균. 검색량은 구간 반올림값이라 ±30% 이내는 보합">ⓘ 판정 기준</span>
+              <span className="ml-1 text-ui text-x-muted" title="상승·하락: 최근 3개월 평균 vs 전년 같은 3개월(±30% 이내는 보합 — 검색량이 구간 반올림값이라). 급상승: 최근 6개월 증가 속도가 전년 같은 시기보다 1.5배 이상 빠르고 월 300 이상, 또는 1년 전엔 거의 없던 신규 수요">ⓘ 판정 기준</span>
             </div>
           )}
           {view === 'major' && (

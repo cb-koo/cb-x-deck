@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { summarize, changeRank, type TrendState } from '@/lib/searchTrend';
 import { classify, categoryOrder } from '@/lib/procedureTaxonomy';
-import { TrendTable, MajorTable, MED_MIX, type TrendRow, type MajorRow, type IntentInfo } from './TrendTable';
+import { TrendTable, MajorTable, MED_MIX, SORT_FIRST_DIR, type TrendRow, type MajorRow, type IntentInfo, type SortKey, type TableSort } from './TrendTable';
 import { TrendDetail } from './TrendDetail';
 import { TrendMap } from './TrendMap';
 import { ProcedureForm } from './TrendManage';
@@ -21,10 +21,7 @@ const STATE_FILTERS: Array<{ key: StateFilter; label: string; match: (s: TrendSt
   { key: 'flat', label: '보합', match: (s) => s === 'flat' },
   { key: 'quiet', label: '소량 · 데이터 없음', match: (s) => s === 'low' || s === 'nodata' },
 ];
-type SortKey = 'change' | 'volume' | 'korea' | 'name';
-const SORTS: Array<{ key: SortKey; label: string }> = [
-  { key: 'change', label: '최근 추세순' }, { key: 'volume', label: '검색량순' }, { key: 'korea', label: '한국 검색량순' }, { key: 'name', label: '이름순' },
-];
+const STAGE_RANK: Record<string, number> = { learning: 1, considering: 2, choosing: 3 };
 
 const avg3 = (v: number[], end: number) => v.slice(end - 3, end).reduce((s, x) => s + x, 0) / 3;
 
@@ -90,7 +87,8 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
   const [major, setMajor] = useState('');
   const [q, setQ] = useState('');
-  const [sort, setSort] = useState<SortKey>('change');
+  const [sort, setSort] = useState<TableSort>({ key: 'trend', dir: 'desc' });
+  const onSort = (k: SortKey) => setSort((cur) => (cur.key === k ? { key: k, dir: cur.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: SORT_FIRST_DIR[k] }));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mapOpen, setMapOpen] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -102,13 +100,21 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
     const needle = q.trim().toLowerCase();
     const list = inMajor.filter((r) => f.match(r.summary.state)
       && (!needle || r.searchText.includes(needle) || r.middle.toLowerCase().includes(needle)));
-    const by: Record<SortKey, (a: TrendRow, b: TrendRow) => number> = {
-      change: (a, b) => changeRank(b.summary) - changeRank(a.summary) || (b.summary.now ?? -1) - (a.summary.now ?? -1),
-      volume: (a, b) => (b.summary.now ?? -1) - (a.summary.now ?? -1),
-      korea: (a, b) => (b.korea?.now ?? -1) - (a.korea?.now ?? -1),
-      name: (a, b) => a.name.localeCompare(b.name, 'ko'),
+    // 열마다 비교할 값 — null(값 없음·소량)은 방향과 상관없이 맨 아래
+    const val: Record<SortKey, (r: TrendRow) => number | string | null> = {
+      name: (r) => r.name,
+      volume: (r) => r.summary.now,
+      trend: (r) => (r.summary.state === 'nodata' || r.summary.state === 'low' ? null : changeRank(r.summary)),
+      korea: (r) => (r.korea && r.korea.now >= 50 ? r.korea.now : null),
+      stage: (r) => (r.intent?.stage ? STAGE_RANK[r.intent.stage] : null),
     };
-    return [...list].sort(by[sort]);
+    const get = val[sort.key], sign = sort.dir === 'asc' ? 1 : -1;
+    return [...list].sort((a, b) => {
+      const x = get(a), y = get(b);
+      if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
+      const c = typeof x === 'string' ? x.localeCompare(y as string, 'ko') : x - (y as number);
+      return c !== 0 ? sign * c : (b.summary.now ?? -1) - (a.summary.now ?? -1);
+    });
   }, [inMajor, stateFilter, q, sort]);
 
   const majorRows: MajorRow[] = useMemo(() => majors.map((m) => {
@@ -166,10 +172,7 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
               </select>
               <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="시술명·일본어로 찾기"
                      className="h-8 w-52 rounded-full border border-x-border-strong px-3 text-ui" />
-              <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="정렬"
-                      className="ml-auto h-8 rounded-full border border-x-border-strong bg-white px-3 text-ui">
-                {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-              </select>
+              <span className="ml-auto text-ui text-x-muted">표 머리를 누르면 정렬</span>
             </>)}
           </div>
           {view === 'procedure' && (
@@ -195,7 +198,7 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
         {view === 'procedure'
           ? (shown.length === 0
               ? <div className="rounded-xl border border-x-border py-12 text-center text-ui text-x-secondary">조건에 맞는 시술이 없어요</div>
-              : <TrendTable rows={shown} selectedId={selectedId} onSelect={toggle} />)
+              : <TrendTable rows={shown} selectedId={selectedId} onSelect={toggle} sort={sort} onSort={onSort} />)
           : <MajorTable rows={majorRows} onOpen={openMajor} />}
       </main>
 

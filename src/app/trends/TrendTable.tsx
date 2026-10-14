@@ -41,17 +41,49 @@ export function KoreaCell({ k }: { k: TrendRow['korea'] }) {
   );
 }
 
-export function TrendTable({ rows, selectedId, onSelect }: { rows: TrendRow[]; selectedId: string | null; onSelect: (id: string) => void }) {
+// 정렬 — 머리를 누르면 그 열로, 같은 머리를 다시 누르면 반대 방향(koo 10-14). 값 없는 줄은 방향과 상관없이 아래.
+export type SortKey = 'name' | 'volume' | 'trend' | 'korea' | 'stage';
+export type SortDir = 'asc' | 'desc';
+export interface TableSort { key: SortKey; dir: SortDir }
+// 처음 누를 때 방향 — 이름은 가나다순, 숫자·추세·단계는 큰 쪽(늘어나는 쪽·결정 단계)부터
+export const SORT_FIRST_DIR: Record<SortKey, SortDir> = { name: 'asc', volume: 'desc', trend: 'desc', korea: 'desc', stage: 'desc' };
+
+function SortTh({ k, sort, onSort, align = 'left', title, children }: {
+  k: SortKey; sort: TableSort; onSort: (k: SortKey) => void; align?: 'left' | 'right'; title?: string; children: React.ReactNode;
+}) {
+  const on = sort.key === k;
+  return (
+    <th className={`${HEAD} ${align === 'right' ? 'text-right' : ''}`} title={title} aria-sort={on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button onClick={() => onSort(k)} className={`group inline-flex items-center gap-1 ${on ? 'text-x-text' : 'hover:text-x-text'}`}>
+        {children}
+        <span className={on ? '' : 'opacity-0 group-hover:opacity-40'}>{on && sort.dir === 'asc' ? '▲' : '▼'}</span>
+      </button>
+    </th>
+  );
+}
+
+export function TrendTable({ rows, selectedId, onSelect, sort, onSort }: {
+  rows: TrendRow[]; selectedId: string | null; onSelect: (id: string) => void; sort: TableSort; onSort: (k: SortKey) => void;
+}) {
   return (
     <div className="shrink-0 overflow-x-auto rounded-xl border border-x-border bg-white">
-      <table className="w-full border-separate border-spacing-0 text-[15px]">
+      {/* 열 너비 고정 — 시술 열이 남는 폭을 다 가져가 숫자 열 사이가 벌어지던 것(10-14) */}
+      <table className="w-full min-w-[960px] table-fixed border-separate border-spacing-0 text-[15px]">
+        <colgroup>
+          <col />
+          <col className="w-[112px]" />
+          <col className="w-[230px]" />
+          <col className="w-[132px]" />
+          <col className="w-[150px]" />
+          <col className="w-[152px]" />
+        </colgroup>
         <thead>
           <tr>
-            <th className={HEAD}>시술</th>
-            <th className={`${HEAD} text-right`} title="시술 관련 검색어 합계의 최근 3개월 평균(화장품·셀프·동음이의 제외)">월 검색량</th>
-            <th className={HEAD} title="태그 = 지금 방향(최근 3개월 vs 직전 3개월, 계절 감안). 옆 숫자 = 1년 전 같은 3개월 대비">추세 · 1년 변화</th>
-            <th className={`${HEAD} text-right`} title="韓国·ソウル·江南·明洞·弘大(ホンデ) 포함 검색의 최근 3개월 평균">한국 검색량</th>
-            <th className={HEAD} title="연관 검색어로 본 관심 단계 — 탐색(개념·비교) · 검토(효과·후기, 부작용·통증) · 결정(가격, 병원·지역)">관심 단계</th>
+            <SortTh k="name" sort={sort} onSort={onSort}>시술</SortTh>
+            <SortTh k="volume" sort={sort} onSort={onSort} align="right" title="시술 관련 검색어 합계의 최근 3개월 평균(화장품·셀프·동음이의 제외)">월 검색량</SortTh>
+            <SortTh k="trend" sort={sort} onSort={onSort} title="태그 = 지금 방향(최근 3개월 vs 직전 3개월, 계절 감안). 옆 숫자 = 1년 전 같은 3개월 대비. 정렬은 지금 방향 기준">추세 · 1년 변화</SortTh>
+            <SortTh k="korea" sort={sort} onSort={onSort} align="right" title="韓国·ソウル·江南·明洞·弘大(ホンデ) 포함 검색의 최근 3개월 평균">한국 검색량</SortTh>
+            <SortTh k="stage" sort={sort} onSort={onSort} title="연관 검색어로 본 관심 단계 — 탐색(개념·비교) · 검토(효과·후기, 부작용·통증) · 결정(가격, 병원·지역)">관심 단계</SortTh>
             <th className={HEAD}>4년 추이</th>
           </tr>
         </thead>
@@ -62,7 +94,7 @@ export function TrendTable({ rows, selectedId, onSelect }: { rows: TrendRow[]; s
             return (
               <tr key={r.id} onClick={() => onSelect(r.id)} aria-selected={on}
                   className={`cursor-pointer ${on ? 'bg-x-blue/10' : 'hover:bg-x-hover'}`}>
-                <td className={`${CELL} max-w-[340px] truncate`}>
+                <td className={`${CELL} truncate`} title={`${r.name} · ${r.jp} · ${r.major}`}>
                   <span className="font-medium">{r.name}</span>
                   <span className="ml-2 text-ui text-x-muted">{r.jp}</span>
                   <span className="ml-2 text-ui text-x-muted">· {r.major}</span>
@@ -84,7 +116,7 @@ export function TrendTable({ rows, selectedId, onSelect }: { rows: TrendRow[]; s
                       ? <span className="text-ui text-amber-700" title={`시술명 검색 결과 상위 20개 중 ${r.intent!.serp!.med}개가 다른 진료과(${r.intent!.serp!.note}) — 시술명 단독 검색은 빼고 효과·가격 등이 붙은 검색만 셈`}>⚠ 타 진료과 혼재</span>
                       : <StageChip stage={r.intent?.stage ?? null} />}
                 </td>
-                <td className={`${CELL} w-[136px]`}>
+                <td className={CELL}>
                   {r.series ? <Sparkline values={r.series} width={120} height={28} /> : <span className="text-ui text-x-muted">—</span>}
                 </td>
               </tr>

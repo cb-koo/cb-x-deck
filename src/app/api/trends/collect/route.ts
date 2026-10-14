@@ -3,8 +3,8 @@ import { getSql } from '@/lib/db';
 import { callLLM } from '@/lib/llm';
 import { kpFromComposio, runTrendCollect } from '@/lib/trendCollect';
 
-// 검색 트렌드 자동 수집(스펙 2026-10-13 §7) — DB 예약 실행(pg_cron + pg_net, scripts/search-trends-cron.sql)이 매시간 부른다.
-// 무엇을 할지는 runTrendCollect가 정한다(새 달 확인은 하루 한 번, 전체 갱신은 여러 실행에 나눠 이어 하기) — 대부분의 실행은 바로 끝난다.
+// 검색 트렌드 자동 수집(스펙 2026-10-13 §7) — DB 예약 실행(pg_cron + pg_net, scripts/search-trends-cron.sql)이 주 1회(월요일 04:23 서울) 부른다.
+// 무엇을 할지는 runTrendCollect가 정한다(새 달 확인 → 있으면 전체 갱신, 남는 시간에 연관 검색어 넓히기·번역). 못 끝낸 건 다음 주에 이어 한다.
 // 성과 자동 측정과 같은 시크릿(Vault 'measure_cron_secret')을 쓴다.
 export const maxDuration = 300;
 

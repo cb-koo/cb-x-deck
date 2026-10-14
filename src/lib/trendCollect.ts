@@ -5,14 +5,14 @@ import { norm } from './searchIntent';
 import { ownerResolver, upsertKeywords, rebuildView, type KeywordWrite } from './trendStore';
 import { showKeyword } from './trendBuild';
 
-// 검색 트렌드 자동 수집(스펙 2026-10-13 §7) — DB 예약 실행(scripts/search-trends-cron.sql)이 매시간 부른다. 할 일이 없으면 바로 끝난다.
-// 1) 진행 중인 전체 갱신 이어 하기 → 2) 하루 한 번 새 달 확인(있으면 전체 갱신 시작 — 직전 달들 고쳐진 값도 같이 받는다)
+// 검색 트렌드 자동 수집(스펙 2026-10-13 §7) — DB 예약 실행(scripts/search-trends-cron.sql)이 주 1회(월요일 새벽) 부른다(koo 10-14).
+// 1) 진행 중인 전체 갱신 이어 하기 → 2) 새 달 확인(있으면 전체 갱신 시작 — 직전 달들 고쳐진 값도 같이 받는다)
 // → 3) 남는 시간에 연관 검색어 넓히기(90일 지난 시술·새 시술, 수식어·한국 조합 포함) → 4) 화면에 보이는데 번역 없는 검색어 번역.
 // 키워드 플래너가 429(요청 과다)를 주면 그 실행은 멈추고 다음 실행이 이어 한다.
 
 export const WINDOW = 48;
 const BATCH = 1000;                 // 검색량 조회 1번에 키워드 1,000개까지
-const CHECK_EVERY_H = 20;           // 새 달 확인 간격
+const CHECK_EVERY_H = 6 * 24;       // 새 달 확인 간격 — 주 1회 실행마다 확인(손으로 다시 불러도 6일 안엔 다시 묻지 않는다)
 const IDEAS_EVERY_D = 90;           // 연관 검색어 넓히기 간격
 const IDEAS_GAP_MS = 1500;          // 연관 검색어는 동시에 보내면 거절(429) — 1건씩 간격
 

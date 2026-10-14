@@ -1,5 +1,5 @@
--- 검색 트렌드 자동 수집 타이머(2026-10-14) — DB가 매시간 /api/trends/collect를 부른다.
--- 할 일(새 달 확인은 하루 한 번, 전체 갱신 이어 하기, 연관 검색어 넓히기, 번역)은 앱 쪽 trendCollect.ts가 정한다 — 대부분의 실행은 바로 끝난다.
+-- 검색 트렌드 자동 수집 타이머(2026-10-14, koo: 주 1회) — DB가 매주 월요일 04:23(서울)에 /api/trends/collect를 부른다.
+-- 할 일(새 달 확인 → 있으면 전체 갱신, 연관 검색어 넓히기, 번역)은 앱 쪽 trendCollect.ts가 정한다. 키워드 플래너는 지난달 값을 다음 달 중순쯤 주므로 주 1회면 충분하다.
 -- 마이그레이션이 아니다: 환경(운영·연습용)마다 주소가 달라서, 환경별로 한 번만 손으로 돌린다. 다시 돌려도 안전하다(같은 이름 작업은 덮어쓴다).
 -- 비밀키는 성과 자동 측정이 이미 Vault에 넣은 'measure_cron_secret'을 그대로 쓴다(scripts/auto-measure-cron.sql을 먼저 돌린 환경이어야 한다).
 -- 실행:
@@ -17,8 +17,8 @@ do $$ begin
   end if;
 end $$;
 
--- 매시 23분(다른 예약 실행과 겹치지 않게). 수집은 최대 5분 — pg_net 응답 대기는 그보다 길게.
-select cron.schedule('search-trends-collect', '23 * * * *', format($job$
+-- pg_cron은 UTC — 일요일 19:23 UTC = 월요일 04:23 서울(다른 예약 실행과 겹치지 않게). 수집은 최대 5분 — pg_net 응답 대기는 그보다 길게.
+select cron.schedule('search-trends-collect', '23 19 * * 0', format($job$
   select net.http_post(
     url := %L,
     headers := jsonb_build_object(

@@ -105,6 +105,8 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
       name: (r) => r.name,
       volume: (r) => r.summary.now,
       trend: (r) => (r.summary.state === 'nodata' || r.summary.state === 'low' ? null : changeRank(r.summary)),
+      // 1년 변화 — 신규(1년 전 소량)는 가장 크게 늘어난 쪽으로 친다
+      year: (r) => (r.summary.state === 'nodata' || r.summary.state === 'low' ? null : r.summary.change ?? Number.MAX_SAFE_INTEGER),
       korea: (r) => (r.korea && r.korea.now >= 50 ? r.korea.now : null),
       stage: (r) => (r.intent?.stage ? STAGE_RANK[r.intent.stage] : null),
     };

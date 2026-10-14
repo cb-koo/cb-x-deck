@@ -1,4 +1,4 @@
-// 검색 트렌드 표 — 시술 하나 = 한 줄, 정보 6개(시술·월 검색량·추세(지금 방향 + 1년 변화)·한국 검색·성격·4년 추이). 표 모양은 정산 표 공용(HEAD·CELL·NUM).
+// 검색 트렌드 표 — 시술 하나 = 한 줄(시술·월 검색량·추세(지금 방향)·1년 변화·한국 검색·관심 단계·4년 추이). 추세와 1년 변화는 따로 본다(koo 10-14). 표 모양은 정산 표 공용(HEAD·CELL·NUM).
 'use client';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { HEAD, CELL, NUM } from '@/app/settlement/tableStyle';
@@ -42,11 +42,11 @@ export function KoreaCell({ k }: { k: TrendRow['korea'] }) {
 }
 
 // 정렬 — 머리를 누르면 그 열로, 같은 머리를 다시 누르면 반대 방향(koo 10-14). 값 없는 줄은 방향과 상관없이 아래.
-export type SortKey = 'name' | 'volume' | 'trend' | 'korea' | 'stage';
+export type SortKey = 'name' | 'volume' | 'trend' | 'year' | 'korea' | 'stage';
 export type SortDir = 'asc' | 'desc';
 export interface TableSort { key: SortKey; dir: SortDir }
 // 처음 누를 때 방향 — 이름은 가나다순, 숫자·추세·단계는 큰 쪽(늘어나는 쪽·결정 단계)부터
-export const SORT_FIRST_DIR: Record<SortKey, SortDir> = { name: 'asc', volume: 'desc', trend: 'desc', korea: 'desc', stage: 'desc' };
+export const SORT_FIRST_DIR: Record<SortKey, SortDir> = { name: 'asc', volume: 'desc', trend: 'desc', year: 'desc', korea: 'desc', stage: 'desc' };
 
 function SortTh({ k, sort, onSort, align = 'left', title, children }: {
   k: SortKey; sort: TableSort; onSort: (k: SortKey) => void; align?: 'left' | 'right'; title?: string; children: React.ReactNode;
@@ -68,11 +68,12 @@ export function TrendTable({ rows, selectedId, onSelect, sort, onSort }: {
   return (
     <div className="shrink-0 overflow-x-auto rounded-xl border border-x-border bg-white">
       {/* 열 너비 고정 — 시술 열이 남는 폭을 다 가져가 숫자 열 사이가 벌어지던 것(10-14) */}
-      <table className="w-full min-w-[960px] table-fixed border-separate border-spacing-0 text-[15px]">
+      <table className="w-full min-w-[1060px] table-fixed border-separate border-spacing-0 text-[15px]">
         <colgroup>
           <col />
           <col className="w-[112px]" />
-          <col className="w-[230px]" />
+          <col className="w-[176px]" />
+          <col className="w-[104px]" />
           <col className="w-[132px]" />
           <col className="w-[150px]" />
           <col className="w-[152px]" />
@@ -81,7 +82,8 @@ export function TrendTable({ rows, selectedId, onSelect, sort, onSort }: {
           <tr>
             <SortTh k="name" sort={sort} onSort={onSort}>시술</SortTh>
             <SortTh k="volume" sort={sort} onSort={onSort} align="right" title="시술 관련 검색어 합계의 최근 3개월 평균(화장품·셀프·동음이의 제외)">월 검색량</SortTh>
-            <SortTh k="trend" sort={sort} onSort={onSort} title="태그 = 지금 방향(최근 3개월 vs 직전 3개월, 계절 감안). 옆 숫자 = 1년 전 같은 3개월 대비. 정렬은 지금 방향 기준">추세 · 1년 변화</SortTh>
+            <SortTh k="trend" sort={sort} onSort={onSort} title="지금 방향 — 최근 3개월 vs 직전 3개월(해마다 반복되는 계절은 지우고 봄)">추세</SortTh>
+            <SortTh k="year" sort={sort} onSort={onSort} align="right" title="최근 3개월 평균 vs 1년 전 같은 3개월 — 1년 전이 소량(월 100 미만)이면 신규">1년 변화</SortTh>
             <SortTh k="korea" sort={sort} onSort={onSort} align="right" title="韓国·ソウル·江南·明洞·弘大(ホンデ) 포함 검색의 최근 3개월 평균">한국 검색량</SortTh>
             <SortTh k="stage" sort={sort} onSort={onSort} title="연관 검색어로 본 관심 단계 — 탐색(개념·비교) · 검토(효과·후기, 부작용·통증) · 결정(가격, 병원·지역)">관심 단계</SortTh>
             <th className={HEAD}>4년 추이</th>
@@ -103,10 +105,14 @@ export function TrendTable({ rows, selectedId, onSelect, sort, onSort }: {
                   {s.state === 'nodata' ? <span className="text-x-muted">—</span> : fmtVolume(s.now)}
                   {s.state !== 'nodata' && !r.volumes && <span className="ml-0.5 text-x-muted" title="시술명 검색량은 키워드 플래너 값 없음 — 효과·가격 등이 붙은 검색만 합계라 실제보다 작음">*</span>}
                 </td>
-                <td className={CELL}>
+                <td className={CELL} title={s.seasonMonth ? `매년 ${s.seasonMonth}월에 검색 많음` : undefined}>
                   <StateChip state={s.state} />
-                  {s.state !== 'low' && s.state !== 'nodata' && <span className="ml-2 text-ui tabular-nums text-x-secondary" title={s.change === null ? '1년 전 소량(월 100 미만) — 변화율 대신 신규' : '1년 전 같은 3개월 대비'}>1년 {fmtChange(s.change)}</span>}
-                  {s.seasonMonth && <span className="ml-2 text-ui text-x-muted">성수기 {s.seasonMonth}월</span>}
+                  {s.seasonMonth && <span className="ml-1.5 text-ui text-x-muted">성수기 {s.seasonMonth}월</span>}
+                </td>
+                <td className={`${CELL} ${NUM}`}>
+                  {s.state === 'low' || s.state === 'nodata' ? <span className="text-x-muted">—</span>
+                    : s.change === null ? <span className="text-green-700" title="1년 전 소량(월 100 미만) — 변화율 대신 신규">신규</span>
+                    : <span className={s.change >= 0.3 ? 'text-green-700' : s.change <= -0.3 ? 'text-red-600' : 'text-x-secondary'}>{fmtChange(s.change)}</span>}
                 </td>
                 <td className={`${CELL} ${NUM}`}><KoreaCell k={r.korea} /></td>
                 <td className={CELL}>

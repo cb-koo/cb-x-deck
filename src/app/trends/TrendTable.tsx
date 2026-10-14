@@ -1,4 +1,4 @@
-// 검색 트렌드 표 — 시술 하나 = 한 줄, 정보 6개(시술·월 검색량·1년 변화·한국 검색·성격·4년 추이). 표 모양은 정산 표 공용(HEAD·CELL·NUM).
+// 검색 트렌드 표 — 시술 하나 = 한 줄, 정보 6개(시술·월 검색량·추세(지금 방향 + 1년 변화)·한국 검색·성격·4년 추이). 표 모양은 정산 표 공용(HEAD·CELL·NUM).
 'use client';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { HEAD, CELL, NUM } from '@/app/settlement/tableStyle';
@@ -41,7 +41,7 @@ export function TrendTable({ rows, selectedId, onSelect }: { rows: TrendRow[]; s
           <tr>
             <th className={HEAD}>시술</th>
             <th className={`${HEAD} text-right`} title="시술 관련 검색어 합계의 최근 3개월 평균(화장품·셀프·동음이의 제외)">월 검색량</th>
-            <th className={HEAD}>전년 대비</th>
+            <th className={HEAD} title="태그 = 지금 방향(최근 3개월 vs 직전 3개월, 계절 감안). 옆 숫자 = 1년 전 같은 3개월 대비">추세 · 1년 변화</th>
             <th className={`${HEAD} text-right`} title="韓国·ソウル·江南·明洞·弘大(ホンデ) 포함 검색의 최근 3개월 평균">한국 검색량</th>
             <th className={HEAD} title="연관 검색어로 본 관심 단계 — 탐색(개념·비교) · 검토(효과·후기, 부작용·통증) · 결정(가격, 병원·지역)">관심 단계</th>
             <th className={HEAD}>4년 추이</th>
@@ -62,7 +62,7 @@ export function TrendTable({ rows, selectedId, onSelect }: { rows: TrendRow[]; s
                 <td className={`${CELL} ${NUM}`}>{s.state === 'nodata' ? <span className="text-x-muted">—</span> : fmtVolume(s.now)}</td>
                 <td className={CELL}>
                   <StateChip state={s.state} />
-                  {s.state !== 'low' && s.state !== 'nodata' && <span className="ml-2 text-ui tabular-nums text-x-secondary" title={s.change === null ? '전년 동기 소량(월 100 미만) — 변화율 대신 신규' : undefined}>{fmtChange(s.change)}</span>}
+                  {s.state !== 'low' && s.state !== 'nodata' && <span className="ml-2 text-ui tabular-nums text-x-secondary" title={s.change === null ? '1년 전 소량(월 100 미만) — 변화율 대신 신규' : '1년 전 같은 3개월 대비'}>1년 {fmtChange(s.change)}</span>}
                   {s.seasonMonth && <span className="ml-2 text-ui text-x-muted">성수기 {s.seasonMonth}월</span>}
                 </td>
                 <td className={`${CELL} ${NUM}`}><KoreaCell k={r.korea} /></td>

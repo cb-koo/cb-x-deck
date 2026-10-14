@@ -27,7 +27,7 @@ export function TrendMap({ rows, open, onToggle, selectedId, onSelect }: {
         title: r.name, sub: `${r.jp} · ${r.major}`,
         rows: [
           { label: '월 검색량', value: fmtVolume(s.now), strong: true },
-          { label: '전년 대비', value: `${fmtChange(s.change)} ${STATE_LABEL[s.state]}`, tone: ch >= 30 ? 'up' : ch <= -30 ? 'down' : undefined },
+          { label: '추세', value: `${STATE_LABEL[s.state]} · 1년 ${fmtChange(s.change)}`, tone: ch >= 30 ? 'up' : ch <= -30 ? 'down' : undefined },
           { label: '한국 검색량', value: r.korea && r.korea.now >= 50 ? fmtVolume(r.korea.now) : '소량' },
           { label: '관심 단계', value: r.intent?.stage ? STAGE_LABEL[r.intent.stage] : '—' },
         ],

@@ -25,7 +25,7 @@ const STATE_FILTERS: Array<{ key: StateFilter; label: string; match: (s: TrendSt
 ];
 type SortKey = 'change' | 'volume' | 'korea' | 'name';
 const SORTS: Array<{ key: SortKey; label: string }> = [
-  { key: 'change', label: '변화율순' }, { key: 'volume', label: '검색량순' }, { key: 'korea', label: '한국 검색량순' }, { key: 'name', label: '이름순' },
+  { key: 'change', label: '최근 추세순' }, { key: 'volume', label: '검색량순' }, { key: 'korea', label: '한국 검색량순' }, { key: 'name', label: '이름순' },
 ];
 
 const lastMonth = DATA.months[DATA.months.length - 1];
@@ -157,7 +157,7 @@ export default function TrendsPage() {
                   {f.label} <span className="tabular-nums opacity-70">{counts[f.key]}</span>
                 </button>
               ))}
-              <span className="ml-1 text-ui text-x-muted" title="상승·하락: 최근 3개월 평균 vs 전년 같은 3개월(±30% 이내는 보합 — 검색량이 구간 반올림값이라). 급상승: 최근 6개월 증가 속도가 전년 같은 시기보다 1.5배 이상 빠르고 월 300 이상, 또는 1년 전엔 거의 없던 신규 수요">ⓘ 판정 기준</span>
+              <span className="ml-1 text-ui text-x-muted" title="태그는 지금 방향: 최근 3개월 평균 vs 직전 3개월(해마다 반복되는 계절은 지우고, 한 달만 튄 값은 빼고). ±20% 안쪽 보합 · +50% 이상이고 월 300 이상 급상승 · 1년 새 크게 오른 채 줄면 하락 전환 · 한 달 급등 후 꺾이면 일시 급등">ⓘ 판정 기준</span>
             </div>
           )}
           {view === 'major' && (

@@ -48,12 +48,15 @@ export interface TableSort { key: SortKey; dir: SortDir }
 // 처음 누를 때 방향 — 이름은 가나다순, 숫자·추세·단계는 큰 쪽(늘어나는 쪽·결정 단계)부터
 export const SORT_FIRST_DIR: Record<SortKey, SortDir> = { name: 'asc', volume: 'desc', trend: 'desc', year: 'desc', korea: 'desc', stage: 'desc' };
 
+// 오른쪽 정렬 숫자 열 뒤에 왼쪽 정렬 칩·글자가 바로 붙어 경계가 안 보였다(10-14) — 숫자 열 오른쪽에 여백을 더 준다
+const NUM_GAP = 'pr-7';
+
 function SortTh({ k, sort, onSort, align = 'left', title, children }: {
   k: SortKey; sort: TableSort; onSort: (k: SortKey) => void; align?: 'left' | 'right'; title?: string; children: React.ReactNode;
 }) {
   const on = sort.key === k;
   return (
-    <th className={`${HEAD} ${align === 'right' ? 'text-right' : ''}`} title={title} aria-sort={on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+    <th className={`${HEAD} ${align === 'right' ? `text-right ${NUM_GAP}` : ''}`} title={title} aria-sort={on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
       <button onClick={() => onSort(k)} className={`group inline-flex items-center gap-1 ${on ? 'text-x-text' : 'hover:text-x-text'}`}>
         {children}
         <span className={on ? '' : 'opacity-0 group-hover:opacity-40'}>{on && sort.dir === 'asc' ? '▲' : '▼'}</span>
@@ -68,13 +71,13 @@ export function TrendTable({ rows, selectedId, onSelect, sort, onSort }: {
   return (
     <div className="shrink-0 overflow-x-auto rounded-xl border border-x-border bg-white">
       {/* 열 너비 고정 — 시술 열이 남는 폭을 다 가져가 숫자 열 사이가 벌어지던 것(10-14) */}
-      <table className="w-full min-w-[1060px] table-fixed border-separate border-spacing-0 text-[15px]">
+      <table className="w-full min-w-[1120px] table-fixed border-separate border-spacing-0 text-[15px]">
         <colgroup>
           <col />
-          <col className="w-[112px]" />
+          <col className="w-[128px]" />
           <col className="w-[176px]" />
-          <col className="w-[104px]" />
-          <col className="w-[132px]" />
+          <col className="w-[120px]" />
+          <col className="w-[156px]" />
           <col className="w-[150px]" />
           <col className="w-[152px]" />
         </colgroup>
@@ -98,10 +101,10 @@ export function TrendTable({ rows, selectedId, onSelect, sort, onSort }: {
                   className={`cursor-pointer ${on ? 'bg-x-blue/10' : 'hover:bg-x-hover'}`}>
                 <td className={`${CELL} truncate`} title={`${r.name} · ${r.jp} · ${r.major}`}>
                   <span className="font-medium">{r.name}</span>
-                  <span className="ml-2 text-ui text-x-muted">{r.jp}</span>
-                  <span className="ml-2 text-ui text-x-muted">· {r.major}</span>
+                  <span className="ml-2.5 text-ui text-x-muted">{r.jp}</span>
+                  <span className="ml-2.5 text-ui text-x-muted">· {r.major}</span>
                 </td>
-                <td className={`${CELL} ${NUM}`}>
+                <td className={`${CELL} ${NUM} ${NUM_GAP}`}>
                   {s.state === 'nodata' ? <span className="text-x-muted">—</span> : fmtVolume(s.now)}
                   {s.state !== 'nodata' && !r.volumes && <span className="ml-0.5 text-x-muted" title="시술명 검색량은 키워드 플래너 값 없음 — 효과·가격 등이 붙은 검색만 합계라 실제보다 작음">*</span>}
                 </td>
@@ -109,12 +112,12 @@ export function TrendTable({ rows, selectedId, onSelect, sort, onSort }: {
                   <StateChip state={s.state} />
                   {s.seasonMonth && <span className="ml-1.5 text-ui text-x-muted">성수기 {s.seasonMonth}월</span>}
                 </td>
-                <td className={`${CELL} ${NUM}`}>
+                <td className={`${CELL} ${NUM} ${NUM_GAP}`}>
                   {s.state === 'low' || s.state === 'nodata' ? <span className="text-x-muted">—</span>
                     : s.change === null ? <span className="text-green-700" title="1년 전 소량(월 100 미만) — 변화율 대신 신규">신규</span>
                     : <span className={s.change >= 0.3 ? 'text-green-700' : s.change <= -0.3 ? 'text-red-600' : 'text-x-secondary'}>{fmtChange(s.change)}</span>}
                 </td>
-                <td className={`${CELL} ${NUM}`}><KoreaCell k={r.korea} /></td>
+                <td className={`${CELL} ${NUM} ${NUM_GAP}`}><KoreaCell k={r.korea} /></td>
                 <td className={CELL}>
                   {r.intent?.ambiguous
                     ? <span className="text-ui text-amber-700" title={`시술명만 검색하면 다른 뜻이 대부분 — ${r.intent.serp?.note ?? ''}`}>⚠ 동음이의 혼재</span>

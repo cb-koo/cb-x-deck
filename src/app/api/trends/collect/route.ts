@@ -29,13 +29,16 @@ async function translate(texts: string[], glossary: string): Promise<Record<stri
 // 새로 뜨는 검색 분류 — 새 시술·다른 표기·고민·화장품·병원·일반어
 async function classify(texts: string[], glossary: string): Promise<Classified[]> {
   const out: Classified[] = [];
-  for (let i = 0; i < texts.length; i += 80) {
-    const r = await callLLM('anthropic.trendDiscover', {
-      model: MODEL, max_tokens: 8000, system: CANDIDATE_CLASSIFY_SYSTEM(glossary),
-      messages: [{ role: 'user', content: `각 검색어를 {"text","kind","term","of","ko"} JSON 배열로만. ko는 term의 한국어 표기, of는 variant일 때만.\n${JSON.stringify(texts.slice(i, i + 80))}` }],
-    });
-    const t = r.content.map((c) => (c as { text?: string }).text ?? '').join('');
-    try { out.push(...JSON.parse(t.slice(t.indexOf('['), t.lastIndexOf(']') + 1))); } catch { /* 이 묶음은 빠짐 — 다음 달에 다시 */ }
+  // 40개씩, 응답이 깨지면 한 번 더 — 80개 묶음 응답이 통째로 깨져 후보 54개가 8개로 줄어든 적이 있다(10-15)
+  for (let i = 0; i < texts.length; i += 40) {
+    for (let t = 0; t < 2; t++) {
+      const r = await callLLM('anthropic.trendDiscover', {
+        model: MODEL, max_tokens: 8000, system: CANDIDATE_CLASSIFY_SYSTEM(glossary),
+        messages: [{ role: 'user', content: `각 검색어를 {"text","kind","term","of","ko"} JSON 배열로만. ko는 term의 한국어 표기, of는 variant일 때만.\n${JSON.stringify(texts.slice(i, i + 40))}` }],
+      });
+      const txt = r.content.map((c) => (c as { text?: string }).text ?? '').join('');
+      try { out.push(...JSON.parse(txt.slice(txt.indexOf('['), txt.lastIndexOf(']') + 1))); break; } catch { /* 한 번 더 */ }
+    }
   }
   return out;
 }

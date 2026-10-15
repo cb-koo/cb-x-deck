@@ -54,7 +54,17 @@ export function groupCandidates(raw: RawCandidate[], cls: Classified[]): Candida
     g.increase = Math.max(g.increase, r.increase);
     groups.set(key, g);
   }
-  return [...groups.values()].sort((a, b) => b.increase - a.increase);
+  // 핵심어 표기가 달라도(蓄熱式脱毛 / 蓄熱式 脱毛 / 蓄熱式) 한국어 이름이 같으면 한 후보 — 10-15 '축열식 제모'가 두 줄로 나왔다
+  const merged = new Map<string, CandidateGroup>();
+  for (const g of [...groups.values()].sort((a, b) => b.increase - a.increase)) {
+    const key = `${g.kind}|${g.ko ? norm(g.ko) : norm(g.term)}`;
+    const m = merged.get(key);
+    if (!m) { merged.set(key, g); continue; }
+    for (const t of g.texts) if (!m.texts.includes(t)) m.texts.push(t);
+    m.volume = Math.max(m.volume, g.volume);
+    m.increase = Math.max(m.increase, g.increase);
+  }
+  return [...merged.values()].sort((a, b) => b.increase - a.increase);
 }
 
 // 한 번 돌리기 — 새 달마다 한 번(trend_run kind 'discover'). 이미 고른(추가·무시) 후보는 다시 올리지 않고, 열린 후보는 숫자만 갈아 끼운다.

@@ -29,3 +29,14 @@ test('같은 핵심어로 분류된 검색어는 한 후보 — 어순·띄어�
   assert.equal(g[0].term, 'ボットクス');  // 늘어난 수 큰 순
   assert.equal(g[1].texts.length, 2);
 });
+
+test('핵심어 표기가 달라도 한국어 이름이 같으면 한 후보(축열식 제모)', () => {
+  const raw = [{ text: '蓄熱式脱毛 効果', now: 3633, yearAgo: 2600, increase: 1007 }, { text: '蓄熱式 脱毛 痛み', now: 3000, yearAgo: 2100, increase: 900 }];
+  const g = groupCandidates(raw, [
+    { text: '蓄熱式脱毛 効果', kind: 'new', term: '蓄熱式脱毛', ko: '축열식 제모' },
+    { text: '蓄熱式 脱毛 痛み', kind: 'new', term: '蓄熱式', ko: '축열식 제모' },
+  ]);
+  assert.equal(g.length, 1);
+  assert.equal(g[0].texts.length, 2);
+  assert.equal(g[0].increase, 1007);
+});

@@ -83,9 +83,17 @@ export function isBroadTerm(term: string, procedureJps: string[]): boolean {
   if (/^[a-z0-9]+$/.test(t) ? t.length <= 3 : t.length <= 2) return true;
   return procedureJps.some((jp) => { const j = norm(jp); return j !== t && j.includes(t); });
 }
+// oursNow: 견줄 우리 표기의 월평균(0 = 값 없음 — 그럴 때 값이 나오는 표기로 바꾸는 건 이득), null = 견줄 시술을 못 찾음 → 바꾸지 않는다
 export function variantAction(termNow: number, oursNow: number | null, broad = false): 'add' | 'replace' {
-  if (broad) return 'add';
-  return oursNow === null || termNow >= Math.max(1, oursNow) * REPLACE_RATIO ? 'replace' : 'add';
+  if (broad || oursNow === null) return 'add';
+  return termNow >= Math.max(1, oursNow) * REPLACE_RATIO ? 'replace' : 'add';
+}
+
+// 같은 시술명 묶음에서 가장 큰 우리 표기(이름 검색 기준) — 표기 바꾸기 판단·확인 화면용
+function oursOf(ofId: string | null, procs: Array<{ id: string; jp: string; name: string }>, nameNow: Map<string, number | null>): { jp: string; now: number } | null {
+  const name = ofId ? procs.find((p) => p.id === ofId)?.name : undefined;
+  if (!name) return null;
+  return procs.filter((p) => p.name === name).reduce<{ jp: string; now: number } | null>((b, p) => { const v = nameNow.get(p.id) ?? 0; return !b || v > b.now ? { jp: p.jp, now: v } : b; }, null);
 }
 
 // 한 번 돌리기 — 새 달마다 한 번(trend_run kind 'discover'). 이미 고른(추가·무시) 후보는 다시 올리지 않고, 열린 후보는 숫자만 갈아 끼운다.
@@ -153,9 +161,7 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
     const series = ts ?? g.series;  // 핵심어 자체 값이 없으면(값 없음) 대표 예시 검색어로
     const ofId = g.of ? byJp.get(norm(g.of)) ?? null : null;
     // 다른 표기 처리 — 같은 시술명 묶음(백옥주사 = 白玉点滴·グルタチオン点滴·白玉注射)의 가장 큰 우리 표기와 견준다
-    const ofName = ofId ? procs.find((p) => p.id === ofId)?.name : undefined;
-    const family = ofName ? procs.filter((p) => p.name === ofName) : [];
-    const oursBest = family.reduce<{ jp: string; now: number } | null>((b, p) => { const v = nameNow.get(p.id) ?? 0; return !b || v > b.now ? { jp: p.jp, now: v } : b; }, null);
+    const oursBest = oursOf(ofId, procs, nameNow);
     const oursNow = oursBest ? oursBest.now : null;
     const tsNow = (ts ?? g.series).length ? avg3(ts ?? g.series, (ts ?? g.series).length) : 0;
     const action = g.kind === 'variant' ? variantAction(tsNow, oursNow, isBroadTerm(g.term, procs.map((p) => p.jp))) : null;
@@ -199,8 +205,8 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
   }
   // 이번 실행에 안 걸린 열린 후보는 바로 지우지 않는다 — 모델 분류가 실행마다 조금씩 달라(肌育注射를 肌育으로 줄이는 등) 중요한 후보가
   // 나타났다 사라졌다 했다(10-15). 핵심어를 다시 조회해 아직 늘어난 검색이고(또는 표기 바꾸기) 이미 세는 검색이 아니면 숫자만 갈아 끼워 남긴다.
-  const open = await sql<Array<{ id: string; kind: string; norm: string; term: string; action: string | null }>>`
-    select id, kind, norm, term, action from trend_candidate where market = ${market} and status = 'open'`;
+  const open = await sql<Array<{ id: string; kind: string; norm: string; term: string; action: string | null; of_procedure_id: string | null }>>`
+    select id, kind, norm, term, action, of_procedure_id from trend_candidate where market = ${market} and status = 'open'`;
   const stale = open.filter((o) => !keep.has(`${o.kind}|${o.norm}`));
   if (stale.length) {
     const rows = matchRows(stale.map((o) => o.term), await kp.historical(stale.map((o) => o.term), from, latest));
@@ -208,15 +214,15 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
     for (const o of stale) {
       const r = rows.get(o.term);
       const v = toSeries(r, from, latest);
-      // 표기 바꾸기였다가 넓은 말로 판정되면 늘어난 검색이어야 남는다
-      if (o.action === 'replace' && isBroadTerm(o.term, procs.map((p) => p.jp))) o.action = 'add';
+      // 표기 처리는 매번 다시 판단한다(견줄 우리 표기·넓은 말) — 판정 규칙이 바뀌기 전에 남은 후보도 같은 기준이 되게
+      const v0 = toSeries(rows.get(o.term), from, latest);
+      const ours = o.kind === 'variant' ? oursOf(o.of_procedure_id, procs, nameNow) : null;
+      if (o.kind === 'variant') o.action = variantAction(v0 ? avg3(v0, v0.length) : 0, ours ? ours.now : null, isBroadTerm(o.term, procs.map((p) => p.jp)));
       const still = v && !alreadyCounted({ text: r?.text, closeVariants: r?.closeVariants, series: v }, ourSet)
         && summarize(v, months).state !== 'spiked' && (o.action === 'replace' || risingOnly([{ text: o.term, series: v }]).length > 0);
       if (!still || !v) { drop.push(o.id); continue; }
-      // 넓은 말 판정이 생기기 전에 '바꾸기'로 남은 후보는 '더하기'로 낮춘다
-      const action = o.action === 'replace' && isBroadTerm(o.term, procs.map((p) => p.jp)) ? 'add' : o.action;
       await sql`update trend_candidate set volume = ${Math.round(avg3(v, v.length))}, increase = ${Math.round(avg3(v, v.length) - avg3(v, v.length - 12))},
-        rising_months = ${risingMonths(v)}, found_month = ${latest}, action = ${action} where id = ${o.id}`;
+        rising_months = ${risingMonths(v)}, found_month = ${latest}, action = ${o.action}, ours_jp = ${ours?.jp ?? null}, ours_volume = ${ours ? Math.round(ours.now) : null} where id = ${o.id}`;
     }
     if (drop.length) await sql`delete from trend_candidate where id in ${sql(drop)}`;
   }

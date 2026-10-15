@@ -53,7 +53,8 @@ test('다른 표기 — 우리 표기보다 3배 이상이면 표기 바꾸기',
   assert.equal(variantAction(22200, 320), 'replace');   // ピコフラクショナル vs ピコフラクセル
   assert.equal(variantAction(6600, 1300), 'replace');
   assert.equal(variantAction(2400, 8100), 'add');       // 刺青 消す vs タトゥー除去
-  assert.equal(variantAction(500, null), 'replace');    // 우리 표기가 값 없음
+  assert.equal(variantAction(500, 0), 'replace');       // 우리 표기가 값 없음 → 값이 나오는 표기로
+  assert.equal(variantAction(500, null), 'add');        // 견줄 시술을 못 찾음 → 바꾸지 않음
 });
 
 test('몇 달째 늘어난 상태인지 — 반짝 검색은 1, 꾸준히 늘면 여러 달', () => {

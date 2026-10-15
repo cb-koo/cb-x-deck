@@ -10,6 +10,7 @@ export type Candidate = {
   id: string; kind: 'new' | 'variant' | 'concern' | 'self' | 'clinic' | 'other'; term: string; ko: string | null; texts: string[];
   volume: number; increase: number; foundMonth: string; of: { id: string; name: string; jp: string } | null;
   firstMonth: string | null; risingMonths: number | null; action: 'add' | 'replace' | null; korea: number | null;
+  ours: { jp: string; volume: number | null } | null;
   serp: { derm: number; med: number; self: number; unrelated: number; note: string } | null;
 };
 
@@ -47,13 +48,14 @@ export function TrendCandidates({ items, onClose, onChanged, onOpen }: {
   }
 
   const [open, setOpen] = useState<string | null>(null);  // 예시 검색어를 펼친 후보
+  const [confirm, setConfirm] = useState<string | null>(null);  // [표기 바꾸기] 확인 중인 후보 — 바로 바꾸지 않고 두 숫자를 나란히 보여 준 뒤
 
   // 한 줄 = 후보 하나(koo 10-15 시안: 표 + 줄 끝 버튼 하나). 이름·숫자를 열로 맞추고, 예시 검색어는 줄을 누르면 펼친다.
   const row = (c: Candidate) => {
     const isOpen = open === c.id;
     const replace = c.kind === 'variant' && c.action === 'replace';
     const primary = replace ? '표기 바꾸기' : c.kind === 'variant' ? '더하기' : '추가';
-    const primaryTitle = replace ? `${c.of?.name ?? '시술'}의 일본어(${c.of?.jp ?? ''})보다 3배 이상 많이 찾는 표기예요 — 이 표기로 바꾸고 다시 받아요(시트 원래 값은 남겨요)`
+    const primaryTitle = replace ? `${c.of?.name ?? '시술'}의 지금 표기보다 3배 이상 많이 찾는 표기예요 — 눌러서 숫자를 확인하고 바꿔요`
       : c.kind === 'variant' ? `${c.of?.name ?? '시술'}에 이 표기를 더해 검색량을 합쳐요(바로 수집, 약 6초)`
       : c.kind === 'concern' ? "'피부 고민'에 더하고 바로 수집해요(약 6초)" : '이름·분류를 정해 시술로 추가해요';
     const warn = meaningWarn(c);
@@ -81,7 +83,7 @@ export function TrendCandidates({ items, onClose, onChanged, onOpen }: {
           <span className="inline-flex items-center gap-1">
             {c.kind === 'new' || c.kind in EXCLUDED_LABEL
               ? <Button variant="primary" disabled={!!busy} onClick={() => setAdding(c)} title={primaryTitle}>{primary}</Button>
-              : <Button variant="primary" disabled={!!busy || (c.kind === 'variant' && !c.of)} onClick={() => act(c, replace ? 'replace' : 'adopt')} title={primaryTitle}>
+              : <Button variant="primary" disabled={!!busy || (c.kind === 'variant' && !c.of)} onClick={() => (replace ? setConfirm(confirm === c.id ? null : c.id) : act(c, 'adopt'))} title={primaryTitle}>
                   {busy === c.id ? '받는 중…' : primary}
                 </Button>}
             <button onClick={() => act(c, 'ignore')} disabled={!!busy} aria-label="무시" title="무시 — 다시 안 보여요"
@@ -89,6 +91,22 @@ export function TrendCandidates({ items, onClose, onChanged, onOpen }: {
           </span>
         </td>
       </tr>,
+      confirm === c.id && (
+        <tr key={`${c.id}-ok`} className="bg-amber-50">
+          <td colSpan={5} className="px-4 py-3 text-[15px]">
+            <p>
+              <b className="font-semibold">{c.of?.name}</b>의 대표 일본어를 바꿔요:{' '}
+              <span className="text-x-secondary">{show(c.ours?.jp ?? c.of?.jp ?? '')} 월 {c.ours?.volume != null ? fmtVolume(c.ours.volume) : '값 없음'}</span>
+              {' → '}<b className="font-semibold">{show(c.term)} 월 {fmtVolume(c.volume)}</b>
+            </p>
+            <p className="mt-1 text-ui text-x-secondary">바꾸면 이 표기로 4년치·연관 검색어를 다시 받아요(약 6초). 원래 표기는 시술 기록에 남고, 상세 패널 [수정]으로 되돌릴 수 있어요.</p>
+            <div className="mt-2 flex justify-end gap-2">
+              <Button onClick={() => setConfirm(null)} disabled={!!busy}>취소</Button>
+              <Button variant="primary" disabled={!!busy} onClick={async () => { await act(c, 'replace'); setConfirm(null); }}>{busy === c.id ? '바꾸는 중…' : '바꾸기'}</Button>
+            </div>
+          </td>
+        </tr>
+      ),
       isOpen && (
         <tr key={`${c.id}-ex`} className="bg-x-surface">
           <td colSpan={5} className="px-3 pb-3 pl-8 text-ui text-x-secondary">

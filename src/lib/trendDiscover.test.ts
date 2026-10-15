@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { risingOnly, groupCandidates, risingMonths, alreadyCounted, variantAction } from './trendDiscover.ts';
+import { risingOnly, groupCandidates, risingMonths, alreadyCounted, variantAction, isBroadTerm } from './trendDiscover.ts';
 
 const ramp = (from: number, to: number) => Array.from({ length: 24 }, (_, i) => (i < 12 ? from : Math.round(from + ((to - from) * (i - 11)) / 12)));
 
@@ -61,4 +61,14 @@ test('몇 달째 늘어난 상태인지 — 반짝 검색은 1, 꾸준히 늘면
   assert.ok(risingMonths(steady) >= 6);
   const blip = [...Array(23).fill(1000), 4000];
   assert.equal(risingMonths(blip), 1);
+});
+
+test('넓은 말로는 표기를 바꾸지 않는다(RF·毛穴) — 더하기만', () => {
+  const jps = ['毛穴縮小', 'ピコフラクセル', 'サーマクール'];
+  assert.equal(isBroadTerm('RF', jps), true);           // 영문 3자 이하
+  assert.equal(isBroadTerm('毛穴', jps), true);          // 毛穴縮小가 통째로 품음
+  assert.equal(isBroadTerm('ピコフラクショナル', jps), false);
+  assert.equal(isBroadTerm('肌育注射', jps), false);
+  assert.equal(variantAction(9900, 100, true), 'add');
+  assert.equal(variantAction(22200, 320, false), 'replace');
 });

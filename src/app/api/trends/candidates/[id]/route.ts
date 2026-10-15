@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
-import { decideCandidate, candidateProcedure } from '@/lib/trendDiscover';
+import { decideCandidate, candidateProcedure, isBroadTerm } from '@/lib/trendDiscover';
 import { createProcedure, findJpConflict, updateProcedure } from '@/lib/trendStore';
 import { collectProcedure, kpFromComposio } from '@/lib/trendCollect';
 import { requireMember } from '@/lib/authGuard';
@@ -24,6 +24,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // 표기 바꾸기 — 우리 표기보다 훨씬 많이 찾는 표기로 그 시술의 일본어를 고친다(시트 원래 값은 sheet에 남는다)
     const [c] = await sql<Array<{ term: string; of_procedure_id: string | null }>>`select term, of_procedure_id from trend_candidate where market = ${market} and id = ${id} and status = 'open'`;
     if (!c?.of_procedure_id) return NextResponse.json({ error: '바꿀 시술을 찾지 못했어요' }, { status: 400 });
+    // 넓은 말로는 바꾸지 않는다(화면이 막지만 서버도 한 번 더) — RF·毛穴 같은 말로 시술 대표 검색어가 바뀌면 그 시술 숫자가 엉뚱해진다
+    const jps = (await sql<Array<{ jp: string }>>`select jp from trend_procedure where market = ${market} and not hidden`).map((r) => r.jp);
+    if (isBroadTerm(c.term, jps)) return NextResponse.json({ error: '너무 넓은 말이라 표기를 바꿀 수 없어요 — 필요하면 [더하기]로 넣어 주세요' }, { status: 400 });
     const dup = await findJpConflict(sql, market, c.term, c.of_procedure_id);
     if (dup) return NextResponse.json({ error: `이미 '${dup.name}'에 있는 검색어예요` }, { status: 409 });
     await updateProcedure(sql, market, c.of_procedure_id, { jp: c.term });

@@ -74,9 +74,17 @@ export function alreadyCounted(term: { text?: string; closeVariants?: string[]; 
   return false;
 }
 
-// 다른 표기 처리 — 우리 표기보다 3배 이상 많이 찾으면 더하기가 아니라 표기 바꾸기(ピコフラクセル 320 → ピコフラクショナル 2.2만)
+// 다른 표기 처리 — 우리 표기보다 3배 이상 많이 찾으면 더하기가 아니라 표기 바꾸기(ピコフラクセル 320 → ピコフラクショナル 2.2만).
+// 단 넓은 말로는 바꾸지 않는다(10-15: 'RF → 고주파리프팅', '毛穴 → 모공'이 바꾸기 후보로 올라왔다) — 시술 이름이 그 말을 통째로 품고 있거나
+// (毛穴 ⊂ 毛穴縮小), 너무 짧은 말(영문 3자 이하·일본어 2자 이하)이면 '더하기'만.
 export const REPLACE_RATIO = 3;
-export function variantAction(termNow: number, oursNow: number | null): 'add' | 'replace' {
+export function isBroadTerm(term: string, procedureJps: string[]): boolean {
+  const t = norm(term);
+  if (/^[a-z0-9]+$/.test(t) ? t.length <= 3 : t.length <= 2) return true;
+  return procedureJps.some((jp) => { const j = norm(jp); return j !== t && j.includes(t); });
+}
+export function variantAction(termNow: number, oursNow: number | null, broad = false): 'add' | 'replace' {
+  if (broad) return 'add';
   return oursNow === null || termNow >= Math.max(1, oursNow) * REPLACE_RATIO ? 'replace' : 'add';
 }
 
@@ -146,9 +154,11 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
     const ofId = g.of ? byJp.get(norm(g.of)) ?? null : null;
     // 다른 표기 처리 — 같은 시술명 묶음(백옥주사 = 白玉点滴·グルタチオン点滴·白玉注射)의 가장 큰 우리 표기와 견준다
     const ofName = ofId ? procs.find((p) => p.id === ofId)?.name : undefined;
-    const oursNow = ofName ? Math.max(...procs.filter((p) => p.name === ofName).map((p) => nameNow.get(p.id) ?? 0)) : null;
+    const family = ofName ? procs.filter((p) => p.name === ofName) : [];
+    const oursBest = family.reduce<{ jp: string; now: number } | null>((b, p) => { const v = nameNow.get(p.id) ?? 0; return !b || v > b.now ? { jp: p.jp, now: v } : b; }, null);
+    const oursNow = oursBest ? oursBest.now : null;
     const tsNow = (ts ?? g.series).length ? avg3(ts ?? g.series, (ts ?? g.series).length) : 0;
-    const action = g.kind === 'variant' ? variantAction(tsNow, oursNow) : null;
+    const action = g.kind === 'variant' ? variantAction(tsNow, oursNow, isBroadTerm(g.term, procs.map((p) => p.jp))) : null;
     // 핵심어 자체도 '늘어난 검색'이어야 — 긴 검색어 몇 개만 늘고 핵심어(シミ 월 3만)는 그대로·감소면 후보가 아니다(10-15: '1년 증가'에 −6,933이 뜨던 문제).
     // 단 표기 바꾸기 후보는 추세가 아니라 표기 문제라(ピコフラクセル 320 vs ピコフラクショナル 2.2만) 늘지 않아도 남긴다.
     if (ts && action !== 'replace' && !risingOnly([{ text: g.term, series: ts }]).length) { notRising++; continue; }
@@ -162,15 +172,17 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
       if (same) {
         keep.add(`${g.kind}|${same.norm}`);
         await sql`update trend_candidate set volume = ${Math.round(now)}, increase = ${Math.round(increase)}, texts = ${g.texts}, found_month = ${latest},
-          rising_months = ${risingMonths(series)}, action = ${action} where id = ${same.id}`;
+          rising_months = ${risingMonths(series)}, action = ${action}, ours_jp = ${oursBest?.jp ?? null}, ours_volume = ${oursBest ? Math.round(oursBest.now) : null} where id = ${same.id}`;
         continue;
       }
     }
     keep.add(`${g.kind}|${norm(g.term)}`);
-    await sql`insert into trend_candidate (market, kind, term, norm, ko, of_procedure_id, texts, volume, increase, found_month, first_month, rising_months, action)
-      values (${market}, ${g.kind}, ${g.term}, ${norm(g.term)}, ${g.ko}, ${ofId}, ${g.texts}, ${Math.round(now)}, ${Math.round(increase)}, ${latest}, ${latest}, ${risingMonths(series)}, ${action})
+    await sql`insert into trend_candidate (market, kind, term, norm, ko, of_procedure_id, texts, volume, increase, found_month, first_month, rising_months, action, ours_jp, ours_volume)
+      values (${market}, ${g.kind}, ${g.term}, ${norm(g.term)}, ${g.ko}, ${ofId}, ${g.texts}, ${Math.round(now)}, ${Math.round(increase)}, ${latest}, ${latest}, ${risingMonths(series)}, ${action},
+        ${oursBest?.jp ?? null}, ${oursBest ? Math.round(oursBest.now) : null})
       on conflict (market, kind, norm) do update set volume = excluded.volume, increase = excluded.increase, texts = excluded.texts,
-        found_month = excluded.found_month, rising_months = excluded.rising_months, action = excluded.action, ko = coalesce(trend_candidate.ko, excluded.ko),
+        found_month = excluded.found_month, rising_months = excluded.rising_months, action = excluded.action, ours_jp = excluded.ours_jp, ours_volume = excluded.ours_volume,
+        ko = coalesce(trend_candidate.ko, excluded.ko),
         of_procedure_id = coalesce(excluded.of_procedure_id, trend_candidate.of_procedure_id)
       where trend_candidate.status = 'open'`;
   }
@@ -196,11 +208,15 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
     for (const o of stale) {
       const r = rows.get(o.term);
       const v = toSeries(r, from, latest);
+      // 표기 바꾸기였다가 넓은 말로 판정되면 늘어난 검색이어야 남는다
+      if (o.action === 'replace' && isBroadTerm(o.term, procs.map((p) => p.jp))) o.action = 'add';
       const still = v && !alreadyCounted({ text: r?.text, closeVariants: r?.closeVariants, series: v }, ourSet)
         && summarize(v, months).state !== 'spiked' && (o.action === 'replace' || risingOnly([{ text: o.term, series: v }]).length > 0);
       if (!still || !v) { drop.push(o.id); continue; }
+      // 넓은 말 판정이 생기기 전에 '바꾸기'로 남은 후보는 '더하기'로 낮춘다
+      const action = o.action === 'replace' && isBroadTerm(o.term, procs.map((p) => p.jp)) ? 'add' : o.action;
       await sql`update trend_candidate set volume = ${Math.round(avg3(v, v.length))}, increase = ${Math.round(avg3(v, v.length) - avg3(v, v.length - 12))},
-        rising_months = ${risingMonths(v)}, found_month = ${latest} where id = ${o.id}`;
+        rising_months = ${risingMonths(v)}, found_month = ${latest}, action = ${action} where id = ${o.id}`;
     }
     if (drop.length) await sql`delete from trend_candidate where id in ${sql(drop)}`;
   }
@@ -218,19 +234,21 @@ export interface CandidateRow {
   id: string; kind: CandidateKind; term: string; ko: string | null; texts: string[]; volume: number; increase: number; foundMonth: string;
   of: { id: string; name: string; jp: string } | null; status: 'open' | 'added' | 'ignored';
   firstMonth: string | null; risingMonths: number | null; action: 'add' | 'replace' | null; korea: number | null;
+  ours: { jp: string; volume: number | null } | null;  // 표기 바꾸기 확인용 — 비교한 우리 표기
   serp: { derm: number; med: number; self: number; unrelated: number; note: string } | null;
 }
 
 export async function listCandidates(sql: postgres.Sql, market: string): Promise<CandidateRow[]> {
   const rows = await sql<Array<{ id: string; kind: CandidateKind; term: string; ko: string | null; texts: string[]; volume: number; increase: number; found_month: string; of_id: string | null; of_name: string | null; of_jp: string | null; status: CandidateRow['status'];
-    first_month: string | null; rising_months: number | null; action: CandidateRow['action']; korea: number | null; serp: CandidateRow['serp'] }>>`
+    first_month: string | null; rising_months: number | null; action: CandidateRow['action']; korea: number | null; serp: CandidateRow['serp']; ours_jp: string | null; ours_volume: number | null }>>`
     select c.id, c.kind, c.term, c.ko, c.texts, c.volume, c.increase, c.found_month, p.id as of_id, p.name as of_name, p.jp as of_jp, c.status,
-      c.first_month, c.rising_months, c.action, c.korea, c.serp
+      c.first_month, c.rising_months, c.action, c.korea, c.serp, c.ours_jp, c.ours_volume
     from trend_candidate c left join trend_procedure p on p.id = c.of_procedure_id
     where c.market = ${market} and c.status = 'open' order by (coalesce(c.korea, 0) >= 50) desc, c.increase desc`;  // 한국 검색이 있는 후보 먼저(한국 클리닉 관련성)
   return rows.map((r) => ({ id: r.id, kind: r.kind, term: r.term, ko: r.ko, texts: r.texts, volume: r.volume, increase: r.increase, foundMonth: r.found_month,
     of: r.of_id ? { id: r.of_id, name: r.of_name ?? '', jp: r.of_jp ?? '' } : null, status: r.status,
-    firstMonth: r.first_month, risingMonths: r.rising_months, action: r.action, korea: r.korea, serp: r.serp }));
+    firstMonth: r.first_month, risingMonths: r.rising_months, action: r.action, korea: r.korea, serp: r.serp,
+    ours: r.ours_jp ? { jp: r.ours_jp, volume: r.ours_volume } : null }));
 }
 
 export async function decideCandidate(sql: postgres.Sql, market: string, id: string, status: 'added' | 'ignored', by: string): Promise<boolean> {

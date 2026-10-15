@@ -39,3 +39,13 @@ test('googleAdsFromEnv: 둘 중 하나라도 없으면 던진다', () => {
     googleAdsFromEnv({ GOOGLE_ADS_CUSTOMER_ID: '1', COMPOSIO_GOOGLEADS_ACCOUNT_ID: 'ca_1' }),
     { customerId: '1', connectedAccountId: 'ca_1' });
 });
+
+test('tool: 기본 도구는 버전·user_id를 실어 보내고, 실패(successful:false)는 오류로', async () => {
+  const ok = stub(200, { data: { images_results: [{ title: 'x' }] }, successful: true });
+  const d = await ok.client.tool('COMPOSIO_SEARCH_IMAGE', '20260903_00', { query: 'q' });
+  assert.deepEqual(d, { images_results: [{ title: 'x' }] });
+  assert.equal(ok.calls[0].url, 'https://backend.composio.dev/api/v3/tools/execute/COMPOSIO_SEARCH_IMAGE');
+  assert.deepEqual(JSON.parse(ok.calls[0].init.body as string), { arguments: { query: 'q' }, version: '20260903_00', user_id: 'default' });
+  const bad = stub(200, { data: null, successful: false, error: 'quota' });
+  await assert.rejects(() => bad.client.tool('COMPOSIO_SEARCH_IMAGE', 'v', {}), ComposioError);
+});

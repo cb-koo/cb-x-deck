@@ -4,6 +4,7 @@ import { recordUsageSafe } from './usageStore';
 import { norm } from './searchIntent';
 import { ownerResolver, upsertKeywords, rebuildView, type KeywordWrite } from './trendStore';
 import { showKeyword } from './trendBuild';
+import { risingOnly } from './trendRising';
 
 // 검색 트렌드 자동 수집(스펙 2026-10-13 §7) — DB 예약 실행(scripts/search-trends-cron.sql)이 주 1회(월요일 새벽) 부른다(koo 10-14).
 // 1) 진행 중인 전체 갱신 이어 하기 → 2) 새 달 확인(있으면 전체 갱신 시작 — 직전 달들 고쳐진 값도 같이 받는다)
@@ -223,7 +224,14 @@ async function widenIdeas(sql: postgres.Sql, kp: KpClient, market: string, lates
   let procedures = 0, keywords = 0;
   for (const p of due) {
     if (left() < 30_000) break;
-    const ideas = (await kp.ideas(p.jp, from, latest)).filter((r) => owner(r.text) === p.id);
+    const all = await kp.ideas(p.jp, from, latest);
+    const ideas = all.filter((r) => owner(r.text) === p.id);
+    // 우리 목록 밖인데 늘어난 검색은 '새로 뜨는 검색' 재료로 모아 둔다(trend_orphan) — 시작점을 시술 전체로 넓힌다(10-15)
+    const orphans = risingOnly(all.filter((r) => !owner(r.text)).flatMap((r) => { const v = toSeries(r, from, latest); return v ? [{ text: r.text, series: v }] : []; }));
+    for (const o of orphans) {
+      await sql`insert into trend_orphan (market, norm, text, series, series_start) values (${market}, ${norm(o.text)}, ${o.text}, ${o.series}, ${`${from}-01`})
+        on conflict (market, norm) do update set series = excluded.series, series_start = excluded.series_start, seen_at = now()`;
+    }
     const fixed = [p.jp, ...MODS.map((m) => `${p.jp} ${m}`), ...KOREA(p.jp)];
     const hist = matchRows(fixed, await kp.historical(fixed, from, latest));
     const rows: KeywordWrite[] = [

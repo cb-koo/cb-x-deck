@@ -56,6 +56,22 @@ export class ComposioClient {
     }
     return json.data as T;
   }
+
+  // Composio 기본 도구 실행(연결 계정 없이 쓰는 composio_search 등) — 도구 버전을 꼭 넘겨야 찾는다(없으면 'Tool not found', 10-15 확인).
+  async tool<T = unknown>(slug: string, version: string, args: Record<string, unknown>): Promise<T> {
+    const res = await this.fetchImpl(`${this.baseUrl}/api/v3/tools/execute/${slug}`, {
+      method: 'POST',
+      headers: { 'x-api-key': this.opts.apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({ arguments: args, version, user_id: 'default' }),
+      cache: 'no-store',
+    });
+    const json = (await res.json().catch(() => null)) as { data?: T; successful?: boolean; error?: { message?: string } | string | null } | null;
+    if (!res.ok || !json || json.successful === false) {
+      const msg = typeof json?.error === 'string' ? json.error : json?.error?.message;
+      throw new ComposioError(`Composio tool ${slug} ${res.status}: ${msg ?? 'no body'}`, res.status);
+    }
+    return json.data as T;
+  }
 }
 
 export function composioFromEnv(env: Record<string, string | undefined> = process.env): ComposioClient {

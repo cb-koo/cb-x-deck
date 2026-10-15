@@ -155,6 +155,17 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
     const st = summarize(series, months);
     if (st.state === 'spiked') { spiked++; continue; }
     const now = avg3(series, series.length), increase = now - avg3(series, series.length - 12);
+    // 같은 한국어 이름의 열린 후보가 이미 있으면(지난 실행에 口元シミ, 이번에 口元のシミ) 그 후보에 숫자만 갈아 끼운다 — 두 줄이 되지 않게
+    if (g.ko) {
+      const [same] = await sql<Array<{ id: string; norm: string }>>`select id, norm from trend_candidate where market = ${market} and kind = ${g.kind}
+        and status = 'open' and ko = ${g.ko} and norm <> ${norm(g.term)} limit 1`;
+      if (same) {
+        keep.add(`${g.kind}|${same.norm}`);
+        await sql`update trend_candidate set volume = ${Math.round(now)}, increase = ${Math.round(increase)}, texts = ${g.texts}, found_month = ${latest},
+          rising_months = ${risingMonths(series)}, action = ${action} where id = ${same.id}`;
+        continue;
+      }
+    }
     keep.add(`${g.kind}|${norm(g.term)}`);
     await sql`insert into trend_candidate (market, kind, term, norm, ko, of_procedure_id, texts, volume, increase, found_month, first_month, rising_months, action)
       values (${market}, ${g.kind}, ${g.term}, ${norm(g.term)}, ${g.ko}, ${ofId}, ${g.texts}, ${Math.round(now)}, ${Math.round(increase)}, ${latest}, ${latest}, ${risingMonths(series)}, ${action})

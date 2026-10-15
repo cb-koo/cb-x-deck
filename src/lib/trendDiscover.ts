@@ -174,17 +174,33 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
       await sql`update trend_candidate set korea = ${Math.round(k)} where id = ${c.id}`;
     }
   }
-  // 이번 달 결과에 없는 열린 후보는 지운다 — 고르지 않은 후보는 매달 새 결과로 갈아 끼운다(고른 것은 남는다)
-  const open = await sql<Array<{ id: string; kind: string; norm: string }>>`select id, kind, norm from trend_candidate where market = ${market} and status = 'open'`;
-  const stale = open.filter((o) => !keep.has(`${o.kind}|${o.norm}`)).map((o) => o.id);
-  if (stale.length) await sql`delete from trend_candidate where id in ${sql(stale)}`;
+  // 이번 실행에 안 걸린 열린 후보는 바로 지우지 않는다 — 모델 분류가 실행마다 조금씩 달라(肌育注射를 肌育으로 줄이는 등) 중요한 후보가
+  // 나타났다 사라졌다 했다(10-15). 핵심어를 다시 조회해 아직 늘어난 검색이고(또는 표기 바꾸기) 이미 세는 검색이 아니면 숫자만 갈아 끼워 남긴다.
+  const open = await sql<Array<{ id: string; kind: string; norm: string; term: string; action: string | null }>>`
+    select id, kind, norm, term, action from trend_candidate where market = ${market} and status = 'open'`;
+  const stale = open.filter((o) => !keep.has(`${o.kind}|${o.norm}`));
+  if (stale.length) {
+    const rows = matchRows(stale.map((o) => o.term), await kp.historical(stale.map((o) => o.term), from, latest));
+    const drop: string[] = [];
+    for (const o of stale) {
+      const r = rows.get(o.term);
+      const v = toSeries(r, from, latest);
+      const still = v && !alreadyCounted({ text: r?.text, closeVariants: r?.closeVariants, series: v }, ourSet)
+        && summarize(v, months).state !== 'spiked' && (o.action === 'replace' || risingOnly([{ text: o.term, series: v }]).length > 0);
+      if (!still || !v) { drop.push(o.id); continue; }
+      await sql`update trend_candidate set volume = ${Math.round(avg3(v, v.length))}, increase = ${Math.round(avg3(v, v.length) - avg3(v, v.length - 12))},
+        rising_months = ${risingMonths(v)}, found_month = ${latest} where id = ${o.id}`;
+    }
+    if (drop.length) await sql`delete from trend_candidate where id in ${sql(drop)}`;
+  }
   return { raw: raw.length, groups: groups.length, counted, spiked, notRising, kept: keep.size };
 }
 
 export const CANDIDATE_CLASSIFY_SYSTEM = (glossary: string) =>
   `일본 구글 검색어 중 '우리 시술 목록에 없는 말'을 분류한다. 목록(일본어=한국어): ${glossary}\n`
   + '분류: new = 목록에 없는 새 시술·장비·주사·제품명(핵심어를 term에) / variant = 목록 시술의 다른 표기·오타·새 통칭(어느 시술인지 목록의 일본어를 of에) / '
-  + 'concern = 피부 고민·증상 / self = 화장품·셀프케어·가정용 / clinic = 병원 이름 / other = 그 밖(일반어). 같은 핵심어 검색어는 term을 같게.';
+  + 'concern = 피부 고민·증상 / self = 화장품·셀프케어·가정용 / clinic = 병원 이름 / other = 그 밖(일반어). 같은 핵심어 검색어는 term을 같게.\n'
+  + 'term은 검색어 안에 실제로 들어 있는 시술·제품·고민 이름을 띄어쓰기 없이 그대로(줄이거나 바꾸지 말 것 — 肌育注射를 肌育으로 줄이지 않는다). 수식어(とは·効果·値段·おすすめ 등)는 뺀다.';
 
 // ── 화면(후보 패널) ──
 export interface CandidateRow {

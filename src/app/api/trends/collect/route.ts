@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { callLLM } from '@/lib/llm';
 import { kpFromComposio, runTrendCollect } from '@/lib/trendCollect';
+import { runDiscover, CANDIDATE_CLASSIFY_SYSTEM, type Classified } from '@/lib/trendDiscover';
 
 // 검색 트렌드 자동 수집(스펙 2026-10-13 §7) — DB 예약 실행(pg_cron + pg_net, scripts/search-trends-cron.sql)이 주 1회(월요일 04:23 서울) 부른다.
 // 무엇을 할지는 runTrendCollect가 정한다(새 달 확인 → 있으면 전체 갱신, 남는 시간에 연관 검색어 넓히기·번역). 못 끝낸 건 다음 주에 이어 한다.
@@ -25,13 +26,28 @@ async function translate(texts: string[], glossary: string): Promise<Record<stri
   return out;
 }
 
+// 새로 뜨는 검색 분류 — 새 시술·다른 표기·고민·화장품·병원·일반어
+async function classify(texts: string[], glossary: string): Promise<Classified[]> {
+  const out: Classified[] = [];
+  for (let i = 0; i < texts.length; i += 80) {
+    const r = await callLLM('anthropic.trendDiscover', {
+      model: MODEL, max_tokens: 8000, system: CANDIDATE_CLASSIFY_SYSTEM(glossary),
+      messages: [{ role: 'user', content: `각 검색어를 {"text","kind","term","of","ko"} JSON 배열로만. ko는 term의 한국어 표기, of는 variant일 때만.\n${JSON.stringify(texts.slice(i, i + 80))}` }],
+    });
+    const t = r.content.map((c) => (c as { text?: string }).text ?? '').join('');
+    try { out.push(...JSON.parse(t.slice(t.indexOf('['), t.lastIndexOf(']') + 1))); } catch { /* 이 묶음은 빠짐 — 다음 달에 다시 */ }
+  }
+  return out;
+}
+
 async function handle(req: Request): Promise<NextResponse> {
   // 시크릿 미설정이면 전부 거부 — "Bearer undefined" 비교로 뚫리는 fail-open 방지(auto-measure와 같은 계약)
   const secret = process.env.MEASURE_CRON_SECRET;
   if (!secret) return NextResponse.json({ error: 'MEASURE_CRON_SECRET not configured' }, { status: 401 });
   if (req.headers.get('authorization') !== `Bearer ${secret}`)
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  const r = await runTrendCollect(getSql(), kpFromComposio(), { deadlineMs: 270_000, translate });
+  const sql = getSql(), kp = kpFromComposio();
+  const r = await runTrendCollect(sql, kp, { deadlineMs: 270_000, translate, discover: (latest) => runDiscover(sql, kp, 'jp', latest, classify) });
   return NextResponse.json(r);
 }
 

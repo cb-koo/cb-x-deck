@@ -10,6 +10,7 @@ import { TrendTable, MajorTable, MED_MIX, SORT_FIRST_DIR, type TrendRow, type Ma
 import { TrendDetail } from './TrendDetail';
 import { TrendMap } from './TrendMap';
 import { ProcedureForm } from './TrendManage';
+import { TrendCandidates, type Candidate } from './TrendCandidates';
 import { Button } from '@/components/ui';
 
 type Proc = { id: string; major: string; majorOrder: number; middle: string; name: string; kr: string; jp: string; en: string; volumes: number[] | null };
@@ -100,6 +101,12 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mapOpen, setMapOpen] = useState(true);
   const [adding, setAdding] = useState(false);
+  // 새로 뜨는 검색 후보 — 머리 버튼에 개수(새 시술·다른 표기·새 고민만, 제외한 것은 안 셈)
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [showCandidates, setShowCandidates] = useState(false);
+  const loadCandidates = async () => { const r = await fetch('/api/trends/candidates', { cache: 'no-store' }); if (r.ok) setCandidates(await r.json()); };
+  useEffect(() => { fetch('/api/trends/candidates', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])).then(setCandidates).catch(() => {}); }, []);
+  const candidateCount = candidates.filter((c) => c.kind === 'new' || c.kind === 'variant' || c.kind === 'concern').length;
 
   const inMajor = useMemo(() => rows.filter((r) => !major || r.major === major), [rows, major]);
   const counts = useMemo(() => Object.fromEntries(STATE_FILTERS.map((f) => [f.key, inMajor.filter((r) => f.match(r)).length])) as Record<StateFilter, number>, [inMajor]);
@@ -158,7 +165,11 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-8">
         <div className="mb-1 flex shrink-0 items-center gap-3">
           <h1 className="text-[20px] font-bold">검색 트렌드 <span className="text-ui font-normal text-x-secondary">일본 · 피부과 시술 {rows.length}</span></h1>
-          <Button className="ml-auto" onClick={() => { setAdding(true); setSelectedId(null); }}>+ 시술 추가</Button>
+          <Button className="ml-auto" onClick={() => { setShowCandidates(true); setAdding(false); setSelectedId(null); }}
+                  title="우리 목록에 없는데 1년 새 늘어난 검색 — 새 시술·다른 표기·새 고민 후보">
+            새로 뜨는 검색{candidateCount > 0 && <span className="ml-1.5 rounded-full bg-x-blue px-1.5 text-[12px] font-semibold text-white">{candidateCount}</span>}
+          </Button>
+          <Button onClick={() => { setAdding(true); setShowCandidates(false); setSelectedId(null); }}>+ 시술 추가</Button>
         </div>
         <p className="mb-4 shrink-0 text-[15px] text-x-secondary">
           일본 구글 검색 기준 시술별 수요·추세·검색 의도. 기준월 {LAST_LABEL} · 수집 {FETCHED} · 매월 초 갱신
@@ -214,6 +225,11 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
 
       {selected && (
         <TrendDetail key={selected.id} row={selected} months={DATA.months} siblings={siblings} onSelect={setSelectedId} onClose={() => setSelectedId(null)} onChanged={reload} />
+      )}
+      {showCandidates && !selected && !adding && (
+        <TrendCandidates items={candidates} onClose={() => setShowCandidates(false)}
+          onChanged={async () => { await Promise.all([reload(), loadCandidates()]); }}
+          onOpen={(id) => { setShowCandidates(false); setSelectedId(id); }} />
       )}
       {adding && !selected && (
         <aside className="flex w-[clamp(560px,44vw,780px)] shrink-0 flex-col overflow-y-auto border-l border-x-border bg-white">

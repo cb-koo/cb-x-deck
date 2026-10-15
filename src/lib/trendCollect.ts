@@ -84,7 +84,8 @@ export function toSeries(r: KpRow | undefined, from: string, to: string): number
 export interface CollectResult { did: string[]; latest: string | null; stoppedBy?: 'deadline' | 'rate-limit' }
 type Translate = (texts: string[], glossary: string) => Promise<Record<string, string>>;
 
-export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { market?: string; now?: Date; deadlineMs: number; translate?: Translate; forceCheck?: boolean }): Promise<CollectResult> {
+export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { market?: string; now?: Date; deadlineMs: number; translate?: Translate; forceCheck?: boolean;
+  discover?: (latest: string) => Promise<{ raw: number; groups: number }> }): Promise<CollectResult> {
   const market = opts.market ?? 'jp';
   const now = opts.now ?? new Date();
   const t0 = Date.now();
@@ -126,6 +127,22 @@ export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { m
     did.push('키워드 플래너 요청 과다 — 다음 실행에 이어 함');
     await rebuildView(sql, market);  // 멈추기 전에 쓴 검색어도 화면에 반영
     return { did, latest: stored, stoppedBy: 'rate-limit' };
+  }
+  // 3-2) 새로 뜨는 검색 찾기 — 달마다 한 번(그 달 기록이 없을 때). 연관 검색어 20번 + 분류라 시간이 넉넉할 때만
+  const cur = (await storedLatest(sql, market)) ?? stored;
+  if (opts.discover && cur && left() > 90_000) {
+    const [d] = await sql`select 1 from trend_run where market = ${market} and kind = 'discover' and latest_month = ${cur} and finished_at is not null limit 1`;
+    if (!d) {
+      const [run] = await sql<Array<{ id: string }>>`insert into trend_run (market, kind, latest_month) values (${market}, 'discover', ${cur}) returning id`;
+      try {
+        const r = await opts.discover(cur);
+        await sql`update trend_run set finished_at = now(), detail = ${sql.json(r)} where id = ${run.id}`;
+        did.push(`새로 뜨는 검색 ${r.groups}개 후보`);
+      } catch (e) {
+        if (!(e instanceof KpRateLimited)) throw e;
+        did.push('새로 뜨는 검색 — 요청 과다로 다음 실행에');
+      }
+    }
   }
   // 4) 번역 — 화면에 보이는 검색어(의도별 상위)만
   if (opts.translate && rebuilt && left() > 20_000) {

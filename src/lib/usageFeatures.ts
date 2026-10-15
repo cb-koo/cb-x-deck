@@ -24,6 +24,7 @@ const FEATURE: Record<string, string> = {
   'anthropic.influencerNormalize': '계정 분석',
   'anthropic.influencerSynth': '계정 분석',
   'anthropic.trendTranslate': '검색 트렌드 번역',
+  'anthropic.trendDiscover': '검색 트렌드 새 후보 분류',
   'googleads.historical': '검색 트렌드 수집',
   'googleads.ideas': '검색 트렌드 수집',
 };

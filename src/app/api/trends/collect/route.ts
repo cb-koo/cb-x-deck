@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { callLLM } from '@/lib/llm';
 import { kpFromComposio, runTrendCollect } from '@/lib/trendCollect';
-import { runDiscover, CANDIDATE_CLASSIFY_SYSTEM, type Classified } from '@/lib/trendDiscover';
+import { runDiscover, checkCandidateMeanings, CANDIDATE_CLASSIFY_SYSTEM, type Classified } from '@/lib/trendDiscover';
 import { checkMeaning } from '@/lib/trendMeaning';
 
 // 검색 트렌드 자동 수집(스펙 2026-10-13 §7) — DB 예약 실행(pg_cron + pg_net, scripts/search-trends-cron.sql)이 주 1회(월요일 04:23 서울) 부른다.
@@ -51,7 +51,8 @@ async function handle(req: Request): Promise<NextResponse> {
   if (req.headers.get('authorization') !== `Bearer ${secret}`)
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const sql = getSql(), kp = kpFromComposio();
-  const r = await runTrendCollect(sql, kp, { deadlineMs: 270_000, translate, discover: (latest) => runDiscover(sql, kp, 'jp', latest, classify, 1500, checkMeaning) });
+  const r = await runTrendCollect(sql, kp, { deadlineMs: 270_000, translate, discover: (latest) => runDiscover(sql, kp, 'jp', latest, classify),
+    meanings: (left) => checkCandidateMeanings(sql, 'jp', checkMeaning, 10, left) });
   return NextResponse.json(r);
 }
 

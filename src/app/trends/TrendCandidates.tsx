@@ -73,7 +73,7 @@ export function TrendCandidates({ items, onClose, onChanged, onOpen }: {
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums">{fmtVolume(c.volume)}</td>
         <td className="px-3 py-2.5 text-right tabular-nums" title={c.risingMonths ? `${c.risingMonths}개월째 1년 전보다 늘어난 상태(3개월 평균)${c.firstMonth ? ` · 처음 찾은 달 ${c.firstMonth}` : ''}` : undefined}>
-          <span className="text-green-700">+{fmtVolume(c.increase)}</span>
+          <span className={c.increase >= 0 ? 'text-green-700' : 'text-red-600'}>{c.increase >= 0 ? '+' : '−'}{fmtVolume(Math.abs(c.increase))}</span>
           {c.risingMonths ? <span className="block text-[12px] leading-tight text-x-muted">{c.risingMonths}개월째</span> : null}
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums text-x-secondary" title="'韓国 + 후보' 검색 월평균">{c.korea ? fmtVolume(c.korea) : <span className="text-x-muted">—</span>}</td>

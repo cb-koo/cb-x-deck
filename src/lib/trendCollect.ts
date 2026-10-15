@@ -86,7 +86,7 @@ export interface CollectResult { did: string[]; latest: string | null; stoppedBy
 type Translate = (texts: string[], glossary: string) => Promise<Record<string, string>>;
 
 export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { market?: string; now?: Date; deadlineMs: number; translate?: Translate; forceCheck?: boolean;
-  discover?: (latest: string) => Promise<{ raw: number; groups: number }> }): Promise<CollectResult> {
+  discover?: (latest: string) => Promise<{ raw: number; groups: number }>; meanings?: (left: () => number) => Promise<number> }): Promise<CollectResult> {
   const market = opts.market ?? 'jp';
   const now = opts.now ?? new Date();
   const t0 = Date.now();
@@ -131,7 +131,8 @@ export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { m
   }
   // 3-2) 새로 뜨는 검색 찾기 — 달마다 한 번(그 달 기록이 없을 때). 연관 검색어 20번 + 분류라 시간이 넉넉할 때만
   const cur = (await storedLatest(sql, market)) ?? stored;
-  if (opts.discover && cur && left() > 90_000) {
+  // 연관 검색어 20번 + 분류로 2~3분 — 전체 갱신과 같은 실행에선 시간이 모자라 1시간 뒤 두 번째 실행(예약 2회)이 맡는다
+  if (opts.discover && cur && left() > 200_000) {
     const [d] = await sql`select 1 from trend_run where market = ${market} and kind = 'discover' and latest_month = ${cur} and finished_at is not null limit 1`;
     if (!d) {
       const [run] = await sql<Array<{ id: string }>>`insert into trend_run (market, kind, latest_month) values (${market}, 'discover', ${cur}) returning id`;
@@ -144,6 +145,11 @@ export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { m
         did.push('새로 뜨는 검색 — 요청 과다로 다음 실행에');
       }
     }
+  }
+  // 3-3) 후보 뜻 확인 — 남는 시간에 몇 개씩
+  if (opts.meanings && left() > 40_000) {
+    const n = await opts.meanings(left);
+    if (n) did.push(`후보 뜻 확인 ${n}개`);
   }
   // 4) 번역 — 화면에 보이는 검색어(의도별 상위)만
   if (opts.translate && rebuilt && left() > 20_000) {

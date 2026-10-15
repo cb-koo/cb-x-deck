@@ -17,8 +17,8 @@ do $$ begin
   end if;
 end $$;
 
--- pg_cron은 UTC — 일요일 19:23 UTC = 월요일 04:23 서울(다른 예약 실행과 겹치지 않게). 수집은 최대 5분 — pg_net 응답 대기는 그보다 길게.
-select cron.schedule('search-trends-collect', '23 19 * * 0', format($job$
+-- pg_cron은 UTC — 일요일 19:23·20:23 UTC = 월요일 04:23·05:23 서울(다른 예약 실행과 겹치지 않게). 수집은 최대 5분 — pg_net 응답 대기는 그보다 길게.
+select cron.schedule('search-trends-collect', '23 19,20 * * 0',  -- 월 04:23·05:23 서울 — 두 번째는 새로 뜨는 검색 찾기·뜻 확인(첫 번째가 전체 갱신으로 시간을 다 쓸 때) format($job$
   select net.http_post(
     url := %L,
     headers := jsonb_build_object(

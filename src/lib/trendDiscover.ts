@@ -81,11 +81,25 @@ export function variantAction(termNow: number, oursNow: number | null): 'add' | 
 }
 
 // 한 번 돌리기 — 새 달마다 한 번(trend_run kind 'discover'). 이미 고른(추가·무시) 후보는 다시 올리지 않고, 열린 후보는 숫자만 갈아 끼운다.
-// 뜻 확인 — 핵심어의 일본 사이트 검색 결과 구성(시술과 같은 방식, 상위 20개). 주지 않으면 건너뛴다.
+// 뜻 확인 — 새 시술·새 고민 후보의 일본 사이트 검색 결과 구성(시술과 같은 방식). 하나에 몇 초라 한 번에 몇 개씩만(다음 실행이 이어 함) —
+// 한꺼번에 하면 46개에 7분이 걸려 서버 제한(5분)을 넘었다(10-15).
+export async function checkCandidateMeanings(sql: postgres.Sql, market: string, meaning: MeaningFn, limit = 10, left: () => number = () => Infinity): Promise<number> {
+  const todo = await sql<Array<{ id: string; term: string }>>`select id, term from trend_candidate where market = ${market} and status = 'open'
+    and kind in ('new', 'concern') and serp is null order by increase desc limit ${limit}`;
+  let n = 0;
+  for (const c of todo) {
+    if (left() < 20_000) break;
+    const m = await meaning(c.term).catch(() => null);
+    await sql`update trend_candidate set serp = ${sql.json(m ?? { derm: 0, med: 0, self: 0, unrelated: 0, note: '검색 결과 없음' })} where id = ${c.id}`;
+    n++;
+  }
+  return n;
+}
+
 export type MeaningFn = (term: string) => Promise<{ derm: number; med: number; self: number; unrelated: number; note: string } | null>;
 
-export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: string, latest: string, classify: ClassifyFn, gapMs = 1500, meaning?: MeaningFn):
-  Promise<{ raw: number; groups: number; counted: number; spiked: number; kept: number }> {
+export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: string, latest: string, classify: ClassifyFn, gapMs = 1500):
+  Promise<{ raw: number; groups: number; counted: number; spiked: number; notRising: number; kept: number }> {
   const from = addMonths(latest, -(WINDOW - 1));
   const months = Array.from({ length: WINDOW }, (_, i) => addMonths(from, i));
   const procs = await sql<Array<{ id: string; jp: string; name: string }>>`select id, jp, name from trend_procedure where market = ${market} and not hidden`;
@@ -107,7 +121,7 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
     if (o.series_start.toISOString().slice(0, 7) === from && o.series.length === WINDOW) seen.set(norm(o.text), { text: o.text, series: o.series });
   }
   const raw = risingOnly([...seen.values()]);
-  if (!raw.length) return { raw: 0, groups: 0, counted: 0, spiked: 0, kept: 0 };
+  if (!raw.length) return { raw: 0, groups: 0, counted: 0, spiked: 0, notRising: 0, kept: 0 };
   const glossary = [...new Map(procs.map((p) => [p.jp, p.name])).entries()].map(([j, n]) => `${j}=${n}`).join(', ');
   const groups = groupCandidates(raw, await classify(raw.map((r) => r.text), glossary));
 
@@ -121,7 +135,7 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
     .map((r) => [r.procedure_id, r.series ? avg3(r.series, r.series.length) : null]));
   const byJp = new Map(procs.map((p) => [norm(p.jp), p.id]));
   const keep = new Set<string>();
-  let counted = 0, spiked = 0;
+  let counted = 0, spiked = 0, notRising = 0;
   for (const g of groups) {
     const tr = termRows.get(g.term);
     const ts = toSeries(tr, from, latest);
@@ -129,11 +143,18 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
     const examplesCounted = g.texts.every((t) => { const r = raw.find((x) => x.text === t); return !!r && alreadyCounted({ series: r.series }, ourSet); });
     if (alreadyCounted({ text: tr?.text, closeVariants: tr?.closeVariants, series: ts }, ourSet) || examplesCounted) { counted++; continue; }
     const series = ts ?? g.series;  // 핵심어 자체 값이 없으면(값 없음) 대표 예시 검색어로
+    const ofId = g.of ? byJp.get(norm(g.of)) ?? null : null;
+    // 다른 표기 처리 — 같은 시술명 묶음(백옥주사 = 白玉点滴·グルタチオン点滴·白玉注射)의 가장 큰 우리 표기와 견준다
+    const ofName = ofId ? procs.find((p) => p.id === ofId)?.name : undefined;
+    const oursNow = ofName ? Math.max(...procs.filter((p) => p.name === ofName).map((p) => nameNow.get(p.id) ?? 0)) : null;
+    const tsNow = (ts ?? g.series).length ? avg3(ts ?? g.series, (ts ?? g.series).length) : 0;
+    const action = g.kind === 'variant' ? variantAction(tsNow, oursNow) : null;
+    // 핵심어 자체도 '늘어난 검색'이어야 — 긴 검색어 몇 개만 늘고 핵심어(シミ 월 3만)는 그대로·감소면 후보가 아니다(10-15: '1년 증가'에 −6,933이 뜨던 문제).
+    // 단 표기 바꾸기 후보는 추세가 아니라 표기 문제라(ピコフラクセル 320 vs ピコフラクショナル 2.2만) 늘지 않아도 남긴다.
+    if (ts && action !== 'replace' && !risingOnly([{ text: g.term, series: ts }]).length) { notRising++; continue; }
     const st = summarize(series, months);
     if (st.state === 'spiked') { spiked++; continue; }
     const now = avg3(series, series.length), increase = now - avg3(series, series.length - 12);
-    const ofId = g.of ? byJp.get(norm(g.of)) ?? null : null;
-    const action = g.kind === 'variant' ? variantAction(now, ofId ? nameNow.get(ofId) ?? null : null) : null;
     keep.add(`${g.kind}|${norm(g.term)}`);
     await sql`insert into trend_candidate (market, kind, term, norm, ko, of_procedure_id, texts, volume, increase, found_month, first_month, rising_months, action)
       values (${market}, ${g.kind}, ${g.term}, ${norm(g.term)}, ${g.ko}, ${ofId}, ${g.texts}, ${Math.round(now)}, ${Math.round(increase)}, ${latest}, ${latest}, ${risingMonths(series)}, ${action})
@@ -150,15 +171,14 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
     const rows = matchRows(kw, await kp.historical(kw, from, latest));
     for (const c of kept) {
       const k = [`韓国 ${c.term}`, `${c.term} 韓国`].reduce((s, t) => { const v = toSeries(rows.get(t), from, latest); return s + (v ? avg3(v, v.length) : 0); }, 0);
-      const m = meaning && c.kind !== 'variant' ? await meaning(c.term).catch(() => null) : null;
-      await sql`update trend_candidate set korea = ${Math.round(k)}, serp = ${m ? sql.json(m) : null} where id = ${c.id}`;
+      await sql`update trend_candidate set korea = ${Math.round(k)} where id = ${c.id}`;
     }
   }
   // 이번 달 결과에 없는 열린 후보는 지운다 — 고르지 않은 후보는 매달 새 결과로 갈아 끼운다(고른 것은 남는다)
   const open = await sql<Array<{ id: string; kind: string; norm: string }>>`select id, kind, norm from trend_candidate where market = ${market} and status = 'open'`;
   const stale = open.filter((o) => !keep.has(`${o.kind}|${o.norm}`)).map((o) => o.id);
   if (stale.length) await sql`delete from trend_candidate where id in ${sql(stale)}`;
-  return { raw: raw.length, groups: groups.length, counted, spiked, kept: keep.size };
+  return { raw: raw.length, groups: groups.length, counted, spiked, notRising, kept: keep.size };
 }
 
 export const CANDIDATE_CLASSIFY_SYSTEM = (glossary: string) =>

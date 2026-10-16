@@ -19,7 +19,7 @@ export const DISCOVER_SEEDS = [
   'ピーリング', 'レーザー 美容', 'シミ取り', '肝斑 治療', '毛穴 治療', 'ニキビ跡 治療', '医療脱毛', '脂肪溶解注射', '美容点滴', 'アートメイク', 'たるみ 治療',
 ];
 
-export type CandidateKind = 'new' | 'variant' | 'concern' | 'self' | 'clinic' | 'other';
+export type CandidateKind = 'new' | 'variant' | 'concern' | 'self' | 'clinic' | 'other' | 'alt';
 export interface Classified { text: string; kind: CandidateKind; term: string; of?: string | null; ko?: string | null }
 export type ClassifyFn = (texts: string[], glossary: string) => Promise<Classified[]>;
 
@@ -206,7 +206,7 @@ export async function runDiscover(sql: postgres.Sql, kp: KpClient, market: strin
   // 이번 실행에 안 걸린 열린 후보는 바로 지우지 않는다 — 모델 분류가 실행마다 조금씩 달라(肌育注射를 肌育으로 줄이는 등) 중요한 후보가
   // 나타났다 사라졌다 했다(10-15). 핵심어를 다시 조회해 아직 늘어난 검색이고(또는 표기 바꾸기) 이미 세는 검색이 아니면 숫자만 갈아 끼워 남긴다.
   const open = await sql<Array<{ id: string; kind: string; norm: string; term: string; action: string | null; of_procedure_id: string | null }>>`
-    select id, kind, norm, term, action, of_procedure_id from trend_candidate where market = ${market} and status = 'open'`;
+    select id, kind, norm, term, action, of_procedure_id from trend_candidate where market = ${market} and status = 'open' and kind <> 'alt'`;  // 값 없음 다른 표기는 따로 찾는다(trendAltSpell)
   const stale = open.filter((o) => !keep.has(`${o.kind}|${o.norm}`));
   if (stale.length) {
     const rows = matchRows(stale.map((o) => o.term), await kp.historical(stale.map((o) => o.term), from, latest));
@@ -241,20 +241,21 @@ export interface CandidateRow {
   of: { id: string; name: string; jp: string } | null; status: 'open' | 'added' | 'ignored';
   firstMonth: string | null; risingMonths: number | null; action: 'add' | 'replace' | null; korea: number | null;
   ours: { jp: string; volume: number | null } | null;  // 표기 바꾸기 확인용 — 비교한 우리 표기
+  match: { same: number; other: number; self: number; unrelated: number; total: number; note: string } | null;  // 값 없음 다른 표기의 같은 시술 확인
   serp: { derm: number; med: number; self: number; unrelated: number; note: string } | null;
 }
 
 export async function listCandidates(sql: postgres.Sql, market: string): Promise<CandidateRow[]> {
   const rows = await sql<Array<{ id: string; kind: CandidateKind; term: string; ko: string | null; texts: string[]; volume: number; increase: number; found_month: string; of_id: string | null; of_name: string | null; of_jp: string | null; status: CandidateRow['status'];
-    first_month: string | null; rising_months: number | null; action: CandidateRow['action']; korea: number | null; serp: CandidateRow['serp']; ours_jp: string | null; ours_volume: number | null }>>`
+    first_month: string | null; rising_months: number | null; action: CandidateRow['action']; korea: number | null; serp: CandidateRow['serp']; ours_jp: string | null; ours_volume: number | null; match: CandidateRow['match'] }>>`
     select c.id, c.kind, c.term, c.ko, c.texts, c.volume, c.increase, c.found_month, p.id as of_id, p.name as of_name, p.jp as of_jp, c.status,
-      c.first_month, c.rising_months, c.action, c.korea, c.serp, c.ours_jp, c.ours_volume
+      c.first_month, c.rising_months, c.action, c.korea, c.serp, c.ours_jp, c.ours_volume, c.match
     from trend_candidate c left join trend_procedure p on p.id = c.of_procedure_id
     where c.market = ${market} and c.status = 'open' order by (coalesce(c.korea, 0) >= 50) desc, c.increase desc`;  // 한국 검색이 있는 후보 먼저(한국 클리닉 관련성)
   return rows.map((r) => ({ id: r.id, kind: r.kind, term: r.term, ko: r.ko, texts: r.texts, volume: r.volume, increase: r.increase, foundMonth: r.found_month,
     of: r.of_id ? { id: r.of_id, name: r.of_name ?? '', jp: r.of_jp ?? '' } : null, status: r.status,
     firstMonth: r.first_month, risingMonths: r.rising_months, action: r.action, korea: r.korea, serp: r.serp,
-    ours: r.ours_jp ? { jp: r.ours_jp, volume: r.ours_volume } : null }));
+    ours: r.ours_jp ? { jp: r.ours_jp, volume: r.ours_volume } : null, match: r.match }));
 }
 
 export async function decideCandidate(sql: postgres.Sql, market: string, id: string, status: 'added' | 'ignored', by: string): Promise<boolean> {
@@ -269,7 +270,7 @@ export async function candidateProcedure(sql: postgres.Sql, market: string, id: 
     where c.market = ${market} and c.id = ${id} and c.status = 'open'`;
   if (!c) return null;
   if (c.kind === 'variant' && c.action === 'replace') return null;  // 표기 바꾸기는 새 행이 아니라 그 시술의 일본어를 고친다(라우트)
-  if (c.kind === 'variant' && c.name && c.major) return { name: c.name, kr: c.ko ?? c.kr ?? c.name, jp: c.term, en: '', major: c.major, middle: c.middle ?? '' };
+  if ((c.kind === 'variant' || c.kind === 'alt') && c.name && c.major) return { name: c.name, kr: c.ko ?? c.kr ?? c.name, jp: c.term, en: '', major: c.major, middle: c.middle ?? '' };
   if (c.kind === 'concern') return { name: c.ko ?? c.term, kr: c.ko ?? c.term, jp: c.term, en: '', major: '피부 고민', middle: '' };
   return null;  // 새 시술은 이름·분류를 사람이 정한다(양식)
 }

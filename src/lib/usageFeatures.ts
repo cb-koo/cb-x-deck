@@ -26,6 +26,7 @@ const FEATURE: Record<string, string> = {
   'anthropic.trendTranslate': '검색 트렌드 번역',
   'anthropic.trendDiscover': '검색 트렌드 새 후보 분류',
   'anthropic.trendMeaning': '검색 트렌드 뜻 확인',
+  'anthropic.trendAltSpell': '검색 트렌드 다른 표기 찾기',
   'googleads.historical': '검색 트렌드 수집',
   'googleads.ideas': '검색 트렌드 수집',
 };

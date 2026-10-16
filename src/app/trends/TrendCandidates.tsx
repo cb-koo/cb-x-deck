@@ -7,10 +7,11 @@ import { fmtVolume } from '@/lib/searchTrend';
 import { ProcedureForm } from './TrendManage';
 
 export type Candidate = {
-  id: string; kind: 'new' | 'variant' | 'concern' | 'self' | 'clinic' | 'other'; term: string; ko: string | null; texts: string[];
+  id: string; kind: 'new' | 'variant' | 'concern' | 'self' | 'clinic' | 'other' | 'alt'; term: string; ko: string | null; texts: string[];
   volume: number; increase: number; foundMonth: string; of: { id: string; name: string; jp: string } | null;
   firstMonth: string | null; risingMonths: number | null; action: 'add' | 'replace' | null; korea: number | null;
   ours: { jp: string; volume: number | null } | null;
+  match: { same: number; other: number; self: number; unrelated: number; total: number; note: string } | null;
   serp: { derm: number; med: number; self: number; unrelated: number; note: string } | null;
 };
 
@@ -32,6 +33,7 @@ export function TrendCandidates({ items, onClose, onChanged, onOpen }: {
     { kind: 'new', title: '새 시술', hint: '목록에 없는 시술·장비·주사' },
     { kind: 'variant', title: '기존 시술의 다른 표기', hint: '오타·새 통칭 — 더하면 그 시술에 합산' },
     { kind: 'concern', title: '새 고민', hint: "더하면 '피부 고민' 분류에" },
+    { kind: 'alt', title: '값 없음 시술의 다른 표기', hint: '시술명 검색량이 안 나오는 시술에, 같은 뜻으로 값이 나오는 말 — 더하면 그 시술에 합산(여전히 최소치)' },
   ] as const;
   const excluded = items.filter((c) => c.kind in EXCLUDED_LABEL);
 
@@ -54,16 +56,17 @@ export function TrendCandidates({ items, onClose, onChanged, onOpen }: {
   const row = (c: Candidate) => {
     const isOpen = open === c.id;
     const replace = c.kind === 'variant' && c.action === 'replace';
-    const primary = replace ? '표기 바꾸기' : c.kind === 'variant' ? '더하기' : '추가';
+    const asVariant = c.kind === 'variant' || c.kind === 'alt';  // 기존 시술 묶음에 더하는 후보
+    const primary = replace ? '표기 바꾸기' : asVariant ? '더하기' : '추가';
     const primaryTitle = replace ? `${c.of?.name ?? '시술'}의 지금 표기보다 3배 이상 많이 찾는 표기예요 — 눌러서 숫자를 확인하고 바꿔요`
-      : c.kind === 'variant' ? `${c.of?.name ?? '시술'}에 이 표기를 더해 검색량을 합쳐요(바로 수집, 약 6초)`
+      : asVariant ? `${c.of?.name ?? '시술'}에 이 표기를 더해 검색량을 합쳐요(바로 수집, 약 6초)`
       : c.kind === 'concern' ? "'피부 고민'에 더하고 바로 수집해요(약 6초)" : '이름·분류를 정해 시술로 추가해요';
     const warn = meaningWarn(c);
     return [
       <tr key={c.id} onClick={() => setOpen(isOpen ? null : c.id)} className={`cursor-pointer border-t border-x-border/60 ${isOpen ? 'bg-x-surface' : 'hover:bg-x-hover'}`}>
         <td className="max-w-0 truncate px-3 py-2.5" title={c.texts.map(show).join(' · ')}>
           <span className="mr-1.5 inline-block w-3 text-ui text-x-muted">{isOpen ? '▾' : '▸'}</span>
-          {c.kind === 'variant' ? (<>
+          {asVariant ? (<>
             <span className="font-medium">{show(c.term)}</span>
             {c.of && <span className="ml-2 rounded-full bg-x-surface px-2 py-0.5 text-ui text-x-secondary" title={`우리 표기: ${c.of.jp}`}>{c.of.name}{replace && ` · 우리 ${c.of.jp}`}</span>}
           </>) : (<>
@@ -72,6 +75,11 @@ export function TrendCandidates({ items, onClose, onChanged, onOpen }: {
             {c.kind in EXCLUDED_LABEL && <span className="ml-2 text-ui text-x-muted">· {EXCLUDED_LABEL[c.kind]}</span>}
           </>)}
           {warn && <span className="ml-2 text-ui text-amber-700" title={c.serp?.note}>⚠ {warn}</span>}
+          {c.match && (
+            <span className={`ml-2 text-ui ${c.match.other >= 3 ? 'text-amber-700' : 'text-x-muted'}`} title={c.match.note}>
+              같은 시술 {c.match.same}/{c.match.total}{c.match.other >= 3 && ` · ⚠ 다른 시술·진료과 ${c.match.other}`}
+            </span>
+          )}
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums">{fmtVolume(c.volume)}</td>
         <td className="px-3 py-2.5 text-right tabular-nums" title={c.risingMonths ? `${c.risingMonths}개월째 1년 전보다 늘어난 상태(3개월 평균)${c.firstMonth ? ` · 처음 찾은 달 ${c.firstMonth}` : ''}` : undefined}>
@@ -83,7 +91,7 @@ export function TrendCandidates({ items, onClose, onChanged, onOpen }: {
           <span className="inline-flex items-center gap-1">
             {c.kind === 'new' || c.kind in EXCLUDED_LABEL
               ? <Button variant="primary" disabled={!!busy} onClick={() => setAdding(c)} title={primaryTitle}>{primary}</Button>
-              : <Button variant="primary" disabled={!!busy || (c.kind === 'variant' && !c.of)} onClick={() => (replace ? setConfirm(confirm === c.id ? null : c.id) : act(c, 'adopt'))} title={primaryTitle}>
+              : <Button variant="primary" disabled={!!busy || (asVariant && !c.of)} onClick={() => (replace ? setConfirm(confirm === c.id ? null : c.id) : act(c, 'adopt'))} title={primaryTitle}>
                   {busy === c.id ? '받는 중…' : primary}
                 </Button>}
             <button onClick={() => act(c, 'ignore')} disabled={!!busy} aria-label="무시" title="무시 — 다시 안 보여요"
@@ -141,7 +149,7 @@ export function TrendCandidates({ items, onClose, onChanged, onOpen }: {
           <button onClick={onClose} aria-label="닫기" className="ml-auto rounded-full px-2 py-1 text-x-secondary hover:bg-x-hover">✕</button>
         </div>
         <p className="mt-0.5 text-[15px] text-x-secondary" title="월 300건 이상, 1년 전보다 +300건·+30% 이상 늘어난 검색 · 매달 새 달을 받은 뒤 자동으로 찾아요">
-          우리 목록에 없는데 1년 새 늘어난 검색 <b className="font-semibold text-x-text">{items.length - excluded.length}개</b>
+          처리할 후보 <b className="font-semibold text-x-text">{items.length - excluded.length}개</b> <span className="text-x-muted">— 우리 목록에 없는데 늘어난 검색 · 값 없음 시술의 다른 표기</span>
           <span className="ml-2 text-ui text-x-muted">줄을 누르면 실제 검색어 · ✕는 다시 안 보임</span>
         </p>
       </div>

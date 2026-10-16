@@ -2,6 +2,7 @@
 // Composio 기본 도구(COMPOSIO_SEARCH_IMAGE, 무료)는 나라를 고를 수 없어 'site:jp'로 일본 사이트만 본다.
 import { composioFromEnv } from './composio';
 import { callLLM } from './llm';
+import { ALT_GENERATE_SYSTEM, SAME_CHECK_SYSTEM } from './trendAltSpell';
 
 const IMAGE_TOOL = { slug: 'COMPOSIO_SEARCH_IMAGE', version: '20260903_00' };
 const SYSTEM = '일본 구글 이미지 검색(일본 사이트) 상위 결과의 출처·제목을 보고 각 결과를 분류한다. derm = 피부과·미용의료·미용외과·미용 클리닉/미용 시술 정보. '
@@ -23,4 +24,45 @@ export async function checkMeaning(term: string): Promise<Meaning | null> {
   const t = r.content.map((x) => (x as { text?: string }).text ?? '').join('');
   const o = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)) as Partial<Meaning>;
   return { derm: o.derm ?? 0, med: o.med ?? 0, self: o.self ?? 0, unrelated: o.unrelated ?? 0, note: o.note ?? '' };
+}
+
+const parseJson = <T>(t: string, open: '{' | '['): T | null => {
+  const close = open === '{' ? '}' : ']';
+  try { return JSON.parse(t.slice(t.indexOf(open), t.lastIndexOf(close) + 1)) as T; } catch { return null; }
+};
+const textOf = (r: { content: unknown[] }) => r.content.map((x) => (x as { text?: string }).text ?? '').join('');
+
+async function imageItems(term: string) {
+  const d = await composioFromEnv().tool<{ images_results?: Array<{ source?: string; title?: string }>; results?: { images_results?: Array<{ source?: string; title?: string }> } }>(
+    IMAGE_TOOL.slug, IMAGE_TOOL.version, { query: `${term} site:jp`, num: 20 });
+  return (d.images_results ?? d.results?.images_results ?? []).slice(0, 20);
+}
+
+// '값 없음' 시술의 다른 표기 만들기(시술 15개씩)
+export async function generateAlts(procs: Array<{ jp: string; kr: string }>): Promise<Record<string, string[]>> {
+  for (let k = 0; k < 2; k++) {
+    const r = await callLLM('anthropic.trendAltSpell', {
+      model: 'claude-sonnet-5-5', max_tokens: 6000, system: ALT_GENERATE_SYSTEM,
+      messages: [{ role: 'user', content: `각 시술(일본어=한국어)마다 다른 말 10개. {"원래 일본어":["표기",...]} JSON 하나로만.\n${JSON.stringify(procs.map((p) => `${p.jp}=${p.kr}`))}` }],
+    });
+    const o = parseJson<Record<string, string[]>>(textOf(r), '{');
+    if (o) return Object.fromEntries(Object.entries(o).map(([k2, v]) => [k2.split('=')[0], v]));
+  }
+  return {};
+}
+
+// 같은 시술 확인 — 상위 결과가 원래 시술 그 자체를 다루는지(피부과인지보다 좁은 질문)
+export async function checkSameProcedure(alt: string, orig: string, ko: string) {
+  const items = await imageItems(alt);
+  if (!items.length) return null;
+  for (let k = 0; k < 3; k++) {
+    const r = await callLLM('anthropic.trendAltSpell', {
+      model: 'claude-sonnet-5-5', max_tokens: 1500, system: SAME_CHECK_SYSTEM,
+      messages: [{ role: 'user', content: `기준 시술: ${ko}(${orig}). 검색어: ${alt}.\n{"same","other","self","unrelated","unclear","note":"same 외에 무엇이 섞였는지 한국어 짧게"} JSON 하나로만(숫자는 개수).\n${items.map((x, i) => `${i + 1}. ${x.source ?? ''} | ${x.title ?? ''}`).join('\n')}` }],
+    });
+    const o = parseJson<{ same?: unknown; other?: unknown; self?: unknown; unrelated?: unknown; note?: string }>(textOf(r), '{');
+    const num = (x: unknown) => (typeof x === 'number' ? x : Array.isArray(x) ? x.length : Number(x) || 0);  // 번호 목록으로 답할 때도 있다
+    if (o) return { same: num(o.same), other: num(o.other), self: num(o.self), unrelated: num(o.unrelated), total: items.length, note: o.note ?? '' };
+  }
+  return null;
 }

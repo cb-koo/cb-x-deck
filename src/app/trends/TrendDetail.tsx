@@ -191,7 +191,13 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose, onChange
               {row.volumes
                 ? <>시술명({row.jp.split(' 외 ')[0]}) 검색량이 최근 0이에요.</>
                 : <>시술명({row.jp.split(' 외 ')[0]}) 검색량은 키워드 플래너가 값을 주지 않아요(값 없음 — 일본에서 많이 찾는 시술에도 생기는 제공 제한).</>}
-              {' '}수치는 효과·가격 등이 붙은 검색과 한국 조합 검색만 합친 값이라 실제 수요보다 작아요.
+              {(() => {
+                // 같은 묶음의 다른 표기 중 값이 나오는 것(咬筋ボトックス 등) — 그 표기로 일부를 센다
+                const others = (members ?? []).filter((m) => m.jp !== row.jp.split(' 외 ')[0] && memberNow(m.total) > 0).map((m) => m.jp);
+                return others.length
+                  ? <>{' '}다른 표기({others.slice(0, 3).join('·')})로 일부를 함께 셌지만, 원래 표기의 검색량은 빠져 있어 실제 수요보다 작아요(최소치).</>
+                  : <>{' '}수치는 효과·가격 등이 붙은 검색과 한국 조합 검색만 합친 값이라 실제 수요보다 작아요.</>;
+              })()}
             </p>
           )}
           {it?.ambiguous && (

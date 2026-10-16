@@ -86,7 +86,8 @@ export interface CollectResult { did: string[]; latest: string | null; stoppedBy
 type Translate = (texts: string[], glossary: string) => Promise<Record<string, string>>;
 
 export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { market?: string; now?: Date; deadlineMs: number; translate?: Translate; forceCheck?: boolean;
-  discover?: (latest: string) => Promise<{ raw: number; groups: number }>; meanings?: (left: () => number) => Promise<number> }): Promise<CollectResult> {
+  discover?: (latest: string) => Promise<{ raw: number; groups: number }>; meanings?: (left: () => number) => Promise<number>;
+  altSpell?: (latest: string, left: () => number) => Promise<{ procedures: number; kept: number }> }): Promise<CollectResult> {
   const market = opts.market ?? 'jp';
   const now = opts.now ?? new Date();
   const t0 = Date.now();
@@ -150,6 +151,12 @@ export async function runTrendCollect(sql: postgres.Sql, kp: KpClient, opts: { m
   if (opts.meanings && left() > 40_000) {
     const n = await opts.meanings(left);
     if (n) did.push(`후보 뜻 확인 ${n}개`);
+  }
+  // 3-4) 값 없음 시술의 다른 표기 — 실행마다 몇 개 시술씩(90일마다 다시)
+  const cur2 = (await storedLatest(sql, market)) ?? stored;
+  if (opts.altSpell && cur2 && left() > 60_000) {
+    const r = await opts.altSpell(cur2, left);
+    if (r.procedures) did.push(`값 없음 시술 ${r.procedures}개 다른 표기 찾기 — 후보 ${r.kept}개`);
   }
   // 4) 번역 — 화면에 보이는 검색어(의도별 상위)만
   if (opts.translate && rebuilt && left() > 20_000) {

@@ -3,7 +3,8 @@ import { getSql } from '@/lib/db';
 import { callLLM } from '@/lib/llm';
 import { kpFromComposio, runTrendCollect } from '@/lib/trendCollect';
 import { runDiscover, checkCandidateMeanings, CANDIDATE_CLASSIFY_SYSTEM, type Classified } from '@/lib/trendDiscover';
-import { checkMeaning } from '@/lib/trendMeaning';
+import { checkMeaning, generateAlts, checkSameProcedure } from '@/lib/trendMeaning';
+import { runAltSpell } from '@/lib/trendAltSpell';
 
 // 검색 트렌드 자동 수집(스펙 2026-10-13 §7) — DB 예약 실행(pg_cron + pg_net, scripts/search-trends-cron.sql)이 주 1회(월요일 04:23 서울) 부른다.
 // 무엇을 할지는 runTrendCollect가 정한다(새 달 확인 → 있으면 전체 갱신, 남는 시간에 연관 검색어 넓히기·번역). 못 끝낸 건 다음 주에 이어 한다.
@@ -52,7 +53,8 @@ async function handle(req: Request): Promise<NextResponse> {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const sql = getSql(), kp = kpFromComposio();
   const r = await runTrendCollect(sql, kp, { deadlineMs: 270_000, translate, discover: (latest) => runDiscover(sql, kp, 'jp', latest, classify),
-    meanings: (left) => checkCandidateMeanings(sql, 'jp', checkMeaning, 10, left) });
+    meanings: (left) => checkCandidateMeanings(sql, 'jp', checkMeaning, 10, left),
+    altSpell: (latest, left) => runAltSpell(sql, kp, 'jp', latest, generateAlts, checkSameProcedure, { limit: 5, left }) });
   return NextResponse.json(r);
 }
 

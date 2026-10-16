@@ -106,7 +106,7 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
   const [showCandidates, setShowCandidates] = useState(false);
   const loadCandidates = async () => { const r = await fetch('/api/trends/candidates', { cache: 'no-store' }); if (r.ok) setCandidates(await r.json()); };
   useEffect(() => { fetch('/api/trends/candidates', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])).then(setCandidates).catch(() => {}); }, []);
-  const candidateCount = candidates.filter((c) => c.kind === 'new' || c.kind === 'variant' || c.kind === 'concern').length;
+  const candidateCount = candidates.filter((c) => c.kind === 'new' || c.kind === 'variant' || c.kind === 'concern' || c.kind === 'alt').length;
 
   const inMajor = useMemo(() => rows.filter((r) => !major || r.major === major), [rows, major]);
   const counts = useMemo(() => Object.fromEntries(STATE_FILTERS.map((f) => [f.key, inMajor.filter((r) => f.match(r)).length])) as Record<StateFilter, number>, [inMajor]);

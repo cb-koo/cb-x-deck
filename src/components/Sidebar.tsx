@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useMember } from '@/lib/memberContext';
 import { interceptNav } from '@/lib/navGuard';
@@ -104,6 +105,10 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
 
   return (
     <aside data-tour="sidebar" className="flex h-screen w-52 shrink-0 flex-col border-r border-x-border bg-x-surface p-3">
+      {/* 회사 로고 — clinicbridge.co.kr의 /images/cb-logo-black.svg를 줄여(svgo, 250KB → 4KB) 그대로 쓴다. 누르면 첫 화면 */}
+      <Link href="/" onNavigate={guardedNavigate('/')} aria-label="Clinic Bridge 첫 화면" className="mb-4 mt-1 block px-1">
+        <Image src="/brand/clinicbridge-logo.svg" alt="Clinic Bridge" width={130} height={28} priority className="h-[22px] w-auto" />
+      </Link>
       <nav className="flex-1 overflow-y-auto">
         {groupTitle('시장 조사')}
         {marketNav.map(link)}

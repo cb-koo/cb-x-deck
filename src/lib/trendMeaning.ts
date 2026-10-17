@@ -58,11 +58,14 @@ export async function checkSameProcedure(alt: string, orig: string, ko: string) 
   for (let k = 0; k < 3; k++) {
     const r = await callLLM('anthropic.trendAltSpell', {
       model: 'claude-sonnet-5-5', max_tokens: 1500, system: SAME_CHECK_SYSTEM,
-      messages: [{ role: 'user', content: `기준 시술: ${ko}(${orig}). 검색어: ${alt}.\n{"same","other","self","unrelated","unclear","note":"same 외에 무엇이 섞였는지 한국어 짧게"} JSON 하나로만(숫자는 개수).\n${items.map((x, i) => `${i + 1}. ${x.source ?? ''} | ${x.title ?? ''}`).join('\n')}` }],
+      messages: [{ role: 'user', content: `기준 시술: ${ko}(${orig}). 검색어: ${alt}.\n{"same","other_procedure","other_department","self","unrelated","unclear","term_type":"procedure|disease","note":"same 외에 무엇이 섞였는지 한국어 짧게"} JSON 하나로만(숫자는 개수).\n${items.map((x, i) => `${i + 1}. ${x.source ?? ''} | ${x.title ?? ''}`).join('\n')}` }],
     });
-    const o = parseJson<{ same?: unknown; other?: unknown; self?: unknown; unrelated?: unknown; note?: string }>(textOf(r), '{');
+    const o = parseJson<{ same?: unknown; other_procedure?: unknown; other_department?: unknown; self?: unknown; unrelated?: unknown; term_type?: string; note?: string }>(textOf(r), '{');
     const num = (x: unknown) => (typeof x === 'number' ? x : Array.isArray(x) ? x.length : Number(x) || 0);  // 번호 목록으로 답할 때도 있다
-    if (o) return { same: num(o.same), other: num(o.other), self: num(o.self), unrelated: num(o.unrelated), total: items.length, note: o.note ?? '' };
+    if (o) {
+      const med = num(o.other_department);
+      return { same: num(o.same), other: num(o.other_procedure) + med, med, self: num(o.self), unrelated: num(o.unrelated), total: items.length, disease: o.term_type === 'disease', note: o.note ?? '' };
+    }
   }
   return null;
 }

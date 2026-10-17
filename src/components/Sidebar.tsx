@@ -8,7 +8,7 @@ import { useMember } from '@/lib/memberContext';
 import { swapWorkspacePath } from '@/lib/wsNav';
 import { interceptNav } from '@/lib/navGuard';
 import { createClient } from '@/lib/supabase/client';
-import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, PromptIcon, UserIcon, ViewIcon, CampaignIcon, TrendIcon } from './XIcons';
+import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, PromptIcon, UserIcon, ViewIcon, CampaignIcon, TrendIcon, MapPinIcon } from './XIcons';
 
 // 리포트(막대 그래프) — 다른 XIcons는 채움(fill) 단일 path인데 막대 그래프는 선(stroke) 3개가
 // 자연스러워 여기만 로컬로 둔다. props 시그니처는 XIcons의 다른 아이콘들과 동일.
@@ -68,6 +68,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     { href: '/settlement', label: '정산', Ic: CampaignIcon },
     // 검색 트렌드 — 일본에서 시술을 얼마나 찾는지(수요·트렌드). 무엇을 다룰지 보고 → 원고를 쓰는 순서라 콘텐츠 생성 위(스펙 2026-10-13 §5)
     { href: '/trends', label: '검색 트렌드', Ic: TrendIcon },
+    // 클리닉 지도 — 어느 병원이 외국인 매출을 얼마나 내는지(공급). 검색 트렌드(수요) 바로 아래 — 둘이 '시장 조사' 한 묶음(스펙 2026-10-17 §2)
+    { href: '/market-map', label: '클리닉 지도', Ic: MapPinIcon },
     { href: '/generate', label: '콘텐츠 생성', Ic: PenIcon },
     { href: '/influencers', label: '인플루언서', Ic: UserIcon },
     // 인플루언서 성과 — 명부(한 명씩 관리)와 달리 여럿을 성과로 줄 세워 섭외할 인플을 고르는 곳(스펙 2026-09-30 §6)

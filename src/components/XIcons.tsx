@@ -133,6 +133,11 @@ export const TrendIcon = ({ className }: { className?: string }) => (
   <Icon className={className} d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z" />
 );
 
+// 클리닉 지도(사이드바) — 위치 핀. 병원이 어디에 있는지 보는 화면.
+export const MapPinIcon = ({ className }: { className?: string }) => (
+  <Icon className={className} d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 2c2.76 0 5 2.24 5 5 0 2.88-2.88 7.19-5 9.88C9.92 16.21 7 11.85 7 9c0-2.76 2.24-5 5-5zm0 2.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z" />
+);
+
 // X 블루마크(인증 배지) — 이름 바로 뒤에 붙인다. 색은 X와 같은 파랑, 크기는 이름 글자에 맞춘다(기본 18px).
 // 뜻을 모르는 사람을 위해 title로 풀어 쓴다(AGENTS 원칙 5).
 export const BlueCheckIcon = ({ className }: { className?: string }) => (

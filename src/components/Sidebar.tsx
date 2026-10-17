@@ -1,11 +1,7 @@
 'use client';
-import { apiFetch } from '@/lib/apiFetch';
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import type { Workspace } from '@/lib/types';
+import { usePathname } from 'next/navigation';
 import { useMember } from '@/lib/memberContext';
-import { swapWorkspacePath } from '@/lib/wsNav';
 import { interceptNav } from '@/lib/navGuard';
 import { createClient } from '@/lib/supabase/client';
 import { ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, PromptIcon, UserIcon, ViewIcon, CampaignIcon, TrendIcon, MapPinIcon } from './XIcons';
@@ -29,21 +25,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
   wsError?: boolean;
   onRetryWs?: () => void;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
   const { member } = useMember();
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-
-  useEffect(() => {
-    // 실패 시 이전 목록 유지 — 실패 상태 표시는 GlobalShell(wsError)이 책임진다. catch가 없으면
-    // 바로 그 실패 시나리오에서 이 fetch가 unhandled rejection을 만든다 (리뷰 지적).
-    const loadWs = () => { apiFetch('/api/workspaces').then((r) => r.json()).then(setWorkspaces).catch(() => {}); };
-    loadWs();
-    // /workspaces 페이지의 이름 변경·삭제·순서 변경을 같은 화면의 이 select에 즉시 반영 (스펙 §1)
-    window.addEventListener('cbx-workspaces-changed', loadWs);
-    return () => window.removeEventListener('cbx-workspaces-changed', loadWs);
-  }, []);
-
   // 로그아웃 — /denied와 동일 패턴. signOut 후 하드 이동. 편집 유실 가드는 못 태운다
   // (가드 모달의 '이동'이 인증된 상태를 전제) — 알려진 한계, 후속 과제.
   const signOut = async () => {
@@ -51,10 +34,10 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     window.location.href = '/login';
   };
 
-  // 사이드바 묶음(koo 10-17): 시장 조사 → X 리서치(워크스페이스) → 캠페인 운영 → 설정 → 보관.
-  // 위에서 아래로 '시장을 보고 → 콘텐츠를 찾고 → 캠페인을 돌리는' 순서로 읽힌다.
+  // 사이드바 묶음(koo 10-17): 시장 조사 → 캠페인 운영 → 설정 → 보관.
+  // 위에서 아래로 '시장을 보고 → 캠페인을 돌리는' 순서로 읽힌다.
 
-  // 시장 조사 — 워크스페이스와 무관해서 맨 위. 검색 트렌드(일본 수요) + 클리닉 지도(병원 공급)
+  // 시장 조사 — 검색 트렌드(일본 수요) + 클리닉 지도(병원 공급) + X 게시물(덱·브리핑·보관함)
   const marketNav = [
     // 검색 트렌드 — 일본에서 시술을 얼마나 찾는지(수요·트렌드)(스펙 2026-10-13 §5)
     { href: '/trends', label: '검색 트렌드', Ic: TrendIcon },
@@ -62,9 +45,10 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     { href: '/market-map', label: '클리닉 지도', Ic: MapPinIcon },
   ];
 
-  // X 리서치 — 워크스페이스에 묶인 건 이 넷뿐이다(덱 칼럼·후보·브리핑·보관함). 그래서 워크스페이스 선택 상자를 이 묶음 안에 둔다 —
-  // 맨 위에 두면 아래 메뉴 전체에 걸리는 것처럼 보였다. 캠페인·원고·인플루언서·정산은 워크스페이스를 쓰지 않는다
-  // (콘텐츠 생성이 레퍼런스를 고를 때만 보관함을 읽는다).
+  // X 게시물 — 워크스페이스에 묶인 건 이 셋뿐이다(덱 칼럼·후보·브리핑·보관함). 워크스페이스 선택은 사이드바가 아니라
+  // 이 화면들 맨 위(WorkspaceBar)에서 한다 — 사이드바 맨 위에 있을 땐 아래 메뉴 전체에 걸리는 것처럼 보였다(koo 10-17).
+  // 캠페인·원고·인플루언서·정산은 워크스페이스를 쓰지 않는다(콘텐츠 생성이 레퍼런스를 고를 때만 보관함을 읽는다).
+  // 링크는 마지막에 본 워크스페이스로 간다(GlobalShell이 정한 wsId).
   // '리서치'(키워드로 X 검색)는 지금 쓰지 않아 메뉴에서 숨겼다(koo 10-17) — 화면(/w/[wsId]/research)은 그대로 있다.
   const nav = wsId === null ? [] : [
     { href: `/w/${wsId}`, label: '덱', Ic: ColumnsIcon, tour: 'nav-deck' as string | undefined },
@@ -123,36 +107,22 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
       <nav className="flex-1 overflow-y-auto">
         {groupTitle('시장 조사')}
         {marketNav.map(link)}
-        {divider}
-
-        {groupTitle('X 리서치')}
-        {wsId !== null ? (
-          <select value={wsId} aria-label="워크스페이스 선택" title="덱 · 브리핑 · 보관함을 볼 워크스페이스"
-                  onChange={(e) => {
-                    const target = swapWorkspacePath(pathname, window.location.search, e.target.value);
-                    // 편집 중 유실 방지 — 페이지 링크는 onNavigate 가드, 이 select는 여기서 가드
-                    if (interceptNav(target)) { e.target.value = wsId; return; } // 가드가 모달로 이어감 — select 표시 원복
-                    router.push(target);
-                  }}
-                  className="mb-1 w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue">
-            {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-          </select>
-        ) : (
-          <div className="mb-1 px-1 py-1">
+        {nav.map(link)}
+        {wsId === null && (
+          <div className="px-3 py-1.5">
             {wsError ? (
               <>
-                <p className="text-caption text-x-secondary">목록을 불러오지 못했습니다</p>
+                <p className="text-caption text-x-secondary">덱 · 브리핑 · 보관함을 불러오지 못했어요</p>
                 <button onClick={onRetryWs}
                         className="mt-1 rounded-full border border-x-border-strong bg-white px-2.5 py-0.5 text-caption hover:bg-x-hover">
                   다시 시도
                 </button>
               </>
             ) : (
-              <p className="text-caption text-x-secondary">워크스페이스가 없습니다 — 설정의 워크스페이스 관리에서 만들 수 있어요</p>
+              <p className="text-caption text-x-secondary">덱 · 브리핑 · 보관함은 워크스페이스를 만들면 생겨요 — 설정의 워크스페이스 관리</p>
             )}
           </div>
         )}
-        {nav.map(link)}
         {divider}
 
         {groupTitle('캠페인 운영')}

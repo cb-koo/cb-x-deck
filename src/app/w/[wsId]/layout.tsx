@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { MemberProvider } from '@/lib/memberContext';
 import { ToastProvider } from '@/lib/toastContext';
 import { Sidebar } from '@/components/Sidebar';
+import { WorkspaceBar } from '@/components/WorkspaceBar';
 import { LAST_WS_KEY } from '@/components/GlobalShell';
 import type { Workspace } from '@/lib/types';
 
@@ -85,7 +86,10 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       <ToastProvider>
         <div className="flex h-screen">
           <Sidebar wsId={wsId} />
-          <div className="min-w-0 flex-1 overflow-hidden">{children}</div>
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <WorkspaceBar wsId={wsId} />
+            <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+          </div>
         </div>
       </ToastProvider>
     </MemberProvider>

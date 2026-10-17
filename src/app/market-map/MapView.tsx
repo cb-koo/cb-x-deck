@@ -53,6 +53,9 @@ export default function MapView(p: Props) {
   useEffect(() => { onBounds.current = p.onBounds; }, [p.onBounds]);
 
   useEffect(() => {
+    // 배경지도 계산용 worker — 기본값은 묶음 파일 옆에서 찾는데 Next 빌드가 그 파일을 빼먹어 배경이 하얗게 나온다(10-17 스테이징).
+    // node_modules의 파일을 public에 복사해 두고 그 주소를 쓴다. 버전이 맞는지는 marketMapWorker.test.ts가 확인한다.
+    maplibregl.setWorkerUrl('/market-map/maplibre-gl-worker.mjs');
     const m = new maplibregl.Map({
       container: container.current!, style: STYLE, center: START.center, zoom: START.zoom,
       minZoom: 5.5, maxZoom: 18, attributionControl: { compact: true },

@@ -213,7 +213,8 @@ export default function MapView(p: Props) {
 
   return (
     <div className="absolute inset-0">
-      <div ref={container} className="absolute inset-0" />
+      {/* maplibre CSS가 .maplibregl-map에 position: relative를 줘서 클래스 배치가 지면 높이가 0이 된다 — 인라인으로 고정 */}
+      <div ref={container} style={{ position: 'absolute', inset: 0 }} />
       {hover && (
         <div className="pointer-events-none absolute z-10 rounded-lg bg-x-text/90 px-2.5 py-1.5 text-ui leading-snug text-white"
              style={{ left: hover.x + 14, top: hover.y + 14 }} dangerouslySetInnerHTML={{ __html: hover.html }} />

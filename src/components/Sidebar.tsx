@@ -8,7 +8,7 @@ import { useMember } from '@/lib/memberContext';
 import { swapWorkspacePath } from '@/lib/wsNav';
 import { interceptNav } from '@/lib/navGuard';
 import { createClient } from '@/lib/supabase/client';
-import { SearchIcon, ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, PromptIcon, UserIcon, ViewIcon, CampaignIcon, TrendIcon, MapPinIcon } from './XIcons';
+import { ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, PromptIcon, UserIcon, ViewIcon, CampaignIcon, TrendIcon, MapPinIcon } from './XIcons';
 
 // 리포트(막대 그래프) — 다른 XIcons는 채움(fill) 단일 path인데 막대 그래프는 선(stroke) 3개가
 // 자연스러워 여기만 로컬로 둔다. props 시그니처는 XIcons의 다른 아이콘들과 동일.
@@ -51,14 +51,28 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     window.location.href = '/login';
   };
 
+  // 사이드바 묶음(koo 10-17): 시장 조사 → X 리서치(워크스페이스) → 캠페인 운영 → 설정 → 보관.
+  // 위에서 아래로 '시장을 보고 → 콘텐츠를 찾고 → 캠페인을 돌리는' 순서로 읽힌다.
+
+  // 시장 조사 — 워크스페이스와 무관해서 맨 위. 검색 트렌드(일본 수요) + 클리닉 지도(병원 공급)
+  const marketNav = [
+    // 검색 트렌드 — 일본에서 시술을 얼마나 찾는지(수요·트렌드)(스펙 2026-10-13 §5)
+    { href: '/trends', label: '검색 트렌드', Ic: TrendIcon },
+    // 클리닉 지도 — 어느 병원이 외국인 매출을 얼마나 내는지(공급)(스펙 2026-10-17 §2)
+    { href: '/market-map', label: '클리닉 지도', Ic: MapPinIcon },
+  ];
+
+  // X 리서치 — 워크스페이스에 묶인 건 이 넷뿐이다(덱 칼럼·후보·브리핑·보관함). 그래서 워크스페이스 선택 상자를 이 묶음 안에 둔다 —
+  // 맨 위에 두면 아래 메뉴 전체에 걸리는 것처럼 보였다. 캠페인·원고·인플루언서·정산은 워크스페이스를 쓰지 않는다
+  // (콘텐츠 생성이 레퍼런스를 고를 때만 보관함을 읽는다).
+  // '리서치'(키워드로 X 검색)는 지금 쓰지 않아 메뉴에서 숨겼다(koo 10-17) — 화면(/w/[wsId]/research)은 그대로 있다.
   const nav = wsId === null ? [] : [
-    { href: `/w/${wsId}/research`, label: '리서치', Ic: SearchIcon, tour: undefined as string | undefined },
-    { href: `/w/${wsId}`, label: '덱', Ic: ColumnsIcon, tour: 'nav-deck' },
+    { href: `/w/${wsId}`, label: '덱', Ic: ColumnsIcon, tour: 'nav-deck' as string | undefined },
     { href: `/w/${wsId}/briefing`, label: '브리핑', Ic: DocIcon, tour: 'nav-briefing' },
     { href: `/w/${wsId}/library`, label: '보관함', Ic: FolderIcon, tour: undefined },
   ];
 
-  // 워크스페이스 무관 최상위 기능 (스펙 §4 — 콘텐츠 생성은 /w/[wsId] 밖)
+  // 캠페인 운영 — 워크스페이스 무관(스펙 §4 — 콘텐츠 생성은 /w/[wsId] 밖)
   // 캠페인이 맨 위 — 콘텐츠 생성·인플루언서·트래킹 셋을 묶는 상위 개념이다(캠페인 스펙 §3-1).
   // 인플루언서 명부도 워크스페이스 밖 — 원고를 누구에게 줄지는 워크스페이스와 무관한 사람 정보다(스펙 §3)
   const globalNav = [
@@ -66,10 +80,6 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     { href: '/campaigns/flow', label: '캠페인', Ic: CampaignIcon },
     // 정산은 캠페인 바로 아래 — 만든 것(작업) → 돈 보내는 것(요청) 순으로 읽힌다(정산 스펙 §4)
     { href: '/settlement', label: '정산', Ic: CampaignIcon },
-    // 검색 트렌드 — 일본에서 시술을 얼마나 찾는지(수요·트렌드). 무엇을 다룰지 보고 → 원고를 쓰는 순서라 콘텐츠 생성 위(스펙 2026-10-13 §5)
-    { href: '/trends', label: '검색 트렌드', Ic: TrendIcon },
-    // 클리닉 지도 — 어느 병원이 외국인 매출을 얼마나 내는지(공급). 검색 트렌드(수요) 바로 아래 — 둘이 '시장 조사' 한 묶음(스펙 2026-10-17 §2)
-    { href: '/market-map', label: '클리닉 지도', Ic: MapPinIcon },
     { href: '/generate', label: '콘텐츠 생성', Ic: PenIcon },
     { href: '/influencers', label: '인플루언서', Ic: UserIcon },
     // 인플루언서 성과 — 명부(한 명씩 관리)와 달리 여럿을 성과로 줄 세워 섭외할 인플을 고르는 곳(스펙 2026-09-30 §6)
@@ -89,6 +99,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     // 빠른 메시지 — 익스텐션(X 대화창)에서 꺼내 쓰는 팀 공용 안내 문구. 클라이언트 설정처럼 가끔 손보는 재료라 설정 묶음.
     { href: '/quick-messages', label: '빠른 메시지', Ic: DocIcon },
     { href: '/prompt', label: '프롬프트', Ic: PromptIcon },
+    // 워크스페이스 관리 — 가끔 들어가는 관리 화면이라 맨 위에서 설정으로 옮겼다(koo 10-17)
+    { href: '/workspaces', label: '워크스페이스 관리', Ic: FolderIcon },
   ];
 
   // 보관 — 새 화면으로 대체돼 매일 쓰지 않지만 아직 지우지 않은 옛 화면(koo 09-27). 설정 아래, 맨 끝.
@@ -96,75 +108,63 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     { href: '/campaigns', label: '캠페인 (이전)', Ic: CampaignIcon },
   ];
 
+  const link = (n: { href: string; label: string; Ic: (p: { className?: string }) => React.ReactNode; tour?: string }) => (
+    <Link key={n.href} href={n.href} data-tour={n.tour} onNavigate={guardedNavigate(n.href)}
+          aria-current={pathname === n.href ? 'page' : undefined}
+          className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
+      <n.Ic className="h-[18px] w-[18px]" />{n.label}
+    </Link>
+  );
+  const groupTitle = (t: string) => <p className="mb-1 px-1 text-caption text-x-muted">{t}</p>;
+  const divider = <div className="my-2 border-t border-x-border" />;
+
   return (
     <aside data-tour="sidebar" className="flex h-screen w-52 shrink-0 flex-col border-r border-x-border bg-x-surface p-3">
-      <p className="mb-1 px-1 text-caption text-x-muted">워크스페이스</p>
-      {wsId !== null ? (
-        <select value={wsId} aria-label="워크스페이스 선택"
-                onChange={(e) => {
-                  const target = swapWorkspacePath(pathname, window.location.search, e.target.value);
-                  // 편집 중 유실 방지 — 페이지 링크는 onNavigate 가드, 이 select는 여기서 가드
-                  if (interceptNav(target)) { e.target.value = wsId; return; } // 가드가 모달로 이어감 — select 표시 원복
-                  router.push(target);
-                }}
-                className="mb-1 w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue">
-          {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-        </select>
-      ) : (
-        <div className="mb-1 px-1 py-1">
-          {wsError ? (
-            <>
-              <p className="text-caption text-x-secondary">목록을 불러오지 못했습니다</p>
-              <button onClick={onRetryWs}
-                      className="mt-1 rounded-full border border-x-border-strong bg-white px-2.5 py-0.5 text-caption hover:bg-x-hover">
-                다시 시도
-              </button>
-            </>
-          ) : (
-            <p className="text-caption text-x-secondary">워크스페이스가 없습니다 — 아래 관리에서 만들 수 있어요</p>
-          )}
-        </div>
-      )}
-      <Link href="/workspaces" onNavigate={guardedNavigate('/workspaces')}
-            aria-current={pathname === '/workspaces' ? 'page' : undefined}
-            className={`mb-2 block px-1 text-ui hover:text-x-secondary ${pathname === '/workspaces' ? 'font-bold text-x-text' : 'text-x-muted'}`}>
-        워크스페이스 관리
-      </Link>
+      <nav className="flex-1 overflow-y-auto">
+        {groupTitle('시장 조사')}
+        {marketNav.map(link)}
+        {divider}
 
-      <nav className="mt-2 flex-1">
-        {nav.map((n) => (
-          <Link key={n.href} href={n.href} data-tour={n.tour} onNavigate={guardedNavigate(n.href)}
-                aria-current={pathname === n.href ? 'page' : undefined}
-                className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
-            <n.Ic className="h-[18px] w-[18px]" />{n.label}
-          </Link>
-        ))}
-        {nav.length > 0 && <div className="my-2 border-t border-x-border" />}
-        {globalNav.map((n) => (
-          <Link key={n.href} href={n.href} onNavigate={guardedNavigate(n.href)}
-                aria-current={pathname === n.href ? 'page' : undefined}
-                className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
-            <n.Ic className="h-[18px] w-[18px]" />{n.label}
-          </Link>
-        ))}
-        {globalNav.length > 0 && <div className="my-2 border-t border-x-border" />}
-        <p className="mb-1 px-1 text-caption text-x-muted">설정</p>
-        {settingsNav.map((n) => (
-          <Link key={n.href} href={n.href} onNavigate={guardedNavigate(n.href)}
-                aria-current={pathname === n.href ? 'page' : undefined}
-                className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
-            <n.Ic className="h-[18px] w-[18px]" />{n.label}
-          </Link>
-        ))}
-        <div className="my-2 border-t border-x-border" />
-        <p className="mb-1 px-1 text-caption text-x-muted">보관</p>
-        {archivedNav.map((n) => (
-          <Link key={n.href} href={n.href} onNavigate={guardedNavigate(n.href)}
-                aria-current={pathname === n.href ? 'page' : undefined}
-                className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
-            <n.Ic className="h-[18px] w-[18px]" />{n.label}
-          </Link>
-        ))}
+        {groupTitle('X 리서치')}
+        {wsId !== null ? (
+          <select value={wsId} aria-label="워크스페이스 선택" title="덱 · 브리핑 · 보관함을 볼 워크스페이스"
+                  onChange={(e) => {
+                    const target = swapWorkspacePath(pathname, window.location.search, e.target.value);
+                    // 편집 중 유실 방지 — 페이지 링크는 onNavigate 가드, 이 select는 여기서 가드
+                    if (interceptNav(target)) { e.target.value = wsId; return; } // 가드가 모달로 이어감 — select 표시 원복
+                    router.push(target);
+                  }}
+                  className="mb-1 w-full rounded-md border border-x-border-strong bg-transparent px-2 py-1 text-ui outline-none focus:border-x-blue">
+            {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        ) : (
+          <div className="mb-1 px-1 py-1">
+            {wsError ? (
+              <>
+                <p className="text-caption text-x-secondary">목록을 불러오지 못했습니다</p>
+                <button onClick={onRetryWs}
+                        className="mt-1 rounded-full border border-x-border-strong bg-white px-2.5 py-0.5 text-caption hover:bg-x-hover">
+                  다시 시도
+                </button>
+              </>
+            ) : (
+              <p className="text-caption text-x-secondary">워크스페이스가 없습니다 — 설정의 워크스페이스 관리에서 만들 수 있어요</p>
+            )}
+          </div>
+        )}
+        {nav.map(link)}
+        {divider}
+
+        {groupTitle('캠페인 운영')}
+        {globalNav.map(link)}
+        {divider}
+
+        {groupTitle('설정')}
+        {settingsNav.map(link)}
+        {divider}
+
+        {groupTitle('보관')}
+        {archivedNav.map(link)}
       </nav>
 
       <div className="mb-2 border-t border-x-border pt-2">

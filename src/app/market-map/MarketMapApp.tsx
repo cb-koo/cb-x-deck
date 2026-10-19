@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import MapView, { type FlyTarget } from './MapView';
 import Quadrant from './Quadrant';
 import { GLOSSARY } from './glossary';
-import type { Clinic, CrmInfo, CrmStatus, RegionMetric, Segment } from './types';
+import type { Clinic, CrmInfo, CrmStatus, RegionMetric, Segment, Station } from './types';
 import { won, pct, num, signed, monthLabel, distanceM, CRM_META } from './format';
 import { decodeViewDoc, FOREIGN_LOW_PCT, type ViewDoc } from '@/lib/marketClinic';
 import { Button } from '@/components/ui';
@@ -142,6 +142,16 @@ export default function MarketMapApp() {
   const [chartH, setChartH] = useState(() => stored('marketMap.chartH', 200));
   const [panelW, setPanelW] = useState(() => stored('marketMap.panelW', 420));
   const [fly, setFly] = useState<FlyTarget | null>(null);
+  // 지하철 노선·역 — 상단 메뉴에서 켜고 끈다(koo 10-19). 역 목록은 한 번 받아 지도와 검색에 같이 쓴다
+  const [subwayOn, setSubwayOn] = useState(() => stored('marketMap.subway', 1) === 1);
+  const [stations, setStations] = useState<Station[]>([]);
+  useEffect(() => {
+    fetch('/market-map/subway-stations.geojson').then((r) => r.json())
+      .then((g: { features: Array<{ properties: Omit<Station, 'position'>; geometry: { coordinates: [number, number] } }> }) =>
+        setStations(g.features.map((f) => ({ ...f.properties, position: f.geometry.coordinates }))))
+      .catch(() => { /* 역이 없어도 지도는 정상 */ });
+  }, []);
+  useEffect(() => { try { localStorage.setItem('marketMap.subway', subwayOn ? '1' : '2'); } catch { /* 저장소를 못 쓰는 창 */ } }, [subwayOn]);
   const flyKey = useRef(0); // 같은 곳으로 다시 이동해도 지도가 움직이게 매번 다른 값
   const flyTo = (t: Omit<FlyTarget, 'key'>) => setFly({ ...t, key: ++flyKey.current });
   useEffect(() => { try { localStorage.setItem('marketMap.chartH', String(chartH)); localStorage.setItem('marketMap.panelW', String(panelW)); } catch { /* 저장소를 못 쓰는 창 */ } }, [chartH, panelW]);
@@ -239,10 +249,20 @@ export default function MarketMapApp() {
     return [...agg.values()].sort((a, b) => b[metric] - a[metric]);
   }, [targetFiltered, bounds, regionUnit, metric]);
 
+  // 바로가기 — 역(앞, 3곳까지) + 병원(8곳까지). '강남'·'강남역' 둘 다 강남역을 찾는다
   const searchHits = useMemo(() => {
     const t = search.trim();
-    return t ? all.filter((c) => c.name.includes(t)).slice(0, 8) : [];
-  }, [search, all]);
+    if (!t) return { stations: [] as Station[], clinics: [] as Clinic[] };
+    const tk = t.replace(/역$/, '');
+    return {
+      stations: stations.filter((s) => s.name.includes(tk)).sort((a, b) => a.name.length - b.name.length).slice(0, 3),
+      clinics: all.filter((c) => c.name.includes(t)).slice(0, 8),
+    };
+  }, [search, all, stations]);
+  const goStation = (s: Station) => {
+    setSubwayOn(true);
+    flyTo({ lng: s.position[0], lat: s.position[1], zoom: 15 });
+  };
 
   const pick = (c: Clinic | null, move = false) => {
     setSelected(c);
@@ -576,12 +596,20 @@ export default function MarketMapApp() {
           {departments.map((d) => <option key={d}>{d}</option>)}
         </select>
         <div className="relative">
-          <input className="h-8 w-56 rounded-full border border-x-border-strong px-3 text-ui" placeholder="병원 이름으로 바로가기" value={search}
+          <input className="h-8 w-56 rounded-full border border-x-border-strong px-3 text-ui" placeholder="병원·역 이름으로 바로가기" value={search}
                  onChange={(e) => { setSearch(e.target.value); setSearchOpen(true); }} onFocus={() => setSearchOpen(true)}
                  onBlur={() => setTimeout(() => setSearchOpen(false), 150)} />
-          {searchOpen && searchHits.length > 0 && (
+          {searchOpen && (searchHits.stations.length > 0 || searchHits.clinics.length > 0) && (
             <div className="absolute right-0 top-10 z-40 w-80 rounded-2xl border border-x-border-strong bg-white p-1.5 shadow-lg">
-              {searchHits.map((c) => (
+              {searchHits.stations.map((st) => (
+                <button key={st.name + st.position.join()} className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-content hover:bg-x-hover"
+                        onMouseDown={() => { goStation(st); setSearch(''); setSearchOpen(false); }}>
+                  <span className="inline-block size-2.5 shrink-0 rounded-full border-2 bg-white" style={{ borderColor: st.transfer ? '#536471' : st.colour }} />
+                  <span className="font-semibold">{st.name}</span><span className="truncate text-ui text-x-muted">{st.lines}</span>
+                </button>
+              ))}
+              {searchHits.stations.length > 0 && searchHits.clinics.length > 0 && <div className="mx-2 my-1 border-t border-x-border" />}
+              {searchHits.clinics.map((c) => (
                 <button key={c.id} className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-content hover:bg-x-hover"
                         onMouseDown={() => { pick(c, true); setSearch(''); setSearchOpen(false); }}>
                   <StatusDot crm={c.crm} /><span className="font-semibold">{c.name}</span><span className="truncate text-ui text-x-muted">{c.gu} {c.dong ?? ''}</span>
@@ -590,6 +618,11 @@ export default function MarketMapApp() {
             </div>
           )}
         </div>
+        <button onClick={() => setSubwayOn((v) => !v)} aria-pressed={subwayOn} title="지도에 지하철 노선과 역을 보여줘요"
+                className={`${chip(subwayOn)} font-semibold`}>
+          <span className="inline-block h-[3px] w-4 rounded-full" style={{ background: 'linear-gradient(90deg,#00A23F 50%,#ED6C00 50%)' }} />
+          지하철 노선·역
+        </button>
         <Button onClick={() => setTab('terms')}>용어 설명</Button>
       </header>
       <div className="my-3 flex flex-wrap items-center gap-2 px-6">{row2}</div>
@@ -602,7 +635,8 @@ export default function MarketMapApp() {
           {clinics ? (
             <MapView clinics={mapClinics} mode={regionsView ? 'region' : 'points'} regionUnit={regionUnit} regionMetric={metric}
                      selected={selected} radiusM={radiusM} onSelect={(c) => pick(c)} onBounds={setBounds}
-                     onRegionClick={(s, g) => { setSido(s); setGu(g); focusRegion(s, g); }} flyTarget={fly} />
+                     onRegionClick={(s, g) => { setSido(s); setGu(g); focusRegion(s, g); }} flyTarget={fly}
+                     subwayOn={subwayOn} stations={stations} />
           ) : <p className="p-6 text-content text-x-muted">클리닉 지도를 불러오는 중…</p>}
         </div>
         <aside className="relative flex shrink-0 flex-col border-l border-x-border bg-white" style={{ width: panelW }}>

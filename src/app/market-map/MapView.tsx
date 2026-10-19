@@ -8,7 +8,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { MapboxOverlay } from '@deck.gl/mapbox';
 import { ScatterplotLayer, GeoJsonLayer, TextLayer } from '@deck.gl/layers';
 import type { PickingInfo } from '@deck.gl/core';
-import type { Clinic, RegionMetric, RegionUnit } from './types';
+import type { Clinic, RegionMetric, RegionUnit, Station } from './types';
 import { foreignColor, seqColor, won, pct, num, CRM_META } from './format';
 
 type Bounds = [number, number, number, number];
@@ -16,7 +16,6 @@ type GeoFeature = { type: 'Feature'; properties: Record<string, string>; geometr
 type GeoCollection = { type: 'FeatureCollection'; features: GeoFeature[] };
 
 export interface FlyTarget { lng: number; lat: number; zoom: number; key: number }
-interface Station { name: string; lines: string; colour: string; transfer: boolean; position: [number, number] }
 interface Props {
   clinics: Clinic[];
   mode: 'points' | 'region';
@@ -28,6 +27,9 @@ interface Props {
   onBounds: (b: Bounds) => void;
   onRegionClick: (sido: string, gu: string) => void;
   flyTarget: FlyTarget | null;
+  // 지하철 노선·역 보이기(상단 메뉴에서 켜고 끈다) · 역 목록(화면이 한 번 받아 검색에도 쓴다)
+  subwayOn: boolean;
+  stations: Station[];
 }
 
 // 배경지도: OpenFreeMap(무료 공용 서버, 키 없음 — koo 10-17). 바꿀 때는 이 주소만 바꾼다
@@ -50,15 +52,13 @@ export default function MapView(p: Props) {
   const [dong, setDong] = useState<GeoCollection | null>(null);
   const [hover, setHover] = useState<{ x: number; y: number; html: string } | null>(null);
   const [legendOpen, setLegendOpen] = useState(true);
-  const [subwayOn, setSubwayOn] = useState(true);
-  // 역(koo 10-19) — 오픈스트리트맵 역 중 노선 180m 안에 있는 것만(635곳, 환승역은 한 점). 병원이 몰린 강남·신사에서 이름이
-  // 병원 점에 가려지지 않게 배경(MapLibre)이 아니라 deck.gl로 병원 점 위에 그린다.
-  const [stations, setStations] = useState<Station[]>([]);
-  const toggleSubway = (on: boolean) => {
-    setSubwayOn(on);
-    const m = map.current;
+  // 역은 병원이 몰린 강남·신사에서 이름이 병원 점에 가려지지 않게 배경(MapLibre)이 아니라 deck.gl로 병원 점 위에 그린다
+  const { subwayOn, stations } = p;
+  const subwayOnRef = useRef(subwayOn);
+  const applySubway = (m: maplibregl.Map | null, on: boolean) => {
     for (const id of ['subway-line', 'subway-name']) if (m?.getLayer(id)) m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
   };
+  useEffect(() => { subwayOnRef.current = subwayOn; applySubway(map.current, subwayOn); }, [subwayOn]);
   const onBounds = useRef(p.onBounds);
   useEffect(() => { onBounds.current = p.onBounds; }, [p.onBounds]);
 
@@ -100,6 +100,7 @@ export default function MapView(p: Props) {
         },
         paint: { 'text-color': ['get', 'colour'], 'text-halo-color': '#ffffff', 'text-halo-width': 1.5 },
       });
+      applySubway(m, subwayOnRef.current); // 꺼 둔 채로 들어왔으면 처음부터 숨긴다
     });
     const emit = () => {
       const b = m.getBounds();
@@ -115,10 +116,6 @@ export default function MapView(p: Props) {
     // 오른쪽 패널 너비를 바꾸면 지도 크기를 다시 맞춘다
     const ro = new ResizeObserver(() => m.resize());
     ro.observe(container.current!);
-    fetch('/market-map/subway-stations.geojson').then((r) => r.json())
-      .then((g: { features: Array<{ properties: Omit<Station, 'position'>; geometry: { coordinates: [number, number] } }> }) =>
-        setStations(g.features.map((f) => ({ ...f.properties, position: f.geometry.coordinates }))))
-      .catch(() => {});
     fetch('/market-map/sgg.geojson').then((r) => r.json()).then(setSgg).catch(() => {});
     fetch('/market-map/dong.geojson').then((r) => r.json()).then(setDong).catch(() => {});
     return () => { ro.disconnect(); m.remove(); };
@@ -304,11 +301,6 @@ export default function MapView(p: Props) {
                 <p className="mt-1.5 text-x-secondary">구역을 누르면 그 안의 동네끼리 견줘요</p>
               </>
             )}
-            <label className="mt-2 flex cursor-pointer items-center gap-1.5 border-t border-x-border pt-2 text-x-secondary">
-              <input type="checkbox" checked={subwayOn} onChange={(e) => toggleSubway(e.target.checked)} />
-              <span className="inline-block h-[3px] w-4 rounded-full" style={{ background: 'linear-gradient(90deg,#00A23F 50%,#ED6C00 50%)' }} />
-              지하철 노선 · 역
-            </label>
             <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-x-border pt-2 text-x-secondary">
               {(Object.keys(CRM_META) as (keyof typeof CRM_META)[]).map((k) => (
                 <span key={k} className="inline-flex items-center gap-1"><span className="inline-block size-2.5 rounded-full border-2" style={{ borderColor: CRM_META[k].hex }} />{CRM_META[k].label}</span>

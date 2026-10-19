@@ -6,3 +6,5 @@ export type Clinic = ViewClinic & { crm?: CrmInfo };
 export type RegionMetric = 'count' | 'sales' | 'foreignSales' | 'opportunity';
 export type RegionUnit = 'sgg' | 'dong';
 export type Segment = 'all' | 'underused' | 'domesticStrong' | 'growing' | 'new' | 'chain';
+// 지하철 역(public/market-map/subway-stations.geojson) — 지도 그리기와 검색에 같이 쓴다
+export interface Station { name: string; lines: string; colour: string; transfer: boolean; position: [number, number] }

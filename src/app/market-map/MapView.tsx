@@ -53,7 +53,7 @@ export default function MapView(p: Props) {
   const toggleSubway = (on: boolean) => {
     setSubwayOn(on);
     const m = map.current;
-    for (const id of ['subway-line', 'subway-name']) if (m?.getLayer(id)) m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+    for (const id of ['subway-line', 'subway-name', 'subway-station', 'subway-station-name']) if (m?.getLayer(id)) m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
   };
   const onBounds = useRef(p.onBounds);
   useEffect(() => { onBounds.current = p.onBounds; }, [p.onBounds]);
@@ -74,7 +74,7 @@ export default function MapView(p: Props) {
           m.setLayoutProperty(layer.id, 'text-field', ['coalesce', ['get', 'name:ko'], ['get', 'name']]);
         }
       }
-      // 지하철 노선(koo 10-19) — 배경 데이터에는 노선이 동네 수준 확대(줌 14)부터만 있고 지하 구간은 그리지도 않아서,
+      // 지하철 노선·역(koo 10-19) — 배경 데이터에는 노선이 동네 수준 확대(줌 14)부터만 있고 지하 구간은 그리지도 않아서,
       // 오픈스트리트맵 노선(수도권 24개, 노선 색 포함)을 public/market-map/subway.geojson으로 따로 담았다(만든 법은 scripts/market-map-subway.md).
       // 배경 글자보다 아래, 병원 점(deck.gl 층)보다 아래에 깐다.
       const firstLabel = m.getStyle().layers?.find((l) => l.type === 'symbol')?.id;
@@ -95,6 +95,25 @@ export default function MapView(p: Props) {
           'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 11,
         },
         paint: { 'text-color': ['get', 'colour'], 'text-halo-color': '#ffffff', 'text-halo-width': 1.5 },
+      });
+      // 역(koo 10-19) — 오픈스트리트맵 역 중 위 노선 180m 안에 있는 것만(635곳). 환승역은 한 점으로 합치고 조금 크게.
+      m.addSource('subway-stations', { type: 'geojson', data: '/market-map/subway-stations.geojson' });
+      m.addLayer({
+        id: 'subway-station', type: 'circle', source: 'subway-stations', minzoom: 11,
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, ['case', ['get', 'transfer'], 2.5, 1.8], 15, ['case', ['get', 'transfer'], 5.5, 4]],
+          'circle-color': '#ffffff',
+          'circle-stroke-color': ['case', ['get', 'transfer'], '#536471', ['get', 'colour']],
+          'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 1, 15, 2],
+        },
+      }, firstLabel);
+      m.addLayer({
+        id: 'subway-station-name', type: 'symbol', source: 'subway-stations', minzoom: 12.5,
+        layout: {
+          'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 12.5, 10.5, 15, 12.5],
+          'text-anchor': 'top', 'text-offset': [0, 0.6], 'text-padding': 2,
+        },
+        paint: { 'text-color': '#0f1419', 'text-halo-color': '#ffffff', 'text-halo-width': 1.6 },
       });
     });
     const emit = () => {
@@ -275,7 +294,7 @@ export default function MapView(p: Props) {
             <label className="mt-2 flex cursor-pointer items-center gap-1.5 border-t border-x-border pt-2 text-x-secondary">
               <input type="checkbox" checked={subwayOn} onChange={(e) => toggleSubway(e.target.checked)} />
               <span className="inline-block h-[3px] w-4 rounded-full" style={{ background: 'linear-gradient(90deg,#00A23F 50%,#ED6C00 50%)' }} />
-              지하철 노선
+              지하철 노선 · 역
             </label>
             <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-x-border pt-2 text-x-secondary">
               {(Object.keys(CRM_META) as (keyof typeof CRM_META)[]).map((k) => (

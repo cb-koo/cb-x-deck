@@ -1,4 +1,4 @@
-# 클리닉 지도 지하철 노선 파일 만드는 법 (`public/market-map/subway.geojson`)
+# 클리닉 지도 지하철 노선·역 파일 만드는 법 (`public/market-map/subway.geojson`, `subway-stations.geojson`)
 
 배경지도(OpenFreeMap)에는 지하철 노선이 동네 수준 확대(줌 14)부터만 들어 있고, 지하 구간은 그리지도 않는다. 그래서 오픈스트리트맵 노선 정보로 파일을 따로 만든다(2026-10-19, 수도권 24개 노선). 노선이 새로 생기면 아래 순서로 다시 만든다.
 
@@ -13,3 +13,10 @@
 5. 노선마다 MultiLineString 하나로 담아 mapshaper로 줄인다: `mapshaper subway_merged.geojson -simplify 15% keep-shapes -o subway.geojson precision=0.00001 format=geojson`(약 0.16MB).
 
 출처 표기: 데이터는 © OpenStreetMap 기여자(ODbL). 지도 아래 OpenFreeMap 표기에 이미 OpenStreetMap이 들어 있다.
+
+## 역 (`subway-stations.geojson`, 635곳)
+
+1. Overpass에서 `node["railway"~"^(station|halt)$"]`을 같은 범위로 받는다(`out;`).
+2. 위 노선(이어 붙인 원본, 줄이기 전) 꼭짓점에서 180m 안에 있는 역만 남긴다 — KTX만 서는 역·화물역이 빠진다. 가까운 노선 이름을 `lines`에, 가장 가까운 노선 색을 `colour`에 담는다.
+3. 환승역은 노선마다 점이 따로 있으므로 이름이 같고 1km 안이면 한 점으로 합친다(서울역은 두 점이 600m 넘게 떨어져 있었다). 2개 노선 이상이면 `transfer: true`.
+4. 이름 끝에 '역'을 붙인다(OSM 이름은 '강남'처럼 역이 없다. '서울역'처럼 이미 있으면 그대로).

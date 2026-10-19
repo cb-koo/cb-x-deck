@@ -16,6 +16,7 @@ type GeoFeature = { type: 'Feature'; properties: Record<string, string>; geometr
 type GeoCollection = { type: 'FeatureCollection'; features: GeoFeature[] };
 
 export interface FlyTarget { lng: number; lat: number; zoom: number; key: number }
+interface Station { name: string; lines: string; colour: string; transfer: boolean; position: [number, number] }
 interface Props {
   clinics: Clinic[];
   mode: 'points' | 'region';
@@ -50,10 +51,13 @@ export default function MapView(p: Props) {
   const [hover, setHover] = useState<{ x: number; y: number; html: string } | null>(null);
   const [legendOpen, setLegendOpen] = useState(true);
   const [subwayOn, setSubwayOn] = useState(true);
+  // 역(koo 10-19) — 오픈스트리트맵 역 중 노선 180m 안에 있는 것만(635곳, 환승역은 한 점). 병원이 몰린 강남·신사에서 이름이
+  // 병원 점에 가려지지 않게 배경(MapLibre)이 아니라 deck.gl로 병원 점 위에 그린다.
+  const [stations, setStations] = useState<Station[]>([]);
   const toggleSubway = (on: boolean) => {
     setSubwayOn(on);
     const m = map.current;
-    for (const id of ['subway-line', 'subway-name', 'subway-station', 'subway-station-name']) if (m?.getLayer(id)) m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+    for (const id of ['subway-line', 'subway-name']) if (m?.getLayer(id)) m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
   };
   const onBounds = useRef(p.onBounds);
   useEffect(() => { onBounds.current = p.onBounds; }, [p.onBounds]);
@@ -96,25 +100,6 @@ export default function MapView(p: Props) {
         },
         paint: { 'text-color': ['get', 'colour'], 'text-halo-color': '#ffffff', 'text-halo-width': 1.5 },
       });
-      // 역(koo 10-19) — 오픈스트리트맵 역 중 위 노선 180m 안에 있는 것만(635곳). 환승역은 한 점으로 합치고 조금 크게.
-      m.addSource('subway-stations', { type: 'geojson', data: '/market-map/subway-stations.geojson' });
-      m.addLayer({
-        id: 'subway-station', type: 'circle', source: 'subway-stations', minzoom: 11,
-        paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, ['case', ['get', 'transfer'], 2.5, 1.8], 15, ['case', ['get', 'transfer'], 5.5, 4]],
-          'circle-color': '#ffffff',
-          'circle-stroke-color': ['case', ['get', 'transfer'], '#536471', ['get', 'colour']],
-          'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 11, 1, 15, 2],
-        },
-      }, firstLabel);
-      m.addLayer({
-        id: 'subway-station-name', type: 'symbol', source: 'subway-stations', minzoom: 12.5,
-        layout: {
-          'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 12.5, 10.5, 15, 12.5],
-          'text-anchor': 'top', 'text-offset': [0, 0.6], 'text-padding': 2,
-        },
-        paint: { 'text-color': '#0f1419', 'text-halo-color': '#ffffff', 'text-halo-width': 1.6 },
-      });
     });
     const emit = () => {
       const b = m.getBounds();
@@ -130,6 +115,10 @@ export default function MapView(p: Props) {
     // 오른쪽 패널 너비를 바꾸면 지도 크기를 다시 맞춘다
     const ro = new ResizeObserver(() => m.resize());
     ro.observe(container.current!);
+    fetch('/market-map/subway-stations.geojson').then((r) => r.json())
+      .then((g: { features: Array<{ properties: Omit<Station, 'position'>; geometry: { coordinates: [number, number] } }> }) =>
+        setStations(g.features.map((f) => ({ ...f.properties, position: f.geometry.coordinates }))))
+      .catch(() => {});
     fetch('/market-map/sgg.geojson').then((r) => r.json()).then(setSgg).catch(() => {});
     fetch('/market-map/dong.geojson').then((r) => r.json()).then(setDong).catch(() => {});
     return () => { ro.disconnect(); m.remove(); };
@@ -210,6 +199,30 @@ export default function MapView(p: Props) {
         },
       }));
     }
+    // 역 — 병원 점 위, 영업 상태 고리 아래. 구 단위(11)부터 점, 조금 더(12.5) 확대하면 이름
+    if (subwayOn && stations.length && zoom >= 11) {
+      const hex = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16), 255] as [number, number, number, number];
+      L.push(new ScatterplotLayer<Station>({
+        id: 'station', data: stations, getPosition: (d) => d.position, radiusUnits: 'pixels',
+        getRadius: (d) => (d.transfer ? 1.35 : 1) * Math.max(2, Math.min(5, (zoom - 10) * 1.3)),
+        getFillColor: [255, 255, 255, 255], stroked: true,
+        getLineColor: (d) => (d.transfer ? [83, 100, 113, 255] : hex(d.colour)), lineWidthUnits: 'pixels', getLineWidth: zoom >= 14 ? 2 : 1.3,
+        pickable: true, updateTriggers: { getRadius: zoom, getLineWidth: zoom },
+        onHover: (info: PickingInfo<Station>) => {
+          const d = info.object;
+          setHover(d ? { x: info.x, y: info.y, html: `<b>${d.name}</b><br/>${d.lines}` } : null);
+        },
+      }));
+      if (zoom >= 12.5) {
+        L.push(new TextLayer<Station>({
+          id: 'station-name', data: stations, getPosition: (d) => d.position, getText: (d) => d.name,
+          getSize: zoom >= 14.5 ? 13 : 11.5, getColor: [15, 20, 25, 255], getPixelOffset: [0, 11],
+          fontFamily: 'Pretendard Variable, Pretendard, sans-serif', fontWeight: 600, characterSet: 'auto',
+          outlineWidth: 3, outlineColor: [255, 255, 255, 235], fontSettings: { sdf: true },
+          getTextAnchor: 'middle', getAlignmentBaseline: 'top', updateTriggers: { getSize: zoom },
+        }));
+      }
+    }
     // 영업 상태 고리 + 이름표 — 어느 보기에서나 맨 위
     const crm = p.clinics.filter((c) => c.crm && c.lat);
     if (crm.length) {
@@ -255,7 +268,7 @@ export default function MapView(p: Props) {
       );
     }
     return L;
-  }, [p, zoom, sgg, dong, regionAgg, useDong]);
+  }, [p, zoom, sgg, dong, regionAgg, useDong, subwayOn, stations]);
 
   useEffect(() => {
     overlay.current?.setProps({ layers: layers as never, getCursor: ({ isHovering }) => (isHovering ? 'pointer' : 'grab') });

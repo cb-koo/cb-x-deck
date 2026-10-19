@@ -49,6 +49,12 @@ export default function MapView(p: Props) {
   const [dong, setDong] = useState<GeoCollection | null>(null);
   const [hover, setHover] = useState<{ x: number; y: number; html: string } | null>(null);
   const [legendOpen, setLegendOpen] = useState(true);
+  const [subwayOn, setSubwayOn] = useState(true);
+  const toggleSubway = (on: boolean) => {
+    setSubwayOn(on);
+    const m = map.current;
+    for (const id of ['subway-line', 'subway-name']) if (m?.getLayer(id)) m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+  };
   const onBounds = useRef(p.onBounds);
   useEffect(() => { onBounds.current = p.onBounds; }, [p.onBounds]);
 
@@ -68,6 +74,28 @@ export default function MapView(p: Props) {
           m.setLayoutProperty(layer.id, 'text-field', ['coalesce', ['get', 'name:ko'], ['get', 'name']]);
         }
       }
+      // 지하철 노선(koo 10-19) — 배경 데이터에는 노선이 동네 수준 확대(줌 14)부터만 있고 지하 구간은 그리지도 않아서,
+      // 오픈스트리트맵 노선(수도권 24개, 노선 색 포함)을 public/market-map/subway.geojson으로 따로 담았다(만든 법은 scripts/market-map-subway.md).
+      // 배경 글자보다 아래, 병원 점(deck.gl 층)보다 아래에 깐다.
+      const firstLabel = m.getStyle().layers?.find((l) => l.type === 'symbol')?.id;
+      m.addSource('subway', { type: 'geojson', data: '/market-map/subway.geojson' });
+      m.addLayer({
+        id: 'subway-line', type: 'line', source: 'subway',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': ['get', 'colour'],
+          'line-opacity': 0.6,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1, 12, 2.2, 15, 4],
+        },
+      }, firstLabel);
+      m.addLayer({
+        id: 'subway-name', type: 'symbol', source: 'subway', minzoom: 12,
+        layout: {
+          'symbol-placement': 'line', 'symbol-spacing': 400,
+          'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 11,
+        },
+        paint: { 'text-color': ['get', 'colour'], 'text-halo-color': '#ffffff', 'text-halo-width': 1.5 },
+      });
     });
     const emit = () => {
       const b = m.getBounds();
@@ -244,6 +272,11 @@ export default function MapView(p: Props) {
                 <p className="mt-1.5 text-x-secondary">구역을 누르면 그 안의 동네끼리 견줘요</p>
               </>
             )}
+            <label className="mt-2 flex cursor-pointer items-center gap-1.5 border-t border-x-border pt-2 text-x-secondary">
+              <input type="checkbox" checked={subwayOn} onChange={(e) => toggleSubway(e.target.checked)} />
+              <span className="inline-block h-[3px] w-4 rounded-full" style={{ background: 'linear-gradient(90deg,#00A23F 50%,#ED6C00 50%)' }} />
+              지하철 노선
+            </label>
             <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-x-border pt-2 text-x-secondary">
               {(Object.keys(CRM_META) as (keyof typeof CRM_META)[]).map((k) => (
                 <span key={k} className="inline-flex items-center gap-1"><span className="inline-block size-2.5 rounded-full border-2" style={{ borderColor: CRM_META[k].hex }} />{CRM_META[k].label}</span>

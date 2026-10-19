@@ -49,7 +49,7 @@ export function kpFromComposio(): KpClient {
   const base = { geoTargetConstants: ['geoTargetConstants/2392'], language: 'languageConstants/1005', keywordPlanNetwork: 'GOOGLE_SEARCH' };
   const call = async (op: 'historical' | 'ideas', endpoint: string, body: object): Promise<KpRow[]> => {
     try {
-      const d = await c.proxy<{ results?: RawRow[] }>({ endpoint: `https://googleads.googleapis.com/v22/customers/${g.customerId}:${endpoint}`, method: 'POST', connectedAccountId: g.connectedAccountId, body });
+      const d = await c.proxy<{ results?: RawRow[] }>({ endpoint: `https://googleads.googleapis.com/v25/customers/${g.customerId}:${endpoint}`, method: 'POST', connectedAccountId: g.connectedAccountId, body });
       recordUsageSafe({ api: 'googleads', operation: `googleads.${op}` });
       return (d.results ?? []).map(parseKpRow);
     } catch (e) {

@@ -174,7 +174,10 @@ export async function findJpConflict(sql: postgres.Sql, market: string, jp: stri
 
 export async function createProcedure(sql: postgres.Sql, market: string, p: { name: string; kr: string; jp: string; en: string; major: string; middle: string }): Promise<string> {
   const id = `u${Date.now().toString(36)}`;
-  await upsertProcedures(sql, [{ id, market, major: p.major, majorOrder: 0, middle: p.middle, name: p.name, kr: p.kr, jp: p.jp, en: p.en, note: '앱에서 추가' }]);
+  // 분류 순서는 같은 분류의 기존 시술을 따른다 — 0으로 넣으면 같은 시술의 다른 표기가 원래 시술보다 앞에 서서
+  // 묶음 대표(첫 행)가 바뀐다(10-19 리투오: 대표가 リトゥオ → Re2O로 바뀌었다)
+  const [o] = await sql<Array<{ order: number | null }>>`select min(major_order) as order from trend_procedure where market = ${market} and major = ${p.major}`;
+  await upsertProcedures(sql, [{ id, market, major: p.major, majorOrder: o?.order ?? 0, middle: p.middle, name: p.name, kr: p.kr, jp: p.jp, en: p.en, note: '앱에서 추가' }]);
   await reassignOwners(sql, market);
   return id;
 }

@@ -9,6 +9,7 @@
    - 숫자 노선은 `N호선`, 인천 도시철도는 `인천 N호선`, 나머지는 ref → 이름(경의중앙선·수인분당선·신분당선·공항철도·GTX-A·경춘선·서해선).
    - 색은 relation의 `colour`. 색이 없는 관계(공항 셔틀 등)는 뺀다.
 3. 같은 선로를 여러 노선이 쓰면 먼저 만난 노선에 붙인다(숫자 노선 → 광역 → 경전철 순). 정류장·승강장 멤버는 빼고 선로(역할 없음)만 쓴다.
-4. 노선마다 MultiLineString 하나로 담아 mapshaper로 줄인다: `mapshaper subway_raw.geojson -simplify 15% keep-shapes -o subway.geojson precision=0.00001 format=geojson`(약 0.26MB).
+4. 같은 노선 안에서 끝점이 같은 조각을 이어 붙인다(1호선 905조각 → 44줄). 조각이 짧으면 선 위에 노선 이름이 들어갈 자리가 없어 이름이 안 나온다.
+5. 노선마다 MultiLineString 하나로 담아 mapshaper로 줄인다: `mapshaper subway_merged.geojson -simplify 15% keep-shapes -o subway.geojson precision=0.00001 format=geojson`(약 0.16MB).
 
 출처 표기: 데이터는 © OpenStreetMap 기여자(ODbL). 지도 아래 OpenFreeMap 표기에 이미 OpenStreetMap이 들어 있다.

@@ -86,10 +86,11 @@ export default function MapView(p: Props) {
       m.addLayer({
         id: 'subway-line', type: 'line', source: 'subway',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
+        // 옅게(koo 10-19) — 노선은 부가 정보라 병원 점만큼 눈에 띄면 안 된다. 멀리서는 더 옅고 가늘게, 확대할수록 조금 진해진다
         paint: {
           'line-color': ['get', 'colour'],
-          'line-opacity': 0.6,
-          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1, 12, 2.2, 15, 4],
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 9, 0.22, 12, 0.3, 15, 0.42],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0.8, 12, 1.6, 15, 3],
         },
       }, firstLabel);
       m.addLayer({
@@ -98,7 +99,7 @@ export default function MapView(p: Props) {
           'symbol-placement': 'line', 'symbol-spacing': 400,
           'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 11,
         },
-        paint: { 'text-color': ['get', 'colour'], 'text-halo-color': '#ffffff', 'text-halo-width': 1.5 },
+        paint: { 'text-color': ['get', 'colour'], 'text-opacity': 0.75, 'text-halo-color': '#ffffff', 'text-halo-width': 1.5 },
       });
       applySubway(m, subwayOnRef.current); // 꺼 둔 채로 들어왔으면 처음부터 숨긴다
     });
@@ -198,12 +199,12 @@ export default function MapView(p: Props) {
     }
     // 역 — 병원 점 위, 영업 상태 고리 아래. 구 단위(11)부터 점, 조금 더(12.5) 확대하면 이름
     if (subwayOn && stations.length && zoom >= 11) {
-      const hex = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16), 255] as [number, number, number, number];
+      const hex = (h: string, a = 255) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16), a] as [number, number, number, number];
       L.push(new ScatterplotLayer<Station>({
         id: 'station', data: stations, getPosition: (d) => d.position, radiusUnits: 'pixels',
         getRadius: (d) => (d.transfer ? 1.35 : 1) * Math.max(2, Math.min(5, (zoom - 10) * 1.3)),
         getFillColor: [255, 255, 255, 255], stroked: true,
-        getLineColor: (d) => (d.transfer ? [83, 100, 113, 255] : hex(d.colour)), lineWidthUnits: 'pixels', getLineWidth: zoom >= 14 ? 2 : 1.3,
+        getLineColor: (d) => (d.transfer ? [83, 100, 113, 190] : hex(d.colour, 170)), lineWidthUnits: 'pixels', getLineWidth: zoom >= 14 ? 2 : 1.3,
         pickable: true, updateTriggers: { getRadius: zoom, getLineWidth: zoom },
         onHover: (info: PickingInfo<Station>) => {
           const d = info.object;

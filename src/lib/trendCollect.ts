@@ -18,7 +18,14 @@ const IDEAS_EVERY_D = 90;           // 연관 검색어 넓히기 간격
 const IDEAS_GAP_MS = 1500;          // 연관 검색어는 동시에 보내면 거절(429) — 1건씩 간격
 
 export const MODS = ['とは', '違い', 'おすすめ', '効果', '口コミ', '経過', 'ビフォーアフター', 'ダウンタイム', '痛み', '副作用', '失敗', '値段', '料金', '安い', '東京', '大阪', 'クリニック'];
-export const KOREA = (n: string) => [`韓国 ${n}`, `${n} 韓国`, `韓国 ${n} 値段`, `韓国 ${n} 安い`, `韓国 ${n} おすすめ`, `ソウル ${n}`, `江南 ${n}`, `明洞 ${n}`, `${n} 明洞`, `弘大 ${n}`, `${n} 弘大`, `ホンデ ${n}`, `${n} ホンデ`];
+// 한국 조합 — 키워드 플래너는 어순만 다른 표현을 하나로 합쳐 한쪽에만 값을 주는 일이 많아서(韓国 サーマクール 122 · サーマクール 韓国 값 없음)
+// 두 어순을 다 묻는다. 10-19 뒤집힌 어순을 더했다: 울쎄라는 'ウルセラ 韓国 値段'(월 231)이 '韓国 ウルセラ 値段'(32)보다 컸는데 묻지 않아 빠져 있었다.
+// 같은 수치가 나온 어순 변형은 완성본에서 하나만 센다(trendBuild의 중복 제거) — 두 어순을 다 물어도 겹쳐 세지 않는다.
+export const KOREA = (n: string) => [
+  `韓国 ${n}`, `${n} 韓国`,
+  `韓国 ${n} 値段`, `${n} 韓国 値段`, `韓国 ${n} 安い`, `${n} 韓国 安い`, `韓国 ${n} おすすめ`, `${n} 韓国 おすすめ`, `韓国 ${n} 口コミ`, `${n} 韓国 口コミ`,
+  `ソウル ${n}`, `${n} ソウル`, `江南 ${n}`, `${n} 江南`, `明洞 ${n}`, `${n} 明洞`, `弘大 ${n}`, `${n} 弘大`, `ホンデ ${n}`, `${n} ホンデ`,
+];
 
 // ── 달 계산 ──
 export const addMonths = (ym: string, k: number) => { const [y, m] = ym.split('-').map(Number); const t = y * 12 + (m - 1) + k; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`; };
@@ -259,6 +266,28 @@ async function widenIdeas(sql: postgres.Sql, kp: KpClient, market: string, lates
     if (!onlyId) await new Promise((r) => setTimeout(r, IDEAS_GAP_MS));
   }
   return { procedures, keywords };
+}
+
+// 한국 조합만 전 시술 다시 채우기 — 틀(KOREA)을 넓혔을 때 한 번 돌린다(10-19). 연관 검색어 넓히기(90일마다)를 기다리지 않고
+// 1,000개씩 검색량만 조회해 값이 나온 조합을 저장하고 완성본을 다시 만든다. 이미 있는 조합은 검색량만 새로 고친다.
+export async function fillKoreaCombos(sql: postgres.Sql, kp: KpClient, market: string, latest: string): Promise<{ asked: number; saved: number }> {
+  const from = addMonths(latest, -(WINDOW - 1));
+  const procs = await sql<Array<{ id: string; jp: string }>>`select id, jp from trend_procedure where market = ${market} and not hidden order by id`;
+  const seen = new Set<string>();
+  const asks = procs.flatMap((p) => KOREA(p.jp).map((text) => ({ text, id: p.id }))).filter((a) => !seen.has(norm(a.text)) && seen.add(norm(a.text)));
+  let saved = 0;
+  for (let i = 0; i < asks.length; i += BATCH) {
+    const chunk = asks.slice(i, i + BATCH);
+    const texts = chunk.map((a) => a.text);
+    const hist = matchRows(texts, await kp.historical(texts, from, latest));
+    const rows: KeywordWrite[] = chunk.flatMap((a) => {
+      const series = toSeries(hist.get(a.text), from, latest);
+      return series ? [{ text: a.text, source: 'korea' as const, series, seriesStart: `${from}-01`, procedureId: a.id }] : [];
+    });
+    saved += await upsertKeywords(sql, market, rows);
+  }
+  await rebuildView(sql, market);
+  return { asked: asks.length, saved };
 }
 
 // 화면에 보이는(의도별 상위) 검색어 중 번역이 없는 것 — 시술명(대표 검색어 = 한국어 시술명)을 용어집으로

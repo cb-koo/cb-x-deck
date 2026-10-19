@@ -68,7 +68,9 @@ export async function reassignOwners(sql: postgres.Sql, market: string): Promise
     select id, text, procedure_id, source from trend_keyword where market = ${market}`;
   let changed = 0;
   for (const k of kws) {
-    if (k.source === 'name' && k.procedure_id) continue;
+    // 이름 검색어와 한국 조합은 수집할 때 정한 시술 것으로 고정한다 — 한국 조합은 그 시술의 대표 이름이 아니라 짧은 이름으로
+    // 물은 것도 있어서(韓国 肝斑 → 기미 '肝斑治療', 10-19) 이름이 들어 있는지로 주인을 다시 정하면 떨어져 나간다
+    if ((k.source === 'name' || k.source === 'korea') && k.procedure_id) continue;
     const next = owner(k.text);
     if (next !== k.procedure_id) { await sql`update trend_keyword set procedure_id = ${next} where id = ${k.id}`; changed++; }
   }

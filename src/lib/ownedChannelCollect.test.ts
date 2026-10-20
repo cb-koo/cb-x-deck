@@ -170,9 +170,9 @@ test('전체 수집 — 방금 받은 계정은 건너뛰고(↻ 연타), 인증
   const { channel } = await saveChannel(sql, c.id, { handle: 'clinic', accountId: '111', accountCreatedAt: null, weeklyTarget: 1 }, NOW);
   await sql`update owned_channel set last_collected_at = ${new Date(NOW - 10_000)} where id = ${channel.id}`;
   const { reader } = fakeReader({});
-  const r = await collectAll(sql, reader, { now: NOW, skipRecentMs: 60_000 });
+  const r = await collectAll(sql, reader, { now: NOW, skipRecentMs: 60_000, onlyClientIds: [c.id] });
   assert.ok(r.skipped >= 1);
-  await assert.rejects(() => collectAll(sql, fakeReader({ info: new GetxapiAuthError('401') }).reader, { now: NOW }));
+  await assert.rejects(() => collectAll(sql, fakeReader({ info: new GetxapiAuthError('401') }).reader, { now: NOW, onlyClientIds: [c.id] }));
 });
 
 test('끊긴 기간 다시 채우기 — 마지막 성공이 3주 전이면 그 주 월요일부터 읽는다(리뷰 10-20)', async () => {
@@ -194,7 +194,6 @@ test('전체 수집 — 한 계정의 저장 오류(수집 중 계정 교체)가
   const c2 = await newClient('race2');
   const a = await saveChannel(sql, c1.id, { handle: 'one', accountId: '111', accountCreatedAt: null, weeklyTarget: 1 }, NOW);
   const b = await saveChannel(sql, c2.id, { handle: 'two', accountId: '111', accountCreatedAt: null, weeklyTarget: 1 }, NOW);
-  // 다른 테스트가 남긴 채널이 먼저 돌지 않게, 이 둘을 목록 맨 앞으로
   await sql`update owned_channel set last_collected_at = null where id in (${a.channel.id}, ${b.channel.id})`;
   let first = true;
   const reader: XReader = {
@@ -206,7 +205,7 @@ test('전체 수집 — 한 계정의 저장 오류(수집 중 계정 교체)가
     },
     async getTweetDetail(id) { return { id }; },
   };
-  const r = await collectAll(sql, reader, { now: NOW });
+  const r = await collectAll(sql, reader, { now: NOW, onlyClientIds: [c1.id, c2.id] });
   assert.ok(r.failed >= 1);
   assert.ok((await getChannel(sql, c2.id))?.lastCollectedAt, '두 번째 계정은 받혔다');
 });

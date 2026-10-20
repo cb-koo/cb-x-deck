@@ -225,7 +225,7 @@ export interface ChannelsView {
   thisWeek: {
     weekStart: string; title: string; daysLeftLabel: string;
     checkedLabel: string | null;       // '오늘 07:00 기준' — 점검 대상이 없으면 null
-    headline: string;                  // 판단 한 줄(UX 원칙 3) — '4곳이 아직이에요. 그중 2곳은 지난주에도 미달이에요.'
+    headline: string;                  // 판단 한 줄(UX 원칙 3) — '4곳이 아직이에요. 그중 2곳은 지난주에도 미달이에요. 1곳은 계정 확인이 필요해요.'
     total: number; doneCount: number;
     pending: ThisWeekRow[]; done: ThisWeekRow[];
   };
@@ -260,9 +260,12 @@ function historySummary(cells: WeekCell[], streak: number): { summary: string; b
 /** 이번 주 판단 한 줄 — 판단 먼저, 근거는 짧게(koo 10-14 요약 서술 규칙) */
 export function headlineFor(pending: ThisWeekRow[], doneCount: number): string {
   if (pending.length === 0) return doneCount > 0 ? '모든 곳이 이번 주 약속을 달성했어요.' : '';
-  const warn = pending.filter((r) => r.tone === 'warn').length;
-  const first = `${pending.length}곳이 아직이에요.`;
-  return warn > 0 ? `${first} 그중 ${warn}곳은 지난주에도 미달이거나 계정 확인이 필요해요.` : first;
+  const account = pending.filter((r) => r.count === null).length;
+  const missed = pending.filter((r) => r.count !== null && r.tone === 'warn').length;
+  const parts = [`${pending.length}곳이 아직이에요.`];
+  if (missed > 0) parts.push(`그중 ${missed}곳은 지난주에도 미달이에요.`);
+  if (account > 0) parts.push(`${account}곳은 계정 확인이 필요해요.`);
+  return parts.join(' ');
 }
 
 const byName = (a: { clientName: string }, b: { clientName: string }) => a.clientName.localeCompare(b.clientName, 'ko');

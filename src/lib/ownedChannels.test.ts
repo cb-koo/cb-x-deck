@@ -258,7 +258,9 @@ test('판단 한 줄 — 남은 곳 수, 그중 먼저 챙길 곳', () => {
     channel({ channelId: 'b', clientName: '나', posts: [post('2026-10-13 10:00')] }),
     channel({ channelId: 'c', clientName: '다', posts: [post('2026-10-20 10:00')] }),
   ], NOW);
-  assert.equal(v.thisWeek.headline, '2곳이 아직이에요. 그중 1곳은 지난주에도 미달이거나 계정 확인이 필요해요.');
+  assert.equal(v.thisWeek.headline, '2곳이 아직이에요. 그중 1곳은 지난주에도 미달이에요.');
+  const bad = buildChannelsView([channel({ lastError: 'notFound' }), channel({ channelId: 'z', posts: [post('2026-09-26 10:00')] })], NOW);
+  assert.equal(bad.thisWeek.headline, '2곳이 아직이에요. 그중 1곳은 지난주에도 미달이에요. 1곳은 계정 확인이 필요해요.');
   const all = buildChannelsView([channel({ posts: [post('2026-10-20 10:00')] })], NOW);
   assert.equal(all.thisWeek.headline, '모든 곳이 이번 주 약속을 달성했어요.');
   assert.equal(weekRangeShort('2026-09-14'), '9/14~20');

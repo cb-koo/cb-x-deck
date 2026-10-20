@@ -119,10 +119,10 @@ export interface CollectAllResult { channels: number; ok: number; failed: number
  */
 export async function collectAll(
   sql: postgres.Sql, reader: XReader,
-  opts: { now?: number; deadlineAt?: number; skipRecentMs?: number } = {},
+  opts: { now?: number; deadlineAt?: number; skipRecentMs?: number; onlyClientIds?: string[] } = {},
 ): Promise<CollectAllResult> {
   const now = opts.now ?? Date.now();
-  const channels = await listChannelsToCollect(sql);
+  const channels = await listChannelsToCollect(sql, opts.onlyClientIds);
   const out: CollectAllResult = { channels: channels.length, ok: 0, failed: 0, skipped: 0, stoppedByDeadline: false };
   for (const ch of channels) {
     if (opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt) { out.stoppedByDeadline = true; break; }

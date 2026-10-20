@@ -81,11 +81,18 @@ export async function removeChannel(sql: postgres.Sql, clientId: string): Promis
   await sql`delete from owned_channel where client_id = ${clientId} and channel = 'x'`;
 }
 
-/** 수집 대상 = 약속이 있는 계정. 오래 안 받은 계정부터(남은 계정은 다음 실행이 잇는다). */
-export async function listChannelsToCollect(sql: postgres.Sql): Promise<OwnedChannel[]> {
-  const rows = await sql<Row[]>`
-    select ${COLS(sql)} from owned_channel where weekly_target is not null
-    order by last_collected_at asc nulls first, created_at`;
+/**
+ * 수집 대상 = 약속이 있는 계정. 오래 안 받은 계정부터(남은 계정은 다음 실행이 잇는다).
+ * onlyClientIds: 테스트가 자기가 만든 클라이언트만 돌리게 — 없으면 연습용 DB의 다른 계정까지 가짜 응답으로 건드린다(10-20 실제로 겪음).
+ */
+export async function listChannelsToCollect(sql: postgres.Sql, onlyClientIds?: string[]): Promise<OwnedChannel[]> {
+  const rows = onlyClientIds
+    ? await sql<Row[]>`
+        select ${COLS(sql)} from owned_channel where weekly_target is not null and client_id in ${sql(onlyClientIds)}
+        order by last_collected_at asc nulls first, created_at`
+    : await sql<Row[]>`
+        select ${COLS(sql)} from owned_channel where weekly_target is not null
+        order by last_collected_at asc nulls first, created_at`;
   return rows.map(toChannel);
 }
 

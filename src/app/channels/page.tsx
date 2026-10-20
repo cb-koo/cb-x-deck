@@ -55,7 +55,7 @@ export default function ChannelsPage() {
     <main className="min-h-full bg-x-surface px-6 py-8">
       <div className="max-w-[1040px]">
         <h1 className="mb-1 text-[20px] font-bold">X 업로드 현황</h1>
-        <p className="mb-6 text-[14px] text-x-secondary">클라이언트별 X 업로드 약속(주 N회) 달성 현황이에요. 새 글과 인용만 세고, RT와 답글은 빼요.</p>
+        <p className="mb-6 text-[14px] text-x-secondary">클라이언트별 X 업로드 약속(주 N회) 달성 현황이에요.</p>
 
         {!data && !loadErr && <p className="py-8 text-center text-ui text-x-muted">불러오는 중…</p>}
         {loadErr && (

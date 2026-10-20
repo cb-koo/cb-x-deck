@@ -16,6 +16,12 @@ const KIND_CHIP: Record<PostKind, string> = {
 
 const WIDTH_KEY = 'channels.panelW';
 const W_DEFAULT = 680, W_MIN = 440, W_MAX = 1200;
+// 게시물 표에 보일 글 — 기본은 약속 횟수에 드는 글(새 글, 인용)만. 켜면 RT·답글도(koo 10-20). 브라우저에 기억한다
+type PostScope = 'counted' | 'all';
+const SCOPE_KEY = 'channels.postScope';
+function storedScope(): PostScope {
+  try { return localStorage.getItem(SCOPE_KEY) === 'all' ? 'all' : 'counted'; } catch { return 'counted'; }
+}
 function storedWidth(): number {
   try { const v = Number(localStorage.getItem(WIDTH_KEY)); return v >= W_MIN && v <= W_MAX ? v : W_DEFAULT; } catch { return W_DEFAULT; }
 }
@@ -29,6 +35,8 @@ export function ChannelDetailPanel({ channelId, onClose }: { channelId: string; 
   const [err, setErr] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [width, setWidth] = useState(storedWidth);
+  const [scope, setScope] = useState<PostScope>(storedScope);
+  useEffect(() => { try { localStorage.setItem(SCOPE_KEY, scope); } catch { /* 저장소를 못 쓰는 창 */ } }, [scope]);
 
   useEffect(() => {
     let alive = true;
@@ -64,6 +72,8 @@ export function ChannelDetailPanel({ channelId, onClose }: { channelId: string; 
   };
 
   const shown = detail?.channelId === channelId ? detail : null;
+  const otherCount = shown ? shown.posts.filter((p) => !p.counted).length : 0;
+  const visible = shown ? (scope === 'all' ? shown.posts : shown.posts.filter((p) => p.counted)) : [];
   const vals = shown ? shown.followers.values.filter((v): v is number => v !== null) : [];
   const max = vals.length ? Math.max(...vals) : 1;
   const min = vals.length ? Math.min(...vals) : 0;
@@ -114,7 +124,18 @@ export function ChannelDetailPanel({ channelId, onClose }: { channelId: string; 
                 ))}
               </div>
               <p className="mt-2 text-[14px] leading-relaxed text-x-secondary">{shown.followers.summary}</p>
-              <h3 className="mb-2 mt-6 text-[14px] font-semibold">주차별 게시물</h3>
+              <div className="mb-2 mt-6 flex items-center justify-between gap-3">
+                <h3 className="text-[14px] font-semibold">게시물</h3>
+                {/* 보기 전환 — 두 칸짜리 선택(누르면 그쪽으로). 다른 유형 개수를 미리 보여 켤지 판단하게 */}
+                <div role="radiogroup" aria-label="게시물 보기" className="inline-flex rounded-full border border-x-border-strong p-0.5 text-ui">
+                  {([['counted', '새 글과 인용'], ['all', `다른 유형도${otherCount ? `(+${otherCount})` : ''}`]] as const).map(([v, label]) => (
+                    <button key={v} type="button" role="radio" aria-checked={scope === v} onClick={() => setScope(v)}
+                            className={`rounded-full px-3 py-1 ${scope === v ? 'bg-x-text font-semibold text-white' : 'text-x-secondary hover:text-x-text'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* 주차는 묶음이 아니라 열로(koo 10-20) — 캠페인과 같은 'N월 N주차'. 최근 글이 위 */}
@@ -129,10 +150,12 @@ export function ChannelDetailPanel({ channelId, onClose }: { channelId: string; 
                 </tr>
               </thead>
               <tbody>
-                {shown.posts.length === 0 && (
-                  <tr><td colSpan={4} className={`${TD} pl-6 text-ui text-x-muted`}>지난 8주 동안 올린 글이 없어요</td></tr>
+                {visible.length === 0 && (
+                  <tr><td colSpan={4} className={`${TD} pl-6 text-ui text-x-muted`}>
+                    {scope === 'counted' && otherCount > 0 ? `지난 8주 동안 새 글과 인용이 없어요(RT와 답글 ${otherCount}개는 '다른 유형도'에서 보여요)` : '지난 8주 동안 올린 글이 없어요'}
+                  </td></tr>
                 )}
-                {shown.posts.map((p) => {
+                {visible.map((p) => {
                   const dim = !p.counted || !!p.deletedNote;
                   return (
                     <tr key={p.postId} className={p.deletedNote ? '' : 'hover:bg-x-hover'}>
@@ -160,7 +183,7 @@ export function ChannelDetailPanel({ channelId, onClose }: { channelId: string; 
               </tbody>
             </table>
             <p className="mt-4 px-6 text-ui text-x-muted">
-              RT와 답글은 약속 횟수에서 빠져요. 약속 횟수와 시작일은 <Link href={`/clients?client=${shown.clientId}`} className="text-x-blue-text hover:underline">클라이언트 설정</Link>에서 바꿀 수 있어요.
+              {scope === 'all' && 'RT와 답글은 약속 횟수에서 빠져요. '}약속 횟수와 시작일은 <Link href={`/clients?client=${shown.clientId}`} className="text-x-blue-text hover:underline">클라이언트 설정</Link>에서 바꿀 수 있어요.
             </p>
           </>
         )}

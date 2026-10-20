@@ -4,7 +4,7 @@
 // 판정 기준은 "그 주(월~일, 한국)에 새 글이나 인용을 약속한 횟수만큼 올렸는가"다(koo 10-20).
 // - 지운 글도 그 주에 올린 글로 센다 — 올린 시점에 약속은 지켜졌다. 지워짐은 표시만 한다.
 // - 지난 주는 그 주의 약속(owned_channel_week)으로 판정한다 — 나중에 약속을 바꿔도 지난 판정이 흔들리지 않게.
-import { num, str, toIso } from './mappers.ts';
+import { str, toIso } from './mappers.ts';
 
 export type PostKind = 'original' | 'quote' | 'retweet' | 'reply';
 
@@ -25,9 +25,7 @@ export function classifyPost(raw: Record<string, unknown>): PostKind {
 /** 약속 횟수에 드는 글 — 새 글과 인용. RT·답글은 목록에만 보인다. */
 export const countsTowardPromise = (k: PostKind): boolean => k === 'original' || k === 'quote';
 
-/** 글 하나의 성과 — 마지막으로 받은 값(지난주 글까지는 매일 갱신). 응답에 없으면 null */
-export interface PostMetrics { views: number | null; likes: number | null; replies: number | null; retweets: number | null; quotes: number | null; bookmarks: number | null }
-export interface ParsedPost extends PostMetrics { postId: string; kind: PostKind; text: string; postedAt: string; pinned: boolean }
+export interface ParsedPost { postId: string; kind: PostKind; text: string; postedAt: string; pinned: boolean }
 
 // X 응답 본문은 &amp; 같은 HTML 표기로 온다(실호출 확인 10-20) — 패널에 그대로 보이지 않게 흔한 다섯 개만 푼다
 const ENTITIES: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
@@ -37,9 +35,7 @@ export function parsePost(raw: Record<string, unknown>): ParsedPost | null {
   const postId = str(raw.id);
   const postedAt = toIso(raw.createdAt);
   if (!postId || !postedAt) return null;
-  return { postId, kind: classifyPost(raw), text: decodeEntities(str(raw.text) ?? '').replace(/\u0000/g, ''), postedAt, pinned: raw.isPinned === true,
-    views: num(raw.viewCount), likes: num(raw.likeCount), replies: num(raw.replyCount), retweets: num(raw.retweetCount),
-    quotes: num(raw.quoteCount), bookmarks: num(raw.bookmarkCount) };
+  return { postId, kind: classifyPost(raw), text: decodeEntities(str(raw.text) ?? '').replace(/\u0000/g, ''), postedAt, pinned: raw.isPinned === true };
 }
 
 // ─────────────────────────── 주와 날짜(한국) ───────────────────────────
@@ -91,7 +87,7 @@ export const weekShort = (weekStart: string) => md(weekStart);
 
 // ─────────────────────────── 입력 ───────────────────────────
 
-export interface ChannelPost extends Partial<PostMetrics> {
+export interface ChannelPost {
   postId: string; kind: PostKind; text: string; postedAt: string; deletedAt: string | null;
 }
 export interface ChannelSnapshot { capturedOn: string; followers: number }
@@ -319,8 +315,6 @@ export interface DetailPost {
   postId: string; kind: PostKind; text: string; postedAt: string;
   day: string;                         // '10/18(토) 14:05'
   deletedNote: string | null; counted: boolean;
-  metrics: PostMetrics;
-  engagement: number | null;           // 참여율 = 공개 반응 5종(좋아요·답글·북마크·RT·인용) ÷ 조회 — 인플루언서 성과와 같은 정의
 }
 export interface DetailWeek {
   weekStart: string; title: string; isCurrent: boolean; state: CellState;
@@ -335,16 +329,6 @@ export interface ChannelDetail {
 }
 
 const fmt = (n: number) => n.toLocaleString('ko-KR');
-
-const metricsOf = (p: Partial<PostMetrics>): PostMetrics => ({
-  views: p.views ?? null, likes: p.likes ?? null, replies: p.replies ?? null,
-  retweets: p.retweets ?? null, quotes: p.quotes ?? null, bookmarks: p.bookmarks ?? null,
-});
-/** 참여율 — 조회가 없거나 0이면 계산하지 않는다(null) */
-export function engagementOf(m: PostMetrics): number | null {
-  if (!m.views) return null;
-  return ((m.likes ?? 0) + (m.replies ?? 0) + (m.bookmarks ?? 0) + (m.retweets ?? 0) + (m.quotes ?? 0)) / m.views;
-}
 
 /** '10/18(토) 14:05' — 표의 게시 칸 */
 function dayTime(instant: string): string {
@@ -385,7 +369,7 @@ export function buildChannelDetail(c: ChannelInput, now: number): ChannelDetail 
       .sort((a, b) => b.postedAt.localeCompare(a.postedAt))
       .map((p) => ({ postId: p.postId, kind: p.kind, text: p.text, postedAt: p.postedAt, day: dayTime(p.postedAt),
         deletedNote: p.deletedAt ? `${md(kstYmd(p.deletedAt))}에 지워진 것을 확인했어요` : null,
-        counted: countsTowardPromise(p.kind), metrics: metricsOf(p), engagement: engagementOf(metricsOf(p)) }));
+        counted: countsTowardPromise(p.kind) }));
     const isCurrent = w === cur;
     return { weekStart: w, title: weekTitle(w), isCurrent, state: cell.state, count: cell.count, target: cell.target,
       met: isCurrent ? null : cell.met, verdict: weekVerdict(cell, isCurrent), posts };

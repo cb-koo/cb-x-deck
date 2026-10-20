@@ -211,7 +211,7 @@ test('전체 수집 — 한 계정의 저장 오류(수집 중 계정 교체)가
   assert.ok((await getChannel(sql, c2.id))?.lastCollectedAt, '두 번째 계정은 받혔다');
 });
 
-test('약속 시작일 — 새 계정은 오늘이 기본, 바꾸면 그 값, 조회·좋아요는 다시 받으면 새 값', async () => {
+test('약속 시작일 — 새 계정은 오늘이 기본, 바꾸면 그 값, 안 보내면 그대로', async () => {
   const c = await newClient('start');
   const a = await saveChannel(sql, c.id, { handle: 'clinic', accountId: '111', accountCreatedAt: null, weeklyTarget: 1 }, NOW);
   assert.equal(a.channel.promiseStartedOn, '2026-10-21');
@@ -220,10 +220,4 @@ test('약속 시작일 — 새 계정은 오늘이 기본, 바꾸면 그 값, �
   const kept = await saveChannel(sql, c.id, { handle: 'clinic', accountId: '111', accountCreatedAt: null, weeklyTarget: 2 }, NOW);
   assert.equal(kept.channel.promiseStartedOn, '2026-10-01');
   assert.equal((await getChannelInput(sql, a.channel.id, NOW))?.promiseStartedOn, '2026-10-01');
-
-  const ch = (await getChannel(sql, c.id))!;
-  await collectChannel(sql, fakeReader({ pages: [{ has_more: false, next_cursor: null, tweets: [tw('v', '2026-10-20 10:00', { viewCount: 10, likeCount: 1 })] }] }).reader, ch, { now: NOW });
-  await collectChannel(sql, fakeReader({ pages: [{ has_more: false, next_cursor: null, tweets: [tw('v', '2026-10-20 10:00', { viewCount: 99, likeCount: 4, replyCount: 2, retweetCount: 1, quoteCount: 0, bookmarkCount: 3 })] }] }).reader, (await getChannel(sql, c.id))!, { now: NOW });
-  const [row] = await sql`select views, likes, replies, retweets, quotes, bookmarks from owned_post where channel_id = ${ch.id} and post_id = 'v'`;
-  assert.deepEqual([row.views, row.likes, row.replies, row.retweets, row.quotes, row.bookmarks], [99, 4, 2, 1, 0, 3]);
 });

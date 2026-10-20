@@ -1,5 +1,5 @@
 // X 업로드 현황 › 줄을 누르면 열리는 오른쪽 패널 — 팔로워 추이 + 주차별 게시물 표. 스펙 2026-10-20 §2-1
-// 게시물은 한 표에 주차 머리 줄로 묶는다(koo 10-20: 목록 대신 표). 왼쪽 가장자리를 끌어 너비 조절, 브라우저에 기억한다.
+// 게시물은 한 표에 주차 머리 줄로 묶는다(koo 10-20: 목록 대신 표). 성과(조회·반응)는 넣지 않는다 — 이 화면은 올렸는지만 본다(koo 10-20). 왼쪽 가장자리를 끌어 너비 조절, 브라우저에 기억한다.
 // 지운 글도 그 주 횟수에 든다 — 줄에 '지워짐'만 붙여 감독자가 알 수 있게 한다(스펙 §4-3).
 'use client';
 import { Fragment, useEffect, useState } from 'react';
@@ -15,25 +15,11 @@ const KIND_CHIP: Record<PostKind, string> = {
 };
 
 const WIDTH_KEY = 'channels.panelW';
-const W_DEFAULT = 1000, W_MIN = 440, W_MAX = 1400;
+const W_DEFAULT = 680, W_MIN = 440, W_MAX = 1200;
 function storedWidth(): number {
   try { const v = Number(localStorage.getItem(WIDTH_KEY)); return v >= W_MIN && v <= W_MAX ? v : W_DEFAULT; } catch { return W_DEFAULT; }
 }
 
-const fmt = (n: number | null) => (n === null ? '—' : n.toLocaleString('ko-KR'));
-const pct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(v > 0 && v < 0.001 ? 2 : 1)}%`);
-// 성과 열 — 순서는 인플루언서 성과 표와 같다(노출 → 참여율 → 반응 → 확산)
-const METRIC_COLS: Array<{ key: 'views' | 'engagement' | 'likes' | 'replies' | 'bookmarks' | 'retweets' | 'quotes'; label: string; width: number; help?: string }> = [
-  { key: 'views', label: '조회', width: 76 },
-  { key: 'engagement', label: '참여율', width: 68, help: '공개 반응(좋아요, 답글, 북마크, RT, 인용)을 조회수로 나눈 값이에요. 클릭 수가 빠져서 X 분석 화면보다 낮게 나와요' },
-  { key: 'likes', label: '좋아요', width: 60 },
-  { key: 'replies', label: '답글', width: 52 },
-  { key: 'bookmarks', label: '북마크', width: 60 },
-  { key: 'retweets', label: 'RT', width: 52 },
-  { key: 'quotes', label: '인용', width: 52 },
-];
-// 표는 내용 칸이 너무 좁아지지 않게 최소 폭을 두고, 패널이 그보다 좁으면 표만 가로로 밀린다
-const TABLE_MIN = 132 + 84 + 240 + METRIC_COLS.reduce((s, c) => s + c.width, 0) + 24;
 const TH = 'whitespace-nowrap border-b border-x-border bg-x-surface px-3 py-2 text-left text-ui font-semibold text-x-secondary';
 const TD = 'h-11 border-b border-x-border/60 px-3 align-middle';
 
@@ -136,30 +122,21 @@ export function ChannelDetailPanel({ channelId, onClose }: { channelId: string; 
               <h3 className="mb-2 mt-6 text-[14px] font-semibold">주차별 게시물</h3>
             </div>
 
-            {/* 한 표에 주차 머리 줄 — 열(게시·종류·내용·조회·좋아요)이 주가 바뀌어도 같은 세로줄에 선다 */}
-            <div className="overflow-x-auto">
-            <table className="w-full table-fixed border-separate border-spacing-0 text-[14px]" style={{ minWidth: TABLE_MIN }}>
-              <colgroup>
-                <col style={{ width: 132 }} /><col style={{ width: 84 }} /><col />
-                {METRIC_COLS.map((c) => <col key={c.key} style={{ width: c.width }} />)}
-              </colgroup>
+            {/* 한 표에 주차 머리 줄 — 열(게시·종류·내용)이 주가 바뀌어도 같은 세로줄에 선다 */}
+            <table className="w-full table-fixed border-separate border-spacing-0 text-[14px]">
+              <colgroup><col style={{ width: 148 }} /><col style={{ width: 96 }} /><col /></colgroup>
               <thead>
                 <tr>
                   <th className={`${TH} border-t pl-6`}>게시</th>
                   <th className={`${TH} border-t`}>종류</th>
-                  <th className={`${TH} border-t`}>내용</th>
-                  {METRIC_COLS.map((c, i) => (
-                    <th key={c.key} title={c.help} className={`${TH} border-t px-2 text-right ${i === 0 ? 'border-l border-l-x-border' : ''} ${i === METRIC_COLS.length - 1 ? 'pr-6' : ''} ${c.help ? 'cursor-help underline decoration-dotted underline-offset-4' : ''}`}>
-                      {c.label}
-                    </th>
-                  ))}
+                  <th className={`${TH} border-t pr-6`}>내용</th>
                 </tr>
               </thead>
               <tbody>
                 {shown.weeks.map((w) => (
                   <Fragment key={w.weekStart}>
                     <tr>
-                      <td colSpan={3 + METRIC_COLS.length} className="border-b border-x-border bg-[#fafbfb] px-6 py-2">
+                      <td colSpan={3} className="border-b border-x-border bg-[#fafbfb] px-6 py-2">
                         <span className="flex items-baseline justify-between gap-3">
                           <b className="font-semibold">{w.isCurrent ? `이번 주 ${w.title}` : w.title}</b>
                           <span className={`text-ui font-semibold ${verdictTone(w)}`}>{w.verdict}</span>
@@ -167,7 +144,7 @@ export function ChannelDetailPanel({ channelId, onClose }: { channelId: string; 
                       </td>
                     </tr>
                     {w.posts.length === 0 && w.state !== 'beforeRecord' && (
-                      <tr><td colSpan={3 + METRIC_COLS.length} className={`${TD} pl-6 text-ui text-x-muted`}>올린 글이 없어요</td></tr>
+                      <tr><td colSpan={3} className={`${TD} pl-6 text-ui text-x-muted`}>올린 글이 없어요</td></tr>
                     )}
                     {w.posts.map((p) => {
                       const dim = !p.counted || !!p.deletedNote;
@@ -181,7 +158,7 @@ export function ChannelDetailPanel({ channelId, onClose }: { channelId: string; 
                               {p.deletedNote && <span title={p.deletedNote} className="rounded-md bg-x-surface px-1.5 py-0.5 text-caption font-semibold text-x-muted">지워짐</span>}
                             </span>
                           </td>
-                          <td className={`${TD} min-w-0`}>
+                          <td className={`${TD} min-w-0 pr-6`}>
                             {/* 지운 글은 열리지 않으므로 링크를 두지 않는다 */}
                             {p.deletedNote ? (
                               <span title={`${p.text}\n\n${p.deletedNote}`} className="block truncate text-x-muted">{p.text || '(글자 없음)'}</span>
@@ -190,11 +167,6 @@ export function ChannelDetailPanel({ channelId, onClose }: { channelId: string; 
                                  className={`block truncate hover:underline ${dim ? 'text-x-muted' : ''}`}>{p.text || '(글자 없음)'}</a>
                             )}
                           </td>
-                          {METRIC_COLS.map((c, i) => (
-                            <td key={c.key} className={`${TD} px-2 text-right tabular-nums ${dim ? 'text-x-muted' : ''} ${i === 0 ? 'border-l border-l-x-border' : ''} ${i === METRIC_COLS.length - 1 ? 'pr-6' : ''}`}>
-                              {c.key === 'engagement' ? pct(p.engagement) : fmt(p.metrics[c.key])}
-                            </td>
-                          ))}
                         </tr>
                       );
                     })}
@@ -202,7 +174,6 @@ export function ChannelDetailPanel({ channelId, onClose }: { channelId: string; 
                 ))}
               </tbody>
             </table>
-            </div>
             <p className="mt-4 px-6 text-ui text-x-muted">
               RT와 답글은 약속 횟수에서 빠져요. 약속 횟수와 시작일은 <Link href={`/clients?client=${shown.clientId}`} className="text-x-blue-text hover:underline">클라이언트 설정</Link>에서 바꿀 수 있어요.
             </p>

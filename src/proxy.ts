@@ -23,6 +23,8 @@ export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname === '/api/trends/collect') return NextResponse.next({ request });
   // 클리닉 지도 자동 수집 — DB 예약 실행이 매달 부른다(위와 같은 이유, 인가는 라우트가 시크릿으로).
   if (request.nextUrl.pathname === '/api/market-map/collect') return NextResponse.next({ request });
+  // X 업로드 현황 자동 수집 — DB 예약 실행이 매일 07:00(한국)에 부른다(위와 같은 이유, 인가는 라우트가 시크릿으로).
+  if (request.nextUrl.pathname === '/api/channels/collect') return NextResponse.next({ request });
 
   // 확장 API — 쿠키를 쓰지 않는 Bearer 경로라 세션 쿠키 갱신을 건너뛴다. 인증 우회가 아니다:
   // 이 prefix 아래의 모든 핸들러가 requireExtensionMember로 JWT를 검증한다(API 계획 §4-5). OPTIONS도 여기서 통과.

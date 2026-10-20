@@ -142,3 +142,26 @@ test('onUsage: userInfo operation 파생', async () => {
   await c.getUserInfo('x');
   assert.equal(events[0].operation, 'getxapi.userInfo');
 });
+
+test('getUserInfo: 계정 개설일·고정 글 id(X 업로드 현황)', async () => {
+  const { fn } = fakeFetch([
+    { status: 200, body: { data: { id: '1', userName: 'x', createdAt: '2010-10-02T23:38:45.000000Z', pinnedTweetIds: [123, '456'] } } },
+    { status: 200, body: { data: { id: '2', userName: 'y' } } },
+  ]);
+  const c = new GetxapiClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {} });
+  const a = await c.getUserInfo('x');
+  assert.equal(a.createdAt, '2010-10-02T23:38:45.000000Z');
+  assert.deepEqual(a.pinnedTweetIds, ['123', '456']);
+  const b = await c.getUserInfo('y');
+  assert.equal(b.createdAt, null);
+  assert.deepEqual(b.pinnedTweetIds, []);
+});
+
+test('usagePrefix: 사용량 기록의 operation에 기능 이름을 끼운다', async () => {
+  const { fn } = fakeFetch([{ status: 200, body: { has_more: false, next_cursor: null, tweets: [] } }, { status: 200, body: { data: { id: '1' } } }]);
+  const ops: string[] = [];
+  const c = new GetxapiClient({ apiKey: 'k', fetchImpl: fn, sleep: async () => {}, usagePrefix: 'channels', onUsage: (e) => ops.push(e.operation) });
+  await c.getUserTweets('1');
+  await c.getUserInfo('x');
+  assert.deepEqual(ops, ['getxapi.channels.userTweets', 'getxapi.channels.userInfo']);
+});

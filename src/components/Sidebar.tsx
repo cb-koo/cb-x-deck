@@ -15,6 +15,14 @@ const ReportIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+// X 업로드 현황(달력에 체크) — ReportIcon과 같은 이유로 선(stroke) 아이콘이라 여기 둔다
+const UploadCheckIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className} aria-hidden="true">
+    <rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 9.5h17M8 3v4M16 3v4" strokeLinecap="round" />
+    <path d="m9 14.5 2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
 // SPA 이동 가드 — /clients 등이 등록한 편집 유실 방지(navGuard)에 걸리면 이동을 중단한다.
 // <a> 시절엔 beforeunload가 잡았지만 Link(클라이언트 라우팅)는 우회하므로 onNavigate에 연결.
 const guardedNavigate = (href: string) => (e: { preventDefault: () => void }) => {
@@ -69,6 +77,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     { href: '/influencers', label: '인플루언서', Ic: UserIcon },
     // 인플루언서 성과 — 명부(한 명씩 관리)와 달리 여럿을 성과로 줄 세워 섭외할 인플을 고르는 곳(스펙 2026-09-30 §6)
     { href: '/influencers/performance', label: '인플루언서 성과', Ic: TrendIcon },
+    // X 업로드 현황 — 우리가 운영을 맡은 클라이언트 X 계정이 약속한 주 N회를 지키는지(스펙 2026-10-20 §2-1)
+    { href: '/channels', label: 'X 업로드 현황', Ic: UploadCheckIcon },
     // 트래킹도 워크스페이스 밖 — 게시된 게시물의 반응은 리서치 덱이 아니라 우리가 낸 원고에 딸린 결과다.
     // 인플루언서 다음: 원고를 누구에게 줬는지 → 그게 어떻게 됐는지 순서로 읽힌다.
     { href: '/tracking', label: '트래킹', Ic: ViewIcon },

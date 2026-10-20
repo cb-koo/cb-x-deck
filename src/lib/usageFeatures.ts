@@ -7,6 +7,10 @@ const FEATURE: Record<string, string> = {
   'getxapi.replies': '트윗 확장 탐색',
   'getxapi.thread': '트윗 확장 탐색',
   'getxapi.retweeters': '트윗 확장 탐색',
+  // X 업로드 현황 — 클라이언트 계정 글·팔로워를 매일 센다(스펙 2026-10-20 §4)
+  'getxapi.channels.userInfo': 'X 업로드 현황',
+  'getxapi.channels.userTweets': 'X 업로드 현황',
+  'getxapi.channels.tweetDetail': 'X 업로드 현황',
   'exa.search': '웹 기사 검색',
   'anthropic.suggest': '키워드 추천',
   'anthropic.translate': '번역',

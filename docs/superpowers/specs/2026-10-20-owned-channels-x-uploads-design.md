@@ -1,6 +1,6 @@
 # X 업로드 현황 — 기획 (2026-10-20, 초안)
 
-> 상태: 화면 시안 확정(koo 10-20, 시안 6) · 스펙 검토 대기 · 브랜치 `cb-koo/owned-channels`.
+> 상태: 화면 시안 확정(koo 10-20, 시안 6) · 방향 확정(koo 10-20) · 1차 구현 완료(담당자 표시는 1차에서 뺌) · 브랜치 `cb-koo/owned-channels`.
 > 시안: `~/claude-outputs/owned-channels/x-운영현황-시안6-20261020.html` (1~5는 거쳐 온 안).
 
 ## 0. 결정 (koo 10-20)
@@ -114,7 +114,7 @@ X 계정 선택
 - 핸들을 다른 계정으로 바꾸면 이전 계정의 기록은 지운다(다른 계정 글이 섞이지 않게). 저장 전에 "이전 계정 기록이 지워져요" 확인을 한 번 거친다.
 - 칸을 비우면 채널 연결을 끊는다(기록도 지움, 같은 확인).
 - 약속 횟수를 바꾸면 **이번 주부터** 새 값으로 판정한다. 지난 주들은 그때 약속 그대로다(§3 `owned_channel_week`). 저장 옆에 "이번 주부터 주 2회로 판정해요" 한 줄.
-- 기존 기본 정보 패널의 저장 흐름(레지스트리 dirty·저장 버튼)에 그대로 얹는다.
+- 기본 정보 패널 바로 아래 'X 업로드' 패널로 둔다(저장할 때 X 확인·기록 삭제 확인이 있어 저장 버튼을 따로 둔다). 미저장 경고 레지스트리에는 등록한다 — '저장하고 이동'은 기록이 지워지는 저장이면 멈추고 확인을 받는다.
 
 ## 3. 데이터 (마이그레이션 `081_owned_channel.sql`, 추가만)
 
@@ -170,8 +170,7 @@ create table if not exists owned_channel_snapshot (
 
 - 채널이 늘 때 `channel` 체크를 넓히는 건 옛 값을 거부하지 않으므로 1번 머지로 된다(AGENTS.md 표 '제약 추가'의 예외 아님).
 - **주별 횟수는 저장하지 않고 글에서 센다.** 글이 지워져도 남으므로 센 값이 줄지 않는다. 바뀔 수 있는 건 약속뿐이라 약속만 주마다 남긴다.
-- 첫 수집이 8주를 거슬러 읽을 때 지난 주들의 `owned_channel_week`는 등록 때의 약속으로 채운다(그 전 약속은 모르므로).
-- 어떤 주에 줄이 없으면(수집이 그 주 내내 실패 등) 그 주 앞뒤 가장 가까운 줄의 약속을 쓴다.
+- 어떤 주에 줄이 없으면 가장 가까운 앞 주의 약속, 앞 주가 없으면 가장 가까운 뒤 주의 약속을 쓴다. 그래서 등록 전 8주는 따로 줄을 만들지 않아도 등록 주의 약속으로 판정된다(그 전 약속은 모르므로).
 - `tracked_post`(콘텐츠 성과)는 쓰지 않는다. 그 표는 캠페인 성과 화면들이 읽어서, 클리닉 계정 글이 섞이면 성과 숫자가 틀어진다.
 - monthly-report 온보딩 값은 **읽기만** 한다(ADR 0008과 같은 방식, `read only` 트랜잭션, `report` 스키마가 없으면 제안 없음).
   - 경로: `report.clinic.client_id = client.id` → `report.onboarding.clinic_id` → `channel_accounts->'x'`의 `accountId` 또는 `url`.
@@ -180,7 +179,7 @@ create table if not exists owned_channel_snapshot (
 ## 4. 수집
 
 ### 4-1. 언제
-- **매일 07:00(한국 시간)** — pg_cron + pg_net이 `POST /api/channels/collect`를 부른다(`scripts/owned-channels-cron.sql`, auto-measure와 같은 구조, 환경별로 한 번 손으로 실행). 시크릿 `CHANNELS_CRON_SECRET`(빌드에서 안 쓰므로 sensitive 가능). 미설정이면 전부 거부.
+- **매일 07:00(한국 시간)** — pg_cron + pg_net이 `POST /api/channels/collect`를 부른다(`scripts/owned-channels-cron.sql`, auto-measure와 같은 구조, 환경별로 한 번 손으로 실행). 비밀키는 성과 자동 측정·클리닉 지도와 같은 `MEASURE_CRON_SECRET`(Vault `measure_cron_secret`)을 쓴다 — 새 환경변수가 없다. 미설정이면 전부 거부.
 - **↻** — 로그인한 팀원이 `POST /api/channels/refresh`. 같은 수집을 점검 대상 전부에. 연속으로 눌러도 1분 안에 다시 누르면 무시한다.
 - **계정 저장 직후** — 그 채널 하나만, 8주치.
 
@@ -194,7 +193,7 @@ create table if not exists owned_channel_snapshot (
 6. 이번 주 `owned_channel_week` 줄이 없으면 지금 약속으로 만든다.
 7. 성공이면 `last_collected_at = now(), last_error = null`, 실패면 `last_error`만.
 
-- `/twitter/user/tweets`가 답글을 돌려주는지는 구현 때 실제 계정으로 확인한다. 안 돌려주면 답글은 목록에 안 보일 뿐 횟수는 같다.
+- `/twitter/user/tweets`는 스레드 이어 쓰기(본인 답글, `inReplyToId`·`isReply`)를 함께 돌려준다(실호출 확인 10-20). 본문은 `&amp;` 같은 HTML 표기로 와서 저장 전에 푼다.
 - 지난주 월요일부터 다시 읽는 이유: 월요일 아침 실행이 실패해도 화요일 실행이 지난주를 채운다.
 - 비용 라벨: `usageFeatures`에 `channels.collect` = 'X 업로드 현황'. 한 계정 하루 보통 2번 호출.
 - 한 번에 45초 안에서 끝낸다. 남은 계정은 다음 실행으로(지금 규모 10곳은 한 번에 끝난다).
@@ -217,7 +216,7 @@ create table if not exists owned_channel_snapshot (
 
 ### 4-4. 기록 시작 전(`—`)
 - 첫 수집이 8주를 거슬러 읽으므로 보통 8주가 다 찬다.
-- X 계정 개설일이 그보다 늦으면 개설 주 이전은 `—`. 개설일은 사용자 정보 응답의 계정 생성일(getxapi가 돌려주는 `created_at` 계열 칸, 지금 `getUserInfo`는 안 꺼냄)에서 읽어 `owned_channel.account_created_at`(timestamptz, 081에 포함)에 둔다. 응답에 없으면 `—` 없이 0으로 센다.
+- X 계정 개설일이 그보다 늦으면 개설 주 이전은 `—`. 개설일은 사용자 정보 응답의 `createdAt`(실호출 확인 10-20)을 `owned_channel.account_created_at`에 둔다. 응답에 없으면 `—` 없이 0으로 센다.
 
 ## 5. 실패와 경고
 

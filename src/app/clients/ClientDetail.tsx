@@ -5,6 +5,7 @@ import { Button, PANEL, PANEL_SPLIT, PANEL_TITLE } from '@/components/ui';
 import { procedureSummary } from '@/lib/clientSummary';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
 import { BudgetPanel } from './BudgetPanel';
+import { XAccountPanel } from './XAccountPanel';
 import { useSearchParams } from 'next/navigation';
 import { ClinicSettingsTab, type ClinicTab } from './ClinicSettingsTab';
 import { useProductFeatures } from '@/lib/extensionProductClient';
@@ -169,6 +170,7 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
 
       <div className={shownTab === 'basic' ? 'space-y-5' : 'hidden'}>
       <BasicInfoEditor key={client.id} client={client} register={register} onSaved={onChanged} />
+      <XAccountPanel key={`x-${client.id}`} clientId={client.id} register={register} />
 
       <div className={PANEL_SPLIT}>
         <div className="px-5 py-4">

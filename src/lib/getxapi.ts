@@ -19,6 +19,9 @@ export interface UserInfo {
   description: string | null;
   // 블루마크(X Premium 인증 체크) — 응답에 칸이 없으면 null(모름). 선택 필드: 테스트 스텁·워치리스트는 쓰지 않는다.
   isBlueVerified?: boolean | null;
+  // 계정 개설일·고정 글 id — X 업로드 현황이 쓴다(개설 전 주는 '—', 고정 글은 시간순 목록에서 빠지므로 지워진 것으로 보지 않는다)
+  createdAt?: string | null;
+  pinnedTweetIds?: string[];
 }
 
 export interface UsersPage {
@@ -41,6 +44,8 @@ export interface GetxapiClientOptions {
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   onUsage?: (ev: { operation: string; ok: boolean; status: number }) => void;
+  // 사용량 화면에서 기능별로 나눠 보이게 — 'channels'면 getxapi.userTweets가 getxapi.channels.userTweets로 기록된다(usageFeatures 라벨)
+  usagePrefix?: string;
 }
 
 export class GetxapiClient {
@@ -78,6 +83,8 @@ export class GetxapiClient {
       profilePicture: typeof d.profilePicture === 'string' ? d.profilePicture : null,
       description: typeof d.description === 'string' ? d.description : null,
       isBlueVerified: typeof d.isBlueVerified === 'boolean' ? d.isBlueVerified : null,
+      createdAt: typeof d.createdAt === 'string' && d.createdAt ? d.createdAt : null,
+      pinnedTweetIds: Array.isArray(d.pinnedTweetIds) ? d.pinnedTweetIds.map(String) : [],
     };
   }
 
@@ -169,19 +176,21 @@ export class GetxapiClient {
         const txt = await res.text().catch(() => '');
         throw new Error(`${res.status} from ${path}: ${txt}`);
       }
-      this.opts.onUsage?.({ operation: GetxapiClient.opFromPath(path), ok: true, status: res.status });
+      const op = GetxapiClient.opFromPath(path);
+      this.opts.onUsage?.({ operation: this.opts.usagePrefix ? op.replace('getxapi.', `getxapi.${this.opts.usagePrefix}.`) : op, ok: true, status: res.status });
       return (await res.json()) as T;
     }
   }
 }
 
 // maxRetries: best-effort 조회(인플 본인 댓글 찾기 등)는 429·5xx 재시도로 오래 붙잡히지 않게 작게 준다.
-export function makeClient(opts: { maxRetries?: number } = {}): GetxapiClient {
+export function makeClient(opts: { maxRetries?: number; usagePrefix?: string } = {}): GetxapiClient {
   const apiKey = process.env.GETXAPI_KEY;
   if (!apiKey) throw new Error('GETXAPI_KEY not set');
   return new GetxapiClient({
     apiKey,
     ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
+    ...(opts.usagePrefix ? { usagePrefix: opts.usagePrefix } : {}),
     onUsage: (ev) => recordUsageSafe({ api: 'getxapi', operation: ev.operation, ok: ev.ok, httpStatus: ev.status, units: 1 }),
   });
 }

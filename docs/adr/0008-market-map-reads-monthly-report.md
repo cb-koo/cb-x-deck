@@ -36,3 +36,4 @@ date: 2026-10-17
   - 이 사실을 monthly-report 쪽에 알린다.
 - 지도 쪽 연결(어느 병원이 어느 고객인지)은 cb-x-deck의 `market_clinic_link`에 있다.
   - 처음에는 `scripts/market-map-link-seed.ts`가 이름 규칙으로 채운다.
+- X 업로드 현황(스펙 `2026-10-20-owned-channels-x-uploads-design.md`)도 같은 방식으로 `report.onboarding(clinic_id, channel_accounts)`와 `report.clinic(id, client_id)`를 읽는다. 클라이언트 설정의 X 계정 칸이 비었을 때 [채우기] 제안에만 쓴다(`readOnboardingXHandle`).

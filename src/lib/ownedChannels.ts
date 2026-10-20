@@ -4,7 +4,7 @@
 // 판정 기준은 "그 주(월~일, 한국)에 새 글이나 인용을 약속한 횟수만큼 올렸는가"다(koo 10-20).
 // - 지운 글도 그 주에 올린 글로 센다 — 올린 시점에 약속은 지켜졌다. 지워짐은 표시만 한다.
 // - 지난 주는 그 주의 약속(owned_channel_week)으로 판정한다 — 나중에 약속을 바꿔도 지난 판정이 흔들리지 않게.
-import { str, toIso } from './mappers.ts';
+import { num, str, toIso } from './mappers.ts';
 
 export type PostKind = 'original' | 'quote' | 'retweet' | 'reply';
 
@@ -25,7 +25,7 @@ export function classifyPost(raw: Record<string, unknown>): PostKind {
 /** 약속 횟수에 드는 글 — 새 글과 인용. RT·답글은 목록에만 보인다. */
 export const countsTowardPromise = (k: PostKind): boolean => k === 'original' || k === 'quote';
 
-export interface ParsedPost { postId: string; kind: PostKind; text: string; postedAt: string; pinned: boolean }
+export interface ParsedPost { postId: string; kind: PostKind; text: string; postedAt: string; pinned: boolean; views: number | null; likes: number | null }
 
 // X 응답 본문은 &amp; 같은 HTML 표기로 온다(실호출 확인 10-20) — 패널에 그대로 보이지 않게 흔한 다섯 개만 푼다
 const ENTITIES: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
@@ -35,7 +35,8 @@ export function parsePost(raw: Record<string, unknown>): ParsedPost | null {
   const postId = str(raw.id);
   const postedAt = toIso(raw.createdAt);
   if (!postId || !postedAt) return null;
-  return { postId, kind: classifyPost(raw), text: decodeEntities(str(raw.text) ?? '').replace(/\u0000/g, ''), postedAt, pinned: raw.isPinned === true };
+  return { postId, kind: classifyPost(raw), text: decodeEntities(str(raw.text) ?? '').replace(/\u0000/g, ''), postedAt, pinned: raw.isPinned === true,
+    views: num(raw.viewCount), likes: num(raw.likeCount) };
 }
 
 // ─────────────────────────── 주와 날짜(한국) ───────────────────────────
@@ -87,7 +88,10 @@ export const weekShort = (weekStart: string) => md(weekStart);
 
 // ─────────────────────────── 입력 ───────────────────────────
 
-export interface ChannelPost { postId: string; kind: PostKind; text: string; postedAt: string; deletedAt: string | null }
+export interface ChannelPost {
+  postId: string; kind: PostKind; text: string; postedAt: string; deletedAt: string | null;
+  views?: number | null; likes?: number | null;    // 마지막으로 받은 값(지난주 글까지는 매일 갱신)
+}
 export interface ChannelSnapshot { capturedOn: string; followers: number }
 
 /** 수집 실패 종류 — 'notFound'(계정 없음)·'accountChanged'(핸들 주인이 바뀜)는 0으로 세지 않고 경고한다. 'fetchFailed'는 일시 오류. */
@@ -100,6 +104,7 @@ export interface ChannelInput {
   handle: string;
   currentTarget: number;               // 지금 약속(점검 대상만 들어온다)
   registeredAt: string;                // 채널 등록 시각 — 기록은 그 8주 전 월요일부터
+  promiseStartedOn?: string | null;    // 약속 시작일(YYYY-MM-DD, 한국) — 그 날이 든 주부터 판정, 그 전 주는 글 수만 보인다
   accountCreatedAt: string | null;
   weekTargets: Array<{ weekStart: string; target: number | null }>;   // null = 그 주는 약속 없음(점검을 쉬었다)
   posts: ChannelPost[];
@@ -110,8 +115,12 @@ export interface ChannelInput {
 
 // ─────────────────────────── 주별 판정 ───────────────────────────
 
+/** 칸 상태 — judged: 판정함 / beforeRecord: 기록 시작 전(글 수도 모름) / beforeStart: 약속 시작 전 / noPromise: 그 주 약속 없음 */
+export type CellState = 'judged' | 'beforeRecord' | 'beforeStart' | 'noPromise';
+
 export interface WeekCell {
   weekStart: string;
+  state: CellState;
   count: number | null;                // null = 기록 시작 전('—')
   target: number | null;               // null = 그 주는 약속 없음 — 판정하지 않는다('—')
   met: boolean | null;
@@ -142,9 +151,16 @@ export function targetForWeek(c: Pick<ChannelInput, 'weekTargets' | 'currentTarg
   return after ? after.target : c.currentTarget;
 }
 
+/** 약속 시작일이 든 주의 월요일. 없으면 null(등록 8주 전부터 판정). */
+export function promiseStartWeek(c: Pick<ChannelInput, 'promiseStartedOn'>): string | null {
+  return c.promiseStartedOn ? weekStartOf(kstMidnight(c.promiseStartedOn)) : null;
+}
+
 export function weekCell(c: ChannelInput, weekStart: string, isCurrent: boolean): WeekCell {
-  const target = isCurrent ? c.currentTarget : targetForWeek(c, weekStart);
-  if (weekStart < firstRecordedWeek(c)) return { weekStart, count: null, target, met: null, deleted: 0 };
+  const startWeek = promiseStartWeek(c);
+  const beforeStart = startWeek !== null && weekStart < startWeek;
+  const target = beforeStart ? null : isCurrent ? c.currentTarget : targetForWeek(c, weekStart);
+  if (weekStart < firstRecordedWeek(c)) return { weekStart, state: 'beforeRecord', count: null, target, met: null, deleted: 0 };
   const end = addWeeks(weekStart, 1);
   let count = 0, deleted = 0;
   for (const p of c.posts) {
@@ -154,7 +170,8 @@ export function weekCell(c: ChannelInput, weekStart: string, isCurrent: boolean)
     count++;
     if (p.deletedAt) deleted++;
   }
-  return { weekStart, count, target, met: target === null ? null : count >= target, deleted };
+  const state: CellState = beforeStart ? 'beforeStart' : target === null ? 'noPromise' : 'judged';
+  return { weekStart, state, count, target, met: target === null ? null : count >= target, deleted };
 }
 
 /** 지난주까지 연속으로 못 채운 주 수. 기록 시작 전·약속 없는 주에서 멈춘다. */
@@ -203,6 +220,7 @@ export interface ChannelsView {
 function situationFor(c: ChannelInput, cur: WeekCell, streak: number): { tone: Tone; text: string } {
   if (c.lastError === 'notFound' || c.lastError === 'accountChanged')
     return { tone: 'warn', text: '계정을 확인하지 못했어요(이름이 바뀌었을 수 있어요)' };
+  if (cur.state === 'beforeStart' && c.promiseStartedOn) return { tone: 'plain', text: `${md(c.promiseStartedOn)}부터 약속이 시작돼요` };
   if (cur.met) return { tone: 'ok', text: '✓ 채웠어요' };
   if (streak >= 2) return { tone: 'warn', text: `${streak}주째 못 채우는 중 — 이번 주 꼭 챙겨요` };
   if (streak === 1) return { tone: 'warn', text: '지난주 못 채움 — 2주 연속이 될 수 있어요' };
@@ -295,8 +313,17 @@ export function buildChannelsView(inputs: ChannelInput[], now: number): Channels
 
 // ─────────────────────────── 한 계정 자세히(오른쪽 패널) ───────────────────────────
 
-export interface DetailPost { postId: string; kind: PostKind; text: string; postedAt: string; day: string; deletedNote: string | null; counted: boolean }
-export interface DetailWeek { weekStart: string; title: string; isCurrent: boolean; count: number | null; target: number | null; met: boolean | null; posts: DetailPost[] }
+export interface DetailPost {
+  postId: string; kind: PostKind; text: string; postedAt: string;
+  day: string;                         // '10/18(토) 14:05'
+  deletedNote: string | null; counted: boolean; views: number | null; likes: number | null;
+}
+export interface DetailWeek {
+  weekStart: string; title: string; isCurrent: boolean; state: CellState;
+  count: number | null; target: number | null; met: boolean | null;
+  verdict: string;                     // 주 머리 오른쪽 한 줄 — '2 / 1회 채움' · '0 / 1회 못 채움' · '1 / 1회 진행 중' · '약속 시작 전(글 2개)' 등
+  posts: DetailPost[];
+}
 export interface ChannelDetail {
   channelId: string; clientId: string; clientName: string; handle: string; target: number;
   followers: { weeks: string[]; values: Array<number | null>; summary: string };
@@ -304,6 +331,21 @@ export interface ChannelDetail {
 }
 
 const fmt = (n: number) => n.toLocaleString('ko-KR');
+
+/** '10/18(토) 14:05' — 표의 게시 칸 */
+function dayTime(instant: string): string {
+  const k = new Date(new Date(instant).getTime() + KST_MS).toISOString();
+  return `${mdDow(k.slice(0, 10))} ${k.slice(11, 16)}`;
+}
+
+export function weekVerdict(cell: WeekCell, isCurrent: boolean): string {
+  if (cell.state === 'beforeRecord') return '기록 시작 전';
+  if (cell.state === 'beforeStart') return `약속 시작 전(글 ${cell.count}개)`;
+  if (cell.state === 'noPromise') return `약속 없던 주(글 ${cell.count}개)`;
+  const base = `${cell.count} / ${cell.target}회`;
+  if (isCurrent) return cell.met ? `${base} 채움` : `${base} 진행 중`;
+  return cell.met ? `${base} 채움` : `${base} 못 채움`;
+}
 
 export function followerSummary(values: Array<number | null>): string {
   const pts = values.map((v, i) => ({ v, i })).filter((p): p is { v: number; i: number } => p.v !== null);
@@ -327,11 +369,12 @@ export function buildChannelDetail(c: ChannelInput, now: number): ChannelDetail 
     const posts = c.posts
       .filter((p) => { const s = weekStartOf(p.postedAt); return s >= w && s < end; })
       .sort((a, b) => b.postedAt.localeCompare(a.postedAt))
-      .map((p) => ({ postId: p.postId, kind: p.kind, text: p.text, postedAt: p.postedAt, day: md(kstYmd(p.postedAt)),
+      .map((p) => ({ postId: p.postId, kind: p.kind, text: p.text, postedAt: p.postedAt, day: dayTime(p.postedAt),
         deletedNote: p.deletedAt ? `${md(kstYmd(p.deletedAt))}에 지워진 것을 확인했어요` : null,
-        counted: countsTowardPromise(p.kind) }));
-    return { weekStart: w, title: weekTitle(w), isCurrent: w === cur, count: cell.count, target: cell.target,
-      met: w === cur ? null : cell.met, posts };
+        counted: countsTowardPromise(p.kind), views: p.views ?? null, likes: p.likes ?? null }));
+    const isCurrent = w === cur;
+    return { weekStart: w, title: weekTitle(w), isCurrent, state: cell.state, count: cell.count, target: cell.target,
+      met: isCurrent ? null : cell.met, verdict: weekVerdict(cell, isCurrent), posts };
   });
 
   // 팔로워 — 지난 8주 + 이번 주, 주마다 그 주 마지막 기록값

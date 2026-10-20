@@ -5,20 +5,20 @@ import { weekStartOf, addWeeks, HISTORY_WEEKS, type ChannelInput, type CollectEr
 
 export interface OwnedChannel {
   id: string; clientId: string; handle: string; accountId: string; accountCreatedAt: string | null;
-  weeklyTarget: number | null; lastCollectedAt: string | null; lastError: CollectError | null; createdAt: string;
+  weeklyTarget: number | null; promiseStartedOn: string | null; lastCollectedAt: string | null; lastError: CollectError | null; createdAt: string;
 }
 
 type Row = {
   id: string; client_id: string; handle: string; account_id: string; account_created_at: Date | null;
-  weekly_target: number | null; last_collected_at: Date | null; last_error: string | null; created_at: Date;
+  weekly_target: number | null; promise_started_on: string | null; last_collected_at: Date | null; last_error: string | null; created_at: Date;
 };
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 const toChannel = (r: Row): OwnedChannel => ({
   id: r.id, clientId: r.client_id, handle: r.handle, accountId: r.account_id, accountCreatedAt: iso(r.account_created_at),
-  weeklyTarget: r.weekly_target, lastCollectedAt: iso(r.last_collected_at), lastError: (r.last_error as CollectError | null),
+  weeklyTarget: r.weekly_target, promiseStartedOn: r.promise_started_on, lastCollectedAt: iso(r.last_collected_at), lastError: (r.last_error as CollectError | null),
   createdAt: new Date(r.created_at).toISOString(),
 });
-const COLS = (sql: postgres.Sql | postgres.TransactionSql) => sql`id, client_id, handle, account_id, account_created_at, weekly_target, last_collected_at, last_error, created_at`;
+const COLS = (sql: postgres.Sql | postgres.TransactionSql) => sql`id, client_id, handle, account_id, account_created_at, weekly_target, promise_started_on::text as promise_started_on, last_collected_at, last_error, created_at`;
 
 export async function getChannel(sql: postgres.Sql, clientId: string): Promise<OwnedChannel | null> {
   const rows = await sql<Row[]>`select ${COLS(sql)} from owned_channel where client_id = ${clientId} and channel = 'x'`;
@@ -36,7 +36,8 @@ export async function getChannelById(sql: postgres.Sql, id: string): Promise<Own
  */
 export async function saveChannel(
   sql: postgres.Sql, clientId: string,
-  input: { handle: string; accountId: string; accountCreatedAt: string | null; weeklyTarget: number | null },
+  // promiseStartedOn: undefined = 그대로(새 계정이면 오늘), null = 지움(등록 8주 전부터 판정)
+  input: { handle: string; accountId: string; accountCreatedAt: string | null; weeklyTarget: number | null; promiseStartedOn?: string | null },
   now: number = Date.now(),
 ): Promise<{ channel: OwnedChannel; replaced: boolean; isNew: boolean }> {
   return sql.begin(async (tx) => {
@@ -48,15 +49,24 @@ export async function saveChannel(
       replaced = true;
       isNew = true;
     }
+    // 새 계정의 약속 시작일 기본값은 오늘(한국) — 등록 전 8주는 글 수만 보이고 판정하지 않는다. 이미 하던 곳은 날짜를 당긴다.
+    const today = new Date(now + 9 * 3_600_000).toISOString().slice(0, 10);
     const rows = isNew
       ? await tx<Row[]>`
-          insert into owned_channel (client_id, channel, handle, account_id, account_created_at, weekly_target)
-          values (${clientId}, 'x', ${input.handle}, ${input.accountId}, ${input.accountCreatedAt}, ${input.weeklyTarget})
+          insert into owned_channel (client_id, channel, handle, account_id, account_created_at, weekly_target, promise_started_on)
+          values (${clientId}, 'x', ${input.handle}, ${input.accountId}, ${input.accountCreatedAt}, ${input.weeklyTarget},
+                  ${input.promiseStartedOn === undefined ? today : input.promiseStartedOn})
           returning ${COLS(tx)}`
-      : await tx<Row[]>`
-          update owned_channel set handle = ${input.handle}, weekly_target = ${input.weeklyTarget},
-                 account_created_at = coalesce(${input.accountCreatedAt}, account_created_at), updated_at = now()
-          where id = ${cur[0].id} returning ${COLS(tx)}`;
+      : input.promiseStartedOn === undefined
+        ? await tx<Row[]>`
+            update owned_channel set handle = ${input.handle}, weekly_target = ${input.weeklyTarget},
+                   account_created_at = coalesce(${input.accountCreatedAt}, account_created_at), updated_at = now()
+            where id = ${cur[0].id} returning ${COLS(tx)}`
+        : await tx<Row[]>`
+            update owned_channel set handle = ${input.handle}, weekly_target = ${input.weeklyTarget},
+                   promise_started_on = ${input.promiseStartedOn},
+                   account_created_at = coalesce(${input.accountCreatedAt}, account_created_at), updated_at = now()
+            where id = ${cur[0].id} returning ${COLS(tx)}`;
     const ch = toChannel(rows[0]);
     const week = weekStartOf(now);
     // 약속 없음도 줄로 남긴다 — 그 뒤 빈 주들이 '약속 없음'을 이어받아, 쉬는 동안이 못 채움으로 보이지 않는다(리뷰 10-20)
@@ -94,8 +104,12 @@ export async function recordCollected(
 ): Promise<void> {
   await sql.begin(async (tx) => {
     if (r.posts.length > 0) {
-      const values = r.posts.map((p) => ({ channel_id: ch.id, post_id: p.postId, kind: p.kind, text: p.text, posted_at: p.postedAt }));
-      await tx`insert into owned_post ${tx(values, 'channel_id', 'post_id', 'kind', 'text', 'posted_at')} on conflict (channel_id, post_id) do nothing`;
+      const values = r.posts.map((p) => ({ channel_id: ch.id, post_id: p.postId, kind: p.kind, text: p.text, posted_at: p.postedAt,
+        views: p.views, likes: p.likes }));
+      // 글은 쌓기만 — 이미 있으면 조회·좋아요만 새 값으로(받지 못한 값은 옛 값 유지)
+      await tx`insert into owned_post ${tx(values, 'channel_id', 'post_id', 'kind', 'text', 'posted_at', 'views', 'likes')}
+        on conflict (channel_id, post_id) do update set
+          views = coalesce(excluded.views, owned_post.views), likes = coalesce(excluded.likes, owned_post.likes)`;
     }
     if (r.deleted.length > 0)
       await tx`update owned_post set deleted_at = now() where channel_id = ${ch.id} and post_id in ${tx(r.deleted)} and deleted_at is null`;
@@ -131,8 +145,8 @@ async function inputsFor(sql: postgres.Sql, channels: InputRow[], now: number): 
   const from = new Date(Date.parse(addWeeks(weekStartOf(now), -(HISTORY_WEEKS + 1)) + 'T00:00:00Z') - 9 * 3_600_000);
   const fromDay = addWeeks(weekStartOf(now), -(HISTORY_WEEKS + 1));
   const [posts, weeks, snaps] = await Promise.all([
-    sql<Array<{ channel_id: string; post_id: string; kind: PostKind; text: string; posted_at: Date; deleted_at: Date | null }>>`
-      select channel_id, post_id, kind, text, posted_at, deleted_at from owned_post
+    sql<Array<{ channel_id: string; post_id: string; kind: PostKind; text: string; posted_at: Date; deleted_at: Date | null; views: number | null; likes: number | null }>>`
+      select channel_id, post_id, kind, text, posted_at, deleted_at, views, likes from owned_post
       where channel_id in ${sql(ids)} and posted_at >= ${from}`,
     sql<Array<{ channel_id: string; week_start: string; target: number | null }>>`
       select channel_id, week_start::text as week_start, target from owned_channel_week where channel_id in ${sql(ids)}`,
@@ -144,10 +158,11 @@ async function inputsFor(sql: postgres.Sql, channels: InputRow[], now: number): 
     channelId: c.id, clientId: c.client_id, clientName: c.client_name, handle: c.handle,
     currentTarget: c.weekly_target ?? 0,
     registeredAt: new Date(c.created_at).toISOString(),
+    promiseStartedOn: c.promise_started_on,
     accountCreatedAt: iso(c.account_created_at),
     weekTargets: weeks.filter((w) => w.channel_id === c.id).map((w) => ({ weekStart: String(w.week_start), target: w.target })),
     posts: posts.filter((p) => p.channel_id === c.id).map((p) => ({ postId: p.post_id, kind: p.kind, text: p.text,
-      postedAt: new Date(p.posted_at).toISOString(), deletedAt: iso(p.deleted_at) })),
+      postedAt: new Date(p.posted_at).toISOString(), deletedAt: iso(p.deleted_at), views: p.views, likes: p.likes })),
     snapshots: snaps.filter((s) => s.channel_id === c.id).map((s) => ({ capturedOn: s.captured_on, followers: s.followers })),
     lastCollectedAt: iso(c.last_collected_at),
     lastError: c.last_error as CollectError | null,
@@ -157,8 +172,8 @@ async function inputsFor(sql: postgres.Sql, channels: InputRow[], now: number): 
 /** 점검 대상(약속이 있는 계정) 전부의 판정 입력. */
 export async function listChannelInputs(sql: postgres.Sql, now: number = Date.now()): Promise<ChannelInput[]> {
   const rows = await sql<InputRow[]>`
-    select o.id, o.client_id, o.handle, o.account_id, o.account_created_at, o.weekly_target, o.last_collected_at,
-           o.last_error, o.created_at, c.name as client_name
+    select o.id, o.client_id, o.handle, o.account_id, o.account_created_at, o.weekly_target,
+           o.promise_started_on::text as promise_started_on, o.last_collected_at, o.last_error, o.created_at, c.name as client_name
     from owned_channel o join client c on c.id = o.client_id
     where o.weekly_target is not null`;
   return inputsFor(sql, rows, now);
@@ -166,8 +181,8 @@ export async function listChannelInputs(sql: postgres.Sql, now: number = Date.no
 
 export async function getChannelInput(sql: postgres.Sql, channelId: string, now: number = Date.now()): Promise<ChannelInput | null> {
   const rows = await sql<InputRow[]>`
-    select o.id, o.client_id, o.handle, o.account_id, o.account_created_at, o.weekly_target, o.last_collected_at,
-           o.last_error, o.created_at, c.name as client_name
+    select o.id, o.client_id, o.handle, o.account_id, o.account_created_at, o.weekly_target,
+           o.promise_started_on::text as promise_started_on, o.last_collected_at, o.last_error, o.created_at, c.name as client_name
     from owned_channel o join client c on c.id = o.client_id where o.id = ${channelId}`;
   const [one] = await inputsFor(sql, rows, now);
   return one ?? null;

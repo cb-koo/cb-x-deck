@@ -24,7 +24,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   // 온보딩 제안은 칸이 비었을 때만 쓴다 — 읽기 실패(다른 앱 스키마 변경 등)가 이 칸 전체를 막지 않게 삼킨다
   const suggestion = ch ? null : await readOnboardingXHandle(sql, id).catch(() => null);
   return NextResponse.json({
-    channel: ch ? { handle: ch.handle, weeklyTarget: ch.weeklyTarget, followers: await latestFollowers(ch.id), lastError: ch.lastError } : null,
+    channel: ch ? { handle: ch.handle, weeklyTarget: ch.weeklyTarget, promiseStartedOn: ch.promiseStartedOn, followers: await latestFollowers(ch.id), lastError: ch.lastError } : null,
     suggestion,
   });
 }
@@ -38,12 +38,15 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
-  const body = (await req.json().catch(() => ({}))) as { handle?: string; weeklyTarget?: number | null; dryRun?: boolean };
+  const body = (await req.json().catch(() => ({}))) as { handle?: string; weeklyTarget?: number | null; promiseStartedOn?: string | null; dryRun?: boolean };
   const parsed = parseXHandle(body.handle ?? '');
   if (!parsed.ok) return NextResponse.json({ error: handleParseMessage(parsed.reason) }, { status: 400 });
   const target = body.weeklyTarget ?? null;
   if (target !== null && !(Number.isInteger(target) && target >= 1 && target <= 14))
     return NextResponse.json({ error: '업로드 약속은 주 1~14회로 정해 주세요' }, { status: 400 });
+  const start = body.promiseStartedOn;
+  if (start !== undefined && start !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(start) || Number.isNaN(Date.parse(start))))
+    return NextResponse.json({ error: '약속 시작일을 날짜로 넣어 주세요' }, { status: 400 });
 
   const sql = getSql();
   const cur = await getChannel(sql, id);
@@ -68,7 +71,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
     }
     if (body.dryRun) return NextResponse.json({ wouldReplace: !!cur && cur.accountId !== account.accountId, name: account.name });
 
-    const saved = await saveChannel(sql, id, { handle: account.handle, accountId: account.accountId, accountCreatedAt: account.accountCreatedAt, weeklyTarget: target });
+    const saved = await saveChannel(sql, id, { handle: account.handle, accountId: account.accountId, accountCreatedAt: account.accountCreatedAt, weeklyTarget: target, promiseStartedOn: start });
     // 여기부터는 저장이 끝난 뒤다 — 수집이 실패해도 200으로 답하고 '받아 왔는지'만 따로 알린다(저장 실패로 오해하지 않게, 리뷰 10-20).
     // 새 계정이면 지난 8주를 바로 받는다 — 페이지에 들어가면 첫날부터 흐름이 보이게. 실패하면 내일 아침 수집이 받는다.
     let collected: boolean | null = null;   // null = 받을 필요 없음(같은 계정)
@@ -82,7 +85,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
     }
     const fresh = await getChannel(sql, id);
     return NextResponse.json({
-      channel: { handle: saved.channel.handle, weeklyTarget: saved.channel.weeklyTarget, followers: account.followers, lastError: fresh?.lastError ?? null },
+      channel: { handle: saved.channel.handle, weeklyTarget: saved.channel.weeklyTarget, promiseStartedOn: saved.channel.promiseStartedOn, followers: account.followers, lastError: fresh?.lastError ?? null },
       name: account.name, replaced: saved.replaced, isNew: saved.isNew, collected,
     });
   } catch (e) {

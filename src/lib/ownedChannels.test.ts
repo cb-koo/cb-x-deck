@@ -26,7 +26,7 @@ test('글 종류 — RT가 먼저, 스레드 이어 쓰기는 답글, 인용, �
   assert.equal(classifyPost({ quoted_tweet: {} }), 'quote');
   assert.equal(classifyPost({ inReplyToId: null }), 'original');
   const p = parsePost({ id: '9', createdAt: 'Mon Oct 19 12:01:23 +0000 2026', text: 'hi', isPinned: true });
-  assert.deepEqual(p, { postId: '9', kind: 'original', text: 'hi', postedAt: '2026-10-19T12:01:23.000Z', pinned: true });
+  assert.deepEqual(p, { postId: '9', kind: 'original', text: 'hi', postedAt: '2026-10-19T12:01:23.000Z', pinned: true, views: null, likes: null });
   assert.equal(parsePost({ id: '9' }), null);
   assert.equal(parsePost({ id: '8', createdAt: '2026-10-19T00:00:00Z', text: 'Q&amp;A &lt;3 &quot;hi&quot;' })?.text, 'Q&A <3 "hi"');
 });
@@ -81,7 +81,7 @@ test('센 글 — 새 글·인용만, 지운 글도 센다(지워짐 수는 따�
 });
 
 test('연속 못 채움 — 지난주부터 거꾸로, 기록 시작 전에서 멈춤', () => {
-  const cells = (ms: Array<boolean | null>) => ms.map((met, i) => ({ weekStart: String(i), count: 0, target: 1, met, deleted: 0 }));
+  const cells = (ms: Array<boolean | null>) => ms.map((met, i) => ({ weekStart: String(i), state: 'judged' as const, count: 0, target: 1, met, deleted: 0 }));
   assert.equal(missedStreak(cells([true, false, false, false])), 3);
   assert.equal(missedStreak(cells([false, true, false])), 1);
   assert.equal(missedStreak(cells([null, null, false, false])), 2);
@@ -199,4 +199,36 @@ test('약속을 쉰 주는 판정하지 않는다 — 약속 없음 줄 뒤의 �
 test('수집이 끊긴 주는 그 앞 약속이 이어진다(약속을 바꾼 게 아니므로)', () => {
   const c = channel({ currentTarget: 2, weekTargets: [{ weekStart: '2026-09-28', target: 2 }] });
   assert.equal(targetForWeek(c, '2026-10-12'), 2);
+});
+
+test('약속 시작일 — 그 전 주는 판정하지 않고 글 수만, 시작 주부터 판정(더스퀘어 10월부터, koo 10-20)', () => {
+  const c = channel({ promiseStartedOn: '2026-10-01', posts: [post('2026-09-15 10:00'), post('2026-09-16 10:00'), post('2026-10-06 10:00')] });
+  const sep = weekCell(c, '2026-09-14', false);
+  assert.deepEqual([sep.state, sep.count, sep.met, sep.target], ['beforeStart', 2, null, null]);
+  const startWeek = weekCell(c, '2026-09-28', false);   // 10/1이 든 주(9/28~10/4)
+  assert.deepEqual([startWeek.state, startWeek.met], ['judged', false]);
+  const v = buildChannelsView([c], NOW);
+  // 지난주(10/12) 못 채움, 10/5주 채움, 9/28주 못 채움 → 연속 1, 요약은 시작 후 3주만 센다
+  assert.equal(v.history.rows[0].summary, '3주 중 1주 채움');
+  assert.equal(v.thisWeek.pending[0].situation, '지난주 못 채움 — 2주 연속이 될 수 있어요');
+  // 시작일이 미래면 이번 주도 판정 전
+  const future = buildChannelsView([channel({ promiseStartedOn: '2026-10-27' })], NOW);
+  assert.equal(future.thisWeek.pending[0].situation, '10/27부터 약속이 시작돼요');
+});
+
+test('주 머리 문구 · 표의 게시 시각 · 조회/좋아요', () => {
+  const c = channel({ promiseStartedOn: '2026-10-05', posts: [
+    post('2026-09-30 10:00'), post('2026-10-13 14:05', 'original', { views: 1234, likes: 5 }), post('2026-10-20 09:00'),
+  ] });
+  const d = buildChannelDetail(c, NOW);
+  assert.equal(d.weeks[0].verdict, '1 / 1회 채움');            // 이번 주
+  assert.equal(d.weeks[1].verdict, '1 / 1회 채움');
+  assert.equal(d.weeks[2].verdict, '0 / 1회 못 채움');
+  assert.equal(d.weeks[3].verdict, '약속 시작 전(글 1개)');
+  assert.equal(d.weeks[1].posts[0].day, '10/13(화) 14:05');
+  assert.deepEqual([d.weeks[1].posts[0].views, d.weeks[1].posts[0].likes], [1234, 5]);
+  const p = parsePost({ id: '1', createdAt: '2026-10-19T00:00:00Z', viewCount: 10, likeCount: 2 });
+  assert.deepEqual([p?.views, p?.likes], [10, 2]);
+  const cur = buildChannelDetail(channel({ currentTarget: 2, posts: [post('2026-10-20 09:00')] }), NOW);
+  assert.equal(cur.weeks[0].verdict, '1 / 2회 진행 중');
 });

@@ -11,6 +11,7 @@ create table if not exists owned_channel (
   account_id         text not null,                -- X 숫자 id — 핸들을 다른 사람이 가져가도 같은 계정인지 가린다
   account_created_at timestamptz,                  -- 계정 개설일(그 전 주는 '—')
   weekly_target      int check (weekly_target between 1 and 14),  -- 지금 약속. null = 점검 안 함
+  promise_started_on date,                         -- 약속 시작일(한국) — 그 날이 든 주부터 판정, 그 전 주는 글 수만 보인다
   last_collected_at  timestamptz,                  -- 마지막 성공
   last_error         text,                         -- 마지막 실패 사유(성공하면 null)
   created_at         timestamptz not null default now(),
@@ -27,6 +28,8 @@ create table if not exists owned_post (
   text        text not null default '',
   posted_at   timestamptz not null,
   deleted_at  timestamptz,                         -- X에서 지워진 것을 확인한 때(표시용). 다시 보이면 null
+  views       int,                                 -- 마지막으로 받은 조회수·좋아요(지난주 글까지는 매일 갱신)
+  likes       int,
   created_at  timestamptz not null default now(),
   unique (channel_id, post_id)
 );

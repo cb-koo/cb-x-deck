@@ -170,13 +170,10 @@ test('자세히 — 이번 주부터 최근 순, 지운 글 표시, 팔로워 �
     snapshots: [{ capturedOn: '2026-08-25', followers: 5518 }, { capturedOn: '2026-10-14', followers: 5900 }, { capturedOn: '2026-10-21', followers: 5930 }],
   });
   const d = buildChannelDetail(c, NOW);
-  assert.equal(d.weeks[0].isCurrent, true);
-  assert.equal(d.weeks[0].met, null);
-  assert.equal(d.weeks[1].weekStart, '2026-10-12');
-  assert.equal(d.weeks[1].count, 1);
-  assert.equal(d.weeks[1].met, true);
-  assert.equal(d.weeks[1].posts[0].deletedNote, '10/20에 지워진 것을 확인했어요');
-  assert.equal(d.weeks[1].posts[1].counted, false);
+  assert.equal(d.posts[0].deletedNote, '10/20에 지워진 것을 확인했어요');
+  assert.equal(d.posts[1].counted, false);
+  // 지운 글도 그 주(10/12) 횟수에 든다
+  assert.equal(weekCell(c, '2026-10-12', false).met, true);
   assert.equal(d.followers.values.length, 9);
   assert.equal(d.followers.summary, '8주 동안 +412명(5,518 → 5,930), 주 평균 +52명이에요');
   assert.equal(followerSummary([100, null]), '팔로워 추이는 2주 뒤부터 보여요');
@@ -218,18 +215,10 @@ test('약속 시작일 — 그 전 주는 판정하지 않고 글 수만, 시작
   assert.equal(future.thisWeek.pending[0].situation, '10/27 시작');
 });
 
-test('주 머리 문구 · 표의 게시 시각', () => {
-  const c = channel({ promiseStartedOn: '2026-10-05', posts: [
-    post('2026-09-30 10:00'), post('2026-10-13 14:05'), post('2026-10-20 09:00'),
-  ] });
-  const d = buildChannelDetail(c, NOW);
-  assert.equal(d.weeks[0].verdict, '1 / 1회 달성');            // 이번 주
-  assert.equal(d.weeks[1].verdict, '1 / 1회 달성');
-  assert.equal(d.weeks[2].verdict, '0 / 1회 미달');
-  assert.equal(d.weeks[3].verdict, '약속 전(글 1개)');
-  assert.equal(d.weeks[1].posts[0].day, '10/13(화) 14:05');
-  const cur = buildChannelDetail(channel({ currentTarget: 2, posts: [post('2026-10-20 09:00')] }), NOW);
-  assert.equal(cur.weeks[0].verdict, '1 / 2회 진행');
+test('표의 게시 시각 · 9주 밖 글은 빠짐', () => {
+  const d = buildChannelDetail(channel({ posts: [post('2026-10-13 14:05'), post('2026-08-01 10:00')] }), NOW);
+  assert.equal(d.posts.length, 1);
+  assert.equal(d.posts[0].day, '10/13(화) 14:05');
 });
 
 test('캠페인 주차 — 월~일 주를 달 경계에서 잘라 그 달 1일이 든 주부터 1주차(캠페인 운영 규칙)', () => {

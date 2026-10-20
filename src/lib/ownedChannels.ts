@@ -82,6 +82,16 @@ export function weekTitle(weekStart: string): string {
   return `${mdDow(weekStart)} ~ ${endLabel}`;
 }
 
+/**
+ * 캠페인 주차 'N월 N주차' — 캠페인 운영 규칙(koo 10-10): 월~일 주를 달이 바뀌는 날에서 잘라, 그 날짜의 달에서 1일이 든 주부터 1주차.
+ * 예: 9/28~30 = 9월 5주차, 10/1~4 = 10월 1주차, 10/5~11 = 10월 2주차.
+ */
+export function campaignWeekLabel(ymd: string): string {
+  const y = Number(ymd.slice(0, 4)), m = Number(ymd.slice(5, 7)), d = Number(ymd.slice(8, 10));
+  const firstDow = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7;   // 1일의 요일(월=0)
+  return `${m}월 ${Math.floor((d - 1 + firstDow) / 7) + 1}주차`;
+}
+
 /** 주 칸 머리 '9/15'. */
 export const weekShort = (weekStart: string) => md(weekStart);
 
@@ -315,6 +325,7 @@ export interface DetailPost {
   postId: string; kind: PostKind; text: string; postedAt: string;
   day: string;                         // '10/18(토) 14:05'
   deletedNote: string | null; counted: boolean;
+  weekLabel: string;                   // 캠페인 주차 '10월 3주차' — 표의 주차 열
 }
 export interface DetailWeek {
   weekStart: string; title: string; isCurrent: boolean; state: CellState;
@@ -326,6 +337,7 @@ export interface ChannelDetail {
   channelId: string; clientId: string; clientName: string; handle: string; target: number;
   followers: { weeks: string[]; values: Array<number | null>; summary: string };
   weeks: DetailWeek[];                 // 이번 주부터 최근 순
+  posts: DetailPost[];                 // 같은 기간 글 전부, 최근 순 — 표는 주차로 묶지 않고 주차를 열로 보인다(koo 10-20)
 }
 
 const fmt = (n: number) => n.toLocaleString('ko-KR');
@@ -369,7 +381,7 @@ export function buildChannelDetail(c: ChannelInput, now: number): ChannelDetail 
       .sort((a, b) => b.postedAt.localeCompare(a.postedAt))
       .map((p) => ({ postId: p.postId, kind: p.kind, text: p.text, postedAt: p.postedAt, day: dayTime(p.postedAt),
         deletedNote: p.deletedAt ? `${md(kstYmd(p.deletedAt))}에 지워진 것을 확인했어요` : null,
-        counted: countsTowardPromise(p.kind) }));
+        counted: countsTowardPromise(p.kind), weekLabel: campaignWeekLabel(kstYmd(p.postedAt)) }));
     const isCurrent = w === cur;
     return { weekStart: w, title: weekTitle(w), isCurrent, state: cell.state, count: cell.count, target: cell.target,
       met: isCurrent ? null : cell.met, verdict: weekVerdict(cell, isCurrent), posts };
@@ -384,5 +396,5 @@ export function buildChannelDetail(c: ChannelInput, now: number): ChannelDetail 
     return best?.followers ?? null;
   });
   return { channelId: c.channelId, clientId: c.clientId, clientName: c.clientName, handle: c.handle, target: c.currentTarget,
-    followers: { weeks: fw, values, summary: followerSummary(values) }, weeks };
+    followers: { weeks: fw, values, summary: followerSummary(values) }, weeks, posts: weeks.flatMap((w) => w.posts) };
 }

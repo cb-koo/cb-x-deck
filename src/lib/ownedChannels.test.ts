@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyPost, parsePost, weekStartOf, kstYmd, kstMidnight, addWeeks, relativeDay, weekTitle,
-  firstRecordedWeek, targetForWeek, weekCell, missedStreak, buildChannelsView, buildChannelDetail, followerSummary,
+  firstRecordedWeek, targetForWeek, campaignWeekLabel, weekCell, missedStreak, buildChannelsView, buildChannelDetail, followerSummary,
   type ChannelInput, type ChannelPost,
 } from './ownedChannels.ts';
 
@@ -228,4 +228,24 @@ test('주 머리 문구 · 표의 게시 시각', () => {
   assert.equal(d.weeks[1].posts[0].day, '10/13(화) 14:05');
   const cur = buildChannelDetail(channel({ currentTarget: 2, posts: [post('2026-10-20 09:00')] }), NOW);
   assert.equal(cur.weeks[0].verdict, '1 / 2회 진행 중');
+});
+
+test('캠페인 주차 — 월~일 주를 달 경계에서 잘라 그 달 1일이 든 주부터 1주차(캠페인 운영 규칙)', () => {
+  assert.equal(campaignWeekLabel('2026-09-01'), '9월 1주차');   // 9/1(화)~6
+  assert.equal(campaignWeekLabel('2026-09-06'), '9월 1주차');
+  assert.equal(campaignWeekLabel('2026-09-07'), '9월 2주차');
+  assert.equal(campaignWeekLabel('2026-09-30'), '9월 5주차');   // 9/28~30
+  assert.equal(campaignWeekLabel('2026-10-01'), '10월 1주차');  // 10/1(목)~4
+  assert.equal(campaignWeekLabel('2026-10-05'), '10월 2주차');
+  assert.equal(campaignWeekLabel('2026-10-19'), '10월 4주차');
+  assert.equal(campaignWeekLabel('2026-06-01'), '6월 1주차');   // 1일이 월요일
+  assert.equal(campaignWeekLabel('2026-06-07'), '6월 1주차');
+  assert.equal(campaignWeekLabel('2026-06-08'), '6월 2주차');
+});
+
+test('자세히 — 글은 주차로 묶지 않은 한 목록(최근 순)에 주차 열', () => {
+  // 한국 시간 10/1 00:30 글은 10월 1주차(UTC로는 9/30)
+  const c = channel({ posts: [post('2026-09-30 23:00'), post('2026-10-01 00:30'), post('2026-10-20 09:00', 'retweet')] });
+  const d = buildChannelDetail(c, NOW);
+  assert.deepEqual(d.posts.map((p) => p.weekLabel), ['10월 4주차', '10월 1주차', '9월 5주차']);
 });

@@ -59,8 +59,8 @@ export async function saveChannel(
           where id = ${cur[0].id} returning ${COLS(tx)}`;
     const ch = toChannel(rows[0]);
     const week = weekStartOf(now);
-    if (input.weeklyTarget === null) await tx`delete from owned_channel_week where channel_id = ${ch.id} and week_start = ${week}`;
-    else await tx`
+    // 약속 없음도 줄로 남긴다 — 그 뒤 빈 주들이 '약속 없음'을 이어받아, 쉬는 동안이 못 채움으로 보이지 않는다(리뷰 10-20)
+    await tx`
       insert into owned_channel_week (channel_id, week_start, target) values (${ch.id}, ${week}, ${input.weeklyTarget})
       on conflict (channel_id, week_start) do update set target = excluded.target`;
     return { channel: ch, replaced, isNew };
@@ -134,7 +134,7 @@ async function inputsFor(sql: postgres.Sql, channels: InputRow[], now: number): 
     sql<Array<{ channel_id: string; post_id: string; kind: PostKind; text: string; posted_at: Date; deleted_at: Date | null }>>`
       select channel_id, post_id, kind, text, posted_at, deleted_at from owned_post
       where channel_id in ${sql(ids)} and posted_at >= ${from}`,
-    sql<Array<{ channel_id: string; week_start: Date | string; target: number }>>`
+    sql<Array<{ channel_id: string; week_start: string; target: number | null }>>`
       select channel_id, week_start::text as week_start, target from owned_channel_week where channel_id in ${sql(ids)}`,
     sql<Array<{ channel_id: string; captured_on: string; followers: number }>>`
       select channel_id, captured_on::text as captured_on, followers from owned_channel_snapshot

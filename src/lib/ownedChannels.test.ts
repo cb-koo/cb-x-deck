@@ -180,3 +180,23 @@ test('자세히 — 이번 주부터 최근 순, 지운 글 표시, 팔로워 �
   assert.equal(followerSummary([100, null]), '팔로워 추이는 2주 뒤부터 보여요');
   assert.equal(followerSummary([100, 90]), '1주 동안 −10명(100 → 90), 주 평균 −10명으로 줄고 있어요');
 });
+
+test('약속을 쉰 주는 판정하지 않는다 — 약속 없음 줄 뒤의 빈 주도 약속 없음(리뷰 10-20)', () => {
+  // 9/28주에 주 1회, 10/5주에 '약속 없음'으로 바꿈, 10/19주(이번 주)에 다시 주 1회
+  const c = channel({ currentTarget: 1, weekTargets: [
+    { weekStart: '2026-09-28', target: 1 }, { weekStart: '2026-10-05', target: null }, { weekStart: '2026-10-19', target: 1 },
+  ], posts: [post('2026-09-29 10:00')] });
+  assert.equal(targetForWeek(c, '2026-10-12'), null);
+  const cell = weekCell(c, '2026-10-12', false);
+  assert.equal(cell.met, null);
+  assert.equal(cell.count, 0);
+  const v = buildChannelsView([c], NOW);
+  // 지난주(10/12)는 약속 없음 → 연속 못 채움이 아니다
+  assert.equal(v.thisWeek.pending[0].situation, '아직');
+  assert.equal(v.history.rows[0].cells[7].met, null);
+});
+
+test('수집이 끊긴 주는 그 앞 약속이 이어진다(약속을 바꾼 게 아니므로)', () => {
+  const c = channel({ currentTarget: 2, weekTargets: [{ weekStart: '2026-09-28', target: 2 }] });
+  assert.equal(targetForWeek(c, '2026-10-12'), 2);
+});

@@ -174,3 +174,39 @@ test('전체 수집 — 방금 받은 계정은 건너뛰고(↻ 연타), 인증
   assert.ok(r.skipped >= 1);
   await assert.rejects(() => collectAll(sql, fakeReader({ info: new GetxapiAuthError('401') }).reader, { now: NOW }));
 });
+
+test('끊긴 기간 다시 채우기 — 마지막 성공이 3주 전이면 그 주 월요일부터 읽는다(리뷰 10-20)', async () => {
+  const c = await newClient('gap');
+  const { channel } = await saveChannel(sql, c.id, { handle: 'clinic', accountId: '111', accountCreatedAt: null, weeklyTarget: 1 }, NOW);
+  await sql`update owned_channel set last_collected_at = ${kst('2026-09-30 07:00')} where id = ${channel.id}`;   // 9/28주
+  const fresh = (await getChannel(sql, c.id))!;
+  const { reader } = fakeReader({ pages: [{ has_more: true, next_cursor: 'n', tweets: [
+    tw('a', '2026-10-13 10:00'), tw('b', '2026-10-06 10:00'), tw('c', '2026-09-29 10:00'), tw('d', '2026-09-27 10:00'),
+  ] }] });
+  const r = await collectChannel(sql, reader, fresh, { now: NOW });
+  assert.equal(r.complete, true);
+  const ids = (await sql`select post_id from owned_post where channel_id = ${channel.id} order by post_id`).map((x) => x.post_id);
+  assert.deepEqual(ids, ['a', 'b', 'c']);   // 9/28 월요일부터 — 9/27은 그 전 주
+});
+
+test('전체 수집 — 한 계정의 저장 오류(수집 중 계정 교체)가 다른 계정을 막지 않는다(리뷰 10-20)', async () => {
+  const c1 = await newClient('race1');
+  const c2 = await newClient('race2');
+  const a = await saveChannel(sql, c1.id, { handle: 'one', accountId: '111', accountCreatedAt: null, weeklyTarget: 1 }, NOW);
+  const b = await saveChannel(sql, c2.id, { handle: 'two', accountId: '111', accountCreatedAt: null, weeklyTarget: 1 }, NOW);
+  // 다른 테스트가 남긴 채널이 먼저 돌지 않게, 이 둘을 목록 맨 앞으로
+  await sql`update owned_channel set last_collected_at = null where id in (${a.channel.id}, ${b.channel.id})`;
+  let first = true;
+  const reader: XReader = {
+    async getUserInfo(h) { return { id: '111', userName: h, name: null, followers: 1, profilePicture: null, description: null }; },
+    async getUserTweets() {
+      // 첫 계정을 수집하는 도중에 그 계정이 지워진다 → 저장 단계에서 외래키 오류
+      if (first) { first = false; await sql`delete from owned_channel where id = ${a.channel.id}`; }
+      return { has_more: false, next_cursor: null, tweets: [tw('z', '2026-10-20 10:00')] };
+    },
+    async getTweetDetail(id) { return { id }; },
+  };
+  const r = await collectAll(sql, reader, { now: NOW });
+  assert.ok(r.failed >= 1);
+  assert.ok((await getChannel(sql, c2.id))?.lastCollectedAt, '두 번째 계정은 받혔다');
+});

@@ -48,8 +48,16 @@ export async function collectChannel(
   if (!looked.ok) return fail(looked.error);
   if (looked.info.id !== ch.accountId) return fail('accountChanged');
 
+  // 평소엔 지난주 월요일부터. 마지막 성공이 그보다 오래됐으면(잔액 소진·약속 쉼 등으로 끊긴 기간) 그 주 월요일부터 다시 채운다 —
+  // 안 읽은 주를 0회로 판정하지 않게(리뷰 10-20). 어느 쪽이든 8주 전 월요일보다 앞으로는 가지 않는다.
+  const cur = weekStartOf(now);
+  const floor = addWeeks(cur, -HISTORY_WEEKS);
   const firstCollect = opts.firstCollect ?? ch.lastCollectedAt === null;
-  const since = kstMidnight(addWeeks(weekStartOf(now), firstCollect ? -HISTORY_WEEKS : -1));
+  let fromWeek = addWeeks(cur, -1);
+  if (firstCollect) fromWeek = floor;
+  else if (ch.lastCollectedAt && weekStartOf(ch.lastCollectedAt) < fromWeek) fromWeek = weekStartOf(ch.lastCollectedAt);
+  if (fromWeek < floor) fromWeek = floor;
+  const since = kstMidnight(fromWeek);
   const sinceIso = since.toISOString();
 
   const posts: ParsedPost[] = [];
@@ -106,7 +114,8 @@ export interface CollectAllResult { channels: number; ok: number; failed: number
 
 /**
  * 약속이 있는 계정 전부. skipRecentMs 안에 이미 받은 계정은 건너뛴다(↻ 연타 방지).
- * 개별 실패는 그 계정에만 기록하고 다음 계정으로 간다. 인증·잔액 오류는 던진다.
+ * 개별 실패는 그 계정에만 기록하고 다음 계정으로 간다 — 저장 오류(이상한 글자, 수집 중 계정 교체 등)도 같다.
+ * 그러지 않으면 실패한 계정이 늘 목록 맨 앞(오래 안 받은 순)에 남아 뒤 계정들이 영영 안 받힌다(리뷰 10-20). 인증·잔액 오류만 던진다.
  */
 export async function collectAll(
   sql: postgres.Sql, reader: XReader,
@@ -118,8 +127,15 @@ export async function collectAll(
   for (const ch of channels) {
     if (opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt) { out.stoppedByDeadline = true; break; }
     if (opts.skipRecentMs && ch.lastCollectedAt && now - Date.parse(ch.lastCollectedAt) < opts.skipRecentMs) { out.skipped++; continue; }
-    const r = await collectChannel(sql, reader, ch, { now, deadlineAt: opts.deadlineAt });
-    if (r.ok) out.ok++; else out.failed++;
+    try {
+      const r = await collectChannel(sql, reader, ch, { now, deadlineAt: opts.deadlineAt });
+      if (r.ok) out.ok++; else out.failed++;
+    } catch (e) {
+      if (e instanceof GetxapiAuthError) throw e;
+      console.error(`[channels] ${ch.handle} 수집 실패`, e);
+      await recordCollectError(sql, ch.id, 'fetchFailed').catch(() => {});
+      out.failed++;
+    }
   }
   return out;
 }

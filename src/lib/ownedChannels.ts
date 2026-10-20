@@ -35,7 +35,7 @@ export function parsePost(raw: Record<string, unknown>): ParsedPost | null {
   const postId = str(raw.id);
   const postedAt = toIso(raw.createdAt);
   if (!postId || !postedAt) return null;
-  return { postId, kind: classifyPost(raw), text: decodeEntities(str(raw.text) ?? ''), postedAt, pinned: raw.isPinned === true };
+  return { postId, kind: classifyPost(raw), text: decodeEntities(str(raw.text) ?? '').replace(/\u0000/g, ''), postedAt, pinned: raw.isPinned === true };
 }
 
 // ─────────────────────────── 주와 날짜(한국) ───────────────────────────
@@ -101,7 +101,7 @@ export interface ChannelInput {
   currentTarget: number;               // 지금 약속(점검 대상만 들어온다)
   registeredAt: string;                // 채널 등록 시각 — 기록은 그 8주 전 월요일부터
   accountCreatedAt: string | null;
-  weekTargets: Array<{ weekStart: string; target: number }>;
+  weekTargets: Array<{ weekStart: string; target: number | null }>;   // null = 그 주는 약속 없음(점검을 쉬었다)
   posts: ChannelPost[];
   snapshots: ChannelSnapshot[];
   lastCollectedAt: string | null;
@@ -113,7 +113,7 @@ export interface ChannelInput {
 export interface WeekCell {
   weekStart: string;
   count: number | null;                // null = 기록 시작 전('—')
-  target: number;
+  target: number | null;               // null = 그 주는 약속 없음 — 판정하지 않는다('—')
   met: boolean | null;
   deleted: number;                     // 센 글 중 지금 X에서 지워진 수
 }
@@ -126,16 +126,20 @@ export function firstRecordedWeek(c: Pick<ChannelInput, 'registeredAt' | 'accoun
   return opened > backfill ? opened : backfill;
 }
 
-/** 그 주의 약속 — 저장된 줄, 없으면 가장 가까운 주(앞 우선), 그것도 없으면 지금 약속. */
-export function targetForWeek(c: Pick<ChannelInput, 'weekTargets' | 'currentTarget'>, weekStart: string): number {
-  let before: { weekStart: string; target: number } | null = null;
-  let after: { weekStart: string; target: number } | null = null;
+/**
+ * 그 주의 약속 — 저장된 줄, 없으면 가장 가까운 앞 주(약속은 바꿀 때까지 이어진다), 앞 주가 없으면 가까운 뒤 주(등록 전 8주),
+ * 그것도 없으면 지금 약속. 앞 주가 '약속 없음'(null)이면 그 뒤 빈 주도 약속 없음이다 — 쉬는 동안을 못 채움으로 보지 않게.
+ */
+export function targetForWeek(c: Pick<ChannelInput, 'weekTargets' | 'currentTarget'>, weekStart: string): number | null {
+  let before: { weekStart: string; target: number | null } | null = null;
+  let after: { weekStart: string; target: number | null } | null = null;
   for (const w of c.weekTargets) {
     if (w.weekStart === weekStart) return w.target;
     if (w.weekStart < weekStart && (!before || w.weekStart > before.weekStart)) before = w;
     if (w.weekStart > weekStart && (!after || w.weekStart < after.weekStart)) after = w;
   }
-  return before?.target ?? after?.target ?? c.currentTarget;
+  if (before) return before.target;
+  return after ? after.target : c.currentTarget;
 }
 
 export function weekCell(c: ChannelInput, weekStart: string, isCurrent: boolean): WeekCell {
@@ -150,10 +154,10 @@ export function weekCell(c: ChannelInput, weekStart: string, isCurrent: boolean)
     count++;
     if (p.deletedAt) deleted++;
   }
-  return { weekStart, count, target, met: count >= target, deleted };
+  return { weekStart, count, target, met: target === null ? null : count >= target, deleted };
 }
 
-/** 지난주까지 연속으로 못 채운 주 수. 기록 시작 전 주에서 멈춘다. */
+/** 지난주까지 연속으로 못 채운 주 수. 기록 시작 전·약속 없는 주에서 멈춘다. */
 export function missedStreak(cells: WeekCell[]): number {
   let k = 0;
   for (let i = cells.length - 1; i >= 0; i--) {
@@ -203,7 +207,7 @@ function situationFor(c: ChannelInput, cur: WeekCell, streak: number): { tone: T
   if (streak >= 2) return { tone: 'warn', text: `${streak}주째 못 채우는 중 — 이번 주 꼭 챙겨요` };
   if (streak === 1) return { tone: 'warn', text: '지난주 못 채움 — 2주 연속이 될 수 있어요' };
   const count = cur.count ?? 0;
-  return { tone: 'plain', text: count === 0 ? '아직' : `${cur.target - count}번 더` };
+  return { tone: 'plain', text: count === 0 ? '아직' : `${c.currentTarget - count}번 더` };
 }
 
 function lastPostLabel(c: ChannelInput, now: number): string {
@@ -255,7 +259,7 @@ export function buildChannelsView(inputs: ChannelInput[], now: number): Channels
     const staleNote = c.lastCollectedAt && kstYmd(c.lastCollectedAt) < today ? `${md(kstYmd(c.lastCollectedAt))} 기준` : null;
     const row: ThisWeekRow = {
       channelId: c.channelId, clientId: c.clientId, clientName: c.clientName, handle: c.handle,
-      count: accountBad ? null : curCell.count, target: curCell.target,
+      count: accountBad ? null : curCell.count, target: c.currentTarget,
       done: !accountBad && curCell.met === true, tone: s.tone, situation: s.text,
       lastPost: lastPostLabel(c, now), staleNote,
     };
@@ -292,7 +296,7 @@ export function buildChannelsView(inputs: ChannelInput[], now: number): Channels
 // ─────────────────────────── 한 계정 자세히(오른쪽 패널) ───────────────────────────
 
 export interface DetailPost { postId: string; kind: PostKind; text: string; postedAt: string; day: string; deletedNote: string | null; counted: boolean }
-export interface DetailWeek { weekStart: string; title: string; isCurrent: boolean; count: number | null; target: number; met: boolean | null; posts: DetailPost[] }
+export interface DetailWeek { weekStart: string; title: string; isCurrent: boolean; count: number | null; target: number | null; met: boolean | null; posts: DetailPost[] }
 export interface ChannelDetail {
   channelId: string; clientId: string; clientName: string; handle: string; target: number;
   followers: { weeks: string[]; values: Array<number | null>; summary: string };

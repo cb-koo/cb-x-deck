@@ -87,7 +87,7 @@ export function ChannelDetailPanel({ channelId, onClose }: { channelId: string; 
                 <div key={w.weekStart} className="overflow-hidden rounded-xl border border-x-border">
                   <div className="flex items-center justify-between bg-x-surface px-3.5 py-2.5 text-[14px]">
                     <b className="font-semibold">{w.isCurrent ? `이번 주 ${w.title}` : w.title}</b>
-                    {w.count === null ? <span className="text-ui text-x-muted">기록 시작 전</span> : (
+                    {w.count === null || w.target === null ? <span className="text-ui text-x-muted">{w.count === null ? '기록 시작 전' : `${w.count}회, 이 주는 약속 없음`}</span> : (
                       <span className={`text-ui font-semibold ${w.met === null ? 'text-x-secondary' : w.met ? 'text-[#15803d]' : 'text-[#dc2626]'}`}>
                         {w.count} / {w.target}회{w.met === null ? '' : w.met ? ' 채움' : ' 못 채움'}
                       </span>

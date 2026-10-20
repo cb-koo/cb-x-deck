@@ -22,6 +22,7 @@ export function XAccountPanel({ clientId, register }: { clientId: string; regist
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
   const [confirming, setConfirming] = useState<'replace' | 'remove' | null>(null);
+  const [newName, setNewName] = useState<string | null>(null);   // 교체 확인에 보일 새 계정 이름
 
   useEffect(() => {
     let alive = true;
@@ -64,12 +65,17 @@ export function XAccountPanel({ clientId, register }: { clientId: string; regist
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ handle: cur.current.handle, weeklyTarget: cur.current.target }),
       });
-      const body = (await r.json().catch(() => ({}))) as { error?: string; channel?: Channel; name?: string | null };
+      const body = (await r.json().catch(() => ({}))) as {
+        error?: string; channel?: Channel; name?: string | null; isNew?: boolean; collected?: boolean | null;
+      };
       if (!r.ok || !body.channel) { setErr(body.error ?? '저장하지 못했어요'); return false; }
       const wasTarget = channel?.weeklyTarget ?? null;
+      const renamed = !!channel && norm(channel.handle) !== norm(body.channel.handle);
       setChannel(body.channel); setHandle(`@${body.channel.handle}`);
       const who = body.name ? `${body.name}(@${body.channel.handle})` : `@${body.channel.handle}`;
-      if (!channel || norm(channel.handle) !== norm(body.channel.handle)) setNote(`${who} 계정을 확인했어요. 지난 8주 글을 받아 왔어요.`);
+      // 문구는 서버가 실제로 한 일에서 고른다 — 받지 않았으면 받았다고 말하지 않는다(UX 원칙 4)
+      if (body.isNew) setNote(body.collected ? `${who} 계정을 확인했어요. 지난 8주 글을 받아 왔어요.` : `${who} 계정을 저장했어요. 글은 내일 아침에 받아 와요.`);
+      else if (renamed) setNote('새 이름으로 저장했어요. 같은 계정이라 기록은 그대로예요.');
       else if (wasTarget !== body.channel.weeklyTarget)
         setNote(body.channel.weeklyTarget === null ? '이번 주부터 점검하지 않아요' : `이번 주부터 주 ${body.channel.weeklyTarget}회로 판정해요`);
       else setNote('저장했어요');
@@ -77,19 +83,35 @@ export function XAccountPanel({ clientId, register }: { clientId: string; regist
     } finally { setSaving(false); setConfirming(null); }
   }, [clientId, channel]);
 
-  // 페이지의 '저장하고 이동'은 확인 없이 저장한다 — 기록이 지워지는 저장(계정 교체·비우기)은 여기서 막는다
-  const saveFromGuard = useCallback(async () => {
+  // 기록이 지워지는 저장인지 — 핸들 글자가 아니라 X 계정(숫자 id)이 바뀌는지로 판단한다. 같은 계정의 이름만 바뀐 거면 기록은 그대로다.
+  // 'ok' = 그냥 저장 / 'confirm' = 확인을 띄웠다 / 'error' = 확인 실패(문구는 err에)
+  const needsConfirm = useCallback(async (): Promise<'ok' | 'confirm' | 'error'> => {
     const h = norm(cur.current.handle);
-    if (channel && (!h || h !== norm(channel.handle))) { setConfirming(h ? 'replace' : 'remove'); return false; }
-    return doSave();
-  }, [channel, doSave]);
+    if (!channel) return 'ok';
+    if (!h) { setConfirming('remove'); return 'confirm'; }
+    if (h === norm(channel.handle)) return 'ok';
+    setSaving(true); setErr(''); setNote('');
+    try {
+      const r = await apiFetch(`/api/clients/${clientId}/x-account`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handle: cur.current.handle, weeklyTarget: cur.current.target, dryRun: true }),
+      });
+      const body = (await r.json().catch(() => ({}))) as { error?: string; wouldReplace?: boolean; name?: string | null };
+      if (!r.ok) { setErr(body.error ?? 'X에서 계정을 확인하지 못했어요'); return 'error'; }
+      if (body.wouldReplace) { setNewName(body.name ?? null); setConfirming('replace'); return 'confirm'; }
+      return 'ok';
+    } finally { setSaving(false); }
+  }, [channel, clientId]);
+
+  // 페이지의 '저장하고 이동'도 같은 확인을 거친다 — 기록이 지워지는 저장이면 멈추고 여기서 확인을 받는다
+  const saveFromGuard = useCallback(async () => {
+    const step = await needsConfirm();
+    return step === 'ok' ? doSave() : false;
+  }, [needsConfirm, doSave]);
   useEffect(() => register('x-account', { isDirty, save: saveFromGuard }), [register, isDirty, saveFromGuard]);
 
-  const onSave = () => {
-    const h = norm(handle);
-    if (channel && !h) { setConfirming('remove'); return; }
-    if (channel && h !== norm(channel.handle)) { setConfirming('replace'); return; }
-    void doSave();
+  const onSave = async () => {
+    if ((await needsConfirm()) === 'ok') await doSave();
   };
 
   return (
@@ -137,7 +159,7 @@ export function XAccountPanel({ clientId, register }: { clientId: string; regist
             <div className="mt-3 rounded-lg border border-[#f5c48f] bg-[#fffaf3] p-3 text-ui">
               <p className="mb-2 text-x-text">
                 {confirming === 'replace'
-                  ? `@${channel?.handle} 계정의 업로드 기록이 지워지고 새 계정으로 다시 시작해요.`
+                  ? `${norm(handle) ? `@${norm(handle)}${newName ? `(${newName})` : ''}` : '새 계정'}은 @${channel?.handle}과 다른 X 계정이에요. @${channel?.handle}의 업로드 기록이 지워지고 새 계정으로 다시 시작해요.`
                   : `@${channel?.handle} 계정 연결을 끊으면 업로드 기록이 지워져요.`}
               </p>
               <div className="flex gap-2">
@@ -149,7 +171,7 @@ export function XAccountPanel({ clientId, register }: { clientId: string; regist
             </div>
           ) : (
             <div className="mt-3 flex items-center gap-2.5">
-              <Button variant="primary" onClick={onSave} disabled={saving || (!channel && !norm(handle))}>
+              <Button variant="primary" onClick={() => void onSave()} disabled={saving || (!channel && !norm(handle))}>
                 {saving ? (channel && norm(handle) === norm(channel.handle) ? '저장 중…' : 'X에서 확인하는 중…') : '저장'}
               </Button>
               {err && <span className="text-ui text-red-500">{err}</span>}

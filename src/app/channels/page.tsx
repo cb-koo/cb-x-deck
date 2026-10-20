@@ -221,7 +221,7 @@ function HistoryPanel({ view, onOpen }: { view: ChannelsView; onOpen: (id: strin
               {r.cells.map((c, i) => (
                 <td key={c.weekStart} className={`${CELL} px-0.5 text-center ${i === 0 ? 'border-l border-l-x-border' : ''}`}>
                   {c.met === null ? (
-                    <span className="text-x-border-strong" title="기록 시작 전">—</span>
+                    <span className="text-x-border-strong" title={c.count === null ? '기록 시작 전' : '이 주는 약속이 없었어요'}>—</span>
                   ) : (
                     <span title={`약속 ${c.target}회 중 ${c.count}회 올렸어요.${c.deleted ? ` ${c.deleted}개는 지금 X에서 지워졌어요(올린 것으로 셌어요).` : ''}`}
                           className={`relative inline-flex h-[26px] w-[32px] items-center justify-center rounded-md text-ui font-semibold tabular-nums ${c.met ? 'bg-[#e6f6ee] text-[#15803d]' : 'bg-[#fdecec] text-[#dc2626]'}`}>
@@ -239,7 +239,7 @@ function HistoryPanel({ view, onOpen }: { view: ChannelsView; onOpen: (id: strin
       <div className="flex items-center gap-4 border-t border-x-border px-5 py-3 text-ui text-x-muted">
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-[3px] bg-[#e6f6ee] shadow-[inset_0_0_0_1px_#bfe5cf]" />채움</span>
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-[3px] bg-[#fdecec] shadow-[inset_0_0_0_1px_#f5c2c2]" />못 채움</span>
-        <span>— 기록 시작 전</span>
+        <span>— 기록 시작 전이거나 약속이 없던 주</span>
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-[5px] w-[5px] rounded-full bg-x-muted" />지금 X에서 지워진 글이 있는 주</span>
       </div>
     </section>

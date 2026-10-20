@@ -29,12 +29,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   });
 }
 
-/** 저장할 때 계정을 확인한다 — 틀린 핸들로 매일 0을 세지 않게. 새 계정이면 지난 8주 글을 바로 받아 온다. */
+/**
+ * 저장할 때 계정을 확인한다 — 틀린 핸들로 매일 0을 세지 않게. 새 계정이면 지난 8주 글을 바로 받아 온다.
+ * dryRun: 저장하지 않고 "기록이 지워지는 저장인지"만 답한다 — 기록은 숫자 id가 바뀔 때만 지워지므로(핸들 이름만 바뀐 같은 계정은 유지)
+ * 화면이 핸들 글자만 보고 지워진다고 경고하지 않게(리뷰 10-20).
+ */
 export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
-  const body = (await req.json().catch(() => ({}))) as { handle?: string; weeklyTarget?: number | null };
+  const body = (await req.json().catch(() => ({}))) as { handle?: string; weeklyTarget?: number | null; dryRun?: boolean };
   const parsed = parseXHandle(body.handle ?? '');
   if (!parsed.ok) return NextResponse.json({ error: handleParseMessage(parsed.reason) }, { status: 400 });
   const target = body.weeklyTarget ?? null;
@@ -62,13 +66,25 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
       account = { handle: looked.info.userName || parsed.handle, accountId: looked.info.id, accountCreatedAt: looked.info.createdAt ?? null,
         name: looked.info.name, followers: looked.info.followers };
     }
+    if (body.dryRun) return NextResponse.json({ wouldReplace: !!cur && cur.accountId !== account.accountId, name: account.name });
+
     const saved = await saveChannel(sql, id, { handle: account.handle, accountId: account.accountId, accountCreatedAt: account.accountCreatedAt, weeklyTarget: target });
-    // 새 계정이면 지난 8주를 바로 받는다 — 페이지에 들어가면 첫날부터 흐름이 보이게. 실패해도 저장은 된 것(내일 아침 다시 받는다)
-    if (saved.isNew) await collectChannel(sql, client, saved.channel, { firstCollect: true, deadlineAt: Date.now() + 40_000 }).catch((e) => {
-      if (e instanceof GetxapiAuthError) throw e;
+    // 여기부터는 저장이 끝난 뒤다 — 수집이 실패해도 200으로 답하고 '받아 왔는지'만 따로 알린다(저장 실패로 오해하지 않게, 리뷰 10-20).
+    // 새 계정이면 지난 8주를 바로 받는다 — 페이지에 들어가면 첫날부터 흐름이 보이게. 실패하면 내일 아침 수집이 받는다.
+    let collected: boolean | null = null;   // null = 받을 필요 없음(같은 계정)
+    if (saved.isNew) {
+      try {
+        collected = (await collectChannel(sql, client, saved.channel, { firstCollect: true, deadlineAt: Date.now() + 40_000 })).ok;
+      } catch (e) {
+        console.error('[x-account] 첫 수집 실패', e);
+        collected = false;
+      }
+    }
+    const fresh = await getChannel(sql, id);
+    return NextResponse.json({
+      channel: { handle: saved.channel.handle, weeklyTarget: saved.channel.weeklyTarget, followers: account.followers, lastError: fresh?.lastError ?? null },
+      name: account.name, replaced: saved.replaced, isNew: saved.isNew, collected,
     });
-    return NextResponse.json({ channel: { handle: saved.channel.handle, weeklyTarget: saved.channel.weeklyTarget, followers: account.followers, lastError: null },
-      name: account.name, replaced: saved.replaced });
   } catch (e) {
     if (e instanceof GetxapiAuthError) return NextResponse.json({ error: 'X 데이터를 받지 못했어요 — 관리자에게 알려 주세요(API 잔액 확인)' }, { status: 502 });
     throw e;

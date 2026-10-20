@@ -33,10 +33,11 @@ create table if not exists owned_post (
 create index if not exists owned_post_channel_time on owned_post (channel_id, posted_at desc);
 
 -- 주마다 그 주의 약속. 주가 끝나면 손대지 않는다 — 지난 주 판정이 나중 약속 변경에 흔들리지 않게(스펙 §3).
+-- target null = 그 주는 약속 없음(점검을 쉬었다) — 쉬는 동안을 못 채움으로 판정하지 않게.
 create table if not exists owned_channel_week (
   channel_id  uuid not null references owned_channel(id) on delete cascade,
   week_start  date not null,                       -- 그 주 월요일(한국)
-  target      int not null check (target between 1 and 14),
+  target      int check (target between 1 and 14),
   primary key (channel_id, week_start)
 );
 

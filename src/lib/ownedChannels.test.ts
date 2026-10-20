@@ -239,6 +239,7 @@ test('자세히 — 글은 주차로 묶지 않은 한 목록(최근 순)에 주
   const c = channel({ posts: [post('2026-09-30 23:00'), post('2026-10-01 00:30'), post('2026-10-20 09:00', 'retweet')] });
   const d = buildChannelDetail(c, NOW);
   assert.deepEqual(d.posts.map((p) => p.weekLabel), ['10월 4주차', '10월 1주차', '9월 5주차']);
+  assert.deepEqual(d.posts.map((p) => p.isCurrentWeek), [true, false, false]);
 });
 
 test('판단 한 줄 — 남은 곳 수, 그중 먼저 챙길 곳', () => {

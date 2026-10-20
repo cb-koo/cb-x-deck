@@ -355,6 +355,7 @@ export interface DetailPost {
   day: string;                         // '10/18(토) 14:05'
   deletedNote: string | null; counted: boolean;
   weekLabel: string;                   // 캠페인 주차 '10월 3주차' — 표의 주차 열
+  isCurrentWeek: boolean;              // 이번 판정 주(월~일)의 글 — 표에서 배경색으로 구분(koo 10-20)
 }
 export interface ChannelDetail {
   channelId: string; clientId: string; clientName: string; handle: string; target: number;
@@ -392,7 +393,8 @@ export function buildChannelDetail(c: ChannelInput, now: number): ChannelDetail 
     .sort((a, b) => b.postedAt.localeCompare(a.postedAt))
     .map((p) => ({ postId: p.postId, kind: p.kind, text: p.text, postedAt: p.postedAt, day: dayTime(p.postedAt),
       deletedNote: p.deletedAt ? `${md(kstYmd(p.deletedAt))}에 지워진 것을 확인했어요` : null,
-      counted: countsTowardPromise(p.kind), weekLabel: campaignWeekLabel(kstYmd(p.postedAt)) }));
+      counted: countsTowardPromise(p.kind), weekLabel: campaignWeekLabel(kstYmd(p.postedAt)),
+      isCurrentWeek: weekStartOf(p.postedAt) === cur }));
 
   // 팔로워 — 지난 8주 + 이번 주, 주마다 그 주 마지막 기록값
   const fw = [...starts].reverse();

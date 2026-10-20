@@ -158,8 +158,11 @@ export function ChannelDetailPanel({ channelId, onClose }: { channelId: string; 
                 {visible.map((p) => {
                   const dim = !p.counted || !!p.deletedNote;
                   return (
-                    <tr key={p.postId} className={p.deletedNote ? '' : 'hover:bg-x-hover'}>
-                      <td className={`${TD} whitespace-nowrap pl-6 text-x-secondary`}>{p.weekLabel}</td>
+                    // 이번 주 글은 옅은 파랑 바탕 + 주차 칸에 '이번 주' 표시 — 지난 글과 바로 구분되게(koo 10-20)
+                    <tr key={p.postId} className={p.isCurrentWeek ? 'bg-[#eef7fe] hover:bg-[#e3f1fc]' : p.deletedNote ? '' : 'hover:bg-x-hover'}>
+                      <td className={`${TD} whitespace-nowrap pl-6 ${p.isCurrentWeek ? 'shadow-[inset_3px_0_0_var(--color-x-blue)] font-semibold text-x-blue-text' : 'text-x-secondary'}`}>
+                        {p.isCurrentWeek ? <span title={p.weekLabel}>이번 주</span> : p.weekLabel}
+                      </td>
                       <td className={`${TD} whitespace-nowrap tabular-nums text-x-secondary`}>{p.day}</td>
                       <td className={TD}>
                         <span className="flex flex-wrap gap-1">

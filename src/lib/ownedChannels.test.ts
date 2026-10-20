@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyPost, parsePost, weekStartOf, kstYmd, kstMidnight, addWeeks, relativeDay, weekTitle,
-  firstRecordedWeek, targetForWeek, campaignWeekLabel, weekCell, missedStreak, buildChannelsView, buildChannelDetail, followerSummary,
+  firstRecordedWeek, targetForWeek, campaignWeekLabel, weekRangeShort, weekCell, missedStreak, buildChannelsView, buildChannelDetail, followerSummary,
   type ChannelInput, type ChannelPost,
 } from './ownedChannels.ts';
 
@@ -99,20 +99,20 @@ test('이번 주 — 못 채운 곳 문구·색·정렬, 채운 곳은 따로', 
 
   assert.equal(v.thisWeek.title, '10/19(월) ~ 25(일)');
   assert.equal(v.thisWeek.daysLeftLabel, '5일 남음');
-  assert.equal(v.thisWeek.checkedLabel, '오늘 07:00에 확인했어요');
+  assert.equal(v.thisWeek.checkedLabel, '오늘 07:00 기준');
   assert.equal(v.thisWeek.total, 5);
   assert.equal(v.thisWeek.doneCount, 1);
   assert.deepEqual(v.thisWeek.pending.map((r) => r.clientName), ['더스퀘어', '백수약국', '가은치유한의원', '마인드클리닉']);
   const [a, b, c, d] = v.thisWeek.pending;
-  assert.equal(a.situation, '3주째 못 채우는 중 — 이번 주 꼭 챙겨요');
+  assert.equal(a.situation, '3주 연속 미달');
   assert.equal(a.tone, 'warn');
   assert.equal(a.lastPost, '9/26(25일 전)');
-  assert.equal(b.situation, '지난주 못 채움 — 2주 연속이 될 수 있어요');
-  assert.equal(c.situation, '아직');
+  assert.equal(b.situation, '지난주 미달');
+  assert.equal(c.situation, '1회 남음');
   assert.equal(c.tone, 'plain');
-  assert.equal(d.situation, '1번 더');
+  assert.equal(d.situation, '1회 남음');
   assert.equal(d.count, 1);
-  assert.equal(v.thisWeek.done[0].situation, '✓ 채웠어요');
+  assert.equal(v.thisWeek.done[0].situation, '달성');
   assert.equal(v.thisWeek.done[0].tone, 'ok');
 });
 
@@ -123,16 +123,16 @@ test('이번 주 — 계정 확인 실패는 0으로 세지 않고 맨 위, 오�
   assert.equal(v.thisWeek.pending[0].clientName, '하나');
   assert.equal(v.thisWeek.pending[0].count, null);
   assert.equal(v.thisWeek.pending[0].done, false);
-  assert.match(v.thisWeek.pending[0].situation, /계정을 확인하지 못했어요/);
+  assert.match(v.thisWeek.pending[0].situation, /계정 확인 필요/);
   assert.equal(v.thisWeek.pending[1].staleNote, '10/20 기준');
-  assert.equal(v.thisWeek.checkedLabel, '어제 07:00에 확인했어요');
+  assert.equal(v.thisWeek.checkedLabel, '어제 07:00 기준');
 });
 
 test('일요일은 오늘까지, 점검 대상이 없으면 확인 시각 없음', () => {
   const sunday = Date.parse('2026-10-25T05:00:00Z');
-  assert.equal(buildChannelsView([], sunday).thisWeek.daysLeftLabel, '오늘까지');
+  assert.equal(buildChannelsView([], sunday).thisWeek.daysLeftLabel, '오늘 마감');
   assert.equal(buildChannelsView([], sunday).thisWeek.checkedLabel, null);
-  assert.equal(buildChannelsView([channel({ lastCollectedAt: null })], NOW).thisWeek.checkedLabel, '아직 확인 전이에요');
+  assert.equal(buildChannelsView([channel({ lastCollectedAt: null })], NOW).thisWeek.checkedLabel, '확인 전');
 });
 
 test('흐름 — 8주 칸, 요약 문구, 지난주 못 채운 곳이 위', () => {
@@ -144,12 +144,12 @@ test('흐름 — 8주 칸, 요약 문구, 지난주 못 채운 곳이 위', () =
   const v = buildChannelsView([every, recent, mixed, streak], NOW);
   assert.deepEqual(v.history.weeks, ['2026-08-24', '2026-08-31', '2026-09-07', '2026-09-14', '2026-09-21', '2026-09-28', '2026-10-05', '2026-10-12']);
   const by = Object.fromEntries(v.history.rows.map((r) => [r.clientName, r]));
-  assert.equal(by['가'].summary, '8주 모두 채움');
-  assert.equal(by['나'].summary, '시작 후 3주 모두 채움');
+  assert.equal(by['가'].summary, '8주 모두 달성');
+  assert.equal(by['나'].summary, '시작 후 3주 모두 달성');
   assert.equal(by['나'].cells[0].count, null);
-  assert.equal(by['다'].summary, '3주 연속 못 채움');
+  assert.equal(by['다'].summary, '3주 연속 미달');
   assert.equal(by['다'].bad, true);
-  assert.equal(by['라'].summary, '8주 중 7주 채움');
+  assert.equal(by['라'].summary, '7/8주 달성');
   assert.equal(v.history.rows[0].clientName, '다');
 });
 
@@ -192,7 +192,7 @@ test('약속을 쉰 주는 판정하지 않는다 — 약속 없음 줄 뒤의 �
   assert.equal(cell.count, 0);
   const v = buildChannelsView([c], NOW);
   // 지난주(10/12)는 약속 없음 → 연속 못 채움이 아니다
-  assert.equal(v.thisWeek.pending[0].situation, '아직');
+  assert.equal(v.thisWeek.pending[0].situation, '1회 남음');
   assert.equal(v.history.rows[0].cells[7].met, null);
 });
 
@@ -209,11 +209,11 @@ test('약속 시작일 — 그 전 주는 판정하지 않고 글 수만, 시작
   assert.deepEqual([startWeek.state, startWeek.met], ['judged', false]);
   const v = buildChannelsView([c], NOW);
   // 지난주(10/12) 못 채움, 10/5주 채움, 9/28주 못 채움 → 연속 1, 요약은 시작 후 3주만 센다
-  assert.equal(v.history.rows[0].summary, '3주 중 1주 채움');
-  assert.equal(v.thisWeek.pending[0].situation, '지난주 못 채움 — 2주 연속이 될 수 있어요');
+  assert.equal(v.history.rows[0].summary, '1/3주 달성');
+  assert.equal(v.thisWeek.pending[0].situation, '지난주 미달');
   // 시작일이 미래면 이번 주도 판정 전
   const future = buildChannelsView([channel({ promiseStartedOn: '2026-10-27' })], NOW);
-  assert.equal(future.thisWeek.pending[0].situation, '10/27부터 약속이 시작돼요');
+  assert.equal(future.thisWeek.pending[0].situation, '10/27 시작');
 });
 
 test('주 머리 문구 · 표의 게시 시각', () => {
@@ -221,13 +221,13 @@ test('주 머리 문구 · 표의 게시 시각', () => {
     post('2026-09-30 10:00'), post('2026-10-13 14:05'), post('2026-10-20 09:00'),
   ] });
   const d = buildChannelDetail(c, NOW);
-  assert.equal(d.weeks[0].verdict, '1 / 1회 채움');            // 이번 주
-  assert.equal(d.weeks[1].verdict, '1 / 1회 채움');
-  assert.equal(d.weeks[2].verdict, '0 / 1회 못 채움');
-  assert.equal(d.weeks[3].verdict, '약속 시작 전(글 1개)');
+  assert.equal(d.weeks[0].verdict, '1 / 1회 달성');            // 이번 주
+  assert.equal(d.weeks[1].verdict, '1 / 1회 달성');
+  assert.equal(d.weeks[2].verdict, '0 / 1회 미달');
+  assert.equal(d.weeks[3].verdict, '약속 전(글 1개)');
   assert.equal(d.weeks[1].posts[0].day, '10/13(화) 14:05');
   const cur = buildChannelDetail(channel({ currentTarget: 2, posts: [post('2026-10-20 09:00')] }), NOW);
-  assert.equal(cur.weeks[0].verdict, '1 / 2회 진행 중');
+  assert.equal(cur.weeks[0].verdict, '1 / 2회 진행');
 });
 
 test('캠페인 주차 — 월~일 주를 달 경계에서 잘라 그 달 1일이 든 주부터 1주차(캠페인 운영 규칙)', () => {
@@ -248,4 +248,17 @@ test('자세히 — 글은 주차로 묶지 않은 한 목록(최근 순)에 주
   const c = channel({ posts: [post('2026-09-30 23:00'), post('2026-10-01 00:30'), post('2026-10-20 09:00', 'retweet')] });
   const d = buildChannelDetail(c, NOW);
   assert.deepEqual(d.posts.map((p) => p.weekLabel), ['10월 4주차', '10월 1주차', '9월 5주차']);
+});
+
+test('판단 한 줄 — 남은 곳 수, 그중 먼저 챙길 곳', () => {
+  const v = buildChannelsView([
+    channel({ channelId: 'a', clientName: '가', posts: [post('2026-09-26 10:00')] }),
+    channel({ channelId: 'b', clientName: '나', posts: [post('2026-10-13 10:00')] }),
+    channel({ channelId: 'c', clientName: '다', posts: [post('2026-10-20 10:00')] }),
+  ], NOW);
+  assert.equal(v.thisWeek.headline, '2곳이 아직이에요. 그중 1곳은 지난주에도 미달이거나 계정 확인이 필요해요.');
+  const all = buildChannelsView([channel({ posts: [post('2026-10-20 10:00')] })], NOW);
+  assert.equal(all.thisWeek.headline, '모든 곳이 이번 주 약속을 달성했어요.');
+  assert.equal(weekRangeShort('2026-09-14'), '9/14~20');
+  assert.equal(weekRangeShort('2026-09-28'), '9/28~10/4');
 });

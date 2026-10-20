@@ -92,6 +92,12 @@ export function campaignWeekLabel(ymd: string): string {
   return `${m}월 ${Math.floor((d - 1 + firstDow) / 7) + 1}주차`;
 }
 
+/** 주 칸 머리 '9/15~21' · 달이 바뀌면 '9/28~10/4' — 칸이 무슨 기간인지 바로 읽히게(시작일만 쓰면 '9/15'가 하루로 읽힌다) */
+export function weekRangeShort(weekStart: string): string {
+  const sun = new Date(Date.parse(addWeeks(weekStart, 1) + 'T00:00:00Z') - DAY_MS).toISOString().slice(0, 10);
+  return `${md(weekStart)}~${sun.slice(5, 7) === weekStart.slice(5, 7) ? Number(sun.slice(8, 10)) : md(sun)}`;
+}
+
 /** 주 칸 머리 '9/15'. */
 export const weekShort = (weekStart: string) => md(weekStart);
 
@@ -202,7 +208,7 @@ export interface ThisWeekRow {
   target: number;
   done: boolean;
   tone: Tone;
-  situation: string;
+  situation: string;                   // 상태 칩 — 짧은 명사형(koo 10-13·10-20): '3주 연속 미달' · '지난주 미달' · '1회 남음' · '달성' · '계정 확인 필요'
   lastPost: string;                    // '9/26(25일 전)' · '기록 없음'
   staleNote: string | null;            // 오늘 수집이 실패했을 때 '10/20 기준'
 }
@@ -211,14 +217,15 @@ export interface HistoryRow {
   channelId: string; clientId: string; clientName: string; handle: string;
   target: number;                      // 지금 약속
   cells: WeekCell[];                   // 오래된 주 → 지난주
-  summary: string;
+  summary: string;                     // '3주 연속 미달' · '8주 모두 달성' · '6/8주 달성'
   bad: boolean;
 }
 
 export interface ChannelsView {
   thisWeek: {
     weekStart: string; title: string; daysLeftLabel: string;
-    checkedLabel: string | null;       // '오늘 07:00에 확인했어요' — 점검 대상이 없으면 null
+    checkedLabel: string | null;       // '오늘 07:00 기준' — 점검 대상이 없으면 null
+    headline: string;                  // 판단 한 줄(UX 원칙 3) — '4곳이 아직이에요. 그중 2곳은 지난주에도 미달이에요.'
     total: number; doneCount: number;
     pending: ThisWeekRow[]; done: ThisWeekRow[];
   };
@@ -226,14 +233,12 @@ export interface ChannelsView {
 }
 
 function situationFor(c: ChannelInput, cur: WeekCell, streak: number): { tone: Tone; text: string } {
-  if (c.lastError === 'notFound' || c.lastError === 'accountChanged')
-    return { tone: 'warn', text: '계정을 확인하지 못했어요(이름이 바뀌었을 수 있어요)' };
-  if (cur.state === 'beforeStart' && c.promiseStartedOn) return { tone: 'plain', text: `${md(c.promiseStartedOn)}부터 약속이 시작돼요` };
-  if (cur.met) return { tone: 'ok', text: '✓ 채웠어요' };
-  if (streak >= 2) return { tone: 'warn', text: `${streak}주째 못 채우는 중 — 이번 주 꼭 챙겨요` };
-  if (streak === 1) return { tone: 'warn', text: '지난주 못 채움 — 2주 연속이 될 수 있어요' };
-  const count = cur.count ?? 0;
-  return { tone: 'plain', text: count === 0 ? '아직' : `${c.currentTarget - count}번 더` };
+  if (c.lastError === 'notFound' || c.lastError === 'accountChanged') return { tone: 'warn', text: '계정 확인 필요' };
+  if (cur.state === 'beforeStart' && c.promiseStartedOn) return { tone: 'plain', text: `${md(c.promiseStartedOn)} 시작` };
+  if (cur.met) return { tone: 'ok', text: '달성' };
+  if (streak >= 2) return { tone: 'warn', text: `${streak}주 연속 미달` };
+  if (streak === 1) return { tone: 'warn', text: '지난주 미달' };
+  return { tone: 'plain', text: `${c.currentTarget - (cur.count ?? 0)}회 남음` };
 }
 
 function lastPostLabel(c: ChannelInput, now: number): string {
@@ -243,13 +248,21 @@ function lastPostLabel(c: ChannelInput, now: number): string {
 }
 
 function historySummary(cells: WeekCell[], streak: number): { summary: string; bad: boolean } {
-  if (streak >= 2) return { summary: `${streak}주 연속 못 채움`, bad: true };
+  if (streak >= 2) return { summary: `${streak}주 연속 미달`, bad: true };
   const recorded = cells.filter((x) => x.met !== null);
   const n = recorded.length;
   const m = recorded.filter((x) => x.met).length;
   if (n === 0) return { summary: '기록 없음', bad: false };
-  if (m === n) return { summary: n === cells.length ? `${n}주 모두 채움` : `시작 후 ${n}주 모두 채움`, bad: false };
-  return { summary: `${n}주 중 ${m}주 채움`, bad: false };
+  if (m === n) return { summary: n === cells.length ? `${n}주 모두 달성` : `시작 후 ${n}주 모두 달성`, bad: false };
+  return { summary: `${m}/${n}주 달성`, bad: false };
+}
+
+/** 이번 주 판단 한 줄 — 판단 먼저, 근거는 짧게(koo 10-14 요약 서술 규칙) */
+export function headlineFor(pending: ThisWeekRow[], doneCount: number): string {
+  if (pending.length === 0) return doneCount > 0 ? '모든 곳이 이번 주 약속을 달성했어요.' : '';
+  const warn = pending.filter((r) => r.tone === 'warn').length;
+  const first = `${pending.length}곳이 아직이에요.`;
+  return warn > 0 ? `${first} 그중 ${warn}곳은 지난주에도 미달이거나 계정 확인이 필요해요.` : first;
 }
 
 const byName = (a: { clientName: string }, b: { clientName: string }) => a.clientName.localeCompare(b.clientName, 'ko');
@@ -257,13 +270,13 @@ const byName = (a: { clientName: string }, b: { clientName: string }) => a.clien
 function checkedLabel(inputs: ChannelInput[], now: number): string | null {
   if (inputs.length === 0) return null;
   const times = inputs.map((c) => c.lastCollectedAt);
-  if (times.some((t) => !t)) return '아직 확인 전이에요';
+  if (times.some((t) => !t)) return '확인 전';
   const oldest = times.reduce((a, b) => (a! < b! ? a : b))!;
   const day = kstYmd(oldest);
   const hm = new Date(new Date(oldest).getTime() + KST_MS).toISOString().slice(11, 16);
   const today = kstYmd(now);
   const when = day === today ? '오늘' : daysBetween(day, today) === 1 ? '어제' : md(day);
-  return `${when} ${hm}에 확인했어요`;
+  return `${when} ${hm} 기준`;
 }
 
 export function buildChannelsView(inputs: ChannelInput[], now: number): ChannelsView {
@@ -298,20 +311,21 @@ export function buildChannelsView(inputs: ChannelInput[], now: number): Channels
       target: c.currentTarget, cells, ...historySummary(cells, streak) }, streak });
   }
 
-  // 이번 주: 계정 확인 실패 → 연속 못 채운 주 많은 순 → 남은 횟수 많은 순 → 마지막 글 오래된 순 → 이름
+  // 이번 주: 계정 확인 실패 → 연속 미달 주 많은 순 → 남은 횟수 많은 순 → 마지막 글 오래된 순 → 이름
   const left = (r: ThisWeekRow) => r.target - (r.count ?? 0);
   pending.sort((a, b) => b.streak - a.streak || left(b.row) - left(a.row)
     || a.lastAt.localeCompare(b.lastAt) || byName(a.row, b.row));
   done.sort(byName);
-  // 흐름: 지난주 못 채운 곳 → 연속 못 채운 주 많은 순 → 이름
+  // 흐름: 지난주 미달 → 연속 미달 주 많은 순 → 이름
   const lastMissed = (r: HistoryRow) => (r.cells[r.cells.length - 1]?.met === false ? 1 : 0);
   rows.sort((a, b) => lastMissed(b.row) - lastMissed(a.row) || b.streak - a.streak || byName(a.row, b.row));
 
   return {
     thisWeek: {
       weekStart: cur, title: weekTitle(cur),
-      daysLeftLabel: daysLeft <= 1 ? '오늘까지' : `${daysLeft}일 남음`,
+      daysLeftLabel: daysLeft <= 1 ? '오늘 마감' : `${daysLeft}일 남음`,
       checkedLabel: checkedLabel(inputs, now),
+      headline: headlineFor(pending.map((p) => p.row), done.length),
       total: inputs.length, doneCount: done.length,
       pending: pending.map((p) => p.row), done,
     },
@@ -330,7 +344,7 @@ export interface DetailPost {
 export interface DetailWeek {
   weekStart: string; title: string; isCurrent: boolean; state: CellState;
   count: number | null; target: number | null; met: boolean | null;
-  verdict: string;                     // 주 머리 오른쪽 한 줄 — '2 / 1회 채움' · '0 / 1회 못 채움' · '1 / 1회 진행 중' · '약속 시작 전(글 2개)' 등
+  verdict: string;                     // 주 머리 오른쪽 한 줄 — '2 / 1회 달성' · '0 / 1회 미달' · '1 / 2회 진행' · '약속 전(글 2개)' 등
   posts: DetailPost[];
 }
 export interface ChannelDetail {
@@ -350,11 +364,11 @@ function dayTime(instant: string): string {
 
 export function weekVerdict(cell: WeekCell, isCurrent: boolean): string {
   if (cell.state === 'beforeRecord') return '기록 시작 전';
-  if (cell.state === 'beforeStart') return `약속 시작 전(글 ${cell.count}개)`;
-  if (cell.state === 'noPromise') return `약속 없던 주(글 ${cell.count}개)`;
+  if (cell.state === 'beforeStart') return `약속 전(글 ${cell.count}개)`;
+  if (cell.state === 'noPromise') return `약속 없음(글 ${cell.count}개)`;
   const base = `${cell.count} / ${cell.target}회`;
-  if (isCurrent) return cell.met ? `${base} 채움` : `${base} 진행 중`;
-  return cell.met ? `${base} 채움` : `${base} 못 채움`;
+  if (isCurrent) return cell.met ? `${base} 달성` : `${base} 진행`;
+  return cell.met ? `${base} 달성` : `${base} 미달`;
 }
 
 export function followerSummary(values: Array<number | null>): string {

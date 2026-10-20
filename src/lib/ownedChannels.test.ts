@@ -69,15 +69,17 @@ test('그 주의 약속 — 저장된 값, 없으면 가까운 앞 주, 그것�
   assert.equal(weekCell(c, '2026-10-12', false).target, 2);
 });
 
-test('센 글 — 새 글·인용만, 지운 글도 센다(지워짐 수는 따로)', () => {
+test('센 글 — 새 글만(인용·RT·답글 제외), 지운 글도 센다(지워짐 수는 따로)', () => {
   const c = channel({ posts: [
-    post('2026-10-13 09:00'), post('2026-10-14 09:00', 'quote', { deletedAt: kst('2026-10-16 07:00') }),
-    post('2026-10-15 09:00', 'retweet'), post('2026-10-15 10:00', 'reply'),
+    post('2026-10-13 09:00', 'original', { deletedAt: kst('2026-10-16 07:00') }), post('2026-10-14 09:00', 'quote'),
+    post('2026-10-15 09:00', 'retweet'), post('2026-10-15 10:00', 'reply'), post('2026-10-16 10:00'),
   ] });
   const cell = weekCell(c, '2026-10-12', false);
-  assert.equal(cell.count, 2);
+  assert.equal(cell.count, 2);       // 새 글 2개(그중 1개는 지워짐) — 인용은 세지 않는다
   assert.equal(cell.deleted, 1);
   assert.equal(cell.met, true);
+  const quoteOnly = channel({ posts: [post('2026-10-14 09:00', 'quote')] });
+  assert.equal(weekCell(quoteOnly, '2026-10-12', false).met, false);
 });
 
 test('연속 못 채움 — 지난주부터 거꾸로, 기록 시작 전에서 멈춤', () => {

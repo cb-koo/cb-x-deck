@@ -1,7 +1,7 @@
 // X 업로드 현황 — 판정과 화면 문구(순수 함수). 스펙 docs/superpowers/specs/2026-10-20-owned-channels-x-uploads-design.md
 // 화면·API가 여기서 만든 값을 그대로 보여 준다 — 라벨과 값을 한 곳에서 정해 어긋나지 않게(UX 원칙 4).
 //
-// 판정 기준은 "그 주(월~일, 한국)에 새 글이나 인용을 약속한 횟수만큼 올렸는가"다(koo 10-20).
+// 판정 기준은 "그 주(월~일, 한국)에 새 글을 약속한 횟수만큼 올렸는가"다(koo 10-20 — 인용·RT·답글은 세지 않는다).
 // - 지운 글도 그 주에 올린 글로 센다 — 올린 시점에 약속은 지켜졌다. 지워짐은 표시만 한다.
 // - 지난 주는 그 주의 약속(owned_channel_week)으로 판정한다 — 나중에 약속을 바꿔도 지난 판정이 흔들리지 않게.
 import { str, toIso } from './mappers.ts';
@@ -22,8 +22,8 @@ export function classifyPost(raw: Record<string, unknown>): PostKind {
   return 'original';
 }
 
-/** 약속 횟수에 드는 글 — 새 글과 인용. RT·답글은 목록에만 보인다. */
-export const countsTowardPromise = (k: PostKind): boolean => k === 'original' || k === 'quote';
+/** 약속 횟수에 드는 글 — 새 글만(koo 10-20). 인용·RT·답글은 패널의 '다른 유형도'에서만 보인다. */
+export const countsTowardPromise = (k: PostKind): boolean => k === 'original';
 
 export interface ParsedPost { postId: string; kind: PostKind; text: string; postedAt: string; pinned: boolean }
 

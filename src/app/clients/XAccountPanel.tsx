@@ -152,7 +152,7 @@ export function XAccountPanel({ clientId, register }: { clientId: string; regist
 
           <label className="mt-3 block">
             <span className="text-ui font-bold">업로드 약속</span>
-            <p className="text-caption text-x-muted">클라이언트에게 한 주(월~일)에 새 글이나 인용을 몇 번 올리기로 했는지예요. &apos;약속 없음&apos;이면 점검하지 않아요.</p>
+            <p className="text-caption text-x-muted">클라이언트에게 한 주(월~일)에 새 글을 몇 번 올리기로 했는지예요. 인용, RT, 답글은 세지 않아요. &apos;약속 없음&apos;이면 점검하지 않아요.</p>
             <select value={target ?? ''} onChange={(e) => { setTarget(e.target.value ? Number(e.target.value) : null); setNote(''); }}
                     className="mt-1 block h-8 w-40 rounded-md border border-x-border-strong bg-white px-2 text-ui outline-none focus:border-x-blue">
               <option value="">약속 없음</option>

@@ -7,7 +7,7 @@ import { listDueMeasurements } from '@/lib/autoMeasureStore';
 
 // 콘텐츠 성과 자동 측정(2026-10-08) — 운영 DB의 예약 실행(pg_cron + pg_net)이 5분마다 부른다.
 // Vercel 무료 크론은 하루 1회라 15분·30분 시점을 잴 수 없어 타이머를 DB에 둔다.
-// 일정 판단은 lib/autoMeasure(게시 시각 기준, 두 배씩 → 하루 한 번 → 7일에서 멈춤). 같은 실행이 게시물이 X에서 사라졌는지도 본다 —
+// 일정 판단은 lib/autoMeasure(게시 시각 기준, 두 배씩 → 하루 한 번 → 14일에서 멈춤). 같은 실행이 게시물이 X에서 사라졌는지도 본다 —
 // "없음"이면 recordMissing(1시간 뒤 다시 봐서 확정), 다시 보이면 appendSnapshot이 풀어 준다(2026-10-12).
 // 한 번에 최대 BATCH건 — 남은 건 5분 뒤 다음 실행이 잇는다. 개별 실패는 건너뛴다(틀린 기록보다 빈 기록).
 export const maxDuration = 60;

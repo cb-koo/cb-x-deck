@@ -8,10 +8,11 @@ const DAY = 24 * HOUR;
 const posted = new Date('2026-10-08T10:00:00Z');
 const at = (ms: number) => new Date(posted.getTime() + ms);
 
-test('일정은 두 배씩 늘다가 하루 한 번, 7일에서 끝난다(14개)', () => {
-  assert.equal(CHECKPOINTS_MS.length, 14);
+test('일정은 두 배씩 늘다가 하루 한 번, 14일에서 끝난다(21개)', () => {
+  assert.equal(CHECKPOINTS_MS.length, 21);
   assert.deepEqual(CHECKPOINTS_MS.slice(0, 8), [15 * MIN, 30 * MIN, HOUR, 2 * HOUR, 4 * HOUR, 8 * HOUR, 12 * HOUR, DAY]);
-  assert.equal(LAST_CHECKPOINT_MS, 7 * DAY);
+  assert.equal(LAST_CHECKPOINT_MS, 14 * DAY);
+  assert.deepEqual(CHECKPOINTS_MS.slice(8), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map((d) => d * DAY));
 });
 
 test('첫 시점(15분) 전에는 잴 게 없다', () => {
@@ -36,9 +37,10 @@ test('늦게 등록되면 지난 시점은 건너뛰고 가장 최근 시점 하
   assert.equal(dueCheckpoint(posted, null, at(14 * HOUR)), 12 * HOUR);
 });
 
-test('7일 시점을 잰 뒤에는 더 재지 않는다', () => {
-  assert.equal(dueCheckpoint(posted, at(7 * DAY + MIN), at(8 * DAY)), null);
-  assert.equal(dueCheckpoint(posted, at(6 * DAY), at(7 * DAY + 2 * MIN)), 7 * DAY);
+test('7일 뒤에도 하루 한 번 재고, 14일 시점을 잰 뒤에는 더 재지 않는다', () => {
+  assert.equal(dueCheckpoint(posted, at(7 * DAY + MIN), at(8 * DAY + MIN)), 8 * DAY);
+  assert.equal(dueCheckpoint(posted, at(14 * DAY + MIN), at(15 * DAY)), null);
+  assert.equal(dueCheckpoint(posted, at(13 * DAY), at(14 * DAY + 2 * MIN)), 14 * DAY);
 });
 
 test('게시물 번호에서 게시 시각을 꺼낸다', () => {
@@ -77,11 +79,11 @@ test('링크 댓글은 측정 시점 대신 하루 한 번 살아 있나 본다'
   assert.deepEqual(dueWatch(st({ kind: 'link', lastCapturedAt: at(HOUR) }), at(DAY + HOUR)), { reason: 'daily' });
 });
 
-test('게시 후 7일+1시간이 지나면 아무것도 보지 않는다 — 끝 무렵에 처음 본 "없음"의 확정 확인 한 번만 예외', () => {
-  assert.equal(dueWatch(st({ unavailableAt: at(5 * DAY) }), at(7 * DAY + 2 * HOUR)), null);
-  assert.equal(dueWatch(st({ kind: 'link' }), at(7 * DAY + 2 * HOUR)), null);
-  // 7일+50분에 처음 "없음" → 7일+1시간50분에 확정 확인(그 뒤로는 끝)
-  const late = st({ missingCheckedAt: at(7 * DAY + 50 * MIN) });
-  assert.deepEqual(dueWatch(late, at(7 * DAY + 111 * MIN)), { reason: 'confirm' });
-  assert.equal(dueWatch(late, at(7 * DAY + 2 * HOUR + MIN)), null);
+test('게시 후 14일+1시간이 지나면 아무것도 보지 않는다 — 끝 무렵에 처음 본 "없음"의 확정 확인 한 번만 예외', () => {
+  assert.equal(dueWatch(st({ unavailableAt: at(12 * DAY) }), at(14 * DAY + 2 * HOUR)), null);
+  assert.equal(dueWatch(st({ kind: 'link' }), at(14 * DAY + 2 * HOUR)), null);
+  // 14일+50분에 처음 "없음" → 14일+1시간50분에 확정 확인(그 뒤로는 끝)
+  const late = st({ missingCheckedAt: at(14 * DAY + 50 * MIN) });
+  assert.deepEqual(dueWatch(late, at(14 * DAY + 111 * MIN)), { reason: 'confirm' });
+  assert.equal(dueWatch(late, at(14 * DAY + 2 * HOUR + MIN)), null);
 });

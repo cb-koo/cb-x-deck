@@ -1,7 +1,8 @@
 // 콘텐츠 성과 자동 측정(2026-10-08 koo 결정) — 게시된 캠페인 게시물을 게시 시각 기준 정해진 시점마다 다시 잰다.
 // 측정 시점은 '등록 시각'이 아니라 '실제 게시 시각'부터 센다 — 그래야 늦게 등록된 글의 24시간 조회수도 같은 기준이 된다.
 // 등록이 늦어 이미 지난 시점은 건너뛴다(한 번 실행에 한 번만 잰다 — 밀린 시점을 몰아서 재지 않는다).
-// 간격은 두 배씩(변화가 빠른 초반일수록 촘촘하게), 첫날 뒤로는 하루 한 번, 7일에서 멈춘다(7일이면 최종치의 96~99%).
+// 간격은 두 배씩(변화가 빠른 초반일수록 촘촘하게), 첫날 뒤로는 하루 한 번, 14일에서 멈춘다(koo 10-20: 7일 → 14일.
+// 7일이면 보통 최종치의 96~99%지만 늦게 퍼지는 글을 놓치지 않게 늘렸다. 8~14일은 하루 한 번이라 글당 7번 더 잰다).
 // 같은 타이머가 게시물이 X에서 사라졌는지도 본다(아래 dueWatch, 2026-10-12).
 
 const MIN = 60_000;
@@ -11,6 +12,7 @@ const DAY = 24 * HOUR;
 export const CHECKPOINTS_MS: readonly number[] = [
   15 * MIN, 30 * MIN, 1 * HOUR, 2 * HOUR, 4 * HOUR, 8 * HOUR, 12 * HOUR, 1 * DAY,
   2 * DAY, 3 * DAY, 4 * DAY, 5 * DAY, 6 * DAY, 7 * DAY,
+  8 * DAY, 9 * DAY, 10 * DAY, 11 * DAY, 12 * DAY, 13 * DAY, 14 * DAY,
 ];
 export const LAST_CHECKPOINT_MS = CHECKPOINTS_MS[CHECKPOINTS_MS.length - 1];
 
@@ -27,7 +29,7 @@ export function dueCheckpoint(postedAt: Date, lastCapturedAt: Date | null, now: 
 }
 
 // 게시물 '안 보임' 확인(2026-10-12 koo 결정) — X가 "없음"이라고 하면 바로 확정하지 않고 1시간 뒤 다시 본다(일시 오류 거르기).
-// 두 번째도 없으면 확정(unavailable_at = 처음 없던 시각). 확정 뒤엔 하루 한 번 다시 봐서, 보이면 풀린다. 전부 게시 후 7일(+여유)까지.
+// 두 번째도 없으면 확정(unavailable_at = 처음 없던 시각). 확정 뒤엔 하루 한 번 다시 봐서, 보이면 풀린다. 전부 측정 기간(게시 후 14일, +여유)까지.
 export const MISSING_CONFIRM_MS = HOUR;
 export const MISSING_RECHECK_MS = DAY;
 export const WATCH_WINDOW_MS = LAST_CHECKPOINT_MS + HOUR;

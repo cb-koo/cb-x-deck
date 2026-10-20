@@ -29,7 +29,7 @@ async function setup() {
 const ids = (rows: Array<{ tweetId: string }>) => rows.map((r) => r.tweetId).filter((t) => t.startsWith(P)).sort();
 const reasons = (rows: DueMeasurement[]) => Object.fromEntries(rows.filter((r) => r.tweetId.startsWith(P)).map((r) => [r.tweetId.slice(P.length), r.due]));
 
-test('본 게시물은 시점대로, 링크 댓글은 하루 한 번, 안 보이는 글은 확인 일정대로 — 링크 없는 댓글·7일 지난 글은 뺀다', async () => {
+test('본 게시물은 시점대로, 링크 댓글은 하루 한 번, 안 보이는 글은 확인 일정대로 — 링크 없는 댓글·측정 기간(14일) 지난 글은 뺀다', async () => {
   const { mk } = await setup();
   const now = Date.now();
   const postedAt = (agoMin: number) => new Date(now - agoMin * MIN).toISOString();
@@ -56,11 +56,11 @@ test('본 게시물은 시점대로, 링크 댓글은 하루 한 번, 안 보이
   await linkTrackedPost(sql, p3.id, { taskId: t3.id });
   await sql`update campaign_task set removed_at = now() where id = ${t3.id}`;
 
-  // 4) 8일 전 게시물
+  // 4) 15일 전 게시물 — 측정 기간(14일)이 지났다
   const t4 = await mk('d');
-  const p4 = await attach(t4.id, '4', 8 * 24 * 60);
+  const p4 = await attach(t4.id, '4', 15 * 24 * 60);
   await linkTrackedPost(sql, p4.id, { taskId: t4.id });
-  await sql`update post_metric_snapshot set captured_at = ${postedAt(8 * 24 * 60 - 10)} where tracked_post_id = ${p4.id}`;
+  await sql`update post_metric_snapshot set captured_at = ${postedAt(15 * 24 * 60 - 10)} where tracked_post_id = ${p4.id}`;
 
   // 5) 안 보임 확정(10분 전 확인) — 하루 뒤 다시
   const t5 = await mk('e');

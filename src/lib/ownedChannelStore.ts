@@ -1,7 +1,7 @@
 // X 업로드 현황 저장소 — owned_channel·owned_post·owned_channel_week·owned_channel_snapshot(081). 스펙 2026-10-20 §3
 import type postgres from 'postgres';
 import { parseXHandle } from './xHandle.ts';
-import { weekStartOf, addWeeks, HISTORY_WEEKS, type ChannelInput, type CollectError, type PostKind, type ParsedPost } from './ownedChannels.ts';
+import { weekStartOf, addWeeks, HISTORY_WEEKS, type ChannelInput, type CollectError, type PostKind, type ParsedPost, type PostMetrics } from './ownedChannels.ts';
 
 export interface OwnedChannel {
   id: string; clientId: string; handle: string; accountId: string; accountCreatedAt: string | null;
@@ -105,11 +105,13 @@ export async function recordCollected(
   await sql.begin(async (tx) => {
     if (r.posts.length > 0) {
       const values = r.posts.map((p) => ({ channel_id: ch.id, post_id: p.postId, kind: p.kind, text: p.text, posted_at: p.postedAt,
-        views: p.views, likes: p.likes }));
+        views: p.views, likes: p.likes, replies: p.replies, retweets: p.retweets, quotes: p.quotes, bookmarks: p.bookmarks }));
       // 글은 쌓기만 — 이미 있으면 조회·좋아요만 새 값으로(받지 못한 값은 옛 값 유지)
-      await tx`insert into owned_post ${tx(values, 'channel_id', 'post_id', 'kind', 'text', 'posted_at', 'views', 'likes')}
+      await tx`insert into owned_post ${tx(values, 'channel_id', 'post_id', 'kind', 'text', 'posted_at', 'views', 'likes', 'replies', 'retweets', 'quotes', 'bookmarks')}
         on conflict (channel_id, post_id) do update set
-          views = coalesce(excluded.views, owned_post.views), likes = coalesce(excluded.likes, owned_post.likes)`;
+          views = coalesce(excluded.views, owned_post.views), likes = coalesce(excluded.likes, owned_post.likes),
+          replies = coalesce(excluded.replies, owned_post.replies), retweets = coalesce(excluded.retweets, owned_post.retweets),
+          quotes = coalesce(excluded.quotes, owned_post.quotes), bookmarks = coalesce(excluded.bookmarks, owned_post.bookmarks)`;
     }
     if (r.deleted.length > 0)
       await tx`update owned_post set deleted_at = now() where channel_id = ${ch.id} and post_id in ${tx(r.deleted)} and deleted_at is null`;
@@ -145,8 +147,8 @@ async function inputsFor(sql: postgres.Sql, channels: InputRow[], now: number): 
   const from = new Date(Date.parse(addWeeks(weekStartOf(now), -(HISTORY_WEEKS + 1)) + 'T00:00:00Z') - 9 * 3_600_000);
   const fromDay = addWeeks(weekStartOf(now), -(HISTORY_WEEKS + 1));
   const [posts, weeks, snaps] = await Promise.all([
-    sql<Array<{ channel_id: string; post_id: string; kind: PostKind; text: string; posted_at: Date; deleted_at: Date | null; views: number | null; likes: number | null }>>`
-      select channel_id, post_id, kind, text, posted_at, deleted_at, views, likes from owned_post
+    sql<Array<{ channel_id: string; post_id: string; kind: PostKind; text: string; posted_at: Date; deleted_at: Date | null } & PostMetrics>>`
+      select channel_id, post_id, kind, text, posted_at, deleted_at, views, likes, replies, retweets, quotes, bookmarks from owned_post
       where channel_id in ${sql(ids)} and posted_at >= ${from}`,
     sql<Array<{ channel_id: string; week_start: string; target: number | null }>>`
       select channel_id, week_start::text as week_start, target from owned_channel_week where channel_id in ${sql(ids)}`,
@@ -162,7 +164,8 @@ async function inputsFor(sql: postgres.Sql, channels: InputRow[], now: number): 
     accountCreatedAt: iso(c.account_created_at),
     weekTargets: weeks.filter((w) => w.channel_id === c.id).map((w) => ({ weekStart: String(w.week_start), target: w.target })),
     posts: posts.filter((p) => p.channel_id === c.id).map((p) => ({ postId: p.post_id, kind: p.kind, text: p.text,
-      postedAt: new Date(p.posted_at).toISOString(), deletedAt: iso(p.deleted_at), views: p.views, likes: p.likes })),
+      postedAt: new Date(p.posted_at).toISOString(), deletedAt: iso(p.deleted_at),
+      views: p.views, likes: p.likes, replies: p.replies, retweets: p.retweets, quotes: p.quotes, bookmarks: p.bookmarks })),
     snapshots: snaps.filter((s) => s.channel_id === c.id).map((s) => ({ capturedOn: s.captured_on, followers: s.followers })),
     lastCollectedAt: iso(c.last_collected_at),
     lastError: c.last_error as CollectError | null,

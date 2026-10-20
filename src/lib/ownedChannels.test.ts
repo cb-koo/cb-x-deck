@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyPost, parsePost, weekStartOf, kstYmd, kstMidnight, addWeeks, relativeDay, weekTitle,
-  firstRecordedWeek, targetForWeek, weekCell, missedStreak, buildChannelsView, buildChannelDetail, followerSummary,
+  firstRecordedWeek, targetForWeek, engagementOf, weekCell, missedStreak, buildChannelsView, buildChannelDetail, followerSummary,
   type ChannelInput, type ChannelPost,
 } from './ownedChannels.ts';
 
@@ -26,7 +26,8 @@ test('글 종류 — RT가 먼저, 스레드 이어 쓰기는 답글, 인용, �
   assert.equal(classifyPost({ quoted_tweet: {} }), 'quote');
   assert.equal(classifyPost({ inReplyToId: null }), 'original');
   const p = parsePost({ id: '9', createdAt: 'Mon Oct 19 12:01:23 +0000 2026', text: 'hi', isPinned: true });
-  assert.deepEqual(p, { postId: '9', kind: 'original', text: 'hi', postedAt: '2026-10-19T12:01:23.000Z', pinned: true, views: null, likes: null });
+  assert.deepEqual(p, { postId: '9', kind: 'original', text: 'hi', postedAt: '2026-10-19T12:01:23.000Z', pinned: true,
+    views: null, likes: null, replies: null, retweets: null, quotes: null, bookmarks: null });
   assert.equal(parsePost({ id: '9' }), null);
   assert.equal(parsePost({ id: '8', createdAt: '2026-10-19T00:00:00Z', text: 'Q&amp;A &lt;3 &quot;hi&quot;' })?.text, 'Q&A <3 "hi"');
 });
@@ -226,9 +227,12 @@ test('주 머리 문구 · 표의 게시 시각 · 조회/좋아요', () => {
   assert.equal(d.weeks[2].verdict, '0 / 1회 못 채움');
   assert.equal(d.weeks[3].verdict, '약속 시작 전(글 1개)');
   assert.equal(d.weeks[1].posts[0].day, '10/13(화) 14:05');
-  assert.deepEqual([d.weeks[1].posts[0].views, d.weeks[1].posts[0].likes], [1234, 5]);
-  const p = parsePost({ id: '1', createdAt: '2026-10-19T00:00:00Z', viewCount: 10, likeCount: 2 });
-  assert.deepEqual([p?.views, p?.likes], [10, 2]);
+  assert.deepEqual([d.weeks[1].posts[0].metrics.views, d.weeks[1].posts[0].metrics.likes], [1234, 5]);
+  assert.equal(d.weeks[1].posts[0].engagement, 5 / 1234);
+  const p = parsePost({ id: '1', createdAt: '2026-10-19T00:00:00Z', viewCount: 10, likeCount: 2, replyCount: 1, retweetCount: 3, quoteCount: 0, bookmarkCount: 4 });
+  assert.deepEqual([p?.views, p?.likes, p?.replies, p?.retweets, p?.quotes, p?.bookmarks], [10, 2, 1, 3, 0, 4]);
+  assert.equal(engagementOf({ views: 100, likes: 2, replies: 1, retweets: 3, quotes: 0, bookmarks: 4 }), 0.1);
+  assert.equal(engagementOf({ views: 0, likes: 2, replies: null, retweets: null, quotes: null, bookmarks: null }), null);
   const cur = buildChannelDetail(channel({ currentTarget: 2, posts: [post('2026-10-20 09:00')] }), NOW);
   assert.equal(cur.weeks[0].verdict, '1 / 2회 진행 중');
 });

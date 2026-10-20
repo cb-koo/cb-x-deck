@@ -223,7 +223,7 @@ test('약속 시작일 — 새 계정은 오늘이 기본, 바꾸면 그 값, �
 
   const ch = (await getChannel(sql, c.id))!;
   await collectChannel(sql, fakeReader({ pages: [{ has_more: false, next_cursor: null, tweets: [tw('v', '2026-10-20 10:00', { viewCount: 10, likeCount: 1 })] }] }).reader, ch, { now: NOW });
-  await collectChannel(sql, fakeReader({ pages: [{ has_more: false, next_cursor: null, tweets: [tw('v', '2026-10-20 10:00', { viewCount: 99, likeCount: 4 })] }] }).reader, (await getChannel(sql, c.id))!, { now: NOW });
-  const [row] = await sql`select views, likes from owned_post where channel_id = ${ch.id} and post_id = 'v'`;
-  assert.deepEqual([row.views, row.likes], [99, 4]);
+  await collectChannel(sql, fakeReader({ pages: [{ has_more: false, next_cursor: null, tweets: [tw('v', '2026-10-20 10:00', { viewCount: 99, likeCount: 4, replyCount: 2, retweetCount: 1, quoteCount: 0, bookmarkCount: 3 })] }] }).reader, (await getChannel(sql, c.id))!, { now: NOW });
+  const [row] = await sql`select views, likes, replies, retweets, quotes, bookmarks from owned_post where channel_id = ${ch.id} and post_id = 'v'`;
+  assert.deepEqual([row.views, row.likes, row.replies, row.retweets, row.quotes, row.bookmarks], [99, 4, 2, 1, 0, 3]);
 });

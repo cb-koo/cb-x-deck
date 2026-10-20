@@ -64,13 +64,13 @@ export default function ChannelsPage() {
             <Button onClick={() => { setLoadErr(false); void load(); }}>다시 시도</Button>
           </div>
         )}
-        {data && data.view.thisWeek.total === 0 && (
+        {data && data.view.thisWeek.total + data.view.thisWeek.upcoming.length === 0 && (
           <p className="rounded-xl border border-x-border bg-white px-5 py-8 text-center text-content text-x-secondary">
             X 계정과 업로드 약속을 정한 클라이언트가 아직 없어요. 클라이언트 설정에서 정하면 여기에 모여요.{' '}
             <Link href="/clients" className="text-x-blue-text hover:underline">클라이언트로 →</Link>
           </p>
         )}
-        {data && data.view.thisWeek.total > 0 && (
+        {data && data.view.thisWeek.total + data.view.thisWeek.upcoming.length > 0 && (
           <div className="space-y-5">
             <ThisWeekPanel view={data.view} refreshing={refreshing} onRefresh={refresh}
                            showDone={showDone} onToggleDone={() => setShowDone((v) => !v)} onOpen={setOpenId} />
@@ -117,11 +117,11 @@ function ThisWeekPanel({ view, refreshing, onRefresh, showDone, onToggleDone, on
           </button>
         </div>
       </div>
-      <div className="px-5 pb-5">
+      {w.total > 0 && <div className="px-5 pb-5">
         <p className={BIG}>{w.doneCount}<span className={COMP}>/ {w.total}곳 달성</span></p>
         <div className={`${BAR} mt-2.5`}><i className="block h-full bg-x-text" style={{ width: `${pct}%` }} /></div>
         {w.headline && <p className="mt-3 text-[15px] text-x-text">{w.headline}</p>}
-      </div>
+      </div>}
 
       {w.pending.length === 0 ? (
         null
@@ -141,6 +141,12 @@ function ThisWeekPanel({ view, refreshing, onRefresh, showDone, onToggleDone, on
         </>
       )}
       {w.done.length > 0 && w.pending.length === 0 && <WeekTable rows={w.done} onOpen={onOpen} />}
+      {/* 시작일이 아직인 곳 — 판정 대상이 아니라 숫자·판단 한 줄에서 빼고 한 줄로만 알린다 */}
+      {w.upcoming.length > 0 && (
+        <p className="border-t border-x-border px-5 py-3 text-[14px] text-x-muted">
+          시작 전 {w.upcoming.length}곳: {w.upcoming.map((r) => `${r.clientName}(${r.situation})`).join(', ')}
+        </p>
+      )}
     </section>
   );
 }
@@ -244,7 +250,7 @@ function HistoryPanel({ view, onOpen }: { view: ChannelsView; onOpen: (id: strin
       <div className="flex items-center gap-4 border-t border-x-border px-5 py-3 text-ui text-x-muted">
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-[3px] bg-[#e6f6ee] shadow-[inset_0_0_0_1px_#bfe5cf]" />달성</span>
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-[3px] bg-[#fdecec] shadow-[inset_0_0_0_1px_#f5c2c2]" />미달</span>
-        <span className="inline-flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-[3px] shadow-[inset_0_0_0_1px_var(--color-x-border-strong)]" />약속 전(판정 안 함)</span>
+        <span className="inline-flex items-center gap-1.5"><i className="inline-block h-3 w-3 rounded-[3px] shadow-[inset_0_0_0_1px_var(--color-x-border-strong)]" />판정 안 함(약속 전, 약속 없음)</span>
         <span>— 기록 전</span>
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-[5px] w-[5px] rounded-full bg-x-muted" />지워진 글 포함</span>
       </div>

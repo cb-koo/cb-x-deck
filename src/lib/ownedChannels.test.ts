@@ -212,7 +212,7 @@ test('약속 시작일 — 그 전 주는 판정하지 않고 글 수만, 시작
   assert.equal(v.thisWeek.pending[0].situation, '지난주 미달');
   // 시작일이 미래면 이번 주도 판정 전
   const future = buildChannelsView([channel({ promiseStartedOn: '2026-10-27' })], NOW);
-  assert.equal(future.thisWeek.pending[0].situation, '10/27 시작');
+  assert.equal(future.thisWeek.upcoming[0].situation, '10/27 시작');
 });
 
 test('표의 게시 시각 · 9주 밖 글은 빠짐', () => {
@@ -254,4 +254,27 @@ test('판단 한 줄 — 남은 곳 수, 그중 먼저 챙길 곳', () => {
   assert.equal(all.thisWeek.headline, '모든 곳이 이번 주 약속을 달성했어요.');
   assert.equal(weekRangeShort('2026-09-14'), '9/14~20');
   assert.equal(weekRangeShort('2026-09-28'), '9/28~10/4');
+});
+
+test('새로 등록한 계정(시작일 = 오늘) — 지난 8주 요약은 "M/D부터 판정", 쉰 주만 있으면 "약속 없음"(리뷰 10-20)', () => {
+  const fresh = buildChannelsView([channel({ promiseStartedOn: '2026-10-21', posts: [post('2026-10-13 10:00')] })], NOW);
+  assert.equal(fresh.history.rows[0].summary, '10/21부터 판정');
+  assert.equal(fresh.history.rows[0].cells[7].count, 1);      // 칸에는 글 수가 보인다
+  const paused = channel({ weekTargets: [{ weekStart: '2026-08-24', target: null }], currentTarget: 1 });
+  assert.equal(buildChannelsView([paused], NOW).history.rows[0].summary, '약속 없음');
+  const partly = channel({ weekTargets: [{ weekStart: '2026-08-24', target: null }, { weekStart: '2026-10-12', target: 1 }],
+    posts: [post('2026-10-13 10:00')] });
+  assert.equal(buildChannelsView([partly], NOW).history.rows[0].summary, '판정한 1주 모두 달성');
+});
+
+test('시작일이 다음 주인 곳은 판정 대상 수·판단 한 줄에서 빠지고 따로 모인다(리뷰 10-20)', () => {
+  const v = buildChannelsView([
+    channel({ channelId: 'a', clientName: '가', promiseStartedOn: '2026-10-27' }),
+    channel({ channelId: 'b', clientName: '나', posts: [post('2026-10-20 10:00')] }),
+  ], NOW);
+  assert.equal(v.thisWeek.total, 1);
+  assert.equal(v.thisWeek.doneCount, 1);
+  assert.equal(v.thisWeek.pending.length, 0);
+  assert.deepEqual(v.thisWeek.upcoming.map((r) => [r.clientName, r.situation]), [['가', '10/27 시작']]);
+  assert.equal(v.thisWeek.headline, '모든 곳이 이번 주 약속을 달성했어요.');
 });

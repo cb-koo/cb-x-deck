@@ -80,11 +80,14 @@ export function XAccountPanel({ clientId, register }: { clientId: string; regist
       // 문구는 서버가 실제로 한 일에서 고른다 — 받지 않았으면 받았다고 말하지 않는다(UX 원칙 4)
       if (body.isNew) setNote(body.collected ? `${who} 계정을 확인했어요. 지난 8주 글을 받아 왔어요.` : `${who} 계정을 저장했어요. 글은 내일 아침에 받아 와요.`);
       else if (renamed) setNote('새 이름으로 저장했어요. 같은 계정이라 기록은 그대로예요.');
-      else if (wasStart !== body.channel.promiseStartedOn && wasTarget === body.channel.weeklyTarget)
-        setNote(body.channel.promiseStartedOn ? `${Number(body.channel.promiseStartedOn.slice(5, 7))}/${Number(body.channel.promiseStartedOn.slice(8, 10))}이 든 주부터 판정해요` : '지난 8주를 모두 판정해요')
-      else if (wasTarget !== body.channel.weeklyTarget)
-        setNote(body.channel.weeklyTarget === null ? '이번 주부터 점검하지 않아요' : `이번 주부터 주 ${body.channel.weeklyTarget}회로 판정해요`);
-      else setNote('저장했어요');
+      else {
+        // 약속 횟수와 시작일을 한 번에 바꾸면 둘 다 말한다(리뷰 10-20)
+        const parts: string[] = [];
+        const nt = body.channel.weeklyTarget, ns = body.channel.promiseStartedOn;
+        if (wasTarget !== nt) parts.push(nt === null ? '이번 주부터 점검하지 않아요' : `이번 주부터 주 ${nt}회로 판정해요`);
+        if (wasStart !== ns) parts.push(ns ? `${Number(ns.slice(5, 7))}/${Number(ns.slice(8, 10))}이 든 주부터 판정해요` : '지난 8주를 모두 판정해요');
+        setNote(parts.length ? parts.join('. ') : '저장했어요');
+      }
       return true;
     } finally { setSaving(false); setConfirming(null); }
   }, [clientId, channel]);

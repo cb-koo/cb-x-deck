@@ -19,6 +19,9 @@ create table if not exists owned_channel (
   unique (client_id, channel)
 );
 
+-- 081을 고치기 전에 적용한 DB(연습용)도 맞춘다 — create table if not exists는 이미 있는 표에 칸을 더하지 않는다(리뷰 10-20)
+alter table owned_channel add column if not exists promise_started_on date;
+
 -- 읽어 온 글. 쌓이기만 한다 — X에서 지워져도 줄은 남고 deleted_at만 찍힌다. 횟수에는 그대로 들어간다(스펙 §4-3).
 create table if not exists owned_post (
   id          uuid primary key default gen_random_uuid(),
@@ -41,6 +44,8 @@ create table if not exists owned_channel_week (
   target      int check (target between 1 and 14),
   primary key (channel_id, week_start)
 );
+
+alter table owned_channel_week alter column target drop not null;
 
 -- 팔로워 기록. 하루 한 줄(한국 날짜) — 다시 받으면 그날 줄을 덮는다.
 create table if not exists owned_channel_snapshot (

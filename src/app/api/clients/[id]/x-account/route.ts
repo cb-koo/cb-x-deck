@@ -45,7 +45,9 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
   if (target !== null && !(Number.isInteger(target) && target >= 1 && target <= 14))
     return NextResponse.json({ error: '업로드 약속은 주 1~14회로 정해 주세요' }, { status: 400 });
   const start = body.promiseStartedOn;
-  if (start !== undefined && start !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(start) || Number.isNaN(Date.parse(start))))
+  // 정규식 + 왕복 비교 — Date.parse('2026-02-31')은 NaN이 아니라 3/3으로 넘어가서 DB에서 500이 났다(리뷰 10-20)
+  if (start !== undefined && start !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(start)
+      || Number.isNaN(Date.parse(start)) || new Date(start + 'T00:00:00Z').toISOString().slice(0, 10) !== start))
     return NextResponse.json({ error: '약속 시작일을 날짜로 넣어 주세요' }, { status: 400 });
 
   const sql = getSql();

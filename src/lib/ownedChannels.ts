@@ -228,6 +228,7 @@ export interface ChannelsView {
     headline: string;                  // 판단 한 줄(UX 원칙 3) — '4곳이 아직이에요. 그중 2곳은 지난주에도 미달이에요. 1곳은 계정 확인이 필요해요.'
     total: number; doneCount: number;
     pending: ThisWeekRow[]; done: ThisWeekRow[];
+    upcoming: ThisWeekRow[];           // 약속 시작일이 이번 주보다 뒤 — 판정 대상이 아니라 total·판단 한 줄에서 뺀다(리뷰 10-20)
   };
   history: { weeks: string[]; rows: HistoryRow[] };
 }
@@ -247,13 +248,22 @@ function lastPostLabel(c: ChannelInput, now: number): string {
   return latest ? relativeDay(latest, now) : '기록 없음';
 }
 
-function historySummary(cells: WeekCell[], streak: number): { summary: string; bad: boolean } {
+function historySummary(c: ChannelInput, cells: WeekCell[], streak: number): { summary: string; bad: boolean } {
   if (streak >= 2) return { summary: `${streak}주 연속 미달`, bad: true };
   const recorded = cells.filter((x) => x.met !== null);
   const n = recorded.length;
   const m = recorded.filter((x) => x.met).length;
-  if (n === 0) return { summary: '기록 없음', bad: false };
-  if (m === n) return { summary: n === cells.length ? `${n}주 모두 달성` : `시작 후 ${n}주 모두 달성`, bad: false };
+  // 판정한 주가 없을 때 — 칸에는 글 수가 보이는데 '기록 없음'이라 하면 라벨과 값이 어긋난다(UX 원칙 4, 리뷰 10-20)
+  if (n === 0) {
+    if (cells.some((x) => x.state === 'beforeStart') && c.promiseStartedOn) return { summary: `${md(c.promiseStartedOn)}부터 판정`, bad: false };
+    if (cells.some((x) => x.state === 'noPromise')) return { summary: '약속 없음', bad: false };
+    return { summary: '기록 없음', bad: false };
+  }
+  if (m === n) {
+    if (n === cells.length) return { summary: `${n}주 모두 달성`, bad: false };
+    // 판정 안 한 주가 쉰 주(약속 없음)면 '시작 후'가 틀린 말이다
+    return { summary: cells.some((x) => x.state === 'noPromise') ? `판정한 ${n}주 모두 달성` : `시작 후 ${n}주 모두 달성`, bad: false };
+  }
   return { summary: `${m}/${n}주 달성`, bad: false };
 }
 
@@ -290,6 +300,7 @@ export function buildChannelsView(inputs: ChannelInput[], now: number): Channels
 
   const pending: Array<{ row: ThisWeekRow; streak: number; lastAt: string }> = [];
   const done: ThisWeekRow[] = [];
+  const upcoming: ThisWeekRow[] = [];
   const rows: Array<{ row: HistoryRow; streak: number }> = [];
 
   for (const c of inputs) {
@@ -305,13 +316,14 @@ export function buildChannelsView(inputs: ChannelInput[], now: number): Channels
       done: !accountBad && curCell.met === true, tone: s.tone, situation: s.text,
       lastPost: lastPostLabel(c, now), staleNote,
     };
-    if (row.done) done.push(row);
+    if (curCell.state === 'beforeStart' && !accountBad) upcoming.push(row);
+    else if (row.done) done.push(row);
     else {
       const latest = c.posts.filter((p) => countsTowardPromise(p.kind)).reduce((a, p) => (p.postedAt > a ? p.postedAt : a), '');
       pending.push({ row, streak: accountBad ? 1e9 : streak, lastAt: latest });
     }
     rows.push({ row: { channelId: c.channelId, clientId: c.clientId, clientName: c.clientName, handle: c.handle,
-      target: c.currentTarget, cells, ...historySummary(cells, streak) }, streak });
+      target: c.currentTarget, cells, ...historySummary(c, cells, streak) }, streak });
   }
 
   // 이번 주: 계정 확인 실패 → 연속 미달 주 많은 순 → 남은 횟수 많은 순 → 마지막 글 오래된 순 → 이름
@@ -329,7 +341,7 @@ export function buildChannelsView(inputs: ChannelInput[], now: number): Channels
       daysLeftLabel: daysLeft <= 1 ? '오늘 마감' : `${daysLeft}일 남음`,
       checkedLabel: checkedLabel(inputs, now),
       headline: headlineFor(pending.map((p) => p.row), done.length),
-      total: inputs.length, doneCount: done.length,
+      total: inputs.length - upcoming.length, doneCount: done.length, upcoming: upcoming.sort(byName),
       pending: pending.map((p) => p.row), done,
     },
     history: { weeks, rows: rows.map((r) => r.row) },

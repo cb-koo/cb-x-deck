@@ -23,7 +23,6 @@ export default function ChannelsPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [loadErr, setLoadErr] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [showDone, setShowDone] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -72,8 +71,7 @@ export default function ChannelsPage() {
         )}
         {data && data.view.thisWeek.total + data.view.thisWeek.upcoming.length > 0 && (
           <div className="space-y-10">
-            <ThisWeekPanel view={data.view} refreshing={refreshing} onRefresh={refresh}
-                           showDone={showDone} onToggleDone={() => setShowDone((v) => !v)} onOpen={setOpenId} />
+            <ThisWeekPanel view={data.view} refreshing={refreshing} onRefresh={refresh} onOpen={setOpenId} />
             <HistoryPanel view={data.view} onOpen={setOpenId} />
             {data.unchecked > 0 && (
               <p className="text-ui text-x-muted">
@@ -89,14 +87,11 @@ export default function ChannelsPage() {
   );
 }
 
-function ThisWeekPanel({ view, refreshing, onRefresh, showDone, onToggleDone, onOpen }: {
-  view: ChannelsView; refreshing: boolean; onRefresh: () => void;
-  showDone: boolean; onToggleDone: () => void; onOpen: (id: string) => void;
+function ThisWeekPanel({ view, refreshing, onRefresh, onOpen }: {
+  view: ChannelsView; refreshing: boolean; onRefresh: () => void; onOpen: (id: string) => void;
 }) {
   const w = view.thisWeek;
   const pct = w.total ? Math.round((w.doneCount / w.total) * 100) : 0;
-  // 남은 곳이 없으면 완료 묶음을 펼친 채로 — 접힌 한 줄만 남으면 표가 비어 보인다
-  const doneOpen = showDone || w.pending.length === 0;
   return (
     <section aria-labelledby="sec-this-week">
       <SectionHead id="sec-this-week" title="이번 주" sub={w.title}
@@ -143,10 +138,9 @@ function ThisWeekPanel({ view, refreshing, onRefresh, showDone, onToggleDone, on
             )}
             {w.done.length > 0 && (
               <tbody>
-                <GroupRow tone="done" label="완료" count={w.done.length}
-                          names={doneOpen ? undefined : w.done.map((r) => r.clientName).join(', ')}
-                          toggle={w.pending.length > 0 ? { open: doneOpen, onClick: onToggleDone } : undefined} />
-                {doneOpen && <WeekRows rows={w.done} onOpen={onOpen} />}
+                {/* 완료도 항상 펼쳐 둔다 — 접기는 한 번 더 눌러야 해서 오히려 안 보였다(koo 10-21) */}
+                <GroupRow tone="done" label="완료" count={w.done.length} />
+                <WeekRows rows={w.done} onOpen={onOpen} />
               </tbody>
             )}
           </table>
@@ -175,11 +169,8 @@ function SectionHead({ id, title, sub, right }: { id: string; title: string; sub
   );
 }
 
-/** 묶음 머리 줄 — 남은 곳(주황 점), 완료(초록 체크). 완료는 눌러서 펼치고 접는다 */
-function GroupRow({ tone, label, count, names, toggle }: {
-  tone: 'pending' | 'done'; label: string; count: number; names?: string;
-  toggle?: { open: boolean; onClick: () => void };
-}) {
+/** 묶음 머리 줄 — 남은 곳(주황 점), 완료(초록 체크) */
+function GroupRow({ tone, label, count }: { tone: 'pending' | 'done'; label: string; count: number }) {
   const done = tone === 'done';
   const inner = (
     <span className="flex items-center gap-2.5">
@@ -187,16 +178,12 @@ function GroupRow({ tone, label, count, names, toggle }: {
         ? <span aria-hidden className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#15803d] text-[11px] font-bold text-white">✓</span>
         : <span aria-hidden className="inline-block h-[9px] w-[9px] rounded-full bg-[#d97706]" />}
       <b className={`text-[14px] font-semibold ${done ? 'text-[#15803d]' : 'text-[#b45309]'}`}>{label} {count}곳</b>
-      {names && <span className="min-w-0 truncate text-x-secondary">{names}</span>}
-      {toggle && <span className="ml-auto shrink-0 text-ui font-medium text-x-secondary">{toggle.open ? '접기 ▴' : '펼치기 ▾'}</span>}
     </span>
   );
   return (
     <tr>
       <td colSpan={5} className={`border-b border-x-border px-5 py-2.5 ${done ? 'bg-[#f2faf5]' : 'bg-[#fffaf3]'}`}>
-        {toggle
-          ? <button type="button" onClick={toggle.onClick} aria-expanded={toggle.open} className="block w-full text-left">{inner}</button>
-          : inner}
+        {inner}
       </td>
     </tr>
   );

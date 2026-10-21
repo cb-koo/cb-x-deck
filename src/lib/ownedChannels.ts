@@ -208,6 +208,7 @@ export interface ThisWeekRow {
   target: number;
   done: boolean;
   tone: Tone;
+  flag: 'account' | 'missed' | 'deadline' | null;   // 주황인 이유 — 판단 한 줄이 이유별로 센다
   situation: string;                   // 상태 칩 — 짧은 명사형(koo 10-13·10-20): '3주 연속 미달' · '지난주 미달' · '1회 남음' · '완료' · '계정 확인 필요'
   lastPost: string;                    // '9/26(25일 전)' · '기록 없음'
   staleNote: string | null;            // 오늘 수집이 실패했을 때 '10/20 기준'
@@ -233,14 +234,22 @@ export interface ChannelsView {
   history: { weeks: string[]; rows: HistoryRow[] };
 }
 
-function situationFor(c: ChannelInput, cur: WeekCell, streak: number): { tone: Tone; text: string } {
-  if (c.lastError === 'notFound' || c.lastError === 'accountChanged') return { tone: 'warn', text: '계정 확인 필요' };
-  if (cur.state === 'beforeStart' && c.promiseStartedOn) return { tone: 'plain', text: `${md(c.promiseStartedOn)} 시작` };
+/** 마감 임박 — 남은 날(오늘 포함)이 이만큼 이하인데 아직 남았으면 주황으로 올린다(토·일, koo 10-21) */
+export const DEADLINE_DAYS = 2;
+
+type Situation = { tone: Tone; text: string; flag: ThisWeekRow['flag'] };
+function situationFor(c: ChannelInput, cur: WeekCell, streak: number, daysLeft: number): Situation {
+  if (c.lastError === 'notFound' || c.lastError === 'accountChanged') return { tone: 'warn', text: '계정 확인 필요', flag: 'account' };
+  if (cur.state === 'beforeStart' && c.promiseStartedOn) return { tone: 'plain', text: `${md(c.promiseStartedOn)} 시작`, flag: null };
   // 이번 주는 '완료'(진행 중인 주라 해낸 일로), 지난 주 기록은 '달성/미달'(koo 10-21)
-  if (cur.met) return { tone: 'ok', text: '완료' };
-  if (streak >= 2) return { tone: 'warn', text: `${streak}주 연속 미달` };
-  if (streak === 1) return { tone: 'warn', text: '지난주 미달' };
-  return { tone: 'plain', text: `${c.currentTarget - (cur.count ?? 0)}회 남음` };
+  if (cur.met) return { tone: 'ok', text: '완료', flag: null };
+  // 연속 미달이 마감 임박보다 무겁다 — 둘 다면 연속 미달을 보인다
+  if (streak >= 2) return { tone: 'warn', text: `${streak}주 연속 미달`, flag: 'missed' };
+  if (streak === 1) return { tone: 'warn', text: '지난주 미달', flag: 'missed' };
+  const left = c.currentTarget - (cur.count ?? 0);
+  // 지난주를 잘 지켰어도 주말까지 남았으면 놓치기 직전이다 — 회색 'N회 남음'으로 두면 눈에 안 띈다
+  if (daysLeft <= DEADLINE_DAYS) return { tone: 'warn', text: `마감 임박(${left}회 남음)`, flag: 'deadline' };
+  return { tone: 'plain', text: `${left}회 남음`, flag: null };
 }
 
 function lastPostLabel(c: ChannelInput, now: number): string {
@@ -269,11 +278,13 @@ function historySummary(c: ChannelInput, cells: WeekCell[], streak: number): { s
 }
 
 /** 이번 주 판단 한 줄 — 판단 먼저, 근거는 짧게(koo 10-14 요약 서술 규칙) */
-export function headlineFor(pending: ThisWeekRow[], doneCount: number): string {
+export function headlineFor(pending: ThisWeekRow[], doneCount: number, daysLeft = 7): string {
   if (pending.length === 0) return doneCount > 0 ? '모든 곳이 이번 주 업로드를 완료했어요.' : '';
-  const account = pending.filter((r) => r.count === null).length;
-  const missed = pending.filter((r) => r.count !== null && r.tone === 'warn').length;
-  const parts = [`${pending.length}곳이 아직이에요.`];
+  const account = pending.filter((r) => r.flag === 'account').length;
+  const missed = pending.filter((r) => r.flag === 'missed').length;
+  // 마감이 가까우면 그 사실을 먼저 — '아직'보다 '오늘이 마감'이 할 일을 바로 말한다
+  const when = daysLeft <= 1 ? '오늘이 마감인데 ' : daysLeft <= DEADLINE_DAYS ? '마감까지 이틀, ' : '';
+  const parts = [`${when}${pending.length}곳이 아직이에요.`];
   if (missed > 0) parts.push(`그중 ${missed}곳은 지난주에도 미달이에요.`);
   if (account > 0) parts.push(`${account}곳은 계정 확인이 필요해요.`);
   return parts.join(' ');
@@ -309,12 +320,12 @@ export function buildChannelsView(inputs: ChannelInput[], now: number): Channels
     const streak = missedStreak(cells);
     const curCell = weekCell(c, cur, true);
     const accountBad = c.lastError === 'notFound' || c.lastError === 'accountChanged';
-    const s = situationFor(c, curCell, streak);
+    const s = situationFor(c, curCell, streak, daysLeft);
     const staleNote = c.lastCollectedAt && kstYmd(c.lastCollectedAt) < today ? `${md(kstYmd(c.lastCollectedAt))} 기준` : null;
     const row: ThisWeekRow = {
       channelId: c.channelId, clientId: c.clientId, clientName: c.clientName, handle: c.handle,
       count: accountBad ? null : curCell.count, target: c.currentTarget,
-      done: !accountBad && curCell.met === true, tone: s.tone, situation: s.text,
+      done: !accountBad && curCell.met === true, tone: s.tone, flag: s.flag, situation: s.text,
       lastPost: lastPostLabel(c, now), staleNote,
     };
     if (curCell.state === 'beforeStart' && !accountBad) upcoming.push(row);
@@ -341,7 +352,7 @@ export function buildChannelsView(inputs: ChannelInput[], now: number): Channels
       weekStart: cur, title: weekTitle(cur),
       daysLeftLabel: daysLeft <= 1 ? '오늘 마감' : `${daysLeft}일 남음`,
       checkedLabel: checkedLabel(inputs, now),
-      headline: headlineFor(pending.map((p) => p.row), done.length),
+      headline: headlineFor(pending.map((p) => p.row), done.length, daysLeft),
       total: inputs.length - upcoming.length, doneCount: done.length, upcoming: upcoming.sort(byName),
       pending: pending.map((p) => p.row), done,
     },

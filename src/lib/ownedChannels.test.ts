@@ -279,3 +279,19 @@ test('시작일이 다음 주인 곳은 판정 대상 수·판단 한 줄에서 
   assert.deepEqual(v.thisWeek.upcoming.map((r) => [r.clientName, r.situation]), [['가', '10/27 시작']]);
   assert.equal(v.thisWeek.headline, '모든 곳이 이번 주 업로드를 완료했어요.');
 });
+
+test('마감 임박 — 토·일에 아직 남은 곳은 주황, 지난주 미달이면 그쪽이 우선, 판단 한 줄도 마감을 먼저(koo 10-21)', () => {
+  const SAT = Date.parse('2026-10-24T01:00:00Z');   // 10/24(토) 10:00 한국 — 남은 날 2
+  const SUN = Date.parse('2026-10-25T01:00:00Z');   // 10/25(일) — 오늘 마감
+  const fine = channel({ channelId: 'a', clientName: '가', currentTarget: 2, posts: [post('2026-10-13 10:00'), post('2026-10-14 10:00'), post('2026-10-20 10:00')] });
+  const missedLast = channel({ channelId: 'b', clientName: '나', posts: [post('2026-10-06 10:00')] });
+  const sat = buildChannelsView([fine, missedLast], SAT);
+  const by = Object.fromEntries(sat.thisWeek.pending.map((r) => [r.clientName, r]));
+  assert.deepEqual([by['가'].situation, by['가'].tone, by['가'].flag], ['마감 임박(1회 남음)', 'warn', 'deadline']);
+  assert.equal(by['나'].situation, '지난주 미달');
+  assert.equal(sat.thisWeek.headline, '마감까지 이틀, 2곳이 아직이에요. 그중 1곳은 지난주에도 미달이에요.');
+  assert.equal(buildChannelsView([fine], SUN).thisWeek.headline, '오늘이 마감인데 1곳이 아직이에요.');
+  // 평일(화)엔 회색 그대로
+  const tue = buildChannelsView([fine], NOW).thisWeek.pending[0];
+  assert.deepEqual([tue.situation, tue.tone, tue.flag], ['1회 남음', 'plain', null]);
+});

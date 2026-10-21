@@ -114,7 +114,7 @@ test('이번 주 — 못 채운 곳 문구·색·정렬, 채운 곳은 따로', 
   assert.equal(c.tone, 'plain');
   assert.equal(d.situation, '1회 남음');
   assert.equal(d.count, 1);
-  assert.equal(v.thisWeek.done[0].situation, '달성');
+  assert.equal(v.thisWeek.done[0].situation, '완료');
   assert.equal(v.thisWeek.done[0].tone, 'ok');
 });
 
@@ -252,7 +252,7 @@ test('판단 한 줄 — 남은 곳 수, 그중 먼저 챙길 곳', () => {
   const bad = buildChannelsView([channel({ lastError: 'notFound' }), channel({ channelId: 'z', posts: [post('2026-09-26 10:00')] })], NOW);
   assert.equal(bad.thisWeek.headline, '2곳이 아직이에요. 그중 1곳은 지난주에도 미달이에요. 1곳은 계정 확인이 필요해요.');
   const all = buildChannelsView([channel({ posts: [post('2026-10-20 10:00')] })], NOW);
-  assert.equal(all.thisWeek.headline, '모든 곳이 이번 주 약속을 달성했어요.');
+  assert.equal(all.thisWeek.headline, '모든 곳이 이번 주 업로드를 완료했어요.');
   assert.equal(weekRangeShort('2026-09-14'), '9/14~20');
   assert.equal(weekRangeShort('2026-09-28'), '9/28~10/4');
 });
@@ -277,5 +277,5 @@ test('시작일이 다음 주인 곳은 판정 대상 수·판단 한 줄에서 
   assert.equal(v.thisWeek.doneCount, 1);
   assert.equal(v.thisWeek.pending.length, 0);
   assert.deepEqual(v.thisWeek.upcoming.map((r) => [r.clientName, r.situation]), [['가', '10/27 시작']]);
-  assert.equal(v.thisWeek.headline, '모든 곳이 이번 주 약속을 달성했어요.');
+  assert.equal(v.thisWeek.headline, '모든 곳이 이번 주 업로드를 완료했어요.');
 });

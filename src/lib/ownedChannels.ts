@@ -208,7 +208,7 @@ export interface ThisWeekRow {
   target: number;
   done: boolean;
   tone: Tone;
-  situation: string;                   // 상태 칩 — 짧은 명사형(koo 10-13·10-20): '3주 연속 미달' · '지난주 미달' · '1회 남음' · '달성' · '계정 확인 필요'
+  situation: string;                   // 상태 칩 — 짧은 명사형(koo 10-13·10-20): '3주 연속 미달' · '지난주 미달' · '1회 남음' · '완료' · '계정 확인 필요'
   lastPost: string;                    // '9/26(25일 전)' · '기록 없음'
   staleNote: string | null;            // 오늘 수집이 실패했을 때 '10/20 기준'
 }
@@ -236,7 +236,8 @@ export interface ChannelsView {
 function situationFor(c: ChannelInput, cur: WeekCell, streak: number): { tone: Tone; text: string } {
   if (c.lastError === 'notFound' || c.lastError === 'accountChanged') return { tone: 'warn', text: '계정 확인 필요' };
   if (cur.state === 'beforeStart' && c.promiseStartedOn) return { tone: 'plain', text: `${md(c.promiseStartedOn)} 시작` };
-  if (cur.met) return { tone: 'ok', text: '달성' };
+  // 이번 주는 '완료'(진행 중인 주라 해낸 일로), 지난 주 기록은 '달성/미달'(koo 10-21)
+  if (cur.met) return { tone: 'ok', text: '완료' };
   if (streak >= 2) return { tone: 'warn', text: `${streak}주 연속 미달` };
   if (streak === 1) return { tone: 'warn', text: '지난주 미달' };
   return { tone: 'plain', text: `${c.currentTarget - (cur.count ?? 0)}회 남음` };
@@ -269,7 +270,7 @@ function historySummary(c: ChannelInput, cells: WeekCell[], streak: number): { s
 
 /** 이번 주 판단 한 줄 — 판단 먼저, 근거는 짧게(koo 10-14 요약 서술 규칙) */
 export function headlineFor(pending: ThisWeekRow[], doneCount: number): string {
-  if (pending.length === 0) return doneCount > 0 ? '모든 곳이 이번 주 약속을 달성했어요.' : '';
+  if (pending.length === 0) return doneCount > 0 ? '모든 곳이 이번 주 업로드를 완료했어요.' : '';
   const account = pending.filter((r) => r.count === null).length;
   const missed = pending.filter((r) => r.count !== null && r.tone === 'warn').length;
   const parts = [`${pending.length}곳이 아직이에요.`];

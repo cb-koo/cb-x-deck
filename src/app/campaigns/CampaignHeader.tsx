@@ -191,7 +191,8 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete 
                  }}
                  aria-label="캠페인 이름" className={`${INPUT} h-11 min-w-0 flex-1 text-[20px] font-extrabold sm:max-w-[520px]`} />
         ) : (
-          <button type="button" onClick={() => open('name')} title="눌러서 이름 바꾸기"
+          // data-issue-title: 불편 알리기가 '보낸 곳'에 캠페인 이름을 붙이는 자리 — 이 화면 제목은 h1이 아니라 이 버튼이다
+          <button type="button" onClick={() => open('name')} title="눌러서 이름 바꾸기" data-issue-title
                   className="-mx-1 min-w-0 truncate rounded-md px-1 text-left text-[20px] font-extrabold leading-[28px] text-x-text hover:bg-x-hover">{campaign.name}</button>
         )}
         <span className={`shrink-0 whitespace-nowrap rounded-full px-[10px] py-[3px] text-[13px] font-bold leading-[18px] ${STATUS_STYLE[status]}`}>{CAMPAIGN_STATUS_LABEL[status]}</span>

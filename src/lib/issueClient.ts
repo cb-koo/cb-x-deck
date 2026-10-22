@@ -48,7 +48,9 @@ export function collectIssueLocation(): IssueLocation {
   const panels = Array.from(document.querySelectorAll(PANEL_SEL)).filter((el) => !el.closest(OURS) && visible(el));
   // 맨 위 = 문서 순서상 마지막(포털·뒤에 그려진 레이어가 뒤에 붙는다 — pasteModalGuard와 같은 판단)
   const top = panels[panels.length - 1];
-  const h1 = Array.from(document.querySelectorAll('h1')).find((h) => !h.closest(PANEL_SEL) && !h.closest(OURS) && visible(h));
+  // 제목: 화면이 직접 표시한 자리(data-issue-title — 캠페인처럼 제목이 h1이 아닌 화면)가 먼저, 없으면 첫 h1
+  const pageTitle = (sel: string) => Array.from(document.querySelectorAll(sel)).find((h) => !h.closest(PANEL_SEL) && !h.closest(OURS) && visible(h));
+  const h1 = pageTitle('[data-issue-title]') ?? pageTitle('h1');
   const taskId = document.querySelector('[data-issue-task-id]')?.getAttribute('data-issue-task-id') ?? null;
   return {
     screen: screenNameFor(window.location.pathname),

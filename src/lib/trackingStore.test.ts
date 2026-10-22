@@ -132,6 +132,18 @@ test('6) 측정 이력: 최신순 반환 · limit 적용 · 삭제 시 함께 �
 
   assert.equal((await listSnapshots(sql, row.id, 2)).length, 2);
 
+  // 추정값(082)은 실측 사이에 시간순으로 끼고 '추정'으로 구분된다 — 조회수 말고는 비어 있다
+  await sql`insert into post_metric_estimate (tracked_post_id, day, estimated_at, views, method, basis)
+            values (${row.id}, 1, now() - interval '1 hour', 150, 'test', '{}')`;
+  const mixed = await listSnapshots(sql, row.id);
+  assert.equal(mixed.length, 4);
+  const est = mixed.filter((h) => h.estimated);
+  assert.equal(est.length, 1);
+  assert.equal(est[0].metrics.views, 150);
+  assert.equal(est[0].metrics.likes, null);
+  assert.equal(mixed[mixed.length - 1].estimated, true); // 1시간 전 = 방금 쌓은 실측들보다 아래
+  assert.equal(mixed[0].estimated, undefined);           // 실측 줄에는 표시 키가 없다
+
   await deleteTrackedPost(sql, row.id);
   assert.deepEqual(await listSnapshots(sql, row.id), []); // cascade
 });

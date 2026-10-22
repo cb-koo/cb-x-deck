@@ -348,22 +348,32 @@ function MetricHistory({ rows, state }: { rows: MetricSnapshotRow[]; state: Hist
   if (state === 'error') return note('측정 이력을 불러오지 못했어요 — 접었다 다시 열어보세요');
   if (rows.length === 0) return note('아직 측정 기록이 없어요');
 
+  const estimates = rows.filter((s) => s.estimated).length;
   return (
     <>
       {rows.map((s, i) => {
         // 증감(+N)은 넣었다가 뺐다(koo 08-16) — 값이 세로로 정렬돼 있으면 변화는 눈이 직접 읽는다.
         const last = i === rows.length - 1;
         return (
-          <tr key={s.capturedAt} className={`bg-x-surface/60 ${last ? 'border-b border-x-border' : ''}`}>
+          <tr key={`${s.estimated ? 'e' : 's'}${s.capturedAt}`} className={`bg-x-surface/60 ${last ? 'border-b border-x-border' : ''}`}>
             <td /><td />
             {/* 계정 자리: 이 줄들이 위 행의 이력임을 말하는 표시 — 첫 줄에만 적어 반복을 줄인다 */}
             <td className="whitespace-nowrap py-1 pl-3 text-caption text-x-muted">
-              {i === 0 && `측정 이력 ${rows.length}건${rows.length >= 50 ? ' (최근 50)' : ''}`}
+              {i === 0 && `측정 이력 ${rows.length - estimates}건${estimates ? `, 추정 ${estimates}건` : ''}${rows.length >= 50 ? ' (최근 50)' : ''}`}
             </td>
             <td /><td /><td />
+            {/* 추정값은 조회수만 있다 — 다른 지표 칸은 '측정 실패(–)'가 아니라 '재지 않음'이라 비운다 */}
             {METRICS.map((m) => (
-              <td key={m.key} className="whitespace-nowrap px-3 py-1 text-right text-x-secondary tabular-nums">
-                {formatFull(s.metrics[m.key])}
+              <td key={m.key} className={`whitespace-nowrap px-3 py-1 text-right tabular-nums ${s.estimated ? 'text-x-muted' : 'text-x-secondary'}`}>
+                {s.estimated
+                  ? m.key === 'views' && (
+                      <>
+                        <span className="mr-1.5 rounded-full bg-x-hover px-1.5 py-0.5 text-caption text-x-muted"
+                              title="측정이 멈춘 날의 조회수를 앞뒤 실측과 과거 글들의 증가 흐름으로 채운 값이에요">추정</span>
+                        {formatFull(s.metrics.views)}
+                      </>
+                    )
+                  : formatFull(s.metrics[m.key])}
               </td>
             ))}
             <td className="whitespace-nowrap px-3 py-1 text-x-secondary tabular-nums">{kstDateTime(s.capturedAt)}</td>

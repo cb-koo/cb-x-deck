@@ -121,23 +121,34 @@ async function attachDerivedRoles(sql: postgres.Sql, rows: Array<TrackedPostRow 
 export interface MetricSnapshotRow {
   capturedAt: string;      // ISO
   metrics: PostMetrics;
+  estimated?: true;        // 추정값(082) — 실측이 멈춘 날을 채운 조회수. 조회수 말고는 null
 }
 
 type SnapRow = {
   captured_at: Date;
   views: string | number | null; likes: number | null; retweets: number | null;
   replies: number | null; bookmarks: number | null; quotes: number | null;
+  estimated: boolean;
 };
 
 // limit: 이력이 길어져도 한 번에 다 그리지 않는다(자동 수집이 붙으면 게시물당 수백 건이 된다).
 // 인덱스 (tracked_post_id, captured_at desc)를 그대로 타므로 얼마나 쌓이든 조회 비용은 일정하다.
+// 추정값(post_metric_estimate)도 시간순으로 끼워 함께 준다 — 표시에서 '추정'으로 구분한다.
 export async function listSnapshots(
   sql: postgres.Sql, trackedPostId: string, limit = 50,
 ): Promise<MetricSnapshotRow[]> {
   const rows = await sql<SnapRow[]>`
-    select captured_at, views, likes, retweets, replies, bookmarks, quotes
-    from post_metric_snapshot
-    where tracked_post_id = ${trackedPostId}
+    select * from (
+      (select captured_at, views, likes, retweets, replies, bookmarks, quotes, false as estimated
+         from post_metric_snapshot
+        where tracked_post_id = ${trackedPostId}
+        order by captured_at desc
+        limit ${limit})
+      union all
+      select estimated_at, views, null, null, null, null, null, true
+        from post_metric_estimate
+       where tracked_post_id = ${trackedPostId}
+    ) h
     order by captured_at desc
     limit ${limit}`;
   return rows.map((r) => ({
@@ -147,6 +158,7 @@ export async function listSnapshots(
       likes: r.likes, retweets: r.retweets, replies: r.replies,
       bookmarks: r.bookmarks, quotes: r.quotes,
     },
+    ...(r.estimated ? { estimated: true as const } : {}),
   }));
 }
 

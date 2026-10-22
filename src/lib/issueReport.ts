@@ -14,7 +14,8 @@ export const ISSUE_TAB_LABEL: Record<IssueTab, string> = { todo: '할 일', reso
 export interface IssueLocation {
   screen: string;          // 사이드바 메뉴 이름 — '캠페인'
   title: string | null;    // 본문 첫 h1 — '10월 4주차 가은치유한의원'
-  panel: string | null;    // 맨 위에 열린 패널·창 제목 — '인용RT · @miyuxxx48'
+  panel: string | null;    // 열린 옆 패널 제목 — '인용RT · @miyuxxx48'
+  dialog: string | null;   // 그 위에 뜬 가운데 창 제목 — '기존 방문 작업에 예약 추가'. 링크로는 열리지 않는다(상세에 그렇게 적는다)
   path: string;            // pathname + search — [이 화면 열기]가 가는 곳
   taskId: string | null;   // 캠페인 작업 패널이 열려 있었으면 그 작업 id — [이 화면 열기]가 패널까지 연다
   viewport: string | null; // '1440×900'
@@ -103,6 +104,7 @@ export function sanitizeLocation(v: unknown): IssueLocation | null {
     screen,
     title: clip(o.title, MAX_LOC_FIELD),
     panel: clip(o.panel, MAX_LOC_FIELD),
+    dialog: clip(o.dialog, MAX_LOC_FIELD),
     path,
     taskId: typeof o.taskId === 'string' && UUID_RE.test(o.taskId) ? o.taskId : null,
     viewport: clip(o.viewport, 20),
@@ -111,7 +113,7 @@ export function sanitizeLocation(v: unknown): IssueLocation | null {
 
 /** jsonb 컬럼 읽기 — 모양이 보증되지 않으므로 다듬어서 돌려준다. 깨졌으면 '알 수 없음'. */
 export function locationOf(v: unknown): IssueLocation {
-  return sanitizeLocation(v) ?? { screen: '알 수 없음', title: null, panel: null, path: '/', taskId: null, viewport: null };
+  return sanitizeLocation(v) ?? { screen: '알 수 없음', title: null, panel: null, dialog: null, path: '/', taskId: null, viewport: null };
 }
 
 export function isIssueStatus(v: unknown): v is IssueStatus {
@@ -120,11 +122,12 @@ export function isIssueStatus(v: unknown): v is IssueStatus {
 
 // ── 표시 ──
 
-/** 보낸 곳 한 줄 — '캠페인 › 10월 4주차 가은치유한의원 › 인용RT · @miyuxxx48'. 제목이 화면 이름과 같으면 한 번만. */
+/** 보낸 곳 한 줄 — '캠페인 › 10월 4주차 가은치유한의원 › 인용RT · @miyuxxx48 › 기존 방문 작업에 예약 추가'. 제목이 화면 이름과 같으면 한 번만. */
 export function locationLine(l: IssueLocation): string {
   const parts = [l.screen];
   if (l.title && l.title !== l.screen) parts.push(l.title);
   if (l.panel) parts.push(l.panel);
+  if (l.dialog && l.dialog !== l.panel) parts.push(l.dialog);
   return parts.join(' › ');
 }
 
@@ -153,7 +156,7 @@ export function inTab(i: Pick<IssueReport, 'status' | 'reporterId'>, tab: IssueT
 export function slackIssueText(i: { reporterName: string; body: string; location: IssueLocation; hasScreenshot: boolean; url: string }): string {
   const flat = i.body.replace(/\s+/g, ' ').trim();
   const body = flat.length > 80 ? flat.slice(0, 80) + '…' : flat;
-  const where = [i.location.screen, i.location.panel].filter(Boolean).join(' › ');
+  const where = [i.location.screen, i.location.panel, i.location.dialog].filter(Boolean).join(' › ');
   const extra = i.hasScreenshot ? `${where}, 스크린샷 1장` : where;
   // 슬랙 mrkdwn: <url|글자> 링크. 본문의 <,>,&는 슬랙 문법과 겹쳐 이스케이프한다.
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

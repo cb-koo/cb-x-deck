@@ -5,7 +5,7 @@ import { createIssue, getIssue, listIssues, updateIssue, markReplySeen, countUns
 
 const sql = getSql();
 const P = 'iss' + process.pid;
-const LOC = { screen: '캠페인', title: null, panel: '작업 @a', path: '/campaigns/flow', taskId: null, viewport: '1440×900' };
+const LOC = { screen: '캠페인', title: null, panel: '작업 @a', dialog: '예약 추가', path: '/campaigns/flow', taskId: null, viewport: '1440×900' };
 
 after(async () => {
   await sql`delete from issue_report where body like ${P + '%'}`;

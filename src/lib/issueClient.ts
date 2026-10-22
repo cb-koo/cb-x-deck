@@ -24,7 +24,6 @@ export async function signIssueScreenshot(path: string): Promise<string> {
 // ── 위치 모으기(스펙 §2-3) ──
 // 우리 자신(버튼·보내는 창)은 data-issue-report로 표시해 두고 모든 탐색에서 뺀다.
 const OURS = '[data-issue-report]';
-const PANEL_SEL = 'dialog[open], [role="dialog"]';
 
 const visible = (el: Element) => {
   const r = el.getBoundingClientRect();
@@ -44,18 +43,44 @@ function panelTitle(el: Element): string | null {
   return el.getAttribute('aria-label');
 }
 
+// 열린 층 나누기 — 화면 오른쪽 끝에 붙어 위아래를 다 덮는 '옆 패널'(작업 패널 등)과, 그 위에 뜨는 '가운데 창'.
+// 가운데 창은 role이 없는 것도 많아(정산 다이얼로그 등) 화면 전체를 덮는 어두운 바탕(fixed inset-0)도 창으로 친다.
+// 바탕 안에 role="dialog"가 따로 있으면 그것 하나로 센다(같은 창이 두 번 잡히지 않게).
+const LAYER_SEL = 'dialog[open], [role="dialog"], [aria-modal="true"], .fixed.inset-0';
+
+function openLayers(): { sides: Element[]; modals: Element[] } {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const all = Array.from(document.querySelectorAll(LAYER_SEL)).filter((el) => !el.closest(OURS) && visible(el));
+  const sides: Element[] = [], modals: Element[] = [];
+  for (const el of all) {
+    const r = el.getBoundingClientRect();
+    const fullScreen = r.left <= 2 && r.top <= 2 && r.right >= vw - 2 && r.bottom >= vh - 2;
+    if (fullScreen) {
+      // 어두운 바탕 — 안에 창이 따로 잡히면 그쪽이 센다. 바탕만 있는 창(role 없음)은 바탕이 곧 창이다
+      if (!all.some((o) => o !== el && el.contains(o))) modals.push(el);
+      continue;
+    }
+    if (r.right >= vw - 2 && r.top <= 2 && r.bottom >= vh - 2) sides.push(el);
+    else if (el.getAttribute('aria-modal') === 'true' || el.tagName === 'DIALOG' || el.closest('.fixed.inset-0')) modals.push(el);
+    // 그 밖의 role="dialog"(작은 팝오버)는 층으로 치지 않는다 — 버튼을 옮길 이유도, 보낸 곳에 적을 이유도 없다
+  }
+  return { sides, modals };
+}
+
 export function collectIssueLocation(): IssueLocation {
-  const panels = Array.from(document.querySelectorAll(PANEL_SEL)).filter((el) => !el.closest(OURS) && visible(el));
+  const { sides, modals } = openLayers();
   // 맨 위 = 문서 순서상 마지막(포털·뒤에 그려진 레이어가 뒤에 붙는다 — pasteModalGuard와 같은 판단)
-  const top = panels[panels.length - 1];
+  const side = sides[sides.length - 1];
+  const modal = modals[modals.length - 1];
   // 제목: 화면이 직접 표시한 자리(data-issue-title — 캠페인처럼 제목이 h1이 아닌 화면)가 먼저, 없으면 첫 h1
-  const pageTitle = (sel: string) => Array.from(document.querySelectorAll(sel)).find((h) => !h.closest(PANEL_SEL) && !h.closest(OURS) && visible(h));
+  const pageTitle = (sel: string) => Array.from(document.querySelectorAll(sel)).find((h) => !h.closest(LAYER_SEL) && !h.closest(OURS) && visible(h));
   const h1 = pageTitle('[data-issue-title]') ?? pageTitle('h1');
   const taskId = document.querySelector('[data-issue-task-id]')?.getAttribute('data-issue-task-id') ?? null;
   return {
     screen: screenNameFor(window.location.pathname),
     title: textOf(h1),
-    panel: top ? panelTitle(top) : null,
+    panel: side ? panelTitle(side) : null,
+    dialog: modal ? panelTitle(modal) : null,
     path: window.location.pathname + window.location.search,
     taskId,
     viewport: `${window.innerWidth}×${window.innerHeight}`,
@@ -64,18 +89,16 @@ export function collectIssueLocation(): IssueLocation {
 
 // ── 버튼 자리 재기(스펙 §2-1) ──
 /**
- * 지금 화면에서 버튼의 right·bottom. 먼저 화면 오른쪽 끝에 붙어 위아래를 다 덮는 패널을 찾아 옆으로 비키고,
- * 그 자리(비킨 뒤의 오른쪽 아래)에 걸린 하단 고정 줄이 있으면 위로 올린다.
+ * 지금 화면에서 버튼의 right·bottom.
+ * - 가운데 창이 떠 있으면 오른쪽 아래 구석. 어두운 바탕이 아래 패널·바를 덮어 누를 것이 없고, 패널 옆(화면 가운데 아래)에
+ *   있으면 창 밑에 끼어 어색하다(koo QA 10-22, 예약 추가 창).
+ * - 아니면 옆 패널을 비키고, 그 자리에 걸린 하단 고정 줄이 있으면 위로 올린다.
  */
 export function measureFabPosition(): { right: number; bottom: number } {
   const vw = window.innerWidth, vh = window.innerHeight;
-  let rightPanelWidth = 0;
-  for (const el of document.querySelectorAll(PANEL_SEL)) {
-    if (el.closest(OURS)) continue;
-    const r = el.getBoundingClientRect();
-    if (r.width <= 0 || r.height <= 0) continue;
-    if (r.right >= vw - 2 && r.top <= 2 && r.bottom >= vh - 2) rightPanelWidth = Math.max(rightPanelWidth, vw - r.left);
-  }
+  const { sides, modals } = openLayers();
+  if (modals.length > 0) return fabPosition({ viewportWidth: vw, rightPanelWidth: 0, bottomBarHeight: 0 });
+  const rightPanelWidth = sides.reduce((w, el) => Math.max(w, vw - el.getBoundingClientRect().left), 0);
   const fabRight = fabPosition({ viewportWidth: vw, rightPanelWidth, bottomBarHeight: 0 }).right;
   let bottomBarHeight = 0;
   for (const el of document.querySelectorAll('[data-bottom-bar]')) {

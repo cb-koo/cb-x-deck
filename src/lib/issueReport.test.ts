@@ -25,16 +25,20 @@ test('위치 다듬기 — 화면·주소가 없으면 거절, 길이는 자르�
   assert.equal(l.screen, '캠페인');
   assert.equal(l.title?.length, 200);
   assert.equal(l.panel, null);
+  assert.equal(l.dialog, null);
   assert.equal(l.taskId, null);
   assert.equal(sanitizeLocation({ screen: 'a', path: '/', taskId: UUID })?.taskId, UUID);
   assert.equal(locationOf('broken').screen, '알 수 없음');
 });
 
 test('보낸 곳 한 줄과 [이 화면 열기] 주소 — 작업 패널이면 ?task=를 더한다', () => {
-  const l = { screen: '캠페인', title: '10월 4주차 가은치유한의원', panel: '인용RT · @miyuxxx48', path: '/campaigns/flow?id=c1', taskId: UUID, viewport: null };
+  const l = { screen: '캠페인', title: '10월 4주차 가은치유한의원', panel: '인용RT · @miyuxxx48', dialog: null, path: '/campaigns/flow?id=c1', taskId: UUID, viewport: null };
   assert.equal(locationLine(l), '캠페인 › 10월 4주차 가은치유한의원 › 인용RT · @miyuxxx48');
   assert.equal(locationHref(l), `/campaigns/flow?id=c1&task=${UUID}`);
   assert.equal(locationLine({ ...l, title: '캠페인', panel: null }), '캠페인');
+  // 패널 위에 뜬 가운데 창은 끝에 붙는다 — 링크는 패널까지만 연다(상세에 따로 적는다)
+  assert.equal(locationLine({ ...l, dialog: '기존 방문 작업에 예약 추가' }), '캠페인 › 10월 4주차 가은치유한의원 › 인용RT · @miyuxxx48 › 기존 방문 작업에 예약 추가');
+  assert.equal(locationHref({ ...l, dialog: '기존 방문 작업에 예약 추가' }), `/campaigns/flow?id=c1&task=${UUID}`);
   assert.equal(locationHref({ ...l, path: '/settlement', taskId: null }), '/settlement');
   assert.equal(locationHref({ ...l, path: '/campaigns/flow' }), `/campaigns/flow?task=${UUID}`);
 });
@@ -71,7 +75,7 @@ test('스크린샷 — 형식·용량, 경로 모양', () => {
 test('슬랙 한 줄 — 80자에서 자르고 슬랙 문법 글자는 이스케이프', () => {
   const t = slackIssueText({
     reporterName: '박구건', body: '표가 <안> 바뀌어요 & ' + '가'.repeat(100),
-    location: { screen: '캠페인', title: null, panel: '작업 @a', path: '/', taskId: null, viewport: null },
+    location: { screen: '캠페인', title: null, panel: '작업 @a', dialog: null, path: '/', taskId: null, viewport: null },
     hasScreenshot: true, url: 'https://x.test/issues?id=1',
   });
   assert.match(t, /\*박구건\*님이 이슈를 보냈어요/);

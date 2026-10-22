@@ -114,6 +114,12 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
                 {locationLine(issue.location)}
                 <Link href={locationHref(issue.location)} className="ml-2 whitespace-nowrap text-x-blue-text hover:underline">이 화면 열기 ↗</Link>
               </p>
+              {/* 가운데 창은 주소에 남지 않아 링크로 다시 열 수 없다 — 스크린샷과 열린 화면이 다른 이유를 미리 말한다(koo QA 10-22) */}
+              {issue.location.dialog && (
+                <p className="mt-1 text-ui text-x-muted">
+                  링크는 {issue.location.taskId ? '작업 패널' : '화면'}까지 열어요. ‘{issue.location.dialog}’ 창은 거기서 직접 열어 주세요.
+                </p>
+              )}
             </div>
             <div>
               <p className={LABEL}>내용</p>

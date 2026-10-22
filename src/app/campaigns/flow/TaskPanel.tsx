@@ -391,6 +391,8 @@ export function TaskPanel({
       // 띄우면 그 클릭이 사라져 캠페인이 안 바뀌고, 한 번 더 누르면 확인이 또 뜬다(koo 09-27).
       if (t.closest('[data-campaign-list]')) return;
       if (t.closest('[role="dialog"],[role="menu"],[role="tooltip"],[role="listbox"]')) return;
+      // 불편 알리기 버튼·창·토스트 — 패널을 띄운 채 패널에 대해 보내는 것이라 닫지 않는다(이슈 리포트 스펙 §2-1)
+      if (t.closest('[data-issue-report]')) return;
       requestClose();
     };
     document.addEventListener('pointerdown', onDown);
@@ -990,7 +992,7 @@ export function TaskPanel({
     : (newType ? `원고 · ${TASK_TYPE_LABEL[newType]} · ${handle ? `@${handle}` : '인플루언서 미정'}` : '');
 
   return (
-    <aside ref={panelRef} role="dialog" aria-label="작업 편집" className="fixed inset-y-0 right-0 z-40 flex w-[560px] flex-col border-l border-x-border bg-white shadow-xl">
+    <aside ref={panelRef} role="dialog" aria-label="작업 편집" data-issue-task-id={task?.id} className="fixed inset-y-0 right-0 z-40 flex w-[560px] flex-col border-l border-x-border bg-white shadow-xl">
       <div className="flex items-start justify-between border-b border-x-border px-6 pt-5 pb-4">
         <div className="min-w-0">
           {inDraftMode

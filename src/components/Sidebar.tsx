@@ -1,10 +1,13 @@
 'use client';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useMember } from '@/lib/memberContext';
 import { interceptNav } from '@/lib/navGuard';
 import { createClient } from '@/lib/supabase/client';
+import { apiFetch } from '@/lib/apiFetch';
+import { IssueReport } from '@/components/IssueReport';
 import { ColumnsIcon, DocIcon, FolderIcon, PenIcon, ClinicIcon, PromptIcon, UserIcon, ViewIcon, CampaignIcon, TrendIcon, MapPinIcon } from './XIcons';
 
 // 리포트(막대 그래프) — 다른 XIcons는 채움(fill) 단일 path인데 막대 그래프는 선(stroke) 3개가
@@ -36,6 +39,16 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
 }) {
   const pathname = usePathname();
   const { member } = useMember();
+  // '이슈' 옆 숫자 — 답이 달렸는데 아직 안 본 내 이슈 수(스펙 2026-10-22 §2-4). 화면을 옮길 때와 이슈가 바뀔 때 다시 센다.
+  const [unseenIssues, setUnseenIssues] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = () => apiFetch('/api/issues/unseen').then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (alive && j) setUnseenIssues(j.unseen); }).catch(() => {});
+    load();
+    window.addEventListener('cbx-issues-changed', load);
+    return () => { alive = false; window.removeEventListener('cbx-issues-changed', load); };
+  }, [pathname]);
   // 로그아웃 — /denied와 동일 패턴. signOut 후 하드 이동. 편집 유실 가드는 못 태운다
   // (가드 모달의 '이동'이 인증된 상태를 전제) — 알려진 한계, 후속 과제.
   const signOut = async () => {
@@ -115,6 +128,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
 
   return (
     <aside data-tour="sidebar" className="flex h-screen w-52 shrink-0 flex-col border-r border-x-border bg-x-surface p-3">
+      {/* 불편 알리기 둥근 버튼 — 화면 오른쪽 아래에 고정(fixed)으로 뜬다. 사이드바가 있는 모든 화면에 붙이려고 여기 둔다 */}
+      <IssueReport />
       {/* 회사 로고 — clinicbridge.co.kr의 /images/cb-logo-black.svg를 줄여(svgo, 250KB → 4KB) 그대로 쓴다. 누르면 첫 화면 */}
       <Link href="/" onNavigate={guardedNavigate('/')} aria-label="Clinic Bridge 첫 화면" className="mb-4 mt-1 block px-1">
         <Image src="/brand/clinicbridge-logo.svg" alt="Clinic Bridge" width={130} height={28} priority className="h-[22px] w-auto" />
@@ -158,6 +173,15 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
               aria-current={pathname === '/updates' ? 'page' : undefined}
               className={`flex items-center gap-2.5 rounded-full px-3 py-1.5 text-caption hover:bg-x-text/5 ${pathname === '/updates' ? 'text-x-text' : 'text-x-muted'}`}>
           업데이트 소식
+        </Link>
+        {/* 불편 알리기로 보낸 것과 그 처리 — 보낸 것(오른쪽 아래 버튼)과 고친 것(업데이트 소식)이 한곳에 모이게 바로 아래(스펙 2026-10-22 §2-4) */}
+        <Link href="/issues" onNavigate={guardedNavigate('/issues')}
+              aria-current={pathname === '/issues' ? 'page' : undefined}
+              className={`flex items-center justify-between gap-2.5 rounded-full px-3 py-1.5 text-caption hover:bg-x-text/5 ${pathname === '/issues' ? 'text-x-text' : 'text-x-muted'}`}>
+          이슈
+          {unseenIssues > 0 && (
+            <span aria-label={`새 답 ${unseenIssues}건`} className="rounded-full bg-x-blue px-1.5 text-[11px] leading-4 text-white">{unseenIssues}</span>
+          )}
         </Link>
         <Link href="/usage" onNavigate={guardedNavigate('/usage')}
               aria-current={pathname === '/usage' ? 'page' : undefined}

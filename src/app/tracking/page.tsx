@@ -465,7 +465,7 @@ function TrackingTabs() {
                           onMore={() => setShownCount((n) => n + PAGE_STEP)} />
           {/* 여러 건을 고르면 뜨는 바 — 결과를 내려가 고른 뒤 액션을 찾아 되올라오지 않게 하단 sticky(BulkActionBar 규격) */}
           {selectedVisible.length > 0 && (
-            <div className="sticky bottom-0 z-10 -mx-4 mt-2 flex flex-wrap items-center gap-3 border-t border-x-border bg-white px-4 py-2.5 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
+            <div data-bottom-bar className="sticky bottom-0 z-10 -mx-4 mt-2 flex flex-wrap items-center gap-3 border-t border-x-border bg-white px-4 py-2.5 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
               <span className="text-ui font-bold">{selectedVisible.length}개 선택됨</span>
               <Button onClick={() => requestRemove(selectedVisible)} className="whitespace-nowrap"
                       title="고른 게시물을 목록에서 빼고 쌓인 측정 기록도 지워요">

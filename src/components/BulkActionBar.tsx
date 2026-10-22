@@ -35,7 +35,7 @@ export function BulkActionBar({ count, options, linksText, onStatus, onInfluence
     }
   }
   return (
-    <div className="sticky bottom-0 z-10 -mx-4 mt-2 flex flex-wrap items-center gap-2 border-t border-x-border bg-white px-4 py-2.5 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
+    <div data-bottom-bar className="sticky bottom-0 z-10 -mx-4 mt-2 flex flex-wrap items-center gap-2 border-t border-x-border bg-white px-4 py-2.5 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
       <span className="text-ui font-bold">{count}개 선택됨</span>
 
       <label className="relative inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-x-border-strong bg-white px-2.5 text-ui font-bold text-x-secondary focus-within:ring-2 focus-within:ring-x-blue">

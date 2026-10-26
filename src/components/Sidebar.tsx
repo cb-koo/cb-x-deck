@@ -88,6 +88,11 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     { href: '/reports', label: '리포트', Ic: ReportIcon },
   ];
 
+  // 리포트 — 캠페인 운영 다음 묶음(koo 10-26). 월간 리포트는 별도 앱(monthly-report)이라 새 탭으로 연다.
+  const reportNav = [
+    { href: 'https://monthly-report-tan.vercel.app/', label: '월간 리포트', Ic: ReportIcon },
+  ];
+
   // 설정 성격 화면(가끔 들어가 재료·규칙을 손보는 곳) — 매일 쓰는 작업 메뉴와 분리 (사이드바 개선 스펙)
   const settingsNav = [
     { href: '/clients', label: '클라이언트', Ic: ClinicIcon },
@@ -109,6 +114,15 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
           className={`flex items-center gap-2.5 rounded-full px-3 py-2 text-ui hover:bg-x-text/5 ${pathname === n.href ? 'font-bold text-x-text' : 'text-x-secondary'}`}>
       <n.Ic className="h-[18px] w-[18px]" />{n.label}
     </Link>
+  );
+  // 바깥 앱 링크 — 앱 안 이동이 아니라 새 탭(이동 가드·aria-current 불필요). ↗로 밖으로 나간다는 걸 미리 알린다.
+  const externalLink = (n: { href: string; label: string; Ic: (p: { className?: string }) => React.ReactNode }) => (
+    <a key={n.href} href={n.href} target="_blank" rel="noopener noreferrer"
+       className="flex items-center gap-2.5 rounded-full px-3 py-2 text-ui text-x-secondary hover:bg-x-text/5">
+      <n.Ic className="h-[18px] w-[18px]" />{n.label}
+      <span aria-hidden className="text-caption text-x-muted">↗</span>
+      <span className="sr-only">(새 탭)</span>
+    </a>
   );
   const groupTitle = (t: string) => <p className="mb-1 px-1 text-caption text-x-muted">{t}</p>;
   const divider = <div className="my-2 border-t border-x-border" />;
@@ -142,6 +156,10 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
 
         {groupTitle('캠페인 운영')}
         {globalNav.map(link)}
+        {divider}
+
+        {groupTitle('리포트')}
+        {reportNav.map(externalLink)}
         {divider}
 
         {groupTitle('설정')}

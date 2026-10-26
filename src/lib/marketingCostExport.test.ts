@@ -86,3 +86,8 @@ test('toMarketingCostItem — 스펙 §3 행 모양으로 직렬화, amountKrw�
     splitCount: 1,
   });
 });
+
+test('CLIENT_ID_TO_CLINIC_ID — 백수약국이 LINE 슬러그 baeksu로 매핑된다', () => {
+  assert.equal(CLIENT_ID_TO_CLINIC_ID['541384f7-0184-4a57-bfd1-61abe9e4d243'], 'baeksu');
+  assert.equal(resolveClinicId('541384f7-0184-4a57-bfd1-61abe9e4d243', null), 'baeksu');
+});

@@ -38,6 +38,11 @@ test('CLIENT_ID_TO_CLINIC_ID — koo가 준 4개 클라이언트가 스펙 §5 �
   assert.equal(CLIENT_ID_TO_CLINIC_ID['3e9e4e61-c837-4d04-b711-df72a7bd32d5'], 'thesquaredentaljp');
 });
 
+test('CLIENT_ID_TO_CLINIC_ID — 가은치유한의원·벤자민클리닉이 LINE 대시보드 슬러그로 매핑된다(2026-10-26)', () => {
+  assert.equal(CLIENT_ID_TO_CLINIC_ID['ac0c4669-9b1e-4804-85b5-77b7165e4578'], 'gaeunchiu');
+  assert.equal(CLIENT_ID_TO_CLINIC_ID['2934834a-a931-4b9f-8d27-28d348a1eb28'], 'benjaminclinic');
+});
+
 test('clampPageLimit — 1~2000, 기본 500·최대 2000, 정수 아님/0 이하는 기본', () => {
   assert.equal(clampPageLimit(null), 500);
   assert.equal(clampPageLimit('0'), 500);
@@ -80,4 +85,9 @@ test('toMarketingCostItem — 스펙 §3 행 모양으로 직렬화, amountKrw�
     originalAmount: 12903,
     splitCount: 1,
   });
+});
+
+test('CLIENT_ID_TO_CLINIC_ID — 백수약국이 LINE 슬러그 baeksu로 매핑된다', () => {
+  assert.equal(CLIENT_ID_TO_CLINIC_ID['541384f7-0184-4a57-bfd1-61abe9e4d243'], 'baeksu');
+  assert.equal(resolveClinicId('541384f7-0184-4a57-bfd1-61abe9e4d243', null), 'baeksu');
 });

@@ -38,6 +38,9 @@ export const CLIENT_ID_TO_CLINIC_ID: Record<string, string> = {
   '70baf347-ea8c-4e8e-a32c-4bb18cca50ff': 'maindskinjp',        // 마인드스킨클리닉
   '904cb696-7236-45cf-a7b0-803033f5fbe2': 'sonyounajp',         // 닥터손유나클리닉
   '3e9e4e61-c837-4d04-b711-df72a7bd32d5': 'thesquaredentaljp',  // 더스퀘어치과
+  'ac0c4669-9b1e-4804-85b5-77b7165e4578': 'gaeunchiu',          // 가은치유한의원 (2026-10-26)
+  '2934834a-a931-4b9f-8d27-28d348a1eb28': 'benjaminclinic',     // 벤자민클리닉 (2026-10-26)
+  '541384f7-0184-4a57-bfd1-61abe9e4d243': 'baeksu',             // 백수약국 (2026-10-26)
 };
 export const MAPPED_CLIENT_IDS = Object.keys(CLIENT_ID_TO_CLINIC_ID);
 // 우선순위: 고정 UUID 매핑 → clinic_code 폴백(스테이징/테스트 DB는 UUID가 달라 폴백을 탄다). 둘 다 없으면 null(집계 제외).

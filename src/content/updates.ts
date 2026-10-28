@@ -13,7 +13,7 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
-    date: '2026-10-29', type: '수정',
+    date: '2026-10-28', type: '수정',
     title: "검색 트렌드에서 '개념·비교' 비중이 부풀려 보이던 문제를 고쳤어요",
     summary: "'リジュランとは'처럼 붙여 쓴 '〇〇とは' 검색에 Google 검색량 도구가 실제의 20~60배 값을 줘서(리쥬란 월 2.1만 회, 띄어 쓴 쪽은 350회), 많은 시술이 '알아보는 단계'로 잘못 보였어요. 이 값을 빼고 계산해요.",
     bullets: [

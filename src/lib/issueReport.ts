@@ -152,15 +152,31 @@ export function inTab(i: Pick<IssueReport, 'status' | 'reporterId'>, tab: IssueT
   return i.status !== 'resolved';
 }
 
-/** 슬랙 알림 본문(스펙 §6). 내용은 한 줄로 펴서 80자에서 자른다. */
+/**
+ * 슬랙 알림 본문(스펙 §6) — 칸으로 나눠 한눈에 읽히게(koo 10-28).
+ *   🙋 *새 이슈* 박구건
+ *   > 내용(줄바꿈 유지, 300자까지)
+ *
+ *   *화면* 캠페인 › 미모드림의원 10월 방문협찬
+ *   *패널* 작업 @mi          ← 열려 있었을 때만
+ *   *창* 기존 방문 작업에 예약 추가   ← 떠 있었을 때만
+ *   *스크린샷* 1장           ← 있을 때만
+ *   <이슈 열기 ↗>
+ */
+export const SLACK_BODY_MAX = 300;
 export function slackIssueText(i: { reporterName: string; body: string; location: IssueLocation; hasScreenshot: boolean; url: string }): string {
-  const flat = i.body.replace(/\s+/g, ' ').trim();
-  const body = flat.length > 80 ? flat.slice(0, 80) + '…' : flat;
-  const where = [i.location.screen, i.location.panel, i.location.dialog].filter(Boolean).join(' › ');
-  const extra = i.hasScreenshot ? `${where}, 스크린샷 1장` : where;
   // 슬랙 mrkdwn: <url|글자> 링크. 본문의 <,>,&는 슬랙 문법과 겹쳐 이스케이프한다.
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return `🙋 *${esc(i.reporterName)}*님이 이슈를 보냈어요: ${esc(body)}\n${esc(extra)}   <${i.url}|이슈 열기 ↗>`;
+  const trimmed = i.body.trim().replace(/\n{3,}/g, '\n\n');
+  const body = trimmed.length > SLACK_BODY_MAX ? trimmed.slice(0, SLACK_BODY_MAX).trimEnd() + '…' : trimmed;
+  const quote = body.split('\n').map((line) => (line.trim() ? `> ${esc(line.trim())}` : '>')).join('\n');
+  const l = i.location;
+  const screen = l.title && l.title !== l.screen ? `${l.screen} › ${l.title}` : l.screen;
+  const rows = [`*화면* ${esc(screen)}`];
+  if (l.panel) rows.push(`*패널* ${esc(l.panel)}`);
+  if (l.dialog && l.dialog !== l.panel) rows.push(`*창* ${esc(l.dialog)}`);
+  if (i.hasScreenshot) rows.push('*스크린샷* 1장');
+  return [`🙋 *새 이슈* ${esc(i.reporterName)}`, quote, '', ...rows, `<${i.url}|이슈 열기 ↗>`].join('\n');
 }
 
 // ── 둥근 버튼 자리(스펙 §2-1) ──

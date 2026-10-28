@@ -72,15 +72,33 @@ test('스크린샷 — 형식·용량, 경로 모양', () => {
   assert.equal(isIssueScreenshotPath(p + '\n'), false);
 });
 
-test('슬랙 한 줄 — 80자에서 자르고 슬랙 문법 글자는 이스케이프', () => {
+test('슬랙 알림 — 첫 줄은 보낸 사람, 내용은 인용 상자(줄바꿈 유지), 위치는 칸으로, 없는 칸은 빠진다', () => {
   const t = slackIssueText({
-    reporterName: '박구건', body: '표가 <안> 바뀌어요 & ' + '가'.repeat(100),
-    location: { screen: '캠페인', title: null, panel: '작업 @a', dialog: null, path: '/', taskId: null, viewport: null },
+    reporterName: '박구건', body: '표가 <안> 바뀌어요 &\n\n\n\n새로고침하면 돼요',
+    location: { screen: '캠페인', title: '미모드림의원 10월 방문협찬', panel: '작업 @mi', dialog: '기존 방문 작업에 예약 추가', path: '/', taskId: null, viewport: null },
     hasScreenshot: true, url: 'https://x.test/issues?id=1',
   });
-  assert.match(t, /\*박구건\*님이 이슈를 보냈어요/);
-  assert.match(t, /&lt;안&gt; 바뀌어요 &amp;/);
-  assert.match(t, /…\n캠페인 › 작업 @a, 스크린샷 1장 {3}<https:\/\/x\.test\/issues\?id=1\|이슈 열기 ↗>$/);
+  assert.equal(t, [
+    '🙋 *새 이슈* 박구건',
+    '> 표가 &lt;안&gt; 바뀌어요 &amp;',
+    '>',
+    '> 새로고침하면 돼요',
+    '',
+    '*화면* 캠페인 › 미모드림의원 10월 방문협찬',
+    '*패널* 작업 @mi',
+    '*창* 기존 방문 작업에 예약 추가',
+    '*스크린샷* 1장',
+    '<https://x.test/issues?id=1|이슈 열기 ↗>',
+  ].join('\n'));
+
+  const plain = slackIssueText({
+    reporterName: '태정', body: '가'.repeat(400),
+    location: { screen: '정산', title: '정산', panel: null, dialog: null, path: '/settlement', taskId: null, viewport: null },
+    hasScreenshot: false, url: 'https://x.test/issues?id=2',
+  });
+  const lines = plain.split('\n');
+  assert.equal(lines[1], `> ${'가'.repeat(300)}…`);
+  assert.deepEqual(lines.slice(2), ['', '*화면* 정산', '<https://x.test/issues?id=2|이슈 열기 ↗>']);
 });
 
 test('버튼 자리 — 오른쪽 패널은 왼쪽으로 비키고, 하단 줄은 위로, 너무 넓은 패널이면 구석 그대로', () => {

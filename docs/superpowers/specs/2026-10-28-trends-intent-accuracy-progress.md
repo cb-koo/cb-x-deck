@@ -39,4 +39,5 @@
 - 규칙: `tagKeyword`가 원문 끝이 `\sと\sは`면 `exclude`(DB 변경 없음, 라벨 '제외(화장품·셀프·이상값)'). 사람이 고친 태그(intent_override)는 그대로 우선.
 - `trendStore.rebuildView`를 `computeView`(계산, 읽기만) + 저장으로 나눔 → `preview.mts`가 운영 DB 읽기 전용 트랜잭션에서 새 규칙 완성본 vs 저장된 trend_view 비교.
 - 영향(`data/preview.txt`): 묶음 292개 중 단계 바뀐 것 26개(탐색→검토 14, 탐색→결정 5, 탐색→보류 7), 개념·비교 5%p 이상 바뀐 것 72개. 규칙을 끈 기준선은 0·0 → 전부 이 규칙 때문.
-- 남은 것: koo 화면 확인 → main 머지(자동 배포) → 운영 trend_view 재생성(DB 쓰기, koo 확인 후). 재생성 안 하면 다음 주간 수집 때 반영.
+- **배포 완료(10-28):** main 9f8e606 자동 배포 Ready → `rebuild.mts`로 운영 trend_view 재생성(built_at 2026-10-28T14:23Z). 재생성 후 preview 차이 0 확인.
+- 다음 후보: 1번(틀 밖 검색어 — 효과 과대·비교/방식 칸 없음)을 SerpAPI 없이 넓힐 방법 검토. 시범 원본은 scripts/intent-audit/data(미커밋).

@@ -9,13 +9,15 @@ CUSTOMER = '5852853331'
 BASE = {'geoTargetConstants': ['geoTargetConstants/2392'], 'language': 'languageConstants/1005', 'keywordPlanNetwork': 'GOOGLE_SEARCH',
         'historicalMetricsOptions': {'yearMonthRange': {'start': {'year': 2022, 'month': 'OCTOBER'}, 'end': {'year': 2026, 'month': 'SEPTEMBER'}}}}
 MARKS = {'rejuran': ('リジュラン', 'りじゅらん', 'rejuran'), 'hifu': ('ハイフ', 'はいふ', 'hifu'),
-         'potenza': ('ポテンツァ', 'ぽてんつぁ', 'potenza', 'マックーム')}
+         'potenza': ('ポテンツァ', 'ぽてんつぁ', 'potenza', 'マックーム'),
+         'botox': ('ボトックス', 'ぼとっくす', 'botox'), 'threadlift': ('糸リフト', 'いとリフト', 'スレッドリフト'),
+         'dermapen': ('ダーマペン', 'だーまぺん', 'dermapen'), 'picotoning': ('ピコトーニング', 'ピコ トーニング')}
 
 
 def terms(key: str) -> list[str]:
     s = {r['text'] for r in json.loads((DATA / f'db-{key}.json').read_text())}
     s |= {x for v in json.loads((DATA / f'autocomplete-{key}.json').read_text()).values() for x in v}
-    return sorted(t for t in s if any(m in t.lower() for m in MARKS[key]))
+    return sorted(t for t in s if any(m.lower().replace(' ', '') in t.lower().replace(' ', '').replace('\u3000', '') for m in MARKS[key]))  # 키워드 플래너가 띄어 쓴 글자(糸 リフト)로 돌려준 것도
 
 
 def call(key: str, body: dict) -> dict:

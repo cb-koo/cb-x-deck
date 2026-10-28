@@ -10,11 +10,15 @@ const PROCS = {
   rejuran: { ids: ['p28', 'p132', 'p175', 'p189', 'p191'], marks: ['リジュラン', 'りじゅらん', 'rejuran'] },
   hifu: { ids: ['p49'], marks: ['ハイフ', 'はいふ', 'hifu'] },
   potenza: { ids: ['p127', 'p268'], marks: ['ポテンツァ', 'ぽてんつぁ', 'potenza', 'マックーム'] },
+  botox: { ids: ['p11'], marks: ['ボトックス', 'ぼとっくす', 'botox'] },
+  threadlift: { ids: ['p78'], marks: ['糸リフト', 'いとリフト', 'スレッドリフト'] },
+  dermapen: { ids: ['p64'], marks: ['ダーマペン', 'だーまぺん', 'dermapen'] },
+  picotoning: { ids: ['p187'], marks: ['ピコトーニング'] },
 };
 const sql = postgres({ host: process.env.PGHOST, port: Number(process.env.PGPORT ?? 5432), username: process.env.PGUSER,
   password: process.env.PGPASSWORD, database: process.env.PGDATABASE, ssl: 'require', prepare: false, max: 1 });
 try {
-  for (const [key, { ids, marks }] of Object.entries(PROCS)) {
+  for (const [key, { ids, marks }] of Object.entries(PROCS).filter(([k]) => !process.argv[2] || process.argv.slice(2).includes(k))) {
     const likes = marks.map((m) => `%${m}%`);
     const rows = await sql.begin('read only', (tx) => tx`
       select k.text, k.norm, k.procedure_id, p.name, p.jp, k.source, k.ko, k.intent_override, k.series, k.series_start

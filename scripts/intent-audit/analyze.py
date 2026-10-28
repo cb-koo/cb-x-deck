@@ -14,6 +14,10 @@ PROCS = {  # 대시보드 id(묶음 대표), 시술 표기, 노이즈(시술 검
     'hifu': ('p49', 'ハイフ', ['家庭用', '美顔器', 'セルフ', 'エステ', '機器', 'ハイフ脱毛', '脱毛', 'カートリッジ', 'ヤーマン', 'アマゾン', 'amazon', 'Amazon',
                                '楽天', 'ドンキ', 'メディリフト', 'ハイフシャワー', 'シャワー', 'ドライヤー', '求人', '資格', 'スクール', '開業']),
     'potenza': ('p127', 'ポテンツァ', ['求人', '機器', '購入', '開業']),
+    'botox': ('p11', 'ボトックス', ['塗る', '化粧品', 'クリーム', '美容液', 'シャンプー', 'コスメ', '求人', '株', '映画']),
+    'threadlift': ('p78', '糸リフト', ['求人', 'セルフ', 'テープ']),
+    'dermapen': ('p64', 'ダーマペン', ['求人', '購入', '家庭用', 'セルフ', 'アマゾン', 'amazon', '楽天']),
+    'picotoning': ('p187', 'ピコトーニング', ['求人', '家庭用', 'セルフ']),
 }
 
 KOREA = ['韓国', 'ソウル', '江南', '明洞', '新沙']
@@ -89,10 +93,21 @@ def canon(text: str) -> tuple:
     return tuple(sorted(w for w in text.split() if w not in PARTICLES))
 
 
+SNAP = Path('/Users/koo/orca/projects/b2b-marketing/reports/search-trends/data/trends_snapshot.json')
+ALL_NAMES = sorted({re.sub(r'\s', '', p['jp']).lower() for p in json.loads(SNAP.read_text())['procedures'] if p.get('jp')}, key=len, reverse=True)
+
+
+def other_owner(t: str, name: str) -> bool:
+    # 대시보드 ownerOf와 같은 규칙 — 이름이 여럿 들어 있으면 가장 긴 시술 것(승모근 보톡스는 보톡스가 아니라 승모근보톡스)
+    t, n = t.lower(), name.lower()
+    best = next((m for m in ALL_NAMES if m in t), None)
+    return best is not None and best != n and n in best
+
+
 def run(key: str, dash: dict) -> None:
     pid, name, noise = PROCS[key]
     raw = json.loads((DATA / f'kp-{key}.json').read_text())
-    seen, rows, merged, dropped, anomalies = {}, [], [], [], []
+    seen, rows, merged, dropped, anomalies, others = {}, [], [], [], [], []
     for r in raw['results']:
         mv = (r.get('keywordMetrics') or {}).get('monthlySearchVolumes') or []
         if len(mv) != 48: continue
@@ -104,6 +119,8 @@ def run(key: str, dash: dict) -> None:
             anomalies.append((text, sum(s[36:]))); continue
         if any(k in t for k in noise):
             dropped.append((text, sum(s[36:]))); continue
+        if other_owner(t, name):
+            others.append((text, sum(s[36:]))); continue
         # 문제 3 — 같은 단어 조합 + 48개월 값이 완전히 같음 → 하나만 센다(대시보드와 달리 월평균 50 미만도 포함)
         ck = (canon(text), tuple(s))
         if ck in seen:
@@ -128,7 +145,7 @@ def run(key: str, dash: dict) -> None:
     print(f'붙여 쓴 とは 제외 {len(anomalies)}건: ' + ', '.join(f'{a}={v // 12:,}/월' for a, v in sorted(anomalies, key=lambda x: -x[1])[:4]))
     sp = [x for x in rows if re.sub(r'\s', '', x['text']) == name + 'とは']
     if sp: print(f'  띄어 쓴 쪽: {sp[0]["text"]}={sp[0]["y1"] // 12:,}/월')
-    print(f'중복 합침 {len(merged)}건(월 {sum(m[2] for m in merged) // 12:,}), 노이즈 제외 {len(dropped)}건(월 {sum(d[1] for d in dropped) // 12:,})')
+    print(f'중복 합침 {len(merged)}건(월 {sum(m[2] for m in merged) // 12:,}), 노이즈 제외 {len(dropped)}건(월 {sum(d[1] for d in dropped) // 12:,}), 다른 시술 몫 {len(others)}건(월 {sum(o[1] for o in others) // 12:,})')
     print('의도|대시보드|보정')
     for s in STAGES:
         d = dmap.get(s)

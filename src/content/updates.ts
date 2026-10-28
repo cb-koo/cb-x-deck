@@ -13,7 +13,7 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
-    date: '2026-10-27', type: '새 기능',
+    date: '2026-10-28', type: '새 기능',
     title: '쓰다가 불편한 점을 그 자리에서 바로 알릴 수 있어요',
     summary: '모든 화면 오른쪽 아래의 둥근 버튼을 누르면 작은 창이 떠요. 지금 보던 화면과 열려 있던 패널이 자동으로 붙어서, 어디서 생긴 일인지 따로 설명하지 않아도 돼요.',
     bullets: [

@@ -5,7 +5,7 @@ export type Intent = 'noise' | 'exclude' | 'korea' | 'cost' | 'worry' | 'effect'
 
 export const INTENT_LABEL: Record<Intent, string> = {
   korea: '한국', cost: '가격', worry: '부작용·통증', effect: '효과·후기', info: '개념·비교', place: '병원·지역', concern: '부위·대상',
-  name: '시술명 단독', other: '기타', exclude: '제외(화장품·셀프)', noise: '동음이의',
+  name: '시술명 단독', other: '기타', exclude: '제외(화장품·셀프·이상값)', noise: '동음이의',
 };
 
 // 성격 막대에 쓰는 순서(고객 여정: 알아보기 → 고민 → 고르기 → 한국)
@@ -58,8 +58,14 @@ export const HOMONYM: Record<string, RegExp | null> = {
   'デンシティ': null, 'シュリンク': null,  // 10-14: 일반 단어(density·수축 포장) — 일본 이미지 검색 상위가 포장재·가방
 };
 
+// 붙여 쓴 「〇〇とは」 — 키워드 플래너가 'X と は'로 쪼개 돌려주며 띄어 쓴 'X とは'의 20~60배 값을 준다
+// (リジュラン と は 21,241 vs リジュラン とは 350, ハイフ 23,425 vs 760, 10-28 실측). 시술명 단독 검색과 섞인 값으로 보고 뺀다.
+// 쪼개진 글자는 원문에만 남으므로 정규화 전 원문으로 본다.
+const SPLIT_TOHA = /\sと\sは$/;
+
 // homonyms = 검색 결과로 확인한 '이름만 치면 다른 뜻' 시술명(정규화) — 수집 때 일본 사이트 이미지 검색 상위 20개 중 무관한 뜻이 10개 이상(10-14)
 export function tagKeyword(keyword: string, names: string[], homonyms: ReadonlySet<string> = new Set()): Intent {
+  if (SPLIT_TOHA.test(keyword.trim())) return 'exclude';
   const k = norm(keyword);
   if (names.some((n) => norm(n) === k)) return k in HOMONYM || homonyms.has(k) ? 'noise' : 'name';
   if (names.some((n) => HOMONYM[norm(n)]?.test(k))) return 'noise';

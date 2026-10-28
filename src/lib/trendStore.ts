@@ -80,8 +80,8 @@ export async function reassignOwners(sql: postgres.Sql, market: string): Promise
 const monthOf = (d: Date | string) => (typeof d === 'string' ? d : d.toISOString()).slice(0, 7);
 const addMonths = (ym: string, k: number) => { const [y, m] = ym.split('-').map(Number); const t = y * 12 + (m - 1) + k; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`; };
 
-// 완성본 다시 만들기 — 가장 최근 48개월(검색어마다 시작 달이 달라도 같은 달끼리 맞춘다)
-export async function rebuildView(sql: postgres.Sql, market: string, window = 48): Promise<TrendViewDoc> {
+// 완성본 계산 — 가장 최근 48개월(검색어마다 시작 달이 달라도 같은 달끼리 맞춘다). 읽기만 한다(규칙 바꾼 영향 미리 보기에도 쓴다)
+export async function computeView(sql: postgres.Sql, market: string, window = 48): Promise<TrendViewDoc> {
   const procs = await sql<Array<{ id: string; major: string; major_order: number; middle: string; name: string; kr: string; jp: string; en: string; hidden: boolean; serp: TrendSerp | null }>>`
     select id, major, major_order, middle, name, kr, jp, en, hidden, serp from trend_procedure where market = ${market}
     order by major_order, case when id ~ '^p[0-9]+' then substring(id from '[0-9]+')::int else 1000000 end, id`;  // 시트 행 순서(p2 < p10), 앱에서 더한 건 뒤
@@ -101,11 +101,16 @@ export async function rebuildView(sql: postgres.Sql, market: string, window = 48
     return out.some(Number.isNaN) ? null : out;  // 48개월이 다 있어야 비교된다(일부만 있으면 값 없음 취급)
   };
   const fetched = kws.reduce((t, k) => (k.fetched_at && k.fetched_at > t ? k.fetched_at : t), new Date(0));
-  const doc = buildTrendView({
+  return buildTrendView({
     market, fetchedAt: fetched.toISOString().slice(0, 10), months,
     procedures: procs.map((p) => ({ id: p.id, major: p.major, majorOrder: p.major_order, middle: p.middle, name: p.name, kr: p.kr, jp: p.jp, en: p.en, hidden: p.hidden, serp: p.serp })),
     keywords: kws.map((k) => ({ text: k.text, procedureId: k.procedure_id, source: k.source, ko: k.ko, intentOverride: k.intent_override as Intent | null, series: align(k) })),
   });
+}
+
+// 완성본 다시 만들기 — 계산해서 trend_view에 저장
+export async function rebuildView(sql: postgres.Sql, market: string, window = 48): Promise<TrendViewDoc> {
+  const doc = await computeView(sql, market, window);
   await sql`insert into trend_view (market, built_at, doc) values (${market}, now(), ${sql.json(doc as unknown as postgres.JSONValue)})
     on conflict (market) do update set built_at = now(), doc = excluded.doc`;
   return doc;

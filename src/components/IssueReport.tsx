@@ -22,7 +22,6 @@ const ICON = (
 export function IssueReport({ variant = 'fab' }: { variant?: 'fab' | 'inline' }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [location, setLocation] = useState<IssueLocation | null>(null);
   const [sent, setSent] = useState<string | null>(null);   // 방금 보낸 이슈 id — 토스트 [보기]
   const [pos, setPos] = useState({ right: FAB_GAP, bottom: FAB_GAP });
 
@@ -57,7 +56,6 @@ export function IssueReport({ variant = 'fab' }: { variant?: 'fab' | 'inline' })
 
   const toggle = () => {
     if (open) return;   // 열려 있으면 그대로 — 쓰던 내용을 버튼 한 번으로 날리지 않는다
-    setLocation(collectIssueLocation());   // 창을 띄우기 전에 잰다 — 이 창 자신이 '열린 패널'로 잡히지 않게
     setSent(null);
     setOpen(true);
   };
@@ -81,13 +79,13 @@ export function IssueReport({ variant = 'fab' }: { variant?: 'fab' | 'inline' })
             불편 알리기
           </span>
         </button>
-        {!fab && open && location && (
-          <IssueForm location={location} style={popStyle} anchored="inline"
+        {!fab && open && (
+          <IssueForm style={popStyle} anchored="inline"
                      onClose={() => setOpen(false)} onSent={(id) => { setOpen(false); setSent(id); }} />
         )}
       </div>
-      {fab && open && location && (
-        <IssueForm location={location} style={popStyle} anchored="fab"
+      {fab && open && (
+        <IssueForm style={popStyle} anchored="fab"
                    onClose={() => setOpen(false)} onSent={(id) => { setOpen(false); setSent(id); }} />
       )}
       {/* 브라우저 기본 창 안(inline)에서는 화면 아래 토스트가 창 뒤에 깔려 안 보인다 — 버튼 옆에 짧게 알린다 */}
@@ -103,13 +101,31 @@ export function IssueReport({ variant = 'fab' }: { variant?: 'fab' | 'inline' })
   );
 }
 
-function IssueForm({ location, style, anchored, onClose, onSent }: {
-  location: IssueLocation;
+function IssueForm({ style, anchored, onClose, onSent }: {
   style: CSSProperties;
   anchored: 'fab' | 'inline';
   onClose: () => void;
   onSent: (id: string) => void;
 }) {
+  // 보낸 곳은 창을 연 순간에 굳히지 않고 따라간다 — 창을 띄운 채 다른 화면·패널로 옮기면 지금 보는 곳으로 바뀐다(koo QA 10-28).
+  // 이 창 자신은 data-issue-report라 '열린 패널'로 잡히지 않는다. 보낼 때 한 번 더 잰다(마지막 변화가 아직 반영 전일 수 있다).
+  const [location, setLocation] = useState<IssueLocation>(() => collectIssueLocation());
+  useEffect(() => {
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const next = collectIssueLocation();
+        setLocation((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next));
+      });
+    };
+    const mo = new MutationObserver(update);
+    mo.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style', 'open'] });
+    window.addEventListener('popstate', update);
+    // history.replaceState(캠페인·정산이 주소만 바꾸는 방식)는 이벤트가 없다 — 주소는 짧은 주기로 따로 본다
+    const poll = window.setInterval(update, 500);
+    return () => { cancelAnimationFrame(frame); mo.disconnect(); window.removeEventListener('popstate', update); window.clearInterval(poll); };
+  }, []);
   const [body, setBody] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -171,7 +187,7 @@ function IssueForm({ location, style, anchored, onClose, onSent }: {
       const screenshotPath = file ? await uploadIssueScreenshot(file) : null;
       const r = await apiFetch('/api/issues', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ body, screenshotPath, location }),
+        body: JSON.stringify({ body, screenshotPath, location: collectIssueLocation() }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || '보내지 못했어요 — 다시 시도해주세요');

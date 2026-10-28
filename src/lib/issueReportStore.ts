@@ -1,28 +1,31 @@
-// 불편 알리기 저장소 — issue_report(083). 스펙 2026-10-22-issue-report-design.md §3·§4
+// 불편 알리기 저장소 — issue_report(083, 번호·여러 장은 084). 스펙 2026-10-22-issue-report-design.md §3·§4
 import type postgres from 'postgres';
 import { locationOf, type IssueLocation, type IssueReport, type IssueStatus, type IssueTab } from './issueReport.ts';
 
 type Row = {
-  id: string; reporter_id: string | null; reporter_name: string; body: string; screenshot_path: string | null;
+  id: string; no: string; reporter_id: string | null; reporter_name: string; body: string; screenshot_path: string | null; screenshot_paths: string[] | null;
   location: unknown; status: IssueStatus; status_changed_at: Date | null; reply: string | null; replied_by_name: string | null;
   replied_at: Date | null; reply_seen_at: Date | null; created_at: Date;
 };
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 const toIssue = (r: Row): IssueReport => ({
-  id: r.id, reporterId: r.reporter_id, reporterName: r.reporter_name, body: r.body, screenshotPath: r.screenshot_path,
+  id: r.id, no: Number(r.no), reporterId: r.reporter_id, reporterName: r.reporter_name, body: r.body,
+  // 여러 장 칸이 비어 있으면 1장 칸을 본다 — 084 적용 전후로 빌드 중 옛 코드가 1장 칸에만 쓴 줄이 생길 수 있다
+  screenshotPaths: r.screenshot_paths?.length ? r.screenshot_paths : r.screenshot_path ? [r.screenshot_path] : [],
   location: locationOf(r.location), status: r.status, statusChangedAt: iso(r.status_changed_at),
   reply: r.reply, repliedByName: r.replied_by_name, repliedAt: iso(r.replied_at), replySeenAt: iso(r.reply_seen_at),
   createdAt: new Date(r.created_at).toISOString(),
 });
-const COLS = (sql: postgres.Sql) => sql`id, reporter_id, reporter_name, body, screenshot_path, location, status, status_changed_at,
+const COLS = (sql: postgres.Sql) => sql`id, no::text as no, reporter_id, reporter_name, body, screenshot_path, screenshot_paths, location, status, status_changed_at,
   reply, replied_by_name, replied_at, reply_seen_at, created_at`;
 
 export async function createIssue(sql: postgres.Sql, i: {
-  reporterId: string; reporterName: string; body: string; screenshotPath: string | null; location: IssueLocation;
+  reporterId: string; reporterName: string; body: string; screenshotPaths: string[]; location: IssueLocation;
 }): Promise<IssueReport> {
   const rows = await sql<Row[]>`
-    insert into issue_report (reporter_id, reporter_name, body, screenshot_path, location)
-    values (${i.reporterId}, ${i.reporterName}, ${i.body}, ${i.screenshotPath}, ${sql.json(i.location as never)})
+    -- 첫 장은 1장 칸(083)에도 쓴다 — 되돌려 옛 코드가 돌아도 첫 장은 보이게
+    insert into issue_report (reporter_id, reporter_name, body, screenshot_path, screenshot_paths, location)
+    values (${i.reporterId}, ${i.reporterName}, ${i.body}, ${i.screenshotPaths[0] ?? null}, ${i.screenshotPaths}, ${sql.json(i.location as never)})
     returning ${COLS(sql)}`;
   return toIssue(rows[0]);
 }

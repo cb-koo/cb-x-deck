@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { collectIssueLocation, measureFabPosition, uploadIssueScreenshot } from '@/lib/issueClient';
-import { FAB_GAP, FAB_SIZE, MAX_ISSUE_BODY, issueScreenshotError, locationLine, type IssueLocation } from '@/lib/issueReport';
+import { FAB_GAP, FAB_SIZE, MAX_ISSUE_BODY, MAX_ISSUE_SCREENSHOTS, issueScreenshotError, locationLine, type IssueLocation } from '@/lib/issueReport';
 import { Toast } from '@/components/Toast';
 
 // 불편 알리기 — 모든 화면 오른쪽 아래 둥근 버튼(variant="fab")과, 바깥을 누를 수 없는 브라우저 기본 창
@@ -127,8 +127,8 @@ function IssueForm({ style, anchored, onClose, onSent }: {
     return () => { cancelAnimationFrame(frame); mo.disconnect(); window.removeEventListener('popstate', update); window.clearInterval(poll); };
   }, []);
   const [body, setBody] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  // 스크린샷 — 붙인 순서대로 최대 4장(koo 10-28). url은 미리보기용 objectURL.
+  const [shots, setShots] = useState<Array<{ file: File; url: string }>>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -136,33 +136,41 @@ function IssueForm({ style, anchored, onClose, onSent }: {
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => { textRef.current?.focus(); }, []);
-  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+  // 닫힐 때 남은 미리보기 objectURL을 걷는다 — 빼기(remove)로 나간 것은 그 자리에서 걷는다
+  const shotsRef = useRef(shots);
+  useEffect(() => { shotsRef.current = shots; }, [shots]);
+  useEffect(() => () => { for (const s of shotsRef.current) URL.revokeObjectURL(s.url); }, []);
 
-  const dirty = body.trim() !== '' || !!file;
+  const dirty = body.trim() !== '' || shots.length > 0;
   const close = useCallback(() => {
     if (busy) return;
     if (dirty && !window.confirm('쓴 내용이 사라져요. 닫을까요?')) return;
     onClose();
   }, [busy, dirty, onClose]);
 
-  const take = useCallback((f: File) => {
-    const v = issueScreenshotError(f);
-    if (v) { setErr(v); return; }
-    setErr('');
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
+  const take = useCallback((files: File[]) => {
+    const bad = files.map(issueScreenshotError).find(Boolean);
+    const ok = files.filter((f) => !issueScreenshotError(f));
+    const room = MAX_ISSUE_SCREENSHOTS - shotsRef.current.length;
+    const added = ok.slice(0, Math.max(0, room)).map((file) => ({ file, url: URL.createObjectURL(file) }));
+    if (added.length) setShots((cur) => [...cur, ...added]);
+    setErr(ok.length > room ? `스크린샷은 ${MAX_ISSUE_SCREENSHOTS}장까지예요` : bad ?? '');
   }, []);
+  const removeShot = (i: number) => {
+    setShots((cur) => { URL.revokeObjectURL(cur[i].url); return cur.filter((_, k) => k !== i); });
+    setErr('');
+  };
 
   // 붙여넣기 — 창이 열려 있는 동안은 글 칸에 포커스가 있어도 이미지를 이 창이 받는다(스펙 §2-2).
   // 캡처 단계에서 먼저 받고 preventDefault한다 — 뒤의 증빙 칸(TaskProofField 등)이 같은 이미지를 또 올리지 않게
   // (그쪽은 defaultPrevented면 건너뛴다). 텍스트 붙여넣기는 그대로 흘려보낸다.
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
-      const f = Array.from(e.clipboardData?.files ?? []).find((x) => x.type.startsWith('image/'));
-      if (!f) return;
+      const files = Array.from(e.clipboardData?.files ?? []).filter((x) => x.type.startsWith('image/'));
+      if (!files.length) return;
       e.preventDefault();
       e.stopPropagation();
-      take(f);
+      take(files);
     };
     document.addEventListener('paste', onPaste, true);
     return () => document.removeEventListener('paste', onPaste, true);
@@ -184,10 +192,10 @@ function IssueForm({ style, anchored, onClose, onSent }: {
     if (!body.trim() || busy) return;
     setBusy(true); setErr('');
     try {
-      const screenshotPath = file ? await uploadIssueScreenshot(file) : null;
+      const screenshotPaths = await Promise.all(shots.map((s) => uploadIssueScreenshot(s.file)));
       const r = await apiFetch('/api/issues', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ body, screenshotPath, location: collectIssueLocation() }),
+        body: JSON.stringify({ body, screenshotPaths, location: collectIssueLocation() }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || '보내지 못했어요 — 다시 시도해주세요');
@@ -206,7 +214,7 @@ function IssueForm({ style, anchored, onClose, onSent }: {
          className={`${anchored === 'fab' ? 'fixed z-[70]' : 'absolute z-10'} w-[400px] max-w-[calc(100vw-32px)] rounded-2xl border border-x-border-strong bg-white px-5 pb-4 pt-[18px] text-left shadow-[0_8px_32px_rgba(0,0,0,0.18)]`}
          style={style}
          onDragOver={(e) => e.preventDefault()}
-         onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) take(f); }}>
+         onDrop={(e) => { e.preventDefault(); take(Array.from(e.dataTransfer.files)); }}>
       <div className="flex items-center justify-between">
         <h2 className="text-content font-bold">불편 알리기</h2>
         <button type="button" onClick={close} aria-label="닫기" className="rounded-full p-1 text-x-secondary hover:bg-x-hover">✕</button>
@@ -217,22 +225,35 @@ function IssueForm({ style, anchored, onClose, onSent }: {
       <textarea ref={textRef} value={body} onChange={(e) => setBody(e.target.value)} maxLength={MAX_ISSUE_BODY}
                 placeholder={'무엇이 불편했나요?\n예: 게시일을 바꿨는데 표에는 예전 날짜가 그대로예요'}
                 className="mt-3 h-28 w-full resize-none rounded-[10px] border border-x-border-strong px-3 py-2.5 text-content leading-snug outline-none placeholder:text-x-muted focus:border-x-blue" />
-      {file && preview ? (
-        <div className="mt-2.5 flex items-center gap-2.5 rounded-[10px] border border-x-border p-2 text-ui">
-          {/* eslint-disable-next-line @next/next/no-img-element -- 붙여 넣은 파일의 objectURL 미리보기 */}
-          <img src={preview} alt="붙여 넣은 스크린샷" className="h-11 w-[72px] shrink-0 rounded-md object-cover" />
-          스크린샷 1장
-          <button type="button" onClick={() => { setFile(null); setPreview(null); }} className="ml-auto text-x-muted hover:text-x-secondary">✕ 빼기</button>
+      {shots.length > 0 ? (
+        <div className="mt-2.5">
+          <div className="grid grid-cols-4 gap-2">
+            {shots.map((sh, i) => (
+              <div key={sh.url} className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element -- 붙여 넣은 파일의 objectURL 미리보기 */}
+                <img src={sh.url} alt={`붙여 넣은 스크린샷 ${i + 1}`} className="h-[52px] w-full rounded-md border border-x-border object-cover" />
+                <button type="button" onClick={() => removeShot(i)} aria-label={`스크린샷 ${i + 1} 빼기`}
+                        className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-x-text text-[11px] text-white hover:bg-x-text/80">✕</button>
+              </div>
+            ))}
+            {shots.length < MAX_ISSUE_SCREENSHOTS && (
+              <button type="button" onClick={() => fileRef.current?.click()} aria-label="스크린샷 더 붙이기"
+                      className="h-[52px] rounded-md border-[1.5px] border-dashed border-x-border-strong text-caption text-x-secondary hover:bg-x-hover">
+                + 추가
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-caption text-x-muted">스크린샷 {shots.length}/{MAX_ISSUE_SCREENSHOTS}장</p>
         </div>
       ) : (
         <button type="button" onClick={() => fileRef.current?.click()}
                 className="mt-2.5 w-full rounded-[10px] border-[1.5px] border-dashed border-x-border-strong p-3 text-center text-ui leading-relaxed text-x-secondary hover:bg-x-hover">
-          스크린샷 붙여넣기 (⌘V)
+          스크린샷 붙여넣기 (⌘V, {MAX_ISSUE_SCREENSHOTS}장까지)
           <span className="block text-caption text-x-muted">⌘⇧⌃4로 찍으면 바로 붙여 넣을 수 있어요</span>
         </button>
       )}
-      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-             onChange={(e) => { const f = e.target.files?.[0]; if (f) take(f); e.target.value = ''; }} />
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden"
+             onChange={(e) => { take(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
       {err && <p role="alert" className="mt-2 text-ui text-red-600">{err}</p>}
       <div className="mt-3.5 flex justify-end gap-2">
         <button type="button" onClick={close} disabled={busy}

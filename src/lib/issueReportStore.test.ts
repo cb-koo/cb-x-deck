@@ -5,6 +5,7 @@ import { createIssue, getIssue, listIssues, updateIssue, markReplySeen, countUns
 
 const sql = getSql();
 const P = 'iss' + process.pid;
+const UUID1 = '0b9c2b2e-1d1a-4c7e-9a43-2f1f6e4b8c01', UUID2 = '0b9c2b2e-1d1a-4c7e-9a43-2f1f6e4b8c02';
 const LOC = { screen: '캠페인', title: null, panel: '작업 @a', dialog: '예약 추가', path: '/campaigns/flow', taskId: null, viewport: '1440×900' };
 
 after(async () => {
@@ -20,9 +21,18 @@ async function member(suffix: string) {
 
 test('보내고, 탭별로 나뉘고, 해결 답이 달리면 보낸 사람에게만 안 본 답이 센다', async () => {
   const a = await member('a'), b = await member('b');
-  const i1 = await createIssue(sql, { reporterId: a.id, reporterName: a.name, body: P + ' 표가 안 바뀌어요', screenshotPath: null, location: LOC });
-  const i2 = await createIssue(sql, { reporterId: b.id, reporterName: b.name, body: P + ' 사진이 안 떠요', screenshotPath: null, location: LOC });
+  const i1 = await createIssue(sql, { reporterId: a.id, reporterName: a.name, body: P + ' 표가 안 바뀌어요', screenshotPaths: [`issue/2026-10/${UUID1}.png`, `issue/2026-10/${UUID2}.webp`], location: LOC });
+  const i2 = await createIssue(sql, { reporterId: b.id, reporterName: b.name, body: P + ' 사진이 안 떠요', screenshotPaths: [], location: LOC });
   assert.equal(i1.status, 'open');
+  // 번호는 보낸 순서대로, 스크린샷은 붙인 순서 그대로 — 첫 장은 1장 칸(083)에도 남는다
+  assert.equal(i2.no, i1.no + 1);
+  assert.deepEqual(i1.screenshotPaths, [`issue/2026-10/${UUID1}.png`, `issue/2026-10/${UUID2}.webp`]);
+  assert.deepEqual(i2.screenshotPaths, []);
+  const [legacy] = await sql<{ screenshot_path: string | null }[]>`select screenshot_path from issue_report where id = ${i1.id}`;
+  assert.equal(legacy.screenshot_path, `issue/2026-10/${UUID1}.png`);
+  // 빌드 중 옛 코드가 1장 칸에만 쓴 줄도 한 장으로 읽힌다
+  await sql`update issue_report set screenshot_paths = '{}' where id = ${i1.id}`;
+  assert.deepEqual((await getIssue(sql, i1.id))?.screenshotPaths, [`issue/2026-10/${UUID1}.png`]);
   assert.deepEqual(i1.location, LOC);
 
   const mine = (await listIssues(sql, 'mine', a.id)).items.map((i) => i.id);

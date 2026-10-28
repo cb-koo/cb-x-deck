@@ -8,7 +8,7 @@ import { PANEL_SPLIT, Button } from '@/components/ui';
 import { HEAD, CELL } from '@/app/settlement/tableStyle';
 import { relativeDay } from '@/lib/ownedChannels';
 import {
-  ISSUE_TABS, ISSUE_TAB_LABEL, ISSUE_STATUS_LABEL, hasUnseenReply,
+  ISSUE_TABS, ISSUE_TAB_LABEL, ISSUE_STATUS_LABEL, hasUnseenReply, issueLabel,
   type IssueReport, type IssueTab,
 } from '@/lib/issueReport';
 import { IssueDetailPanel, ISSUE_STATUS_CHIP } from './IssueDetailPanel';
@@ -111,10 +111,10 @@ function Issues() {
               <p className="px-5 py-10 text-center text-ui text-x-muted">{EMPTY[data.tab]}</p>
             ) : (
               <table className="w-full table-fixed border-collapse">
-                <colgroup><col className="w-[104px]" /><col /><col className="w-[150px]" /><col className="w-[110px]" /><col className="w-[130px]" /></colgroup>
+                <colgroup><col className="w-[112px]" /><col className="w-[96px]" /><col /><col className="w-[150px]" /><col className="w-[110px]" /><col className="w-[130px]" /></colgroup>
                 <thead>
                   <tr>
-                    <th className={`${HEAD} pl-5`}>상태</th><th className={HEAD}>내용</th><th className={HEAD}>화면</th>
+                    <th className={`${HEAD} pl-5`}>번호</th><th className={HEAD}>상태</th><th className={HEAD}>내용</th><th className={HEAD}>화면</th>
                     <th className={HEAD}>보낸 사람</th><th className={`${HEAD} pr-5`}>보낸 날</th>
                   </tr>
                 </thead>
@@ -124,7 +124,8 @@ function Issues() {
                     return (
                       <tr key={i.id} onClick={() => open(i.id)} aria-selected={openId === i.id}
                           className={`cursor-pointer text-[14px] ${openId === i.id ? 'bg-[#f2f9fe]' : 'hover:bg-x-hover'}`}>
-                        <td className={`${CELL} pl-5`}>
+                        <td className={`${CELL} pl-5 tabular-nums text-x-secondary`}>{issueLabel(i.no)}</td>
+                        <td className={CELL}>
                           <span className={`inline-block rounded-full px-2 py-0.5 text-ui ${ISSUE_STATUS_CHIP[i.status]}`}>{ISSUE_STATUS_LABEL[i.status]}</span>
                         </td>
                         <td className={`${CELL} truncate`}>

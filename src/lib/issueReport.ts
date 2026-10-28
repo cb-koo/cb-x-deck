@@ -23,10 +23,11 @@ export interface IssueLocation {
 
 export interface IssueReport {
   id: string;
+  no: number;              // 보낸 순서 번호 — 화면과 슬랙에 'ISSUE-012'로(issueLabel)
   reporterId: string | null;
   reporterName: string;
   body: string;
-  screenshotPath: string | null;
+  screenshotPaths: string[];   // 붙인 순서, 최대 MAX_ISSUE_SCREENSHOTS장
   location: IssueLocation;
   status: IssueStatus;
   statusChangedAt: string | null;
@@ -60,6 +61,7 @@ const UUID_RE = new RegExp(`^${UUID}$`);
 // ── 스크린샷 ──
 // 마이그레이션 083의 버킷 file_size_limit과 반드시 같은 값 — 여기서 통과시킨 파일이 서버에서 거절되지 않게.
 export const ISSUE_SCREENSHOT_BUCKET = 'issue-screenshot';
+export const MAX_ISSUE_SCREENSHOTS = 4;   // koo 10-28 — X 게시물 이미지 수와 같다
 export const MAX_ISSUE_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 export const ALLOWED_ISSUE_SCREENSHOT_MIME = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export const ISSUE_SCREENSHOT_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
@@ -69,6 +71,19 @@ export const ISSUE_SCREENSHOT_PATH_RE = new RegExp(`^issue/\\d{4}-\\d{2}/${UUID}
 
 export function isIssueScreenshotPath(v: unknown): v is string {
   return typeof v === 'string' && ISSUE_SCREENSHOT_PATH_RE.test(v);
+}
+
+/** 보낸 스크린샷 목록 검사 — 배열이고, 4장 이하이고, 전부 이 버킷 경로 모양이고, 겹치지 않아야 한다. 아니면 null. */
+export function sanitizeScreenshotPaths(v: unknown): string[] | null {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v) || v.length > MAX_ISSUE_SCREENSHOTS) return null;
+  if (!v.every(isIssueScreenshotPath)) return null;
+  return new Set(v).size === v.length ? (v as string[]) : null;
+}
+
+/** 'ISSUE-012' — 세 자리부터, 1000번이 넘으면 자연스럽게 네 자리 */
+export function issueLabel(no: number): string {
+  return `ISSUE-${String(no).padStart(3, '0')}`;
 }
 
 // 형식·용량 — 문구는 RT 증빙(taskProof)과 같은 말을 쓴다.
@@ -152,31 +167,46 @@ export function inTab(i: Pick<IssueReport, 'status' | 'reporterId'>, tab: IssueT
   return i.status !== 'resolved';
 }
 
-/**
- * 슬랙 알림 본문(스펙 §6) — 칸으로 나눠 한눈에 읽히게(koo 10-28).
- *   🙋 *새 이슈* 박구건
- *   > 내용(줄바꿈 유지, 300자까지)
- *
- *   *화면* 캠페인 › 미모드림의원 10월 방문협찬
- *   *패널* 작업 @mi          ← 열려 있었을 때만
- *   *창* 기존 방문 작업에 예약 추가   ← 떠 있었을 때만
- *   *스크린샷* 1장           ← 있을 때만
- *   <이슈 열기 ↗>
- */
+// 슬랙 알림에서 맨 아래에 멘션할 사람 — koo(10-28). 슬랙 멤버 id.
+export const ISSUE_SLACK_MENTION = 'U0B7GSH73NC';
 export const SLACK_BODY_MAX = 300;
-export function slackIssueText(i: { reporterName: string; body: string; location: IssueLocation; hasScreenshot: boolean; url: string }): string {
-  // 슬랙 mrkdwn: <url|글자> 링크. 본문의 <,>,&는 슬랙 문법과 겹쳐 이스케이프한다.
+
+/**
+ * 슬랙 알림(스펙 §6, koo 10-28) — Block Kit. 미리보기 ~/claude-outputs/issue-report/slack-preview-*.url.txt
+ *   🎫 ISSUE-012                      (제목)
+ *   > 내용(줄바꿈 유지, 300자까지)
+ *   보낸 사람 | 화면 | 패널 | 창 | 스크린샷   (두 칸 배치, 없는 칸은 빠진다)
+ *   [이슈 열기]
+ *   @koo                               (맨 아래 작은 줄 — 멘션 알림)
+ * text는 알림 미리보기(푸시·사이드바)에 쓰이는 대체 글자다.
+ */
+export function slackIssuePayload(i: { no: number; reporterName: string; body: string; location: IssueLocation; screenshots: number; url: string }): {
+  text: string; blocks: unknown[];
+} {
+  // 슬랙 mrkdwn: 본문의 <,>,&는 슬랙 문법과 겹쳐 이스케이프한다.
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const trimmed = i.body.trim().replace(/\n{3,}/g, '\n\n');
   const body = trimmed.length > SLACK_BODY_MAX ? trimmed.slice(0, SLACK_BODY_MAX).trimEnd() + '…' : trimmed;
   const quote = body.split('\n').map((line) => (line.trim() ? `> ${esc(line.trim())}` : '>')).join('\n');
   const l = i.location;
   const screen = l.title && l.title !== l.screen ? `${l.screen} › ${l.title}` : l.screen;
-  const rows = [`*화면* ${esc(screen)}`];
-  if (l.panel) rows.push(`*패널* ${esc(l.panel)}`);
-  if (l.dialog && l.dialog !== l.panel) rows.push(`*창* ${esc(l.dialog)}`);
-  if (i.hasScreenshot) rows.push('*스크린샷* 1장');
-  return [`🙋 *새 이슈* ${esc(i.reporterName)}`, quote, '', ...rows, `<${i.url}|이슈 열기 ↗>`].join('\n');
+  const field = (k: string, v: string) => ({ type: 'mrkdwn', text: `*${k}*\n${v}` });
+  const fields = [field('보낸 사람', esc(i.reporterName)), field('화면', esc(screen))];
+  if (l.panel) fields.push(field('패널', esc(l.panel)));
+  if (l.dialog && l.dialog !== l.panel) fields.push(field('창', esc(l.dialog)));
+  if (i.screenshots > 0) fields.push(field('스크린샷', `${i.screenshots}장 (이슈에서 보기)`));
+  const label = issueLabel(i.no);
+  const flat = body.replace(/\s+/g, ' ');
+  return {
+    text: `${label} ${i.reporterName}: ${flat.length > 80 ? flat.slice(0, 80) + '…' : flat}`,
+    blocks: [
+      { type: 'header', text: { type: 'plain_text', text: `🎫 ${label}`, emoji: true } },
+      { type: 'section', text: { type: 'mrkdwn', text: quote } },
+      { type: 'section', fields },
+      { type: 'actions', elements: [{ type: 'button', style: 'primary', text: { type: 'plain_text', text: '이슈 열기' }, url: i.url }] },
+      { type: 'context', elements: [{ type: 'mrkdwn', text: `<@${ISSUE_SLACK_MENTION}>` }] },
+    ],
+  };
 }
 
 // ── 둥근 버튼 자리(스펙 §2-1) ──

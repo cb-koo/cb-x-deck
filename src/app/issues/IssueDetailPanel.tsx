@@ -8,7 +8,7 @@ import { ImageLightbox } from '@/components/ImageLightbox';
 import { signIssueScreenshot } from '@/lib/issueClient';
 import { relativeDay } from '@/lib/ownedChannels';
 import {
-  ISSUE_STATUSES, ISSUE_STATUS_LABEL, MAX_ISSUE_REPLY, hasUnseenReply, locationHref, locationLine,
+  ISSUE_STATUSES, ISSUE_STATUS_LABEL, MAX_ISSUE_REPLY, hasUnseenReply, issueLabel, locationHref, locationLine,
   type IssueReport, type IssueStatus,
 } from '@/lib/issueReport';
 
@@ -29,8 +29,8 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
 }) {
   const [issue, setIssue] = useState<IssueReport | null>(null);
   const [loadErr, setLoadErr] = useState('');
-  const [shotUrl, setShotUrl] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(false);
+  const [shotUrls, setShotUrls] = useState<string[] | null>(null);
+  const [zoom, setZoom] = useState<number | null>(null);   // 크게 보는 스크린샷 순서
   // 고르는 중인 상태·답 — '해결'은 답과 함께 [해결로 바꾸기]로 저장하고, 접수↔확인 중은 누르면 바로 저장한다
   const [statusDraft, setStatusDraft] = useState<IssueStatus | null>(null);
   const [replyDraft, setReplyDraft] = useState('');
@@ -53,8 +53,10 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
         await apiFetch(`/api/issues/${id}/seen`, { method: 'POST' }).catch(() => null);
         window.dispatchEvent(new Event('cbx-issues-changed'));
       }
-      if (i.screenshotPath) {
-        try { const u = await signIssueScreenshot(i.screenshotPath); if (alive) setShotUrl(u); } catch { /* 이미지 없이 본문은 보인다 */ }
+      if (i.screenshotPaths.length) {
+        // 한 장이 실패해도 나머지는 보인다 — 실패한 자리는 빼고 순서는 지킨다
+        const urls = await Promise.all(i.screenshotPaths.map((p) => signIssueScreenshot(p).catch(() => null)));
+        if (alive) setShotUrls(urls.filter((u): u is string => !!u));
       }
     })().catch(() => { if (alive) setLoadErr('불러오지 못했어요'); });
     return () => { alive = false; };
@@ -97,6 +99,7 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
            className="fixed inset-y-0 right-0 z-40 flex w-[480px] max-w-[calc(100vw-80px)] flex-col border-l border-x-border bg-white shadow-xl">
       <div className="flex items-start justify-between gap-3 border-b border-x-border px-6 pb-4 pt-5">
         <h2 className="min-w-0 truncate text-[18px] font-bold">
+          {issue && <span className="mr-2 tabular-nums text-x-secondary">{issueLabel(issue.no)}</span>}
           {issue?.reporterName ?? ' '}
           {issue && <span className="ml-2 text-[14px] font-normal text-x-muted">{relativeDay(issue.createdAt, now)} {kstTime(issue.createdAt)}</span>}
         </h2>
@@ -125,13 +128,20 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
               <p className={LABEL}>내용</p>
               <p className="whitespace-pre-wrap break-words leading-relaxed">{issue.body}</p>
             </div>
-            {issue.screenshotPath && (
-              shotUrl ? (
-                <button type="button" onClick={() => setZoom(true)} aria-label="스크린샷 크게 보기"
-                        className="block w-full overflow-hidden rounded-[10px] border border-x-border">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- 비공개 버킷 서명 URL */}
-                  <img src={shotUrl} alt="보낸 스크린샷" className="max-h-64 w-full object-contain bg-x-surface" />
-                </button>
+            {issue.screenshotPaths.length > 0 && (
+              shotUrls ? (
+                <div>
+                  <p className={LABEL}>스크린샷 {shotUrls.length}장</p>
+                  <div className={`grid gap-2 ${shotUrls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                    {shotUrls.map((u, k) => (
+                      <button key={u} type="button" onClick={() => setZoom(k)} aria-label={`스크린샷 ${k + 1} 크게 보기`}
+                              className="block overflow-hidden rounded-[10px] border border-x-border bg-x-surface">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- 비공개 버킷 서명 URL */}
+                        <img src={u} alt={`보낸 스크린샷 ${k + 1}`} className={`w-full object-contain ${shotUrls.length === 1 ? 'max-h-64' : 'h-32'}`} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ) : <p className="text-ui text-x-muted">스크린샷 불러오는 중…</p>
             )}
 
@@ -183,7 +193,7 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
         </div>
       )}
 
-      {zoom && shotUrl && <ImageLightbox urls={[shotUrl]} index={0} onIndexChange={() => {}} onClose={() => setZoom(false)} />}
+      {zoom !== null && shotUrls && <ImageLightbox urls={shotUrls} index={zoom} onIndexChange={setZoom} onClose={() => setZoom(null)} />}
     </aside>
   );
 }

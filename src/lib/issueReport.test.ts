@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isIssueHandler, sanitizeLocation, locationOf, locationLine, locationHref, hasUnseenReply, inTab,
-  issueScreenshotError, issueScreenshotPath, isIssueScreenshotPath, slackIssueText, fabPosition, screenNameFor,
+  issueScreenshotError, issueScreenshotPath, isIssueScreenshotPath, sanitizeScreenshotPaths, issueLabel, slackIssuePayload, ISSUE_SLACK_MENTION, fabPosition, screenNameFor,
   FAB_GAP, FAB_SIZE,
 } from './issueReport.ts';
 
@@ -72,33 +72,47 @@ test('스크린샷 — 형식·용량, 경로 모양', () => {
   assert.equal(isIssueScreenshotPath(p + '\n'), false);
 });
 
-test('슬랙 알림 — 첫 줄은 보낸 사람, 내용은 인용 상자(줄바꿈 유지), 위치는 칸으로, 없는 칸은 빠진다', () => {
-  const t = slackIssueText({
-    reporterName: '박구건', body: '표가 <안> 바뀌어요 &\n\n\n\n새로고침하면 돼요',
-    location: { screen: '캠페인', title: '미모드림의원 10월 방문협찬', panel: '작업 @mi', dialog: '기존 방문 작업에 예약 추가', path: '/', taskId: null, viewport: null },
-    hasScreenshot: true, url: 'https://x.test/issues?id=1',
-  });
-  assert.equal(t, [
-    '🙋 *새 이슈* 박구건',
-    '> 표가 &lt;안&gt; 바뀌어요 &amp;',
-    '>',
-    '> 새로고침하면 돼요',
-    '',
-    '*화면* 캠페인 › 미모드림의원 10월 방문협찬',
-    '*패널* 작업 @mi',
-    '*창* 기존 방문 작업에 예약 추가',
-    '*스크린샷* 1장',
-    '<https://x.test/issues?id=1|이슈 열기 ↗>',
-  ].join('\n'));
+// 슬랙 블록은 모양이 열려 있어(unknown[]) 테스트에서 필요한 칸만 꺼내 본다
+type Block = { text: { text: string }; fields: Array<{ text: string }>; elements: Array<{ url: string; text: string }> };
 
-  const plain = slackIssueText({
-    reporterName: '태정', body: '가'.repeat(400),
-    location: { screen: '정산', title: '정산', panel: null, dialog: null, path: '/settlement', taskId: null, viewport: null },
-    hasScreenshot: false, url: 'https://x.test/issues?id=2',
+test('슬랙 알림 — 제목은 번호, 내용은 인용 상자(줄바꿈 유지), 칸은 있는 것만, 맨 아래 멘션', () => {
+  const p = slackIssuePayload({
+    no: 12, reporterName: '박구건', body: '표가 <안> 바뀌어요 &\n\n\n\n새로고침하면 돼요',
+    location: { screen: '캠페인', title: '미모드림의원 10월 방문협찬', panel: '작업 @mi', dialog: '기존 방문 작업에 예약 추가', path: '/', taskId: null, viewport: null },
+    screenshots: 3, url: 'https://x.test/issues?id=1',
   });
-  const lines = plain.split('\n');
-  assert.equal(lines[1], `> ${'가'.repeat(300)}…`);
-  assert.deepEqual(lines.slice(2), ['', '*화면* 정산', '<https://x.test/issues?id=2|이슈 열기 ↗>']);
+  const b = p.blocks as Block[];
+  assert.equal(b[0].text.text, '🎫 ISSUE-012');
+  assert.equal(b[1].text.text, '> 표가 &lt;안&gt; 바뀌어요 &amp;\n>\n> 새로고침하면 돼요');
+  assert.deepEqual(b[2].fields.map((f) => f.text), [
+    '*보낸 사람*\n박구건', '*화면*\n캠페인 › 미모드림의원 10월 방문협찬', '*패널*\n작업 @mi',
+    '*창*\n기존 방문 작업에 예약 추가', '*스크린샷*\n3장 (이슈에서 보기)',
+  ]);
+  assert.equal(b[3].elements[0].url, 'https://x.test/issues?id=1');
+  assert.equal(b[4].elements[0].text, `<@${ISSUE_SLACK_MENTION}>`);
+  assert.match(p.text, /^ISSUE-012 박구건: 표가 <안> 바뀌어요 & 새로고침하면 돼요$/);
+
+  const plain = slackIssuePayload({
+    no: 1234, reporterName: '태정', body: '가'.repeat(400),
+    location: { screen: '정산', title: '정산', panel: null, dialog: null, path: '/settlement', taskId: null, viewport: null },
+    screenshots: 0, url: 'https://x.test/issues?id=2',
+  });
+  const pb = plain.blocks as Block[];
+  assert.equal(pb[0].text.text, '🎫 ISSUE-1234');
+  assert.equal(pb[1].text.text, `> ${'가'.repeat(300)}…`);
+  assert.deepEqual(pb[2].fields.map((f) => f.text), ['*보낸 사람*\n태정', '*화면*\n정산']);
+});
+
+test('스크린샷 여러 장 — 4장까지, 경로 모양, 겹침 없음', () => {
+  const p = (n: number) => `issue/2026-10/${UUID.slice(0, -1)}${n}.png`;
+  assert.deepEqual(sanitizeScreenshotPaths(undefined), []);
+  assert.deepEqual(sanitizeScreenshotPaths([p(1), p(2), p(3), p(4)]), [p(1), p(2), p(3), p(4)]);
+  assert.equal(sanitizeScreenshotPaths([p(1), p(2), p(3), p(4), p(5)]), null);
+  assert.equal(sanitizeScreenshotPaths([p(1), p(1)]), null);
+  assert.equal(sanitizeScreenshotPaths(['https://evil.example/x.png']), null);
+  assert.equal(sanitizeScreenshotPaths(p(1)), null);
+  assert.equal(issueLabel(1), 'ISSUE-001');
+  assert.equal(issueLabel(1000), 'ISSUE-1000');
 });
 
 test('버튼 자리 — 오른쪽 패널은 왼쪽으로 비키고, 하단 줄은 위로, 너무 넓은 패널이면 구석 그대로', () => {

@@ -1,55 +1,67 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { classify, CATEGORIES } from './procedureTaxonomy.ts';
+import { classify, masterOf, CATEGORIES, PROCEDURE_MASTER } from './procedureTaxonomy.ts';
 
-const snap = JSON.parse(readFileSync(new URL('../app/trends/snapshot.json', import.meta.url), 'utf8')) as
-  { procedures: Array<{ major: string; middle: string; name: string; kr: string }> };
+// 분류표 검증 — b2b-marketing build_master.py의 검증을 옮긴 것(분류표 원본이 여기로 왔다, 10-28)
+test('분류표: id·일본어 검색어는 한 줄씩', () => {
+  const dup = (k: (m: (typeof PROCEDURE_MASTER)[number]) => string) => {
+    const seen = new Set<string>(); return PROCEDURE_MASTER.map(k).filter((x) => seen.has(x) || !seen.add(x));
+  };
+  assert.deepEqual(dup((m) => m.id), []);
+  assert.deepEqual(dup((m) => m.jp.replace(/\s/g, '').toLowerCase()), []);
+});
 
-test('시트의 모든 시술이 분류된다(빠짐 없음)', () => {
-  for (const p of snap.procedures) {
-    const c = classify(p);
-    assert.ok(CATEGORIES.includes(c.category), `${p.name}: ${c.category}`);
-    assert.ok(c.sub, `${p.name}: 중분류 비어 있음`);
+test('분류표: 대분류는 정해진 11개, 고민어만 비어 있다', () => {
+  for (const m of PROCEDURE_MASTER) {
+    if (m.type === '고민·증상') assert.equal(m.major, '', m.bundle);
+    else assert.ok((CATEGORIES as readonly string[]).includes(m.major) && m.major !== '피부 고민', `${m.bundle}: ${m.major}`);
   }
 });
 
-test('표기 흔들림은 하나로 모인다', () => {
-  const sub = (major: string, middle: string) => classify({ major, middle, name: 'x', kr: 'x' }).sub;
-  assert.equal(sub('초음파 리프팅', 'HIFU'), sub('초음파 리프팅', 'HIFU (고강도초음파)'));
-  assert.equal(sub('고주파 리프팅', 'RF (Mono)'), sub('고주파 리프팅', 'RF (단극성/모노)'));
-  assert.equal(sub('복합/레이저 리프팅', 'Hybrid'), sub('복합/레이저 리프팅', '하이브리드'));
-  assert.equal(sub('스킨부스터 (주사)', 'Cocktail'), sub('스킨부스터 (주사)', '복합성분 (칵테일)'));
+test('분류표: 순위 포함은 피부과 일반의 시술·통칭이고 분류가 다 차 있다, 약은 빠진다', () => {
+  for (const m of PROCEDURE_MASTER.filter((x) => x.rank)) {
+    assert.ok(['시술', '시술 통칭'].includes(m.type) && m.area === '피부과 일반', m.bundle);
+    assert.ok(m.major && m.sub && m.method, `분류 빈칸: ${m.bundle}`);
+  }
+  assert.ok(PROCEDURE_MASTER.filter((m) => m.type === '약').every((m) => !m.rank));
 });
 
-test('작은 대분류는 일반 분류로 합쳐진다', () => {
-  assert.equal(classify({ major: '기타 스킨부스터', middle: 'PCL (액상)', name: '고우리', kr: '고우리' }).category, '스킨부스터');
-  assert.equal(classify({ major: '남성 시술', middle: '제모', name: '수염제모', kr: '수염제모' }).category, '제모');
-  assert.equal(classify({ major: '바디 슬리밍', middle: '가스 주입', name: '카복시', kr: '카복시' }).category, '바디·비만');
-});
-
-test('CO2 병변 제거·점빼기는 점·사마귀 제거, 기타 레이저의 여드름 장비는 여드름', () => {
-  assert.equal(classify({ major: '흉터/모공/박피', middle: '병변 제거 (CO2)', name: '쥐젖', kr: '쥐젖제거' }).category, '점·사마귀 제거');
-  assert.equal(classify({ major: '흉터/모공/박피', middle: 'CO2/어븀', name: 'CO2레이저', kr: '점빼기' }).category, '점·사마귀 제거');
-  assert.equal(classify({ major: '흉터/모공/박피', middle: 'CO2/어븀', name: 'CO2레이저', kr: '이산화탄소프락셔널' }).sub, '프락셔널 레이저');
-  assert.deepEqual(classify({ major: '기타 레이저', middle: '홍조/여드름', name: '카프리', kr: '카프리레이저' }), { category: '여드름', sub: '피지선 치료' });
-});
-
-test('일반/증상 — 상위어는 해당 분류의 대표 검색어, 고민은 피부 고민', () => {
-  assert.deepEqual(classify({ major: '일반/증상', middle: '카테고리', name: '보톡스', kr: '보톡스' }), { category: '보톡스', sub: '대표 검색어' });
-  assert.deepEqual(classify({ major: '일반/증상', middle: '고민 해결', name: '기미', kr: '기미치료' }), { category: '피부 고민', sub: '기미' });
-});
-
-test('같은 시술명은 한 분류로 — 갈라지면 화면에 같은 이름이 두 줄(10-14 튼살·젠틀맥스)', () => {
-  // 이름만 같고 다른 시술: 포토나(색소 레이저 / 4D 리프팅)·인모드(얼굴 / 바디)·CO2레이저(프락셔널 / 점빼기) — 화면은 한국어 표기로 구분
-  const SPLIT_OK = new Set(['포토나', '인모드', 'CO2레이저']);
+test('분류표: 한 묶음은 한 대분류 — 이름만 같고 다른 시술은 예외', () => {
+  const SPLIT_OK = new Set(['포토나', '인모드']);  // 포토나 레이저/4D, 인모드 얼굴/바디
   const cats = new Map<string, Set<string>>();
-  for (const p of snap.procedures) cats.set(p.name, (cats.get(p.name) ?? new Set()).add(classify(p).category));
-  const split = [...cats].filter(([n, c]) => c.size > 1 && !SPLIT_OK.has(n)).map(([n]) => n);
-  assert.deepEqual(split, []);
+  for (const m of PROCEDURE_MASTER.filter((x) => x.major)) cats.set(m.bundle, (cats.get(m.bundle) ?? new Set()).add(m.major));
+  assert.deepEqual([...cats].filter(([b, c]) => c.size > 1 && !SPLIT_OK.has(b)).map(([b]) => b), []);
 });
 
-test('앱에서 더한 시술 — 화면 분류 이름을 대분류로 쓰면 그대로', () => {
-  assert.deepEqual(classify({ major: '스킨부스터', middle: 'PLA', name: '리투오', kr: '리투오' }), { category: '스킨부스터', sub: 'PLA' });
-  assert.deepEqual(classify({ major: '리프팅', middle: '', name: '새 리프팅', kr: '' }), { category: '리프팅', sub: '새 리프팅' });
+const ref = (id: string, jp: string, name = 'x', major = '', middle = '') => ({ id, jp, name, major, middle });
+
+test('분류표의 시술은 소비자 대분류·중분류로', () => {
+  assert.deepEqual(classify(ref('p110', 'ジュベルック')), { category: '스킨부스터', sub: '콜라겐 부스터', derm: true, listed: true });
+  // 레니스나 = 쥬베룩 볼륨의 해외 판매명(10-28), 점빼기는 CO2 프락셔널과 다른 묶음
+  assert.equal(masterOf(ref('p166', 'レニスナ'))?.bundle, '쥬베룩볼륨');
+  assert.equal(classify(ref('p166', 'レニスナ')).category, '필러·볼륨');
+  assert.equal(masterOf(ref('p306', 'ほくろ除去'))?.bundle, '점빼기');
+});
+
+test('같은 일본어 검색어의 두 번째 줄은 일본어로 찾는다', () => {
+  const m = PROCEDURE_MASTER.find((x) => x.jp === '糸リフト')!;
+  assert.deepEqual(classify(ref('p-dup', '糸 リフト')), classify(ref(m.id, m.jp)));
+});
+
+test('고민어는 피부 고민, 피부과 시술이 아니다', () => {
+  assert.deepEqual(classify(ref('p26', 'ほうれい線')), { category: '피부 고민', sub: '주름', derm: false, listed: true });
+});
+
+test('다른 진료과·약은 분류는 하되 피부과 시술이 아니다', () => {
+  const other = PROCEDURE_MASTER.find((m) => m.area === '다른 과')!;
+  const drug = PROCEDURE_MASTER.find((m) => m.type === '약')!;
+  assert.equal(classify(ref(other.id, other.jp)).derm, false);
+  assert.equal(classify(ref(drug.id, drug.jp)).derm, false);
+});
+
+test('앱에서 더한 시술 — 같은 이름의 묶음이 있으면 그 분류, 없으면 고른 분류', () => {
+  assert.equal(classify(ref('u1', 'サーマクールNEW', '써마지', '고주파 리프팅', 'RF')).category, '리프팅');
+  assert.deepEqual(classify(ref('u2', 'ニューブースター', '새 부스터', '스킨부스터', 'PLA')), { category: '스킨부스터', sub: 'PLA', derm: true, listed: false });
+  assert.equal(classify(ref('u3', 'テスト', '새 시술', '보톡스', '')).category, '톡신·윤곽');  // 옛 분류 이름
+  assert.equal(classify(ref('u4', 'テスト2', '새 시술2', '', '')).category, '기타');
 });

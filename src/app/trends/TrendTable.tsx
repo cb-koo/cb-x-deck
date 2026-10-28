@@ -23,6 +23,7 @@ export type TrendRow = {
   id: string; major: string; majorOrder: number; middle: string; name: string; kr: string; jp: string; en: string;
   volumes: number[] | null; series: number[] | null; summary: TrendSummary; searchText: string;
   baseName: string;
+  derm: boolean; listed: boolean;  // 피부과 시술(묶음 중 하나라도) / 분류표를 따름 — procedureTaxonomy
   notable: Notable | null;
   interest: Interest;  // 많이 찾는 것(평균 대비 두드러진 관심사) — '관심 단계'를 대신함(10-15)  // 주목 시술(성장·한국 수요) — 지도 이름·굵은 점·필터  // 저장된 시술명(같은 이름이 두 분류에 있으면 화면 name은 한국어 표기로 바뀐다)
   intent: IntentInfo | null; korea: { now: number; yearAgo: number } | null;

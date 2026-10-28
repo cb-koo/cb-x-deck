@@ -139,6 +139,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose, onChange
         <div className="min-w-0">
           <p className="text-[18px] font-bold">{row.name}</p>
           <p className="truncate text-ui text-x-muted">{row.jp}{row.en && ` · ${row.en}`} · {row.major} › {row.middle}</p>
+          {!row.listed && <p className="text-ui text-amber-700">시술 분류표에 없는 시술이에요. 추가할 때 고른 분류로 보여요.</p>}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {!editing && <Button onClick={() => setEditing(true)}>수정</Button>}
@@ -149,7 +150,7 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose, onChange
       {editing && (
         <div className="px-6 py-5">
           <ProcedureForm mode="edit" onCancel={() => setEditing(false)}
-            initial={{ name: row.baseName, category: row.major, sub: row.middle === row.baseName ? '' : row.middle, hidden: false,
+            initial={{ name: row.baseName, category: row.major, sub: row.middle === row.baseName ? '' : row.middle, hidden: false, locked: row.listed,
               members: (members ?? [{ id: row.id, kr: row.kr, jp: row.jp }]).map((m) => ({ id: m.id, kr: m.kr, jp: m.jp, en: m.id === row.id ? row.en : '' })) }}
             onSaved={async () => { await onChanged(); setEditing(false); }} />
         </div>

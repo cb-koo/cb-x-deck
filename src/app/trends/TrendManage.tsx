@@ -12,6 +12,7 @@ const LABEL = 'mb-1 block text-ui font-medium text-x-secondary';
 
 export interface ProcedureFormValue {
   name: string; category: string; sub: string; hidden: boolean;
+  locked?: boolean;  // 분류표를 따르는 시술 — 분류는 여기서 못 바꾼다(리포트와 같은 기준이라 분류표에서 고친다)
   members: Array<{ id: string | null; kr: string; jp: string; en: string }>;  // 묶음의 행마다(새 시술이면 id null 한 줄)
 }
 
@@ -39,7 +40,7 @@ export function ProcedureForm({ initial, mode, onCancel, onSaved }: {
         for (const [i, m] of v.members.entries()) {
           const before = initial.members[i];
           const r = await fetch(`/api/trends/procedures/${m.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ name: v.name, category: v.category, sub: v.sub, hidden: v.hidden,
+            body: JSON.stringify({ name: v.name, category: v.locked ? undefined : v.category, sub: v.locked ? undefined : v.sub, hidden: v.hidden,
               kr: m.kr !== before.kr ? m.kr : undefined, jp: m.jp !== before.jp ? m.jp : undefined, en: m.en !== before.en ? m.en : undefined }) });
           const j = await r.json(); if (!r.ok) throw new Error(j.error ?? '저장하지 못했어요');
         }
@@ -53,13 +54,20 @@ export function ProcedureForm({ initial, mode, onCancel, onSaved }: {
       <div className="grid grid-cols-2 gap-3">
         <label className="col-span-2"><span className={LABEL}>시술명 <span className="font-normal text-x-muted">· 화면에 보이는 이름</span></span>
           <input className={INPUT} value={v.name} onChange={(e) => set({ name: e.target.value })} placeholder="예: 리투오" /></label>
-        <label><span className={LABEL}>분류</span>
-          <select className={INPUT} value={v.category} onChange={(e) => set({ category: e.target.value })}>
-            <option value="">고르기</option>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select></label>
-        <label><span className={LABEL}>세부 분류 <span className="font-normal text-x-muted">· 비우면 시술명</span></span>
-          <input className={INPUT} value={v.sub} onChange={(e) => set({ sub: e.target.value })} placeholder="예: PLA" /></label>
+        {v.locked ? (
+          <div className="col-span-2"><span className={LABEL}>분류</span>
+            <p className="text-[15px]">{v.category} <span className="text-x-muted">› {v.sub || v.name}</span></p>
+            <p className="mt-0.5 text-ui text-x-muted">리포트와 같은 시술 분류표를 따라서 여기서는 바꿀 수 없어요. 바꿔야 하면 오른쪽 아래 둥근 버튼으로 알려 주세요.</p>
+          </div>
+        ) : (<>
+          <label><span className={LABEL}>분류</span>
+            <select className={INPUT} value={v.category} onChange={(e) => set({ category: e.target.value })}>
+              <option value="">고르기</option>
+              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select></label>
+          <label><span className={LABEL}>세부 분류 <span className="font-normal text-x-muted">· 비우면 시술명</span></span>
+            <input className={INPUT} value={v.sub} onChange={(e) => set({ sub: e.target.value })} placeholder="예: PLA" /></label>
+        </>)}
       </div>
       {v.members.map((m, i) => (
         <div key={m.id ?? i} className="grid grid-cols-2 gap-3 rounded-lg bg-x-surface p-3">

@@ -70,6 +70,9 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
     for (const ms of fams.values()) nameCount.set(ms[0].name, (nameCount.get(ms[0].name) ?? 0) + 1);
     const built = [...fams.values()].map((ms) => {
       const p = ms[0];
+      // 대표 표기 — 묶음 안에서 이름 검색량(최근 12개월)이 가장 큰 줄(쥬베룩볼륨: レニスナ보다 ジュベルックボリューム, koo 10-28). 값·의도는 묶음 첫 줄 기준 그대로
+      const vol12 = (m: Proc) => (m.volumes ? m.volumes.slice(-12).reduce((s, x) => s + x, 0) : -1);
+      const rep = ms.reduce((a, b) => (vol12(b) > vol12(a) ? b : a));
       const c = classify(p);
       const it = INTENT[p.id] ?? null;
       // 묶음이 있으면 묶음만 — 이름 검색으로 되돌아가면 동음이의 시술(フォトナ=게임)이 다시 커진다
@@ -80,7 +83,8 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
       const summary = summarize(series, DATA.months);
       return {
         ...p, baseName: p.name, name: (nameCount.get(p.name) ?? 0) > 1 ? p.kr.replace(/\s*\(.*\)$/, '') : p.name, major: c.category, majorOrder: categoryOrder(c.category), middle: c.sub,
-        jp: ms.length > 1 ? `${p.jp} 외 ${ms.length - 1}` : p.jp,
+        derm: ms.some((m) => classify(m).derm), listed: c.listed,
+        jp: ms.length > 1 ? `${rep.jp} 외 ${ms.length - 1}` : p.jp, en: rep.en,
         searchText: ms.flatMap((m) => [m.name, m.kr, m.jp, m.en]).join(' ').toLowerCase(),
         series, summary, intent: it, korea, notable: notableOf(summary, series, it?.korea ?? null), interest: null as TrendRow['interest'],
       };
@@ -90,7 +94,10 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
     const base = interestBaseline(shares);
     return built.map((r, i) => ({ ...r, interest: interestOf(shares[i], base) }));
   }, [DATA, INTENT]);
-  const majors = useMemo(() => [...new Map(rows.map((r) => [r.major, r.majorOrder])).entries()].sort((a, b) => a[1] - b[1]).map(([m]) => m), [rows]);
+  // 피부과 시술만 — 고민어·약·다른 진료과·다른 뜻이 섞인 말은 숨긴다(지우지 않음). 분류표의 유형·진료 영역 기준(koo 10-28)
+  const [dermOnly, setDermOnly] = useState(true);
+  const base = useMemo(() => (dermOnly ? rows.filter((r) => r.derm) : rows), [rows, dermOnly]);
+  const majors = useMemo(() => [...new Map(base.map((r) => [r.major, r.majorOrder])).entries()].sort((a, b) => a[1] - b[1]).map(([m]) => m), [base]);
 
   const [view, setView] = useState<'procedure' | 'major'>('procedure');
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
@@ -108,7 +115,7 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
   useEffect(() => { fetch('/api/trends/candidates', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])).then(setCandidates).catch(() => {}); }, []);
   const candidateCount = candidates.filter((c) => c.kind === 'new' || c.kind === 'variant' || c.kind === 'concern' || c.kind === 'alt').length;
 
-  const inMajor = useMemo(() => rows.filter((r) => !major || r.major === major), [rows, major]);
+  const inMajor = useMemo(() => base.filter((r) => !major || r.major === major), [base, major]);
   const counts = useMemo(() => Object.fromEntries(STATE_FILTERS.map((f) => [f.key, inMajor.filter((r) => f.match(r)).length])) as Record<StateFilter, number>, [inMajor]);
   const shown = useMemo(() => {
     const f = STATE_FILTERS.find((x) => x.key === stateFilter)!;
@@ -135,7 +142,7 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
   }, [inMajor, stateFilter, q, sort]);
 
   const majorRows: MajorRow[] = useMemo(() => majors.map((m) => {
-    const list = rows.filter((r) => r.major === m);
+    const list = base.filter((r) => r.major === m);
     const live = list.filter((r) => r.summary.now !== null && r.summary.state !== 'low');
     // 분류 추세도 태그와 같은 기준(지금 방향 = 최근 3개월 vs 직전 3개월) — 1년 변화로 상승·하락을 붙이면 시술 태그와 어긋난다
     const changes = live.map((r) => r.summary.recent).filter((c): c is number => c !== null).sort((a, b) => a - b);
@@ -148,14 +155,14 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
       change: changes.length ? changes[Math.floor(changes.length / 2)] : null,
       korea: list.reduce((s, r) => s + (r.korea?.now ?? 0), 0),
     };
-  }), [majors, rows]);
+  }), [majors, base]);
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
   const siblings = useMemo(() => {
     if (!selected) return [];
-    const same = rows.filter((r) => r.major === selected.major && r.middle === selected.middle);
-    return (same.length >= 3 ? same : rows.filter((r) => r.major === selected.major));
-  }, [rows, selected]);
+    const same = base.filter((r) => r.major === selected.major && r.middle === selected.middle);
+    return (same.length >= 3 ? same : base.filter((r) => r.major === selected.major));
+  }, [base, selected]);
 
   const openMajor = (m: string) => { setMajor(m); setView('procedure'); setStateFilter('all'); };
   const toggle = (id: string) => setSelectedId(id === selectedId ? null : id);
@@ -164,7 +171,7 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
     <div className="flex h-full min-h-0">
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto px-6 py-8">
         <div className="mb-1 flex shrink-0 items-center gap-3">
-          <h1 className="text-[20px] font-bold">검색 트렌드 <span className="text-ui font-normal text-x-secondary">일본 · 피부과 시술 {rows.length}</span></h1>
+          <h1 className="text-[20px] font-bold">검색 트렌드 <span className="text-ui font-normal text-x-secondary">일본 · {dermOnly ? '피부과 시술' : '전체 검색어'} {base.length}</span></h1>
           <Button className="ml-auto" onClick={() => { setShowCandidates(true); setAdding(false); setSelectedId(null); }}
                   title="우리 목록에 없는데 1년 새 늘어난 검색 — 새 시술·다른 표기·새 고민 후보">
             새로 뜨는 검색{candidateCount > 0 && <span className="ml-1.5 rounded-full bg-x-blue px-1.5 text-[12px] font-semibold text-white">{candidateCount}</span>}
@@ -185,6 +192,12 @@ function TrendsView({ data: DATA, reload }: { data: TrendData; reload: () => Pro
                 </button>
               ))}
             </div>
+            <label className="flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-x-border-strong px-3 text-ui"
+                   title="시술 이름이 아닌 검색어(주름, 탈모 같은 고민어와 약, 질환 이름, 일반어)와 피부과가 아닌 진료과 시술을 숨겨요. 데이터는 그대로 있어요.">
+              <input type="checkbox" checked={dermOnly} onChange={(e) => { setDermOnly(e.target.checked); setMajor(''); }} />
+              피부과 시술만
+              {dermOnly && <span className="text-x-muted">고민어, 약, 다른 진료과 등 {rows.length - base.length}개 숨김</span>}
+            </label>
             {view === 'procedure' && (<>
               <select value={major} onChange={(e) => setMajor(e.target.value)} aria-label="분류"
                       className="h-8 rounded-full border border-x-border-strong bg-white px-3 text-ui">

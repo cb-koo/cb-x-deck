@@ -13,6 +13,8 @@ export type IntentInfo = {
   profile: Record<ProfileIntent, number> | null; prev: Record<ProfileIntent, number> | null;
   stage: Stage | null; prevStage: Stage | null; ambiguous: boolean; keywords: number;
   top: Partial<Record<ProfileIntent, Array<[jp: string, volume: number, ko?: string]>>>;  // ko = 한국어 번역
+  adjacent?: number[];  // 화장품·홈케어 관련(시술 밖 관심) 월별 합 — 시술 수요와 따로(trendAdjacent)
+  adjacentTop?: Array<[jp: string, volume: number, ko?: string]>;  // 그 상위 검색어 3개(월평균)
   members?: Array<{ id: string; kr: string; jp: string; total: number[] }>;  // 같은 시술명 묶음의 검색어별 구성
   // 시술명 검색 결과 구성 — 일본 사이트 이미지 검색 상위 20개를 피부과·미용 / 다른 진료과 / 화장품·셀프 / 무관한 뜻으로 나눈 수(10-14)
   serp?: { derm: number; med: number; self: number; unrelated: number; note: string };

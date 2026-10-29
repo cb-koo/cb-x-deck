@@ -1,4 +1,4 @@
-// 검색 트렌드 상세 — 요약 3줄(추세·의도·한국) → 월별 그래프(전체 / 한국) → 검색 의도(의도 한 줄 + 대표 검색어 줄: 한국어·일본어·검색량) → 같은 묶음 비교.
+// 검색 트렌드 상세 — 요약(추세·의도·구성·한국) → 월별 그래프(전체 / 한국) → 검색 의도(의도 한 줄 + 대표 검색어 줄: 한국어·일본어·검색량) → 같은 묶음 비교.
 // 스펙 2026-10-13 §5-2(3차)
 'use client';
 import { useState } from 'react';
@@ -12,6 +12,7 @@ import { MED_MIX, SELF_MIX, type TrendRow, type IntentInfo } from './TrendTable'
 import { Button } from '@/components/ui';
 import { ProcedureForm, KeywordReview } from './TrendManage';
 import { notableText } from '@/lib/trendNotable';
+import { adjacentSplit } from '@/lib/trendAdjacent';
 
 const PERIODS = [{ m: 12, label: '1년' }, { m: 24, label: '2년' }, { m: 48, label: '4년' }] as const;
 
@@ -89,6 +90,17 @@ function IntentRows({ now, prev, top, names }: { now: Share; prev: Share | null;
   );
 }
 
+// 검색어 구성 막대 — 시술 관련(파랑) / 화장품·홈케어 관련(주황). 사실값만, 평가 문구 없음(10-29 koo)
+function SplitBar({ treatment, adjacent }: { treatment: number; adjacent: number }) {
+  const t = treatment / (treatment + adjacent);
+  return (
+    <span className="mt-2 flex h-2 overflow-hidden rounded-full bg-x-surface">
+      <span className="block h-full bg-x-blue" style={{ width: `${t * 100}%` }} />
+      <span className="block h-full bg-amber-500" style={{ width: `${(1 - t) * 100}%` }} />
+    </span>
+  );
+}
+
 // 요약 한 줄 — 왼쪽 주제 이름(추세·의도·한국), 오른쪽 판정 칩 + 짧은 명사형 설명
 function SummaryLine({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -132,6 +144,8 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose, onChange
   const k = row.korea;
   const kShare = k && summary.now ? k.now / summary.now : null;
   const kChange = k && k.yearAgo >= 50 ? k.now / k.yearAgo - 1 : null;
+  // 검색어 구성 — 화장품·홈케어 관련이 10% 이상일 때만
+  const split = adjacentSplit(it);
 
   return (
     <aside className="flex w-[clamp(560px,44vw,780px)] shrink-0 flex-col overflow-y-auto border-l border-x-border bg-white">
@@ -176,6 +190,18 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose, onChange
                 <span className="text-x-secondary">두드러진 관심사 없이 고르게 찾음 — {topTwo.map((i) => `${INTENT_LABEL[i]}(${pct(prof[i] ?? 0)})`).join('·')} 순</span>
               ) : <span className="text-x-secondary">효과·가격 등이 붙은 검색이 적어(월 100건 미만) 판단 보류</span>}
             </SummaryLine>
+            {split && (
+              <SummaryLine label="구성">
+                {row.name} 검색어(이름만 검색 제외) 중 <b className="font-semibold">{100 - Math.round(split.adjacentShare * 100)}%</b>가 시술 관련,{' '}
+                <b className="font-semibold">{Math.round(split.adjacentShare * 100)}%</b>가 화장품·홈케어 관련 검색이었어요.
+                <SplitBar treatment={split.treatment} adjacent={split.adjacent} />
+                <span className="mt-1.5 flex flex-wrap gap-x-4 text-ui text-x-secondary">
+                  <span><i className="mr-1.5 inline-block size-2 rounded-full bg-x-blue" />시술 관련 월 {fmtVolume(split.treatment)}</span>
+                  <span><i className="mr-1.5 inline-block size-2 rounded-full bg-amber-500" />화장품·홈케어 관련 월 {fmtVolume(split.adjacent)}</span>
+                  {split.nameOnly >= 10 && <span className="text-x-muted">이름만 검색 월 {fmtVolume(split.nameOnly)} 제외</span>}
+                </span>
+              </SummaryLine>
+            )}
             <SummaryLine label="한국">
               {!k || k.now < 50 ? <span className="text-x-secondary">한국에서 받으려는 검색은 아직 적음(월 50 미만)</span> : (<>
                 한국에서 받으려는 검색 월 <b className="font-semibold tabular-nums">{fmtVolume(k.now)}</b>
@@ -267,6 +293,34 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose, onChange
             <IntentRows now={prof} prev={prevProf} top={it.top}
               names={[row.name, row.kr, ...(members ?? []).map((m) => m.kr)].filter(Boolean).sort((a, b) => b.length - a.length)} />
             <p className="mt-1.5 text-ui text-x-muted">월평균은 최근 1년 검색량 · 1년 전보다 10%p 이상 바뀐 의도만 ▲▼ 표시</p>
+          </div>
+        )}
+
+        {split && !!it?.adjacentTop?.length && (
+          <div>
+            <p className="mb-2 text-ui font-semibold text-x-secondary">
+              화장품·홈케어 관련 검색 · 최근 1년 <span className="font-normal text-x-muted">위 검색 의도 비율에는 들어가지 않아요</span>
+            </p>
+            <div className="overflow-hidden rounded-lg border border-x-border">
+              <table className="w-full border-collapse text-[15px]">
+                <thead>
+                  <tr>
+                    <th className="border-b border-x-border px-3 py-2 text-left text-ui font-medium text-x-muted">검색어</th>
+                    <th className="border-b border-x-border px-3 py-2 text-left text-ui font-medium text-x-muted">일본어 원문</th>
+                    <th className="w-[72px] border-b border-x-border px-3 py-2 text-right text-ui font-medium text-x-muted">월평균</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {it.adjacentTop.map(([jp, v, ko]) => (
+                    <tr key={jp} className="border-t border-x-border/60 first:border-t-0">
+                      <td className="max-w-0 truncate px-3 py-2" title={ko || jp}>{ko || jp}</td>
+                      <td className="max-w-0 truncate px-3 py-2 text-ui text-x-muted" title={jp}>{ko ? jp : ''}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-x-secondary">{fmtVolume(v)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 

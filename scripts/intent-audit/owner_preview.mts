@@ -14,6 +14,6 @@ try {
   const pairs = new Map<string, { n: number; v: number }>();
   for (const m of moves) { const key = `${kr.get(m.procedure_id ?? '') ?? '없음'} → ${kr.get(m.next ?? '') ?? '없음'}`; const p = pairs.get(key) ?? { n: 0, v: 0 }; p.n++; p.v += v(m); pairs.set(key, p); }
   console.log(`주인 바뀌는 검색어 ${moves.length}개 · 월 ${Math.round(moves.reduce((a, m) => a + v(m), 0)).toLocaleString()}`);
-  console.log([...pairs].sort((a, b) => b[1].v - a[1].v).slice(0, 15).map(([k, p]) => `${k}: ${p.n}개 월 ${Math.round(p.v).toLocaleString()}`).join('\n'));
+  console.log([...pairs].sort((a, b) => b[1].v - a[1].v).slice(0, 40).map(([k, p]) => `${k}: ${p.n}개 월 ${Math.round(p.v).toLocaleString()}`).join('\n'));
   console.log('상위 예:', moves.sort((a, b) => v(b) - v(a)).slice(0, 8).map((m) => `${m.text}=${Math.round(v(m))}`).join(', '));
 } finally { await sql.end(); }

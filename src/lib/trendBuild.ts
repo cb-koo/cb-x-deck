@@ -2,7 +2,7 @@
 // 순수 함수(DB 없음): 수집이 끝날 때·시술을 고칠 때 trendStore가 불러 trend_view에 저장한다.
 // 태그·묶음·성격 계산은 searchIntent, 분류는 procedureTaxonomy가 정한다 — 여기선 엮기만 한다.
 import { classify } from './procedureTaxonomy';
-import { tagKeyword, ambiguous, aggregate, profile, stage, norm, type KeywordSeries, type Intent, type ProfileIntent, type Stage } from './searchIntent';
+import { tagKeyword, tagNames, ambiguous, aggregate, profile, stage, norm, type KeywordSeries, type Intent, type ProfileIntent, type Stage } from './searchIntent';
 
 export interface TrendSerp { derm: number; med: number; self: number; unrelated: number; note: string }
 
@@ -76,6 +76,7 @@ export function buildTrendView(input: {
     if (!k.procedureId) continue;
     byProc.set(k.procedureId, [...(byProc.get(k.procedureId) ?? []), k]);
   }
+  const allJps = procs.map((p) => p.jp);
   const lists = new Map<string, Array<KeywordSeries & { ko: string }>>();
   const nameSeries = new Map<string, number[] | null>();
   for (const p of procs) {
@@ -83,7 +84,7 @@ export function buildTrendView(input: {
     for (const k of byProc.get(p.id) ?? []) {
       if (k.source === 'name') nameSeries.set(norm(p.jp), k.series && k.series.length === n ? k.series : null);
       if (!k.series || k.series.length !== n) continue;
-      const intent: Intent = k.intentOverride ?? (k.source === 'korea' ? 'korea' : tagKeyword(k.text, [p.jp], homonyms));
+      const intent: Intent = k.intentOverride ?? (k.source === 'korea' ? 'korea' : tagKeyword(k.text, tagNames(p.jp, allJps), homonyms));
       list.push({ text: k.text, intent, values: k.series, ko: k.ko ?? '' });
     }
     lists.set(p.id, list);

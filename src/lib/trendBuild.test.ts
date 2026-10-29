@@ -68,6 +68,14 @@ test('검색어 주인 — 고민어(분류표 고민·증상)보다 시술명�
   assert.equal(owner('ほうれい線 消し方'), 'p26');   // 시술명이 없으면 고민어 것 그대로
 });
 
+test('검색어 주인 — 합성 시술명은 어순이 뒤집혀도', () => {
+  const owner = ownerResolver([{ id: 'p11', jp: 'ボトックス' }, { id: 'p99', jp: 'エラボトックス' }, { id: 'p95', jp: '肩ボトックス' }]);
+  assert.equal(owner('ボトックス エラ'), 'p99');
+  assert.equal(owner('ボトックス 効果 エラ'), 'p99');
+  assert.equal(owner('ボトックス 肩 効果'), 'p95');
+  assert.equal(owner('ボトックス 効果'), 'p11');
+});
+
 test('화면 표기 — 일본어 사이 띄어쓰기만 지운다', () => {
   assert.equal(showKeyword('リジュラン 効果'), 'リジュラン効果');
   assert.equal(showKeyword('ipl 光 治療'), 'ipl 光治療');

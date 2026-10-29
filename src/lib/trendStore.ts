@@ -1,6 +1,6 @@
 import type postgres from 'postgres';
 import { buildTrendView, type TrendProcedureInput, type TrendKeywordInput, type TrendSerp, type TrendViewDoc } from './trendBuild';
-import { norm, ownerOf, tagKeyword, type Intent } from './searchIntent';
+import { norm, ownerOf, tagKeyword, tagNames, type Intent } from './searchIntent';
 import { SERP_HOMONYM } from './trendBuild';
 import { masterOf } from './procedureTaxonomy';
 
@@ -62,7 +62,23 @@ export function ownerResolver(procs: Array<{ id: string; jp: string }>): (text: 
   const names = [...byJp.keys()];
   const concern = new Set(names.filter((jp) => masterOf({ id: byJp.get(jp)!, jp })?.type === '고민·증상'));
   const treatments = names.filter((jp) => !concern.has(jp));
-  return (text) => { const jp = ownerOf(text, treatments) ?? ownerOf(text, names); return jp ? byJp.get(jp) ?? null : null; };
+  // 합성 시술명의 어순이 뒤집힌 검색 — 'ボトックス エラ'는 보톡스가 아니라 エラボトックス(사각턱보톡스)다(10-29: 이걸 못 알아봐
+  // 보톡스 검색량이 두 배로 부풀었다). 주인 이름 N에 덧붙인 앞말 X로 된 시술 XN·NX가 있고, 검색어의 나머지에 X가 있으면 그 시술.
+  const compound = (n: string, rest: string): string | null => {
+    let best: string | null = null;
+    for (const m of treatments) {
+      if (m === n || !m.includes(n)) continue;
+      const x = norm(m).replace(norm(n), '');
+      if ((x.length >= 2 || /[^\x00-\x7f]/.test(x)) && rest.includes(x) && (!best || m.length > best.length)) best = m;
+    }
+    return best;
+  };
+  return (text) => {
+    const jp = ownerOf(text, treatments) ?? ownerOf(text, names);
+    if (!jp) return null;
+    const c = compound(jp, norm(text).replace(norm(jp), ''));
+    return byJp.get(c ?? jp) ?? null;
+  };
 }
 
 // 시술이 바뀌면(추가·대표 검색어 수정·숨김) 검색어 주인을 다시 정한다. 이름 검색어는 그 시술 것으로 고정.
@@ -87,14 +103,19 @@ const addMonths = (ym: string, k: number) => { const [y, m] = ym.split('-').map(
 
 // 완성본 계산 — 가장 최근 48개월(검색어마다 시작 달이 달라도 같은 달끼리 맞춘다). 읽기만 한다(규칙 바꾼 영향 미리 보기에도 쓴다)
 // extra = 아직 저장하지 않은 검색어를 얹어 본다(새로 조회한 검색어를 넣기 전에 화면이 어떻게 바뀌는지 미리 보기)
-export async function computeView(sql: postgres.Sql, market: string, window = 48, extra: KeywordWrite[] = []): Promise<TrendViewDoc> {
+// reown = 주인 규칙을 바꿨을 때 기존 검색어 주인을 다시 정한 것처럼 계산(reassignOwners와 같은 조건 — 이름·한국 조합은 고정)
+export async function computeView(sql: postgres.Sql, market: string, window = 48, extra: Array<KeywordWrite & { intentOverride?: Intent | null }> = [], reown = false): Promise<TrendViewDoc> {
   const procs = await sql<Array<{ id: string; major: string; major_order: number; middle: string; name: string; kr: string; jp: string; en: string; hidden: boolean; serp: TrendSerp | null }>>`
     select id, major, major_order, middle, name, kr, jp, en, hidden, serp from trend_procedure where market = ${market}
     order by major_order, case when id ~ '^p[0-9]+' then substring(id from '[0-9]+')::int else 1000000 end, id`;  // 시트 행 순서(p2 < p10), 앱에서 더한 건 뒤
   const kws = await sql<Array<{ text: string; procedure_id: string | null; source: TrendKeywordInput['source']; ko: string | null; intent_override: string | null; series: number[] | null; series_start: Date | null; fetched_at: Date | null }>>`
     select text, procedure_id, source, ko, intent_override, series, series_start, fetched_at from trend_keyword where market = ${market} order by id`;
+  if (reown) {
+    const owner = ownerResolver(procs.filter((p) => !p.hidden));
+    for (const k of kws) if (!((k.source === 'name' || k.source === 'korea') && k.procedure_id)) k.procedure_id = owner(k.text);
+  }
   const have = new Set(kws.map((k) => norm(k.text)));
-  for (const e of extra) if (!have.has(norm(e.text))) kws.push({ text: e.text, procedure_id: e.procedureId ?? null, source: e.source, ko: e.ko ?? null, intent_override: null,
+  for (const e of extra) if (!have.has(norm(e.text))) kws.push({ text: e.text, procedure_id: e.procedureId ?? null, source: e.source, ko: e.ko ?? null, intent_override: e.intentOverride ?? null,
     series: e.series, series_start: e.series ? new Date(`${e.seriesStart}T00:00:00Z`) : null, fetched_at: null });
   // 마지막 달 = 마지막으로 끝난 전체 갱신(또는 처음 가져오기)의 달. 검색어마다 끝 달이 다를 수 있어(새 달이 나온 뒤 따로 받은 검색어)
   // '가장 늦은 달'로 잡으면 나머지 1.6만 개가 그 달이 없어 전부 값 없음이 된다(10-15 9월 값이 나온 날 발견).
@@ -144,11 +165,12 @@ export async function listFamilyKeywords(sql: postgres.Sql, market: string, proc
     select id, jp, serp from trend_procedure where market = ${market} and id in ${sql(procedureIds)}`;
   const homs = new Set(procs.filter((p) => (p.serp?.unrelated ?? 0) >= SERP_HOMONYM).map((p) => norm(p.jp)));
   const jpOf = new Map(procs.map((p) => [p.id, p.jp]));
+  const allJps = (await sql<Array<{ jp: string }>>`select jp from trend_procedure where market = ${market} and not hidden`).map((p) => p.jp);  // 합성 이름 조각(tagNames)
   const rows = await sql<Array<{ id: string; text: string; ko: string | null; source: string; procedure_id: string; intent_override: string | null; series: number[] | null }>>`
     select id, text, ko, source, procedure_id, intent_override, series from trend_keyword where market = ${market} and procedure_id in ${sql(procedureIds)}`;
   return rows.map((r) => {
     const avg12 = r.series ? r.series.slice(-12).reduce((a, b) => a + b, 0) / Math.min(12, r.series.length) : null;
-    const auto: Intent = r.source === 'korea' ? 'korea' : tagKeyword(r.text, [jpOf.get(r.procedure_id) ?? ''], homs);
+    const auto: Intent = r.source === 'korea' ? 'korea' : tagKeyword(r.text, tagNames(jpOf.get(r.procedure_id) ?? '', allJps), homs);
     return { id: String(r.id), text: r.text, ko: r.ko, source: r.source, procedureId: r.procedure_id,
       intent: (r.intent_override as Intent | null) ?? auto, override: r.intent_override as Intent | null, avg12 };
   }).sort((a, b) => (b.avg12 ?? -1) - (a.avg12 ?? -1));

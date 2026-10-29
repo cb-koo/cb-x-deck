@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tagKeyword, belongs, ownerOf, dedupe, aggregate, profile, stage, ambiguous, type KeywordSeries } from './searchIntent.ts';
+import { tagKeyword, tagNames, belongs, ownerOf, dedupe, aggregate, profile, stage, ambiguous, type KeywordSeries } from './searchIntent.ts';
 
 const N = ['ポテンツァ'];
 
@@ -40,6 +40,14 @@ test('시술 밖 관심 — 화장품·쇼핑·집에서·영양제(버리지 �
   assert.equal(tagKeyword('ケミカル ピーリング 自宅', ['ケミカルピーリング']), 'adjacent');
   assert.equal(tagKeyword('pdrn アヌア', ['PDRN']), 'adjacent');
   assert.equal(tagKeyword('ポテンツァ ダウンタイム マスク', ['ポテンツァ']), 'worry');  // 시술 뒤 마스크는 시술 검색
+});
+
+test('합성 이름은 조각으로도 뗀다 — 어순이 뒤집힌 ボトックス エラ', () => {
+  const names = tagNames('エラボトックス', ['ボトックス', 'エラボトックス']);
+  assert.deepEqual(names, ['エラボトックス', 'ボトックス', 'エラ']);
+  assert.equal(tagKeyword('ボトックス エラ', names), 'name');
+  assert.equal(tagKeyword('ボトックス エラ 値段', names), 'cost');
+  assert.deepEqual(tagNames('ボトックス', ['ボトックス', 'エラボトックス']), ['ボトックス']);
 });
 
 test('시술 이름에 든 부위는 규칙에 안 쓴다', () => {

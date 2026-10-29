@@ -171,3 +171,11 @@ test('10-29 동음이의 — 시술 맥락 말이 있을 때만 센다(슈링크
   assert.equal(tagKeyword('IPL 光治療 ダウンタイム', ['IPL']), 'worry');
   assert.equal(tagKeyword('アラガン トームストーン 詩学', ['アラガン']), 'noise');
 });
+
+test('10-29 시술 밖 관심 오분류 — 마취 크림·주사 앰플 수는 시술 검색', () => {
+  assert.equal(tagKeyword('ボトックス 麻酔クリーム', ['ボトックス']), 'worry');
+  assert.notEqual(tagKeyword('プラセンタ注射 1アンプルと2アンプルの違い', ['プラセンタ注射']), 'adjacent');
+  assert.notEqual(tagKeyword('プラセンタ注射 何アンプル', ['プラセンタ注射']), 'adjacent');
+  assert.equal(tagKeyword('リジュラン アンプル', ['リジュラン']), 'adjacent');
+  assert.equal(tagKeyword('リジュラン クリーム', ['リジュラン']), 'adjacent');
+});

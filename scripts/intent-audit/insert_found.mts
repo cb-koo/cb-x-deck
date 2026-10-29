@@ -75,6 +75,11 @@ try {
     writeFileSync(D('insert-preview.txt'), out.join('\n'));
     console.log(out.slice(0, 2).join('\n'));
   } else {
+    // 되돌리기용 — 쓰기 전 검색어 주인·태그와 화면 완성본을 저장. 되돌릴 땐 넣은 norm을 지우고 주인·태그를 되돌린 뒤 저장해 둔 doc을 trend_view에 다시 쓴다
+    const snap = await sql`select norm, procedure_id, intent_override from trend_keyword where market = 'jp'`;
+    const [view] = await sql`select built_at, doc from trend_view where market = 'jp'`;
+    writeFileSync(D(`rollback-${new Date().toISOString().replace(/[:.]/g, '-')}.json`), JSON.stringify({ keywords: snap, inserted: rows.map((r) => norm(r.text)), view }));
+    console.log('되돌리기 파일 저장', snap.length, '개 검색어');
     const moved = await reassignOwners(sql, 'jp');  // 새 주인 규칙으로 기존 검색어 주인 다시 정하기
     console.log('주인 다시 정함', moved);
     const n = await upsertKeywords(sql, 'jp', rows);

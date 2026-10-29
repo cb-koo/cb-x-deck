@@ -109,7 +109,8 @@ test('이름 자체가 다른 뜻 — 이름 단독은 빼고 수식어 붙은 �
   assert.equal(tagKeyword('IPL', ['IPL']), 'noise');                      // 인도 크리켓 리그
   assert.equal(tagKeyword('フォトナ ダウンタイム', ['フォトナ']), 'noise');  // 게임 서버 점검
   assert.equal(tagKeyword('xbox フォトナ', ['フォトナ']), 'noise');
-  assert.equal(tagKeyword('フォトナ 値段', ['フォトナ']), 'cost');
+  assert.equal(tagKeyword('フォトナ 値段', ['フォトナ']), 'noise');       // 10-29: 시술 맥락 말 없음(포트나이트 상품 값)
+  assert.equal(tagKeyword('フォトナ 効果', ['フォトナ']), 'effect');
   assert.equal(tagKeyword('IPL 効果', ['IPL']), 'effect');
   assert.equal(tagKeyword('インモード', ['インモード']), 'name');           // 다른 시술은 그대로
   // 검색 결과로 확인한 동음이의(수집 때 넘김) — ディスポート는 시설·다트바가 상위 20개 전부
@@ -158,4 +159,15 @@ test('스카렛 — 시술 맥락 말이 있을 때만 시술 검색', () => {
   assert.equal(tagKeyword('スカーレット ダウンタイム', N), 'worry');
   assert.equal(tagKeyword('スカーレット ニキビ跡', N), 'concern');
   assert.equal(tagKeyword('スカーレット RF 効果', N), 'effect');
+});
+
+test('10-29 동음이의 — 시술 맥락 말이 있을 때만 센다(슈링크·지니어스·제네시스), 게임 용어는 다른 뜻', () => {
+  assert.equal(tagKeyword('シュリンク ラップ', ['シュリンク']), 'noise');
+  assert.equal(tagKeyword('シュリンク 効果', ['シュリンク']), 'effect');
+  assert.equal(tagKeyword('シュリンク ハイフ 違い', ['シュリンク']), 'info');
+  assert.equal(tagKeyword('ジーニアス 東京', ['ジーニアス']), 'noise');
+  assert.equal(tagKeyword('ジェネシス 車', ['ジェネシス']), 'noise');
+  assert.equal(tagKeyword('ジェネシス 肝斑', ['ジェネシス']), 'concern');
+  assert.equal(tagKeyword('IPL 光治療 ダウンタイム', ['IPL']), 'worry');
+  assert.equal(tagKeyword('アラガン トームストーン 詩学', ['アラガン']), 'noise');
 });

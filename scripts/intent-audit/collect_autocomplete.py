@@ -22,9 +22,12 @@ _REG = json.loads((Path(__file__).resolve().parent / 'procs.json').read_text()) 
 PROCS.update({k: (v['name'], v['extras']) for k, v in _REG.items()})
 
 
+EFFICIENT = '--efficient' in sys.argv  # 효율형: 시술명 + 추가 입력만(가나 행 10개 생략 — 1회당 수확이 가장 낮음, 10-29)
+
+
 def prefixes(key: str) -> list[str]:
     name, extra = PROCS[key]
-    return [f'{name} {k}' for k in KANA] + extra
+    return [f'{name} '] + extra if EFFICIENT else [f'{name} {k}' for k in KANA] + extra
 
 
 def suggest(q: str) -> list[str]:

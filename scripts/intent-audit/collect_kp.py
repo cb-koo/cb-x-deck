@@ -11,7 +11,7 @@ BASE = {'geoTargetConstants': ['geoTargetConstants/2392'], 'language': 'language
 MARKS = {'rejuran': ('リジュラン', 'りじゅらん', 'rejuran'), 'hifu': ('ハイフ', 'はいふ', 'hifu'),
          'potenza': ('ポテンツァ', 'ぽてんつぁ', 'potenza', 'マックーム'),
          'botox': ('ボトックス', 'ぼとっくす', 'botox'), 'threadlift': ('糸リフト', 'いとリフト', 'スレッドリフト'),
-         'dermapen': ('ダーマペン', 'だーまぺん', 'dermapen'), 'picotoning': ('ピコトーニング', 'ピコ トーニング')}
+         'dermapen': ('ダーマペン', 'だーまぺん', 'dermapen'), 'picotoning': ('ピコトーニング', 'ピコ トーニング'), 'lipolysis': ('脂肪溶解注射', '脂肪溶解')}
 
 
 def terms(key: str) -> list[str]:

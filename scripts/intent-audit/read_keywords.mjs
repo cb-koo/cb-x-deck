@@ -14,6 +14,7 @@ const PROCS = {
   threadlift: { ids: ['p78'], marks: ['糸リフト', 'いとリフト', 'スレッドリフト'] },
   dermapen: { ids: ['p64'], marks: ['ダーマペン', 'だーまぺん', 'dermapen'] },
   picotoning: { ids: ['p187'], marks: ['ピコトーニング'] },
+  lipolysis: { ids: ['p72'], marks: ['脂肪溶解注射', '脂肪溶解'] },
 };
 const sql = postgres({ host: process.env.PGHOST, port: Number(process.env.PGPORT ?? 5432), username: process.env.PGUSER,
   password: process.env.PGPASSWORD, database: process.env.PGDATABASE, ssl: 'require', prepare: false, max: 1 });

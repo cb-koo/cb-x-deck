@@ -79,3 +79,9 @@
 - 넣었다면의 화면(`data/fill-preview.txt`): 묶음 292개 중 단계 바뀐 것 6개(결정→검토 2: 보톡스·넥보톡스, 보류→결정 2, 검토→탐색 1: 여드름치료, 보류→검토 1: 다이어트주사), 의도 5%p 이상 바뀐 것 24개. 보톡스 효과·후기 1% → 17%.
 - `computeView(sql, market, window, extra)` — 저장 안 한 검색어를 얹어 계산(미리보기용).
 - 남은 것: koo 확인 → `fill_templates.mts write`(운영 trend_keyword에 130행 추가 + trend_view 재생성). 코드 배포는 필요 없음(computeView 변경은 미리보기용, 운영 동작 같음).
+
+## 2026-10-29 빈 조합 130개 운영 반영 + SerpAPI 소진
+- `fill_templates.mts write` 실행(koo "남은 걸로 가능한 작업 처리" 승인): trend_keyword에 source=template 130행 추가, trend_view 재생성(built_at 2026-10-29T02:09Z). 보톡스 결정→검토, 효과·후기 17%.
+  - 되돌리기: 이 130행(data/fill-templates.json의 text)만 지우고 rebuild.mts.
+- 지방분해주사(p72, `lipolysis`) 완전 사이클 시작 → 16/18 입력에서 SerpAPI 429 "run out of searches". 남은 입력 2개(「脂肪溶解注射 顔 」「脂肪溶解注射 回数」).
+- **다음(새 SerpAPI 계정 연결 후):** `python3 -I collect_autocomplete.py lipolysis`로 이어 받기(받은 입력은 건너뜀) → read_keywords.mjs lipolysis → collect_kp.py lipolysis → analyze.py. 그다음 대상(제모 제외, 연 30만+ 검색량 순): 쿨웨이브, PDRN, 백옥주사, 피코레이저, 브이빔, 물광주사, 인모드, 하이드라페이셜, 승모근보톡스, 엑소좀, 케미컬필링, 젠틀맥스프로 … (remaining.mts). 시술당 18회.

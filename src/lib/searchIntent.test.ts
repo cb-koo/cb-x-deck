@@ -128,3 +128,15 @@ test('부위 — 手術는 부위가 아님, SBC는 장소', () => {
   assert.notEqual(tagKeyword('ボトックス 手術', ['ボトックス']), 'concern');
   assert.equal(tagKeyword('sbc リジュラン', ['リジュラン']), 'place');
 });
+
+test('10-29 빈틈 — 후유증·늙어 보임·좌우 차이는 걱정, 지방 도시·名医는 병원·지역', () => {
+  assert.equal(tagKeyword('ウルセラ 老ける', ['ウルセラ']), 'worry');
+  assert.equal(tagKeyword('ウルセラ 後遺症', ['ウルセラ']), 'worry');
+  assert.equal(tagKeyword('糸リフト 左右差', ['糸リフト']), 'worry');
+  assert.equal(tagKeyword('糸リフト やらなきゃ良かった', ['糸リフト']), 'worry');
+  assert.notEqual(tagKeyword('顔の左右差 ボトックス', ['ボトックス']), 'worry');  // 고치려는 고민
+  assert.equal(tagKeyword('ポテンツァ 富山', ['ポテンツァ']), 'place');
+  assert.equal(tagKeyword('ポテンツァ 都内', ['ポテンツァ']), 'place');
+  assert.equal(tagKeyword('サブシジョン 名医', ['サブシジョン']), 'place');
+  assert.equal(tagKeyword('唇ヒアルロン酸 上手い', ['唇ヒアルロン酸']), 'place');
+});

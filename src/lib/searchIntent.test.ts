@@ -179,3 +179,21 @@ test('10-29 시술 밖 관심 오분류 — 마취 크림·주사 앰플 수는 
   assert.equal(tagKeyword('リジュラン アンプル', ['リジュラン']), 'adjacent');
   assert.equal(tagKeyword('リジュラン クリーム', ['リジュラン']), 'adjacent');
 });
+
+test('10-29 횟수·용량 — 몇 cc·단위·개·번·간격은 새 칸, 효과 지속·걱정은 그대로', () => {
+  assert.equal(tagKeyword('ほうれい線ヒアルロン酸 何cc', ['ほうれい線ヒアルロン酸']), 'dose');
+  assert.equal(tagKeyword('ボトックス 単位', ['ボトックス']), 'dose');
+  assert.equal(tagKeyword('糸リフト 何本', ['糸リフト']), 'dose');
+  assert.equal(tagKeyword('ポテンツァ 10回', ['ポテンツァ']), 'dose');
+  assert.equal(tagKeyword('ピコトーニング 間隔', ['ピコトーニング']), 'dose');
+  assert.equal(tagKeyword('ボトックス 何ヶ月おき', ['ボトックス']), 'dose');
+  assert.equal(tagKeyword('ボトックス 効果 期間', ['ボトックス']), 'effect');
+  assert.equal(tagKeyword('糸リフト 持続期間', ['糸リフト']), 'effect');
+  assert.equal(tagKeyword('ピコトーニング 何回 効果ない', ['ピコトーニング']), 'worry');
+  assert.equal(tagKeyword('ボトックス 何cc 値段', ['ボトックス']), 'cost');
+});
+
+test('10-29 단계 — 횟수·용량은 검토 쪽', () => {
+  const p = { info: 0.2, effect: 0.1, dose: 0.15, worry: 0.05, concern: 0, cost: 0.25, place: 0, korea: 0 };
+  assert.equal(stage(p), 'considering');
+});

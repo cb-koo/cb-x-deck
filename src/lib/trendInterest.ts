@@ -4,7 +4,7 @@
 // 결론이 곧 콘텐츠 방향이 되게 의도마다 맞는 콘텐츠를 붙인다(UX 원칙 3).
 import type { ProfileIntent } from './searchIntent';
 
-export const INTEREST_KEYS = ['info', 'effect', 'worry', 'cost', 'place'] as const;  // 부위·한국은 뺀다(어디에·어디서 받을지는 관심사가 아니라 대상)
+export const INTEREST_KEYS = ['info', 'effect', 'worry', 'cost', 'place'] as const;  // 부위·한국은 뺀다(어디에·어디서 받을지는 관심사가 아니라 대상). 횟수·용량은 평균이 3%대로 작아 배수가 쉽게 튀어 뺀다(10-29)
 export type InterestKey = typeof INTEREST_KEYS[number];
 export const STANDOUT = 1.3;
 
@@ -19,7 +19,7 @@ export type Interest = { kind: 'standout'; key: InterestKey; ratio: number; shar
 // 의도 비중(부위·한국 포함)을 다섯 관심사로 다시 100% 나눈다. 수식어 검색이 적어 비중이 없으면(profile null) null.
 export function interestShares(profile: Record<ProfileIntent, number> | null): Shares | null {
   if (!profile) return null;
-  const t = INTEREST_KEYS.reduce((s, k) => s + profile[k], 0);
+  const t = INTEREST_KEYS.reduce((s, k) => s + (profile[k] ?? 0), 0);
   return t > 0 ? (Object.fromEntries(INTEREST_KEYS.map((k) => [k, profile[k] / t])) as Shares) : null;
 }
 

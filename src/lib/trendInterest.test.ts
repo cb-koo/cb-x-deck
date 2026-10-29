@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { interestShares, interestBaseline, interestOf } from './trendInterest.ts';
 
-const P = (info: number, effect: number, worry: number, cost: number, place: number, concern = 0, korea = 0) => ({ info, effect, worry, cost, place, concern, korea });
+const P = (info: number, effect: number, worry: number, cost: number, place: number, concern = 0, korea = 0) => ({ info, effect, worry, cost, place, concern, korea, dose: 0 });
 
 test('부위·한국을 빼고 다섯 관심사로 다시 100%', () => {
   const s = interestShares(P(0.1, 0.2, 0.1, 0.05, 0.05, 0.4, 0.1))!;

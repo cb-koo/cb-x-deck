@@ -23,8 +23,9 @@ type Share = Partial<Record<ProfileIntent, number>>;
 const LIST_INTENTS = PROFILE_INTENTS.filter((i) => i !== 'korea');
 function shares(p: Record<ProfileIntent, number> | null): Share | null {
   if (!p) return null;
-  const all = LIST_INTENTS.reduce((s, i) => s + p[i], 0);
-  return all > 0 ? Object.fromEntries(LIST_INTENTS.map((i) => [i, p[i] / all])) : null;
+  // ?? 0 — 횟수·용량 칸(10-29) 전에 저장된 완성본에는 dose가 없다
+  const all = LIST_INTENTS.reduce((s, i) => s + (p[i] ?? 0), 0);
+  return all > 0 ? Object.fromEntries(LIST_INTENTS.map((i) => [i, (p[i] ?? 0) / all])) : null;
 }
 const SHIFT = 0.1;
 // 전년보다 10%p 이상 움직인 의도에만 ▲▼ — 나머지(대부분)는 표시 없이

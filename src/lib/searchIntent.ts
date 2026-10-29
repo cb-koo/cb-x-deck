@@ -1,15 +1,15 @@
 // 검색 의도 — 시술 검색어 하나하나에 '왜 찾는지' 태그를 붙이고, 시술 단위로 모아 크기·방향·성격을 만든다. 스펙 2026-10-13 §2(2차 개정)
 // 규칙은 위에서부터 먼저 맞는 태그 하나. '효과 없다'(効果ない)가 효과가 아니라 불안이 되도록 불안을 효과보다 먼저 본다.
 
-export type Intent = 'noise' | 'exclude' | 'adjacent' | 'korea' | 'cost' | 'worry' | 'effect' | 'info' | 'place' | 'concern' | 'name' | 'other';
+export type Intent = 'noise' | 'exclude' | 'adjacent' | 'korea' | 'cost' | 'worry' | 'dose' | 'effect' | 'info' | 'place' | 'concern' | 'name' | 'other';
 
 export const INTENT_LABEL: Record<Intent, string> = {
-  korea: '한국', cost: '가격', worry: '부작용·통증', effect: '효과·후기', info: '개념·비교', place: '병원·지역', concern: '부위·대상',
+  korea: '한국', cost: '가격', worry: '부작용·통증', dose: '횟수·용량', effect: '효과·후기', info: '개념·비교', place: '병원·지역', concern: '부위·대상',
   name: '시술명 단독', other: '기타', adjacent: '시술 밖 관심(화장품·홈케어·영양제)', exclude: '제외(이상값)', noise: '동음이의',
 };
 
 // 성격 막대에 쓰는 순서(고객 여정: 알아보기 → 고민 → 고르기 → 한국)
-export const PROFILE_INTENTS = ['info', 'effect', 'worry', 'concern', 'cost', 'place', 'korea'] as const;
+export const PROFILE_INTENTS = ['info', 'effect', 'dose', 'worry', 'concern', 'cost', 'place', 'korea'] as const;
 export type ProfileIntent = typeof PROFILE_INTENTS[number];
 
 const RULES: Array<[Intent, RegExp]> = [
@@ -27,6 +27,9 @@ const RULES: Array<[Intent, RegExp]> = [
   // 10-29 추가: 後遺症·老ける(늙어 보임)·左右差·不自然·やらなきゃ良かった — 규칙에 없어 기타로 남던 걱정(ウルセラ 老ける 월 1,400).
   // 顔(の)左右差는 시술 결과가 아니라 고치려는 고민이라 빼고(부위로), 老けて見える도 고민 쪽이 많아 넣지 않는다
   ['worry', /ダウンタイム|痛み|痛い|麻酔|副作用|失敗|後悔|腫れ|内出血|効果ない|効果なし|意味ない|危険|リスク|しこり|やめた|やめて|デメリット|トラブル|怖い|初期脱毛|後遺症|老ける|老けた|(?<!顔の?)左右差|不自然|やらなきゃ|やらなければ|しなきゃよかった|しなければよかった/],
+  // 횟수·용량 — 몇 cc·몇 단위·몇 개(실)·몇 번·얼마 간격으로 받나(10-29 koo). 걱정(효과 없다·다운타임 기간)이 먼저, 효과 지속(効果期間·持続)은 효과·후기.
+  // 예전엔 何回·頻度·間隔이 효과·후기를 부풀리고 何cc·単位·何本은 기타로 빠졌다(월 7.9만)
+  ['dose', /何cc|\dcc|cc|単位|何本|本数|ショット|shot|何回|回数|回目|\d回|一回|頻度|間隔|何ヶ月|ヶ月おき|か月おき|何日おき|ワンクール|何アンプル|(?<=\d)アンプル/i],
   ['effect', /効果|経過|ビフォーアフター|ビフォー|アフター|変化|持続|何回|回数|頻度|間隔|いつから|直後|翌日|結果|口コミ|ブログ|体験|レビュー|写真|画像|メリット/],
   ['info', /とは|違い|比較|vs|どっち|どれ|おすすめ|種類|仕組み|ランキング|人気|やり方|方法|何科|向いてる|原因|治し方|取り方|消し方|治る|なぜ|理由|効く薬/i],
   // 병원 고르기·지역. 10-29 추가: 도도부현 전부·都内·자주 나오는 도시(이름을 하나씩 — 市·駅 같은 넓은 말은 岡崎慎司·市原隼人이 걸려 쓰지 않는다)·名医·上手
@@ -158,17 +161,17 @@ export type Stage = 'learning' | 'considering' | 'choosing';
 export const STAGE_LABEL: Record<Stage, string> = { learning: '탐색', considering: '검토', choosing: '결정' };
 export const STAGE_HINT: Record<Stage, string> = {
   learning: '탐색 단계 — 개념·비교 검색 중심',
-  considering: '검토 단계 — 효과·후기, 부작용·통증 검색 중심',
+  considering: '검토 단계 — 효과·후기, 부작용·통증, 횟수·용량 검색 중심',
   choosing: '결정 단계 — 가격, 병원·지역 검색 중심',
 };
 
-// 단계 — 알아보기(정보) · 고민(효과+불안) · 고르기(비용+장소) 중 비중이 가장 큰 쪽.
+// 단계 — 알아보기(정보) · 고민(효과+불안+횟수·용량) · 고르기(비용+장소) 중 비중이 가장 큰 쪽.
 // 한국은 따로 보는 숫자라, 부위·대상은 '어디에·누가'라 단계를 가리지 않아 뺀다(제모가 부위 검색만으로 '고민'이 되지 않게).
 export function stage(p: Record<ProfileIntent, number> | null): Stage | null {
   if (!p) return null;
   const s: Record<Stage, number> = {
     learning: p.info,
-    considering: p.effect + p.worry,
+    considering: p.effect + p.worry + (p.dose ?? 0),  // dose ?? 0 — 횟수·용량 칸 전에 저장된 완성본
     choosing: p.cost + p.place,
   };
   if (s.learning + s.considering + s.choosing < 0.2) return null;  // 부위·한국 말고는 거의 없음 → 판단 보류

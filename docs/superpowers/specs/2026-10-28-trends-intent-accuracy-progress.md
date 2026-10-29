@@ -123,3 +123,9 @@
   5. `computeView(…, extra, reown)` 미리보기용.
 - `insert_found.mts preview`: 넣을 2,755개(월 50.8만) · 검수 '시술 밖 관심' 중 규칙이 못 잡는 103개는 intent_override=adjacent · 뺀 것: 주인 없음 1, 다른 뜻·제외 21, 검수 무관 2. 화면: 단계 바뀐 것 6개, 의도 5%p 이상 57개(`data/insert-preview.txt`). 기존 검색어 주인 재배정 약 100개.
 - 남은 것: koo 확인 → main 배포 → `insert_found.mts write`(reassignOwners + 넣기 + 태그 고침 + 재생성).
+
+## 2026-10-29 운영 반영 완료 (koo 승인)
+- main 3e2359b push. 작업 브랜치도 같이 push해 미리보기 빌드와 운영 빌드가 동시에 마이그레이션을 돌려 운영 빌드가 deadlock으로 실패 → 미리보기 끝난 뒤 `vercel redeploy --target production` 1회로 Ready(cb-x-deck.vercel.app). **교훈: main과 다른 브랜치를 같은 때 push하지 않는다.**
+- `insert_found.mts write`: 되돌리기 파일 `data/rollback-*.json`(검색어 17,128개 주인·태그 + 이전 trend_view) → 주인 재배정 130 → 2,755개 넣기 → 태그 고침 103 → 재생성(built_at 2026-10-29T03:55Z). 재생성 뒤 미리보기 차이 0.
+- 확인: 보톡스 검토(부위 26%·효과 22%·지역 19%), HIFU 불안 19%, 엑소좀 불안 28%·시술 밖 관심 월 9,628, PDRN 시술 밖 관심 월 45,709, 입술필러 불안 63%.
+- 남은 것: ① 'ボトックス 麻酔クリーム'(시술 전 마취 크림 = 시술 검색)이 クリーム 때문에 시술 밖 관심으로 감 — 麻酔 붙은 건 제외할 작은 규칙. ② '시술 밖 관심' 화면 시안 + PDRN·리쥬란·엑소좀 '화장품 섞임' 표시. ③ 남은 시술 완전 사이클(SerpAPI 약 15회 남음 — 다음 계정/달). ④ 분류 칸(비교·방식) 재설계 검토.

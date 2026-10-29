@@ -140,3 +140,13 @@ test('10-29 빈틈 — 후유증·늙어 보임·좌우 차이는 걱정, 지방
   assert.equal(tagKeyword('サブシジョン 名医', ['サブシジョン']), 'place');
   assert.equal(tagKeyword('唇ヒアルロン酸 上手い', ['唇ヒアルロン酸']), 'place');
 });
+
+test('아그네스 — 파칭코·캐릭터·케이크 가게는 다른 뜻, 시술 검색은 그대로', () => {
+  const N = ['アグネス'];
+  for (const k of ['アグネス パチンコ', 'アグネス 新台', 'アグネス ミニオン', 'ウェンズデー アグネス 何歳', 'アグネス ラム 現在 写真', 'アグネス 何歳', 'アグネス 徳島 ケーキ', 'アグネス デジタル 衣装 違い', 'アグネス チャン'])
+    assert.equal(tagKeyword(k, N), 'noise', k);
+  assert.equal(tagKeyword('アグネス', N), 'noise');
+  assert.equal(tagKeyword('アグネス ダウンタイム', N), 'worry');
+  assert.equal(tagKeyword('アグネス 東京 安い', N), 'cost');
+  assert.equal(tagKeyword('アグネス ニキビ', N), 'concern');
+});

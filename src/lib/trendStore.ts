@@ -2,6 +2,7 @@ import type postgres from 'postgres';
 import { buildTrendView, type TrendProcedureInput, type TrendKeywordInput, type TrendSerp, type TrendViewDoc } from './trendBuild';
 import { norm, ownerOf, tagKeyword, type Intent } from './searchIntent';
 import { SERP_HOMONYM } from './trendBuild';
+import { masterOf } from './procedureTaxonomy';
 
 // 검색 트렌드 저장(074) — 시술·검색어를 쓰고, 화면이 읽는 완성본(trend_view)을 다시 만든다.
 // 계산은 trendBuild(순수 함수)가 하고 이 모듈은 읽고 쓰기만 한다.
@@ -53,11 +54,15 @@ export async function upsertKeywords(sql: postgres.Sql, market: string, rows: Ke
 }
 
 // 대표 검색어가 들어 있는 시술 중 가장 긴(구체적인) 것 — 'スキンボトックス 効果'는 보톡스가 아니라 스킨보톡스
+// 단 시술명과 고민어(분류표 유형 '고민·증상': ほうれい線·たるみ 등)가 같이 들어 있으면 시술 것 — 'ハイフ ほうれい線'은
+// 팔자주름 검색이 아니라 HIFU를 팔자주름에 받으려는 검색이다(10-29 koo: 클리닉 시술 수요가 기본). 고민어는 부위·대상으로 태그된다.
 export function ownerResolver(procs: Array<{ id: string; jp: string }>): (text: string) => string | null {
   const byJp = new Map<string, string>();
   for (const p of procs) if (!byJp.has(p.jp)) byJp.set(p.jp, p.id);
   const names = [...byJp.keys()];
-  return (text) => { const jp = ownerOf(text, names); return jp ? byJp.get(jp) ?? null : null; };
+  const concern = new Set(names.filter((jp) => masterOf({ id: byJp.get(jp)!, jp })?.type === '고민·증상'));
+  const treatments = names.filter((jp) => !concern.has(jp));
+  return (text) => { const jp = ownerOf(text, treatments) ?? ownerOf(text, names); return jp ? byJp.get(jp) ?? null : null; };
 }
 
 // 시술이 바뀌면(추가·대표 검색어 수정·숨김) 검색어 주인을 다시 정한다. 이름 검색어는 그 시술 것으로 고정.

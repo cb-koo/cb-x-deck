@@ -62,6 +62,12 @@ test('검색어 주인 — 가장 긴 시술 이름', () => {
   assert.equal(owner('ヒアルロン酸'), null);
 });
 
+test('검색어 주인 — 고민어(분류표 고민·증상)보다 시술명이 먼저', () => {
+  const owner = ownerResolver([{ id: 'p49', jp: 'ハイフ' }, { id: 'p26', jp: 'ほうれい線' }]);  // p26 팔자주름 = 고민·증상
+  assert.equal(owner('ハイフ ほうれい線'), 'p49');
+  assert.equal(owner('ほうれい線 消し方'), 'p26');   // 시술명이 없으면 고민어 것 그대로
+});
+
 test('화면 표기 — 일본어 사이 띄어쓰기만 지운다', () => {
   assert.equal(showKeyword('リジュラン 効果'), 'リジュラン効果');
   assert.equal(showKeyword('ipl 光 治療'), 'ipl 光治療');

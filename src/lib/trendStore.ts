@@ -81,12 +81,16 @@ const monthOf = (d: Date | string) => (typeof d === 'string' ? d : d.toISOString
 const addMonths = (ym: string, k: number) => { const [y, m] = ym.split('-').map(Number); const t = y * 12 + (m - 1) + k; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`; };
 
 // 완성본 계산 — 가장 최근 48개월(검색어마다 시작 달이 달라도 같은 달끼리 맞춘다). 읽기만 한다(규칙 바꾼 영향 미리 보기에도 쓴다)
-export async function computeView(sql: postgres.Sql, market: string, window = 48): Promise<TrendViewDoc> {
+// extra = 아직 저장하지 않은 검색어를 얹어 본다(새로 조회한 검색어를 넣기 전에 화면이 어떻게 바뀌는지 미리 보기)
+export async function computeView(sql: postgres.Sql, market: string, window = 48, extra: KeywordWrite[] = []): Promise<TrendViewDoc> {
   const procs = await sql<Array<{ id: string; major: string; major_order: number; middle: string; name: string; kr: string; jp: string; en: string; hidden: boolean; serp: TrendSerp | null }>>`
     select id, major, major_order, middle, name, kr, jp, en, hidden, serp from trend_procedure where market = ${market}
     order by major_order, case when id ~ '^p[0-9]+' then substring(id from '[0-9]+')::int else 1000000 end, id`;  // 시트 행 순서(p2 < p10), 앱에서 더한 건 뒤
   const kws = await sql<Array<{ text: string; procedure_id: string | null; source: TrendKeywordInput['source']; ko: string | null; intent_override: string | null; series: number[] | null; series_start: Date | null; fetched_at: Date | null }>>`
     select text, procedure_id, source, ko, intent_override, series, series_start, fetched_at from trend_keyword where market = ${market} order by id`;
+  const have = new Set(kws.map((k) => norm(k.text)));
+  for (const e of extra) if (!have.has(norm(e.text))) kws.push({ text: e.text, procedure_id: e.procedureId ?? null, source: e.source, ko: e.ko ?? null, intent_override: null,
+    series: e.series, series_start: e.series ? new Date(`${e.seriesStart}T00:00:00Z`) : null, fetched_at: null });
   // 마지막 달 = 마지막으로 끝난 전체 갱신(또는 처음 가져오기)의 달. 검색어마다 끝 달이 다를 수 있어(새 달이 나온 뒤 따로 받은 검색어)
   // '가장 늦은 달'로 잡으면 나머지 1.6만 개가 그 달이 없어 전부 값 없음이 된다(10-15 9월 값이 나온 날 발견).
   const [run] = await sql<Array<{ latest_month: string }>>`select latest_month from trend_run where market = ${market}

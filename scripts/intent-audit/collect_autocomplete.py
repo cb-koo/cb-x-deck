@@ -1,7 +1,7 @@
 # 실제 검색어 찾기 — 일본 Google 자동완성(SerpAPI google_autocomplete, gl=jp·hl=ja). b2b-marketing collect_*_autocomplete.py를 시술 여러 개로 일반화.
 # 시술당 입력 18개 = 시술명 + 가나 행 11개 + 시술별 추가 7개. SerpAPI 1회 = 입력 1개.
 # 실행: python3 -I collect_autocomplete.py [시술키…] → data/autocomplete-{시술키}.json {입력: [제안…]} (이미 받은 입력은 건너뜀)
-import json, subprocess, sys, time
+import json, os, subprocess, sys, time
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent / 'data'
@@ -24,7 +24,8 @@ def prefixes(key: str) -> list[str]:
 
 
 def suggest(q: str) -> list[str]:
-    p = subprocess.run(['composio', 'execute', 'SERPAPI_GOOGLE_LIGHT_SEARCH', '-d',
+    acct = ['--account', os.environ['SERPAPI_ACCOUNT']] if os.environ.get('SERPAPI_ACCOUNT') else []  # Composio 연결 별칭(10-29 새 계정 = cb)
+    p = subprocess.run(['composio', 'execute', 'SERPAPI_GOOGLE_LIGHT_SEARCH', *acct, '-d',
                         json.dumps({'q': q, 'engine': 'google_autocomplete', 'gl': 'jp', 'hl': 'ja'}, ensure_ascii=False)],
                        capture_output=True, text=True, cwd='/tmp')
     d = json.loads(p.stdout)

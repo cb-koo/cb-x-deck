@@ -1,11 +1,11 @@
 // 검색 의도 — 시술 검색어 하나하나에 '왜 찾는지' 태그를 붙이고, 시술 단위로 모아 크기·방향·성격을 만든다. 스펙 2026-10-13 §2(2차 개정)
 // 규칙은 위에서부터 먼저 맞는 태그 하나. '효과 없다'(効果ない)가 효과가 아니라 불안이 되도록 불안을 효과보다 먼저 본다.
 
-export type Intent = 'noise' | 'exclude' | 'korea' | 'cost' | 'worry' | 'effect' | 'info' | 'place' | 'concern' | 'name' | 'other';
+export type Intent = 'noise' | 'exclude' | 'adjacent' | 'korea' | 'cost' | 'worry' | 'effect' | 'info' | 'place' | 'concern' | 'name' | 'other';
 
 export const INTENT_LABEL: Record<Intent, string> = {
   korea: '한국', cost: '가격', worry: '부작용·통증', effect: '효과·후기', info: '개념·비교', place: '병원·지역', concern: '부위·대상',
-  name: '시술명 단독', other: '기타', exclude: '제외(화장품·셀프·이상값)', noise: '동음이의',
+  name: '시술명 단독', other: '기타', adjacent: '시술 밖 관심(화장품·홈케어·영양제)', exclude: '제외(이상값)', noise: '동음이의',
 };
 
 // 성격 막대에 쓰는 순서(고객 여정: 알아보기 → 고민 → 고르기 → 한국)
@@ -15,9 +15,11 @@ export type ProfileIntent = typeof PROFILE_INTENTS[number];
 const RULES: Array<[Intent, RegExp]> = [
   // 다른 뜻 — 시술 이름이 게임·문구·생활용품·회사·사람 이름과 겹친 검색(10-13 실측: スカーレット→포켓몬, スターウォーカー→만년필,
   // エアジェット→욕실 세제, ハーモニーカ→건반 하모니카, アグネス→사람, インフィニ→결혼상담소). 비중이 크면 시술에 점검 표시가 붙는다.
-  ['noise', /ポケモン|ボケモン|ポケットモンスター|ポケスペ|ネクサス|サガ|ゲーム|switch|ボールペン|万年筆|モンブラン|マジックリン|花王|お風呂|風呂|鍵盤|ピアニカ|アグネスラム|ユニセフ|カーペンター|加山雄三|宮崎美子|アメブロ|結婚|婚活|相談所|株式会社|トラベル|インフォメーション|塾|教室|xbox|プレステ|ps[45]|ダウンロード|スマホ|iphone|ギャラクシー|モバイル|会社|ホールディングス|企業|バスツアー|登山|ランバン|セイコー|rcb|血管腫れ/i],  // 血管腫れ = 혈관 부음(혈관종 아님)
+  ['noise', /ポケモン|ボケモン|ポケットモンスター|ポケスペ|ネクサス|サガ|ゲーム|switch|ボールペン|万年筆|モンブラン|マジックリン|花王|お風呂|風呂|鍵盤|ピアニカ|アグネスラム|ユニセフ|カーペンター|加山雄三|宮崎美子|アメブロ|結婚|婚活|相談所|株式会社|トラベル|インフォメーション|塾|教室|xbox|プレステ|ps[45]|ダウンロード|スマホ|iphone|ギャラクシー|モバイル|会社|ホールディングス|企業|バスツアー|登山|ランバン|セイコー|rcb|株価|歌詞|血管腫れ/i],  // 血管腫れ = 혈관 부음(혈관종 아님)
   // 시술이 아닌 검색 — 화장품·쇼핑·집에서 하는 것(왁스·패치·가정용 기기)·다른 뜻
-  ['exclude', /化粧水|美容液|クリーム|パック|シートマスク|アンプル|セラム|トナー|ローション|乳液|オールインワン|コスメ|ドラッグストア|楽天|amazon|アマゾン|qoo10|メルカリ|市販|株価|歌詞|ワックス|パッチ|家庭用|脱毛器|除毛|セルフ|自分で|化粧品|塗る/i],
+  // 시술 밖 관심 — 같은 성분·고민을 시술이 아닌 방법으로 찾는 검색(화장품·쇼핑·집에서·영양제). 시술 수요(전체·성격)에는 넣지 않고
+  // 따로 모아 '시술 대신 무엇을 찾나'를 본다(10-29 koo: 간접 인사이트는 남긴다 — 예전엔 제외로 버렸음)
+  ['adjacent', /化粧水|美容液|クリーム|パック|シートマスク|アンプル|セラム|トナー|ローション|乳液|オールインワン|コスメ|ドラッグストア|楽天|amazon|アマゾン|qoo10|メルカリ|市販|ワックス|パッチ|家庭用|脱毛器|除毛|セルフ|自分で|化粧品|塗る|サプリ|食べ物|食品|ドリンク|自宅|おうち|ホームケア|美顔器|ターンオーバー|メガ割|ドンキ|アヌア|anua|メディキューブ|medicube/i],
   ['korea', /韓国|ソウル|江南|カンナム|明洞|ミョンドン|釜山|プサン|狎鴎亭|弘大|ホンデ|korea|seoul/i],
   // 비용·구매 — 약은 개인 수입 사이트(オオサカ堂)·통판으로 사는 수요도 여기
   ['cost', /値段|料金|価格|相場|安い|格安|費用|モニター|キャンペーン|保険適用|保険|何円|万円|\d+円|オオサカ堂|個人輸入|通販|購入|処方/],
@@ -95,7 +97,7 @@ export function dedupe(list: KeywordSeries[]): KeywordSeries[] {
 }
 
 export interface Aggregate {
-  total: number[];                          // 제외·다른 뜻을 뺀 전체(겹쳐 세진 최대치)
+  total: number[];                          // 제외·다른 뜻·시술 밖 관심을 뺀 전체(겹쳐 세진 최대치)
   byIntent: Record<Intent, number[]>;
   korea: number[];
 }
@@ -108,7 +110,7 @@ export function aggregate(list: KeywordSeries[], months: number): Aggregate {
     for (let m = 0; m < months; m++) {
       const v = k.values[m] ?? 0;
       byIntent[k.intent][m] += v;
-      if (k.intent !== 'exclude' && k.intent !== 'noise') total[m] += v;
+      if (k.intent !== 'exclude' && k.intent !== 'noise' && k.intent !== 'adjacent') total[m] += v;
     }
   }
   return { total, byIntent, korea: byIntent.korea };

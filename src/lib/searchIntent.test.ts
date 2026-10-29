@@ -31,11 +31,15 @@ test('부위·대상, 시술 형태만 붙은 말은 이름, 원인·치료법�
   assert.equal(tagKeyword('イソトレチノイン 怖い', ['イソトレチノイン']), 'worry');
 });
 
-test('제외 — 화장품·쇼핑', () => {
-  assert.equal(tagKeyword('リジュラン 美容液', ['リジュラン']), 'exclude');
-  assert.equal(tagKeyword('リジュラン クリーム 韓国', ['リジュラン']), 'exclude');
-  assert.equal(tagKeyword('顔 脱毛 ワックス', ['顔脱毛']), 'exclude');
-  assert.equal(tagKeyword('稗粒腫 除去 自分で', ['稗粒腫']), 'exclude');
+test('시술 밖 관심 — 화장품·쇼핑·집에서·영양제(버리지 않고 따로)', () => {
+  assert.equal(tagKeyword('リジュラン 美容液', ['リジュラン']), 'adjacent');
+  assert.equal(tagKeyword('リジュラン クリーム 韓国', ['リジュラン']), 'adjacent');
+  assert.equal(tagKeyword('顔 脱毛 ワックス', ['顔脱毛']), 'adjacent');
+  assert.equal(tagKeyword('稗粒腫 除去 自分で', ['稗粒腫']), 'adjacent');
+  assert.equal(tagKeyword('エクソソーム サプリ', ['エクソソーム']), 'adjacent');
+  assert.equal(tagKeyword('ケミカル ピーリング 自宅', ['ケミカルピーリング']), 'adjacent');
+  assert.equal(tagKeyword('pdrn アヌア', ['PDRN']), 'adjacent');
+  assert.equal(tagKeyword('ポテンツァ ダウンタイム マスク', ['ポテンツァ']), 'worry');  // 시술 뒤 마스크는 시술 검색
 });
 
 test('시술 이름에 든 부위는 규칙에 안 쓴다', () => {
@@ -66,8 +70,9 @@ test('dedupe — 같은 수치의 어순 변형은 하나만, 작은 값은 그�
 });
 
 test('aggregate — 제외는 전체에서 빠지고 한국은 따로', () => {
-  const a = aggregate([S('n', 'name', 1000), S('k', 'korea', 100), S('c', 'exclude', 300), S('e', 'effect', 200)], 24);
-  assert.equal(a.total[0], 1300);
+  const a = aggregate([S('n', 'name', 1000), S('k', 'korea', 100), S('c', 'exclude', 300), S('e', 'effect', 200), S('a', 'adjacent', 400)], 24);
+  assert.equal(a.total[0], 1300);              // 제외·시술 밖 관심은 시술 수요에 안 들어감
+  assert.equal(a.byIntent.adjacent[0], 400);   // 시술 밖 관심은 따로 모임
   assert.equal(a.korea[0], 100);
 });
 

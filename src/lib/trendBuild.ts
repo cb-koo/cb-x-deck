@@ -25,6 +25,8 @@ export interface TrendIntentInfo {
   profile: Record<ProfileIntent, number> | null; prev: Record<ProfileIntent, number> | null;
   stage: Stage | null; prevStage: Stage | null; ambiguous: boolean; keywords: number;
   top: Partial<Record<ProfileIntent, Array<[string, number, string]>>>;
+  adjacent?: number[];                                  // 시술 밖 관심(화장품·홈케어·영양제) 월별 합 — 시술 수요와 따로
+  adjacentTop?: Array<[string, number, string]>;        // 그 상위 검색어 3개
   members?: Array<{ id: string; kr: string; jp: string; total: number[] }>;
   serp?: TrendSerp;
 }
@@ -101,17 +103,22 @@ export function buildTrendView(input: {
     const prev = profile(a, 12, n - 12);
     const top: TrendIntentInfo['top'] = {};
     for (const k of [...list].sort((x, y) => last12(y.values) - last12(x.values))) {
-      if (k.intent === 'name' || k.intent === 'exclude' || k.intent === 'noise' || k.intent === 'other') continue;
+      if (k.intent === 'name' || k.intent === 'exclude' || k.intent === 'noise' || k.intent === 'other' || k.intent === 'adjacent') continue;
       const arr = (top[k.intent as ProfileIntent] ??= []);
       const t = showKeyword(k.text);
       if (arr.length < 3 && !arr.some(([x]) => x === t) && last12(k.values) >= 10) arr.push([t, Math.round(last12(k.values)), k.ko]);
+    }
+    const adjacentTop: Array<[string, number, string]> = [];
+    for (const k of [...list].filter((x) => x.intent === 'adjacent').sort((x, y) => last12(y.values) - last12(x.values))) {
+      const t = showKeyword(k.text);
+      if (adjacentTop.length < 3 && !adjacentTop.some(([x]) => x === t) && last12(k.values) >= 10) adjacentTop.push([t, Math.round(last12(k.values)), k.ko]);
     }
     const first = ms[0];
     const s = first.serp;
     intent[first.id] = {
       total: a.total, korea: a.korea, noName: aggregate(list.filter((k) => k.intent !== 'name'), n).total,
       profile: round(prof), prev: round(prev), stage: stage(prof), prevStage: stage(prev), ambiguous: ambiguous(a),
-      keywords: list.length, top,
+      keywords: list.length, top, adjacent: a.byIntent.adjacent, adjacentTop,
       members: ms.length > 1 ? ms.map((p) => ({ id: p.id, kr: p.kr, jp: p.jp, total: aggregate(lists.get(p.id) ?? [], n).total })) : undefined,
       serp: s ? { derm: s.derm, med: s.med, self: s.self, unrelated: s.unrelated, note: s.note } : undefined,
     };

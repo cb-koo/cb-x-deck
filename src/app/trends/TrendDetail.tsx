@@ -192,13 +192,13 @@ export function TrendDetail({ row, months, siblings, onSelect, onClose, onChange
             </SummaryLine>
             {split && (
               <SummaryLine label="구성">
-                {row.name} 검색어(이름만 검색 제외) 중 <b className="font-semibold">{100 - Math.round(split.adjacentShare * 100)}%</b>가 시술 관련,{' '}
+                {row.name} 관련 검색어({row.name} 단독 검색 제외) 중 <b className="font-semibold">{100 - Math.round(split.adjacentShare * 100)}%</b>가 시술 관련,{' '}
                 <b className="font-semibold">{Math.round(split.adjacentShare * 100)}%</b>가 화장품·홈케어 관련 검색이었어요.
                 <SplitBar treatment={split.treatment} adjacent={split.adjacent} />
                 <span className="mt-1.5 flex flex-wrap gap-x-4 text-ui text-x-secondary">
                   <span><i className="mr-1.5 inline-block size-2 rounded-full bg-x-blue" />시술 관련 월 {fmtVolume(split.treatment)}</span>
                   <span><i className="mr-1.5 inline-block size-2 rounded-full bg-amber-500" />화장품·홈케어 관련 월 {fmtVolume(split.adjacent)}</span>
-                  {split.nameOnly >= 10 && <span className="text-x-muted">이름만 검색 월 {fmtVolume(split.nameOnly)} 제외</span>}
+                  {split.nameOnly >= 10 && <span className="text-x-muted">{row.name} 단독 검색 월 {fmtVolume(split.nameOnly)} 제외</span>}
                 </span>
               </SummaryLine>
             )}

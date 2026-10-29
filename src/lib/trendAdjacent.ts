@@ -1,4 +1,4 @@
-// 검색어 구성 — 시술명 검색어(이름만 친 검색 제외)를 시술 관련 / 화장품·홈케어 관련(시술 밖 관심)으로 나눈 최근 1년 사실값.
+// 검색어 구성 — 시술 관련 검색어(시술명 단독 검색 제외)를 시술 관련 / 화장품·홈케어 관련(시술 밖 관심)으로 나눈 최근 1년 사실값.
 // 해석·평가 없이 비율과 월 검색량만(10-29 koo). 화장품·홈케어 관련이 10% 미만이면 보여 주지 않는다.
 export const ADJACENT_MIN_SHARE = 0.1;
 
@@ -7,7 +7,7 @@ const avg12 = (xs: number[] | undefined) => (xs ?? []).slice(-12).reduce((a, b) 
 export interface AdjacentSplit {
   treatment: number;   // 시술 관련 월평균(이름만 검색 제외)
   adjacent: number;    // 화장품·홈케어 관련 월평균
-  nameOnly: number;    // 이름만 검색 월평균(비율에서 뺀 것)
+  nameOnly: number;    // 시술명 단독 검색 월평균(비율에서 뺀 것)
   adjacentShare: number;
 }
 

@@ -69,8 +69,11 @@ export function tagKeyword(keyword: string, names: string[], homonyms: ReadonlyS
   const k = norm(keyword);
   if (names.some((n) => norm(n) === k)) return k in HOMONYM || homonyms.has(k) ? 'noise' : 'name';
   if (names.some((n) => HOMONYM[norm(n)]?.test(k))) return 'noise';
-  for (const [intent, re] of RULES) if (re.test(k)) return intent;
-  const rest = names.reduce((s, n) => s.replace(norm(n), ''), k).replace(FORM, '');
+  // 규칙은 시술 이름을 뗀 나머지 말로 본다 — 이름에 든 부위(唇ヒアルロン酸·肩ボトックス·目の下ヒアルロン酸)가
+  // 고민·부위 규칙에 걸려 '唇ヒアルロン酸 やりすぎ'(과하게 = 불안)까지 부위로 세던 것을 막는다(10-29)
+  const bare = names.reduce((s, n) => s.replace(norm(n), ''), k);
+  for (const [intent, re] of RULES) if (re.test(bare)) return intent;
+  const rest = bare.replace(FORM, '');
   return rest === '' ? 'name' : 'other';
 }
 

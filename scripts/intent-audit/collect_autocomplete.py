@@ -17,6 +17,10 @@ PROCS = {
     'lipolysis': ('脂肪溶解注射', ['脂肪溶解注射 効果 ', '脂肪溶解注射 ダウンタイム ', '脂肪溶解注射 違い', '脂肪溶解注射 何', '脂肪溶解注射 と', '脂肪溶解注射 顔 ', '脂肪溶解注射 回数']),
 }
 
+# procs.json(make_registry.mts) 등록분 — 키 = 대시보드 id
+_REG = json.loads((Path(__file__).resolve().parent / 'procs.json').read_text()) if (Path(__file__).resolve().parent / 'procs.json').exists() else {}
+PROCS.update({k: (v['name'], v['extras']) for k, v in _REG.items()})
+
 
 def prefixes(key: str) -> list[str]:
     name, extra = PROCS[key]

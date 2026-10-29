@@ -13,6 +13,10 @@ MARKS = {'rejuran': ('リジュラン', 'りじゅらん', 'rejuran'), 'hifu': (
          'botox': ('ボトックス', 'ぼとっくす', 'botox'), 'threadlift': ('糸リフト', 'いとリフト', 'スレッドリフト'),
          'dermapen': ('ダーマペン', 'だーまぺん', 'dermapen'), 'picotoning': ('ピコトーニング', 'ピコ トーニング'), 'lipolysis': ('脂肪溶解注射', '脂肪溶解')}
 
+# procs.json(make_registry.mts) 등록분 — 키 = 대시보드 id
+_REG = json.loads((Path(__file__).resolve().parent / 'procs.json').read_text()) if (Path(__file__).resolve().parent / 'procs.json').exists() else {}
+MARKS.update({k: tuple(v['marks']) for k, v in _REG.items()})
+
 
 def terms(key: str) -> list[str]:
     s = {r['text'] for r in json.loads((DATA / f'db-{key}.json').read_text())}

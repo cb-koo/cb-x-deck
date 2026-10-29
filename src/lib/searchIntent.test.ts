@@ -38,6 +38,13 @@ test('제외 — 화장품·쇼핑', () => {
   assert.equal(tagKeyword('稗粒腫 除去 自分で', ['稗粒腫']), 'exclude');
 });
 
+test('시술 이름에 든 부위는 규칙에 안 쓴다', () => {
+  assert.equal(tagKeyword('唇ヒアルロン酸 やりすぎ', ['唇ヒアルロン酸']), 'other');   // 이름의 唇 때문에 부위가 되지 않음
+  assert.equal(tagKeyword('唇ヒアルロン酸 ダウンタイム', ['唇ヒアルロン酸']), 'worry');
+  assert.equal(tagKeyword('肩ボトックス 効果', ['肩ボトックス']), 'effect');
+  assert.equal(tagKeyword('目の下ヒアルロン酸 ほうれい線', ['目の下ヒアルロン酸']), 'concern');  // 이름 밖의 부위는 그대로
+});
+
 test('제외 — 붙여 쓴 とは 이상값(키워드 플래너가 と は로 쪼개 돌려준 것)', () => {
   assert.equal(tagKeyword('リジュラン と は', ['リジュラン']), 'exclude');
   assert.equal(tagKeyword('医療 ハイフ と は', ['ハイフ']), 'exclude');

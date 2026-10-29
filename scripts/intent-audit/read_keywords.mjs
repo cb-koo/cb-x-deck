@@ -16,6 +16,9 @@ const PROCS = {
   picotoning: { ids: ['p187'], marks: ['ピコトーニング'] },
   lipolysis: { ids: ['p72'], marks: ['脂肪溶解注射', '脂肪溶解'] },
 };
+import { readFileSync, existsSync } from 'node:fs';
+const REG = new URL('./procs.json', import.meta.url);
+if (existsSync(REG)) for (const [k, v] of Object.entries(JSON.parse(readFileSync(REG, 'utf8')))) PROCS[k] = { ids: v.ids, marks: v.marks };  // make_registry.mts 등록분
 const sql = postgres({ host: process.env.PGHOST, port: Number(process.env.PGPORT ?? 5432), username: process.env.PGUSER,
   password: process.env.PGPASSWORD, database: process.env.PGDATABASE, ssl: 'require', prepare: false, max: 1 });
 try {

@@ -21,14 +21,16 @@ try {
       stageChanged: L(b?.stage) !== L(a.stage), totalDiff: b ? last12(b.total) - last12(a.total) : 0 };
   });
   const changed = rows.filter((r) => r.stageChanged).sort((x, y) => y.vol - x.vol);
-  const infoMoved = rows.filter((r) => Math.abs((r.info[0] ?? 0) - (r.info[1] ?? 0)) >= 0.05);
-  console.log(`묶음 ${rows.length}개 · 단계 바뀐 것 ${changed.length}개 · 개념·비교 비중 5%p 이상 바뀐 것 ${infoMoved.length}개`);
+  const KEYS = ['info', 'effect', 'worry', 'concern', 'cost', 'place', 'korea'] as const;
+  const maxMove = (r: (typeof rows)[number]) => Math.max(...KEYS.map((k) => Math.abs((r.a.profile?.[k] ?? 0) - (r.b?.profile?.[k] ?? 0))));
+  const infoMoved = rows.filter((r) => maxMove(r) >= 0.05);  // 의도 칸 어느 하나라도 5%p 이상
+  console.log(`묶음 ${rows.length}개 · 단계 바뀐 것 ${changed.length}개 · 의도 비중이 5%p 이상 바뀐 것 ${infoMoved.length}개`);
   console.log(`단계 이동: ${Object.entries(changed.reduce((m, r) => { const k = `${L(r.b?.stage)}→${L(r.a.stage)}`; m[k] = (m[k] ?? 0) + 1; return m; }, {} as Record<string, number>)).map(([k, v]) => `${k} ${v}`).join(', ')}`);
   const other = rows.filter((r) => !infoMoved.includes(r) && JSON.stringify(r.b?.profile) !== JSON.stringify(r.a.profile));
   console.log(`그 밖에 비율이 바뀐 묶음 ${other.length}개(5%p 미만)`);
-  console.log('\n시술|12개월 검색량(새)|단계|개념·비교|효과·후기|부작용·통증|가격|병원·지역|빠진 검색량(12개월)');
+  console.log('\n시술|12개월 검색량(새)|단계|개념·비교|효과·후기|부작용·통증|가격|병원·지역|부위·대상');
   for (const r of infoMoved.sort((x, y) => y.vol - x.vol)) {
     const p0 = r.b?.profile, p1 = r.a.profile;
-    console.log(`${r.kr}|${r.vol.toLocaleString()}|${L(r.b?.stage)}→${L(r.a.stage)}|${pct(p0?.info)}→${pct(p1?.info)}|${pct(p0?.effect)}→${pct(p1?.effect)}|${pct(p0?.worry)}→${pct(p1?.worry)}|${pct(p0?.cost)}→${pct(p1?.cost)}|${pct(p0?.place)}→${pct(p1?.place)}|${r.totalDiff.toLocaleString()}`);
+    console.log(`${r.kr}|${r.vol.toLocaleString()}|${L(r.b?.stage)}→${L(r.a.stage)}|${pct(p0?.info)}→${pct(p1?.info)}|${pct(p0?.effect)}→${pct(p1?.effect)}|${pct(p0?.worry)}→${pct(p1?.worry)}|${pct(p0?.cost)}→${pct(p1?.cost)}|${pct(p0?.place)}→${pct(p1?.place)}|${pct(p0?.concern)}→${pct(p1?.concern)}`);
   }
 } finally { await sql.end(); }

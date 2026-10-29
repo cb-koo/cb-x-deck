@@ -21,6 +21,11 @@ PROCS = {  # 대시보드 id(묶음 대표), 시술 표기, 노이즈(시술 검
     'lipolysis': ('p72', '脂肪溶解注射', ['求人', '家庭用', 'セルフ', '通販', '個人輸入']),
 }
 
+# procs.json(make_registry.mts) 등록분 — 키 = 대시보드 id
+_REG = json.loads((Path(__file__).resolve().parent / 'procs.json').read_text()) if (Path(__file__).resolve().parent / 'procs.json').exists() else {}
+PROCS.update({k: (v['pid'], v['name'], v['noise']) for k, v in _REG.items()})
+ALT = {v['name']: sorted({re.sub(r'\s', '', m) for m in v['marks']}, key=len, reverse=True) for v in _REG.values()}
+
 KOREA = ['韓国', 'ソウル', '江南', '明洞', '新沙']
 WORRY = {
     'downtime': ['ダウンタイム', '当日', '過ごし方', 'メイク', '洗顔', 'サウナ', '飲酒', '運動', 'タバコ', 'マスク', 'アフターケア', '翌日', '直後', '何日'],
@@ -73,6 +78,8 @@ VARIANTS = {'リジュラン': ['アイ', 'ヒーラー', 'HB', 'hb', 'S', 's', 
 
 def stage(t: str, name: str) -> tuple[str, str]:
     rest = t.replace(name, '', 1) if name in t else t  # 시술명 자체가 비교 대상 목록에 걸리지 않게(ハイフ 자신 등)
+    for alt in ALT.get(name, []):  # 묶음에 든 다른 이름(クールウェーブ 묶음의 オンダリフト)도 시술명으로 뗀다
+        if alt != name and alt in rest: rest = rest.replace(alt, '', 1)
     for v in VARIANTS.get(name, []):
         if rest.startswith(v) or rest.endswith(v): rest = rest.replace(v, '', 1)
     if not rest: return 'name', ''

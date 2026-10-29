@@ -15,5 +15,5 @@ const band = (lo: number, hi: number) => rows.filter((r) => r.vol >= lo && r.vol
 console.log(`피부과 시술 묶음 ${rows.length}개 · 끝낸 것 ${rows.filter((r) => r.done).length}개 · 남은 것 ${rows.filter((r) => !r.done).length}개`);
 for (const [lo, hi, l] of [[1e6, 1e12, '연 100만+'], [3e5, 1e6, '30만~100만'], [1e5, 3e5, '10만~30만'], [3e4, 1e5, '3만~10만'], [0, 3e4, '3만 미만']] as const) {
   const b = band(lo, hi), left = b.filter((r) => !r.done), noHair = left.filter((r) => !/제모/.test(r.kr) && r.kr !== "젠틀맥스프로");
-  console.log(`${l}|${b.length}개|남은 ${left.length}개(제모 빼면 ${noHair.length}개)|SerpAPI ${noHair.length * 18}회|${noHair.slice(0, 14).map((r) => r.kr).join(', ')}`);
+  console.log(`${l}|${b.length}개|남은 ${left.length}개(제모 빼면 ${noHair.length}개)|SerpAPI ${noHair.length * 18}회|${noHair.slice(0, 40).map((r) => r.kr).join(', ')}`);
 }

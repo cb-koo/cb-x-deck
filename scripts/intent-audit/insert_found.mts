@@ -67,7 +67,7 @@ try {
     const out = [`묶음 ${list.length}개 · 단계 바뀐 것 ${changed.length}개 · 의도 비중 5%p 이상 바뀐 것 ${moved.length}개`,
       `단계 이동: ${Object.entries(changed.reduce((m, r) => { const k = `${L(r.b?.stage)}→${L(r.a.stage)}`; m[k] = (m[k] ?? 0) + 1; return m; }, {} as Record<string, number>)).sort((x, y) => y[1] - x[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`,
       '\n시술|12개월 검색량(전→후)|단계|개념·비교|효과·후기|부작용·통증|부위·대상|가격|병원·지역|시술 밖 관심(월)'];
-    for (const r of moved.sort((x, y) => y12(y.a.total) - y12(x.a.total))) {
+    for (const r of [...new Set([...changed, ...moved])].sort((x, y) => y12(y.a.total) - y12(x.a.total))) {
       const p0 = r.b?.profile, p1 = r.a.profile;
       out.push(`${r.kr}|${y12(r.b?.total).toLocaleString()}→${y12(r.a.total).toLocaleString()}|${L(r.b?.stage)}→${L(r.a.stage)}|` +
         (['info', 'effect', 'worry', 'concern', 'cost', 'place'] as const).map((k) => `${pct(p0?.[k])}→${pct(p1?.[k])}`).join('|') + `|${Math.round(y12(r.a.adjacent) / 12).toLocaleString()}`);

@@ -150,3 +150,12 @@ test('아그네스 — 파칭코·캐릭터·케이크 가게는 다른 뜻, 시
   assert.equal(tagKeyword('アグネス 東京 安い', N), 'cost');
   assert.equal(tagKeyword('アグネス ニキビ', N), 'concern');
 });
+
+test('스카렛 — 시술 맥락 말이 있을 때만 시술 검색', () => {
+  const N = ['スカーレット'];
+  for (const k of ['スカーレット 東京', 'ポケモン スカーレット', 'スカーレット 値段', 'スカーレット ヨハンソン', 'スカーレット 効果'])
+    assert.equal(tagKeyword(k, N), 'noise', k);
+  assert.equal(tagKeyword('スカーレット ダウンタイム', N), 'worry');
+  assert.equal(tagKeyword('スカーレット ニキビ跡', N), 'concern');
+  assert.equal(tagKeyword('スカーレット RF 効果', N), 'effect');
+});

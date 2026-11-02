@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
-import { deleteLocation, listLocationsForManage, updateLocation } from '@/lib/clinicStore';
+import { deleteLocation, updateLocation } from '@/lib/clinicStore';
 import { productWebBoundary } from '@/lib/productWebBoundary';
 import { productMissing } from '@/lib/productCommand';
 
 type Ctx = { params: Promise<{ id: string; locationId: string }> };
 // 다른 클라이언트의 지점 id로 접근하는 걸 막는다 — 소속이 다르면 없는 것으로 본다(404)
 async function owned(clientId: string, locationId: string) {
-  const own = (await listLocationsForManage(getSql(), clientId)).some((l) => l.id === locationId);
-  if (!own) throw productMissing();
+  if (!(await getSql()`select 1 from clinic_location where id = ${locationId} and client_id = ${clientId}`).length) throw productMissing();
 }
 
 async function PATCHInternal(req: Request, ctx: Ctx) {

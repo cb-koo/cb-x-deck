@@ -93,3 +93,12 @@ test('본점 행은 삭제하지 않는다', async () => {
   await deleteLocation(sql, added.id);
   assert.equal((await listClientLocations(sql, client.id, { activeOnly: false })).length, 1);
 });
+
+test('동시에 두 지점을 중지해도 사용 중 지점이 하나는 남는다', async () => {
+  const client = await createClient(sql, P + 'I');
+  const [main] = await listClinics(sql).then((l) => l.filter((x) => x.clientId === client.id));
+  const added = await createLocation(sql, client.id, { name: '신사점' });
+  const res = await Promise.allSettled([updateLocation(sql, main.id, { active: false }), updateLocation(sql, added.id, { active: false })]);
+  assert.equal(res.filter((r) => r.status === 'fulfilled').length, 1);
+  assert.equal((await listClientLocations(sql, client.id)).length, 1);
+});

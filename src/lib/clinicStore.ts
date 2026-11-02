@@ -51,6 +51,12 @@ export async function listLocationsForManage(sql: postgres.Sql, clientId: string
 }
 // 지점 쓰기. 이름은 클라이언트 안에서 trim·대소문자 무시로 유일해야 한다(사용 중지된 지점 포함 — 되살릴 때 충돌하지 않게).
 const dupName = () => new ProductError('DUPLICATE_NAME', '같은 이름의 지점이 이미 있어요.', 409);
+// 한 클라이언트의 지점을 잠그고 검사+쓰기를 한 트랜잭션에서 한다 — 동시에 두 지점을 중지해 사용 중 지점이 0개가 되거나 같은 이름이 둘 생기는 걸 막는다.
+// 이미 트랜잭션 안이면(begin 없음) 그대로 쓴다.
+async function lockedByClient<T>(sql: postgres.Sql, clientId: string, run: (tx: postgres.Sql) => Promise<T>): Promise<T> {
+  const body = async (tx: postgres.Sql) => { await tx`select id from clinic_location where client_id = ${clientId} for update`; return run(tx); };
+  return typeof sql.begin === 'function' ? (await sql.begin((tx) => body(tx as unknown as postgres.Sql))) as T : body(sql);
+}
 async function oneLocation(sql: postgres.Sql, id: string) {
   const [row] = await sql<ClinicSummary[]>`
     select l.id, c.id as "clientId", c.name, s.location_id is not null as configured,
@@ -65,25 +71,30 @@ export async function createLocation(sql: postgres.Sql, clientId: string, input:
   if (!(await sql`select id from client where id = ${clientId}`).length) throw productMissing();
   // 본점 행이 아직 없으면 먼저 만든다 — 그래야 새 지점이 본점 뒤 순서로 붙는다
   await sql`insert into clinic_location (client_id) values (${clientId}) on conflict (client_id) where kind = 'main' do nothing`;
-  if ((await sql`select 1 from clinic_location where client_id = ${clientId} and lower(btrim(name)) = lower(${name})`).length) throw dupName();
-  const [row] = await sql<Array<{ id: string }>>`insert into clinic_location (client_id, kind, name, position, active)
-    select ${clientId}, 'branch', ${name}, coalesce(max(position), 0) + 1, true from clinic_location where client_id = ${clientId} returning id`;
-  return oneLocation(sql, row.id);
+  const id = await lockedByClient(sql, clientId, async (tx) => {
+    if ((await tx`select 1 from clinic_location where client_id = ${clientId} and lower(btrim(name)) = lower(${name})`).length) throw dupName();
+    const [row] = await tx<Array<{ id: string }>>`insert into clinic_location (client_id, kind, name, position, active)
+      select ${clientId}, 'branch', ${name}, coalesce(max(position), 0) + 1, true from clinic_location where client_id = ${clientId} returning id`;
+    return row.id;
+  });
+  return oneLocation(sql, id);
 }
 export async function updateLocation(sql: postgres.Sql, id: string, patch: { name?: string; position?: number; active?: boolean }): Promise<ClinicSummary> {
-  const cur = await oneLocation(sql, id);
-  if (patch.name !== undefined) {
-    const name = textValue(patch.name, '지점명', 100).trim();
-    if (cur.kind === 'branch' && !name) throw new ProductError('INVALID_INPUT', '지점명을 입력해 주세요.', 422);
-    if (name && (await sql`select 1 from clinic_location where client_id = ${cur.clientId} and id <> ${id} and lower(btrim(name)) = lower(${name})`).length) throw dupName();
-    patch = { ...patch, name };
-  }
+  const first = await oneLocation(sql, id);
+  if (patch.name !== undefined) patch = { ...patch, name: textValue(patch.name, '지점명', 100).trim() };
   if (patch.position !== undefined && !Number.isInteger(patch.position)) throw new ProductError('INVALID_INPUT', '순서 값을 확인해 주세요.', 422);
-  if (patch.active === false && cur.active
-    && !(await sql`select 1 from clinic_location where client_id = ${cur.clientId} and id <> ${id} and active`).length)
-    throw new ProductError('LAST_ACTIVE', '사용 중인 지점이 하나는 있어야 해요.', 409);
-  await sql`update clinic_location set name = coalesce(${patch.name ?? null}, name), position = coalesce(${patch.position ?? null}, position),
-    active = coalesce(${patch.active ?? null}, active) where id = ${id}`;
+  await lockedByClient(sql, first.clientId, async (tx) => {
+    const cur = await oneLocation(tx, id); // 잠근 뒤 다시 읽는다 — 앞선 요청의 결과를 반영
+    if (patch.name !== undefined) {
+      if (cur.kind === 'branch' && !patch.name) throw new ProductError('INVALID_INPUT', '지점명을 입력해 주세요.', 422);
+      if (patch.name && (await tx`select 1 from clinic_location where client_id = ${cur.clientId} and id <> ${id} and lower(btrim(name)) = lower(${patch.name})`).length) throw dupName();
+    }
+    if (patch.active === false && cur.active
+      && !(await tx`select 1 from clinic_location where client_id = ${cur.clientId} and id <> ${id} and active`).length)
+      throw new ProductError('LAST_ACTIVE', '사용 중인 지점이 하나는 있어야 해요.', 409);
+    await tx`update clinic_location set name = coalesce(${patch.name ?? null}, name), position = coalesce(${patch.position ?? null}, position),
+      active = coalesce(${patch.active ?? null}, active) where id = ${id}`;
+  });
   return oneLocation(sql, id);
 }
 export async function deleteLocation(sql: postgres.Sql, id: string): Promise<void> {

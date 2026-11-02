@@ -38,7 +38,10 @@ export function BranchesTab({ clientId }: { clientId: string }) {
       await load(); return true;
     } finally { setBusy(false); }
   }
-  async function remove(id: string) {
+  async function remove(l: Row) {
+    // 지점을 지우면 그 지점의 운영시간·방문 안내·양식도 함께 사라진다 — 실수 클릭을 막는다
+    if (!window.confirm(`‘${l.branchName}’을(를) 삭제할까요? 이 지점의 운영시간·방문 안내·양식도 함께 지워져요. 잠시 쉬게 하려면 사용 중지를 쓰세요.`)) return;
+    const id = l.id;
     setBusy(true); setRowError((e) => ({ ...e, [id]: '' }));
     try {
       const r = await call(`/${id}`, 'DELETE');
@@ -102,7 +105,7 @@ export function BranchesTab({ clientId }: { clientId: string }) {
                         onClick={() => void patch(l.id, { active: !l.active })}>{l.active ? '사용 중지' : '다시 사용'}</Button>
                 <Button variant="ghost" className="hover:text-red-500" disabled={busy || l.kind === 'main' || l.reservations > 0}
                         title={l.kind === 'main' ? '본점은 삭제할 수 없어요. 이름을 바꾸거나 사용 중지해 주세요.' : l.reservations > 0 ? '예약이 연결된 지점은 삭제할 수 없어요. 대신 사용 중지해 주세요.' : undefined}
-                        onClick={() => void remove(l.id)}>삭제</Button>
+                        onClick={() => void remove(l)}>삭제</Button>
               </span>
             </div>
             {(l.kind === 'main' || l.reservations > 0) && (

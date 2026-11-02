@@ -273,13 +273,16 @@ export function updateClientSheetInput(
 }
 
 // 시트가 가리키는 X 계정(소문자, @ 없음). 핸들 줄이 없는 양식(벤자민)은 계정 링크 URL의 경로에서 읽는다.
-// x.com/h·x.com/h?s=20·twitter.com/h 모두 같은 계정. 프로필 링크가 아니면 ''.
+// x.com/h·x.com/h?s=20·twitter.com/h 모두 같은 계정. 프로필 링크가 아니면(스킴 없는 글자 포함) ''.
+// X 예약 경로(/i/user/123·/intent/follow·/home 등)는 계정명이 아니다 — ''(계정 없음)로 봐서 계정 검사를 통과시킨다.
+const X_RESERVED_PATHS = new Set(['i', 'intent', 'home', 'search', 'hashtag', 'share', 'explore', 'settings', 'messages', 'notifications', 'compose']);
 export function sheetHandle(sheet: string): string {
   const { handle, profileUrl } = readClientSheetInputs(sheet);
   const fromLine = handle.replace(/^@+/, '');
   if (fromLine) return fromLine.toLowerCase();
   const url = /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/@?(\w+)(?:[/?#]|$)/i.exec(profileUrl.trim());
-  return url ? url[1].toLowerCase() : '';
+  const name = url ? url[1].toLowerCase() : '';
+  return X_RESERVED_PATHS.has(name) ? '' : name;
 }
 
 // 팔로워 등급은 나노/마이크로/메가만 값이다. 양식의 안내 문구('영역 (나노/마이크로/메가)')는 빈 값으로 본다.

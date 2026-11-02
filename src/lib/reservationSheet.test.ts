@@ -8,6 +8,7 @@ import {
   readClientSheet,
   readClientSheetInputs,
   sheetDifferences,
+  sheetHandle,
   splitReservationName,
   updateClientSheetInput,
 } from './reservationSheet.ts';
@@ -124,4 +125,22 @@ test('추출 지점이 비면 문맥 지점(본점)을 쓴다', () => {
   assert.ok(out.includes('지점: 본점'));
   const named = fillClientSheetTemplate('7. 지점:', 'hana', { branch: '신사점' }, { clinic: 'C', branch: '본점', naver: '', google: '' });
   assert.ok(named.includes('지점: 신사점'));
+});
+
+test('sheetHandle — 핸들 줄이 없으면 계정 링크 URL에서 계정을 읽는다', () => {
+  const link = (url: string) => `- 인플루언서 계정 링크: ${url}\n1. 희망 일시: 2026-10-28 16:00`;
+  assert.equal(sheetHandle(link('https://x.com/Hana_Mozu?s=20')), 'hana_mozu');
+  assert.equal(sheetHandle(link('https://x.com/hana_mozu/')), 'hana_mozu');
+  assert.equal(sheetHandle(link('https://twitter.com/hana_mozu')), 'hana_mozu');
+  assert.equal(sheetHandle(link('https://mobile.x.com/hana_mozu')), 'hana_mozu');
+  assert.equal(sheetHandle(link('https://x.com/@hana_mozu')), 'hana_mozu');
+  assert.equal(sheetHandle(link('https://x.com/hana_mozu/status/1')), 'hana_mozu');
+  // X 예약 경로는 계정이 아니다 — 계정 없음('')
+  assert.equal(sheetHandle(link('https://x.com/i/user/123456')), '');
+  assert.equal(sheetHandle(link('https://x.com/intent/follow?screen_name=hana_mozu')), '');
+  assert.equal(sheetHandle(link('https://x.com/Home')), '');
+  // 스킴 없는 글자는 링크로 보지 않는다 — 계정 없음('')
+  assert.equal(sheetHandle(link('x.com/hana_mozu')), '');
+  // 핸들 줄이 있으면 URL과 달라도 핸들 줄이 이긴다
+  assert.equal(sheetHandle('@hana_mozu\nhttps://x.com/other?s=20\n\n1. 희망 일시: 2026-10-28 16:00'), 'hana_mozu');
 });

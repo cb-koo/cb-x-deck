@@ -445,6 +445,12 @@ test('핸들 줄 없는 시트에서 계정 링크 핸들을 바꾸면 IDENTITY_
   assert.equal(readClientSheetInputs(benjamin(f.handle)).handle, '');
   // 등록에서도 링크의 계정이 작업 인플과 달라면 거부한다
   await rejects(call('POST', 'reservations', { key: randomUUID(), body: createBody(f, { locationId: f.locationId, sheetText: benjamin('other') }) }), 'IDENTITY_MISMATCH', 422);
+  // 핸들 줄이 있는 시트는 URL을 보지 않는다 — 핸들 줄이 인플과 같으면 링크가 다른 계정이어도 등록된다(H2)
+  const f2 = await fixture('k');
+  const withHandle = sheet(f2.handle, plusDays(30)).replace(`x.com/${f2.handle}?s=20`, 'x.com/other?s=20');
+  assert.ok(withHandle.includes('x.com/other?s=20'));
+  const viaHandle = await call<Detail>('POST', 'reservations', { key: randomUUID(), body: createBody(f2, { locationId: f2.locationId, sheetText: withHandle }) });
+  assert.ok(viaHandle.id);
   const created = await call<Detail>('POST', 'reservations', { key: randomUUID(), body: createBody(f, { locationId: f.locationId, sheetText: benjamin(f.handle.toUpperCase()) }) });
   await rejects(call('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: created.version,
     body: { sheetText: created.sheetText.replace(`x.com/${f.handle.toUpperCase()}?s=20`, 'x.com/other?s=20') } }), 'IDENTITY_MISMATCH', 422);

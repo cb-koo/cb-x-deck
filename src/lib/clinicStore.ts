@@ -54,7 +54,7 @@ const dupName = () => new ProductError('DUPLICATE_NAME', '같은 이름의 지�
 // 한 클라이언트의 지점을 잠그고 검사+쓰기를 한 트랜잭션에서 한다 — 동시에 두 지점을 중지해 사용 중 지점이 0개가 되거나 같은 이름이 둘 생기는 걸 막는다.
 // 이미 트랜잭션 안이면(begin 없음) 그대로 쓴다.
 async function lockedByClient<T>(sql: postgres.Sql, clientId: string, run: (tx: postgres.Sql) => Promise<T>): Promise<T> {
-  const body = async (tx: postgres.Sql) => { await tx`select id from clinic_location where client_id = ${clientId} for update`; return run(tx); };
+  const body = async (tx: postgres.Sql) => { await tx`select id from clinic_location where client_id = ${clientId} order by id for update`; return run(tx); };
   return typeof sql.begin === 'function' ? (await sql.begin((tx) => body(tx as unknown as postgres.Sql))) as T : body(sql);
 }
 async function oneLocation(sql: postgres.Sql, id: string) {
@@ -158,14 +158,18 @@ export async function saveClinicSettings(tx: postgres.Sql, id: string, raw: unkn
 export async function saveClinicTemplate(tx: postgres.Sql, id: string, kind: 'form' | 'sheet', raw: unknown, expected: number, actor: Member,
   opts: { applyToSiblings?: boolean } = {}) {
   const body = textValue(objectBody(raw).body, '예약 양식');
-  if (!(await tx`select id from clinic_location where id = ${id} for update`).length) throw productMissing();
+  // 지점 추가·수정·삭제(lockedByClient)와 같은 순서(id 순)로 잠근다 — 적용 시엔 클라이언트의 모든 지점을 한 번에.
+  const [owner] = await tx<Array<{ clientId: string }>>`select client_id as "clientId" from clinic_location where id = ${id}`;
+  if (!owner) throw productMissing();
+  if (opts.applyToSiblings) await tx`select id from clinic_location where client_id = ${owner.clientId} order by id for update`;
+  else await tx`select id from clinic_location where id = ${id} for update`;
   const clinic = await getClinic(tx, id), current = clinic.templates[kind];
   expectVersion(current?.revision ?? 1, expected);
   const saved = await insertTemplateRevision(tx, id, kind, body, current, actor);
   if (opts.applyToSiblings) {
     // 같은 트랜잭션에서 같은 클라이언트의 다른 지점(사용 중지 포함 — 다시 켰을 때 옛 양식이 남지 않게)에 같은 내용을 새 리비전으로 쌓는다.
     // 한 지점이 먼저 바뀌었더라도 버전 충돌로 막지 않도록 각 지점의 현재 버전을 그대로 expected로 쓴다(잠금은 행마다).
-    const siblings = await tx<Array<{ id: string }>>`select id from clinic_location where client_id = ${clinic.clientId} and id <> ${id} order by id for update`;
+    const siblings = await tx<Array<{ id: string }>>`select id from clinic_location where client_id = ${clinic.clientId} and id <> ${id} order by id`;
     for (const s of siblings) {
       const sibling = (await getClinic(tx, s.id)).templates[kind];
       await insertTemplateRevision(tx, s.id, kind, body, sibling, actor);

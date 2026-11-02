@@ -18,7 +18,7 @@ const errText = (e: unknown) => e instanceof Error ? e.message : '저장하지 �
 export type ClinicTab = 'hours' | 'forms';
 // 미저장 입력은 ClientDetail의 편집기 레지스트리(register)에 올린다 — 클라이언트 전환·사이드바 이동·새로고침 확인과
 // '저장하고 이동'을 기본 정보 편집기와 같은 길로 탄다(이 화면에서 따로 navGuard를 걸면 페이지의 가드를 덮어쓴다).
-export function ClinicSettingsTab({ clientId, tab, register }: { clientId: string; tab: ClinicTab; register: Register }) {
+export function ClinicSettingsTab({ clientId, tab, register, visible }: { clientId: string; tab: ClinicTab; register: Register; visible: boolean }) {
   const [locations, setLocations] = useState<ClinicSummary[]>([]), [picked, setPicked] = useState(''), [error, setError] = useState('');
   const load = useCallback(async () => {
     try {
@@ -31,6 +31,9 @@ export function ClinicSettingsTab({ clientId, tab, register }: { clientId: strin
   }, [clientId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 설정 최초 로드(기존 코드베이스 관례)
   useEffect(() => { void load(); }, [load]);
+  // 같은 페이지의 지점 탭에서 지점을 추가·수정·삭제했을 수 있다(이 탭은 숨겨질 뿐 사라지지 않는다) — 다시 보일 때 목록을 새로 읽는다.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- 탭이 보일 때 목록 갱신
+  useEffect(() => { if (visible) void load(); }, [visible, load]);
   if (error) return <div className={PANEL}><p role="alert" className="text-content text-amber-800">{error}</p><Button onClick={() => void load()}>다시 불러오기</Button></div>;
   if (!picked) return <div className={PANEL}><p className="text-content text-x-secondary">클리닉 설정을 불러오는 중…</p></div>;
   // key = 지점 id — 지점을 바꿀 때 편집 상태가 다른 지점으로 새지 않게 편집기를 새로 만든다.
@@ -70,33 +73,6 @@ function ClinicEditor({ id, locations, onPick, tab, register }: { id: string; lo
     }).finally(() => { if (active) setCalendarLoading(false); });
     return () => { active = false; };
   }, [id, month, tab, clinic?.id, clinic?.version, calendarRetry]);
-  const dirty = !!clinic && (!!draft && JSON.stringify(draft) !== JSON.stringify(clinic.settings) || forms.form !== (clinic.templates.form?.body ?? '') || forms.sheet !== (clinic.templates.sheet?.body ?? ''));
-  // 레지스트리는 등록 시점의 함수를 들고 있으므로 최신 상태는 ref로 읽는다.
-  const dirtyRef = useRef(false), saveAllRef = useRef<() => Promise<boolean>>(async () => true);
-  useEffect(() => {
-    dirtyRef.current = dirty || busy;
-    // 페이지의 '저장하고 이동' — 바뀐 것(설정·양식)만 저장한다. 양식 저장 전 안내 창은 건너뛴다(사용자가 저장을 골랐다).
-    saveAllRef.current = async () => {
-      if (!clinic || !draft) return true;
-      try {
-        if (JSON.stringify(draft) !== JSON.stringify(clinic.settings)) {
-          const updated = await save<ClinicDetail>(`clinics/${id}/settings`, { settings: draft }, clinic.version, 'PATCH');
-          setClinic(updated); setDraft(updated.settings);
-        }
-        for (const kind of ['form', 'sheet'] as const) {
-          if (forms[kind] === (clinic.templates[kind]?.body ?? '')) continue;
-          const saved = await save<ClinicTemplate>(`clinics/${id}/templates/${kind}`, { body: forms[kind] }, clinic.templates[kind]?.revision ?? 1, 'PATCH');
-          setClinic((c) => c ? { ...c, templates: { ...c.templates, [kind]: saved } } : c);
-        }
-        return true;
-      } catch (e) { setError(errText(e)); return false; }
-    };
-  });
-  useEffect(() => register('clinic', { isDirty: () => dirtyRef.current, save: () => saveAllRef.current() }), [register]);
-  async function run(fn: () => Promise<void>) { if (busy) return; setBusy(true); setError(''); setNotice(''); try { await fn(); } catch (e) { setError(errText(e)); } finally { setBusy(false); } }
-  if (!clinic || !draft) return <div className={PANEL}><p className="text-content">{error || '클리닉 설정을 불러오는 중…'}</p>{error && <Button onClick={() => void load()}>다시 불러오기</Button>}</div>;
-  const currentClinic = clinic, currentDraft = draft;
-  const patch = (p: Partial<ClinicSettings>) => setDraft({ ...draft, ...p });
   // 대표 지점 양식과 달라지면 다른 지점에도 같이 쓸지 묻는다. 취소해도 이 지점 저장은 그대로 진행한다.
   async function askApplyToSiblings(kind: 'form' | 'sheet'): Promise<boolean> {
     const others = locations.filter((l) => l.id !== id);
@@ -110,6 +86,34 @@ function ClinicEditor({ id, locations, onPick, tab, register }: { id: string; lo
     const head = editingRepresentative ? '다른 지점 양식과 달라요.' : `대표 지점(${representative ? branchLabel(representative) : '본점'}) 양식과 달라요.`;
     return window.confirm(`${head} 다른 지점 ${others.length}개에도 같은 양식을 적용할까요?`);
   }
+  const dirty = !!clinic && (!!draft && JSON.stringify(draft) !== JSON.stringify(clinic.settings) || forms.form !== (clinic.templates.form?.body ?? '') || forms.sheet !== (clinic.templates.sheet?.body ?? ''));
+  // 레지스트리는 등록 시점의 함수를 들고 있으므로 최신 상태는 ref로 읽는다.
+  const dirtyRef = useRef(false), saveAllRef = useRef<() => Promise<boolean>>(async () => true);
+  useEffect(() => {
+    dirtyRef.current = dirty || busy;
+    // 페이지의 '저장하고 이동' — 바뀐 것(설정·양식)만 저장한다. 파싱 형식 안내 창은 건너뛰지만 '다른 지점에도 적용' 질문은 똑같이 한다.
+    saveAllRef.current = async () => {
+      if (!clinic || !draft) return true;
+      try {
+        if (JSON.stringify(draft) !== JSON.stringify(clinic.settings)) {
+          const updated = await save<ClinicDetail>(`clinics/${id}/settings`, { settings: draft }, clinic.version, 'PATCH');
+          setClinic(updated); setDraft(updated.settings);
+        }
+        for (const kind of ['form', 'sheet'] as const) {
+          if (forms[kind] === (clinic.templates[kind]?.body ?? '')) continue;
+          const applyToSiblings = await askApplyToSiblings(kind);
+          const saved = await save<ClinicTemplate>(`clinics/${id}/templates/${kind}`, { body: forms[kind], ...(applyToSiblings && { applyToSiblings: true }) }, clinic.templates[kind]?.revision ?? 1, 'PATCH');
+          setClinic((c) => c ? { ...c, templates: { ...c.templates, [kind]: saved } } : c);
+        }
+        return true;
+      } catch (e) { setError(errText(e)); return false; }
+    };
+  });
+  useEffect(() => register('clinic', { isDirty: () => dirtyRef.current, save: () => saveAllRef.current() }), [register]);
+  async function run(fn: () => Promise<void>) { if (busy) return; setBusy(true); setError(''); setNotice(''); try { await fn(); } catch (e) { setError(errText(e)); } finally { setBusy(false); } }
+  if (!clinic || !draft) return <div className={PANEL}><p className="text-content">{error || '클리닉 설정을 불러오는 중…'}</p>{error && <Button onClick={() => void load()}>다시 불러오기</Button>}</div>;
+  const currentClinic = clinic, currentDraft = draft;
+  const patch = (p: Partial<ClinicSettings>) => setDraft({ ...draft, ...p });
   async function storeTemplate(kind: 'form' | 'sheet') { await run(async () => {
     const applyToSiblings = await askApplyToSiblings(kind);
     const saved = await save<ClinicTemplate>(`clinics/${id}/templates/${kind}`, { body: forms[kind], ...(applyToSiblings && { applyToSiblings: true }) }, currentClinic.templates[kind]?.revision ?? 1, 'PATCH');

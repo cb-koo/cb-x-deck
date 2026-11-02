@@ -135,3 +135,21 @@ test('적용하지 않으면 형제 지점 양식은 그대로다', async () => 
   const sibling = await bodyOf(stopped);
   assert.equal(sibling?.body, '옛 양식'); assert.equal(sibling?.revision, 2);
 });
+
+test('이미 같은 양식인 형제 지점에는 새 리비전이 생기지 않는다', async () => {
+  const { main, stopped } = await templateSetup('T3');
+  const actor = await actorMember();
+  await sql.begin((tx) => saveClinicTemplate(tx as never, main, 'form', { body: '옛 양식' }, 1, actor, { applyToSiblings: true }));
+  const sibling = await bodyOf(stopped);
+  assert.equal(sibling?.body, '옛 양식'); assert.equal(sibling?.revision, 2);
+});
+
+test('지점이 하나뿐인 클라이언트는 applyToSiblings가 있어도 그 지점만 저장한다', async () => {
+  const client = await createClient(sql, P + 'T4');
+  const [only] = await sql<Array<{ id: string }>>`insert into clinic_location (client_id, kind, name, position) values (${client.id}, 'main', '', 1) returning id`;
+  const actor = await actorMember();
+  await sql.begin((tx) => saveClinicTemplate(tx as never, only.id, 'form', { body: '양식' }, 1, actor, { applyToSiblings: true }));
+  assert.equal((await bodyOf(only.id))?.body, '양식');
+  const [{ n }] = await sql<Array<{ n: number }>>`select count(*)::int as n from clinic_template_revision where location_id in (select id from clinic_location where client_id = ${client.id})`;
+  assert.equal(n, 1);
+});

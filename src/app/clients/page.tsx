@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { clientSummary } from '@/lib/clientSummary';
+import { findSimilarClients } from '@/lib/similarClients';
 import { relTime } from '@/lib/relTime';
 import { setNavGuard } from '@/lib/navGuard';
 import { ClientDetail, type DetailHandle } from './ClientDetail';
@@ -52,6 +53,8 @@ function ClientsSplit() {
   useEffect(() => { load(); }, [load]);
 
   const selected = rows.find((x) => x.client.id === urlId) ?? null;
+  // 같은 병원을 두 번 만드는 실수 방지(11-02 벤자민 사례) — 쓰는 동안 비슷한 기존 클라이언트를 보여준다
+  const similar = adding ? findSimilarClients(newName, rows.map((x) => x.client)) : [];
 
   // 쿼리 없음/무효 → 첫 번째로 폴백. 무효 딥링크(삭제된 클라이언트 등)면 정직하게 알린다 (87f8353 원칙).
   useEffect(() => {
@@ -159,6 +162,19 @@ function ClientsSplit() {
                    }}
                    placeholder="새 클라이언트 이름"
                    className="w-full rounded-lg border border-x-border-strong px-2.5 py-1.5 text-ui outline-none focus:border-x-blue" />
+            {similar.length > 0 && (
+              <div className="mt-2">
+                <p className="mb-1 px-1 text-caption font-medium text-[#b45309]">이미 있는 클라이언트</p>
+                {similar.map((c) => (
+                  <button key={c.id} type="button"
+                          onClick={() => { setAdding(false); setNewName(''); selectClient(c.id); }}
+                          className="mb-1 flex w-full items-center justify-between rounded-lg border border-x-border bg-x-surface px-2.5 py-1.5 text-left text-ui font-semibold hover:bg-x-hover">
+                    <span className="min-w-0 truncate">{c.name}</span>
+                    <span className="shrink-0 text-x-muted">›</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="mt-1.5 flex gap-1.5">
               <Button type="button" variant="ghost" onClick={() => { setAdding(false); setNewName(''); }}>취소</Button>
               <Button type="button" variant="primary" onClick={createClient}>만들기</Button>

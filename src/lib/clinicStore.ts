@@ -14,14 +14,37 @@ export interface ClinicTemplate { id: string; body: string; revision: number; pa
 export interface ClinicDetail { id: string; clientId: string; name: string; info: string; bannedPhrases: string[];
   settings: ClinicSettings; version: number; templates: { form: ClinicTemplate | null; sheet: ClinicTemplate | null } }
 
+export type ClinicSummary = { id: string; clientId: string; name: string; configured: boolean;
+  branchName: string; kind: 'main' | 'branch'; position: number; active: boolean };
+
 export async function listClinics(sql: postgres.Sql) {
-  // 본점 식별자만 만든다. 주소·시간·안내·양식은 담당자가 직접 설정한다.
+  // 본점 식별자만 만든다. 주소·시간·안내·양식은 담당자가 직접 설정한다. 지점(branch)은 담당자가 따로 추가한다.
   await sql`insert into clinic_location (client_id) select id from client
     on conflict (client_id) where kind = 'main' do nothing`;
-  return sql<Array<{ id: string; clientId: string; name: string; configured: boolean }>>`
-    select l.id, c.id as "clientId", c.name, s.location_id is not null as configured
-    from clinic_location l join client c on c.id = l.client_id left join clinic_settings s on s.location_id = l.id order by c.position, c.name`;
+  return sql<ClinicSummary[]>`
+    select l.id, c.id as "clientId", c.name, s.location_id is not null as configured,
+      l.name as "branchName", l.kind, l.position, l.active
+    from clinic_location l join client c on c.id = l.client_id left join clinic_settings s on s.location_id = l.id
+    order by c.position, c.name, l.position, l.created_at`;
 }
+// 한 클라이언트의 지점. 본점 자동 생성은 listClinics 몫이라 여기선 읽기만 한다. 기본은 사용 중인 지점만.
+export async function listClientLocations(sql: postgres.Sql, clientId: string, opts: { activeOnly?: boolean } = {}) {
+  const activeOnly = opts.activeOnly ?? true;
+  return sql<ClinicSummary[]>`
+    select l.id, c.id as "clientId", c.name, s.location_id is not null as configured,
+      l.name as "branchName", l.kind, l.position, l.active
+    from clinic_location l join client c on c.id = l.client_id left join clinic_settings s on s.location_id = l.id
+    where l.client_id = ${clientId} and (${!activeOnly} or l.active)
+    order by l.position, l.created_at`;
+}
+// 대표 지점 = 사용 중인 지점 가운데 순서가 가장 앞. 순서가 같으면 목록에서 앞선 것.
+export function representativeLocation(list: ClinicSummary[]): ClinicSummary | null {
+  let best: ClinicSummary | null = null;
+  for (const l of list) if (l.active && (!best || l.position < best.position)) best = l;
+  return best;
+}
+// 지점이 하나뿐이라 지점명이 비면 '본점'으로 읽는다. 순수 함수라 클라이언트 컴포넌트에서도 쓴다.
+export function locationLabel(l: Pick<ClinicSummary, 'name' | 'branchName'>) { return `${l.name} · ${l.branchName || '본점'}`; }
 export async function getClinic(sql: postgres.Sql, id: string): Promise<ClinicDetail> {
   const [row] = await sql<Array<{ id: string; clientId: string; name: string; info: string; bannedPhrases: string[]; settings: ClinicSettings | null; version: number }>>`
     select l.id, c.id as "clientId", c.name, c.info, c.banned_phrases as "bannedPhrases", s.settings, coalesce(s.version, 1) as version

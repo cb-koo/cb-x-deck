@@ -6,7 +6,7 @@ import { objectBody, ProductError, productMissing, productOperation, textValue, 
 import { extractReservation } from './reservationExtraction.ts';
 import { confirmVisitPost, createReservation, saveReservation, visitTaskCommand } from './reservationCommands.ts';
 import { readReservation, reservationDetail, reservationChanges, taskFact } from './reservationStore.ts';
-import { listClinics, getClinic, clinicCalendar, saveClinicSettings, saveClinicTemplate } from './clinicStore.ts';
+import { listClinics, representativeLocation, getClinic, clinicCalendar, saveClinicSettings, saveClinicTemplate } from './clinicStore.ts';
 import { findInfluencerById, getInfluencerDetail, updateInfluencer, updatePricing } from './influencerStore.ts';
 import { parsePricingPatch } from './influencerPricing.ts';
 import { classifyTask, toTaskDto } from './extensionTasks.ts';
@@ -146,7 +146,7 @@ export async function extensionProductDispatch(req: Request, path: string[], act
         select id, name, client_id as "clientId", to_char(starts_on, 'YYYY-MM-DD') as "startsOn", to_char(ends_on, 'YYYY-MM-DD') as "endsOn", kind
         from campaign where (${url.searchParams.get('includeEnded') === 'true'} or ends_on >= ${kstToday()}::date)
           and (${url.searchParams.get('kind')}::text is null or kind = ${url.searchParams.get('kind')}) order by starts_on desc, id`;
-      return reply({ items: campaigns.map((c) => ({ ...c, locationId: clinics.find((l) => l.clientId === c.clientId)?.id ?? null })), total: campaigns.length });
+      return reply({ items: campaigns.map((c) => ({ ...c, locationId: representativeLocation(clinics.filter((l) => l.clientId === c.clientId))?.id ?? null })), total: campaigns.length });
     }
     if (action === 'visit-task-candidates') {
       uuid(id); const person = await findInfluencerById(sql, uuid(url.searchParams.get('personId') ?? '')); if (!person) throw productMissing();

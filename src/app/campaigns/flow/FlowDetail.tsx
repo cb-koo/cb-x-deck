@@ -406,7 +406,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
       const rows = r.data.rows;
       setPendingByTask(new Map(rows.map((x) => [x.cand.taskId, x])));
       setAutoOff(!r.data.summary.autoSendEnabled);
-      setSettle({ needsAction: rows.filter((x) => x.group === 'attention' || x.group === 'blocked').length,
+      setSettle({ needsAction: r.data.summary.needsAction,   // 서버 판정 그대로 — 정산에서 빠진 작업(비용 없음 등)까지 센다
                   waiting: rows.filter((x) => x.group === 'waiting').length, dueNow: rows.some((x) => x.group === 'waiting' && x.sendAt === null),
                   nextSendAt: r.data.summary.nextSendAt, autoOff: !r.data.summary.autoSendEnabled });
     });

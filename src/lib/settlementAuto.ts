@@ -1,6 +1,7 @@
 // 정산 요청 자동 전송(스펙 2026-10-12 §2·§4) — 순수. 언제 보내는지와 어느 묶음인지를 한 곳에서 정한다.
 // 서버 스윕(runAutoSend)·정산 화면 묶음·캠페인 필터 줄이 모두 이 판정을 쓴다(라벨-값 일치, UX 원칙 4).
 import type { SettlementCandidate, IssueCode, ReadinessIssue } from './settlementCalc.ts';
+import type { TaskType } from './campaignJudgment.ts';
 
 const KST_MS = 9 * 3_600_000;
 const DAY_MS = 86_400_000;
@@ -35,6 +36,16 @@ export function isDue(confirmedAt: Date, now: Date): boolean {
 export function sendAtFor(confirmedAt: Date, now: Date): Date | null {
   return isDue(confirmedAt, now) ? null : nextMondaySeven(now);
 }
+
+// 게시됐지만 정산 요청을 만들 수 없는 작업(koo 11-02) — 작업 비용·인플루언서가 비어 후보(CANDIDATE_BASE)에서 빠진다.
+// 예전엔 정산 메뉴 어디에도 안 보여 입금 누락이 문의로만 드러났다(10-30 백수약국 4주차 8건). '보완 필요'에 같이 보여 준다.
+// 비용 없음(064)·다른 곳에서 정산함(061)·취소는 일부러 지급하지 않는 작업이라 넣지 않는다. 자동 전송은 지금처럼 건너뛴다.
+export type UnsendableReason = 'no-cost' | 'no-influencer';
+export interface UnsendableRow {
+  taskId: string; campaignId: string; campaignName: string; clientName: string;
+  influencerHandle: string | null; taskType: TaskType; postedAt: string; reasons: UnsendableReason[];
+}
+export const UNSENDABLE_TEXT: Record<UnsendableReason, string> = { 'no-cost': '작업 비용 없음', 'no-influencer': '인플루언서 미배정' };
 
 export type PendingGroup = 'attention' | 'blocked' | 'waiting' | 'stopped';
 // 확인 필요 = 지급 전에 글이 내려가거나 안 보임 — 사람이 보낼지 정한다(koo 10-12)

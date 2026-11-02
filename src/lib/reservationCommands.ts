@@ -3,11 +3,12 @@ import { randomUUID } from 'node:crypto';
 import type { Member } from './types.ts';
 import { isUuidLike } from './uuid.ts';
 import { kstToday } from './datetime.ts';
-import { cleanFollowerTierLine, readClientSheetInputs, updateClientSheetInput, validDateTime, formatReservationName, splitReservationName, type ClientSheetEditFields } from './reservationSheet.ts';
+import { cleanFollowerTierLine, readClientSheetInputs, sheetHandle, updateClientSheetInput, validDateTime, formatReservationName, splitReservationName, type ClientSheetEditFields } from './reservationSheet.ts';
 import { allowedVisitActions, applyDeadlineMode, checkCompleteVisit, checkEnd, checkStopForChangeLimit, planReservationSave,
   RESERVATION_END_KINDS, STOP_FOR_LIMIT_REASON, visitPhase, type ChangeReason, type DeadlineMode, type ReservationEndKind } from './reservationPolicy.ts';
 import { expectVersion, jsonValue, objectBody, ProductError, productMissing, productOperation, textValue, versionHeader } from './productCommand.ts';
 import { readReservation, reservationDetail, taskFact } from './reservationStore.ts';
+import { listClientLocations } from './clinicStore.ts';
 import { logTaskDeclined, markTaskCancelled, updateTask } from './campaignTaskStore.ts';   // 한 방향 의존 — campaignTaskStore는 이 파일을 모른다
 import { normalizeTargetTweetUrl, parseCancelBody, POST_URL_MESSAGE, type CancelReason } from './campaignTaskInput.ts';
 import type { TaskType } from './campaignJudgment.ts';
@@ -33,10 +34,22 @@ function deadlineMode(body: Record<string, unknown>, previous: DeadlineMode): De
   if (mode !== 'default' && mode !== 'manual') throw new ProductError('INVALID_INPUT', '업로드 기한의 적용 방식을 확인해 주세요.');
   return mode;
 }
+// 핸들 줄이 없는 양식(벤자민)은 계정 링크 URL로 계정을 읽는다 — sheetHandle.
 function checkedHandle(sheet: string, handle: string) {
-  const entered = readClientSheetInputs(sheet).handle.replace(/^@+/, '');
-  if (entered && entered.toLowerCase() !== handle.toLowerCase()) throw new ProductError('IDENTITY_MISMATCH', '기재 시트의 계정이 이 작업의 인플루언서와 달라요.', 422);
+  const entered = sheetHandle(sheet);
+  if (entered && entered !== handle.replace(/^@+/, '').toLowerCase()) throw new ProductError('IDENTITY_MISMATCH', '기재 시트의 계정이 이 작업의 인플루언서와 달라요.', 422);
 }
+// 예약 지점은 캠페인 클라이언트의 지점이어야 한다(사용 중지 포함 전체에서 찾는다). 새로 고르는 지점은 사용 중이어야 한다 —
+// 이미 저장된 예약이 중지된 지점을 그대로 두는 건 허용(지점 중지 후에도 기존 예약은 그 지점으로 남는다).
+async function campaignLocations(tx: postgres.Sql, campaignId: string, locationId: string) {
+  const [campaign] = await tx<Array<{ client_id: string }>>`select client_id from campaign where id = ${campaignId}`;
+  const locations = campaign ? await listClientLocations(tx, campaign.client_id, { activeOnly: false }) : [];
+  const location = locations.find((l) => l.id === locationId);
+  if (!location) throw new ProductError('LOCATION_MISMATCH', '이 캠페인 클리닉의 지점을 선택해 주세요.', 422);
+  if (!location.active) throw new ProductError('LOCATION_INACTIVE', '사용 중지된 지점이에요. 지점을 다시 골라 주세요.', 422);
+  return { clientId: campaign.client_id, locations };
+}
+const branchLabel = (l: { branchName: string } | undefined) => l?.branchName || '본점';
 const EDIT_FIELDS: Record<string, keyof ClientSheetEditFields> = { visitAt: 'preferred', preferred: 'preferred', preferred2: 'preferred2',
   visitType: 'visitType', name: 'name', gender: 'gender', birthDate: 'birthDate', koreanAbility: 'koreanAbility', treatment: 'treatment', uploadDeadline: 'uploadDeadline',
   nationality: 'nationality', branch: 'branch', followerTier: 'followerTier' };
@@ -93,15 +106,15 @@ export async function createReservation(sql: postgres.Sql, req: Request, actor: 
     const { fact, personId } = await taskFact(tx, taskId);
     if (!personId || !task.influencer_handle) throw new ProductError('PERSON_REQUIRED', '등록된 인플루언서를 작업에 배정한 뒤 예약을 추가해 주세요.', 422);
     if (!allowedVisitActions(fact, fact.requestCount, kstToday()).includes('add_reservation')) throw new ProductError('STATE_CHANGED', '이 작업에는 예약을 추가할 수 없어요.', 409);
-    const location = await tx`select l.id from clinic_location l join campaign c on c.client_id = l.client_id
-      where l.id = ${locationId} and c.id = ${task.campaign_id}`;
-    if (!location.length) throw new ProductError('LOCATION_MISMATCH', '이 캠페인의 클리닉 본점을 선택해 주세요.', 422);
+    const { clientId } = await campaignLocations(tx, task.campaign_id, locationId);
     const mode = deadlineMode(body, 'default'), sheet = policy(applyDeadlineMode(finalSheet, mode));
     checkedHandle(sheet, task.influencer_handle);
     let revisionId: string | null = null;
     if (body.templateRevisionId != null) {
       revisionId = uuid(body.templateRevisionId);
-      if (!(await tx`select id from clinic_template_revision where id = ${revisionId} and location_id = ${locationId} and kind = 'sheet'`).length)
+      // 같은 클라이언트의 어느 장소 양식이든 받는다 — 파싱 뒤 지점을 바꿔 등록해도 파싱에 쓴 양식 리비전이 남는다.
+      if (!(await tx`select id from clinic_template_revision where id = ${revisionId} and kind = 'sheet'
+        and location_id in (select id from clinic_location where client_id = ${clientId})`).length)
         throw new ProductError('TEMPLATE_MISMATCH', '이 클리닉의 기재 시트 양식을 선택해 주세요.', 422);
     }
     const fields = readClientSheetInputs(sheet);
@@ -129,15 +142,23 @@ export async function saveReservation(sql: postgres.Sql, req: Request, actor: Me
     expectVersion(reservation.version, expected);
     const { fact } = await taskFact(tx, task.id), today = kstToday();
     const mode = deadlineMode(body, reservation.deadlineMode);
+    // 지점 변경 — 다를 때만 검사한다(같은 값이면 중지된 지점이어도 그대로 둔다). 전후 라벨은 지점명만(본점은 '본점').
+    const locationId = body.locationId == null ? reservation.locationId : uuid(body.locationId);
+    let move: { before: { id: string; label: string }; after: { id: string; label: string } } | undefined;
+    if (locationId !== reservation.locationId) {
+      const { locations } = await campaignLocations(tx, task.campaign_id, locationId);
+      move = { before: { id: reservation.locationId, label: branchLabel(locations.find((l) => l.id === reservation.locationId)) },
+        after: { id: locationId, label: branchLabel(locations.find((l) => l.id === locationId)) } };
+    }
     const plan = policy(planReservationSave({ phase: visitPhase(fact, today), requestCount: fact.requestCount,
       beforeSheet: cleanFollowerTierLine(reservation.sheetText), afterSheet: cleanFollowerTierLine(editedSheet(body, reservation.sheetText)), deadlineMode: mode,
-      reason: (body.reason ?? null) as ChangeReason | null, confirm }));
-    // 개명 전 저장한 시트의 계정 표기는 기록으로 보존한다. 새 계정으로 임의 변경한 입력은 거부한다.
-    if (readClientSheetInputs(plan.sheet).handle !== readClientSheetInputs(reservation.sheetText).handle)
+      reason: (body.reason ?? null) as ChangeReason | null, confirm, beforeLocation: move?.before, afterLocation: move?.after }));
+    // 개명 전 저장한 시트의 계정 표기는 기록으로 보존한다. 새 계정으로 임의 변경한 입력은 거부한다(핸들 줄이 없으면 계정 링크로 본다).
+    if (sheetHandle(plan.sheet) !== sheetHandle(reservation.sheetText))
       checkedHandle(plan.sheet, task.influencer_handle ?? '');
     if (!plan.differences.length && !confirm && mode === reservation.deadlineMode) return reservationDetail(tx, id, new URL(req.url).origin);
     await tx`update visit_reservation set sheet_text = ${plan.sheet}, fields = ${tx.json(jsonValue(readClientSheetInputs(plan.sheet)))},
-      deadline_mode = ${mode}, confirmed_at = case when ${confirm} then now() else confirmed_at end,
+      location_id = ${locationId}, deadline_mode = ${mode}, confirmed_at = case when ${confirm} then now() else confirmed_at end,
       confirmed_by = case when ${confirm} then ${actor.id}::uuid else confirmed_by end,
       version = version + 1, updated_by = ${actor.id}, updated_at = now() where id = ${id}`;
     // 확정된 희망 일시를 작업의 방문일·방문 시간(063)에 함께 반영한다 — 표·작업 상세·익스텐션이 같은 값을 읽는다.

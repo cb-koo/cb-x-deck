@@ -272,6 +272,16 @@ export function updateClientSheetInput(
   return `${text}${/[\r\n]$/.test(text) ? '' : newline}${newLine}`;
 }
 
+// 시트가 가리키는 X 계정(소문자, @ 없음). 핸들 줄이 없는 양식(벤자민)은 계정 링크 URL의 경로에서 읽는다.
+// x.com/h·x.com/h?s=20·twitter.com/h 모두 같은 계정. 프로필 링크가 아니면 ''.
+export function sheetHandle(sheet: string): string {
+  const { handle, profileUrl } = readClientSheetInputs(sheet);
+  const fromLine = handle.replace(/^@+/, '');
+  if (fromLine) return fromLine.toLowerCase();
+  const url = /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/@?(\w+)(?:[/?#]|$)/i.exec(profileUrl.trim());
+  return url ? url[1].toLowerCase() : '';
+}
+
 // 팔로워 등급은 나노/마이크로/메가만 값이다. 양식의 안내 문구('영역 (나노/마이크로/메가)')는 빈 값으로 본다.
 export function normalizeFollowerTier(value: string): '' | '나노' | '마이크로' | '메가' {
   const text = value.trim();
@@ -334,7 +344,8 @@ export function normalizeSheetForCompare(text: string): string {
     .replace(/(\d{4}-\d{2}-\d{2})T(?=\d{2}:\d{2})/g, '$1 ');
 }
 
-export type SheetDifferenceField = Exclude<keyof ClientSheetEditFields, 'branch'> | 'sheet';
+// location = 예약의 지점(location_id) 변경 — 시트 줄이 아니라 저장 명령이 전후 지점명으로 붙인다.
+export type SheetDifferenceField = Exclude<keyof ClientSheetEditFields, 'branch'> | 'sheet' | 'location';
 export interface SheetDifference { field: SheetDifferenceField; label: string; before: string; after: string }
 
 export const SHEET_FIELD_LABEL: Record<Exclude<keyof ClientSheetEditFields, 'branch'>, string> = {

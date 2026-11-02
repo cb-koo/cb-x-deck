@@ -52,7 +52,12 @@ async function fixture(suffix: string) {
   });
   const handle = P + suffix;
   const { row: person } = await createInfluencer(sql, { handle, createdBy: actor.id });
-  return { client, locationId: location.id, campaign, handle, person };
+  // 다지점(벤자민 명동·신사) — 본점 행 외에 지점 행 둘
+  const [myeongdong] = await sql<Array<{ id: string }>>`insert into clinic_location (client_id, kind, name, position)
+    values (${client.id}, 'branch', '명동점', 2) returning id`;
+  const [sinsa] = await sql<Array<{ id: string }>>`insert into clinic_location (client_id, kind, name, position)
+    values (${client.id}, 'branch', '신사점', 3) returning id`;
+  return { client, locationId: location.id, campaign, handle, person, branches: { myeongdong: myeongdong.id, sinsa: sinsa.id } };
 }
 // 날짜 기준은 테스트마다 한 번만 잡는다 — 서버(kstToday)가 자정을 넘기는 사이 기대값이 어긋나는 경합을 막는다. 각 테스트 첫 줄에서 다시 잡는다.
 let base = kstToday();
@@ -341,4 +346,106 @@ test('등급 안내 문구가 값으로 들어오면 저장 시 빈 값으로 �
   const reset = await call<Detail>('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: picked.version,
     body: { sheetText: picked.sheetText.replace('마이크로', '영역 (나노/마이크로/메가)') } });
   assert.equal(tierLine(reset.sheetText), '- 인플루언서 팔로워 :');
+});
+
+// ─────────────────────────── 지점(다지점 클리닉) ───────────────────────────
+const createBody = (f: Awaited<ReturnType<typeof fixture>>, over: Record<string, unknown>) => ({ sourceText: '',
+  sheetText: sheet(f.handle, plusDays(30)), target: { kind: 'createTask', campaignId: f.campaign.id, personId: f.person.id }, ...over });
+const sheetRevision = async (locationId: string) => (await sql<Array<{ id: string }>>`insert into clinic_template_revision (location_id, kind, body, revision)
+  values (${locationId}, 'sheet', '양식', 1) returning id`)[0].id;
+
+test('사용 중지 지점으로 등록하면 422 LOCATION_INACTIVE', async () => {
+  base = kstToday();
+  const f = await fixture('i');
+  await sql`update clinic_location set active = false where id = ${f.branches.sinsa}`;
+  await assert.rejects(call('POST', 'reservations', { key: randomUUID(), body: createBody(f, { locationId: f.branches.sinsa }) }), (e: unknown) => {
+    assert.ok(e instanceof ProductError);
+    assert.equal(e.code, 'LOCATION_INACTIVE');
+    assert.equal(e.status, 422);
+    assert.equal(e.message, '사용 중지된 지점이에요. 지점을 다시 골라 주세요.');
+    return true;
+  });
+  const created = await call<Detail & { locationId: string }>('POST', 'reservations', { key: randomUUID(), body: createBody(f, { locationId: f.branches.myeongdong }) });
+  assert.equal(created.locationId, f.branches.myeongdong);
+});
+
+test('같은 클라이언트 다른 장소의 시트 리비전은 통과, 다른 클라이언트 리비전은 TEMPLATE_MISMATCH', async () => {
+  base = kstToday();
+  const f = await fixture('r');
+  const other = await fixture('s');
+  // 파싱은 명동 양식으로 하고 등록 직전 신사로 바꾼 경우(D13)
+  const created = await call<Detail & { locationId: string; templateRevisionId: string | null }>('POST', 'reservations', { key: randomUUID(),
+    body: createBody(f, { locationId: f.branches.sinsa, templateRevisionId: await sheetRevision(f.branches.myeongdong) }) });
+  assert.equal(created.locationId, f.branches.sinsa);
+  assert.ok(created.templateRevisionId);
+  // 다른 클라이언트 장소의 리비전(I3)
+  const f2 = await fixture('u');
+  await rejects(call('POST', 'reservations', { key: randomUUID(),
+    body: createBody(f2, { locationId: f2.branches.sinsa, templateRevisionId: await sheetRevision(other.branches.myeongdong) }) }), 'TEMPLATE_MISMATCH', 422);
+});
+
+test('수정에서 locationId를 바꾸면 location_id가 바뀌고 differences는 location 1건', async () => {
+  base = kstToday();
+  const f = await fixture('l');
+  const other = await fixture('m');
+  const withBranch = `${sheet(f.handle, plusDays(30))}\n지점: 명동점`;
+  const created = await call<Detail>('POST', 'reservations', { key: randomUUID(), body: createBody(f, { locationId: f.branches.myeongdong, sheetText: withBranch }) });
+  const confirmed = await call<Detail>('POST', `reservations/${created.id}/confirm`, { key: randomUUID(), version: created.version });
+  // 다른 클라이언트 지점(I4)
+  await rejects(call('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: confirmed.version,
+    body: { reason: 'customer_request', locationId: other.branches.sinsa } }), 'LOCATION_MISMATCH', 422);
+  // 시트 지점 줄도 같이 바꿔 보내도 차이는 지점 1건(D22·D26), 고객 요청이면 회차가 오른다(D27)
+  const moved = await call<Detail & { locationId: string }>('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: confirmed.version,
+    body: { reason: 'customer_request', locationId: f.branches.sinsa, sheetText: confirmed.sheetText.replace('지점: 명동점', '지점: 신사점') } });
+  assert.equal(moved.locationId, f.branches.sinsa);
+  assert.equal(moved.version, confirmed.version + 1);
+  assert.equal(moved.customerRequestCount, 1);
+  assert.ok(moved.sheetText.includes('지점: 신사점'));
+  const [row] = await sql<Array<{ location_id: string }>>`select location_id from visit_reservation where id = ${created.id}`;
+  assert.equal(row.location_id, f.branches.sinsa);
+  const [change] = await sql<Array<{ differences: Array<{ field: string; label: string; before: string; after: string }> }>>`
+    select differences from reservation_change where reservation_id = ${created.id} and event = 'edit'`;
+  assert.equal(change.differences.length, 1);
+  assert.deepEqual(change.differences[0], { field: 'location', label: '지점', before: '명동점', after: '신사점' });
+  // 본점으로 옮기면 라벨은 클라이언트명 없이 '본점'
+  const toMain = await call<Detail & { locationId: string }>('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: moved.version,
+    body: { reason: 'correction', locationId: f.locationId } });
+  assert.equal(toMain.locationId, f.locationId);
+  const [last] = await sql<Array<{ differences: Array<{ before: string; after: string }> }>>`
+    select differences from reservation_change where reservation_id = ${created.id} order by created_at desc, id desc limit 1`;
+  assert.deepEqual(last.differences.map((d) => [d.before, d.after]), [['신사점', '본점']]);
+});
+
+test('수정에서 사용 중지 지점: 저장된 지점은 그대로 저장되고, 새로 고르면 LOCATION_INACTIVE', async () => {
+  base = kstToday();
+  const f = await fixture('v');
+  const created = await call<Detail>('POST', 'reservations', { key: randomUUID(), body: createBody(f, { locationId: f.branches.myeongdong }) });
+  await sql`update clinic_location set active = false where id in (${f.branches.myeongdong}, ${f.branches.sinsa})`;
+  // 기존 예약은 중지된 지점을 유지한다(A4) — locationId를 안 보내도, 같은 값을 보내도 저장된다
+  const kept = await call<Detail & { locationId: string }>('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: created.version,
+    body: { locationId: f.branches.myeongdong, fieldEdits: { treatment: '보톡스' } } });
+  assert.equal(kept.locationId, f.branches.myeongdong);
+  assert.equal(kept.version, created.version + 1);
+  const kept2 = await call<Detail & { locationId: string }>('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: kept.version,
+    body: { fieldEdits: { treatment: '필러' } } });
+  assert.equal(kept2.locationId, f.branches.myeongdong);
+  await rejects(call('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: kept2.version,
+    body: { locationId: f.branches.sinsa } }), 'LOCATION_INACTIVE', 422);
+  // 지점 진실은 location_id — 시트의 지점 줄 글자만 바꾸고 locationId가 그대로면 차이가 없어 저장하지 않는다
+  const textOnly = await call<Detail>('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: kept2.version,
+    body: { sheetText: `${kept2.sheetText}\n지점: 신사점` } });
+  assert.equal(textOnly.version, kept2.version);
+});
+
+test('핸들 줄 없는 시트에서 계정 링크 핸들을 바꾸면 IDENTITY_MISMATCH', async () => {
+  base = kstToday();
+  const f = await fixture('h');
+  const body = sheet(f.handle, plusDays(30)).split('\n').slice(3).join('\n');
+  const benjamin = (h: string) => `- 인플루언서 계정 링크: https://x.com/${h}?s=20\n${body}`;
+  assert.equal(readClientSheetInputs(benjamin(f.handle)).handle, '');
+  // 등록에서도 링크의 계정이 작업 인플과 달라면 거부한다
+  await rejects(call('POST', 'reservations', { key: randomUUID(), body: createBody(f, { locationId: f.locationId, sheetText: benjamin('other') }) }), 'IDENTITY_MISMATCH', 422);
+  const created = await call<Detail>('POST', 'reservations', { key: randomUUID(), body: createBody(f, { locationId: f.locationId, sheetText: benjamin(f.handle.toUpperCase()) }) });
+  await rejects(call('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: created.version,
+    body: { sheetText: created.sheetText.replace(`x.com/${f.handle.toUpperCase()}?s=20`, 'x.com/other?s=20') } }), 'IDENTITY_MISMATCH', 422);
 });

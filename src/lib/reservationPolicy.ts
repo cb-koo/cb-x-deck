@@ -187,6 +187,8 @@ export interface ReservationSaveInput {
   deadlineMode: DeadlineMode;   // 저장 후의 기한 방식
   reason: ChangeReason | null;  // 클라이언트가 고른 사유. 확정 전에는 무시하고 서버가 waiting_edit로 정한다
   confirm: boolean;             // confirm command
+  beforeLocation?: { id: string; label: string };  // 저장돼 있던 지점 — 둘 다 있고 id가 다르면 'location' 차이 1건
+  afterLocation?: { id: string; label: string };   // 저장 후 지점
 }
 export interface ReservationSavePlan {
   sheet: string;                 // 저장할 최종 시트(기본 기한이면 기한 줄이 방문일을 따라 갱신됨)
@@ -233,7 +235,10 @@ export function planReservationSave(input: ReservationSaveInput): PolicyResult<R
   if (!scheduled.ok) return scheduled;
   const sheet = scheduled.value;
 
+  // 지점의 진실은 location_id다 — 시트 지점 줄은 비교에서 빠지고(sheetDifferences), 지점 바뀜은 여기서 한 건으로만 남긴다.
   const differences = sheetDifferences(input.beforeSheet, sheet);
+  const { beforeLocation: from, afterLocation: to } = input;
+  if (from && to && from.id !== to.id) differences.unshift({ field: 'location', label: '지점', before: from.label, after: to.label });
   const countsAsRequest = reason === 'customer_request' && differences.length > 0;
   if (countsAsRequest && input.requestCount >= CHANGE_REQUEST_LIMIT) return fail('CHANGE_LIMIT_REACHED');
 

@@ -19,7 +19,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
   const rest = (await req.json().catch(() => ({}))) as {
-    name?: string; info?: string; bannedPhrases?: string[]; landingUrl?: string; nameEn?: string; clinicCode?: string | null;
+    name?: string; info?: string; bannedPhrases?: string[]; landingUrl?: string; nameEn?: string; clinicCode?: string | null; sponsorMemo?: string;
   };
   if (rest.name !== undefined) {
     rest.name = rest.name?.trim();
@@ -40,6 +40,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (rest.nameEn !== '' && !/^[A-Za-z0-9 ._-]+$/.test(rest.nameEn ?? '')) {
       return NextResponse.json({ error: '영문 이름은 영어·숫자로 입력해 주세요 (예: yonsei-clinic)' }, { status: 400 });
     }
+  }
+  if (rest.sponsorMemo !== undefined) {
+    if (typeof rest.sponsorMemo !== 'string') return NextResponse.json({ error: '협찬 항목은 글로 입력해 주세요' }, { status: 400 });
+    // 줄바꿈·공백은 trim하지 않고 그대로 저장(익스텐션에 적은 모양 그대로 보인다) — 길이만 막는다
+    if (rest.sponsorMemo.length > 4000)
+      return NextResponse.json({ error: `협찬 항목은 4000자까지 적을 수 있어요 (현재 ${rest.sponsorMemo.length}자)` }, { status: 400 });
   }
   try {
     await updateClient(getSql(), id, rest);

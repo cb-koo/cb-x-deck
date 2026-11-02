@@ -42,6 +42,8 @@ export async function extensionProductDispatch(req: Request, path: string[], act
   const [root, id, action, sub] = path;
   // 웹 작업 상세가 예약 영역을 열지 정한다 — 설정 적용 전·운영 비활성이면 기존 일정 칸만 보여 준다(오류를 띄우지 않는다).
   if (root === 'features' && !id && method === 'GET') return reply(await productFeatures(sql));
+  // 협찬 메모는 웹(/api/clients/[id] PATCH)에서만 쓴다 — 이 공용 경로(Bearer·쿠키)에는 읽기만 있다. 쓰기 시도는 본문·기능 검사보다 먼저 '없음'.
+  if (root === 'clients' && method !== 'GET') throw productMissing();
   if (method !== 'GET' && !(await productFeatures(sql)).writes)
     throw new ProductError('SERVER_NOT_READY', '예약 기능의 서버 준비가 아직 끝나지 않았어요. 관리자에게 설정 적용을 요청해 주세요.', 503);
   const body = method === 'GET' || method === 'DELETE' ? {} : await req.json().catch(() => { throw new ProductError('INVALID_INPUT', '저장할 내용을 확인해 주세요.'); });
@@ -174,6 +176,11 @@ export async function extensionProductDispatch(req: Request, path: string[], act
       if (action === 'templates' && method === 'PATCH' && (sub === 'form' || sub === 'sheet'))
         return reply(await productOperation(sql, actor, req, body, (tx) => saveClinicTemplate(tx, id, sub, body, versionHeader(req), actor)));
     }
+  }
+  if (root === 'clients' && id && action === 'sponsor-memo' && !sub && method === 'GET') {
+    const [row] = await sql<Array<{ memo: string }>>`select sponsor_memo as memo from client where id = ${uuid(id)}`;
+    if (!row) throw productMissing();
+    return reply({ memo: row.memo });
   }
   if (root === 'quick-messages') {
     if (!id && method === 'GET') {

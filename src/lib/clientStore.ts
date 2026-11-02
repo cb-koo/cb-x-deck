@@ -3,6 +3,7 @@ import type postgres from 'postgres';
 export interface ClientRow {
   id: string; name: string; info: string; bannedPhrases: string[]; position: number; updatedAt: string;
   landingUrl: string; nameEn: string;
+  sponsorMemo: string;                       // 협찬 항목 자유 메모(웹 편집, 익스텐션은 읽기 전용)
   clinicCode: string | null;                 // 리포트 페이지 연결용 클리닉 코드(외부 리포트 API의 clinic_code). null = 연결 안 함
 }
 export interface ProcedureRow {
@@ -12,7 +13,7 @@ export interface ProcedureRow {
 
 type CRow = {
   id: string; name: string; info: string; banned_phrases: string[]; position: number; updated_at: Date;
-  landing_url: string; name_en: string; clinic_code: string | null;
+  landing_url: string; name_en: string; clinic_code: string | null; sponsor_memo: string;
 };
 type PRow = { id: string; client_id: string; name: string; description: string; effect_phrases: string; banned_phrases: string[]; position: number };
 
@@ -28,14 +29,14 @@ function toIsoOrEmpty(v: Date | string): string {
 
 const toClient = (r: CRow): ClientRow =>
   ({ id: r.id, name: r.name, info: r.info, bannedPhrases: r.banned_phrases, position: r.position,
-     updatedAt: toIsoOrEmpty(r.updated_at), landingUrl: r.landing_url, nameEn: r.name_en, clinicCode: r.clinic_code });
+     updatedAt: toIsoOrEmpty(r.updated_at), landingUrl: r.landing_url, nameEn: r.name_en, clinicCode: r.clinic_code, sponsorMemo: r.sponsor_memo });
 const toProcedure = (r: PRow): ProcedureRow =>
   ({ id: r.id, clientId: r.client_id, name: r.name, description: r.description,
      effectPhrases: r.effect_phrases, bannedPhrases: r.banned_phrases, position: r.position });
 
 // 세 조회가 같은 컬럼을 읽는다 — 한 곳만 컬럼을 빠뜨리면 그 경로에서만 undefined가 나온다
 const CLIENT_COLS = (sql: postgres.Sql) => sql`
-  id, name, info, banned_phrases, position, updated_at, landing_url, name_en, clinic_code`;
+  id, name, info, banned_phrases, position, updated_at, landing_url, name_en, clinic_code, sponsor_memo`;
 
 export async function createClient(sql: postgres.Sql, name: string): Promise<ClientRow> {
   const rows = await sql<CRow[]>`
@@ -64,7 +65,7 @@ export async function getClientWithProcedures(
 
 export async function updateClient(
   sql: postgres.Sql, id: string,
-  patch: { name?: string; info?: string; bannedPhrases?: string[]; landingUrl?: string; nameEn?: string; clinicCode?: string | null },
+  patch: { name?: string; info?: string; bannedPhrases?: string[]; landingUrl?: string; nameEn?: string; clinicCode?: string | null; sponsorMemo?: string },
 ): Promise<void> {
   await sql`update client set
       name = coalesce(${patch.name ?? null}, name),
@@ -77,6 +78,10 @@ export async function updateClient(
   // clinic_code는 "null로 되돌리기"를 표현해야 해서 coalesce 패턴을 못 쓴다 — undefined(미지정)일 때만 건드리지 않는다.
   if (patch.clinicCode !== undefined) {
     await sql`update client set clinic_code = ${patch.clinicCode} where id = ${id}`;
+  }
+  // 협찬 메모도 ''(비우기)를 저장해야 하므로 coalesce 대신 undefined 검사 — 줄바꿈·공백은 그대로 둔다.
+  if (patch.sponsorMemo !== undefined) {
+    await sql`update client set sponsor_memo = ${patch.sponsorMemo} where id = ${id}`;
   }
 }
 

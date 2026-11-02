@@ -17,10 +17,11 @@ export type ClientSheetFields = {
   companion?: string;
   nationality?: string;
   doctorPreference?: string;
+  branch?: string;
 };
 
 export const RESERVATION_EXTRACTION_KEYS = ['preferred', 'preferred2', 'visitType', 'name', 'gender', 'birthDate',
-  'koreanAbility', 'treatment', 'budget', 'treatmentHistory', 'companion', 'nationality', 'doctorPreference', 'note'] as const;
+  'koreanAbility', 'treatment', 'budget', 'treatmentHistory', 'companion', 'nationality', 'doctorPreference', 'note', 'branch'] as const;
 
 export function createClientSheet(handle: string, fields: ClientSheetFields = {}): string {
   handle = handle.trim().replace(/^@+/, '');
@@ -93,6 +94,9 @@ export type ClientSheetEditFields = {
   treatment: string;
   preferred2: string;
   uploadDeadline: string;
+  nationality: string;
+  branch: string;
+  followerTier: string;
 };
 
 export type ReservationNameParts = { korean: string; roman: string };
@@ -119,19 +123,21 @@ export function formatReservationName({ korean, roman }: ReservationNameParts): 
 
 const inputDefinitions = {
   handle: { prefix: '', aliases: ['계정', '계정명', 'X계정', '핸들'] },
-  profileUrl: { prefix: '', aliases: ['프로필URL', '프로필링크', 'X프로필', 'URL'] },
-  preferred: { prefix: '1. 희망 일시: ', aliases: ['희망일시', '희망예약일시', '예약희망일시', '예정방문일시', '희망예약시간', '제1희망일시', '제1희망', '1순위'] },
+  profileUrl: { prefix: '', aliases: ['프로필URL', '프로필링크', 'X프로필', 'URL', '인플루언서계정링크'] },
+  preferred: { prefix: '1. 희망 일시: ', aliases: ['희망일시', '희망예약일시', '예약희망일시', '예정방문일시', '희망예약시간', '제1희망일시', '제1희망', '1순위', '예약날짜및시간'] },
   visitType: { prefix: '2. 초진/재진: ', aliases: ['초진/재진', '초진／재진', '초진여부', '초진/재진여부'] },
-  name: { prefix: '3. 이름(한글/로마자): ', aliases: ['이름(한글/로마자)', '이름', '예약자', '성함', '성함(한자·영어)', '성함(로마자)'] },
+  name: { prefix: '3. 이름(한글/로마자): ', aliases: ['이름(한글/로마자)', '이름', '예약자', '성함', '성함(한자·영어)', '성함(로마자)', '성함(여권영문명)'] },
   gender: { prefix: '4. 성별: ', aliases: ['성별'] },
   birthDate: { prefix: '5. 생년월일: ', aliases: ['생년월일', '생년월일(YYYY-MM-DD)', '생년월일(서력)'] },
   koreanAbility: { prefix: '6. 한국어 가능 여부: ', aliases: ['한국어가능여부', '한국어회화', '한국어'] },
-  treatment: { prefix: '7. 희망 시술 내용: ', aliases: ['희망시술내용', '희망시술', '희망시술(고민)', '희망시술/고민', '협찬내용', '시술'] },
+  treatment: { prefix: '7. 희망 시술 내용: ', aliases: ['희망시술내용', '희망시술', '희망시술(고민)', '희망시술/고민', '협찬내용', '시술', '상담희망항목'] },
   preferred2: { prefix: '8. 제2희망 일시: ', aliases: ['제2희망일시', '제2희망', '2순위'] },
   budget: { prefix: '희망 예산 범위: ', aliases: ['희망예산범위', '희망예산범위(괜찮으시다면)', '희망예산', '예산'] },
   treatmentHistory: { prefix: '성형·시술 이력 (또는 예정): ', aliases: ['성형·시술이력(또는예정)', '성형·시술이력', '시술이력'] },
   companion: { prefix: '내원 시 동반자가 계신가요?: ', aliases: ['내원시동반자가계신가요?', '동반자', '동반자여부'] },
   nationality: { prefix: '국적: ', aliases: ['국적'] },
+  branch: { prefix: '지점: ', aliases: ['지점'] },
+  followerTier: { prefix: '인플루언서 팔로워 : ', aliases: ['인플루언서팔로워'] },
   doctorPreference: { prefix: '원장님 지정: ', aliases: ['원장님지정', '원장지정'] },
   note: { prefix: '메모: ', aliases: ['메모', '추가메모', '비고'] },
   accountUrl: { prefix: '계정 URL: ', aliases: ['계정URL', '계정링크'] },
@@ -221,6 +227,9 @@ export function readClientSheetInputs(text: string): ClientSheetEditFields {
     treatment: '',
     preferred2: '',
     uploadDeadline: '',
+    nationality: '',
+    branch: '',
+    followerTier: '',
   };
   for (const key of Object.keys(fields) as (keyof ClientSheetEditFields)[]) {
     fields[key] = inputValue(findInputLine(parts, key)?.value ?? '', key);
@@ -242,8 +251,10 @@ export function updateClientSheetInput(
   if (key === 'preferred' || key === 'preferred2') {
     nextValue = value.replace(/^(\d{4}-\d{2}-\d{2})T(?=\d{2}:\d{2})/, '$1 ');
   }
+  // 콜론으로 끝나는 줄('- 인플루언서 팔로워 :')에 값을 쓸 때 붙여 쓰지 않는다.
+  const prefix = line && nextValue && /[:：]$/.test(line.prefix) ? `${line.prefix} ` : line?.prefix;
   if (line) {
-    parts[line.index] = `${line.prefix}${nextValue}${line.suffix}`;
+    parts[line.index] = `${prefix}${nextValue}${line.suffix}`;
     return parts.join('');
   }
   const newline = parts.find((_, index) => index % 2 === 1) ?? '\n';
@@ -261,11 +272,27 @@ export function updateClientSheetInput(
   return `${text}${/[\r\n]$/.test(text) ? '' : newline}${newLine}`;
 }
 
+// 팔로워 등급은 나노/마이크로/메가만 값이다. 양식의 안내 문구('영역 (나노/마이크로/메가)')는 빈 값으로 본다.
+export function normalizeFollowerTier(value: string): '' | '나노' | '마이크로' | '메가' {
+  const text = value.trim();
+  return text === '나노' || text === '마이크로' || text === '메가' ? text : '';
+}
+
+// 시트에 등급 줄이 있고 값이 등급이 아니면(안내 문구 등) 줄은 두고 값만 비운다. 줄이 없는 시트는 그대로 돌려준다.
+export function cleanFollowerTierLine(text: string): string {
+  const parts = text.split(/(\r\n|\n|\r)/);
+  const line = findInputLine(parts, 'followerTier');
+  if (!line || !line.value.trim() || normalizeFollowerTier(line.value)) return text;
+  parts[line.index] = line.prefix.trimEnd() + line.suffix;
+  return parts.join('');
+}
+
 // 새 예약에만 사용한다. 저장된 과거 시트는 재생성하지 않는다.
 export function fillClientSheetTemplate(template: string, handle: string, fields: ClientSheetFields,
   context: { clinic: string; branch: string; naver: string; google: string }): string {
   handle = handle.trim().replace(/^@+/, '');
   const profileUrl = `https://x.com/${encodeURIComponent(handle)}`;
+  // branch: values={...context}를 아래 추출 키 루프가 fields.branch로 덮는다. 호출부가 둘을 항상 같은 값으로 넘기므로 그대로 둔다.
   const values: Record<string, string> = { ...context, handle, profileUrl, accountUrl: profileUrl };
   for (const key of RESERVATION_EXTRACTION_KEYS) values[key] = fields[key] ?? '';
   let sheet = template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => values[key] ?? '');
@@ -292,8 +319,12 @@ export function clientSheetUnmappedAnswers(template: string, fields: ClientSheet
 // ─────────────────────────── 무변경 판정과 전후 차이 ───────────────────────────
 // 무변경 판정용 정규화. 저장용 원문은 절대 이것으로 덮어쓰지 않는다(API 계획 §7).
 // CRLF·줄 끝 공백·빈 줄·날짜의 T/공백만 다른 저장은 새 요청으로 세지 않는다.
+// 7. 지점 줄은 비교에서 뺀다 — 지점 변경은 시트 줄이 아니라 location 변경으로 따로 기록한다.
 export function normalizeSheetForCompare(text: string): string {
-  return text
+  const parts = text.split(/(\r\n|\n|\r)/);
+  const branch = findInputLine(parts, 'branch');
+  if (branch) parts[branch.index] = '';
+  return parts.join('')
     .replace(/\r\n|\r/g, '\n')
     .split('\n')
     .map((s) => s.trim())
@@ -302,10 +333,10 @@ export function normalizeSheetForCompare(text: string): string {
     .replace(/(\d{4}-\d{2}-\d{2})T(?=\d{2}:\d{2})/g, '$1 ');
 }
 
-export type SheetDifferenceField = keyof ClientSheetEditFields | 'sheet';
+export type SheetDifferenceField = Exclude<keyof ClientSheetEditFields, 'branch'> | 'sheet';
 export interface SheetDifference { field: SheetDifferenceField; label: string; before: string; after: string }
 
-export const SHEET_FIELD_LABEL: Record<keyof ClientSheetEditFields, string> = {
+export const SHEET_FIELD_LABEL: Record<Exclude<keyof ClientSheetEditFields, 'branch'>, string> = {
   preferred: '희망 일시',
   uploadDeadline: '업로드 기한',
   preferred2: '제2희망 일시',
@@ -317,8 +348,10 @@ export const SHEET_FIELD_LABEL: Record<keyof ClientSheetEditFields, string> = {
   koreanAbility: '한국어 가능 여부',
   handle: 'X 계정',
   profileUrl: '프로필 링크',
+  nationality: '국적',
+  followerTier: '팔로워 등급',
 };
-const DIFF_ORDER = Object.keys(SHEET_FIELD_LABEL) as (keyof ClientSheetEditFields)[];
+const DIFF_ORDER = Object.keys(SHEET_FIELD_LABEL) as (keyof typeof SHEET_FIELD_LABEL)[];
 
 // 한 번의 저장이 바꾼 항목들. 입력란으로 설명되지 않는 나머지 변화(추가 메모 등)는 시트 전체 전후로 남긴다.
 // 빈 배열 = 무변경(횟수·이력 증가 없음).

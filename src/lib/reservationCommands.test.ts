@@ -320,3 +320,25 @@ test('5) 예약 없는 작업 삭제도 기록이 남고, 익스텐션 삭제는
   assert.equal(byTask.get(viaExt.id)?.deleted_by, actor.id);
   assert.equal(byTask.get(viaExt.id)?.deleted_by_name, actor.name);
 });
+
+test('등급 안내 문구가 값으로 들어오면 저장 시 빈 값으로 정리된다', async () => {
+  base = kstToday();
+  const f = await fixture('t');
+  const visit = plusDays(30);
+  const withTier = (extra = '') => `${sheet(f.handle, visit)}\n- 인플루언서 팔로워 : 영역 (나노/마이크로/메가)${extra}`;
+  const created = await call<Detail>('POST', 'reservations', { key: randomUUID(), body: { locationId: f.locationId, sourceText: '', sheetText: withTier(),
+    target: { kind: 'createTask', campaignId: f.campaign.id, personId: f.person.id } } });
+  const tierLine = (text: string) => text.split('\n').find((l) => l.includes('인플루언서 팔로워'));
+  assert.equal(tierLine(created.sheetText), '- 인플루언서 팔로워 :');
+  assert.equal(readClientSheetInputs(created.sheetText).followerTier, '');
+  // 안내 문구를 그대로 다시 보내는 저장은 followerTier 변경으로 세지 않는다
+  const same = await call<Detail>('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: created.version, body: { sheetText: withTier() } });
+  assert.equal(same.version, created.version);
+  // 등급을 고르면 값이 들어가고, 안내 문구가 다시 오면 비워진다
+  const picked = await call<Detail>('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: created.version,
+    body: { sheetText: created.sheetText.replace('팔로워 :', '팔로워 : 마이크로') } });
+  assert.equal(tierLine(picked.sheetText), '- 인플루언서 팔로워 : 마이크로');
+  const reset = await call<Detail>('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: picked.version,
+    body: { sheetText: picked.sheetText.replace('마이크로', '영역 (나노/마이크로/메가)') } });
+  assert.equal(tierLine(reset.sheetText), '- 인플루언서 팔로워 :');
+});

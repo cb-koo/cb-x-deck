@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Member } from './types.ts';
 import { isUuidLike } from './uuid.ts';
 import { kstToday } from './datetime.ts';
-import { readClientSheetInputs, updateClientSheetInput, validDateTime, formatReservationName, splitReservationName, type ClientSheetEditFields } from './reservationSheet.ts';
+import { cleanFollowerTierLine, readClientSheetInputs, updateClientSheetInput, validDateTime, formatReservationName, splitReservationName, type ClientSheetEditFields } from './reservationSheet.ts';
 import { allowedVisitActions, applyDeadlineMode, checkCompleteVisit, checkEnd, checkStopForChangeLimit, planReservationSave,
   RESERVATION_END_KINDS, STOP_FOR_LIMIT_REASON, visitPhase, type ChangeReason, type DeadlineMode, type ReservationEndKind } from './reservationPolicy.ts';
 import { expectVersion, jsonValue, objectBody, ProductError, productMissing, productOperation, textValue, versionHeader } from './productCommand.ts';
@@ -38,7 +38,8 @@ function checkedHandle(sheet: string, handle: string) {
   if (entered && entered.toLowerCase() !== handle.toLowerCase()) throw new ProductError('IDENTITY_MISMATCH', '기재 시트의 계정이 이 작업의 인플루언서와 달라요.', 422);
 }
 const EDIT_FIELDS: Record<string, keyof ClientSheetEditFields> = { visitAt: 'preferred', preferred: 'preferred', preferred2: 'preferred2',
-  visitType: 'visitType', name: 'name', gender: 'gender', birthDate: 'birthDate', koreanAbility: 'koreanAbility', treatment: 'treatment', uploadDeadline: 'uploadDeadline' };
+  visitType: 'visitType', name: 'name', gender: 'gender', birthDate: 'birthDate', koreanAbility: 'koreanAbility', treatment: 'treatment', uploadDeadline: 'uploadDeadline',
+  nationality: 'nationality', branch: 'branch', followerTier: 'followerTier' };
 function editedSheet(body: Record<string, unknown>, previous: string): string {
   if (body.sheetText !== undefined && body.fieldEdits !== undefined) throw new ProductError('INVALID_INPUT', '기재 시트와 개별 항목 수정 중 한 가지로 저장해 주세요.');
   if (body.sheetText !== undefined) return textValue(body.sheetText, '기재 시트');
@@ -68,7 +69,7 @@ function editedSheet(body: Record<string, unknown>, previous: string): string {
 
 export async function createReservation(sql: postgres.Sql, req: Request, actor: Member, raw: unknown) {
   const body = objectBody(raw), target = objectBody(body.target);
-  const locationId = uuid(body.locationId), source = textValue(body.sourceText ?? '', '고객 응답'), finalSheet = textValue(body.sheetText, '기재 시트');
+  const locationId = uuid(body.locationId), source = textValue(body.sourceText ?? '', '고객 응답'), finalSheet = cleanFollowerTierLine(textValue(body.sheetText, '기재 시트'));
   return productOperation(sql, actor, req, body, async (tx, operationId) => {
     let taskId: string;
     if (target.kind === 'existingTask') taskId = uuid(target.taskId);
@@ -129,7 +130,7 @@ export async function saveReservation(sql: postgres.Sql, req: Request, actor: Me
     const { fact } = await taskFact(tx, task.id), today = kstToday();
     const mode = deadlineMode(body, reservation.deadlineMode);
     const plan = policy(planReservationSave({ phase: visitPhase(fact, today), requestCount: fact.requestCount,
-      beforeSheet: reservation.sheetText, afterSheet: editedSheet(body, reservation.sheetText), deadlineMode: mode,
+      beforeSheet: cleanFollowerTierLine(reservation.sheetText), afterSheet: cleanFollowerTierLine(editedSheet(body, reservation.sheetText)), deadlineMode: mode,
       reason: (body.reason ?? null) as ChangeReason | null, confirm }));
     // 개명 전 저장한 시트의 계정 표기는 기록으로 보존한다. 새 계정으로 임의 변경한 입력은 거부한다.
     if (readClientSheetInputs(plan.sheet).handle !== readClientSheetInputs(reservation.sheetText).handle)

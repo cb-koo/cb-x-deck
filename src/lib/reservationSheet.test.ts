@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createClientSheet,
   formatReservationName,
+  normalizeFollowerTier,
   readClientSheet,
   readClientSheetInputs,
   sheetDifferences,
@@ -74,4 +75,44 @@ test('입력란으로 설명되지 않는 추가 문구는 시트 전체 전후�
 test('형식만 다른 시트는 차이가 없다', () => {
   const text = SHEET.split('\n').map((s) => `  ${s}  `).join('\r\n\r\n').replace('2026-10-28 16:00', '2026-10-28T16:00');
   assert.deepEqual(sheetDifferences(SHEET, text), []);
+});
+
+const BENJAMIN_SHEET = `[X인플루언서 방문협찬 예약폼]
+- 인플루언서 계정 링크: https://x.com/yuki_tokyo?s=20
+- 인플루언서 팔로워 : 마이크로
+1. 성함(여권 영문명): YUKI TANAKA
+2. 국적: 일본
+3. 생년월일: 1995-03-02
+4. 초진 / 재진: 초진
+5. 성별: 여
+6. 예약 날짜 및 시간: 2026-12-05 14:00
+7. 지점: 신사점
+8. 상담 희망 항목: 리프팅`;
+
+test('벤자민 시트 라벨을 읽는다', () => {
+  const f = readClientSheetInputs(BENJAMIN_SHEET);
+  assert.equal(f.name, 'YUKI TANAKA');
+  assert.equal(f.preferred, '2026-12-05T14:00');
+  assert.equal(f.treatment, '리프팅');
+  assert.equal(f.nationality, '일본');
+  assert.equal(f.branch, '신사점');
+  assert.equal(f.followerTier, '마이크로');
+  assert.equal(f.profileUrl, 'https://x.com/yuki_tokyo?s=20');
+});
+
+test('콜론으로 끝나는 줄에 값을 쓰면 한 칸 띄운다', () => {
+  assert.equal(updateClientSheetInput('- 인플루언서 팔로워 :', 'followerTier', '마이크로'), '- 인플루언서 팔로워 : 마이크로');
+});
+
+test('등급 안내 문구는 빈 값', () => {
+  assert.equal(normalizeFollowerTier('영역 (나노/마이크로/메가)'), '');
+  assert.equal(normalizeFollowerTier('메가'), '메가');
+});
+
+test('지점 줄 차이는 sheetDifferences가 내지 않는다', () => {
+  const other = BENJAMIN_SHEET.replace('7. 지점: 신사점', '7. 지점: 명동점');
+  assert.deepEqual(sheetDifferences(BENJAMIN_SHEET, other), []);
+  // 다른 항목이 함께 바뀌면 그 항목만 나온다(지점은 추가 문구로도 안 샌다)
+  const both = other.replace('2. 국적: 일본', '2. 국적: 한국');
+  assert.deepEqual(sheetDifferences(BENJAMIN_SHEET, both).map((d) => d.field), ['nationality']);
 });

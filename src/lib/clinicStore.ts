@@ -3,6 +3,7 @@ import { operatingOn, validIntervals, type ClinicDateException, type DayHours, t
 import { isDateOnlyString } from './campaignJudgment.ts';
 import { expectVersion, jsonValue, objectBody, ProductError, productMissing, textValue } from './productCommand.ts';
 import type { Member } from './types.ts';
+import { locationLabel, representativeLocation, type ClinicSummary } from './clinicLocation.ts';
 
 export interface ClinicSettings {
   week: DayHours[]; holidayPolicy: HolidayPolicy; holidayIntervals: string; exceptions: ClinicDateException[];
@@ -14,8 +15,8 @@ export interface ClinicTemplate { id: string; body: string; revision: number; pa
 export interface ClinicDetail { id: string; clientId: string; name: string; info: string; bannedPhrases: string[];
   settings: ClinicSettings; version: number; templates: { form: ClinicTemplate | null; sheet: ClinicTemplate | null } }
 
-export type ClinicSummary = { id: string; clientId: string; name: string; configured: boolean;
-  branchName: string; kind: 'main' | 'branch'; position: number; active: boolean };
+export type { ClinicSummary };
+export { representativeLocation, locationLabel };
 
 export async function listClinics(sql: postgres.Sql) {
   // 본점 식별자만 만든다. 주소·시간·안내·양식은 담당자가 직접 설정한다. 지점(branch)은 담당자가 따로 추가한다.
@@ -37,14 +38,61 @@ export async function listClientLocations(sql: postgres.Sql, clientId: string, o
     where l.client_id = ${clientId} and (${!activeOnly} or l.active)
     order by l.position, l.created_at`;
 }
-// 대표 지점 = 사용 중인 지점 가운데 순서가 가장 앞. 순서가 같으면 목록에서 앞선 것.
-export function representativeLocation(list: ClinicSummary[]): ClinicSummary | null {
-  let best: ClinicSummary | null = null;
-  for (const l of list) if (l.active && (!best || l.position < best.position)) best = l;
-  return best;
+// 지점 관리 화면용 — 중지된 지점까지 전부, 지점마다 연결된 예약 수(삭제 가능 여부 판단)를 더한다. 본점 행이 없으면 만든다.
+export async function listLocationsForManage(sql: postgres.Sql, clientId: string) {
+  await sql`insert into clinic_location (client_id) select id from client where id = ${clientId}
+    on conflict (client_id) where kind = 'main' do nothing`;
+  return sql<Array<ClinicSummary & { reservations: number }>>`
+    select l.id, c.id as "clientId", c.name, s.location_id is not null as configured,
+      l.name as "branchName", l.kind, l.position, l.active,
+      (select count(*)::int from visit_reservation r where r.location_id = l.id) as reservations
+    from clinic_location l join client c on c.id = l.client_id left join clinic_settings s on s.location_id = l.id
+    where l.client_id = ${clientId} order by l.position, l.created_at`;
 }
-// 지점이 하나뿐이라 지점명이 비면 '본점'으로 읽는다. 순수 함수라 클라이언트 컴포넌트에서도 쓴다.
-export function locationLabel(l: Pick<ClinicSummary, 'name' | 'branchName'>) { return `${l.name} · ${l.branchName || '본점'}`; }
+// 지점 쓰기. 이름은 클라이언트 안에서 trim·대소문자 무시로 유일해야 한다(사용 중지된 지점 포함 — 되살릴 때 충돌하지 않게).
+const dupName = () => new ProductError('DUPLICATE_NAME', '같은 이름의 지점이 이미 있어요.', 409);
+async function oneLocation(sql: postgres.Sql, id: string) {
+  const [row] = await sql<ClinicSummary[]>`
+    select l.id, c.id as "clientId", c.name, s.location_id is not null as configured,
+      l.name as "branchName", l.kind, l.position, l.active
+    from clinic_location l join client c on c.id = l.client_id left join clinic_settings s on s.location_id = l.id where l.id = ${id}`;
+  if (!row) throw productMissing();
+  return row;
+}
+export async function createLocation(sql: postgres.Sql, clientId: string, input: { name: string }): Promise<ClinicSummary> {
+  const name = textValue(input.name, '지점명', 100).trim();
+  if (!name) throw new ProductError('INVALID_INPUT', '지점명을 입력해 주세요.', 422);
+  if (!(await sql`select id from client where id = ${clientId}`).length) throw productMissing();
+  // 본점 행이 아직 없으면 먼저 만든다 — 그래야 새 지점이 본점 뒤 순서로 붙는다
+  await sql`insert into clinic_location (client_id) values (${clientId}) on conflict (client_id) where kind = 'main' do nothing`;
+  if ((await sql`select 1 from clinic_location where client_id = ${clientId} and lower(btrim(name)) = lower(${name})`).length) throw dupName();
+  const [row] = await sql<Array<{ id: string }>>`insert into clinic_location (client_id, kind, name, position, active)
+    select ${clientId}, 'branch', ${name}, coalesce(max(position), 0) + 1, true from clinic_location where client_id = ${clientId} returning id`;
+  return oneLocation(sql, row.id);
+}
+export async function updateLocation(sql: postgres.Sql, id: string, patch: { name?: string; position?: number; active?: boolean }): Promise<ClinicSummary> {
+  const cur = await oneLocation(sql, id);
+  if (patch.name !== undefined) {
+    const name = textValue(patch.name, '지점명', 100).trim();
+    if (cur.kind === 'branch' && !name) throw new ProductError('INVALID_INPUT', '지점명을 입력해 주세요.', 422);
+    if (name && (await sql`select 1 from clinic_location where client_id = ${cur.clientId} and id <> ${id} and lower(btrim(name)) = lower(${name})`).length) throw dupName();
+    patch = { ...patch, name };
+  }
+  if (patch.position !== undefined && !Number.isInteger(patch.position)) throw new ProductError('INVALID_INPUT', '순서 값을 확인해 주세요.', 422);
+  if (patch.active === false && cur.active
+    && !(await sql`select 1 from clinic_location where client_id = ${cur.clientId} and id <> ${id} and active`).length)
+    throw new ProductError('LAST_ACTIVE', '사용 중인 지점이 하나는 있어야 해요.', 409);
+  await sql`update clinic_location set name = coalesce(${patch.name ?? null}, name), position = coalesce(${patch.position ?? null}, position),
+    active = coalesce(${patch.active ?? null}, active) where id = ${id}`;
+  return oneLocation(sql, id);
+}
+export async function deleteLocation(sql: postgres.Sql, id: string): Promise<void> {
+  const cur = await oneLocation(sql, id);
+  if (cur.kind === 'main') throw new ProductError('MAIN_LOCATION', '본점 행은 삭제할 수 없어요.', 409);
+  if ((await sql`select 1 from visit_reservation where location_id = ${id} limit 1`).length)
+    throw new ProductError('HAS_RESERVATIONS', '예약이 연결된 지점은 삭제할 수 없어요. 대신 사용 중지해 주세요.', 409);
+  await sql`delete from clinic_location where id = ${id}`;
+}
 export async function getClinic(sql: postgres.Sql, id: string): Promise<ClinicDetail> {
   const [row] = await sql<Array<{ id: string; clientId: string; name: string; info: string; bannedPhrases: string[]; settings: ClinicSettings | null; version: number }>>`
     select l.id, c.id as "clientId", c.name, c.info, c.banned_phrases as "bannedPhrases", s.settings, coalesce(s.version, 1) as version

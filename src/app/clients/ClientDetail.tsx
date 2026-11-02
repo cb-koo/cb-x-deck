@@ -8,7 +8,11 @@ import { BudgetPanel } from './BudgetPanel';
 import { XAccountPanel } from './XAccountPanel';
 import { useSearchParams } from 'next/navigation';
 import { ClinicSettingsTab, type ClinicTab } from './ClinicSettingsTab';
+import { BranchesTab } from './BranchesTab';
 import { useProductFeatures } from '@/lib/extensionProductClient';
+
+// 클라이언트 상세 탭. 'sponsor'(협찬 메모)는 Task 7이 버튼·화면을 붙인다 — 여기서는 타입 자리만 둔다.
+type ClientTab = 'basic' | 'branches' | 'sponsor' | ClinicTab;
 
 // 부모(page)가 미저장 확인·일괄 저장에 쓰는 핸들
 export interface DetailHandle { isDirty: () => boolean; saveAll: () => Promise<boolean> }
@@ -74,15 +78,18 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
   const searchParams = useSearchParams();
   const features = useProductFeatures();
   const clinicEnabled = !!features?.reservations;
-  const [tab, setTab] = useState<'basic' | ClinicTab>(() => {
-    const t = searchParams.get('tab'); return t === 'hours' || t === 'forms' ? t : 'basic';
+  const [tab, setTab] = useState<ClientTab>(() => {
+    const t = searchParams.get('tab'); return t === 'hours' || t === 'forms' || t === 'branches' ? t : 'basic';
   });
-  const [clinicTab, setClinicTab] = useState<ClinicTab>(tab === 'basic' ? 'hours' : tab);
-  const [clinicOpened, setClinicOpened] = useState(tab !== 'basic');
+  // 운영시간·양식 탭(ClinicSettingsTab)만 clinicTab을 쓴다 — 지점 탭 값이 거기로 흘러가지 않게 따로 둔다.
+  const [clinicTab, setClinicTab] = useState<ClinicTab>(tab === 'hours' || tab === 'forms' ? tab : 'hours');
+  const [clinicOpened, setClinicOpened] = useState(tab === 'hours' || tab === 'forms');
+  const [branchesOpened, setBranchesOpened] = useState(tab === 'branches');
   const shownTab = clinicEnabled ? tab : 'basic';
-  const chooseTab = useCallback((next: 'basic' | ClinicTab) => {
+  const chooseTab = useCallback((next: ClientTab) => {
     setTab(next);
-    if (next !== 'basic') { setClinicTab(next); setClinicOpened(true); }
+    if (next === 'hours' || next === 'forms') { setClinicTab(next); setClinicOpened(true); }
+    if (next === 'branches') setBranchesOpened(true);
     const url = new URL(window.location.href);
     if (next === 'basic') url.searchParams.delete('tab'); else url.searchParams.set('tab', next);
     window.history.replaceState(null, '', url);
@@ -157,15 +164,19 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
       </div>
 
       <nav className="flex gap-1 border-b border-x-border" aria-label="클라이언트 설정 항목">
-        {([['basic', '기본 정보'], ...(clinicEnabled ? [['hours', '운영시간'], ['forms', '방문 안내·양식']] as const : [])] as const).map(([value, label]) => (
+        {([['basic', '기본 정보'], ...(clinicEnabled ? [['branches', '지점'], ['hours', '운영시간'], ['forms', '방문 안내·양식']] as const : [])] as const).map(([value, label]) => (
           <button key={value} type="button" onClick={() => chooseTab(value)} aria-current={shownTab === value ? 'page' : undefined}
                   className={`-mb-px border-b-2 px-3 py-2 text-content ${shownTab === value ? 'border-x-blue font-semibold text-x-text' : 'border-transparent text-x-secondary hover:text-x-text'}`}>
             {label}
           </button>
         ))}
       </nav>
+      {clinicEnabled && branchesOpened && (
+        <div className={shownTab === 'branches' ? undefined : 'hidden'}><BranchesTab key={client.id} clientId={client.id} /></div>
+      )}
+      {/* sponsor 탭 렌더 자리 — Task 7 */}
       {clinicEnabled && clinicOpened && (
-        <div className={shownTab === 'basic' ? 'hidden' : undefined}><ClinicSettingsTab key={client.id} clientId={client.id} tab={clinicTab} register={register} /></div>
+        <div className={shownTab === 'hours' || shownTab === 'forms' ? undefined : 'hidden'}><ClinicSettingsTab key={client.id} clientId={client.id} tab={clinicTab} register={register} /></div>
       )}
 
       <div className={shownTab === 'basic' ? 'space-y-5' : 'hidden'}>

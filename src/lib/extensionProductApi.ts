@@ -174,7 +174,8 @@ export async function extensionProductDispatch(req: Request, path: string[], act
       if (action === 'settings' && method === 'PATCH') return reply(await productOperation(sql, actor, req, body,
         (tx) => saveClinicSettings(tx, id, objectBody(body).settings ?? body, versionHeader(req), actor)));
       if (action === 'templates' && method === 'PATCH' && (sub === 'form' || sub === 'sheet'))
-        return reply(await productOperation(sql, actor, req, body, (tx) => saveClinicTemplate(tx, id, sub, body, versionHeader(req), actor)));
+        return reply(await productOperation(sql, actor, req, body, (tx) => saveClinicTemplate(tx, id, sub, body, versionHeader(req), actor,
+          { applyToSiblings: objectBody(body).applyToSiblings === true })));
     }
   }
   if (root === 'clients' && id && action === 'sponsor-memo' && !sub && method === 'GET') {

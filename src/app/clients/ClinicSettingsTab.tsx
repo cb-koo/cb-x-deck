@@ -8,28 +8,36 @@ import type { ClinicDetail, ClinicSettings, ClinicTemplate } from '@/lib/clinicS
 import { applyWeekHours, DEFAULT_HOURS, describeHours, groupWeek, hoursError, operatingOn, OPERATING_STATE_LABEL,
   readHours, WEEKDAYS, WEEK_ORDER, weekdayLabel, writeHours, type HolidayCalendar, type HoursSelection } from '@/lib/clinicHours';
 import { kstToday } from '@/lib/datetime';
+import { representativeLocation, type ClinicSummary } from '@/lib/clinicLocation';
 
 type Edit = { scope: 'week'; days: number[] } | { scope: 'holiday' } | { scope: 'date'; date: string };
 type Calendar = { holidays: HolidayCalendar; source: string | null };
 const errText = (e: unknown) => e instanceof Error ? e.message : '저장하지 못했어요. 입력은 유지했으니 다시 시도해 주세요.';
-// 클라이언트 상세의 '운영시간'·'방문 안내·양식' 탭 — 본점 한 곳의 설정을 웹·익스텐션이 함께 쓴다.
+// 클라이언트 상세의 '운영시간'·'방문 안내·양식' 탭 — 지점별 설정을 웹·익스텐션이 함께 쓴다(지점이 둘 이상이면 상단에서 고른다).
 // 기본 정보(소개·금지 표현)는 클라이언트 상세의 기본 정보 상자가 이미 편집하므로 여기서 다시 두지 않는다(중복 저장 방지).
 export type ClinicTab = 'hours' | 'forms';
 // 미저장 입력은 ClientDetail의 편집기 레지스트리(register)에 올린다 — 클라이언트 전환·사이드바 이동·새로고침 확인과
 // '저장하고 이동'을 기본 정보 편집기와 같은 길로 탄다(이 화면에서 따로 navGuard를 걸면 페이지의 가드를 덮어쓴다).
 export function ClinicSettingsTab({ clientId, tab, register }: { clientId: string; tab: ClinicTab; register: Register }) {
-  const [id, setId] = useState(''), [error, setError] = useState('');
+  const [locations, setLocations] = useState<ClinicSummary[]>([]), [picked, setPicked] = useState(''), [error, setError] = useState('');
   const load = useCallback(async () => {
-    try { const r = await productFetch<{ items: { id: string; clientId: string }[] }>('clinics'); setId(r.items.find((c) => c.clientId === clientId)?.id ?? ''); setError(''); }
-    catch (e) { setError(errText(e)); }
+    try {
+      const r = await productFetch<{ items: ClinicSummary[] }>('clinics'), mine = r.items.filter((c) => c.clientId === clientId);
+      setLocations(mine);
+      // 고른 지점이 아직 있으면 유지, 아니면 대표 지점(없으면 첫 지점)
+      setPicked((current) => mine.some((c) => c.id === current) ? current : (representativeLocation(mine) ?? mine[0])?.id ?? '');
+      setError('');
+    } catch (e) { setError(errText(e)); }
   }, [clientId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 설정 최초 로드(기존 코드베이스 관례)
   useEffect(() => { void load(); }, [load]);
   if (error) return <div className={PANEL}><p role="alert" className="text-content text-amber-800">{error}</p><Button onClick={() => void load()}>다시 불러오기</Button></div>;
-  if (!id) return <div className={PANEL}><p className="text-content text-x-secondary">클리닉 설정을 불러오는 중…</p></div>;
-  return <ClinicEditor key={id} id={id} tab={tab} register={register} />;
+  if (!picked) return <div className={PANEL}><p className="text-content text-x-secondary">클리닉 설정을 불러오는 중…</p></div>;
+  // key = 지점 id — 지점을 바꿀 때 편집 상태가 다른 지점으로 새지 않게 편집기를 새로 만든다.
+  return <ClinicEditor key={picked} id={picked} locations={locations} onPick={setPicked} tab={tab} register={register} />;
 }
-function ClinicEditor({ id, tab, register }: { id: string; tab: ClinicTab; register: Register }) {
+const branchLabel = (l: Pick<ClinicSummary, 'branchName'>) => l.branchName || '본점';
+function ClinicEditor({ id, locations, onPick, tab, register }: { id: string; locations: ClinicSummary[]; onPick: (id: string) => void; tab: ClinicTab; register: Register }) {
   const [clinic, setClinic] = useState<ClinicDetail | null>(null), [draft, setDraft] = useState<ClinicSettings | null>(null);
   const [forms, setForms] = useState({ form: '', sheet: '' });
   const [subtab, setSubtab] = useState('map'), [language, setLanguage] = useState<'KO' | 'JA' | 'EN'>('JA');
@@ -89,9 +97,24 @@ function ClinicEditor({ id, tab, register }: { id: string; tab: ClinicTab; regis
   if (!clinic || !draft) return <div className={PANEL}><p className="text-content">{error || '클리닉 설정을 불러오는 중…'}</p>{error && <Button onClick={() => void load()}>다시 불러오기</Button>}</div>;
   const currentClinic = clinic, currentDraft = draft;
   const patch = (p: Partial<ClinicSettings>) => setDraft({ ...draft, ...p });
+  // 대표 지점 양식과 달라지면 다른 지점에도 같이 쓸지 묻는다. 취소해도 이 지점 저장은 그대로 진행한다.
+  async function askApplyToSiblings(kind: 'form' | 'sheet'): Promise<boolean> {
+    const others = locations.filter((l) => l.id !== id);
+    if (!others.length) return false;
+    const representative = representativeLocation(locations), editingRepresentative = representative?.id === id;
+    const details = await Promise.all(others.map(async (l) => ({ l, detail: await productFetch<ClinicDetail>(`clinics/${l.id}`) })));
+    const bodyOf = (d: ClinicDetail) => d.templates[kind]?.body ?? '';
+    const differs = editingRepresentative ? details.some(({ detail }) => bodyOf(detail) !== forms[kind])
+      : details.some(({ l, detail }) => l.id === representative?.id && bodyOf(detail) !== forms[kind]);
+    if (!differs) return false;
+    const head = editingRepresentative ? '다른 지점 양식과 달라요.' : `대표 지점(${representative ? branchLabel(representative) : '본점'}) 양식과 달라요.`;
+    return window.confirm(`${head} 다른 지점 ${others.length}개에도 같은 양식을 적용할까요?`);
+  }
   async function storeTemplate(kind: 'form' | 'sheet') { await run(async () => {
-    const saved = await save<ClinicTemplate>(`clinics/${id}/templates/${kind}`, { body: forms[kind] }, currentClinic.templates[kind]?.revision ?? 1, 'PATCH');
-    setClinic((c) => c ? { ...c, templates: { ...c.templates, [kind]: saved } } : c); setTemplatePending(null); setTemplateEditing((v) => ({ ...v, [kind]: false })); setNotice('양식을 저장했어요. 기존 예약의 기재 시트는 그대로 유지돼요.');
+    const applyToSiblings = await askApplyToSiblings(kind);
+    const saved = await save<ClinicTemplate>(`clinics/${id}/templates/${kind}`, { body: forms[kind], ...(applyToSiblings && { applyToSiblings: true }) }, currentClinic.templates[kind]?.revision ?? 1, 'PATCH');
+    setClinic((c) => c ? { ...c, templates: { ...c.templates, [kind]: saved } } : c); setTemplatePending(null); setTemplateEditing((v) => ({ ...v, [kind]: false }));
+    setNotice(applyToSiblings ? '양식을 저장하고 다른 지점에도 적용했어요. 기존 예약의 기재 시트는 그대로 유지돼요.' : '양식을 저장했어요. 기존 예약의 기재 시트는 그대로 유지돼요.');
   }); }
   async function storeHours(value: ClinicSettings) {
     setBusy(true); setError(''); setNotice('');
@@ -108,7 +131,10 @@ function ClinicEditor({ id, tab, register }: { id: string; tab: ClinicTab; regis
     } finally { setBusy(false); }
   }
   const monthDate = new Date(`${month}-01T00:00:00Z`), offset = monthDate.getUTCDay(), total = new Date(Date.UTC(+month.slice(0, 4), +month.slice(5), 0)).getUTCDate();
-  return <div className="space-y-5"><p className="text-ui text-x-secondary">본점 한 곳의 설정이에요. 저장하면 웹의 예약 화면과 익스텐션이 같은 내용을 사용해요.</p>
+  return <div className="space-y-5">{locations.length > 1 && <label className="flex items-center gap-2 text-ui"><span className="text-x-secondary">지점</span>
+      <select className={INPUT} value={id} onChange={(e) => { if (dirtyRef.current && !window.confirm('저장하지 않은 변경이 있어요. 저장하지 않고 다른 지점으로 이동할까요?')) return; onPick(e.target.value); }}>
+        {[...locations].sort((a, b) => a.position - b.position).map((l) => <option key={l.id} value={l.id}>{branchLabel(l)}{l.active ? '' : ' (사용 중지)'}</option>)}</select></label>}
+    <p className="text-ui text-x-secondary">{branchLabel(locations.find((l) => l.id === id) ?? { branchName: '' })} 설정이에요. 저장하면 웹의 예약 화면과 익스텐션이 같은 내용을 사용해요.</p>
     {error && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-ui text-amber-800">{error} <Button disabled={busy} onClick={() => void load()}>최신 저장 내용 불러오기</Button></p>}{notice && <p role="status" className="rounded-lg bg-green-50 p-3 text-ui text-green-800">{notice}</p>}
     <fieldset disabled={busy} className="min-w-0 space-y-4">
       {tab === 'hours' && <div className="grid gap-5 xl:grid-cols-[minmax(260px,0.8fr)_minmax(380px,1.2fr)]"><div className="space-y-4"><section className={PANEL}><div className="mb-3 flex items-center justify-between"><h3 className="text-content font-semibold">매주 운영시간</h3><Button onClick={() => setEditing({ scope: 'week', days: [1, 2, 3, 4, 5] })}>시간 설정</Button></div><p className="mb-3 text-ui text-x-secondary">같은 시간에 운영하는 요일을 묶어 한 번에 설정해요.</p>{groupWeek(draft.week).map((group) => <div key={group.days.join(',')} className="flex items-center justify-between gap-3 border-t border-x-border py-3 text-ui"><div><p className="font-medium">{weekdayLabel(group.days)}</p><p>{group.schedule.closed ? '휴무' : describeHours(group.schedule.intervals).range}</p>{!group.schedule.closed && <p className="text-x-secondary">{describeHours(group.schedule.intervals).break}</p>}</div><Button onClick={() => setEditing({ scope: 'week', days: group.days })}>변경</Button></div>)}</section><section className={PANEL}><div className="mb-3 flex items-center justify-between"><h3 className="text-content font-semibold">공휴일 기본 운영</h3><Button onClick={() => setEditing({ scope: 'holiday' })}>시간 설정</Button></div><p className="text-ui">{draft.holidayPolicy === 'unknown' ? '운영 방침을 아직 정하지 않았어요.' : draft.holidayPolicy === 'closed' ? '공휴일 휴무' : `공휴일 운영 · ${describeHours(draft.holidayIntervals).range}`}</p><p className="mt-2 text-ui text-x-secondary">대체공휴일에도 같은 방침이 적용돼요. 특정 날짜만 바꾸려면 날짜별 운영시간에서 날짜를 눌러 주세요.</p></section></div><section className={PANEL}><div className="mb-4 flex items-center justify-between gap-2"><h3 className="text-content font-semibold">날짜별 운영시간</h3><input type="month" value={month} onChange={(e) => { if (e.target.value) setMonth(e.target.value); }} aria-label="캘린더 달" className="rounded-md border border-x-border p-2 text-ui" /></div>{calendarLoading && <p role="status" className="mb-3 text-ui text-x-secondary">공휴일 정보를 불러오는 중이에요.</p>}{calendarError && <div role="alert" className="mb-3 flex flex-wrap items-center gap-2 text-ui text-amber-800"><p>{calendarError}</p><Button onClick={() => setCalendarRetry((value) => value + 1)}>공휴일 다시 불러오기</Button></div>}{!calendarLoading && !calendarError && !calendar.holidays.coveredYears.includes(+month.slice(0, 4)) && <p className="mb-3 text-ui text-amber-800">이 연도 공휴일 자료가 아직 없어 운영 여부는 확인이 필요해요. 날짜별로 직접 설정한 시간은 유지돼요.</p>}<div className="grid grid-cols-7 gap-1">{WEEKDAYS.map((day) => <span key={day} className="pb-2 text-center text-ui text-x-secondary">{day}</span>)}{Array.from({ length: offset }, (_, i) => <span key={`empty${i}`} />)}{Array.from({ length: total }, (_, i) => { const date = `${month}-${String(i + 1).padStart(2, '0')}`, day = operatingOn(draft, draft.exceptions, calendar.holidays, date), special = draft.exceptions.some((e) => e.date === date); return <button key={date} onClick={() => setEditing({ scope: 'date', date })} aria-label={`${date} ${day.holidayName ?? ''} ${OPERATING_STATE_LABEL[day.state]} 운영 설정`} className={`min-h-20 rounded-md border p-1 text-left hover:border-x-blue md:min-h-24 md:p-2 ${special ? 'border-x-blue bg-x-blue/5' : day.holidayName ? 'border-amber-200 bg-amber-50' : 'border-x-border'}`}><span className="block text-ui font-medium">{i + 1}{special && <span className="ml-1 text-x-blue-text">•</span>}</span><span className="block text-caption text-x-secondary">{OPERATING_STATE_LABEL[day.state]}</span><span className="hidden text-caption text-x-muted md:block">{day.intervals}</span>{day.holidayName && <span className="block break-words text-caption text-amber-800">{day.holidayName}</span>}</button>; })}</div></section></div>}

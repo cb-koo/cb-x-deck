@@ -155,11 +155,25 @@ export async function saveClinicSettings(tx: postgres.Sql, id: string, raw: unkn
     set settings = excluded.settings, version = clinic_settings.version + 1, updated_by = excluded.updated_by, updated_at = now()`;
   return getClinic(tx, id);
 }
-export async function saveClinicTemplate(tx: postgres.Sql, id: string, kind: 'form' | 'sheet', raw: unknown, expected: number, actor: Member) {
+export async function saveClinicTemplate(tx: postgres.Sql, id: string, kind: 'form' | 'sheet', raw: unknown, expected: number, actor: Member,
+  opts: { applyToSiblings?: boolean } = {}) {
   const body = textValue(objectBody(raw).body, '예약 양식');
   if (!(await tx`select id from clinic_location where id = ${id} for update`).length) throw productMissing();
-  const current = (await getClinic(tx, id)).templates[kind];
+  const clinic = await getClinic(tx, id), current = clinic.templates[kind];
   expectVersion(current?.revision ?? 1, expected);
+  const saved = await insertTemplateRevision(tx, id, kind, body, current, actor);
+  if (opts.applyToSiblings) {
+    // 같은 트랜잭션에서 같은 클라이언트의 다른 지점(사용 중지 포함 — 다시 켰을 때 옛 양식이 남지 않게)에 같은 내용을 새 리비전으로 쌓는다.
+    // 한 지점이 먼저 바뀌었더라도 버전 충돌로 막지 않도록 각 지점의 현재 버전을 그대로 expected로 쓴다(잠금은 행마다).
+    const siblings = await tx<Array<{ id: string }>>`select id from clinic_location where client_id = ${clinic.clientId} and id <> ${id} order by id for update`;
+    for (const s of siblings) {
+      const sibling = (await getClinic(tx, s.id)).templates[kind];
+      await insertTemplateRevision(tx, s.id, kind, body, sibling, actor);
+    }
+  }
+  return saved;
+}
+async function insertTemplateRevision(tx: postgres.Sql, id: string, kind: 'form' | 'sheet', body: string, current: ClinicTemplate | null, actor: Member) {
   if (current?.body === body) return current;
   const [saved] = await tx<ClinicTemplate[]>`insert into clinic_template_revision (location_id, kind, body, revision, created_by)
     values (${id}, ${kind}, ${body}, ${(current?.revision ?? 1) + 1}, ${actor.id})

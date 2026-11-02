@@ -3,7 +3,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { createClient } from './clientStore.ts';
-import { listClinics, listClientLocations, representativeLocation, locationLabel, createLocation, updateLocation, deleteLocation } from './clinicStore.ts';
+import { listClinics, listClientLocations, representativeLocation, locationLabel, createLocation, updateLocation, deleteLocation, getClinic, saveClinicTemplate } from './clinicStore.ts';
 
 const sql = getSql();
 const P = 'tcs' + process.pid;
@@ -101,4 +101,37 @@ test('동시에 두 지점을 중지해도 사용 중 지점이 하나는 남는
   const res = await Promise.allSettled([updateLocation(sql, main.id, { active: false }), updateLocation(sql, added.id, { active: false })]);
   assert.equal(res.filter((r) => r.status === 'fulfilled').length, 1);
   assert.equal((await listClientLocations(sql, client.id)).length, 1);
+});
+
+// 양식 저장 — '다른 지점에도 적용'
+let actorCache: { id: string; name: string; color: string } | null = null;
+async function actorMember() {
+  if (!actorCache) { const [m] = await sql<Array<{ id: string }>>`select id from member limit 1`; actorCache = { id: m?.id ?? null as never, name: 't', color: '#000' }; }
+  return actorCache;
+}
+async function templateSetup(suffix: string) {
+  const client = await createClient(sql, P + suffix);
+  const [main] = await sql<Array<{ id: string }>>`insert into clinic_location (client_id, kind, name, position) values (${client.id}, 'main', '명동점', 1) returning id`;
+  const [stopped] = await sql<Array<{ id: string }>>`insert into clinic_location (client_id, kind, name, position, active) values (${client.id}, 'branch', '신사점', 2, false) returning id`;
+  await sql`insert into clinic_template_revision (location_id, kind, body, revision) values (${stopped.id}, 'form', '옛 양식', 2)`;
+  return { main: main.id, stopped: stopped.id };
+}
+const bodyOf = async (id: string) => (await getClinic(sql, id)).templates.form;
+
+test('다른 지점에도 적용하면 형제 지점에 같은 양식 리비전이 생긴다', async () => {
+  const { main, stopped } = await templateSetup('T1');
+  const actor = await actorMember();
+  await sql.begin((tx) => saveClinicTemplate(tx as never, main, 'form', { body: '새 양식' }, 1, actor, { applyToSiblings: true }));
+  assert.equal((await bodyOf(main))?.body, '새 양식');
+  const sibling = await bodyOf(stopped);
+  assert.equal(sibling?.body, '새 양식');
+  assert.equal(sibling?.revision, 3); // 중지된 지점도 포함, 기존 리비전 위에 새 리비전
+});
+
+test('적용하지 않으면 형제 지점 양식은 그대로다', async () => {
+  const { main, stopped } = await templateSetup('T2');
+  const actor = await actorMember();
+  await sql.begin((tx) => saveClinicTemplate(tx as never, main, 'form', { body: '새 양식' }, 1, actor));
+  const sibling = await bodyOf(stopped);
+  assert.equal(sibling?.body, '옛 양식'); assert.equal(sibling?.revision, 2);
 });

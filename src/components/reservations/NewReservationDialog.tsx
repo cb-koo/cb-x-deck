@@ -1,12 +1,15 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { Button } from '@/components/ui';
-import { productFetch, useProductSave } from '@/lib/extensionProductClient';
+import { productFetch, ProductClientError, useProductSave } from '@/lib/extensionProductClient';
 import { createClientSheet, readClientSheetInputs, updateClientSheetInput } from '@/lib/reservationSheet';
 import { applyDeadlineMode, type DeadlineMode } from '@/lib/reservationPolicy';
 import type { ClinicDetail } from '@/lib/clinicStore';
+import { representativeLocation, type ClinicSummary } from '@/lib/clinicLocation';
+import { branchContext, branchFromSheet, branchHint, branchOptions, initialBranchId, isMultiBranch } from '@/lib/reservationBranch';
+import { BranchSelect } from './BranchSelect';
 import type { CampaignRow } from '@/lib/campaignStore';
 
 // 방문 예약 창 — 목업(x-extension Registration)과 같은 두 단계 창이다. 두 곳에서 연다:
@@ -15,6 +18,8 @@ import type { CampaignRow } from '@/lib/campaignStore';
 //  · 예약이 없는 방문 작업 카드(existing) — '기존 방문 작업에 예약 추가', 2단계부터.
 // 1 고객 양식: 클리닉의 일본어 예약 양식을 복사해 X에서 직접 보낸다(이 화면은 DM을 보내지 않는다).
 // 2 예약 파싱: 고객 응답을 붙여 넣고 [예약 정보 파싱](AI) 또는 [수동 작성]으로 기재 시트를 만든 뒤 [파싱 결과 복사하기].
+// 지점(스펙 §3·§6): 클라이언트의 사용 중 지점이 2곳 이상이면 '방문 클리닉'이 지점 드롭다운이 된다(1곳이면 예전 그대로 '· 본점').
+// 양식·파싱은 대표 지점(양식 출처) 것으로, 저장은 고른 지점으로 한다. 파싱이 답변의 지점을 맞추면 자동 선택, 못 맞추면 비워 둔다.
 // 작업은 마지막 [파싱 결과 복사하기]에서야 만든다 — 폼의 예산·결제 수단·메모를 그대로 실은 작업을 먼저 만들고(createTask),
 // 그 작업에 예약을 연결한다. 예약 저장만 실패하면 만든 작업을 기억해 두고 다시 누를 때 예약만 저장한다(작업이 두 번 생기지 않게).
 // 창을 닫을 때 작업이 이미 만들어졌으면 그 작업을 연다(onDone) — 새 작업 폼이 그대로 남으면 [만들기]로 같은 작업이 또 생긴다.
@@ -45,23 +50,27 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
   onClose: () => void;
 }) {
   const [step, setStep] = useState<1 | 2>(existing ? 2 : 1);
+  // clinic — 대표 지점의 상세(양식 출처). locations — 이 클라이언트의 지점 목록, locationId — 고른 지점(저장할 지점)
   const [clinic, setClinic] = useState<ClinicDetail | null>(null), [clinicErr, setClinicErr] = useState('');
+  const [locations, setLocations] = useState<ClinicSummary[]>([]), [locationId, setLocationId] = useState<string | null>(null);
+  const [parsedBranch, setParsedBranch] = useState<string | null>(null);   // 파싱 전 null, 뒤에는 시트 7. 지점 값(안내 문구용)
   const [source, setSource] = useState(''), [sheet, setSheet] = useState('');
   const [busy, setBusy] = useState(false), [parsing, setParsing] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [copyFailed, setCopyFailed] = useState(false), [formCopied, setFormCopied] = useState<'idle' | 'done' | 'failed'>('idle');
   const [created, setCreated] = useState<Created | null>(null);
   const save = useProductSave();
   const downOnBackdrop = useRef(false);
+  const branchId = useId();
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const list = await productFetch<{ items: { id: string; clientId: string }[] }>('clinics');
-        const location = list.items.find((c) => c.clientId === campaign.clientId);
+        const list = await productFetch<{ items: ClinicSummary[] }>('clinics');
+        const mine = list.items.filter((c) => c.clientId === campaign.clientId), location = representativeLocation(mine);
         if (!location) throw new Error('이 캠페인의 클리닉 정보를 찾을 수 없어요. 클라이언트 설정을 확인해 주세요.');
         const detail = await productFetch<ClinicDetail>(`clinics/${location.id}`);
-        if (alive) setClinic(detail);
+        if (alive) { setLocations(mine); setLocationId(initialBranchId(branchOptions(mine))); setClinic(detail); }
       } catch (e) { if (alive) setClinicErr(errorText(e)); }
     })();
     return () => { alive = false; };
@@ -79,16 +88,42 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
     return () => document.removeEventListener('keydown', onKey);
   });
 
-  const values: Record<string, string> = { handle, clinic: clinic?.name ?? '', branch: '본점', naver: clinic?.settings.naver ?? '', google: clinic?.settings.google ?? '' };
+  const options = branchOptions(locations), multi = isMultiBranch(options);
+  const selected = options.find((o) => o.id === locationId) ?? null;
+  // 저장할 지점 — 여러 곳이면 고른 지점만, 1곳이면 그 지점
+  const target = multi ? selected : options[0] ?? null;
+  const hint = multi ? branchHint(parsedBranch, selected) : null;
+  const values: Record<string, string> = { handle, clinic: clinic?.name ?? '', branch: branchContext(options, selected), naver: clinic?.settings.naver ?? '', google: clinic?.settings.google ?? '' };
   const fill = (body: string) => body.replace(/\{\{(\w+)\}\}/g, (_, key: string) => values[key] ?? '');
   const customerForm = clinic?.templates.form?.body ? fill(clinic.templates.form.body) : '';
-  const clinicLabel = clinic ? `${clinic.name} · 본점` : clinicErr ? '확인 필요' : '불러오는 중…';
+  const clinicLabel = clinic ? `${clinic.name} · ${multi ? selected?.name ?? '지점 선택 전' : '본점'}` : clinicErr ? '확인 필요' : '불러오는 중…';
   const blocked = !personId ? '명부에 등록된 인플루언서만 예약할 수 있어요. 인플루언서 칸에서 명부에 등록한 뒤 다시 열어 주세요.' : clinicErr;
 
   // 수동 작성 — 클리닉 기재 시트 양식(없으면 기본 시트)을 빈 값으로 채워 둔다. 계정 줄은 이 인플루언서로 고정한다.
   function blankSheet() {
     const body = clinic?.templates.sheet?.body;
-    return body ? updateClientSheetInput(fill(body), 'handle', handle) : createClientSheet(handle);
+    const blank = body ? updateClientSheetInput(fill(body), 'handle', handle) : createClientSheet(handle);
+    // {{branch}} 없이 '7. 지점:' 줄만 있는 양식도 고른 지점이 들어가게
+    return multi && selected ? updateClientSheetInput(blank, 'branch', selected.name) : blank;
+  }
+  // 드롭다운 변경 — 시트의 7. 지점 줄도 그 지점으로 다시 쓴다(스펙 §3 '지점 값의 출처')
+  function chooseBranch(id: string) {
+    const next = options.find((o) => o.id === id);
+    if (!next) return;
+    setLocationId(id); setParsedBranch(null); setError('');
+    setSheet((s) => s ? updateClientSheetInput(s, 'branch', next.name) : s);
+  }
+  // 시트를 직접 고쳐 7. 지점이 등록된 지점 이름이 되면 드롭다운이 따라간다. 다른 글자면 드롭다운은 그대로.
+  function editSheet(text: string) {
+    setSheet(text);
+    const named = multi ? branchFromSheet(text, options) : null;
+    if (named && named.id !== locationId) { setLocationId(named.id); setParsedBranch(null); }
+  }
+  async function reloadLocations() {
+    try {
+      const list = await productFetch<{ items: ClinicSummary[] }>('clinics');
+      setLocations(list.items.filter((c) => c.clientId === campaign.clientId));
+    } catch { /* 목록을 못 읽어도 고른 값은 이미 비웠다 — 다시 저장하면 서버가 다시 검사한다 */ }
   }
   async function parse() {
     if (busy || !personId || !clinic) return;
@@ -96,14 +131,17 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
     if (sheet.trim() && !window.confirm('작성한 기재 시트를 새 파싱 결과로 바꿀까요?')) return;
     setBusy(true); setParsing(true); setError(''); setNotice('');
     try {
-      const job = await save<{ result: { sheetText: string; summary: string } }>('reservation-extractions', { sourceText: source, personId, locationId: clinic.id });
+      // 파싱은 대표 지점 양식으로(clinic) — 결과의 locationId는 답변과 맞는 지점(없으면 null)
+      const job = await save<{ result: { sheetText: string; summary: string; locationId: string | null } }>('reservation-extractions', { sourceText: source, personId, locationId: clinic.id });
       setSheet(job.result.sheetText); setNotice(job.result.summary);
+      if (multi) { setLocationId(job.result.locationId); setParsedBranch(readClientSheetInputs(job.result.sheetText).branch.trim()); }
     } catch (e) {
       setError(`${errorText(e)} 원문은 보존했어요. 수동 작성으로 계속해 주세요.`);
     } finally { setBusy(false); setParsing(false); }
   }
   async function commit() {
     if (!clinic || !personId) return;
+    if (!target) { setError('지점을 선택해 주세요.'); return; }
     const mode = deadlineModeOf(sheet), normalized = applyDeadlineMode(sheet, mode);
     if (!normalized.ok) { setError(normalized.message); return; }
     setBusy(true); setError('');
@@ -116,8 +154,10 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
       }
       try {
         await save<Detail>('reservations', { target: { kind: 'existingTask', taskId: task.id, expectedTaskVersion: task.version },
-          locationId: clinic.id, sourceText: source, sheetText: normalized.value, deadlineMode: mode, templateRevisionId: clinic.templates.sheet?.id ?? null });
+          locationId: target.id, sourceText: source, sheetText: normalized.value, deadlineMode: mode, templateRevisionId: clinic.templates.sheet?.id ?? null });
       } catch (e) {
+        // 창을 연 사이 그 지점이 사용 중지됐으면 — 목록을 다시 읽고 다시 고르게 한다. 입력은 그대로 둔다.
+        if (e instanceof ProductClientError && e.code === 'LOCATION_INACTIVE') { setLocationId(null); setParsedBranch(null); void reloadLocations(); }
         setError(existing ? `예약 저장에 실패했어요 — ${errorText(e)} 입력은 그대로 두었으니 다시 눌러 주세요.`
           : `작업은 만들었고 예약 저장에 실패했어요 — ${errorText(e)} 다시 누르면 예약만 저장해요.`);
         return;
@@ -139,6 +179,7 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
   // 목업과 같은 순서 — 먼저 복사하고, 복사가 되면 저장한다. 복사가 막히면 저장하지 않고 직접 복사할 길을 준다.
   async function copyAndSave() {
     if (busy || !sheet.trim()) return;
+    if (!target) { setError('지점을 선택해 주세요.'); return; }   // 복사 전에 막는다 — 반만 일어나지 않게
     const mode = deadlineModeOf(sheet), normalized = applyDeadlineMode(sheet, mode);
     if (!normalized.ok) { setError(normalized.message); return; }
     setSheet(normalized.value);
@@ -182,7 +223,10 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
                   <select disabled className={CONTROL}><option>{personName ? `${personName} · @${handle}` : `@${handle}`}</option></select></label>
                 <label className={FIELD}><span className={LABEL}>연결할 작업</span>
                   <select disabled className={CONTROL}><option>{existing ? existing.label : '새 작업과 함께 등록'}</option></select></label>
-                <div className={FIELD}><span className={LABEL}>방문 클리닉</span><span className="py-2 text-content">{clinicLabel}</span></div>
+                {multi
+                  ? <div className={FIELD}><label htmlFor={branchId} className={LABEL}>방문 클리닉</label>
+                      <BranchSelect id={branchId} options={options} value={locationId} hint={hint} disabled={busy} onChange={chooseBranch} /></div>
+                  : <div className={FIELD}><span className={LABEL}>방문 클리닉</span><span className="py-2 text-content">{clinicLabel}</span></div>}
               </div>
               {blocked && <p role="alert" className={DANGER}>{blocked}</p>}
               {!blocked && clinic && (customerForm ? (
@@ -206,6 +250,13 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
           ) : (
             <>
               <p className="text-ui text-x-secondary">{campaign.name} · @{handle} · {clinicLabel}</p>
+              {multi && (
+                <div className={`${FIELD} max-w-[320px]`}><label htmlFor={`${branchId}-2`} className={LABEL}>방문 지점</label>
+                  <BranchSelect id={`${branchId}-2`} options={options} value={locationId} hint={hint} disabled={busy} onChange={chooseBranch} />
+                  {/* 행동 전 기대(UX 원칙 2) — 파싱이 지점을 고르는 방식 */}
+                  {!hint && <small className="text-caption text-x-muted">[예약 정보 파싱]을 누르면 고객 답변의 지점을 찾아 골라 둬요. 직접 골라도 돼요.</small>}
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-2">
                 <Button onClick={() => void parse()} disabled={busy || !source.trim()} className="h-9 px-4 text-content">{parsing ? '파싱 중…' : '예약 정보 파싱'}</Button>
                 <Button variant="ghost" disabled={busy} className="h-9 px-3 text-content"
@@ -218,7 +269,7 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
                   <textarea rows={15} value={source} onChange={(e) => setSource(e.target.value)} placeholder="고객 응답을 붙여 넣어 주세요."
                             className={`${CONTROL} resize-y leading-relaxed`} /></label>
                 <label className={FIELD}><span className={LABEL}>편집 가능한 기재 시트</span>
-                  <textarea rows={15} value={sheet} onChange={(e) => setSheet(e.target.value)} placeholder="파싱 후 직접 수정하거나 수동 작성해 주세요."
+                  <textarea rows={15} value={sheet} onChange={(e) => editSheet(e.target.value)} placeholder="파싱 후 직접 수정하거나 수동 작성해 주세요."
                             className={`${CONTROL} resize-y font-mono leading-relaxed`} />
                   <small className="text-[11px] text-x-muted">추가 문구와 줄바꿈까지 그대로 복사·저장해요. 업로드 기한은 방문 후 14일로 채워지고, 직접 고치면 그 날짜를 지켜요.</small></label>
               </div>

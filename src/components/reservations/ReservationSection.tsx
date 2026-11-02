@@ -12,8 +12,11 @@ import { formatDateKo, isDateOnlyString } from '@/lib/campaignJudgment';
 import { DateTimeBox } from '@/app/campaigns/flow/panel/DateTimeBox';
 import { ScheduleEditorDialog, type ScheduleReason } from './ScheduleEditorDialog';
 import { ChangeReasonDialog, DialogShell, reasonBadgeText } from './ChangeReasonDialog';
-import { operatingOn, timeGuidance, type HolidayCalendar } from '@/lib/clinicHours';
-import type { ClinicDetail } from '@/lib/clinicStore';
+import { operatingOn, timeGuidance } from '@/lib/clinicHours';
+import { locationLabel, representativeLocation, type ClinicSummary } from '@/lib/clinicLocation';
+import { branchFromSheet, branchOptions, initialBranchId, isMultiBranch } from '@/lib/reservationBranch';
+import { BranchSelect } from './BranchSelect';
+import { useLocationHours } from './useLocationHours';
 import type { CampaignRow, CampaignTaskItem } from '@/lib/campaignStore';
 import type { reservationDetail, reservationChanges } from '@/lib/reservationStore';
 import type { TaskDto } from '@/lib/extensionTasks';
@@ -46,6 +49,8 @@ const errorText = (e: unknown) => e instanceof Error ? e.message : '요청을 �
 // onReveal — '지금 할 일'의 [동의서 확인]·[게시로 이동 ↓]·[정산으로 이동 ↓]가 그 상자를 펼치고 스크롤하게 패널에 부탁한다.
 // onCancelTask — 자세히 보기 줄 오른쪽의 [진행 안 됨](게시 칸에 있던 그 버튼, 같은 작업 취소 창) — 방문협찬은 여기 하나만 둔다.
 // onOverlayChange — 달력 창이 떠 있는 동안 패널의 Esc·바깥 클릭을 끄게 알린다.
+// 지점(스펙 §6): 클리닉(운영시간·공휴일)은 예약이 있으면 예약의 지점, 없으면 대표 지점으로 읽는다. 수정 중에는 고른 지점으로 —
+// 지점이 2곳 이상이면 수정 창에 지점 드롭다운을 두고, 바꾸면 시트 7. 지점 줄과 함께 locationId를 저장한다(1곳이면 예전 그대로).
 export function ReservationSection({ task, campaign, dateEditor, onChangeDate, onChanged, onDirtyChange, onAddReservation, historyDisclosure, onPhase, onReveal, onCancelTask, onOverlayChange }: {
   task: CampaignTaskItem; campaign: CampaignRow; dateEditor: ReactNode; onChanged: () => Promise<void>; onDirtyChange: (dirty: boolean) => void;
   onChangeDate: (field: 'visitOn' | 'scheduledOn', next: string) => Promise<boolean>;
@@ -58,7 +63,10 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
 }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null), [loaded, setLoaded] = useState(false);
-  const [clinic, setClinic] = useState<ClinicDetail | null>(null), [clinicLoaded, setClinicLoaded] = useState(false), [taskInfo, setTaskInfo] = useState<TaskDto | null>(null);
+  const [taskInfo, setTaskInfo] = useState<TaskDto | null>(null);
+  // 이 클라이언트의 지점 목록(사용 중지 포함 — 예약이 가리키는 중지 지점도 이름을 읽는다). null = 아직 못 읽음
+  const [locations, setLocations] = useState<ClinicSummary[] | null>(null), [locationsTick, setLocationsTick] = useState(0);
+  const [editLocationId, setEditLocationId] = useState<string | null>(null);   // 수정 창에서 고른 지점
   const [history, setHistory] = useState<Changes | null>(null), [allHistory, setAllHistory] = useState(false);
   const [sheet, setSheet] = useState(''), [source, setSource] = useState(''), [mode, setMode] = useState<DeadlineMode>('default');
   const [editing, setEditing] = useState(false), [step, setStep] = useState(1), [reason, setReason] = useState<ScheduleReason | ''>('');
@@ -73,13 +81,18 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
   const editDialogOpen = editing && !!detail, inlineEditing = editing && !detail;
   useEffect(() => { onOverlayChange?.(scheduleField !== null || reasonPicking || editDialogOpen); return () => onOverlayChange?.(false); }, [scheduleField, reasonPicking, editDialogOpen, onOverlayChange]);
   const uid = useId();
-  const [holidays, setHolidays] = useState<HolidayCalendar>({ names: {}, coveredYears: [] });
   const save = useProductSave();
-  const dirty = editing && (sheet !== (detail?.sheetText ?? '') || source !== (detail?.sourceText ?? '') || mode !== (detail?.deadlineMode ?? 'default'));
+  const dirty = editing && (sheet !== (detail?.sheetText ?? '') || source !== (detail?.sourceText ?? '') || mode !== (detail?.deadlineMode ?? 'default')
+    || (!!detail && editLocationId !== detail.locationId));
   useEffect(() => { onDirtyChange(dirty || busy); return () => onDirtyChange(false); }, [dirty, busy, onDirtyChange]);
   // 예약 상세의 단계가 먼저, 없으면(예약 전) 작업 조회의 단계 — 둘 다 서버 visitPhase라 같은 규칙이다
   const phase = detail?.phase ?? taskInfo?.visitPhase ?? null;
   useEffect(() => { onPhase?.(phase); return () => onPhase?.(null); }, [phase, onPhase]);
+  // 지점 목록 — 읽을 때마다 고른 지점의 클리닉 상세도 다시 읽게 한다(locationsTick → useLocationHours)
+  const loadLocations = useCallback(async () => {
+    const list = await productFetch<{ items: ClinicSummary[] }>('clinics');
+    setLocations(list.items.filter((c) => c.clientId === campaign.clientId)); setLocationsTick((n) => n + 1);
+  }, [campaign.clientId]);
   const load = useCallback(async () => {
     try {
       const features = await loadProductFeatures();
@@ -88,16 +101,14 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
       const current = await productFetch<Detail | null>(`tasks/${task.id}/reservation`);
       setDetail(current); setLoaded(true); setError('');
       setTaskInfo(await productFetch<TaskDto>(`tasks/${task.id}`));   // 미배정 작업도 할 수 있는 일(취소 등)은 서버가 정한다
-      const list = await productFetch<{ items: { id: string; clientId: string }[] }>('clinics');
-      const location = list.items.find((c) => c.clientId === campaign.clientId);
-      if (location) setClinic(await productFetch<ClinicDetail>(`clinics/${location.id}`));
-      setClinicLoaded(true);   // 클리닉은 예약 상세 뒤에 읽힌다 — 읽기 전엔 '미등록'이라고 말하지 않는다(아래 요약·예약 정보 탭)
+      // 클리닉은 예약 상세 뒤에 읽힌다 — 읽기 전(locations null)엔 '미등록'이라고 말하지 않는다(아래 요약·예약 정보 탭)
+      await loadLocations();
     } catch (e) {
       // 예약 저장 구조가 아직 없는 DB(설정 적용 전)는 오류가 아니라 '예약 기능 꺼짐'으로 본다.
       if (e instanceof ProductClientError && e.code === 'SERVER_NOT_READY') { setEnabled(false); setLoaded(true); return; }
       setLoaded(true); setError(errorText(e));
     }
-  }, [task.id, campaign.clientId]);
+  }, [task.id, loadLocations]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 작업이 바뀌거나 저장으로 버전이 오르면 예약을 다시 읽는다(읽기 결과는 비동기 콜백에서 반영)
   useEffect(() => { void load(); }, [load, task.version]);
   useEffect(() => {
@@ -121,6 +132,7 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
     setSheet(detail?.sheetText ?? createClientSheet(task.influencerHandle ?? '', { preferred: task.visitOn ? `${task.visitOn}T` : '' }));
     setSource(detail?.sourceText ?? ''); setMode(detail?.deadlineMode ?? (task.scheduledOn ? 'manual' : 'default'));
     if (!detail && task.scheduledOn) setSheet((s) => updateClientSheetInput(s, 'uploadDeadline', task.scheduledOn!));
+    setEditLocationId(detail?.locationId ?? initialBranchId(branchOptions(locations ?? [])));
     setReason(nextReason); setStep(detail ? 2 : 1); setEditing(true); setError(''); setNotice('');
   }
   // 닫기(✕·Esc·바깥·[닫기]) — 고친 게 있으면 한 번 묻는다. 저장 중에는 DialogShell이 닫기를 막는다
@@ -134,6 +146,19 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
       return next;
     });
   }
+  // 드롭다운 변경 — 시트의 7. 지점 줄도 그 지점으로 다시 써서 저장본의 시트와 지점이 어긋나지 않게 한다
+  function chooseBranch(id: string) {
+    const next = options.find((o) => o.id === id);
+    if (!next) return;
+    setEditLocationId(id); setError('');
+    setSheet((current) => updateClientSheetInput(current, 'branch', next.name));
+  }
+  // 시트를 직접 고쳐 7. 지점이 등록된 지점 이름이 되면 드롭다운이 따라간다(스펙 §3). 다른 글자면 드롭다운은 그대로.
+  function editSheet(text: string) {
+    setSheet(text);
+    const named = multi ? branchFromSheet(text, options) : null;
+    if (named && named.id !== editLocationId) setEditLocationId(named.id);
+  }
   async function run(action: () => Promise<void>) {
     if (busy) return; setBusy(true); setError(''); setNotice('');
     try { await action(); } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
@@ -141,15 +166,25 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
   async function commit(confirm = false, copied = false) {
     const normalized = applyDeadlineMode(sheet, mode);
     if (!normalized.ok) { setError(normalized.message); return; }
+    if (multi && !editLocationId) { setError('지점을 선택해 주세요.'); return; }
     if (!detail && !clinic) { setError('캠페인의 클리닉을 먼저 연결해 주세요.'); return; }
+    // 지점을 바꿨을 때만 보낸다 — 같은 지점이면 사용 중지된 지점이어도 그대로 둔다(서버도 같은 규칙)
+    const moved = detail && editLocationId && editLocationId !== detail.locationId ? { locationId: editLocationId } : {};
     await run(async () => {
       if (copied) {
         try { await navigator.clipboard.writeText(normalized.value); } catch { setCopyFailed(true); throw new Error('복사하지 못해 저장하지 않았어요. 기재 시트를 직접 복사한 뒤 아래 저장 버튼을 눌러 주세요.'); }
       }
-      const next = detail ? await save<Detail>(`reservations/${detail.id}${confirm ? '/confirm' : ''}`,
-        { sheetText: normalized.value, deadlineMode: mode, reason: reason || null }, detail.version, confirm ? 'POST' : 'PATCH')
-        : await save<Detail>('reservations', { target: { kind: 'existingTask', taskId: task.id, expectedTaskVersion: taskInfo?.version ?? task.version },
-          locationId: clinic!.id, sourceText: source, sheetText: normalized.value, deadlineMode: mode, templateRevisionId: clinic!.templates.sheet?.id ?? null });
+      let next: Detail;
+      try {
+        next = detail ? await save<Detail>(`reservations/${detail.id}${confirm ? '/confirm' : ''}`,
+          { sheetText: normalized.value, deadlineMode: mode, reason: reason || null, ...moved }, detail.version, confirm ? 'POST' : 'PATCH')
+          : await save<Detail>('reservations', { target: { kind: 'existingTask', taskId: task.id, expectedTaskVersion: taskInfo?.version ?? task.version },
+            locationId: clinic!.id, sourceText: source, sheetText: normalized.value, deadlineMode: mode, templateRevisionId: clinic!.templates.sheet?.id ?? null });
+      } catch (e) {
+        // 창을 연 사이 고른 지점이 사용 중지됐으면 — 목록을 다시 읽고 다시 고르게 한다(문구는 서버 그대로). 입력은 그대로 둔다.
+        if (e instanceof ProductClientError && e.code === 'LOCATION_INACTIVE') { setEditLocationId(null); void loadLocations().catch(() => {}); }
+        throw e;
+      }
       setDetail(next); setSheet(next.sheetText); setEditing(false); setCopyFailed(false); setNotice(confirm ? '예약을 확정했어요.' : '예약을 저장했어요. 익스텐션에서 다시 조회하면 같은 내용이 나와요.'); await onChanged();
     });
   }
@@ -157,15 +192,16 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
   const structuredPreferred = /^(?:\d{4}-\d{2}-\d{2})?(?:[ T](?:\d{2}:\d{2})?)?$/.test(fields.preferred);
   const [preferredDate = '', preferredTime = ''] = structuredPreferred ? fields.preferred.replace(' ', 'T').split('T') : [fields.preferred, ''];
   const preferredMonth = fields.preferred.slice(0, 7);
-  const clinicId = clinic?.id, clinicVersion = clinic?.version;
-  useEffect(() => {
-    let alive = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 달이 바뀌면 이전 달 공휴일로 판정하지 않게 먼저 비운다
-    setHolidays({ names: {}, coveredYears: [] });
-    if (clinicId && /^\d{4}-\d{2}$/.test(preferredMonth)) productFetch<{ holidays: HolidayCalendar }>(`clinics/${clinicId}/calendar?month=${preferredMonth}`)
-      .then((value) => { if (alive) setHolidays(value.holidays); }).catch((e) => { if (alive) setError(errorText(e)); });
-    return () => { alive = false; };
-  }, [clinicId, clinicVersion, preferredMonth]);
+  // 지점 — 수정 중에는 고른 지점(예약 있음: 저장된 지점 + 사용 중 지점 / 새 예약: 사용 중 지점만), 아니면 예약의 지점·대표 지점
+  const options = branchOptions(locations ?? [], detail?.locationId), multi = isMultiBranch(options);
+  const targetId = editing ? editLocationId : detail?.locationId ?? representativeLocation(locations ?? [])?.id ?? null;
+  const targetOption = options.find((o) => o.id === targetId) ?? null;
+  // 요약·예약 정보 탭은 저장된 지점(수정 창에서 고르는 중인 값이 아니라) — 없으면(새 예약) 대표 지점
+  const shownLocation = locations?.find((l) => l.id === (detail?.locationId ?? targetId)) ?? null;
+  const { clinic, hours, retry: retryHours } = useLocationHours(targetId, preferredMonth, locationsTick);
+  const clinicLoaded = locations !== null;
+  // 요약·예약 정보 탭의 클리닉 이름 — 지점이 여러 곳이면 지점명까지(1곳이면 예전처럼 클리닉 이름만)
+  const clinicName = shownLocation ? (multi ? locationLabel(shownLocation) : shownLocation.name) : null;
   const actions = detail?.allowedActions ?? taskInfo?.allowedActions ?? [];
   // 수정 사유가 필요한 단계(서버 planReservationSave: 대기가 아니면 사유) — 인플루언서 요청은 edit_reservation이 허용될 때만 고를 수 있다
   const needsReason = !!detail && (detail.confirmed || actions.includes('correct_reservation'));
@@ -214,8 +250,22 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
       setDetail(next); setNotice('예약을 확정했어요.'); await onChanged();
     });
   }
-  const guidance = clinic && fields.preferred ? timeGuidance(operatingOn(clinic.settings, clinic.settings.exceptions,
-    holidays, fields.preferred.slice(0, 10)), fields.preferred) : null;
+  // 운영시간 판정은 지금 고른 지점의 클리닉·그 달 공휴일이 다 왔을 때만 — 지점을 바꾼 직후 이전 지점 판정을 보이지 않는다(D23~D25)
+  const ready = hours.status === 'ready' ? hours : null;
+  const guidance = ready && fields.preferred ? timeGuidance(operatingOn(ready.clinic.settings, ready.clinic.settings.exceptions,
+    ready.holidays, fields.preferred.slice(0, 10)), fields.preferred) : null;
+  // 운영시간 안내 칸 — 지점 미선택(D10)·확인 중(D23)·실패(D24, 다시 시도)·판정. 1곳 클리닉은 예전처럼 판정만(확인 중 문구 없음).
+  const hoursNotice = (className: string) => {
+    if (!fields.preferred) return null;
+    if (multi && !targetId) return <p role="status" className={className}>지점을 선택해 주세요 — 고른 지점의 운영시간으로 확인해요.</p>;
+    if (hours.status === 'error') return <div role="alert" className={`${className} flex flex-wrap items-center gap-2`}>운영시간을 확인하지 못했어요 — {hours.message}<Button disabled={busy} onClick={retryHours}>다시 시도</Button></div>;
+    if (hours.status === 'loading' && multi) return <p role="status" className={className}>{targetOption?.name ?? '지점'} 운영시간 확인 중…</p>;
+    return guidance && <p role="status" className={className}>{guidance.text}</p>;
+  };
+  const branchField = (id: string) => multi && (
+    <div className="grid max-w-[320px] gap-1 text-ui text-x-secondary"><label htmlFor={id}>방문 지점</label>
+      <BranchSelect id={id} options={options} value={editLocationId} onChange={chooseBranch} /></div>
+  );
   // 기능 확인 전(null)·꺼짐(false)에는 기존 일정 칸만 — 제목이 바뀌었다 돌아오거나 준비 오류가 잠깐 뜨지 않게 한다.
   if (enabled !== true) return <PanelSection title="일정">{dateEditor}</PanelSection>;
   const locked = !!task.cancelledAt || (phase !== null && ENDED_PHASES.includes(phase));
@@ -252,7 +302,7 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
     : '지급 결과를 확인하고 완료해 주세요.';
   const visitWindow = uploadWindow(fields.preferred);
   // 달력 창의 방문 시간 안내 — 지금 보는 달의 공휴일(holidays)로 판정한다(다른 달로 넘기면 공휴일 표시만 빠질 수 있다)
-  const guidanceFor = clinic ? (value: string) => timeGuidance(operatingOn(clinic.settings, clinic.settings.exceptions, holidays, value.slice(0, 10)), value)?.text ?? null : undefined;
+  const guidanceFor = ready ? (value: string) => timeGuidance(operatingOn(ready.clinic.settings, ready.clinic.settings.exceptions, ready.holidays, value.slice(0, 10)), value)?.text ?? null : undefined;
   // 일정 상자(목업 x-extension TaskSchedule + ReservationPanel '일정') — 날짜 두 상자 → (예약 있음) 클리닉·예약자 요약, '지금 할 일', 자세히 보기·예약 수정·취소·노쇼
   // / (예약 없음) 안내 + [이 작업에 예약 추가]. 예약 수정·종료·확정의 실제 저장은 기존 그대로(아래 fieldset·end·confirm) — 겉모양만 목업을 따른다.
   return <>
@@ -286,7 +336,7 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
     )}
     {!inlineEditing && detail && <>
       <p className="my-4 grid gap-0.5 text-[12px] text-x-secondary">
-        <strong className="text-ui font-medium text-x-text">{clinic?.name ?? (clinicLoaded ? '클리닉 미등록' : '클리닉 확인 중…')}</strong>
+        <strong className="text-ui font-medium text-x-text">{clinicName ?? (clinicLoaded ? '클리닉 미등록' : '클리닉 확인 중…')}</strong>
         <span>{fields.name || '예약자 미입력'} · {fields.treatment || '시술 미입력'}</span>
       </p>
       {!locked && (
@@ -332,7 +382,7 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
           <div role="tabpanel" id={`${uid}-panel-${detailTab}`} aria-labelledby={`${uid}-tab-${detailTab}`}>
           {detailTab === 'info' && (
             <dl className="grid grid-cols-[110px_1fr] gap-x-1.5 gap-y-3 text-[12px]">
-              <dt className="text-x-secondary">방문 클리닉</dt><dd>{clinic?.name ?? (clinicLoaded ? '미등록' : '확인 중…')}</dd>
+              <dt className="text-x-secondary">방문 클리닉</dt><dd>{clinicName ?? (clinicLoaded ? '미등록' : '확인 중…')}</dd>
               <dt className="text-x-secondary">예약자</dt><dd>{fields.name || '미입력'}</dd>
               <dt className="text-x-secondary">희망 시술</dt><dd>{fields.treatment || '미입력'}</dd>
               <dt className="text-x-secondary">초진/재진</dt><dd>{fields.visitType || '미입력'}</dd>
@@ -381,14 +431,16 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
       <nav className="flex gap-2 text-ui"><Button onClick={() => setStep(1)}>1 고객 양식</Button><Button onClick={() => setStep(2)}>2 응답 확인·기재 시트</Button></nav>
       {step === 1 ? <><p className="text-ui text-x-secondary">고객에게 양식을 보내고 응답을 받은 뒤 다음 단계로 진행해 주세요.</p><pre className="whitespace-pre-wrap rounded-lg bg-white p-3 text-ui">{clinic?.templates.form?.body.replace(/\{\{handle\}\}/g, task.influencerHandle ?? '').replace(/\{\{clinic\}\}/g, clinic.name) || '클리닉에 저장된 고객 양식이 없어요. 클리닉 설정에서 추가해 주세요.'}</pre><Link className="text-ui text-x-blue-text underline" href={`/clients?client=${campaign.clientId}&tab=forms`}>클리닉 양식 설정</Link><Button variant="primary" onClick={() => setStep(2)}>고객 응답 입력으로</Button></> : <>
         <label className="block text-ui">고객이 보낸 응답<textarea rows={5} value={source} onChange={(e) => setSource(e.target.value)} className={`${INPUT} mt-1`} /></label><p className="text-ui text-x-secondary">버튼을 누르면 AI가 응답에서 예약 정보를 읽어요. 사용 비용이 발생하며, 저장 전 직접 확인해야 해요.</p><Button disabled={!source.trim()} onClick={() => void run(async () => {
-          const job = await save<{ result: { sheetText: string; summary: string } }>('reservation-extractions', { sourceText: source, personId: taskInfo?.personId, locationId: clinic?.id });
+          const job = await save<{ result: { sheetText: string; summary: string; locationId: string | null } }>('reservation-extractions', { sourceText: source, personId: taskInfo?.personId, locationId: representativeLocation(locations ?? [])?.id });
           setSheet(job.result.sheetText); setNotice(job.result.summary);
+          if (multi) setEditLocationId(job.result.locationId);
         })}>응답에서 예약 정보 가져오기</Button>
+        {branchField(`${uid}-branch-inline`)}
         <div className="grid grid-cols-2 gap-3"><label className="text-ui">희망 날짜<input type="date" className={`${INPUT} mt-1`} value={fields.preferred.slice(0, 10)} onChange={(e) => patch('preferred', `${e.target.value}T${fields.preferred.slice(11, 16)}`)} /></label><label className="text-ui">희망 시간<input type="time" className={`${INPUT} mt-1`} value={fields.preferred.slice(11, 16)} onChange={(e) => patch('preferred', `${fields.preferred.slice(0, 10)}T${e.target.value}`)} /></label><label className="text-ui">한글 이름<input className={`${INPUT} mt-1`} value={names.korean} onChange={(e) => patch('name', formatReservationName({ ...names, korean: e.target.value }))} /></label><label className="text-ui">로마자 이름<input className={`${INPUT} mt-1`} value={names.roman} onChange={(e) => patch('name', formatReservationName({ ...names, roman: e.target.value }))} /></label></div>
         <label className="block text-ui">희망 시술<input className={`${INPUT} mt-1`} value={fields.treatment} onChange={(e) => patch('treatment', e.target.value)} /></label>
         <label className="block text-ui">업로드 기한<input type="date" className={`${INPUT} mt-1`} value={fields.uploadDeadline} onChange={(e) => { setMode('manual'); patch('uploadDeadline', e.target.value); }} /></label><Button onClick={resetDeadline}>기본 기한으로 · 방문 후 14일</Button>
-        {guidance && <p className="rounded-lg bg-amber-50 p-2 text-ui text-amber-800">{guidance.text}</p>}
-        <label className="block text-ui">최종 기재 시트<textarea rows={10} value={sheet} className={`${INPUT} mt-1 font-mono`} onChange={(e) => setSheet(e.target.value)} /></label><p className="text-ui text-x-secondary">원문과 날짜·이름·시술을 비교해 주세요. 추가 문구와 줄바꿈도 저장돼요.</p>
+        {hoursNotice('rounded-lg bg-amber-50 p-2 text-ui text-amber-800')}
+        <label className="block text-ui">최종 기재 시트<textarea rows={10} value={sheet} className={`${INPUT} mt-1 font-mono`} onChange={(e) => editSheet(e.target.value)} /></label><p className="text-ui text-x-secondary">원문과 날짜·이름·시술을 비교해 주세요. 추가 문구와 줄바꿈도 저장돼요.</p>
         <div className="flex flex-wrap gap-2"><Button variant="primary" disabled={!sheet.trim()} onClick={() => void commit(false, true)}>기재 시트 복사·대기 저장</Button>{copyFailed && <Button onClick={() => void commit(false)}>직접 복사했어요 · 대기 저장</Button>}<Button onClick={closeEditor}>닫기</Button></div>
       </>}
     </fieldset>}
@@ -407,6 +459,7 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
               : <span className="text-ui text-x-muted">확정 전에는 바로 수정할 수 있어요.</span>}
             <span className="ml-auto text-ui text-x-muted">한국 시간 기준</span>
           </div>
+          {branchField(`${uid}-branch`)}
           <div className="grid grid-cols-2 gap-3">
             <div className="text-ui text-x-secondary">희망 일시
               <div className="mt-1 grid grid-cols-[1fr_120px] gap-2">
@@ -435,10 +488,10 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
             <label className="block text-ui text-x-secondary">한국어 가능 여부<input className={`${INPUT} mt-1`} value={fields.koreanAbility} onChange={(e) => patch('koreanAbility', e.target.value)} /></label>
             <label className="col-span-2 block text-ui text-x-secondary">희망 시술<input className={`${INPUT} mt-1`} value={fields.treatment} onChange={(e) => patch('treatment', e.target.value)} /></label>
           </div>
-          {guidance && <div role="status" className="rounded-lg border border-[#d8ebf8] bg-[#f0f8fe] px-3 py-2.5 text-[12px] text-[#245c7e]">{guidance.text}</div>}
+          {hoursNotice('rounded-lg border border-[#d8ebf8] bg-[#f0f8fe] px-3 py-2.5 text-[12px] text-[#245c7e]')}
           <details>
             <summary className="cursor-pointer text-ui text-x-secondary">기재 시트 전체 편집</summary>
-            <textarea rows={10} value={sheet} aria-label="수정 기재 시트" className={`${INPUT} mt-2 font-mono`} onChange={(e) => setSheet(e.target.value)} />
+            <textarea rows={10} value={sheet} aria-label="수정 기재 시트" className={`${INPUT} mt-2 font-mono`} onChange={(e) => editSheet(e.target.value)} />
             <p className="mt-1 text-caption text-x-muted">위 입력란은 이 시트의 해당 줄을 고쳐요. 추가 문구와 줄바꿈도 함께 저장돼요.</p>
           </details>
           <details>

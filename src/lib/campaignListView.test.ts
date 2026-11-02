@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  campaignDot, isLongCampaign, campaignRowLabel, campaignSections, campaignsByClient,
+  campaignDot, isEndedLongPending, isLongCampaign, staysInLongSection, campaignRowLabel, campaignSections, campaignsByClient,
   matchesCampaignQuery, splitClientRows, weekKey, weekName,
 } from './campaignListView.ts';
 
 const TODAY = '2026-10-08'; // 목요일 — 10월 2주차(10/5~10/11)
 const P = (posted: number, assigned: number, unassigned: number) => ({ planned: posted + assigned + unassigned, posted, assigned, unassigned });
-const row = (name: string, clientName: string | null, startsOn: string, endsOn: string, clientId: string | null = clientName ? `id-${clientName}` : null) =>
-  ({ name, clientName, clientId, startsOn, endsOn });
+const row = (name: string, clientName: string | null, startsOn: string, endsOn: string, clientId: string | null = clientName ? `id-${clientName}` : null,
+  progress = P(0, 0, 0)) => ({ name, clientName, clientId, startsOn, endsOn, progress });
 
 test('weekKey·weekName: 월요일 키, 목요일 판정 주차 이름', () => {
   assert.equal(weekKey('2026-10-08'), '2026-10-05');
@@ -169,4 +169,47 @@ test('splitClientRows: 전부 지난 묶음이면 current가 비어 있다', () 
   const { current, past } = splitClientRows([p1], TODAY);
   assert.deepEqual(current, []);
   assert.deepEqual(past, [p1]);
+});
+
+// ISSUE-004(koo 11-02): 끝난 장기라도 게시 안 된 작업이 남으면 처리할 때까지 장기 칸에 남는다
+const NOV2 = '2026-11-02'; // 월요일 — 11월1주차(11/2~11/8), 10/31은 지난 주(10월5주차)
+const OCT_VISIT = (name: string, progress: ReturnType<typeof P>) => row(name, name.split('_')[0], '2026-10-01', '2026-10-31', undefined, progress);
+
+test('isEndedLongPending·staysInLongSection', () => {
+  const pending = OCT_VISIT('백수약국_10월 방문협찬', P(0, 3, 1));
+  const done = OCT_VISIT('미모드림_10월 방문협찬', P(2, 0, 0));
+  const empty = OCT_VISIT('A_10월 방문협찬', P(0, 0, 0));
+  assert.equal(isEndedLongPending(pending, NOV2), true);
+  assert.equal(isEndedLongPending(done, NOV2), false);
+  assert.equal(isEndedLongPending(empty, NOV2), false);
+  assert.equal(isEndedLongPending(pending, '2026-10-31'), false); // 종료일 당일은 아직 진행 중
+  assert.equal(staysInLongSection(pending, '2026-10-31'), true);
+  assert.equal(staysInLongSection(pending, NOV2), true);
+  assert.equal(staysInLongSection(done, NOV2), false);
+  // 짧은 캠페인은 남은 작업이 있어도 장기가 아니다
+  const shortPending = row('A_10월4주차', 'A', '2026-10-20', '2026-10-26', undefined, P(0, 2, 0));
+  assert.equal(isEndedLongPending(shortPending, NOV2), false);
+});
+
+test('campaignSections: 남은 작업 있는 끝난 장기는 장기 칸 아래쪽, 다 처리하면 끝난 주로 내려간다', () => {
+  const pending = OCT_VISIT('백수약국_10월 방문협찬', P(0, 4, 0));
+  const pending2 = row('B_9월 장기', 'B', '2026-09-01', '2026-10-20', undefined, P(1, 1, 0));
+  const live = row('C_11월 방문협찬', 'C', '2026-11-01', '2026-11-30', undefined, P(0, 1, 0));
+  const done = OCT_VISIT('미모드림_10월 방문협찬', P(2, 0, 0));
+  const wk = row('D_10월5주차', 'D', '2026-10-26', '2026-11-01', undefined, P(1, 0, 0));
+  const s = campaignSections([pending, done, wk, live, pending2], NOV2);
+  assert.deepEqual(s.long.map((r) => r.name), ['C_11월 방문협찬', 'B_9월 장기', '백수약국_10월 방문협찬']);
+  assert.deepEqual(s.upcoming[0].rows, []);
+  assert.deepEqual(s.past.map((g) => [g.label, g.rows.map((r) => r.name)]), [['지난 주 · 10월5주차', ['미모드림_10월 방문협찬', 'D_10월5주차']]]);
+});
+
+test('splitClientRows·campaignsByClient: 남은 작업 있는 끝난 장기는 진행 중 칸, 묶음도 펼침', () => {
+  const pending = row('A_10월 방문협찬', 'A', '2026-10-01', '2026-10-31', 'c1', P(0, 1, 0));
+  const done = row('A_9월 방문협찬', 'A', '2026-09-01', '2026-09-30', 'c1', P(1, 0, 0));
+  const wkPast = row('A_10월4주차', 'A', '2026-10-20', '2026-10-26', 'c1', P(0, 1, 0));
+  const { current, past } = splitClientRows([wkPast, pending, done], NOV2);
+  assert.deepEqual(current.map((r) => r.name), ['A_10월 방문협찬']);
+  assert.deepEqual(past.map((r) => r.name), ['A_10월4주차', 'A_9월 방문협찬']);
+  assert.equal(campaignsByClient([pending, done], NOV2)[0].open, true);
+  assert.equal(campaignsByClient([done], NOV2)[0].open, false);
 });

@@ -2,7 +2,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import {
-  campaignRowLabel, campaignSections, campaignsByClient, isLongCampaign, matchesCampaignQuery, splitClientRows, type WeekGroup,
+  campaignRowLabel, campaignSections, campaignsByClient, isEndedLongPending, isLongCampaign, matchesCampaignQuery, splitClientRows, type WeekGroup,
 } from '@/lib/campaignListView';
 import { Button } from '@/components/ui';
 import { SidebarRow } from './sidebar/SidebarRow';
@@ -11,6 +11,7 @@ import { SidebarRow } from './sidebar/SidebarRow';
 // 주차로 묶으면 장기 캠페인 / 주차 캠페인 / 지난 캠페인 세 섹션, 클라이언트로 묶으면 클라이언트별 묶음(섹션 제목 없음).
 // 위계 3단계(시안 WeekMode/ClientMode): 섹션 제목(위 구분선) → 묶음 머리(맨 셰브론·회색 제목·숫자) → 들여 쓴 행.
 // 클라이언트 묶음 안은 진행 중·예정 먼저(장기 맨 위, 꼬리말 '장기'), 그다음 `지난` 라벨과 흐린 지난 행.
+// 끝났지만 남은 작업이 있는 장기는 장기 자리에 '끝남' 칩을 달고 남는다(ISSUE-004 — 처리하면 지난으로 내려간다).
 // 묶기·순서·색 점 판단은 전부 campaignListView(순수 함수)가 하고, 여기선 펼침 상태·검색어만 들고 그린다.
 // 옛 /campaigns 화면은 CampaignList를 그대로 쓴다(이 부품은 v2 전용).
 
@@ -66,7 +67,7 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
     return (
       <SidebarRow key={c.id} c={c} title={label.title} suffix={suffix} today={today}
                   selected={c.id === selectedId}
-                  top={opts?.top} past={opts?.past}
+                  top={opts?.top} past={opts?.past} ended={isEndedLongPending(c, today)}
                   onSelect={() => onSelect(c.id)} />
     );
   };

@@ -45,8 +45,15 @@ function CampaignsFlowSplit() {
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
   const [creating, setCreating] = useState(false);
-  // '오늘'(서울)은 마운트 시 한 번 — 렌더마다 시계를 읽지 않는다(react-hooks/purity). 자정을 넘기면 새로고침이 기준을 갱신한다.
-  const [today] = useState(() => kstToday());
+  // '오늘'(서울)은 마운트 시 한 번 — 렌더마다 시계를 읽지 않는다(react-hooks/purity).
+  // 탭을 다시 볼 때 날짜가 바뀌었으면 갱신한다 — 하루 넘게 열어 둔 탭이 '이번 주'를 지난 주로 보여 주던 문제(ISSUE-004 스크린샷, 11-02).
+  const [today, setToday] = useState(() => kstToday());
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === 'visible') setToday(kstToday()); };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => { document.removeEventListener('visibilitychange', refresh); window.removeEventListener('focus', refresh); };
+  }, []);
   const [listCollapsed, setListCollapsed] = useState<boolean>(() => readListCollapsed());
   const toggleListCollapsed = useCallback(() => {
     setListCollapsed((v) => { const next = !v; saveListCollapsed(next); return next; });

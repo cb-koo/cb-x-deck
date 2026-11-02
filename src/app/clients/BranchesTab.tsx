@@ -87,7 +87,13 @@ export function BranchesTab({ clientId }: { clientId: string }) {
       </p>
       {error && <p role="alert" className="text-ui text-red-500">{error}</p>}
       <ul className="divide-y divide-x-border rounded-lg border border-x-border">
-        {rows.map((l, i) => (
+        {rows.map((l, i) => {
+          // 삭제를 막는 이유 — 서버 규칙과 같은 순서(본점 → 예약 연결 → 마지막 사용 중 지점)
+          const lastActive = l.active && activeCount <= 1;
+          const noDelete = l.kind === 'main' ? '본점은 삭제할 수 없어요. 이름을 바꾸거나 사용 중지해 주세요.'
+            : l.reservations > 0 ? '예약이 연결돼 있어 삭제할 수 없어요. 대신 사용 중지해 주세요.'
+            : lastActive ? '사용 중인 지점이 하나는 있어야 해서 삭제할 수 없어요. 다른 지점을 먼저 다시 사용해 주세요.' : '';
+          return (
           <li key={l.id} className={`px-3 py-2 ${l.active ? '' : 'bg-x-surface'}`}>
             <div className="flex flex-wrap items-center gap-2">
               <span className="flex flex-col">
@@ -103,19 +109,15 @@ export function BranchesTab({ clientId }: { clientId: string }) {
               <span className="ml-auto flex items-center gap-1">
                 <Button disabled={busy || (l.active && activeCount <= 1)} title={l.active && activeCount <= 1 ? '사용 중인 지점이 하나는 있어야 해요.' : undefined}
                         onClick={() => void patch(l.id, { active: !l.active })}>{l.active ? '사용 중지' : '다시 사용'}</Button>
-                <Button variant="ghost" className="hover:text-red-500" disabled={busy || l.kind === 'main' || l.reservations > 0}
-                        title={l.kind === 'main' ? '본점은 삭제할 수 없어요. 이름을 바꾸거나 사용 중지해 주세요.' : l.reservations > 0 ? '예약이 연결된 지점은 삭제할 수 없어요. 대신 사용 중지해 주세요.' : undefined}
+                <Button variant="ghost" className="hover:text-red-500" disabled={busy || !!noDelete} title={noDelete || undefined}
                         onClick={() => void remove(l)}>삭제</Button>
               </span>
             </div>
-            {(l.kind === 'main' || l.reservations > 0) && (
-              <p className="mt-1 pl-7 text-caption text-x-secondary">
-                {l.kind === 'main' ? '본점은 삭제할 수 없어요. 이름을 바꾸거나 사용 중지해 주세요.' : '예약이 연결돼 있어 삭제할 수 없어요. 대신 사용 중지해 주세요.'}
-              </p>
-            )}
+            {noDelete && <p className="mt-1 pl-7 text-caption text-x-secondary">{noDelete}</p>}
             {rowError[l.id] && <p role="alert" className="mt-1 pl-7 text-ui text-red-500">{rowError[l.id]}</p>}
           </li>
-        ))}
+          );
+        })}
       </ul>
       {adding ? (
         <div className="flex items-center gap-2">

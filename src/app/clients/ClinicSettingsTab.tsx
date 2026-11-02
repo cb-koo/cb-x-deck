@@ -20,10 +20,11 @@ export type ClinicTab = 'hours' | 'forms';
 // '저장하고 이동'을 기본 정보 편집기와 같은 길로 탄다(이 화면에서 따로 navGuard를 걸면 페이지의 가드를 덮어쓴다).
 export function ClinicSettingsTab({ clientId, tab, register, visible }: { clientId: string; tab: ClinicTab; register: Register; visible: boolean }) {
   const [locations, setLocations] = useState<ClinicSummary[]>([]), [picked, setPicked] = useState(''), [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
     try {
       const r = await productFetch<{ items: ClinicSummary[] }>('clinics'), mine = r.items.filter((c) => c.clientId === clientId);
-      setLocations(mine);
+      setLocations(mine); setLoaded(true);
       // 고른 지점이 아직 있으면 유지, 아니면 대표 지점(없으면 첫 지점)
       setPicked((current) => mine.some((c) => c.id === current) ? current : (representativeLocation(mine) ?? mine[0])?.id ?? '');
       setError('');
@@ -34,10 +35,14 @@ export function ClinicSettingsTab({ clientId, tab, register, visible }: { client
   // 같은 페이지의 지점 탭에서 지점을 추가·수정·삭제했을 수 있다(이 탭은 숨겨질 뿐 사라지지 않는다) — 다시 보일 때 목록을 새로 읽는다.
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 탭이 보일 때 목록 갱신
   useEffect(() => { if (visible) void load(); }, [visible, load]);
-  if (error) return <div className={PANEL}><p role="alert" className="text-content text-amber-800">{error}</p><Button onClick={() => void load()}>다시 불러오기</Button></div>;
+  // 전체 오류 화면은 목록을 한 번도 못 받았을 때만 — 다시 보일 때의 갱신이 실패해도 편집기(미저장 입력)는 그대로 두고 한 줄로 알린다.
+  if (error && !loaded) return <div className={PANEL}><p role="alert" className="text-content text-amber-800">{error}</p><Button onClick={() => void load()}>다시 불러오기</Button></div>;
   if (!picked) return <div className={PANEL}><p className="text-content text-x-secondary">클리닉 설정을 불러오는 중…</p></div>;
-  // key = 지점 id — 지점을 바꿀 때 편집 상태가 다른 지점으로 새지 않게 편집기를 새로 만든다.
-  return <ClinicEditor key={picked} id={picked} locations={locations} onPick={setPicked} tab={tab} register={register} />;
+  // key = 지점 id — 지점을 바꿀 때 편집 상태가 다른 지점으로 새지 않게 편집기를 새로 만든다. 감싸는 구조를 늘 같게 둬야 오류 줄이 생겨도 편집기가 다시 만들어지지 않는다.
+  return <div className="space-y-3">
+    {error && <div role="alert" className="flex flex-wrap items-center gap-2 text-ui text-amber-800"><p>지점 목록을 새로 불러오지 못했어요. 입력 중인 내용은 그대로예요. ({error})</p><Button onClick={() => void load()}>다시 시도</Button></div>}
+    <ClinicEditor key={picked} id={picked} locations={locations} onPick={setPicked} tab={tab} register={register} />
+  </div>;
 }
 const branchLabel = (l: Pick<ClinicSummary, 'branchName'>) => l.branchName || '본점';
 function ClinicEditor({ id, locations, onPick, tab, register }: { id: string; locations: ClinicSummary[]; onPick: (id: string) => void; tab: ClinicTab; register: Register }) {

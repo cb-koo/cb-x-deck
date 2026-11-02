@@ -178,7 +178,7 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
         <div className={shownTab === 'branches' ? undefined : 'hidden'}><BranchesTab key={client.id} clientId={client.id} /></div>
       )}
       {clinicEnabled && sponsorOpened && (
-        <div className={shownTab === 'sponsor' ? undefined : 'hidden'}><SponsorMemoTab key={client.id} clientId={client.id} /></div>
+        <div className={shownTab === 'sponsor' ? undefined : 'hidden'}><SponsorMemoTab key={client.id} clientId={client.id} register={register} /></div>
       )}
       {clinicEnabled && clinicOpened && (
         <div className={shownTab === 'hours' || shownTab === 'forms' ? undefined : 'hidden'}><ClinicSettingsTab key={client.id} clientId={client.id} tab={clinicTab} register={register} visible={shownTab === 'hours' || shownTab === 'forms'} /></div>

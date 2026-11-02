@@ -94,6 +94,22 @@ test('본점 행은 삭제하지 않는다', async () => {
   assert.equal((await listClientLocations(sql, client.id, { activeOnly: false })).length, 1);
 });
 
+test('사용 중인 마지막 지점은 삭제할 수 없다', async () => {
+  const client = await createClient(sql, P + 'J');
+  const [main] = await listClinics(sql).then((l) => l.filter((x) => x.clientId === client.id));
+  const added = await createLocation(sql, client.id, { name: '신사점' });
+  await updateLocation(sql, main.id, { active: false });
+  await rejectsCode(deleteLocation(sql, added.id), 'LAST_ACTIVE');
+  assert.equal((await listClientLocations(sql, client.id)).length, 1);
+  // 다른 사용 중 지점이 있으면 삭제된다, 중지된 지점은 언제든 삭제된다
+  const other = await createLocation(sql, client.id, { name: '강남점' });
+  await deleteLocation(sql, added.id);
+  const stopped = await createLocation(sql, client.id, { name: '홍대점' });
+  await updateLocation(sql, stopped.id, { active: false });
+  await deleteLocation(sql, stopped.id);
+  assert.deepEqual((await listClientLocations(sql, client.id)).map((l) => l.id), [other.id]);
+});
+
 test('동시에 두 지점을 중지해도 사용 중 지점이 하나는 남는다', async () => {
   const client = await createClient(sql, P + 'I');
   const [main] = await listClinics(sql).then((l) => l.filter((x) => x.clientId === client.id));

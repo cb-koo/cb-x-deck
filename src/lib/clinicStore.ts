@@ -98,11 +98,17 @@ export async function updateLocation(sql: postgres.Sql, id: string, patch: { nam
   return oneLocation(sql, id);
 }
 export async function deleteLocation(sql: postgres.Sql, id: string): Promise<void> {
-  const cur = await oneLocation(sql, id);
-  if (cur.kind === 'main') throw new ProductError('MAIN_LOCATION', '본점 행은 삭제할 수 없어요.', 409);
-  if ((await sql`select 1 from visit_reservation where location_id = ${id} limit 1`).length)
-    throw new ProductError('HAS_RESERVATIONS', '예약이 연결된 지점은 삭제할 수 없어요. 대신 사용 중지해 주세요.', 409);
-  await sql`delete from clinic_location where id = ${id}`;
+  const first = await oneLocation(sql, id);
+  if (first.kind === 'main') throw new ProductError('MAIN_LOCATION', '본점 행은 삭제할 수 없어요.', 409);
+  // 중지와 같은 잠금·검사 — 사용 중인 마지막 지점을 지우면 웹 예약과 익스텐션 지점이 비어 버린다.
+  await lockedByClient(sql, first.clientId, async (tx) => {
+    const cur = await oneLocation(tx, id);
+    if ((await tx`select 1 from visit_reservation where location_id = ${id} limit 1`).length)
+      throw new ProductError('HAS_RESERVATIONS', '예약이 연결된 지점은 삭제할 수 없어요. 대신 사용 중지해 주세요.', 409);
+    if (cur.active && !(await tx`select 1 from clinic_location where client_id = ${cur.clientId} and id <> ${id} and active`).length)
+      throw new ProductError('LAST_ACTIVE', '사용 중인 지점이 하나는 있어야 해요.', 409);
+    await tx`delete from clinic_location where id = ${id}`;
+  });
 }
 export async function getClinic(sql: postgres.Sql, id: string): Promise<ClinicDetail> {
   const [row] = await sql<Array<{ id: string; clientId: string; name: string; info: string; bannedPhrases: string[]; settings: ClinicSettings | null; version: number }>>`

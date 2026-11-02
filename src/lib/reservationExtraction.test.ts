@@ -75,3 +75,28 @@ test('지점 1개 클라이언트는 본점', async () => {
   assert.equal('branchOptions' in calls[0].user, false);
   assert.ok(!calls[0].system.includes('branchOptions'));
 });
+
+// 본점 이름이 비어 있어도 후보는 '본점'으로 보이고, 빈 답은 본점으로 맞추지 않는다(애매하면 비워 둔다)
+test('이름 없는 본점 + 지점: 빈 답은 비우고 후보는 본점으로 보낸다', async () => {
+  const { body } = await setup('D', ['', '신사점']);
+  const { calls, deps } = stub({ name: '하나', branch: '' });
+  const out = await extractReservation(sql, body, deps);
+  assert.equal(out.locationId, null);
+  assert.match(out.sheetText, /7\. 지점:[ \t]*$/m);
+  assert.deepEqual(calls[0].user.branchOptions, ['본점', '신사점']);
+});
+
+test('이름 없는 본점 + 지점: 본점이라고 답하면 본점으로 맞춘다', async () => {
+  const { ids, body } = await setup('E', ['', '신사점']);
+  const { deps } = stub({ name: '하나', branch: '본점' });
+  const out = await extractReservation(sql, body, deps);
+  assert.equal(out.locationId, ids[0]);
+  assert.ok(out.sheetText.includes('7. 지점: 본점'));
+});
+
+test('공백뿐인 답은 어떤 지점과도 맞추지 않는다', async () => {
+  const { body } = await setup('F', ['', '신사점']);
+  const { deps } = stub({ name: '하나', branch: '   ' });
+  const out = await extractReservation(sql, body, deps);
+  assert.equal(out.locationId, null);
+});

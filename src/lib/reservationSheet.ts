@@ -292,9 +292,10 @@ export function fillClientSheetTemplate(template: string, handle: string, fields
   context: { clinic: string; branch: string; naver: string; google: string }): string {
   handle = handle.trim().replace(/^@+/, '');
   const profileUrl = `https://x.com/${encodeURIComponent(handle)}`;
-  // branch: values={...context}를 아래 추출 키 루프가 fields.branch로 덮는다. 호출부가 둘을 항상 같은 값으로 넘기므로 그대로 둔다.
   const values: Record<string, string> = { ...context, handle, profileUrl, accountUrl: profileUrl };
   for (const key of RESERVATION_EXTRACTION_KEYS) values[key] = fields[key] ?? '';
+  // branch: 추출 지점이 비어도 문맥 지점('본점')을 지우지 않는다. Task 6은 다지점이면 매칭된 지점명 또는 '', 단일 지점이면 '본점'을 넘긴다.
+  values.branch = fields.branch || context.branch;
   let sheet = template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => values[key] ?? '');
   const hasLine = (key: SheetInputKey) => !!findInputLine(sheet.split(/(\r\n|\n|\r)/), key);
   if (hasLine('handle')) sheet = updateClientSheetInput(sheet, 'handle', handle);
@@ -303,7 +304,7 @@ export function fillClientSheetTemplate(template: string, handle: string, fields
   if (hasLine('profileUrl') && !savedProfileUrl) sheet = updateClientSheetInput(sheet, 'profileUrl', profileUrl);
   if (hasLine('accountUrl')) sheet = updateClientSheetInput(sheet, 'accountUrl', savedProfileUrl || profileUrl);
   for (const key of RESERVATION_EXTRACTION_KEYS) {
-    if (hasLine(key)) sheet = updateClientSheetInput(sheet, key, fields[key] ?? '');
+    if (hasLine(key)) sheet = updateClientSheetInput(sheet, key, values[key]);
   }
   return sheet;
 }

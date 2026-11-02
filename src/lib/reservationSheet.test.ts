@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createClientSheet,
+  fillClientSheetTemplate,
   formatReservationName,
   normalizeFollowerTier,
   readClientSheet,
@@ -115,4 +116,12 @@ test('지점 줄 차이는 sheetDifferences가 내지 않는다', () => {
   // 다른 항목이 함께 바뀌면 그 항목만 나온다(지점은 추가 문구로도 안 샌다)
   const both = other.replace('2. 국적: 일본', '2. 국적: 한국');
   assert.deepEqual(sheetDifferences(BENJAMIN_SHEET, both).map((d) => d.field), ['nationality']);
+});
+
+test('추출 지점이 비면 문맥 지점(본점)을 쓴다', () => {
+  const out = fillClientSheetTemplate('지점: {{branch}}\n1. 성함: {{name}}', 'hana', { name: '하나' },
+    { clinic: 'C', branch: '본점', naver: '', google: '' });
+  assert.ok(out.includes('지점: 본점'));
+  const named = fillClientSheetTemplate('7. 지점:', 'hana', { branch: '신사점' }, { clinic: 'C', branch: '본점', naver: '', google: '' });
+  assert.ok(named.includes('지점: 신사점'));
 });

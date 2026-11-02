@@ -4,7 +4,7 @@ import { campaignDot, type CampaignDot } from '@/lib/campaignListView';
 
 // 캠페인 목록 한 행(스펙 §3-3, 시안 WeekMode/ClientMode .row) — 색 점 + 이름(+꼬리말) + 진행 막대 + `n/m`, 한 줄 44px.
 // 묶음 안 행은 들여 쓰고(왼쪽 26px), 장기 캠페인 섹션 바로 아래 행(top)은 들이지 않는다(왼쪽 8px).
-// ended: 기간이 끝났는데 남은 작업이 있어 장기 칸에 남은 캠페인 — 이름 뒤 '끝남' 칩(ISSUE-004).
+// closed: 마감한 캠페인 — '마감' 칩(085). ended: 기간이 끝났는데 남은 작업이 있어 장기 칸에 남은 캠페인 — 이름 뒤 '끝남' 칩(ISSUE-004).
 
 // 점 색(시안 .y/.r/.g, 고리 없음). 색은 판단(campaignDot)이 정하고 여기선 칠하기만 한다. 회색은 시안에 없어 기존 값.
 const DOT_STYLE: Record<CampaignDot, string> = {
@@ -15,9 +15,9 @@ const DOT_STYLE: Record<CampaignDot, string> = {
 };
 const BAR_W = 48;
 
-export function SidebarRow({ c, title, suffix, today, selected, top = false, past = false, ended = false, onSelect }: {
+export function SidebarRow({ c, title, suffix, today, selected, top = false, past = false, ended = false, closed = false, onSelect }: {
   c: CampaignRow; title: string; suffix: string | null; today: string; selected: boolean;
-  top?: boolean; past?: boolean; ended?: boolean;
+  top?: boolean; past?: boolean; ended?: boolean; closed?: boolean;
   onSelect: () => void;
 }) {
   const { dot, reason } = campaignDot(c, today);
@@ -52,6 +52,12 @@ export function SidebarRow({ c, title, suffix, today, selected, top = false, pas
           <span title="기간이 끝났어요. 남은 작업을 게시 확인하거나 [진행 안 됨]으로 정리하면 지난 캠페인으로 옮겨져요"
                 className="ml-[8px] shrink-0 rounded-[5px] bg-[#f0f2f4] px-[6px] py-[2px] text-[12px] leading-[14px] text-[#6c7781]">
             끝남
+          </span>
+        )}
+        {closed && (
+          <span title="마감한 캠페인이에요. 캠페인을 열어 [다시 열기]로 되돌릴 수 있어요"
+                className="ml-[8px] shrink-0 rounded-[5px] bg-[#f0f2f4] px-[6px] py-[2px] text-[12px] leading-[14px] text-[#6c7781]">
+            마감
           </span>
         )}
         <span aria-hidden className="ml-[10px] flex h-1 w-12 shrink-0 overflow-hidden rounded-[2px] bg-[#eef2f4]">

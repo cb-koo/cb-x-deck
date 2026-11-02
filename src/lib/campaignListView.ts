@@ -6,11 +6,21 @@ export type CampaignDot = 'grey' | 'green' | 'yellow' | 'red';
 
 const md = (date: string) => `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
 
+// 마감(085) — 사람이 정리 끝으로 표시한 캠페인. 작업과 무관하게 지난 캠페인으로 가고 점은 회색이다(koo 11-02).
+type Closable = { closedAt?: string | null };
+export const isClosed = (c: Closable): boolean => c.closedAt != null;
+// 마감한 날(서울) 'YYYY-MM-DD'
+const kstDateOf = (iso: string): string => new Date(Date.parse(iso) + 9 * 3_600_000).toISOString().slice(0, 10);
+
 // 색 점(자동) + 툴팁 문장. 위에서부터 먼저 맞는 것(§3-3). 종료일 당일은 아직 끝난 게 아니다(campaignStatus와 같은 기준).
 export function campaignDot(
-  c: { startsOn: string; endsOn: string; progress: CampaignProgress }, today: string,
+  c: { startsOn: string; endsOn: string; progress: CampaignProgress } & Closable, today: string,
 ): { dot: CampaignDot; reason: string } {
   const { planned, posted, assigned, unassigned } = c.progress;
+  if (isClosed(c)) {
+    const open = assigned + unassigned;
+    return { dot: 'grey', reason: open > 0 ? `마감했어요. 게시 안 된 작업 ${open}건` : '마감했어요' };
+  }
   if (today < c.startsOn) return { dot: 'grey', reason: `${md(c.startsOn)}에 시작해요` };
   if (planned >= 1 && posted === planned) return { dot: 'green', reason: '모두 게시됐어요' };
   const open = assigned + unassigned;
@@ -29,16 +39,22 @@ export function isLongCampaign(c: { startsOn: string; endsOn: string }): boolean
 // 기간이 끝났는데 게시 안 된 작업(배정+미배정, 취소 제외)이 남은 장기 캠페인 — 처리할 때까지 장기 섹션에 남는다(ISSUE-004, koo 11-02).
 // 남은 작업을 게시 확인하거나 [✕ 진행 안 됨]으로 빼면 지난 캠페인으로 내려간다. 기간으로 자동 내려보내지 않는다(처리할 일 알림 역할).
 export function isEndedLongPending(
-  c: { startsOn: string; endsOn: string; progress: CampaignProgress }, today: string,
+  c: { startsOn: string; endsOn: string; progress: CampaignProgress } & Closable, today: string,
 ): boolean {
-  return isLongCampaign(c) && c.endsOn < today && c.progress.assigned + c.progress.unassigned > 0;
+  return !isClosed(c) && isLongCampaign(c) && c.endsOn < today && c.progress.assigned + c.progress.unassigned > 0;
 }
 
-// 장기 섹션(주차 모드)·클라이언트 묶음의 진행 중 칸에 머무는가: 진행 중·예정인 장기 + 끝났지만 남은 작업이 있는 장기
+// 장기 섹션(주차 모드)·클라이언트 묶음의 진행 중 칸에 머무는가: 진행 중·예정인 장기 + 끝났지만 남은 작업이 있는 장기.
+// 마감한 캠페인은 머물지 않는다.
 export function staysInLongSection(
-  c: { startsOn: string; endsOn: string; progress: CampaignProgress }, today: string,
+  c: { startsOn: string; endsOn: string; progress: CampaignProgress } & Closable, today: string,
 ): boolean {
-  return isLongCampaign(c) && (c.endsOn >= today || isEndedLongPending(c, today));
+  return !isClosed(c) && isLongCampaign(c) && (c.endsOn >= today || isEndedLongPending(c, today));
+}
+
+// 클라이언트 묶음에서 '진행 중·예정' 쪽인가 — 마감 안 했고, 종료 전이거나 끝났지만 남은 작업이 있는 장기
+function isCurrentRow(c: { startsOn: string; endsOn: string; progress: CampaignProgress } & Closable, today: string): boolean {
+  return !isClosed(c) && (c.endsOn >= today || isEndedLongPending(c, today));
 }
 
 const WEEKLY_SUFFIX = /^\d+월\d+주차$/;
@@ -71,7 +87,7 @@ export interface CampaignSections<T> { long: T[]; upcoming: WeekGroup<T>[]; past
 
 const ko = (a: string | null, b: string | null) => (a ?? '').localeCompare(b ?? '', 'ko');
 
-export function campaignSections<T extends { name: string; clientName: string | null; startsOn: string; endsOn: string; progress: CampaignProgress }>(
+export function campaignSections<T extends { name: string; clientName: string | null; startsOn: string; endsOn: string; progress: CampaignProgress } & Closable>(
   rows: T[], today: string,
 ): CampaignSections<T> {
   const thisWeek = weekKey(today);
@@ -87,7 +103,10 @@ export function campaignSections<T extends { name: string; clientName: string | 
   const byWeek = new Map<string, T[]>();
   for (const r of rows) {
     if (staysInLongSection(r, today)) continue;
-    const key = weekKey(isLongCampaign(r) ? r.endsOn : r.startsOn); // 끝나고 남은 작업도 없는 장기는 끝난 날의 주
+    // 장기는 끝난 날의 주(기간 중에 마감했으면 마감한 날의 주), 주차 캠페인은 시작한 주
+    let longKeyDate = r.endsOn;
+    if (r.closedAt) { const d = kstDateOf(r.closedAt); if (d < longKeyDate) longKeyDate = d; }
+    const key = weekKey(isLongCampaign(r) ? longKeyDate : r.startsOn);
     const list = byWeek.get(key) ?? [];
     list.push(r);
     byWeek.set(key, list);
@@ -109,7 +128,7 @@ export function campaignSections<T extends { name: string; clientName: string | 
 export interface ClientGroup<T> { key: string; label: string; open: boolean; rows: T[] }
 
 // 클라이언트 묶기: 최근에 시작한 캠페인이 있는 클라이언트가 위, 묶음 안 최근 시작순, 진행 중·예정(종료 전)이 있으면 펼침.
-export function campaignsByClient<T extends { clientId: string | null; clientName: string | null; name: string; startsOn: string; endsOn: string; progress: CampaignProgress }>(
+export function campaignsByClient<T extends { clientId: string | null; clientName: string | null; name: string; startsOn: string; endsOn: string; progress: CampaignProgress } & Closable>(
   rows: T[], today: string,
 ): ClientGroup<T>[] {
   const map = new Map<string, ClientGroup<T>>();
@@ -117,7 +136,7 @@ export function campaignsByClient<T extends { clientId: string | null; clientNam
     const key = r.clientId ?? '__none__';
     const g = map.get(key) ?? { key, label: r.clientName ?? '클라이언트 없음', open: false, rows: [] };
     g.rows.push(r);
-    if (r.endsOn >= today || isEndedLongPending(r, today)) g.open = true;
+    if (isCurrentRow(r, today)) g.open = true;
     map.set(key, g);
   }
   const latest = (g: ClientGroup<T>) => g.rows.reduce((m, r) => (r.startsOn > m ? r.startsOn : m), '');
@@ -126,13 +145,13 @@ export function campaignsByClient<T extends { clientId: string | null; clientNam
   return groups.sort((a, b) => latest(b).localeCompare(latest(a)) || ko(a.label, b.label));
 }
 
-// 클라이언트 묶음 안 나누기(시안 ClientMode): 진행 중·예정(종료일 ≥ 오늘)이 먼저, 그 안에서 장기가 맨 위(나머지는 받은 순서 유지).
+// 클라이언트 묶음 안 나누기(시안 ClientMode): 마감한 캠페인은 항상 지난 쪽. 진행 중·예정(종료일 ≥ 오늘)이 먼저, 그 안에서 장기가 맨 위(나머지는 받은 순서 유지).
 // 끝났지만 남은 작업이 있는 장기도 맨 위 장기 칸에 남는다(isEndedLongPending).
 // 지난(종료일 < 오늘)은 받은 순서 그대로 — `지난` 라벨 아래 흐리게 그린다.
-export function splitClientRows<T extends { startsOn: string; endsOn: string; progress: CampaignProgress }>(
+export function splitClientRows<T extends { startsOn: string; endsOn: string; progress: CampaignProgress } & Closable>(
   rows: T[], today: string,
 ): { current: T[]; past: T[] } {
-  const isCurrent = (r: T) => r.endsOn >= today || isEndedLongPending(r, today);
+  const isCurrent = (r: T) => isCurrentRow(r, today);
   const live = rows.filter(isCurrent);
   return {
     current: [...live.filter(isLongCampaign), ...live.filter((r) => !isLongCampaign(r))],

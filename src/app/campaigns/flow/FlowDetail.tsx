@@ -12,7 +12,7 @@ import type { CampaignPeriodBudget, ViewCurrency } from '@/lib/clientBudget';
 
 const COST_CURRENCY_KEY = 'campaign-cost-currency';
 import {
-  fetchCampaignDetail, patchCampaignApi, deleteCampaignApi, patchInfluencerPricingApi,
+  fetchCampaignDetail, patchCampaignApi, closeCampaignApi, deleteCampaignApi, patchInfluencerPricingApi,
   patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, refreshCampaignPerfApi,
   fetchDraftCandidatesApi,
   type DraftPatchBody, type TaskCreateRequest,
@@ -714,6 +714,16 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
     return true;
   }, [id, show, onChanged]);
 
+  // 마감 / 다시 열기(085) — 응답 CampaignRow로 머리글을 갈아끼우고 왼쪽 목록도 다시 읽는다(지난 캠페인으로 옮겨 가야 한다)
+  const setCampaignClosed = useCallback(async (closed: boolean) => {
+    const r = await closeCampaignApi(id, closed);
+    if (!r.ok) { show(r.error); return false; }
+    setData((cur) => (cur ? { ...cur, campaign: r.data } : cur));
+    onChanged();
+    show(closed ? '캠페인을 마감했어요. 지난 캠페인으로 옮겼어요' : '캠페인을 다시 열었어요');
+    return true;
+  }, [id, show, onChanged]);
+
   async function removeCampaign() {
     const r = await deleteCampaignApi(id);
     if (!r.ok) { show(r.error); return; }
@@ -1070,7 +1080,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
       <div className="mb-[16px] space-y-[12px]">
         <div className={`${PANEL} py-[15px]`}>
           <CampaignHeader campaign={data.campaign} deleteInfo={data.deleteInfo} today={data.today} onPatch={patchCampaign}
-                          onDelete={() => void removeCampaign()} />
+                          onDelete={() => void removeCampaign()} onSetClosed={setCampaignClosed} />
         </div>
         {/* 클라이언트 예산은 네 번째 카드(클라이언트 없는 캠페인엔 없다). 작업 현황의 알약은 아래 목록 필터의 단계 묶음을 바꾼다. */}
         <FlowCards stats={stats} plannedTotal={plannedTotal} currency={costCurrency} onCurrencyChange={chooseCostCurrency} perfUpdatedAt={data.perfUpdatedAt}

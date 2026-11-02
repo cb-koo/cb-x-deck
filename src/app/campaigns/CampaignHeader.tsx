@@ -60,13 +60,18 @@ const IconNote = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" {...ICON} className="mt-[2px] shrink-0 text-x-muted"><path d="M5 4h14v11l-5 5H5z" /><path d="M14 20v-5h5M8.5 9h7M8.5 12.5h4" /></svg>
 );
 
-export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete }: {
+// 마감(085, koo 11-02 시안) — 'M/D'(서울). 마감 줄의 날짜.
+const kstMd = (iso: string) => { const d = new Date(Date.parse(iso) + 9 * 3_600_000); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
+
+export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete, onSetClosed }: {
   campaign: CampaignRow;
   // 삭제 시 실제로 지워질 작업 수·대상 미정이 되는 다른 캠페인 작업 수 — 삭제 확인 문구가 말하는 그 숫자들
   deleteInfo: { taskCount: number; detachedTargets: number; activeRequests: number };
   today: string;
   onPatch: (patch: CampaignPatchInput) => Promise<boolean>;
   onDelete: () => void;
+  // 마감 / 다시 열기 — 없으면(옛 /campaigns 화면) 마감 줄·메뉴를 그리지 않는다
+  onSetClosed?: (closed: boolean) => Promise<boolean>;
 }) {
   const [edit, setEdit] = useState<Field | null>(null);
   const [name, setName] = useState(campaign.name);
@@ -86,6 +91,18 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete 
   // 빈 칸을 상시 노출하면 채워야 할 것처럼 보이고 높이를 먹는다 — 값이 있을 때만 보인다(QA 2라운드 결정 A)
   // 방금 메뉴의 '메모 추가'로 편집을 열었을 때(edit==='note')도 보여야 텍스트영역이 뜬다 — 커밋 후 비어 있으면 다시 숨는다
   const showNote = campaign.note !== '' || edit === 'note';
+  const closed = campaign.closedAt !== null;
+  const openTasks = campaign.progress.assigned + campaign.progress.unassigned;   // 게시 안 된 작업(취소 제외)
+  const [closing, setClosing] = useState(false);
+  async function setClosed(next: boolean) {
+    if (!onSetClosed || closing) return;
+    if (menuRef.current) menuRef.current.open = false;
+    // 마감은 확인을 받고, 다시 열기는 바로 — 되돌리기라 잃는 것이 없다(시안 ③)
+    if (next && !window.confirm(
+      `'${campaign.name}' 캠페인을 마감할까요?\n\n마감하면 목록에서 지난 캠페인으로 옮겨져요.${openTasks > 0 ? ` 남은 작업 ${openTasks}건은 그대로 두고, 나중에 게시되면 지금처럼 게시 확인할 수 있어요.` : ''}\n[다시 열기]로 언제든 되돌릴 수 있어요.`)) return;
+    setClosing(true);
+    try { await onSetClosed(next); } finally { setClosing(false); }
+  }
 
   // 보내기 전 검증 — 서버 라우트와 같은 parseCampaignPatch를 그대로 쓴다(문구 한 벌).
   // 정규화된 값(코드의 공백→하이픈, 이름·메모 trim)을 돌려주므로 '바뀐 게 없다' 비교도 이 결과로 한다.
@@ -195,7 +212,11 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete 
           <button type="button" onClick={() => open('name')} title="눌러서 이름 바꾸기" data-issue-title
                   className="-mx-1 min-w-0 truncate rounded-md px-1 text-left text-[20px] font-extrabold leading-[28px] text-x-text hover:bg-x-hover">{campaign.name}</button>
         )}
-        <span className={`shrink-0 whitespace-nowrap rounded-full px-[10px] py-[3px] text-[13px] font-bold leading-[18px] ${STATUS_STYLE[status]}`}>{CAMPAIGN_STATUS_LABEL[status]}</span>
+        {closed ? (
+          <span className="shrink-0 whitespace-nowrap rounded-full bg-x-text px-[10px] py-[3px] text-[13px] font-bold leading-[18px] text-white">마감</span>
+        ) : (
+          <span className={`shrink-0 whitespace-nowrap rounded-full px-[10px] py-[3px] text-[13px] font-bold leading-[18px] ${STATUS_STYLE[status]}`}>{CAMPAIGN_STATUS_LABEL[status]}</span>
+        )}
         <span className="flex-1" />
         {/* 헤더 오른쪽은 메뉴(메모 추가·삭제)뿐 — '+ 작업 추가'는 표 바로 위 툴바에 있다(작업을 보면서 누르는 버튼) */}
         <details ref={menuRef} className="relative -mr-[6px] shrink-0">
@@ -208,6 +229,10 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete 
               <button type="button"
                       onClick={() => { if (menuRef.current) menuRef.current.open = false; open('note'); }}
                       className="block w-full rounded px-2.5 py-2 text-left text-ui text-x-text hover:bg-x-hover">메모 추가</button>
+            ) : null}
+            {onSetClosed ? (
+              <button type="button" onClick={() => void setClosed(!closed)} disabled={closing}
+                      className="block w-full rounded px-2.5 py-2 text-left text-ui text-x-text hover:bg-x-hover disabled:opacity-50">{closed ? '다시 열기' : '캠페인 마감'}</button>
             ) : null}
             <button type="button" onClick={confirmDelete} className="block w-full rounded px-2.5 py-2 text-left text-ui text-red-700 hover:bg-red-50">캠페인 삭제</button>
           </div>
@@ -284,6 +309,23 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete 
       </div>
       {errLine('period')}
       {errLine('code')}
+
+      {/* 마감 줄(시안 ①③) — 기간이 끝났는데 게시 안 된 작업이 있으면 [캠페인 마감], 마감했으면 누가 언제 + [다시 열기] */}
+      {onSetClosed && closed ? (
+        <div className="mt-[10px] flex min-h-[44px] items-center gap-3 rounded-[10px] bg-x-surface px-[14px] py-2 text-[14px] text-x-secondary">
+          <span className="min-w-0">
+            {campaign.closedAt ? `${kstMd(campaign.closedAt)} ` : ''}{campaign.closedByName ? `${campaign.closedByName}님이 ` : ''}마감했어요{openTasks > 0 ? `. 게시 안 된 작업 ${openTasks}건` : ''}
+          </span>
+          <button type="button" onClick={() => void setClosed(false)} disabled={closing}
+                  className="ml-auto h-8 shrink-0 whitespace-nowrap rounded-full border border-x-border-strong bg-white px-[14px] text-[13.5px] font-semibold text-x-text hover:bg-x-hover disabled:opacity-50">다시 열기</button>
+        </div>
+      ) : onSetClosed && status === 'ended' && openTasks > 0 ? (
+        <div className="mt-[10px] flex min-h-[44px] items-center gap-3 rounded-[10px] bg-[#fdf2f2] px-[14px] py-2 text-[14px] text-[#7f1d1d]">
+          <span className="min-w-0">기간이 끝났는데 게시 안 된 작업이 {openTasks}건 있어요</span>
+          <button type="button" onClick={() => void setClosed(true)} disabled={closing}
+                  className="ml-auto h-8 shrink-0 whitespace-nowrap rounded-full bg-x-text px-[14px] text-[13.5px] font-semibold text-white hover:bg-[#272c30] disabled:opacity-50">캠페인 마감</button>
+        </div>
+      ) : null}
 
       {/* 메모 — 값이 있을 때만 보인다(전체, 줄바꿈 유지·자르지 않음). 빈 칸을 상시 노출하면 채워야 할 것처럼 보이고 높이를 먹는다(QA 2라운드 결정 A). 없으면 [⋯] 메뉴의 '메모 추가'로 연다 */}
       {showNote ? (

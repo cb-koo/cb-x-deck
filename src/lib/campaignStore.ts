@@ -34,6 +34,8 @@ export interface CampaignRow {
   startsOn: string; endsOn: string;    // 'YYYY-MM-DD'(서울) — to_char로 읽는다
   kind: CampaignKind | null; note: string;
   createdAt: string; updatedAt: string; // ISO
+  closedAt: string | null;              // 마감한 때(ISO) — null이면 마감 안 함(085). 작업과 무관한 사람의 표시
+  closedByName: string | null;          // 마감한 사람 이름 스냅샷
   taskCount: number;                    // 파생: 취소 제외 작업 수(요약 N과 같은 모집단, R17)
   progress: CampaignProgress;           // 파생: 취소 제외 작업의 게시·배정·미배정 수(목록 진행 막대)
   total: MoneyByCurrency;               // 파생: 작업 비용(취소 제외) + 추가 비용, 통화별
@@ -93,7 +95,7 @@ export interface InfluencerCampaignItem {
 type CRow = {
   id: string; client_id: string | null; client_name: string | null; name: string; name_en: string;
   starts_on: string; ends_on: string; kind: CampaignKind | null; note: string;
-  created_at: Date; updated_at: Date; task_count: string | number;
+  created_at: Date; updated_at: Date; closed_at: Date | null; closed_by_name: string | null; task_count: string | number;
   posted_count: string | number; assigned_count: string | number; unassigned_count: string | number;
 };
 type TotalRow = { campaign_id: string; currency: string; amount: string | number };
@@ -120,7 +122,7 @@ const toCic = (r: CicRow): InfluencerCostRow => ({
 const SELECT = (sql: postgres.Sql) => sql`
   select c.id, c.client_id, c.client_name, c.name, c.name_en,
          to_char(c.starts_on, 'YYYY-MM-DD') as starts_on, to_char(c.ends_on, 'YYYY-MM-DD') as ends_on,
-         c.kind, c.note, c.created_at, c.updated_at,
+         c.kind, c.note, c.created_at, c.updated_at, c.closed_at, c.closed_by_name,
          (select count(*) from campaign_task t
            where t.campaign_id = c.id and t.cancelled_at is null) as task_count,
          (select count(*) from campaign_task t
@@ -231,6 +233,7 @@ async function toRows(sql: postgres.Sql, rows: CRow[]): Promise<CampaignRow[]> {
     id: r.id, clientId: r.client_id, clientName: r.client_name, name: r.name, nameEn: r.name_en,
     startsOn: r.starts_on, endsOn: r.ends_on, kind: r.kind, note: r.note,
     createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(r.updated_at).toISOString(),
+    closedAt: r.closed_at ? new Date(r.closed_at).toISOString() : null, closedByName: r.closed_by_name,
     taskCount: Number(r.task_count),
     progress: {
       planned: Number(r.posted_count) + Number(r.assigned_count) + Number(r.unassigned_count),
@@ -289,6 +292,20 @@ export async function updateCampaign(
       note = coalesce(${patch.note ?? null}, note),
       updated_at = now()
     where id = ${id}`;
+}
+
+// 마감 / 다시 열기(085) — 작업·비용·정산은 건드리지 않는다. 이미 같은 상태면 그대로 둔다(마감한 때·사람을 덮어쓰지 않게).
+export async function setCampaignClosed(
+  sql: postgres.Sql, id: string, closed: boolean, byName: string,
+): Promise<void> {
+  if (!isUuidLike(id)) return;
+  if (closed) {
+    await sql`update campaign set closed_at = now(), closed_by_name = ${byName}, updated_at = now()
+               where id = ${id} and closed_at is null`;
+  } else {
+    await sql`update campaign set closed_at = null, closed_by_name = null, updated_at = now()
+               where id = ${id} and closed_at is not null`;
+  }
 }
 
 // 작업은 cascade로 함께 지워지고 원고는 남는다(campaign_task.draft_id FK set null). 다른 캠페인에서 이 캠페인 작업을

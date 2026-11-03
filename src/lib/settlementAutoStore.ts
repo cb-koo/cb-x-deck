@@ -6,12 +6,15 @@ import { isUuidLike } from './uuid.ts';
 import { parseTaskCost } from './campaignCost.ts';
 import { categoryBySendAs, autoSendEnabled, type AutoSendSwitch } from './settlementSettings.ts';
 import type { SettlementCandidate, ReadinessIssue } from './settlementCalc.ts';
+import type { TaskType } from './campaignJudgment.ts';
+import type { UnsendableReason, UnsendableRow } from './settlementAuto.ts';
 import { CANDIDATE_SQL, rowToCandidate, insertRequestInTx, getSettlementSettings, saveSettlementSettings, type CandRow, type PaymentRequestRow } from './settlementStore.ts';
 import { pendingGroup, blockingIssues, confirmedInstant, isDue, sendAtFor, nextMondaySeven, type PendingGroup, type PendingState } from './settlementAuto.ts';
 import { exportIncludesTestFixtures, TEST_FIXTURE_HANDLE_PG } from './settlementTestFixture.ts';
 
 import { AUTO_REQUESTER_FALLBACK, HOLD_REASON_MAX } from './settlementAuto.ts';
 export { AUTO_REQUESTER_FALLBACK, HOLD_REASON_MAX };
+export type { UnsendableReason, UnsendableRow };
 
 export interface PendingRow {
   cand: SettlementCandidate;
@@ -22,7 +25,7 @@ export interface PendingRow {
   state: PendingState;
 }
 export interface PendingSummary {
-  needsAction: number;          // 확인이 필요해요 + 고쳐야 보내져요
+  needsAction: number;          // 확인이 필요해요 + 고쳐야 보내져요(정산에서 빠진 작업 포함)
   waiting: number;
   stopped: number;
   nextSendAt: string;           // 다음 월요일 07:00
@@ -52,20 +55,49 @@ function toRow(r: CandRow, settings: Awaited<ReturnType<typeof getSettlementSett
   return { cand, group, confirmedAt: confirmed.toISOString(), sendAt: sendAt ? sendAt.toISOString() : null, blocking: blockingIssues(cand), state };
 }
 
-export async function listPending(sql: postgres.Sql, now: Date = new Date(), campaignId?: string): Promise<{ rows: PendingRow[]; summary: PendingSummary }> {
+// 후보 조건(CANDIDATE_BASE)에서 비용·인플루언서만 뒤집은 것 — 나머지(취소·다른 곳 정산·비용 없음·활성 요청 없음)는 같다.
+// 비용 칸이 있지만 읽을 수 없는 값이면 toRow가 후보에서 떨어뜨린다 — 그것도 '작업 비용 없음'으로 여기 보인다(listPending).
+type UnsendableDbRow = { id: string; type: TaskType; influencer_handle: string | null; posted_at: string; campaign_id: string; campaign_name: string; client_name: string | null; no_cost: boolean };
+function unsendableOf(r: UnsendableDbRow): UnsendableRow {
+  const reasons: UnsendableReason[] = [];
+  if (r.no_cost) reasons.push('no-cost');
+  if (!r.influencer_handle) reasons.push('no-influencer');
+  return { taskId: r.id, campaignId: r.campaign_id, campaignName: r.campaign_name, clientName: r.client_name ?? '',
+           influencerHandle: r.influencer_handle, taskType: r.type, postedAt: r.posted_at, reasons };
+}
+
+export async function listPending(sql: postgres.Sql, now: Date = new Date(), campaignId?: string): Promise<{ rows: PendingRow[]; unsendable: UnsendableRow[]; summary: PendingSummary }> {
   const settings = await getSettlementSettings(sql);
   const camp = campaignId && isUuidLike(campaignId) ? sql`and t.campaign_id = ${campaignId}` : sql``;
-  const [rows, run, sent] = await Promise.all([
+  const [rows, missing, run, sent] = await Promise.all([
     sql<CandRow[]>`${CANDIDATE_SQL(sql)} ${camp} order by t.posted_at asc, t.created_at asc, t.id asc`,
+    sql<UnsendableDbRow[]>`
+      select t.id, t.type, t.influencer_handle, to_char(t.posted_at, 'YYYY-MM-DD') as posted_at,
+             c.id as campaign_id, c.name as campaign_name, c.client_name, (t.cost is null) as no_cost
+        from campaign_task t join campaign c on c.id = t.campaign_id
+       where t.cancelled_at is null and t.settled_elsewhere_at is null and t.posted_at is not null
+         and (t.cost is null or t.influencer_handle is null)
+         and not coalesce((to_jsonb(t)->>'no_cost')::boolean, false)
+         and not exists (select 1 from payment_request r where r.task_id = t.id and r.status = 'requested')
+         ${camp}
+       order by t.posted_at asc, t.created_at asc, t.id asc`,
     sql<Array<{ at: Date | null }>>`select max(finished_at) as at from settlement_auto_run`,
     sql<Array<{ n: string }>>`select count(*)::text as n from payment_request
       where created_via = 'auto' and (created_at at time zone 'Asia/Seoul')::date = ${kstToday(() => now.getTime())}::date`,
   ]);
-  const out = rows.map((r) => toRow(r, settings, now)).filter((x): x is PendingRow => x !== null);
+  const out: PendingRow[] = [];
+  const unsendable = missing.map(unsendableOf);
+  for (const r of rows) {
+    const row = toRow(r, settings, now);
+    if (row) out.push(row);
+    else unsendable.push(unsendableOf({ id: r.id, type: r.type, influencer_handle: r.influencer_handle, posted_at: r.posted_at,
+      campaign_id: r.campaign_id, campaign_name: r.campaign_name, client_name: r.client_name, no_cost: true }));
+  }
   return {
     rows: out,
+    unsendable,
     summary: {
-      needsAction: out.filter((x) => x.group === 'attention' || x.group === 'blocked').length,
+      needsAction: out.filter((x) => x.group === 'attention' || x.group === 'blocked').length + unsendable.length,
       waiting: out.filter((x) => x.group === 'waiting').length,
       stopped: out.filter((x) => x.group === 'stopped').length,
       nextSendAt: nextMondaySeven(now).toISOString(),

@@ -9,19 +9,20 @@ import { CancelDialog } from './CancelDialog';
 import { ReviseDialog } from './ReviseDialog';
 import { MatchDialog } from './MatchDialog';
 import { KeepDialog } from './KeepDialog';
-import { uniqPairs } from './uniqPairs';
 import { HEAD, GROUP, COLS, groupByCampaign } from './tableStyle';
 import { STATUS_GROUP_OPTIONS, inGroup, keyOf, taskPaidMismatch, type StatusGroup } from '@/lib/settlementDisplay';
 import { kstDate } from '@/lib/datetime';
+import { matchesSearch } from '@/lib/settlementSearch';
 
 const SEL = 'rounded-lg border border-x-border bg-white px-2.5 py-1.5 text-ui';
 
-type RequestFilter = { clientId: string; campaignId: string; status: StatusGroup; from: string; to: string };
-const NO_FILTER: RequestFilter = { clientId: '', campaignId: '', status: '', from: '', to: '' };
+// 클라이언트·캠페인은 정산 메뉴 공통 검색창이 맡는다(koo 11-02 — 같은 일을 하는 길을 하나로). 여기엔 상태·기간만.
+type RequestFilter = { status: StatusGroup; from: string; to: string };
+const NO_FILTER: RequestFilter = { status: '', from: '', to: '' };
 
-export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
+export function RequestList({ focusTaskId, tokens, onClearSearch }: { focusTaskId: string | null; tokens: readonly string[]; onClearSearch: () => void }) {
   const { show } = useToast();
-  const [rows, setRows] = useState<PaymentRequestRow[] | null>(null);   // 필터 없이 전량 — 옵션 목록도 이걸로 만든다
+  const [rows, setRows] = useState<PaymentRequestRow[] | null>(null);   // 필터 없이 전량 — 검색·필터는 화면에서만
   const [err, setErr] = useState('');
   const [filter, setFilter] = useState<RequestFilter>(NO_FILTER);
   const [open, setOpen] = useState<string | null>(null);        // 펼친 요청 id
@@ -47,23 +48,18 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void fetchSettlementConfig().then((r) => { if (r.ok) setRevisionEnabled(r.data.revisionV2); }); }, []);
 
-  // 옵션은 전량(rows)에서 뽑는다 — 필터에 걸려 안 보이는 클라이언트/캠페인도 계속 골라 쓸 수 있게(08-28 리뷰)
-  const clients = useMemo(() => uniqPairs((rows ?? []).map((r) => [r.clientId, r.clientName] as const)), [rows]);
-  const campaigns = useMemo(() => uniqPairs((rows ?? []).filter((r) => r.campaignId && (!filter.clientId || r.clientId === filter.clientId)).map((r) => [r.campaignId as string, r.campaignName] as const)), [rows, filter.clientId]);
-
   const filtered = useMemo(() => (rows ?? []).filter((r) =>
-    (!filter.clientId || r.clientId === filter.clientId)
-    && (!filter.campaignId || r.campaignId === filter.campaignId)
+    matchesSearch(r, tokens)
     && inGroup(keyOf(r), filter.status)
     && (!filter.from || kstDate(r.createdAt) >= filter.from)
-    && (!filter.to || kstDate(r.createdAt) <= filter.to)), [rows, filter]);
+    && (!filter.to || kstDate(r.createdAt) <= filter.to)), [rows, filter, tokens]);
 
   // 정산팀 지급 금액이 작업 금액과 다른 건(스펙 2026-10-07 §8-5) — 알림이 없으므로 화면 안에서 눈에 띄어야 한다. 필터와 무관하게
   // 전량에서 센다(다른 클라이언트로 좁혀 보고 있어도 놓치면 안 된다). 링크는 필터를 전부 풀고 '지급 금액 다름'만 남긴다 —
   // 안내의 건수와 눌러서 보이는 건수가 항상 같다(UX 원칙 4). 지금 필터 안에 이미 전부 보이면 안내는 필요 없다.
   const mismatched = useMemo(() => (rows ?? []).filter((r) => taskPaidMismatch(r) !== null), [rows]);
   const mismatchedVisible = useMemo(() => filtered.filter((r) => taskPaidMismatch(r) !== null).length, [filtered]);
-  const otherFiltersOn = !!(filter.clientId || filter.campaignId || filter.from || filter.to);
+  const otherFiltersOn = !!(tokens.length || filter.from || filter.to);
   const n = mismatched.length;
 
   // 증빙 서명 URL — 펼친 행 하나의 증빙만 서명한다(리뷰 수정 5). 훅 호출은 조건부 return보다 앞에서 무조건.
@@ -89,12 +85,6 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-[16px] font-semibold">요청 내역 {filtered.length}</h2>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <select className={SEL} value={filter.clientId} onChange={(e) => setFilter({ ...filter, clientId: e.target.value, campaignId: '' })} aria-label="클라이언트">
-            <option value="">클라이언트 전체</option>{clients.map(([id, nm]) => <option key={id} value={id}>{nm}</option>)}
-          </select>
-          <select className={SEL} value={filter.campaignId} onChange={(e) => setFilter({ ...filter, campaignId: e.target.value })} aria-label="캠페인">
-            <option value="">캠페인 전체</option>{campaigns.map(([id, nm]) => <option key={id} value={id}>{nm}</option>)}
-          </select>
           <select className={SEL} value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value as StatusGroup })} aria-label="상태">
             {STATUS_GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
@@ -108,7 +98,7 @@ export function RequestList({ focusTaskId }: { focusTaskId: string | null }) {
       {n > 0 && (filter.status !== 'paid_diff' || mismatchedVisible < n) && (
         <p className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-ui text-amber-700">
           정산팀 지급 금액이 작업 금액과 다른 건이 {n}건 있어요 — 표에서 어느 쪽이 맞는지 정해 주세요.
-          <button type="button" className="underline" onClick={() => setFilter({ ...NO_FILTER, status: 'paid_diff' })}>
+          <button type="button" className="underline" onClick={() => { onClearSearch(); setFilter({ ...NO_FILTER, status: 'paid_diff' }); }}>
             {otherFiltersOn ? `필터를 풀고 그 ${n}건 보기` : `그 ${n}건만 보기`}
           </button>
         </p>

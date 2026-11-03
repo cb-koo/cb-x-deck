@@ -105,6 +105,26 @@ test('정산 요청 대기 묶음 — 기다림(보내는 때)·막힘·확인 �
   assert.equal(summary.needsAction, 2); assert.equal(summary.waiting, 1); assert.equal(summary.stopped, 1);
 });
 
+test('정산에서 빠진 작업 — 비용이 빈 게시 작업은 보완 필요에 보이고 자동 전송은 건너뛴다, 비용을 넣으면 후보로 간다(koo 11-02)', async () => {
+  const camp = await campaign();
+  await influencer(H('nocost')); await influencer(H('free'));
+  const nocost = await postedQuote(camp.id, H('nocost'), creator.id);
+  await updateTask(sql, nocost.id, { cost: null });
+  const free = await postedQuote(camp.id, H('free'), creator.id);
+  await updateTask(sql, free.id, { noCost: true });   // 일부러 지급하지 않는 작업 — 빠진 작업이 아니다
+  let res = await listPending(sql, new Date(), camp.id);
+  assert.deepEqual(res.unsendable.map((u) => [u.influencerHandle, u.reasons]), [[H('nocost'), ['no-cost']]]);
+  assert.equal(res.unsendable[0].campaignName, camp.name);
+  assert.equal(res.rows.length, 0);
+  assert.equal(res.summary.needsAction, 1);
+  await sweep(afterNextMonday(), { campaignIds: [camp.id] });
+  assert.equal((await sql`select 1 from payment_request where task_id = ${nocost.id}`).length, 0);
+  await updateTask(sql, nocost.id, { cost: { amount: 3000, currency: 'JPY' } });
+  res = await listPending(sql, new Date(), camp.id);
+  assert.equal(res.unsendable.length, 0);
+  assert.equal(res.rows.find((r) => r.cand.taskId === nocost.id)?.group, 'waiting');
+});
+
 test('주간 스윕 — 월요일 7시 전엔 안 보내고, 지나면 기다림만 보낸다(요청자 = 작업 만든 사람, 자동 표식)', async () => {
   const camp = await campaign();
   await influencer(H('s1')); await influencer(H('s2'), false); await influencer(H('s3'));

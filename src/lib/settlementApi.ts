@@ -8,6 +8,7 @@ import type { ExternalLogRow } from './externalLogCopy.ts';
 import type { TaskCost } from './campaignCost.ts';
 import type { KeepReason } from './settlementDisplay.ts';
 import type { PendingRow, PendingSummary } from './settlementAutoStore.ts';
+import type { UnsendableRow } from './settlementAuto.ts';
 
 
 const json = (method: string, body: unknown): RequestInit =>
@@ -61,7 +62,7 @@ export const reviseRequestApi = (id: string, input: { expectedRevision: number; 
 export const fetchRevisions = (id: string) => call<{ revisions: RevisionHistoryRow[] }>(`/api/settlement/requests/${id}/revisions`);
 // 정산 요청 자동 전송(스펙 2026-10-12) — 정산 요청 대기 목록·행 버튼·보낸 뒤 내려감 [그대로 두기]
 export const fetchPending = (campaignId?: string) =>
-  call<{ rows: PendingRow[]; summary: PendingSummary }>(`/api/settlement/pending${campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : ''}`);
+  call<{ rows: PendingRow[]; unsendable: UnsendableRow[]; summary: PendingSummary }>(`/api/settlement/pending${campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : ''}`);
 export const sendPendingApi = (taskId: string) => call<{ ok: true; request: PaymentRequestRow }>(`/api/settlement/pending/${taskId}`, json('POST', { action: 'send' }));
 export const holdPendingApi = (taskId: string, reason: string) => call<{ ok: true }>(`/api/settlement/pending/${taskId}`, json('POST', { action: 'hold', reason }));
 export const ackRemovalApi = (requestId: string) => call<{ ok: true }>(`/api/settlement/requests/${requestId}/removal-ack`, json('POST', {}));

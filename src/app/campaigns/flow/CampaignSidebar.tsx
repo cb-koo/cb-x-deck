@@ -2,7 +2,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import {
-  campaignRowLabel, campaignSections, campaignsByClient, isEndedLongPending, isLongCampaign, matchesCampaignQuery, splitClientRows, type WeekGroup,
+  campaignRowLabel, campaignSections, campaignsByClient, isClosed, isEndedLongPending, isLongCampaign, matchesCampaignQuery, splitClientRows, type WeekGroup,
 } from '@/lib/campaignListView';
 import { Button } from '@/components/ui';
 import { SidebarRow } from './sidebar/SidebarRow';
@@ -67,7 +67,7 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
     return (
       <SidebarRow key={c.id} c={c} title={label.title} suffix={suffix} today={today}
                   selected={c.id === selectedId}
-                  top={opts?.top} past={opts?.past} ended={isEndedLongPending(c, today)}
+                  top={opts?.top} past={opts?.past} ended={isEndedLongPending(c, today)} closed={isClosed(c)}
                   onSelect={() => onSelect(c.id)} />
     );
   };

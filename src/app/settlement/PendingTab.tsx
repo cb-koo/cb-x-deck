@@ -4,11 +4,12 @@ import { Button } from '@/components/ui';
 import { useToast } from '@/lib/toastContext';
 import { fetchPending, sendPendingApi } from '@/lib/settlementApi';
 import type { PendingRow, PendingSummary } from '@/lib/settlementAutoStore';
-import { AUTO_RUN_STALE_MS, GROUP_LABEL, shortReason, sendWhenLabel, type PendingGroup } from '@/lib/settlementAuto';
+import { AUTO_RUN_STALE_MS, GROUP_LABEL, UNSENDABLE_TEXT, shortReason, sendWhenLabel, type PendingGroup, type UnsendableRow } from '@/lib/settlementAuto';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPE_LABEL } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
 import { kstMonthDay } from '@/lib/datetime';
+import { matchesSearch } from '@/lib/settlementSearch';
 import { FlowDetail } from '@/app/campaigns/flow/FlowDetail';
 import { CELL, HEAD, NUM, TYPE_CHIP, METHOD_CHIP } from './tableStyle';
 import { HoldDialog } from './HoldDialog';
@@ -32,9 +33,9 @@ const GROUP_SUB: Record<PendingGroup, (s: PendingSummary, rows: PendingRow[]) =>
   stopped: () => '자동 전송 안 함 · [보내기]로 바로 보내요',
 };
 
-export function PendingTab({ initialCampaignId, onGoRequests }: { initialCampaignId?: string | null; onGoRequests: () => void }) {
+export function PendingTab({ initialCampaignId, onGoRequests, tokens }: { initialCampaignId?: string | null; onGoRequests: () => void; tokens: readonly string[] }) {
   const { show } = useToast();
-  const [data, setData] = useState<{ rows: PendingRow[]; summary: PendingSummary } | null>(null);
+  const [data, setData] = useState<{ rows: PendingRow[]; unsendable: UnsendableRow[]; summary: PendingSummary } | null>(null);
   const [err, setErr] = useState('');
   const [campaignId, setCampaignId] = useState<string | null>(initialCampaignId ?? null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -66,8 +67,10 @@ export function PendingTab({ initialCampaignId, onGoRequests }: { initialCampaig
 
   if (err) return <p role="alert" className="text-ui text-red-700">{err}</p>;
   if (!data) return <p className="text-ui text-x-muted">불러오는 중…</p>;
-  const all = campaignId ? data.rows.filter((r) => r.cand.campaignId === campaignId) : data.rows;
-  const focusName = campaignId ? data.rows.find((r) => r.cand.campaignId === campaignId)?.cand.campaignName : null;
+  const all = data.rows.filter((r) => (!campaignId || r.cand.campaignId === campaignId) && matchesSearch(r.cand, tokens));
+  const unsendable = data.unsendable.filter((u) => (!campaignId || u.campaignId === campaignId) && matchesSearch(u, tokens));
+  const focusName = campaignId ? (data.rows.find((r) => r.cand.campaignId === campaignId)?.cand.campaignName
+    ?? data.unsendable.find((u) => u.campaignId === campaignId)?.campaignName) : null;
   const of = (g: PendingGroup) => all.filter((r) => r.group === g);
   const s = data.summary;
   const rowProps = (r: PendingRow) => ({ r, err: rowErr[r.cand.taskId], selected: open?.taskId === r.cand.taskId,
@@ -89,9 +92,9 @@ export function PendingTab({ initialCampaignId, onGoRequests }: { initialCampaig
           <button type="button" onClick={() => setCampaignId(null)} className="ml-2 text-x-blue-text hover:underline">전체 보기</button>
         </p>
       )}
-      {all.length === 0 && (
+      {all.length === 0 && unsendable.length === 0 && (
         <p className="mt-6 rounded-xl border border-dashed border-x-border p-8 text-center text-ui text-x-muted">
-          정산 요청 대기 없음 · 게시 확인된 작업은 다음 월요일 07:00에 자동 전송돼요
+          {tokens.length ? '검색에 맞는 정산 요청 대기가 없어요' : '정산 요청 대기 없음 · 게시 확인된 작업은 다음 월요일 07:00에 자동 전송돼요'}
         </p>
       )}
 
@@ -105,7 +108,10 @@ export function PendingTab({ initialCampaignId, onGoRequests }: { initialCampaig
         )}
       </Group>
 
-      <Group g="blocked" rows={of('blocked')} s={s} cols={['인플루언서', '유형', '캠페인', '작업 금액', '게시일', '사유']}>
+      <Group g="blocked" rows={of('blocked')} s={s} cols={['인플루언서', '유형', '캠페인', '작업 금액', '게시일', '사유']}
+             extra={unsendable.map((u) => (
+               <UnsendableTr key={u.taskId} u={u} selected={open?.taskId === u.taskId} onOpen={() => setOpen({ campaignId: u.campaignId, taskId: u.taskId })} />
+             ))}>
         {(r) => (
           <Row key={r.cand.taskId} {...rowProps(r)} withPosted>
             <td className={`${CELL} text-ui text-red-700`}>
@@ -172,18 +178,19 @@ function stopReason(r: PendingRow): string {
   return ['요청 취소', md(c?.at ?? null), c?.byName, c?.reason].filter(Boolean).join(' · ');
 }
 
-function Group({ g, rows, s, cols, children }: { g: PendingGroup; rows: PendingRow[]; s: PendingSummary; cols: string[]; children: (r: PendingRow) => ReactNode }) {
-  if (!rows.length) return null;
+// extra = 묶음 표 아래에 붙는 행(보완 필요의 '정산에서 빠진 작업') — 건수에도 같이 센다
+function Group({ g, rows, s, cols, extra = [], children }: { g: PendingGroup; rows: PendingRow[]; s: PendingSummary; cols: string[]; extra?: ReactNode[]; children: (r: PendingRow) => ReactNode }) {
+  if (!rows.length && !extra.length) return null;
   return (
     <div className="mt-6">
       <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="text-[16px] font-semibold">{GROUP_LABEL[g]} {rows.length}</h2>
+        <h2 className="text-[16px] font-semibold">{GROUP_LABEL[g]} {rows.length + extra.length}</h2>
         <span className="text-ui text-x-muted">{GROUP_SUB[g](s, rows)}</span>
       </div>
       <div className="overflow-x-auto rounded-xl border border-x-border bg-white">
         <table className="w-full border-collapse">
           <thead><tr>{cols.map((c, i) => <th key={i} className={`${HEAD} ${c === '작업 금액' || c === '송금액' ? 'text-right' : ''}`} aria-label={c || '처리'}>{c}</th>)}</tr></thead>
-          <tbody>{rows.map(children)}</tbody>
+          <tbody>{rows.map(children)}{extra}</tbody>
         </table>
       </div>
     </div>
@@ -206,6 +213,19 @@ function Row({ r, err, selected, withPosted, onOpen, children }: { r: PendingRow
         <tr><td colSpan={9} className="border-b border-x-border/60 px-3 pb-2.5 pt-0 text-ui"><span role="alert" className="font-medium text-red-700">{err}</span></td></tr>
       )}
     </>
+  );
+}
+// 정산에서 빠진 작업 한 줄 — 후보 행과 같은 칸(인플루언서·유형·캠페인·작업 금액·게시일·사유). 누르면 같은 작업 패널에서 비용을 넣는다.
+function UnsendableTr({ u, selected, onOpen }: { u: UnsendableRow; selected: boolean; onOpen: () => void }) {
+  return (
+    <tr onClick={onOpen} className={`cursor-pointer text-[15px] hover:bg-x-hover ${selected ? 'bg-x-surface' : ''}`} title="눌러서 작업 패널 열기">
+      <td className={`${CELL} font-semibold`}>{u.influencerHandle ? `@${u.influencerHandle}` : <span className="font-normal text-x-muted">미배정</span>}</td>
+      <td className={CELL}><span className={TYPE_CHIP[u.taskType]}>{TASK_TYPE_LABEL[u.taskType]}</span></td>
+      <td className={CELL}>{u.campaignName} <span className="text-ui text-x-muted">· {u.clientName}</span></td>
+      <td className={`${CELL} ${NUM} text-x-muted`}>—</td>
+      <td className={CELL}>{dayLabel(u.postedAt)}</td>
+      <td className={`${CELL} text-ui text-red-700`}>{u.reasons.map((x) => UNSENDABLE_TEXT[x]).join(', ')}</td>
+    </tr>
   );
 }
 function Actions({ children }: { children: ReactNode }) {

@@ -1,11 +1,16 @@
 'use client';
-import { Suspense, useCallback, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { SETTLEMENT_TABS, SETTLEMENT_TAB_LABEL, parseSettlementTab, type SettlementTab } from './tabs';
 import { PendingTab } from './PendingTab';
 import { RequestList } from './RequestList';
 import { SettingsTab } from './SettingsTab';
 import { ExternalLogTab } from './ExternalLogTab';
+import { fetchPending, fetchRequests } from '@/lib/settlementApi';
+import { searchTokens, matchesSearch, type SearchFields } from '@/lib/settlementSearch';
+
+// 검색이 걸리는 탭 — 설정·호출 기록은 작업 목록이 아니라 검색창을 두지 않는다
+const SEARCH_TABS: readonly SettlementTab[] = ['candidates', 'requests'];
 
 function SettlementInner() {
   const pathname = usePathname(); const sp = useSearchParams();
@@ -17,8 +22,26 @@ function SettlementInner() {
   const [focusTaskId, setFocusTaskId] = useState<string | null>(() => sp.get('task'));
   const [focusRequestId, setFocusRequestId] = useState<string | null>(() => sp.get('request'));
   const [focusCampaignId, setFocusCampaignId] = useState<string | null>(() => sp.get('campaign'));
+  // 검색어는 두 탭이 같이 쓴다 — 탭을 바꿔도 남는다(koo 11-02: 문의 온 인플루언서가 '보냈나·안 보냈나'를 탭 오가며 찾지 않게)
+  const [q, setQ] = useState('');
+  const tokens = useMemo(() => searchTokens(q), [q]);
+  // 다른 탭 건수 — 검색을 시작할 때·탭을 바꿀 때 두 목록을 한 번 읽어 화면에서 센다(타이핑마다 다시 읽지 않는다)
+  const [lists, setLists] = useState<{ candidates: SearchFields[]; requests: SearchFields[] } | null>(null);
+  const searching = tokens.length > 0;
+  useEffect(() => {
+    if (!searching || lists) return;
+    let off = false;
+    void Promise.all([fetchPending(), fetchRequests({})]).then(([p, r]) => {
+      if (off || !p.ok || !r.ok) return;
+      setLists({ candidates: [...p.data.rows.map((x) => x.cand), ...p.data.unsendable], requests: r.data });
+    });
+    return () => { off = true; };
+  }, [searching, lists]);
+  const otherTab: SettlementTab | null = tab === 'candidates' ? 'requests' : tab === 'requests' ? 'candidates' : null;
+  const otherCount = otherTab && lists && searching ? lists[otherTab as 'candidates' | 'requests'].filter((x) => matchesSearch(x, tokens)).length : null;
   const setTab = useCallback((t: SettlementTab) => {
     setTabState(t);
+    setLists(null);            // 다른 탭 건수는 탭을 옮길 때 새로 센다 — 그 사이 보낸·고친 건이 반영되게
     setFocusTaskId(null);      // 탭을 바꾸면 딥링크로 들어온 좁힘(요청 하나만·캠페인 하나만)은 전부 해제한다 — URL에서도 아래에서 같이 지운다
     setFocusRequestId(null);
     setFocusCampaignId(null);  // 안 지우면 탭을 떠났다 돌아올 때마다 캠페인 필터가 되살아나 사용자가 고른 값을 덮는다
@@ -46,9 +69,24 @@ function SettlementInner() {
           </button>
         ))}
       </nav>
+      {SEARCH_TABS.includes(tab) && (
+        <div className="mt-4">
+          <div className="relative max-w-[480px]">
+            <input type="search" value={q} onChange={(e) => setQ(e.target.value)} aria-label="정산 검색"
+                   placeholder="인플루언서, 캠페인, 클라이언트 이름으로 찾기"
+                   className="w-full rounded-lg border border-x-border bg-white px-3 py-2 text-[15px] placeholder:text-x-muted focus:border-x-blue focus:outline-none" />
+          </div>
+          <p className="mt-1.5 text-ui text-x-muted">
+            {!searching ? '예: @rena, 4주차, 백수약국 — 띄어 쓰면 낱말이 모두 들어간 것만 보여요'
+              : otherCount === null ? '찾는 중…'
+              : otherCount === 0 ? `${SETTLEMENT_TAB_LABEL[otherTab!]}에는 없어요`
+              : <>{SETTLEMENT_TAB_LABEL[otherTab!]}에도 {otherCount}건 있어요 <button type="button" onClick={() => setTab(otherTab!)} className="text-x-blue-text hover:underline">보기 →</button></>}
+          </p>
+        </div>
+      )}
       <div className="mt-5">
-        {tab === 'candidates' && <PendingTab onGoRequests={() => setTab('requests')} initialCampaignId={focusCampaignId} />}
-        {tab === 'requests' && <RequestList focusTaskId={focusTaskId} />}
+        {tab === 'candidates' && <PendingTab onGoRequests={() => setTab('requests')} initialCampaignId={focusCampaignId} tokens={tokens} />}
+        {tab === 'requests' && <RequestList focusTaskId={focusTaskId} tokens={tokens} onClearSearch={() => setQ('')} />}
         {tab === 'settings' && <SettingsTab />}
         {tab === 'log' && <ExternalLogTab focusRequestId={focusRequestId} />}
       </div>

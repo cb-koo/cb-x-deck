@@ -6,7 +6,7 @@ import { createBudgetPeriod, listBudgetPeriods } from './budgetPeriodStore.ts';
 import { insertDraft, updateDraft } from './draftStore.ts';
 import type { DraftContent } from './draftTypes.ts';
 import {
-  createCampaign, listCampaigns, getCampaign, updateCampaign, deleteCampaign,
+  createCampaign, listCampaigns, getCampaign, updateCampaign, deleteCampaign, setCampaignClosed,
   getCampaignDetail, upsertInfluencerCost, listInfluencerCampaigns, spendByPeriods,
 } from './campaignStore.ts';
 import { createTasks, updateTask, hasActiveRequest } from './campaignTaskStore.ts';
@@ -69,6 +69,22 @@ test('1b) 수정 — clientId·clientName은 함께 바뀐다(잘못 고른 클�
   const updated = await getCampaign(sql, row.id);
   assert.equal(updated!.clientId, c2.id);
   assert.equal(updated!.clientName, c2.name);
+});
+
+test('1c) 마감·다시 열기(085) — 누가 언제, 같은 상태면 덮어쓰지 않음, 다시 열면 비움', async () => {
+  const c = await createClient(sql, P + '클라1c');
+  const row = await createCampaign(sql, base(c.id, c.name, 'a1c'));
+  assert.equal(row.closedAt, null); assert.equal(row.closedByName, null);
+  await setCampaignClosed(sql, row.id, true, '첫사람');
+  const closed = (await getCampaign(sql, row.id))!;
+  assert.ok(closed.closedAt); assert.equal(closed.closedByName, '첫사람');
+  await setCampaignClosed(sql, row.id, true, '둘째');   // 이미 마감 — 마감한 사람·때를 덮어쓰지 않는다
+  const again = (await getCampaign(sql, row.id))!;
+  assert.equal(again.closedByName, '첫사람'); assert.equal(again.closedAt, closed.closedAt);
+  await setCampaignClosed(sql, row.id, false, '둘째');
+  const reopened = (await getCampaign(sql, row.id))!;
+  assert.equal(reopened.closedAt, null); assert.equal(reopened.closedByName, null);
+  await setCampaignClosed(sql, 'not-a-uuid', true, 'x');   // 형식 아님 — 조용히 무시
 });
 
 test('2) 상세 — 작업 목록·게시됨(posted_at)·성과(task_id)·링크 클릭(draft)·요약·인플 목록·유형별 소계·삭제 정보', async () => {

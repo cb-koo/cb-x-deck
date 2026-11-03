@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  campaignDot, isEndedLongPending, isLongCampaign, staysInLongSection, campaignRowLabel, campaignSections, campaignsByClient,
+  campaignDot, isClosed, isEndedLongPending, isLongCampaign, staysInLongSection, campaignRowLabel, campaignSections, campaignsByClient,
   matchesCampaignQuery, splitClientRows, weekKey, weekName,
 } from './campaignListView.ts';
 
@@ -212,4 +212,43 @@ test('splitClientRows·campaignsByClient: 남은 작업 있는 끝난 장기는 
   assert.deepEqual(past.map((r) => r.name), ['A_10월4주차', 'A_9월 방문협찬']);
   assert.equal(campaignsByClient([pending, done], NOV2)[0].open, true);
   assert.equal(campaignsByClient([done], NOV2)[0].open, false);
+});
+
+// 마감(085, koo 11-02): 남은 작업과 상관없이 지난 캠페인으로, 점은 회색, 다시 열면 원래대로
+const closedAt = (kstDate: string) => `${kstDate}T03:00:00.000Z`; // 서울 12:00
+test('isClosed·campaignDot: 마감하면 회색 점, 남은 작업 수를 말한다', () => {
+  const c = { startsOn: '2026-10-01', endsOn: '2026-10-31', progress: P(0, 3, 1) };
+  assert.equal(isClosed({ closedAt: undefined }), false);
+  assert.equal(isClosed({ ...c, closedAt: null }), false);
+  assert.deepEqual(campaignDot({ ...c, closedAt: closedAt('2026-11-02') }, NOV2), { dot: 'grey', reason: '마감했어요. 게시 안 된 작업 4건' });
+  assert.deepEqual(campaignDot({ ...c, progress: P(2, 0, 0), closedAt: closedAt('2026-11-02') }, NOV2), { dot: 'grey', reason: '마감했어요' });
+  assert.equal(campaignDot({ ...c, closedAt: null }, NOV2).dot, 'red');
+});
+
+test('campaignSections: 마감한 장기는 남은 작업이 있어도 끝난 날의 주로, 기간 중 마감이면 마감한 날의 주로', () => {
+  const pendingClosed = { ...OCT_VISIT('백수약국_10월 방문협찬', P(0, 4, 0)), closedAt: closedAt('2026-11-02') };
+  const pendingOpen = OCT_VISIT('벤자민클리닉_10월 방문협찬', P(0, 4, 0));
+  const earlyClosed = { ...row('C_11월 방문협찬', 'C', '2026-11-01', '2026-11-30', undefined, P(0, 1, 0)), closedAt: closedAt('2026-11-02') };
+  const s = campaignSections([pendingClosed, pendingOpen, earlyClosed], NOV2);
+  assert.deepEqual(s.long.map((r) => r.name), ['벤자민클리닉_10월 방문협찬']);
+  assert.deepEqual(s.past.map((g) => [g.label, g.rows.map((r) => r.name)]), [['지난 주 · 10월5주차', ['백수약국_10월 방문협찬']]]);
+  assert.deepEqual(s.upcoming[0].rows.map((r) => r.name), ['C_11월 방문협찬']); // 11/2(이번 주)에 마감
+  // 다시 열면(closedAt null) 장기 칸으로 돌아온다
+  const reopened = campaignSections([{ ...pendingClosed, closedAt: null }], NOV2);
+  assert.deepEqual(reopened.long.map((r) => r.name), ['백수약국_10월 방문협찬']);
+});
+
+test('campaignSections: 마감한 주차 캠페인은 시작한 주에 그대로(회색 점)', () => {
+  const wk = { ...row('D_11월1주차', 'D', '2026-11-02', '2026-11-08', undefined, P(0, 2, 0)), closedAt: closedAt('2026-11-02') };
+  const s = campaignSections([wk], NOV2);
+  assert.deepEqual(s.upcoming[0].rows.map((r) => r.name), ['D_11월1주차']);
+});
+
+test('splitClientRows·campaignsByClient: 마감한 캠페인은 진행 중이어도 지난 쪽', () => {
+  const live = { ...row('A_11월 방문협찬', 'A', '2026-11-01', '2026-11-30', 'c1', P(0, 1, 0)), closedAt: closedAt('2026-11-02') };
+  const pending = { ...row('A_10월 방문협찬', 'A', '2026-10-01', '2026-10-31', 'c1', P(0, 1, 0)), closedAt: closedAt('2026-11-02') };
+  const { current, past } = splitClientRows([live, pending], NOV2);
+  assert.deepEqual(current, []);
+  assert.deepEqual(past.map((r) => r.name), ['A_11월 방문협찬', 'A_10월 방문협찬']);
+  assert.equal(campaignsByClient([live, pending], NOV2)[0].open, false);
 });

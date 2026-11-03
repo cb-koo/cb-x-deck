@@ -147,7 +147,7 @@ const inputDefinitions = {
   },
 } satisfies Record<keyof ClientSheetEditFields | keyof ClientSheetFields | 'accountUrl', { prefix: string; aliases: string[] }>;
 
-type SheetInputKey = keyof typeof inputDefinitions;
+export type SheetInputKey = keyof typeof inputDefinitions;
 const normalizeLabel = (label: string) => label.replace(/\s+/g, '').replace(/（/g, '(').replace(/）/g, ')')
   .replace(/\(예[:：][^)]*\)/g, '');
 
@@ -235,6 +235,13 @@ export function readClientSheetInputs(text: string): ClientSheetEditFields {
     fields[key] = inputValue(findInputLine(parts, key)?.value ?? '', key);
   }
   return fields;
+}
+
+// 입력란 하나 — 예약 창의 파싱 결과 칸(예산·기왕력·동반자처럼 readClientSheetInputs에 없는 줄 포함)이 쓴다.
+// 줄이 없으면 null(줄이 없는 양식에 칸을 띄워 새 줄을 덧붙이지 않게), 있으면 값('-'·미입력은 '').
+export function readClientSheetInput(text: string, key: SheetInputKey): string | null {
+  const line = findInputLine(text.split(/(\r\n|\n|\r)/), key);
+  return line ? inputValue(line.value, key) : null;
 }
 
 export function updateClientSheetInput(

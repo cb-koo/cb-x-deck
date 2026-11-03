@@ -6,6 +6,7 @@ import {
   formatReservationName,
   normalizeFollowerTier,
   readClientSheet,
+  readClientSheetInput,
   readClientSheetInputs,
   sheetDifferences,
   sheetHandle,
@@ -143,4 +144,12 @@ test('sheetHandle — 핸들 줄이 없으면 계정 링크 URL에서 계정을 
   assert.equal(sheetHandle(link('x.com/hana_mozu')), '');
   // 핸들 줄이 있으면 URL과 달라도 핸들 줄이 이긴다
   assert.equal(sheetHandle('@hana_mozu\nhttps://x.com/other?s=20\n\n1. 희망 일시: 2026-10-28 16:00'), 'hana_mozu');
+});
+
+test('입력란 하나 읽기 — 줄이 없으면 null, 빈 값은 빈 문자열', () => {
+  const sheet = '@hana\n\n1. 희망 일시: 2026-10-28 16:00\n8. 희망 예산 범위: 50만원\n9. 성형·시술 이력 (또는 예정): -';
+  assert.equal(readClientSheetInput(sheet, 'budget'), '50만원');
+  assert.equal(readClientSheetInput(sheet, 'treatmentHistory'), '');
+  assert.equal(readClientSheetInput(sheet, 'companion'), null);
+  assert.equal(readClientSheetInput(sheet, 'preferred'), '2026-10-28T16:00');
 });

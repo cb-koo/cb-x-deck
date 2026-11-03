@@ -17,6 +17,7 @@ import { locationLabel, representativeLocation, type ClinicSummary } from '@/lib
 import { branchFromSheet, branchOptions, initialBranchId, isMultiBranch } from '@/lib/reservationBranch';
 import { BranchSelect } from './BranchSelect';
 import { useLocationHours } from './useLocationHours';
+import type { ClinicDetail } from '@/lib/clinicStore';
 import type { CampaignRow, CampaignTaskItem } from '@/lib/campaignStore';
 import type { reservationDetail, reservationChanges } from '@/lib/reservationStore';
 import type { TaskDto } from '@/lib/extensionTasks';
@@ -93,6 +94,17 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
     const list = await productFetch<{ items: ClinicSummary[] }>('clinics');
     setLocations(list.items.filter((c) => c.clientId === campaign.clientId)); setLocationsTick((n) => n + 1);
   }, [campaign.clientId]);
+  // 양식 출처 = 대표 지점 상세(고객 양식·시트 양식). 파싱은 이 지점 양식으로 하므로 새 예약의 templateRevisionId도 여기서 읽는다 —
+  // 고른 지점이 대표 지점과 달라도 '파싱에 쓴 양식'이 기록되게(예약 창 NewReservationDialog와 같은 규칙). 운영시간은 고른 지점(useLocationHours).
+  const representativeId = representativeLocation(locations ?? [])?.id ?? null;
+  const [templateSource, setTemplateSource] = useState<ClinicDetail | null>(null);
+  useEffect(() => {
+    if (!representativeId) return;
+    let alive = true;
+    productFetch<ClinicDetail>(`clinics/${representativeId}`).then((value) => { if (alive) setTemplateSource(value); }).catch((e) => { if (alive) setError(errorText(e)); });
+    return () => { alive = false; };
+  }, [representativeId, locationsTick]);
+  const templateClinic = templateSource?.id === representativeId ? templateSource : null;
   const load = useCallback(async () => {
     try {
       const features = await loadProductFeatures();
@@ -167,7 +179,9 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
     const normalized = applyDeadlineMode(sheet, mode);
     if (!normalized.ok) { setError(normalized.message); return; }
     if (multi && !editLocationId) { setError('지점을 선택해 주세요.'); return; }
-    if (!detail && !clinic) { setError('캠페인의 클리닉을 먼저 연결해 주세요.'); return; }
+    // 새 예약 — 저장할 지점(고른 지점)과 양식 출처(대표 지점 상세)가 둘 다 있어야 한다. 지점 목록이 비면 클리닉 연결 문제, 상세가 아직이면 읽는 중.
+    if (!detail && !editLocationId) { setError('캠페인의 클리닉을 먼저 연결해 주세요.'); return; }
+    if (!detail && !templateClinic) { setError('클리닉 양식을 아직 읽는 중이에요. 잠시 뒤 다시 저장해 주세요.'); return; }
     // 지점을 바꿨을 때만 보낸다 — 같은 지점이면 사용 중지된 지점이어도 그대로 둔다(서버도 같은 규칙)
     const moved = detail && editLocationId && editLocationId !== detail.locationId ? { locationId: editLocationId } : {};
     await run(async () => {
@@ -179,7 +193,7 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
         next = detail ? await save<Detail>(`reservations/${detail.id}${confirm ? '/confirm' : ''}`,
           { sheetText: normalized.value, deadlineMode: mode, reason: reason || null, ...moved }, detail.version, confirm ? 'POST' : 'PATCH')
           : await save<Detail>('reservations', { target: { kind: 'existingTask', taskId: task.id, expectedTaskVersion: taskInfo?.version ?? task.version },
-            locationId: clinic!.id, sourceText: source, sheetText: normalized.value, deadlineMode: mode, templateRevisionId: clinic!.templates.sheet?.id ?? null });
+            locationId: editLocationId, sourceText: source, sheetText: normalized.value, deadlineMode: mode, templateRevisionId: templateClinic!.templates.sheet?.id ?? null });
       } catch (e) {
         // 창을 연 사이 고른 지점이 사용 중지됐으면 — 목록을 다시 읽고 다시 고르게 한다(문구는 서버 그대로). 입력은 그대로 둔다.
         if (e instanceof ProductClientError && e.code === 'LOCATION_INACTIVE') { setEditLocationId(null); void loadLocations().catch(() => {}); }
@@ -198,7 +212,7 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
   const targetOption = options.find((o) => o.id === targetId) ?? null;
   // 요약·예약 정보 탭은 저장된 지점(수정 창에서 고르는 중인 값이 아니라) — 없으면(새 예약) 대표 지점
   const shownLocation = locations?.find((l) => l.id === (detail?.locationId ?? targetId)) ?? null;
-  const { clinic, hours, retry: retryHours } = useLocationHours(targetId, preferredMonth, locationsTick);
+  const { hours, retry: retryHours } = useLocationHours(targetId, preferredMonth, locationsTick);
   const clinicLoaded = locations !== null;
   // 요약·예약 정보 탭의 클리닉 이름 — 지점이 여러 곳이면 지점명까지(1곳이면 예전처럼 클리닉 이름만)
   const clinicName = shownLocation ? (multi ? locationLabel(shownLocation) : shownLocation.name) : null;
@@ -418,20 +432,20 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
         <div className="flex flex-wrap items-center justify-end gap-2">
           {/* 예약 창(onAddReservation)은 클리닉을 스스로 확인한다 — 여기서 미리 막지 않는다. 이 상자 안에서 바로 쓰는 길(startEdit)만 클리닉이 필요하다 */}
           <Button variant={phase === 'unregistered' || phase === 'waiting' || phase === null ? 'primary' : undefined}
-                  disabled={busy || !task.influencerHandle || (!onAddReservation && !clinic) || !!task.postedAt} onClick={onAddReservation ?? startEdit}>이 작업에 예약 추가</Button>
+                  disabled={busy || !task.influencerHandle || (!onAddReservation && !templateClinic) || !!task.postedAt} onClick={onAddReservation ?? startEdit}>이 작업에 예약 추가</Button>
           {phase === 'visited' && <Button variant="ghost" onClick={() => onReveal?.('posting')}>게시로 이동 ↓</Button>}
           {cancelBtn}
         </div>
       )}
       {!task.influencerHandle && !locked && <p className="mt-2 text-right text-ui text-x-muted">인플루언서를 먼저 배정해 주세요.</p>}
-      {task.influencerHandle && !onAddReservation && clinicLoaded && !clinic && !locked && <p className="mt-2 text-right text-ui text-x-muted">캠페인의 클리닉을 먼저 연결해 주세요.</p>}
+      {task.influencerHandle && !onAddReservation && clinicLoaded && !templateClinic && !locked && <p className="mt-2 text-right text-ui text-x-muted">캠페인의 클리닉을 먼저 연결해 주세요.</p>}
     </>}
     {/* 예약 없는 기존 작업에 이 상자 안에서 바로 예약을 쓰는 길(onAddReservation이 없을 때만) — 1 고객 양식 → 2 응답 확인·기재 시트 */}
     {inlineEditing && <fieldset disabled={busy} className="mt-3 space-y-3 rounded-lg border border-x-border bg-x-surface p-3">
       <nav className="flex gap-2 text-ui"><Button onClick={() => setStep(1)}>1 고객 양식</Button><Button onClick={() => setStep(2)}>2 응답 확인·기재 시트</Button></nav>
-      {step === 1 ? <><p className="text-ui text-x-secondary">고객에게 양식을 보내고 응답을 받은 뒤 다음 단계로 진행해 주세요.</p><pre className="whitespace-pre-wrap rounded-lg bg-white p-3 text-ui">{clinic?.templates.form?.body.replace(/\{\{handle\}\}/g, task.influencerHandle ?? '').replace(/\{\{clinic\}\}/g, clinic.name) || '클리닉에 저장된 고객 양식이 없어요. 클리닉 설정에서 추가해 주세요.'}</pre><Link className="text-ui text-x-blue-text underline" href={`/clients?client=${campaign.clientId}&tab=forms`}>클리닉 양식 설정</Link><Button variant="primary" onClick={() => setStep(2)}>고객 응답 입력으로</Button></> : <>
+      {step === 1 ? <><p className="text-ui text-x-secondary">고객에게 양식을 보내고 응답을 받은 뒤 다음 단계로 진행해 주세요.</p><pre className="whitespace-pre-wrap rounded-lg bg-white p-3 text-ui">{templateClinic?.templates.form?.body.replace(/\{\{handle\}\}/g, task.influencerHandle ?? '').replace(/\{\{clinic\}\}/g, templateClinic.name) || '클리닉에 저장된 고객 양식이 없어요. 클리닉 설정에서 추가해 주세요.'}</pre><Link className="text-ui text-x-blue-text underline" href={`/clients?client=${campaign.clientId}&tab=forms`}>클리닉 양식 설정</Link><Button variant="primary" onClick={() => setStep(2)}>고객 응답 입력으로</Button></> : <>
         <label className="block text-ui">고객이 보낸 응답<textarea rows={5} value={source} onChange={(e) => setSource(e.target.value)} className={`${INPUT} mt-1`} /></label><p className="text-ui text-x-secondary">버튼을 누르면 AI가 응답에서 예약 정보를 읽어요. 사용 비용이 발생하며, 저장 전 직접 확인해야 해요.</p><Button disabled={!source.trim()} onClick={() => void run(async () => {
-          const job = await save<{ result: { sheetText: string; summary: string; locationId: string | null } }>('reservation-extractions', { sourceText: source, personId: taskInfo?.personId, locationId: representativeLocation(locations ?? [])?.id });
+          const job = await save<{ result: { sheetText: string; summary: string; locationId: string | null } }>('reservation-extractions', { sourceText: source, personId: taskInfo?.personId, locationId: representativeId });
           setSheet(job.result.sheetText); setNotice(job.result.summary);
           if (multi) setEditLocationId(job.result.locationId);
         })}>응답에서 예약 정보 가져오기</Button>

@@ -1094,6 +1094,8 @@ export function TaskPanel({
                 </div>
               )}
             </PanelSection>
+            {/* [협찬 항목] — 방문협찬이면 클라이언트 협찬 항목을 펼쳐 복사해 인플루언서에게 안내한다(유형과 인플루언서 사이) */}
+            {reservationMode && campaign.clientId && <SponsorItemsButton clientId={campaign.clientId} />}
             {newFieldOrder.map((field) => (
               <PanelSection key={field} title={fieldLabel(field, newType as TaskType)}>{renderNewField(field)}</PanelSection>
             ))}
@@ -1119,8 +1121,6 @@ export function TaskPanel({
           </div>
         ) : (
           <>
-            {/* [협찬 항목] — 방문협찬이면 클라이언트 협찬 항목을 펼쳐 복사해 인플루언서에게 안내한다(바닥 왼쪽) */}
-            {reservationMode && campaign.clientId && <SponsorItemsButton clientId={campaign.clientId} />}
             {/* 막힌 이유만 한 줄(§10 규칙 ②) — 유형 전엔 두 버튼이 비활성이라 왜 안 눌리는지는 말한다 */}
             {!newType && <p className="text-ui text-x-muted">유형을 먼저 골라요</p>}
             {/* 예약은 등록된 인플루언서에게만 연결된다(서버 PERSON_REQUIRED) — 누르기 전에 이유를 말한다 */}

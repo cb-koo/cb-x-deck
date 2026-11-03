@@ -44,6 +44,16 @@ export function ParsedFields({ sheet, onPatch, branch, warnings, hoursStatus }: 
       {branch && row('방문 지점',
         <BranchSelect id={branch.id} options={branch.options} value={branch.value} hint={branch.hint} onChange={branch.onChange} />,
         { htmlFor: branch.id, warn: null })}
+      {/* 방문 지점 바로 아래. 등급은 AI가 고르지 않는다 — 담당자가 직접 고른다. 양식에 줄이 없으면 고를 때 '인플루언서 팔로워' 줄이 시트 끝에 붙는다 */}
+      {row('팔로워 등급',
+        <div role="radiogroup" aria-label="팔로워 등급" className="flex gap-1.5">
+          {TIERS.map((t) => {
+            const on = normalizeFollowerTier(tier ?? '') === t;
+            return <button key={t} type="button" role="radio" aria-checked={on} onClick={() => onPatch('followerTier', t)}
+                           className={`rounded-full border px-3 py-1 text-ui ${on ? 'border-x-blue bg-x-blue/10 font-semibold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>{t}</button>;
+          })}
+        </div>,
+        { after: <small className="text-caption text-x-muted">팔로워 수를 보고 직접 골라 주세요.</small> })}
       {row('희망 일시',
         <div className="grid grid-cols-[1fr_128px] gap-1.5">
           <input id="pf-preferred" aria-label="희망 날짜" type={date && !isDateOnlyString(date) ? 'text' : 'date'} className={INPUT} value={date}
@@ -64,16 +74,6 @@ export function ParsedFields({ sheet, onPatch, branch, warnings, hoursStatus }: 
         const value = readClientSheetInput(sheet, key);
         return value === null ? null : <div key={key}>{text(key, label, value.replace('T', ' '))}</div>;
       })}
-      {/* 등급은 AI가 고르지 않는다 — 담당자가 직접 고른다. 양식에 줄이 없으면 고를 때 '인플루언서 팔로워' 줄이 시트 끝에 붙는다 */}
-      {row('팔로워 등급',
-        <div role="radiogroup" aria-label="팔로워 등급" className="flex gap-1.5">
-          {TIERS.map((t) => {
-            const on = normalizeFollowerTier(tier ?? '') === t;
-            return <button key={t} type="button" role="radio" aria-checked={on} onClick={() => onPatch('followerTier', t)}
-                           className={`rounded-full border px-3 py-1 text-ui ${on ? 'border-x-blue bg-x-blue/10 font-semibold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>{t}</button>;
-          })}
-        </div>,
-        { after: <small className="text-caption text-x-muted">팔로워 수를 보고 직접 골라 주세요.</small> })}
     </div>
   );
 }

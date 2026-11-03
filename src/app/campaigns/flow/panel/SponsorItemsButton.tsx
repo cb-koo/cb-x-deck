@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 
-// 새 방문협찬 폼 바닥의 [협찬 항목] — 클라이언트 '협찬 항목' 메모(클라이언트 상세 탭에서 쓴다)를 펼쳐 복사해 인플루언서에게 안내한다.
+// 새 방문협찬 폼 유형 칸과 인플루언서 칸 사이의 [협찬 항목] — 클라이언트 '협찬 항목' 메모(클라이언트 상세 탭에서 쓴다)를 펼쳐 복사해 인플루언서에게 안내한다.
 // 여기서는 읽기만 한다. 처음 펼칠 때 한 번 읽는다(폼을 열 때마다 부르지 않게).
 export function SponsorItemsButton({ clientId }: { clientId: string }) {
   const [open, setOpen] = useState(false);
@@ -41,9 +41,9 @@ export function SponsorItemsButton({ clientId }: { clientId: string }) {
     <div ref={box} className="relative">
       <Button onClick={() => { setError(''); setCopied('idle'); setOpen((v) => !v); }} aria-expanded={open}
               title="이 클라이언트의 협찬 항목을 보고 복사해 인플루언서에게 안내해요" className="h-9 px-3.5 text-ui">협찬 항목</Button>
-      {error && !open && <p role="alert" className="absolute bottom-full left-0 mb-2 w-[260px] text-caption text-red-600">{error}</p>}
+      {error && !open && <p role="alert" className="mt-1 text-caption text-red-600">{error}</p>}
       {open && (
-        <div role="dialog" aria-label="협찬 항목" className="absolute bottom-full left-0 z-20 mb-2 w-[340px] rounded-lg border border-x-border bg-white p-3 shadow-lg">
+        <div role="dialog" aria-label="협찬 항목" className="absolute top-full left-0 z-20 mt-2 w-[340px] rounded-lg border border-x-border bg-white p-3 shadow-lg">
           <p className="mb-2 text-ui font-semibold">협찬 항목</p>
           {memo === null ? <p className="text-ui text-x-muted">불러오는 중…</p>
             : memo.trim() ? <>

@@ -13,7 +13,7 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
-    date: '2026-11-02', type: '새 기능',
+    date: '2026-11-03', type: '새 기능',
     title: '남은 작업이 있어도 캠페인을 마감할 수 있어요',
     summary: "작업을 하나씩 정리하지 않아도 캠페인을 마감하면 목록에서 지난 캠페인으로 옮겨져요. 잘못 마감했으면 [다시 열기]로 바로 되돌릴 수 있어요.",
     bullets: [

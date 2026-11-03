@@ -1125,7 +1125,7 @@ export function TaskPanel({
             {!newType && <p className="text-ui text-x-muted">유형을 먼저 골라요</p>}
             {/* 예약은 등록된 인플루언서에게만 연결된다(서버 PERSON_REQUIRED) — 누르기 전에 이유를 말한다 */}
             {reservationMode && !handle && !handleInput.trim() && <p className="text-ui text-x-muted">인플루언서를 고르면 예약폼을 작성할 수 있어요</p>}
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
               <Button onClick={() => void submitNew(true)} disabled={!newType || busy} className="h-9 px-3.5 text-ui">만들고 하나 더</Button>
               <Button variant={reservationMode ? undefined : 'primary'} onClick={() => void submitNew(false)} disabled={!newType || busy} className="h-9 px-3.5 text-ui">
                 {busy ? '만드는 중…' : '만들기'}

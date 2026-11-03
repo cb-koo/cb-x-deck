@@ -1,6 +1,6 @@
 'use client';
 import type { ReactNode } from 'react';
-import { formatReservationName, normalizeFollowerTier, readClientSheetInput, readClientSheetInputs, splitReservationName, type SheetInputKey } from '@/lib/reservationSheet';
+import { clientSheetInputPosition, formatReservationName, normalizeFollowerTier, readClientSheetInput, readClientSheetInputs, splitReservationName, type SheetInputKey } from '@/lib/reservationSheet';
 import { isDateOnlyString } from '@/lib/campaignJudgment';
 import type { BranchOption } from '@/lib/reservationBranch';
 import { BranchSelect } from './BranchSelect';
@@ -39,41 +39,50 @@ export function ParsedFields({ sheet, onPatch, branch, warnings, hoursStatus }: 
   const text = (key: SheetInputKey, label: string, value: string) =>
     row(label, <input id={`pf-${key}`} className={INPUT} value={value} onChange={(e) => onPatch(key, e.target.value)} />, { htmlFor: `pf-${key}` });
 
+  // 칸은 기재 시트 줄 순서대로 놓는다(양식마다 순서가 다르다 — 벤자민은 팔로워·성함·국적…). 시트에 줄이 없는 칸은 맨 뒤 —
+  // 그 칸을 채우면 줄이 시트 끝에 붙으니 순서가 계속 맞는다. 같은 줄(이름 한국어·로마자)은 아래 적은 순서 그대로.
+  const rows: [SheetInputKey, ReactNode][] = [
+    ...(branch ? [['branch', row('방문 지점',
+      <BranchSelect id={branch.id} options={branch.options} value={branch.value} hint={branch.hint} onChange={branch.onChange} />,
+      { htmlFor: branch.id, warn: null })] as [SheetInputKey, ReactNode]] : []),
+    // 등급은 AI가 고르지 않는다 — 담당자가 직접 고른다. 양식에 줄이 없으면 고를 때 '인플루언서 팔로워' 줄이 시트 끝에 붙는다
+    ['followerTier', row('팔로워 등급',
+      <div role="radiogroup" aria-label="팔로워 등급" className="flex gap-1.5">
+        {TIERS.map((t) => {
+          const on = normalizeFollowerTier(tier ?? '') === t;
+          return <button key={t} type="button" role="radio" aria-checked={on} onClick={() => onPatch('followerTier', t)}
+                         className={`rounded-full border px-3 py-1 text-ui ${on ? 'border-x-blue bg-x-blue/10 font-semibold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>{t}</button>;
+        })}
+      </div>,
+      { after: <small className="text-caption text-x-muted">팔로워 수를 보고 직접 골라 주세요.</small> })],
+    ['preferred', row('희망 일시',
+      <div className="grid grid-cols-[1fr_128px] gap-1.5">
+        <input id="pf-preferred" aria-label="희망 날짜" type={date && !isDateOnlyString(date) ? 'text' : 'date'} className={INPUT} value={date}
+               onChange={(e) => onPatch('preferred', time && isDateOnlyString(e.target.value) ? `${e.target.value}T${time}` : e.target.value)} />
+        <input aria-label="희망 시간" type="time" className={INPUT} value={time} disabled={!structured || !date}
+               onChange={(e) => onPatch('preferred', e.target.value ? `${date}T${e.target.value}` : date)} />
+      </div>,
+      { htmlFor: 'pf-preferred', warn: warnOf('preferred'), after: hoursStatus })],
+    ['name', row('이름 (한국어)', <input id="pf-name-ko" className={INPUT} value={names.korean} onChange={(e) => onPatch('name', formatReservationName({ ...names, korean: e.target.value }))} />, { htmlFor: 'pf-name-ko' })],
+    ['name', row('이름 (로마자)', <input id="pf-name-ro" className={INPUT} value={names.roman} onChange={(e) => onPatch('name', formatReservationName({ ...names, roman: e.target.value }))} />, { htmlFor: 'pf-name-ro' })],
+    ['visitType', text('visitType', '초진/재진', fields.visitType)],
+    ['gender', text('gender', '성별', fields.gender)],
+    ['birthDate', row('생년월일', <input id="pf-birth" type={!fields.birthDate || isDateOnlyString(fields.birthDate) ? 'date' : 'text'} className={INPUT}
+                          value={fields.birthDate} onChange={(e) => onPatch('birthDate', e.target.value)} />, { htmlFor: 'pf-birth' })],
+    ['koreanAbility', text('koreanAbility', '한국어', fields.koreanAbility)],
+    ['treatment', text('treatment', '시술 내용', fields.treatment)],
+    ...OPTIONAL.flatMap(([key, label]): [SheetInputKey, ReactNode][] => {
+      const value = readClientSheetInput(sheet, key);
+      return value === null ? [] : [[key, text(key, label, value.replace('T', ' '))]];
+    }),
+  ];
+  const position = (key: SheetInputKey) => clientSheetInputPosition(sheet, key) ?? Infinity;
+  const ordered = rows.map(([key, node], i) => ({ key, node, i, at: position(key) }))
+    .sort((a, b) => a.at - b.at || a.i - b.i);
+
   return (
     <div className="grid content-start gap-2.5">
-      {branch && row('방문 지점',
-        <BranchSelect id={branch.id} options={branch.options} value={branch.value} hint={branch.hint} onChange={branch.onChange} />,
-        { htmlFor: branch.id, warn: null })}
-      {/* 방문 지점 바로 아래. 등급은 AI가 고르지 않는다 — 담당자가 직접 고른다. 양식에 줄이 없으면 고를 때 '인플루언서 팔로워' 줄이 시트 끝에 붙는다 */}
-      {row('팔로워 등급',
-        <div role="radiogroup" aria-label="팔로워 등급" className="flex gap-1.5">
-          {TIERS.map((t) => {
-            const on = normalizeFollowerTier(tier ?? '') === t;
-            return <button key={t} type="button" role="radio" aria-checked={on} onClick={() => onPatch('followerTier', t)}
-                           className={`rounded-full border px-3 py-1 text-ui ${on ? 'border-x-blue bg-x-blue/10 font-semibold text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>{t}</button>;
-          })}
-        </div>,
-        { after: <small className="text-caption text-x-muted">팔로워 수를 보고 직접 골라 주세요.</small> })}
-      {row('희망 일시',
-        <div className="grid grid-cols-[1fr_128px] gap-1.5">
-          <input id="pf-preferred" aria-label="희망 날짜" type={date && !isDateOnlyString(date) ? 'text' : 'date'} className={INPUT} value={date}
-                 onChange={(e) => onPatch('preferred', time && isDateOnlyString(e.target.value) ? `${e.target.value}T${time}` : e.target.value)} />
-          <input aria-label="희망 시간" type="time" className={INPUT} value={time} disabled={!structured || !date}
-                 onChange={(e) => onPatch('preferred', e.target.value ? `${date}T${e.target.value}` : date)} />
-        </div>,
-        { htmlFor: 'pf-preferred', warn: warnOf('preferred'), after: hoursStatus })}
-      {row('이름 (한국어)', <input id="pf-name-ko" className={INPUT} value={names.korean} onChange={(e) => onPatch('name', formatReservationName({ ...names, korean: e.target.value }))} />, { htmlFor: 'pf-name-ko' })}
-      {row('이름 (로마자)', <input id="pf-name-ro" className={INPUT} value={names.roman} onChange={(e) => onPatch('name', formatReservationName({ ...names, roman: e.target.value }))} />, { htmlFor: 'pf-name-ro' })}
-      {text('visitType', '초진/재진', fields.visitType)}
-      {text('gender', '성별', fields.gender)}
-      {row('생년월일', <input id="pf-birth" type={!fields.birthDate || isDateOnlyString(fields.birthDate) ? 'date' : 'text'} className={INPUT}
-                            value={fields.birthDate} onChange={(e) => onPatch('birthDate', e.target.value)} />, { htmlFor: 'pf-birth' })}
-      {text('koreanAbility', '한국어', fields.koreanAbility)}
-      {text('treatment', '시술 내용', fields.treatment)}
-      {OPTIONAL.map(([key, label]) => {
-        const value = readClientSheetInput(sheet, key);
-        return value === null ? null : <div key={key}>{text(key, label, value.replace('T', ' '))}</div>;
-      })}
+      {ordered.map(({ node, i }) => <div key={i}>{node}</div>)}
     </div>
   );
 }

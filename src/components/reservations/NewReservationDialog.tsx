@@ -324,7 +324,8 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
               <small className="mr-1 max-w-[300px] text-right text-caption text-x-muted">[예약 정보 파싱]은 AI가 응답을 읽어 채워요 · 사용 비용이 들고, 저장 전에 직접 확인해 주세요.</small>
               <Button variant="ghost" disabled={busy} className="h-9 px-3 text-content"
                       onClick={() => { if (!sheet) setSheet(blankSheet()); setNotice('원문을 보며 기재 시트를 직접 작성해 주세요.'); setError(''); }}>수동 작성</Button>
-              <Button onClick={() => void parse()} disabled={busy || !source.trim()} className="h-9 px-4 text-content">{parsing ? '파싱 중…' : '예약 정보 파싱'}</Button>
+              {/* 원문이 들어오면 지금 누를 버튼으로 칠한다 — 기재 시트가 생기면 강조는 [파싱 결과 복사하기]로 넘어간다 */}
+              <Button variant={source.trim() && !sheet.trim() ? 'primary' : undefined} onClick={() => void parse()} disabled={busy || !source.trim()} className="h-9 px-4 text-content">{parsing ? '파싱 중…' : '예약 정보 파싱'}</Button>
               <Button variant="primary" onClick={() => void copyAndSave()} disabled={busy || !sheet.trim()} className="h-9 px-4 text-content">
                 {busy && !parsing ? '저장 중…' : created ? '예약 다시 저장' : '파싱 결과 복사하기'}
               </Button>

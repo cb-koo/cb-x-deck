@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  clientSheetInputPosition,
   createClientSheet,
   fillClientSheetTemplate,
   formatReservationName,
@@ -101,6 +102,13 @@ test('벤자민 시트 라벨을 읽는다', () => {
   assert.equal(f.branch, '신사점');
   assert.equal(f.followerTier, '마이크로');
   assert.equal(f.profileUrl, 'https://x.com/yuki_tokyo?s=20');
+});
+
+test('벤자민 시트 항목 줄 순서 — 없는 줄은 null', () => {
+  const keys = ['followerTier', 'name', 'visitType', 'gender', 'preferred', 'branch', 'treatment'] as const;
+  const at = keys.map((k) => clientSheetInputPosition(BENJAMIN_SHEET, k)!);
+  assert.deepEqual([...at].sort((a, b) => a - b), at);
+  assert.equal(clientSheetInputPosition(BENJAMIN_SHEET, 'koreanAbility'), null);
 });
 
 test('콜론으로 끝나는 줄에 값을 쓰면 한 칸 띄운다', () => {

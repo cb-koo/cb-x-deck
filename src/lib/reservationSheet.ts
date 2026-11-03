@@ -244,6 +244,11 @@ export function readClientSheetInput(text: string, key: SheetInputKey): string |
   return line ? inputValue(line.value, key) : null;
 }
 
+// 그 항목 줄이 시트에서 몇 번째인지 — 예약 창 파싱 결과 칸을 시트 순서대로 놓는 데 쓴다. 줄이 없으면 null.
+export function clientSheetInputPosition(text: string, key: SheetInputKey): number | null {
+  return findInputLine(text.split(/(\r\n|\n|\r)/), key)?.index ?? null;
+}
+
 export function updateClientSheetInput(
   text: string,
   key: SheetInputKey,

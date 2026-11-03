@@ -4,12 +4,14 @@ import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { Button } from '@/components/ui';
 import { productFetch, ProductClientError, useProductSave } from '@/lib/extensionProductClient';
-import { createClientSheet, readClientSheetInputs, updateClientSheetInput } from '@/lib/reservationSheet';
+import { createClientSheet, readClientSheetInputs, updateClientSheetInput, validDateTime, type SheetInputKey } from '@/lib/reservationSheet';
 import { applyDeadlineMode, type DeadlineMode } from '@/lib/reservationPolicy';
 import type { ClinicDetail } from '@/lib/clinicStore';
 import { representativeLocation, type ClinicSummary } from '@/lib/clinicLocation';
-import { branchContext, branchFromSheet, branchHint, branchOptions, initialBranchId, isMultiBranch } from '@/lib/reservationBranch';
-import { BranchSelect } from './BranchSelect';
+import { operatingOn, timeGuidance } from '@/lib/clinicHours';
+import { branchContext, branchFromSheet, branchOptions, initialBranchId, isMultiBranch } from '@/lib/reservationBranch';
+import { ParsedFields, type FieldWarning } from './ParsedFields';
+import { useLocationHours } from './useLocationHours';
 import type { CampaignRow } from '@/lib/campaignStore';
 
 // 방문 예약 창 — 목업(x-extension Registration)과 같은 두 단계 창이다. 두 곳에서 연다:
@@ -17,9 +19,11 @@ import type { CampaignRow } from '@/lib/campaignStore';
 //    (양식만 보내 두고 응답을 기다리는 흐름 — 응답이 오면 표에서 그 카드를 눌러 2단계부터 잇는다).
 //  · 예약이 없는 방문 작업 카드(existing) — '기존 방문 작업에 예약 추가', 2단계부터.
 // 1 고객 양식: 클리닉의 일본어 예약 양식을 복사해 X에서 직접 보낸다(이 화면은 DM을 보내지 않는다).
-// 2 예약 파싱: 고객 응답을 붙여 넣고 [예약 정보 파싱](AI) 또는 [수동 작성]으로 기재 시트를 만든 뒤 [파싱 결과 복사하기].
-// 지점(스펙 §3·§6): 클라이언트의 사용 중 지점이 2곳 이상이면 '방문 클리닉'이 지점 드롭다운이 된다(1곳이면 예전 그대로 '· 본점').
-// 양식·파싱은 대표 지점(양식 출처) 것으로, 저장은 고른 지점으로 한다. 파싱이 답변의 지점을 맞추면 자동 선택, 못 맞추면 비워 둔다.
+// 2 예약 파싱: 세 열 — 고객 응답 원문 | 파싱 결과(항목별, 수정 가능) | 기재 시트. 바닥의 [예약 정보 파싱](AI) 또는 [수동 작성]으로
+//   기재 시트를 만들고, 파싱 결과 칸을 고치면 시트의 그 줄이 바뀐다. 운영시간 밖 희망 일시·없는 지점은 경고로 보인다. 끝으로 [파싱 결과 복사하기].
+// 지점(스펙 §3·§6): 지점은 인플루언서가 양식에 적어 고른다 — 1단계에서 담당자가 고르지 않는다(양식 {{branch}}에는 지점 목록이 들어간다).
+// 파싱이 답변의 지점을 맞추면 파싱 결과에 그 지점이 보이고, 못 맞추면 경고와 함께 직접 고른다(사용 중 지점 2곳 이상일 때만 — 1곳이면 예전 그대로 '· 본점').
+// 양식·파싱은 대표 지점(양식 출처) 것으로, 저장은 고른 지점으로 한다.
 // 작업은 마지막 [파싱 결과 복사하기]에서야 만든다 — 폼의 예산·결제 수단·메모를 그대로 실은 작업을 먼저 만들고(createTask),
 // 그 작업에 예약을 연결한다. 예약 저장만 실패하면 만든 작업을 기억해 두고 다시 누를 때 예약만 저장한다(작업이 두 번 생기지 않게).
 // 창을 닫을 때 작업이 이미 만들어졌으면 그 작업을 연다(onDone) — 새 작업 폼이 그대로 남으면 [만들기]로 같은 작업이 또 생긴다.
@@ -92,11 +96,31 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
   const selected = options.find((o) => o.id === locationId) ?? null;
   // 저장할 지점 — 여러 곳이면 고른 지점만, 1곳이면 그 지점
   const target = multi ? selected : options[0] ?? null;
-  const hint = multi ? branchHint(parsedBranch, selected) : null;
   const values: Record<string, string> = { handle, clinic: clinic?.name ?? '', branch: branchContext(options, selected), naver: clinic?.settings.naver ?? '', google: clinic?.settings.google ?? '' };
-  const fill = (body: string) => body.replace(/\{\{(\w+)\}\}/g, (_, key: string) => values[key] ?? '');
-  const customerForm = clinic?.templates.form?.body ? fill(clinic.templates.form.body) : '';
-  const clinicLabel = clinic ? `${clinic.name} · ${multi ? selected?.name ?? '지점 선택 전' : '본점'}` : clinicErr ? '확인 필요' : '불러오는 중…';
+  const fill = (body: string, extra: Record<string, string> = {}) => body.replace(/\{\{(\w+)\}\}/g, (_, key: string) => extra[key] ?? values[key] ?? '');
+  // 고객 양식의 {{branch}} — 여러 곳이면 고를 수 있게 지점 목록('명동점 / 신사점'), 1곳이면 예전처럼 '본점'
+  const customerForm = clinic?.templates.form?.body
+    ? fill(clinic.templates.form.body, multi ? { branch: options.filter((o) => o.active).map((o) => o.name).join(' / ') } : {}) : '';
+  const clinicLabel = clinic ? `${clinic.name} · ${multi ? selected?.name ?? '지점은 파싱 후 표시' : '본점'}` : clinicErr ? '확인 필요' : '불러오는 중…';
+  // 파싱 결과의 경고 — 지점(고객이 적은 지점이 없거나 비었음)·희망 일시(고른 지점 운영시간 밖). 시트가 있을 때만.
+  const fields = readClientSheetInputs(sheet), preferredAt = validDateTime(fields.preferred);
+  const { hours, retry: retryHours } = useLocationHours(sheet.trim() ? target?.id ?? null : null, preferredAt.slice(0, 7), 0);
+  const ready = hours.status === 'ready' ? hours : null;
+  const guidance = ready && preferredAt ? timeGuidance(operatingOn(ready.clinic.settings, ready.clinic.settings.exceptions, ready.holidays, preferredAt.slice(0, 10)), preferredAt) : null;
+  const branchWarn = !multi || !sheet.trim() || selected ? null
+    : parsedBranch ? `고객이 적은 "${parsedBranch}"은(는) 등록된 지점이 아니에요 · 직접 골라 주세요`
+    : parsedBranch === '' ? '고객 답변에 지점이 없어요 · 고객에게 확인하고 직접 골라 주세요' : '방문 지점을 골라 주세요';
+  const warnings: FieldWarning[] = [
+    ...(branchWarn ? [{ field: 'branch' as const, text: branchWarn }] : []),
+    ...(guidance?.tone === 'warn' ? [{ field: 'preferred' as const, text: guidance.text }] : []),
+  ];
+  const branchHintText = multi && selected && parsedBranch !== null ? { warn: false, text: parsedBranch ? `고객 답변 "${parsedBranch}" → ${selected.name}` : `고객 답변으로 ${selected.name}` }
+    : branchWarn ? { warn: true, text: branchWarn } : null;
+  const hoursStatus = !preferredAt || !sheet.trim() ? null
+    : multi && !target ? <small className="text-caption text-x-muted">지점을 고르면 그 지점 운영시간으로 확인해요.</small>
+    : hours.status === 'loading' ? <small className="text-caption text-x-muted">운영시간 확인 중…</small>
+    : hours.status === 'error' ? <small role="alert" className="text-caption text-amber-700">운영시간을 확인하지 못했어요 — {hours.message} <button type="button" className="underline" onClick={retryHours}>다시 시도</button></small>
+    : guidance?.tone === 'ok' ? <small className="text-caption text-green-700">{guidance.text}</small> : null;
   const blocked = !personId ? '명부에 등록된 인플루언서만 예약할 수 있어요. 인플루언서 칸에서 명부에 등록한 뒤 다시 열어 주세요.' : clinicErr;
 
   // 수동 작성 — 클리닉 기재 시트 양식(없으면 기본 시트)을 빈 값으로 채워 둔다. 계정 줄은 이 인플루언서로 고정한다.
@@ -113,6 +137,8 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
     setLocationId(id); setParsedBranch(null); setError('');
     setSheet((s) => s ? updateClientSheetInput(s, 'branch', next.name) : s);
   }
+  // 파싱 결과 칸 수정 — 시트의 그 줄만 바꾼다(기재 시트가 따라 바뀐다)
+  function patch(key: SheetInputKey, value: string) { setSheet((s) => updateClientSheetInput(s, key, value)); }
   // 시트를 직접 고쳐 7. 지점이 등록된 지점 이름이 되면 드롭다운이 따라간다. 다른 글자면 드롭다운은 그대로.
   function editSheet(text: string) {
     setSheet(text);
@@ -204,7 +230,7 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
          onPointerDown={(e) => { downOnBackdrop.current = e.target === e.currentTarget; }}
          onClick={(e) => { const both = downOnBackdrop.current && e.target === e.currentTarget; downOnBackdrop.current = false; if (both) requestClose(); }}>
       <div role="dialog" aria-modal="true" aria-label={existing ? '기존 방문 작업에 예약 추가' : '방문 예약 등록'}
-           className="flex max-h-[90vh] w-full max-w-[900px] flex-col overflow-hidden rounded-[14px] border border-x-border bg-white shadow-2xl">
+           className={`flex max-h-[90vh] w-full ${step === 2 ? 'max-w-[1280px]' : 'max-w-[900px]'} flex-col overflow-hidden rounded-[14px] border border-x-border bg-white shadow-2xl`}>
         <header className="flex items-center justify-between border-b border-x-border px-[22px] py-[17px]">
           <h2 className="text-[18px] font-bold">{existing ? '기존 방문 작업에 예약 추가' : '방문 예약 등록'}</h2>
           <button type="button" onClick={requestClose} disabled={busy} aria-label="닫기" className="rounded-full p-1.5 text-x-secondary hover:bg-x-hover">✕</button>
@@ -223,10 +249,10 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
                   <select disabled className={CONTROL}><option>{personName ? `${personName} · @${handle}` : `@${handle}`}</option></select></label>
                 <label className={FIELD}><span className={LABEL}>연결할 작업</span>
                   <select disabled className={CONTROL}><option>{existing ? existing.label : '새 작업과 함께 등록'}</option></select></label>
-                {multi
-                  ? <div className={FIELD}><label htmlFor={branchId} className={LABEL}>방문 클리닉</label>
-                      <BranchSelect id={branchId} options={options} value={locationId} hint={hint} disabled={busy} onChange={chooseBranch} /></div>
-                  : <div className={FIELD}><span className={LABEL}>방문 클리닉</span><span className="py-2 text-content">{clinicLabel}</span></div>}
+                <div className={FIELD}><span className={LABEL}>방문 클리닉</span>
+                  <span className="py-2 text-content">{multi && clinic ? clinic.name : clinicLabel}</span>
+                  {/* 행동 전 기대(UX 원칙 2) — 지점은 여기서 고르지 않는다 */}
+                  {multi && clinic && <small className="text-caption text-x-muted">지점은 인플루언서가 양식에서 골라요. 응답을 파싱하면 고른 지점이 보여요.</small>}</div>
               </div>
               {blocked && <p role="alert" className={DANGER}>{blocked}</p>}
               {!blocked && clinic && (customerForm ? (
@@ -250,27 +276,32 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
           ) : (
             <>
               <p className="text-ui text-x-secondary">{campaign.name} · @{handle} · {clinicLabel}</p>
-              {multi && (
-                <div className={`${FIELD} max-w-[320px]`}><label htmlFor={`${branchId}-2`} className={LABEL}>방문 지점</label>
-                  <BranchSelect id={`${branchId}-2`} options={options} value={locationId} hint={hint} disabled={busy} onChange={chooseBranch} />
-                  {/* 행동 전 기대(UX 원칙 2) — 파싱이 지점을 고르는 방식 */}
-                  {!hint && <small className="text-caption text-x-muted">[예약 정보 파싱]을 누르면 고객 답변의 지점을 찾아 골라 둬요. 직접 골라도 돼요.</small>}
-                </div>
-              )}
-              <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={() => void parse()} disabled={busy || !source.trim()} className="h-9 px-4 text-content">{parsing ? '파싱 중…' : '예약 정보 파싱'}</Button>
-                <Button variant="ghost" disabled={busy} className="h-9 px-3 text-content"
-                        onClick={() => { if (!sheet) setSheet(blankSheet()); setNotice('원문을 보며 기재 시트를 직접 작성해 주세요.'); setError(''); }}>수동 작성</Button>
-              </div>
-              {/* 행동 전 기대(UX 원칙 2·6) — 파싱은 AI 호출이라 비용이 들고, 결과는 저장 전에 사람이 확인한다 */}
-              <p className="text-ui text-x-muted">[예약 정보 파싱]은 AI가 응답에서 날짜·이름·시술을 읽어 기재 시트를 채워요. 사용 비용이 발생하고, 저장 전에 직접 확인해야 해요.</p>
-              <div className="grid grid-cols-2 gap-5">
-                <label className={FIELD}><span className={LABEL}>고객 응답 원문</span>
-                  <textarea rows={15} value={source} onChange={(e) => setSource(e.target.value)} placeholder="고객 응답을 붙여 넣어 주세요."
-                            className={`${CONTROL} resize-y leading-relaxed`} /></label>
-                <label className={FIELD}><span className={LABEL}>편집 가능한 기재 시트</span>
-                  <textarea rows={15} value={sheet} onChange={(e) => editSheet(e.target.value)} placeholder="파싱 후 직접 수정하거나 수동 작성해 주세요."
-                            className={`${CONTROL} resize-y font-mono leading-relaxed`} />
+              <div className="grid h-[min(560px,58vh)] grid-cols-3 gap-5">
+                <label className={`${FIELD} min-h-0`}><span className={LABEL}>고객 응답 원문</span>
+                  <textarea value={source} onChange={(e) => setSource(e.target.value)} placeholder="고객 응답을 붙여 넣어 주세요."
+                            className={`${CONTROL} min-h-0 flex-1 resize-none leading-relaxed`} /></label>
+                <section aria-labelledby={`${branchId}-parsed`} className={`${FIELD} min-h-0`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span id={`${branchId}-parsed`} className={LABEL}>파싱 결과 (수정 가능)</span>
+                    {warnings.length > 0 && <span className="text-caption font-semibold text-amber-700">⚠ 경고 {warnings.length}건</span>}
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-x-border p-3">
+                    {sheet.trim() ? <>
+                      {warnings.length > 0 && (
+                        <ul className="mb-3 grid gap-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-ui text-amber-800">
+                          {/* 요약만 — 판단과 다음 행동은 그 칸 아래에 있다 */}
+                          {warnings.map((w) => <li key={w.field}>⚠ {w.field === 'branch' ? '방문 지점을 확인해 주세요' : '희망 일시를 확인해 주세요 (운영시간)'}</li>)}
+                        </ul>
+                      )}
+                      <ParsedFields sheet={sheet} onPatch={patch} warnings={warnings} hoursStatus={hoursStatus}
+                        branch={multi ? { id: `${branchId}-2`, options, value: locationId, hint: branchHintText, onChange: chooseBranch } : null} />
+                    </> : <p className="text-ui text-x-muted">원문을 붙여 넣고 아래 [예약 정보 파싱]을 누르면 항목별로 보여요. 직접 쓰려면 [수동 작성]을 눌러요.</p>}
+                  </div>
+                  <small className="text-[11px] text-x-muted">여기서 고치면 오른쪽 기재 시트도 같이 바뀌어요.</small>
+                </section>
+                <label className={`${FIELD} min-h-0`}><span className={LABEL}>기재 시트</span>
+                  <textarea value={sheet} onChange={(e) => editSheet(e.target.value)} placeholder="파싱 후 직접 수정하거나 수동 작성해 주세요."
+                            className={`${CONTROL} min-h-0 flex-1 resize-none font-mono leading-relaxed`} />
                   <small className="text-[11px] text-x-muted">추가 문구와 줄바꿈까지 그대로 복사·저장해요. 업로드 기한은 방문 후 14일로 채워지고, 직접 고치면 그 날짜를 지켜요.</small></label>
               </div>
               {notice && !error && <p role="status" className={NOTICE}>{notice}</p>}
@@ -288,9 +319,16 @@ export function NewReservationDialog({ campaign, handle, personId, personName, e
               <Button onClick={() => void closeAsWaiting()} disabled={busy || (!existing && !!blocked)} className="h-9 px-4 text-content">{busy ? '만드는 중…' : '닫기'}</Button>
             </div>
           ) : (
-            <Button variant="primary" onClick={() => void copyAndSave()} disabled={busy || !sheet.trim()} className="h-9 px-4 text-content">
-              {busy ? '저장 중…' : created ? '예약 다시 저장' : '파싱 결과 복사하기'}
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* 행동 전 기대(UX 원칙 2·6) — 파싱은 AI 호출이라 비용이 들고, 결과는 저장 전에 사람이 확인한다 */}
+              <small className="mr-1 max-w-[300px] text-right text-caption text-x-muted">[예약 정보 파싱]은 AI가 응답을 읽어 채워요 · 사용 비용이 들고, 저장 전에 직접 확인해 주세요.</small>
+              <Button variant="ghost" disabled={busy} className="h-9 px-3 text-content"
+                      onClick={() => { if (!sheet) setSheet(blankSheet()); setNotice('원문을 보며 기재 시트를 직접 작성해 주세요.'); setError(''); }}>수동 작성</Button>
+              <Button onClick={() => void parse()} disabled={busy || !source.trim()} className="h-9 px-4 text-content">{parsing ? '파싱 중…' : '예약 정보 파싱'}</Button>
+              <Button variant="primary" onClick={() => void copyAndSave()} disabled={busy || !sheet.trim()} className="h-9 px-4 text-content">
+                {busy && !parsing ? '저장 중…' : created ? '예약 다시 저장' : '파싱 결과 복사하기'}
+              </Button>
+            </div>
           )}
         </footer>
       </div>

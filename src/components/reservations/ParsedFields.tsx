@@ -6,8 +6,8 @@ import type { BranchOption } from '@/lib/reservationBranch';
 import { BranchSelect } from './BranchSelect';
 
 const INPUT = 'w-full min-w-0 rounded-md border border-x-border-strong bg-white px-2.5 py-1.5 text-ui outline-none focus:border-x-blue';
-// 양식에 그 줄이 있을 때만 보이는 칸 — 없는 양식에 칸을 띄우면 고칠 때 새 줄이 덧붙는다
-const OPTIONAL: [SheetInputKey, string][] = [['preferred2', '제2희망 일시'], ['budget', '예산'], ['treatmentHistory', '기왕력'],
+// 글자 칸으로 보여 주는 나머지 항목 — 다른 칸처럼 양식에 줄이 있을 때만 보인다
+const EXTRA: [SheetInputKey, string][] = [['koreanAbility', '한국어'], ['preferred2', '제2희망 일시'], ['budget', '예산'], ['treatmentHistory', '기왕력'],
   ['companion', '동반자'], ['nationality', '국적'], ['doctorPreference', '원장님 지정'], ['note', '메모']];
 const TIERS = ['나노', '마이크로', '메가'] as const;
 
@@ -39,13 +39,14 @@ export function ParsedFields({ sheet, onPatch, branch, warnings, hoursStatus }: 
   const text = (key: SheetInputKey, label: string, value: string) =>
     row(label, <input id={`pf-${key}`} className={INPUT} value={value} onChange={(e) => onPatch(key, e.target.value)} />, { htmlFor: `pf-${key}` });
 
-  // 칸은 기재 시트 줄 순서대로 놓는다(양식마다 순서가 다르다 — 벤자민은 팔로워·성함·국적…). 시트에 줄이 없는 칸은 맨 뒤 —
-  // 그 칸을 채우면 줄이 시트 끝에 붙으니 순서가 계속 맞는다. 같은 줄(이름 한국어·로마자)은 아래 적은 순서 그대로.
+  // 그 클리닉 기재 시트에 줄이 있는 항목만, 시트 줄 순서대로 보여 준다(양식마다 항목·순서가 다르다 — 벤자민은 팔로워·성함·국적…).
+  // 없는 칸을 띄우면 고칠 때 시트 끝에 새 줄이 덧붙는다. 방문 지점만 예외 — 저장에 필요해 줄이 없어도 보인다(맨 뒤).
+  // 같은 줄(이름 한국어·로마자)은 아래 적은 순서 그대로.
   const rows: [SheetInputKey, ReactNode][] = [
     ...(branch ? [['branch', row('방문 지점',
       <BranchSelect id={branch.id} options={branch.options} value={branch.value} hint={branch.hint} onChange={branch.onChange} />,
       { htmlFor: branch.id, warn: null })] as [SheetInputKey, ReactNode]] : []),
-    // 등급은 AI가 고르지 않는다 — 담당자가 직접 고른다. 양식에 줄이 없으면 고를 때 '인플루언서 팔로워' 줄이 시트 끝에 붙는다
+    // 등급은 AI가 고르지 않는다 — 담당자가 직접 고른다
     ['followerTier', row('팔로워 등급',
       <div role="radiogroup" aria-label="팔로워 등급" className="flex gap-1.5">
         {TIERS.map((t) => {
@@ -69,15 +70,12 @@ export function ParsedFields({ sheet, onPatch, branch, warnings, hoursStatus }: 
     ['gender', text('gender', '성별', fields.gender)],
     ['birthDate', row('생년월일', <input id="pf-birth" type={!fields.birthDate || isDateOnlyString(fields.birthDate) ? 'date' : 'text'} className={INPUT}
                           value={fields.birthDate} onChange={(e) => onPatch('birthDate', e.target.value)} />, { htmlFor: 'pf-birth' })],
-    ['koreanAbility', text('koreanAbility', '한국어', fields.koreanAbility)],
     ['treatment', text('treatment', '시술 내용', fields.treatment)],
-    ...OPTIONAL.flatMap(([key, label]): [SheetInputKey, ReactNode][] => {
-      const value = readClientSheetInput(sheet, key);
-      return value === null ? [] : [[key, text(key, label, value.replace('T', ' '))]];
-    }),
+    ...EXTRA.map(([key, label]): [SheetInputKey, ReactNode] => [key, text(key, label, (readClientSheetInput(sheet, key) ?? '').replace('T', ' '))]),
   ];
   const position = (key: SheetInputKey) => clientSheetInputPosition(sheet, key) ?? Infinity;
   const ordered = rows.map(([key, node], i) => ({ key, node, i, at: position(key) }))
+    .filter((r) => r.at !== Infinity || r.key === 'branch')
     .sort((a, b) => a.at - b.at || a.i - b.i);
 
   return (

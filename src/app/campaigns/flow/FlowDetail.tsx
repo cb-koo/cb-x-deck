@@ -1161,6 +1161,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                                     // 링크로 게시 확인하면 서버가 본 게시물 성과와 인플 본인 댓글을 붙인다(self-replies §3) — 응답 전에 끝나고,
                                     // actions.markPosted가 링크가 있으면 상세를 다시 읽으니 그대로 보인다
                                     onMarkPosted={(date, url, proof) => actions.markPosted(panelTask, date, url, proof)}
+                                    onMarkPostedLinkless={(date, reason) => actions.markPostedLinkless(panelTask, date, data.today, reason)}
                                     onSetProof={(p) => actions.setProof(panelTask, p)}
                                     onOpenRemoved={() => setRemovedOpen(true)}
                                     onUnmarkRemoved={() => void actions.unmarkRemoved(panelTask)}

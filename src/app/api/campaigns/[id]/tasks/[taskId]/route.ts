@@ -8,6 +8,7 @@ import { reservationDeleteSummary } from '@/lib/taskDeletionStore';
 import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces, hasPaidRequest, logCostChangeInTx } from '@/lib/campaignTaskStore';
 import type { TaskPatch } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
+import { linklessGateError } from '@/lib/linklessPost';
 import { parseTaskPatch, proofGateError, visitOnlyGateError, influencerChangeGuard, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE, CANCELLED_TASK_MESSAGE, POST_CANCELLED_MESSAGE, postedAtFromLinkGate, costReasonGateError } from '@/lib/campaignTaskInput';
 import { getDraft, updateDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
@@ -85,6 +86,9 @@ async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; 
   if (visitError) return NextResponse.json({ error: visitError }, { status: 400 });
   // ── 게시일은 링크에서(koo 09-26 결정 1) — 투고·인용RT·방문협찬은 링크가 있어야 게시 확인되고, 날짜는 클라가
   //    보낸 값 대신 트윗 id에서 정한다(서버가 기준). RT는 보낸 날짜 그대로. 판정은 순수 함수(proofGateError와 같은 이유).
+  // 링크 없이 게시 확인(ISSUE-009) — 지워진 이유 없이는 받지 않고, 한 번 받은 뒤엔 내림을 풀 수 없다
+  const linklessError = linklessGateError(cur, patch);
+  if (linklessError) return NextResponse.json({ error: linklessError }, { status: 400 });
   const postedOn = postedAtFromLinkGate(cur, patch);
   if (!postedOn.ok) return NextResponse.json({ error: postedOn.message }, { status: 400 });
   if (postedOn.value !== undefined) patch.postedAt = postedOn.value;

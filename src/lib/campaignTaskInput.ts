@@ -314,13 +314,16 @@ export function visitOnlyGateError(
 // 무시한다(koo 09-26 결정 1, 서버가 기준). RT는 자기 게시물이 없어 지금처럼 사람이 적은 날짜 그대로다.
 // 링크는 proofGateError와 같은 이유로 "패치 후 상태"로 본다 — 이번 요청이 안 보냈으면 저장된 링크, null이면 지운 것.
 // 반환 value: 저장할 postedAt(게시 확인 패치가 아니면 undefined). 라우트가 patch.postedAt을 이 값으로 바꾼다.
+// 링크 없이 게시 확인(ISSUE-009) — 같은 요청에 내림 날짜와 지워진 이유가 함께 오면 링크 없이 보낸 날짜 그대로 받는다.
+// 이유가 빠진 경우의 거절 문구는 linklessGateError가 맡는다(라우트가 이 함수보다 먼저 부른다).
 export function postedAtFromLinkGate(
   cur: { type: TaskType; postUrl: string | null },
-  patch: { postedAt?: string; postUrl?: string | null },
+  patch: { postedAt?: string; postUrl?: string | null; removedAt?: string | null; removedReason?: string },
 ): Parsed<string | undefined> {
   if (patch.postedAt === undefined) return { ok: true, value: undefined };
   if (cur.type === 'rt') return { ok: true, value: patch.postedAt };
   const url = patch.postUrl !== undefined ? patch.postUrl : cur.postUrl;
+  if (!url && patch.removedAt && patch.removedReason?.trim()) return { ok: true, value: patch.postedAt };
   if (!url) return fail(POST_URL_REQUIRED_MESSAGE);
   // parseTaskPatch가 이미 모양을 봤다 — 여기서 null이면 날짜를 알 수 없는 id(스노플레이크 이전)다
   const postedOn = postedOnFromTweetLink(url);

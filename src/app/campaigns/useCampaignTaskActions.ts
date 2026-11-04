@@ -93,6 +93,14 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
       onChanged();
       return true;
     },
+    // 링크 없이 게시 확인(ISSUE-009) — 게시물이 지워져 링크가 없을 때. 게시일 + 내림(오늘 = 확인한 날) + 지워진 이유를 한 요청으로 보낸다
+    // (서버가 이유 없이는 받지 않는다 — linklessGateError). 트래킹할 게시물이 없어 상세를 다시 읽지 않는다.
+    markPostedLinkless: async (t: Item, date: string, removedOn: string, reason: string) => {
+      const body = { postedAt: date, removedAt: removedOn, removedReason: reason };
+      const ok = await patch(t, body, { ...body, postedSource: 'manual', published: true });
+      if (ok) onChanged();
+      return ok;
+    },
     // 증빙만 바꾸기·떼기 — 게시됨인 RT는 서버가 떼기를 거절한다(비우기가 아니라 바꾸기만).
     // 낙관값의 by/byName은 응답이 진짜 값으로 덮는다(patch가 r.data로 덮어쓴다).
     setProof: (t: Item, path: string | null) =>

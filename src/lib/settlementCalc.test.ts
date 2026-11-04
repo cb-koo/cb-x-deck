@@ -174,6 +174,24 @@ test('computeCandidate — 참고 링크 필수 여부는 유형에서 나온다
   assert.equal(rt.issues.find((i) => i.code === 'no-reference')?.level, 'warn');
 });
 
+// ISSUE-009 링크 없이 게시 확인 — 지워진 이유가 있는 내림이면 링크 없음을 막지 않고, 이유가 요청 메모가 된다
+test('computeCandidate — 링크 없이 게시 확인된 작업은 막지 않고 지워진 이유를 메모로 싣는다', () => {
+  const base = candInput({ type: 'quoteRt', proof: null });
+  const linkless = computeCandidate({ ...base, task: { ...base.task, postUrl: null, postedAt: '2026-10-30', removedAt: '2026-11-04', removedReason: '문제가 생겨 삭제' } });
+  // 인용RT는 기본 분류가 없어 no-category가 따로 붙는다(이 테스트와 무관) — 링크·내림 판정만 본다
+  const own = linkless.issues.filter((i) => i.code !== 'no-category').map((i) => [i.code, i.level]);
+  assert.deepEqual(own, [['no-reference', 'warn']]);   // 내림 경고는 같은 사실이라 겹쳐 쓰지 않는다
+  assert.equal(linkless.linklessNote, '[게시물 삭제] 문제가 생겨 삭제 (게시 10/30, 지워짐 확인 11/4)');
+  // 화면에서 링크 칸을 비워도(effectiveIssues) 같은 경고 — 막히지 않는다
+  assert.ok(effectiveIssues(linkless, { category: 'X', referenceUrl: '' }).every((i) => i.level !== 'blocked'));
+  // 이유 없는 내림 + 링크 없음은 지금처럼 막힌다
+  const noReason = computeCandidate({ ...base, task: { ...base.task, postUrl: null, removedAt: '2026-11-04', removedReason: '' } });
+  assert.equal(noReason.issues.find((i) => i.code === 'no-reference')?.level, 'blocked');
+  assert.equal(noReason.linklessNote, null);
+  // 링크가 있는 보통 작업은 메모 없음
+  assert.equal(computeCandidate(base).linklessNote, null);
+});
+
 test('computeCandidate — RT는 증빙이 없으면 no-proof, 투고는 증빙과 무관', () => {
   const rt = computeCandidate(candInput({ type: 'rt', proof: null }));
   assert.ok(rt.issues.some((i) => i.code === 'no-proof' && i.level === 'blocked'));

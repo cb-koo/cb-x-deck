@@ -261,12 +261,13 @@ export async function insertRequestInTx(tx: postgres.Sql, i: {
     insert into payment_request (task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type,
       category, category_default, item_text, purpose_text, amount_krw, cost_currency, payout_currency, rate_krw_per_jpy,
       amount_net, fee, fee_amount, amount_gross, deadline_on, reference_url, proof, payment_method, requester_member_id, requester_name,
-      influencer_id, category_option_id, campaign_starts_on, campaign_ends_on, task_posted_on, created_via, sent_removed_on, sent_unseen_on)
+      influencer_id, category_option_id, campaign_starts_on, campaign_ends_on, task_posted_on, created_via, sent_removed_on, sent_unseen_on, note)
     values (${cand.taskId}, ${cand.campaignId}, ${cand.campaignName}, ${cand.clientId}, ${cand.clientName}, ${cand.influencerHandle}, ${cand.taskType},
       ${i.category}, ${cand.categoryDefault}, ${cand.itemText}, ${cand.purposeText}, ${m.amountKrw}, ${m.costCurrency}, ${m.payoutCurrency}, ${m.rateKrwPerJpy},
       ${m.amountNet}, ${m.fee ? tx.json(asJson(m.fee)) : null}, ${m.feeAmount}, ${m.amountGross}, ${i.deadlineOn}, ${i.referenceUrl}, ${cand.proof ? tx.json(asJson(cand.proof)) : null},
       ${tx.json(asJson(toMethodSnapshot(pm)))}, ${i.requester.id}, ${i.requester.name},
-      ${r.influencer_id}, ${i.catId}, ${r.campaign_starts_on}, ${r.campaign_ends_on}, ${r.posted_at}, ${i.via}, ${r.removed_at}, ${r.unseen_on})
+      ${r.influencer_id}, ${i.catId}, ${r.campaign_starts_on}, ${r.campaign_ends_on}, ${r.posted_at}, ${i.via}, ${r.removed_at}, ${r.unseen_on},
+      ${cand.linklessNote ?? ''})   -- 링크 없이 게시 확인된 작업이면 지워진 이유가 정산팀에 가는 메모가 된다(ISSUE-009)
     returning id`;
   const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${ins[0].id}`;
   const row = toRequest(saved);

@@ -361,6 +361,23 @@ test('생성 — influencer_id·category_option_id 스냅샷 저장, 외부 필�
   assert.equal(badge.externalStatus, null); assert.equal(badge.cancelledAt, null);
 });
 
+// ISSUE-009 링크 없이 게시 확인 — 링크 없이도 요청이 만들어지고, 지워진 이유가 요청 메모(그쪽 note)로 나간다
+test('생성 — 링크 없이 게시 확인된 작업은 링크 없이 요청되고 지워진 이유가 메모가 된다', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라L');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'l', 'visit'));
+  await influencerWithPaypal(H('lnk'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H('lnk'), cost: { amount: 30000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', removedAt: '2026-08-28', removedReason: '이슈로 내림' });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  assert.equal(cand.readiness, 'warn');
+  assert.equal(cand.referenceDefault, null);
+  const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
+  const [row] = await createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-28');
+  assert.equal(row.referenceUrl, null);
+  assert.equal(row.note, '[게시물 삭제] 이슈로 내림 (게시 8/27, 지워짐 확인 8/28)');
+});
+
 // 09-14 koo: 캠페인 기간·게시일을 요청 시점 값으로 고정해 그쪽에 싣는다(단가·수단과 같은 스냅샷 규칙).
 test('생성 — 캠페인 기간·게시일 스냅샷: 요청 뒤 캠페인 기간을 고쳐도 요청 값은 그대로, 제자리 수정이 새 값을 가져온다', async () => {
   const { row, member } = await requestFor('dates', 'dt');

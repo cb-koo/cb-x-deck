@@ -6,6 +6,7 @@ import { PAYMENT_TYPE_LABEL, type PaymentMethod, type PaymentFee } from './influ
 import { defaultCategoryFor, visibleCategories, CATEGORY_ID_FEE, CATEGORY_ID_INFO, type SettlementSettings } from './settlementSettings.ts';
 import type { TaskProof } from './taskProofGuard.ts';
 import { JPY_TO_KRW } from './clientBudget.ts';   // 집행액 원화 환산 — 예산 화면과 같은 고정 환율
+import { linklessNote } from './linklessPost.ts';
 
 // ── 금액(§3-1·3-2) ──
 export interface MoneyCalc {
@@ -114,7 +115,10 @@ const NO_PROOF_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-proof', tex
 // 방문협찬 협찬 동의서(063, koo 09-29 결정 4) — 없어도 막지 않는다. 확인만 시킨다(🟡). 정산 프로덕트로는 보내지 않는다(결정 5)
 // — 그래서 후보에 동의서 객체를 싣지 않고 "없다"는 사실만 판정에 넣는다(요청 스냅샷·외부 직렬화로 새어 나갈 길이 없다).
 export const NO_AGREEMENT_ISSUE: ReadinessIssue = { level: 'warn', code: 'no-agreement', text: '협찬 동의서가 없어요 — 요청은 만들 수 있어요' };
-function referenceIssue(required: boolean): ReadinessIssue {
+// 링크 없이 게시 확인된 작업(ISSUE-009) — 게시물이 지워져 링크 대신 지워진 이유를 요청 메모로 보낸다. 막지 않고 알려만 준다.
+const LINKLESS_REFERENCE_ISSUE: ReadinessIssue = { level: 'warn', code: 'no-reference', text: '게시물이 지워졌어요 — 링크 대신 지워진 이유를 정산팀에 보내요' };
+function referenceIssue(required: boolean, linkless = false): ReadinessIssue {
+  if (linkless) return LINKLESS_REFERENCE_ISSUE;
   return required
     ? { level: 'blocked', code: 'no-reference', text: '참고 링크를 넣어 주세요 — 정산팀이 이 링크로 게시를 확인해요' }
     : { level: 'warn', code: 'no-reference', text: '참고 링크 없음' };
@@ -122,16 +126,18 @@ function referenceIssue(required: boolean): ReadinessIssue {
 // 참고 링크가 확인 자료인 유형 — RT만 아니다(RT의 링크는 클리닉 원본 트윗; 스펙 3-6, 슬랙 RT 405건 중 350건이 링크 없이 갔다)
 export const referenceRequiredFor = (type: TaskType): boolean => type !== 'rt';
 
-export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; referenceRequired: boolean; removedAt: string | null; removedReason: string; clientId: string | null; proofMissing: boolean; agreementMissing?: boolean; unseenOn?: string | null }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
+export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; referenceRequired: boolean; removedAt: string | null; removedReason: string; clientId: string | null; proofMissing: boolean; agreementMissing?: boolean; unseenOn?: string | null; linkless?: boolean }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
   const issues: ReadinessIssue[] = [];
   if (!i.inRoster) issues.push({ level: 'blocked', code: 'no-influencer', text: NO_INFLUENCER_TEXT });
   else if (!i.method) issues.push({ level: 'blocked', code: 'no-payment-method', text: '결제 수단이 없어요 — 프로필에서 등록해 주세요' });
   if (i.clientId === null) issues.push({ level: 'blocked', code: 'no-client', text: NO_CLIENT_TEXT });
   if (!i.category) issues.push(NO_CATEGORY_ISSUE);
-  if (!i.referenceUrl) issues.push(referenceIssue(i.referenceRequired));
+  if (!i.referenceUrl) issues.push(referenceIssue(i.referenceRequired, i.linkless));
   if (i.proofMissing) issues.push(NO_PROOF_ISSUE);
   if (i.agreementMissing) issues.push(NO_AGREEMENT_ISSUE);
-  if (i.removedAt) issues.push({ level: 'warn', code: 'removed', text: `게시 내려짐 ${monthDay(i.removedAt)}${i.removedReason ? ` · ${i.removedReason}` : ''}` });
+  // 링크 없는 게시는 위 '게시물이 지워졌어요'가 내림까지 말한다 — 같은 사실을 두 줄로 쓰지 않는다
+  const linklessShown = !!i.linkless && !i.referenceUrl;
+  if (i.removedAt) { if (!linklessShown) issues.push({ level: 'warn', code: 'removed', text: `게시 내려짐 ${monthDay(i.removedAt)}${i.removedReason ? ` · ${i.removedReason}` : ''}` }); }
   // 안 보임(2026-10-12) — 게시물이 X에서 사라진 게 확정됐지만 아직 사람이 내림으로 정하지 않았다. 막지 않는다: 협의해서 내린 거면 그대로 보내면 된다.
   // 내림으로 정했으면 위 '게시 내려짐'이 대신 말한다.
   else if (i.unseenOn) issues.push({ level: 'warn', code: 'unseen', text: `게시물 안 보임 ${monthDay(i.unseenOn)}` });
@@ -155,7 +161,7 @@ export function effectiveIssues(c: SettlementCandidate, e: ReadinessEdit | undef
   const editsReference = e !== undefined && 'referenceUrl' in e;
   const issues = c.issues.filter((i) => i.code !== 'no-category' && !(editsReference && i.code === 'no-reference'));
   if (!e?.category) issues.push(NO_CATEGORY_ISSUE);
-  if (editsReference && !e.referenceUrl) issues.push(referenceIssue(referenceRequiredFor(c.taskType)));
+  if (editsReference && !e.referenceUrl) issues.push(referenceIssue(referenceRequiredFor(c.taskType), c.linklessNote !== null));
   return issues;
 }
 export function effectiveReadiness(c: SettlementCandidate, e: ReadinessEdit | undefined): ReadinessLevel {
@@ -215,6 +221,7 @@ export interface SettlementCandidate {
   money: MoneyCalc | null; method: PaymentMethod | null; proof: TaskProof | null;
   categoryDefault: string | null; deadlineDefault: string; referenceDefault: string | null; itemText: string; purposeText: string;
   readiness: ReadinessLevel; issues: ReadinessIssue[];
+  linklessNote: string | null;   // 링크 없이 게시 확인된 작업이면 정산팀에 보낼 요청 메모(linklessPost) — 아니면 null
 }
 export function computeCandidate(i: CandidateInput): SettlementCandidate {
   const { task, campaign, influencer } = i;
@@ -225,13 +232,14 @@ export function computeCandidate(i: CandidateInput): SettlementCandidate {
   // RT만 증빙을 요구한다(RT 증빙 스펙 결정 3) — 투고·인용RT는 post_url이 증거다. 없으면 🔴(09-02, 그쪽이 받지 않는 요청은 만들지 않는다)
   const proofMissing = task.type === 'rt' && !task.proof;
   const agreementMissing = task.type === 'visit' && !task.hasAgreement;
-  const r = assessReadiness({ inRoster: influencer.inRoster, method, category: categoryDefault, referenceUrl: referenceDefault, referenceRequired: referenceRequiredFor(task.type), removedAt: task.removedAt, removedReason: task.removedReason, clientId: campaign.clientId, proofMissing, agreementMissing, unseenOn: task.unseenOn ?? null });
+  const note = linklessNote(task);
+  const r = assessReadiness({ linkless: note !== null, inRoster: influencer.inRoster, method, category: categoryDefault, referenceUrl: referenceDefault, referenceRequired: referenceRequiredFor(task.type), removedAt: task.removedAt, removedReason: task.removedReason, clientId: campaign.clientId, proofMissing, agreementMissing, unseenOn: task.unseenOn ?? null });
   return {
     taskId: task.id, campaignId: campaign.id, campaignName: campaign.name, clientId: campaign.clientId, clientName: campaign.clientName, campaignKind: campaign.kind,
     influencerHandle: task.influencerHandle, taskType: task.type, postedAt: task.postedAt, removedAt: task.removedAt, removedReason: task.removedReason, draftLabel: task.draftLabel,
     cost: task.cost, money, method, proof: task.proof,
     categoryDefault, deadlineDefault: defaultDeadline(i.today), referenceDefault,
     itemText: itemText(task.influencerHandle, task.type), purposeText: purposeText(campaign.clientName, campaign.kind, task.type),
-    readiness: r.level, issues: r.issues,
+    readiness: r.level, issues: r.issues, linklessNote: note,
   };
 }

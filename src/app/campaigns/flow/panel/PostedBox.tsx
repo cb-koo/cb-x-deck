@@ -12,12 +12,15 @@ import { Button } from '@/components/ui';
 import { TargetPreview } from './TargetPreview';
 import { useTweetPreview } from './useTweetPreview';
 import { PostThread, UNSEEN_BADGE } from './PostThread';
-import { unseenLabel } from '@/lib/campaignFlowView';
+import { unseenLabel, REMOVED_REASON_CHIPS } from '@/lib/campaignFlowView';
+import { isLinklessPosted } from '@/lib/linklessPost';
 
 // 작업 패널의 '게시' 칸(koo 09-26 posted-inline) — 팝업(PostedDialog) 없이 칸 안에서 게시 확인까지 끝낸다.
 //  · 투고·인용RT·방문협찬: 게시일을 적지 않는다. 게시물 링크를 붙이면 트윗 id에서 한국 날짜가 나오고
 //    (tweetPostedOn — 서버 판정 campaignTaskInput.postedAtFromLinkGate와 같은 함수), 그 게시물을 카드로 미리 본다.
 //  · RT: 자기 게시물이 없다 — 지금처럼 날짜를 적고 증빙 스크린샷(필수)을 넣는다(PostedForm과 같은 칸).
+//  · 링크 없이 게시 확인(ISSUE-009, koo 11-04 시안): 투고·인용RT·방문협찬인데 게시물이 이미 지워졌으면 게시일 + 지워진 이유(필수)로
+//    게시 확인한다. 같은 요청에 내림(오늘)이 함께 찍히고, 정산 땐 이 이유가 링크 대신 정산팀에 간다(linklessPost).
 //  · 게시 뒤: 날짜 줄 + (RT 아니면) 게시물 카드, RT면 증빙 칸(TaskProofField — 크게 보기·바꾸기·받기, 없으면 올리기), 그리고 내림 표시·취소.
 //  · 게시 전: 맨 아래 구분선 + [✕ 진행 안 됨](koo 09-26 시안 A). 행 메뉴의
 //    [작업 취소]와 같은 창(CancelDialog)을 연다. 메뉴에만 있던 때는 아무도 못 찾아 메모로 '섭외 불성립'을 적었다.
@@ -30,13 +33,14 @@ const subTitle = 'mb-1.5 text-[14px] font-semibold text-x-secondary';
 // 내림 줄 버튼 — [✕ 진행 안 됨]과 같은 크기의 테두리 버튼(위험한 동작이 아니라 회색)
 const removedBtn = 'inline-flex h-9 shrink-0 items-center whitespace-nowrap rounded-full border border-x-border-strong bg-white px-3.5 text-[14px] font-semibold text-x-text hover:bg-x-hover';
 
-export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMarkPosted, onSetProof, onOpenRemoved, onUnmarkRemoved, onCancel, hideCancel = false }: {
+export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMarkPosted, onMarkPostedLinkless, onSetProof, onOpenRemoved, onUnmarkRemoved, onCancel, hideCancel = false }: {
   task: FlowRow;
   today: string;
   proofSignedUrl: string | null;
   focus: boolean;
   onFocused: () => void;
   onMarkPosted: (date: string, postUrl?: string, proof?: string) => Promise<boolean>;
+  onMarkPostedLinkless: (date: string, reason: string) => Promise<boolean>;
   onSetProof: (path: string | null) => Promise<boolean>;   // 게시된 RT의 증빙 바꾸기(actions.setProof) — 저장 결과를 돌려준다
   onOpenRemoved: () => void;
   onUnmarkRemoved: () => void;
@@ -50,6 +54,10 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
   const [pendingProof, setPendingProof] = useState<string | null>(null);   // RT만 — [게시 확인]과 함께 나간다
   const [err, setErr] = useState('');                                 // RT만(날짜 형식)
   const [busy, setBusy] = useState(false);
+  // 링크 없이 게시 확인 — 펼침 여부·게시일(예정일이 지났으면 그날, 아니면 오늘)·지워진 이유
+  const [linklessOpen, setLinklessOpen] = useState(false);
+  const [linklessDate, setLinklessDate] = useState(() => (task.scheduledOn && task.scheduledOn <= today ? task.scheduledOn : today));
+  const [linklessReason, setLinklessReason] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -77,6 +85,9 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
   }
 
   // ── 게시 뒤 ──
+  // 링크 없이 게시 확인된 작업 — 내림은 그 근거라 풀지 못한다(서버도 막는다, linklessGateError)
+  const linkless = isLinklessPosted(task);
+
   if (task.postedAt) {
     const hasReplies = !isRt && task.replies.length > 0;
     return (
@@ -89,6 +100,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
             {task.postUrl && (
               <> · <a href={task.postUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline">게시물 보기 ↗</a></>
             )}
+            {linkless && <span className="text-x-secondary"> (링크 없음)</span>}
           </p>
           {isRt && (
             <span className={`shrink-0 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-ui font-semibold ${task.proof ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
@@ -138,7 +150,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
                 {/* 내림 뒤에도 X에서 보이면 알려만 준다 — 풀지는 사람이 [내림 취소]로(2026-10-12) */}
                 {task.seenAfterRemovedAt && <span className="text-amber-700"> · X에서 보여요</span>}
               </span>
-              <button type="button" onClick={onUnmarkRemoved} className={removedBtn}>내림 취소</button>
+              {!linkless && <button type="button" onClick={onUnmarkRemoved} className={removedBtn}>내림 취소</button>}
             </>
           ) : (
             <>
@@ -206,6 +218,48 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
     );
   }
 
+  // ── 링크 없이 게시 확인(ISSUE-009) — 같은 칸 안에서 펼친다(창 없음). 이유 칩은 내림 표시 창과 같다(REMOVED_REASON_CHIPS) ──
+  if (linklessOpen) {
+    const canSave = !!linklessReason.trim() && !busy;
+    const onLinklessSubmit = async () => {
+      if (!isDateOnlyString(linklessDate)) { setErr(DATE_MESSAGE); return; }
+      if (linklessDate > today) { setErr('게시된 날은 오늘보다 뒤일 수 없어요'); return; }
+      setBusy(true);
+      try { if (await onMarkPostedLinkless(linklessDate, linklessReason.trim())) setLinklessOpen(false); } finally { setBusy(false); }
+    };
+    return (
+      <div ref={rootRef}>
+        <p className="text-content font-semibold">링크 없이 게시 확인</p>
+        <p className="mt-0.5 text-ui text-x-muted">게시물이 지워져 링크를 남길 수 없을 때만 써요.</p>
+        <p className={`${subTitle} mt-3`}>게시된 날</p>
+        <input type="date" value={linklessDate} max={today} onChange={(e) => { setLinklessDate(e.target.value); setErr(''); }}
+               className={`${input} border-x-border-strong`} />
+        <p id="linkless-reason-label" className={`${subTitle} mt-3`}>지워진 이유 <span className="font-normal text-x-muted">필수</span></p>
+        <div className="flex flex-wrap gap-1.5">
+          {REMOVED_REASON_CHIPS.map((c) => (
+            <button key={c} type="button" aria-pressed={linklessReason.trim() === c}
+                    onClick={() => setLinklessReason((cur) => (cur.trim() === c ? '' : c))}
+                    className={`rounded-full border px-2.5 py-1 text-ui ${
+                      linklessReason.trim() === c ? 'border-x-blue bg-x-blue/10 text-x-blue-text' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
+              {c}
+            </button>
+          ))}
+        </div>
+        <input value={linklessReason} onChange={(e) => setLinklessReason(e.target.value)} placeholder="예: 문제가 생겨 인플이 삭제"
+               aria-labelledby="linkless-reason-label" className={`${input} mt-1.5 border-x-border-strong`} />
+        <p className="mt-2 text-ui text-x-secondary">정산 요청 때 이 이유가 게시물 링크 대신 정산팀에 전달돼요.</p>
+        {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
+        <div className="mt-2.5 flex justify-end gap-2">
+          <Button type="button" onClick={() => { setLinklessOpen(false); setErr(''); }} className="h-9 px-3.5 text-ui">취소</Button>
+          <Button variant="primary" disabled={!canSave} onClick={() => void onLinklessSubmit()}
+                  title={!linklessReason.trim() ? '지워진 이유를 적어 주세요' : undefined} className="h-9 px-3.5 text-ui">
+            {busy ? '저장 중…' : '게시 확인'}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   // ── 투고·인용RT·방문협찬 — 링크만, 게시일은 링크에서 ──
   // 버튼은 지금 칸의 글자로 판정한다 — 링크를 치고 곧바로 버튼을 눌러도(누르는 순간 블러로 확정) 막히지 않게.
   const typed = text.trim() ? judgeLink(text.trim()) : null;
@@ -256,6 +310,11 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
           {authorMismatch && <p role="alert" className="mt-1.5 text-ui text-red-600">{authorMismatch.error}</p>}
         </>
       )}
+      {/* 링크 없이 게시 확인(ISSUE-009) — 링크를 받을 수 없는 드문 경우라 회색 작은 버튼으로 한 줄만 */}
+      <div className="mt-2.5 flex items-center gap-2">
+        <span className="text-[14px] text-x-secondary">글이 이미 지워져 링크가 없다면</span>
+        <button type="button" onClick={() => { setLinklessOpen(true); setErr(''); }} className={removedBtn}>링크 없이 게시 확인</button>
+      </div>
       {cancelBtn}
     </div>
   );

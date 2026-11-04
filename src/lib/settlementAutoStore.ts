@@ -9,7 +9,7 @@ import type { SettlementCandidate, ReadinessIssue } from './settlementCalc.ts';
 import type { TaskType } from './campaignJudgment.ts';
 import type { UnsendableReason, UnsendableRow } from './settlementAuto.ts';
 import { CANDIDATE_SQL, rowToCandidate, insertRequestInTx, getSettlementSettings, saveSettlementSettings, type CandRow, type PaymentRequestRow } from './settlementStore.ts';
-import { pendingGroup, blockingIssues, confirmedInstant, isDue, sendAtFor, nextMondaySeven, type PendingGroup, type PendingState } from './settlementAuto.ts';
+import { pendingGroup, blockingIssues, confirmedInstant, isDue, sendAtFor, nextMondaySeven, togetherFor, type PendingGroup, type PendingState, type Together, type WeekSibling } from './settlementAuto.ts';
 import { exportIncludesTestFixtures, TEST_FIXTURE_HANDLE_PG } from './settlementTestFixture.ts';
 
 import { AUTO_REQUESTER_FALLBACK, HOLD_REASON_MAX } from './settlementAuto.ts';
@@ -23,10 +23,12 @@ export interface PendingRow {
   sendAt: string | null;        // waiting: 보내는 때. null = 이번 회차 대상(곧 나감)
   blocking: ReadinessIssue[];   // 사람이 [보내기]를 눌러도 막히는 이유(내림·안 보임 제외)
   state: PendingState;
+  together: Together | null;    // 같은 인플·같은 주 작업 묶음(ISSUE-010) — 남은 작업이 있으면 group 'together'
 }
 export interface PendingSummary {
   needsAction: number;          // 확인이 필요해요 + 고쳐야 보내져요(정산에서 빠진 작업 포함)
   waiting: number;
+  together: number;             // 같은 주 작업 대기 — 예정일이 지난 남은 작업이 있는 건은 needsAction에도 센다(koo: 알려주는 것으로)
   stopped: number;
   nextSendAt: string;           // 다음 월요일 07:00
   lastRunAt: string | null;     // 자동 전송이 마지막으로 확인한 시각(예약 실행이 없으면 null)
@@ -43,16 +45,36 @@ function stateOf(r: CandRow): PendingState {
     cancelled: r.last_cancel_at || r.last_cancel_by_name ? { at: iso(r.last_cancel_at), byName: r.last_cancel_by_name, reason: r.last_cancel_reason } : null,
   };
 }
+// 같은 주 함께 보내기(ISSUE-010)의 재료 — 후보 인플들의 작업 전부(취소·다른 곳에서 정산함 제외, 마감한 캠페인의 미게시 작업 제외).
+// 주 판정은 순수 함수(togetherFor)가 한다. 비용 없음 작업도 센다 — 업로드를 작업으로 나눠 금액을 한쪽에만 둘 수 있게.
+type SibRow = { id: string; handle: string; type: TaskType; campaign_name: string; posted_at: string | null; scheduled_on: string | null; visit_on: string | null; starts_on: string };
+async function loadWeekSiblings(sql: postgres.Sql, handles: string[]): Promise<WeekSibling[]> {
+  const hs = [...new Set(handles.map((h) => h.toLowerCase()))];
+  if (!hs.length) return [];
+  const rows = await sql<SibRow[]>`
+    select t.id, t.influencer_handle as handle, t.type, c.name as campaign_name,
+           to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, to_char(t.scheduled_on, 'YYYY-MM-DD') as scheduled_on,
+           to_char(t.visit_on, 'YYYY-MM-DD') as visit_on, to_char(c.starts_on, 'YYYY-MM-DD') as starts_on
+      from campaign_task t join campaign c on c.id = t.campaign_id
+     where lower(t.influencer_handle) in ${sql(hs)}
+       and t.cancelled_at is null and t.settled_elsewhere_at is null
+       and not (c.closed_at is not null and t.posted_at is null)`;
+  return rows.map((r) => ({ taskId: r.id, handle: r.handle, taskType: r.type, campaignName: r.campaign_name,
+    postedAt: r.posted_at, scheduledOn: r.scheduled_on, visitOn: r.visit_on, campaignStartsOn: r.starts_on }));
+}
+
 // 분류는 설정 기본값만 — "요청자의 마지막 인용RT 분류"를 넘기지 않는다(요청자마다 결과가 달라지지 않게, 스펙 §2-5)
-function toRow(r: CandRow, settings: Awaited<ReturnType<typeof getSettlementSettings>>, now: Date): PendingRow | null {
+function toRow(r: CandRow, settings: Awaited<ReturnType<typeof getSettlementSettings>>, now: Date, siblings: WeekSibling[]): PendingRow | null {
   const cost = parseTaskCost(r.cost ?? null);
   if (!cost.ok || cost.value === null) return null;
-  const cand = rowToCandidate(r, cost.value, settings, null, kstToday(() => now.getTime()));
+  const today = kstToday(() => now.getTime());
+  const cand = rowToCandidate(r, cost.value, settings, null, today);
   const state = stateOf(r);
   const confirmed = confirmedInstant(iso(r.posted_confirmed_at), r.posted_at);
-  const group = pendingGroup(cand, state);
+  const together = togetherFor({ taskId: r.id, handle: r.influencer_handle, postedAt: r.posted_at }, siblings, today);
+  const group = pendingGroup(cand, state, together);
   const sendAt = group === 'waiting' ? sendAtFor(confirmed, now) : null;
-  return { cand, group, confirmedAt: confirmed.toISOString(), sendAt: sendAt ? sendAt.toISOString() : null, blocking: blockingIssues(cand), state };
+  return { cand, group, confirmedAt: confirmed.toISOString(), sendAt: sendAt ? sendAt.toISOString() : null, blocking: blockingIssues(cand), state, together };
 }
 
 // 후보 조건(CANDIDATE_BASE)에서 비용·인플루언서만 뒤집은 것 — 나머지(취소·다른 곳 정산·비용 없음·활성 요청 없음)는 같다.
@@ -87,8 +109,9 @@ export async function listPending(sql: postgres.Sql, now: Date = new Date(), cam
   ]);
   const out: PendingRow[] = [];
   const unsendable = missing.map(unsendableOf);
+  const siblings = await loadWeekSiblings(sql, rows.map((r) => r.influencer_handle));
   for (const r of rows) {
-    const row = toRow(r, settings, now);
+    const row = toRow(r, settings, now, siblings);
     if (row) out.push(row);
     else unsendable.push(unsendableOf({ id: r.id, type: r.type, influencer_handle: r.influencer_handle, posted_at: r.posted_at,
       campaign_id: r.campaign_id, campaign_name: r.campaign_name, client_name: r.client_name, no_cost: true }));
@@ -97,8 +120,10 @@ export async function listPending(sql: postgres.Sql, now: Date = new Date(), cam
     rows: out,
     unsendable,
     summary: {
-      needsAction: out.filter((x) => x.group === 'attention' || x.group === 'blocked').length + unsendable.length,
+      needsAction: out.filter((x) => x.group === 'attention' || x.group === 'blocked'
+        || (x.group === 'together' && x.together!.pending.some((p) => p.overdue))).length + unsendable.length,
       waiting: out.filter((x) => x.group === 'waiting').length,
+      together: out.filter((x) => x.group === 'together').length,
       stopped: out.filter((x) => x.group === 'stopped').length,
       nextSendAt: nextMondaySeven(now).toISOString(),
       lastRunAt: iso(run[0]?.at ?? null),
@@ -110,7 +135,7 @@ export async function listPending(sql: postgres.Sql, now: Date = new Date(), cam
   };
 }
 
-export type SendFailure = 'not-candidate' | 'already' | 'blocked' | 'not-due' | 'stopped' | 'attention' | 'no-category';
+export type SendFailure = 'not-candidate' | 'already' | 'blocked' | 'not-due' | 'stopped' | 'attention' | 'together' | 'no-category';
 export type SendResult = { ok: true; request: PaymentRequestRow } | { ok: false; code: SendFailure; reason: string };
 
 // 한 건 = 한 트랜잭션(스펙 §5) — 작업 행을 잠그고 후보를 다시 계산해서 보낸다. 자동 스윕과 [지금 보내기]가 동시에 와도
@@ -132,10 +157,10 @@ export async function sendTask(sql: postgres.Sql, taskId: string, opts: { via: '
           : { ok: false as const, code: 'not-candidate' as const, reason: '지금은 보낼 수 없는 작업이에요 — 목록을 다시 확인해 주세요' };
       }
       const r = rows[0];
-      const row = toRow(r, settings, now);
+      const row = toRow(r, settings, now, await loadWeekSiblings(tx, [r.influencer_handle]));
       if (!row) return { ok: false as const, code: 'blocked' as const, reason: '비용 형식이 올바르지 않아요' };
       if (opts.via === 'auto') {
-        if (row.group !== 'waiting') return { ok: false as const, code: (row.group === 'stopped' ? 'stopped' : row.group === 'attention' ? 'attention' : 'blocked') as SendFailure, reason: row.group };
+        if (row.group !== 'waiting') return { ok: false as const, code: (row.group === 'stopped' ? 'stopped' : row.group === 'attention' ? 'attention' : row.group === 'together' ? 'together' : 'blocked') as SendFailure, reason: row.group };
         if (!isDue(new Date(row.confirmedAt), now)) return { ok: false as const, code: 'not-due' as const, reason: '아직 보낼 때가 아니에요' };
       }
       if (row.blocking.length) return { ok: false as const, code: 'blocked' as const, reason: row.blocking.map((i) => i.text).join(' · ') };
@@ -178,7 +203,8 @@ export async function runAutoSend(sql: postgres.Sql, now: Date = new Date(), opt
   // 뒤의 작업이 영영 안 나가는 일이 없게(리뷰 10-12). 취소 이력·멈춤은 분류가 '멈춘 작업'으로 뺀다.
   const settings = switchSettings;
   const rows = await sql<CandRow[]>`${CANDIDATE_SQL(sql)} ${fixtures} ${only} order by t.posted_at asc, t.created_at asc, t.id asc`;
-  const due = rows.map((r) => toRow(r, settings, now))
+  const siblings = await loadWeekSiblings(sql, rows.map((r) => r.influencer_handle));
+  const due = rows.map((r) => toRow(r, settings, now, siblings))
     .filter((x): x is PendingRow => x !== null && x.group === 'waiting' && isDue(new Date(x.confirmedAt), now))
     .slice(0, limit)
     .map((x) => ({ id: x.cand.taskId }));

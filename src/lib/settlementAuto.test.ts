@@ -105,3 +105,33 @@ test('shortReason·sendWhenLabel — 짧은 명사형', () => {
   assert.equal(shortReason(cand({ removedAt: '2026-10-12' }), 'attention', []), '내림 10/12');
   assert.equal(sendWhenLabel(kst('2026-10-19T07:00:00').toISOString()), '10/19(월) 07:00');
 });
+
+// ── 같은 주 함께 보내기(ISSUE-010, koo 11-04) ──
+import { togetherFor, togetherText, type WeekSibling } from './settlementAuto.ts';
+const sib = (o: Partial<WeekSibling> & { taskId: string }): WeekSibling => ({
+  handle: 'mina', taskType: 'quoteRt', campaignName: '백수약국_11월1주차', postedAt: null, scheduledOn: null, visitOn: null, campaignStartsOn: '2026-11-02', ...o,
+});
+test('togetherFor — 같은 인플·같은 주(월~일) 작업만, 캠페인과 무관', () => {
+  const self = { taskId: 'a', handle: 'Mina', postedAt: '2026-11-03' };
+  const sibs = [
+    sib({ taskId: 'a', postedAt: '2026-11-03' }),
+    sib({ taskId: 'b', campaignName: '미모드림_11월1주차', scheduledOn: '2026-11-06' }),   // 다른 캠페인, 같은 주 → 기다림
+    sib({ taskId: 'c', scheduledOn: '2026-11-10' }),                                       // 다음 주 → 무관
+    sib({ taskId: 'd', handle: 'other', scheduledOn: '2026-11-05' }),                       // 다른 인플 → 무관
+    sib({ taskId: 'e', taskType: 'visit', visitOn: '2026-11-04' }),                          // 예정일 없으면 방문일
+  ];
+  const t = togetherFor(self, sibs, '2026-11-05')!;
+  assert.equal(t.total, 3); assert.equal(t.posted, 1);
+  assert.deepEqual(t.pending.map((p) => [p.taskId, p.dueOn, p.overdue]), [['b', '2026-11-06', false], ['e', '2026-11-04', true]]);
+  assert.equal(togetherText(t), '같은 주 3건 중 1건 게시, 남은 작업: 미모드림_11월1주차 인용RT(11/6 예정), 백수약국_11월1주차 방문협찬(11/4 예정, 지남)');
+});
+test('togetherFor — 혼자거나 전부 게시됐으면 기다리지 않는다', () => {
+  const self = { taskId: 'a', handle: 'mina', postedAt: '2026-11-03' };
+  assert.equal(togetherFor(self, [sib({ taskId: 'a', postedAt: '2026-11-03' })], '2026-11-04'), null);
+  const all = togetherFor(self, [sib({ taskId: 'a', postedAt: '2026-11-03' }), sib({ taskId: 'b', postedAt: '2026-11-08' })], '2026-11-09')!;
+  assert.equal(all.pending.length, 0);
+  // 예정일·방문일이 없으면 캠페인 시작일의 주로 센다
+  const noDate = togetherFor(self, [sib({ taskId: 'a', postedAt: '2026-11-03' }), sib({ taskId: 'b' })], '2026-11-04')!;
+  assert.equal(noDate.pending[0].dueOn, null);
+  assert.match(togetherText(noDate), /\(예정일 없음\)/);
+});

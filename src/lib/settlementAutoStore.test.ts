@@ -278,3 +278,27 @@ test('자동 전송 스위치 — 끄면 스윕이 아무것도 안 보내고(�
   }
   assert.equal((await sweep(afterNextMonday(), { campaignIds: [camp.id] })).sent, 1);
 });
+
+// 같은 주 함께 보내기(ISSUE-010, koo 11-04) — 그 인플의 그 주 작업이 다 게시돼야 자동 전송. 안 올라온 작업은 알리기만 하고 풀지 않는다
+test('같은 주 작업 대기 — 남은 작업이 있으면 자동 전송하지 않고, 다 게시되면 함께 보낸다(다른 주·다른 인플은 무관)', async () => {
+  const camp = await campaign();
+  const camp2 = await campaign();
+  await influencer(H('tg'));
+  const posted = await postedQuote(camp.id, H('tg'), creator.id);   // 10/9 게시(10/5 주)
+  const [left] = await createTasks(sql, camp2.id, { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: '2026-10-10', visitOn: null, note: '', createdBy: creator.id,
+    type: 'quoteRt', items: [{ handle: H('tg'), cost: { amount: 30000, currency: 'KRW' } }] });
+  // 다음 주 작업은 묶지 않는다
+  await createTasks(sql, camp2.id, { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: '2026-10-14', visitOn: null, note: '', createdBy: creator.id,
+    type: 'quoteRt', items: [{ handle: H('tg'), cost: { amount: 30000, currency: 'KRW' } }] });
+  const pend = (await listPending(sql, new Date(), camp.id)).rows.find((x) => x.cand.taskId === posted.id)!;
+  assert.equal(pend.group, 'together');
+  assert.equal(pend.together!.total, 2);
+  assert.deepEqual(pend.together!.pending.map((p) => [p.taskId, p.overdue]), [[left.id, true]]);   // 10/10 예정 — 이미 지남
+  assert.equal((await sweep(afterNextMonday(), { campaignIds: [camp.id, camp2.id] })).sent, 0);
+  // 사람은 [바로 보내기]로 먼저 보낼 수 있다 — 여기선 남은 작업을 게시해 함께 나가게 한다
+  await updateTask(sql, left.id, { postedAt: '2026-10-10', postedSource: 'manual', postUrl: `https://x.com/${H('tg')}/status/9${seq}` });
+  const r = await sweep(afterNextMonday(), { campaignIds: [camp.id, camp2.id] });
+  assert.equal(r.sent, 2);
+  const sentIds = [...(await listRequests(sql, { campaignId: camp.id })), ...(await listRequests(sql, { campaignId: camp2.id }))].map((x) => x.taskId).sort();
+  assert.deepEqual(sentIds, [posted.id, left.id].sort());
+});

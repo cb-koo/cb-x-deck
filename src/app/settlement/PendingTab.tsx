@@ -4,7 +4,7 @@ import { Button } from '@/components/ui';
 import { useToast } from '@/lib/toastContext';
 import { fetchPending, sendPendingApi } from '@/lib/settlementApi';
 import type { PendingRow, PendingSummary } from '@/lib/settlementAutoStore';
-import { AUTO_RUN_STALE_MS, GROUP_LABEL, UNSENDABLE_TEXT, shortReason, sendWhenLabel, type PendingGroup, type UnsendableRow } from '@/lib/settlementAuto';
+import { AUTO_RUN_STALE_MS, GROUP_LABEL, UNSENDABLE_TEXT, shortReason, sendWhenLabel, togetherText, type PendingGroup, type UnsendableRow } from '@/lib/settlementAuto';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPE_LABEL } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
@@ -24,6 +24,8 @@ const dayLabel = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice
 const GROUP_SUB: Record<PendingGroup, (s: PendingSummary, rows: PendingRow[]) => string> = {
   attention: () => '지급 전에 글이 내려갔거나 안 보여요 · 보낼지 정해 주세요',
   blocked: () => '고치면 자동 전송돼요 · 행을 눌러 그 자리에서 고쳐요',
+  // 같은 주 작업 대기(ISSUE-010) — 그 인플의 그 주 작업이 다 게시되면 함께 자동 전송. 안 올라오는 작업은 풀지 않고 알린다(koo 11-04)
+  together: () => '같은 인플의 그 주 작업이 다 게시되면 함께 자동 전송돼요',
   // 지난 월요일 전에 확인된 건(곧 전송)이 섞여 있으면 따로 센다 — 머리말 날짜와 행의 '곧 전송'이 엇갈려 보이지 않게(QA 10-13)
   waiting: (s, rows) => {
     if (!s.autoSendEnabled) return '자동 전송 꺼짐 · [바로 보내기]로 직접 보내요';
@@ -122,6 +124,18 @@ export function PendingTab({ initialCampaignId, onGoRequests, tokens }: { initia
             </td>
           </Row>
         )}
+      </Group>
+
+      <Group g="together" rows={of('together')} s={s} cols={['인플루언서', '유형', '캠페인', '작업 금액', '게시일', '남은 작업', '']}>
+        {(r) => {
+          const late = r.together!.pending.some((p) => p.overdue);
+          return (
+            <Row key={r.cand.taskId} {...rowProps(r)} withPosted>
+              <td className={`${CELL} text-ui ${late ? 'text-amber-700' : 'text-x-secondary'}`}>{togetherText(r.together!)}</td>
+              <Actions>{hold(r)}{sendBtn(r, '바로 보내기', '남은 작업을 기다리지 않고 이 작업만 지금 보내요 — 요청자는 내 이름')}</Actions>
+            </Row>
+          );
+        }}
       </Group>
 
       <Group g="waiting" rows={of('waiting')} s={s} cols={['인플루언서', '유형', '캠페인', '작업 금액', '송금액', '결제 수단', '전송', '']}>

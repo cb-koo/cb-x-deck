@@ -1,7 +1,7 @@
 // 정산 요청 자동 전송(스펙 2026-10-12 §2·§4) — 순수. 언제 보내는지와 어느 묶음인지를 한 곳에서 정한다.
 // 서버 스윕(runAutoSend)·정산 화면 묶음·캠페인 필터 줄이 모두 이 판정을 쓴다(라벨-값 일치, UX 원칙 4).
 import type { SettlementCandidate, IssueCode, ReadinessIssue } from './settlementCalc.ts';
-import type { TaskType } from './campaignJudgment.ts';
+import { TASK_TYPE_LABEL, weekStartOf, type TaskType } from './campaignJudgment.ts';
 
 const KST_MS = 9 * 3_600_000;
 const DAY_MS = 86_400_000;
@@ -47,7 +47,7 @@ export interface UnsendableRow {
 }
 export const UNSENDABLE_TEXT: Record<UnsendableReason, string> = { 'no-cost': '작업 비용 없음', 'no-influencer': '인플루언서 미배정' };
 
-export type PendingGroup = 'attention' | 'blocked' | 'waiting' | 'stopped';
+export type PendingGroup = 'attention' | 'blocked' | 'together' | 'waiting' | 'stopped';
 // 확인 필요 = 지급 전에 글이 내려가거나 안 보임 — 사람이 보낼지 정한다(koo 10-12)
 const ATTENTION: ReadonlySet<IssueCode> = new Set<IssueCode>(['removed', 'unseen']);
 // 🟡지만 자동 전송에선 막는 것 — 첨부 필수(koo 10-12 "첨부되어야 할 파일이 없는 작업도 보내지 않음")
@@ -57,11 +57,43 @@ export interface PendingState {
   hold: { at: string; byName: string | null; reason: string } | null;
   cancelled: { at: string | null; byName: string | null; reason: string | null } | null;   // 활성 요청 없이 취소된 요청이 있다(가장 최근)
 }
-// 묶음 판정. 멈춤이 먼저(사람이 정한 것), 그다음 확인 필요, 막힘, 그 외는 기다림.
-export function pendingGroup(c: SettlementCandidate, s: PendingState): PendingGroup {
+// 같은 주 함께 보내기(ISSUE-010, koo 11-04) — 한 인플루언서의 그 주 작업이 전부 게시돼야 자동 전송한다(캠페인과 무관, koo: '같은 주').
+// 업로드가 여러 건인 협찬은 업로드마다 작업을 두면 다 올라올 때까지 기다린다. 안 올라오는 작업은 풀지 않고 알린다(koo: 알려주는 것으로).
+// 작업의 날짜 = 게시일 → 게시 예정일 → 방문일 → 캠페인 시작일(먼저 있는 것). 주 = 월~일(서울 날짜).
+// 취소·다른 곳에서 정산함·마감한 캠페인의 작업은 저장소가 애초에 넘기지 않는다(settlementAutoStore.loadWeekSiblings).
+export interface WeekSibling {
+  taskId: string; handle: string; taskType: TaskType; campaignName: string;
+  postedAt: string | null; scheduledOn: string | null; visitOn: string | null; campaignStartsOn: string;
+}
+export interface TogetherPending { taskId: string; campaignName: string; taskType: TaskType; dueOn: string | null; overdue: boolean }
+export interface Together { total: number; posted: number; pending: TogetherPending[] }
+export const taskWeekDate = (t: Pick<WeekSibling, 'postedAt' | 'scheduledOn' | 'visitOn' | 'campaignStartsOn'>): string =>
+  t.postedAt ?? t.scheduledOn ?? t.visitOn ?? t.campaignStartsOn;
+/** self(게시된 후보)와 같은 인플·같은 주 작업 묶음 — 자기 하나뿐이면 null. today는 서울 날짜(예정일 지남 판정). */
+export function togetherFor(self: { taskId: string; handle: string; postedAt: string }, siblings: WeekSibling[], today: string): Together | null {
+  const week = weekStartOf(self.postedAt);
+  const h = self.handle.toLowerCase();
+  const same = siblings.filter((x) => x.handle.toLowerCase() === h && (x.taskId === self.taskId || weekStartOf(taskWeekDate(x)) === week));
+  if (!same.some((x) => x.taskId === self.taskId)) same.push({ taskId: self.taskId, handle: self.handle, taskType: 'post', campaignName: '', postedAt: self.postedAt, scheduledOn: null, visitOn: null, campaignStartsOn: self.postedAt });
+  if (same.length <= 1) return null;
+  const pending = same.filter((x) => !x.postedAt).map((x) => {
+    const dueOn = x.scheduledOn ?? x.visitOn;
+    return { taskId: x.taskId, campaignName: x.campaignName, taskType: x.taskType, dueOn, overdue: !!dueOn && dueOn < today };
+  });
+  return { total: same.length, posted: same.length - pending.length, pending };
+}
+/** 사유 한 칸 — '같은 주 3건 중 2건 게시, 남은 작업: 백수약국_11월1주차 인용RT(11/6 예정)'. */
+export function togetherText(t: Together): string {
+  const left = t.pending.map((p) => `${p.campaignName} ${TASK_TYPE_LABEL[p.taskType]}${p.dueOn ? `(${md(p.dueOn)} 예정${p.overdue ? ', 지남' : ''})` : '(예정일 없음)'}`);
+  return `같은 주 ${t.total}건 중 ${t.posted}건 게시, 남은 작업: ${left.join(', ')}`;
+}
+
+// 묶음 판정. 멈춤이 먼저(사람이 정한 것), 그다음 확인 필요, 막힘, 같은 주 작업 대기, 그 외는 기다림.
+export function pendingGroup(c: SettlementCandidate, s: PendingState, together: Together | null = null): PendingGroup {
   if (s.hold || s.cancelled) return 'stopped';
   if (c.issues.some((i) => ATTENTION.has(i.code))) return 'attention';
   if (blockingIssues(c).length) return 'blocked';
+  if (together && together.pending.length) return 'together';
   return 'waiting';
 }
 // 자동 전송을 막는 이유(내림·안 보임 제외) — '보완 필요' 사유이자, 사람이 [보내기]를 눌러도 막히는 이유
@@ -102,7 +134,7 @@ export function requesterLabel(r: { createdVia: 'manual' | 'auto'; requesterName
 }
 
 // ── 짧은 표시(koo 10-13 QA: 동사형 대신 짧은 명사형, 의미는 분명하게) ──
-export const GROUP_LABEL: Record<PendingGroup, string> = { attention: '확인 필요', blocked: '보완 필요', waiting: '전송 예정', stopped: '전송 보류' };   // '전송 보류' — 정산팀 '지급 보류'(보낸 뒤)와 단계로 구분(10-13)
+export const GROUP_LABEL: Record<PendingGroup, string> = { attention: '확인 필요', blocked: '보완 필요', together: '같은 주 작업 대기', waiting: '전송 예정', stopped: '전송 보류' };   // '전송 보류' — 정산팀 '지급 보류'(보낸 뒤)와 단계로 구분(10-13)
 // 사유 한 칸 — 이슈 코드마다 짧은 말. 고치는 자리는 행을 눌러 여는 작업 패널이라 링크는 패널 밖(설정)만 단다.
 const SHORT: Partial<Record<IssueCode, string>> = {
   'no-influencer': '명부 미등록', 'no-payment-method': '결제 수단 없음', 'paypay-no-receiving-info': 'PayPay 수취 정보 없음',

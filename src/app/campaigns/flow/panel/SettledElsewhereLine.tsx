@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { isSettleWaiting, type FlowRow } from '@/lib/campaignFlowView';
 import { formatDateKo, SETTLED_ELSEWHERE_LABEL } from '@/lib/campaignJudgment';
 import type { PendingRow } from '@/lib/settlementAutoStore';
-import { GROUP_LABEL, shortReason, sendWhenLabel } from '@/lib/settlementAuto';
+import { GROUP_LABEL, shortReason, sendWhenLabel, togetherText } from '@/lib/settlementAuto';
 
 // 비용 · 정산 상자 맨 아래 한 줄(061, koo 09-27 시안) — 앱 밖(구글폼 등)에서 이미 지급한 작업을 정산 대기에서 뺀다.
 //  · 표시가 있으면: ✓ 다른 곳에서 정산함 M/D · 메모 (표시한 사람) [되돌리기]
@@ -47,6 +47,8 @@ function PendingLine({ p, autoOff }: { p: PendingRow; autoOff: boolean }) {
   const head = <span className="font-semibold">정산 {GROUP_LABEL[p.group]}</span>;
   const text = p.group === 'waiting' ? <span className="text-x-secondary">{head} · {autoOff ? '자동 전송 꺼짐' : p.sendAt ? `${sendWhenLabel(p.sendAt)} 자동 전송` : '곧 전송'}</span>
     : p.group === 'stopped' ? <span className="text-x-secondary">{head} · 자동 전송 안 함{link}</span>
+    : p.group === 'together' && p.together
+      ? <span className={p.together.pending.some((x) => x.overdue) ? 'text-amber-700' : 'text-x-secondary'}>{head} · {togetherText(p.together)}{link}</span>
     : <span className="text-amber-700">{head} · {shortReason(p.cand, p.group, p.blocking)}{link}</span>;
   return <p className="-mx-4 mt-3.5 border-t border-x-border px-4 pt-3 text-[14px]">{text}</p>;
 }

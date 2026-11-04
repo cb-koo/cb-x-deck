@@ -88,6 +88,16 @@ export function togetherText(t: Together): string {
   return `같은 주 ${t.total}건 중 ${t.posted}건 게시, 남은 작업: ${left.join(', ')}`;
 }
 
+/** 표의 사유 칸용 짧은 말(koo QA 11-05: 긴 문장이 칸을 넘쳐 버튼이 밀렸다) — '3건 중 1건 게시, 1건 예정일 지남' / '…, 다음 예정 11/7'.
+ *  남은 작업 목록 전체는 togetherText(마우스 올림·작업 패널). */
+export function togetherShort(t: Together): string {
+  const head = `${t.total}건 중 ${t.posted}건 게시`;
+  const late = t.pending.filter((p) => p.overdue).length;
+  if (late) return `${head}, ${late}건 예정일 지남`;
+  const next = t.pending.map((p) => p.dueOn).filter((d): d is string => !!d).sort()[0];
+  return next ? `${head}, 다음 예정 ${md(next)}` : `${head}, ${t.pending.length}건 예정일 없음`;
+}
+
 // 묶음 판정. 멈춤이 먼저(사람이 정한 것), 그다음 확인 필요, 막힘, 같은 주 작업 대기, 그 외는 기다림.
 export function pendingGroup(c: SettlementCandidate, s: PendingState, together: Together | null = null): PendingGroup {
   if (s.hold || s.cancelled) return 'stopped';

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui';
 import { useToast } from '@/lib/toastContext';
 import { fetchPending, sendPendingApi } from '@/lib/settlementApi';
 import type { PendingRow, PendingSummary } from '@/lib/settlementAutoStore';
-import { AUTO_RUN_STALE_MS, GROUP_LABEL, UNSENDABLE_TEXT, shortReason, sendWhenLabel, togetherText, type PendingGroup, type UnsendableRow } from '@/lib/settlementAuto';
+import { AUTO_RUN_STALE_MS, GROUP_LABEL, UNSENDABLE_TEXT, shortReason, sendWhenLabel, togetherText, togetherShort, type PendingGroup, type UnsendableRow } from '@/lib/settlementAuto';
 import { TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
 import { PAYMENT_TYPE_LABEL } from '@/lib/influencerPayment';
 import { formatMoney } from '@/lib/influencerPricing';
@@ -131,7 +131,7 @@ export function PendingTab({ initialCampaignId, onGoRequests, tokens }: { initia
           const late = r.together!.pending.some((p) => p.overdue);
           return (
             <Row key={r.cand.taskId} {...rowProps(r)} withPosted>
-              <td className={`${CELL} text-ui ${late ? 'text-amber-700' : 'text-x-secondary'}`}>{togetherText(r.together!)}</td>
+              <td className={`${CELL} whitespace-nowrap text-ui ${late ? 'text-amber-700' : 'text-x-secondary'}`} title={togetherText(r.together!)}>{togetherShort(r.together!)}</td>
               <Actions>{hold(r)}{sendBtn(r, '바로 보내기', '남은 작업을 기다리지 않고 이 작업만 지금 보내요 — 요청자는 내 이름')}</Actions>
             </Row>
           );

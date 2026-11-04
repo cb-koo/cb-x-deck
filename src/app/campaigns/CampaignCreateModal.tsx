@@ -11,18 +11,22 @@ import {
 import { nextWeekRange, suggestCampaignName, suggestCampaignCode } from '@/lib/campaignJudgment';
 import { checkCampaign } from '@/lib/trackingLink';
 import { Button } from '@/components/ui';
+import { CampaignBulkForm } from './CampaignBulkForm';
 
 // [+ 새 캠페인](스펙 §3-3) — 클라이언트(필수) → 기간(기본 다음 월~일) → 이름(자동 제안, 수정) → 영문 코드(자동 제안, 트래킹 링크 규칙) → 메모.
 // 제안값은 손대기 전까지만 따라간다(LinkCreateModal의 touched 관례) — 클라·시작일을 바꾸면 제안이 다시 계산되지만, 사람이 고친 값은 덮지 않는다.
 // 검증은 서버와 같은 함수(checkCampaign·checkPeriod)로 즉시 피드백 — 문구가 두 벌이 되지 않는다.
 // 입력은 40px(h-10) 이상(가독성 기준, CampaignHeader 관례) — text-caption(11px)은 쓰지 않는다.
+// 맨 위 [한 곳만][여러 곳 한 번에](ISSUE-006) — 여러 곳은 CampaignBulkForm. onBulkCreated를 주는 화면에서만 보인다.
 const INPUT = 'mt-0.5 h-10 w-full rounded-md border border-x-border-strong bg-white px-2.5 text-content outline-none focus:border-x-blue';
 const LABEL = 'mt-3 block text-ui text-x-secondary';
 const HELP = 'mt-1 text-ui text-x-muted';
 
-export function CampaignCreateModal({ today, onClose, onCreated }: {
+export function CampaignCreateModal({ today, onClose, onCreated, onBulkCreated }: {
   today: string; onClose: () => void; onCreated: (row: CampaignRow) => void;
+  onBulkCreated?: (rows: CampaignRow[]) => void;
 }) {
+  const [mode, setMode] = useState<'one' | 'many'>('one');
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [clientId, setClientId] = useState('');
   const initial = useMemo(() => nextWeekRange(today), [today]);
@@ -92,11 +96,27 @@ export function CampaignCreateModal({ today, onClose, onCreated }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6" onClick={() => { if (!busy) onClose(); }}>
-      <div className="w-full max-w-[520px] rounded-2xl bg-white p-4" role="dialog" aria-modal="true" aria-label="새 캠페인" onClick={(e) => e.stopPropagation()}>
+      <div className={`w-full ${mode === 'many' ? 'max-w-[600px]' : 'max-w-[520px]'} rounded-2xl bg-white p-4`} role="dialog" aria-modal="true" aria-label="새 캠페인" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center">
           <h2 className="text-content font-bold">새 캠페인</h2>
           <button onClick={onClose} disabled={busy} aria-label="닫기" className="ml-auto rounded px-1.5 text-x-secondary hover:bg-x-border disabled:opacity-40">✕</button>
         </div>
+        {onBulkCreated && (
+          <div className="mt-2 flex gap-1.5">
+            {(['one', 'many'] as const).map((m) => (
+              <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}
+                      className={`h-9 rounded-full border px-3.5 text-ui ${mode === m ? 'border-x-text bg-x-text font-semibold text-white' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
+                {m === 'one' ? '한 곳만' : '여러 곳 한 번에'}
+              </button>
+            ))}
+          </div>
+        )}
+        {mode === 'many' && onBulkCreated ? (
+          <>
+            <p className="mt-2 text-ui text-x-muted">같은 기간의 캠페인을 클라이언트마다 하나씩 한 번에 만들어요. 빼고 싶은 곳만 체크를 풀어요.</p>
+            <CampaignBulkForm today={today} clients={clients} onClose={onClose} onCreated={onBulkCreated} />
+          </>
+        ) : (<>
         <p className="mt-1 text-ui text-x-muted">클라이언트 한 곳 × 기간 하나예요. 만든 뒤 [+ 작업 추가]로 이번 주에 나갈 일을 올리고, 원고는 각 작업에 붙여요.</p>
 
         <label htmlFor="cc-client" className={LABEL}>클라이언트</label>
@@ -153,6 +173,7 @@ export function CampaignCreateModal({ today, onClose, onCreated }: {
           </Button>
         </div>
         {!canSubmit && !busy && reason && <p className="mt-1.5 text-ui text-x-muted">{reason}</p>}
+        </>)}
       </div>
     </div>
   );

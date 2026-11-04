@@ -153,7 +153,8 @@ function CampaignsFlowSplit() {
       </main>
       {creating && (
         <CampaignCreateModal today={today} onClose={() => setCreating(false)}
-                             onCreated={async (row) => { setCreating(false); await load(); select(row.id); }} />
+                             onCreated={async (row) => { setCreating(false); await load(); select(row.id); }}
+                             onBulkCreated={async (rows) => { setCreating(false); await load(); show(`캠페인 ${rows.length}개를 만들었어요`); }} />
       )}
     </div>
   );

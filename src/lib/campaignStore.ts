@@ -21,6 +21,7 @@ import { pickTaskMainPost, firstLinkOf } from './selfReplies.ts';
 import { parseTweetLink, tweetPermalink } from './tweetLink.ts';
 import { mapMedia, mapQuoted } from './mappers.ts';
 import type { DeckMedia, DeckQuoted } from './types.ts';
+import { bulkSuggestion } from './campaignBulk.ts';
 
 export { CAMPAIGN_KINDS, CAMPAIGN_KIND_LABEL, type CampaignKind } from './campaignJudgment.ts';
 
@@ -257,6 +258,34 @@ export async function createCampaign(sql: postgres.Sql, input: {
   const row = await getCampaign(sql, ins[0].id);
   if (!row) throw new Error('campaign insert 직후 재조회 실패'); // 단언은 경합 시 null을 통과시킨다
   return row;
+}
+
+// 여러 클라이언트 캠페인 한 번에(ISSUE-006) — 전부 만들거나 하나도 안 만든다(한 트랜잭션). 이름·영문 코드는 한 곳 만들기와
+// 같은 제안 규칙(bulkSuggestion). 같은 클라이언트·같은 기간 캠페인이 이미 있거나 클라이언트가 사라졌으면 그 이름들을 담아 거절한다.
+export class BulkCampaignError extends Error {}
+export async function createCampaignsBulk(sql: postgres.Sql, input: {
+  clientIds: string[]; startsOn: string; endsOn: string; createdBy: string | null;
+}): Promise<CampaignRow[]> {
+  return sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    const clients = await tx<Array<{ id: string; name: string; name_en: string }>>`
+      select id, name, name_en from client where id in ${tx(input.clientIds)}`;
+    if (clients.length !== input.clientIds.length) throw new BulkCampaignError('클라이언트를 찾을 수 없어요 — 창을 닫고 다시 열어 주세요');
+    const dup = await tx<Array<{ client_name: string | null }>>`
+      select client_name from campaign
+       where client_id in ${tx(input.clientIds)} and starts_on = ${input.startsOn}::date and ends_on = ${input.endsOn}::date`;
+    if (dup.length) throw new BulkCampaignError(`이미 같은 기간 캠페인이 있어요: ${dup.map((d) => d.client_name ?? '이름 없음').join(', ')}`);
+    // 화면에 보이는 순서(클라이언트 목록 순서)대로 만든다 — 목록에서 같은 날 만든 캠페인의 순서가 고른 순서와 맞게
+    const order = new Map(input.clientIds.map((id, i) => [id, i]));
+    clients.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+    const out: CampaignRow[] = [];
+    for (const c of clients) {
+      const s = bulkSuggestion({ name: c.name, nameEn: c.name_en ?? '' }, input.startsOn);
+      out.push(await createCampaign(tx, { clientId: c.id, clientName: c.name, name: s.name, nameEn: s.nameEn,
+        startsOn: input.startsOn, endsOn: input.endsOn, kind: null, note: '', createdBy: input.createdBy }));
+    }
+    return out;
+  }) as Promise<CampaignRow[]>;
 }
 
 export async function listCampaigns(sql: postgres.Sql): Promise<CampaignRow[]> {

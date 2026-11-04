@@ -46,6 +46,7 @@ async function call<T>(input: string, init?: RequestInit): Promise<ApiResult<T>>
 export const fetchCampaigns = () => call<CampaignRow[]>('/api/campaigns');
 export const fetchCampaignDetail = (id: string) => call<CampaignDetail>(`/api/campaigns/${id}`);
 export const createCampaignApi = (input: CampaignCreateInput) => call<CampaignRow>('/api/campaigns', json('POST', input));
+export const createCampaignsBulkApi = (input: { clientIds: string[]; startsOn: string; endsOn: string }) => call<CampaignRow[]>('/api/campaigns/bulk', json('POST', input));
 export const patchCampaignApi = (id: string, patch: CampaignPatchInput) => call<CampaignRow>(`/api/campaigns/${id}`, json('PATCH', patch));
 export const closeCampaignApi = (id: string, closed: boolean) => call<CampaignRow>(`/api/campaigns/${id}/close`, json('POST', { closed }));
 export const deleteCampaignApi = (id: string) =>

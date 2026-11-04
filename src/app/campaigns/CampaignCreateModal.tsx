@@ -17,7 +17,7 @@ import { CampaignBulkForm } from './CampaignBulkForm';
 // 제안값은 손대기 전까지만 따라간다(LinkCreateModal의 touched 관례) — 클라·시작일을 바꾸면 제안이 다시 계산되지만, 사람이 고친 값은 덮지 않는다.
 // 검증은 서버와 같은 함수(checkCampaign·checkPeriod)로 즉시 피드백 — 문구가 두 벌이 되지 않는다.
 // 입력은 40px(h-10) 이상(가독성 기준, CampaignHeader 관례) — text-caption(11px)은 쓰지 않는다.
-// 맨 위 [한 곳만][여러 곳 한 번에](ISSUE-006) — 여러 곳은 CampaignBulkForm. onBulkCreated를 주는 화면에서만 보인다.
+// 맨 위 [한 곳만][한 번에 만들기](ISSUE-006, 이름 koo 11-04) — 여러 곳은 CampaignBulkForm. onBulkCreated를 주는 화면에서만 보인다.
 const INPUT = 'mt-0.5 h-10 w-full rounded-md border border-x-border-strong bg-white px-2.5 text-content outline-none focus:border-x-blue';
 const LABEL = 'mt-3 block text-ui text-x-secondary';
 const HELP = 'mt-1 text-ui text-x-muted';
@@ -106,7 +106,7 @@ export function CampaignCreateModal({ today, onClose, onCreated, onBulkCreated }
             {(['one', 'many'] as const).map((m) => (
               <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}
                       className={`h-9 rounded-full border px-3.5 text-ui ${mode === m ? 'border-x-text bg-x-text font-semibold text-white' : 'border-x-border-strong text-x-secondary hover:bg-x-hover'}`}>
-                {m === 'one' ? '한 곳만' : '여러 곳 한 번에'}
+                {m === 'one' ? '한 곳만' : '한 번에 만들기'}
               </button>
             ))}
           </div>

@@ -9,7 +9,7 @@ import { formatDateKo } from '@/lib/campaignJudgment';
 import { bulkSuggestion, defaultPreset, hasSamePeriod, presetRange, BULK_EMPTY_MESSAGE, BULK_PERIOD_MESSAGE, type PeriodPreset } from '@/lib/campaignBulk';
 import { Button } from '@/components/ui';
 
-// 새 캠페인 › 여러 곳 한 번에(ISSUE-006, koo 11-04) — 기간 하나 + 클라이언트 여러 곳. 기간은 [이번 주][다음 주][기간 지정],
+// 새 캠페인 › 한 번에 만들기(ISSUE-006, koo 11-04) — 기간 하나 + 클라이언트 여러 곳. 기간은 [이번 주][다음 주][기간 지정],
 // 기본은 월요일이면 이번 주·그 외엔 다음 주(defaultPreset). 클라이언트는 전부 골라진 채로 시작하고 필요한 곳만 뺀다(koo 결정).
 // 같은 기간 캠페인이 이미 있는 곳은 회색으로 빼 둔다 — 서버도 같은 판정(hasSamePeriod)으로 거절한다.
 // 한 줄 = 클라이언트 하나(koo 표 선호) — 체크, 클라이언트, 만들어질 이름, 영문 코드. 이름은 만든 뒤 각 캠페인에서 고친다.

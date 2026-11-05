@@ -25,7 +25,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const b = (await req.json().catch(() => null)) as { status?: unknown; reply?: unknown } | null;
   if (b?.status !== undefined && !isIssueStatus(b.status)) return NextResponse.json({ error: '알 수 없는 상태예요' }, { status: 400 });
   if (b?.reply !== undefined && b.reply !== null && typeof b.reply !== 'string') return NextResponse.json({ error: '답은 글자로 적어 주세요' }, { status: 400 });
-  const reply = typeof b?.reply === 'string' ? b.reply.replace(/\s+/g, ' ').trim() : b?.reply === null ? null : undefined;
+  // 줄바꿈은 살린다(koo 11-05: 여러 줄 답) — 줄 안의 연속 공백만 하나로, 빈 줄은 세 줄 이상이면 둘로
+  const reply = typeof b?.reply === 'string'
+    ? b.reply.replace(/\r\n?/g, '\n').split('\n').map((l) => l.replace(/[ \t]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim()
+    : b?.reply === null ? null : undefined;
   if (reply && reply.length > MAX_ISSUE_REPLY) return NextResponse.json({ error: `답은 ${MAX_ISSUE_REPLY}자까지예요` }, { status: 400 });
   const issue = await updateIssue(getSql(), id, {
     status: isIssueStatus(b?.status) ? b.status : undefined, reply, byName: gate.member.name,

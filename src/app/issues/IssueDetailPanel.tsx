@@ -164,9 +164,10 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
             {canHandle ? (
               <div>
                 <label htmlFor="issue-reply" className={`block ${LABEL}`}>해결 답 (보낸 사람에게 보여요)</label>
-                <input id="issue-reply" value={replyDraft} onChange={(e) => setReplyDraft(e.target.value)} maxLength={MAX_ISSUE_REPLY}
-                       placeholder="예: 저장 후 표가 바로 바뀌게 고쳤어요"
-                       className="w-full rounded-[10px] border border-x-border-strong px-3 py-2.5 text-[14px] outline-none placeholder:text-x-muted focus:border-x-blue" />
+                {/* 여러 줄 칸(koo 11-05: 한 줄 입력칸이라 긴 답이 옆으로 밀려 보기 불편) — 줄바꿈도 그대로 저장·표시한다 */}
+                <textarea id="issue-reply" value={replyDraft} onChange={(e) => setReplyDraft(e.target.value)} maxLength={MAX_ISSUE_REPLY}
+                          rows={5} placeholder="예: 저장 후 표가 바로 바뀌게 고쳤어요"
+                          className="block w-full resize-y rounded-[10px] border border-x-border-strong px-3 py-2.5 text-[14px] leading-relaxed outline-none placeholder:text-x-muted focus:border-x-blue" />
                 {issue.reply && issue.repliedByName && (
                   <p className="mt-1 text-caption text-x-muted">{issue.repliedByName}{issue.repliedAt ? `, ${relativeDay(issue.repliedAt, now)}` : ''}</p>
                 )}
@@ -174,7 +175,7 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
             ) : issue.reply ? (
               <div>
                 <p className={LABEL}>해결 답</p>
-                <p className="leading-relaxed">{issue.reply}</p>
+                <p className="whitespace-pre-wrap leading-relaxed">{issue.reply}</p>
                 {issue.repliedByName && <p className="mt-1 text-caption text-x-muted">{issue.repliedByName}{issue.repliedAt ? `, ${relativeDay(issue.repliedAt, now)}` : ''}</p>}
               </div>
             ) : null}

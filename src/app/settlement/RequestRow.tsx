@@ -175,9 +175,9 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
           <RevisionHistory r={r} />
 
           <div className="flex flex-wrap items-center justify-end gap-3 text-[14px] text-x-muted">
-            {/* 작업 열기(ISSUE-007, koo 11-03) — 요청에 문제가 있으면 여기서 바로 작업을 열어 고친다. 고친 뒤 [고친 값으로 다시 반영] */}
+            {/* 작업 열기(ISSUE-007, koo 11-03) — 요청에 문제가 있으면 여기서 바로 작업을 열어 고친다. 고친 뒤 [고친 값으로 다시 반영]. 다른 버튼과 같이 오른쪽에(koo QA 11-05) */}
             {onOpenTask && (
-              <Button onClick={onOpenTask} title="이 요청의 작업을 오른쪽에 열어요 — 금액, 결제 수단, 링크, 증빙을 그 자리에서 고쳐요" className="mr-auto">작업 열기</Button>
+              <Button onClick={onOpenTask} title="이 요청의 작업을 오른쪽에 열어요 — 금액, 결제 수단, 링크, 증빙을 그 자리에서 고쳐요">작업 열기</Button>
             )}
             {cancelled
               ? <span>{['취소', partnerNameLabel(r.cancelledByName), kstMonthDayTimeKo(r.cancelledAt), r.cancelReason].filter(Boolean).join(' · ')}</span>

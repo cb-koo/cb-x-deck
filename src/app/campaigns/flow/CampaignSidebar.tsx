@@ -2,7 +2,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import {
-  campaignRowLabel, campaignSections, campaignsByClient, isClosed, isEndedLongPending, isLongCampaign, matchesCampaignQuery, splitClientRows, type WeekGroup,
+  campaignRowLabel, campaignSections, campaignsByClient, isClosed, isEndedLongPending, isLongCampaign, matchesCampaignQuery, matchedHandle, splitClientRows, type WeekGroup,
 } from '@/lib/campaignListView';
 import { Button } from '@/components/ui';
 import { SidebarRow } from './sidebar/SidebarRow';
@@ -63,7 +63,9 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
     const byClient = groupBy === 'client';
     const label = campaignRowLabel(c, { groupedByClient: byClient });
     // 클라이언트 묶음 안에선 장기 캠페인에 꼬리말 '장기'(주차 모드는 섹션 제목이 이미 말한다)
-    const suffix = byClient && isLongCampaign(c) ? '장기' : label.suffix;
+    // 인플 핸들로 찾은 캠페인은 꼬리말에 그 핸들을 보여 왜 나왔는지 알게 한다(ISSUE-008)
+    const hit = searching ? matchedHandle(c, q) : null;
+    const suffix = hit ? `@${hit}` : byClient && isLongCampaign(c) ? '장기' : label.suffix;
     return (
       <SidebarRow key={c.id} c={c} title={label.title} suffix={suffix} today={today}
                   selected={c.id === selectedId}
@@ -207,7 +209,7 @@ export function CampaignSidebar({ rows, selectedId, today, loaded, loadErr, onSe
           </svg>
           <input id="campaign-search" type="text" value={q} onChange={(e) => setQ(e.target.value)}
                  onKeyDown={(e) => { if (e.key === 'Escape' && q) { e.stopPropagation(); setQ(''); } }}
-                 placeholder="캠페인·클라이언트 검색"
+                 placeholder="캠페인, 클라이언트, 인플 핸들 검색"
                  className={`h-[38px] w-full rounded-[10px] border border-transparent bg-[#f5f7f8] pl-[38px] text-[14px] text-[#0f1419] outline-none placeholder:text-[#6c7781] focus:border-[#1d9bf0] focus:bg-white ${q ? 'pr-9' : 'pr-[14px]'}`} />
           {q && (
             <button type="button" onClick={() => setQ('')} aria-label="검색어 지우기"

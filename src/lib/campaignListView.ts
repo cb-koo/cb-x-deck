@@ -160,8 +160,18 @@ export function splitClientRows<T extends { startsOn: string; endsOn: string; pr
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, '');
-export function matchesCampaignQuery(c: { name: string; clientName: string | null }, q: string): boolean {
+// 인플 핸들로도 찾는다(ISSUE-008, koo 11-03) — '@mina'·'mina' 둘 다. 핸들은 그 캠페인의 취소 안 된 작업에 배정된 인플.
+export function matchesCampaignQuery(c: { name: string; clientName: string | null; influencerHandles?: string[] }, q: string): boolean {
   const n = norm(q);
   if (!n) return true;
-  return norm(c.name).includes(n) || norm(c.clientName ?? '').includes(n);
+  if (norm(c.name).includes(n) || norm(c.clientName ?? '').includes(n)) return true;
+  const h = n.replace(/^@/, '');
+  return !!h && (c.influencerHandles ?? []).some((x) => norm(x).includes(h));
+}
+/** 검색어가 이 캠페인의 인플 핸들에 걸렸으면 그 핸들(목록 줄에 '@핸들'로 보여 줘 왜 나왔는지 알게) — 이름·클라이언트로 걸렸으면 null. */
+export function matchedHandle(c: { name: string; clientName: string | null; influencerHandles?: string[] }, q: string): string | null {
+  const n = norm(q);
+  if (!n || norm(c.name).includes(n) || norm(c.clientName ?? '').includes(n)) return null;
+  const h = n.replace(/^@/, '');
+  return (h && (c.influencerHandles ?? []).find((x) => norm(x).includes(h))) || null;
 }

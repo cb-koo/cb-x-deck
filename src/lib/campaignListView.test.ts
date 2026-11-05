@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   campaignDot, isClosed, isEndedLongPending, isLongCampaign, staysInLongSection, campaignRowLabel, campaignSections, campaignsByClient,
-  matchesCampaignQuery, splitClientRows, weekKey, weekName,
+  matchesCampaignQuery, matchedHandle, splitClientRows, weekKey, weekName,
 } from './campaignListView.ts';
 
 const TODAY = '2026-10-08'; // 목요일 — 10월 2주차(10/5~10/11)
@@ -251,4 +251,16 @@ test('splitClientRows·campaignsByClient: 마감한 캠페인은 진행 중이�
   assert.deepEqual(current, []);
   assert.deepEqual(past.map((r) => r.name), ['A_11월 방문협찬', 'A_10월 방문협찬']);
   assert.equal(campaignsByClient([live, pending], NOV2)[0].open, false);
+});
+
+// ISSUE-008 — 인플 핸들로도 찾고(@ 있든 없든), 핸들로 걸렸을 때만 그 핸들을 알려 준다
+test('matchesCampaignQuery·matchedHandle: 인플 핸들로 찾기', () => {
+  const c = { name: '백수약국_11월1주차', clientName: '백수약국', influencerHandles: ['Eveniffen', 'minchannell'] };
+  assert.equal(matchesCampaignQuery(c, '@eveniffen'), true);
+  assert.equal(matchesCampaignQuery(c, 'minchan'), true);
+  assert.equal(matchesCampaignQuery(c, '@nobody'), false);
+  assert.equal(matchesCampaignQuery(c, '@'), false);
+  assert.equal(matchedHandle(c, '@evenif'), 'Eveniffen');
+  assert.equal(matchedHandle(c, '백수'), null);                       // 이름으로 걸리면 핸들 표시 없음
+  assert.equal(matchesCampaignQuery({ name: 'x', clientName: null }, 'mina'), false);   // 핸들 목록이 없는 옛 값도 안전
 });

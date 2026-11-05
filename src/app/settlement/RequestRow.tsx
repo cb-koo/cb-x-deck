@@ -20,9 +20,10 @@ import { CARD, CARD_HEAD, CARD_META, ROW, ROW_KEY, GROUP, GROUP_TITLE, DIVIDER, 
 import { removalAfterSend, requesterLabel } from '@/lib/settlementAuto';
 import { ackRemovalApi } from '@/lib/settlementApi';
 
-export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle, onCancel, onRevise, onMatch, onKeep, onChanged }: {
+export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle, onCancel, onRevise, onMatch, onKeep, onChanged, onOpenTask }: {
   r: PaymentRequestRow; open: boolean; proofSignedUrl: string | null; revisionEnabled: boolean;
   onToggle: () => void; onCancel: () => void; onRevise: () => void; onMatch: () => void; onKeep: () => void; onChanged: () => void;
+  onOpenTask: (() => void) | null;   // 작업 패널 열기(ISSUE-007) — 작업이 지워진 옛 요청이면 null
 }) {
   const [zoom, setZoom] = useState(false);
   const [ackBusy, setAckBusy] = useState(false);
@@ -174,6 +175,10 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
           <RevisionHistory r={r} />
 
           <div className="flex flex-wrap items-center justify-end gap-3 text-[14px] text-x-muted">
+            {/* 작업 열기(ISSUE-007, koo 11-03) — 요청에 문제가 있으면 여기서 바로 작업을 열어 고친다. 고친 뒤 [고친 값으로 다시 반영] */}
+            {onOpenTask && (
+              <Button onClick={onOpenTask} title="이 요청의 작업을 오른쪽에 열어요 — 금액, 결제 수단, 링크, 증빙을 그 자리에서 고쳐요" className="mr-auto">작업 열기</Button>
+            )}
             {cancelled
               ? <span>{['취소', partnerNameLabel(r.cancelledByName), kstMonthDayTimeKo(r.cancelledAt), r.cancelReason].filter(Boolean).join(' · ')}</span>
               : paid

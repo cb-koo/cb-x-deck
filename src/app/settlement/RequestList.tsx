@@ -13,6 +13,7 @@ import { HEAD, GROUP, COLS, groupByCampaign } from './tableStyle';
 import { STATUS_GROUP_OPTIONS, inGroup, keyOf, taskPaidMismatch, type StatusGroup } from '@/lib/settlementDisplay';
 import { kstDate } from '@/lib/datetime';
 import { matchesSearch } from '@/lib/settlementSearch';
+import { FlowDetail } from '@/app/campaigns/flow/FlowDetail';
 
 const SEL = 'rounded-lg border border-x-border bg-white px-2.5 py-1.5 text-ui';
 
@@ -27,6 +28,8 @@ export function RequestList({ focusTaskId, tokens, onClearSearch }: { focusTaskI
   const [filter, setFilter] = useState<RequestFilter>(NO_FILTER);
   const [open, setOpen] = useState<string | null>(null);        // 펼친 요청 id
   const [cancelling, setCancelling] = useState<PaymentRequestRow | null>(null);
+  // 작업 패널(ISSUE-007) — 정산 요청 대기 탭과 같은 FlowDetail embed. 닫으면 목록을 다시 읽어 '작업 금액'·차이가 바로 보이게
+  const [taskOpen, setTaskOpen] = useState<{ campaignId: string; taskId: string } | null>(null);
   const [revising, setRevising] = useState<PaymentRequestRow | null>(null);
   const [matching, setMatching] = useState<PaymentRequestRow | null>(null);
   const [keeping, setKeeping] = useState<PaymentRequestRow | null>(null);
@@ -63,6 +66,10 @@ export function RequestList({ focusTaskId, tokens, onClearSearch }: { focusTaskI
   const n = mismatched.length;
 
   // 증빙 서명 URL — 펼친 행 하나의 증빙만 서명한다(리뷰 수정 5). 훅 호출은 조건부 return보다 앞에서 무조건.
+  // 패널용 다시 읽기 — load는 딥링크 ref를 만져서 렌더 중 넘기는 embed에 엮지 않는다(react-hooks/refs)
+  const reloadRows = useCallback(async () => { const r = await fetchRequests({}); if (r.ok) { setErr(''); setRows(r.data); } }, []);
+  const closeTask = useCallback(() => { setTaskOpen(null); void reloadRows(); }, [reloadRows]);
+  const taskEmbed = useMemo(() => (taskOpen ? { taskId: taskOpen.taskId, onClose: closeTask } : undefined), [taskOpen, closeTask]);
   const openRow = (rows ?? []).find((r) => r.id === open) ?? null;
   const proofUrls = useSignedTaskProofUrls(openRow?.proof?.url ? [openRow.proof.url] : []);
 
@@ -128,7 +135,8 @@ export function RequestList({ focusTaskId, tokens, onClearSearch }: { focusTaskI
                 {g.rows.map((r) => (
                   <RequestRow key={r.id} r={r} open={open === r.id} proofSignedUrl={r.proof ? proofUrls[r.proof.url] ?? null : null} revisionEnabled={revisionEnabled}
                               onToggle={() => setOpen(open === r.id ? null : r.id)} onCancel={() => setCancelling(r)} onRevise={() => setRevising(r)}
-                              onMatch={() => setMatching(r)} onKeep={() => setKeeping(r)} onChanged={() => void load()} />
+                              onMatch={() => setMatching(r)} onKeep={() => setKeeping(r)} onChanged={() => void load()}
+                              onOpenTask={r.taskId && r.campaignId ? () => setTaskOpen({ campaignId: r.campaignId!, taskId: r.taskId! }) : null} />
                 ))}
               </tbody>
             ))}
@@ -140,6 +148,9 @@ export function RequestList({ focusTaskId, tokens, onClearSearch }: { focusTaskI
                                  onDone={(row) => { setRevising(null); show(`${row.revision + 1}판으로 반영했어요 — 정산팀이 다시 검토해요`); void load(); }} />}
       {matching && <MatchDialog target={matching} onDone={closeReconcile} onClose={closeReconcile} />}
       {keeping && <KeepDialog target={keeping} onDone={closeReconcile} onClose={closeReconcile} />}
+      {taskOpen && taskEmbed && (
+        <FlowDetail key={taskOpen.campaignId} id={taskOpen.campaignId} embed={taskEmbed} onChanged={() => void reloadRows()} onDeleted={closeTask} />
+      )}
     </section>
   );
 }

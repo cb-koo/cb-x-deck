@@ -40,6 +40,7 @@ export interface CampaignRow {
   taskCount: number;                    // 파생: 취소 제외 작업 수(요약 N과 같은 모집단, R17)
   progress: CampaignProgress;           // 파생: 취소 제외 작업의 게시·배정·미배정 수(목록 진행 막대)
   total: MoneyByCurrency;               // 파생: 작업 비용(취소 제외) + 추가 비용, 통화별
+  influencerHandles: string[];          // 파생: 취소 제외 작업에 배정된 인플 핸들(중복 없음) — 목록 검색이 핸들로도 찾게(ISSUE-008)
 }
 
 // postCount = 작업에 붙은 게시물 수(댓글 포함). 지표는 본 게시물 하나의 값이다(self-replies 스펙 §5 — 댓글은 더하지 않는다).
@@ -98,6 +99,7 @@ type CRow = {
   starts_on: string; ends_on: string; kind: CampaignKind | null; note: string;
   created_at: Date; updated_at: Date; closed_at: Date | null; closed_by_name: string | null; task_count: string | number;
   posted_count: string | number; assigned_count: string | number; unassigned_count: string | number;
+  handles: string[] | null;
 };
 type TotalRow = { campaign_id: string; currency: string; amount: string | number };
 type FeeRow = { campaign_id: string; cost: unknown; payment_methods: unknown; payment_method_id: string | null; posted: boolean };
@@ -131,7 +133,9 @@ const SELECT = (sql: postgres.Sql) => sql`
          (select count(*) from campaign_task t
            where t.campaign_id = c.id and t.cancelled_at is null and t.posted_at is null and t.influencer_handle is not null) as assigned_count,
          (select count(*) from campaign_task t
-           where t.campaign_id = c.id and t.cancelled_at is null and t.posted_at is null and t.influencer_handle is null) as unassigned_count
+           where t.campaign_id = c.id and t.cancelled_at is null and t.posted_at is null and t.influencer_handle is null) as unassigned_count,
+         (select array_agg(distinct t.influencer_handle) from campaign_task t
+           where t.campaign_id = c.id and t.cancelled_at is null and t.influencer_handle is not null) as handles
     from campaign c`;
 
 // 통화별 합계 — 작업 비용(취소 제외) + 추가 비용을 SQL에서 통화별로 묶는다. 통화 간 합산은 하지 않는다.
@@ -241,6 +245,7 @@ async function toRows(sql: postgres.Sql, rows: CRow[]): Promise<CampaignRow[]> {
       posted: Number(r.posted_count), assigned: Number(r.assigned_count), unassigned: Number(r.unassigned_count),
     },
     total: totals.get(r.id)?.money ?? {},
+    influencerHandles: r.handles ?? [],
   }));
 }
 

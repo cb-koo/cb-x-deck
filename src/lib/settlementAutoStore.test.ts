@@ -302,3 +302,19 @@ test('같은 주 작업 대기 — 남은 작업이 있으면 자동 전송하�
   const sentIds = [...(await listRequests(sql, { campaignId: camp.id })), ...(await listRequests(sql, { campaignId: camp2.id }))].map((x) => x.taskId).sort();
   assert.deepEqual(sentIds, [posted.id, left.id].sort());
 });
+
+// 동일한 시점에(koo 11-05) — 마지막 작업이 월요일 07:00 직후에 확인돼도 먼저 끝난 작업만 그날 따로 나가지 않는다
+test('같은 주 묶음은 가장 늦게 확인된 작업 기준으로 함께 나간다 — 월요일 아침에 나뉘지 않게', async () => {
+  const camp = await campaign();
+  await influencer(H('st'));
+  const a = await postedQuote(camp.id, H('st'), creator.id);   // 10/9 게시
+  const b = await postedQuote(camp.id, H('st'), creator.id);
+  const mon = nextMondaySeven(new Date());
+  // a는 주중에, b는 다음 월요일 07:00 직후(07:00:30)에 확인된 것으로 둔다
+  await sql`update campaign_task set posted_confirmed_at = ${new Date(mon.getTime() - 86_400_000)} where id = ${a.id}`;
+  await sql`update campaign_task set posted_confirmed_at = ${new Date(mon.getTime() + 30_000)} where id = ${b.id}`;
+  const atMonday = new Date(mon.getTime() + 60_000);   // 그 월요일 07:01 — a만 보면 보낼 때지만 b는 아니다
+  assert.equal((await sweep(atMonday, { campaignIds: [camp.id] })).sent, 0);
+  const nextWeek = new Date(mon.getTime() + 7 * 86_400_000 + 60_000);
+  assert.equal((await sweep(nextWeek, { campaignIds: [camp.id] })).sent, 2);
+});

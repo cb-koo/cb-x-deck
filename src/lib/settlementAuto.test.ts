@@ -109,7 +109,7 @@ test('shortReason·sendWhenLabel — 짧은 명사형', () => {
 // ── 같은 주 함께 보내기(ISSUE-010, koo 11-04) ──
 import { togetherFor, togetherText, togetherShort, type WeekSibling } from './settlementAuto.ts';
 const sib = (o: Partial<WeekSibling> & { taskId: string }): WeekSibling => ({
-  handle: 'mina', taskType: 'quoteRt', campaignName: '백수약국_11월1주차', postedAt: null, scheduledOn: null, visitOn: null, campaignStartsOn: '2026-11-02', ...o,
+  handle: 'mina', taskType: 'quoteRt', campaignName: '백수약국_11월1주차', postedAt: null, scheduledOn: null, visitOn: null, campaignStartsOn: '2026-11-02', confirmedAt: null, ...o,
 });
 test('togetherFor — 같은 인플·같은 주(월~일) 작업만, 캠페인과 무관', () => {
   const self = { taskId: 'a', handle: 'Mina', postedAt: '2026-11-03' };
@@ -142,4 +142,12 @@ test('togetherShort — 표 칸용 짧은 말: 지난 게 있으면 그 수, 없
   assert.equal(togetherShort(togetherFor(self, sibs, '2026-11-05')!), '3건 중 1건 게시, 1건 예정일 지남');
   assert.equal(togetherShort(togetherFor(self, sibs, '2026-11-03')!), '3건 중 1건 게시, 다음 예정 11/4');
   assert.equal(togetherShort(togetherFor(self, [sib({ taskId: 'a', postedAt: '2026-11-03' }), sib({ taskId: 'b' })], '2026-11-04')!), '2건 중 1건 게시, 1건 예정일 없음');
+});
+
+test('togetherFor — 묶음에서 가장 늦은 게시 확인 시각(함께 보내는 기준)', () => {
+  const self = { taskId: 'a', handle: 'mina', postedAt: '2026-11-03' };
+  const t = togetherFor(self, [sib({ taskId: 'a', postedAt: '2026-11-03', confirmedAt: '2026-11-03T01:00:00.000Z' }),
+                              sib({ taskId: 'b', postedAt: '2026-11-08', confirmedAt: '2026-11-09T01:00:00.000Z' })], '2026-11-09')!;
+  assert.equal(t.pending.length, 0);
+  assert.equal(t.lastConfirmedAt, '2026-11-09T01:00:00.000Z');
 });

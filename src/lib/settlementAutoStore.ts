@@ -47,20 +47,21 @@ function stateOf(r: CandRow): PendingState {
 }
 // 같은 주 함께 보내기(ISSUE-010)의 재료 — 후보 인플들의 작업 전부(취소·다른 곳에서 정산함 제외, 마감한 캠페인의 미게시 작업 제외).
 // 주 판정은 순수 함수(togetherFor)가 한다. 비용 없음 작업도 센다 — 업로드를 작업으로 나눠 금액을 한쪽에만 둘 수 있게.
-type SibRow = { id: string; handle: string; type: TaskType; campaign_name: string; posted_at: string | null; scheduled_on: string | null; visit_on: string | null; starts_on: string };
+type SibRow = { id: string; handle: string; type: TaskType; campaign_name: string; posted_at: string | null; scheduled_on: string | null; visit_on: string | null; starts_on: string; posted_confirmed_at: Date | null };
 async function loadWeekSiblings(sql: postgres.Sql, handles: string[]): Promise<WeekSibling[]> {
   const hs = [...new Set(handles.map((h) => h.toLowerCase()))];
   if (!hs.length) return [];
   const rows = await sql<SibRow[]>`
     select t.id, t.influencer_handle as handle, t.type, c.name as campaign_name,
            to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, to_char(t.scheduled_on, 'YYYY-MM-DD') as scheduled_on,
-           to_char(t.visit_on, 'YYYY-MM-DD') as visit_on, to_char(c.starts_on, 'YYYY-MM-DD') as starts_on
+           to_char(t.visit_on, 'YYYY-MM-DD') as visit_on, to_char(c.starts_on, 'YYYY-MM-DD') as starts_on, t.posted_confirmed_at
       from campaign_task t join campaign c on c.id = t.campaign_id
      where lower(t.influencer_handle) in ${sql(hs)}
        and t.cancelled_at is null and t.settled_elsewhere_at is null
        and not (c.closed_at is not null and t.posted_at is null)`;
   return rows.map((r) => ({ taskId: r.id, handle: r.handle, taskType: r.type, campaignName: r.campaign_name,
-    postedAt: r.posted_at, scheduledOn: r.scheduled_on, visitOn: r.visit_on, campaignStartsOn: r.starts_on }));
+    postedAt: r.posted_at, scheduledOn: r.scheduled_on, visitOn: r.visit_on, campaignStartsOn: r.starts_on,
+    confirmedAt: r.posted_at ? confirmedInstant(iso(r.posted_confirmed_at), r.posted_at).toISOString() : null }));
 }
 
 // 분류는 설정 기본값만 — "요청자의 마지막 인용RT 분류"를 넘기지 않는다(요청자마다 결과가 달라지지 않게, 스펙 §2-5)
@@ -73,8 +74,12 @@ function toRow(r: CandRow, settings: Awaited<ReturnType<typeof getSettlementSett
   const confirmed = confirmedInstant(iso(r.posted_confirmed_at), r.posted_at);
   const together = togetherFor({ taskId: r.id, handle: r.influencer_handle, postedAt: r.posted_at }, siblings, today);
   const group = pendingGroup(cand, state, together);
-  const sendAt = group === 'waiting' ? sendAtFor(confirmed, now) : null;
-  return { cand, group, confirmedAt: confirmed.toISOString(), sendAt: sendAt ? sendAt.toISOString() : null, blocking: blockingIssues(cand), state, together };
+  // 같은 주 묶음은 가장 늦게 확인된 작업에 맞춰 함께 나간다 — 마지막 작업이 월요일 07:00 직후에 확인돼도 먼저 끝난 작업만
+  // 그날 따로 나가지 않게(koo 11-05: 그 인플의 작업을 동일한 시점에). confirmedAt은 이 '보내는 기준 시각'이다.
+  const last = together?.lastConfirmedAt ? new Date(together.lastConfirmedAt) : null;
+  const due = last && last.getTime() > confirmed.getTime() ? last : confirmed;
+  const sendAt = group === 'waiting' ? sendAtFor(due, now) : null;
+  return { cand, group, confirmedAt: due.toISOString(), sendAt: sendAt ? sendAt.toISOString() : null, blocking: blockingIssues(cand), state, together };
 }
 
 // 후보 조건(CANDIDATE_BASE)에서 비용·인플루언서만 뒤집은 것 — 나머지(취소·다른 곳 정산·비용 없음·활성 요청 없음)는 같다.

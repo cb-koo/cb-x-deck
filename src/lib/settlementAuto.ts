@@ -64,9 +64,10 @@ export interface PendingState {
 export interface WeekSibling {
   taskId: string; handle: string; taskType: TaskType; campaignName: string;
   postedAt: string | null; scheduledOn: string | null; visitOn: string | null; campaignStartsOn: string;
+  confirmedAt: string | null;   // 게시 확인 시각(ISO) — 묶음이 '가장 늦게 끝난 작업'에 맞춰 함께 나가게(koo 11-05: 동일한 시점에)
 }
 export interface TogetherPending { taskId: string; campaignName: string; taskType: TaskType; dueOn: string | null; overdue: boolean }
-export interface Together { total: number; posted: number; pending: TogetherPending[] }
+export interface Together { total: number; posted: number; pending: TogetherPending[]; lastConfirmedAt: string | null }
 export const taskWeekDate = (t: Pick<WeekSibling, 'postedAt' | 'scheduledOn' | 'visitOn' | 'campaignStartsOn'>): string =>
   t.postedAt ?? t.scheduledOn ?? t.visitOn ?? t.campaignStartsOn;
 /** self(게시된 후보)와 같은 인플·같은 주 작업 묶음 — 자기 하나뿐이면 null. today는 서울 날짜(예정일 지남 판정). */
@@ -74,13 +75,14 @@ export function togetherFor(self: { taskId: string; handle: string; postedAt: st
   const week = weekStartOf(self.postedAt);
   const h = self.handle.toLowerCase();
   const same = siblings.filter((x) => x.handle.toLowerCase() === h && (x.taskId === self.taskId || weekStartOf(taskWeekDate(x)) === week));
-  if (!same.some((x) => x.taskId === self.taskId)) same.push({ taskId: self.taskId, handle: self.handle, taskType: 'post', campaignName: '', postedAt: self.postedAt, scheduledOn: null, visitOn: null, campaignStartsOn: self.postedAt });
+  if (!same.some((x) => x.taskId === self.taskId)) same.push({ taskId: self.taskId, handle: self.handle, taskType: 'post', campaignName: '', postedAt: self.postedAt, scheduledOn: null, visitOn: null, campaignStartsOn: self.postedAt, confirmedAt: null });
   if (same.length <= 1) return null;
   const pending = same.filter((x) => !x.postedAt).map((x) => {
     const dueOn = x.scheduledOn ?? x.visitOn;
     return { taskId: x.taskId, campaignName: x.campaignName, taskType: x.taskType, dueOn, overdue: !!dueOn && dueOn < today };
   });
-  return { total: same.length, posted: same.length - pending.length, pending };
+  const confirmed = same.map((x) => x.confirmedAt).filter((d): d is string => !!d).sort();
+  return { total: same.length, posted: same.length - pending.length, pending, lastConfirmedAt: confirmed.at(-1) ?? null };
 }
 /** 사유 한 칸 — '같은 주 3건 중 2건 게시, 남은 작업: 백수약국_11월1주차 인용RT(11/6 예정)'. */
 export function togetherText(t: Together): string {

@@ -228,7 +228,7 @@ test('②가 걸리면 건수·캠페인 수·최근 게시일·성과·작업 �
   ], f({ clientIds: ['k1'] }));
   assert.deepEqual(rows.map((r) => r.handle), ['rio']);
   const r = rows[0];
-  assert.deepEqual(r.typeCounts, { post: 0, quoteRt: 1, rt: 1, visit: 0 });
+  assert.deepEqual(r.typeCounts, { post: 0, quoteRt: 1, rt: 1, visit: 0, other: 0 });
   assert.equal(r.campaignCount, 2);
   assert.equal(r.lastPostedAt, '2026-09-20');
   assert.equal(r.stats.views.median, 1000);
@@ -288,13 +288,13 @@ test('항목별 숫자 — 다른 필터(다른 쪽 선택·검색) 기준 게�
   ];
   const all = optionCounts(inputs, f());
   assert.deepEqual(all.client, { k1: 2, k2: 2 });
-  assert.deepEqual(all.type, { post: 0, quoteRt: 2, rt: 1, visit: 1 });
+  assert.deepEqual(all.type, { post: 0, quoteRt: 2, rt: 1, visit: 1, other: 0 });
   // 유형을 고르면 클라이언트 숫자가 그 유형 기준으로, 유형 숫자는 자기 선택과 무관
   const byType = optionCounts(inputs, f({ types: ['quoteRt'] }));
   assert.deepEqual(byType.client, { k1: 1, k2: 1 });
-  assert.deepEqual(byType.type, { post: 0, quoteRt: 2, rt: 1, visit: 1 });
+  assert.deepEqual(byType.type, { post: 0, quoteRt: 2, rt: 1, visit: 1, other: 0 });
   // 클라이언트를 고르면 유형 숫자가 그 클라이언트 기준
-  assert.deepEqual(optionCounts(inputs, f({ clientIds: ['k1'] })).type, { post: 0, quoteRt: 1, rt: 0, visit: 1 });
+  assert.deepEqual(optionCounts(inputs, f({ clientIds: ['k1'] })).type, { post: 0, quoteRt: 1, rt: 0, visit: 1, other: 0 });
   // 검색도 반영
   assert.deepEqual(optionCounts(inputs, f({ q: 'mina' })).client, { k2: 1 });
 });

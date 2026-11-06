@@ -14,8 +14,9 @@ export const TASK_PAGE_LIMIT = 20;
 export const BADGE_BATCH_LIMIT = 50;
 
 // 서버 TaskType('quoteRt')과 wire 표기('quote_rt')의 대응은 여기 한 곳.
-export type WireTaskKind = 'visit' | 'post' | 'rt' | 'quote_rt';
-const WIRE_KIND: Record<TaskType, WireTaskKind> = { visit: 'visit', post: 'post', rt: 'rt', quoteRt: 'quote_rt' };
+// 'other' = 기타 협찬(088, koo 11-06) — X 게시물이 아닌 협찬. 확장은 콘텐츠 작업과 같은 분기(classifyTask)로 받는다.
+export type WireTaskKind = 'visit' | 'post' | 'rt' | 'quote_rt' | 'other';
+export const WIRE_KIND: Record<TaskType, WireTaskKind> = { visit: 'visit', post: 'post', rt: 'rt', quoteRt: 'quote_rt', other: 'other' };
 
 export interface TaskFacts {
   id: string; campaignId: string; campaignName: string; type: TaskType;

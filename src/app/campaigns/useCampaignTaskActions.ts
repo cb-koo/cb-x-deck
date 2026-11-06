@@ -82,6 +82,16 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
       return ok;
     },
     setNote: (t: Item, note: string) => patch(t, { note }, { note }),
+    // 기타 협찬(088) — 무엇을 했는지. 서버가 공백을 정리하므로 같은 정리를 낙관값에도 한다
+    setOtherKind: (t: Item, otherKind: string) => { const v = otherKind.trim().replace(/\s+/g, ' '); return patch(t, { otherKind: v }, { otherKind: v }); },
+    // 기타 협찬의 완료 확인 — 완료한 날 + (링크 또는 확인 메모). 날짜는 사람이 고른 그대로(X 게시물이 아니다).
+    // 무엇을 했는지가 칸에 적혔지만 아직 저장 전일 수 있어 함께 보낸다. X 조회·트래킹이 없어 상세를 다시 읽지 않는다.
+    markDoneOther: async (t: Item, date: string, done: { url: string } | { note: string }, otherKind?: string) => {
+      const body = { postedAt: date, ...('url' in done ? { postUrl: done.url } : { doneNote: done.note }), ...(otherKind !== undefined ? { otherKind } : {}) };
+      const ok = await patch(t, body, { ...body, postedSource: 'manual', published: true });
+      if (ok) onChanged();
+      return ok;
+    },
     // 게시 확인 — 사람이 찍은 것이라 postedSource는 'manual'(수집기가 찾은 것은 'auto', 표에 회색 태그로 구분).
     // 링크를 함께 넣으면 서버가 같은 요청 안에서 작성자 확인(= 배정 인플의 글인지) → 저장 → 트래킹 등록·연결까지 한다
     // (다른 인플의 게시물 차단 스펙 §3 ①). 작성자가 다르거나 확인이 안 되면 아무것도 저장되지 않고 서버 문구가 토스트로 뜬다

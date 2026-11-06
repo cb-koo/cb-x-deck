@@ -3,8 +3,9 @@
 import type { TaskType } from './campaignJudgment.ts';
 import type { Currency } from './influencerPricing.ts';
 
-// 그쪽이 받는 4종 고정 enum(스펙 §4). 자유 텍스트 금지 — 이 키가 "합산의 변수명"이다.
-export const MARKETING_COST_CATEGORIES = ['x_content_quote_rt', 'x_secondary_viral', 'x_visit_manuscript', 'x_visit_etc'] as const;
+// 그쪽이 받는 고정 enum(스펙 §4). 자유 텍스트 금지 — 이 키가 "합산의 변수명"이다.
+// other_type('기타 유형', 2026-11 추가)은 기타 협찬(X 밖의 협찬 — 구글맵 리뷰, 상담회 참석 등) — X 작업이 아니라 x_ 접두어가 없다(koo 11-06).
+export const MARKETING_COST_CATEGORIES = ['x_content_quote_rt', 'x_secondary_viral', 'x_visit_manuscript', 'x_visit_etc', 'other_type'] as const;
 export type MarketingCostCategory = typeof MARKETING_COST_CATEGORIES[number];
 
 // 작업 유형 → 카테고리(스펙 §4). 근거: 그쪽 0918.md·부록 A가 옛 '프로모션 RT·인용RT' 버킷을 인용RT(콘텐츠)와
@@ -13,6 +14,7 @@ export type MarketingCostCategory = typeof MARKETING_COST_CATEGORIES[number];
 //  · post(투고)·quoteRt(인용RT) → x_content_quote_rt ("X 콘텐츠 게시 및 인용 RT")
 //  · rt(RT)                     → x_secondary_viral   ("X 2차 바이럴 작업 (RT, 댓글)" — 댓글은 별도 작업 유형이 없어 RT에 포함)
 //  · visit(방문협찬)            → x_visit_manuscript  ("X 방문형 협찬 원고")
+//  · other(기타 협찬)           → other_type          ("기타 유형") — x_visit_etc를 재사용하지 않는다(방문 실비와 다른 것, koo 11-06)
 //
 // x_visit_etc(방문 기타·실비)는 이 매핑에서 나오지 않는다 — cb-x-deck는 방문 비용을 원고/기타로 가르지 않고,
 // 교통·실비(campaign_influencer_cost.extra_costs)는 인플에게 송금하는 돈이 아니라 정산 요청(payment_request)으로
@@ -24,6 +26,7 @@ export const CATEGORY_BY_TASK_TYPE: Record<TaskType, MarketingCostCategory> = {
   quoteRt: 'x_content_quote_rt',
   rt: 'x_secondary_viral',
   visit: 'x_visit_manuscript',
+  other: 'other_type',
 };
 export function categoryForTaskType(t: TaskType): MarketingCostCategory {
   return CATEGORY_BY_TASK_TYPE[t];

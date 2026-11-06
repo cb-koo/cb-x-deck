@@ -217,7 +217,8 @@ function Row({ r, err, selected, withPosted, onOpen, children }: { r: PendingRow
     <>
       <tr onClick={onOpen} className={`cursor-pointer text-[15px] hover:bg-x-hover ${selected ? 'bg-x-surface' : ''}`} title="눌러서 작업 패널 열기">
         <td className={`${CELL} font-semibold`}>@{c.influencerHandle}</td>
-        <td className={CELL}><span className={TYPE_CHIP[c.taskType]}>{TASK_TYPE_LABEL[c.taskType]}</span></td>
+        {/* 기타 협찬(088)은 무엇을 했는지를 칩 옆에 회색으로 — 한 칸 안이라 정보 개수는 늘지 않는다(시안 3-5) */}
+        <td className={CELL}><span className={TYPE_CHIP[c.taskType]}>{TASK_TYPE_LABEL[c.taskType]}</span>{c.otherKind && <span className="ml-1.5 text-ui text-x-secondary">{c.otherKind}</span>}</td>
         <td className={CELL}>{c.campaignName} <span className="text-ui text-x-muted">· {c.clientName}</span></td>
         <td className={`${CELL} ${NUM}`}>{formatMoney(c.cost.amount, c.cost.currency)}</td>
         {withPosted && <td className={CELL}>{dayLabel(c.postedAt)}</td>}

@@ -3,16 +3,16 @@
 // 그래서 "링크 없는 게시"는 늘 "이유가 있는 내림"과 함께 있다 — 근거 없는 게시 확인을 만들지 않는다(서버 linklessGateError가 지킨다).
 // 정산에서는 링크 대신 이 이유를 요청 메모(note)로 정산팀에 보낸다(정산 API 칸 추가 없음).
 // 화면·서버 공용 — 서버 import를 두지 않는다.
-import type { TaskType } from './campaignJudgment.ts';
+import { hasXPost, type TaskType } from './campaignJudgment.ts';
 
 export const LINKLESS_REASON_REQUIRED_MESSAGE = '지워진 이유를 적어 주세요 — 정산 때 게시물 링크 대신 정산팀에 전달돼요';
 export const LINKLESS_KEEP_REMOVED_MESSAGE = '링크 없이 게시 확인한 작업이에요 — 내림을 취소하거나 지워진 이유를 비울 수 없어요';
 
 type TaskLike = { type: TaskType; postedAt: string | null; postUrl: string | null; removedAt: string | null; removedReason: string | null };
 
-/** 링크 없이 게시 확인된 작업인가 — RT는 원래 자기 게시물이 없어 해당하지 않는다. */
+/** 링크 없이 게시 확인된 작업인가 — RT·기타 협찬은 원래 X 게시물이 없어 해당하지 않는다(기타 협찬의 링크 없는 완료는 otherTask). */
 export const isLinklessPosted = (t: TaskLike): boolean =>
-  t.type !== 'rt' && !!t.postedAt && !t.postUrl && !!t.removedAt && !!(t.removedReason ?? '').trim();
+  hasXPost(t.type) && !!t.postedAt && !t.postUrl && !!t.removedAt && !!(t.removedReason ?? '').trim();
 
 const md = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
 
@@ -32,7 +32,7 @@ export function linklessGateError(
   cur: TaskLike,
   patch: { postedAt?: string; postUrl?: string | null; removedAt?: string | null; removedReason?: string },
 ): string | null {
-  if (cur.type === 'rt') return null;
+  if (!hasXPost(cur.type)) return null;
   const after: TaskLike = {
     type: cur.type,
     postedAt: patch.postedAt !== undefined ? patch.postedAt : cur.postedAt,

@@ -8,10 +8,10 @@ import {
 import { PRICE_TYPES, PRICE_TYPE_LABEL } from './influencerPricing.ts';
 import { TASK_TYPES, TASK_TYPE_LABEL } from './campaignJudgment.ts';
 
-test('1) 리터럴은 influencerPricing과 한 벌 — 작업 유형이 곧 단가 유형이다(문자열 두 벌 금지)', () => {
-  assert.equal(TASK_TYPES, PRICE_TYPES);
-  assert.deepEqual([...TASK_TYPES], ['rt', 'quoteRt', 'post', 'visit']);
-  assert.equal(TASK_TYPE_LABEL, PRICE_TYPE_LABEL);
+test('1) 리터럴은 influencerPricing과 한 벌 — 작업 유형 = 단가 유형 + 기타 협찬(088, 단가 없음)', () => {
+  assert.deepEqual([...TASK_TYPES], [...PRICE_TYPES, 'other']);
+  assert.deepEqual([...TASK_TYPES], ['rt', 'quoteRt', 'post', 'visit', 'other']);
+  assert.deepEqual(TASK_TYPE_LABEL, { ...PRICE_TYPE_LABEL, other: '기타 협찬' });
   assert.deepEqual([...CURRENCIES], ['KRW', 'JPY']);
 });
 

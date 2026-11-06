@@ -91,8 +91,9 @@ export function parseTaskCost(v: unknown): Parsed<TaskCost | null> {
   return { ok: true, value: { amount, currency: o.currency } };
 }
 // 작업 추가·인플 변경 시 제안 — 금액 = pricing[type], 통화 = pricing 레벨(normalizeCurrency). 없으면 null(빈 칸, §4-2).
-export function suggestTaskCost(pricing: Pricing | null | undefined, type: PriceType): TaskCost | null {
-  if (!pricing) return null;
+// 기타 협찬('other')은 프로필 단가가 없다(koo 11-06 결정 1) — 늘 null(빈 칸, 직접 입력).
+export function suggestTaskCost(pricing: Pricing | null | undefined, type: PriceType | 'other'): TaskCost | null {
+  if (!pricing || type === 'other') return null;
   const amount = parseAmount(pricing[type]);
   if (amount === null) return null;
   return { amount, currency: normalizeCurrency(pricing) };

@@ -4,8 +4,9 @@ import {
   SETTLEMENT_DEFAULTS, sanitizeSettlementSettings, visibleCategories, categoryBySendAs, defaultCategoryFor,
 } from './settlementSettings.ts';
 
-test('기본값 — 슬랙 3분류, RT만 기본값, 환율 10', () => {
-  assert.equal(SETTLEMENT_DEFAULTS.categories.length, 3);
+test('기본값 — 슬랙 3분류 + 기타 유형(088), RT·기타 협찬만 기본값, 환율 10', () => {
+  assert.equal(SETTLEMENT_DEFAULTS.categories.length, 4);
+  assert.equal(defaultCategoryFor(SETTLEMENT_DEFAULTS, 'other')?.label, '기타 유형');
   assert.equal(SETTLEMENT_DEFAULTS.rateKrwPerJpy, 10);
   assert.equal(defaultCategoryFor(SETTLEMENT_DEFAULTS, 'rt')?.label, '프로모션 RT·인용RT');
   assert.equal(defaultCategoryFor(SETTLEMENT_DEFAULTS, 'quoteRt'), null);   // 인용RT는 요청자 최근 선택으로

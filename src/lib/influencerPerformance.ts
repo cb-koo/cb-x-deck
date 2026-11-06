@@ -52,7 +52,7 @@ function stat(values: Array<number | null>): MetricStat {
 
 export function summarizeInfluencer(inf: PerfInfluencerInput): PerfRow {
   const { tasks, ...who } = inf;
-  const typeCounts: Record<TaskType, number> = { post: 0, quoteRt: 0, rt: 0, visit: 0 };
+  const typeCounts: Record<TaskType, number> = { post: 0, quoteRt: 0, rt: 0, visit: 0, other: 0 };
   const done = tasks.filter(isPosted);
   for (const t of done) typeCounts[t.type] += 1;
   const posted = tasks.map((t) => t.postedAt).filter((d): d is string => d !== null).sort();
@@ -190,7 +190,7 @@ export function buildFilteredRows(inputs: PerfInfluencerInput[], f: PerfFilter):
 // 다른 필터(반대편 선택·검색)는 반영하고 자기 쪽 선택은 무시한다. 최소 게시 수는 사람 단위라 작업 수에 안 섞는다.
 export function optionCounts(inputs: PerfInfluencerInput[], f: PerfFilter): { client: Record<string, number>; type: Record<TaskType, number> } {
   const client: Record<string, number> = {};
-  const type: Record<TaskType, number> = { post: 0, quoteRt: 0, rt: 0, visit: 0 };
+  const type: Record<TaskType, number> = { post: 0, quoteRt: 0, rt: 0, visit: 0, other: 0 };
   const q = normQ(f.q);
   for (const inf of inputs) {
     if (!matchesQ(inf, q)) continue;

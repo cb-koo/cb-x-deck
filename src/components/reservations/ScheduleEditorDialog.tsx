@@ -6,15 +6,16 @@ import { kstToday } from '@/lib/datetime';
 import { DialogShell, ReasonChoices, LimitNotice, reasonBadgeText, REASON_HEADING, LIMIT_HEADING } from './ChangeReasonDialog';
 
 // 일정 상자의 날짜 줄을 눌렀을 때 뜨는 '방문일 수정 / 업로드 기한 수정' 창(목업 x-extension ScheduleEditor) — 달력에서 날짜를 고르고
-// (방문일이면 시간도) [일정 저장]. 예약이 있으면 저장이 예약 폼·기재 시트에 함께 반영된다(부모 onApply가 PATCH). 확정된 예약은
+// (방문일이면 시간도 — 예약 없는 작업은 시간을 비워 '시간 미정'으로 둘 수 있다, timeOptional) [일정 저장]. 예약이 있으면 저장이 예약 폼·기재 시트에 함께 반영된다(부모 onApply가 PATCH). 확정된 예약은
 // 먼저 수정 사유를 고른다(ChangeReasonDialog와 같은 '수정 사유를 선택해 주세요' 본문) — 인플루언서 요청이 3회를 다 썼으면
 // '변경 요청 3회를 모두 사용했어요'로 넘어가 협찬 중단만 할 수 있다. 창이 떠 있는 동안 패널의 Esc·바깥 클릭은 부모가 끈다(body로 포털).
 export type ScheduleReason = 'waiting_edit' | 'customer_request' | 'correction';
-export function ScheduleEditorDialog({ title, hasReservation, initialValue, withTime, minimumDate = '', defaultDeadline, askReason, allowCustomerRequest = true, requestCount, guidanceFor, onApply, onStopForLimit, onClose }: {
+export function ScheduleEditorDialog({ title, hasReservation, initialValue, withTime, timeOptional = false, minimumDate = '', defaultDeadline, askReason, allowCustomerRequest = true, requestCount, guidanceFor, onApply, onStopForLimit, onClose }: {
   title: string;
   hasReservation: boolean;
   initialValue: string;          // 'YYYY-MM-DDTHH:mm' | 'YYYY-MM-DD' | ''
   withTime: boolean;
+  timeOptional?: boolean;        // 시간을 비워도 저장(예약 없는 작업) — 비우면 날짜만 넘긴다
   minimumDate?: string;          // 업로드 기한은 방문일 이후만
   defaultDeadline?: string;      // 업로드 기한 창의 '기본 기한으로'(방문 후 14일)
   askReason: boolean;            // 확정된 예약(게시 뒤 정정 포함) — 사유가 필요하다
@@ -34,7 +35,7 @@ export function ScheduleEditorDialog({ title, hasReservation, initialValue, with
   const [busy, setBusy] = useState(false);
   const first = new Date(`${month}-01T00:00:00Z`);
   const total = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
-  const value = withTime ? `${date}T${time}` : date;
+  const value = withTime && (time || !timeOptional) ? `${date}T${time}` : date;
   const limitReached = requestCount >= 3;
 
   function move(delta: number) {
@@ -52,7 +53,7 @@ export function ScheduleEditorDialog({ title, hasReservation, initialValue, with
   }
   async function apply() {
     if (!uploadWindow(date) || (minimumDate && date < minimumDate)) { setError(minimumDate ? '방문일 이후의 올바른 날짜를 선택해 주세요.' : '올바른 날짜를 선택해 주세요.'); return; }
-    if (withTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) { setError('방문 시간을 선택해 주세요.'); return; }
+    if (withTime && (time || !timeOptional) && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) { setError('방문 시간을 선택해 주세요.'); return; }
     if (value === initialValue) { onClose(); return; }
     if (reason === 'customer_request' && limitReached) { setView('limit'); return; }
     setBusy(true);
@@ -69,7 +70,7 @@ export function ScheduleEditorDialog({ title, hasReservation, initialValue, with
       {view === 'editor' && (
         <>
           <div className="grid gap-4 px-6 py-5">
-            <p className="text-ui text-x-muted">한국 시간 · {hasReservation ? '저장하면 일정과 예약 폼·기재 시트에 함께 반영해요.' : '날짜를 선택한 뒤 일정을 저장해 주세요.'}</p>
+            <p className="text-ui text-x-muted">한국 시간 · {hasReservation ? '저장하면 일정과 예약 폼·기재 시트에 함께 반영해요.' : (withTime ? '날짜와 방문 시간을 고른 뒤 일정을 저장해 주세요. 시간은 비워 두면 \'시간 미정\'이에요.' : '날짜를 선택한 뒤 일정을 저장해 주세요.')}</p>
             {reason !== 'waiting_edit' && (
               <span className="inline-flex w-fit rounded-md bg-[#e8f4fd] px-1.5 py-0.5 text-caption font-semibold text-[#1573ad]">
                 {reasonBadgeText(reason, requestCount)}
@@ -102,7 +103,7 @@ export function ScheduleEditorDialog({ title, hasReservation, initialValue, with
                        className="mt-1 h-10 w-full rounded-md border border-x-border-strong bg-white px-2.5 text-ui text-x-text outline-none focus:border-x-blue" />
               </label>
               {withTime && (
-                <label className="block text-ui text-x-secondary">방문 시간
+                <label className="block text-ui text-x-secondary">방문 시간{timeOptional && <small className="text-caption text-x-muted"> (선택)</small>}
                   <input type="time" value={time} onChange={(e) => { setTime(e.target.value); setError(''); }}
                          className="mt-1 h-10 w-full rounded-md border border-x-border-strong bg-white px-2.5 text-ui text-x-text outline-none focus:border-x-blue" />
                 </label>

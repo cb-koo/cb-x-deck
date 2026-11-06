@@ -1044,6 +1044,7 @@ export function TaskPanel({
                 {field === 'dates' && task.type === 'visit'
                   ? <ReservationSection task={task} campaign={campaign} dateEditor={renderEditField('dates', task)}
                                         onChangeDate={(field, next) => field === 'visitOn' ? actions.changeVisitOn(task, next) : actions.changeScheduledOn(task, next)}
+                                        onChangeVisit={(visitOn, visitTime) => actions.changeVisit(task, visitOn, visitTime)}
                                         onChanged={onReservationChanged} onDirtyChange={setReservationDirty}
                                         onAddReservation={() => setReserveOpen(true)}
                                         historyDisclosure={disclosure('history')} onPhase={setServerPhase} onReveal={revealSection}

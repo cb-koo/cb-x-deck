@@ -45,16 +45,17 @@ const errorText = (e: unknown) => e instanceof Error ? e.message : '요청을 �
 // historyDisclosure — '예약 변경 내역' 상자를 접었다 펴는 조종간(목업 x-extension). 없으면 예전처럼 늘 펼친다.
 // onPhase — 서버가 계산한 방문 단계(예약 상세·TaskDto.visitPhase)를 패널에 올린다 — 패널이 어느 상자를 기본으로 펼칠지 이 값으로 정한다.
 // 날짜 줄을 누르면 달력 창(ScheduleEditorDialog)이 뜬다 — 예약이 있으면 예약 폼·기재 시트에 함께 저장(PATCH), 없으면 작업의 방문일·게시 예정일만(onChangeDate).
-// 시간은 예약에서 온다(목업) — 예약이 없으면 저장된 시간이 있을 때만 글자로 보이고, 없으면 '예약에서 시간 설정' 자리글.
+// 예약이 없으면 방문 시간도 작업에 직접 저장한다 — 날짜·시간 줄 어느 쪽을 눌러도 같은 달력 창(시간은 선택)이 뜨고 onChangeVisit으로 함께 저장.
 // dateEditor — 예약 기능이 꺼진 DB(설정 적용 전)에서만 쓰는 예전 일정 칸.
 // onReveal — '지금 할 일'의 [동의서 확인]·[게시로 이동 ↓]·[정산으로 이동 ↓]가 그 상자를 펼치고 스크롤하게 패널에 부탁한다.
 // onCancelTask — 자세히 보기 줄 오른쪽의 [진행 안 됨](게시 칸에 있던 그 버튼, 같은 작업 취소 창) — 방문협찬은 여기 하나만 둔다.
 // onOverlayChange — 달력 창이 떠 있는 동안 패널의 Esc·바깥 클릭을 끄게 알린다.
 // 지점(스펙 §6): 클리닉(운영시간·공휴일)은 예약이 있으면 예약의 지점, 없으면 대표 지점으로 읽는다. 수정 중에는 고른 지점으로 —
 // 지점이 2곳 이상이면 수정 창에 지점 드롭다운을 두고, 바꾸면 시트 7. 지점 줄과 함께 locationId를 저장한다(1곳이면 예전 그대로).
-export function ReservationSection({ task, campaign, dateEditor, onChangeDate, onChanged, onDirtyChange, onAddReservation, historyDisclosure, onPhase, onReveal, onCancelTask, onOverlayChange }: {
+export function ReservationSection({ task, campaign, dateEditor, onChangeDate, onChangeVisit, onChanged, onDirtyChange, onAddReservation, historyDisclosure, onPhase, onReveal, onCancelTask, onOverlayChange }: {
   task: CampaignTaskItem; campaign: CampaignRow; dateEditor: ReactNode; onChanged: () => Promise<void>; onDirtyChange: (dirty: boolean) => void;
   onChangeDate: (field: 'visitOn' | 'scheduledOn', next: string) => Promise<boolean>;
+  onChangeVisit: (visitOn: string, visitTime: string | null) => Promise<boolean>;   // 예약 없는 작업의 방문일·시간을 한 번에
   onAddReservation?: () => void;
   historyDisclosure?: SectionDisclosure;
   onPhase?: (phase: VisitPhase | null) => void;
@@ -231,7 +232,7 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
   async function saveSchedule(value: string, scheduleReason: ScheduleReason): Promise<string | void> {
     const field = scheduleField; if (!field) return;
     if (!detail) {
-      const ok = await onChangeDate(field === 'preferred' ? 'visitOn' : 'scheduledOn', value.slice(0, 10));
+      const ok = field === 'preferred' ? await onChangeVisit(value.slice(0, 10), value.slice(11, 16) || null) : await onChangeDate('scheduledOn', value);
       if (!ok) return '일정을 저장하지 못했어요. 다시 시도해 주세요.';
       setScheduleField(null); setNotice('일정을 수정했어요.'); return;
     }
@@ -334,7 +335,7 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
                 time={dateRow('clock', '방문 시간 수정', fields.preferred.slice(11, 16) || '시간 추가', !canEditReservation, 'preferred')} />
             : <DateTimeBox empty={false}
                 date={dateRow('calendar', '방문일 수정', task.visitOn ? formatDateKo(task.visitOn) : '날짜 추가', !canEditDates, 'preferred')}
-                time={placeholder(task.visitTime ?? '예약에서 시간 설정', true)} />}
+                time={dateRow('clock', '방문 시간 수정', task.visitTime ?? (canEditDates ? '시간 추가' : '시간 미정'), !canEditDates, 'preferred')} />}
         </div>
         <div>
           {dateLabel('게시 예정일', '업로드 기한')}
@@ -534,8 +535,8 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
       <ScheduleEditorDialog
         title={scheduleField === 'preferred' ? '방문일 수정' : '업로드 기한 수정'}
         hasReservation={!!detail}
-        initialValue={scheduleField === 'preferred' ? (detail ? fields.preferred : (task.visitOn ?? '')) : (detail ? fields.uploadDeadline : (task.scheduledOn ?? ''))}
-        withTime={scheduleField === 'preferred' && !!detail}
+        initialValue={scheduleField === 'preferred' ? (detail ? fields.preferred : (task.visitOn ? (task.visitTime ? `${task.visitOn}T${task.visitTime}` : task.visitOn) : '')) : (detail ? fields.uploadDeadline : (task.scheduledOn ?? ''))}
+        withTime={scheduleField === 'preferred'} timeOptional={!detail}
         minimumDate={scheduleField === 'uploadDeadline' ? (detail ? fields.preferred.slice(0, 10) : (task.visitOn ?? '')) : undefined}
         defaultDeadline={scheduleField === 'uploadDeadline' ? (detail ? defaultUploadDeadline(fields.preferred) : (task.visitOn ? defaultUploadDeadline(task.visitOn) : '')) || undefined : undefined}
         askReason={needsReason} allowCustomerRequest={actions.includes('edit_reservation')}

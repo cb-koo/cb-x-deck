@@ -68,6 +68,8 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
       patch(t, { visitOn: next }, { visitOn: next, ...(next === null && t.visitTime ? { visitTime: null } : {}) }),
     // 방문협찬의 시간(063) — 'HH:MM' | null(시간 미정)
     changeVisitTime: (t: Item, next: string | null) => patch(t, { visitTime: next }, { visitTime: next }),
+    // 방문일과 시간을 한 요청으로(예약 없는 작업의 달력 창) — 나눠 보내면 시간 요청이 옛 날짜 기준으로 검사될 수 있다
+    changeVisit: (t: Item, visitOn: string, visitTime: string | null) => patch(t, { visitOn, visitTime }, { visitOn, visitTime }),
     changeScheduledTime: (t: Item, next: string | null) => patch(t, { scheduledTime: next }, { scheduledTime: next }),
     // 협찬 동의서(063) — 올린 파일 정보 | null(떼기). 낙관값의 by/byName/at은 응답이 진짜 값으로 덮는다(setProof와 같은 방식)
     setAgreement: (t: Item, a: TaskAgreementInput | null) =>

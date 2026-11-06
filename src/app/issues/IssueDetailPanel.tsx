@@ -167,14 +167,7 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
 
             {canHandle ? (
               <div>
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <label htmlFor="issue-reply" className="text-ui text-x-muted">해결 답 (보낸 사람에게 보여요)</label>
-                  {!replyOpen && (
-                    <Button onClick={() => { setReplyDraft(issue.reply ?? ''); setEditing(true); }} className="h-8 px-3 text-ui">
-                      {issue.reply ? '수정' : '답 쓰기'}
-                    </Button>
-                  )}
-                </div>
+                <label htmlFor="issue-reply" className={`block ${LABEL}`}>해결 답 (보낸 사람에게 보여요)</label>
                 {replyOpen ? (
                   // 여러 줄 칸(koo 11-05) — 줄바꿈도 그대로 저장·표시한다
                   <textarea id="issue-reply" value={replyDraft} onChange={(e) => setReplyDraft(e.target.value)} maxLength={MAX_ISSUE_REPLY}
@@ -187,6 +180,13 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
                 )}
                 {issue.reply && issue.repliedByName && (
                   <p className="mt-1 text-caption text-x-muted">{issue.repliedByName}{issue.repliedAt ? `, ${relativeDay(issue.repliedAt, now)}` : ''}</p>
+                )}
+                {/* 답 아래 글자 링크(koo 11-06: 버튼 말고 텍스트로, 아래에) */}
+                {!replyOpen && (
+                  <button type="button" onClick={() => { setReplyDraft(issue.reply ?? ''); setEditing(true); }}
+                          className="mt-1.5 text-ui text-x-blue-text hover:underline">
+                    {issue.reply ? '수정' : '답 쓰기'}
+                  </button>
                 )}
               </div>
             ) : issue.reply ? (

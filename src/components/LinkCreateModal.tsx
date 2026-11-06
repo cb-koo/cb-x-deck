@@ -1,4 +1,5 @@
 'use client';
+import { activeClientsFor } from '@/lib/clientActive';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
@@ -187,7 +188,7 @@ export function LinkCreateModal({ open, onClose, onCreated, configured, prefill 
             <select id="link-create-client" value={clientId} onChange={(e) => onClientChange(e.target.value)}
                     className="mt-0.5 w-full rounded-md border border-x-border-strong bg-white px-2 py-1.5 text-ui outline-none focus:border-x-blue">
               <option value="">(없음)</option>
-              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {activeClientsFor(clients, clientId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <p className="mt-1 text-caption text-x-muted">고르면 랜딩 주소·캠페인명이 자동으로 채워져요(직접 고친 값은 그대로 유지돼요)</p>
 

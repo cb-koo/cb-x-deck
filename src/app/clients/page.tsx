@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { clientSummary } from '@/lib/clientSummary';
+import { isActiveClient } from '@/lib/clientActive';
 import { findSimilarClients } from '@/lib/similarClients';
 import { relTime } from '@/lib/relTime';
 import { setNavGuard } from '@/lib/navGuard';
@@ -53,6 +54,9 @@ function ClientsSplit() {
   useEffect(() => { load(); }, [load]);
 
   const selected = rows.find((x) => x.client.id === urlId) ?? null;
+  // 목록 순서 — 활성 먼저(원래 순서 그대로), 비활성은 아래 묶음으로(087, ISSUE-013)
+  const activeRows = rows.filter((x) => isActiveClient(x.client));
+  const inactiveRows = rows.filter((x) => !isActiveClient(x.client));
   // 같은 병원을 두 번 만드는 실수 방지(11-02 벤자민 사례) — 쓰는 동안 비슷한 기존 클라이언트를 보여준다
   const similar = adding ? findSimilarClients(newName, rows.map((x) => x.client)) : [];
 
@@ -190,24 +194,16 @@ function ClientsSplit() {
             <Button onClick={load}>다시 시도</Button>
           </div>
         )}
-        {loaded && !loadErr && rows.map(({ client, procedures }) => {
-          const s = clientSummary(client, procedures);
-          const on = client.id === urlId;
-          return (
-            <button key={client.id} onClick={() => selectClient(client.id)}
-                    className={`mb-0.5 block w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
-                      on ? 'bg-[#e3f1fb]' : 'hover:bg-x-hover'
-                    }`}>
-              <p className={`flex items-center gap-1.5 text-ui font-semibold ${on ? 'text-x-blue-text' : ''}`}>
-                <span className="min-w-0 truncate">{client.name}</span>
-                {s.infoMissing && <span title="클리닉 정보 미입력" className="shrink-0 text-caption text-[#b45309]">⚠️</span>}
-              </p>
-              <p className="text-caption text-x-muted">
-                시술 {s.procedureCount} · {s.infoMissing ? '정보 미입력' : `금지 ${s.bannedTotal}`} · {relTime(client.updatedAt, '수정')}
-              </p>
-            </button>
-          );
-        })}
+        {loaded && !loadErr && activeRows.map((x) => (
+          <ClientListItem key={x.client.id} data={x} on={x.client.id === urlId} onSelect={selectClient} />
+        ))}
+        {/* 비활성 클라이언트는 목록 아래 '비활성' 묶음으로, 회색 글자(087, ISSUE-013) */}
+        {loaded && !loadErr && inactiveRows.length > 0 && (
+          <p className="mb-1 mt-4 px-2.5 text-caption text-x-muted">비활성 {inactiveRows.length}</p>
+        )}
+        {loaded && !loadErr && inactiveRows.map((x) => (
+          <ClientListItem key={x.client.id} data={x} on={x.client.id === urlId} onSelect={selectClient} />
+        ))}
       </aside>
 
       <main className="min-w-0 flex-1 bg-x-surface">
@@ -245,5 +241,26 @@ function ClientsSplit() {
         </div>
       )}
     </div>
+  );
+}
+
+// 목록 한 줄 — 활성·비활성 묶음이 같이 쓴다. 비활성은 이름을 회색으로(087, ISSUE-013)
+function ClientListItem({ data, on, onSelect }: { data: ClientWithProcs; on: boolean; onSelect: (id: string) => void }) {
+  const { client, procedures } = data;
+  const s = clientSummary(client, procedures);
+  const off = !isActiveClient(client);
+  return (
+    <button onClick={() => onSelect(client.id)}
+            className={`mb-0.5 block w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
+              on ? 'bg-[#e3f1fb]' : 'hover:bg-x-hover'
+            }`}>
+      <p className={`flex items-center gap-1.5 text-ui font-semibold ${on ? 'text-x-blue-text' : off ? 'text-x-secondary' : ''}`}>
+        <span className="min-w-0 truncate">{client.name}</span>
+        {s.infoMissing && <span title="클리닉 정보 미입력" className="shrink-0 text-caption text-[#b45309]">⚠️</span>}
+      </p>
+      <p className="text-caption text-x-muted">
+        시술 {s.procedureCount} · {s.infoMissing ? '정보 미입력' : `금지 ${s.bannedTotal}`} · {relTime(client.updatedAt, '수정')}
+      </p>
+    </button>
   );
 }

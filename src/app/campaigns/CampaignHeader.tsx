@@ -1,4 +1,5 @@
 'use client';
+import { activeClientsFor } from '@/lib/clientActive';
 import { useRef, useState, type ReactNode } from 'react';
 import type { CampaignRow } from '@/lib/campaignStore';
 import type { ClientRow } from '@/lib/clientStore';
@@ -248,7 +249,8 @@ export function CampaignHeader({ campaign, deleteInfo, today, onPatch, onDelete,
                   onKeyDown={(e) => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) cancel(); }}
                   aria-label="클라이언트" className={`${INPUT} h-8 text-ui`}>
             <option value="" disabled>{clientsLoaded ? '클라이언트 선택' : '불러오는 중…'}</option>
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {/* 비활성 클라이언트는 빼되 지금 클라이언트는 남긴다(087, ISSUE-013) */}
+            {activeClientsFor(clients, campaign.clientId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         ) : (
           <ReadValue onEdit={() => open('client')} title="클라이언트 — 눌러서 바꾸기"

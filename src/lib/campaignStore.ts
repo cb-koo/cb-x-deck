@@ -273,9 +273,11 @@ export async function createCampaignsBulk(sql: postgres.Sql, input: {
 }): Promise<CampaignRow[]> {
   return sql.begin(async (tx0) => {
     const tx = tx0 as unknown as postgres.Sql;
-    const clients = await tx<Array<{ id: string; name: string; name_en: string }>>`
-      select id, name, name_en from client where id in ${tx(input.clientIds)}`;
+    const clients = await tx<Array<{ id: string; name: string; name_en: string; deactivated_at: Date | null }>>`
+      select id, name, name_en, deactivated_at from client where id in ${tx(input.clientIds)}`;
     if (clients.length !== input.clientIds.length) throw new BulkCampaignError('클라이언트를 찾을 수 없어요 — 창을 닫고 다시 열어 주세요');
+    const inactive = clients.filter((c) => c.deactivated_at !== null);   // 087 — 비활성 클라이언트는 만들지 않는다(ISSUE-013)
+    if (inactive.length) throw new BulkCampaignError(`비활성화된 클라이언트가 있어요: ${inactive.map((c) => c.name).join(', ')} — 창을 닫고 다시 열어 주세요`);
     const dup = await tx<Array<{ client_name: string | null }>>`
       select client_name from campaign
        where client_id in ${tx(input.clientIds)} and starts_on = ${input.startsOn}::date and ends_on = ${input.endsOn}::date`;

@@ -4,6 +4,7 @@ import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { listCampaigns, createCampaign } from '@/lib/campaignStore';
 import { parseCampaignCreate, CLIENT_NOT_FOUND_MESSAGE } from '@/lib/campaignInput';
 import { getClientWithProcedures } from '@/lib/clientStore';
+import { isActiveClient, INACTIVE_CLIENT_MESSAGE } from '@/lib/clientActive';
 
 // 목록 — 그룹(진행 중/예정/종료)은 클라가 campaignStatus로 나눈다. 서버는 파생 수·통화별 합계만 붙인다(스펙 §6).
 export async function GET() {
@@ -23,6 +24,8 @@ export async function POST(req: Request) {
   if (!client) {
     return NextResponse.json({ error: CLIENT_NOT_FOUND_MESSAGE }, { status: 400 });
   }
+  // 비활성 클라이언트에는 새 캠페인을 만들지 않는다(087, ISSUE-013) — 화면 목록에서도 빠지지만 서버가 한 번 더 막는다
+  if (!isActiveClient(client.client)) return NextResponse.json({ error: INACTIVE_CLIENT_MESSAGE }, { status: 400 });
   const row = await createCampaign(sql, {
     ...parsed.value, clientName: client.client.name,
     createdBy: gate.member.id, // 클라이언트 body 무시 — 위조 차단(drafts POST 관례)

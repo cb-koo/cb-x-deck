@@ -12,6 +12,7 @@ import { nextWeekRange, suggestCampaignName, suggestCampaignCode } from '@/lib/c
 import { checkCampaign } from '@/lib/trackingLink';
 import { Button } from '@/components/ui';
 import { CampaignBulkForm } from './CampaignBulkForm';
+import { activeClientsFor } from '@/lib/clientActive';
 
 // [+ 새 캠페인](스펙 §3-3) — 클라이언트(필수) → 기간(기본 다음 월~일) → 이름(자동 제안, 수정) → 영문 코드(자동 제안, 트래킹 링크 규칙) → 메모.
 // 제안값은 손대기 전까지만 따라간다(LinkCreateModal의 touched 관례) — 클라·시작일을 바꾸면 제안이 다시 계산되지만, 사람이 고친 값은 덮지 않는다.
@@ -61,6 +62,8 @@ export function CampaignCreateModal({ today, onClose, onCreated, onBulkCreated }
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose, busy]);
 
+  // 비활성 클라이언트는 새 캠페인 목록에서 뺀다(087, ISSUE-013) — 한 곳·한 번에 만들기 모두
+  const activeClients = activeClientsFor(clients);
   const client = clients.find((c) => c.id === clientId) ?? null;
   const suggestedName = suggestCampaignName(client?.name ?? '', startsOn);   // '{클라}_{M월N주차}'
   const suggestedCode = suggestCampaignCode(client?.nameEn ?? '', startsOn); // '{영문 소문자}-{YYYYMMDD}' / 영문 없으면 날짜만
@@ -114,7 +117,7 @@ export function CampaignCreateModal({ today, onClose, onCreated, onBulkCreated }
         {mode === 'many' && onBulkCreated ? (
           <>
             <p className="mt-2 text-ui text-x-muted">같은 기간의 캠페인을 클라이언트마다 하나씩 한 번에 만들어요. 빼고 싶은 곳만 체크를 풀어요.</p>
-            <CampaignBulkForm today={today} clients={clients} onClose={onClose} onCreated={onBulkCreated} />
+            <CampaignBulkForm today={today} clients={activeClients} onClose={onClose} onCreated={onBulkCreated} />
           </>
         ) : (<>
         <p className="mt-1 text-ui text-x-muted">클라이언트 한 곳 × 기간 하나예요. 만든 뒤 [+ 작업 추가]로 이번 주에 나갈 일을 올리고, 원고는 각 작업에 붙여요.</p>
@@ -122,14 +125,14 @@ export function CampaignCreateModal({ today, onClose, onCreated, onBulkCreated }
         <label htmlFor="cc-client" className={LABEL}>클라이언트</label>
         <select id="cc-client" value={clientId} onChange={(e) => setClientId(e.target.value)} autoFocus className={INPUT}>
           <option value="">골라 주세요</option>
-          {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {activeClients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         {clientsError ? (
           <p className="mt-1 text-ui text-red-600">
             클라이언트 목록을 불러오지 못했어요 —{' '}
             <button type="button" onClick={loadClients} className="underline">다시 시도</button>
           </p>
-        ) : clientsLoaded && clients.length === 0 ? (
+        ) : clientsLoaded && activeClients.length === 0 ? (
           <p className="mt-1 text-ui text-red-600">먼저 클라이언트를 등록해 주세요 (설정 › 클라이언트)</p>
         ) : (
           <p className={HELP}>고르면 이름과 영문 코드가 자동으로 제안돼요(직접 고친 값은 그대로 유지돼요)</p>

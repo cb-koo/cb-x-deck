@@ -1,4 +1,5 @@
 'use client';
+import { isActiveClient } from '@/lib/clientActive';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -780,7 +781,8 @@ function Workbench() {
               클라이언트를 먼저 등록하면 클리닉 정보가 원고에 반영돼요 — <a href="/clients" className="font-bold text-x-blue-text hover:underline">등록하러 가기</a>
             </p>
           )}
-          <DraftComposer clients={clients} value={composer} onChange={updateComposer}
+          {/* 새 원고의 클라이언트 고르기엔 비활성 클라이언트를 뺀다(087, ISSUE-013) — 지난 원고 필터·표시는 전체 그대로 */}
+          <DraftComposer clients={clients.filter((c) => isActiveClient(c.client) || c.client.id === composer.clientId)} value={composer} onChange={updateComposer}
                          refRows={refRows} onOpenPicker={() => setPickerOpen(true)}
                          onOpenAddLink={() => setAddLinkOpen(true)}
                          onPreviewRef={setPreviewRefId}

@@ -1,7 +1,7 @@
 import { productWebBoundary } from '@/lib/productWebBoundary';
 import { NextResponse } from 'next/server';
 import { getSql } from '@/lib/db';
-import { getClientWithProcedures, updateClient, deleteClient } from '@/lib/clientStore';
+import { getClientWithProcedures, updateClient, deleteClient, setClientActive } from '@/lib/clientStore';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { checkLandingUrl, landingUrlMessage } from '@/lib/trackingLink';
 
@@ -18,9 +18,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const gate = await requireMember();
   if (gate.response) return gate.response;
   const { id } = await ctx.params;
-  const rest = (await req.json().catch(() => ({}))) as {
+  const body = (await req.json().catch(() => ({}))) as {
     name?: string; info?: string; bannedPhrases?: string[]; landingUrl?: string; nameEn?: string; clinicCode?: string | null; sponsorMemo?: string;
+    active?: unknown;
   };
+  // 비활성화·다시 활성화(087, ISSUE-013) — 다른 칸과 섞지 않고 단독으로 처리한다(누가·언제는 서버가 정한다)
+  if (body.active !== undefined) {
+    if (typeof body.active !== 'boolean') return NextResponse.json({ error: '활성 여부를 다시 골라 주세요' }, { status: 400 });
+    const row = await setClientActive(getSql(), id, body.active, { id: gate.member.id, name: gate.member.name });
+    if (!row) return NextResponse.json({ error: `client not found: ${id}` }, { status: 404 });
+    return NextResponse.json(await getClientWithProcedures(getSql(), id));
+  }
+  const { active: _active, ...rest } = body;
+  void _active;
   if (rest.name !== undefined) {
     rest.name = rest.name?.trim();
     if (!rest.name) return NextResponse.json({ error: '클라이언트 이름은 비울 수 없어요' }, { status: 400 });

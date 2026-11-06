@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { kstMonthDay } from '@/lib/datetime';
 import { Button, PANEL, PANEL_SPLIT, PANEL_TITLE } from '@/components/ui';
 import { procedureSummary } from '@/lib/clientSummary';
 import type { ClientRow, ProcedureRow } from '@/lib/clientStore';
@@ -43,6 +44,18 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
   onDeleted: () => void;
 }) {
   const { client, procedures } = data;
+  // 비활성화·다시 활성화(087, ISSUE-013) — 되돌릴 수 있어 확인 창 없이 바로, 결과는 머리글 아래 한 줄이 말한다
+  const [activeBusy, setActiveBusy] = useState(false);
+  const [activeErr, setActiveErr] = useState('');
+  const inactive = client.deactivatedAt !== null;
+  async function setActive(active: boolean) {
+    setActiveBusy(true); setActiveErr('');
+    try {
+      const r = await apiFetch(`/api/clients/${client.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active }) });
+      if (!r.ok) { setActiveErr(((await r.json().catch(() => ({}))) as { error?: string }).error ?? '바꾸지 못했어요 — 다시 시도해 주세요'); return; }
+      await onChanged();
+    } finally { setActiveBusy(false); }
+  }
   const editors = useRef(new Map<string, Editor>());
   const register: Register = useCallback((key, editor) => {
     editors.current.set(key, editor);
@@ -153,8 +166,14 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
           </div>
         ) : (
           <>
-            <h1 className="min-w-0 truncate text-[20px] font-bold">{client.name}</h1>
-            <span className="flex shrink-0 items-center gap-3">
+            <h1 className={`min-w-0 truncate text-[20px] font-bold ${inactive ? 'text-x-secondary' : ''}`}>{client.name}</h1>
+            {inactive && <span className="shrink-0 rounded-full bg-x-surface px-2 py-0.5 text-ui text-x-secondary">비활성</span>}
+            <span className="ml-auto flex shrink-0 items-center gap-3">
+              <button onClick={() => void setActive(inactive)} disabled={activeBusy}
+                      title={inactive ? '새 캠페인, 원고, 트래킹 링크 목록에 다시 나와요' : '계약이 끝나거나 멈춘 클라이언트 — 새 캠페인, 원고, 트래킹 링크 목록에서 빠져요. 지난 캠페인과 정산은 그대로예요'}
+                      className="text-ui text-x-secondary hover:text-x-text disabled:opacity-50">
+                {activeBusy ? '바꾸는 중…' : inactive ? '다시 활성화' : '비활성화'}
+              </button>
               <button onClick={() => { setEditingName(true); setEditName(client.name); }}
                       className="text-ui text-x-secondary hover:text-x-text">이름 변경</button>
               <button onClick={() => { setDeleting(true); setConfirmText(''); setDeleteErr(''); }}
@@ -164,6 +183,13 @@ export function ClientDetail({ data, handleRef, onChanged, onDeleted }: {
         )}
       </div>
       {err && <p className="mt-2 text-ui text-red-500">{err}</p>}
+      {activeErr && <p className="mt-2 text-ui text-red-500">{activeErr}</p>}
+      {inactive && (
+        <p className="mt-2 text-ui text-x-secondary">
+          비활성 클라이언트예요{client.deactivatedByName ? ` (${client.deactivatedByName}, ${kstMonthDay(client.deactivatedAt!)})` : ''}.
+          새 캠페인, 원고, 트래킹 링크 목록에 나오지 않아요. 지난 캠페인과 정산은 그대로예요.
+        </p>
+      )}
       </div>
 
       <nav className="flex gap-1 border-b border-x-border" aria-label="클라이언트 설정 항목">

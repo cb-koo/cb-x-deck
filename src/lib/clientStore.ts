@@ -5,6 +5,8 @@ export interface ClientRow {
   landingUrl: string; nameEn: string;
   sponsorMemo: string;                       // 협찬 항목 자유 메모(웹 편집, 익스텐션은 읽기 전용)
   clinicCode: string | null;                 // 리포트 페이지 연결용 클리닉 코드(외부 리포트 API의 clinic_code). null = 연결 안 함
+  deactivatedAt: string | null;              // 비활성화한 때(087) — null이면 활성. 새 작업 목록에서 빠진다(clientActive.ts)
+  deactivatedByName: string | null;
 }
 export interface ProcedureRow {
   id: string; clientId: string; name: string; description: string;
@@ -14,6 +16,7 @@ export interface ProcedureRow {
 type CRow = {
   id: string; name: string; info: string; banned_phrases: string[]; position: number; updated_at: Date;
   landing_url: string; name_en: string; clinic_code: string | null; sponsor_memo: string;
+  deactivated_at: Date | null; deactivated_by_name: string | null;
 };
 type PRow = { id: string; client_id: string; name: string; description: string; effect_phrases: string; banned_phrases: string[]; position: number };
 
@@ -29,20 +32,30 @@ function toIsoOrEmpty(v: Date | string): string {
 
 const toClient = (r: CRow): ClientRow =>
   ({ id: r.id, name: r.name, info: r.info, bannedPhrases: r.banned_phrases, position: r.position,
-     updatedAt: toIsoOrEmpty(r.updated_at), landingUrl: r.landing_url, nameEn: r.name_en, clinicCode: r.clinic_code, sponsorMemo: r.sponsor_memo });
+     updatedAt: toIsoOrEmpty(r.updated_at), landingUrl: r.landing_url, nameEn: r.name_en, clinicCode: r.clinic_code, sponsorMemo: r.sponsor_memo,
+     deactivatedAt: r.deactivated_at ? new Date(r.deactivated_at).toISOString() : null, deactivatedByName: r.deactivated_by_name });
 const toProcedure = (r: PRow): ProcedureRow =>
   ({ id: r.id, clientId: r.client_id, name: r.name, description: r.description,
      effectPhrases: r.effect_phrases, bannedPhrases: r.banned_phrases, position: r.position });
 
 // 세 조회가 같은 컬럼을 읽는다 — 한 곳만 컬럼을 빠뜨리면 그 경로에서만 undefined가 나온다
 const CLIENT_COLS = (sql: postgres.Sql) => sql`
-  id, name, info, banned_phrases, position, updated_at, landing_url, name_en, clinic_code, sponsor_memo`;
+  id, name, info, banned_phrases, position, updated_at, landing_url, name_en, clinic_code, sponsor_memo, deactivated_at, deactivated_by_name`;
 
 export async function createClient(sql: postgres.Sql, name: string): Promise<ClientRow> {
   const rows = await sql<CRow[]>`
     insert into client (name) values (${name})
     returning ${CLIENT_COLS(sql)}`;
   return toClient(rows[0]);
+}
+
+/** 비활성화(087, ISSUE-013) — active=false면 지금 시각·사람을 남기고, true면 비운다(다시 활성화). 바뀐 행을 돌려준다. */
+export async function setClientActive(sql: postgres.Sql, id: string, active: boolean, by: { id: string; name: string }): Promise<ClientRow | null> {
+  const rows = active
+    ? await sql<CRow[]>`update client set deactivated_at = null, deactivated_by = null, deactivated_by_name = null where id = ${id} returning ${CLIENT_COLS(sql)}`
+    : await sql<CRow[]>`update client set deactivated_at = coalesce(deactivated_at, now()), deactivated_by = coalesce(deactivated_by, ${by.id}),
+                          deactivated_by_name = coalesce(deactivated_by_name, ${by.name}) where id = ${id} returning ${CLIENT_COLS(sql)}`;
+  return rows[0] ? toClient(rows[0]) : null;
 }
 
 export async function listClients(sql: postgres.Sql): Promise<ClientRow[]> {

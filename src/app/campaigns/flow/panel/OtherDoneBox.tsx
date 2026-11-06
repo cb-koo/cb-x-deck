@@ -64,7 +64,7 @@ export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, on
         {task.doneNote && <p className="mt-1 text-ui text-x-secondary">확인 메모: {task.doneNote}</p>}
         {task.proof && (
           <div className="mt-2.5">
-            <TaskProofField taskId={task.id} value={task.proof.url} signedUrl={proofSignedUrl}
+            <TaskProofField taskType="other" taskId={task.id} value={task.proof.url} signedUrl={proofSignedUrl}
                             postedAt={task.postedAt} influencerHandle={task.influencerHandle}
                             uploaded={{ byName: task.proof.byName, at: task.proof.at }}
                             required={false} canRemove={canRemoveProof} disabled={false}
@@ -142,7 +142,7 @@ export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, on
                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && canSubmit) void submit(); }}
                  className={`${input} border-x-border-strong`} />
           <p className={`${subTitle} mt-3`}>스크린샷 <span className="font-normal text-x-muted">선택</span></p>
-          <TaskProofField taskId={task.id} value={pendingProof} signedUrl={null}
+          <TaskProofField taskType="other" taskId={task.id} value={pendingProof} signedUrl={null}
                           postedAt={null} influencerHandle={task.influencerHandle}
                           required={false} canRemove disabled={busy}
                           onChange={(p) => { setPendingProof(p); setErr(''); }} />

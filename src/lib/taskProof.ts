@@ -33,11 +33,14 @@ function extensionOf(pathOrName: string): string {
   return (TASK_PROOF_EXTENSIONS as readonly string[]).includes(ext) ? ext : '';
 }
 
-// <게시일YYYYMMDD>_<핸들|미배정>_RT증빙.<확장자> — 게시일이 없으면 날짜를 빼고 핸들부터.
-export function taskProofFilename(i: { postedAt: string | null; influencerHandle: string | null; url: string }): string {
+// <게시일YYYYMMDD>_<핸들|미배정>_<꼬리>.<확장자> — 게시일이 없으면 날짜를 빼고 핸들부터.
+// 꼬리는 작업 유형을 따른다(koo 11-06): RT = 'RT증빙', 기타 협찬(088) = '기타협찬증빙'(날짜는 완료일). 유형을 모르면 RT(옛 호출 그대로).
+const PROOF_SUFFIX = { rt: 'RT증빙', other: '기타협찬증빙' } as const;
+export type TaskProofKind = keyof typeof PROOF_SUFFIX;
+export function taskProofFilename(i: { postedAt: string | null; influencerHandle: string | null; url: string; taskType?: TaskProofKind }): string {
   const name = (i.influencerHandle || '미배정').replace(/^@/, '').replace(FORBIDDEN_CHARS_RE, '_');
   const date = i.postedAt ? `${i.postedAt.replace(/-/g, '')}_` : '';
-  return `${date}${name}_RT증빙.${extensionOf(i.url) || 'png'}`;
+  return `${date}${name}_${PROOF_SUFFIX[i.taskType ?? 'rt']}.${extensionOf(i.url) || 'png'}`;
 }
 
 // ── 업로드 ──

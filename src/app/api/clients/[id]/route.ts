@@ -4,6 +4,7 @@ import { getSql } from '@/lib/db';
 import { getClientWithProcedures, updateClient, deleteClient, setClientActive } from '@/lib/clientStore';
 import { requireAllowedUser, requireMember } from '@/lib/authGuard';
 import { checkLandingUrl, landingUrlMessage } from '@/lib/trackingLink';
+import { isUuidLike } from '@/lib/uuid';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAllowedUser();
@@ -25,6 +26,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   // 비활성화·다시 활성화(087, ISSUE-013) — 다른 칸과 섞지 않고 단독으로 처리한다(누가·언제는 서버가 정한다)
   if (body.active !== undefined) {
     if (typeof body.active !== 'boolean') return NextResponse.json({ error: '활성 여부를 다시 골라 주세요' }, { status: 400 });
+    if (!isUuidLike(id)) return NextResponse.json({ error: `client not found: ${id}` }, { status: 404 });   // 형식이 틀린 id는 DB까지 가지 않는다(22P02 → 500 방지)
     const row = await setClientActive(getSql(), id, body.active, { id: gate.member.id, name: gate.member.name });
     if (!row) return NextResponse.json({ error: `client not found: ${id}` }, { status: 404 });
     return NextResponse.json(await getClientWithProcedures(getSql(), id));

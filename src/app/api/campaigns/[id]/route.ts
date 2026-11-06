@@ -6,6 +6,7 @@ import { isUuidLike } from '@/lib/uuid';
 import { getCampaign, getCampaignDetail, updateCampaign, deleteCampaign } from '@/lib/campaignStore';
 import { parseCampaignPatch, checkPeriod, CAMPAIGN_NOT_FOUND_MESSAGE, CLIENT_NOT_FOUND_MESSAGE } from '@/lib/campaignInput';
 import { getClientWithProcedures } from '@/lib/clientStore';
+import { isActiveClient, INACTIVE_CLIENT_MESSAGE } from '@/lib/clientActive';
 
 // campaign.id는 uuid — 형식 아닌 값은 "없음"이 아니라 캐스팅 오류(22P02 → 500)라 조회 전에 404로 끊는다(influencers/[id] 관례)
 const notFound = () => NextResponse.json({ error: CAMPAIGN_NOT_FOUND_MESSAGE }, { status: 404 });
@@ -41,6 +42,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (parsed.value.clientId !== undefined) {
     const client = await getClientWithProcedures(sql, parsed.value.clientId);
     if (!client) return NextResponse.json({ error: CLIENT_NOT_FOUND_MESSAGE }, { status: 400 });
+    // 다른 클라이언트로 바꿀 땐 비활성 클라이언트를 고를 수 없다(087, ISSUE-013) — 지금 클라이언트 그대로면 막지 않는다
+    if (parsed.value.clientId !== cur.clientId && !isActiveClient(client.client)) return NextResponse.json({ error: INACTIVE_CLIENT_MESSAGE }, { status: 400 });
     clientName = client.client.name;
   }
   await updateCampaign(sql, id, { ...parsed.value, clientName });

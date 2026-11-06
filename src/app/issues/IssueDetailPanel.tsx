@@ -34,6 +34,8 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
   // 고르는 중인 상태·답 — '해결'은 답과 함께 [해결로 바꾸기]로 저장하고, 접수↔확인 중은 누르면 바로 저장한다
   const [statusDraft, setStatusDraft] = useState<IssueStatus | null>(null);
   const [replyDraft, setReplyDraft] = useState('');
+  // 답은 평소엔 읽기 화면, [수정]·[답 쓰기]·'해결' 고르기 때만 입력칸(koo 11-06: 항상 편집 상태라 불편)
+  const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saveErr, setSaveErr] = useState('');
   const [now] = useState(() => Date.now());
@@ -78,14 +80,14 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setSaveErr(j.error || '저장하지 못했어요 — 다시 시도해주세요'); return; }
       const i = j as IssueReport;
-      setIssue(i); setStatusDraft(null); setReplyDraft(i.reply ?? '');
+      setIssue(i); setStatusDraft(null); setReplyDraft(i.reply ?? ''); setEditing(false);
       window.dispatchEvent(new Event('cbx-issues-changed'));
     } finally { setBusy(false); }
   }, [id]);
 
   const pickStatus = (s: IssueStatus) => {
     if (!issue || busy) return;
-    if (s === 'resolved' && issue.status !== 'resolved') { setStatusDraft('resolved'); return; }   // 답과 함께 확정
+    if (s === 'resolved' && issue.status !== 'resolved') { setStatusDraft('resolved'); setEditing(true); return; }   // 답과 함께 확정
     setStatusDraft(null);
     if (s !== issue.status) void save({ status: s });
   };
@@ -93,6 +95,8 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
   const shownStatus = statusDraft ?? issue?.status ?? 'open';
   const replyChanged = !!issue && replyDraft.trim() !== (issue.reply ?? '');
   const resolving = statusDraft === 'resolved';
+  const replyOpen = editing || resolving;
+  const cancelEdit = () => { if (!issue) return; setStatusDraft(null); setReplyDraft(issue.reply ?? ''); setSaveErr(''); setEditing(false); };
 
   return (
     <aside role="dialog" aria-label="이슈 자세히"
@@ -163,11 +167,24 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
 
             {canHandle ? (
               <div>
-                <label htmlFor="issue-reply" className={`block ${LABEL}`}>해결 답 (보낸 사람에게 보여요)</label>
-                {/* 여러 줄 칸(koo 11-05: 한 줄 입력칸이라 긴 답이 옆으로 밀려 보기 불편) — 줄바꿈도 그대로 저장·표시한다 */}
-                <textarea id="issue-reply" value={replyDraft} onChange={(e) => setReplyDraft(e.target.value)} maxLength={MAX_ISSUE_REPLY}
-                          rows={5} placeholder="예: 저장 후 표가 바로 바뀌게 고쳤어요"
-                          className="block w-full resize-y rounded-[10px] border border-x-border-strong px-3 py-2.5 text-[14px] leading-relaxed outline-none placeholder:text-x-muted focus:border-x-blue" />
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <label htmlFor="issue-reply" className="text-ui text-x-muted">해결 답 (보낸 사람에게 보여요)</label>
+                  {!replyOpen && (
+                    <Button onClick={() => { setReplyDraft(issue.reply ?? ''); setEditing(true); }} className="h-8 px-3 text-ui">
+                      {issue.reply ? '수정' : '답 쓰기'}
+                    </Button>
+                  )}
+                </div>
+                {replyOpen ? (
+                  // 여러 줄 칸(koo 11-05) — 줄바꿈도 그대로 저장·표시한다
+                  <textarea id="issue-reply" value={replyDraft} onChange={(e) => setReplyDraft(e.target.value)} maxLength={MAX_ISSUE_REPLY}
+                            rows={5} autoFocus placeholder="예: 저장 후 표가 바로 바뀌게 고쳤어요"
+                            className="block w-full resize-y rounded-[10px] border border-x-border-strong px-3 py-2.5 text-[14px] leading-relaxed outline-none placeholder:text-x-muted focus:border-x-blue" />
+                ) : issue.reply ? (
+                  <p className="whitespace-pre-wrap leading-relaxed">{issue.reply}</p>
+                ) : (
+                  <p className="text-x-muted">아직 답이 없어요</p>
+                )}
                 {issue.reply && issue.repliedByName && (
                   <p className="mt-1 text-caption text-x-muted">{issue.repliedByName}{issue.repliedAt ? `, ${relativeDay(issue.repliedAt, now)}` : ''}</p>
                 )}
@@ -184,12 +201,12 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
         )}
       </div>
 
-      {canHandle && issue && (resolving || replyChanged) && (
+      {canHandle && issue && replyOpen && (
         <div className="flex justify-end gap-2 border-t border-x-border px-6 py-3">
-          <Button onClick={() => { setStatusDraft(null); setReplyDraft(issue.reply ?? ''); setSaveErr(''); }} disabled={busy}>취소</Button>
-          <Button variant="primary" disabled={busy}
+          <Button onClick={cancelEdit} disabled={busy}>취소</Button>
+          <Button variant="primary" disabled={busy || (!resolving && !replyChanged)}
                   onClick={() => void save(resolving ? { status: 'resolved', reply: replyDraft } : { reply: replyDraft })}>
-            {busy ? '저장 중…' : resolving ? '해결로 바꾸기' : '답 저장'}
+            {busy ? '저장 중…' : resolving ? '해결로 바꾸기' : '저장'}
           </Button>
         </div>
       )}

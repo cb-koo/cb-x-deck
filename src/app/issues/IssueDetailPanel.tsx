@@ -178,15 +178,19 @@ export function IssueDetailPanel({ id, canHandle, memberId, onClose }: {
                 ) : (
                   <p className="text-x-muted">아직 답이 없어요</p>
                 )}
-                {issue.reply && issue.repliedByName && (
-                  <p className="mt-1 text-caption text-x-muted">{issue.repliedByName}{issue.repliedAt ? `, ${relativeDay(issue.repliedAt, now)}` : ''}</p>
-                )}
-                {/* 답 아래 글자 링크(koo 11-06: 버튼 말고 텍스트로, 아래에) */}
-                {!replyOpen && (
-                  <button type="button" onClick={() => { setReplyDraft(issue.reply ?? ''); setEditing(true); }}
-                          className="mt-1.5 text-ui text-x-blue-text hover:underline">
-                    {issue.reply ? '수정' : '답 쓰기'}
-                  </button>
+                {/* 답 아래 한 줄 — 왼쪽 쓴 사람, 오른쪽 글자 링크 '수정'(koo 11-06: 버튼 말고 텍스트로, 아래 오른쪽에) */}
+                {((issue.reply && issue.repliedByName) || !replyOpen) && (
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <p className="text-caption text-x-muted">
+                      {issue.reply && issue.repliedByName ? `${issue.repliedByName}${issue.repliedAt ? `, ${relativeDay(issue.repliedAt, now)}` : ''}` : ''}
+                    </p>
+                    {!replyOpen && (
+                      <button type="button" onClick={() => { setReplyDraft(issue.reply ?? ''); setEditing(true); }}
+                              className="shrink-0 text-ui text-x-blue-text hover:underline">
+                        {issue.reply ? '수정' : '답 쓰기'}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             ) : issue.reply ? (

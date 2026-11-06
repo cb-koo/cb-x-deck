@@ -144,8 +144,10 @@ export async function extensionProductDispatch(req: Request, path: string[], act
   if (root === 'campaigns' && method === 'GET') {
     if (!id) {
       const clinics = await listClinics(sql);
-      const campaigns = await sql<Array<{ id: string; name: string; clientId: string | null; startsOn: string; endsOn: string; kind: string | null }>>`
-        select id, name, client_id as "clientId", to_char(starts_on, 'YYYY-MM-DD') as "startsOn", to_char(ends_on, 'YYYY-MM-DD') as "endsOn", kind
+      // clientActive(087, ISSUE-013) — 서버는 거르지 않고 활성 여부만 싣는다(태정님 11-06: 확장 프로그램이 거른다). 클라이언트가 없으면 true
+      const campaigns = await sql<Array<{ id: string; name: string; clientId: string | null; startsOn: string; endsOn: string; kind: string | null; clientActive: boolean }>>`
+        select id, name, client_id as "clientId", to_char(starts_on, 'YYYY-MM-DD') as "startsOn", to_char(ends_on, 'YYYY-MM-DD') as "endsOn", kind,
+          coalesce((select cl.deactivated_at is null from client cl where cl.id = campaign.client_id), true) as "clientActive"
         from campaign where (${url.searchParams.get('includeEnded') === 'true'} or ends_on >= ${kstToday()}::date)
           and (${url.searchParams.get('kind')}::text is null or kind = ${url.searchParams.get('kind')}) order by starts_on desc, id`;
       return reply({ items: campaigns.map((c) => ({ ...c, locationId: representativeLocation(clinics.filter((l) => l.clientId === c.clientId))?.id ?? null })), total: campaigns.length });

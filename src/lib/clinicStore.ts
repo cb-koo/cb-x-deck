@@ -24,7 +24,7 @@ export async function listClinics(sql: postgres.Sql) {
     on conflict (client_id) where kind = 'main' do nothing`;
   return sql<ClinicSummary[]>`
     select l.id, c.id as "clientId", c.name, s.location_id is not null as configured,
-      l.name as "branchName", l.kind, l.position, l.active
+      l.name as "branchName", l.kind, l.position, l.active, c.deactivated_at is null as "clientActive"
     from clinic_location l join client c on c.id = l.client_id left join clinic_settings s on s.location_id = l.id
     order by c.position, c.name, l.position, l.created_at`;
 }
@@ -33,7 +33,7 @@ export async function listClientLocations(sql: postgres.Sql, clientId: string, o
   const activeOnly = opts.activeOnly ?? true;
   return sql<ClinicSummary[]>`
     select l.id, c.id as "clientId", c.name, s.location_id is not null as configured,
-      l.name as "branchName", l.kind, l.position, l.active
+      l.name as "branchName", l.kind, l.position, l.active, c.deactivated_at is null as "clientActive"
     from clinic_location l join client c on c.id = l.client_id left join clinic_settings s on s.location_id = l.id
     where l.client_id = ${clientId} and (${!activeOnly} or l.active)
     order by l.position, l.created_at`;
@@ -44,7 +44,7 @@ export async function listLocationsForManage(sql: postgres.Sql, clientId: string
     on conflict (client_id) where kind = 'main' do nothing`;
   return sql<Array<ClinicSummary & { reservations: number }>>`
     select l.id, c.id as "clientId", c.name, s.location_id is not null as configured,
-      l.name as "branchName", l.kind, l.position, l.active,
+      l.name as "branchName", l.kind, l.position, l.active, c.deactivated_at is null as "clientActive",
       (select count(*)::int from visit_reservation r where r.location_id = l.id) as reservations
     from clinic_location l join client c on c.id = l.client_id left join clinic_settings s on s.location_id = l.id
     where l.client_id = ${clientId} order by l.position, l.created_at`;
@@ -60,7 +60,7 @@ async function lockedByClient<T>(sql: postgres.Sql, clientId: string, run: (tx: 
 async function oneLocation(sql: postgres.Sql, id: string) {
   const [row] = await sql<ClinicSummary[]>`
     select l.id, c.id as "clientId", c.name, s.location_id is not null as configured,
-      l.name as "branchName", l.kind, l.position, l.active
+      l.name as "branchName", l.kind, l.position, l.active, c.deactivated_at is null as "clientActive"
     from clinic_location l join client c on c.id = l.client_id left join clinic_settings s on s.location_id = l.id where l.id = ${id}`;
   if (!row) throw productMissing();
   return row;

@@ -4,7 +4,7 @@ import type { ClinicSummary } from './clinicLocation.ts';
 import { branchContext, branchFromSheet, branchHint, branchOptions, initialBranchId, isMultiBranch } from './reservationBranch.ts';
 
 const loc = (id: string, branchName: string, position: number, active = true): ClinicSummary =>
-  ({ id, clientId: 'c', name: '벤자민클리닉', configured: true, branchName, kind: position === 0 ? 'main' : 'branch', position, active });
+  ({ id, clientId: 'c', name: '벤자민클리닉', configured: true, branchName, kind: position === 0 ? 'main' : 'branch', position, active, clientActive: true });
 const myeongdong = loc('md', '명동점', 0), sinsa = loc('ss', '신사점', 1), gangnam = loc('gn', '강남점', 2, false);
 
 test('사용 중 지점만 순서대로, 저장된 예약의 중지 지점은 (사용 중지)로 남긴다', () => {

@@ -49,6 +49,7 @@
 | `DATE_INVALID` | 422 (캘린더 month는 400) | 기한·방문 일시 형식 |
 | `DEADLINE_BEFORE_VISIT` | 422 | 직접 지정한 기한이 방문일보다 이름 |
 | `PERSON_REQUIRED` · `LOCATION_MISMATCH` · `TEMPLATE_MISMATCH` · `RESERVATION_ALREADY_EXISTS` | 422 / 422 / 422 / 409 | 예약 생성 |
+| `CLIENT_INACTIVE` | 422 | 예약 생성 — 비활성화된 클라이언트(2026-11-06). 웹 클라이언트 화면에서 [다시 활성화]한 뒤 가능 |
 | `IDENTITY_MISMATCH` | 422 (register는 409) | 시트 계정이 작업의 인플루언서와 다름 |
 | `UNSUPPORTED_FILE` · `FILE_TOO_LARGE` · `UPLOAD_INCOMPLETE` | 422 | 동의서 prepare / finalize |
 | `PROVIDER_UNAVAILABLE` | 503 | 저장소·AI 호출 실패 |
@@ -80,9 +81,9 @@
 | GET / PATCH | `/people/{id}/pricing` | PATCH `{pricing: <변경 키>}`, 단가 독립 버전 |
 | GET | `/tasks/{id}` | 작업 단계·비용·예약 요약·version·allowedActions·webUrl·reservationId |
 | GET | `/tasks/{id}/reservation` | 예약 상세 또는 `null` |
-| GET | `/campaigns?kind=visit&includeEnded=false` | `{items,total}`, 캠페인·본점 ID |
+| GET | `/campaigns?kind=visit&includeEnded=false` | `{items,total}`, 캠페인·본점 ID·`clientActive`(2026-11-06, 비활성 클라이언트는 걸러서 보여 주세요) |
 | GET | `/campaigns/{id}/visit-task-candidates?personId=<id>` | 같은 상대의 미취소·미게시 방문 작업·version·reservationId |
-| GET | `/clinics` | `{items,total}`, 본점 목록·configured |
+| GET | `/clinics` | `{items,total}`, 본점 목록·configured·`clientActive`(2026-11-06, 지점의 `active`와 별개. 비활성 클라이언트는 걸러서 보여 주세요) |
 | GET | `/clinics/{id}` | 기존 소개·금지 표현·settings·version·templates |
 | GET | `/clinics/{id}/guidance?language=JA` | 지도·언어별 안내·고객 양식·기재 시트 버전 |
 | GET | `/clinics/{id}/calendar?month=2026-10` | days·공휴일 자료의 범위·출처. 자료 없는 연도는 unknown |

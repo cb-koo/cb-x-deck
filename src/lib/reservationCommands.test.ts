@@ -369,6 +369,24 @@ test('사용 중지 지점으로 등록하면 422 LOCATION_INACTIVE', async () =
   assert.equal(created.locationId, f.branches.myeongdong);
 });
 
+// 087 클라이언트 비활성화(ISSUE-013, 태정님 11-06) — 목록은 거르지 않고 clientActive만 싣고, 새 예약은 막는다
+test('비활성 클라이언트: /clinics·/campaigns에 clientActive=false로 실리고, 새 예약은 422 CLIENT_INACTIVE(작업도 안 생긴다)', async () => {
+  base = kstToday();
+  const f = await fixture('z');
+  await sql`update client set deactivated_at = now() where id = ${f.client.id}`;
+  const clinics = await call<{ items: Array<{ clientId: string; clientActive: boolean }> }>('GET', 'clinics');
+  assert.ok(clinics.items.filter((c) => c.clientId === f.client.id).every((c) => c.clientActive === false));
+  const camps = await call<{ items: Array<{ id: string; clientActive: boolean }> }>('GET', 'campaigns');
+  assert.equal(camps.items.find((c) => c.id === f.campaign.id)?.clientActive, false);
+  const before = (await sql<Array<{ n: number }>>`select count(*)::int n from campaign_task where campaign_id = ${f.campaign.id}`)[0].n;
+  await rejects(call('POST', 'reservations', { key: randomUUID(), body: createBody(f, { locationId: f.branches.myeongdong }) }), 'CLIENT_INACTIVE', 422);
+  const after = (await sql<Array<{ n: number }>>`select count(*)::int n from campaign_task where campaign_id = ${f.campaign.id}`)[0].n;
+  assert.equal(after, before);   // 작업 새로 만들기로 만든 작업도 함께 되돌려진다
+  await sql`update client set deactivated_at = null where id = ${f.client.id}`;
+  const ok = await call<Detail>('POST', 'reservations', { key: randomUUID(), body: createBody(f, { locationId: f.branches.myeongdong }) });
+  assert.ok(ok.id);
+});
+
 test('같은 클라이언트 다른 장소의 시트 리비전은 통과, 다른 클라이언트 리비전은 TEMPLATE_MISMATCH', async () => {
   base = kstToday();
   const f = await fixture('r');

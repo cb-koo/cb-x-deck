@@ -107,6 +107,9 @@ export async function createReservation(sql: postgres.Sql, req: Request, actor: 
     if (!personId || !task.influencer_handle) throw new ProductError('PERSON_REQUIRED', '등록된 인플루언서를 작업에 배정한 뒤 예약을 추가해 주세요.', 422);
     if (!allowedVisitActions(fact, fact.requestCount, kstToday()).includes('add_reservation')) throw new ProductError('STATE_CHANGED', '이 작업에는 예약을 추가할 수 없어요.', 409);
     const { clientId } = await campaignLocations(tx, task.campaign_id, locationId);
+    // 비활성 클라이언트로는 새 예약을 만들지 않는다(087, ISSUE-013, 태정님 11-06) — 트랜잭션이라 위에서 만든 작업도 함께 되돌려진다
+    if ((await tx`select 1 from client where id = ${clientId} and deactivated_at is not null`).length)
+      throw new ProductError('CLIENT_INACTIVE', '비활성화된 클라이언트예요. 클라이언트 화면에서 다시 활성화한 뒤 예약해 주세요.', 422);
     const mode = deadlineMode(body, 'default'), sheet = policy(applyDeadlineMode(finalSheet, mode));
     checkedHandle(sheet, task.influencer_handle);
     let revisionId: string | null = null;

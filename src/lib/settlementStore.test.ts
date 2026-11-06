@@ -1454,3 +1454,21 @@ test('기타 협찬 — 링크로 완료: 그 링크(구글맵)가 reference_url
   assert.equal(ext.note, '');
   assert.equal(ext.reference_url, 'https://maps.app.goo.gl/AbC123');
 });
+test('기타 협찬 — 스크린샷으로 완료(링크 없음): 요청 proof 스냅샷, 외부 proof는 /proof 경로, note "[스크린샷 확인] …", reference_url null', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라OS');
+  const camp = await createCampaign(sql, base(c.id, c.name, 'os', 'visit'));
+  await influencerWithPaypal(H('ots'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'other', otherKind: '구글맵 리뷰', items: [{ handle: H('ots'), cost: { amount: 25000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', proof: fakeProof(t.id) });
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-28')).find((x) => x.taskId === t.id)!;
+  assert.equal(cand.readiness, 'warn');
+  assert.equal(cand.referenceDefault, null);
+  const [row] = await createRequests(sql, [itemOf(cand, cand.categoryDefault!)], m, '2026-08-28');
+  assert.equal(row.proof?.url, fakeProof(t.id).url);
+  const ext = toExternalItem((await getForExport(sql, row.id))!, 'https://x.example');
+  assert.equal(ext.task_type, 'other');
+  assert.equal(ext.reference_url, null);
+  assert.equal(ext.note, '[스크린샷 확인] 구글맵 리뷰 (완료 8/27)');
+  assert.equal(ext.proof?.url, `https://x.example/api/external/settlement/requests/${row.id}/proof`);
+});

@@ -28,7 +28,7 @@ import { PanelSection, SectionBadge, type SectionDisclosure } from './panel/Pane
 import { taskSectionOpen, visitPhaseFromRow, type TaskSectionKey, type TaskSectionPrefs } from '@/lib/taskSectionView';
 import { ENDED_PHASES, type VisitPhase } from '@/lib/reservationPolicy';
 import { TimeField } from './panel/TimeField';
-import { OtherKindField } from './panel/OtherKindField';
+import { OtherKindField, OtherKindDraftContext } from './panel/OtherKindField';
 import { DateTimeBox } from './panel/DateTimeBox';
 import { AgreementField } from './panel/AgreementField';
 import { ReservationSection } from '@/components/reservations/ReservationSection';
@@ -221,7 +221,12 @@ export function TaskPanel({
   const [visitTime, setVisitTime] = useState<string | null>(null);
   const [scheduledTime, setScheduledTime] = useState<string | null>(null);
   const [note, setNote] = useState('');
-  const [newOtherKind, setNewOtherKind] = useState('');   // 기타 협찬(088)의 무엇을 했는지 — 만들 때는 비워도 된다
+  const [newOtherKind, setNewOtherKind] = useState('');
+  // 편집 중인 작업의 '무엇을 했는지' 칸에 지금 적힌 글자(저장 전 포함) — 완료 칸이 OtherKindDraftContext로 읽는다.
+  // 다른 작업으로 옮기면 비운다(렌더 중 맞추기 — 이펙트의 연쇄 렌더 대신).
+  const [otherKindLive, setOtherKindLive] = useState<string | null>(null);
+  const [otherKindFor, setOtherKindFor] = useState<string | null>(task?.id ?? null);
+  if (otherKindFor !== (task?.id ?? null)) { setOtherKindFor(task?.id ?? null); setOtherKindLive(null); }   // 기타 협찬(088)의 무엇을 했는지 — 만들 때는 비워도 된다
   // 새 작업에서 고른 결제 수단(§8-2) — 만들기 전까지 로컬. 사람이 바뀌면 비운다(다른 사람의 수단 id가 남으면 안 된다)
   const [newMethodId, setNewMethodId] = useState<string | null>(null);
   // 결제 수단 등록 창(§8-3)과, 등록·선택 실패 뒤 결제 수단 보기를 다시 읽는 키
@@ -781,7 +786,9 @@ export function TaskPanel({
       case 'otherKind':
         // 기타 협찬(088) — 완료 뒤엔 비울 수 없다(서버 otherGateError). 취소된 작업은 읽기만.
         if (cancelled) return <span className={`text-content ${t.otherKind ? '' : 'text-x-muted'}`}>{t.otherKind || '미정'}</span>;
-        return <OtherKindField key={t.id} value={t.otherKind} onCommit={(next) => { if (next || !t.postedAt) void actions.setOtherKind(t, next); }} />;
+        // onChange: 지금 적힌 글자를 완료 칸(OtherDoneBox)에 알린다 — 칸 밖을 누르기 전에도 [완료 확인]이 켜지게(koo 11-06 결함)
+        return <OtherKindField key={t.id} value={t.otherKind} onChange={setOtherKindLive}
+                               onCommit={(next) => { if (next || !t.postedAt) void actions.setOtherKind(t, next); }} />;
       case 'target': {
         if (!cancelled) return <>{slots.target}{targetCard(!!t.draftId)}</>;
         const tgt = targetLabel(t, campaign.id);
@@ -1005,6 +1012,7 @@ export function TaskPanel({
     : (newType ? `원고 · ${TASK_TYPE_LABEL[newType]} · ${handle ? `@${handle}` : '인플루언서 미정'}` : '');
 
   return (
+    <OtherKindDraftContext.Provider value={otherKindLive}>
     <aside ref={panelRef} role="dialog" aria-label="작업 편집" data-issue-task-id={task?.id} className="fixed inset-y-0 right-0 z-40 flex w-[560px] flex-col border-l border-x-border bg-white shadow-xl">
       <div className="flex items-start justify-between border-b border-x-border px-6 pt-5 pb-4">
         <div className="min-w-0">
@@ -1177,5 +1185,6 @@ export function TaskPanel({
                              onClose={closePayDialog} onSaved={onMethodRegistered} />
       )}
     </aside>
+    </OtherKindDraftContext.Provider>
   );
 }

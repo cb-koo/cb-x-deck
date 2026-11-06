@@ -216,3 +216,53 @@ test('캠페인 화면 — 원고 칸엔 무엇을 했는지, 표시 순서 끝�
   assert.deepEqual(PANEL_FIELD_ORDER.other, ['influencer', 'otherKind', 'cost', 'scheduled', 'note']);
   assert.equal(profilePromptFor({ option: { id: 'i1', handle: 'yumi', pricing: {} } as never, type: 'other', cost: { amount: 1, currency: 'KRW' } }), null);
 });
+
+// ── 스크린샷으로 완료 확인(koo 11-06 2차) ──
+import { proofGateError } from './campaignTaskInput.ts';
+import { PROOF_ONLY_RT_MESSAGE, PROOF_KEEP_MESSAGE } from './taskProofGuard.ts';
+const TID = '11111111-1111-4111-8111-111111111111';
+const shot = (taskId = TID) => `task/${taskId}/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.png`;
+const proofObj = (taskId = TID) => ({ url: shot(taskId), by: null, byName: 'koo', at: '2026-11-06T01:00:00.000Z' });
+
+test('스크린샷 — 기타 협찬에도 붙일 수 있다(RT와 같은 경로 검사), 다른 유형은 지금처럼 거절', () => {
+  assert.equal(proofGateError({ id: TID, type: 'other', postedAt: null, proof: null }, { proofUrl: shot() }), null);
+  assert.equal(proofGateError({ id: TID, type: 'post', postedAt: null, proof: null }, { proofUrl: shot() }), PROOF_ONLY_RT_MESSAGE);
+  // 남의 작업 경로는 거절(RT와 같은 ②)
+  assert.notEqual(proofGateError({ id: TID, type: 'other', postedAt: null, proof: null }, { proofUrl: shot('22222222-2222-4222-8222-222222222222') }), null);
+  // 완료된 기타 협찬의 스크린샷 떼기는 여기서 막지 않는다(RT는 막는다) — 남는 자료가 있는지는 otherGateError가 본다
+  assert.equal(proofGateError({ id: TID, type: 'other', postedAt: TODAY, proof: proofObj() }, { proofUrl: null }), null);
+  assert.equal(proofGateError({ id: TID, type: 'rt', postedAt: TODAY, proof: proofObj() }, { proofUrl: null }), PROOF_KEEP_MESSAGE);
+});
+test('스크린샷 — 완료 확인 자료는 링크·스크린샷·메모 중 하나 이상(스크린샷만으로 완료 가능)', () => {
+  const k = { ...cur, otherKind: '구글맵 리뷰' };
+  assert.equal(otherGateError(k, { postedAt: TODAY, proofUrl: shot() }, TODAY), null);
+  assert.equal(otherGateError(k, { postedAt: TODAY, proofUrl: shot(), postUrl: 'https://maps.app.goo.gl/x' }, TODAY), null);   // 둘 다도 된다
+  assert.equal(otherGateError(k, { postedAt: TODAY }, TODAY), DONE_NOTE_REQUIRED_MESSAGE);
+});
+test('스크린샷 — 완료 뒤 떼서 확인 자료가 0개가 되면 막고, 링크·메모가 남으면 뗄 수 있다', () => {
+  const done = { ...cur, otherKind: '구글맵 리뷰', postedAt: TODAY, proof: proofObj() };
+  assert.equal(otherGateError(done, { proofUrl: null }, TODAY), DONE_NOTE_REQUIRED_MESSAGE);
+  assert.equal(otherGateError({ ...done, postUrl: 'https://a.b' }, { proofUrl: null }, TODAY), null);
+  assert.equal(otherGateError({ ...done, doneNote: '현장 확인' }, { proofUrl: null }, TODAY), null);
+  assert.equal(otherGateError(done, { proofUrl: shot() }, TODAY), null);   // 바꾸기는 된다
+  // 링크만 있던 건에서 링크를 지우면 0개
+  assert.equal(otherGateError({ ...cur, otherKind: 'x', postedAt: TODAY, postUrl: 'https://a.b' }, { postUrl: null }, TODAY), DONE_NOTE_REQUIRED_MESSAGE);
+});
+test('스크린샷 — 정산 note: 스크린샷만이면 [스크린샷 확인], 메모도 있으면 붙이고, 링크가 있으면 note 없음', () => {
+  const t = { type: 'other' as const, postedAt: TODAY, postUrl: null, otherKind: '구글맵 리뷰', doneNote: '', proof: proofObj() };
+  assert.equal(otherLinklessNote(t), '[스크린샷 확인] 구글맵 리뷰 (완료 11/6)');
+  assert.equal(otherLinklessNote({ ...t, doneNote: '별점 5' }), '[스크린샷 확인] 구글맵 리뷰 — 별점 5 (완료 11/6)');
+  assert.equal(otherLinklessNote({ ...t, postUrl: 'https://a.b' }), null);
+  assert.ok(isOtherLinklessDone(t));
+});
+test('스크린샷 — 정산 후보: 링크 없이 스크린샷만이면 링크 null + proof + [스크린샷 확인] note, 막지 않음(🟡)', () => {
+  const c = computeCandidate(candInput({ otherKind: '구글맵 리뷰', doneNote: '', proof: proofObj('t1') as never }));
+  assert.equal(c.referenceDefault, null);
+  assert.equal(c.proof?.url, shot('t1'));
+  assert.equal(c.linklessNote, '[스크린샷 확인] 구글맵 리뷰 (완료 11/6)');
+  assert.equal(c.readiness, 'warn');
+  assert.ok(!c.issues.some((i) => i.level === 'blocked'));
+  // 링크 + 스크린샷: 링크가 참고 링크, note 없음, 🟢
+  const both = computeCandidate(candInput({ otherKind: '구글맵 리뷰', doneNote: '', postUrl: 'https://maps.app.goo.gl/x', proof: proofObj('t1') as never }));
+  assert.equal(both.readiness, 'ready'); assert.equal(both.linklessNote, null); assert.equal(both.proof?.url, shot('t1'));
+});

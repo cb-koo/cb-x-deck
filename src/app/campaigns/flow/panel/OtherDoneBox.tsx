@@ -1,31 +1,39 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import type { FlowRow } from '@/lib/campaignFlowView';
 import { formatDateKoLong, isDateOnlyString, DONE_NOTE_MAX } from '@/lib/campaignJudgment';
 import { DATE_MESSAGE } from '@/lib/campaignTaskInput';
 import { isHttpUrl, isOtherLinklessDone, DONE_DATE_FUTURE_MESSAGE, LINK_MESSAGE, OTHER_KIND_REQUIRED_MESSAGE } from '@/lib/otherTask';
+import { TaskProofField } from '@/components/TaskProofField';
 import { Button } from '@/components/ui';
+import { OtherKindDraftContext } from './OtherKindField';
 
 // 기타 협찬(088, koo 11-06)의 '완료' 칸 — 게시 칸(PostedBox)의 기타 협찬판. X 게시물이 아니라서
-//  · 완료한 날을 사람이 고르고(기본 오늘 — 예정일이 지났으면 그날), 확인 링크는 아무 http(s) 주소(구글맵·인스타 등)
-//  · 링크가 없으면 [링크 없이 완료 확인 ▸]을 펼쳐 확인 메모(필수) — 정산 때 링크 대신 정산팀에 간다('[링크 없음] …')
+//  · 순서: 완료한 날 → 확인 링크(선택, 아무 http(s) 주소) → 스크린샷 붙여넣기(선택, RT 증빙과 같은 칸) → [완료 확인]
+//  · 링크와 스크린샷은 둘 다 넣어도 된다. 둘 다 없으면 [링크 없이 완료 확인 ▸]을 펼쳐 확인 메모(필수)
 //  · X 미리보기·작성자 확인·성과 측정 없음(조회 비용도 없다)
-//  · '무엇을 했는지'가 비어 있으면 [완료 확인]을 막고 이유를 버튼 옆에 말한다(서버 otherGateError와 같은 문구)
+//  · '무엇을 했는지'가 비어 있으면 [완료 확인]을 막는다 — 패널 칸에 지금 적힌 글자(OtherKindDraftContext)로 판정해 입력 중에도 켜진다
+//  · 완료 뒤: 스크린샷은 RT처럼 [바꾸기]로 교체. 떼기는 링크나 메모가 남아 있을 때만(확인 자료가 0개가 되면 안 된다 — 서버도 막는다)
 // FlowDetail이 기타 협찬이면 PostedBox 대신 이 컴포넌트를 그린다 — 유형이 다르면 다른 컴포넌트라 훅 순서가 섞이지 않는다.
 const input = 'h-10 w-full rounded-md border bg-white px-2.5 text-content outline-none focus:border-x-blue';
 const subTitle = 'mb-1.5 text-[14px] font-semibold text-x-secondary';
 
-export function OtherDoneBox({ task, today, otherKindDraft, focus, onFocused, onDone, onCancel }: {
+export type OtherDone = { url?: string; proof?: string; note?: string };
+
+export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, onDone, onSetProof, onCancel }: {
   task: FlowRow;
   today: string;
-  otherKindDraft?: string;   // 패널 '무엇을 했는지' 칸에 적혔지만 아직 저장 전인 글자 — 있으면 완료 확인과 함께 보낸다
+  proofSignedUrl: string | null;
   focus: boolean;
   onFocused: () => void;
-  onDone: (date: string, done: { url: string } | { note: string }, otherKind?: string) => Promise<boolean>;
+  onDone: (date: string, done: OtherDone, otherKind?: string) => Promise<boolean>;
+  onSetProof: (path: string | null) => Promise<boolean>;   // 완료된 작업의 스크린샷 바꾸기·떼기(actions.setProof)
   onCancel: () => void;
 }) {
+  const kindDraft = useContext(OtherKindDraftContext);
   const [date, setDate] = useState(() => (task.scheduledOn && task.scheduledOn <= today ? task.scheduledOn : today));
   const [url, setUrl] = useState('');
+  const [pendingProof, setPendingProof] = useState<string | null>(null);   // 완료 전 — [완료 확인]과 함께 나간다
   const [linkless, setLinkless] = useState(false);
   const [doneNote, setDoneNote] = useState('');
   const [err, setErr] = useState('');
@@ -43,6 +51,8 @@ export function OtherDoneBox({ task, today, otherKindDraft, focus, onFocused, on
   // ── 완료 뒤 ──
   if (task.postedAt) {
     const noLink = isOtherLinklessDone(task);
+    // 스크린샷을 떼도 링크나 메모가 남으면 뗄 수 있다 — 아니면 [바꾸기]만(RT 증빙과 같은 규칙)
+    const canRemoveProof = !!task.postUrl || !!task.doneNote.trim();
     return (
       <div ref={rootRef}>
         <p className="text-content">
@@ -52,11 +62,20 @@ export function OtherDoneBox({ task, today, otherKindDraft, focus, onFocused, on
         </p>
         {task.postUrl && <p className="mt-0.5 truncate text-ui text-x-muted" title={task.postUrl}>{task.postUrl.replace(/^https?:\/\//, '')}</p>}
         {task.doneNote && <p className="mt-1 text-ui text-x-secondary">확인 메모: {task.doneNote}</p>}
+        {task.proof && (
+          <div className="mt-2.5">
+            <TaskProofField taskId={task.id} value={task.proof.url} signedUrl={proofSignedUrl}
+                            postedAt={task.postedAt} influencerHandle={task.influencerHandle}
+                            uploaded={{ byName: task.proof.byName, at: task.proof.at }}
+                            required={false} canRemove={canRemoveProof} disabled={false}
+                            onChange={(p) => onSetProof(p)} />
+          </div>
+        )}
       </div>
     );
   }
 
-  const kind = (otherKindDraft ?? task.otherKind).trim();
+  const kind = (kindDraft ?? task.otherKind).trim();
   const cancelBtn = (
     <div className="-mx-4 mt-3.5 flex items-center justify-between gap-3 border-t border-x-border px-4 pt-3">
       <span className="text-[14px] text-x-secondary">진행이 안 됐다면</span>
@@ -79,23 +98,27 @@ export function OtherDoneBox({ task, today, otherKindDraft, focus, onFocused, on
   }
 
   const blockReason = !kind ? OTHER_KIND_REQUIRED_MESSAGE : '';
+  const hasEvidence = linkless ? !!doneNote.trim() : (!!url.trim() || !!pendingProof);
   async function submit() {
     if (!isDateOnlyString(date)) { setErr(DATE_MESSAGE); return; }
     if (date > today) { setErr(DONE_DATE_FUTURE_MESSAGE); return; }
-    let done: { url: string } | { note: string };
+    const done: OtherDone = {};
     if (linkless) {
       if (!doneNote.trim()) { setErr('확인 메모를 적어 주세요'); return; }
-      done = { note: doneNote.trim() };
+      done.note = doneNote.trim();
     } else {
       const u = url.trim();
-      if (!isHttpUrl(u)) { setErr(LINK_MESSAGE); return; }
-      done = { url: u };
+      if (u && !isHttpUrl(u)) { setErr(LINK_MESSAGE); return; }
+      if (!u && !pendingProof) { setErr('확인 링크나 스크린샷을 넣어 주세요'); return; }
+      if (u) done.url = u;
+      if (pendingProof) done.proof = pendingProof;
     }
     setBusy(true);
-    try { await onDone(date, done, otherKindDraft !== undefined && otherKindDraft.trim() !== task.otherKind ? otherKindDraft.trim() : undefined); }
+    // 칸에 적혔지만 아직 저장 전인 '무엇을 했는지'도 함께 보낸다(서버가 같은 요청 안에서 판정한다)
+    try { await onDone(date, done, kindDraft !== null && kind !== task.otherKind ? kind : undefined); }
     finally { setBusy(false); }
   }
-  const canSubmit = !busy && !blockReason && (linkless ? !!doneNote.trim() : !!url.trim());
+  const canSubmit = !busy && !blockReason && hasEvidence;
 
   return (
     <div ref={rootRef}>
@@ -105,7 +128,7 @@ export function OtherDoneBox({ task, today, otherKindDraft, focus, onFocused, on
       {linkless ? (
         <>
           <p className="mt-3 text-content font-semibold">링크 없이 완료 확인</p>
-          <p className="mt-0.5 text-ui text-x-muted">상담회 참석처럼 남길 링크가 없을 때 써요.</p>
+          <p className="mt-0.5 text-ui text-x-muted">상담회 참석처럼 남길 링크나 스크린샷이 없을 때 써요.</p>
           <p id="done-note-label" className={`${subTitle} mt-3`}>확인 메모 <span className="font-normal text-x-muted">필수</span></p>
           <input value={doneNote} maxLength={DONE_NOTE_MAX} onChange={(e) => { setDoneNote(e.target.value); setErr(''); }}
                  placeholder="예: 상담회 현장에서 참석 확인" aria-labelledby="done-note-label" className={`${input} border-x-border-strong`} />
@@ -113,12 +136,17 @@ export function OtherDoneBox({ task, today, otherKindDraft, focus, onFocused, on
         </>
       ) : (
         <>
-          <p className={`${subTitle} mt-3`}>확인 링크</p>
+          <p className={`${subTitle} mt-3`}>확인 링크 <span className="font-normal text-x-muted">선택</span></p>
           <input ref={inputRef} value={url} onChange={(e) => { setUrl(e.target.value); setErr(''); }}
                  placeholder="리뷰, 게시물 등 아무 링크나 붙여넣기 (https://…)" aria-label="확인 링크"
                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && canSubmit) void submit(); }}
                  className={`${input} border-x-border-strong`} />
-          <p className="mt-1 text-ui text-x-secondary">정산팀이 이 링크로 완료를 확인해요.</p>
+          <p className={`${subTitle} mt-3`}>스크린샷 <span className="font-normal text-x-muted">선택</span></p>
+          <TaskProofField taskId={task.id} value={pendingProof} signedUrl={null}
+                          postedAt={null} influencerHandle={task.influencerHandle}
+                          required={false} canRemove disabled={busy}
+                          onChange={(p) => { setPendingProof(p); setErr(''); }} />
+          <p className="mt-1.5 text-ui text-x-secondary">링크나 스크린샷 중 하나만 있어도 돼요. 정산팀이 이걸로 완료를 확인해요.</p>
         </>
       )}
       {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
@@ -129,9 +157,9 @@ export function OtherDoneBox({ task, today, otherKindDraft, focus, onFocused, on
           {busy ? '저장 중…' : '완료 확인'}
         </Button>
       </div>
-      {!linkless && (
+      {!linkless && !url.trim() && !pendingProof && (
         <p className="mt-2 text-ui text-x-secondary">
-          링크가 없나요?{' '}
+          링크도 스크린샷도 없나요?{' '}
           <button type="button" onClick={() => { setLinkless(true); setErr(''); }} className="text-x-blue-text hover:underline">링크 없이 완료 확인 ▸</button>
         </p>
       )}

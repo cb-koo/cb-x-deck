@@ -1158,8 +1158,10 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                      // 기타 협찬(088)은 X 게시물이 없어 '완료' 칸(OtherDoneBox)을 그린다 — 완료한 날 + 링크 또는 확인 메모
                      posted: panelTask && !panelTask.cancelledAt && panelTask.type === 'other'
                        ? <OtherDoneBox task={panelTask} today={data.today}
+                                       proofSignedUrl={panelTask.proof ? proofUrls[panelTask.proof.url] ?? null : null}
                                        focus={postedFocusId === panelTask.id} onFocused={clearPostedFocus}
                                        onDone={(date, done, otherKind) => actions.markDoneOther(panelTask, date, done, otherKind)}
+                                       onSetProof={(p) => actions.setProof(panelTask, p)}
                                        onCancel={() => menuActions.cancel(panelTask)} />
                      : panelTask && !panelTask.cancelledAt
                        ? <PostedBox task={panelTask} today={data.today}

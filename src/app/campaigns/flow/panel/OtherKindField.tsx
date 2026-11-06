@@ -1,5 +1,5 @@
 'use client';
-import { useId, useState } from 'react';
+import { createContext, useId, useState } from 'react';
 import { fetchOtherKinds } from '@/lib/campaignApi';
 import { OTHER_KIND_MAX } from '@/lib/campaignJudgment';
 import { canonicalOtherKind, filterOtherKinds, normalizeOtherKind } from '@/lib/otherTask';
@@ -9,6 +9,11 @@ import { canonicalOtherKind, filterOtherKinds, normalizeOtherKind } from '@/lib/
 // 띄어쓰기·대소문자만 다른 말을 치면 전에 쓴 말로 맞춘다('구글맵리뷰' → '구글맵 리뷰') — 이름이 흩어지지 않게(나중에 옮길 때 기준).
 // onCommit: 칸을 벗어나거나 Enter·추천 클릭 때 정리된 값으로 한 번. onChange(선택): 칠 때마다(새 작업 폼은 이걸로 값을 들고 있는다).
 let cache: Array<{ kind: string; count: number }> | null = null;
+
+// 작업 패널의 '무엇을 했는지' 칸에 지금 적혀 있는 글자(저장 전 포함) — 같은 패널 안의 완료 칸(OtherDoneBox)이 읽어
+// 입력 중에도 [완료 확인]을 켠다(koo 11-06 결함: 칸 밖을 눌러야 켜졌다). 완료 칸은 FlowDetail이 만든 슬롯이지만
+// TaskPanel 안에서 그려지므로 TaskPanel이 감싼 이 Provider의 값을 받는다. null = 칸을 건드리지 않음(저장된 값 그대로).
+export const OtherKindDraftContext = createContext<string | null>(null);
 
 export function OtherKindField({ value, onCommit, onChange, disabled = false, autoFocus = false }: {
   value: string;

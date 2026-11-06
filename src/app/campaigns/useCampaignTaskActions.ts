@@ -86,9 +86,13 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
     setOtherKind: (t: Item, otherKind: string) => { const v = otherKind.trim().replace(/\s+/g, ' '); return patch(t, { otherKind: v }, { otherKind: v }); },
     // 기타 협찬의 완료 확인 — 완료한 날 + (링크 또는 확인 메모). 날짜는 사람이 고른 그대로(X 게시물이 아니다).
     // 무엇을 했는지가 칸에 적혔지만 아직 저장 전일 수 있어 함께 보낸다. X 조회·트래킹이 없어 상세를 다시 읽지 않는다.
-    markDoneOther: async (t: Item, date: string, done: { url: string } | { note: string }, otherKind?: string) => {
-      const body = { postedAt: date, ...('url' in done ? { postUrl: done.url } : { doneNote: done.note }), ...(otherKind !== undefined ? { otherKind } : {}) };
-      const ok = await patch(t, body, { ...body, postedSource: 'manual', published: true });
+    // 확인 자료 = 링크·스크린샷(둘 다 가능)·메모(둘 다 없을 때) — 서버가 하나 이상인지 본다(otherGateError).
+    markDoneOther: async (t: Item, date: string, done: { url?: string; proof?: string; note?: string }, otherKind?: string) => {
+      const common = { postedAt: date, ...(done.url ? { postUrl: done.url } : {}),
+                       ...(done.note ? { doneNote: done.note } : {}), ...(otherKind !== undefined ? { otherKind } : {}) };
+      const ok = await patch(t, { ...common, ...(done.proof ? { proof: done.proof } : {}) },
+                             { ...common, postedSource: 'manual', published: true,
+                               ...(done.proof ? { proof: { url: done.proof, by: null, byName: '', at: new Date().toISOString() } } : {}) });
       if (ok) onChanged();
       return ok;
     },

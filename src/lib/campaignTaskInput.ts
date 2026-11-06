@@ -300,15 +300,16 @@ export function proofGateError(
   cur: { id: string; type: TaskType; postedAt: string | null; proof: TaskProof | null },
   patch: { postedAt?: string; proofUrl?: string | null },
 ): string | null {
-  // ① 범위 — RT 작업에만 붙는다
-  if (patch.proofUrl !== undefined && cur.type !== 'rt') return PROOF_ONLY_RT_MESSAGE;
+  // ① 범위 — RT와 기타 협찬(088, 스크린샷으로 완료 확인 — koo 11-06)에만 붙는다
+  if (patch.proofUrl !== undefined && cur.type !== 'rt' && cur.type !== 'other') return PROOF_ONLY_RT_MESSAGE;
   // ② 이 작업의 증빙인가 — 모양만 맞는 남의 경로를 막는다(판정을 라우트에 두지 않는다, 리뷰 Important)
   if (patch.proofUrl != null && !isTaskProofPathFor(cur.id, patch.proofUrl)) return PROOF_VALUE_MESSAGE;
   // 패치 후 증빙 — 이번 요청이 증빙 키를 안 보냈으면 원래 값이 남는다
   const proofAfter = patch.proofUrl !== undefined ? patch.proofUrl : (cur.proof?.url ?? null);
   // ③ 떼기 금지 — 이미 게시됨인 RT에서 비우는 것만 막는다. 아직 게시 전이면 자유롭게 뗄 수 있고,
   //    이번 요청이 게시까지 함께 하는 경우는 ④가 '증빙이 필요하다'는 정확한 문구로 잡는다(문구-값 일치).
-  if (patch.proofUrl === null && cur.postedAt) return PROOF_KEEP_MESSAGE;
+  //    기타 협찬은 스크린샷이 확인 자료 셋 중 하나일 뿐이라 여기서 막지 않는다 — 떼서 0개가 되는지는 otherGateError가 본다.
+  if (patch.proofUrl === null && cur.postedAt && cur.type === 'rt') return PROOF_KEEP_MESSAGE;
   // ④ 필수 — 새로 게시됨이 되는 RT는 패치 후 증빙이 있어야 한다
   if (patch.postedAt && !cur.postedAt && cur.type === 'rt' && !proofAfter) return PROOF_REQUIRED_MESSAGE;
   return null;

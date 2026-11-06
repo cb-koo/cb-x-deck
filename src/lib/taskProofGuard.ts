@@ -44,7 +44,7 @@ export function taskProofOf(v: unknown): TaskProof | null {
 
 // ── 문구 (사용자 언어, AGENTS 원칙 1·3) ──
 export const PROOF_VALUE_MESSAGE = '증빙 스크린샷 값이 올바르지 않아요 — 화면을 새로고침하고 다시 올려주세요';
-export const PROOF_ONLY_RT_MESSAGE = '증빙 스크린샷은 RT 작업에만 붙일 수 있어요';
+export const PROOF_ONLY_RT_MESSAGE = '증빙 스크린샷은 RT와 기타 협찬 작업에만 붙일 수 있어요';
 export const PROOF_REQUIRED_MESSAGE = '증빙 스크린샷을 넣어야 게시됨으로 표시할 수 있어요';
 export const PROOF_KEEP_MESSAGE = '게시됨인 RT 작업은 증빙을 뗄 수 없어요 — 다른 스크린샷으로 바꿔 주세요';
 

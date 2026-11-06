@@ -122,12 +122,12 @@ const NO_PROOF_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-proof', tex
 export const NO_AGREEMENT_ISSUE: ReadinessIssue = { level: 'warn', code: 'no-agreement', text: '협찬 동의서가 없어요 — 요청은 만들 수 있어요' };
 // 링크 없이 게시 확인된 작업(ISSUE-009) — 게시물이 지워져 링크 대신 지워진 이유를 요청 메모로 보낸다. 막지 않고 알려만 준다.
 const LINKLESS_REFERENCE_ISSUE: ReadinessIssue = { level: 'warn', code: 'no-reference', text: '게시물이 지워졌어요 — 링크 대신 지워진 이유를 정산팀에 보내요' };
-// 기타 협찬(088)을 링크 없이 완료한 건 — 확인 메모가 링크 대신 정산팀에 간다. 막지 않고 알려만 준다(009와 같은 틀).
-const OTHER_LINKLESS_REFERENCE_ISSUE: ReadinessIssue = { level: 'warn', code: 'no-reference', text: '링크 없이 완료했어요 — 링크 대신 확인 메모를 정산팀에 보내요' };
+// 기타 협찬(088)을 링크 없이 완료한 건 — 스크린샷(proof)이나 확인 메모가 링크 대신 정산팀에 간다. 막지 않고 알려만 준다(009와 같은 틀).
+const OTHER_LINKLESS_REFERENCE_ISSUE: ReadinessIssue = { level: 'warn', code: 'no-reference', text: '링크 없이 완료했어요 — 링크 대신 스크린샷이나 확인 메모를 정산팀에 보내요' };
 function referenceIssue(required: boolean, linkless = false, type?: TaskType): ReadinessIssue {
   if (linkless) return type === 'other' ? OTHER_LINKLESS_REFERENCE_ISSUE : LINKLESS_REFERENCE_ISSUE;
   return required
-    ? { level: 'blocked', code: 'no-reference', text: type === 'other' ? '확인 링크나 확인 메모가 있어야 해요 — 정산팀이 이걸로 완료를 확인해요' : '참고 링크를 넣어 주세요 — 정산팀이 이 링크로 게시를 확인해요' }
+    ? { level: 'blocked', code: 'no-reference', text: type === 'other' ? '확인 링크, 스크린샷, 확인 메모 중 하나가 있어야 해요 — 정산팀이 이걸로 완료를 확인해요' : '참고 링크를 넣어 주세요 — 정산팀이 이 링크로 게시를 확인해요' }
     : { level: 'warn', code: 'no-reference', text: '참고 링크 없음' };
 }
 // 참고 링크가 확인 자료인 유형 — RT만 아니다(RT의 링크는 클리닉 원본 트윗; 스펙 3-6, 슬랙 RT 405건 중 350건이 링크 없이 갔다).

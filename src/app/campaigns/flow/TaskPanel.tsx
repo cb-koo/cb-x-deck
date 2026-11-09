@@ -185,6 +185,7 @@ export function TaskPanel({
   formHandleFill?: { handle: string | null; seq: number } | null;
 }) {
   const task = mode.kind === 'edit' ? mode.task : null;
+  const sameVisitLive = sameVisit.linked.filter((x) => !x.cancelledAt).length;   // 원래 작업에 붙은 같은 방문 게시물(취소 제외)
   const index = mode.kind === 'edit' ? mode.index : -1;
   const total = mode.kind === 'edit' ? mode.total : 0;
   const validIndex = index >= 0;
@@ -710,6 +711,14 @@ export function TaskPanel({
           // 게시된 작업은 교체 자체가 서버 가드(POSTED_TASK_MESSAGE)에 막혀 있다 — FlowRowMenu의 prePost
           // 게이트와 같은 조건. 여기서 숨기지 않고 disabled로만 두면 눌렀을 때 400이 나는 거짓 어포던스가 된다.
           if (t.postedAt) return <div><InfluencerSummary handle={t.influencerHandle} option={opt} note={note} actions={registerBtn} />{regLine}</div>;
+          // 같은 방문의 연결 작업(089) — 원래 작업과 같은 사람으로 고정. 늘 꺼져 있을 [바꾸기][해제]는 그리지 않고 이유만 한 줄로(거짓 어포던스 금지)
+          if (t.sameVisitOf) return (
+            <div>
+              <InfluencerSummary handle={t.influencerHandle} option={opt} note={note} actions={registerBtn} />
+              <p className="mt-1 text-ui text-x-muted">같은 방문이라 원래 작업과 같은 인플루언서예요</p>
+              {regLine}
+            </div>
+          );
           const disabledReason = replaceDisabledReason(t, today);
           return (
             <div>
@@ -764,6 +773,14 @@ export function TaskPanel({
               비용 없음
             </label>
             <p className="mt-0.5 text-ui text-x-muted">{t.settlement?.status === 'requested' ? '정산 요청 중이라 바꿀 수 없어요' : '체크하면 금액을 비우고, 게시 확인 시 완료돼 정산 요청에서 빠져요'}</p>
+            {/* 같은 방문 게시물이 있는 원래 작업 — 이 금액이 그 게시물들 몫까지다. 막지 않고(무료 방문일 수 있다) 결과를 그 자리에서 말한다(koo QA 11-09) */}
+            {sameVisitLive > 0 && t.settlement?.status !== 'requested' && (
+              <p className="mt-1 text-ui text-amber-800">
+                {t.noCost
+                  ? `같은 방문 게시물 ${sameVisitLive + 1}건이 모두 비용 없음이에요. 실수라면 체크를 풀어 주세요.`
+                  : `같은 방문 게시물 ${sameVisitLive + 1}건의 비용이 모두 이 작업에 있어요. 체크하면 ${sameVisitLive + 1}건 모두 비용 없음이 돼요.`}
+              </p>
+            )}
             {noCostError && <p role="alert" className="mt-1 text-ui text-red-600">{noCostError}</p>}
           </div>
         ) : null;
@@ -1070,6 +1087,8 @@ export function TaskPanel({
                                         onAddReservation={() => setReserveOpen(true)}
                                         historyDisclosure={disclosure('history')} onPhase={setServerPhase} onReveal={revealSection}
                                         onCancelTask={task.cancelledAt ? undefined : () => onCancelTask(task)} onOverlayChange={setScheduleOpen} />
+                  // 연결 작업의 예산 · 정산은 바꿀 것이 없다 — 접는 상자의 [관리]를 두지 않고 설명을 바로 보여 준다
+                  : field === 'cost' && task.sameVisitOf ? <PanelSection title={fieldLabel(field, task.type)}>{renderEditField(field, task)}</PanelSection>
                   : field === 'cost' ? sectionBox('money', task, fieldLabel(field, task.type), renderEditField(field, task))
                   : field === 'draft' ? sectionBox('draft', task, fieldLabel(field, task.type), renderEditField(field, task))
                   : field === 'note' ? sectionBox('memo', task, fieldLabel(field, task.type), renderEditField(field, task))

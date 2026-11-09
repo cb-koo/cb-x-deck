@@ -87,12 +87,9 @@ export function SameVisitAgreementLine({ original }: { original: FlowRow | null 
 export function SameVisitCostLine({ original, total }: { original: FlowRow | null; total: number | null }) {
   const cost = original?.cost;
   return (
-    <div>
-      <p className="text-content">비용 없음</p>
-      <p className="mt-0.5 text-ui text-x-muted">
-        같은 방문의 원래 작업에서 정산해요.
-        {cost && total ? ` 성과의 조회당 비용은 ${formatAmount(cost.amount, cost.currency)}을 게시물 ${total}건에 나눠 계산해요.` : ''}
-      </p>
-    </div>
+    <p className="text-content">
+      비용 없음, 같은 방문의 원래 작업에서 정산해요.
+      {cost && total ? <span className="text-x-secondary"> 조회당 비용은 {formatAmount(cost.amount, cost.currency)}을 게시물 {total}건에 나눠 계산해요.</span> : null}
+    </p>
   );
 }

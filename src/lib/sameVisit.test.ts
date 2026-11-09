@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  sameVisitGroups, sameVisitPatchError, sameVisitCreateError, shareNote, sameVisitConfirmText,
+  sameVisitGroups, sameVisitPatchError, sameVisitCreateError, shareNote, postNo, isBlankLinked, canUndoLinked, duplicateLinkMessage,
   SAME_VISIT_COST_MESSAGE, SAME_VISIT_VISIT_ON_MESSAGE, SAME_VISIT_INFLUENCER_MESSAGE, SAME_VISIT_AGREEMENT_MESSAGE, SAME_VISIT_CREATE_MESSAGE,
 } from './sameVisit.ts';
 import { flowFooter, flowStageLabel, awaitsReservation, taskPerfExtra, replaceDisabledReason, visitStep } from './campaignFlowView.ts';
@@ -107,7 +107,6 @@ test('만들 수 있는 원래 작업 — 방문협찬, 연결 작업 아님, �
   assert.equal(sameVisitCreateError({ ...base, sameVisitOf: 'o' }), SAME_VISIT_CREATE_MESSAGE.linked);   // 체인 금지
   assert.equal(sameVisitCreateError({ ...base, cancelledAt: T }), SAME_VISIT_CREATE_MESSAGE.cancelled);
   assert.equal(sameVisitCreateError({ ...base, influencerHandle: null }), SAME_VISIT_CREATE_MESSAGE.noInfluencer);
-  assert.match(sameVisitConfirmText({ influencerHandle: 'sara', visitOn: '2026-09-02', visitTime: '10:30' }, '9/2 화 10:30'), /^@sara의 .*\n\n같은 인플루언서, 같은 방문\(9\/2 화 10:30\)\n비용 없음/);
 });
 
 test('인플 성과 — 연결 작업도 CPV가 생기고 원래 작업은 몫만, 방문협찬 수는 방문 횟수', () => {
@@ -150,4 +149,20 @@ test('정산 기다림 — 원래 작업은 주와 상관없이 같은 방문 �
   const week = togetherFor(self, [sib({ taskId: 'o', postedAt: '2026-11-05' }), sib({ taskId: 'q', scheduledOn: '2026-11-06' })], T)!;
   assert.equal(week.kind, 'week');
   assert.match(togetherShort(week), /^2건 중 1건 게시/);
+});
+
+test('알림 문구 — 게시물 N 뒤 조사, 빈 연결 작업·되돌리기 가능 판정, 중복 링크 문구', () => {
+  assert.deepEqual([1, 2, 3, 4, 10, 12].map((n) => postNo(n, '을')), ['게시물 1을', '게시물 2를', '게시물 3을', '게시물 4를', '게시물 10을', '게시물 12를']);
+  assert.deepEqual([2, 3].map((n) => postNo(n, '이')), ['게시물 2가', '게시물 3이']);
+  const blank = { sameVisitOf: 'o', cancelledAt: null, postUrl: null, postedAt: null, scheduledOn: null, note: '', draftId: null };
+  assert.equal(isBlankLinked(blank), true);
+  assert.equal(isBlankLinked({ ...blank, scheduledOn: '2026-11-12' }), false);   // 예정일을 넣으면 빈 작업이 아니다
+  assert.equal(isBlankLinked({ ...blank, sameVisitOf: null }), false);           // 원래 작업은 아니다
+  assert.equal(isBlankLinked({ ...blank, cancelledAt: '2026-11-09' }), false);
+  assert.equal(canUndoLinked(blank), true);
+  assert.equal(canUndoLinked({ ...blank, note: '메모' }), false);                 // 사람이 넣은 게 있으면 되돌리기 대신 [삭제]
+  assert.equal(canUndoLinked({ ...blank, draftId: 'd' }), false);
+  assert.equal(duplicateLinkMessage({ campaignName: '마인드_10월', influencerHandle: 'sara', sameCampaign: false, ordinal: 1 }), '이미 게시물 1에 등록된 링크예요.');
+  assert.equal(duplicateLinkMessage({ campaignName: '마인드_10월', influencerHandle: 'sara', sameCampaign: true, ordinal: null }), '이미 이 캠페인의 @sara 작업에 등록된 링크예요.');
+  assert.equal(duplicateLinkMessage({ campaignName: '마인드_10월', influencerHandle: null, sameCampaign: false, ordinal: null }), '이미 마인드_10월의 다른 작업에 등록된 링크예요.');
 });

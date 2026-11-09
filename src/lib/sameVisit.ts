@@ -76,16 +76,26 @@ export function shareNote(share: { cost: TaskCost; n: number }): string {
   return `방문 비용 ${formatAmount(share.cost.amount, share.cost.currency)}을 게시물 ${share.n}건에 나눠 계산했어요`;
 }
 
-// [게시물 하나 더] 확인 문구 — 무엇이 생기고 무엇이 그대로인지(UX 원칙 2). 방문일은 원래 작업 값(없으면 말하지 않는다)
-export function sameVisitConfirmText(o: { influencerHandle: string | null; visitOn: string | null; visitTime: string | null }, visitText: string | null): string {
-  const who = o.influencerHandle ? `@${o.influencerHandle}의 ` : '';
-  return [
-    `${who}이 방문으로 올린 게시물을 하나 더 기록할까요?`,
-    '',
-    `같은 인플루언서${visitText ? `, 같은 방문(${visitText})` : ''}`,
-    '비용 없음: 정산 요청에 들어가지 않아요',
-    '예약 없이 게시 확인만 하면 돼요',
-    '',
-    '방문 수는 그대로 1건이에요.',
-  ].join('\n');
+// '게시물 N' 뒤 조사 — 숫자를 읽을 때 끝 글자 받침으로 고른다(1 일, 3 삼, 6 육, 7 칠, 8 팔, 0 십·백은 받침 / 2 이, 4 사, 5 오, 9 구는 없음)
+export function postNo(n: number, josa: '을' | '이'): string {
+  const batchim = ![2, 4, 5, 9].includes(n % 10);
+  const pick = josa === '을' ? (batchim ? '을' : '를') : (batchim ? '이' : '가');
+  return `게시물 ${n}${pick}`;
+}
+
+// ── 빈 연결 작업(koo QA 11-09) ──
+// 아직 링크도 게시 예정일도 없는 연결 작업 — [게시물 하나 더]를 또 눌러도 새로 만들지 않고 이것을 연다(연타·두 탭 중복 방지)
+export const isBlankLinked = (t: { sameVisitOf?: string | null; cancelledAt: string | null; postUrl: string | null; postedAt: string | null; scheduledOn: string | null }) =>
+  !!t.sameVisitOf && !t.cancelledAt && !t.postUrl && !t.postedAt && !t.scheduledOn;
+// 만든 직후 [되돌리기]로 지워도 되는가 — 빈 연결 작업이면서 메모·원고도 없다(사람이 넣은 것이 하나도 없다)
+export const canUndoLinked = (t: Parameters<typeof isBlankLinked>[0] & { note: string; draftId: string | null }) =>
+  isBlankLinked(t) && t.note === '' && !t.draftId;
+export const SAME_VISIT_UNDO_BLOCKED_MESSAGE = '이미 내용을 넣은 게시물 작업이라 되돌릴 수 없어요. 지우려면 메뉴의 [삭제]를 써 주세요.';
+
+// ── 같은 게시물 링크 중복(koo QA 11-09) ──
+// owner = 같은 트윗이 이미 붙어 있는 다른 작업. 같은 방문이면 '게시물 N', 아니면 캠페인·인플로 가리킨다.
+export function duplicateLinkMessage(owner: { campaignName: string; influencerHandle: string | null; sameCampaign: boolean; ordinal: number | null }): string {
+  if (owner.ordinal !== null) return `이미 게시물 ${owner.ordinal}에 등록된 링크예요.`;
+  const who = owner.influencerHandle ? `@${owner.influencerHandle} 작업` : '다른 작업';
+  return owner.sameCampaign ? `이미 이 캠페인의 ${who}에 등록된 링크예요.` : `이미 ${owner.campaignName}의 ${who}에 등록된 링크예요.`;
 }

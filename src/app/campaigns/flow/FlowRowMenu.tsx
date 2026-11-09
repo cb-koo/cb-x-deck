@@ -104,7 +104,8 @@ export function FlowRowMenu({ task, today, on }: {
 
   const tail: Row[] = [];
   if (prePost) {
-    tail.push({
+    // 같은 방문의 연결 작업(089)은 교체 항목 자체를 두지 않는다 — 원래 작업과 같은 사람이라 늘 꺼져 있을 항목이다(이유는 패널에 있다)
+    if (!task.sameVisitOf) tail.push({
       node: (
         <MenuButton key="replace" disabled={!!replaceReason} reason={replaceReason ?? undefined}
                     onClick={() => { close(); on.replace(task); }}>인플루언서 교체</MenuButton>

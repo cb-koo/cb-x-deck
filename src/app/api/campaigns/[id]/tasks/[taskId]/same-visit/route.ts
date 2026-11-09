@@ -13,8 +13,9 @@ async function POSTInternal(_req: Request, ctx: { params: Promise<{ id: string; 
   if (gate.response) return gate.response;
   const { id, taskId } = await ctx.params;
   if (!isUuidLike(id) || !isUuidLike(taskId)) return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 404 });
-  const created = await createSameVisitTask(getSql(), id, taskId, gate.member.id);
-  return NextResponse.json(created, { status: 201 });
+  // created: false = 아직 링크·게시 예정일이 없는 연결 작업이 이미 있어 그것을 돌려줬다(새로 만들지 않음, 연타·두 탭 방지)
+  const { task, created, ordinal } = await createSameVisitTask(getSql(), id, taskId, gate.member.id);
+  return NextResponse.json({ ...task, created, ordinal }, { status: created ? 201 : 200 });
 }
 
 export const POST = productWebBoundary(POSTInternal);

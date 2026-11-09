@@ -12,7 +12,7 @@ import { judgeStoredAuthor, authorVerdictMessage, firstAssignMismatchMessage, ty
 import { reservationWriteGuard } from './reservationWriteGuard.ts';
 import { reservationRecordsOf, hasReservationRecords, deleteReservationRecords, insertTaskDeletion } from './taskDeletionStore.ts';
 import { ProductError } from './productCommand.ts';
-import { sameVisitCreateError, SAME_VISIT_DELETE_CONFIRM_MESSAGE, SAME_VISIT_CANCEL_POSTED_MESSAGE } from './sameVisit.ts';   // 순수 모듈
+import { sameVisitCreateError, duplicateLinkMessage, SAME_VISIT_DELETE_CONFIRM_MESSAGE, SAME_VISIT_CANCEL_POSTED_MESSAGE } from './sameVisit.ts';   // 순수 모듈
 // draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
 // getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
 import type { PaymentFee } from './influencerPayment.ts';
@@ -241,7 +241,10 @@ export async function createTasks(sql: postgres.Sql, campaignId: string, input: 
 // 복사: 캠페인·인플·유형(방문협찬). 비용 없음 고정·금액 없음. 방문일·시간은 복사하지 않는다 — 화면은 원래 작업의 값을
 // 읽어 보여 주고(정정돼도 어긋나지 않게), 연결 작업의 판정(단계·잠금·정산 기다림)은 same_visit_of로 한다.
 // 예약·동의서·게시 예정일·원고·게시 링크·메모는 게시물마다 다르거나 원래 작업에만 있으므로 비운다.
-export async function createSameVisitTask(sql: postgres.Sql, campaignId: string, originalId: string, createdBy: string | null): Promise<TaskRow> {
+// 빈 연결 작업(링크·게시 예정일 없음)이 이미 있으면 새로 만들지 않고 그것을 돌려준다(created: false) — 원래 작업 행 잠금이
+// 동시 요청을 줄 세우므로 연타·두 탭에서 눌러도 빈 작업은 하나뿐이다(koo QA 11-09).
+// ordinal = 이 방문에서 몇 번째 게시물인가(원래 작업 1, 취소 제외) — 알림 문구 '게시물 N'
+export async function createSameVisitTask(sql: postgres.Sql, campaignId: string, originalId: string, createdBy: string | null): Promise<{ task: TaskRow; created: boolean; ordinal: number }> {
   if (!isUuidLike(originalId)) throw new ProductError('RESOURCE_NOT_FOUND', '작업을 찾을 수 없어요.', 404);
   const id = await sql.begin(async (tx0) => {
     const tx = tx0 as unknown as postgres.Sql;
@@ -251,13 +254,45 @@ export async function createSameVisitTask(sql: postgres.Sql, campaignId: string,
     if (!o || o.campaign_id !== campaignId) throw new ProductError('RESOURCE_NOT_FOUND', '작업을 찾을 수 없어요.', 404);
     const err = sameVisitCreateError({ type: o.type, cancelledAt: o.cancelled_at, sameVisitOf: o.same_visit_of, influencerHandle: o.influencer_handle });
     if (err) throw new ProductError('STATE_CHANGED', err, 409);
+    const [blank] = await tx<Array<{ id: string }>>`
+      select id from campaign_task where same_visit_of = ${originalId} and cancelled_at is null
+         and post_url is null and posted_at is null and scheduled_on is null order by created_at, id limit 1`;
+    if (blank) return { id: blank.id, created: false };
     const [row] = await tx<Array<{ id: string }>>`
       insert into campaign_task (campaign_id, influencer_handle, type, no_cost, cost, same_visit_of, note, created_by, created_at)
       values (${campaignId}, ${o.influencer_handle}, 'visit', true, null, ${originalId}, '', ${createdBy}, clock_timestamp())
       returning id`;
-    return row.id;
+    return { id: row.id, created: true };
   });
-  return (await getTask(sql, id as string)) as TaskRow;
+  const ids = await sql<Array<{ id: string }>>`
+    select id from campaign_task where same_visit_of = ${originalId} and cancelled_at is null order by created_at, id`;
+  return { task: (await getTask(sql, id.id)) as TaskRow, created: id.created, ordinal: ids.findIndex((r) => r.id === id.id) + 2 };
+}
+// 같은 트윗이 이미 붙은 다른 작업(취소 제외) — 게시 확인 때 막는다(koo QA 11-09). 예전엔 조용히 게시물이 이 작업으로 옮겨 갔다.
+// 링크(post_url)나 트래킹된 본 게시물(tracked_post, 댓글 제외)로 찾는다. 같은 방문이면 '게시물 N'으로 가리킨다.
+export async function findPostLinkOwner(sql: postgres.Sql, taskId: string, tweetId: string): Promise<{ taskId: string; campaignId: string; message: string } | null> {
+  if (!isUuidLike(taskId) || !/^\d+$/.test(tweetId)) return null;
+  const [o] = await sql<Array<{ id: string; campaign_id: string; campaign_name: string; influencer_handle: string | null; same_visit_of: string | null }>>`
+    select t.id, t.campaign_id, c.name as campaign_name, t.influencer_handle, t.same_visit_of
+      from campaign_task t join campaign c on c.id = t.campaign_id
+     where t.id <> ${taskId} and t.cancelled_at is null
+       and (t.post_url ~ ${'/status/' + tweetId + '([^0-9]|$)'}
+            or exists (select 1 from tracked_post tp where tp.task_id = t.id and tp.tweet_id = ${tweetId} and coalesce(tp.role, 'main') = 'main'))
+     order by t.created_at limit 1`;
+  if (!o) return null;
+  const [me] = await sql<Array<{ campaign_id: string; same_visit_of: string | null }>>`select campaign_id, same_visit_of from campaign_task where id = ${taskId}`;
+  const rootOf = (x: { id: string; same_visit_of: string | null }) => x.same_visit_of ?? x.id;
+  let ordinal: number | null = null;
+  if (me && rootOf({ id: taskId, same_visit_of: me.same_visit_of }) === rootOf(o)) {
+    const root = rootOf(o);
+    const group = await sql<Array<{ id: string }>>`
+      select id from campaign_task where (id = ${root} or same_visit_of = ${root}) and cancelled_at is null
+       order by (id = ${root}) desc, created_at, id`;
+    const i = group.findIndex((g) => g.id === o.id);
+    ordinal = i >= 0 ? i + 1 : null;
+  }
+  return { taskId: o.id, campaignId: o.campaign_id,
+           message: duplicateLinkMessage({ campaignName: o.campaign_name, influencerHandle: o.influencer_handle, sameCampaign: me?.campaign_id === o.campaign_id, ordinal }) };
 }
 // 원래 작업에 연결된 작업 id(취소 포함) — 삭제 확인·함께 지우기용
 export async function sameVisitLinkedIds(sql: postgres.Sql, originalId: string): Promise<string[]> {

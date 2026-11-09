@@ -5,8 +5,9 @@ import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { reservationDeleteSummary } from '@/lib/taskDeletionStore';
-import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces, hasPaidRequest, logCostChangeInTx, sameVisitLinkedIds } from '@/lib/campaignTaskStore';
-import { sameVisitPatchError, ORIGINAL_INFLUENCER_LOCKED_MESSAGE } from '@/lib/sameVisit';
+import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces, hasPaidRequest, logCostChangeInTx, sameVisitLinkedIds, findPostLinkOwner } from '@/lib/campaignTaskStore';
+import { sameVisitPatchError, canUndoLinked, ORIGINAL_INFLUENCER_LOCKED_MESSAGE, SAME_VISIT_UNDO_BLOCKED_MESSAGE } from '@/lib/sameVisit';
+import { parseTweetLink } from '@/lib/tweetLink';
 import type { TaskPatch } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
 import { linklessGateError } from '@/lib/linklessPost';
@@ -158,6 +159,13 @@ async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; 
   };
   // RT는 자기 게시물이 없다 — 링크 판정·트래킹 연결 대상이 아니다(기존 규칙 그대로). 링크 지우기(null)도 판정 없음.
   const attachUrl = patch.postUrl && cur.type !== 'rt' ? patch.postUrl : null;
+  // 같은 게시물을 두 작업에 등록하지 않는다(koo QA 11-09) — 예전엔 트래킹된 게시물이 조용히 이 작업으로 옮겨 가 다른 작업의 성과가
+  // 비었다. 같은 방문이면 '게시물 N', 아니면 캠페인·인플로 가리키고, 화면이 [열기]로 그 작업을 연다(taskId·campaignId).
+  if (attachUrl) {
+    const t = parseTweetLink(attachUrl);
+    const owner = t.ok ? await findPostLinkOwner(sql, taskId, t.tweetId) : null;
+    if (owner) return NextResponse.json({ error: owner.message, code: 'POST_DUPLICATE', taskId: owner.taskId, campaignId: owner.campaignId }, { status: 409 });
+  }
   try {
     if (attachUrl) {
       const r = await attachPostToTask(sql, taskId, attachUrl, { fetchPost }, { createdBy: gate.member.id, apply });
@@ -223,6 +231,10 @@ async function DELETEInternal(req: Request, ctx: { params: Promise<{ id: string;
   const withReservation = new URL(req.url).searchParams.get('withReservation') === '1';
   // 같은 방문의 연결 작업(089)이 있으면 화면이 확인 창에서 알리고 ?withSameVisit=1로 보낸다 — 없으면 deleteTask가 409로 거절한다
   const withSameVisit = new URL(req.url).searchParams.get('withSameVisit') === '1';
+  // [되돌리기](만든 직후 알림) — 아직 아무것도 넣지 않은 연결 작업만. 그 사이 링크·날짜·메모·원고를 넣었으면 지우지 않는다
+  if (new URL(req.url).searchParams.get('undoSameVisit') === '1' && (!cur || !canUndoLinked(cur))) {
+    return NextResponse.json({ error: SAME_VISIT_UNDO_BLOCKED_MESSAGE }, { status: 409 });
+  }
   if (!withReservation) {
     const reservation = await reservationDeleteSummary(sql, taskId);
     if (reservation) {

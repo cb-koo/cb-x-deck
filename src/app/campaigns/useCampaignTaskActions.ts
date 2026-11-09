@@ -12,11 +12,13 @@ import type { TaskAgreementInput } from '@/lib/taskAgreementGuard';
 type Item = CampaignTaskItem;
 type Optimistic = Partial<Item>;
 
-export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions, show, onChanged }: {
+export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions, show, onChanged, openTask }: {
   campaignId: string;
   setTasks: Dispatch<SetStateAction<Item[]>>;
   influencerOptions: InfluencerOption[];   // pricing 포함 — 배정 시 비용 제안 소스
-  show: (message: string) => void;
+  show: (message: string, opts?: { actionLabel?: string; onAction?: () => void }) => void;
+  // 같은 링크가 이미 다른 작업에 있을 때(POST_DUPLICATE) 알림의 [열기] — 없으면 문구만 띄운다(옛 화면)
+  openTask?: (taskId: string, campaignId: string) => void;
   onChanged: () => void;                   // 목록(왼쪽)의 작업 수·합계가 바뀌는 변경 뒤
 }) {
   const patch = useCallback(async (t: Item, body: TaskPatchRequest, optimistic: Optimistic): Promise<boolean> => {
@@ -37,9 +39,13 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
       for (const k of keys) Object.assign(back, { [k]: t[k] });   // 요청 전 값으로 — 건드린 칸만
       return back;
     }));
-    show(r.error);
+    const dup = r.body as { code?: string; taskId?: string; campaignId?: string } | undefined;
+    if (dup?.code === 'POST_DUPLICATE' && dup.taskId && dup.campaignId && openTask) {
+      const [tid, cid] = [dup.taskId, dup.campaignId];
+      show(r.error, { actionLabel: '열기', onAction: () => openTask(tid, cid) });
+    } else show(r.error);
     return false;
-  }, [campaignId, setTasks, show]);
+  }, [campaignId, setTasks, show, openTask]);
 
   return useMemo(() => ({
     patch,

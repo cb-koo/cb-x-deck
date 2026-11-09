@@ -14,13 +14,13 @@ const COST_CURRENCY_KEY = 'campaign-cost-currency';
 import {
   fetchCampaignDetail, patchCampaignApi, closeCampaignApi, deleteCampaignApi, patchInfluencerPricingApi,
   patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, refreshCampaignPerfApi,
-  fetchDraftCandidatesApi, createSameVisitTaskApi,
+  fetchDraftCandidatesApi, createSameVisitTaskApi, undoSameVisitTaskApi,
   type DraftPatchBody, type TaskCreateRequest,
 } from '@/lib/campaignApi';
-import { sameVisitGroups, sameVisitConfirmText } from '@/lib/sameVisit';
+import { sameVisitGroups, postNo } from '@/lib/sameVisit';
 import type { TaskCost } from '@/lib/campaignCost';
 import {
-  flowStage, FLOW_STAGES, TASK_TYPE_LABEL, formatDateTimeKo,
+  flowStage, FLOW_STAGES, TASK_TYPE_LABEL,
   deriveTaskInfluencers, taskCampaignTotal, targetUrlOf, type TaskType, type FlowStage,
 } from '@/lib/campaignJudgment';
 import { draftLabel, draftPreviewLine, draftPreviewFull, draftFirstMediaUrl } from '@/lib/draftViews';
@@ -344,7 +344,12 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
   const setTasks: Dispatch<SetStateAction<CampaignTaskItem[]>> = useCallback((next) => {
     setData((cur) => (cur ? { ...cur, tasks: typeof next === 'function' ? next(cur.tasks) : next } : cur));
   }, []);
-  const taskActions = useCampaignTaskActions({ campaignId: id, setTasks, influencerOptions, show, onChanged });
+  // 같은 링크 중복 알림의 [열기] — 같은 캠페인이면 그 작업 패널, 다른 캠페인이면 그 캠페인의 그 작업으로 간다
+  const openTaskAnywhere = useCallback((taskId: string, campaignId: string) => {
+    if (campaignId === id) setPanel({ taskId });
+    else window.location.assign(`/campaigns/flow?id=${encodeURIComponent(campaignId)}&task=${encodeURIComponent(taskId)}`);
+  }, [id]);
+  const taskActions = useCampaignTaskActions({ campaignId: id, setTasks, influencerOptions, show, onChanged, openTask: openTaskAnywhere });
   // 게시 확인에 링크를 함께 넣으면 트래킹 등록까지 일어난다 — 그 결과(성과 스냅샷·게시물 연결)는 서버에만 있으므로
   // 낙관적 갱신으로는 못 채운다. 링크가 있었을 때만 상세를 다시 읽어 조회·좋아요가 표에 뜨게 한다.
   const actions = useMemo(() => ({
@@ -522,20 +527,33 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
     setPanel({ taskId });
     return true;
   }, [panelTaskId, draftWriteDirty, draftSwitchConfirm, moveConfirm]);
-  // [게시물 하나 더](089, koo 11-09) — 확인 → 연결 작업 생성 → 표 다시 읽기 → 새 작업 패널(게시 예정일은 거기서 정한다, 결정 4)
+  // [게시물 하나 더](089, koo 11-09) — 연결 작업 생성 → 표 다시 읽기 → 새 작업 패널(게시 예정일은 거기서 정한다, 결정 4)
+  // 확인 창 없이 바로 만들고 실수는 [되돌리기]로(koo 11-09: 확인 창은 습관적으로 넘긴다). 아직 링크·예정일이 없는 연결 작업이
+  // 이미 있으면 서버가 새로 만들지 않고 그것을 돌려준다(created: false) — 그 작업을 열고 알린다. 요청 중엔 버튼이 꺼진다(연타 방지).
   const [sameVisitBusy, setSameVisitBusy] = useState(false);
   const addSameVisit = useCallback(async (t: FlowRow) => {
     if (sameVisitBusy) return;
-    const visitText = t.visitOn ? formatDateTimeKo(t.visitOn, t.visitTime) : null;
-    if (!window.confirm(sameVisitConfirmText(t, visitText))) return;
     setSameVisitBusy(true);
     const r = await createSameVisitTaskApi(id, t.id);
-    setSameVisitBusy(false);
-    if (!r.ok) { show(r.error); return; }
+    if (!r.ok) { setSameVisitBusy(false); show(r.error); return; }
     await load();
+    setSameVisitBusy(false);
     onChanged();
-    show('같은 방문의 게시물 작업을 만들었어요. 게시 예정일이나 게시물 링크를 넣어 주세요.');
     openPanel(r.data.id);
+    if (!r.data.created) { show(`아직 링크를 넣지 않은 ${postNo(r.data.ordinal, '이')} 있어요. 여기에 넣어 주세요.`); return; }
+    const newId = r.data.id;
+    show(`${postNo(r.data.ordinal, '을')} 만들었어요. 게시물 링크를 넣어 주세요.`, {
+      actionLabel: '되돌리기',
+      onAction: () => void (async () => {
+        const u = await undoSameVisitTaskApi(id, newId);
+        if (!u.ok) { show(u.error); return; }
+        setDeletionsVersion((v) => v + 1);
+        await load();
+        onChanged();
+        openPanel(t.id);
+        show('되돌렸어요.');
+      })(),
+    });
   }, [sameVisitBusy, id, show, load, onChanged, openPanel]);
   const handledLinkRef = useRef<string | null>(null);
   useEffect(() => {

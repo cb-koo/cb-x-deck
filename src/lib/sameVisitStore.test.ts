@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { createClient } from './clientStore.ts';
 import { createCampaign, deleteCampaign } from './campaignStore.ts';
-import { createTasks, createSameVisitTask, deleteTask, cancelTask, getTask, sameVisitLinkedIds, updateTask } from './campaignTaskStore.ts';
+import { createTasks, createSameVisitTask, deleteTask, cancelTask, getTask, sameVisitLinkedIds, updateTask, findPostLinkOwner } from './campaignTaskStore.ts';
 import { ProductError } from './productCommand.ts';
 import { SAME_VISIT_CREATE_MESSAGE, SAME_VISIT_CANCEL_POSTED_MESSAGE } from './sameVisit.ts';
 
@@ -37,7 +37,7 @@ const rejects = (p: Promise<unknown>, message: string) =>
 
 test('만들기 — 같은 캠페인·인플·방문협찬, 비용 없음 고정, 방문일·금액·예정일은 비움, 게시 전 원래 작업에도 된다', async () => {
   const { camp, o } = await setup('a');
-  const a = await createSameVisitTask(sql, camp.id, o.id, null);
+  const { task: a } = await createSameVisitTask(sql, camp.id, o.id, null);
   assert.equal(a.sameVisitOf, o.id);
   assert.equal(a.campaignId, camp.id);
   assert.equal(a.influencerHandle, o.influencerHandle);
@@ -50,14 +50,41 @@ test('만들기 — 같은 캠페인·인플·방문협찬, 비용 없음 고정
   const o2 = await getTask(sql, o.id);
   assert.deepEqual(o2!.cost, { amount: 15000, currency: 'JPY' });
   assert.equal(o2!.sameVisitOf, null);
-  // 같은 원래 작업에 여러 개
-  await createSameVisitTask(sql, camp.id, o.id, null);
+  // 빈 연결 작업(링크·예정일 없음)이 있으면 새로 만들지 않고 그것을 돌려준다
+  const again = await createSameVisitTask(sql, camp.id, o.id, null);
+  assert.deepEqual([again.created, again.task.id], [false, a.id]);
+  // 연타·두 탭 동시 클릭 — 원래 작업 잠금으로 줄 서서 빈 작업은 하나뿐
+  const burst = await Promise.all([1, 2, 3].map(() => createSameVisitTask(sql, camp.id, o.id, null)));
+  assert.deepEqual(burst.map((r) => r.task.id), [a.id, a.id, a.id]);
+  assert.equal((await sameVisitLinkedIds(sql, o.id)).length, 1);
+  // 예정일을 넣으면 '빈 작업'이 아니다 → 다음 누름은 새로 만든다(같은 원래 작업에 여러 개)
+  await updateTask(sql, a.id, { scheduledOn: '2026-11-20' });
+  const next = await createSameVisitTask(sql, camp.id, o.id, null);
+  assert.equal(next.created, true);
   assert.equal((await sameVisitLinkedIds(sql, o.id)).length, 2);
+});
+
+test('같은 링크 중복 — 같은 방문이면 게시물 N, 다른 캠페인이면 캠페인·인플로 가리킨다, 취소된 작업은 무시', async () => {
+  const { camp, o } = await setup('g');
+  const { task: a } = await createSameVisitTask(sql, camp.id, o.id, null);
+  const tweet = '19' + String(process.pid).padStart(17, '0');
+  await sql`update campaign_task set post_url = ${'https://x.com/' + P + 'sara/status/' + tweet}, posted_at = '2026-11-05' where id = ${o.id}`;
+  const dup = await findPostLinkOwner(sql, a.id, tweet);
+  assert.deepEqual([dup?.taskId, dup?.message], [o.id, '이미 게시물 1에 등록된 링크예요.']);
+  assert.equal(await findPostLinkOwner(sql, o.id, tweet), null);              // 자기 자신은 중복이 아니다
+  assert.equal(await findPostLinkOwner(sql, a.id, tweet.slice(0, -1)), null);  // 앞자리만 같은 다른 트윗은 아니다
+  const { camp: other, o: o2 } = await setup('g2');
+  const far = await findPostLinkOwner(sql, o2.id, tweet);
+  assert.equal(far?.message, `이미 ${P}g의 @${P}sara 작업에 등록된 링크예요.`);
+  assert.equal(far?.campaignId, camp.id);
+  void other;
+  await sql`update campaign_task set post_url = null, posted_at = null, cancelled_at = '2026-11-09' where id = ${o.id}`;
+  assert.equal(await findPostLinkOwner(sql, o2.id, tweet), null);
 });
 
 test('만들기 거절 — 체인 금지, 다른 캠페인, 취소된 작업, 방문협찬 아님', async () => {
   const { camp, o } = await setup('b');
-  const a = await createSameVisitTask(sql, camp.id, o.id, null);
+  const { task: a } = await createSameVisitTask(sql, camp.id, o.id, null);
   await rejects(createSameVisitTask(sql, camp.id, a.id, null), SAME_VISIT_CREATE_MESSAGE.linked);
   const { camp: other } = await setup('b2');
   await assert.rejects(createSameVisitTask(sql, other.id, o.id, null), (e: unknown) => e instanceof ProductError && e.status === 404);
@@ -67,7 +94,7 @@ test('만들기 거절 — 체인 금지, 다른 캠페인, 취소된 작업, �
 
 test('DB 제약 — 연결 작업에 금액을 넣거나 비용 없음을 풀 수 없다', async () => {
   const { camp, o } = await setup('c');
-  const a = await createSameVisitTask(sql, camp.id, o.id, null);
+  const { task: a } = await createSameVisitTask(sql, camp.id, o.id, null);
   await assert.rejects(sql`update campaign_task set cost = ${sql.json({ amount: 1, currency: 'JPY' } as never)} where id = ${a.id}`, (e: { code?: string }) => e.code === '23514');
   await assert.rejects(sql`update campaign_task set no_cost = false where id = ${a.id}`, (e: { code?: string }) => e.code === '23514');
   await assert.rejects(sql`update campaign_task set type = 'post' where id = ${a.id}`, (e: { code?: string }) => e.code === '23514');
@@ -78,7 +105,7 @@ test('DB 제약 — 연결 작업에 금액을 넣거나 비용 없음을 풀 �
 
 test('삭제 — 연결 작업이 있으면 확인 없이는 거절, withSameVisit면 함께 지우고 둘 다 삭제 기록', async () => {
   const { camp, o } = await setup('d');
-  const a = await createSameVisitTask(sql, camp.id, o.id, null);
+  const { task: a } = await createSameVisitTask(sql, camp.id, o.id, null);
   await assert.rejects(deleteTask(sql, o.id), (e: unknown) => e instanceof ProductError && e.code === 'SAME_VISIT_DELETE_CONFIRM');
   assert.ok(await getTask(sql, o.id));
   // 원래 작업만 SQL로 지우면 FK가 막는다(조용한 연쇄 삭제 없음)
@@ -90,7 +117,7 @@ test('삭제 — 연결 작업이 있으면 확인 없이는 거절, withSameVis
   assert.equal(logs.length, 2);
   // 연결 작업 하나만 지우는 건 평소대로
   const { camp: c2, o: o2 } = await setup('d2');
-  const b = await createSameVisitTask(sql, c2.id, o2.id, null);
+  const { task: b } = await createSameVisitTask(sql, c2.id, o2.id, null);
   assert.equal(await deleteTask(sql, b.id), true);
   assert.ok(await getTask(sql, o2.id));
 });
@@ -104,17 +131,17 @@ test('캠페인 삭제 — 원래 작업·연결 작업이 한 번에 지워진�
 
 test('취소 — 원래 작업을 취소하면 게시 전 연결 작업도 함께, 게시된 연결 작업이 있으면 막는다', async () => {
   const { camp, o } = await setup('f');
-  const a = await createSameVisitTask(sql, camp.id, o.id, null);
+  const { task: a } = await createSameVisitTask(sql, camp.id, o.id, null);
   assert.equal(await cancelTask(sql, o.id, { reason: 'declined', note: '', actorId: null, today: '2026-11-09' }), 'ok');
   assert.equal((await getTask(sql, a.id))!.cancelledAt, '2026-11-09');
   assert.equal((await getTask(sql, a.id))!.cancelReason, 'declined');
 
   const { camp: c2, o: o2 } = await setup('f2');
-  const b = await createSameVisitTask(sql, c2.id, o2.id, null);
+  const { task: b } = await createSameVisitTask(sql, c2.id, o2.id, null);
   await sql`update campaign_task set posted_at = '2026-11-08' where id = ${b.id}`;
   await rejects(cancelTask(sql, o2.id, { reason: null, note: '', actorId: null, today: '2026-11-09' }), SAME_VISIT_CANCEL_POSTED_MESSAGE);
   assert.equal((await getTask(sql, o2.id))!.cancelledAt, null);
   // 연결 작업 자체는 게시 전이면 따로 취소할 수 있다
-  const c = await createSameVisitTask(sql, c2.id, o2.id, null);
+  const { task: c } = await createSameVisitTask(sql, c2.id, o2.id, null);
   assert.equal(await cancelTask(sql, c.id, { reason: null, note: '', actorId: null, today: '2026-11-09' }), 'ok');
 });

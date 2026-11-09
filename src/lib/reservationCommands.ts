@@ -9,7 +9,7 @@ import { allowedVisitActions, applyDeadlineMode, checkCompleteVisit, checkEnd, c
 import { expectVersion, jsonValue, objectBody, ProductError, productMissing, productOperation, textValue, versionHeader } from './productCommand.ts';
 import { readReservation, reservationDetail, taskFact } from './reservationStore.ts';
 import { listClientLocations } from './clinicStore.ts';
-import { logTaskDeclined, markTaskCancelled, updateTask } from './campaignTaskStore.ts';   // 한 방향 의존 — campaignTaskStore는 이 파일을 모른다
+import { logTaskDeclined, markTaskCancelled, updateTask, findPostLinkOwner } from './campaignTaskStore.ts';   // 한 방향 의존 — campaignTaskStore는 이 파일을 모른다
 import { normalizeTargetTweetUrl, parseCancelBody, POST_URL_MESSAGE, type CancelReason } from './campaignTaskInput.ts';
 import { SAME_VISIT_NO_RESERVATION_MESSAGE } from './sameVisit.ts';
 import type { TaskType } from './campaignJudgment.ts';
@@ -218,6 +218,9 @@ export async function confirmVisitPost(sql: postgres.Sql, req: Request, actor: M
   const parsed = postUrl ? parseTweetLink(postUrl) : null;
   const postedAt = postUrl ? postedOnFromTweetLink(postUrl) : null;
   if (!postUrl || !parsed?.ok || !postedAt) throw new ProductError('INVALID_INPUT', POST_URL_MESSAGE, 422);
+  // 같은 게시물을 두 작업에 등록하지 않는다(웹 게시 확인과 같은 판정, ISSUE-016 QA)
+  const owner = await findPostLinkOwner(sql, taskId, parsed.tweetId);
+  if (owner) throw new ProductError('POST_DUPLICATE', owner.message, 409);
   // X 조회는 트랜잭션 밖에서 하고, 저장 직전 잠근 작업으로 단계·버전·작성자를 다시 판단한다.
   const fetched = await fetchPost(parsed.tweetId);
   if (fetched.kind === 'ok' && fetched.post.tweetId !== parsed.tweetId)

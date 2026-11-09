@@ -4,6 +4,7 @@ import { median } from './analysisStats.ts';
 import { toKrw } from './clientBudget.ts';
 import { TASK_TYPES, TASK_TYPE_LABEL, type TaskType } from './campaignJudgment.ts';
 import type { TaskCost } from './campaignCost.ts';
+import { sameVisitGroups } from './sameVisit.ts';
 
 export interface PerfTaskMetrics { postCount: number; views: number | null; likes: number | null; replies: number | null; bookmarks: number | null; retweets: number | null; quotes: number | null }
 export interface PerfTask {
@@ -11,6 +12,10 @@ export interface PerfTask {
   removedAt: string | null; removedReason: string;   // 게시 내림일·사유 — 있으면 성과 표본에서 뺀다(스펙 §12-4)
   clientId: string | null; clientName: string | null; // 캠페인의 클라이언트 스냅샷 — 클라이언트 필터용(스펙 §15-3)
   cost: TaskCost | null; metrics: PerfTaskMetrics | null;
+  // 같은 방문의 게시물(089, koo 11-09 결정 1) — 연결 작업이면 원래 작업 id. visitShare = 원래 작업 비용을 이 방문의 게시물 수로
+  // 나눌 재료(원래 작업·연결 작업 모두 같은 값, withVisitShares가 채운다). 없으면 그 작업 비용 그대로
+  sameVisitOf?: string | null; createdAt?: string;
+  visitShare?: { cost: TaskCost; n: number } | null;
 }
 export interface PerfInfluencerInput { handle: string; influencerId: string | null; displayName: string | null; avatarUrl: string | null; isBlueVerified: boolean | null; tasks: PerfTask[] }
 export type MetricKey = 'views' | 'cpv' | 'engagement' | 'likes' | 'replies' | 'bookmarks' | 'retweets' | 'quotes';
@@ -40,9 +45,17 @@ export function taskEngagement(m: PerfTaskMetrics | null): number | null {
 }
 
 // 조회당 비용(원) — 게시물 작업의 비용만. 엔화는 1엔=10원.
+// 같은 방문의 게시물이면 방문 비용 ÷ 게시물 수가 이 게시물의 비용이다(원래 작업이 비용을 다 떠안지 않게, 연결 작업도 값이 생긴다).
 export function taskCpv(t: PerfTask): number | null {
-  if (!isContent(t) || !t.cost || !t.metrics?.views) return null;
+  if (!isContent(t) || !t.metrics?.views) return null;
+  if (t.visitShare) return toKrw({ [t.visitShare.cost.currency]: t.visitShare.cost.amount }).krw / t.visitShare.n / t.metrics.views;
+  if (!t.cost) return null;
   return toKrw({ [t.cost.currency]: t.cost.amount }).krw / t.metrics.views;
+}
+// 한 인플의 작업들에 같은 방문 몫(visitShare)을 채운다 — 저장소가 넘기기 전에 한 번 부른다(취소 작업은 저장소가 이미 뺐다).
+export function withVisitShares(tasks: PerfTask[]): PerfTask[] {
+  const groups = sameVisitGroups(tasks);
+  return tasks.map((t) => (groups.has(t.id) ? { ...t, visitShare: groups.get(t.id)!.share } : t));
 }
 
 function stat(values: Array<number | null>): MetricStat {
@@ -54,7 +67,8 @@ export function summarizeInfluencer(inf: PerfInfluencerInput): PerfRow {
   const { tasks, ...who } = inf;
   const typeCounts: Record<TaskType, number> = { post: 0, quoteRt: 0, rt: 0, visit: 0 };
   const done = tasks.filter(isPosted);
-  for (const t of done) typeCounts[t.type] += 1;
+  // 방문협찬 수 = 방문 횟수 — 같은 방문의 연결 작업(089)은 게시물일 뿐이라 세지 않는다
+  for (const t of done) if (!(t.type === 'visit' && t.sameVisitOf)) typeCounts[t.type] += 1;
   const posted = tasks.map((t) => t.postedAt).filter((d): d is string => d !== null).sort();
   // 성과 표본 = 게시물 작업 중 조회가 수집됐고 내려가지 않은 것(스펙 §4-1·§12-4)
   const sample = tasks.filter((t) => isContent(t) && t.removedAt === null && t.metrics?.views != null);

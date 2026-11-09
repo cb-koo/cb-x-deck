@@ -429,11 +429,15 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
         예약 상세가 없는 기존 방문 작업이에요.
         {task.visitOn && <><br />기존 방문일 {formatDateKo(task.visitOn)} · {task.visitTime ?? '시간 미정'}</>}
       </div>
-      {!locked && (
+      {/* 게시된 작업엔 예약을 붙일 수 없다 — 꺼진 버튼을 두면 계속 누르게 된다(ISSUE-016). 버튼 대신 이유와 갈 곳을 한 줄로 */}
+      {!locked && task.postedAt && (
+        <p className="mt-1 text-ui text-x-secondary">게시된 작업엔 예약을 붙일 수 없어요. 이 방문으로 게시물이 하나 더 있으면 아래 같은 방문 게시물의 [게시물 하나 더]를 눌러 주세요.</p>
+      )}
+      {!locked && !task.postedAt && (
         <div className="flex flex-wrap items-center justify-end gap-2">
           {/* 예약 창(onAddReservation)은 클리닉을 스스로 확인한다 — 여기서 미리 막지 않는다. 이 상자 안에서 바로 쓰는 길(startEdit)만 클리닉이 필요하다 */}
           <Button variant={phase === 'unregistered' || phase === 'waiting' || phase === null ? 'primary' : undefined}
-                  disabled={busy || !task.influencerHandle || (!onAddReservation && !templateClinic) || !!task.postedAt} onClick={onAddReservation ?? startEdit}>이 작업에 예약 추가</Button>
+                  disabled={busy || !task.influencerHandle || (!onAddReservation && !templateClinic)} onClick={onAddReservation ?? startEdit}>이 작업에 예약 추가</Button>
           {phase === 'visited' && <Button variant="ghost" onClick={() => onReveal?.('posting')}>게시로 이동 ↓</Button>}
           {cancelBtn}
         </div>

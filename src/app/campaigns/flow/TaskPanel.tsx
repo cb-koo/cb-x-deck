@@ -36,6 +36,7 @@ import type { TaskDto } from '@/lib/extensionTasks';
 import { apiFetch } from '@/lib/apiFetch';
 import { productFetch, useProductFeatures } from '@/lib/extensionProductClient';
 import { StageTypeBox } from './panel/StageTypeBox';
+import { SameVisitPostsBox, SameVisitScheduleBox, SameVisitAgreementLine, SameVisitCostLine } from './panel/SameVisitBoxes';
 import { InfluencerSummary } from './panel/InfluencerSummary';
 import { PaymentLine } from './panel/PaymentLine';
 import { PaymentMethodDialog } from './panel/PaymentMethodDialog';
@@ -88,8 +89,15 @@ export function TaskPanel({
   menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftPick, draftBusy, closeConfirm, moveConfirm, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
   newDraft, onNewDraftChange, onNewContextChange, formHandleFill, onReservationChanged, onCreateForReservation, onReservationCreated, autoReserve = false,
   sectionPrefs, onSectionChange, onCancelTask,
+  sameVisit = { original: null, linked: [], ordinal: null, total: null }, sameVisitBusy = false, onAddSameVisit, onOpenTask,
 }: {
   mode: PanelMode;
+  // 같은 방문의 게시물(089, ISSUE-016) — FlowDetail이 캠페인 작업 목록에서 찾아 준다. 연결 작업이면 original(원래 작업)과 몇 번째인지,
+  // 원래 작업이면 linked(연결 작업들). total = 이 방문의 게시물 수(취소 제외, 연결이 없으면 null)
+  sameVisit?: { original: FlowRow | null; linked: FlowRow[]; ordinal: number | null; total: number | null };
+  sameVisitBusy?: boolean;
+  onAddSameVisit?: (t: FlowRow) => void;   // [게시물 하나 더] — 확인·생성·새 작업 열기는 FlowDetail이 한다
+  onOpenTask?: (taskId: string) => void;
   // 예약·비용 없음 저장 뒤 표·패널을 다시 읽는다(FlowDetail load) — 예약 저장은 작업의 방문일·업로드 기한도 바꾼다.
   onReservationChanged: () => Promise<void>;
   // 새 방문협찬 폼의 [예약폼 작성] 창(NewReservationDialog)이 쓴다 — 작업만 만들고 패널은 그대로 둔다(예약을 이어 저장해야 해서).
@@ -738,6 +746,8 @@ export function TaskPanel({
         );
       }
       case 'cost': {
+        // 같은 방문의 연결 작업 — 비용 없음 고정(체크박스·금액 칸·결제 수단을 그리지 않는다, 바꿀 수 없는 값이라)
+        if (t.sameVisitOf) return <SameVisitCostLine original={sameVisit.original} total={sameVisit.total} />;
         const cc = cancelled ? costCell(t, null) : null;
         // 비용 없음(064, 방문협찬) — 금액 0·미정과 다른 명시 값. 게시 확인되면 완료, 정산 후보에서 빠진다. 정산 요청 중엔 못 바꾼다(서버도 막는다).
         const noCostToggle = !cancelled && t.type === 'visit' && productFeatures?.reservations ? (
@@ -1041,7 +1051,18 @@ export function TaskPanel({
               <Fragment key={field}>
                 {/* 방문협찬의 일정은 예약과 한 상자다(일정·예약 → 예약 변경 내역) — 예약이 없거나 예약 기능이 꺼져 있으면 기존 일정 칸 그대로.
                     방문협찬의 예산 · 정산·원고·메모는 접히는 상자(목업 x-extension, disclosure) — 안의 모양은 그대로고 요약 줄과 접기만 붙는다. */}
-                {field === 'dates' && task.type === 'visit'
+                {field === 'dates' && task.type === 'visit' && task.sameVisitOf
+                  ? <SameVisitScheduleBox original={sameVisit.original} ordinal={sameVisit.ordinal}
+                                          onOpenOriginal={() => { if (sameVisit.original) onOpenTask?.(sameVisit.original.id); }}
+                                          scheduledEditor={task.cancelledAt
+                                            ? <span className="text-content text-x-muted">{task.scheduledOn ? formatDateTimeKo(task.scheduledOn, task.scheduledTime) : '미정'}</span>
+                                            : <DateTimeBox empty={!task.scheduledOn}
+                                                date={<ScheduledOnField bare value={task.scheduledOn} overdueDays={taskOverdueDays(task, today)}
+                                                                        outOfRange={isOutOfRange(task.scheduledOn, campaign.startsOn, campaign.endsOn)}
+                                                                        onChange={(next) => void actions.changeScheduledOn(task, next)} />}
+                                                time={task.scheduledOn ? <TimeField key={`st:${task.scheduledTime ?? ''}`} value={task.scheduledTime} ariaLabel="게시 예정 시간"
+                                                                                    onCommit={(next) => void actions.changeScheduledTime(task, next)} /> : null} />} />
+                  : field === 'dates' && task.type === 'visit'
                   ? <ReservationSection task={task} campaign={campaign} dateEditor={renderEditField('dates', task)}
                                         onChangeDate={(field, next) => field === 'visitOn' ? actions.changeVisitOn(task, next) : actions.changeScheduledOn(task, next)}
                                         onChangeVisit={(visitOn, visitTime) => actions.changeVisit(task, visitOn, visitTime)}
@@ -1054,7 +1075,13 @@ export function TaskPanel({
                   : field === 'note' ? sectionBox('memo', task, fieldLabel(field, task.type), renderEditField(field, task))
                   : <PanelSection title={fieldLabel(field, task.type)}>{renderEditField(field, task)}</PanelSection>}
                 {/* 협찬 동의서(063) — 방문협찬만, 일정 상자 바로 아래. 새 작업 폼엔 없다(올릴 경로가 작업 id에 묶여 있어 만든 뒤에 붙인다) */}
-                {field === 'dates' && task.type === 'visit' && (
+                {/* 같은 방문 게시물(089) — 원래 작업의 일정 상자 바로 아래. 연결 작업 목록 + [게시물 하나 더](게시 여부와 상관없이) */}
+                {field === 'dates' && task.type === 'visit' && !task.sameVisitOf && !task.cancelledAt && onAddSameVisit && (
+                  <SameVisitPostsBox task={task} linked={sameVisit.linked} busy={sameVisitBusy}
+                                     onAdd={() => onAddSameVisit(task)} onOpen={(id) => onOpenTask?.(id)} />
+                )}
+                {field === 'dates' && task.type === 'visit' && task.sameVisitOf && <SameVisitAgreementLine original={sameVisit.original} />}
+                {field === 'dates' && task.type === 'visit' && !task.sameVisitOf && (
                   // 상자(PanelSection)는 AgreementField가 그린다 — 상자 전체가 파일을 끌어다 놓는 자리라서
                   <AgreementField taskId={task.id} influencerHandle={task.influencerHandle} value={task.agreement} disabled={!!task.cancelledAt}
                                   onChange={(next) => actions.setAgreement(task, next)} disclosure={disclosure('consent')} locked={sectionLocked} />

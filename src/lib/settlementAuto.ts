@@ -83,16 +83,22 @@ export interface WeekSibling {
   taskId: string; handle: string; taskType: TaskType; campaignName: string;
   postedAt: string | null; scheduledOn: string | null; visitOn: string | null; campaignStartsOn: string;
   confirmedAt: string | null;   // 게시 확인 시각(ISO) — 묶음이 '가장 늦게 끝난 작업'에 맞춰 함께 나가게(koo 11-05: 동일한 시점에)
+  sameVisitOf?: string | null;  // 같은 방문의 원래 작업(089) — 원래 작업(금액이 있는 후보)은 주와 상관없이 이 게시물을 기다린다
 }
 export interface TogetherPending { taskId: string; campaignName: string; taskType: TaskType; dueOn: string | null; overdue: boolean }
-export interface Together { total: number; posted: number; pending: TogetherPending[]; lastConfirmedAt: string | null }
+// kind — 묶인 이유. week = 같은 주 작업만, visit = 같은 방문의 게시물만(089, koo 11-09 결정 8), both = 둘 다. 표시 글자만 가른다
+export interface Together { total: number; posted: number; pending: TogetherPending[]; lastConfirmedAt: string | null; kind?: 'week' | 'visit' | 'both' }
 export const taskWeekDate = (t: Pick<WeekSibling, 'postedAt' | 'scheduledOn' | 'visitOn' | 'campaignStartsOn'>): string =>
   t.postedAt ?? t.scheduledOn ?? t.visitOn ?? t.campaignStartsOn;
-/** self(게시된 후보)와 같은 인플·같은 주 작업 묶음 — 자기 하나뿐이면 null. today는 서울 날짜(예정일 지남 판정). */
+/** self(게시된 후보)와 같은 인플·같은 주 작업 묶음 — 자기 하나뿐이면 null. today는 서울 날짜(예정일 지남 판정).
+ *  같은 방문의 게시물(self에 연결된 작업)은 주와 상관없이 묶는다 — 방문 한 번 = 묶음 가격이라 다 올라온 뒤 함께 보낸다(koo 11-09).
+ *  날짜가 하나도 없는 게시 전 연결 작업은 주로는 묶지 않는다 — 캠페인 시작일로 잡혀 그 주 다른 작업을 붙잡지 않게. */
 export function togetherFor(self: { taskId: string; handle: string; postedAt: string }, siblings: WeekSibling[], today: string): Together | null {
   const week = weekStartOf(self.postedAt);
   const h = self.handle.toLowerCase();
-  const same = siblings.filter((x) => x.handle.toLowerCase() === h && (x.taskId === self.taskId || weekStartOf(taskWeekDate(x)) === week));
+  const linkedToSelf = (x: WeekSibling) => x.sameVisitOf === self.taskId;
+  const inWeek = (x: WeekSibling) => !(x.sameVisitOf && !x.postedAt && !x.scheduledOn) && weekStartOf(taskWeekDate(x)) === week;
+  const same = siblings.filter((x) => x.handle.toLowerCase() === h && (x.taskId === self.taskId || linkedToSelf(x) || inWeek(x)));
   if (!same.some((x) => x.taskId === self.taskId)) same.push({ taskId: self.taskId, handle: self.handle, taskType: 'post', campaignName: '', postedAt: self.postedAt, scheduledOn: null, visitOn: null, campaignStartsOn: self.postedAt, confirmedAt: null });
   if (same.length <= 1) return null;
   const pending = same.filter((x) => !x.postedAt).map((x) => {
@@ -100,18 +106,22 @@ export function togetherFor(self: { taskId: string; handle: string; postedAt: st
     return { taskId: x.taskId, campaignName: x.campaignName, taskType: x.taskType, dueOn, overdue: !!dueOn && dueOn < today };
   });
   const confirmed = same.map((x) => x.confirmedAt).filter((d): d is string => !!d).sort();
-  return { total: same.length, posted: same.length - pending.length, pending, lastConfirmedAt: confirmed.at(-1) ?? null };
+  const others = same.filter((x) => x.taskId !== self.taskId);
+  const kind = others.every(linkedToSelf) ? 'visit' : others.some(linkedToSelf) ? 'both' : 'week';
+  return { total: same.length, posted: same.length - pending.length, pending, lastConfirmedAt: confirmed.at(-1) ?? null, kind };
 }
+const TOGETHER_HEAD: Record<NonNullable<Together['kind']>, string> = { week: '같은 주', visit: '같은 방문 게시물', both: '같은 주, 같은 방문 게시물' };
 /** 사유 한 칸 — '같은 주 3건 중 2건 게시, 남은 작업: 백수약국_11월1주차 인용RT(11/6 예정)'. */
 export function togetherText(t: Together): string {
   const left = t.pending.map((p) => `${p.campaignName} ${TASK_TYPE_LABEL[p.taskType]}${p.dueOn ? `(${md(p.dueOn)} 예정${p.overdue ? ', 지남' : ''})` : '(예정일 없음)'}`);
-  return `같은 주 ${t.total}건 중 ${t.posted}건 게시, 남은 작업: ${left.join(', ')}`;
+  return `${TOGETHER_HEAD[t.kind ?? 'week']} ${t.total}건 중 ${t.posted}건 게시, 남은 작업: ${left.join(', ')}`;
 }
 
 /** 표의 사유 칸용 짧은 말(koo QA 11-05: 긴 문장이 칸을 넘쳐 버튼이 밀렸다) — '3건 중 1건 게시, 1건 예정일 지남' / '…, 다음 예정 11/7'.
  *  남은 작업 목록 전체는 togetherText(마우스 올림·작업 패널). */
 export function togetherShort(t: Together): string {
-  const head = `${t.total}건 중 ${t.posted}건 게시`;
+  // 같은 주만이면 예전 그대로(묶음 머리말이 이미 말한다), 같은 방문이 섞이면 무엇을 기다리는지 앞에 붙인다
+  const head = `${t.kind && t.kind !== 'week' ? `${TOGETHER_HEAD[t.kind]} ` : ''}${t.total}건 중 ${t.posted}건 게시`;
   const late = t.pending.filter((p) => p.overdue).length;
   if (late) return `${head}, ${late}건 예정일 지남`;
   const next = t.pending.map((p) => p.dueOn).filter((d): d is string => !!d).sort()[0];
@@ -164,7 +174,7 @@ export function requesterLabel(r: { createdVia: 'manual' | 'auto'; requesterName
 }
 
 // ── 짧은 표시(koo 10-13 QA: 동사형 대신 짧은 명사형, 의미는 분명하게) ──
-export const GROUP_LABEL: Record<PendingGroup, string> = { attention: '확인 필요', blocked: '보완 필요', together: '같은 주 작업 대기', waiting: '전송 예정', stopped: '전송 보류' };   // '전송 보류' — 정산팀 '지급 보류'(보낸 뒤)와 단계로 구분(10-13)
+export const GROUP_LABEL: Record<PendingGroup, string> = { attention: '확인 필요', blocked: '보완 필요', together: '남은 게시물 대기', waiting: '전송 예정', stopped: '전송 보류' };   // '전송 보류' — 정산팀 '지급 보류'(보낸 뒤)와 단계로 구분(10-13)
 // 사유 한 칸 — 이슈 코드마다 짧은 말. 고치는 자리는 행을 눌러 여는 작업 패널이라 링크는 패널 밖(설정)만 단다.
 const SHORT: Partial<Record<IssueCode, string>> = {
   'no-influencer': '명부 미등록', 'no-payment-method': '결제 수단 없음', 'paypay-no-receiving-info': 'PayPay 수취 정보 없음',

@@ -112,15 +112,21 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
     // 삭제 — 행이 사라지는 변경이라 필드 롤백 대신 목록 복원으로 되돌린다(순서는 표 정렬이 다시 잡는다).
     // 예약 기록이 있는 작업이면 서버가 지우지 않고 요약을 준다 → confirmReservation(확인 창)이 true일 때만 함께 지운다.
     // 확인 창을 줄 수 없는 화면(옛 캠페인 화면)은 confirmReservation 없이 부르고, 서버 안내 문구가 토스트로 뜬다.
-    remove: async (t: Item, confirmReservation?: (s: ReservationDeleteSummary) => boolean) => {
-      setTasks((cur) => cur.filter((x) => x.id !== t.id));
-      const restore = () => setTasks((cur) => (cur.some((x) => x.id === t.id) ? cur : [...cur, t]));
-      let r = await deleteTaskApi(campaignId, t.id);
+    // withSameVisit — 같은 방문의 연결 작업(089)도 함께 지운다(호출부가 확인 창에서 이미 알렸다). 표에서도 함께 뺀다.
+    remove: async (t: Item, confirmReservation?: (s: ReservationDeleteSummary) => boolean, withSameVisit = false) => {
+      let removed: Item[] = [];
+      const drop = () => setTasks((cur) => {
+        removed = cur.filter((x) => x.id === t.id || (withSameVisit && (x as { sameVisitOf?: string | null }).sameVisitOf === t.id));
+        return cur.filter((x) => !removed.includes(x));
+      });
+      drop();
+      const restore = () => setTasks((cur) => [...cur, ...(removed.length ? removed : [t]).filter((x) => !cur.some((c) => c.id === x.id))]);
+      let r = await deleteTaskApi(campaignId, t.id, false, withSameVisit);
       if (!r.ok && r.reservation && confirmReservation) {
         restore();
         if (!confirmReservation(r.reservation)) return false;
-        setTasks((cur) => cur.filter((x) => x.id !== t.id));
-        r = await deleteTaskApi(campaignId, t.id, true);
+        drop();
+        r = await deleteTaskApi(campaignId, t.id, true, withSameVisit);
         if (r.ok) { show('작업과 예약 기록을 지웠어요 — 삭제 기록은 캠페인 아래에 남아요'); onChanged(); return true; }
       }
       if (r.ok) { show('작업을 지웠어요 — 원고는 남아 있어요'); onChanged(); return true; }

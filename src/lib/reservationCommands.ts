@@ -11,6 +11,7 @@ import { readReservation, reservationDetail, taskFact } from './reservationStore
 import { listClientLocations } from './clinicStore.ts';
 import { logTaskDeclined, markTaskCancelled, updateTask } from './campaignTaskStore.ts';   // 한 방향 의존 — campaignTaskStore는 이 파일을 모른다
 import { normalizeTargetTweetUrl, parseCancelBody, POST_URL_MESSAGE, type CancelReason } from './campaignTaskInput.ts';
+import { SAME_VISIT_NO_RESERVATION_MESSAGE } from './sameVisit.ts';
 import type { TaskType } from './campaignJudgment.ts';
 import { attachFetchedPostToTask, AuthorRejected } from './postAttach.ts';
 import { authorVerdictMessage } from './postAuthor.ts';
@@ -104,6 +105,8 @@ export async function createReservation(sql: postgres.Sql, req: Request, actor: 
     // 'STATE_CHANGED'로 뭉개져 handoff 문서·익스텐션 코드 목록의 RESERVATION_ALREADY_EXISTS가 영영 안 난다(통합 테스트 1이 확인한다).
     if ((await tx`select id from visit_reservation where task_id = ${taskId}`).length) throw new ProductError('RESERVATION_ALREADY_EXISTS', '이미 예약이 연결된 작업이에요.', 409);
     const { fact, personId } = await taskFact(tx, taskId);
+    // 같은 방문의 연결 작업(089) — 예약은 원래 작업에 있다. 허용 행동 판정도 막지만 원인을 알 수 있는 문구로 먼저 끊는다
+    if (fact.sameVisitOf) throw new ProductError('STATE_CHANGED', SAME_VISIT_NO_RESERVATION_MESSAGE, 409);
     if (!personId || !task.influencer_handle) throw new ProductError('PERSON_REQUIRED', '등록된 인플루언서를 작업에 배정한 뒤 예약을 추가해 주세요.', 422);
     if (!allowedVisitActions(fact, fact.requestCount, kstToday()).includes('add_reservation')) throw new ProductError('STATE_CHANGED', '이 작업에는 예약을 추가할 수 없어요.', 409);
     const { clientId } = await campaignLocations(tx, task.campaign_id, locationId);

@@ -24,8 +24,8 @@ const dayLabel = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice
 const GROUP_SUB: Record<PendingGroup, (s: PendingSummary, rows: PendingRow[]) => string> = {
   attention: () => '지급 전에 글이 내려갔거나 안 보여요 · 보낼지 정해 주세요',
   blocked: () => '고치면 자동 전송돼요 · 행을 눌러 그 자리에서 고쳐요',
-  // 같은 주 작업 대기(ISSUE-010) — 그 인플의 그 주 작업이 다 게시되면 함께 자동 전송. 안 올라오는 작업은 풀지 않고 알린다(koo 11-04)
-  together: () => '같은 인플의 그 주 작업이 다 게시되면 함께 자동 전송돼요',
+  // 남은 게시물 대기(ISSUE-010·016) — 그 인플의 그 주 작업, 같은 방문의 게시물이 다 게시되면 함께 자동 전송. 안 올라오는 작업은 풀지 않고 알린다(koo 11-04)
+  together: () => '같은 인플의 그 주 작업, 같은 방문의 게시물이 다 게시되면 함께 자동 전송돼요',
   // 지난 월요일 전에 확인된 건(곧 전송)이 섞여 있으면 따로 센다 — 머리말 날짜와 행의 '곧 전송'이 엇갈려 보이지 않게(QA 10-13)
   waiting: (s, rows) => {
     if (!s.autoSendEnabled) return '자동 전송 꺼짐 · [바로 보내기]로 직접 보내요';

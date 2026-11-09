@@ -12,6 +12,7 @@ import { judgeStoredAuthor, authorVerdictMessage, firstAssignMismatchMessage, ty
 import { reservationWriteGuard } from './reservationWriteGuard.ts';
 import { reservationRecordsOf, hasReservationRecords, deleteReservationRecords, insertTaskDeletion } from './taskDeletionStore.ts';
 import { ProductError } from './productCommand.ts';
+import { sameVisitCreateError, SAME_VISIT_DELETE_CONFIRM_MESSAGE, SAME_VISIT_CANCEL_POSTED_MESSAGE } from './sameVisit.ts';   // 순수 모듈
 // draftStore.ts가 attachDraft를 값으로 import해(순환 확인: grep -n campaignTaskStore src/lib/draftStore.ts) 여기서
 // getDraft/updateDraft를 정적으로 값 import하면 campaignTaskStore ↔ draftStore 순환이 생긴다 — 타입만 값 없이 가져온다.
 import type { PaymentFee } from './influencerPayment.ts';
@@ -33,6 +34,8 @@ export interface TaskRow {
   removedAt: string | null; removedReason: string;
   scheduledOn: string | null; visitOn: string | null; cost: TaskCost | null; note: string;
   noCost?: boolean; version?: number;
+  // 같은 방문의 원래 작업(089, ISSUE-016) — 있으면 이 작업은 같은 방문의 두 번째 이후 게시물(연결 작업, 비용 없음 고정)
+  sameVisitOf?: string | null;
   proof: TaskProof | null;   // RT 증빙 스크린샷 1장(스펙 2026-08-31 §4-2). RT 아닌 유형은 늘 null
   // 방문협찬만(063, koo 09-29) — 방문일·게시 예정일의 시간('HH:MM', KST 벽시계)과 협찬 동의서 1장. 다른 유형은 늘 null.
   // 시간은 표시·저장용 — 밀림·정렬·달력·정산 판정은 날짜 칸만 본다. 날짜가 없으면 시간도 없다(updateTask가 지킨다).
@@ -109,7 +112,7 @@ type Row = {
   removed_at: string | null; removed_reason: string;
   scheduled_on: string | null; visit_on: string | null; cost: unknown; note: string; proof: unknown; payment_method_id: string | null;
   visit_time: string | null; scheduled_time: string | null; agreement: unknown;
-  no_cost: boolean; version: number;
+  no_cost: boolean; version: number; same_visit_of: string | null;
   cancelled_at: string | null; cancel_reason: CancelReason | null; cancel_note: string;
   cancelled_draft_id: string | null; cancelled_draft_title: string | null;
   settled_elsewhere_at: string | null; settled_elsewhere_note: string; settled_elsewhere_by_name: string | null; cost_change_count: number;
@@ -140,7 +143,7 @@ const toRow = (r: Row): TaskRow => ({
   postUrl: r.post_url, postedAt: r.posted_at, postedSource: r.posted_source,
   removedAt: r.removed_at, removedReason: r.removed_reason,
   scheduledOn: r.scheduled_on, visitOn: r.visit_on, cost: costOf(r.cost), note: r.note,
-  noCost: r.no_cost, version: r.version,
+  noCost: r.no_cost, version: r.version, sameVisitOf: r.same_visit_of ?? null,
   proof: taskProofOf(r.proof),
   visitTime: r.visit_time, scheduledTime: r.scheduled_time, agreement: taskAgreementOf(r.agreement),
   paymentMethodId: r.payment_method_id,
@@ -169,6 +172,7 @@ const SELECT = (sql: postgres.Sql) => sql`
          to_char(t.visit_time, 'HH24:MI') as visit_time, to_char(t.scheduled_time, 'HH24:MI') as scheduled_time, t.agreement,
          coalesce((to_jsonb(t)->>'no_cost')::boolean, false) as no_cost,
          coalesce((to_jsonb(t)->>'version')::integer, 1) as version,
+         t.same_visit_of,
          to_char(t.cancelled_at, 'YYYY-MM-DD') as cancelled_at, t.cancel_reason, t.cancel_note,
          t.cancelled_draft_id, t.cancelled_draft_title,
          to_char(t.settled_elsewhere_at, 'YYYY-MM-DD') as settled_elsewhere_at, t.settled_elsewhere_note, t.settled_elsewhere_by_name,
@@ -233,6 +237,35 @@ export async function createTasks(sql: postgres.Sql, campaignId: string, input: 
   return ids.map((id) => byId.get(id) as TaskRow);
 }
 
+// 같은 방문의 게시물 하나 더(089, ISSUE-016) — 원래 작업을 잠그고 다시 판정한 뒤 연결 작업 1행을 만든다.
+// 복사: 캠페인·인플·유형(방문협찬). 비용 없음 고정·금액 없음. 방문일·시간은 복사하지 않는다 — 화면은 원래 작업의 값을
+// 읽어 보여 주고(정정돼도 어긋나지 않게), 연결 작업의 판정(단계·잠금·정산 기다림)은 same_visit_of로 한다.
+// 예약·동의서·게시 예정일·원고·게시 링크·메모는 게시물마다 다르거나 원래 작업에만 있으므로 비운다.
+export async function createSameVisitTask(sql: postgres.Sql, campaignId: string, originalId: string, createdBy: string | null): Promise<TaskRow> {
+  if (!isUuidLike(originalId)) throw new ProductError('RESOURCE_NOT_FOUND', '작업을 찾을 수 없어요.', 404);
+  const id = await sql.begin(async (tx0) => {
+    const tx = tx0 as unknown as postgres.Sql;
+    const [o] = await tx<Array<{ campaign_id: string; type: TaskType; cancelled_at: string | null; same_visit_of: string | null; influencer_handle: string | null }>>`
+      select campaign_id, type, to_char(cancelled_at, 'YYYY-MM-DD') as cancelled_at, same_visit_of, influencer_handle
+        from campaign_task where id = ${originalId} for update`;
+    if (!o || o.campaign_id !== campaignId) throw new ProductError('RESOURCE_NOT_FOUND', '작업을 찾을 수 없어요.', 404);
+    const err = sameVisitCreateError({ type: o.type, cancelledAt: o.cancelled_at, sameVisitOf: o.same_visit_of, influencerHandle: o.influencer_handle });
+    if (err) throw new ProductError('STATE_CHANGED', err, 409);
+    const [row] = await tx<Array<{ id: string }>>`
+      insert into campaign_task (campaign_id, influencer_handle, type, no_cost, cost, same_visit_of, note, created_by, created_at)
+      values (${campaignId}, ${o.influencer_handle}, 'visit', true, null, ${originalId}, '', ${createdBy}, clock_timestamp())
+      returning id`;
+    return row.id;
+  });
+  return (await getTask(sql, id as string)) as TaskRow;
+}
+// 원래 작업에 연결된 작업 id(취소 포함) — 삭제 확인·함께 지우기용
+export async function sameVisitLinkedIds(sql: postgres.Sql, originalId: string): Promise<string[]> {
+  if (!isUuidLike(originalId)) return [];
+  const rows = await sql<Array<{ id: string }>>`select id from campaign_task where same_visit_of = ${originalId} order by created_at, id`;
+  return rows.map((r) => r.id);
+}
+
 // 3값 규칙: undefined = 건드리지 않음 · null = 지움 · 값 = 설정(draftStore.updateDraft와 같은 case when 패턴).
 // postedAt은 null을 받지 않는다(게시 확인은 되돌리지 않는다, §3-4) — 타입이 막는다.
 export async function updateTask(sql: postgres.Sql, id: string, patch: TaskPatch): Promise<boolean> {
@@ -286,22 +319,32 @@ export async function updateTask(sql: postgres.Sql, id: string, patch: TaskPatch
 // 지울 때마다 삭제 기록(073)에 누가·언제·무엇을 남긴다. 예약 기록이 있는 작업은 withReservation(사용자 확인)일 때만
 // 예약 기록을 먼저 지우고 함께 지운다 — 없으면 예전처럼 reservationWriteGuard가 거절한다(익스텐션·옛 화면).
 // 이미 트랜잭션 안(익스텐션 productOperation)이면 그 트랜잭션을, 아니면 새로 연다.
-export async function deleteTask(sql: postgres.Sql, id: string, opts: { actor?: { id: string; name: string } | null; withReservation?: boolean } = {}): Promise<boolean> {
+// 같은 방문의 연결 작업(089)이 있는 원래 작업은 withSameVisit(사용자 확인)일 때만 연결 작업을 먼저 지우고 함께 지운다 —
+// 각각 삭제 기록에 남는다. 없으면 거절한다(FK restrict가 최후 방어, 익스텐션·옛 화면).
+export async function deleteTask(sql: postgres.Sql, id: string, opts: { actor?: { id: string; name: string } | null; withReservation?: boolean; withSameVisit?: boolean } = {}): Promise<boolean> {
   if (!isUuidLike(id)) return false;
   const run = async (tx: postgres.Sql): Promise<boolean> => {
-    const [task] = await tx<Array<{ id: string; campaign_id: string; influencer_handle: string | null; type: string | null; row: unknown }>>`
-      select id, campaign_id, influencer_handle, type, to_jsonb(t) as row from campaign_task t where id = ${id} for update`;
-    if (!task) return false;
-    const records = await reservationRecordsOf(tx, id);
-    if (hasReservationRecords(records)) {
-      if (!opts.withReservation) await reservationWriteGuard(tx, id, 'delete');
-      await deleteReservationRecords(tx, id, records);
+    const linked = await sameVisitLinkedIds(tx, id);
+    if (linked.length) {
+      if (!opts.withSameVisit) throw new ProductError('SAME_VISIT_DELETE_CONFIRM', SAME_VISIT_DELETE_CONFIRM_MESSAGE, 409);
+      for (const childId of linked) await deleteOne(tx, childId, opts);
     }
-    await insertTaskDeletion(tx, { task, taskRow: task.row, records, actor: opts.actor ?? null });
-    const rows = await tx`delete from campaign_task where id = ${id} returning id`;
-    return rows.length > 0;
+    return deleteOne(tx, id, opts);
   };
   return 'savepoint' in sql ? run(sql) : (sql.begin((tx) => run(tx as unknown as postgres.Sql)) as Promise<boolean>);
+}
+async function deleteOne(tx: postgres.Sql, id: string, opts: { actor?: { id: string; name: string } | null; withReservation?: boolean }): Promise<boolean> {
+  const [task] = await tx<Array<{ id: string; campaign_id: string; influencer_handle: string | null; type: string | null; row: unknown }>>`
+    select id, campaign_id, influencer_handle, type, to_jsonb(t) as row from campaign_task t where id = ${id} for update`;
+  if (!task) return false;
+  const records = await reservationRecordsOf(tx, id);
+  if (hasReservationRecords(records)) {
+    if (!opts.withReservation) await reservationWriteGuard(tx, id, 'delete');
+    await deleteReservationRecords(tx, id, records);
+  }
+  await insertTaskDeletion(tx, { task, taskRow: task.row, records, actor: opts.actor ?? null });
+  const rows = await tx`delete from campaign_task where id = ${id} returning id`;
+  return rows.length > 0;
 }
 
 // 원고 붙이기 — 원고 1개 = 작업 1개(unique partial index가 최후 방어, 여기서는 문구 있는 오류로 먼저 끊는다).
@@ -572,7 +615,17 @@ export async function cancelTask(
 
 // 취소 컬럼 + 원고 떼기 + 제목 스냅샷 한 묶음 — cancelTask(일반 취소)와 예약 종료(reservationCommands의 /end·웹 취소 창)가 같은 효과를 낸다.
 // 조건부 UPDATE(posted_at is null and cancelled_at is null)라 그 사이 게시 확인이 들어오면 false — 호출한 쪽이 처리한다. 타임라인 로그는 호출한 쪽.
+// 같은 방문(089): 원래 작업을 취소하면 게시 전 연결 작업도 같은 사유로 함께 취소한다. 게시된 연결 작업이 있으면 막는다 —
+// 금액이 원래 작업에 있어서, 원래 작업을 취소하면 이미 올라간 게시물의 정산이 나가지 않는다(ProductError → 409 문구).
 export async function markTaskCancelled(tx: postgres.Sql, id: string, input: { reason: CancelReason | null; note: string; today: string }): Promise<boolean> {
+  const linked = await tx<Array<{ id: string; posted: boolean }>>`
+    select id, posted_at is not null as posted from campaign_task where same_visit_of = ${id} and cancelled_at is null for update`;
+  if (linked.some((l) => l.posted)) throw new ProductError('STATE_CHANGED', SAME_VISIT_CANCEL_POSTED_MESSAGE, 409);
+  if (!(await markOneCancelled(tx, id, input))) return false;
+  for (const l of linked) await markOneCancelled(tx, l.id, input);
+  return true;
+}
+async function markOneCancelled(tx: postgres.Sql, id: string, input: { reason: CancelReason | null; note: string; today: string }): Promise<boolean> {
   const [cur] = await tx<Array<{ draft_id: string | null }>>`select draft_id from campaign_task where id = ${id}`;
   const draftId = cur?.draft_id ?? null;
   const title = await cancelledDraftTitle(tx, draftId);

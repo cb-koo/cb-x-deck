@@ -92,9 +92,14 @@ export const patchTaskApi = (campaignId: string, taskId: string, body: TaskPatch
 // 예약 기록이 있는 방문 작업은 서버가 409 RESERVATION_DELETE_CONFIRM과 함께 지워질 예약 기록 요약을 준다 —
 // 그때 reservation을 돌려줘 화면이 확인 창을 띄우고, 확인하면 withReservation으로 다시 보낸다.
 export type DeleteTaskResult = ApiResult<{ ok: true; deleted: boolean }> & { reservation?: ReservationDeleteSummary };
-export async function deleteTaskApi(campaignId: string, taskId: string, withReservation = false): Promise<DeleteTaskResult> {
+// 같은 방문의 게시물 하나 더(089) — 원래 작업에 연결 작업(비용 없음 고정)을 만든다. 성공이면 새 작업 행
+export const createSameVisitTaskApi = (campaignId: string, taskId: string) =>
+  call<{ id: string }>(`/api/campaigns/${campaignId}/tasks/${taskId}/same-visit`, { method: 'POST' });
+// withSameVisit — 같은 방문의 연결 작업(089)도 함께 지운다(화면이 확인 창에서 알린 뒤에만 보낸다)
+export async function deleteTaskApi(campaignId: string, taskId: string, withReservation = false, withSameVisit = false): Promise<DeleteTaskResult> {
   try {
-    const r = await apiFetch(`/api/campaigns/${campaignId}/tasks/${taskId}${withReservation ? '?withReservation=1' : ''}`, { method: 'DELETE' });
+    const q = [withReservation ? 'withReservation=1' : '', withSameVisit ? 'withSameVisit=1' : ''].filter(Boolean).join('&');
+    const r = await apiFetch(`/api/campaigns/${campaignId}/tasks/${taskId}${q ? `?${q}` : ''}`, { method: 'DELETE' });
     if (r.status === 409) {
       const body = await r.clone().json().catch(() => null) as { code?: string; error?: string; reservation?: ReservationDeleteSummary } | null;
       if (body?.code === 'RESERVATION_DELETE_CONFIRM' && body.reservation) return { ok: false, error: body.error ?? '', status: 409, reservation: body.reservation };

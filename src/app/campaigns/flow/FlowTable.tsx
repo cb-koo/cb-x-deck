@@ -10,6 +10,7 @@ import { num } from '@/lib/campaignTableView';
 import { formatPct } from '@/lib/performanceJudgment';
 import type { InfluencerOption } from '@/lib/draftTypes';
 import { STAGE_CHIP, TYPE_CHIP } from '@/lib/flowChips';
+import { shareNote, type SameVisitInfo } from '@/lib/sameVisit';
 
 // 표 6열(단계·유형·인플·원고·게시 예정일·비용) + 조회·좋아요·북마크 3열(koo 09-22: 원래 6열 고정이던 것을
 // 깨고 추가 — CampaignTaskItem에 이미 실려 오는 perf 값을 그리기만 한다, TaskTable.tsx와 같은 패턴) +
@@ -62,8 +63,10 @@ function resolveWidth(map: Record<string, number>, key: string): number {
 const DATE_TONE: Record<'late' | 'posted' | 'plain' | 'muted' | 'unseen', string> = { late: 'text-red-600', posted: 'text-x-blue-text', plain: '', muted: 'text-x-muted', unseen: 'text-amber-700' };
 const COST_TONE: Record<'plain' | 'muted' | 'struck' | 'suggested', string> = { plain: 'tabular-nums', muted: 'text-x-muted', struck: 'text-x-muted line-through', suggested: 'text-x-muted' };
 
-export function FlowTable({ rows, total, today, influencerOptions, sort, onSortChange, footer, selectedId, onRowClick, renderMenu }: {
+export function FlowTable({ rows, total, today, influencerOptions, sort, onSortChange, footer, selectedId, onRowClick, renderMenu, sameVisit }: {
   rows: FlowRow[];
+  // 같은 방문의 게시물(089) — 캠페인 전체 작업으로 만든 묶음(필터로 줄어든 rows가 아니라). 인플 칸 꼬리표와 CPV 배분에 쓴다
+  sameVisit?: Map<string, SameVisitInfo>;
   total: number;
   today: string;
   influencerOptions: InfluencerOption[];
@@ -201,18 +204,25 @@ export function FlowTable({ rows, total, today, influencerOptions, sort, onSortC
             const d = draftCell(t);
             const suggestion = suggestTaskCost(optionFor(t.influencerHandle)?.pricing, t.type);
             const cc = costCell(t, suggestion);
-            const pe = taskPerfExtra(t); // 성과 3열 괄호 값(그 작업만의 CPV·좋아요율·북마크율)
+            // 성과 3열 괄호 값(그 작업만의 CPV·좋아요율·북마크율). 같은 방문 묶음이면 비용을 게시물 수로 나눈 몫으로 CPV를 낸다(koo 11-09)
+            const sv = sameVisit?.get(t.id) ?? null;
+            const pe = taskPerfExtra(t, sv?.share ?? null);
             return (
               <tr key={t.id} data-flow-row onClick={() => onRowClick(t)}
                   className={`h-11 cursor-pointer border-b border-x-border whitespace-nowrap hover:bg-x-hover ${t.id === selectedId ? 'bg-x-blue/5' : ''} ${cancelled ? 'opacity-60' : ''}`}>
                 <td className="px-3"><span className={`rounded-full px-2 py-0.5 text-ui ${STAGE_CHIP[stage]}`}>{flowStageLabel(t, stage)}</span></td>
                 <td className="px-3"><span className={`inline-block min-w-[56px] rounded-full px-2 py-0.5 text-center text-ui ${TYPE_CHIP[t.type]}`}>{TASK_TYPE_LABEL[t.type]}</span></td>
-                <td className="px-3">{t.influencerHandle ? `@${t.influencerHandle}` : <span className="text-x-muted">미정</span>}</td>
+                <td className="px-3">
+                  {t.influencerHandle ? `@${t.influencerHandle}` : <span className="text-x-muted">미정</span>}
+                  {sv && <span className="text-x-muted"> (게시물 {sv.ordinal})</span>}
+                </td>
                 <td className="px-3 truncate" title={d.title}><span className={d.muted ? 'text-x-muted' : ''}>{d.text}</span></td>
                 <td className={`px-3 ${DATE_TONE[dc.tone]}`}>{dc.text}</td>
                 <td className={`px-3 text-right ${COST_TONE[cc.tone]}`} title={cc.title}>{cc.text}</td>
                 <td className="px-3 text-right tabular-nums">
-                  {num(t.perf?.views ?? null)}{pe.cpvKrw !== null && <span className="text-x-muted">({pe.cpvKrw.toFixed(1)}원)</span>}
+                  {num(t.perf?.views ?? null)}{pe.cpvKrw !== null && (
+                    <span className="text-x-muted" title={sv?.share ? shareNote(sv.share) : undefined}>({pe.cpvKrw.toFixed(1)}원)</span>
+                  )}
                 </td>
                 <td className="px-3 text-right tabular-nums">
                   {num(t.perf?.likes ?? null)}{pe.likeRate !== null && <span className="text-x-muted">({formatPct(pe.likeRate, 1)})</span>}

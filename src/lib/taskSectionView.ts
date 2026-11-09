@@ -30,6 +30,7 @@ export function visitPhaseFromRow(t: CampaignTaskItem, today: string): VisitPhas
   if (paid || (t.postedAt && t.noCost)) return 'completed';
   if (hasActiveSettlement(t.settlement)) return 'settling';
   if (t.postedAt) return 'uploaded';
+  if (t.sameVisitOf) return 'visited';   // 같은 방문의 연결 작업(089) — 방문은 원래 작업으로 이미 했다(reservationPolicy.visitPhase와 같은 순서)
   if (!t.reservation) return 'unregistered';
   // 확정 방문일 다음 날부터 방문으로 본다(reservationPolicy.visitPhase와 같은 기준) — 예약 저장이 작업 방문일을 함께 맞춘다
   if (t.reservation === 'confirmed' && t.visitOn && t.visitOn < today) return 'visited';

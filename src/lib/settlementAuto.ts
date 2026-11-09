@@ -5,36 +5,54 @@ import { TASK_TYPE_LABEL, weekStartOf, type TaskType } from './campaignJudgment.
 
 const KST_MS = 9 * 3_600_000;
 const DAY_MS = 86_400_000;
-export const SEND_HOUR_KST = 7;   // 매주 월요일 07:00(서울) — 정산팀 지급 리듬(월요일)에 맞춘다(koo 10-12)
+// 월요일 07:00·12:00·15:00(서울) — 정산팀 지급 리듬(월요일, koo 10-12). 7시 뒤에 보완·확인한 작업이 한 주를 기다리지 않게
+// 같은 월요일 낮 회차를 더했다(koo 11-09). 회차는 월요일에만 있다 — 화~일에 확인된 작업은 다음 월요일 07:00.
+export const SEND_HOURS_KST: readonly number[] = [7, 12, 15];
 // 마지막 실행이 이보다 오래되면 화면이 "자동 전송이 확인되지 않아요"를 띄운다(예약은 5분 주기)
 export const AUTO_RUN_STALE_MS = 15 * 60_000;
 export const AUTO_REQUESTER_FALLBACK = '자동 전송';   // 작업·캠페인을 만든 사람이 모두 없을 때 요청자 이름(멤버 없음)
 export const HOLD_REASON_MAX = 100;                  // [보류] 사유 길이 — 화면 입력과 서버가 같은 값
 
-// now 이하에서 가장 최근의 월요일 07:00(서울) 순간
-export function lastMondaySeven(now: Date): Date {
+// now가 속한 주(서울, 월요일 시작)의 월요일 00:00(서울) 순간
+function mondayStart(now: Date): number {
   const k = new Date(now.getTime() + KST_MS);   // 서울 벽시계를 UTC 필드로 읽는다
-  const dow = k.getUTCDay();                     // 0 일 … 1 월
-  const back = (dow + 6) % 7;                    // 월 0 · 화 1 · … · 일 6
-  const mon = Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate() - back, SEND_HOUR_KST) - KST_MS;
-  return new Date(mon <= now.getTime() ? mon : mon - 7 * DAY_MS);
+  const back = (k.getUTCDay() + 6) % 7;          // 월 0 · 화 1 · … · 일 6
+  return Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate() - back) - KST_MS;
 }
-// now보다 뒤의 다음 월요일 07:00(서울)
-export function nextMondaySeven(now: Date): Date {
-  return new Date(lastMondaySeven(now).getTime() + 7 * DAY_MS);
+// now 이하에서 가장 최근의 전송 회차(월요일 07·12·15시, 서울) 순간
+export function lastSendSlot(now: Date): Date {
+  const t = now.getTime();
+  for (const base of [mondayStart(now), mondayStart(now) - 7 * DAY_MS]) {
+    for (const h of [...SEND_HOURS_KST].reverse()) {
+      const at = base + h * 3_600_000;
+      if (at <= t) return new Date(at);
+    }
+  }
+  throw new Error('unreachable');
+}
+// now보다 뒤의 다음 전송 회차
+export function nextSendSlot(now: Date): Date {
+  const t = now.getTime();
+  for (const base of [mondayStart(now), mondayStart(now) + 7 * DAY_MS]) {
+    for (const h of SEND_HOURS_KST) {
+      const at = base + h * 3_600_000;
+      if (at > t) return new Date(at);
+    }
+  }
+  throw new Error('unreachable');
 }
 
 // 게시 확인 시각 — 071 이전 행은 비어 있어 게시일(서울 00:00)로 대신한다
 export function confirmedInstant(postedConfirmedAt: string | null, postedAt: string): Date {
   return postedConfirmedAt ? new Date(postedConfirmedAt) : new Date(Date.parse(`${postedAt}T00:00:00Z`) - KST_MS);
 }
-// 이번 회차에 보낼 때가 됐나 — 이번 주 월요일 07:00 전에 확인됐으면 지금 보낸다(7시에 놓쳐도 다음 5분에 잡힌다)
+// 이번 회차에 보낼 때가 됐나 — 가장 최근 회차 전에 확인됐으면 지금 보낸다(회차 시각에 놓쳐도 다음 5분에 잡힌다)
 export function isDue(confirmedAt: Date, now: Date): boolean {
-  return confirmedAt.getTime() < lastMondaySeven(now).getTime();
+  return confirmedAt.getTime() < lastSendSlot(now).getTime();
 }
 // 언제 보내는가(화면 표시) — 지났으면 null(곧 보냄)
 export function sendAtFor(confirmedAt: Date, now: Date): Date | null {
-  return isDue(confirmedAt, now) ? null : nextMondaySeven(now);
+  return isDue(confirmedAt, now) ? null : nextSendSlot(now);
 }
 
 // 게시됐지만 정산 요청을 만들 수 없는 작업(koo 11-02) — 작업 비용·인플루언서가 비어 후보(CANDIDATE_BASE)에서 빠진다.

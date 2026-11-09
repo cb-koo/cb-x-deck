@@ -9,7 +9,7 @@ import type { SettlementCandidate, ReadinessIssue } from './settlementCalc.ts';
 import type { TaskType } from './campaignJudgment.ts';
 import type { UnsendableReason, UnsendableRow } from './settlementAuto.ts';
 import { CANDIDATE_SQL, rowToCandidate, insertRequestInTx, getSettlementSettings, saveSettlementSettings, type CandRow, type PaymentRequestRow } from './settlementStore.ts';
-import { pendingGroup, blockingIssues, confirmedInstant, isDue, sendAtFor, nextMondaySeven, togetherFor, type PendingGroup, type PendingState, type Together, type WeekSibling } from './settlementAuto.ts';
+import { pendingGroup, blockingIssues, confirmedInstant, isDue, sendAtFor, nextSendSlot, togetherFor, type PendingGroup, type PendingState, type Together, type WeekSibling } from './settlementAuto.ts';
 import { exportIncludesTestFixtures, TEST_FIXTURE_HANDLE_PG } from './settlementTestFixture.ts';
 
 import { AUTO_REQUESTER_FALLBACK, HOLD_REASON_MAX } from './settlementAuto.ts';
@@ -30,7 +30,7 @@ export interface PendingSummary {
   waiting: number;
   together: number;             // 같은 주 작업 대기 — 예정일이 지난 남은 작업이 있는 건은 needsAction에도 센다(koo: 알려주는 것으로)
   stopped: number;
-  nextSendAt: string;           // 다음 월요일 07:00
+  nextSendAt: string;           // 다음 전송 회차(월요일 07·12·15시)
   lastRunAt: string | null;     // 자동 전송이 마지막으로 확인한 시각(예약 실행이 없으면 null)
   lastRunAgeMin: number | null; // 그게 몇 분 전인지 — 서버 시계로 계산(화면이 렌더 중에 시계를 읽지 않게)
   sentAutoToday: number;        // 오늘(서울) 자동으로 보낸 요청 수
@@ -130,7 +130,7 @@ export async function listPending(sql: postgres.Sql, now: Date = new Date(), cam
       waiting: out.filter((x) => x.group === 'waiting').length,
       together: out.filter((x) => x.group === 'together').length,
       stopped: out.filter((x) => x.group === 'stopped').length,
-      nextSendAt: nextMondaySeven(now).toISOString(),
+      nextSendAt: nextSendSlot(now).toISOString(),
       lastRunAt: iso(run[0]?.at ?? null),
       lastRunAgeMin: run[0]?.at ? Math.floor((now.getTime() - new Date(run[0].at).getTime()) / 60_000) : null,
       sentAutoToday: Number(sent[0]?.n ?? 0),

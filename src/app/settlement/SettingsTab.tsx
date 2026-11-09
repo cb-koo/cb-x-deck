@@ -123,10 +123,10 @@ function AutoSendSection({ on, sw, onChanged }: { on: boolean; sw: AutoSendSwitc
         </span>
       </div>
       <p className="mt-1 text-ui text-x-muted">
-        {on ? '게시 확인된 작업을 매주 월요일 07:00 정산팀에 자동 전송해요. 끄면 정산 요청 대기에 그대로 남고, [보내기]·[바로 보내기]로 직접 보낼 수 있어요.'
+        {on ? '게시 확인된 작업을 매주 월요일 07:00, 12:00, 15:00에 정산팀으로 자동 전송해요. 끄면 정산 요청 대기에 그대로 남고, [보내기]·[바로 보내기]로 직접 보낼 수 있어요.'
             : '자동 전송이 꺼져 있어요 — 정산 요청 대기의 작업은 [보내기]·[바로 보내기]로만 나가요.'}
       </p>
-      {confirming && <p className="mt-1 text-ui text-amber-700">켜면 지난 월요일 07:00 전에 확인된 작업(곧 전송)이 5분 안에 정산팀으로 나가요.</p>}
+      {confirming && <p className="mt-1 text-ui text-amber-700">켜면 지난 전송 시각 전에 확인된 작업(곧 전송)이 5분 안에 정산팀으로 나가요.</p>}
       {sw?.changedAt && <p className="mt-1 text-ui text-x-muted">마지막 변경 {kstMonthDayTimeKo(sw.changedAt)} · {sw.changedByName}</p>}
       {err && <p role="alert" className="mt-1 text-ui text-red-700">{err}</p>}
     </section>

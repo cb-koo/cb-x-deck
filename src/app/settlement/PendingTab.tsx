@@ -96,7 +96,7 @@ export function PendingTab({ initialCampaignId, onGoRequests, tokens }: { initia
       )}
       {all.length === 0 && unsendable.length === 0 && (
         <p className="mt-6 rounded-xl border border-dashed border-x-border p-8 text-center text-ui text-x-muted">
-          {tokens.length ? '검색에 맞는 정산 요청 대기가 없어요' : '정산 요청 대기 없음 · 게시 확인된 작업은 다음 월요일 07:00에 자동 전송돼요'}
+          {tokens.length ? '검색에 맞는 정산 요청 대기가 없어요' : '정산 요청 대기 없음 · 게시 확인된 작업은 매주 월요일 07:00, 12:00, 15:00에 자동 전송돼요'}
         </p>
       )}
 

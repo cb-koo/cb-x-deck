@@ -9,7 +9,7 @@ import { SETTLEMENT_DEFAULTS, type SettlementSettings } from './settlementSettin
 import { getSettlementSettings, saveSettlementSettings, cancelRequest, listRequests, getForExport } from './settlementStore.ts';
 import { toExternalItem } from './settlementExternal.ts';
 import { listPending, sendTask, runAutoSend, holdTask, ackRemoval, setAutoSend, AUTO_REQUESTER_FALLBACK } from './settlementAutoStore.ts';
-import { nextMondaySeven } from './settlementAuto.ts';
+import { nextSendSlot } from './settlementAuto.ts';
 
 const sql = getSql();
 const P = 'tsta' + process.pid;
@@ -67,7 +67,7 @@ async function postedQuote(campId: string, handle: string, createdBy: string | n
   return t;
 }
 async function sweep(now: Date, opts: Parameters<typeof runAutoSend>[2]) { const r = await runAutoSend(sql, now, opts); runIds.push(r.runId); return r; }
-const afterNextMonday = () => new Date(nextMondaySeven(new Date()).getTime() + 60_000);
+const afterNextMonday = () => new Date(nextSendSlot(new Date()).getTime() + 60_000);
 
 test('게시 확인 시각 — 트리거가 처음 확인할 때만 찍고, 날짜를 고쳐도 그대로', async () => {
   const camp = await campaign();
@@ -95,7 +95,7 @@ test('정산 요청 대기 묶음 — 기다림(보내는 때)·막힘·확인 �
   const { rows, summary } = await listPending(sql, new Date(), camp.id);
   const g = (id: string) => rows.find((r) => r.cand.taskId === id)!;
   assert.equal(g(ok.id).group, 'waiting');
-  assert.equal(g(ok.id).sendAt, nextMondaySeven(new Date()).toISOString());
+  assert.equal(g(ok.id).sendAt, nextSendSlot(new Date()).toISOString());
   assert.equal(g(ok.id).cand.categoryDefault, SETTLEMENT_DEFAULTS.categories.find((c) => c.id === 'fee')!.sendAs);
   assert.equal(g(nopm.id).group, 'blocked');
   assert.deepEqual(g(nopm.id).blocking.map((i) => i.code), ['no-payment-method']);
@@ -125,7 +125,7 @@ test('정산에서 빠진 작업 — 비용이 빈 게시 작업은 보완 필�
   assert.equal(res.rows.find((r) => r.cand.taskId === nocost.id)?.group, 'waiting');
 });
 
-test('주간 스윕 — 월요일 7시 전엔 안 보내고, 지나면 기다림만 보낸다(요청자 = 작업 만든 사람, 자동 표식)', async () => {
+test('주간 스윕 — 회차 전엔 안 보내고, 지나면 기다림만 보낸다(요청자 = 작업 만든 사람, 자동 표식)', async () => {
   const camp = await campaign();
   await influencer(H('s1')); await influencer(H('s2'), false); await influencer(H('s3'));
   const t1 = await postedQuote(camp.id, H('s1'), creator.id);
@@ -303,17 +303,17 @@ test('같은 주 작업 대기 — 남은 작업이 있으면 자동 전송하�
   assert.deepEqual(sentIds, [posted.id, left.id].sort());
 });
 
-// 동일한 시점에(koo 11-05) — 마지막 작업이 월요일 07:00 직후에 확인돼도 먼저 끝난 작업만 그날 따로 나가지 않는다
+// 동일한 시점에(koo 11-05) — 마지막 작업이 전송 회차 직후에 확인돼도 먼저 끝난 작업만 그날 따로 나가지 않는다
 test('같은 주 묶음은 가장 늦게 확인된 작업 기준으로 함께 나간다 — 월요일 아침에 나뉘지 않게', async () => {
   const camp = await campaign();
   await influencer(H('st'));
   const a = await postedQuote(camp.id, H('st'), creator.id);   // 10/9 게시
   const b = await postedQuote(camp.id, H('st'), creator.id);
-  const mon = nextMondaySeven(new Date());
-  // a는 주중에, b는 다음 월요일 07:00 직후(07:00:30)에 확인된 것으로 둔다
+  const mon = nextSendSlot(new Date());
+  // a는 하루 전에, b는 다음 회차 직후(+30초)에 확인된 것으로 둔다
   await sql`update campaign_task set posted_confirmed_at = ${new Date(mon.getTime() - 86_400_000)} where id = ${a.id}`;
   await sql`update campaign_task set posted_confirmed_at = ${new Date(mon.getTime() + 30_000)} where id = ${b.id}`;
-  const atMonday = new Date(mon.getTime() + 60_000);   // 그 월요일 07:01 — a만 보면 보낼 때지만 b는 아니다
+  const atMonday = new Date(mon.getTime() + 60_000);   // 그 회차 +1분 — a만 보면 보낼 때지만 b는 아니다
   assert.equal((await sweep(atMonday, { campaignIds: [camp.id] })).sent, 0);
   const nextWeek = new Date(mon.getTime() + 7 * 86_400_000 + 60_000);
   assert.equal((await sweep(nextWeek, { campaignIds: [camp.id] })).sent, 2);

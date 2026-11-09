@@ -3,7 +3,7 @@ import { getSql } from '@/lib/db';
 import { runAutoSend } from '@/lib/settlementAutoStore';
 
 // 정산 요청 자동 전송(스펙 2026-10-12 §6) — DB 예약 실행(pg_cron + pg_net, scripts/settlement-auto-send-cron.sql)이 5분마다 부른다.
-// 보낼지 말지는 runAutoSend가 정한다(이번 주 월요일 07:00 전에 확인된 것만) — 5분마다 불러도 평일엔 고친 건 말고는 할 일이 없다.
+// 보낼지 말지는 runAutoSend가 정한다(가장 최근 회차 — 월요일 07·12·15시 — 전에 확인된 것만) — 5분마다 불러도 평일엔 고친 건 말고는 할 일이 없다.
 // 성과 자동 측정과 같은 시크릿을 쓴다(예약 실행 비밀을 하나로 관리, Vault 'measure_cron_secret').
 export const maxDuration = 60;
 

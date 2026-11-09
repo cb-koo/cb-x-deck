@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lastMondaySeven, nextMondaySeven, confirmedInstant, isDue, sendAtFor, pendingGroup, blockingIssues } from './settlementAuto.ts';
+import { lastSendSlot, nextSendSlot, confirmedInstant, isDue, sendAtFor, pendingGroup, blockingIssues } from './settlementAuto.ts';
 import { computeCandidate } from './settlementCalc.ts';
 import { SETTLEMENT_DEFAULTS } from './settlementSettings.ts';
 import type { PaymentMethod } from './influencerPayment.ts';
@@ -9,31 +9,42 @@ import type { TaskType } from './campaignJudgment.ts';
 // 서울 벽시계 → 순간
 const kst = (s: string) => new Date(`${s}+09:00`);
 
-test('lastMondaySeven — 월요일 7시 전후·주중·일요일 밤', () => {
+test('lastSendSlot — 월요일 07·12·15시 회차 전후, 주중, 일요일 밤', () => {
   // 2026-10-12는 월요일
-  assert.equal(lastMondaySeven(kst('2026-10-12T06:59:59')).toISOString(), kst('2026-10-05T07:00:00').toISOString());
-  assert.equal(lastMondaySeven(kst('2026-10-12T07:00:00')).toISOString(), kst('2026-10-12T07:00:00').toISOString());
-  assert.equal(lastMondaySeven(kst('2026-10-15T13:00:00')).toISOString(), kst('2026-10-12T07:00:00').toISOString());
-  assert.equal(lastMondaySeven(kst('2026-10-18T23:59:00')).toISOString(), kst('2026-10-12T07:00:00').toISOString());
+  assert.equal(lastSendSlot(kst('2026-10-12T06:59:59')).toISOString(), kst('2026-10-05T15:00:00').toISOString());
+  assert.equal(lastSendSlot(kst('2026-10-12T07:00:00')).toISOString(), kst('2026-10-12T07:00:00').toISOString());
+  assert.equal(lastSendSlot(kst('2026-10-12T11:59:00')).toISOString(), kst('2026-10-12T07:00:00').toISOString());
+  assert.equal(lastSendSlot(kst('2026-10-12T12:00:00')).toISOString(), kst('2026-10-12T12:00:00').toISOString());
+  assert.equal(lastSendSlot(kst('2026-10-12T14:30:00')).toISOString(), kst('2026-10-12T12:00:00').toISOString());
+  assert.equal(lastSendSlot(kst('2026-10-12T15:00:00')).toISOString(), kst('2026-10-12T15:00:00').toISOString());
+  assert.equal(lastSendSlot(kst('2026-10-15T13:00:00')).toISOString(), kst('2026-10-12T15:00:00').toISOString());
+  assert.equal(lastSendSlot(kst('2026-10-18T23:59:00')).toISOString(), kst('2026-10-12T15:00:00').toISOString());
   // 서울 월요일 00:30 = UTC 일요일 — UTC 요일로 자르면 틀린다
-  assert.equal(lastMondaySeven(kst('2026-10-19T00:30:00')).toISOString(), kst('2026-10-12T07:00:00').toISOString());
+  assert.equal(lastSendSlot(kst('2026-10-19T00:30:00')).toISOString(), kst('2026-10-12T15:00:00').toISOString());
   // 월 경계
-  assert.equal(lastMondaySeven(kst('2026-11-01T12:00:00')).toISOString(), kst('2026-10-26T07:00:00').toISOString());
+  assert.equal(lastSendSlot(kst('2026-11-01T12:00:00')).toISOString(), kst('2026-10-26T15:00:00').toISOString());
 });
 
-test('nextMondaySeven — 언제나 now 뒤', () => {
-  assert.equal(nextMondaySeven(kst('2026-10-12T06:00:00')).toISOString(), kst('2026-10-12T07:00:00').toISOString());
-  assert.equal(nextMondaySeven(kst('2026-10-12T07:00:00')).toISOString(), kst('2026-10-19T07:00:00').toISOString());
-  assert.equal(nextMondaySeven(kst('2026-10-18T22:00:00')).toISOString(), kst('2026-10-19T07:00:00').toISOString());
+test('nextSendSlot — 언제나 now 뒤, 월요일 안에서 다음 회차', () => {
+  assert.equal(nextSendSlot(kst('2026-10-12T06:00:00')).toISOString(), kst('2026-10-12T07:00:00').toISOString());
+  assert.equal(nextSendSlot(kst('2026-10-12T07:00:00')).toISOString(), kst('2026-10-12T12:00:00').toISOString());
+  assert.equal(nextSendSlot(kst('2026-10-12T12:30:00')).toISOString(), kst('2026-10-12T15:00:00').toISOString());
+  assert.equal(nextSendSlot(kst('2026-10-12T15:00:00')).toISOString(), kst('2026-10-19T07:00:00').toISOString());
+  assert.equal(nextSendSlot(kst('2026-10-18T22:00:00')).toISOString(), kst('2026-10-19T07:00:00').toISOString());
 });
 
-test('isDue — 이번 주 월요일 7시 전에 확인된 것만, 놓쳐도 다음 실행에서 잡힌다', () => {
+test('isDue — 가장 최근 회차 전에 확인된 것만, 놓쳐도 다음 실행에서 잡힌다', () => {
   const now = kst('2026-10-12T07:05:00');
   assert.equal(isDue(kst('2026-10-11T23:00:00'), now), true);    // 일요일 밤 확인 → 월요일 아침에 나감
   assert.equal(isDue(kst('2026-10-12T06:59:00'), now), true);
-  assert.equal(isDue(kst('2026-10-12T07:01:00'), now), false);   // 7시 이후 확인 → 다음 주
-  assert.equal(isDue(kst('2026-10-12T07:01:00'), kst('2026-10-19T07:00:00')), true);
+  assert.equal(isDue(kst('2026-10-12T07:01:00'), now), false);   // 7시 이후 확인 → 12시 회차
+  assert.equal(isDue(kst('2026-10-12T07:01:00'), kst('2026-10-12T12:00:00')), true);
+  assert.equal(isDue(kst('2026-10-12T12:10:00'), kst('2026-10-12T14:59:00')), false);
+  assert.equal(isDue(kst('2026-10-12T12:10:00'), kst('2026-10-12T15:00:00')), true);   // 12시 뒤 확인 → 15시 회차
+  assert.equal(isDue(kst('2026-10-12T15:01:00'), kst('2026-10-14T15:00:00')), false);  // 15시 뒤 확인 → 다음 월요일
+  assert.equal(isDue(kst('2026-10-12T15:01:00'), kst('2026-10-19T07:00:00')), true);
   assert.equal(isDue(kst('2026-10-08T10:00:00'), kst('2026-10-14T15:00:00')), true);   // 수요일에 고친 지난주 확인 건 → 바로
+  assert.equal(sendAtFor(kst('2026-10-12T08:00:00'), kst('2026-10-12T09:00:00'))?.toISOString(), kst('2026-10-12T12:00:00').toISOString());
   assert.equal(sendAtFor(kst('2026-10-13T10:00:00'), kst('2026-10-14T15:00:00'))?.toISOString(), kst('2026-10-19T07:00:00').toISOString());
   assert.equal(sendAtFor(kst('2026-10-08T10:00:00'), kst('2026-10-14T15:00:00')), null);
 });

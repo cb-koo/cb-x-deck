@@ -55,6 +55,8 @@
 | `PROVIDER_UNAVAILABLE` | 503 | 저장소·AI 호출 실패 |
 | `SETTLEMENT_REQUESTED` · `ACTIVE_SETTLEMENT` · `RESERVATION_COMMAND_REQUIRED` | 409 | 작업 삭제·정산 중인 작업·레거시 경로의 우회 변경 |
 | `PROFILE_LOOKUP_FAILED` | 502 | `/people/register`의 외부 프로필 조회 실패 |
+| `POST_DUPLICATE` | 409 | `/tasks/{id}/confirm-post` — 그 게시물 링크(트윗)가 이미 다른(취소 안 된) 작업에 등록됨(2026-11-10). 문구가 어느 작업인지 말한다 |
+| `SAME_VISIT_DELETE_CONFIRM` | 409 | `DELETE /tasks/{id}` — 같은 방문의 게시물 작업이 연결된 원래 작업(2026-11-10). 웹에서 함께 지운다 |
 | `HOURS_INVALID` · `MAP_URL_INVALID` | 400/422 | 클리닉 설정(익스텐션은 안 씀) |
 
 `REASON_REQUIRED_FOR_END`는 `/end`에서 더 이상 나지 않는다 — 메모·사유 칩이 비면 서버가 '진행 안 됨'으로 채운다.
@@ -72,7 +74,10 @@
 - 연결 작업에 예약을 붙이면(`POST /reservations`, `target.kind = existingTask`) `STATE_CHANGED`(409) "같은 방문의 게시물 작업이에요. 예약은 원래 작업에 있어요."가 돌아온다. `POST /tasks/{id}/end`도 `STATE_CHANGED`로 막힌다.
 - 원래 작업을 지우려 하면(`DELETE /tasks/{id}`) 연결 작업이 있는 동안 `SAME_VISIT_DELETE_CONFIRM`(409)이 돌아온다 — 웹 화면에서 함께 지울지 확인한 뒤 지운다.
 - 원래 작업을 취소(예약 종료 포함)하면 게시 전 연결 작업도 같은 사유로 함께 취소된다. 게시된 연결 작업이 있으면 `STATE_CHANGED`(409)로 막힌다(금액이 원래 작업에 있어서).
-- 기존 필드·코드는 바뀌지 않는다. 정산팀에 보내는 Item에는 키를 추가하지 않았다.
+- 같은 게시물 링크(트윗)를 두 작업에 등록하지 않는다 — `POST /tasks/{id}/confirm-post`에 이미 다른(취소 안 된) 작업에 등록된 링크를 보내면 `POST_DUPLICATE`(409)와 "이미 게시물 1에 등록된 링크예요."(같은 방문) / "이미 ○○ 캠페인의 @x 작업에 등록된 링크예요." 같은 문구가 돌아온다. 웹 게시 확인과 웹 [게시물 연결(트래킹)]도 같은 판정이다.
+- 원래 작업을 취소해 함께 취소된 연결 작업은 원래 작업을 되돌리면 함께 돌아온다(웹, DB `cancelled_with`, 마이그레이션 090). 원래 작업이 취소 상태면 연결 작업만 따로 되돌릴 수 없다.
+- 날짜 없는 게시 전 연결 작업은 원래 작업 게시 후 7일이 지나면 정산 대기에서 '안 올라옴'으로 알린다. 캠페인을 마감하면 기다림이 풀리고 원래 작업의 묶음 금액이 다음 자동 전송 회차에 나간다(같은 주 함께 보내기와 같은 규칙).
+- 기존 필드·코드는 바뀌지 않는다(`POST_DUPLICATE`·`SAME_VISIT_DELETE_CONFIRM` 코드만 추가). 정산팀에 보내는 Item에는 키를 추가하지 않았다.
 
 ### 대화 목록 협찬 요약 (2026-10-13)
 

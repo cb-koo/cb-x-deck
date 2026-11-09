@@ -46,7 +46,7 @@ export function CancelDialog({ task, onClose, onConfirm, linked = { pending: 0, 
     ? `취소한 작업은 표에 '취소'로 남아요. 예약 기록은 보존되지만 예약이 연결된 작업은 되돌릴 수 없어요. 비용 합계·밀림에서는 빠져요.`
     : `취소한 작업은 표에 '취소'로 남고 되돌릴 수 있어요. 비용 합계·밀림에서는 빠져요.`)
     + (task.draftId ? ` 붙어 있던 원고 "${task.draftLabel ?? '(제목 없음)'}"는 떼어져 다른 작업에 쓸 수 있어요.` : '')
-    + (linked.pending && !linked.posted ? ` 같은 방문의 게시물 작업 ${linked.pending}건도 함께 취소돼요.` : '');
+    + (linked.pending && !linked.posted ? ` 같은 방문의 게시물 작업 ${linked.pending}건도 함께 취소돼요${reserved ? '' : '(되돌리면 함께 돌아와요)'}.` : '');
   const blocked = linked.posted > 0 ? SAME_VISIT_CANCEL_POSTED_MESSAGE : null;
 
   return (

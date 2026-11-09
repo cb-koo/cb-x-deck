@@ -123,7 +123,7 @@ export const fetchTaskChangesApi = (campaignId: string, taskId: string) =>
 export const cancelTaskApi = (campaignId: string, taskId: string, body: { reason: CancelReason | null; note: string }) =>
   call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/cancel`, json('POST', body));
 export const restoreTaskApi = (campaignId: string, taskId: string) =>
-  call<{ task: TaskRow; draft: 'reattached' | 'taken' | 'gone' | 'none' }>(`/api/campaigns/${campaignId}/tasks/${taskId}/restore`, { method: 'POST' });
+  call<{ task: TaskRow; draft: 'reattached' | 'taken' | 'gone' | 'none'; linked?: { restored: number; draftMissed: number } }>(`/api/campaigns/${campaignId}/tasks/${taskId}/restore`, { method: 'POST' });
 // 다른 곳에서 정산함(061) — 표시(POST)·되돌리기(DELETE). 게시·취소·살아있는 요청을 서버가 다시 검사한다
 export const settleElsewhereApi = (campaignId: string, taskId: string, body: { note: string }) =>
   call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/settled-elsewhere`, json('POST', body));

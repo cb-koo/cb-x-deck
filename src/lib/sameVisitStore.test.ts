@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import { getSql } from './db.ts';
 import { createClient } from './clientStore.ts';
 import { createCampaign, deleteCampaign } from './campaignStore.ts';
-import { createTasks, createSameVisitTask, deleteTask, cancelTask, getTask, sameVisitLinkedIds, updateTask, findPostLinkOwner } from './campaignTaskStore.ts';
+import { createTasks, createSameVisitTask, deleteTask, cancelTask, restoreTask, getTask, sameVisitLinkedIds, updateTask, findPostLinkOwner, undoSameVisitTask } from './campaignTaskStore.ts';
 import { ProductError } from './productCommand.ts';
-import { SAME_VISIT_CREATE_MESSAGE, SAME_VISIT_CANCEL_POSTED_MESSAGE } from './sameVisit.ts';
+import { SAME_VISIT_CREATE_MESSAGE, SAME_VISIT_CANCEL_POSTED_MESSAGE, SAME_VISIT_UNDO_BLOCKED_MESSAGE, SAME_VISIT_UNDO_GONE_MESSAGE, SAME_VISIT_RESTORE_ORIGINAL_FIRST_MESSAGE } from './sameVisit.ts';
 
 const sql = getSql();
 const P = 'tsvp' + process.pid;
@@ -144,4 +144,50 @@ test('취소 — 원래 작업을 취소하면 게시 전 연결 작업도 함�
   // 연결 작업 자체는 게시 전이면 따로 취소할 수 있다
   const { task: c } = await createSameVisitTask(sql, c2.id, o2.id, null);
   assert.equal(await cancelTask(sql, c.id, { reason: null, note: '', actorId: null, today: '2026-11-09' }), 'ok');
+});
+
+test('빈 작업 재사용 = 되돌리기와 같은 판정 — 메모만 붙은(예정일 미정) 연결 작업은 빈 것이 아니라 새로 만든다', async () => {
+  const { camp, o } = await setup('h');
+  const { task: a } = await createSameVisitTask(sql, camp.id, o.id, null);
+  await updateTask(sql, a.id, { note: '두 번째는 릴스' });
+  const next = await createSameVisitTask(sql, camp.id, o.id, null);
+  assert.equal(next.created, true);
+  assert.notEqual(next.task.id, a.id);
+  assert.equal(next.ordinal, 3);
+});
+
+test('되돌리기 — 잠근 행으로 판정: 빈 것만 지우고(삭제 기록), 그 사이 입력했으면 막고, 이미 지워졌으면 문구', async () => {
+  const { camp, o } = await setup('i');
+  const { task: a } = await createSameVisitTask(sql, camp.id, o.id, null);
+  await undoSameVisitTask(sql, camp.id, a.id, null);
+  assert.equal(await getTask(sql, a.id), null);
+  assert.equal((await sql`select 1 from campaign_task_deletion where task_id = ${a.id}`).length, 1);
+  await rejects(undoSameVisitTask(sql, camp.id, a.id, null), SAME_VISIT_UNDO_GONE_MESSAGE);
+  const { task: b } = await createSameVisitTask(sql, camp.id, o.id, null);
+  await updateTask(sql, b.id, { scheduledOn: '2026-11-20' });
+  await rejects(undoSameVisitTask(sql, camp.id, b.id, null), SAME_VISIT_UNDO_BLOCKED_MESSAGE);
+  await rejects(undoSameVisitTask(sql, camp.id, o.id, null), SAME_VISIT_UNDO_BLOCKED_MESSAGE);   // 원래 작업은 되돌리기 대상이 아니다
+  assert.ok(await getTask(sql, b.id));
+});
+
+test('되돌리기(복원) — 원래 작업을 되돌리면 함께 취소된 것만 함께, 원래 작업이 취소면 연결 작업 단독 복원은 막는다', async () => {
+  const { camp, o } = await setup('j');
+  const { task: a } = await createSameVisitTask(sql, camp.id, o.id, null);
+  await updateTask(sql, a.id, { scheduledOn: '2026-11-20' });
+  const { task: b } = await createSameVisitTask(sql, camp.id, o.id, null);
+  // b는 따로 먼저 취소(함께 취소 아님)
+  assert.equal(await cancelTask(sql, b.id, { reason: null, note: '', actorId: null, today: '2026-11-09' }), 'ok');
+  assert.equal(await cancelTask(sql, o.id, { reason: 'no_response', note: '', actorId: null, today: '2026-11-09' }), 'ok');
+  const [ca] = await sql`select cancelled_with from campaign_task where id = ${a.id}`;
+  assert.equal(ca.cancelled_with, o.id);
+  await rejects(restoreTask(sql, a.id), SAME_VISIT_RESTORE_ORIGINAL_FIRST_MESSAGE);
+  const r = await restoreTask(sql, o.id);
+  assert.equal(r.result, 'ok');
+  assert.deepEqual(r.linked, { restored: 1, draftMissed: 0 });
+  assert.equal((await getTask(sql, a.id))!.cancelledAt, null);
+  assert.equal((await getTask(sql, b.id))!.cancelledAt, '2026-11-09');   // 따로 취소한 건 그대로
+  const [ra] = await sql`select cancelled_with from campaign_task where id = ${a.id}`;
+  assert.equal(ra.cancelled_with, null);
+  // 원래 작업이 살아 있으면 연결 작업 단독 복원은 된다
+  assert.equal((await restoreTask(sql, b.id)).result, 'ok');
 });

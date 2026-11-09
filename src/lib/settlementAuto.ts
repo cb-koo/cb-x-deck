@@ -1,7 +1,8 @@
 // 정산 요청 자동 전송(스펙 2026-10-12 §2·§4) — 순수. 언제 보내는지와 어느 묶음인지를 한 곳에서 정한다.
 // 서버 스윕(runAutoSend)·정산 화면 묶음·캠페인 필터 줄이 모두 이 판정을 쓴다(라벨-값 일치, UX 원칙 4).
 import type { SettlementCandidate, IssueCode, ReadinessIssue } from './settlementCalc.ts';
-import { TASK_TYPE_LABEL, weekStartOf, type TaskType } from './campaignJudgment.ts';
+import { TASK_TYPE_LABEL, weekStartOf, daysBetweenDates, type TaskType } from './campaignJudgment.ts';
+import { postNo } from './sameVisit.ts';
 
 const KST_MS = 9 * 3_600_000;
 const DAY_MS = 86_400_000;
@@ -84,8 +85,13 @@ export interface WeekSibling {
   postedAt: string | null; scheduledOn: string | null; visitOn: string | null; campaignStartsOn: string;
   confirmedAt: string | null;   // 게시 확인 시각(ISO) — 묶음이 '가장 늦게 끝난 작업'에 맞춰 함께 나가게(koo 11-05: 동일한 시점에)
   sameVisitOf?: string | null;  // 같은 방문의 원래 작업(089) — 원래 작업(금액이 있는 후보)은 주와 상관없이 이 게시물을 기다린다
+  createdAt?: string;           // 만든 시각 — 같은 방문 게시물 번호(게시물 2, 3…)를 매기는 순서
 }
-export interface TogetherPending { taskId: string; campaignName: string; taskType: TaskType; dueOn: string | null; overdue: boolean }
+// sameVisit — 원래 작업에 연결된 게시물이면 그 번호와 원래 작업 게시 후 지난 날수. 날짜 없이 안 올라오면 이 날수로 '지남'을 판정한다
+export interface TogetherPending { taskId: string; campaignName: string; taskType: TaskType; dueOn: string | null; overdue: boolean; sameVisit?: { ordinal: number; sinceOriginal: number } | null }
+// 날짜 없는 게시 전 연결 작업을 '안 올라옴'으로 보는 기준 — 원래 작업 게시 후 7일(검토 반영 11-09: 예정일이 없으면 영영 '지남'이 안 돼
+// 원래 작업 정산이 조용히 멈췄다). 지나면 정산 대기에서 주황·확인 필요 숫자에 잡힌다. 예정일이 있으면 그 날짜가 기준이다.
+export const SAME_VISIT_WAIT_DAYS = 7;
 // kind — 묶인 이유. week = 같은 주 작업만, visit = 같은 방문의 게시물만(089, koo 11-09 결정 8), both = 둘 다. 표시 글자만 가른다
 export interface Together { total: number; posted: number; pending: TogetherPending[]; lastConfirmedAt: string | null; kind?: 'week' | 'visit' | 'both' }
 export const taskWeekDate = (t: Pick<WeekSibling, 'postedAt' | 'scheduledOn' | 'visitOn' | 'campaignStartsOn'>): string =>
@@ -101,9 +107,13 @@ export function togetherFor(self: { taskId: string; handle: string; postedAt: st
   const same = siblings.filter((x) => x.handle.toLowerCase() === h && (x.taskId === self.taskId || linkedToSelf(x) || inWeek(x)));
   if (!same.some((x) => x.taskId === self.taskId)) same.push({ taskId: self.taskId, handle: self.handle, taskType: 'post', campaignName: '', postedAt: self.postedAt, scheduledOn: null, visitOn: null, campaignStartsOn: self.postedAt, confirmedAt: null });
   if (same.length <= 1) return null;
-  const pending = same.filter((x) => !x.postedAt).map((x) => {
+  const linkedOrder = same.filter(linkedToSelf).sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.taskId.localeCompare(b.taskId));
+  const since = daysBetweenDates(self.postedAt, today);
+  const pending = same.filter((x) => !x.postedAt).map((x): TogetherPending => {
     const dueOn = x.scheduledOn ?? x.visitOn;
-    return { taskId: x.taskId, campaignName: x.campaignName, taskType: x.taskType, dueOn, overdue: !!dueOn && dueOn < today };
+    const sv = linkedToSelf(x) ? { ordinal: linkedOrder.indexOf(x) + 2, sinceOriginal: since } : null;
+    const overdue = dueOn ? dueOn < today : !!sv && since > SAME_VISIT_WAIT_DAYS;
+    return { taskId: x.taskId, campaignName: x.campaignName, taskType: x.taskType, dueOn, overdue, sameVisit: sv };
   });
   const confirmed = same.map((x) => x.confirmedAt).filter((d): d is string => !!d).sort();
   const others = same.filter((x) => x.taskId !== self.taskId);
@@ -113,7 +123,8 @@ export function togetherFor(self: { taskId: string; handle: string; postedAt: st
 const TOGETHER_HEAD: Record<NonNullable<Together['kind']>, string> = { week: '같은 주', visit: '같은 방문 게시물', both: '같은 주, 같은 방문 게시물' };
 /** 사유 한 칸 — '같은 주 3건 중 2건 게시, 남은 작업: 백수약국_11월1주차 인용RT(11/6 예정)'. */
 export function togetherText(t: Together): string {
-  const left = t.pending.map((p) => `${p.campaignName} ${TASK_TYPE_LABEL[p.taskType]}${p.dueOn ? `(${md(p.dueOn)} 예정${p.overdue ? ', 지남' : ''})` : '(예정일 없음)'}`);
+  const left = t.pending.map((p) => `${p.campaignName} ${TASK_TYPE_LABEL[p.taskType]}${p.dueOn ? `(${md(p.dueOn)} 예정${p.overdue ? ', 지남' : ''})`
+    : p.sameVisit ? `(게시물 ${p.sameVisit.ordinal}, 예정일 없음${p.overdue ? `, 원래 게시 후 ${p.sameVisit.sinceOriginal}일` : ''})` : '(예정일 없음)'}`);
   return `${TOGETHER_HEAD[t.kind ?? 'week']} ${t.total}건 중 ${t.posted}건 게시, 남은 작업: ${left.join(', ')}`;
 }
 
@@ -122,6 +133,12 @@ export function togetherText(t: Together): string {
 export function togetherShort(t: Together): string {
   // 같은 주만이면 예전 그대로(묶음 머리말이 이미 말한다), 같은 방문이 섞이면 무엇을 기다리는지 앞에 붙인다
   const head = `${t.kind && t.kind !== 'week' ? `${TOGETHER_HEAD[t.kind]} ` : ''}${t.total}건 중 ${t.posted}건 게시`;
+  // 날짜 없이 안 올라온 같은 방문 게시물 — '예정일 지남'이 아니라 무엇이 얼마나 늦었는지 말한다
+  const stale = t.pending.filter((p) => p.overdue && !p.dueOn && p.sameVisit);
+  if (stale.length) {
+    const s = stale[0].sameVisit!;
+    return `${head}, ${postNo(s.ordinal, '이')} 아직 안 올라왔어요(원래 게시 후 ${s.sinceOriginal}일${stale.length > 1 ? `, 외 ${stale.length - 1}건` : ''})`;
+  }
   const late = t.pending.filter((p) => p.overdue).length;
   if (late) return `${head}, ${late}건 예정일 지남`;
   const next = t.pending.map((p) => p.dueOn).filter((d): d is string => !!d).sort()[0];

@@ -364,7 +364,8 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
   // useFlowTaskActions는 reload: () => Promise<void>를 받는다 — load()가 이제 성공 여부를 돌려주므로(리뷰
   // 지적 3) 그 계약을 안 건드리려고 결과를 버리는 얇은 래퍼로 감싼다.
   const reloadDetail = useCallback(async () => { await load(); }, [load]);
-  const flowActions = useFlowTaskActions({ campaignId: id, show, reload: reloadDetail, onChanged });
+  const openTaskPanel = useCallback((taskId: string) => setPanel({ taskId }), []);
+  const flowActions = useFlowTaskActions({ campaignId: id, show, reload: reloadDetail, onChanged, openTask: openTaskPanel });
   // 배정된 인플루언서의 명부 옵션 — FlowTable·TaskTable과 같은 매칭 규칙(핸들 대소문자 무관)
   const optionFor = useCallback(
     (handle: string | null) => (handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined),
@@ -1252,7 +1253,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                        onSubmit={(date, reason) => void actions.markRemoved(panelTask, date, reason)} />
       )}
       {linkFor && (
-        <LinkPostModal task={linkFor} onClose={() => setLinkFor(null)}
+        <LinkPostModal task={linkFor} onClose={() => setLinkFor(null)} onOpenTask={openTaskAnywhere}
                        onLinked={() => {
                          setLinkFor(null);
                          show(linkFor?.postedAt ? '게시물을 연결했어요 — 조회수가 잡혀요' : '게시물을 연결했어요 — 게시됨으로 표시되고 조회수가 잡혀요');

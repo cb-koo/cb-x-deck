@@ -5,8 +5,8 @@ import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { reservationDeleteSummary } from '@/lib/taskDeletionStore';
-import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces, hasPaidRequest, logCostChangeInTx, sameVisitLinkedIds, findPostLinkOwner } from '@/lib/campaignTaskStore';
-import { sameVisitPatchError, canUndoLinked, ORIGINAL_INFLUENCER_LOCKED_MESSAGE, SAME_VISIT_UNDO_BLOCKED_MESSAGE } from '@/lib/sameVisit';
+import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces, hasPaidRequest, logCostChangeInTx, sameVisitLinkedIds, findPostLinkOwner, undoSameVisitTask } from '@/lib/campaignTaskStore';
+import { sameVisitPatchError, ORIGINAL_INFLUENCER_LOCKED_MESSAGE } from '@/lib/sameVisit';
 import { parseTweetLink } from '@/lib/tweetLink';
 import type { TaskPatch } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
@@ -222,6 +222,11 @@ async function DELETEInternal(req: Request, ctx: { params: Promise<{ id: string;
   const { id, taskId } = await ctx.params;
   if (!isUuidLike(id) || !isUuidLike(taskId)) return notFound();
   const sql = getSql();
+  // [되돌리기](만든 직후 알림) — 판정·삭제는 저장소가 잠근 행으로 한 트랜잭션에서(이미 지워짐·그 사이 입력함은 문구로)
+  if (new URL(req.url).searchParams.get('undoSameVisit') === '1') {
+    await undoSameVisitTask(sql, id, taskId, gate.member);
+    return NextResponse.json({ ok: true, deleted: true });
+  }
   const cur = await getTask(sql, taskId);
   if (cur && cur.campaignId !== id) return notFound();
   // 정산 보호(정산 스펙 §4-4) — 활성 요청이 붙은 작업은 지우지 않는다
@@ -231,10 +236,7 @@ async function DELETEInternal(req: Request, ctx: { params: Promise<{ id: string;
   const withReservation = new URL(req.url).searchParams.get('withReservation') === '1';
   // 같은 방문의 연결 작업(089)이 있으면 화면이 확인 창에서 알리고 ?withSameVisit=1로 보낸다 — 없으면 deleteTask가 409로 거절한다
   const withSameVisit = new URL(req.url).searchParams.get('withSameVisit') === '1';
-  // [되돌리기](만든 직후 알림) — 아직 아무것도 넣지 않은 연결 작업만. 그 사이 링크·날짜·메모·원고를 넣었으면 지우지 않는다
-  if (new URL(req.url).searchParams.get('undoSameVisit') === '1' && (!cur || !canUndoLinked(cur))) {
-    return NextResponse.json({ error: SAME_VISIT_UNDO_BLOCKED_MESSAGE }, { status: 409 });
-  }
+
   if (!withReservation) {
     const reservation = await reservationDeleteSummary(sql, taskId);
     if (reservation) {

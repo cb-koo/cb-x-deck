@@ -94,8 +94,22 @@ export const SAME_VISIT_UNDO_BLOCKED_MESSAGE = '이미 내용을 넣은 게시�
 
 // ── 같은 게시물 링크 중복(koo QA 11-09) ──
 // owner = 같은 트윗이 이미 붙어 있는 다른 작업. 같은 방문이면 '게시물 N', 아니면 캠페인·인플로 가리킨다.
-export function duplicateLinkMessage(owner: { campaignName: string; influencerHandle: string | null; sameCampaign: boolean; ordinal: number | null }): string {
-  if (owner.ordinal !== null) return `이미 게시물 ${owner.ordinal}에 등록된 링크예요.`;
+type DuplicateOwner = { campaignName: string; influencerHandle: string | null; sameCampaign: boolean; ordinal: number | null };
+export function duplicateOwnerLabel(owner: DuplicateOwner): string {
+  if (owner.ordinal !== null) return `게시물 ${owner.ordinal}`;
   const who = owner.influencerHandle ? `@${owner.influencerHandle} 작업` : '다른 작업';
-  return owner.sameCampaign ? `이미 이 캠페인의 ${who}에 등록된 링크예요.` : `이미 ${owner.campaignName}의 ${who}에 등록된 링크예요.`;
+  return owner.sameCampaign ? `이 캠페인의 ${who}` : `${owner.campaignName}의 ${who}`;
+}
+// 게시 확인에 링크를 넣을 때(웹 패널·확장)
+export const duplicateLinkMessage = (owner: DuplicateOwner) => `이미 ${duplicateOwnerLabel(owner)}에 등록된 링크예요.`;
+// [게시물 연결(트래킹)]으로 이미 다른 작업의 본 게시물을 옮기려 할 때 — 옮기는 길은 그 작업에서 연결을 먼저 푸는 것(P1, 검토 반영 11-09)
+export const duplicateTrackedMessage = (owner: DuplicateOwner) =>
+  `이미 ${duplicateOwnerLabel(owner)}에 연결된 게시물이에요. 옮기려면 그 작업에서 먼저 연결을 풀어 주세요.`;
+export const SAME_VISIT_UNDO_GONE_MESSAGE = '이미 지워졌어요.';
+// 원래 작업이 취소돼 있으면 연결 작업만 따로 되돌리지 않는다 — 금액·예약이 없는 고아 게시물 작업이 남는다(검토 반영 11-09)
+export const SAME_VISIT_RESTORE_ORIGINAL_FIRST_MESSAGE = '원래 작업이 취소돼 있어요. 원래 작업을 먼저 되돌려 주세요.';
+// 되돌리기 결과 한 줄 — 함께 되돌린 같은 방문 게시물(원고를 다시 못 붙인 건 그 수만)
+export function restoreLinkedNote(linked: { restored: number; draftMissed: number }): string {
+  if (!linked.restored) return '';
+  return ` 같은 방문 게시물 ${linked.restored}건도 함께 되돌렸어요${linked.draftMissed ? `(그중 ${linked.draftMissed}건은 원고를 다시 붙이지 못했어요)` : ''}.`;
 }

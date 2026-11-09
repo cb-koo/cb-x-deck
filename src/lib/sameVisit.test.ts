@@ -134,7 +134,7 @@ test('정산 기다림 — 원래 작업은 주와 상관없이 같은 방문 �
   assert.equal(t.kind, 'visit');
   assert.deepEqual([t.total, t.posted, t.pending.length], [2, 1, 1]);
   assert.equal(togetherShort(t), '같은 방문 게시물 2건 중 1건 게시, 1건 예정일 없음');
-  assert.match(togetherText(t), /^같은 방문 게시물 2건 중 1건 게시, 남은 작업: 마인드_10월 방문협찬\(예정일 없음\)$/);
+  assert.match(togetherText(t), /^같은 방문 게시물 2건 중 1건 게시, 남은 작업: 마인드_10월 방문협찬\(게시물 2, 예정일 없음\)$/);
   // 다 올라오면 남은 것 없음 → 함께 전송(묶음은 있지만 pending 0)
   assert.equal(togetherFor(self, [sib({ taskId: 'o', postedAt: '2026-11-05' }), sib({ taskId: 'a', sameVisitOf: 'o', postedAt: '2026-11-12' })], T)!.pending.length, 0);
   // 같은 주의 다른 작업과 섞이면 both
@@ -165,4 +165,22 @@ test('알림 문구 — 게시물 N 뒤 조사, 빈 연결 작업·되돌리기 
   assert.equal(duplicateLinkMessage({ campaignName: '마인드_10월', influencerHandle: 'sara', sameCampaign: false, ordinal: 1 }), '이미 게시물 1에 등록된 링크예요.');
   assert.equal(duplicateLinkMessage({ campaignName: '마인드_10월', influencerHandle: 'sara', sameCampaign: true, ordinal: null }), '이미 이 캠페인의 @sara 작업에 등록된 링크예요.');
   assert.equal(duplicateLinkMessage({ campaignName: '마인드_10월', influencerHandle: null, sameCampaign: false, ordinal: null }), '이미 마인드_10월의 다른 작업에 등록된 링크예요.');
+});
+
+test('정산 기다림 — 날짜 없는 게시 전 연결 작업은 원래 게시 후 7일이 지나면 지남(안 올라옴)으로 알린다', () => {
+  const sib = (o: Partial<WeekSibling> & { taskId: string }): WeekSibling => ({
+    handle: 'sara', taskType: 'visit', campaignName: '마인드_10월', postedAt: null, scheduledOn: null, visitOn: null, campaignStartsOn: '2026-10-01', confirmedAt: null, ...o,
+  });
+  const self = { taskId: 'o', handle: 'sara', postedAt: '2026-10-31' };
+  const sibs = [sib({ taskId: 'o', postedAt: '2026-10-31' }), sib({ taskId: 'a', sameVisitOf: 'o', createdAt: '1' }), sib({ taskId: 'b', sameVisitOf: 'o', createdAt: '2', postedAt: '2026-11-02' })];
+  // 7일째(11/7)까지는 기다림, 8일째부터 지남
+  assert.equal(togetherFor(self, sibs, '2026-11-07')!.pending[0].overdue, false);
+  const late = togetherFor(self, sibs, '2026-11-09')!;
+  assert.equal(late.pending[0].overdue, true);
+  assert.deepEqual(late.pending[0].sameVisit, { ordinal: 2, sinceOriginal: 9 });
+  assert.equal(togetherShort(late), '같은 방문 게시물 3건 중 2건 게시, 게시물 2가 아직 안 올라왔어요(원래 게시 후 9일)');
+  assert.match(togetherText(late), /\(게시물 2, 예정일 없음, 원래 게시 후 9일\)$/);
+  // 예정일이 있으면 그 날짜가 기준(7일 규칙 아님)
+  const dated = togetherFor(self, [sibs[0], sib({ taskId: 'a', sameVisitOf: 'o', scheduledOn: '2026-11-20' })], '2026-11-09')!;
+  assert.equal(dated.pending[0].overdue, false);
 });

@@ -10,6 +10,7 @@ import { ScatterplotLayer, GeoJsonLayer, TextLayer } from '@deck.gl/layers';
 import type { PickingInfo } from '@deck.gl/core';
 import type { Clinic, RegionMetric, RegionUnit, Station } from './types';
 import { foreignColor, seqColor, won, pct, num, CRM_META } from './format';
+import { MapTooltipContent, type MapTooltipData } from './MapTooltipContent';
 
 type Bounds = [number, number, number, number];
 type GeoFeature = { type: 'Feature'; properties: Record<string, string>; geometry: unknown };
@@ -50,7 +51,7 @@ export default function MapView(p: Props) {
   const [zoom, setZoom] = useState(START.zoom);
   const [sgg, setSgg] = useState<GeoCollection | null>(null);
   const [dong, setDong] = useState<GeoCollection | null>(null);
-  const [hover, setHover] = useState<{ x: number; y: number; html: string } | null>(null);
+  const [hover, setHover] = useState<({ x: number; y: number } & MapTooltipData) | null>(null);
   const [legendOpen, setLegendOpen] = useState(true);
   // 역은 병원이 몰린 강남·신사에서 이름이 병원 점에 가려지지 않게 배경(MapLibre)이 아니라 deck.gl로 병원 점 위에 그린다
   const { subwayOn, stations } = p;
@@ -171,7 +172,7 @@ export default function MapView(p: Props) {
             const a = regionAgg.agg.get(keyOf(info.object!));
             const name = useDong ? pr.adm_nm.split(' ').slice(1).join(' ') : `${pr.sidonm} ${pr.sggnm}`;
             setHover({ x: info.x, y: info.y,
-              html: `<b>${name}</b><br/>병원 ${num(a?.count ?? 0)}곳 · 매출 ${won(a?.sales ?? 0)}<br/>외국인 매출 ${won(a?.foreignSales ?? 0)}` });
+              title: name, lines: [`병원 ${num(a?.count ?? 0)}곳 · 매출 ${won(a?.sales ?? 0)}`, `외국인 매출 ${won(a?.foreignSales ?? 0)}`] });
           },
         }));
       }
@@ -193,7 +194,7 @@ export default function MapView(p: Props) {
           const c = info.object;
           if (!c) return setHover(null);
           setHover({ x: info.x, y: info.y,
-            html: `<b>${c.name}</b><br/>${c.gu} ${c.dong ?? ''}<br/>매출 ${won(c.sales)} · 외국인 ${pct(c.foreignPct)}${c.score != null ? ` · 기회 ${c.score}점` : ''}` });
+            title: c.name, lines: [`${c.gu} ${c.dong ?? ''}`, `매출 ${won(c.sales)} · 외국인 ${pct(c.foreignPct)}${c.score != null ? ` · 기회 ${c.score}점` : ''}`] });
         },
       }));
     }
@@ -208,7 +209,7 @@ export default function MapView(p: Props) {
         pickable: true, updateTriggers: { getRadius: zoom, getLineWidth: zoom },
         onHover: (info: PickingInfo<Station>) => {
           const d = info.object;
-          setHover(d ? { x: info.x, y: info.y, html: `<b>${d.name}</b><br/>${d.lines}` } : null);
+          setHover(d ? { x: info.x, y: info.y, title: d.name, lines: [d.lines] } : null);
         },
       }));
       if (zoom >= 12.5) {
@@ -235,7 +236,8 @@ export default function MapView(p: Props) {
           const c = info.object;
           if (!c) return setHover(null);
           setHover({ x: info.x, y: info.y,
-            html: `${CRM_META[c.crm!.status].label}<br/><b>${c.name}</b>${c.crm!.branch ? ` · ${c.crm!.branch}` : ''}<br/>매출 ${won(c.sales)} · 외국인 ${pct(c.foreignPct)}` });
+            status: CRM_META[c.crm!.status].label, title: c.name, branch: c.crm!.branch ?? undefined,
+            lines: [`매출 ${won(c.sales)} · 외국인 ${pct(c.foreignPct)}`] });
         },
       }));
       if (zoom >= 10.5) {
@@ -278,7 +280,7 @@ export default function MapView(p: Props) {
       <div ref={container} style={{ position: 'absolute', inset: 0 }} />
       {hover && (
         <div className="pointer-events-none absolute z-10 rounded-lg bg-x-text/90 px-2.5 py-1.5 text-ui leading-snug text-white"
-             style={{ left: hover.x + 14, top: hover.y + 14 }} dangerouslySetInnerHTML={{ __html: hover.html }} />
+             style={{ left: hover.x + 14, top: hover.y + 14 }}><MapTooltipContent {...hover} /></div>
       )}
       <div className="absolute bottom-3 left-3 z-10 w-60 rounded-2xl border border-x-border-strong bg-white/95 text-ui shadow-sm">
         <button onClick={() => setLegendOpen((v) => !v)} className="flex w-full items-center px-3 py-2 font-semibold">

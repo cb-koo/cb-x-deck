@@ -4,10 +4,24 @@ TweetDeck식 X(트위터) 벤치마크 리서치 + 콘텐츠 생성 도구. X �
 
 ## 실행
 
+Node **24 LTS**를 쓴다. 2026-10-21 보안 업데이트를 포함한 최소 버전은 **24.22.1**이며,
+로컬 기준은 `.nvmrc`, Vercel의 계열 선택은 `package.json`의 `engines.node`에 기록한다.
+`engines` 선언만으로 설치된 Node가 교체되지는 않는다. 실행 전 `node --version`과
+`node -p process.execPath`로 버전·경로를 확인한다. nvm을 사용하면 다음 순서로 맞춘다.
+
 ```bash
+nvm install
+nvm use
 npm install
 npm run dev   # http://localhost:3000
 ```
+
+다른 버전 관리 도구를 사용해도 같은 24.x 보안 패치 버전을 선택한다. 새 보안 업데이트가 나오면
+공식 공지 확인 → `.nvmrc` 갱신 → 테스트·빌드 → 스테이징 기능 검증 순서로 반영한다.
+Vercel의 `24.x` 설정은 세부 패치 버전을 보장하는 증거가 아니므로 실제 서버 로그도 확인한다.
+`[runtime] phase=build`는 빌드 환경의 실행 버전이다. 서버 초기화의 `phase: server-start` 로그는
+빌드 중에도 발생할 수 있으므로, **배포 후 요청을 보낸 뒤 Vercel 런타임 로그에서 확인한 것**만
+실제 함수 버전의 증거로 쓴다. 배포 ID·확인 시각과 함께 기록한다.
 
 `.env` 필요 키: `PGHOST/PGPORT/PGUSER/PGDATABASE/PGPASSWORD`(Supabase Transaction pooler, PGPORT 6543),
 `NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_ANON_KEY`(Google OAuth 로그인),
@@ -78,8 +92,27 @@ DB 스키마 초기화 (`migrations/*.sql`). 로컬 개발·배포 전 최초 1�
 정산 요청 픽스처가 정산 프로덕트로 새어 나간 적도 있다(2026-09-09). 그래서 운영 DB를 가리키면
 `scripts/testGuard.ts`가 시작 전에 막는다.
 
-`.env.staging`이 필요하다. 연습용 프로젝트는 `cb-x-deck-staging`(Supabase). DB 비밀번호는 조회할 수
-없고 대시보드에서 재설정만 되며, 나머지 값은 `supabase projects api-keys --project-ref <ref>`로 얻는다.
+`.env.staging`이 필요하다. 연습용 프로젝트는 `cb-x-deck-staging`이다.
+환경 파일은 프로젝트 관리자에게 받으며, 운영 프로젝트의 설정을 복사하지 않는다.
+
+프로젝트 관리자가 보관한 **교체된 스테이징 전용 값**을 승인된 비밀 전달 경로로 받는다.
+DB 비밀번호는 조회할 수 없으므로, 기존 비밀 관리 경로에 없을 때만 관리자가 재설정한다.
+파일은 값을 넣기 전부터 소유자만 읽고 쓸 수 있게 만들고, 기존 파일이 있으면 보존한다.
+
+```bash
+(umask 077; set -o noclobber; : > .env.staging)
+chmod 600 .env.staging
+```
+
+필수 이름은 `PGHOST`, `PGPORT=6543`, `PGUSER`(스테이징 ref 사용), `PGDATABASE`,
+`PGPASSWORD`, `STAGING_DB_REF`,
+`SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`(둘 다 스테이징 URL),
+`SUPABASE_SERVICE_ROLE_KEY`(새 secret 키), `SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+(둘 다 새 publishable 키)다. 배포에는 `STAGING_VERCEL_PROJECT_ID`와 `STAGING_VERCEL_ORG_ID`도 필요하다.
+이름은 호환성을 위해 유지하지만 관리자 키를 `NEXT_PUBLIC_*`에 넣으면 안 된다.
+키 값·환경 파일은 Git·대화·로그에 올리지 않는다. `.env*`는 Git에서 제외된다.
+
+소스에서 키를 지우거나 새 키를 만드는 것만으로 기존 키는 폐기되지 않는다.
 시드 데이터는 필요 없다 — DB 테스트는 모두 자기 데이터를 스스로 만든다.
 
 ## 명령

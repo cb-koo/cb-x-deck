@@ -12,6 +12,8 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import postgres from 'postgres';
 
+console.info(`[runtime] phase=build node=${process.version}`);
+
 // 운영 빌드에서만 돈다. 프리뷰 빌드가 운영 DB를 건드리는 것이 이 방식의 가장 큰 위험이라 첫 관문으로 둔다.
 // VERCEL_ENV이 없으면(로컬 npm run build) 건너뛴다 — 로컬 빌드가 운영 DB를 고치면 안 된다.
 const VERCEL_ENV = process.env.VERCEL_ENV ?? '(없음: 로컬)';

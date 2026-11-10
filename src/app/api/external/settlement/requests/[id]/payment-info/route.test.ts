@@ -1,5 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { createClient as createSupabaseAdmin } from '@supabase/supabase-js';
 import { getSql } from '@/lib/db';
 import { createClient } from '@/lib/clientStore';
 import { createCampaign } from '@/lib/campaignStore';
@@ -7,6 +8,7 @@ import { createTasks, updateTask } from '@/lib/campaignTaskStore';
 import { createInfluencer, updatePaymentMethods } from '@/lib/influencerStore';
 import type { PaymentMethodInput } from '@/lib/influencerPayment';
 import { MAX_PAYMENT_QR_BYTES } from '@/lib/paymentQrInput';
+import { PAYMENT_QR_BUCKET } from '@/lib/paymentQr';
 import { listExternalLog } from '@/lib/externalApiLog';
 import { SETTLEMENT_DEFAULTS, type SettlementSettings } from '@/lib/settlementSettings';
 import { listCandidates, createRequests, getSettlementSettings, saveSettlementSettings } from '@/lib/settlementStore';
@@ -33,6 +35,7 @@ before(async () => {
 });
 
 let memberId = '';
+const fixtureInfluencerIds: string[] = [];
 async function ensureMember() {
   if (memberId) return { id: memberId, name: P + '멤버' };
   const [m] = await sql<Array<{ id: string }>>`insert into member (name, color) values (${P + '멤버'}, '#000') returning id`;
@@ -46,6 +49,7 @@ async function requestFor(handle: string, suffix: string, method?: Partial<Payme
   const c = await createClient(sql, P + '클라' + suffix);
   const camp = await createCampaign(sql, { clientId: c.id, clientName: c.name, name: P + suffix, nameEn: `${P.toLowerCase()}-${suffix}`, startsOn: '2026-08-31', endsOn: '2026-09-06', kind: 'visit' as const, note: '', createdBy: null });
   const { row: inf } = await createInfluencer(sql, { handle: H(handle), createdBy: null });
+  fixtureInfluencerIds.push(inf.id);
   const input: PaymentMethodInput = method
     ? { holder: 'KEIKO', currency: method.type === 'paypay' ? 'JPY' : 'KRW', ...(method.type === 'paypay' ? { identifier: H(handle) } : {}), ...method }
     : { type: 'bank', holder: '山田 太郎', currency: 'JPY', bank: 'みずほ', branch: '渋谷', account: '1234567' };
@@ -67,6 +71,18 @@ const body = (over: Record<string, unknown> = {}) => ({
 after(async () => {
   if (savedBefore) await saveSettlementSettings(sql, savedBefore, null);
   await sql`delete from settlement_setting_version where settings->>'marker' = ${P}`;
+  // 라우트가 실제 업로드한 QR도 회수한다. 이번 테스트가 만든 소유자만 대상으로 하며,
+  // DB 반영 전에 실패해 경로가 저장되지 않은 업로드도 포함한다. Storage API로 실제 파일을 지운다.
+  if (fixtureInfluencerIds.length) {
+    const objects = await sql<Array<{ name: string }>>`
+      select name from storage.objects where bucket_id = ${PAYMENT_QR_BUCKET}
+        and split_part(name, '/', 1) in ${sql(fixtureInfluencerIds)}`;
+    if (objects.length) {
+      const admin = createSupabaseAdmin(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      const { error } = await admin.storage.from(PAYMENT_QR_BUCKET).remove(objects.map((o) => o.name));
+      assert.equal(error, null, '테스트 QR 파일을 정리하지 못했다');
+    }
+  }
   await sql`delete from external_api_log where request_id in (select id from payment_request where influencer_handle like ${P + '%'})`;
   await sql`delete from payment_request_payment_correction where request_id in (select id from payment_request where influencer_handle like ${P + '%'})`;
   await sql`delete from payment_request where influencer_handle like ${P + '%'}`;

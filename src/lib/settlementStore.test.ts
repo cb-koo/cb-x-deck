@@ -378,6 +378,29 @@ test('생성 — 링크 없이 게시 확인된 작업은 링크 없이 요청�
   assert.equal(row.note, '[게시물 삭제] 이슈로 내림 (게시 8/27, 지워짐 확인 8/28)');
 });
 
+// ISSUE-016 같은 방문 묶음 가격 — 나머지 게시물 링크가 요청 메모(note)로 나간다(새 키 없음). 취소된 연결 작업은 빠지고, 요청 뒤 올라와도 메모는 그대로.
+test('생성 — 같은 방문 연결 작업이 있으면 나머지 게시물을 메모에 적는다(요청 시점 값)', async () => {
+  const m = await ensureMember();
+  const c = await createClient(sql, P + '클라S');
+  const camp = await createCampaign(sql, base(c.id, c.name, 's', 'visit'));
+  await influencerWithPaypal(H('svp'));
+  const [t] = await createTasks(sql, camp.id, { ...tin, type: 'post', items: [{ handle: H('svp'), cost: { amount: 150000, currency: 'KRW' } }] });
+  await updateTask(sql, t.id, { postedAt: '2026-08-27', postedSource: 'manual', postUrl: 'https://x.com/s/status/1' });
+  // 연결 작업은 저장소 판정(방문협찬 원래 작업)을 거치지 않고 직접 넣는다 — 여기선 메모 조립만 본다
+  const link = (o: Record<string, unknown>) => sql`insert into campaign_task ${sql({ campaign_id: camp.id, influencer_handle: H('svp'), type: 'visit', no_cost: true, same_visit_of: t.id, note: '', ...o })} returning id`;
+  await link({ posted_at: '2026-08-29', post_url: 'https://x.com/s/status/2', created_at: sql`now() + interval '1 second'` });
+  const [late] = await link({ created_at: sql`now() + interval '2 second'` });
+  await link({ cancelled_at: '2026-08-28', created_at: sql`now() + interval '3 second'` });   // 취소 — 빠진다
+  const cand = (await listCandidates(sql, SETTLEMENT_DEFAULTS, m.id, '2026-08-30')).find((x) => x.taskId === t.id)!;
+  const fee = SETTLEMENT_DEFAULTS.categories.find((k) => k.id === 'fee')!;
+  const [row] = await createRequests(sql, [itemOf(cand, fee.sendAs)], m, '2026-08-30');
+  assert.equal(row.note, '[같은 방문 게시물 3건] 게시물 2: https://x.com/s/status/2 (8/29 게시), 게시물 3: 아직 안 올라옴');
+  // 요청 뒤 게시물 3이 올라와도 이 요청의 메모는 그대로(스냅샷)
+  await sql`update campaign_task set posted_at = '2026-08-31', post_url = 'https://x.com/s/status/3' where id = ${late.id}`;
+  const [again] = await sql<Array<{ note: string }>>`select note from payment_request where id = ${row.id}`;
+  assert.equal(again.note, row.note);
+});
+
 // 09-14 koo: 캠페인 기간·게시일을 요청 시점 값으로 고정해 그쪽에 싣는다(단가·수단과 같은 스냅샷 규칙).
 test('생성 — 캠페인 기간·게시일 스냅샷: 요청 뒤 캠페인 기간을 고쳐도 요청 값은 그대로, 제자리 수정이 새 값을 가져온다', async () => {
   const { row, member } = await requestFor('dates', 'dt');

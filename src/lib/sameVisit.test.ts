@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  sameVisitGroups, sameVisitPatchError, sameVisitCreateError, shareNote, postNo, isBlankLinked, canUndoLinked, duplicateLinkMessage,
+  sameVisitGroups, sameVisitPatchError, sameVisitCreateError, shareNote, postNo, isBlankLinked, canUndoLinked, duplicateLinkMessage, settlementRequestNote,
   SAME_VISIT_COST_MESSAGE, SAME_VISIT_VISIT_ON_MESSAGE, SAME_VISIT_INFLUENCER_MESSAGE, SAME_VISIT_AGREEMENT_MESSAGE, SAME_VISIT_CREATE_MESSAGE,
 } from './sameVisit.ts';
 import { flowFooter, flowStageLabel, awaitsReservation, taskPerfExtra, replaceDisabledReason, visitStep } from './campaignFlowView.ts';
@@ -183,4 +183,28 @@ test('정산 기다림 — 날짜 없는 게시 전 연결 작업은 원래 게�
   // 예정일이 있으면 그 날짜가 기준(7일 규칙 아님)
   const dated = togetherFor(self, [sibs[0], sib({ taskId: 'a', sameVisitOf: 'o', scheduledOn: '2026-11-20' })], '2026-11-09')!;
   assert.equal(dated.pending[0].overdue, false);
+});
+
+test('정산 요청 메모 — 같은 방문 나머지 게시물(게시·링크 없음·안 올라옴), 링크 없는 원래 작업은 앞에, 500자 넘으면 외 N건', () => {
+  const posted = (n: number, d = '2026-11-08') => ({ postUrl: `https://x.com/skysky_ca/status/198000000000000010${n}`, postedAt: d });
+  // ① 전부 게시
+  assert.equal(settlementRequestNote(null, [posted(2), posted(3, '2026-11-09')]),
+    '[같은 방문 게시물 3건] 게시물 2: https://x.com/skysky_ca/status/1980000000000000102 (11/8 게시), 게시물 3: https://x.com/skysky_ca/status/1980000000000000103 (11/9 게시)');
+  // ② 1건 미게시 + 링크 없이 게시 확인
+  assert.equal(settlementRequestNote(null, [{ postUrl: null, postedAt: '2026-11-07' }, { postUrl: null, postedAt: null }]),
+    '[같은 방문 게시물 3건] 게시물 2: 링크 없음(게시물 삭제), 게시물 3: 아직 안 올라옴');
+  // ③ 원래 작업이 링크 없이 게시 확인 — 기존 [게시물 삭제] 문장이 앞, ' / '로 잇는다
+  assert.equal(settlementRequestNote('[게시물 삭제] 이슈로 내림 (게시 11/5, 지워짐 확인 11/9)', [posted(2)]),
+    '[게시물 삭제] 이슈로 내림 (게시 11/5, 지워짐 확인 11/9) / [같은 방문 게시물 2건] 게시물 2: https://x.com/skysky_ca/status/1980000000000000102 (11/8 게시)');
+  // 연결 작업이 없으면 예전 그대로
+  assert.equal(settlementRequestNote(null, []), '');
+  assert.equal(settlementRequestNote('[게시물 삭제] x (게시 1/1, 지워짐 확인 1/2)', []), '[게시물 삭제] x (게시 1/1, 지워짐 확인 1/2)');
+  // 길이 — 20건이면 500자를 넘지 않게 뒤를 '외 N건'으로
+  const many = Array.from({ length: 20 }, (_, i) => ({ postUrl: `https://x.com/a_very_long_handle_name/status/19800000000000${String(i).padStart(5, '0')}`, postedAt: '2026-11-08' }));
+  const long = settlementRequestNote(null, many);
+  assert.ok(long.length <= 500, String(long.length));
+  assert.match(long, /^\[같은 방문 게시물 21건\] 게시물 2: .*, 외 \d+건$/);
+  const longWithLinkless = settlementRequestNote('[게시물 삭제] ' + '긴 이유 '.repeat(30) + '(게시 1/1, 지워짐 확인 1/2)', many);
+  assert.ok(longWithLinkless.length <= 500);
+  assert.match(longWithLinkless, /^\[게시물 삭제\] .* \/ \[같은 방문 게시물 21건\] .*외 \d+건$/);
 });

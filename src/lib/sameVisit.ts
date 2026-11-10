@@ -113,3 +113,43 @@ export function restoreLinkedNote(linked: { restored: number; draftMissed: numbe
   if (!linked.restored) return '';
   return ` 같은 방문 게시물 ${linked.restored}건도 함께 되돌렸어요${linked.draftMissed ? `(그중 ${linked.draftMissed}건은 원고를 다시 붙이지 못했어요)` : ''}.`;
 }
+
+// ── 정산팀 확인 자료(note, koo 결정 A 11-10) ──
+// 정산팀은 방문협찬 요청을 reference_url(게시물 링크 1개)로 확인한다. 묶음 가격이면 게시물 2 이후를 볼 수 없어, 기존 note에 나머지를
+// 적는다(새 키 추가 금지 — 정산팀 엄격 스키마, 11/4 '[게시물 삭제]' 선례와 같은 방식). 요청 시점 값이다(나중에 올라와도 안 바뀐다).
+// linked = 원래 작업의 연결 작업(취소 제외, 만든 순서 = 화면 꼬리표 순서). 없으면 null.
+export const SETTLEMENT_NOTE_MAX = 500;
+const mdOf = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
+export function sameVisitSettlementNote(
+  linked: ReadonlyArray<{ postUrl: string | null; postedAt: string | null }>,
+  maxLen: number = SETTLEMENT_NOTE_MAX,
+): string | null {
+  if (!linked.length) return null;
+  const head = `[같은 방문 게시물 ${linked.length + 1}건]`;
+  const parts = linked.map((t, i) => {
+    const label = `게시물 ${i + 2}`;
+    if (!t.postedAt) return `${label}: 아직 안 올라옴`;
+    if (!t.postUrl) return `${label}: 링크 없음(게시물 삭제)`;
+    return `${label}: ${t.postUrl} (${mdOf(t.postedAt)} 게시)`;
+  });
+  // 길이 상한 — 넘치면 뒤 게시물을 '외 N건'으로 줄인다(꼬리 길이까지 미리 셈)
+  let out = head;
+  for (let i = 0; i < parts.length; i++) {
+    const sep = i === 0 ? ' ' : ', ';
+    const rest = parts.length - i - 1;
+    const tail = rest ? `, 외 ${rest}건` : '';
+    if ((out + sep + parts[i] + tail).length > maxLen) {
+      const more = `${i === 0 ? ' ' : ', '}외 ${parts.length - i}건`;
+      return (out + more).slice(0, maxLen);
+    }
+    out += sep + parts[i];
+  }
+  return out;
+}
+// 요청 note 한 칸 — 링크 없이 게시 확인된 원래 작업이면 기존 '[게시물 삭제] …'을 앞에, 같은 방문 문장을 뒤에(' / '). 둘 다 없으면 ''
+export function settlementRequestNote(linklessNote: string | null, linked: ReadonlyArray<{ postUrl: string | null; postedAt: string | null }>): string {
+  const first = linklessNote ?? '';
+  const budget = SETTLEMENT_NOTE_MAX - (first ? first.length + 3 : 0);
+  const sv = budget > 20 ? sameVisitSettlementNote(linked, budget) : null;
+  return [first, sv].filter((x): x is string => !!x).join(' / ').slice(0, SETTLEMENT_NOTE_MAX);
+}

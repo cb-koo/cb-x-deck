@@ -7,9 +7,10 @@ import { isUuidLike } from '@/lib/uuid';
 import { reservationDeleteSummary } from '@/lib/taskDeletionStore';
 import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces, hasPaidRequest, logCostChangeInTx } from '@/lib/campaignTaskStore';
 import type { TaskPatch } from '@/lib/campaignTaskStore';
-import { TARGETABLE_TYPES } from '@/lib/campaignJudgment';
+import { TARGETABLE_TYPES, hasXPost } from '@/lib/campaignJudgment';
+import { otherGateError } from '@/lib/otherTask';
 import { linklessGateError } from '@/lib/linklessPost';
-import { parseTaskPatch, proofGateError, visitOnlyGateError, influencerChangeGuard, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE, CANCELLED_TASK_MESSAGE, POST_CANCELLED_MESSAGE, postedAtFromLinkGate, costReasonGateError } from '@/lib/campaignTaskInput';
+import { parseTaskPatch, proofGateError, visitOnlyGateError, influencerChangeGuard, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE, CANCELLED_TASK_MESSAGE, POST_CANCELLED_MESSAGE, postedAtFromLinkGate, costReasonGateError, postUrlTypeGateError, OTHER_NO_DRAFT_TARGET_MESSAGE } from '@/lib/campaignTaskInput';
 import { getDraft, updateDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
 import { kstToday } from '@/lib/datetime';
@@ -87,6 +88,12 @@ async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; 
   // ── 게시일은 링크에서(koo 09-26 결정 1) — 투고·인용RT·방문협찬은 링크가 있어야 게시 확인되고, 날짜는 클라가
   //    보낸 값 대신 트윗 id에서 정한다(서버가 기준). RT는 보낸 날짜 그대로. 판정은 순수 함수(proofGateError와 같은 이유).
   // 링크 없이 게시 확인(ISSUE-009) — 지워진 이유 없이는 받지 않고, 한 번 받은 뒤엔 내림을 풀 수 없다
+  // 기타 협찬(088) — X 유형에 X가 아닌 링크는 거절, 기타 협찬의 완료 확인은 무엇을 했는지 + (링크 또는 확인 메모) 필수
+  const urlTypeError = postUrlTypeGateError(cur, patch);
+  if (urlTypeError) return NextResponse.json({ error: urlTypeError }, { status: 400 });
+  const otherError = otherGateError(cur, patch, kstToday());
+  if (otherError) return NextResponse.json({ error: otherError }, { status: 400 });
+  if (cur.type === 'other' && (patch.targetTaskId || patch.targetTweetUrl)) return NextResponse.json({ error: OTHER_NO_DRAFT_TARGET_MESSAGE }, { status: 400 });
   const linklessError = linklessGateError(cur, patch);
   if (linklessError) return NextResponse.json({ error: linklessError }, { status: 400 });
   const postedOn = postedAtFromLinkGate(cur, patch);
@@ -147,8 +154,9 @@ async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; 
       }
     }
   };
-  // RT는 자기 게시물이 없다 — 링크 판정·트래킹 연결 대상이 아니다(기존 규칙 그대로). 링크 지우기(null)도 판정 없음.
-  const attachUrl = patch.postUrl && cur.type !== 'rt' ? patch.postUrl : null;
+  // RT는 자기 게시물이 없고, 기타 협찬(088)의 링크는 X 밖 주소다 — 링크 판정·트래킹 연결·본인 댓글 찾기 대상이 아니다.
+  // 링크 지우기(null)도 판정 없음.
+  const attachUrl = patch.postUrl && hasXPost(cur.type) ? patch.postUrl : null;
   try {
     if (attachUrl) {
       const r = await attachPostToTask(sql, taskId, attachUrl, { fetchPost }, { createdBy: gate.member.id, apply });

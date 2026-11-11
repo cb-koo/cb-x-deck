@@ -2,11 +2,11 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui';
 import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
-import { DISPLAY_TYPE_ORDER } from '@/lib/campaignFlowView';
+import { X_TYPE_ORDER } from '@/lib/campaignFlowView';
 
 // 한 번에 만들기(§4-1, b-task-7-brief.md 3단계) — 유형별 개수만 받는다. 인플루언서·원고·비용은 만든 뒤
 // 표에서 행을 눌러 채운다(작업을 먼저 만들고 나중에 채우는 게 이 화면의 설계 의도 — AGENTS.md 상단 주석).
-// 호출 순서는 DISPLAY_TYPE_ORDER(부모의 확정 지시, TaskAddModal 계열과 다름) — 화면에 보이는 유형 나열과 같은 순서로 만든다.
+// 기타 협찬은 뺀다(무엇을 했는지를 하나씩 적어야 한다, koo 11-06). 호출 순서는 DISPLAY_TYPE_ORDER(부모의 확정 지시, TaskAddModal 계열과 다름) — 화면에 보이는 유형 나열과 같은 순서로 만든다.
 const MAX = 20;
 function clamp(v: number): number {
   if (!Number.isFinite(v) || v < 0) return 0;
@@ -17,9 +17,9 @@ export function BulkCreateDialog({ onClose, onCreate }: {
   onClose: () => void;
   onCreate: (counts: Record<TaskType, number>) => Promise<void>;
 }) {
-  const [counts, setCounts] = useState<Record<TaskType, number>>({ post: 0, quoteRt: 0, rt: 0, visit: 0 });
+  const [counts, setCounts] = useState<Record<TaskType, number>>({ post: 0, quoteRt: 0, rt: 0, visit: 0, other: 0 });
   const [busy, setBusy] = useState(false);
-  const total = DISPLAY_TYPE_ORDER.reduce((sum, k) => sum + counts[k], 0);
+  const total = X_TYPE_ORDER.reduce((sum, k) => sum + counts[k], 0);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.isComposing && !busy) onClose(); };
@@ -44,7 +44,7 @@ export function BulkCreateDialog({ onClose, onCreate }: {
         </div>
         <p className="mt-1.5 text-ui text-x-secondary">유형별로 몇 건 만들지 적으면 빈 작업이 그 수만큼 생겨요. 인플루언서·원고·비용은 만든 뒤 각 작업에서 채워요.</p>
         <div className="mt-4 space-y-2.5">
-          {DISPLAY_TYPE_ORDER.map((type) => (
+          {X_TYPE_ORDER.map((type) => (
             <label key={type} className="flex items-center justify-between gap-3 text-content">
               <span>{TASK_TYPE_LABEL[type]}</span>
               {/* 0은 값이 아니라 자리표시(placeholder)로 보인다 — 값 0을 든 채 3을 치면 브라우저가 '03'을 그대로 남겨

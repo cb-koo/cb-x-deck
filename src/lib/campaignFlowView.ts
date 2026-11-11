@@ -149,6 +149,8 @@ export function draftCell(t: FlowRow): { text: string; muted: boolean; title: st
     return { text, muted: true, title: text };
   }
   if (t.type === 'rt') return { text: '—', muted: true, title: '' };
+  // 기타 협찬(088)은 원고가 없다 — 이 칸에 '무엇을 했는지'를 보인다(시안 3-4)
+  if (t.type === 'other') return t.otherKind ? { text: t.otherKind, muted: false, title: t.otherKind } : { text: '미정', muted: true, title: '' };
   if (t.draftId) { const text = t.draftFirstLine ?? t.draftLabel ?? '(내용 없음)'; return { text, muted: false, title: text }; }
   return { text: '미정', muted: true, title: '' };
 }
@@ -172,7 +174,8 @@ export function costConfirmScenario({ profile, entered }: { profile: TaskCost | 
 // 같은 판정을 쓴다. 명부 밖(id 없음)·통화 불일치·같은 값이면 묻지 않는다.
 export function profilePromptFor({ option, type, cost }: { option: InfluencerOption | undefined; type: TaskType; cost: TaskCost | null }):
   { scenario: 'differs' | 'no-profile'; profile: TaskCost | null } | null {
-  if (!cost || !option?.id) return null;
+  // 기타 협찬은 프로필 단가가 없다(koo 11-06 결정 1) — 프로필에 반영할 칸 자체가 없어 묻지 않는다
+  if (!cost || !option?.id || type === 'other') return null;
   const profile = suggestTaskCost(option.pricing, type);
   const scenario = costConfirmScenario({ profile, entered: cost });
   if (scenario === 'differs') return { scenario, profile };
@@ -188,7 +191,9 @@ export function profilePromptFor({ option, type, cost }: { option: InfluencerOpt
 // 화면에 유형을 나열하는 순서 — 주력인 발행 유형(투고·인용RT)이 먼저, 부수적인 RT·방문협찬이 뒤.
 // TASK_TYPES(rt·quoteRt·post·visit)는 도메인 순서(단가 키 등)라 그대로 두고, 보이는 순서만 여기서 한 번 정한다:
 // 하단 한 줄과 필터 드롭다운이 같은 순서를 써야 화면 안에서 유형 나열이 두 가지로 갈리지 않는다(시안 F도 이 순서).
-export const DISPLAY_TYPE_ORDER: readonly TaskType[] = ['post', 'quoteRt', 'rt', 'visit'];
+export const DISPLAY_TYPE_ORDER: readonly TaskType[] = ['post', 'quoteRt', 'rt', 'visit', 'other'];
+// X 작업 유형만 — '한 번에 만들기'(기타 협찬은 무엇을 했는지를 하나씩 적어야 해서 뺀다)와 인플 성과 페이지(X 성과가 없다)가 쓴다
+export const X_TYPE_ORDER: readonly TaskType[] = DISPLAY_TYPE_ORDER.filter((t) => t !== 'other');
 export function flowFooter(rows: FlowRow[], today: string, currency: ViewCurrency = 'KRW'): string {
   const live = rows.filter((t) => !isTaskExcluded(t));
   const types = DISPLAY_TYPE_ORDER.filter((k) => live.some((t) => t.type === k)).map((k) => `${TASK_TYPE_LABEL[k]} ${live.filter((t) => t.type === k).length}`);
@@ -281,10 +286,12 @@ export function restoreMessage(r: 'reattached' | 'taken' | 'gone' | 'none'): str
 }
 
 // 패널 칸 순서(§4-2, koo 09-18)
-export type PanelField = 'influencer' | 'cost' | 'draft' | 'target' | 'scheduled' | 'dates' | 'note';
+export type PanelField = 'influencer' | 'otherKind' | 'cost' | 'draft' | 'target' | 'scheduled' | 'dates' | 'note';
 export const PANEL_FIELD_ORDER: Record<TaskType, PanelField[]> = {
   post: ['influencer', 'cost', 'draft', 'scheduled', 'note'],
   quoteRt: ['influencer', 'cost', 'draft', 'target', 'scheduled', 'note'],
   rt: ['influencer', 'cost', 'target', 'scheduled', 'note'],
   visit: ['influencer', 'dates', 'cost', 'draft', 'note'],
+  // 기타 협찬 — 원고·대상 없음. '무엇을 했는지'(other_kind)가 원고 자리를 대신한다
+  other: ['influencer', 'otherKind', 'cost', 'scheduled', 'note'],
 };

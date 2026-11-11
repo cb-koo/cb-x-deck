@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { uploadTaskProof, taskProofValidationError, downloadTaskProof, taskProofFilename } from '@/lib/taskProof';
+import { uploadTaskProof, taskProofValidationError, downloadTaskProof, taskProofFilename, type TaskProofKind } from '@/lib/taskProof';
 import { ImageLightbox } from '@/components/ImageLightbox';
 import { pasteBlockedByModal } from '@/components/pasteModalGuard';
 import { FILE_BTN_PRIMARY, FILE_BTN_LIGHT, FILE_BTN_TRASH, FILE_BTN_ICON, TRASH_ICON_PATH, DOWNLOAD_ICON_PATH } from '@/components/fileFieldButtons';
@@ -13,7 +13,7 @@ import { kstMonthDay } from '@/lib/datetime';
 // [바꾸기] 한 동작이다: 누르면 '교체 대기' 상자가 열리고, 그 상태에서만 붙여넣기(⌘V)·고르기를 받는다. 새 파일이 올라가
 // 저장되는 순간 바뀌고, 그 전까지(실패 포함) 원래 증빙이 그대로 남는다. 옛 화면(PostedCell)도 같은 동작이다(화면마다 갈라지지 않게).
 export function TaskProofField({
-  taskId, value, signedUrl, postedAt, influencerHandle, uploaded, required, canRemove, disabled, onChange,
+  taskId, value, signedUrl, postedAt, influencerHandle, uploaded, required, canRemove, disabled, onChange, taskType = 'rt',
 }: {
   taskId: string;
   value: string | null; // 저장된 스토리지 경로
@@ -28,6 +28,7 @@ export function TaskProofField({
   // 업로드 완료·지우기 시. 저장(PATCH)까지 하는 부모는 그 결과(true/false)를 돌려준다 — false면 '원래 증빙 그대로'를
   // 알리고 교체 상자를 열어 둔다(다시 붙여넣을 수 있게). 아직 저장 전인 폼 값만 바꾸는 부모는 아무것도 돌려주지 않아도 된다.
   onChange: (path: string | null) => void | Promise<boolean>;
+  taskType?: TaskProofKind;   // 내려받는 파일 이름의 꼬리(RT증빙·기타협찬증빙) — 기타 협찬 완료 칸만 'other'를 넘긴다
 }) {
   // 미리보기는 "어느 경로의 것인지"를 함께 들고 있는다 — 부모(key 없이 쓴다)가 낙관 갱신으로 value를
   // 새 경로로 바꾸면 preview.path === value가 돼 미리보기가 그대로 이어지고, 실패로 롤백돼 value가
@@ -140,7 +141,7 @@ export function TaskProofField({
   const shown = (preview && preview.path === value ? preview.url : null) ?? signedUrl;
   const blocked = disabled || busy;
   const startReplace = () => { setErr(''); setFlash(null); setReplacingFor(taskId); };
-  const download = () => { if (value) void downloadTaskProof(value, taskProofFilename({ postedAt, influencerHandle, url: value })); };
+  const download = () => { if (value) void downloadTaskProof(value, taskProofFilename({ postedAt, influencerHandle, url: value, taskType })); };
 
   // 카드 둘째 줄 — 동의서 카드(agreementMeta)와 같은 모양: '올린 사람 · M/D 올림'. 둘 다 모르면 줄 자체를 생략한다.
   const day = uploaded ? kstMonthDay(uploaded.at) : '';

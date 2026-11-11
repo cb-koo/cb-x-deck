@@ -143,7 +143,7 @@ const sameSeen = (a: TaskSeen, b: TaskSeen) =>
 export async function judgeTaskLink(sql: postgres.Sql, taskId: string, trackedPost: TrackedAuthor, deps: Deps): Promise<LinkJudgment> {
   const a = await assignedOf(sql, taskId, false);
   const seen = seenOf(a);
-  if (!a || a.type === 'rt' || a.cancelled) return { verdict: OK, seen };
+  if (!a || a.type === 'rt' || a.type === 'other' || a.cancelled) return { verdict: OK, seen };   // 기타 협찬은 X 게시물이 아니다(088)
   return { verdict: await judgeTracked(a, trackedPost, deps), seen };
 }
 export async function guardTaskLink(sql: postgres.Sql, taskId: string, trackedPost: TrackedAuthor, deps: Deps): Promise<AuthorVerdict> {

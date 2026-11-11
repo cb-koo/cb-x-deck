@@ -55,6 +55,7 @@ import { PriceProfileDialog } from './PriceProfileDialog';
 import { CostConfirmField } from './CostConfirmField';
 import { TargetLinkField } from './TargetLinkField';
 import { PostedBox } from './panel/PostedBox';
+import { OtherDoneBox } from './panel/OtherDoneBox';
 import { RemovedDialog } from './RemovedDialog';
 import { BulkCreateDialog } from './BulkCreateDialog';
 import { FlowRowMenu, type FlowRowMenuActions } from './FlowRowMenu';
@@ -1154,7 +1155,15 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                        : null,
                      // 게시 칸(koo 09-26 posted-inline) — 취소된 작업엔 아무것도 주지 않는다(패널이 칸 자체를 그리지 않는다).
                      // 게시 전 입력·게시 뒤 값·증빙(크게 보기·바꾸기)·내림 표시는 전부 PostedBox가 그린다.
-                     posted: panelTask && !panelTask.cancelledAt
+                     // 기타 협찬(088)은 X 게시물이 없어 '완료' 칸(OtherDoneBox)을 그린다 — 완료한 날 + 링크 또는 확인 메모
+                     posted: panelTask && !panelTask.cancelledAt && panelTask.type === 'other'
+                       ? <OtherDoneBox task={panelTask} today={data.today}
+                                       proofSignedUrl={panelTask.proof ? proofUrls[panelTask.proof.url] ?? null : null}
+                                       focus={postedFocusId === panelTask.id} onFocused={clearPostedFocus}
+                                       onDone={(date, done, otherKind) => actions.markDoneOther(panelTask, date, done, otherKind)}
+                                       onSetProof={(p) => actions.setProof(panelTask, p)}
+                                       onCancel={() => menuActions.cancel(panelTask)} />
+                     : panelTask && !panelTask.cancelledAt
                        ? <PostedBox task={panelTask} today={data.today}
                                     proofSignedUrl={panelTask.proof ? proofUrls[panelTask.proof.url] ?? null : null}
                                     focus={postedFocusId === panelTask.id} onFocused={clearPostedFocus}

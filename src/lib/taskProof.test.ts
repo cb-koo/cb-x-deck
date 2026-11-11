@@ -52,3 +52,10 @@ test('파일명 — 게시일·핸들·용도가 보이고, 게시일이 없으�
     'someone_RT증빙.png',
   );
 });
+
+test('파일명 — 작업 유형에 맞는 꼬리: RT는 RT증빙, 기타 협찬은 기타협찬증빙(koo 11-06), 유형을 안 주면 RT', () => {
+  assert.equal(taskProofFilename({ postedAt: '2026-11-06', influencerHandle: 'yumi', url: 'task/x/y.png', taskType: 'rt' }), '20261106_yumi_RT증빙.png');
+  assert.equal(taskProofFilename({ postedAt: '2026-11-06', influencerHandle: 'yumi', url: 'task/x/y.png', taskType: 'other' }), '20261106_yumi_기타협찬증빙.png');
+  assert.equal(taskProofFilename({ postedAt: null, influencerHandle: null, url: 'task/x/y.jpg', taskType: 'other' }), '미배정_기타협찬증빙.jpg');
+  assert.equal(taskProofFilename({ postedAt: null, influencerHandle: 'yumi', url: 'task/x/y.png' }), 'yumi_RT증빙.png');
+});

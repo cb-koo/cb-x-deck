@@ -8,6 +8,7 @@ export const STAGE_CHIP: Record<FlowStage, string> = {
 };
 export const TYPE_CHIP: Record<TaskType, string> = {
   post: 'bg-[#e8f0fe] text-[#1d4ed8]', quoteRt: 'bg-[#f3e8ff] text-[#7e22ce]', rt: 'bg-[#e6f6ee] text-[#15803d]', visit: 'bg-[#fff4e5] text-[#b45309]',
+  other: 'bg-slate-100 text-slate-700',   // 기타 협찬(088) — 다른 4유형과 겹치지 않는 회색
 };
 // 패널의 단계 흐름 줄 — 취소는 흐름 밖 상태라 줄에 넣지 않는다(취소면 칩 하나만, §5).
 export const FLOW_STEPS: readonly FlowStage[] = ['prep', 'handed', 'posted', 'settle', 'done'];

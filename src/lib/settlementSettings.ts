@@ -13,12 +13,15 @@ export interface AutoSendSwitch { enabled: boolean; changedAt: string; changedBy
 export interface SettlementSettings { categories: SettlementCategory[]; rateKrwPerJpy: number; autoSend?: AutoSendSwitch }
 export const autoSendEnabled = (s: SettlementSettings): boolean => s.autoSend?.enabled !== false;
 
+export const CATEGORY_ID_OTHER = 'other-type';   // 기타 협찬의 기본 분류 '기타 유형'(088)
 // 첫 화면부터 동작하는 기본값 — 슬랙 3채널 실데이터의 분류 3종. 인용RT는 어느 옵션에도 없다(요청자 최근 선택, calc §3-3).
 export const SETTLEMENT_DEFAULTS: SettlementSettings = {
   categories: [
     { id: 'promo-rt', label: '프로모션 RT·인용RT', sendAs: '마케팅비 > X(트위터) 프로모션 RT·인용RT', hidden: false, defaultFor: ['rt'] },
     { id: 'fee', label: '인플루언서 협찬 원고료', sendAs: '마케팅비 > X(트위터) 인플루언서 협찬 원고료', hidden: false, defaultFor: [] },
     { id: 'info-post', label: '정보성콘텐츠 업로드 (게시물)', sendAs: '마케팅비 > X(트위터) 정보성콘텐츠 업로드 (게시물)', hidden: false, defaultFor: [] },
+    // 기타 협찬(088, koo 11-06) — X 작업이 아니라 이름에 X를 붙이지 않는다. 'X 방문형 협찬 기타 비용'(방문 실비)과 다른 분류다.
+    { id: CATEGORY_ID_OTHER, label: '기타 유형', sendAs: '기타 유형', hidden: false, defaultFor: ['other'] },
   ],
   rateKrwPerJpy: 10,
 };

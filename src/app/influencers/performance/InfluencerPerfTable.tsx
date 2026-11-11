@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { Avatar } from '@/components/Avatar';
 import { BlueCheckIcon } from '@/components/XIcons';
 import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
-import { DISPLAY_TYPE_ORDER } from '@/lib/campaignFlowView';
+import { X_TYPE_ORDER } from '@/lib/campaignFlowView';
 import { formatAmount } from '@/lib/campaignCost';
 import { HEAD, CELL, NUM } from '@/app/settlement/tableStyle';
 import {
@@ -25,11 +25,11 @@ const ENGAGEMENT_HELP = '공개 반응(좋아요·답글·북마크·RT·인용)
 // QA 2차(스펙 §13.3): 큰 수를 전체 숫자로 보이며 폭을 다시 나눴다(합계 1168px 유지, 15px 시스템 글꼴 실측).
 // 반응·확산 64→68('1,234' 41px + 여백 24px), 조회 96→88('528,625' 60px), 조회당 비용 88→80('999.9원' 54px),
 // 캠페인 60→56·최근 게시일 88→80(머리 글자 기준), 남은 8px은 인플 칸(펼친 행의 캠페인 이름)에.
-const TASK_TYPE_COL_WIDTH: Record<TaskType, number> = { post: 52, quoteRt: 68, rt: 48, visit: 72 };
+const TASK_TYPE_COL_WIDTH: Record<TaskType, number> = { post: 52, quoteRt: 68, rt: 48, visit: 72, other: 0 }   // other: 성과 페이지엔 기타 협찬이 없다(열 없음);
 const GROUPS: Group[] = [
   { label: '이력', cols: [{ key: 'campaigns', label: '캠페인', width: 56 }, { key: 'lastPosted', label: '최근 게시일', width: 80 }] },
   // '게시한 작업' — 예정 작업은 세지 않아 캠페인 화면(예정 포함) 건수와 다를 수 있음을 이름으로 드러낸다(스펙 §12-3)
-  { label: '게시한 작업', cols: DISPLAY_TYPE_ORDER.map((t) => ({ key: `n_${t}` as SortKey, label: TASK_TYPE_LABEL[t], width: TASK_TYPE_COL_WIDTH[t] })) },
+  { label: '게시한 작업', cols: X_TYPE_ORDER.map((t) => ({ key: `n_${t}` as SortKey, label: TASK_TYPE_LABEL[t], width: TASK_TYPE_COL_WIDTH[t] })) },
   { label: '노출', cols: [{ key: 'views', label: '조회', width: 88 }, { key: 'cpv', label: '조회당 비용', width: 80 }] },
   { label: '', cols: [{ key: 'engagement', label: '참여율', width: 76, help: ENGAGEMENT_HELP }] },
   { label: '반응', cols: [{ key: 'likes', label: '좋아요', width: 68 }, { key: 'replies', label: '답글', width: 68 }, { key: 'bookmarks', label: '북마크', width: 68 }] },
@@ -202,8 +202,8 @@ const CHILD_CELL = `${CELL} h-10!`;
 // border-b- 만 지정(양쪽 다 지정하는 border- 대신) — DIVIDER의 왼쪽 세로 구분선(border-l-x-border) 색은 그대로 둔다.
 const LAST_ROW_BORDER = 'border-b-x-border-strong!';
 // 게시한 작업 4열(투고~방문협찬)을 합친 한 칸 = '유형 · 비용'
-const TASK_TYPE_SPAN = DISPLAY_TYPE_ORDER.length;
-const TYPE_FIRST_KEY = `n_${DISPLAY_TYPE_ORDER[0]}` as SortKey;
+const TASK_TYPE_SPAN = X_TYPE_ORDER.length;
+const TYPE_FIRST_KEY = `n_${X_TYPE_ORDER[0]}` as SortKey;
 
 function taskMetricText(t: PerfTask, key: MetricKey): string {
   if (key === 'engagement') return formatMetric('engagement', taskEngagement(t.metrics));

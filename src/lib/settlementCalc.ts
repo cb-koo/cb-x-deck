@@ -7,6 +7,7 @@ import { defaultCategoryFor, visibleCategories, CATEGORY_ID_FEE, CATEGORY_ID_INF
 import type { TaskProof } from './taskProofGuard.ts';
 import { JPY_TO_KRW } from './clientBudget.ts';   // 집행액 원화 환산 — 예산 화면과 같은 고정 환율
 import { linklessNote } from './linklessPost.ts';
+import { otherLinklessNote, normalizeOtherKind } from './otherTask.ts';
 
 // ── 금액(§3-1·3-2) ──
 export interface MoneyCalc {
@@ -79,10 +80,14 @@ export function defaultCategory(i: { type: TaskType; campaignKind: CampaignKind 
 }
 
 // ── 문구(§3-5) ──
-export function itemText(handle: string, type: TaskType): string {
-  return `@${handle} ${TASK_TYPE_LABEL[type]} 1건 정산`;
+// 기타 협찬(088)은 무엇을 했는지를 괄호로 붙인다 — `@handle 기타 협찬(구글맵 리뷰) 1건 정산`
+export function itemText(handle: string, type: TaskType, otherKind = ''): string {
+  const kind = type === 'other' ? normalizeOtherKind(otherKind) : '';
+  return `@${handle} ${TASK_TYPE_LABEL[type]}${kind ? `(${kind})` : ''} 1건 정산`;
 }
-export function purposeText(clientName: string, kind: CampaignKind | null, type: TaskType): string {
+// 기타 협찬(088)의 목적은 `{클라이언트} {무엇을 했는지} 협찬`(koo 11-06 결정 9) — 캠페인 종류 문구('방문협찬 원고료' 등)는 맞지 않는다
+export function purposeText(clientName: string, kind: CampaignKind | null, type: TaskType, otherKind = ''): string {
+  if (type === 'other') return `${clientName} ${normalizeOtherKind(otherKind) || '기타'} 협찬`;
   let p: string;
   if (kind === 'content') p = '정보성 콘텐츠 Viral 협찬';
   else if (kind === 'visit') p = type === 'rt' || type === 'quoteRt' ? '방문협찬 리뷰 바이럴 목적' : '방문협찬 원고료';
@@ -117,22 +122,25 @@ const NO_PROOF_ISSUE: ReadinessIssue = { level: 'blocked', code: 'no-proof', tex
 export const NO_AGREEMENT_ISSUE: ReadinessIssue = { level: 'warn', code: 'no-agreement', text: '협찬 동의서가 없어요 — 요청은 만들 수 있어요' };
 // 링크 없이 게시 확인된 작업(ISSUE-009) — 게시물이 지워져 링크 대신 지워진 이유를 요청 메모로 보낸다. 막지 않고 알려만 준다.
 const LINKLESS_REFERENCE_ISSUE: ReadinessIssue = { level: 'warn', code: 'no-reference', text: '게시물이 지워졌어요 — 링크 대신 지워진 이유를 정산팀에 보내요' };
-function referenceIssue(required: boolean, linkless = false): ReadinessIssue {
-  if (linkless) return LINKLESS_REFERENCE_ISSUE;
+// 기타 협찬(088)을 링크 없이 완료한 건 — 스크린샷(proof)이나 확인 메모가 링크 대신 정산팀에 간다. 막지 않고 알려만 준다(009와 같은 틀).
+const OTHER_LINKLESS_REFERENCE_ISSUE: ReadinessIssue = { level: 'warn', code: 'no-reference', text: '링크 없이 완료했어요 — 링크 대신 스크린샷이나 확인 메모를 정산팀에 보내요' };
+function referenceIssue(required: boolean, linkless = false, type?: TaskType): ReadinessIssue {
+  if (linkless) return type === 'other' ? OTHER_LINKLESS_REFERENCE_ISSUE : LINKLESS_REFERENCE_ISSUE;
   return required
-    ? { level: 'blocked', code: 'no-reference', text: '참고 링크를 넣어 주세요 — 정산팀이 이 링크로 게시를 확인해요' }
+    ? { level: 'blocked', code: 'no-reference', text: type === 'other' ? '확인 링크, 스크린샷, 확인 메모 중 하나가 있어야 해요 — 정산팀이 이걸로 완료를 확인해요' : '참고 링크를 넣어 주세요 — 정산팀이 이 링크로 게시를 확인해요' }
     : { level: 'warn', code: 'no-reference', text: '참고 링크 없음' };
 }
-// 참고 링크가 확인 자료인 유형 — RT만 아니다(RT의 링크는 클리닉 원본 트윗; 스펙 3-6, 슬랙 RT 405건 중 350건이 링크 없이 갔다)
+// 참고 링크가 확인 자료인 유형 — RT만 아니다(RT의 링크는 클리닉 원본 트윗; 스펙 3-6, 슬랙 RT 405건 중 350건이 링크 없이 갔다).
+// 기타 협찬(088)도 확인 자료가 필요하다 — 링크(아무 사이트) 또는 링크 없이 완료한 건의 확인 메모(note).
 export const referenceRequiredFor = (type: TaskType): boolean => type !== 'rt';
 
-export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; referenceRequired: boolean; removedAt: string | null; removedReason: string; clientId: string | null; proofMissing: boolean; agreementMissing?: boolean; unseenOn?: string | null; linkless?: boolean }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
+export function assessReadiness(i: { inRoster: boolean; method: PaymentMethod | null; category: string | null; referenceUrl: string | null; referenceRequired: boolean; removedAt: string | null; removedReason: string; clientId: string | null; proofMissing: boolean; agreementMissing?: boolean; unseenOn?: string | null; linkless?: boolean; taskType?: TaskType }): { level: ReadinessLevel; issues: ReadinessIssue[] } {
   const issues: ReadinessIssue[] = [];
   if (!i.inRoster) issues.push({ level: 'blocked', code: 'no-influencer', text: NO_INFLUENCER_TEXT });
   else if (!i.method) issues.push({ level: 'blocked', code: 'no-payment-method', text: '결제 수단이 없어요 — 프로필에서 등록해 주세요' });
   if (i.clientId === null) issues.push({ level: 'blocked', code: 'no-client', text: NO_CLIENT_TEXT });
   if (!i.category) issues.push(NO_CATEGORY_ISSUE);
-  if (!i.referenceUrl) issues.push(referenceIssue(i.referenceRequired, i.linkless));
+  if (!i.referenceUrl) issues.push(referenceIssue(i.referenceRequired, i.linkless, i.taskType));
   if (i.proofMissing) issues.push(NO_PROOF_ISSUE);
   if (i.agreementMissing) issues.push(NO_AGREEMENT_ISSUE);
   // 링크 없는 게시는 위 '게시물이 지워졌어요'가 내림까지 말한다 — 같은 사실을 두 줄로 쓰지 않는다
@@ -161,7 +169,7 @@ export function effectiveIssues(c: SettlementCandidate, e: ReadinessEdit | undef
   const editsReference = e !== undefined && 'referenceUrl' in e;
   const issues = c.issues.filter((i) => i.code !== 'no-category' && !(editsReference && i.code === 'no-reference'));
   if (!e?.category) issues.push(NO_CATEGORY_ISSUE);
-  if (editsReference && !e.referenceUrl) issues.push(referenceIssue(referenceRequiredFor(c.taskType), c.linklessNote !== null));
+  if (editsReference && !e.referenceUrl) issues.push(referenceIssue(referenceRequiredFor(c.taskType), c.linklessNote !== null, c.taskType));
   return issues;
 }
 export function effectiveReadiness(c: SettlementCandidate, e: ReadinessEdit | undefined): ReadinessLevel {
@@ -209,6 +217,7 @@ export function methodLine(m: PaymentMethodSnapshot): string {
 export interface CandidateInput {
   task: { id: string; type: TaskType; influencerHandle: string; cost: TaskCost; postUrl: string | null; targetTweetUrl: string | null; targetPostUrl: string | null; postedAt: string; removedAt: string | null; removedReason: string; draftLabel: string | null; proof: TaskProof | null;
     hasAgreement: boolean;     // 협찬 동의서가 붙어 있는가(방문협찬만 의미) — 동의서 자체는 후보에 싣지 않는다(위 NO_AGREEMENT_ISSUE)
+    otherKind?: string; doneNote?: string;   // 기타 협찬(088)만 — 품목·목적 문구와 링크 없는 완료의 요청 메모
     unseenOn?: string | null };   // 본 게시물이 X에서 안 보이기 시작한 날(서울, YYYY-MM-DD) — 확정된 것만. 판정(경고)에만 쓰고 후보·요청엔 싣지 않는다
   campaign: { id: string; name: string; kind: CampaignKind | null; clientId: string | null; clientName: string };
   influencer: { inRoster: boolean; method: PaymentMethod | null };
@@ -221,7 +230,8 @@ export interface SettlementCandidate {
   money: MoneyCalc | null; method: PaymentMethod | null; proof: TaskProof | null;
   categoryDefault: string | null; deadlineDefault: string; referenceDefault: string | null; itemText: string; purposeText: string;
   readiness: ReadinessLevel; issues: ReadinessIssue[];
-  linklessNote: string | null;   // 링크 없이 게시 확인된 작업이면 정산팀에 보낼 요청 메모(linklessPost) — 아니면 null
+  linklessNote: string | null;   // 링크 없이 게시 확인된 작업(linklessPost) 또는 링크 없이 완료한 기타 협찬(otherTask)이면 정산팀에 보낼 요청 메모 — 아니면 null
+  otherKind: string;              // 기타 협찬(088)의 무엇을 했는지 — 화면의 유형 칸 옆에 보인다. 다른 유형은 ''
 }
 export function computeCandidate(i: CandidateInput): SettlementCandidate {
   const { task, campaign, influencer } = i;
@@ -232,14 +242,14 @@ export function computeCandidate(i: CandidateInput): SettlementCandidate {
   // RT만 증빙을 요구한다(RT 증빙 스펙 결정 3) — 투고·인용RT는 post_url이 증거다. 없으면 🔴(09-02, 그쪽이 받지 않는 요청은 만들지 않는다)
   const proofMissing = task.type === 'rt' && !task.proof;
   const agreementMissing = task.type === 'visit' && !task.hasAgreement;
-  const note = linklessNote(task);
-  const r = assessReadiness({ linkless: note !== null, inRoster: influencer.inRoster, method, category: categoryDefault, referenceUrl: referenceDefault, referenceRequired: referenceRequiredFor(task.type), removedAt: task.removedAt, removedReason: task.removedReason, clientId: campaign.clientId, proofMissing, agreementMissing, unseenOn: task.unseenOn ?? null });
+  const note = linklessNote(task) ?? otherLinklessNote(task);
+  const r = assessReadiness({ taskType: task.type, linkless: note !== null, inRoster: influencer.inRoster, method, category: categoryDefault, referenceUrl: referenceDefault, referenceRequired: referenceRequiredFor(task.type), removedAt: task.removedAt, removedReason: task.removedReason, clientId: campaign.clientId, proofMissing, agreementMissing, unseenOn: task.unseenOn ?? null });
   return {
     taskId: task.id, campaignId: campaign.id, campaignName: campaign.name, clientId: campaign.clientId, clientName: campaign.clientName, campaignKind: campaign.kind,
     influencerHandle: task.influencerHandle, taskType: task.type, postedAt: task.postedAt, removedAt: task.removedAt, removedReason: task.removedReason, draftLabel: task.draftLabel,
     cost: task.cost, money, method, proof: task.proof,
     categoryDefault, deadlineDefault: defaultDeadline(i.today), referenceDefault,
-    itemText: itemText(task.influencerHandle, task.type), purposeText: purposeText(campaign.clientName, campaign.kind, task.type),
-    readiness: r.level, issues: r.issues, linklessNote: note,
+    itemText: itemText(task.influencerHandle, task.type, task.otherKind), purposeText: purposeText(campaign.clientName, campaign.kind, task.type, task.otherKind),
+    readiness: r.level, issues: r.issues, linklessNote: note, otherKind: task.type === 'other' ? normalizeOtherKind(task.otherKind ?? '') : '',
   };
 }

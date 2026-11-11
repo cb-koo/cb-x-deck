@@ -8,7 +8,7 @@ const T = '2026-09-18';
 let n = 0;
 const mk = (p: Partial<CampaignTaskItem>): CampaignTaskItem => ({
   id: `t${++n}`, campaignId: 'c', influencerHandle: 'a', type: 'visit', draftId: null, targetTaskId: null, targetTweetUrl: null,
-  postUrl: null, postedAt: null, postedSource: null, removedAt: null, removedReason: '', scheduledOn: null, visitOn: null, cost: null, note: '',
+  postUrl: null, postedAt: null, postedSource: null, removedAt: null, removedReason: '', scheduledOn: null, visitOn: null, cost: null, note: '', otherKind: '', doneNote: '',
   proof: null, visitTime: null, scheduledTime: null, agreement: null, paymentMethodId: null, cancelledAt: null, cancelReason: null, cancelNote: '', cancelledDraftId: null, cancelledDraftTitle: null, settledElsewhereAt: null, settledElsewhereNote: '', settledElsewhereByName: null,
   createdAt: '', updatedAt: '', draftStatus: null, draftLabel: null, draftFirstLine: null,
   draftPreview: null, draftFirstImage: null, target: null, costChangeCount: 0, replies: [], unseenSince: null, seenAfterRemovedAt: null,

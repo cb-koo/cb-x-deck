@@ -7,10 +7,10 @@ import {
   clampPage, clampPageLimit, toMarketingCostItem, type MarketingCostSource,
 } from './marketingCostExport.ts';
 
-test('카테고리 매핑 — 모든 작업 유형이 스펙 4종 키 중 하나로 떨어진다', () => {
+test('카테고리 매핑 — 모든 작업 유형이 스펙 enum 키 중 하나로 떨어진다', () => {
   for (const t of TASK_TYPES) {
     const cat = categoryForTaskType(t);
-    assert.ok(MARKETING_COST_CATEGORIES.includes(cat), `${t} → ${cat} 는 4종 enum 안이어야 한다`);
+    assert.ok(MARKETING_COST_CATEGORIES.includes(cat), `${t} → ${cat} 는 enum 안이어야 한다`);
   }
 });
 
@@ -21,6 +21,12 @@ test('카테고리 매핑 — 유형 경계가 스펙 §4 그대로다', () => {
   assert.equal(CATEGORY_BY_TASK_TYPE.visit, 'x_visit_manuscript');
   // x_visit_etc는 어떤 작업 유형도 매핑하지 않는다 — 소스가 없다(계약 문서 참조)
   assert.ok(!Object.values(CATEGORY_BY_TASK_TYPE).includes('x_visit_etc'));
+});
+
+test('카테고리 매핑 — 기타 협찬은 새 키 other_type(기타 유형)이고, x_ 접두어도 x_visit_etc 재사용도 없다(koo 11-06)', () => {
+  assert.equal(CATEGORY_BY_TASK_TYPE.other, 'other_type');
+  assert.ok(MARKETING_COST_CATEGORIES.includes('other_type'));
+  assert.ok(!CATEGORY_BY_TASK_TYPE.other.startsWith('x_'));
 });
 
 test('resolveClinicId — 고정 UUID 매핑이 clinic_code보다 우선, 없으면 폴백, 둘 다 없으면 null', () => {

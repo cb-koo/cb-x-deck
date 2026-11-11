@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SearchIcon } from '@/components/XIcons';
 import { TASK_TYPE_LABEL, type TaskType } from '@/lib/campaignJudgment';
-import { DISPLAY_TYPE_ORDER } from '@/lib/campaignFlowView';
+import { X_TYPE_ORDER } from '@/lib/campaignFlowView';
 import {
   selectionLabel, typeNames, toggleType, normalizeMinPosted,
   type PerfFilter, type Agg,
@@ -152,7 +152,7 @@ export function PerfFilterBar({ filter, clients, counts, onChange, agg, onAgg }:
                    selected={filter.clientIds} onToggle={toggleClient} onClear={() => onChange({ clientIds: [] })} />
       <MultiSelect name="유형" title="고른 유형의 작업만으로 성과를 다시 계산해요 — 여러 개를 고를 수 있어요"
                    summary={selectionLabel(typeNames(filter.types), 2)}
-                   items={DISPLAY_TYPE_ORDER.map((t) => ({ key: t, label: TASK_TYPE_LABEL[t], count: counts.type[t] }))}
+                   items={X_TYPE_ORDER.map((t) => ({ key: t, label: TASK_TYPE_LABEL[t], count: counts.type[t] }))}
                    selected={filter.types} onToggle={(t) => onChange({ types: toggleType(filter.types, t) })}
                    onClear={() => onChange({ types: [] })} />
       {/* 글자(게시·건 이상)는 늘 회색 — 켜졌을 때 파랗게 하면 링크처럼 보인다. 켜짐은 숫자 칸 테두리만(스펙 §18-6) */}

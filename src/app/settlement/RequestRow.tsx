@@ -136,7 +136,7 @@ export function RequestRow({ r, open, proofSignedUrl, revisionEnabled, onToggle,
               <div className={GROUP}>
                 <div className={GROUP_TITLE}>확인 자료</div>
                 <Item k="게시물" v={r.referenceUrl ? <a href={r.referenceUrl} target="_blank" rel="noreferrer" className="break-all text-x-blue-text hover:underline">{r.referenceUrl}</a> : <span className="text-x-muted">—</span>}
-                      sub={r.referenceUrl && r.taskType !== 'rt' ? '정산팀이 이 링크로 게시를 확인해요' : undefined} />
+                      sub={r.referenceUrl && r.taskType !== 'rt' ? (r.taskType === 'other' ? '정산팀이 이 링크로 완료를 확인해요' : '정산팀이 이 링크로 게시를 확인해요') : undefined} />
                 {/* 증빙이 필요 없는 유형엔 줄 자체를 안 그린다(리뷰 수정 4) */}
                 {(r.taskType === 'rt' || r.proof) && (
                   <Item k="증빙" v={r.proof

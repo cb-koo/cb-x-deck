@@ -31,6 +31,7 @@ export async function listInfluencerPerformance(sql: postgres.Sql): Promise<Perf
       join campaign c on c.id = t.campaign_id
       left join influencer i on lower(i.handle) = lower(t.influencer_handle)
      where t.cancelled_at is null and t.influencer_handle is not null
+       and t.type <> 'other'   -- 기타 협찬은 성과 비교에서 뺀다(X 성과가 없고, 비용만 들어가면 조회당 비용이 부풀려진다 — koo 11-06)
      order by t.created_at`;
   const postRows = await sql<PostRow[]>`
     select tp.task_id, tp.tweet_id, tp.posted_at, (s.raw->>'isReply')::boolean as is_reply,

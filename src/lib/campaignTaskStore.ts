@@ -39,6 +39,8 @@ export interface TaskRow {
   visitTime: string | null; scheduledTime: string | null;
   agreement: TaskAgreement | null;
   paymentMethodId: string | null;   // 이 작업에만 쓸 결제 수단(060) — 인플 payment_methods[].id 참조, null = 기본 수단(설계 §8-2)
+  // 기타 협찬만(088, koo 11-06) — 무엇을 했는지 한 줄 + 링크 없이 완료한 건의 확인 메모. 다른 유형은 늘 ''
+  otherKind: string; doneNote: string;
   // 취소(055, ADR 0002) — 삭제가 아니라 상태. cancelledDraft*는 되돌리기용 스냅샷(떼어낸 원고 id·제목)
   cancelledAt: string | null; cancelReason: CancelReason | null; cancelNote: string;
   cancelledDraftId: string | null; cancelledDraftTitle: string | null;
@@ -63,6 +65,7 @@ export interface TaskCreateInput {
   items: Array<{ handle: string | null; cost: TaskCost | null; scheduledOn?: string | null; visitOn?: string | null; paymentMethodId?: string | null }>;
   // 방문협찬의 시간(063) — 모든 줄에 같이 들어간다. 그 줄의 날짜가 비면 넣지 않는다(날짜 없는 시간은 없다)
   visitTime?: string | null; scheduledTime?: string | null;
+  otherKind?: string;   // 기타 협찬(088)만 — 비면 ''
 }
 export interface TaskPatch {
   influencerHandle?: string | null; targetTaskId?: string | null; targetTweetUrl?: string | null;
@@ -75,6 +78,7 @@ export interface TaskPatch {
   visitTime?: string | null; scheduledTime?: string | null;
   agreement?: TaskAgreement | null;
   paymentMethodId?: string | null;   // 3값: undefined 유지 · null 기본 수단으로 · id 설정. 인플이 실제로 바뀌면 updateTask가 비운다
+  otherKind?: string; doneNote?: string;   // 기타 협찬(088)만 — undefined 유지 · 값(빈 글자 포함) 설정
 }
 export interface TargetCandidate {
   taskId: string; type: TaskType; influencerHandle: string | null; campaignId: string; campaignName: string;
@@ -109,7 +113,7 @@ type Row = {
   removed_at: string | null; removed_reason: string;
   scheduled_on: string | null; visit_on: string | null; cost: unknown; note: string; proof: unknown; payment_method_id: string | null;
   visit_time: string | null; scheduled_time: string | null; agreement: unknown;
-  no_cost: boolean; version: number;
+  no_cost: boolean; version: number; other_kind: string; done_note: string;
   cancelled_at: string | null; cancel_reason: CancelReason | null; cancel_note: string;
   cancelled_draft_id: string | null; cancelled_draft_title: string | null;
   settled_elsewhere_at: string | null; settled_elsewhere_note: string; settled_elsewhere_by_name: string | null; cost_change_count: number;
@@ -144,6 +148,7 @@ const toRow = (r: Row): TaskRow => ({
   proof: taskProofOf(r.proof),
   visitTime: r.visit_time, scheduledTime: r.scheduled_time, agreement: taskAgreementOf(r.agreement),
   paymentMethodId: r.payment_method_id,
+  otherKind: r.other_kind ?? '', doneNote: r.done_note ?? '',
   cancelledAt: r.cancelled_at, cancelReason: r.cancel_reason, cancelNote: r.cancel_note,
   cancelledDraftId: r.cancelled_draft_id, cancelledDraftTitle: r.cancelled_draft_title,
   settledElsewhereAt: r.settled_elsewhere_at, settledElsewhereNote: r.settled_elsewhere_note, settledElsewhereByName: r.settled_elsewhere_by_name, costChangeCount: r.cost_change_count,
@@ -169,6 +174,7 @@ const SELECT = (sql: postgres.Sql) => sql`
          to_char(t.visit_time, 'HH24:MI') as visit_time, to_char(t.scheduled_time, 'HH24:MI') as scheduled_time, t.agreement,
          coalesce((to_jsonb(t)->>'no_cost')::boolean, false) as no_cost,
          coalesce((to_jsonb(t)->>'version')::integer, 1) as version,
+         t.other_kind, t.done_note,
          to_char(t.cancelled_at, 'YYYY-MM-DD') as cancelled_at, t.cancel_reason, t.cancel_note,
          t.cancelled_draft_id, t.cancelled_draft_title,
          to_char(t.settled_elsewhere_at, 'YYYY-MM-DD') as settled_elsewhere_at, t.settled_elsewhere_note, t.settled_elsewhere_by_name,
@@ -215,12 +221,13 @@ export async function createTasks(sql: postgres.Sql, campaignId: string, input: 
       const rows = await tx<Array<{ id: string }>>`
         insert into campaign_task (campaign_id, influencer_handle, type, target_task_id, target_tweet_url,
                                    scheduled_on, visit_on, cost, note, created_by, payment_method_id,
-                                   visit_time, scheduled_time, created_at)
+                                   visit_time, scheduled_time, other_kind, created_at)
         values (${campaignId}, ${it.handle}, ${input.type}, ${input.targetTaskId}, ${input.targetTweetUrl},
                 ${scheduledOn}::date, ${visitOn}::date,
                 ${it.cost ? tx.json(it.cost as never) : null}, ${input.note}, ${input.createdBy},
                 ${it.paymentMethodId ?? null}::text,
                 ${visitOn ? (input.visitTime ?? null) : null}::time, ${scheduledOn ? (input.scheduledTime ?? null) : null}::time,
+                ${input.type === 'other' ? (input.otherKind ?? '') : ''},
                 clock_timestamp())
         returning id`;
       ids.push(rows[0].id);
@@ -267,6 +274,8 @@ export async function updateTask(sql: postgres.Sql, id: string, patch: TaskPatch
                                when ${patch.visitTime !== undefined} then ${patch.visitTime ?? null}::time else visit_time end,
       scheduled_time    = case when ${patch.scheduledOn === null} then null
                                when ${patch.scheduledTime !== undefined} then ${patch.scheduledTime ?? null}::time else scheduled_time end,
+      other_kind        = coalesce(${patch.otherKind ?? null}::text, other_kind),
+      done_note         = coalesce(${patch.doneNote ?? null}::text, done_note),
       agreement         = case when ${patch.agreement !== undefined} then ${patch.agreement ? sql.json(patch.agreement as never) : null}::jsonb else agreement end,
       payment_method_id = case
         when ${patch.paymentMethodId !== undefined} then ${patch.paymentMethodId ?? null}::text
@@ -793,4 +802,17 @@ export async function hasPaidRequest(sql: postgres.Sql, taskId: string): Promise
   if (!isUuidLike(taskId)) return false;
   const rows = await sql`select 1 from payment_request where task_id = ${taskId} and status <> 'cancelled' and external_status = 'paid' limit 1`;
   return rows.length > 0;
+}
+
+// 기타 협찬(088)의 '무엇을 했는지' 추천 목록 — 전에 쓴 말을 많이 쓴 순으로(같으면 최근 순). 취소된 작업도 센다(이름은 이름이다).
+// 별도 표를 두지 않는다 — 작업이 곧 원본이라 이름을 고치면 추천도 따라 바뀐다. 나중에 별도 유형으로 옮길 때 이 이름이 기준이 된다.
+export async function listOtherKinds(sql: postgres.Sql, limit = 30): Promise<Array<{ kind: string; count: number }>> {
+  const rows = await sql<Array<{ kind: string; count: number }>>`
+    select other_kind as kind, count(*)::int as count
+      from campaign_task
+     where type = 'other' and other_kind <> ''
+     group by other_kind
+     order by count(*) desc, max(created_at) desc
+     limit ${limit}`;
+  return rows;
 }

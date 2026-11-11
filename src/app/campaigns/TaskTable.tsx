@@ -231,7 +231,7 @@ export function TaskTable({ rows, campaign, today, influencerOptions, sort, onSo
                           <Link href={`/settlement?tab=requests&task=${t.id}`} className={`rounded-full px-2 py-0.5 text-ui whitespace-nowrap ${TONE_CLASS[st.tone]}`} title={st.title}>{st.label}</Link>
                         ); })()}
                         <RowMenu onOpenDraft={t.draftId ? () => onOpenDraft(t.draftId as string) : null}
-                                 onLinkPost={cancelled || t.type === 'rt' ? null : () => onLinkPost(t)}
+                                 onLinkPost={cancelled || t.type === 'rt' || t.type === 'other' ? null : () => onLinkPost(t)}
                                  onDelete={() => onDelete(t)} />
                       </span>
                     </td>

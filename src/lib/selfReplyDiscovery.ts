@@ -22,7 +22,7 @@ type TaskWithPosts = { id: string; type: string; cancelled: boolean; postUrl: st
 // 스레드를 볼 본 게시물 — 게시물 링크(post_url)의 트윗이 이 작업에 트래킹돼 있을 때만(§3 "게시물 링크가 있는 작업").
 // 링크가 없는 작업을 대상으로 하면 linkTrackedPost의 보충(coalesce)이 첫 댓글을 작업의 게시물 링크로 박는다.
 function discoveryMainOf(t: TaskWithPosts): string | null {
-  if (t.type === 'rt' || t.cancelled || !t.postUrl) return null;
+  if (t.type === 'rt' || t.type === 'other' || t.cancelled || !t.postUrl) return null;   // 기타 협찬(088)의 링크는 X 밖 주소
   const p = parseTweetLink(t.postUrl);
   return p.ok && t.posts.some((x) => x.tweetId === p.tweetId) ? p.tweetId : null;
 }

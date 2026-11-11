@@ -19,6 +19,7 @@ export type TaskCreateFormState = {
   target: { taskId: string } | { url: string } | null;
   draftId: string | null;
   paymentMethodId?: string | null;   // 새 작업 폼에서 고른 결제 수단(§8-2) — 사람 줄에 싣는다. 기본 수단이면 null(안 보냄)
+  otherKind?: string;   // 기타 협찬(088)만 — 무엇을 했는지. 비었거나 다른 유형이면 보내지 않는다
 };
 
 export function buildTaskCreateBody(input: TaskCreateFormState): TaskCreateRequest {
@@ -34,5 +35,6 @@ export function buildTaskCreateBody(input: TaskCreateFormState): TaskCreateReque
     ...(input.target && 'taskId' in input.target ? { targetTaskId: input.target.taskId } : {}),
     ...(input.target && 'url' in input.target ? { targetTweetUrl: input.target.url } : {}),
     ...(input.draftId ? { draftId: input.draftId } : {}),
+    ...(input.type === 'other' && input.otherKind?.trim() ? { otherKind: input.otherKind.trim() } : {}),
   };
 }

@@ -6,11 +6,13 @@ import { isUuidLike } from './uuid.ts';
 
 // 게시물 연결이 거절되는 이유 — 라우트가 400 문구로 바꿔 보낸다.
 export class TrackingLinkError extends Error {
-  constructor(public code: 'rt-task' | 'cancelled-task') { super(code); this.name = 'TrackingLinkError'; }
+  constructor(public code: 'rt-task' | 'cancelled-task' | 'other-task') { super(code); this.name = 'TrackingLinkError'; }
 }
+export const TRACKING_LINK_OTHER_MESSAGE = '기타 협찬 작업에는 X 게시물을 연결할 수 없어요 — 작업 패널에서 완료 확인해 주세요';
 export const TRACKING_LINK_RT_MESSAGE = 'RT 작업에는 게시물을 연결할 수 없어요 — RT는 새 게시물을 만들지 않아요. 증빙 스크린샷으로 게시 확인해 주세요';
 export const TRACKING_LINK_CANCELLED_MESSAGE = '취소된 작업에는 게시물을 연결할 수 없어요 — 되돌린 뒤 연결해 주세요';
-export const trackingLinkMessage = (e: TrackingLinkError) => e.code === 'rt-task' ? TRACKING_LINK_RT_MESSAGE : TRACKING_LINK_CANCELLED_MESSAGE;
+export const trackingLinkMessage = (e: TrackingLinkError) =>
+  e.code === 'rt-task' ? TRACKING_LINK_RT_MESSAGE : e.code === 'other-task' ? TRACKING_LINK_OTHER_MESSAGE : TRACKING_LINK_CANCELLED_MESSAGE;
 
 export interface TrackedPostRow {
   id: string; tweetId: string; authorHandle: string | null; text: string;
@@ -265,6 +267,8 @@ export async function linkTrackedPost(
       if (t.length === 0) throw Object.assign(new Error('task not found'), { code: '23503' });   // FK 위반과 같은 처리(라우트 400)
       // RT엔 자기 게시물이 없다 — 붙이면 posted_at이 증빙 없이 채워진다(RT 증빙 스펙 §5)
       if (t[0].type === 'rt') throw new TrackingLinkError('rt-task');
+      // 기타 협찬(088)은 X 게시물이 아니다 — 붙이면 게시일이 트윗에서 채워지고 성과 측정 대상이 된다
+      if (t[0].type === 'other') throw new TrackingLinkError('other-task');
       // 취소 작업엔 연결 자체를 거절한다(ADR 0002) — 보충만 건너뛰면 tracked_post.task_id가 취소 작업에 남는 반쪽 연결이 생기고
       // check 제약도 잡지 못한다. 연결 update보다 먼저 던져 라우트 트랜잭션이 통째로 롤백된다.
       if (t[0].cancelled_at) throw new TrackingLinkError('cancelled-task');
@@ -280,7 +284,7 @@ export async function linkTrackedPost(
       // TaskTable도 붙이기 버튼을 안 준다) — 그래도 API로는 만들어질 수 있어 여기서도 지켜야 한다(리뷰 지적).
       // 연결(tracked_post.task_id/draft_id) 자체는 거절하지 않는다: 사용자 의도는 "이 게시물을 이 원고에
       // 연결"이지 그 원고에 어쩌다 붙은 RT 작업과는 무관하다 — 대신 아래 작업 쪽 보충만 건너뛴다.
-      if (t[0]?.type === 'rt') skipTaskSupplement = true;
+      if (t[0]?.type === 'rt' || t[0]?.type === 'other') skipTaskSupplement = true;
       // 취소 작업엔 연결 자체를 거절한다(ADR 0002, taskId 분기와 동일) — 비정상 상태(취소는 원고를
       // 자동으로 떼는데, SQL로 직접 draft_id를 되돌려 붙인 경우 등)를 통해서도 이 draftId 분기로
       // 취소 작업에 도달할 수 있다.

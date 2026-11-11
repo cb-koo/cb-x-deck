@@ -139,12 +139,23 @@ export function suggestCampaignCode(clientNameEn: string, startsOn: string): str
 
 // ─────────────────────────── 작업(campaign_task) 파생 — 스펙 2026-08-28 §2-5 ───────────────────────────
 // 작업이 캠페인의 단위다. 아래 함수들은 서버(campaignStore)·클라(TaskTable·달력·요약)가 같이 쓴다.
-export type TaskType = PriceType;
-export const TASK_TYPES: readonly TaskType[] = PRICE_TYPES;
-export const TASK_TYPE_LABEL: Record<TaskType, string> = PRICE_TYPE_LABEL;
+// '기타 협찬'(other, 088 — ISSUE-002·015, koo 11-06)은 X 게시물이 아닌 협찬(구글맵 리뷰, 상담회 참석 등)이다.
+// 단가 유형(PriceType, 인플 명부의 협찬 단가)은 4종 그대로 — 기타 협찬은 할 일이 매번 달라 프로필 단가가 없다(단가 제안 없음).
+export type TaskType = PriceType | 'other';
+export const TASK_TYPES: readonly TaskType[] = [...PRICE_TYPES, 'other'];
+export const TASK_TYPE_LABEL: Record<TaskType, string> = { ...PRICE_TYPE_LABEL, other: '기타 협찬' };
 export function isTaskType(v: unknown): v is TaskType {
   return typeof v === 'string' && (TASK_TYPES as readonly string[]).includes(v);
 }
+export const isPriceType = (t: TaskType): t is PriceType => t !== 'other';
+// 인플 본인 X 게시물이 생기는 유형 — 게시물 링크(X)·게시일(트윗 id)·작성자 확인·성과 측정·본인 댓글 찾기의 대상.
+// RT(자기 게시물 없음)와 기타 협찬(X 밖의 결과물)은 아니다. 'RT냐 아니냐'로 가르던 자리는 이 판정을 쓴다.
+export const hasXPost = (t: TaskType): boolean => t !== 'rt' && t !== 'other';
+// 원고가 붙는 유형 — RT·기타 협찬은 원고가 없는 것이 정상이다(단계 판정·원고 칸·원고 화면 작업 목록).
+export const takesDraft = (t: TaskType): boolean => t !== 'rt' && t !== 'other';
+// 기타 협찬의 '무엇을 했는지' 길이 상한 — 한 줄(표의 원고 칸·정산 품목에 들어간다)
+export const OTHER_KIND_MAX = 40;
+export const DONE_NOTE_MAX = 200;
 // 게시물이 생기는 유형만 RT/인용RT의 대상이 될 수 있다. RT는 별도 게시물이 없다.
 export const TARGETABLE_TYPES: readonly TaskType[] = ['post', 'quoteRt', 'visit'];
 export const TARGETING_TYPES: readonly TaskType[] = ['rt', 'quoteRt'];
@@ -372,7 +383,8 @@ export function flowStage(t: TaskStageInput & { influencerHandle: string | null;
   // 보내면, 그 뒤 원고를 붙이는 순간(초안) 단계가 handed → prep으로 거꾸로 내려간다 — 20~40건을 훑어
   // "지금 뭘 해야 하나"를 보는 화면에서 그 역행은 준비/전달 구분 자체를 무의미하게 만든다. RT는 원고가
   // 없는 것이 정상이라 예외(원고 없이도 '전달' 그대로).
-  if (t.type !== 'rt' && !t.draftStatus) return 'prep';
+  // 기타 협찬도 원고가 없는 유형이라 RT와 같다(사람이 정해지면 '전달' = 진행 중).
+  if (takesDraft(t.type) && !t.draftStatus) return 'prep';
   if (t.draftStatus && t.draftStatus !== 'delivered' && t.draftStatus !== 'unused') return 'prep';
   return 'handed';
 }

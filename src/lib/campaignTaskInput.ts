@@ -1,7 +1,8 @@
 // 작업 API 입력 검증 — 순수(DB 없음). 라우트 4곳(작업 생성·패치, 원고 PATCH·POST의 taskId)이 같은 규칙을 쓴다.
 import type { Parsed, TaskCost } from './campaignCost.ts';
 import { parseTaskCost, sameTaskCost } from './campaignCost.ts';
-import { isTaskType, isDateOnlyString, isTimeString, SETTLED_ELSEWHERE_NOTE_MAX, type TaskType } from './campaignJudgment.ts';
+import { isTaskType, isDateOnlyString, isTimeString, SETTLED_ELSEWHERE_NOTE_MAX, OTHER_KIND_MAX, DONE_NOTE_MAX, type TaskType } from './campaignJudgment.ts';
+import { isHttpUrl, normalizeOtherKind, OTHER_KIND_TOO_LONG_MESSAGE, DONE_NOTE_TOO_LONG_MESSAGE, OTHER_ONLY_MESSAGE } from './otherTask.ts';
 import type { TaskPatch } from './campaignTaskStore.ts';
 import { parseTweetLink, tweetPermalink } from './tweetLink.ts';
 import { parseXHandle, handleParseMessage } from './xHandle.ts';
@@ -24,6 +25,7 @@ export function parseTaskIdPatch(v: unknown): Parsed<string | null | undefined> 
 }
 
 export const TASK_TYPE_MESSAGE = '작업 유형 값이 올바르지 않아요';
+export const OTHER_NO_DRAFT_TARGET_MESSAGE = '기타 협찬 작업엔 원고나 RT 대상을 붙이지 않아요';
 export const TARGET_MESSAGE = 'RT 대상 링크가 X 게시물 주소가 아니에요';
 // 같은 파서를 쓰지만 사용자가 채운 칸이 다르다 — 게시물 링크 오류에 'RT 대상'이라고 말하면 어느 칸을 고칠지 알 수 없다
 export const POST_URL_MESSAGE = '게시물 링크가 X 게시물 주소가 아니에요';
@@ -160,6 +162,16 @@ export interface TaskCreateBody {
   visitTime: string | null; scheduledTime: string | null;
   influencers: Array<{ handle: string; cost: TaskCost | null; scheduledOn: string | null; visitOn: string | null; paymentMethodId?: string }>;
   count: number | null;   // 뼈대 N개 한 번에 만들기(§4-1) — influencers 비고 draftId 없을 때만
+  otherKind: string;      // 기타 협찬(088)의 무엇을 했는지 — 만들 때는 비워도 된다(완료 확인 때 필수). 다른 유형은 늘 ''
+}
+// 기타 협찬의 한 줄 칸 — 공백 정리 후 길이 검사(길면 거절, 몰래 자르지 않는다)
+function parseOtherKind(v: unknown): Parsed<string> {
+  const s = typeof v === 'string' ? normalizeOtherKind(v) : '';
+  return s.length > OTHER_KIND_MAX ? fail(OTHER_KIND_TOO_LONG_MESSAGE) : { ok: true, value: s };
+}
+function parseDoneNote(v: unknown): Parsed<string> {
+  const s = typeof v === 'string' ? v.trim() : '';
+  return s.length > DONE_NOTE_MAX ? fail(DONE_NOTE_TOO_LONG_MESSAGE) : { ok: true, value: s };
 }
 export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
   const b = (body ?? {}) as Record<string, unknown>;
@@ -178,6 +190,10 @@ export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
   const scheduledTime = timeOrNull(b.scheduledTime); if (!scheduledTime.ok) return scheduledTime;
   if ((visitTime.value || scheduledTime.value) && b.type !== 'visit') return fail(TIME_ONLY_VISIT_MESSAGE);
   const cost = b.cost === undefined ? { ok: true as const, value: null } : parseTaskCost(b.cost); if (!cost.ok) return cost;
+  const otherKind = parseOtherKind(b.otherKind); if (!otherKind.ok) return otherKind;
+  if (otherKind.value && b.type !== 'other') return fail(OTHER_ONLY_MESSAGE);
+  // 기타 협찬엔 원고·RT 대상이 없다(X 게시물이 아니다) — 화면은 이 칸을 그리지 않는다
+  if (b.type === 'other' && (draftId.value || targetTaskId.value || targetTweetUrl)) return fail(OTHER_NO_DRAFT_TARGET_MESSAGE);
   const raw = Array.isArray(b.influencers) ? b.influencers : [];
   const influencers: TaskCreateBody['influencers'] = [];
   for (const it of raw) {
@@ -202,7 +218,7 @@ export function parseTaskCreate(body: unknown): Parsed<TaskCreateBody> {
   return { ok: true, value: {
     type: b.type, targetTaskId: targetTaskId.value, targetTweetUrl, draftId: draftId.value,
     scheduledOn: scheduledOn.value, visitOn: visitOn.value, note: typeof b.note === 'string' ? b.note.trim() : '', cost: cost.value,
-    visitTime: visitTime.value, scheduledTime: scheduledTime.value, influencers, count,
+    visitTime: visitTime.value, scheduledTime: scheduledTime.value, influencers, count, otherKind: otherKind.value,
   } };
 }
 
@@ -227,8 +243,17 @@ export function parseTaskPatch(body: unknown): Parsed<TaskPatchParsed> {
   }
   if ('postUrl' in b) {
     if (b.postUrl === null || b.postUrl === '') out.postUrl = null;
-    else { const u = normalizeTargetTweetUrl(String(b.postUrl)); if (!u) return fail(POST_URL_MESSAGE); out.postUrl = u; }
+    else {
+      // X 링크는 정규형으로. 아니면 http(s) 주소 그대로 — 기타 협찬(088)의 확인 링크(구글맵·인스타 등)다.
+      // 파서는 유형을 모르므로, X 유형에 X가 아닌 링크가 왔는지는 라우트가 postUrlTypeGateError로 거절한다.
+      const raw = String(b.postUrl).trim();
+      const u = normalizeTargetTweetUrl(raw) ?? (isHttpUrl(raw) ? raw : null);
+      if (!u) return fail(POST_URL_MESSAGE);
+      out.postUrl = u;
+    }
   }
+  if ('otherKind' in b) { const r = parseOtherKind(b.otherKind); if (!r.ok) return r; out.otherKind = r.value; }
+  if ('doneNote' in b) { const r = parseDoneNote(b.doneNote); if (!r.ok) return r; out.doneNote = r.value; }
   if ('postedAt' in b) {
     if (b.postedAt === null) return fail(POSTED_AT_NULL_MESSAGE);
     if (!isDateOnlyString(b.postedAt)) return fail(DATE_MESSAGE);
@@ -275,15 +300,16 @@ export function proofGateError(
   cur: { id: string; type: TaskType; postedAt: string | null; proof: TaskProof | null },
   patch: { postedAt?: string; proofUrl?: string | null },
 ): string | null {
-  // ① 범위 — RT 작업에만 붙는다
-  if (patch.proofUrl !== undefined && cur.type !== 'rt') return PROOF_ONLY_RT_MESSAGE;
+  // ① 범위 — RT와 기타 협찬(088, 스크린샷으로 완료 확인 — koo 11-06)에만 붙는다
+  if (patch.proofUrl !== undefined && cur.type !== 'rt' && cur.type !== 'other') return PROOF_ONLY_RT_MESSAGE;
   // ② 이 작업의 증빙인가 — 모양만 맞는 남의 경로를 막는다(판정을 라우트에 두지 않는다, 리뷰 Important)
   if (patch.proofUrl != null && !isTaskProofPathFor(cur.id, patch.proofUrl)) return PROOF_VALUE_MESSAGE;
   // 패치 후 증빙 — 이번 요청이 증빙 키를 안 보냈으면 원래 값이 남는다
   const proofAfter = patch.proofUrl !== undefined ? patch.proofUrl : (cur.proof?.url ?? null);
   // ③ 떼기 금지 — 이미 게시됨인 RT에서 비우는 것만 막는다. 아직 게시 전이면 자유롭게 뗄 수 있고,
   //    이번 요청이 게시까지 함께 하는 경우는 ④가 '증빙이 필요하다'는 정확한 문구로 잡는다(문구-값 일치).
-  if (patch.proofUrl === null && cur.postedAt) return PROOF_KEEP_MESSAGE;
+  //    기타 협찬은 스크린샷이 확인 자료 셋 중 하나일 뿐이라 여기서 막지 않는다 — 떼서 0개가 되는지는 otherGateError가 본다.
+  if (patch.proofUrl === null && cur.postedAt && cur.type === 'rt') return PROOF_KEEP_MESSAGE;
   // ④ 필수 — 새로 게시됨이 되는 RT는 패치 후 증빙이 있어야 한다
   if (patch.postedAt && !cur.postedAt && cur.type === 'rt' && !proofAfter) return PROOF_REQUIRED_MESSAGE;
   return null;
@@ -321,11 +347,19 @@ export function postedAtFromLinkGate(
   patch: { postedAt?: string; postUrl?: string | null; removedAt?: string | null; removedReason?: string },
 ): Parsed<string | undefined> {
   if (patch.postedAt === undefined) return { ok: true, value: undefined };
-  if (cur.type === 'rt') return { ok: true, value: patch.postedAt };
+  // RT·기타 협찬은 X 게시물이 없다 — 사람이 적은 날짜 그대로(기타 협찬의 링크·메모 필수 판정은 otherGateError)
+  if (cur.type === 'rt' || cur.type === 'other') return { ok: true, value: patch.postedAt };
   const url = patch.postUrl !== undefined ? patch.postUrl : cur.postUrl;
   if (!url && patch.removedAt && patch.removedReason?.trim()) return { ok: true, value: patch.postedAt };
   if (!url) return fail(POST_URL_REQUIRED_MESSAGE);
   // parseTaskPatch가 이미 모양을 봤다 — 여기서 null이면 날짜를 알 수 없는 id(스노플레이크 이전)다
   const postedOn = postedOnFromTweetLink(url);
   return postedOn ? { ok: true, value: postedOn } : fail(POST_URL_MESSAGE);
+}
+
+// 게시물 링크의 유형 판정 — 파서는 X 링크가 아니어도 http(s) 주소면 받는다(기타 협찬의 확인 링크). 기타 협찬 말고는
+// 지금처럼 X 게시물 링크만 받는다(링크에서 게시일·작성자를 정하므로). 라우트가 parseTaskPatch 직후 부른다.
+export function postUrlTypeGateError(cur: { type: TaskType }, patch: { postUrl?: string | null }): string | null {
+  if (cur.type === 'other' || !patch.postUrl) return null;
+  return parseTweetLink(patch.postUrl).ok ? null : POST_URL_MESSAGE;
 }

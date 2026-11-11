@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { replaceDisabledReason, type FlowRow } from '@/lib/campaignFlowView';
+import { hasXPost, takesDraft } from '@/lib/campaignJudgment';
 import type { DraftTab } from './draft/DraftMode';
 
 // 행·패널 공용 ··· 메뉴(Task 10, b-task-10-brief.md §3-2) — TaskTable.tsx의 RowMenu(포털·좌표 클램프·바깥
@@ -81,20 +82,20 @@ export function FlowRowMenu({ task, today, on }: {
   const postReason = prePost && task.influencerHandle === null ? NEEDS_INFLUENCER : undefined;
   if (prePost) {
     push(
-      <MenuButton key="posted" disabled={!!postReason} reason={postReason} onClick={() => { close(); on.posted(task); }}>게시 확인</MenuButton>,
+      <MenuButton key="posted" disabled={!!postReason} reason={postReason} onClick={() => { close(); on.posted(task); }}>{task.type === 'other' ? '완료 확인' : '게시 확인'}</MenuButton>,
       postReason ? DISABLED_ITEM_H : ITEM_H,
     );
     push(<MenuButton key="schedule" onClick={() => { close(); on.schedule(task); }}>예정일 바꾸기</MenuButton>);
   }
   if (task.draftId) {
     push(<MenuButton key="openDraft" onClick={() => { close(); on.openDraftMode(task, 'generate'); }}>원고 열기</MenuButton>);
-  } else if (task.type !== 'rt' && !cancelled) {
+  } else if (takesDraft(task.type) && !cancelled) {   // RT·기타 협찬은 원고가 없다
     push(<MenuButton key="attachDraft" onClick={() => { close(); on.openDraftMode(task, 'pick'); }}>있는 원고 고르기</MenuButton>);
     push(<MenuButton key="generate" onClick={() => { close(); on.openDraftMode(task, 'generate'); }}>AI로 만들기</MenuButton>);
   }
   // 게시물 연결은 게시 뒤에도 쓴다 — 게시 확인 때 링크 등록이 실패하면 "행 메뉴에서 다시 시도하세요"가
   // 가리키는 곳이 바로 여기다(기존 화면도 게시 여부를 따지지 않는다). RT는 자기 게시물이 없어 제외.
-  if (!cancelled && task.type !== 'rt') {
+  if (!cancelled && hasXPost(task.type)) {   // 기타 협찬(088)도 X 게시물이 아니다
     const linkReason = prePost && task.influencerHandle === null ? NEEDS_INFLUENCER : undefined;
     push(
       <MenuButton key="linkPost" disabled={!!linkReason} reason={linkReason} onClick={() => { close(); on.linkPost(task); }}>게시물 연결(트래킹)</MenuButton>,

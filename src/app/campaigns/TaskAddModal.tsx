@@ -291,7 +291,8 @@ export function TaskAddModal({ campaign, influencerOptions, onClose, onCreated }
           <div className={field}>
             <p className={label}>유형</p>
             <div role="radiogroup" aria-label="작업 유형" className="mt-1.5 inline-flex overflow-hidden rounded-[10px] border border-x-border-strong">
-              {TASK_TYPES.map((k) => (
+              {/* 기타 협찬(088)은 캠페인 화면(v2)에서만 만든다 — 이 옛 화면의 게시 칸은 X 링크만 받아 완료 확인이 안 된다(koo 11-06 결정 8) */}
+              {TASK_TYPES.filter((k) => k !== 'other').map((k) => (
                 <button key={k} type="button" role="radio" aria-checked={type === k} onClick={() => changeType(k)}
                         className={`border-r border-x-border-strong px-[18px] py-2.5 text-content last:border-r-0 ${type === k ? 'bg-x-text text-white' : 'text-x-secondary hover:bg-x-hover'}`}>{TASK_TYPE_LABEL[k]}</button>
               ))}

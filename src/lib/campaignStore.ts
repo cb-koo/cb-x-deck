@@ -516,8 +516,8 @@ export async function upsertInfluencerCost(
 // 인플루언서 프로필 "참여 캠페인"(§5) — 작업이 배정됐거나 비용 행이 있는 캠페인. 조회만, 로그 없음.
 export async function listInfluencerCampaigns(sql: postgres.Sql, handle: string): Promise<InfluencerCampaignItem[]> {
   const lower = handle.toLowerCase();
-  const tasks = await sql<Array<{ campaign_id: string; type: TaskType; cost: unknown; cancelled: boolean }>>`
-    select t.campaign_id, t.type, t.cost, (t.cancelled_at is not null) as cancelled
+  const tasks = await sql<Array<{ campaign_id: string; type: TaskType; cost: unknown; cancelled: boolean; linked: boolean }>>`
+    select t.campaign_id, t.type, t.cost, (t.cancelled_at is not null) as cancelled, (t.same_visit_of is not null) as linked
       from campaign_task t
      where lower(t.influencer_handle) = ${lower}`;
   const cic = await sql<Array<{ campaign_id: string; extra_costs: unknown }>>`
@@ -530,7 +530,8 @@ export async function listInfluencerCampaigns(sql: postgres.Sql, handle: string)
   return camps.map((c) => {
     const mine = tasks.filter((t) => t.campaign_id === c.id && !t.cancelled);
     const countsByType: Partial<Record<TaskType, number>> = {};
-    for (const t of mine) countsByType[t.type] = (countsByType[t.type] ?? 0) + 1;
+    // 방문협찬은 방문 수 — 같은 방문의 연결 작업(089)은 게시물일 뿐이라 세지 않는다(작업 수 taskCount엔 그대로 들어간다)
+    for (const t of mine) if (!t.linked) countsByType[t.type] = (countsByType[t.type] ?? 0) + 1;
     // campaignTaskStore.costOf와 같은 검증(parseTaskCost) — jsonb 모양을 다르게 믿으면 이 롤업 합계와 캠페인 상세 합계가
     // 서로 다른 값을 보여줄 수 있다. amount는 이미 parseAmount(안전 정수)를 통과한 값만 남는다.
     const costs = mine.flatMap((t) => { const p = parseTaskCost(t.cost ?? null); return p.ok && p.value ? [p.value] : []; });

@@ -156,7 +156,8 @@ export async function extensionProductDispatch(req: Request, path: string[], act
       uuid(id); const person = await findInfluencerById(sql, uuid(url.searchParams.get('personId') ?? '')); if (!person) throw productMissing();
       const rows = await sql<Array<{ id: string; version: number; reservationId: string | null }>>`
         select t.id, t.version, r.id as "reservationId" from campaign_task t left join visit_reservation r on r.task_id = t.id
-        where t.campaign_id = ${id} and lower(t.influencer_handle) = lower(${person.handle}) and t.type = 'visit' and t.cancelled_at is null and t.posted_at is null order by t.created_at, t.id`;
+        where t.campaign_id = ${id} and lower(t.influencer_handle) = lower(${person.handle}) and t.type = 'visit' and t.cancelled_at is null and t.posted_at is null
+          and t.same_visit_of is null order by t.created_at, t.id`;   // 같은 방문의 연결 작업(089)은 예약을 붙일 대상이 아니다
       return reply({ items: rows, total: rows.length });
     }
   }

@@ -9,6 +9,7 @@ import { TASK_ID_MESSAGE } from '@/lib/campaignTaskInput';
 import { isUuidLike } from '@/lib/uuid';
 import { judgeTaskLink, linkTrackedPostGuarded, TaskChangedError, type TaskSeen } from '@/lib/postAttach';
 import { authorVerdictMessage } from '@/lib/postAuthor';
+import { findPostLinkOwner } from '@/lib/campaignTaskStore';
 
 // 등록 시점의 '없음'은 삭제·비공개 외에 주소 오타일 수도 있다(QA 08-15 — 주소 일부를 바꿔 넣은 사례).
 // 사용자가 가장 먼저 고칠 수 있는 원인(주소)을 앞에 말한다. 이미 추적 중인 행의 배지 문구와는 다르다 —
@@ -74,6 +75,9 @@ export async function POST(req: Request) {
   }
 
   if (taskId) {
+    // 다른(취소 안 된) 작업의 본 게시물이면 연결하지 않는다([id] PATCH와 같은 판정, ISSUE-016 P1). 등록(첫 측정)은 그대로 남는다
+    const owner = await findPostLinkOwner(sql, taskId, row!.tweetId, 'tracked');
+    if (owner) return NextResponse.json({ error: owner.message, code: 'POST_DUPLICATE', taskId: owner.taskId, campaignId: owner.campaignId }, { status: 409 });
     try {
       // 연결 트랜잭션에서 작업 행을 잠그고 판정 때와 같은지 다시 본 뒤 연결한다(§9-1).
       // 등록(첫 측정)은 따로 끝났으니 그사이 바뀌어 거절돼도 등록은 남는다(RT·취소 거절과 같은 태도).

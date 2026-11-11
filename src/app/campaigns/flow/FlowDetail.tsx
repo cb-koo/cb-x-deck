@@ -14,9 +14,10 @@ const COST_CURRENCY_KEY = 'campaign-cost-currency';
 import {
   fetchCampaignDetail, patchCampaignApi, closeCampaignApi, deleteCampaignApi, patchInfluencerPricingApi,
   patchDraftApi, deleteDraftApi, rewriteDraftApi, regenPostApi, createTasksApi, refreshCampaignPerfApi,
-  fetchDraftCandidatesApi,
+  fetchDraftCandidatesApi, createSameVisitTaskApi, undoSameVisitTaskApi,
   type DraftPatchBody, type TaskCreateRequest,
 } from '@/lib/campaignApi';
+import { sameVisitGroups, postNo } from '@/lib/sameVisit';
 import type { TaskCost } from '@/lib/campaignCost';
 import {
   flowStage, FLOW_STAGES, TASK_TYPE_LABEL,
@@ -344,7 +345,12 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
   const setTasks: Dispatch<SetStateAction<CampaignTaskItem[]>> = useCallback((next) => {
     setData((cur) => (cur ? { ...cur, tasks: typeof next === 'function' ? next(cur.tasks) : next } : cur));
   }, []);
-  const taskActions = useCampaignTaskActions({ campaignId: id, setTasks, influencerOptions, show, onChanged });
+  // 같은 링크 중복 알림의 [열기] — 같은 캠페인이면 그 작업 패널, 다른 캠페인이면 그 캠페인의 그 작업으로 간다
+  const openTaskAnywhere = useCallback((taskId: string, campaignId: string) => {
+    if (campaignId === id) setPanel({ taskId });
+    else window.location.assign(`/campaigns/flow?id=${encodeURIComponent(campaignId)}&task=${encodeURIComponent(taskId)}`);
+  }, [id]);
+  const taskActions = useCampaignTaskActions({ campaignId: id, setTasks, influencerOptions, show, onChanged, openTask: openTaskAnywhere });
   // 게시 확인에 링크를 함께 넣으면 트래킹 등록까지 일어난다 — 그 결과(성과 스냅샷·게시물 연결)는 서버에만 있으므로
   // 낙관적 갱신으로는 못 채운다. 링크가 있었을 때만 상세를 다시 읽어 조회·좋아요가 표에 뜨게 한다.
   const actions = useMemo(() => ({
@@ -359,7 +365,8 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
   // useFlowTaskActions는 reload: () => Promise<void>를 받는다 — load()가 이제 성공 여부를 돌려주므로(리뷰
   // 지적 3) 그 계약을 안 건드리려고 결과를 버리는 얇은 래퍼로 감싼다.
   const reloadDetail = useCallback(async () => { await load(); }, [load]);
-  const flowActions = useFlowTaskActions({ campaignId: id, show, reload: reloadDetail, onChanged });
+  const openTaskPanel = useCallback((taskId: string) => setPanel({ taskId }), []);
+  const flowActions = useFlowTaskActions({ campaignId: id, show, reload: reloadDetail, onChanged, openTask: openTaskPanel });
   // 배정된 인플루언서의 명부 옵션 — FlowTable·TaskTable과 같은 매칭 규칙(핸들 대소문자 무관)
   const optionFor = useCallback(
     (handle: string | null) => (handle ? influencerOptions.find((o) => o.handle.toLowerCase() === handle.toLowerCase()) : undefined),
@@ -442,6 +449,17 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
   const panelTaskId = panel && 'taskId' in panel ? panel.taskId : null;
   const panelIndex = panelTaskId ? shown.findIndex((t) => t.id === panelTaskId) : -1;
   const panelTask = panelTaskId ? (data?.tasks.find((t) => t.id === panelTaskId) ?? null) : null;
+  // 같은 방문의 게시물(089) — 패널에 줄 원래 작업·연결 작업·번호. 묶음 판정은 sameVisitGroups 하나(표의 꼬리표·CPV와 같은 값)
+  const sameVisitInfo = useMemo(() => sameVisitGroups(data?.tasks ?? []), [data?.tasks]);
+  const panelSameVisit = useMemo(() => {
+    if (!panelTask || !data) return { original: null, linked: [], ordinal: null, total: null };
+    const info = sameVisitInfo.get(panelTask.id) ?? null;
+    return {
+      original: panelTask.sameVisitOf ? data.tasks.find((t) => t.id === panelTask.sameVisitOf) ?? null : null,
+      linked: data.tasks.filter((t) => t.sameVisitOf === panelTask.id),
+      ordinal: info?.ordinal ?? null, total: info?.total ?? null,
+    };
+  }, [panelTask, data, sameVisitInfo]);
   // 끼워 넣기(embed) — 상세를 처음 읽으면 그 작업의 패널을 연다. 그 뒤 패널이 닫히면(작업 삭제·취소 등) 부모에 알린다.
   const embedOpenedRef = useRef(false);
   useEffect(() => {
@@ -511,6 +529,34 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
     setPanel({ taskId });
     return true;
   }, [panelTaskId, draftWriteDirty, draftSwitchConfirm, moveConfirm]);
+  // [게시물 하나 더](089, koo 11-09) — 연결 작업 생성 → 표 다시 읽기 → 새 작업 패널(게시 예정일은 거기서 정한다, 결정 4)
+  // 확인 창 없이 바로 만들고 실수는 [되돌리기]로(koo 11-09: 확인 창은 습관적으로 넘긴다). 아직 링크·예정일이 없는 연결 작업이
+  // 이미 있으면 서버가 새로 만들지 않고 그것을 돌려준다(created: false) — 그 작업을 열고 알린다. 요청 중엔 버튼이 꺼진다(연타 방지).
+  const [sameVisitBusy, setSameVisitBusy] = useState(false);
+  const addSameVisit = useCallback(async (t: FlowRow) => {
+    if (sameVisitBusy) return;
+    setSameVisitBusy(true);
+    const r = await createSameVisitTaskApi(id, t.id);
+    if (!r.ok) { setSameVisitBusy(false); show(r.error); return; }
+    await load();
+    setSameVisitBusy(false);
+    onChanged();
+    openPanel(r.data.id);
+    if (!r.data.created) { show(`아직 링크를 넣지 않은 ${postNo(r.data.ordinal, '이')} 있어요. 여기에 넣어 주세요.`); return; }
+    const newId = r.data.id;
+    show(`${postNo(r.data.ordinal, '을')} 만들었어요. 게시물 링크를 넣어 주세요.`, {
+      actionLabel: '되돌리기',
+      onAction: () => void (async () => {
+        const u = await undoSameVisitTaskApi(id, newId);
+        if (!u.ok) { show(u.error); return; }
+        setDeletionsVersion((v) => v + 1);
+        await load();
+        onChanged();
+        openPanel(t.id);
+        show('되돌렸어요.');
+      })(),
+    });
+  }, [sameVisitBusy, id, show, load, onChanged, openPanel]);
   const handledLinkRef = useRef<string | null>(null);
   useEffect(() => {
     if (!data || loadErr || !linkedTaskId || handledLinkRef.current === linkedTaskId) return;
@@ -601,17 +647,22 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
     // 보고 있었으면(삭제된 작업 id로 남지 않게) 함께 닫는다. confirmLoseDraftFor가 먼저다 — 작성 중인 글을
     // 잃는 확인이, 작업 자체를 지울지 묻는 확인보다 앞서야 한다(최종 리뷰 §1).
     // 예약이 붙은 방문 작업은 일반 확인을 건너뛴다 — 서버가 준 예약 기록 요약으로 더 자세한 확인 창 하나만 띄운다.
+    // 같은 방문의 게시물 작업(089)이 붙은 원래 작업은 그것도 함께 지운다고 알린다(koo 11-09 결정 2) — 예약 기록 확인 창이
+    // 따로 뜨는 작업도 이 사실은 먼저 한 번 묻는다(예약 창은 예약 기록만 말한다).
     remove: (t) => {
       if (!confirmLoseDraftFor(t.id)) return;
-      if (!t.reservation && !window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}`)) return;
-      void actions.remove(t, confirmReservationDelete).then((ok) => {
+      const linked = (data?.tasks ?? []).filter((x) => x.sameVisitOf === t.id).length;
+      const linkedLine = linked ? `\n\n같은 방문의 게시물 작업 ${linked}건도 함께 지워져요. 둘 다 삭제 기록에 남아요.` : '';
+      if (!t.reservation && !window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}${linkedLine}`)) return;
+      if (t.reservation && linked && !window.confirm(`같은 방문의 게시물 작업 ${linked}건도 함께 지워져요. 계속할까요?`)) return;
+      void actions.remove(t, confirmReservationDelete, linked > 0).then((ok) => {
         if (ok) setDeletionsVersion((v) => v + 1);   // 삭제 기록은 서버 삭제가 끝난 뒤에 다시 읽는다(낙관적 행 제거 시점엔 아직 없다)
         if (ok && panelTaskId === t.id) setPanel(null);
         // 원고가 붙어 있던 작업을 지우면 원고는 남되(토스트) 작업 없는 상태가 된다 — 후보로 다시 잡혀야 한다.
         if (ok && t.draftId) void reloadCandidates();
       });
     },
-  }), [isNew, openPanel, openDraftMode, flowActions, actions, panelTaskId, reloadCandidates, confirmLoseDraftFor, setSectionPref, data?.today]);
+  }), [isNew, openPanel, openDraftMode, flowActions, actions, panelTaskId, reloadCandidates, confirmLoseDraftFor, setSectionPref, data?.today, data?.tasks]);
   const renderMenu = useCallback((t: FlowRow): ReactNode => (
     <FlowRowMenu task={t} today={data?.today ?? ''} on={menuActions} />
   ), [menuActions, data?.today]);
@@ -1105,7 +1156,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
         <div className={panelOpen ? 'mt-3.5 opacity-60 transition-opacity' : 'mt-3.5'}>
           <FlowTable rows={shown} total={data.tasks.length} today={data.today} influencerOptions={influencerOptions}
                      sort={sort} onSortChange={setSort} footer={footer}
-                     selectedId={panelTaskId} onRowClick={onRowClick} renderMenu={renderMenu} />
+                     selectedId={panelTaskId} onRowClick={onRowClick} renderMenu={renderMenu} sameVisit={sameVisitInfo} />
         </div>
         <TaskDeletionLog campaignId={id} refreshKey={deletionsVersion} />
       </div>
@@ -1175,7 +1226,8 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                                     onOpenRemoved={() => setRemovedOpen(true)}
                                     onUnmarkRemoved={() => void actions.unmarkRemoved(panelTask)}
                                     onCancel={() => menuActions.cancel(panelTask)}
-                                    hideCancel={panelTask.type === 'visit' && productFeatures?.reservations === true} />
+                                    // 같은 방문의 연결 작업은 예약 상자가 없어 [진행 안 됨]이 거기 없다 — 게시 상자에 둔다
+                                    hideCancel={panelTask.type === 'visit' && !panelTask.sameVisitOf && productFeatures?.reservations === true} />
                        : null,
                      // 다른 곳에서 정산함(061) — 취소된 작업엔 TaskPanel이 그리지 않는다
                      settled: panelTask
@@ -1190,7 +1242,9 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                    onDirtyChange={onNewDirtyChange}
                    sectionPrefs={panelTask ? sectionPrefs[panelTask.id] ?? {} : {}}
                    onSectionChange={(key, open, phase) => { if (panelTask) setSectionPref(panelTask.id, key, open, phase); }}
-                   onCancelTask={(t) => menuActions.cancel(t)} />
+                   onCancelTask={(t) => menuActions.cancel(t)}
+                   sameVisit={panelSameVisit} sameVisitBusy={sameVisitBusy}
+                   onAddSameVisit={(t) => void addSameVisit(t)} onOpenTask={(taskId) => { openPanel(taskId); }} />
       )}
       {bulkOpen && <BulkCreateDialog onClose={() => setBulkOpen(false)} onCreate={bulkCreate} />}
       {pricePrompt && (
@@ -1208,7 +1262,7 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                        onSubmit={(date, reason) => void actions.markRemoved(panelTask, date, reason)} />
       )}
       {linkFor && (
-        <LinkPostModal task={linkFor} onClose={() => setLinkFor(null)}
+        <LinkPostModal task={linkFor} onClose={() => setLinkFor(null)} onOpenTask={openTaskAnywhere}
                        onLinked={() => {
                          setLinkFor(null);
                          show(linkFor?.postedAt ? '게시물을 연결했어요 — 조회수가 잡혀요' : '게시물을 연결했어요 — 게시됨으로 표시되고 조회수가 잡혀요');
@@ -1217,10 +1271,17 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
       )}
       {cancelFor && (
         <CancelDialog task={cancelFor} onClose={() => setCancelFor(null)}
+                      linked={{
+                        pending: data.tasks.filter((x) => x.sameVisitOf === cancelFor.id && !x.cancelledAt && !x.postedAt).length,
+                        posted: data.tasks.filter((x) => x.sameVisitOf === cancelFor.id && !x.cancelledAt && x.postedAt).length,
+                      }}
                       onConfirm={async (body) => {
+                        const hadLinked = data.tasks.some((x) => x.sameVisitOf === cancelFor.id && !x.cancelledAt);
                         const ok = await flowActions.cancel(cancelFor, body);
                         // 취소는 붙어 있던 원고를 뗀다(서버, cancelTask) — 후보로 다시 잡혀야 '있는 원고 고르기 n'이 맞다.
                         if (ok && cancelFor.draftId) void reloadCandidates();
+                        // 같은 방문의 게시물 작업도 서버가 함께 취소했다 — 표를 다시 읽는다
+                        if (ok && hadLinked) { await load(); onChanged(); }
                       }} />
       )}
       {settleFor && (

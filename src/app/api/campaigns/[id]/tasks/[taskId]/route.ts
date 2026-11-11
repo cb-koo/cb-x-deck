@@ -5,7 +5,9 @@ import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { reservationDeleteSummary } from '@/lib/taskDeletionStore';
-import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces, hasPaidRequest, logCostChangeInTx } from '@/lib/campaignTaskStore';
+import { getTask, updateTask, deleteTask, hasActiveRequest, clearOldInfluencerTraces, hasPaidRequest, logCostChangeInTx, sameVisitLinkedIds, findPostLinkOwner, undoSameVisitTask } from '@/lib/campaignTaskStore';
+import { sameVisitPatchError, ORIGINAL_INFLUENCER_LOCKED_MESSAGE } from '@/lib/sameVisit';
+import { parseTweetLink } from '@/lib/tweetLink';
 import type { TaskPatch } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES, hasXPost } from '@/lib/campaignJudgment';
 import { otherGateError } from '@/lib/otherTask';
@@ -46,6 +48,14 @@ async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; 
   if (cur.cancelledAt) {
     if (patch.postedAt !== undefined) return NextResponse.json({ error: POST_CANCELLED_MESSAGE }, { status: 400 });
     if (Object.keys(patch).some((k) => k !== 'note')) return NextResponse.json({ error: CANCELLED_TASK_MESSAGE }, { status: 400 });
+  }
+  // 같은 방문의 연결 작업(089) — 비용 없음·금액·방문일·인플·동의서는 고정(원래 작업 쪽에서 바꾼다)
+  const sameVisitError = sameVisitPatchError(cur, patch);
+  if (sameVisitError) return NextResponse.json({ error: sameVisitError }, { status: 400 });
+  // 원래 작업의 인플을 바꾸면 연결 작업과 사람이 갈린다 — 연결 작업이 있으면 막는다(대소문자만 다른 같은 사람은 통과)
+  if (patch.influencerHandle !== undefined && (patch.influencerHandle ?? '').toLowerCase() !== (cur.influencerHandle ?? '').toLowerCase()
+      && (await sameVisitLinkedIds(sql, taskId)).length) {
+    return NextResponse.json({ error: ORIGINAL_INFLUENCER_LOCKED_MESSAGE }, { status: 400 });
   }
   // 인플루언서 칸 변경 — 배정·해제·같은 인플만. 다른 인플로는 교체 라우트(ADR 0005). 상태 제한은 셋에 같다.
   if (patch.influencerHandle !== undefined) {
@@ -157,6 +167,13 @@ async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; 
   // RT는 자기 게시물이 없고, 기타 협찬(088)의 링크는 X 밖 주소다 — 링크 판정·트래킹 연결·본인 댓글 찾기 대상이 아니다.
   // 링크 지우기(null)도 판정 없음.
   const attachUrl = patch.postUrl && hasXPost(cur.type) ? patch.postUrl : null;
+  // 같은 게시물을 두 작업에 등록하지 않는다(koo QA 11-09) — 예전엔 트래킹된 게시물이 조용히 이 작업으로 옮겨 가 다른 작업의 성과가
+  // 비었다. 같은 방문이면 '게시물 N', 아니면 캠페인·인플로 가리키고, 화면이 [열기]로 그 작업을 연다(taskId·campaignId).
+  if (attachUrl) {
+    const t = parseTweetLink(attachUrl);
+    const owner = t.ok ? await findPostLinkOwner(sql, taskId, t.tweetId) : null;
+    if (owner) return NextResponse.json({ error: owner.message, code: 'POST_DUPLICATE', taskId: owner.taskId, campaignId: owner.campaignId }, { status: 409 });
+  }
   try {
     if (attachUrl) {
       const r = await attachPostToTask(sql, taskId, attachUrl, { fetchPost }, { createdBy: gate.member.id, apply });
@@ -213,6 +230,11 @@ async function DELETEInternal(req: Request, ctx: { params: Promise<{ id: string;
   const { id, taskId } = await ctx.params;
   if (!isUuidLike(id) || !isUuidLike(taskId)) return notFound();
   const sql = getSql();
+  // [되돌리기](만든 직후 알림) — 판정·삭제는 저장소가 잠근 행으로 한 트랜잭션에서(이미 지워짐·그 사이 입력함은 문구로)
+  if (new URL(req.url).searchParams.get('undoSameVisit') === '1') {
+    await undoSameVisitTask(sql, id, taskId, gate.member);
+    return NextResponse.json({ ok: true, deleted: true });
+  }
   const cur = await getTask(sql, taskId);
   if (cur && cur.campaignId !== id) return notFound();
   // 정산 보호(정산 스펙 §4-4) — 활성 요청이 붙은 작업은 지우지 않는다
@@ -220,13 +242,16 @@ async function DELETEInternal(req: Request, ctx: { params: Promise<{ id: string;
     return NextResponse.json({ error: '정산 요청된 작업이에요 — 먼저 정산에서 요청을 취소해 주세요' }, { status: 409 });
   }
   const withReservation = new URL(req.url).searchParams.get('withReservation') === '1';
+  // 같은 방문의 연결 작업(089)이 있으면 화면이 확인 창에서 알리고 ?withSameVisit=1로 보낸다 — 없으면 deleteTask가 409로 거절한다
+  const withSameVisit = new URL(req.url).searchParams.get('withSameVisit') === '1';
+
   if (!withReservation) {
     const reservation = await reservationDeleteSummary(sql, taskId);
     if (reservation) {
       return NextResponse.json({ error: '예약 기록이 있는 작업이에요 — 예약 기록까지 함께 지울지 확인해 주세요', code: 'RESERVATION_DELETE_CONFIRM', reservation }, { status: 409 });
     }
   }
-  return NextResponse.json({ ok: true, deleted: await deleteTask(sql, taskId, { actor: gate.member, withReservation }) });
+  return NextResponse.json({ ok: true, deleted: await deleteTask(sql, taskId, { actor: gate.member, withReservation, withSameVisit }) });
 }
 
 export const PATCH = productWebBoundary(PATCHInternal);

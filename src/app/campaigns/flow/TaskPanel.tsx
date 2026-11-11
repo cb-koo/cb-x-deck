@@ -37,6 +37,7 @@ import type { TaskDto } from '@/lib/extensionTasks';
 import { apiFetch } from '@/lib/apiFetch';
 import { productFetch, useProductFeatures } from '@/lib/extensionProductClient';
 import { StageTypeBox } from './panel/StageTypeBox';
+import { SameVisitPostsBox, SameVisitScheduleBox, SameVisitAgreementLine, SameVisitCostLine } from './panel/SameVisitBoxes';
 import { InfluencerSummary } from './panel/InfluencerSummary';
 import { PaymentLine } from './panel/PaymentLine';
 import { PaymentMethodDialog } from './panel/PaymentMethodDialog';
@@ -89,8 +90,15 @@ export function TaskPanel({
   menu, draftOpen, pickCount, draftCard, draftGenerate, draftWrite, draftPick, draftBusy, closeConfirm, moveConfirm, onDetachDraft, onReplace, onSaveProfilePricing, slots, overlayOpen, onDirtyChange,
   newDraft, onNewDraftChange, onNewContextChange, formHandleFill, onReservationChanged, onCreateForReservation, onReservationCreated, autoReserve = false,
   sectionPrefs, onSectionChange, onCancelTask,
+  sameVisit = { original: null, linked: [], ordinal: null, total: null }, sameVisitBusy = false, onAddSameVisit, onOpenTask,
 }: {
   mode: PanelMode;
+  // 같은 방문의 게시물(089, ISSUE-016) — FlowDetail이 캠페인 작업 목록에서 찾아 준다. 연결 작업이면 original(원래 작업)과 몇 번째인지,
+  // 원래 작업이면 linked(연결 작업들). total = 이 방문의 게시물 수(취소 제외, 연결이 없으면 null)
+  sameVisit?: { original: FlowRow | null; linked: FlowRow[]; ordinal: number | null; total: number | null };
+  sameVisitBusy?: boolean;
+  onAddSameVisit?: (t: FlowRow) => void;   // [게시물 하나 더] — 확인·생성·새 작업 열기는 FlowDetail이 한다
+  onOpenTask?: (taskId: string) => void;
   // 예약·비용 없음 저장 뒤 표·패널을 다시 읽는다(FlowDetail load) — 예약 저장은 작업의 방문일·업로드 기한도 바꾼다.
   onReservationChanged: () => Promise<void>;
   // 새 방문협찬 폼의 [예약폼 작성] 창(NewReservationDialog)이 쓴다 — 작업만 만들고 패널은 그대로 둔다(예약을 이어 저장해야 해서).
@@ -178,6 +186,7 @@ export function TaskPanel({
   formHandleFill?: { handle: string | null; seq: number } | null;
 }) {
   const task = mode.kind === 'edit' ? mode.task : null;
+  const sameVisitLive = sameVisit.linked.filter((x) => !x.cancelledAt).length;   // 원래 작업에 붙은 같은 방문 게시물(취소 제외)
   const index = mode.kind === 'edit' ? mode.index : -1;
   const total = mode.kind === 'edit' ? mode.total : 0;
   const validIndex = index >= 0;
@@ -711,6 +720,14 @@ export function TaskPanel({
           // 게시된 작업은 교체 자체가 서버 가드(POSTED_TASK_MESSAGE)에 막혀 있다 — FlowRowMenu의 prePost
           // 게이트와 같은 조건. 여기서 숨기지 않고 disabled로만 두면 눌렀을 때 400이 나는 거짓 어포던스가 된다.
           if (t.postedAt) return <div><InfluencerSummary handle={t.influencerHandle} option={opt} note={note} actions={registerBtn} />{regLine}</div>;
+          // 같은 방문의 연결 작업(089) — 원래 작업과 같은 사람으로 고정. 늘 꺼져 있을 [바꾸기][해제]는 그리지 않고 이유만 한 줄로(거짓 어포던스 금지)
+          if (t.sameVisitOf) return (
+            <div>
+              <InfluencerSummary handle={t.influencerHandle} option={opt} note={note} actions={registerBtn} />
+              <p className="mt-1 text-ui text-x-muted">같은 방문이라 원래 작업과 같은 인플루언서예요</p>
+              {regLine}
+            </div>
+          );
           const disabledReason = replaceDisabledReason(t, today);
           return (
             <div>
@@ -747,6 +764,8 @@ export function TaskPanel({
         );
       }
       case 'cost': {
+        // 같은 방문의 연결 작업 — 비용 없음 고정(체크박스·금액 칸·결제 수단을 그리지 않는다, 바꿀 수 없는 값이라)
+        if (t.sameVisitOf) return <SameVisitCostLine original={sameVisit.original} total={sameVisit.total} />;
         const cc = cancelled ? costCell(t, null) : null;
         // 비용 없음(064, 방문협찬) — 금액 0·미정과 다른 명시 값. 게시 확인되면 완료, 정산 후보에서 빠진다. 정산 요청 중엔 못 바꾼다(서버도 막는다).
         const noCostToggle = !cancelled && t.type === 'visit' && productFeatures?.reservations ? (
@@ -763,6 +782,14 @@ export function TaskPanel({
               비용 없음
             </label>
             <p className="mt-0.5 text-ui text-x-muted">{t.settlement?.status === 'requested' ? '정산 요청 중이라 바꿀 수 없어요' : '체크하면 금액을 비우고, 게시 확인 시 완료돼 정산 요청에서 빠져요'}</p>
+            {/* 같은 방문 게시물이 있는 원래 작업 — 이 금액이 그 게시물들 몫까지다. 막지 않고(무료 방문일 수 있다) 결과를 그 자리에서 말한다(koo QA 11-09) */}
+            {sameVisitLive > 0 && t.settlement?.status !== 'requested' && (
+              <p className="mt-1 text-ui text-amber-800">
+                {t.noCost
+                  ? `같은 방문 게시물 ${sameVisitLive + 1}건이 모두 비용 없음이에요. 실수라면 체크를 풀어 주세요.`
+                  : `같은 방문 게시물 ${sameVisitLive + 1}건의 비용이 모두 이 작업에 있어요. 체크하면 ${sameVisitLive + 1}건 모두 비용 없음이 돼요.`}
+              </p>
+            )}
             {noCostError && <p role="alert" className="mt-1 text-ui text-red-600">{noCostError}</p>}
           </div>
         ) : null;
@@ -1061,7 +1088,18 @@ export function TaskPanel({
               <Fragment key={field}>
                 {/* 방문협찬의 일정은 예약과 한 상자다(일정·예약 → 예약 변경 내역) — 예약이 없거나 예약 기능이 꺼져 있으면 기존 일정 칸 그대로.
                     방문협찬의 예산 · 정산·원고·메모는 접히는 상자(목업 x-extension, disclosure) — 안의 모양은 그대로고 요약 줄과 접기만 붙는다. */}
-                {field === 'dates' && task.type === 'visit'
+                {field === 'dates' && task.type === 'visit' && task.sameVisitOf
+                  ? <SameVisitScheduleBox original={sameVisit.original} ordinal={sameVisit.ordinal}
+                                          onOpenOriginal={() => { if (sameVisit.original) onOpenTask?.(sameVisit.original.id); }}
+                                          scheduledEditor={task.cancelledAt
+                                            ? <span className="text-content text-x-muted">{task.scheduledOn ? formatDateTimeKo(task.scheduledOn, task.scheduledTime) : '미정'}</span>
+                                            : <DateTimeBox empty={!task.scheduledOn}
+                                                date={<ScheduledOnField bare value={task.scheduledOn} overdueDays={taskOverdueDays(task, today)}
+                                                                        outOfRange={isOutOfRange(task.scheduledOn, campaign.startsOn, campaign.endsOn)}
+                                                                        onChange={(next) => void actions.changeScheduledOn(task, next)} />}
+                                                time={task.scheduledOn ? <TimeField key={`st:${task.scheduledTime ?? ''}`} value={task.scheduledTime} ariaLabel="게시 예정 시간"
+                                                                                    onCommit={(next) => void actions.changeScheduledTime(task, next)} /> : null} />} />
+                  : field === 'dates' && task.type === 'visit'
                   ? <ReservationSection task={task} campaign={campaign} dateEditor={renderEditField('dates', task)}
                                         onChangeDate={(field, next) => field === 'visitOn' ? actions.changeVisitOn(task, next) : actions.changeScheduledOn(task, next)}
                                         onChangeVisit={(visitOn, visitTime) => actions.changeVisit(task, visitOn, visitTime)}
@@ -1069,12 +1107,20 @@ export function TaskPanel({
                                         onAddReservation={() => setReserveOpen(true)}
                                         historyDisclosure={disclosure('history')} onPhase={setServerPhase} onReveal={revealSection}
                                         onCancelTask={task.cancelledAt ? undefined : () => onCancelTask(task)} onOverlayChange={setScheduleOpen} />
+                  // 연결 작업의 예산 · 정산은 바꿀 것이 없다 — 접는 상자의 [관리]를 두지 않고 설명을 바로 보여 준다
+                  : field === 'cost' && task.sameVisitOf ? <PanelSection title={fieldLabel(field, task.type)}>{renderEditField(field, task)}</PanelSection>
                   : field === 'cost' ? sectionBox('money', task, fieldLabel(field, task.type), renderEditField(field, task))
                   : field === 'draft' ? sectionBox('draft', task, fieldLabel(field, task.type), renderEditField(field, task))
                   : field === 'note' ? sectionBox('memo', task, fieldLabel(field, task.type), renderEditField(field, task))
                   : <PanelSection title={fieldLabel(field, task.type)}>{renderEditField(field, task)}</PanelSection>}
                 {/* 협찬 동의서(063) — 방문협찬만, 일정 상자 바로 아래. 새 작업 폼엔 없다(올릴 경로가 작업 id에 묶여 있어 만든 뒤에 붙인다) */}
-                {field === 'dates' && task.type === 'visit' && (
+                {/* 같은 방문 게시물(089) — 원래 작업의 일정 상자 바로 아래. 연결 작업 목록 + [게시물 하나 더](게시 여부와 상관없이) */}
+                {field === 'dates' && task.type === 'visit' && !task.sameVisitOf && !task.cancelledAt && onAddSameVisit && (
+                  <SameVisitPostsBox task={task} linked={sameVisit.linked} busy={sameVisitBusy}
+                                     onAdd={() => onAddSameVisit(task)} onOpen={(id) => onOpenTask?.(id)} />
+                )}
+                {field === 'dates' && task.type === 'visit' && task.sameVisitOf && <SameVisitAgreementLine original={sameVisit.original} />}
+                {field === 'dates' && task.type === 'visit' && !task.sameVisitOf && (
                   // 상자(PanelSection)는 AgreementField가 그린다 — 상자 전체가 파일을 끌어다 놓는 자리라서
                   <AgreementField taskId={task.id} influencerHandle={task.influencerHandle} value={task.agreement} disabled={!!task.cancelledAt}
                                   onChange={(next) => actions.setAgreement(task, next)} disclosure={disclosure('consent')} locked={sectionLocked} />

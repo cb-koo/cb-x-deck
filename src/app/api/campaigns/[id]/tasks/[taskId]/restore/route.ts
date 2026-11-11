@@ -18,7 +18,8 @@ async function POSTInternal(_req: Request, ctx: { params: Promise<{ id: string; 
   const r = await restoreTask(sql, taskId);
   if (r.result === 'not-found') return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 404 });
   if (r.result === 'not-cancelled') return NextResponse.json({ error: RESTORE_NOT_CANCELLED_MESSAGE }, { status: 409 });
-  return NextResponse.json({ task: await getTask(sql, taskId), draft: r.draft });
+  // linked — 함께 되돌린 같은 방문 게시물 수(090). 원래 작업이 취소된 연결 작업은 저장소가 SAME_VISIT_ORIGINAL_CANCELLED(409)로 막는다
+  return NextResponse.json({ task: await getTask(sql, taskId), draft: r.draft, linked: r.linked });
 }
 
 export const POST = productWebBoundary(POSTInternal);

@@ -12,11 +12,13 @@ import type { TaskAgreementInput } from '@/lib/taskAgreementGuard';
 type Item = CampaignTaskItem;
 type Optimistic = Partial<Item>;
 
-export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions, show, onChanged }: {
+export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions, show, onChanged, openTask }: {
   campaignId: string;
   setTasks: Dispatch<SetStateAction<Item[]>>;
   influencerOptions: InfluencerOption[];   // pricing 포함 — 배정 시 비용 제안 소스
-  show: (message: string) => void;
+  show: (message: string, opts?: { actionLabel?: string; onAction?: () => void }) => void;
+  // 같은 링크가 이미 다른 작업에 있을 때(POST_DUPLICATE) 알림의 [열기] — 없으면 문구만 띄운다(옛 화면)
+  openTask?: (taskId: string, campaignId: string) => void;
   onChanged: () => void;                   // 목록(왼쪽)의 작업 수·합계가 바뀌는 변경 뒤
 }) {
   const patch = useCallback(async (t: Item, body: TaskPatchRequest, optimistic: Optimistic): Promise<boolean> => {
@@ -37,9 +39,13 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
       for (const k of keys) Object.assign(back, { [k]: t[k] });   // 요청 전 값으로 — 건드린 칸만
       return back;
     }));
-    show(r.error);
+    const dup = r.body as { code?: string; taskId?: string; campaignId?: string } | undefined;
+    if (dup?.code === 'POST_DUPLICATE' && dup.taskId && dup.campaignId && openTask) {
+      const [tid, cid] = [dup.taskId, dup.campaignId];
+      show(r.error, { actionLabel: '열기', onAction: () => openTask(tid, cid) });
+    } else show(r.error);
     return false;
-  }, [campaignId, setTasks, show]);
+  }, [campaignId, setTasks, show, openTask]);
 
   return useMemo(() => ({
     patch,
@@ -126,15 +132,21 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
     // 삭제 — 행이 사라지는 변경이라 필드 롤백 대신 목록 복원으로 되돌린다(순서는 표 정렬이 다시 잡는다).
     // 예약 기록이 있는 작업이면 서버가 지우지 않고 요약을 준다 → confirmReservation(확인 창)이 true일 때만 함께 지운다.
     // 확인 창을 줄 수 없는 화면(옛 캠페인 화면)은 confirmReservation 없이 부르고, 서버 안내 문구가 토스트로 뜬다.
-    remove: async (t: Item, confirmReservation?: (s: ReservationDeleteSummary) => boolean) => {
-      setTasks((cur) => cur.filter((x) => x.id !== t.id));
-      const restore = () => setTasks((cur) => (cur.some((x) => x.id === t.id) ? cur : [...cur, t]));
-      let r = await deleteTaskApi(campaignId, t.id);
+    // withSameVisit — 같은 방문의 연결 작업(089)도 함께 지운다(호출부가 확인 창에서 이미 알렸다). 표에서도 함께 뺀다.
+    remove: async (t: Item, confirmReservation?: (s: ReservationDeleteSummary) => boolean, withSameVisit = false) => {
+      let removed: Item[] = [];
+      const drop = () => setTasks((cur) => {
+        removed = cur.filter((x) => x.id === t.id || (withSameVisit && (x as { sameVisitOf?: string | null }).sameVisitOf === t.id));
+        return cur.filter((x) => !removed.includes(x));
+      });
+      drop();
+      const restore = () => setTasks((cur) => [...cur, ...(removed.length ? removed : [t]).filter((x) => !cur.some((c) => c.id === x.id))]);
+      let r = await deleteTaskApi(campaignId, t.id, false, withSameVisit);
       if (!r.ok && r.reservation && confirmReservation) {
         restore();
         if (!confirmReservation(r.reservation)) return false;
-        setTasks((cur) => cur.filter((x) => x.id !== t.id));
-        r = await deleteTaskApi(campaignId, t.id, true);
+        drop();
+        r = await deleteTaskApi(campaignId, t.id, true, withSameVisit);
         if (r.ok) { show('작업과 예약 기록을 지웠어요 — 삭제 기록은 캠페인 아래에 남아요'); onChanged(); return true; }
       }
       if (r.ok) { show('작업을 지웠어요 — 원고는 남아 있어요'); onChanged(); return true; }

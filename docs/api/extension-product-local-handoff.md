@@ -55,11 +55,29 @@
 | `PROVIDER_UNAVAILABLE` | 503 | 저장소·AI 호출 실패 |
 | `SETTLEMENT_REQUESTED` · `ACTIVE_SETTLEMENT` · `RESERVATION_COMMAND_REQUIRED` | 409 | 작업 삭제·정산 중인 작업·레거시 경로의 우회 변경 |
 | `PROFILE_LOOKUP_FAILED` | 502 | `/people/register`의 외부 프로필 조회 실패 |
+| `POST_DUPLICATE` | 409 | `/tasks/{id}/confirm-post` — 그 게시물 링크(트윗)가 이미 다른(취소 안 된) 작업에 등록됨(2026-11-10). 문구가 어느 작업인지 말한다 |
+| `SAME_VISIT_DELETE_CONFIRM` | 409 | `DELETE /tasks/{id}` — 같은 방문의 게시물 작업이 연결된 원래 작업(2026-11-10). 웹에서 함께 지운다 |
 | `HOURS_INVALID` · `MAP_URL_INVALID` | 400/422 | 클리닉 설정(익스텐션은 안 씀) |
 
 `REASON_REQUIRED_FOR_END`는 `/end`에서 더 이상 나지 않는다 — 메모·사유 칩이 비면 서버가 '진행 안 됨'으로 채운다.
 
 ## 주요 API
+
+### 같은 방문의 게시물 (2026-11-10, ISSUE-016)
+
+방문협찬은 "15,000엔에 게시물 2건"처럼 방문 한 번 = 묶음 가격으로 협상한다. 금액은 원래 작업 하나에만 두고, 두 번째 게시물부터는 웹 작업 패널의 [게시물 하나 더]로 **연결 작업**을 만든다(DB `campaign_task.same_visit_of`, 마이그레이션 089). 연결 작업은 항상 방문협찬·비용 없음(`noCost: true`, 금액 없음)·예약 없음이다.
+
+- `TaskDto`(`GET /people/{id}/tasks`, `GET /tasks/{id}`)에 `sameVisitOf: string | null`을 추가했다 — 같은 방문의 원래 작업 id, 일반 작업은 `null`. 배지(`POST /people/badges`)의 작업 요약은 그대로이고, 필요하면 `GET /tasks/{id}`로 읽는다.
+- 게시 전 연결 작업의 `visitPhase`는 `visited`(방문은 원래 작업으로 이미 했다), 게시 뒤는 `completed`다. `allowedActions`는 늘 빈 배열이다 — 게시 확인·취소는 웹의 작업 패널에서 한다. `nextSchedule`은 게시 예정일이 있으면 `upload`.
+- `activeVisitCount`는 연결 작업을 세지 않는다(방문 수 = 실제 방문 횟수). `activeCount`와 `tasks`에는 그대로 들어간다 — 목록의 고유 방문 수를 맞출 때 `sameVisitOf`가 있는 작업은 빼 주세요.
+- `GET /campaigns/{id}/visit-task-candidates`는 연결 작업을 돌려주지 않는다.
+- 연결 작업에 예약을 붙이면(`POST /reservations`, `target.kind = existingTask`) `STATE_CHANGED`(409) "같은 방문의 게시물 작업이에요. 예약은 원래 작업에 있어요."가 돌아온다. `POST /tasks/{id}/end`도 `STATE_CHANGED`로 막힌다.
+- 원래 작업을 지우려 하면(`DELETE /tasks/{id}`) 연결 작업이 있는 동안 `SAME_VISIT_DELETE_CONFIRM`(409)이 돌아온다 — 웹 화면에서 함께 지울지 확인한 뒤 지운다.
+- 원래 작업을 취소(예약 종료 포함)하면 게시 전 연결 작업도 같은 사유로 함께 취소된다. 게시된 연결 작업이 있으면 `STATE_CHANGED`(409)로 막힌다(금액이 원래 작업에 있어서).
+- 같은 게시물 링크(트윗)를 두 작업에 등록하지 않는다 — `POST /tasks/{id}/confirm-post`에 이미 다른(취소 안 된) 작업에 등록된 링크를 보내면 `POST_DUPLICATE`(409)와 "이미 게시물 1에 등록된 링크예요."(같은 방문) / "이미 ○○ 캠페인의 @x 작업에 등록된 링크예요." 같은 문구가 돌아온다. 웹 게시 확인과 웹 [게시물 연결(트래킹)]도 같은 판정이다.
+- 원래 작업을 취소해 함께 취소된 연결 작업은 원래 작업을 되돌리면 함께 돌아온다(웹, DB `cancelled_with`, 마이그레이션 090). 원래 작업이 취소 상태면 연결 작업만 따로 되돌릴 수 없다.
+- 날짜 없는 게시 전 연결 작업은 원래 작업 게시 후 7일이 지나면 정산 대기에서 '안 올라옴'으로 알린다. 캠페인을 마감하면 기다림이 풀리고 원래 작업의 묶음 금액이 다음 자동 전송 회차에 나간다(같은 주 함께 보내기와 같은 규칙).
+- 기존 필드·코드는 바뀌지 않는다(`POST_DUPLICATE`·`SAME_VISIT_DELETE_CONFIRM` 코드만 추가). 정산팀에 보내는 Item에는 키를 추가하지 않았다.
 
 ### 작업 종류 `kind`에 `other`(기타 협찬) 추가 (2026-11, 스테이징 먼저)
 
@@ -86,7 +104,7 @@
 | GET | `/tasks/{id}` | 작업 단계·비용·예약 요약·version·allowedActions·webUrl·reservationId |
 | GET | `/tasks/{id}/reservation` | 예약 상세 또는 `null` |
 | GET | `/campaigns?kind=visit&includeEnded=false` | `{items,total}`, 캠페인·본점 ID·`clientActive`(2026-11-06, 비활성 클라이언트는 걸러서 보여 주세요) |
-| GET | `/campaigns/{id}/visit-task-candidates?personId=<id>` | 같은 상대의 미취소·미게시 방문 작업·version·reservationId |
+| GET | `/campaigns/{id}/visit-task-candidates?personId=<id>` | 같은 상대의 미취소·미게시 방문 작업·version·reservationId(같은 방문의 연결 작업은 제외, 2026-11-10) |
 | GET | `/clinics` | `{items,total}`, 본점 목록·configured·`clientActive`(2026-11-06, 지점의 `active`와 별개. 비활성 클라이언트는 걸러서 보여 주세요) |
 | GET | `/clinics/{id}` | 기존 소개·금지 표현·settings·version·templates |
 | GET | `/clinics/{id}/guidance?language=JA` | 지도·언어별 안내·고객 양식·기재 시트 버전 |

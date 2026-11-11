@@ -22,6 +22,7 @@ import type { SettlementBadgeStatus, ExternalStatus } from './campaignTaskStore.
 import { insertTaskChange, costOf, attachPeerRatios } from './campaignTaskStore.ts';   // 이 파일은 이미 campaignTaskStore 값을 재수출한다(순환 없음)
 import type { Cursor, ExportRow, StatusUpdate } from './settlementExternal.ts';   // 타입만이라 순환 무해
 import { MAPPED_CLIENT_IDS, resolveClinicId, type MarketingCostSource } from './marketingCostExport.ts';   // 순수 모듈 — 순환 없음
+import { settlementRequestNote } from './sameVisit.ts';   // 순수 모듈
 
 const asJson = (v: object): postgres.JSONValue => v as unknown as postgres.JSONValue;
 
@@ -259,6 +260,12 @@ export async function insertRequestInTx(tx: postgres.Sql, i: {
 }): Promise<PaymentRequestRow> {
   const { cand, r } = i;
   const m = cand.money!; const pm = cand.method!;
+  // 같은 방문 묶음 가격(089, koo 결정 A 11-10) — 게시물 2 이후의 링크를 note에 적는다(새 키 없이). 취소 제외, 화면 꼬리표 순서.
+  // 요청 시점 값이다 — 나중에 게시물이 올라와도 이 요청의 note는 바뀌지 않는다(제자리 수정도 note를 다시 계산하지 않는다).
+  const linked = await tx<Array<{ post_url: string | null; posted_at: string | null }>>`
+    select post_url, to_char(posted_at, 'YYYY-MM-DD') as posted_at from campaign_task
+     where same_visit_of = ${cand.taskId} and cancelled_at is null order by created_at, id`;
+  const note = settlementRequestNote(cand.linklessNote, linked.map((l) => ({ postUrl: l.post_url, postedAt: l.posted_at })));
   const ins = await tx<Array<{ id: string }>>`
     insert into payment_request (task_id, campaign_id, campaign_name, client_id, client_name, influencer_handle, task_type,
       category, category_default, item_text, purpose_text, amount_krw, cost_currency, payout_currency, rate_krw_per_jpy,
@@ -269,7 +276,7 @@ export async function insertRequestInTx(tx: postgres.Sql, i: {
       ${m.amountNet}, ${m.fee ? tx.json(asJson(m.fee)) : null}, ${m.feeAmount}, ${m.amountGross}, ${i.deadlineOn}, ${i.referenceUrl}, ${cand.proof ? tx.json(asJson(cand.proof)) : null},
       ${tx.json(asJson(toMethodSnapshot(pm)))}, ${i.requester.id}, ${i.requester.name},
       ${r.influencer_id}, ${i.catId}, ${r.campaign_starts_on}, ${r.campaign_ends_on}, ${r.posted_at}, ${i.via}, ${r.removed_at}, ${r.unseen_on},
-      ${cand.linklessNote ?? ''})   -- 링크 없이 게시 확인된 작업이면 지워진 이유가 정산팀에 가는 메모가 된다(ISSUE-009)
+      ${note})   -- 링크 없이 게시 확인된 작업이면 지워진 이유(ISSUE-009), 같은 방문 묶음이면 나머지 게시물 링크(ISSUE-016)가 정산팀에 가는 메모가 된다
     returning id`;
   const [saved] = await tx<RRow[]>`${R_SELECT(tx)} where id = ${ins[0].id}`;
   const row = toRequest(saved);

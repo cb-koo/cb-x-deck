@@ -8,6 +8,7 @@ import { POST_ROLES, type PostRole } from '@/lib/postRole';
 import { judgeTaskLink, judgeDraftLink, linkTrackedPostGuarded, TaskChangedError, type TaskSeen } from '@/lib/postAttach';
 import { authorVerdictMessage } from '@/lib/postAuthor';
 import { fetchPost } from '@/lib/postMetrics';
+import { findPostLinkOwner } from '@/lib/campaignTaskStore';
 
 // tracked_post.id는 uuid 컬럼이라 형식이 아닌 값은 "없음"이 아니라 캐스팅 오류(22P02 → 500)가 된다.
 // 조회 전에 끊어서 404로 답한다(influencers [id] 관례).
@@ -50,6 +51,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (!tp) return notFound();
   // 작업에 붙는 연결이면 작성자 확인(다른 인플의 게시물 차단 스펙 §3 ②④) — 원고 연결은 그 원고가 작업에 붙어 있을 때만.
   // 연결 해제(null)는 판정하지 않는다.
+  // 다른(취소 안 된) 작업의 본 게시물이면 옮기지 않는다 — 예전엔 확인 창 한 번으로 옮겨져 그 작업의 성과가 비었다(ISSUE-016 P1).
+  // 옮기려면 그 작업에서 먼저 연결을 푼다. 화면은 [열기]로 그 작업을 연다(taskId·campaignId). 연결 해제(null)는 그대로.
+  if (link.key === 'taskId' && typeof link.v === 'string') {
+    const owner = await findPostLinkOwner(sql, link.v, tp.tweetId, 'tracked');
+    if (owner) return NextResponse.json({ error: owner.message, code: 'POST_DUPLICATE', taskId: owner.taskId, campaignId: owner.campaignId }, { status: 409 });
+  }
   let seen: TaskSeen = null;
   if (typeof link.v === 'string') {
     const author = { tweetId: tp.tweetId, authorHandle: tp.authorHandle };

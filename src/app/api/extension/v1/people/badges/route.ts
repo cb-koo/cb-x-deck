@@ -38,7 +38,8 @@ export async function POST(req: Request) {
         .sort((a, b) => compareClassified({ id: a.t.id, c: a.c }, { id: b.t.id, c: b.c }));
       return {
         ...identity, personId: row.id, asOfDate: today, status: 'matched', activeCount: active.length,
-        activeVisitCount: active.filter(({ t }) => t.type === 'visit').length,
+        // 방문 수 = 실제 방문 횟수 — 같은 방문의 연결 작업(089)은 게시물 하나일 뿐이라 빼고, activeCount·tasks엔 그대로 둔다
+        activeVisitCount: active.filter(({ t }) => t.type === 'visit' && !t.sameVisitOf).length,
         tasks: active.map(({ t, c }) => {
           const task = toTaskDto(t, c, row.id, today, new URL(req.url).origin);
           return { taskId: t.id, createdAt: task.createdAt, kind: task.kind, title: task.title, visitPhase: c.visitPhase, flowStage: c.flowStage, nextSchedule: task.nextSchedule, dDay: c.dDay, visitDday: task.visitDday, uploadDday: task.uploadDday };

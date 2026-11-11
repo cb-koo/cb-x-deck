@@ -17,14 +17,15 @@ import type { CheckPostedResult } from './checkPosted.ts';
 import type { CancelReason } from './campaignTaskInput.ts';
 import type { TaskAgreementInput } from './taskAgreementGuard.ts';
 
-export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; status: number };
+// body — 실패 응답 본문(문구 외의 값, 예: 같은 링크 중복의 taskId·campaignId). 화면이 [열기] 같은 다음 행동을 붙일 때만 쓴다
+export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; status: number; body?: unknown };
 
 // 서버가 준 오류 문구를 그대로 쓴다 — 원인을 넘겨짚지 않는다(profileShared.errOf 관례). 본문이 깨져도 상태코드는 남긴다.
 export async function toApiResult<T>(r: Response): Promise<ApiResult<T>> {
   const body: unknown = await r.json().catch(() => null);
   if (r.ok) return { ok: true, data: body as T };
   const error = (body as { error?: string } | null)?.error ?? `오류 ${r.status}`;
-  return { ok: false, error, status: r.status };
+  return { ok: false, error, status: r.status, body };
 }
 
 const json = (method: string, body: unknown): RequestInit =>
@@ -96,9 +97,18 @@ export const patchTaskApi = (campaignId: string, taskId: string, body: TaskPatch
 // 예약 기록이 있는 방문 작업은 서버가 409 RESERVATION_DELETE_CONFIRM과 함께 지워질 예약 기록 요약을 준다 —
 // 그때 reservation을 돌려줘 화면이 확인 창을 띄우고, 확인하면 withReservation으로 다시 보낸다.
 export type DeleteTaskResult = ApiResult<{ ok: true; deleted: boolean }> & { reservation?: ReservationDeleteSummary };
-export async function deleteTaskApi(campaignId: string, taskId: string, withReservation = false): Promise<DeleteTaskResult> {
+// 같은 방문의 게시물 하나 더(089) — 원래 작업에 연결 작업(비용 없음 고정)을 만든다. 성공이면 새 작업 행
+// created: false = 아직 링크·예정일 없는 연결 작업이 이미 있어 그것을 돌려줬다. ordinal = 이 방문의 몇 번째 게시물
+export const createSameVisitTaskApi = (campaignId: string, taskId: string) =>
+  call<{ id: string; created: boolean; ordinal: number }>(`/api/campaigns/${campaignId}/tasks/${taskId}/same-visit`, { method: 'POST' });
+// 만든 직후 [되돌리기] — 서버가 아직 아무것도 넣지 않은 연결 작업인지 다시 보고 지운다(삭제 기록은 남는다)
+export const undoSameVisitTaskApi = (campaignId: string, taskId: string) =>
+  call<{ ok: true; deleted: boolean }>(`/api/campaigns/${campaignId}/tasks/${taskId}?undoSameVisit=1`, { method: 'DELETE' });
+// withSameVisit — 같은 방문의 연결 작업(089)도 함께 지운다(화면이 확인 창에서 알린 뒤에만 보낸다)
+export async function deleteTaskApi(campaignId: string, taskId: string, withReservation = false, withSameVisit = false): Promise<DeleteTaskResult> {
   try {
-    const r = await apiFetch(`/api/campaigns/${campaignId}/tasks/${taskId}${withReservation ? '?withReservation=1' : ''}`, { method: 'DELETE' });
+    const q = [withReservation ? 'withReservation=1' : '', withSameVisit ? 'withSameVisit=1' : ''].filter(Boolean).join('&');
+    const r = await apiFetch(`/api/campaigns/${campaignId}/tasks/${taskId}${q ? `?${q}` : ''}`, { method: 'DELETE' });
     if (r.status === 409) {
       const body = await r.clone().json().catch(() => null) as { code?: string; error?: string; reservation?: ReservationDeleteSummary } | null;
       if (body?.code === 'RESERVATION_DELETE_CONFIRM' && body.reservation) return { ok: false, error: body.error ?? '', status: 409, reservation: body.reservation };
@@ -117,7 +127,7 @@ export const fetchTaskChangesApi = (campaignId: string, taskId: string) =>
 export const cancelTaskApi = (campaignId: string, taskId: string, body: { reason: CancelReason | null; note: string }) =>
   call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/cancel`, json('POST', body));
 export const restoreTaskApi = (campaignId: string, taskId: string) =>
-  call<{ task: TaskRow; draft: 'reattached' | 'taken' | 'gone' | 'none' }>(`/api/campaigns/${campaignId}/tasks/${taskId}/restore`, { method: 'POST' });
+  call<{ task: TaskRow; draft: 'reattached' | 'taken' | 'gone' | 'none'; linked?: { restored: number; draftMissed: number } }>(`/api/campaigns/${campaignId}/tasks/${taskId}/restore`, { method: 'POST' });
 // 다른 곳에서 정산함(061) — 표시(POST)·되돌리기(DELETE). 게시·취소·살아있는 요청을 서버가 다시 검사한다
 export const settleElsewhereApi = (campaignId: string, taskId: string, body: { note: string }) =>
   call<TaskRow>(`/api/campaigns/${campaignId}/tasks/${taskId}/settled-elsewhere`, json('POST', body));

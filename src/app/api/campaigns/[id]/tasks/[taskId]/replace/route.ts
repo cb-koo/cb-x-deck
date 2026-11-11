@@ -4,7 +4,8 @@ import { getSql } from '@/lib/db';
 import { requireMember } from '@/lib/authGuard';
 import { isUuidLike } from '@/lib/uuid';
 import { kstToday } from '@/lib/datetime';
-import { getTask, replaceInfluencer } from '@/lib/campaignTaskStore';
+import { getTask, replaceInfluencer, sameVisitLinkedIds } from '@/lib/campaignTaskStore';
+import { SAME_VISIT_INFLUENCER_MESSAGE, ORIGINAL_INFLUENCER_LOCKED_MESSAGE } from '@/lib/sameVisit';
 import { parseReplaceBody, TASK_NOT_FOUND_MESSAGE } from '@/lib/campaignTaskInput';
 import { rosterHandleOf, ROSTER_REQUIRED_MESSAGE } from '@/lib/taskAssignGate';
 
@@ -19,6 +20,11 @@ async function POSTInternal(req: Request, ctx: { params: Promise<{ id: string; t
   const sql = getSql();
   const cur = await getTask(sql, taskId);
   if (!cur || cur.campaignId !== id) return NextResponse.json({ error: TASK_NOT_FOUND_MESSAGE }, { status: 404 });
+  // 같은 방문(089) — 연결 작업은 원래 작업의 사람 그대로, 연결 작업이 있는 원래 작업은 사람을 못 바꾼다(둘이 갈리지 않게)
+  if (cur.sameVisitOf) return NextResponse.json({ error: SAME_VISIT_INFLUENCER_MESSAGE }, { status: 400 });
+  if (parsed.value.handle.toLowerCase() !== (cur.influencerHandle ?? '').toLowerCase() && (await sameVisitLinkedIds(sql, taskId)).length) {
+    return NextResponse.json({ error: ORIGINAL_INFLUENCER_LOCKED_MESSAGE }, { status: 400 });
+  }
   // 명부 게이팅(설계 §9 ③) — 다른 사람으로 바꿀 때만 판정(같은 사람 재선택은 저장소가 no-op으로 끝낸다). 저장 표기는 명부 표기로.
   // 결제 수단은 저장소(replaceInfluencer)가 비운다 — 앞사람의 수단 id가 남으면 안 된다(§8-2).
   const canon = await rosterHandleOf(sql, parsed.value.handle);

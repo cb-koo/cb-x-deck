@@ -33,6 +33,7 @@ export interface TaskFacts {
   // visitAt = 시트의 희망 일시(서울 'YYYY-MM-DDTHH:mm', 없으면 '')
   reservation: { confirmed: boolean; visitAt: string; deadlineMode: DeadlineMode } | null;
   requestCount: number;
+  sameVisitOf?: string | null;   // 같은 방문의 원래 작업(089) — 연결 작업이면 방문 수에서 빼고 예약 행동을 막는다
   createdAt?: string | null;
   target?: { label: string; url: string | null } | null;
 }
@@ -55,6 +56,7 @@ export interface TaskDto {
   target: { label: string; url: string | null } | null;
   visitDday: number | null;
   uploadDday: number | null;
+  sameVisitOf: string | null;   // 같은 방문의 원래 작업 id(089) — 연결 작업은 비용 없음·예약 없음, allowedActions는 빈 배열
 }
 
 export interface ClassifiedTask {
@@ -84,6 +86,7 @@ export function classifyTask(t: TaskFacts, today: string): ClassifiedTask {
       endKind: t.endKind, cancelledAt: t.cancelledAt, postedAt: t.postedAt, noCost: t.noCost,
       settlement: t.settlement, visitCompletedAt: t.visitCompletedAt, visitOn: t.visitOn,
       reservation: t.reservation ? { confirmed: t.reservation.confirmed, visitAt: t.reservation.visitAt } : null,
+      sameVisitOf: t.sameVisitOf ?? null,
     }, today);
     const bucket: TaskBucket = phase === 'completed' ? 'completed' : ENDED_PHASES.includes(phase) ? 'ended' : 'active';
     const schedule = nextVisitSchedule(t, phase, today);
@@ -113,6 +116,7 @@ export function toTaskDto(t: TaskFacts, c: ClassifiedTask, personId: string, tod
     endKind: t.endKind, cancelledAt: t.cancelledAt, postedAt: t.postedAt, noCost: t.noCost,
     settlement: t.settlement, visitCompletedAt: t.visitCompletedAt, visitOn: t.visitOn,
     reservation: t.reservation ? { confirmed: t.reservation.confirmed, visitAt: t.reservation.visitAt } : null,
+    sameVisitOf: t.sameVisitOf ?? null,
   };
   return {
     id: t.id,
@@ -140,6 +144,7 @@ export function toTaskDto(t: TaskFacts, c: ClassifiedTask, personId: string, tod
     allowedActions: isVisit ? allowedVisitActions(facts, t.requestCount, today) : [],
     dDay: c.dDay,
     nextSchedule: isVisit ? nextVisitSchedule(t, c.visitPhase, today) : null,
+    sameVisitOf: t.sameVisitOf ?? null,
     webUrl: `${origin}/campaigns/flow?id=${encodeURIComponent(t.campaignId)}&task=${encodeURIComponent(t.id)}`,
   };
 }

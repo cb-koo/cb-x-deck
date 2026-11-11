@@ -2,7 +2,7 @@
 // 작업 지표는 캠페인 화면(campaignStore.getCampaignDetail)과 같은 방식 — 본 게시물(post_url의 트윗, pickTaskMainPost) 하나의
 // 최신 1건(lateral)이라 두 화면 숫자가 같다. 인플 본인 댓글 등 나머지 게시물은 더하지 않는다(self-replies 스펙 §5).
 import type postgres from 'postgres';
-import type { PerfInfluencerInput, PerfTask } from './influencerPerformance.ts';
+import { withVisitShares, type PerfInfluencerInput, type PerfTask } from './influencerPerformance.ts';
 import type { TaskType } from './campaignJudgment.ts';
 import { parseTaskCost, type TaskCost } from './campaignCost.ts';
 import { pickTaskMainPost } from './selfReplies.ts';
@@ -14,6 +14,7 @@ type PostRow = {
 type Row = {
   id: string; campaign_id: string; campaign_name: string; client_id: string | null; client_name: string | null; type: TaskType; influencer_handle: string;
   posted_at: string | null; post_url: string | null; removed_at: string | null; removed_reason: string; cost: unknown;
+  same_visit_of: string | null; created_at: string;
   influencer_id: string | null; roster_handle: string | null; display_name: string | null;
   avatar_url: string | null; is_blue_verified: boolean | null;
 };
@@ -24,7 +25,7 @@ function costOf(v: unknown): TaskCost | null { const p = parseTaskCost(v ?? null
 export async function listInfluencerPerformance(sql: postgres.Sql): Promise<PerfInfluencerInput[]> {
   const rows = await sql<Row[]>`
     select t.id, t.campaign_id, c.name as campaign_name, c.client_id, c.client_name, t.type, t.influencer_handle,
-           to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, t.post_url, t.cost,
+           to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, t.post_url, t.cost, t.same_visit_of, t.created_at::text as created_at,
            to_char(t.removed_at, 'YYYY-MM-DD') as removed_at, t.removed_reason,
            i.id as influencer_id, i.handle as roster_handle, i.display_name, i.avatar_url, i.is_blue_verified
       from campaign_task t
@@ -63,11 +64,13 @@ export async function listInfluencerPerformance(sql: postgres.Sql): Promise<Perf
       postedAt: r.posted_at, postUrl: r.post_url, removedAt: r.removed_at, removedReason: r.removed_reason,
       clientId: r.client_id, clientName: r.client_name,
       cost: costOf(r.cost),
+      sameVisitOf: r.same_visit_of ?? null, createdAt: r.created_at,
       metrics: metricsOf(r.post_url, postsByTask.get(r.id) ?? []),
     };
     inf.tasks.push(task);
   }
-  return [...byHandle.values()];
+  // 같은 방문의 게시물(089) — 비용을 게시물 수로 나눈 몫을 작업마다 싣는다(화면의 작업별 CPV와 중앙값이 같은 값을 쓴다)
+  return [...byHandle.values()].map((inf) => ({ ...inf, tasks: withVisitShares(inf.tasks) }));
 }
 
 // 작업 지표 = 본 게시물 하나(postCount는 붙은 게시물 수 — 댓글 포함). 게시물이 없으면 null.

@@ -16,7 +16,9 @@ export type FlowRow = CampaignTaskItem;
 
 // 단계 칩의 글자 — 방문협찬의 '준비'는 예약 단계로 말한다(목업 x-extension: 예약이 없거나 확정 전이면 '대기', 확정이면 '확정').
 // 단계 자체(flowStage — 정렬·필터·통계)는 그대로 두고 표시 글자만 바꾼다. 예약 상태를 모르는 DB(reservation 칸 없음)는 기존 글자.
+// 같은 방문의 연결 작업(089)은 예약이 없고 방문은 이미 했다 — 게시 전 '준비'를 '방문'으로(패널 7단계 줄의 '방문'과 같은 말).
 export function flowStageLabel(t: FlowRow, stage: FlowStage = flowStage(t, t.settlement)): string {
+  if (t.type === 'visit' && t.sameVisitOf && stage === 'prep') return '방문';
   if (t.type === 'visit' && t.reservation !== undefined && stage === 'prep') return t.reservation === 'confirmed' ? '확정' : '대기';
   return FLOW_STAGE_LABEL[stage];
 }
@@ -38,8 +40,9 @@ export function visitStep(t: FlowRow, phase: VisitPhase): VisitStep | null {
   return phase === 'confirmed' ? 'confirmed' : 'waiting';
 }
 // 카드를 눌렀을 때 예약 창을 '예약 파싱' 단계로 바로 열 작업 — 예약이 아직 없는 살아 있는 방문 작업(사람이 정해져 있어야 연결할 수 있다)
+// 같은 방문의 연결 작업(089)은 예약을 붙이지 않는다(예약은 원래 작업에 있다).
 export const awaitsReservation = (t: FlowRow) =>
-  t.type === 'visit' && t.reservation === null && !t.cancelledAt && !t.postedAt && !!t.influencerHandle;
+  t.type === 'visit' && t.reservation === null && !t.cancelledAt && !t.postedAt && !!t.influencerHandle && !t.sameVisitOf;
 const stageOf = (t: FlowRow): FlowStage => flowStage(t, t.settlement);
 
 // ── 필터(R26): 드롭다운 하나, 세 묶음 — 묶음 안 OR, 묶음 사이 AND ──
@@ -196,7 +199,13 @@ export const DISPLAY_TYPE_ORDER: readonly TaskType[] = ['post', 'quoteRt', 'rt',
 export const X_TYPE_ORDER: readonly TaskType[] = DISPLAY_TYPE_ORDER.filter((t) => t !== 'other');
 export function flowFooter(rows: FlowRow[], today: string, currency: ViewCurrency = 'KRW'): string {
   const live = rows.filter((t) => !isTaskExcluded(t));
-  const types = DISPLAY_TYPE_ORDER.filter((k) => live.some((t) => t.type === k)).map((k) => `${TASK_TYPE_LABEL[k]} ${live.filter((t) => t.type === k).length}`);
+  // 방문협찬은 방문 수로 센다 — 같은 방문의 연결 작업(089)은 게시물일 뿐이라 빼고, 게시물 수가 다르면 괄호로('방문협찬 1 (게시물 2)')
+  const types = DISPLAY_TYPE_ORDER.filter((k) => live.some((t) => t.type === k)).map((k) => {
+    const all = live.filter((t) => t.type === k).length;
+    if (k !== 'visit') return `${TASK_TYPE_LABEL[k]} ${all}`;
+    const visits = live.filter((t) => t.type === k && !t.sameVisitOf).length;
+    return visits === all ? `${TASK_TYPE_LABEL[k]} ${all}` : `${TASK_TYPE_LABEL[k]} ${visits} (게시물 ${all})`;
+  });
   const cost = sumMoney(live.flatMap((t) => (t.cost ? [t.cost] : [])));
   const posted = live.filter((t) => t.postedAt).length;
   const late = live.filter((t) => isTaskOverdue(t, today)).length;
@@ -207,7 +216,7 @@ export function flowFooter(rows: FlowRow[], today: string, currency: ViewCurrenc
   const kc = formatMoneyIn(cost, currency);   // 원화 환산 총액이 앞, 통화 내역은 괄호(koo 10-07)
   const costText = `${kc.approx ? '≈' : ''}${kc.total}${kc.breakdown ? ` (${kc.breakdown})` : ''}`;
   return [...types, `작업 비용 ${costText}`, `게시 ${posted} / ${live.length}`,
-          ...(late ? [`밀림 ${late}`] : []), ...(unseen ? [`안 보임 ${unseen}`] : []), ...(removed ? [`내림 ${removed}`] : [])].join(' · ');
+          ...(late ? [`밀림 ${late}`] : []), ...(unseen ? [`안 보임 ${unseen}`] : []), ...(removed ? [`내림 ${removed}`] : [])].join(', ');   // 나열은 쉼표(koo 11-09)
 }
 export interface FlowStats {
   planned: number; posted: number;
@@ -242,10 +251,13 @@ export function flowStats(rows: FlowRow[]): FlowStats {
 
 // 작업 표 성과 3열의 괄호 값(koo 09-22) — 그 작업 하나만의 CPV·좋아요율·북마크율. flowStats의 캠페인 합산과
 // 같은 정의(비용은 원화 환산 ÷ 조회, 비율은 조회 대비)지만 분모·분자가 그 작업 것만이라 별도 함수로 둔다.
-export function taskPerfExtra(t: FlowRow): { cpvKrw: number | null; likeRate: number | null; bookmarkRate: number | null } {
+// 같은 방문의 게시물(089, koo 11-09 결정 1): share가 있으면 원래 작업 비용 ÷ 게시물 수 N을 이 게시물의 비용으로 본다 —
+// 원래 작업·연결 작업 모두 같은 몫이라 첫 게시물이 비용을 다 떠안지 않는다(sameVisit.sameVisitGroups가 share를 만든다).
+export function taskPerfExtra(t: FlowRow, share: { cost: TaskCost; n: number } | null = null): { cpvKrw: number | null; likeRate: number | null; bookmarkRate: number | null } {
   const views = t.perf?.views ?? null;
+  const costKrw = share ? toKrw(sumMoney([share.cost])).krw / share.n : t.cost ? toKrw(sumMoney([t.cost])).krw : null;
   return {
-    cpvKrw: views && t.cost ? toKrw(sumMoney([t.cost])).krw / views : null,
+    cpvKrw: views && costKrw !== null ? costKrw / views : null,
     likeRate: rate(t.perf?.likes ?? null, views),
     bookmarkRate: rate(t.perf?.bookmarks ?? null, views),
   };
@@ -262,6 +274,7 @@ export const settleWaitCount = (rows: FlowRow[]) => rows.filter(isSettleWaiting)
 // null = 바꿀 수 있음. 두 자리(행 메뉴·패널)가 각자 판정하면 한쪽만 조건을 놓쳐 라벨-값이 어긋날 수 있어 하나로 묶는다.
 export function replaceDisabledReason(t: FlowRow, today: string): string | null {
   if (!t.influencerHandle) return '배정부터 해요';
+  if (t.sameVisitOf) return '같은 방문의 게시물이라 바꿀 수 없어요';   // 089 — 서버 sameVisitPatchError·교체 라우트와 같은 조건
   if (t.type === 'visit' && t.visitOn !== null && t.visitOn < today) return '방문한 인플루언서가 게시해야 해요';
   return null;
 }

@@ -119,7 +119,7 @@ test('8) 하단 줄·요약 줄·카드 숫자·정산 대기 — 취소 제외,
     mk({ type: 'post', postedAt: '2026-09-11', influencerHandle: 'b', cost: { amount: 50000, currency: 'KRW' } }),
   ];
   // M3 — 하단 줄 라벨을 '비용' → '작업 비용'으로(카드의 '계획'과 이름이 겹쳐 다른 값인데 같아 보였다)
-  assert.equal(flowFooter(rows, T), '투고 2 · RT 1 · 작업 비용 160,000원 · 게시 2 / 3 · 밀림 1');
+  assert.equal(flowFooter(rows, T), '투고 2, RT 1, 작업 비용 160,000원, 게시 2 / 3, 밀림 1');
   const s = flowStats(rows);
   assert.equal(s.planned, 3); assert.equal(s.posted, 2);
   assert.deepEqual(s.spent, { KRW: 130000 }); assert.deepEqual(s.plannedCost, { KRW: 160000 });
@@ -154,19 +154,19 @@ test('8-b) 하단 줄 — 내려진 작업이 있으면 끝에 · 내림 N(밀�
     mk({ type: 'post', cost: { amount: 80000, currency: 'KRW' }, postedAt: '2026-09-10', removedAt: '2026-09-16', influencerHandle: 'a' }),
     mk({ type: 'post', cost: { amount: 50000, currency: 'KRW' }, postedAt: '2026-09-11', influencerHandle: 'b' }),
   ];
-  assert.equal(flowFooter(rows, T), '투고 2 · 작업 비용 130,000원 · 게시 2 / 2 · 내림 1');
+  assert.equal(flowFooter(rows, T), '투고 2, 작업 비용 130,000원, 게시 2 / 2, 내림 1');
   // 안 보임(2026-10-12) — 내림 앞에, 내림으로 정한 건 내림으로만 센다
   const withUnseen = [...rows, mk({ type: 'post', postedAt: '2026-09-12', unseenSince: '2026-09-13T00:00:00Z', influencerHandle: 'c' }),
     mk({ type: 'post', postedAt: '2026-09-12', unseenSince: '2026-09-13T00:00:00Z', removedAt: '2026-09-14', influencerHandle: 'd' })];
-  assert.equal(flowFooter(withUnseen, T), '투고 4 · 작업 비용 130,000원 · 게시 4 / 4 · 안 보임 1 · 내림 2');
-  assert.equal(flowFooter([mk({ type: 'post', postedAt: '2026-09-11' })], T), '투고 1 · 작업 비용 — · 게시 1 / 1');
+  assert.equal(flowFooter(withUnseen, T), '투고 4, 작업 비용 130,000원, 게시 4 / 4, 안 보임 1, 내림 2');
+  assert.equal(flowFooter([mk({ type: 'post', postedAt: '2026-09-11' })], T), '투고 1, 작업 비용 —, 게시 1 / 1');
   // 원화 환산 총액 먼저, 통화 내역은 괄호(koo 10-07)
   const yen = (amount: number) => mk({ type: 'post', cost: { amount, currency: 'JPY' }, influencerHandle: 'y' });
   const won = (amount: number) => mk({ type: 'post', cost: { amount, currency: 'KRW' }, influencerHandle: 'w' });
-  assert.equal(flowFooter([yen(95000)], T), '투고 1 · 작업 비용 ≈950,000원 (엔화 95,000엔) · 게시 0 / 1');
-  assert.equal(flowFooter([won(360000), yen(95000)], T), '투고 2 · 작업 비용 ≈1,310,000원 (원화 360,000원 · 엔화 95,000엔) · 게시 0 / 2');
+  assert.equal(flowFooter([yen(95000)], T), '투고 1, 작업 비용 ≈950,000원 (엔화 95,000엔), 게시 0 / 1');
+  assert.equal(flowFooter([won(360000), yen(95000)], T), '투고 2, 작업 비용 ≈1,310,000원 (원화 360,000원 · 엔화 95,000엔), 게시 0 / 2');
   // 엔화 보기 — 원화는 10원 = 1엔으로 환산
-  assert.equal(flowFooter([won(360000), yen(95000)], T, 'JPY'), '투고 2 · 작업 비용 ≈131,000엔 (원화 360,000원 · 엔화 95,000엔) · 게시 0 / 2');
+  assert.equal(flowFooter([won(360000), yen(95000)], T, 'JPY'), '투고 2, 작업 비용 ≈131,000엔 (원화 360,000원 · 엔화 95,000엔), 게시 0 / 2');
 });
 
 test('9) 비용 확인 시나리오 — 같음 / 다름 / 프로필 없음 / 통화 다름 / 빈칸', () => {

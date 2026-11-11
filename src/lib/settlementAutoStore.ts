@@ -47,20 +47,22 @@ function stateOf(r: CandRow): PendingState {
 }
 // 같은 주 함께 보내기(ISSUE-010)의 재료 — 후보 인플들의 작업 전부(취소·다른 곳에서 정산함 제외, 마감한 캠페인의 미게시 작업 제외).
 // 주 판정은 순수 함수(togetherFor)가 한다. 비용 없음 작업도 센다 — 업로드를 작업으로 나눠 금액을 한쪽에만 둘 수 있게.
-type SibRow = { id: string; handle: string; type: TaskType; campaign_name: string; posted_at: string | null; scheduled_on: string | null; visit_on: string | null; starts_on: string; posted_confirmed_at: Date | null };
+type SibRow = { id: string; handle: string; type: TaskType; campaign_name: string; posted_at: string | null; scheduled_on: string | null; visit_on: string | null; starts_on: string; posted_confirmed_at: Date | null; same_visit_of: string | null; created_at: string };
 async function loadWeekSiblings(sql: postgres.Sql, handles: string[]): Promise<WeekSibling[]> {
   const hs = [...new Set(handles.map((h) => h.toLowerCase()))];
   if (!hs.length) return [];
   const rows = await sql<SibRow[]>`
     select t.id, t.influencer_handle as handle, t.type, c.name as campaign_name,
            to_char(t.posted_at, 'YYYY-MM-DD') as posted_at, to_char(t.scheduled_on, 'YYYY-MM-DD') as scheduled_on,
-           to_char(t.visit_on, 'YYYY-MM-DD') as visit_on, to_char(c.starts_on, 'YYYY-MM-DD') as starts_on, t.posted_confirmed_at
+           to_char(t.visit_on, 'YYYY-MM-DD') as visit_on, to_char(c.starts_on, 'YYYY-MM-DD') as starts_on, t.posted_confirmed_at, t.same_visit_of, t.created_at::text as created_at
       from campaign_task t join campaign c on c.id = t.campaign_id
      where lower(t.influencer_handle) in ${sql(hs)}
        and t.cancelled_at is null and t.settled_elsewhere_at is null
        and not (c.closed_at is not null and t.posted_at is null)`;
+  // 마감한 캠페인의 게시 전 작업은 기다리지 않는다 — 같은 방문의 연결 작업도 같다(캠페인을 마감하면 기다림이 풀려 원래 작업의
+  // 묶음 금액이 다음 회차에 나간다). 같은 주 규칙과 같은 동작이라 유지한다(ISSUE-016 검토 반영 11-09, updates·확장 문서에 명시).
   return rows.map((r) => ({ taskId: r.id, handle: r.handle, taskType: r.type, campaignName: r.campaign_name,
-    postedAt: r.posted_at, scheduledOn: r.scheduled_on, visitOn: r.visit_on, campaignStartsOn: r.starts_on,
+    postedAt: r.posted_at, scheduledOn: r.scheduled_on, visitOn: r.visit_on, campaignStartsOn: r.starts_on, sameVisitOf: r.same_visit_of, createdAt: r.created_at,
     confirmedAt: r.posted_at ? confirmedInstant(iso(r.posted_confirmed_at), r.posted_at).toISOString() : null }));
 }
 

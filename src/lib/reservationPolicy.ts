@@ -70,6 +70,9 @@ export interface VisitTaskFacts {
   visitCompletedAt: string | null;              // 수동 방문 완료
   visitOn: string | null;                       // 예약 없는 기존 방문 기록(레거시)
   reservation: { confirmed: boolean; visitAt: string } | null;   // visitAt = 시트의 희망 일시(서울 'YYYY-MM-DDTHH:mm', 없으면 '')
+  // 같은 방문의 원래 작업(089, ISSUE-016) — 있으면 같은 방문의 두 번째 이후 게시물. 예약이 없고(원래 작업에 있다),
+  // 방문은 이미 원래 작업으로 한 것이라 게시 전 단계는 '방문'이며, 예약·방문 행동은 하나도 허용하지 않는다.
+  sameVisitOf?: string | null;
 }
 
 const isPaid = (s: FlowSettlementInput | null) => s?.status === 'requested' && s.externalStatus === 'paid';
@@ -86,6 +89,7 @@ export function visitPhase(f: VisitTaskFacts, today: string): VisitPhase {
   if (isPaid(f.settlement) || (f.postedAt && f.noCost)) return 'completed';
   if (hasActiveSettlement(f.settlement)) return 'settling';
   if (f.postedAt) return 'uploaded';
+  if (f.sameVisitOf) return 'visited';
   const r = f.reservation;
   if (!r) return 'unregistered';
   if (f.visitCompletedAt) return 'visited';
@@ -100,6 +104,8 @@ const legacyVisited = (f: VisitTaskFacts, today: string) =>
 export const ENDED_PHASES: readonly VisitPhase[] = ['completed', 'cancelled', 'visit_no_show', 'upload_no_show'];
 
 export function allowedVisitActions(f: VisitTaskFacts, requestCount: number, today: string): VisitAction[] {
+  // 같은 방문의 연결 작업 — 예약을 붙이거나 끝낼 대상이 아니다. 게시 확인·취소는 웹의 작업 패널에서 한다.
+  if (f.sameVisitOf) return [];
   const phase = visitPhase(f, today);
   const limitReached = requestCount >= CHANGE_REQUEST_LIMIT;
   const withStop = (actions: VisitAction[]): VisitAction[] =>

@@ -512,12 +512,10 @@ test('같은 방문: POST tasks/{id}/posts는 웹과 같은 판정으로 연결 
   // 다른 키 — 빈 연결 작업이 있으면 그것을 다시 쓴다(웹 [게시물 하나 더]와 같은 규칙)
   const reused = await call<TaskInfo>('POST', `tasks/${o.id}/posts`, { key: randomUUID(), version: before.version });
   assert.deepEqual(reused.posts.map((p) => p.taskId), added.posts.map((p) => p.taskId));
-  // 연결 작업: 목록엔 그대로(sameVisitOf), 행동 없음, 거기에 게시물을 더하면 409
+  // 연결 작업: sameVisitOf로 원래 작업을 가리키고 행동 없음, 거기에 게시물을 더하면 409(목록에 그대로 남는 것은 extensionApi.test가 본다)
   const linkedId = added.posts[0].taskId;
   const linked = await call<TaskInfo>('GET', `tasks/${linkedId}`);
   assert.deepEqual([linked.sameVisitOf, linked.allowedActions, linked.posts], [o.id, [], []]);
-  const list = await call<{ items: Array<{ id: string }> }>('GET', `people/${f.person.id}/tasks?status=active`).catch(() => null);
-  if (list) assert.ok(list.items.some((t) => t.id === linkedId));
   await rejects(call('POST', `tasks/${linkedId}/posts`, { key: randomUUID(), version: linked.version }), 'STATE_CHANGED', 409);
   // 취소된 원래 작업 — 409, 행동에도 없다
   assert.equal(await cancelTask(sql, o.id, { reason: 'other', note: '테스트', actorId: actor.id, today: base }), 'ok');

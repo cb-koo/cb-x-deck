@@ -13,7 +13,7 @@ import { kstMonthDay } from '@/lib/datetime';
 // [바꾸기] 한 동작이다: 누르면 '교체 대기' 상자가 열리고, 그 상태에서만 붙여넣기(⌘V)·고르기를 받는다. 새 파일이 올라가
 // 저장되는 순간 바뀌고, 그 전까지(실패 포함) 원래 증빙이 그대로 남는다. 옛 화면(PostedCell)도 같은 동작이다(화면마다 갈라지지 않게).
 export function TaskProofField({
-  taskId, value, signedUrl, postedAt, influencerHandle, uploaded, required, canRemove, disabled, onChange, taskType = 'rt',
+  taskId, value, signedUrl, postedAt, influencerHandle, uploaded, required, canRemove, disabled, onChange, taskType = 'rt', hideLabel = false,
 }: {
   taskId: string;
   value: string | null; // 저장된 스토리지 경로
@@ -29,6 +29,7 @@ export function TaskProofField({
   // 알리고 교체 상자를 열어 둔다(다시 붙여넣을 수 있게). 아직 저장 전인 폼 값만 바꾸는 부모는 아무것도 돌려주지 않아도 된다.
   onChange: (path: string | null) => void | Promise<boolean>;
   taskType?: TaskProofKind;   // 내려받는 파일 이름의 꼬리(RT증빙·기타협찬증빙) — 기타 협찬 완료 칸만 'other'를 넘긴다
+  hideLabel?: boolean;   // 부모가 이미 '스크린샷' 칸 이름을 달았을 때 — 빈 상자 위 '증빙 스크린샷' 줄을 생략(기타 협찬 완료 칸)
 }) {
   // 미리보기는 "어느 경로의 것인지"를 함께 들고 있는다 — 부모(key 없이 쓴다)가 낙관 갱신으로 value를
   // 새 경로로 바꾸면 preview.path === value가 돼 미리보기가 그대로 이어지고, 실패로 롤백돼 value가
@@ -199,9 +200,11 @@ export function TaskProofField({
         </div>
       ) : (
         <>
-          <p className="text-ui text-x-secondary">
-            증빙 스크린샷 {required && <span className="text-red-600">필수</span>}
-          </p>
+          {!hideLabel && (
+            <p className="text-ui text-x-secondary">
+              증빙 스크린샷 {required && <span className="text-red-600">필수</span>}
+            </p>
+          )}
           {/* 붙여넣기는 위 이펙트가 문서에서 받는다(포커스와 무관) — 이 버튼은 파일 고르기 담당이다.
               div+role="button"이 아니라 실제 <button>을 써서 Enter·스페이스로도 열리게 한다(이 저장소는
               role="button"을 키보드 조작 없이 쓰지 않는다). */}

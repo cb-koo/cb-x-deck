@@ -10,8 +10,9 @@ import { OtherKindDraftContext } from './OtherKindField';
 
 // 기타 협찬(088, koo 11-06)의 '완료' 칸 — 게시 칸(PostedBox)의 기타 협찬판. X 게시물이 아니라서
 //  · 순서: 완료한 날 → 확인 링크(선택, 아무 http(s) 주소) → 스크린샷 붙여넣기(선택, RT 증빙과 같은 칸) → [완료 확인]
-//  · 확인 자료 셋(링크, 스크린샷, 확인 메모)을 대등한 칸으로 나란히 둔다 — 하나 이상이면 된다(koo 11-11: 메모가 접힌 글자 링크라
-//    셋 중 하나라는 게 안 보였다). 여러 개를 넣어도 된다. 정산 note 규칙은 그대로(otherSettlementNote)
+//  · 확인 자료 상자: 확인 링크·스크린샷(둘 다 넣어도 된다) — '또는' — [증빙 자료 없음] 버튼(koo 11-11). 버튼을 누르면 상자가
+//    '증빙 자료 없음' 상태로 바뀌고 확인 메모(필수)만 받는다. 메모 칸을 늘 펼쳐 두면 언제 쓰는 칸인지 눈에 안 들어와서
+//    '증빙이 없다'는 선택을 버튼 하나로 드러냈다. 정산 note 규칙은 그대로(otherSettlementNote)
 //  · X 미리보기·작성자 확인·성과 측정 없음(조회 비용도 없다)
 //  · '무엇을 했는지'가 비어 있으면 [완료 확인]을 막는다 — 패널 칸에 지금 적힌 글자(OtherKindDraftContext)로 판정해 입력 중에도 켜진다
 //  · 완료 뒤: 스크린샷은 RT처럼 [바꾸기]로 교체. 떼기는 링크나 메모가 남아 있을 때만(확인 자료가 0개가 되면 안 된다 — 서버도 막는다)
@@ -35,6 +36,7 @@ export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, on
   const [date, setDate] = useState(() => (task.scheduledOn && task.scheduledOn <= today ? task.scheduledOn : today));
   const [url, setUrl] = useState('');
   const [pendingProof, setPendingProof] = useState<string | null>(null);   // 완료 전 — [완료 확인]과 함께 나간다
+  const [noEvidence, setNoEvidence] = useState(false);   // [증빙 자료 없음]을 눌렀다 — 확인 메모만 받는다
   const [doneNote, setDoneNote] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -58,7 +60,7 @@ export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, on
         <p className="text-content">
           완료 {formatDateKoLong(task.postedAt, false)}
           {task.postUrl && <>{'  '}<a href={task.postUrl} target="_blank" rel="noreferrer" className="text-x-blue-text hover:underline">확인 링크 열기 ↗</a></>}
-          {noLink && <span className="text-x-secondary">  (링크 없음)</span>}
+          {noLink && <span className="text-x-secondary">  ({task.proof ? '링크 없음' : '증빙 자료 없음'})</span>}
         </p>
         {task.postUrl && <p className="mt-0.5 truncate text-ui text-x-muted" title={task.postUrl}>{task.postUrl.replace(/^https?:\/\//, '')}</p>}
         {task.doneNote && <p className="mt-1 text-ui text-x-secondary">확인 메모: {task.doneNote}</p>}
@@ -98,17 +100,21 @@ export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, on
   }
 
   const blockReason = !kind ? OTHER_KIND_REQUIRED_MESSAGE : '';
-  const hasEvidence = !!url.trim() || !!pendingProof || !!doneNote.trim();
+  const hasEvidence = noEvidence ? !!doneNote.trim() : (!!url.trim() || !!pendingProof);
   async function submit() {
     if (!isDateOnlyString(date)) { setErr(DATE_MESSAGE); return; }
     if (date > today) { setErr(DONE_DATE_FUTURE_MESSAGE); return; }
     const done: OtherDone = {};
-    const u = url.trim();
-    if (u && !isHttpUrl(u)) { setErr(LINK_MESSAGE); return; }
-    if (!u && !pendingProof && !doneNote.trim()) { setErr('확인 링크, 스크린샷, 확인 메모 중 하나를 넣어 주세요'); return; }
-    if (u) done.url = u;
-    if (pendingProof) done.proof = pendingProof;
-    if (doneNote.trim()) done.note = doneNote.trim();
+    if (noEvidence) {
+      if (!doneNote.trim()) { setErr('확인 메모를 적어 주세요'); return; }
+      done.note = doneNote.trim();
+    } else {
+      const u = url.trim();
+      if (u && !isHttpUrl(u)) { setErr(LINK_MESSAGE); return; }
+      if (!u && !pendingProof) { setErr('확인 링크나 스크린샷을 넣어 주세요'); return; }
+      if (u) done.url = u;
+      if (pendingProof) done.proof = pendingProof;
+    }
     setBusy(true);
     // 칸에 적혔지만 아직 저장 전인 '무엇을 했는지'도 함께 보낸다(서버가 같은 요청 안에서 판정한다)
     try { await onDone(date, done, kindDraft !== null && kind !== task.otherKind ? kind : undefined); }
@@ -121,28 +127,51 @@ export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, on
       <p className={subTitle}>완료한 날</p>
       <input type="date" value={date} max={today} aria-label="완료한 날" onChange={(e) => { setDate(e.target.value); setErr(''); }}
              className={`${input} border-x-border-strong`} />
-      {/* 확인 자료 셋 — 같은 모양의 칸 셋을 나란히(어느 하나가 '예외 경로'로 보이지 않게). 하나 이상이면 [완료 확인]이 켜진다 */}
+      {/* 확인 자료 — 링크·스크린샷 / 또는 / [증빙 자료 없음]. 누르면 같은 상자가 '증빙 자료 없음 + 확인 메모'로 바뀐다(창 없음) */}
       <div className="mt-4 rounded-lg border border-x-border px-3.5 pb-3.5 pt-3">
-        <p className="text-content font-semibold">확인 자료 <span className="font-normal text-x-secondary">셋 중 하나만 있어도 돼요</span></p>
-        <p className="mt-0.5 text-ui text-x-muted">정산팀이 이걸로 완료를 확인해요. 여러 개 넣어도 돼요.</p>
-        <p className={`${subTitle} mt-3`}>확인 링크 <span className="font-normal text-x-muted">리뷰, 게시물처럼 링크가 있을 때</span></p>
-        <input ref={inputRef} value={url} onChange={(e) => { setUrl(e.target.value); setErr(''); }}
-               placeholder="리뷰, 게시물 등 아무 링크나 붙여넣기 (https://…)" aria-label="확인 링크"
-               onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && canSubmit) void submit(); }}
-               className={`${input} border-x-border-strong`} />
-        <p className={`${subTitle} mt-3`}>스크린샷 <span className="font-normal text-x-muted">화면을 캡처해 뒀을 때</span></p>
-        <TaskProofField taskType="other" taskId={task.id} value={pendingProof} signedUrl={null}
-                        postedAt={null} influencerHandle={task.influencerHandle}
-                        required={false} canRemove disabled={busy}
-                        onChange={(p) => { setPendingProof(p); setErr(''); }} />
-        <p id="done-note-label" className={`${subTitle} mt-3`}>확인 메모 <span className="font-normal text-x-muted">상담회 참석처럼 남길 자료가 없을 때</span></p>
-        <input value={doneNote} maxLength={DONE_NOTE_MAX} onChange={(e) => { setDoneNote(e.target.value); setErr(''); }}
-               placeholder="예: 상담회 현장에서 참석 확인" aria-labelledby="done-note-label" className={`${input} border-x-border-strong`} />
+        {noEvidence ? (
+          <>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-content font-semibold">증빙 자료 없음</p>
+              <button type="button" onClick={() => { setNoEvidence(false); setErr(''); }}
+                      className="shrink-0 text-ui text-x-blue-text hover:underline">링크나 스크린샷 넣기</button>
+            </div>
+            <p className="mt-0.5 text-ui text-x-muted">상담회 참석처럼 남길 링크나 스크린샷이 없을 때예요.</p>
+            <p id="done-note-label" className={`${subTitle} mt-3`}>확인 메모 <span className="font-normal text-x-muted">필수</span></p>
+            <input value={doneNote} maxLength={DONE_NOTE_MAX} autoFocus onChange={(e) => { setDoneNote(e.target.value); setErr(''); }}
+                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && canSubmit) void submit(); }}
+                   placeholder="어떻게 확인했는지 (예: 상담회 현장에서 참석 확인)" aria-labelledby="done-note-label" className={`${input} border-x-border-strong`} />
+            <p className="mt-1.5 text-ui text-x-secondary">정산 요청 때 이 메모가 링크 대신 정산팀에 전달돼요.</p>
+          </>
+        ) : (
+          <>
+            <p className="text-content font-semibold">확인 자료 <span className="font-normal text-x-secondary">링크나 스크린샷 중 하나 이상</span></p>
+            <p className="mt-0.5 text-ui text-x-muted">정산팀이 이걸로 완료를 확인해요.</p>
+            <p className={`${subTitle} mt-3`}>확인 링크</p>
+            <input ref={inputRef} value={url} onChange={(e) => { setUrl(e.target.value); setErr(''); }}
+                   placeholder="리뷰, 게시물 등 아무 링크나 붙여넣기 (https://…)" aria-label="확인 링크"
+                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && canSubmit) void submit(); }}
+                   className={`${input} border-x-border-strong`} />
+            <p className={`${subTitle} mt-3`}>스크린샷</p>
+            <TaskProofField taskType="other" taskId={task.id} value={pendingProof} signedUrl={null}
+                            postedAt={null} influencerHandle={task.influencerHandle} hideLabel
+                            required={false} canRemove disabled={busy}
+                            onChange={(p) => { setPendingProof(p); setErr(''); }} />
+            <div className="my-3 flex items-center gap-3 text-ui text-x-muted" aria-hidden>
+              <span className="h-px flex-1 bg-x-border" />또는<span className="h-px flex-1 bg-x-border" />
+            </div>
+            <Button type="button" disabled={!!url.trim() || !!pendingProof} onClick={() => { setNoEvidence(true); setErr(''); }}
+                    title={!!url.trim() || !!pendingProof ? '링크나 스크린샷을 넣었으면 필요 없어요' : '남길 링크나 스크린샷이 없으면 눌러 확인 메모로 완료 확인해요'}
+                    className="h-10 w-full px-3.5 font-semibold">
+              증빙 자료 없음
+            </Button>
+          </>
+        )}
       </div>
       {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
       <div className="mt-2.5 flex items-center justify-end gap-2">
         {blockReason && <span className="text-ui text-amber-700">{blockReason}</span>}
-        {!blockReason && !hasEvidence && <span className="text-ui text-x-muted">확인 자료를 하나 넣으면 눌러져요</span>}
+        {!blockReason && !hasEvidence && <span className="text-ui text-x-muted">{noEvidence ? '확인 메모를 적으면 눌러져요' : '확인 자료를 넣으면 눌러져요'}</span>}
         <Button variant="primary" disabled={!canSubmit} onClick={() => void submit()} title={blockReason || undefined} className="h-9 px-3.5 text-ui">
           {busy ? '저장 중…' : '완료 확인'}
         </Button>

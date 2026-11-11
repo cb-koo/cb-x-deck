@@ -64,6 +64,7 @@ type FactRow = {
   visit_completed_at: string | null; settled_elsewhere_at: string | null; same_visit_of: string | null;
   r_id: string | null; r_confirmed: boolean | null; r_sheet: string | null; r_deadline_mode: DeadlineMode | null;
   end_kind: StoredEndKind | null; request_count: number;
+  other_kind: string | null; done_note: string | null;
 };
 
 // 담당 핸들(대소문자 무시) 기준으로 그 사람의 모든 작업 사실을 한 번에 읽는다. 목록·배지가 같은 함수를 쓴다.
@@ -77,6 +78,7 @@ export async function loadTaskFacts(sql: postgres.Sql, handles: string[]): Promi
            to_char(t.cancelled_at, 'YYYY-MM-DD') as cancelled_at,
            to_char(t.scheduled_on, 'YYYY-MM-DD') as scheduled_on, to_char(t.visit_on, 'YYYY-MM-DD') as visit_on,
            t.cost, t.no_cost, t.version, t.visit_completed_at::text as visit_completed_at, t.same_visit_of,
+           t.other_kind, t.done_note,
            to_char(t.settled_elsewhere_at, 'YYYY-MM-DD') as settled_elsewhere_at,
            (t.agreement is not null) as has_consent,
            r.id as r_id, (r.confirmed_at is not null) as r_confirmed, r.sheet_text as r_sheet, r.deadline_mode as r_deadline_mode,
@@ -115,6 +117,8 @@ export async function loadTaskFacts(sql: postgres.Sql, handles: string[]): Promi
         deadlineMode: r.r_deadline_mode ?? 'default',
       } : null,
       requestCount: r.request_count,
+      otherKind: r.type === 'other' ? r.other_kind || null : null,
+      doneNote: r.done_note || null,
     };
   });
 }

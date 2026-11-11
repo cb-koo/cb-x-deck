@@ -83,6 +83,8 @@
 
 `TaskDto.kind` 값은 `'visit' | 'post' | 'rt' | 'quote_rt' | 'other'`다(코드: `src/lib/extensionTasks.ts` `WireTaskKind`). `other`는 새 작업 유형 **기타 협찬**(X 게시물이 아닌 협찬 — 구글맵 리뷰, 상담회 참석 등)이다. 제목은 `{캠페인} · 기타 협찬`, 분류는 방문이 아닌 콘텐츠 작업과 같은 규칙(`visitPhase: null`, 완료 확인 + 지급이면 `completed`)이다. 방문 예약 API(`/campaigns/{id}/visit-task-candidates` 등)와 `activeVisitCount`는 `visit`만 보므로 영향이 없다. `activeCount`·`tasks`에는 다른 종류처럼 포함된다. 확장이 모르는 `kind`에서 멈추지 않는지 확인해 주시고, 표시 라벨은 '기타 협찬'을 써 주세요. 스테이징에 `[QA]` 캠페인의 기타 협찬 2건이 있다.
 
+`TaskDto`(목록·단건·배지 `tasks[]`·`ReservationDto.task`)에 `otherKind: string | null`(무엇을 했는지 — `kind`가 `other`일 때만, 비어 있으면 `null`)과 `doneNote: string | null`(링크 없이 완료한 건의 확인 메모, 없으면 `null`)을 추가했다(2026-11-11). 기존 필드는 그대로다.
+
 ### 대화 목록 협찬 요약 (2026-10-13)
 
 `POST /people/badges`의 상대별 응답에 `personId`(미등록·상대 불일치이면 `null`), `activeVisitCount`, `asOfDate`(서울 `YYYY-MM-DD`)를 추가했다. 기존 `activeCount`와 `tasks`는 여전히 **모든 종류**의 전체 진행 중 협찬이다. 확장은 방문협찬만 추려 `activeVisitCount`와 목록의 고유 작업 수를 맞추고, 대표 1건을 제외한 `+N`을 표시한다. 패널 첫 페이지 20건으로 이 전체 결과를 덮어쓰지 않는다.

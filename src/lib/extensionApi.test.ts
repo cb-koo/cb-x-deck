@@ -117,6 +117,21 @@ test('DTO: wire 종류·0과 null·noCost 구분·offset 시각·허용 행동',
   assert.equal(seoulIso(''), null);
 });
 
+test('DTO: 기타 협찬은 유형·한 일·확인 메모를 싣고, 콘텐츠 작업 규칙으로 분류한다', () => {
+  const other = task({ type: 'other', otherKind: '구글맵 리뷰', doneNote: '현장 확인', postedAt: '2026-11-06', postUrl: null, noCost: true });
+  const dto = toTaskDto(other, classifyTask(other, TODAY), 'p1', TODAY, 'https://deck.example');
+  assert.deepEqual([dto.kind, dto.otherKind, dto.doneNote, dto.allowedActions, dto.visitPhase], ['other', '구글맵 리뷰', '현장 확인', [], null]);
+  assert.ok(dto.title.endsWith('· 기타 협찬'));
+  assert.equal(classifyTask(other, TODAY).bucket, 'completed');   // 비용 없음 + 완료 확인
+  assert.equal(classifyTask(task({ type: 'other', otherKind: '상담회' }), TODAY).bucket, 'active');
+  assert.equal(classifyTask(task({ type: 'other', cancelledAt: '2026-10-01' }), TODAY).bucket, 'ended');
+  // 빈 문자열(칸 기본값)은 null, 기타가 아닌 작업의 otherKind는 늘 null
+  const blank = toTaskDto(task({ type: 'other', otherKind: '', doneNote: '' }), classifyTask(task({ type: 'other' }), TODAY), 'p1', TODAY, 'https://deck.example');
+  assert.deepEqual([blank.otherKind, blank.doneNote], [null, null]);
+  const post = toTaskDto(task({ type: 'post', otherKind: '남은 값' }), classifyTask(task({ type: 'post' }), TODAY), 'p1', TODAY, 'https://deck.example');
+  assert.deepEqual([post.otherKind, post.doneNote], [null, null]);
+});
+
 test('cursor·페이지: total은 전체, 마지막 페이지는 nextCursor 없음, 위조 cursor 거부', () => {
   const items = Array.from({ length: 45 }, (_, i) => i);
   const p1 = pageOf(items, 0, 20);
@@ -189,6 +204,11 @@ test('작업 조회: 내부 협찬 대상·외부 게시물 대상·미등록 �
     null,
     { label: '@momo · 11월', url: null },
   ]);
+});
+
+test('작업 조회: 기타 협찬의 한 일·확인 메모를 읽는다', async () => {
+  const facts = await loadTaskFacts(fakeSql([[{ id: 't1', type: 'other', other_kind: '구글맵 리뷰', done_note: '현장 확인' }, { id: 't2', type: 'post' }]]), ['hana']);
+  assert.deepEqual(facts.map((t) => [t.otherKind, t.doneNote]), [['구글맵 리뷰', '현장 확인'], [null, null]]);
 });
 
 const influencer = (xUserId: string | null) => ({ id: 'p1', handle: 'Hana', xUserId, displayName: '하나' }) as InfluencerRow;

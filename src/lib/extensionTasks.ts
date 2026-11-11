@@ -36,6 +36,9 @@ export interface TaskFacts {
   sameVisitOf?: string | null;   // 같은 방문의 원래 작업(089) — 연결 작업이면 방문 수에서 빼고 예약 행동을 막는다
   createdAt?: string | null;
   target?: { label: string; url: string | null } | null;
+  // 기타 협찬(088): otherKind = 무엇을 했는지, doneNote = 링크 없이 완료한 건의 확인 메모. 칸 기본값 ''은 null로 받는다.
+  otherKind?: string | null;
+  doneNote?: string | null;
 }
 
 export type NextSchedule = { kind: 'visit' | 'upload'; on: string; dDay: number };
@@ -57,6 +60,8 @@ export interface TaskDto {
   visitDday: number | null;
   uploadDday: number | null;
   sameVisitOf: string | null;   // 같은 방문의 원래 작업 id(089) — 연결 작업은 비용 없음·예약 없음, allowedActions는 빈 배열
+  otherKind: string | null;   // type이 other가 아니면 null
+  doneNote: string | null;
 }
 
 export interface ClassifiedTask {
@@ -136,6 +141,8 @@ export function toTaskDto(t: TaskFacts, c: ClassifiedTask, personId: string, tod
     target: t.target ?? null,
     visitDday: isVisit && t.reservation?.visitAt ? daysBetweenDates(today, t.reservation.visitAt.slice(0, 10)) : null,
     uploadDday: isVisit && t.scheduledOn ? daysBetweenDates(today, t.scheduledOn) : null,
+    otherKind: t.type === 'other' ? t.otherKind || null : null,
+    doneNote: t.doneNote || null,
     deadlineMode: t.reservation?.deadlineMode ?? 'default',
     hasConsent: t.hasConsent,
     postedAt: t.postedAt,

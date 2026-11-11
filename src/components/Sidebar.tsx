@@ -101,9 +101,10 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
     { href: '/reports', label: '리포트', Ic: ReportIcon },
   ];
 
-  // 리포트 — 캠페인 운영 다음 묶음(koo 10-26). 월간 리포트는 별도 앱(monthly-report)이라 새 탭으로 연다.
-  const reportNav = [
+  // 연결 서비스 — 캠페인 운영 다음 묶음(koo 10-26, 11-11 '리포트'에서 개명). 별도 앱들이라 새 탭으로 연다.
+  const linkedNav = [
     { href: 'https://monthly-report-tan.vercel.app/', label: '월간 리포트', Ic: ReportIcon },
+    { href: 'https://cb-marketing-ex.vercel.app/', label: '정산 서비스', Ic: CampaignIcon },
   ];
 
   // 설정 성격 화면(가끔 들어가 재료·규칙을 손보는 곳) — 매일 쓰는 작업 메뉴와 분리 (사이드바 개선 스펙)
@@ -173,8 +174,8 @@ export function Sidebar({ wsId, wsError = false, onRetryWs }: {
         {globalNav.map(link)}
         {divider}
 
-        {groupTitle('리포트')}
-        {reportNav.map(externalLink)}
+        {groupTitle('연결 서비스')}
+        {linkedNav.map(externalLink)}
         {divider}
 
         {groupTitle('설정')}

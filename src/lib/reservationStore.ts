@@ -42,7 +42,9 @@ export async function reservationDetail(sql: postgres.Sql, id: string, origin: s
   return { ...reservation, sheetFields, fields: { ...sheetFields, visitAt: seoulIso(sheetFields.preferred),
     name: names.korean || null, romanizedName: names.roman || null, preferred2: seoulIso(sheetFields.preferred2) }, phase: task.visitPhase,
     uploadDeadline: task.uploadDeadline, customerRequestCount: fact.requestCount,
-    requestCount: fact.requestCount, allowedActions: task.allowedActions, task, consent: file?.agreement ?? null };
+    requestCount: fact.requestCount,
+    // 예약 행동만 — '게시물 하나 더'(add_post)는 작업 행동이라 task.allowedActions에만 둔다(예약 계약은 그대로)
+    allowedActions: task.allowedActions.filter((a) => a !== 'add_post'), task, consent: file?.agreement ?? null };
 }
 export async function reservationChanges(sql: postgres.Sql, id: string, offset = 0, limit = 3, customerRequestsOnly = false) {
   const [{ total }] = await sql<Array<{ total: number }>>`select count(*)::int as total from reservation_change

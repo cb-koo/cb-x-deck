@@ -251,10 +251,10 @@ export async function createTasks(sql: postgres.Sql, campaignId: string, input: 
 // 빈 연결 작업(링크·게시 예정일 없음)이 이미 있으면 새로 만들지 않고 그것을 돌려준다(created: false) — 원래 작업 행 잠금이
 // 동시 요청을 줄 세우므로 연타·두 탭에서 눌러도 빈 작업은 하나뿐이다(koo QA 11-09).
 // ordinal = 이 방문에서 몇 번째 게시물인가(원래 작업 1, 취소 제외) — 알림 문구 '게시물 N'
+// 이미 트랜잭션 안(익스텐션 productOperation)이면 그 트랜잭션을, 아니면 새로 연다(deleteTask와 같은 방식).
 export async function createSameVisitTask(sql: postgres.Sql, campaignId: string, originalId: string, createdBy: string | null): Promise<{ task: TaskRow; created: boolean; ordinal: number }> {
   if (!isUuidLike(originalId)) throw new ProductError('RESOURCE_NOT_FOUND', '작업을 찾을 수 없어요.', 404);
-  const id = await sql.begin(async (tx0) => {
-    const tx = tx0 as unknown as postgres.Sql;
+  const run = async (tx: postgres.Sql) => {
     const [o] = await tx<Array<{ campaign_id: string; type: TaskType; cancelled_at: string | null; same_visit_of: string | null; influencer_handle: string | null }>>`
       select campaign_id, type, to_char(cancelled_at, 'YYYY-MM-DD') as cancelled_at, same_visit_of, influencer_handle
         from campaign_task where id = ${originalId} for update`;
@@ -274,7 +274,8 @@ export async function createSameVisitTask(sql: postgres.Sql, campaignId: string,
       values (${campaignId}, ${o.influencer_handle}, 'visit', true, null, ${originalId}, '', ${createdBy}, clock_timestamp())
       returning id`;
     return { id: row.id, created: true };
-  });
+  };
+  const id = 'savepoint' in sql ? await run(sql) : await (sql.begin((tx) => run(tx as unknown as postgres.Sql)) as Promise<{ id: string; created: boolean }>);
   const ids = await sql<Array<{ id: string }>>`
     select id from campaign_task where same_visit_of = ${originalId} and cancelled_at is null order by created_at, id`;
   return { task: (await getTask(sql, id.id)) as TaskRow, created: id.created, ordinal: ids.findIndex((r) => r.id === id.id) + 2 };

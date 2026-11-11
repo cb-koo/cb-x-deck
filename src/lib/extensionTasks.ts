@@ -7,6 +7,7 @@ import {
   allowedVisitActions, ENDED_PHASES, visitPhase,
   type DeadlineMode, type StoredEndKind, type VisitAction, type VisitPhase,
 } from './reservationPolicy.ts';
+import { sameVisitCreateError } from './sameVisit.ts';
 
 export type TaskBucket = 'active' | 'completed' | 'ended';
 export const TASK_BUCKETS: readonly TaskBucket[] = ['active', 'completed', 'ended'];
@@ -17,6 +18,11 @@ export const BADGE_BATCH_LIMIT = 50;
 // 'other' = 기타 협찬(088, koo 11-06) — X 게시물이 아닌 협찬. 확장은 콘텐츠 작업과 같은 분기(classifyTask)로 받는다.
 export type WireTaskKind = 'visit' | 'post' | 'rt' | 'quote_rt' | 'other';
 export const WIRE_KIND: Record<TaskType, WireTaskKind> = { visit: 'visit', post: 'post', rt: 'rt', quoteRt: 'quote_rt', other: 'other' };
+
+// 같은 방문의 게시물(089, ISSUE-016) — 원래 작업 응답에 싣는 연결 작업 요약. 연결 작업 자체도 목록·배지에 따로 나온다(koo 계약).
+export interface VisitPost { taskId: string; version: number; postedAt: string | null; postUrl: string | null; scheduledOn: string | null }
+// 확장 전용 행동 — 방문 예약 행동(VisitAction)에 '게시물 하나 더'를 더한다. 옛 확장은 includes로만 보므로 모르는 값이 와도 무해하다.
+export type TaskAction = VisitAction | 'add_post';
 
 export interface TaskFacts {
   id: string; campaignId: string; campaignName: string; type: TaskType;
@@ -34,8 +40,12 @@ export interface TaskFacts {
   reservation: { confirmed: boolean; visitAt: string; deadlineMode: DeadlineMode } | null;
   requestCount: number;
   sameVisitOf?: string | null;   // 같은 방문의 원래 작업(089) — 연결 작업이면 방문 수에서 빼고 예약 행동을 막는다
+  posts?: VisitPost[];            // 원래 작업일 때 연결 작업들(attachSameVisitPosts가 채운다)
   createdAt?: string | null;
   target?: { label: string; url: string | null } | null;
+  // 기타 협찬(088): otherKind = 무엇을 했는지, doneNote = 링크 없이 완료한 건의 확인 메모. 칸 기본값 ''은 null로 받는다.
+  otherKind?: string | null;
+  doneNote?: string | null;
 }
 
 export type NextSchedule = { kind: 'visit' | 'upload'; on: string; dDay: number };
@@ -46,7 +56,7 @@ export interface TaskDto {
   noCost: boolean; amount: number | null; currency: TaskCost['currency'] | null;
   visitAt: string | null; uploadDeadline: string | null; deadlineMode: DeadlineMode;
   hasConsent: boolean;
-  version: number; allowedActions: VisitAction[];
+  version: number; allowedActions: TaskAction[];
   postedAt: string | null; postUrl: string | null;
   dDay: number | null;   // ClassifiedTask.dDay — 배지와 같은 값. 확장이 날짜를 따로 계산하지 않게 서버가 준다
   nextSchedule: NextSchedule | null;
@@ -57,6 +67,9 @@ export interface TaskDto {
   visitDday: number | null;
   uploadDday: number | null;
   sameVisitOf: string | null;   // 같은 방문의 원래 작업 id(089) — 연결 작업은 비용 없음·예약 없음, allowedActions는 빈 배열
+  posts: VisitPost[];           // 원래 작업의 연결 작업(만든 순서, 취소 제외). 없으면 []
+  otherKind: string | null;   // type이 other가 아니면 null
+  doneNote: string | null;
 }
 
 export interface ClassifiedTask {
@@ -100,6 +113,25 @@ export function classifyTask(t: TaskFacts, today: string): ClassifiedTask {
   return { bucket, visitPhase: null, flowStage: stage, nextDate, dDay: nextDate ? daysBetweenDates(today, nextDate) : null };
 }
 
+// 같은 사람의 작업 묶음에서 연결 작업을 원래 작업의 posts로 요약한다. 목록에서 빼지는 않는다(koo 계약 — 확장이 sameVisitOf로 거른다).
+// 취소된 연결 작업(따로 취소·함께 취소 cancelled_with 모두 cancelled_at이 있다)은 뺀다. 원래 작업이 목록에 없으면 붙일 곳이 없다.
+export function attachSameVisitPosts<T extends TaskFacts>(facts: T[]): T[] {
+  const byOriginal = new Map<string, T[]>();
+  for (const t of facts) {
+    if (!t.sameVisitOf || t.cancelledAt) continue;
+    const list = byOriginal.get(t.sameVisitOf);
+    if (list) list.push(t); else byOriginal.set(t.sameVisitOf, [t]);
+  }
+  return facts.map((t) => {
+    const linked = byOriginal.get(t.id);
+    if (!linked) return t;
+    const posts = [...linked]
+      .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id))
+      .map((p): VisitPost => ({ taskId: p.id, version: p.version, postedAt: p.postedAt, postUrl: p.postUrl, scheduledOn: p.scheduledOn }));
+    return { ...t, posts };
+  });
+}
+
 // 가까운 일정 순, 날짜 없으면 뒤, 같은 날은 task id 순(계획 §10).
 export function compareClassified(a: { c: ClassifiedTask; id: string }, b: { c: ClassifiedTask; id: string }): number {
   if (a.c.nextDate !== b.c.nextDate) {
@@ -136,15 +168,22 @@ export function toTaskDto(t: TaskFacts, c: ClassifiedTask, personId: string, tod
     target: t.target ?? null,
     visitDday: isVisit && t.reservation?.visitAt ? daysBetweenDates(today, t.reservation.visitAt.slice(0, 10)) : null,
     uploadDday: isVisit && t.scheduledOn ? daysBetweenDates(today, t.scheduledOn) : null,
+    otherKind: t.type === 'other' ? t.otherKind || null : null,
+    doneNote: t.doneNote || null,
     deadlineMode: t.reservation?.deadlineMode ?? 'default',
     hasConsent: t.hasConsent,
     postedAt: t.postedAt,
     postUrl: t.postUrl,
     version: t.version,
-    allowedActions: isVisit ? allowedVisitActions(facts, t.requestCount, today) : [],
+    allowedActions: isVisit ? [
+      ...allowedVisitActions(facts, t.requestCount, today),
+      // 게시물 하나 더 — 웹 [게시물 하나 더]와 같은 판정(게시·정산 요청 여부와 상관없이, koo 11-09 결정 3)
+      ...(sameVisitCreateError({ type: t.type, cancelledAt: t.cancelledAt, sameVisitOf: t.sameVisitOf, influencerHandle: t.influencerHandle }) ? [] : ['add_post' as const]),
+    ] : [],
     dDay: c.dDay,
     nextSchedule: isVisit ? nextVisitSchedule(t, c.visitPhase, today) : null,
     sameVisitOf: t.sameVisitOf ?? null,
+    posts: t.posts ?? [],
     webUrl: `${origin}/campaigns/flow?id=${encodeURIComponent(t.campaignId)}&task=${encodeURIComponent(t.id)}`,
   };
 }

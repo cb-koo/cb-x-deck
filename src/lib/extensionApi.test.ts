@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { bearerToken, checkClaims, isExpiredJwt } from './extensionClaims.ts';
 import {
-  classifyTask, compareClassified, decodeCursor, encodeCursor, pageOf, seoulIso, toTaskDto, type TaskFacts,
+  attachSameVisitPosts, classifyTask, compareClassified, decodeCursor, encodeCursor, pageOf, seoulIso, toTaskDto, type TaskFacts,
 } from './extensionTasks.ts';
 import { findPeopleByXUserIds, judgeIdentity, loadTaskFacts } from './extensionReadStore.ts';
 import { parseBadgePerson, parseObservedPerson } from './extensionInput.ts';
@@ -117,6 +117,57 @@ test('DTO: wire 종류·0과 null·noCost 구분·offset 시각·허용 행동',
   assert.equal(seoulIso(''), null);
 });
 
+test('DTO: 기타 협찬은 유형·한 일·확인 메모를 싣고, 콘텐츠 작업 규칙으로 분류한다', () => {
+  const other = task({ type: 'other', otherKind: '구글맵 리뷰', doneNote: '현장 확인', postedAt: '2026-11-06', postUrl: null, noCost: true });
+  const dto = toTaskDto(other, classifyTask(other, TODAY), 'p1', TODAY, 'https://deck.example');
+  assert.deepEqual([dto.kind, dto.otherKind, dto.doneNote, dto.allowedActions, dto.visitPhase], ['other', '구글맵 리뷰', '현장 확인', [], null]);
+  assert.ok(dto.title.endsWith('· 기타 협찬'));
+  assert.equal(classifyTask(other, TODAY).bucket, 'completed');   // 비용 없음 + 완료 확인
+  assert.equal(classifyTask(task({ type: 'other', otherKind: '상담회' }), TODAY).bucket, 'active');
+  assert.equal(classifyTask(task({ type: 'other', cancelledAt: '2026-10-01' }), TODAY).bucket, 'ended');
+  // 빈 문자열(칸 기본값)은 null, 기타가 아닌 작업의 otherKind는 늘 null
+  const blank = toTaskDto(task({ type: 'other', otherKind: '', doneNote: '' }), classifyTask(task({ type: 'other' }), TODAY), 'p1', TODAY, 'https://deck.example');
+  assert.deepEqual([blank.otherKind, blank.doneNote], [null, null]);
+  const post = toTaskDto(task({ type: 'post', otherKind: '남은 값' }), classifyTask(task({ type: 'post' }), TODAY), 'p1', TODAY, 'https://deck.example');
+  assert.deepEqual([post.otherKind, post.doneNote], [null, null]);
+});
+
+test('같은 방문: 원래 작업에 posts(만든 순서, 취소 제외)를 싣고 연결 작업은 목록에 그대로 둔다', () => {
+  const O = '00000000-0000-0000-0000-0000000000a0';
+  const original = task({ id: O, postedAt: '2026-10-01', postUrl: 'https://x.com/hana/status/1', createdAt: '2026-09-01 10:00' });
+  const linked = (id: string, createdAt: string, over: Partial<TaskFacts> = {}) =>
+    task({ id, sameVisitOf: O, noCost: true, cost: null, createdAt, version: 1, ...over });
+  const facts = attachSameVisitPosts([
+    linked('b', '2026-09-03 10:00', { postedAt: '2026-10-02', postUrl: 'https://x.com/hana/status/2' }),
+    original,
+    linked('a', '2026-09-02 10:00', { scheduledOn: '2026-10-20' }),
+    linked('c', '2026-09-04 10:00', { cancelledAt: '2026-10-03' }),
+    linked('orphan', '2026-09-05 10:00', { sameVisitOf: 'gone' }),
+  ]);
+  assert.equal(facts.length, 5);   // koo 계약: 연결 작업도 목록·배지에 그대로(sameVisitOf로 구분)
+  const dto = toTaskDto(facts.find((t) => t.id === O)!, classifyTask(original, TODAY), 'p1', TODAY, 'https://deck.example');
+  assert.deepEqual(dto.posts, [
+    { taskId: 'a', version: 1, postedAt: null, postUrl: null, scheduledOn: '2026-10-20' },
+    { taskId: 'b', version: 1, postedAt: '2026-10-02', postUrl: 'https://x.com/hana/status/2', scheduledOn: null },
+  ]);
+  const child = facts.find((t) => t.id === 'a')!;
+  const childDto = toTaskDto(child, classifyTask(child, TODAY), 'p1', TODAY, 'https://deck.example');
+  assert.deepEqual([childDto.posts, childDto.sameVisitOf, childDto.allowedActions], [[], O, []]);
+  // 묶음이 없는 작업은 posts: []
+  assert.deepEqual(toTaskDto(task(), classifyTask(task(), TODAY), 'p1', TODAY, 'https://deck.example').posts, []);
+});
+
+test('같은 방문: add_post는 웹 규칙(방문협찬·취소 아님·연결 작업 아님·인플 있음)과 같다', () => {
+  const actions = (over: Partial<TaskFacts>) => { const t = task(over); return toTaskDto(t, classifyTask(t, TODAY), 'p1', TODAY, 'https://deck.example').allowedActions; };
+  assert.ok(actions({}).includes('add_post'));                                               // 예약 전
+  assert.ok(actions({ postedAt: '2026-10-01', postUrl: 'https://x.com/hana/status/1' }).includes('add_post'));   // 게시 뒤에도
+  assert.ok(actions({ postedAt: '2026-10-01', settlement: { status: 'requested', externalStatus: null } }).includes('add_post'));   // 정산 요청 중에도
+  assert.ok(!actions({ cancelledAt: '2026-10-01' }).includes('add_post'));
+  assert.ok(!actions({ influencerHandle: null }).includes('add_post'));
+  assert.ok(!actions({ sameVisitOf: 'o1', noCost: true }).includes('add_post'));
+  assert.ok(!actions({ type: 'post' }).includes('add_post'));
+});
+
 test('cursor·페이지: total은 전체, 마지막 페이지는 nextCursor 없음, 위조 cursor 거부', () => {
   const items = Array.from({ length: 45 }, (_, i) => i);
   const p1 = pageOf(items, 0, 20);
@@ -189,6 +240,11 @@ test('작업 조회: 내부 협찬 대상·외부 게시물 대상·미등록 �
     null,
     { label: '@momo · 11월', url: null },
   ]);
+});
+
+test('작업 조회: 기타 협찬의 한 일·확인 메모를 읽는다', async () => {
+  const facts = await loadTaskFacts(fakeSql([[{ id: 't1', type: 'other', other_kind: '구글맵 리뷰', done_note: '현장 확인' }, { id: 't2', type: 'post' }]]), ['hana']);
+  assert.deepEqual(facts.map((t) => [t.otherKind, t.doneNote]), [['구글맵 리뷰', '현장 확인'], [null, null]]);
 });
 
 const influencer = (xUserId: string | null) => ({ id: 'p1', handle: 'Hana', xUserId, displayName: '하나' }) as InfluencerRow;

@@ -9,7 +9,7 @@ import { readClientSheet } from './reservationSheet.ts';
 import type { TaskType } from './campaignJudgment.ts';
 import type { DraftStatus } from './draftStatus.ts';
 import type { DeadlineMode, StoredEndKind } from './reservationPolicy.ts';
-import type { TaskFacts } from './extensionTasks.ts';
+import { attachSameVisitPosts, type TaskFacts } from './extensionTasks.ts';
 
 export interface PersonSummary {
   id: string; handle: string; name: string; xUserId: string | null;
@@ -94,7 +94,7 @@ export async function loadTaskFacts(sql: postgres.Sql, handles: string[]): Promi
       left join reservation_end e on e.task_id = t.id and e.revoked_at is null
      where lower(t.influencer_handle) in ${sql(handles.map((h) => h.toLowerCase()))}`;
   const settlements = await settlementByTaskIds(sql, rows.map((r) => r.id));
-  return rows.map((r): TaskFacts => {
+  return attachSameVisitPosts(rows.map((r): TaskFacts => {
     const cost = parseTaskCost(r.cost ?? null);
     const s = settlements.get(r.id);
     return {
@@ -120,7 +120,7 @@ export async function loadTaskFacts(sql: postgres.Sql, handles: string[]): Promi
       otherKind: r.type === 'other' ? r.other_kind || null : null,
       doneNote: r.done_note || null,
     };
-  });
+  }));
 }
 
 export async function findTaskHandle(sql: postgres.Sql, taskId: string): Promise<{ handle: string | null; personId: string | null } | null> {

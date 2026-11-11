@@ -9,7 +9,9 @@ import { createClient } from './clientStore.ts';
 import { createCampaign } from './campaignStore.ts';
 import { createInfluencer } from './influencerStore.ts';
 import { createMember } from './workspaceStore.ts';
-import { createTasks, getTask, updateTask, deleteTask, restoreTask } from './campaignTaskStore.ts';
+import { createTasks, getTask, updateTask, deleteTask, restoreTask, cancelTask } from './campaignTaskStore.ts';
+import { confirmVisitPost } from './reservationCommands.ts';
+import type { FetchPostResult } from './postMetrics.ts';
 import { reservationDeleteSummary, listTaskDeletions } from './taskDeletionStore.ts';
 import { extensionProductDispatch } from './extensionProductApi.ts';
 import { ProductError } from './productCommand.ts';
@@ -25,6 +27,8 @@ const P = 'trsv' + process.pid;   // 핸들은 15자 제한 — 'trsv' + pid(5�
 const ORIGIN = 'http://127.0.0.1:3000';
 
 after(async () => {
+  await sql`delete from tracked_post where author_handle like ${P + '%'}`;   // 연결 작업 게시 확인 테스트가 만든 게시물(지표는 cascade)
+  await sql`delete from campaign_task where same_visit_of is not null and campaign_id in (select id from campaign where name like ${P + '%'})`;
   const tasks = sql`select id from campaign_task where campaign_id in (select id from campaign where name like ${P + '%'})`;
   const reservations = sql`select id from visit_reservation where task_id in (${tasks})`;
   await sql`delete from reservation_change where reservation_id in (${reservations})`;
@@ -472,4 +476,96 @@ test('핸들 줄 없는 시트에서 계정 링크 핸들을 바꾸면 IDENTITY_
   const created = await call<Detail>('POST', 'reservations', { key: randomUUID(), body: createBody(f, { locationId: f.locationId, sheetText: benjamin(f.handle.toUpperCase()) }) });
   await rejects(call('PATCH', `reservations/${created.id}`, { key: randomUUID(), version: created.version,
     body: { sheetText: created.sheetText.replace(`x.com/${f.handle.toUpperCase()}?s=20`, 'x.com/other?s=20') } }), 'IDENTITY_MISMATCH', 422);
+});
+
+// ─────────────────────────── 같은 방문의 게시물(ISSUE-016) — 확장에서 추가·게시 확인 ───────────────────────────
+// 트윗 id에서 게시일을 읽으므로(postedOnFromTweetLink) 지금 시각의 snowflake를 만든다. X 조회는 바꿔 끼운다.
+const tweetIdNow = (n: number) => (((BigInt(Date.now()) - BigInt('1288834974657')) << BigInt(22)) + BigInt(n)).toString();
+const fakeFetch = (author: string) => async (tweetId: string): Promise<FetchPostResult> => ({ kind: 'ok', post: {
+  tweetId, authorHandle: author, authorUserId: null, text: '테스트', postedAt: new Date().toISOString(),
+  metrics: { views: 1, likes: 0, retweets: 0, replies: 0, bookmarks: 0, quotes: 0 }, raw: {} as never } });
+function postRequest(path: string, version: number) {
+  return new Request(`${ORIGIN}/api/extension/v1/${path}`, { method: 'POST',
+    headers: { 'content-type': 'application/json', 'if-match': `"${version}"`, 'idempotency-key': randomUUID() } });
+}
+type TaskInfo = { id: string; version: number; allowedActions: string[]; posts: Array<{ taskId: string; version: number; postedAt: string | null }>; sameVisitOf: string | null };
+
+test('같은 방문: POST tasks/{id}/posts는 웹과 같은 판정으로 연결 작업을 만들고, 원래 작업에 posts로 싣는다', async () => {
+  base = kstToday();
+  const f = await fixture('s');
+  const [o] = await createTasks(sql, f.campaign.id, { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: actor.id,
+    type: 'visit', items: [{ handle: f.handle, cost: { amount: 15000, currency: 'JPY' } }] });
+  const before = await call<TaskInfo>('GET', `tasks/${o.id}`);
+  assert.ok(before.allowedActions.includes('add_post'));
+  assert.deepEqual(before.posts, []);
+  // If-Match 없음·낡은 version
+  await rejects(call('POST', `tasks/${o.id}/posts`, { key: randomUUID() }), 'VERSION_REQUIRED', 428);
+  await rejects(call('POST', `tasks/${o.id}/posts`, { key: randomUUID(), version: before.version + 5 }), 'VERSION_CONFLICT', 409);
+  // 같은 멱등 키 두 번 → 같은 응답, 줄은 하나
+  const key = randomUUID();
+  const added = await call<TaskInfo>('POST', `tasks/${o.id}/posts`, { key, version: before.version });
+  const again = await call<TaskInfo>('POST', `tasks/${o.id}/posts`, { key, version: before.version });
+  assert.equal(added.id, o.id);
+  assert.equal(added.posts.length, 1);
+  assert.deepEqual(again, added);
+  assert.equal(added.version, before.version);   // 원래 작업 version은 그대로(웹과 같음)
+  // 다른 키 — 빈 연결 작업이 있으면 그것을 다시 쓴다(웹 [게시물 하나 더]와 같은 규칙)
+  const reused = await call<TaskInfo>('POST', `tasks/${o.id}/posts`, { key: randomUUID(), version: before.version });
+  assert.deepEqual(reused.posts.map((p) => p.taskId), added.posts.map((p) => p.taskId));
+  // 연결 작업: 목록엔 그대로(sameVisitOf), 행동 없음, 거기에 게시물을 더하면 409
+  const linkedId = added.posts[0].taskId;
+  const linked = await call<TaskInfo>('GET', `tasks/${linkedId}`);
+  assert.deepEqual([linked.sameVisitOf, linked.allowedActions, linked.posts], [o.id, [], []]);
+  const list = await call<{ items: Array<{ id: string }> }>('GET', `people/${f.person.id}/tasks?status=active`).catch(() => null);
+  if (list) assert.ok(list.items.some((t) => t.id === linkedId));
+  await rejects(call('POST', `tasks/${linkedId}/posts`, { key: randomUUID(), version: linked.version }), 'STATE_CHANGED', 409);
+  // 취소된 원래 작업 — 409, 행동에도 없다
+  assert.equal(await cancelTask(sql, o.id, { reason: 'other', note: '테스트', actorId: actor.id, today: base }), 'ok');
+  const cancelled = await call<TaskInfo>('GET', `tasks/${o.id}`);
+  assert.ok(!cancelled.allowedActions.includes('add_post'));
+  await rejects(call('POST', `tasks/${o.id}/posts`, { key: randomUUID(), version: cancelled.version }), 'STATE_CHANGED', 409);
+});
+
+test('같은 방문: 연결 작업의 confirm-post는 원래 작업의 예약으로 확인하고 예약 상세(task.posts 갱신)를 돌려준다', async () => {
+  base = kstToday();
+  const f = await fixture('t');
+  const created = await call<Detail>('POST', 'reservations', { key: randomUUID(), body: { locationId: f.locationId, sourceText: '', sheetText: sheet(f.handle, base),
+    target: { kind: 'createTask', campaignId: f.campaign.id, personId: f.person.id } } });
+  const originalId = created.taskId;
+  // 방문 전에 게시물을 더해 둔다(웹 규칙: 게시 여부와 상관없이 더할 수 있다)
+  const added = await call<TaskInfo>('POST', `tasks/${originalId}/posts`, { key: randomUUID(), version: created.task.version });
+  const linkedId = added.posts[0].taskId;
+  const linkedVersion = () => getTask(sql, linkedId).then((t) => t!.version!);
+  // 방문 전 → 409
+  await rejects(confirmVisitPost(sql, postRequest(`tasks/${linkedId}/confirm-post`, await linkedVersion()), actor, linkedId,
+    { postUrl: `https://x.com/${f.handle}/status/${tweetIdNow(1)}` }, fakeFetch(f.handle)), 'STATE_CHANGED', 409);
+  const confirmed = await call<Detail>('POST', `reservations/${created.id}/confirm`, { key: randomUUID(), version: created.version });
+  const visited = await call<Detail>('POST', `tasks/${originalId}/complete-visit`, { key: randomUUID(), version: confirmed.task.version });
+  assert.equal(visited.phase, 'visited');
+  // 다른 사람 글 → 422(작성자 문구)
+  await rejects(confirmVisitPost(sql, postRequest(`tasks/${linkedId}/confirm-post`, await linkedVersion()), actor, linkedId,
+    { postUrl: `https://x.com/someone/status/${tweetIdNow(2)}` }, fakeFetch('someone_else')), 'INVALID_INPUT', 422);
+  // 성공 — 응답은 원래 작업의 예약, task.posts[0]이 게시됨. 원래 작업은 그대로 '방문' 단계
+  const result = await confirmVisitPost(sql, postRequest(`tasks/${linkedId}/confirm-post`, await linkedVersion()), actor, linkedId,
+    { postUrl: `https://x.com/${f.handle}/status/${tweetIdNow(3)}` }, fakeFetch(f.handle)) as unknown as Detail & { task: TaskInfo };
+  assert.equal(result.id, created.id);
+  assert.equal(result.taskId, originalId);
+  assert.equal(result.version, visited.version + 1);
+  assert.equal(result.phase, 'visited');
+  assert.equal(result.task.posts[0].taskId, linkedId);
+  assert.ok(result.task.posts[0].postedAt);
+  // 이미 게시된 연결 작업에 다시 → 409
+  await rejects(confirmVisitPost(sql, postRequest(`tasks/${linkedId}/confirm-post`, await linkedVersion()), actor, linkedId,
+    { postUrl: `https://x.com/${f.handle}/status/${tweetIdNow(4)}` }, fakeFetch(f.handle)), 'STATE_CHANGED', 409);
+});
+
+test('같은 방문: 원래 작업에 예약이 없으면 연결 작업 confirm-post는 409 RESERVATION_COMMAND_REQUIRED', async () => {
+  base = kstToday();
+  const f = await fixture('u');
+  const [o] = await createTasks(sql, f.campaign.id, { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: actor.id,
+    type: 'visit', items: [{ handle: f.handle, cost: null }] });
+  const added = await call<TaskInfo>('POST', `tasks/${o.id}/posts`, { key: randomUUID(), version: o.version! });
+  const linkedId = added.posts[0].taskId;
+  await rejects(confirmVisitPost(sql, postRequest(`tasks/${linkedId}/confirm-post`, (await getTask(sql, linkedId))!.version!), actor, linkedId,
+    { postUrl: `https://x.com/${f.handle}/status/${tweetIdNow(5)}` }, fakeFetch(f.handle)), 'RESERVATION_COMMAND_REQUIRED', 409);
 });

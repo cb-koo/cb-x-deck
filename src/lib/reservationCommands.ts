@@ -9,13 +9,14 @@ import { allowedVisitActions, applyDeadlineMode, checkCompleteVisit, checkEnd, c
 import { expectVersion, jsonValue, objectBody, ProductError, productMissing, productOperation, textValue, versionHeader } from './productCommand.ts';
 import { readReservation, reservationDetail, taskFact } from './reservationStore.ts';
 import { listClientLocations } from './clinicStore.ts';
-import { logTaskDeclined, markTaskCancelled, updateTask, findPostLinkOwner } from './campaignTaskStore.ts';   // 한 방향 의존 — campaignTaskStore는 이 파일을 모른다
+import { logTaskDeclined, markTaskCancelled, updateTask, findPostLinkOwner, createSameVisitTask } from './campaignTaskStore.ts';   // 한 방향 의존 — campaignTaskStore는 이 파일을 모른다
 import { normalizeTargetTweetUrl, parseCancelBody, POST_URL_MESSAGE, type CancelReason } from './campaignTaskInput.ts';
 import { SAME_VISIT_NO_RESERVATION_MESSAGE } from './sameVisit.ts';
 import type { TaskType } from './campaignJudgment.ts';
 import { attachFetchedPostToTask, AuthorRejected } from './postAttach.ts';
 import { authorVerdictMessage } from './postAuthor.ts';
 import { fetchPost } from './postMetrics.ts';
+import { classifyTask, toTaskDto } from './extensionTasks.ts';
 import { parseTweetLink } from './tweetLink.ts';
 import { postedOnFromTweetLink } from './tweetPostedOn.ts';
 
@@ -211,7 +212,47 @@ export async function endReservedTaskByCancel(sql: postgres.Sql, req: Request, a
   return true;
 }
 
-export async function confirmVisitPost(sql: postgres.Sql, req: Request, actor: Member, taskId: string, raw: unknown) {
+// 같은 방문의 게시물 하나 더(089, ISSUE-016) — 웹 [게시물 하나 더]와 같은 저장소 함수·판정(createSameVisitTask)을 쓴다.
+// If-Match = 원래 작업 version(낡은 화면 거르기), 멱등 키로 재시도를 흡수한다. 빈 연결 작업이 이미 있으면 새로 만들지 않는다(웹과 같음).
+// 원래 작업의 version은 올리지 않는다 — 웹도 올리지 않으며, 올리면 같은 작업의 다른 편집이 괜히 충돌한다.
+export async function addVisitPost(sql: postgres.Sql, req: Request, actor: Member, taskId: string, raw: unknown) {
+  uuid(taskId);
+  const body = objectBody(raw), expected = versionHeader(req);
+  return productOperation(sql, actor, req, body, async (tx) => {
+    const [task] = await tx<Array<{ version: number; campaign_id: string }>>`select version, campaign_id from campaign_task where id = ${taskId} for update`;
+    if (!task) throw productMissing();
+    expectVersion(task.version, expected);
+    await createSameVisitTask(tx, task.campaign_id, taskId, actor.id);
+    const { fact, personId } = await taskFact(tx, taskId), today = kstToday();
+    const [reservation] = await tx<Array<{ id: string }>>`select id from visit_reservation where task_id = ${taskId}`;
+    return { ...toTaskDto(fact, classifyTask(fact, today), personId ?? '', today, new URL(req.url).origin), reservationId: reservation?.id ?? null };
+  });
+}
+
+const POST_STAGE_MESSAGE = '방문이 완료된 예약에서 게시를 확인할 수 있어요. 최신 상태를 확인해 주세요.';
+const AFTER_VISIT: readonly string[] = ['visited', 'uploaded', 'settling', 'completed'];
+
+// 같은 방문의 연결 작업 게시 확인 — 연결 작업엔 예약이 없어 원래 작업의 예약으로 판단하고 응답한다.
+// 잠금 순서는 원래 작업 → 연결 작업(원래 작업 취소·게시물 추가와 같은 순서). 원래 작업 행 자체는 바꾸지 않는다.
+async function confirmLinkedPost(tx: postgres.Sql, req: Request, actor: Member, taskId: string, originalId: string, expected: number,
+  post: { postUrl: string; postedAt: string; fetched: Awaited<ReturnType<typeof fetchPost>> }) {
+  await tx`select id from campaign_task where id = ${originalId} for update`;
+  const task = await lockReservationTask(tx, taskId);
+  expectVersion(task.version, expected);
+  const [reservation] = await tx<Array<{ id: string }>>`select id from visit_reservation where task_id = ${originalId} for update`;
+  if (!reservation) throw new ProductError('RESERVATION_COMMAND_REQUIRED', '원래 작업에 예약이 없어요. 이 게시물은 웹의 작업 패널에서 게시를 확인해 주세요.', 409);
+  const { fact: linked } = await taskFact(tx, taskId), { fact: original } = await taskFact(tx, originalId);
+  if (linked.cancelledAt) throw new ProductError('STATE_CHANGED', '취소된 게시물 작업이에요. 최신 상태를 확인해 주세요.', 409);
+  if (linked.postedAt) throw new ProductError('STATE_CHANGED', '이미 게시를 확인한 게시물이에요. 최신 상태를 확인해 주세요.', 409);
+  if (!AFTER_VISIT.includes(visitPhase(original, kstToday()))) throw new ProductError('STATE_CHANGED', POST_STAGE_MESSAGE, 409);
+  if (!await updateTask(tx, taskId, { postUrl: post.postUrl, postedAt: post.postedAt, postedSource: 'manual' })) throw productMissing();
+  await attachFetchedPostToTask(tx, taskId, post.fetched, actor.id);
+  await tx`update visit_reservation set version = version + 1, updated_by = ${actor.id}, updated_at = now() where id = ${reservation.id}`;
+  return reservationDetail(tx, reservation.id, new URL(req.url).origin);
+}
+
+// fetch — X 조회. 테스트가 바꿔 끼운다(기본은 실제 조회).
+export async function confirmVisitPost(sql: postgres.Sql, req: Request, actor: Member, taskId: string, raw: unknown, fetch: typeof fetchPost = fetchPost) {
   uuid(taskId);
   const body = objectBody(raw), expected = versionHeader(req);
   const postUrl = normalizeTargetTweetUrl(textValue(body.postUrl, '게시물 링크', 2048).trim());
@@ -222,17 +263,20 @@ export async function confirmVisitPost(sql: postgres.Sql, req: Request, actor: M
   const owner = await findPostLinkOwner(sql, taskId, parsed.tweetId);
   if (owner) throw new ProductError('POST_DUPLICATE', owner.message, 409);
   // X 조회는 트랜잭션 밖에서 하고, 저장 직전 잠근 작업으로 단계·버전·작성자를 다시 판단한다.
-  const fetched = await fetchPost(parsed.tweetId);
+  const fetched = await fetch(parsed.tweetId);
   if (fetched.kind === 'ok' && fetched.post.tweetId !== parsed.tweetId)
     throw new ProductError('INVALID_INPUT', '리포스트 링크예요. 인플루언서 본인의 게시물 링크를 입력해 주세요.', 422);
   try {
     return await productOperation(sql, actor, req, body, async (tx) => {
+      // 같은 방문의 연결 작업(089)이면 원래 작업의 예약으로 확인한다. same_visit_of는 만든 뒤 바뀌지 않아 잠그기 전에 읽어도 된다.
+      const [link] = await tx<Array<{ same_visit_of: string | null }>>`select same_visit_of from campaign_task where id = ${taskId}`;
+      if (link?.same_visit_of) return confirmLinkedPost(tx, req, actor, taskId, link.same_visit_of, expected, { postUrl, postedAt, fetched });
       const task = await lockReservationTask(tx, taskId);
       expectVersion(task.version, expected);
       const [reservation] = await tx<Array<{ id: string }>>`select id from visit_reservation where task_id = ${taskId} for update`;
       const { fact } = await taskFact(tx, taskId);
       if (!reservation || !allowedVisitActions(fact, fact.requestCount, kstToday()).includes('confirm_post'))
-        throw new ProductError('STATE_CHANGED', '방문이 완료된 예약에서 게시를 확인할 수 있어요. 최신 상태를 확인해 주세요.', 409);
+        throw new ProductError('STATE_CHANGED', POST_STAGE_MESSAGE, 409);
       if (!await updateTask(tx, taskId, { postUrl, postedAt, postedSource: 'manual' })) throw productMissing();
       await attachFetchedPostToTask(tx, taskId, fetched, actor.id);
       await tx`update visit_reservation set version = version + 1, updated_by = ${actor.id}, updated_at = now() where id = ${reservation.id}`;

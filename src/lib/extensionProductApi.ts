@@ -4,7 +4,7 @@ import { isUuidLike } from './uuid.ts';
 import type { Member } from './types.ts';
 import { objectBody, ProductError, productMissing, productOperation, textValue, versionHeader, expectVersion, jsonValue } from './productCommand.ts';
 import { extractReservation } from './reservationExtraction.ts';
-import { confirmVisitPost, createReservation, saveReservation, visitTaskCommand } from './reservationCommands.ts';
+import { addVisitPost, confirmVisitPost, createReservation, saveReservation, visitTaskCommand } from './reservationCommands.ts';
 import { readReservation, reservationDetail, reservationChanges, taskFact } from './reservationStore.ts';
 import { listClinics, representativeLocation, getClinic, clinicCalendar, saveClinicSettings, saveClinicTemplate } from './clinicStore.ts';
 import { findInfluencerById, getInfluencerDetail, updateInfluencer, updatePricing } from './influencerStore.ts';
@@ -102,6 +102,8 @@ export async function extensionProductDispatch(req: Request, path: string[], act
     if (method === 'POST' && (action === 'end' || action === 'complete-visit'))
       return reply(await visitTaskCommand(sql, req, actor, id, body, action));
     if (method === 'POST' && action === 'confirm-post') return reply(await confirmVisitPost(sql, req, actor, id, body));
+    // 같은 방문의 게시물 하나 더(ISSUE-016) — 원래 작업 id에. 응답은 posts가 늘어난 원래 작업
+    if (method === 'POST' && action === 'posts') return reply(await addVisitPost(sql, req, actor, id, body));
     // 작업 삭제 — 웹 삭제와 같은 규칙. 정산 요청 중이거나 예약 기록(예약·종료)이 남은 작업은 지우지 않는다(reservationWriteGuard).
     // 예약 기록까지 함께 지우는 확인은 웹 캠페인 화면에만 있다(koo 10-13). 삭제 기록(073)에는 담당자가 남는다.
     if (method === 'DELETE' && !action) {

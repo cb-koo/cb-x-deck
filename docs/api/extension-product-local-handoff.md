@@ -79,6 +79,13 @@
 - 날짜 없는 게시 전 연결 작업은 원래 작업 게시 후 7일이 지나면 정산 대기에서 '안 올라옴'으로 알린다. 캠페인을 마감하면 기다림이 풀리고 원래 작업의 묶음 금액이 다음 자동 전송 회차에 나간다(같은 주 함께 보내기와 같은 규칙).
 - 기존 필드·코드는 바뀌지 않는다(`POST_DUPLICATE`·`SAME_VISIT_DELETE_CONFIRM` 코드만 추가). 정산팀에 보내는 Item에는 키를 추가하지 않았다.
 
+**확장에서 게시물 추가·게시 확인 (2026-11-11, 태정)** — 위 계약(연결 작업도 목록·배지에 그대로, `sameVisitOf`로 구분)은 그대로 두고 아래만 더했다.
+
+- `TaskDto.posts: VisitPost[]` — 원래 작업일 때 연결 작업 요약(만든 순서, 취소 제외). `VisitPost = { taskId, version, postedAt, postUrl, scheduledOn }`. 연결 작업·일반 작업은 `[]`.
+- `TaskDto.allowedActions`에 `add_post` — 웹 [게시물 하나 더]와 같은 판정(방문협찬·취소 아님·연결 작업 아님·인플 있음, 게시·정산 요청 여부와 상관없음). 예약 상세(`ReservationDto.allowedActions`)에는 싣지 않는다(`ReservationDto.task.allowedActions`에는 있다).
+- `POST /tasks/{원래 작업 id}/posts` (body `{}`, `If-Match` = 원래 작업 version, `Idempotency-Key`) → 원래 작업 `TaskDto` + `reservationId`(`posts`에 새 줄). 빈 연결 작업(링크·게시 예정일·메모·원고 없음)이 이미 있으면 새로 만들지 않고 그것을 둔다(웹과 같음). 원래 작업 version은 오르지 않는다. 거절: `STATE_CHANGED`(409, 웹과 같은 문구), `VERSION_CONFLICT`·`VERSION_REQUIRED`.
+- `POST /tasks/{연결 작업 id}/confirm-post` (body `{ postUrl }`, `If-Match` = 그 연결 작업의 version) → **원래 작업의 예약** `ReservationDto`(`task.posts` 갱신, 예약 version +1). 원래 작업에 예약이 없으면 `RESERVATION_COMMAND_REQUIRED`(409, 웹에서 확인), 원래 작업이 방문 전·취소면 `STATE_CHANGED`(409), 연결 작업이 취소·이미 게시면 `STATE_CHANGED`(409). 작성자 확인·`POST_DUPLICATE`는 원래 작업과 같다. 연결 작업의 `allowedActions`는 계속 `[]`이므로, 확장은 원래 작업의 `posts`와 예약 단계를 보고 버튼을 그린다.
+
 ### 작업 종류 `kind`에 `other`(기타 협찬) 추가 (2026-11, 스테이징 먼저)
 
 `TaskDto.kind` 값은 `'visit' | 'post' | 'rt' | 'quote_rt' | 'other'`다(코드: `src/lib/extensionTasks.ts` `WireTaskKind`). `other`는 새 작업 유형 **기타 협찬**(X 게시물이 아닌 협찬 — 구글맵 리뷰, 상담회 참석 등)이다. 제목은 `{캠페인} · 기타 협찬`, 분류는 방문이 아닌 콘텐츠 작업과 같은 규칙(`visitPhase: null`, 완료 확인 + 지급이면 `completed`)이다. 방문 예약 API(`/campaigns/{id}/visit-task-candidates` 등)와 `activeVisitCount`는 `visit`만 보므로 영향이 없다. `activeCount`·`tasks`에는 다른 종류처럼 포함된다. 확장이 모르는 `kind`에서 멈추지 않는지 확인해 주시고, 표시 라벨은 '기타 협찬'을 써 주세요. 스테이징에 `[QA]` 캠페인의 기타 협찬 2건이 있다.

@@ -585,7 +585,7 @@ export function TaskPanel({
   function fieldLabel(field: PanelField, type: TaskType): string {
     switch (field) {
       case 'influencer': return '인플루언서';
-      case 'otherKind': return '무엇을 했는지';
+      case 'otherKind': return '작업 내용';
       case 'cost': return type === 'visit' ? '예산 · 정산' : '비용 · 정산';
       case 'draft': return '원고';
       case 'target': return `${TASK_TYPE_LABEL[type]} 대상`;
@@ -1161,7 +1161,7 @@ export function TaskPanel({
                 </div>
               )}
               {newType === 'other' && (
-                <p className="mt-1.5 text-ui text-x-secondary">X 게시물이 아닌 협찬이에요. 구글맵 리뷰, 상담회 참석처럼 무엇을 했는지 적고, 끝나면 완료로 확인해요.</p>
+                <p className="mt-1.5 text-ui text-x-secondary">X 게시물이 아닌 협찬이에요. 구글맵 리뷰, 상담회 참석처럼 작업 내용을 적고, 끝나면 완료로 확인해요.</p>
               )}
             </PanelSection>
             {/* [협찬 항목] — 방문협찬이면 클라이언트 협찬 항목을 펼쳐 복사해 인플루언서에게 안내한다(유형과 인플루언서 사이) */}

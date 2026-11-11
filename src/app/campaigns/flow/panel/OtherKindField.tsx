@@ -54,10 +54,10 @@ export function OtherKindField({ value, onCommit, onChange, disabled = false, au
              onChange={(e) => { setBuf(e.target.value); onChange?.(e.target.value); setOpen(true); }}
              onBlur={() => commit(buf)}
              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.currentTarget.blur(); if (e.key === 'Escape') setOpen(false); }}
-             placeholder="예: 구글맵 리뷰, 상담회 참석" aria-label="무엇을 했는지" aria-autocomplete="list" aria-controls={listId}
+             placeholder="예: 구글맵 리뷰, 상담회 참석" aria-label="작업 내용" aria-autocomplete="list" aria-controls={listId}
              className="h-10 w-full rounded-md border border-x-border-strong bg-white px-2.5 text-content outline-none focus:border-x-blue disabled:bg-x-hover disabled:text-x-muted" />
       {open && items.length > 0 && (
-        <ul id={listId} role="listbox" aria-label="전에 쓴 말"
+        <ul id={listId} role="listbox" aria-label="전에 쓴 작업 내용"
             className="absolute inset-x-0 top-full z-10 mt-1 max-h-64 overflow-y-auto rounded-lg border border-x-border-strong bg-white py-1 shadow-sm">
           {items.map((k) => (
             <li key={k.kind} role="option" aria-selected={false}
@@ -69,7 +69,7 @@ export function OtherKindField({ value, onCommit, onChange, disabled = false, au
           ))}
         </ul>
       )}
-      <p className="mt-1 text-ui text-x-muted">전에 쓴 말을 고르면 나중에 같은 종류끼리 모아 보기 쉬워요.</p>
+      <p className="mt-1 text-ui text-x-muted">같은 작업이면 목록에서 전에 쓴 이름을 골라 주세요. 이름이 똑같아야 나중에 작업 내용별로 모아 볼 수 있어요.</p>
     </div>
   );
 }

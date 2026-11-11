@@ -8,11 +8,11 @@
 // 확인 자료 = 링크·스크린샷·메모 중 하나 이상(링크와 스크린샷은 둘 다 넣어도 된다).
 import { DONE_NOTE_MAX, OTHER_KIND_MAX, type TaskType } from './campaignJudgment.ts';
 
-export const OTHER_KIND_REQUIRED_MESSAGE = '무엇을 했는지 먼저 적어 주세요 — 완료 확인에 필요해요';
-export const OTHER_KIND_TOO_LONG_MESSAGE = `무엇을 했는지는 ${OTHER_KIND_MAX}자 안으로 적어 주세요`;
+export const OTHER_KIND_REQUIRED_MESSAGE = '작업 내용을 먼저 적어 주세요 — 완료 확인에 필요해요';
+export const OTHER_KIND_TOO_LONG_MESSAGE = `작업 내용은 ${OTHER_KIND_MAX}자 안으로 적어 주세요`;
 export const DONE_NOTE_TOO_LONG_MESSAGE = `확인 메모는 ${DONE_NOTE_MAX}자 안으로 적어 주세요`;
 export const DONE_NOTE_REQUIRED_MESSAGE = '확인 링크, 스크린샷, 확인 메모 중 하나는 있어야 해요 — 정산팀이 이걸로 완료를 확인해요';
-export const OTHER_ONLY_MESSAGE = '무엇을 했는지와 확인 메모는 기타 협찬 작업에만 있어요';
+export const OTHER_ONLY_MESSAGE = '작업 내용과 확인 메모는 기타 협찬 작업에만 있어요';
 export const DONE_DATE_FUTURE_MESSAGE = '완료한 날은 오늘보다 뒤일 수 없어요';
 export const LINK_MESSAGE = '확인 링크는 http(s)로 시작하는 주소여야 해요';
 

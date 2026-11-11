@@ -42,7 +42,9 @@ export async function POST(req: Request) {
         activeVisitCount: active.filter(({ t }) => t.type === 'visit' && !t.sameVisitOf).length,
         tasks: active.map(({ t, c }) => {
           const task = toTaskDto(t, c, row.id, today, new URL(req.url).origin);
-          return { taskId: t.id, createdAt: task.createdAt, kind: task.kind, title: task.title, visitPhase: c.visitPhase, flowStage: c.flowStage, nextSchedule: task.nextSchedule, dDay: c.dDay, visitDday: task.visitDday, uploadDday: task.uploadDday };
+          return { taskId: t.id, createdAt: task.createdAt, kind: task.kind, title: task.title, visitPhase: c.visitPhase, flowStage: c.flowStage, nextSchedule: task.nextSchedule, dDay: c.dDay, visitDday: task.visitDday, uploadDday: task.uploadDday,
+            // 같은 방문의 연결 작업이면 원래 작업 id — 확장이 방문 수(activeVisitCount)와 맞추려 거른다(0.1.13~)
+            sameVisitOf: task.sameVisitOf };
         }),
       };
     }));

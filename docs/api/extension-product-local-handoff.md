@@ -67,7 +67,7 @@
 
 방문협찬은 "15,000엔에 게시물 2건"처럼 방문 한 번 = 묶음 가격으로 협상한다. 금액은 원래 작업 하나에만 두고, 두 번째 게시물부터는 웹 작업 패널의 [게시물 하나 더]로 **연결 작업**을 만든다(DB `campaign_task.same_visit_of`, 마이그레이션 089). 연결 작업은 항상 방문협찬·비용 없음(`noCost: true`, 금액 없음)·예약 없음이다.
 
-- `TaskDto`(`GET /people/{id}/tasks`, `GET /tasks/{id}`)에 `sameVisitOf: string | null`을 추가했다 — 같은 방문의 원래 작업 id, 일반 작업은 `null`. 배지(`POST /people/badges`)의 작업 요약은 그대로이고, 필요하면 `GET /tasks/{id}`로 읽는다.
+- `TaskDto`(`GET /people/{id}/tasks`, `GET /tasks/{id}`)에 `sameVisitOf: string | null`을 추가했다 — 같은 방문의 원래 작업 id, 일반 작업은 `null`. 배지(`POST /people/badges`)의 작업 요약에도 `sameVisitOf`를 싣는다(2026-11-11). 확장 0.1.12는 이 값을 몰라 방문 작업 수가 `activeVisitCount`와 달라지면 배지를 숨긴다 — 0.1.13부터 연결 작업을 걸러 맞춘다.
 - 게시 전 연결 작업의 `visitPhase`는 `visited`(방문은 원래 작업으로 이미 했다), 게시 뒤는 `completed`다. `allowedActions`는 늘 빈 배열이다 — 게시 확인·취소는 웹의 작업 패널에서 한다. `nextSchedule`은 게시 예정일이 있으면 `upload`.
 - `activeVisitCount`는 연결 작업을 세지 않는다(방문 수 = 실제 방문 횟수). `activeCount`와 `tasks`에는 그대로 들어간다 — 목록의 고유 방문 수를 맞출 때 `sameVisitOf`가 있는 작업은 빼 주세요.
 - `GET /campaigns/{id}/visit-task-candidates`는 연결 작업을 돌려주지 않는다.

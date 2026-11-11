@@ -69,7 +69,7 @@ test('연결 작업 화면 판정 — 단계 칩 방문, 예약 창 자동 열�
   assert.equal(flowStageLabel(o), '대기');            // 원래 작업(예약 없음)은 그대로
   assert.equal(awaitsReservation(a), false);
   assert.equal(awaitsReservation(o), true);
-  assert.equal(replaceDisabledReason(a, T), '같은 방문의 게시물이라 바꿀 수 없어요');
+  assert.equal(replaceDisabledReason(a, T), '추가 게시물이라 바꿀 수 없어요');
   assert.equal(visitPhaseFromRow(a, T), 'visited');
   assert.equal(visitStep(a, 'visited'), 'visited');
   assert.equal(visitPhaseFromRow(mk({ ...a, id: 'p', postedAt: '2026-11-08' }), T), 'completed');   // 비용 없음 + 게시 = 완료
@@ -133,14 +133,14 @@ test('정산 기다림 — 원래 작업은 주와 상관없이 같은 방문 �
   const t = togetherFor(self, [sib({ taskId: 'o', postedAt: '2026-11-05' }), sib({ taskId: 'a', sameVisitOf: 'o' })], T)!;
   assert.equal(t.kind, 'visit');
   assert.deepEqual([t.total, t.posted, t.pending.length], [2, 1, 1]);
-  assert.equal(togetherShort(t), '같은 방문 게시물 2건 중 1건 게시, 1건 예정일 없음');
-  assert.match(togetherText(t), /^같은 방문 게시물 2건 중 1건 게시, 남은 작업: 마인드_10월 방문협찬\(게시물 2, 예정일 없음\)$/);
+  assert.equal(togetherShort(t), '추가 게시물까지 2건 중 1건 게시, 1건 예정일 없음');
+  assert.match(togetherText(t), /^추가 게시물까지 2건 중 1건 게시, 남은 작업: 마인드_10월 방문협찬\(게시물 2, 예정일 없음\)$/);
   // 다 올라오면 남은 것 없음 → 함께 전송(묶음은 있지만 pending 0)
   assert.equal(togetherFor(self, [sib({ taskId: 'o', postedAt: '2026-11-05' }), sib({ taskId: 'a', sameVisitOf: 'o', postedAt: '2026-11-12' })], T)!.pending.length, 0);
   // 같은 주의 다른 작업과 섞이면 both
   const both = togetherFor(self, [sib({ taskId: 'o', postedAt: '2026-11-05' }), sib({ taskId: 'a', sameVisitOf: 'o' }), sib({ taskId: 'q', taskType: 'quoteRt', scheduledOn: '2026-11-06' })], T)!;
   assert.equal(both.kind, 'both');
-  assert.match(togetherShort(both), /^같은 주, 같은 방문 게시물 3건 중 1건 게시/);
+  assert.match(togetherShort(both), /^같은 주, 추가 게시물까지 3건 중 1건 게시/);
   // 다른 후보(같은 인플, 캠페인 시작 주에 게시)는 날짜 없는 게시 전 연결 작업을 기다리지 않는다
   const other = togetherFor({ taskId: 'p', handle: 'sara', postedAt: '2026-10-01' },
     [sib({ taskId: 'p', postedAt: '2026-10-01' }), sib({ taskId: 'a', sameVisitOf: 'o' })], T);
@@ -178,7 +178,7 @@ test('정산 기다림 — 날짜 없는 게시 전 연결 작업은 원래 게�
   const late = togetherFor(self, sibs, '2026-11-09')!;
   assert.equal(late.pending[0].overdue, true);
   assert.deepEqual(late.pending[0].sameVisit, { ordinal: 2, sinceOriginal: 9 });
-  assert.equal(togetherShort(late), '같은 방문 게시물 3건 중 2건 게시, 게시물 2가 아직 안 올라왔어요(원래 게시 후 9일)');
+  assert.equal(togetherShort(late), '추가 게시물까지 3건 중 2건 게시, 게시물 2가 아직 안 올라왔어요(원래 게시 후 9일)');
   assert.match(togetherText(late), /\(게시물 2, 예정일 없음, 원래 게시 후 9일\)$/);
   // 예정일이 있으면 그 날짜가 기준(7일 규칙 아님)
   const dated = togetherFor(self, [sibs[0], sib({ taskId: 'a', sameVisitOf: 'o', scheduledOn: '2026-11-20' })], '2026-11-09')!;

@@ -652,9 +652,9 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
     remove: (t) => {
       if (!confirmLoseDraftFor(t.id)) return;
       const linked = (data?.tasks ?? []).filter((x) => x.sameVisitOf === t.id).length;
-      const linkedLine = linked ? `\n\n같은 방문의 게시물 작업 ${linked}건도 함께 지워져요. 둘 다 삭제 기록에 남아요.` : '';
+      const linkedLine = linked ? `\n\n추가 게시물 작업 ${linked}건도 함께 지워져요. 둘 다 삭제 기록에 남아요.` : '';
       if (!t.reservation && !window.confirm(`이 작업을 지울까요?${t.draftId ? '\n\n원고는 남아요.' : ''}${linkedLine}`)) return;
-      if (t.reservation && linked && !window.confirm(`같은 방문의 게시물 작업 ${linked}건도 함께 지워져요. 계속할까요?`)) return;
+      if (t.reservation && linked && !window.confirm(`추가 게시물 작업 ${linked}건도 함께 지워져요. 계속할까요?`)) return;
       void actions.remove(t, confirmReservationDelete, linked > 0).then((ok) => {
         if (ok) setDeletionsVersion((v) => v + 1);   // 삭제 기록은 서버 삭제가 끝난 뒤에 다시 읽는다(낙관적 행 제거 시점엔 아직 없다)
         if (ok && panelTaskId === t.id) setPanel(null);

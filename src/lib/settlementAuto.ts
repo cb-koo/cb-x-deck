@@ -120,7 +120,7 @@ export function togetherFor(self: { taskId: string; handle: string; postedAt: st
   const kind = others.every(linkedToSelf) ? 'visit' : others.some(linkedToSelf) ? 'both' : 'week';
   return { total: same.length, posted: same.length - pending.length, pending, lastConfirmedAt: confirmed.at(-1) ?? null, kind };
 }
-const TOGETHER_HEAD: Record<NonNullable<Together['kind']>, string> = { week: '같은 주', visit: '같은 방문 게시물', both: '같은 주, 같은 방문 게시물' };
+const TOGETHER_HEAD: Record<NonNullable<Together['kind']>, string> = { week: '같은 주', visit: '추가 게시물까지', both: '같은 주, 추가 게시물까지' };
 /** 사유 한 칸 — '같은 주 3건 중 2건 게시, 남은 작업: 백수약국_11월1주차 인용RT(11/6 예정)'. */
 export function togetherText(t: Together): string {
   const left = t.pending.map((p) => `${p.campaignName} ${TASK_TYPE_LABEL[p.taskType]}${p.dueOn ? `(${md(p.dueOn)} 예정${p.overdue ? ', 지남' : ''})`

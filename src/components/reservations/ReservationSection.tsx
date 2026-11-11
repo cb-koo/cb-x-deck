@@ -431,7 +431,7 @@ export function ReservationSection({ task, campaign, dateEditor, onChangeDate, o
       </div>
       {/* 게시된 작업엔 예약을 붙일 수 없다 — 꺼진 버튼을 두면 계속 누르게 된다(ISSUE-016). 버튼 대신 이유와 갈 곳을 한 줄로 */}
       {!locked && task.postedAt && (
-        <p className="mt-1 text-ui text-x-secondary">게시된 작업엔 예약을 붙일 수 없어요. 이 방문으로 게시물이 하나 더 있으면 아래 같은 방문 게시물의 [게시물 하나 더]를 눌러 주세요.</p>
+        <p className="mt-1 text-ui text-x-secondary">게시된 작업엔 예약을 붙일 수 없어요. 이 방문으로 게시물을 더 받으면 아래 추가 게시물의 [+ 게시물 추가]를 눌러 주세요.</p>
       )}
       {!locked && !task.postedAt && (
         <div className="flex flex-wrap items-center justify-end gap-2">

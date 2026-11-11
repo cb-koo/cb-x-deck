@@ -234,7 +234,7 @@ function TaskRows({ row }: { row: PerfRow }) {
         const reason = reasonCell(t);
         const typeCost = t.cost
           ? `${TASK_TYPE_LABEL[t.type]} · ${formatAmount(t.cost.amount, t.cost.currency)}`
-          : t.sameVisitOf ? `${TASK_TYPE_LABEL[t.type]} · 같은 방문 게시물` : TASK_TYPE_LABEL[t.type];   // 089 — 비용은 원래 작업에
+          : t.sameVisitOf ? `${TASK_TYPE_LABEL[t.type]} (추가 게시물)` : TASK_TYPE_LABEL[t.type];   // 089 — 비용은 원래 작업에
         const last = i === row.tasks.length - 1;
         const border = last ? LAST_ROW_BORDER : '';
         return (

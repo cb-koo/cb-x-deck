@@ -724,7 +724,7 @@ export function TaskPanel({
           if (t.sameVisitOf) return (
             <div>
               <InfluencerSummary handle={t.influencerHandle} option={opt} note={note} actions={registerBtn} />
-              <p className="mt-1 text-ui text-x-muted">같은 방문이라 원래 작업과 같은 인플루언서예요</p>
+              <p className="mt-1 text-ui text-x-muted">추가 게시물이라 원래 작업과 같은 인플루언서예요</p>
               {regLine}
             </div>
           );
@@ -786,8 +786,8 @@ export function TaskPanel({
             {sameVisitLive > 0 && t.settlement?.status !== 'requested' && (
               <p className="mt-1 text-ui text-amber-800">
                 {t.noCost
-                  ? `같은 방문 게시물 ${sameVisitLive + 1}건이 모두 비용 없음이에요. 실수라면 체크를 풀어 주세요.`
-                  : `같은 방문 게시물 ${sameVisitLive + 1}건의 비용이 모두 이 작업에 있어요. 체크하면 ${sameVisitLive + 1}건 모두 비용 없음이 돼요.`}
+                  ? `이 작업과 추가 게시물 ${sameVisitLive}건이 모두 비용 없음이에요. 실수라면 체크를 풀어 주세요.`
+                  : `이 작업과 추가 게시물 ${sameVisitLive}건의 비용이 모두 이 작업에 있어요. 체크하면 ${sameVisitLive + 1}건 모두 비용 없음이 돼요.`}
               </p>
             )}
             {noCostError && <p role="alert" className="mt-1 text-ui text-red-600">{noCostError}</p>}

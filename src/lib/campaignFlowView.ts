@@ -274,7 +274,7 @@ export const settleWaitCount = (rows: FlowRow[]) => rows.filter(isSettleWaiting)
 // null = 바꿀 수 있음. 두 자리(행 메뉴·패널)가 각자 판정하면 한쪽만 조건을 놓쳐 라벨-값이 어긋날 수 있어 하나로 묶는다.
 export function replaceDisabledReason(t: FlowRow, today: string): string | null {
   if (!t.influencerHandle) return '배정부터 해요';
-  if (t.sameVisitOf) return '같은 방문의 게시물이라 바꿀 수 없어요';   // 089 — 서버 sameVisitPatchError·교체 라우트와 같은 조건
+  if (t.sameVisitOf) return '추가 게시물이라 바꿀 수 없어요';   // 089 — 서버 sameVisitPatchError·교체 라우트와 같은 조건
   if (t.type === 'visit' && t.visitOn !== null && t.visitOn < today) return '방문한 인플루언서가 게시해야 해요';
   return null;
 }

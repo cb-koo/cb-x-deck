@@ -17,7 +17,7 @@ export function SameVisitPostsBox({ task, linked, busy, onAdd, onOpen }: {
 }) {
   const live = linked.filter((t) => !t.cancelledAt);
   return (
-    <PanelSection title="같은 방문 게시물" aside={<Button onClick={onAdd} disabled={busy || !task.influencerHandle}>{busy ? '만드는 중…' : '게시물 하나 더'}</Button>}>
+    <PanelSection title="추가 게시물" aside={<Button onClick={onAdd} disabled={busy || !task.influencerHandle}>{busy ? '만드는 중…' : '+ 게시물 추가'}</Button>}>
       {linked.length > 0 && (
         <ul className="mb-2 divide-y divide-x-border">
           <li className="flex h-11 items-center gap-3 text-content">
@@ -28,7 +28,7 @@ export function SameVisitPostsBox({ task, linked, busy, onAdd, onOpen }: {
           {linked.map((t, i) => (
             <li key={t.id} className="flex h-11 items-center gap-3 text-content">
               <span className="w-[72px] shrink-0 text-x-secondary">{t.cancelledAt ? '취소' : `게시물 ${live.indexOf(t) + 2}`}</span>
-              <span className={`min-w-0 flex-1 truncate ${t.cancelledAt ? 'text-x-muted line-through' : ''}`}>{t.draftLabel ?? `연결 작업 ${i + 1}`}, 비용 없음</span>
+              <span className={`min-w-0 flex-1 truncate ${t.cancelledAt ? 'text-x-muted line-through' : ''}`}>{t.draftLabel ?? `추가 게시물 ${i + 1}`}, 비용 없음</span>
               <span className="shrink-0 text-ui text-x-secondary">
                 {t.cancelledAt ? '' : t.postedAt ? `${formatDateKo(t.postedAt)} 게시` : t.scheduledOn ? `${formatDateKo(t.scheduledOn)} 예정` : '예정일 미정'}
               </span>
@@ -39,7 +39,7 @@ export function SameVisitPostsBox({ task, linked, busy, onAdd, onOpen }: {
       )}
       <p className="text-ui text-x-muted">
         {!task.influencerHandle && <>인플루언서를 먼저 배정해 주세요. </>}
-        이 방문으로 게시물이 더 있으면 눌러요. 비용 없는 작업이 하나 더 생기고, 방문 수는 그대로예요.
+        방문 한 번에 게시물을 여러 개 받기로 했을 때 추가해요. 비용은 이 작업에만 있고, 방문 수는 그대로예요.
         {live.length > 0 && task.cost ? ` 성과의 조회당 비용은 ${formatAmount(task.cost.amount, task.cost.currency)}을 게시물 ${live.length + 1}건에 나눠 계산해요.` : ''}
       </p>
     </PanelSection>
@@ -55,7 +55,7 @@ export function SameVisitScheduleBox({ original, ordinal, scheduledEditor, onOpe
     <PanelSection title="일정">
       <div className="flex items-start justify-between gap-3">
         <p className="text-content">
-          같은 방문의 {ordinal ? `${ordinal}번째 ` : ''}게시물이에요.
+          {ordinal ? `추가 게시물(게시물 ${ordinal})` : '추가 게시물'}이에요.
           <br /><span className="text-ui text-x-secondary">예약과 방문은 원래 작업에서 관리해요.</span>
         </p>
         {original && <button type="button" onClick={onOpenOriginal} className={`shrink-0 ${LINK}`}>원래 작업 열기</button>}
@@ -88,7 +88,7 @@ export function SameVisitCostLine({ original, total }: { original: FlowRow | nul
   const cost = original?.cost;
   return (
     <p className="text-content">
-      비용 없음, 같은 방문의 원래 작업에서 정산해요.
+      비용 없음, 원래 작업에서 함께 정산해요.
       {cost && total ? <span className="text-x-secondary"> 조회당 비용은 {formatAmount(cost.amount, cost.currency)}을 게시물 {total}건에 나눠 계산해요.</span> : null}
     </p>
   );

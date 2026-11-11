@@ -4,20 +4,20 @@
 // 연결 작업은 예약·방문 수·정산 후보에서 빠지고, 게시물 수·성과에는 들어간다. CPV는 원래 작업 비용을 게시물 수로 나눈다.
 import { formatAmount, type TaskCost } from './campaignCost.ts';
 
-export const SAME_VISIT_NO_RESERVATION_MESSAGE = '같은 방문의 게시물 작업이에요. 예약은 원래 작업에 있어요.';
-export const SAME_VISIT_COST_MESSAGE = '같은 방문의 게시물이라 비용 없음으로 고정돼 있어요. 금액은 원래 작업에서 바꿔 주세요.';
-export const SAME_VISIT_VISIT_ON_MESSAGE = '같은 방문의 게시물이라 방문일은 원래 작업에서 바꿔 주세요.';
-export const SAME_VISIT_INFLUENCER_MESSAGE = '같은 방문의 게시물이라 인플루언서를 바꿀 수 없어요.';
-export const SAME_VISIT_AGREEMENT_MESSAGE = '협찬 동의서는 같은 방문의 원래 작업에 올려 주세요.';
-export const ORIGINAL_INFLUENCER_LOCKED_MESSAGE = '같은 방문의 게시물 작업이 있어 인플루언서를 바꿀 수 없어요. 게시물 작업을 먼저 정리해 주세요.';
+export const SAME_VISIT_NO_RESERVATION_MESSAGE = '추가 게시물 작업이에요. 예약은 원래 작업에 있어요.';
+export const SAME_VISIT_COST_MESSAGE = '추가 게시물이라 비용 없음으로 고정돼 있어요. 금액은 원래 작업에서 바꿔 주세요.';
+export const SAME_VISIT_VISIT_ON_MESSAGE = '추가 게시물이라 방문일은 원래 작업에서 바꿔 주세요.';
+export const SAME_VISIT_INFLUENCER_MESSAGE = '추가 게시물이라 인플루언서를 바꿀 수 없어요.';
+export const SAME_VISIT_AGREEMENT_MESSAGE = '협찬 동의서는 원래 작업에 올려 주세요.';
+export const ORIGINAL_INFLUENCER_LOCKED_MESSAGE = '추가 게시물 작업이 있어 인플루언서를 바꿀 수 없어요. 추가 게시물을 먼저 정리해 주세요.';
 export const SAME_VISIT_CREATE_MESSAGE = {
   notVisit: '방문협찬 작업에만 게시물을 더할 수 있어요.',
   cancelled: '취소된 작업엔 게시물을 더할 수 없어요. 먼저 되돌려 주세요.',
-  linked: '같은 방문의 게시물 작업이에요. 원래 작업에서 더해 주세요.',
+  linked: '추가 게시물 작업이에요. 원래 작업에서 추가해 주세요.',
   noInfluencer: '인플루언서를 먼저 배정해 주세요.',
 } as const;
-export const SAME_VISIT_DELETE_CONFIRM_MESSAGE = '같은 방문의 게시물 작업이 연결된 작업이에요. 함께 지울지 확인해 주세요.';
-export const SAME_VISIT_CANCEL_POSTED_MESSAGE = '같은 방문의 게시물이 이미 게시돼 있어 취소할 수 없어요. 금액이 이 작업에 있어서, 취소하면 정산이 나가지 않아요.';
+export const SAME_VISIT_DELETE_CONFIRM_MESSAGE = '추가 게시물 작업이 있는 작업이에요. 함께 지울지 확인해 주세요.';
+export const SAME_VISIT_CANCEL_POSTED_MESSAGE = '추가 게시물이 이미 게시돼 있어 취소할 수 없어요. 금액이 이 작업에 있어서, 취소하면 정산이 나가지 않아요.';
 
 // 연결 작업에 막는 편집 — 판정은 패치 후 상태가 아니라 '보냈는가'로 한다(연결 작업에선 이 칸들이 늘 고정이다).
 export function sameVisitPatchError(
@@ -111,7 +111,7 @@ export const SAME_VISIT_RESTORE_ORIGINAL_FIRST_MESSAGE = '원래 작업이 취�
 // 되돌리기 결과 한 줄 — 함께 되돌린 같은 방문 게시물(원고를 다시 못 붙인 건 그 수만)
 export function restoreLinkedNote(linked: { restored: number; draftMissed: number }): string {
   if (!linked.restored) return '';
-  return ` 같은 방문 게시물 ${linked.restored}건도 함께 되돌렸어요${linked.draftMissed ? `(그중 ${linked.draftMissed}건은 원고를 다시 붙이지 못했어요)` : ''}.`;
+  return ` 추가 게시물 ${linked.restored}건도 함께 되돌렸어요${linked.draftMissed ? `(그중 ${linked.draftMissed}건은 원고를 다시 붙이지 못했어요)` : ''}.`;
 }
 
 // ── 정산팀 확인 자료(note, koo 결정 A 11-10) ──

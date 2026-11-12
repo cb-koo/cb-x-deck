@@ -18,6 +18,7 @@ import { SmallMultiples } from '@/components/charts/SmallMultiples';
 import { SegmentedBar, SegmentLegend } from '@/components/charts/SegmentedBar';
 import { BarList } from '@/components/charts/BarList';
 import { LineChart } from '@/components/charts/LineChart';
+import { CumulativeArea } from '@/components/charts/CumulativeArea';
 import { ColumnChart } from '@/components/charts/ColumnChart';
 import { BarSparkline } from '@/components/charts/BarSparkline';
 import { Donut } from '@/components/charts/Donut';
@@ -211,6 +212,12 @@ export default function ChartKitSample() {
             headline="8월 첫 주(50%)를 빼면 0~13% 사이에서 움직여요"
             info={{ what: '주별 (취소+노쇼) ÷ 전체 예약', read: ['회색 띠 = 업계 통상 5~8%', '끊긴 곳 = 예약 5건 미만이라 비움'], note: ['예약이 적은 주는 한두 건으로 크게 흔들려요'] }}>
             <LineChart labels={P.weeks} series={[{ name: '취소·노쇼', values: P.cancelRate }]} band={{ range: [5, 8], label: '업계 통상 5~8%' }} unit="%" />
+          </ChartCard>
+
+          <ChartCard icon={Icon.users} title="누적 선 + 면 · 캠페인 현황 카드"
+            headline="목요일까지 누적 조회 5.1만"
+            info={{ what: '캠페인 하나의 날짜별 누적 조회수(이번 주)', read: ['큰 점 = 오늘', '오늘 뒤는 아직 오지 않아 비움', '점 위 글자 = 그날 게시된 작업 수(패널에서만)'], calc: ['눈금은 카드마다 자기 최댓값'] }}>
+            <CumulativeArea labels={P.cumulativeDays} values={P.cumulativeViews} todayIndex={3} marks={P.cumulativeMarks} height={220} ariaLabel="날짜별 누적 조회수" />
           </ChartCard>
 
           <ChartCard icon={Icon.users} title="세로 막대 · 음수 · 기록 없음"

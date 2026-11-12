@@ -41,3 +41,8 @@ export const clientDaily = [
   { name: '마인드스킨', values: [2, 4, 3, 5, 1, 3, 1] },
   { name: '닥터손유나', values: [3, 4, 1, 5, 1, 0, 0] },
 ];
+
+// 캠페인 현황 카드 흐름 차트(시안 2026-11-12 예시값) — 이번 주 목요일까지 누적 조회수, 금~일은 아직 오지 않아 null
+export const cumulativeDays = ['월', '화', '수', '목', '금', '토', '일'];
+export const cumulativeViews: Array<number | null> = [0, 8000, 30000, 51200, null, null, null];
+export const cumulativeMarks: Array<string | null> = [null, '게시 1건', '게시 1건', '게시 1건', null, null, null];

@@ -55,8 +55,8 @@ export function LongCampaignTable({ rows, isCurrentWeek }: { rows: LongRow[]; is
                   <td className={NUMTD}>{r.postedThisWeek}건</td>
                   <td className={`${NUMTD} ${views === null ? DIM : ''}`}>{views === null ? '-' : compact(views)}</td>
                   <td className={`${NUMTD} ${bookmarks === null ? DIM : ''}`}>{bookmarks === null ? '-' : NUM.format(bookmarks)}</td>
-                  {/* 무상·값 없음은 흐리게(시안 td.dim) */}
-                  <td className={`${NUMTD} ${r.perf.cpv.kind === 'value' ? '' : DIM}`}>{cpv}</td>
+                  {/* 값 없음('-')만 흐리게(시안 td.dim) — 무상은 '0.0원'으로 숫자처럼 보인다(koo 11-12) */}
+                  <td className={`${NUMTD} ${r.perf.cpv.kind === 'none' ? DIM : ''}`}>{cpv}</td>
                 </tr>
               );
             })}

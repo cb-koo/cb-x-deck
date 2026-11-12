@@ -75,7 +75,8 @@ test('perfOf: 엔화 비용은 원으로 환산, 측정값 없으면 none, 전�
   const noSnap = perfOf([task({ postedAt: '2026-11-12', cost: { amount: 50000, currency: 'KRW' }, perf: null })]);
   assert.equal(noSnap.views.value, null); assert.equal(formatCpv(noSnap.cpv), '-');
   const free = perfOf([task({ postedAt: '2026-11-10', noCost: true, cost: null, perf: { postCount: 1, views: 9000, likes: 1, bookmarks: 20 } })]);
-  assert.equal(formatCpv(free.cpv), '무상');
+  assert.equal(free.cpv.kind, 'free');
+  assert.equal(formatCpv(free.cpv), '0.0원');   // koo 11-12: 무상도 '0.0원'으로(캠페인 화면 표의 0원 표기와 같게)
 });
 test('perfOf: 비용 0원이 섞이지 않은 무비용·게시 없음은 none, 0원 비용만이면 free', () => {
   // 조회는 있는데 비용 미입력(null) — flowStats는 cpvKrw 0을 주지만 '무상'이 아니다
@@ -229,8 +230,10 @@ test('패널 CPV: 캠페인 화면 작업 표(taskPerfExtra)와 같은 값 — 0
     task({ id: 'unset', postedAt: '2026-11-10', perf: pf(400), cost: null }),
     task({ id: 'orig', type: 'visit', postedAt: '2026-11-10', perf: pf(1000), cost: { amount: 2000, currency: 'JPY' } }),
     task({ id: 'link', type: 'visit', sameVisitOf: 'orig', postedAt: '2026-11-11', perf: pf(200), cost: null }),
+    task({ id: 'free', postedAt: '2026-11-11', perf: pf(300), cost: null, noCost: true }),
   ])], [], week, '2026-11-12');
   const cpv = Object.fromEntries(o.cards[0].posted.map((r) => [r.taskId, r.cpvKrw]));
+  assert.equal(cpv.free, 0);                        // 비용 없음 표시 → 0.0원(koo 11-12, 카드의 무상과 같은 표기)
   assert.equal(cpv.zero, 0);                        // 명시한 0원 → 0.0원(캠페인 화면과 같다)
   assert.equal(cpv.unset, null);                    // 비용 미입력 → '-'
   assert.equal(cpv.orig, 10);                       // 2,000엔 = 20,000원 ÷ 2건 = 10,000원 ÷ 1,000

@@ -82,10 +82,11 @@ export function perfOf(tasks: CampaignTaskItem[]): Perf {
   return { views: { value: views, judgment: null }, bookmarks: { value: s.perf.bookmarks, judgment: null }, cpv, spentKrw };
 }
 
-// 소수 한 자리는 캠페인 상세(FlowCards·FlowTable)의 CPV 표기와 맞춘다
+// 소수 한 자리는 캠페인 상세(FlowCards·FlowTable)의 CPV 표기와 맞춘다.
+// 무상(free)도 '0.0원' — 캠페인 화면 표가 0원 작업을 '0.0원'으로 쓰는 것과 같은 말로(koo 11-12). kind는 판정용으로 남긴다
 export function formatCpv(c: CpvView): string {
   if (c.kind === 'value') return `${c.krw.toFixed(1)}원`;
-  return c.kind === 'free' ? '무상' : '-';
+  return c.kind === 'free' ? '0.0원' : '-';
 }
 
 // 스토어가 주는 재료: 본 게시물의 한국 날짜별 마지막 실측값
@@ -202,7 +203,8 @@ function postedRows(tasks: CampaignTaskItem[]): PostedRow[] {
   return rows.map((t) => ({
     taskId: t.id, handle: t.influencerHandle, typeLabel: typeLabelOf(t), postedOn: t.postedAt!, url: t.postUrl,
     views: t.perf?.views ?? null, bookmarks: t.perf?.bookmarks ?? null, likes: t.perf?.likes ?? null,
-    cpvKrw: taskPerfExtra(t, sameVisit.get(t.id)?.share ?? null).cpvKrw,
+    // 비용 없음 표시(no_cost)는 금액이 비어 있어 taskPerfExtra가 null을 준다 — 카드의 무상과 같게 0으로(koo 11-12)
+    cpvKrw: taskPerfExtra(t, sameVisit.get(t.id)?.share ?? null).cpvKrw ?? (t.noCost && t.perf?.views ? 0 : null),
   }));
 }
 

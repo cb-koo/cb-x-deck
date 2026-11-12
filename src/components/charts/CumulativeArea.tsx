@@ -14,6 +14,8 @@ type Props = {
   todayIndex: number;
   height?: number;
   marks?: Array<string | null>;
+  // 칸 범위(포함)에 옅은 바탕 + 왼쪽 위 글자 — 지난 주 차트에서 캠페인 기간(월~일)과 그 뒤 성장 구간을 가른다(koo 11-12)
+  band?: { from: number; to: number; label: string };
   ariaLabel: string;
 };
 
@@ -21,7 +23,7 @@ const AREA_OPACITY = 0.1;     // 시안 polygon opacity .1
 const LINE_WIDTH = 2.5;       // 시안 stroke-width 2.5 — 카드 하나에 선 하나라 키트 기본(2)보다 굵게
 const DOT_R = 3, TODAY_R = 4.5;
 
-export function CumulativeArea({ labels, values, todayIndex, height = 136, marks, ariaLabel }: Props) {
+export function CumulativeArea({ labels, values, todayIndex, height = 136, marks, band, ariaLabel }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   // 여백은 시안 그대로: 왼쪽 10, 오른쪽 46(눈금 글자), 위 12(점 위 글자가 있으면 28), 아래 26(가로 글자)
   const L = 10, R = 46, top = marks ? 28 : 12, B = 26;
@@ -40,10 +42,19 @@ export function CumulativeArea({ labels, values, todayIndex, height = 136, marks
   const gap = labels.every((l) => l.length <= 1) ? 24 : 48;
   const step = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(w / gap))));
   const showLabel = (i: number) => i === todayIndex || i === n - 1 || (i % step === 0 && n - 1 - i >= step / 2);
+  // 띠는 첫 칸의 점부터 마지막 칸과 다음 칸 사이 가운데까지 — 마지막 날의 점이 띠 안에 온전히 들어가게
+  const bandX0 = band ? x(band.from) : 0;
+  const bandX1 = band ? (band.to + 1 < n ? (x(band.to) + x(band.to + 1)) / 2 : x(band.to)) : 0;
   return (
     <div ref={ref} style={{ position: 'relative', height }}>
       {width > 0 && (
-        <svg width={width} height={height} role="img" aria-label={ariaLabel}>
+        <svg width={width} height={height} role="img" aria-label={band ? `${ariaLabel}, ${band.label} ${labels[band.from]}~${labels[band.to]}` : ariaLabel}>
+          {band && (
+            <g>
+              <rect x={bandX0} y={top} width={Math.max(bandX1 - bandX0, 0)} height={h} fill={C.band} opacity={0.6} />
+              <text x={bandX0 + 4} y={top + 12} fontSize={11} fill={C.secondary}>{band.label}</text>
+            </g>
+          )}
           {ticks.map((t, k) => (
             <g key={k}>
               <line x1={L} x2={L + w} y1={y(t)} y2={y(t)} stroke={k === 0 ? C.axis : C.grid} strokeDasharray={k === 0 ? undefined : S.gridDash} />

@@ -33,6 +33,12 @@ export function chartLabels(days: string[]): string[] {
   return days.map((d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`);
 }
 
+// 지난 주 차트(8칸 이상)만 첫 7칸(그 주 월~일)에 '캠페인 기간' 띠 — 그 뒤는 게시가 끝나고 조회수만 자란 구간이다(koo 11-12).
+// 이번 주는 7칸 전부가 그 주라 띠가 없다
+export function campaignWeekBand(days: string[]): { from: number; to: number; label: string } | undefined {
+  return days.length > 7 ? { from: 0, to: 6, label: '캠페인 기간' } : undefined;
+}
+
 function Head({ card }: { card: OverviewCard }) {
   return (
     <div className="flex items-center justify-between gap-2 px-[18px] pb-[14px] pt-4">
@@ -96,7 +102,7 @@ export function CampaignCard({ card, metric, open, onOpen }: { card: OverviewCar
         <div className={ZONE_LABEL}>날짜별 누적 {METRIC_LABEL[metric]}</div>
         {mc ? (
           <CumulativeArea labels={chartLabels(mc.chart.days)} values={mc.series} todayIndex={mc.chart.todayIndex}
-                          height={136} ariaLabel={`날짜별 누적 ${METRIC_LABEL[metric]}`} />
+                          height={136} band={campaignWeekBand(mc.chart.days)} ariaLabel={`날짜별 누적 ${METRIC_LABEL[metric]}`} />
         ) : (
           // 게시물이 없거나 이 지표를 아직 잰 값이 없으면 선 대신 안내(R5 + 지표별)
           <p className="m-0 pb-[6px] text-[13px] text-x-muted">게시되면 여기에 성과 흐름이 나와요.</p>

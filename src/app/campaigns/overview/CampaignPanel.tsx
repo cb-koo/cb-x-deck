@@ -7,7 +7,7 @@ import { formatCpv, type OverviewCard, type PostedRow, type OpenRow } from '@/li
 import { formatDateKo } from '@/lib/campaignJudgment';
 import { CumulativeArea } from '@/components/charts/CumulativeArea';
 import { compact, NUM } from '@/components/charts/tokens';
-import { chartLabels, metricChart, METRIC_LABEL, type OverviewMetric } from './CampaignCard';
+import { campaignWeekBand, chartLabels, metricChart, METRIC_LABEL, type OverviewMetric } from './CampaignCard';
 
 // 시안 .ph / .phs / .drawer th / .drawer td
 const PH = 'mb-[2px] mt-6 text-[15px] font-bold';
@@ -139,7 +139,7 @@ export function CampaignPanel({ card, weekLabel, metric, onClose }: { card: Over
         {mc ? (
           <CumulativeArea labels={chartLabels(mc.chart.days)} values={mc.series} todayIndex={mc.chart.todayIndex} height={220}
                           marks={mc.chart.postedPerDay.map((n) => (n > 0 ? `게시 ${n}건` : null))}
-                          ariaLabel={`날짜별 누적 ${METRIC_LABEL[metric]}`} />
+                          band={campaignWeekBand(mc.chart.days)} ariaLabel={`날짜별 누적 ${METRIC_LABEL[metric]}`} />
         ) : (
           // 카드와 같은 빈 상태(metricChart — 차트가 없거나 이 지표 숫자가 '-')
           <div className={PHS}>게시되면 여기에 성과 흐름이 나와요.</div>

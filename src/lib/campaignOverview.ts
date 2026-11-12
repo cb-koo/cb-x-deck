@@ -270,7 +270,7 @@ export function buildOverview(weekly: OverviewInput[], long: OverviewInput[], we
       posted: postedRows(inp.tasks), open: openRows(inp.tasks, today),
     };
   });
-  // 세팅 전은 맨 뒤 → 밀린 건 많은 순 → 이름순
+  // 세팅 전은 맨 뒤 → 밀린 건 많은 순 → 이름순 — 상단 칸의 '예정일 지난' 캠페인 목록이 이 순서를 쓴다. 화면의 카드 순서는 sortCards가 정한다
   cards.sort((a, b) =>
     Number(a.status === 'unset') - Number(b.status === 'unset')
     || b.quantity.overdue - a.quantity.overdue
@@ -294,4 +294,17 @@ export function buildOverview(weekly: OverviewInput[], long: OverviewInput[], we
     week, weekName: weekName(week.weekStart), today, perfUpdatedAt,
     tiles, cards, long: long.map((inp) => longRow(inp, week)),
   };
+}
+
+// 카드 정렬 두 가지(koo 11-12): 가나다순, 진행률순(게시 ÷ 계획이 높은 = 완료에 가까운 순). 세팅 전은 두 모드 모두 맨 뒤.
+// 같은 값이면 이름순 → id. 원본 배열은 건드리지 않는다(상단 칸이 buildOverview의 순서를 쓴다)
+export type CardSort = 'name' | 'progress';
+export const CARD_SORT_LABEL: Record<CardSort, string> = { name: '가나다순', progress: '진행률순' };
+export function sortCards(cards: OverviewCard[], mode: CardSort): OverviewCard[] {
+  const ratio = (c: OverviewCard) => (c.quantity.planned ? c.quantity.posted / c.quantity.planned : 0);
+  return [...cards].sort((a, b) =>
+    Number(a.status === 'unset') - Number(b.status === 'unset')
+    || (mode === 'progress' ? ratio(b) - ratio(a) : 0)
+    || a.title.localeCompare(b.title, 'ko')
+    || a.campaignId.localeCompare(b.campaignId));
 }

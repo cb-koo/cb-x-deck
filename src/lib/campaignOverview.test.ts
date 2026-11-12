@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveWeek, plannedCount, quantityOf, cardStatus, CARD_STATUS_LABEL, type Quantity, perfOf, formatCpv, chartDays, flowChart, type DayPoint, type FlowChart,
-  pickWeekly, pickLong, buildOverview, type OverviewInput } from './campaignOverview.ts';
+  pickWeekly, pickLong, buildOverview, type OverviewInput, sortCards } from './campaignOverview.ts';
 import type { CampaignTaskItem, CampaignRow } from './campaignStore.ts';
 import { weekLabel } from './campaignListView.ts';
 
@@ -291,4 +291,21 @@ test('장기 줄: 단계 묶음, 0건 생략, 노쇼 제외, 이 주 게시', ()
     { label: '게시', count: 1 }, { label: '준비', count: 1 },
   ]);
   assert.equal(o.long[0].postedThisWeek, 1);
+});
+
+test('sortCards: 가나다순과 진행률순(완료에 가까운 순), 세팅 전은 두 모드 모두 맨 뒤', () => {
+  const week = resolveWeek(null, '2026-11-12');
+  const posted = (n: number, total: number) => Array.from({ length: total }, (_, i) => task(i < n ? { postedAt: '2026-11-10' } : { scheduledOn: '2026-11-14' }));
+  const o = buildOverview([
+    input({ id: 'a', clientId: 'A', clientName: '다' }, posted(1, 4)),   // 25%
+    input({ id: 'b', clientId: 'B', clientName: '가' }, posted(2, 3)),   // 67%
+    input({ id: 'c', clientId: 'C', clientName: '나' }, posted(6, 10)),  // 60%
+    input({ id: 'd', clientId: 'D', clientName: '마' }, posted(3, 3)),   // 100%
+    input({ id: 'e', clientId: 'E', clientName: '라' }, posted(3, 5)),   // 60% — 같은 진행률은 이름순
+    input({ id: 'u', clientId: 'U', clientName: '갸' }, []),             // 세팅 전
+  ], [], week, '2026-11-12');
+  const before = o.cards.map((c) => c.campaignId);
+  assert.deepEqual(sortCards(o.cards, 'name').map((c) => c.title), ['가', '나', '다', '라', '마', '갸']);
+  assert.deepEqual(sortCards(o.cards, 'progress').map((c) => c.title), ['마', '가', '나', '라', '다', '갸']);
+  assert.deepEqual(o.cards.map((c) => c.campaignId), before);   // 원본 순서(상단 칸이 쓰는 순서)는 바꾸지 않는다
 });

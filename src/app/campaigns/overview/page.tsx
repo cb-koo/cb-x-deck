@@ -1,12 +1,12 @@
 // 캠페인 현황 — 이번 주 주차 캠페인 전체를 한 화면에서 보고 들어갈 캠페인을 고르는 읽기 전용 화면. 스펙 2026-11-12
 'use client';
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { addDays, formatDateKo } from '@/lib/campaignJudgment';
 import { kstDateTime, kstToday } from '@/lib/datetime';
-import { resolveWeek, type Overview } from '@/lib/campaignOverview';
+import { resolveWeek, sortCards, CARD_SORT_LABEL, type CardSort, type Overview } from '@/lib/campaignOverview';
 import { weekLabel as weekLabelOf } from '@/lib/campaignListView';
 import { OverviewTiles } from './OverviewTiles';
 import { CampaignCard, METRIC_LABEL, type OverviewMetric } from './CampaignCard';
@@ -30,6 +30,7 @@ function updatedLabel(iso: string): string {
 }
 
 const NAV_BTN = 'h-8 w-8 rounded-full border border-x-border-strong bg-white text-[16px] text-x-secondary disabled:opacity-40';
+const SORT_KEY = 'campaign-overview-sort';
 
 function OverviewView() {
   const sp = useSearchParams();
@@ -41,6 +42,14 @@ function OverviewView() {
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
   const [metric, setMetric] = useState<OverviewMetric>('views');
+  // 카드 정렬(koo 11-12) — 보는 사람마다 기억한다(브라우저 저장, 실패해도 가나다순으로 동작)
+  const [sort, setSortState] = useState<CardSort>(() => {
+    try { return window.localStorage.getItem(SORT_KEY) === 'progress' ? 'progress' : 'name'; } catch { return 'name'; }
+  });
+  const setSort = (m: CardSort) => {
+    setSortState(m);
+    try { window.localStorage.setItem(SORT_KEY, m); } catch { /* 저장 못 해도 이번 화면에는 적용된다 */ }
+  };
   const [openId, setOpenId] = useState<string | null>(null);
   // 주가 바뀌면(‹ › 또는 사이드바 링크) 렌더 중에 바로 '불러오는 중'으로 되돌리고 연 패널을 닫는다 — 다른 주의 캠페인이라.
   // effect에서 하면 옛 주 데이터가 새 주 머리글 아래 한 번 그려진다(React 'props가 바뀔 때 state 조정' 관례)
@@ -84,6 +93,7 @@ function OverviewView() {
   const wk = resolveWeek(week, kstToday());
   const weekLabel = weekLabelOf(wk.weekStart);
   const openCard = ready ? data.cards.find((c) => c.campaignId === openId) ?? null : null;
+  const cards = useMemo(() => (data ? sortCards(data.cards, sort) : []), [data, sort]);
   return (<>
     {/* @container — 카드 3열·2열과 수량 칸 4칸은 창이 아니라 본문 폭으로 정한다(사이드바 유무와 무관, 시안 .main) */}
     <main className="@container min-w-0 px-4 pb-7 pt-5 text-[15px] leading-[1.45] min-[901px]:px-7 min-[901px]:pb-9 min-[901px]:pt-7">
@@ -119,6 +129,15 @@ function OverviewView() {
             <h2 className="mb-1 text-[17px] font-bold">주차 캠페인</h2>
             <div className="text-[13px] text-x-muted">계획 수량은 캠페인에 등록된 작업 수예요 (진행 안 됨 처리한 작업은 빼요). 조회수는 게시 후 14일까지 계속 늘어요.</div>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex overflow-hidden rounded-full border border-x-border-strong" role="group" aria-label="카드 순서">
+            {(['name', 'progress'] as const).map((m) => (
+              <button key={m} type="button" aria-pressed={sort === m} onClick={() => setSort(m)}
+                      className={`cursor-pointer px-[14px] py-[6px] text-[13px] ${sort === m ? 'bg-x-text text-white' : 'bg-white text-x-secondary'}`}>
+                {CARD_SORT_LABEL[m]}
+              </button>
+            ))}
+          </div>
           {/* 지표 전환은 모든 카드와 패널에 함께 걸린다 */}
           <div className="inline-flex overflow-hidden rounded-full border border-x-border-strong" role="group" aria-label="흐름 차트 지표">
             {(['views', 'bookmarks'] as const).map((m) => (
@@ -128,13 +147,14 @@ function OverviewView() {
               </button>
             ))}
           </div>
+          </div>
         </div>
 
         {data.cards.length === 0 ? (
           <div className="rounded-xl border border-x-border py-12 text-center text-ui text-x-secondary">이 주에 시작한 주차 캠페인이 없어요.</div>
         ) : (
           <div className="grid grid-cols-1 items-start gap-4 @min-[560px]:grid-cols-2 @min-[880px]:grid-cols-3">
-            {data.cards.map((c) => (
+            {cards.map((c) => (
               <CampaignCard key={c.campaignId} card={c} metric={metric} open={openId === c.campaignId} onOpen={() => setOpenId(c.campaignId)} />
             ))}
           </div>

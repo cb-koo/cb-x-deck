@@ -128,11 +128,11 @@ X 캠페인은 캠페인 하나를 열어야 상태를 알 수 있다. 한 주�
 | 이번 주 게시 | 게시일이 보고 있는 주에 속한 작업 수 |
 | 조회수, 저장수, CPV | 그 캠페인의 게시된 작업 전체 누적(이번 주 것만이 아니다) |
 
-단계는 기존 `visitStep`을 묶는다 [판단]: 대기 → 예약 대기, 확정 → 예약 확정, 방문·전달 → 방문 완료, 게시·정산·완료 → 게시. 방문협찬이 아닌 작업이 장기 캠페인에 있으면 게시 전은 "예약 대기"가 아니라 "준비"로 따로 센다.
+단계는 기존 방문 단계(`visitPhase`)를 묶는다 [판단]: 예약 없음·대기 → 예약 대기, 확정 → 예약 확정, 방문 → 방문 완료, 업로드·정산·완료 → 게시. 방문협찬이 아닌 작업이 장기 캠페인에 있으면 게시 전은 "예약 대기"가 아니라 "준비"로 따로 센다.
 
 이 구역은 차트와 패널이 없다. 줄을 누르면 캠페인 화면으로 간다 [판단: 이번 범위에서는 단순하게].
 
-장기 캠페인이 하나도 없으면 구역 전체를 숨긴다. 노쇼, 취소된 예약의 작업(`visitStep`이 null)은 단계 수에 넣지 않는다.
+장기 캠페인이 하나도 없으면 구역 전체를 숨긴다. 노쇼, 취소된 예약의 작업은 단계 수에 넣지 않는다.
 
 지난 주를 볼 때도 이 구역의 대상과 단계는 지금 기준 그대로이고, "이번 주 게시" 열만 보고 있는 주의 값으로 바뀐다(열 이름은 "이 주 게시") [판단: 과거 시점의 단계는 되살릴 수 없다].
 
@@ -152,14 +152,14 @@ X 캠페인은 캠페인 하나를 열어야 상태를 알 수 있다. 한 주�
 **읽기 전용이다. 마이그레이션 없음, 외부 API 호출 없음**(이미 저장된 측정값만 읽는다. 그래서 비용 유발 버튼도 없다).
 
 - `src/lib/campaignOverview.ts`: 순수 계산. 캠페인, 작업, 측정값을 받아 화면이 그릴 값(네 칸, 카드, 패널, 장기 줄)을 만든다. 컴포넌트는 그리기만 한다(기존 `campaignFlowView.ts` 방식). 단위 테스트 대상.
-- `src/lib/campaignOverviewStore.ts`: 한 주에 필요한 캠페인, 작업, 게시물별 날짜별 측정값을 읽는 쿼리. 캠페인마다 따로 묻지 않고 한 번에 가져온다.
+- `src/lib/campaignOverviewStore.ts`: 한 주에 필요한 재료를 읽는다. 작업과 성과는 캠페인 상세와 같은 함수(`getCampaignDetail`)를 캠페인마다 불러(동시에 3개까지) 숫자가 어긋날 길을 없애고, 흐름 차트용 날짜별 측정값만 새 쿼리 하나로 읽는다 [판단: 캠페인 10~15개 규모에서는 정확성이 먼저다. 느리면 그때 묶는다].
 - `GET /api/campaigns/overview?week=YYYY-MM-DD`: 위 둘을 묶어 내려준다. 인증은 기존 API와 같은 방식.
 - `src/app/campaigns/overview/`: 페이지와 컴포넌트(수량 칸, 카드, 패널, 장기 표).
 - 차트는 `src/components/charts/`의 기존 부품과 토큰(`tokens.ts`)을 쓴다. 맞는 부품이 없으면 같은 토큰으로 그 폴더에 추가한다. 새 라이브러리는 들이지 않는다.
 - 사이드바(`src/components/Sidebar.tsx`) "캠페인 운영" 묶음 맨 위에 "캠페인 현황" 추가.
-- `visitStep`은 예약 상태가 필요하다. 예약, 정산 입력을 한 번에 읽는 기존 조립(`extensionTasks.ts`)을 참고한다. 정산은 화면에 보여주지 않는다.
+- 방문 단계는 기존 `loadTaskFacts`(`extensionReadStore.ts`)와 `classifyTask`(`extensionTasks.ts`)로 구한다. 정산은 화면에 보여주지 않는다.
 - 캠페인으로 가는 링크는 `/campaigns/flow?id={캠페인 id}`.
-- 기존 판정 함수를 다시 만들지 않고 쓴다: `isLongCampaign`, `staysInLongSection`, `weekKey`, `weekName`, `isTaskExcluded`, `isTaskOverdue`, `visitStep`, `toKrw`.
+- 기존 판정 함수를 다시 만들지 않고 쓴다: `isLongCampaign`, `staysInLongSection`, `weekKey`, `weekName`, `isTaskExcluded`, `isTaskOverdue`, `flowStats`, `visitPhase`, `toKrw`.
 
 **나중을 위한 자리 (지금은 만들지 않는다)** [koo: 준비는 필요]
 

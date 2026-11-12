@@ -1,5 +1,5 @@
 // 캠페인 목록(v2 왼쪽) 순수 규칙 — 스펙 2026-10-08-campaign-list-redesign §3. 화면·서버 공용(의존 없음).
-import { addDays, daysBetweenDates, suggestCampaignName, weekStartOf } from './campaignJudgment.ts';
+import { addDays, daysBetweenDates, monthWeekOf, suggestCampaignName, weekStartOf } from './campaignJudgment.ts';
 import type { CampaignProgress } from './campaignStore.ts';
 
 export type CampaignDot = 'grey' | 'green' | 'yellow' | 'red';
@@ -81,6 +81,11 @@ export function campaignRowLabel(
 export const weekKey = (date: string): string => weekStartOf(date);
 // 캠페인 이름 규칙과 같은 목요일 판정(suggestCampaignName) — 클라이언트 없이 호출하면 'M월N주차'만 나온다.
 export const weekName = (date: string): string => suggestCampaignName('', date);
+// 화면 머리글용 띄어 쓴 표기 '11월 2주차' — 판정은 weekName과 같고 띄어쓰기만 다르다(캠페인 이름은 붙여 쓴다)
+export function weekLabel(date: string): string {
+  const { month, week } = monthWeekOf(date);
+  return `${month}월 ${week}주차`;
+}
 
 export interface WeekGroup<T> { key: string; label: string; tone: 'current' | 'upcoming' | 'past'; rows: T[] }
 export interface CampaignSections<T> { long: T[]; upcoming: WeekGroup<T>[]; past: WeekGroup<T>[] }

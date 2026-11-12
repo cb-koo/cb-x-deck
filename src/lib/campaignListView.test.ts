@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   campaignDot, isClosed, isEndedLongPending, isLongCampaign, staysInLongSection, campaignRowLabel, campaignSections, campaignsByClient,
-  matchesCampaignQuery, matchedHandle, splitClientRows, weekKey, weekName,
+  matchesCampaignQuery, matchedHandle, splitClientRows, weekKey, weekName, weekLabel,
 } from './campaignListView.ts';
 
 const TODAY = '2026-10-08'; // 목요일 — 10월 2주차(10/5~10/11)
@@ -17,6 +17,13 @@ test('weekKey·weekName: 월요일 키, 목요일 판정 주차 이름', () => {
   assert.equal(weekName('2026-09-28'), '10월1주차'); // 월 9/28 → 목 10/1
   assert.equal(weekName('2026-10-04'), '10월1주차');
   assert.equal(weekName('2026-09-21'), '9월4주차');
+});
+
+test('weekLabel: weekName과 같은 주차를 띄어 써서', () => {
+  assert.equal(weekLabel('2026-11-09'), '11월 2주차');
+  assert.equal(weekLabel('2026-09-28'), '10월 1주차'); // 월 경계도 목요일 판정 그대로
+  assert.equal(weekLabel('2026-11-30'), '12월 1주차');
+  for (const d of ['2026-10-08', '2026-09-21', '2026-11-30']) assert.equal(weekLabel(d).replace(' ', ''), weekName(d));
 });
 
 test('isLongCampaign: 기간 7일 초과만 장기', () => {

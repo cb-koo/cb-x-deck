@@ -3,7 +3,8 @@ import { weekStartOf, addDays, isDateOnlyString, isTaskExcluded, isTaskOverdue, 
 import type { CampaignTaskItem, CampaignRow } from './campaignStore.ts';
 import { isLongCampaign, staysInLongSection, weekKey, weekName } from './campaignListView.ts';
 import type { VisitPhase } from './reservationPolicy.ts';
-import { flowStats } from './campaignFlowView.ts';
+import { flowStats, taskPerfExtra } from './campaignFlowView.ts';
+import { sameVisitGroups } from './sameVisit.ts';
 import { toKrw } from './clientBudget.ts';
 
 export interface OverviewWeek { weekStart: string; weekEnd: string; isCurrent: boolean }
@@ -196,16 +197,13 @@ function postedRows(tasks: CampaignTaskItem[]): PostedRow[] {
     }
     return byCreated(a, b);
   });
-  return rows.map((t) => {
-    const views = t.perf?.views ?? null;
-    // 작업 하나의 CPV — 비용·조회가 다 있을 때만(0원·미입력은 값 없음)
-    const krw = t.cost && t.cost.amount > 0 ? toKrw({ [t.cost.currency]: t.cost.amount }).krw : 0;
-    return {
-      taskId: t.id, handle: t.influencerHandle, typeLabel: typeLabelOf(t), postedOn: t.postedAt!, url: t.postUrl,
-      views, bookmarks: t.perf?.bookmarks ?? null, likes: t.perf?.likes ?? null,
-      cpvKrw: krw > 0 && views ? krw / views : null,
-    };
-  });
+  // 같은 방문의 게시물은 원래 작업 비용을 나눠 쓴다 — 캠페인 화면 작업 표(FlowTable)와 같은 CPV가 나오게 같은 재료·같은 함수
+  const sameVisit = sameVisitGroups(tasks);
+  return rows.map((t) => ({
+    taskId: t.id, handle: t.influencerHandle, typeLabel: typeLabelOf(t), postedOn: t.postedAt!, url: t.postUrl,
+    views: t.perf?.views ?? null, bookmarks: t.perf?.bookmarks ?? null, likes: t.perf?.likes ?? null,
+    cpvKrw: taskPerfExtra(t, sameVisit.get(t.id)?.share ?? null).cpvKrw,
+  }));
 }
 
 // 예정일 오름차순이면 지난 것(오늘 전)이 자연히 먼저 온다. 미정은 맨 뒤.

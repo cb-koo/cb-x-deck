@@ -118,10 +118,13 @@ export interface CostRowInput { influencerHandle: string; extraCosts: ExtraCost[
 // 시작일(또는 그 주의 월요일) 자체를 기준으로 삼으면, 다음 주 월요일이 그 달 29~31일에
 // 떨어지는 달이 잦아 달력일 기준이 실무에서 부르는 주차 표기와 어긋난다 — 그 주의 '무게 중심'인
 // 목요일을 쓰면 어느 요일에 시작해도 같은 주는 항상 같은 라벨을 받는다.
+// 목요일이 속한 달의 몇째 주 — 캠페인 이름과 화면의 주 표기(weekLabel)가 같은 판정을 쓰게 하나로 둔다
+export function monthWeekOf(date: string): { month: number; week: number } {
+  const thursday = addDays(weekStartOf(date), 3);
+  return { month: Number(thursday.slice(5, 7)), week: Math.floor((Number(thursday.slice(8, 10)) - 1) / 7) + 1 };
+}
 export function suggestCampaignName(clientName: string, startsOn: string): string {
-  const thursday = addDays(weekStartOf(startsOn), 3);
-  const month = Number(thursday.slice(5, 7));
-  const week = Math.floor((Number(thursday.slice(8, 10)) - 1) / 7) + 1;
+  const { month, week } = monthWeekOf(startsOn);
   const base = `${month}월${week}주차`;
   const name = clientName.trim();
   return name ? `${name}_${base}` : base;

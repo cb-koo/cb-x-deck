@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveWeek, plannedCount, quantityOf, cardStatus, CARD_STATUS_LABEL, type Quantity } from './campaignOverview.ts';
+import { resolveWeek, plannedCount, quantityOf, cardStatus, CARD_STATUS_LABEL, type Quantity, perfOf, formatCpv, chartDays, flowChart, type DayPoint } from './campaignOverview.ts';
 import type { CampaignTaskItem } from './campaignStore.ts';
 
 let n = 0;
@@ -54,4 +54,65 @@ test('cardStatus 네 가지와 문구', () => {
   assert.equal(CARD_STATUS_LABEL('done', 0), '✓ 계획 완료');
   assert.equal(CARD_STATUS_LABEL('unset', 0), '세팅 전');
   assert.equal(CARD_STATUS_LABEL('onTrack', 0), '예정대로');
+});
+
+test('perfOf: 엔화 비용은 원으로 환산, 측정값 없으면 none, 전부 비용 없음이면 free', () => {
+  const a = perfOf([
+    task({ postedAt: '2026-11-10', cost: { amount: 10000, currency: 'JPY' }, perf: { postCount: 1, views: 100000, likes: 10, bookmarks: 300 } }),
+    task({ postedAt: '2026-11-11', cost: { amount: 50000, currency: 'KRW' }, perf: { postCount: 1, views: 50000, likes: 5, bookmarks: 100 } }),
+  ]);
+  assert.equal(a.views.value, 150000); assert.equal(a.bookmarks.value, 400);
+  assert.deepEqual(a.cpv, { kind: 'value', krw: 1 });           // (100,000원 + 50,000원) ÷ 150,000
+  assert.equal(formatCpv(a.cpv), '1.0원');
+  const noSnap = perfOf([task({ postedAt: '2026-11-12', cost: { amount: 50000, currency: 'KRW' }, perf: null })]);
+  assert.equal(noSnap.views.value, null); assert.equal(formatCpv(noSnap.cpv), '-');
+  const free = perfOf([task({ postedAt: '2026-11-10', noCost: true, cost: null, perf: { postCount: 1, views: 9000, likes: 1, bookmarks: 20 } })]);
+  assert.equal(formatCpv(free.cpv), '무상');
+});
+test('perfOf: 비용 0원이 섞이지 않은 무비용·게시 없음은 none, 0원 비용만이면 free', () => {
+  // 조회는 있는데 비용 미입력(null) — flowStats는 cpvKrw 0을 주지만 '무상'이 아니다
+  const unknown = perfOf([task({ postedAt: '2026-11-10', cost: null, perf: { postCount: 1, views: 9000, likes: 1, bookmarks: 20 } })]);
+  assert.deepEqual(unknown.cpv, { kind: 'none' });
+  assert.equal(unknown.spentKrw, 0);
+  const zero = perfOf([task({ postedAt: '2026-11-10', cost: { amount: 0, currency: 'KRW' }, perf: { postCount: 1, views: 9000, likes: 1, bookmarks: 20 } })]);
+  assert.deepEqual(zero.cpv, { kind: 'free' });
+  assert.deepEqual(perfOf([task({ noCost: true })]).cpv, { kind: 'none' });   // 게시 전
+  assert.equal(formatCpv({ kind: 'value', krw: 12.46 }), '12.5원');
+  assert.equal(perfOf([]).views.judgment, null);
+});
+test('chartDays: 이번 주는 7칸에 오늘까지, 지난 주는 일요일+14일 또는 오늘까지', () => {
+  assert.deepEqual(chartDays('2026-11-09', '2026-11-12'), { days: ['2026-11-09','2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-14','2026-11-15'], todayIndex: 3 });
+  const past = chartDays('2026-11-02', '2026-11-12');
+  assert.equal(past.days.at(-1), '2026-11-12'); assert.equal(past.todayIndex, past.days.length - 1);
+  assert.equal(chartDays('2026-10-05', '2026-11-12').days.at(-1), '2026-10-25');
+});
+test('flowChart: 측정 없는 날은 앞 값을 잇고, 측정 전은 0, 오늘 뒤는 null, 마지막 점은 최신값', () => {
+  const tasks = [
+    task({ id: 'a', postedAt: '2026-11-09', perf: { postCount: 1, views: 5200, likes: 0, bookmarks: 52 } }),
+    task({ id: 'b', postedAt: '2026-11-11', perf: { postCount: 1, views: 800, likes: 0, bookmarks: 8 } }),
+    task({ id: 'c', cancelledAt: '2026-11-09', postedAt: '2026-11-09', perf: { postCount: 1, views: 99999, likes: 0, bookmarks: 0 } }),
+  ];
+  const pts: DayPoint[] = [
+    { taskId: 'a', day: '2026-11-09', views: 1000, bookmarks: 10 },
+    { taskId: 'a', day: '2026-11-11', views: 4000, bookmarks: 40 },   // 11/10은 측정 없음
+    { taskId: 'b', day: '2026-11-11', views: 500, bookmarks: 5 },
+    { taskId: 'c', day: '2026-11-09', views: 99999, bookmarks: 0 },   // 취소 — 제외
+  ];
+  const c = flowChart(tasks, pts, '2026-11-09', '2026-11-12')!;
+  assert.deepEqual(c.views, [1000, 1000, 4500, 6000, null, null, null]);
+  assert.deepEqual(c.postedPerDay, [1, 0, 1, 0, 0, 0, 0]);
+  assert.equal(flowChart([task({ postedAt: '2026-11-12', perf: null })], [], '2026-11-09', '2026-11-12'), null);
+});
+test('flowChart: null 점은 건너뛰고 앞 값, 오늘 칸의 null 최신값은 이어온 값', () => {
+  const tasks = [task({ id: 'x', postedAt: '2026-11-09', perf: { postCount: 1, views: null, likes: 0, bookmarks: 30 } })];
+  const pts: DayPoint[] = [
+    { taskId: 'x', day: '2026-11-09', views: 100, bookmarks: 10 },
+    { taskId: 'x', day: '2026-11-10', views: null, bookmarks: 20 },
+  ];
+  const c = flowChart(tasks, pts, '2026-11-09', '2026-11-11')!;
+  assert.deepEqual(c.views, [100, 100, 100, null, null, null, null]);
+  assert.deepEqual(c.bookmarks, [10, 20, 30, null, null, null, null]);
+  // 점은 없어도 최신값이 있으면 차트를 그린다
+  const only = flowChart(tasks, [], '2026-11-09', '2026-11-11')!;
+  assert.deepEqual(only.bookmarks, [0, 0, 30, null, null, null, null]);
 });

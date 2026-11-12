@@ -1,6 +1,8 @@
 // 캠페인 현황(전체 캠페인 모니터링) 화면의 순수 계산 — DB·화면 없이 테스트한다.
 import { weekStartOf, addDays, isDateOnlyString, isTaskExcluded, isTaskOverdue } from './campaignJudgment.ts';
 import type { CampaignTaskItem } from './campaignStore.ts';
+import { flowStats } from './campaignFlowView.ts';
+import { toKrw } from './clientBudget.ts';
 
 export interface OverviewWeek { weekStart: string; weekEnd: string; isCurrent: boolean }
 
@@ -52,3 +54,94 @@ export const CARD_STATUS_LABEL = (s: CardStatus, overdue: number): string => {
     case 'onTrack': return '예정대로';
   }
 };
+
+// 나중에 판정을 얹을 자리(스펙 §6) — 지금은 항상 null
+export interface Metric { value: number | null; judgment: null }
+export type CpvView = { kind: 'value'; krw: number } | { kind: 'free' } | { kind: 'none' };
+export interface Perf { views: Metric; bookmarks: Metric; cpv: CpvView; spentKrw: number }
+
+const isLivePosted = (t: CampaignTaskItem) => !isTaskExcluded(t) && t.postedAt !== null;
+
+// 숫자는 flowStats 그대로 — 캠페인 상세와 같은 숫자가 나와야 한다
+export function perfOf(tasks: CampaignTaskItem[]): Perf {
+  const s = flowStats(tasks);
+  const spentKrw = toKrw(s.spent).krw;
+  const views = s.perf.views;
+  let cpv: CpvView = { kind: 'none' };
+  if (spentKrw > 0) {
+    if (views) cpv = { kind: 'value', krw: spentKrw / views };
+  } else {
+    // flowStats는 비용 0원에도 cpvKrw 0을 준다 — 비용 미입력과 무상을 가르려면 작업을 직접 본다
+    const posted = tasks.filter(isLivePosted);
+    if (posted.length > 0 && posted.every((t) => t.noCost || t.cost?.amount === 0)) cpv = { kind: 'free' };
+  }
+  return { views: { value: views, judgment: null }, bookmarks: { value: s.perf.bookmarks, judgment: null }, cpv, spentKrw };
+}
+
+// 소수 한 자리는 캠페인 상세(FlowCards·FlowTable)의 CPV 표기와 맞춘다
+export function formatCpv(c: CpvView): string {
+  if (c.kind === 'value') return `${c.krw.toFixed(1)}원`;
+  return c.kind === 'free' ? '무상' : '-';
+}
+
+// 스토어가 주는 재료: 본 게시물의 한국 날짜별 마지막 실측값
+export interface DayPoint { taskId: string; day: string; views: number | null; bookmarks: number | null }
+export interface FlowChart {
+  days: string[];              // 'YYYY-MM-DD' 가로 칸 전부
+  todayIndex: number;          // 선이 끝나는 칸(이번 주 = 오늘, 지난 주 = 마지막 칸)
+  views: Array<number | null>; // todayIndex 뒤는 null
+  bookmarks: Array<number | null>;
+  postedPerDay: number[];      // 그날 게시된 작업 수(postedAt 기준)
+}
+
+// 이번 주는 7칸을 다 그리고 오늘에서 선을 멈춘다. 지난 주는 게시 뒤 2주까지 조회가 붙으니 일요일+14일(또는 오늘)까지.
+export function chartDays(weekStart: string, today: string): { days: string[]; todayIndex: number } {
+  const weekEnd = addDays(weekStart, 6);
+  if (weekStart <= today && today <= weekEnd) {
+    const days: string[] = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+    return { days, todayIndex: days.indexOf(today) };
+  }
+  const last = addDays(weekEnd, 14) < today ? addDays(weekEnd, 14) : today;
+  const days: string[] = [];
+  for (let d = weekStart; d <= last; d = addDays(d, 1)) days.push(d);
+  return { days, todayIndex: days.length - 1 };
+}
+
+type Key = 'views' | 'bookmarks';
+
+// 날짜별 누적 = 게시물마다 그날까지의 마지막 실측값(null은 건너뜀, 측정 전은 0)의 합.
+// 오늘 칸은 task.perf 최신값으로 덮어 카드 숫자와 선 끝이 같게 한다.
+export function flowChart(tasks: CampaignTaskItem[], points: DayPoint[], weekStart: string, today: string): FlowChart | null {
+  const posted = tasks.filter(isLivePosted);
+  const ids = new Set(posted.map((t) => t.id));
+  const pts = points.filter((p) => ids.has(p.taskId)).sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+  const hasLatest = posted.some((t) => t.perf?.views != null || t.perf?.bookmarks != null);
+  if (pts.length === 0 && !hasLatest) return null;
+
+  const { days, todayIndex } = chartDays(weekStart, today);
+  // 게시물별로 그날까지 이어온 값
+  const carry = (key: Key, day: string): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const p of pts) {
+      if (p.day > day) break;
+      const v = p[key];
+      if (v !== null) m.set(p.taskId, v);
+    }
+    return m;
+  };
+  const series = (key: Key): Array<number | null> => days.map((day, i) => {
+    if (i > todayIndex) return null;
+    const m = carry(key, day);
+    if (i === todayIndex) {
+      // 최신값이 null이면 이어온 값 → 없으면 0
+      return posted.reduce((sum, t) => sum + (t.perf?.[key] ?? m.get(t.id) ?? 0), 0);
+    }
+    let sum = 0;
+    for (const v of m.values()) sum += v;
+    return sum;
+  });
+
+  // postedAt이 시각까지 오더라도 날짜 부분만 비교한다
+  const postedPerDay = days.map((day) => posted.filter((t) => t.postedAt!.slice(0, 10) === day).length);
+  return { days, todayIndex, views: series('views'), bookmarks: series('bookmarks'), postedPerDay };
+}

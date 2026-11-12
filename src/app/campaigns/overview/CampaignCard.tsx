@@ -1,7 +1,7 @@
 // 캠페인 현황 — 주차 캠페인 카드 한 장(스펙 §4-3, 시안 card()).
 // 머리 / 진행 / 성과 / 흐름 / 더 보기, 다섯 층을 가로선과 바탕으로 가른다(koo: 정보 구분이 잘 되게).
 // 숫자는 전부 card.perf·card.quantity 그대로 — 여기서 다시 계산하면 패널·캠페인 상세와 어긋난다.
-import { formatCpv, type OverviewCard, type CardStatus } from '@/lib/campaignOverview';
+import { formatCpv, type OverviewCard, type CardStatus, type FlowChart } from '@/lib/campaignOverview';
 import { CumulativeArea } from '@/components/charts/CumulativeArea';
 import { compact, NUM } from '@/components/charts/tokens';
 import { ProgressBar } from './OverviewTiles';
@@ -19,6 +19,13 @@ const CHIP: Record<CardStatus, string> = {
 
 const ZONE = 'border-t border-x-border px-[18px] py-[14px]';
 const ZONE_LABEL = 'mb-2 text-[12px] font-semibold text-x-muted';
+
+// 지금 지표의 차트 — 카드에 그 지표 숫자가 없으면('-') 선도 그리지 않는다(저장수만 '-'인데 0 선이 깔리는 모순 방지).
+// 카드와 패널이 같은 판정을 쓰게 여기 하나로 둔다
+export function metricChart(card: OverviewCard, metric: OverviewMetric): { chart: FlowChart; series: Array<number | null> } | null {
+  if (card.chart === null || card.perf[metric].value === null) return null;
+  return { chart: card.chart, series: card.chart[metric] };
+}
 
 // 가로 글자: 이번 주(7칸)는 요일 한 글자, 지난 주(게시 뒤 2주까지 늘어남)는 M/D
 export function chartLabels(days: string[]): string[] {
@@ -49,7 +56,7 @@ export function CampaignCard({ card, metric, open, onOpen }: { card: OverviewCar
   }
   const q = card.quantity, p = card.perf;
   const views = p.views.value, bookmarks = p.bookmarks.value;
-  const series = card.chart ? card.chart[metric] : null;
+  const mc = metricChart(card, metric);
   return (
     <div className={`flex flex-col overflow-hidden rounded-[14px] border bg-white ${open ? 'border-x-blue shadow-[0_0_0_1px_#1d9bf0]' : 'border-x-border-strong'}`}>
       <Head card={card} />
@@ -87,11 +94,11 @@ export function CampaignCard({ card, metric, open, onOpen }: { card: OverviewCar
 
       <div className="border-t border-x-border bg-x-surface px-[18px] pb-2 pt-[14px]">
         <div className={ZONE_LABEL}>날짜별 누적 {METRIC_LABEL[metric]}</div>
-        {card.chart && series ? (
-          <CumulativeArea labels={chartLabels(card.chart.days)} values={series} todayIndex={card.chart.todayIndex}
+        {mc ? (
+          <CumulativeArea labels={chartLabels(mc.chart.days)} values={mc.series} todayIndex={mc.chart.todayIndex}
                           height={136} ariaLabel={`날짜별 누적 ${METRIC_LABEL[metric]}`} />
         ) : (
-          // 게시물이 없거나 아직 잰 값이 없으면 선 대신 안내(R5: chart === null)
+          // 게시물이 없거나 이 지표를 아직 잰 값이 없으면 선 대신 안내(R5 + 지표별)
           <p className="m-0 pb-[6px] text-[13px] text-x-muted">게시되면 여기에 성과 흐름이 나와요.</p>
         )}
       </div>

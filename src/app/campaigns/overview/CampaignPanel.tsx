@@ -7,7 +7,7 @@ import { formatCpv, type OverviewCard, type PostedRow, type OpenRow } from '@/li
 import { formatDateKo } from '@/lib/campaignJudgment';
 import { CumulativeArea } from '@/components/charts/CumulativeArea';
 import { compact, NUM } from '@/components/charts/tokens';
-import { chartLabels, METRIC_LABEL, type OverviewMetric } from './CampaignCard';
+import { chartLabels, metricChart, METRIC_LABEL, type OverviewMetric } from './CampaignCard';
 
 // 시안 .ph / .phs / .drawer th / .drawer td
 const PH = 'mb-[2px] mt-6 text-[15px] font-bold';
@@ -87,8 +87,23 @@ export function CampaignPanel({ card, weekLabel, metric, onClose }: { card: Over
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const q = card.quantity, p = card.perf, chart = card.chart;
-  const series = chart ? chart[metric] : null;
+  // 패널이 열린 동안 뒤 화면이 같이 스크롤되지 않게 — 이 화면은 body가 아니라 GlobalShell의 overflow-y-auto 칸이
+  // 스크롤되므로, 패널 위쪽의 스크롤 칸을 전부 찾아 잠그고 닫을 때 원래 값으로 돌린다
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const locked: Array<[HTMLElement, string]> = [];
+    for (let el = dialogRef.current?.parentElement ?? null; el; el = el.parentElement) {
+      const oy = getComputedStyle(el).overflowY;
+      if (el === document.body || oy === 'auto' || oy === 'scroll') {
+        locked.push([el, el.style.overflowY]);
+        el.style.overflowY = 'hidden';
+      }
+    }
+    return () => { for (const [el, prev] of locked) el.style.overflowY = prev; };
+  }, []);
+
+  const q = card.quantity, p = card.perf;
+  const mc = metricChart(card, metric);
   const kpis = [
     { l: '조회수', v: p.views.value === null ? '-' : compact(p.views.value), d: null },
     { l: '저장수', v: p.bookmarks.value === null ? '-' : NUM.format(p.bookmarks.value), d: null },
@@ -99,7 +114,7 @@ export function CampaignPanel({ card, weekLabel, metric, onClose }: { card: Over
     <>
       {/* 바깥을 누르면 닫힌다(시안 .shade) */}
       <div className="fixed inset-0 z-40 bg-[rgba(15,20,25,.28)]" onClick={onClose} aria-hidden="true" />
-      <div role="dialog" aria-modal="true" aria-label={`${card.title} 게시물별 지표`}
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${card.title} 게시물별 지표`}
            className="fixed bottom-0 right-0 top-0 z-50 w-[min(600px,100%)] overflow-y-auto border-l border-x-border-strong bg-white px-[26px] py-6 text-[15px] leading-[1.45] text-x-text shadow-[-8px_0_24px_rgba(15,20,25,.12)]">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -121,12 +136,12 @@ export function CampaignPanel({ card, weekLabel, metric, onClose }: { card: Over
         </div>
 
         <div className={PH_FIRST}>날짜별 누적 {METRIC_LABEL[metric]}</div>
-        {chart && series ? (
-          <CumulativeArea labels={chartLabels(chart.days)} values={series} todayIndex={chart.todayIndex} height={220}
-                          marks={chart.postedPerDay.map((n) => (n > 0 ? `게시 ${n}건` : null))}
+        {mc ? (
+          <CumulativeArea labels={chartLabels(mc.chart.days)} values={mc.series} todayIndex={mc.chart.todayIndex} height={220}
+                          marks={mc.chart.postedPerDay.map((n) => (n > 0 ? `게시 ${n}건` : null))}
                           ariaLabel={`날짜별 누적 ${METRIC_LABEL[metric]}`} />
         ) : (
-          // 카드와 같은 빈 상태(R5: chart === null)
+          // 카드와 같은 빈 상태(metricChart — 차트가 없거나 이 지표 숫자가 '-')
           <div className={PHS}>게시되면 여기에 성과 흐름이 나와요.</div>
         )}
 

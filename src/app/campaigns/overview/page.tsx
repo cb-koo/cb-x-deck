@@ -7,7 +7,7 @@ import { Button } from '@/components/ui';
 import { addDays, formatDateKo } from '@/lib/campaignJudgment';
 import { kstDateTime, kstToday } from '@/lib/datetime';
 import { resolveWeek, type Overview } from '@/lib/campaignOverview';
-import { weekName } from '@/lib/campaignListView';
+import { weekLabel as weekLabelOf } from '@/lib/campaignListView';
 import { OverviewTiles } from './OverviewTiles';
 import { CampaignCard, METRIC_LABEL, type OverviewMetric } from './CampaignCard';
 import { CampaignPanel } from './CampaignPanel';
@@ -33,14 +33,24 @@ const NAV_BTN = 'h-8 w-8 rounded-full border border-x-border-strong bg-white tex
 
 function OverviewView() {
   const sp = useSearchParams();
-  // 주소가 첫 상태 — 이후 이동은 history.replaceState(router.replace는 서버 왕복으로 클릭이 멈춘다, 09-27 캠페인 목록 사례)
-  // 보고 있는 주(월요일)는 화면이 직접 정한다 — 머리글의 주 이동이 불러오는 중·실패에도 사라지지 않게(서버와 같은 resolveWeek 규칙)
-  const [week, setWeek] = useState<string>(() => resolveWeek(sp.get('week'), kstToday()).weekStart);
+  // 보고 있는 주는 언제나 주소에서 읽는다 — 상태로 따로 들면 사이드바 '캠페인 현황'(같은 화면으로 가는 Link)을 눌러
+  // 주소가 이번 주로 바뀌어도 화면은 지난 주에 머문다. 서버와 같은 resolveWeek 규칙이라 불러오는 중·실패에도 주 이동이 보인다.
+  // 이동은 history.replaceState(router.replace는 서버 왕복으로 클릭이 멈춘다, 09-27) — 이 Next는 그것을 useSearchParams에 반영한다
+  const week = resolveWeek(sp.get('week'), kstToday()).weekStart;
   const [data, setData] = useState<Overview | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
   const [metric, setMetric] = useState<OverviewMetric>('views');
   const [openId, setOpenId] = useState<string | null>(null);
+  // 주가 바뀌면(‹ › 또는 사이드바 링크) 렌더 중에 바로 '불러오는 중'으로 되돌리고 연 패널을 닫는다 — 다른 주의 캠페인이라.
+  // effect에서 하면 옛 주 데이터가 새 주 머리글 아래 한 번 그려진다(React 'props가 바뀔 때 state 조정' 관례)
+  const [shownWeek, setShownWeek] = useState(week);
+  if (shownWeek !== week) {
+    setShownWeek(week);
+    setLoaded(false);
+    setLoadErr(false);
+    setOpenId(null);
+  }
   // 주를 빨리 넘기면 늦게 온 옛 주 응답이 새 주를 덮지 않게 마지막 요청만 받는다
   const reqSeq = useRef(0);
 
@@ -64,21 +74,15 @@ function OverviewView() {
   useEffect(() => { void load(week); }, [load, week]);
   const retry = () => { setLoaded(false); setLoadErr(false); void load(week); };
 
-  // 주 이동 — 주소만 바꾸고(replaceState) 다시 불러온다. 연 패널은 다른 주의 캠페인이라 닫는다
-  const goWeek = (weekStart: string) => {
-    window.history.replaceState(null, '', `?week=${weekStart}`);
-    setLoaded(false);
-    setLoadErr(false);
-    setOpenId(null);
-    setWeek(weekStart);
-  };
+  // 주 이동 — 주소만 바꾼다. 초기화와 다시 불러오기는 주소에서 읽은 week가 바뀌면 위에서 일어난다
+  const goWeek = (weekStart: string) => window.history.replaceState(null, '', `?week=${weekStart}`);
 
   // 패널의 Esc 처리가 렌더마다 다시 걸리지 않게 고정
   const closePanel = useCallback(() => setOpenId(null), []);
 
   const ready = loaded && !loadErr && data !== null;
   const wk = resolveWeek(week, kstToday());
-  const weekLabel = weekName(wk.weekStart).replace(/월(?=\d)/, '월 ');
+  const weekLabel = weekLabelOf(wk.weekStart);
   const openCard = ready ? data.cards.find((c) => c.campaignId === openId) ?? null : null;
   return (<>
     {/* @container — 카드 3열·2열과 수량 칸 4칸은 창이 아니라 본문 폭으로 정한다(사이드바 유무와 무관, 시안 .main) */}

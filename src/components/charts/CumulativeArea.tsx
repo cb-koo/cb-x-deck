@@ -62,7 +62,9 @@ export function CumulativeArea({ labels, values, todayIndex, height = 136, marks
             </g>
           ))}
           {labels.map((l, i) => showLabel(i) && (
-            <text key={i} x={x(i)} y={top + h + 18} fontSize={T.axis} textAnchor="middle"
+            // 첫 글자를 가운데 정렬하면 왼쪽 여백(L)보다 긴 글자('10/26')는 앞이 잘린다 — 넘칠 만큼 길면 점에서 오른쪽으로 시작(koo 11-12).
+            // 12px 숫자·'/' ≈ 7px/자. 요일 한 글자는 여백 안이라 그대로 가운데
+            <text key={i} x={x(i)} y={top + h + 18} fontSize={T.axis} textAnchor={i === 0 && (l.length * 7) / 2 > L ? 'start' : 'middle'}
                   fill={i === todayIndex ? C.text : C.muted} fontWeight={i === todayIndex ? 700 : 400}>{l}</text>
           ))}
           <path d={mkArea(values) ?? ''} fill={C.primary} opacity={AREA_OPACITY} />

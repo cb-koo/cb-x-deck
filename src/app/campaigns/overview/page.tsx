@@ -5,8 +5,9 @@ import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/apiFetch';
 import { Button } from '@/components/ui';
 import { addDays, formatDateKo } from '@/lib/campaignJudgment';
-import { kstDateTime } from '@/lib/datetime';
-import type { Overview } from '@/lib/campaignOverview';
+import { kstDateTime, kstToday } from '@/lib/datetime';
+import { resolveWeek, type Overview } from '@/lib/campaignOverview';
+import { weekName } from '@/lib/campaignListView';
 import { OverviewTiles } from './OverviewTiles';
 import { CampaignCard, METRIC_LABEL, type OverviewMetric } from './CampaignCard';
 
@@ -31,7 +32,8 @@ const NAV_BTN = 'h-8 w-8 rounded-full border border-x-border-strong bg-white tex
 function OverviewView() {
   const sp = useSearchParams();
   // 주소가 첫 상태 — 이후 이동은 history.replaceState(router.replace는 서버 왕복으로 클릭이 멈춘다, 09-27 캠페인 목록 사례)
-  const [week, setWeek] = useState<string | null>(() => sp.get('week'));
+  // 보고 있는 주(월요일)는 화면이 직접 정한다 — 머리글의 주 이동이 불러오는 중·실패에도 사라지지 않게(서버와 같은 resolveWeek 규칙)
+  const [week, setWeek] = useState<string>(() => resolveWeek(sp.get('week'), kstToday()).weekStart);
   const [data, setData] = useState<Overview | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState(false);
@@ -40,10 +42,10 @@ function OverviewView() {
   // 주를 빨리 넘기면 늦게 온 옛 주 응답이 새 주를 덮지 않게 마지막 요청만 받는다
   const reqSeq = useRef(0);
 
-  const load = useCallback(async (w: string | null) => {
+  const load = useCallback(async (w: string) => {
     const seq = ++reqSeq.current;
     try {
-      const r = await apiFetch(`/api/campaigns/overview${w ? `?week=${encodeURIComponent(w)}` : ''}`);
+      const r = await apiFetch(`/api/campaigns/overview?week=${encodeURIComponent(w)}`);
       if (!r.ok) throw new Error(String(r.status));
       const body = (await r.json()) as Overview;
       if (seq !== reqSeq.current) return;
@@ -70,6 +72,7 @@ function OverviewView() {
   };
 
   const ready = loaded && !loadErr && data !== null;
+  const wk = resolveWeek(week, kstToday());
   return (
     // @container — 카드 3열·2열과 수량 칸 4칸은 창이 아니라 본문 폭으로 정한다(사이드바 유무와 무관, 시안 .main)
     <main className="@container min-w-0 px-4 pb-7 pt-5 text-[15px] leading-[1.45] min-[901px]:px-7 min-[901px]:pb-9 min-[901px]:pt-7">
@@ -80,16 +83,14 @@ function OverviewView() {
             <div className="mt-1 text-[13px] text-x-muted">성과 최종 업데이트 {updatedLabel(data.perfUpdatedAt)}</div>
           )}
         </div>
-        {ready && (
-          <div className="flex items-center gap-2">
-            <button type="button" className={NAV_BTN} aria-label="지난 주" onClick={() => goWeek(addDays(data.week.weekStart, -7))}>‹</button>
-            <b>{data.weekName.replace(/월(?=\d)/, '월 ')}</b>
-            <span className="text-x-secondary">{dayWithDow(data.week.weekStart)} ~ {dayWithDow(data.week.weekEnd)}</span>
-            {/* 아직 오지 않은 주는 볼 게 없다 — 이번 주에서 멈춘다 */}
-            <button type="button" className={NAV_BTN} aria-label="다음 주" disabled={data.week.isCurrent}
-                    onClick={() => goWeek(addDays(data.week.weekStart, 7))}>›</button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <button type="button" className={NAV_BTN} aria-label="지난 주" onClick={() => goWeek(addDays(wk.weekStart, -7))}>‹</button>
+          <b>{weekName(wk.weekStart).replace(/월(?=\d)/, '월 ')}</b>
+          <span className="text-x-secondary">{dayWithDow(wk.weekStart)} ~ {dayWithDow(wk.weekEnd)}</span>
+          {/* 아직 오지 않은 주는 볼 게 없다 — 이번 주에서 멈춘다 */}
+          <button type="button" className={NAV_BTN} aria-label="다음 주" disabled={wk.isCurrent}
+                  onClick={() => goWeek(addDays(wk.weekStart, 7))}>›</button>
+        </div>
       </div>
 
       {!loaded && <p className="py-8 text-center text-ui text-x-muted">불러오는 중…</p>}

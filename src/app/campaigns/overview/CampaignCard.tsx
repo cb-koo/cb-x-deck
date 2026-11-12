@@ -1,7 +1,6 @@
 // 캠페인 현황 — 주차 캠페인 카드 한 장(스펙 §4-3, 시안 card()).
 // 머리 / 진행 / 성과 / 흐름 / 더 보기, 다섯 층을 가로선과 바탕으로 가른다(koo: 정보 구분이 잘 되게).
 // 숫자는 전부 card.perf·card.quantity 그대로 — 여기서 다시 계산하면 패널·캠페인 상세와 어긋난다.
-'use client';
 import { formatCpv, type OverviewCard, type CardStatus } from '@/lib/campaignOverview';
 import { CumulativeArea } from '@/components/charts/CumulativeArea';
 import { compact, NUM } from '@/components/charts/tokens';
@@ -97,7 +96,7 @@ export function CampaignCard({ card, metric, open, onOpen }: { card: OverviewCar
         )}
       </div>
 
-      <button type="button" onClick={onOpen} aria-haspopup="dialog"
+      <button type="button" onClick={onOpen} aria-label={`${card.title} 게시물별 지표 보기`}
               className="block w-full cursor-pointer border-t border-x-border bg-white px-[18px] py-[13px] text-right text-[14px] font-semibold text-x-blue-text hover:bg-x-surface">
         게시물별 지표 보기 →
       </button>

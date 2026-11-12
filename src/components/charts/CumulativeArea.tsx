@@ -27,7 +27,9 @@ export function CumulativeArea({ labels, values, todayIndex, height = 136, marks
   const L = 10, R = 46, top = marks ? 28 : 12, B = 26;
   const w = Math.max(width - L - R, 0), h = Math.max(height - top - B, 0);
   const nums = values.filter((v): v is number => v !== null);
-  const max = niceMax(Math.max(1, ...nums));
+  // 가운데 눈금(max/2)이 '0.5'·'7.5' 같은 소수가 되지 않게 홀수 최댓값(1·3·5·15 등)은 짝수로 올린다(전부 0이면 2)
+  const nice = niceMax(Math.max(1, ...nums));
+  const max = nice % 2 === 0 ? nice : Math.ceil(nice / 2) * 2;
   const n = labels.length;
   const x = (i: number) => L + (n > 1 ? (w * i) / (n - 1) : w / 2);
   const y = scaleLinear().domain([0, max]).range([top + h, top]);

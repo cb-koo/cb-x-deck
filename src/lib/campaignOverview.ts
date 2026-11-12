@@ -1,6 +1,8 @@
 // 캠페인 현황(전체 캠페인 모니터링) 화면의 순수 계산 — DB·화면 없이 테스트한다.
-import { weekStartOf, addDays, isDateOnlyString, isTaskExcluded, isTaskOverdue } from './campaignJudgment.ts';
-import type { CampaignTaskItem } from './campaignStore.ts';
+import { weekStartOf, addDays, isDateOnlyString, isTaskExcluded, isTaskOverdue, daysBetweenDates, TASK_TYPE_LABEL } from './campaignJudgment.ts';
+import type { CampaignTaskItem, CampaignRow } from './campaignStore.ts';
+import { isLongCampaign, staysInLongSection, weekKey, weekName } from './campaignListView.ts';
+import type { VisitPhase } from './reservationPolicy.ts';
 import { flowStats } from './campaignFlowView.ts';
 import { toKrw } from './clientBudget.ts';
 
@@ -143,4 +145,153 @@ export function flowChart(tasks: CampaignTaskItem[], points: DayPoint[], weekSta
   // postedAt이 시각까지 오더라도 날짜 부분만 비교한다
   const postedPerDay = days.map((day) => posted.filter((t) => t.postedAt!.slice(0, 10) === day).length);
   return { days, todayIndex, views: series('views'), bookmarks: series('bookmarks'), postedPerDay };
+}
+
+export interface OverviewInput {
+  campaign: CampaignRow; tasks: CampaignTaskItem[]; points: DayPoint[];
+  visitPhases: Record<string, VisitPhase>;   // 장기 캠페인의 방문 작업만. 없는 작업 id는 'unregistered'로 본다
+  perfUpdatedAt: string | null;
+}
+export interface OverviewTiles {
+  campaignCount: number; unsetCount: number;
+  planned: number; posted: number; overdue: number; remaining: number; undated: number;
+  overdueBy: Array<{ title: string; count: number }>;   // 많은 순 최대 3개
+  overdueMore: number;                                  // 그 밖의 캠페인 수
+}
+export interface PostedRow { taskId: string; handle: string | null; typeLabel: string; postedOn: string; url: string | null;
+  views: number | null; bookmarks: number | null; likes: number | null; cpvKrw: number | null }
+export interface OpenRow { taskId: string; handle: string | null; typeLabel: string; scheduledOn: string | null; overdueDays: number | null }
+export interface OverviewCard {
+  campaignId: string; title: string; status: CardStatus; statusLabel: string;
+  quantity: Quantity; perf: Perf; chart: FlowChart | null;
+  posted: PostedRow[];   // 조회수 많은 순, 측정값 없는 줄은 뒤
+  open: OpenRow[];       // 예정일 지난 것 먼저(오래된 순), 그다음 예정일 순, 미정은 맨 뒤
+}
+export interface LongRow { campaignId: string; title: string; stages: Array<{ label: string; count: number }>; postedThisWeek: number; perf: Perf }
+export interface Overview {
+  week: OverviewWeek; weekName: string; today: string; perfUpdatedAt: string | null;
+  tiles: OverviewTiles; cards: OverviewCard[]; long: LongRow[];
+}
+
+export function pickWeekly(campaigns: CampaignRow[], weekStart: string): CampaignRow[] {
+  return campaigns.filter((c) => !isLongCampaign(c) && weekKey(c.startsOn) === weekStart);
+}
+export function pickLong(campaigns: CampaignRow[], today: string): CampaignRow[] {
+  return campaigns.filter((c) => staysInLongSection(c, today));
+}
+
+const typeLabelOf = (t: CampaignTaskItem): string =>
+  (t.type === 'other' && t.otherKind.trim()) || TASK_TYPE_LABEL[t.type];
+// 동점은 만든 순 → id로 고정 — 새로 고칠 때마다 줄이 섞이지 않게
+const byCreated = (a: CampaignTaskItem, b: CampaignTaskItem): number =>
+  a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+
+function postedRows(tasks: CampaignTaskItem[]): PostedRow[] {
+  const rows = tasks.filter(isLivePosted).sort((a, b) => {
+    const va = a.perf?.views ?? null, vb = b.perf?.views ?? null;
+    if (va !== vb) {
+      if (va === null) return 1;
+      if (vb === null) return -1;
+      return vb - va;
+    }
+    return byCreated(a, b);
+  });
+  return rows.map((t) => {
+    const views = t.perf?.views ?? null;
+    // 작업 하나의 CPV — 비용·조회가 다 있을 때만(0원·미입력은 값 없음)
+    const krw = t.cost && t.cost.amount > 0 ? toKrw({ [t.cost.currency]: t.cost.amount }).krw : 0;
+    return {
+      taskId: t.id, handle: t.influencerHandle, typeLabel: typeLabelOf(t), postedOn: t.postedAt!, url: t.postUrl,
+      views, bookmarks: t.perf?.bookmarks ?? null, likes: t.perf?.likes ?? null,
+      cpvKrw: krw > 0 && views ? krw / views : null,
+    };
+  });
+}
+
+// 예정일 오름차순이면 지난 것(오늘 전)이 자연히 먼저 온다. 미정은 맨 뒤.
+function openRows(tasks: CampaignTaskItem[], today: string): OpenRow[] {
+  const rows = tasks.filter((t) => !isTaskExcluded(t) && t.postedAt === null).sort((a, b) => {
+    if (a.scheduledOn !== b.scheduledOn) {
+      if (a.scheduledOn === null) return 1;
+      if (b.scheduledOn === null) return -1;
+      return a.scheduledOn.localeCompare(b.scheduledOn);
+    }
+    return byCreated(a, b);
+  });
+  return rows.map((t) => ({
+    taskId: t.id, handle: t.influencerHandle, typeLabel: typeLabelOf(t), scheduledOn: t.scheduledOn,
+    overdueDays: isTaskOverdue(t, today) && t.scheduledOn !== null ? daysBetweenDates(t.scheduledOn, today) : null,
+  }));
+}
+
+const STAGES = ['예약 대기', '예약 확정', '방문 완료', '게시', '준비'] as const;
+type Stage = typeof STAGES[number];
+// 방문 단계 → 장기 줄 단계. null = 세지 않음(취소·노쇼)
+const VISIT_STAGE: Record<VisitPhase, Stage | null> = {
+  unregistered: '예약 대기', waiting: '예약 대기', confirmed: '예약 확정', visited: '방문 완료',
+  uploaded: '게시', settling: '게시', completed: '게시',
+  cancelled: null, visit_no_show: null, upload_no_show: null,
+};
+
+function longRow(inp: OverviewInput, week: OverviewWeek): LongRow {
+  const live = inp.tasks.filter((t) => !isTaskExcluded(t));
+  const counts = new Map<Stage, number>();
+  for (const t of live) {
+    // 게시 확인이 어느 단계보다 이긴다(taskStage와 같은 우선순위)
+    const stage: Stage | null = t.postedAt !== null ? '게시'
+      : t.type === 'visit' ? VISIT_STAGE[inp.visitPhases[t.id] ?? 'unregistered'] : '준비';
+    if (stage) counts.set(stage, (counts.get(stage) ?? 0) + 1);
+  }
+  const c = inp.campaign;
+  return {
+    campaignId: c.id, title: c.clientName ?? c.name,
+    stages: STAGES.filter((s) => counts.has(s)).map((label) => ({ label, count: counts.get(label)! })),
+    postedThisWeek: live.filter((t) => {
+      const d = t.postedAt?.slice(0, 10);
+      return d !== undefined && week.weekStart <= d && d <= week.weekEnd;
+    }).length,
+    perf: perfOf(inp.tasks),
+  };
+}
+
+export function buildOverview(weekly: OverviewInput[], long: OverviewInput[], week: OverviewWeek, today: string): Overview {
+  // 같은 주에 한 클라이언트 캠페인이 둘 이상이면 클라이언트 이름만으로는 구분이 안 된다
+  const perClient = new Map<string, number>();
+  for (const w of weekly) if (w.campaign.clientId) perClient.set(w.campaign.clientId, (perClient.get(w.campaign.clientId) ?? 0) + 1);
+
+  const cards: OverviewCard[] = weekly.map((inp) => {
+    const c = inp.campaign;
+    const dup = c.clientId !== null && (perClient.get(c.clientId) ?? 0) > 1;
+    const quantity = quantityOf(inp.tasks, today);
+    const status = cardStatus(quantity);
+    return {
+      campaignId: c.id, title: dup ? c.name : (c.clientName ?? c.name), status, statusLabel: CARD_STATUS_LABEL(status, quantity.overdue),
+      quantity, perf: perfOf(inp.tasks), chart: flowChart(inp.tasks, inp.points, week.weekStart, today),
+      posted: postedRows(inp.tasks), open: openRows(inp.tasks, today),
+    };
+  });
+  // 세팅 전은 맨 뒤 → 밀린 건 많은 순 → 이름순
+  cards.sort((a, b) =>
+    Number(a.status === 'unset') - Number(b.status === 'unset')
+    || b.quantity.overdue - a.quantity.overdue
+    || a.title.localeCompare(b.title, 'ko')
+    || a.campaignId.localeCompare(b.campaignId));
+
+  const sum = (k: keyof Quantity) => cards.reduce((s, c) => s + c.quantity[k], 0);
+  const planned = sum('planned'), posted = sum('posted'), overdue = sum('overdue');
+  // 카드가 이미 밀린 순 → 이름순이라 그대로 앞에서 자른다
+  const late = cards.filter((c) => c.quantity.overdue > 0);
+  const tiles: OverviewTiles = {
+    campaignCount: cards.length, unsetCount: cards.filter((c) => c.status === 'unset').length,
+    planned, posted, overdue, remaining: planned - posted - overdue, undated: sum('undated'),
+    overdueBy: late.slice(0, 3).map((c) => ({ title: c.title, count: c.quantity.overdue })),
+    overdueMore: Math.max(0, late.length - 3),
+  };
+
+  // ISO 문자열이라 문자열 비교가 곧 시간 비교
+  const perfUpdatedAt = weekly.reduce<string | null>((m, w) => (w.perfUpdatedAt !== null && (m === null || w.perfUpdatedAt > m) ? w.perfUpdatedAt : m), null);
+  return {
+    week, weekName: weekName(week.weekStart), today, perfUpdatedAt,
+    tiles, cards, long: long.map((inp) => longRow(inp, week)),
+  };
 }

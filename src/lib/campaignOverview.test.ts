@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveWeek, plannedCount, quantityOf, cardStatus, CARD_STATUS_LABEL, type Quantity, perfOf, formatCpv, chartDays, flowChart, type DayPoint, type FlowChart } from './campaignOverview.ts';
-import type { CampaignTaskItem } from './campaignStore.ts';
+import { resolveWeek, plannedCount, quantityOf, cardStatus, CARD_STATUS_LABEL, type Quantity, perfOf, formatCpv, chartDays, flowChart, type DayPoint, type FlowChart,
+  pickWeekly, pickLong, buildOverview, type OverviewInput } from './campaignOverview.ts';
+import type { CampaignTaskItem, CampaignRow } from './campaignStore.ts';
 
 let n = 0;
 const task = (p: Partial<CampaignTaskItem>): CampaignTaskItem => ({
@@ -11,6 +12,12 @@ const task = (p: Partial<CampaignTaskItem>): CampaignTaskItem => ({
   createdAt: `2026-11-01T00:00:${String(n).padStart(2, '0')}Z`, updatedAt: '', draftStatus: null, draftLabel: null, draftFirstLine: null,
   draftPreview: null, draftFirstImage: null, target: null,
   published: false, perf: null, replies: [], linkClicks: null, settlement: null, unseenSince: null, seenAfterRemovedAt: null, ...p,
+});
+
+const camp = (over: Partial<CampaignRow>): CampaignRow => ({
+  id: 'c', clientId: null, clientName: null, name: '캠페인', nameEn: '', startsOn: '2026-11-09', endsOn: '2026-11-15',
+  kind: null, note: '', createdAt: '2026-11-01T00:00:00Z', updatedAt: '2026-11-01T00:00:00Z', closedAt: null, closedByName: null,
+  taskCount: 0, progress: { planned: 0, posted: 0, assigned: 0, unassigned: 0 }, total: {}, influencerHandles: [], ...over,
 });
 
 test('resolveWeek: 주 중 날짜는 그 주 월요일로, 틀린 값과 미래 주는 이번 주', () => {
@@ -147,4 +154,93 @@ test('flowChart: 지난 주는 오늘(마지막 칸)에서 선이 끝나고 그 
   assert.equal(c.views.filter((v) => v === null).length, 0);
   assert.equal(c.postedPerDay[c.days.indexOf('2026-11-03')], 1);
   assertEndsAtCard(c, tasks);
+});
+
+test('pickWeekly, pickLong: 그 주에 시작한 주차 캠페인과 장기 캠페인을 가른다', () => {
+  const cs = [
+    camp({ id: 'w', startsOn: '2026-11-09', endsOn: '2026-11-15' }),
+    camp({ id: 'prev', startsOn: '2026-11-02', endsOn: '2026-11-08' }),
+    camp({ id: 'long', startsOn: '2026-10-01', endsOn: '2026-12-31' }),
+  ];
+  assert.deepEqual(pickWeekly(cs, '2026-11-09').map((c) => c.id), ['w']);
+  assert.deepEqual(pickLong(cs, '2026-11-12').map((c) => c.id), ['long']);
+});
+const input = (c: Partial<CampaignRow>, tasks: CampaignTaskItem[], visitPhases: OverviewInput['visitPhases'] = {}): OverviewInput =>
+  ({ campaign: camp(c), tasks, points: [], visitPhases, perfUpdatedAt: null });
+test('buildOverview: 네 칸 합계, 카드 순서, 같은 클라이언트 둘이면 캠페인 이름', () => {
+  const week = resolveWeek(null, '2026-11-12');
+  const o = buildOverview([
+    input({ id: '1', clientId: 'A', clientName: '가', name: '가_11월2주차' }, [task({ postedAt: '2026-11-10' }), task({ scheduledOn: '2026-11-14' })]),
+    input({ id: '2', clientId: 'B', clientName: '나', name: '나_11월2주차' }, [task({ scheduledOn: '2026-11-10' }), task({ scheduledOn: null })]),
+    input({ id: '3', clientId: 'C', clientName: '다', name: '다_11월2주차' }, []),
+    input({ id: '4', clientId: 'A', clientName: '가', name: '가_추가' }, [task({ postedAt: '2026-11-11' })]),
+  ], [], week, '2026-11-12');
+  assert.deepEqual(o.cards.map((c) => c.campaignId), ['2', '1', '4', '3']);          // 지연 → 이름순 → 세팅 전
+  assert.deepEqual(o.cards.map((c) => c.title), ['나', '가_11월2주차', '가_추가', '다']);
+  assert.deepEqual({ ...o.tiles, overdueBy: undefined }, { campaignCount: 4, unsetCount: 1, planned: 5, posted: 2, overdue: 1, remaining: 2, undated: 1, overdueBy: undefined, overdueMore: 0 });
+  assert.deepEqual(o.tiles.overdueBy, [{ title: '나', count: 1 }]);
+  assert.equal(o.weekName, '11월2주차');
+});
+test('overdueBy는 많은 순 3개, 나머지는 overdueMore', () => {
+  const week = resolveWeek(null, '2026-11-12');
+  const late = (k: number) => Array.from({ length: k }, () => task({ scheduledOn: '2026-11-10' }));
+  const o = buildOverview([
+    input({ id: '1', clientId: 'A', clientName: '가' }, late(1)),
+    input({ id: '2', clientId: 'B', clientName: '나' }, late(4)),
+    input({ id: '3', clientId: 'C', clientName: '다' }, late(2)),
+    input({ id: '4', clientId: 'D', clientName: '라' }, late(5)),
+    input({ id: '5', clientId: 'E', clientName: '마' }, late(3)),
+  ], [], week, '2026-11-12');
+  assert.equal(o.tiles.overdueBy.length, 3);
+  assert.deepEqual(o.tiles.overdueBy, [{ title: '라', count: 5 }, { title: '나', count: 4 }, { title: '마', count: 3 }]);
+  assert.equal(o.tiles.overdueMore, 2);
+  assert.equal(o.tiles.overdue, 15);
+});
+test('패널 줄: 게시된 것은 조회수 많은 순(측정 없음은 뒤), 게시 전은 지난 것 먼저, 미정은 맨 뒤', () => {
+  const week = resolveWeek(null, '2026-11-12');
+  const pf = (views: number | null) => ({ postCount: 1, views, likes: 3, bookmarks: 7 });
+  const o = buildOverview([input({ id: '1', clientName: '가' }, [
+    task({ id: 'p100', postedAt: '2026-11-10', perf: pf(100), cost: { amount: 1000, currency: 'KRW' }, postUrl: 'https://x.com/a/status/1' }),
+    task({ id: 'pnull', postedAt: '2026-11-10', perf: pf(null), cost: { amount: 1000, currency: 'KRW' } }),
+    task({ id: 'p900', postedAt: '2026-11-11', perf: pf(900), cost: { amount: 900, currency: 'JPY' }, type: 'other', otherKind: '라이브' }),
+    task({ id: 'o14', scheduledOn: '2026-11-14' }),
+    task({ id: 'o10', scheduledOn: '2026-11-10' }),
+    task({ id: 'onull', scheduledOn: null }),
+  ])], [], week, '2026-11-12');
+  const card = o.cards[0];
+  assert.deepEqual(card.posted.map((r) => r.views), [900, 100, null]);
+  assert.deepEqual(card.posted.map((r) => r.taskId), ['p900', 'p100', 'pnull']);
+  assert.equal(card.posted[0].cpvKrw, 10);                 // 900엔 = 9,000원 ÷ 900
+  assert.equal(card.posted[0].typeLabel, '라이브');          // 기타 협찬은 작업 내용
+  assert.equal(card.posted[1].cpvKrw, 10);
+  assert.equal(card.posted[1].url, 'https://x.com/a/status/1');
+  assert.equal(card.posted[1].postedOn, '2026-11-10');
+  assert.equal(card.posted[2].cpvKrw, null);               // 조회 없음 → CPV 없음
+  assert.equal(card.posted[2].url, null);
+  assert.deepEqual(card.open.map((r) => r.scheduledOn), ['2026-11-10', '2026-11-14', null]);
+  assert.deepEqual(card.open.map((r) => r.overdueDays), [2, null, null]);
+});
+test('지난 주를 볼 때도 예정일 지난 미게시는 실제 오늘 기준', () => {
+  const week = resolveWeek('2026-11-02', '2026-11-12');
+  const o = buildOverview([input({ id: '1', clientName: '가', startsOn: '2026-11-02', endsOn: '2026-11-08' }, [task({ scheduledOn: '2026-11-07' })])], [], week, '2026-11-12');
+  assert.equal(o.cards[0].quantity.overdue, 1);
+  assert.equal(o.cards[0].open[0].overdueDays, 5);
+  assert.equal(o.tiles.overdue, 1);
+});
+test('장기 줄: 단계 묶음, 0건 생략, 노쇼 제외, 이 주 게시', () => {
+  const week = resolveWeek(null, '2026-11-12');
+  const v = (id: string, p: Partial<CampaignTaskItem> = {}) => task({ id, type: 'visit', ...p });
+  const tasks = [
+    v('v1'), v('v2'), v('v3'), v('v4', { postedAt: '2026-11-10' }), v('v5'),
+    task({ id: 'x1', type: 'post' }),
+  ];
+  const o = buildOverview([], [input({ id: 'L', clientName: '장기클', startsOn: '2026-10-01', endsOn: '2026-12-31' }, tasks,
+    { v1: 'waiting', v2: 'confirmed', v3: 'visited', v4: 'uploaded', v5: 'visit_no_show' })], week, '2026-11-12');
+  assert.equal(o.long.length, 1);
+  assert.equal(o.long[0].title, '장기클');
+  assert.deepEqual(o.long[0].stages, [
+    { label: '예약 대기', count: 1 }, { label: '예약 확정', count: 1 }, { label: '방문 완료', count: 1 },
+    { label: '게시', count: 1 }, { label: '준비', count: 1 },
+  ]);
+  assert.equal(o.long[0].postedThisWeek, 1);
 });

@@ -3,64 +3,86 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>캠페인 현황 시안 v4</title>
+<title>캠페인 현황 최종 시안</title>
 <style>
   body { margin: 0; background: var(--background, #fff); color: var(--foreground, #171717); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  .note { font-size: 13px; color: var(--muted-foreground, #666); padding: 8px 4px 12px; }
-  .mock { --t:#0f1419; --s:#536471; --m:#6c7781; --b:#eff3f4; --bs:#cfd9de; --blue:#1d9bf0; --bluet:#1573ad; --surf:#f7f9f9; --warn:#b45309; --warnbg:#fff4e5; --green:#0a7d54;
-    position:relative; overflow:hidden; background:#fff; color:var(--t); border:1px solid var(--bs); border-radius:12px; padding:28px 28px 32px; font-size:15px; line-height:1.45; }
-  .mock * { box-sizing: border-box; }
+  .note { font-size: 13px; color: var(--muted-foreground, #666); padding: 8px 4px 12px; line-height: 1.5; }
+  /* 앱은 라이트 고정 — 시안 안쪽은 앱 색(globals.css, charts/tokens.ts)을 그대로 쓴다 */
+  .app { --t:#0f1419; --s:#536471; --m:#6c7781; --b:#eff3f4; --bs:#cfd9de; --blue:#1d9bf0; --bluet:#1573ad; --surf:#f7f9f9; --warn:#b45309; --warnbg:#fff4e5; --warnbd:#f6dfbd; --green:#0a7d54; --greenbg:#e8f6f0;
+    position:relative; overflow:hidden; display:flex; background:#fff; color:var(--t); border:1px solid var(--bs); border-radius:12px; font-size:15px; line-height:1.45; }
+  .app * { box-sizing:border-box; }
+  .side { width:200px; flex:none; background:var(--surf); border-right:1px solid var(--b); padding:18px 10px; font-size:14px; }
+  .side .logo { font-weight:800; font-size:16px; padding:0 10px 14px; }
+  .side .g { font-size:12px; color:var(--m); padding:14px 10px 6px; }
+  .side .i { padding:8px 10px; border-radius:8px; color:var(--s); }
+  .side .i.on { background:#e8f4fd; color:var(--bluet); font-weight:700; }
+  .main { flex:1; min-width:0; padding:28px 28px 36px; container-type:inline-size; }
   .head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:20px; }
   .head h1 { font-size:22px; margin:0; }
+  .upd { font-size:13px; color:var(--m); margin-top:4px; }
   .week { display:flex; align-items:center; gap:8px; }
   .week span { color:var(--s); }
   .nav { width:32px; height:32px; border-radius:999px; border:1px solid var(--bs); background:#fff; color:var(--s); font-size:16px; }
-  .upd { font-size:13px; color:var(--m); margin-top:4px; }
-  .tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+  .tiles { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
   .tile { border:1px solid var(--b); border-radius:12px; padding:16px 18px; }
-  .tile.warn { background:var(--warnbg); border-color:#f6dfbd; }
+  .tile.warn { background:var(--warnbg); border-color:var(--warnbd); }
   .tile .l { font-size:13px; color:var(--s); }
-  .tile .v { font-size:28px; font-weight:700; margin-top:4px; }
+  .tile .v { font-size:28px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
   .tile.warn .v { color:var(--warn); }
   .tile .v small { font-size:15px; font-weight:400; color:var(--s); }
   .tile .d { font-size:13px; color:var(--m); margin-top:4px; }
   .bar { height:8px; background:#e6ecef; border-radius:99px; overflow:hidden; }
   .bar i { display:block; height:100%; background:var(--blue); border-radius:99px; }
-  .sec { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; margin:36px 0 12px; }
+  .sec { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; margin:40px 0 14px; }
   .sec h2 { font-size:17px; margin:0 0 4px; }
   .sub { font-size:13px; color:var(--m); }
   .seg { display:inline-flex; border:1px solid var(--bs); border-radius:999px; overflow:hidden; }
-  .seg button { border:0; background:#fff; padding:6px 14px; font-size:13px; color:var(--s); cursor:pointer; }
+  .seg button { border:0; background:#fff; padding:6px 14px; font-size:13px; color:var(--s); cursor:pointer; font-family:inherit; }
   .seg button.on { background:var(--t); color:#fff; }
-  svg text { font-family: inherit; }
+  svg text { font-family:inherit; }
+  .num { font-variant-numeric:tabular-nums; }
+  .dim { color:var(--m); }
+
+  /* 카드 — 머리(누구, 상태) / 진행 / 성과 / 흐름 / 더 보기, 다섯 층을 선과 바탕으로 가른다 */
+  .cards { display:grid; grid-template-columns:1fr; gap:16px; align-items:start; }
+  .ccard { border:1px solid var(--bs); border-radius:14px; background:#fff; overflow:hidden; display:flex; flex-direction:column; }
+  .ccard.on { border-color:var(--blue); box-shadow:0 0 0 1px var(--blue); }
+  .chead { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:16px 18px 14px; }
+  .pn { font-size:16px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chip { flex:none; font-size:12.5px; font-weight:600; padding:3px 10px; border-radius:999px; white-space:nowrap; }
+  .chip.late { background:var(--warnbg); color:var(--warn); }
+  .chip.ok { background:var(--surf); color:var(--s); }
+  .chip.done { background:var(--greenbg); color:var(--green); }
+  .chip.wait { background:#fff; color:var(--s); border:1px dashed var(--bs); }
+  .zone { padding:14px 18px; border-top:1px solid var(--b); }
+  .zl { font-size:12px; font-weight:600; color:var(--m); margin-bottom:8px; }
+  .pline { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:8px; }
+  .pbig { font-size:15px; color:var(--s); }
+  .pbig b { font-size:22px; color:var(--t); font-variant-numeric:tabular-nums; }
+  .pct { font-size:13px; color:var(--s); font-variant-numeric:tabular-nums; }
+  .psub { display:flex; justify-content:space-between; font-size:13px; color:var(--m); margin-top:8px; }
+  .psub .w { color:var(--warn); font-weight:600; }
+  .k3 { display:grid; grid-template-columns:repeat(3,1fr); }
+  .k3 > div { padding:0 12px; border-left:1px solid var(--b); }
+  .k3 > div:first-child { padding-left:0; border-left:0; }
+  .k3 .l { font-size:12px; color:var(--s); }
+  .k3 .v { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .zone.flow { background:var(--surf); padding-bottom:8px; }
+  .more { display:block; width:100%; text-align:right; border:0; border-top:1px solid var(--b); background:#fff; padding:13px 18px; color:var(--bluet); font-weight:600; font-size:14px; cursor:pointer; font-family:inherit; }
+  .more:hover { background:var(--surf); }
+  .ccard.unset { border-style:dashed; }
+  .unset .empty { padding:26px 18px 30px; border-top:1px dashed var(--bs); color:var(--m); font-size:14px; }
+
   table { width:100%; border-collapse:collapse; }
   th { text-align:left; font-size:13px; font-weight:500; color:var(--s); padding:10px 12px; border-bottom:1px solid var(--bs); white-space:nowrap; }
   th.r, td.r { text-align:right; }
   td { padding:0 12px; height:54px; border-bottom:1px solid var(--b); white-space:nowrap; }
   .name { font-weight:700; }
-  .chip { font-size:13px; padding:2px 10px; border-radius:999px; white-space:nowrap; }
-  .chip.late { background:var(--warnbg); color:var(--warn); }
-  .chip.ok { color:var(--s); padding-right:0; }
-  .chip.done { color:var(--green); padding-right:0; font-weight:600; }
-  .chip.wait { background:var(--surf); color:var(--s); }
-  .dim { color:var(--m); }
-  .num { font-variant-numeric:tabular-nums; }
-  .link { color:var(--bluet); font-weight:600; font-size:14px; text-decoration:none; background:none; border:0; padding:0; cursor:pointer; font-family:inherit; }
-  .cards { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
-  .ccard { border:1px solid var(--b); border-radius:12px; padding:18px 20px 14px; }
-  .ccard.on { border-color:var(--blue); box-shadow:0 0 0 1px var(--blue); }
-  .ccard .top { display:flex; justify-content:space-between; align-items:center; gap:8px; }
-  .pn { font-size:16px; font-weight:700; }
-  .pr { display:flex; align-items:center; gap:10px; margin:10px 0 12px; font-size:14px; }
-  .pr .bar { flex:1; }
-  .k3 { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:6px; }
-  .k3 .l { font-size:12px; color:var(--s); }
-  .k3 .v { font-size:19px; font-weight:700; }
-  .ccard .ft { display:flex; justify-content:flex-end; margin-top:6px; }
-  .empty { color:var(--m); font-size:14px; padding:28px 0; text-align:center; }
+  tr.go { cursor:pointer; } tr.go:hover td { background:var(--surf); }
   .stages { display:flex; gap:14px; font-size:14px; }
   .stages span { color:var(--s); } .stages b { color:var(--t); }
   .scroll { overflow-x:auto; }
+
   /* 옆 패널 */
   .shade { position:absolute; inset:0; background:rgba(15,20,25,.28); }
   .drawer { position:absolute; top:0; right:0; bottom:0; width:min(600px, 100%); background:#fff; border-left:1px solid var(--bs); box-shadow:-8px 0 24px rgba(15,20,25,.12); padding:24px 26px; overflow-y:auto; }
@@ -68,51 +90,62 @@
   .dhead .t { font-size:19px; font-weight:700; }
   .dhead .w { font-size:13px; color:var(--m); margin-top:2px; }
   .x { width:34px; height:34px; border-radius:999px; border:0; background:var(--surf); font-size:16px; color:var(--s); cursor:pointer; }
-  .kpis { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:18px 0 20px; }
+  .kpis { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:18px 0 22px; }
   .kpi { background:var(--surf); border-radius:10px; padding:12px 14px; }
   .kpi .l { font-size:13px; color:var(--s); }
   .kpi .v { font-size:22px; font-weight:700; }
   .kpi .d { font-size:12px; color:var(--m); }
-  .ph { font-size:15px; font-weight:700; margin:22px 0 2px; }
+  .ph { font-size:15px; font-weight:700; margin:24px 0 2px; }
   .phs { font-size:13px; color:var(--m); margin-bottom:6px; }
-  .drawer table th { font-size:12px; padding:8px 8px; }
-  .drawer table td { height:46px; font-size:14px; padding:0 8px; }
-  .drawer .dfoot { margin-top:22px; display:flex; justify-content:flex-end; }
-  .late { color:var(--warn); }
-  @media (max-width: 860px) { .tiles { grid-template-columns:repeat(2,1fr); } .mock { padding:18px 16px; } }
-  @media (max-width: 620px) { .cards { grid-template-columns:1fr; } }
+  .drawer th { font-size:12px; padding:8px; }
+  .drawer td { height:46px; font-size:14px; padding:0 8px; }
+  .dfoot { margin-top:24px; display:flex; justify-content:flex-end; }
+  .link { color:var(--bluet); font-weight:600; font-size:14px; text-decoration:none; }
+  .late { color:var(--warn); font-weight:600; }
+
+  @container (min-width: 560px) { .cards { grid-template-columns:repeat(2,1fr); } .tiles { grid-template-columns:repeat(4,1fr); } }
+  @container (min-width: 880px) { .cards { grid-template-columns:repeat(3,1fr); } }
+  @media (max-width: 900px) { .side { display:none; } .main { padding:20px 16px 28px; } }
 </style>
 </head>
 <body>
-<div class="note">시안 v4, 숫자는 예시입니다. 카드의 "게시물별 지표 보기"를 누르면 오른쪽에서 패널이 열립니다. 지금은 벤자민 카드를 누른 상태이고, ✕나 어두운 바깥을 누르면 닫힙니다.</div>
-<div class="mock" id="mock">
-  <div class="head">
-    <div><h1>캠페인 현황</h1><div class="upd">성과 최종 업데이트 11/12 (목) 14:05</div></div>
-    <div class="week"><button class="nav" aria-label="지난 주">‹</button><b>11월 2주차</b><span>11/9 (월) ~ 11/15 (일)</span><button class="nav" aria-label="다음 주" disabled style="opacity:.4">›</button></div>
-  </div>
-  <div class="tiles">
-    <div class="tile"><div class="l">계획</div><div class="v">36<small>건</small></div><div class="d">캠페인 6개, 1개는 세팅 전</div></div>
-    <div class="tile"><div class="l">게시 완료</div><div class="v">20<small>건</small></div><div class="bar" style="margin-top:10px"><i style="width:56%"></i></div></div>
-    <div class="tile warn"><div class="l">예정일 지난 미게시</div><div class="v">5<small>건</small></div><div class="d">백수약국 3건, 벤자민 2건</div></div>
-    <div class="tile"><div class="l">남은 게시 예정</div><div class="v">11<small>건</small></div><div class="d">일요일까지 게시 예정</div></div>
-  </div>
+<div class="note">최종 시안입니다. 숫자와 일부 클라이언트 이름은 예시이고, 규모는 이번 주 실제(캠페인 10개, 작업 63건)에 맞췄습니다. 카드 아래 "게시물별 지표 보기"를 누르면 오른쪽 패널이 열립니다. 이 창이 좁으면 사이드바가 숨고 카드가 2열로 보입니다(실제 화면 폭에서는 3열).</div>
+<div class="app" id="app">
+  <aside class="side">
+    <div class="logo">CB X Deck</div>
+    <div class="g">시장 조사</div>
+    <div class="i">검색 트렌드</div><div class="i">클리닉 지도</div>
+    <div class="g">캠페인 운영</div>
+    <div class="i on">캠페인 현황</div>
+    <div class="i">캠페인</div><div class="i">정산</div><div class="i">콘텐츠 생성</div><div class="i">인플루언서</div><div class="i">인플루언서 성과</div><div class="i">X 업로드 현황</div><div class="i">콘텐츠 성과</div><div class="i">리포트</div>
+    <div class="g">설정</div>
+    <div class="i">클라이언트</div>
+  </aside>
+  <main class="main">
+    <div class="head">
+      <div><h1>캠페인 현황</h1><div class="upd">성과 최종 업데이트 11/12 (목) 14:05</div></div>
+      <div class="week"><button class="nav" aria-label="지난 주">‹</button><b>11월 2주차</b><span>11/9 (월) ~ 11/15 (일)</span><button class="nav" aria-label="다음 주" disabled style="opacity:.4">›</button></div>
+    </div>
+    <div class="tiles" id="tiles"></div>
 
-  <div class="sec">
-    <div><h2>주차 캠페인</h2><div class="sub">계획 수량은 캠페인에 등록된 작업 수예요 (진행 안 됨 처리한 작업은 빼요). 조회수는 게시 후 14일까지 계속 늘어요.</div></div>
-    <div class="seg" id="seg"><button class="on" data-m="views">조회수</button><button data-m="saves">저장수</button></div>
-  </div>
-  <div id="body"></div>
+    <div class="sec">
+      <div><h2>주차 캠페인</h2><div class="sub">계획 수량은 캠페인에 등록된 작업 수예요 (진행 안 됨 처리한 작업은 빼요). 조회수는 게시 후 14일까지 계속 늘어요.</div></div>
+      <div class="seg" id="seg" aria-label="흐름 차트 지표"><button class="on" data-m="views">조회수</button><button data-m="saves">저장수</button></div>
+    </div>
+    <div class="cards" id="cards"></div>
 
-  <div class="sec"><div><h2>방문협찬 (장기 캠페인)</h2><div class="sub">방문부터 게시까지 오래 걸리는 작업이라 주간 수량에 넣지 않고 따로 보여줘요.</div></div></div>
-  <div class="scroll">
-  <table>
-    <thead><tr><th>클라이언트</th><th>지금 단계</th><th class="r">이번 주 게시</th><th class="r">조회수</th><th class="r">저장수</th><th class="r">CPV</th></tr></thead>
-    <tbody>
-      <tr><td class="name">더스퀘어 클리닉</td><td><div class="stages"><span>예약 대기 <b>2</b></span><span>예약 확정 <b>3</b></span><span>방문 완료 <b>1</b></span><span>게시 <b>4</b></span></div></td><td class="r num">2건</td><td class="r num">8.4만</td><td class="r num">1,210</td><td class="r num dim">무상</td></tr>
-      <tr><td class="name">블리비</td><td><div class="stages"><span>예약 대기 <b>1</b></span><span>예약 확정 <b>2</b></span><span>방문 완료 <b>2</b></span><span>게시 <b>1</b></span></div></td><td class="r num">0건</td><td class="r num">1.9만</td><td class="r num">305</td><td class="r num">2.6원</td></tr>
-    </tbody>
-  </table>
-  </div>
+    <div class="sec"><div><h2>방문협찬 (장기 캠페인)</h2><div class="sub">방문부터 게시까지 오래 걸리는 작업이라 주간 수량에 넣지 않고 따로 보여줘요. 줄을 누르면 캠페인 화면으로 가요.</div></div></div>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>클라이언트</th><th>지금 단계</th><th class="r">이번 주 게시</th><th class="r">조회수</th><th class="r">저장수</th><th class="r">CPV</th></tr></thead>
+      <tbody>
+        <tr class="go"><td class="name">더스퀘어 클리닉</td><td><div class="stages"><span>예약 대기 <b>1</b></span><span>예약 확정 <b>2</b></span><span>방문 완료 <b>1</b></span><span>게시 <b>1</b></span></div></td><td class="r num">1건</td><td class="r num">8.4만</td><td class="r num">1,210</td><td class="r num dim">무상</td></tr>
+        <tr class="go"><td class="name">블리비</td><td><div class="stages"><span>예약 확정 <b>2</b></span><span>방문 완료 <b>1</b></span></div></td><td class="r num">0건</td><td class="r num dim">-</td><td class="r num dim">-</td><td class="r num dim">-</td></tr>
+        <tr class="go"><td class="name">가은치유한의원</td><td><div class="stages"><span>예약 대기 <b>1</b></span><span>방문 완료 <b>1</b></span><span>게시 <b>2</b></span></div></td><td class="r num">0건</td><td class="r num">1.9만</td><td class="r num">305</td><td class="r num">2.6원</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </main>
   <div id="over"></div>
 </div>
 
@@ -120,86 +153,114 @@
 const DAYS = ['월','화','수','목','금','토','일'];
 const TODAY = 3;
 const DATA = [
-  { id:'sq', name:'더스퀘어 클리닉', plan:8, posted:6, late:0, cost:330000, views:[0,41000,168000,312400], saves:[0,210,960,1840], per:[0,2,3,1] },
-  { id:'bl', name:'블리비', plan:10, posted:4, late:0, cost:200000, views:[12000,48000,97000,143000], saves:[80,390,760,1105], per:[1,1,1,1] },
-  { id:'ge', name:'가은치유한의원', plan:5, posted:5, late:0, cost:250000, views:[9000,38000,71000,96800], saves:[30,150,300,412], per:[2,2,1,0] },
-  { id:'bj', name:'벤자민', plan:7, posted:3, late:2, cost:150000, views:[0,8000,30000,51200], saves:[0,40,140,233], per:[0,1,1,1] },
-  { id:'bs', name:'백수약국', plan:6, posted:2, late:3, cost:100000, views:[0,0,11000,28300], saves:[0,0,35,96], per:[0,0,1,1] },
-  { id:'md', name:'마인드', plan:0, posted:0, late:0, cost:0, views:[], saves:[], per:[] },
+  { id:'bs', name:'백수약국', plan:6, posted:2, late:3, canc:1, cost:100000, views:[0,0,11000,28300], saves:[0,0,35,96], per:[0,0,1,1] },
+  { id:'bj', name:'벤자민', plan:7, posted:3, late:2, canc:0, cost:150000, views:[0,8000,30000,51200], saves:[0,40,140,233], per:[0,1,1,1] },
+  { id:'oa', name:'오아로 피부과', plan:5, posted:1, late:1, canc:2, cost:50000, views:[0,0,0,6400], saves:[0,0,0,21], per:[0,0,0,1] },
+  { id:'ge', name:'가은치유한의원', plan:5, posted:5, late:0, canc:0, cost:250000, views:[9000,38000,71000,96800], saves:[30,150,300,412], per:[2,2,1,0] },
+  { id:'sq', name:'더스퀘어 클리닉', plan:8, posted:6, late:0, canc:1, cost:330000, views:[0,41000,168000,312400], saves:[0,210,960,1840], per:[0,2,3,1] },
+  { id:'ri', name:'리엔장 성형외과', plan:11, posted:5, late:0, canc:0, cost:275000, views:[4000,52000,120000,187500], saves:[12,260,640,902], per:[1,2,1,1] },
+  { id:'bl', name:'블리비', plan:10, posted:4, late:0, canc:2, cost:200000, views:[12000,48000,97000,143000], saves:[80,390,760,1105], per:[1,1,1,1] },
+  { id:'bo', name:'뷰티온 클리닉', plan:7, posted:3, late:0, canc:1, cost:150000, views:[0,15000,44000,72900], saves:[0,60,210,318], per:[0,1,1,1] },
+  { id:'sl', name:'셀린 의원', plan:4, posted:2, late:0, canc:0, cost:100000, views:[0,0,9000,21700], saves:[0,0,48,117], per:[0,0,1,1] },
+  { id:'md', name:'마인드', plan:0, posted:0, late:0, canc:0, cost:0, views:[], saves:[], per:[] },
 ];
-const TYPES = ['게시물','인용 RT','RT','게시물','인용 RT','게시물','RT','게시물','인용 RT','RT'];
-const HANDLES = ['@mio_beauty_k','@seoul_trip_ai','@rin_kbeauty','@yuka_korea','@hana_skin_jp','@nao_seoul','@emi_kcos','@saki_trip','@momo_derma','@kana_seoul'];
-const W = [0.52,0.2,0.12,0.08,0.05,0.03];
-const WD = ['월','화','수','목','금','토','일'];
+// 순서: 예정일 지난 미게시 많은 순 → 이름순 → 세팅 전은 맨 뒤
+DATA.sort((a, b) => (a.plan === 0) - (b.plan === 0) || b.late - a.late || a.name.localeCompare(b.name, 'ko'));
+const TYPES = ['게시물','인용 RT','RT','게시물','인용 RT','게시물','RT','게시물','인용 RT','RT','게시물'];
+const HANDLES = ['@mio_beauty_k','@seoul_trip_ai','@rin_kbeauty','@yuka_korea','@hana_skin_jp','@nao_seoul','@emi_kcos','@saki_trip','@momo_derma','@kana_seoul','@riko_kr'];
+const W = [0.5,0.2,0.12,0.08,0.06,0.04];
 const nf = new Intl.NumberFormat('ko-KR');
 const compact = n => n >= 10000 ? (Math.round(n/1000)/10) + '만' : nf.format(n);
 const last = a => a.length ? a[a.length-1] : 0;
 const cpv = d => (d.cost / last(d.views)).toFixed(1) + '원';
-let metric = 'views', open = 'bj';
+let metric = 'views', open = null;
+const mName = () => metric === 'views' ? '조회수' : '저장수';
 
+function tiles() {
+  const live = DATA.filter(d => d.plan > 0), sum = k => live.reduce((a, d) => a + d[k], 0);
+  const plan = sum('plan'), posted = sum('posted'), late = sum('late'), unset = DATA.length - live.length;
+  const lateBy = live.filter(d => d.late).sort((a, b) => b.late - a.late).map(d => `${d.name} ${d.late}건`).join(', ');
+  document.getElementById('tiles').innerHTML = `
+    <div class="tile"><div class="l">계획</div><div class="v">${plan}<small>건</small></div><div class="d">캠페인 ${DATA.length}개${unset ? `, ${unset}개는 세팅 전` : ''}</div></div>
+    <div class="tile"><div class="l">게시 완료</div><div class="v">${posted}<small>건</small></div><div class="bar" style="margin-top:10px"><i style="width:${posted / plan * 100}%"></i></div></div>
+    <div class="tile warn"><div class="l">예정일 지난 미게시</div><div class="v">${late}<small>건</small></div><div class="d">${lateBy}</div></div>
+    <div class="tile"><div class="l">남은 게시 예정</div><div class="v">${plan - posted - late}<small>건</small></div><div class="d">예정일 미정 4건 포함</div></div>`;
+}
 function niceTop(max) { const p = Math.pow(10, Math.floor(Math.log10(max))); return Math.ceil(max / p) * p; }
-function chartSvg(d, H, marks) {
-  const L = 12, R = 56, T = marks ? 28 : 14, B = 28, VW = 640, w = VW - L - R, h = H - T - B;
+function chartSvg(d, VW, H, marks) {
+  const L = 10, R = 46, T = marks ? 28 : 12, B = 26, w = VW - L - R, h = H - T - B;
   const top = niceTop(last(d[metric])), x = i => L + (w * i) / 6, y = v => T + h - (h * v) / top;
   let s = '';
   for (let g = 0; g <= 2; g++) {
     const v = (top * g) / 2;
-    s += `<line x1="${L}" x2="${L+w}" y1="${y(v)}" y2="${y(v)}" stroke="${g ? '#e3e8eb' : '#cfd9de'}" stroke-dasharray="${g ? '4 4' : ''}"/>`;
+    s += `<line x1="${L}" x2="${L+w}" y1="${y(v)}" y2="${y(v)}" stroke="${g ? '#dfe5e8' : '#cfd9de'}" stroke-dasharray="${g ? '4 4' : ''}"/>`;
     if (g) s += `<text x="${L+w+8}" y="${y(v)+4}" font-size="12" fill="#6c7781">${compact(v)}</text>`;
   }
-  DAYS.forEach((dd, i) => { s += `<text x="${x(i)}" y="${T+h+19}" font-size="12" text-anchor="middle" fill="${i === TODAY ? '#0f1419' : '#6c7781'}" font-weight="${i === TODAY ? 700 : 400}">${dd}${i === TODAY ? ' (오늘)' : ''}</text>`; });
+  DAYS.forEach((dd, i) => { s += `<text x="${x(i)}" y="${T+h+18}" font-size="12" text-anchor="middle" fill="${i === TODAY ? '#0f1419' : '#6c7781'}" font-weight="${i === TODAY ? 700 : 400}">${dd}</text>`; });
   const pts = d[metric].map((v, i) => `${x(i)},${y(v)}`);
-  s += `<polygon points="${x(0)},${y(0)} ${pts.join(' ')} ${x(TODAY)},${y(0)}" fill="#1d9bf0" opacity=".08"/>`;
+  s += `<polygon points="${x(0)},${y(0)} ${pts.join(' ')} ${x(TODAY)},${y(0)}" fill="#1d9bf0" opacity=".1"/>`;
   s += `<polyline points="${pts.join(' ')}" fill="none" stroke="#1d9bf0" stroke-width="2.5" stroke-linejoin="round"/>`;
   d[metric].forEach((v, i) => {
-    s += `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="#1d9bf0"/>`;
+    s += `<circle cx="${x(i)}" cy="${y(v)}" r="${i === TODAY ? 4.5 : 3}" fill="#1d9bf0" ${i === TODAY ? 'stroke="#fff" stroke-width="2"' : ''}/>`;
     if (marks && d.per[i]) s += `<text x="${x(i)}" y="${y(v)-11}" font-size="12" text-anchor="middle" fill="#536471">게시 ${d.per[i]}건</text>`;
   });
-  return `<svg viewBox="0 0 ${VW} ${H}" width="100%" role="img" aria-label="날짜별 누적 지표">${s}</svg>`;
+  return `<svg viewBox="0 0 ${VW} ${H}" width="100%" role="img" aria-label="날짜별 누적 ${mName()}">${s}</svg>`;
 }
-function status(d) {
+function chip(d) {
   if (d.plan === 0) return '<span class="chip wait">세팅 전</span>';
-  if (d.posted === d.plan) return '<span class="chip done">계획 완료</span>';
-  if (d.late) return `<span class="chip late">예정일 지난 ${d.late}건 미게시</span>`;
+  if (d.posted === d.plan) return '<span class="chip done">✓ 계획 완료</span>';
+  if (d.late) return `<span class="chip late">예정일 지난 ${d.late}건</span>`;
   return '<span class="chip ok">예정대로</span>';
 }
-const mName = () => metric === 'views' ? '조회수' : '저장수';
+function card(d) {
+  if (d.plan === 0) return `<div class="ccard unset"><div class="chead"><div class="pn">${d.name}</div>${chip(d)}</div><div class="empty">아직 작업이 등록되지 않았어요.<br>세팅이 끝나면 진행과 성과가 여기에 나와요.</div></div>`;
+  const rest = d.plan - d.posted;
+  return `<div class="ccard ${open === d.id ? 'on' : ''}">
+    <div class="chead"><div class="pn">${d.name}</div>${chip(d)}</div>
+    <div class="zone"><div class="zl">진행</div>
+      <div class="pline"><span class="pbig"><b>${d.posted}</b> / ${d.plan}건 게시</span><span class="pct">${Math.round(d.posted / d.plan * 100)}%</span></div>
+      <div class="bar"><i style="width:${d.posted / d.plan * 100}%"></i></div>
+      <div class="psub"><span>${rest ? `게시 전 ${rest}건${d.late ? ` <span class="w">(${d.late}건은 예정일 지남)</span>` : ''}` : '남은 작업 없음'}</span><span>${d.canc ? `취소 ${d.canc}건` : ''}</span></div>
+    </div>
+    <div class="zone"><div class="zl">성과</div>
+      <div class="k3"><div><div class="l">조회수</div><div class="v">${compact(last(d.views))}</div></div><div><div class="l">저장수</div><div class="v">${nf.format(last(d.saves))}</div></div><div><div class="l">CPV</div><div class="v">${cpv(d)}</div></div></div>
+    </div>
+    <div class="zone flow"><div class="zl">날짜별 누적 ${mName()}</div>${chartSvg(d, 340, 136, false)}</div>
+    <button class="more" data-open="${d.id}">게시물별 지표 보기 →</button>
+  </div>`;
+}
 function drawer(d) {
-  const v = last(d.views), sv = last(d.saves), sum = W.slice(0, d.posted).reduce((a, b) => a + b, 0);
+  const v = last(d.views), sv = last(d.saves), n = Math.min(d.posted, W.length), sum = W.slice(0, n).reduce((a, b) => a + b, 0);
   let r = '';
   for (let i = 0; i < d.posted; i++) {
-    const pv = Math.round(v * W[i] / sum), ps = Math.round(sv * W[i] / sum), day = i % 4;
-    r += `<tr><td>${HANDLES[i]}</td><td>${TYPES[i]}</td><td>11/${9 + day} ${WD[day]}</td><td class="r num">${nf.format(pv)}</td><td class="r num">${nf.format(ps)}</td><td class="r num">${nf.format(Math.round(pv * 0.021))}</td><td class="r num">${(d.cost / d.posted / pv).toFixed(1)}원</td></tr>`;
+    const day = i % 4;
+    if (TYPES[i] === 'RT') { r += `<tr><td>${HANDLES[i]}</td><td>RT</td><td>11/${9 + day} ${DAYS[day]}</td><td class="r dim">-</td><td class="r dim">-</td><td class="r dim">-</td><td class="r dim">-</td></tr>`; continue; }
+    const pv = Math.round(v * W[i] / sum), ps = Math.round(sv * W[i] / sum);
+    r += `<tr class="go"><td>${HANDLES[i]}</td><td>${TYPES[i]}</td><td>11/${9 + day} ${DAYS[day]}</td><td class="r num">${nf.format(pv)}</td><td class="r num">${nf.format(ps)}</td><td class="r num">${nf.format(Math.round(pv * 0.021))}</td><td class="r num">${(d.cost / d.posted / pv).toFixed(1)}원</td></tr>`;
   }
   let u = '';
   for (let i = d.posted; i < d.plan; i++) {
-    const isLate = i - d.posted < d.late, day = isLate ? 1 + (i % 2) : 4 + (i % 3);
-    u += `<tr><td>${HANDLES[i]}</td><td>${TYPES[i]}</td><td class="${isLate ? 'late' : ''}">11/${9 + day} ${WD[day]}${isLate ? ` (${TODAY - day}일 지남)` : ''}</td></tr>`;
+    const k = i - d.posted, isLate = k < d.late, day = isLate ? 1 + (k % 2) : 4 + (k % 3), undated = !isLate && k === d.plan - d.posted - 1 && d.plan - d.posted - d.late > 2;
+    u += `<tr><td>${HANDLES[i % HANDLES.length]}</td><td>${TYPES[i % TYPES.length]}</td><td class="${isLate ? 'late' : undated ? 'dim' : ''}">${undated ? '미정' : `11/${9 + day} ${DAYS[day]}${isLate ? ` (${TODAY - day}일 지남)` : ''}`}</td></tr>`;
   }
   return `<div class="shade" id="shade"></div><div class="drawer" role="dialog" aria-label="${d.name} 게시물별 지표">
     <div class="dhead"><div><div class="t">${d.name}</div><div class="w">11월 2주차, 게시 ${d.posted} / ${d.plan}건</div></div><button class="x" id="close" aria-label="닫기">✕</button></div>
     <div class="kpis"><div class="kpi"><div class="l">조회수</div><div class="v">${compact(v)}</div></div><div class="kpi"><div class="l">저장수</div><div class="v">${nf.format(sv)}</div></div><div class="kpi"><div class="l">CPV</div><div class="v">${cpv(d)}</div><div class="d">비용 ${nf.format(d.cost / 10000)}만원</div></div></div>
-    <div class="ph" style="margin-top:0">날짜별 누적 ${mName()}</div>${chartSvg(d, 220, true)}
+    <div class="ph" style="margin-top:0">날짜별 누적 ${mName()}</div>${chartSvg(d, 548, 220, true)}
     <div class="ph">게시된 작업 ${d.posted}건</div><div class="phs">조회수가 많은 순서예요. 줄을 누르면 X 게시물이 새 창으로 열려요.</div>
     <div class="scroll"><table><thead><tr><th>인플루언서</th><th>작업 내용</th><th>게시일</th><th class="r">조회수</th><th class="r">저장수</th><th class="r">좋아요</th><th class="r">CPV</th></tr></thead><tbody>${r}</tbody></table></div>
     ${u ? `<div class="ph">게시 전 작업 ${d.plan - d.posted}건</div><div class="scroll"><table><thead><tr><th>인플루언서</th><th>작업 내용</th><th>게시 예정일</th></tr></thead><tbody>${u}</tbody></table></div>` : ''}
     <div class="dfoot"><a class="link" href="#" onclick="return false">${d.name} 캠페인 열기 →</a></div></div>`;
 }
 function render() {
-  document.getElementById('body').innerHTML = `<div class="cards">${DATA.map(d => d.plan === 0
-    ? `<div class="ccard"><div class="top"><div class="pn">${d.name}</div>${status(d)}</div><div class="empty">아직 작업이 등록되지 않았어요.</div></div>`
-    : `<div class="ccard ${open === d.id ? 'on' : ''}"><div class="top"><div class="pn">${d.name}</div>${status(d)}</div>
-        <div class="pr"><span class="num">게시 ${d.posted} / ${d.plan}건</span><div class="bar"><i style="width:${(d.posted / d.plan) * 100}%"></i></div></div>
-        <div class="k3"><div><div class="l">조회수</div><div class="v">${compact(last(d.views))}</div></div><div><div class="l">저장수</div><div class="v">${nf.format(last(d.saves))}</div></div><div><div class="l">CPV</div><div class="v">${cpv(d)}</div></div></div>
-        ${chartSvg(d, 150, false)}
-        <div class="ft"><button class="link" data-open="${d.id}">게시물별 지표 보기 →</button></div></div>`).join('')}</div>`;
+  document.getElementById('cards').innerHTML = DATA.map(card).join('');
   const d = DATA.find(z => z.id === open);
   document.getElementById('over').innerHTML = d ? drawer(d) : '';
-  document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => { open = b.dataset.open; render(); });
-  if (d) { document.getElementById('close').onclick = document.getElementById('shade').onclick = () => { open = null; render(); }; }
+  document.querySelectorAll('[data-open]').forEach(b => b.onclick = () => { open = b.dataset.open; render(); document.getElementById('app').scrollIntoView({ block:'start' }); });
+  if (d) document.getElementById('close').onclick = document.getElementById('shade').onclick = () => { open = null; render(); };
 }
 document.querySelectorAll('#seg button').forEach(b => b.onclick = () => { metric = b.dataset.m; document.querySelectorAll('#seg button').forEach(z => z.classList.toggle('on', z === b)); render(); });
-render();
+tiles(); render();
 </script>
 </body>
 </html>

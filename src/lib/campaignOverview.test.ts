@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveWeek, plannedCount, quantityOf, cardStatus, CARD_STATUS_LABEL, type Quantity, perfOf, formatCpv, chartDays, flowChart, type DayPoint } from './campaignOverview.ts';
+import { resolveWeek, plannedCount, quantityOf, cardStatus, CARD_STATUS_LABEL, type Quantity, perfOf, formatCpv, chartDays, flowChart, type DayPoint, type FlowChart } from './campaignOverview.ts';
 import type { CampaignTaskItem } from './campaignStore.ts';
 
 let n = 0;
@@ -86,6 +86,12 @@ test('chartDays: 이번 주는 7칸에 오늘까지, 지난 주는 일요일+14�
   assert.equal(past.days.at(-1), '2026-11-12'); assert.equal(past.todayIndex, past.days.length - 1);
   assert.equal(chartDays('2026-10-05', '2026-11-12').days.at(-1), '2026-10-25');
 });
+// 모든 차트의 선 끝(todayIndex)은 카드 숫자와 같아야 한다(카드가 '-'면 0)
+const assertEndsAtCard = (c: FlowChart, tasks: CampaignTaskItem[]) => {
+  const p = perfOf(tasks);
+  assert.equal(c.views[c.todayIndex], p.views.value ?? 0);
+  assert.equal(c.bookmarks[c.todayIndex], p.bookmarks.value ?? 0);
+};
 test('flowChart: 측정 없는 날은 앞 값을 잇고, 측정 전은 0, 오늘 뒤는 null, 마지막 점은 최신값', () => {
   const tasks = [
     task({ id: 'a', postedAt: '2026-11-09', perf: { postCount: 1, views: 5200, likes: 0, bookmarks: 52 } }),
@@ -101,18 +107,44 @@ test('flowChart: 측정 없는 날은 앞 값을 잇고, 측정 전은 0, 오늘
   const c = flowChart(tasks, pts, '2026-11-09', '2026-11-12')!;
   assert.deepEqual(c.views, [1000, 1000, 4500, 6000, null, null, null]);
   assert.deepEqual(c.postedPerDay, [1, 0, 1, 0, 0, 0, 0]);
+  assertEndsAtCard(c, tasks);
   assert.equal(flowChart([task({ postedAt: '2026-11-12', perf: null })], [], '2026-11-09', '2026-11-12'), null);
 });
-test('flowChart: null 점은 건너뛰고 앞 값, 오늘 칸의 null 최신값은 이어온 값', () => {
+test('flowChart: null 점은 건너뛰고 앞 값, 오늘 칸은 카드와 같다(최신값 null인 게시물은 0)', () => {
   const tasks = [task({ id: 'x', postedAt: '2026-11-09', perf: { postCount: 1, views: null, likes: 0, bookmarks: 30 } })];
   const pts: DayPoint[] = [
     { taskId: 'x', day: '2026-11-09', views: 100, bookmarks: 10 },
     { taskId: 'x', day: '2026-11-10', views: null, bookmarks: 20 },
   ];
   const c = flowChart(tasks, pts, '2026-11-09', '2026-11-11')!;
-  assert.deepEqual(c.views, [100, 100, 100, null, null, null, null]);
+  // 조회 최신값이 null이라 카드 조회는 '-' → 오늘 칸 0(이어온 100을 쓰지 않는다)
+  assert.deepEqual(c.views, [100, 100, 0, null, null, null, null]);
   assert.deepEqual(c.bookmarks, [10, 20, 30, null, null, null, null]);
+  assertEndsAtCard(c, tasks);
   // 점은 없어도 최신값이 있으면 차트를 그린다
   const only = flowChart(tasks, [], '2026-11-09', '2026-11-11')!;
   assert.deepEqual(only.bookmarks, [0, 0, 30, null, null, null, null]);
+  assertEndsAtCard(only, tasks);
+  // 점은 있어도 카드에 숫자가 없으면 그리지 않는다
+  const blank = [task({ id: 'y', postedAt: '2026-11-09', perf: { postCount: 1, views: null, likes: null, bookmarks: null } })];
+  assert.equal(flowChart(blank, [{ taskId: 'y', day: '2026-11-09', views: 50, bookmarks: 1 }], '2026-11-09', '2026-11-11'), null);
+});
+test('flowChart: 지난 주는 오늘(마지막 칸)에서 선이 끝나고 그 값은 최신값', () => {
+  const tasks = [
+    task({ id: 'p', postedAt: '2026-11-03', perf: { postCount: 1, views: 7000, likes: 0, bookmarks: 70 } }),
+    task({ id: 'q', postedAt: '2026-11-05', perf: { postCount: 1, views: 3000, likes: 0, bookmarks: 30 } }),
+  ];
+  const pts: DayPoint[] = [
+    { taskId: 'p', day: '2026-11-03', views: 2000, bookmarks: 20 },
+    { taskId: 'q', day: '2026-11-06', views: 1000, bookmarks: 10 },
+    { taskId: 'p', day: '2026-11-10', views: 6000, bookmarks: 60 },
+  ];
+  const c = flowChart(tasks, pts, '2026-11-02', '2026-11-12')!;
+  assert.equal(c.days.at(-1), '2026-11-12');
+  assert.equal(c.todayIndex, c.days.length - 1);
+  assert.equal(c.views[c.todayIndex], 10000); assert.equal(c.bookmarks[c.todayIndex], 100);
+  assert.equal(c.views[c.days.indexOf('2026-11-09')], 3000);   // 2000 + 1000 이어옴
+  assert.equal(c.views.filter((v) => v === null).length, 0);
+  assert.equal(c.postedPerDay[c.days.indexOf('2026-11-03')], 1);
+  assertEndsAtCard(c, tasks);
 });

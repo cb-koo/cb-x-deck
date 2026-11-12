@@ -69,7 +69,8 @@ export function perfOf(tasks: CampaignTaskItem[]): Perf {
   const views = s.perf.views;
   let cpv: CpvView = { kind: 'none' };
   if (spentKrw > 0) {
-    if (views) cpv = { kind: 'value', krw: spentKrw / views };
+    // CPV 공식은 flowStats 하나만 — 조회가 있을 때만 값이 있다
+    if (views && s.cpvKrw !== null) cpv = { kind: 'value', krw: s.cpvKrw };
   } else {
     // flowStats는 비용 0원에도 cpvKrw 0을 준다 — 비용 미입력과 무상을 가르려면 작업을 직접 본다
     const posted = tasks.filter(isLivePosted);
@@ -110,13 +111,14 @@ export function chartDays(weekStart: string, today: string): { days: string[]; t
 type Key = 'views' | 'bookmarks';
 
 // 날짜별 누적 = 게시물마다 그날까지의 마지막 실측값(null은 건너뜀, 측정 전은 0)의 합.
-// 오늘 칸은 task.perf 최신값으로 덮어 카드 숫자와 선 끝이 같게 한다.
+// 오늘 칸은 카드와 같은 규칙(flowStats — 최신값이 null인 게시물은 뺀다)으로 덮어 카드 숫자와 선 끝이 같게 한다.
 export function flowChart(tasks: CampaignTaskItem[], points: DayPoint[], weekStart: string, today: string): FlowChart | null {
   const posted = tasks.filter(isLivePosted);
   const ids = new Set(posted.map((t) => t.id));
   const pts = points.filter((p) => ids.has(p.taskId)).sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+  // 카드에 숫자가 하나도 없으면(조회·저장 모두 '-') 차트도 그리지 않는다 — 선만 있고 끝이 0으로 꺾이는 모순을 막는다
   const hasLatest = posted.some((t) => t.perf?.views != null || t.perf?.bookmarks != null);
-  if (pts.length === 0 && !hasLatest) return null;
+  if (!hasLatest) return null;
 
   const { days, todayIndex } = chartDays(weekStart, today);
   // 게시물별로 그날까지 이어온 값
@@ -131,11 +133,8 @@ export function flowChart(tasks: CampaignTaskItem[], points: DayPoint[], weekSta
   };
   const series = (key: Key): Array<number | null> => days.map((day, i) => {
     if (i > todayIndex) return null;
+    if (i === todayIndex) return posted.reduce((sum, t) => sum + (t.perf?.[key] ?? 0), 0);
     const m = carry(key, day);
-    if (i === todayIndex) {
-      // 최신값이 null이면 이어온 값 → 없으면 0
-      return posted.reduce((sum, t) => sum + (t.perf?.[key] ?? m.get(t.id) ?? 0), 0);
-    }
     let sum = 0;
     for (const v of m.values()) sum += v;
     return sum;

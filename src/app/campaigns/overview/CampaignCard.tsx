@@ -96,7 +96,7 @@ export function CampaignCard({ card, metric, open, onOpen }: { card: OverviewCar
         )}
       </div>
 
-      <button type="button" onClick={onOpen} aria-label={`${card.title} 게시물별 지표 보기`}
+      <button type="button" onClick={onOpen} aria-label={`${card.title} 게시물별 지표 보기`} aria-expanded={open} aria-haspopup="dialog"
               className="block w-full cursor-pointer border-t border-x-border bg-white px-[18px] py-[13px] text-right text-[14px] font-semibold text-x-blue-text hover:bg-x-surface">
         게시물별 지표 보기 →
       </button>

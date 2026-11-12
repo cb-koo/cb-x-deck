@@ -10,6 +10,8 @@ import { resolveWeek, type Overview } from '@/lib/campaignOverview';
 import { weekName } from '@/lib/campaignListView';
 import { OverviewTiles } from './OverviewTiles';
 import { CampaignCard, METRIC_LABEL, type OverviewMetric } from './CampaignCard';
+import { CampaignPanel } from './CampaignPanel';
+import { LongCampaignTable } from './LongCampaignTable';
 
 export default function CampaignOverviewPage() {
   // useSearchParams는 Suspense 경계 필수(influencers/performance 관례)
@@ -71,10 +73,15 @@ function OverviewView() {
     setWeek(weekStart);
   };
 
+  // 패널의 Esc 처리가 렌더마다 다시 걸리지 않게 고정
+  const closePanel = useCallback(() => setOpenId(null), []);
+
   const ready = loaded && !loadErr && data !== null;
   const wk = resolveWeek(week, kstToday());
-  return (
-    // @container — 카드 3열·2열과 수량 칸 4칸은 창이 아니라 본문 폭으로 정한다(사이드바 유무와 무관, 시안 .main)
+  const weekLabel = weekName(wk.weekStart).replace(/월(?=\d)/, '월 ');
+  const openCard = ready ? data.cards.find((c) => c.campaignId === openId) ?? null : null;
+  return (<>
+    {/* @container — 카드 3열·2열과 수량 칸 4칸은 창이 아니라 본문 폭으로 정한다(사이드바 유무와 무관, 시안 .main) */}
     <main className="@container min-w-0 px-4 pb-7 pt-5 text-[15px] leading-[1.45] min-[901px]:px-7 min-[901px]:pb-9 min-[901px]:pt-7">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -85,7 +92,7 @@ function OverviewView() {
         </div>
         <div className="flex items-center gap-2">
           <button type="button" className={NAV_BTN} aria-label="지난 주" onClick={() => goWeek(addDays(wk.weekStart, -7))}>‹</button>
-          <b>{weekName(wk.weekStart).replace(/월(?=\d)/, '월 ')}</b>
+          <b>{weekLabel}</b>
           <span className="text-x-secondary">{dayWithDow(wk.weekStart)} ~ {dayWithDow(wk.weekEnd)}</span>
           {/* 아직 오지 않은 주는 볼 게 없다 — 이번 주에서 멈춘다 */}
           <button type="button" className={NAV_BTN} aria-label="다음 주" disabled={wk.isCurrent}
@@ -129,8 +136,10 @@ function OverviewView() {
           </div>
         )}
 
-        {/* Task 6: 방문협찬(장기 캠페인) 표 LongCampaignTable(data.long)이 여기, 옆 패널 CampaignPanel(openId·metric)이 main 끝에 붙는다 */}
+        <LongCampaignTable rows={data.long} isCurrentWeek={wk.isCurrent} />
       </>)}
     </main>
-  );
+    {/* 패널은 main 밖에 — main의 @container(크기 격리)가 fixed의 기준이 되어 패널이 본문 안에 갇히는 것을 피한다 */}
+    {openCard && <CampaignPanel card={openCard} weekLabel={weekLabel} metric={metric} onClose={closePanel} />}
+  </>);
 }

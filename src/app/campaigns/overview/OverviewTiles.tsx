@@ -1,5 +1,6 @@
 // 캠페인 현황 — 수량 네 칸(스펙 §4-2, 시안 tiles()). 주차 캠페인만 합친 값이고 계산은 전부 buildOverview가 했다.
 import type { OverviewTiles as Tiles } from '@/lib/campaignOverview';
+import { tileDescriptions } from '@/lib/campaignStatusSlack';
 
 const TILE = 'rounded-[12px] border px-[18px] py-4';
 const LABEL = 'text-[13px] text-x-secondary';
@@ -27,13 +28,14 @@ export function ProgressBar({ ratio, className = '' }: { ratio: number; classNam
 export function OverviewTiles({ tiles: t }: { tiles: Tiles }) {
   // 밀린 게 하나라도 있을 때만 주황 — 0건에 강조색을 쓰면 문제가 있는 것처럼 보인다(스펙 §4-2)
   const late = t.overdue > 0;
-  const lateBy = t.overdueBy.map((o) => `${o.title} ${o.count}건`).join(', ') + (t.overdueMore > 0 ? `, 외 ${t.overdueMore}곳` : '');
+  // 보조 글은 슬랙 공유 이미지·메시지와 같은 함수 — 셋이 같은 말을 한다
+  const d = tileDescriptions(t);
   return (
     <div className="grid grid-cols-2 gap-3 @min-[560px]:grid-cols-4">
       <div className={`${TILE} border-x-border`}>
         <div className={LABEL}>계획</div>
         <Value n={t.planned} />
-        <div className={DESC}>캠페인 {t.campaignCount}개{t.unsetCount > 0 ? `, ${t.unsetCount}개는 세팅 전` : ''}</div>
+        <div className={DESC}>{d.planned}</div>
       </div>
       <div className={`${TILE} border-x-border`}>
         <div className={LABEL}>게시 완료</div>
@@ -43,12 +45,12 @@ export function OverviewTiles({ tiles: t }: { tiles: Tiles }) {
       <div className={`${TILE} ${late ? 'border-[#f6dfbd] bg-[#fff4e5]' : 'border-x-border'}`}>
         <div className={LABEL}>예정일 지난 미게시</div>
         <Value n={t.overdue} warn={late} />
-        <div className={DESC}>{late ? lateBy : '없음'}</div>
+        <div className={DESC}>{d.overdue}</div>
       </div>
       <div className={`${TILE} border-x-border`}>
         <div className={LABEL}>남은 게시 예정</div>
         <Value n={t.remaining} />
-        {t.undated > 0 && <div className={DESC}>예정일 미정 {t.undated}건 포함</div>}
+        {d.remaining && <div className={DESC}>{d.remaining}</div>}
       </div>
     </div>
   );

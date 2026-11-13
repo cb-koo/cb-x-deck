@@ -101,3 +101,28 @@ test('pickChannel: 본문 채널 > 환경 변수, 허용 목록 밖은 400', () 
   assert.equal((pickChannel({}, undefined) as Response).status, 400);
   assert.deepEqual([...ALLOWED_CHANNELS], ['C0AD9E5HE1K', 'C0CGWSFBDPV']);
 });
+
+test('이미지 블록이 끝내 거절되면(invalid_blocks) 이미지 없이 한 번 더 보낸다', async () => {
+  const { SlackApiError } = await import('./slackUpload.ts');
+  const posted: Array<{ blocks: SlackBlock[] }> = [];
+  const { d, logs } = deps({
+    post: async (_ch, msg) => {
+      posted.push(msg);
+      if (msg.blocks.some((b) => b.type === 'image')) throw new SlackApiError('chat.postMessage', 'invalid_blocks');
+      return { ts: '3.4' };
+    },
+  });
+  const r = await sendCampaignStatus('C0CGWSFBDPV', d);
+  assert.deepEqual(r, { sent: true, channel: 'C0CGWSFBDPV', ts: '3.4', withImage: false });
+  assert.equal(posted.length, 2);
+  assert.ok(!posted[1].blocks.some((b) => b.type === 'image'));
+  assert.equal(logs.length, 1);
+});
+
+test('이미지 없는 메시지의 전송 오류는 다시 보내지 않고 던진다', async () => {
+  const { SlackApiError } = await import('./slackUpload.ts');
+  let calls = 0;
+  const { d } = deps({ overview: empty, post: async () => { calls++; throw new SlackApiError('chat.postMessage', 'invalid_blocks'); } });
+  await assert.rejects(sendCampaignStatus('C0CGWSFBDPV', d), /invalid_blocks/);
+  assert.equal(calls, 1);
+});

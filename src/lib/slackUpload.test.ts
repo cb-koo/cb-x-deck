@@ -62,3 +62,9 @@ test('업로드 중간 실패는 그 단계 이름으로 SlackApiError', async (
   await assert.rejects(uploadPrivateImage(TOKEN, new ArrayBuffer(1), 'a.png', 'a', f), (e: unknown) =>
     e instanceof SlackApiError && e.method === 'files.getUploadURLExternal' && e.code === 'invalid_auth');
 });
+
+test('기본 재시도는 2번(총 3번) — 라우트 60초 안에 들어가게', async () => {
+  const { f, calls } = fake(Array.from({ length: 5 }, () => () => json({ ok: false, error: 'invalid_blocks' })));
+  await assert.rejects(postBlocks(TOKEN, 'C1', { text: 't', blocks: [] }, f, { delayMs: 0 }), SlackApiError);
+  assert.equal(calls.length, 3);
+});

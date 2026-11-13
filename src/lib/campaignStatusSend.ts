@@ -3,6 +3,7 @@ import type { Overview } from './campaignOverview.ts';
 import { buildStatusMessage, type SlackBlock } from './campaignStatusSlack.ts';
 import { holidayOn } from './koreanHolidays.ts';
 import { kstDate } from './datetime.ts';
+import { SlackApiError } from './slackUpload.ts';
 
 // 보낼 수 있는 채널 — 운영 채널(#f-x-채널-통합관리)과 테스트 채널(#test-channel). 그 밖은 거부해 잘못 나가는 일을 막는다
 export const ALLOWED_CHANNELS = ['C0AD9E5HE1K', 'C0CGWSFBDPV'] as const;
@@ -37,9 +38,18 @@ export async function sendCampaignStatus(channel: string, deps: SendDeps): Promi
       deps.log(`campaign-status-slack: 이미지 없이 보냄 — ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  const msg = buildStatusMessage(o, at, { pageUrl: STATUS_PAGE_URL, imageFileId });
-  const { ts } = await deps.post(channel, msg);   // 실패는 그대로 던진다 — 자동 재전송은 중복 발송 위험
-  return { sent: true, channel, ts, withImage: imageFileId !== null, ...(h === 'unknown-year' ? { holidayListMissing: true as const } : {}) };
+  const missing = h === 'unknown-year' ? { holidayListMissing: true as const } : {};
+  try {
+    const { ts } = await deps.post(channel, buildStatusMessage(o, at, { pageUrl: STATUS_PAGE_URL, imageFileId }));
+    return { sent: true, channel, ts, withImage: imageFileId !== null, ...missing };
+  } catch (e) {
+    // 올린 이미지가 끝내 처리되지 않아(invalid_blocks) 슬랙이 메시지를 거절했을 때만, 이미지 없이 한 번 더 보낸다.
+    // 거절된 것이라 중복 발송이 아니다. 그 밖의 실패는 그대로 던진다 — 자동 재전송은 중복 발송 위험
+    if (!(imageFileId && e instanceof SlackApiError && e.code === 'invalid_blocks')) throw e;
+    deps.log('campaign-status-slack: 이미지 블록이 거절돼 이미지 없이 다시 보냄(invalid_blocks)');
+    const { ts } = await deps.post(channel, buildStatusMessage(o, at, { pageUrl: STATUS_PAGE_URL, imageFileId: null }));
+    return { sent: true, channel, ts, withImage: false, ...missing };
+  }
 }
 
 // 예약 실행 인증 — 시크릿 미설정이면 전부 거부(fail-closed, settlement auto-send와 같은 계약)

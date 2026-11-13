@@ -5,7 +5,8 @@ import type { SlackBlock } from './campaignStatusSlack.ts';
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 const API = 'https://slack.com/api';
-const TIMEOUT_MS = 15_000;   // 호출 하나당 — 라우트 전체 60초 안에 업로드 3번 + 전송 재시도가 들어가게
+// 호출 하나당 — 라우트 전체 60초 안에 들어가게: 업로드 3번(21초) + 전송 최대 3번(21초 + 대기 3초) + DB·그리기 여유
+const TIMEOUT_MS = 7_000;
 
 export class SlackApiError extends Error {
   constructor(public method: string, public code: string) {
@@ -43,7 +44,7 @@ export async function postBlocks(
   token: string, channel: string, msg: { text: string; blocks: SlackBlock[] }, f: FetchLike = fetch,
   opts: { retries?: number; delayMs?: number } = {},
 ): Promise<{ ts: string }> {
-  const retries = opts.retries ?? 3, delayMs = opts.delayMs ?? 1500;
+  const retries = opts.retries ?? 2, delayMs = opts.delayMs ?? 1500;
   for (let attempt = 0; ; attempt++) {
     try {
       const r = await call(f, token, 'chat.postMessage', { json: { channel, text: msg.text, blocks: msg.blocks, unfurl_links: false } });

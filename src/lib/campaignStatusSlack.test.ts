@@ -98,6 +98,7 @@ test('카드 0개 → 이미지 없는 세 블록, imageFileId null → image �
   const empty = buildStatusMessage(ov([]), AT, { pageUrl: URL, imageFileId: 'F1' });
   assert.deepEqual(empty.blocks.map((b) => b.type), ['section', 'section', 'section']);
   assert.ok(text(empty.blocks[1]).includes('이번 주에 시작한 주차 캠페인이 아직 없어요.'));
+  assert.equal(empty.text, '📊 11월 2주차 캠페인 현황: 이번 주에 시작한 주차 캠페인이 아직 없어요.');   // 알림 미리보기도 같은 말('0건 중 0건'은 오류처럼 읽힌다)
   const noImg = buildStatusMessage(base, AT, { pageUrl: URL, imageFileId: null });
   assert.ok(!noImg.blocks.some((b) => b.type === 'image'));
 });

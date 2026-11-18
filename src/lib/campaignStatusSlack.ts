@@ -40,7 +40,9 @@ export function buildStatusMessage(
   const text = `📊 ${week} 캠페인 현황: ${t.planned}건 중 ${t.posted}건 게시, ${overdueText}`;
 
   if (o.cards.length === 0) {
-    return { text, blocks: [title, mrkdwn('이번 주에 시작한 주차 캠페인이 아직 없어요.'), link] };
+    // 알림 미리보기도 같은 말로 — '0건 중 0건 게시'는 잠금 화면에서 오류처럼 읽힌다
+    const none = '이번 주에 시작한 주차 캠페인이 아직 없어요.';
+    return { text: `📊 ${week} 캠페인 현황: ${none}`, blocks: [title, mrkdwn(none), link] };
   }
 
   const d = tileDescriptions(t);

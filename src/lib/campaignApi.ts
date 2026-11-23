@@ -87,6 +87,7 @@ export type TaskPatchRequest = {
   agreement?: TaskAgreementInput | null;
   paymentMethodId?: string | null;   // 이 작업에만 쓸 결제 수단(§8-2) — null = 기본 수단으로. 인플이 바뀌면 서버가 비운다
   otherKind?: string; doneNote?: string;   // 기타 협찬(088)만 — 무엇을 했는지·링크 없이 완료한 건의 확인 메모
+  noCost?: boolean;   // 비용 없음(064) — 전 유형(koo 11-23). true면 서버가 금액을 비운다. 게시 확인과 함께 보낼 수 있다
 };
 // 기타 협찬의 '무엇을 했는지' 추천(전에 쓴 말, 많이 쓴 순)
 export const fetchOtherKinds = () => call<Array<{ kind: string; count: number }>>('/api/campaigns/tasks/other-kinds');

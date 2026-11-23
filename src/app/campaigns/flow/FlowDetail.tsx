@@ -42,6 +42,7 @@ import { CampaignHeader } from '../CampaignHeader';
 import { confirmReservationDelete } from '../reservationDeleteConfirm';
 import { TaskDeletionLog } from './TaskDeletionLog';
 import { useCampaignTaskActions } from '../useCampaignTaskActions';
+import type { CostAtPostExtra } from '@/lib/costAtPost';
 import { LinkPostModal } from '../LinkPostModal';
 import { FlowFilterBar, type FlowSettleLine } from './FlowFilterBar';
 import { fetchPending } from '@/lib/settlementApi';
@@ -355,8 +356,8 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
   // 낙관적 갱신으로는 못 채운다. 링크가 있었을 때만 상세를 다시 읽어 조회·좋아요가 표에 뜨게 한다.
   const actions = useMemo(() => ({
     ...taskActions,
-    markPosted: async (t: CampaignTaskItem, date: string, postUrl?: string, proof?: string) => {
-      const ok = await taskActions.markPosted(t, date, postUrl, proof);
+    markPosted: async (t: CampaignTaskItem, date: string, postUrl?: string, proof?: string, costExtra?: CostAtPostExtra) => {
+      const ok = await taskActions.markPosted(t, date, postUrl, proof, costExtra);
       if (ok && postUrl) void load();
       return ok;
     },
@@ -1191,6 +1192,8 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                              <CostConfirmField key={panelTask.influencerHandle ?? ''} value={panelTask.cost} option={optionFor(panelTask.influencerHandle)} type={panelTask.type}
                                                label={panelTask.type === 'visit' ? '예산' : '비용'}
                                                onSave={(c, reason) => actions.changeCost(panelTask, c, reason)}
+                                               // 방금 저장한 금액 [되돌리기] — 직전 값(없었으면 빈 값)으로 다시 저장한다(이력에도 남는다)
+                                               onUndo={(prev) => actions.changeCost(panelTask, prev)}
                                                onSaveProfile={(opt, c) => saveProfilePricing(opt, c, panelTask.type)}
                                                disabledReason={panelTask.influencerHandle ? undefined : ''}
                                                reasonRequired={isPaidBadge(panelTask.settlement)} />
@@ -1211,7 +1214,8 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                        ? <OtherDoneBox task={panelTask} today={data.today}
                                        proofSignedUrl={panelTask.proof ? proofUrls[panelTask.proof.url] ?? null : null}
                                        focus={postedFocusId === panelTask.id} onFocused={clearPostedFocus}
-                                       onDone={(date, done, otherKind) => actions.markDoneOther(panelTask, date, done, otherKind)}
+                                       costOption={optionFor(panelTask.influencerHandle)}
+                                       onDone={(date, done, otherKind, costExtra) => actions.markDoneOther(panelTask, date, done, otherKind, costExtra)}
                                        onSetProof={(p) => actions.setProof(panelTask, p)}
                                        onCancel={() => menuActions.cancel(panelTask)} />
                      : panelTask && !panelTask.cancelledAt
@@ -1220,8 +1224,9 @@ export function FlowDetail({ id, linkedTaskId = null, personId = null, personHan
                                     focus={postedFocusId === panelTask.id} onFocused={clearPostedFocus}
                                     // 링크로 게시 확인하면 서버가 본 게시물 성과와 인플 본인 댓글을 붙인다(self-replies §3) — 응답 전에 끝나고,
                                     // actions.markPosted가 링크가 있으면 상세를 다시 읽으니 그대로 보인다
-                                    onMarkPosted={(date, url, proof) => actions.markPosted(panelTask, date, url, proof)}
-                                    onMarkPostedLinkless={(date, reason) => actions.markPostedLinkless(panelTask, date, data.today, reason)}
+                                    costOption={optionFor(panelTask.influencerHandle)}
+                                    onMarkPosted={(date, url, proof, costExtra) => actions.markPosted(panelTask, date, url, proof, costExtra)}
+                                    onMarkPostedLinkless={(date, reason, costExtra) => actions.markPostedLinkless(panelTask, date, data.today, reason, costExtra)}
                                     onSetProof={(p) => actions.setProof(panelTask, p)}
                                     onOpenRemoved={() => setRemovedOpen(true)}
                                     onUnmarkRemoved={() => void actions.unmarkRemoved(panelTask)}

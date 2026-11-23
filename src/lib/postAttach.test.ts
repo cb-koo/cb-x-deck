@@ -71,7 +71,7 @@ async function setup(type: 'post' | 'rt' = 'post', handle: string | null = null)
   n++;
   const [t] = await createTasks(sql, camp.id, {
     type, targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null,
-    items: handle ? [{ handle, cost: null }] : [],
+    items: handle ? [{ handle, cost: { amount: 1000, currency: 'JPY' } }] : [],   // 금액 필수 — 비용이 빈 작업은 게시물 연결이 거절된다(costAtPost)
   });
   return { campaignId: camp.id, clientId: c.id, clientName: c.name, task: t };
 }

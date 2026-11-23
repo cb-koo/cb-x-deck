@@ -11,7 +11,7 @@ import {
   addTrackedPost, listTrackedPosts, findByTweetId, findTrackedPostById,
   appendSnapshot, recordMissing, linkTrackedPost, deleteTrackedPost, listSnapshots, setRole,
   listTrackedPostIdsForCampaign,
-  TrackingLinkError,
+  TrackingLinkError, trackingLinkMessage,
 } from './trackingStore.ts';
 
 const sql = getSql();
@@ -188,7 +188,7 @@ test('7) 역할 — 원고의 링크 URL이 든 게시물은 link, 가장 이른
 test('8) 작업으로 연결 — task_id·draft_id 함께, 작업의 post_url/posted_at 보충(비어 있을 때만), 해제는 둘 다 null', async () => {
   const c = await createClient(sql, P + '클라');
   const camp = await createCampaign(sql, { clientId: c.id, clientName: c.name, name: P + 'c', nameEn: `${P.toLowerCase()}-c`, startsOn: '2026-08-31', endsOn: '2026-09-06', kind: null, note: '', createdBy: null });
-  const [task] = await createTasks(sql, camp.id, { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, type: 'post', items: [{ handle: 'mika', cost: null }] });
+  const [task] = await createTasks(sql, camp.id, { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, type: 'post', items: [{ handle: 'mika', cost: { amount: 1000, currency: 'JPY' } }] });   // 금액 필수 — 비용이 빈 작업은 연결이 거절된다(아래 8-b)
   const draftId = await insertDraft(sql, { clientId: c.id, clientName: c.name, procedureNames: [], direction: P + '방향', format: 'single', referenceMode: 'off', refs: [], content: { posts: [{ text: 'x', media: [] }] }, model: null, memberId: null, taskId: task.id });
   const { row } = await addTrackedPost(sql, { tweetId: P + 'L1', authorHandle: 'mika', text: '', postedAt: '2026-09-01T20:00:00Z', createdBy: null, metrics: M, raw: null });
   assert.equal(await linkTrackedPost(sql, row.id, { taskId: task.id }), true);
@@ -207,6 +207,34 @@ test('8) 작업으로 연결 — task_id·draft_id 함께, 작업의 post_url/po
   assert.equal(cleared.taskId, null); assert.equal(cleared.draftId, null);
   assert.equal((await getTask(sql, task.id))!.postedAt, '2026-09-02');       // 되돌리지 않는다
   assert.equal(await linkTrackedPost(sql, '00000000-0000-0000-0000-000000000000', { draftId: null }), false);
+});
+
+test("8-b) 작업으로 연결 — 비용이 빈 작업은 거절(연결이 곧 게시 확인이라 비용 없이 게시되지 않게), '비용 없음'·이미 게시된 작업은 연결된다", async () => {
+  const c = await createClient(sql, P + '비용클라');
+  const camp = await createCampaign(sql, { clientId: c.id, clientName: c.name, name: P + 'nc', nameEn: `${P.toLowerCase()}-nc`, startsOn: '2026-08-31', endsOn: '2026-09-06', kind: null, note: '', createdBy: null });
+  const base = { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, type: 'post' as const };
+  const [empty, free, posted] = await createTasks(sql, camp.id, { ...base, items: [{ handle: P + '_n1', cost: null }, { handle: P + '_n2', cost: null }, { handle: P + '_n3', cost: null }] });
+  const mkPost = async (id: string) => (await addTrackedPost(sql, { tweetId: P + id, authorHandle: 'x', text: '', postedAt: '2026-09-01T03:00:00Z', createdBy: null, metrics: M, raw: null })).row;
+  // 금액도 '비용 없음'도 없음 → 거절, 아무것도 안 바뀐다
+  const r1 = await mkPost('N1');
+  await assert.rejects(sql.begin(async (tx) => linkTrackedPost(tx as unknown as typeof sql, r1.id, { taskId: empty.id })),
+    (e: unknown) => e instanceof TrackingLinkError && e.code === 'no-cost-task');
+  assert.equal((await findTrackedPostById(sql, r1.id))!.taskId, null);
+  assert.equal((await getTask(sql, empty.id))!.postedAt, null);
+  assert.match(trackingLinkMessage(new TrackingLinkError('no-cost-task')), /작업 비용이 비어 있어요/);
+  // 원고로 연결해도 같은 판정(원고에 붙은 작업이 게시 확인된다)
+  const draftId = await insertDraft(sql, { clientId: c.id, clientName: c.name, procedureNames: [], direction: P + '비용방향', format: 'single', referenceMode: 'off', refs: [], content: { posts: [{ text: 'x', media: [] }] }, model: null, memberId: null, taskId: empty.id });
+  await assert.rejects(sql.begin(async (tx) => linkTrackedPost(tx as unknown as typeof sql, r1.id, { draftId })),
+    (e: unknown) => e instanceof TrackingLinkError && e.code === 'no-cost-task');
+  // '비용 없음' 작업은 연결된다
+  await sql`update campaign_task set no_cost = true where id = ${free.id}`;
+  const r2 = await mkPost('N2');
+  assert.equal(await linkTrackedPost(sql, r2.id, { taskId: free.id }), true);
+  assert.equal((await getTask(sql, free.id))!.postedAt, '2026-09-01');
+  // 이미 게시 확인된 작업(옛 데이터·확장의 예약 게시 확인이 먼저 게시일을 쓴 경우)은 비용이 비어도 연결된다
+  await sql`update campaign_task set posted_at = '2026-09-01', posted_source = 'manual' where id = ${posted.id}`;
+  const r3 = await mkPost('N3');
+  assert.equal(await linkTrackedPost(sql, r3.id, { taskId: posted.id }), true);
 });
 
 test('9) 게시물 연결 — RT 작업에는 붙일 수 없다(증빙 없이 게시됨이 되는 우회 경로 차단)', async () => {
@@ -288,24 +316,24 @@ test('12) listTrackedPostIdsForCampaign — 게시 확인된·취소 아닌 작�
   const baseTask = { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, type: 'post' as const };
 
   // a: 게시 확인됨(취소 아님) — 포함 대상. linkTrackedPost(taskId)가 작업의 posted_at도 함께 채운다.
-  const [taskA] = await createTasks(sql, camp1.id, { ...baseTask, items: [{ handle: P + '_a', cost: null }] });
+  const [taskA] = await createTasks(sql, camp1.id, { ...baseTask, items: [{ handle: P + '_a', cost: { amount: 1000, currency: 'JPY' } }] });
   const postA = await addTrackedPost(sql, { tweetId: P + 'PA', authorHandle: P + '_a', text: '', postedAt: '2026-09-15T00:00:00Z', createdBy: null, metrics: M, raw: null });
   await linkTrackedPost(sql, postA.row.id, { taskId: taskA.id });
 
   // b: 취소된 작업 — DB 제약(campaign_task_cancel_xor_posted)상 취소는 게시 확인과 공존할 수 없어 posted_at은 없다.
   // 정상 경로로는 취소 작업에 게시물을 연결할 수 없으므로(linkTrackedPost가 거절) SQL로 직접 붙여 "취소 작업에 게시물이 붙어 있는" 상태를 재현한다.
-  const [taskB] = await createTasks(sql, camp1.id, { ...baseTask, items: [{ handle: P + '_b', cost: null }] });
+  const [taskB] = await createTasks(sql, camp1.id, { ...baseTask, items: [{ handle: P + '_b', cost: { amount: 1000, currency: 'JPY' } }] });
   await cancelTask(sql, taskB.id, { reason: 'declined', note: '', actorId: null, today: '2026-09-16' });
   const postB = await addTrackedPost(sql, { tweetId: P + 'PB', authorHandle: P + '_b', text: '', postedAt: null, createdBy: null, metrics: M, raw: null });
   await sql`update tracked_post set task_id = ${taskB.id} where id = ${postB.row.id}`;
 
   // c: 미게시 작업 — 게시물은 붙어 있지만 작업은 아직 게시 확인 전(직접 SQL로 연결해 posted_at 자동 보충을 피한다) → 제외 대상
-  const [taskC] = await createTasks(sql, camp1.id, { ...baseTask, items: [{ handle: P + '_c', cost: null }] });
+  const [taskC] = await createTasks(sql, camp1.id, { ...baseTask, items: [{ handle: P + '_c', cost: { amount: 1000, currency: 'JPY' } }] });
   const postC = await addTrackedPost(sql, { tweetId: P + 'PC', authorHandle: P + '_c', text: '', postedAt: null, createdBy: null, metrics: M, raw: null });
   await sql`update tracked_post set task_id = ${taskC.id} where id = ${postC.row.id}`;
 
   // d: 다른 캠페인(camp2)의 게시 확인된 작업 — 캠페인 필터로 제외
-  const [taskD] = await createTasks(sql, camp2.id, { ...baseTask, items: [{ handle: P + '_d', cost: null }] });
+  const [taskD] = await createTasks(sql, camp2.id, { ...baseTask, items: [{ handle: P + '_d', cost: { amount: 1000, currency: 'JPY' } }] });
   const postD = await addTrackedPost(sql, { tweetId: P + 'PD', authorHandle: P + '_d', text: '', postedAt: '2026-09-15T00:00:00Z', createdBy: null, metrics: M, raw: null });
   await linkTrackedPost(sql, postD.row.id, { taskId: taskD.id });
 

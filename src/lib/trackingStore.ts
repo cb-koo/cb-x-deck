@@ -6,13 +6,16 @@ import { isUuidLike } from './uuid.ts';
 
 // 게시물 연결이 거절되는 이유 — 라우트가 400 문구로 바꿔 보낸다.
 export class TrackingLinkError extends Error {
-  constructor(public code: 'rt-task' | 'cancelled-task' | 'other-task') { super(code); this.name = 'TrackingLinkError'; }
+  constructor(public code: 'rt-task' | 'cancelled-task' | 'other-task' | 'no-cost-task') { super(code); this.name = 'TrackingLinkError'; }
 }
 export const TRACKING_LINK_OTHER_MESSAGE = '기타 협찬 작업에는 X 게시물을 연결할 수 없어요 — 작업 패널에서 완료 확인해 주세요';
 export const TRACKING_LINK_RT_MESSAGE = 'RT 작업에는 게시물을 연결할 수 없어요 — RT는 새 게시물을 만들지 않아요. 증빙 스크린샷으로 게시 확인해 주세요';
 export const TRACKING_LINK_CANCELLED_MESSAGE = '취소된 작업에는 게시물을 연결할 수 없어요 — 되돌린 뒤 연결해 주세요';
+// 게시 확인 때 비용 받기(koo 11-23) — 게시물을 연결하면 작업이 게시 확인된다. 비용이 빈 작업은 작업 패널에서 비용과 함께 확인하게 돌려보낸다
+export const TRACKING_LINK_NO_COST_MESSAGE = "작업 비용이 비어 있어요 — 캠페인의 작업 패널에서 금액을 넣거나 '비용 없음'을 고른 뒤 게시 확인해 주세요";
 export const trackingLinkMessage = (e: TrackingLinkError) =>
-  e.code === 'rt-task' ? TRACKING_LINK_RT_MESSAGE : e.code === 'other-task' ? TRACKING_LINK_OTHER_MESSAGE : TRACKING_LINK_CANCELLED_MESSAGE;
+  e.code === 'rt-task' ? TRACKING_LINK_RT_MESSAGE : e.code === 'other-task' ? TRACKING_LINK_OTHER_MESSAGE
+    : e.code === 'no-cost-task' ? TRACKING_LINK_NO_COST_MESSAGE : TRACKING_LINK_CANCELLED_MESSAGE;
 
 export interface TrackedPostRow {
   id: string; tweetId: string; authorHandle: string | null; text: string;
@@ -244,6 +247,9 @@ export async function recordMissing(sql: postgres.Sql, trackedPostId: string): P
     where id = ${trackedPostId}`;
 }
 
+// 게시 확인 전 + 금액 없음 + '비용 없음' 아님 — costAtPost.needsCostAtPost의 SQL판(no_cost는 064 전 DB도 읽히게 jsonb로)
+const NEEDS_COST_SQL = (sql: postgres.Sql) => sql`(t.posted_at is null and t.cost is null and not coalesce((to_jsonb(t)->>'no_cost')::boolean, false))`;
+
 // 게시물 연결 — 작업·원고 어느 쪽으로 연결하든 두 칸을 함께 맞춘다(캠페인 작업 스펙 §2-4 양방향 규칙).
 // 작업 쪽 보충(post_url·posted_at)은 비어 있을 때만 — 게시 확인은 되돌리지 않는다(§3-4). 트랜잭션은 호출자 몫(라우트가 sql.begin).
 export async function linkTrackedPost(
@@ -263,7 +269,8 @@ export async function linkTrackedPost(
       // 행 잠금에 막혀 대기하다 커밋 후 재개돼 check(campaign_task_cancel_xor_posted) 위반(23514)으로
       // 터지는 경합이 생긴다. for update로 이 select 자체가 cancelTask 커밋까지 기다리게 하면 그 뒤엔
       // 항상 최신 cancelled_at을 보고 여기서 깨끗하게 거절한다.
-      const t = await sql<Array<{ draft_id: string | null; type: string; cancelled_at: string | null }>>`select draft_id, type, cancelled_at from campaign_task where id = ${taskId} for update`;
+      const t = await sql<Array<{ draft_id: string | null; type: string; cancelled_at: string | null; needs_cost: boolean }>>`
+        select draft_id, type, cancelled_at, ${NEEDS_COST_SQL(sql)} as needs_cost from campaign_task t where id = ${taskId} for update`;
       if (t.length === 0) throw Object.assign(new Error('task not found'), { code: '23503' });   // FK 위반과 같은 처리(라우트 400)
       // RT엔 자기 게시물이 없다 — 붙이면 posted_at이 증빙 없이 채워진다(RT 증빙 스펙 §5)
       if (t[0].type === 'rt') throw new TrackingLinkError('rt-task');
@@ -272,13 +279,16 @@ export async function linkTrackedPost(
       // 취소 작업엔 연결 자체를 거절한다(ADR 0002) — 보충만 건너뛰면 tracked_post.task_id가 취소 작업에 남는 반쪽 연결이 생기고
       // check 제약도 잡지 못한다. 연결 update보다 먼저 던져 라우트 트랜잭션이 통째로 롤백된다.
       if (t[0].cancelled_at) throw new TrackingLinkError('cancelled-task');
+      // 아직 게시 확인 전이고 금액도 '비용 없음'도 없는 작업 — 여기서 연결하면 비용 없이 게시 확인된다(costAtPost와 같은 판정)
+      if (t[0].needs_cost) throw new TrackingLinkError('no-cost-task');
       draftId = t[0].draft_id;
     }
   } else {
     draftId = link.draftId;
     if (draftId) {
       // for update — 위 taskId 분기와 같은 이유(I2)로 직렬화한다.
-      const t = await sql<Array<{ id: string; type: string; cancelled_at: string | null }>>`select id, type, cancelled_at from campaign_task where draft_id = ${draftId} for update`;
+      const t = await sql<Array<{ id: string; type: string; cancelled_at: string | null; needs_cost: boolean }>>`
+        select id, type, cancelled_at, ${NEEDS_COST_SQL(sql)} as needs_cost from campaign_task t where draft_id = ${draftId} for update`;
       taskId = t[0]?.id ?? null;
       // RT 작업에 원고가 붙어 있는 건 정상 화면으로는 못 만드는 이상 상태다(TaskAddModal이 RT엔 원고 칸을 안 주고
       // TaskTable도 붙이기 버튼을 안 준다) — 그래도 API로는 만들어질 수 있어 여기서도 지켜야 한다(리뷰 지적).
@@ -289,6 +299,8 @@ export async function linkTrackedPost(
       // 자동으로 떼는데, SQL로 직접 draft_id를 되돌려 붙인 경우 등)를 통해서도 이 draftId 분기로
       // 취소 작업에 도달할 수 있다.
       if (t[0]?.cancelled_at) throw new TrackingLinkError('cancelled-task');
+      // 작업 쪽 보충이 일어날 때만(RT·기타 협찬은 보충하지 않는다) — 비용이 빈 작업을 비용 없이 게시 확인하지 않는다(taskId 분기와 같다)
+      if (!skipTaskSupplement && t[0]?.needs_cost) throw new TrackingLinkError('no-cost-task');
     }
   }
   await sql`update tracked_post set task_id = ${taskId}, draft_id = ${draftId} where id = ${trackedPostId}`;

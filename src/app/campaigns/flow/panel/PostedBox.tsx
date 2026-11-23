@@ -308,6 +308,9 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, costO
         </Button>
       </div>
       {shownErr && <p role="alert" className="mt-1.5 text-ui text-red-600">{shownErr}</p>}
+      {/* 비용이 빈 작업 — 링크 줄 바로 아래에서 받는다(시안 A ①). [게시 확인] 버튼과 붙어 있어야 미리 채운 프로필 단가를
+          보지 않고 누르는 일이 없다(로컬 QA 11-23: 게시물 카드 아래에 두면 버튼에서 한 화면 떨어진다). 비용이 있으면 아무것도 없다 */}
+      {costAt.node}
       {link?.ok && (
         <>
           <p className="mt-2 text-content">
@@ -318,8 +321,6 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, costO
           {authorMismatch && <p role="alert" className="mt-1.5 text-ui text-red-600">{authorMismatch.error}</p>}
         </>
       )}
-      {/* 비용이 빈 작업 — 링크 아래 같은 자리에서 받는다(시안 A ①). 비용이 있으면 아무것도 없다 */}
-      {costAt.node}
       {/* 링크 없이 게시 확인(ISSUE-009) — 링크를 받을 수 없는 드문 경우라 회색 작은 버튼으로 한 줄만 */}
       <div className="mt-2.5 flex items-center gap-2">
         <span className="text-[14px] text-x-secondary">글이 이미 지워져 링크가 없다면</span>

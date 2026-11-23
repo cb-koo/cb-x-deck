@@ -23,7 +23,7 @@ after(async () => {
 async function setup() {
   const c = await createClient(sql, P + 'cl');
   const camp = await createCampaign(sql, { clientId: c.id, clientName: c.name, name: P + 'c', nameEn: `${P}-c`, startsOn: '2026-10-01', endsOn: '2026-10-31', kind: null, note: '', createdBy: null });
-  const mk = async (handle: string) => (await createTasks(sql, camp.id, { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, type: 'post', items: [{ handle, cost: null }] }))[0];
+  const mk = async (handle: string) => (await createTasks(sql, camp.id, { targetTaskId: null, targetTweetUrl: null, draftId: null, scheduledOn: null, visitOn: null, note: '', createdBy: null, type: 'post', items: [{ handle, cost: { amount: 1000, currency: 'JPY' } }] }))[0];   // 금액 필수 — 비용이 빈 작업은 게시물 연결이 거절된다(costAtPost)
   return { mk };
 }
 const ids = (rows: Array<{ tweetId: string }>) => rows.map((r) => r.tweetId).filter((t) => t.startsWith(P)).sort();

@@ -35,7 +35,7 @@ const COLS: ColDef[] = [
   { key: 'influencer', label: FLOW_SORT_LABEL.influencer, sort: 'influencer', resizable: true, width: 200 },
   { key: 'draft', label: FLOW_SORT_LABEL.draft, sort: 'draft', resizable: true, width: 260 },
   { key: 'date', label: FLOW_SORT_LABEL.date, sort: 'date', resizable: true, width: 170 },
-  { key: 'cost', label: FLOW_SORT_LABEL.cost, sort: 'cost', numeric: true, resizable: true, width: 120 },
+  { key: 'cost', label: FLOW_SORT_LABEL.cost, sort: 'cost', numeric: true, resizable: true, width: 168 },
   { key: 'views', label: '조회(CPV)', numeric: true, resizable: true, width: 120 },
   { key: 'likes', label: '좋아요(좋아요율)', numeric: true, resizable: true, width: 120 },
   { key: 'bookmarks', label: '북마크(북마크율)', numeric: true, resizable: true, width: 120 },

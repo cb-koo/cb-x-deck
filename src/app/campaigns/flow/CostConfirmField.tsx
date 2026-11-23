@@ -133,7 +133,7 @@ export function CostConfirmField({
     const now = latestRef.current;
     const nowAmount = parseAmount(now.amount);
     if (!reasonRequired && (nowAmount !== cost.amount || now.currency !== cost.currency)) {
-      if (nowAmount === null) { if (now.amount.trim() !== '') setErr(`${AMOUNT_MESSAGE} 저장되지 않았어요.`); return; }
+      if (nowAmount === null) { if (now.amount.trim() !== '') setErr(`${AMOUNT_MESSAGE}. 저장되지 않았어요.`); return; }
       // prev는 이 함수가 처음 본 저장값이 아니라 방금 저장한 값이 된다 — [되돌리기]는 한 단계만 되돌린다
       void confirmAfter({ amount: nowAmount, currency: now.currency }, cost);
       return;
@@ -166,7 +166,7 @@ export function CostConfirmField({
     const now = latestRef.current;
     const nowAmount = parseAmount(now.amount);
     if (nowAmount !== null && (nowAmount !== cost.amount || now.currency !== cost.currency)) { void confirmAfter({ amount: nowAmount, currency: now.currency }, cost); return; }
-    if (nowAmount === null && now.amount.trim() !== '') { setErr(`${AMOUNT_MESSAGE} 저장되지 않았어요.`); return; }
+    if (nowAmount === null && now.amount.trim() !== '') { setErr(`${AMOUNT_MESSAGE}. 저장되지 않았어요.`); return; }
     setTouched(false);
   }
 
@@ -179,7 +179,7 @@ export function CostConfirmField({
       setTouched(false);
       return;
     }
-    if (entered === null) { setErr(`${AMOUNT_MESSAGE} 저장되지 않았어요.`); return; }
+    if (entered === null) { setErr(`${AMOUNT_MESSAGE}. 저장되지 않았어요.`); return; }
     void confirm();
   }
   async function undoSave() {

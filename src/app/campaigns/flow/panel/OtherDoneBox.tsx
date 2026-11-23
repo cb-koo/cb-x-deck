@@ -46,7 +46,7 @@ export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, co
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   // 비용이 빈 작업 — 완료 확인과 함께 금액 또는 '비용 없음'을 받는다(게시 칸과 같은 상자, koo 11-23)
-  const costAt = useCostAtPost(task, costOption, busy);
+  const costAt = useCostAtPost(task, costOption, busy, '완료 확인');
 
   useEffect(() => {
     if (!focus) return;

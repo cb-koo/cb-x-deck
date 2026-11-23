@@ -11,7 +11,9 @@ import { needsCostAtPost, costAtPostExtra, COST_AT_POST_MESSAGE, ZERO_COST_HINT,
 // 비용이 이미 있거나 '비용 없음'인 작업(같은 방문의 연결 작업 포함)에는 아무것도 그리지 않는다.
 export type { CostAtPostExtra };
 
-export function useCostAtPost(task: { cost: TaskCost | null; noCost?: boolean; type: TaskType }, option: InfluencerOption | undefined, disabled = false): {
+export function useCostAtPost(task: { cost: TaskCost | null; noCost?: boolean; type: TaskType }, option: InfluencerOption | undefined, disabled = false,
+  action = '게시 확인',   // 이 상자와 함께 누르는 버튼의 이름 — 기타 협찬은 '완료 확인'(문구가 버튼과 어긋나지 않게)
+): {
   node: ReactNode;                    // 상자(필요 없으면 null)
   extra: CostAtPostExtra | null;      // 요청에 실을 값. null = 아직 못 정함(버튼을 막는다)
   blockReason: string;                // 버튼 title·안내 — 막혀 있을 때만
@@ -34,9 +36,9 @@ export function useCostAtPost(task: { cost: TaskCost | null; noCost?: boolean; t
 
   const help = noCost ? "돈이 나가지 않는 작업으로 저장돼요. 정산 요청에서 빠져요."
     : invalid ? AMOUNT_MESSAGE
-    : amount.trim() === '' ? "금액을 넣거나 '비용 없음'을 골라야 게시 확인을 누를 수 있어요."
-    : profile && !touched ? '프로필 단가를 넣어 뒀어요. 맞는지 보고 고쳐 주세요. 게시 확인을 누르면 함께 저장돼요.'
-    : '게시 확인을 누르면 함께 저장돼요.';
+    : amount.trim() === '' ? `금액을 넣거나 '비용 없음'을 골라야 ${action}을 누를 수 있어요.`
+    : profile && !touched ? `프로필 단가를 넣어 뒀어요. 맞는지 보고 고쳐 주세요. ${action}을 누르면 함께 저장돼요.`
+    : `${action}을 누르면 함께 저장돼요.`;
   const node = (
     <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 pb-3 pt-3" data-cost-at-post>
       <p className="mb-1.5 text-[14px] font-semibold text-amber-800">이 작업 비용이 아직 없어요</p>
@@ -60,5 +62,5 @@ export function useCostAtPost(task: { cost: TaskCost | null; noCost?: boolean; t
       </label>
     </div>
   );
-  return { node, extra, blockReason: extra === null ? COST_AT_POST_MESSAGE : '' };
+  return { node, extra, blockReason: extra === null ? (action === '게시 확인' ? COST_AT_POST_MESSAGE : `작업 비용을 넣거나 '비용 없음'을 골라야 ${action}할 수 있어요`) : '' };
 }

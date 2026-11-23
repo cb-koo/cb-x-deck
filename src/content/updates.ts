@@ -13,7 +13,7 @@ export type UpdateEntry = {
 
 export const UPDATES: UpdateEntry[] = [
   {
-    date: '2026-11-24', type: '개선',
+    date: '2026-11-23', type: '개선',
     title: '게시 확인할 때 작업 비용을 같이 넣어요',
     summary: "비용을 넣는 걸 잊은 채 게시 확인을 하면 정산 요청이 만들어지지 않아 입금이 늦어지곤 했어요. 이제 비용이 빈 작업은 게시 확인하는 자리에서 금액을 함께 받아요.",
     bullets: [

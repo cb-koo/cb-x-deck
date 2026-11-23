@@ -12,6 +12,7 @@ import type { TaskPatch } from '@/lib/campaignTaskStore';
 import { TARGETABLE_TYPES, hasXPost } from '@/lib/campaignJudgment';
 import { otherGateError } from '@/lib/otherTask';
 import { linklessGateError } from '@/lib/linklessPost';
+import { costAtPostGateError, noCostPaidGateError } from '@/lib/costAtPost';
 import { parseTaskPatch, proofGateError, visitOnlyGateError, influencerChangeGuard, TASK_NOT_FOUND_MESSAGE, TARGET_TYPE_MESSAGE, TARGET_SELF_MESSAGE, VISIT_ON_MESSAGE, REMOVED_WITHOUT_POSTED_MESSAGE, CANCELLED_TASK_MESSAGE, POST_CANCELLED_MESSAGE, postedAtFromLinkGate, costReasonGateError, postUrlTypeGateError, OTHER_NO_DRAFT_TARGET_MESSAGE } from '@/lib/campaignTaskInput';
 import { getDraft, updateDraft } from '@/lib/draftStore';
 import { syncInfluencerOnDraftUpdate } from '@/lib/influencerSync';
@@ -52,6 +53,16 @@ async function PATCHInternal(req: Request, ctx: { params: Promise<{ id: string; 
   // 같은 방문의 연결 작업(089) — 비용 없음·금액·방문일·인플·동의서는 고정(원래 작업 쪽에서 바꾼다)
   const sameVisitError = sameVisitPatchError(cur, patch);
   if (sameVisitError) return NextResponse.json({ error: sameVisitError }, { status: 400 });
+  // 게시 확인 때 비용 받기(koo 11-23) — 금액도 '비용 없음'도 없이는 게시 확인되지 않는다. 패치 후 상태로 본다(같은 요청에 함께 온다).
+  // 수집기의 자동 게시 확인(checkPostedRun → markPosted)은 이 라우트를 거치지 않아 막지 않는다 — 사람이 누르는 확인만 받는다.
+  const costAtPostError = costAtPostGateError(cur, patch);
+  if (costAtPostError) return NextResponse.json({ error: costAtPostError, code: 'COST_REQUIRED' }, { status: 400 });
+  // '비용 없음'으로 바꾸면 금액이 지워진다(updateTask) — 지급이 끝난 작업은 막고, 그 밖엔 금액 변경과 같은 이력을 남기게 cost:null로 맞춘다
+  if (patch.noCost === true) {
+    const paidError = noCostPaidGateError(patch, await hasPaidRequest(sql, taskId));
+    if (paidError) return NextResponse.json({ error: paidError }, { status: 400 });
+    patch.cost = null;
+  }
   // 원래 작업의 인플을 바꾸면 연결 작업과 사람이 갈린다 — 연결 작업이 있으면 막는다(대소문자만 다른 같은 사람은 통과)
   if (patch.influencerHandle !== undefined && (patch.influencerHandle ?? '').toLowerCase() !== (cur.influencerHandle ?? '').toLowerCase()
       && (await sameVisitLinkedIds(sql, taskId)).length) {

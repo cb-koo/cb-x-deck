@@ -157,11 +157,17 @@ export function draftCell(t: FlowRow): { text: string; muted: boolean; title: st
   if (t.draftId) { const text = t.draftFirstLine ?? t.draftLabel ?? '(내용 없음)'; return { text, muted: false, title: text }; }
   return { text: '미정', muted: true, title: '' };
 }
-export function costCell(t: FlowRow, suggestion: TaskCost | null): { text: string; tone: 'plain' | 'muted' | 'struck' | 'suggested'; title?: string } {
+// tone unconfirmed·missing(koo 11-23 시안 A ③) — 저장 안 된 값이 저장된 것처럼 보이지 않게 주황 딱지(chip)로 말한다.
+//  · unconfirmed '확인 전': 인플은 정해졌고 프로필 단가가 보일 뿐, 이 작업 비용으로 저장되지 않았다
+//  · missing '비용 미입력': 인플은 정해졌는데 프로필 단가도 없다
+// 인플 미정·취소된 작업은 지금처럼 회색 '미정'.
+export type CostCellTone = 'plain' | 'muted' | 'struck' | 'unconfirmed' | 'missing';
+export function costCell(t: FlowRow, suggestion: TaskCost | null): { text: string; tone: CostCellTone; chip?: string; title?: string } {
   if (t.noCost) return { text: '비용 없음', tone: t.cancelledAt ? 'struck' : 'plain' };
   if (t.cost) return { text: formatAmount(t.cost.amount, t.cost.currency), tone: t.cancelledAt ? 'struck' : 'plain' };
-  if (!t.cancelledAt && suggestion) return { text: formatAmount(suggestion.amount, suggestion.currency), tone: 'suggested', title: '아직 확인 전 — 프로필 단가로 채운 값이에요' };
-  return { text: '미정', tone: 'muted' };
+  if (t.cancelledAt || !t.influencerHandle) return { text: '미정', tone: 'muted' };
+  if (suggestion) return { text: formatAmount(suggestion.amount, suggestion.currency), tone: 'unconfirmed', chip: '확인 전', title: '프로필 단가예요. 아직 이 작업 비용으로 저장되지 않았어요' };
+  return { text: '', tone: 'missing', chip: '비용 미입력', title: '금액이 아직 없어요. 눌러서 넣어 주세요' };
 }
 
 // 비용 [확인](R24·§4-3) — 확정은 '저장'이다(확정 전 값은 저장하지 않는다). 프로필 반영 질문은 differs·no-profile 때만.

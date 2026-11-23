@@ -1,7 +1,7 @@
 'use client';
 import { useRef, useState, type ReactNode } from 'react';
 import {
-  nextSort, dateCell, draftCell, costCell, taskPerfExtra, FLOW_SORT_LABEL, flowStageLabel,
+  nextSort, dateCell, draftCell, costCell, type CostCellTone, taskPerfExtra, FLOW_SORT_LABEL, flowStageLabel,
   type FlowRow, type FlowSort, type FlowSortKey,
 } from '@/lib/campaignFlowView';
 import { flowStage, TASK_TYPE_LABEL } from '@/lib/campaignJudgment';
@@ -61,7 +61,9 @@ function resolveWidth(map: Record<string, number>, key: string): number {
 
 // 날짜·비용 칸의 색 — 색만으로 구분한다(행 배경·막대·'오늘' 강조는 두지 않는다)
 const DATE_TONE: Record<'late' | 'posted' | 'plain' | 'muted' | 'unseen', string> = { late: 'text-red-600', posted: 'text-x-blue-text', plain: '', muted: 'text-x-muted', unseen: 'text-amber-700' };
-const COST_TONE: Record<'plain' | 'muted' | 'struck' | 'suggested', string> = { plain: 'tabular-nums', muted: 'text-x-muted', struck: 'text-x-muted line-through', suggested: 'text-x-muted' };
+// unconfirmed·missing — 저장 안 된 값은 주황 금액 + 딱지(koo 11-23 시안 A ③, costCell)
+const COST_TONE: Record<CostCellTone, string> = { plain: 'tabular-nums', muted: 'text-x-muted', struck: 'text-x-muted line-through', unconfirmed: 'tabular-nums text-amber-700', missing: '' };
+const COST_CHIP = 'inline-block rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-ui font-semibold text-amber-700';
 
 export function FlowTable({ rows, total, today, influencerOptions, sort, onSortChange, footer, selectedId, onRowClick, renderMenu, sameVisit }: {
   rows: FlowRow[];
@@ -218,7 +220,9 @@ export function FlowTable({ rows, total, today, influencerOptions, sort, onSortC
                 </td>
                 <td className="px-3 truncate" title={d.title}><span className={d.muted ? 'text-x-muted' : ''}>{d.text}</span></td>
                 <td className={`px-3 ${DATE_TONE[dc.tone]}`}>{dc.text}</td>
-                <td className={`px-3 text-right ${COST_TONE[cc.tone]}`} title={cc.title}>{cc.text}</td>
+                <td className={`px-3 text-right ${COST_TONE[cc.tone]}`} title={cc.title}>
+                  {cc.text}{cc.chip && <span className={`${COST_CHIP} ${cc.text ? 'ml-1.5' : ''}`}>{cc.chip}</span>}
+                </td>
                 <td className="px-3 text-right tabular-nums">
                   {num(t.perf?.views ?? null)}{pe.cpvKrw !== null && (
                     <span className="text-x-muted" title={sv?.share ? shareNote(sv.share) : undefined}>({pe.cpvKrw.toFixed(1)}원)</span>

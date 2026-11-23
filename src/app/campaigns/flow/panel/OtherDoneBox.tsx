@@ -7,6 +7,8 @@ import { isHttpUrl, isOtherLinklessDone, DONE_DATE_FUTURE_MESSAGE, LINK_MESSAGE,
 import { TaskProofField } from '@/components/TaskProofField';
 import { Button } from '@/components/ui';
 import { OtherKindDraftContext } from './OtherKindField';
+import type { InfluencerOption } from '@/lib/draftTypes';
+import { useCostAtPost, type CostAtPostExtra } from './CostAtPostBox';
 
 // 기타 협찬(088, koo 11-06)의 '완료' 칸 — 게시 칸(PostedBox)의 기타 협찬판. X 게시물이 아니라서
 //  · 순서: 완료한 날 → 확인 링크(선택, 아무 http(s) 주소) → 스크린샷 붙여넣기(선택, RT 증빙과 같은 칸) → [완료 확인]
@@ -22,13 +24,14 @@ const subTitle = 'mb-1.5 text-[14px] font-semibold text-x-secondary';
 
 export type OtherDone = { url?: string; proof?: string; note?: string };
 
-export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, onDone, onSetProof, onCancel }: {
+export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, costOption, onDone, onSetProof, onCancel }: {
   task: FlowRow;
   today: string;
   proofSignedUrl: string | null;
   focus: boolean;
   onFocused: () => void;
-  onDone: (date: string, done: OtherDone, otherKind?: string) => Promise<boolean>;
+  costOption: InfluencerOption | undefined;   // 기타 협찬은 프로필 단가가 없어 늘 빈 칸으로 시작한다 — 같은 상자를 쓰려고 받는다
+  onDone: (date: string, done: OtherDone, otherKind?: string, costExtra?: CostAtPostExtra) => Promise<boolean>;
   onSetProof: (path: string | null) => Promise<boolean>;   // 완료된 작업의 스크린샷 바꾸기·떼기(actions.setProof)
   onCancel: () => void;
 }) {
@@ -42,6 +45,8 @@ export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, on
   const [busy, setBusy] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // 비용이 빈 작업 — 완료 확인과 함께 금액 또는 '비용 없음'을 받는다(게시 칸과 같은 상자, koo 11-23)
+  const costAt = useCostAtPost(task, costOption, busy);
 
   useEffect(() => {
     if (!focus) return;
@@ -117,10 +122,10 @@ export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, on
     }
     setBusy(true);
     // 칸에 적혔지만 아직 저장 전인 '무엇을 했는지'도 함께 보낸다(서버가 같은 요청 안에서 판정한다)
-    try { await onDone(date, done, kindDraft !== null && kind !== task.otherKind ? kind : undefined); }
+    try { await onDone(date, done, kindDraft !== null && kind !== task.otherKind ? kind : undefined, costAt.extra ?? undefined); }
     finally { setBusy(false); }
   }
-  const canSubmit = !busy && !blockReason && hasEvidence;
+  const canSubmit = !busy && !blockReason && hasEvidence && costAt.extra !== null;
 
   return (
     <div ref={rootRef}>
@@ -168,11 +173,12 @@ export function OtherDoneBox({ task, today, proofSignedUrl, focus, onFocused, on
           </>
         )}
       </div>
+      {costAt.node}
       {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
       <div className="mt-2.5 flex items-center justify-end gap-2">
         {blockReason && <span className="text-ui text-amber-700">{blockReason}</span>}
         {!blockReason && !hasEvidence && <span className="text-ui text-x-muted">{noEvidence ? '확인 메모를 적으면 눌러져요' : '확인 자료를 넣으면 눌러져요'}</span>}
-        <Button variant="primary" disabled={!canSubmit} onClick={() => void submit()} title={blockReason || undefined} className="h-9 px-3.5 text-ui">
+        <Button variant="primary" disabled={!canSubmit} onClick={() => void submit()} title={blockReason || costAt.blockReason || undefined} className="h-9 px-3.5 text-ui">
           {busy ? '저장 중…' : '완료 확인'}
         </Button>
       </div>

@@ -14,6 +14,8 @@ import { useTweetPreview } from './useTweetPreview';
 import { PostThread, UNSEEN_BADGE } from './PostThread';
 import { unseenLabel, REMOVED_REASON_CHIPS } from '@/lib/campaignFlowView';
 import { isLinklessPosted } from '@/lib/linklessPost';
+import type { InfluencerOption } from '@/lib/draftTypes';
+import { useCostAtPost, type CostAtPostExtra } from './CostAtPostBox';
 
 // 작업 패널의 '게시' 칸(koo 09-26 posted-inline) — 팝업(PostedDialog) 없이 칸 안에서 게시 확인까지 끝낸다.
 //  · 투고·인용RT·방문협찬: 게시일을 적지 않는다. 게시물 링크를 붙이면 트윗 id에서 한국 날짜가 나오고
@@ -33,14 +35,16 @@ const subTitle = 'mb-1.5 text-[14px] font-semibold text-x-secondary';
 // 내림 줄 버튼 — [✕ 진행 안 됨]과 같은 크기의 테두리 버튼(위험한 동작이 아니라 회색)
 const removedBtn = 'inline-flex h-9 shrink-0 items-center whitespace-nowrap rounded-full border border-x-border-strong bg-white px-3.5 text-[14px] font-semibold text-x-text hover:bg-x-hover';
 
-export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMarkPosted, onMarkPostedLinkless, onSetProof, onOpenRemoved, onUnmarkRemoved, onCancel, hideCancel = false }: {
+export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, costOption, onMarkPosted, onMarkPostedLinkless, onSetProof, onOpenRemoved, onUnmarkRemoved, onCancel, hideCancel = false }: {
   task: FlowRow;
   today: string;
   proofSignedUrl: string | null;
   focus: boolean;
   onFocused: () => void;
-  onMarkPosted: (date: string, postUrl?: string, proof?: string) => Promise<boolean>;
-  onMarkPostedLinkless: (date: string, reason: string) => Promise<boolean>;
+  costOption: InfluencerOption | undefined;   // 배정된 인플의 명부 값 — 비용이 빈 작업이면 프로필 단가를 미리 채운다(CostAtPostBox)
+  // costExtra — 비용이 빈 작업이면 금액 또는 '비용 없음'이 게시 확인과 같은 요청으로 간다(koo 11-23)
+  onMarkPosted: (date: string, postUrl?: string, proof?: string, costExtra?: CostAtPostExtra) => Promise<boolean>;
+  onMarkPostedLinkless: (date: string, reason: string, costExtra?: CostAtPostExtra) => Promise<boolean>;
   onSetProof: (path: string | null) => Promise<boolean>;   // 게시된 RT의 증빙 바꾸기(actions.setProof) — 저장 결과를 돌려준다
   onOpenRemoved: () => void;
   onUnmarkRemoved: () => void;
@@ -60,6 +64,8 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
   const [linklessReason, setLinklessReason] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // 비용이 빈 작업 — 세 경로(링크·RT·링크 없이)가 같은 상자·같은 값을 쓴다. 금액도 '비용 없음'도 없으면 버튼을 막는다
+  const costAt = useCostAtPost(task, costOption, busy);
 
   // 확정된 링크의 판정 — 게시일 줄·오류·미리보기가 이 값을 본다. [게시 확인]은 같은 판정(judgeLink)을 지금 칸의 글자에 쓴다(아래).
   const link = committed ? judgeLink(committed) : null;
@@ -81,7 +87,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
   async function submit(postedOn: string, postUrl?: string, proof?: string) {
     setBusy(true);
     // 실패하면 훅이 서버 문구를 토스트로 띄우고 낙관값을 되돌린다 — 입력은 그대로 남아 다시 누를 수 있다
-    try { await onMarkPosted(postedOn, postUrl, proof); } finally { setBusy(false); }
+    try { await onMarkPosted(postedOn, postUrl, proof, costAt.extra ?? undefined); } finally { setBusy(false); }
   }
 
   // ── 게시 뒤 ──
@@ -190,7 +196,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
 
   // ── RT — 날짜 + 증빙(필수) ──
   if (isRt) {
-    const canSubmit = !!pendingProof && !busy;
+    const canSubmit = !!pendingProof && !busy && costAt.extra !== null;
     const onRtSubmit = () => {
       if (!isDateOnlyString(date)) { setErr(DATE_MESSAGE); return; }
       void submit(date, undefined, pendingProof ?? undefined);
@@ -204,10 +210,11 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
                         postedAt={null} influencerHandle={task.influencerHandle}
                         required canRemove disabled={busy}
                         onChange={(p) => { setPendingProof(p); setErr(''); }} />
+        {costAt.node}
         {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
         <div className="mt-2.5 flex justify-end">
           <Button variant="primary" disabled={!canSubmit} onClick={onRtSubmit}
-                  title={!pendingProof ? PROOF_REQUIRED_MESSAGE : undefined} className="h-9 px-3.5 text-ui">
+                  title={!pendingProof ? PROOF_REQUIRED_MESSAGE : costAt.blockReason || undefined} className="h-9 px-3.5 text-ui">
             {busy ? '저장 중…' : '게시 확인'}
           </Button>
         </div>
@@ -220,12 +227,12 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
 
   // ── 링크 없이 게시 확인(ISSUE-009) — 같은 칸 안에서 펼친다(창 없음). 이유 칩은 내림 표시 창과 같다(REMOVED_REASON_CHIPS) ──
   if (linklessOpen) {
-    const canSave = !!linklessReason.trim() && !busy;
+    const canSave = !!linklessReason.trim() && !busy && costAt.extra !== null;
     const onLinklessSubmit = async () => {
       if (!isDateOnlyString(linklessDate)) { setErr(DATE_MESSAGE); return; }
       if (linklessDate > today) { setErr('게시된 날은 오늘보다 뒤일 수 없어요'); return; }
       setBusy(true);
-      try { if (await onMarkPostedLinkless(linklessDate, linklessReason.trim())) setLinklessOpen(false); } finally { setBusy(false); }
+      try { if (await onMarkPostedLinkless(linklessDate, linklessReason.trim(), costAt.extra ?? undefined)) setLinklessOpen(false); } finally { setBusy(false); }
     };
     return (
       <div ref={rootRef}>
@@ -248,11 +255,12 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
         <input value={linklessReason} onChange={(e) => setLinklessReason(e.target.value)} placeholder="예: 문제가 생겨 인플이 삭제"
                aria-labelledby="linkless-reason-label" className={`${input} mt-1.5 border-x-border-strong`} />
         <p className="mt-2 text-ui text-x-secondary">정산 요청 때 이 이유가 게시물 링크 대신 정산팀에 전달돼요.</p>
+        {costAt.node}
         {err && <p role="alert" className="mt-1 text-ui text-red-600">{err}</p>}
         <div className="mt-2.5 flex justify-end gap-2">
           <Button type="button" onClick={() => { setLinklessOpen(false); setErr(''); }} className="h-9 px-3.5 text-ui">취소</Button>
           <Button variant="primary" disabled={!canSave} onClick={() => void onLinklessSubmit()}
-                  title={!linklessReason.trim() ? '지워진 이유를 적어 주세요' : undefined} className="h-9 px-3.5 text-ui">
+                  title={!linklessReason.trim() ? '지워진 이유를 적어 주세요' : costAt.blockReason || undefined} className="h-9 px-3.5 text-ui">
             {busy ? '저장 중…' : '게시 확인'}
           </Button>
         </div>
@@ -277,7 +285,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
       })
     : null;
   const authorMismatch = authorVerdict?.kind === 'mismatch' ? authorVerdictMessage(authorVerdict) : null;
-  const canSubmit = !!typed?.ok && !isRepost && !authorMismatch && !busy;
+  const canSubmit = !!typed?.ok && !isRepost && !authorMismatch && !busy && costAt.extra !== null;
   const shownErr = link && !link.ok ? link.message : '';
   return (
     <div ref={rootRef}>
@@ -293,7 +301,7 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
                onBlur={(e) => commit(e.target.value)}
                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); commit(text); } }}
                className={`${input} min-w-0 flex-1 ${shownErr ? 'border-red-500' : 'border-x-border-strong'}`} />
-        <Button variant="primary" disabled={!canSubmit} title={authorMismatch ? authorMismatch.error : undefined}
+        <Button variant="primary" disabled={!canSubmit} title={authorMismatch ? authorMismatch.error : (typed?.ok ? costAt.blockReason : '') || undefined}
                 onClick={() => { if (typed?.ok) { commit(text); void submit(typed.postedOn, typed.url); } }}
                 className="h-10 shrink-0 px-4 text-ui">
           {busy ? '저장 중…' : '게시 확인'}
@@ -310,6 +318,8 @@ export function PostedBox({ task, today, proofSignedUrl, focus, onFocused, onMar
           {authorMismatch && <p role="alert" className="mt-1.5 text-ui text-red-600">{authorMismatch.error}</p>}
         </>
       )}
+      {/* 비용이 빈 작업 — 링크 아래 같은 자리에서 받는다(시안 A ①). 비용이 있으면 아무것도 없다 */}
+      {costAt.node}
       {/* 링크 없이 게시 확인(ISSUE-009) — 링크를 받을 수 없는 드문 경우라 회색 작은 버튼으로 한 줄만 */}
       <div className="mt-2.5 flex items-center gap-2">
         <span className="text-[14px] text-x-secondary">글이 이미 지워져 링크가 없다면</span>

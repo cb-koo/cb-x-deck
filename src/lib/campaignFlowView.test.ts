@@ -106,8 +106,13 @@ test('6) 원고 칸 — 첫 줄, RT는 —, 없으면 미정, 취소는 사유·
 
 test('7) 비용 칸 — 값·제안(회색)·미정·취소 취소선', () => {
   assert.deepEqual(costCell(mk({ cost: { amount: 80000, currency: 'KRW' } }), null), { text: '80,000원', tone: 'plain' });
-  assert.deepEqual(costCell(mk({}), { amount: 30000, currency: 'KRW' }), { text: '30,000원', tone: 'suggested', title: '아직 확인 전 — 프로필 단가로 채운 값이에요' });
-  assert.deepEqual(costCell(mk({}), null), { text: '미정', tone: 'muted' });
+  // 저장 안 된 값은 주황 딱지로(koo 11-23) — 프로필 단가가 보이면 '확인 전', 단가도 없으면 '비용 미입력'. 인플 미정은 회색 '미정'
+  assert.deepEqual(costCell(mk({ influencerHandle: 'a' }), { amount: 30000, currency: 'KRW' }), { text: '30,000원', tone: 'unconfirmed', chip: '확인 전', title: '프로필 단가예요. 아직 이 작업 비용으로 저장되지 않았어요' });
+  assert.deepEqual(costCell(mk({ influencerHandle: 'a' }), null), { text: '', tone: 'missing', chip: '비용 미입력', title: '금액이 아직 없어요. 눌러서 넣어 주세요' });
+  assert.deepEqual(costCell(mk({ influencerHandle: null }), { amount: 30000, currency: 'KRW' }), { text: '미정', tone: 'muted' });
+  assert.deepEqual(costCell(mk({ influencerHandle: null }), null), { text: '미정', tone: 'muted' });
+  assert.deepEqual(costCell(mk({ influencerHandle: 'a', cancelledAt: '2026-09-17' }), { amount: 30000, currency: 'KRW' }), { text: '미정', tone: 'muted' });
+  assert.deepEqual(costCell(mk({ influencerHandle: 'a', noCost: true }), { amount: 30000, currency: 'KRW' }), { text: '비용 없음', tone: 'plain' });
   assert.deepEqual(costCell(mk({ cancelledAt: '2026-09-17', cost: { amount: 1000, currency: 'JPY' } }), null), { text: '1,000엔', tone: 'struck' });
 });
 

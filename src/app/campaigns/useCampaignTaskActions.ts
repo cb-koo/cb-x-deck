@@ -6,6 +6,7 @@ import { suggestTaskCost, type TaskCost } from '@/lib/campaignCost';
 import { patchTaskApi, deleteTaskApi, type TaskPatchRequest } from '@/lib/campaignApi';
 import type { ReservationDeleteSummary } from '@/lib/taskDeletionStore';
 import type { TaskAgreementInput } from '@/lib/taskAgreementGuard';
+import type { CostAtPostExtra } from '@/lib/costAtPost';
 
 // 작업 편집은 전부 PATCH /api/campaigns/[id]/tasks/[taskId] 하나로 간다(스펙 §6). 낙관적 갱신 + "이 요청이 세팅한 값이
 // 아직 표시 중일 때만" 롤백/덮어쓰기 — 응답은 보낸 순서대로 오지 않는다.
@@ -93,9 +94,9 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
     // 기타 협찬의 완료 확인 — 완료한 날 + (링크 또는 확인 메모). 날짜는 사람이 고른 그대로(X 게시물이 아니다).
     // 무엇을 했는지가 칸에 적혔지만 아직 저장 전일 수 있어 함께 보낸다. X 조회·트래킹이 없어 상세를 다시 읽지 않는다.
     // 확인 자료 = 링크·스크린샷(둘 다 가능)·메모(둘 다 없을 때) — 서버가 하나 이상인지 본다(otherGateError).
-    markDoneOther: async (t: Item, date: string, done: { url?: string; proof?: string; note?: string }, otherKind?: string) => {
+    markDoneOther: async (t: Item, date: string, done: { url?: string; proof?: string; note?: string }, otherKind?: string, costExtra: CostAtPostExtra = {}) => {
       const common = { postedAt: date, ...(done.url ? { postUrl: done.url } : {}),
-                       ...(done.note ? { doneNote: done.note } : {}), ...(otherKind !== undefined ? { otherKind } : {}) };
+                       ...(done.note ? { doneNote: done.note } : {}), ...(otherKind !== undefined ? { otherKind } : {}), ...costExtra };
       const ok = await patch(t, { ...common, ...(done.proof ? { proof: done.proof } : {}) },
                              { ...common, postedSource: 'manual', published: true,
                                ...(done.proof ? { proof: { url: done.proof, by: null, byName: '', at: new Date().toISOString() } } : {}) });
@@ -107,9 +108,10 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
     // (다른 인플의 게시물 차단 스펙 §3 ①). 작성자가 다르거나 확인이 안 되면 아무것도 저장되지 않고 서버 문구가 토스트로 뜬다
     // (patch가 r.error를 보여 준다). 투고·인용RT·방문협찬의 게시일은 서버가 링크에서 정한다(postedAtFromLinkGate).
     // RT는 증빙(proof)이 함께 와야 서버가 받는다(RT 증빙 스펙 §5).
-    markPosted: async (t: Item, date: string, postUrl?: string, proof?: string) => {
-      const ok = await patch(t, { postedAt: date, ...(postUrl ? { postUrl } : {}), ...(proof ? { proof } : {}) },
-                             { postedAt: date, postedSource: 'manual', published: true, ...(postUrl ? { postUrl } : {}),
+    // costExtra — 비용이 빈 작업이면 게시 확인과 같은 요청에 금액 또는 '비용 없음'을 싣는다(costAtPost, koo 11-23). 서버가 한 트랜잭션으로 저장한다.
+    markPosted: async (t: Item, date: string, postUrl?: string, proof?: string, costExtra: CostAtPostExtra = {}) => {
+      const ok = await patch(t, { postedAt: date, ...(postUrl ? { postUrl } : {}), ...(proof ? { proof } : {}), ...costExtra },
+                             { postedAt: date, postedSource: 'manual', published: true, ...(postUrl ? { postUrl } : {}), ...costExtra,
                                ...(proof ? { proof: { url: proof, by: null, byName: '', at: new Date().toISOString() } } : {}) });
       if (!ok) return false;
       onChanged();
@@ -117,8 +119,8 @@ export function useCampaignTaskActions({ campaignId, setTasks, influencerOptions
     },
     // 링크 없이 게시 확인(ISSUE-009) — 게시물이 지워져 링크가 없을 때. 게시일 + 내림(오늘 = 확인한 날) + 지워진 이유를 한 요청으로 보낸다
     // (서버가 이유 없이는 받지 않는다 — linklessGateError). 트래킹할 게시물이 없어 상세를 다시 읽지 않는다.
-    markPostedLinkless: async (t: Item, date: string, removedOn: string, reason: string) => {
-      const body = { postedAt: date, removedAt: removedOn, removedReason: reason };
+    markPostedLinkless: async (t: Item, date: string, removedOn: string, reason: string, costExtra: CostAtPostExtra = {}) => {
+      const body = { postedAt: date, removedAt: removedOn, removedReason: reason, ...costExtra };
       const ok = await patch(t, body, { ...body, postedSource: 'manual', published: true });
       if (ok) onChanged();
       return ok;

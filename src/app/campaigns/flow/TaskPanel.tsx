@@ -5,7 +5,8 @@ import type { InfluencerOption } from '@/lib/draftTypes';
 import type { DraftRow } from '@/lib/draftStore';
 import { fetchTasksTargets, type TaskCreateRequest } from '@/lib/campaignApi';
 import { buildTaskCreateBody } from '@/lib/taskCreateBody';
-import { AMOUNT_MESSAGE, type TaskCost } from '@/lib/campaignCost';
+import { isPaidBadge } from '@/lib/settlementDisplay';
+import { AMOUNT_MESSAGE, suggestTaskCost, type TaskCost } from '@/lib/campaignCost';
 import {
   TASK_TYPE_LABEL, isOutOfRange, formatDateKo, formatDateTimeKo, flowStage, type TaskType,
 } from '@/lib/campaignJudgment';
@@ -664,7 +665,11 @@ export function TaskPanel({
         const status = t.cancelledAt ? '종료' : t.noCost ? '정산 제외' : stage === 'done' ? '지급 완료' : stage === 'settle' ? '정산 요청 중' : '지급 전';
         return {
           summary: <>
-            <span>{costCell(t, null).text} · {status}</span>
+            {/* 저장 안 된 비용은 접힌 상자에서도 주황 딱지로(koo 11-23) — 금액은 저장된 값만 보여 준다 */}
+            {(() => {
+              const cc = costCell(t, suggestTaskCost(optionForHandle(t.influencerHandle ?? '')?.pricing, t.type));
+              return cc.chip ? <><span>{status}</span><SectionBadge tone="amber">{cc.chip === '확인 전' ? '비용 확인 전' : cc.chip}</SectionBadge></> : <span>{cc.text} · {status}</span>;
+            })()}
             {!t.noCost && !sectionLocked && pay.view?.state === 'none' && <SectionBadge tone="amber">결제 수단 미등록</SectionBadge>}
           </>,
           actionLabel: sectionLocked ? '보기' : '관리',
@@ -767,11 +772,12 @@ export function TaskPanel({
         // 같은 방문의 연결 작업 — 비용 없음 고정(체크박스·금액 칸·결제 수단을 그리지 않는다, 바꿀 수 없는 값이라)
         if (t.sameVisitOf) return <SameVisitCostLine original={sameVisit.original} total={sameVisit.total} />;
         const cc = cancelled ? costCell(t, null) : null;
-        // 비용 없음(064, 방문협찬) — 금액 0·미정과 다른 명시 값. 게시 확인되면 완료, 정산 후보에서 빠진다. 정산 요청 중엔 못 바꾼다(서버도 막는다).
-        const noCostToggle = !cancelled && t.type === 'visit' && productFeatures?.reservations ? (
+        // 비용 없음(064) — 금액 0·미정과 다른 명시 값. 게시 확인되면 완료, 정산 후보에서 빠진다. 정산 요청 중엔 못 바꾼다(서버도 막는다).
+        // 전 유형에 연다(koo 11-23) — 묶음 가격(금액은 한 작업에만)·무상 협찬을 0원이나 빈 값 대신 이걸로 적는다. 서버는 원래 유형을 가리지 않는다.
+        const noCostToggle = !cancelled ? (
           <div className="mb-3">
             <label className="flex items-center gap-2 text-content">
-              <input type="checkbox" checked={!!t.noCost} disabled={noCostBusy || t.settlement?.status === 'requested'}
+              <input type="checkbox" checked={!!t.noCost} disabled={noCostBusy || t.settlement?.status === 'requested' || isPaidBadge(t.settlement)}
                      onChange={(e) => {
                        const checked = e.target.checked; setNoCostBusy(true); setNoCostError('');
                        void apiFetch(`/api/campaigns/${campaign.id}/tasks/${t.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ noCost: checked }) })
@@ -781,7 +787,7 @@ export function TaskPanel({
                      }} />
               비용 없음
             </label>
-            <p className="mt-0.5 text-ui text-x-muted">{t.settlement?.status === 'requested' ? '정산 요청 중이라 바꿀 수 없어요' : '체크하면 금액을 비우고, 게시 확인 시 완료돼 정산 요청에서 빠져요'}</p>
+            <p className="mt-0.5 text-ui text-x-muted">{isPaidBadge(t.settlement) ? '지급이 끝난 작업이라 바꿀 수 없어요' : t.settlement?.status === 'requested' ? '정산 요청 중이라 바꿀 수 없어요' : '돈이 나가지 않는 작업이에요. 체크하면 금액을 비우고 정산 요청에서 빠져요'}</p>
             {/* 같은 방문 게시물이 있는 원래 작업 — 이 금액이 그 게시물들 몫까지다. 막지 않고(무료 방문일 수 있다) 결과를 그 자리에서 말한다(koo QA 11-09) */}
             {sameVisitLive > 0 && t.settlement?.status !== 'requested' && (
               <p className="mt-1 text-ui text-amber-800">
